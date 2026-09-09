@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { scheduleOnRN } from "react-native-worklets";
@@ -18,14 +18,13 @@ import { impactHaptic, notifyHaptic, tapHaptic } from "@/lib/haptics";
 import { useConnectionStore } from "@/state/connection";
 import { useSpeechRecognitionEvent } from "expo-speech-recognition";
 import { MicGlyph, type MicGlyphMode } from "./MicGlyph";
-import { micLevel, sendLift, useDictationStore } from "./signals";
+import { micLevel, sendLift } from "./signals";
+import { dictationActor } from "./actor";
 import { useDictation, openDictationSettings } from "./useDictation";
-import type { DictationPhase } from "./machine";
+import { phaseOf, type DictationPhase } from "./machine";
 
 const DEFAULT_SIZE = 40;
 const CHIP_WIDTH = 220;
-const NOTHING_HEARD_HOLD_MS = 1500;
-const ERROR_HOLD_MS = 2500;
 /** Finger travel (pt) up from the button that submits the dictation (insert + Return). */
 const SEND_SWIPE_DISTANCE = 56;
 
@@ -64,8 +63,7 @@ export interface DictationButtonProps {
 
 export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundColor = colors.surfaceRaised }: DictationButtonProps = {}) {
   const connected = useConnectionStore((state) => state.status === "connected");
-  const dictation = useDictation();
-  const { state } = dictation;
+  const state = useDictation();
   const ring = useSharedValue(1);
   const level = micLevel;
   useSpeechRecognitionEvent("volumechange", (event) => {
@@ -77,8 +75,6 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
     if (state.phase === "sent") notifyHaptic("success");
     if (state.phase !== "listening") level.value = withTiming(0, { duration: motion.duration.fast });
   }, [state.phase, level]);
-  const [nothingHeardDismissed, setNothingHeardDismissed] = useState(false);
-  const [errorDismissed, setErrorDismissed] = useState(false);
 
   useEffect(() => {
     if (state.phase === "listening") {
@@ -92,83 +88,44 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
     };
   }, [state.phase, ring]);
 
-  useEffect(() => {
-    if (!state.nothingHeard) {
-      setNothingHeardDismissed(false);
-      return undefined;
-    }
-    const id = setTimeout(() => {
-      setNothingHeardDismissed(true);
-    }, NOTHING_HEARD_HOLD_MS);
-    return () => {
-      clearTimeout(id);
-    };
-  }, [state.nothingHeard]);
-
-  useEffect(() => {
-    if (state.phase !== "error") {
-      setErrorDismissed(false);
-      return undefined;
-    }
-    const id = setTimeout(() => {
-      setErrorDismissed(true);
-      dictation.cancel();
-    }, ERROR_HOLD_MS);
-    return () => {
-      clearTimeout(id);
-    };
-  }, [state.phase]);
+  // Leaving the screen mid-dictation aborts the recognizer (the actor outlives this component).
+  useEffect(
+    () => () => {
+      dictationActor.send({ type: "reset" });
+    },
+    [],
+  );
 
   const ringStyle = useAnimatedStyle(() => ({ transform: [{ scale: ring.value }] }));
 
   const glyphMode: MicGlyphMode =
     state.phase === "sent" ? "check" : state.phase === "listening" || state.phase === "finishing" || state.phase === "sending" ? "wave" : "mic";
-  // Live handles for the gesture: the gesture object is created once (below) so RNGH never swaps
-  // handlers mid-touch, which drops the in-flight touch's finalize. Everything it needs to read
-  // at event time goes through refs.
-  const phaseRef = useRef(state.phase);
-  phaseRef.current = state.phase;
-  const dictationRef = useRef(dictation);
-  dictationRef.current = dictation;
-  const holding = useRef(false);
-  const submitted = useRef(false);
-
+  // The gesture object is created once so RNGH never swaps handlers mid-touch (which drops the
+  // in-flight touch's finalize); the statechart decides what each event means in the current phase.
   const armed = useSharedValue(false);
   const pressed = useSharedValue(false);
 
   const gesture = useMemo(() => {
     const onPressIn = (): void => {
-      const phase = phaseRef.current;
-      if (phase === "error") {
-        dictationRef.current.cancel();
-        return;
-      }
+      const phase = phaseOf(dictationActor.getSnapshot());
       if (phase === "listening") {
         // A stray press while already listening (e.g. after a lost release) ends it.
-        dictationRef.current.stop();
+        dictationActor.send({ type: "release" });
         return;
       }
-      if (phase !== "idle") return;
-      holding.current = true;
-      submitted.current = false;
+      if (phase !== "idle" && phase !== "error" && phase !== "permission_denied") return;
       sendLift.value = 0;
       impactHaptic("medium");
-      dictationRef.current.start();
+      dictationActor.send({ type: "pressStart" });
     };
     const onPressOut = (): void => {
-      holding.current = false;
-      if (submitted.current) {
-        useDictationStore.getState().launch();
-        return;
-      }
-      if (phaseRef.current === "listening") tapHaptic();
-      dictationRef.current.stop(); // no-op unless listening
+      if (phaseOf(dictationActor.getSnapshot()) === "listening") tapHaptic();
+      dictationActor.send({ type: "release" });
     };
     const submit = (): void => {
-      if (submitted.current || phaseRef.current !== "listening") return;
-      submitted.current = true;
+      if (phaseOf(dictationActor.getSnapshot()) !== "listening") return;
       impactHaptic("heavy");
-      dictationRef.current.stop({ submit: true });
+      dictationActor.send({ type: "pressStop", submit: true });
     };
     return Gesture.Pan()
       .minDistance(0)
@@ -199,8 +156,8 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
   const buttonStyle = useAnimatedStyle(() => ({ opacity: !connected ? 0.4 : pressed.value ? 0.85 : 1 }));
 
   const showPermissionChip = state.phase === "permission_denied";
-  const showErrorChip = state.phase === "error" && !errorDismissed;
-  const showNothingHeardChip = state.phase === "idle" && state.nothingHeard && !nothingHeardDismissed;
+  const showErrorChip = state.phase === "error";
+  const showNothingHeardChip = state.phase === "idle" && state.nothingHeard;
   const chipVisible = showPermissionChip || showErrorChip || showNothingHeardChip;
 
   return (

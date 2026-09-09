@@ -14,7 +14,8 @@ import Animated, {
 } from "react-native-reanimated";
 import type * as SkiaNamespace from "@shopify/react-native-skia";
 import { colors, motion } from "@/theme";
-import { micLevel, sendLift, useDictationStore } from "./signals";
+import { micLevel, sendLift } from "./signals";
+import { useDictation } from "./useDictation";
 import type { DictationPhase } from "./machine";
 
 const ORB = 140;
@@ -26,8 +27,7 @@ const CANVAS = ORB * 1.6; // room for the glow
  * the native module is present; a layered-View fallback keeps older dev clients working.
  */
 export function ListeningOrb() {
-  const phase = useDictationStore((s) => s.phase);
-  const submitted = useDictationStore((s) => s.submitted);
+  const { phase, submit: submitted } = useDictation();
   const visible = phase === "listening" || phase === "finishing" || phase === "sending" || phase === "sent";
   const [mounted, setMounted] = useState(visible);
 
@@ -56,8 +56,7 @@ export function ListeningOrb() {
 }
 
 function OrbBody({ phase }: { phase: DictationPhase }) {
-  const submitted = useDictationStore((s) => s.submitted);
-  const launches = useDictationStore((s) => s.launches);
+  const { submit: submitted, launches } = useDictation();
   const { height } = useWindowDimensions();
   const listening = phase === "listening";
   const settling = phase === "finishing" || phase === "sending";

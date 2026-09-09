@@ -1,204 +1,297 @@
 import { describe, expect, it } from "vitest";
-import { DictationMachine, type DictationEffect, type Scheduler } from "./machine";
+import { createActor, fromCallback, fromPromise, SimulatedClock, waitFor, type Actor } from "xstate";
+import {
+  dictationMachine,
+  phaseOf,
+  type DeliverInput,
+  type DictationPhase,
+  type PermissionOutcome,
+  type RecognizerCommand,
+} from "./machine";
 
-interface ManualScheduler extends Scheduler {
-  flush: (ms: number) => void;
-  pendingCount: () => number;
+interface Harness {
+  actor: Actor<typeof dictationMachine>;
+  clock: SimulatedClock;
+  /** Every `deliver` request the machine made, in order. */
+  sends: DeliverInput[];
+  /** `stop` commands the recognizer received. */
+  recognizerStops: number;
+  /** Resolve or reject the in-flight delivery; resolves once the machine has seen the result. */
+  settleSend: (outcome?: { code: string }) => Promise<void>;
+  recognizerAlive: () => boolean;
+  /** `pressStart`, then wait for the permission check to land. */
+  press: () => Promise<void>;
+  phase: () => DictationPhase;
 }
 
-/** Deterministic scheduler: timers fire only when the test calls `flush`. */
-function manualScheduler(): ManualScheduler {
-  let nextId = 0;
-  const timers = new Map<number, { dueAt: number; callback: () => void }>();
-  let elapsed = 0;
+function harness(permission: PermissionOutcome = "granted"): Harness {
+  const sends: DeliverInput[] = [];
+  let inFlight: { promise: Promise<unknown>; settle: (outcome?: { code: string }) => void } | null = null;
+  let recognizerAlive = false;
+  const state = { recognizerStops: 0 };
+
+  const machine = dictationMachine.provide({
+    actors: {
+      checkPermission: fromPromise<PermissionOutcome>(() => Promise.resolve(permission)),
+      recognizer: fromCallback<RecognizerCommand>(({ receive }) => {
+        recognizerAlive = true;
+        receive(() => {
+          state.recognizerStops += 1;
+        });
+        return () => {
+          recognizerAlive = false;
+        };
+      }),
+      deliver: fromPromise<null, DeliverInput>(({ input }) => {
+        sends.push(input);
+        // Executor form: the test runtime predates Promise.withResolvers.
+        const promise = new Promise<null>((resolve, reject) => {
+          inFlight = {
+            promise: Promise.resolve(),
+            settle: (outcome) => {
+              if (outcome === undefined) resolve(null);
+              else reject(Object.assign(new Error(outcome.code), outcome));
+            },
+          };
+        });
+        if (inFlight !== null) inFlight.promise = promise;
+        return promise;
+      }),
+    },
+  });
+  const clock = new SimulatedClock();
+  const actor = createActor(machine, { clock }).start();
+
   return {
-    after(ms, callback) {
-      const id = nextId++;
-      timers.set(id, { dueAt: elapsed + ms, callback });
-      return () => {
-        timers.delete(id);
-      };
+    actor,
+    clock,
+    sends,
+    get recognizerStops() {
+      return state.recognizerStops;
     },
-    flush(ms) {
-      elapsed += ms;
-      for (const [id, timer] of [...timers]) {
-        if (timer.dueAt <= elapsed) {
-          timers.delete(id);
-          timer.callback();
-        }
-      }
+    settleSend: async (outcome) => {
+      if (inFlight === null) throw new Error("no send in flight");
+      const { promise, settle } = inFlight;
+      inFlight = null;
+      settle(outcome);
+      // The machine's own continuation was attached first, so it has run by the time this resolves.
+      await promise.catch(() => undefined);
     },
-    pendingCount: () => timers.size,
+    recognizerAlive: () => recognizerAlive,
+    press: async () => {
+      actor.send({ type: "pressStart" });
+      await waitFor(actor, (snapshot) => !snapshot.matches("requesting_permission"));
+    },
+    phase: () => phaseOf(actor.getSnapshot()),
   };
 }
 
-function harness(): { machine: DictationMachine; scheduler: ManualScheduler; effects: DictationEffect[] } {
-  const scheduler = manualScheduler();
-  const effects: DictationEffect[] = [];
-  const machine = new DictationMachine({ scheduler, onEffect: (effect) => effects.push(effect) });
-  return { machine, scheduler, effects };
+async function pressAndListen(h: Harness): Promise<void> {
+  await h.press();
+  expect(h.phase()).toBe("listening");
 }
 
-describe("DictationMachine", () => {
-  it("pressStop with submit carries through to the send effect, and does not persist into the next dictation", () => {
-    const { machine, scheduler, effects } = harness();
-    machine.send({ type: "pressStart" });
-    machine.send({ type: "permission", granted: true });
-    machine.send({ type: "partial", text: "ship it" });
-    machine.send({ type: "pressStop", submit: true });
-    machine.send({ type: "final", text: "ship it" });
-    expect(effects).toEqual([{ type: "send", text: "ship it", submit: true }]);
-    expect(machine.getSnapshot().submit).toBe(true);
-    machine.send({ type: "sendOk" });
-    expect(machine.getSnapshot()).toMatchObject({ phase: "sent", submit: true });
-    scheduler.flush(900);
+describe("dictationMachine", () => {
+  it("pressStop with submit carries through to the delivery, and does not persist into the next dictation", async () => {
+    const h = harness();
+    await pressAndListen(h);
+    h.actor.send({ type: "partial", text: "ship it" });
+    h.actor.send({ type: "pressStop", submit: true });
+    expect(h.recognizerStops).toBe(1);
+    h.actor.send({ type: "final", text: "ship it" });
+    expect(h.sends).toEqual([{ text: "ship it", submit: true }]);
+    expect(h.actor.getSnapshot().context.submit).toBe(true);
+    await h.settleSend();
+    expect(h.phase()).toBe("sent");
+    expect(h.actor.getSnapshot().context.submit).toBe(true);
+    h.clock.increment(900);
+    expect(h.phase()).toBe("idle");
 
-    machine.send({ type: "pressStart" });
-    machine.send({ type: "permission", granted: true });
-    machine.send({ type: "pressStop" });
-    machine.send({ type: "final", text: "just text" });
-    expect(effects[1]).toEqual({ type: "send", text: "just text", submit: false });
+    await pressAndListen(h);
+    h.actor.send({ type: "release" });
+    h.actor.send({ type: "final", text: "just text" });
+    expect(h.sends[1]).toEqual({ text: "just text", submit: false });
   });
 
-  it("happy path: press, partials, stop, final, send, sent, back to idle", () => {
-    const { machine, scheduler, effects } = harness();
+  it("release after a submit launches the orb exactly once per dictation", async () => {
+    const h = harness();
+    await pressAndListen(h);
+    h.actor.send({ type: "pressStop", submit: true });
+    expect(h.actor.getSnapshot().context.launches).toBe(0);
+    h.actor.send({ type: "release" });
+    expect(h.actor.getSnapshot().context.launches).toBe(1);
+    h.actor.send({ type: "release" });
+    expect(h.actor.getSnapshot().context.launches).toBe(2);
 
-    machine.send({ type: "pressStart" });
-    expect(machine.getSnapshot().phase).toBe("requesting_permission");
-
-    machine.send({ type: "permission", granted: true });
-    expect(machine.getSnapshot().phase).toBe("listening");
-
-    machine.send({ type: "partial", text: "hello" });
-    machine.send({ type: "partial", text: "hello world" });
-    expect(machine.getSnapshot().transcript).toBe("hello world");
-
-    machine.send({ type: "pressStop" });
-    expect(machine.getSnapshot().phase).toBe("finishing");
-
-    machine.send({ type: "final", text: "hello world." });
-    expect(machine.getSnapshot().phase).toBe("sending");
-    expect(machine.getSnapshot().transcript).toBe("hello world.");
-    expect(effects).toEqual([{ type: "send", text: "hello world.", submit: false }]);
-
-    machine.send({ type: "sendOk" });
-    expect(machine.getSnapshot().phase).toBe("sent");
-
-    scheduler.flush(900);
-    expect(machine.getSnapshot().phase).toBe("idle");
+    // A plain (non-submit) release never launches.
+    h.actor.send({ type: "final", text: "go" });
+    await h.settleSend();
+    h.clock.increment(900);
+    await pressAndListen(h);
+    h.actor.send({ type: "release" });
+    h.actor.send({ type: "release" });
+    expect(h.actor.getSnapshot().context.launches).toBe(2);
   });
 
-  it("stop with no final within 1.5s uses the last partial", () => {
-    const { machine, scheduler, effects } = harness();
+  it("happy path: press, partials, release, final, send, sent, back to idle", async () => {
+    const h = harness();
 
-    machine.send({ type: "pressStart" });
-    machine.send({ type: "permission", granted: true });
-    machine.send({ type: "partial", text: "take this down" });
-    machine.send({ type: "pressStop" });
-    expect(machine.getSnapshot().phase).toBe("finishing");
+    h.actor.send({ type: "pressStart" });
+    expect(h.phase()).toBe("requesting_permission");
+    await waitFor(h.actor, (snapshot) => snapshot.matches("active"));
+    expect(h.phase()).toBe("listening");
+    expect(h.recognizerAlive()).toBe(true);
 
-    scheduler.flush(1500);
-    expect(machine.getSnapshot().phase).toBe("sending");
-    expect(machine.getSnapshot().transcript).toBe("take this down");
-    expect(effects).toEqual([{ type: "send", text: "take this down", submit: false }]);
+    h.actor.send({ type: "partial", text: "hello" });
+    h.actor.send({ type: "partial", text: "hello world" });
+    expect(h.actor.getSnapshot().context.transcript).toBe("hello world");
+
+    h.actor.send({ type: "release" });
+    expect(h.phase()).toBe("finishing");
+    expect(h.recognizerStops).toBe(1);
+
+    h.actor.send({ type: "final", text: "hello world." });
+    expect(h.phase()).toBe("sending");
+    expect(h.recognizerAlive()).toBe(false);
+    expect(h.actor.getSnapshot().context.transcript).toBe("hello world.");
+    expect(h.sends).toEqual([{ text: "hello world.", submit: false }]);
+
+    await h.settleSend();
+    expect(h.phase()).toBe("sent");
+
+    h.clock.increment(900);
+    expect(h.phase()).toBe("idle");
   });
 
-  it("an empty transcript returns to idle with the nothingHeard flag", () => {
-    const { machine, effects } = harness();
+  it("release with no final within 1.5s uses the last partial", async () => {
+    const h = harness();
+    await pressAndListen(h);
+    h.actor.send({ type: "partial", text: "take this down" });
+    h.actor.send({ type: "release" });
+    expect(h.phase()).toBe("finishing");
 
-    machine.send({ type: "pressStart" });
-    machine.send({ type: "permission", granted: true });
-    machine.send({ type: "pressStop" });
-    machine.send({ type: "final", text: "   " });
-
-    expect(machine.getSnapshot()).toEqual({ phase: "idle", transcript: "", nothingHeard: true, errorCode: null, submit: false });
-    expect(effects).toEqual([]);
+    h.clock.increment(1500);
+    expect(h.phase()).toBe("sending");
+    expect(h.sends).toEqual([{ text: "take this down", submit: false }]);
   });
 
-  it("clears nothingHeard on the next pressStart", () => {
-    const { machine } = harness();
-
-    machine.send({ type: "pressStart" });
-    machine.send({ type: "permission", granted: true });
-    machine.send({ type: "pressStop" });
-    machine.send({ type: "final", text: "" });
-    expect(machine.getSnapshot().nothingHeard).toBe(true);
-
-    machine.send({ type: "pressStart" });
-    expect(machine.getSnapshot().nothingHeard).toBe(false);
+  it("the recognizer ending during finishing finalizes with the last partial immediately", async () => {
+    const h = harness();
+    await pressAndListen(h);
+    h.actor.send({ type: "partial", text: "done talking" });
+    h.actor.send({ type: "release" });
+    h.actor.send({ type: "recognizerEnd" });
+    expect(h.phase()).toBe("sending");
+    expect(h.sends).toEqual([{ text: "done talking", submit: false }]);
   });
 
-  it("permission denied moves to permission_denied, not listening", () => {
-    const { machine } = harness();
+  it("an empty transcript returns to idle with the nothingHeard flag, which clears after a hold", async () => {
+    const h = harness();
+    await pressAndListen(h);
+    h.actor.send({ type: "release" });
+    h.actor.send({ type: "final", text: "   " });
 
-    machine.send({ type: "pressStart" });
-    machine.send({ type: "permission", granted: false });
-    expect(machine.getSnapshot().phase).toBe("permission_denied");
+    expect(h.phase()).toBe("idle");
+    expect(h.actor.getSnapshot().context).toMatchObject({ transcript: "", nothingHeard: true, errorCode: null, submit: false });
+    expect(h.sends).toEqual([]);
 
-    machine.send({ type: "pressStart" });
-    expect(machine.getSnapshot().phase).toBe("requesting_permission");
+    h.clock.increment(1500);
+    expect(h.actor.getSnapshot().context.nothingHeard).toBe(false);
   });
 
-  it("a recognizer error from listening moves to error, and reset returns to idle", () => {
-    const { machine } = harness();
+  it("clears nothingHeard on the next pressStart", async () => {
+    const h = harness();
+    await pressAndListen(h);
+    h.actor.send({ type: "release" });
+    h.actor.send({ type: "final", text: "" });
+    expect(h.actor.getSnapshot().context.nothingHeard).toBe(true);
 
-    machine.send({ type: "pressStart" });
-    machine.send({ type: "permission", granted: true });
-    machine.send({ type: "recognizerError", code: "audio-capture" });
+    h.actor.send({ type: "pressStart" });
+    expect(h.actor.getSnapshot().context.nothingHeard).toBe(false);
+  });
 
-    expect(machine.getSnapshot()).toEqual({
-      phase: "error",
+  it("permission denied moves to permission_denied, not listening", async () => {
+    const h = harness("denied");
+    await h.press();
+    expect(h.phase()).toBe("permission_denied");
+    expect(h.recognizerAlive()).toBe(false);
+
+    h.actor.send({ type: "pressStart" });
+    expect(h.phase()).toBe("requesting_permission");
+  });
+
+  it("an unavailable recognizer surfaces service-not-allowed", async () => {
+    const h = harness("unavailable");
+    await h.press();
+    expect(h.phase()).toBe("error");
+    expect(h.actor.getSnapshot().context.errorCode).toBe("service-not-allowed");
+  });
+
+  it("a recognizer error from listening moves to error, which clears itself after the hold", async () => {
+    const h = harness();
+    await pressAndListen(h);
+    h.actor.send({ type: "recognizerError", code: "audio-capture" });
+
+    expect(h.phase()).toBe("error");
+    expect(h.actor.getSnapshot().context).toMatchObject({
       transcript: "",
       nothingHeard: false,
       errorCode: "audio-capture",
       submit: false,
     });
+    expect(h.recognizerAlive()).toBe(false);
 
-    machine.send({ type: "reset" });
-    expect(machine.getSnapshot().phase).toBe("idle");
+    h.clock.increment(2500);
+    expect(h.phase()).toBe("idle");
+    expect(h.actor.getSnapshot().context.errorCode).toBeNull();
   });
 
-  it("a recognizer error from finishing cancels the finish timeout", () => {
-    const { machine, scheduler } = harness();
+  it("a recognizer error from finishing cancels the finish timeout", async () => {
+    const h = harness();
+    await pressAndListen(h);
+    h.actor.send({ type: "release" });
+    h.actor.send({ type: "recognizerError", code: "network" });
+    expect(h.phase()).toBe("error");
 
-    machine.send({ type: "pressStart" });
-    machine.send({ type: "permission", granted: true });
-    machine.send({ type: "pressStop" });
-    machine.send({ type: "recognizerError", code: "network" });
-    expect(machine.getSnapshot().phase).toBe("error");
-
-    scheduler.flush(1500);
-    expect(machine.getSnapshot().phase).toBe("error");
-    expect(scheduler.pendingCount()).toBe(0);
+    h.clock.increment(1500);
+    expect(h.phase()).toBe("error");
+    expect(h.sends).toEqual([]);
   });
 
-  it("sendFailed(code) surfaces the code on the error state", () => {
-    const { machine } = harness();
+  it("a failed delivery surfaces the ack code on the error state", async () => {
+    const h = harness();
+    await pressAndListen(h);
+    h.actor.send({ type: "release" });
+    h.actor.send({ type: "final", text: "ship it" });
+    expect(h.phase()).toBe("sending");
 
-    machine.send({ type: "pressStart" });
-    machine.send({ type: "permission", granted: true });
-    machine.send({ type: "pressStop" });
-    machine.send({ type: "final", text: "ship it" });
-    expect(machine.getSnapshot().phase).toBe("sending");
-
-    machine.send({ type: "sendFailed", code: "accessibility_denied" });
-    expect(machine.getSnapshot()).toEqual({
-      phase: "error",
+    await h.settleSend({ code: "accessibility_denied" });
+    expect(h.phase()).toBe("error");
+    expect(h.actor.getSnapshot().context).toMatchObject({
       transcript: "ship it",
-      nothingHeard: false,
       errorCode: "accessibility_denied",
       submit: false,
     });
   });
 
+  it("reset during sending ignores the late delivery result", async () => {
+    const h = harness();
+    await pressAndListen(h);
+    h.actor.send({ type: "release" });
+    h.actor.send({ type: "final", text: "late" });
+    h.actor.send({ type: "reset" });
+    expect(h.phase()).toBe("idle");
+    await h.settleSend();
+    expect(h.phase()).toBe("idle");
+  });
+
   it("ignores stray events outside their phase", () => {
-    const { machine, effects } = harness();
-
-    machine.send({ type: "pressStop" });
-    expect(machine.getSnapshot().phase).toBe("idle");
-
-    machine.send({ type: "sendOk" });
-    expect(machine.getSnapshot().phase).toBe("idle");
-    expect(effects).toEqual([]);
+    const h = harness();
+    h.actor.send({ type: "release" });
+    h.actor.send({ type: "pressStop", submit: true });
+    h.actor.send({ type: "final", text: "ghost" });
+    expect(h.phase()).toBe("idle");
+    expect(h.sends).toEqual([]);
+    expect(h.actor.getSnapshot().context.launches).toBe(0);
   });
 });

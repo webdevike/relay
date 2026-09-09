@@ -1,10 +1,15 @@
 /**
- * Pure dictation state machine. No React, no expo-speech-recognition, no network — the hook
- * drives this with events observed from the recognizer and the connection, and reacts to the
- * `send` effect by calling `sendCommand`. Timers (the 1.5s "no final yet" grace period and the
- * 600ms "sent" checkmark hold) are owned here via an injected `Scheduler` so tests can control
- * time deterministically without real delays.
+ * Dictation statechart (XState v5). Pure: no React, no expo-speech-recognition, no network. The
+ * three side effects are invoked actors that the runtime (`actor.ts`) provides and tests stub:
+ *
+ *   checkPermission  requesting_permission → granted | denied | unavailable
+ *   recognizer       runs for the whole `active` state (listening + finishing); reports
+ *                    partial/final/recognizerEnd/recognizerError; receives `stop`
+ *   deliver          sending → resolves when the Mac acked the insert (+ Return when `submit`)
+ *
+ * Timers are `after` delays, so tests drive them with `SimulatedClock`.
  */
+import { assign, fromCallback, fromPromise, sendTo, setup, type SnapshotFrom } from "xstate";
 
 export type DictationPhase =
   | "idle"
@@ -16,203 +21,177 @@ export type DictationPhase =
   | "sent"
   | "error";
 
-export type DictationEvent =
-  | { type: "pressStart" }
-  | { type: "permission"; granted: boolean }
-  | { type: "partial"; text: string }
-  | { type: "final"; text: string }
-  /** `submit` also presses Return on the Mac after inserting the text. */
-  | { type: "pressStop"; submit?: boolean }
-  | { type: "recognizerError"; code: string }
-  | { type: "sendOk" }
-  | { type: "sendFailed"; code: string }
-  | { type: "reset" };
-
-export interface DictationSnapshot {
-  phase: DictationPhase;
+export interface DictationContext {
   /** Live partial transcript while listening/finishing; the sent text while sending/sent. */
   transcript: string;
-  /** Set when `finishing` resolved to an empty transcript; cleared on the next `pressStart`. */
+  /** Set when `finishing` resolved to an empty transcript; cleared after a hold or on the next press. */
   nothingHeard: boolean;
   errorCode: string | null;
   /** Whether the pending/last send also submits (Return) on the Mac. */
   submit: boolean;
+  /** Incremented when the finger lifts after a submit; the orb launches once per increment. */
+  launches: number;
 }
 
-/** The only externally-observable side effect: hand `text` to the caller's `sendCommand`. */
-export interface DictationEffect {
-  type: "send";
+export type DictationEvent =
+  | { type: "pressStart" }
+  /** Finger crossed the send threshold: stop listening and submit (insert + Return). */
+  | { type: "pressStop"; submit?: boolean }
+  /** Finger lifted. While listening this ends the dictation; after a submit it launches the orb. */
+  | { type: "release" }
+  | { type: "partial"; text: string }
+  | { type: "final"; text: string }
+  | { type: "recognizerEnd" }
+  | { type: "recognizerError"; code: string }
+  | { type: "reset" };
+
+export type PermissionOutcome = "granted" | "denied" | "unavailable";
+
+/** Events the recognizer actor reports to the machine. */
+export type RecognizerEvent = Extract<DictationEvent, { type: "partial" | "final" | "recognizerEnd" | "recognizerError" }>;
+/** Commands the machine sends to the recognizer actor. */
+export interface RecognizerCommand {
+  type: "stop";
+}
+
+export interface DeliverInput {
   text: string;
   submit: boolean;
 }
 
-export interface Scheduler {
-  /** Schedule `callback` after `ms`; the returned function cancels it. */
-  after: (ms: number, callback: () => void) => () => void;
+export const FINISH_TIMEOUT_MS = 1500;
+export const SENT_HOLD_MS = 900;
+export const ERROR_HOLD_MS = 2500;
+export const NOTHING_HEARD_HOLD_MS = 1500;
+
+function notProvided(name: string): never {
+  throw new Error(`dictation actor "${name}" not provided`);
 }
 
-export const realScheduler: Scheduler = {
-  after(ms, callback) {
-    const id = setTimeout(callback, ms);
-    return () => {
-      clearTimeout(id);
-    };
+const fresh = { transcript: "", nothingHeard: false, errorCode: null, submit: false } as const;
+
+export const dictationMachine = setup({
+  types: {
+    context: {} as DictationContext,
+    events: {} as DictationEvent,
   },
-};
+  actors: {
+    checkPermission: fromPromise<PermissionOutcome>(() => notProvided("checkPermission")),
+    recognizer: fromCallback<RecognizerCommand>(() => notProvided("recognizer")),
+    deliver: fromPromise<null, DeliverInput>(() => notProvided("deliver")),
+  },
+  actions: {
+    stopRecognizer: sendTo("recognizer", { type: "stop" }),
+  },
+  guards: {
+    hasText: ({ context }) => context.transcript.trim().length > 0,
+    submitted: ({ context }) => context.submit,
+  },
+  delays: {
+    FINISH_TIMEOUT: FINISH_TIMEOUT_MS,
+    SENT_HOLD: SENT_HOLD_MS,
+    ERROR_HOLD: ERROR_HOLD_MS,
+    NOTHING_HEARD_HOLD: NOTHING_HEARD_HOLD_MS,
+  },
+}).createMachine({
+  id: "dictation",
+  context: { ...fresh, launches: 0 },
+  initial: "idle",
+  on: {
+    reset: { target: ".idle", actions: assign(fresh) },
+    release: { guard: "submitted", actions: assign({ launches: ({ context }) => context.launches + 1 }) },
+  },
+  states: {
+    idle: {
+      after: { NOTHING_HEARD_HOLD: { actions: assign({ nothingHeard: false }) } },
+      on: { pressStart: { target: "requesting_permission", actions: assign(fresh) } },
+    },
+    requesting_permission: {
+      invoke: {
+        src: "checkPermission",
+        onDone: [
+          { guard: ({ event }) => event.output === "granted", target: "active" },
+          { guard: ({ event }) => event.output === "denied", target: "permission_denied" },
+          { target: "error", actions: assign({ errorCode: "service-not-allowed" }) },
+        ],
+        onError: { target: "error", actions: assign({ errorCode: "internal" }) },
+      },
+    },
+    permission_denied: {
+      on: { pressStart: { target: "requesting_permission", actions: assign(fresh) } },
+    },
+    active: {
+      invoke: { id: "recognizer", src: "recognizer" },
+      initial: "listening",
+      on: {
+        recognizerError: {
+          target: "error",
+          actions: assign({ ...fresh, errorCode: ({ event }) => event.code }),
+        },
+      },
+      states: {
+        listening: {
+          on: {
+            partial: { actions: assign({ transcript: ({ event }) => event.text }) },
+            final: { actions: assign({ transcript: ({ event }) => event.text }) },
+            pressStop: {
+              target: "finishing",
+              actions: [assign({ submit: ({ event }) => event.submit === true }), "stopRecognizer"],
+            },
+            release: { target: "finishing", actions: "stopRecognizer" },
+            recognizerEnd: { target: "#dictation.error", actions: assign({ ...fresh, errorCode: "aborted" }) },
+          },
+        },
+        finishing: {
+          after: { FINISH_TIMEOUT: { target: "#dictation.finished" } },
+          on: {
+            partial: { actions: assign({ transcript: ({ event }) => event.text }) },
+            final: { target: "#dictation.finished", actions: assign({ transcript: ({ event }) => event.text }) },
+            recognizerEnd: { target: "#dictation.finished" },
+          },
+        },
+      },
+    },
+    /** Transient: route the finished transcript to `sending` or back to `idle` (nothing heard). */
+    finished: {
+      always: [
+        { guard: "hasText", target: "sending", actions: assign({ transcript: ({ context }) => context.transcript.trim() }) },
+        { target: "idle", actions: assign({ ...fresh, nothingHeard: true }) },
+      ],
+    },
+    sending: {
+      invoke: {
+        src: "deliver",
+        input: ({ context }) => ({ text: context.transcript, submit: context.submit }),
+        onDone: { target: "sent" },
+        onError: {
+          target: "error",
+          actions: assign({ errorCode: ({ event }) => ackErrorCode(event.error), submit: false }),
+        },
+      },
+    },
+    sent: {
+      after: { SENT_HOLD: { target: "idle", actions: assign(fresh) } },
+    },
+    error: {
+      after: { ERROR_HOLD: { target: "idle", actions: assign(fresh) } },
+      on: { pressStart: { target: "requesting_permission", actions: assign(fresh) } },
+    },
+  },
+});
 
-const FINISH_TIMEOUT_MS = 1500;
-const SENT_HOLD_MS = 900;
-
-function idleSnapshot(): DictationSnapshot {
-  return { phase: "idle", transcript: "", nothingHeard: false, errorCode: null, submit: false };
+/** Extract the AckError-shaped `code` off a `sendCommand` rejection, falling back to "internal". */
+function ackErrorCode(err: unknown): string {
+  if (err !== null && typeof err === "object" && "code" in err && typeof err.code === "string") {
+    return err.code;
+  }
+  return "internal";
 }
 
-export interface DictationMachineOptions {
-  scheduler?: Scheduler;
-  onEffect?: (effect: DictationEffect) => void;
-  /** Fires after every transition, including timer- and callback-driven ones. */
-  onChange?: (snapshot: DictationSnapshot) => void;
-}
+export type DictationActorSnapshot = SnapshotFrom<typeof dictationMachine>;
 
-export class DictationMachine {
-  private snapshot: DictationSnapshot = idleSnapshot();
-  private readonly scheduler: Scheduler;
-  private readonly onEffect: ((effect: DictationEffect) => void) | undefined;
-  private readonly onChange: ((snapshot: DictationSnapshot) => void) | undefined;
-  private cancelTimer: (() => void) | null = null;
-
-  constructor(options: DictationMachineOptions = {}) {
-    this.scheduler = options.scheduler ?? realScheduler;
-    this.onEffect = options.onEffect;
-    this.onChange = options.onChange;
-  }
-
-  getSnapshot(): DictationSnapshot {
-    return this.snapshot;
-  }
-
-  send(event: DictationEvent): void {
-    const next = this.reduce(this.snapshot, event);
-    if (next === this.snapshot) return;
-    this.snapshot = next;
-    this.onChange?.(next);
-  }
-
-  private armTimer(ms: number, callback: () => void): void {
-    this.disarmTimer();
-    this.cancelTimer = this.scheduler.after(ms, () => {
-      this.cancelTimer = null;
-      callback();
-    });
-  }
-
-  private disarmTimer(): void {
-    if (this.cancelTimer !== null) {
-      this.cancelTimer();
-      this.cancelTimer = null;
-    }
-  }
-
-  private reduce(state: DictationSnapshot, event: DictationEvent): DictationSnapshot {
-    switch (state.phase) {
-      case "idle":
-        if (event.type === "pressStart") {
-          return { phase: "requesting_permission", transcript: "", nothingHeard: false, errorCode: null, submit: false };
-        }
-        return state;
-
-      case "requesting_permission":
-        if (event.type === "permission") {
-          if (event.granted) return { ...state, phase: "listening", transcript: "" };
-          return { phase: "permission_denied", transcript: "", nothingHeard: false, errorCode: null, submit: false };
-        }
-        if (event.type === "recognizerError") {
-          return { phase: "error", transcript: "", nothingHeard: false, errorCode: event.code, submit: false };
-        }
-        if (event.type === "reset") return idleSnapshot();
-        return state;
-
-      case "permission_denied":
-        if (event.type === "pressStart") {
-          return { phase: "requesting_permission", transcript: "", nothingHeard: false, errorCode: null, submit: false };
-        }
-        if (event.type === "reset") return idleSnapshot();
-        return state;
-
-      case "listening":
-        if (event.type === "partial" || event.type === "final") {
-          return { ...state, transcript: event.text };
-        }
-        if (event.type === "pressStop") {
-          const next: DictationSnapshot = { ...state, phase: "finishing", submit: event.submit === true };
-          this.armTimer(FINISH_TIMEOUT_MS, () => {
-            this.send({ type: "final", text: this.snapshot.transcript });
-          });
-          return next;
-        }
-        if (event.type === "recognizerError") {
-          this.disarmTimer();
-          return { phase: "error", transcript: "", nothingHeard: false, errorCode: event.code, submit: false };
-        }
-        if (event.type === "reset") {
-          this.disarmTimer();
-          return idleSnapshot();
-        }
-        return state;
-
-      case "finishing":
-        if (event.type === "partial") {
-          return { ...state, transcript: event.text };
-        }
-        if (event.type === "final") {
-          this.disarmTimer();
-          const text = event.text.trim();
-          if (text.length === 0) {
-            return { phase: "idle", transcript: "", nothingHeard: true, errorCode: null, submit: false };
-          }
-          this.onEffect?.({ type: "send", text, submit: state.submit });
-          return { phase: "sending", transcript: text, nothingHeard: false, errorCode: null, submit: state.submit };
-        }
-        if (event.type === "recognizerError") {
-          this.disarmTimer();
-          return { phase: "error", transcript: "", nothingHeard: false, errorCode: event.code, submit: false };
-        }
-        if (event.type === "reset") {
-          this.disarmTimer();
-          return idleSnapshot();
-        }
-        return state;
-
-      case "sending":
-        if (event.type === "sendOk") {
-          const next: DictationSnapshot = { ...state, phase: "sent" };
-          this.armTimer(SENT_HOLD_MS, () => {
-            this.send({ type: "reset" });
-          });
-          return next;
-        }
-        if (event.type === "sendFailed") {
-          return { phase: "error", transcript: state.transcript, nothingHeard: false, errorCode: event.code, submit: false };
-        }
-        if (event.type === "reset") {
-          this.disarmTimer();
-          return idleSnapshot();
-        }
-        return state;
-
-      case "sent":
-        if (event.type === "reset") {
-          this.disarmTimer();
-          return idleSnapshot();
-        }
-        return state;
-
-      case "error":
-        if (event.type === "reset") {
-          this.disarmTimer();
-          return idleSnapshot();
-        }
-        return state;
-    }
-  }
+export function phaseOf(snapshot: DictationActorSnapshot): DictationPhase {
+  const value = snapshot.value;
+  if (typeof value === "object") return value.active;
+  return value === "finished" ? "sending" : value;
 }
