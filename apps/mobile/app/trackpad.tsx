@@ -10,6 +10,7 @@ import { IconButton } from "@/ui/IconButton";
 import { colors } from "@/theme";
 import { SURFACE_MARGIN, TrackpadSurface } from "@/trackpad/TrackpadSurface";
 import { DictationButton } from "@/dictation/DictationButton";
+import { ListeningOrb } from "@/dictation/ListeningOrb";
 
 export interface TrackpadScreenProps {
   /**
@@ -65,6 +66,7 @@ export default function TrackpadScreen({ renderDictationButton = defaultDictatio
       <StatusBar hidden />
       <View style={{ flex: 1 }}>
         <TrackpadSurface />
+        <ListeningOrb />
         <Cutout size={BACK_SIZE} style={{ top: SURFACE_MARGIN - (BACK_SIZE + CUTOUT_GAP * 2) / 2, left: SURFACE_MARGIN + BACK_INSET }}>
           <IconButton
             symbol="chevron.left"

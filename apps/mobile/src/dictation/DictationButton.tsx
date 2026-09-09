@@ -11,7 +11,7 @@ import Animated, {
 import { Text } from "@/ui/Text";
 import { Banner } from "@/ui/Banner";
 import { colors, motion, radii, spacing } from "@/theme";
-import { impactHaptic, notifyHaptic } from "@/lib/haptics";
+import { impactHaptic, notifyHaptic, tapHaptic } from "@/lib/haptics";
 import { useConnectionStore } from "@/state/connection";
 import { useSpeechRecognitionEvent } from "expo-speech-recognition";
 import { MicGlyph, type MicGlyphMode } from "./MicGlyph";
@@ -133,7 +133,10 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
   };
   const onPressOut = (): void => {
     holding.current = false;
-    if (state.phase === "listening") dictation.stop();
+    if (state.phase === "listening") {
+      tapHaptic();
+      dictation.stop();
+    }
   };
   // Released during the permission prompt: stop as soon as listening actually begins.
   useEffect(() => {
