@@ -171,7 +171,7 @@ export class DictationMachine {
             return { phase: "idle", transcript: "", nothingHeard: true, errorCode: null, submit: false };
           }
           this.onEffect?.({ type: "send", text, submit: state.submit });
-          return { phase: "sending", transcript: text, nothingHeard: false, errorCode: null, submit: false };
+          return { phase: "sending", transcript: text, nothingHeard: false, errorCode: null, submit: state.submit };
         }
         if (event.type === "recognizerError") {
           this.disarmTimer();

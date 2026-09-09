@@ -48,7 +48,9 @@ describe("DictationMachine", () => {
     machine.send({ type: "pressStop", submit: true });
     machine.send({ type: "final", text: "ship it" });
     expect(effects).toEqual([{ type: "send", text: "ship it", submit: true }]);
+    expect(machine.getSnapshot().submit).toBe(true);
     machine.send({ type: "sendOk" });
+    expect(machine.getSnapshot()).toMatchObject({ phase: "sent", submit: true });
     scheduler.flush(900);
 
     machine.send({ type: "pressStart" });
