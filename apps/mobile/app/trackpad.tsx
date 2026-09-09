@@ -54,7 +54,9 @@ export default function TrackpadScreen({ renderDictationButton = defaultDictatio
             }}
           />
         </View>
-        <View style={{ position: "absolute", right: spacing.xl, bottom: spacing.xl }}>{renderDictationButton()}</View>
+        <View style={{ position: "absolute", left: 0, right: 0, bottom: spacing.lg, alignItems: "center" }}>
+          {renderDictationButton()}
+        </View>
       </View>
     </SafeAreaView>
   );

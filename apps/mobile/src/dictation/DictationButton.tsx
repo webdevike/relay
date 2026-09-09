@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pressable, View } from "react-native";
 import { SymbolView, type SFSymbol } from "expo-symbols";
 import Animated, {
@@ -10,7 +10,6 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { Text } from "@/ui/Text";
-import { Button } from "@/ui/Button";
 import { Banner } from "@/ui/Banner";
 import { colors, motion, radii, spacing } from "@/theme";
 import { tapHaptic } from "@/lib/haptics";
@@ -18,7 +17,7 @@ import { useConnectionStore } from "@/state/connection";
 import { useDictation, openDictationSettings } from "./useDictation";
 import type { DictationPhase } from "./machine";
 
-const BUTTON_SIZE = 44;
+const BUTTON_SIZE = 36;
 const CHIP_WIDTH = 220;
 const NOTHING_HEARD_HOLD_MS = 1500;
 const ERROR_HOLD_MS = 2500;
@@ -50,7 +49,7 @@ const errorMessage: Record<string, string> = {
 
 const DEFAULT_ERROR_MESSAGE = "Something went wrong.";
 
-/** 44pt mic button: press to start/stop dictation, floating chip shows live text and failures. */
+/** Hold-to-talk mic: press and hold to listen, release to send. Floating chip shows live text and failures. */
 export function DictationButton() {
   const connected = useConnectionStore((state) => state.status === "connected");
   const dictation = useDictation();
@@ -103,12 +102,25 @@ export function DictationButton() {
   const icon: SFSymbol = state.phase === "sent" ? "checkmark" : "mic.fill";
   const interactive = connected && (state.phase === "idle" || state.phase === "listening" || state.phase === "error");
 
-  const onPress = (): void => {
+  const holding = useRef(false);
+  const onPressIn = (): void => {
+    if (state.phase === "error") {
+      dictation.cancel();
+      return;
+    }
+    if (state.phase !== "idle") return;
+    holding.current = true;
     tapHaptic();
-    if (state.phase === "idle") dictation.start();
-    else if (state.phase === "listening") dictation.stop();
-    else if (state.phase === "error") dictation.cancel();
+    dictation.start();
   };
+  const onPressOut = (): void => {
+    holding.current = false;
+    if (state.phase === "listening") dictation.stop();
+  };
+  // Released during the permission prompt: stop as soon as listening actually begins.
+  useEffect(() => {
+    if (state.phase === "listening" && !holding.current) dictation.stop();
+  }, [state.phase, dictation]);
 
   const showTranscriptChip = state.phase === "listening" || state.phase === "finishing" || state.phase === "sending";
   const showPermissionChip = state.phase === "permission_denied";
@@ -135,7 +147,6 @@ export function DictationButton() {
               <Text variant="body" numberOfLines={2}>
                 {transcript.length > 0 ? transcript : "Listening…"}
               </Text>
-              <Button label="Cancel" variant="ghost" onPress={dictation.cancel} />
             </>
           )}
           {showPermissionChip && (
@@ -174,7 +185,8 @@ export function DictationButton() {
         )}
         <Pressable
           disabled={!interactive}
-          onPress={onPress}
+          onPressIn={onPressIn}
+          onPressOut={onPressOut}
           style={({ pressed }) => ({
             width: BUTTON_SIZE,
             height: BUTTON_SIZE,
