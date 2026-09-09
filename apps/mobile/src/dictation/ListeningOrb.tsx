@@ -135,7 +135,7 @@ float noise(float2 p) {
 }
 float fbm(float2 p) {
   float v = 0.0; float a = 0.5;
-  for (int i = 0; i < 4; i++) { v += a * noise(p); p = p * 2.03 + 11.7; a *= 0.5; }
+  for (int i = 0; i < 3; i++) { v += a * noise(p); p = p * 1.9 + 11.7; a *= 0.45; }
   return v;
 }
 
@@ -146,23 +146,23 @@ half4 main(float2 xy) {
 
   // Swirl: warp the lookup by a slowly rotating noise field.
   float t = u_time * (0.18 + u_level * 0.35);
-  float2 q = uv * 1.6 + float2(t * 0.7, -t * 0.4);
+  float2 q = uv * 0.9 + float2(t * 0.6, -t * 0.35);
   float2 warp = float2(fbm(q), fbm(q + float2(5.2, 1.3)));
-  float n = fbm(uv * 2.2 + warp * 1.4 + float2(-t * 0.5, t * 0.3));
+  float n = fbm(uv * 1.0 + warp * 1.6 + float2(-t * 0.45, t * 0.25));
 
   // Palette: deep indigo -> periwinkle -> pale cyan highlight.
-  half3 deep = half3(0.16, 0.20, 0.55);
-  half3 mid  = half3(0.49, 0.61, 1.00);
-  half3 hi   = half3(0.80, 0.92, 1.00);
-  half3 col  = mix(deep, mid, smoothstep(0.25, 0.75, n));
-  col = mix(col, hi, smoothstep(0.62, 0.95, n) * 0.75);
+  half3 deep = half3(0.20, 0.22, 0.62);
+  half3 mid  = half3(0.52, 0.60, 1.00);
+  half3 hi   = half3(0.86, 0.90, 1.00);
+  half3 col  = mix(deep, mid, smoothstep(0.22, 0.72, n));
+  col = mix(col, hi, smoothstep(0.60, 0.90, n) * 0.5);
 
   // Sphere shading: light from upper-left, darker limb.
   float2 lightDir = normalize(float2(-0.55, -0.7));
   float z = sqrt(max(0.0, 1.0 - (r / radius) * (r / radius)));
   float lambert = clamp(dot(normalize(float3(uv / radius, z)), normalize(float3(lightDir, 0.9))), 0.0, 1.0);
-  col *= 0.55 + 0.6 * lambert;
-  col += hi * pow(lambert, 18.0) * 0.35;                       // specular
+  col *= 0.62 + 0.5 * lambert;
+  col += hi * pow(lambert, 24.0) * 0.22;                       // specular
   col += mid * smoothstep(radius - 0.14, radius, r) * 0.35;    // rim
 
   float body = 1.0 - smoothstep(radius - 0.012, radius + 0.004, r);

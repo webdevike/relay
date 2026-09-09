@@ -213,11 +213,6 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
           <MicGlyph mode={glyphMode} size={BUTTON_SIZE} tintColor={tintFor[state.phase]} level={level} />
         </Pressable>
       </View>
-      {!connected && (
-        <Text variant="caption" color="textFaint" style={{ marginTop: spacing.xs }}>
-          Offline
-        </Text>
-      )}
     </View>
   );
 }
