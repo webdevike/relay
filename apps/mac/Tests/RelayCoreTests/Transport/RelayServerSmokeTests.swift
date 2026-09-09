@@ -51,4 +51,63 @@ final class RelayServerSmokeTests: XCTestCase {
         }
         wait(for: [received], timeout: 5)
     }
+
+    func testVersionMismatchClosesTheSocket() throws {
+        let deps = RelayServer.Dependencies(
+            input: FakeInputSink(), text: FakeTextInjecting(), accessibility: FakeAccessibilityChecking(),
+            agents: nil, devices: FakeDeviceStore(), pairing: FakePairingUI()
+        )
+        let server = RelayServer(config: .init(port: nil, macName: "Test Mac", version: "1.0"), deps: deps)
+
+        let ready = expectation(description: "server listening")
+        server.onStateChange = { state in
+            if case .listening = state { ready.fulfill() }
+        }
+        try server.start()
+        wait(for: [ready], timeout: 5)
+        defer { server.stop() }
+
+        let port = try XCTUnwrap(server.port)
+        let task = URLSession.shared.webSocketTask(with: URL(string: "ws://127.0.0.1:\(port)\(wsPath)")!)
+        task.resume()
+        defer { task.cancel(with: .normalClosure, reason: nil) }
+
+        let hello = ClientMessage.hello(v: protocolVersion + 1, deviceId: "smoke-device", deviceName: "Smoke iPhone", platform: "ios")
+        let sent = expectation(description: "sent")
+        task.send(.string(String(decoding: try Wire.encode(hello), as: UTF8.self))) { error in
+            XCTAssertNil(error)
+            sent.fulfill()
+        }
+        wait(for: [sent], timeout: 5)
+
+        let errorFrame = expectation(description: "received error frame")
+        task.receive { result in
+            switch result {
+            case let .success(.string(text)):
+                if let message = try? Wire.decodeServer(Data(text.utf8)), case let .error(code, _) = message, code == .versionMismatch {
+                    errorFrame.fulfill()
+                } else {
+                    XCTFail("unexpected frame: \(text)")
+                }
+            case let .success(other):
+                XCTFail("unexpected frame: \(other)")
+            case let .failure(error):
+                XCTFail("receive failed: \(error)")
+            }
+        }
+        wait(for: [errorFrame], timeout: 5)
+
+        // The Mac closes the connection right after the error frame; the next receive observes
+        // the close as a failed read (the underlying socket going away), not another message.
+        let closed = expectation(description: "socket closed")
+        task.receive { result in
+            switch result {
+            case .success:
+                XCTFail("expected the connection to be closed, not another message")
+            case .failure:
+                closed.fulfill()
+            }
+        }
+        wait(for: [closed], timeout: 5)
+    }
 }

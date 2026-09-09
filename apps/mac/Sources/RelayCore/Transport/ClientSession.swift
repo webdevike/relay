@@ -189,6 +189,7 @@ final class ClientSession: @unchecked Sendable {
                 deps.pairing.end()
                 isClosed = true
                 sink.send(.pairFailed(reason: .tooManyAttempts))
+                sink.close()
                 onClose(self)
             } else {
                 phase = .pairingPending(deviceId: deviceId, deviceName: deviceName, pin: pin, attempts: nextAttempts)
@@ -228,9 +229,16 @@ final class ClientSession: @unchecked Sendable {
     }
 
     private func handleCmd(id: String, cmd: Command, deviceId: String) {
-        if let cached = deps.dedup.response(deviceId: deviceId, id: id) {
-            sink.send(cached)
+        switch deps.dedup.begin(deviceId: deviceId, id: id, waiter: sink) {
+        case let .completed(response):
+            sink.send(response)
             return
+        case .inFlight:
+            // The original call for this id hasn't finished; `complete` will notify our `sink`
+            // (registered above as a waiter) once it does. Do not re-execute.
+            return
+        case .fresh:
+            break
         }
         switch cmd {
         case let .textInsert(text):
@@ -286,7 +294,7 @@ final class ClientSession: @unchecked Sendable {
     }
 
     private func complete(id: String, deviceId: String, response: ServerMessage) {
-        deps.dedup.record(deviceId: deviceId, id: id, response: response)
+        deps.dedup.complete(deviceId: deviceId, id: id, response: response)
         sink.send(response)
     }
 
@@ -317,6 +325,7 @@ final class ClientSession: @unchecked Sendable {
         deps.pairing.end()
         isClosed = true
         sink.send(.pairFailed(reason: .timeout))
+        sink.close()
         onClose(self)
     }
 
@@ -333,6 +342,7 @@ final class ClientSession: @unchecked Sendable {
         cancelPairingTimeout()
         isClosed = true
         sink.send(.error(code: code, message: message))
+        sink.close()
         onClose(self)
     }
 

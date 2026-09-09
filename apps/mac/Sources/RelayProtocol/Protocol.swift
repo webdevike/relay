@@ -201,7 +201,12 @@ public enum ClientMessage: Codable, Sendable, Equatable {
                           deviceName: try c.decode(String.self, forKey: .deviceName), platform: try c.decode(String.self, forKey: .platform))
         case "auth": self = .auth(proof: try c.decode(String.self, forKey: .proof))
         case "pair.request": self = .pairRequest
-        case "pair.confirm": self = .pairConfirm(pin: try c.decode(String.self, forKey: .pin))
+        case "pair.confirm":
+            let pin = try c.decode(String.self, forKey: .pin)
+            guard pin.count == 6, pin.allSatisfy({ $0.isASCII && $0.isNumber }) else {
+                throw DecodingError.dataCorruptedError(forKey: .pin, in: c, debugDescription: "pin must be 6 digits")
+            }
+            self = .pairConfirm(pin: pin)
         case "input": self = .input(events: try c.decode([InputEvent].self, forKey: .events))
         case "cmd": self = .cmd(id: try c.decode(String.self, forKey: .id), cmd: try c.decode(Command.self, forKey: .cmd))
         case "ping": self = .ping(ts: try c.decode(Double.self, forKey: .ts))

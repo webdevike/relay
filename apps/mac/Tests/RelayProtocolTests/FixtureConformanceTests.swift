@@ -51,5 +51,8 @@ final class FixtureConformanceTests: XCTestCase {
         XCTAssertThrowsError(try Wire.decodeClient(Data(#"{"t":"welcome"}"#.utf8)))
         XCTAssertThrowsError(try Wire.decodeServer(Data(#"{"t":"cmd","id":"x"}"#.utf8)))
         XCTAssertThrowsError(try Wire.decodeClient(Data(#"{"t":"input","events":[{"k":"pinch","t":1}]}"#.utf8)))
+        XCTAssertThrowsError(try Wire.decodeClient(Data(#"{"t":"pair.confirm","pin":"12345"}"#.utf8)))
+        XCTAssertThrowsError(try Wire.decodeClient(Data(#"{"t":"pair.confirm","pin":"12a456"}"#.utf8)))
+        XCTAssertNoThrow(try Wire.decodeClient(Data(#"{"t":"pair.confirm","pin":"482913"}"#.utf8)))
     }
 }

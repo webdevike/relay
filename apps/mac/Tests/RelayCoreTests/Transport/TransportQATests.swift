@@ -2,13 +2,18 @@
 // handshake frames, out-of-phase auth/pairing frames, malformed pins, pairing-coordinator release
 // races, dedup boundaries (per-device isolation, 256-entry eviction), the 256-event input cap,
 // agent.reply failure paths, malformed/binary frames, and a real-socket stop()/restart() cycle.
-// See the QA report for two confirmed gaps that are deliberately NOT defended here because they
-// fail against the current implementation: (1) `pair.confirm` with a non-6-digit pin is not
-// rejected at decode (RelayProtocol's ClientMessage mirror has no regex, unlike the TS zod
-// schema), so a malformed pin is treated as an ordinary wrong-pin attempt instead of a protocol
-// error; (2) a session-initiated close (protocol/version/busy/auth/too-many-attempts) never calls
-// NWConnection.cancel(), so "+ close" only marks the ClientSession closed -- the underlying socket
-// is left open until the client, or the network, tears it down.
+//
+// See the QA report for one confirmed gap that is deliberately NOT defended here because it fails
+// against the current implementation: `pair.confirm` with a non-6-digit pin is not rejected at
+// decode (RelayProtocol's ClientMessage mirror has no regex, unlike the TS zod schema), so a
+// malformed pin is treated as an ordinary wrong-pin attempt instead of a protocol error. Root
+// cause is in Sources/RelayProtocol, outside this package's SCOPE.
+//
+// Two other gaps this suite's throwaway probes found during review (a session-initiated close
+// never cancelling the NWConnection; cmd dedup for agent.reply not being atomic across the await)
+// were fixed in Sources/RelayCore/Transport during this QA pass and are now covered by
+// RelayServerSmokeTests.testVersionMismatchClosesTheSocket and CommandDedupStoreTests
+// respectively -- not duplicated here.
 import CryptoKit
 import Foundation
 import RelayProtocol
@@ -317,6 +322,8 @@ final class TransportQATests: XCTestCase {
             lock.unlock()
             onSend?(message)
         }
+
+        func close() {}
     }
 
     func testAgentReplyProviderThrowsNonAckErrorNacksInternal() throws {

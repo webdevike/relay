@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 import Network
 import RelayProtocol
@@ -64,7 +63,7 @@ public final class RelayServer {
     }
 
     public var onStateChange: ((ServerState) -> Void)?
-    public private(set) var port: UInt16?
+    public var port: UInt16? { queue.sync { _port } }
 
     public var connectedDevices: [ConnectedDevice] {
         queue.sync {
@@ -84,6 +83,7 @@ public final class RelayServer {
     private var listener: NWListener?
     private var sessions: [ObjectIdentifier: SessionEntry] = [:]
     private var state: ServerState = .stopped
+    private var _port: UInt16?
 
     public init(config: Config, deps: Dependencies) {
         self.config = config
@@ -125,7 +125,7 @@ public final class RelayServer {
                 switch nwState {
                 case .ready:
                     if let p = newListener.port?.rawValue {
-                        self.port = p
+                        self._port = p
                         self.setState(.listening(port: p))
                     }
                 case let .failed(error):
@@ -150,11 +150,13 @@ public final class RelayServer {
             listener?.newConnectionHandler = nil
             listener?.cancel()
             listener = nil
-            for entry in sessions.values {
+            let entries = Array(sessions.values)
+            for entry in entries {
+                entry.session.handleDisconnect()
                 entry.connection.cancel()
             }
             sessions.removeAll()
-            port = nil
+            _port = nil
             deps.agents?.onChange = nil
             setState(.stopped)
         }
@@ -197,7 +199,7 @@ public final class RelayServer {
     }
 
     private func accept(_ connection: NWConnection) {
-        let frameSink = NWConnectionFrameSink(connection: connection)
+        let frameSink = NWConnectionFrameSink(connection: connection, queue: queue)
         let sessionDeps = ClientSession.Dependencies(
             macName: config.macName, version: config.version,
             input: deps.input, text: deps.text, accessibility: deps.accessibility,
@@ -233,7 +235,7 @@ public final class RelayServer {
             if let data, !data.isEmpty {
                 session.receive(data)
             }
-            if error != nil {
+            if error != nil || session.isClosed {
                 session.handleDisconnect()
                 self.remove(session)
                 return
@@ -256,15 +258,60 @@ public final class RelayServer {
 
 private final class NWConnectionFrameSink: FrameSink {
     private let connection: NWConnection
+    private let queue: DispatchQueue
+    private var pendingSends = 0
+    private var closeRequested = false
+    private var didCancel = false
 
-    init(connection: NWConnection) {
+    init(connection: NWConnection, queue: DispatchQueue) {
         self.connection = connection
+        self.queue = queue
     }
 
     func send(_ message: ServerMessage) {
         guard let data = try? Wire.encode(message) else { return }
+        pendingSends += 1
         let metadata = NWProtocolWebSocket.Metadata(opcode: .text)
         let context = NWConnection.ContentContext(identifier: "relay", metadata: [metadata])
-        connection.send(content: data, contentContext: context, isComplete: true, completion: .contentProcessed { _ in })
+        // Strong `self`, deliberately: once `RelayServer.remove()` drops the owning `ClientSession`,
+        // this sink may be the last thing keeping the in-flight send's bookkeeping alive. The chain
+        // is short-lived and self-terminating (ends at `cancelNow`), so this is not a retain cycle.
+        connection.send(content: data, contentContext: context, isComplete: true, completion: .contentProcessed { [self] _ in
+            self.queue.async { self.sendCompleted() }
+        })
+    }
+
+    /// Cancels once any already-queued `send`'s completion fires, so the final frame is not
+    /// dropped by an immediate cancel. Some environments never invoke that completion for a
+    /// connection about to close, so this also arms a short best-effort grace-period backstop.
+    /// All mutation happens on `queue` (the server's serial queue) to stay race-free between the
+    /// completion callback and the backstop timer.
+    func close() {
+        queue.async { [self] in
+            self.closeRequested = true
+            self.cancelIfIdle()
+        }
+        queue.asyncAfter(deadline: .now() + 0.2) { [self] in
+            self.cancelNow()
+        }
+    }
+
+    private func sendCompleted() {
+        pendingSends -= 1
+        cancelIfIdle()
+    }
+
+    private func cancelIfIdle() {
+        guard closeRequested, pendingSends <= 0 else { return }
+        cancelNow()
+    }
+
+    /// Plain `cancel()`: a standalone repro confirmed the peer's `receive` completion reliably
+    /// observes this as a failure even without an explicit WebSocket close frame first, and that
+    /// an explicit close-opcode send before cancelling made the teardown hang in this sandbox.
+    private func cancelNow() {
+        guard !didCancel else { return }
+        didCancel = true
+        connection.cancel()
     }
 }

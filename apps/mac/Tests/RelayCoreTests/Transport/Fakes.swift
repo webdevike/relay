@@ -3,10 +3,23 @@ import RelayProtocol
 @testable import RelayCore
 
 final class FakeFrameSink: FrameSink {
+    enum Event: Equatable {
+        case sent(ServerMessage)
+        case closed
+    }
+
     private(set) var sent: [ServerMessage] = []
+    private(set) var events: [Event] = []
+    private(set) var closeCallCount = 0
 
     func send(_ message: ServerMessage) {
         sent.append(message)
+        events.append(.sent(message))
+    }
+
+    func close() {
+        closeCallCount += 1
+        events.append(.closed)
     }
 }
 
@@ -54,6 +67,9 @@ final class FakeAgentProvider: AgentProvider {
     private(set) var replies: [(sessionId: String, text: String)] = []
     var onChange: ((AgentProviderChange) -> Void)?
 
+    private var isGated = false
+    private var gate: CheckedContinuation<Void, Never>?
+
     func start() {
         startCalled = true
     }
@@ -62,9 +78,26 @@ final class FakeAgentProvider: AgentProvider {
         conversations[sessionId]
     }
 
+    /// The next call to `reply` will suspend until `resume()` is called, so a test can control
+    /// exactly when an in-flight `agent.reply` completes.
+    func suspend() {
+        isGated = true
+    }
+
+    func resume() {
+        isGated = false
+        gate?.resume()
+        gate = nil
+    }
+
     func reply(sessionId: String, text: String) async throws {
         if let replyError { throw replyError }
         replies.append((sessionId, text))
+        if isGated {
+            await withCheckedContinuation { continuation in
+                self.gate = continuation
+            }
+        }
     }
 }
 

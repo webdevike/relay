@@ -208,4 +208,96 @@ final class ClientSessionTests: XCTestCase {
         XCTAssertTrue(second.session.isClosed)
         XCTAssertFalse(first.session.isClosed)
     }
+
+    // MARK: extra: sink.close() fires after the error frame, on every ClientSession-initiated close
+
+    func testVersionMismatchClosesFrameSinkAfterErrorFrame() {
+        let fixture = makeFixture()
+        fixture.session.receive(.hello(v: protocolVersion + 1, deviceId: "d1", deviceName: "iPhone", platform: "ios"))
+        XCTAssertEqual(fixture.sink.events.count, 2)
+        guard case let .sent(message) = fixture.sink.events[0], case let .error(code, _) = message else {
+            return XCTFail("expected error frame first")
+        }
+        XCTAssertEqual(code, .versionMismatch)
+        XCTAssertEqual(fixture.sink.events[1], .closed)
+        XCTAssertEqual(fixture.sink.closeCallCount, 1)
+    }
+
+    func testAuthFailedClosesFrameSinkAfterErrorFrame() {
+        let secret = Data(repeating: 7, count: 32)
+        let devices = FakeDeviceStore()
+        devices.save(secret: secret, deviceId: "d1", deviceName: "iPhone")
+        let fixture = makeFixture(devices: devices)
+        fixture.session.receive(.hello(v: protocolVersion, deviceId: "d1", deviceName: "iPhone", platform: "ios"))
+        fixture.session.receive(.auth(proof: "00"))
+        XCTAssertEqual(fixture.sink.events.count, 3, "challenge, error, closed")
+        guard case let .sent(message) = fixture.sink.events[1], case let .error(code, _) = message else {
+            return XCTFail("expected error frame")
+        }
+        XCTAssertEqual(code, .authFailed)
+        XCTAssertEqual(fixture.sink.events[2], .closed)
+        XCTAssertEqual(fixture.sink.closeCallCount, 1)
+    }
+
+    func testTooManyAttemptsClosesFrameSinkAfterPairFailedFrame() {
+        let pairingUI = FakePairingUI()
+        let fixture = makeFixture(pairingUI: pairingUI)
+        fixture.session.receive(.hello(v: protocolVersion, deviceId: "d1", deviceName: "iPhone", platform: "ios"))
+        fixture.session.receive(.pairRequest)
+        let correctPin = pairingUI.beganWith!.pin
+        let wrongPin = correctPin == "000000" ? "111111" : "000000"
+        fixture.session.receive(.pairConfirm(pin: wrongPin))
+        fixture.session.receive(.pairConfirm(pin: wrongPin))
+        fixture.session.receive(.pairConfirm(pin: wrongPin))
+        XCTAssertEqual(fixture.sink.events.last, .closed)
+        XCTAssertEqual(fixture.sink.closeCallCount, 1)
+    }
+
+    // MARK: extra: agent.reply dedup is atomic across the await
+
+    func testAgentReplyDuplicateWhileInFlightDoesNotReexecuteAndBothGetAckedAfterResume() {
+        let agents = FakeAgentProvider()
+        agents.suspend()
+        let secret = Data(repeating: 9, count: 32)
+        let fixture = makeFixture(agents: agents)
+        XCTAssertTrue(authenticate(fixture, deviceId: "d1", secret: secret))
+
+        fixture.session.receive(.cmd(id: "c1", cmd: .agentReply(sessionId: "s1", text: "hi")))
+        fixture.session.receive(.cmd(id: "c1", cmd: .agentReply(sessionId: "s1", text: "hi")))
+
+        // Dedup itself is synchronous (the `begin` call happens before the `Task` is even
+        // spawned), so the duplicate never reaches the provider regardless of scheduling. Wait
+        // for the first `Task` to actually start (and suspend inside `reply`) before asserting.
+        let started = expectation(description: "provider reached")
+        pollUntil(condition: { [agents] in agents.replies.count == 1 }, expectation: started)
+        wait(for: [started], timeout: 2)
+        XCTAssertEqual(agents.replies.count, 1)
+        XCTAssertTrue(acks(in: fixture.sink, id: "c1").isEmpty, "neither caller acked while suspended")
+
+        let bothAcked = expectation(description: "both callers acked")
+        agents.resume()
+        pollUntil(condition: { [self, sink = fixture.sink] in self.acks(in: sink, id: "c1").count == 2 }, expectation: bothAcked)
+        wait(for: [bothAcked], timeout: 2)
+
+        XCTAssertEqual(agents.replies.count, 1, "still executed exactly once")
+        XCTAssertEqual(acks(in: fixture.sink, id: "c1").count, 2)
+    }
+
+    private func acks(in sink: FakeFrameSink, id: String) -> [ServerMessage] {
+        sink.sent.filter {
+            if case let .ack(ackId) = $0, ackId == id { return true }
+            return false
+        }
+    }
+
+    private func pollUntil(condition: @escaping () -> Bool, expectation: XCTestExpectation) {
+        func poll() {
+            if condition() {
+                expectation.fulfill()
+                return
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.02) { poll() }
+        }
+        poll()
+    }
 }
