@@ -73,20 +73,33 @@ describe("momentum interrupted by a new touch", () => {
     h.feed(1, "began", 0, 0, 0);
     h.feed(2, "began", 40, 0, 0);
     h.feed(1, "moved", 0, -20, 100); // scroll began
-    h.feed(1, "moved", 0, -40, 116); // vy = -625pt/s
-    h.feed(1, "ended", 0, -40, 132); // scroll ended -> momentum starts, one tick pending
+    h.feed(1, "moved", 0, -40, 116); // dt 16ms, avg dy -10
+    h.feed(1, "moved", 0, -60, 132); // dt 16ms, avg dy -10 -> 32ms window, vy = -625pt/s
+    h.feed(1, "ended", 0, -60, 148); // scroll ended -> momentum starts, one tick pending
     expect(h.pendingCount()).toBe(1);
 
-    h.feed(3, "began", 10, 10, 140); // a fresh touch lands mid-glide
-    expect(h.events.filter(isScroll).map((e) => e.phase)).toEqual(["began", "changed", "ended", "momentumEnded"]);
+    h.feed(3, "began", 10, 10, 156); // a fresh touch lands mid-glide
+    expect(h.events.filter(isScroll).map((e) => e.phase)).toEqual([
+      "began",
+      "changed",
+      "changed",
+      "ended",
+      "momentumEnded",
+    ]);
 
-    h.feed(3, "moved", 40, 10, 160); // the new finger becomes an ordinary move
+    h.feed(3, "moved", 40, 10, 176); // the new finger becomes an ordinary move
     expect(h.events.at(-1)).toMatchObject({ k: "move" });
 
     // The stale, already-scheduled momentum tick must be inert now that the phase moved on.
     expect(h.pendingCount()).toBe(1);
     h.tick();
-    expect(h.events.filter(isScroll).map((e) => e.phase)).toEqual(["began", "changed", "ended", "momentumEnded"]);
+    expect(h.events.filter(isScroll).map((e) => e.phase)).toEqual([
+      "began",
+      "changed",
+      "changed",
+      "ended",
+      "momentumEnded",
+    ]);
   });
 });
 

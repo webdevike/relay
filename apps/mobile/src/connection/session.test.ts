@@ -78,7 +78,7 @@ describe("SessionMachine known-device auth", () => {
 });
 
 describe("SessionMachine unknown_device error", () => {
-  it("forgets the secret and returns to the pairing-wait state", async () => {
+  it("lands in and stays in the pairing-wait state until the user taps Pair, then re-pairs", async () => {
     const m = machine("some-secret-hex");
     await m.handle({ type: "appActive" }, 0);
     await m.handle({ type: "serviceFound", service }, 0);
@@ -88,12 +88,56 @@ describe("SessionMachine unknown_device error", () => {
       { type: "server", message: { t: "error", code: "unknown_device", message: "no longer registered" } },
       0,
     );
-
     expect(effects).toEqual([
       { type: "forgetSecret" },
       { type: "storeUpdate", partial: { status: "pairing", pairing: { pinRequired: false, failure: null }, mac: null, macName: null } },
     ]);
-    expect(m.currentState).toBe("hello");
+    expect(m.currentState).toBe("needs_pairing");
+
+    // The Mac always closes the socket right after an error frame; this must not auto-reconnect.
+    const closedEffects = await m.handle({ type: "socketClosed" }, 0);
+    expect(closedEffects).toEqual([]);
+    expect(m.currentState).toBe("needs_pairing");
+
+    // Only the user tapping "Pair" reconnects, and it must hello -> unpaired -> pair.request
+    // automatically, without waiting for a second tap.
+    const pairEffects = await m.handle({ type: "startPairing" }, 0);
+    expect(pairEffects).toEqual([
+      { type: "storeUpdate", partial: { status: "connecting" } },
+      { type: "connect", host: "192.168.1.5", port: 8443 },
+    ]);
+    expect(m.currentState).toBe("connecting");
+
+    await m.handle({ type: "socketOpen" }, 0);
+    const unpairedEffects = await m.handle({ type: "server", message: { t: "unpaired" } }, 0);
+    expect(unpairedEffects).toEqual([
+      { type: "send", message: { t: "pair.request" } },
+      { type: "storeUpdate", partial: { status: "pairing", pairing: { pinRequired: false, failure: null } } },
+    ]);
+    expect(m.currentState).toBe("pairing_request");
+  });
+});
+
+describe("SessionMachine busy error", () => {
+  it("does not double-count the backoff attempt when the guaranteed socketClosed follows", async () => {
+    const m = machine("aabbccdd");
+    await m.handle({ type: "appActive" }, 0);
+    await m.handle({ type: "serviceFound", service }, 0);
+    await m.handle({ type: "socketOpen" }, 0);
+    await m.handle({ type: "startPairing" }, 0); // pairing_request: where the Mac can reply "busy"
+
+    const busyEffects = await m.handle(
+      { type: "server", message: { t: "error", code: "busy", message: "pairing in progress" } },
+      0,
+    );
+    const firstRetry = busyEffects.find((e): e is Extract<Effect, { type: "scheduleRetry" }> => e.type === "scheduleRetry");
+    expect(firstRetry?.ms).toBe(500); // attempt 1
+
+    // The Mac always closes the socket right after any error frame.
+    const closedEffects = await m.handle({ type: "socketClosed" }, 0);
+    const secondRetry = closedEffects.find((e): e is Extract<Effect, { type: "scheduleRetry" }> => e.type === "scheduleRetry");
+    expect(secondRetry?.ms).toBe(500); // still attempt 1 (1000ms would mean it double-counted)
+    expect(m.currentState).toBe("backoff");
   });
 });
 
@@ -205,5 +249,27 @@ describe("SessionMachine heartbeat", () => {
       { type: "scheduleRetry", ms: 5000 },
     ]);
     expect(m.currentState).toBe("connected");
+  });
+
+  it("ignores a stale pong that doesn't match the most recently sent ping", async () => {
+    const m = machine("aabbccdd");
+    await m.handle({ type: "appActive" }, 0);
+    await m.handle({ type: "serviceFound", service }, 0);
+    await m.handle({ type: "socketOpen" }, 0);
+    await m.handle({ type: "server", message: { t: "challenge", nonce: "n" } }, 0);
+    await m.handle({ type: "server", message: { t: "welcome", state: { mac, agents: { rev: 0, sessions: [] } } } }, 0);
+
+    await m.handle({ type: "timer" }, 1000); // ping #1 sent, ts=1000
+    await m.handle({ type: "timer" }, 6000); // ping #1 missed, ping #2 sent, ts=6000
+
+    // A stale pong answering ping #1 arrives late; it must not erase the miss recorded above.
+    const staleEffects = await m.handle({ type: "server", message: { t: "pong", ts: 1000, serverTs: 1000 } }, 6050);
+    expect(staleEffects).toEqual([]);
+    expect(m.currentState).toBe("connected");
+
+    // One more missed ping (for ping #2) must close the connection, proving the stale pong above
+    // did not reset the earlier miss.
+    await m.handle({ type: "timer" }, 11000);
+    expect(m.currentState).toBe("backoff");
   });
 });

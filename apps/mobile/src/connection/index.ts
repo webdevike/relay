@@ -25,6 +25,7 @@ let currentCandidate: DiscoveredService | null = null;
 let machine: SessionMachine | null = null;
 let wasActive = true;
 let appStateSubscription: NativeEventSubscription | null = null;
+let retryTimer: number | undefined;
 
 const commandQueue = new CommandQueue();
 const socket = new RelaySocket();
@@ -86,7 +87,9 @@ async function applyEffects(effects: Effect[]): Promise<void> {
         discovery.stop();
         break;
       case "scheduleRetry":
-        setTimeout(() => {
+        clearTimeout(retryTimer);
+        retryTimer = setTimeout(() => {
+          retryTimer = undefined;
           void dispatch({ type: "timer" });
         }, effect.ms);
         break;
@@ -138,6 +141,8 @@ async function runForgetMac(): Promise<void> {
   currentCandidate = null;
   discovery.stop();
   socket.close();
+  clearTimeout(retryTimer);
+  retryTimer = undefined;
   useConnectionStore.getState().set({
     status: "idle",
     mac: null,
@@ -212,6 +217,8 @@ export const connection = {
     appStateSubscription = null;
     discovery.stop();
     socket.close();
+    clearTimeout(retryTimer);
+    retryTimer = undefined;
     machine = null;
   },
   forget(): void {

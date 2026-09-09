@@ -15,6 +15,7 @@ export type SessionState =
   | "discovering"
   | "connecting"
   | "hello"
+  | "needs_pairing"
   | "pairing_request"
   | "pairing_pin"
   | "authenticating"
@@ -69,9 +70,11 @@ export class SessionMachine {
   private candidate: { host: string; port: number } | null = null;
   private attempts = 0;
   private backgrounded = false;
+  private autoPairOnUnpaired = false;
   private awaitingPong = false;
   private missedPongs = 0;
   private lastRttMs: number | null = null;
+  private lastPingTs: number | null = null;
   private readonly deps: SessionDeps;
   private readonly random: () => number;
 
@@ -140,7 +143,7 @@ export class SessionMachine {
       this.state = "offline";
       return [];
     }
-    if (this.state === "idle" || this.state === "offline" || this.state === "discovering") return [];
+    if (this.state === "idle" || this.state === "offline" || this.state === "discovering" || this.state === "needs_pairing") return [];
     return this.enterBackoff();
   }
 
@@ -166,12 +169,17 @@ export class SessionMachine {
     this.backgrounded = true;
     this.awaitingPong = false;
     this.missedPongs = 0;
+    this.lastPingTs = null;
     const effects: Effect[] = this.state === "discovering" ? [{ type: "stopDiscovery" }] : [];
     this.state = "offline";
     return effects;
   }
 
   private onStartPairing(): Effect[] {
+    if (this.state === "needs_pairing") {
+      this.autoPairOnUnpaired = true;
+      return this.beginConnect();
+    }
     if (this.state !== "hello") return [];
     this.state = "pairing_request";
     return [
@@ -235,6 +243,14 @@ export class SessionMachine {
 
   private onUnpaired(): Effect[] {
     if (this.state !== "hello") return [];
+    if (this.autoPairOnUnpaired) {
+      this.autoPairOnUnpaired = false;
+      this.state = "pairing_request";
+      return [
+        { type: "send", message: { t: "pair.request" } },
+        { type: "storeUpdate", partial: { status: "pairing", pairing: { pinRequired: false, failure: null } } },
+      ];
+    }
     return [{ type: "storeUpdate", partial: { status: "pairing", pairing: { pinRequired: false, failure: null } } }];
   }
 
@@ -266,6 +282,7 @@ export class SessionMachine {
     this.attempts = 0;
     this.awaitingPong = false;
     this.missedPongs = 0;
+    this.lastPingTs = null;
     return [
       {
         type: "storeUpdate",
@@ -279,7 +296,7 @@ export class SessionMachine {
     switch (code) {
       case "unknown_device":
         this.secretHex = null;
-        this.state = "hello";
+        this.state = "needs_pairing";
         return [
           { type: "forgetSecret" },
           { type: "storeUpdate", partial: { status: "pairing", pairing: { pinRequired: false, failure: null }, mac: null, macName: null } },
@@ -300,7 +317,7 @@ export class SessionMachine {
   }
 
   private onPong(ts: number, now: number): Effect[] {
-    if (this.state !== "connected") return [];
+    if (this.state !== "connected" || ts !== this.lastPingTs) return [];
     this.awaitingPong = false;
     this.missedPongs = 0;
     this.lastRttMs = now - ts;
@@ -327,11 +344,15 @@ export class SessionMachine {
   private enterBackoff(): Effect[] {
     this.awaitingPong = false;
     this.missedPongs = 0;
+    this.lastPingTs = null;
     if (this.candidate === null) {
       this.state = "discovering";
       return [{ type: "storeUpdate", partial: { status: "discovering" } }, { type: "startDiscovery" }];
     }
-    this.attempts += 1;
+    // Idempotent: a redundant socketClosed while already recovering (e.g. the guaranteed close
+    // that follows any `error` frame, when that error already triggered backoff) must not
+    // double-count the attempt.
+    if (this.state !== "backoff") this.attempts += 1;
     this.state = "backoff";
     return [
       { type: "storeUpdate", partial: { status: "reconnecting" } },
@@ -345,6 +366,7 @@ export class SessionMachine {
       if (this.missedPongs >= 2) return this.enterBackoff();
     }
     this.awaitingPong = true;
+    this.lastPingTs = now;
     return [
       { type: "send", message: { t: "ping", ts: now } },
       { type: "scheduleRetry", ms: HEARTBEAT_INTERVAL_MS },

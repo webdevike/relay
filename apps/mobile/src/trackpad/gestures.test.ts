@@ -203,14 +203,15 @@ describe("momentum", () => {
     h.feed(1, "began", 0, 0, 0);
     h.feed(2, "began", 40, 0, 0);
     h.feed(1, "moved", 0, -20, 100); // commit scroll
-    h.feed(1, "moved", 0, -40, 116); // 16ms later, avg dy -10 -> vy = -625pt/s
-    h.feed(1, "ended", 0, -40, 132); // fast lift -> ended, then momentum takes over
+    h.feed(1, "moved", 0, -40, 116); // dt 16ms, avg dy -10
+    h.feed(1, "moved", 0, -60, 132); // dt 16ms, avg dy -10 -> 32ms of window, vy = -625pt/s
+    h.feed(1, "ended", 0, -60, 148); // fast lift -> ended, then momentum takes over
 
-    expect(h.events.filter(isScroll).map((e) => e.phase)).toEqual(["began", "changed", "ended"]);
+    expect(h.events.filter(isScroll).map((e) => e.phase)).toEqual(["began", "changed", "changed", "ended"]);
     expect(h.pendingCount()).toBe(1); // first momentum tick scheduled
 
     h.tick(); // v = -625 * 0.95 = -593.75; dy = v * 0.016
-    expect(h.events.at(-1)).toEqual({ k: "scroll", dx: 0, dy: -9.5, phase: "momentum", t: 148 });
+    expect(h.events.at(-1)).toEqual({ k: "scroll", dx: 0, dy: -9.5, phase: "momentum", t: 164 });
 
     let guard = 0;
     while (h.pendingCount() > 0 && guard < 500) {
@@ -386,13 +387,14 @@ describe("reset (unmount)", () => {
     h.feed(1, "began", 0, 0, 0);
     h.feed(2, "began", 40, 0, 0);
     h.feed(1, "moved", 0, -20, 100); // commit scroll
-    h.feed(1, "moved", 0, -40, 116); // fast: avg dy -10 over 16ms -> vy = -625pt/s
-    h.feed(1, "ended", 0, -40, 132); // lift -> momentum begins
+    h.feed(1, "moved", 0, -40, 116); // dt 16ms, avg dy -10
+    h.feed(1, "moved", 0, -60, 132); // dt 16ms, avg dy -10 -> 32ms of window, vy = -625pt/s
+    h.feed(1, "ended", 0, -60, 148); // lift -> momentum begins
     expect(h.pendingCount()).toBe(1); // one tick already scheduled
 
     h.reset();
 
-    expect(h.events.at(-1)).toEqual({ k: "scroll", dx: 0, dy: 0, phase: "momentumEnded", t: 132 });
+    expect(h.events.at(-1)).toEqual({ k: "scroll", dx: 0, dy: 0, phase: "momentumEnded", t: 148 });
 
     // The already-scheduled tick still exists as a raw timer, but must be inert now: no further
     // momentum (or any other) event may reach the Mac after reset.
@@ -409,5 +411,32 @@ describe("reset (unmount)", () => {
 
     expect(h.events).toEqual([]);
     expect(h.haptics).toEqual([]);
+  });
+});
+
+describe("malformed input", () => {
+  it("drops a non-finite touch sample entirely (never reaches an emitted event, and does not corrupt subsequent tracking)", () => {
+    const h = makeHarness();
+    h.feed(1, "began", NaN, NaN, 0);
+    h.feed(1, "moved", NaN, NaN, 20);
+    expect(h.events).toEqual([]);
+
+    // The dropped samples must not have been silently tracked either — a fresh, valid begin for
+    // the same finger id starts a clean gesture, as if the NaN samples never happened.
+    h.feed(1, "began", 10, 10, 100);
+    h.feed(1, "ended", 11, 10, 150);
+    expect(h.events).toEqual([{ k: "click", button: "left", t: 150 }]);
+  });
+
+  it("a backwards (non-monotonic) sample timestamp cannot fabricate momentum from a negligible movement", () => {
+    const h = makeHarness();
+    h.feed(1, "began", 0, 0, 0);
+    h.feed(2, "began", 40, 0, 0);
+    h.feed(1, "moved", 0, -20, 100); // commit scroll
+    h.feed(1, "moved", 0, -25, 90); // t goes backwards: 90 < 100, only a 5pt movement
+    h.feed(1, "ended", 0, -25, 95);
+
+    expect(h.pendingCount()).toBe(0); // no momentum tick was scheduled
+    expect(h.events.filter(isScroll).map((e) => e.phase)).toEqual(["began", "changed", "ended"]);
   });
 });

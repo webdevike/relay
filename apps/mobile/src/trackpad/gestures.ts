@@ -47,6 +47,8 @@ const MOMENTUM_TRIGGER_VELOCITY = 40;
 const MOMENTUM_STOP_VELOCITY = 2;
 const MOMENTUM_DECAY = 0.95;
 const MOMENTUM_TICK_MS = 16;
+/** A lift velocity must be backed by at least this much real elapsed time to be trusted. */
+const MIN_VELOCITY_WINDOW_MS = 30;
 
 interface FingerTrack {
   id: number;
@@ -75,6 +77,34 @@ function applyNatural(dx: number, dy: number, natural: boolean): { dx: number; d
   return natural ? { dx, dy } : { dx: -dx, dy: -dy };
 }
 
+/** One "changed" sample's clamped time delta and raw (pre-inversion) average finger delta. */
+interface VelocitySample {
+  dt: number;
+  dx: number;
+  dy: number;
+}
+
+/**
+ * Averages recent samples back-to-front until at least `MIN_VELOCITY_WINDOW_MS` of real elapsed
+ * time is covered (or the history runs out). A single sample's clamped/near-zero `dt` — e.g. from
+ * a non-monotonic timestamp — must not, on its own, fabricate a momentum-triggering speed out of
+ * a negligible movement; diluting it across a longer, representative window prevents that.
+ * Insufficient history (less than the minimum window) is untrusted and reports zero velocity.
+ */
+function liftVelocity(history: readonly VelocitySample[]): { vx: number; vy: number } {
+  let dtSum = 0;
+  let dxSum = 0;
+  let dySum = 0;
+  for (const sample of [...history].reverse()) {
+    dtSum += sample.dt;
+    dxSum += sample.dx;
+    dySum += sample.dy;
+    if (dtSum >= MIN_VELOCITY_WINDOW_MS) break;
+  }
+  if (dtSum < MIN_VELOCITY_WINDOW_MS) return { vx: 0, vy: 0 };
+  return { vx: (dxSum / dtSum) * 1000, vy: (dySum / dtSum) * 1000 };
+}
+
 type Phase =
   | { kind: "idle" }
   | { kind: "oneDown"; f: FingerTrack; dragArmed: boolean }
@@ -90,7 +120,7 @@ type Phase =
       bEndedAt: number | null;
       downSkewOk: boolean;
     }
-  | { kind: "scrolling"; a: FingerTrack; b: FingerTrack; vx: number; vy: number }
+  | { kind: "scrolling"; a: FingerTrack; b: FingerTrack; history: VelocitySample[] }
   | { kind: "momentum"; vx: number; vy: number };
 
 export class TrackpadGestureModel {
@@ -134,6 +164,7 @@ export class TrackpadGestureModel {
   }
 
   touch(sample: RawTouch): void {
+    if (!Number.isFinite(sample.x) || !Number.isFinite(sample.y) || !Number.isFinite(sample.t)) return;
     if (this.ignored.has(sample.id)) {
       if (sample.phase === "ended" || sample.phase === "cancelled") this.ignored.delete(sample.id);
       return;
@@ -302,25 +333,29 @@ export class TrackpadGestureModel {
     const avgDy = (a.lastY - a.startY + (b.lastY - b.startY)) / 2;
     const { dx, dy } = applyNatural(avgDx, avgDy, this.config.getSettings().naturalScrolling);
     this.emit({ k: "scroll", dx, dy, phase: "began", t });
-    this.phase = { kind: "scrolling", a, b, vx: 0, vy: 0 };
+    this.phase = { kind: "scrolling", a, b, history: [] };
   }
 
   private onScrollingMoved(p: Extract<Phase, { kind: "scrolling" }>, s: RawTouch): void {
     const mine = p.a.id === s.id ? p.a : p.b;
     const dxRaw = s.x - mine.lastX;
     const dyRaw = s.y - mine.lastY;
-    const dt = Math.max(1, s.t - mine.lastT);
+    // A non-monotonic (backwards or repeated) timestamp is clamped rather than floored to a bare
+    // 1ms floor: flooring while keeping the full position delta fabricates an enormous velocity
+    // out of ordinary jitter (see `liftVelocity`). Clamping what's *stored* as `lastT`, not just
+    // this delta, keeps every later delta on this finger sane too.
+    const clampedT = s.t <= mine.lastT ? mine.lastT + 1 : s.t;
+    const dt = clampedT - mine.lastT;
     mine.lastX = s.x;
     mine.lastY = s.y;
-    mine.lastT = s.t;
+    mine.lastT = clampedT;
     // The other finger didn't move this sample, so its contribution to the average is 0 —
     // over a run of alternating single-finger samples this still converges to the true average.
     const avgDx = dxRaw / 2;
     const avgDy = dyRaw / 2;
     const { dx, dy } = applyNatural(avgDx, avgDy, this.config.getSettings().naturalScrolling);
     this.emit({ k: "scroll", dx, dy, phase: "changed", t: s.t });
-    p.vx = (avgDx / dt) * 1000;
-    p.vy = (avgDy / dt) * 1000;
+    p.history.push({ dt, dx: avgDx, dy: avgDy });
   }
 
   private onEnded(s: RawTouch): void {
@@ -393,8 +428,9 @@ export class TrackpadGestureModel {
     const other = p.a.id === s.id ? p.b : p.a;
     this.ignored.add(other.id);
     this.emit({ k: "scroll", dx: 0, dy: 0, phase: "ended", t: s.t });
-    if (Math.hypot(p.vx, p.vy) > MOMENTUM_TRIGGER_VELOCITY) {
-      this.phase = { kind: "momentum", vx: p.vx, vy: p.vy };
+    const { vx, vy } = liftVelocity(p.history);
+    if (Math.hypot(vx, vy) > MOMENTUM_TRIGGER_VELOCITY) {
+      this.phase = { kind: "momentum", vx, vy };
       this.scheduleMomentumTick();
     } else {
       this.phase = { kind: "idle" };
