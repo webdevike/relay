@@ -44,7 +44,7 @@ export default function TrackpadScreen({ renderDictationButton = defaultDictatio
       <StatusBar hidden />
       <View style={{ flex: 1 }}>
         <TrackpadSurface />
-        <View style={{ position: "absolute", top: spacing.md, left: spacing.md }}>
+        <View style={{ position: "absolute", top: spacing.sm, left: spacing.sm }}>
           <IconButton
             symbol="chevron.left"
             size={32}
@@ -54,7 +54,7 @@ export default function TrackpadScreen({ renderDictationButton = defaultDictatio
             }}
           />
         </View>
-        <View style={{ position: "absolute", left: 0, right: 0, bottom: spacing.lg, alignItems: "center" }}>
+        <View style={{ position: "absolute", left: 0, right: 0, bottom: spacing.sm, alignItems: "center" }}>
           {renderDictationButton()}
         </View>
       </View>

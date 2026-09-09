@@ -17,7 +17,7 @@ import { useConnectionStore } from "@/state/connection";
 import { useDictation, openDictationSettings } from "./useDictation";
 import type { DictationPhase } from "./machine";
 
-const BUTTON_SIZE = 36;
+const BUTTON_SIZE = 40;
 const CHIP_WIDTH = 220;
 const NOTHING_HEARD_HOLD_MS = 1500;
 const ERROR_HOLD_MS = 2500;
@@ -53,7 +53,7 @@ const DEFAULT_ERROR_MESSAGE = "Something went wrong.";
 export function DictationButton() {
   const connected = useConnectionStore((state) => state.status === "connected");
   const dictation = useDictation();
-  const { state, transcript } = dictation;
+  const { state } = dictation;
   const ring = useSharedValue(1);
   const [nothingHeardDismissed, setNothingHeardDismissed] = useState(false);
   const [errorDismissed, setErrorDismissed] = useState(false);
@@ -122,11 +122,10 @@ export function DictationButton() {
     if (state.phase === "listening" && !holding.current) dictation.stop();
   }, [state.phase, dictation]);
 
-  const showTranscriptChip = state.phase === "listening" || state.phase === "finishing" || state.phase === "sending";
   const showPermissionChip = state.phase === "permission_denied";
   const showErrorChip = state.phase === "error" && !errorDismissed;
   const showNothingHeardChip = state.phase === "idle" && state.nothingHeard && !nothingHeardDismissed;
-  const chipVisible = showTranscriptChip || showPermissionChip || showErrorChip || showNothingHeardChip;
+  const chipVisible = showPermissionChip || showErrorChip || showNothingHeardChip;
 
   return (
     <View style={{ alignItems: "center" }}>
@@ -142,13 +141,6 @@ export function DictationButton() {
             gap: spacing.sm,
           }}
         >
-          {showTranscriptChip && (
-            <>
-              <Text variant="body" numberOfLines={2}>
-                {transcript.length > 0 ? transcript : "Listening…"}
-              </Text>
-            </>
-          )}
           {showPermissionChip && (
             <Banner
               tone="warn"
