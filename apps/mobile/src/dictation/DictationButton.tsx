@@ -18,7 +18,7 @@ import { impactHaptic, notifyHaptic, tapHaptic } from "@/lib/haptics";
 import { useConnectionStore } from "@/state/connection";
 import { useSpeechRecognitionEvent } from "expo-speech-recognition";
 import { MicGlyph, type MicGlyphMode } from "./MicGlyph";
-import { micLevel } from "./signals";
+import { micLevel, useDictationStore } from "./signals";
 import { useDictation, openDictationSettings } from "./useDictation";
 import type { DictationPhase } from "./machine";
 
@@ -26,10 +26,8 @@ const DEFAULT_SIZE = 40;
 const CHIP_WIDTH = 220;
 const NOTHING_HEARD_HOLD_MS = 1500;
 const ERROR_HOLD_MS = 2500;
-/** Finger travel (pt) up from the button that arms the send gesture. */
-const SEND_ARM_DISTANCE = 40;
-/** Time (ms) the finger must stay in the armed zone before the transcript auto-submits. */
-const SEND_HOLD_MS = 800;
+/** Finger travel (pt) up from the button that submits the dictation (insert + Return). */
+const SEND_SWIPE_DISTANCE = 48;
 const ARROW_SIZE = 32;
 
 const tintFor: Record<DictationPhase, string> = {
@@ -160,7 +158,10 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
     };
     const onPressOut = (): void => {
       holding.current = false;
-      if (submitted.current) return;
+      if (submitted.current) {
+        useDictationStore.getState().launch();
+        return;
+      }
       if (phaseRef.current === "listening") tapHaptic();
       dictationRef.current.stop(); // no-op unless listening
     };
@@ -178,16 +179,13 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
         scheduleOnRN(onPressIn);
       })
       .onUpdate((event) => {
-        const shouldArm = event.translationY < -SEND_ARM_DISTANCE;
-        if (shouldArm && !armed.value) {
+        // Arrow rises with the finger; crossing the swipe distance submits immediately.
+        const lift = Math.min(1, Math.max(0, -event.translationY / SEND_SWIPE_DISTANCE));
+        if (!armed.value) armProgress.value = lift;
+        if (lift >= 1 && !armed.value) {
           armed.value = true;
-          armProgress.value = withTiming(1, { duration: SEND_HOLD_MS, easing: Easing.linear }, (finished) => {
-            if (finished === true) scheduleOnRN(submit);
-          });
-        } else if (!shouldArm && armed.value) {
-          armed.value = false;
-          cancelAnimation(armProgress);
-          armProgress.value = withTiming(0, { duration: motion.duration.fast });
+          armProgress.value = withTiming(1, { duration: motion.duration.fast });
+          scheduleOnRN(submit);
         }
       })
       .onFinalize(() => {

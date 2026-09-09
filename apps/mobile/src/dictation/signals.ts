@@ -12,11 +12,25 @@ export const micLevel = makeMutable(0);
 interface DictationStore {
   phase: DictationPhase;
   setPhase: (phase: DictationPhase) => void;
+  /** Incremented when a submitted dictation is released; the overlay flies a plane per launch. */
+  launches: number;
+  launch: () => void;
+  /** The in-flight/last send also pressed Return. */
+  submitted: boolean;
+  setSubmitted: (submitted: boolean) => void;
 }
 
 export const useDictationStore = create<DictationStore>((set) => ({
   phase: "idle",
   setPhase: (phase) => {
     set({ phase });
+  },
+  submitted: false,
+  setSubmitted: (submitted) => {
+    set({ submitted });
+  },
+  launches: 0,
+  launch: () => {
+    set((s) => ({ launches: s.launches + 1 }));
   },
 }));

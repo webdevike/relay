@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { StyleSheet, TurboModuleRegistry, View } from "react-native";
+import { StyleSheet, TurboModuleRegistry, View, useWindowDimensions } from "react-native";
 import { SymbolView } from "expo-symbols";
 import Animated, {
   Easing,
@@ -12,6 +12,7 @@ import Animated, {
   withTiming,
   type SharedValue,
 } from "react-native-reanimated";
+import { scheduleOnRN } from "react-native-worklets";
 import type * as SkiaNamespace from "@shopify/react-native-skia";
 import { colors, motion } from "@/theme";
 import { micLevel, useDictationStore } from "./signals";
@@ -44,17 +45,51 @@ export function ListeningOrb() {
     return undefined;
   }, [visible]);
 
-  if (!mounted) return null;
+  const launches = useDictationStore((s) => s.launches);
+  if (!mounted && launches === 0) return null;
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-        <OrbBody phase={phase} />
+        {mounted && <OrbBody phase={phase} />}
+        {launches > 0 && <PlaneFlight key={launches} />}
       </View>
     </View>
   );
 }
 
+/** Paper plane: enters from below the screen, passes the center, exits above. One per launch. */
+function PlaneFlight() {
+  const { height } = useWindowDimensions();
+  const progress = useSharedValue(0);
+  const [done, setDone] = useState(false);
+  useEffect(() => {
+    progress.value = withTiming(1, { duration: 720, easing: Easing.inOut(Easing.cubic) }, (finished) => {
+      if (finished === true) scheduleOnRN(setDone, true);
+    });
+    return () => {
+      cancelAnimation(progress);
+    };
+  }, [progress]);
+  const style = useAnimatedStyle(() => {
+    const p = progress.value;
+    const travel = height * 0.5 + 120;
+    const y = travel - p * travel * 2; // +travel (below) -> -travel (above)
+    const hump = Math.sin(p * Math.PI); // 0 -> 1 -> 0 through the middle
+    return {
+      opacity: 0.35 + hump * 0.65,
+      transform: [{ translateY: y }, { translateX: -hump * 12 }, { rotate: `${-32 + hump * 10}deg` }, { scale: 0.85 + hump * 0.35 }],
+    };
+  });
+  if (done) return null;
+  return (
+    <Animated.View style={[{ position: "absolute" }, style]}>
+      <SymbolView name="paperplane.fill" size={44} tintColor={colors.accent} />
+    </Animated.View>
+  );
+}
+
 function OrbBody({ phase }: { phase: DictationPhase }) {
+  const submitted = useDictationStore((s) => s.submitted);
   const listening = phase === "listening";
   const settling = phase === "finishing" || phase === "sending";
   const sent = phase === "sent";
@@ -93,7 +128,7 @@ function OrbBody({ phase }: { phase: DictationPhase }) {
       <Animated.View style={[{ width: CANVAS, height: CANVAS, alignItems: "center", justifyContent: "center" }, orbStyle]}>
         <OrbSurface level={smoothed} />
       </Animated.View>
-      {sent && <SentCheck />}
+      {sent && !submitted && <SentCheck />}
     </View>
   );
 }

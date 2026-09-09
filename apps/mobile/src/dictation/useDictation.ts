@@ -55,6 +55,7 @@ export function useDictation(): UseDictationResult {
       debug("dictation", snapshot.phase, snapshot.submit ? "submit" : "", snapshot.errorCode ?? "");
       snapshotRef.current?.(snapshot);
       useDictationStore.getState().setPhase(snapshot.phase);
+      useDictationStore.getState().setSubmitted(snapshot.submit);
     },
     onEffect: (effect) => {
       const cmd: Command = { kind: "text.insert", text: effect.text };
