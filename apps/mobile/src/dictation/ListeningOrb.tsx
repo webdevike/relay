@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, TurboModuleRegistry, View } from "react-native";
 import { SymbolView } from "expo-symbols";
 import Animated, {
   Easing,
@@ -107,9 +107,16 @@ type SkiaModule = typeof SkiaNamespace;
 let skia: SkiaModule | null | undefined;
 function loadSkia(): SkiaModule | null {
   if (skia !== undefined) return skia;
+  // Probe the native side first: requiring the JS package on a client built without Skia leaves
+  // a half-initialized module behind instead of throwing cleanly.
+  if (TurboModuleRegistry.get("RNSkiaModule") === null) {
+    skia = null;
+    return skia;
+  }
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional native module
-    skia = require("@shopify/react-native-skia") as SkiaModule;
+    const loaded = require("@shopify/react-native-skia") as Partial<SkiaModule>;
+    skia = typeof loaded.Canvas === "function" && loaded.Skia !== undefined ? loaded : null;
   } catch {
     skia = null;
   }
