@@ -16,7 +16,7 @@ export default function RootLayout() {
           contentStyle: { backgroundColor: colors.bg },
         }}
       >
-        <Stack.Screen name="trackpad" options={{ orientation: "landscape" }} />
+        <Stack.Screen name="trackpad" options={{ orientation: "all" }} />
       </Stack>
     </GestureHandlerRootView>
   );
