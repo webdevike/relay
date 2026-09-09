@@ -9,6 +9,7 @@ import {
 import type { Command } from "@relay/protocol";
 import { sendCommand } from "@/connection";
 import { useConnectionStore } from "@/state/connection";
+import { useDictationStore } from "./signals";
 import { DictationMachine, realScheduler, type DictationSnapshot } from "./machine";
 
 export interface UseDictationResult {
@@ -45,8 +46,13 @@ function ackErrorCode(err: unknown): string {
 export function useDictation(): UseDictationResult {
   const connected = useConnectionStore((state) => state.status === "connected");
   const machineRef = useRef<DictationMachine | null>(null);
+  const snapshotRef = useRef<((snapshot: DictationSnapshot) => void) | null>(null);
   machineRef.current ??= new DictationMachine({
     scheduler: realScheduler,
+    onChange: (snapshot) => {
+      snapshotRef.current?.(snapshot);
+      useDictationStore.getState().setPhase(snapshot.phase);
+    },
     onEffect: (effect) => {
       const cmd: Command = { kind: "text.insert", text: effect.text };
       sendCommand(cmd).then(
@@ -59,10 +65,10 @@ export function useDictation(): UseDictationResult {
   });
   const machine = machineRef.current;
   const [snapshot, setSnapshot] = useState<DictationSnapshot>(() => machine.getSnapshot());
+  snapshotRef.current = setSnapshot;
 
   const dispatch = (event: Parameters<DictationMachine["send"]>[0]): void => {
     machine.send(event);
-    setSnapshot(machine.getSnapshot());
   };
 
   useSpeechRecognitionEvent("result", (event) => {

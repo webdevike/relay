@@ -15,6 +15,7 @@ import { impactHaptic, notifyHaptic } from "@/lib/haptics";
 import { useConnectionStore } from "@/state/connection";
 import { useSpeechRecognitionEvent } from "expo-speech-recognition";
 import { MicGlyph, type MicGlyphMode } from "./MicGlyph";
+import { micLevel } from "./signals";
 import { useDictation, openDictationSettings } from "./useDictation";
 import type { DictationPhase } from "./machine";
 
@@ -61,7 +62,7 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
   const dictation = useDictation();
   const { state } = dictation;
   const ring = useSharedValue(1);
-  const level = useSharedValue(0);
+  const level = micLevel;
   useSpeechRecognitionEvent("volumechange", (event) => {
     // iOS reports roughly -2..10; below 0 is inaudible.
     const normalized = Math.min(1, Math.max(0, event.value / 8));

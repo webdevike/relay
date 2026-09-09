@@ -66,17 +66,21 @@ function idleSnapshot(): DictationSnapshot {
 export interface DictationMachineOptions {
   scheduler?: Scheduler;
   onEffect?: (effect: DictationEffect) => void;
+  /** Fires after every transition, including timer- and callback-driven ones. */
+  onChange?: (snapshot: DictationSnapshot) => void;
 }
 
 export class DictationMachine {
   private snapshot: DictationSnapshot = idleSnapshot();
   private readonly scheduler: Scheduler;
   private readonly onEffect: ((effect: DictationEffect) => void) | undefined;
+  private readonly onChange: ((snapshot: DictationSnapshot) => void) | undefined;
   private cancelTimer: (() => void) | null = null;
 
   constructor(options: DictationMachineOptions = {}) {
     this.scheduler = options.scheduler ?? realScheduler;
     this.onEffect = options.onEffect;
+    this.onChange = options.onChange;
   }
 
   getSnapshot(): DictationSnapshot {
@@ -84,7 +88,10 @@ export class DictationMachine {
   }
 
   send(event: DictationEvent): void {
-    this.snapshot = this.reduce(this.snapshot, event);
+    const next = this.reduce(this.snapshot, event);
+    if (next === this.snapshot) return;
+    this.snapshot = next;
+    this.onChange?.(next);
   }
 
   private armTimer(ms: number, callback: () => void): void {
