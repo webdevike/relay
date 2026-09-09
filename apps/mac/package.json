@@ -1,0 +1,12 @@
+{
+  "name": "@relay/mac",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "typecheck": "swift build --build-tests -Xswiftc -warnings-as-errors",
+    "test": "swift test",
+    "build": "swift build -c release",
+    "bundle": "sh scripts/bundle.sh",
+    "lint": "echo 'no swift linter installed; warnings-as-errors enforced in typecheck'"
+  }
+}

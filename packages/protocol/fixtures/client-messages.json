@@ -1,0 +1,126 @@
+[
+  {
+    "t": "hello",
+    "v": 1,
+    "deviceId": "7c1c2a6e-3b7f-4f52-9c1e-5b1f1d5d0a11",
+    "deviceName": "Isaac's iPhone",
+    "platform": "ios"
+  },
+  {
+    "t": "auth",
+    "proof": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+  },
+  {
+    "t": "pair.request"
+  },
+  {
+    "t": "pair.confirm",
+    "pin": "482913"
+  },
+  {
+    "t": "input",
+    "events": [
+      {
+        "k": "move",
+        "dx": 3.5,
+        "dy": -1.25,
+        "t": 1200.5
+      },
+      {
+        "k": "click",
+        "button": "left",
+        "t": 1210
+      },
+      {
+        "k": "click",
+        "button": "right",
+        "t": 1400
+      },
+      {
+        "k": "drag",
+        "phase": "start",
+        "t": 1500
+      },
+      {
+        "k": "drag",
+        "phase": "end",
+        "t": 1900
+      },
+      {
+        "k": "scroll",
+        "dx": 0,
+        "dy": -12,
+        "phase": "began",
+        "t": 2000
+      },
+      {
+        "k": "scroll",
+        "dx": 0,
+        "dy": -8,
+        "phase": "changed",
+        "t": 2008
+      },
+      {
+        "k": "scroll",
+        "dx": 0,
+        "dy": 0,
+        "phase": "ended",
+        "t": 2100
+      },
+      {
+        "k": "scroll",
+        "dx": 0,
+        "dy": -4,
+        "phase": "momentum",
+        "t": 2108
+      },
+      {
+        "k": "scroll",
+        "dx": 0,
+        "dy": 0,
+        "phase": "momentumEnded",
+        "t": 2400
+      }
+    ]
+  },
+  {
+    "t": "cmd",
+    "id": "c-1",
+    "cmd": {
+      "kind": "text.insert",
+      "text": "hello from the phone"
+    }
+  },
+  {
+    "t": "cmd",
+    "id": "c-2",
+    "cmd": {
+      "kind": "key.press",
+      "key": "return"
+    }
+  },
+  {
+    "t": "cmd",
+    "id": "c-3",
+    "cmd": {
+      "kind": "agent.reply",
+      "sessionId": "s-1",
+      "text": "yes, go ahead"
+    }
+  },
+  {
+    "t": "ping",
+    "ts": 123456.7
+  },
+  {
+    "t": "agents.get"
+  },
+  {
+    "t": "agent.subscribe",
+    "sessionId": "s-1"
+  },
+  {
+    "t": "agent.unsubscribe",
+    "sessionId": "s-1"
+  }
+]

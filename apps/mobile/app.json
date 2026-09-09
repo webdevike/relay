@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "Relay",
+    "slug": "relay",
+    "version": "0.1.0",
+    "scheme": "relay",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0B0B0C",
+    "newArchEnabled": true,
+    "ios": {
+      "bundleIdentifier": "com.ike.relay",
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "Relay finds your Mac on the local network.",
+        "NSBonjourServices": [
+          "_relay._tcp"
+        ],
+        "NSMicrophoneUsageDescription": "Relay listens while you dictate.",
+        "NSSpeechRecognitionUsageDescription": "Relay turns your dictation into text for your Mac.",
+        "UIBackgroundModes": []
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Relay listens while you dictate.",
+          "speechRecognitionPermission": "Relay turns your dictation into text for your Mac."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

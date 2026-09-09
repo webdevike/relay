@@ -1,0 +1,44 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "tui",
+  "tasks": {
+    "lint": {
+      "dependsOn": [
+        "^build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.md"
+      ]
+    },
+    "typecheck": {
+      "dependsOn": [
+        "^build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.md"
+      ]
+    },
+    "test": {
+      "dependsOn": [
+        "^build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.md"
+      ],
+      "outputs": []
+    },
+    "build": {
+      "dependsOn": [
+        "^build"
+      ],
+      "outputs": [
+        "dist/**",
+        ".build/release/**",
+        "build/**"
+      ]
+    }
+  }
+}

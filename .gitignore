@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.turbo/
+.expo/
+ios/
+android/
+.build/
+*.xcuserstate
+DerivedData/
+*.app/
+.DS_Store
+*.log
+.env*
+apps/mac/Relay.app
+apps/mac/build/

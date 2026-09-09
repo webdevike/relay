@@ -1,0 +1,144 @@
+[
+  {
+    "t": "challenge",
+    "nonce": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  },
+  {
+    "t": "unpaired"
+  },
+  {
+    "t": "pair.pending"
+  },
+  {
+    "t": "pair.ok",
+    "secret": "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+  },
+  {
+    "t": "pair.failed",
+    "reason": "wrong_pin"
+  },
+  {
+    "t": "welcome",
+    "state": {
+      "mac": {
+        "name": "Isaac's MacBook",
+        "version": "0.1.0",
+        "accessibilityGranted": true,
+        "agentsAvailable": true
+      },
+      "agents": {
+        "rev": 7,
+        "sessions": [
+          {
+            "id": "s-1",
+            "provider": "claude-code",
+            "title": "relay",
+            "projectPath": "/Users/isaac/Code/relay",
+            "status": "needs_permission",
+            "statusDetail": "Bash: pnpm test",
+            "lastActivity": "Wants to run pnpm test",
+            "lastActivityAt": 1788900000000,
+            "canRespond": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "t": "error",
+    "code": "unknown_device",
+    "message": "device not paired"
+  },
+  {
+    "t": "mac.state",
+    "mac": {
+      "name": "Isaac's MacBook",
+      "version": "0.1.0",
+      "accessibilityGranted": false,
+      "agentsAvailable": false
+    }
+  },
+  {
+    "t": "agents.snapshot",
+    "rev": 8,
+    "sessions": []
+  },
+  {
+    "t": "agents.delta",
+    "rev": 9,
+    "upsert": [
+      {
+        "id": "s-2",
+        "provider": "claude-code",
+        "title": "flodoc",
+        "projectPath": "/Users/isaac/Code/flodoc",
+        "status": "working",
+        "lastActivity": "Edit src/app.ts",
+        "lastActivityAt": 1788900001000,
+        "canRespond": false
+      }
+    ],
+    "remove": [
+      "s-1"
+    ]
+  },
+  {
+    "t": "agent.conversation",
+    "sessionId": "s-1",
+    "rev": 3,
+    "messages": [
+      {
+        "id": "m-1",
+        "role": "user",
+        "text": "run the tests",
+        "at": 1788899990000
+      },
+      {
+        "id": "m-2",
+        "role": "tool",
+        "text": "",
+        "at": 1788899991000,
+        "tool": {
+          "name": "Bash",
+          "summary": "pnpm test"
+        }
+      },
+      {
+        "id": "m-3",
+        "role": "assistant",
+        "text": "All 12 tests pass.",
+        "at": 1788899995000
+      }
+    ]
+  },
+  {
+    "t": "agent.messages",
+    "sessionId": "s-1",
+    "rev": 4,
+    "append": [
+      {
+        "id": "m-4",
+        "role": "system",
+        "text": "session ended",
+        "at": 1788900002000
+      }
+    ]
+  },
+  {
+    "t": "ack",
+    "id": "c-1"
+  },
+  {
+    "t": "nack",
+    "id": "c-2",
+    "error": {
+      "code": "accessibility_denied",
+      "message": "grant Accessibility to Relay"
+    }
+  },
+  {
+    "t": "pong",
+    "ts": 123456.7,
+    "serverTs": 1788900003000.25
+  }
+]

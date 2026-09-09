@@ -1,0 +1,26 @@
+{
+  "name": "relay",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "build": "turbo run build",
+    "check": "turbo run lint typecheck test build",
+    "affected": "turbo run lint typecheck test build --filter=...[HEAD^1]",
+    "format": "prettier --write \"**/*.{ts,tsx,json,md,yaml}\""
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.30.0",
+    "eslint": "^9.30.0",
+    "prettier": "^3.6.0",
+    "turbo": "^2.10.12",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.35.0",
+    "vitest": "^3.2.0"
+  }
+}
