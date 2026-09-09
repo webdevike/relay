@@ -3,7 +3,8 @@ import { View } from "react-native";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useKeepAwake } from "expo-keep-awake";
-import * as ScreenOrientation from "expo-screen-orientation";
+import { requireOptionalNativeModule } from "expo-modules-core";
+import type * as ScreenOrientationModule from "expo-screen-orientation";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { IconButton } from "@/ui/IconButton";
 import { colors, spacing } from "@/theme";
@@ -27,6 +28,10 @@ export default function TrackpadScreen({ renderDictationButton = defaultDictatio
   const router = useRouter();
 
   useEffect(() => {
+    // Guarded so a dev client built before expo-screen-orientation was added still loads.
+    if (requireOptionalNativeModule("ExpoScreenOrientation") === null) return;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- deferred so the import above stays optional
+    const ScreenOrientation = require("expo-screen-orientation") as typeof ScreenOrientationModule;
     void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
     return () => {
       void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
