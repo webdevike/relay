@@ -12,10 +12,9 @@ import Animated, {
   withTiming,
   type SharedValue,
 } from "react-native-reanimated";
-import { scheduleOnRN } from "react-native-worklets";
 import type * as SkiaNamespace from "@shopify/react-native-skia";
 import { colors, motion } from "@/theme";
-import { micLevel, useDictationStore } from "./signals";
+import { micLevel, sendLift, useDictationStore } from "./signals";
 import type { DictationPhase } from "./machine";
 
 const ORB = 140;
@@ -45,65 +44,48 @@ export function ListeningOrb() {
     return undefined;
   }, [visible]);
 
-  const launches = useDictationStore((s) => s.launches);
-  if (!mounted && launches === 0) return null;
+  if (!mounted) return null;
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-        {mounted && <OrbBody phase={phase} />}
-        {launches > 0 && <PlaneFlight key={launches} />}
+        <OrbBody phase={phase} />
       </View>
     </View>
   );
 }
 
-/** Paper plane: enters from below the screen, passes the center, exits above. One per launch. */
-function PlaneFlight() {
-  const { height } = useWindowDimensions();
-  const progress = useSharedValue(0);
-  const [done, setDone] = useState(false);
-  useEffect(() => {
-    progress.value = withTiming(1, { duration: 720, easing: Easing.inOut(Easing.cubic) }, (finished) => {
-      if (finished === true) scheduleOnRN(setDone, true);
-    });
-    return () => {
-      cancelAnimation(progress);
-    };
-  }, [progress]);
-  const style = useAnimatedStyle(() => {
-    const p = progress.value;
-    const travel = height * 0.5 + 120;
-    const y = travel - p * travel * 2; // +travel (below) -> -travel (above)
-    const hump = Math.sin(p * Math.PI); // 0 -> 1 -> 0 through the middle
-    return {
-      opacity: 0.35 + hump * 0.65,
-      transform: [{ translateY: y }, { translateX: -hump * 12 }, { rotate: `${-32 + hump * 10}deg` }, { scale: 0.85 + hump * 0.35 }],
-    };
-  });
-  if (done) return null;
-  return (
-    <Animated.View style={[{ position: "absolute" }, style]}>
-      <SymbolView name="paperplane.fill" size={44} tintColor={colors.accent} />
-    </Animated.View>
-  );
-}
-
 function OrbBody({ phase }: { phase: DictationPhase }) {
   const submitted = useDictationStore((s) => s.submitted);
+  const launches = useDictationStore((s) => s.launches);
+  const { height } = useWindowDimensions();
   const listening = phase === "listening";
   const settling = phase === "finishing" || phase === "sending";
   const sent = phase === "sent";
 
-  // Presence: 0 hidden, 1 shown. Sent collapses the orb to make room for the check.
+  // Presence: 0 hidden, 1 shown. A plain send collapses the orb to make room for the check; a
+  // submitted send keeps it whole so it can launch.
   const presence = useSharedValue(0);
   const collapse = useSharedValue(0);
   useEffect(() => {
-    presence.value = withTiming(listening || settling ? 1 : 0, {
+    presence.value = withTiming(listening || settling || (sent && submitted) ? 1 : 0, {
       duration: motion.duration.base,
       easing: Easing.out(Easing.cubic),
     });
-    collapse.value = withTiming(sent ? 1 : 0, { duration: motion.duration.base, easing: Easing.inOut(Easing.cubic) });
-  }, [listening, settling, sent, presence, collapse]);
+    collapse.value = withTiming(sent && !submitted ? 1 : 0, {
+      duration: motion.duration.base,
+      easing: Easing.inOut(Easing.cubic),
+    });
+  }, [listening, settling, sent, submitted, presence, collapse]);
+
+  // Submit + release: the orb itself launches off the top of the screen.
+  const flight = useSharedValue(0);
+  useEffect(() => {
+    if (launches === 0) return;
+    flight.value = 0;
+    flight.value = withTiming(1, { duration: 620, easing: Easing.in(Easing.cubic) }, (finished) => {
+      if (finished === true) sendLift.value = 0;
+    });
+  }, [launches, flight]);
 
   // Smoothed level: fast attack, slow release, so speech reads as pulses not jitter.
   const smoothed = useSharedValue(0);
@@ -114,19 +96,31 @@ function OrbBody({ phase }: { phase: DictationPhase }) {
     smoothed.value += (target - smoothed.value) * Math.min(1, rate * dt);
   });
 
+  // Drag-up lift: the orb rises, tightens and brightens toward the send threshold.
   const scale = useDerivedValue(() => {
     const breathe = 1 + smoothed.value * 0.22;
-    return presence.value * (0.6 + 0.4 * presence.value) * breathe * (1 - collapse.value * 0.55);
+    return (
+      presence.value *
+      (0.6 + 0.4 * presence.value) *
+      breathe *
+      (1 - collapse.value * 0.55) *
+      (1 - sendLift.value * 0.12) *
+      (1 - flight.value * 0.5)
+    );
   });
-  const orbStyle = useAnimatedStyle(() => ({
-    opacity: presence.value * (1 - collapse.value),
-    transform: [{ scale: scale.value }],
-  }));
+  const glow = useDerivedValue(() => Math.max(smoothed.value, sendLift.value * 0.9));
+  const orbStyle = useAnimatedStyle(() => {
+    const travel = height * 0.5 + CANVAS;
+    return {
+      opacity: presence.value * (1 - collapse.value) * (1 - Math.max(0, flight.value - 0.6) / 0.4),
+      transform: [{ translateY: -sendLift.value * 56 - flight.value * travel }, { scale: scale.value }],
+    };
+  });
 
   return (
     <View style={{ width: CANVAS, height: CANVAS, alignItems: "center", justifyContent: "center" }}>
       <Animated.View style={[{ width: CANVAS, height: CANVAS, alignItems: "center", justifyContent: "center" }, orbStyle]}>
-        <OrbSurface level={smoothed} />
+        <OrbSurface level={glow} />
       </Animated.View>
       {sent && !submitted && <SentCheck />}
     </View>

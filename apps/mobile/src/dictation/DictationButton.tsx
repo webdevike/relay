@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { scheduleOnRN } from "react-native-worklets";
-import { SymbolView } from "expo-symbols";
 import Animated, {
   cancelAnimation,
   Easing,
@@ -18,7 +17,7 @@ import { impactHaptic, notifyHaptic, tapHaptic } from "@/lib/haptics";
 import { useConnectionStore } from "@/state/connection";
 import { useSpeechRecognitionEvent } from "expo-speech-recognition";
 import { MicGlyph, type MicGlyphMode } from "./MicGlyph";
-import { micLevel, useDictationStore } from "./signals";
+import { micLevel, sendLift, useDictationStore } from "./signals";
 import { useDictation, openDictationSettings } from "./useDictation";
 import type { DictationPhase } from "./machine";
 
@@ -27,8 +26,7 @@ const CHIP_WIDTH = 220;
 const NOTHING_HEARD_HOLD_MS = 1500;
 const ERROR_HOLD_MS = 2500;
 /** Finger travel (pt) up from the button that submits the dictation (insert + Return). */
-const SEND_SWIPE_DISTANCE = 48;
-const ARROW_SIZE = 32;
+const SEND_SWIPE_DISTANCE = 56;
 
 const tintFor: Record<DictationPhase, string> = {
   idle: colors.text,
@@ -134,7 +132,6 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
   const holding = useRef(false);
   const submitted = useRef(false);
 
-  const armProgress = useSharedValue(0);
   const armed = useSharedValue(false);
   const pressed = useSharedValue(false);
 
@@ -179,31 +176,24 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
         scheduleOnRN(onPressIn);
       })
       .onUpdate((event) => {
-        // Arrow rises with the finger; crossing the swipe distance submits immediately.
+        // The orb lifts with the finger; crossing the swipe distance submits immediately.
         const lift = Math.min(1, Math.max(0, -event.translationY / SEND_SWIPE_DISTANCE));
-        if (!armed.value) armProgress.value = lift;
+        if (!armed.value) sendLift.value = lift;
         if (lift >= 1 && !armed.value) {
           armed.value = true;
-          armProgress.value = withTiming(1, { duration: motion.duration.fast });
           scheduleOnRN(submit);
         }
       })
       .onFinalize(() => {
         pressed.value = false;
+        const wasArmed = armed.value;
         armed.value = false;
-        cancelAnimation(armProgress);
-        armProgress.value = withTiming(0, { duration: motion.duration.fast });
+        if (!wasArmed) sendLift.value = withTiming(0, { duration: motion.duration.base });
         scheduleOnRN(onPressOut);
       });
-  }, [armProgress, armed, pressed]);
+  }, [armed, pressed]);
 
   const buttonStyle = useAnimatedStyle(() => ({ opacity: !connected ? 0.4 : pressed.value ? 0.85 : 1 }));
-  // Arrow chip: appears as the finger lifts off the button, fills clockwise-ish via scale + tint.
-  const arrowStyle = useAnimatedStyle(() => ({
-    opacity: armed.value ? 1 : armProgress.value,
-    transform: [{ translateY: -(BUTTON_SIZE / 2 + ARROW_SIZE / 2 + spacing.md) }, { scale: 0.8 + armProgress.value * 0.3 }],
-  }));
-  const arrowFillStyle = useAnimatedStyle(() => ({ height: `${armProgress.value * 100}%` }));
 
   const showPermissionChip = state.phase === "permission_denied";
   const showErrorChip = state.phase === "error" && !errorDismissed;
@@ -258,24 +248,6 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
             ]}
           />
         )}
-        <Animated.View pointerEvents="none" style={[{ position: "absolute", width: ARROW_SIZE, height: ARROW_SIZE }, arrowStyle]}>
-          <View
-            style={{
-              width: ARROW_SIZE,
-              height: ARROW_SIZE,
-              borderRadius: ARROW_SIZE / 2,
-              borderWidth: 1.5,
-              borderColor: colors.accent,
-              overflow: "hidden",
-              alignItems: "center",
-              justifyContent: "center",
-              backgroundColor: colors.surfaceRaised,
-            }}
-          >
-            <Animated.View style={[{ position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: colors.accent }, arrowFillStyle]} />
-            <SymbolView name="arrow.up" size={ARROW_SIZE * 0.5} tintColor={colors.text} weight="semibold" />
-          </View>
-        </Animated.View>
         <GestureDetector gesture={gesture.enabled(connected)}>
           <Animated.View
             style={[
