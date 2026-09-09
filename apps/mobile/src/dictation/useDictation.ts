@@ -26,6 +26,7 @@ const RECOGNIZER_OPTIONS: ExpoSpeechRecognitionOptions = {
   continuous: true,
   addsPunctuation: true,
   iosTaskHint: "dictation",
+  volumeChangeEventOptions: { enabled: true, intervalMillis: 60 },
   iosCategory: {
     category: "playAndRecord",
     categoryOptions: ["duckOthers", "defaultToSpeaker"],

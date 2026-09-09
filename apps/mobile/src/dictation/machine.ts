@@ -57,7 +57,7 @@ export const realScheduler: Scheduler = {
 };
 
 const FINISH_TIMEOUT_MS = 1500;
-const SENT_HOLD_MS = 600;
+const SENT_HOLD_MS = 900;
 
 function idleSnapshot(): DictationSnapshot {
   return { phase: "idle", transcript: "", nothingHeard: false, errorCode: null };

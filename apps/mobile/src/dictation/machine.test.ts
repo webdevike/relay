@@ -64,7 +64,7 @@ describe("DictationMachine", () => {
     machine.send({ type: "sendOk" });
     expect(machine.getSnapshot().phase).toBe("sent");
 
-    scheduler.flush(600);
+    scheduler.flush(900);
     expect(machine.getSnapshot().phase).toBe("idle");
   });
 

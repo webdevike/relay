@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { Pressable, View } from "react-native";
-import { SymbolView, type SFSymbol } from "expo-symbols";
 import Animated, {
   cancelAnimation,
   Easing,
@@ -12,8 +11,10 @@ import Animated, {
 import { Text } from "@/ui/Text";
 import { Banner } from "@/ui/Banner";
 import { colors, motion, radii, spacing } from "@/theme";
-import { tapHaptic } from "@/lib/haptics";
+import { impactHaptic, notifyHaptic } from "@/lib/haptics";
 import { useConnectionStore } from "@/state/connection";
+import { useSpeechRecognitionEvent } from "expo-speech-recognition";
+import { MicGlyph, type MicGlyphMode } from "./MicGlyph";
 import { useDictation, openDictationSettings } from "./useDictation";
 import type { DictationPhase } from "./machine";
 
@@ -60,6 +61,16 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
   const dictation = useDictation();
   const { state } = dictation;
   const ring = useSharedValue(1);
+  const level = useSharedValue(0);
+  useSpeechRecognitionEvent("volumechange", (event) => {
+    // iOS reports roughly -2..10; below 0 is inaudible.
+    const normalized = Math.min(1, Math.max(0, event.value / 8));
+    level.value = withTiming(normalized, { duration: 70 });
+  });
+  useEffect(() => {
+    if (state.phase === "sent") notifyHaptic("success");
+    if (state.phase !== "listening") level.value = withTiming(0, { duration: motion.duration.fast });
+  }, [state.phase, level]);
   const [nothingHeardDismissed, setNothingHeardDismissed] = useState(false);
   const [errorDismissed, setErrorDismissed] = useState(false);
 
@@ -104,7 +115,8 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
 
   const ringStyle = useAnimatedStyle(() => ({ transform: [{ scale: ring.value }] }));
 
-  const icon: SFSymbol = state.phase === "sent" ? "checkmark" : "mic.fill";
+  const glyphMode: MicGlyphMode =
+    state.phase === "sent" ? "check" : state.phase === "listening" || state.phase === "finishing" || state.phase === "sending" ? "wave" : "mic";
   const interactive = connected && (state.phase === "idle" || state.phase === "listening" || state.phase === "error");
 
   const holding = useRef(false);
@@ -115,7 +127,7 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
     }
     if (state.phase !== "idle") return;
     holding.current = true;
-    tapHaptic();
+    impactHaptic("medium");
     dictation.start();
   };
   const onPressOut = (): void => {
@@ -194,7 +206,7 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
             opacity: !connected ? 0.4 : pressed ? 0.85 : 1,
           })}
         >
-          <SymbolView name={icon} size={BUTTON_SIZE * 0.45} tintColor={tintFor[state.phase]} />
+          <MicGlyph mode={glyphMode} size={BUTTON_SIZE} tintColor={tintFor[state.phase]} level={level} />
         </Pressable>
       </View>
       {!connected && (
