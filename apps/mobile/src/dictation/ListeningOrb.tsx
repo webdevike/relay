@@ -27,22 +27,23 @@ const CANVAS = ORB * 1.6; // room for the glow
  */
 export function ListeningOrb() {
   const phase = useDictationStore((s) => s.phase);
+  const submitted = useDictationStore((s) => s.submitted);
   const visible = phase === "listening" || phase === "finishing" || phase === "sending" || phase === "sent";
   const [mounted, setMounted] = useState(visible);
 
-  // Keep mounted through the exit animation.
+  // Keep mounted through the exit animation (longer when the orb is launching off-screen).
   useEffect(() => {
     if (visible) setMounted(true);
     else {
       const id = setTimeout(() => {
         setMounted(false);
-      }, motion.duration.base + 60);
+      }, submitted ? 700 : motion.duration.base + 60);
       return () => {
         clearTimeout(id);
       };
     }
     return undefined;
-  }, [visible]);
+  }, [visible, submitted]);
 
   if (!mounted) return null;
   return (
@@ -82,9 +83,7 @@ function OrbBody({ phase }: { phase: DictationPhase }) {
   useEffect(() => {
     if (launches === 0) return;
     flight.value = 0;
-    flight.value = withTiming(1, { duration: 620, easing: Easing.in(Easing.cubic) }, (finished) => {
-      if (finished === true) sendLift.value = 0;
-    });
+    flight.value = withTiming(1, { duration: 620, easing: Easing.in(Easing.cubic) });
   }, [launches, flight]);
 
   // Smoothed level: fast attack, slow release, so speech reads as pulses not jitter.
