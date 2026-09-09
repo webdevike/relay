@@ -10,6 +10,7 @@ import type { Command } from "@relay/protocol";
 import { sendCommand } from "@/connection";
 import { useConnectionStore } from "@/state/connection";
 import { useDictationStore } from "./signals";
+import { debug } from "@/connection/log";
 import { DictationMachine, realScheduler, type DictationSnapshot } from "./machine";
 
 export interface UseDictationResult {
@@ -51,6 +52,7 @@ export function useDictation(): UseDictationResult {
   machineRef.current ??= new DictationMachine({
     scheduler: realScheduler,
     onChange: (snapshot) => {
+      debug("dictation", snapshot.phase, snapshot.submit ? "submit" : "", snapshot.errorCode ?? "");
       snapshotRef.current?.(snapshot);
       useDictationStore.getState().setPhase(snapshot.phase);
     },
