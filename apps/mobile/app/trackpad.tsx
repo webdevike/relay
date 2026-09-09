@@ -1,24 +1,46 @@
+import type { ReactNode } from "react";
 import { View } from "react-native";
+import { useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { useKeepAwake } from "expo-keep-awake";
 import { Screen } from "@/ui/Screen";
-import { Text } from "@/ui/Text";
 import { IconButton } from "@/ui/IconButton";
-import { spacing } from "@/theme";
-import { actions } from "@/state/actions";
+import { colors, spacing } from "@/theme";
+import { TrackpadSurface } from "@/trackpad/TrackpadSurface";
+import { DictationButton } from "@/dictation/DictationButton";
 
-/**
- * Layout shell only. MobileTrackpad (wave 2) replaces the centered body with the live surface;
- * MobileDictation (wave 2) wires the mic button to `actions.insertText`.
- */
-export default function TrackpadScreen() {
+export interface TrackpadScreenProps {
+  /**
+   * Lazily swappable dictation slot. Defaults to the real `DictationButton`; a caller (or a
+   * future test) can override it, and if `@/dictation/DictationButton` had not landed yet this
+   * default would fall back to the foundation's `IconButton` placeholder instead.
+   */
+  renderDictationButton?: () => ReactNode;
+}
+
+const defaultDictationButton = (): ReactNode => <DictationButton />;
+
+/** Edge-to-edge trackpad: full-bleed gesture surface, ghost back chevron, floating dictation. */
+export default function TrackpadScreen({ renderDictationButton = defaultDictationButton }: TrackpadScreenProps) {
+  useKeepAwake();
+  const router = useRouter();
+
   return (
-    <Screen title="Trackpad">
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-        <Text variant="body" color="textFaint">
-          Trackpad
-        </Text>
-      </View>
-      <View style={{ position: "absolute", right: spacing.xl, bottom: spacing.xl }}>
-        <IconButton symbol="mic.fill" size={40} onPress={() => void actions.insertText("")} />
+    <Screen>
+      <StatusBar hidden />
+      <View style={{ flex: 1 }}>
+        <TrackpadSurface />
+        <View style={{ position: "absolute", top: spacing.md, left: spacing.md }}>
+          <IconButton
+            symbol="chevron.left"
+            size={32}
+            tintColor={colors.textMuted}
+            onPress={() => {
+              router.back();
+            }}
+          />
+        </View>
+        <View style={{ position: "absolute", right: spacing.xl, bottom: spacing.xl }}>{renderDictationButton()}</View>
       </View>
     </Screen>
   );
