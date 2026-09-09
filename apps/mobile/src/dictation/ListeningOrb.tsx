@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { StyleSheet, TurboModuleRegistry, View, useWindowDimensions } from "react-native";
 import { SymbolView } from "expo-symbols";
 import Animated, {
@@ -77,10 +77,13 @@ function OrbBody({ phase }: { phase: DictationPhase }) {
     });
   }, [listening, settling, sent, submitted, presence, collapse]);
 
-  // Submit + release: the orb itself launches off the top of the screen.
+  // Submit + release: the orb itself launches off the top of the screen. `launches` is a lifetime
+  // counter, so only a change seen while mounted is a launch; the count at mount is history.
   const flight = useSharedValue(0);
+  const seenLaunches = useRef(launches);
   useEffect(() => {
-    if (launches === 0) return;
+    if (launches === seenLaunches.current) return;
+    seenLaunches.current = launches;
     flight.value = 0;
     flight.value = withTiming(1, { duration: 620, easing: Easing.in(Easing.cubic) });
   }, [launches, flight]);
