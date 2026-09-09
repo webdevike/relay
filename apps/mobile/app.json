@@ -19,7 +19,8 @@
         ],
         "NSMicrophoneUsageDescription": "Relay listens while you dictate.",
         "NSSpeechRecognitionUsageDescription": "Relay turns your dictation into text for your Mac.",
-        "UIBackgroundModes": []
+        "UIBackgroundModes": [],
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "plugins": [
