@@ -8,7 +8,7 @@ import { createActor, fromCallback, fromPromise } from "xstate";
 import type { Command } from "@relay/protocol";
 import { sendCommand } from "@/connection";
 import { debug } from "@/connection/log";
-import { dictationMachine, phaseOf, type DeliverInput, type PermissionOutcome, type RecognizerCommand, type RecognizerEvent } from "./machine";
+import { dictationMachine, orbOf, phaseOf, type DeliverInput, type PermissionOutcome, type RecognizerCommand, type RecognizerEvent } from "./machine";
 
 const RECOGNIZER_OPTIONS: ExpoSpeechRecognitionOptions = {
   lang: "en-US",
@@ -74,7 +74,7 @@ const deliver = fromPromise<null, DeliverInput>(async ({ input }) => {
 export const dictationActor = createActor(dictationMachine.provide({ actors: { checkPermission, recognizer, deliver } }));
 
 dictationActor.subscribe((snapshot) => {
-  debug("dictation", phaseOf(snapshot), snapshot.context.submit ? "submit" : "", snapshot.context.errorCode ?? "");
+  debug("dictation", phaseOf(snapshot), `orb=${orbOf(snapshot)}`, snapshot.context.submit ? "submit" : "", snapshot.context.errorCode ?? "");
 });
 
 dictationActor.start();
