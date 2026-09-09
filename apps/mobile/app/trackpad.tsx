@@ -23,6 +23,8 @@ export interface TrackpadScreenProps {
 const BACK_SIZE = 40;
 const MIC_SIZE = 60;
 const CUTOUT_GAP = 4;
+/** Back sits on the top edge, in from the corner, so it never crowds the screen edge. */
+const BACK_INSET = 12;
 
 const defaultDictationButton = (): ReactNode => <DictationButton size={MIC_SIZE} backgroundColor={colors.surface} />;
 
@@ -63,7 +65,7 @@ export default function TrackpadScreen({ renderDictationButton = defaultDictatio
       <StatusBar hidden />
       <View style={{ flex: 1 }}>
         <TrackpadSurface />
-        <Cutout size={BACK_SIZE} style={{ top: SURFACE_MARGIN - (BACK_SIZE + CUTOUT_GAP * 2) / 2, left: SURFACE_MARGIN - (BACK_SIZE + CUTOUT_GAP * 2) / 2 }}>
+        <Cutout size={BACK_SIZE} style={{ top: SURFACE_MARGIN - (BACK_SIZE + CUTOUT_GAP * 2) / 2, left: SURFACE_MARGIN + BACK_INSET }}>
           <IconButton
             symbol="chevron.left"
             size={BACK_SIZE}
