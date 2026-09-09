@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "expo-router";
 import { TextInput, View } from "react-native";
 import { Screen } from "@/ui/Screen";
 import { Text } from "@/ui/Text";
@@ -19,6 +20,13 @@ const failureMessage: Record<string, string> = {
 export default function Pairing() {
   const [pin, setPin] = useState("");
   const failure = useConnectionStore((state) => state.pairing.failure);
+  const pinRequired = useConnectionStore((state) => state.pairing.pinRequired);
+  const status = useConnectionStore((state) => state.status);
+  const router = useRouter();
+
+  useEffect(() => {
+    if (status === "connected") router.dismissAll();
+  }, [status, router]);
   const inputRef = useRef<TextInput>(null);
 
   useEffect(() => {
@@ -39,7 +47,7 @@ export default function Pairing() {
     <Screen title="Pair with your Mac">
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.xxl }}>
         <Text variant="body" color="textMuted" style={{ textAlign: "center", paddingHorizontal: spacing.xxxl }}>
-          Enter the 6-digit code shown on your Mac.
+          {pinRequired ? "Enter the 6-digit code shown on your Mac." : "Waiting for your Mac to show a code…"}
         </Text>
         <TextInput
           ref={inputRef}
@@ -61,7 +69,19 @@ export default function Pairing() {
           }}
         />
         {failure !== null && (
-          <Banner tone="danger" message={failureMessage[failure] ?? "Pairing failed."} />
+          <Banner
+            tone="danger"
+            message={failureMessage[failure] ?? "Pairing failed."}
+            {...(failure === "wrong_pin"
+              ? {}
+              : {
+                  actionLabel: "Try again",
+                  onAction: () => {
+                    setPin("");
+                    actions.startPairing();
+                  },
+                })}
+          />
         )}
       </View>
     </Screen>

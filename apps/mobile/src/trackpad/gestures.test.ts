@@ -50,6 +50,9 @@ function makeHarness(opts: { pointerSpeed?: PointerSpeed; naturalScrolling?: boo
       now += next.ms;
       next.run();
     },
+    reset(): void {
+      model.reset();
+    },
   };
 }
 
@@ -351,5 +354,60 @@ describe("palm / extra fingers", () => {
       { k: "move", dx: 20, dy: 0, t: 20 },
       { k: "move", dx: 10, dy: 0, t: 40 },
     ]);
+  });
+});
+
+describe("reset (unmount)", () => {
+  it("emits drag end when resetting mid-drag", () => {
+    const h = makeHarness();
+    h.feed(1, "began", 50, 50, 0);
+    h.feed(1, "ended", 50, 50, 40); // tap -> click left, arm
+    h.feed(2, "began", 50, 50, 100); // armed
+    h.feed(2, "moved", 60, 50, 120); // travel 10 > 4 -> drag start
+
+    h.reset();
+
+    expect(h.events.at(-1)).toEqual({ k: "drag", phase: "end", t: 120 });
+  });
+
+  it("emits scroll ended when resetting mid-scroll", () => {
+    const h = makeHarness();
+    h.feed(1, "began", 0, 0, 0);
+    h.feed(2, "began", 40, 0, 0);
+    h.feed(1, "moved", 0, -20, 100); // commit scroll
+
+    h.reset();
+
+    expect(h.events.at(-1)).toEqual({ k: "scroll", dx: 0, dy: 0, phase: "ended", t: 100 });
+  });
+
+  it("emits momentumEnded and stops ticking when resetting mid-momentum", () => {
+    const h = makeHarness();
+    h.feed(1, "began", 0, 0, 0);
+    h.feed(2, "began", 40, 0, 0);
+    h.feed(1, "moved", 0, -20, 100); // commit scroll
+    h.feed(1, "moved", 0, -40, 116); // fast: avg dy -10 over 16ms -> vy = -625pt/s
+    h.feed(1, "ended", 0, -40, 132); // lift -> momentum begins
+    expect(h.pendingCount()).toBe(1); // one tick already scheduled
+
+    h.reset();
+
+    expect(h.events.at(-1)).toEqual({ k: "scroll", dx: 0, dy: 0, phase: "momentumEnded", t: 132 });
+
+    // The already-scheduled tick still exists as a raw timer, but must be inert now: no further
+    // momentum (or any other) event may reach the Mac after reset.
+    const eventCountAfterReset = h.events.length;
+    h.tick();
+    expect(h.events.length).toBe(eventCountAfterReset);
+  });
+
+  it("emits nothing extra when resetting from an uncommitted or idle phase", () => {
+    const h = makeHarness();
+    h.feed(1, "began", 0, 0, 0); // tap-pending, nothing committed yet
+
+    h.reset();
+
+    expect(h.events).toEqual([]);
+    expect(h.haptics).toEqual([]);
   });
 });

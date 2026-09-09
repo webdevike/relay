@@ -201,7 +201,9 @@ export const connection = {
       },
       sendReply: (sessionId, text) => sendCommand({ kind: "agent.reply", sessionId, text }),
     });
-    void boot();
+    boot().catch((error: unknown) => {
+      warn("boot", "failed", error);
+    });
   },
   stop(): void {
     if (!started) return;

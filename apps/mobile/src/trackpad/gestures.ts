@@ -99,8 +99,36 @@ export class TrackpadGestureModel {
 
   constructor(private readonly config: TrackpadGestureConfig) {}
 
-  /** Drops any in-flight gesture without emitting anything further; call on unmount. */
+  /**
+   * Closes whatever gesture is in flight, then drops all state; call on unmount. The Mac's
+   * PointerModel is a single instance shared across every future connection: dropping a
+   * `dragging` phase without emitting `drag:end` (or `scrolling`/`momentum` without
+   * `scroll:ended`/`momentumEnded`) leaves it stuck — every future click and drag is silently
+   * swallowed until the Mac app restarts. No haptic; the user has already navigated away.
+   */
   reset(): void {
+    const p = this.phase;
+    switch (p.kind) {
+      case "dragging":
+        this.emit({ k: "drag", phase: "end", t: this.config.now() });
+        break;
+      case "scrolling":
+      case "momentum":
+        this.emit({
+          k: "scroll",
+          dx: 0,
+          dy: 0,
+          phase: p.kind === "momentum" ? "momentumEnded" : "ended",
+          t: this.config.now(),
+        });
+        break;
+      case "idle":
+      case "oneDown":
+      case "oneMoving":
+      case "awaitingSecondTap":
+      case "twoDown":
+        break;
+    }
     this.phase = { kind: "idle" };
     this.ignored.clear();
   }

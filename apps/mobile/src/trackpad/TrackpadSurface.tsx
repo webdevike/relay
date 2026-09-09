@@ -37,20 +37,23 @@ export function TrackpadSurface() {
 
   const bufferRef = useRef<InputEvent[]>([]);
   const frameScheduledRef = useRef(false);
+  const frameHandleRef = useRef<number | null>(null);
+  const deadRef = useRef(false);
   const flashOpacity = useSharedValue(0);
 
   const flushFrame = (): void => {
     frameScheduledRef.current = false;
-    if (bufferRef.current.length === 0) return;
+    frameHandleRef.current = null;
+    if (deadRef.current || bufferRef.current.length === 0) return;
     const batch = bufferRef.current;
     bufferRef.current = [];
     sendInput(batch);
   };
 
   const scheduleFlush = (): void => {
-    if (frameScheduledRef.current) return;
+    if (deadRef.current || frameScheduledRef.current) return;
     frameScheduledRef.current = true;
-    requestAnimationFrame(flushFrame);
+    frameHandleRef.current = requestAnimationFrame(flushFrame);
   };
 
   const triggerFlash = (): void => {
@@ -80,7 +83,17 @@ export function TrackpadSurface() {
 
   useEffect(() => {
     return () => {
+      // Order matters: reset() may push a closing drag-end/scroll-ended/momentumEnded into the
+      // buffer (see gestures.ts) — cancel the pending frame, flush that synchronously so it
+      // still reaches sendInput, then go dead so nothing further can send on this surface.
       model.reset();
+      if (frameHandleRef.current !== null) {
+        cancelAnimationFrame(frameHandleRef.current);
+        frameScheduledRef.current = false;
+        frameHandleRef.current = null;
+      }
+      flushFrame();
+      deadRef.current = true;
     };
   }, [model]);
 

@@ -42,7 +42,7 @@ describe("SessionMachine full pairing path", () => {
       { type: "storeUpdate", partial: { status: "discovering" } },
       { type: "startDiscovery" },
       { type: "stopDiscovery" },
-      { type: "storeUpdate", partial: { status: "connecting" } },
+      { type: "storeUpdate", partial: { status: "connecting", macName: "Isaacs-Mac" } },
       { type: "connect", host: "192.168.1.5", port: 8443 },
       { type: "send", message: { t: "hello", v: 1, deviceId: "device-1", deviceName: "iPhone", platform: "ios" } },
       { type: "storeUpdate", partial: { status: "pairing", pairing: { pinRequired: false, failure: null } } },

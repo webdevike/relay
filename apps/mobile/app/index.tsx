@@ -8,6 +8,7 @@ import { Pill } from "@/ui/Pill";
 import { Banner } from "@/ui/Banner";
 import { colors, spacing } from "@/theme";
 import { useConnectionStore, type ConnectionStatus } from "@/state/connection";
+import { actions } from "@/state/actions";
 
 const pillFor: Record<ConnectionStatus, { label: string; tone: "accent" | "ok" | "warn" | "danger" | "textMuted" }> = {
   idle: { label: "Not connected", tone: "textMuted" },
@@ -38,15 +39,16 @@ export default function Home() {
         <View style={{ paddingBottom: spacing.lg }}>
           <Banner
             tone="warn"
-            message={pairing.pinRequired ? "Enter the PIN shown on your Mac." : "Waiting for your Mac to confirm pairing."}
-            {...(pairing.pinRequired
-              ? {
-                  actionLabel: "Enter PIN",
-                  onAction: () => {
-                    router.push("/pairing");
-                  },
-                }
-              : {})}
+            message={
+              pairing.pinRequired
+                ? "Enter the PIN shown on your Mac."
+                : `${macName ?? "Your Mac"} is nearby but not paired.`
+            }
+            actionLabel={pairing.pinRequired ? "Enter PIN" : "Pair"}
+            onAction={() => {
+              if (!pairing.pinRequired) actions.startPairing();
+              router.push("/pairing");
+            }}
           />
         </View>
       )}

@@ -150,7 +150,7 @@ export class SessionMachine {
     this.state = "connecting";
     return [
       { type: "stopDiscovery" },
-      { type: "storeUpdate", partial: { status: "connecting" } },
+      { type: "storeUpdate", partial: { status: "connecting", macName: service.name } },
       { type: "connect", host: service.host, port: service.port },
     ];
   }
