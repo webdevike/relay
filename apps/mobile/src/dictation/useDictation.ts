@@ -16,7 +16,8 @@ export interface UseDictationResult {
   state: DictationSnapshot;
   transcript: string;
   start: () => void;
-  stop: () => void;
+  /** `submit` presses Return on the Mac after the text lands. */
+  stop: (options?: { submit?: boolean }) => void;
   cancel: () => void;
   error: string | null;
 }
@@ -55,7 +56,10 @@ export function useDictation(): UseDictationResult {
     },
     onEffect: (effect) => {
       const cmd: Command = { kind: "text.insert", text: effect.text };
-      sendCommand(cmd).then(
+      const deliver = effect.submit
+        ? sendCommand(cmd).then(() => sendCommand({ kind: "key.press", key: "return" }))
+        : sendCommand(cmd);
+      deliver.then(
         () => machineRef.current?.send({ type: "sendOk" }),
         (err: unknown) => {
           machineRef.current?.send({ type: "sendFailed", code: ackErrorCode(err) });
@@ -102,10 +106,10 @@ export function useDictation(): UseDictationResult {
     void beginListening(machine, dispatch);
   };
 
-  const stop = (): void => {
+  const stop = (options?: { submit?: boolean }): void => {
     if (machine.getSnapshot().phase !== "listening") return;
     ExpoSpeechRecognitionModule.stop();
-    dispatch({ type: "pressStop" });
+    dispatch({ type: "pressStop", submit: options?.submit === true });
   };
 
   const cancel = (): void => {

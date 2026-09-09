@@ -40,6 +40,24 @@ function harness(): { machine: DictationMachine; scheduler: ManualScheduler; eff
 }
 
 describe("DictationMachine", () => {
+  it("pressStop with submit carries through to the send effect, and does not persist into the next dictation", () => {
+    const { machine, scheduler, effects } = harness();
+    machine.send({ type: "pressStart" });
+    machine.send({ type: "permission", granted: true });
+    machine.send({ type: "partial", text: "ship it" });
+    machine.send({ type: "pressStop", submit: true });
+    machine.send({ type: "final", text: "ship it" });
+    expect(effects).toEqual([{ type: "send", text: "ship it", submit: true }]);
+    machine.send({ type: "sendOk" });
+    scheduler.flush(900);
+
+    machine.send({ type: "pressStart" });
+    machine.send({ type: "permission", granted: true });
+    machine.send({ type: "pressStop" });
+    machine.send({ type: "final", text: "just text" });
+    expect(effects[1]).toEqual({ type: "send", text: "just text", submit: false });
+  });
+
   it("happy path: press, partials, stop, final, send, sent, back to idle", () => {
     const { machine, scheduler, effects } = harness();
 
@@ -59,7 +77,7 @@ describe("DictationMachine", () => {
     machine.send({ type: "final", text: "hello world." });
     expect(machine.getSnapshot().phase).toBe("sending");
     expect(machine.getSnapshot().transcript).toBe("hello world.");
-    expect(effects).toEqual([{ type: "send", text: "hello world." }]);
+    expect(effects).toEqual([{ type: "send", text: "hello world.", submit: false }]);
 
     machine.send({ type: "sendOk" });
     expect(machine.getSnapshot().phase).toBe("sent");
@@ -80,7 +98,7 @@ describe("DictationMachine", () => {
     scheduler.flush(1500);
     expect(machine.getSnapshot().phase).toBe("sending");
     expect(machine.getSnapshot().transcript).toBe("take this down");
-    expect(effects).toEqual([{ type: "send", text: "take this down" }]);
+    expect(effects).toEqual([{ type: "send", text: "take this down", submit: false }]);
   });
 
   it("an empty transcript returns to idle with the nothingHeard flag", () => {
@@ -91,7 +109,7 @@ describe("DictationMachine", () => {
     machine.send({ type: "pressStop" });
     machine.send({ type: "final", text: "   " });
 
-    expect(machine.getSnapshot()).toEqual({ phase: "idle", transcript: "", nothingHeard: true, errorCode: null });
+    expect(machine.getSnapshot()).toEqual({ phase: "idle", transcript: "", nothingHeard: true, errorCode: null, submit: false });
     expect(effects).toEqual([]);
   });
 
@@ -131,6 +149,7 @@ describe("DictationMachine", () => {
       transcript: "",
       nothingHeard: false,
       errorCode: "audio-capture",
+      submit: false,
     });
 
     machine.send({ type: "reset" });
@@ -166,6 +185,7 @@ describe("DictationMachine", () => {
       transcript: "ship it",
       nothingHeard: false,
       errorCode: "accessibility_denied",
+      submit: false,
     });
   });
 

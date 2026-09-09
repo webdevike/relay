@@ -21,7 +21,8 @@ export type DictationEvent =
   | { type: "permission"; granted: boolean }
   | { type: "partial"; text: string }
   | { type: "final"; text: string }
-  | { type: "pressStop" }
+  /** `submit` also presses Return on the Mac after inserting the text. */
+  | { type: "pressStop"; submit?: boolean }
   | { type: "recognizerError"; code: string }
   | { type: "sendOk" }
   | { type: "sendFailed"; code: string }
@@ -34,12 +35,15 @@ export interface DictationSnapshot {
   /** Set when `finishing` resolved to an empty transcript; cleared on the next `pressStart`. */
   nothingHeard: boolean;
   errorCode: string | null;
+  /** Whether the pending/last send also submits (Return) on the Mac. */
+  submit: boolean;
 }
 
 /** The only externally-observable side effect: hand `text` to the caller's `sendCommand`. */
 export interface DictationEffect {
   type: "send";
   text: string;
+  submit: boolean;
 }
 
 export interface Scheduler {
@@ -60,7 +64,7 @@ const FINISH_TIMEOUT_MS = 1500;
 const SENT_HOLD_MS = 900;
 
 function idleSnapshot(): DictationSnapshot {
-  return { phase: "idle", transcript: "", nothingHeard: false, errorCode: null };
+  return { phase: "idle", transcript: "", nothingHeard: false, errorCode: null, submit: false };
 }
 
 export interface DictationMachineOptions {
@@ -113,24 +117,24 @@ export class DictationMachine {
     switch (state.phase) {
       case "idle":
         if (event.type === "pressStart") {
-          return { phase: "requesting_permission", transcript: "", nothingHeard: false, errorCode: null };
+          return { phase: "requesting_permission", transcript: "", nothingHeard: false, errorCode: null, submit: false };
         }
         return state;
 
       case "requesting_permission":
         if (event.type === "permission") {
           if (event.granted) return { ...state, phase: "listening", transcript: "" };
-          return { phase: "permission_denied", transcript: "", nothingHeard: false, errorCode: null };
+          return { phase: "permission_denied", transcript: "", nothingHeard: false, errorCode: null, submit: false };
         }
         if (event.type === "recognizerError") {
-          return { phase: "error", transcript: "", nothingHeard: false, errorCode: event.code };
+          return { phase: "error", transcript: "", nothingHeard: false, errorCode: event.code, submit: false };
         }
         if (event.type === "reset") return idleSnapshot();
         return state;
 
       case "permission_denied":
         if (event.type === "pressStart") {
-          return { phase: "requesting_permission", transcript: "", nothingHeard: false, errorCode: null };
+          return { phase: "requesting_permission", transcript: "", nothingHeard: false, errorCode: null, submit: false };
         }
         if (event.type === "reset") return idleSnapshot();
         return state;
@@ -140,7 +144,7 @@ export class DictationMachine {
           return { ...state, transcript: event.text };
         }
         if (event.type === "pressStop") {
-          const next: DictationSnapshot = { ...state, phase: "finishing" };
+          const next: DictationSnapshot = { ...state, phase: "finishing", submit: event.submit === true };
           this.armTimer(FINISH_TIMEOUT_MS, () => {
             this.send({ type: "final", text: this.snapshot.transcript });
           });
@@ -148,7 +152,7 @@ export class DictationMachine {
         }
         if (event.type === "recognizerError") {
           this.disarmTimer();
-          return { phase: "error", transcript: "", nothingHeard: false, errorCode: event.code };
+          return { phase: "error", transcript: "", nothingHeard: false, errorCode: event.code, submit: false };
         }
         if (event.type === "reset") {
           this.disarmTimer();
@@ -164,14 +168,14 @@ export class DictationMachine {
           this.disarmTimer();
           const text = event.text.trim();
           if (text.length === 0) {
-            return { phase: "idle", transcript: "", nothingHeard: true, errorCode: null };
+            return { phase: "idle", transcript: "", nothingHeard: true, errorCode: null, submit: false };
           }
-          this.onEffect?.({ type: "send", text });
-          return { phase: "sending", transcript: text, nothingHeard: false, errorCode: null };
+          this.onEffect?.({ type: "send", text, submit: state.submit });
+          return { phase: "sending", transcript: text, nothingHeard: false, errorCode: null, submit: false };
         }
         if (event.type === "recognizerError") {
           this.disarmTimer();
-          return { phase: "error", transcript: "", nothingHeard: false, errorCode: event.code };
+          return { phase: "error", transcript: "", nothingHeard: false, errorCode: event.code, submit: false };
         }
         if (event.type === "reset") {
           this.disarmTimer();
@@ -188,7 +192,7 @@ export class DictationMachine {
           return next;
         }
         if (event.type === "sendFailed") {
-          return { phase: "error", transcript: state.transcript, nothingHeard: false, errorCode: event.code };
+          return { phase: "error", transcript: state.transcript, nothingHeard: false, errorCode: event.code, submit: false };
         }
         if (event.type === "reset") {
           this.disarmTimer();
