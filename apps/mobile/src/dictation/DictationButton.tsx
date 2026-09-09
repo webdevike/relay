@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { scheduleOnRN } from "react-native-worklets";
@@ -126,68 +126,79 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
 
   const glyphMode: MicGlyphMode =
     state.phase === "sent" ? "check" : state.phase === "listening" || state.phase === "finishing" || state.phase === "sending" ? "wave" : "mic";
-  const interactive = connected && (state.phase === "idle" || state.phase === "listening" || state.phase === "error");
-
+  // Live handles for the gesture: the gesture object is created once (below) so RNGH never swaps
+  // handlers mid-touch, which drops the in-flight touch's finalize. Everything it needs to read
+  // at event time goes through refs.
+  const phaseRef = useRef(state.phase);
+  phaseRef.current = state.phase;
+  const dictationRef = useRef(dictation);
+  dictationRef.current = dictation;
   const holding = useRef(false);
   const submitted = useRef(false);
-  const onPressIn = (): void => {
-    if (state.phase === "error") {
-      dictation.cancel();
-      return;
-    }
-    if (state.phase !== "idle") return;
-    holding.current = true;
-    submitted.current = false;
-    impactHaptic("medium");
-    dictation.start();
-  };
-  const onPressOut = (): void => {
-    holding.current = false;
-    if (submitted.current) return;
-    if (state.phase === "listening") {
-      tapHaptic();
-      dictation.stop();
-    }
-  };
-  // Swipe up while holding: an arrow rises and fills; holding there for SEND_HOLD_MS submits
-  // (insert + Return on the Mac) without waiting for the finger to lift.
+
   const armProgress = useSharedValue(0);
   const armed = useSharedValue(false);
-  const submit = (): void => {
-    if (submitted.current || state.phase !== "listening") return;
-    submitted.current = true;
-    impactHaptic("heavy");
-    dictation.stop({ submit: true });
-  };
   const pressed = useSharedValue(false);
-  const gesture = Gesture.Pan()
-    .enabled(interactive)
-    .minDistance(0)
-    .maxPointers(1)
-    .onBegin(() => {
-      pressed.value = true;
-      scheduleOnRN(onPressIn);
-    })
-    .onUpdate((event) => {
-      const shouldArm = event.translationY < -SEND_ARM_DISTANCE;
-      if (shouldArm && !armed.value) {
-        armed.value = true;
-        armProgress.value = withTiming(1, { duration: SEND_HOLD_MS, easing: Easing.linear }, (finished) => {
-          if (finished === true) scheduleOnRN(submit);
-        });
-      } else if (!shouldArm && armed.value) {
+
+  const gesture = useMemo(() => {
+    const onPressIn = (): void => {
+      const phase = phaseRef.current;
+      if (phase === "error") {
+        dictationRef.current.cancel();
+        return;
+      }
+      if (phase === "listening") {
+        // A stray press while already listening (e.g. after a lost release) ends it.
+        dictationRef.current.stop();
+        return;
+      }
+      if (phase !== "idle") return;
+      holding.current = true;
+      submitted.current = false;
+      impactHaptic("medium");
+      dictationRef.current.start();
+    };
+    const onPressOut = (): void => {
+      holding.current = false;
+      if (submitted.current) return;
+      if (phaseRef.current === "listening") tapHaptic();
+      dictationRef.current.stop(); // no-op unless listening
+    };
+    const submit = (): void => {
+      if (submitted.current || phaseRef.current !== "listening") return;
+      submitted.current = true;
+      impactHaptic("heavy");
+      dictationRef.current.stop({ submit: true });
+    };
+    return Gesture.Pan()
+      .minDistance(0)
+      .maxPointers(1)
+      .onBegin(() => {
+        pressed.value = true;
+        scheduleOnRN(onPressIn);
+      })
+      .onUpdate((event) => {
+        const shouldArm = event.translationY < -SEND_ARM_DISTANCE;
+        if (shouldArm && !armed.value) {
+          armed.value = true;
+          armProgress.value = withTiming(1, { duration: SEND_HOLD_MS, easing: Easing.linear }, (finished) => {
+            if (finished === true) scheduleOnRN(submit);
+          });
+        } else if (!shouldArm && armed.value) {
+          armed.value = false;
+          cancelAnimation(armProgress);
+          armProgress.value = withTiming(0, { duration: motion.duration.fast });
+        }
+      })
+      .onFinalize(() => {
+        pressed.value = false;
         armed.value = false;
         cancelAnimation(armProgress);
         armProgress.value = withTiming(0, { duration: motion.duration.fast });
-      }
-    })
-    .onFinalize(() => {
-      pressed.value = false;
-      armed.value = false;
-      cancelAnimation(armProgress);
-      armProgress.value = withTiming(0, { duration: motion.duration.fast });
-      scheduleOnRN(onPressOut);
-    });
+        scheduleOnRN(onPressOut);
+      });
+  }, [armProgress, armed, pressed]);
+
   const buttonStyle = useAnimatedStyle(() => ({ opacity: !connected ? 0.4 : pressed.value ? 0.85 : 1 }));
   // Arrow chip: appears as the finger lifts off the button, fills clockwise-ish via scale + tint.
   const arrowStyle = useAnimatedStyle(() => ({
@@ -267,7 +278,7 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
             <SymbolView name="arrow.up" size={ARROW_SIZE * 0.5} tintColor={colors.text} weight="semibold" />
           </View>
         </Animated.View>
-        <GestureDetector gesture={gesture}>
+        <GestureDetector gesture={gesture.enabled(connected)}>
           <Animated.View
             style={[
               {
