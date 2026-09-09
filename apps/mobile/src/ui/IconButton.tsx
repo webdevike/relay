@@ -9,9 +9,10 @@ export interface IconButtonProps {
   size?: number;
   tintColor?: string;
   disabled?: boolean;
+  backgroundColor?: string;
 }
 
-export function IconButton({ symbol, onPress, size = 40, tintColor = colors.text, disabled = false }: IconButtonProps) {
+export function IconButton({ symbol, onPress, size = 40, tintColor = colors.text, disabled = false, backgroundColor = colors.surfaceRaised }: IconButtonProps) {
   return (
     <Pressable
       disabled={disabled}
@@ -25,7 +26,7 @@ export function IconButton({ symbol, onPress, size = 40, tintColor = colors.text
         borderRadius: size / 2,
         alignItems: "center",
         justifyContent: "center",
-        backgroundColor: colors.surfaceRaised,
+        backgroundColor,
         opacity: disabled ? 0.4 : pressed ? 0.8 : 1,
       })}
     >

@@ -139,11 +139,14 @@ export function TrackpadSurface() {
   );
 }
 
+/** Inset of the trackpad surface from the safe area; the edge buttons in app/trackpad.tsx straddle it. */
+export const SURFACE_MARGIN = spacing.xl;
+
 const styles = StyleSheet.create({
   touchArea: { flex: 1 },
   surface: {
     flex: 1,
-    margin: spacing.md,
+    margin: SURFACE_MARGIN,
     borderRadius: radii.lg,
     borderWidth: 1,
     borderColor: colors.hairline,

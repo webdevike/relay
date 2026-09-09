@@ -17,7 +17,7 @@ import { useConnectionStore } from "@/state/connection";
 import { useDictation, openDictationSettings } from "./useDictation";
 import type { DictationPhase } from "./machine";
 
-const BUTTON_SIZE = 40;
+const DEFAULT_SIZE = 40;
 const CHIP_WIDTH = 220;
 const NOTHING_HEARD_HOLD_MS = 1500;
 const ERROR_HOLD_MS = 2500;
@@ -50,7 +50,12 @@ const errorMessage: Record<string, string> = {
 const DEFAULT_ERROR_MESSAGE = "Something went wrong.";
 
 /** Hold-to-talk mic: press and hold to listen, release to send. Floating chip shows live text and failures. */
-export function DictationButton() {
+export interface DictationButtonProps {
+  size?: number;
+  backgroundColor?: string;
+}
+
+export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundColor = colors.surfaceRaised }: DictationButtonProps = {}) {
   const connected = useConnectionStore((state) => state.status === "connected");
   const dictation = useDictation();
   const { state } = dictation;
@@ -185,7 +190,7 @@ export function DictationButton() {
             borderRadius: BUTTON_SIZE / 2,
             alignItems: "center",
             justifyContent: "center",
-            backgroundColor: colors.surfaceRaised,
+            backgroundColor,
             opacity: !connected ? 0.4 : pressed ? 0.85 : 1,
           })}
         >
