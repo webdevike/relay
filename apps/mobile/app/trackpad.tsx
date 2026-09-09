@@ -3,7 +3,7 @@ import { View } from "react-native";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useKeepAwake } from "expo-keep-awake";
-import { Screen } from "@/ui/Screen";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { IconButton } from "@/ui/IconButton";
 import { colors, spacing } from "@/theme";
 import { TrackpadSurface } from "@/trackpad/TrackpadSurface";
@@ -26,7 +26,7 @@ export default function TrackpadScreen({ renderDictationButton = defaultDictatio
   const router = useRouter();
 
   return (
-    <Screen>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={["top", "bottom", "left", "right"]}>
       <StatusBar hidden />
       <View style={{ flex: 1 }}>
         <TrackpadSurface />
@@ -42,6 +42,6 @@ export default function TrackpadScreen({ renderDictationButton = defaultDictatio
         </View>
         <View style={{ position: "absolute", right: spacing.xl, bottom: spacing.xl }}>{renderDictationButton()}</View>
       </View>
-    </Screen>
+    </SafeAreaView>
   );
 }

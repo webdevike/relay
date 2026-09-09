@@ -4,7 +4,7 @@
     "slug": "relay",
     "version": "0.1.0",
     "scheme": "relay",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#0B0B0C",
