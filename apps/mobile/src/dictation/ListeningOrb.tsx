@@ -127,8 +127,11 @@ function OrbSurface({ level }: { level: SharedValue<number> }): ReactNode {
   return sk === null ? <FallbackOrb /> : <SkiaOrb sk={sk} level={level} />;
 }
 
-// Sphere-shaded disc, two-tone gradient swirled by domain-warped value noise, rim light,
-// soft outer glow. `u_level` widens the glow and speeds the swirl; `u_time` in seconds.
+// Glass ball. The view ray refracts into a sphere and samples a liquid interior: three colored
+// lights drifting on slow orbits through a warped noise field, with parallax from the refraction
+// so the contents shift as you look across the limb. Fresnel rim, a sharp and a soft window
+// reflection, and slight chromatic dispersion at the edge sell the glass. `u_level` speeds the
+// interior and brightens it; `u_time` in seconds.
 const ORB_SHADER = `
 uniform float2 u_res;
 uniform float  u_time;
@@ -145,36 +148,61 @@ float fbm(float2 p) {
   return v;
 }
 
+// What lives inside the glass, sampled at refracted point p.
+half3 interior(float2 p, float t) {
+  float2 c1 = float2(sin(t * 0.70), cos(t * 0.90)) * 0.38;
+  float2 c2 = float2(cos(t * 0.50 + 1.7), sin(t * 0.80 + 0.4)) * 0.42;
+  float2 c3 = float2(sin(t * 1.10 + 3.1), cos(t * 0.60 + 2.0)) * 0.30;
+  float n = fbm(p * 1.7 + float2(t * 0.30, -t * 0.22));
+  float2 w = float2(n, fbm(p * 1.7 + float2(4.2, 1.1) - t * 0.25)) - 0.5;
+  float2 q = p + w * 0.55;
+  float b1 = exp(-dot(q - c1, q - c1) * 6.0);
+  float b2 = exp(-dot(q - c2, q - c2) * 5.0);
+  float b3 = exp(-dot(q - c3, q - c3) * 9.0);
+  half3 col = half3(0.05, 0.06, 0.14);                 // dark glass body
+  col += half3(0.36, 0.46, 1.00) * b1 * 0.95;          // periwinkle
+  col += half3(0.62, 0.40, 1.00) * b2 * 0.70;          // violet
+  col += half3(0.42, 0.88, 1.00) * b3 * 0.65;          // cyan
+  col += half3(0.45, 0.55, 1.00) * n * 0.14;           // faint haze
+  return col;
+}
+
 half4 main(float2 xy) {
   float2 uv = (xy - u_res * 0.5) / (u_res.y * 0.5);   // -1..1, orb radius ~0.62
+  uv -= float2(sin(u_time * 0.55), cos(u_time * 0.41)) * 0.035;   // the ball itself drifts lazily
   float r = length(uv);
   float radius = 0.62;
+  float2 s = uv / radius;                               // unit-sphere coords
+  float rr = length(s);
+  float z = sqrt(max(0.0, 1.0 - dot(s, s)));
+  float3 n = float3(s, z);
+  float3 I = float3(0.0, 0.0, -1.0);                    // view ray into the screen
 
-  // Swirl: warp the lookup by a slowly rotating noise field.
-  float t = u_time * (0.18 + u_level * 0.35);
-  float2 q = uv * 0.9 + float2(t * 0.6, -t * 0.35);
-  float2 warp = float2(fbm(q), fbm(q + float2(5.2, 1.3)));
-  float n = fbm(uv * 1.0 + warp * 1.6 + float2(-t * 0.45, t * 0.25));
+  // Refract into the ball, march to a mid plane, sample the interior per channel (dispersion).
+  float depth = 0.85;
+  float t = u_time * (0.45 + u_level * 0.70);
+  float2 pR = s + refract(I, n, 1.0 / 1.42).xy * depth;
+  float2 pG = s + refract(I, n, 1.0 / 1.45).xy * depth;
+  float2 pB = s + refract(I, n, 1.0 / 1.49).xy * depth;
+  half3 inner = half3(interior(pR, t).r, interior(pG, t).g, interior(pB, t).b);
+  inner *= 1.0 + u_level * 0.7;
 
-  // Palette: deep indigo -> periwinkle -> pale cyan highlight.
-  half3 deep = half3(0.20, 0.22, 0.62);
-  half3 mid  = half3(0.52, 0.60, 1.00);
-  half3 hi   = half3(0.86, 0.90, 1.00);
-  half3 col  = mix(deep, mid, smoothstep(0.22, 0.72, n));
-  col = mix(col, hi, smoothstep(0.60, 0.90, n) * 0.5);
-
-  // Sphere shading: light from upper-left, darker limb.
-  float2 lightDir = normalize(float2(-0.55, -0.7));
-  float z = sqrt(max(0.0, 1.0 - (r / radius) * (r / radius)));
-  float lambert = clamp(dot(normalize(float3(uv / radius, z)), normalize(float3(lightDir, 0.9))), 0.0, 1.0);
-  col *= 0.62 + 0.5 * lambert;
-  col += hi * pow(lambert, 24.0) * 0.22;                       // specular
-  col += mid * smoothstep(radius - 0.14, radius, r) * 0.35;    // rim
+  // Glass surface: fresnel rim, thin bright edge, one sharp and one soft window reflection.
+  float fres = pow(1.0 - z, 3.0);
+  half3 rimCol = half3(0.74, 0.82, 1.00);
+  half3 col = inner + rimCol * fres * 0.55;
+  col += rimCol * smoothstep(0.90, 0.985, rr) * (1.0 - smoothstep(0.985, 1.0, rr)) * 0.28;
+  float3 V = float3(0.0, 0.0, 1.0);
+  float3 H1 = normalize(normalize(float3(-0.50, -0.62, 0.62)) + V);
+  float3 H2 = normalize(normalize(float3(0.55, 0.70, 0.40)) + V);
+  col += half3(1.0) * pow(max(dot(n, H1), 0.0), 140.0) * 0.95;
+  col += rimCol * pow(max(dot(n, H2), 0.0), 28.0) * 0.22;
+  col *= 0.86 + 0.14 * z;
 
   float body = 1.0 - smoothstep(radius - 0.012, radius + 0.004, r);
   float glowWidth = 0.22 + u_level * 0.22;
-  float glow = (1.0 - smoothstep(radius, radius + glowWidth, r)) * (0.28 + u_level * 0.35);
-  half3 glowCol = mix(mid, hi, 0.3);
+  float glow = (1.0 - smoothstep(radius, radius + glowWidth, r)) * (0.24 + u_level * 0.36);
+  half3 glowCol = half3(0.50, 0.58, 1.00);
 
   half3 outCol = col * body + glowCol * glow * (1.0 - body);
   float alpha = max(body, glow * (1.0 - body));
