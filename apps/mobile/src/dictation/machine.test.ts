@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import { createActor, fromCallback, fromPromise, SimulatedClock, waitFor, type Actor } from "xstate";
 import {
   dictationMachine,
+  orbOf,
   phaseOf,
   type DeliverInput,
   type DictationPhase,
+  type OrbState,
   type PermissionOutcome,
   type RecognizerCommand,
 } from "./machine";
@@ -22,6 +24,7 @@ interface Harness {
   /** `pressStart`, then wait for the permission check to land. */
   press: () => Promise<void>;
   phase: () => DictationPhase;
+  orb: () => OrbState;
 }
 
 function harness(permission: PermissionOutcome = "granted"): Harness {
@@ -80,9 +83,10 @@ function harness(permission: PermissionOutcome = "granted"): Harness {
     recognizerAlive: () => recognizerAlive,
     press: async () => {
       actor.send({ type: "pressStart" });
-      await waitFor(actor, (snapshot) => !snapshot.matches("requesting_permission"));
+      await waitFor(actor, (snapshot) => !snapshot.matches({ speech: "requesting_permission" }));
     },
     phase: () => phaseOf(actor.getSnapshot()),
+    orb: () => orbOf(actor.getSnapshot()),
   };
 }
 
@@ -113,24 +117,85 @@ describe("dictationMachine", () => {
     expect(h.sends[1]).toEqual({ text: "just text", submit: false });
   });
 
-  it("release after a submit launches the orb exactly once per dictation", async () => {
+  it("orb: a plain dictation shows, collapses into the check at sent, then fades", async () => {
+    const h = harness();
+    expect(h.orb()).toBe("hidden");
+    await pressAndListen(h);
+    expect(h.orb()).toBe("shown");
+    h.actor.send({ type: "partial", text: "hi" });
+    h.actor.send({ type: "release" });
+    expect(h.orb()).toBe("shown");
+    h.actor.send({ type: "final", text: "hi" });
+    expect(h.orb()).toBe("shown");
+    await h.settleSend();
+    expect(h.orb()).toBe("collapsing");
+    h.clock.increment(900);
+    expect(h.phase()).toBe("idle");
+    expect(h.orb()).toBe("fading");
+    h.clock.increment(180);
+    expect(h.orb()).toBe("hidden");
+  });
+
+  it("orb: a swipe-submit lifts, flies on release, and the next hold starts from a fresh orb", async () => {
+    const h = harness();
+    await pressAndListen(h);
+    h.actor.send({ type: "partial", text: "ship it" });
+    h.actor.send({ type: "pressStop", submit: true });
+    expect(h.orb()).toBe("lifted");
+    h.actor.send({ type: "final", text: "ship it" });
+    await h.settleSend();
+    // Still held: the finger decides when it flies, however fast the Mac acks.
+    expect(h.phase()).toBe("sent");
+    expect(h.orb()).toBe("lifted");
+    h.actor.send({ type: "release" });
+    expect(h.orb()).toBe("flying");
+    h.clock.increment(620);
+    expect(h.orb()).toBe("gone");
+    h.clock.increment(280);
+    expect(h.phase()).toBe("idle");
+    expect(h.orb()).toBe("hidden");
+
+    await pressAndListen(h);
+    expect(h.orb()).toBe("shown");
+    h.actor.send({ type: "release" });
+    expect(h.orb()).toBe("shown");
+  });
+
+  it("orb: flying outlasts a fast pipeline and stays gone until idle", async () => {
     const h = harness();
     await pressAndListen(h);
     h.actor.send({ type: "pressStop", submit: true });
-    expect(h.actor.getSnapshot().context.launches).toBe(0);
     h.actor.send({ type: "release" });
-    expect(h.actor.getSnapshot().context.launches).toBe(1);
-    h.actor.send({ type: "release" });
-    expect(h.actor.getSnapshot().context.launches).toBe(2);
-
-    // A plain (non-submit) release never launches.
+    expect(h.orb()).toBe("flying");
     h.actor.send({ type: "final", text: "go" });
     await h.settleSend();
-    h.clock.increment(900);
+    expect(h.phase()).toBe("sent");
+    expect(h.orb()).toBe("flying");
+    h.clock.increment(620);
+    expect(h.orb()).toBe("gone");
+    h.clock.increment(300);
+    expect(h.orb()).toBe("hidden");
+  });
+
+  it("orb: a lifted orb fades instead of flying when nothing was heard", async () => {
+    const h = harness();
     await pressAndListen(h);
+    h.actor.send({ type: "pressStop", submit: true });
+    h.actor.send({ type: "final", text: "" });
+    expect(h.phase()).toBe("idle");
+    expect(h.orb()).toBe("lifted");
     h.actor.send({ type: "release" });
-    h.actor.send({ type: "release" });
-    expect(h.actor.getSnapshot().context.launches).toBe(2);
+    expect(h.orb()).toBe("fading");
+    expect(h.sends).toEqual([]);
+  });
+
+  it("orb: a recognizer error fades the orb; a new hold during the fade brings it back", async () => {
+    const h = harness();
+    await pressAndListen(h);
+    h.actor.send({ type: "recognizerError", code: "network" });
+    expect(h.orb()).toBe("fading");
+    await pressAndListen(h);
+    expect(h.orb()).toBe("shown");
   });
 
   it("happy path: press, partials, release, final, send, sent, back to idle", async () => {
@@ -138,7 +203,7 @@ describe("dictationMachine", () => {
 
     h.actor.send({ type: "pressStart" });
     expect(h.phase()).toBe("requesting_permission");
-    await waitFor(h.actor, (snapshot) => snapshot.matches("active"));
+    await waitFor(h.actor, (snapshot) => snapshot.matches({ speech: "active" }));
     expect(h.phase()).toBe("listening");
     expect(h.recognizerAlive()).toBe(true);
 
@@ -292,6 +357,6 @@ describe("dictationMachine", () => {
     h.actor.send({ type: "final", text: "ghost" });
     expect(h.phase()).toBe("idle");
     expect(h.sends).toEqual([]);
-    expect(h.actor.getSnapshot().context.launches).toBe(0);
+    expect(h.orb()).toBe("hidden");
   });
 });

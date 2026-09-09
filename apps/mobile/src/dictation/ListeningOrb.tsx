@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { StyleSheet, TurboModuleRegistry, View, useWindowDimensions } from "react-native";
 import { SymbolView } from "expo-symbols";
 import Animated, {
@@ -16,77 +16,43 @@ import type * as SkiaNamespace from "@shopify/react-native-skia";
 import { colors, motion } from "@/theme";
 import { micLevel, sendLift } from "./signals";
 import { useDictation } from "./useDictation";
-import type { DictationPhase } from "./machine";
+import { ORB_FADE_MS, ORB_FLIGHT_MS, type OrbState } from "./machine";
 
 const ORB = 140;
 const CANVAS = ORB * 1.6; // room for the glow
 
 /**
- * Centered dictation orb. Appears while listening, breathes with the mic level, collapses into a
- * checkmark when the transcript has been delivered, then fades. Rendered with a Skia shader when
- * the native module is present; a layered-View fallback keeps older dev clients working.
+ * Centered dictation orb. Renders the statechart's `orb` region: shown while listening (breathing
+ * with the mic, rising with the finger), held lifted once the swipe has armed a submit, flying off
+ * the top after release, or collapsing into the check after a plain send. Skia shader when the
+ * native module is present; a layered-View fallback keeps older dev clients working.
  */
 export function ListeningOrb() {
-  const { phase, submit: submitted } = useDictation();
-  const visible = phase === "listening" || phase === "finishing" || phase === "sending" || phase === "sent";
-  const [mounted, setMounted] = useState(visible);
-
-  // Keep mounted through the exit animation (longer when the orb is launching off-screen).
-  useEffect(() => {
-    if (visible) setMounted(true);
-    else {
-      const id = setTimeout(() => {
-        setMounted(false);
-      }, submitted ? 700 : motion.duration.base + 60);
-      return () => {
-        clearTimeout(id);
-      };
-    }
-    return undefined;
-  }, [visible, submitted]);
-
-  if (!mounted) return null;
+  const { orb } = useDictation();
+  if (orb === "hidden" || orb === "gone") return null;
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-        <OrbBody phase={phase} />
+        <OrbBody orb={orb} />
       </View>
     </View>
   );
 }
 
-function OrbBody({ phase }: { phase: DictationPhase }) {
-  const { submit: submitted, launches } = useDictation();
+function OrbBody({ orb }: { orb: OrbState }) {
   const { height } = useWindowDimensions();
-  const listening = phase === "listening";
-  const settling = phase === "finishing" || phase === "sending";
-  const sent = phase === "sent";
 
-  // Presence: 0 hidden, 1 shown. A plain send collapses the orb to make room for the check; a
-  // submitted send keeps it whole so it can launch.
+  // Each shared value is a tween toward what the current orb state prescribes.
   const presence = useSharedValue(0);
   const collapse = useSharedValue(0);
-  useEffect(() => {
-    presence.value = withTiming(listening || settling || (sent && submitted) ? 1 : 0, {
-      duration: motion.duration.base,
-      easing: Easing.out(Easing.cubic),
-    });
-    collapse.value = withTiming(sent && !submitted ? 1 : 0, {
-      duration: motion.duration.base,
-      easing: Easing.inOut(Easing.cubic),
-    });
-  }, [listening, settling, sent, submitted, presence, collapse]);
-
-  // Submit + release: the orb itself launches off the top of the screen. `launches` is a lifetime
-  // counter, so only a change seen while mounted is a launch; the count at mount is history.
+  const held = useSharedValue(0);
   const flight = useSharedValue(0);
-  const seenLaunches = useRef(launches);
   useEffect(() => {
-    if (launches === seenLaunches.current) return;
-    seenLaunches.current = launches;
-    flight.value = 0;
-    flight.value = withTiming(1, { duration: 620, easing: Easing.in(Easing.cubic) });
-  }, [launches, flight]);
+    presence.value = withTiming(orb === "fading" ? 0 : 1, { duration: ORB_FADE_MS, easing: Easing.out(Easing.cubic) });
+    collapse.value = withTiming(orb === "collapsing" ? 1 : 0, { duration: motion.duration.base, easing: Easing.inOut(Easing.cubic) });
+    held.value = withTiming(orb === "lifted" || orb === "flying" ? 1 : 0, { duration: motion.duration.fast });
+    flight.value = orb === "flying" ? withTiming(1, { duration: ORB_FLIGHT_MS, easing: Easing.in(Easing.cubic) }) : 0;
+  }, [orb, presence, collapse, held, flight]);
 
   // Smoothed level: fast attack, slow release, so speech reads as pulses not jitter.
   const smoothed = useSharedValue(0);
@@ -97,7 +63,10 @@ function OrbBody({ phase }: { phase: DictationPhase }) {
     smoothed.value += (target - smoothed.value) * Math.min(1, rate * dt);
   });
 
-  // Drag-up lift: the orb rises, tightens and brightens toward the send threshold.
+  // Lift: live with the finger while shown, then held at full once armed (the finger's own value
+  // is only trusted in those two states, so a stale drag can never leak into the next dictation).
+  const tracksFinger = orb === "shown" || orb === "lifted";
+  const lift = useDerivedValue(() => Math.max(tracksFinger ? sendLift.value : 0, held.value), [tracksFinger]);
   const scale = useDerivedValue(() => {
     const breathe = 1 + smoothed.value * 0.22;
     return (
@@ -105,16 +74,16 @@ function OrbBody({ phase }: { phase: DictationPhase }) {
       (0.6 + 0.4 * presence.value) *
       breathe *
       (1 - collapse.value * 0.55) *
-      (1 - sendLift.value * 0.12) *
+      (1 - lift.value * 0.12) *
       (1 - flight.value * 0.5)
     );
   });
-  const glow = useDerivedValue(() => Math.max(smoothed.value, sendLift.value * 0.9));
+  const glow = useDerivedValue(() => Math.max(smoothed.value, lift.value * 0.9));
   const orbStyle = useAnimatedStyle(() => {
     const travel = height * 0.5 + CANVAS;
     return {
       opacity: presence.value * (1 - collapse.value) * (1 - Math.max(0, flight.value - 0.6) / 0.4),
-      transform: [{ translateY: -sendLift.value * 56 - flight.value * travel }, { scale: scale.value }],
+      transform: [{ translateY: -lift.value * 56 - flight.value * travel }, { scale: scale.value }],
     };
   });
 
@@ -123,7 +92,7 @@ function OrbBody({ phase }: { phase: DictationPhase }) {
       <Animated.View style={[{ width: CANVAS, height: CANVAS, alignItems: "center", justifyContent: "center" }, orbStyle]}>
         <OrbSurface level={glow} />
       </Animated.View>
-      {sent && !submitted && <SentCheck />}
+      {orb === "collapsing" && <SentCheck />}
     </View>
   );
 }

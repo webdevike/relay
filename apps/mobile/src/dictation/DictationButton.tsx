@@ -7,7 +7,6 @@ import Animated, {
   Easing,
   useAnimatedStyle,
   useSharedValue,
-  withDelay,
   withRepeat,
   withTiming,
 } from "react-native-reanimated";
@@ -145,10 +144,8 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
       })
       .onFinalize(() => {
         pressed.value = false;
-        const wasArmed = armed.value;
         armed.value = false;
-        // Armed: leave the lift in place for the launch, then clear it once the orb is gone.
-        sendLift.value = wasArmed ? withDelay(700, withTiming(0, { duration: 0 })) : withTiming(0, { duration: motion.duration.base });
+        sendLift.value = withTiming(0, { duration: motion.duration.base });
         scheduleOnRN(onPressOut);
       });
   }, [armed, pressed]);
