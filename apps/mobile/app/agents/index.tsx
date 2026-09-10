@@ -17,6 +17,7 @@ import { ListeningOrb } from "@/dictation/ListeningOrb";
 import { resetDictationTarget, setDictationTarget } from "@/dictation/deliver";
 import { AgentCard } from "@/agents/AgentCard";
 import { AgentScrubber, TRACK_HEIGHT } from "@/agents/AgentScrubber";
+import { AgentSettingsSheet } from "@/agents/AgentSettingsSheet";
 
 const MIC_SIZE = 60;
 const CARD_RADIUS = 28;
@@ -135,6 +136,12 @@ export default function AgentInbox() {
 
   const canRespond = session?.canRespond === true;
 
+  const [settingsFor, setSettingsFor] = useState<string | null>(null);
+  const onHold = useCallback((slot: number) => {
+    const id = useAgentsStore.getState().order[slot];
+    if (id !== undefined) setSettingsFor(id);
+  }, []);
+
   return (
     <SafeAreaView style={styles.root} edges={["top", "bottom"]}>
       <View style={styles.card}>
@@ -169,7 +176,7 @@ export default function AgentInbox() {
           )}
           <View style={styles.scrubRow}>
             <View style={{ flex: 1 }}>
-              <AgentScrubber statuses={order.map((id) => sessions[id]?.status ?? "ended")} index={index} onChange={onScrub} />
+              <AgentScrubber statuses={order.map((id) => sessions[id]?.status ?? "ended")} index={index} onChange={onScrub} onLongPress={onHold} />
             </View>
             <IconButton symbol="plus" size={START_SIZE} tintColor={colors.textMuted} backgroundColor={colors.bg} disabled={!connected || launching} onPress={startSession} />
           </View>
@@ -178,6 +185,12 @@ export default function AgentInbox() {
           </Text>
         </View>
       )}
+      <AgentSettingsSheet
+        sessionId={settingsFor}
+        onClose={() => {
+          setSettingsFor(null);
+        }}
+      />
     </SafeAreaView>
   );
 }

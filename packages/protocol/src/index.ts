@@ -46,8 +46,21 @@ export const AgentSession = z.object({
   lastActivityAt: ms, // unix epoch ms
   /** Whether the Mac knows how to deliver a reply into this session. */
   canRespond: z.boolean(),
+  /** Display name of the model the session is currently using, when the provider reports it. */
+  model: z.string().optional(),
+  /** Current thinking level selector (e.g. "off", "low", "high"), when the provider reports it. */
+  thinkingLevel: z.string().optional(),
 });
 export type AgentSession = z.infer<typeof AgentSession>;
+
+/** A model the session could switch to, with the thinking levels it accepts. */
+export const AgentModel = z.object({
+  provider: nonEmpty,
+  id: nonEmpty,
+  name: nonEmpty,
+  thinkingLevels: z.array(nonEmpty),
+});
+export type AgentModel = z.infer<typeof AgentModel>;
 
 export const AgentMessageRole = z.enum(["user", "assistant", "tool", "system"]);
 export type AgentMessageRole = z.infer<typeof AgentMessageRole>;
@@ -118,6 +131,16 @@ export const Command = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("agent.reply"), sessionId: nonEmpty, text: z.string().min(1), submit: z.boolean() }),
   /** Open a fresh agent session on the host (it shows up in `agents.*` once it registers). */
   z.object({ kind: z.literal("agent.start") }),
+  /** Change one or more session settings; omitted fields are left alone. */
+  z.object({
+    kind: z.literal("agent.configure"),
+    sessionId: nonEmpty,
+    title: nonEmpty.optional(),
+    model: z.object({ provider: nonEmpty, id: nonEmpty }).optional(),
+    thinkingLevel: nonEmpty.optional(),
+  }),
+  /** Interrupt whatever the session is doing right now. */
+  z.object({ kind: z.literal("agent.abort"), sessionId: nonEmpty }),
 ]);
 export type Command = z.infer<typeof Command>;
 
@@ -127,6 +150,7 @@ export const AckError = z.object({
     "agent_not_found",
     "agent_cannot_respond",
     "agent_launch_failed",
+    "agent_configure_failed",
     "invalid_command",
     "internal",
   ]),
@@ -158,6 +182,8 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("agents.get") }),
   z.object({ t: z.literal("agent.subscribe"), sessionId: nonEmpty }),
   z.object({ t: z.literal("agent.unsubscribe"), sessionId: nonEmpty }),
+  /** Ask which models/thinking levels a session can switch to; answered by `agent.options`. */
+  z.object({ t: z.literal("agent.options"), sessionId: nonEmpty }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 
@@ -208,6 +234,7 @@ export const ServerMessage = z.discriminatedUnion("t", [
     rev: z.number().int(),
     append: z.array(AgentMessage),
   }),
+  z.object({ t: z.literal("agent.options"), sessionId: nonEmpty, models: z.array(AgentModel) }),
   z.object({ t: z.literal("ack"), id: nonEmpty }),
   z.object({ t: z.literal("nack"), id: nonEmpty, error: AckError }),
   z.object({ t: z.literal("pong"), ts: ms, serverTs: ms }),

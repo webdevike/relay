@@ -102,6 +102,11 @@ export function AgentCard({ session, messages, connected }: AgentCardProps) {
         <Text variant="caption" color="textMuted" numberOfLines={1}>
           {session.statusDetail ?? session.projectPath}
         </Text>
+        {session.model !== undefined && (
+          <Text variant="caption" color="textFaint" numberOfLines={1}>
+            {session.thinkingLevel === undefined ? session.model : `${session.model} · ${session.thinkingLevel}`}
+          </Text>
+        )}
       </View>
       <Separator />
       {messages === undefined ? (

@@ -1,10 +1,10 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { type AgentMessage, type AgentSession, type ClientMessage, type InputEvent, type KeyName, type ServerMessage } from "@relay/protocol";
+import { type AgentMessage, type AgentModel, type AgentSession, type ClientMessage, type InputEvent, type KeyName, type ServerMessage } from "@relay/protocol";
 import { AgentsDeltaTracker } from "../src/agents/delta-tracker";
 import { CommandDedupStore } from "../src/dedup";
 import { PairingCoordinator } from "../src/pairing";
-import { AckFailure, type AgentProvider, type DeviceStore, type FrameSink, type InputSink, type PairedDevice, type PairingUI, type TextInjecting } from "../src/seams";
+import { AckFailure, type AgentConfigChange, type AgentProvider, type DeviceStore, type FrameSink, type InputSink, type PairedDevice, type PairingUI, type TextInjecting } from "../src/seams";
 import { ClientSession, PAIRING_TIMEOUT_MS, type SessionClock, type SessionDeps } from "../src/session";
 
 class RecordingSink implements FrameSink {
@@ -321,6 +321,20 @@ class FakeProvider implements AgentProvider {
     this.launched += 1;
     return Promise.resolve();
   }
+  options(sessionId: string): Promise<AgentModel[] | null> {
+    return Promise.resolve(sessionId === "s1" ? [{ provider: "anthropic", id: "m", name: "M", thinkingLevels: ["off", "low"] }] : null);
+  }
+  readonly configured: AgentConfigChange[] = [];
+  configure(change: AgentConfigChange): Promise<void> {
+    if (change.sessionId !== "s1") return Promise.reject(new AckFailure({ code: "agent_not_found", message: "gone" }));
+    this.configured.push(change);
+    return Promise.resolve();
+  }
+  aborted: string[] = [];
+  abort(sessionId: string): Promise<void> {
+    this.aborted.push(sessionId);
+    return Promise.resolve();
+  }
 }
 
 describe("agent topics", () => {
@@ -367,6 +381,32 @@ describe("agent topics", () => {
       { t: "nack", id: "r2", error: { code: "agent_not_found", message: "gone" } },
     ]);
   });
+
+  it("answers agent.options with the provider's models, empty for unknown sessions", async () => {
+    const h = harness({ agents: new FakeProvider() });
+    pair(h);
+    h.session.receive({ t: "agent.options", sessionId: "s1" });
+    h.session.receive({ t: "agent.options", sessionId: "nope" });
+    await h.sink.sentCount(6);
+    expect(h.sink.sent.slice(-2)).toEqual([
+      { t: "agent.options", sessionId: "s1", models: [{ provider: "anthropic", id: "m", name: "M", thinkingLevels: ["off", "low"] }] },
+      { t: "agent.options", sessionId: "nope", models: [] },
+    ]);
+  });
+
+  it("forwards agent.configure fields without the kind and nacks unknown sessions", async () => {
+    const agents = new FakeProvider();
+    const h = harness({ agents });
+    pair(h);
+    h.session.receive({ t: "cmd", id: "c1", cmd: { kind: "agent.configure", sessionId: "s1", title: "Renamed", thinkingLevel: "high" } });
+    h.session.receive({ t: "cmd", id: "c2", cmd: { kind: "agent.configure", sessionId: "nope", title: "x" } });
+    await h.sink.sentCount(6);
+    expect(agents.configured).toEqual([{ sessionId: "s1", title: "Renamed", thinkingLevel: "high" }]);
+    expect(h.sink.sent.slice(-2)).toEqual([
+      { t: "ack", id: "c1" },
+      { t: "nack", id: "c2", error: { code: "agent_not_found", message: "gone" } },
+    ]);
+  });
 });
 
 describe("AgentsDeltaTracker", () => {
@@ -377,5 +417,13 @@ describe("AgentsDeltaTracker", () => {
     tracker.seed([a, b]);
     expect(tracker.apply([{ ...a, status: "working" }])).toEqual({ t: "agents.delta", rev: 1, upsert: [{ ...a, status: "working" }], remove: ["b"] });
     expect(tracker.apply([{ ...a, status: "working" }])).toEqual({ t: "agents.delta", rev: 2 });
+  });
+
+  it("treats a model or thinking-level change as an upsert", () => {
+    const tracker = new AgentsDeltaTracker();
+    const a: AgentSession = { id: "a", provider: "omp", title: "a", projectPath: "/a", status: "idle", lastActivity: "", lastActivityAt: 1, canRespond: true, model: "M", thinkingLevel: "medium" };
+    tracker.seed([a]);
+    expect(tracker.apply([{ ...a, thinkingLevel: "low" }])).toEqual({ t: "agents.delta", rev: 1, upsert: [{ ...a, thinkingLevel: "low" }] });
+    expect(tracker.apply([{ ...a, thinkingLevel: "low", model: "N" }])).toEqual({ t: "agents.delta", rev: 2, upsert: [{ ...a, thinkingLevel: "low", model: "N" }] });
   });
 });

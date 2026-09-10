@@ -10,6 +10,9 @@ import { createConnection, type Socket } from "node:net";
 import { basename } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 
+type Model = NonNullable<ExtensionContext["model"]>;
+type ThinkingLevel = Parameters<ExtensionAPI["setThinkingLevel"]>[0];
+
 type Status = "working" | "waiting" | "needs_permission" | "idle" | "ended";
 type Role = "user" | "assistant" | "tool" | "system";
 
@@ -21,10 +24,15 @@ interface InboxMessage {
   tool?: { name: string; summary: string };
 }
 
-interface SessionInfo {
+interface Settings {
+  title: string;
+  model?: string;
+  thinkingLevel?: string;
+}
+
+interface SessionInfo extends Settings {
   sessionId: string;
   provider: "omp";
-  title: string;
   projectPath: string;
   status: Status;
   statusDetail?: string;
@@ -33,17 +41,35 @@ interface SessionInfo {
   canRespond: boolean;
 }
 
+interface ModelOption {
+  provider: string;
+  id: string;
+  name: string;
+  thinkingLevels: string[];
+}
+
 type Outbound =
   | ({ t: "hello" } & SessionInfo)
-  | { t: "status"; status: Status; statusDetail?: string; lastActivity: string; lastActivityAt: number }
+  | ({ t: "status"; status: Status; statusDetail?: string; lastActivity: string; lastActivityAt: number } & Settings)
   | { t: "messages"; append: InboxMessage[] }
-  | { t: "conversation"; id: string; messages: InboxMessage[] }
-  | { t: "reply.result"; id: string; ok: boolean; error?: string };
+  | { t: "result"; id: string; ok: boolean; error?: string; value?: unknown };
 
-type Inbound = { t: "reply"; id: string; text: string; submit: boolean } | { t: "conversation"; id: string };
+type Inbound =
+  | { t: "conversation"; id: string }
+  | { t: "reply"; id: string; text: string; submit: boolean }
+  | { t: "options"; id: string }
+  | { t: "configure"; id: string; title?: string; model?: { provider: string; id: string }; thinkingLevel?: string }
+  | { t: "abort"; id: string };
+
+/** Thinking selectors a model accepts; "off" applies to any model, the rest come from its catalog entry. */
+function thinkingLevelsFor(model: Model): ThinkingLevel[] {
+  return model.reasoning ? ["off", ...(model.thinking?.efforts ?? [])] : ["off"];
+}
 
 const RECONNECT_MS = 3000;
 const MAX_SUMMARY = 120;
+/** ctx.model is still unresolved during session_start; the settings get a second report after this. */
+const SETTINGS_SETTLE_MS = 2000;
 
 export function socketPath(): string {
   const runtime = process.env["RELAY_AGENTS_SOCKET"];
@@ -97,14 +123,23 @@ export default function relayBridge(pi: ExtensionAPI): void {
   let askedQuestion = false;
   const history: InboxMessage[] = [];
 
+  const settings = (): Settings => {
+    const cwd = ctx?.sessionManager.getCwd() ?? "";
+    const base: Settings = { title: pi.getSessionName() ?? basename(cwd) };
+    const model = ctx?.model;
+    if (model !== undefined) base.model = model.name;
+    const level = pi.getThinkingLevel();
+    if (level !== undefined) base.thinkingLevel = level;
+    return base;
+  };
+
   const info = (): SessionInfo | null => {
     if (ctx === null) return null;
-    const cwd = ctx.sessionManager.getCwd();
     const base: SessionInfo = {
+      ...settings(),
       sessionId: ctx.sessionManager.getSessionId(),
       provider: "omp",
-      title: pi.getSessionName() ?? basename(cwd),
-      projectPath: cwd,
+      projectPath: ctx.sessionManager.getCwd(),
       status,
       lastActivity,
       lastActivityAt,
@@ -120,7 +155,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
   };
 
   const sendStatus = (): void => {
-    const frame: Outbound = { t: "status", status, lastActivity, lastActivityAt };
+    const frame: Outbound = { t: "status", status, lastActivity, lastActivityAt, ...settings() };
     if (statusDetail !== undefined) frame.statusDetail = statusDetail;
     send(frame);
   };
@@ -135,28 +170,57 @@ export default function relayBridge(pi: ExtensionAPI): void {
     if (history.length > 500) history.splice(0, history.length - 500);
   };
 
-  const handleInbound = (frame: Inbound): void => {
+  const handleInbound = async (frame: Inbound): Promise<void> => {
+    try {
+      send({ t: "result", id: frame.id, ok: true, value: await perform(frame) });
+    } catch (error) {
+      send({ t: "result", id: frame.id, ok: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  };
+
+  const perform = async (frame: Inbound): Promise<unknown> => {
+    if (ctx === null) throw new Error("session has no UI");
     switch (frame.t) {
       case "conversation":
-        send({ t: "conversation", id: frame.id, messages: history });
-        break;
+        return history;
       case "reply":
-        try {
-          if (frame.submit) {
-            // Same semantics as typing in the TUI and pressing Enter: prompt when idle, steer while streaming.
-            pi.sendUserMessage(frame.text);
-          } else if (ctx !== null) {
-            // Released without the flick: leave it in the editor for the keyboard to finish.
-            const existing = ctx.ui.getEditorText();
-            ctx.ui.setEditorText(existing.length === 0 ? frame.text : `${existing} ${frame.text}`);
-          } else {
-            throw new Error("session has no UI");
-          }
-          send({ t: "reply.result", id: frame.id, ok: true });
-        } catch (error) {
-          send({ t: "reply.result", id: frame.id, ok: false, error: error instanceof Error ? error.message : String(error) });
+        if (frame.submit) {
+          // Same semantics as typing in the TUI and pressing Enter: prompt when idle, steer while streaming.
+          pi.sendUserMessage(frame.text);
+        } else {
+          // Released without the flick: leave it in the editor for the keyboard to finish.
+          const existing = ctx.ui.getEditorText();
+          ctx.ui.setEditorText(existing.length === 0 ? frame.text : `${existing} ${frame.text}`);
         }
-        break;
+        return undefined;
+      case "options": {
+        const models: ModelOption[] = ctx.modelRegistry.getAvailable().map((model) => ({
+          provider: model.provider,
+          id: model.id,
+          name: model.name,
+          thinkingLevels: thinkingLevelsFor(model),
+        }));
+        return models;
+      }
+      case "configure": {
+        if (frame.title !== undefined) await pi.setSessionName(frame.title);
+        if (frame.model !== undefined) {
+          const model = ctx.modelRegistry.find(frame.model.provider, frame.model.id);
+          if (model === undefined) throw new Error(`unknown model ${frame.model.provider}/${frame.model.id}`);
+          if (!(await pi.setModel(model))) throw new Error(`no API key for ${model.name}`);
+        }
+        if (frame.thinkingLevel !== undefined) {
+          const requested = frame.thinkingLevel;
+          const level = ctx.model === undefined ? undefined : thinkingLevelsFor(ctx.model).find((candidate) => candidate === requested);
+          if (level === undefined) throw new Error(`${requested} is not a thinking level ${ctx.model?.name ?? "this model"} supports`);
+          pi.setThinkingLevel(level);
+        }
+        sendStatus();
+        return undefined;
+      }
+      case "abort":
+        ctx.abort();
+        return undefined;
     }
   };
 
@@ -179,6 +243,8 @@ export default function relayBridge(pi: ExtensionAPI): void {
     next.setNoDelay(true);
     next.on("connect", () => {
       send({ t: "hello", ...current, status, lastActivity, lastActivityAt });
+      // ctx.model is still unresolved during session_start; report the settings once it is.
+      setTimeout(sendStatus, SETTINGS_SETTLE_MS).unref();
     });
     next.on("data", (chunk: Buffer) => {
       buffer += chunk.toString("utf8");
@@ -188,7 +254,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
         buffer = buffer.slice(newline + 1);
         if (line.trim().length > 0) {
           try {
-            handleInbound(JSON.parse(line) as Inbound);
+            void handleInbound(JSON.parse(line) as Inbound);
           } catch {
             // A malformed host frame must never take the session down.
           }

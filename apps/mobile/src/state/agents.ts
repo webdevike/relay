@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { AgentMessage, AgentSession } from "@relay/protocol";
+import type { AgentMessage, AgentModel, AgentSession } from "@relay/protocol";
 
 export interface ConversationState {
   rev: number;
@@ -11,9 +11,11 @@ export interface AgentsData {
   sessions: Record<string, AgentSession>;
   order: string[];
   conversations: Record<string, ConversationState>;
+  /** Models each session may switch to, as last answered by the host. */
+  options: Record<string, AgentModel[]>;
 }
 
-export const emptyAgentsData: AgentsData = { rev: 0, sessions: {}, order: [], conversations: {} };
+export const emptyAgentsData: AgentsData = { rev: 0, sessions: {}, order: [], conversations: {}, options: {} };
 
 /** Sessions blocked on the user (a question or an approval prompt) sort ahead of everything else. */
 export function needsAttention(session: AgentSession): boolean {
@@ -45,7 +47,7 @@ export function applySnapshot(
  * old socket (subscriptions do not survive a reconnect).
  */
 export function applyWelcome(data: AgentsData, rev: number, sessions: AgentSession[]): AgentsData {
-  return { ...applySnapshot(data, rev, sessions), conversations: {} };
+  return { ...applySnapshot(data, rev, sessions), conversations: {}, options: {} };
 }
 
 /**
@@ -111,6 +113,7 @@ export interface AgentsStore extends AgentsData {
   applyDelta: (rev: number, upsert?: AgentSession[], remove?: string[]) => boolean;
   setConversation: (sessionId: string, rev: number, messages: AgentMessage[]) => void;
   appendMessages: (sessionId: string, rev: number, append: AgentMessage[]) => boolean;
+  setOptions: (sessionId: string, models: AgentModel[]) => void;
 }
 
 export const useAgentsStore = create<AgentsStore>((set, get) => ({
@@ -133,5 +136,8 @@ export const useAgentsStore = create<AgentsStore>((set, get) => ({
     const result = appendMessages(get(), sessionId, rev, append);
     set(result.data);
     return result.ok;
+  },
+  setOptions: (sessionId, models) => {
+    set({ options: { ...get().options, [sessionId]: models } });
   },
 }));

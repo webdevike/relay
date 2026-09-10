@@ -3,17 +3,18 @@
 // dropping is the session ending. Frames are JSONL both ways.
 //
 //   extension -> host   hello (full session info) | status | messages { append } |
-//                       conversation { id, messages } | reply.result { id, ok, error? }
-//   host -> extension   reply { id, text } | conversation { id }
+//                       result { id, ok, error?, value? }
+//   host -> extension   conversation { id } | reply { id, text, submit } | options { id } |
+//                       configure { id, ...change } | abort { id }
 //
 // Sessions are validated with zod at this boundary: a misbehaving extension version can only
 // produce a logged parse error, never a malformed frame on the phone's WebSocket.
 
 import { existsSync, unlinkSync } from "node:fs";
 import type { Socket, SocketHandler } from "bun";
-import { AgentMessage, AgentSession, AgentStatus, type AgentSession as AgentSessionT, type AgentMessage as AgentMessageT } from "@relay/protocol";
+import { AgentMessage, AgentModel, AgentSession, AgentStatus, type AgentSession as AgentSessionT, type AgentMessage as AgentMessageT, type AgentModel as AgentModelT } from "@relay/protocol";
 import { z } from "zod";
-import { AckFailure, type AgentProvider, type AgentProviderChange } from "../seams";
+import { AckFailure, type AgentConfigChange, type AgentProvider, type AgentProviderChange } from "../seams";
 
 const StatusFrame = z.object({
   t: z.literal("status"),
@@ -21,16 +22,29 @@ const StatusFrame = z.object({
   statusDetail: z.string().optional(),
   lastActivity: z.string(),
   lastActivityAt: z.number().finite(),
+  title: z.string().min(1).optional(),
+  model: z.string().optional(),
+  thinkingLevel: z.string().optional(),
 });
 
 const Inbound = z.discriminatedUnion("t", [
   z.object({ t: z.literal("hello") }).merge(AgentSession.omit({ id: true })).extend({ sessionId: z.string().min(1) }),
   StatusFrame,
   z.object({ t: z.literal("messages"), append: z.array(AgentMessage).min(1) }),
-  z.object({ t: z.literal("conversation"), id: z.string().min(1), messages: z.array(AgentMessage) }),
-  z.object({ t: z.literal("reply.result"), id: z.string().min(1), ok: z.boolean(), error: z.string().optional() }),
+  z.object({ t: z.literal("result"), id: z.string().min(1), ok: z.boolean(), error: z.string().optional(), value: z.unknown().optional() }),
 ]);
 type Inbound = z.infer<typeof Inbound>;
+
+type RequestKind = "conversation" | "reply" | "options" | "configure" | "abort";
+
+/** The error code a rejected request maps to; the extension's message is passed through. */
+const failureCode: Record<RequestKind, AckFailure["error"]["code"]> = {
+  conversation: "internal",
+  reply: "agent_cannot_respond",
+  options: "internal",
+  configure: "agent_configure_failed",
+  abort: "internal",
+};
 
 const REQUEST_TIMEOUT_MS = 5000;
 
@@ -38,6 +52,7 @@ interface Pending {
   readonly resolve: (value: unknown) => void;
   readonly reject: (error: Error) => void;
   readonly timer: ReturnType<typeof setTimeout>;
+  readonly kind: RequestKind;
 }
 
 interface Connection {
@@ -103,21 +118,28 @@ export class OmpBridgeProvider implements AgentProvider {
   async conversation(sessionId: string): Promise<AgentMessageT[] | null> {
     const connection = this.find(sessionId);
     if (connection === undefined) return null;
-    const result = await this.request(connection, "conversation", {});
-    const parsed = z.array(AgentMessage).safeParse(result);
+    const parsed = z.array(AgentMessage).safeParse(await this.request(connection, "conversation", {}));
     return parsed.success ? parsed.data : [];
   }
 
   async reply(sessionId: string, text: string, submit: boolean): Promise<void> {
+    await this.request(this.require(sessionId), "reply", { text, submit });
+  }
+
+  async options(sessionId: string): Promise<AgentModelT[] | null> {
     const connection = this.find(sessionId);
-    if (connection === undefined) {
-      throw new AckFailure({ code: "agent_not_found", message: "that omp session is no longer running" });
-    }
-    const result = await this.request(connection, "reply", { text, submit });
-    const parsed = z.object({ ok: z.boolean(), error: z.string().optional() }).safeParse(result);
-    if (!parsed.success || !parsed.data.ok) {
-      throw new AckFailure({ code: "agent_cannot_respond", message: parsed.success ? (parsed.data.error ?? "reply rejected") : "malformed reply result" });
-    }
+    if (connection === undefined) return null;
+    const parsed = z.array(AgentModel).safeParse(await this.request(connection, "options", {}));
+    return parsed.success ? parsed.data : [];
+  }
+
+  async configure(change: AgentConfigChange): Promise<void> {
+    const { sessionId, ...fields } = change;
+    await this.request(this.require(sessionId), "configure", fields);
+  }
+
+  async abort(sessionId: string): Promise<void> {
+    await this.request(this.require(sessionId), "abort", {});
   }
 
   /**
@@ -148,8 +170,19 @@ export class OmpBridgeProvider implements AgentProvider {
     return undefined;
   }
 
-  /** Sends `{ t, id, ...body }` and resolves with the matching response payload. */
-  private request(connection: Connection, t: "conversation" | "reply", body: Record<string, unknown>): Promise<unknown> {
+  private require(sessionId: string): Connection {
+    const connection = this.find(sessionId);
+    if (connection === undefined) {
+      throw new AckFailure({ code: "agent_not_found", message: "that omp session is no longer running" });
+    }
+    return connection;
+  }
+
+  /**
+   * Sends `{ t, id, ...body }` and resolves with the matching `result.value`, or rejects with
+   * `AckFailure` when the extension answers `ok: false` or stays silent.
+   */
+  private request(connection: Connection, t: RequestKind, body: Record<string, unknown>): Promise<unknown> {
     this.requestSeq += 1;
     const id = `${t}-${this.requestSeq}`;
     const { promise, resolve, reject } = Promise.withResolvers<unknown>();
@@ -157,7 +190,7 @@ export class OmpBridgeProvider implements AgentProvider {
       connection.pending.delete(id);
       reject(new AckFailure({ code: "internal", message: `omp session did not answer ${t} within ${REQUEST_TIMEOUT_MS} ms` }));
     }, REQUEST_TIMEOUT_MS);
-    connection.pending.set(id, { resolve, reject, timer });
+    connection.pending.set(id, { resolve, reject, timer, kind: t });
     connection.socket.write(`${JSON.stringify({ t, id, ...body })}\n`);
     return promise;
   }
@@ -217,13 +250,15 @@ export class OmpBridgeProvider implements AgentProvider {
         connection.session = {
           id: current.id,
           provider: current.provider,
-          title: current.title,
           projectPath: current.projectPath,
           canRespond: current.canRespond,
+          title: frame.title ?? current.title,
           status: frame.status,
           lastActivity: frame.lastActivity,
           lastActivityAt: frame.lastActivityAt,
           ...(frame.statusDetail === undefined ? {} : { statusDetail: frame.statusDetail }),
+          ...(frame.model === undefined ? {} : { model: frame.model }),
+          ...(frame.thinkingLevel === undefined ? {} : { thinkingLevel: frame.thinkingLevel }),
         };
         this.publish();
         return;
@@ -232,22 +267,18 @@ export class OmpBridgeProvider implements AgentProvider {
         if (connection.session === null) return;
         this.onChange?.({ kind: "conversation", sessionId: connection.session.id, appended: frame.append });
         return;
-      case "conversation":
-        this.settle(connection, frame.id, frame.messages);
+      case "result": {
+        const pending = connection.pending.get(frame.id);
+        if (pending === undefined) return;
+        connection.pending.delete(frame.id);
+        clearTimeout(pending.timer);
+        if (frame.ok) pending.resolve(frame.value);
+        else pending.reject(new AckFailure({ code: failureCode[pending.kind], message: frame.error ?? `${pending.kind} rejected` }));
         return;
-      case "reply.result":
-        this.settle(connection, frame.id, { ok: frame.ok, ...(frame.error === undefined ? {} : { error: frame.error }) });
-        return;
+      }
     }
   }
 
-  private settle(connection: Connection, id: string, value: unknown): void {
-    const pending = connection.pending.get(id);
-    if (pending === undefined) return;
-    connection.pending.delete(id);
-    clearTimeout(pending.timer);
-    pending.resolve(value);
-  }
 
   private drop(connection: Connection): void {
     if (!this.connections.delete(connection)) return;

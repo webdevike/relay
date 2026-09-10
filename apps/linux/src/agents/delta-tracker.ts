@@ -45,6 +45,8 @@ function sameSession(a: AgentSession | undefined, b: AgentSession): boolean {
     a.statusDetail === b.statusDetail &&
     a.lastActivity === b.lastActivity &&
     a.lastActivityAt === b.lastActivityAt &&
-    a.canRespond === b.canRespond
+    a.canRespond === b.canRespond &&
+    a.model === b.model &&
+    a.thinkingLevel === b.thinkingLevel
   );
 }

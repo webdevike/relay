@@ -5,7 +5,7 @@ import { scheduleOnRN } from "react-native-worklets";
 import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } from "react-native-reanimated";
 import type { AgentStatus } from "@relay/protocol";
 import { colors, motion } from "@/theme";
-import { selectHaptic } from "@/lib/haptics";
+import { impactHaptic, selectHaptic } from "@/lib/haptics";
 
 export const TRACK_HEIGHT = 44;
 const TRACK_PADDING = 4;
@@ -25,14 +25,18 @@ export interface AgentScrubberProps {
   statuses: AgentStatus[];
   index: number;
   onChange: (index: number) => void;
+  /** Finger held still on a slot: open that session's settings. Fires after the slot is selected. */
+  onLongPress: (index: number) => void;
 }
+
+const LONG_PRESS_MS = 450;
 
 /**
  * One slot per session. The thumb rides the finger while dragging and snaps into the nearest slot
  * on release; crossing a slot boundary selects that session immediately (with a tick), so the card
- * above changes while the thumb is still moving.
+ * above changes while the thumb is still moving. Holding still on a slot opens its settings.
  */
-export function AgentScrubber({ statuses, index, onChange }: AgentScrubberProps) {
+export function AgentScrubber({ statuses, index, onChange, onLongPress }: AgentScrubberProps) {
   const count = statuses.length;
   const [trackWidth, setTrackWidth] = useState(0);
   const slot = count === 0 ? 0 : trackWidth / count;
@@ -74,7 +78,7 @@ export function AgentScrubber({ statuses, index, onChange }: AgentScrubberProps)
       dragging.value = false;
       thumbX.value = withSpring(current.value * slotWidth.value, SNAP);
     };
-    return Gesture.Pan()
+    const pan = Gesture.Pan()
       .activateAfterLongPress(0)
       .minDistance(0)
       .onBegin((event) => {
@@ -87,7 +91,14 @@ export function AgentScrubber({ statuses, index, onChange }: AgentScrubberProps)
         follow(event.x);
       })
       .onFinalize(settle);
-  }, [slotWidth, slots, current, thumbX, dragging, onChange]);
+    const hold = Gesture.LongPress()
+      .minDuration(LONG_PRESS_MS)
+      .onStart(() => {
+        scheduleOnRN(impactHaptic, "medium");
+        scheduleOnRN(onLongPress, current.value);
+      });
+    return Gesture.Simultaneous(pan, hold);
+  }, [slotWidth, slots, current, thumbX, dragging, onChange, onLongPress]);
 
   const thumbStyle = useAnimatedStyle(() => ({
     width: Math.max(0, slotWidth.value - TRACK_PADDING * 2),

@@ -210,6 +210,12 @@ export function unsubscribeAgent(sessionId: string): void {
   socket.send(encode({ t: "agent.unsubscribe", sessionId }));
 }
 
+/** Ephemeral; the answer lands in `useAgentsStore().options[sessionId]`. */
+export function requestAgentOptions(sessionId: string): void {
+  if (useConnectionStore.getState().status !== "connected") return;
+  socket.send(encode({ t: "agent.options", sessionId }));
+}
+
 /** Reliable; resolves on ack, rejects with an `AckError`-shaped `Error` on nack. */
 export function sendCommand(cmd: Command): Promise<void> {
   const promise = commandQueue.enqueue(cmd);

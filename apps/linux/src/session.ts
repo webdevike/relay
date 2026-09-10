@@ -35,6 +35,10 @@ export interface SessionClock {
 export const PAIRING_TIMEOUT_MS = 120_000;
 const MAX_PIN_ATTEMPTS = 3;
 
+function noInputDevice(): AckFailure {
+  return new AckFailure({ code: "accessibility_denied", message: "virtual input device unavailable" });
+}
+
 type Phase =
   | { readonly kind: "awaitingHello" }
   | { readonly kind: "challenged"; readonly deviceId: string; readonly nonce: string; readonly secret: Uint8Array }
@@ -256,6 +260,19 @@ export class ClientSession {
       case "agent.unsubscribe":
         this.subscriptions.delete(message.sessionId);
         break;
+      case "agent.options": {
+        const { sessionId } = message;
+        const lookup = this.deps.agents?.options(sessionId) ?? Promise.resolve(null);
+        void lookup.then(
+          (models) => {
+            if (!this.closed) this.sink.send({ t: "agent.options", sessionId, models: models ?? [] });
+          },
+          () => {
+            if (!this.closed) this.sink.send({ t: "agent.options", sessionId, models: [] });
+          },
+        );
+        break;
+      }
       case "hello":
       case "auth":
       case "pair.request":
@@ -285,25 +302,42 @@ export class ClientSession {
 
   private async execute(id: string, cmd: Command): Promise<ServerMessage> {
     try {
-      if (cmd.kind === "agent.reply" || cmd.kind === "agent.start") {
-        if (this.deps.agents === null) {
-          return { t: "nack", id, error: { code: "agent_cannot_respond", message: "no agent provider available" } };
-        }
-        if (cmd.kind === "agent.reply") await this.deps.agents.reply(cmd.sessionId, cmd.text, cmd.submit);
-        else await this.deps.agents.launch();
-        return { t: "ack", id };
-      }
-      if (!this.deps.access.granted) {
-        return { t: "nack", id, error: { code: "accessibility_denied", message: "virtual input device unavailable" } };
-      }
-      if (cmd.kind === "text.insert") await this.deps.text.insert(cmd.text);
-      else await this.deps.text.press(cmd.key);
+      await this.run(cmd);
       return { t: "ack", id };
     } catch (error) {
       return error instanceof AckFailure
         ? { t: "nack", id, error: error.error }
         : { t: "nack", id, error: { code: "internal", message: error instanceof Error ? error.message : String(error) } };
     }
+  }
+
+  private run(cmd: Command): Promise<void> {
+    switch (cmd.kind) {
+      case "text.insert":
+        return this.deps.access.granted ? this.deps.text.insert(cmd.text) : Promise.reject(noInputDevice());
+      case "key.press":
+        return this.deps.access.granted ? this.deps.text.press(cmd.key) : Promise.reject(noInputDevice());
+      case "agent.reply":
+        return this.agents().reply(cmd.sessionId, cmd.text, cmd.submit);
+      case "agent.start":
+        return this.agents().launch();
+      case "agent.configure":
+        return this.agents().configure({
+          sessionId: cmd.sessionId,
+          ...(cmd.title === undefined ? {} : { title: cmd.title }),
+          ...(cmd.model === undefined ? {} : { model: cmd.model }),
+          ...(cmd.thinkingLevel === undefined ? {} : { thinkingLevel: cmd.thinkingLevel }),
+        });
+      case "agent.abort":
+        return this.agents().abort(cmd.sessionId);
+    }
+  }
+
+  private agents(): AgentProvider {
+    if (this.deps.agents === null) {
+      throw new AckFailure({ code: "agent_cannot_respond", message: "no agent provider available" });
+    }
+    return this.deps.agents;
   }
 
   private authenticate(deviceId: string): void {

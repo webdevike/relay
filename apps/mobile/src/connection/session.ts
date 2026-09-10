@@ -227,9 +227,10 @@ export class SessionMachine {
       case "agents.delta":
       case "agent.conversation":
       case "agent.messages":
+      case "agent.options":
       case "ack":
       case "nack":
-        // Coding-agents feature is deferred; ack/nack are routed to CommandQueue by index.ts.
+        // Agent frames are routed to the agents store and ack/nack to CommandQueue by index.ts.
         return [];
     }
   }
