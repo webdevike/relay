@@ -15,6 +15,7 @@ import { Banner } from "@/ui/Banner";
 import { colors, motion, radii, spacing } from "@/theme";
 import { impactHaptic, notifyHaptic, tapHaptic } from "@/lib/haptics";
 import { useConnectionStore } from "@/state/connection";
+import { debug } from "@/connection/log";
 import { useSpeechRecognitionEvent } from "expo-speech-recognition";
 import { MicGlyph, type MicGlyphMode } from "./MicGlyph";
 import { micLevel, sendLift } from "./signals";
@@ -99,23 +100,34 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
 
   const glyphMode: MicGlyphMode =
     state.phase === "sent" ? "check" : state.phase === "listening" || state.phase === "finishing" || state.phase === "sending" ? "wave" : "mic";
-  // The gesture object is created once so RNGH never swaps handlers mid-touch (which drops the
-  // in-flight touch's finalize); the statechart decides what each event means in the current phase.
+  // A Manual gesture fed by raw touch events: the release comes from onTouchesUp/Cancelled, not
+  // from the recognizer's own state machine, so a competing recognizer (the trackpad surface
+  // underneath, the navigator's edge swipe) can never swallow the finger lifting. The gesture is
+  // built once and never reconfigured per render: reconfiguring a handler mid-touch is what used
+  // to drop finalize. `connected` is mirrored into a shared value for the same reason.
   const armed = useSharedValue(false);
   const pressed = useSharedValue(false);
+  const startY = useSharedValue(0);
+  const enabled = useSharedValue(connected);
+  useEffect(() => {
+    enabled.value = connected;
+  }, [connected, enabled]);
 
   const gesture = useMemo(() => {
     const onPressIn = (): void => {
       // The chart decides what a press means here (start, recover a lost release, or nothing).
       const phase = phaseOf(dictationActor.getSnapshot());
+      debug("dictation", "press in", phase);
       if (phase === "idle" || phase === "error" || phase === "permission_denied") {
         sendLift.value = 0;
         impactHaptic("medium");
       }
       dictationActor.send({ type: "pressStart" });
     };
-    const onPressOut = (): void => {
-      if (phaseOf(dictationActor.getSnapshot()) === "listening") tapHaptic();
+    const onPressOut = (reason: string): void => {
+      const phase = phaseOf(dictationActor.getSnapshot());
+      debug("dictation", "press out", reason, phase);
+      if (phase === "listening") tapHaptic();
       dictationActor.send({ type: "release" });
     };
     const submit = (): void => {
@@ -123,29 +135,49 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
       impactHaptic("heavy");
       dictationActor.send({ type: "pressStop", submit: true });
     };
-    return Gesture.Pan()
-      .minDistance(0)
-      .maxPointers(1)
-      .onBegin(() => {
+    const finish = (reason: string): void => {
+      "worklet";
+      if (!pressed.value) return;
+      pressed.value = false;
+      armed.value = false;
+      sendLift.value = withTiming(0, { duration: motion.duration.base });
+      scheduleOnRN(onPressOut, reason);
+    };
+    return Gesture.Manual()
+      .onTouchesDown((event, manager) => {
+        if (pressed.value || !enabled.value) return;
+        const touch = event.allTouches[0];
+        if (touch === undefined) return;
         pressed.value = true;
+        startY.value = touch.absoluteY;
+        manager.activate();
         scheduleOnRN(onPressIn);
       })
-      .onUpdate((event) => {
+      .onTouchesMove((event) => {
+        if (!pressed.value) return;
+        const touch = event.allTouches[0];
+        if (touch === undefined) return;
         // The orb lifts with the finger; crossing the swipe distance submits immediately.
-        const lift = Math.min(1, Math.max(0, -event.translationY / SEND_SWIPE_DISTANCE));
+        const lift = Math.min(1, Math.max(0, (startY.value - touch.absoluteY) / SEND_SWIPE_DISTANCE));
         if (!armed.value) sendLift.value = lift;
         if (lift >= 1 && !armed.value) {
           armed.value = true;
           scheduleOnRN(submit);
         }
       })
+      .onTouchesUp((event, manager) => {
+        if (event.numberOfTouches > 0) return;
+        finish("up");
+        manager.end();
+      })
+      .onTouchesCancelled((_event, manager) => {
+        finish("cancelled");
+        manager.fail();
+      })
       .onFinalize(() => {
-        pressed.value = false;
-        armed.value = false;
-        sendLift.value = withTiming(0, { duration: motion.duration.base });
-        scheduleOnRN(onPressOut);
+        finish("finalize");
       });
-  }, [armed, pressed]);
+  }, [armed, pressed, startY, enabled]);
 
   const buttonStyle = useAnimatedStyle(() => ({ opacity: !connected ? 0.4 : pressed.value ? 0.85 : 1 }));
 
@@ -202,7 +234,7 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
             ]}
           />
         )}
-        <GestureDetector gesture={gesture.enabled(connected)}>
+        <GestureDetector gesture={gesture}>
           <Animated.View
             style={[
               {
