@@ -152,6 +152,52 @@ describe("dictationMachine", () => {
     expect(h.phase()).toBe("finishing");
   });
 
+  /** A machine whose permission check only resolves when the test says so. */
+  function slowPermission(): { actor: Actor<typeof dictationMachine>; clock: SimulatedClock; grant: () => void } {
+    let grant: () => void = () => undefined;
+    const permission = new Promise<PermissionOutcome>((resolve) => {
+      grant = () => {
+        resolve("granted");
+      };
+    });
+    const machine = dictationMachine.provide({
+      actors: {
+        checkPermission: fromPromise<PermissionOutcome>(() => permission),
+        recognizer: fromCallback<RecognizerCommand>(() => undefined),
+        deliver: fromPromise<null, DeliverInput>(() => Promise.resolve(null)),
+      },
+    });
+    const clock = new SimulatedClock();
+    const actor = createActor(machine, { clock }).start();
+    return { actor, clock, grant };
+  }
+
+  it("a hold that ends while a slow permission check is still running is a finished hold, not a tap", async () => {
+    // The regression: the finger goes down, the permission check takes longer than the tap
+    // window, and the finger lifts before it resolves. Listening must not open hands-free.
+    const { actor, clock, grant } = slowPermission();
+    actor.send({ type: "pressStart" });
+    clock.increment(TAP_WINDOW_MS + 200);
+    actor.send({ type: "release" });
+    grant();
+    await waitFor(actor, (snapshot) => !snapshot.matches({ speech: "requesting_permission" }));
+    expect(phaseOf(actor.getSnapshot())).toBe("finishing");
+    actor.send({ type: "recognizerError", code: "no-speech" });
+    expect(phaseOf(actor.getSnapshot())).toBe("idle");
+    expect(actor.getSnapshot().context.nothingHeard).toBe(true);
+  });
+
+  it("a hold that outlasts the permission check opens as a hold, with no second tap window", async () => {
+    const { actor, clock, grant } = slowPermission();
+    actor.send({ type: "pressStart" });
+    clock.increment(TAP_WINDOW_MS + 200);
+    grant();
+    await waitFor(actor, (snapshot) => snapshot.matches({ speech: "active" }));
+    // Releasing right away must end the hold rather than count as a fresh tap.
+    actor.send({ type: "release" });
+    expect(phaseOf(actor.getSnapshot())).toBe("finishing");
+  });
+
   it("hands-free still submits on a swipe", async () => {
     const h = harness();
     await h.press();

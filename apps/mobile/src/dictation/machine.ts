@@ -52,8 +52,10 @@ export interface DictationContext {
   errorCode: string | null;
   /** Whether the pending/last send also submits (Return) on the Mac. */
   submit: boolean;
-  /** The press was a tap: listening continues after the finger lifts until the next tap. */
-  handsFree: boolean;
+  /** The finger has been down longer than the tap window (counted from the press, permission wait included). */
+  held: boolean;
+  /** The finger lifted before listening opened; resolved once listening starts. */
+  released: boolean;
 }
 
 export type DictationEvent =
@@ -97,7 +99,7 @@ function notProvided(name: string): never {
   throw new Error(`dictation actor "${name}" not provided`);
 }
 
-const fresh: DictationContext = { transcript: "", nothingHeard: false, errorCode: null, submit: false, handsFree: false };
+const fresh: DictationContext = { transcript: "", nothingHeard: false, errorCode: null, submit: false, held: false, released: false };
 
 export const dictationMachine = setup({
   types: {
@@ -115,7 +117,11 @@ export const dictationMachine = setup({
   guards: {
     hasText: ({ context }) => context.transcript.trim().length > 0,
     submitting: ({ event }) => event.type === "pressStop" && event.submit === true,
-    handsFree: ({ context }) => context.handsFree,
+    /** A tap: the finger was up before the tap window ran out. */
+    tapped: ({ context }) => context.released && !context.held,
+    /** A hold that ended while permission was still being checked: nothing more to listen for. */
+    releasedAfterHold: ({ context }) => context.released && context.held,
+    held: ({ context }) => context.held,
     noSpeech: ({ event }) => event.type === "recognizerError" && event.code === "no-speech",
     listening: stateIn({ speech: { active: "listening" } }),
     speechActive: stateIn({ speech: "active" }),
@@ -148,8 +154,11 @@ export const dictationMachine = setup({
           on: { pressStart: { target: "requesting_permission", actions: assign(fresh) } },
         },
         requesting_permission: {
-          // A tap ends before the check does: remember it so listening opens hands-free.
-          on: { release: { actions: assign({ handsFree: true }) } },
+          // The tap window runs from the press itself, so a slow permission check cannot turn a
+          // hold-and-release into a tap; whether the finger lifted meanwhile is resolved once
+          // listening opens.
+          after: { TAP_WINDOW: { actions: assign({ held: true }) } },
+          on: { release: { actions: assign({ released: true }) } },
           invoke: {
             src: "checkPermission",
             onDone: [
@@ -184,13 +193,21 @@ export const dictationMachine = setup({
                 },
                 recognizerEnd: { target: "#dictation.speech.error", actions: assign({ ...fresh, errorCode: "aborted" }) },
               },
-              initial: "holding",
+              initial: "deciding",
               states: {
+                /** Transient: what the finger did during the permission wait decides how listening opens. */
+                deciding: {
+                  always: [
+                    { guard: "tapped", target: "handsFree" },
+                    { guard: "releasedAfterHold", target: "#dictation.speech.active.finishing", actions: "stopRecognizer" },
+                    { guard: "held", target: "held" },
+                    { target: "holding" },
+                  ],
+                },
                 /** Finger down since the press; a release this early is a tap. */
                 holding: {
-                  always: { guard: "handsFree", target: "handsFree" },
-                  after: { TAP_WINDOW: { target: "held" } },
-                  on: { release: { target: "handsFree", actions: assign({ handsFree: true }) } },
+                  after: { TAP_WINDOW: { target: "held", actions: assign({ held: true }) } },
+                  on: { release: { target: "handsFree" } },
                 },
                 /** Hold-to-talk: the finger lifting ends the dictation. */
                 held: {
