@@ -52,6 +52,8 @@ export interface DictationContext {
   errorCode: string | null;
   /** Whether the pending/last send also submits (Return) on the Mac. */
   submit: boolean;
+  /** The press was a tap: listening continues after the finger lifts until the next tap. */
+  handsFree: boolean;
 }
 
 export type DictationEvent =
@@ -84,6 +86,8 @@ export const FINISH_TIMEOUT_MS = 1500;
 export const SENT_HOLD_MS = 900;
 export const ERROR_HOLD_MS = 2500;
 export const NOTHING_HEARD_HOLD_MS = 1500;
+/** A press released within this window is a tap (hands-free), not a hold. */
+export const TAP_WINDOW_MS = 250;
 /** Orb launch: from lifted to off the top of the screen. */
 export const ORB_FLIGHT_MS = 620;
 /** Orb exit fade (after the check, an error, or a reset). */
@@ -93,7 +97,7 @@ function notProvided(name: string): never {
   throw new Error(`dictation actor "${name}" not provided`);
 }
 
-const fresh: DictationContext = { transcript: "", nothingHeard: false, errorCode: null, submit: false };
+const fresh: DictationContext = { transcript: "", nothingHeard: false, errorCode: null, submit: false, handsFree: false };
 
 export const dictationMachine = setup({
   types: {
@@ -111,6 +115,8 @@ export const dictationMachine = setup({
   guards: {
     hasText: ({ context }) => context.transcript.trim().length > 0,
     submitting: ({ event }) => event.type === "pressStop" && event.submit === true,
+    handsFree: ({ context }) => context.handsFree,
+    noSpeech: ({ event }) => event.type === "recognizerError" && event.code === "no-speech",
     listening: stateIn({ speech: { active: "listening" } }),
     speechActive: stateIn({ speech: "active" }),
     speechSent: stateIn({ speech: "sent" }),
@@ -122,6 +128,7 @@ export const dictationMachine = setup({
     SENT_HOLD: SENT_HOLD_MS,
     ERROR_HOLD: ERROR_HOLD_MS,
     NOTHING_HEARD_HOLD: NOTHING_HEARD_HOLD_MS,
+    TAP_WINDOW: TAP_WINDOW_MS,
     ORB_FLIGHT: ORB_FLIGHT_MS,
     ORB_FADE: ORB_FADE_MS,
   },
@@ -141,6 +148,8 @@ export const dictationMachine = setup({
           on: { pressStart: { target: "requesting_permission", actions: assign(fresh) } },
         },
         requesting_permission: {
+          // A tap ends before the check does: remember it so listening opens hands-free.
+          on: { release: { actions: assign({ handsFree: true }) } },
           invoke: {
             src: "checkPermission",
             onDone: [
@@ -158,10 +167,11 @@ export const dictationMachine = setup({
           invoke: { id: "recognizer", src: "recognizer" },
           initial: "listening",
           on: {
-            recognizerError: {
-              target: "error",
-              actions: assign({ ...fresh, errorCode: ({ event }) => event.code }),
-            },
+            recognizerError: [
+              // Stopping before anything was said is "nothing heard", not a failure.
+              { guard: "noSpeech", target: "finished" },
+              { target: "error", actions: assign({ ...fresh, errorCode: ({ event }) => event.code }) },
+            ],
           },
           states: {
             listening: {
@@ -172,8 +182,28 @@ export const dictationMachine = setup({
                   target: "finishing",
                   actions: [assign({ submit: ({ event }) => event.submit === true }), "stopRecognizer"],
                 },
-                release: { target: "finishing", actions: "stopRecognizer" },
                 recognizerEnd: { target: "#dictation.speech.error", actions: assign({ ...fresh, errorCode: "aborted" }) },
+              },
+              initial: "holding",
+              states: {
+                /** Finger down since the press; a release this early is a tap. */
+                holding: {
+                  always: { guard: "handsFree", target: "handsFree" },
+                  after: { TAP_WINDOW: { target: "held" } },
+                  on: { release: { target: "handsFree", actions: assign({ handsFree: true }) } },
+                },
+                /** Hold-to-talk: the finger lifting ends the dictation. */
+                held: {
+                  on: {
+                    release: { target: "#dictation.speech.active.finishing", actions: "stopRecognizer" },
+                    // A press here means the earlier release was lost: treat it as that release.
+                    pressStart: { target: "#dictation.speech.active.finishing", actions: "stopRecognizer" },
+                  },
+                },
+                /** Listening with the finger up; the next tap (its release) ends the dictation. */
+                handsFree: {
+                  on: { release: { target: "#dictation.speech.active.finishing", actions: "stopRecognizer" } },
+                },
               },
             },
             finishing: {
@@ -271,7 +301,7 @@ export type DictationActorSnapshot = SnapshotFrom<typeof dictationMachine>;
 
 export function phaseOf(snapshot: DictationActorSnapshot): DictationPhase {
   const speech = snapshot.value.speech;
-  if (typeof speech === "object") return speech.active;
+  if (typeof speech === "object") return typeof speech.active === "object" ? "listening" : speech.active;
   return speech === "finished" ? "sending" : speech;
 }
 

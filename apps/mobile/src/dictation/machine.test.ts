@@ -9,6 +9,7 @@ import {
   type OrbState,
   type PermissionOutcome,
   type RecognizerCommand,
+  TAP_WINDOW_MS,
 } from "./machine";
 
 interface Harness {
@@ -90,9 +91,11 @@ function harness(permission: PermissionOutcome = "granted"): Harness {
   };
 }
 
+/** Press, wait for permission, and keep the finger down past the tap window: a hold. */
 async function pressAndListen(h: Harness): Promise<void> {
   await h.press();
   expect(h.phase()).toBe("listening");
+  h.clock.increment(TAP_WINDOW_MS);
 }
 
 describe("dictationMachine", () => {
@@ -115,6 +118,60 @@ describe("dictationMachine", () => {
     h.actor.send({ type: "release" });
     h.actor.send({ type: "final", text: "just text" });
     expect(h.sends[1]).toEqual({ text: "just text", submit: false });
+  });
+
+  it("a tap (release inside the tap window) keeps listening hands-free until the next tap", async () => {
+    const h = harness();
+    await h.press();
+    h.clock.increment(TAP_WINDOW_MS - 1);
+    h.actor.send({ type: "release" });
+    expect(h.phase()).toBe("listening");
+    expect(h.recognizerStops).toBe(0);
+    h.actor.send({ type: "partial", text: "still here" });
+    h.clock.increment(5000);
+    expect(h.phase()).toBe("listening");
+
+    // The next press is a no-op; its release ends the dictation.
+    h.actor.send({ type: "pressStart" });
+    expect(h.phase()).toBe("listening");
+    h.actor.send({ type: "release" });
+    expect(h.phase()).toBe("finishing");
+    expect(h.recognizerStops).toBe(1);
+    h.actor.send({ type: "final", text: "still here" });
+    expect(h.sends).toEqual([{ text: "still here", submit: false }]);
+  });
+
+  it("a tap that ends before the permission check does still opens hands-free", async () => {
+    const h = harness();
+    h.actor.send({ type: "pressStart" });
+    h.actor.send({ type: "release" });
+    await waitFor(h.actor, (snapshot) => snapshot.matches({ speech: "active" }));
+    h.clock.increment(5000);
+    expect(h.phase()).toBe("listening");
+    h.actor.send({ type: "release" });
+    expect(h.phase()).toBe("finishing");
+  });
+
+  it("hands-free still submits on a swipe", async () => {
+    const h = harness();
+    await h.press();
+    h.actor.send({ type: "release" });
+    h.actor.send({ type: "partial", text: "send me" });
+    h.actor.send({ type: "pressStop", submit: true });
+    expect(h.phase()).toBe("finishing");
+    expect(h.orb()).toBe("lifted");
+    h.actor.send({ type: "final", text: "send me" });
+    expect(h.sends).toEqual([{ text: "send me", submit: true }]);
+  });
+
+  it("a no-speech recognizer error is nothing heard, not a failure", async () => {
+    const h = harness();
+    await pressAndListen(h);
+    h.actor.send({ type: "release" });
+    h.actor.send({ type: "recognizerError", code: "no-speech" });
+    expect(h.phase()).toBe("idle");
+    expect(h.actor.getSnapshot().context).toMatchObject({ nothingHeard: true, errorCode: null });
+    expect(h.orb()).toBe("fading");
   });
 
   it("orb: a plain dictation shows, collapses into the check at sent, then fades", async () => {
@@ -206,6 +263,7 @@ describe("dictationMachine", () => {
     await waitFor(h.actor, (snapshot) => snapshot.matches({ speech: "active" }));
     expect(h.phase()).toBe("listening");
     expect(h.recognizerAlive()).toBe(true);
+    h.clock.increment(TAP_WINDOW_MS);
 
     h.actor.send({ type: "partial", text: "hello" });
     h.actor.send({ type: "partial", text: "hello world" });

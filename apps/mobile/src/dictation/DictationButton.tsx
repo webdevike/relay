@@ -106,15 +106,12 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
 
   const gesture = useMemo(() => {
     const onPressIn = (): void => {
+      // The chart decides what a press means here (start, end a hands-free dictation, or nothing).
       const phase = phaseOf(dictationActor.getSnapshot());
-      if (phase === "listening") {
-        // A stray press while already listening (e.g. after a lost release) ends it.
-        dictationActor.send({ type: "release" });
-        return;
+      if (phase === "idle" || phase === "error" || phase === "permission_denied") {
+        sendLift.value = 0;
+        impactHaptic("medium");
       }
-      if (phase !== "idle" && phase !== "error" && phase !== "permission_denied") return;
-      sendLift.value = 0;
-      impactHaptic("medium");
       dictationActor.send({ type: "pressStart" });
     };
     const onPressOut = (): void => {
