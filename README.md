@@ -6,6 +6,7 @@ and a view of the coding-agent sessions running on the Mac.
 ```
 apps/mobile      Expo + React Native + TypeScript (Expo Router, Gesture Handler, Reanimated, Zustand)
 apps/mac         Swift + SwiftUI menu-bar app (Network.framework, Bonjour, CGEvent, Accessibility)
+apps/linux       Bun + TypeScript host daemon (Bun.serve WebSocket, avahi, /dev/uinput, wtype). See apps/linux/README.md
 packages/protocol  Wire protocol: zod schemas + JSON fixtures. apps/mac/Sources/RelayProtocol mirrors it.
 tooling/         Shared eslint config
 ```
@@ -28,6 +29,7 @@ cd apps/mac && swift test                                          # Mac unit + 
 cd apps/mac && sh scripts/setup-identity.sh && sh scripts/bundle.sh && open build/Relay.app
 cd apps/mobile && npx expo prebuild --platform ios && (cd ios && pod install)
 cd apps/mobile && npx expo start --dev-client                      # NOT with CI=1: that disables watch mode
+cd apps/linux && bun run src/main.ts serve                        # Linux host daemon (PIN prints here)
 ```
 
 Simulator dev client: build with `xcodebuild -workspace ios/Relay.xcworkspace -scheme Relay -sdk iphonesimulator …`, install with `xcrun simctl install`. Physical iPhone on iOS 27 cannot be driven by Xcode 16.4; use `eas build --profile development --platform ios` (apps/mobile/eas.json) and install from the link.

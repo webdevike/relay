@@ -1,0 +1,25 @@
+{
+  "name": "@relay/linux",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "relay-linux": "./src/main.ts"
+  },
+  "scripts": {
+    "serve": "bun run src/main.ts serve",
+    "lint": "eslint src test",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "build": "echo 'bun runs src/main.ts directly; nothing to build'"
+  },
+  "dependencies": {
+    "@relay/protocol": "workspace:*",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@relay/eslint-config": "workspace:*",
+    "@types/bun": "^1.2.0",
+    "@types/node": "^20.0.0"
+  }
+}
