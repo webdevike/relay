@@ -322,7 +322,7 @@ class FakeProvider implements AgentProvider {
     return Promise.resolve();
   }
   options(sessionId: string): Promise<AgentModel[] | null> {
-    return Promise.resolve(sessionId === "s1" ? [{ provider: "anthropic", id: "m", name: "M", thinkingLevels: ["off", "low"] }] : null);
+    return Promise.resolve(sessionId === "s1" ? [{ provider: "anthropic", id: "m", name: "M", vendor: "anthropic", thinkingLevels: ["off", "low"] }] : null);
   }
   readonly configured: AgentConfigChange[] = [];
   configure(change: AgentConfigChange): Promise<void> {
@@ -389,7 +389,7 @@ describe("agent topics", () => {
     h.session.receive({ t: "agent.options", sessionId: "nope" });
     await h.sink.sentCount(6);
     expect(h.sink.sent.slice(-2)).toEqual([
-      { t: "agent.options", sessionId: "s1", models: [{ provider: "anthropic", id: "m", name: "M", thinkingLevels: ["off", "low"] }] },
+      { t: "agent.options", sessionId: "s1", models: [{ provider: "anthropic", id: "m", name: "M", vendor: "anthropic", thinkingLevels: ["off", "low"] }] },
       { t: "agent.options", sessionId: "nope", models: [] },
     ]);
   });

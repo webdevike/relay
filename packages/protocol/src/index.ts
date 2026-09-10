@@ -53,11 +53,16 @@ export const AgentSession = z.object({
 });
 export type AgentSession = z.infer<typeof AgentSession>;
 
-/** A model the session could switch to, with the thinking levels it accepts. */
+/**
+ * A model the session could switch to, with the thinking levels it accepts. The host lists
+ * these grouped by vendor, newest revision first within each vendor.
+ */
 export const AgentModel = z.object({
   provider: nonEmpty,
   id: nonEmpty,
   name: nonEmpty,
+  /** Company behind the model (e.g. "anthropic"), which may differ from the hosting provider. */
+  vendor: nonEmpty,
   thinkingLevels: z.array(nonEmpty),
 });
 export type AgentModel = z.infer<typeof AgentModel>;

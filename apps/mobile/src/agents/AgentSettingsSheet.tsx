@@ -37,9 +37,11 @@ function ModelRow({ model, selected, onPress }: { model: AgentModel; selected: b
         <Text variant="body" numberOfLines={1}>
           {model.name}
         </Text>
-        <Text variant="caption" color="textFaint" numberOfLines={1}>
-          {model.provider}
-        </Text>
+        {model.provider !== model.vendor && (
+          <Text variant="caption" color="textFaint" numberOfLines={1}>
+            via {model.provider}
+          </Text>
+        )}
       </View>
       {selected && <SymbolView name="checkmark" size={16} tintColor={colors.accent} />}
     </Pressable>
@@ -131,15 +133,22 @@ export function AgentSettingsSheet({ sessionId, onClose }: AgentSettingsSheetPro
           </Text>
         ) : (
           <ScrollView style={styles.modelList} contentContainerStyle={styles.modelListContent} bounces={false}>
-            {models.map((model) => (
-              <ModelRow
-                key={`${model.provider}/${model.id}`}
-                model={model}
-                selected={model.name === session.model}
-                onPress={() => {
-                  apply({ kind: "agent.configure", sessionId, model: { provider: model.provider, id: model.id } });
-                }}
-              />
+            {groupByVendor(models).map(([vendor, group]) => (
+              <View key={vendor}>
+                <Text variant="caption" color="textFaint" style={styles.vendor}>
+                  {vendorLabel(vendor)}
+                </Text>
+                {group.map((model) => (
+                  <ModelRow
+                    key={`${model.provider}/${model.id}`}
+                    model={model}
+                    selected={model.name === session.model}
+                    onPress={() => {
+                      apply({ kind: "agent.configure", sessionId, model: { provider: model.provider, id: model.id } });
+                    }}
+                  />
+                ))}
+              </View>
             ))}
           </ScrollView>
         )}
@@ -183,6 +192,32 @@ function Section({ label, trailing, children }: { label: string; trailing?: stri
   );
 }
 
+/** Keeps the host's order (vendor, then newest first) while bucketing rows under their vendor. */
+function groupByVendor(models: AgentModel[]): [string, AgentModel[]][] {
+  const groups = new Map<string, AgentModel[]>();
+  for (const model of models) {
+    const group = groups.get(model.vendor);
+    if (group === undefined) groups.set(model.vendor, [model]);
+    else group.push(model);
+  }
+  return [...groups.entries()];
+}
+
+const vendorNames: Record<string, string> = {
+  anthropic: "Anthropic",
+  openai: "OpenAI",
+  google: "Google",
+  xai: "xAI",
+  deepseek: "DeepSeek",
+  meta: "Meta",
+  mistral: "Mistral",
+  unknown: "Other",
+};
+
+function vendorLabel(vendor: string): string {
+  return vendorNames[vendor] ?? vendor.charAt(0).toUpperCase() + vendor.slice(1);
+}
+
 const styles = StyleSheet.create({
   section: { marginBottom: spacing.xl, gap: spacing.sm },
   sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: spacing.md },
@@ -195,6 +230,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
   },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  vendor: { paddingHorizontal: spacing.md, paddingTop: spacing.md, paddingBottom: spacing.xs },
   chip: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs + 2,

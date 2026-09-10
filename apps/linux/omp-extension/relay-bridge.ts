@@ -45,7 +45,49 @@ interface ModelOption {
   provider: string;
   id: string;
   name: string;
+  vendor: string;
   thinkingLevels: string[];
+}
+
+/** Numeric compare of "major.minor.patch" revisions; unknown revisions sort last. */
+function compareRevision(a: string | undefined, b: string | undefined): number {
+  if (a === undefined || b === undefined) return a === b ? 0 : a === undefined ? 1 : -1;
+  const left = a.split(".").map(Number);
+  const right = b.split(".").map(Number);
+  for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
+    const delta = (right[i] ?? 0) - (left[i] ?? 0);
+    if (delta !== 0) return delta;
+  }
+  return 0;
+}
+
+/** "Claude 4.1 Opus" and "Claude Opus 4.1" are the same product: compare the words, not the order. */
+function productKey(model: Model): string {
+  const words = model.name.toLowerCase().split(/\s+/).sort().join(" ");
+  return `${model.provider}/${model.identity.class}/${words}`;
+}
+
+/**
+ * Models the phone can offer: one entry per product (date-stamped snapshots and reordered-name
+ * aliases collapse into the shortest id), grouped by vendor with the newest revision first.
+ */
+function listModelOptions(models: readonly Model[]): ModelOption[] {
+  const byProduct = new Map<string, Model>();
+  for (const model of models) {
+    const key = productKey(model);
+    const existing = byProduct.get(key);
+    // Snapshot ids carry a date suffix and legacy aliases are longer; the shortest id follows upgrades.
+    if (existing === undefined || model.id.length < existing.id.length) byProduct.set(key, model);
+  }
+  return [...byProduct.values()]
+    .sort((a, b) => a.identity.class.localeCompare(b.identity.class) || compareRevision(a.identity.revision, b.identity.revision) || a.name.localeCompare(b.name))
+    .map((model) => ({
+      provider: model.provider,
+      id: model.id,
+      name: model.name,
+      vendor: model.identity.class,
+      thinkingLevels: thinkingLevelsFor(model),
+    }));
 }
 
 type Outbound =
@@ -193,15 +235,8 @@ export default function relayBridge(pi: ExtensionAPI): void {
           ctx.ui.setEditorText(existing.length === 0 ? frame.text : `${existing} ${frame.text}`);
         }
         return undefined;
-      case "options": {
-        const models: ModelOption[] = ctx.modelRegistry.getAvailable().map((model) => ({
-          provider: model.provider,
-          id: model.id,
-          name: model.name,
-          thinkingLevels: thinkingLevelsFor(model),
-        }));
-        return models;
-      }
+      case "options":
+        return listModelOptions(ctx.modelRegistry.getAvailable());
       case "configure": {
         if (frame.title !== undefined) await pi.setSessionName(frame.title);
         if (frame.model !== undefined) {
