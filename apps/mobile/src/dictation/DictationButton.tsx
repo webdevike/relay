@@ -54,7 +54,7 @@ const errorMessage: Record<string, string> = {
 
 const DEFAULT_ERROR_MESSAGE = "Something went wrong.";
 
-/** Hold-to-talk mic: press and hold to listen, release to send. Floating chip shows live text and failures. */
+/** Hold-to-talk mic: press and hold to listen, release to put the text in the input, flick up to send. Floating chip shows live text and failures. */
 export interface DictationButtonProps {
   size?: number;
   backgroundColor?: string;
@@ -106,7 +106,7 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
 
   const gesture = useMemo(() => {
     const onPressIn = (): void => {
-      // The chart decides what a press means here (start, end a hands-free dictation, or nothing).
+      // The chart decides what a press means here (start, recover a lost release, or nothing).
       const phase = phaseOf(dictationActor.getSnapshot());
       if (phase === "idle" || phase === "error" || phase === "permission_denied") {
         sendLift.value = 0;

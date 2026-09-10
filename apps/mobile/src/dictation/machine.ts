@@ -52,9 +52,7 @@ export interface DictationContext {
   errorCode: string | null;
   /** Whether the pending/last send also submits (Return) on the Mac. */
   submit: boolean;
-  /** The finger has been down longer than the tap window (counted from the press, permission wait included). */
-  held: boolean;
-  /** The finger lifted before listening opened; resolved once listening starts. */
+  /** The finger lifted before listening opened; the dictation ends as soon as it does. */
   released: boolean;
 }
 
@@ -88,8 +86,6 @@ export const FINISH_TIMEOUT_MS = 1500;
 export const SENT_HOLD_MS = 900;
 export const ERROR_HOLD_MS = 2500;
 export const NOTHING_HEARD_HOLD_MS = 1500;
-/** A press released within this window is a tap (hands-free), not a hold. */
-export const TAP_WINDOW_MS = 250;
 /** Orb launch: from lifted to off the top of the screen. */
 export const ORB_FLIGHT_MS = 620;
 /** Orb exit fade (after the check, an error, or a reset). */
@@ -99,7 +95,7 @@ function notProvided(name: string): never {
   throw new Error(`dictation actor "${name}" not provided`);
 }
 
-const fresh: DictationContext = { transcript: "", nothingHeard: false, errorCode: null, submit: false, held: false, released: false };
+const fresh: DictationContext = { transcript: "", nothingHeard: false, errorCode: null, submit: false, released: false };
 
 export const dictationMachine = setup({
   types: {
@@ -117,11 +113,7 @@ export const dictationMachine = setup({
   guards: {
     hasText: ({ context }) => context.transcript.trim().length > 0,
     submitting: ({ event }) => event.type === "pressStop" && event.submit === true,
-    /** A tap: the finger was up before the tap window ran out. */
-    tapped: ({ context }) => context.released && !context.held,
-    /** A hold that ended while permission was still being checked: nothing more to listen for. */
-    releasedAfterHold: ({ context }) => context.released && context.held,
-    held: ({ context }) => context.held,
+    released: ({ context }) => context.released,
     noSpeech: ({ event }) => event.type === "recognizerError" && event.code === "no-speech",
     listening: stateIn({ speech: { active: "listening" } }),
     speechActive: stateIn({ speech: "active" }),
@@ -134,7 +126,6 @@ export const dictationMachine = setup({
     SENT_HOLD: SENT_HOLD_MS,
     ERROR_HOLD: ERROR_HOLD_MS,
     NOTHING_HEARD_HOLD: NOTHING_HEARD_HOLD_MS,
-    TAP_WINDOW: TAP_WINDOW_MS,
     ORB_FLIGHT: ORB_FLIGHT_MS,
     ORB_FADE: ORB_FADE_MS,
   },
@@ -154,10 +145,7 @@ export const dictationMachine = setup({
           on: { pressStart: { target: "requesting_permission", actions: assign(fresh) } },
         },
         requesting_permission: {
-          // The tap window runs from the press itself, so a slow permission check cannot turn a
-          // hold-and-release into a tap; whether the finger lifted meanwhile is resolved once
-          // listening opens.
-          after: { TAP_WINDOW: { actions: assign({ held: true }) } },
+          // The finger may lift before the check lands; listening then ends as soon as it opens.
           on: { release: { actions: assign({ released: true }) } },
           invoke: {
             src: "checkPermission",
@@ -184,6 +172,9 @@ export const dictationMachine = setup({
           },
           states: {
             listening: {
+              // Hold-to-talk only: the finger lifting always ends the dictation, however short the
+              // press. A release that landed during the permission wait ends it the moment it opens.
+              always: { guard: "released", target: "finishing", actions: "stopRecognizer" },
               on: {
                 partial: { actions: assign({ transcript: ({ event }) => event.text }) },
                 final: { actions: assign({ transcript: ({ event }) => event.text }) },
@@ -191,36 +182,10 @@ export const dictationMachine = setup({
                   target: "finishing",
                   actions: [assign({ submit: ({ event }) => event.submit === true }), "stopRecognizer"],
                 },
+                release: { target: "finishing", actions: "stopRecognizer" },
+                // A press here means the earlier release was lost: treat it as that release.
+                pressStart: { target: "finishing", actions: "stopRecognizer" },
                 recognizerEnd: { target: "#dictation.speech.error", actions: assign({ ...fresh, errorCode: "aborted" }) },
-              },
-              initial: "deciding",
-              states: {
-                /** Transient: what the finger did during the permission wait decides how listening opens. */
-                deciding: {
-                  always: [
-                    { guard: "tapped", target: "handsFree" },
-                    { guard: "releasedAfterHold", target: "#dictation.speech.active.finishing", actions: "stopRecognizer" },
-                    { guard: "held", target: "held" },
-                    { target: "holding" },
-                  ],
-                },
-                /** Finger down since the press; a release this early is a tap. */
-                holding: {
-                  after: { TAP_WINDOW: { target: "held", actions: assign({ held: true }) } },
-                  on: { release: { target: "handsFree" } },
-                },
-                /** Hold-to-talk: the finger lifting ends the dictation. */
-                held: {
-                  on: {
-                    release: { target: "#dictation.speech.active.finishing", actions: "stopRecognizer" },
-                    // A press here means the earlier release was lost: treat it as that release.
-                    pressStart: { target: "#dictation.speech.active.finishing", actions: "stopRecognizer" },
-                  },
-                },
-                /** Listening with the finger up; the next tap (its release) ends the dictation. */
-                handsFree: {
-                  on: { release: { target: "#dictation.speech.active.finishing", actions: "stopRecognizer" } },
-                },
               },
             },
             finishing: {
