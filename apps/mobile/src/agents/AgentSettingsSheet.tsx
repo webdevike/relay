@@ -10,6 +10,7 @@ import { colors, radii, spacing, type } from "@/theme";
 import { useAgentsStore } from "@/state/agents";
 import { requestAgentOptions, sendCommand } from "@/connection";
 import { VendorLogo, vendorLabel } from "./VendorLogo";
+import { tapHaptic } from "@/lib/haptics";
 
 const MODEL_LIST_MAX_HEIGHT = 260;
 
@@ -60,10 +61,12 @@ export function AgentSettingsSheet({ sessionId, onClose }: AgentSettingsSheetPro
   const [title, setTitle] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [modelsOpen, setModelsOpen] = useState(false);
 
   useEffect(() => {
     if (sessionId === null) return;
     setTitle(useAgentsStore.getState().sessions[sessionId]?.title ?? "");
+    setModelsOpen(false);
     setError(null);
     requestAgentOptions(sessionId);
   }, [sessionId]);
@@ -128,39 +131,54 @@ export function AgentSettingsSheet({ sessionId, onClose }: AgentSettingsSheetPro
           ))}
         </View>
       </Section>
-      <Section label="Model" trailing={session.model}>
-        {models === undefined ? (
-          <Text variant="caption" color="textFaint">
-            Loading models…
+      <Section label="Model">
+        <Pressable
+          onPress={() => {
+            tapHaptic();
+            setModelsOpen((open) => !open);
+          }}
+          style={({ pressed }) => [styles.dropdown, pressed && { opacity: 0.8 }]}
+        >
+          {session.modelVendor !== undefined && <VendorLogo vendor={session.modelVendor} size={14} tintColor={colors.textMuted} />}
+          <Text variant="body" numberOfLines={1} style={{ flex: 1 }}>
+            {session.model ?? "Not reported"}
           </Text>
-        ) : models.length === 0 ? (
-          <Text variant="caption" color="textFaint">
-            No other models available on the host.
-          </Text>
-        ) : (
-          <ScrollView style={styles.modelList} contentContainerStyle={styles.modelListContent} bounces={false}>
-            {groupByVendor(models).map(([vendor, group]) => (
-              <View key={vendor}>
-                <View style={styles.vendor}>
-                  <VendorLogo vendor={vendor} size={12} tintColor={colors.textFaint} />
-                  <Text variant="caption" color="textFaint">
-                    {vendorLabel(vendor)}
-                  </Text>
+          <SymbolView name={modelsOpen ? "chevron.up" : "chevron.down"} size={13} tintColor={colors.textFaint} />
+        </Pressable>
+        {modelsOpen &&
+          (models === undefined ? (
+            <Text variant="caption" color="textFaint" style={styles.dropdownNote}>
+              Loading models…
+            </Text>
+          ) : models.length === 0 ? (
+            <Text variant="caption" color="textFaint" style={styles.dropdownNote}>
+              No other models available on the host.
+            </Text>
+          ) : (
+            <ScrollView style={styles.modelList} contentContainerStyle={styles.modelListContent} bounces={false}>
+              {groupByVendor(models).map(([vendor, group]) => (
+                <View key={vendor}>
+                  <View style={styles.vendor}>
+                    <VendorLogo vendor={vendor} size={12} tintColor={colors.textFaint} />
+                    <Text variant="caption" color="textFaint">
+                      {vendorLabel(vendor)}
+                    </Text>
+                  </View>
+                  {group.map((model) => (
+                    <ModelRow
+                      key={`${model.provider}/${model.id}`}
+                      model={model}
+                      selected={model.name === session.model}
+                      onPress={() => {
+                        setModelsOpen(false);
+                        apply({ kind: "agent.configure", sessionId, model: { provider: model.provider, id: model.id } });
+                      }}
+                    />
+                  ))}
                 </View>
-                {group.map((model) => (
-                  <ModelRow
-                    key={`${model.provider}/${model.id}`}
-                    model={model}
-                    selected={model.name === session.model}
-                    onPress={() => {
-                      apply({ kind: "agent.configure", sessionId, model: { provider: model.provider, id: model.id } });
-                    }}
-                  />
-                ))}
-              </View>
-            ))}
-          </ScrollView>
-        )}
+              ))}
+            </ScrollView>
+          ))}
       </Section>
       {error !== null && (
         <View style={{ marginTop: spacing.md }}>
@@ -234,7 +252,17 @@ const styles = StyleSheet.create({
     borderColor: "transparent",
   },
   chipSelected: { borderColor: colors.accent },
-  modelList: { maxHeight: MODEL_LIST_MAX_HEIGHT, borderRadius: radii.md, backgroundColor: colors.surfaceRaised },
+  dropdown: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.surfaceRaised,
+    borderRadius: radii.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  dropdownNote: { paddingHorizontal: spacing.md },
+  modelList: { maxHeight: MODEL_LIST_MAX_HEIGHT, borderRadius: radii.md, backgroundColor: colors.surfaceRaised, borderWidth: 1, borderColor: colors.hairline },
   modelListContent: { paddingVertical: spacing.xs },
   modelRow: {
     flexDirection: "row",
