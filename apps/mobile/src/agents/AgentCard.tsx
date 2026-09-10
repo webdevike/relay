@@ -4,8 +4,8 @@ import type { AgentMessage, AgentSession, AgentStatus } from "@relay/protocol";
 import { Text } from "@/ui/Text";
 import { Pill, type PillProps } from "@/ui/Pill";
 import { Separator } from "@/ui/Separator";
-import { radii, spacing } from "@/theme";
-
+import { colors, radii, spacing } from "@/theme";
+import { modelShortName, VendorLogo } from "./VendorLogo";
 /** Within this many points of the end, new messages keep the list pinned to the bottom. */
 const BOTTOM_STICK_PX = 80;
 
@@ -99,13 +99,19 @@ export function AgentCard({ session, messages, connected }: AgentCardProps) {
           </Text>
           <Pill label={pill.label} tone={pill.tone} />
         </View>
-        <Text variant="caption" color="textMuted" numberOfLines={1}>
-          {session.statusDetail ?? session.projectPath}
-        </Text>
-        {session.model !== undefined && (
-          <Text variant="caption" color="textFaint" numberOfLines={1}>
-            {session.thinkingLevel === undefined ? session.model : `${session.model} · ${session.thinkingLevel}`}
+        {session.statusDetail !== undefined && (
+          <Text variant="caption" color="textMuted" numberOfLines={1}>
+            {session.statusDetail}
           </Text>
+        )}
+        {session.model !== undefined && (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+            {session.modelVendor !== undefined && <VendorLogo vendor={session.modelVendor} size={13} tintColor={colors.textFaint} />}
+            <Text variant="caption" color="textFaint" numberOfLines={1} style={{ flexShrink: 1 }}>
+              {modelShortName(session.model, session.modelVendor)}
+              {session.thinkingLevel === undefined ? "" : ` · ${session.thinkingLevel}`}
+            </Text>
+          </View>
         )}
       </View>
       <Separator />

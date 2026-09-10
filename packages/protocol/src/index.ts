@@ -48,6 +48,8 @@ export const AgentSession = z.object({
   canRespond: z.boolean(),
   /** Display name of the model the session is currently using, when the provider reports it. */
   model: z.string().optional(),
+  /** Company behind `model` (e.g. "anthropic"), when the provider reports it. */
+  modelVendor: z.string().optional(),
   /** Current thinking level selector (e.g. "off", "low", "high"), when the provider reports it. */
   thinkingLevel: z.string().optional(),
 });

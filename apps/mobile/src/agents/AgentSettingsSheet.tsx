@@ -9,6 +9,7 @@ import { Button } from "@/ui/Button";
 import { colors, radii, spacing, type } from "@/theme";
 import { useAgentsStore } from "@/state/agents";
 import { requestAgentOptions, sendCommand } from "@/connection";
+import { VendorLogo, vendorLabel } from "./VendorLogo";
 
 const MODEL_LIST_MAX_HEIGHT = 260;
 
@@ -108,6 +109,11 @@ export function AgentSettingsSheet({ sessionId, onClose }: AgentSettingsSheetPro
           style={styles.input}
         />
       </Section>
+      <Section label="Directory">
+        <Text variant="body" color="textMuted" numberOfLines={2} selectable>
+          {session.projectPath}
+        </Text>
+      </Section>
       <Section label="Thinking" trailing={thinkingLevels.length === 0 ? "Not reported" : undefined}>
         <View style={styles.chips}>
           {thinkingLevels.map((level) => (
@@ -135,9 +141,12 @@ export function AgentSettingsSheet({ sessionId, onClose }: AgentSettingsSheetPro
           <ScrollView style={styles.modelList} contentContainerStyle={styles.modelListContent} bounces={false}>
             {groupByVendor(models).map(([vendor, group]) => (
               <View key={vendor}>
-                <Text variant="caption" color="textFaint" style={styles.vendor}>
-                  {vendorLabel(vendor)}
-                </Text>
+                <View style={styles.vendor}>
+                  <VendorLogo vendor={vendor} size={12} tintColor={colors.textFaint} />
+                  <Text variant="caption" color="textFaint">
+                    {vendorLabel(vendor)}
+                  </Text>
+                </View>
                 {group.map((model) => (
                   <ModelRow
                     key={`${model.provider}/${model.id}`}
@@ -203,21 +212,6 @@ function groupByVendor(models: AgentModel[]): [string, AgentModel[]][] {
   return [...groups.entries()];
 }
 
-const vendorNames: Record<string, string> = {
-  anthropic: "Anthropic",
-  openai: "OpenAI",
-  google: "Google",
-  xai: "xAI",
-  deepseek: "DeepSeek",
-  meta: "Meta",
-  mistral: "Mistral",
-  unknown: "Other",
-};
-
-function vendorLabel(vendor: string): string {
-  return vendorNames[vendor] ?? vendor.charAt(0).toUpperCase() + vendor.slice(1);
-}
-
 const styles = StyleSheet.create({
   section: { marginBottom: spacing.xl, gap: spacing.sm },
   sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: spacing.md },
@@ -230,7 +224,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
   },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
-  vendor: { paddingHorizontal: spacing.md, paddingTop: spacing.md, paddingBottom: spacing.xs },
+  vendor: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingHorizontal: spacing.md, paddingTop: spacing.md, paddingBottom: spacing.xs },
   chip: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs + 2,

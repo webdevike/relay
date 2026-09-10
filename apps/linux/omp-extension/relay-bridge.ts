@@ -27,6 +27,7 @@ interface InboxMessage {
 interface Settings {
   title: string;
   model?: string;
+  modelVendor?: string;
   thinkingLevel?: string;
 }
 
@@ -169,7 +170,10 @@ export default function relayBridge(pi: ExtensionAPI): void {
     const cwd = ctx?.sessionManager.getCwd() ?? "";
     const base: Settings = { title: pi.getSessionName() ?? basename(cwd) };
     const model = ctx?.model;
-    if (model !== undefined) base.model = model.name;
+    if (model !== undefined) {
+      base.model = model.name;
+      base.modelVendor = model.identity.class;
+    }
     const level = pi.getThinkingLevel();
     if (level !== undefined) base.thinkingLevel = level;
     return base;

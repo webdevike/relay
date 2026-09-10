@@ -24,6 +24,7 @@ const StatusFrame = z.object({
   lastActivityAt: z.number().finite(),
   title: z.string().min(1).optional(),
   model: z.string().optional(),
+  modelVendor: z.string().optional(),
   thinkingLevel: z.string().optional(),
 });
 
@@ -258,6 +259,7 @@ export class OmpBridgeProvider implements AgentProvider {
           lastActivityAt: frame.lastActivityAt,
           ...(frame.statusDetail === undefined ? {} : { statusDetail: frame.statusDetail }),
           ...(frame.model === undefined ? {} : { model: frame.model }),
+          ...(frame.modelVendor === undefined ? {} : { modelVendor: frame.modelVendor }),
           ...(frame.thinkingLevel === undefined ? {} : { thinkingLevel: frame.thinkingLevel }),
         };
         this.publish();
