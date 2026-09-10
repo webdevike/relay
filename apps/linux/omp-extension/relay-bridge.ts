@@ -9,9 +9,11 @@
 import { createConnection, type Socket } from "node:net";
 import { basename } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import { BUILTIN_SLASH_COMMAND_DEFS } from "@oh-my-pi/pi-coding-agent/slash-commands/builtin-registry";
 
 type Model = NonNullable<ExtensionContext["model"]>;
 type ThinkingLevel = Parameters<ExtensionAPI["setThinkingLevel"]>[0];
+type SlashCommand = ReturnType<ExtensionAPI["getCommands"]>[number];
 
 type Status = "working" | "waiting" | "needs_permission" | "idle" | "ended";
 type Role = "user" | "assistant" | "tool" | "system";
@@ -48,6 +50,39 @@ interface ModelOption {
   name: string;
   vendor: string;
   thinkingLevels: string[];
+}
+
+interface SkillOption {
+  name: string;
+  description: string;
+  /** The slash token the host puts before the dictated text. */
+  command: string;
+}
+
+const SKILL_COMMAND_PREFIX = "skill:";
+
+/**
+ * What the phone's wheel offers, in omp's own order: authored skills first, then prompt and
+ * extension commands, then the built-in commands that accept an argument (the rest have nothing
+ * to do with a dictated sentence).
+ */
+function listSkillOptions(commands: readonly SlashCommand[]): SkillOption[] {
+  const skills: SkillOption[] = [];
+  const others: SkillOption[] = [];
+  for (const command of commands) {
+    const option = { name: command.name, description: command.description ?? "", command: `/${command.name}` };
+    if (command.source === "skill" && command.name.startsWith(SKILL_COMMAND_PREFIX)) {
+      skills.push({ ...option, name: command.name.slice(SKILL_COMMAND_PREFIX.length) });
+    } else {
+      others.push(option);
+    }
+  }
+  const builtins: SkillOption[] = [];
+  for (const command of BUILTIN_SLASH_COMMAND_DEFS) {
+    if (!command.allowArgs) continue;
+    builtins.push({ name: command.name, description: command.description, command: `/${command.name}` });
+  }
+  return [...skills, ...others, ...builtins];
 }
 
 /** Numeric compare of "major.minor.patch" revisions; unknown revisions sort last. */
@@ -113,6 +148,8 @@ const RECONNECT_MS = 3000;
 const MAX_SUMMARY = 120;
 /** ctx.model is still unresolved during session_start; the settings get a second report after this. */
 const SETTINGS_SETTLE_MS = 2000;
+/** Time for the fed Enter to clear the editor before a held draft is put back. */
+const SUBMIT_SETTLE_MS = 150;
 
 export function socketPath(): string {
   const runtime = process.env["RELAY_AGENTS_SOCKET"];
@@ -229,18 +266,30 @@ export default function relayBridge(pi: ExtensionAPI): void {
     switch (frame.t) {
       case "conversation":
         return history;
-      case "reply":
-        if (frame.submit) {
+      case "reply": {
+        const existing = ctx.ui.getEditorText();
+        if (!frame.submit) {
+          // Released without the flick: leave it in the editor for the keyboard to finish.
+          ctx.ui.setEditorText(existing.length === 0 ? frame.text : `${existing} ${frame.text}`);
+        } else if (frame.text.startsWith("/")) {
+          // A slash command only runs through the editor's own submit path (sendUserMessage skips
+          // command handling), so it goes in as if typed and Enter is fed to the terminal reader.
+          // Whatever draft was there comes back once the command has been taken, and the settings
+          // are re-reported since commands like /rename and /switch change them without an event.
+          ctx.ui.setEditorText(frame.text);
+          process.stdin.push("\r");
+          setTimeout(() => {
+            if (existing.length > 0) ctx?.ui.setEditorText(existing);
+            sendStatus();
+          }, SUBMIT_SETTLE_MS).unref();
+        } else {
           // Same semantics as typing in the TUI and pressing Enter: prompt when idle, steer while streaming.
           pi.sendUserMessage(frame.text);
-        } else {
-          // Released without the flick: leave it in the editor for the keyboard to finish.
-          const existing = ctx.ui.getEditorText();
-          ctx.ui.setEditorText(existing.length === 0 ? frame.text : `${existing} ${frame.text}`);
         }
         return undefined;
+      }
       case "options":
-        return listModelOptions(ctx.modelRegistry.getAvailable());
+        return { models: listModelOptions(ctx.modelRegistry.getAvailable()), skills: listSkillOptions(pi.getCommands()) };
       case "configure": {
         if (frame.title !== undefined) await pi.setSessionName(frame.title);
         if (frame.model !== undefined) {

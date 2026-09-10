@@ -12,7 +12,7 @@
 
 import { existsSync, unlinkSync } from "node:fs";
 import type { Socket, SocketHandler } from "bun";
-import { AgentMessage, AgentModel, AgentSession, AgentStatus, type AgentSession as AgentSessionT, type AgentMessage as AgentMessageT, type AgentModel as AgentModelT } from "@relay/protocol";
+import { AgentMessage, AgentOptions, AgentSession, AgentStatus, type AgentSession as AgentSessionT, type AgentMessage as AgentMessageT, type AgentOptions as AgentOptionsT } from "@relay/protocol";
 import { z } from "zod";
 import { AckFailure, type AgentConfigChange, type AgentProvider, type AgentProviderChange } from "../seams";
 
@@ -48,6 +48,8 @@ const failureCode: Record<RequestKind, AckFailure["error"]["code"]> = {
 };
 
 const REQUEST_TIMEOUT_MS = 5000;
+/** A session that answered with something unparseable offers nothing rather than failing the request. */
+const NO_OPTIONS: AgentOptionsT = { models: [], skills: [] };
 
 interface Pending {
   readonly resolve: (value: unknown) => void;
@@ -127,11 +129,11 @@ export class OmpBridgeProvider implements AgentProvider {
     await this.request(this.require(sessionId), "reply", { text, submit });
   }
 
-  async options(sessionId: string): Promise<AgentModelT[] | null> {
+  async options(sessionId: string): Promise<AgentOptionsT | null> {
     const connection = this.find(sessionId);
     if (connection === undefined) return null;
-    const parsed = z.array(AgentModel).safeParse(await this.request(connection, "options", {}));
-    return parsed.success ? parsed.data : [];
+    const parsed = AgentOptions.safeParse(await this.request(connection, "options", {}));
+    return parsed.success ? parsed.data : NO_OPTIONS;
   }
 
   async configure(change: AgentConfigChange): Promise<void> {

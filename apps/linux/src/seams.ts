@@ -1,7 +1,7 @@
 // Seams between transport, input and storage. Mirrors apps/mac/Sources/RelayCore/Seams.swift:
 // the session only ever talks to these; input/ and the stores implement them; main.ts wires them.
 
-import type { AckError, AgentMessage, AgentModel, AgentSession, Command, InputEvent, KeyName, ServerMessage } from "@relay/protocol";
+import type { AckError, AgentMessage, AgentOptions, AgentSession, Command, InputEvent, KeyName, ServerMessage } from "@relay/protocol";
 
 /** Outbound side of one connection. `send` after `close` is a no-op. */
 export interface FrameSink {
@@ -82,8 +82,8 @@ export interface AgentProvider {
   reply(sessionId: string, text: string, submit: boolean): Promise<void>;
   /** Open a new session on the host. Rejects with `AckFailure` (`agent_launch_failed`). */
   launch(): Promise<void>;
-  /** Models the session can switch to; null when the session is unknown. */
-  options(sessionId: string): Promise<AgentModel[] | null>;
+  /** Models and skills the session offers; null when the session is unknown. */
+  options(sessionId: string): Promise<AgentOptions | null>;
   /** Apply the given settings. Rejects with `AckFailure` (`agent_not_found`, `agent_configure_failed`). */
   configure(change: AgentConfigChange): Promise<void>;
   /** Interrupt the session's current turn. Rejects with `AckFailure` (`agent_not_found`). */

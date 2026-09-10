@@ -4,7 +4,9 @@
  *
  * Two parallel regions share the same events:
  *
- *   speech  the pipeline: permission → listening → finishing → sending → sent, or error
+ *   speech  the pipeline: permission → listening → finishing → sending → sent, or error; a swipe
+ *           left while listening detours through choosing (the skill wheel) → chosen → back to
+ *           listening with the skill armed
  *   orb     what the centered orb is doing: shown while listening, lifted once the finger has
  *           crossed the send threshold, flying after the finger lets go, collapsing into the check
  *           after a plain send, fading out, gone
@@ -16,15 +18,19 @@
  *   checkPermission  requesting_permission → granted | denied | unavailable
  *   recognizer       runs for the whole `active` state; reports partial/final/recognizerEnd/
  *                    recognizerError; receives `stop`
- *   deliver          sending → resolves when the Mac acked the insert (+ Return when `submit`)
+ *   deliver          sending → resolves when the host acked the insert (+ Return when `submit`)
  */
-import { and, assign, fromCallback, fromPromise, sendTo, setup, stateIn, type SnapshotFrom } from "xstate";
+import { and, assign, fromCallback, fromPromise, or, sendTo, setup, stateIn, type SnapshotFrom } from "xstate";
 
 export type DictationPhase =
   | "idle"
   | "requesting_permission"
   | "permission_denied"
   | "listening"
+  /** The skill wheel is open under the still-held finger; nothing is being heard. */
+  | "choosing"
+  /** A skill was picked; listening resumes once the finger is back on the mic. */
+  | "chosen"
   | "finishing"
   | "sending"
   | "sent"
@@ -54,6 +60,11 @@ export interface DictationContext {
   submit: boolean;
   /** The finger lifted before listening opened; the dictation ends as soon as it does. */
   released: boolean;
+  /**
+   * Slash command the dictation is pointed at (e.g. `/skill:hallmark`, `/handoff`). Set by the wheel, kept through
+   * delivery, and left in place after a bare release so the button can announce the choice.
+   */
+  skill: string | null;
 }
 
 export type DictationEvent =
@@ -62,6 +73,14 @@ export type DictationEvent =
   | { type: "pressStop"; submit?: boolean }
   /** Finger lifted. While listening this ends the dictation; after a submit it launches the orb. */
   | { type: "release" }
+  /** Finger swiped left while listening: drop what was heard and open the skill wheel. */
+  | { type: "wheelOpen" }
+  /** Finger flicked up on the wheel: the snapped entry is the choice; `skill` is its slash command. */
+  | { type: "wheelSelect"; skill: string }
+  /** Finger slid onto the close target: shut the wheel, nothing picked, nothing heard. */
+  | { type: "wheelClose" }
+  /** Finger came back to the mic after choosing: listen again with the skill armed. */
+  | { type: "resume" }
   | { type: "partial"; text: string }
   | { type: "final"; text: string }
   | { type: "recognizerEnd" }
@@ -80,6 +99,7 @@ export interface RecognizerCommand {
 export interface DeliverInput {
   text: string;
   submit: boolean;
+  skill: string | null;
 }
 
 export const FINISH_TIMEOUT_MS = 1500;
@@ -95,7 +115,7 @@ function notProvided(name: string): never {
   throw new Error(`dictation actor "${name}" not provided`);
 }
 
-const fresh: DictationContext = { transcript: "", nothingHeard: false, errorCode: null, submit: false, released: false };
+const fresh: DictationContext = { transcript: "", nothingHeard: false, errorCode: null, submit: false, released: false, skill: null };
 
 export const dictationMachine = setup({
   types: {
@@ -117,6 +137,7 @@ export const dictationMachine = setup({
     noSpeech: ({ event }) => event.type === "recognizerError" && event.code === "no-speech",
     listening: stateIn({ speech: { active: "listening" } }),
     speechActive: stateIn({ speech: "active" }),
+    speechChoosing: or([stateIn({ speech: "choosing" }), stateIn({ speech: "chosen" })]),
     speechSent: stateIn({ speech: "sent" }),
     speechIdle: stateIn({ speech: "idle" }),
     speechError: stateIn({ speech: "error" }),
@@ -141,7 +162,7 @@ export const dictationMachine = setup({
       initial: "idle",
       states: {
         idle: {
-          after: { NOTHING_HEARD_HOLD: { actions: assign({ nothingHeard: false }) } },
+          after: { NOTHING_HEARD_HOLD: { actions: assign({ nothingHeard: false, skill: null }) } },
           on: { pressStart: { target: "requesting_permission", actions: assign(fresh) } },
         },
         requesting_permission: {
@@ -183,6 +204,7 @@ export const dictationMachine = setup({
                   actions: [assign({ submit: ({ event }) => event.submit === true }), "stopRecognizer"],
                 },
                 release: { target: "finishing", actions: "stopRecognizer" },
+                wheelOpen: { target: "#dictation.speech.choosing", actions: assign({ transcript: "" }) },
                 // A press here means the earlier release was lost: treat it as that release.
                 pressStart: { target: "finishing", actions: "stopRecognizer" },
                 recognizerEnd: { target: "#dictation.speech.error", actions: assign({ ...fresh, errorCode: "aborted" }) },
@@ -198,6 +220,23 @@ export const dictationMachine = setup({
             },
           },
         },
+        /** Wheel open under the finger. The recognizer is stopped; a release here is a cancel. */
+        choosing: {
+          on: {
+            wheelSelect: { target: "chosen", actions: assign({ skill: ({ event }) => event.skill }) },
+            release: { target: "idle", actions: assign(fresh) },
+            wheelClose: { target: "idle", actions: assign(fresh) },
+            pressStart: { target: "idle", actions: assign(fresh) },
+          },
+        },
+        /** Skill picked, finger still down. Back on the mic it listens again; lifting only announces. */
+        chosen: {
+          on: {
+            resume: { target: "requesting_permission", actions: assign({ ...fresh, skill: ({ context }) => context.skill }) },
+            release: { target: "idle", actions: assign({ ...fresh, skill: ({ context }) => context.skill }) },
+            pressStart: { target: "idle", actions: assign({ ...fresh, skill: ({ context }) => context.skill }) },
+          },
+        },
         /** Transient: route the finished transcript to `sending` or back to `idle` (nothing heard). */
         finished: {
           always: [
@@ -208,7 +247,7 @@ export const dictationMachine = setup({
         sending: {
           invoke: {
             src: "deliver",
-            input: ({ context }) => ({ text: context.transcript, submit: context.submit }),
+            input: ({ context }) => ({ text: context.transcript, submit: context.submit, skill: context.skill }),
             onDone: { target: "sent" },
             onError: {
               target: "error",
@@ -239,6 +278,7 @@ export const dictationMachine = setup({
             { guard: "speechSent", target: "collapsing" },
             { guard: "speechIdle", target: "fading" },
             { guard: "speechError", target: "fading" },
+            { guard: "speechChoosing", target: "fading" },
           ],
         },
         lifted: {

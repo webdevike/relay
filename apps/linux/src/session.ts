@@ -6,7 +6,7 @@
 // agents topic is a constant empty snapshot at rev 0.
 
 import { createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
-import { PROTOCOL_VERSION, parseClientMessage, toHex, type AgentMessage, type ClientMessage, type Command, type ErrorCode, type ServerMessage, type Snapshot } from "@relay/protocol";
+import { PROTOCOL_VERSION, parseClientMessage, toHex, type AgentMessage, type AgentOptions, type ClientMessage, type Command, type ErrorCode, type ServerMessage, type Snapshot } from "@relay/protocol";
 import type { AgentsDeltaTracker } from "./agents/delta-tracker";
 import type { CommandDedupStore } from "./dedup";
 import type { PairingCoordinator } from "./pairing";
@@ -34,6 +34,7 @@ export interface SessionClock {
 
 export const PAIRING_TIMEOUT_MS = 120_000;
 const MAX_PIN_ATTEMPTS = 3;
+const EMPTY_OPTIONS: AgentOptions = { models: [], skills: [] };
 
 function noInputDevice(): AckFailure {
   return new AckFailure({ code: "accessibility_denied", message: "virtual input device unavailable" });
@@ -264,11 +265,11 @@ export class ClientSession {
         const { sessionId } = message;
         const lookup = this.deps.agents?.options(sessionId) ?? Promise.resolve(null);
         void lookup.then(
-          (models) => {
-            if (!this.closed) this.sink.send({ t: "agent.options", sessionId, models: models ?? [] });
+          (options) => {
+            if (!this.closed) this.sink.send({ t: "agent.options", sessionId, ...(options ?? EMPTY_OPTIONS) });
           },
           () => {
-            if (!this.closed) this.sink.send({ t: "agent.options", sessionId, models: [] });
+            if (!this.closed) this.sink.send({ t: "agent.options", sessionId, ...EMPTY_OPTIONS });
           },
         );
         break;

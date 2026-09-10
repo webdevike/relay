@@ -11,9 +11,10 @@ import { IconButton } from "@/ui/IconButton";
 import { colors, motion, spacing } from "@/theme";
 import { useAgentsStore } from "@/state/agents";
 import { useConnectionStore } from "@/state/connection";
-import { sendCommand, subscribeAgent, unsubscribeAgent } from "@/connection";
+import { requestAgentOptions, sendCommand, subscribeAgent, unsubscribeAgent } from "@/connection";
 import { DictationButton } from "@/dictation/DictationButton";
 import { ListeningOrb } from "@/dictation/ListeningOrb";
+import { SkillWheel } from "@/dictation/SkillWheel";
 import { resetDictationTarget, setDictationTarget } from "@/dictation/deliver";
 import { AgentCard } from "@/agents/AgentCard";
 import { AgentScrubber, TRACK_HEIGHT } from "@/agents/AgentScrubber";
@@ -72,12 +73,16 @@ export default function AgentInbox() {
 
   const session = selectedId === undefined ? undefined : sessions[selectedId];
   const messages = selectedId === undefined ? undefined : conversations[selectedId]?.messages;
+  const skills = useAgentsStore((state) => (selectedId === undefined ? undefined : state.options[selectedId]?.skills));
 
   // Subscriptions live on the socket: re-subscribe whenever focus or the connection changes.
   useFocusEffect(
     useCallback(() => {
       if (!connected || selectedId === undefined) return;
       subscribeAgent(selectedId);
+      // The skill wheel needs the session's skills before the first hold; the settings sheet
+      // shares the same answer.
+      requestAgentOptions(selectedId);
       return () => {
         unsubscribeAgent(selectedId);
       };
@@ -158,6 +163,11 @@ export default function AgentInbox() {
           </Animated.View>
         )}
         <ListeningOrb />
+        {skills !== undefined && skills.length > 0 && (
+          <View pointerEvents="none" style={styles.wheel}>
+            <SkillWheel skills={skills} />
+          </View>
+        )}
       </View>
       {session !== undefined && (
         <View style={styles.panel}>
@@ -167,7 +177,7 @@ export default function AgentInbox() {
             </View>
           ) : canRespond ? (
             <Cutout size={MIC_SIZE} style={styles.mic}>
-              <DictationButton size={MIC_SIZE} backgroundColor={colors.surface} />
+              <DictationButton size={MIC_SIZE} backgroundColor={colors.surface} {...(skills === undefined ? {} : { skills })} />
             </Cutout>
           ) : (
             <View style={styles.banner}>
@@ -223,6 +233,13 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     // Outer ring centered on the seam: half the gap above the panel's top edge.
     top: -(MIC_SIZE / 2 + CUTOUT_GAP + spacing.sm / 2),
+  },
+  /** Strip along the card's bottom edge, clear of the mic cutout that bites into it. */
+  wheel: {
+    position: "absolute",
+    left: spacing.md,
+    right: spacing.md,
+    bottom: MIC_SIZE / 2 + CUTOUT_GAP + spacing.md,
   },
   banner: {
     position: "absolute",

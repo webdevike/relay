@@ -48,8 +48,12 @@ Symlink `omp-extension/relay-bridge.ts` into `~/.omp/agent/extensions/`. Every i
 session then registers with the daemon over `$XDG_RUNTIME_DIR/relay-agents.sock` and appears in
 the phone's Agent Inbox with its transcript and status (`working`, `waiting` after a turn that ends
 in a question, `needs_permission` during a tool approval prompt, `idle`, `ended`). An
-`agent.reply` with `submit: true` is delivered like typing in the TUI and pressing Enter; with
-`submit: false` it is placed in the session's editor for the keyboard to finish. `agent.start`
+`agent.reply` with `submit: true` is delivered like typing in the TUI and pressing Enter (a text
+that starts with `/` is fed through the editor so omp dispatches it as a command); with
+`submit: false` it is placed in the session's editor for the keyboard to finish. `agent.options`
+answers with the models the session can switch to and the entries for the phone's skill wheel:
+authored skills (`/skill:<name>`), prompt and extension commands, and the built-in commands that
+take an argument (`/handoff`, `/goal`, `/rename`, ...), each with the exact token to prefix. `agent.start`
 (the plus on the phone's scrubber) opens `alacritty --working-directory <dir> -e omp`, detached
 from the daemon; `<dir>` is `serve --agent-home DIR` (default `$HOME`).
 

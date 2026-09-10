@@ -9,3 +9,10 @@ import { makeMutable } from "react-native-reanimated";
 export const micLevel = makeMutable(0);
 /** 0..1 how far the finger has dragged up toward the send threshold while holding the mic. */
 export const sendLift = makeMutable(0);
+/**
+ * Continuous index into the skill list while the wheel is open: 0 is the first skill, 1 the
+ * next, fractional between. The finger's raw turn, clamped to the list.
+ */
+export const wheelPosition = makeMutable(0);
+/** The snapped index the strip shows, springing from one integer to the next as the finger turns. */
+export const wheelSnap = makeMutable(0);

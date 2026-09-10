@@ -20,7 +20,8 @@ function sameSnapshot(a: DictationSnapshot, b: DictationSnapshot): boolean {
     a.transcript === b.transcript &&
     a.nothingHeard === b.nothingHeard &&
     a.errorCode === b.errorCode &&
-    a.submit === b.submit
+    a.submit === b.submit &&
+    a.skill === b.skill
   );
 }
 

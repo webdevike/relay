@@ -69,6 +69,24 @@ export const AgentModel = z.object({
 });
 export type AgentModel = z.infer<typeof AgentModel>;
 
+/**
+ * Something the session can be pointed at with a dictated argument: an authored skill or a slash
+ * command that takes text. `command` is the exact token the host puts before the dictation.
+ */
+export const AgentSkill = z.object({
+  name: nonEmpty,
+  description: z.string(),
+  command: nonEmpty.regex(/^\/\S+$/),
+});
+export type AgentSkill = z.infer<typeof AgentSkill>;
+
+/** What a session can be switched to or pointed at; answered per `agent.options` request. */
+export const AgentOptions = z.object({
+  models: z.array(AgentModel),
+  skills: z.array(AgentSkill),
+});
+export type AgentOptions = z.infer<typeof AgentOptions>;
+
 export const AgentMessageRole = z.enum(["user", "assistant", "tool", "system"]);
 export type AgentMessageRole = z.infer<typeof AgentMessageRole>;
 
@@ -189,7 +207,7 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("agents.get") }),
   z.object({ t: z.literal("agent.subscribe"), sessionId: nonEmpty }),
   z.object({ t: z.literal("agent.unsubscribe"), sessionId: nonEmpty }),
-  /** Ask which models/thinking levels a session can switch to; answered by `agent.options`. */
+  /** Ask which models/thinking levels/skills a session offers; answered by `agent.options`. */
   z.object({ t: z.literal("agent.options"), sessionId: nonEmpty }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
@@ -241,7 +259,7 @@ export const ServerMessage = z.discriminatedUnion("t", [
     rev: z.number().int(),
     append: z.array(AgentMessage),
   }),
-  z.object({ t: z.literal("agent.options"), sessionId: nonEmpty, models: z.array(AgentModel) }),
+  z.object({ t: z.literal("agent.options"), sessionId: nonEmpty, models: z.array(AgentModel), skills: z.array(AgentSkill) }),
   z.object({ t: z.literal("ack"), id: nonEmpty }),
   z.object({ t: z.literal("nack"), id: nonEmpty, error: AckError }),
   z.object({ t: z.literal("pong"), ts: ms, serverTs: ms }),

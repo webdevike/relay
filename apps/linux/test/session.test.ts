@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { type AgentMessage, type AgentModel, type AgentSession, type ClientMessage, type InputEvent, type KeyName, type ServerMessage } from "@relay/protocol";
+import { type AgentMessage, type AgentOptions, type AgentSession, type ClientMessage, type InputEvent, type KeyName, type ServerMessage } from "@relay/protocol";
 import { AgentsDeltaTracker } from "../src/agents/delta-tracker";
 import { CommandDedupStore } from "../src/dedup";
 import { PairingCoordinator } from "../src/pairing";
@@ -321,8 +321,15 @@ class FakeProvider implements AgentProvider {
     this.launched += 1;
     return Promise.resolve();
   }
-  options(sessionId: string): Promise<AgentModel[] | null> {
-    return Promise.resolve(sessionId === "s1" ? [{ provider: "anthropic", id: "m", name: "M", vendor: "anthropic", thinkingLevels: ["off", "low"] }] : null);
+  options(sessionId: string): Promise<AgentOptions | null> {
+    return Promise.resolve(
+      sessionId === "s1"
+        ? {
+            models: [{ provider: "anthropic", id: "m", name: "M", vendor: "anthropic", thinkingLevels: ["off", "low"] }],
+            skills: [{ name: "deploy", description: "Ship it", command: "/skill:deploy" }],
+          }
+        : null,
+    );
   }
   readonly configured: AgentConfigChange[] = [];
   configure(change: AgentConfigChange): Promise<void> {
@@ -382,15 +389,20 @@ describe("agent topics", () => {
     ]);
   });
 
-  it("answers agent.options with the provider's models, empty for unknown sessions", async () => {
+  it("answers agent.options with the provider's models and skills, empty for unknown sessions", async () => {
     const h = harness({ agents: new FakeProvider() });
     pair(h);
     h.session.receive({ t: "agent.options", sessionId: "s1" });
     h.session.receive({ t: "agent.options", sessionId: "nope" });
     await h.sink.sentCount(6);
     expect(h.sink.sent.slice(-2)).toEqual([
-      { t: "agent.options", sessionId: "s1", models: [{ provider: "anthropic", id: "m", name: "M", vendor: "anthropic", thinkingLevels: ["off", "low"] }] },
-      { t: "agent.options", sessionId: "nope", models: [] },
+      {
+        t: "agent.options",
+        sessionId: "s1",
+        models: [{ provider: "anthropic", id: "m", name: "M", vendor: "anthropic", thinkingLevels: ["off", "low"] }],
+        skills: [{ name: "deploy", description: "Ship it", command: "/skill:deploy" }],
+      },
+      { t: "agent.options", sessionId: "nope", models: [], skills: [] },
     ]);
   });
 

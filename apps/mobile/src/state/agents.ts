@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { AgentMessage, AgentModel, AgentSession } from "@relay/protocol";
+import type { AgentMessage, AgentOptions, AgentSession } from "@relay/protocol";
 
 export interface ConversationState {
   rev: number;
@@ -11,8 +11,8 @@ export interface AgentsData {
   sessions: Record<string, AgentSession>;
   order: string[];
   conversations: Record<string, ConversationState>;
-  /** Models each session may switch to, as last answered by the host. */
-  options: Record<string, AgentModel[]>;
+  /** Models and skills each session offers, as last answered by the host. */
+  options: Record<string, AgentOptions>;
 }
 
 export const emptyAgentsData: AgentsData = { rev: 0, sessions: {}, order: [], conversations: {}, options: {} };
@@ -113,7 +113,7 @@ export interface AgentsStore extends AgentsData {
   applyDelta: (rev: number, upsert?: AgentSession[], remove?: string[]) => boolean;
   setConversation: (sessionId: string, rev: number, messages: AgentMessage[]) => void;
   appendMessages: (sessionId: string, rev: number, append: AgentMessage[]) => boolean;
-  setOptions: (sessionId: string, models: AgentModel[]) => void;
+  setOptions: (sessionId: string, options: AgentOptions) => void;
 }
 
 export const useAgentsStore = create<AgentsStore>((set, get) => ({
@@ -137,7 +137,7 @@ export const useAgentsStore = create<AgentsStore>((set, get) => ({
     set(result.data);
     return result.ok;
   },
-  setOptions: (sessionId, models) => {
-    set({ options: { ...get().options, [sessionId]: models } });
+  setOptions: (sessionId, options) => {
+    set({ options: { ...get().options, [sessionId]: options } });
   },
 }));

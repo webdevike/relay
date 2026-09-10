@@ -48,7 +48,7 @@ export function createAgentFrameRouter(store: AgentsStoreActions, send: (message
         resubscribe(message.sessionId);
         return;
       case "agent.options":
-        store.setOptions(message.sessionId, message.models);
+        store.setOptions(message.sessionId, { models: message.models, skills: message.skills });
         return;
       case "challenge":
       case "unpaired":

@@ -21,10 +21,16 @@ export function resetDictationTarget(): void {
   target = INSERT;
 }
 
+/** The text as the host receives it: the armed slash command, then the dictation. */
+export function deliveredText(input: DeliverInput): string {
+  return input.skill === null ? input.text : `${input.skill} ${input.text}`;
+}
+
 /** The commands one delivery sends, in order. */
 export function commandsFor(input: DeliverInput, to: DictationTarget): Command[] {
-  if (to.kind === "agent") return [{ kind: "agent.reply", sessionId: to.sessionId, text: input.text, submit: input.submit }];
-  const commands: Command[] = [{ kind: "text.insert", text: input.text }];
+  const text = deliveredText(input);
+  if (to.kind === "agent") return [{ kind: "agent.reply", sessionId: to.sessionId, text, submit: input.submit }];
+  const commands: Command[] = [{ kind: "text.insert", text }];
   if (input.submit) commands.push({ kind: "key.press", key: "return" });
   return commands;
 }

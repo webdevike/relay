@@ -57,7 +57,7 @@ function ModelRow({ model, selected, onPress }: { model: AgentModel; selected: b
  */
 export function AgentSettingsSheet({ sessionId, onClose }: AgentSettingsSheetProps) {
   const session = useAgentsStore((state) => (sessionId === null ? undefined : state.sessions[sessionId]));
-  const models = useAgentsStore((state) => (sessionId === null ? undefined : state.options[sessionId]));
+  const models = useAgentsStore((state) => (sessionId === null ? undefined : state.options[sessionId]?.models));
   const [title, setTitle] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

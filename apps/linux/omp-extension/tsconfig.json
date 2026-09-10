@@ -1,0 +1,19 @@
+// The extension runs inside omp, so it resolves @oh-my-pi/pi-coding-agent from omp's own install,
+// not this repo. Typecheck against that install:  npx tsc -p omp-extension --baseUrl "$(npm root -g)"
+{
+  "compilerOptions": {
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "target": "es2022",
+    "types": ["node"],
+    "ignoreDeprecations": "6.0",
+    "paths": {
+      "@oh-my-pi/pi-coding-agent": ["@oh-my-pi/pi-coding-agent/dist/types/index.d.ts"],
+      "@oh-my-pi/pi-coding-agent/*": ["@oh-my-pi/pi-coding-agent/dist/types/*.d.ts"]
+    }
+  },
+  "files": ["relay-bridge.ts"]
+}
