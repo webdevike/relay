@@ -4,7 +4,7 @@ import type { AgentMessage, AgentSession, AgentStatus } from "@relay/protocol";
 import { Text } from "@/ui/Text";
 import { Pill, type PillProps } from "@/ui/Pill";
 import { Separator } from "@/ui/Separator";
-import { colors, radii, spacing } from "@/theme";
+import { radii, spacing } from "@/theme";
 import { modelShortName, VendorLogo } from "./VendorLogo";
 /** Within this many points of the end, new messages keep the list pinned to the bottom. */
 const BOTTOM_STICK_PX = 80;
@@ -106,7 +106,7 @@ export function AgentCard({ session, messages, connected }: AgentCardProps) {
         )}
         {session.model !== undefined && (
           <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
-            {session.modelVendor !== undefined && <VendorLogo vendor={session.modelVendor} size={13} tintColor={colors.textFaint} />}
+            {session.modelVendor !== undefined && <VendorLogo vendor={session.modelVendor} size={13} />}
             <Text variant="caption" color="textFaint" numberOfLines={1} style={{ flexShrink: 1 }}>
               {modelShortName(session.model, session.modelVendor)}
               {session.thinkingLevel === undefined ? "" : ` · ${session.thinkingLevel}`}

@@ -42,12 +42,10 @@ export function modelShortName(name: string, vendor: string | undefined): string
 export interface VendorLogoProps {
   vendor: string;
   size?: number;
-  /** Tint; the assets are light glyphs on transparent, so this darkens/colors them. */
-  tintColor?: string;
 }
 
-/** Monochrome company mark, or the vendor's name when we have no mark for it. */
-export function VendorLogo({ vendor, size = 14, tintColor }: VendorLogoProps) {
+/** Company mark in its brand color (marks that are black on light surfaces are white here), or the vendor's name when we have none. */
+export function VendorLogo({ vendor, size = 14 }: VendorLogoProps) {
   const source = logos[vendor];
   if (source === undefined) {
     return (
@@ -56,5 +54,5 @@ export function VendorLogo({ vendor, size = 14, tintColor }: VendorLogoProps) {
       </Text>
     );
   }
-  return <Image source={source} style={{ width: size, height: size, ...(tintColor === undefined ? {} : { tintColor }) }} resizeMode="contain" />;
+  return <Image source={source} style={{ width: size, height: size }} resizeMode="contain" />;
 }

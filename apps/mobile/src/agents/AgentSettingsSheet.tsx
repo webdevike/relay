@@ -139,7 +139,7 @@ export function AgentSettingsSheet({ sessionId, onClose }: AgentSettingsSheetPro
           }}
           style={({ pressed }) => [styles.dropdown, pressed && { opacity: 0.8 }]}
         >
-          {session.modelVendor !== undefined && <VendorLogo vendor={session.modelVendor} size={14} tintColor={colors.textMuted} />}
+          {session.modelVendor !== undefined && <VendorLogo vendor={session.modelVendor} size={14} />}
           <Text variant="body" numberOfLines={1} style={{ flex: 1 }}>
             {session.model ?? "Not reported"}
           </Text>
@@ -159,7 +159,7 @@ export function AgentSettingsSheet({ sessionId, onClose }: AgentSettingsSheetPro
               {groupByVendor(models).map(([vendor, group]) => (
                 <View key={vendor}>
                   <View style={styles.vendor}>
-                    <VendorLogo vendor={vendor} size={12} tintColor={colors.textFaint} />
+                    <VendorLogo vendor={vendor} size={12} />
                     <Text variant="caption" color="textFaint">
                       {vendorLabel(vendor)}
                     </Text>
