@@ -9,6 +9,8 @@ export interface SettingsState {
   hapticsEnabled: boolean;
   naturalScrolling: boolean;
   pointerSpeed: PointerSpeed;
+  /** `host:port` that replaces Bonjour discovery; empty means discover automatically. */
+  manualHost: string;
   set: (partial: Partial<Omit<SettingsState, "set">>) => void;
 }
 
@@ -19,6 +21,7 @@ export const useSettingsStore = create<SettingsState>()(
       hapticsEnabled: true,
       naturalScrolling: true,
       pointerSpeed: "normal",
+      manualHost: "",
       set: (partial) => {
         set(partial);
       },
