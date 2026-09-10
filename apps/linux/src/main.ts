@@ -18,7 +18,9 @@ import { RelayServer } from "./server";
 
 const USAGE = `relay-linux <command>
 
-  serve [--port N] [--name NAME]   run the host (default command)
+  serve [--port N] [--name NAME] [--agent-home DIR]
+                                   run the host (default command); --agent-home is where a
+                                   session started from the phone opens (default: $HOME)
   devices                          list paired phones
   forget <deviceId>                remove a paired phone
 
@@ -43,7 +45,7 @@ function log(line: string): void {
   console.log(`${new Date().toISOString()} ${line}`);
 }
 
-function serve(port: number, name: string): void {
+function serve(port: number, name: string, agentHome: string | null): void {
   let device: UinputDevice | null = null;
   try {
     device = new UinputDevice();
@@ -56,7 +58,7 @@ function serve(port: number, name: string): void {
   const typer = detectTextTyper();
   log(typer === null ? "text input: uinput US layout (ASCII only; install wtype on Wayland for Unicode)" : "text input: wtype");
 
-  const agents = new OmpBridgeProvider(defaultSocketPath(), log);
+  const agents = new OmpBridgeProvider(defaultSocketPath(), log, agentHome);
   const server = new RelayServer(
     { port, hostName: name, version: pkg.version },
     {
@@ -72,6 +74,7 @@ function serve(port: number, name: string): void {
   const boundPort = server.start();
   log(`listening on ws://0.0.0.0:${boundPort}/relay as "${name}"`);
   log(`agent bridge listening on ${defaultSocketPath()} (omp sessions register via omp-extension/relay-bridge.ts)`);
+  log(agentHome === null ? "agent.start disabled (no --agent-home and no $HOME)" : `agent.start opens omp in ${agentHome}`);
 
   const advertiser = new AvahiAdvertiser(name, boundPort, log);
   advertiser.start();
@@ -95,6 +98,7 @@ function main(argv: string[]): void {
     options: {
       port: { type: "string", default: "0" },
       name: { type: "string", default: hostname() },
+      "agent-home": { type: "string" },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -107,7 +111,7 @@ function main(argv: string[]): void {
     case "serve": {
       const port = Number.parseInt(values.port, 10);
       if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`invalid --port ${values.port}`);
-      serve(port, values.name);
+      serve(port, values.name, values["agent-home"] ?? process.env["HOME"] ?? null);
       return;
     }
     case "devices": {

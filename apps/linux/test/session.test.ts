@@ -316,6 +316,11 @@ class FakeProvider implements AgentProvider {
     this.replies.push([sessionId, text, submit]);
     return Promise.resolve();
   }
+  launched = 0;
+  launch(): Promise<void> {
+    this.launched += 1;
+    return Promise.resolve();
+  }
 }
 
 describe("agent topics", () => {

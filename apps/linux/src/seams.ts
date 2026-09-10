@@ -80,6 +80,8 @@ export interface AgentProvider {
   conversation(sessionId: string): Promise<AgentMessage[] | null>;
   /** Deliver `text` as the next user turn, or only into the session's input. Rejects with `AckFailure`. */
   reply(sessionId: string, text: string, submit: boolean): Promise<void>;
+  /** Open a new session on the host. Rejects with `AckFailure` (`agent_launch_failed`). */
+  launch(): Promise<void>;
   /** Set by the transport. */
   onChange: ((change: AgentProviderChange) => void) | null;
 }

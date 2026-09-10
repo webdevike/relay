@@ -65,6 +65,8 @@ export class OmpBridgeProvider implements AgentProvider {
   constructor(
     private readonly path: string,
     private readonly log: (line: string) => void,
+    /** Directory a phone-started session opens in; `null` disables `agent.start`. */
+    private readonly home: string | null,
   ) {}
 
   get isAvailable(): boolean {
@@ -116,6 +118,27 @@ export class OmpBridgeProvider implements AgentProvider {
     if (!parsed.success || !parsed.data.ok) {
       throw new AckFailure({ code: "agent_cannot_respond", message: parsed.success ? (parsed.data.error ?? "reply rejected") : "malformed reply result" });
     }
+  }
+
+  /**
+   * Opens a terminal running omp in `home`, detached from this daemon so a host restart never
+   * takes the session with it. The new session registers itself over the socket like any other.
+   */
+  async launch(): Promise<void> {
+    if (this.home === null) {
+      throw new AckFailure({ code: "agent_launch_failed", message: "host was started without --agent-home" });
+    }
+    const proc = Bun.spawn(["setsid", "-f", "alacritty", "--working-directory", this.home, "-e", "omp"], {
+      stdin: "ignore",
+      stdout: "ignore",
+      stderr: "pipe",
+    });
+    const code = await proc.exited;
+    if (code !== 0) {
+      const stderr = (await new Response(proc.stderr).text()).trim();
+      throw new AckFailure({ code: "agent_launch_failed", message: stderr.length > 0 ? stderr : `launcher exited ${code}` });
+    }
+    this.log(`launched omp in ${this.home}`);
   }
 
   private find(sessionId: string): Connection | undefined {

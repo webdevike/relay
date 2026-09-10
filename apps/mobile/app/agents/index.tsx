@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -7,10 +7,11 @@ import { Text } from "@/ui/Text";
 import { Banner } from "@/ui/Banner";
 import { EmptyState } from "@/ui/EmptyState";
 import { Cutout, CUTOUT_GAP } from "@/ui/Cutout";
+import { IconButton } from "@/ui/IconButton";
 import { colors, motion, spacing } from "@/theme";
 import { useAgentsStore } from "@/state/agents";
 import { useConnectionStore } from "@/state/connection";
-import { subscribeAgent, unsubscribeAgent } from "@/connection";
+import { sendCommand, subscribeAgent, unsubscribeAgent } from "@/connection";
 import { DictationButton } from "@/dictation/DictationButton";
 import { ListeningOrb } from "@/dictation/ListeningOrb";
 import { resetDictationTarget, setDictationTarget } from "@/dictation/deliver";
@@ -24,6 +25,9 @@ const SLIDE_PX = 28;
 /** Room the mic needs above the scrubber track; the panel's fixed height keeps the seam math static. */
 const PANEL_TOP = MIC_SIZE / 2 + CUTOUT_GAP + spacing.md;
 const PANEL_HEIGHT = PANEL_TOP + TRACK_HEIGHT + spacing.md + 16 + spacing.lg;
+const START_SIZE = 36;
+/** A launched omp normally registers within a few seconds; past this the spinner is a lie. */
+const LAUNCH_TIMEOUT_MS = 20_000;
 
 const slideIn = (direction: number): EntryExitAnimationFunction => () => {
   "worklet";
@@ -97,13 +101,50 @@ export default function AgentInbox() {
     [],
   );
 
+  // Starting a session: ack means the terminal opened; the session itself arrives as a delta a
+  // few seconds later, and whichever id is new at that point becomes the focus.
+  const [launching, setLaunching] = useState(false);
+  const [launchError, setLaunchError] = useState<string | null>(null);
+  const knownIds = useRef(new Set(order));
+  useEffect(() => {
+    const fresh = order.filter((id) => !knownIds.current.has(id));
+    knownIds.current = new Set(order);
+    if (launching && fresh[0] !== undefined) {
+      setPickedId(fresh[0]);
+      setLaunching(false);
+    }
+  }, [order, launching]);
+  useEffect(() => {
+    if (!launching) return;
+    const timer = setTimeout(() => {
+      setLaunching(false);
+      setLaunchError("The new session never showed up.");
+    }, LAUNCH_TIMEOUT_MS);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [launching]);
+  const startSession = (): void => {
+    setLaunchError(null);
+    setLaunching(true);
+    sendCommand({ kind: "agent.start" }).catch((error: unknown) => {
+      setLaunching(false);
+      setLaunchError(error instanceof Error ? error.message : "Couldn't start a session.");
+    });
+  };
+
   const canRespond = session?.canRespond === true;
 
   return (
     <SafeAreaView style={styles.root} edges={["top", "bottom"]}>
       <View style={styles.card}>
         {session === undefined ? (
-          <EmptyState symbol="tray" title="No agent sessions" body="Sessions show up here while omp is running on your host." />
+          <EmptyState
+            symbol="tray"
+            title="No agent sessions"
+            body={connected ? "Start one here, or open omp on your host." : "Sessions show up here while omp is running on your host."}
+            {...(connected && !launching ? { actionLabel: "Start a session", onAction: startSession } : {})}
+          />
         ) : (
           <Animated.View key={session.id} style={StyleSheet.absoluteFill} entering={slideIn(direction)} exiting={slideOut(direction)}>
             <AgentCard session={session} messages={messages} connected={connected} />
@@ -113,7 +154,11 @@ export default function AgentInbox() {
       </View>
       {session !== undefined && (
         <View style={styles.panel}>
-          {canRespond ? (
+          {launchError !== null ? (
+            <View style={styles.banner}>
+              <Banner tone="danger" message={launchError} />
+            </View>
+          ) : canRespond ? (
             <Cutout size={MIC_SIZE} style={styles.mic}>
               <DictationButton size={MIC_SIZE} backgroundColor={colors.surface} />
             </Cutout>
@@ -122,9 +167,14 @@ export default function AgentInbox() {
               <Banner tone="warn" message="This session can't take replies." />
             </View>
           )}
-          <AgentScrubber statuses={order.map((id) => sessions[id]?.status ?? "ended")} index={index} onChange={onScrub} />
+          <View style={styles.scrubRow}>
+            <View style={{ flex: 1 }}>
+              <AgentScrubber statuses={order.map((id) => sessions[id]?.status ?? "ended")} index={index} onChange={onScrub} />
+            </View>
+            <IconButton symbol="plus" size={START_SIZE} tintColor={colors.textMuted} backgroundColor={colors.bg} disabled={!connected || launching} onPress={startSession} />
+          </View>
           <Text variant="caption" color="textFaint" tabular style={styles.counter}>
-            {index + 1} of {order.length}
+            {launching ? "Starting a session…" : `${index + 1} of ${order.length}`}
           </Text>
         </View>
       )}
@@ -167,5 +217,6 @@ const styles = StyleSheet.create({
     right: spacing.lg,
     top: spacing.sm,
   },
+  scrubRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   counter: { textAlign: "center", marginTop: spacing.md },
 });

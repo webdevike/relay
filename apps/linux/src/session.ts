@@ -285,11 +285,12 @@ export class ClientSession {
 
   private async execute(id: string, cmd: Command): Promise<ServerMessage> {
     try {
-      if (cmd.kind === "agent.reply") {
+      if (cmd.kind === "agent.reply" || cmd.kind === "agent.start") {
         if (this.deps.agents === null) {
           return { t: "nack", id, error: { code: "agent_cannot_respond", message: "no agent provider available" } };
         }
-        await this.deps.agents.reply(cmd.sessionId, cmd.text, cmd.submit);
+        if (cmd.kind === "agent.reply") await this.deps.agents.reply(cmd.sessionId, cmd.text, cmd.submit);
+        else await this.deps.agents.launch();
         return { t: "ack", id };
       }
       if (!this.deps.access.granted) {

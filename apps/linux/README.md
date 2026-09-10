@@ -49,7 +49,9 @@ session then registers with the daemon over `$XDG_RUNTIME_DIR/relay-agents.sock`
 the phone's Agent Inbox with its transcript and status (`working`, `waiting` after a turn that ends
 in a question, `needs_permission` during a tool approval prompt, `idle`, `ended`). An
 `agent.reply` with `submit: true` is delivered like typing in the TUI and pressing Enter; with
-`submit: false` it is placed in the session's editor for the keyboard to finish.
+`submit: false` it is placed in the session's editor for the keyboard to finish. `agent.start`
+(the plus on the phone's scrubber) opens `alacritty --working-directory <dir> -e omp`, detached
+from the daemon; `<dir>` is `serve --agent-home DIR` (default `$HOME`).
 
 ## Differences from the Mac app
 

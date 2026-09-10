@@ -116,6 +116,8 @@ export const Command = z.discriminatedUnion("kind", [
    * places it in the session's input so the user can finish it at the keyboard.
    */
   z.object({ kind: z.literal("agent.reply"), sessionId: nonEmpty, text: z.string().min(1), submit: z.boolean() }),
+  /** Open a fresh agent session on the host (it shows up in `agents.*` once it registers). */
+  z.object({ kind: z.literal("agent.start") }),
 ]);
 export type Command = z.infer<typeof Command>;
 
@@ -124,6 +126,7 @@ export const AckError = z.object({
     "accessibility_denied",
     "agent_not_found",
     "agent_cannot_respond",
+    "agent_launch_failed",
     "invalid_command",
     "internal",
   ]),
