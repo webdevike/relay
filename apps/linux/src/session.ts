@@ -289,7 +289,7 @@ export class ClientSession {
         if (this.deps.agents === null) {
           return { t: "nack", id, error: { code: "agent_cannot_respond", message: "no agent provider available" } };
         }
-        await this.deps.agents.reply(cmd.sessionId, cmd.text);
+        await this.deps.agents.reply(cmd.sessionId, cmd.text, cmd.submit);
         return { t: "ack", id };
       }
       if (!this.deps.access.granted) {

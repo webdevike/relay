@@ -40,7 +40,7 @@ type Outbound =
   | { t: "conversation"; id: string; messages: InboxMessage[] }
   | { t: "reply.result"; id: string; ok: boolean; error?: string };
 
-type Inbound = { t: "reply"; id: string; text: string } | { t: "conversation"; id: string };
+type Inbound = { t: "reply"; id: string; text: string; submit: boolean } | { t: "conversation"; id: string };
 
 const RECONNECT_MS = 3000;
 const MAX_SUMMARY = 120;
@@ -93,6 +93,8 @@ export default function relayBridge(pi: ExtensionAPI): void {
   let lastActivity = "";
   let lastActivityAt = Date.now();
   let statusDetail: string | undefined;
+  /** The last assistant message of the current turn ended with a question and no tool call followed. */
+  let askedQuestion = false;
   const history: InboxMessage[] = [];
 
   const info = (): SessionInfo | null => {
@@ -140,8 +142,16 @@ export default function relayBridge(pi: ExtensionAPI): void {
         break;
       case "reply":
         try {
-          // Same semantics as typing in the TUI: prompt when idle, steer while streaming.
-          pi.sendUserMessage(frame.text);
+          if (frame.submit) {
+            // Same semantics as typing in the TUI and pressing Enter: prompt when idle, steer while streaming.
+            pi.sendUserMessage(frame.text);
+          } else if (ctx !== null) {
+            // Released without the flick: leave it in the editor for the keyboard to finish.
+            const existing = ctx.ui.getEditorText();
+            ctx.ui.setEditorText(existing.length === 0 ? frame.text : `${existing} ${frame.text}`);
+          } else {
+            throw new Error("session has no UI");
+          }
           send({ t: "reply.result", id: frame.id, ok: true });
         } catch (error) {
           send({ t: "reply.result", id: frame.id, ok: false, error: error instanceof Error ? error.message : String(error) });
@@ -225,12 +235,23 @@ export default function relayBridge(pi: ExtensionAPI): void {
 
   pi.on("agent_end", () => {
     if (ctx === null) return;
-    setStatus("idle");
+    // A turn that ends on a question is the agent waiting on the user, not merely idle.
+    setStatus(askedQuestion ? "waiting" : "idle");
   });
 
   pi.on("tool_execution_start", (event) => {
     if (ctx === null) return;
     setStatus("working", undefined, event.toolName);
+  });
+
+  pi.on("tool_approval_requested", (event) => {
+    if (ctx === null) return;
+    setStatus("needs_permission", undefined, event.toolName);
+  });
+
+  pi.on("tool_approval_resolved", () => {
+    if (ctx === null) return;
+    setStatus("working");
   });
 
   pi.on("message_end", (event) => {
@@ -244,12 +265,15 @@ export default function relayBridge(pi: ExtensionAPI): void {
     } else if (message.role === "assistant") {
       const text = textOf(message.content);
       if (text.length > 0) appended.push({ id: nextId(), role: "assistant", text, at });
+      let calledTool = false;
       for (const part of message.content) {
         if (part.type === "toolCall") {
+          calledTool = true;
           const summary = summarizeArguments(part.arguments);
           appended.push({ id: nextId(), role: "tool", text: summary, at, tool: { name: part.name, summary } });
         }
       }
+      askedQuestion = !calledTool && text.trimEnd().endsWith("?");
       if (text.length > 0) {
         lastActivity = firstLine(text);
         lastActivityAt = at;

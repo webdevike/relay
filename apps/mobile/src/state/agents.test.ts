@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 import { applyDelta, applySnapshot, appendMessages, emptyAgentsData, setConversation } from "./agents";
 import type { AgentMessage, AgentSession } from "@relay/protocol";
 
-function session(id: string, lastActivityAt: number): AgentSession {
+function session(id: string, lastActivityAt: number, status: AgentSession["status"] = "idle"): AgentSession {
   return {
     id,
     provider: "claude-code",
     title: id,
     projectPath: `/tmp/${id}`,
-    status: "idle",
+    status,
     lastActivity: "did a thing",
     lastActivityAt,
     canRespond: true,
@@ -24,6 +24,16 @@ describe("applySnapshot", () => {
     const data = applySnapshot(emptyAgentsData, 1, [session("a", 100), session("b", 300), session("c", 200)]);
     expect(data.order).toEqual(["b", "c", "a"]);
     expect(data.rev).toBe(1);
+  });
+
+  it("puts sessions that need the user ahead of newer ones", () => {
+    const data = applySnapshot(emptyAgentsData, 1, [
+      session("fresh", 400),
+      session("asking", 100, "waiting"),
+      session("blocked", 50, "needs_permission"),
+      session("busy", 300, "working"),
+    ]);
+    expect(data.order).toEqual(["asking", "blocked", "fresh", "busy"]);
   });
 
   it("replaces the prior session set entirely", () => {

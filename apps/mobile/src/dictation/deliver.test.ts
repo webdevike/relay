@@ -27,11 +27,15 @@ describe("deliverDictation", () => {
     ]);
   });
 
-  it("replies to the targeted agent and never presses Return, even on submit", async () => {
+  it("replies to the targeted agent, carrying the flick-up as submit instead of a Return", async () => {
     setDictationTarget({ kind: "agent", sessionId: "s1" });
     const { sent, send } = recorder();
     await deliverDictation({ text: "try again", submit: true }, send);
-    expect(sent).toEqual([{ kind: "agent.reply", sessionId: "s1", text: "try again" }]);
+    await deliverDictation({ text: "and also", submit: false }, send);
+    expect(sent).toEqual([
+      { kind: "agent.reply", sessionId: "s1", text: "try again", submit: true },
+      { kind: "agent.reply", sessionId: "s1", text: "and also", submit: false },
+    ]);
   });
 
   it("falls back to inserting once the target is reset", async () => {

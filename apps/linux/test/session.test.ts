@@ -280,7 +280,7 @@ describe("authenticated traffic", () => {
   it("nacks agent.reply because Linux v1 has no agent provider", async () => {
     const h = harness();
     pair(h);
-    h.session.receive({ t: "cmd", id: "a1", cmd: { kind: "agent.reply", sessionId: "s", text: "go" } });
+    h.session.receive({ t: "cmd", id: "a1", cmd: { kind: "agent.reply", sessionId: "s", text: "go", submit: true } });
     await h.sink.sentCount(5);
     expect(h.sink.last()).toMatchObject({ t: "nack", id: "a1", error: { code: "agent_cannot_respond" } });
   });
@@ -300,7 +300,7 @@ class FakeProvider implements AgentProvider {
   readonly id = "omp";
   isAvailable = true;
   onChange: AgentProvider["onChange"] = null;
-  readonly replies: [string, string][] = [];
+  readonly replies: [string, string, boolean][] = [];
   started = false;
   sessions: AgentSession[] = [
     { id: "s1", provider: "omp", title: "relay", projectPath: "/w/relay", status: "idle", lastActivity: "done", lastActivityAt: 5, canRespond: true },
@@ -311,9 +311,9 @@ class FakeProvider implements AgentProvider {
   conversation(sessionId: string): Promise<AgentMessage[] | null> {
     return Promise.resolve(sessionId === "s1" ? [{ id: "m1", role: "user", text: "hi", at: 1 }] : null);
   }
-  reply(sessionId: string, text: string): Promise<void> {
+  reply(sessionId: string, text: string, submit: boolean): Promise<void> {
     if (sessionId !== "s1") return Promise.reject(new AckFailure({ code: "agent_not_found", message: "gone" }));
-    this.replies.push([sessionId, text]);
+    this.replies.push([sessionId, text, submit]);
     return Promise.resolve();
   }
 }
@@ -353,10 +353,10 @@ describe("agent topics", () => {
     const agents = new FakeProvider();
     const h = harness({ agents });
     pair(h);
-    h.session.receive({ t: "cmd", id: "r1", cmd: { kind: "agent.reply", sessionId: "s1", text: "ship it" } });
-    h.session.receive({ t: "cmd", id: "r2", cmd: { kind: "agent.reply", sessionId: "nope", text: "x" } });
+    h.session.receive({ t: "cmd", id: "r1", cmd: { kind: "agent.reply", sessionId: "s1", text: "ship it", submit: true } });
+    h.session.receive({ t: "cmd", id: "r2", cmd: { kind: "agent.reply", sessionId: "nope", text: "x", submit: false } });
     await h.sink.sentCount(6);
-    expect(agents.replies).toEqual([["s1", "ship it"]]);
+    expect(agents.replies).toEqual([["s1", "ship it", true]]);
     expect(h.sink.sent.slice(-2)).toEqual([
       { t: "ack", id: "r1" },
       { t: "nack", id: "r2", error: { code: "agent_not_found", message: "gone" } },

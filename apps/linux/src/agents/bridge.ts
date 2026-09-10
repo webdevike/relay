@@ -106,12 +106,12 @@ export class OmpBridgeProvider implements AgentProvider {
     return parsed.success ? parsed.data : [];
   }
 
-  async reply(sessionId: string, text: string): Promise<void> {
+  async reply(sessionId: string, text: string, submit: boolean): Promise<void> {
     const connection = this.find(sessionId);
     if (connection === undefined) {
       throw new AckFailure({ code: "agent_not_found", message: "that omp session is no longer running" });
     }
-    const result = await this.request(connection, "reply", { text });
+    const result = await this.request(connection, "reply", { text, submit });
     const parsed = z.object({ ok: z.boolean(), error: z.string().optional() }).safeParse(result);
     if (!parsed.success || !parsed.data.ok) {
       throw new AckFailure({ code: "agent_cannot_respond", message: parsed.success ? (parsed.data.error ?? "reply rejected") : "malformed reply result" });

@@ -42,8 +42,17 @@ is emitted as relative `REL_X/REL_Y`; the compositor's own libinput acceleration
 When `/dev/uinput` cannot be opened the daemon still runs: the phone sees
 `accessibilityGranted: false`, input is dropped and commands are nacked `accessibility_denied`.
 
+## Agent Inbox (omp)
+
+Symlink `omp-extension/relay-bridge.ts` into `~/.omp/agent/extensions/`. Every interactive omp
+session then registers with the daemon over `$XDG_RUNTIME_DIR/relay-agents.sock` and appears in
+the phone's Agent Inbox with its transcript and status (`working`, `waiting` after a turn that ends
+in a question, `needs_permission` during a tool approval prompt, `idle`, `ended`). An
+`agent.reply` with `submit: true` is delivered like typing in the TUI and pressing Enter; with
+`submit: false` it is placed in the session's editor for the keyboard to finish.
+
 ## Differences from the Mac app
 
 - No tray/menu UI; the terminal is the UI.
-- No agent provider: `agent.reply` nacks `agent_cannot_respond`, `agents.*` is an empty rev-0 snapshot.
+- Agent provider is omp only (via the extension above), not Claude Code.
 - No TLS (same as Mac v1).

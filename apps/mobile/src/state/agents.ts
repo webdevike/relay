@@ -15,9 +15,17 @@ export interface AgentsData {
 
 export const emptyAgentsData: AgentsData = { rev: 0, sessions: {}, order: [], conversations: {} };
 
-function orderByRecency(sessions: Record<string, AgentSession>): string[] {
+/** Sessions blocked on the user (a question or an approval prompt) sort ahead of everything else. */
+export function needsAttention(session: AgentSession): boolean {
+  return session.status === "waiting" || session.status === "needs_permission";
+}
+
+function orderByAttention(sessions: Record<string, AgentSession>): string[] {
   return Object.values(sessions)
-    .sort((a, b) => b.lastActivityAt - a.lastActivityAt)
+    .sort((a, b) => {
+      const attention = Number(needsAttention(b)) - Number(needsAttention(a));
+      return attention !== 0 ? attention : b.lastActivityAt - a.lastActivityAt;
+    })
     .map((session) => session.id);
 }
 
@@ -29,7 +37,7 @@ export function applySnapshot(
 ): AgentsData {
   const byId: Record<string, AgentSession> = {};
   for (const session of sessions) byId[session.id] = session;
-  return { ...data, rev, sessions: byId, order: orderByRecency(byId) };
+  return { ...data, rev, sessions: byId, order: orderByAttention(byId) };
 }
 
 /**
@@ -57,7 +65,7 @@ export function applyDelta(
   const filtered = removed.size === 0 ? sessions : Object.fromEntries(
     Object.entries(sessions).filter(([id]) => !removed.has(id)),
   );
-  return { data: { ...data, rev, sessions: filtered, order: orderByRecency(filtered) }, ok: true };
+  return { data: { ...data, rev, sessions: filtered, order: orderByAttention(filtered) }, ok: true };
 }
 
 export function setConversation(

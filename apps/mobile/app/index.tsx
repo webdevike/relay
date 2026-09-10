@@ -8,7 +8,7 @@ import { Pill } from "@/ui/Pill";
 import { Banner } from "@/ui/Banner";
 import { colors, spacing } from "@/theme";
 import { useConnectionStore, type ConnectionStatus } from "@/state/connection";
-import { useAgentsStore } from "@/state/agents";
+import { needsAttention, useAgentsStore } from "@/state/agents";
 import { actions } from "@/state/actions";
 import { countOf } from "@/lib/format";
 
@@ -36,12 +36,10 @@ export default function Home() {
   const pairing = useConnectionStore((state) => state.pairing);
   const agentsAvailable = useConnectionStore((state) => state.mac?.agentsAvailable === true);
   const sessionCount = useAgentsStore((state) => state.order.length);
-  const needingCount = useAgentsStore((state) =>
-    state.order.filter((id) => {
-      const status = state.sessions[id]?.status;
-      return status === "waiting" || status === "needs_permission";
-    }).length,
-  );
+  const needingCount = useAgentsStore((state) => state.order.filter((id) => {
+    const session = state.sessions[id];
+    return session !== undefined && needsAttention(session);
+  }).length);
   const pill = pillFor[status];
 
   return (

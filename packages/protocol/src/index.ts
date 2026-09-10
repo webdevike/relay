@@ -111,8 +111,11 @@ export const Command = z.discriminatedUnion("kind", [
   /** Type `text` into whatever has keyboard focus on the Mac. */
   z.object({ kind: z.literal("text.insert"), text: z.string().min(1) }),
   z.object({ kind: z.literal("key.press"), key: KeyName }),
-  /** Deliver `text` as the next user turn of an agent session. */
-  z.object({ kind: z.literal("agent.reply"), sessionId: nonEmpty, text: z.string().min(1) }),
+  /**
+   * Hand `text` to an agent session. `submit: true` sends it as the next user turn; `false` only
+   * places it in the session's input so the user can finish it at the keyboard.
+   */
+  z.object({ kind: z.literal("agent.reply"), sessionId: nonEmpty, text: z.string().min(1), submit: z.boolean() }),
 ]);
 export type Command = z.infer<typeof Command>;
 

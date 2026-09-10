@@ -78,8 +78,8 @@ export interface AgentProvider {
   readonly sessions: readonly AgentSession[];
   /** Full conversation, oldest first; null when the session is unknown. */
   conversation(sessionId: string): Promise<AgentMessage[] | null>;
-  /** Deliver `text` as the next user turn. Rejects with `AckFailure`. */
-  reply(sessionId: string, text: string): Promise<void>;
+  /** Deliver `text` as the next user turn, or only into the session's input. Rejects with `AckFailure`. */
+  reply(sessionId: string, text: string, submit: boolean): Promise<void>;
   /** Set by the transport. */
   onChange: ((change: AgentProviderChange) => void) | null;
 }

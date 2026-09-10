@@ -237,7 +237,6 @@ export const connection = {
       forgetMac: () => {
         void runForgetMac();
       },
-      sendReply: (sessionId, text) => sendCommand({ kind: "agent.reply", sessionId, text }),
     });
     boot().catch((error: unknown) => {
       warn("boot", "failed", error);

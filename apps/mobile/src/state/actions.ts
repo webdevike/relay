@@ -4,7 +4,6 @@
  * action is a no-op so every screen renders and is interactive without a live connection.
  */
 export interface RelayActions {
-  sendReply: (sessionId: string, text: string) => Promise<void>;
   insertText: (text: string) => Promise<void>;
   startPairing: () => void;
   submitPin: (pin: string) => void;
@@ -13,7 +12,6 @@ export interface RelayActions {
 
 /* eslint-disable @typescript-eslint/no-empty-function -- intentional no-ops until wave 2 replaces them */
 export const noopActions: RelayActions = {
-  sendReply: async () => {},
   insertText: async () => {},
   startPairing: () => {},
   submitPin: () => {},

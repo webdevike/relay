@@ -105,7 +105,8 @@
     "cmd": {
       "kind": "agent.reply",
       "sessionId": "s-1",
-      "text": "yes, go ahead"
+      "text": "yes, go ahead",
+      "submit": true
     }
   },
   {

@@ -1,5 +1,5 @@
 import { useEffect, type ReactNode } from "react";
-import { View, type ViewStyle } from "react-native";
+import { View } from "react-native";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useKeepAwake } from "expo-keep-awake";
@@ -7,6 +7,7 @@ import { requireOptionalNativeModule } from "expo-modules-core";
 import type * as ScreenOrientationModule from "expo-screen-orientation";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { IconButton } from "@/ui/IconButton";
+import { Cutout, CUTOUT_GAP } from "@/ui/Cutout";
 import { colors } from "@/theme";
 import { SURFACE_MARGIN, TrackpadSurface } from "@/trackpad/TrackpadSurface";
 import { DictationButton } from "@/dictation/DictationButton";
@@ -23,26 +24,10 @@ export interface TrackpadScreenProps {
 
 const BACK_SIZE = 40;
 const MIC_SIZE = 60;
-const CUTOUT_GAP = 4;
 /** Back sits on the top edge, in from the corner, so it never crowds the screen edge. */
 const BACK_INSET = 12;
 
 const defaultDictationButton = (): ReactNode => <DictationButton size={MIC_SIZE} backgroundColor={colors.surface} />;
-
-/** A ring of screen background around an edge button so it reads as carved out of the surface. */
-function Cutout({ size, style, children }: { size: number; style: ViewStyle; children: ReactNode }) {
-  const outer = size + CUTOUT_GAP * 2;
-  return (
-    <View
-      style={[
-        { position: "absolute", width: outer, height: outer, borderRadius: outer / 2, padding: CUTOUT_GAP, backgroundColor: colors.bg },
-        style,
-      ]}
-    >
-      {children}
-    </View>
-  );
-}
 
 /** Edge-to-edge trackpad: full-bleed gesture surface, ghost back chevron, floating dictation. */
 export default function TrackpadScreen({ renderDictationButton = defaultDictationButton }: TrackpadScreenProps) {
