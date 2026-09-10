@@ -1,9 +1,10 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { type ClientMessage, type InputEvent, type KeyName, type ServerMessage } from "@relay/protocol";
+import { type AgentMessage, type AgentSession, type ClientMessage, type InputEvent, type KeyName, type ServerMessage } from "@relay/protocol";
+import { AgentsDeltaTracker } from "../src/agents/delta-tracker";
 import { CommandDedupStore } from "../src/dedup";
 import { PairingCoordinator } from "../src/pairing";
-import { AckFailure, type DeviceStore, type FrameSink, type InputSink, type PairedDevice, type PairingUI, type TextInjecting } from "../src/seams";
+import { AckFailure, type AgentProvider, type DeviceStore, type FrameSink, type InputSink, type PairedDevice, type PairingUI, type TextInjecting } from "../src/seams";
 import { ClientSession, PAIRING_TIMEOUT_MS, type SessionClock, type SessionDeps } from "../src/session";
 
 class RecordingSink implements FrameSink {
@@ -84,7 +85,16 @@ interface Harness {
   readonly closed: ClientSession[];
 }
 
-function harness(options: { granted?: boolean; devices?: MemoryDevices; dedup?: CommandDedupStore; failText?: boolean } = {}): Harness {
+interface HarnessOptions {
+  granted?: boolean;
+  devices?: MemoryDevices;
+  dedup?: CommandDedupStore;
+  failText?: boolean;
+  agents?: AgentProvider;
+  tracker?: AgentsDeltaTracker;
+}
+
+function harness(options: HarnessOptions = {}): Harness {
   const pins: string[] = [];
   const typed: string[] = [];
   const pressed: KeyName[] = [];
@@ -113,6 +123,8 @@ function harness(options: { granted?: boolean; devices?: MemoryDevices; dedup?: 
     input: inputSink,
     text,
     access: { granted: options.granted ?? true },
+    agents: options.agents ?? null,
+    agentsTracker: options.tracker ?? new AgentsDeltaTracker(),
     devices,
     pairing: new PairingCoordinator(ui),
     dedup: options.dedup ?? new CommandDedupStore(),
@@ -281,5 +293,84 @@ describe("authenticated traffic", () => {
     h.session.receive(hello);
     expect(h.sink.last()).toMatchObject({ t: "error", code: "protocol" });
     expect(h.sink.closed).toBe(true);
+  });
+});
+
+class FakeProvider implements AgentProvider {
+  readonly id = "omp";
+  isAvailable = true;
+  onChange: AgentProvider["onChange"] = null;
+  readonly replies: [string, string][] = [];
+  started = false;
+  sessions: AgentSession[] = [
+    { id: "s1", provider: "omp", title: "relay", projectPath: "/w/relay", status: "idle", lastActivity: "done", lastActivityAt: 5, canRespond: true },
+  ];
+  start(): void {
+    this.started = true;
+  }
+  conversation(sessionId: string): Promise<AgentMessage[] | null> {
+    return Promise.resolve(sessionId === "s1" ? [{ id: "m1", role: "user", text: "hi", at: 1 }] : null);
+  }
+  reply(sessionId: string, text: string): Promise<void> {
+    if (sessionId !== "s1") return Promise.reject(new AckFailure({ code: "agent_not_found", message: "gone" }));
+    this.replies.push([sessionId, text]);
+    return Promise.resolve();
+  }
+}
+
+describe("agent topics", () => {
+  it("welcomes with the provider's sessions and answers agents.get from the tracker", () => {
+    const agents = new FakeProvider();
+    const tracker = new AgentsDeltaTracker();
+    tracker.seed(agents.sessions);
+    const h = harness({ agents, tracker });
+    pair(h);
+    expect(h.sink.last()).toMatchObject({ t: "welcome", state: { mac: { agentsAvailable: true }, agents: { rev: 0, sessions: [{ id: "s1" }] } } });
+    h.session.receive({ t: "agents.get" });
+    expect(h.sink.last()).toMatchObject({ t: "agents.snapshot", rev: 0, sessions: [{ id: "s1" }] });
+  });
+
+  it("streams appended messages only while subscribed, with a per-subscription rev", async () => {
+    const h = harness({ agents: new FakeProvider() });
+    pair(h);
+    h.session.receive({ t: "agent.subscribe", sessionId: "s1" });
+    await h.sink.sentCount(5);
+    expect(h.sink.last()).toEqual({ t: "agent.conversation", sessionId: "s1", rev: 0, messages: [{ id: "m1", role: "user", text: "hi", at: 1 }] });
+    const appended: AgentMessage[] = [{ id: "m2", role: "assistant", text: "yo", at: 2 }];
+    h.session.agentConversationAppended("s1", appended);
+    h.session.agentConversationAppended("s1", appended);
+    h.session.agentConversationAppended("other", appended);
+    expect(h.sink.sent.slice(-2)).toEqual([
+      { t: "agent.messages", sessionId: "s1", rev: 1, append: appended },
+      { t: "agent.messages", sessionId: "s1", rev: 2, append: appended },
+    ]);
+    h.session.receive({ t: "agent.unsubscribe", sessionId: "s1" });
+    h.session.agentConversationAppended("s1", appended);
+    expect(h.sink.sent).toHaveLength(7);
+  });
+
+  it("acks agent.reply through the provider and nacks unknown sessions", async () => {
+    const agents = new FakeProvider();
+    const h = harness({ agents });
+    pair(h);
+    h.session.receive({ t: "cmd", id: "r1", cmd: { kind: "agent.reply", sessionId: "s1", text: "ship it" } });
+    h.session.receive({ t: "cmd", id: "r2", cmd: { kind: "agent.reply", sessionId: "nope", text: "x" } });
+    await h.sink.sentCount(6);
+    expect(agents.replies).toEqual([["s1", "ship it"]]);
+    expect(h.sink.sent.slice(-2)).toEqual([
+      { t: "ack", id: "r1" },
+      { t: "nack", id: "r2", error: { code: "agent_not_found", message: "gone" } },
+    ]);
+  });
+});
+
+describe("AgentsDeltaTracker", () => {
+  it("emits upserts for changed sessions, removes for missing ids, and bumps rev", () => {
+    const tracker = new AgentsDeltaTracker();
+    const a: AgentSession = { id: "a", provider: "omp", title: "a", projectPath: "/a", status: "idle", lastActivity: "", lastActivityAt: 1, canRespond: true };
+    const b: AgentSession = { ...a, id: "b" };
+    tracker.seed([a, b]);
+    expect(tracker.apply([{ ...a, status: "working" }])).toEqual({ t: "agents.delta", rev: 1, upsert: [{ ...a, status: "working" }], remove: ["b"] });
+    expect(tracker.apply([{ ...a, status: "working" }])).toEqual({ t: "agents.delta", rev: 2 });
   });
 });

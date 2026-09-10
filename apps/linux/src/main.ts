@@ -6,6 +6,7 @@
 import { hostname } from "node:os";
 import { parseArgs } from "node:util";
 import pkg from "../package.json";
+import { defaultSocketPath, OmpBridgeProvider } from "./agents/bridge";
 import { FileDeviceStore } from "./device-store";
 import { detectTextTyper, KeyboardInjector } from "./input/keyboard";
 import type { EventPoster } from "./input/poster";
@@ -55,12 +56,14 @@ function serve(port: number, name: string): void {
   const typer = detectTextTyper();
   log(typer === null ? "text input: uinput US layout (ASCII only; install wtype on Wayland for Unicode)" : "text input: wtype");
 
+  const agents = new OmpBridgeProvider(defaultSocketPath(), log);
   const server = new RelayServer(
     { port, hostName: name, version: pkg.version },
     {
       input: new TrackpadInputSink(poster),
       text: new KeyboardInjector(poster, typer),
       access: { granted: device !== null },
+      agents,
       devices: new FileDeviceStore(),
       pairing: new TerminalPairingUI(),
       log,
@@ -68,6 +71,7 @@ function serve(port: number, name: string): void {
   );
   const boundPort = server.start();
   log(`listening on ws://0.0.0.0:${boundPort}/relay as "${name}"`);
+  log(`agent bridge listening on ${defaultSocketPath()} (omp sessions register via omp-extension/relay-bridge.ts)`);
 
   const advertiser = new AvahiAdvertiser(name, boundPort, log);
   advertiser.start();

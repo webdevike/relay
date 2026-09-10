@@ -33,6 +33,14 @@ export function applySnapshot(
 }
 
 /**
+ * A fresh connection: the host's session set replaces ours, and every conversation goes with the
+ * old socket (subscriptions do not survive a reconnect).
+ */
+export function applyWelcome(data: AgentsData, rev: number, sessions: AgentSession[]): AgentsData {
+  return { ...applySnapshot(data, rev, sessions), conversations: {} };
+}
+
+/**
  * Applies an incremental upsert/remove. Returns the unchanged `data` and `ok: false` when `rev`
  * is not exactly one past `data.rev` — the caller re-requests the snapshot on a gap.
  */
@@ -90,6 +98,7 @@ export function appendMessages(
 }
 
 export interface AgentsStore extends AgentsData {
+  applyWelcome: (rev: number, sessions: AgentSession[]) => void;
   applySnapshot: (rev: number, sessions: AgentSession[]) => void;
   applyDelta: (rev: number, upsert?: AgentSession[], remove?: string[]) => boolean;
   setConversation: (sessionId: string, rev: number, messages: AgentMessage[]) => void;
@@ -98,6 +107,9 @@ export interface AgentsStore extends AgentsData {
 
 export const useAgentsStore = create<AgentsStore>((set, get) => ({
   ...emptyAgentsData,
+  applyWelcome: (rev, sessions) => {
+    set(applyWelcome(get(), rev, sessions));
+  },
   applySnapshot: (rev, sessions) => {
     set(applySnapshot(get(), rev, sessions));
   },

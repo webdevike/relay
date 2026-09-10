@@ -9,8 +9,10 @@ import { AppState, type AppStateStatus, type NativeEventSubscription } from "rea
 import { CryptoDigestAlgorithm, digest } from "expo-crypto";
 import { encode, parseServerMessage, WS_PATH, type Command, type InputEvent } from "@relay/protocol";
 import { useConnectionStore } from "@/state/connection";
+import { useAgentsStore } from "@/state/agents";
 import { setActions } from "@/state/actions";
 import { useSettingsStore } from "@/state/settings";
+import { createAgentFrameRouter } from "./agents";
 import * as identity from "./identity";
 import { Discovery, type DiscoveredService } from "./discovery";
 import { parseManualHost } from "./manual-host";
@@ -30,6 +32,7 @@ let retryTimer: number | undefined;
 
 const commandQueue = new CommandQueue();
 const socket = new RelaySocket();
+const routeAgentFrame = createAgentFrameRouter(useAgentsStore.getState(), (message) => socket.send(encode(message)));
 const discovery = new Discovery({
   onCandidate: (service) => {
     currentCandidate = service;
@@ -62,6 +65,7 @@ socket.onMessage = (data) => {
     return;
   }
   if (message.t === "welcome") commandQueue.onReconnect((m) => socket.send(encode(m)));
+  routeAgentFrame(message);
   void dispatch({ type: "server", message });
 };
 
@@ -193,6 +197,17 @@ function onAppStateChange(next: AppStateStatus): void {
 export function sendInput(events: InputEvent[]): void {
   if (useConnectionStore.getState().status !== "connected") return;
   socket.send(encode({ t: "input", events }));
+}
+
+/** Ephemeral, like `sendInput`: the host drops subscriptions with the socket, so nothing is queued. */
+export function subscribeAgent(sessionId: string): void {
+  if (useConnectionStore.getState().status !== "connected") return;
+  socket.send(encode({ t: "agent.subscribe", sessionId }));
+}
+
+export function unsubscribeAgent(sessionId: string): void {
+  if (useConnectionStore.getState().status !== "connected") return;
+  socket.send(encode({ t: "agent.unsubscribe", sessionId }));
 }
 
 /** Reliable; resolves on ack, rejects with an `AckError`-shaped `Error` on nack. */

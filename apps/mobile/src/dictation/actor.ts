@@ -5,9 +5,9 @@
 import { PermissionStatus } from "expo-modules-core";
 import { ExpoSpeechRecognitionModule, type ExpoSpeechRecognitionOptions } from "expo-speech-recognition";
 import { createActor, fromCallback, fromPromise } from "xstate";
-import type { Command } from "@relay/protocol";
 import { sendCommand } from "@/connection";
 import { debug } from "@/connection/log";
+import { deliverDictation } from "./deliver";
 import { dictationMachine, orbOf, phaseOf, type DeliverInput, type PermissionOutcome, type RecognizerCommand, type RecognizerEvent } from "./machine";
 
 const RECOGNIZER_OPTIONS: ExpoSpeechRecognitionOptions = {
@@ -65,9 +65,7 @@ const recognizer = fromCallback<RecognizerCommand>(({ sendBack, receive }) => {
 });
 
 const deliver = fromPromise<null, DeliverInput>(async ({ input }) => {
-  const cmd: Command = { kind: "text.insert", text: input.text };
-  await sendCommand(cmd);
-  if (input.submit) await sendCommand({ kind: "key.press", key: "return" });
+  await deliverDictation(input, sendCommand);
   return null;
 });
 

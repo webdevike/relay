@@ -6,10 +6,11 @@
 // agents topic is a constant empty snapshot at rev 0.
 
 import { createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
-import { PROTOCOL_VERSION, parseClientMessage, toHex, type ClientMessage, type Command, type ErrorCode, type ServerMessage, type Snapshot } from "@relay/protocol";
+import { PROTOCOL_VERSION, parseClientMessage, toHex, type AgentMessage, type ClientMessage, type Command, type ErrorCode, type ServerMessage, type Snapshot } from "@relay/protocol";
+import type { AgentsDeltaTracker } from "./agents/delta-tracker";
 import type { CommandDedupStore } from "./dedup";
 import type { PairingCoordinator } from "./pairing";
-import { AckFailure, type DeviceStore, type FrameSink, type InputAccess, type InputSink, type TextInjecting } from "./seams";
+import { AckFailure, type AgentProvider, type DeviceStore, type FrameSink, type InputAccess, type InputSink, type TextInjecting } from "./seams";
 
 export interface SessionDeps {
   readonly hostName: string;
@@ -17,6 +18,8 @@ export interface SessionDeps {
   readonly input: InputSink;
   readonly text: TextInjecting;
   readonly access: InputAccess;
+  readonly agents: AgentProvider | null;
+  readonly agentsTracker: AgentsDeltaTracker;
   readonly devices: DeviceStore;
   readonly pairing: PairingCoordinator;
   readonly dedup: CommandDedupStore;
@@ -54,6 +57,8 @@ export class ClientSession {
   private cancelPairingTimeout: (() => void) | null = null;
   private closed = false;
   private name: string | null = null;
+  /** Per-conversation rev for `agent.messages`, keyed by the subscribed session id. */
+  private readonly subscriptions = new Map<string, number>();
 
   constructor(
     private readonly sink: FrameSink,
@@ -81,6 +86,15 @@ export class ClientSession {
   /** Sends only once authenticated; used by the server for state-topic broadcasts (`mac.state`). */
   broadcast(message: ServerMessage): void {
     if (this.phase.kind === "authenticated") this.sink.send(message);
+  }
+
+  /** Forwards appended agent messages iff subscribed to `sessionId`; bumps that subscription's rev. */
+  agentConversationAppended(sessionId: string, messages: readonly AgentMessage[]): void {
+    if (this.phase.kind !== "authenticated" || messages.length === 0) return;
+    const rev = this.subscriptions.get(sessionId);
+    if (rev === undefined) return;
+    this.subscriptions.set(sessionId, rev + 1);
+    this.sink.send({ t: "agent.messages", sessionId, rev: rev + 1, append: [...messages] });
   }
 
   receiveRaw(raw: string): void {
@@ -220,12 +234,27 @@ export class ClientSession {
         this.sink.send({ t: "pong", ts: message.ts, serverTs: this.clock.now() });
         break;
       case "agents.get":
-        this.sink.send({ t: "agents.snapshot", rev: 0, sessions: [] });
+        this.sink.send({ t: "agents.snapshot", rev: this.deps.agentsTracker.rev, sessions: [...this.deps.agentsTracker.sessions] });
         break;
-      case "agent.subscribe":
-        this.sink.send({ t: "agent.conversation", sessionId: message.sessionId, rev: 0, messages: [] });
+      case "agent.subscribe": {
+        const { sessionId } = message;
+        this.subscriptions.set(sessionId, 0);
+        const lookup = this.deps.agents?.conversation(sessionId) ?? Promise.resolve(null);
+        void lookup.then(
+          (messages) => {
+            // Still subscribed (no unsubscribe raced the lookup) and still on rev 0.
+            if (this.closed || this.subscriptions.get(sessionId) !== 0) return;
+            this.sink.send({ t: "agent.conversation", sessionId, rev: 0, messages: messages ?? [] });
+          },
+          () => {
+            if (this.closed || this.subscriptions.get(sessionId) !== 0) return;
+            this.sink.send({ t: "agent.conversation", sessionId, rev: 0, messages: [] });
+          },
+        );
         break;
+      }
       case "agent.unsubscribe":
+        this.subscriptions.delete(message.sessionId);
         break;
       case "hello":
       case "auth":
@@ -255,13 +284,17 @@ export class ClientSession {
   }
 
   private async execute(id: string, cmd: Command): Promise<ServerMessage> {
-    if (cmd.kind === "agent.reply") {
-      return { t: "nack", id, error: { code: "agent_cannot_respond", message: "no agent provider available" } };
-    }
-    if (!this.deps.access.granted) {
-      return { t: "nack", id, error: { code: "accessibility_denied", message: "virtual input device unavailable" } };
-    }
     try {
+      if (cmd.kind === "agent.reply") {
+        if (this.deps.agents === null) {
+          return { t: "nack", id, error: { code: "agent_cannot_respond", message: "no agent provider available" } };
+        }
+        await this.deps.agents.reply(cmd.sessionId, cmd.text);
+        return { t: "ack", id };
+      }
+      if (!this.deps.access.granted) {
+        return { t: "nack", id, error: { code: "accessibility_denied", message: "virtual input device unavailable" } };
+      }
       if (cmd.kind === "text.insert") await this.deps.text.insert(cmd.text);
       else await this.deps.text.press(cmd.key);
       return { t: "ack", id };
@@ -283,9 +316,9 @@ export class ClientSession {
         name: this.deps.hostName,
         version: this.deps.version,
         accessibilityGranted: this.deps.access.granted,
-        agentsAvailable: false,
+        agentsAvailable: this.deps.agents?.isAvailable ?? false,
       },
-      agents: { rev: 0, sessions: [] },
+      agents: { rev: this.deps.agentsTracker.rev, sessions: [...this.deps.agentsTracker.sessions] },
     };
   }
 

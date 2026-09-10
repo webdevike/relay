@@ -23,3 +23,8 @@ export function truncate(text: string, maxLength: number): string {
   if (maxLength <= 1) return text.slice(0, maxLength);
   return `${text.slice(0, maxLength - 1)}…`;
 }
+
+/** "1 session", "3 sessions". Regular English plurals only. */
+export function countOf(n: number, noun: string): string {
+  return `${n} ${n === 1 ? noun : `${noun}s`}`;
+}

@@ -1,7 +1,7 @@
 // Seams between transport, input and storage. Mirrors apps/mac/Sources/RelayCore/Seams.swift:
 // the session only ever talks to these; input/ and the stores implement them; main.ts wires them.
 
-import type { AckError, InputEvent, KeyName, ServerMessage } from "@relay/protocol";
+import type { AckError, AgentMessage, AgentSession, InputEvent, KeyName, ServerMessage } from "@relay/protocol";
 
 /** Outbound side of one connection. `send` after `close` is a no-op. */
 export interface FrameSink {
@@ -56,3 +56,31 @@ export class AckFailure extends Error {
     this.error = error;
   }
 }
+
+export type AgentProviderChange =
+  /** The session list (or any session's status/activity) changed; read `sessions` again. */
+  | { readonly kind: "sessions" }
+  /** New messages were appended to a conversation the transport may be subscribed to. */
+  | { readonly kind: "conversation"; readonly sessionId: string; readonly appended: readonly AgentMessage[] };
+
+/**
+ * One coding-agent integration (omp on Linux). Provider-independent by construction: the
+ * transport never sees anything but `AgentSession` / `AgentMessage`.
+ */
+export interface AgentProvider {
+  /** Stable id used as `AgentSession.provider`. */
+  readonly id: string;
+  /** Whether the provider is installed and observing (drives `MacState.agentsAvailable`). */
+  readonly isAvailable: boolean;
+  /** Begin observing. Idempotent. */
+  start(): void;
+  /** Current sessions, newest activity first. Cheap: a cached array. */
+  readonly sessions: readonly AgentSession[];
+  /** Full conversation, oldest first; null when the session is unknown. */
+  conversation(sessionId: string): Promise<AgentMessage[] | null>;
+  /** Deliver `text` as the next user turn. Rejects with `AckFailure`. */
+  reply(sessionId: string, text: string): Promise<void>;
+  /** Set by the transport. */
+  onChange: ((change: AgentProviderChange) => void) | null;
+}
+

@@ -5,9 +5,10 @@
 
 import { encode, WS_PATH, type ServerMessage } from "@relay/protocol";
 import type { Server, ServerWebSocket } from "bun";
+import { AgentsDeltaTracker } from "./agents/delta-tracker";
 import { CommandDedupStore } from "./dedup";
 import { PairingCoordinator } from "./pairing";
-import type { DeviceStore, FrameSink, InputAccess, InputSink, PairingUI, TextInjecting } from "./seams";
+import type { AgentProvider, AgentProviderChange, DeviceStore, FrameSink, InputAccess, InputSink, PairingUI, TextInjecting } from "./seams";
 import { ClientSession } from "./session";
 
 export interface ServerConfig {
@@ -21,6 +22,7 @@ export interface ServerDeps {
   readonly input: InputSink;
   readonly text: TextInjecting;
   readonly access: InputAccess;
+  readonly agents: AgentProvider | null;
   readonly devices: DeviceStore;
   readonly pairing: PairingUI;
   readonly log: (line: string) => void;
@@ -58,6 +60,7 @@ class WebSocketFrameSink implements FrameSink {
 
 export class RelayServer {
   private readonly dedup = new CommandDedupStore();
+  private readonly agentsTracker = new AgentsDeltaTracker();
   private readonly pairing: PairingCoordinator;
   private readonly sockets = new Set<Socket>();
   private server: Server<SocketData> | null = null;
@@ -72,6 +75,14 @@ export class RelayServer {
   /** Returns the bound port. */
   start(): number {
     if (this.server !== null) throw new Error("already started");
+    const agents = this.deps.agents;
+    if (agents !== null) {
+      agents.start();
+      this.agentsTracker.seed(agents.sessions);
+      agents.onChange = (change) => {
+        this.handleProviderChange(change);
+      };
+    }
     const server = Bun.serve<SocketData>({
       port: this.config.port,
       hostname: "0.0.0.0",
@@ -130,10 +141,19 @@ export class RelayServer {
         name: this.config.hostName,
         version: this.config.version,
         accessibilityGranted: this.deps.access.granted,
-        agentsAvailable: false,
+        agentsAvailable: this.deps.agents?.isAvailable ?? false,
       },
     };
     for (const ws of this.sockets) ws.data.session?.broadcast(message);
+  }
+
+  private handleProviderChange(change: AgentProviderChange): void {
+    if (change.kind === "sessions") {
+      const delta = this.agentsTracker.apply(this.deps.agents?.sessions ?? []);
+      for (const ws of this.sockets) ws.data.session?.broadcast(delta);
+      return;
+    }
+    for (const ws of this.sockets) ws.data.session?.agentConversationAppended(change.sessionId, change.appended);
   }
 
   private accept(ws: Socket): void {
@@ -145,6 +165,8 @@ export class RelayServer {
         input: this.deps.input,
         text: this.deps.text,
         access: this.deps.access,
+        agents: this.deps.agents,
+        agentsTracker: this.agentsTracker,
         devices: this.deps.devices,
         pairing: this.pairing,
         dedup: this.dedup,
