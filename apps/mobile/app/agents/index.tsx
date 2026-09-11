@@ -10,6 +10,7 @@ import { Text } from "@/ui/Text";
 import { Banner } from "@/ui/Banner";
 import { EmptyState } from "@/ui/EmptyState";
 import { Cutout, CUTOUT_GAP } from "@/ui/Cutout";
+import { NotchedSurface, type Notch } from "@/ui/NotchedSurface";
 import { IconButton } from "@/ui/IconButton";
 import { colors, motion, spacing } from "@/theme";
 import { useAgentsStore } from "@/state/agents";
@@ -34,6 +35,9 @@ const MIC_SIZE = 60;
 const CARD_RADIUS = 28;
 /** The armed-skill notch on the seam between the header and the chat. */
 const NOTCH_HEIGHT = 32;
+/** The bites the surfaces take: the element plus the ring of screen background around it. */
+const PILL_NOTCH_HEIGHT = NOTCH_HEIGHT + CUTOUT_GAP * 2;
+const MIC_NOTCH_SIZE = MIC_SIZE + CUTOUT_GAP * 2;
 /** The image pill's thumbnail, standing where the skill pill has its mic glyph. */
 const CHIP_SIZE = 20;
 /** Holding still this long (ms) on the chat opens the action wheel; moving sooner scrolls instead. */
@@ -172,6 +176,7 @@ export default function AgentInbox() {
 
   const { skill: armed, images, pasted } = useDictation();
   const [headerHeight, setHeaderHeight] = useState(0);
+  const [chatHeight, setChatHeight] = useState(0);
 
   // Holding still on the chat opens the action wheel under the finger. The Pan only activates
   // after the hold, so an early move is the transcript's scroll as usual; the wheel draws in the
@@ -242,6 +247,17 @@ export default function AgentInbox() {
   );
 
   const notchShown = (armed !== null || images.length > 0 || pasted !== null) && headerHeight > 0;
+  // The seam pill and the mic bite into the surfaces they straddle; `cy` is in each surface's own
+  // coordinates (the pill center sits half the card gap below the header, the mic half the gap
+  // below the chat card). The Cutout overlays still paint the gap ring over scrolled content.
+  const pillWidth = notchShown ? notchWidth(armed, images.length, pasted) + CUTOUT_GAP * 2 : 0;
+  const headerNotches = useMemo<Notch[]>(() => (pillWidth === 0 ? [] : [{ cy: headerHeight + spacing.sm / 2, width: pillWidth, height: PILL_NOTCH_HEIGHT }]), [pillWidth, headerHeight]);
+  const chatNotches = useMemo<Notch[]>(() => {
+    const notches: Notch[] = pillWidth === 0 ? [] : [{ cy: -spacing.sm / 2, width: pillWidth, height: PILL_NOTCH_HEIGHT }];
+    if (canRespond) notches.push({ cy: chatHeight + spacing.sm / 2, width: MIC_NOTCH_SIZE, height: MIC_NOTCH_SIZE });
+    return notches;
+  }, [pillWidth, canRespond, chatHeight]);
+  const panelNotches = useMemo<Notch[]>(() => (canRespond ? [{ cy: -spacing.sm / 2, width: MIC_NOTCH_SIZE, height: MIC_NOTCH_SIZE }] : []), [canRespond]);
 
   return (
     <SafeAreaView style={styles.root} edges={["top", "bottom"]}>
@@ -257,19 +273,29 @@ export default function AgentInbox() {
           </View>
         ) : (
           <Animated.View key={session.id} style={StyleSheet.absoluteFill} entering={slideIn(direction)} exiting={slideOut(direction)}>
-            <View
-              style={[styles.card, styles.header]}
+            <NotchedSurface
+              color={colors.surfaceRaised}
+              radius={CARD_RADIUS}
+              notches={headerNotches}
               onLayout={(event) => {
                 setHeaderHeight(event.nativeEvent.layout.height);
                 chatTop.value = event.nativeEvent.layout.height + spacing.sm;
               }}
             >
               <AgentHeader session={session} />
-            </View>
+            </NotchedSurface>
             <GestureDetector gesture={chatGesture}>
-              <View style={[styles.card, styles.chat]}>
+              <NotchedSurface
+                color={colors.surface}
+                radius={CARD_RADIUS}
+                notches={chatNotches}
+                style={styles.chat}
+                onLayout={(event) => {
+                  setChatHeight(event.nativeEvent.layout.height);
+                }}
+              >
                 <AgentCard sessionId={selectedId} messages={messages} connected={connected} />
-              </View>
+              </NotchedSurface>
             </GestureDetector>
             {notchShown && (
               <Cutout size={NOTCH_HEIGHT} width={notchWidth(armed, images.length, pasted)} style={{ alignSelf: "center", top: headerHeight + spacing.sm / 2 - NOTCH_HEIGHT / 2 - CUTOUT_GAP }}>
@@ -370,7 +396,7 @@ export default function AgentInbox() {
         </View>
       </View>
       {session !== undefined && (
-        <View style={styles.panel}>
+        <NotchedSurface color={colors.surfaceRaised} radius={CARD_RADIUS} notches={panelNotches} style={styles.panel}>
           {launchError !== null ? (
             <View style={styles.banner}>
               <Banner tone="danger" message={launchError} />
@@ -393,7 +419,7 @@ export default function AgentInbox() {
           <Text variant="caption" color="textFaint" tabular style={styles.counter}>
             {launching ? "Starting a session…" : `${index + 1} of ${order.length}`}
           </Text>
-        </View>
+        </NotchedSurface>
       )}
       <AgentSettingsSheet
         sessionId={settingsFor}
@@ -430,14 +456,15 @@ function notchWidth(token: string | null, chips: number, pasted: string | null):
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   stack: { flex: 1, marginHorizontal: spacing.md, marginTop: spacing.sm },
+  /** The empty state's card, which nothing bites into. */
   card: {
     borderRadius: CARD_RADIUS,
     borderWidth: 1,
     borderColor: colors.hairline,
     overflow: "hidden",
+    backgroundColor: colors.surface,
   },
-  header: { backgroundColor: colors.surfaceRaised },
-  chat: { flex: 1, marginTop: spacing.sm, backgroundColor: colors.surface },
+  chat: { flex: 1, marginTop: spacing.sm },
   notchBody: {
     flex: 1,
     flexDirection: "row",
@@ -460,10 +487,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
     paddingTop: PANEL_TOP,
     paddingHorizontal: spacing.lg,
-    borderRadius: CARD_RADIUS,
-    borderWidth: 1,
-    borderColor: colors.hairline,
-    backgroundColor: colors.surfaceRaised,
   },
   mic: {
     alignSelf: "center",
