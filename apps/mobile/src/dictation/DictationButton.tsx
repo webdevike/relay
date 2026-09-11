@@ -10,6 +10,8 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
+  withDelay,
+  withSequence,
   withSpring,
   withTiming,
 } from "react-native-reanimated";
@@ -22,12 +24,12 @@ import { useConnectionStore } from "@/state/connection";
 import { debug } from "@/connection/log";
 import { useSpeechRecognitionEvent } from "expo-speech-recognition";
 import { MicGlyph, type MicGlyphMode } from "./MicGlyph";
-import { micLevel, sendLift, wheelPosition, wheelSnap } from "./signals";
+import { micLevel, sendLift, wheelConfirm, wheelDetent, wheelPosition } from "./signals";
 import { WHEEL_STEP_RAD } from "./SkillWheel";
 import { dictationActor } from "./actor";
 import { useDictation, openDictationSettings } from "./useDictation";
 import { phaseOf, type DictationPhase } from "./machine";
-import type { AgentSkill } from "@relay/protocol";
+import type { AgentSkill, AgentSkillChoice } from "@relay/protocol";
 
 const DEFAULT_SIZE = 40;
 const CHIP_WIDTH = 220;
@@ -40,16 +42,29 @@ const CLOSE_DISTANCE = 112;
 /** Finger within this distance (pt) of the close target shuts the wheel. */
 const CLOSE_RADIUS = 36;
 const CLOSE_SIZE = 44;
-/** Quick, slightly bouncy settle into the slot on each snap. */
-const SNAP_SPRING = { damping: 18, stiffness: 320, mass: 0.6 };
-/** Upward finger speed (pt/ms) that counts as a flick rather than scrubbing along the wheel. */
+/** How long (ms) the wheel keeps turning on its own after a fast release, before the snap. */
+const MOMENTUM_MS = 60;
+/** A finger still for longer than this (ms) before lifting has no momentum. */
+const MOMENTUM_STALE_MS = 80;
+/** Detent tick decay (ms) and the confirmation bloom's fade (ms). */
+const DETENT_MS = 140;
+const CONFIRM_MS = 380;
+/** The snap onto the picked entry: short, critically damped, no visible bounce; settles in about SNAP_MS. */
+const SNAP_SPRING = { damping: 26, stiffness: 380, mass: 1, overshootClamping: true };
+const SNAP_MS = 220;
+/** Vertical finger speed (pt/ms) that counts as a flick rather than scrubbing along the wheel. */
 const FLICK_VELOCITY = 0.9;
-/** Upward travel (pt) at flick speed that picks the snapped skill. */
+/** Travel (pt) at flick speed that moves between rings: up into an entry's choices, down back out. */
 const FLICK_DISTANCE = 44;
-/** Finger within this distance (pt) of the press point after a pick brings listening back. */
-const RETURN_RADIUS = 30;
 
-type WheelStage = "closed" | "open" | "chosen";
+type WheelStage = "closed" | "open";
+type WheelRing = "top" | "choices";
+
+/** Index into the list for an unbounded wheel position. */
+function wrapIndex(position: number, count: number): number {
+  "worklet";
+  return ((position % count) + count) % count;
+}
 
 const tintFor: Record<DictationPhase, string> = {
   idle: colors.text,
@@ -83,8 +98,8 @@ const DEFAULT_ERROR_MESSAGE = "Something went wrong.";
 /**
  * Hold-to-talk mic: press and hold to listen, release to put the text in the input, flick up to
  * send. With `skills`, a swipe left while holding opens the skill wheel: scrub around the mic to
- * snap a skill into the top slot, flick up to pick it, come back to the mic to dictate with it.
- * Floating chip shows failures and the picked skill.
+ * bring an entry under the marker, lift to lock it in; the next hold dictates with it armed.
+ * Floating chip shows failures; the armed skill is the inbox's notch.
  */
 export interface DictationButtonProps {
   size?: number;
@@ -144,22 +159,38 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
   const startY = useSharedValue(0);
   const enabled = useSharedValue(connected);
   const skillCount = useSharedValue(skills?.length ?? 0);
+  const topCount = useSharedValue(skills?.length ?? 0);
+  const choiceCounts = useSharedValue<number[]>([]);
   const skillsRef = useRef(skills);
   skillsRef.current = skills;
   useEffect(() => {
     enabled.value = connected;
-    skillCount.value = skills?.length ?? 0;
-  }, [connected, enabled, skills, skillCount]);
+    const count = skills?.length ?? 0;
+    topCount.value = count;
+    skillCount.value = count;
+    choiceCounts.value = skills?.map((skill) => skill.choices?.length ?? 0) ?? [];
+  }, [connected, enabled, skills, skillCount, topCount, choiceCounts]);
   // Wheel geometry lives on the UI thread: the finger's angle around the press point turns the
-  // wheel, the snapped index ticks, and a fast upward run picks the skill that was snapped when
-  // the run began (the run itself would otherwise nudge the wheel one notch first).
+  // wheel 1:1, each entry crossing the marker ticks, a fast flick up opens the centered entry's
+  // choices as a second ring (flick down comes back), and the lift carries a little momentum
+  // before the wheel springs onto the nearest entry and arms it.
   const wheel = useSharedValue<WheelStage>("closed");
+  const wheelRing = useSharedValue<WheelRing>("top");
+  const parentIndex = useSharedValue(0);
   const fingerAngle = useSharedValue(0);
   const snapped = useSharedValue(0);
-  const lastY = useSharedValue(0);
+  const angularVelocity = useSharedValue(0);
   const lastAt = useSharedValue(0);
+  const lastY = useSharedValue(0);
   const flickTravel = useSharedValue(0);
   const flickIndex = useSharedValue(0);
+  // Where the wheel opens: on the armed skill (or the entry whose choice is armed), so reopening shows what is set.
+  const armedIndex = useSharedValue(0);
+  useEffect(() => {
+    const index =
+      skills?.findIndex((skill) => skill.command === state.skill || skill.choices?.some((choice) => choice.command === state.skill) === true) ?? -1;
+    armedIndex.value = Math.max(0, index);
+  }, [skills, state.skill, armedIndex]);
 
   const gesture = useMemo(() => {
     const onPressIn = (): void => {
@@ -188,31 +219,97 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
       impactHaptic("medium");
       dictationActor.send({ type: "wheelOpen" });
     };
-    const pick = (index: number): void => {
-      const skill = skillsRef.current?.[index];
-      debug("dictation", "wheel pick", index, skill?.command ?? "none");
-      if (skill === undefined) return;
-      impactHaptic("heavy");
-      dictationActor.send({ type: "wheelSelect", skill: skill.command });
+    /** The entry at `index` on the ring the chart says is showing. */
+    const entryAt = (index: number): AgentSkillChoice | undefined => {
+      const parent = dictationActor.getSnapshot().context.wheelParent;
+      const top = skillsRef.current;
+      if (parent === null) return top?.[index];
+      return top?.find((skill) => skill.command === parent)?.choices?.[index];
     };
-    const resume = (): void => {
-      debug("dictation", "wheel resume", phaseOf(dictationActor.getSnapshot()));
+    const pick = (index: number): void => {
+      const entry = entryAt(index);
+      debug("dictation", "wheel pick", index, entry?.command ?? "none");
+      if (entry === undefined) return;
+      // An entry that only holds choices is a folder, not a command: lifting on it picks nothing.
+      if (!entry.takesText && "choices" in entry) return;
+      dictationActor.send({ type: "wheelSelect", skill: entry.command, submit: !entry.takesText });
+      setTimeout(() => {
+        impactHaptic("heavy");
+      }, SNAP_MS);
+    };
+    const descend = (index: number): void => {
+      const parent = skillsRef.current?.[index];
+      debug("dictation", "wheel descend", index, parent?.command ?? "none");
+      if (parent === undefined) return;
       impactHaptic("medium");
-      dictationActor.send({ type: "resume" });
+      dictationActor.send({ type: "wheelDescend", parent: parent.command });
+    };
+    const ascend = (): void => {
+      debug("dictation", "wheel ascend");
+      tapHaptic();
+      dictationActor.send({ type: "wheelAscend" });
     };
     const closeWheel = (): void => {
       debug("dictation", "wheel close", phaseOf(dictationActor.getSnapshot()));
       tapHaptic();
       dictationActor.send({ type: "wheelClose" });
     };
+    // Lift on the wheel: a touch of momentum, then a spring onto the nearest entry, then the
+    // confirmation bloom and the strong haptic once it has locked (timed to the spring's settle).
+    const lockWheel = (): void => {
+      "worklet";
+      const stale = Date.now() - lastAt.value > MOMENTUM_STALE_MS;
+      const carried = stale ? 0 : angularVelocity.value * MOMENTUM_MS;
+      const here = Math.round(wheelPosition.value);
+      const target = Math.max(here - 1, Math.min(here + 1, Math.round(wheelPosition.value + carried)));
+      wheelPosition.value = withSpring(target, SNAP_SPRING);
+      wheelConfirm.value = withDelay(SNAP_MS, withSequence(withTiming(1, { duration: 0 }), withTiming(0, { duration: CONFIRM_MS })));
+      scheduleOnRN(pick, wrapIndex(target, skillCount.value));
+    };
     const finish = (reason: string): void => {
       "worklet";
       if (!pressed.value) return;
       pressed.value = false;
       armed.value = false;
+      if (wheel.value === "open") lockWheel();
       wheel.value = "closed";
       sendLift.value = withTiming(0, { duration: motion.duration.base });
       scheduleOnRN(onPressOut, reason);
+    };
+    /** Fast vertical runs move between rings: up opens the centered entry's choices, down closes them. */
+    const flick = (y: number, index: number, dt: number): void => {
+      "worklet";
+      const rise = lastY.value - y;
+      lastY.value = y;
+      if (Math.abs(rise) / dt < FLICK_VELOCITY) {
+        flickTravel.value = 0;
+        return;
+      }
+      // A run starts on the first fast sample; the entry then is the one the run means.
+      if (flickTravel.value === 0 || Math.sign(rise) !== Math.sign(flickTravel.value)) {
+        flickTravel.value = 0;
+        flickIndex.value = index;
+      }
+      flickTravel.value += rise;
+      if (flickTravel.value >= FLICK_DISTANCE && wheelRing.value === "top") {
+        const parent = wrapIndex(flickIndex.value, topCount.value);
+        const count = choiceCounts.value[parent] ?? 0;
+        flickTravel.value = 0;
+        if (count === 0) return;
+        wheelRing.value = "choices";
+        parentIndex.value = parent;
+        skillCount.value = count;
+        wheelPosition.value = 0;
+        snapped.value = 0;
+        scheduleOnRN(descend, parent);
+      } else if (flickTravel.value <= -FLICK_DISTANCE && wheelRing.value === "choices") {
+        flickTravel.value = 0;
+        wheelRing.value = "top";
+        skillCount.value = topCount.value;
+        wheelPosition.value = parentIndex.value;
+        snapped.value = parentIndex.value;
+        scheduleOnRN(ascend);
+      }
     };
     const turnWheel = (dx: number, dy: number, y: number): void => {
       "worklet";
@@ -230,32 +327,23 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
       if (delta > Math.PI) delta -= 2 * Math.PI;
       else if (delta < -Math.PI) delta += 2 * Math.PI;
       fingerAngle.value = angle;
-      // Screen y points down, so a growing angle is clockwise: forward through the list.
-      const last = skillCount.value - 1;
-      const next = Math.min(last, Math.max(0, wheelPosition.value + delta / WHEEL_STEP_RAD));
+      // Screen y points down, so a growing angle is clockwise: forward through the list. The
+      // position is unbounded; the list wraps around it.
+      const step = delta / WHEEL_STEP_RAD;
+      const next = wheelPosition.value + step;
       wheelPosition.value = next;
+      const now = Date.now();
+      const dt = Math.max(1, now - lastAt.value);
+      lastAt.value = now;
+      angularVelocity.value = angularVelocity.value * 0.5 + (step / dt) * 0.5;
       const index = Math.round(next);
       if (index !== snapped.value) {
         snapped.value = index;
-        wheelSnap.value = withSpring(index, SNAP_SPRING);
+        wheelDetent.value = 1;
+        wheelDetent.value = withTiming(0, { duration: DETENT_MS });
         scheduleOnRN(selectHaptic);
       }
-      // Flick: consecutive fast upward samples. Slow scrubbing resets the run.
-      const now = Date.now();
-      const dt = Math.max(1, now - lastAt.value);
-      const rise = lastY.value - y;
-      lastY.value = y;
-      lastAt.value = now;
-      if (rise / dt < FLICK_VELOCITY) {
-        flickTravel.value = 0;
-        return;
-      }
-      if (flickTravel.value === 0) flickIndex.value = index;
-      flickTravel.value += rise;
-      if (flickTravel.value >= FLICK_DISTANCE) {
-        wheel.value = "chosen";
-        scheduleOnRN(pick, flickIndex.value);
-      }
+      flick(y, index, dt);
     };
     return Gesture.Manual()
       .onTouchesDown((event, manager) => {
@@ -278,24 +366,19 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
           turnWheel(dx, dy, touch.absoluteY);
           return;
         }
-        if (wheel.value === "chosen") {
-          // Back on the mic: listen again with the skill armed.
-          if (dx * dx + dy * dy <= RETURN_RADIUS * RETURN_RADIUS) {
-            wheel.value = "closed";
-            scheduleOnRN(resume);
-          }
-          return;
-        }
         if (armed.value) return;
         // A sideways run to the left opens the wheel; an upward run lifts the orb and submits.
-        if (skillCount.value > 0 && -dx >= WHEEL_SWIPE_DISTANCE && Math.abs(dy) < -dx) {
+        if (topCount.value > 0 && -dx >= WHEEL_SWIPE_DISTANCE && Math.abs(dy) < -dx) {
           wheel.value = "open";
+          wheelRing.value = "top";
+          skillCount.value = topCount.value;
           fingerAngle.value = Math.atan2(dy, dx);
-          wheelPosition.value = 0;
-          wheelSnap.value = 0;
-          snapped.value = 0;
-          lastY.value = touch.absoluteY;
+          cancelAnimation(wheelPosition);
+          wheelPosition.value = armedIndex.value;
+          snapped.value = armedIndex.value;
+          angularVelocity.value = 0;
           lastAt.value = Date.now();
+          lastY.value = touch.absoluteY;
           flickTravel.value = 0;
           sendLift.value = 0;
           scheduleOnRN(openWheel);
@@ -321,17 +404,34 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
       .onFinalize(() => {
         finish("finalize");
       });
-  }, [armed, pressed, startX, startY, enabled, skillCount, wheel, fingerAngle, snapped, lastY, lastAt, flickTravel, flickIndex]);
+  }, [
+    armed,
+    pressed,
+    startX,
+    startY,
+    enabled,
+    skillCount,
+    topCount,
+    choiceCounts,
+    wheel,
+    wheelRing,
+    parentIndex,
+    fingerAngle,
+    snapped,
+    angularVelocity,
+    lastAt,
+    lastY,
+    flickTravel,
+    flickIndex,
+    armedIndex,
+  ]);
 
   const buttonStyle = useAnimatedStyle(() => ({ opacity: !connected ? 0.4 : pressed.value ? 0.85 : 1 }));
 
   const showPermissionChip = state.phase === "permission_denied";
   const showErrorChip = state.phase === "error";
   const showNothingHeardChip = state.phase === "idle" && state.nothingHeard;
-  // The armed skill rides above the mic from the pick until delivery; after a bare release it
-  // lingers as the announcement of what was picked.
-  const showSkillChip = state.skill !== null && !showErrorChip && !showPermissionChip && state.phase !== "choosing";
-  const chipVisible = showPermissionChip || showErrorChip || showNothingHeardChip || showSkillChip;
+  const chipVisible = showPermissionChip || showErrorChip || showNothingHeardChip;
 
   return (
     <View style={{ alignItems: "center" }}>
@@ -361,11 +461,6 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
           {showNothingHeardChip && (
             <Text variant="label" color="textMuted">
               Nothing heard
-            </Text>
-          )}
-          {showSkillChip && (
-            <Text variant="label" color={state.phase === "idle" ? "textMuted" : "accent"}>
-              {state.phase === "idle" ? `${state.skill ?? ""} selected` : (state.skill ?? "")}
             </Text>
           )}
         </View>

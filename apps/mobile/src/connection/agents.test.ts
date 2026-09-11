@@ -82,3 +82,12 @@ describe("conversation", () => {
     expect(useAgentsStore.getState().order).toEqual(["a"]);
   });
 });
+
+describe("images", () => {
+  it("routes an agent.image answer into the store", () => {
+    route({ t: "agent.image", sessionId: "a", id: "img1", image: { mimeType: "image/png", data: "AAAA" } });
+    route({ t: "agent.image", sessionId: "a", id: "img2", image: null });
+    expect(useAgentsStore.getState().images["a"]).toEqual({ img1: "data:image/png;base64,AAAA", img2: null });
+    expect(sent).toEqual([]);
+  });
+});

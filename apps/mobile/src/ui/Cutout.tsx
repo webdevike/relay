@@ -4,13 +4,23 @@ import { colors } from "@/theme";
 
 export const CUTOUT_GAP = 4;
 
-/** A ring of screen background around an edge button so it reads as carved out of the surface. */
-export function Cutout({ size, style, children }: { size: number; style: ViewStyle; children: ReactNode }) {
-  const outer = size + CUTOUT_GAP * 2;
+export interface CutoutProps {
+  /** Height of the content; also its width unless `width` is given. */
+  size: number;
+  /** Content width for a pill; omit for a circle. */
+  width?: number;
+  style: ViewStyle;
+  children: ReactNode;
+}
+
+/** A ring of screen background around an edge element so it reads as carved out of the surfaces it straddles. */
+export function Cutout({ size, width = size, style, children }: CutoutProps) {
+  const outerHeight = size + CUTOUT_GAP * 2;
+  const outerWidth = width + CUTOUT_GAP * 2;
   return (
     <View
       style={[
-        { position: "absolute", width: outer, height: outer, borderRadius: outer / 2, padding: CUTOUT_GAP, backgroundColor: colors.bg },
+        { position: "absolute", width: outerWidth, height: outerHeight, borderRadius: outerHeight / 2, padding: CUTOUT_GAP, backgroundColor: colors.bg },
         style,
       ]}
     >

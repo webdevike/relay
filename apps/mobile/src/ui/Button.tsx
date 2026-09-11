@@ -3,7 +3,7 @@ import { Text } from "./Text";
 import { colors, radii, spacing } from "@/theme";
 import { tapHaptic } from "@/lib/haptics";
 
-export type ButtonVariant = "primary" | "secondary" | "ghost";
+export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 
 export interface ButtonProps {
   label: string;
@@ -17,12 +17,14 @@ const backgroundFor: Record<ButtonVariant, string> = {
   primary: colors.accent,
   secondary: colors.surfaceRaised,
   ghost: "transparent",
+  danger: colors.surfaceRaised,
 };
 
-const textColorFor: Record<ButtonVariant, "bg" | "text" | "accent"> = {
+const textColorFor: Record<ButtonVariant, "bg" | "text" | "accent" | "danger"> = {
   primary: "bg",
   secondary: "text",
   ghost: "accent",
+  danger: "danger",
 };
 
 export function Button({ label, onPress, variant = "primary", disabled = false, loading = false }: ButtonProps) {

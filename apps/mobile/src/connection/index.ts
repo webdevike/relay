@@ -32,6 +32,13 @@ let retryTimer: number | undefined;
 
 const commandQueue = new CommandQueue();
 const socket = new RelaySocket();
+/** Image fetches sent and not yet answered; the host's `agent.image` (or a new welcome) clears them. */
+const imagesInFlight = new Set<string>();
+
+function imageKey(sessionId: string, id: string): string {
+  return `${sessionId}/${id}`;
+}
+
 const routeAgentFrame = createAgentFrameRouter(useAgentsStore.getState(), (message) => socket.send(encode(message)));
 const discovery = new Discovery({
   onCandidate: (service) => {
@@ -64,7 +71,11 @@ socket.onMessage = (data) => {
     commandQueue.onNack(message.id, message.error);
     return;
   }
-  if (message.t === "welcome") commandQueue.onReconnect((m) => socket.send(encode(m)));
+  if (message.t === "welcome") {
+    commandQueue.onReconnect((m) => socket.send(encode(m)));
+    imagesInFlight.clear();
+  }
+  if (message.t === "agent.image") imagesInFlight.delete(imageKey(message.sessionId, message.id));
   routeAgentFrame(message);
   void dispatch({ type: "server", message });
 };
@@ -214,6 +225,19 @@ export function unsubscribeAgent(sessionId: string): void {
 export function requestAgentOptions(sessionId: string): void {
   if (useConnectionStore.getState().status !== "connected") return;
   socket.send(encode({ t: "agent.options", sessionId }));
+}
+
+/**
+ * Ephemeral; the answer lands in `useAgentsStore().images[sessionId][id]`. Asked at most once per
+ * ref: a store entry (even `null`, "host has none") or an in-flight request means no new frame.
+ */
+export function requestAgentImage(sessionId: string, id: string): void {
+  if (useConnectionStore.getState().status !== "connected") return;
+  if (useAgentsStore.getState().images[sessionId]?.[id] !== undefined) return;
+  const key = imageKey(sessionId, id);
+  if (imagesInFlight.has(key)) return;
+  imagesInFlight.add(key);
+  socket.send(encode({ t: "agent.image", sessionId, id }));
 }
 
 /** Reliable; resolves on ack, rejects with an `AckError`-shaped `Error` on nack. */

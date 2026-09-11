@@ -228,6 +228,7 @@ export class SessionMachine {
       case "agent.conversation":
       case "agent.messages":
       case "agent.options":
+      case "agent.image":
       case "ack":
       case "nack":
         // Agent frames are routed to the agents store and ack/nack to CommandQueue by index.ts.

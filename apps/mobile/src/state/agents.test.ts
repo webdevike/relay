@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyDelta, applySnapshot, appendMessages, emptyAgentsData, setConversation } from "./agents";
+import { applyDelta, applySnapshot, applyWelcome, appendMessages, emptyAgentsData, setConversation, setImage } from "./agents";
 import type { AgentMessage, AgentSession } from "@relay/protocol";
 
 function session(id: string, lastActivityAt: number, status: AgentSession["status"] = "idle"): AgentSession {
@@ -88,5 +88,22 @@ describe("appendMessages", () => {
     const { data, ok } = appendMessages(emptyAgentsData, "s1", 1, [message("m1", 10)]);
     expect(ok).toBe(false);
     expect(data).toBe(emptyAgentsData);
+  });
+});
+
+describe("setImage", () => {
+  it("stores the bytes as a data URI under the session and ref id", () => {
+    const data = setImage(emptyAgentsData, "s1", "img1", { mimeType: "image/png", data: "AAAA" });
+    expect(data.images["s1"]?.["img1"]).toBe("data:image/png;base64,AAAA");
+  });
+
+  it("keeps a null answer so the ref is not asked for again", () => {
+    const data = setImage(setImage(emptyAgentsData, "s1", "img1", { mimeType: "image/jpeg", data: "BBBB" }), "s1", "img2", null);
+    expect(data.images["s1"]).toEqual({ img1: "data:image/jpeg;base64,BBBB", img2: null });
+  });
+
+  it("is dropped by welcome along with the conversations", () => {
+    const base = setImage(emptyAgentsData, "s1", "img1", { mimeType: "image/png", data: "AAAA" });
+    expect(applyWelcome(base, 1, [session("s1", 100)]).images).toEqual({});
   });
 });

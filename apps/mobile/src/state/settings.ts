@@ -11,6 +11,8 @@ export interface SettingsState {
   pointerSpeed: PointerSpeed;
   /** `host:port` that replaces Bonjour discovery; empty means discover automatically. */
   manualHost: string;
+  /** Swipe left while holding the inbox mic opens the skill wheel. Off until it is finished. */
+  skillWheelEnabled: boolean;
   set: (partial: Partial<Omit<SettingsState, "set">>) => void;
 }
 
@@ -22,6 +24,7 @@ export const useSettingsStore = create<SettingsState>()(
       naturalScrolling: true,
       pointerSpeed: "normal",
       manualHost: "",
+      skillWheelEnabled: false,
       set: (partial) => {
         set(partial);
       },

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { AgentMessage, AgentOptions, AgentSession } from "@relay/protocol";
+import type { AgentImage, AgentMessage, AgentOptions, AgentSession } from "@relay/protocol";
 
 export interface ConversationState {
   rev: number;
@@ -13,9 +13,15 @@ export interface AgentsData {
   conversations: Record<string, ConversationState>;
   /** Models and skills each session offers, as last answered by the host. */
   options: Record<string, AgentOptions>;
+  /**
+   * Image bytes fetched per session, keyed by `AgentImageRef.id`, as a data URI ready for
+   * `<Image source={{ uri }}>`. `null` means the host answered that it no longer has the image;
+   * a missing key means it has not been fetched.
+   */
+  images: Record<string, Record<string, string | null>>;
 }
 
-export const emptyAgentsData: AgentsData = { rev: 0, sessions: {}, order: [], conversations: {}, options: {} };
+export const emptyAgentsData: AgentsData = { rev: 0, sessions: {}, order: [], conversations: {}, options: {}, images: {} };
 
 /** Sessions blocked on the user (a question or an approval prompt) sort ahead of everything else. */
 export function needsAttention(session: AgentSession): boolean {
@@ -47,7 +53,7 @@ export function applySnapshot(
  * old socket (subscriptions do not survive a reconnect).
  */
 export function applyWelcome(data: AgentsData, rev: number, sessions: AgentSession[]): AgentsData {
-  return { ...applySnapshot(data, rev, sessions), conversations: {}, options: {} };
+  return { ...applySnapshot(data, rev, sessions), conversations: {}, options: {}, images: {} };
 }
 
 /**
@@ -107,6 +113,12 @@ export function appendMessages(
   };
 }
 
+/** Records the host's answer for one image ref: the bytes as a data URI, or `null` when gone. */
+export function setImage(data: AgentsData, sessionId: string, id: string, image: AgentImage | null): AgentsData {
+  const uri = image === null ? null : `data:${image.mimeType};base64,${image.data}`;
+  return { ...data, images: { ...data.images, [sessionId]: { ...data.images[sessionId], [id]: uri } } };
+}
+
 export interface AgentsStore extends AgentsData {
   applyWelcome: (rev: number, sessions: AgentSession[]) => void;
   applySnapshot: (rev: number, sessions: AgentSession[]) => void;
@@ -114,6 +126,7 @@ export interface AgentsStore extends AgentsData {
   setConversation: (sessionId: string, rev: number, messages: AgentMessage[]) => void;
   appendMessages: (sessionId: string, rev: number, append: AgentMessage[]) => boolean;
   setOptions: (sessionId: string, options: AgentOptions) => void;
+  setImage: (sessionId: string, id: string, image: AgentImage | null) => void;
 }
 
 export const useAgentsStore = create<AgentsStore>((set, get) => ({
@@ -139,5 +152,8 @@ export const useAgentsStore = create<AgentsStore>((set, get) => ({
   },
   setOptions: (sessionId, options) => {
     set({ options: { ...get().options, [sessionId]: options } });
+  },
+  setImage: (sessionId, id, image) => {
+    set(setImage(get(), sessionId, id, image));
   },
 }));

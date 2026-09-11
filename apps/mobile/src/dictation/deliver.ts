@@ -21,15 +21,19 @@ export function resetDictationTarget(): void {
   target = INSERT;
 }
 
-/** The text as the host receives it: the armed slash command, then the dictation. */
+/** The text as the host receives it: the armed slash command, then the dictation (or the command alone). */
 export function deliveredText(input: DeliverInput): string {
-  return input.skill === null ? input.text : `${input.skill} ${input.text}`;
+  if (input.skill === null) return input.text;
+  return input.text === "" ? input.skill : `${input.skill} ${input.text}`;
 }
 
-/** The commands one delivery sends, in order. */
+/** The commands one delivery sends, in order. Images only go to an agent; the trackpad has nowhere to put them. */
 export function commandsFor(input: DeliverInput, to: DictationTarget): Command[] {
   const text = deliveredText(input);
-  if (to.kind === "agent") return [{ kind: "agent.reply", sessionId: to.sessionId, text, submit: input.submit }];
+  if (to.kind === "agent") {
+    const images = input.images.map(({ mimeType, data }) => ({ mimeType, data }));
+    return [{ kind: "agent.reply", sessionId: to.sessionId, text, submit: input.submit, ...(images.length > 0 ? { images } : {}) }];
+  }
   const commands: Command[] = [{ kind: "text.insert", text }];
   if (input.submit) commands.push({ kind: "key.press", key: "return" });
   return commands;

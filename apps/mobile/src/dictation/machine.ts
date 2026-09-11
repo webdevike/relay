@@ -5,8 +5,8 @@
  * Two parallel regions share the same events:
  *
  *   speech  the pipeline: permission → listening → finishing → sending → sent, or error; a swipe
- *           left while listening detours through choosing (the skill wheel) → chosen → back to
- *           listening with the skill armed
+ *           left while listening detours through choosing (the skill wheel) → chosen → idle with
+ *           the skill armed for the next hold
  *   orb     what the centered orb is doing: shown while listening, lifted once the finger has
  *           crossed the send threshold, flying after the finger lets go, collapsing into the check
  *           after a plain send, fading out, gone
@@ -29,7 +29,7 @@ export type DictationPhase =
   | "listening"
   /** The skill wheel is open under the still-held finger; nothing is being heard. */
   | "choosing"
-  /** A skill was picked; listening resumes once the finger is back on the mic. */
+  /** The finger lifted on the wheel: the centered entry is armed; the wheel is locking onto it. */
   | "chosen"
   | "finishing"
   | "sending"
@@ -61,11 +61,29 @@ export interface DictationContext {
   /** The finger lifted before listening opened; the dictation ends as soon as it does. */
   released: boolean;
   /**
-   * Slash command the dictation is pointed at (e.g. `/skill:hallmark`, `/handoff`). Set by the wheel, kept through
-   * delivery, and left in place after a bare release so the button can announce the choice.
+   * Slash command the dictation is pointed at (e.g. `/skill:hallmark`, `/handoff`). Armed by the wheel and kept
+   * through idle and the next dictation until it is delivered, the wheel is closed on the x, or a send/error resets.
    */
   skill: string | null;
+  /** While choosing: the command whose subcommands the wheel is showing (`/goal`), or null at the top ring. */
+  wheelParent: string | null;
+  /**
+   * Images pasted from the clipboard while idle, waiting to go out with the next dictation (or on their own
+   * with `sendAttachments`). Cleared once delivered, on an error, or on a reset.
+   */
+  images: PendingImage[];
 }
+
+/** A clipboard image ready for `agent.reply`: base64 with no data-URI prefix. */
+export interface PendingImage {
+  mimeType: "image/jpeg" | "image/png";
+  data: string;
+  width: number;
+  height: number;
+}
+
+/** Most images one reply carries; a paste past this is ignored. */
+export const MAX_PENDING_IMAGES = 4;
 
 export type DictationEvent =
   | { type: "pressStart" }
@@ -75,12 +93,24 @@ export type DictationEvent =
   | { type: "release" }
   /** Finger swiped left while listening: drop what was heard and open the skill wheel. */
   | { type: "wheelOpen" }
-  /** Finger flicked up on the wheel: the snapped entry is the choice; `skill` is its slash command. */
-  | { type: "wheelSelect"; skill: string }
-  /** Finger slid onto the close target: shut the wheel, nothing picked, nothing heard. */
+  /**
+   * Finger lifted on the wheel: the centered entry is the choice; `skill` is its slash command. `submit` means
+   * the command is complete on its own: it is sent right away instead of armed.
+   */
+  | { type: "wheelSelect"; skill: string; submit?: boolean }
+  /** Finger flicked up on an entry with subcommands: show them. `parent` is the entry's command. */
+  | { type: "wheelDescend"; parent: string }
+  /** Finger flicked down inside a subcommand ring: back to the top ring. */
+  | { type: "wheelAscend" }
+  /** Finger slid onto the close target: shut the wheel, nothing picked, nothing armed. */
   | { type: "wheelClose" }
-  /** Finger came back to the mic after choosing: listen again with the skill armed. */
-  | { type: "resume" }
+  /** Picked from the session sheet while idle: point the next dictation at `skill`, or clear it with null. */
+  | { type: "arm"; skill: string | null }
+  /** A clipboard image pasted while idle: attached to the next send. Ignored past `MAX_PENDING_IMAGES`. */
+  | { type: "attach"; image: PendingImage }
+  | { type: "detach"; index: number }
+  /** Send the attached images on their own, as a submitted turn with no text. */
+  | { type: "sendAttachments" }
   | { type: "partial"; text: string }
   | { type: "final"; text: string }
   | { type: "recognizerEnd" }
@@ -100,6 +130,7 @@ export interface DeliverInput {
   text: string;
   submit: boolean;
   skill: string | null;
+  images: PendingImage[];
 }
 
 export const FINISH_TIMEOUT_MS = 1500;
@@ -115,7 +146,23 @@ function notProvided(name: string): never {
   throw new Error(`dictation actor "${name}" not provided`);
 }
 
-const fresh: DictationContext = { transcript: "", nothingHeard: false, errorCode: null, submit: false, released: false, skill: null };
+const fresh: DictationContext = {
+  transcript: "",
+  nothingHeard: false,
+  errorCode: null,
+  submit: false,
+  released: false,
+  skill: null,
+  wheelParent: null,
+  images: [],
+};
+
+/** `fresh`, keeping what idle carries into the next dictation: the armed skill and the attachments. */
+const keepArmed = {
+  ...fresh,
+  skill: ({ context }: { context: DictationContext }) => context.skill,
+  images: ({ context }: { context: DictationContext }) => context.images,
+};
 
 export const dictationMachine = setup({
   types: {
@@ -132,6 +179,7 @@ export const dictationMachine = setup({
   },
   guards: {
     hasText: ({ context }) => context.transcript.trim().length > 0,
+    hasImages: ({ context }) => context.images.length > 0,
     submitting: ({ event }) => event.type === "pressStop" && event.submit === true,
     released: ({ context }) => context.released,
     noSpeech: ({ event }) => event.type === "recognizerError" && event.code === "no-speech",
@@ -162,8 +210,17 @@ export const dictationMachine = setup({
       initial: "idle",
       states: {
         idle: {
-          after: { NOTHING_HEARD_HOLD: { actions: assign({ nothingHeard: false, skill: null }) } },
-          on: { pressStart: { target: "requesting_permission", actions: assign(fresh) } },
+          after: { NOTHING_HEARD_HOLD: { actions: assign({ nothingHeard: false }) } },
+          on: {
+            pressStart: { target: "requesting_permission", actions: assign(keepArmed) },
+            arm: { actions: assign({ skill: ({ event }) => event.skill }) },
+            attach: {
+              guard: ({ context }) => context.images.length < MAX_PENDING_IMAGES,
+              actions: assign({ images: ({ context, event }) => [...context.images, event.image] }),
+            },
+            detach: { actions: assign({ images: ({ context, event }) => context.images.filter((_, i) => i !== event.index) }) },
+            sendAttachments: { guard: "hasImages", target: "sending", actions: assign({ transcript: "", submit: true }) },
+          },
         },
         requesting_permission: {
           // The finger may lift before the check lands; listening then ends as soon as it opens.
@@ -204,7 +261,7 @@ export const dictationMachine = setup({
                   actions: [assign({ submit: ({ event }) => event.submit === true }), "stopRecognizer"],
                 },
                 release: { target: "finishing", actions: "stopRecognizer" },
-                wheelOpen: { target: "#dictation.speech.choosing", actions: assign({ transcript: "" }) },
+                wheelOpen: { target: "#dictation.speech.choosing", actions: assign({ transcript: "", wheelParent: null }) },
                 // A press here means the earlier release was lost: treat it as that release.
                 pressStart: { target: "finishing", actions: "stopRecognizer" },
                 recognizerEnd: { target: "#dictation.speech.error", actions: assign({ ...fresh, errorCode: "aborted" }) },
@@ -220,38 +277,47 @@ export const dictationMachine = setup({
             },
           },
         },
-        /** Wheel open under the finger. The recognizer is stopped; a release here is a cancel. */
+        /** Wheel open under the finger. The recognizer is stopped; the x or a bare release is a cancel. */
         choosing: {
           on: {
-            wheelSelect: { target: "chosen", actions: assign({ skill: ({ event }) => event.skill }) },
+            wheelSelect: [
+              {
+                guard: ({ event }) => event.submit === true,
+                target: "sending",
+                actions: assign({ ...keepArmed, skill: ({ event }) => event.skill, submit: true }),
+              },
+              { target: "chosen", actions: assign({ skill: ({ event }) => event.skill, wheelParent: null }) },
+            ],
+            wheelDescend: { actions: assign({ wheelParent: ({ event }) => event.parent }) },
+            wheelAscend: { actions: assign({ wheelParent: null }) },
             release: { target: "idle", actions: assign(fresh) },
             wheelClose: { target: "idle", actions: assign(fresh) },
             pressStart: { target: "idle", actions: assign(fresh) },
           },
         },
-        /** Skill picked, finger still down. Back on the mic it listens again; lifting only announces. */
+        /** Entry picked; the release that follows lands in idle with the skill armed. */
         chosen: {
           on: {
-            resume: { target: "requesting_permission", actions: assign({ ...fresh, skill: ({ context }) => context.skill }) },
-            release: { target: "idle", actions: assign({ ...fresh, skill: ({ context }) => context.skill }) },
-            pressStart: { target: "idle", actions: assign({ ...fresh, skill: ({ context }) => context.skill }) },
+            release: { target: "idle", actions: assign(keepArmed) },
+            pressStart: { target: "idle", actions: assign(keepArmed) },
           },
         },
         /** Transient: route the finished transcript to `sending` or back to `idle` (nothing heard). */
         finished: {
           always: [
             { guard: "hasText", target: "sending", actions: assign({ transcript: ({ context }) => context.transcript.trim() }) },
-            { target: "idle", actions: assign({ ...fresh, nothingHeard: true }) },
+            { target: "idle", actions: assign({ ...keepArmed, nothingHeard: true }) },
           ],
         },
         sending: {
           invoke: {
             src: "deliver",
-            input: ({ context }) => ({ text: context.transcript, submit: context.submit, skill: context.skill }),
-            onDone: { target: "sent" },
+            input: ({ context }) => ({ text: context.transcript, submit: context.submit, skill: context.skill, images: context.images }),
+            // The chips leave with the delivery, whichever way it lands; the text and skill linger for the check.
+            onDone: { target: "sent", actions: assign({ images: [] }) },
             onError: {
               target: "error",
-              actions: assign({ errorCode: ({ event }) => ackErrorCode(event.error), submit: false }),
+              actions: assign({ errorCode: ({ event }) => ackErrorCode(event.error), submit: false, images: [] }),
             },
           },
         },

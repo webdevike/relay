@@ -5,6 +5,7 @@ import {
   orbOf,
   phaseOf,
   type DeliverInput,
+  type PendingImage,
   type DictationPhase,
   type OrbState,
   type PermissionOutcome,
@@ -104,7 +105,7 @@ describe("dictationMachine", () => {
     h.actor.send({ type: "pressStop", submit: true });
     expect(h.recognizerStops).toBe(1);
     h.actor.send({ type: "final", text: "ship it" });
-    expect(h.sends).toEqual([{ text: "ship it", submit: true, skill: null }]);
+    expect(h.sends).toEqual([{ text: "ship it", submit: true, skill: null, images: [] }]);
     expect(h.actor.getSnapshot().context.submit).toBe(true);
     await h.settleSend();
     expect(h.phase()).toBe("sent");
@@ -115,7 +116,7 @@ describe("dictationMachine", () => {
     await pressAndListen(h);
     h.actor.send({ type: "release" });
     h.actor.send({ type: "final", text: "just text" });
-    expect(h.sends[1]).toEqual({ text: "just text", submit: false, skill: null });
+    expect(h.sends[1]).toEqual({ text: "just text", submit: false, skill: null, images: [] });
   });
 
   it("any release ends the dictation, however short the press", async () => {
@@ -125,7 +126,7 @@ describe("dictationMachine", () => {
     expect(h.phase()).toBe("finishing");
     expect(h.recognizerStops).toBe(1);
     h.actor.send({ type: "final", text: "quick one" });
-    expect(h.sends).toEqual([{ text: "quick one", submit: false, skill: null }]);
+    expect(h.sends).toEqual([{ text: "quick one", submit: false, skill: null, images: [] }]);
   });
 
   /** A machine whose permission check only resolves when the test says so. */
@@ -169,7 +170,7 @@ describe("dictationMachine", () => {
     expect(h.phase()).toBe("finishing");
     expect(h.recognizerStops).toBe(1);
     h.actor.send({ type: "final", text: "still here" });
-    expect(h.sends).toEqual([{ text: "still here", submit: false, skill: null }]);
+    expect(h.sends).toEqual([{ text: "still here", submit: false, skill: null, images: [] }]);
   });
 
   it("a no-speech recognizer error is nothing heard, not a failure", async () => {
@@ -284,7 +285,7 @@ describe("dictationMachine", () => {
     expect(h.phase()).toBe("sending");
     expect(h.recognizerAlive()).toBe(false);
     expect(h.actor.getSnapshot().context.transcript).toBe("hello world.");
-    expect(h.sends).toEqual([{ text: "hello world.", submit: false, skill: null }]);
+    expect(h.sends).toEqual([{ text: "hello world.", submit: false, skill: null, images: [] }]);
 
     await h.settleSend();
     expect(h.phase()).toBe("sent");
@@ -302,7 +303,7 @@ describe("dictationMachine", () => {
 
     h.clock.increment(1500);
     expect(h.phase()).toBe("sending");
-    expect(h.sends).toEqual([{ text: "take this down", submit: false, skill: null }]);
+    expect(h.sends).toEqual([{ text: "take this down", submit: false, skill: null, images: [] }]);
   });
 
   it("the recognizer ending during finishing finalizes with the last partial immediately", async () => {
@@ -312,7 +313,7 @@ describe("dictationMachine", () => {
     h.actor.send({ type: "release" });
     h.actor.send({ type: "recognizerEnd" });
     expect(h.phase()).toBe("sending");
-    expect(h.sends).toEqual([{ text: "done talking", submit: false, skill: null }]);
+    expect(h.sends).toEqual([{ text: "done talking", submit: false, skill: null, images: [] }]);
   });
 
   it("an empty transcript returns to idle with the nothingHeard flag, which clears after a hold", async () => {
@@ -322,7 +323,7 @@ describe("dictationMachine", () => {
     h.actor.send({ type: "final", text: "   " });
 
     expect(h.phase()).toBe("idle");
-    expect(h.actor.getSnapshot().context).toMatchObject({ transcript: "", nothingHeard: true, errorCode: null, submit: false, skill: null });
+    expect(h.actor.getSnapshot().context).toMatchObject({ transcript: "", nothingHeard: true, errorCode: null, submit: false, skill: null, images: [] });
     expect(h.sends).toEqual([]);
 
     h.clock.increment(1500);
@@ -426,7 +427,7 @@ describe("dictationMachine", () => {
   });
 
   describe("skill wheel", () => {
-    it("opening the wheel stops listening and drops what was heard; a pick then a return listens again with the skill armed", async () => {
+    it("opening the wheel stops listening and drops what was heard; lifting on an entry arms it for the next hold", async () => {
       const h = harness();
       await pressAndListen(h);
       h.actor.send({ type: "partial", text: "half a thought" });
@@ -438,17 +439,20 @@ describe("dictationMachine", () => {
 
       h.actor.send({ type: "wheelSelect", skill: "/skill:deploy" });
       expect(h.phase()).toBe("chosen");
+      h.actor.send({ type: "release" });
+      expect(h.phase()).toBe("idle");
       expect(h.actor.getSnapshot().context.skill).toBe("/skill:deploy");
+      expect(h.sends).toEqual([]);
 
-      h.actor.send({ type: "resume" });
-      await waitFor(h.actor, (snapshot) => !snapshot.matches({ speech: "requesting_permission" }));
-      expect(h.phase()).toBe("listening");
-      expect(h.recognizerAlive()).toBe(true);
+      // The armed skill outlives the idle hold and the next press.
+      h.clock.increment(1500);
+      await pressAndListen(h);
+      expect(h.actor.getSnapshot().context.skill).toBe("/skill:deploy");
       expect(h.orb()).toBe("shown");
 
       h.actor.send({ type: "pressStop", submit: true });
       h.actor.send({ type: "final", text: "to staging" });
-      expect(h.sends).toEqual([{ text: "to staging", submit: true, skill: "/skill:deploy" }]);
+      expect(h.sends).toEqual([{ text: "to staging", submit: true, skill: "/skill:deploy", images: [] }]);
       await h.settleSend();
       h.clock.increment(900);
       expect(h.phase()).toBe("idle");
@@ -465,8 +469,12 @@ describe("dictationMachine", () => {
       expect(h.sends).toEqual([]);
     });
 
-    it("sliding onto the close target shuts the wheel like a lift would; the later release is a no-op", async () => {
+    it("sliding onto the close target shuts the wheel and disarms; the later release is a no-op", async () => {
       const h = harness();
+      await pressAndListen(h);
+      h.actor.send({ type: "wheelOpen" });
+      h.actor.send({ type: "wheelSelect", skill: "/skill:deploy" });
+      h.actor.send({ type: "release" });
       await pressAndListen(h);
       h.actor.send({ type: "wheelOpen" });
       h.actor.send({ type: "wheelClose" });
@@ -477,45 +485,141 @@ describe("dictationMachine", () => {
       expect(h.sends).toEqual([]);
     });
 
-    it("lifting after a pick only announces it: the skill lingers through the idle hold, then clears", async () => {
+    it("an armed dictation that hears nothing stays armed", async () => {
       const h = harness();
       await pressAndListen(h);
       h.actor.send({ type: "wheelOpen" });
       h.actor.send({ type: "wheelSelect", skill: "/skill:deploy" });
       h.actor.send({ type: "release" });
-      expect(h.phase()).toBe("idle");
-      expect(h.actor.getSnapshot().context.skill).toBe("/skill:deploy");
-      expect(h.sends).toEqual([]);
-      h.clock.increment(1500);
-      expect(h.actor.getSnapshot().context.skill).toBeNull();
-    });
-
-    it("a resumed dictation that hears nothing forgets the skill", async () => {
-      const h = harness();
       await pressAndListen(h);
-      h.actor.send({ type: "wheelOpen" });
-      h.actor.send({ type: "wheelSelect", skill: "/skill:deploy" });
-      h.actor.send({ type: "resume" });
-      await waitFor(h.actor, (snapshot) => !snapshot.matches({ speech: "requesting_permission" }));
       h.actor.send({ type: "release" });
       h.actor.send({ type: "final", text: "" });
       expect(h.phase()).toBe("idle");
-      expect(h.actor.getSnapshot().context).toMatchObject({ skill: null, nothingHeard: true });
+      expect(h.actor.getSnapshot().context).toMatchObject({ skill: "/skill:deploy", nothingHeard: true });
+      h.clock.increment(1500);
+      expect(h.actor.getSnapshot().context).toMatchObject({ skill: "/skill:deploy", nothingHeard: false });
     });
 
     it("wheel events outside listening/choosing are ignored", async () => {
       const h = harness();
       h.actor.send({ type: "wheelOpen" });
       h.actor.send({ type: "wheelSelect", skill: "/skill:deploy" });
-      h.actor.send({ type: "resume" });
       expect(h.phase()).toBe("idle");
       expect(h.actor.getSnapshot().context.skill).toBeNull();
 
       await pressAndListen(h);
       h.actor.send({ type: "wheelSelect", skill: "/skill:deploy" });
-      h.actor.send({ type: "resume" });
       expect(h.phase()).toBe("listening");
       expect(h.actor.getSnapshot().context.skill).toBeNull();
+    });
+
+    it("descending shows a subcommand ring while choosing; a pick or a fresh open leaves it", async () => {
+      const h = harness();
+      await pressAndListen(h);
+      h.actor.send({ type: "wheelOpen" });
+      h.actor.send({ type: "wheelDescend", parent: "/goal" });
+      expect(h.phase()).toBe("choosing");
+      expect(h.actor.getSnapshot().context.wheelParent).toBe("/goal");
+      h.actor.send({ type: "wheelAscend" });
+      expect(h.actor.getSnapshot().context.wheelParent).toBeNull();
+
+      h.actor.send({ type: "wheelDescend", parent: "/goal" });
+      h.actor.send({ type: "wheelSelect", skill: "/goal set" });
+      expect(h.phase()).toBe("chosen");
+      expect(h.actor.getSnapshot().context).toMatchObject({ skill: "/goal set", wheelParent: null });
+      h.actor.send({ type: "release" });
+      await pressAndListen(h);
+      h.actor.send({ type: "wheelOpen" });
+      expect(h.actor.getSnapshot().context.wheelParent).toBeNull();
+    });
+
+    it("a pick that takes no text is sent on its own right away, nothing armed afterwards", async () => {
+      const h = harness();
+      await pressAndListen(h);
+      h.actor.send({ type: "wheelOpen" });
+      h.actor.send({ type: "wheelDescend", parent: "/goal" });
+      h.actor.send({ type: "wheelSelect", skill: "/goal show", submit: true });
+      expect(h.phase()).toBe("sending");
+      expect(h.sends).toEqual([{ text: "", submit: true, skill: "/goal show", images: [] }]);
+      h.actor.send({ type: "release" });
+      await h.settleSend();
+      expect(h.phase()).toBe("sent");
+      h.clock.increment(900);
+      expect(h.phase()).toBe("idle");
+      expect(h.actor.getSnapshot().context.skill).toBeNull();
+    });
+
+    it("arming while idle points the next dictation at the skill; arming null clears it", async () => {
+      const h = harness();
+      h.actor.send({ type: "arm", skill: "/goal set" });
+      expect(h.actor.getSnapshot().context.skill).toBe("/goal set");
+      await pressAndListen(h);
+      h.actor.send({ type: "arm", skill: null });
+      expect(h.actor.getSnapshot().context.skill).toBe("/goal set");
+      h.actor.send({ type: "release" });
+      h.actor.send({ type: "final", text: "ship relay" });
+      expect(h.sends).toEqual([{ text: "ship relay", submit: false, skill: "/goal set", images: [] }]);
+      await h.settleSend();
+      h.clock.increment(900);
+      h.actor.send({ type: "arm", skill: "/handoff" });
+      h.actor.send({ type: "arm", skill: null });
+      expect(h.actor.getSnapshot().context.skill).toBeNull();
+    });
+  });
+
+  describe("attachments", () => {
+    const shot = (n: number): PendingImage => ({ mimeType: "image/jpeg", data: `img${String(n)}`, width: 10, height: 20 });
+
+    it("attached images ride along with the next dictation and are cleared once it is delivered", async () => {
+      const h = harness();
+      h.actor.send({ type: "attach", image: shot(1) });
+      h.actor.send({ type: "attach", image: shot(2) });
+      await pressAndListen(h);
+      expect(h.actor.getSnapshot().context.images).toEqual([shot(1), shot(2)]);
+      h.actor.send({ type: "release" });
+      h.actor.send({ type: "final", text: "what is this" });
+      expect(h.sends).toEqual([{ text: "what is this", submit: false, skill: null, images: [shot(1), shot(2)] }]);
+      await h.settleSend();
+      h.clock.increment(900);
+      expect(h.phase()).toBe("idle");
+      expect(h.actor.getSnapshot().context.images).toEqual([]);
+    });
+
+    it("sendAttachments sends the images on their own as a submitted, text-free turn", async () => {
+      const h = harness();
+      h.actor.send({ type: "sendAttachments" });
+      expect(h.phase()).toBe("idle");
+      h.actor.send({ type: "attach", image: shot(1) });
+      h.actor.send({ type: "sendAttachments" });
+      expect(h.phase()).toBe("sending");
+      expect(h.sends).toEqual([{ text: "", submit: true, skill: null, images: [shot(1)] }]);
+      await h.settleSend();
+      expect(h.phase()).toBe("sent");
+      expect(h.actor.getSnapshot().context.images).toEqual([]);
+    });
+
+    it("detach drops one image; a fifth attach is ignored", () => {
+      const h = harness();
+      for (let n = 1; n <= 5; n += 1) h.actor.send({ type: "attach", image: shot(n) });
+      expect(h.actor.getSnapshot().context.images).toEqual([shot(1), shot(2), shot(3), shot(4)]);
+      h.actor.send({ type: "detach", index: 1 });
+      expect(h.actor.getSnapshot().context.images).toEqual([shot(1), shot(3), shot(4)]);
+      h.actor.send({ type: "attach", image: shot(5) });
+      expect(h.actor.getSnapshot().context.images).toEqual([shot(1), shot(3), shot(4), shot(5)]);
+    });
+
+    it("an armed dictation that hears nothing keeps its images; a failed send drops them", async () => {
+      const h = harness();
+      h.actor.send({ type: "attach", image: shot(1) });
+      await pressAndListen(h);
+      h.actor.send({ type: "release" });
+      h.actor.send({ type: "recognizerEnd" });
+      expect(h.phase()).toBe("idle");
+      expect(h.actor.getSnapshot().context.images).toEqual([shot(1)]);
+      h.actor.send({ type: "sendAttachments" });
+      await h.settleSend({ code: "invalid_command" });
+      expect(h.phase()).toBe("error");
+      expect(h.actor.getSnapshot().context.images).toEqual([]);
     });
   });
 });

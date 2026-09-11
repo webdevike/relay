@@ -118,6 +118,20 @@ export default function Settings() {
         }
       />
       <Separator />
+      <Row
+        title="Skill wheel"
+        subtitle="Swipe left while holding the inbox mic"
+        leading={<SymbolView name="dial.medium" size={22} tintColor={colors.textMuted} />}
+        trailing={
+          <Switch
+            value={settings.skillWheelEnabled}
+            onValueChange={(value) => {
+              settings.set({ skillWheelEnabled: value });
+            }}
+          />
+        }
+      />
+      <Separator />
       <View style={{ paddingHorizontal: spacing.xl, paddingVertical: spacing.md, gap: spacing.md }}>
         <Text variant="title">Pointer speed</Text>
         <View style={{ flexDirection: "row", gap: spacing.sm }}>

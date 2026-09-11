@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Image, Pressable, StyleSheet, View } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { scheduleOnRN } from "react-native-worklets";
+import { SymbolView } from "expo-symbols";
 import { useFocusEffect } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import Animated, { withTiming, type EntryExitAnimationFunction } from "react-native-reanimated";
+import Animated, { useSharedValue, withTiming, type EntryExitAnimationFunction } from "react-native-reanimated";
 import { Text } from "@/ui/Text";
 import { Banner } from "@/ui/Banner";
 import { EmptyState } from "@/ui/EmptyState";
@@ -11,17 +14,35 @@ import { IconButton } from "@/ui/IconButton";
 import { colors, motion, spacing } from "@/theme";
 import { useAgentsStore } from "@/state/agents";
 import { useConnectionStore } from "@/state/connection";
+import { useSettingsStore } from "@/state/settings";
 import { requestAgentOptions, sendCommand, subscribeAgent, unsubscribeAgent } from "@/connection";
 import { DictationButton } from "@/dictation/DictationButton";
 import { ListeningOrb } from "@/dictation/ListeningOrb";
-import { SkillWheel } from "@/dictation/SkillWheel";
+import { SkillWheel, WHEEL_EXTENT } from "@/dictation/SkillWheel";
 import { resetDictationTarget, setDictationTarget } from "@/dictation/deliver";
-import { AgentCard } from "@/agents/AgentCard";
+import { dictationActor } from "@/dictation/actor";
+import { useDictation } from "@/dictation/useDictation";
+import { AgentCard, AgentHeader } from "@/agents/AgentCard";
 import { AgentScrubber, TRACK_HEIGHT } from "@/agents/AgentScrubber";
 import { AgentSettingsSheet } from "@/agents/AgentSettingsSheet";
+import { ActionWheel, type ActionWheelEntry } from "@/agents/ActionWheel";
+import { impactHaptic, tapHaptic } from "@/lib/haptics";
+import { copyText, readClipboardImage, readClipboardText } from "@/lib/clipboard";
+import { warn } from "@/connection/log";
 
 const MIC_SIZE = 60;
 const CARD_RADIUS = 28;
+/** The armed-skill notch on the seam between the header and the chat. */
+const NOTCH_HEIGHT = 32;
+/** Attachment thumbnails in the notch: a square this big, this far apart. */
+const CHIP_SIZE = 22;
+/** Holding still this long (ms) on the chat opens the action wheel; moving sooner scrolls instead. */
+const WHEEL_HOLD_MS = 350;
+
+const wheelEntries: ActionWheelEntry[] = [
+  { key: "copy", label: "Copy", symbol: "doc.on.doc" },
+  { key: "paste", label: "Paste", symbol: "doc.on.clipboard" },
+];
 /** How far the outgoing/incoming card content travels sideways during a session switch. */
 const SLIDE_PX = 28;
 /** Room the mic needs above the scrubber track; the panel's fixed height keeps the seam math static. */
@@ -73,7 +94,9 @@ export default function AgentInbox() {
 
   const session = selectedId === undefined ? undefined : sessions[selectedId];
   const messages = selectedId === undefined ? undefined : conversations[selectedId]?.messages;
-  const skills = useAgentsStore((state) => (selectedId === undefined ? undefined : state.options[selectedId]?.skills));
+  // Without the wheel the button gets no skills, so the swipe left does nothing.
+  const wheelEnabled = useSettingsStore((state) => state.skillWheelEnabled);
+  const skills = useAgentsStore((state) => (!wheelEnabled || selectedId === undefined ? undefined : state.options[selectedId]?.skills));
 
   // Subscriptions live on the socket: re-subscribe whenever focus or the connection changes.
   useFocusEffect(
@@ -147,19 +170,165 @@ export default function AgentInbox() {
     if (id !== undefined) setSettingsFor(id);
   }, []);
 
+  const { skill: armed, images } = useDictation();
+  const [headerHeight, setHeaderHeight] = useState(0);
+
+  // Holding still on the chat opens the action wheel under the finger. The Pan only activates
+  // after the hold, so an early move is the transcript's scroll as usual; the wheel draws in the
+  // stack's coordinates, so the chat card's offset (below the header) is mirrored for the worklets.
+  const wheelVisible = useSharedValue(0);
+  const wheelCenter = useSharedValue({ x: 0, y: 0 });
+  const wheelPointer = useSharedValue({ x: 0, y: 0 });
+  const chatTop = useSharedValue(0);
+  const selectedRef = useRef(selectedId);
+  selectedRef.current = selectedId;
+  const onWheelSelect = useCallback((key: string) => {
+    const sessionId = selectedRef.current;
+    if (sessionId === undefined) return;
+    if (key === "copy") {
+      const messages = useAgentsStore.getState().conversations[sessionId]?.messages ?? [];
+      let last: string | undefined;
+      for (let i = messages.length - 1; i >= 0 && last === undefined; i -= 1) {
+        const message = messages[i];
+        if (message?.role === "assistant" && message.text !== "") last = message.text;
+      }
+      if (last === undefined) return;
+      tapHaptic();
+      void copyText(last);
+      return;
+    }
+    // Paste: an image attaches to the next send; text goes straight into the session's editor.
+    void (async () => {
+      const image = await readClipboardImage();
+      if (image !== null) {
+        tapHaptic();
+        dictationActor.send({ type: "attach", image });
+        return;
+      }
+      const text = await readClipboardText();
+      if (text === null) return;
+      tapHaptic();
+      await sendCommand({ kind: "agent.reply", sessionId, text, submit: false });
+    })().catch((error: unknown) => {
+      warn("agents", "paste failed", error);
+    });
+  }, []);
+  const chatGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .maxPointers(1)
+        .activateAfterLongPress(WHEEL_HOLD_MS)
+        .shouldCancelWhenOutside(false)
+        .onStart((event) => {
+          const at = { x: event.x, y: chatTop.value + event.y };
+          wheelCenter.value = at;
+          wheelPointer.value = at;
+          wheelVisible.value = 1;
+          scheduleOnRN(impactHaptic, "heavy");
+        })
+        .onUpdate((event) => {
+          wheelPointer.value = { x: event.x, y: chatTop.value + event.y };
+        })
+        .onEnd(() => {
+          wheelVisible.value = 0;
+        })
+        .onFinalize((_event, success) => {
+          if (success) return;
+          // Cancelled by the system: shut the wheel with nothing picked.
+          wheelPointer.value = wheelCenter.value;
+          wheelVisible.value = 0;
+        }),
+    [chatTop, wheelCenter, wheelPointer, wheelVisible],
+  );
+
+  const notchShown = (armed !== null || images.length > 0) && headerHeight > 0;
+
   return (
     <SafeAreaView style={styles.root} edges={["top", "bottom"]}>
-      <View style={styles.card}>
+      <View style={styles.stack}>
         {session === undefined ? (
-          <EmptyState
-            symbol="tray"
-            title="No agent sessions"
-            body={connected ? "Start one here, or open omp on your host." : "Sessions show up here while omp is running on your host."}
-            {...(connected && !launching ? { actionLabel: "Start a session", onAction: startSession } : {})}
-          />
+          <View style={[styles.card, styles.chat]}>
+            <EmptyState
+              symbol="tray"
+              title="No agent sessions"
+              body={connected ? "Start one here, or open omp on your host." : "Sessions show up here while omp is running on your host."}
+              {...(connected && !launching ? { actionLabel: "Start a session", onAction: startSession } : {})}
+            />
+          </View>
         ) : (
           <Animated.View key={session.id} style={StyleSheet.absoluteFill} entering={slideIn(direction)} exiting={slideOut(direction)}>
-            <AgentCard session={session} messages={messages} connected={connected} />
+            <View
+              style={[styles.card, styles.header]}
+              onLayout={(event) => {
+                setHeaderHeight(event.nativeEvent.layout.height);
+                chatTop.value = event.nativeEvent.layout.height + spacing.sm;
+              }}
+            >
+              <AgentHeader session={session} />
+            </View>
+            <GestureDetector gesture={chatGesture}>
+              <View style={[styles.card, styles.chat]}>
+                <AgentCard sessionId={selectedId} messages={messages} connected={connected} />
+              </View>
+            </GestureDetector>
+            {notchShown && (
+              <Cutout size={NOTCH_HEIGHT} width={notchWidth(armed, images.length)} style={{ alignSelf: "center", top: headerHeight + spacing.sm / 2 - NOTCH_HEIGHT / 2 - CUTOUT_GAP }}>
+                <View style={[styles.notchBody, armed === null && styles.notchBodyChipsOnly]}>
+                  {armed !== null && (
+                    <>
+                      <Pressable
+                        onPress={() => {
+                          tapHaptic();
+                          setSettingsFor(session.id);
+                        }}
+                        style={({ pressed }) => [styles.notchLabel, pressed && { opacity: 0.7 }]}
+                      >
+                        <SymbolView name="mic" size={12} tintColor={colors.accent} />
+                        <Text variant="label" color="text" numberOfLines={1}>
+                          {armed}
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        hitSlop={8}
+                        onPress={() => {
+                          tapHaptic();
+                          dictationActor.send({ type: "arm", skill: null });
+                        }}
+                        style={({ pressed }) => [styles.notchClose, pressed && { opacity: 0.7 }]}
+                      >
+                        <SymbolView name="xmark" size={11} tintColor={colors.textMuted} />
+                      </Pressable>
+                    </>
+                  )}
+                  {images.map((image, index) => (
+                    <Pressable
+                      // Chips are identified by position: a detach shifts the ones after it, which is what the user sees.
+                      key={index}
+                      hitSlop={6}
+                      onPress={() => {
+                        tapHaptic();
+                        dictationActor.send({ type: "detach", index });
+                      }}
+                      style={({ pressed }) => [styles.chip, pressed && { opacity: 0.7 }]}
+                    >
+                      <Image source={{ uri: `data:${image.mimeType};base64,${image.data}` }} style={styles.chipImage} />
+                    </Pressable>
+                  ))}
+                  {images.length > 0 && (
+                    <Pressable
+                      hitSlop={8}
+                      onPress={() => {
+                        tapHaptic();
+                        dictationActor.send({ type: "sendAttachments" });
+                      }}
+                      style={({ pressed }) => [styles.notchClose, pressed && { opacity: 0.7 }]}
+                    >
+                      <SymbolView name="paperplane" size={11} tintColor={colors.accent} />
+                    </Pressable>
+                  )}
+                </View>
+              </Cutout>
+            )}
           </Animated.View>
         )}
         <ListeningOrb />
@@ -168,6 +337,9 @@ export default function AgentInbox() {
             <SkillWheel skills={skills} />
           </View>
         )}
+        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+          <ActionWheel entries={wheelEntries} visible={wheelVisible} center={wheelCenter} pointer={wheelPointer} onSelect={onWheelSelect} />
+        </View>
       </View>
       {session !== undefined && (
         <View style={styles.panel}>
@@ -205,18 +377,49 @@ export default function AgentInbox() {
   );
 }
 
+/**
+ * Pill width for the seam notch: the armed token (icon, text at the label size, close button; capped
+ * for long tokens) and, after it, `chips` thumbnails with their send button. Mirrors `notchBody`'s
+ * padding and gap so the pill hugs its content.
+ */
+function notchWidth(token: string | null, chips: number): number {
+  const close = spacing.sm + 22;
+  const text = token === null ? 0 : Math.min(180, token.length * 7.2);
+  const armed = token === null ? 0 : spacing.md + 12 + spacing.xs + text + close;
+  const attachments = chips === 0 ? 0 : chips * (CHIP_SIZE + spacing.sm) + close;
+  // Without the token the chips start at the narrow padding; with it, the gap before the first chip.
+  const lead = token === null ? spacing.xs - spacing.sm : 0;
+  return Math.round(lead + armed + attachments + spacing.xs);
+}
+
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
+  stack: { flex: 1, marginHorizontal: spacing.md, marginTop: spacing.sm },
   card: {
-    flex: 1,
-    marginHorizontal: spacing.md,
-    marginTop: spacing.sm,
     borderRadius: CARD_RADIUS,
     borderWidth: 1,
     borderColor: colors.hairline,
-    backgroundColor: colors.surface,
     overflow: "hidden",
   },
+  header: { backgroundColor: colors.surfaceRaised },
+  chat: { flex: 1, marginTop: spacing.sm, backgroundColor: colors.surface },
+  notchBody: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: NOTCH_HEIGHT / 2,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.hairline,
+    paddingLeft: spacing.md,
+    paddingRight: spacing.xs,
+    gap: spacing.sm,
+  },
+  notchBodyChipsOnly: { paddingLeft: spacing.xs },
+  notchLabel: { flex: 1, flexDirection: "row", alignItems: "center", gap: spacing.xs },
+  notchClose: { width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceRaised },
+  chip: { width: CHIP_SIZE, height: CHIP_SIZE, borderRadius: 6, overflow: "hidden", borderWidth: 1, borderColor: colors.hairline, backgroundColor: colors.surfaceRaised },
+  chipImage: { width: CHIP_SIZE, height: CHIP_SIZE },
   panel: {
     height: PANEL_HEIGHT,
     marginHorizontal: spacing.md,
@@ -234,12 +437,11 @@ const styles = StyleSheet.create({
     // Outer ring centered on the seam: half the gap above the panel's top edge.
     top: -(MIC_SIZE / 2 + CUTOUT_GAP + spacing.sm / 2),
   },
-  /** Strip along the card's bottom edge, clear of the mic cutout that bites into it. */
+  /** Dial centered on the mic: the mic's center sits half the card gap below the card's bottom edge. */
   wheel: {
     position: "absolute",
-    left: spacing.md,
-    right: spacing.md,
-    bottom: MIC_SIZE / 2 + CUTOUT_GAP + spacing.md,
+    alignSelf: "center",
+    bottom: -(spacing.sm / 2 + WHEEL_EXTENT),
   },
   banner: {
     position: "absolute",

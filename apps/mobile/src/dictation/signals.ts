@@ -11,8 +11,10 @@ export const micLevel = makeMutable(0);
 export const sendLift = makeMutable(0);
 /**
  * Continuous index into the skill list while the wheel is open: 0 is the first skill, 1 the
- * next, fractional between. The finger's raw turn, clamped to the list.
+ * next, fractional between. Unbounded; the list wraps, so entry `i` sits at every `i + k * n`.
  */
 export const wheelPosition = makeMutable(0);
-/** The snapped index the strip shows, springing from one integer to the next as the finger turns. */
-export const wheelSnap = makeMutable(0);
+/** 1 the instant an entry crosses the selection axis, decaying to 0: the detent tick. */
+export const wheelDetent = makeMutable(0);
+/** 1 the instant the wheel locks onto the picked entry, decaying to 0: the confirmation bloom. */
+export const wheelConfirm = makeMutable(0);
