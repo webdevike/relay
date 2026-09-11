@@ -32,11 +32,10 @@ import { warn } from "@/connection/log";
 
 const MIC_SIZE = 60;
 const CARD_RADIUS = 28;
-/** The armed-skill notch on the seam between the header and the chat; taller when it holds thumbnails. */
+/** The armed-skill notch on the seam between the header and the chat. */
 const NOTCH_HEIGHT = 32;
-const NOTCH_HEIGHT_WITH_CHIPS = 52;
-/** Attachment thumbnails in the notch: a square this big, this far apart. */
-const CHIP_SIZE = 40;
+/** The image pill's thumbnail, standing where the skill pill has its mic glyph. */
+const CHIP_SIZE = 20;
 /** Holding still this long (ms) on the chat opens the action wheel; moving sooner scrolls instead. */
 const WHEEL_HOLD_MS = 350;
 
@@ -243,7 +242,6 @@ export default function AgentInbox() {
   );
 
   const notchShown = (armed !== null || images.length > 0) && headerHeight > 0;
-  const notchHeight = images.length > 0 ? NOTCH_HEIGHT_WITH_CHIPS : NOTCH_HEIGHT;
 
   return (
     <SafeAreaView style={styles.root} edges={["top", "bottom"]}>
@@ -274,8 +272,8 @@ export default function AgentInbox() {
               </View>
             </GestureDetector>
             {notchShown && (
-              <Cutout size={notchHeight} width={notchWidth(armed, images.length)} style={{ alignSelf: "center", top: headerHeight + spacing.sm / 2 - notchHeight / 2 - CUTOUT_GAP }}>
-                <View style={[styles.notchBody, { borderRadius: notchHeight / 2 }, armed === null && styles.notchBodyChipsOnly]}>
+              <Cutout size={NOTCH_HEIGHT} width={notchWidth(armed, images.length)} style={{ alignSelf: "center", top: headerHeight + spacing.sm / 2 - NOTCH_HEIGHT / 2 - CUTOUT_GAP }}>
+                <View style={styles.notchBody}>
                   {armed !== null && (
                     <>
                       <Pressable
@@ -302,31 +300,32 @@ export default function AgentInbox() {
                       </Pressable>
                     </>
                   )}
-                  {images.map((image, index) => (
-                    <Pressable
-                      // Chips are identified by position: a detach shifts the ones after it, which is what the user sees.
-                      key={index}
-                      hitSlop={6}
-                      onPress={() => {
-                        tapHaptic();
-                        dictationActor.send({ type: "detach", index });
-                      }}
-                      style={({ pressed }) => [styles.chip, pressed && { opacity: 0.7 }]}
-                    >
-                      <Image source={{ uri: `data:${image.mimeType};base64,${image.data}` }} style={styles.chipImage} />
-                    </Pressable>
-                  ))}
-                  {images.length > 0 && (
-                    <Pressable
-                      hitSlop={8}
-                      onPress={() => {
-                        tapHaptic();
-                        dictationActor.send({ type: "sendAttachments" });
-                      }}
-                      style={({ pressed }) => [styles.notchClose, pressed && { opacity: 0.7 }]}
-                    >
-                      <SymbolView name="paperplane" size={11} tintColor={colors.accent} />
-                    </Pressable>
+                  {images[0] !== undefined && (
+                    <>
+                      <Pressable
+                        onPress={() => {
+                          tapHaptic();
+                          dictationActor.send({ type: "sendAttachments" });
+                        }}
+                        style={({ pressed }) => [styles.notchLabel, pressed && { opacity: 0.7 }]}
+                      >
+                        <Image source={{ uri: `data:${images[0].mimeType};base64,${images[0].data}` }} style={styles.chip} />
+                        <Text variant="label" color="text" numberOfLines={1}>
+                          {images.length === 1 ? "Image" : `${String(images.length)} images`}
+                        </Text>
+                        <SymbolView name="arrow.up" size={11} tintColor={colors.accent} />
+                      </Pressable>
+                      <Pressable
+                        hitSlop={8}
+                        onPress={() => {
+                          tapHaptic();
+                          dictationActor.send({ type: "detach", index: images.length - 1 });
+                        }}
+                        style={({ pressed }) => [styles.notchClose, pressed && { opacity: 0.7 }]}
+                      >
+                        <SymbolView name="xmark" size={11} tintColor={colors.textMuted} />
+                      </Pressable>
+                    </>
                   )}
                 </View>
               </Cutout>
@@ -380,18 +379,18 @@ export default function AgentInbox() {
 }
 
 /**
- * Pill width for the seam notch: the armed token (icon, text at the label size, close button; capped
- * for long tokens) and, after it, `chips` thumbnails with their send button. Mirrors `notchBody`'s
- * padding and gap so the pill hugs its content.
+ * Pill width for the seam notch: the armed token (mic, text at the label size, close button; capped
+ * for long tokens) and the image segment (thumbnail, "Image" or "N images", arrow, close button).
+ * Mirrors `notchBody`'s padding and gap so the pill hugs its content.
  */
 function notchWidth(token: string | null, chips: number): number {
   const close = spacing.sm + 22;
   const text = token === null ? 0 : Math.min(180, token.length * 7.2);
-  const armed = token === null ? 0 : spacing.md + 12 + spacing.xs + text + close;
-  const attachments = chips === 0 ? 0 : chips * (CHIP_SIZE + spacing.sm) + close;
-  // Without the token the chips start at the narrow padding; with it, the gap before the first chip.
-  const lead = token === null ? spacing.xs - spacing.sm : 0;
-  return Math.round(lead + armed + attachments + spacing.xs);
+  const armed = token === null ? 0 : 12 + spacing.xs + text + close;
+  const label = chips === 1 ? "Image" : `${String(chips)} images`;
+  const attachments = chips === 0 ? 0 : CHIP_SIZE + spacing.xs + label.length * 7.2 + spacing.xs + 11 + close;
+  const between = token !== null && chips > 0 ? spacing.sm : 0;
+  return Math.round(spacing.md + armed + between + attachments + spacing.xs);
 }
 
 const styles = StyleSheet.create({
@@ -409,6 +408,7 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
+    borderRadius: NOTCH_HEIGHT / 2,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.hairline,
@@ -416,11 +416,9 @@ const styles = StyleSheet.create({
     paddingRight: spacing.xs,
     gap: spacing.sm,
   },
-  notchBodyChipsOnly: { paddingLeft: spacing.xs },
   notchLabel: { flex: 1, flexDirection: "row", alignItems: "center", gap: spacing.xs },
   notchClose: { width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceRaised },
-  chip: { width: CHIP_SIZE, height: CHIP_SIZE, borderRadius: 10, overflow: "hidden", borderWidth: 1, borderColor: colors.hairline, backgroundColor: colors.surfaceRaised },
-  chipImage: { width: CHIP_SIZE, height: CHIP_SIZE },
+  chip: { width: CHIP_SIZE, height: CHIP_SIZE, borderRadius: 5, borderWidth: 1, borderColor: colors.hairline, backgroundColor: colors.surfaceRaised },
   panel: {
     height: PANEL_HEIGHT,
     marginHorizontal: spacing.md,
