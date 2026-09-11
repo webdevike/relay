@@ -32,10 +32,11 @@ import { warn } from "@/connection/log";
 
 const MIC_SIZE = 60;
 const CARD_RADIUS = 28;
-/** The armed-skill notch on the seam between the header and the chat. */
+/** The armed-skill notch on the seam between the header and the chat; taller when it holds thumbnails. */
 const NOTCH_HEIGHT = 32;
+const NOTCH_HEIGHT_WITH_CHIPS = 52;
 /** Attachment thumbnails in the notch: a square this big, this far apart. */
-const CHIP_SIZE = 22;
+const CHIP_SIZE = 40;
 /** Holding still this long (ms) on the chat opens the action wheel; moving sooner scrolls instead. */
 const WHEEL_HOLD_MS = 350;
 
@@ -242,6 +243,7 @@ export default function AgentInbox() {
   );
 
   const notchShown = (armed !== null || images.length > 0) && headerHeight > 0;
+  const notchHeight = images.length > 0 ? NOTCH_HEIGHT_WITH_CHIPS : NOTCH_HEIGHT;
 
   return (
     <SafeAreaView style={styles.root} edges={["top", "bottom"]}>
@@ -272,8 +274,8 @@ export default function AgentInbox() {
               </View>
             </GestureDetector>
             {notchShown && (
-              <Cutout size={NOTCH_HEIGHT} width={notchWidth(armed, images.length)} style={{ alignSelf: "center", top: headerHeight + spacing.sm / 2 - NOTCH_HEIGHT / 2 - CUTOUT_GAP }}>
-                <View style={[styles.notchBody, armed === null && styles.notchBodyChipsOnly]}>
+              <Cutout size={notchHeight} width={notchWidth(armed, images.length)} style={{ alignSelf: "center", top: headerHeight + spacing.sm / 2 - notchHeight / 2 - CUTOUT_GAP }}>
+                <View style={[styles.notchBody, { borderRadius: notchHeight / 2 }, armed === null && styles.notchBodyChipsOnly]}>
                   {armed !== null && (
                     <>
                       <Pressable
@@ -407,7 +409,6 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: NOTCH_HEIGHT / 2,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.hairline,
@@ -418,7 +419,7 @@ const styles = StyleSheet.create({
   notchBodyChipsOnly: { paddingLeft: spacing.xs },
   notchLabel: { flex: 1, flexDirection: "row", alignItems: "center", gap: spacing.xs },
   notchClose: { width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceRaised },
-  chip: { width: CHIP_SIZE, height: CHIP_SIZE, borderRadius: 6, overflow: "hidden", borderWidth: 1, borderColor: colors.hairline, backgroundColor: colors.surfaceRaised },
+  chip: { width: CHIP_SIZE, height: CHIP_SIZE, borderRadius: 10, overflow: "hidden", borderWidth: 1, borderColor: colors.hairline, backgroundColor: colors.surfaceRaised },
   chipImage: { width: CHIP_SIZE, height: CHIP_SIZE },
   panel: {
     height: PANEL_HEIGHT,
