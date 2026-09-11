@@ -23,7 +23,8 @@ function sameSnapshot(a: DictationSnapshot, b: DictationSnapshot): boolean {
     a.submit === b.submit &&
     a.skill === b.skill &&
     a.wheelParent === b.wheelParent &&
-    a.images === b.images
+    a.images === b.images &&
+    a.pasted === b.pasted
   );
 }
 

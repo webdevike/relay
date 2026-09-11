@@ -170,7 +170,7 @@ export default function AgentInbox() {
     if (id !== undefined) setSettingsFor(id);
   }, []);
 
-  const { skill: armed, images } = useDictation();
+  const { skill: armed, images, pasted } = useDictation();
   const [headerHeight, setHeaderHeight] = useState(0);
 
   // Holding still on the chat opens the action wheel under the finger. The Pan only activates
@@ -197,7 +197,7 @@ export default function AgentInbox() {
       void copyText(last);
       return;
     }
-    // Paste: an image attaches to the next send; text goes straight into the session's editor.
+    // Paste: an image or text attaches to the next send.
     void (async () => {
       const image = await readClipboardImage();
       if (image !== null) {
@@ -208,7 +208,7 @@ export default function AgentInbox() {
       const text = await readClipboardText();
       if (text === null) return;
       tapHaptic();
-      await sendCommand({ kind: "agent.reply", sessionId, text, submit: false });
+      dictationActor.send({ type: "attachText", text });
     })().catch((error: unknown) => {
       warn("agents", "paste failed", error);
     });
@@ -241,7 +241,7 @@ export default function AgentInbox() {
     [chatTop, wheelCenter, wheelPointer, wheelVisible],
   );
 
-  const notchShown = (armed !== null || images.length > 0) && headerHeight > 0;
+  const notchShown = (armed !== null || images.length > 0 || pasted !== null) && headerHeight > 0;
 
   return (
     <SafeAreaView style={styles.root} edges={["top", "bottom"]}>
@@ -272,7 +272,7 @@ export default function AgentInbox() {
               </View>
             </GestureDetector>
             {notchShown && (
-              <Cutout size={NOTCH_HEIGHT} width={notchWidth(armed, images.length)} style={{ alignSelf: "center", top: headerHeight + spacing.sm / 2 - NOTCH_HEIGHT / 2 - CUTOUT_GAP }}>
+              <Cutout size={NOTCH_HEIGHT} width={notchWidth(armed, images.length, pasted)} style={{ alignSelf: "center", top: headerHeight + spacing.sm / 2 - NOTCH_HEIGHT / 2 - CUTOUT_GAP }}>
                 <View style={styles.notchBody}>
                   {armed !== null && (
                     <>
@@ -320,6 +320,33 @@ export default function AgentInbox() {
                         onPress={() => {
                           tapHaptic();
                           dictationActor.send({ type: "detach", index: images.length - 1 });
+                        }}
+                        style={({ pressed }) => [styles.notchClose, pressed && { opacity: 0.7 }]}
+                      >
+                        <SymbolView name="xmark" size={11} tintColor={colors.textMuted} />
+                      </Pressable>
+                    </>
+                  )}
+                  {pasted !== null && (
+                    <>
+                      <Pressable
+                        onPress={() => {
+                          tapHaptic();
+                          dictationActor.send({ type: "sendAttachments" });
+                        }}
+                        style={({ pressed }) => [styles.notchLabel, pressed && { opacity: 0.7 }]}
+                      >
+                        <SymbolView name="text.quote" size={12} tintColor={colors.accent} />
+                        <Text variant="label" color="text" numberOfLines={1}>
+                          {pastedLabel(pasted)}
+                        </Text>
+                        <SymbolView name="arrow.up" size={11} tintColor={colors.accent} />
+                      </Pressable>
+                      <Pressable
+                        hitSlop={8}
+                        onPress={() => {
+                          tapHaptic();
+                          dictationActor.send({ type: "attachText", text: null });
                         }}
                         style={({ pressed }) => [styles.notchClose, pressed && { opacity: 0.7 }]}
                       >
@@ -378,19 +405,26 @@ export default function AgentInbox() {
   );
 }
 
+/** The pasted text's first words, enough to recognise it, never long enough to crowd the pill. */
+function pastedLabel(text: string): string {
+  const line = text.trim().split("\n")[0] ?? "";
+  return line.length > 18 ? `${line.slice(0, 17)}…` : line;
+}
+
 /**
  * Pill width for the seam notch: the armed token (mic, text at the label size, close button; capped
- * for long tokens) and the image segment (thumbnail, "Image" or "N images", arrow, close button).
- * Mirrors `notchBody`'s padding and gap so the pill hugs its content.
+ * for long tokens), the image segment (thumbnail, "Image" or "N images", arrow, close) and the
+ * pasted-text segment (quote glyph, first words, arrow, close). Mirrors `notchBody`'s padding
+ * and gap so the pill hugs its content.
  */
-function notchWidth(token: string | null, chips: number): number {
+function notchWidth(token: string | null, chips: number, pasted: string | null): number {
   const close = spacing.sm + 22;
-  const text = token === null ? 0 : Math.min(180, token.length * 7.2);
-  const armed = token === null ? 0 : 12 + spacing.xs + text + close;
-  const label = chips === 1 ? "Image" : `${String(chips)} images`;
-  const attachments = chips === 0 ? 0 : CHIP_SIZE + spacing.xs + label.length * 7.2 + spacing.xs + 11 + close;
-  const between = token !== null && chips > 0 ? spacing.sm : 0;
-  return Math.round(spacing.md + armed + between + attachments + spacing.xs);
+  const segments: number[] = [];
+  if (token !== null) segments.push(12 + spacing.xs + Math.min(180, token.length * 7.2) + close);
+  if (chips > 0) segments.push(CHIP_SIZE + spacing.xs + (chips === 1 ? "Image" : `${String(chips)} images`).length * 7.2 + spacing.xs + 11 + close);
+  if (pasted !== null) segments.push(12 + spacing.xs + pastedLabel(pasted).length * 7.2 + spacing.xs + 11 + close);
+  const content = segments.reduce((sum, width) => sum + width, 0) + Math.max(0, segments.length - 1) * spacing.sm;
+  return Math.round(spacing.md + content + spacing.xs);
 }
 
 const styles = StyleSheet.create({

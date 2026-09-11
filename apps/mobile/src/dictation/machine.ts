@@ -72,6 +72,8 @@ export interface DictationContext {
    * with `sendAttachments`). Cleared once delivered, on an error, or on a reset.
    */
   images: PendingImage[];
+  /** Text pasted from the clipboard while idle; goes under the dictation on the next send, or alone. */
+  pasted: string | null;
 }
 
 /** A clipboard image ready for `agent.reply`: base64 with no data-URI prefix. */
@@ -109,7 +111,9 @@ export type DictationEvent =
   /** A clipboard image pasted while idle: attached to the next send. Ignored past `MAX_PENDING_IMAGES`. */
   | { type: "attach"; image: PendingImage }
   | { type: "detach"; index: number }
-  /** Send the attached images on their own, as a submitted turn with no text. */
+  /** Clipboard text pasted while idle: attached to the next send (replaces an earlier paste); null drops it. */
+  | { type: "attachText"; text: string | null }
+  /** Send the attachments on their own: the pasted text, if any, as a submitted turn with the images. */
   | { type: "sendAttachments" }
   | { type: "partial"; text: string }
   | { type: "final"; text: string }
@@ -131,6 +135,7 @@ export interface DeliverInput {
   submit: boolean;
   skill: string | null;
   images: PendingImage[];
+  pasted: string | null;
 }
 
 export const FINISH_TIMEOUT_MS = 1500;
@@ -155,6 +160,7 @@ const fresh: DictationContext = {
   skill: null,
   wheelParent: null,
   images: [],
+  pasted: null,
 };
 
 /** `fresh`, keeping what idle carries into the next dictation: the armed skill and the attachments. */
@@ -162,6 +168,7 @@ const keepArmed = {
   ...fresh,
   skill: ({ context }: { context: DictationContext }) => context.skill,
   images: ({ context }: { context: DictationContext }) => context.images,
+  pasted: ({ context }: { context: DictationContext }) => context.pasted,
 };
 
 export const dictationMachine = setup({
@@ -179,7 +186,7 @@ export const dictationMachine = setup({
   },
   guards: {
     hasText: ({ context }) => context.transcript.trim().length > 0,
-    hasImages: ({ context }) => context.images.length > 0,
+    hasAttachments: ({ context }) => context.images.length > 0 || context.pasted !== null,
     submitting: ({ event }) => event.type === "pressStop" && event.submit === true,
     released: ({ context }) => context.released,
     noSpeech: ({ event }) => event.type === "recognizerError" && event.code === "no-speech",
@@ -219,7 +226,8 @@ export const dictationMachine = setup({
               actions: assign({ images: ({ context, event }) => [...context.images, event.image] }),
             },
             detach: { actions: assign({ images: ({ context, event }) => context.images.filter((_, i) => i !== event.index) }) },
-            sendAttachments: { guard: "hasImages", target: "sending", actions: assign({ transcript: "", submit: true }) },
+            attachText: { actions: assign({ pasted: ({ event }) => event.text }) },
+            sendAttachments: { guard: "hasAttachments", target: "sending", actions: assign({ transcript: "", submit: true }) },
           },
         },
         requesting_permission: {
@@ -312,12 +320,12 @@ export const dictationMachine = setup({
         sending: {
           invoke: {
             src: "deliver",
-            input: ({ context }) => ({ text: context.transcript, submit: context.submit, skill: context.skill, images: context.images }),
-            // The chips leave with the delivery, whichever way it lands; the text and skill linger for the check.
-            onDone: { target: "sent", actions: assign({ images: [] }) },
+            input: ({ context }) => ({ text: context.transcript, submit: context.submit, skill: context.skill, images: context.images, pasted: context.pasted }),
+            // The attachments leave with the delivery, whichever way it lands; the text and skill linger for the check.
+            onDone: { target: "sent", actions: assign({ images: [], pasted: null }) },
             onError: {
               target: "error",
-              actions: assign({ errorCode: ({ event }) => ackErrorCode(event.error), submit: false, images: [] }),
+              actions: assign({ errorCode: ({ event }) => ackErrorCode(event.error), submit: false, images: [], pasted: null }),
             },
           },
         },

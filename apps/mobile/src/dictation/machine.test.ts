@@ -105,7 +105,7 @@ describe("dictationMachine", () => {
     h.actor.send({ type: "pressStop", submit: true });
     expect(h.recognizerStops).toBe(1);
     h.actor.send({ type: "final", text: "ship it" });
-    expect(h.sends).toEqual([{ text: "ship it", submit: true, skill: null, images: [] }]);
+    expect(h.sends).toEqual([{ text: "ship it", submit: true, skill: null, images: [], pasted: null }]);
     expect(h.actor.getSnapshot().context.submit).toBe(true);
     await h.settleSend();
     expect(h.phase()).toBe("sent");
@@ -116,7 +116,7 @@ describe("dictationMachine", () => {
     await pressAndListen(h);
     h.actor.send({ type: "release" });
     h.actor.send({ type: "final", text: "just text" });
-    expect(h.sends[1]).toEqual({ text: "just text", submit: false, skill: null, images: [] });
+    expect(h.sends[1]).toEqual({ text: "just text", submit: false, skill: null, images: [], pasted: null });
   });
 
   it("any release ends the dictation, however short the press", async () => {
@@ -126,7 +126,7 @@ describe("dictationMachine", () => {
     expect(h.phase()).toBe("finishing");
     expect(h.recognizerStops).toBe(1);
     h.actor.send({ type: "final", text: "quick one" });
-    expect(h.sends).toEqual([{ text: "quick one", submit: false, skill: null, images: [] }]);
+    expect(h.sends).toEqual([{ text: "quick one", submit: false, skill: null, images: [], pasted: null }]);
   });
 
   /** A machine whose permission check only resolves when the test says so. */
@@ -170,7 +170,7 @@ describe("dictationMachine", () => {
     expect(h.phase()).toBe("finishing");
     expect(h.recognizerStops).toBe(1);
     h.actor.send({ type: "final", text: "still here" });
-    expect(h.sends).toEqual([{ text: "still here", submit: false, skill: null, images: [] }]);
+    expect(h.sends).toEqual([{ text: "still here", submit: false, skill: null, images: [], pasted: null }]);
   });
 
   it("a no-speech recognizer error is nothing heard, not a failure", async () => {
@@ -285,7 +285,7 @@ describe("dictationMachine", () => {
     expect(h.phase()).toBe("sending");
     expect(h.recognizerAlive()).toBe(false);
     expect(h.actor.getSnapshot().context.transcript).toBe("hello world.");
-    expect(h.sends).toEqual([{ text: "hello world.", submit: false, skill: null, images: [] }]);
+    expect(h.sends).toEqual([{ text: "hello world.", submit: false, skill: null, images: [], pasted: null }]);
 
     await h.settleSend();
     expect(h.phase()).toBe("sent");
@@ -303,7 +303,7 @@ describe("dictationMachine", () => {
 
     h.clock.increment(1500);
     expect(h.phase()).toBe("sending");
-    expect(h.sends).toEqual([{ text: "take this down", submit: false, skill: null, images: [] }]);
+    expect(h.sends).toEqual([{ text: "take this down", submit: false, skill: null, images: [], pasted: null }]);
   });
 
   it("the recognizer ending during finishing finalizes with the last partial immediately", async () => {
@@ -313,7 +313,7 @@ describe("dictationMachine", () => {
     h.actor.send({ type: "release" });
     h.actor.send({ type: "recognizerEnd" });
     expect(h.phase()).toBe("sending");
-    expect(h.sends).toEqual([{ text: "done talking", submit: false, skill: null, images: [] }]);
+    expect(h.sends).toEqual([{ text: "done talking", submit: false, skill: null, images: [], pasted: null }]);
   });
 
   it("an empty transcript returns to idle with the nothingHeard flag, which clears after a hold", async () => {
@@ -452,7 +452,7 @@ describe("dictationMachine", () => {
 
       h.actor.send({ type: "pressStop", submit: true });
       h.actor.send({ type: "final", text: "to staging" });
-      expect(h.sends).toEqual([{ text: "to staging", submit: true, skill: "/skill:deploy", images: [] }]);
+      expect(h.sends).toEqual([{ text: "to staging", submit: true, skill: "/skill:deploy", images: [], pasted: null }]);
       await h.settleSend();
       h.clock.increment(900);
       expect(h.phase()).toBe("idle");
@@ -540,7 +540,7 @@ describe("dictationMachine", () => {
       h.actor.send({ type: "wheelDescend", parent: "/goal" });
       h.actor.send({ type: "wheelSelect", skill: "/goal show", submit: true });
       expect(h.phase()).toBe("sending");
-      expect(h.sends).toEqual([{ text: "", submit: true, skill: "/goal show", images: [] }]);
+      expect(h.sends).toEqual([{ text: "", submit: true, skill: "/goal show", images: [], pasted: null }]);
       h.actor.send({ type: "release" });
       await h.settleSend();
       expect(h.phase()).toBe("sent");
@@ -558,7 +558,7 @@ describe("dictationMachine", () => {
       expect(h.actor.getSnapshot().context.skill).toBe("/goal set");
       h.actor.send({ type: "release" });
       h.actor.send({ type: "final", text: "ship relay" });
-      expect(h.sends).toEqual([{ text: "ship relay", submit: false, skill: "/goal set", images: [] }]);
+      expect(h.sends).toEqual([{ text: "ship relay", submit: false, skill: "/goal set", images: [], pasted: null }]);
       await h.settleSend();
       h.clock.increment(900);
       h.actor.send({ type: "arm", skill: "/handoff" });
@@ -578,7 +578,7 @@ describe("dictationMachine", () => {
       expect(h.actor.getSnapshot().context.images).toEqual([shot(1), shot(2)]);
       h.actor.send({ type: "release" });
       h.actor.send({ type: "final", text: "what is this" });
-      expect(h.sends).toEqual([{ text: "what is this", submit: false, skill: null, images: [shot(1), shot(2)] }]);
+      expect(h.sends).toEqual([{ text: "what is this", submit: false, skill: null, images: [shot(1), shot(2)], pasted: null }]);
       await h.settleSend();
       h.clock.increment(900);
       expect(h.phase()).toBe("idle");
@@ -592,7 +592,7 @@ describe("dictationMachine", () => {
       h.actor.send({ type: "attach", image: shot(1) });
       h.actor.send({ type: "sendAttachments" });
       expect(h.phase()).toBe("sending");
-      expect(h.sends).toEqual([{ text: "", submit: true, skill: null, images: [shot(1)] }]);
+      expect(h.sends).toEqual([{ text: "", submit: true, skill: null, images: [shot(1)], pasted: null }]);
       await h.settleSend();
       expect(h.phase()).toBe("sent");
       expect(h.actor.getSnapshot().context.images).toEqual([]);
@@ -620,6 +620,27 @@ describe("dictationMachine", () => {
       await h.settleSend({ code: "invalid_command" });
       expect(h.phase()).toBe("error");
       expect(h.actor.getSnapshot().context.images).toEqual([]);
+    });
+
+    it("pasted text waits like an image: it goes with the next dictation, or alone, and a null paste drops it", async () => {
+      const h = harness();
+      h.actor.send({ type: "attachText", text: "first" });
+      h.actor.send({ type: "attachText", text: "stack trace" });
+      expect(h.actor.getSnapshot().context.pasted).toBe("stack trace");
+      await pressAndListen(h);
+      h.actor.send({ type: "release" });
+      h.actor.send({ type: "final", text: "explain" });
+      expect(h.sends).toEqual([{ text: "explain", submit: false, skill: null, images: [], pasted: "stack trace" }]);
+      await h.settleSend();
+      h.clock.increment(900);
+      expect(h.actor.getSnapshot().context.pasted).toBeNull();
+      h.actor.send({ type: "attachText", text: "again" });
+      h.actor.send({ type: "attachText", text: null });
+      h.actor.send({ type: "sendAttachments" });
+      expect(h.phase()).toBe("idle");
+      h.actor.send({ type: "attachText", text: "again" });
+      h.actor.send({ type: "sendAttachments" });
+      expect(h.sends[1]).toEqual({ text: "", submit: true, skill: null, images: [], pasted: "again" });
     });
   });
 });

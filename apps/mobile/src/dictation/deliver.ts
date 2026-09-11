@@ -21,10 +21,14 @@ export function resetDictationTarget(): void {
   target = INSERT;
 }
 
-/** The text as the host receives it: the armed slash command, then the dictation (or the command alone). */
+/**
+ * The text as the host receives it: the armed slash command, then the dictation (or the command alone),
+ * then the pasted text on its own paragraph.
+ */
 export function deliveredText(input: DeliverInput): string {
-  if (input.skill === null) return input.text;
-  return input.text === "" ? input.skill : `${input.skill} ${input.text}`;
+  const spoken = input.skill === null ? input.text : input.text === "" ? input.skill : `${input.skill} ${input.text}`;
+  if (input.pasted === null) return spoken;
+  return spoken === "" ? input.pasted : `${spoken}\n\n${input.pasted}`;
 }
 
 /** The commands one delivery sends, in order. Images only go to an agent; the trackpad has nowhere to put them. */
