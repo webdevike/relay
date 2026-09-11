@@ -63,6 +63,8 @@ interface Pending {
 interface Connection {
   readonly socket: Socket<Connection>;
   buffer: string;
+  /** Outbound bytes the kernel buffer did not take yet; flushed on `drain`. */
+  outbound: Buffer | null;
   session: AgentSessionT | null;
   readonly pending: Map<string, Pending>;
 }
@@ -102,11 +104,14 @@ export class OmpBridgeProvider implements AgentProvider {
     if (existsSync(this.path)) unlinkSync(this.path); // stale socket from a previous run
     const handler: SocketHandler<Connection> = {
       open: (socket) => {
-        socket.data = { socket, buffer: "", session: null, pending: new Map() };
+        socket.data = { socket, buffer: "", outbound: null, session: null, pending: new Map() };
         this.connections.add(socket.data);
       },
       data: (socket, chunk) => {
         this.receive(socket.data, chunk);
+      },
+      drain: (socket) => {
+        this.flush(socket.data);
       },
       close: (socket) => {
         this.drop(socket.data);
@@ -208,8 +213,26 @@ export class OmpBridgeProvider implements AgentProvider {
       reject(new AckFailure({ code: "internal", message: `omp session did not answer ${t} within ${REQUEST_TIMEOUT_MS} ms` }));
     }, REQUEST_TIMEOUT_MS);
     connection.pending.set(id, { resolve, reject, timer, kind: t });
-    connection.socket.write(`${JSON.stringify({ t, id, ...body })}\n`);
+    this.write(connection, `${JSON.stringify({ t, id, ...body })}\n`);
     return promise;
+  }
+
+  /**
+   * `socket.write` takes what fits in the kernel buffer and returns the count; a frame carrying an
+   * image is far larger than that, so the rest waits for `drain`. Frames stay in order because
+   * anything new goes behind what is already queued.
+   */
+  private write(connection: Connection, line: string): void {
+    const bytes = Buffer.from(line, "utf8");
+    connection.outbound = connection.outbound === null ? bytes : Buffer.concat([connection.outbound, bytes]);
+    this.flush(connection);
+  }
+
+  private flush(connection: Connection): void {
+    const queued = connection.outbound;
+    if (queued === null) return;
+    const written = connection.socket.write(queued);
+    connection.outbound = written >= queued.length ? null : queued.subarray(Math.max(written, 0));
   }
 
   private receive(connection: Connection, chunk: Buffer | Uint8Array): void {
