@@ -60,28 +60,49 @@ interface OutlineProps {
   layer: "fill" | "stroke";
 }
 
+/** The card shape: the rounded rectangle minus every notch, with the outline pulled `inset` points inward. */
+function shapeOf(sk: SkiaModule, size: { width: number; height: number }, radius: number, notches: readonly Notch[], inset: number) {
+  const { Skia, PathOp } = sk;
+  const shape = Skia.Path.Make();
+  shape.addRRect(Skia.RRectXY(Skia.XYWHRect(inset, inset, size.width - inset * 2, size.height - inset * 2), radius - inset, radius - inset));
+  for (const notch of notches) shape.op(biteOf(sk, size, notch, inset), PathOp.Difference);
+  return shape;
+}
+
+/** One notch, grown by `inset` on every side. */
+function biteOf(sk: SkiaModule, size: { width: number; height: number }, notch: Notch, inset: number) {
+  const width = notch.width + inset * 2;
+  const height = notch.height + inset * 2;
+  const cx = notch.cx ?? size.width / 2;
+  const bite = sk.Skia.Path.Make();
+  bite.addRRect(sk.Skia.RRectXY(sk.Skia.XYWHRect(cx - width / 2, notch.cy - height / 2, width, height), height / 2, height / 2));
+  return bite;
+}
+
 function Outline({ sk, size, color, radius, notches, layer }: OutlineProps) {
-  const { Canvas, Path, Skia, PathOp } = sk;
-  // The stroke is centered on the path, so the outer edge is pulled in half a point and every
-  // notch pushed out half a point; the whole hairline then lands inside the card and outside
-  // the ring, where nothing else paints.
-  const inset = layer === "stroke" ? 0.5 : 0;
-  const path = useMemo(() => {
-    const shape = Skia.Path.Make();
-    shape.addRRect(Skia.RRectXY(Skia.XYWHRect(inset, inset, size.width - inset * 2, size.height - inset * 2), radius - inset, radius - inset));
-    for (const notch of notches) {
-      const width = notch.width + inset * 2;
-      const height = notch.height + inset * 2;
-      const cx = notch.cx ?? size.width / 2;
-      const bite = Skia.Path.Make();
-      bite.addRRect(Skia.RRectXY(Skia.XYWHRect(cx - width / 2, notch.cy - height / 2, width, height), height / 2, height / 2));
-      shape.op(bite, PathOp.Difference);
-    }
-    return shape;
-  }, [Skia, PathOp, inset, size.width, size.height, radius, notches]);
+  const { Canvas, Path } = sk;
+  // Fill: the exact shape. Stroke: the hairline is centered on the path, so the shape is pulled in
+  // half a point on every edge, outer and notch alike, and the whole line lands inside the card
+  // like a border would. The notches themselves are painted screen background first, over the
+  // children, so content scrolled into the gap is hidden and the hairline meets background there
+  // exactly as it does along the outer edge.
+  const shape = useMemo(() => shapeOf(sk, size, radius, notches, layer === "stroke" ? 0.5 : 0), [sk, size, radius, notches, layer]);
+  const gaps = useMemo(() => {
+    if (layer !== "stroke") return null;
+    const all = sk.Skia.Path.Make();
+    for (const notch of notches) all.addPath(biteOf(sk, size, notch, 0));
+    return all;
+  }, [sk, size, notches, layer]);
   return (
     <Canvas style={StyleSheet.absoluteFill} pointerEvents="none">
-      {layer === "fill" ? <Path path={path} color={color} /> : <Path path={path} color={colors.hairline} style="stroke" strokeWidth={1} />}
+      {layer === "fill" ? (
+        <Path path={shape} color={color} />
+      ) : (
+        <>
+          {gaps !== null && <Path path={gaps} color={colors.bg} />}
+          <Path path={shape} color={colors.hairline} style="stroke" strokeWidth={1} />
+        </>
+      )}
     </Canvas>
   );
 }
