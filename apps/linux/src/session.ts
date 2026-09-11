@@ -274,6 +274,19 @@ export class ClientSession {
         );
         break;
       }
+      case "agent.image": {
+        const { sessionId, id } = message;
+        const lookup = this.deps.agents?.image(sessionId, id) ?? Promise.resolve(null);
+        void lookup.then(
+          (image) => {
+            if (!this.closed) this.sink.send({ t: "agent.image", sessionId, id, image });
+          },
+          () => {
+            if (!this.closed) this.sink.send({ t: "agent.image", sessionId, id, image: null });
+          },
+        );
+        break;
+      }
       case "hello":
       case "auth":
       case "pair.request":
@@ -318,8 +331,17 @@ export class ClientSession {
         return this.deps.access.granted ? this.deps.text.insert(cmd.text) : Promise.reject(noInputDevice());
       case "key.press":
         return this.deps.access.granted ? this.deps.text.press(cmd.key) : Promise.reject(noInputDevice());
-      case "agent.reply":
-        return this.agents().reply(cmd.sessionId, cmd.text, cmd.submit);
+      case "agent.reply": {
+        // Wire shape allows both; the host rule is that a reply carries something, and that images
+        // only ever go out as a turn (the editor holds text, not images).
+        if (cmd.text.length === 0 && cmd.images === undefined) {
+          return Promise.reject(new AckFailure({ code: "invalid_command", message: "reply has neither text nor images" }));
+        }
+        if (!cmd.submit && cmd.images !== undefined) {
+          return Promise.reject(new AckFailure({ code: "invalid_command", message: "images cannot be placed in the editor; submit them" }));
+        }
+        return this.agents().reply(cmd.sessionId, cmd.text, cmd.submit, cmd.images);
+      }
       case "agent.start":
         return this.agents().launch();
       case "agent.configure":
@@ -331,6 +353,8 @@ export class ClientSession {
         });
       case "agent.abort":
         return this.agents().abort(cmd.sessionId);
+      case "agent.end":
+        return this.agents().end(cmd.sessionId);
     }
   }
 

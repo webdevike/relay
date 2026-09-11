@@ -70,13 +70,22 @@ export const AgentModel = z.object({
 export type AgentModel = z.infer<typeof AgentModel>;
 
 /**
- * Something the session can be pointed at with a dictated argument: an authored skill or a slash
- * command that takes text. `command` is the exact token the host puts before the dictation.
+ * Something the session can be pointed at from the wheel: an authored skill or a slash command.
+ * `command` is exactly what the host puts before the dictation: the slash token, plus the
+ * subcommand word when the text belongs to one (`/goal set`). `takesText` false means the command
+ * is complete on its own and is sent as soon as it is picked.
  */
-export const AgentSkill = z.object({
+export const AgentSkillChoice = z.object({
   name: nonEmpty,
   description: z.string(),
-  command: nonEmpty.regex(/^\/\S+$/),
+  command: nonEmpty.regex(/^\/\S+( \S+)*$/),
+  takesText: z.boolean(),
+});
+export type AgentSkillChoice = z.infer<typeof AgentSkillChoice>;
+
+/** A wheel entry; with `choices`, it opens a second ring of subcommands (`/goal` → set, show, pause...). */
+export const AgentSkill = AgentSkillChoice.extend({
+  choices: z.array(AgentSkillChoice).optional(),
 });
 export type AgentSkill = z.infer<typeof AgentSkill>;
 
@@ -86,6 +95,29 @@ export const AgentOptions = z.object({
   skills: z.array(AgentSkill),
 });
 export type AgentOptions = z.infer<typeof AgentOptions>;
+
+/** Largest image payload (base64 length) one frame carries; a phone screenshot as JPEG is well under. */
+export const MAX_IMAGE_BASE64 = 6 * 1024 * 1024;
+export const MAX_REPLY_IMAGES = 4;
+
+/** Image bytes crossing the wire: base64. WebP is what omp re-encodes attachments to. */
+export const AgentImage = z.object({
+  mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]),
+  data: z.string().min(1).max(MAX_IMAGE_BASE64),
+});
+export type AgentImage = z.infer<typeof AgentImage>;
+
+/**
+ * An image attached to a transcript message. Only a reference travels with the transcript; the
+ * bytes are fetched once per `id` with `agent.image` so a re-sent conversation stays small.
+ */
+export const AgentImageRef = z.object({
+  id: nonEmpty,
+  mimeType: AgentImage.shape.mimeType,
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+});
+export type AgentImageRef = z.infer<typeof AgentImageRef>;
 
 export const AgentMessageRole = z.enum(["user", "assistant", "tool", "system"]);
 export type AgentMessageRole = z.infer<typeof AgentMessageRole>;
@@ -97,6 +129,8 @@ export const AgentMessage = z.object({
   at: ms,
   /** Present when role === "tool": the tool that ran and a one-line summary of its input. */
   tool: z.object({ name: nonEmpty, summary: z.string() }).optional(),
+  /** Images the message carried (a pasted screenshot, a tool's rendered page). */
+  images: z.array(AgentImageRef).optional(),
 });
 export type AgentMessage = z.infer<typeof AgentMessage>;
 
@@ -150,10 +184,18 @@ export const Command = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("text.insert"), text: z.string().min(1) }),
   z.object({ kind: z.literal("key.press"), key: KeyName }),
   /**
-   * Hand `text` to an agent session. `submit: true` sends it as the next user turn; `false` only
-   * places it in the session's input so the user can finish it at the keyboard.
+   * Hand `text` (and any `images`) to an agent session. `submit: true` sends it as the next user
+   * turn; `false` only places the text in the session's input so the user can finish it at the
+   * keyboard (images cannot be parked there, so they require `submit`). Text may be empty only
+   * when images are present.
    */
-  z.object({ kind: z.literal("agent.reply"), sessionId: nonEmpty, text: z.string().min(1), submit: z.boolean() }),
+  z.object({
+    kind: z.literal("agent.reply"),
+    sessionId: nonEmpty,
+    text: z.string(),
+    submit: z.boolean(),
+    images: z.array(AgentImage).min(1).max(MAX_REPLY_IMAGES).optional(),
+  }),
   /** Open a fresh agent session on the host (it shows up in `agents.*` once it registers). */
   z.object({ kind: z.literal("agent.start") }),
   /** Change one or more session settings; omitted fields are left alone. */
@@ -166,6 +208,8 @@ export const Command = z.discriminatedUnion("kind", [
   }),
   /** Interrupt whatever the session is doing right now. */
   z.object({ kind: z.literal("agent.abort"), sessionId: nonEmpty }),
+  /** Shut the session down: omp exits and the terminal it ran in closes. */
+  z.object({ kind: z.literal("agent.end"), sessionId: nonEmpty }),
 ]);
 export type Command = z.infer<typeof Command>;
 
@@ -209,6 +253,8 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("agent.unsubscribe"), sessionId: nonEmpty }),
   /** Ask which models/thinking levels/skills a session offers; answered by `agent.options`. */
   z.object({ t: z.literal("agent.options"), sessionId: nonEmpty }),
+  /** Fetch the bytes behind an `AgentImageRef`; answered by `agent.image`. */
+  z.object({ t: z.literal("agent.image"), sessionId: nonEmpty, id: nonEmpty }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 
@@ -260,6 +306,8 @@ export const ServerMessage = z.discriminatedUnion("t", [
     append: z.array(AgentMessage),
   }),
   z.object({ t: z.literal("agent.options"), sessionId: nonEmpty, models: z.array(AgentModel), skills: z.array(AgentSkill) }),
+  /** `image` is null when the session no longer has that image. */
+  z.object({ t: z.literal("agent.image"), sessionId: nonEmpty, id: nonEmpty, image: AgentImage.nullable() }),
   z.object({ t: z.literal("ack"), id: nonEmpty }),
   z.object({ t: z.literal("nack"), id: nonEmpty, error: AckError }),
   z.object({ t: z.literal("pong"), ts: ms, serverTs: ms }),

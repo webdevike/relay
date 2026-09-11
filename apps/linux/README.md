@@ -50,12 +50,19 @@ the phone's Agent Inbox with its transcript and status (`working`, `waiting` aft
 in a question, `needs_permission` during a tool approval prompt, `idle`, `ended`). An
 `agent.reply` with `submit: true` is delivered like typing in the TUI and pressing Enter (a text
 that starts with `/` is fed through the editor so omp dispatches it as a command); with
-`submit: false` it is placed in the session's editor for the keyboard to finish. `agent.options`
+`submit: false` it is placed in the session's editor for the keyboard to finish. Images pasted on
+the phone ride along on the reply as image parts of that user turn (so they always submit, and a
+`/command` sent with images goes to the model as text rather than being dispatched); images in the
+transcript, whether pasted or returned by a tool, are listed on the message as references and
+fetched by id with `agent.image` (the extension keeps the newest 32). `agent.options`
 answers with the models the session can switch to and the entries for the phone's skill wheel:
 authored skills (`/skill:<name>`), prompt and extension commands, and the built-in commands that
-take an argument (`/handoff`, `/goal`, `/rename`, ...), each with the exact token to prefix. `agent.start`
+take text (`/handoff`, `/rename`, ...); a built-in with subcommands offers the ones that take text
+(`/goal set`, `/compact <mode>`), each entry carrying the exact token to prefix. `agent.start`
 (the plus on the phone's scrubber) opens `alacritty --working-directory <dir> -e omp`, detached
-from the daemon; `<dir>` is `serve --agent-home DIR` (default `$HOME`).
+from the daemon; `<dir>` is `serve --agent-home DIR` (default `$HOME`). `agent.end` (End session
+in the phone's session sheet) submits `/exit` in the TUI once the ack has gone out, so omp tears
+down exactly as it would from the keyboard and its terminal closes.
 
 ## Differences from the Mac app
 

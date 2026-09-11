@@ -12,7 +12,8 @@
     "ignoreDeprecations": "6.0",
     "paths": {
       "@oh-my-pi/pi-coding-agent": ["@oh-my-pi/pi-coding-agent/dist/types/index.d.ts"],
-      "@oh-my-pi/pi-coding-agent/*": ["@oh-my-pi/pi-coding-agent/dist/types/*.d.ts"]
+      "@oh-my-pi/pi-coding-agent/*": ["@oh-my-pi/pi-coding-agent/dist/types/*.d.ts"],
+      "@oh-my-pi/pi-ai": ["@oh-my-pi/pi-coding-agent/node_modules/@oh-my-pi/pi-ai/dist/types/index.d.ts"]
     }
   },
   "files": ["relay-bridge.ts"]

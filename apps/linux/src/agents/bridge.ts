@@ -4,15 +4,15 @@
 //
 //   extension -> host   hello (full session info) | status | messages { append } |
 //                       result { id, ok, error?, value? }
-//   host -> extension   conversation { id } | reply { id, text, submit } | options { id } |
-//                       configure { id, ...change } | abort { id }
+//   host -> extension   conversation { id } | reply { id, text, submit, images? } | options { id } |
+//                       image { id, imageId } | configure { id, ...change } | abort { id } | end { id }
 //
 // Sessions are validated with zod at this boundary: a misbehaving extension version can only
 // produce a logged parse error, never a malformed frame on the phone's WebSocket.
 
 import { existsSync, unlinkSync } from "node:fs";
 import type { Socket, SocketHandler } from "bun";
-import { AgentMessage, AgentOptions, AgentSession, AgentStatus, type AgentSession as AgentSessionT, type AgentMessage as AgentMessageT, type AgentOptions as AgentOptionsT } from "@relay/protocol";
+import { AgentImage, AgentMessage, AgentOptions, AgentSession, AgentStatus, type AgentImage as AgentImageT, type AgentSession as AgentSessionT, type AgentMessage as AgentMessageT, type AgentOptions as AgentOptionsT } from "@relay/protocol";
 import { z } from "zod";
 import { AckFailure, type AgentConfigChange, type AgentProvider, type AgentProviderChange } from "../seams";
 
@@ -36,15 +36,17 @@ const Inbound = z.discriminatedUnion("t", [
 ]);
 type Inbound = z.infer<typeof Inbound>;
 
-type RequestKind = "conversation" | "reply" | "options" | "configure" | "abort";
+type RequestKind = "conversation" | "reply" | "options" | "image" | "configure" | "abort" | "end";
 
 /** The error code a rejected request maps to; the extension's message is passed through. */
 const failureCode: Record<RequestKind, AckFailure["error"]["code"]> = {
   conversation: "internal",
   reply: "agent_cannot_respond",
   options: "internal",
+  image: "internal",
   configure: "agent_configure_failed",
   abort: "internal",
+  end: "internal",
 };
 
 const REQUEST_TIMEOUT_MS = 5000;
@@ -125,8 +127,8 @@ export class OmpBridgeProvider implements AgentProvider {
     return parsed.success ? parsed.data : [];
   }
 
-  async reply(sessionId: string, text: string, submit: boolean): Promise<void> {
-    await this.request(this.require(sessionId), "reply", { text, submit });
+  async reply(sessionId: string, text: string, submit: boolean, images?: readonly AgentImageT[]): Promise<void> {
+    await this.request(this.require(sessionId), "reply", { text, submit, ...(images === undefined ? {} : { images }) });
   }
 
   async options(sessionId: string): Promise<AgentOptionsT | null> {
@@ -136,6 +138,14 @@ export class OmpBridgeProvider implements AgentProvider {
     return parsed.success ? parsed.data : NO_OPTIONS;
   }
 
+  /** Null for an unknown session or image, and for an answer the extension could not encode. */
+  async image(sessionId: string, id: string): Promise<AgentImageT | null> {
+    const connection = this.find(sessionId);
+    if (connection === undefined) return null;
+    const parsed = AgentImage.nullable().safeParse(await this.request(connection, "image", { imageId: id }));
+    return parsed.success ? parsed.data : null;
+  }
+
   async configure(change: AgentConfigChange): Promise<void> {
     const { sessionId, ...fields } = change;
     await this.request(this.require(sessionId), "configure", fields);
@@ -143,6 +153,10 @@ export class OmpBridgeProvider implements AgentProvider {
 
   async abort(sessionId: string): Promise<void> {
     await this.request(this.require(sessionId), "abort", {});
+  }
+
+  async end(sessionId: string): Promise<void> {
+    await this.request(this.require(sessionId), "end", {});
   }
 
   /**

@@ -1,13 +1,19 @@
 // omp extension: publishes this session to the Relay Linux host so the phone's Agent Inbox can
-// list it, read its conversation, and send follow-up prompts. Install by symlinking this file
-// into ~/.omp/agent/extensions/ (global) so every interactive omp session registers itself.
+// list it, read its conversation, and send follow-up prompts (text and pasted images). Install by
+// symlinking this file into ~/.omp/agent/extensions/ (global) so every interactive omp session
+// registers itself.
 //
 // Transport: JSONL over the host's unix socket (see apps/linux/src/agents/bridge.ts for the
 // frame contract). The extension reconnects forever with a small backoff, so the host may be
 // started or restarted at any time. Headless/subagent sessions (no UI) stay out of the inbox.
+//
+// Images in the transcript travel as references (id = first 16 hex chars of the sha256 of the
+// bytes); the bytes stay here, newest MAX_IMAGES kept, and the host fetches them with `image`.
 
+import { createHash } from "node:crypto";
 import { createConnection, type Socket } from "node:net";
 import { basename } from "node:path";
+import type { ImageContent, TextContent } from "@oh-my-pi/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { BUILTIN_SLASH_COMMAND_DEFS } from "@oh-my-pi/pi-coding-agent/slash-commands/builtin-registry";
 
@@ -18,12 +24,28 @@ type SlashCommand = ReturnType<ExtensionAPI["getCommands"]>[number];
 type Status = "working" | "waiting" | "needs_permission" | "idle" | "ended";
 type Role = "user" | "assistant" | "tool" | "system";
 
+type ImageMimeType = "image/jpeg" | "image/png" | "image/webp";
+
+/** Image bytes as they cross the socket in both directions. */
+interface Image {
+  mimeType: ImageMimeType;
+  data: string;
+}
+
+interface ImageRef {
+  id: string;
+  mimeType: ImageMimeType;
+  width?: number;
+  height?: number;
+}
+
 interface InboxMessage {
   id: string;
   role: Role;
   text: string;
   at: number;
   tool?: { name: string; summary: string };
+  images?: ImageRef[];
 }
 
 interface Settings {
@@ -52,25 +74,33 @@ interface ModelOption {
   thinkingLevels: string[];
 }
 
-interface SkillOption {
+interface SkillChoice {
   name: string;
   description: string;
-  /** The slash token the host puts before the dictated text. */
+  /** Exactly what the host puts before the dictated text (`/handoff`, `/goal set`). */
   command: string;
+  /** False: complete on its own, sent as soon as it is picked. */
+  takesText: boolean;
+}
+
+interface SkillOption extends SkillChoice {
+  /** Subcommands, when the command has them; the phone opens them as a second ring. */
+  choices?: SkillChoice[];
 }
 
 const SKILL_COMMAND_PREFIX = "skill:";
 
 /**
  * What the phone's wheel offers, in omp's own order: authored skills first, then prompt and
- * extension commands, then the built-in commands that accept an argument (the rest have nothing
- * to do with a dictated sentence).
+ * extension commands, then the built-ins that take an argument. A built-in with subcommands is
+ * one entry whose choices are the subcommands (`/goal` → set, show, pause...); a subcommand with
+ * a usage takes dictated text, the rest are complete on their own.
  */
 function listSkillOptions(commands: readonly SlashCommand[]): SkillOption[] {
   const skills: SkillOption[] = [];
   const others: SkillOption[] = [];
   for (const command of commands) {
-    const option = { name: command.name, description: command.description ?? "", command: `/${command.name}` };
+    const option = { name: command.name, description: command.description ?? "", command: `/${command.name}`, takesText: true };
     if (command.source === "skill" && command.name.startsWith(SKILL_COMMAND_PREFIX)) {
       skills.push({ ...option, name: command.name.slice(SKILL_COMMAND_PREFIX.length) });
     } else {
@@ -79,8 +109,19 @@ function listSkillOptions(commands: readonly SlashCommand[]): SkillOption[] {
   }
   const builtins: SkillOption[] = [];
   for (const command of BUILTIN_SLASH_COMMAND_DEFS) {
-    if (!command.allowArgs) continue;
-    builtins.push({ name: command.name, description: command.description, command: `/${command.name}` });
+    const takesText = command.allowArgs === true;
+    if (command.subcommands !== undefined) {
+      const choices = command.subcommands.map((sub) => ({
+        name: sub.name,
+        description: sub.description ?? "",
+        command: `/${command.name} ${sub.name}`,
+        takesText: sub.usage !== undefined,
+      }));
+      builtins.push({ name: command.name, description: command.description, command: `/${command.name}`, takesText, choices });
+      continue;
+    }
+    if (!takesText) continue;
+    builtins.push({ name: command.name, description: command.description, command: `/${command.name}`, takesText });
   }
   return [...skills, ...others, ...builtins];
 }
@@ -134,10 +175,12 @@ type Outbound =
 
 type Inbound =
   | { t: "conversation"; id: string }
-  | { t: "reply"; id: string; text: string; submit: boolean }
+  | { t: "reply"; id: string; text: string; submit: boolean; images?: Image[] }
   | { t: "options"; id: string }
+  | { t: "image"; id: string; imageId: string }
   | { t: "configure"; id: string; title?: string; model?: { provider: string; id: string }; thinkingLevel?: string }
-  | { t: "abort"; id: string };
+  | { t: "abort"; id: string }
+  | { t: "end"; id: string };
 
 /** Thinking selectors a model accepts; "off" applies to any model, the rest come from its catalog entry. */
 function thinkingLevelsFor(model: Model): ThinkingLevel[] {
@@ -150,6 +193,9 @@ const MAX_SUMMARY = 120;
 const SETTINGS_SETTLE_MS = 2000;
 /** Time for the fed Enter to clear the editor before a held draft is put back. */
 const SUBMIT_SETTLE_MS = 150;
+/** Transcript images kept per session for the phone to fetch; older ones answer null. */
+const MAX_IMAGES = 32;
+const IMAGE_ID_LENGTH = 16;
 
 export function socketPath(): string {
   const runtime = process.env["RELAY_AGENTS_SOCKET"];
@@ -188,6 +234,68 @@ function textOf(content: unknown): string {
   return parts.join("\n").trim();
 }
 
+/** PNG by signature, JPEG by SOI, WebP by RIFF header (omp re-encodes attachments to WebP); anything else is skipped. */
+function sniffMimeType(bytes: Buffer): ImageMimeType | null {
+  if (bytes.length >= 8 && bytes.readUInt32BE(0) === 0x89504e47 && bytes.readUInt32BE(4) === 0x0d0a1a0a) return "image/png";
+  if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xd8) return "image/jpeg";
+  if (bytes.length >= 12 && bytes.toString("latin1", 0, 4) === "RIFF" && bytes.toString("latin1", 8, 12) === "WEBP") return "image/webp";
+  return null;
+}
+
+/** WebP size from the first chunk: VP8X canvas, VP8L 14-bit fields, or the VP8 key frame header. */
+function webpSize(bytes: Buffer): { width: number; height: number } | null {
+  if (bytes.length < 30) return null;
+  const chunk = bytes.toString("latin1", 12, 16);
+  if (chunk === "VP8X") {
+    return { width: 1 + bytes.readUIntLE(24, 3), height: 1 + bytes.readUIntLE(27, 3) };
+  }
+  if (chunk === "VP8L") {
+    const bits = bytes.readUInt32LE(21);
+    return { width: 1 + (bits & 0x3fff), height: 1 + ((bits >>> 14) & 0x3fff) };
+  }
+  if (chunk === "VP8 ") {
+    const width = bytes.readUInt16LE(26) & 0x3fff;
+    const height = bytes.readUInt16LE(28) & 0x3fff;
+    return width > 0 && height > 0 ? { width, height } : null;
+  }
+  return null;
+}
+
+/** Pixel size from the PNG IHDR, the WebP header, or the first JPEG SOF marker; null when the header is not there. */
+function imageSize(bytes: Buffer, mimeType: ImageMimeType): { width: number; height: number } | null {
+  if (mimeType === "image/png") {
+    if (bytes.length < 24 || bytes.toString("latin1", 12, 16) !== "IHDR") return null;
+    const width = bytes.readUInt32BE(16);
+    const height = bytes.readUInt32BE(20);
+    return width > 0 && height > 0 ? { width, height } : null;
+  }
+  if (mimeType === "image/webp") return webpSize(bytes);
+  let offset = 2;
+  while (offset + 4 <= bytes.length) {
+    if (bytes[offset] !== 0xff) return null;
+    const marker = bytes[offset + 1] ?? 0;
+    if (marker === 0xff) {
+      offset += 1; // fill byte before a marker
+      continue;
+    }
+    if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+      offset += 2; // standalone marker, no length
+      continue;
+    }
+    if (marker === 0xd9 || marker === 0xda) return null; // end of image / scan data before any frame header
+    const length = bytes.readUInt16BE(offset + 2);
+    // Frame headers (SOFn) carry the dimensions; DHT (C4), JPG (C8) and DAC (CC) share the range but do not.
+    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+      if (offset + 9 > bytes.length) return null;
+      const height = bytes.readUInt16BE(offset + 5);
+      const width = bytes.readUInt16BE(offset + 7);
+      return width > 0 && height > 0 ? { width, height } : null;
+    }
+    offset += 2 + length;
+  }
+  return null;
+}
+
 export default function relayBridge(pi: ExtensionAPI): void {
   let ctx: ExtensionContext | null = null;
   let socket: Socket | null = null;
@@ -202,6 +310,42 @@ export default function relayBridge(pi: ExtensionAPI): void {
   /** The last assistant message of the current turn ended with a question and no tool call followed. */
   let askedQuestion = false;
   const history: InboxMessage[] = [];
+  /** Insertion-ordered so the oldest entry is the first key; capped at MAX_IMAGES. */
+  const images = new Map<string, Image>();
+
+  /** Interns one transcript image: stores the bytes under their content hash and returns the ref for the phone. */
+  const intern = (part: ImageContent): ImageRef | null => {
+    const bytes = Buffer.from(part.data, "base64");
+    const mimeType = sniffMimeType(bytes);
+    if (mimeType === null) return null;
+    const id = createHash("sha256").update(bytes).digest("hex").slice(0, IMAGE_ID_LENGTH);
+    images.delete(id); // re-insert so a repeated image counts as newest
+    images.set(id, { mimeType, data: part.data });
+    while (images.size > MAX_IMAGES) {
+      const oldest = images.keys().next();
+      if (oldest.done === true) break;
+      images.delete(oldest.value);
+    }
+    const ref: ImageRef = { id, mimeType };
+    const size = imageSize(bytes, mimeType);
+    if (size !== null) {
+      ref.width = size.width;
+      ref.height = size.height;
+    }
+    return ref;
+  };
+
+  /** Refs for every image part of a message's content; string content has none. */
+  const imagesOf = (content: string | readonly (TextContent | ImageContent)[]): ImageRef[] => {
+    if (typeof content === "string") return [];
+    const refs: ImageRef[] = [];
+    for (const part of content) {
+      if (part.type !== "image") continue;
+      const ref = intern(part);
+      if (ref !== null) refs.push(ref);
+    }
+    return refs;
+  };
 
   const settings = (): Settings => {
     const cwd = ctx?.sessionManager.getCwd() ?? "";
@@ -268,7 +412,14 @@ export default function relayBridge(pi: ExtensionAPI): void {
         return history;
       case "reply": {
         const existing = ctx.ui.getEditorText();
-        if (!frame.submit) {
+        if (frame.images !== undefined && frame.images.length > 0) {
+          // Images only ever go out as a user turn (the host rejects them without `submit`). A
+          // slash command with images is sent the same way: sendUserMessage skips command dispatch,
+          // so the model sees the literal text next to the pictures rather than the command running.
+          const parts: (TextContent | ImageContent)[] = frame.images.map((image) => ({ type: "image", data: image.data, mimeType: image.mimeType }));
+          if (frame.text.length > 0) parts.unshift({ type: "text", text: frame.text });
+          pi.sendUserMessage(parts);
+        } else if (!frame.submit) {
           // Released without the flick: leave it in the editor for the keyboard to finish.
           ctx.ui.setEditorText(existing.length === 0 ? frame.text : `${existing} ${frame.text}`);
         } else if (frame.text.startsWith("/")) {
@@ -288,6 +439,8 @@ export default function relayBridge(pi: ExtensionAPI): void {
         }
         return undefined;
       }
+      case "image":
+        return images.get(frame.imageId) ?? null;
       case "options":
         return { models: listModelOptions(ctx.modelRegistry.getAvailable()), skills: listSkillOptions(pi.getCommands()) };
       case "configure": {
@@ -308,6 +461,15 @@ export default function relayBridge(pi: ExtensionAPI): void {
       }
       case "abort":
         ctx.abort();
+        return undefined;
+      case "end":
+        // `ctx.shutdown()` only flags a request the TUI checks after its next submission, so the
+        // exit goes in as the user's own `/exit` on the next turn, once the ack has left.
+        setTimeout(() => {
+          if (ctx === null) return;
+          ctx.ui.setEditorText("/exit");
+          process.stdin.push("\r");
+        }, 0).unref();
         return undefined;
     }
   };
@@ -378,6 +540,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
     if (ctx === null) return;
     ctx = context;
     history.length = 0;
+    images.clear();
     const current = info();
     if (current !== null) send({ t: "hello", ...current });
   });
@@ -415,7 +578,16 @@ export default function relayBridge(pi: ExtensionAPI): void {
     const appended: InboxMessage[] = [];
     if (message.role === "user") {
       const text = textOf(message.content);
-      if (text.length > 0) appended.push({ id: nextId(), role: message.synthetic === true ? "system" : "user", text, at });
+      const refs = imagesOf(message.content);
+      if (text.length > 0 || refs.length > 0) {
+        const item: InboxMessage = { id: nextId(), role: message.synthetic === true ? "system" : "user", text, at };
+        if (refs.length > 0) item.images = refs;
+        appended.push(item);
+      }
+    } else if (message.role === "toolResult") {
+      // Only a result that carries pictures (a rendered page, a screenshot) is worth a transcript entry.
+      const refs = imagesOf(message.content);
+      if (refs.length > 0) appended.push({ id: nextId(), role: "tool", text: "", at, tool: { name: message.toolName, summary: "" }, images: refs });
     } else if (message.role === "assistant") {
       const text = textOf(message.content);
       if (text.length > 0) appended.push({ id: nextId(), role: "assistant", text, at });

@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { type AgentMessage, type AgentOptions, type AgentSession, type ClientMessage, type InputEvent, type KeyName, type ServerMessage } from "@relay/protocol";
+import { type AgentImage, type AgentMessage, type AgentOptions, type AgentSession, type ClientMessage, type InputEvent, type KeyName, type ServerMessage } from "@relay/protocol";
 import { AgentsDeltaTracker } from "../src/agents/delta-tracker";
 import { CommandDedupStore } from "../src/dedup";
 import { PairingCoordinator } from "../src/pairing";
@@ -300,7 +300,7 @@ class FakeProvider implements AgentProvider {
   readonly id = "omp";
   isAvailable = true;
   onChange: AgentProvider["onChange"] = null;
-  readonly replies: [string, string, boolean][] = [];
+  readonly replies: [string, string, boolean, readonly AgentImage[] | undefined][] = [];
   started = false;
   sessions: AgentSession[] = [
     { id: "s1", provider: "omp", title: "relay", projectPath: "/w/relay", status: "idle", lastActivity: "done", lastActivityAt: 5, canRespond: true },
@@ -311,10 +311,13 @@ class FakeProvider implements AgentProvider {
   conversation(sessionId: string): Promise<AgentMessage[] | null> {
     return Promise.resolve(sessionId === "s1" ? [{ id: "m1", role: "user", text: "hi", at: 1 }] : null);
   }
-  reply(sessionId: string, text: string, submit: boolean): Promise<void> {
+  reply(sessionId: string, text: string, submit: boolean, images?: readonly AgentImage[]): Promise<void> {
     if (sessionId !== "s1") return Promise.reject(new AckFailure({ code: "agent_not_found", message: "gone" }));
-    this.replies.push([sessionId, text, submit]);
+    this.replies.push([sessionId, text, submit, images]);
     return Promise.resolve();
+  }
+  image(sessionId: string, id: string): Promise<AgentImage | null> {
+    return Promise.resolve(sessionId === "s1" && id === "img1" ? { mimeType: "image/png", data: "iVBOR" } : null);
   }
   launched = 0;
   launch(): Promise<void> {
@@ -326,7 +329,7 @@ class FakeProvider implements AgentProvider {
       sessionId === "s1"
         ? {
             models: [{ provider: "anthropic", id: "m", name: "M", vendor: "anthropic", thinkingLevels: ["off", "low"] }],
-            skills: [{ name: "deploy", description: "Ship it", command: "/skill:deploy" }],
+            skills: [{ name: "deploy", description: "Ship it", command: "/skill:deploy", takesText: true }],
           }
         : null,
     );
@@ -340,6 +343,11 @@ class FakeProvider implements AgentProvider {
   aborted: string[] = [];
   abort(sessionId: string): Promise<void> {
     this.aborted.push(sessionId);
+    return Promise.resolve();
+  }
+  ended: string[] = [];
+  end(sessionId: string): Promise<void> {
+    this.ended.push(sessionId);
     return Promise.resolve();
   }
 }
@@ -382,10 +390,47 @@ describe("agent topics", () => {
     h.session.receive({ t: "cmd", id: "r1", cmd: { kind: "agent.reply", sessionId: "s1", text: "ship it", submit: true } });
     h.session.receive({ t: "cmd", id: "r2", cmd: { kind: "agent.reply", sessionId: "nope", text: "x", submit: false } });
     await h.sink.sentCount(6);
-    expect(agents.replies).toEqual([["s1", "ship it", true]]);
+    expect(agents.replies).toEqual([["s1", "ship it", true, undefined]]);
     expect(h.sink.sent.slice(-2)).toEqual([
       { t: "ack", id: "r1" },
       { t: "nack", id: "r2", error: { code: "agent_not_found", message: "gone" } },
+    ]);
+  });
+
+  it("passes reply images through to the provider", async () => {
+    const agents = new FakeProvider();
+    const h = harness({ agents });
+    pair(h);
+    const images: AgentImage[] = [{ mimeType: "image/jpeg", data: "/9j/4AAQ" }];
+    h.session.receive({ t: "cmd", id: "i1", cmd: { kind: "agent.reply", sessionId: "s1", text: "", submit: true, images } });
+    await h.sink.sentCount(5);
+    expect(agents.replies).toEqual([["s1", "", true, images]]);
+    expect(h.sink.last()).toEqual({ t: "ack", id: "i1" });
+  });
+
+  it("nacks an empty reply and images without submit as invalid_command before reaching the provider", async () => {
+    const agents = new FakeProvider();
+    const h = harness({ agents });
+    pair(h);
+    h.session.receive({ t: "cmd", id: "e1", cmd: { kind: "agent.reply", sessionId: "s1", text: "", submit: true } });
+    h.session.receive({ t: "cmd", id: "e2", cmd: { kind: "agent.reply", sessionId: "s1", text: "look", submit: false, images: [{ mimeType: "image/png", data: "iVBOR" }] } });
+    await h.sink.sentCount(6);
+    expect(agents.replies).toEqual([]);
+    expect(h.sink.sent.slice(-2)).toMatchObject([
+      { t: "nack", id: "e1", error: { code: "invalid_command" } },
+      { t: "nack", id: "e2", error: { code: "invalid_command" } },
+    ]);
+  });
+
+  it("answers agent.image with the provider's bytes and null for an unknown id", async () => {
+    const h = harness({ agents: new FakeProvider() });
+    pair(h);
+    h.session.receive({ t: "agent.image", sessionId: "s1", id: "img1" });
+    h.session.receive({ t: "agent.image", sessionId: "s1", id: "nope" });
+    await h.sink.sentCount(6);
+    expect(h.sink.sent.slice(-2)).toEqual([
+      { t: "agent.image", sessionId: "s1", id: "img1", image: { mimeType: "image/png", data: "iVBOR" } },
+      { t: "agent.image", sessionId: "s1", id: "nope", image: null },
     ]);
   });
 
@@ -400,7 +445,7 @@ describe("agent topics", () => {
         t: "agent.options",
         sessionId: "s1",
         models: [{ provider: "anthropic", id: "m", name: "M", vendor: "anthropic", thinkingLevels: ["off", "low"] }],
-        skills: [{ name: "deploy", description: "Ship it", command: "/skill:deploy" }],
+        skills: [{ name: "deploy", description: "Ship it", command: "/skill:deploy", takesText: true }],
       },
       { t: "agent.options", sessionId: "nope", models: [], skills: [] },
     ]);
