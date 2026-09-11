@@ -39,15 +39,16 @@ export function NotchedSurface({ color, radius, notches, style, onLayout, childr
   };
   if (sk === null) {
     return (
-      <View style={[styles.fallback, { borderRadius: radius, backgroundColor: color }, style]} onLayout={onLayout}>
+      <View style={[styles.fallback, { borderRadius: radius, backgroundColor: color }, style]} onLayout={onLayout} collapsable={false}>
         <View style={[styles.content, { borderRadius: radius }]}>{children}</View>
         {overlay}
       </View>
     );
   }
-  // Content is clipped by an inner view, not the surface itself, so the overlay may hang past the edge.
+  // Content is clipped by an inner view, not the surface itself, so the overlay may hang past the
+  // edge. The outer view stays a real native view (a GestureDetector may be attached to it).
   return (
-    <View style={style} onLayout={measure}>
+    <View style={style} onLayout={measure} collapsable={false}>
       {size.width > 0 && <Outline sk={sk} size={size} color={color} radius={radius} notches={notches} layer="fill" />}
       <View style={[styles.content, { borderRadius: radius }]}>{children}</View>
       {size.width > 0 && <Outline sk={sk} size={size} color={color} radius={radius} notches={notches} layer="stroke" />}
