@@ -396,20 +396,27 @@ export default function AgentInbox() {
         </View>
       </View>
       {session !== undefined && (
-        <NotchedSurface color={colors.surfaceRaised} radius={CARD_RADIUS} notches={panelNotches} style={styles.panel}>
-          {launchError !== null ? (
-            <View style={styles.banner}>
-              <Banner tone="danger" message={launchError} />
-            </View>
-          ) : canRespond ? (
-            <Cutout size={MIC_SIZE} style={styles.mic}>
-              <DictationButton size={MIC_SIZE} backgroundColor={colors.surface} {...(skills === undefined ? {} : { skills })} />
-            </Cutout>
-          ) : (
-            <View style={styles.banner}>
-              <Banner tone="warn" message="This session can't take replies." />
-            </View>
-          )}
+        <NotchedSurface
+          color={colors.surfaceRaised}
+          radius={CARD_RADIUS}
+          notches={panelNotches}
+          style={styles.panel}
+          overlay={
+            launchError !== null ? (
+              <View style={styles.banner}>
+                <Banner tone="danger" message={launchError} />
+              </View>
+            ) : canRespond ? (
+              <Cutout size={MIC_SIZE} style={styles.mic}>
+                <DictationButton size={MIC_SIZE} backgroundColor={colors.surface} {...(skills === undefined ? {} : { skills })} />
+              </Cutout>
+            ) : (
+              <View style={styles.banner}>
+                <Banner tone="warn" message="This session can't take replies." />
+              </View>
+            )
+          }
+        >
           <View style={styles.scrubRow}>
             <View style={{ flex: 1 }}>
               <AgentScrubber statuses={order.map((id) => sessions[id]?.status ?? "ended")} index={index} onChange={onScrub} onLongPress={onHold} />

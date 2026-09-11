@@ -18,6 +18,8 @@ export interface NotchedSurfaceProps {
   style?: StyleProp<ViewStyle>;
   onLayout?: (event: LayoutChangeEvent) => void;
   children: ReactNode;
+  /** Rendered above the outline layer: whatever sits in a notch of this surface (the mic in the panel). */
+  overlay?: ReactNode;
 }
 
 /**
@@ -27,7 +29,7 @@ export interface NotchedSurfaceProps {
  * hairline over them, so content scrolled up to a notch never paints across the outline. Without
  * Skia in the build it degrades to the plain bordered card.
  */
-export function NotchedSurface({ color, radius, notches, style, onLayout, children }: NotchedSurfaceProps) {
+export function NotchedSurface({ color, radius, notches, style, onLayout, children, overlay }: NotchedSurfaceProps) {
   const sk = loadSkia();
   const [size, setSize] = useState({ width: 0, height: 0 });
   const measure = (event: LayoutChangeEvent): void => {
@@ -38,15 +40,18 @@ export function NotchedSurface({ color, radius, notches, style, onLayout, childr
   if (sk === null) {
     return (
       <View style={[styles.fallback, { borderRadius: radius, backgroundColor: color }, style]} onLayout={onLayout}>
-        {children}
+        <View style={[styles.content, { borderRadius: radius }]}>{children}</View>
+        {overlay}
       </View>
     );
   }
+  // Content is clipped by an inner view, not the surface itself, so the overlay may hang past the edge.
   return (
-    <View style={[styles.surface, { borderRadius: radius }, style]} onLayout={measure}>
+    <View style={style} onLayout={measure}>
       {size.width > 0 && <Outline sk={sk} size={size} color={color} radius={radius} notches={notches} layer="fill" />}
-      {children}
+      <View style={[styles.content, { borderRadius: radius }]}>{children}</View>
       {size.width > 0 && <Outline sk={sk} size={size} color={color} radius={radius} notches={notches} layer="stroke" />}
+      {overlay}
     </View>
   );
 }
@@ -108,6 +113,6 @@ function Outline({ sk, size, color, radius, notches, layer }: OutlineProps) {
 }
 
 const styles = StyleSheet.create({
-  surface: { overflow: "hidden" },
-  fallback: { overflow: "hidden", borderWidth: 1, borderColor: colors.hairline },
+  content: { flex: 1, overflow: "hidden" },
+  fallback: { borderWidth: 1, borderColor: colors.hairline },
 });
