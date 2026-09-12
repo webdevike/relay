@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useMemo, useEffect, useRef, useState } from "react";
 import { FlatList, Image, Pressable, View, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 import { SymbolView } from "expo-symbols";
 import type { AgentImageRef, AgentMessage, AgentSession, AgentStatus } from "@relay/protocol";
@@ -9,8 +9,13 @@ import { useAgentsStore } from "@/state/agents";
 import { requestAgentImage } from "@/connection";
 import { ImageViewer } from "./ImageViewer";
 import { modelShortName, VendorLogo } from "./VendorLogo";
-/** Within this many points of the end, new messages keep the list pinned to the bottom. */
+/** Within this many points of the newest message, a new one keeps the list pinned to it. */
 const BOTTOM_STICK_PX = 80;
+/**
+ * Where each session's transcript was left, as the inverted list's offset (0 = the newest message
+ * in view). A card mounts straight at that offset, so switching sessions never scrolls.
+ */
+const scrollMemory = new Map<string, number>();
 /** Thumbnails never exceed this box; a ref without dimensions gets a square of `THUMB_SQUARE`. */
 const THUMB_MAX_HEIGHT = 160;
 const THUMB_MAX_WIDTH = 240;
@@ -52,20 +57,23 @@ function MessageImages({ sessionId, refs, onOpen }: MessageImagesProps) {
 
   return (
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm }}>
-      {refs.map((ref) => {
+      {refs.map((ref, index) => {
+        // Ref ids are content hashes, so the same picture attached twice repeats an id; the
+        // list is fixed per message, so position keeps keys unique.
+        const key = `${index}:${ref.id}`;
         const uri = images?.[ref.id];
         const size = thumbnailSize(ref);
         const frame = { ...size, borderRadius: THUMB_RADIUS, borderWidth: 1, borderColor: colors.hairline, overflow: "hidden" as const };
         if (typeof uri !== "string") {
           return (
-            <View key={ref.id} style={[frame, { backgroundColor: colors.surfaceRaised, alignItems: "center", justifyContent: "center" }]}>
+            <View key={key} style={[frame, { backgroundColor: colors.surfaceRaised, alignItems: "center", justifyContent: "center" }]}>
               {uri === null && <SymbolView name="photo" size={28} tintColor={colors.textFaint} />}
             </View>
           );
         }
         return (
           <Pressable
-            key={ref.id}
+            key={key}
             onPress={() => {
               onOpen(uri);
             }}
@@ -185,19 +193,19 @@ export interface AgentCardProps {
   connected: boolean;
 }
 
-/** One session's transcript, pinned to the newest message. */
+/**
+ * One session's transcript. The list is inverted (newest message at offset 0), so a fresh card
+ * shows the end without a single scroll, a session comes back at the offset it was left at, and
+ * a new message only pulls the view when it was already within `BOTTOM_STICK_PX` of the newest.
+ */
 export function AgentCard({ sessionId, messages, connected }: AgentCardProps) {
-  const list = useRef<FlatList<AgentMessage>>(null);
-  const atBottom = useRef(true);
   const [viewing, setViewing] = useState<string | null>(null);
-
-  const onScroll = (event: NativeSyntheticEvent<NativeScrollEvent>): void => {
-    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-    atBottom.current = contentSize.height - layoutMeasurement.height - contentOffset.y < BOTTOM_STICK_PX;
+  const newestFirst = useMemo(() => (messages === undefined ? undefined : [...messages].reverse()), [messages]);
+  const remember = (event: NativeSyntheticEvent<NativeScrollEvent>): void => {
+    if (sessionId !== undefined) scrollMemory.set(sessionId, Math.max(0, event.nativeEvent.contentOffset.y));
   };
-  const onContentSizeChange = (): void => {
-    if (atBottom.current) list.current?.scrollToEnd({ animated: false });
-  };
+  // Read once per mount: the prop only seeds the native scroll view's first position.
+  const initialOffset = useRef(sessionId === undefined ? 0 : (scrollMemory.get(sessionId) ?? 0));
 
   if (messages === undefined || sessionId === undefined) {
     return <CardPlaceholder text={connected ? "Loading conversation…" : "Connect to your host to load this conversation."} />;
@@ -206,14 +214,18 @@ export function AgentCard({ sessionId, messages, connected }: AgentCardProps) {
   return (
     <>
       <FlatList
-        ref={list}
-        data={messages}
+        style={{ flex: 1 }}
+        data={newestFirst}
+        inverted
         keyExtractor={(message) => message.id}
         renderItem={({ item }) => <MessageRow sessionId={sessionId} message={item} onOpenImage={setViewing} />}
         contentContainerStyle={{ paddingVertical: spacing.lg, gap: spacing.sm }}
-        onScroll={onScroll}
+        contentOffset={{ x: 0, y: initialOffset.current }}
+        maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: BOTTOM_STICK_PX }}
+        onScroll={remember}
+        onScrollEndDrag={remember}
+        onMomentumScrollEnd={remember}
         scrollEventThrottle={100}
-        onContentSizeChange={onContentSizeChange}
       />
       <ImageViewer
         uri={viewing}

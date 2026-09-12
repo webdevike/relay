@@ -114,6 +114,8 @@ function Outline({ sk, size, color, radius, notches, layer }: OutlineProps) {
 }
 
 const styles = StyleSheet.create({
-  content: { flex: 1, overflow: "hidden" },
+  // Grow to fill a sized surface (the chat card), but size to the children in an auto-height one
+  // (the header): `flex: 1` would set a zero basis and collapse it.
+  content: { flexGrow: 1, flexShrink: 1, overflow: "hidden" },
   fallback: { borderWidth: 1, borderColor: colors.hairline },
 });
