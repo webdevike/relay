@@ -227,6 +227,17 @@ export function requestAgentOptions(sessionId: string): void {
   socket.send(encode({ t: "agent.options", sessionId }));
 }
 
+/** Ephemeral; the host keeps the token per device, so this is re-sent on every connection. */
+export function registerPush(token: string): void {
+  if (useConnectionStore.getState().status !== "connected") return;
+  socket.send(encode({ t: "push.register", token }));
+}
+
+export function unregisterPush(): void {
+  if (useConnectionStore.getState().status !== "connected") return;
+  socket.send(encode({ t: "push.unregister" }));
+}
+
 /**
  * Ephemeral; the answer lands in `useAgentsStore().images[sessionId][id]`. Asked at most once per
  * ref: a store entry (even `null`, "host has none") or an in-flight request means no new frame.

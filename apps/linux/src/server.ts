@@ -8,7 +8,8 @@ import type { Server, ServerWebSocket } from "bun";
 import { AgentsDeltaTracker } from "./agents/delta-tracker";
 import { CommandDedupStore } from "./dedup";
 import { PairingCoordinator } from "./pairing";
-import type { AgentProvider, AgentProviderChange, DeviceStore, FrameSink, InputAccess, InputSink, PairingUI, TextInjecting } from "./seams";
+import type { AttentionNotifier } from "./push/notifier";
+import type { AgentProvider, AgentProviderChange, DeviceStore, FrameSink, InputAccess, InputSink, PairingUI, PushRegistry, TextInjecting } from "./seams";
 import { ClientSession } from "./session";
 
 export interface ServerConfig {
@@ -24,6 +25,10 @@ export interface ServerDeps {
   readonly access: InputAccess;
   readonly agents: AgentProvider | null;
   readonly devices: DeviceStore;
+  /** Phones' push tokens; null disables `push.register`. */
+  readonly push: PushRegistry | null;
+  /** Notifies registered phones about sessions that wait on the user; null disables it. */
+  readonly notifier: AttentionNotifier | null;
   readonly pairing: PairingUI;
   readonly log: (line: string) => void;
 }
@@ -79,6 +84,7 @@ export class RelayServer {
     if (agents !== null) {
       agents.start();
       this.agentsTracker.seed(agents.sessions);
+      this.deps.notifier?.seed(agents.sessions);
       agents.onChange = (change) => {
         this.handleProviderChange(change);
       };
@@ -147,10 +153,21 @@ export class RelayServer {
     for (const ws of this.sockets) ws.data.session?.broadcast(message);
   }
 
+  /** Whether the phone `deviceId` has `sessionId` open on some live connection. */
+  isViewing(deviceId: string, sessionId: string): boolean {
+    for (const ws of this.sockets) {
+      const session = ws.data.session;
+      if (session !== null && session.deviceId === deviceId && session.isSubscribed(sessionId)) return true;
+    }
+    return false;
+  }
+
   private handleProviderChange(change: AgentProviderChange): void {
     if (change.kind === "sessions") {
-      const delta = this.agentsTracker.apply(this.deps.agents?.sessions ?? []);
+      const sessions = this.deps.agents?.sessions ?? [];
+      const delta = this.agentsTracker.apply(sessions);
       for (const ws of this.sockets) ws.data.session?.broadcast(delta);
+      this.deps.notifier?.observe(sessions);
       return;
     }
     for (const ws of this.sockets) ws.data.session?.agentConversationAppended(change.sessionId, change.appended);
@@ -168,6 +185,7 @@ export class RelayServer {
         agents: this.deps.agents,
         agentsTracker: this.agentsTracker,
         devices: this.deps.devices,
+        push: this.deps.push,
         pairing: this.pairing,
         dedup: this.dedup,
       },

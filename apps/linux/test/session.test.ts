@@ -4,7 +4,7 @@ import { type AgentImage, type AgentMessage, type AgentOptions, type AgentSessio
 import { AgentsDeltaTracker } from "../src/agents/delta-tracker";
 import { CommandDedupStore } from "../src/dedup";
 import { PairingCoordinator } from "../src/pairing";
-import { AckFailure, type AgentConfigChange, type AgentProvider, type DeviceStore, type FrameSink, type InputSink, type PairedDevice, type PairingUI, type TextInjecting } from "../src/seams";
+import { AckFailure, type AgentConfigChange, type AgentProvider, type DeviceStore, type FrameSink, type InputSink, type PairedDevice, type PairingUI, type PushRegistry, type TextInjecting } from "../src/seams";
 import { ClientSession, PAIRING_TIMEOUT_MS, type SessionClock, type SessionDeps } from "../src/session";
 
 class RecordingSink implements FrameSink {
@@ -92,6 +92,7 @@ interface HarnessOptions {
   failText?: boolean;
   agents?: AgentProvider;
   tracker?: AgentsDeltaTracker;
+  push?: PushRegistry;
 }
 
 function harness(options: HarnessOptions = {}): Harness {
@@ -126,6 +127,7 @@ function harness(options: HarnessOptions = {}): Harness {
     agents: options.agents ?? null,
     agentsTracker: options.tracker ?? new AgentsDeltaTracker(),
     devices,
+    push: options.push ?? null,
     pairing: new PairingCoordinator(ui),
     dedup: options.dedup ?? new CommandDedupStore(),
   };
@@ -293,6 +295,24 @@ describe("authenticated traffic", () => {
     h.session.receive(hello);
     expect(h.sink.last()).toMatchObject({ t: "error", code: "protocol" });
     expect(h.sink.closed).toBe(true);
+  });
+
+  it("binds push.register / push.unregister to the authenticated device and never before auth", () => {
+    const calls: string[] = [];
+    const push: PushRegistry = {
+      register: (deviceId, token) => calls.push(`+${deviceId}:${token}`),
+      unregister: (deviceId) => calls.push(`-${deviceId}`),
+    };
+    const h = harness({ push });
+    h.session.receive(hello);
+    h.session.receive({ t: "push.register", token: "ExponentPushToken[x]" });
+    expect(h.sink.closed).toBe(true);
+    expect(calls).toEqual([]);
+    const paired = harness({ push, devices: h.devices });
+    pair(paired);
+    paired.session.receive({ t: "push.register", token: "ExponentPushToken[x]" });
+    paired.session.receive({ t: "push.unregister" });
+    expect(calls).toEqual(["+phone-1:ExponentPushToken[x]", "-phone-1"]);
   });
 });
 

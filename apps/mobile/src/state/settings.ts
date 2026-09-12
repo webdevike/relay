@@ -13,6 +13,8 @@ export interface SettingsState {
   manualHost: string;
   /** Swipe left while holding the inbox mic opens the skill wheel. Off until it is finished. */
   skillWheelEnabled: boolean;
+  /** Push a notification when a session starts waiting on the user. Requires system permission. */
+  notificationsEnabled: boolean;
   set: (partial: Partial<Omit<SettingsState, "set">>) => void;
 }
 
@@ -25,6 +27,7 @@ export const useSettingsStore = create<SettingsState>()(
       pointerSpeed: "normal",
       manualHost: "",
       skillWheelEnabled: false,
+      notificationsEnabled: false,
       set: (partial) => {
         set(partial);
       },

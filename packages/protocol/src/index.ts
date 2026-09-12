@@ -257,6 +257,12 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("agent.options"), sessionId: nonEmpty }),
   /** Fetch the bytes behind an `AgentImageRef`; answered by `agent.image`. */
   z.object({ t: z.literal("agent.image"), sessionId: nonEmpty, id: nonEmpty }),
+  /**
+   * Have the host push a notification to this device when a session starts waiting on the user.
+   * `token` is an Expo push token; the host keeps it per paired device until `push.unregister`.
+   */
+  z.object({ t: z.literal("push.register"), token: nonEmpty }),
+  z.object({ t: z.literal("push.unregister") }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 

@@ -11,6 +11,7 @@ import { useConnectionStore } from "@/state/connection";
 import { useSettingsStore, type PointerSpeed } from "@/state/settings";
 import { actions } from "@/state/actions";
 import { MANUAL_HOST_PLACEHOLDER, parseManualHost } from "@/connection/manual-host";
+import { setNotificationsEnabled } from "@/notifications";
 
 const speeds: PointerSpeed[] = ["slow", "normal", "fast"];
 
@@ -58,6 +59,29 @@ function HostAddressField() {
           : "Macs are found automatically. Enter host:port for a Linux host or to connect over Tailscale."}
       </Text>
     </View>
+  );
+}
+
+/** The switch only lands on when the system permission is granted; a refusal snaps it back. */
+function NotificationsRow() {
+  const enabled = useSettingsStore((state) => state.notificationsEnabled);
+  const [refused, setRefused] = useState(false);
+  return (
+    <Row
+      title="Notifications"
+      subtitle={refused ? "Allow notifications for Relay in iOS Settings" : "When a session waits on you"}
+      leading={<SymbolView name="bell.badge" size={22} tintColor={colors.textMuted} />}
+      trailing={
+        <Switch
+          value={enabled}
+          onValueChange={(value) => {
+            void setNotificationsEnabled(value).then((ok) => {
+              setRefused(value && !ok);
+            });
+          }}
+        />
+      }
+    />
   );
 }
 
@@ -131,6 +155,8 @@ export default function Settings() {
           />
         }
       />
+      <Separator />
+      <NotificationsRow />
       <Separator />
       <View style={{ paddingHorizontal: spacing.xl, paddingVertical: spacing.md, gap: spacing.md }}>
         <Text variant="title">Pointer speed</Text>

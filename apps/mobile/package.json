@@ -27,6 +27,7 @@
     "expo-haptics": "~15.0.8",
     "expo-keep-awake": "~15.0.8",
     "expo-linking": "~8.0.12",
+    "expo-notifications": "~0.32.17",
     "expo-router": "~6.0.24",
     "expo-screen-orientation": "~9.0.9",
     "expo-secure-store": "~15.0.8",

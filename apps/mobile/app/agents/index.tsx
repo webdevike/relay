@@ -3,7 +3,7 @@ import { Image, Pressable, StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { scheduleOnRN } from "react-native-worklets";
 import { SymbolView } from "expo-symbols";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Animated, { useSharedValue, withTiming, type EntryExitAnimationFunction } from "react-native-reanimated";
 import { Text } from "@/ui/Text";
@@ -89,7 +89,12 @@ export default function AgentInbox() {
   const connected = useConnectionStore((state) => state.status === "connected");
 
   // Selection sticks to a session id, not a slot, so re-sorting never silently changes the focus.
-  const [pickedId, setPickedId] = useState<string | null>(null);
+  // A tapped notification arrives as `?sessionId=`; it wins until the user scrubs elsewhere.
+  const { sessionId: linkedId } = useLocalSearchParams<{ sessionId?: string }>();
+  const [pickedId, setPickedId] = useState<string | null>(linkedId ?? null);
+  useEffect(() => {
+    if (linkedId !== undefined) setPickedId(linkedId);
+  }, [linkedId]);
   const selectedId = pickedId !== null && pickedId in sessions ? pickedId : order[0];
   const index = selectedId === undefined ? -1 : order.indexOf(selectedId);
   const lastIndex = useRef(index);

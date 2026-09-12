@@ -10,7 +10,7 @@ import { PROTOCOL_VERSION, parseClientMessage, toHex, type AgentMessage, type Ag
 import type { AgentsDeltaTracker } from "./agents/delta-tracker";
 import type { CommandDedupStore } from "./dedup";
 import type { PairingCoordinator } from "./pairing";
-import { AckFailure, type AgentProvider, type DeviceStore, type FrameSink, type InputAccess, type InputSink, type TextInjecting } from "./seams";
+import { AckFailure, type AgentProvider, type DeviceStore, type FrameSink, type InputAccess, type InputSink, type PushRegistry, type TextInjecting } from "./seams";
 
 export interface SessionDeps {
   readonly hostName: string;
@@ -21,6 +21,8 @@ export interface SessionDeps {
   readonly agents: AgentProvider | null;
   readonly agentsTracker: AgentsDeltaTracker;
   readonly devices: DeviceStore;
+  /** null when the host cannot push; `push.register` is then accepted and dropped. */
+  readonly push: PushRegistry | null;
   readonly pairing: PairingCoordinator;
   readonly dedup: CommandDedupStore;
 }
@@ -91,6 +93,11 @@ export class ClientSession {
   /** Sends only once authenticated; used by the server for state-topic broadcasts (`mac.state`). */
   broadcast(message: ServerMessage): void {
     if (this.phase.kind === "authenticated") this.sink.send(message);
+  }
+
+  /** Whether the phone currently has `sessionId`'s conversation open (subscribed on this socket). */
+  isSubscribed(sessionId: string): boolean {
+    return this.phase.kind === "authenticated" && this.subscriptions.has(sessionId);
   }
 
   /** Forwards appended agent messages iff subscribed to `sessionId`; bumps that subscription's rev. */
@@ -287,6 +294,12 @@ export class ClientSession {
         );
         break;
       }
+      case "push.register":
+        this.deps.push?.register(deviceId, message.token);
+        break;
+      case "push.unregister":
+        this.deps.push?.unregister(deviceId);
+        break;
       case "hello":
       case "auth":
       case "pair.request":

@@ -41,6 +41,12 @@ export interface DeviceStore {
   pairedDevices(): PairedDevice[];
 }
 
+/** Where a paired phone's push token lives; the session writes it on `push.register` / `push.unregister`. */
+export interface PushRegistry {
+  register(deviceId: string, token: string): void;
+  unregister(deviceId: string): void;
+}
+
 /** Shows / hides the pairing PIN. Exactly one `endPairing` per `beginPairing`. */
 export interface PairingUI {
   beginPairing(deviceName: string, pin: string): void;

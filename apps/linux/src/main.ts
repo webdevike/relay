@@ -14,7 +14,11 @@ import { TrackpadInputSink } from "./input/trackpad";
 import { UinputDevice } from "./input/uinput";
 import { AvahiAdvertiser } from "./mdns";
 import { TerminalPairingUI } from "./pairing";
+import { ExpoPushSender } from "./push/expo";
+import { AttentionNotifier } from "./push/notifier";
+import { FilePushTokenStore } from "./push/token-store";
 import { RelayServer } from "./server";
+import { systemClock } from "./session";
 
 const USAGE = `relay-linux <command>
 
@@ -59,7 +63,16 @@ function serve(port: number, name: string, agentHome: string | null): void {
   log(typer === null ? "text input: uinput US layout (ASCII only; install wtype on Wayland for Unicode)" : "text input: wtype");
 
   const agents = new OmpBridgeProvider(defaultSocketPath(), log, agentHome);
-  const server = new RelayServer(
+  const pushTokens = new FilePushTokenStore();
+  // `isViewing` only runs once sessions change, long after `server` below is initialised.
+  const notifier = new AttentionNotifier({
+    tokens: pushTokens,
+    sender: new ExpoPushSender(),
+    isViewing: (deviceId, sessionId): boolean => server.isViewing(deviceId, sessionId),
+    clock: systemClock,
+    log,
+  });
+  const server: RelayServer = new RelayServer(
     { port, hostName: name, version: pkg.version },
     {
       input: new TrackpadInputSink(poster),
@@ -67,6 +80,8 @@ function serve(port: number, name: string, agentHome: string | null): void {
       access: { granted: device !== null },
       agents,
       devices: new FileDeviceStore(),
+      push: pushTokens,
+      notifier,
       pairing: new TerminalPairingUI(),
       log,
     },
@@ -129,6 +144,7 @@ function main(argv: string[]): void {
       const id = positionals[1];
       if (id === undefined) throw new Error("forget: missing deviceId");
       new FileDeviceStore().forget(id);
+      new FilePushTokenStore().unregister(id);
       console.log(`forgot ${id}`);
       return;
     }
