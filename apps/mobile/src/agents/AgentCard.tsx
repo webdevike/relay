@@ -7,6 +7,7 @@ import { Pill, type PillProps } from "@/ui/Pill";
 import { colors, radii, spacing } from "@/theme";
 import { useAgentsStore } from "@/state/agents";
 import { requestAgentImage } from "@/connection";
+import { loadSkia } from "@/dictation/skia";
 import { ImageViewer } from "./ImageViewer";
 import { modelShortName, VendorLogo } from "./VendorLogo";
 /** Within this many points of the newest message, a new one keeps the list pinned to it. */
@@ -173,37 +174,53 @@ export function AgentHeader({ session }: AgentHeaderProps) {
           {session.statusDetail}
         </Text>
       )}
-      {session.contextUsed !== undefined && <ContextBar used={session.contextUsed} />}
-      {session.model !== undefined && (
-        <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
-          {session.modelVendor !== undefined && <VendorLogo vendor={session.modelVendor} size={13} />}
-          <Text variant="caption" color="textFaint" numberOfLines={1} style={{ flexShrink: 1 }}>
-            {modelShortName(session.model, session.modelVendor)}
-            {session.thinkingLevel === undefined ? "" : ` · ${session.thinkingLevel}`}
-          </Text>
-        </View>
-      )}
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm }}>
+        {session.model !== undefined ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm, flexShrink: 1 }}>
+            {session.modelVendor !== undefined && <VendorLogo vendor={session.modelVendor} size={13} />}
+            <Text variant="caption" color="textFaint" numberOfLines={1} style={{ flexShrink: 1 }}>
+              {modelShortName(session.model, session.modelVendor)}
+              {session.thinkingLevel === undefined ? "" : ` · ${session.thinkingLevel}`}
+            </Text>
+          </View>
+        ) : (
+          <View />
+        )}
+        {session.contextUsed !== undefined && <ContextRing used={session.contextUsed} />}
+      </View>
     </View>
   );
 }
 
-/** Past this share of the window the bar turns warn; the agent is close to compaction. */
-const CONTEXT_WARN = 0.85;
+const RING_SIZE = 14;
+const RING_STROKE = 2;
 
-/** A thin track showing how much of the model's context window the session has used. */
-function ContextBar({ used }: { used: number }) {
-  const fill = used >= CONTEXT_WARN ? colors.warn : colors.textMuted;
-  const percent = Math.round(used * 100);
+/** Green while there is room, yellow as the window fills, red when compaction is close. */
+function contextColor(used: number): string {
+  if (used <= 0.4) return colors.ok;
+  if (used <= 0.65) return colors.warn;
+  return colors.danger;
+}
+
+/** A small ring, under the status, filling clockwise with the share of the context window in use. */
+function ContextRing({ used }: { used: number }) {
+  const sk = loadSkia();
+  const color = contextColor(used);
+  if (sk === null) {
+    return <View style={{ width: RING_SIZE, height: RING_SIZE, borderRadius: RING_SIZE / 2, borderWidth: RING_STROKE, borderColor: color }} />;
+  }
+  const { Canvas, Path, Skia } = sk;
+  const inset = RING_STROKE / 2;
+  const rect = Skia.XYWHRect(inset, inset, RING_SIZE - RING_STROKE, RING_SIZE - RING_STROKE);
+  const track = Skia.Path.Make();
+  track.addOval(rect);
+  const arc = Skia.Path.Make();
+  arc.addArc(rect, -90, Math.max(0.5, used * 360));
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: spacing.xs }}>
-      <View style={{ flex: 1, flexDirection: "row", height: 3, borderRadius: 1.5, backgroundColor: colors.hairline, overflow: "hidden" }}>
-        <View style={{ flex: used, backgroundColor: fill }} />
-        <View style={{ flex: 1 - used }} />
-      </View>
-      <Text variant="caption" color="textFaint" tabular>
-        {`${String(percent)}% context`}
-      </Text>
-    </View>
+    <Canvas style={{ width: RING_SIZE, height: RING_SIZE }}>
+      <Path path={track} color={colors.hairline} style="stroke" strokeWidth={RING_STROKE} />
+      <Path path={arc} color={color} style="stroke" strokeWidth={RING_STROKE} strokeCap="round" />
+    </Canvas>
   );
 }
 
