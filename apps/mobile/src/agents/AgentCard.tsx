@@ -173,6 +173,7 @@ export function AgentHeader({ session }: AgentHeaderProps) {
           {session.statusDetail}
         </Text>
       )}
+      {session.contextUsed !== undefined && <ContextBar used={session.contextUsed} />}
       {session.model !== undefined && (
         <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
           {session.modelVendor !== undefined && <VendorLogo vendor={session.modelVendor} size={13} />}
@@ -182,6 +183,26 @@ export function AgentHeader({ session }: AgentHeaderProps) {
           </Text>
         </View>
       )}
+    </View>
+  );
+}
+
+/** Past this share of the window the bar turns warn; the agent is close to compaction. */
+const CONTEXT_WARN = 0.85;
+
+/** A thin track showing how much of the model's context window the session has used. */
+function ContextBar({ used }: { used: number }) {
+  const fill = used >= CONTEXT_WARN ? colors.warn : colors.textMuted;
+  const percent = Math.round(used * 100);
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: spacing.xs }}>
+      <View style={{ flex: 1, flexDirection: "row", height: 3, borderRadius: 1.5, backgroundColor: colors.hairline, overflow: "hidden" }}>
+        <View style={{ flex: used, backgroundColor: fill }} />
+        <View style={{ flex: 1 - used }} />
+      </View>
+      <Text variant="caption" color="textFaint" tabular>
+        {`${String(percent)}% context`}
+      </Text>
     </View>
   );
 }

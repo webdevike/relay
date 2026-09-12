@@ -52,6 +52,8 @@ export const AgentSession = z.object({
   modelVendor: z.string().optional(),
   /** Current thinking level selector (e.g. "off", "low", "high"), when the provider reports it. */
   thinkingLevel: z.string().optional(),
+  /** Share of the model's context window in use, 0..1, when the provider reports it. */
+  contextUsed: z.number().min(0).max(1).optional(),
 });
 export type AgentSession = z.infer<typeof AgentSession>;
 

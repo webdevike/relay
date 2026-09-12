@@ -26,6 +26,7 @@ const StatusFrame = z.object({
   model: z.string().optional(),
   modelVendor: z.string().optional(),
   thinkingLevel: z.string().optional(),
+  contextUsed: z.number().min(0).max(1).optional(),
 });
 
 const Inbound = z.discriminatedUnion("t", [
@@ -300,6 +301,7 @@ export class OmpBridgeProvider implements AgentProvider {
           ...(frame.model === undefined ? {} : { model: frame.model }),
           ...(frame.modelVendor === undefined ? {} : { modelVendor: frame.modelVendor }),
           ...(frame.thinkingLevel === undefined ? {} : { thinkingLevel: frame.thinkingLevel }),
+          ...(frame.contextUsed === undefined ? {} : { contextUsed: frame.contextUsed }),
         };
         this.publish();
         return;

@@ -53,6 +53,8 @@ interface Settings {
   model?: string;
   modelVendor?: string;
   thinkingLevel?: string;
+  /** Share of the context window in use, 0..1. */
+  contextUsed?: number;
 }
 
 interface SessionInfo extends Settings {
@@ -357,6 +359,8 @@ export default function relayBridge(pi: ExtensionAPI): void {
     }
     const level = pi.getThinkingLevel();
     if (level !== undefined) base.thinkingLevel = level;
+    const usage = ctx?.getContextUsage();
+    if (usage !== undefined && Number.isFinite(usage.percent)) base.contextUsed = Math.min(1, Math.max(0, usage.percent / 100));
     return base;
   };
 
