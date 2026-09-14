@@ -13,3 +13,5 @@ DerivedData/
 .env*
 apps/mac/Relay.app
 apps/mac/build/
+# Local Expo modules keep their native sources under ios/; only generated app folders are ignored above.
+!apps/mobile/modules/**/ios/
