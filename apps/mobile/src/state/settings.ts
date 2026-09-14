@@ -3,6 +3,8 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { fileStorage } from "./storage";
 
 export type PointerSpeed = "slow" | "normal" | "fast";
+/** `voz` is Desert Ant's on-device Parakeet model (no live partials, better on technical words); `apple` is iOS dictation. */
+export type Recognizer = "apple" | "voz";
 
 export interface SettingsState {
   deviceName: string;
@@ -15,6 +17,8 @@ export interface SettingsState {
   skillWheelEnabled: boolean;
   /** Push a notification when a session starts waiting on the user. Requires system permission. */
   notificationsEnabled: boolean;
+  /** Which speech recognizer hold-to-talk uses. `voz` falls back to `apple` until its model is downloaded. */
+  recognizer: Recognizer;
   set: (partial: Partial<Omit<SettingsState, "set">>) => void;
 }
 
@@ -28,6 +32,7 @@ export const useSettingsStore = create<SettingsState>()(
       manualHost: "",
       skillWheelEnabled: false,
       notificationsEnabled: false,
+      recognizer: "voz",
       set: (partial) => {
         set(partial);
       },

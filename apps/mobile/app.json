@@ -33,6 +33,15 @@
           "microphonePermission": "Relay listens while you dictate.",
           "speechRecognitionPermission": "Relay turns your dictation into text for your Mac."
         }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "18.0",
+            "useFrameworks": "dynamic"
+          }
+        }
       ]
     ],
     "experiments": {

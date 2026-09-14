@@ -19,6 +19,7 @@
     "@xstate/react": "^6.1.0",
     "expo": "~54.0.37",
     "expo-blur": "~15.0.8",
+    "expo-build-properties": "~1.0.10",
     "expo-clipboard": "~8.0.8",
     "expo-constants": "~18.0.14",
     "expo-crypto": "~15.0.9",

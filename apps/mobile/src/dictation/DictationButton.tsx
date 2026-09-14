@@ -23,6 +23,7 @@ import { impactHaptic, notifyHaptic, selectHaptic, tapHaptic } from "@/lib/hapti
 import { useConnectionStore } from "@/state/connection";
 import { debug } from "@/connection/log";
 import { useSpeechRecognitionEvent } from "expo-speech-recognition";
+import { VozDictation } from "../../modules/voz-dictation";
 import { MicGlyph, type MicGlyphMode } from "./MicGlyph";
 import { micLevel, sendLift, wheelConfirm, wheelDetent, wheelPosition } from "./signals";
 import { WHEEL_STEP_RAD } from "./SkillWheel";
@@ -118,6 +119,15 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
     const normalized = Math.min(1, Math.max(0, event.value / 8));
     level.value = withTiming(normalized, { duration: 70 });
   });
+  useEffect(() => {
+    // Voz reports its own 0..1 loudness while it records.
+    const subscription = VozDictation.addListener("level", (event) => {
+      level.value = withTiming(event.value, { duration: 70 });
+    });
+    return () => {
+      subscription.remove();
+    };
+  }, [level]);
   useEffect(() => {
     if (state.phase === "sent") notifyHaptic("success");
     if (state.phase !== "listening") level.value = withTiming(0, { duration: motion.duration.fast });

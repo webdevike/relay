@@ -8,12 +8,18 @@ import { Text } from "@/ui/Text";
 import { Button } from "@/ui/Button";
 import { colors, radii, spacing, type } from "@/theme";
 import { useConnectionStore } from "@/state/connection";
-import { useSettingsStore, type PointerSpeed } from "@/state/settings";
+import { useSettingsStore, type PointerSpeed, type Recognizer } from "@/state/settings";
 import { actions } from "@/state/actions";
 import { MANUAL_HOST_PLACEHOLDER, parseManualHost } from "@/connection/manual-host";
 import { setNotificationsEnabled } from "@/notifications";
+import { warmVoz } from "@/dictation/actor";
+import { VozDictation } from "../modules/voz-dictation";
 
 const speeds: PointerSpeed[] = ["slow", "normal", "fast"];
+const recognizers: { value: Recognizer; label: string }[] = [
+  { value: "voz", label: "Voz" },
+  { value: "apple", label: "Apple" },
+];
 
 /**
  * Committed on blur/submit, not per keystroke: every committed change restarts the connection.
@@ -82,6 +88,73 @@ function NotificationsRow() {
         />
       }
     />
+  );
+}
+
+/**
+ * Apple dictation or Voz. Voz needs its 467 MB model once; until it is on the phone every hold
+ * still goes to Apple, and the caption says so.
+ */
+function RecognizerField() {
+  const recognizer = useSettingsStore((state) => state.recognizer);
+  const set = useSettingsStore((state) => state.set);
+  const [downloaded, setDownloaded] = useState(() => VozDictation.isDownloaded());
+  const [progress, setProgress] = useState<number | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  const download = () => {
+    setFailed(false);
+    setProgress(0);
+    const subscription = VozDictation.addListener("downloadProgress", (event) => {
+      setProgress(event.fraction);
+    });
+    VozDictation.download().then(
+      () => {
+        subscription.remove();
+        setProgress(null);
+        setDownloaded(true);
+        warmVoz();
+      },
+      () => {
+        subscription.remove();
+        setProgress(null);
+        setFailed(true);
+      },
+    );
+  };
+
+  const caption =
+    recognizer === "apple"
+      ? "iOS dictation, words appear as you speak"
+      : downloaded
+        ? "On device, transcribed when you let go. Voz by Desert Ant Labs."
+        : progress !== null
+          ? `Downloading model, ${Math.round(progress * 100)}%`
+          : failed
+            ? "Download failed. Using iOS dictation until it succeeds."
+            : "Needs the 467 MB model. Using iOS dictation until then.";
+
+  return (
+    <View style={{ paddingHorizontal: spacing.xl, paddingVertical: spacing.md, gap: spacing.md }}>
+      <Text variant="title">Speech recognition</Text>
+      <View style={{ flexDirection: "row", gap: spacing.sm }}>
+        {recognizers.map((option) => (
+          <Button
+            key={option.value}
+            label={option.label}
+            variant={recognizer === option.value ? "primary" : "secondary"}
+            onPress={() => {
+              set({ recognizer: option.value });
+              if (option.value === "voz") warmVoz();
+            }}
+          />
+        ))}
+        {recognizer === "voz" && !downloaded && progress === null && <Button label="Download" variant="secondary" onPress={download} />}
+      </View>
+      <Text variant="caption" color={failed ? "danger" : "textMuted"}>
+        {caption}
+      </Text>
+    </View>
   );
 }
 
@@ -157,6 +230,8 @@ export default function Settings() {
       />
       <Separator />
       <NotificationsRow />
+      <Separator />
+      <RecognizerField />
       <Separator />
       <View style={{ paddingHorizontal: spacing.xl, paddingVertical: spacing.md, gap: spacing.md }}>
         <Text variant="title">Pointer speed</Text>
