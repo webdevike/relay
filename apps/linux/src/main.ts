@@ -26,12 +26,14 @@ import { AttentionNotifier } from "./push/notifier";
 import { FilePushTokenStore } from "./push/token-store";
 import { RelayServer } from "./server";
 import { systemClock } from "./session";
+import { ClipboardWatcher, systemPaste, systemWatch } from "./drops/clipboard";
 
 const USAGE = `relay-linux <command>
 
-  serve [--port N] [--name NAME] [--agent-home DIR]
+  serve [--port N] [--name NAME] [--agent-home DIR] [--no-clipboard]
                                    run the host (default command); --agent-home is where a
-                                   session started from the phone opens (default: $HOME)
+                                   session started from the phone opens (default: $HOME);
+                                   --no-clipboard stops desktop copies from becoming drops
   devices                          list paired phones
   forget <deviceId>                remove a paired phone
   share <text | url | path> ...    add to the drop box of the running host: one existing file
@@ -67,7 +69,7 @@ function log(line: string): void {
   console.log(`${new Date().toISOString()} ${line}`);
 }
 
-function serve(port: number, name: string, agentHome: string | null): void {
+function serve(port: number, name: string, agentHome: string | null, watchClipboard: boolean): void {
   let device: UinputDevice | null = null;
   try {
     device = new UinputDevice();
@@ -119,8 +121,13 @@ function serve(port: number, name: string, agentHome: string | null): void {
   advertiser.start();
   log("advertising _relay._tcp via avahi");
 
+  const clipboard = watchClipboard && Bun.which("wl-paste") !== null ? new ClipboardWatcher({ drops, paste: systemPaste, watch: systemWatch, log, after: (ms, fn) => systemClock.after(ms, fn) }) : null;
+  clipboard?.start();
+  log(clipboard === null ? (watchClipboard ? "clipboard watcher disabled (wl-paste not found)" : "clipboard watcher disabled (--no-clipboard)") : "clipboard watcher: every copy becomes a drop");
+
   const shutdown = (): void => {
     log("shutting down");
+    clipboard?.stop();
     rmSync(infoPath, { force: true });
     advertiser.stop();
     server.stop();
@@ -179,6 +186,7 @@ async function main(argv: string[]): Promise<void> {
       port: { type: "string", default: "0" },
       name: { type: "string", default: hostname() },
       "agent-home": { type: "string" },
+      "no-clipboard": { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -191,7 +199,7 @@ async function main(argv: string[]): Promise<void> {
     case "serve": {
       const port = Number.parseInt(values.port, 10);
       if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`invalid --port ${values.port}`);
-      serve(port, values.name, values["agent-home"] ?? process.env["HOME"] ?? null);
+      serve(port, values.name, values["agent-home"] ?? process.env["HOME"] ?? null, !values["no-clipboard"]);
       return;
     }
     case "devices": {
