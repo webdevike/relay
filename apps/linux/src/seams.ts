@@ -1,7 +1,7 @@
 // Seams between transport, input and storage. Mirrors apps/mac/Sources/RelayCore/Seams.swift:
 // the session only ever talks to these; input/ and the stores implement them; main.ts wires them.
 
-import type { AckError, AgentImage, AgentMessage, AgentOptions, AgentSession, Command, InputEvent, KeyName, ServerMessage } from "@relay/protocol";
+import type { AckError, AgentImage, AgentMessage, AgentOptions, AgentSession, Command, Drop, DropOrigin, InputEvent, KeyName, ServerMessage } from "@relay/protocol";
 
 /** Outbound side of one connection. `send` after `close` is a no-op. */
 export interface FrameSink {
@@ -45,6 +45,33 @@ export interface DeviceStore {
 export interface PushRegistry {
   register(deviceId: string, token: string): void;
   unregister(deviceId: string): void;
+}
+
+export type DropChange = { readonly kind: "added"; readonly drop: Drop } | { readonly kind: "removed"; readonly id: string };
+
+/** Bytes behind an `image` or `file` drop, resolved for an HTTP response. */
+export interface DropBlob {
+  readonly path: string;
+  readonly mimeType: string;
+  readonly name: string;
+  readonly size: number;
+}
+
+/**
+ * The shared drop box: history newest first, bounded to `MAX_DROPS`. Every mutation, from any
+ * caller (phone command, CLI, HTTP), reports through `onChange` so the server can fan it out.
+ */
+export interface DropBox {
+  onChange: ((change: DropChange) => void) | null;
+  list(): readonly Drop[];
+  /** Text becomes a `link` drop when it is a single URL. */
+  putText(origin: DropOrigin, text: string): Drop;
+  /** `bytes` larger than `MAX_DROP_BYTES` throw. Images (by `mimeType`) become `image` drops. */
+  putBlob(origin: DropOrigin, blob: { readonly name: string; readonly mimeType: string; readonly bytes: Uint8Array }): Drop;
+  /** False when no such drop. */
+  remove(id: string): boolean;
+  /** The blob for `id` iff `token` matches its `DropFile.path`; null otherwise (also for text drops). */
+  open(id: string, token: string): DropBlob | null;
 }
 
 /** Shows / hides the pairing PIN. Exactly one `endPairing` per `beginPairing`. */

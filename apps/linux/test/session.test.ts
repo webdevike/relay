@@ -4,7 +4,7 @@ import { type AgentImage, type AgentMessage, type AgentOptions, type AgentSessio
 import { AgentsDeltaTracker } from "../src/agents/delta-tracker";
 import { CommandDedupStore } from "../src/dedup";
 import { PairingCoordinator } from "../src/pairing";
-import { AckFailure, type AgentConfigChange, type AgentProvider, type DeviceStore, type FrameSink, type InputSink, type PairedDevice, type PairingUI, type PushRegistry, type TextInjecting } from "../src/seams";
+import { AckFailure, type AgentConfigChange, type AgentProvider, type DeviceStore, type DropBox, type FrameSink, type InputSink, type PairedDevice, type PairingUI, type PushRegistry, type TextInjecting } from "../src/seams";
 import { ClientSession, PAIRING_TIMEOUT_MS, type SessionClock, type SessionDeps } from "../src/session";
 
 class RecordingSink implements FrameSink {
@@ -93,6 +93,7 @@ interface HarnessOptions {
   agents?: AgentProvider;
   tracker?: AgentsDeltaTracker;
   push?: PushRegistry;
+  drops?: DropBox;
 }
 
 function harness(options: HarnessOptions = {}): Harness {
@@ -128,6 +129,7 @@ function harness(options: HarnessOptions = {}): Harness {
     agentsTracker: options.tracker ?? new AgentsDeltaTracker(),
     devices,
     push: options.push ?? null,
+    drops: options.drops ?? null,
     pairing: new PairingCoordinator(ui),
     dedup: options.dedup ?? new CommandDedupStore(),
   };

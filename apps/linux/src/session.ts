@@ -10,7 +10,7 @@ import { PROTOCOL_VERSION, parseClientMessage, toHex, type AgentMessage, type Ag
 import type { AgentsDeltaTracker } from "./agents/delta-tracker";
 import type { CommandDedupStore } from "./dedup";
 import type { PairingCoordinator } from "./pairing";
-import { AckFailure, type AgentProvider, type DeviceStore, type FrameSink, type InputAccess, type InputSink, type PushRegistry, type TextInjecting } from "./seams";
+import { AckFailure, type AgentProvider, type DeviceStore, type DropBox, type FrameSink, type InputAccess, type InputSink, type PushRegistry, type TextInjecting } from "./seams";
 
 export interface SessionDeps {
   readonly hostName: string;
@@ -23,6 +23,8 @@ export interface SessionDeps {
   readonly devices: DeviceStore;
   /** null when the host cannot push; `push.register` is then accepted and dropped. */
   readonly push: PushRegistry | null;
+  /** null when the host has no drop box; drop frames and commands are then refused. */
+  readonly drops: DropBox | null;
   readonly pairing: PairingCoordinator;
   readonly dedup: CommandDedupStore;
 }
@@ -300,6 +302,9 @@ export class ClientSession {
       case "push.unregister":
         this.deps.push?.unregister(deviceId);
         break;
+      case "drop.list":
+        this.sink.send({ t: "drop.list", drops: this.deps.drops === null ? [] : [...this.deps.drops.list()] });
+        break;
       case "hello":
       case "auth":
       case "pair.request":
@@ -368,6 +373,23 @@ export class ClientSession {
         return this.agents().abort(cmd.sessionId);
       case "agent.end":
         return this.agents().end(cmd.sessionId);
+      case "drop.put": {
+        if ((cmd.text === undefined) === (cmd.image === undefined)) {
+          return Promise.reject(new AckFailure({ code: "invalid_command", message: "drop.put takes exactly one of text or image" }));
+        }
+        const drops = this.drops();
+        if (cmd.text !== undefined) {
+          drops.putText("phone", cmd.text);
+          return Promise.resolve();
+        }
+        const image = cmd.image;
+        if (image === undefined) return Promise.resolve();
+        const ext = image.mimeType === "image/jpeg" ? "jpg" : image.mimeType === "image/png" ? "png" : "webp";
+        drops.putBlob("phone", { name: `phone-${new Date().toISOString().replace(/[:.]/g, "-")}.${ext}`, mimeType: image.mimeType, bytes: Buffer.from(image.data, "base64") });
+        return Promise.resolve();
+      }
+      case "drop.delete":
+        return this.drops().remove(cmd.id) ? Promise.resolve() : Promise.reject(new AckFailure({ code: "drop_not_found", message: `no drop ${cmd.id}` }));
     }
   }
 
@@ -376,6 +398,11 @@ export class ClientSession {
       throw new AckFailure({ code: "agent_cannot_respond", message: "no agent provider available" });
     }
     return this.deps.agents;
+  }
+
+  private drops(): DropBox {
+    if (this.deps.drops === null) throw new AckFailure({ code: "drop_unavailable", message: "no drop box on this host" });
+    return this.deps.drops;
   }
 
   private authenticate(deviceId: string): void {

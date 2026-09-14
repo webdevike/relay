@@ -1,8 +1,8 @@
 /**
- * Push notifications for sessions that wait on the user. The host decides when to notify (see
- * apps/linux/src/push/notifier.ts); the phone's job is the permission prompt, handing the host its
- * Expo push token on every connection while the setting is on, and opening the session a tapped
- * notification points at.
+ * Push notifications for sessions that wait on the user and for host-origin drops. The host
+ * decides when to notify (see apps/linux/src/push/notifier.ts); the phone's job is the permission
+ * prompt, handing the host its Expo push token on every connection while the setting is on, and
+ * opening the session or drop box a tapped notification points at.
  */
 import { useEffect } from "react";
 import Constants from "expo-constants";
@@ -65,8 +65,15 @@ export async function setNotificationsEnabled(enabled: boolean): Promise<boolean
   return true;
 }
 
-function openSession(notification: Notifications.Notification): void {
-  const sessionId: unknown = notification.request.content.data["sessionId"];
+/** A session notification carries `sessionId`, a drop notification `dropId`; anything else is ignored. */
+function openTarget(notification: Notifications.Notification): void {
+  const data = notification.request.content.data;
+  const dropId: unknown = data["dropId"];
+  if (typeof dropId === "string") {
+    router.navigate({ pathname: "/drops" });
+    return;
+  }
+  const sessionId: unknown = data["sessionId"];
   if (typeof sessionId !== "string") return;
   router.navigate({ pathname: "/agents", params: { sessionId } });
 }
@@ -79,9 +86,9 @@ export function usePushNotifications(): void {
       if (next.status === "connected" && prev.status !== "connected") void syncRegistration();
     });
     const launch = Notifications.getLastNotificationResponse();
-    if (launch) openSession(launch.notification);
+    if (launch) openTarget(launch.notification);
     const responses = Notifications.addNotificationResponseReceivedListener((response) => {
-      openSession(response.notification);
+      openTarget(response.notification);
     });
     return () => {
       unsubscribe();

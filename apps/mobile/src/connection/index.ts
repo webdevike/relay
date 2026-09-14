@@ -10,9 +10,11 @@ import { CryptoDigestAlgorithm, digest } from "expo-crypto";
 import { encode, parseServerMessage, WS_PATH, type Command, type InputEvent } from "@relay/protocol";
 import { useConnectionStore } from "@/state/connection";
 import { useAgentsStore } from "@/state/agents";
+import { useDropsStore } from "@/state/drops";
 import { setActions } from "@/state/actions";
 import { useSettingsStore } from "@/state/settings";
 import { createAgentFrameRouter } from "./agents";
+import { createDropFrameRouter } from "./drops";
 import * as identity from "./identity";
 import { Discovery, type DiscoveredService } from "./discovery";
 import { parseManualHost } from "./manual-host";
@@ -29,6 +31,11 @@ let machine: SessionMachine | null = null;
 let wasActive = true;
 let appStateSubscription: NativeEventSubscription | null = null;
 let retryTimer: number | undefined;
+/**
+ * `host:port` the socket was last opened with (IPv6 bracketed), the origin for `/drops/...` blob
+ * fetches. Only meaningful while `status === "connected"`; a later connect overwrites it.
+ */
+let hostAuthority: string | null = null;
 
 const commandQueue = new CommandQueue();
 const socket = new RelaySocket();
@@ -40,6 +47,7 @@ function imageKey(sessionId: string, id: string): string {
 }
 
 const routeAgentFrame = createAgentFrameRouter(useAgentsStore.getState(), (message) => socket.send(encode(message)));
+const routeDropFrame = createDropFrameRouter(useDropsStore.getState());
 const discovery = new Discovery({
   onCandidate: (service) => {
     currentCandidate = service;
@@ -74,9 +82,12 @@ socket.onMessage = (data) => {
   if (message.t === "welcome") {
     commandQueue.onReconnect((m) => socket.send(encode(m)));
     imagesInFlight.clear();
+    // The host owns the drop history; the phone never trusts its copy across a (re)connection.
+    socket.send(encode({ t: "drop.list" }));
   }
   if (message.t === "agent.image") imagesInFlight.delete(imageKey(message.sessionId, message.id));
   routeAgentFrame(message);
+  routeDropFrame(message);
   void dispatch({ type: "server", message });
 };
 
@@ -91,7 +102,8 @@ async function applyEffects(effects: Effect[]): Promise<void> {
     switch (effect.type) {
       case "connect":
         debug("session", "connect", effect.host, effect.port);
-        socket.open(`ws://${effect.host}:${effect.port}${WS_PATH}`);
+        hostAuthority = `${effect.host.includes(":") ? `[${effect.host}]` : effect.host}:${effect.port}`;
+        socket.open(`ws://${hostAuthority}${WS_PATH}`);
         break;
       case "send":
         socket.send(encode(effect.message));
@@ -225,6 +237,21 @@ export function unsubscribeAgent(sessionId: string): void {
 export function requestAgentOptions(sessionId: string): void {
   if (useConnectionStore.getState().status !== "connected") return;
   socket.send(encode({ t: "agent.options", sessionId }));
+}
+
+/** Ephemeral; the answer lands in `useDropsStore().drops`. Also sent by the driver on every welcome. */
+export function requestDrops(): void {
+  if (useConnectionStore.getState().status !== "connected") return;
+  socket.send(encode({ t: "drop.list" }));
+}
+
+/**
+ * `http://<host>:<port>` of the live connection, the prefix for `Drop.file.path` blob fetches.
+ * `null` when not connected: there is no host to fetch from and no drop list to fetch for.
+ */
+export function hostBaseUrl(): string | null {
+  if (useConnectionStore.getState().status !== "connected" || hostAuthority === null) return null;
+  return `http://${hostAuthority}`;
 }
 
 /** Ephemeral; the host keeps the token per device, so this is re-sent on every connection. */

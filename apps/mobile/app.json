@@ -35,6 +35,13 @@
         }
       ],
       [
+        "expo-media-library",
+        {
+          "savePhotosPermission": "Relay saves shared images to your photos.",
+          "isAccessMediaLocationEnabled": false
+        }
+      ],
+      [
         "expo-build-properties",
         {
           "ios": {

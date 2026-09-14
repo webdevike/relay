@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { relativeTime, truncate } from "./format";
+import { byteSize, relativeTime, truncate } from "./format";
 
 describe("relativeTime", () => {
   const now = 1_000_000;
@@ -42,5 +42,19 @@ describe("truncate", () => {
   it("handles a max length of 1 or less without producing an ellipsis-only overflow", () => {
     expect(truncate("hello", 1)).toBe("h");
     expect(truncate("hello", 0)).toBe("");
+  });
+});
+
+describe("byteSize", () => {
+  it("keeps bytes whole and steps up at each 1024 boundary", () => {
+    expect(byteSize(0)).toBe("0 B");
+    expect(byteSize(1023)).toBe("1023 B");
+    expect(byteSize(1024)).toBe("1.0 KB");
+    expect(byteSize(1024 * 1024)).toBe("1.0 MB");
+  });
+
+  it("shows one decimal under 10 of a unit and whole numbers above", () => {
+    expect(byteSize(3.45 * 1024)).toBe("3.5 KB");
+    expect(byteSize(12.6 * 1024 * 1024)).toBe("13 MB");
   });
 });

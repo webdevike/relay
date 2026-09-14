@@ -109,6 +109,53 @@ export const AgentImage = z.object({
 });
 export type AgentImage = z.infer<typeof AgentImage>;
 
+// ---------------------------------------------------------------------------------------------
+// Drops: a shared drop box between the phone and the host. The host owns the history (newest
+// first, bounded); either side adds to it explicitly. Text and links ride the socket; image and
+// file bytes are fetched over HTTP from the host at `Drop.file.path` on the relay port.
+// ---------------------------------------------------------------------------------------------
+
+export const MAX_DROPS = 100;
+/** Longest text drop, in UTF-16 code units; anything bigger goes as a file. */
+export const MAX_DROP_TEXT = 64 * 1024;
+/** Largest blob the host keeps per drop, in bytes. */
+export const MAX_DROP_BYTES = 50 * 1024 * 1024;
+
+export const DropKind = z.enum(["text", "link", "image", "file"]);
+export type DropKind = z.infer<typeof DropKind>;
+
+export const DropOrigin = z.enum(["host", "phone"]);
+export type DropOrigin = z.infer<typeof DropOrigin>;
+
+export const DropFile = z.object({
+  name: nonEmpty,
+  mimeType: nonEmpty,
+  /** Bytes on disk. */
+  size: z.number().int().nonnegative(),
+  /**
+   * Path on the relay HTTP port, `/drops/<id>/<token>`; the token is unguessable and is the only
+   * credential the fetch needs. Prefix it with `http://<host>:<port>` of the live connection.
+   */
+  path: nonEmpty,
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+});
+export type DropFile = z.infer<typeof DropFile>;
+
+export const Drop = z.object({
+  id: nonEmpty,
+  kind: DropKind,
+  origin: DropOrigin,
+  createdAt: ms, // unix epoch ms
+  /** One-line preview: the first line of text, the URL, or the file name. */
+  title: nonEmpty,
+  /** Full content for `text` and `link`; absent for `image` and `file`. */
+  text: z.string().max(MAX_DROP_TEXT).optional(),
+  /** Present for `image` and `file`; absent for `text` and `link`. */
+  file: DropFile.optional(),
+});
+export type Drop = z.infer<typeof Drop>;
+
 /**
  * An image attached to a transcript message. Only a reference travels with the transcript; the
  * bytes are fetched once per `id` with `agent.image` so a re-sent conversation stays small.
@@ -212,6 +259,16 @@ export const Command = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("agent.abort"), sessionId: nonEmpty }),
   /** Shut the session down: omp exits and the terminal it ran in closes. */
   z.object({ kind: z.literal("agent.end"), sessionId: nonEmpty }),
+  /**
+   * Add a drop from the phone. Exactly one of `text` or `image`; the host classifies text that
+   * is a single URL as a `link`.
+   */
+  z.object({
+    kind: z.literal("drop.put"),
+    text: z.string().min(1).max(MAX_DROP_TEXT).optional(),
+    image: AgentImage.optional(),
+  }),
+  z.object({ kind: z.literal("drop.delete"), id: nonEmpty }),
 ]);
 export type Command = z.infer<typeof Command>;
 
@@ -224,6 +281,8 @@ export const AckError = z.object({
     "agent_configure_failed",
     "invalid_command",
     "internal",
+    "drop_unavailable",
+    "drop_not_found",
   ]),
   message: z.string(),
 });
@@ -263,6 +322,8 @@ export const ClientMessage = z.discriminatedUnion("t", [
    */
   z.object({ t: z.literal("push.register"), token: nonEmpty }),
   z.object({ t: z.literal("push.unregister") }),
+  /** Ask for the drop history; answered by `drop.list`. */
+  z.object({ t: z.literal("drop.list") }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 
@@ -316,6 +377,11 @@ export const ServerMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("agent.options"), sessionId: nonEmpty, models: z.array(AgentModel), skills: z.array(AgentSkill) }),
   /** `image` is null when the session no longer has that image. */
   z.object({ t: z.literal("agent.image"), sessionId: nonEmpty, id: nonEmpty, image: AgentImage.nullable() }),
+  /** A drop was added on either side; also mirrored as a push notification for host-origin drops. */
+  z.object({ t: z.literal("drop.new"), drop: Drop }),
+  z.object({ t: z.literal("drop.removed"), id: nonEmpty }),
+  /** Answer to `drop.list`: the whole history, newest first. */
+  z.object({ t: z.literal("drop.list"), drops: z.array(Drop).max(MAX_DROPS) }),
   z.object({ t: z.literal("ack"), id: nonEmpty }),
   z.object({ t: z.literal("nack"), id: nonEmpty, error: AckError }),
   z.object({ t: z.literal("pong"), ts: ms, serverTs: ms }),

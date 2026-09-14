@@ -3,17 +3,20 @@
 // that is looking at that session right now (connected and subscribed to it) is skipped; it has the
 // live card in front of it. Delivery goes through Expo's push service, which holds the APNs key.
 
-import type { AgentSession, AgentStatus } from "@relay/protocol";
+import type { AgentSession, AgentStatus, Drop } from "@relay/protocol";
 import type { SessionClock } from "../session";
 import type { PushTokenSource } from "./token-store";
 
 export const REMINDER_MS = 10 * 60_000;
 
+/** Tap routing on the phone: a session opens the inbox card, a drop opens the Drops list. */
+export type PushData = { readonly sessionId: string } | { readonly dropId: string };
+
 export interface PushMessage {
   readonly to: string;
   readonly title: string;
   readonly body: string;
-  readonly data: { readonly sessionId: string };
+  readonly data: PushData;
 }
 
 export type PushOutcome = { readonly ok: true } | { readonly ok: false; readonly error: string; readonly unregistered: boolean };
@@ -86,16 +89,24 @@ export class AttentionNotifier {
       this.notify(sessionId, true);
     });
 
+    const title = reminder ? `${session.title} is still waiting` : session.title;
+    const body = session.status === "needs_permission" ? `Needs permission${session.statusDetail === undefined ? "" : `: ${session.statusDetail}`}` : session.lastActivity;
+    this.send(title, body, { sessionId: session.id }, (deviceId) => this.deps.isViewing(deviceId, session.id));
+  }
+
+  /** Announces a host-origin drop to every registered phone. */
+  announceDrop(drop: Drop, hostName: string): void {
+    this.send(`Shared from ${hostName}`, drop.title, { dropId: drop.id }, () => false);
+  }
+
+  private send(title: string, body: string, data: PushData, skip: (deviceId: string) => boolean): void {
     const recipients: { deviceId: string; token: string }[] = [];
     for (const [deviceId, token] of this.deps.tokens.tokens()) {
-      if (this.deps.isViewing(deviceId, session.id)) continue;
+      if (skip(deviceId)) continue;
       recipients.push({ deviceId, token });
     }
     if (recipients.length === 0) return;
-
-    const title = reminder ? `${session.title} is still waiting` : session.title;
-    const body = session.status === "needs_permission" ? `Needs permission${session.statusDetail === undefined ? "" : `: ${session.statusDetail}`}` : session.lastActivity;
-    const messages = recipients.map((recipient) => ({ to: recipient.token, title, body, data: { sessionId: session.id } }));
+    const messages = recipients.map((recipient) => ({ to: recipient.token, title, body, data }));
     void this.deps.sender.send(messages).then(
       (outcomes) => {
         outcomes.forEach((outcome, index) => {

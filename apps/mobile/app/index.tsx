@@ -9,6 +9,7 @@ import { Banner } from "@/ui/Banner";
 import { colors, spacing } from "@/theme";
 import { useConnectionStore, type ConnectionStatus } from "@/state/connection";
 import { needsAttention, useAgentsStore } from "@/state/agents";
+import { useDropsStore } from "@/state/drops";
 import { actions } from "@/state/actions";
 import { countOf } from "@/lib/format";
 
@@ -40,6 +41,7 @@ export default function Home() {
     const session = state.sessions[id];
     return session !== undefined && needsAttention(session);
   }).length);
+  const dropCount = useDropsStore((state) => state.drops.length);
   const pill = pillFor[status];
 
   return (
@@ -89,6 +91,15 @@ export default function Home() {
           <Separator />
         </>
       )}
+      <Row
+        title="Drops"
+        subtitle={countOf(dropCount, "drop")}
+        leading={<SymbolView name="tray.and.arrow.down" size={22} tintColor={colors.accent} />}
+        onPress={() => {
+          router.push("/drops");
+        }}
+      />
+      <Separator />
       <View style={{ flex: 1 }} />
       <Separator />
       <Row

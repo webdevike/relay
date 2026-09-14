@@ -63,7 +63,10 @@ export function createAgentFrameRouter(store: AgentsStoreActions, send: (message
       case "ack":
       case "nack":
       case "pong":
-        // Session and command traffic; owned by SessionMachine and CommandQueue.
+      case "drop.new":
+      case "drop.removed":
+      case "drop.list":
+        // Session, command and drop traffic; owned by SessionMachine, CommandQueue and the drop router.
         return;
     }
   };

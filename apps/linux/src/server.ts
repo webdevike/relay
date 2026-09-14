@@ -3,13 +3,14 @@
 // mutation runs on it, so the session needs no locking. The session never sees the socket; it
 // only calls `FrameSink.send`, wired here to `ws.send`.
 
-import { encode, WS_PATH, type ServerMessage } from "@relay/protocol";
+import { encode, MAX_DROP_BYTES, WS_PATH, type ServerMessage } from "@relay/protocol";
+import { basename } from "node:path";
 import type { Server, ServerWebSocket } from "bun";
 import { AgentsDeltaTracker } from "./agents/delta-tracker";
 import { CommandDedupStore } from "./dedup";
 import { PairingCoordinator } from "./pairing";
 import type { AttentionNotifier } from "./push/notifier";
-import type { AgentProvider, AgentProviderChange, DeviceStore, FrameSink, InputAccess, InputSink, PairingUI, PushRegistry, TextInjecting } from "./seams";
+import type { AgentProvider, AgentProviderChange, DeviceStore, DropBox, DropChange, FrameSink, InputAccess, InputSink, PairingUI, PushRegistry, TextInjecting } from "./seams";
 import { ClientSession } from "./session";
 
 export interface ServerConfig {
@@ -29,6 +30,8 @@ export interface ServerDeps {
   readonly push: PushRegistry | null;
   /** Notifies registered phones about sessions that wait on the user; null disables it. */
   readonly notifier: AttentionNotifier | null;
+  /** The shared drop box; null disables `/drops` and the drop frames. */
+  readonly drops: DropBox | null;
   readonly pairing: PairingUI;
   readonly log: (line: string) => void;
 }
@@ -89,13 +92,25 @@ export class RelayServer {
         this.handleProviderChange(change);
       };
     }
+    const drops = this.deps.drops;
+    if (drops !== null) {
+      drops.onChange = (change) => {
+        this.handleDropChange(change);
+      };
+    }
     const server = Bun.serve<SocketData>({
       port: this.config.port,
       hostname: "0.0.0.0",
+      // Blob uploads from the CLI go through the body limit below.
+      maxRequestBodySize: MAX_DROP_BYTES + 1024,
       fetch: (request, srv) => {
-        if (new URL(request.url).pathname !== WS_PATH) return new Response("not found", { status: 404 });
-        if (srv.upgrade(request, { data: { session: null, connectedAt: Date.now() } })) return undefined;
-        return new Response("websocket upgrade required", { status: 426 });
+        const path = new URL(request.url).pathname;
+        if (path === WS_PATH) {
+          if (srv.upgrade(request, { data: { session: null, connectedAt: Date.now() } })) return undefined;
+          return new Response("websocket upgrade required", { status: 426 });
+        }
+        if (path === "/drops" || path.startsWith("/drops/")) return this.handleDropRequest(request, path, srv.requestIP(request)?.address ?? "");
+        return new Response("not found", { status: 404 });
       },
       websocket: {
         // The phone pings every 5 s; anything quieter than a minute is a dead peer.
@@ -173,6 +188,53 @@ export class RelayServer {
     for (const ws of this.sockets) ws.data.session?.agentConversationAppended(change.sessionId, change.appended);
   }
 
+  private handleDropChange(change: DropChange): void {
+    const message: ServerMessage = change.kind === "added" ? { t: "drop.new", drop: change.drop } : { t: "drop.removed", id: change.id };
+    for (const ws of this.sockets) ws.data.session?.broadcast(message);
+    if (change.kind === "added" && change.drop.origin === "host") this.deps.notifier?.announceDrop(change.drop, this.config.hostName);
+  }
+
+  /**
+   * `GET /drops/<id>/<token>` serves a blob to anyone holding the token (it only ever travels to
+   * authenticated phones). `POST /drops` adds a drop and is loopback-only: it is how `relay share`
+   * on this machine reaches the running daemon. Text body with `content-type: text/plain` makes a
+   * text/link drop; any other body is a blob named by `x-drop-name`.
+   */
+  private async handleDropRequest(request: Request, path: string, remote: string): Promise<Response> {
+    const drops = this.deps.drops;
+    if (drops === null) return new Response("drops disabled", { status: 404 });
+    if (request.method === "GET") {
+      const [, , id, token] = path.split("/");
+      if (id === undefined || token === undefined || token === "") return new Response("not found", { status: 404 });
+      const blob = drops.open(id, token);
+      if (blob === null) return new Response("not found", { status: 404 });
+      return new Response(Bun.file(blob.path), {
+        headers: {
+          "content-type": blob.mimeType,
+          "content-length": String(blob.size),
+          "content-disposition": `attachment; filename="${encodeURIComponent(blob.name)}"`,
+        },
+      });
+    }
+    if (request.method === "POST" && path === "/drops") {
+      if (remote !== "127.0.0.1" && remote !== "::1" && remote !== "::ffff:127.0.0.1") return new Response("loopback only", { status: 403 });
+      const type = request.headers.get("content-type") ?? "application/octet-stream";
+      try {
+        if (type.startsWith("text/plain")) {
+          const text = await request.text();
+          if (text.trim() === "") return new Response("empty text", { status: 400 });
+          return Response.json(drops.putText("host", text));
+        }
+        const name = basename(request.headers.get("x-drop-name") ?? "") || "file";
+        const bytes = new Uint8Array(await request.arrayBuffer());
+        return Response.json(drops.putBlob("host", { name, mimeType: type.split(";")[0] ?? type, bytes }));
+      } catch (error) {
+        return new Response(error instanceof Error ? error.message : String(error), { status: 400 });
+      }
+    }
+    return new Response("method not allowed", { status: 405 });
+  }
+
   private accept(ws: Socket): void {
     const session = new ClientSession(
       new WebSocketFrameSink(ws),
@@ -186,6 +248,7 @@ export class RelayServer {
         agentsTracker: this.agentsTracker,
         devices: this.deps.devices,
         push: this.deps.push,
+        drops: this.deps.drops,
         pairing: this.pairing,
         dedup: this.dedup,
       },

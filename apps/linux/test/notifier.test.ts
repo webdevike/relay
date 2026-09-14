@@ -104,7 +104,7 @@ describe("AttentionNotifier", () => {
     h.notifier.observe([session("a", "working"), session("b", "waiting")]);
     h.clock.advance(REMINDER_MS);
     expect(h.sent).toHaveLength(5);
-    expect(h.sent[4]?.[0]?.data.sessionId).toBe("b");
+    expect(h.sent[4]?.[0]?.data).toEqual({ sessionId: "b" });
     h.notifier.observe([]);
     h.clock.advance(REMINDER_MS * 3);
     expect(h.sent).toHaveLength(5);
