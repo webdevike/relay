@@ -39,7 +39,8 @@
         {
           "ios": {
             "deploymentTarget": "18.0",
-            "useFrameworks": "dynamic"
+            "useFrameworks": "dynamic",
+            "forceStaticLinking": ["react-native-zeroconf"]
           }
         }
       ]
