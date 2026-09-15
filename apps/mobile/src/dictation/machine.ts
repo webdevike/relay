@@ -20,7 +20,17 @@
  *                    recognizerError; receives `stop`
  *   deliver          sending → resolves when the host acked the insert (+ Return when `submit`)
  */
-import { and, assign, fromCallback, fromPromise, or, sendTo, setup, stateIn, type SnapshotFrom } from "xstate";
+import {
+  and,
+  assign,
+  fromCallback,
+  fromPromise,
+  or,
+  sendTo,
+  setup,
+  stateIn,
+  type SnapshotFrom,
+} from "xstate";
 
 export type DictationPhase =
   | "idle"
@@ -115,6 +125,8 @@ export type DictationEvent =
   | { type: "attachText"; text: string | null }
   /** Send the attachments on their own: the pasted text, if any, as a submitted turn with the images. */
   | { type: "sendAttachments" }
+  /** Text typed on the keyboard while idle: sent as a submitted turn, with whatever is armed or attached. */
+  | { type: "typed"; text: string }
   | { type: "partial"; text: string }
   | { type: "final"; text: string }
   | { type: "recognizerEnd" }
@@ -124,7 +136,10 @@ export type DictationEvent =
 export type PermissionOutcome = "granted" | "denied" | "unavailable";
 
 /** Events the recognizer actor reports to the machine. */
-export type RecognizerEvent = Extract<DictationEvent, { type: "partial" | "final" | "recognizerEnd" | "recognizerError" }>;
+export type RecognizerEvent = Extract<
+  DictationEvent,
+  { type: "partial" | "final" | "recognizerEnd" | "recognizerError" }
+>;
 /** Commands the machine sends to the recognizer actor. */
 export interface RecognizerCommand {
   type: "stop";
@@ -225,9 +240,22 @@ export const dictationMachine = setup({
               guard: ({ context }) => context.images.length < MAX_PENDING_IMAGES,
               actions: assign({ images: ({ context, event }) => [...context.images, event.image] }),
             },
-            detach: { actions: assign({ images: ({ context, event }) => context.images.filter((_, i) => i !== event.index) }) },
+            detach: {
+              actions: assign({
+                images: ({ context, event }) => context.images.filter((_, i) => i !== event.index),
+              }),
+            },
             attachText: { actions: assign({ pasted: ({ event }) => event.text }) },
-            sendAttachments: { guard: "hasAttachments", target: "sending", actions: assign({ transcript: "", submit: true }) },
+            sendAttachments: {
+              guard: "hasAttachments",
+              target: "sending",
+              actions: assign({ transcript: "", submit: true }),
+            },
+            typed: {
+              guard: ({ event }) => event.text.trim() !== "",
+              target: "sending",
+              actions: assign({ transcript: ({ event }) => event.text.trim(), submit: true }),
+            },
           },
         },
         requesting_permission: {
@@ -253,7 +281,10 @@ export const dictationMachine = setup({
             recognizerError: [
               // Stopping before anything was said is "nothing heard", not a failure.
               { guard: "noSpeech", target: "finished" },
-              { target: "error", actions: assign({ ...fresh, errorCode: ({ event }) => event.code }) },
+              {
+                target: "error",
+                actions: assign({ ...fresh, errorCode: ({ event }) => event.code }),
+              },
             ],
           },
           states: {
@@ -266,20 +297,32 @@ export const dictationMachine = setup({
                 final: { actions: assign({ transcript: ({ event }) => event.text }) },
                 pressStop: {
                   target: "finishing",
-                  actions: [assign({ submit: ({ event }) => event.submit === true }), "stopRecognizer"],
+                  actions: [
+                    assign({ submit: ({ event }) => event.submit === true }),
+                    "stopRecognizer",
+                  ],
                 },
                 release: { target: "finishing", actions: "stopRecognizer" },
-                wheelOpen: { target: "#dictation.speech.choosing", actions: assign({ transcript: "", wheelParent: null }) },
+                wheelOpen: {
+                  target: "#dictation.speech.choosing",
+                  actions: assign({ transcript: "", wheelParent: null }),
+                },
                 // A press here means the earlier release was lost: treat it as that release.
                 pressStart: { target: "finishing", actions: "stopRecognizer" },
-                recognizerEnd: { target: "#dictation.speech.error", actions: assign({ ...fresh, errorCode: "aborted" }) },
+                recognizerEnd: {
+                  target: "#dictation.speech.error",
+                  actions: assign({ ...fresh, errorCode: "aborted" }),
+                },
               },
             },
             finishing: {
               after: { FINISH_TIMEOUT: { target: "#dictation.speech.finished" } },
               on: {
                 partial: { actions: assign({ transcript: ({ event }) => event.text }) },
-                final: { target: "#dictation.speech.finished", actions: assign({ transcript: ({ event }) => event.text }) },
+                final: {
+                  target: "#dictation.speech.finished",
+                  actions: assign({ transcript: ({ event }) => event.text }),
+                },
                 recognizerEnd: { target: "#dictation.speech.finished" },
               },
             },
@@ -294,7 +337,10 @@ export const dictationMachine = setup({
                 target: "sending",
                 actions: assign({ ...keepArmed, skill: ({ event }) => event.skill, submit: true }),
               },
-              { target: "chosen", actions: assign({ skill: ({ event }) => event.skill, wheelParent: null }) },
+              {
+                target: "chosen",
+                actions: assign({ skill: ({ event }) => event.skill, wheelParent: null }),
+              },
             ],
             wheelDescend: { actions: assign({ wheelParent: ({ event }) => event.parent }) },
             wheelAscend: { actions: assign({ wheelParent: null }) },
@@ -313,19 +359,34 @@ export const dictationMachine = setup({
         /** Transient: route the finished transcript to `sending` or back to `idle` (nothing heard). */
         finished: {
           always: [
-            { guard: "hasText", target: "sending", actions: assign({ transcript: ({ context }) => context.transcript.trim() }) },
+            {
+              guard: "hasText",
+              target: "sending",
+              actions: assign({ transcript: ({ context }) => context.transcript.trim() }),
+            },
             { target: "idle", actions: assign({ ...keepArmed, nothingHeard: true }) },
           ],
         },
         sending: {
           invoke: {
             src: "deliver",
-            input: ({ context }) => ({ text: context.transcript, submit: context.submit, skill: context.skill, images: context.images, pasted: context.pasted }),
+            input: ({ context }) => ({
+              text: context.transcript,
+              submit: context.submit,
+              skill: context.skill,
+              images: context.images,
+              pasted: context.pasted,
+            }),
             // The attachments leave with the delivery, whichever way it lands; the text and skill linger for the check.
             onDone: { target: "sent", actions: assign({ images: [], pasted: null }) },
             onError: {
               target: "error",
-              actions: assign({ errorCode: ({ event }) => ackErrorCode(event.error), submit: false, images: [], pasted: null }),
+              actions: assign({
+                errorCode: ({ event }) => ackErrorCode(event.error),
+                submit: false,
+                images: [],
+                pasted: null,
+              }),
             },
           },
         },
@@ -397,7 +458,8 @@ export type DictationActorSnapshot = SnapshotFrom<typeof dictationMachine>;
 
 export function phaseOf(snapshot: DictationActorSnapshot): DictationPhase {
   const speech = snapshot.value.speech;
-  if (typeof speech === "object") return typeof speech.active === "object" ? "listening" : speech.active;
+  if (typeof speech === "object")
+    return typeof speech.active === "object" ? "listening" : speech.active;
   return speech === "finished" ? "sending" : speech;
 }
 

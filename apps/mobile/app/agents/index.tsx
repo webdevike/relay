@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Image, Pressable, StyleSheet, View } from "react-native";
+import { Image, Keyboard, KeyboardAvoidingView, Pressable, StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { scheduleOnRN } from "react-native-worklets";
 import { SymbolView } from "expo-symbols";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import Animated, { useSharedValue, withTiming, type EntryExitAnimationFunction } from "react-native-reanimated";
+import Animated, {
+  useAnimatedReaction,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+  type EntryExitAnimationFunction,
+} from "react-native-reanimated";
 import { Text } from "@/ui/Text";
 import { Banner } from "@/ui/Banner";
 import { EmptyState } from "@/ui/EmptyState";
@@ -26,6 +32,7 @@ import { useDictation } from "@/dictation/useDictation";
 import { AgentCard, AgentHeader } from "@/agents/AgentCard";
 import { AgentScrubber, TRACK_HEIGHT } from "@/agents/AgentScrubber";
 import { AgentSettingsSheet } from "@/agents/AgentSettingsSheet";
+import { TypedReply } from "@/agents/TypedReply";
 import { ActionWheel, type ActionWheelEntry } from "@/agents/ActionWheel";
 import { impactHaptic, tapHaptic } from "@/lib/haptics";
 import { copyText, readClipboardImage, readClipboardText } from "@/lib/clipboard";
@@ -38,6 +45,11 @@ const NOTCH_HEIGHT = 32;
 /** The bites the surfaces take: the element plus the ring of screen background around it. */
 const PILL_NOTCH_HEIGHT = NOTCH_HEIGHT + CUTOUT_GAP * 2;
 const MIC_NOTCH_SIZE = MIC_SIZE + CUTOUT_GAP * 2;
+/** The keyboard button on the seam, right of the mic, sharing its cutout treatment. */
+const KEY_SIZE = 44;
+const KEY_NOTCH_SIZE = KEY_SIZE + CUTOUT_GAP * 2;
+/** Keyboard button center measured from the surface's middle: past the mic's ring, a sliver of background, then its own ring. */
+const KEY_OFFSET = MIC_SIZE / 2 + CUTOUT_GAP + spacing.xs + CUTOUT_GAP + KEY_SIZE / 2;
 /** The image pill's thumbnail, standing where the skill pill has its mic glyph. */
 const CHIP_SIZE = 20;
 /** Holding still this long (ms) on the chat opens the action wheel; moving sooner scrolls instead. */
@@ -56,27 +68,33 @@ const START_SIZE = 36;
 /** A launched omp normally registers within a few seconds; past this the spinner is a lie. */
 const LAUNCH_TIMEOUT_MS = 20_000;
 
-const slideIn = (direction: number): EntryExitAnimationFunction => () => {
-  "worklet";
-  return {
-    initialValues: { opacity: 0, transform: [{ translateX: SLIDE_PX * direction }] },
-    animations: {
-      opacity: withTiming(1, { duration: motion.duration.base }),
-      transform: [{ translateX: withTiming(0, { duration: motion.duration.base }) }],
-    },
+const slideIn =
+  (direction: number): EntryExitAnimationFunction =>
+  () => {
+    "worklet";
+    return {
+      initialValues: { opacity: 0, transform: [{ translateX: SLIDE_PX * direction }] },
+      animations: {
+        opacity: withTiming(1, { duration: motion.duration.base }),
+        transform: [{ translateX: withTiming(0, { duration: motion.duration.base }) }],
+      },
+    };
   };
-};
 
-const slideOut = (direction: number): EntryExitAnimationFunction => () => {
-  "worklet";
-  return {
-    initialValues: { opacity: 1, transform: [{ translateX: 0 }] },
-    animations: {
-      opacity: withTiming(0, { duration: motion.duration.fast }),
-      transform: [{ translateX: withTiming(-SLIDE_PX * direction, { duration: motion.duration.fast }) }],
-    },
+const slideOut =
+  (direction: number): EntryExitAnimationFunction =>
+  () => {
+    "worklet";
+    return {
+      initialValues: { opacity: 1, transform: [{ translateX: 0 }] },
+      animations: {
+        opacity: withTiming(0, { duration: motion.duration.fast }),
+        transform: [
+          { translateX: withTiming(-SLIDE_PX * direction, { duration: motion.duration.fast }) },
+        ],
+      },
+    };
   };
-};
 
 /**
  * Every coding-agent session on the host, one at a time: a card shows the focused session, the
@@ -105,7 +123,9 @@ export default function AgentInbox() {
   const messages = selectedId === undefined ? undefined : conversations[selectedId]?.messages;
   // Without the wheel the button gets no skills, so the swipe left does nothing.
   const wheelEnabled = useSettingsStore((state) => state.skillWheelEnabled);
-  const skills = useAgentsStore((state) => (!wheelEnabled || selectedId === undefined ? undefined : state.options[selectedId]?.skills));
+  const skills = useAgentsStore((state) =>
+    !wheelEnabled || selectedId === undefined ? undefined : state.options[selectedId]?.skills,
+  );
 
   // Subscriptions live on the socket: re-subscribe whenever focus or the connection changes.
   useFocusEffect(
@@ -131,13 +151,10 @@ export default function AgentInbox() {
     }, [selectedId]),
   );
 
-  const onScrub = useCallback(
-    (next: number) => {
-      const id = useAgentsStore.getState().order[next];
-      if (id !== undefined) setPickedId(id);
-    },
-    [],
-  );
+  const onScrub = useCallback((next: number) => {
+    const id = useAgentsStore.getState().order[next];
+    if (id !== undefined) setPickedId(id);
+  }, []);
 
   // Starting a session: ack means the terminal opened; the session itself arrives as a delta a
   // few seconds later, and whichever id is new at that point becomes the focus.
@@ -173,15 +190,56 @@ export default function AgentInbox() {
 
   const canRespond = session?.canRespond === true;
 
+  // Typing instead of speaking: the header folds away so the chat keeps its room above the
+  // keyboard, the seam loses the mic and keyboard button, and the panel becomes the field. The
+  // draft outlives the mode; only a send clears it.
+  const [typing, setTyping] = useState(false);
+  const [draft, setDraft] = useState("");
+  useEffect(() => {
+    if (!canRespond) setTyping(false);
+  }, [canRespond]);
+  // Swiping the keyboard away is leaving typing mode, same as the mic button.
+  useEffect(() => {
+    if (!typing) return;
+    const hide = Keyboard.addListener("keyboardWillHide", () => {
+      setTyping(false);
+    });
+    return () => {
+      hide.remove();
+    };
+  }, [typing]);
+  const collapse = useSharedValue(0);
+  useEffect(() => {
+    collapse.value = withTiming(typing ? 1 : 0, { duration: motion.duration.base });
+  }, [typing, collapse]);
+  const sendTyped = (): void => {
+    dictationActor.send({ type: "typed", text: draft });
+    setDraft("");
+  };
+  const leaveTyping = (): void => {
+    setTyping(false);
+    Keyboard.dismiss();
+  };
+
   const [settingsFor, setSettingsFor] = useState<string | null>(null);
   const onHold = useCallback((slot: number) => {
     const id = useAgentsStore.getState().order[slot];
     if (id !== undefined) setSettingsFor(id);
   }, []);
 
-  const { skill: armed, images, pasted } = useDictation();
+  const { skill: armed, images, pasted, phase } = useDictation();
   const [headerHeight, setHeaderHeight] = useState(0);
   const [chatHeight, setChatHeight] = useState(0);
+  const [chatWidth, setChatWidth] = useState(0);
+  // The header slides up by its own height and the chat grows into the gap; the seam pill rides
+  // along so it stays on the chat's top edge.
+  const headerStyle = useAnimatedStyle(() => ({
+    marginTop: -headerHeight * collapse.value,
+    opacity: 1 - collapse.value,
+  }));
+  const pillStyle = useAnimatedStyle(() => ({
+    top: headerHeight * (1 - collapse.value) + spacing.sm / 2 - NOTCH_HEIGHT / 2 - CUTOUT_GAP,
+  }));
 
   // Holding still on the chat opens the action wheel under the finger. The Pan only activates
   // after the hold, so an early move is the transcript's scroll as usual; the wheel draws in the
@@ -190,6 +248,12 @@ export default function AgentInbox() {
   const wheelCenter = useSharedValue({ x: 0, y: 0 });
   const wheelPointer = useSharedValue({ x: 0, y: 0 });
   const chatTop = useSharedValue(0);
+  useAnimatedReaction(
+    () => headerHeight * (1 - collapse.value) + spacing.sm,
+    (top) => {
+      chatTop.value = top;
+    },
+  );
   const selectedRef = useRef(selectedId);
   selectedRef.current = selectedId;
   const onWheelSelect = useCallback((key: string) => {
@@ -252,187 +316,301 @@ export default function AgentInbox() {
   );
 
   const notchShown = (armed !== null || images.length > 0 || pasted !== null) && headerHeight > 0;
-  // The seam pill and the mic bite into the surfaces they straddle; `cy` is in each surface's own
-  // coordinates (the pill center sits half the card gap below the header, the mic half the gap
-  // below the chat card). The Cutout overlays still paint the gap ring over scrolled content.
+  // The seam pill, the mic and the keyboard button bite into the surfaces they straddle; `cy` is in
+  // each surface's own coordinates (the pill center sits half the card gap below the header, the
+  // mic and keyboard half the gap below the chat card). The Cutout overlays still paint the gap
+  // ring over scrolled content. While typing the seam is empty and the panel is unbroken.
   const pillWidth = notchShown ? notchWidth(armed, images.length, pasted) + CUTOUT_GAP * 2 : 0;
-  const headerNotches = useMemo<Notch[]>(() => (pillWidth === 0 ? [] : [{ cy: headerHeight + spacing.sm / 2, width: pillWidth, height: PILL_NOTCH_HEIGHT }]), [pillWidth, headerHeight]);
+  const seamShown = canRespond && !typing;
+  const headerNotches = useMemo<Notch[]>(
+    () =>
+      pillWidth === 0
+        ? []
+        : [{ cy: headerHeight + spacing.sm / 2, width: pillWidth, height: PILL_NOTCH_HEIGHT }],
+    [pillWidth, headerHeight],
+  );
+  const seamNotches = useCallback(
+    (cy: number): Notch[] => [
+      { cy, width: MIC_NOTCH_SIZE, height: MIC_NOTCH_SIZE },
+      { cx: chatWidth / 2 + KEY_OFFSET, cy, width: KEY_NOTCH_SIZE, height: KEY_NOTCH_SIZE },
+    ],
+    [chatWidth],
+  );
   const chatNotches = useMemo<Notch[]>(() => {
-    const notches: Notch[] = pillWidth === 0 ? [] : [{ cy: -spacing.sm / 2, width: pillWidth, height: PILL_NOTCH_HEIGHT }];
-    if (canRespond) notches.push({ cy: chatHeight + spacing.sm / 2, width: MIC_NOTCH_SIZE, height: MIC_NOTCH_SIZE });
+    const notches: Notch[] =
+      pillWidth === 0 ? [] : [{ cy: -spacing.sm / 2, width: pillWidth, height: PILL_NOTCH_HEIGHT }];
+    if (seamShown) notches.push(...seamNotches(chatHeight + spacing.sm / 2));
     return notches;
-  }, [pillWidth, canRespond, chatHeight]);
-  const panelNotches = useMemo<Notch[]>(() => (canRespond ? [{ cy: -spacing.sm / 2, width: MIC_NOTCH_SIZE, height: MIC_NOTCH_SIZE }] : []), [canRespond]);
+  }, [pillWidth, seamShown, seamNotches, chatHeight]);
+  const panelNotches = useMemo<Notch[]>(
+    () => (seamShown ? seamNotches(-spacing.sm / 2) : []),
+    [seamShown, seamNotches],
+  );
 
   return (
     <SafeAreaView style={styles.root} edges={["top", "bottom"]}>
-      <View style={styles.stack}>
-        {session === undefined ? (
-          <View style={[styles.card, styles.chat]}>
-            <EmptyState
-              symbol="tray"
-              title="No agent sessions"
-              body={connected ? "Start one here, or open omp on your host." : "Sessions show up here while omp is running on your host."}
-              {...(connected && !launching ? { actionLabel: "Start a session", onAction: startSession } : {})}
+      <KeyboardAvoidingView style={styles.root} behavior="padding">
+        <View style={styles.stack}>
+          {session === undefined ? (
+            <View style={[styles.card, styles.chat]}>
+              <EmptyState
+                symbol="tray"
+                title="No agent sessions"
+                body={
+                  connected
+                    ? "Start one here, or open omp on your host."
+                    : "Sessions show up here while omp is running on your host."
+                }
+                {...(connected && !launching
+                  ? { actionLabel: "Start a session", onAction: startSession }
+                  : {})}
+              />
+            </View>
+          ) : (
+            <Animated.View
+              key={session.id}
+              style={StyleSheet.absoluteFill}
+              entering={slideIn(direction)}
+              exiting={slideOut(direction)}
+            >
+              <Animated.View style={headerStyle}>
+                <NotchedSurface
+                  color={colors.surfaceRaised}
+                  radius={CARD_RADIUS}
+                  notches={headerNotches}
+                  onLayout={(event) => {
+                    setHeaderHeight(event.nativeEvent.layout.height);
+                  }}
+                >
+                  <AgentHeader session={session} />
+                </NotchedSurface>
+              </Animated.View>
+              <GestureDetector gesture={chatGesture}>
+                <NotchedSurface
+                  color={colors.surface}
+                  radius={CARD_RADIUS}
+                  notches={chatNotches}
+                  style={styles.chat}
+                  onLayout={(event) => {
+                    setChatHeight(event.nativeEvent.layout.height);
+                    setChatWidth(event.nativeEvent.layout.width);
+                  }}
+                >
+                  <AgentCard sessionId={selectedId} messages={messages} connected={connected} />
+                </NotchedSurface>
+              </GestureDetector>
+              {notchShown && (
+                <Animated.View pointerEvents="box-none" style={[styles.pillLane, pillStyle]}>
+                  <Cutout
+                    size={NOTCH_HEIGHT}
+                    width={notchWidth(armed, images.length, pasted)}
+                    style={{ alignSelf: "center" }}
+                  >
+                    <View style={styles.notchBody}>
+                      {armed !== null && (
+                        <>
+                          <Pressable
+                            onPress={() => {
+                              tapHaptic();
+                              setSettingsFor(session.id);
+                            }}
+                            style={({ pressed }) => [
+                              styles.notchLabel,
+                              pressed && { opacity: 0.7 },
+                            ]}
+                          >
+                            <SymbolView name="mic" size={12} tintColor={colors.accent} />
+                            <Text variant="label" color="text" numberOfLines={1}>
+                              {armed}
+                            </Text>
+                          </Pressable>
+                          <Pressable
+                            hitSlop={8}
+                            onPress={() => {
+                              tapHaptic();
+                              dictationActor.send({ type: "arm", skill: null });
+                            }}
+                            style={({ pressed }) => [
+                              styles.notchClose,
+                              pressed && { opacity: 0.7 },
+                            ]}
+                          >
+                            <SymbolView name="xmark" size={11} tintColor={colors.textMuted} />
+                          </Pressable>
+                        </>
+                      )}
+                      {images[0] !== undefined && (
+                        <>
+                          <Pressable
+                            onPress={() => {
+                              tapHaptic();
+                              dictationActor.send({ type: "sendAttachments" });
+                            }}
+                            style={({ pressed }) => [
+                              styles.notchLabel,
+                              pressed && { opacity: 0.7 },
+                            ]}
+                          >
+                            <Image
+                              source={{
+                                uri: `data:${images[0].mimeType};base64,${images[0].data}`,
+                              }}
+                              style={styles.chip}
+                            />
+                            <Text variant="label" color="text" numberOfLines={1}>
+                              {images.length === 1 ? "Image" : `${String(images.length)} images`}
+                            </Text>
+                            <SymbolView name="arrow.up" size={11} tintColor={colors.accent} />
+                          </Pressable>
+                          <Pressable
+                            hitSlop={8}
+                            onPress={() => {
+                              tapHaptic();
+                              dictationActor.send({ type: "detach", index: images.length - 1 });
+                            }}
+                            style={({ pressed }) => [
+                              styles.notchClose,
+                              pressed && { opacity: 0.7 },
+                            ]}
+                          >
+                            <SymbolView name="xmark" size={11} tintColor={colors.textMuted} />
+                          </Pressable>
+                        </>
+                      )}
+                      {pasted !== null && (
+                        <>
+                          <Pressable
+                            onPress={() => {
+                              tapHaptic();
+                              dictationActor.send({ type: "sendAttachments" });
+                            }}
+                            style={({ pressed }) => [
+                              styles.notchLabel,
+                              pressed && { opacity: 0.7 },
+                            ]}
+                          >
+                            <SymbolView name="text.quote" size={12} tintColor={colors.accent} />
+                            <Text variant="label" color="text" numberOfLines={1}>
+                              {pastedLabel(pasted)}
+                            </Text>
+                            <SymbolView name="arrow.up" size={11} tintColor={colors.accent} />
+                          </Pressable>
+                          <Pressable
+                            hitSlop={8}
+                            onPress={() => {
+                              tapHaptic();
+                              dictationActor.send({ type: "attachText", text: null });
+                            }}
+                            style={({ pressed }) => [
+                              styles.notchClose,
+                              pressed && { opacity: 0.7 },
+                            ]}
+                          >
+                            <SymbolView name="xmark" size={11} tintColor={colors.textMuted} />
+                          </Pressable>
+                        </>
+                      )}
+                    </View>
+                  </Cutout>
+                </Animated.View>
+              )}
+            </Animated.View>
+          )}
+          <ListeningOrb />
+          {skills !== undefined && skills.length > 0 && (
+            <View pointerEvents="none" style={styles.wheel}>
+              <SkillWheel skills={skills} />
+            </View>
+          )}
+          <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+            <ActionWheel
+              entries={wheelEntries}
+              visible={wheelVisible}
+              center={wheelCenter}
+              pointer={wheelPointer}
+              onSelect={onWheelSelect}
             />
           </View>
-        ) : (
-          <Animated.View key={session.id} style={StyleSheet.absoluteFill} entering={slideIn(direction)} exiting={slideOut(direction)}>
-            <NotchedSurface
-              color={colors.surfaceRaised}
-              radius={CARD_RADIUS}
-              notches={headerNotches}
-              onLayout={(event) => {
-                setHeaderHeight(event.nativeEvent.layout.height);
-                chatTop.value = event.nativeEvent.layout.height + spacing.sm;
-              }}
-            >
-              <AgentHeader session={session} />
-            </NotchedSurface>
-            <GestureDetector gesture={chatGesture}>
-              <NotchedSurface
-                color={colors.surface}
-                radius={CARD_RADIUS}
-                notches={chatNotches}
-                style={styles.chat}
-                onLayout={(event) => {
-                  setChatHeight(event.nativeEvent.layout.height);
-                }}
-              >
-                <AgentCard sessionId={selectedId} messages={messages} connected={connected} />
-              </NotchedSurface>
-            </GestureDetector>
-            {notchShown && (
-              <Cutout size={NOTCH_HEIGHT} width={notchWidth(armed, images.length, pasted)} style={{ alignSelf: "center", top: headerHeight + spacing.sm / 2 - NOTCH_HEIGHT / 2 - CUTOUT_GAP }}>
-                <View style={styles.notchBody}>
-                  {armed !== null && (
-                    <>
-                      <Pressable
-                        onPress={() => {
-                          tapHaptic();
-                          setSettingsFor(session.id);
-                        }}
-                        style={({ pressed }) => [styles.notchLabel, pressed && { opacity: 0.7 }]}
-                      >
-                        <SymbolView name="mic" size={12} tintColor={colors.accent} />
-                        <Text variant="label" color="text" numberOfLines={1}>
-                          {armed}
-                        </Text>
-                      </Pressable>
-                      <Pressable
-                        hitSlop={8}
-                        onPress={() => {
-                          tapHaptic();
-                          dictationActor.send({ type: "arm", skill: null });
-                        }}
-                        style={({ pressed }) => [styles.notchClose, pressed && { opacity: 0.7 }]}
-                      >
-                        <SymbolView name="xmark" size={11} tintColor={colors.textMuted} />
-                      </Pressable>
-                    </>
-                  )}
-                  {images[0] !== undefined && (
-                    <>
-                      <Pressable
-                        onPress={() => {
-                          tapHaptic();
-                          dictationActor.send({ type: "sendAttachments" });
-                        }}
-                        style={({ pressed }) => [styles.notchLabel, pressed && { opacity: 0.7 }]}
-                      >
-                        <Image source={{ uri: `data:${images[0].mimeType};base64,${images[0].data}` }} style={styles.chip} />
-                        <Text variant="label" color="text" numberOfLines={1}>
-                          {images.length === 1 ? "Image" : `${String(images.length)} images`}
-                        </Text>
-                        <SymbolView name="arrow.up" size={11} tintColor={colors.accent} />
-                      </Pressable>
-                      <Pressable
-                        hitSlop={8}
-                        onPress={() => {
-                          tapHaptic();
-                          dictationActor.send({ type: "detach", index: images.length - 1 });
-                        }}
-                        style={({ pressed }) => [styles.notchClose, pressed && { opacity: 0.7 }]}
-                      >
-                        <SymbolView name="xmark" size={11} tintColor={colors.textMuted} />
-                      </Pressable>
-                    </>
-                  )}
-                  {pasted !== null && (
-                    <>
-                      <Pressable
-                        onPress={() => {
-                          tapHaptic();
-                          dictationActor.send({ type: "sendAttachments" });
-                        }}
-                        style={({ pressed }) => [styles.notchLabel, pressed && { opacity: 0.7 }]}
-                      >
-                        <SymbolView name="text.quote" size={12} tintColor={colors.accent} />
-                        <Text variant="label" color="text" numberOfLines={1}>
-                          {pastedLabel(pasted)}
-                        </Text>
-                        <SymbolView name="arrow.up" size={11} tintColor={colors.accent} />
-                      </Pressable>
-                      <Pressable
-                        hitSlop={8}
-                        onPress={() => {
-                          tapHaptic();
-                          dictationActor.send({ type: "attachText", text: null });
-                        }}
-                        style={({ pressed }) => [styles.notchClose, pressed && { opacity: 0.7 }]}
-                      >
-                        <SymbolView name="xmark" size={11} tintColor={colors.textMuted} />
-                      </Pressable>
-                    </>
-                  )}
-                </View>
-              </Cutout>
-            )}
-          </Animated.View>
-        )}
-        <ListeningOrb />
-        {skills !== undefined && skills.length > 0 && (
-          <View pointerEvents="none" style={styles.wheel}>
-            <SkillWheel skills={skills} />
-          </View>
-        )}
-        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-          <ActionWheel entries={wheelEntries} visible={wheelVisible} center={wheelCenter} pointer={wheelPointer} onSelect={onWheelSelect} />
         </View>
-      </View>
-      {session !== undefined && (
-        <NotchedSurface
-          color={colors.surfaceRaised}
-          radius={CARD_RADIUS}
-          notches={panelNotches}
-          style={styles.panel}
-          overlay={
-            launchError !== null ? (
-              <View style={styles.banner}>
-                <Banner tone="danger" message={launchError} />
+        {session !== undefined && typing && (
+          <NotchedSurface
+            color={colors.surfaceRaised}
+            radius={CARD_RADIUS}
+            notches={panelNotches}
+            style={styles.panelTyping}
+          >
+            <TypedReply
+              draft={draft}
+              onDraft={setDraft}
+              canSend={phase === "idle"}
+              onSend={sendTyped}
+              onVoice={leaveTyping}
+            />
+          </NotchedSurface>
+        )}
+        {session !== undefined && !typing && (
+          <NotchedSurface
+            color={colors.surfaceRaised}
+            radius={CARD_RADIUS}
+            notches={panelNotches}
+            style={styles.panel}
+            overlay={
+              launchError !== null ? (
+                <View style={styles.banner}>
+                  <Banner tone="danger" message={launchError} />
+                </View>
+              ) : canRespond ? (
+                <>
+                  <Cutout size={MIC_SIZE} style={styles.mic}>
+                    <DictationButton
+                      size={MIC_SIZE}
+                      backgroundColor={colors.surface}
+                      {...(skills === undefined ? {} : { skills })}
+                    />
+                  </Cutout>
+                  <Cutout size={KEY_SIZE} style={styles.key}>
+                    <IconButton
+                      symbol="keyboard"
+                      size={KEY_SIZE}
+                      tintColor={colors.textMuted}
+                      backgroundColor={colors.surface}
+                      onPress={() => {
+                        setTyping(true);
+                      }}
+                    />
+                  </Cutout>
+                </>
+              ) : (
+                <View style={styles.banner}>
+                  <Banner tone="warn" message="This session can't take replies." />
+                </View>
+              )
+            }
+          >
+            <View style={styles.scrubRow}>
+              <View style={{ flex: 1 }}>
+                <AgentScrubber
+                  statuses={order.map((id) => sessions[id]?.status ?? "ended")}
+                  index={index}
+                  onChange={onScrub}
+                  onLongPress={onHold}
+                />
               </View>
-            ) : canRespond ? (
-              <Cutout size={MIC_SIZE} style={styles.mic}>
-                <DictationButton size={MIC_SIZE} backgroundColor={colors.surface} {...(skills === undefined ? {} : { skills })} />
-              </Cutout>
-            ) : (
-              <View style={styles.banner}>
-                <Banner tone="warn" message="This session can't take replies." />
-              </View>
-            )
-          }
-        >
-          <View style={styles.scrubRow}>
-            <View style={{ flex: 1 }}>
-              <AgentScrubber statuses={order.map((id) => sessions[id]?.status ?? "ended")} index={index} onChange={onScrub} onLongPress={onHold} />
+              <IconButton
+                symbol="plus"
+                size={START_SIZE}
+                tintColor={colors.textMuted}
+                backgroundColor={colors.bg}
+                disabled={!connected || launching}
+                onPress={startSession}
+              />
             </View>
-            <IconButton symbol="plus" size={START_SIZE} tintColor={colors.textMuted} backgroundColor={colors.bg} disabled={!connected || launching} onPress={startSession} />
-          </View>
-          <Text variant="caption" color="textFaint" tabular style={styles.counter}>
-            {launching ? "Starting a session…" : `${index + 1} of ${order.length}`}
-          </Text>
-        </NotchedSurface>
-      )}
+            <Text variant="caption" color="textFaint" tabular style={styles.counter}>
+              {launching ? "Starting a session…" : `${index + 1} of ${order.length}`}
+            </Text>
+          </NotchedSurface>
+        )}
+      </KeyboardAvoidingView>
       <AgentSettingsSheet
         sessionId={settingsFor}
         onClose={() => {
@@ -459,9 +637,19 @@ function notchWidth(token: string | null, chips: number, pasted: string | null):
   const close = spacing.sm + 22;
   const segments: number[] = [];
   if (token !== null) segments.push(12 + spacing.xs + Math.min(180, token.length * 7.2) + close);
-  if (chips > 0) segments.push(CHIP_SIZE + spacing.xs + (chips === 1 ? "Image" : `${String(chips)} images`).length * 7.2 + spacing.xs + 11 + close);
-  if (pasted !== null) segments.push(12 + spacing.xs + pastedLabel(pasted).length * 7.2 + spacing.xs + 11 + close);
-  const content = segments.reduce((sum, width) => sum + width, 0) + Math.max(0, segments.length - 1) * spacing.sm;
+  if (chips > 0)
+    segments.push(
+      CHIP_SIZE +
+        spacing.xs +
+        (chips === 1 ? "Image" : `${String(chips)} images`).length * 7.2 +
+        spacing.xs +
+        11 +
+        close,
+    );
+  if (pasted !== null)
+    segments.push(12 + spacing.xs + pastedLabel(pasted).length * 7.2 + spacing.xs + 11 + close);
+  const content =
+    segments.reduce((sum, width) => sum + width, 0) + Math.max(0, segments.length - 1) * spacing.sm;
   return Math.round(spacing.md + content + spacing.xs);
 }
 
@@ -477,6 +665,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   chat: { flex: 1, marginTop: spacing.sm },
+  /** Full-width lane the seam pill is centered in; its `top` follows the header as it folds. */
+  pillLane: { position: "absolute", left: 0, right: 0 },
   notchBody: {
     flex: 1,
     flexDirection: "row",
@@ -490,8 +680,22 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   notchLabel: { flex: 1, flexDirection: "row", alignItems: "center", gap: spacing.xs },
-  notchClose: { width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceRaised },
-  chip: { width: CHIP_SIZE, height: CHIP_SIZE, borderRadius: 5, borderWidth: 1, borderColor: colors.hairline, backgroundColor: colors.surfaceRaised },
+  notchClose: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surfaceRaised,
+  },
+  chip: {
+    width: CHIP_SIZE,
+    height: CHIP_SIZE,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: colors.hairline,
+    backgroundColor: colors.surfaceRaised,
+  },
   panel: {
     height: PANEL_HEIGHT,
     marginHorizontal: spacing.md,
@@ -500,10 +704,22 @@ const styles = StyleSheet.create({
     paddingTop: PANEL_TOP,
     paddingHorizontal: spacing.lg,
   },
+  /** The field panel: sized by its content, no seam bite above it. */
+  panelTyping: {
+    marginHorizontal: spacing.md,
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
+    padding: spacing.md,
+  },
   mic: {
     alignSelf: "center",
     // Outer ring centered on the seam: half the gap above the panel's top edge.
     top: -(MIC_SIZE / 2 + CUTOUT_GAP + spacing.sm / 2),
+  },
+  key: {
+    left: "50%",
+    marginLeft: KEY_OFFSET - KEY_NOTCH_SIZE / 2,
+    top: -(KEY_SIZE / 2 + CUTOUT_GAP + spacing.sm / 2),
   },
   /** Dial centered on the mic: the mic's center sits half the card gap below the card's bottom edge. */
   wheel: {
