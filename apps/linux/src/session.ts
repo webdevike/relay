@@ -65,6 +65,8 @@ export class ClientSession {
   private phase: Phase = { kind: "awaitingHello" };
   private cancelPairingTimeout: (() => void) | null = null;
   private closed = false;
+  /** Set when the host ended the connection with an `error` frame: the code and message it sent. */
+  private failure: string | null = null;
   private name: string | null = null;
   /** Per-conversation rev for `agent.messages`, keyed by the subscribed session id. */
   private readonly subscriptions = new Map<string, number>();
@@ -82,6 +84,10 @@ export class ClientSession {
 
   get deviceName(): string | null {
     return this.name;
+  }
+
+  get closeReason(): string | null {
+    return this.failure;
   }
 
   get deviceId(): string | null {
@@ -448,6 +454,7 @@ export class ClientSession {
     this.endPairingIfPending();
     this.stopPairingTimeout();
     this.closed = true;
+    this.failure = `${code}: ${message}`;
     this.sink.send({ t: "error", code, message });
     this.sink.close();
     this.onClose(this);

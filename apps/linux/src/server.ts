@@ -253,7 +253,8 @@ export class RelayServer {
         dedup: this.dedup,
       },
       (closed) => {
-        this.deps.log(`disconnected ${closed.deviceName ?? ws.remoteAddress}`);
+        const reason = closed.closeReason;
+        this.deps.log(`disconnected ${closed.deviceName ?? ws.remoteAddress}${reason === null ? "" : ` (${reason})`}`);
       },
     );
     ws.data.session = session;
