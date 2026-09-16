@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Image, Keyboard, KeyboardAvoidingView, Pressable, StyleSheet, View } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import { scheduleOnRN } from "react-native-worklets";
+import { GestureDetector } from "react-native-gesture-handler";
 import { SymbolView } from "expo-symbols";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -33,8 +32,9 @@ import { AgentCard, AgentHeader } from "@/agents/AgentCard";
 import { AgentScrubber, TRACK_HEIGHT } from "@/agents/AgentScrubber";
 import { AgentSettingsSheet } from "@/agents/AgentSettingsSheet";
 import { TypedReply } from "@/agents/TypedReply";
-import { ActionWheel, type ActionWheelEntry } from "@/agents/ActionWheel";
-import { impactHaptic, tapHaptic } from "@/lib/haptics";
+import { type ActionWheelEntry } from "@/agents/ActionWheel";
+import { useActionWheel } from "@/agents/useActionWheel";
+import { tapHaptic } from "@/lib/haptics";
 import { copyText, readClipboardImage, readClipboardText } from "@/lib/clipboard";
 import { warn } from "@/connection/log";
 
@@ -52,8 +52,6 @@ const KEY_NOTCH_SIZE = KEY_SIZE + CUTOUT_GAP * 2;
 const KEY_OFFSET = MIC_SIZE / 2 + CUTOUT_GAP + spacing.xs + CUTOUT_GAP + KEY_SIZE / 2;
 /** The image pill's thumbnail, standing where the skill pill has its mic glyph. */
 const CHIP_SIZE = 20;
-/** Holding still this long (ms) on the chat opens the action wheel; moving sooner scrolls instead. */
-const WHEEL_HOLD_MS = 350;
 
 const wheelEntries: ActionWheelEntry[] = [
   { key: "copy", label: "Copy", symbol: "doc.on.doc" },
@@ -241,12 +239,8 @@ export default function AgentInbox() {
     top: headerHeight * (1 - collapse.value) + spacing.sm / 2 - NOTCH_HEIGHT / 2 - CUTOUT_GAP,
   }));
 
-  // Holding still on the chat opens the action wheel under the finger. The Pan only activates
-  // after the hold, so an early move is the transcript's scroll as usual; the wheel draws in the
+  // Holding still on the chat opens the action wheel under the finger; the wheel draws in the
   // stack's coordinates, so the chat card's offset (below the header) is mirrored for the worklets.
-  const wheelVisible = useSharedValue(0);
-  const wheelCenter = useSharedValue({ x: 0, y: 0 });
-  const wheelPointer = useSharedValue({ x: 0, y: 0 });
   const chatTop = useSharedValue(0);
   useAnimatedReaction(
     () => headerHeight * (1 - collapse.value) + spacing.sm,
@@ -287,33 +281,11 @@ export default function AgentInbox() {
       warn("agents", "paste failed", error);
     });
   }, []);
-  const chatGesture = useMemo(
-    () =>
-      Gesture.Pan()
-        .maxPointers(1)
-        .activateAfterLongPress(WHEEL_HOLD_MS)
-        .shouldCancelWhenOutside(false)
-        .onStart((event) => {
-          const at = { x: event.x, y: chatTop.value + event.y };
-          wheelCenter.value = at;
-          wheelPointer.value = at;
-          wheelVisible.value = 1;
-          scheduleOnRN(impactHaptic, "heavy");
-        })
-        .onUpdate((event) => {
-          wheelPointer.value = { x: event.x, y: chatTop.value + event.y };
-        })
-        .onEnd(() => {
-          wheelVisible.value = 0;
-        })
-        .onFinalize((_event, success) => {
-          if (success) return;
-          // Cancelled by the system: shut the wheel with nothing picked.
-          wheelPointer.value = wheelCenter.value;
-          wheelVisible.value = 0;
-        }),
-    [chatTop, wheelCenter, wheelPointer, wheelVisible],
-  );
+  const { gesture: chatGesture, wheel } = useActionWheel({
+    entries: wheelEntries,
+    onSelect: onWheelSelect,
+    offsetY: chatTop,
+  });
 
   const notchShown = (armed !== null || images.length > 0 || pasted !== null) && headerHeight > 0;
   // The seam pill, the mic and the keyboard button bite into the surfaces they straddle; `cy` is in
@@ -522,15 +494,7 @@ export default function AgentInbox() {
               <SkillWheel skills={skills} />
             </View>
           )}
-          <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-            <ActionWheel
-              entries={wheelEntries}
-              visible={wheelVisible}
-              center={wheelCenter}
-              pointer={wheelPointer}
-              onSelect={onWheelSelect}
-            />
-          </View>
+          {wheel}
         </View>
         {session !== undefined && typing && (
           <NotchedSurface

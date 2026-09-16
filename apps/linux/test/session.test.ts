@@ -125,6 +125,7 @@ function harness(options: HarnessOptions = {}): Harness {
     input: inputSink,
     text,
     access: { granted: options.granted ?? true },
+    images: { paste: () => Promise.resolve() },
     agents: options.agents ?? null,
     agentsTracker: options.tracker ?? new AgentsDeltaTracker(),
     devices,

@@ -9,7 +9,9 @@ const DATA_URI_PREFIX = "data:image/jpeg;base64,";
 export async function readClipboardImage(): Promise<PendingImage | null> {
   const image = await Clipboard.getImageAsync({ format: "jpeg", jpegQuality: JPEG_QUALITY });
   if (image === null) return null;
-  const data = image.data.startsWith(DATA_URI_PREFIX) ? image.data.slice(DATA_URI_PREFIX.length) : image.data;
+  const data = image.data.startsWith(DATA_URI_PREFIX)
+    ? image.data.slice(DATA_URI_PREFIX.length)
+    : image.data;
   if (data === "") return null;
   return { mimeType: "image/jpeg", data, width: image.size.width, height: image.size.height };
 }
@@ -23,4 +25,9 @@ export async function readClipboardText(): Promise<string | null> {
 
 export async function copyText(text: string): Promise<void> {
   await Clipboard.setStringAsync(text);
+}
+
+/** Puts an image (base64, any format iOS decodes) on the clipboard. */
+export async function copyImage(base64: string): Promise<void> {
+  await Clipboard.setImageAsync(base64);
 }

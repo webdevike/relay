@@ -233,6 +233,11 @@ export const Command = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("text.insert"), text: z.string().min(1) }),
   z.object({ kind: z.literal("key.press"), key: KeyName }),
   /**
+   * Put `image` on the host clipboard and paste it into whatever has keyboard focus (Ctrl+V on
+   * Linux, Cmd+V on the Mac). Text from the phone's clipboard goes through `text.insert` instead.
+   */
+  z.object({ kind: z.literal("clipboard.paste"), image: AgentImage }),
+  /**
    * Hand `text` (and any `images`) to an agent session. `submit: true` sends it as the next user
    * turn; `false` only places the text in the session's input so the user can finish it at the
    * keyboard (images cannot be parked there, so they require `submit`). Text may be empty only

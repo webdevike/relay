@@ -38,8 +38,14 @@ export async function systemPaste(args: readonly string[]): Promise<Uint8Array> 
 }
 
 /** `wl-paste --watch echo` prints one line per selection change; the line is the signal. */
-export function systemWatch(onChange: () => void, onExit: (reason: string) => void): { kill(): void } {
-  const child = Bun.spawn(["wl-paste", "--watch", "echo", "change"], { stdout: "pipe", stderr: "pipe" });
+export function systemWatch(
+  onChange: () => void,
+  onExit: (reason: string) => void,
+): { kill(): void } {
+  const child = Bun.spawn(["wl-paste", "--watch", "echo", "change"], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   void (async () => {
     for await (const chunk of child.stdout) {
       if (chunk.length > 0) onChange();
@@ -49,7 +55,11 @@ export function systemWatch(onChange: () => void, onExit: (reason: string) => vo
     const stderr = (await new Response(child.stderr).text()).trim();
     onExit(stderr === "" ? `exit ${code}` : stderr);
   });
-  return { kill: () => { child.kill(); } };
+  return {
+    kill: () => {
+      child.kill();
+    },
+  };
 }
 
 export class ClipboardWatcher {
@@ -78,6 +88,11 @@ export class ClipboardWatcher {
     this.cancelRestart = null;
     this.process?.kill();
     this.process = null;
+  }
+
+  /** The next selection will be this image, put there by the host itself: do not record it as a drop. */
+  expect(mimeType: string, bytes: Uint8Array): void {
+    this.lastKey = `${mimeType}:${digest(bytes)}`;
   }
 
   /** Reads the current selection and records it; exposed for tests and the first read at start. */
@@ -109,7 +124,9 @@ export class ClipboardWatcher {
       (reason) => {
         this.process = null;
         if (this.stopped) return;
-        this.deps.log(`clipboard watcher exited (${reason}); restarting in ${RESTART_DELAY_MS / 1000}s`);
+        this.deps.log(
+          `clipboard watcher exited (${reason}); restarting in ${RESTART_DELAY_MS / 1000}s`,
+        );
         this.cancelRestart = this.deps.after(RESTART_DELAY_MS, () => {
           this.cancelRestart = null;
           this.spawn();
@@ -132,24 +149,38 @@ export class ClipboardWatcher {
       if (bytes.length === 0 || bytes.length > MAX_DROP_BYTES) return;
       if (!this.fresh(`${image}:${digest(bytes)}`)) return;
       const ext = image === "image/png" ? "png" : image === "image/jpeg" ? "jpg" : "webp";
-      this.deps.drops.putBlob("host", { name: `clipboard-${stamp()}.${ext}`, mimeType: image, bytes });
+      this.deps.drops.putBlob("host", {
+        name: `clipboard-${stamp()}.${ext}`,
+        mimeType: image,
+        bytes,
+      });
       return;
     }
 
     if (types.includes("text/uri-list")) {
-      const path = singleFile(new TextDecoder().decode(await this.deps.paste(["--type", "text/uri-list"])));
+      const path = singleFile(
+        new TextDecoder().decode(await this.deps.paste(["--type", "text/uri-list"])),
+      );
       if (path !== null) {
         const size = statSync(path).size;
         if (size === 0 || size > MAX_DROP_BYTES) return;
         if (!this.fresh(`file:${path}:${size}`)) return;
-        this.deps.drops.putBlob("host", { name: basename(path), mimeType: mimeOf(path), bytes: new Uint8Array(readFileSync(path)) });
+        this.deps.drops.putBlob("host", {
+          name: basename(path),
+          mimeType: mimeOf(path),
+          bytes: new Uint8Array(readFileSync(path)),
+        });
         return;
       }
     }
 
-    const textType = types.find((candidate) => candidate === "text/plain" || candidate.startsWith("text/plain;"));
+    const textType = types.find(
+      (candidate) => candidate === "text/plain" || candidate.startsWith("text/plain;"),
+    );
     if (textType === undefined) return;
-    const text = new TextDecoder().decode(await this.deps.paste(["--no-newline", "--type", textType]));
+    const text = new TextDecoder().decode(
+      await this.deps.paste(["--no-newline", "--type", textType]),
+    );
     if (text.trim() === "" || text.length > MAX_DROP_TEXT) return;
     if (!this.fresh(textKey(text))) return;
     this.deps.drops.putText("host", text);

@@ -20,6 +20,11 @@ export interface TextInjecting {
   press(key: KeyName): Promise<void>;
 }
 
+/** Puts an image on the system clipboard and pastes it into the focused app. Rejects with `AckFailure`. */
+export interface ImagePasting {
+  paste(image: AgentImage): Promise<void>;
+}
+
 /**
  * Linux stand-in for macOS Accessibility trust: whether the virtual input device could be
  * created (the user can open `/dev/uinput`). Drives `MacState.accessibilityGranted`.

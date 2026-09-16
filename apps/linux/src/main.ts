@@ -16,6 +16,7 @@ import { defaultSocketPath, OmpBridgeProvider } from "./agents/bridge";
 import { FileDeviceStore } from "./device-store";
 import { FileDropStore } from "./drops/store";
 import { detectTextTyper, KeyboardInjector } from "./input/keyboard";
+import { ClipboardPaster, systemCopy } from "./input/paste";
 import type { EventPoster } from "./input/poster";
 import { TrackpadInputSink } from "./input/trackpad";
 import { UinputDevice } from "./input/uinput";
@@ -69,18 +70,29 @@ function log(line: string): void {
   console.log(`${new Date().toISOString()} ${line}`);
 }
 
-function serve(port: number, name: string, agentHome: string | null, watchClipboard: boolean): void {
+function serve(
+  port: number,
+  name: string,
+  agentHome: string | null,
+  watchClipboard: boolean,
+): void {
   let device: UinputDevice | null = null;
   try {
     device = new UinputDevice();
     log("virtual input device created");
   } catch (error) {
     console.error(`input unavailable: ${error instanceof Error ? error.message : String(error)}`);
-    console.error("the phone will connect but pointer/keyboard commands will be refused until this is fixed");
+    console.error(
+      "the phone will connect but pointer/keyboard commands will be refused until this is fixed",
+    );
   }
   const poster = device ?? NO_INPUT;
   const typer = detectTextTyper();
-  log(typer === null ? "text input: uinput US layout (ASCII only; install wtype on Wayland for Unicode)" : "text input: wtype");
+  log(
+    typer === null
+      ? "text input: uinput US layout (ASCII only; install wtype on Wayland for Unicode)"
+      : "text input: wtype",
+  );
 
   const agents = new OmpBridgeProvider(defaultSocketPath(), log, agentHome);
   const pushTokens = new FilePushTokenStore();
@@ -93,12 +105,33 @@ function serve(port: number, name: string, agentHome: string | null, watchClipbo
     clock: systemClock,
     log,
   });
+  const clipboard =
+    watchClipboard && Bun.which("wl-paste") !== null
+      ? new ClipboardWatcher({
+          drops,
+          paste: systemPaste,
+          watch: systemWatch,
+          log,
+          after: (ms, fn) => systemClock.after(ms, fn),
+        })
+      : null;
+  const images = new ClipboardPaster({
+    poster,
+    copy: systemCopy,
+    expect:
+      clipboard === null
+        ? null
+        : (mimeType, bytes) => {
+            clipboard.expect(mimeType, bytes);
+          },
+  });
   const server: RelayServer = new RelayServer(
     { port, hostName: name, version: pkg.version },
     {
       input: new TrackpadInputSink(poster),
       text: new KeyboardInjector(poster, typer),
       access: { granted: device !== null },
+      images,
       agents,
       devices: new FileDeviceStore(),
       push: pushTokens,
@@ -114,16 +147,27 @@ function serve(port: number, name: string, agentHome: string | null, watchClipbo
   writeFileSync(infoPath, JSON.stringify({ port: boundPort, pid: process.pid }), { mode: 0o600 });
   chmodSync(infoPath, 0o600);
   log(`listening on ws://0.0.0.0:${boundPort}/relay as "${name}"`);
-  log(`agent bridge listening on ${defaultSocketPath()} (omp sessions register via omp-extension/relay-bridge.ts)`);
-  log(agentHome === null ? "agent.start disabled (no --agent-home and no $HOME)" : `agent.start opens omp in ${agentHome}`);
+  log(
+    `agent bridge listening on ${defaultSocketPath()} (omp sessions register via omp-extension/relay-bridge.ts)`,
+  );
+  log(
+    agentHome === null
+      ? "agent.start disabled (no --agent-home and no $HOME)"
+      : `agent.start opens omp in ${agentHome}`,
+  );
 
   const advertiser = new AvahiAdvertiser(name, boundPort, log);
   advertiser.start();
   log("advertising _relay._tcp via avahi");
 
-  const clipboard = watchClipboard && Bun.which("wl-paste") !== null ? new ClipboardWatcher({ drops, paste: systemPaste, watch: systemWatch, log, after: (ms, fn) => systemClock.after(ms, fn) }) : null;
   clipboard?.start();
-  log(clipboard === null ? (watchClipboard ? "clipboard watcher disabled (wl-paste not found)" : "clipboard watcher disabled (--no-clipboard)") : "clipboard watcher: every copy becomes a drop");
+  log(
+    clipboard === null
+      ? watchClipboard
+        ? "clipboard watcher disabled (wl-paste not found)"
+        : "clipboard watcher disabled (--no-clipboard)"
+      : "clipboard watcher: every copy becomes a drop",
+  );
 
   const shutdown = (): void => {
     log("shutting down");
@@ -159,8 +203,13 @@ async function share(positionals: string[]): Promise<void> {
       body: await file.bytes(),
     });
   } else {
-    const text = positionals.length === 0 || single === "-" ? await Bun.stdin.text() : positionals.join(" ");
-    response = await fetch(url, { method: "POST", headers: { "content-type": "text/plain; charset=utf-8" }, body: text });
+    const text =
+      positionals.length === 0 || single === "-" ? await Bun.stdin.text() : positionals.join(" ");
+    response = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "text/plain; charset=utf-8" },
+      body: text,
+    });
   }
   if (!response.ok) {
     console.error(await response.text());
@@ -198,8 +247,14 @@ async function main(argv: string[]): Promise<void> {
   switch (command) {
     case "serve": {
       const port = Number.parseInt(values.port, 10);
-      if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`invalid --port ${values.port}`);
-      serve(port, values.name, values["agent-home"] ?? process.env["HOME"] ?? null, !values["no-clipboard"]);
+      if (!Number.isInteger(port) || port < 0 || port > 65535)
+        throw new Error(`invalid --port ${values.port}`);
+      serve(
+        port,
+        values.name,
+        values["agent-home"] ?? process.env["HOME"] ?? null,
+        !values["no-clipboard"],
+      );
       return;
     }
     case "devices": {
@@ -209,7 +264,9 @@ async function main(argv: string[]): Promise<void> {
         return;
       }
       for (const device of devices) {
-        console.log(`${device.id}  ${device.name}  paired ${new Date(device.pairedAt).toISOString()}`);
+        console.log(
+          `${device.id}  ${device.name}  paired ${new Date(device.pairedAt).toISOString()}`,
+        );
       }
       return;
     }

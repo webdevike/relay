@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector, type GestureTouchEvent } from "react-native-gesture-handler";
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
@@ -10,6 +10,8 @@ import { useSettingsStore } from "@/state/settings";
 import { sendInput, getClientTime } from "@/connection";
 import { impactHaptic, selectHaptic, tapHaptic } from "@/lib/haptics";
 import { TrackpadGestureModel, type Haptic, type RawTouch, type TouchPhase } from "./gestures";
+import type { ActionWheelEntry } from "@/agents/ActionWheel";
+import { useActionWheel } from "@/agents/useActionWheel";
 
 const hapticFor: Record<Haptic, () => void> = {
   select: selectHaptic,
@@ -24,6 +26,12 @@ function toRawTouches(event: GestureTouchEvent, phase: TouchPhase): RawTouch[] {
   return event.changedTouches.map((touch) => ({ id: touch.id, phase, x: touch.x, y: touch.y, t }));
 }
 
+export interface TrackpadSurfaceProps {
+  /** Entries of the wheel a still hold opens; `onWheel` gets the picked key. */
+  wheel: ActionWheelEntry[];
+  onWheel: (key: string) => void;
+}
+
 /**
  * Full-bleed trackpad. Touch handling runs entirely on the JS thread (`.runOnJS(true)`): the
  * gesture engine is a plain TS class that reads Zustand and calls `sendInput`/haptics, none of
@@ -31,7 +39,7 @@ function toRawTouches(event: GestureTouchEvent, phase: TouchPhase): RawTouch[] {
  * (the only visual feedback is a discrete click flash) — so a UI-thread worklet hop would only
  * add a `scheduleOnRN` round-trip before doing the same JS work, not remove one.
  */
-export function TrackpadSurface() {
+export function TrackpadSurface({ wheel: entries, onWheel }: TrackpadSurfaceProps) {
   const status = useConnectionStore((state) => state.status);
   const connected = status === "connected";
 
@@ -97,24 +105,43 @@ export function TrackpadSurface() {
     };
   }, [model]);
 
-  const gesture = useMemo(
-    () =>
-      Gesture.Manual()
-        .runOnJS(true)
-        .onTouchesDown((event) => {
-          for (const touch of toRawTouches(event, "began")) model.touch(touch);
-        })
-        .onTouchesMove((event) => {
-          for (const touch of toRawTouches(event, "moved")) model.touch(touch);
-        })
-        .onTouchesUp((event) => {
-          for (const touch of toRawTouches(event, "ended")) model.touch(touch);
-        })
-        .onTouchesCancelled((event) => {
-          for (const touch of toRawTouches(event, "cancelled")) model.touch(touch);
-        }),
-    [model],
-  );
+  // Once the wheel is open the finger is choosing an entry, not moving the pointer: the model
+  // forgets the touch and hears nothing more until every finger has lifted.
+  const wheelOpenRef = useRef(false);
+  const onWheelOpen = useCallback(() => {
+    wheelOpenRef.current = true;
+    model.reset();
+  }, [model]);
+  const { gesture: wheelGesture, wheel } = useActionWheel({
+    entries,
+    onSelect: onWheel,
+    onOpen: onWheelOpen,
+  });
+
+  const gesture = useMemo(() => {
+    const feed = (event: GestureTouchEvent, phase: TouchPhase): void => {
+      if (wheelOpenRef.current) {
+        if (event.numberOfTouches === 0) wheelOpenRef.current = false;
+        return;
+      }
+      for (const touch of toRawTouches(event, phase)) model.touch(touch);
+    };
+    const touches = Gesture.Manual()
+      .runOnJS(true)
+      .onTouchesDown((event) => {
+        feed(event, "began");
+      })
+      .onTouchesMove((event) => {
+        feed(event, "moved");
+      })
+      .onTouchesUp((event) => {
+        feed(event, "ended");
+      })
+      .onTouchesCancelled((event) => {
+        feed(event, "cancelled");
+      });
+    return Gesture.Simultaneous(touches, wheelGesture);
+  }, [model, wheelGesture]);
 
   const flashStyle = useAnimatedStyle(() => ({ opacity: flashOpacity.value }));
 
@@ -134,6 +161,7 @@ export function TrackpadSurface() {
             </View>
           )}
         </View>
+        {wheel}
       </View>
     </GestureDetector>
   );
