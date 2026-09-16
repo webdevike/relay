@@ -530,6 +530,7 @@ export default function AgentInbox() {
                       size={MIC_SIZE}
                       backgroundColor={colors.surface}
                       {...(skills === undefined ? {} : { skills })}
+                      {...(connected && !launching ? { onLift: startSession } : {})}
                     />
                   </Cutout>
                   {/* Ring centered on the seam like the mic; `left` from the measured width, a percentage would resolve against the padded box. */}

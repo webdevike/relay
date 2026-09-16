@@ -279,6 +279,23 @@ describe("dictationMachine", () => {
     expect(h.sends).toEqual([]);
   });
 
+  it("launch drops what was heard, keeps the armed skill and attachments, and the orb flies without a release", async () => {
+    const h = harness();
+    h.actor.send({ type: "arm", skill: "/skill:deploy" });
+    await pressAndListen(h);
+    h.actor.send({ type: "partial", text: "never mind" });
+    h.actor.send({ type: "launch" });
+    expect(h.phase()).toBe("idle");
+    expect(h.orb()).toBe("flying");
+    expect(h.recognizerAlive()).toBe(false);
+    expect(h.actor.getSnapshot().context).toMatchObject({ transcript: "", skill: "/skill:deploy" });
+    h.actor.send({ type: "release" });
+    h.actor.send({ type: "final", text: "never mind" });
+    expect(h.sends).toEqual([]);
+    h.clock.increment(620);
+    expect(h.orb()).toBe("hidden");
+  });
+
   it("orb: a recognizer error fades the orb; a new hold during the fade brings it back", async () => {
     const h = harness();
     await pressAndListen(h);

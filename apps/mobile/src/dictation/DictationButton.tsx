@@ -34,7 +34,7 @@ import type { AgentSkill, AgentSkillChoice } from "@relay/protocol";
 
 const DEFAULT_SIZE = 40;
 const CHIP_WIDTH = 220;
-/** Finger travel (pt) up from the button that submits the dictation (insert + Return). */
+/** Finger travel (pt) up from the button that submits the dictation (or fires `onLift`). */
 const SEND_SWIPE_DISTANCE = 56;
 /** Finger travel (pt) left from the button that opens the skill wheel. */
 const WHEEL_SWIPE_DISTANCE = 56;
@@ -97,19 +97,27 @@ const errorMessage: Record<string, string> = {
 const DEFAULT_ERROR_MESSAGE = "Something went wrong.";
 
 /**
- * Hold-to-talk mic: press and hold to listen, release to put the text in the input, flick up to
- * send. With `skills`, a swipe left while holding opens the skill wheel: scrub around the mic to
- * bring an entry under the marker, lift to lock it in; the next hold dictates with it armed.
- * Floating chip shows failures; the armed skill is the inbox's notch.
+ * Hold-to-talk mic: press and hold to listen, release to send. The flick up submits (insert plus
+ * Return) unless the screen gives `onLift`, which then owns the flick: what was heard is dropped, the
+ * orb launches, and `onLift` runs. With `skills`, a swipe left while holding opens the skill wheel:
+ * scrub around the mic to bring an entry under the marker, lift to lock it in; the next hold dictates
+ * with it armed. Floating chip shows failures; the armed skill is the inbox's notch.
  */
 export interface DictationButtonProps {
   size?: number;
   backgroundColor?: string;
   /** Skills the wheel offers; omit (trackpad) and the swipe left does nothing. */
   skills?: AgentSkill[];
+  /** Takes over the flick up: the inbox starts a session with it. */
+  onLift?: () => void;
 }
 
-export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundColor = colors.surfaceRaised, skills }: DictationButtonProps = {}) {
+export function DictationButton({
+  size: BUTTON_SIZE = DEFAULT_SIZE,
+  backgroundColor = colors.surfaceRaised,
+  skills,
+  onLift,
+}: DictationButtonProps = {}) {
   const connected = useConnectionStore((state) => state.status === "connected");
   const state = useDictation();
   const ring = useSharedValue(1);
@@ -130,12 +138,17 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
   }, [level]);
   useEffect(() => {
     if (state.phase === "sent") notifyHaptic("success");
-    if (state.phase !== "listening") level.value = withTiming(0, { duration: motion.duration.fast });
+    if (state.phase !== "listening")
+      level.value = withTiming(0, { duration: motion.duration.fast });
   }, [state.phase, level]);
 
   useEffect(() => {
     if (state.phase === "listening") {
-      ring.value = withRepeat(withTiming(1.15, { duration: 900, easing: Easing.out(Easing.ease) }), -1, true);
+      ring.value = withRepeat(
+        withTiming(1.15, { duration: 900, easing: Easing.out(Easing.ease) }),
+        -1,
+        true,
+      );
     } else {
       cancelAnimation(ring);
       ring.value = withTiming(1, { duration: motion.duration.fast });
@@ -156,7 +169,11 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
   const ringStyle = useAnimatedStyle(() => ({ transform: [{ scale: ring.value }] }));
 
   const glyphMode: MicGlyphMode =
-    state.phase === "sent" ? "check" : state.phase === "listening" || state.phase === "finishing" || state.phase === "sending" ? "wave" : "mic";
+    state.phase === "sent"
+      ? "check"
+      : state.phase === "listening" || state.phase === "finishing" || state.phase === "sending"
+        ? "wave"
+        : "mic";
   // A Manual gesture fed by raw touch events: the release comes from onTouchesUp/Cancelled, not
   // from the recognizer's own state machine, so a competing recognizer (the trackpad surface
   // underneath, the navigator's edge swipe) can never swallow the finger lifting. The gesture is
@@ -173,6 +190,8 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
   const choiceCounts = useSharedValue<number[]>([]);
   const skillsRef = useRef(skills);
   skillsRef.current = skills;
+  const onLiftRef = useRef(onLift);
+  onLiftRef.current = onLift;
   useEffect(() => {
     enabled.value = connected;
     const count = skills?.length ?? 0;
@@ -198,7 +217,11 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
   const armedIndex = useSharedValue(0);
   useEffect(() => {
     const index =
-      skills?.findIndex((skill) => skill.command === state.skill || skill.choices?.some((choice) => choice.command === state.skill) === true) ?? -1;
+      skills?.findIndex(
+        (skill) =>
+          skill.command === state.skill ||
+          skill.choices?.some((choice) => choice.command === state.skill) === true,
+      ) ?? -1;
     armedIndex.value = Math.max(0, index);
   }, [skills, state.skill, armedIndex]);
 
@@ -219,10 +242,18 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
       if (phase === "listening") tapHaptic();
       dictationActor.send({ type: "release" });
     };
-    const submit = (): void => {
-      if (phaseOf(dictationActor.getSnapshot()) !== "listening") return;
+    /** The flick up: the screen's `onLift` if it gave one (dropping what was heard), else submit. */
+    const flickUp = (): void => {
+      const lift = onLiftRef.current;
+      if (lift === undefined) {
+        if (phaseOf(dictationActor.getSnapshot()) !== "listening") return;
+        impactHaptic("heavy");
+        dictationActor.send({ type: "pressStop", submit: true });
+        return;
+      }
       impactHaptic("heavy");
-      dictationActor.send({ type: "pressStop", submit: true });
+      dictationActor.send({ type: "launch" });
+      lift();
     };
     const openWheel = (): void => {
       debug("dictation", "wheel open", phaseOf(dictationActor.getSnapshot()));
@@ -271,9 +302,15 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
       const stale = Date.now() - lastAt.value > MOMENTUM_STALE_MS;
       const carried = stale ? 0 : angularVelocity.value * MOMENTUM_MS;
       const here = Math.round(wheelPosition.value);
-      const target = Math.max(here - 1, Math.min(here + 1, Math.round(wheelPosition.value + carried)));
+      const target = Math.max(
+        here - 1,
+        Math.min(here + 1, Math.round(wheelPosition.value + carried)),
+      );
       wheelPosition.value = withSpring(target, SNAP_SPRING);
-      wheelConfirm.value = withDelay(SNAP_MS, withSequence(withTiming(1, { duration: 0 }), withTiming(0, { duration: CONFIRM_MS })));
+      wheelConfirm.value = withDelay(
+        SNAP_MS,
+        withSequence(withTiming(1, { duration: 0 }), withTiming(0, { duration: CONFIRM_MS })),
+      );
       scheduleOnRN(pick, wrapIndex(target, skillCount.value));
     };
     const finish = (reason: string): void => {
@@ -394,12 +431,12 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
           scheduleOnRN(openWheel);
           return;
         }
-        // The orb lifts with the finger; crossing the swipe distance submits immediately.
+        // The orb lifts with the finger; crossing the swipe distance submits (or launches) immediately.
         const lift = Math.min(1, Math.max(0, -dy / SEND_SWIPE_DISTANCE));
         sendLift.value = lift;
         if (lift >= 1) {
           armed.value = true;
-          scheduleOnRN(submit);
+          scheduleOnRN(flickUp);
         }
       })
       .onTouchesUp((event, manager) => {
@@ -436,7 +473,9 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
     armedIndex,
   ]);
 
-  const buttonStyle = useAnimatedStyle(() => ({ opacity: !connected ? 0.4 : pressed.value ? 0.85 : 1 }));
+  const buttonStyle = useAnimatedStyle(() => ({
+    opacity: !connected ? 0.4 : pressed.value ? 0.85 : 1,
+  }));
 
   const showPermissionChip = state.phase === "permission_denied";
   const showErrorChip = state.phase === "error";
@@ -466,7 +505,10 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
             />
           )}
           {showErrorChip && (
-            <Banner tone="danger" message={errorMessage[state.errorCode ?? "internal"] ?? DEFAULT_ERROR_MESSAGE} />
+            <Banner
+              tone="danger"
+              message={errorMessage[state.errorCode ?? "internal"] ?? DEFAULT_ERROR_MESSAGE}
+            />
           )}
           {showNothingHeardChip && (
             <Text variant="label" color="textMuted">
@@ -475,7 +517,14 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
           )}
         </View>
       )}
-      <View style={{ width: BUTTON_SIZE, height: BUTTON_SIZE, alignItems: "center", justifyContent: "center" }}>
+      <View
+        style={{
+          width: BUTTON_SIZE,
+          height: BUTTON_SIZE,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
         {state.phase === "listening" && (
           <Animated.View
             style={[
@@ -505,7 +554,12 @@ export function DictationButton({ size: BUTTON_SIZE = DEFAULT_SIZE, backgroundCo
               buttonStyle,
             ]}
           >
-            <MicGlyph mode={glyphMode} size={BUTTON_SIZE} tintColor={tintFor[state.phase]} level={level} />
+            <MicGlyph
+              mode={glyphMode}
+              size={BUTTON_SIZE}
+              tintColor={tintFor[state.phase]}
+              level={level}
+            />
           </Animated.View>
         </GestureDetector>
       </View>

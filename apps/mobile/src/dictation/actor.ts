@@ -4,14 +4,25 @@
  * `sendCommand`.
  */
 import { PermissionStatus } from "expo-modules-core";
-import { ExpoSpeechRecognitionModule, type ExpoSpeechRecognitionOptions } from "expo-speech-recognition";
+import {
+  ExpoSpeechRecognitionModule,
+  type ExpoSpeechRecognitionOptions,
+} from "expo-speech-recognition";
 import { createActor, fromCallback, fromPromise } from "xstate";
 import { sendCommand } from "@/connection";
 import { debug, warn } from "@/connection/log";
 import { useSettingsStore } from "@/state/settings";
 import { VozDictation } from "../../modules/voz-dictation";
 import { deliverDictation } from "./deliver";
-import { dictationMachine, orbOf, phaseOf, type DeliverInput, type PermissionOutcome, type RecognizerCommand, type RecognizerEvent } from "./machine";
+import {
+  dictationMachine,
+  orbOf,
+  phaseOf,
+  type DeliverInput,
+  type PermissionOutcome,
+  type RecognizerCommand,
+  type RecognizerEvent,
+} from "./machine";
 
 /** Voz is the recognizer only once its model is on the phone; until then Apple's takes every press. */
 export function usingVoz(): boolean {
@@ -54,7 +65,9 @@ const checkPermission = fromPromise<PermissionOutcome>(async () => {
 });
 
 /** Runs the recognizer for the whole `active` state; aborts it if the machine leaves early. */
-const recognizer = fromCallback<RecognizerCommand>(({ sendBack, receive }) => (usingVoz() ? runVoz(sendBack, receive) : runApple(sendBack, receive)));
+const recognizer = fromCallback<RecognizerCommand>(({ sendBack, receive }) =>
+  usingVoz() ? runVoz(sendBack, receive) : runApple(sendBack, receive),
+);
 
 type SendBack = (event: RecognizerEvent) => void;
 type Receive = (listener: (command: RecognizerCommand) => void) => void;
@@ -119,10 +132,18 @@ const deliver = fromPromise<null, DeliverInput>(async ({ input }) => {
   return null;
 });
 
-export const dictationActor = createActor(dictationMachine.provide({ actors: { checkPermission, recognizer, deliver } }));
+export const dictationActor = createActor(
+  dictationMachine.provide({ actors: { checkPermission, recognizer, deliver } }),
+);
 
 dictationActor.subscribe((snapshot) => {
-  debug("dictation", phaseOf(snapshot), `orb=${orbOf(snapshot)}`, snapshot.context.submit ? "submit" : "", snapshot.context.errorCode ?? "");
+  debug(
+    "dictation",
+    phaseOf(snapshot),
+    `orb=${orbOf(snapshot)}`,
+    snapshot.context.submit ? "submit" : "",
+    snapshot.context.errorCode ?? "",
+  );
 });
 
 dictationActor.start();

@@ -103,6 +103,8 @@ export type DictationEvent =
   | { type: "pressStop"; submit?: boolean }
   /** Finger lifted. While listening this ends the dictation; after a submit it launches the orb. */
   | { type: "release" }
+  /** Finger flew up while listening in the inbox: drop what was heard, the orb launches, a session starts. */
+  | { type: "launch" }
   /** Finger swiped left while listening: drop what was heard and open the skill wheel. */
   | { type: "wheelOpen" }
   /**
@@ -307,6 +309,7 @@ export const dictationMachine = setup({
                   target: "#dictation.speech.choosing",
                   actions: assign({ transcript: "", wheelParent: null }),
                 },
+                launch: { target: "#dictation.speech.idle", actions: assign(keepArmed) },
                 // A press here means the earlier release was lost: treat it as that release.
                 pressStart: { target: "finishing", actions: "stopRecognizer" },
                 recognizerEnd: {
@@ -408,6 +411,7 @@ export const dictationMachine = setup({
         shown: {
           on: {
             pressStop: { guard: and(["submitting", "listening"]), target: "lifted" },
+            launch: { guard: "listening", target: "flying" },
           },
           always: [
             { guard: "speechSent", target: "collapsing" },

@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import Animated, { FadeIn, FadeOut, interpolate, interpolateColor, useAnimatedReaction, useAnimatedStyle, useDerivedValue } from "react-native-reanimated";
+import Animated, {
+  FadeIn,
+  FadeOut,
+  interpolate,
+  interpolateColor,
+  useAnimatedReaction,
+  useAnimatedStyle,
+  useDerivedValue,
+} from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 import { SymbolView, type SFSymbol } from "expo-symbols";
 import type { AgentSkill, AgentSkillChoice } from "@relay/protocol";
@@ -112,16 +120,30 @@ interface RingEntry {
   hasChoices: boolean;
 }
 
-function ringOf(skills: AgentSkill[], parent: string | null): { name: string | null; entries: RingEntry[] } {
+function ringOf(
+  skills: AgentSkill[],
+  parent: string | null,
+): { name: string | null; entries: RingEntry[] } {
   if (parent !== null) {
     const owner = skills.find((skill) => skill.command === parent);
     if (owner !== undefined) {
       const fallback = iconOf(owner);
-      const entries = (owner.choices ?? []).map((choice) => ({ entry: choice, icon: choiceIconFor[choice.name] ?? fallback, hasChoices: false }));
+      const entries = (owner.choices ?? []).map((choice) => ({
+        entry: choice,
+        icon: choiceIconFor[choice.name] ?? fallback,
+        hasChoices: false,
+      }));
       return { name: owner.name, entries };
     }
   }
-  return { name: null, entries: skills.map((skill) => ({ entry: skill, icon: iconOf(skill), hasChoices: (skill.choices?.length ?? 0) > 0 })) };
+  return {
+    name: null,
+    entries: skills.map((skill) => ({
+      entry: skill,
+      icon: iconOf(skill),
+      hasChoices: (skill.choices?.length ?? 0) > 0,
+    })),
+  };
 }
 
 /** Index into the list for an unbounded slot. */
@@ -191,7 +213,12 @@ export function SkillWheel({ skills }: SkillWheelProps) {
       style={styles.dial}
     >
       <Backdrop />
-      <Animated.View key={ring.name ?? ""} entering={FadeIn.duration(motion.duration.base)} exiting={FadeOut.duration(motion.duration.fast)} style={styles.ring}>
+      <Animated.View
+        key={ring.name ?? ""}
+        entering={FadeIn.duration(motion.duration.base)}
+        exiting={FadeOut.duration(motion.duration.fast)}
+        style={styles.ring}
+      >
         {slots.map((slot) => {
           const item = ring.entries[wrapIndex(slot, ring.entries.length)];
           return item === undefined ? null : <DialEntry key={slot} slot={slot} item={item} />;
@@ -241,17 +268,30 @@ function DialEntry({ slot, item }: { slot: number; item: RingEntry }) {
   });
   const litStyle = useAnimatedStyle(() => {
     const proximity = Math.max(0, 1 - Math.abs(slot - shownPosition(wheelPosition.value)));
-    return { opacity: proximity, shadowOpacity: 0.45 * proximity + 0.4 * wheelConfirm.value * proximity };
+    return {
+      opacity: proximity,
+      shadowOpacity: 0.45 * proximity + 0.4 * wheelConfirm.value * proximity,
+    };
   });
   const labelStyle = useAnimatedStyle(() => {
     const proximity = Math.max(0, 1 - Math.abs(slot - shownPosition(wheelPosition.value)));
-    return { opacity: 0.3 + 0.7 * proximity, color: interpolateColor(proximity, [0, 1], [colors.textMuted, "#FFFFFF"]) };
+    return {
+      opacity: 0.3 + 0.7 * proximity,
+      color: interpolateColor(proximity, [0, 1], [colors.textMuted, "#FFFFFF"]),
+    };
   });
   return (
     <Animated.View style={[styles.entry, style]}>
-      <View style={styles.hint}>{item.hasChoices && <SymbolView name="chevron.up" size={9} tintColor={colors.textFaint} />}</View>
+      <View style={styles.hint}>
+        {item.hasChoices && <SymbolView name="chevron.up" size={9} tintColor={colors.textFaint} />}
+      </View>
       <View style={styles.icon}>
-        <SymbolView name={item.icon} size={ICON_SIZE} tintColor={colors.textFaint} style={styles.iconLayer} />
+        <SymbolView
+          name={item.icon}
+          size={ICON_SIZE}
+          tintColor={colors.textFaint}
+          style={styles.iconLayer}
+        />
         <Animated.View style={[styles.iconLayer, styles.iconLit, litStyle]}>
           <SymbolView name={item.icon} size={ICON_SIZE} tintColor="#FFFFFF" />
         </Animated.View>
@@ -296,7 +336,8 @@ function topArcPath(radius: number, halfSpan: number): string {
 function sectorPath(inner: number, outer: number, halfSpan: number): string {
   const a0 = TOP - halfSpan;
   const a1 = TOP + halfSpan;
-  const point = (r: number, a: number): string => `${CENTER + r * Math.cos(a)} ${CENTER + r * Math.sin(a)}`;
+  const point = (r: number, a: number): string =>
+    `${CENTER + r * Math.cos(a)} ${CENTER + r * Math.sin(a)}`;
   return `M${point(inner, a0)}L${point(outer, a0)}A${outer} ${outer} 0 0 1 ${point(outer, a1)}L${point(inner, a1)}A${inner} ${inner} 0 0 0 ${point(inner, a0)}Z`;
 }
 
@@ -321,86 +362,222 @@ function SkiaBackdrop({ sk }: { sk: SkiaModule }) {
   const origin = vec(CENTER, CENTER);
   const topPoint = vec(CENTER, CENTER - BAND_OUTER);
   const innerTop = vec(CENTER, CENTER - BAND_INNER);
-  const notchTransform = useDerivedValue(() => [{ rotate: shownPosition(wheelPosition.value) * ARC_STEP_RAD }]);
+  const notchTransform = useDerivedValue(() => [
+    { rotate: shownPosition(wheelPosition.value) * ARC_STEP_RAD },
+  ]);
   const notchLight = useDerivedValue(() => {
     const rot = shownPosition(wheelPosition.value) * ARC_STEP_RAD;
-    return vec(CENTER + BAND_INNER * Math.cos(TOP - rot), CENTER + BAND_INNER * Math.sin(TOP - rot));
+    return vec(
+      CENTER + BAND_INNER * Math.cos(TOP - rot),
+      CENTER + BAND_INNER * Math.sin(TOP - rot),
+    );
   });
-  const bloomTransform = useDerivedValue(() => [{ scale: 1 + 0.18 * wheelDetent.value + 0.5 * wheelConfirm.value }]);
+  const bloomTransform = useDerivedValue(() => [
+    { scale: 1 + 0.18 * wheelDetent.value + 0.5 * wheelConfirm.value },
+  ]);
   const spotOpacity = useDerivedValue(() => 0.7 + 0.3 * wheelConfirm.value);
-  const flash = useDerivedValue(() => Math.min(1, 0.4 * wheelDetent.value + 0.7 * wheelConfirm.value));
+  const flash = useDerivedValue(() =>
+    Math.min(1, 0.4 * wheelDetent.value + 0.7 * wheelConfirm.value),
+  );
   const size = WHEEL_EXTENT * 2;
   return (
     <Canvas style={{ position: "absolute", width: size, height: size }}>
       {/* The ring: near-black with a little depth, a darker cutout inside, hairlines on both edges. */}
-      <Circle c={origin} r={(BAND_OUTER + BAND_INNER) / 2} style="stroke" strokeWidth={BAND_OUTER - BAND_INNER}>
-        <RadialGradient c={origin} r={BAND_OUTER} colors={["#0E1018", "#161924", "#0A0B10"]} positions={[BAND_INNER / BAND_OUTER, 0.74, 1]} />
+      <Circle
+        c={origin}
+        r={(BAND_OUTER + BAND_INNER) / 2}
+        style="stroke"
+        strokeWidth={BAND_OUTER - BAND_INNER}
+      >
+        <RadialGradient
+          c={origin}
+          r={BAND_OUTER}
+          colors={["#0E1018", "#161924", "#0A0B10"]}
+          positions={[BAND_INNER / BAND_OUTER, 0.74, 1]}
+        />
       </Circle>
       <Circle c={origin} r={BAND_INNER} color="rgba(0,0,0,0.3)" />
-      <Circle c={origin} r={BAND_INNER + 0.5} style="stroke" strokeWidth={1} color="rgba(255,255,255,0.07)" />
-      <Circle c={origin} r={BAND_OUTER} style="stroke" strokeWidth={1} color="rgba(255,255,255,0.08)" />
+      <Circle
+        c={origin}
+        r={BAND_INNER + 0.5}
+        style="stroke"
+        strokeWidth={1}
+        color="rgba(255,255,255,0.07)"
+      />
+      <Circle
+        c={origin}
+        r={BAND_OUTER}
+        style="stroke"
+        strokeWidth={1}
+        color="rgba(255,255,255,0.08)"
+      />
       {/* Spotlight: the wedge of band under the marker, lit from the outer edge inward. */}
       {paths.wedge !== null && (
         <Group opacity={spotOpacity}>
           <Path path={paths.wedge}>
-            <RadialGradient c={topPoint} r={BAND_OUTER - BAND_INNER + 30} colors={[`rgba(${ACCENT_RGB},0.30)`, `rgba(${ACCENT_RGB},0.08)`, `rgba(${ACCENT_RGB},0)`]} positions={[0, 0.45, 1]} />
+            <RadialGradient
+              c={topPoint}
+              r={BAND_OUTER - BAND_INNER + 30}
+              colors={[
+                `rgba(${ACCENT_RGB},0.30)`,
+                `rgba(${ACCENT_RGB},0.08)`,
+                `rgba(${ACCENT_RGB},0)`,
+              ]}
+              positions={[0, 0.45, 1]}
+            />
           </Path>
         </Group>
       )}
       {/* Bloom behind the centered entry; swells on each detent and on the lock. */}
       <Group transform={bloomTransform} origin={topPoint}>
         <Circle c={topPoint} r={150}>
-          <RadialGradient c={topPoint} r={150} colors={[`rgba(${ACCENT_RGB},0.32)`, `rgba(${ACCENT_RGB},0.10)`, `rgba(${ACCENT_RGB},0)`]} positions={[0, 0.35, 1]} />
+          <RadialGradient
+            c={topPoint}
+            r={150}
+            colors={[
+              `rgba(${ACCENT_RGB},0.32)`,
+              `rgba(${ACCENT_RGB},0.10)`,
+              `rgba(${ACCENT_RGB},0)`,
+            ]}
+            positions={[0, 0.35, 1]}
+          />
         </Circle>
       </Group>
       {/* Outer notches stay put; inner notches turn with the wheel and light up under the axis. */}
-      {paths.outerNotches !== null && <Path path={paths.outerNotches} style="stroke" strokeWidth={1.5} strokeCap="round" color="rgba(255,255,255,0.14)" />}
+      {paths.outerNotches !== null && (
+        <Path
+          path={paths.outerNotches}
+          style="stroke"
+          strokeWidth={1.5}
+          strokeCap="round"
+          color="rgba(255,255,255,0.14)"
+        />
+      )}
       {paths.innerNotches !== null && (
         <Group transform={notchTransform} origin={origin}>
           <Path path={paths.innerNotches} style="stroke" strokeWidth={1.5} strokeCap="round">
-            <RadialGradient c={notchLight} r={64} colors={[`rgba(${ACCENT_RGB},0.95)`, `rgba(${ACCENT_RGB},0.45)`, "rgba(255,255,255,0.14)"]} positions={[0, 0.4, 1]} />
+            <RadialGradient
+              c={notchLight}
+              r={64}
+              colors={[
+                `rgba(${ACCENT_RGB},0.95)`,
+                `rgba(${ACCENT_RGB},0.45)`,
+                "rgba(255,255,255,0.14)",
+              ]}
+              positions={[0, 0.4, 1]}
+            />
           </Path>
         </Group>
       )}
       {/* Lit edges under the slot: a soft haze, then the crisp line. */}
       {paths.topArc !== null && (
         <Group>
-          <Path path={paths.topArc} style="stroke" strokeWidth={6} strokeCap="round" color={`rgba(${ACCENT_RGB},0.55)`}>
+          <Path
+            path={paths.topArc}
+            style="stroke"
+            strokeWidth={6}
+            strokeCap="round"
+            color={`rgba(${ACCENT_RGB},0.55)`}
+          >
             <BlurMask blur={10} style="normal" />
           </Path>
-          <Path path={paths.topArc} style="stroke" strokeWidth={2} strokeCap="round" color={`rgba(${ACCENT_RGB},0.95)`} />
+          <Path
+            path={paths.topArc}
+            style="stroke"
+            strokeWidth={2}
+            strokeCap="round"
+            color={`rgba(${ACCENT_RGB},0.95)`}
+          />
         </Group>
       )}
       {paths.bottomArc !== null && (
         <Group>
-          <Path path={paths.bottomArc} style="stroke" strokeWidth={5} strokeCap="round" color={`rgba(${ACCENT_RGB},0.45)`}>
+          <Path
+            path={paths.bottomArc}
+            style="stroke"
+            strokeWidth={5}
+            strokeCap="round"
+            color={`rgba(${ACCENT_RGB},0.45)`}
+          >
             <BlurMask blur={8} style="normal" />
           </Path>
-          <Path path={paths.bottomArc} style="stroke" strokeWidth={1.5} strokeCap="round" color={`rgba(${ACCENT_RGB},0.8)`} />
+          <Path
+            path={paths.bottomArc}
+            style="stroke"
+            strokeWidth={1.5}
+            strokeCap="round"
+            color={`rgba(${ACCENT_RGB},0.8)`}
+          />
         </Group>
       )}
       {/* The two markers: a blurred copy underneath gives each its glow; a white flash on top for the tick and the lock. */}
       <Group>
-        <RoundedRect x={CENTER - 2} y={CENTER - BAND_OUTER + 2} width={4} height={18} r={2} color={`rgba(${ACCENT_RGB},0.9)`}>
+        <RoundedRect
+          x={CENTER - 2}
+          y={CENTER - BAND_OUTER + 2}
+          width={4}
+          height={18}
+          r={2}
+          color={`rgba(${ACCENT_RGB},0.9)`}
+        >
           <BlurMask blur={7} style="normal" />
         </RoundedRect>
-        <RoundedRect x={CENTER - 1.25} y={CENTER - BAND_OUTER + 2} width={2.5} height={18} r={1.25} color="#DCE5FF" />
-        <RoundedRect x={CENTER - 2} y={CENTER - BAND_INNER - 4} width={4} height={22} r={2} color={`rgba(${ACCENT_RGB},0.9)`}>
+        <RoundedRect
+          x={CENTER - 1.25}
+          y={CENTER - BAND_OUTER + 2}
+          width={2.5}
+          height={18}
+          r={1.25}
+          color="#DCE5FF"
+        />
+        <RoundedRect
+          x={CENTER - 2}
+          y={CENTER - BAND_INNER - 4}
+          width={4}
+          height={22}
+          r={2}
+          color={`rgba(${ACCENT_RGB},0.9)`}
+        >
           <BlurMask blur={7} style="normal" />
         </RoundedRect>
-        <RoundedRect x={CENTER - 1.25} y={CENTER - BAND_INNER - 4} width={2.5} height={22} r={1.25} color="#DCE5FF" />
+        <RoundedRect
+          x={CENTER - 1.25}
+          y={CENTER - BAND_INNER - 4}
+          width={2.5}
+          height={22}
+          r={1.25}
+          color="#DCE5FF"
+        />
       </Group>
       <Group opacity={flash}>
-        <RoundedRect x={CENTER - 3} y={CENTER - BAND_OUTER} width={6} height={22} r={3} color="#FFFFFF">
+        <RoundedRect
+          x={CENTER - 3}
+          y={CENTER - BAND_OUTER}
+          width={6}
+          height={22}
+          r={3}
+          color="#FFFFFF"
+        >
           <BlurMask blur={9} style="normal" />
         </RoundedRect>
-        <RoundedRect x={CENTER - 3} y={CENTER - BAND_INNER - 6} width={6} height={26} r={3} color="#FFFFFF">
+        <RoundedRect
+          x={CENTER - 3}
+          y={CENTER - BAND_INNER - 6}
+          width={6}
+          height={26}
+          r={3}
+          color="#FFFFFF"
+        >
           <BlurMask blur={9} style="normal" />
         </RoundedRect>
       </Group>
       {/* Faint pool of light around the inner marker, where the thumb is. */}
       <Circle c={innerTop} r={70}>
-        <RadialGradient c={innerTop} r={70} colors={[`rgba(${ACCENT_RGB},0.22)`, `rgba(${ACCENT_RGB},0)`]} />
+        <RadialGradient
+          c={innerTop}
+          r={70}
+          colors={[`rgba(${ACCENT_RGB},0.22)`, `rgba(${ACCENT_RGB},0)`]}
+        />
       </Circle>
     </Canvas>
   );
@@ -431,7 +608,13 @@ function Notch({ angle, radius }: { angle: number; radius: number }) {
     <View
       style={[
         styles.notch,
-        { transform: [{ translateX: radius * Math.cos(angle) }, { translateY: radius * Math.sin(angle) }, { rotate: `${angle + Math.PI / 2}rad` }] },
+        {
+          transform: [
+            { translateX: radius * Math.cos(angle) },
+            { translateY: radius * Math.sin(angle) },
+            { rotate: `${angle + Math.PI / 2}rad` },
+          ],
+        },
       ]}
     />
   );

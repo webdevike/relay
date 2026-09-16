@@ -1,7 +1,13 @@
 import { Linking } from "react-native";
 import { useSelector } from "@xstate/react";
 import { dictationActor } from "./actor";
-import { orbOf, phaseOf, type DictationContext, type DictationPhase, type OrbState } from "./machine";
+import {
+  orbOf,
+  phaseOf,
+  type DictationContext,
+  type DictationPhase,
+  type OrbState,
+} from "./machine";
 
 export interface DictationSnapshot extends DictationContext {
   phase: DictationPhase;
@@ -10,7 +16,11 @@ export interface DictationSnapshot extends DictationContext {
 
 /** Re-renders on every dictation transition; the phase is derived from the statechart value. */
 export function useDictation(): DictationSnapshot {
-  return useSelector(dictationActor, (snapshot) => ({ phase: phaseOf(snapshot), orb: orbOf(snapshot), ...snapshot.context }), sameSnapshot);
+  return useSelector(
+    dictationActor,
+    (snapshot) => ({ phase: phaseOf(snapshot), orb: orbOf(snapshot), ...snapshot.context }),
+    sameSnapshot,
+  );
 }
 
 function sameSnapshot(a: DictationSnapshot, b: DictationSnapshot): boolean {

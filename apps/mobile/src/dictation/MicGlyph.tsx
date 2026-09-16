@@ -44,7 +44,11 @@ function Waveform({ height, level }: { height: number; level: SharedValue<number
   // Idle breathing so the bars never sit dead-still between words.
   const breath = useSharedValue(0);
   useEffect(() => {
-    breath.value = withRepeat(withTiming(1, { duration: 700, easing: Easing.inOut(Easing.ease) }), -1, true);
+    breath.value = withRepeat(
+      withTiming(1, { duration: 700, easing: Easing.inOut(Easing.ease) }),
+      -1,
+      true,
+    );
     return () => {
       cancelAnimation(breath);
     };
@@ -53,7 +57,14 @@ function Waveform({ height, level }: { height: number; level: SharedValue<number
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: BAR_GAP, height }}>
       {BAR_WEIGHTS.map((weight, index) => (
-        <Bar key={index} index={index} weight={weight} height={height} level={level} breath={breath} />
+        <Bar
+          key={index}
+          index={index}
+          weight={weight}
+          height={height}
+          level={level}
+          breath={breath}
+        />
       ))}
     </View>
   );
@@ -79,7 +90,10 @@ function Bar({
   });
   return (
     <Animated.View
-      style={[{ width: BAR_WIDTH, borderRadius: BAR_WIDTH / 2, backgroundColor: colors.accent }, style]}
+      style={[
+        { width: BAR_WIDTH, borderRadius: BAR_WIDTH / 2, backgroundColor: colors.accent },
+        style,
+      ]}
     />
   );
 }
@@ -91,7 +105,10 @@ function CheckPop({ size }: { size: number }) {
     opacity.value = withTiming(1, { duration: motion.duration.fast });
     scale.value = withDelay(20, withSpring(1, { damping: 12, stiffness: 320 }));
   }, [scale, opacity]);
-  const style = useAnimatedStyle(() => ({ opacity: opacity.value, transform: [{ scale: scale.value }] }));
+  const style = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ scale: scale.value }],
+  }));
   return (
     <Animated.View style={style}>
       <SymbolView name="checkmark" size={size} tintColor={colors.ok} weight="bold" />

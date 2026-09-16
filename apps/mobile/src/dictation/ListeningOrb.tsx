@@ -48,10 +48,21 @@ function OrbBody({ orb }: { orb: OrbState }) {
   const held = useSharedValue(0);
   const flight = useSharedValue(0);
   useEffect(() => {
-    presence.value = withTiming(orb === "fading" ? 0 : 1, { duration: ORB_FADE_MS, easing: Easing.out(Easing.cubic) });
-    collapse.value = withTiming(orb === "collapsing" ? 1 : 0, { duration: motion.duration.base, easing: Easing.inOut(Easing.cubic) });
-    held.value = withTiming(orb === "lifted" || orb === "flying" ? 1 : 0, { duration: motion.duration.fast });
-    flight.value = orb === "flying" ? withTiming(1, { duration: ORB_FLIGHT_MS, easing: Easing.in(Easing.cubic) }) : 0;
+    presence.value = withTiming(orb === "fading" ? 0 : 1, {
+      duration: ORB_FADE_MS,
+      easing: Easing.out(Easing.cubic),
+    });
+    collapse.value = withTiming(orb === "collapsing" ? 1 : 0, {
+      duration: motion.duration.base,
+      easing: Easing.inOut(Easing.cubic),
+    });
+    held.value = withTiming(orb === "lifted" || orb === "flying" ? 1 : 0, {
+      duration: motion.duration.fast,
+    });
+    flight.value =
+      orb === "flying"
+        ? withTiming(1, { duration: ORB_FLIGHT_MS, easing: Easing.in(Easing.cubic) })
+        : 0;
   }, [orb, presence, collapse, held, flight]);
 
   // Smoothed level: fast attack, slow release, so speech reads as pulses not jitter.
@@ -66,7 +77,10 @@ function OrbBody({ orb }: { orb: OrbState }) {
   // Lift: live with the finger while shown, then held at full once armed (the finger's own value
   // is only trusted in those two states, so a stale drag can never leak into the next dictation).
   const tracksFinger = orb === "shown" || orb === "lifted";
-  const lift = useDerivedValue(() => Math.max(tracksFinger ? sendLift.value : 0, held.value), [tracksFinger]);
+  const lift = useDerivedValue(
+    () => Math.max(tracksFinger ? sendLift.value : 0, held.value),
+    [tracksFinger],
+  );
   const scale = useDerivedValue(() => {
     const breathe = 1 + smoothed.value * 0.22;
     return (
@@ -89,7 +103,12 @@ function OrbBody({ orb }: { orb: OrbState }) {
 
   return (
     <View style={{ width: CANVAS, height: CANVAS, alignItems: "center", justifyContent: "center" }}>
-      <Animated.View style={[{ width: CANVAS, height: CANVAS, alignItems: "center", justifyContent: "center" }, orbStyle]}>
+      <Animated.View
+        style={[
+          { width: CANVAS, height: CANVAS, alignItems: "center", justifyContent: "center" },
+          orbStyle,
+        ]}
+      >
         <OrbSurface level={glow} />
       </Animated.View>
       {orb === "collapsing" && <SentCheck />}
@@ -100,7 +119,6 @@ function OrbBody({ orb }: { orb: OrbState }) {
 // ---------------------------------------------------------------------------------------------
 // Skia surface with a View fallback
 // ---------------------------------------------------------------------------------------------
-
 
 function OrbSurface({ level }: { level: SharedValue<number> }): ReactNode {
   const sk = loadSkia();
@@ -197,7 +215,11 @@ function SkiaOrb({ sk, level }: { sk: SkiaModule; level: SharedValue<number> }) 
   useFrameCallback((frame) => {
     time.value += (frame.timeSincePreviousFrame ?? 16) / 1000;
   });
-  const uniforms = useDerivedValue(() => ({ u_res: [CANVAS, CANVAS], u_time: time.value, u_level: level.value }));
+  const uniforms = useDerivedValue(() => ({
+    u_res: [CANVAS, CANVAS],
+    u_time: time.value,
+    u_level: level.value,
+  }));
   if (effect === null) return <FallbackOrb />;
   return (
     <Canvas style={{ width: CANVAS, height: CANVAS }}>
@@ -228,7 +250,8 @@ function FallbackOrb() {
             borderRadius: layer.size / 2,
             backgroundColor: layer.color,
             opacity: layer.opacity,
-            transform: index === 3 ? [{ translateX: -ORB * 0.12 }, { translateY: -ORB * 0.14 }] : undefined,
+            transform:
+              index === 3 ? [{ translateX: -ORB * 0.12 }, { translateY: -ORB * 0.14 }] : undefined,
           }}
         />
       ))}
@@ -251,7 +274,10 @@ function SentCheck() {
       cancelAnimation(opacity);
     };
   }, [scale, opacity]);
-  const style = useAnimatedStyle(() => ({ opacity: opacity.value, transform: [{ scale: scale.value }] }));
+  const style = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ scale: scale.value }],
+  }));
   return (
     <Animated.View style={[{ position: "absolute" }, style]}>
       <View
