@@ -532,7 +532,14 @@ export default function AgentInbox() {
                       {...(skills === undefined ? {} : { skills })}
                     />
                   </Cutout>
-                  <Cutout size={KEY_SIZE} style={styles.key}>
+                  {/* Ring centered on the seam like the mic; `left` from the measured width, a percentage would resolve against the padded box. */}
+                  <Cutout
+                    size={KEY_SIZE}
+                    style={{
+                      top: -(KEY_SIZE / 2 + CUTOUT_GAP + spacing.sm / 2),
+                      left: chatWidth / 2 + KEY_OFFSET - KEY_NOTCH_SIZE / 2,
+                    }}
+                  >
                     <IconButton
                       symbol="keyboard"
                       size={KEY_SIZE}
@@ -679,11 +686,6 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     // Outer ring centered on the seam: half the gap above the panel's top edge.
     top: -(MIC_SIZE / 2 + CUTOUT_GAP + spacing.sm / 2),
-  },
-  key: {
-    left: "50%",
-    marginLeft: KEY_OFFSET - KEY_NOTCH_SIZE / 2,
-    top: -(KEY_SIZE / 2 + CUTOUT_GAP + spacing.sm / 2),
   },
   /** Dial centered on the mic: the mic's center sits half the card gap below the card's bottom edge. */
   wheel: {
