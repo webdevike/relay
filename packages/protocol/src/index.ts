@@ -54,6 +54,13 @@ export const AgentSession = z.object({
   thinkingLevel: z.string().optional(),
   /** Share of the model's context window in use, 0..1, when the provider reports it. */
   contextUsed: z.number().min(0).max(1).optional(),
+  /**
+   * Hand-started, or a run the host's job launcher scheduled. Absent on older hosts, which only
+   * ever had manual sessions.
+   */
+  kind: z.enum(["manual", "job"]).optional(),
+  /** The scheduled job this session is a run of; present exactly when `kind` is "job". */
+  job: z.object({ name: nonEmpty, runId: nonEmpty }).optional(),
 });
 export type AgentSession = z.infer<typeof AgentSession>;
 

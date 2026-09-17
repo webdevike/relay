@@ -24,6 +24,8 @@ const tickColor: Record<AgentStatus, string> = {
 export interface AgentScrubberProps {
   statuses: AgentStatus[];
   index: number;
+  /** Slot the second section (job runs) starts at; a hairline splits the track before it. */
+  divider?: number;
   onChange: (index: number) => void;
   /** Finger held still on a slot: open that session's settings. Fires after the slot is selected. */
   onLongPress: (index: number) => void;
@@ -36,7 +38,7 @@ const LONG_PRESS_MS = 450;
  * on release; crossing a slot boundary selects that session immediately (with a tick), so the card
  * above changes while the thumb is still moving. Holding still on a slot opens its settings.
  */
-export function AgentScrubber({ statuses, index, onChange, onLongPress }: AgentScrubberProps) {
+export function AgentScrubber({ statuses, index, divider, onChange, onLongPress }: AgentScrubberProps) {
   const count = statuses.length;
   const [trackWidth, setTrackWidth] = useState(0);
   const slot = count === 0 ? 0 : trackWidth / count;
@@ -118,6 +120,9 @@ export function AgentScrubber({ statuses, index, onChange, onLongPress }: AgentS
             style={[styles.tick, { left: i * slot + slot / 2 - TICK / 2, backgroundColor: tickColor[status] }]}
           />
         ))}
+        {divider !== undefined && divider > 0 && divider < count && (
+          <View style={[styles.divider, { left: divider * slot - StyleSheet.hairlineWidth / 2 }]} />
+        )}
         {count > 0 && <Animated.View style={[styles.thumb, thumbStyle]} />}
       </View>
     </GestureDetector>
@@ -136,6 +141,13 @@ const styles = StyleSheet.create({
     width: TICK,
     height: TICK,
     borderRadius: TICK / 2,
+  },
+  divider: {
+    position: "absolute",
+    top: TRACK_PADDING * 2,
+    bottom: TRACK_PADDING * 2,
+    width: StyleSheet.hairlineWidth,
+    backgroundColor: colors.hairline,
   },
   thumb: {
     position: "absolute",

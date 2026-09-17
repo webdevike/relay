@@ -28,10 +28,17 @@ export function needsAttention(session: AgentSession): boolean {
   return session.status === "waiting" || session.status === "needs_permission";
 }
 
+/**
+ * Manual sessions first (attention, then recency), then every job run newest first: the scrubber
+ * shows them as two sections, and a job never displaces a hand-started session from slot one.
+ * Hosts predating jobs send no `kind`; those sessions are all manual.
+ */
 function orderByAttention(sessions: Record<string, AgentSession>): string[] {
   return Object.values(sessions)
     .sort((a, b) => {
-      const attention = Number(needsAttention(b)) - Number(needsAttention(a));
+      const section = Number(a.kind === "job") - Number(b.kind === "job");
+      if (section !== 0) return section;
+      const attention = a.kind === "job" ? 0 : Number(needsAttention(b)) - Number(needsAttention(a));
       return attention !== 0 ? attention : b.lastActivityAt - a.lastActivityAt;
     })
     .map((session) => session.id);

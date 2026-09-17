@@ -116,6 +116,9 @@ export default function AgentInbox() {
   const lastIndex = useRef(index);
   const direction = index >= lastIndex.current ? 1 : -1;
   lastIndex.current = index;
+  // The store orders manual sessions ahead of job runs; the boundary is where the jobs section starts.
+  const jobsFrom = order.findIndex((id) => sessions[id]?.kind === "job");
+  const manualCount = jobsFrom === -1 ? order.length : jobsFrom;
 
   const session = selectedId === undefined ? undefined : sessions[selectedId];
   const messages = selectedId === undefined ? undefined : conversations[selectedId]?.messages;
@@ -564,6 +567,7 @@ export default function AgentInbox() {
                 <AgentScrubber
                   statuses={order.map((id) => sessions[id]?.status ?? "ended")}
                   index={index}
+                  {...(jobsFrom > 0 ? { divider: jobsFrom } : {})}
                   onChange={onScrub}
                   onLongPress={onHold}
                 />
@@ -578,7 +582,11 @@ export default function AgentInbox() {
               />
             </View>
             <Text variant="caption" color="textFaint" tabular style={styles.counter}>
-              {launching ? "Starting a session…" : `${index + 1} of ${order.length}`}
+              {launching
+                ? "Starting a session…"
+                : jobsFrom !== -1 && index >= jobsFrom
+                  ? `Jobs · ${index - jobsFrom + 1} of ${order.length - jobsFrom}`
+                  : `${index + 1} of ${manualCount}`}
             </Text>
           </NotchedSurface>
         )}

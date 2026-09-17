@@ -36,6 +36,16 @@ describe("applySnapshot", () => {
     expect(data.order).toEqual(["asking", "blocked", "fresh", "busy"]);
   });
 
+  it("files job runs after every manual session, newest first, even when a job needs the user", () => {
+    const data = applySnapshot(emptyAgentsData, 1, [
+      { ...session("old-run", 900, "waiting"), kind: "job", job: { name: "furry-drop", runId: "r1" } },
+      session("manual", 100),
+      { ...session("new-run", 950), kind: "job", job: { name: "furry-drop", runId: "r2" } },
+      { ...session("stale-run", 50), kind: "job", job: { name: "sweep", runId: "r3" } },
+    ]);
+    expect(data.order).toEqual(["manual", "new-run", "old-run", "stale-run"]);
+  });
+
   it("replaces the prior session set entirely", () => {
     const first = applySnapshot(emptyAgentsData, 1, [session("a", 100)]);
     const second = applySnapshot(first, 5, [session("b", 200)]);

@@ -280,6 +280,8 @@ export class OmpBridgeProvider implements AgentProvider {
           lastActivityAt: frame.lastActivityAt,
           canRespond: frame.canRespond,
           ...(frame.statusDetail === undefined ? {} : { statusDetail: frame.statusDetail }),
+          ...(frame.kind === undefined ? {} : { kind: frame.kind }),
+          ...(frame.job === undefined ? {} : { job: frame.job }),
         };
         this.log(`agent session ${frame.sessionId} (${frame.title}) ${frame.status}`);
         this.publish();
@@ -293,6 +295,8 @@ export class OmpBridgeProvider implements AgentProvider {
           provider: current.provider,
           projectPath: current.projectPath,
           canRespond: current.canRespond,
+          ...(current.kind === undefined ? {} : { kind: current.kind }),
+          ...(current.job === undefined ? {} : { job: current.job }),
           title: frame.title ?? current.title,
           status: frame.status,
           lastActivity: frame.lastActivity,

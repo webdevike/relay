@@ -48,8 +48,18 @@ interface InboxMessage {
   images?: ImageRef[];
 }
 
+interface JobRef {
+  /** The job folder name (`furry-drop`). */
+  name: string;
+  /** The launcher's run id (`2026-09-16T2130`). */
+  runId: string;
+}
+
 interface Settings {
   title: string;
+  /** Hand-started omp, or a run the job launcher scheduled; the phone files jobs separately. */
+  kind: "manual" | "job";
+  job?: JobRef;
   model?: string;
   modelVendor?: string;
   thinkingLevel?: string;
@@ -206,6 +216,20 @@ export function socketPath(): string {
   return `${base}/relay-agents.sock`;
 }
 
+/**
+ * The job launcher (`.omp/tools/job-run.ts`) starts omp with `JOB_NAME` and `JOB_RUN` set; without
+ * both this is a hand-started session. Read once: the env does not change under a running session.
+ */
+function jobRef(): JobRef | undefined {
+  const name = process.env["JOB_NAME"];
+  const runId = process.env["JOB_RUN"];
+  if (name === undefined || name.length === 0 || runId === undefined || runId.length === 0) return undefined;
+  return { name, runId };
+}
+const JOB = jobRef();
+/** Local wall-clock start, "HH:MM": the job's default title carries it so runs of one job tell apart. */
+const JOB_START = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+
 function firstLine(text: string): string {
   const line = text.trim().split("\n").find((candidate) => candidate.trim().length > 0) ?? "";
   return line.length > MAX_SUMMARY ? `${line.slice(0, MAX_SUMMARY - 1)}…` : line;
@@ -351,7 +375,9 @@ export default function relayBridge(pi: ExtensionAPI): void {
 
   const settings = (): Settings => {
     const cwd = ctx?.sessionManager.getCwd() ?? "";
-    const base: Settings = { title: pi.getSessionName() ?? basename(cwd) };
+    const fallbackTitle = JOB === undefined ? basename(cwd) : `${JOB.name} · ${JOB_START}`;
+    const base: Settings = { title: pi.getSessionName() ?? fallbackTitle, kind: JOB === undefined ? "manual" : "job" };
+    if (JOB !== undefined) base.job = JOB;
     const model = ctx?.model;
     if (model !== undefined) {
       base.model = model.name;
