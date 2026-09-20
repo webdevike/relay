@@ -15,6 +15,7 @@ import type { Socket, SocketHandler } from "bun";
 import { AgentImage, AgentMessage, AgentOptions, AgentSession, AgentStatus, type AgentImage as AgentImageT, type AgentSession as AgentSessionT, type AgentMessage as AgentMessageT, type AgentOptions as AgentOptionsT } from "@relay/protocol";
 import { z } from "zod";
 import { AckFailure, type AgentConfigChange, type AgentProvider, type AgentProviderChange } from "../seams";
+import { launchInHerdr } from "./herdr";
 
 const StatusFrame = z.object({
   t: z.literal("status"),
@@ -166,24 +167,15 @@ export class OmpBridgeProvider implements AgentProvider {
   }
 
   /**
-   * Opens a terminal running omp in `home`, detached from this daemon so a host restart never
-   * takes the session with it. The new session registers itself over the socket like any other.
+   * Opens a new omp session in a herdr tab in `home`. Herdr owns the process, so a host restart
+   * never takes the session with it; it registers itself over the socket like any other.
    */
   async launch(): Promise<void> {
     if (this.home === null) {
       throw new AckFailure({ code: "agent_launch_failed", message: "host was started without --agent-home" });
     }
-    const proc = Bun.spawn(["setsid", "-f", "alacritty", "--working-directory", this.home, "-e", "omp"], {
-      stdin: "ignore",
-      stdout: "ignore",
-      stderr: "pipe",
-    });
-    const code = await proc.exited;
-    if (code !== 0) {
-      const stderr = (await new Response(proc.stderr).text()).trim();
-      throw new AckFailure({ code: "agent_launch_failed", message: stderr.length > 0 ? stderr : `launcher exited ${code}` });
-    }
-    this.log(`launched omp in ${this.home}`);
+    const paneId = await launchInHerdr(this.home, this.log);
+    this.log(`launched omp in ${this.home} (herdr pane ${paneId})`);
   }
 
   private find(sessionId: string): Connection | undefined {
