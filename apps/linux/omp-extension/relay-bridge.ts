@@ -14,7 +14,7 @@ import { createHash } from "node:crypto";
 import { createConnection, type Socket } from "node:net";
 import { basename } from "node:path";
 import type { ImageContent, TextContent } from "@oh-my-pi/pi-ai";
-import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, SessionManager } from "@oh-my-pi/pi-coding-agent";
 import { BUILTIN_SLASH_COMMAND_DEFS } from "@oh-my-pi/pi-coding-agent/slash-commands/builtin-registry";
 
 type Model = NonNullable<ExtensionContext["model"]>;
@@ -335,6 +335,8 @@ export default function relayBridge(pi: ExtensionAPI): void {
   let statusDetail: string | undefined;
   /** The last assistant message of the current turn ended with a question and no tool call followed. */
   let askedQuestion = false;
+  /** Stops the session-name subscription of the current context (auto titles, /rename, replan refresh). */
+  let unwatchName: (() => void) | null = null;
   const history: InboxMessage[] = [];
   /** Insertion-ordered so the oldest entry is the first key; capped at MAX_IMAGES. */
   const images = new Map<string, Image>();
@@ -559,16 +561,30 @@ export default function relayBridge(pi: ExtensionAPI): void {
     sendStatus();
   };
 
+  // The title changes outside any extension event: omp generates one asynchronously after the
+  // first turn (often after agent_end on a short turn), refreshes it on a todo replan, and /rename
+  // in the TUI fires nothing. ctx.sessionManager is typed read-only but is the real manager, which
+  // exposes the name-change subscription.
+  const watchName = (context: ExtensionContext): void => {
+    unwatchName?.();
+    const manager = context.sessionManager as SessionManager;
+    unwatchName = manager.onSessionNameChanged(() => {
+      if (ctx === context) sendStatus();
+    });
+  };
+
   pi.on("session_start", (_event, context) => {
     if (!context.hasUI) return; // headless, print, and subagent sessions are not inbox items
     ctx = context;
     stopped = false;
+    watchName(context);
     connect();
   });
 
   pi.on("session_switch", (_event, context) => {
     if (ctx === null) return;
     ctx = context;
+    watchName(context);
     history.length = 0;
     images.clear();
     const current = info();
@@ -645,6 +661,8 @@ export default function relayBridge(pi: ExtensionAPI): void {
     if (ctx === null) return;
     setStatus("ended");
     stopped = true;
+    unwatchName?.();
+    unwatchName = null;
     if (reconnectTimer !== null) clearTimeout(reconnectTimer);
     socket?.end();
     socket = null;
