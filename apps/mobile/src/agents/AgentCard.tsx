@@ -12,6 +12,7 @@ import { ImageViewer } from "./ImageViewer";
 import { modelShortName, VendorLogo } from "./VendorLogo";
 import { MessageText } from "./MessageText";
 import { ActivityRow } from "./ActivityRow";
+import { ToolRow } from "./ToolRow";
 /** Within this many points of the newest message, a new one keeps the list pinned to it. */
 const BOTTOM_STICK_PX = 80;
 /**
@@ -132,11 +133,15 @@ function MessageRow({ sessionId, message, onOpenImage }: MessageRowProps) {
       );
     case "tool":
       return (
-        <View style={{ paddingHorizontal: spacing.xl, gap: spacing.sm }}>
-          <Text variant="caption" color="textMuted" numberOfLines={1}>
-            {message.tool === undefined ? message.text : `${message.tool.name}: ${message.tool.summary}`}
-          </Text>
-          {images}
+        <View style={{ gap: spacing.sm }}>
+          {message.tool === undefined ? (
+            <Text variant="caption" color="textMuted" numberOfLines={1} style={{ paddingHorizontal: spacing.xl }}>
+              {message.text}
+            </Text>
+          ) : (
+            <ToolRow name={message.tool.name} summary={message.tool.summary} />
+          )}
+          {images !== null && <View style={{ paddingHorizontal: spacing.xl }}>{images}</View>}
         </View>
       );
     case "system":
