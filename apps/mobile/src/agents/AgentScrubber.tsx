@@ -106,7 +106,7 @@ export function AgentScrubber({ statuses, index, divider, onChange, onLongPress 
     width: Math.max(0, slotWidth.value - TRACK_PADDING * 2),
     transform: [{ translateX: thumbX.value + TRACK_PADDING }],
     // Lift while dragging by tone, not by scale: a scaled pill's corners stop matching the track's.
-    backgroundColor: withTiming(dragging.value ? "rgba(255,255,255,0.16)" : "rgba(255,255,255,0.10)", { duration: motion.duration.fast }),
+    backgroundColor: withTiming(dragging.value ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.12)", { duration: motion.duration.fast }),
   }));
 
   const onLayout = (event: LayoutChangeEvent): void => {
@@ -157,8 +157,8 @@ const styles = StyleSheet.create({
     top: TRACK_PADDING,
     height: THUMB_HEIGHT,
     borderRadius: THUMB_HEIGHT / 2,
-    backgroundColor: "rgba(255,255,255,0.10)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
+    // No border: with one, RN draws the pill through its own path code and the ends come out
+    // visibly un-round; a plain fill goes through CALayer cornerRadius, which is exact.
+    backgroundColor: "rgba(255,255,255,0.12)",
   },
 });
