@@ -1,9 +1,8 @@
 // Opens a phone-started omp session inside Herdr (the terminal workspace manager Isaac keeps his
-// sessions in) so every session lives in one place: a sibling pane in the workspace's active
-// tab, next to the agents already there, never a new tab. Herdr's default server is started
-// headless in its own transient systemd user unit when it is not running: it outlives this
-// daemon (a `setsid` child would still die with the service cgroup), and a later `herdr`
-// attaches to it.
+// sessions in): every session gets its own workspace, so the workspace list reads like the
+// phone's inbox. Herdr's default server is started headless in its own transient systemd user
+// unit when it is not running: it outlives this daemon (a `setsid` child would still die with
+// the service cgroup), and a later `herdr` attaches to it.
 //
 // The pane runs the user's interactive shell, so `omp` resolves through the shell's PATH rather
 // than the service's; only `herdr` itself must be reachable from here.
@@ -23,44 +22,8 @@ const Reply = z.object({
   error: z.object({ code: z.string(), message: z.string() }).optional(),
 });
 
-const WorkspaceList = z.object({
-  workspaces: z.array(z.object({ workspace_id: z.string(), label: z.string(), active_tab_id: z.string().nullable().optional() })),
-});
-const WorkspaceCreated = z.object({ workspace: z.object({ workspace_id: z.string() }), root_pane: z.object({ pane_id: z.string() }) });
-const PaneList = z.object({ panes: z.array(z.object({ pane_id: z.string(), tab_id: z.string() })) });
-const Rect = z.object({ width: z.number(), height: z.number() });
-const PaneLayout = z.object({ layout: z.object({ panes: z.array(z.object({ pane_id: z.string(), rect: Rect })) }) });
-const PaneSplit = z.object({ pane: z.object({ pane_id: z.string() }) });
-const TabCreated = z.object({ root_pane: z.object({ pane_id: z.string() }) });
-
-export interface PaneRect {
-  pane_id: string;
-  rect: { width: number; height: number };
-}
-
-export type SplitPlan = { pane_id: string; direction: "right" | "down" } | null;
-
-/** A split must leave both halves usable: at least this many columns or rows each. */
-const MIN_COLS = 70;
-const MIN_ROWS = 18;
-
-/**
- * Where a new agent fits in a tab: the largest pane, split to the right when it is wide (a
- * terminal cell is about twice as tall as it is wide) and down otherwise. `null` when even the
- * largest pane would leave halves too small to work in; the caller opens a tab instead.
- */
-export function planSplit(panes: readonly PaneRect[]): SplitPlan {
-  let best: PaneRect | undefined;
-  for (const pane of panes) {
-    if (best === undefined || pane.rect.width * pane.rect.height > best.rect.width * best.rect.height) best = pane;
-  }
-  if (best === undefined) return null;
-  const { width, height } = best.rect;
-  if (width >= 2 * MIN_COLS && width >= 2 * height) return { pane_id: best.pane_id, direction: "right" };
-  if (height >= 2 * MIN_ROWS) return { pane_id: best.pane_id, direction: "down" };
-  if (width >= 2 * MIN_COLS) return { pane_id: best.pane_id, direction: "right" };
-  return null;
-}
+const WorkspaceList = z.object({ workspaces: z.array(z.object({ workspace_id: z.string() })) });
+const WorkspaceCreated = z.object({ root_pane: z.object({ pane_id: z.string() }) });
 
 class HerdrError extends Error {
   constructor(
@@ -131,23 +94,16 @@ async function ensureServer(log: (line: string) => void): Promise<z.infer<typeof
 }
 
 /**
- * Starts omp in a fresh pane of the workspace named after `home` (created when missing): a
- * sibling of the active tab's largest pane, or that workspace's root pane when it was just
- * created, or a new tab only when every pane is already too small to share. Resolves with the
+ * Creates a workspace for `home` (labelled after it, so several read "Eva", "Eva", "Eva" in
+ * herdr's list until omp titles the pane) and starts omp in its root pane. Resolves with the
  * pane id; rejects with `AckFailure` (`agent_launch_failed`).
  */
 export async function launchInHerdr(home: string, log: (line: string) => void): Promise<string> {
   if (Bun.which("herdr") === null) throw fail("herdr is not installed on the host (not on PATH)");
   try {
-    const workspaces = await ensureServer(log);
-    const label = basename(home).toLowerCase();
-    const workspace = workspaces.find((candidate) => candidate.label.toLowerCase() === label);
-    let paneId: string;
-    if (workspace === undefined) {
-      paneId = result(WorkspaceCreated, await herdr(["workspace", "create", "--cwd", home, "--no-focus"])).root_pane.pane_id;
-    } else {
-      paneId = await openPane(workspace.workspace_id, workspace.active_tab_id ?? null, home);
-    }
+    await ensureServer(log);
+    const label = basename(home);
+    const paneId = result(WorkspaceCreated, await herdr(["workspace", "create", "--cwd", home, "--label", label, "--no-focus"])).root_pane.pane_id;
     const name = `relay-${Date.now().toString(36)}`;
     await herdr(["agent", "start", name, "--kind", "omp", "--pane", paneId, "--timeout", String(AGENT_START_TIMEOUT_MS)]);
     return paneId;
@@ -156,20 +112,4 @@ export async function launchInHerdr(home: string, log: (line: string) => void): 
     if (error instanceof HerdrError) throw fail(`herdr: ${error.message}`);
     throw error;
   }
-}
-
-/** A new shell pane in `tabId` (the largest pane split), falling back to a new tab. */
-async function openPane(workspaceId: string, tabId: string | null, home: string): Promise<string> {
-  if (tabId !== null) {
-    const panes = result(PaneList, await herdr(["pane", "list", "--workspace", workspaceId])).panes.filter((pane) => pane.tab_id === tabId);
-    const anchor = panes[0];
-    if (anchor !== undefined) {
-      const layout = result(PaneLayout, await herdr(["pane", "layout", "--pane", anchor.pane_id])).layout.panes;
-      const plan = planSplit(layout);
-      if (plan !== null) {
-        return result(PaneSplit, await herdr(["pane", "split", "--pane", plan.pane_id, "--direction", plan.direction, "--cwd", home, "--no-focus"])).pane.pane_id;
-      }
-    }
-  }
-  return result(TabCreated, await herdr(["tab", "create", "--workspace", workspaceId, "--cwd", home, "--no-focus"])).root_pane.pane_id;
 }
