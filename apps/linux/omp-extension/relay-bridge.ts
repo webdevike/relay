@@ -10,6 +10,7 @@
 // Images in the transcript travel as references (id = first 16 hex chars of the sha256 of the
 // bytes); the bytes stay here, newest MAX_IMAGES kept, and the host fetches them with `image`.
 
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createConnection, type Socket } from "node:net";
 import { basename } from "node:path";
@@ -231,6 +232,38 @@ function jobRef(): JobRef | undefined {
 const JOB = jobRef();
 /** Local wall-clock start, "HH:MM": the job's default title carries it so runs of one job tell apart. */
 const JOB_START = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+
+/**
+ * Where this session sits in Herdr, from the env Herdr gives every pane it launches. The tab
+ * is always ours to name; the workspace only when the relay host created it for this session
+ * (`RELAY_HERDR_OWNED=1`, set by apps/linux/src/agents/herdr.ts) rather than Isaac's shared one.
+ */
+interface HerdrSlot {
+  tab: string;
+  workspace: string | undefined;
+}
+function herdrSlot(): HerdrSlot | undefined {
+  const tab = process.env["HERDR_TAB_ID"];
+  if (tab === undefined || tab.length === 0) return undefined;
+  const workspace = process.env["HERDR_WORKSPACE_ID"];
+  const owned = process.env["RELAY_HERDR_OWNED"] === "1" && workspace !== undefined && workspace.length > 0;
+  return { tab, workspace: owned ? workspace : undefined };
+}
+const HERDR = herdrSlot();
+const MAX_HERDR_LABEL = 48;
+
+/** Mirrors omp's session title onto the Herdr tab (and workspace, when it is ours). Fire and forget. */
+function renameInHerdr(title: string): void {
+  if (HERDR === undefined) return;
+  const label = title.length > MAX_HERDR_LABEL ? `${title.slice(0, MAX_HERDR_LABEL - 1)}…` : title;
+  const rename = (args: string[]): void => {
+    execFile("herdr", args, { timeout: 3000 }, () => {
+      // Best effort: a missing herdr or a closed pane must not touch the session.
+    });
+  };
+  rename(["tab", "rename", HERDR.tab, label]);
+  if (HERDR.workspace !== undefined) rename(["workspace", "rename", HERDR.workspace, label]);
+}
 
 function firstLine(text: string): string {
   const line = text.trim().split("\n").find((candidate) => candidate.trim().length > 0) ?? "";
@@ -571,7 +604,10 @@ export default function relayBridge(pi: ExtensionAPI): void {
     unwatchName?.();
     const manager = context.sessionManager as SessionManager;
     unwatchName = manager.onSessionNameChanged(() => {
-      if (ctx === context) sendStatus();
+      if (ctx !== context) return;
+      const name = pi.getSessionName();
+      if (name !== undefined && name.length > 0) renameInHerdr(name);
+      sendStatus();
     });
   };
 

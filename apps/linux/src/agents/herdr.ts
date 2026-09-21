@@ -103,7 +103,10 @@ export async function launchInHerdr(home: string, log: (line: string) => void): 
   try {
     await ensureServer(log);
     const label = basename(home);
-    const paneId = result(WorkspaceCreated, await herdr(["workspace", "create", "--cwd", home, "--label", label, "--no-focus"])).root_pane.pane_id;
+    const paneId = result(
+      WorkspaceCreated,
+      await herdr(["workspace", "create", "--cwd", home, "--label", label, "--env", "RELAY_HERDR_OWNED=1", "--no-focus"]),
+    ).root_pane.pane_id;
     const name = `relay-${Date.now().toString(36)}`;
     await herdr(["agent", "start", name, "--kind", "omp", "--pane", paneId, "--timeout", String(AGENT_START_TIMEOUT_MS)]);
     return paneId;
