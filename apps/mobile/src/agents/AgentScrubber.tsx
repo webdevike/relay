@@ -2,10 +2,17 @@ import { useEffect, useMemo, useState } from "react";
 import { StyleSheet, View, type LayoutChangeEvent } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { scheduleOnRN } from "react-native-worklets";
-import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } from "react-native-reanimated";
+import Animated, {
+  useAnimatedStyle,
+  useDerivedValue,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from "react-native-reanimated";
 import type { AgentStatus } from "@relay/protocol";
 import { colors, motion } from "@/theme";
 import { impactHaptic, selectHaptic } from "@/lib/haptics";
+import { loadSkia } from "@/dictation/skia";
 
 export const TRACK_HEIGHT = 44;
 const TRACK_PADDING = 4;
@@ -38,7 +45,13 @@ const LONG_PRESS_MS = 450;
  * on release; crossing a slot boundary selects that session immediately (with a tick), so the card
  * above changes while the thumb is still moving. Holding still on a slot opens its settings.
  */
-export function AgentScrubber({ statuses, index, divider, onChange, onLongPress }: AgentScrubberProps) {
+export function AgentScrubber({
+  statuses,
+  index,
+  divider,
+  onChange,
+  onLongPress,
+}: AgentScrubberProps) {
   const count = statuses.length;
   const [trackWidth, setTrackWidth] = useState(0);
   const slot = count === 0 ? 0 : trackWidth / count;
@@ -105,33 +118,91 @@ export function AgentScrubber({ statuses, index, divider, onChange, onLongPress 
   const thumbStyle = useAnimatedStyle(() => ({
     width: Math.max(0, slotWidth.value - TRACK_PADDING * 2),
     transform: [{ translateX: thumbX.value + TRACK_PADDING }],
-    // Lift while dragging by tone, not by scale: a scaled pill's corners stop matching the track's.
-    backgroundColor: withTiming(dragging.value ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.12)", { duration: motion.duration.fast }),
+    backgroundColor: withTiming(
+      dragging.value ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.12)",
+      { duration: motion.duration.fast },
+    ),
   }));
+  // Skia draws the pills from exact geometry; the View fallback is for a client built without it.
+  const thumbXPx = useDerivedValue(() => thumbX.value + TRACK_PADDING);
+  const thumbWidth = useDerivedValue(() => Math.max(0, slotWidth.value - TRACK_PADDING * 2));
+  const thumbColor = useDerivedValue(() =>
+    withTiming(dragging.value ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.12)", {
+      duration: motion.duration.fast,
+    }),
+  );
 
   const onLayout = (event: LayoutChangeEvent): void => {
     setTrackWidth(event.nativeEvent.layout.width);
   };
 
-  return (
-    <GestureDetector gesture={gesture}>
+  const sk = loadSkia();
+  const dividerAt = divider !== undefined && divider > 0 && divider < count ? divider * slot : null;
+  const body =
+    sk === null ? (
       <View style={styles.track} onLayout={onLayout} accessibilityRole="adjustable">
         {statuses.map((status, i) => (
           <View
             key={i}
-            style={[styles.tick, { left: i * slot + slot / 2 - TICK / 2, backgroundColor: tickColor[status] }]}
+            style={[
+              styles.tick,
+              { left: i * slot + slot / 2 - TICK / 2, backgroundColor: tickColor[status] },
+            ]}
           />
         ))}
-        {divider !== undefined && divider > 0 && divider < count && (
-          <View style={[styles.divider, { left: divider * slot - StyleSheet.hairlineWidth / 2 }]} />
+        {dividerAt !== null && (
+          <View style={[styles.divider, { left: dividerAt - StyleSheet.hairlineWidth / 2 }]} />
         )}
         {count > 0 && <Animated.View style={[styles.thumb, thumbStyle]} />}
       </View>
-    </GestureDetector>
-  );
+    ) : (
+      <View style={styles.trackBox} onLayout={onLayout} accessibilityRole="adjustable">
+        <sk.Canvas style={StyleSheet.absoluteFill}>
+          <sk.RoundedRect
+            x={0}
+            y={0}
+            width={trackWidth}
+            height={TRACK_HEIGHT}
+            r={TRACK_HEIGHT / 2}
+            color={colors.bg}
+          />
+          {dividerAt !== null && (
+            <sk.Rect
+              x={dividerAt - 0.25}
+              y={TRACK_PADDING * 2}
+              width={0.5}
+              height={TRACK_HEIGHT - TRACK_PADDING * 4}
+              color={colors.hairline}
+            />
+          )}
+          {statuses.map((status, i) => (
+            <sk.Circle
+              key={i}
+              cx={i * slot + slot / 2}
+              cy={TRACK_HEIGHT / 2}
+              r={TICK / 2}
+              color={tickColor[status]}
+            />
+          ))}
+          {count > 0 && (
+            <sk.RoundedRect
+              x={thumbXPx}
+              y={TRACK_PADDING}
+              width={thumbWidth}
+              height={THUMB_HEIGHT}
+              r={THUMB_HEIGHT / 2}
+              color={thumbColor}
+            />
+          )}
+        </sk.Canvas>
+      </View>
+    );
+
+  return <GestureDetector gesture={gesture}>{body}</GestureDetector>;
 }
 
 const styles = StyleSheet.create({
+  trackBox: { height: TRACK_HEIGHT },
   track: {
     height: TRACK_HEIGHT,
     borderRadius: TRACK_HEIGHT / 2,
