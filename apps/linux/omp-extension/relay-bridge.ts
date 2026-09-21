@@ -489,11 +489,14 @@ export default function relayBridge(pi: ExtensionAPI): void {
         } else if (!frame.submit) {
           // Released without the flick: leave it in the editor for the keyboard to finish.
           ctx.ui.setEditorText(existing.length === 0 ? frame.text : `${existing} ${frame.text}`);
-        } else if (frame.text.startsWith("/")) {
+        } else if (frame.text.startsWith("/") || pi.getSessionName() === undefined) {
           // A slash command only runs through the editor's own submit path (sendUserMessage skips
           // command handling), so it goes in as if typed and Enter is fed to the terminal reader.
-          // Whatever draft was there comes back once the command has been taken, and the settings
-          // are re-reported since commands like /rename and /switch change them without an event.
+          // The same path is the only one that starts omp's auto title (maybeStartTitleGeneration
+          // hangs off the TUI submit, not off sendUserMessage), so until the session has a name
+          // every phone prompt goes in that way too. Whatever draft was there comes back once the
+          // text has been taken, and the settings are re-reported since commands like /rename and
+          // /switch change them without an event.
           ctx.ui.setEditorText(frame.text);
           process.stdin.push("\r");
           setTimeout(() => {
