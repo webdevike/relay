@@ -104,7 +104,9 @@ export function AgentScrubber({ statuses, index, divider, onChange, onLongPress 
 
   const thumbStyle = useAnimatedStyle(() => ({
     width: Math.max(0, slotWidth.value - TRACK_PADDING * 2),
-    transform: [{ translateX: thumbX.value + TRACK_PADDING }, { scale: withTiming(dragging.value ? 1.04 : 1, { duration: motion.duration.fast }) }],
+    transform: [{ translateX: thumbX.value + TRACK_PADDING }],
+    // Lift while dragging by tone, not by scale: a scaled pill's corners stop matching the track's.
+    backgroundColor: withTiming(dragging.value ? "rgba(255,255,255,0.16)" : "rgba(255,255,255,0.10)", { duration: motion.duration.fast }),
   }));
 
   const onLayout = (event: LayoutChangeEvent): void => {
@@ -135,6 +137,7 @@ const styles = StyleSheet.create({
     borderRadius: TRACK_HEIGHT / 2,
     backgroundColor: colors.bg,
     justifyContent: "center",
+    overflow: "hidden",
   },
   tick: {
     position: "absolute",
