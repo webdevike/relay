@@ -154,6 +154,12 @@ export class ClientSession {
     this.sink.send({ t: "agent.messages", sessionId, rev: rev + 1, append: [...messages] });
   }
 
+  /** Forwards a streaming message's text so far iff subscribed; no rev, the frame is idempotent. */
+  agentMessageUpdated(sessionId: string, id: string, text: string, streaming: boolean): void {
+    if (this.phase.kind !== "authenticated" || !this.subscriptions.has(sessionId)) return;
+    this.sink.send({ t: "agent.message.update", sessionId, id, text, streaming });
+  }
+
   receiveRaw(raw: string): void {
     if (this.closed) return;
     const parsed = parseClientMessage(raw);

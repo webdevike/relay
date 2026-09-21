@@ -206,6 +206,10 @@ export class RelayServer {
       this.deps.notifier?.observe(sessions);
       return;
     }
+    if (change.kind === "message") {
+      for (const ws of this.sockets) ws.data.session?.agentMessageUpdated(change.sessionId, change.id, change.text, change.streaming);
+      return;
+    }
     for (const ws of this.sockets)
       ws.data.session?.agentConversationAppended(change.sessionId, change.appended);
   }

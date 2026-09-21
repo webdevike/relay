@@ -34,6 +34,7 @@ const Inbound = z.discriminatedUnion("t", [
   z.object({ t: z.literal("hello") }).merge(AgentSession.omit({ id: true })).extend({ sessionId: z.string().min(1) }),
   StatusFrame,
   z.object({ t: z.literal("messages"), append: z.array(AgentMessage).min(1) }),
+  z.object({ t: z.literal("message.update"), id: z.string().min(1), text: z.string(), streaming: z.boolean() }),
   z.object({ t: z.literal("result"), id: z.string().min(1), ok: z.boolean(), error: z.string().optional(), value: z.unknown().optional() }),
 ]);
 type Inbound = z.infer<typeof Inbound>;
@@ -305,6 +306,10 @@ export class OmpBridgeProvider implements AgentProvider {
       case "messages":
         if (connection.session === null) return;
         this.onChange?.({ kind: "conversation", sessionId: connection.session.id, appended: frame.append });
+        return;
+      case "message.update":
+        if (connection.session === null) return;
+        this.onChange?.({ kind: "message", sessionId: connection.session.id, id: frame.id, text: frame.text, streaming: frame.streaming });
         return;
       case "result": {
         const pending = connection.pending.get(frame.id);

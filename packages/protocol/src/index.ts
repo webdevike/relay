@@ -187,6 +187,8 @@ export const AgentMessage = z.object({
   tool: z.object({ name: nonEmpty, summary: z.string() }).optional(),
   /** Images the message carried (a pasted screenshot, a tool's rendered page). */
   images: z.array(AgentImageRef).optional(),
+  /** True while the assistant is still producing `text`; `agent.message.update` frames carry the growth. */
+  streaming: z.boolean().optional(),
 });
 export type AgentMessage = z.infer<typeof AgentMessage>;
 
@@ -386,6 +388,12 @@ export const ServerMessage = z.discriminatedUnion("t", [
     rev: z.number().int(),
     append: z.array(AgentMessage),
   }),
+  /**
+   * The full text so far of a message that was appended with `streaming: true`. Idempotent and
+   * unsequenced: the last one (`streaming: false`) is the final text. Ignored when the phone does
+   * not hold `id`; the next `agent.conversation` carries the settled message.
+   */
+  z.object({ t: z.literal("agent.message.update"), sessionId: nonEmpty, id: nonEmpty, text: z.string(), streaming: z.boolean() }),
   z.object({ t: z.literal("agent.options"), sessionId: nonEmpty, models: z.array(AgentModel), skills: z.array(AgentSkill) }),
   /** `image` is null when the session no longer has that image. */
   z.object({ t: z.literal("agent.image"), sessionId: nonEmpty, id: nonEmpty, image: AgentImage.nullable() }),

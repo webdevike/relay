@@ -8,7 +8,7 @@
 import type { ClientMessage, ServerMessage } from "@relay/protocol";
 import type { AgentsStore } from "@/state/agents";
 
-export type AgentsStoreActions = Pick<AgentsStore, "applyWelcome" | "applySnapshot" | "applyDelta" | "setConversation" | "appendMessages" | "setOptions" | "setImage">;
+export type AgentsStoreActions = Pick<AgentsStore, "applyWelcome" | "applySnapshot" | "applyDelta" | "setConversation" | "appendMessages" | "updateMessage" | "setOptions" | "setImage">;
 
 export type AgentFrameRouter = (message: ServerMessage) => void;
 
@@ -46,6 +46,9 @@ export function createAgentFrameRouter(store: AgentsStoreActions, send: (message
       case "agent.messages":
         if (store.appendMessages(message.sessionId, message.rev, message.append)) return;
         resubscribe(message.sessionId);
+        return;
+      case "agent.message.update":
+        store.updateMessage(message.sessionId, message.id, message.text, message.streaming);
         return;
       case "agent.options":
         store.setOptions(message.sessionId, { models: message.models, skills: message.skills });

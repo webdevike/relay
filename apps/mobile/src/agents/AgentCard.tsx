@@ -10,6 +10,8 @@ import { requestAgentImage } from "@/connection";
 import { loadSkia } from "@/dictation/skia";
 import { ImageViewer } from "./ImageViewer";
 import { modelShortName, VendorLogo } from "./VendorLogo";
+import { MessageText } from "./MessageText";
+import { ActivityRow } from "./ActivityRow";
 /** Within this many points of the newest message, a new one keeps the list pinned to it. */
 const BOTTOM_STICK_PX = 80;
 /**
@@ -111,7 +113,7 @@ function MessageRow({ sessionId, message, onOpenImage }: MessageRowProps) {
               gap: spacing.sm,
             }}
           >
-            {message.text.length > 0 && <Text variant="body">{message.text}</Text>}
+            {message.text.length > 0 && <MessageText text={message.text} />}
             {images}
           </View>
         </View>
@@ -119,7 +121,12 @@ function MessageRow({ sessionId, message, onOpenImage }: MessageRowProps) {
     case "assistant":
       return (
         <View style={{ paddingHorizontal: spacing.xl, gap: spacing.sm }}>
-          {message.text.length > 0 && <Text variant="body">{message.text}</Text>}
+          {message.text.length > 0 && <MessageText text={message.text} />}
+          {message.streaming === true && message.text.length > 0 && (
+            <Text variant="caption" color="accent">
+              ▍
+            </Text>
+          )}
           {images}
         </View>
       );
@@ -229,6 +236,10 @@ export interface AgentCardProps {
   sessionId: string | undefined;
   messages: AgentMessage[] | undefined;
   connected: boolean;
+  /** The session's live status; `working` shows the activity row unless text is streaming in. */
+  status?: AgentStatus | undefined;
+  /** The tool the host says is running, for the activity row. */
+  activity?: string | undefined;
 }
 
 /**
@@ -236,9 +247,11 @@ export interface AgentCardProps {
  * shows the end without a single scroll, a session comes back at the offset it was left at, and
  * a new message only pulls the view when it was already within `BOTTOM_STICK_PX` of the newest.
  */
-export function AgentCard({ sessionId, messages, connected }: AgentCardProps) {
+export function AgentCard({ sessionId, messages, connected, status, activity }: AgentCardProps) {
   const [viewing, setViewing] = useState<string | null>(null);
   const newestFirst = useMemo(() => (messages === undefined ? undefined : [...messages].reverse()), [messages]);
+  const newest = messages === undefined ? undefined : messages[messages.length - 1];
+  const showActivity = status === "working" && !(newest?.streaming === true && newest.text.length > 0);
   const remember = (event: NativeSyntheticEvent<NativeScrollEvent>): void => {
     if (sessionId !== undefined) scrollMemory.set(sessionId, Math.max(0, event.nativeEvent.contentOffset.y));
   };
@@ -258,6 +271,7 @@ export function AgentCard({ sessionId, messages, connected }: AgentCardProps) {
         keyExtractor={(message) => message.id}
         renderItem={({ item }) => <MessageRow sessionId={sessionId} message={item} onOpenImage={setViewing} />}
         contentContainerStyle={{ paddingVertical: spacing.lg, gap: spacing.sm }}
+        ListHeaderComponent={showActivity ? <ActivityRow tool={activity} /> : null}
         contentOffset={{ x: 0, y: initialOffset.current }}
         maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: BOTTOM_STICK_PX }}
         onScroll={remember}

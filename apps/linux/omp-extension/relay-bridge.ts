@@ -46,6 +46,7 @@ interface InboxMessage {
   at: number;
   tool?: { name: string; summary: string };
   images?: ImageRef[];
+  streaming?: boolean;
 }
 
 interface JobRef {
@@ -183,6 +184,7 @@ type Outbound =
   | ({ t: "hello" } & SessionInfo)
   | ({ t: "status"; status: Status; statusDetail?: string; lastActivity: string; lastActivityAt: number } & Settings)
   | { t: "messages"; append: InboxMessage[] }
+  | { t: "message.update"; id: string; text: string; streaming: boolean }
   | { t: "result"; id: string; ok: boolean; error?: string; value?: unknown };
 
 type Inbound =
@@ -617,6 +619,40 @@ export default function relayBridge(pi: ExtensionAPI): void {
     setStatus("working");
   });
 
+  // Assistant text streams: one transcript row is appended empty at message_start, its text
+  // grows through throttled updates, and message_end settles it and adds the tool rows.
+  let streaming: InboxMessage | null = null;
+  let streamTimer: ReturnType<typeof setTimeout> | null = null;
+  const STREAM_INTERVAL_MS = 120;
+
+  const flushStream = (final: boolean): void => {
+    if (streamTimer !== null) {
+      clearTimeout(streamTimer);
+      streamTimer = null;
+    }
+    if (streaming === null) return;
+    send({ t: "message.update", id: streaming.id, text: streaming.text, streaming: !final });
+  };
+
+  pi.on("message_start", (event) => {
+    if (ctx === null || event.message.role !== "assistant") return;
+    const at = "timestamp" in event.message && typeof event.message.timestamp === "number" ? event.message.timestamp : Date.now();
+    streaming = { id: nextId(), role: "assistant", text: "", at, streaming: true };
+    record(streaming);
+    send({ t: "messages", append: [streaming] });
+  });
+
+  pi.on("message_update", (event) => {
+    if (ctx === null || streaming === null || event.message.role !== "assistant") return;
+    streaming.text = textOf(event.message.content);
+    if (streamTimer === null) {
+      streamTimer = setTimeout(() => {
+        streamTimer = null;
+        flushStream(false);
+      }, STREAM_INTERVAL_MS);
+    }
+  });
+
   pi.on("message_end", (event) => {
     if (ctx === null) return;
     const message = event.message;
@@ -636,7 +672,19 @@ export default function relayBridge(pi: ExtensionAPI): void {
       if (refs.length > 0) appended.push({ id: nextId(), role: "tool", text: "", at, tool: { name: message.toolName, summary: "" }, images: refs });
     } else if (message.role === "assistant") {
       const text = textOf(message.content);
-      if (text.length > 0) appended.push({ id: nextId(), role: "assistant", text, at });
+      if (streaming !== null) {
+        streaming.text = text;
+        delete streaming.streaming;
+        flushStream(true);
+        if (text.length === 0) {
+          // A tool-only turn: drop the empty row from history; the phone's update leaves it blank.
+          const index = history.indexOf(streaming);
+          if (index !== -1) history.splice(index, 1);
+        }
+        streaming = null;
+      } else if (text.length > 0) {
+        appended.push({ id: nextId(), role: "assistant", text, at });
+      }
       let calledTool = false;
       for (const part of message.content) {
         if (part.type === "toolCall") {

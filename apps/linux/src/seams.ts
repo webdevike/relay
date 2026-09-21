@@ -99,7 +99,9 @@ export type AgentProviderChange =
   /** The session list (or any session's status/activity) changed; read `sessions` again. */
   | { readonly kind: "sessions" }
   /** New messages were appended to a conversation the transport may be subscribed to. */
-  | { readonly kind: "conversation"; readonly sessionId: string; readonly appended: readonly AgentMessage[] };
+  | { readonly kind: "conversation"; readonly sessionId: string; readonly appended: readonly AgentMessage[] }
+  /** A streaming message's text so far (full text, idempotent); `streaming: false` is the settled text. */
+  | { readonly kind: "message"; readonly sessionId: string; readonly id: string; readonly text: string; readonly streaming: boolean };
 
 /**
  * One coding-agent integration (omp on Linux). Provider-independent by construction: the

@@ -34,6 +34,7 @@ export function createDropFrameRouter(store: DropsStoreActions): DropFrameRouter
       case "agents.delta":
       case "agent.conversation":
       case "agent.messages":
+      case "agent.message.update":
       case "agent.options":
       case "agent.image":
       case "ack":

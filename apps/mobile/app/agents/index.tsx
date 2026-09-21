@@ -371,7 +371,7 @@ export default function AgentInbox() {
                     setChatWidth(event.nativeEvent.layout.width);
                   }}
                 >
-                  <AgentCard sessionId={selectedId} messages={messages} connected={connected} />
+                  <AgentCard sessionId={selectedId} messages={messages} connected={connected} status={session.status} activity={session.statusDetail} />
                 </NotchedSurface>
               </GestureDetector>
               {notchShown && (

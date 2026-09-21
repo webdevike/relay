@@ -227,6 +227,7 @@ export class SessionMachine {
       case "agents.delta":
       case "agent.conversation":
       case "agent.messages":
+      case "agent.message.update":
       case "agent.options":
       case "agent.image":
       case "drop.new":

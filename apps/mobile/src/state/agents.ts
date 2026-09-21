@@ -120,6 +120,24 @@ export function appendMessages(
   };
 }
 
+/**
+ * Replaces a streaming message's text. A no-op when the conversation or `id` is unknown (the
+ * phone subscribed mid-stream; the next `agent.conversation` carries the settled text).
+ */
+export function updateMessage(data: AgentsData, sessionId: string, id: string, text: string, streaming: boolean): AgentsData {
+  const existing = data.conversations[sessionId];
+  if (!existing) return data;
+  const index = existing.messages.findIndex((message) => message.id === id);
+  if (index === -1) return data;
+  const messages = existing.messages.slice();
+  const current = messages[index];
+  if (current === undefined) return data;
+  const rest = { ...current };
+  delete rest.streaming;
+  messages[index] = streaming ? { ...rest, text, streaming: true } : { ...rest, text };
+  return { ...data, conversations: { ...data.conversations, [sessionId]: { rev: existing.rev, messages } } };
+}
+
 /** Records the host's answer for one image ref: the bytes as a data URI, or `null` when gone. */
 export function setImage(data: AgentsData, sessionId: string, id: string, image: AgentImage | null): AgentsData {
   const uri = image === null ? null : `data:${image.mimeType};base64,${image.data}`;
@@ -133,6 +151,7 @@ export interface AgentsStore extends AgentsData {
   setConversation: (sessionId: string, rev: number, messages: AgentMessage[]) => void;
   appendMessages: (sessionId: string, rev: number, append: AgentMessage[]) => boolean;
   setOptions: (sessionId: string, options: AgentOptions) => void;
+  updateMessage: (sessionId: string, id: string, text: string, streaming: boolean) => void;
   setImage: (sessionId: string, id: string, image: AgentImage | null) => void;
 }
 
@@ -156,6 +175,9 @@ export const useAgentsStore = create<AgentsStore>((set, get) => ({
     const result = appendMessages(get(), sessionId, rev, append);
     set(result.data);
     return result.ok;
+  },
+  updateMessage: (sessionId, id, text, streaming) => {
+    set(updateMessage(get(), sessionId, id, text, streaming));
   },
   setOptions: (sessionId, options) => {
     set({ options: { ...get().options, [sessionId]: options } });

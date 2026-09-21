@@ -75,6 +75,19 @@ describe("conversation", () => {
     expect(sent).toHaveLength(2);
   });
 
+  it("grows a streaming message in place, settles it, and ignores updates for ids it does not hold", () => {
+    route({ t: "agent.conversation", sessionId: "a", rev: 0, messages: [{ id: "m1", role: "user", text: "hi", at: 1 }] });
+    route({ t: "agent.messages", sessionId: "a", rev: 1, append: [{ id: "m2", role: "assistant", text: "", at: 2, streaming: true }] });
+    route({ t: "agent.message.update", sessionId: "a", id: "m2", text: "hel", streaming: true });
+    expect(useAgentsStore.getState().conversations["a"]?.messages[1]).toEqual({ id: "m2", role: "assistant", text: "hel", at: 2, streaming: true });
+    route({ t: "agent.message.update", sessionId: "a", id: "m2", text: "hello", streaming: false });
+    expect(useAgentsStore.getState().conversations["a"]?.messages[1]).toEqual({ id: "m2", role: "assistant", text: "hello", at: 2 });
+    route({ t: "agent.message.update", sessionId: "a", id: "ghost", text: "x", streaming: true });
+    expect(useAgentsStore.getState().conversations["a"]?.messages).toHaveLength(2);
+    expect(useAgentsStore.getState().conversations["a"]?.rev).toBe(1);
+    expect(sent).toHaveLength(0);
+  });
+
   it("drops every conversation on welcome so a reconnect starts clean", () => {
     route({ t: "agent.conversation", sessionId: "a", rev: 4, messages: [{ id: "m1", role: "user", text: "hi", at: 1 }] });
     route({ t: "welcome", state: { mac, agents: { rev: 1, sessions: [session("a")] } } });
