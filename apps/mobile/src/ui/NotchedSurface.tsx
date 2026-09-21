@@ -20,6 +20,12 @@ export interface NotchedSurfaceProps {
   children: ReactNode;
   /** Rendered above the outline layer: whatever sits in a notch of this surface (the mic in the panel). */
   overlay?: ReactNode;
+  /**
+   * Clip the children to the rounded rectangle (default). Only content that can scroll under the
+   * outline needs it; the clip's corner region nicks anything drawn near a corner (a round button
+   * in the panel came out as a teardrop), so static panels turn it off.
+   */
+  clip?: boolean;
 }
 
 /**
@@ -29,7 +35,7 @@ export interface NotchedSurfaceProps {
  * hairline over them, so content scrolled up to a notch never paints across the outline. Without
  * Skia in the build it degrades to the plain bordered card.
  */
-export function NotchedSurface({ color, radius, notches, style, onLayout, children, overlay }: NotchedSurfaceProps) {
+export function NotchedSurface({ color, radius, notches, style, onLayout, children, overlay, clip = true }: NotchedSurfaceProps) {
   const sk = loadSkia();
   const [size, setSize] = useState({ width: 0, height: 0 });
   const measure = (event: LayoutChangeEvent): void => {
@@ -50,7 +56,7 @@ export function NotchedSurface({ color, radius, notches, style, onLayout, childr
   return (
     <View style={style} onLayout={measure} collapsable={false}>
       {size.width > 0 && <Outline sk={sk} size={size} color={color} radius={radius} notches={notches} layer="fill" />}
-      <View style={[styles.content, { borderRadius: radius }]}>{children}</View>
+      <View style={clip ? [styles.content, { borderRadius: radius }] : styles.open}>{children}</View>
       {size.width > 0 && <Outline sk={sk} size={size} color={color} radius={radius} notches={notches} layer="stroke" />}
       {overlay}
     </View>
@@ -117,5 +123,6 @@ const styles = StyleSheet.create({
   // Grow to fill a sized surface (the chat card), but size to the children in an auto-height one
   // (the header): `flex: 1` would set a zero basis and collapse it.
   content: { flexGrow: 1, flexShrink: 1, overflow: "hidden" },
+  open: { flexGrow: 1, flexShrink: 1 },
   fallback: { borderWidth: 1, borderColor: colors.hairline },
 });

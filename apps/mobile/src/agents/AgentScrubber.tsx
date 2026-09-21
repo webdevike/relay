@@ -124,8 +124,14 @@ export function AgentScrubber({
     ),
   }));
   // Skia draws the pills from exact geometry; the View fallback is for a client built without it.
-  const thumbXPx = useDerivedValue(() => thumbX.value + TRACK_PADDING);
-  const thumbWidth = useDerivedValue(() => Math.max(0, slotWidth.value - TRACK_PADDING * 2));
+  // One rrect rebuilt per frame: feeding animated x/width as separate props left Skia with radii
+  // clamped from the first (zero-width) layout, which flattened the thumb's left end.
+  const sk = loadSkia();
+  const thumbRRect = useDerivedValue(() => {
+    const width = Math.max(0, slotWidth.value - TRACK_PADDING * 2);
+    const rect = { x: thumbX.value + TRACK_PADDING, y: TRACK_PADDING, width, height: THUMB_HEIGHT };
+    return { rect, rx: THUMB_HEIGHT / 2, ry: THUMB_HEIGHT / 2 };
+  });
   const thumbColor = useDerivedValue(() =>
     withTiming(dragging.value ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.12)", {
       duration: motion.duration.fast,
@@ -136,7 +142,6 @@ export function AgentScrubber({
     setTrackWidth(event.nativeEvent.layout.width);
   };
 
-  const sk = loadSkia();
   const dividerAt = divider !== undefined && divider > 0 && divider < count ? divider * slot : null;
   const body =
     sk === null ? (
@@ -184,16 +189,7 @@ export function AgentScrubber({
               color={tickColor[status]}
             />
           ))}
-          {count > 0 && (
-            <sk.RoundedRect
-              x={thumbXPx}
-              y={TRACK_PADDING}
-              width={thumbWidth}
-              height={THUMB_HEIGHT}
-              r={THUMB_HEIGHT / 2}
-              color={thumbColor}
-            />
-          )}
+          {count > 0 && <sk.RoundedRect rect={thumbRRect} color={thumbColor} />}
         </sk.Canvas>
       </View>
     );

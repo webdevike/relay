@@ -20,7 +20,17 @@ export function Cutout({ size, width = size, style, children }: CutoutProps) {
   return (
     <View
       style={[
-        { position: "absolute", width: outerWidth, height: outerHeight, borderRadius: outerHeight / 2, padding: CUTOUT_GAP, backgroundColor: colors.bg },
+        {
+          position: "absolute",
+          width: outerWidth,
+          height: outerHeight,
+          borderTopLeftRadius: outerHeight / 2,
+          borderTopRightRadius: outerHeight / 2,
+          borderBottomLeftRadius: outerHeight / 2,
+          borderBottomRightRadius: outerHeight / 2,
+          padding: CUTOUT_GAP,
+          backgroundColor: colors.bg,
+        },
         style,
       ]}
     >

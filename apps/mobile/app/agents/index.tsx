@@ -601,6 +601,7 @@ export default function AgentInbox() {
             radius={CARD_RADIUS}
             notches={panelNotches}
             style={styles.panel}
+            clip={false}
             overlay={
               launchError !== null ? (
                 <View style={styles.banner}>
