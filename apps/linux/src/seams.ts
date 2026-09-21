@@ -124,7 +124,7 @@ export interface AgentProvider {
    */
   reply(sessionId: string, text: string, submit: boolean, images?: readonly AgentImage[]): Promise<void>;
   /** Open a new session on the host. Rejects with `AckFailure` (`agent_launch_failed`). */
-  launch(): Promise<void>;
+  launch(prompt?: string): Promise<void>;
   /** Models and skills the session offers; null when the session is unknown. */
   options(sessionId: string): Promise<AgentOptions | null>;
   /** Bytes behind an `AgentImageRef`; null when the session or the image is unknown. */

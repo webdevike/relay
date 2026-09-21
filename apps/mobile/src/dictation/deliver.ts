@@ -1,8 +1,10 @@
 /**
  * Where a finished dictation goes. The trackpad types it into the focused app (`text.insert`,
- * plus Return on a submit); an agent session gets it as `agent.reply`, always as the next turn.
- * A screen sets the target while it has focus and restores `insert` when it leaves, so the one
- * dictation actor never needs to know which screen is up.
+ * plus Return on a submit); an agent session gets it as `agent.reply`, always as the next turn;
+ * a flick up in the inbox starts a new session with it (`agent.start` with the words as the first
+ * prompt). A screen sets the target while it has focus and restores `insert` when it leaves, so
+ * the one dictation actor never needs to know which screen is up. The inbox also registers a
+ * launch listener so it can show the new session, words first, before the host has even opened it.
  */
 import type { Command } from "@relay/protocol";
 import type { DeliverInput } from "./machine";
@@ -11,6 +13,7 @@ export type DictationTarget = { kind: "insert" } | { kind: "agent"; sessionId: s
 
 const INSERT: DictationTarget = { kind: "insert" };
 let target: DictationTarget = INSERT;
+let onLaunch: ((prompt: string) => void) | null = null;
 
 export function setDictationTarget(next: DictationTarget): void {
   target = next;
@@ -18,6 +21,11 @@ export function setDictationTarget(next: DictationTarget): void {
 
 export function resetDictationTarget(): void {
   target = INSERT;
+}
+
+/** Called with the delivered text (possibly empty) the moment a launch dictation is sent. */
+export function setLaunchListener(listener: ((prompt: string) => void) | null): void {
+  onLaunch = listener;
 }
 
 /**
@@ -38,6 +46,7 @@ export function deliveredText(input: DeliverInput): string {
 /** The commands one delivery sends, in order. Images only go to an agent; the trackpad has nowhere to put them. */
 export function commandsFor(input: DeliverInput, to: DictationTarget): Command[] {
   const text = deliveredText(input);
+  if (input.launch) return [text.length > 0 ? { kind: "agent.start", prompt: text } : { kind: "agent.start" }];
   if (to.kind === "agent") {
     const images = input.images.map(({ mimeType, data }) => ({ mimeType, data }));
     return [
@@ -60,5 +69,6 @@ export async function deliverDictation(
   input: DeliverInput,
   send: (cmd: Command) => Promise<void>,
 ): Promise<void> {
+  if (input.launch) onLaunch?.(deliveredText(input));
   for (const cmd of commandsFor(input, target)) await send(cmd);
 }

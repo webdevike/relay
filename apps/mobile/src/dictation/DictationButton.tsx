@@ -98,25 +98,26 @@ const DEFAULT_ERROR_MESSAGE = "Something went wrong.";
 
 /**
  * Hold-to-talk mic: press and hold to listen, release to send. The flick up submits (insert plus
- * Return) unless the screen gives `onLift`, which then owns the flick: what was heard is dropped, the
- * orb launches, and `onLift` runs. With `skills`, a swipe left while holding opens the skill wheel:
- * scrub around the mic to bring an entry under the marker, lift to lock it in; the next hold dictates
- * with it armed. Floating chip shows failures; the armed skill is the inbox's notch.
+ * Return) unless the screen sets `launches`, which makes the flick start a new session with what
+ * was heard (the orb launches, the dictation finishes and is delivered as `agent.start`). With
+ * `skills`, a swipe left while holding opens the skill wheel: scrub around the mic to bring an
+ * entry under the marker, lift to lock it in; the next hold dictates with it armed. Floating chip
+ * shows failures; the armed skill is the inbox's notch.
  */
 export interface DictationButtonProps {
   size?: number;
   backgroundColor?: string;
   /** Skills the wheel offers; omit (trackpad) and the swipe left does nothing. */
   skills?: AgentSkill[];
-  /** Takes over the flick up: the inbox starts a session with it. */
-  onLift?: () => void;
+  /** The flick up starts a new session with the dictation (the inbox) instead of submitting it. */
+  launches?: boolean;
 }
 
 export function DictationButton({
   size: BUTTON_SIZE = DEFAULT_SIZE,
   backgroundColor = colors.surfaceRaised,
   skills,
-  onLift,
+  launches = false,
 }: DictationButtonProps = {}) {
   const connected = useConnectionStore((state) => state.status === "connected");
   const state = useDictation();
@@ -190,8 +191,8 @@ export function DictationButton({
   const choiceCounts = useSharedValue<number[]>([]);
   const skillsRef = useRef(skills);
   skillsRef.current = skills;
-  const onLiftRef = useRef(onLift);
-  onLiftRef.current = onLift;
+  const launchesRef = useRef(launches);
+  launchesRef.current = launches;
   useEffect(() => {
     enabled.value = connected;
     const count = skills?.length ?? 0;
@@ -242,18 +243,11 @@ export function DictationButton({
       if (phase === "listening") tapHaptic();
       dictationActor.send({ type: "release" });
     };
-    /** The flick up: the screen's `onLift` if it gave one (dropping what was heard), else submit. */
+    /** The flick up: a new session with the words when the screen `launches`, else submit. */
     const flickUp = (): void => {
-      const lift = onLiftRef.current;
-      if (lift === undefined) {
-        if (phaseOf(dictationActor.getSnapshot()) !== "listening") return;
-        impactHaptic("heavy");
-        dictationActor.send({ type: "pressStop", submit: true });
-        return;
-      }
+      if (phaseOf(dictationActor.getSnapshot()) !== "listening") return;
       impactHaptic("heavy");
-      dictationActor.send({ type: "launch" });
-      lift();
+      dictationActor.send(launchesRef.current ? { type: "launch" } : { type: "pressStop", submit: true });
     };
     const openWheel = (): void => {
       debug("dictation", "wheel open", phaseOf(dictationActor.getSnapshot()));

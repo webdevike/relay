@@ -114,7 +114,7 @@ describe("dictationMachine", () => {
     expect(h.recognizerStops).toBe(1);
     h.actor.send({ type: "final", text: "ship it" });
     expect(h.sends).toEqual([
-      { text: "ship it", submit: true, skill: null, images: [], pasted: null },
+      { text: "ship it", submit: true, skill: null, images: [], pasted: null, launch: false },
     ]);
     expect(h.actor.getSnapshot().context.submit).toBe(true);
     await h.settleSend();
@@ -132,6 +132,7 @@ describe("dictationMachine", () => {
       skill: null,
       images: [],
       pasted: null,
+      launch: false,
     });
   });
 
@@ -143,7 +144,7 @@ describe("dictationMachine", () => {
     expect(h.recognizerStops).toBe(1);
     h.actor.send({ type: "final", text: "quick one" });
     expect(h.sends).toEqual([
-      { text: "quick one", submit: false, skill: null, images: [], pasted: null },
+      { text: "quick one", submit: false, skill: null, images: [], pasted: null, launch: false },
     ]);
   });
 
@@ -193,7 +194,7 @@ describe("dictationMachine", () => {
     expect(h.recognizerStops).toBe(1);
     h.actor.send({ type: "final", text: "still here" });
     expect(h.sends).toEqual([
-      { text: "still here", submit: false, skill: null, images: [], pasted: null },
+      { text: "still here", submit: false, skill: null, images: [], pasted: null, launch: false },
     ]);
   });
 
@@ -279,21 +280,34 @@ describe("dictationMachine", () => {
     expect(h.sends).toEqual([]);
   });
 
-  it("launch drops what was heard, keeps the armed skill and attachments, and the orb flies without a release", async () => {
+  it("launch finishes the dictation and delivers it as a session start; the orb flies without a release", async () => {
     const h = harness();
     h.actor.send({ type: "arm", skill: "/skill:deploy" });
     await pressAndListen(h);
     h.actor.send({ type: "partial", text: "never mind" });
     h.actor.send({ type: "launch" });
-    expect(h.phase()).toBe("idle");
+    expect(h.phase()).toBe("finishing");
     expect(h.orb()).toBe("flying");
+    h.actor.send({ type: "final", text: "plan the dashboard rework" });
+    expect(h.phase()).toBe("sending");
     expect(h.recognizerAlive()).toBe(false);
-    expect(h.actor.getSnapshot().context).toMatchObject({ transcript: "", skill: "/skill:deploy" });
-    h.actor.send({ type: "release" });
-    h.actor.send({ type: "final", text: "never mind" });
-    expect(h.sends).toEqual([]);
+    expect(h.sends).toEqual([
+      { text: "plan the dashboard rework", submit: false, skill: "/skill:deploy", images: [], pasted: null, launch: true },
+    ]);
+    await h.settleSend();
     h.clock.increment(620);
+    expect(h.orb()).toBe("gone");
+    h.clock.increment(300);
     expect(h.orb()).toBe("hidden");
+  });
+
+  it("launch with nothing heard still starts a session, empty", async () => {
+    const h = harness();
+    await pressAndListen(h);
+    h.actor.send({ type: "launch" });
+    h.actor.send({ type: "recognizerEnd" });
+    expect(h.phase()).toBe("sending");
+    expect(h.sends).toEqual([{ text: "", submit: false, skill: null, images: [], pasted: null, launch: true }]);
   });
 
   it("orb: a recognizer error fades the orb; a new hold during the fade brings it back", async () => {
@@ -327,7 +341,7 @@ describe("dictationMachine", () => {
     expect(h.recognizerAlive()).toBe(false);
     expect(h.actor.getSnapshot().context.transcript).toBe("hello world.");
     expect(h.sends).toEqual([
-      { text: "hello world.", submit: false, skill: null, images: [], pasted: null },
+      { text: "hello world.", submit: false, skill: null, images: [], pasted: null, launch: false },
     ]);
 
     await h.settleSend();
@@ -347,7 +361,7 @@ describe("dictationMachine", () => {
     h.clock.increment(1500);
     expect(h.phase()).toBe("sending");
     expect(h.sends).toEqual([
-      { text: "take this down", submit: false, skill: null, images: [], pasted: null },
+      { text: "take this down", submit: false, skill: null, images: [], pasted: null, launch: false },
     ]);
   });
 
@@ -359,7 +373,7 @@ describe("dictationMachine", () => {
     h.actor.send({ type: "recognizerEnd" });
     expect(h.phase()).toBe("sending");
     expect(h.sends).toEqual([
-      { text: "done talking", submit: false, skill: null, images: [], pasted: null },
+      { text: "done talking", submit: false, skill: null, images: [], pasted: null, launch: false },
     ]);
   });
 
@@ -507,7 +521,7 @@ describe("dictationMachine", () => {
       h.actor.send({ type: "pressStop", submit: true });
       h.actor.send({ type: "final", text: "to staging" });
       expect(h.sends).toEqual([
-        { text: "to staging", submit: true, skill: "/skill:deploy", images: [], pasted: null },
+        { text: "to staging", submit: true, skill: "/skill:deploy", images: [], pasted: null, launch: false },
       ]);
       await h.settleSend();
       h.clock.increment(900);
@@ -606,7 +620,7 @@ describe("dictationMachine", () => {
       h.actor.send({ type: "wheelSelect", skill: "/goal show", submit: true });
       expect(h.phase()).toBe("sending");
       expect(h.sends).toEqual([
-        { text: "", submit: true, skill: "/goal show", images: [], pasted: null },
+        { text: "", submit: true, skill: "/goal show", images: [], pasted: null, launch: false },
       ]);
       h.actor.send({ type: "release" });
       await h.settleSend();
@@ -626,7 +640,7 @@ describe("dictationMachine", () => {
       h.actor.send({ type: "release" });
       h.actor.send({ type: "final", text: "ship relay" });
       expect(h.sends).toEqual([
-        { text: "ship relay", submit: false, skill: "/goal set", images: [], pasted: null },
+        { text: "ship relay", submit: false, skill: "/goal set", images: [], pasted: null, launch: false },
       ]);
       await h.settleSend();
       h.clock.increment(900);
@@ -659,6 +673,7 @@ describe("dictationMachine", () => {
           skill: null,
           images: [shot(1), shot(2)],
           pasted: null,
+          launch: false,
         },
       ]);
       await h.settleSend();
@@ -675,7 +690,7 @@ describe("dictationMachine", () => {
       h.actor.send({ type: "sendAttachments" });
       expect(h.phase()).toBe("sending");
       expect(h.sends).toEqual([
-        { text: "", submit: true, skill: null, images: [shot(1)], pasted: null },
+        { text: "", submit: true, skill: null, images: [shot(1)], pasted: null, launch: false },
       ]);
       await h.settleSend();
       expect(h.phase()).toBe("sent");
@@ -715,7 +730,7 @@ describe("dictationMachine", () => {
       h.actor.send({ type: "release" });
       h.actor.send({ type: "final", text: "explain" });
       expect(h.sends).toEqual([
-        { text: "explain", submit: false, skill: null, images: [], pasted: "stack trace" },
+        { text: "explain", submit: false, skill: null, images: [], pasted: "stack trace", launch: false },
       ]);
       await h.settleSend();
       h.clock.increment(900);
@@ -732,6 +747,7 @@ describe("dictationMachine", () => {
         skill: null,
         images: [],
         pasted: "again",
+        launch: false,
       });
     });
     describe("typed", () => {
@@ -744,7 +760,7 @@ describe("dictationMachine", () => {
         h.actor.send({ type: "typed", text: "  ship it  " });
         expect(h.phase()).toBe("sending");
         expect(h.sends).toEqual([
-          { text: "ship it", submit: true, skill: "/handoff", images: [shot(1)], pasted: null },
+          { text: "ship it", submit: true, skill: "/handoff", images: [shot(1)], pasted: null, launch: false },
         ]);
         await h.settleSend();
         expect(h.phase()).toBe("sent");

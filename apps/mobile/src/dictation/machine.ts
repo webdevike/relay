@@ -68,6 +68,8 @@ export interface DictationContext {
   errorCode: string | null;
   /** Whether the pending/last send also submits (Return) on the Mac. */
   submit: boolean;
+  /** The flick up in the inbox arrived while listening: deliver as a new session, not a reply. */
+  launching: boolean;
   /** The finger lifted before listening opened; the dictation ends as soon as it does. */
   released: boolean;
   /**
@@ -103,7 +105,7 @@ export type DictationEvent =
   | { type: "pressStop"; submit?: boolean }
   /** Finger lifted. While listening this ends the dictation; after a submit it launches the orb. */
   | { type: "release" }
-  /** Finger flew up while listening in the inbox: drop what was heard, the orb launches, a session starts. */
+  /** Finger flew up while listening in the inbox: finish the dictation, the orb launches, a session starts with what was heard. */
   | { type: "launch" }
   /** Finger swiped left while listening: drop what was heard and open the skill wheel. */
   | { type: "wheelOpen" }
@@ -153,6 +155,8 @@ export interface DeliverInput {
   skill: string | null;
   images: PendingImage[];
   pasted: string | null;
+  /** The flick up in the inbox: this dictation starts a new session instead of replying to one. */
+  launch: boolean;
 }
 
 export const FINISH_TIMEOUT_MS = 1500;
@@ -175,6 +179,7 @@ const fresh: DictationContext = {
   submit: false,
   released: false,
   skill: null,
+  launching: false,
   wheelParent: null,
   images: [],
   pasted: null,
@@ -206,6 +211,7 @@ export const dictationMachine = setup({
     hasAttachments: ({ context }) => context.images.length > 0 || context.pasted !== null,
     submitting: ({ event }) => event.type === "pressStop" && event.submit === true,
     released: ({ context }) => context.released,
+    launching: ({ context }) => context.launching,
     noSpeech: ({ event }) => event.type === "recognizerError" && event.code === "no-speech",
     listening: stateIn({ speech: { active: "listening" } }),
     speechActive: stateIn({ speech: "active" }),
@@ -309,7 +315,7 @@ export const dictationMachine = setup({
                   target: "#dictation.speech.choosing",
                   actions: assign({ transcript: "", wheelParent: null }),
                 },
-                launch: { target: "#dictation.speech.idle", actions: assign(keepArmed) },
+                launch: { target: "finishing", actions: [assign({ launching: true }), "stopRecognizer"] },
                 // A press here means the earlier release was lost: treat it as that release.
                 pressStart: { target: "finishing", actions: "stopRecognizer" },
                 recognizerEnd: {
@@ -367,6 +373,8 @@ export const dictationMachine = setup({
               target: "sending",
               actions: assign({ transcript: ({ context }) => context.transcript.trim() }),
             },
+            // A flick with nothing heard still starts a session, just an empty one.
+            { guard: "launching", target: "sending", actions: assign({ transcript: "" }) },
             { target: "idle", actions: assign({ ...keepArmed, nothingHeard: true }) },
           ],
         },
@@ -379,6 +387,7 @@ export const dictationMachine = setup({
               skill: context.skill,
               images: context.images,
               pasted: context.pasted,
+              launch: context.launching,
             }),
             // The attachments leave with the delivery, whichever way it lands; the text and skill linger for the check.
             onDone: { target: "sent", actions: assign({ images: [], pasted: null }) },

@@ -11,6 +11,7 @@ import Animated, {
   withTiming,
   type EntryExitAnimationFunction,
 } from "react-native-reanimated";
+import type { AgentMessage, AgentSession } from "@relay/protocol";
 import { Text } from "@/ui/Text";
 import { Banner } from "@/ui/Banner";
 import { EmptyState } from "@/ui/EmptyState";
@@ -25,7 +26,7 @@ import { requestAgentOptions, sendCommand, subscribeAgent, unsubscribeAgent } fr
 import { DictationButton } from "@/dictation/DictationButton";
 import { ListeningOrb } from "@/dictation/ListeningOrb";
 import { SkillWheel, WHEEL_EXTENT } from "@/dictation/SkillWheel";
-import { resetDictationTarget, setDictationTarget } from "@/dictation/deliver";
+import { resetDictationTarget, setDictationTarget, setLaunchListener } from "@/dictation/deliver";
 import { dictationActor } from "@/dictation/actor";
 import { useDictation } from "@/dictation/useDictation";
 import { AgentCard, AgentHeader } from "@/agents/AgentCard";
@@ -65,6 +66,8 @@ const PANEL_HEIGHT = PANEL_TOP + TRACK_HEIGHT + spacing.md + 16 + spacing.lg;
 const START_SIZE = 36;
 /** A launched omp normally registers within a few seconds; past this the spinner is a lie. */
 const LAUNCH_TIMEOUT_MS = 20_000;
+/** Id of the stand-in session shown while a dictated launch waits for the real one to register. */
+const PENDING_ID = "pending-launch";
 
 const slideIn =
   (direction: number): EntryExitAnimationFunction =>
@@ -120,8 +123,33 @@ export default function AgentInbox() {
   const jobsFrom = order.findIndex((id) => sessions[id]?.kind === "job");
   const manualCount = jobsFrom === -1 ? order.length : jobsFrom;
 
-  const session = selectedId === undefined ? undefined : sessions[selectedId];
-  const messages = selectedId === undefined ? undefined : conversations[selectedId]?.messages;
+  // Starting a session from a dictation: the new screen shows the words at once, as the first
+  // message of a stand-in session, until the real one registers and takes over.
+  const [launchPrompt, setLaunchPrompt] = useState<string | null>(null);
+  const launchedAt = useRef(0);
+  const pending = useMemo<AgentSession | undefined>(
+    () =>
+      launchPrompt === null
+        ? undefined
+        : {
+            id: PENDING_ID,
+            provider: "omp",
+            title: "New session",
+            projectPath: "",
+            status: "working",
+            statusDetail: "starting omp",
+            lastActivity: launchPrompt,
+            lastActivityAt: launchedAt.current,
+            canRespond: false,
+          },
+    [launchPrompt],
+  );
+  const pendingMessages = useMemo<AgentMessage[] | undefined>(
+    () => (launchPrompt === null ? undefined : launchPrompt.length === 0 ? [] : [{ id: `${PENDING_ID}-1`, role: "user", text: launchPrompt, at: launchedAt.current }]),
+    [launchPrompt],
+  );
+  const session = pending ?? (selectedId === undefined ? undefined : sessions[selectedId]);
+  const messages = pending !== undefined ? pendingMessages : selectedId === undefined ? undefined : conversations[selectedId]?.messages;
   // Without the wheel the button gets no skills, so the swipe left does nothing.
   const wheelEnabled = useSettingsStore((state) => state.skillWheelEnabled);
   const skills = useAgentsStore((state) =>
@@ -158,7 +186,8 @@ export default function AgentInbox() {
   }, []);
 
   // Starting a session: ack means the terminal opened; the session itself arrives as a delta a
-  // few seconds later, and whichever id is new at that point becomes the focus.
+  // few seconds later, and whichever id is new at that point becomes the focus. A launch with
+  // words shows them immediately; the host hands them to omp as its first turn.
   const [launching, setLaunching] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
   const knownIds = useRef(new Set(order));
@@ -168,26 +197,46 @@ export default function AgentInbox() {
     if (launching && fresh[0] !== undefined) {
       setPickedId(fresh[0]);
       setLaunching(false);
+      setLaunchPrompt(null);
     }
   }, [order, launching]);
   useEffect(() => {
     if (!launching) return;
     const timer = setTimeout(() => {
       setLaunching(false);
+      setLaunchPrompt(null);
       setLaunchError("The new session never showed up.");
     }, LAUNCH_TIMEOUT_MS);
     return () => {
       clearTimeout(timer);
     };
   }, [launching]);
-  const startSession = (): void => {
+  /** Marks a launch as in flight and shows it; `prompt` is the dictation the session starts with. */
+  const beginLaunch = useCallback((prompt: string | null): void => {
     setLaunchError(null);
+    launchedAt.current = Date.now();
+    setLaunchPrompt(prompt);
     setLaunching(true);
+  }, []);
+  const startSession = (): void => {
+    beginLaunch(null);
     sendCommand({ kind: "agent.start" }).catch((error: unknown) => {
       setLaunching(false);
+      setLaunchPrompt(null);
       setLaunchError(error instanceof Error ? error.message : "Couldn't start a session.");
     });
   };
+  // The dictation actor sends the `agent.start` itself; this only puts the words on screen first.
+  useFocusEffect(
+    useCallback(() => {
+      setLaunchListener((prompt) => {
+        beginLaunch(prompt);
+      });
+      return () => {
+        setLaunchListener(null);
+      };
+    }, [beginLaunch]),
+  );
 
   const canRespond = session?.canRespond === true;
 
@@ -371,7 +420,14 @@ export default function AgentInbox() {
                     setChatWidth(event.nativeEvent.layout.width);
                   }}
                 >
-                  <AgentCard sessionId={selectedId} messages={messages} connected={connected} status={session.status} activity={session.statusDetail} />
+                  <AgentCard
+                    sessionId={selectedId}
+                    messages={messages}
+                    connected={connected}
+                    status={session.status}
+                    activity={session.statusDetail}
+                    {...(pending === undefined ? {} : { activityLabel: "Starting omp" })}
+                  />
                 </NotchedSurface>
               </GestureDetector>
               {notchShown && (
@@ -526,6 +582,10 @@ export default function AgentInbox() {
                 <View style={styles.banner}>
                   <Banner tone="danger" message={launchError} />
                 </View>
+              ) : pending !== undefined ? (
+                <View style={styles.banner}>
+                  <Banner tone="info" message="Opening your session on the host…" />
+                </View>
               ) : canRespond ? (
                 <>
                   <Cutout size={MIC_SIZE} style={styles.mic}>
@@ -533,7 +593,7 @@ export default function AgentInbox() {
                       size={MIC_SIZE}
                       backgroundColor={colors.surface}
                       {...(skills === undefined ? {} : { skills })}
-                      {...(connected && !launching ? { onLift: startSession } : {})}
+                      launches={connected && !launching}
                     />
                   </Cutout>
                   {/* Ring centered on the seam like the mic; `left` from the measured width, a percentage would resolve against the padded box. */}

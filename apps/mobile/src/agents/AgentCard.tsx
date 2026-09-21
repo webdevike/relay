@@ -240,6 +240,8 @@ export interface AgentCardProps {
   status?: AgentStatus | undefined;
   /** The tool the host says is running, for the activity row. */
   activity?: string | undefined;
+  /** Replaces the activity row's text outright (e.g. "Starting omp" for a session not yet open). */
+  activityLabel?: string | undefined;
 }
 
 /**
@@ -247,7 +249,7 @@ export interface AgentCardProps {
  * shows the end without a single scroll, a session comes back at the offset it was left at, and
  * a new message only pulls the view when it was already within `BOTTOM_STICK_PX` of the newest.
  */
-export function AgentCard({ sessionId, messages, connected, status, activity }: AgentCardProps) {
+export function AgentCard({ sessionId, messages, connected, status, activity, activityLabel }: AgentCardProps) {
   const [viewing, setViewing] = useState<string | null>(null);
   const newestFirst = useMemo(() => (messages === undefined ? undefined : [...messages].reverse()), [messages]);
   const newest = messages === undefined ? undefined : messages[messages.length - 1];
@@ -261,7 +263,7 @@ export function AgentCard({ sessionId, messages, connected, status, activity }: 
   if (messages === undefined || sessionId === undefined) {
     return <CardPlaceholder text={connected ? "Loading conversation…" : "Connect to your host to load this conversation."} />;
   }
-  if (messages.length === 0) return <CardPlaceholder text="No messages yet." />;
+  if (messages.length === 0 && !showActivity) return <CardPlaceholder text="No messages yet." />;
   return (
     <>
       <FlatList
@@ -271,7 +273,7 @@ export function AgentCard({ sessionId, messages, connected, status, activity }: 
         keyExtractor={(message) => message.id}
         renderItem={({ item }) => <MessageRow sessionId={sessionId} message={item} onOpenImage={setViewing} />}
         contentContainerStyle={{ paddingVertical: spacing.lg, gap: spacing.sm }}
-        ListHeaderComponent={showActivity ? <ActivityRow tool={activity} /> : null}
+        ListHeaderComponent={showActivity ? <ActivityRow label={activityLabel ?? (activity === undefined ? "Thinking" : `Running ${activity}`)} /> : null}
         contentOffset={{ x: 0, y: initialOffset.current }}
         maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: BOTTOM_STICK_PX }}
         onScroll={remember}

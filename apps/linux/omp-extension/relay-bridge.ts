@@ -362,6 +362,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
   let socket: Socket | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
+  let initialPromptSent = false;
   let buffer = "";
   let seq = 0;
   let status: Status = "idle";
@@ -614,12 +615,44 @@ export default function relayBridge(pi: ExtensionAPI): void {
     });
   };
 
+  // The phone can start a session with words already spoken: the host puts them in the pane's
+  // env and this session types them in through the editor (so omp's auto title fires) as soon as
+  // its TUI exists. The terminal reader is not always attached when session_start fires, so the
+  // Enter is re-fed on a short interval until the editor has taken the text (it empties on
+  // submit) or the agent has started. Read once and cleared, so a session switch never replays it.
+  const initialPrompt = process.env["RELAY_INITIAL_PROMPT"];
+  delete process.env["RELAY_INITIAL_PROMPT"];
+  const INITIAL_PROMPT_RETRY_MS = 300;
+  const INITIAL_PROMPT_TRIES = 40;
+  let initialPromptTimer: ReturnType<typeof setInterval> | null = null;
+  const stopInitialPrompt = (): void => {
+    clearInterval(initialPromptTimer ?? undefined);
+    initialPromptTimer = null;
+  };
+
   pi.on("session_start", (_event, context) => {
     if (!context.hasUI) return; // headless, print, and subagent sessions are not inbox items
     ctx = context;
     stopped = false;
     watchName(context);
     connect();
+    if (initialPrompt === undefined || initialPrompt.trim().length === 0 || initialPromptSent) return;
+    initialPromptSent = true;
+    let tries = 0;
+    initialPromptTimer = setInterval(() => {
+      tries += 1;
+      if (ctx !== context || tries > INITIAL_PROMPT_TRIES || (tries > 1 && context.ui.getEditorText() !== initialPrompt)) {
+        stopInitialPrompt();
+        return;
+      }
+      context.ui.setEditorText(initialPrompt);
+      process.stdin.push("\r");
+    }, INITIAL_PROMPT_RETRY_MS);
+    initialPromptTimer.unref();
+  });
+
+  pi.on("agent_start", () => {
+    stopInitialPrompt();
   });
 
   pi.on("session_switch", (_event, context) => {

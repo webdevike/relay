@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { Command } from "@relay/protocol";
-import { deliverDictation, resetDictationTarget, setDictationTarget } from "./deliver";
+import { deliverDictation, resetDictationTarget, setDictationTarget, setLaunchListener } from "./deliver";
 
 function recorder(): { sent: Command[]; send: (cmd: Command) => Promise<void> } {
   const sent: Command[] = [];
@@ -21,7 +21,7 @@ describe("deliverDictation", () => {
   it("inserts, then presses Return on submit, by default", async () => {
     const { sent, send } = recorder();
     await deliverDictation(
-      { text: "hello", submit: true, skill: null, images: [], pasted: null },
+      { text: "hello", submit: true, skill: null, images: [], pasted: null, launch: false },
       send,
     );
     expect(sent).toEqual([
@@ -34,11 +34,11 @@ describe("deliverDictation", () => {
     setDictationTarget({ kind: "agent", sessionId: "s1" });
     const { sent, send } = recorder();
     await deliverDictation(
-      { text: "try again", submit: true, skill: null, images: [], pasted: null },
+      { text: "try again", submit: true, skill: null, images: [], pasted: null, launch: false },
       send,
     );
     await deliverDictation(
-      { text: "and also", submit: false, skill: null, images: [], pasted: null },
+      { text: "and also", submit: false, skill: null, images: [], pasted: null, launch: false },
       send,
     );
     expect(sent).toEqual([
@@ -51,7 +51,7 @@ describe("deliverDictation", () => {
     setDictationTarget({ kind: "agent", sessionId: "s1" });
     const { sent, send } = recorder();
     await deliverDictation(
-      { text: "to staging", submit: true, skill: "/skill:deploy", images: [], pasted: null },
+      { text: "to staging", submit: true, skill: "/skill:deploy", images: [], pasted: null, launch: false },
       send,
     );
     expect(sent).toEqual([
@@ -63,7 +63,7 @@ describe("deliverDictation", () => {
     setDictationTarget({ kind: "agent", sessionId: "s1" });
     const { sent, send } = recorder();
     await deliverDictation(
-      { text: "", submit: true, skill: "/goal show", images: [], pasted: null },
+      { text: "", submit: true, skill: "/goal show", images: [], pasted: null, launch: false },
       send,
     );
     expect(sent).toEqual([
@@ -76,7 +76,7 @@ describe("deliverDictation", () => {
     resetDictationTarget();
     const { sent, send } = recorder();
     await deliverDictation(
-      { text: "typed", submit: false, skill: null, images: [], pasted: null },
+      { text: "typed", submit: false, skill: null, images: [], pasted: null, launch: false },
       send,
     );
     expect(sent).toEqual([{ kind: "text.insert", text: "typed" }]);
@@ -87,7 +87,7 @@ describe("deliverDictation", () => {
     const { sent, send } = recorder();
     const shot = { mimeType: "image/jpeg" as const, data: "abc", width: 4, height: 3 };
     await deliverDictation(
-      { text: "look", submit: true, skill: null, images: [shot], pasted: null },
+      { text: "look", submit: true, skill: null, images: [shot], pasted: null, launch: false },
       send,
     );
     expect(sent).toEqual([
@@ -106,7 +106,7 @@ describe("deliverDictation", () => {
     const { sent, send } = recorder();
     const shot = { mimeType: "image/png" as const, data: "xyz", width: 1, height: 1 };
     await deliverDictation(
-      { text: "", submit: true, skill: null, images: [shot], pasted: null },
+      { text: "", submit: true, skill: null, images: [shot], pasted: null, launch: false },
       send,
     );
     expect(sent).toEqual([
@@ -124,7 +124,7 @@ describe("deliverDictation", () => {
     const { sent, send } = recorder();
     const shot = { mimeType: "image/jpeg" as const, data: "abc", width: 4, height: 3 };
     await deliverDictation(
-      { text: "typed", submit: false, skill: null, images: [shot], pasted: null },
+      { text: "typed", submit: false, skill: null, images: [shot], pasted: null, launch: false },
       send,
     );
     expect(sent).toEqual([{ kind: "text.insert", text: "typed" }]);
@@ -140,6 +140,7 @@ describe("deliverDictation", () => {
         skill: "/skill:debug",
         images: [],
         pasted: "TypeError: x is undefined",
+        launch: false,
       },
       send,
     );
@@ -157,11 +158,33 @@ describe("deliverDictation", () => {
     setDictationTarget({ kind: "agent", sessionId: "s1" });
     const { sent, send } = recorder();
     await deliverDictation(
-      { text: "", submit: true, skill: null, images: [], pasted: "just this" },
+      { text: "", submit: true, skill: null, images: [], pasted: "just this", launch: false },
       send,
     );
     expect(sent).toEqual([
       { kind: "agent.reply", sessionId: "s1", text: "just this", submit: true },
     ]);
+  });
+
+  it("a launch starts a session with the words as the first prompt, whatever the target, and tells the listener first", async () => {
+    setDictationTarget({ kind: "agent", sessionId: "s1" });
+    const seen: string[] = [];
+    setLaunchListener((prompt) => {
+      seen.push(prompt);
+    });
+    const { sent, send } = recorder();
+    await deliverDictation(
+      { text: "plan the rework", submit: false, skill: "/skill:hallmark", images: [], pasted: null, launch: true },
+      send,
+    );
+    expect(seen).toEqual(["/skill:hallmark plan the rework"]);
+    expect(sent).toEqual([{ kind: "agent.start", prompt: "/skill:hallmark plan the rework" }]);
+    setLaunchListener(null);
+  });
+
+  it("a launch with nothing heard starts an empty session", async () => {
+    const { sent, send } = recorder();
+    await deliverDictation({ text: "", submit: false, skill: null, images: [], pasted: null, launch: true }, send);
+    expect(sent).toEqual([{ kind: "agent.start" }]);
   });
 });
