@@ -1,22 +1,25 @@
 /**
  * Bottom sheet on @gorhom/bottom-sheet: presents when `visible` turns on (or on mount), sizes to
  * its content, dims the screen, closes on backdrop tap or a drag down, and reports every close
- * through `onClose`. Content that scrolls or takes text input inside should use the
- * `BottomSheetScrollView` / `BottomSheetTextInput` re-exports so gestures and the keyboard cooperate.
+ * through `onClose`. The whole content is one sheet-aware scroll view: it grows with the content
+ * up to `MAX_SHARE` of the screen and scrolls past that, so a drag inside scrolls before it
+ * dismisses. Nested scroll views would fight the sheet gesture; lay lists out as plain views.
+ * Text inputs inside should use the `SheetTextInput` re-export so the keyboard cooperates.
  */
 import { useCallback, useEffect, useRef, type ReactNode } from "react";
+import { useWindowDimensions } from "react-native";
 import {
   BottomSheetBackdrop,
   BottomSheetModal,
-  BottomSheetView,
+  BottomSheetScrollView,
   type BottomSheetBackdropProps,
 } from "@gorhom/bottom-sheet";
 import { colors, radii, spacing } from "@/theme";
 
-export {
-  BottomSheetScrollView as SheetScrollView,
-  BottomSheetTextInput as SheetTextInput,
-} from "@gorhom/bottom-sheet";
+export { BottomSheetTextInput as SheetTextInput } from "@gorhom/bottom-sheet";
+
+/** The sheet never grows past this share of the screen; taller content scrolls inside it. */
+const MAX_SHARE = 0.85;
 
 export interface SheetProps {
   visible: boolean;
@@ -38,6 +41,7 @@ function Backdrop(props: BottomSheetBackdropProps) {
 
 export function Sheet({ visible, onClose, children }: SheetProps) {
   const ref = useRef<BottomSheetModal>(null);
+  const { height } = useWindowDimensions();
   useEffect(() => {
     if (visible) ref.current?.present();
     else ref.current?.dismiss();
@@ -50,6 +54,7 @@ export function Sheet({ visible, onClose, children }: SheetProps) {
     <BottomSheetModal
       ref={ref}
       enableDynamicSizing
+      maxDynamicContentSize={height * MAX_SHARE}
       enablePanDownToClose
       keyboardBehavior="interactive"
       keyboardBlurBehavior="restore"
@@ -58,9 +63,9 @@ export function Sheet({ visible, onClose, children }: SheetProps) {
       backgroundStyle={{ backgroundColor: colors.surface, borderRadius: radii.lg }}
       handleIndicatorStyle={{ backgroundColor: colors.hairline, width: 36, height: 4 }}
     >
-      <BottomSheetView style={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.xxl }}>
+      <BottomSheetScrollView contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.xxl }}>
         {children}
-      </BottomSheetView>
+      </BottomSheetScrollView>
     </BottomSheetModal>
   );
 }

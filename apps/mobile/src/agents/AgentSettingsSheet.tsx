@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Alert, Pressable, StyleSheet, View } from "react-native";
 import { SymbolView, type SFSymbol } from "expo-symbols";
 import type { AgentModel, AgentSkill, AgentSkillChoice, Command } from "@relay/protocol";
-import { Sheet, SheetScrollView, SheetTextInput } from "@/ui/Sheet";
+import { Sheet, SheetTextInput } from "@/ui/Sheet";
 import { Text } from "@/ui/Text";
 import { Banner } from "@/ui/Banner";
 import { Button } from "@/ui/Button";
@@ -13,8 +13,6 @@ import { dictationActor } from "@/dictation/actor";
 import { useDictation } from "@/dictation/useDictation";
 import { VendorLogo, vendorLabel } from "./VendorLogo";
 import { tapHaptic } from "@/lib/haptics";
-
-const LIST_MAX_HEIGHT = 260;
 
 export interface AgentSettingsSheetProps {
   sessionId: string | null;
@@ -352,11 +350,7 @@ export function AgentSettingsSheet({ sessionId, onClose }: AgentSettingsSheetPro
               This session offers no skills or commands.
             </Text>
           ) : (
-            <SheetScrollView
-              style={styles.scrollList}
-              contentContainerStyle={styles.listContent}
-              bounces={false}
-            >
+            <View style={[styles.scrollList, styles.listContent]}>
               {armed !== null && (
                 <Pressable
                   onPress={() => {
@@ -417,7 +411,7 @@ export function AgentSettingsSheet({ sessionId, onClose }: AgentSettingsSheetPro
                   />
                 ),
               )}
-            </SheetScrollView>
+            </View>
           ))}
       </Section>
       {error !== null && (
@@ -563,7 +557,6 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   scrollList: {
-    maxHeight: LIST_MAX_HEIGHT,
     borderRadius: radii.md,
     backgroundColor: colors.surfaceRaised,
     borderWidth: 1,
