@@ -1,9 +1,22 @@
-import { useEffect, type ReactNode } from "react";
-import { Modal, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
-import { scheduleOnRN } from "react-native-worklets";
-import { colors, motion, radii, spacing } from "@/theme";
+/**
+ * Bottom sheet on @gorhom/bottom-sheet: presents when `visible` turns on (or on mount), sizes to
+ * its content, dims the screen, closes on backdrop tap or a drag down, and reports every close
+ * through `onClose`. Content that scrolls or takes text input inside should use the
+ * `BottomSheetScrollView` / `BottomSheetTextInput` re-exports so gestures and the keyboard cooperate.
+ */
+import { useCallback, useEffect, useRef, type ReactNode } from "react";
+import {
+  BottomSheetBackdrop,
+  BottomSheetModal,
+  BottomSheetView,
+  type BottomSheetBackdropProps,
+} from "@gorhom/bottom-sheet";
+import { colors, radii, spacing } from "@/theme";
+
+export {
+  BottomSheetScrollView as SheetScrollView,
+  BottomSheetTextInput as SheetTextInput,
+} from "@gorhom/bottom-sheet";
 
 export interface SheetProps {
   visible: boolean;
@@ -11,71 +24,43 @@ export interface SheetProps {
   children: ReactNode;
 }
 
-const DISMISS_THRESHOLD = 80;
-
-export function Sheet({ visible, onClose, children }: SheetProps) {
-  const { height } = useWindowDimensions();
-  const translateY = useSharedValue(height);
-
-  useEffect(() => {
-    if (visible) translateY.value = withTiming(0, { duration: motion.duration.base });
-  }, [visible, translateY]);
-
-  const close = () => {
-    translateY.value = withTiming(height, { duration: motion.duration.base });
-    onClose();
-  };
-
-  const pan = Gesture.Pan()
-    .onChange((event) => {
-      translateY.value = Math.max(0, translateY.value + event.changeY);
-    })
-    .onEnd(() => {
-      if (translateY.value > DISMISS_THRESHOLD) {
-        translateY.value = withTiming(height, { duration: motion.duration.base });
-        scheduleOnRN(close);
-      } else {
-        translateY.value = withTiming(0, { duration: motion.duration.fast });
-      }
-    });
-
-  const sheetStyle = useAnimatedStyle(() => ({ transform: [{ translateY: translateY.value }] }));
-
-  if (!visible) return null;
-
+function Backdrop(props: BottomSheetBackdropProps) {
   return (
-    <Modal transparent animationType="fade" visible={visible} onRequestClose={close}>
-      <Pressable style={styles.backdrop} onPress={close} />
-      <GestureDetector gesture={pan}>
-        <Animated.View style={[styles.sheet, sheetStyle]}>
-          <View style={styles.grabber} />
-          {children}
-        </Animated.View>
-      </GestureDetector>
-    </Modal>
+    <BottomSheetBackdrop
+      {...props}
+      appearsOnIndex={0}
+      disappearsOnIndex={-1}
+      opacity={0.5}
+      pressBehavior="close"
+    />
   );
 }
 
-const styles = StyleSheet.create({
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.5)" },
-  sheet: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: colors.surface,
-    borderTopLeftRadius: radii.lg,
-    borderTopRightRadius: radii.lg,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.xxl,
-    paddingHorizontal: spacing.xl,
-  },
-  grabber: {
-    alignSelf: "center",
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: colors.hairline,
-    marginBottom: spacing.lg,
-  },
-});
+export function Sheet({ visible, onClose, children }: SheetProps) {
+  const ref = useRef<BottomSheetModal>(null);
+  useEffect(() => {
+    if (visible) ref.current?.present();
+    else ref.current?.dismiss();
+  }, [visible]);
+  const dismissed = useCallback(() => {
+    if (visible) onClose();
+  }, [visible, onClose]);
+
+  return (
+    <BottomSheetModal
+      ref={ref}
+      enableDynamicSizing
+      enablePanDownToClose
+      keyboardBehavior="interactive"
+      keyboardBlurBehavior="restore"
+      onDismiss={dismissed}
+      backdropComponent={Backdrop}
+      backgroundStyle={{ backgroundColor: colors.surface, borderRadius: radii.lg }}
+      handleIndicatorStyle={{ backgroundColor: colors.hairline, width: 36, height: 4 }}
+    >
+      <BottomSheetView style={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.xxl }}>
+        {children}
+      </BottomSheetView>
+    </BottomSheetModal>
+  );
+}

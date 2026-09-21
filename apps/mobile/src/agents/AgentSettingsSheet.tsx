@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { Alert, Pressable, StyleSheet, View } from "react-native";
 import { SymbolView, type SFSymbol } from "expo-symbols";
 import type { AgentModel, AgentSkill, AgentSkillChoice, Command } from "@relay/protocol";
-import { Sheet } from "@/ui/Sheet";
+import { Sheet, SheetScrollView, SheetTextInput } from "@/ui/Sheet";
 import { Text } from "@/ui/Text";
 import { Banner } from "@/ui/Banner";
 import { Button } from "@/ui/Button";
@@ -21,11 +21,23 @@ export interface AgentSettingsSheetProps {
   onClose: () => void;
 }
 
-function Chip({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) {
+function Chip({
+  label,
+  selected,
+  onPress,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [styles.chip, selected && styles.chipSelected, pressed && { opacity: 0.8 }]}
+      style={({ pressed }) => [
+        styles.chip,
+        selected && styles.chipSelected,
+        pressed && { opacity: 0.8 },
+      ]}
     >
       <Text variant="label" color={selected ? "accent" : "textMuted"}>
         {label}
@@ -34,7 +46,15 @@ function Chip({ label, selected, onPress }: { label: string; selected: boolean; 
   );
 }
 
-function ModelRow({ model, selected, onPress }: { model: AgentModel; selected: boolean; onPress: () => void }) {
+function ModelRow({
+  model,
+  selected,
+  onPress,
+}: {
+  model: AgentModel;
+  selected: boolean;
+  onPress: () => void;
+}) {
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.row, pressed && { opacity: 0.8 }]}>
       <View style={{ flex: 1 }}>
@@ -77,7 +97,11 @@ function Accordion({
           tapHaptic();
           onToggle();
         }}
-        style={({ pressed }) => [styles.row, nested && styles.rowNested, pressed && { opacity: 0.8 }]}
+        style={({ pressed }) => [
+          styles.row,
+          nested && styles.rowNested,
+          pressed && { opacity: 0.8 },
+        ]}
       >
         {leading}
         <View style={{ flex: 1 }}>
@@ -90,7 +114,11 @@ function Accordion({
             </Text>
           )}
         </View>
-        <SymbolView name={open ? "chevron.up" : "chevron.down"} size={13} tintColor={colors.textFaint} />
+        <SymbolView
+          name={open ? "chevron.up" : "chevron.down"}
+          size={13}
+          tintColor={colors.textFaint}
+        />
       </Pressable>
       {open && <View style={styles.accordionBody}>{children}</View>}
     </View>
@@ -101,10 +129,23 @@ function Accordion({
  * One command on the skill list. Text-taking commands arm the next dictation (mic glyph); the rest
  * are complete on their own and go straight to the session (send glyph).
  */
-function SkillRow({ entry, armed, nested, onPress }: { entry: AgentSkillChoice; armed: boolean; nested: boolean; onPress: () => void }) {
+function SkillRow({
+  entry,
+  armed,
+  nested,
+  onPress,
+}: {
+  entry: AgentSkillChoice;
+  armed: boolean;
+  nested: boolean;
+  onPress: () => void;
+}) {
   const glyph: SFSymbol = entry.takesText ? "mic" : "paperplane";
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.row, nested && styles.rowNested, pressed && { opacity: 0.8 }]}>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.row, nested && styles.rowNested, pressed && { opacity: 0.8 }]}
+    >
       <View style={{ flex: 1 }}>
         <Text variant="body" numberOfLines={1}>
           {entry.name}
@@ -115,7 +156,11 @@ function SkillRow({ entry, armed, nested, onPress }: { entry: AgentSkillChoice; 
           </Text>
         )}
       </View>
-      {armed ? <SymbolView name="checkmark" size={16} tintColor={colors.accent} /> : <SymbolView name={glyph} size={14} tintColor={colors.textFaint} />}
+      {armed ? (
+        <SymbolView name="checkmark" size={16} tintColor={colors.accent} />
+      ) : (
+        <SymbolView name={glyph} size={14} tintColor={colors.textFaint} />
+      )}
     </Pressable>
   );
 }
@@ -127,8 +172,12 @@ function SkillRow({ entry, armed, nested, onPress }: { entry: AgentSkillChoice; 
  * reports the new settings back.
  */
 export function AgentSettingsSheet({ sessionId, onClose }: AgentSettingsSheetProps) {
-  const session = useAgentsStore((state) => (sessionId === null ? undefined : state.sessions[sessionId]));
-  const options = useAgentsStore((state) => (sessionId === null ? undefined : state.options[sessionId]));
+  const session = useAgentsStore((state) =>
+    sessionId === null ? undefined : state.sessions[sessionId],
+  );
+  const options = useAgentsStore((state) =>
+    sessionId === null ? undefined : state.options[sessionId],
+  );
   const armed = useDictation().skill;
   const [title, setTitle] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -185,13 +234,14 @@ export function AgentSettingsSheet({ sessionId, onClose }: AgentSettingsSheetPro
   const models = options?.models;
   const skills = options?.skills;
   const current = models?.find((model) => model.name === session.model);
-  const thinkingLevels = current?.thinkingLevels ?? (session.thinkingLevel === undefined ? [] : [session.thinkingLevel]);
+  const thinkingLevels =
+    current?.thinkingLevels ?? (session.thinkingLevel === undefined ? [] : [session.thinkingLevel]);
   const armedName = skills === undefined || armed === null ? undefined : skillNameOf(skills, armed);
 
   return (
     <Sheet visible onClose={onClose}>
       <Section label="Title">
-        <TextInput
+        <SheetTextInput
           value={title}
           onChangeText={setTitle}
           onBlur={commitTitle}
@@ -253,7 +303,11 @@ export function AgentSettingsSheet({ sessionId, onClose }: AgentSettingsSheetPro
                       selected={model.name === session.model}
                       onPress={() => {
                         setOpenVendor(null);
-                        apply({ kind: "agent.configure", sessionId, model: { provider: model.provider, id: model.id } });
+                        apply({
+                          kind: "agent.configure",
+                          sessionId,
+                          model: { provider: model.provider, id: model.id },
+                        });
                       }}
                     />
                   ))}
@@ -263,7 +317,10 @@ export function AgentSettingsSheet({ sessionId, onClose }: AgentSettingsSheetPro
           </View>
         )}
       </Section>
-      <Section label="Skill" trailing={armedName === undefined ? "None armed" : `${armedName} armed`}>
+      <Section
+        label="Skill"
+        trailing={armedName === undefined ? "None armed" : `${armedName} armed`}
+      >
         <Pressable
           onPress={() => {
             tapHaptic();
@@ -271,11 +328,19 @@ export function AgentSettingsSheet({ sessionId, onClose }: AgentSettingsSheetPro
           }}
           style={({ pressed }) => [styles.dropdown, pressed && { opacity: 0.8 }]}
         >
-          <SymbolView name={armed === null ? "command" : "mic"} size={14} tintColor={armed === null ? colors.textFaint : colors.accent} />
+          <SymbolView
+            name={armed === null ? "command" : "mic"}
+            size={14}
+            tintColor={armed === null ? colors.textFaint : colors.accent}
+          />
           <Text variant="body" numberOfLines={1} style={{ flex: 1 }}>
             {armed ?? "Pick a skill or command"}
           </Text>
-          <SymbolView name={skillsOpen ? "chevron.up" : "chevron.down"} size={13} tintColor={colors.textFaint} />
+          <SymbolView
+            name={skillsOpen ? "chevron.up" : "chevron.down"}
+            size={13}
+            tintColor={colors.textFaint}
+          />
         </Pressable>
         {skillsOpen &&
           (skills === undefined ? (
@@ -287,7 +352,11 @@ export function AgentSettingsSheet({ sessionId, onClose }: AgentSettingsSheetPro
               This session offers no skills or commands.
             </Text>
           ) : (
-            <ScrollView style={styles.scrollList} contentContainerStyle={styles.listContent} bounces={false}>
+            <SheetScrollView
+              style={styles.scrollList}
+              contentContainerStyle={styles.listContent}
+              bounces={false}
+            >
               {armed !== null && (
                 <Pressable
                   onPress={() => {
@@ -348,7 +417,7 @@ export function AgentSettingsSheet({ sessionId, onClose }: AgentSettingsSheetPro
                   />
                 ),
               )}
-            </ScrollView>
+            </SheetScrollView>
           ))}
       </Section>
       {error !== null && (
@@ -373,16 +442,20 @@ export function AgentSettingsSheet({ sessionId, onClose }: AgentSettingsSheetPro
             variant="danger"
             loading={busy}
             onPress={() => {
-              Alert.alert("End this session?", `omp quits and "${session.title}" closes. Anything it is doing stops.`, [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "End session",
-                  style: "destructive",
-                  onPress: () => {
-                    apply({ kind: "agent.end", sessionId }, onClose);
+              Alert.alert(
+                "End this session?",
+                `omp quits and "${session.title}" closes. Anything it is doing stops.`,
+                [
+                  { text: "Cancel", style: "cancel" },
+                  {
+                    text: "End session",
+                    style: "destructive",
+                    onPress: () => {
+                      apply({ kind: "agent.end", sessionId }, onClose);
+                    },
                   },
-                },
-              ]);
+                ],
+              );
             }}
           />
         )}
@@ -391,7 +464,15 @@ export function AgentSettingsSheet({ sessionId, onClose }: AgentSettingsSheetPro
   );
 }
 
-function Section({ label, trailing, children }: { label: string; trailing?: string | undefined; children: React.ReactNode }) {
+function Section({
+  label,
+  trailing,
+  children,
+}: {
+  label: string;
+  trailing?: string | undefined;
+  children: React.ReactNode;
+}) {
   return (
     <View style={styles.section}>
       <View style={styles.sectionHeader}>
@@ -432,7 +513,12 @@ function skillNameOf(skills: AgentSkill[], command: string): string {
 
 const styles = StyleSheet.create({
   section: { marginBottom: spacing.xl, gap: spacing.sm },
-  sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: spacing.md },
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: spacing.md,
+  },
   input: {
     ...type.body,
     color: colors.text,
@@ -442,7 +528,14 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
   },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
-  vendor: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingHorizontal: spacing.md, paddingTop: spacing.md, paddingBottom: spacing.xs },
+  vendor: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xs,
+  },
   chip: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs + 2,
@@ -462,10 +555,26 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
   },
   note: { paddingHorizontal: spacing.md },
-  list: { borderRadius: radii.md, backgroundColor: colors.surfaceRaised, borderWidth: 1, borderColor: colors.hairline, overflow: "hidden" },
-  scrollList: { maxHeight: LIST_MAX_HEIGHT, borderRadius: radii.md, backgroundColor: colors.surfaceRaised, borderWidth: 1, borderColor: colors.hairline },
+  list: {
+    borderRadius: radii.md,
+    backgroundColor: colors.surfaceRaised,
+    borderWidth: 1,
+    borderColor: colors.hairline,
+    overflow: "hidden",
+  },
+  scrollList: {
+    maxHeight: LIST_MAX_HEIGHT,
+    borderRadius: radii.md,
+    backgroundColor: colors.surfaceRaised,
+    borderWidth: 1,
+    borderColor: colors.hairline,
+  },
   listContent: { paddingVertical: spacing.xs },
-  accordionBody: { borderTopWidth: 1, borderTopColor: colors.hairline, paddingVertical: spacing.xs },
+  accordionBody: {
+    borderTopWidth: 1,
+    borderTopColor: colors.hairline,
+    paddingVertical: spacing.xs,
+  },
   row: {
     flexDirection: "row",
     alignItems: "center",
