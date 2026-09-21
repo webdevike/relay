@@ -135,7 +135,6 @@ const styles = StyleSheet.create({
   track: {
     height: TRACK_HEIGHT,
     borderRadius: TRACK_HEIGHT / 2,
-    borderCurve: "continuous",
     backgroundColor: colors.bg,
     justifyContent: "center",
     overflow: "hidden",
@@ -158,7 +157,6 @@ const styles = StyleSheet.create({
     top: TRACK_PADDING,
     height: THUMB_HEIGHT,
     borderRadius: THUMB_HEIGHT / 2,
-    borderCurve: "continuous",
     backgroundColor: "rgba(255,255,255,0.10)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.14)",
