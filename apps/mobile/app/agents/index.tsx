@@ -582,11 +582,7 @@ export default function AgentInbox() {
                 <View style={styles.banner}>
                   <Banner tone="danger" message={launchError} />
                 </View>
-              ) : pending !== undefined ? (
-                <View style={styles.banner}>
-                  <Banner tone="info" message="Opening your session on the host…" />
-                </View>
-              ) : canRespond ? (
+              ) : pending !== undefined ? null : canRespond ? (
                 <>
                   <Cutout size={MIC_SIZE} style={styles.mic}>
                     <DictationButton
