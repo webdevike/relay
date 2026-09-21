@@ -19,6 +19,8 @@ export interface SettingsState {
   notificationsEnabled: boolean;
   /** Which speech recognizer hold-to-talk uses. `voz` falls back to `apple` until its model is downloaded. */
   recognizer: Recognizer;
+  /** Thinking level new phone-started sessions open with; empty leaves omp's own default. */
+  defaultThinkingLevel: string;
   set: (partial: Partial<Omit<SettingsState, "set">>) => void;
 }
 
@@ -33,6 +35,7 @@ export const useSettingsStore = create<SettingsState>()(
       skillWheelEnabled: false,
       notificationsEnabled: false,
       recognizer: "voz",
+      defaultThinkingLevel: "",
       set: (partial) => {
         set(partial);
       },

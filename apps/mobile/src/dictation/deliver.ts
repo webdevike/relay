@@ -14,6 +14,7 @@ export type DictationTarget = { kind: "insert" } | { kind: "agent"; sessionId: s
 const INSERT: DictationTarget = { kind: "insert" };
 let target: DictationTarget = INSERT;
 let onLaunch: ((prompt: string) => void) | null = null;
+let launchThinkingLevel = "";
 
 export function setDictationTarget(next: DictationTarget): void {
   target = next;
@@ -21,6 +22,11 @@ export function setDictationTarget(next: DictationTarget): void {
 
 export function resetDictationTarget(): void {
   target = INSERT;
+}
+
+/** Thinking level a launched session opens with; empty leaves omp's default. The inbox mirrors the setting here. */
+export function setLaunchThinkingLevel(level: string): void {
+  launchThinkingLevel = level;
 }
 
 /** Called with the delivered text (possibly empty) the moment a launch dictation is sent. */
@@ -46,7 +52,15 @@ export function deliveredText(input: DeliverInput): string {
 /** The commands one delivery sends, in order. Images only go to an agent; the trackpad has nowhere to put them. */
 export function commandsFor(input: DeliverInput, to: DictationTarget): Command[] {
   const text = deliveredText(input);
-  if (input.launch) return [text.length > 0 ? { kind: "agent.start", prompt: text } : { kind: "agent.start" }];
+  if (input.launch) {
+    return [
+      {
+        kind: "agent.start",
+        ...(text.length > 0 ? { prompt: text } : {}),
+        ...(launchThinkingLevel.length > 0 ? { thinkingLevel: launchThinkingLevel } : {}),
+      },
+    ];
+  }
   if (to.kind === "agent") {
     const images = input.images.map(({ mimeType, data }) => ({ mimeType, data }));
     return [

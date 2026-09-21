@@ -75,7 +75,9 @@ function NotificationsRow() {
   return (
     <Row
       title="Notifications"
-      subtitle={refused ? "Allow notifications for Relay in iOS Settings" : "When a session waits on you"}
+      subtitle={
+        refused ? "Allow notifications for Relay in iOS Settings" : "When a session waits on you"
+      }
       leading={<SymbolView name="bell.badge" size={22} tintColor={colors.textMuted} />}
       trailing={
         <Switch
@@ -149,10 +151,40 @@ function RecognizerField() {
             }}
           />
         ))}
-        {recognizer === "voz" && !downloaded && progress === null && <Button label="Download" variant="secondary" onPress={download} />}
+        {recognizer === "voz" && !downloaded && progress === null && (
+          <Button label="Download" variant="secondary" onPress={download} />
+        )}
       </View>
       <Text variant="caption" color={failed ? "danger" : "textMuted"}>
         {caption}
+      </Text>
+    </View>
+  );
+}
+
+/** omp's thinking selectors; a model that lacks one keeps its own default (the bridge validates). */
+const thinkingLevels = ["", "off", "low", "medium", "high", "xhigh"] as const;
+
+function ThinkingField() {
+  const level = useSettingsStore((state) => state.defaultThinkingLevel);
+  const set = useSettingsStore((state) => state.set);
+  return (
+    <View style={{ paddingHorizontal: spacing.xl, paddingVertical: spacing.md, gap: spacing.md }}>
+      <Text variant="title">Default thinking</Text>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm }}>
+        {thinkingLevels.map((option) => (
+          <Button
+            key={option}
+            label={option === "" ? "omp default" : option}
+            variant={level === option ? "primary" : "secondary"}
+            onPress={() => {
+              set({ defaultThinkingLevel: option });
+            }}
+          />
+        ))}
+      </View>
+      <Text variant="caption" color="textMuted">
+        Applied to sessions you start from the phone. A model without that level keeps its own.
       </Text>
     </View>
   );
@@ -232,6 +264,8 @@ export default function Settings() {
       <NotificationsRow />
       <Separator />
       <RecognizerField />
+      <Separator />
+      <ThinkingField />
       <Separator />
       <View style={{ paddingHorizontal: spacing.xl, paddingVertical: spacing.md, gap: spacing.md }}>
         <Text variant="title">Pointer speed</Text>

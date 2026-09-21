@@ -26,7 +26,12 @@ import { requestAgentOptions, sendCommand, subscribeAgent, unsubscribeAgent } fr
 import { DictationButton } from "@/dictation/DictationButton";
 import { ListeningOrb } from "@/dictation/ListeningOrb";
 import { SkillWheel, WHEEL_EXTENT } from "@/dictation/SkillWheel";
-import { resetDictationTarget, setDictationTarget, setLaunchListener } from "@/dictation/deliver";
+import {
+  resetDictationTarget,
+  setDictationTarget,
+  setLaunchListener,
+  setLaunchThinkingLevel,
+} from "@/dictation/deliver";
 import { dictationActor } from "@/dictation/actor";
 import { useDictation } from "@/dictation/useDictation";
 import { AgentCard, AgentHeader } from "@/agents/AgentCard";
@@ -145,11 +150,21 @@ export default function AgentInbox() {
     [launchPrompt],
   );
   const pendingMessages = useMemo<AgentMessage[] | undefined>(
-    () => (launchPrompt === null ? undefined : launchPrompt.length === 0 ? [] : [{ id: `${PENDING_ID}-1`, role: "user", text: launchPrompt, at: launchedAt.current }]),
+    () =>
+      launchPrompt === null
+        ? undefined
+        : launchPrompt.length === 0
+          ? []
+          : [{ id: `${PENDING_ID}-1`, role: "user", text: launchPrompt, at: launchedAt.current }],
     [launchPrompt],
   );
   const session = pending ?? (selectedId === undefined ? undefined : sessions[selectedId]);
-  const messages = pending !== undefined ? pendingMessages : selectedId === undefined ? undefined : conversations[selectedId]?.messages;
+  const messages =
+    pending !== undefined
+      ? pendingMessages
+      : selectedId === undefined
+        ? undefined
+        : conversations[selectedId]?.messages;
   // Without the wheel the button gets no skills, so the swipe left does nothing.
   const wheelEnabled = useSettingsStore((state) => state.skillWheelEnabled);
   const skills = useAgentsStore((state) =>
@@ -220,7 +235,11 @@ export default function AgentInbox() {
   }, []);
   const startSession = (): void => {
     beginLaunch(null);
-    sendCommand({ kind: "agent.start" }).catch((error: unknown) => {
+    const level = useSettingsStore.getState().defaultThinkingLevel;
+    sendCommand({
+      kind: "agent.start",
+      ...(level.length > 0 ? { thinkingLevel: level } : {}),
+    }).catch((error: unknown) => {
       setLaunching(false);
       setLaunchPrompt(null);
       setLaunchError(error instanceof Error ? error.message : "Couldn't start a session.");
@@ -237,6 +256,11 @@ export default function AgentInbox() {
       };
     }, [beginLaunch]),
   );
+
+  const defaultThinkingLevel = useSettingsStore((state) => state.defaultThinkingLevel);
+  useEffect(() => {
+    setLaunchThinkingLevel(defaultThinkingLevel);
+  }, [defaultThinkingLevel]);
 
   const canRespond = session?.canRespond === true;
 

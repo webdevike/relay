@@ -622,6 +622,11 @@ export default function relayBridge(pi: ExtensionAPI): void {
   // submit) or the agent has started. Read once and cleared, so a session switch never replays it.
   const initialPrompt = process.env["RELAY_INITIAL_PROMPT"];
   delete process.env["RELAY_INITIAL_PROMPT"];
+  // The phone's default thinking level for sessions it starts. ctx.model is unresolved during
+  // session_start, so it is applied with the settled settings report; a level the model lacks
+  // is skipped, omp's own default stands.
+  const initialThinkingLevel = process.env["RELAY_THINKING_LEVEL"];
+  delete process.env["RELAY_THINKING_LEVEL"];
   const INITIAL_PROMPT_RETRY_MS = 300;
   const INITIAL_PROMPT_TRIES = 40;
   let initialPromptTimer: ReturnType<typeof setInterval> | null = null;
@@ -636,6 +641,15 @@ export default function relayBridge(pi: ExtensionAPI): void {
     stopped = false;
     watchName(context);
     connect();
+    if (initialThinkingLevel !== undefined) {
+      setTimeout(() => {
+        if (ctx !== context || context.model === undefined) return;
+        const level = thinkingLevelsFor(context.model).find((candidate) => candidate === initialThinkingLevel);
+        if (level === undefined) return;
+        pi.setThinkingLevel(level);
+        sendStatus();
+      }, SETTINGS_SETTLE_MS).unref();
+    }
     if (initialPrompt === undefined || initialPrompt.trim().length === 0 || initialPromptSent) return;
     initialPromptSent = true;
     let tries = 0;

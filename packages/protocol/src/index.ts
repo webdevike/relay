@@ -263,7 +263,12 @@ export const Command = z.discriminatedUnion("kind", [
    * Open a fresh agent session on the host (it shows up in `agents.*` once it registers). With
    * `prompt`, the host hands that text to the new session as its first turn the moment it is ready.
    */
-  z.object({ kind: z.literal("agent.start"), prompt: z.string().min(1).max(MAX_DROP_TEXT).optional() }),
+  z.object({
+    kind: z.literal("agent.start"),
+    prompt: z.string().min(1).max(MAX_DROP_TEXT).optional(),
+    /** Thinking level the session opens with; ignored when its model lacks it. */
+    thinkingLevel: nonEmpty.optional(),
+  }),
   /** Change one or more session settings; omitted fields are left alone. */
   z.object({
     kind: z.literal("agent.configure"),

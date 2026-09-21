@@ -467,7 +467,7 @@ export class ClientSession {
         return this.agents().reply(cmd.sessionId, cmd.text, cmd.submit, cmd.images);
       }
       case "agent.start":
-        return this.agents().launch(cmd.prompt);
+        return this.agents().launch(cmd.prompt, cmd.thinkingLevel);
       case "agent.configure":
         return this.agents().configure({
           sessionId: cmd.sessionId,

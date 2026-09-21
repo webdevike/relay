@@ -172,11 +172,11 @@ export class OmpBridgeProvider implements AgentProvider {
    * host restart never takes the session with it; it registers itself over the socket like any
    * other. `prompt` rides in the pane's env and the session's bridge submits it once omp is up.
    */
-  async launch(prompt?: string): Promise<void> {
+  async launch(prompt?: string, thinkingLevel?: string): Promise<void> {
     if (this.home === null) {
       throw new AckFailure({ code: "agent_launch_failed", message: "host was started without --agent-home" });
     }
-    const paneId = await launchInHerdr(this.home, this.log, prompt);
+    const paneId = await launchInHerdr(this.home, this.log, prompt, thinkingLevel);
     this.log(`launched omp in ${this.home} (herdr pane ${paneId})${prompt === undefined ? "" : " with a first prompt"}`);
   }
 

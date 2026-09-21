@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { Command } from "@relay/protocol";
-import { deliverDictation, resetDictationTarget, setDictationTarget, setLaunchListener } from "./deliver";
+import {
+  deliverDictation,
+  resetDictationTarget,
+  setDictationTarget,
+  setLaunchListener,
+  setLaunchThinkingLevel,
+} from "./deliver";
 
 function recorder(): { sent: Command[]; send: (cmd: Command) => Promise<void> } {
   const sent: Command[] = [];
@@ -51,7 +57,14 @@ describe("deliverDictation", () => {
     setDictationTarget({ kind: "agent", sessionId: "s1" });
     const { sent, send } = recorder();
     await deliverDictation(
-      { text: "to staging", submit: true, skill: "/skill:deploy", images: [], pasted: null, launch: false },
+      {
+        text: "to staging",
+        submit: true,
+        skill: "/skill:deploy",
+        images: [],
+        pasted: null,
+        launch: false,
+      },
       send,
     );
     expect(sent).toEqual([
@@ -174,7 +187,14 @@ describe("deliverDictation", () => {
     });
     const { sent, send } = recorder();
     await deliverDictation(
-      { text: "plan the rework", submit: false, skill: "/skill:hallmark", images: [], pasted: null, launch: true },
+      {
+        text: "plan the rework",
+        submit: false,
+        skill: "/skill:hallmark",
+        images: [],
+        pasted: null,
+        launch: true,
+      },
       send,
     );
     expect(seen).toEqual(["/skill:hallmark plan the rework"]);
@@ -184,7 +204,21 @@ describe("deliverDictation", () => {
 
   it("a launch with nothing heard starts an empty session", async () => {
     const { sent, send } = recorder();
-    await deliverDictation({ text: "", submit: false, skill: null, images: [], pasted: null, launch: true }, send);
+    await deliverDictation(
+      { text: "", submit: false, skill: null, images: [], pasted: null, launch: true },
+      send,
+    );
     expect(sent).toEqual([{ kind: "agent.start" }]);
+  });
+
+  it("a launch carries the default thinking level when one is set", async () => {
+    setLaunchThinkingLevel("high");
+    const { sent, send } = recorder();
+    await deliverDictation(
+      { text: "go", submit: false, skill: null, images: [], pasted: null, launch: true },
+      send,
+    );
+    expect(sent).toEqual([{ kind: "agent.start", prompt: "go", thinkingLevel: "high" }]);
+    setLaunchThinkingLevel("");
   });
 });
