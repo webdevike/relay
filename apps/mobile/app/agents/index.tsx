@@ -24,6 +24,7 @@ import { useConnectionStore } from "@/state/connection";
 import { useSettingsStore } from "@/state/settings";
 import { requestAgentOptions, sendCommand, subscribeAgent, unsubscribeAgent } from "@/connection";
 import { DictationButton } from "@/dictation/DictationButton";
+import { ActionCarousel, type CarouselAction } from "@/agents/ActionCarousel";
 import { ListeningOrb } from "@/dictation/ListeningOrb";
 import { SkillWheel, WHEEL_EXTENT } from "@/dictation/SkillWheel";
 import {
@@ -51,11 +52,6 @@ const NOTCH_HEIGHT = 32;
 /** The bites the surfaces take: the element plus the ring of screen background around it. */
 const PILL_NOTCH_HEIGHT = NOTCH_HEIGHT + CUTOUT_GAP * 2;
 const MIC_NOTCH_SIZE = MIC_SIZE + CUTOUT_GAP * 2;
-/** The keyboard button on the seam, right of the mic, sharing its cutout treatment. */
-const KEY_SIZE = 44;
-const KEY_NOTCH_SIZE = KEY_SIZE + CUTOUT_GAP * 2;
-/** Keyboard button center measured from the surface's middle: past the mic's ring, a sliver of background, then its own ring. */
-const KEY_OFFSET = MIC_SIZE / 2 + CUTOUT_GAP + spacing.xs + CUTOUT_GAP + KEY_SIZE / 2;
 /** The image pill's thumbnail, standing where the skill pill has its mic glyph. */
 const CHIP_SIZE = 20;
 
@@ -265,10 +261,45 @@ export default function AgentInbox() {
   const canRespond = session?.canRespond === true;
 
   // Typing instead of speaking: the header folds away so the chat keeps its room above the
-  // keyboard, the seam loses the mic and keyboard button, and the panel becomes the field. The
-  // draft outlives the mode; only a send clears it.
+  // keyboard, the seam loses its action, and the panel becomes the field. The draft outlives the
+  // mode; only a send clears it.
   const [typing, setTyping] = useState(false);
   const [draft, setDraft] = useState("");
+  // The seam carousel: the mic first, a swipe left brings the keyboard, and around again. The
+  // position outlives typing mode so the keyboard is one tap away the next time.
+  const [action, setAction] = useState(0);
+  const seamActions = useMemo<CarouselAction[]>(
+    () => [
+      {
+        key: "mic",
+        ownsSwipes: true,
+        render: (turn) => (
+          <DictationButton
+            size={MIC_SIZE}
+            backgroundColor={colors.surface}
+            {...(skills === undefined ? {} : { skills })}
+            launches={connected && !launching}
+            onTurn={turn}
+          />
+        ),
+      },
+      {
+        key: "keyboard",
+        render: () => (
+          <IconButton
+            symbol="keyboard"
+            size={MIC_SIZE}
+            tintColor={colors.textMuted}
+            backgroundColor={colors.surface}
+            onPress={() => {
+              setTyping(true);
+            }}
+          />
+        ),
+      },
+    ],
+    [skills, connected, launching],
+  );
   useEffect(() => {
     if (!canRespond) setTyping(false);
   }, [canRespond]);
@@ -304,7 +335,6 @@ export default function AgentInbox() {
   const { skill: armed, images, pasted, phase } = useDictation();
   const [headerHeight, setHeaderHeight] = useState(0);
   const [chatHeight, setChatHeight] = useState(0);
-  const [chatWidth, setChatWidth] = useState(0);
   // The header slides up by its own height and the chat grows into the gap; the seam pill rides
   // along so it stays on the chat's top edge.
   const headerStyle = useAnimatedStyle(() => ({
@@ -364,10 +394,10 @@ export default function AgentInbox() {
   });
 
   const notchShown = (armed !== null || images.length > 0 || pasted !== null) && headerHeight > 0;
-  // The seam pill, the mic and the keyboard button bite into the surfaces they straddle; `cy` is in
-  // each surface's own coordinates (the pill center sits half the card gap below the header, the
-  // mic and keyboard half the gap below the chat card). The Cutout overlays still paint the gap
-  // ring over scrolled content. While typing the seam is empty and the panel is unbroken.
+  // The seam pill and the action carousel bite into the surfaces they straddle; `cy` is in each
+  // surface's own coordinates (the pill center sits half the card gap below the header, the
+  // carousel half the gap below the chat card). The Cutout overlays still paint the gap ring over
+  // scrolled content. While typing the seam is empty and the panel is unbroken.
   const pillWidth = notchShown ? notchWidth(armed, images.length, pasted) + CUTOUT_GAP * 2 : 0;
   const seamShown = canRespond && !typing;
   const headerNotches = useMemo<Notch[]>(
@@ -378,11 +408,8 @@ export default function AgentInbox() {
     [pillWidth, headerHeight],
   );
   const seamNotches = useCallback(
-    (cy: number): Notch[] => [
-      { cy, width: MIC_NOTCH_SIZE, height: MIC_NOTCH_SIZE },
-      { cx: chatWidth / 2 + KEY_OFFSET, cy, width: KEY_NOTCH_SIZE, height: KEY_NOTCH_SIZE },
-    ],
-    [chatWidth],
+    (cy: number): Notch[] => [{ cy, width: MIC_NOTCH_SIZE, height: MIC_NOTCH_SIZE }],
+    [],
   );
   const chatNotches = useMemo<Notch[]>(() => {
     const notches: Notch[] =
@@ -441,7 +468,6 @@ export default function AgentInbox() {
                   style={styles.chat}
                   onLayout={(event) => {
                     setChatHeight(event.nativeEvent.layout.height);
-                    setChatWidth(event.nativeEvent.layout.width);
                   }}
                 >
                   <AgentCard
@@ -608,34 +634,14 @@ export default function AgentInbox() {
                   <Banner tone="danger" message={launchError} />
                 </View>
               ) : pending !== undefined ? null : canRespond ? (
-                <>
-                  <Cutout size={MIC_SIZE} style={styles.mic}>
-                    <DictationButton
-                      size={MIC_SIZE}
-                      backgroundColor={colors.surface}
-                      {...(skills === undefined ? {} : { skills })}
-                      launches={connected && !launching}
-                    />
-                  </Cutout>
-                  {/* Ring centered on the seam like the mic; `left` from the measured width, a percentage would resolve against the padded box. */}
-                  <Cutout
-                    size={KEY_SIZE}
-                    style={{
-                      top: -(KEY_SIZE / 2 + CUTOUT_GAP + spacing.sm / 2),
-                      left: chatWidth / 2 + KEY_OFFSET - KEY_NOTCH_SIZE / 2,
-                    }}
-                  >
-                    <IconButton
-                      symbol="keyboard"
-                      size={KEY_SIZE}
-                      tintColor={colors.textMuted}
-                      backgroundColor={colors.surface}
-                      onPress={() => {
-                        setTyping(true);
-                      }}
-                    />
-                  </Cutout>
-                </>
+                <Cutout size={MIC_SIZE} style={styles.mic}>
+                  <ActionCarousel
+                    actions={seamActions}
+                    index={action}
+                    onChange={setAction}
+                    size={MIC_SIZE}
+                  />
+                </Cutout>
               ) : (
                 <View style={styles.banner}>
                   <Banner tone="warn" message="This session can't take replies." />

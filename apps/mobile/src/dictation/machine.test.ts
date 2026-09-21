@@ -292,7 +292,14 @@ describe("dictationMachine", () => {
     expect(h.phase()).toBe("sending");
     expect(h.recognizerAlive()).toBe(false);
     expect(h.sends).toEqual([
-      { text: "plan the dashboard rework", submit: false, skill: "/skill:deploy", images: [], pasted: null, launch: true },
+      {
+        text: "plan the dashboard rework",
+        submit: false,
+        skill: "/skill:deploy",
+        images: [],
+        pasted: null,
+        launch: true,
+      },
     ]);
     await h.settleSend();
     h.clock.increment(620);
@@ -307,7 +314,9 @@ describe("dictationMachine", () => {
     h.actor.send({ type: "launch" });
     h.actor.send({ type: "recognizerEnd" });
     expect(h.phase()).toBe("sending");
-    expect(h.sends).toEqual([{ text: "", submit: false, skill: null, images: [], pasted: null, launch: true }]);
+    expect(h.sends).toEqual([
+      { text: "", submit: false, skill: null, images: [], pasted: null, launch: true },
+    ]);
   });
 
   it("orb: a recognizer error fades the orb; a new hold during the fade brings it back", async () => {
@@ -361,7 +370,14 @@ describe("dictationMachine", () => {
     h.clock.increment(1500);
     expect(h.phase()).toBe("sending");
     expect(h.sends).toEqual([
-      { text: "take this down", submit: false, skill: null, images: [], pasted: null, launch: false },
+      {
+        text: "take this down",
+        submit: false,
+        skill: null,
+        images: [],
+        pasted: null,
+        launch: false,
+      },
     ]);
   });
 
@@ -494,6 +510,24 @@ describe("dictationMachine", () => {
     expect(h.orb()).toBe("hidden");
   });
 
+  it("abandon (a sideways swipe onto the carousel) drops what was heard, keeps the armed skill, sends nothing; the later release is a no-op", async () => {
+    const h = harness();
+    h.actor.send({ type: "arm", skill: "/skill:deploy" });
+    await pressAndListen(h);
+    h.actor.send({ type: "partial", text: "never mind" });
+    h.actor.send({ type: "abandon" });
+    expect(h.phase()).toBe("idle");
+    expect(h.recognizerAlive()).toBe(false);
+    h.actor.send({ type: "release" });
+    expect(h.phase()).toBe("idle");
+    expect(h.actor.getSnapshot().context).toMatchObject({
+      skill: "/skill:deploy",
+      transcript: "",
+      nothingHeard: false,
+    });
+    expect(h.sends).toEqual([]);
+  });
+
   describe("skill wheel", () => {
     it("opening the wheel stops listening and drops what was heard; lifting on an entry arms it for the next hold", async () => {
       const h = harness();
@@ -521,7 +555,14 @@ describe("dictationMachine", () => {
       h.actor.send({ type: "pressStop", submit: true });
       h.actor.send({ type: "final", text: "to staging" });
       expect(h.sends).toEqual([
-        { text: "to staging", submit: true, skill: "/skill:deploy", images: [], pasted: null, launch: false },
+        {
+          text: "to staging",
+          submit: true,
+          skill: "/skill:deploy",
+          images: [],
+          pasted: null,
+          launch: false,
+        },
       ]);
       await h.settleSend();
       h.clock.increment(900);
@@ -640,7 +681,14 @@ describe("dictationMachine", () => {
       h.actor.send({ type: "release" });
       h.actor.send({ type: "final", text: "ship relay" });
       expect(h.sends).toEqual([
-        { text: "ship relay", submit: false, skill: "/goal set", images: [], pasted: null, launch: false },
+        {
+          text: "ship relay",
+          submit: false,
+          skill: "/goal set",
+          images: [],
+          pasted: null,
+          launch: false,
+        },
       ]);
       await h.settleSend();
       h.clock.increment(900);
@@ -730,7 +778,14 @@ describe("dictationMachine", () => {
       h.actor.send({ type: "release" });
       h.actor.send({ type: "final", text: "explain" });
       expect(h.sends).toEqual([
-        { text: "explain", submit: false, skill: null, images: [], pasted: "stack trace", launch: false },
+        {
+          text: "explain",
+          submit: false,
+          skill: null,
+          images: [],
+          pasted: "stack trace",
+          launch: false,
+        },
       ]);
       await h.settleSend();
       h.clock.increment(900);
@@ -760,7 +815,14 @@ describe("dictationMachine", () => {
         h.actor.send({ type: "typed", text: "  ship it  " });
         expect(h.phase()).toBe("sending");
         expect(h.sends).toEqual([
-          { text: "ship it", submit: true, skill: "/handoff", images: [shot(1)], pasted: null, launch: false },
+          {
+            text: "ship it",
+            submit: true,
+            skill: "/handoff",
+            images: [shot(1)],
+            pasted: null,
+            launch: false,
+          },
         ]);
         await h.settleSend();
         expect(h.phase()).toBe("sent");

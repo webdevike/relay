@@ -109,6 +109,8 @@ export type DictationEvent =
   | { type: "launch" }
   /** Finger swiped left while listening: drop what was heard and open the skill wheel. */
   | { type: "wheelOpen" }
+  /** Finger swiped sideways while listening to turn the action carousel: drop what was heard, nothing sent. */
+  | { type: "abandon" }
   /**
    * Finger lifted on the wheel: the centered entry is the choice; `skill` is its slash command. `submit` means
    * the command is complete on its own: it is sent right away instead of armed.
@@ -315,7 +317,11 @@ export const dictationMachine = setup({
                   target: "#dictation.speech.choosing",
                   actions: assign({ transcript: "", wheelParent: null }),
                 },
-                launch: { target: "finishing", actions: [assign({ launching: true }), "stopRecognizer"] },
+                abandon: { target: "#dictation.speech.idle", actions: assign(keepArmed) },
+                launch: {
+                  target: "finishing",
+                  actions: [assign({ launching: true }), "stopRecognizer"],
+                },
                 // A press here means the earlier release was lost: treat it as that release.
                 pressStart: { target: "finishing", actions: "stopRecognizer" },
                 recognizerEnd: {

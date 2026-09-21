@@ -38,6 +38,8 @@ const CHIP_WIDTH = 220;
 const SEND_SWIPE_DISTANCE = 56;
 /** Finger travel (pt) left from the button that opens the skill wheel. */
 const WHEEL_SWIPE_DISTANCE = 56;
+/** Finger travel (pt) sideways that turns the action carousel instead of dictating. */
+const TURN_SWIPE_DISTANCE = 40;
 /** Distance (pt) below the mic's center where the close target sits while the wheel is open. */
 const CLOSE_DISTANCE = 112;
 /** Finger within this distance (pt) of the close target shuts the wheel. */
@@ -102,7 +104,8 @@ const DEFAULT_ERROR_MESSAGE = "Something went wrong.";
  * was heard (the orb launches, the dictation finishes and is delivered as `agent.start`). With
  * `skills`, a swipe left while holding opens the skill wheel: scrub around the mic to bring an
  * entry under the marker, lift to lock it in; the next hold dictates with it armed. Floating chip
- * shows failures; the armed skill is the inbox's notch.
+ * shows failures; the armed skill is the inbox's notch. A sideways swipe that no wheel claims
+ * abandons the dictation and reports `onTurn` (the inbox revolves its action carousel).
  */
 export interface DictationButtonProps {
   size?: number;
@@ -111,6 +114,8 @@ export interface DictationButtonProps {
   skills?: AgentSkill[];
   /** The flick up starts a new session with the dictation (the inbox) instead of submitting it. */
   launches?: boolean;
+  /** A sideways swipe (left only when no wheel takes it): the dictation is dropped and the carousel turns. */
+  onTurn?: (direction: "left" | "right") => void;
 }
 
 export function DictationButton({
@@ -118,6 +123,7 @@ export function DictationButton({
   backgroundColor = colors.surfaceRaised,
   skills,
   launches = false,
+  onTurn,
 }: DictationButtonProps = {}) {
   const connected = useConnectionStore((state) => state.status === "connected");
   const state = useDictation();
@@ -193,6 +199,8 @@ export function DictationButton({
   skillsRef.current = skills;
   const launchesRef = useRef(launches);
   launchesRef.current = launches;
+  const onTurnRef = useRef(onTurn);
+  onTurnRef.current = onTurn;
   useEffect(() => {
     enabled.value = connected;
     const count = skills?.length ?? 0;
@@ -247,7 +255,16 @@ export function DictationButton({
     const flickUp = (): void => {
       if (phaseOf(dictationActor.getSnapshot()) !== "listening") return;
       impactHaptic("heavy");
-      dictationActor.send(launchesRef.current ? { type: "launch" } : { type: "pressStop", submit: true });
+      dictationActor.send(
+        launchesRef.current ? { type: "launch" } : { type: "pressStop", submit: true },
+      );
+    };
+    /** Sideways swipe: whatever was heard is dropped and the screen turns its carousel. */
+    const turn = (direction: "left" | "right"): void => {
+      debug("dictation", "turn", direction, phaseOf(dictationActor.getSnapshot()));
+      selectHaptic();
+      dictationActor.send({ type: "abandon" });
+      onTurnRef.current?.(direction);
     };
     const openWheel = (): void => {
       debug("dictation", "wheel open", phaseOf(dictationActor.getSnapshot()));
@@ -423,6 +440,12 @@ export function DictationButton({
           flickTravel.value = 0;
           sendLift.value = 0;
           scheduleOnRN(openWheel);
+          return;
+        }
+        if (Math.abs(dx) >= TURN_SWIPE_DISTANCE && Math.abs(dy) < Math.abs(dx)) {
+          armed.value = true;
+          sendLift.value = 0;
+          scheduleOnRN(turn, dx < 0 ? "left" : "right");
           return;
         }
         // The orb lifts with the finger; crossing the swipe distance submits (or launches) immediately.
