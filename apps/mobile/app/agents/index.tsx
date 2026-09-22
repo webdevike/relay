@@ -51,6 +51,8 @@ const CARD_RADIUS = 28;
 const NOTCH_HEIGHT = 32;
 /** The bites the surfaces take: the element plus the ring of screen background around it. */
 const PILL_NOTCH_HEIGHT = NOTCH_HEIGHT + CUTOUT_GAP * 2;
+/** How far inside the chat card's top edge the pill sits while typing (the header is folded away). */
+const PILL_INSET = spacing.sm;
 const MIC_NOTCH_SIZE = MIC_SIZE + CUTOUT_GAP * 2;
 /** The image pill's thumbnail, standing where the skill pill has its mic glyph. */
 const CHIP_SIZE = 20;
@@ -341,8 +343,12 @@ export default function AgentInbox() {
     marginTop: -headerHeight * collapse.value,
     opacity: 1 - collapse.value,
   }));
+  // Typing folds the header away, which would leave the pill straddling the screen's top edge
+  // under the status bar; it rides down inside the chat card instead, and the card's bite follows.
   const pillStyle = useAnimatedStyle(() => ({
-    top: headerHeight * (1 - collapse.value) + spacing.sm / 2 - NOTCH_HEIGHT / 2 - CUTOUT_GAP,
+    top:
+      (1 - collapse.value) * (headerHeight + spacing.sm / 2 - NOTCH_HEIGHT / 2 - CUTOUT_GAP) +
+      collapse.value * (spacing.sm + PILL_INSET),
   }));
 
   // Holding still on the chat opens the action wheel under the finger; the wheel draws in the
@@ -412,11 +418,12 @@ export default function AgentInbox() {
     [],
   );
   const chatNotches = useMemo<Notch[]>(() => {
+    const pillCy = typing ? PILL_INSET + PILL_NOTCH_HEIGHT / 2 : -spacing.sm / 2;
     const notches: Notch[] =
-      pillWidth === 0 ? [] : [{ cy: -spacing.sm / 2, width: pillWidth, height: PILL_NOTCH_HEIGHT }];
+      pillWidth === 0 ? [] : [{ cy: pillCy, width: pillWidth, height: PILL_NOTCH_HEIGHT }];
     if (seamShown) notches.push(...seamNotches(chatHeight + spacing.sm / 2));
     return notches;
-  }, [pillWidth, seamShown, seamNotches, chatHeight]);
+  }, [pillWidth, seamShown, seamNotches, chatHeight, typing]);
   const panelNotches = useMemo<Notch[]>(
     () => (seamShown ? seamNotches(-spacing.sm / 2) : []),
     [seamShown, seamNotches],
