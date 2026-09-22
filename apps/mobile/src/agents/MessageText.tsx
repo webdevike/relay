@@ -1,7 +1,7 @@
 /** Transcript text rendered from Markdown: headings, emphasis, lists, tables, blockquotes,
  * links, inline code, and fenced blocks (CodeBlock). */
 import { Fragment } from "react";
-import { Linking, Platform, Text as RNText, type TextStyle, View } from "react-native";
+import { Linking, Platform, Text as RNText, ScrollView, type TextStyle, View } from "react-native";
 import { colors, radii, spacing, type } from "@/theme";
 import { Text } from "@/ui/Text";
 import { CodeBlock } from "./CodeBlock";
@@ -11,6 +11,9 @@ const mono = Platform.select({ ios: "Menlo", default: "monospace" });
 
 /** Heading point sizes, largest at #, tapering to body by ####+. */
 const HEADING_SIZE = [22, 20, 18, 16, 15, 15];
+
+/** Fixed column width so wide tables overflow into the horizontal scroll instead of crushing. */
+const COL_WIDTH = 140;
 
 export interface MessageTextProps {
   text: string;
@@ -89,12 +92,14 @@ const justify: Record<Exclude<Align, null>, "flex-start" | "center" | "flex-end"
 function TableView({ block }: { block: Extract<Block, { kind: "table" }> }) {
   const columns = Math.max(block.header.length, ...block.rows.map((r) => r.length));
   return (
-    <View style={{ borderWidth: 1, borderColor: colors.hairline, borderRadius: radii.md, overflow: "hidden" }}>
-      <TableRow cells={block.header} columns={columns} align={block.align} header />
-      {block.rows.map((row, i) => (
-        <TableRow key={i} cells={row} columns={columns} align={block.align} />
-      ))}
-    </View>
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1 }}>
+      <View style={{ borderWidth: 1, borderColor: colors.hairline, borderRadius: radii.md, overflow: "hidden", alignSelf: "flex-start" }}>
+        <TableRow cells={block.header} columns={columns} align={block.align} header />
+        {block.rows.map((row, i) => (
+          <TableRow key={i} cells={row} columns={columns} align={block.align} />
+        ))}
+      </View>
+    </ScrollView>
   );
 }
 
@@ -102,7 +107,7 @@ function TableRow({ cells, columns, align, header = false }: { cells: Inline[][]
   return (
     <View style={{ flexDirection: "row", backgroundColor: header ? colors.surfaceRaised : undefined, borderTopWidth: header ? 0 : 1, borderTopColor: colors.hairline }}>
       {Array.from({ length: columns }, (_, c) => (
-        <View key={c} style={{ flex: 1, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderLeftWidth: c === 0 ? 0 : 1, borderLeftColor: colors.hairline, alignItems: justify[align[c] ?? "left"] }}>
+        <View key={c} style={{ width: COL_WIDTH, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderLeftWidth: c === 0 ? 0 : 1, borderLeftColor: colors.hairline, alignItems: justify[align[c] ?? "left"] }}>
           <RNText style={{ fontSize: type.caption.fontSize, lineHeight: type.caption.lineHeight, color: colors.text, fontWeight: header ? "600" : "400" }}>
             <Inlines runs={cells[c] ?? []} />
           </RNText>
