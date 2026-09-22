@@ -6,6 +6,7 @@ import { colors, radii, spacing, type } from "@/theme";
 import { Text } from "@/ui/Text";
 import { CodeBlock } from "./CodeBlock";
 import { type Align, type Block, type Inline, parseBlocks } from "./markdown";
+import { Widget } from "./Widget";
 
 const mono = Platform.select({ ios: "Menlo", default: "monospace" });
 
@@ -61,6 +62,8 @@ function BlockView({ block }: { block: Block }) {
       return <ListView block={block} />;
     case "table":
       return <TableView block={block} />;
+    case "widget":
+      return <Widget spec={block.spec} />;
   }
 }
 

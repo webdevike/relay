@@ -167,6 +167,9 @@ importers:
       xstate:
         specifier: ^5.32.6
         version: 5.32.6
+      zod:
+        specifier: ^3.25.0
+        version: 3.25.76
       zustand:
         specifier: ^5.0.0
         version: 5.0.15(@types/react@19.1.17)(react@19.1.0)(use-sync-external-store@1.6.0(react@19.1.0))

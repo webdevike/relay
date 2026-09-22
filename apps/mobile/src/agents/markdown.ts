@@ -9,6 +9,8 @@
  * closed code block, so highlighting begins as soon as the fence line lands.
  */
 
+import { parseWidget, type WidgetSpec } from "./widget";
+
 export type Align = "left" | "center" | "right" | null;
 
 export interface Inline {
@@ -31,6 +33,7 @@ export type Block =
   | { kind: "list"; ordered: boolean; start: number; items: ListItem[] }
   | { kind: "blockquote"; blocks: Block[] }
   | { kind: "table"; header: Inline[][]; align: Align[]; rows: Inline[][][] }
+  | { kind: "widget"; spec: WidgetSpec }
   | { kind: "hr" };
 
 const FENCE = /^(`{3,}|~{3,})[ \t]*([\w+#.-]*)[^\n]*$/;
@@ -159,7 +162,10 @@ function parseLines(lines: string[]): Block[] {
         body.push(lines[i] ?? "");
         i += 1;
       }
-      blocks.push({ kind: "code", lang: name === "" ? null : name.toLowerCase(), code: body.join("\n") });
+      const code = body.join("\n");
+      const lang = name === "" ? null : name.toLowerCase();
+      const spec = lang === "ui" ? parseWidget(code) : null;
+      blocks.push(spec ? { kind: "widget", spec } : { kind: "code", lang, code });
       continue;
     }
 
