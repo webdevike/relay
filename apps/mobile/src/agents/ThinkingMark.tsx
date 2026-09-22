@@ -1,28 +1,16 @@
 /**
- * The sign of life beside the activity label: a little ASCII pulse, a dot that swells into a
- * ring of parens and settles again, stepping through fixed-width frames in the code font so
- * nothing shifts. Terminal-flavoured on purpose: the thing on the other end is omp in a TTY.
+ * The sign of life beside the activity label: a single glyph blooming from a dot into a star
+ * and back, the way Claude Code's spinner does, in the code font so nothing shifts.
  */
 import { useEffect, useState } from "react";
 import { Platform, Text as RNText } from "react-native";
 import { colors, type as typeScale } from "@/theme";
 
-const FRAME_MS = 110;
+const FRAME_MS = 120;
 const mono = Platform.select({ ios: "Menlo", default: "monospace" });
-/** Every frame is five columns wide; the beat spreads out from the middle and comes back. */
-const FRAMES = [
-  "  .  ",
-  "  o  ",
-  "  O  ",
-  " (O) ",
-  "((O))",
-  "( O )",
-  " (o) ",
-  "  o  ",
-  "  .  ",
-  "     ",
-  "     ",
-] as const;
+/** Out and back: dot, sparks, star, and down again; every glyph is one column wide. */
+const BLOOM = ["·", "✢", "✳", "✶", "✻", "✽"] as const;
+const FRAMES = [...BLOOM, ...[...BLOOM].reverse().slice(1, -1)] as const;
 
 export function ThinkingMark() {
   const [frame, setFrame] = useState(0);
