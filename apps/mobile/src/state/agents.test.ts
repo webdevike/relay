@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyDelta, applySnapshot, applyWelcome, appendMessages, emptyAgentsData, setConversation, setImage } from "./agents";
+import { applyDelta, applySnapshot, applyWelcome, appendMessages, clearAsk, emptyAgentsData, setAsk, setConversation, setImage } from "./agents";
 import type { AgentMessage, AgentSession } from "@relay/protocol";
 
 function session(id: string, lastActivityAt: number, status: AgentSession["status"] = "idle"): AgentSession {
@@ -115,5 +115,28 @@ describe("setImage", () => {
   it("is dropped by welcome along with the conversations", () => {
     const base = setImage(emptyAgentsData, "s1", "img1", { mimeType: "image/png", data: "AAAA" });
     expect(applyWelcome(base, 1, [session("s1", 100)]).images).toEqual({});
+  });
+});
+
+describe("setAsk / clearAsk", () => {
+  const ask = { id: "a1", questions: [{ id: "q1", question: "Ship it?", options: [{ label: "Yes" }, { label: "No" }] }] };
+
+  it("stores the pending ask under the session", () => {
+    expect(setAsk(emptyAgentsData, "s1", ask).asks["s1"]).toBe(ask);
+  });
+
+  it("clears the pending ask when the resolved id matches", () => {
+    const data = clearAsk(setAsk(emptyAgentsData, "s1", ask), "s1", "a1");
+    expect(data.asks["s1"]).toBeUndefined();
+  });
+
+  it("leaves a newer ask in place when a stale resolved arrives", () => {
+    const newer = { id: "a2", questions: ask.questions };
+    const data = clearAsk(setAsk(emptyAgentsData, "s1", newer), "s1", "a1");
+    expect(data.asks["s1"]).toBe(newer);
+  });
+
+  it("is dropped by welcome", () => {
+    expect(applyWelcome(setAsk(emptyAgentsData, "s1", ask), 1, [session("s1", 100)]).asks).toEqual({});
   });
 });

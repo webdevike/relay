@@ -105,6 +105,42 @@ export const AgentOptions = z.object({
 });
 export type AgentOptions = z.infer<typeof AgentOptions>;
 
+/** One selectable answer in an ask question: a label, with optional help and a rich preview. */
+export const AgentAskOption = z.object({
+  label: nonEmpty,
+  description: z.string().optional(),
+  preview: z.string().optional(),
+});
+export type AgentAskOption = z.infer<typeof AgentAskOption>;
+
+/** One question omp's `ask` tool poses: a prompt and its options, single- or multi-select. */
+export const AgentAskQuestion = z.object({
+  id: nonEmpty,
+  question: nonEmpty,
+  header: z.string().optional(),
+  options: z.array(AgentAskOption).min(1),
+  multi: z.boolean().optional(),
+  /** Index of the option the agent recommends, if any. */
+  recommended: z.number().int().nonnegative().optional(),
+});
+export type AgentAskQuestion = z.infer<typeof AgentAskQuestion>;
+
+/** A pending choice the session is blocked on; the phone renders it and answers with `agent.ask.answer`. */
+export const AgentAsk = z.object({
+  id: nonEmpty,
+  questions: z.array(AgentAskQuestion).min(1),
+});
+export type AgentAsk = z.infer<typeof AgentAsk>;
+
+/** The phone's answer to one question: the chosen option labels, plus any typed input or note. */
+export const AgentAskAnswer = z.object({
+  id: nonEmpty,
+  selectedOptions: z.array(z.string()),
+  customInput: z.string().optional(),
+  note: z.string().optional(),
+});
+export type AgentAskAnswer = z.infer<typeof AgentAskAnswer>;
+
 /** Largest image payload (base64 length) one frame carries; a phone screenshot as JPEG is well under. */
 export const MAX_IMAGE_BASE64 = 6 * 1024 * 1024;
 export const MAX_REPLY_IMAGES = 4;
@@ -281,6 +317,13 @@ export const Command = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("agent.abort"), sessionId: nonEmpty }),
   /** Shut the session down: omp exits and the terminal it ran in closes. */
   z.object({ kind: z.literal("agent.end"), sessionId: nonEmpty }),
+  /** Answer a pending `agent.ask`: the phone's selections for each question. */
+  z.object({
+    kind: z.literal("agent.ask.answer"),
+    sessionId: nonEmpty,
+    askId: nonEmpty,
+    results: z.array(AgentAskAnswer).min(1),
+  }),
   /**
    * Add a drop from the phone. Exactly one of `text` or `image`; the host classifies text that
    * is a single URL as a `link`.
@@ -403,6 +446,10 @@ export const ServerMessage = z.discriminatedUnion("t", [
    */
   z.object({ t: z.literal("agent.message.update"), sessionId: nonEmpty, id: nonEmpty, text: z.string(), streaming: z.boolean() }),
   z.object({ t: z.literal("agent.options"), sessionId: nonEmpty, models: z.array(AgentModel), skills: z.array(AgentSkill) }),
+  /** The session is blocked on omp's `ask` tool; render the choices and answer with `agent.ask.answer`. */
+  z.object({ t: z.literal("agent.ask"), sessionId: nonEmpty, ask: AgentAsk }),
+  /** A pending ask was answered or cancelled (from the terminal or another device); dismiss its card. */
+  z.object({ t: z.literal("agent.ask.resolved"), sessionId: nonEmpty, id: nonEmpty }),
   /** `image` is null when the session no longer has that image. */
   z.object({ t: z.literal("agent.image"), sessionId: nonEmpty, id: nonEmpty, image: AgentImage.nullable() }),
   /** A drop was added on either side; also mirrored as a push notification for host-origin drops. */

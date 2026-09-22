@@ -10,6 +10,7 @@ import {
   PROTOCOL_VERSION,
   parseClientMessage,
   toHex,
+  type AgentAsk,
   type AgentMessage,
   type AgentOptions,
   type ClientMessage,
@@ -158,6 +159,18 @@ export class ClientSession {
   agentMessageUpdated(sessionId: string, id: string, text: string, streaming: boolean): void {
     if (this.phase.kind !== "authenticated" || !this.subscriptions.has(sessionId)) return;
     this.sink.send({ t: "agent.message.update", sessionId, id, text, streaming });
+  }
+
+  /** Shows a pending ask iff subscribed to `sessionId`; the phone renders it and may answer it. */
+  agentAsk(sessionId: string, ask: AgentAsk): void {
+    if (this.phase.kind !== "authenticated" || !this.subscriptions.has(sessionId)) return;
+    this.sink.send({ t: "agent.ask", sessionId, ask });
+  }
+
+  /** Tells the phone a pending ask closed elsewhere iff subscribed; it dismisses that ask's card. */
+  agentAskResolved(sessionId: string, id: string): void {
+    if (this.phase.kind !== "authenticated" || !this.subscriptions.has(sessionId)) return;
+    this.sink.send({ t: "agent.ask.resolved", sessionId, id });
   }
 
   receiveRaw(raw: string): void {
@@ -336,10 +349,15 @@ export class ClientSession {
               rev: 0,
               messages: messages ?? [],
             });
+            // A session already blocked on an ask when the phone opens it still gets the card.
+            const pending = this.deps.agents?.pendingAsk(sessionId) ?? null;
+            if (pending !== null) this.agentAsk(sessionId, pending);
           },
           () => {
             if (this.closed || this.subscriptions.get(sessionId) !== 0) return;
             this.sink.send({ t: "agent.conversation", sessionId, rev: 0, messages: [] });
+            const pending = this.deps.agents?.pendingAsk(sessionId) ?? null;
+            if (pending !== null) this.agentAsk(sessionId, pending);
           },
         );
         break;
@@ -479,6 +497,8 @@ export class ClientSession {
         return this.agents().abort(cmd.sessionId);
       case "agent.end":
         return this.agents().end(cmd.sessionId);
+      case "agent.ask.answer":
+        return this.agents().answerAsk(cmd.sessionId, cmd.askId, cmd.results);
       case "drop.put": {
         if ((cmd.text === undefined) === (cmd.image === undefined)) {
           return Promise.reject(

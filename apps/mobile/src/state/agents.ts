@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { AgentImage, AgentMessage, AgentOptions, AgentSession } from "@relay/protocol";
+import type { AgentAsk, AgentImage, AgentMessage, AgentOptions, AgentSession } from "@relay/protocol";
 
 export interface ConversationState {
   rev: number;
@@ -19,9 +19,15 @@ export interface AgentsData {
    * a missing key means it has not been fetched.
    */
   images: Record<string, Record<string, string | null>>;
+  /**
+   * The pending `ask` each session is blocked on, if any: omp's multiple-choice prompt, rendered
+   * as a card the user can answer from the phone. Cleared when the ask resolves (answered here, in
+   * the terminal, or on another device); the host replays the current one on `agent.subscribe`.
+   */
+  asks: Record<string, AgentAsk>;
 }
 
-export const emptyAgentsData: AgentsData = { rev: 0, sessions: {}, order: [], conversations: {}, options: {}, images: {} };
+export const emptyAgentsData: AgentsData = { rev: 0, sessions: {}, order: [], conversations: {}, options: {}, images: {}, asks: {} };
 
 /** Sessions blocked on the user (a question or an approval prompt) sort ahead of everything else. */
 export function needsAttention(session: AgentSession): boolean {
@@ -60,7 +66,7 @@ export function applySnapshot(
  * old socket (subscriptions do not survive a reconnect).
  */
 export function applyWelcome(data: AgentsData, rev: number, sessions: AgentSession[]): AgentsData {
-  return { ...applySnapshot(data, rev, sessions), conversations: {}, options: {}, images: {} };
+  return { ...applySnapshot(data, rev, sessions), conversations: {}, options: {}, images: {}, asks: {} };
 }
 
 /**
@@ -144,6 +150,22 @@ export function setImage(data: AgentsData, sessionId: string, id: string, image:
   return { ...data, images: { ...data.images, [sessionId]: { ...data.images[sessionId], [id]: uri } } };
 }
 
+/** Stores the pending ask a session just became blocked on, replacing any earlier one. */
+export function setAsk(data: AgentsData, sessionId: string, ask: AgentAsk): AgentsData {
+  return { ...data, asks: { ...data.asks, [sessionId]: ask } };
+}
+
+/**
+ * Clears a session's pending ask, but only when `id` matches the one stored: a `resolved` for an
+ * ask already replaced by a newer one must not wipe the newer card.
+ */
+export function clearAsk(data: AgentsData, sessionId: string, id: string): AgentsData {
+  if (data.asks[sessionId]?.id !== id) return data;
+  const asks = { ...data.asks };
+  delete asks[sessionId];
+  return { ...data, asks };
+}
+
 export interface AgentsStore extends AgentsData {
   applyWelcome: (rev: number, sessions: AgentSession[]) => void;
   applySnapshot: (rev: number, sessions: AgentSession[]) => void;
@@ -153,6 +175,8 @@ export interface AgentsStore extends AgentsData {
   setOptions: (sessionId: string, options: AgentOptions) => void;
   updateMessage: (sessionId: string, id: string, text: string, streaming: boolean) => void;
   setImage: (sessionId: string, id: string, image: AgentImage | null) => void;
+  setAsk: (sessionId: string, ask: AgentAsk) => void;
+  clearAsk: (sessionId: string, id: string) => void;
 }
 
 export const useAgentsStore = create<AgentsStore>((set, get) => ({
@@ -184,5 +208,11 @@ export const useAgentsStore = create<AgentsStore>((set, get) => ({
   },
   setImage: (sessionId, id, image) => {
     set(setImage(get(), sessionId, id, image));
+  },
+  setAsk: (sessionId, ask) => {
+    set(setAsk(get(), sessionId, ask));
+  },
+  clearAsk: (sessionId, id) => {
+    set(clearAsk(get(), sessionId, id));
   },
 }));

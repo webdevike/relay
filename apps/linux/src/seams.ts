@@ -1,7 +1,7 @@
 // Seams between transport, input and storage. Mirrors apps/mac/Sources/RelayCore/Seams.swift:
 // the session only ever talks to these; input/ and the stores implement them; main.ts wires them.
 
-import type { AckError, AgentImage, AgentMessage, AgentOptions, AgentSession, Command, Drop, DropOrigin, InputEvent, KeyName, ServerMessage } from "@relay/protocol";
+import type { AckError, AgentAsk, AgentAskAnswer, AgentImage, AgentMessage, AgentOptions, AgentSession, Command, Drop, DropOrigin, InputEvent, KeyName, ServerMessage } from "@relay/protocol";
 
 /** Outbound side of one connection. `send` after `close` is a no-op. */
 export interface FrameSink {
@@ -101,7 +101,11 @@ export type AgentProviderChange =
   /** New messages were appended to a conversation the transport may be subscribed to. */
   | { readonly kind: "conversation"; readonly sessionId: string; readonly appended: readonly AgentMessage[] }
   /** A streaming message's text so far (full text, idempotent); `streaming: false` is the settled text. */
-  | { readonly kind: "message"; readonly sessionId: string; readonly id: string; readonly text: string; readonly streaming: boolean };
+  | { readonly kind: "message"; readonly sessionId: string; readonly id: string; readonly text: string; readonly streaming: boolean }
+  /** The session is now blocked on an ask; the transport shows it to subscribed phones. */
+  | { readonly kind: "ask"; readonly sessionId: string; readonly ask: AgentAsk }
+  /** A pending ask closed (answered in the TUI, cancelled, or answered from a phone); dismiss its card. */
+  | { readonly kind: "ask.resolved"; readonly sessionId: string; readonly id: string };
 
 /**
  * One coding-agent integration (omp on Linux). Provider-independent by construction: the
@@ -135,6 +139,10 @@ export interface AgentProvider {
   abort(sessionId: string): Promise<void>;
   /** Shut the session down (omp exits). Rejects with `AckFailure` (`agent_not_found`). */
   end(sessionId: string): Promise<void>;
+  /** Deliver a phone's answer to a pending ask. Rejects with `AckFailure` (`agent_cannot_respond`). */
+  answerAsk(sessionId: string, askId: string, results: readonly AgentAskAnswer[]): Promise<void>;
+  /** The ask the session is currently blocked on, replayed to a phone that subscribes late; null when none. */
+  pendingAsk(sessionId: string): AgentAsk | null;
   /** Set by the transport. */
   onChange: ((change: AgentProviderChange) => void) | null;
 }

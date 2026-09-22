@@ -12,7 +12,7 @@
 
 import { existsSync, unlinkSync } from "node:fs";
 import type { Socket, SocketHandler } from "bun";
-import { AgentImage, AgentMessage, AgentOptions, AgentSession, AgentStatus, type AgentImage as AgentImageT, type AgentSession as AgentSessionT, type AgentMessage as AgentMessageT, type AgentOptions as AgentOptionsT } from "@relay/protocol";
+import { AgentAskQuestion, AgentImage, AgentMessage, AgentOptions, AgentSession, AgentStatus, type AgentAsk, type AgentAskAnswer, type AgentImage as AgentImageT, type AgentSession as AgentSessionT, type AgentMessage as AgentMessageT, type AgentOptions as AgentOptionsT } from "@relay/protocol";
 import { z } from "zod";
 import { AckFailure, type AgentConfigChange, type AgentProvider, type AgentProviderChange } from "../seams";
 import { launchInHerdr } from "./herdr";
@@ -36,10 +36,12 @@ const Inbound = z.discriminatedUnion("t", [
   z.object({ t: z.literal("messages"), append: z.array(AgentMessage).min(1) }),
   z.object({ t: z.literal("message.update"), id: z.string().min(1), text: z.string(), streaming: z.boolean() }),
   z.object({ t: z.literal("result"), id: z.string().min(1), ok: z.boolean(), error: z.string().optional(), value: z.unknown().optional() }),
+  z.object({ t: z.literal("ask.request"), id: z.string().min(1), questions: z.array(AgentAskQuestion).min(1) }),
+  z.object({ t: z.literal("ask.resolved"), id: z.string().min(1) }),
 ]);
 type Inbound = z.infer<typeof Inbound>;
 
-type RequestKind = "conversation" | "reply" | "options" | "image" | "configure" | "abort" | "end";
+type RequestKind = "conversation" | "reply" | "options" | "image" | "configure" | "abort" | "end" | "ask";
 
 /** The error code a rejected request maps to; the extension's message is passed through. */
 const failureCode: Record<RequestKind, AckFailure["error"]["code"]> = {
@@ -50,6 +52,7 @@ const failureCode: Record<RequestKind, AckFailure["error"]["code"]> = {
   configure: "agent_configure_failed",
   abort: "internal",
   end: "internal",
+  ask: "agent_cannot_respond",
 };
 
 const REQUEST_TIMEOUT_MS = 5000;
@@ -86,6 +89,8 @@ export class OmpBridgeProvider implements AgentProvider {
   private cached: AgentSessionT[] = [];
   private listening = false;
   private requestSeq = 0;
+  /** The ask each session is currently blocked on, by omp session id; replayed to phones that subscribe late. */
+  private readonly pendingAsks = new Map<string, AgentAsk>();
 
   constructor(
     private readonly path: string,
@@ -165,6 +170,14 @@ export class OmpBridgeProvider implements AgentProvider {
 
   async end(sessionId: string): Promise<void> {
     await this.request(this.require(sessionId), "end", {});
+  }
+
+  async answerAsk(sessionId: string, askId: string, results: readonly AgentAskAnswer[]): Promise<void> {
+    await this.request(this.require(sessionId), "ask", { askId, results });
+  }
+
+  pendingAsk(sessionId: string): AgentAsk | null {
+    return this.pendingAsks.get(sessionId) ?? null;
   }
 
   /**
@@ -321,6 +334,20 @@ export class OmpBridgeProvider implements AgentProvider {
         else pending.reject(new AckFailure({ code: failureCode[pending.kind], message: frame.error ?? `${pending.kind} rejected` }));
         return;
       }
+      case "ask.request": {
+        if (connection.session === null) return;
+        const ask: AgentAsk = { id: frame.id, questions: frame.questions };
+        this.pendingAsks.set(connection.session.id, ask);
+        this.onChange?.({ kind: "ask", sessionId: connection.session.id, ask });
+        return;
+      }
+      case "ask.resolved": {
+        if (connection.session === null) return;
+        // Only clear the pending ask if it is the one that resolved: a stale resolve never wipes a newer ask.
+        if (this.pendingAsks.get(connection.session.id)?.id === frame.id) this.pendingAsks.delete(connection.session.id);
+        this.onChange?.({ kind: "ask.resolved", sessionId: connection.session.id, id: frame.id });
+        return;
+      }
     }
   }
 
@@ -332,6 +359,7 @@ export class OmpBridgeProvider implements AgentProvider {
       pending.reject(new AckFailure({ code: "agent_not_found", message: "omp session disconnected" }));
     }
     connection.pending.clear();
+    if (connection.session !== null) this.pendingAsks.delete(connection.session.id);
     connection.socket.end();
     if (connection.session !== null) {
       this.log(`agent session ${connection.session.id} ended`);

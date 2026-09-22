@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { type AgentImage, type AgentMessage, type AgentOptions, type AgentSession, type ClientMessage, type InputEvent, type KeyName, type ServerMessage } from "@relay/protocol";
+import { type AgentAsk, type AgentAskAnswer, type AgentImage, type AgentMessage, type AgentOptions, type AgentSession, type ClientMessage, type InputEvent, type KeyName, type ServerMessage } from "@relay/protocol";
 import { AgentsDeltaTracker } from "../src/agents/delta-tracker";
 import { CommandDedupStore } from "../src/dedup";
 import { PairingCoordinator } from "../src/pairing";
@@ -373,6 +373,16 @@ class FakeProvider implements AgentProvider {
     this.ended.push(sessionId);
     return Promise.resolve();
   }
+  readonly answered: [string, string, readonly AgentAskAnswer[]][] = [];
+  answerAsk(sessionId: string, askId: string, results: readonly AgentAskAnswer[]): Promise<void> {
+    if (sessionId !== "s1") return Promise.reject(new AckFailure({ code: "agent_not_found", message: "gone" }));
+    this.answered.push([sessionId, askId, results]);
+    return Promise.resolve();
+  }
+  pending: AgentAsk | null = null;
+  pendingAsk(sessionId: string): AgentAsk | null {
+    return sessionId === "s1" ? this.pending : null;
+  }
 }
 
 describe("agent topics", () => {
@@ -485,6 +495,35 @@ describe("agent topics", () => {
     expect(h.sink.sent.slice(-2)).toEqual([
       { t: "ack", id: "c1" },
       { t: "nack", id: "c2", error: { code: "agent_not_found", message: "gone" } },
+    ]);
+  });
+
+  it("replays a pending ask on subscribe, forwards its resolve, and drives answerAsk", async () => {
+    const agents = new FakeProvider();
+    const ask: AgentAsk = { id: "a1", questions: [{ id: "q1", question: "Ship it?", options: [{ label: "yes" }, { label: "no" }] }] };
+    agents.pending = ask;
+    const h = harness({ agents });
+    pair(h);
+    h.session.receive({ t: "agent.subscribe", sessionId: "s1" });
+    // The session was already blocked on the ask: the phone gets the card right after the conversation.
+    await h.sink.sentCount(6);
+    expect(h.sink.sent.slice(-2)).toEqual([
+      { t: "agent.conversation", sessionId: "s1", rev: 0, messages: [{ id: "m1", role: "user", text: "hi", at: 1 }] },
+      { t: "agent.ask", sessionId: "s1", ask },
+    ]);
+    // A resolve only reaches the subscribed session.
+    h.session.agentAskResolved("s1", "a1");
+    h.session.agentAskResolved("other", "a1");
+    expect(h.sink.last()).toEqual({ t: "agent.ask.resolved", sessionId: "s1", id: "a1" });
+    // Answering drives the provider and acks; an unknown session nacks.
+    const results: AgentAskAnswer[] = [{ id: "q1", selectedOptions: ["yes"] }];
+    h.session.receive({ t: "cmd", id: "k1", cmd: { kind: "agent.ask.answer", sessionId: "s1", askId: "a1", results } });
+    h.session.receive({ t: "cmd", id: "k2", cmd: { kind: "agent.ask.answer", sessionId: "nope", askId: "a1", results } });
+    await h.sink.sentCount(9);
+    expect(agents.answered).toEqual([["s1", "a1", results]]);
+    expect(h.sink.sent.slice(-2)).toEqual([
+      { t: "ack", id: "k1" },
+      { t: "nack", id: "k2", error: { code: "agent_not_found", message: "gone" } },
     ]);
   });
 });

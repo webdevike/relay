@@ -210,6 +210,14 @@ export class RelayServer {
       for (const ws of this.sockets) ws.data.session?.agentMessageUpdated(change.sessionId, change.id, change.text, change.streaming);
       return;
     }
+    if (change.kind === "ask") {
+      for (const ws of this.sockets) ws.data.session?.agentAsk(change.sessionId, change.ask);
+      return;
+    }
+    if (change.kind === "ask.resolved") {
+      for (const ws of this.sockets) ws.data.session?.agentAskResolved(change.sessionId, change.id);
+      return;
+    }
     for (const ws of this.sockets)
       ws.data.session?.agentConversationAppended(change.sessionId, change.appended);
   }

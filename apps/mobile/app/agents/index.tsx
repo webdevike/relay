@@ -39,6 +39,7 @@ import { AgentCard, AgentHeader } from "@/agents/AgentCard";
 import { AgentScrubber, TRACK_HEIGHT } from "@/agents/AgentScrubber";
 import { AgentSettingsSheet } from "@/agents/AgentSettingsSheet";
 import { TypedReply } from "@/agents/TypedReply";
+import { AskCard } from "@/agents/AskCard";
 import { type ActionWheelEntry } from "@/agents/ActionWheel";
 import { useActionWheel } from "@/agents/useActionWheel";
 import { tapHaptic } from "@/lib/haptics";
@@ -167,6 +168,24 @@ export default function AgentInbox() {
   const wheelEnabled = useSettingsStore((state) => state.skillWheelEnabled);
   const skills = useAgentsStore((state) =>
     !wheelEnabled || selectedId === undefined ? undefined : state.options[selectedId]?.skills,
+  );
+  // The multiple-choice prompt the focused session is blocked on, if any; the host replays it on
+  // subscribe, so it survives a reconnect or a scrub away and back.
+  const pendingAsk = useAgentsStore((state) =>
+    selectedId === undefined ? undefined : state.asks[selectedId],
+  );
+  const answerAsk = useCallback(
+    (results: { id: string; selectedOptions: string[] }[]) => {
+      if (selectedId === undefined || pendingAsk === undefined) return;
+      sendCommand({ kind: "agent.ask.answer", sessionId: selectedId, askId: pendingAsk.id, results }).catch(
+        (error: unknown) => {
+          warn("agent.ask.answer failed", error);
+        },
+      );
+      // Optimistic: drop the card now; the host also echoes `agent.ask.resolved`.
+      useAgentsStore.getState().clearAsk(selectedId, pendingAsk.id);
+    },
+    [selectedId, pendingAsk],
   );
 
   // Subscriptions live on the socket: re-subscribe whenever focus or the connection changes.
@@ -611,6 +630,11 @@ export default function AgentInbox() {
             </View>
           )}
           {wheel}
+          {session !== undefined && pendingAsk !== undefined && (
+            <View style={styles.askOverlay}>
+              <AskCard ask={pendingAsk} onSubmit={answerAsk} />
+            </View>
+          )}
         </View>
         {session !== undefined && typing && (
           <NotchedSurface
@@ -801,6 +825,13 @@ const styles = StyleSheet.create({
     left: spacing.lg,
     right: spacing.lg,
     top: spacing.sm,
+  },
+  /** The pending-ask card, floating at the bottom of the transcript, above the reply seam. */
+  askOverlay: {
+    position: "absolute",
+    left: spacing.sm,
+    right: spacing.sm,
+    bottom: spacing.sm,
   },
   scrubRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   counter: { textAlign: "center", marginTop: spacing.md },
