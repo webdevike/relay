@@ -176,6 +176,10 @@ export class OmpBridgeProvider implements AgentProvider {
     await this.request(this.require(sessionId), "ask", { askId, results });
   }
 
+  async cancelAsk(sessionId: string, askId: string): Promise<void> {
+    await this.request(this.require(sessionId), "ask", { askId, cancel: true });
+  }
+
   pendingAsk(sessionId: string): AgentAsk | null {
     return this.pendingAsks.get(sessionId) ?? null;
   }

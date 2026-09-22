@@ -175,18 +175,23 @@ export default function AgentInbox() {
     selectedId === undefined ? undefined : state.asks[selectedId],
   );
   const answerAsk = useCallback(
-    (results: { id: string; selectedOptions: string[] }[]) => {
+    (results: { id: string; selectedOptions: string[]; customInput?: string }[]) => {
       if (selectedId === undefined || pendingAsk === undefined) return;
-      sendCommand({ kind: "agent.ask.answer", sessionId: selectedId, askId: pendingAsk.id, results }).catch(
-        (error: unknown) => {
-          warn("agent.ask.answer failed", error);
-        },
-      );
+      sendCommand({ kind: "agent.ask.answer", sessionId: selectedId, askId: pendingAsk.id, results }).catch((error: unknown) => {
+        warn("agent.ask.answer failed", error);
+      });
       // Optimistic: drop the card now; the host also echoes `agent.ask.resolved`.
       useAgentsStore.getState().clearAsk(selectedId, pendingAsk.id);
     },
     [selectedId, pendingAsk],
   );
+  const cancelAsk = useCallback(() => {
+    if (selectedId === undefined || pendingAsk === undefined) return;
+    sendCommand({ kind: "agent.ask.cancel", sessionId: selectedId, askId: pendingAsk.id }).catch((error: unknown) => {
+      warn("agent.ask.cancel failed", error);
+    });
+    useAgentsStore.getState().clearAsk(selectedId, pendingAsk.id);
+  }, [selectedId, pendingAsk]);
 
   // Subscriptions live on the socket: re-subscribe whenever focus or the connection changes.
   useFocusEffect(
@@ -632,7 +637,7 @@ export default function AgentInbox() {
           {wheel}
           {session !== undefined && pendingAsk !== undefined && (
             <View style={styles.askOverlay}>
-              <AskCard ask={pendingAsk} onSubmit={answerAsk} />
+              <AskCard ask={pendingAsk} onSubmit={answerAsk} onCancel={cancelAsk} />
             </View>
           )}
         </View>

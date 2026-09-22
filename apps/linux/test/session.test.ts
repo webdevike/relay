@@ -379,6 +379,12 @@ class FakeProvider implements AgentProvider {
     this.answered.push([sessionId, askId, results]);
     return Promise.resolve();
   }
+  readonly cancelled: [string, string][] = [];
+  cancelAsk(sessionId: string, askId: string): Promise<void> {
+    if (sessionId !== "s1") return Promise.reject(new AckFailure({ code: "agent_not_found", message: "gone" }));
+    this.cancelled.push([sessionId, askId]);
+    return Promise.resolve();
+  }
   pending: AgentAsk | null = null;
   pendingAsk(sessionId: string): AgentAsk | null {
     return sessionId === "s1" ? this.pending : null;

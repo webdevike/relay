@@ -499,6 +499,8 @@ export class ClientSession {
         return this.agents().end(cmd.sessionId);
       case "agent.ask.answer":
         return this.agents().answerAsk(cmd.sessionId, cmd.askId, cmd.results);
+      case "agent.ask.cancel":
+        return this.agents().cancelAsk(cmd.sessionId, cmd.askId);
       case "drop.put": {
         if ((cmd.text === undefined) === (cmd.image === undefined)) {
           return Promise.reject(

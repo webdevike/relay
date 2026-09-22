@@ -141,6 +141,8 @@ export interface AgentProvider {
   end(sessionId: string): Promise<void>;
   /** Deliver a phone's answer to a pending ask. Rejects with `AckFailure` (`agent_cannot_respond`). */
   answerAsk(sessionId: string, askId: string, results: readonly AgentAskAnswer[]): Promise<void>;
+  /** Dismiss a pending ask without an answer; omp's dialog resolves as cancelled. Rejects with `AckFailure`. */
+  cancelAsk(sessionId: string, askId: string): Promise<void>;
   /** The ask the session is currently blocked on, replayed to a phone that subscribes late; null when none. */
   pendingAsk(sessionId: string): AgentAsk | null;
   /** Set by the transport. */

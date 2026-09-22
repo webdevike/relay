@@ -324,6 +324,8 @@ export const Command = z.discriminatedUnion("kind", [
     askId: nonEmpty,
     results: z.array(AgentAskAnswer).min(1),
   }),
+  /** Dismiss a pending `agent.ask` without answering: omp's ask dialog resolves as cancelled. */
+  z.object({ kind: z.literal("agent.ask.cancel"), sessionId: nonEmpty, askId: nonEmpty }),
   /**
    * Add a drop from the phone. Exactly one of `text` or `image`; the host classifies text that
    * is a single URL as a `link`.

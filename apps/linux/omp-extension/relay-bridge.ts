@@ -328,8 +328,8 @@ type Inbound =
   | { t: "configure"; id: string; title?: string; model?: { provider: string; id: string }; thinkingLevel?: string }
   | { t: "abort"; id: string }
   | { t: "end"; id: string }
-  // The phone's answer to a pending ask (askId is the ask.request id); perform resolves the blocked dialog.
-  | { t: "ask"; id: string; askId: string; results: AgentAskAnswer[] };
+  // The phone answered a pending ask (askId is the ask.request id), or cancelled it (cancel: true).
+  | { t: "ask"; id: string; askId: string; results?: AgentAskAnswer[]; cancel?: boolean };
 
 /** Thinking selectors a model accepts; "off" applies to any model, the rest come from its catalog entry. */
 function thinkingLevelsFor(model: Model): ThinkingLevel[] {
@@ -693,7 +693,13 @@ export default function relayBridge(pi: ExtensionAPI): void {
         const pending = pendingAsks.get(frame.askId);
         if (pending === undefined) throw new Error(`ask ${frame.askId} already resolved`);
         pendingAsks.delete(frame.askId);
-        const results: ExtensionAskDialogResultItem[] = frame.results.map((answer) => {
+        if (frame.cancel === true) {
+          // Cancelled from the phone: resolve the blocked dialog as undefined (omp treats it as no answer).
+          pending.resolve(undefined);
+          return undefined;
+        }
+        const answers = frame.results ?? [];
+        const results: ExtensionAskDialogResultItem[] = answers.map((answer) => {
           const question = pending.questions.find((candidate) => candidate.id === answer.id);
           const item: ExtensionAskDialogResultItem = {
             id: answer.id,
