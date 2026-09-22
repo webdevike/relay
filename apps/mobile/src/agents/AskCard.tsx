@@ -101,51 +101,53 @@ function Question({
 }
 
 /**
- * A pending `ask` from omp, answered from the phone. Each question keeps its own selection; a
- * single-select question holds one option, a multi-select toggles. Submit stays disabled until
- * every question has at least one selection, then hands back the chosen labels per question.
+ * A pending `ask` from omp, answered from the phone as a paginated stepper: one question at a
+ * time. Picking a single-select answer auto-advances to the next question; multi-select waits for
+ * Next. Back revisits earlier answers, which are kept until Submit hands back the labels per question.
  */
 export function AskCard({ ask, onSubmit }: AskCardProps) {
   const [selections, setSelections] = useState<Record<string, string[]>>({});
-  const complete = ask.questions.every((question) => (selections[question.id]?.length ?? 0) > 0);
+  const [step, setStep] = useState(0);
+  const total = ask.questions.length;
+  const question = ask.questions[Math.min(step, total - 1)];
+  if (question === undefined) return null;
+  const multi = question.multi === true;
+  const current = selections[question.id] ?? [];
+  const isLast = step >= total - 1;
+  const complete = ask.questions.every((q) => (selections[q.id]?.length ?? 0) > 0);
 
-  const onToggle = (question: AgentAskQuestion, label: string): void => {
-    setSelections((prev) => ({
-      ...prev,
-      [question.id]: toggle(prev[question.id] ?? [], label, question.multi === true),
-    }));
+  const onToggle = (label: string): void => {
+    // Single-select holds exactly one option and steps forward; multi-select toggles and waits.
+    setSelections((prev) => ({ ...prev, [question.id]: multi ? toggle(prev[question.id] ?? [], label, true) : [label] }));
+    if (!multi && !isLast) setTimeout(() => setStep((s) => Math.min(s + 1, total - 1)), 180);
+  };
+
+  const submit = (): void => {
+    onSubmit(ask.questions.map((q) => ({ id: q.id, selectedOptions: selections[q.id] ?? [] })));
   };
 
   return (
     <View style={styles.card}>
-      <ScrollView
-        contentContainerStyle={{ gap: spacing.lg, padding: spacing.lg }}
-        showsVerticalScrollIndicator={false}
-      >
-        {ask.questions.map((question) => (
-          <Question
-            key={question.id}
-            question={question}
-            selected={selections[question.id] ?? []}
-            onToggle={(label) => {
-              onToggle(question, label);
-            }}
-          />
-        ))}
+      {total > 1 && (
+        <View style={styles.progress}>
+          {ask.questions.map((q, i) => (
+            <View key={q.id} style={[styles.dot, i === step ? styles.dotActive : (selections[q.id]?.length ?? 0) > 0 ? styles.dotDone : null]} />
+          ))}
+          <Text variant="caption" color="textFaint" style={{ marginLeft: spacing.sm }}>
+            {step + 1} / {total}
+          </Text>
+        </View>
+      )}
+      <ScrollView contentContainerStyle={{ gap: spacing.lg, padding: spacing.lg }} showsVerticalScrollIndicator={false}>
+        <Question question={question} selected={current} onToggle={onToggle} />
       </ScrollView>
       <View style={styles.footer}>
-        <Button
-          label="Submit"
-          disabled={!complete}
-          onPress={() => {
-            onSubmit(
-              ask.questions.map((question) => ({
-                id: question.id,
-                selectedOptions: selections[question.id] ?? [],
-              })),
-            );
-          }}
-        />
+        <Button label="Back" variant="ghost" disabled={step === 0} onPress={() => setStep((s) => Math.max(0, s - 1))} />
+        {isLast ? (
+          <Button label="Submit" disabled={!complete} onPress={submit} />
+        ) : (
+          <Button label="Next" disabled={current.length === 0} onPress={() => setStep((s) => Math.min(s + 1, total - 1))} />
+        )}
       </View>
     </View>
   );
@@ -160,7 +162,25 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     maxHeight: 360,
   },
+  progress: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: spacing.xs,
+    backgroundColor: colors.hairline,
+  },
+  dotActive: { backgroundColor: colors.accent },
+  dotDone: { backgroundColor: colors.textFaint },
   footer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: spacing.md,
     borderTopWidth: 1,
     borderTopColor: colors.hairline,
     padding: spacing.md,
