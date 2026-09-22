@@ -45,8 +45,11 @@ function Stat({ spec }: { spec: StatSpec }) {
 
 function Chart({ spec }: { spec: ChartSpec }) {
   const [width, setWidth] = useState(0);
-  const max = Math.max(1, ...spec.series.flatMap((s) => s.points));
-  const labelCount = Math.max(...spec.series.map((s) => s.points.length));
+  const groups = Math.max(...spec.series.map((s) => s.points.length));
+  const stacked = spec.kind === "bar" && spec.stacked === true;
+  const max = stacked
+    ? Math.max(1, ...Array.from({ length: groups }, (_, g) => spec.series.reduce((sum, s) => sum + (s.points[g] ?? 0), 0)))
+    : Math.max(1, ...spec.series.flatMap((s) => s.points));
 
   return (
     <View style={{ gap: spacing.sm }}>
@@ -54,7 +57,7 @@ function Chart({ spec }: { spec: ChartSpec }) {
       <View style={{ height: CHART_HEIGHT }} onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
         {width > 0 && (spec.kind === "bar" ? <Bars spec={spec} width={width} max={max} /> : <Lines spec={spec} width={width} max={max} />)}
       </View>
-      {spec.labels !== undefined && <AxisLabels labels={spec.labels} count={labelCount} width={width} />}
+      {spec.labels !== undefined && <AxisLabels labels={spec.labels} count={groups} width={width} />}
       {spec.series.length > 1 && <Legend spec={spec} />}
     </View>
   );
@@ -62,25 +65,28 @@ function Chart({ spec }: { spec: ChartSpec }) {
 
 function Bars({ spec, width, max }: { spec: ChartSpec; width: number; max: number }) {
   const sk = loadSkia();
+  const stacked = spec.stacked === true;
   const groups = Math.max(...spec.series.map((s) => s.points.length));
   const groupWidth = width / groups;
-  const barWidth = (groupWidth * 0.7) / spec.series.length;
   const gap = groupWidth * 0.15;
+  const barWidth = stacked ? groupWidth * 0.7 : (groupWidth * 0.7) / spec.series.length;
 
+  const cum = new Array<number>(groups).fill(0);
   const rects = spec.series.flatMap((s, si) =>
-    s.points.map((v, gi) => ({
-      x: gi * groupWidth + gap + si * barWidth,
-      y: CHART_HEIGHT - (v / max) * CHART_HEIGHT,
-      h: (v / max) * CHART_HEIGHT,
-      color: seriesColor(si, s.color),
-    })),
+    s.points.map((v, gi) => {
+      const h = (v / max) * CHART_HEIGHT;
+      const x = stacked ? gi * groupWidth + gap : gi * groupWidth + gap + si * barWidth;
+      const y = stacked ? CHART_HEIGHT - cum[gi]! - h : CHART_HEIGHT - h;
+      cum[gi]! += stacked ? h : 0;
+      return { x, y, h, color: seriesColor(si, s.color) };
+    }),
   );
 
   if (sk === null) {
     return (
-      <View style={{ flex: 1, flexDirection: "row", alignItems: "flex-end" }}>
+      <View style={{ flex: 1 }}>
         {rects.map((r, i) => (
-          <View key={i} style={{ position: "absolute", left: r.x, bottom: 0, width: barWidth, height: r.h, backgroundColor: r.color, borderRadius: 2 }} />
+          <View key={i} style={{ position: "absolute", left: r.x, top: r.y, width: barWidth, height: r.h, backgroundColor: r.color, borderRadius: 2 }} />
         ))}
       </View>
     );

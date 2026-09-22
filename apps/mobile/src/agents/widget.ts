@@ -15,6 +15,7 @@ const Series = z.object({
 const Chart = z.object({
   widget: z.literal("chart"),
   kind: z.enum(["bar", "line"]),
+  stacked: z.boolean().optional(),
   title: z.string().optional(),
   labels: z.array(z.string()).optional(),
   series: z.array(Series).min(1),
