@@ -95,6 +95,16 @@ export function parseInline(text: string, style: Style = {}): Inline[] {
       }
     }
 
+    if ((c === "h" || c === "H" || c === "w" || c === "W") && style.href === undefined) {
+      const url = matchAutolink(text, i);
+      if (url) {
+        flush();
+        out.push({ text: url.text, ...style, href: url.href });
+        i = url.end;
+        continue;
+      }
+    }
+
     for (const e of EMPHASIS) {
       if (!text.startsWith(e.marker, i)) continue;
       if (e.word && /\w/.test(text[i - 1] ?? "")) continue;
@@ -128,6 +138,24 @@ function matchLink(text: string, at: number): { label: string; href: string; end
   const href = text.slice(close + 2, paren).trim();
   if (label.includes("\n") || href.includes("\n") || href.length === 0) return null;
   return { label, href, end: paren + 1 };
+}
+
+const AUTOLINK = /^(?:https?:\/\/|www\.)[^\s<>()[\]{}]+(?:\([^\s<>()]*\))?[^\s<>()[\]{}]*/i;
+
+/**
+ * Matches a bare URL at `at` when it sits on a word boundary. Trailing sentence
+ * punctuation is excluded from the link; a `www.` host gets an https scheme.
+ */
+function matchAutolink(text: string, at: number): { text: string; href: string; end: number } | null {
+  const prev = text[at - 1];
+  if (prev !== undefined && /[\w/@.:-]/.test(prev)) return null;
+  const m = AUTOLINK.exec(text.slice(at));
+  if (!m) return null;
+  let raw = m[0];
+  while (raw.length > 0 && /[.,;:!?'"]/.test(raw[raw.length - 1])) raw = raw.slice(0, -1);
+  if (raw.length < 4) return null;
+  const href = /^www\./i.test(raw) ? `https://${raw}` : raw;
+  return { text: raw, href, end: at + raw.length };
 }
 
 /** Block-level parse of a whole message. */

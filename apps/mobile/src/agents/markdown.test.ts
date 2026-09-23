@@ -39,6 +39,37 @@ describe("parseInline", () => {
     ]);
   });
 
+  it("autolinks a bare https URL", () => {
+    expect(parseInline("go to https://www.amazon.com/dp/B0D4BZHKJM now")).toEqual([
+      { text: "go to " },
+      { text: "https://www.amazon.com/dp/B0D4BZHKJM", href: "https://www.amazon.com/dp/B0D4BZHKJM" },
+      { text: " now" },
+    ]);
+  });
+
+  it("keeps trailing sentence punctuation out of an autolink", () => {
+    expect(parseInline("see https://x.dev/1.")).toEqual([
+      { text: "see " },
+      { text: "https://x.dev/1", href: "https://x.dev/1" },
+      { text: "." },
+    ]);
+  });
+
+  it("adds an https scheme to a bare www host", () => {
+    expect(parseInline("visit www.example.com")).toEqual([
+      { text: "visit " },
+      { text: "www.example.com", href: "https://www.example.com" },
+    ]);
+  });
+
+  it("does not autolink inside a markdown link href", () => {
+    expect(parseInline("[site](https://x.dev)")).toEqual([{ text: "site", href: "https://x.dev" }]);
+  });
+
+  it("leaves a scheme-less word untouched", () => {
+    expect(parseInline("the whole thing works")).toEqual([{ text: "the whole thing works" }]);
+  });
+
   it("leaves unbalanced or empty markers literal", () => {
     expect(parseInline("a ` b")).toEqual([{ text: "a ` b" }]);
     expect(parseInline("2 * 3 * 4")).toEqual([{ text: "2 * 3 * 4" }]);
