@@ -20,7 +20,7 @@ import { ClipboardPaster, systemCopy } from "./input/paste";
 import type { EventPoster } from "./input/poster";
 import { TrackpadInputSink } from "./input/trackpad";
 import { UinputDevice } from "./input/uinput";
-import { AvahiAdvertiser } from "./mdns";
+import { BonjourAdvertiser } from "./mdns";
 import { TerminalPairingUI } from "./pairing";
 import { ExpoPushSender } from "./push/expo";
 import { AttentionNotifier } from "./push/notifier";
@@ -156,9 +156,9 @@ function serve(
       : `agent.start opens omp in ${agentHome}`,
   );
 
-  const advertiser = new AvahiAdvertiser(name, boundPort, log);
+  const advertiser = new BonjourAdvertiser(name, boundPort, log);
   advertiser.start();
-  log("advertising _relay._tcp via avahi");
+  log(`advertising _relay._tcp via ${advertiser.tool}`);
 
   clipboard?.start();
   log(
