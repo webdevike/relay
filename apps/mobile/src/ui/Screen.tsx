@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { StyleSheet, View } from "react-native";
+import { ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Text } from "./Text";
 import { colors, spacing } from "@/theme";
@@ -8,10 +8,11 @@ export interface ScreenProps {
   title?: string;
   headerRight?: ReactNode;
   children: ReactNode;
-  scrollPadding?: boolean;
+  /** Body scrolls under a fixed header; for screens whose content can outgrow the viewport. */
+  scroll?: boolean;
 }
 
-export function Screen({ title, headerRight, children }: ScreenProps) {
+export function Screen({ title, headerRight, children, scroll = false }: ScreenProps) {
   return (
     <SafeAreaView style={styles.root} edges={["top", "bottom"]}>
       {(title !== undefined || headerRight !== undefined) && (
@@ -24,7 +25,18 @@ export function Screen({ title, headerRight, children }: ScreenProps) {
           {headerRight}
         </View>
       )}
-      <View style={styles.body}>{children}</View>
+      {scroll ? (
+        <ScrollView
+          style={styles.body}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+          automaticallyAdjustKeyboardInsets
+        >
+          {children}
+        </ScrollView>
+      ) : (
+        <View style={styles.body}>{children}</View>
+      )}
     </SafeAreaView>
   );
 }
