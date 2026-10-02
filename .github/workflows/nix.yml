@@ -1,0 +1,64 @@
+name: nix
+
+on:
+  push:
+    paths: ["flake.*", "nix/**", "apps/linux/**", "packages/protocol/**", ".github/workflows/nix.yml"]
+  pull_request:
+    paths: ["flake.*", "nix/**", "apps/linux/**", "packages/protocol/**", ".github/workflows/nix.yml"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - name: Lock
+        run: nix flake lock && cat flake.lock
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flake.lock
+          path: flake.lock
+      - name: Build
+        run: nix build .#relay-linux --print-build-logs
+      - name: Smoke (daemon starts and accepts WebSocket upgrades)
+        run: |
+          export XDG_CONFIG_HOME=$RUNNER_TEMP/cfg XDG_RUNTIME_DIR=$RUNNER_TEMP/run
+          mkdir -p $XDG_RUNTIME_DIR
+          ./result/bin/relay-linux serve --port 7817 --no-clipboard > daemon.log 2>&1 &
+          for _ in $(seq 30); do grep -q "listening on" daemon.log && break; sleep 1; done
+          cat daemon.log
+          grep -q "listening on ws://0.0.0.0:7817/relay" daemon.log
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
+            -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+            --max-time 3 http://127.0.0.1:7817/relay || true)
+          echo "upgrade status: $code"
+          test "$code" = 101
+          ./result/bin/relay-linux devices
+          test -f result/share/relay-linux/omp-extension/relay-bridge.ts
+      - name: NixOS module evaluates
+        run: |
+          nix eval --impure --raw --expr '
+            let
+              flake = builtins.getFlake (toString ./.);
+              sys = flake.inputs.nixpkgs.lib.nixosSystem {
+                system = "x86_64-linux";
+                modules = [
+                  flake.nixosModules.default
+                  {
+                    services.relay-linux = { enable = true; users = [ "alice" ]; };
+                    users.users.alice = { isNormalUser = true; };
+                    fileSystems."/" = { device = "none"; fsType = "tmpfs"; };
+                    boot.loader.grub.enable = false;
+                    system.stateVersion = "26.05";
+                  }
+                ];
+              };
+              c = sys.config;
+            in
+            builtins.concatStringsSep "\n" [
+              c.systemd.user.services.relay-linux.serviceConfig.ExecStart
+              (toString c.users.users.alice.extraGroups)
+              (toString c.networking.firewall.allowedTCPPorts)
+              c.services.udev.extraRules
+              c.system.build.toplevel.drvPath
+            ]'
