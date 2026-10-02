@@ -23,6 +23,14 @@ describe("parseWidget", () => {
     });
   });
 
+  it("parses tickets, degrading a bad stateType and url instead of rejecting the card", () => {
+    expect(
+      parseWidget('{"widget":"tickets","tickets":[{"id":"ENG-1","title":"T","summary":"S","state":"Doing","stateType":"wip","url":"not a url"}]}'),
+    ).toEqual({ widget: "tickets", tickets: [{ id: "ENG-1", title: "T", summary: "S", state: "Doing" }] });
+    expect(parseWidget('{"widget":"tickets","tickets":[]}')).toBeNull();
+    expect(parseWidget('{"widget":"tickets","tickets":[{"id":"ENG-1","title":"T"}]}')).toBeNull();
+  });
+
   it("rejects unknown widgets, bad JSON, empty series, and non-finite points", () => {
     expect(parseWidget('{"widget":"mystery"}')).toBeNull();
     expect(parseWidget("{not json")).toBeNull();

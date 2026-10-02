@@ -24,6 +24,14 @@ src/input/keyboard.ts  Named keys via uinput; text via wtype (Wayland) or a US-l
 - Wayland: `wtype` for Unicode text. Without it (or on X11) text falls back to uinput with a US
   layout and non-ASCII characters are refused with `invalid_command`.
 
+### macOS (Agent Inbox only)
+
+The same daemon runs on macOS for omp sessions: Bonjour goes through the system mDNSResponder
+(`dns-sd -R`, built in), the agent socket is `/tmp/relay-agents.sock`, and the extension above
+installs the same way. There is no `/dev/uinput`, so the phone connects with
+`accessibilityGranted: false` (trackpad and keyboard refused; that is the Swift app in `apps/mac`),
+the clipboard watcher is off (no `wl-paste`), and `agent.start` fails (no Herdr).
+
 ## Run
 
 ```

@@ -7,7 +7,7 @@
 // Layout constants are x86_64 / aarch64 Linux (both have a 24-byte `input_event`: two 64-bit
 // timeval fields, u16 type, u16 code, s32 value).
 
-import { dlopen, FFIType, ptr } from "bun:ffi";
+import { dlopen, FFIType, ptr, type Library, type Pointer } from "bun:ffi";
 import { closeSync, constants, openSync, writeSync } from "node:fs";
 import type { EventPoster, MouseButton } from "./poster";
 
@@ -44,9 +44,20 @@ const UINPUT_MAX_NAME_SIZE = 80;
 const PIXELS_PER_NOTCH = 24;
 const HI_RES_PER_NOTCH = 120;
 
-const libc = dlopen("libc.so.6", {
+const LIBC_SYMBOLS = {
   ioctl: { args: [FFIType.i32, FFIType.u64, FFIType.u64], returns: FFIType.i32 },
-});
+} as const;
+let libc: Library<typeof LIBC_SYMBOLS> | undefined;
+
+/**
+ * libc `ioctl`, loaded on first call rather than at import: on hosts without glibc (macOS) the
+ * constructor's open of /dev/uinput fails first and the daemon runs without input, so importing
+ * this module must not throw.
+ */
+function ioctl(fd: number, request: number, arg: number | Pointer): number {
+  libc ??= dlopen("libc.so.6", LIBC_SYMBOLS);
+  return libc.symbols.ioctl(fd, request, arg);
+}
 
 const BUTTON_CODE: Record<MouseButton, number> = { left: BTN_LEFT, right: BTN_RIGHT };
 
@@ -78,8 +89,8 @@ export class UinputDevice implements EventPoster {
       setup.writeUInt16LE(0x0104, 4); // product
       setup.writeUInt16LE(1, 6); // version
       setup.write(name.slice(0, UINPUT_MAX_NAME_SIZE - 1), 8, "utf8");
-      if (libc.symbols.ioctl(fd, UI_DEV_SETUP, ptr(setup)) < 0) throw new Error("UI_DEV_SETUP failed");
-      if (libc.symbols.ioctl(fd, UI_DEV_CREATE, 0) < 0) throw new Error("UI_DEV_CREATE failed");
+      if (ioctl(fd, UI_DEV_SETUP, ptr(setup)) < 0) throw new Error("UI_DEV_SETUP failed");
+      if (ioctl(fd, UI_DEV_CREATE, 0) < 0) throw new Error("UI_DEV_CREATE failed");
     } catch (error) {
       closeSync(fd);
       throw error;
@@ -144,12 +155,12 @@ export class UinputDevice implements EventPoster {
   }
 
   close(): void {
-    libc.symbols.ioctl(this.fd, UI_DEV_DESTROY, 0);
+    ioctl(this.fd, UI_DEV_DESTROY, 0);
     closeSync(this.fd);
   }
 
   private enable(fd: number, request: number, code: number): void {
-    if (libc.symbols.ioctl(fd, request, code) < 0) {
+    if (ioctl(fd, request, code) < 0) {
       throw new Error(`ioctl 0x${request.toString(16)} (${code}) failed on /dev/uinput`);
     }
   }

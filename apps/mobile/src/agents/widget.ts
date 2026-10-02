@@ -33,11 +33,33 @@ const Stat = z.object({
     .optional(),
 });
 
-const Widget = z.discriminatedUnion("widget", [Chart, Stat]);
+/** One ticket card. `stateType` mirrors Linear's workflow-state type and only picks the pill tone;
+ * an unknown value degrades to neutral rather than rejecting the whole carousel. */
+const Ticket = z.object({
+  id: z.string(),
+  title: z.string(),
+  summary: z.string(),
+  state: z.string().optional(),
+  stateType: z.enum(["triage", "backlog", "unstarted", "started", "completed", "canceled"]).optional().catch(undefined),
+  priority: z.string().optional(),
+  assignee: z.string().optional(),
+  updated: z.string().optional(),
+  url: z.string().url().optional().catch(undefined),
+});
+
+const Tickets = z.object({
+  widget: z.literal("tickets"),
+  title: z.string().optional(),
+  tickets: z.array(Ticket).min(1),
+});
+
+const Widget = z.discriminatedUnion("widget", [Chart, Stat, Tickets]);
 
 export type Series = z.infer<typeof Series>;
 export type ChartSpec = z.infer<typeof Chart>;
 export type StatSpec = z.infer<typeof Stat>;
+export type TicketSpec = z.infer<typeof Ticket>;
+export type TicketsSpec = z.infer<typeof Tickets>;
 export type WidgetSpec = z.infer<typeof Widget>;
 
 /** Parses and validates a ```ui payload. Returns null on any malformed field so the transcript

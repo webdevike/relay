@@ -196,7 +196,7 @@ export default function Settings() {
   const settings = useSettingsStore();
 
   return (
-    <Screen title="Settings">
+    <Screen title="Settings" scroll>
       <Separator />
       <Row
         title={macName ?? "No Mac paired"}
