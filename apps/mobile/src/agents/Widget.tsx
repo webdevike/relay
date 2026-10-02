@@ -3,12 +3,15 @@
  * execution. Charts draw on Skia (already in the app) with a plain-View fallback when the
  * native module is absent. Deterministic and instant: the agent writes the spec, this paints it.
  */
-import { useState } from "react";
-import { View } from "react-native";
+import { useRef, useState } from "react";
+import { Linking, Pressable, ScrollView, View } from "react-native";
+import { SymbolView } from "expo-symbols";
 import { loadSkia } from "@/dictation/skia";
-import { colors, radii, spacing, type } from "@/theme";
+import { tapHaptic } from "@/lib/haptics";
+import { colors, radii, spacing, tabularNumbers, type } from "@/theme";
+import { Pill, type PillProps } from "@/ui/Pill";
 import { Text } from "@/ui/Text";
-import type { ChartSpec, StatSpec, WidgetSpec } from "./widget";
+import type { ChartSpec, StatSpec, TicketSpec, TicketsSpec, WidgetSpec } from "./widget";
 
 const CHART_HEIGHT = 140;
 const PALETTE = [colors.accent, colors.ok, colors.warn, colors.danger];
@@ -17,7 +20,115 @@ const seriesColor = (index: number, color?: string): string => color ?? PALETTE[
 export function Widget({ spec }: { spec: WidgetSpec }) {
   return (
     <View style={{ borderWidth: 1, borderColor: colors.hairline, borderRadius: radii.md, padding: spacing.md, gap: spacing.sm }}>
-      {spec.widget === "chart" ? <Chart spec={spec} /> : <Stat spec={spec} />}
+      {spec.widget === "chart" ? <Chart spec={spec} /> : spec.widget === "stat" ? <Stat spec={spec} /> : <Tickets spec={spec} />}
+    </View>
+  );
+}
+
+const stateTone: Record<NonNullable<TicketSpec["stateType"]>, NonNullable<PillProps["tone"]>> = {
+  triage: "warn",
+  backlog: "textMuted",
+  unstarted: "textMuted",
+  started: "accent",
+  completed: "ok",
+  canceled: "danger",
+};
+
+/** Paged ticket summaries: swipe or tap the chevrons to move one card at a time. Pages are sized
+ * to the measured width so snapping lands exactly on each card. */
+function Tickets({ spec }: { spec: TicketsSpec }) {
+  const scroller = useRef<ScrollView>(null);
+  const [width, setWidth] = useState(0);
+  const [page, setPage] = useState(0);
+  const count = spec.tickets.length;
+
+  const go = (next: number) => {
+    const clamped = Math.max(0, Math.min(count - 1, next));
+    if (clamped === page) return;
+    tapHaptic();
+    setPage(clamped);
+    scroller.current?.scrollTo({ x: clamped * width, animated: true });
+  };
+
+  return (
+    <View style={{ gap: spacing.sm }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+        <Text variant="label" style={{ flex: 1 }} numberOfLines={1}>
+          {spec.title ?? "Tickets"}
+        </Text>
+        <Chevron symbol="chevron.left" disabled={page === 0} onPress={() => go(page - 1)} />
+        <Text variant="caption" color="textMuted" style={tabularNumbers}>
+          {page + 1} / {count}
+        </Text>
+        <Chevron symbol="chevron.right" disabled={page === count - 1} onPress={() => go(page + 1)} />
+      </View>
+      <View onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
+        {width > 0 && (
+          <ScrollView
+            ref={scroller}
+            horizontal
+            pagingEnabled
+            nestedScrollEnabled
+            showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={(e) => setPage(Math.round(e.nativeEvent.contentOffset.x / width))}
+          >
+            {spec.tickets.map((ticket, i) => (
+              <View key={`${ticket.id}-${i}`} style={{ width }}>
+                <TicketCard ticket={ticket} />
+              </View>
+            ))}
+          </ScrollView>
+        )}
+      </View>
+      {count > 1 && count <= 20 && (
+        <View style={{ flexDirection: "row", justifyContent: "center", gap: spacing.xs }}>
+          {spec.tickets.map((ticket, i) => (
+            <View
+              key={`${ticket.id}-${i}`}
+              style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: i === page ? colors.accent : colors.hairline }}
+            />
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+function Chevron({ symbol, disabled, onPress }: { symbol: "chevron.left" | "chevron.right"; disabled: boolean; onPress: () => void }) {
+  return (
+    <Pressable hitSlop={10} disabled={disabled} onPress={onPress} style={({ pressed }) => ({ opacity: disabled ? 0.3 : pressed ? 0.6 : 1 })}>
+      <SymbolView name={symbol} size={14} tintColor={colors.textMuted} />
+    </Pressable>
+  );
+}
+
+function TicketCard({ ticket }: { ticket: TicketSpec }) {
+  const meta = [ticket.priority, ticket.assignee, ticket.updated].filter((part): part is string => part !== undefined && part !== "");
+  const url = ticket.url;
+  return (
+    <View style={{ gap: spacing.sm, paddingRight: spacing.xs }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+        <Text variant="caption" color="textMuted" style={tabularNumbers}>
+          {ticket.id}
+        </Text>
+        {ticket.state !== undefined && <Pill label={ticket.state} tone={ticket.stateType === undefined ? "textMuted" : stateTone[ticket.stateType]} />}
+      </View>
+      <Text variant="title">{ticket.title}</Text>
+      <Text variant="body" color="textMuted">
+        {ticket.summary}
+      </Text>
+      {meta.length > 0 && (
+        <Text variant="caption" color="textFaint">
+          {meta.join(" · ")}
+        </Text>
+      )}
+      {url !== undefined && (
+        <Pressable hitSlop={8} onPress={() => void Linking.openURL(url)} style={{ alignSelf: "flex-start" }}>
+          <Text variant="caption" color="accent">
+            Open in Linear ↗
+          </Text>
+        </Pressable>
+      )}
     </View>
   );
 }
