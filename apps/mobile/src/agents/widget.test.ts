@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseBlocks } from "./markdown";
-import { parseWidget } from "./widget";
+import { MAX_CHILDREN, MAX_DEPTH, parseWidget } from "./widget";
 
 describe("parseWidget", () => {
   it("parses a chart spec", () => {
@@ -52,6 +52,39 @@ describe("parseWidget", () => {
     });
     expect(parseWidget('{"widget":"audio","src":"/tmp/x.wav"}')).toBeNull();
     expect(parseWidget('{"widget":"audio"}')).toBeNull();
+  });
+
+  it("parses nested containers and degrades bad style/tone/direction instead of rejecting", () => {
+    const spec = parseWidget(
+      JSON.stringify({
+        widget: "card",
+        title: "Brief",
+        children: [
+          { widget: "text", text: "Hi", style: "shouty" },
+          { widget: "stack", direction: "diagonal", children: [{ widget: "badge", label: "Live", tone: "neon" }, { widget: "divider" }] },
+          { widget: "rows", rows: [{ label: "PRs", value: "3", tone: "ok" }] },
+        ],
+      }),
+    );
+    expect(spec).toEqual({
+      widget: "card",
+      title: "Brief",
+      children: [
+        { widget: "text", text: "Hi" },
+        { widget: "stack", children: [{ widget: "badge", label: "Live" }, { widget: "divider" }] },
+        { widget: "rows", rows: [{ label: "PRs", value: "3", tone: "ok" }] },
+      ],
+    });
+  });
+
+  it("rejects the whole tree for a bad child, an empty container, or nesting past the depth limit", () => {
+    const nest = (depth: number): object =>
+      depth === 0 ? { widget: "divider" } : { widget: "stack", children: [nest(depth - 1)] };
+    expect(parseWidget(JSON.stringify(nest(MAX_DEPTH)))).not.toBeNull();
+    expect(parseWidget(JSON.stringify(nest(MAX_DEPTH + 1)))).toBeNull();
+    expect(parseWidget('{"widget":"stack","children":[]}')).toBeNull();
+    expect(parseWidget('{"widget":"stack","children":[{"widget":"stat","label":"x"}]}')).toBeNull();
+    expect(parseWidget(JSON.stringify({ widget: "stack", children: Array(MAX_CHILDREN + 1).fill({ widget: "divider" }) }))).toBeNull();
   });
 
   it("rejects unknown widgets, bad JSON, empty series, and non-finite points", () => {

@@ -77,7 +77,92 @@ const Audio = z.object({
   src: MediaSrc,
 });
 
-const Widget = z.discriminatedUnion("widget", [Chart, Stat, Tickets, Compare, Audio]);
+/** A line of text. `style` picks the type scale; an unknown style degrades to body. */
+const TextNode = z.object({
+  widget: z.literal("text"),
+  text: z.string().min(1),
+  style: z.enum(["heading", "body", "caption", "muted"]).optional().catch(undefined),
+});
+
+/** Tones shared by badges and row values; an unknown tone degrades to neutral. */
+const Tone = z.enum(["accent", "ok", "warn", "danger", "muted"]).optional().catch(undefined);
+
+/** Label/value pairs on hairline dividers: summaries, checks, key facts. */
+const Rows = z.object({
+  widget: z.literal("rows"),
+  rows: z.array(z.object({ label: z.string(), value: z.string(), tone: Tone })).min(1),
+});
+
+const Badge = z.object({
+  widget: z.literal("badge"),
+  label: z.string().min(1),
+  tone: Tone,
+});
+
+const Divider = z.object({ widget: z.literal("divider") });
+
+/** Most children a container takes and deepest containers nest; past either, the whole spec
+ * falls back to code rather than rendering something unbounded. */
+export const MAX_CHILDREN = 24;
+export const MAX_DEPTH = 4;
+
+type Leaf =
+  | z.infer<typeof Chart>
+  | z.infer<typeof Stat>
+  | z.infer<typeof Tickets>
+  | z.infer<typeof Compare>
+  | z.infer<typeof Audio>
+  | z.infer<typeof TextNode>
+  | z.infer<typeof Rows>
+  | z.infer<typeof Badge>
+  | z.infer<typeof Divider>;
+
+/** Lays children out in a column (default) or a row of equal-width columns. */
+export interface StackSpec {
+  widget: "stack";
+  direction?: "vertical" | "horizontal" | undefined;
+  gap?: "xs" | "sm" | "md" | "lg" | undefined;
+  children: WidgetSpec[];
+}
+
+/** Groups children inside a hairline border, with an optional heading. */
+export interface CardSpec {
+  widget: "card";
+  title?: string | undefined;
+  children: WidgetSpec[];
+}
+
+export type WidgetSpec = Leaf | StackSpec | CardSpec;
+
+// Input is `unknown`: the `.catch` fields accept shapes the output type doesn't.
+const Children: z.ZodType<WidgetSpec[], z.ZodTypeDef, unknown> = z.lazy(() => z.array(Node).min(1).max(MAX_CHILDREN));
+
+const Stack = z.object({
+  widget: z.literal("stack"),
+  direction: z.enum(["vertical", "horizontal"]).optional().catch(undefined),
+  gap: z.enum(["xs", "sm", "md", "lg"]).optional().catch(undefined),
+  children: Children,
+});
+
+const Card = z.object({
+  widget: z.literal("card"),
+  title: z.string().optional(),
+  children: Children,
+});
+
+const Node: z.ZodType<WidgetSpec, z.ZodTypeDef, unknown> = z.discriminatedUnion("widget", [
+  Chart,
+  Stat,
+  Tickets,
+  Compare,
+  Audio,
+  TextNode,
+  Rows,
+  Badge,
+  Divider,
+  Stack,
+  Card,
+]);
 
 export type Series = z.infer<typeof Series>;
 export type ChartSpec = z.infer<typeof Chart>;
@@ -86,7 +171,20 @@ export type TicketSpec = z.infer<typeof Ticket>;
 export type TicketsSpec = z.infer<typeof Tickets>;
 export type CompareSpec = z.infer<typeof Compare>;
 export type AudioSpec = z.infer<typeof Audio>;
-export type WidgetSpec = z.infer<typeof Widget>;
+export type TextSpec = z.infer<typeof TextNode>;
+export type RowsSpec = z.infer<typeof Rows>;
+export type BadgeSpec = z.infer<typeof Badge>;
+export type Tone = NonNullable<z.infer<typeof Tone>>;
+
+/** Container nesting depth of raw JSON, checked before zod so a hostile spec can't recurse deep. */
+function containerDepth(node: unknown, limit: number): number {
+  if (typeof node !== "object" || node === null || !("children" in node) || !Array.isArray(node.children)) return 0;
+  const children: unknown[] = node.children;
+  if (limit <= 0) return 1;
+  let deepest = 0;
+  for (const child of children) deepest = Math.max(deepest, containerDepth(child, limit - 1));
+  return 1 + deepest;
+}
 
 /** Parses and validates a ```ui payload. Returns null on any malformed field so the transcript
  * can fall back to rendering the block as literal code. */
@@ -97,6 +195,7 @@ export function parseWidget(text: string): WidgetSpec | null {
   } catch {
     return null;
   }
-  const result = Widget.safeParse(raw);
+  if (containerDepth(raw, MAX_DEPTH) > MAX_DEPTH) return null;
+  const result = Node.safeParse(raw);
   return result.success ? result.data : null;
 }

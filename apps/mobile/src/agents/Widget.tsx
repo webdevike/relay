@@ -13,28 +13,127 @@ import { Pill, type PillProps } from "@/ui/Pill";
 import { Text } from "@/ui/Text";
 import { AudioPlayer } from "./AudioPlayer";
 import { CompareSlider } from "./CompareSlider";
-import type { ChartSpec, StatSpec, TicketSpec, TicketsSpec, WidgetSpec } from "./widget";
+import type { BadgeSpec, CardSpec, ChartSpec, RowsSpec, StackSpec, StatSpec, TextSpec, TicketSpec, TicketsSpec, Tone, WidgetSpec } from "./widget";
 
 const CHART_HEIGHT = 140;
 const PALETTE = [colors.accent, colors.ok, colors.warn, colors.danger];
 const seriesColor = (index: number, color?: string): string => color ?? PALETTE[index % PALETTE.length] ?? colors.accent;
 
+const FRAME = { borderWidth: 1, borderColor: colors.hairline, borderRadius: radii.md, padding: spacing.md, gap: spacing.sm } as const;
+
+/** Every widget sits in one hairline frame. A root card *is* that frame (no border inside a border);
+ * cards nested deeper draw their own. */
 export function Widget({ spec }: { spec: WidgetSpec }) {
+  return <View style={FRAME}>{spec.widget === "card" ? <CardBody spec={spec} /> : <Node spec={spec} />}</View>;
+}
+
+function Node({ spec }: { spec: WidgetSpec }) {
+  switch (spec.widget) {
+    case "chart":
+      return <Chart spec={spec} />;
+    case "stat":
+      return <Stat spec={spec} />;
+    case "tickets":
+      return <Tickets spec={spec} />;
+    case "compare":
+      return <CompareSlider spec={spec} />;
+    case "audio":
+      return <AudioPlayer spec={spec} />;
+    case "text":
+      return <TextBlock spec={spec} />;
+    case "rows":
+      return <Rows spec={spec} />;
+    case "badge":
+      return <Badge spec={spec} />;
+    case "divider":
+      return <View style={{ height: 1, backgroundColor: colors.hairline }} />;
+    case "stack":
+      return <Stack spec={spec} />;
+    case "card":
+      return (
+        <View style={FRAME}>
+          <CardBody spec={spec} />
+        </View>
+      );
+  }
+}
+
+/** Horizontal children share the width equally, so stats or badges line up as columns. */
+function Stack({ spec }: { spec: StackSpec }) {
+  const row = spec.direction === "horizontal";
   return (
-    <View style={{ borderWidth: 1, borderColor: colors.hairline, borderRadius: radii.md, padding: spacing.md, gap: spacing.sm }}>
-      {spec.widget === "chart" ? (
-        <Chart spec={spec} />
-      ) : spec.widget === "stat" ? (
-        <Stat spec={spec} />
-      ) : spec.widget === "compare" ? (
-        <CompareSlider spec={spec} />
-      ) : spec.widget === "audio" ? (
-        <AudioPlayer spec={spec} />
-      ) : (
-        <Tickets spec={spec} />
-      )}
+    <View style={{ flexDirection: row ? "row" : "column", gap: spacing[spec.gap ?? "sm"], alignItems: row ? "flex-start" : "stretch" }}>
+      {spec.children.map((child, i) => (
+        <View key={i} style={row ? { flex: 1, minWidth: 0 } : undefined}>
+          <Node spec={child} />
+        </View>
+      ))}
     </View>
   );
+}
+
+function CardBody({ spec }: { spec: CardSpec }) {
+  return (
+    <>
+      {spec.title !== undefined && <Text variant="label">{spec.title}</Text>}
+      {spec.children.map((child, i) => (
+        <Node key={i} spec={child} />
+      ))}
+    </>
+  );
+}
+
+const textStyle = {
+  heading: { variant: "title", color: "text" },
+  body: { variant: "body", color: "text" },
+  caption: { variant: "caption", color: "textMuted" },
+  muted: { variant: "body", color: "textMuted" },
+} as const;
+
+function TextBlock({ spec }: { spec: TextSpec }) {
+  const { variant, color } = textStyle[spec.style ?? "body"];
+  return (
+    <Text variant={variant} color={color}>
+      {spec.text}
+    </Text>
+  );
+}
+
+const toneColor = { accent: "accent", ok: "ok", warn: "warn", danger: "danger", muted: "textMuted" } as const satisfies Record<
+  Tone,
+  NonNullable<PillProps["tone"]>
+>;
+
+/** Label left, value right, hairline between rows. A toned value colors only the value. */
+function Rows({ spec }: { spec: RowsSpec }) {
+  return (
+    <View>
+      {spec.rows.map((row, i) => (
+        <View
+          key={i}
+          style={{
+            flexDirection: "row",
+            justifyContent: "space-between",
+            gap: spacing.md,
+            paddingVertical: spacing.sm,
+            borderTopWidth: i === 0 ? 0 : 1,
+            borderTopColor: colors.hairline,
+          }}
+        >
+          <Text variant="body" color="textMuted" style={{ flexShrink: 1 }}>
+            {row.label}
+          </Text>
+          <Text variant="body" color={row.tone === undefined ? "text" : toneColor[row.tone]} tabular style={{ flexShrink: 1, textAlign: "right" }}>
+            {row.value}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function Badge({ spec }: { spec: BadgeSpec }) {
+  return <Pill label={spec.label} tone={spec.tone === undefined ? "textMuted" : toneColor[spec.tone]} />;
 }
 
 const stateTone: Record<NonNullable<TicketSpec["stateType"]>, NonNullable<PillProps["tone"]>> = {

@@ -16,7 +16,10 @@ Emit a fenced block tagged `ui` whose body is a single JSON object. The Relay ph
 app renders it as a native widget; anywhere else it shows as a normal code block.
 Keep the JSON minimal and valid — a malformed spec silently falls back to code.
 
-Only five widgets exist today. Do not invent fields; unknown shapes do not render.
+Every spec is a node with a `widget` key. Nodes are either whole widgets (chart, stat,
+tickets, compare, audio), small blocks (text, rows, badge, divider), or containers
+(stack, card) whose `children` hold any other nodes. Do not invent fields or node types;
+one bad node anywhere rejects the whole tree.
 
 ## Chart
 
@@ -84,6 +87,23 @@ Inline player: play/pause, a progress bar Isaac taps to seek, elapsed/total time
 - Share the file first, same as compare: `cd ~/Code/relay/apps/linux && bun run src/main.ts share <path>` prints `shared file <id> /drops/<id>/<token>`; use that path as `src`. An absolute `https://` URL also works; local paths are rejected.
 - Formats AVPlayer streams: wav, m4a/aac, mp3. Generate speech with `pocket-tts generate --text "…" --voice eve --output-path /tmp/x.wav` (`eve` is Isaac's default voice).
 - `title`: optional heading.
+
+## Building blocks
+
+Compose anything from containers and small blocks. Any widget above can be a child.
+
+```ui
+{"widget":"card","title":"Morning brief","children":[{"widget":"stack","direction":"horizontal","children":[{"widget":"stat","label":"Open tickets","value":"12"},{"widget":"stat","label":"In review","value":"1"}]},{"widget":"divider"},{"widget":"rows","rows":[{"label":"ENG-5533","value":"In Review","tone":"accent"},{"label":"ENG-5514","value":"Waiting on QA","tone":"warn"}]},{"widget":"stack","direction":"horizontal","gap":"xs","children":[{"widget":"badge","label":"eCard","tone":"accent"},{"widget":"badge","label":"Dev green","tone":"ok"}]}]}
+```
+
+- `stack`: `children` (1–24), `direction` `"vertical"` (default) or `"horizontal"` (equal-width columns), `gap` `"xs" | "sm" | "md" | "lg"` (default `sm`).
+- `card`: `children`, optional `title`. A card at the root is the widget's frame; nested cards draw their own hairline border, so don't nest cards for decoration.
+- `text`: `text`, `style` `"heading" | "body" | "caption" | "muted"` (default body).
+- `rows`: label left, value right, hairline between: `rows: [{ label, value, tone? }]`.
+- `badge`: `label`, optional `tone`.
+- `divider`: a hairline.
+- `tone` (rows, badge): `"accent" | "ok" | "warn" | "danger" | "muted"`; unknown tones render neutral.
+- Limits: containers nest at most 4 deep, 24 children each; past either the spec falls back to code.
 
 ## When not to use
 
