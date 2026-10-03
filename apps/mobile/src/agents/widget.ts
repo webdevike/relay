@@ -101,6 +101,13 @@ const Badge = z.object({
 
 const Divider = z.object({ widget: z.literal("divider") });
 
+/** A unified diff (`git diff` output, one file) rendered with line numbers and tinted rows. */
+const Diff = z.object({
+  widget: z.literal("diff"),
+  file: z.string().optional(),
+  patch: z.string().min(1).max(50_000),
+});
+
 /** Most children a container takes and deepest containers nest; past either, the whole spec
  * falls back to code rather than rendering something unbounded. */
 export const MAX_CHILDREN = 24;
@@ -115,7 +122,8 @@ type Leaf =
   | z.infer<typeof TextNode>
   | z.infer<typeof Rows>
   | z.infer<typeof Badge>
-  | z.infer<typeof Divider>;
+  | z.infer<typeof Divider>
+  | z.infer<typeof Diff>;
 
 /** Lays children out in a column (default) or a row of equal-width columns. */
 export interface StackSpec {
@@ -160,6 +168,7 @@ const Node: z.ZodType<WidgetSpec, z.ZodTypeDef, unknown> = z.discriminatedUnion(
   Rows,
   Badge,
   Divider,
+  Diff,
   Stack,
   Card,
 ]);
@@ -174,6 +183,7 @@ export type AudioSpec = z.infer<typeof Audio>;
 export type TextSpec = z.infer<typeof TextNode>;
 export type RowsSpec = z.infer<typeof Rows>;
 export type BadgeSpec = z.infer<typeof Badge>;
+export type DiffSpec = z.infer<typeof Diff>;
 export type Tone = NonNullable<z.infer<typeof Tone>>;
 
 /** Container nesting depth of raw JSON, checked before zod so a hostile spec can't recurse deep. */
