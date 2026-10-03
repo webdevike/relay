@@ -15,7 +15,7 @@ import { tapHaptic } from "@/lib/haptics";
 import { colors, radii, spacing } from "@/theme";
 import { Text } from "@/ui/Text";
 
-/** Fence names the agents use that Prism knows under another id. */
+/** Fence names and file extensions the agents use that Prism knows under another id. */
 const aliases: Record<string, string> = {
   sh: "bash",
   shell: "bash",
@@ -35,7 +35,13 @@ const aliases: Record<string, string> = {
   plist: "markup",
 };
 
-const theme = themes.vsDark;
+/** A fence name or file extension to a loaded Prism grammar id; "text" when none is loaded. */
+export function prismLanguage(name: string | null): string {
+  const language = name === null ? "text" : (aliases[name] ?? name);
+  return language in Prism.languages ? language : "text";
+}
+
+export const codeTheme = themes.vsDark;
 const mono = Platform.select({ ios: "Menlo", default: "monospace" });
 const FONT_SIZE = 13;
 const LINE_HEIGHT = 18;
@@ -48,8 +54,7 @@ export interface CodeBlockProps {
 }
 
 export function CodeBlock({ code, lang }: CodeBlockProps) {
-  const language = lang === null ? "text" : (aliases[lang] ?? lang);
-  const known = language in Prism.languages;
+  const language = prismLanguage(lang);
   const [copied, setCopied] = useState(false);
 
   return (
@@ -85,7 +90,7 @@ export function CodeBlock({ code, lang }: CodeBlockProps) {
         </Pressable>
       </View>
       <ScrollView horizontal bounces={false} showsHorizontalScrollIndicator={false} contentContainerStyle={{ padding: spacing.md }}>
-        <Highlight code={code} language={known ? language : "text"} theme={theme}>
+        <Highlight code={code} language={language} theme={codeTheme}>
           {({ tokens, getTokenProps }) => (
             <RNText style={{ fontFamily: mono, fontSize: FONT_SIZE, lineHeight: LINE_HEIGHT, color: colors.text }} selectable>
               {tokens.map((line, i) => (
