@@ -1,10 +1,11 @@
 ---
 name: relay-widgets
 description: >
-  Render a native chart, stat card, or paged ticket carousel in the Relay phone app's
-  chat by emitting a ```ui fenced block whose body is a JSON widget spec. Use when a
-  reply is better shown as a bar/line chart, a headline metric, or a swipeable list of
-  ticket summaries (Linear issues, PRs) than as prose or a Markdown table. The Relay app
+  Render a native chart, stat card, paged ticket carousel, before/after image slider, or
+  audio player in the Relay phone app's chat by emitting a ```ui fenced block whose body
+  is a JSON widget spec. Use when a reply is better shown as a bar/line chart, a headline
+  metric, a swipeable list of ticket summaries (Linear issues, PRs), visual proof, or a
+  clip Isaac should hear (TTS output, recordings) than as prose or a Markdown table. The Relay app
   parses the block and draws it natively; in a plain terminal it degrades to a code
   block, so it is always safe to emit.
 ---
@@ -15,7 +16,7 @@ Emit a fenced block tagged `ui` whose body is a single JSON object. The Relay ph
 app renders it as a native widget; anywhere else it shows as a normal code block.
 Keep the JSON minimal and valid — a malformed spec silently falls back to code.
 
-Only four widgets exist today. Do not invent fields; unknown shapes do not render.
+Only five widgets exist today. Do not invent fields; unknown shapes do not render.
 
 ## Chart
 
@@ -71,6 +72,18 @@ Before/after image slider: both images in one frame, a divider Isaac drags (or t
 - Use two images with the same frame and size (e.g. `proof.ts` framed shots); the frame takes the after image's aspect ratio.
 - `label`: optional corner tags; default "Before" / "After".
 - Shared images also appear in the phone's Drops list (max 100, oldest roll off).
+
+## Audio
+
+Inline player: play/pause, a progress bar Isaac taps to seek, elapsed/total time. Plays even with the phone on silent.
+
+```ui
+{"widget":"audio","title":"Pocket TTS · alba","src":"/drops/<id>/<token>"}
+```
+
+- Share the file first, same as compare: `cd ~/Code/relay/apps/linux && bun run src/main.ts share <path>` prints `shared file <id> /drops/<id>/<token>`; use that path as `src`. An absolute `https://` URL also works; local paths are rejected.
+- Formats AVPlayer streams: wav, m4a/aac, mp3. Generate speech with `pocket-tts generate --text "…" --voice alba --output-path /tmp/x.wav`.
+- `title`: optional heading.
 
 ## When not to use
 

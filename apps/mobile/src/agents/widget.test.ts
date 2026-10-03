@@ -44,6 +44,16 @@ describe("parseWidget", () => {
     expect(spec("/drops/abc")).toBeNull();
   });
 
+  it("accepts audio only from host drop paths or http(s) URLs", () => {
+    expect(parseWidget('{"widget":"audio","title":"Voice","src":"/drops/abc/tok"}')).toEqual({
+      widget: "audio",
+      title: "Voice",
+      src: "/drops/abc/tok",
+    });
+    expect(parseWidget('{"widget":"audio","src":"/tmp/x.wav"}')).toBeNull();
+    expect(parseWidget('{"widget":"audio"}')).toBeNull();
+  });
+
   it("rejects unknown widgets, bad JSON, empty series, and non-finite points", () => {
     expect(parseWidget('{"widget":"mystery"}')).toBeNull();
     expect(parseWidget("{not json")).toBeNull();

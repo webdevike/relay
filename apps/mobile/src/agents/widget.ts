@@ -53,12 +53,12 @@ const Tickets = z.object({
   tickets: z.array(Ticket).min(1),
 });
 
-/** An image source: a host drop path (`/drops/<id>/<token>`, fetched from the connected host) or an
+/** A media source: a host drop path (`/drops/<id>/<token>`, fetched from the connected host) or an
  * absolute http(s) URL. Anything else (local file paths, data URIs) is rejected. */
-const ImageSrc = z.string().refine((s) => /^\/drops\/[^/]+\/[^/]+$/.test(s) || /^https?:\/\//.test(s));
+const MediaSrc = z.string().refine((s) => /^\/drops\/[^/]+\/[^/]+$/.test(s) || /^https?:\/\//.test(s));
 
 const CompareSide = z.object({
-  src: ImageSrc,
+  src: MediaSrc,
   label: z.string().optional(),
 });
 
@@ -70,7 +70,14 @@ const Compare = z.object({
   after: CompareSide,
 });
 
-const Widget = z.discriminatedUnion("widget", [Chart, Stat, Tickets, Compare]);
+/** Inline audio player: play/pause, a seekable progress bar, elapsed/total time. */
+const Audio = z.object({
+  widget: z.literal("audio"),
+  title: z.string().optional(),
+  src: MediaSrc,
+});
+
+const Widget = z.discriminatedUnion("widget", [Chart, Stat, Tickets, Compare, Audio]);
 
 export type Series = z.infer<typeof Series>;
 export type ChartSpec = z.infer<typeof Chart>;
@@ -78,6 +85,7 @@ export type StatSpec = z.infer<typeof Stat>;
 export type TicketSpec = z.infer<typeof Ticket>;
 export type TicketsSpec = z.infer<typeof Tickets>;
 export type CompareSpec = z.infer<typeof Compare>;
+export type AudioSpec = z.infer<typeof Audio>;
 export type WidgetSpec = z.infer<typeof Widget>;
 
 /** Parses and validates a ```ui payload. Returns null on any malformed field so the transcript

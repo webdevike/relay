@@ -11,6 +11,7 @@ import { tapHaptic } from "@/lib/haptics";
 import { colors, radii, spacing, tabularNumbers, type } from "@/theme";
 import { Pill, type PillProps } from "@/ui/Pill";
 import { Text } from "@/ui/Text";
+import { AudioPlayer } from "./AudioPlayer";
 import { CompareSlider } from "./CompareSlider";
 import type { ChartSpec, StatSpec, TicketSpec, TicketsSpec, WidgetSpec } from "./widget";
 
@@ -27,6 +28,8 @@ export function Widget({ spec }: { spec: WidgetSpec }) {
         <Stat spec={spec} />
       ) : spec.widget === "compare" ? (
         <CompareSlider spec={spec} />
+      ) : spec.widget === "audio" ? (
+        <AudioPlayer spec={spec} />
       ) : (
         <Tickets spec={spec} />
       )}

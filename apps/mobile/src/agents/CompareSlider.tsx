@@ -8,28 +8,21 @@ import { Image, View, type ImageLoadEventData, type NativeSyntheticEvent } from 
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, { useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 import { SymbolView } from "expo-symbols";
-import { hostBaseUrl } from "@/connection";
 import { colors, radii, spacing } from "@/theme";
 import { Text } from "@/ui/Text";
+import { resolveDropSrc } from "./dropSrc";
 import type { CompareSpec } from "./widget";
 
 const KNOB = 32;
 const DIVIDER = 2;
 const DEFAULT_ASPECT = 16 / 9;
 
-/** Drop paths are relative to the connected host; null while disconnected. */
-function resolveSrc(src: string): string | null {
-  if (!src.startsWith("/drops/")) return src;
-  const base = hostBaseUrl();
-  return base === null ? null : `${base}${src}`;
-}
-
 export function CompareSlider({ spec }: { spec: CompareSpec }) {
   const [width, setWidth] = useState(0);
   const [aspect, setAspect] = useState(DEFAULT_ASPECT);
   const position = useSharedValue(0.5);
-  const before = resolveSrc(spec.before.src);
-  const after = resolveSrc(spec.after.src);
+  const before = resolveDropSrc(spec.before.src);
+  const after = resolveDropSrc(spec.after.src);
   const height = width > 0 ? width / aspect : 0;
 
   const moveTo = (x: number) => {
