@@ -78,11 +78,11 @@ Before/after image slider: both images in one frame, a divider Isaac drags (or t
 Inline player: play/pause, a progress bar Isaac taps to seek, elapsed/total time. Plays even with the phone on silent.
 
 ```ui
-{"widget":"audio","title":"Pocket TTS · alba","src":"/drops/<id>/<token>"}
+{"widget":"audio","title":"Pocket TTS · eve","src":"/drops/<id>/<token>"}
 ```
 
 - Share the file first, same as compare: `cd ~/Code/relay/apps/linux && bun run src/main.ts share <path>` prints `shared file <id> /drops/<id>/<token>`; use that path as `src`. An absolute `https://` URL also works; local paths are rejected.
-- Formats AVPlayer streams: wav, m4a/aac, mp3. Generate speech with `pocket-tts generate --text "…" --voice alba --output-path /tmp/x.wav`.
+- Formats AVPlayer streams: wav, m4a/aac, mp3. Generate speech with `pocket-tts generate --text "…" --voice eve --output-path /tmp/x.wav` (`eve` is Isaac's default voice).
 - `title`: optional heading.
 
 ## When not to use
