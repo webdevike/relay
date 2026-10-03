@@ -101,6 +101,7 @@ Compose anything from containers and small blocks. Any widget above can be a chi
 - `text`: `text`, `style` `"heading" | "body" | "caption" | "muted"` (default body).
 - `rows`: label left, value right, hairline between: `rows: [{ label, value, tone? }]`.
 - `badge`: `label`, optional `tone`.
+- `diff`: `patch` (unified diff text, one file, ≤ 50k chars; `git diff -- <file>` output as-is), optional `file`. Renders +/- counts, old/new line numbers, tinted rows, sideways scroll; long diffs show 60 rows then "Show N more". A bare +/- snippet without `@@` renders unnumbered.
 - `divider`: a hairline.
 - `tone` (rows, badge): `"accent" | "ok" | "warn" | "danger" | "muted"`; unknown tones render neutral.
 - Limits: containers nest at most 4 deep, 24 children each; past either the spec falls back to code.
