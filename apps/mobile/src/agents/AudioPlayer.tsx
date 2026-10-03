@@ -47,7 +47,10 @@ function Controls({ uri }: { uri: string }) {
       player.pause();
       return;
     }
-    await setAudioModeAsync({ playsInSilentMode: true });
+    // Dictation leaves the session in playAndRecord + "measurement" mode, which plays quiet and
+    // phone-call thin. expo-audio only resets the mode to default when the category options are
+    // empty, and "doNotMix" is the one interruption mode that yields empty options.
+    await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: false, interruptionMode: "doNotMix" });
     if (duration > 0 && status.currentTime >= duration - END_SLACK) await player.seekTo(0);
     player.play();
   };
