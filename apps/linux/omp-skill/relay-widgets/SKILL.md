@@ -102,6 +102,7 @@ Compose anything from containers and small blocks. Any widget above can be a chi
 - `rows`: label left, value right, hairline between: `rows: [{ label, value, tone? }]`.
 - `badge`: `label`, optional `tone`.
 - `diff`: `patch` (unified diff text, one file, ≤ 50k chars; `git diff -- <file>` output as-is), optional `file` (path; its extension picks syntax colors). Zed-style: collapsible header (name, dimmed directory), new-file line numbers, gutter bar per change block (green added, yellow modified, red deleted), tinted rows, no +/- markers, sideways scroll; long diffs show 60 rows then "Show N more". Use one `diff` per file inside a `stack` for a multi-file change.
+- `emails`: `emails: [{ from, subject, snippet?, date?, unread?, url? }]` (1–50), optional `title`. Flat inbox rows: unread dot + bold sender, time right, subject, 2-line snippet (tap a row to expand), open glyph when `url` is set. Gmail (personal, `secrets/gmail.env`, IMAP app password): fetch with `BODY.PEEK[]` + `X-GM-THRID` so reading never marks mail read; `url` = `https://mail.google.com/mail/u/0/#all/<thrid hex>`. Strip CR/LF folding from subjects.
 - `divider`: a hairline.
 - `tone` (rows, badge): `"accent" | "ok" | "warn" | "danger" | "muted"`; unknown tones render neutral.
 - Limits: containers nest at most 4 deep, 24 children each; past either the spec falls back to code.

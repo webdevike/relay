@@ -54,6 +54,14 @@ describe("parseWidget", () => {
     expect(parseWidget('{"widget":"audio"}')).toBeNull();
   });
 
+  it("parses emails, dropping a non-http url instead of rejecting the row", () => {
+    expect(
+      parseWidget('{"widget":"emails","emails":[{"from":"A","subject":"S","unread":true,"url":"javascript:alert(1)"}]}'),
+    ).toEqual({ widget: "emails", emails: [{ from: "A", subject: "S", unread: true }] });
+    expect(parseWidget('{"widget":"emails","emails":[]}')).toBeNull();
+    expect(parseWidget('{"widget":"emails","emails":[{"from":"A"}]}')).toBeNull();
+  });
+
   it("parses nested containers and degrades bad style/tone/direction instead of rejecting", () => {
     const spec = parseWidget(
       JSON.stringify({

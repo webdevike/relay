@@ -108,6 +108,23 @@ const Diff = z.object({
   patch: z.string().min(1).max(50_000),
 });
 
+/** One message row. `url` (http(s) only, e.g. the Gmail thread link) makes the row open it. */
+const Email = z.object({
+  from: z.string(),
+  subject: z.string(),
+  snippet: z.string().optional(),
+  date: z.string().optional(),
+  unread: z.boolean().optional(),
+  url: z.string().url().refine((u) => /^https?:\/\//.test(u)).optional().catch(undefined),
+});
+
+/** An inbox list: sender, subject, snippet, time, unread dot; flat rows on hairlines. */
+const Emails = z.object({
+  widget: z.literal("emails"),
+  title: z.string().optional(),
+  emails: z.array(Email).min(1).max(50),
+});
+
 /** Most children a container takes and deepest containers nest; past either, the whole spec
  * falls back to code rather than rendering something unbounded. */
 export const MAX_CHILDREN = 24;
@@ -123,7 +140,8 @@ type Leaf =
   | z.infer<typeof Rows>
   | z.infer<typeof Badge>
   | z.infer<typeof Divider>
-  | z.infer<typeof Diff>;
+  | z.infer<typeof Diff>
+  | z.infer<typeof Emails>;
 
 /** Lays children out in a column (default) or a row of equal-width columns. */
 export interface StackSpec {
@@ -169,6 +187,7 @@ const Node: z.ZodType<WidgetSpec, z.ZodTypeDef, unknown> = z.discriminatedUnion(
   Badge,
   Divider,
   Diff,
+  Emails,
   Stack,
   Card,
 ]);
@@ -184,6 +203,8 @@ export type TextSpec = z.infer<typeof TextNode>;
 export type RowsSpec = z.infer<typeof Rows>;
 export type BadgeSpec = z.infer<typeof Badge>;
 export type DiffSpec = z.infer<typeof Diff>;
+export type EmailSpec = z.infer<typeof Email>;
+export type EmailsSpec = z.infer<typeof Emails>;
 export type Tone = NonNullable<z.infer<typeof Tone>>;
 
 /** Container nesting depth of raw JSON, checked before zod so a hostile spec can't recurse deep. */

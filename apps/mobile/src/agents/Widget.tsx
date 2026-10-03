@@ -14,6 +14,7 @@ import { Text } from "@/ui/Text";
 import { AudioPlayer } from "./AudioPlayer";
 import { CompareSlider } from "./CompareSlider";
 import { DiffView } from "./DiffView";
+import { EmailList } from "./EmailList";
 import type { BadgeSpec, CardSpec, ChartSpec, RowsSpec, StackSpec, StatSpec, TextSpec, TicketSpec, TicketsSpec, Tone, WidgetSpec } from "./widget";
 
 const CHART_HEIGHT = 140;
@@ -48,6 +49,8 @@ function Node({ spec }: { spec: WidgetSpec }) {
       return <Badge spec={spec} />;
     case "diff":
       return <DiffView spec={spec} />;
+    case "emails":
+      return <EmailList spec={spec} />;
     case "divider":
       return <View style={{ height: 1, backgroundColor: colors.hairline }} />;
     case "stack":
