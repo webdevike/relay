@@ -216,7 +216,8 @@ async function share(positionals: string[]): Promise<void> {
     process.exit(1);
   }
   const drop = Drop.parse(await response.json());
-  console.log(`shared ${drop.kind} ${drop.id}`);
+  // Blob drops also print their fetch path so an agent can reference it (e.g. a ```ui compare widget).
+  console.log(drop.file ? `shared ${drop.kind} ${drop.id} ${drop.file.path}` : `shared ${drop.kind} ${drop.id}`);
 }
 
 function isFile(path: string): boolean {

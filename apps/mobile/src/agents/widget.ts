@@ -53,13 +53,31 @@ const Tickets = z.object({
   tickets: z.array(Ticket).min(1),
 });
 
-const Widget = z.discriminatedUnion("widget", [Chart, Stat, Tickets]);
+/** An image source: a host drop path (`/drops/<id>/<token>`, fetched from the connected host) or an
+ * absolute http(s) URL. Anything else (local file paths, data URIs) is rejected. */
+const ImageSrc = z.string().refine((s) => /^\/drops\/[^/]+\/[^/]+$/.test(s) || /^https?:\/\//.test(s));
+
+const CompareSide = z.object({
+  src: ImageSrc,
+  label: z.string().optional(),
+});
+
+/** Before/after slider: both images share one frame; dragging the divider reveals more of either. */
+const Compare = z.object({
+  widget: z.literal("compare"),
+  title: z.string().optional(),
+  before: CompareSide,
+  after: CompareSide,
+});
+
+const Widget = z.discriminatedUnion("widget", [Chart, Stat, Tickets, Compare]);
 
 export type Series = z.infer<typeof Series>;
 export type ChartSpec = z.infer<typeof Chart>;
 export type StatSpec = z.infer<typeof Stat>;
 export type TicketSpec = z.infer<typeof Ticket>;
 export type TicketsSpec = z.infer<typeof Tickets>;
+export type CompareSpec = z.infer<typeof Compare>;
 export type WidgetSpec = z.infer<typeof Widget>;
 
 /** Parses and validates a ```ui payload. Returns null on any malformed field so the transcript

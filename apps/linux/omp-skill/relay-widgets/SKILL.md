@@ -15,7 +15,7 @@ Emit a fenced block tagged `ui` whose body is a single JSON object. The Relay ph
 app renders it as a native widget; anywhere else it shows as a normal code block.
 Keep the JSON minimal and valid — a malformed spec silently falls back to code.
 
-Only three widgets exist today. Do not invent fields; unknown shapes do not render.
+Only four widgets exist today. Do not invent fields; unknown shapes do not render.
 
 ## Chart
 
@@ -58,6 +58,19 @@ A paged carousel, one ticket per card; Isaac swipes or taps the chevrons to step
 - `summary`: 1–3 sentences you wrote from the issue (description, latest comments): what it is, where it stands, what's next. Not the raw description.
 - `stateType`: Linear's workflow-state type (`triage`, `backlog`, `unstarted`, `started`, `completed`, `canceled`); colors the `state` pill.
 - `url`: the issue's canonical link, copied verbatim from Linear (`linear issue url ENG-<n>`, or the issue's `url` field). Never build it by hand: a guessed workspace slug or a missing title slug lands on Linear's home instead of the issue. Renders an "Open in Linear" tap target.
+
+## Compare
+
+Before/after image slider: both images in one frame, a divider Isaac drags (or taps) to reveal more of either side. Use it for visual proof (UI before/after).
+
+```ui
+{"widget":"compare","title":"Admin tabs","before":{"src":"/drops/<id>/<token>","label":"Before · dev"},"after":{"src":"/drops/<id>/<token>","label":"After · local"}}
+```
+
+- Images must reach the phone: share each file with `cd ~/Code/relay/apps/linux && bun run src/main.ts share <path>`, which prints `shared image <id> /drops/<id>/<token>`; use that path as `src`. An absolute `https://` URL also works. Local file paths are rejected.
+- Use two images with the same frame and size (e.g. `proof.ts` framed shots); the frame takes the after image's aspect ratio.
+- `label`: optional corner tags; default "Before" / "After".
+- Shared images also appear in the phone's Drops list (max 100, oldest roll off).
 
 ## When not to use
 

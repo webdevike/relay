@@ -11,6 +11,7 @@ import { tapHaptic } from "@/lib/haptics";
 import { colors, radii, spacing, tabularNumbers, type } from "@/theme";
 import { Pill, type PillProps } from "@/ui/Pill";
 import { Text } from "@/ui/Text";
+import { CompareSlider } from "./CompareSlider";
 import type { ChartSpec, StatSpec, TicketSpec, TicketsSpec, WidgetSpec } from "./widget";
 
 const CHART_HEIGHT = 140;
@@ -20,7 +21,15 @@ const seriesColor = (index: number, color?: string): string => color ?? PALETTE[
 export function Widget({ spec }: { spec: WidgetSpec }) {
   return (
     <View style={{ borderWidth: 1, borderColor: colors.hairline, borderRadius: radii.md, padding: spacing.md, gap: spacing.sm }}>
-      {spec.widget === "chart" ? <Chart spec={spec} /> : spec.widget === "stat" ? <Stat spec={spec} /> : <Tickets spec={spec} />}
+      {spec.widget === "chart" ? (
+        <Chart spec={spec} />
+      ) : spec.widget === "stat" ? (
+        <Stat spec={spec} />
+      ) : spec.widget === "compare" ? (
+        <CompareSlider spec={spec} />
+      ) : (
+        <Tickets spec={spec} />
+      )}
     </View>
   );
 }

@@ -31,6 +31,19 @@ describe("parseWidget", () => {
     expect(parseWidget('{"widget":"tickets","tickets":[{"id":"ENG-1","title":"T"}]}')).toBeNull();
   });
 
+  it("accepts compare images only as host drop paths or http(s) URLs", () => {
+    const spec = (before: string) =>
+      parseWidget(JSON.stringify({ widget: "compare", before: { src: before, label: "Before" }, after: { src: "https://x.test/a.png" } }));
+    expect(spec("/drops/abc/tok")).toEqual({
+      widget: "compare",
+      before: { src: "/drops/abc/tok", label: "Before" },
+      after: { src: "https://x.test/a.png" },
+    });
+    expect(spec("/Users/me/before.png")).toBeNull();
+    expect(spec("file:///tmp/before.png")).toBeNull();
+    expect(spec("/drops/abc")).toBeNull();
+  });
+
   it("rejects unknown widgets, bad JSON, empty series, and non-finite points", () => {
     expect(parseWidget('{"widget":"mystery"}')).toBeNull();
     expect(parseWidget("{not json")).toBeNull();
