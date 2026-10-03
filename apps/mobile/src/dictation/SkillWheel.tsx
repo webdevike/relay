@@ -12,7 +12,7 @@ import Animated, {
 import { scheduleOnRN } from "react-native-worklets";
 import { SymbolView, type SFSymbol } from "expo-symbols";
 import type { AgentSkill, AgentSkillChoice } from "@relay/protocol";
-import { colors, motion } from "@/theme";
+import { motion, palettes } from "@/theme";
 import { wheelConfirm, wheelDetent, wheelPosition } from "./signals";
 import { loadSkia, type SkiaModule } from "./skia";
 import { useDictation } from "./useDictation";
@@ -44,6 +44,11 @@ const NOTCH_LENGTH = 7;
 const TOP = -Math.PI / 2;
 const CENTER = WHEEL_EXTENT;
 const ACCENT_RGB = "124,156,255";
+/**
+ * The dial is black anodized hardware with its own LEDs (`ACCENT_RGB`, the band gradient), so it
+ * stays dark in either appearance: its tokens come from the dark palette, not the active one.
+ */
+const colors = palettes.dark;
 
 const iconFor: Record<string, SFSymbol> = {
   handoff: "arrowshape.turn.up.right",

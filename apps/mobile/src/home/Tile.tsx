@@ -7,7 +7,7 @@ import type { ReactNode } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { SymbolView, type SFSymbol } from "expo-symbols";
 import { Text } from "@/ui/Text";
-import { colors, radii, spacing } from "@/theme";
+import { radii, spacing, useColors } from "@/theme";
 import { tapHaptic } from "@/lib/haptics";
 
 export interface TileProps {
@@ -24,6 +24,7 @@ export interface TileProps {
 }
 
 export function Tile({ symbol, title, caption, value, tone = "accent", size = "square", onPress, children }: TileProps) {
+  const colors = useColors();
   const tint = colors[tone];
   return (
     <Pressable
@@ -33,7 +34,11 @@ export function Tile({ symbol, title, caption, value, tone = "accent", size = "s
         tapHaptic();
         onPress();
       }}
-      style={({ pressed }) => [styles.tile, size === "square" ? styles.square : styles.wide, pressed && styles.pressed]}
+      style={({ pressed }) => [
+        styles.tile,
+        { backgroundColor: pressed ? colors.surfaceRaised : colors.surface, borderColor: colors.hairline },
+        size === "square" ? styles.square : styles.wide,
+      ]}
     >
       <View style={styles.top}>
         <SymbolView name={symbol} size={22} tintColor={tint} />
@@ -58,17 +63,14 @@ export function Tile({ symbol, title, caption, value, tone = "accent", size = "s
 
 const styles = StyleSheet.create({
   tile: {
-    backgroundColor: colors.surface,
     borderRadius: radii.lg,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.hairline,
     padding: spacing.lg,
     justifyContent: "space-between",
     gap: spacing.md,
   },
   square: { flex: 1, aspectRatio: 1 },
   wide: { alignSelf: "stretch" },
-  pressed: { backgroundColor: colors.surfaceRaised },
   top: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
   content: { flexGrow: 1 },
   bottom: { gap: 2 },

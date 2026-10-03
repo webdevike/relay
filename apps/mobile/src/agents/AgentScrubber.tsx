@@ -10,7 +10,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import type { AgentStatus } from "@relay/protocol";
-import { colors, motion } from "@/theme";
+import { motion, useColors, useScheme, type Colors } from "@/theme";
 import { impactHaptic, selectHaptic } from "@/lib/haptics";
 import { loadSkia } from "@/dictation/skia";
 
@@ -20,13 +20,24 @@ const THUMB_HEIGHT = TRACK_HEIGHT - TRACK_PADDING * 2;
 const TICK = 6;
 const SNAP = { damping: 22, stiffness: 320, mass: 0.6 };
 
-const tickColor: Record<AgentStatus, string> = {
-  working: colors.working,
-  waiting: colors.warn,
-  needs_permission: colors.warn,
-  idle: colors.textFaint,
-  ended: colors.textFaint,
-};
+function tickColor(colors: Colors, status: AgentStatus): string {
+  switch (status) {
+    case "working":
+      return colors.working;
+    case "waiting":
+    case "needs_permission":
+      return colors.warn;
+    case "idle":
+    case "ended":
+      return colors.textFaint;
+  }
+}
+
+/** Thumb fill at rest and while dragging: a light wash on dark, a dark wash on light. */
+const THUMB_FILL = {
+  dark: { rest: "rgba(255,255,255,0.12)", drag: "rgba(255,255,255,0.18)" },
+  light: { rest: "rgba(0,0,0,0.07)", drag: "rgba(0,0,0,0.11)" },
+} as const;
 
 export interface AgentScrubberProps {
   statuses: AgentStatus[];
@@ -52,6 +63,8 @@ export function AgentScrubber({
   onChange,
   onLongPress,
 }: AgentScrubberProps) {
+  const colors = useColors();
+  const { rest, drag } = THUMB_FILL[useScheme()];
   const count = statuses.length;
   const [trackWidth, setTrackWidth] = useState(0);
   const slot = count === 0 ? 0 : trackWidth / count;
@@ -118,10 +131,7 @@ export function AgentScrubber({
   const thumbStyle = useAnimatedStyle(() => ({
     width: Math.max(0, slotWidth.value - TRACK_PADDING * 2),
     transform: [{ translateX: thumbX.value + TRACK_PADDING }],
-    backgroundColor: withTiming(
-      dragging.value ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.12)",
-      { duration: motion.duration.fast },
-    ),
+    backgroundColor: withTiming(dragging.value ? drag : rest, { duration: motion.duration.fast }),
   }));
   // Skia draws the pills from exact geometry; the View fallback is for a client built without it.
   // One rrect rebuilt per frame: feeding animated x/width as separate props left Skia with radii
@@ -133,7 +143,7 @@ export function AgentScrubber({
     return { rect, rx: THUMB_HEIGHT / 2, ry: THUMB_HEIGHT / 2 };
   });
   const thumbColor = useDerivedValue(() =>
-    withTiming(dragging.value ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.12)", {
+    withTiming(dragging.value ? drag : rest, {
       duration: motion.duration.fast,
     }),
   );
@@ -145,20 +155,20 @@ export function AgentScrubber({
   const dividerAt = divider !== undefined && divider > 0 && divider < count ? divider * slot : null;
   const body =
     sk === null ? (
-      <View style={styles.track} onLayout={onLayout} accessibilityRole="adjustable">
+      <View style={[styles.track, { backgroundColor: colors.bg }]} onLayout={onLayout} accessibilityRole="adjustable">
         {statuses.map((status, i) => (
           <View
             key={i}
             style={[
               styles.tick,
-              { left: i * slot + slot / 2 - TICK / 2, backgroundColor: tickColor[status] },
+              { left: i * slot + slot / 2 - TICK / 2, backgroundColor: tickColor(colors, status) },
             ]}
           />
         ))}
         {dividerAt !== null && (
-          <View style={[styles.divider, { left: dividerAt - StyleSheet.hairlineWidth / 2 }]} />
+          <View style={[styles.divider, { left: dividerAt - StyleSheet.hairlineWidth / 2, backgroundColor: colors.hairline }]} />
         )}
-        {count > 0 && <Animated.View style={[styles.thumb, thumbStyle]} />}
+        {count > 0 && <Animated.View style={[styles.thumb, { backgroundColor: rest }, thumbStyle]} />}
       </View>
     ) : (
       <View style={styles.trackBox} onLayout={onLayout} accessibilityRole="adjustable">
@@ -186,7 +196,7 @@ export function AgentScrubber({
               cx={i * slot + slot / 2}
               cy={TRACK_HEIGHT / 2}
               r={TICK / 2}
-              color={tickColor[status]}
+              color={tickColor(colors, status)}
             />
           ))}
           {count > 0 && <sk.RoundedRect rect={thumbRRect} color={thumbColor} />}
@@ -202,7 +212,6 @@ const styles = StyleSheet.create({
   track: {
     height: TRACK_HEIGHT,
     borderRadius: TRACK_HEIGHT / 2,
-    backgroundColor: colors.bg,
     justifyContent: "center",
     overflow: "hidden",
   },
@@ -217,7 +226,6 @@ const styles = StyleSheet.create({
     top: TRACK_PADDING * 2,
     bottom: TRACK_PADDING * 2,
     width: StyleSheet.hairlineWidth,
-    backgroundColor: colors.hairline,
   },
   thumb: {
     position: "absolute",
@@ -226,6 +234,6 @@ const styles = StyleSheet.create({
     borderRadius: THUMB_HEIGHT / 2,
     // No border: with one, RN draws the pill through its own path code and the ends come out
     // visibly un-round; a plain fill goes through CALayer cornerRadius, which is exact.
-    backgroundColor: "rgba(255,255,255,0.12)",
+    // The fill itself comes from the animated style.
   },
 });

@@ -6,7 +6,7 @@
 import { useEffect, useRef } from "react";
 import { StyleSheet, TextInput, View } from "react-native";
 import { IconButton } from "@/ui/IconButton";
-import { colors, spacing, type } from "@/theme";
+import { spacing, type, useColors, useScheme } from "@/theme";
 
 /** Room the field may grow to before it scrolls: about five lines. */
 const MAX_FIELD_HEIGHT = type.body.lineHeight * 5 + spacing.sm * 2;
@@ -22,6 +22,8 @@ export interface TypedReplyProps {
 }
 
 export function TypedReply({ draft, onDraft, canSend, onSend, onVoice }: TypedReplyProps) {
+  const colors = useColors();
+  const scheme = useScheme();
   const field = useRef<TextInput>(null);
   // Mounting is entering typing mode: bring the keyboard up with the panel.
   useEffect(() => {
@@ -39,13 +41,13 @@ export function TypedReply({ draft, onDraft, canSend, onSend, onVoice }: TypedRe
       />
       <TextInput
         ref={field}
-        style={styles.field}
+        style={[styles.field, { backgroundColor: colors.bg, color: colors.text }]}
         value={draft}
         onChangeText={onDraft}
         multiline
         placeholder="Type a reply"
         placeholderTextColor={colors.textFaint}
-        keyboardAppearance="dark"
+        keyboardAppearance={scheme}
         selectionColor={colors.accent}
         accessibilityLabel="Reply"
       />
@@ -70,8 +72,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: (BUTTON_SIZE - type.body.lineHeight) / 2,
     borderRadius: BUTTON_SIZE / 2,
-    backgroundColor: colors.bg,
-    color: colors.text,
     fontSize: type.body.fontSize,
     lineHeight: type.body.lineHeight,
   },

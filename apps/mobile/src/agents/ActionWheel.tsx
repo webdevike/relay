@@ -2,7 +2,7 @@ import { StyleSheet, View } from "react-native";
 import Animated, { interpolateColor, useAnimatedReaction, useAnimatedStyle, useDerivedValue, withTiming, type SharedValue } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 import { SymbolView, type SFSymbol } from "expo-symbols";
-import { colors, motion } from "@/theme";
+import { motion, useColors, useScheme } from "@/theme";
 import { selectHaptic } from "@/lib/haptics";
 
 /** Radius (pt) from the press point to the entries. */
@@ -14,8 +14,6 @@ export const ACTION_WHEEL_EXTENT = RING_RADIUS + 38;
 const ENTRY_WIDTH = 76;
 const ICON_SIZE = 24;
 const TOP = -Math.PI / 2;
-/** 0.92 opacity on the raised surface. */
-const DISC_COLOR = `${colors.surfaceRaised}EB`;
 
 export interface ActionWheelEntry {
   key: string;
@@ -50,6 +48,7 @@ function entryUnder(count: number, dx: number, dy: number): number {
  * finger's sector lights its entry (a tick on every change), and the release picks it.
  */
 export function ActionWheel({ entries, visible, center, pointer, onSelect }: ActionWheelProps) {
+  const colors = useColors();
   const highlighted = useDerivedValue(() => entryUnder(entries.length, pointer.value.x - center.value.x, pointer.value.y - center.value.y));
   const keys = entries.map((entry) => entry.key);
 
@@ -78,8 +77,9 @@ export function ActionWheel({ entries, visible, center, pointer, onSelect }: Act
   }));
 
   return (
-    <Animated.View pointerEvents="none" style={[styles.disc, discStyle]}>
-      <View style={styles.deadZone} />
+    // Disc fill is the raised surface at 0.92 opacity.
+    <Animated.View pointerEvents="none" style={[styles.disc, { backgroundColor: `${colors.surfaceRaised}EB`, borderColor: colors.hairline }, discStyle]}>
+      <View style={[styles.deadZone, { borderColor: colors.hairline }]} />
       {entries.map((entry, index) => (
         <Entry key={entry.key} entry={entry} angle={TOP + (index * 2 * Math.PI) / entries.length} lit={highlighted} index={index} />
       ))}
@@ -88,17 +88,21 @@ export function ActionWheel({ entries, visible, center, pointer, onSelect }: Act
 }
 
 function Entry({ entry, angle, lit, index }: { entry: ActionWheelEntry; angle: number; lit: SharedValue<number>; index: number }) {
+  const colors = useColors();
+  const scheme = useScheme();
+  const muted = colors.textMuted;
+  const litLabel = scheme === "dark" ? "#FFFFFF" : colors.text;
   const active = useDerivedValue(() => withTiming(lit.value === index ? 1 : 0, { duration: motion.duration.fast }));
   const style = useAnimatedStyle(() => ({
     transform: [{ translateX: RING_RADIUS * Math.cos(angle) }, { translateY: RING_RADIUS * Math.sin(angle) }, { scale: 1 + 0.14 * active.value }],
   }));
   const litStyle = useAnimatedStyle(() => ({ opacity: active.value, shadowOpacity: 0.6 * active.value }));
-  const labelStyle = useAnimatedStyle(() => ({ color: interpolateColor(active.value, [0, 1], [colors.textMuted, "#FFFFFF"]) }));
+  const labelStyle = useAnimatedStyle(() => ({ color: interpolateColor(active.value, [0, 1], [muted, litLabel]) }));
   return (
     <Animated.View style={[styles.entry, style]}>
       <View style={styles.icon}>
         <SymbolView name={entry.symbol} size={ICON_SIZE} tintColor={colors.textMuted} style={styles.iconLayer} />
-        <Animated.View style={[styles.iconLayer, styles.iconLit, litStyle]}>
+        <Animated.View style={[styles.iconLayer, styles.iconLit, { shadowColor: colors.accent }, litStyle]}>
           <SymbolView name={entry.symbol} size={ICON_SIZE} tintColor={colors.accent} />
         </Animated.View>
       </View>
@@ -117,9 +121,7 @@ const styles = StyleSheet.create({
     width: ACTION_WHEEL_EXTENT * 2,
     height: ACTION_WHEEL_EXTENT * 2,
     borderRadius: ACTION_WHEEL_EXTENT,
-    backgroundColor: DISC_COLOR,
     borderWidth: 1,
-    borderColor: colors.hairline,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -129,7 +131,6 @@ const styles = StyleSheet.create({
     height: DEAD_ZONE * 2,
     borderRadius: DEAD_ZONE,
     borderWidth: 1,
-    borderColor: colors.hairline,
   },
   entry: {
     position: "absolute",
@@ -149,7 +150,6 @@ const styles = StyleSheet.create({
     height: ICON_SIZE,
   },
   iconLit: {
-    shadowColor: colors.accent,
     shadowOffset: { width: 0, height: 0 },
     shadowRadius: 8,
   },

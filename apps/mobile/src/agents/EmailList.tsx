@@ -7,7 +7,7 @@ import { useState } from "react";
 import { Linking, Pressable, View } from "react-native";
 import { SymbolView } from "expo-symbols";
 import { tapHaptic } from "@/lib/haptics";
-import { colors, spacing } from "@/theme";
+import { spacing, useColors } from "@/theme";
 import { Text } from "@/ui/Text";
 import type { EmailSpec, EmailsSpec } from "./widget";
 
@@ -29,6 +29,7 @@ export function EmailList({ spec }: { spec: EmailsSpec }) {
 }
 
 function EmailRow({ email, first }: { email: EmailSpec; first: boolean }) {
+  const colors = useColors();
   const [open, setOpen] = useState(false);
   const unread = email.unread === true;
   return (

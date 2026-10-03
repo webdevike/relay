@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Pressable, View } from "react-native";
 import { Text } from "./Text";
-import { colors, spacing } from "@/theme";
+import { spacing, useColors } from "@/theme";
 import { tapHaptic } from "@/lib/haptics";
 
 export interface RowProps {
@@ -14,6 +14,7 @@ export interface RowProps {
 }
 
 export function Row({ title, subtitle, leading, trailing, onPress, disabled = false }: RowProps) {
+  const colors = useColors();
   const content = (
     <View
       style={{

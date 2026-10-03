@@ -1,10 +1,12 @@
-import type { FontVariant } from "react-native";
+import { useColorScheme, type FontVariant } from "react-native";
 
 /**
- * Design tokens. Dark only — Relay has no light theme.
+ * Design tokens. Colors come in a dark and a light palette; components read the active one with
+ * `useColors()`, which follows the iOS appearance. The Settings appearance choice (system, light,
+ * dark) overrides that appearance app-wide through `Appearance.setColorScheme` in the root layout.
  */
 
-export const colors = {
+const dark = {
   bg: "#0B0B0C",
   surface: "#141416",
   surfaceRaised: "#1C1C1F",
@@ -17,9 +19,38 @@ export const colors = {
   warn: "#FBBF24",
   danger: "#F87171",
   working: "#7C9CFF",
-} as const;
+};
 
-export type ColorToken = keyof typeof colors;
+export type Colors = typeof dark;
+export type ColorToken = keyof Colors;
+export type ColorScheme = "light" | "dark";
+
+const light: Colors = {
+  bg: "#F6F6F8",
+  surface: "#FFFFFF",
+  surfaceRaised: "#EDEDF1",
+  hairline: "rgba(0,0,0,0.09)",
+  text: "#141416",
+  textMuted: "#5C5C66",
+  textFaint: "#8A8A94",
+  accent: "#3D5FE0",
+  ok: "#15803D",
+  warn: "#B45309",
+  danger: "#DC2626",
+  working: "#3D5FE0",
+};
+
+export const palettes: Record<ColorScheme, Colors> = { dark, light };
+
+/** The active scheme: the Settings override when set, otherwise the iOS appearance. */
+export function useScheme(): ColorScheme {
+  return useColorScheme() === "light" ? "light" : "dark";
+}
+
+/** The active palette. Read it in render; never capture it in a module-level StyleSheet. */
+export function useColors(): Colors {
+  return palettes[useScheme()];
+}
 
 export const spacing = {
   xs: 4,
@@ -65,4 +96,4 @@ export const motion = {
   easing: "easeOut",
 } as const;
 
-export const theme = { colors, spacing, radii, type, motion } as const;
+export const theme = { palettes, spacing, radii, type, motion } as const;

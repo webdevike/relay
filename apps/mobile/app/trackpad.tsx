@@ -8,7 +8,7 @@ import type * as ScreenOrientationModule from "expo-screen-orientation";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { IconButton } from "@/ui/IconButton";
 import { Cutout, CUTOUT_GAP } from "@/ui/Cutout";
-import { colors } from "@/theme";
+import { useColors } from "@/theme";
 import { SURFACE_MARGIN, TrackpadSurface } from "@/trackpad/TrackpadSurface";
 import { DictationButton } from "@/dictation/DictationButton";
 import { ListeningOrb } from "@/dictation/ListeningOrb";
@@ -34,9 +34,12 @@ const MIC_SIZE = 60;
 /** Back sits on the top edge, in from the corner, so it never crowds the screen edge. */
 const BACK_INSET = 12;
 
-const defaultDictationButton = (): ReactNode => (
-  <DictationButton size={MIC_SIZE} backgroundColor={colors.surface} />
-);
+function DefaultDictationButton() {
+  const colors = useColors();
+  return <DictationButton size={MIC_SIZE} backgroundColor={colors.surface} />;
+}
+
+const defaultDictationButton = (): ReactNode => <DefaultDictationButton />;
 
 /**
  * Copy: the newest thing copied on the host (the clipboard watcher files every desktop copy as a
@@ -82,6 +85,7 @@ async function pasteToHost(): Promise<void> {
 export default function TrackpadScreen({
   renderDictationButton = defaultDictationButton,
 }: TrackpadScreenProps) {
+  const colors = useColors();
   useKeepAwake();
   const router = useRouter();
 

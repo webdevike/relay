@@ -8,15 +8,15 @@ import Animated, {
   withRepeat,
   withTiming,
 } from "react-native-reanimated";
-import { colors, motion } from "@/theme";
+import { motion, useColors, type ColorToken } from "@/theme";
 import type { AgentStatus } from "@relay/protocol";
 
-const statusColor: Record<AgentStatus, string> = {
-  working: colors.working,
-  waiting: colors.warn,
-  needs_permission: colors.warn,
-  idle: colors.textFaint,
-  ended: colors.textFaint,
+const statusColor: Record<AgentStatus, ColorToken> = {
+  working: "working",
+  waiting: "warn",
+  needs_permission: "warn",
+  idle: "textFaint",
+  ended: "textFaint",
 };
 
 export interface StatusDotProps {
@@ -25,6 +25,7 @@ export interface StatusDotProps {
 }
 
 export function StatusDot({ status, size = 8 }: StatusDotProps) {
+  const colors = useColors();
   const pulse = useSharedValue(1);
 
   useEffect(() => {
@@ -50,7 +51,7 @@ export function StatusDot({ status, size = 8 }: StatusDotProps) {
       <Animated.View
         style={[
           styles.dot,
-          { width: size, height: size, borderRadius: size / 2, backgroundColor: statusColor[status] },
+          { width: size, height: size, borderRadius: size / 2, backgroundColor: colors[statusColor[status]] },
           animatedStyle,
         ]}
       />

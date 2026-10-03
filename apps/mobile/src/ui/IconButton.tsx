@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, View } from "react-native";
 import { SymbolView, type SFSymbol } from "expo-symbols";
-import { colors } from "@/theme";
+import { useColors } from "@/theme";
 import { tapHaptic } from "@/lib/haptics";
 import { loadSkia } from "@/dictation/skia";
 
@@ -22,10 +22,12 @@ export function IconButton({
   symbol,
   onPress,
   size = 40,
-  tintColor = colors.text,
+  tintColor,
   disabled = false,
-  backgroundColor = colors.surfaceRaised,
+  backgroundColor: backgroundOverride,
 }: IconButtonProps) {
+  const colors = useColors();
+  const backgroundColor = backgroundOverride ?? colors.surfaceRaised;
   const sk = loadSkia();
   return (
     <Pressable
@@ -49,7 +51,7 @@ export function IconButton({
           <sk.Circle cx={size / 2} cy={size / 2} r={size / 2} color={backgroundColor} />
         </sk.Canvas>
       )}
-      <SymbolView name={symbol} size={size * 0.45} tintColor={tintColor} />
+      <SymbolView name={symbol} size={size * 0.45} tintColor={tintColor ?? colors.text} />
     </Pressable>
   );
 }

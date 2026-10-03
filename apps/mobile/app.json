@@ -6,7 +6,7 @@
     "scheme": "relay",
     "orientation": "default",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
     "backgroundColor": "#0B0B0C",
     "newArchEnabled": true,
     "ios": {

@@ -9,9 +9,9 @@ import { Platform, Pressable, ScrollView, Text as RNText, View } from "react-nat
 import { SymbolView } from "expo-symbols";
 import { Highlight } from "prism-react-renderer";
 import { tapHaptic } from "@/lib/haptics";
-import { colors, radii, spacing } from "@/theme";
+import { radii, spacing, useColors, useScheme, type ColorScheme, type Colors } from "@/theme";
 import { Text } from "@/ui/Text";
-import { codeTheme, prismLanguage } from "./CodeBlock";
+import { codeThemes, prismLanguage } from "./CodeBlock";
 import { parseDiff, type DiffChange, type DiffRow } from "./diff";
 import type { DiffSpec } from "./widget";
 
@@ -22,10 +22,18 @@ const BAR = 3;
 /** Rows shown before the "Show all" toggle. */
 const PREVIEW_ROWS = 60;
 
-const barColor: Record<DiffChange, string> = { added: colors.ok, modified: colors.warn, deleted: colors.danger };
-const tint = { add: "rgba(74,222,128,0.10)", del: "rgba(248,113,113,0.10)" } as const;
+const barColor = (colors: Colors): Record<DiffChange, string> => ({ added: colors.ok, modified: colors.warn, deleted: colors.danger });
+/** Row tints per scheme: light needs deeper hues to read against white. */
+const tints: Record<ColorScheme, { add: string; del: string }> = {
+  dark: { add: "rgba(74,222,128,0.10)", del: "rgba(248,113,113,0.10)" },
+  light: { add: "rgba(22,163,74,0.10)", del: "rgba(220,38,38,0.08)" },
+};
 
 export function DiffView({ spec }: { spec: DiffSpec }) {
+  const colors = useColors();
+  const scheme = useScheme();
+  const tint = tints[scheme];
+  const bars = barColor(colors);
   const diff = useMemo(() => parseDiff(spec.patch), [spec.patch]);
   const [open, setOpen] = useState(true);
   const [expanded, setExpanded] = useState(false);
@@ -66,7 +74,7 @@ export function DiffView({ spec }: { spec: DiffSpec }) {
       </Pressable>
       {open && (
         <ScrollView horizontal bounces={false} showsHorizontalScrollIndicator={false}>
-          <Highlight code={rows.map((r) => (r.kind === "hunk" || r.kind === "meta" ? "" : r.text)).join("\n")} language={prismLanguage(ext)} theme={codeTheme}>
+          <Highlight code={rows.map((r) => (r.kind === "hunk" || r.kind === "meta" ? "" : r.text)).join("\n")} language={prismLanguage(ext)} theme={codeThemes[scheme]}>
             {({ tokens, getTokenProps }) => (
               <View style={{ paddingVertical: spacing.xs, minWidth: "100%" }}>
                 {rows.map((row, i) => {
@@ -84,7 +92,7 @@ export function DiffView({ spec }: { spec: DiffSpec }) {
                       key={i}
                       style={{ flexDirection: "row", backgroundColor: row.kind === "add" ? tint.add : row.kind === "del" ? tint.del : "transparent" }}
                     >
-                      <View style={{ width: BAR, backgroundColor: row.change === null ? "transparent" : barColor[row.change] }} />
+                      <View style={{ width: BAR, backgroundColor: row.change === null ? "transparent" : bars[row.change] }} />
                       {numbered && (
                         <RNText style={[cell, { color: colors.textFaint, textAlign: "right", paddingHorizontal: spacing.sm }]}>
                           {(line === null ? "" : String(line)).padStart(gutter, " ")}

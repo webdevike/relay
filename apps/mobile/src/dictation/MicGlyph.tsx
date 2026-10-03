@@ -12,7 +12,7 @@ import Animated, {
   withTiming,
   type SharedValue,
 } from "react-native-reanimated";
-import { colors, motion } from "@/theme";
+import { motion, useColors } from "@/theme";
 
 export type MicGlyphMode = "mic" | "wave" | "check";
 
@@ -83,6 +83,7 @@ function Bar({
   level: SharedValue<number>;
   breath: SharedValue<number>;
 }) {
+  const colors = useColors();
   const style = useAnimatedStyle(() => {
     const idle = 0.12 + 0.08 * Math.sin(breath.value * Math.PI + index);
     const amplitude = Math.max(idle, level.value * weight);
@@ -99,6 +100,7 @@ function Bar({
 }
 
 function CheckPop({ size }: { size: number }) {
+  const colors = useColors();
   const scale = useSharedValue(0.4);
   const opacity = useSharedValue(0);
   useEffect(() => {

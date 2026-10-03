@@ -2,7 +2,7 @@ import { View } from "react-native";
 import { SymbolView, type SFSymbol } from "expo-symbols";
 import { Text } from "./Text";
 import { Button } from "./Button";
-import { colors, spacing } from "@/theme";
+import { spacing, useColors } from "@/theme";
 
 export interface EmptyStateProps {
   symbol: SFSymbol;
@@ -13,6 +13,7 @@ export interface EmptyStateProps {
 }
 
 export function EmptyState({ symbol, title, body, actionLabel, onAction }: EmptyStateProps) {
+  const colors = useColors();
   return (
     <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xxxl, gap: spacing.md }}>
       <SymbolView name={symbol} size={32} tintColor={colors.textFaint} />

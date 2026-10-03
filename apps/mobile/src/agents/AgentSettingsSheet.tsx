@@ -6,7 +6,7 @@ import { Sheet, SheetTextInput } from "@/ui/Sheet";
 import { Text } from "@/ui/Text";
 import { Banner } from "@/ui/Banner";
 import { Button } from "@/ui/Button";
-import { colors, radii, spacing, type } from "@/theme";
+import { radii, spacing, type, useColors } from "@/theme";
 import { useAgentsStore } from "@/state/agents";
 import { requestAgentOptions, sendCommand } from "@/connection";
 import { dictationActor } from "@/dictation/actor";
@@ -28,12 +28,14 @@ function Chip({
   selected: boolean;
   onPress: () => void;
 }) {
+  const colors = useColors();
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [
         styles.chip,
-        selected && styles.chipSelected,
+        { backgroundColor: colors.surfaceRaised },
+        selected && { borderColor: colors.accent },
         pressed && { opacity: 0.8 },
       ]}
     >
@@ -53,6 +55,7 @@ function ModelRow({
   selected: boolean;
   onPress: () => void;
 }) {
+  const colors = useColors();
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.row, pressed && { opacity: 0.8 }]}>
       <View style={{ flex: 1 }}>
@@ -88,6 +91,7 @@ function Accordion({
   nested?: boolean;
   children: React.ReactNode;
 }) {
+  const colors = useColors();
   return (
     <View>
       <Pressable
@@ -118,7 +122,7 @@ function Accordion({
           tintColor={colors.textFaint}
         />
       </Pressable>
-      {open && <View style={styles.accordionBody}>{children}</View>}
+      {open && <View style={[styles.accordionBody, { borderTopColor: colors.hairline }]}>{children}</View>}
     </View>
   );
 }
@@ -138,6 +142,7 @@ function SkillRow({
   nested: boolean;
   onPress: () => void;
 }) {
+  const colors = useColors();
   const glyph: SFSymbol = entry.takesText ? "mic" : "paperplane";
   return (
     <Pressable
@@ -170,6 +175,7 @@ function SkillRow({
  * reports the new settings back.
  */
 export function AgentSettingsSheet({ sessionId, onClose }: AgentSettingsSheetProps) {
+  const colors = useColors();
   const session = useAgentsStore((state) =>
     sessionId === null ? undefined : state.sessions[sessionId],
   );
@@ -248,7 +254,7 @@ export function AgentSettingsSheet({ sessionId, onClose }: AgentSettingsSheetPro
           placeholderTextColor={colors.textFaint}
           autoCorrect={false}
           returnKeyType="done"
-          style={styles.input}
+          style={[styles.input, { color: colors.text, backgroundColor: colors.surfaceRaised }]}
         />
       </Section>
       <Section label="Directory">
@@ -280,7 +286,7 @@ export function AgentSettingsSheet({ sessionId, onClose }: AgentSettingsSheetPro
             No other models available on the host.
           </Text>
         ) : (
-          <View style={styles.list}>
+          <View style={[styles.list, { backgroundColor: colors.surfaceRaised, borderColor: colors.hairline }]}>
             {groupByVendor(models).map(([vendor, group]) => {
               const own = group.find((model) => model.name === session.model);
               return (
@@ -324,7 +330,7 @@ export function AgentSettingsSheet({ sessionId, onClose }: AgentSettingsSheetPro
             tapHaptic();
             setSkillsOpen((open) => !open);
           }}
-          style={({ pressed }) => [styles.dropdown, pressed && { opacity: 0.8 }]}
+          style={({ pressed }) => [styles.dropdown, { backgroundColor: colors.surfaceRaised }, pressed && { opacity: 0.8 }]}
         >
           <SymbolView
             name={armed === null ? "command" : "mic"}
@@ -350,7 +356,7 @@ export function AgentSettingsSheet({ sessionId, onClose }: AgentSettingsSheetPro
               This session offers no skills or commands.
             </Text>
           ) : (
-            <View style={[styles.scrollList, styles.listContent]}>
+            <View style={[styles.scrollList, styles.listContent, { backgroundColor: colors.surfaceRaised, borderColor: colors.hairline }]}>
               {armed !== null && (
                 <Pressable
                   onPress={() => {
@@ -515,8 +521,6 @@ const styles = StyleSheet.create({
   },
   input: {
     ...type.body,
-    color: colors.text,
-    backgroundColor: colors.surfaceRaised,
     borderRadius: radii.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
@@ -534,16 +538,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs + 2,
     borderRadius: radii.sm,
-    backgroundColor: colors.surfaceRaised,
     borderWidth: 1,
     borderColor: "transparent",
   },
-  chipSelected: { borderColor: colors.accent },
   dropdown: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
-    backgroundColor: colors.surfaceRaised,
     borderRadius: radii.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
@@ -551,21 +552,16 @@ const styles = StyleSheet.create({
   note: { paddingHorizontal: spacing.md },
   list: {
     borderRadius: radii.md,
-    backgroundColor: colors.surfaceRaised,
     borderWidth: 1,
-    borderColor: colors.hairline,
     overflow: "hidden",
   },
   scrollList: {
     borderRadius: radii.md,
-    backgroundColor: colors.surfaceRaised,
     borderWidth: 1,
-    borderColor: colors.hairline,
   },
   listContent: { paddingVertical: spacing.xs },
   accordionBody: {
     borderTopWidth: 1,
-    borderTopColor: colors.hairline,
     paddingVertical: spacing.xs,
   },
   row: {

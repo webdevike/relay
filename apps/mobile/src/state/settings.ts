@@ -5,6 +5,8 @@ import { fileStorage } from "./storage";
 export type PointerSpeed = "slow" | "normal" | "fast";
 /** `voz` is Desert Ant's on-device Parakeet model (no live partials, better on technical words); `apple` is iOS dictation. */
 export type Recognizer = "apple" | "voz";
+/** `system` follows the iOS appearance; `light`/`dark` pin the app regardless of it. */
+export type AppearanceChoice = "system" | "light" | "dark";
 
 export interface SettingsState {
   deviceName: string;
@@ -21,6 +23,9 @@ export interface SettingsState {
   recognizer: Recognizer;
   /** Thinking level new phone-started sessions open with; empty leaves omp's own default. */
   defaultThinkingLevel: string;
+  appearance: AppearanceChoice;
+  /** Playback speed for audio widgets; the last choice carries to the next clip. */
+  audioRate: number;
   set: (partial: Partial<Omit<SettingsState, "set">>) => void;
 }
 
@@ -36,6 +41,8 @@ export const useSettingsStore = create<SettingsState>()(
       notificationsEnabled: false,
       recognizer: "voz",
       defaultThinkingLevel: "",
+      appearance: "system",
+      audioRate: 1,
       set: (partial) => {
         set(partial);
       },

@@ -8,7 +8,7 @@ import { Linking, Pressable, ScrollView, View } from "react-native";
 import { SymbolView } from "expo-symbols";
 import { loadSkia } from "@/dictation/skia";
 import { tapHaptic } from "@/lib/haptics";
-import { colors, radii, spacing, tabularNumbers, type } from "@/theme";
+import { radii, spacing, tabularNumbers, type, useColors, type Colors } from "@/theme";
 import { Pill, type PillProps } from "@/ui/Pill";
 import { Text } from "@/ui/Text";
 import { AudioPlayer } from "./AudioPlayer";
@@ -18,18 +18,20 @@ import { EmailList } from "./EmailList";
 import type { BadgeSpec, CardSpec, ChartSpec, RowsSpec, StackSpec, StatSpec, TextSpec, TicketSpec, TicketsSpec, Tone, WidgetSpec } from "./widget";
 
 const CHART_HEIGHT = 140;
-const PALETTE = [colors.accent, colors.ok, colors.warn, colors.danger];
-const seriesColor = (index: number, color?: string): string => color ?? PALETTE[index % PALETTE.length] ?? colors.accent;
+const seriesColor = (colors: Colors, index: number, color?: string): string =>
+  color ?? [colors.accent, colors.ok, colors.warn, colors.danger][index % 4] ?? colors.accent;
 
-const FRAME = { borderWidth: 1, borderColor: colors.hairline, borderRadius: radii.md, padding: spacing.md, gap: spacing.sm } as const;
+const frame = (colors: Colors) => ({ borderWidth: 1, borderColor: colors.hairline, borderRadius: radii.md, padding: spacing.md, gap: spacing.sm }) as const;
 
 /** Every widget sits in one hairline frame. A root card *is* that frame (no border inside a border);
  * cards nested deeper draw their own. */
 export function Widget({ spec }: { spec: WidgetSpec }) {
-  return <View style={FRAME}>{spec.widget === "card" ? <CardBody spec={spec} /> : <Node spec={spec} />}</View>;
+  const colors = useColors();
+  return <View style={frame(colors)}>{spec.widget === "card" ? <CardBody spec={spec} /> : <Node spec={spec} />}</View>;
 }
 
 function Node({ spec }: { spec: WidgetSpec }) {
+  const colors = useColors();
   switch (spec.widget) {
     case "chart":
       return <Chart spec={spec} />;
@@ -57,7 +59,7 @@ function Node({ spec }: { spec: WidgetSpec }) {
       return <Stack spec={spec} />;
     case "card":
       return (
-        <View style={FRAME}>
+        <View style={frame(colors)}>
           <CardBody spec={spec} />
         </View>
       );
@@ -112,6 +114,7 @@ const toneColor = { accent: "accent", ok: "ok", warn: "warn", danger: "danger", 
 
 /** Label left, value right, hairline between rows. A toned value colors only the value. */
 function Rows({ spec }: { spec: RowsSpec }) {
+  const colors = useColors();
   return (
     <View>
       {spec.rows.map((row, i) => (
@@ -154,6 +157,7 @@ const stateTone: Record<NonNullable<TicketSpec["stateType"]>, NonNullable<PillPr
 /** Paged ticket summaries: swipe or tap the chevrons to move one card at a time. Pages are sized
  * to the measured width so snapping lands exactly on each card. */
 function Tickets({ spec }: { spec: TicketsSpec }) {
+  const colors = useColors();
   const scroller = useRef<ScrollView>(null);
   const [width, setWidth] = useState(0);
   const [page, setPage] = useState(0);
@@ -212,6 +216,7 @@ function Tickets({ spec }: { spec: TicketsSpec }) {
 }
 
 function Chevron({ symbol, disabled, onPress }: { symbol: "chevron.left" | "chevron.right"; disabled: boolean; onPress: () => void }) {
+  const colors = useColors();
   return (
     <Pressable hitSlop={10} disabled={disabled} onPress={onPress} style={({ pressed }) => ({ opacity: disabled ? 0.3 : pressed ? 0.6 : 1 })}>
       <SymbolView name={symbol} size={14} tintColor={colors.textMuted} />
@@ -251,6 +256,7 @@ function TicketCard({ ticket }: { ticket: TicketSpec }) {
 }
 
 function Stat({ spec }: { spec: StatSpec }) {
+  const colors = useColors();
   const dir = spec.delta?.direction;
   const deltaColor = dir === "up" ? colors.ok : dir === "down" ? colors.danger : colors.textMuted;
   const arrow = dir === "up" ? "↑" : dir === "down" ? "↓" : "→";
@@ -292,6 +298,7 @@ function Chart({ spec }: { spec: ChartSpec }) {
 }
 
 function Bars({ spec, width, max }: { spec: ChartSpec; width: number; max: number }) {
+  const colors = useColors();
   const sk = loadSkia();
   const stacked = spec.stacked === true;
   const groups = Math.max(...spec.series.map((s) => s.points.length));
@@ -306,7 +313,7 @@ function Bars({ spec, width, max }: { spec: ChartSpec; width: number; max: numbe
       const x = stacked ? gi * groupWidth + gap : gi * groupWidth + gap + si * barWidth;
       const y = stacked ? CHART_HEIGHT - cum[gi]! - h : CHART_HEIGHT - h;
       cum[gi]! += stacked ? h : 0;
-      return { x, y, h, color: seriesColor(si, s.color) };
+      return { x, y, h, color: seriesColor(colors, si, s.color) };
     }),
   );
 
@@ -331,6 +338,7 @@ function Bars({ spec, width, max }: { spec: ChartSpec; width: number; max: numbe
 }
 
 function Lines({ spec, width, max }: { spec: ChartSpec; width: number; max: number }) {
+  const colors = useColors();
   const sk = loadSkia();
   if (sk === null) {
     // Without Skia, degrade a line chart to end-point dots so the data still reads.
@@ -353,7 +361,7 @@ function Lines({ spec, width, max }: { spec: ChartSpec; width: number; max: numb
       if (i === 0) path.moveTo(x, y);
       else path.lineTo(x, y);
     });
-    return { path, color: seriesColor(si, s.color) };
+    return { path, color: seriesColor(colors, si, s.color) };
   });
 
   return (
@@ -379,11 +387,12 @@ function AxisLabels({ labels, count, width }: { labels: string[]; count: number;
 }
 
 function Legend({ spec }: { spec: ChartSpec }) {
+  const colors = useColors();
   return (
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.md }}>
       {spec.series.map((s, i) => (
         <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: spacing.xs }}>
-          <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: seriesColor(i, s.color) }} />
+          <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: seriesColor(colors, i, s.color) }} />
           <Text variant="caption" color="textMuted">
             {s.name ?? `Series ${i + 1}`}
           </Text>

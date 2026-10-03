@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Text } from "./Text";
-import { colors, spacing } from "@/theme";
+import { spacing, useColors } from "@/theme";
 
 export interface ScreenProps {
   title?: string;
@@ -13,8 +13,9 @@ export interface ScreenProps {
 }
 
 export function Screen({ title, headerRight, children, scroll = false }: ScreenProps) {
+  const colors = useColors();
   return (
-    <SafeAreaView style={styles.root} edges={["top", "bottom"]}>
+    <SafeAreaView style={[styles.root, { backgroundColor: colors.bg }]} edges={["top", "bottom"]}>
       {(title !== undefined || headerRight !== undefined) && (
         <View style={styles.header}>
           {title !== undefined && (
@@ -42,7 +43,7 @@ export function Screen({ title, headerRight, children, scroll = false }: ScreenP
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.bg },
+  root: { flex: 1 },
   header: {
     flexDirection: "row",
     alignItems: "center",

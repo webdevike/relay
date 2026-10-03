@@ -6,7 +6,7 @@ import { Pressable, View } from "react-native";
 import { SymbolView, type SFSymbol } from "expo-symbols";
 import type { Drop, DropKind } from "@relay/protocol";
 import { Text } from "@/ui/Text";
-import { colors, spacing } from "@/theme";
+import { spacing, useColors } from "@/theme";
 import { byteSize, relativeTime } from "@/lib/format";
 import { tapHaptic } from "@/lib/haptics";
 
@@ -33,6 +33,7 @@ function dropSubtitle(drop: Drop, hostName: string | null, now: number = Date.no
 }
 
 export function DropRow({ drop, hostName, onPress, onLongPress }: DropRowProps) {
+  const colors = useColors();
   return (
     <Pressable
       onPress={() => {

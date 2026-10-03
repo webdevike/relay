@@ -4,7 +4,7 @@
  */
 import { useEffect, useState } from "react";
 import { Platform, Text as RNText } from "react-native";
-import { colors, type as typeScale } from "@/theme";
+import { type as typeScale, useColors } from "@/theme";
 
 const FRAME_MS = 120;
 const mono = Platform.select({ ios: "Menlo", default: "monospace" });
@@ -13,6 +13,7 @@ const BLOOM = ["·", "✢", "✳", "✶", "✻", "✽"] as const;
 const FRAMES = [...BLOOM, ...[...BLOOM].reverse().slice(1, -1)] as const;
 
 export function ThinkingMark() {
+  const colors = useColors();
   const [frame, setFrame] = useState(0);
   useEffect(() => {
     const timer = setInterval(() => {

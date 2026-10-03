@@ -78,7 +78,7 @@ Before/after image slider: both images in one frame, a divider Isaac drags (or t
 
 ## Audio
 
-Inline player: play/pause, a progress bar Isaac taps to seek, elapsed/total time. Plays even with the phone on silent.
+Inline player: play/pause, a progress bar Isaac taps to seek, elapsed/total time, and a speed pill (1x, 1.25x, 1.5x, 1.75x, 2x; pitch-corrected, remembered across clips). Plays even with the phone on silent. Never render per-speed copies of a clip; one widget covers all speeds.
 
 ```ui
 {"widget":"audio","title":"Pocket TTS · eve","src":"/drops/<id>/<token>"}

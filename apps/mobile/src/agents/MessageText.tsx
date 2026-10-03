@@ -2,7 +2,7 @@
  * links, inline code, and fenced blocks (CodeBlock). */
 import { Fragment } from "react";
 import { Linking, Platform, Text as RNText, ScrollView, type TextStyle, View } from "react-native";
-import { colors, radii, spacing, type } from "@/theme";
+import { radii, spacing, type, useColors } from "@/theme";
 import { Text } from "@/ui/Text";
 import { CodeBlock } from "./CodeBlock";
 import { type Align, type Block, type Inline, parseBlocks } from "./markdown";
@@ -31,6 +31,7 @@ export function MessageText({ text }: MessageTextProps) {
 }
 
 function BlockView({ block }: { block: Block }) {
+  const colors = useColors();
   switch (block.kind) {
     case "code":
       return <CodeBlock code={block.code} lang={block.lang} />;
@@ -68,6 +69,7 @@ function BlockView({ block }: { block: Block }) {
 }
 
 function ListView({ block }: { block: Extract<Block, { kind: "list" }> }) {
+  const colors = useColors();
   return (
     <View style={{ gap: spacing.xs }}>
       {block.items.map((item, i) => (
@@ -93,6 +95,7 @@ const justify: Record<Exclude<Align, null>, "flex-start" | "center" | "flex-end"
 };
 
 function TableView({ block }: { block: Extract<Block, { kind: "table" }> }) {
+  const colors = useColors();
   const columns = Math.max(block.header.length, ...block.rows.map((r) => r.length));
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1 }}>
@@ -107,6 +110,7 @@ function TableView({ block }: { block: Extract<Block, { kind: "table" }> }) {
 }
 
 function TableRow({ cells, columns, align, header = false }: { cells: Inline[][]; columns: number; align: Align[]; header?: boolean }) {
+  const colors = useColors();
   return (
     <View style={{ flexDirection: "row", backgroundColor: header ? colors.surfaceRaised : undefined, borderTopWidth: header ? 0 : 1, borderTopColor: colors.hairline }}>
       {Array.from({ length: columns }, (_, c) => (
@@ -121,6 +125,7 @@ function TableRow({ cells, columns, align, header = false }: { cells: Inline[][]
 }
 
 function Inlines({ runs }: { runs: Inline[] }) {
+  const colors = useColors();
   return (
     <Fragment>
       {runs.map((run, i) => {

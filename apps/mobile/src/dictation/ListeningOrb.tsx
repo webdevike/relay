@@ -13,7 +13,7 @@ import Animated, {
   type SharedValue,
 } from "react-native-reanimated";
 import { loadSkia, type SkiaModule } from "./skia";
-import { colors, motion } from "@/theme";
+import { motion, useColors } from "@/theme";
 import { micLevel, sendLift } from "./signals";
 import { useDictation } from "./useDictation";
 import { ORB_FADE_MS, ORB_FLIGHT_MS, type OrbState } from "./machine";
@@ -232,6 +232,7 @@ function SkiaOrb({ sk, level }: { sk: SkiaModule; level: SharedValue<number> }) 
 
 /** Layered translucent discs: no shader, but the same silhouette and breathing. */
 function FallbackOrb() {
+  const colors = useColors();
   const layers = [
     { size: ORB * 1.5, color: colors.accent, opacity: 0.1 },
     { size: ORB * 1.2, color: colors.accent, opacity: 0.18 },
@@ -264,6 +265,7 @@ function FallbackOrb() {
 // ---------------------------------------------------------------------------------------------
 
 function SentCheck() {
+  const colors = useColors();
   const scale = useSharedValue(0.3);
   const opacity = useSharedValue(0);
   useEffect(() => {

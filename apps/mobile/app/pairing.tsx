@@ -4,7 +4,7 @@ import { TextInput, View } from "react-native";
 import { Screen } from "@/ui/Screen";
 import { Text } from "@/ui/Text";
 import { Banner } from "@/ui/Banner";
-import { colors, radii, spacing } from "@/theme";
+import { radii, spacing, useColors } from "@/theme";
 import { useConnectionStore } from "@/state/connection";
 import { actions } from "@/state/actions";
 
@@ -18,6 +18,7 @@ const failureMessage: Record<string, string> = {
 };
 
 export default function Pairing() {
+  const colors = useColors();
   const [pin, setPin] = useState("");
   const failure = useConnectionStore((state) => state.pairing.failure);
   const pinRequired = useConnectionStore((state) => state.pairing.pinRequired);

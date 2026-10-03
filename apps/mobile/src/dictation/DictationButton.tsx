@@ -18,7 +18,7 @@ import Animated, {
 import { SymbolView } from "expo-symbols";
 import { Text } from "@/ui/Text";
 import { Banner } from "@/ui/Banner";
-import { colors, motion, radii, spacing } from "@/theme";
+import { motion, radii, spacing, useColors, type Colors } from "@/theme";
 import { impactHaptic, notifyHaptic, selectHaptic, tapHaptic } from "@/lib/haptics";
 import { useConnectionStore } from "@/state/connection";
 import { debug } from "@/connection/log";
@@ -69,18 +69,21 @@ function wrapIndex(position: number, count: number): number {
   return ((position % count) + count) % count;
 }
 
-const tintFor: Record<DictationPhase, string> = {
-  idle: colors.text,
-  requesting_permission: colors.textMuted,
-  permission_denied: colors.danger,
-  listening: colors.accent,
-  choosing: colors.textMuted,
-  chosen: colors.accent,
-  finishing: colors.accent,
-  sending: colors.accent,
-  sent: colors.ok,
-  error: colors.danger,
-};
+function tintFor(phase: DictationPhase, colors: Colors): string {
+  const tints: Record<DictationPhase, string> = {
+    idle: colors.text,
+    requesting_permission: colors.textMuted,
+    permission_denied: colors.danger,
+    listening: colors.accent,
+    choosing: colors.textMuted,
+    chosen: colors.accent,
+    finishing: colors.accent,
+    sending: colors.accent,
+    sent: colors.ok,
+    error: colors.danger,
+  };
+  return tints[phase];
+}
 
 const errorMessage: Record<string, string> = {
   "not-allowed": "Microphone access is off.",
@@ -120,11 +123,13 @@ export interface DictationButtonProps {
 
 export function DictationButton({
   size: BUTTON_SIZE = DEFAULT_SIZE,
-  backgroundColor = colors.surfaceRaised,
+  backgroundColor: backgroundColorProp,
   skills,
   launches = false,
   onTurn,
 }: DictationButtonProps = {}) {
+  const colors = useColors();
+  const backgroundColor = backgroundColorProp ?? colors.surfaceRaised;
   const connected = useConnectionStore((state) => state.status === "connected");
   const state = useDictation();
   const ring = useSharedValue(1);
@@ -574,7 +579,7 @@ export function DictationButton({
             <MicGlyph
               mode={glyphMode}
               size={BUTTON_SIZE}
-              tintColor={tintFor[state.phase]}
+              tintColor={tintFor(state.phase, colors)}
               level={level}
             />
           </Animated.View>

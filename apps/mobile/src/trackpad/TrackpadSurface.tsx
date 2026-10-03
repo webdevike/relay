@@ -4,7 +4,7 @@ import { Gesture, GestureDetector, type GestureTouchEvent } from "react-native-g
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import type { InputEvent } from "@relay/protocol";
 import { Text } from "@/ui/Text";
-import { colors, motion, radii, spacing } from "@/theme";
+import { motion, radii, spacing, useColors } from "@/theme";
 import { useConnectionStore } from "@/state/connection";
 import { useSettingsStore } from "@/state/settings";
 import { sendInput, getClientTime } from "@/connection";
@@ -40,6 +40,7 @@ export interface TrackpadSurfaceProps {
  * add a `scheduleOnRN` round-trip before doing the same JS work, not remove one.
  */
 export function TrackpadSurface({ wheel: entries, onWheel }: TrackpadSurfaceProps) {
+  const colors = useColors();
   const status = useConnectionStore((state) => state.status);
   const connected = status === "connected";
 
@@ -148,8 +149,11 @@ export function TrackpadSurface({ wheel: entries, onWheel }: TrackpadSurfaceProp
   return (
     <GestureDetector gesture={gesture}>
       <View style={styles.touchArea}>
-        <View style={styles.surface}>
-          <Animated.View pointerEvents="none" style={[styles.flash, flashStyle]} />
+        <View style={[styles.surface, { borderColor: colors.hairline, backgroundColor: colors.surface }]}>
+          <Animated.View
+            pointerEvents="none"
+            style={[styles.flash, { backgroundColor: colors.surfaceRaised }, flashStyle]}
+          />
           {!connected && (
             <View style={styles.overlay} pointerEvents="none">
               <Text variant="body" color="textFaint">
@@ -177,12 +181,10 @@ const styles = StyleSheet.create({
     margin: SURFACE_MARGIN,
     borderRadius: radii.lg,
     borderWidth: 1,
-    borderColor: colors.hairline,
-    backgroundColor: colors.surface,
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
   },
-  flash: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.surfaceRaised },
+  flash: StyleSheet.absoluteFillObject,
   overlay: { alignItems: "center", gap: spacing.xs },
 });

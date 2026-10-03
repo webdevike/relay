@@ -5,7 +5,7 @@
  */
 import { StyleSheet, View } from "react-native";
 import { SymbolView, type SFSymbol } from "expo-symbols";
-import { colors, spacing } from "@/theme";
+import { spacing, useColors } from "@/theme";
 import { Text } from "@/ui/Text";
 
 const GLYPH = 11;
@@ -41,6 +41,7 @@ export interface ToolRowProps {
 }
 
 export function ToolRow({ name, summary }: ToolRowProps) {
+  const colors = useColors();
   const label = displayName(name);
   if (summary.length === 0) {
     return (

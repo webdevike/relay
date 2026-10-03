@@ -12,7 +12,7 @@ import "prismjs/components/prism-bash";
 import "prismjs/components/prism-diff";
 import { copyText } from "@/lib/clipboard";
 import { tapHaptic } from "@/lib/haptics";
-import { colors, radii, spacing } from "@/theme";
+import { radii, spacing, useColors, useScheme } from "@/theme";
 import { Text } from "@/ui/Text";
 
 /** Fence names and file extensions the agents use that Prism knows under another id. */
@@ -41,7 +41,8 @@ export function prismLanguage(name: string | null): string {
   return language in Prism.languages ? language : "text";
 }
 
-export const codeTheme = themes.vsDark;
+/** Prism themes per scheme, so syntax hues keep contrast on either surface. */
+export const codeThemes = { dark: themes.vsDark, light: themes.vsLight } as const;
 const mono = Platform.select({ ios: "Menlo", default: "monospace" });
 const FONT_SIZE = 13;
 const LINE_HEIGHT = 18;
@@ -54,6 +55,8 @@ export interface CodeBlockProps {
 }
 
 export function CodeBlock({ code, lang }: CodeBlockProps) {
+  const colors = useColors();
+  const scheme = useScheme();
   const language = prismLanguage(lang);
   const [copied, setCopied] = useState(false);
 
@@ -90,7 +93,7 @@ export function CodeBlock({ code, lang }: CodeBlockProps) {
         </Pressable>
       </View>
       <ScrollView horizontal bounces={false} showsHorizontalScrollIndicator={false} contentContainerStyle={{ padding: spacing.md }}>
-        <Highlight code={code} language={language} theme={codeTheme}>
+        <Highlight code={code} language={language} theme={codeThemes[scheme]}>
           {({ tokens, getTokenProps }) => (
             <RNText style={{ fontFamily: mono, fontSize: FONT_SIZE, lineHeight: LINE_HEIGHT, color: colors.text }} selectable>
               {tokens.map((line, i) => (

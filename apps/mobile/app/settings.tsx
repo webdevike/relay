@@ -6,9 +6,9 @@ import { Row } from "@/ui/Row";
 import { Separator } from "@/ui/Separator";
 import { Text } from "@/ui/Text";
 import { Button } from "@/ui/Button";
-import { colors, radii, spacing, type } from "@/theme";
+import { radii, spacing, type, useColors, useScheme } from "@/theme";
 import { useConnectionStore } from "@/state/connection";
-import { useSettingsStore, type PointerSpeed, type Recognizer } from "@/state/settings";
+import { useSettingsStore, type AppearanceChoice, type PointerSpeed, type Recognizer } from "@/state/settings";
 import { actions } from "@/state/actions";
 import { MANUAL_HOST_PLACEHOLDER, parseManualHost } from "@/connection/manual-host";
 import { setNotificationsEnabled } from "@/notifications";
@@ -20,11 +20,18 @@ const recognizers: { value: Recognizer; label: string }[] = [
   { value: "voz", label: "Voz" },
   { value: "apple", label: "Apple" },
 ];
+const appearances: { value: AppearanceChoice; label: string }[] = [
+  { value: "system", label: "System" },
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+];
 
 /**
  * Committed on blur/submit, not per keystroke: every committed change restarts the connection.
  */
 function HostAddressField() {
+  const colors = useColors();
+  const scheme = useScheme();
   const manualHost = useSettingsStore((state) => state.manualHost);
   const set = useSettingsStore((state) => state.set);
   const [draft, setDraft] = useState(manualHost);
@@ -46,6 +53,7 @@ function HostAddressField() {
         onSubmitEditing={commit}
         placeholder={`Automatic, or ${MANUAL_HOST_PLACEHOLDER}`}
         placeholderTextColor={colors.textFaint}
+        keyboardAppearance={scheme}
         autoCapitalize="none"
         autoCorrect={false}
         keyboardType="url"
@@ -70,6 +78,7 @@ function HostAddressField() {
 
 /** The switch only lands on when the system permission is granted; a refusal snaps it back. */
 function NotificationsRow() {
+  const colors = useColors();
   const enabled = useSettingsStore((state) => state.notificationsEnabled);
   const [refused, setRefused] = useState(false);
   return (
@@ -162,6 +171,31 @@ function RecognizerField() {
   );
 }
 
+function AppearanceField() {
+  const appearance = useSettingsStore((state) => state.appearance);
+  const set = useSettingsStore((state) => state.set);
+  return (
+    <View style={{ paddingHorizontal: spacing.xl, paddingVertical: spacing.md, gap: spacing.md }}>
+      <Text variant="title">Appearance</Text>
+      <View style={{ flexDirection: "row", gap: spacing.sm }}>
+        {appearances.map((option) => (
+          <Button
+            key={option.value}
+            label={option.label}
+            variant={appearance === option.value ? "primary" : "secondary"}
+            onPress={() => {
+              set({ appearance: option.value });
+            }}
+          />
+        ))}
+      </View>
+      <Text variant="caption" color="textMuted">
+        System follows your iPhone's light or dark setting.
+      </Text>
+    </View>
+  );
+}
+
 /** omp's thinking selectors; a model that lacks one keeps its own default (the bridge validates). */
 const thinkingLevels = ["", "off", "low", "medium", "high", "xhigh"] as const;
 
@@ -191,6 +225,7 @@ function ThinkingField() {
 }
 
 export default function Settings() {
+  const colors = useColors();
   const macName = useConnectionStore((state) => state.macName);
   const status = useConnectionStore((state) => state.status);
   const settings = useSettingsStore();
@@ -260,6 +295,8 @@ export default function Settings() {
           />
         }
       />
+      <Separator />
+      <AppearanceField />
       <Separator />
       <NotificationsRow />
       <Separator />

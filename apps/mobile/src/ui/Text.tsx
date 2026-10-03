@@ -1,5 +1,5 @@
 import { Text as RNText, type TextProps as RNTextProps } from "react-native";
-import { colors, tabularNumbers, type, type ColorToken, type TypeToken } from "@/theme";
+import { tabularNumbers, type, useColors, type ColorToken, type TypeToken } from "@/theme";
 
 export interface TextProps extends RNTextProps {
   variant?: TypeToken;
@@ -8,6 +8,7 @@ export interface TextProps extends RNTextProps {
 }
 
 export function Text({ variant = "body", color = "text", tabular = false, style, ...rest }: TextProps) {
+  const colors = useColors();
   const scale = type[variant];
   return (
     <RNText

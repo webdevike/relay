@@ -4,7 +4,7 @@ import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-g
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { IconButton } from "@/ui/IconButton";
-import { colors, spacing } from "@/theme";
+import { spacing } from "@/theme";
 
 export interface ImageViewerProps {
   /** Data URI to show; `null` keeps the viewer closed. */
@@ -135,7 +135,8 @@ export function ImageViewer({ uri, onClose }: ImageViewerProps) {
           </Animated.View>
         </GestureDetector>
         <View style={[styles.close, { top: insets.top + spacing.sm }]} pointerEvents="box-none">
-          <IconButton symbol="xmark" onPress={onClose} tintColor={colors.text} backgroundColor="rgba(255,255,255,0.12)" />
+          {/* The backdrop is black in either scheme, so the close glyph stays white. */}
+          <IconButton symbol="xmark" onPress={onClose} tintColor="#FFFFFF" backgroundColor="rgba(255,255,255,0.12)" />
         </View>
       </GestureHandlerRootView>
     </Modal>

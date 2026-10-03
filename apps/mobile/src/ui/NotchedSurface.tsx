@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { StyleSheet, View, type LayoutChangeEvent, type StyleProp, type ViewStyle } from "react-native";
 import { loadSkia, type SkiaModule } from "@/dictation/skia";
-import { colors } from "@/theme";
+import { useColors } from "@/theme";
 
 /** A pill (circle when `width === height`) bitten out of the surface, centered at (`cx`, `cy`) in its coordinates; `cy` may lie on or past an edge. `cx` defaults to the middle. */
 export interface Notch {
@@ -36,6 +36,7 @@ export interface NotchedSurfaceProps {
  * Skia in the build it degrades to the plain bordered card.
  */
 export function NotchedSurface({ color, radius, notches, style, onLayout, children, overlay, clip = true }: NotchedSurfaceProps) {
+  const colors = useColors();
   const sk = loadSkia();
   const [size, setSize] = useState({ width: 0, height: 0 });
   const measure = (event: LayoutChangeEvent): void => {
@@ -45,7 +46,7 @@ export function NotchedSurface({ color, radius, notches, style, onLayout, childr
   };
   if (sk === null) {
     return (
-      <View style={[styles.fallback, { borderRadius: radius, backgroundColor: color }, style]} onLayout={onLayout} collapsable={false}>
+      <View style={[styles.fallback, { borderColor: colors.hairline, borderRadius: radius, backgroundColor: color }, style]} onLayout={onLayout} collapsable={false}>
         <View style={[styles.content, { borderRadius: radius }]}>{children}</View>
         {overlay}
       </View>
@@ -93,6 +94,7 @@ function biteOf(sk: SkiaModule, size: { width: number; height: number }, notch: 
 
 function Outline({ sk, size, color, radius, notches, layer }: OutlineProps) {
   const { Canvas, Path } = sk;
+  const colors = useColors();
   // Fill: the exact shape. Stroke: the hairline is centered on the path, so the shape is pulled in
   // half a point on every edge, outer and notch alike, and the whole line lands inside the card
   // like a border would. The notches themselves are painted screen background first, over the
@@ -124,5 +126,5 @@ const styles = StyleSheet.create({
   // (the header): `flex: 1` would set a zero basis and collapse it.
   content: { flexGrow: 1, flexShrink: 1, overflow: "hidden" },
   open: { flexGrow: 1, flexShrink: 1 },
-  fallback: { borderWidth: 1, borderColor: colors.hairline },
+  fallback: { borderWidth: 1 },
 });

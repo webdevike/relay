@@ -1,6 +1,6 @@
 import { ActivityIndicator, Pressable } from "react-native";
 import { Text } from "./Text";
-import { colors, radii, spacing } from "@/theme";
+import { radii, spacing, useColors, type Colors } from "@/theme";
 import { tapHaptic } from "@/lib/haptics";
 
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
@@ -13,12 +13,17 @@ export interface ButtonProps {
   loading?: boolean;
 }
 
-const backgroundFor: Record<ButtonVariant, string> = {
-  primary: colors.accent,
-  secondary: colors.surfaceRaised,
-  ghost: "transparent",
-  danger: colors.surfaceRaised,
-};
+function backgroundFor(variant: ButtonVariant, colors: Colors): string {
+  switch (variant) {
+    case "primary":
+      return colors.accent;
+    case "ghost":
+      return "transparent";
+    case "secondary":
+    case "danger":
+      return colors.surfaceRaised;
+  }
+}
 
 const textColorFor: Record<ButtonVariant, "bg" | "text" | "accent" | "danger"> = {
   primary: "bg",
@@ -28,6 +33,7 @@ const textColorFor: Record<ButtonVariant, "bg" | "text" | "accent" | "danger"> =
 };
 
 export function Button({ label, onPress, variant = "primary", disabled = false, loading = false }: ButtonProps) {
+  const colors = useColors();
   return (
     <Pressable
       disabled={disabled || loading}
@@ -41,7 +47,7 @@ export function Button({ label, onPress, variant = "primary", disabled = false, 
         paddingHorizontal: spacing.lg,
         alignItems: "center",
         justifyContent: "center",
-        backgroundColor: backgroundFor[variant],
+        backgroundColor: backgroundFor(variant, colors),
         opacity: disabled || loading ? 0.5 : pressed ? 0.85 : 1,
       })}
     >

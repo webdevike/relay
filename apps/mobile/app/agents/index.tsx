@@ -18,7 +18,7 @@ import { EmptyState } from "@/ui/EmptyState";
 import { Cutout, CUTOUT_GAP } from "@/ui/Cutout";
 import { NotchedSurface, type Notch } from "@/ui/NotchedSurface";
 import { IconButton } from "@/ui/IconButton";
-import { colors, motion, spacing } from "@/theme";
+import { motion, spacing, useColors } from "@/theme";
 import { useAgentsStore } from "@/state/agents";
 import { useConnectionStore } from "@/state/connection";
 import { useSettingsStore } from "@/state/settings";
@@ -106,6 +106,7 @@ const slideOut =
  * scrubber below picks which one, and the mic on the seam dictates into it.
  */
 export default function AgentInbox() {
+  const colors = useColors();
   const order = useAgentsStore((state) => state.order);
   const sessions = useAgentsStore((state) => state.sessions);
   const conversations = useAgentsStore((state) => state.conversations);
@@ -324,7 +325,7 @@ export default function AgentInbox() {
         ),
       },
     ],
-    [skills, connected, launching],
+    [skills, connected, launching, colors],
   );
   useEffect(() => {
     if (!canRespond) setTyping(false);
@@ -454,11 +455,17 @@ export default function AgentInbox() {
   );
 
   return (
-    <SafeAreaView style={styles.root} edges={["top", "bottom"]}>
-      <KeyboardAvoidingView style={styles.root} behavior="padding">
+    <SafeAreaView style={[styles.root, { backgroundColor: colors.bg }]} edges={["top", "bottom"]}>
+      <KeyboardAvoidingView style={[styles.root, { backgroundColor: colors.bg }]} behavior="padding">
         <View style={styles.stack}>
           {session === undefined ? (
-            <View style={[styles.card, styles.chat]}>
+            <View
+              style={[
+                styles.card,
+                { borderColor: colors.hairline, backgroundColor: colors.surface },
+                styles.chat,
+              ]}
+            >
               <EmptyState
                 symbol="tray"
                 title="No agent sessions"
@@ -518,7 +525,12 @@ export default function AgentInbox() {
                     width={notchWidth(armed, images.length, pasted)}
                     style={{ alignSelf: "center" }}
                   >
-                    <View style={styles.notchBody}>
+                    <View
+                      style={[
+                        styles.notchBody,
+                        { backgroundColor: colors.surface, borderColor: colors.hairline },
+                      ]}
+                    >
                       {armed !== null && (
                         <>
                           <Pressable
@@ -544,6 +556,7 @@ export default function AgentInbox() {
                             }}
                             style={({ pressed }) => [
                               styles.notchClose,
+                              { backgroundColor: colors.surfaceRaised },
                               pressed && { opacity: 0.7 },
                             ]}
                           >
@@ -567,7 +580,10 @@ export default function AgentInbox() {
                               source={{
                                 uri: `data:${images[0].mimeType};base64,${images[0].data}`,
                               }}
-                              style={styles.chip}
+                              style={[
+                                styles.chip,
+                                { borderColor: colors.hairline, backgroundColor: colors.surfaceRaised },
+                              ]}
                             />
                             <Text variant="label" color="text" numberOfLines={1}>
                               {images.length === 1 ? "Image" : `${String(images.length)} images`}
@@ -582,6 +598,7 @@ export default function AgentInbox() {
                             }}
                             style={({ pressed }) => [
                               styles.notchClose,
+                              { backgroundColor: colors.surfaceRaised },
                               pressed && { opacity: 0.7 },
                             ]}
                           >
@@ -615,6 +632,7 @@ export default function AgentInbox() {
                             }}
                             style={({ pressed }) => [
                               styles.notchClose,
+                              { backgroundColor: colors.surfaceRaised },
                               pressed && { opacity: 0.7 },
                             ]}
                           >
@@ -757,15 +775,13 @@ function notchWidth(token: string | null, chips: number, pasted: string | null):
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.bg },
+  root: { flex: 1 },
   stack: { flex: 1, marginHorizontal: spacing.md, marginTop: spacing.sm },
   /** The empty state's card, which nothing bites into. */
   card: {
     borderRadius: CARD_RADIUS,
     borderWidth: 1,
-    borderColor: colors.hairline,
     overflow: "hidden",
-    backgroundColor: colors.surface,
   },
   chat: { flex: 1, marginTop: spacing.sm },
   /** Full-width lane the seam pill is centered in; its `top` follows the header as it folds. */
@@ -775,9 +791,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     borderRadius: NOTCH_HEIGHT / 2,
-    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: colors.hairline,
     paddingLeft: spacing.md,
     paddingRight: spacing.xs,
     gap: spacing.sm,
@@ -789,15 +803,12 @@ const styles = StyleSheet.create({
     borderRadius: 11,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.surfaceRaised,
   },
   chip: {
     width: CHIP_SIZE,
     height: CHIP_SIZE,
     borderRadius: 5,
     borderWidth: 1,
-    borderColor: colors.hairline,
-    backgroundColor: colors.surfaceRaised,
   },
   panel: {
     height: PANEL_HEIGHT,

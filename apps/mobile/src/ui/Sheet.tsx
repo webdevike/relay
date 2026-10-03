@@ -14,7 +14,7 @@ import {
   BottomSheetScrollView,
   type BottomSheetBackdropProps,
 } from "@gorhom/bottom-sheet";
-import { colors, radii, spacing } from "@/theme";
+import { radii, spacing, useColors } from "@/theme";
 
 export { BottomSheetTextInput as SheetTextInput } from "@gorhom/bottom-sheet";
 
@@ -40,6 +40,7 @@ function Backdrop(props: BottomSheetBackdropProps) {
 }
 
 export function Sheet({ visible, onClose, children }: SheetProps) {
+  const colors = useColors();
   const ref = useRef<BottomSheetModal>(null);
   const { height } = useWindowDimensions();
   useEffect(() => {

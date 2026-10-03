@@ -8,7 +8,7 @@ import { Image, View, type ImageLoadEventData, type NativeSyntheticEvent } from 
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, { useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 import { SymbolView } from "expo-symbols";
-import { colors, radii, spacing } from "@/theme";
+import { radii, spacing, useColors } from "@/theme";
 import { Text } from "@/ui/Text";
 import { resolveDropSrc } from "./dropSrc";
 import type { CompareSpec } from "./widget";
@@ -18,6 +18,7 @@ const DIVIDER = 2;
 const DEFAULT_ASPECT = 16 / 9;
 
 export function CompareSlider({ spec }: { spec: CompareSpec }) {
+  const colors = useColors();
   const [width, setWidth] = useState(0);
   const [aspect, setAspect] = useState(DEFAULT_ASPECT);
   const position = useSharedValue(0.5);

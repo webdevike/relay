@@ -4,7 +4,7 @@ import { SymbolView } from "expo-symbols";
 import type { AgentImageRef, AgentMessage, AgentSession, AgentStatus } from "@relay/protocol";
 import { Text } from "@/ui/Text";
 import { Pill, type PillProps } from "@/ui/Pill";
-import { colors, radii, spacing } from "@/theme";
+import { radii, spacing, useColors, type Colors } from "@/theme";
 import { useAgentsStore } from "@/state/agents";
 import { requestAgentImage } from "@/connection";
 import { loadSkia } from "@/dictation/skia";
@@ -52,6 +52,7 @@ interface MessageImagesProps {
  * `null` answer (the host no longer has the image) shows a photo glyph instead.
  */
 function MessageImages({ sessionId, refs, onOpen }: MessageImagesProps) {
+  const colors = useColors();
   const images = useAgentsStore((state) => state.images[sessionId]);
   useEffect(() => {
     for (const ref of refs) {
@@ -98,6 +99,7 @@ interface MessageRowProps {
 }
 
 function MessageRow({ sessionId, message, onOpenImage }: MessageRowProps) {
+  const colors = useColors();
   const images =
     message.images === undefined || message.images.length === 0 ? null : <MessageImages sessionId={sessionId} refs={message.images} onOpen={onOpenImage} />;
   switch (message.role) {
@@ -107,7 +109,8 @@ function MessageRow({ sessionId, message, onOpenImage }: MessageRowProps) {
           <View
             style={{
               maxWidth: "85%",
-              backgroundColor: "rgba(124,156,255,0.16)",
+              // The accent at 0.16 opacity.
+              backgroundColor: `${colors.accent}29`,
               borderRadius: radii.md,
               paddingHorizontal: spacing.md,
               paddingVertical: spacing.sm,
@@ -208,7 +211,7 @@ const RING_SIZE = 14;
 const RING_STROKE = 2;
 
 /** Green while there is room, yellow as the window fills, red when compaction is close. */
-function contextColor(used: number): string {
+function contextColor(colors: Colors, used: number): string {
   if (used <= 0.4) return colors.ok;
   if (used <= 0.65) return colors.warn;
   return colors.danger;
@@ -216,8 +219,9 @@ function contextColor(used: number): string {
 
 /** A small ring, under the status, filling clockwise with the share of the context window in use. */
 function ContextRing({ used }: { used: number }) {
+  const colors = useColors();
   const sk = loadSkia();
-  const color = contextColor(used);
+  const color = contextColor(colors, used);
   if (sk === null) {
     return <View style={{ width: RING_SIZE, height: RING_SIZE, borderRadius: RING_SIZE / 2, borderWidth: RING_STROKE, borderColor: color }} />;
   }

@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native
 import type { AgentAsk, AgentAskQuestion } from "@relay/protocol";
 import { Text } from "@/ui/Text";
 import { Button } from "@/ui/Button";
-import { colors, radii, spacing } from "@/theme";
+import { radii, spacing, useColors } from "@/theme";
 import { tapHaptic } from "@/lib/haptics";
 
 /** One answer per question: chosen option labels, or free text the user typed instead. */
@@ -35,6 +35,7 @@ interface OptionRowProps {
 }
 
 function OptionRow({ label, description, selected, recommended, onPress }: OptionRowProps) {
+  const colors = useColors();
   return (
     <Pressable
       onPress={() => {
@@ -45,7 +46,8 @@ function OptionRow({ label, description, selected, recommended, onPress }: Optio
         borderRadius: radii.md,
         borderWidth: 1,
         borderColor: selected ? colors.accent : colors.hairline,
-        backgroundColor: selected ? "rgba(124,156,255,0.12)" : colors.surface,
+        // Selected: the accent at 0.12 opacity.
+        backgroundColor: selected ? `${colors.accent}1F` : colors.surface,
         paddingVertical: spacing.sm,
         paddingHorizontal: spacing.md,
         opacity: pressed ? 0.85 : 1,
@@ -83,6 +85,7 @@ function Question({
   onToggle: (label: string) => void;
   onCustom: (text: string) => void;
 }) {
+  const colors = useColors();
   return (
     <View style={{ gap: spacing.sm }}>
       {question.header !== undefined && question.header.length > 0 && (
@@ -113,7 +116,10 @@ function Question({
         onChangeText={onCustom}
         placeholder="Or type your own answer…"
         placeholderTextColor={colors.textFaint}
-        style={[styles.custom, custom.length > 0 ? styles.customActive : null]}
+        style={[
+          styles.custom,
+          { borderColor: custom.length > 0 ? colors.accent : colors.hairline, backgroundColor: colors.surface, color: colors.text },
+        ]}
         multiline
       />
     </View>
@@ -131,6 +137,7 @@ function answered(selected: string[] | undefined, custom: string | undefined): b
  * also takes a typed answer, and the whole ask can be cancelled. Back keeps earlier answers.
  */
 export function AskCard({ ask, onSubmit, onCancel }: AskCardProps) {
+  const colors = useColors();
   const [selections, setSelections] = useState<Record<string, string[]>>({});
   const [customs, setCustoms] = useState<Record<string, string>>({});
   const [step, setStep] = useState(0);
@@ -166,12 +173,18 @@ export function AskCard({ ask, onSubmit, onCancel }: AskCardProps) {
   };
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, { borderColor: colors.hairline, backgroundColor: colors.surfaceRaised }]}>
       <View style={styles.header}>
         {total > 1 ? (
           <View style={styles.progress}>
             {ask.questions.map((q, i) => (
-              <View key={q.id} style={[styles.dot, i === step ? styles.dotActive : answered(selections[q.id], customs[q.id]) ? styles.dotDone : null]} />
+              <View
+                key={q.id}
+                style={[
+                  styles.dot,
+                  { backgroundColor: i === step ? colors.accent : answered(selections[q.id], customs[q.id]) ? colors.textFaint : colors.hairline },
+                ]}
+              />
             ))}
             <Text variant="caption" color="textFaint" style={{ marginLeft: spacing.sm }}>
               {step + 1} / {total}
@@ -189,7 +202,7 @@ export function AskCard({ ask, onSubmit, onCancel }: AskCardProps) {
       <ScrollView contentContainerStyle={{ gap: spacing.lg, padding: spacing.lg, paddingTop: spacing.sm }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <Question question={question} selected={current} custom={customs[question.id] ?? ""} onToggle={onToggle} onCustom={onCustom} />
       </ScrollView>
-      <View style={styles.footer}>
+      <View style={[styles.footer, { borderTopColor: colors.hairline }]}>
         <Button label="Back" variant="ghost" disabled={step === 0} onPress={() => setStep((s) => Math.max(0, s - 1))} />
         {isLast ? (
           <Button label="Submit" disabled={!complete} onPress={submit} />
@@ -205,8 +218,6 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: radii.lg,
     borderWidth: 1,
-    borderColor: colors.hairline,
-    backgroundColor: colors.surfaceRaised,
     overflow: "hidden",
     maxHeight: 400,
   },
@@ -226,28 +237,20 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
     marginRight: spacing.xs,
-    backgroundColor: colors.hairline,
   },
-  dotActive: { backgroundColor: colors.accent },
-  dotDone: { backgroundColor: colors.textFaint },
   custom: {
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: colors.hairline,
-    backgroundColor: colors.surface,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
-    color: colors.text,
     fontSize: 15,
     minHeight: 40,
   },
-  customActive: { borderColor: colors.accent },
   footer: {
     flexDirection: "row",
     justifyContent: "space-between",
     gap: spacing.md,
     borderTopWidth: 1,
-    borderTopColor: colors.hairline,
     padding: spacing.md,
   },
 });
