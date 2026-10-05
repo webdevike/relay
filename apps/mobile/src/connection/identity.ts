@@ -5,10 +5,12 @@
  */
 import * as SecureStore from "expo-secure-store";
 import { randomUUID } from "expo-crypto";
+import { File, Paths } from "expo-file-system";
 
 const DEVICE_ID_KEY = "relay.deviceId";
 const PAIRED_HOSTS_KEY = "relay.pairedHosts.v2";
 const LEGACY_PAIRED_MAC_KEY = "relay.pairedMac";
+const QUICK_TRUST_FILE = "relay-quick-trust.json";
 
 export interface PairedHost {
   readonly targetName: string;
@@ -30,6 +32,28 @@ export async function getDeviceId(): Promise<string> {
   await SecureStore.setItemAsync(DEVICE_ID_KEY, created);
   cachedDeviceId = created;
   return created;
+}
+
+/**
+ * Imports trust provisioned through the iOS app-data channel by a physically paired computer.
+ * The plaintext transfer file is deleted after import; the credential then lives only in Keychain.
+ */
+export async function importProvisionedHost(deviceId: string): Promise<boolean> {
+  const file = new File(Paths.document, QUICK_TRUST_FILE);
+  if (!file.exists) return false;
+
+  const provision = parseProvisionedHost(await file.text());
+  if (provision?.deviceId !== deviceId) {
+    file.delete();
+    return false;
+  }
+  await savePairedHost({
+    targetName: provision.targetName,
+    macName: provision.macName,
+    secretHex: provision.secretHex,
+  });
+  file.delete();
+  return true;
 }
 
 export async function getPairedHost(targetName: string): Promise<PairedHost | null> {
@@ -99,6 +123,31 @@ function parseLegacyPairedMac(raw: string | null): { macName: string; secretHex:
       macName: record["macName"],
       secretHex: record["secretHex"],
       bonjourName: record["bonjourName"],
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseProvisionedHost(raw: string): (PairedHost & { readonly deviceId: string }) | null {
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (typeof value !== "object" || value === null) return null;
+    const record = value as Record<string, unknown>;
+    if (
+      typeof record["deviceId"] !== "string" ||
+      typeof record["targetName"] !== "string" ||
+      typeof record["macName"] !== "string" ||
+      typeof record["secretHex"] !== "string" ||
+      !/^[0-9a-f]{64}$/.test(record["secretHex"])
+    ) {
+      return null;
+    }
+    return {
+      deviceId: record["deviceId"],
+      targetName: record["targetName"],
+      macName: record["macName"],
+      secretHex: record["secretHex"],
     };
   } catch {
     return null;

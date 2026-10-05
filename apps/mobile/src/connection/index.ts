@@ -172,6 +172,7 @@ let settingsSubscription: (() => void) | null = null;
 
 async function boot(): Promise<void> {
   deviceId = await identity.getDeviceId();
+  await identity.importProvisionedHost(deviceId);
   pairedTargetNames = await identity.getPairedTargetNames();
   wasActive = AppState.currentState === "active";
   appStateSubscription = AppState.addEventListener("change", onAppStateChange);
