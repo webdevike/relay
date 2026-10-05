@@ -12,17 +12,17 @@ const service: DiscoveredService = { name: "Isaacs-Mac", host: "192.168.1.5", po
 const mac: MacState = { name: "Isaac's Mac", version: "1.0.0", accessibilityGranted: true, agentsAvailable: false };
 const welcome = { t: "welcome" as const, state: { mac, agents: { rev: 0, sessions: [] } } };
 
-function machine(pairedSecretHex: string | null = null): SessionMachine {
-  return new SessionMachine({ sha256, deviceId: "device-1", getDeviceName: () => "iPhone", pairedSecretHex, random: noJitter });
+function machine(): SessionMachine {
+  return new SessionMachine({ sha256, deviceId: "device-1", getDeviceName: () => "iPhone", random: noJitter });
 }
 
 /** Drives a fresh, paired machine to exactly `state` via the shortest realistic path. */
 async function reach(state: SessionState): Promise<SessionMachine> {
-  const m = machine("aabbccdd");
+  const m = machine();
   if (state === "idle") return m;
   await m.handle({ type: "appActive" }, 0);
   if (state === "discovering") return m;
-  await m.handle({ type: "serviceFound", service }, 0);
+  await m.handle({ type: "serviceFound", service, pairedSecretHex: "aabbccdd" }, 0);
   if (state === "connecting") return m;
   await m.handle({ type: "socketOpen" }, 0);
   if (state === "hello") return m;
@@ -148,11 +148,10 @@ describe("SessionMachine backoff jitter bounds", () => {
         sha256,
         deviceId: "d",
         getDeviceName: () => "iPhone",
-        pairedSecretHex: "aabbccdd",
         random: Math.random,
       });
       await m.handle({ type: "appActive" }, 0);
-      await m.handle({ type: "serviceFound", service }, 0);
+      await m.handle({ type: "serviceFound", service, pairedSecretHex: "aabbccdd" }, 0);
       let lastMs = -1;
       for (let attempt = 0; attempt < targetAttempts; attempt++) {
         const closed = await m.handle({ type: "socketClosed" }, 0);

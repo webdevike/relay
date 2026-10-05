@@ -36,7 +36,7 @@ Simulator dev client: build with `xcodebuild -workspace ios/Relay.xcworkspace -s
 
 ## Pairing and security (V1)
 
-Plaintext WebSocket on the LAN. First contact: the Mac shows a 6-digit PIN for 120 s, the phone sends it, the Mac issues a 32-byte secret stored in the Keychain on both sides. Every later connection is `challenge` (32-byte nonce) → `auth` (HMAC-SHA256 proof) → `welcome`. Trackpad input is dropped, never queued, when disconnected; commands are acked and deduplicated by id across reconnects. No TLS yet: fine at home, not on hostile Wi-Fi.
+Plaintext WebSocket on the LAN. First contact with each computer: the host shows a 6-digit PIN for 120 s, the phone sends it, and the host issues a 32-byte secret stored in Keychain. The phone keeps independent credentials per connection target, so switching computers does not replace existing trust. Every later connection is `challenge` (32-byte nonce) → `auth` (HMAC-SHA256 proof) → `welcome`. Trackpad input is dropped, never queued, when disconnected; commands are acked and deduplicated by id across reconnects. No TLS yet: fine at home, not on hostile Wi-Fi.
 
 ## Protocol
 

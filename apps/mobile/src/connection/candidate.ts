@@ -13,18 +13,18 @@ export interface DiscoveredService {
 const PROTOCOL_TXT_VERSION = "1";
 
 /**
- * Picks the service to connect to from every currently resolved service. When a paired Mac
- * exists, only its remembered `bonjourName` counts as a match (a second Mac on the LAN must
- * never hijack the connection); otherwise the first resolved service is the candidate (v1
- * supports exactly one Mac). Services without the current protocol TXT version are ignored.
+ * Picks the first valid preferred host. If none of the remembered hosts are present, returns the
+ * first valid service so a newly encountered computer can enter the normal authenticated pairing
+ * flow.
  */
 export function pickCandidate(
   services: readonly DiscoveredService[],
-  pairedBonjourName: string | null,
+  pairedTargetNames: readonly string[],
 ): DiscoveredService | null {
   const valid = services.filter((service) => service.txt["v"] === PROTOCOL_TXT_VERSION);
-  if (pairedBonjourName !== null) {
-    return valid.find((service) => service.name === pairedBonjourName) ?? null;
+  for (const targetName of pairedTargetNames) {
+    const preferred = valid.find((service) => service.name === targetName);
+    if (preferred !== undefined) return preferred;
   }
   return valid[0] ?? null;
 }

@@ -28,7 +28,7 @@ export class Discovery {
   private readonly zeroconf: Zeroconf;
   private readonly handlers: DiscoveryHandlers;
   private services: DiscoveredService[] = [];
-  private pairedBonjourName: string | null = null;
+  private pairedTargetNames: readonly string[] = [];
   private scanning = false;
 
   constructor(handlers: DiscoveryHandlers, zeroconf: Zeroconf = new Zeroconf()) {
@@ -45,11 +45,11 @@ export class Discovery {
     });
   }
 
-  start(pairedBonjourName: string | null): void {
-    this.pairedBonjourName = pairedBonjourName;
+  start(pairedTargetNames: readonly string[]): void {
+    this.pairedTargetNames = pairedTargetNames;
     this.services = [];
     this.scanning = true;
-    debug("discovery", "scan start", pairedBonjourName ?? "(no preferred mac)");
+    debug("discovery", "scan start", pairedTargetNames.join(", ") || "(no preferred host)");
     this.zeroconf.scan(SERVICE_TYPE, SERVICE_PROTOCOL, SERVICE_DOMAIN);
   }
 
@@ -63,7 +63,7 @@ export class Discovery {
   private handleResolved(raw: ZeroconfService): void {
     const service = toDiscoveredService(raw);
     this.services = [...this.services.filter((existing) => existing.name !== service.name), service];
-    const candidate = pickCandidate(this.services, this.pairedBonjourName);
+    const candidate = pickCandidate(this.services, this.pairedTargetNames);
     if (candidate !== null) this.handlers.onCandidate(candidate);
   }
 

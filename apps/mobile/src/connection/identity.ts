@@ -1,18 +1,19 @@
 /**
- * Device identity and paired-Mac credentials, both backed by expo-secure-store (iOS Keychain).
- * The paired secret is the only credential that ever leaves this module, and only as input to
- * `authProof` (packages/protocol/src/hmac.ts) — never logged, never persisted anywhere else.
+ * Device identity and per-host credentials, backed by expo-secure-store (iOS Keychain).
+ * Secrets leave this module only as input to `authProof`. They are never logged or persisted
+ * outside Keychain.
  */
 import * as SecureStore from "expo-secure-store";
 import { randomUUID } from "expo-crypto";
 
 const DEVICE_ID_KEY = "relay.deviceId";
-const PAIRED_MAC_KEY = "relay.pairedMac";
+const PAIRED_HOSTS_KEY = "relay.pairedHosts.v2";
+const LEGACY_PAIRED_MAC_KEY = "relay.pairedMac";
 
-export interface PairedMac {
+export interface PairedHost {
+  readonly targetName: string;
   readonly macName: string;
   readonly secretHex: string;
-  readonly bonjourName: string;
 }
 
 let cachedDeviceId: string | null = null;
@@ -31,32 +32,85 @@ export async function getDeviceId(): Promise<string> {
   return created;
 }
 
-export async function getPairedMac(): Promise<PairedMac | null> {
-  const raw = await SecureStore.getItemAsync(PAIRED_MAC_KEY);
+export async function getPairedHost(targetName: string): Promise<PairedHost | null> {
+  const hosts = await loadPairedHosts();
+  return hosts.find((host) => host.targetName === targetName) ?? null;
+}
+
+export async function getMostRecentPairedHost(): Promise<PairedHost | null> {
+  const hosts = await loadPairedHosts();
+  return hosts[hosts.length - 1] ?? null;
+}
+
+export async function getPairedTargetNames(): Promise<string[]> {
+  return (await loadPairedHosts()).map((host) => host.targetName);
+}
+
+export async function savePairedHost(host: PairedHost): Promise<void> {
+  const hosts = await loadPairedHosts();
+  await persistPairedHosts([...hosts.filter((candidate) => candidate.targetName !== host.targetName), host]);
+}
+
+export async function forgetPairedHost(targetName: string): Promise<void> {
+  const hosts = await loadPairedHosts();
+  await persistPairedHosts(hosts.filter((host) => host.targetName !== targetName));
+}
+
+async function loadPairedHosts(): Promise<PairedHost[]> {
+  const stored = parsePairedHosts(await SecureStore.getItemAsync(PAIRED_HOSTS_KEY));
+  if (stored !== null) return stored;
+
+  const legacy = parseLegacyPairedMac(await SecureStore.getItemAsync(LEGACY_PAIRED_MAC_KEY));
+  if (legacy === null) return [];
+  const migrated = [{ targetName: legacy.bonjourName, macName: legacy.macName, secretHex: legacy.secretHex }];
+  await persistPairedHosts(migrated);
+  return migrated;
+}
+
+async function persistPairedHosts(hosts: readonly PairedHost[]): Promise<void> {
+  await SecureStore.setItemAsync(PAIRED_HOSTS_KEY, JSON.stringify(hosts));
+}
+
+function parsePairedHosts(raw: string | null): PairedHost[] | null {
   if (raw === null) return null;
-  let parsed: unknown;
   try {
-    parsed = JSON.parse(raw);
+    const value: unknown = JSON.parse(raw);
+    if (!Array.isArray(value) || !value.every(isPairedHost)) return [];
+    return value;
+  } catch {
+    return [];
+  }
+}
+
+function parseLegacyPairedMac(raw: string | null): { macName: string; secretHex: string; bonjourName: string } | null {
+  if (raw === null) return null;
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (typeof value !== "object" || value === null) return null;
+    const record = value as Record<string, unknown>;
+    if (
+      typeof record["macName"] !== "string" ||
+      typeof record["secretHex"] !== "string" ||
+      typeof record["bonjourName"] !== "string"
+    ) {
+      return null;
+    }
+    return {
+      macName: record["macName"],
+      secretHex: record["secretHex"],
+      bonjourName: record["bonjourName"],
+    };
   } catch {
     return null;
   }
-  return isPairedMac(parsed) ? parsed : null;
 }
 
-export async function savePairedMac(mac: PairedMac): Promise<void> {
-  await SecureStore.setItemAsync(PAIRED_MAC_KEY, JSON.stringify(mac));
-}
-
-export async function forgetPairedMac(): Promise<void> {
-  await SecureStore.deleteItemAsync(PAIRED_MAC_KEY);
-}
-
-function isPairedMac(value: unknown): value is PairedMac {
+function isPairedHost(value: unknown): value is PairedHost {
   if (typeof value !== "object" || value === null) return false;
   const record = value as Record<string, unknown>;
   return (
+    typeof record["targetName"] === "string" &&
     typeof record["macName"] === "string" &&
-    typeof record["secretHex"] === "string" &&
-    typeof record["bonjourName"] === "string"
+    typeof record["secretHex"] === "string"
   );
 }

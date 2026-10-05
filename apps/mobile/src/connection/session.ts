@@ -27,7 +27,7 @@ export type SessionInput =
   | { readonly type: "server"; readonly message: ServerMessage }
   | { readonly type: "socketOpen" }
   | { readonly type: "socketClosed" }
-  | { readonly type: "serviceFound"; readonly service: DiscoveredService }
+  | { readonly type: "serviceFound"; readonly service: DiscoveredService; readonly pairedSecretHex: string | null }
   | { readonly type: "appActive" }
   | { readonly type: "appBackground" }
   | { readonly type: "startPairing" }
@@ -50,7 +50,6 @@ export interface SessionDeps {
   readonly sha256: Sha256;
   readonly deviceId: string;
   readonly getDeviceName: () => string;
-  readonly pairedSecretHex: string | null;
   readonly random?: () => number;
 }
 
@@ -80,7 +79,7 @@ export class SessionMachine {
 
   constructor(deps: SessionDeps) {
     this.deps = deps;
-    this.secretHex = deps.pairedSecretHex;
+    this.secretHex = null;
     this.random = deps.random ?? Math.random;
   }
 
@@ -101,7 +100,7 @@ export class SessionMachine {
       case "socketClosed":
         return this.onSocketClosed();
       case "serviceFound":
-        return this.onServiceFound(input.service);
+        return this.onServiceFound(input.service, input.pairedSecretHex);
       case "appActive":
         return this.onAppActive();
       case "appBackground":
@@ -147,9 +146,10 @@ export class SessionMachine {
     return this.enterBackoff();
   }
 
-  private onServiceFound(service: DiscoveredService): Effect[] {
+  private onServiceFound(service: DiscoveredService, pairedSecretHex: string | null): Effect[] {
     if (this.state !== "discovering") return [];
     this.candidate = { host: service.host, port: service.port };
+    this.secretHex = pairedSecretHex;
     this.state = "connecting";
     return [
       { type: "stopDiscovery" },
@@ -303,6 +303,7 @@ export class SessionMachine {
   private onErrorMessage(code: ErrorCode, message: string): Effect[] {
     switch (code) {
       case "unknown_device":
+      case "auth_failed":
         this.secretHex = null;
         this.state = "needs_pairing";
         return [
@@ -312,7 +313,6 @@ export class SessionMachine {
       case "busy":
         return this.enterBackoff();
       case "version_mismatch":
-      case "auth_failed":
       case "protocol":
         this.state = "offline";
         return [{ type: "storeUpdate", partial: { status: "offline", lastError: message } }];

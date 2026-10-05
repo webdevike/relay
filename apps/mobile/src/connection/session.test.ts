@@ -10,12 +10,11 @@ const noJitter = (): number => 0.5; // (0.5 * 2 - 1) === 0 -> backoffDelay retur
 const service: DiscoveredService = { name: "Isaacs-Mac", host: "192.168.1.5", port: 8443, txt: { v: "1" } };
 const mac: MacState = { name: "Isaac's Mac", version: "1.0.0", accessibilityGranted: true, agentsAvailable: false };
 
-function machine(pairedSecretHex: string | null = null): SessionMachine {
+function machine(): SessionMachine {
   return new SessionMachine({
     sha256,
     deviceId: "device-1",
     getDeviceName: () => "iPhone",
-    pairedSecretHex,
     random: noJitter,
   });
 }
@@ -29,7 +28,7 @@ describe("SessionMachine full pairing path", () => {
     };
 
     await step({ type: "appActive" }, 0);
-    await step({ type: "serviceFound", service }, 10);
+    await step({ type: "serviceFound", service, pairedSecretHex: null }, 10);
     await step({ type: "socketOpen" }, 20);
     await step({ type: "server", message: { t: "unpaired" } }, 30);
     await step({ type: "startPairing" }, 40);
@@ -64,9 +63,9 @@ describe("SessionMachine full pairing path", () => {
 describe("SessionMachine known-device auth", () => {
   it("answers a challenge with a real HMAC proof computed from the paired secret", async () => {
     const secretHex = "00112233445566778899aabbccddeeff00112233445566778899aabbccddee";
-    const m = machine(secretHex);
+    const m = machine();
     await m.handle({ type: "appActive" }, 0);
-    await m.handle({ type: "serviceFound", service }, 0);
+    await m.handle({ type: "serviceFound", service, pairedSecretHex: secretHex }, 0);
     await m.handle({ type: "socketOpen" }, 0);
 
     const effects = await m.handle({ type: "server", message: { t: "challenge", nonce: "nonce-xyz" } }, 0);
@@ -79,9 +78,9 @@ describe("SessionMachine known-device auth", () => {
 
 describe("SessionMachine unknown_device error", () => {
   it("lands in and stays in the pairing-wait state until the user taps Pair, then re-pairs", async () => {
-    const m = machine("some-secret-hex");
+    const m = machine();
     await m.handle({ type: "appActive" }, 0);
-    await m.handle({ type: "serviceFound", service }, 0);
+    await m.handle({ type: "serviceFound", service, pairedSecretHex: "some-secret-hex" }, 0);
     await m.handle({ type: "socketOpen" }, 0);
 
     const effects = await m.handle(
@@ -118,11 +117,32 @@ describe("SessionMachine unknown_device error", () => {
   });
 });
 
+describe("SessionMachine stale host credential", () => {
+  it("forgets only the selected credential and offers pairing after authentication fails", async () => {
+    const m = machine();
+    await m.handle({ type: "appActive" }, 0);
+    await m.handle({ type: "serviceFound", service, pairedSecretHex: "deadbeef" }, 0);
+    await m.handle({ type: "socketOpen" }, 0);
+    await m.handle({ type: "server", message: { t: "challenge", nonce: "n" } }, 0);
+
+    const effects = await m.handle(
+      { type: "server", message: { t: "error", code: "auth_failed", message: "invalid proof" } },
+      0,
+    );
+
+    expect(effects).toEqual([
+      { type: "forgetSecret" },
+      { type: "storeUpdate", partial: { status: "pairing", pairing: { pinRequired: false, failure: null }, mac: null, macName: null } },
+    ]);
+    expect(m.currentState).toBe("needs_pairing");
+  });
+});
+
 describe("SessionMachine busy error", () => {
   it("does not double-count the backoff attempt when the guaranteed socketClosed follows", async () => {
-    const m = machine("aabbccdd");
+    const m = machine();
     await m.handle({ type: "appActive" }, 0);
-    await m.handle({ type: "serviceFound", service }, 0);
+    await m.handle({ type: "serviceFound", service, pairedSecretHex: "aabbccdd" }, 0);
     await m.handle({ type: "socketOpen" }, 0);
     await m.handle({ type: "startPairing" }, 0); // pairing_request: where the Mac can reply "busy"
 
@@ -143,9 +163,9 @@ describe("SessionMachine busy error", () => {
 
 describe("SessionMachine backoff", () => {
   it("escalates 0.5s/1s/2s/4s/5s capped, then resets to 0.5s after reconnecting", async () => {
-    const m = machine("aabbccdd");
+    const m = machine();
     await m.handle({ type: "appActive" }, 0);
-    await m.handle({ type: "serviceFound", service }, 0);
+    await m.handle({ type: "serviceFound", service, pairedSecretHex: "aabbccdd" }, 0);
 
     const scheduledDelays: number[] = [];
     for (let i = 0; i < 6; i++) {
@@ -172,9 +192,9 @@ describe("SessionMachine backoff", () => {
 
 describe("SessionMachine app lifecycle", () => {
   it("suppresses retries while backgrounded and reconnects immediately on resume", async () => {
-    const m = machine("aabbccdd");
+    const m = machine();
     await m.handle({ type: "appActive" }, 0);
-    await m.handle({ type: "serviceFound", service }, 0);
+    await m.handle({ type: "serviceFound", service, pairedSecretHex: "aabbccdd" }, 0);
     await m.handle({ type: "socketClosed" }, 0); // now in backoff, a retry timer is conceptually pending
     expect(m.currentState).toBe("backoff");
 
@@ -203,9 +223,9 @@ describe("SessionMachine app lifecycle", () => {
 
 describe("SessionMachine heartbeat", () => {
   it("treats two consecutive missed pongs as a closed connection", async () => {
-    const m = machine("aabbccdd");
+    const m = machine();
     await m.handle({ type: "appActive" }, 0);
-    await m.handle({ type: "serviceFound", service }, 0);
+    await m.handle({ type: "serviceFound", service, pairedSecretHex: "aabbccdd" }, 0);
     await m.handle({ type: "socketOpen" }, 0);
     await m.handle({ type: "server", message: { t: "challenge", nonce: "n" } }, 0);
     await m.handle({ type: "server", message: { t: "welcome", state: { mac, agents: { rev: 0, sessions: [] } } } }, 0);
@@ -231,9 +251,9 @@ describe("SessionMachine heartbeat", () => {
   });
 
   it("resets the missed-pong count when a pong arrives", async () => {
-    const m = machine("aabbccdd");
+    const m = machine();
     await m.handle({ type: "appActive" }, 0);
-    await m.handle({ type: "serviceFound", service }, 0);
+    await m.handle({ type: "serviceFound", service, pairedSecretHex: "aabbccdd" }, 0);
     await m.handle({ type: "socketOpen" }, 0);
     await m.handle({ type: "server", message: { t: "challenge", nonce: "n" } }, 0);
     await m.handle({ type: "server", message: { t: "welcome", state: { mac, agents: { rev: 0, sessions: [] } } } }, 0);
@@ -252,9 +272,9 @@ describe("SessionMachine heartbeat", () => {
   });
 
   it("ignores a stale pong that doesn't match the most recently sent ping", async () => {
-    const m = machine("aabbccdd");
+    const m = machine();
     await m.handle({ type: "appActive" }, 0);
-    await m.handle({ type: "serviceFound", service }, 0);
+    await m.handle({ type: "serviceFound", service, pairedSecretHex: "aabbccdd" }, 0);
     await m.handle({ type: "socketOpen" }, 0);
     await m.handle({ type: "server", message: { t: "challenge", nonce: "n" } }, 0);
     await m.handle({ type: "server", message: { t: "welcome", state: { mac, agents: { rev: 0, sessions: [] } } } }, 0);

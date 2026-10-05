@@ -25,12 +25,13 @@ import { debug, warn } from "./log";
 
 let started = false;
 let deviceId = "";
-let pairedBonjourName: string | null = null;
+let pairedTargetNames: string[] = [];
 let currentCandidate: DiscoveredService | null = null;
 let machine: SessionMachine | null = null;
 let wasActive = true;
 let appStateSubscription: NativeEventSubscription | null = null;
 let retryTimer: number | undefined;
+let candidateRequest = 0;
 /**
  * `host:port` the socket was last opened with (IPv6 bracketed), the origin for `/drops/...` blob
  * fetches. Only meaningful while `status === "connected"`; a later connect overwrites it.
@@ -50,10 +51,17 @@ const routeAgentFrame = createAgentFrameRouter(useAgentsStore.getState(), (messa
 const routeDropFrame = createDropFrameRouter(useDropsStore.getState());
 const discovery = new Discovery({
   onCandidate: (service) => {
-    currentCandidate = service;
-    void dispatch({ type: "serviceFound", service });
+    void connectToCandidate(service);
   },
 });
+async function connectToCandidate(service: DiscoveredService): Promise<void> {
+  const request = ++candidateRequest;
+  const paired = await identity.getPairedHost(service.name);
+  const fallback = paired === null ? await identity.getMostRecentPairedHost() : null;
+  if (request !== candidateRequest) return;
+  currentCandidate = service;
+  await dispatch({ type: "serviceFound", service, pairedSecretHex: paired?.secretHex ?? fallback?.secretHex ?? null });
+}
 
 socket.onOpen = () => {
   void dispatch({ type: "socketOpen" });
@@ -112,11 +120,10 @@ async function applyEffects(effects: Effect[]): Promise<void> {
         // A manual host replaces Bonjour entirely: hand the machine a synthetic resolved service.
         const manual = parseManualHost(useSettingsStore.getState().manualHost);
         if (manual === null) {
-          discovery.start(pairedBonjourName);
+          discovery.start(pairedTargetNames);
         } else {
           discovery.stop();
-          currentCandidate = manual;
-          void dispatch({ type: "serviceFound", service: manual });
+          void connectToCandidate(manual);
         }
         break;
       }
@@ -130,17 +137,21 @@ async function applyEffects(effects: Effect[]): Promise<void> {
           void dispatch({ type: "timer" });
         }, effect.ms);
         break;
-      case "storeSecret":
-        await identity.savePairedMac({
-          macName: currentCandidate?.name ?? "Mac",
+      case "storeSecret": {
+        if (currentCandidate === null) throw new Error("cannot store a pairing without a connection target");
+        await identity.savePairedHost({
+          targetName: currentCandidate.name,
+          macName: currentCandidate.name,
           secretHex: effect.hex,
-          bonjourName: currentCandidate?.name ?? "",
         });
-        pairedBonjourName = currentCandidate?.name ?? null;
+        pairedTargetNames = await identity.getPairedTargetNames();
         break;
+      }
       case "forgetSecret":
-        await identity.forgetPairedMac();
-        pairedBonjourName = null;
+        if (currentCandidate !== null) {
+          await identity.forgetPairedHost(currentCandidate.name);
+          pairedTargetNames = await identity.getPairedTargetNames();
+        }
         break;
       case "storeUpdate":
         useConnectionStore.getState().set(effect.partial);
@@ -161,22 +172,19 @@ let settingsSubscription: (() => void) | null = null;
 
 async function boot(): Promise<void> {
   deviceId = await identity.getDeviceId();
-  const paired = await identity.getPairedMac();
-  pairedBonjourName = paired?.bonjourName ?? null;
+  pairedTargetNames = await identity.getPairedTargetNames();
   wasActive = AppState.currentState === "active";
   appStateSubscription = AppState.addEventListener("change", onAppStateChange);
   settingsSubscription = useSettingsStore.subscribe((next, prev) => {
     if (next.manualHost === prev.manualHost) return;
-    // Address changed under a live session: drop it and connect to the new target (or resume
-    // discovery). The paired secret is kept; a host that does not know us answers
-    // `unknown_device` and the normal re-pair path takes over.
-    void identity.getPairedMac().then((current) => resetSession(current?.secretHex ?? null));
+    void resetSession();
   });
-  await resetSession(paired?.secretHex ?? null);
+  await resetSession();
 }
 
-/** Tears down socket, timers and discovery, then starts a fresh machine with `pairedSecretHex`. */
-async function resetSession(pairedSecretHex: string | null): Promise<void> {
+/** Tears down socket, timers and discovery, then starts a fresh target-aware machine. */
+async function resetSession(): Promise<void> {
+  candidateRequest += 1;
   currentCandidate = null;
   discovery.stop();
   socket.close();
@@ -193,15 +201,16 @@ async function resetSession(pairedSecretHex: string | null): Promise<void> {
     sha256,
     deviceId,
     getDeviceName: () => useSettingsStore.getState().deviceName,
-    pairedSecretHex,
   });
   await dispatch({ type: "appActive" });
 }
 
 async function runForgetMac(): Promise<void> {
-  await identity.forgetPairedMac();
-  pairedBonjourName = null;
-  await resetSession(null);
+  if (currentCandidate !== null) {
+    await identity.forgetPairedHost(currentCandidate.name);
+    pairedTargetNames = await identity.getPairedTargetNames();
+  }
+  await resetSession();
 }
 
 function onAppStateChange(next: AppStateStatus): void {

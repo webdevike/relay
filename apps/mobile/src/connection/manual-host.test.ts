@@ -9,8 +9,8 @@ describe("parseManualHost", () => {
     expect(parseManualHost("omarchy-2.local:7817")?.host).toBe("omarchy-2.local");
     expect(parseManualHost("[fd7a:115c:a1e0::1]:7817")).toMatchObject({ host: "fd7a:115c:a1e0::1", port: 7817 });
     if (ipv4 === null) throw new Error("unreachable");
-    expect(pickCandidate([ipv4], null)).toBe(ipv4);
-    expect(pickCandidate([ipv4], ipv4.name)).toBe(ipv4);
+    expect(pickCandidate([ipv4], [])).toBe(ipv4);
+    expect(pickCandidate([ipv4], [ipv4.name])).toBe(ipv4);
   });
 
   it("rejects empty, port-less, out-of-range and unbracketed IPv6 input", () => {
