@@ -103,6 +103,8 @@ Image carousel for references (Dribbble shots, screenshots, mockups): one image 
 
 Isaac's rule (2026-10-06): never build a widget's UI in isolation. Break it into reusable base elements in `apps/mobile/src/ui/` (image frame, pager, page controls, link button, overlay tag, caption, placeholder, ...) and have the widget only compose them. Reuse what exists first; add a missing piece as a primitive, then use it. The current list lives in `apps/mobile/AGENTS.md`.
 
+Every widget must also render in EvaOS, Eva's desktop app (`~/Eva/apps/evaos`, Rust/GPUI, parser + renderer in `src/rich/widgets.rs`, image/audio loading in `src/rich/media.rs`). A new widget or field ships in both the same day: same JSON spec, zod schema in `apps/mobile/src/agents/widget.ts`, serde parser in EvaOS, a parser test on each side, and an `apps/evaos/examples/showcase.md` block checked with `cargo run --example snapshot -- /tmp/reply.png --reply examples/showcase.md`. EvaOS follows the same primitive rule: shared helpers (pager controls, dots, link button, image frame, caption) in `widgets.rs`, composed per widget. A widget only one side understands falls back to a code block on the other, so never emit it until both have it.
+
 ## Building blocks
 
 Compose anything from containers and small blocks. Any widget above can be a child.
