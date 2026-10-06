@@ -15,6 +15,7 @@ import { AudioPlayer } from "./AudioPlayer";
 import { CompareSlider } from "./CompareSlider";
 import { DiffView } from "./DiffView";
 import { EmailList } from "./EmailList";
+import { Gallery } from "./Gallery";
 import type { BadgeSpec, CardSpec, ChartSpec, RowsSpec, StackSpec, StatSpec, TextSpec, TicketSpec, TicketsSpec, Tone, WidgetSpec } from "./widget";
 
 const CHART_HEIGHT = 140;
@@ -43,6 +44,8 @@ function Node({ spec }: { spec: WidgetSpec }) {
       return <CompareSlider spec={spec} />;
     case "audio":
       return <AudioPlayer spec={spec} />;
+    case "gallery":
+      return <Gallery spec={spec} />;
     case "text":
       return <TextBlock spec={spec} />;
     case "rows":

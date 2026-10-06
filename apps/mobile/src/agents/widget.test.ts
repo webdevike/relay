@@ -54,6 +54,14 @@ describe("parseWidget", () => {
     expect(parseWidget('{"widget":"audio"}')).toBeNull();
   });
 
+  it("parses a gallery, dropping a non-http source link instead of rejecting the image", () => {
+    expect(
+      parseWidget('{"widget":"gallery","images":[{"src":"https://cdn.x.test/a.png","title":"A","url":"javascript:alert(1)"},{"src":"/drops/abc/tok"}]}'),
+    ).toEqual({ widget: "gallery", images: [{ src: "https://cdn.x.test/a.png", title: "A" }, { src: "/drops/abc/tok" }] });
+    expect(parseWidget('{"widget":"gallery","images":[]}')).toBeNull();
+    expect(parseWidget('{"widget":"gallery","images":[{"src":"/Users/me/a.png"}]}')).toBeNull();
+  });
+
   it("parses emails, dropping a non-http url instead of rejecting the row", () => {
     expect(
       parseWidget('{"widget":"emails","emails":[{"from":"A","subject":"S","unread":true,"url":"javascript:alert(1)"}]}'),

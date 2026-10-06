@@ -1,149 +1,205 @@
-import { useEffect } from "react";
-import { Modal, StyleSheet, useWindowDimensions, View } from "react-native";
-import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
-import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import { useEffect, useRef, useState } from "react";
+import { Linking, Modal, ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { tapHaptic } from "@/lib/haptics";
+import { spacing, tabularNumbers } from "@/theme";
 import { IconButton } from "@/ui/IconButton";
-import { spacing } from "@/theme";
+import { Text } from "@/ui/Text";
+import { ZoomableImage } from "./ZoomableImage";
+
+export interface ViewerImage {
+  uri: string;
+  title?: string | undefined;
+  caption?: string | undefined;
+  /** Source page (e.g. the Dribbble shot); shows an open button. */
+  url?: string | undefined;
+}
 
 export interface ImageViewerProps {
-  /** Data URI to show; `null` keeps the viewer closed. */
-  uri: string | null;
+  /** Images to page through; `null` keeps the viewer closed. */
+  images: ViewerImage[] | null;
+  /** Page shown when the viewer opens. */
+  start?: number;
   onClose: () => void;
 }
 
-const MAX_SCALE = 6;
-/** Where a double tap lands between fit and filled. */
-const DOUBLE_TAP_SCALE = 2.5;
-
 /**
- * A transcript image full-screen on black. Pinch to zoom, drag to pan while zoomed, double tap to
- * toggle a 2.5x zoom centred on the tap, single tap (or the close button) to dismiss. Panning is
- * clamped so the image never leaves the viewport, and letting go below fit springs back.
+ * Images full-screen on black. Swipe or tap the chevrons to page; pinch to zoom, drag to pan while
+ * zoomed, double tap to toggle a 2.5x zoom, single tap (or the close button) to dismiss. Paging
+ * stops while an image is zoomed so a pan never flips the page.
  *
  * The gestures live under their own GestureHandlerRootView: a React Native Modal renders in a
  * detached native hierarchy the app-root provider does not reach, so without this the pinch/pan
  * handlers never receive touches.
  */
-export function ImageViewer({ uri, onClose }: ImageViewerProps) {
+export function ImageViewer({ images, start = 0, onClose }: ImageViewerProps) {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
-  const scale = useSharedValue(1);
-  const savedScale = useSharedValue(1);
-  const translateX = useSharedValue(0);
-  const translateY = useSharedValue(0);
-  const savedTranslateX = useSharedValue(0);
-  const savedTranslateY = useSharedValue(0);
+  const scroller = useRef<ScrollView>(null);
+  const [page, setPage] = useState(start);
+  const [zoomed, setZoomed] = useState(false);
+  const count = images?.length ?? 0;
 
-  const reset = () => {
-    "worklet";
-    scale.value = withTiming(1);
-    savedScale.value = 1;
-    translateX.value = withTiming(0);
-    translateY.value = withTiming(0);
-    savedTranslateX.value = 0;
-    savedTranslateY.value = 0;
-  };
-
-  // A freshly opened image always starts at fit, never inheriting the last image's zoom.
+  // Each open starts at `start` at fit; keyed on visibility so a re-render's new array keeps the page.
+  const visible = images !== null;
   useEffect(() => {
-    if (uri === null) return;
-    scale.value = 1;
-    savedScale.value = 1;
-    translateX.value = 0;
-    translateY.value = 0;
-    savedTranslateX.value = 0;
-    savedTranslateY.value = 0;
-  }, [uri, scale, savedScale, translateX, translateY, savedTranslateX, savedTranslateY]);
+    if (!visible) return;
+    setPage(start);
+    setZoomed(false);
+  }, [visible, start]);
 
-  // Keep the panned image inside the viewport: at scale s the image can move at most half its
-  // grown width/height off centre before an edge would show.
-  const clamp = (value: number, limit: number) => {
-    "worklet";
-    return Math.min(limit, Math.max(-limit, value));
+  const go = (next: number) => {
+    const clamped = Math.max(0, Math.min(count - 1, next));
+    if (clamped === page) return;
+    tapHaptic();
+    setPage(clamped);
+    setZoomed(false);
+    scroller.current?.scrollTo({ x: clamped * width, animated: true });
   };
 
-  const pinch = Gesture.Pinch()
-    .onUpdate((event) => {
-      scale.value = Math.min(MAX_SCALE, Math.max(0.5, savedScale.value * event.scale));
-    })
-    .onEnd(() => {
-      if (scale.value < 1) {
-        reset();
-        return;
-      }
-      savedScale.value = scale.value;
-      const limitX = ((scale.value - 1) * width) / 2;
-      const limitY = ((scale.value - 1) * height) / 2;
-      translateX.value = clamp(translateX.value, limitX);
-      translateY.value = clamp(translateY.value, limitY);
-      savedTranslateX.value = translateX.value;
-      savedTranslateY.value = translateY.value;
-    });
-
-  const pan = Gesture.Pan()
-    .maxPointers(2)
-    .onUpdate((event) => {
-      if (scale.value <= 1) return;
-      const limitX = ((scale.value - 1) * width) / 2;
-      const limitY = ((scale.value - 1) * height) / 2;
-      translateX.value = clamp(savedTranslateX.value + event.translationX, limitX);
-      translateY.value = clamp(savedTranslateY.value + event.translationY, limitY);
-    })
-    .onEnd(() => {
-      savedTranslateX.value = translateX.value;
-      savedTranslateY.value = translateY.value;
-    });
-
-  const doubleTap = Gesture.Tap()
-    .numberOfTaps(2)
-    .onEnd((event) => {
-      if (scale.value > 1) {
-        reset();
-        return;
-      }
-      // Zoom in, moving the tapped point toward centre so the double tap feels aimed.
-      const target = DOUBLE_TAP_SCALE;
-      const limitX = ((target - 1) * width) / 2;
-      const limitY = ((target - 1) * height) / 2;
-      scale.value = withTiming(target);
-      savedScale.value = target;
-      translateX.value = withTiming(clamp((width / 2 - event.x) * (target - 1), limitX));
-      translateY.value = withTiming(clamp((height / 2 - event.y) * (target - 1), limitY));
-      savedTranslateX.value = translateX.value;
-      savedTranslateY.value = translateY.value;
-    });
-
-  const singleTap = Gesture.Tap()
-    .numberOfTaps(1)
-    .onEnd(() => {
-      runOnJS(onClose)();
-    });
-
-  const gesture = Gesture.Simultaneous(pinch, pan, Gesture.Exclusive(doubleTap, singleTap));
-
-  const imageStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: translateX.value }, { translateY: translateY.value }, { scale: scale.value }],
-  }));
+  const current = images?.[page];
+  const openSource = (url: string) => {
+    void Linking.openURL(url);
+  };
 
   return (
-    <Modal visible={uri !== null} animationType="fade" onRequestClose={onClose} statusBarTranslucent>
+    <Modal
+      visible={images !== null}
+      animationType="fade"
+      onRequestClose={onClose}
+      statusBarTranslucent
+    >
       <GestureHandlerRootView style={styles.backdrop}>
-        <GestureDetector gesture={gesture}>
-          <Animated.View style={styles.backdrop}>
-            {uri !== null && <Animated.Image source={{ uri }} resizeMode="contain" style={[StyleSheet.absoluteFill, imageStyle]} />}
-          </Animated.View>
-        </GestureDetector>
-        <View style={[styles.close, { top: insets.top + spacing.sm }]} pointerEvents="box-none">
-          {/* The backdrop is black in either scheme, so the close glyph stays white. */}
-          <IconButton symbol="xmark" onPress={onClose} tintColor="#FFFFFF" backgroundColor="rgba(255,255,255,0.12)" />
+        {images !== null && (
+          <ScrollView
+            ref={scroller}
+            horizontal
+            pagingEnabled
+            scrollEnabled={!zoomed && count > 1}
+            showsHorizontalScrollIndicator={false}
+            contentOffset={{ x: start * width, y: 0 }}
+            onMomentumScrollEnd={(e) => {
+              setPage(Math.round(e.nativeEvent.contentOffset.x / width));
+            }}
+          >
+            {images.map((image, i) => (
+              <ZoomableImage
+                // Pages away from the current one remount at fit when they come back.
+                key={`${image.uri}-${i}-${i === page}`}
+                uri={image.uri}
+                width={width}
+                height={height}
+                onTap={onClose}
+                onZoomChange={setZoomed}
+              />
+            ))}
+          </ScrollView>
+        )}
+        <View style={[styles.top, { top: insets.top + spacing.sm }]} pointerEvents="box-none">
+          {/* The backdrop is black in either scheme, so the glyphs stay white. */}
+          {count > 1 ? (
+            <Text variant="label" style={[styles.white, tabularNumbers]}>
+              {page + 1} / {count}
+            </Text>
+          ) : (
+            <View />
+          )}
+          <View style={styles.row} pointerEvents="box-none">
+            {current?.url !== undefined && (
+              <IconButton
+                symbol="safari"
+                onPress={() => {
+                  if (current.url !== undefined) openSource(current.url);
+                }}
+                tintColor="#FFFFFF"
+                backgroundColor={GLASS}
+              />
+            )}
+            <IconButton
+              symbol="xmark"
+              onPress={onClose}
+              tintColor="#FFFFFF"
+              backgroundColor={GLASS}
+            />
+          </View>
+        </View>
+        <View
+          style={[styles.bottom, { bottom: insets.bottom + spacing.md }]}
+          pointerEvents="box-none"
+        >
+          {count > 1 && (
+            <IconButton
+              symbol="chevron.left"
+              onPress={() => {
+                go(page - 1);
+              }}
+              tintColor="#FFFFFF"
+              backgroundColor={GLASS}
+            />
+          )}
+          <View style={styles.text} pointerEvents="none">
+            {current !== undefined &&
+              (current.title !== undefined || current.caption !== undefined) && (
+                <View style={styles.plate}>
+                  {current.title !== undefined && (
+                    <Text variant="label" style={styles.white} numberOfLines={2}>
+                      {current.title}
+                    </Text>
+                  )}
+                  {current.caption !== undefined && (
+                    <Text variant="caption" style={styles.dim} numberOfLines={3}>
+                      {current.caption}
+                    </Text>
+                  )}
+                </View>
+              )}
+          </View>
+          {count > 1 && (
+            <IconButton
+              symbol="chevron.right"
+              onPress={() => {
+                go(page + 1);
+              }}
+              tintColor="#FFFFFF"
+              backgroundColor={GLASS}
+            />
+          )}
         </View>
       </GestureHandlerRootView>
     </Modal>
   );
 }
 
+const GLASS = "rgba(255,255,255,0.12)";
+
 const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: "#000" },
-  close: { position: "absolute", right: spacing.lg },
+  top: {
+    position: "absolute",
+    left: spacing.lg,
+    right: spacing.lg,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  row: { flexDirection: "row", gap: spacing.sm },
+  bottom: {
+    position: "absolute",
+    left: spacing.lg,
+    right: spacing.lg,
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: spacing.sm,
+  },
+  text: { flex: 1 },
+  plate: {
+    backgroundColor: "rgba(0,0,0,0.6)",
+    borderRadius: 10,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    gap: 2,
+  },
+  white: { color: "#FFFFFF" },
+  dim: { color: "rgba(255,255,255,0.75)" },
 });

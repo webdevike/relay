@@ -260,6 +260,7 @@ export interface AgentCardProps {
  */
 export function AgentCard({ sessionId, messages, connected, status, activity, activityLabel }: AgentCardProps) {
   const [viewing, setViewing] = useState<string | null>(null);
+  const viewingImages = useMemo(() => (viewing === null ? null : [{ uri: viewing }]), [viewing]);
   const newestFirst = useMemo(() => (messages === undefined ? undefined : [...messages].reverse()), [messages]);
   const newest = messages === undefined ? undefined : messages[messages.length - 1];
   const showActivity = status === "working" && !(newest?.streaming === true && newest.text.length > 0);
@@ -291,7 +292,7 @@ export function AgentCard({ sessionId, messages, connected, status, activity, ac
         scrollEventThrottle={100}
       />
       <ImageViewer
-        uri={viewing}
+        images={viewingImages}
         onClose={() => {
           setViewing(null);
         }}

@@ -197,7 +197,7 @@ export default function Drops() {
         />
       )}
       <ImageViewer
-        uri={viewing}
+        images={viewing === null ? null : [{ uri: viewing }]}
         onClose={() => {
           setViewing(null);
         }}
