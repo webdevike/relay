@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState } from "react";
-import { Linking, Modal, ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
+import { useState } from "react";
+import { Modal, StyleSheet, useWindowDimensions, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { tapHaptic } from "@/lib/haptics";
-import { spacing, tabularNumbers } from "@/theme";
+import { spacing } from "@/theme";
 import { IconButton } from "@/ui/IconButton";
-import { Text } from "@/ui/Text";
+import { ImageCaption } from "@/ui/ImageCaption";
+import { LinkButton } from "@/ui/LinkButton";
+import { PageCounter } from "@/ui/PageControls";
+import { Pager, usePager } from "@/ui/Pager";
 import { ZoomableImage } from "./ZoomableImage";
 
 export interface ViewerImage {
@@ -36,32 +38,29 @@ export interface ImageViewerProps {
 export function ImageViewer({ images, start = 0, onClose }: ImageViewerProps) {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
-  const scroller = useRef<ScrollView>(null);
-  const [page, setPage] = useState(start);
-  const [zoomed, setZoomed] = useState(false);
   const count = images?.length ?? 0;
+  const { page, setPage, go } = usePager(count, start);
+  const [zoomed, setZoomed] = useState(false);
 
   // Each open starts at `start` at fit; keyed on visibility so a re-render's new array keeps the page.
-  const visible = images !== null;
-  useEffect(() => {
-    if (!visible) return;
-    setPage(start);
-    setZoomed(false);
-  }, [visible, start]);
+  // Reset during render, not in an effect: the Pager mounts with `contentOffset` from `page`, so the
+  // page must already be `start` on the first open frame or it would animate over from the last one.
+  const opening = images === null ? null : start;
+  const [openedAt, setOpenedAt] = useState<number | null>(null);
+  if (opening !== openedAt) {
+    setOpenedAt(opening);
+    if (opening !== null) {
+      setPage(opening);
+      setZoomed(false);
+    }
+  }
 
-  const go = (next: number) => {
-    const clamped = Math.max(0, Math.min(count - 1, next));
-    if (clamped === page) return;
-    tapHaptic();
-    setPage(clamped);
+  const step = (next: number) => {
+    go(next);
     setZoomed(false);
-    scroller.current?.scrollTo({ x: clamped * width, animated: true });
   };
 
   const current = images?.[page];
-  const openSource = (url: string) => {
-    void Linking.openURL(url);
-  };
 
   return (
     <Modal
@@ -72,16 +71,11 @@ export function ImageViewer({ images, start = 0, onClose }: ImageViewerProps) {
     >
       <GestureHandlerRootView style={styles.backdrop}>
         {images !== null && (
-          <ScrollView
-            ref={scroller}
-            horizontal
-            pagingEnabled
+          <Pager
+            width={width}
+            page={page}
+            onPageChange={setPage}
             scrollEnabled={!zoomed && count > 1}
-            showsHorizontalScrollIndicator={false}
-            contentOffset={{ x: start * width, y: 0 }}
-            onMomentumScrollEnd={(e) => {
-              setPage(Math.round(e.nativeEvent.contentOffset.x / width));
-            }}
           >
             {images.map((image, i) => (
               <ZoomableImage
@@ -94,34 +88,15 @@ export function ImageViewer({ images, start = 0, onClose }: ImageViewerProps) {
                 onZoomChange={setZoomed}
               />
             ))}
-          </ScrollView>
+          </Pager>
         )}
         <View style={[styles.top, { top: insets.top + spacing.sm }]} pointerEvents="box-none">
-          {/* The backdrop is black in either scheme, so the glyphs stay white. */}
-          {count > 1 ? (
-            <Text variant="label" style={[styles.white, tabularNumbers]}>
-              {page + 1} / {count}
-            </Text>
-          ) : (
-            <View />
-          )}
+          {count > 1 ? <PageCounter page={page} count={count} tone="overlay" /> : <View />}
           <View style={styles.row} pointerEvents="box-none">
             {current?.url !== undefined && (
-              <IconButton
-                symbol="safari"
-                onPress={() => {
-                  if (current.url !== undefined) openSource(current.url);
-                }}
-                tintColor="#FFFFFF"
-                backgroundColor={GLASS}
-              />
+              <LinkButton url={current.url} variant="icon" tone="overlay" />
             )}
-            <IconButton
-              symbol="xmark"
-              onPress={onClose}
-              tintColor="#FFFFFF"
-              backgroundColor={GLASS}
-            />
+            <IconButton symbol="xmark" onPress={onClose} tone="overlay" />
           </View>
         </View>
         <View
@@ -132,37 +107,23 @@ export function ImageViewer({ images, start = 0, onClose }: ImageViewerProps) {
             <IconButton
               symbol="chevron.left"
               onPress={() => {
-                go(page - 1);
+                step(page - 1);
               }}
-              tintColor="#FFFFFF"
-              backgroundColor={GLASS}
+              tone="overlay"
             />
           )}
           <View style={styles.text} pointerEvents="none">
-            {current !== undefined &&
-              (current.title !== undefined || current.caption !== undefined) && (
-                <View style={styles.plate}>
-                  {current.title !== undefined && (
-                    <Text variant="label" style={styles.white} numberOfLines={2}>
-                      {current.title}
-                    </Text>
-                  )}
-                  {current.caption !== undefined && (
-                    <Text variant="caption" style={styles.dim} numberOfLines={3}>
-                      {current.caption}
-                    </Text>
-                  )}
-                </View>
-              )}
+            {current !== undefined && (
+              <ImageCaption title={current.title} caption={current.caption} tone="overlay" />
+            )}
           </View>
           {count > 1 && (
             <IconButton
               symbol="chevron.right"
               onPress={() => {
-                go(page + 1);
+                step(page + 1);
               }}
-              tintColor="#FFFFFF"
-              backgroundColor={GLASS}
+              tone="overlay"
             />
           )}
         </View>
@@ -170,8 +131,6 @@ export function ImageViewer({ images, start = 0, onClose }: ImageViewerProps) {
     </Modal>
   );
 }
-
-const GLASS = "rgba(255,255,255,0.12)";
 
 const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: "#000" },
@@ -193,13 +152,4 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   text: { flex: 1 },
-  plate: {
-    backgroundColor: "rgba(0,0,0,0.6)",
-    borderRadius: 10,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    gap: 2,
-  },
-  white: { color: "#FFFFFF" },
-  dim: { color: "rgba(255,255,255,0.75)" },
 });

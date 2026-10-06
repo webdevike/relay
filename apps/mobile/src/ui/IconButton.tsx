@@ -11,7 +11,11 @@ export interface IconButtonProps {
   tintColor?: string;
   disabled?: boolean;
   backgroundColor?: string;
+  /** `overlay`: white glyph on a translucent disc, for controls over photos or the black viewer. */
+  tone?: "default" | "overlay";
 }
+
+const OVERLAY = { tint: "#FFFFFF", background: "rgba(255,255,255,0.12)" } as const;
 
 /**
  * Round icon button. The disc is drawn with Skia when the build has it: a View circle from
@@ -22,12 +26,16 @@ export function IconButton({
   symbol,
   onPress,
   size = 40,
-  tintColor,
+  tintColor: tintOverride,
   disabled = false,
   backgroundColor: backgroundOverride,
+  tone = "default",
 }: IconButtonProps) {
   const colors = useColors();
-  const backgroundColor = backgroundOverride ?? colors.surfaceRaised;
+  const overlay = tone === "overlay";
+  const backgroundColor =
+    backgroundOverride ?? (overlay ? OVERLAY.background : colors.surfaceRaised);
+  const tintColor = tintOverride ?? (overlay ? OVERLAY.tint : colors.text);
   const sk = loadSkia();
   return (
     <Pressable
@@ -51,7 +59,7 @@ export function IconButton({
           <sk.Circle cx={size / 2} cy={size / 2} r={size / 2} color={backgroundColor} />
         </sk.Canvas>
       )}
-      <SymbolView name={symbol} size={size * 0.45} tintColor={tintColor ?? colors.text} />
+      <SymbolView name={symbol} size={size * 0.45} tintColor={tintColor} />
     </Pressable>
   );
 }

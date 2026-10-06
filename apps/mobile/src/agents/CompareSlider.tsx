@@ -9,6 +9,8 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, { useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 import { SymbolView } from "expo-symbols";
 import { radii, spacing, useColors } from "@/theme";
+import { MediaPlaceholder } from "@/ui/MediaPlaceholder";
+import { OverlayTag } from "@/ui/OverlayTag";
 import { Text } from "@/ui/Text";
 import { resolveDropSrc } from "./dropSrc";
 import type { CompareSpec } from "./widget";
@@ -52,9 +54,7 @@ export function CompareSlider({ spec }: { spec: CompareSpec }) {
       {spec.title !== undefined && <Text variant="label">{spec.title}</Text>}
       <View onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
         {before === null || after === null ? (
-          <Text variant="caption" color="textMuted">
-            Connect to the host to load these images.
-          </Text>
+          <MediaPlaceholder label="Connect to the host to load these images." />
         ) : (
           width > 0 && (
             <GestureDetector gesture={gesture}>
@@ -69,26 +69,13 @@ export function CompareSlider({ spec }: { spec: CompareSpec }) {
                     <SymbolView name="arrow.left.and.right" size={14} tintColor={colors.bg} />
                   </View>
                 </Animated.View>
-                <Corner side="left" text={spec.before.label ?? "Before"} />
-                <Corner side="right" text={spec.after.label ?? "After"} />
+                <OverlayTag label={spec.before.label ?? "Before"} corner="top-left" />
+                <OverlayTag label={spec.after.label ?? "After"} corner="top-right" />
               </View>
             </GestureDetector>
           )
         )}
       </View>
-    </View>
-  );
-}
-
-function Corner({ side, text }: { side: "left" | "right"; text: string }) {
-  return (
-    <View
-      pointerEvents="none"
-      style={{ position: "absolute", top: spacing.xs, [side]: spacing.xs, paddingHorizontal: spacing.xs, borderRadius: radii.sm, backgroundColor: "rgba(0,0,0,0.6)" }}
-    >
-      <Text variant="caption" style={{ color: "#fff" }}>
-        {text}
-      </Text>
     </View>
   );
 }

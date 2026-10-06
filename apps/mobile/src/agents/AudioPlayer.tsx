@@ -11,6 +11,7 @@ import { SymbolView } from "expo-symbols";
 import { tapHaptic } from "@/lib/haptics";
 import { useSettingsStore } from "@/state/settings";
 import { radii, spacing, tabularNumbers, useColors } from "@/theme";
+import { MediaPlaceholder } from "@/ui/MediaPlaceholder";
 import { Text } from "@/ui/Text";
 import { resolveDropSrc } from "./dropSrc";
 import type { AudioSpec } from "./widget";
@@ -27,9 +28,7 @@ export function AudioPlayer({ spec }: { spec: AudioSpec }) {
     <View style={{ gap: spacing.sm }}>
       {spec.title !== undefined && <Text variant="label">{spec.title}</Text>}
       {uri === null ? (
-        <Text variant="caption" color="textMuted">
-          Connect to the host to load this audio.
-        </Text>
+        <MediaPlaceholder label="Connect to the host to load this audio." />
       ) : (
         <Controls uri={uri} />
       )}

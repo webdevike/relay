@@ -99,6 +99,10 @@ Image carousel for references (Dribbble shots, screenshots, mockups): one image 
 - `images`: 1 to 50 `{ src, title?, caption?, url? }`. `src` is a host drop path (share the file first, same as compare) or an absolute `https://` URL; local paths are rejected. `url` is the source page (http(s) only).
 - Prefer large sources (Dribbble CDN `resize=1600x1200`) so zoom stays sharp; the carousel frame is 4:3 and images fit inside it.
 
+## Building a new widget (app side)
+
+Isaac's rule (2026-10-06): never build a widget's UI in isolation. Break it into reusable base elements in `apps/mobile/src/ui/` (image frame, pager, page controls, link button, overlay tag, caption, placeholder, ...) and have the widget only compose them. Reuse what exists first; add a missing piece as a primitive, then use it. The current list lives in `apps/mobile/AGENTS.md`.
+
 ## Building blocks
 
 Compose anything from containers and small blocks. Any widget above can be a child.

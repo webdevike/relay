@@ -3,12 +3,13 @@
  * execution. Charts draw on Skia (already in the app) with a plain-View fallback when the
  * native module is absent. Deterministic and instant: the agent writes the spec, this paints it.
  */
-import { useRef, useState } from "react";
-import { Linking, Pressable, ScrollView, View } from "react-native";
-import { SymbolView } from "expo-symbols";
+import { useState } from "react";
+import { View } from "react-native";
 import { loadSkia } from "@/dictation/skia";
-import { tapHaptic } from "@/lib/haptics";
 import { radii, spacing, tabularNumbers, type, useColors, type Colors } from "@/theme";
+import { LinkButton } from "@/ui/LinkButton";
+import { PageDots, PageStepper } from "@/ui/PageControls";
+import { Pager, usePager } from "@/ui/Pager";
 import { Pill, type PillProps } from "@/ui/Pill";
 import { Text } from "@/ui/Text";
 import { AudioPlayer } from "./AudioPlayer";
@@ -160,19 +161,9 @@ const stateTone: Record<NonNullable<TicketSpec["stateType"]>, NonNullable<PillPr
 /** Paged ticket summaries: swipe or tap the chevrons to move one card at a time. Pages are sized
  * to the measured width so snapping lands exactly on each card. */
 function Tickets({ spec }: { spec: TicketsSpec }) {
-  const colors = useColors();
-  const scroller = useRef<ScrollView>(null);
   const [width, setWidth] = useState(0);
-  const [page, setPage] = useState(0);
   const count = spec.tickets.length;
-
-  const go = (next: number) => {
-    const clamped = Math.max(0, Math.min(count - 1, next));
-    if (clamped === page) return;
-    tapHaptic();
-    setPage(clamped);
-    scroller.current?.scrollTo({ x: clamped * width, animated: true });
-  };
+  const { page, setPage, go } = usePager(count);
 
   return (
     <View style={{ gap: spacing.sm }}>
@@ -180,50 +171,17 @@ function Tickets({ spec }: { spec: TicketsSpec }) {
         <Text variant="label" style={{ flex: 1 }} numberOfLines={1}>
           {spec.title ?? "Tickets"}
         </Text>
-        <Chevron symbol="chevron.left" disabled={page === 0} onPress={() => go(page - 1)} />
-        <Text variant="caption" color="textMuted" style={tabularNumbers}>
-          {page + 1} / {count}
-        </Text>
-        <Chevron symbol="chevron.right" disabled={page === count - 1} onPress={() => go(page + 1)} />
+        <PageStepper page={page} count={count} onChange={go} />
       </View>
       <View onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
-        {width > 0 && (
-          <ScrollView
-            ref={scroller}
-            horizontal
-            pagingEnabled
-            nestedScrollEnabled
-            showsHorizontalScrollIndicator={false}
-            onMomentumScrollEnd={(e) => setPage(Math.round(e.nativeEvent.contentOffset.x / width))}
-          >
-            {spec.tickets.map((ticket, i) => (
-              <View key={`${ticket.id}-${i}`} style={{ width }}>
-                <TicketCard ticket={ticket} />
-              </View>
-            ))}
-          </ScrollView>
-        )}
-      </View>
-      {count > 1 && count <= 20 && (
-        <View style={{ flexDirection: "row", justifyContent: "center", gap: spacing.xs }}>
+        <Pager width={width} page={page} onPageChange={setPage}>
           {spec.tickets.map((ticket, i) => (
-            <View
-              key={`${ticket.id}-${i}`}
-              style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: i === page ? colors.accent : colors.hairline }}
-            />
+            <TicketCard key={`${ticket.id}-${i}`} ticket={ticket} />
           ))}
-        </View>
-      )}
+        </Pager>
+      </View>
+      <PageDots page={page} count={count} />
     </View>
-  );
-}
-
-function Chevron({ symbol, disabled, onPress }: { symbol: "chevron.left" | "chevron.right"; disabled: boolean; onPress: () => void }) {
-  const colors = useColors();
-  return (
-    <Pressable hitSlop={10} disabled={disabled} onPress={onPress} style={({ pressed }) => ({ opacity: disabled ? 0.3 : pressed ? 0.6 : 1 })}>
-      <SymbolView name={symbol} size={14} tintColor={colors.textMuted} />
-    </Pressable>
   );
 }
 
@@ -248,11 +206,7 @@ function TicketCard({ ticket }: { ticket: TicketSpec }) {
         </Text>
       )}
       {url !== undefined && (
-        <Pressable hitSlop={8} onPress={() => void Linking.openURL(url)} style={{ alignSelf: "flex-start" }}>
-          <Text variant="caption" color="accent">
-            Open in Linear ↗
-          </Text>
-        </Pressable>
+        <LinkButton url={url} label="Open in Linear" />
       )}
     </View>
   );

@@ -1,7 +1,8 @@
 /** Transcript text rendered from Markdown: headings, emphasis, lists, tables, blockquotes,
  * links, inline code, and fenced blocks (CodeBlock). */
 import { Fragment } from "react";
-import { Linking, Platform, Text as RNText, ScrollView, type TextStyle, View } from "react-native";
+import { Platform, Text as RNText, ScrollView, type TextStyle, View } from "react-native";
+import { openExternal } from "@/lib/links";
 import { radii, spacing, type, useColors } from "@/theme";
 import { Text } from "@/ui/Text";
 import { CodeBlock } from "./CodeBlock";
@@ -144,7 +145,7 @@ function Inlines({ runs }: { runs: Inline[] }) {
         }
         const href = run.href;
         return (
-          <RNText key={i} style={style} onPress={href === undefined ? undefined : () => void Linking.openURL(href)}>
+          <RNText key={i} style={style} onPress={href === undefined ? undefined : () => { openExternal(href); }}>
             {run.text}
           </RNText>
         );

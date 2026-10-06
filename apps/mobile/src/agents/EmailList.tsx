@@ -4,9 +4,10 @@
  * full snippet, and the open glyph (shown when the row has a `url`) jumps to the message.
  */
 import { useState } from "react";
-import { Linking, Pressable, View } from "react-native";
+import { Pressable, View } from "react-native";
 import { SymbolView } from "expo-symbols";
 import { tapHaptic } from "@/lib/haptics";
+import { openExternal } from "@/lib/links";
 import { spacing, useColors } from "@/theme";
 import { Text } from "@/ui/Text";
 import type { EmailSpec, EmailsSpec } from "./widget";
@@ -75,7 +76,7 @@ function EmailRow({ email, first }: { email: EmailSpec; first: boolean }) {
           hitSlop={10}
           onPress={() => {
             tapHaptic();
-            if (email.url !== undefined) void Linking.openURL(email.url);
+            if (email.url !== undefined) openExternal(email.url);
           }}
           style={({ pressed }) => ({ paddingTop: 2, opacity: pressed ? 0.6 : 1 })}
           accessibilityLabel="Open message"
