@@ -36,7 +36,7 @@ Simulator dev client: build with `xcodebuild -workspace ios/Relay.xcworkspace -s
 
 ## Typed agent replies
 
-The Agent Inbox composer is one multiline field with a 44-point Send button pinned inside its bottom-right corner; swiping the keyboard away returns to voice. Its static panel keeps the button unclipped as the draft grows. Enabled Send taps provide one light haptic when Settings > Haptics is on; blank or busy drafts cannot send.
+The Agent Inbox composer is one multiline field with Send carved out of its bottom-right corner, using the same cutout ring as the inbox mic; swiping the keyboard away returns to voice. Send is a 36-point disc with a 44-point touch target, shrinks slightly and gives a medium haptic the moment a finger lands (when Settings > Haptics is on), and stays put as the draft grows. Blank or busy drafts cannot send.
 
 ## Pairing and security (V1)
 

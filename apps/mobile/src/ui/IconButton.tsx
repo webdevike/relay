@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, View } from "react-native";
 import { SymbolView, type SFSymbol } from "expo-symbols";
 import { useColors } from "@/theme";
-import { tapHaptic } from "@/lib/haptics";
+import { impactHaptic, tapHaptic } from "@/lib/haptics";
 import { loadSkia } from "@/dictation/skia";
 
 export interface IconButtonProps {
@@ -13,6 +13,13 @@ export interface IconButtonProps {
   backgroundColor?: string;
   /** `overlay`: white glyph on a translucent disc, for controls over photos or the black viewer. */
   tone?: "default" | "overlay";
+  /**
+   * `press`: a medium haptic and a slight shrink the moment the finger lands, for primary actions
+   * that should feel immediate (Send). `release` (default): a light haptic when the tap completes.
+   */
+  feedback?: "release" | "press";
+  /** Extra touchable margin (pt) around the disc; must stay inside the parent's bounds. */
+  hitSlop?: number;
 }
 
 const OVERLAY = { tint: "#FFFFFF", background: "rgba(255,255,255,0.12)" } as const;
@@ -30,6 +37,8 @@ export function IconButton({
   disabled = false,
   backgroundColor: backgroundOverride,
   tone = "default",
+  feedback = "release",
+  hitSlop,
 }: IconButtonProps) {
   const colors = useColors();
   const overlay = tone === "overlay";
@@ -40,8 +49,12 @@ export function IconButton({
   return (
     <Pressable
       disabled={disabled}
+      {...(hitSlop === undefined ? {} : { hitSlop })}
+      onPressIn={() => {
+        if (feedback === "press") impactHaptic();
+      }}
       onPress={() => {
-        tapHaptic();
+        if (feedback === "release") tapHaptic();
         onPress();
       }}
       style={({ pressed }) => ({
@@ -50,6 +63,7 @@ export function IconButton({
         alignItems: "center",
         justifyContent: "center",
         opacity: disabled ? 0.4 : pressed ? 0.8 : 1,
+        transform: [{ scale: pressed && feedback === "press" ? 0.9 : 1 }],
       })}
     >
       {sk === null ? (
