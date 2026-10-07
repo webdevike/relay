@@ -14,7 +14,7 @@ import { IconButton } from "@/ui/IconButton";
 import { Separator } from "@/ui/Separator";
 import { EmptyState } from "@/ui/EmptyState";
 import { Banner, type BannerTone } from "@/ui/Banner";
-import { spacing } from "@/theme";
+import { spacing, useScheme } from "@/theme";
 import { useDropsStore } from "@/state/drops";
 import { useConnectionStore } from "@/state/connection";
 import { hostBaseUrl, requestDrops, sendCommand } from "@/connection";
@@ -42,6 +42,7 @@ export default function Drops() {
   const hostName = useConnectionStore((state) => state.macName);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [viewing, setViewing] = useState<string | null>(null);
+  const scheme = useScheme();
 
   useEffect(() => {
     requestDrops();
@@ -165,7 +166,7 @@ export default function Drops() {
         options: [...actions.map((action) => action.label), "Cancel"],
         destructiveButtonIndex: actions.length - 1,
         cancelButtonIndex: actions.length,
-        userInterfaceStyle: "dark",
+        userInterfaceStyle: scheme,
       },
       (index) => {
         actions[index]?.run();
