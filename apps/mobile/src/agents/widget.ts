@@ -77,6 +77,14 @@ const Audio = z.object({
   src: MediaSrc,
 });
 
+/** Inline video player: a frame at the video's aspect ratio, play/pause, a seekable progress bar,
+ * elapsed/total time. */
+const Video = z.object({
+  widget: z.literal("video"),
+  title: z.string().optional(),
+  src: MediaSrc,
+});
+
 /** One gallery image. `url` (http(s) only) is the source page, e.g. the Dribbble shot. */
 const GalleryImage = z.object({
   src: MediaSrc,
@@ -151,6 +159,7 @@ type Leaf =
   | z.infer<typeof Tickets>
   | z.infer<typeof Compare>
   | z.infer<typeof Audio>
+  | z.infer<typeof Video>
   | z.infer<typeof Gallery>
   | z.infer<typeof TextNode>
   | z.infer<typeof Rows>
@@ -198,6 +207,7 @@ const Node: z.ZodType<WidgetSpec, z.ZodTypeDef, unknown> = z.discriminatedUnion(
   Tickets,
   Compare,
   Audio,
+  Video,
   Gallery,
   TextNode,
   Rows,
@@ -216,6 +226,7 @@ export type TicketSpec = z.infer<typeof Ticket>;
 export type TicketsSpec = z.infer<typeof Tickets>;
 export type CompareSpec = z.infer<typeof Compare>;
 export type AudioSpec = z.infer<typeof Audio>;
+export type VideoSpec = z.infer<typeof Video>;
 export type GallerySpec = z.infer<typeof Gallery>;
 export type TextSpec = z.infer<typeof TextNode>;
 export type RowsSpec = z.infer<typeof Rows>;

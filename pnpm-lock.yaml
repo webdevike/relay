@@ -134,6 +134,9 @@ importers:
       expo-system-ui:
         specifier: ~6.0.9
         version: 6.0.9(expo@54.0.37)(react-native@0.81.5(@babel/core@7.29.7)(@types/react@19.1.17)(react@19.1.0))
+      expo-video:
+        specifier: ~3.0.16
+        version: 3.0.16(expo@54.0.37)(react-native@0.81.5(@babel/core@7.29.7)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
       prism-react-renderer:
         specifier: ^2.4.1
         version: 2.4.1(react@19.1.0)
@@ -2698,6 +2701,13 @@ packages:
     resolution: {integrity: sha512-pTzAIufEZdVPKql6iMi5ylVSPqV1qbEopz9G6TSECQmnNde2nwq42PxdFBaUEd8IZJ/fdJLQnOT3m6+XJ5s7jg==}
     peerDependencies:
       expo: '*'
+
+  expo-video@3.0.16:
+    resolution: {integrity: sha512-H1HlxcHGomZItqisGfW3YL/G9BHtNBfVSimDJcLuyxyU87wFnV8loO9tCjuhufkfh/aTa2sW5BYAjLjg9DvnBQ==}
+    peerDependencies:
+      expo: '*'
+      react: '*'
+      react-native: '*'
 
   expo@54.0.37:
     resolution: {integrity: sha512-afzbtO4i/K9ZCrzyLgEOaXW56w/yuAK61JkCOMrw/S/VFCAp6YwKWA494X5mIcrVmRAmclv/ec7ga8ndTkzhxw==}
@@ -7380,6 +7390,12 @@ snapshots:
   expo-updates-interface@2.0.0(expo@54.0.37):
     dependencies:
       expo: 54.0.37(@babel/core@7.29.7)(@expo/metro-runtime@6.1.2)(expo-router@6.0.24)(react-native@0.81.5(@babel/core@7.29.7)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)(typescript@5.9.3)
+
+  expo-video@3.0.16(expo@54.0.37)(react-native@0.81.5(@babel/core@7.29.7)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0):
+    dependencies:
+      expo: 54.0.37(@babel/core@7.29.7)(@expo/metro-runtime@6.1.2)(expo-router@6.0.24)(react-native@0.81.5(@babel/core@7.29.7)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)(typescript@5.9.3)
+      react: 19.1.0
+      react-native: 0.81.5(@babel/core@7.29.7)(@types/react@19.1.17)(react@19.1.0)
 
   expo@54.0.37(@babel/core@7.29.7)(@expo/metro-runtime@6.1.2)(expo-router@6.0.24)(react-native@0.81.5(@babel/core@7.29.7)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)(typescript@5.9.3):
     dependencies:
