@@ -41,7 +41,9 @@ export function VideoFrame({ player, width, height, playing, loading, onToggle }
         fullscreenOptions={{ enable: true }}
         allowsPictureInPicture={false}
         allowsVideoFrameAnalysis={false}
-        onFullscreenExit={() => setFullscreen(false)}
+        onFullscreenExit={() => {
+          setFullscreen(false);
+        }}
         style={{ width, height }}
       />
       <Pressable
@@ -62,7 +64,9 @@ export function VideoFrame({ player, width, height, playing, loading, onToggle }
           symbol="arrow.up.left.and.arrow.down.right"
           tone="overlay"
           size={32}
-          onPress={() => setFullscreen(true)}
+          onPress={() => {
+            setFullscreen(true);
+          }}
         />
       </View>
     </View>
