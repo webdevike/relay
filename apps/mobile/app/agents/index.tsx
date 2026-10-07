@@ -348,10 +348,6 @@ export default function AgentInbox() {
     dictationActor.send({ type: "typed", text: draft });
     setDraft("");
   };
-  const leaveTyping = (): void => {
-    setTyping(false);
-    Keyboard.dismiss();
-  };
 
   const [settingsFor, setSettingsFor] = useState<string | null>(null);
   const onHold = useCallback((slot: number) => {
@@ -672,7 +668,15 @@ export default function AgentInbox() {
               onDraft={setDraft}
               canSend={phase === "idle"}
               onSend={sendTyped}
-              onVoice={leaveTyping}
+              fieldRadius={CARD_RADIUS - spacing.md}
+              {...(selectedId === undefined
+                ? {}
+                : {
+                    onSettings: () => {
+                      setSettingsFor(selectedId);
+                    },
+                  })}
+              {...(session.model === undefined ? {} : { model: session.model })}
             />
           </NotchedSurface>
         )}
