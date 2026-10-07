@@ -665,6 +665,7 @@ export default function AgentInbox() {
             radius={CARD_RADIUS}
             notches={panelNotches}
             style={styles.panelTyping}
+            clip={false}
           >
             <TypedReply
               draft={draft}

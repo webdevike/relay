@@ -34,6 +34,10 @@ cd apps/linux && bun run src/main.ts serve                        # Linux host d
 
 Simulator dev client: build with `xcodebuild -workspace ios/Relay.xcworkspace -scheme Relay -sdk iphonesimulator …`, install with `xcrun simctl install`. Physical iPhone on iOS 27 cannot be driven by Xcode 16.4; use `eas build --profile development --platform ios` (apps/mobile/eas.json) and install from the link.
 
+## Typed agent replies
+
+The Agent Inbox composer uses 44-point microphone and Send controls. Its static panel keeps the circular buttons unclipped as the draft grows. Enabled Send taps provide one light haptic when Settings > Haptics is on; blank or busy drafts cannot send.
+
 ## Pairing and security (V1)
 
 Plaintext WebSocket on the LAN. A physically paired iPhone can receive quick trust through its protected app-data channel, with no PIN entry; the transient transfer file is deleted after its secret moves into Keychain. Other first contacts use a 6-digit PIN for 120 s. The phone keeps independent credentials per connection target, so switching computers does not replace existing trust. Every later connection is `challenge` (32-byte nonce) → `auth` (HMAC-SHA256 proof) → `welcome`. Trackpad input is dropped, never queued, when disconnected; commands are acked and deduplicated by id across reconnects. No TLS yet: fine at home, not on hostile Wi-Fi.

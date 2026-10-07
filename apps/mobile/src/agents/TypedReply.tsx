@@ -10,7 +10,7 @@ import { spacing, type, useColors, useScheme } from "@/theme";
 
 /** Room the field may grow to before it scrolls: about five lines. */
 const MAX_FIELD_HEIGHT = type.body.lineHeight * 5 + spacing.sm * 2;
-const BUTTON_SIZE = 36;
+const BUTTON_SIZE = 44;
 
 export interface TypedReplyProps {
   draft: string;

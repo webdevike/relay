@@ -47,7 +47,7 @@ export function NotchedSurface({ color, radius, notches, style, onLayout, childr
   if (sk === null) {
     return (
       <View style={[styles.fallback, { borderColor: colors.hairline, borderRadius: radius, backgroundColor: color }, style]} onLayout={onLayout} collapsable={false}>
-        <View style={[styles.content, { borderRadius: radius }]}>{children}</View>
+        <View style={clip ? [styles.content, { borderRadius: radius }] : styles.open}>{children}</View>
         {overlay}
       </View>
     );
