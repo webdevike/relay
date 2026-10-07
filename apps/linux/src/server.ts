@@ -7,6 +7,8 @@ import { encode, MAX_DROP_BYTES, WS_PATH, type ServerMessage } from "@relay/prot
 import { basename } from "node:path";
 import type { Server, ServerWebSocket } from "bun";
 import { AgentsDeltaTracker } from "./agents/delta-tracker";
+import { handleBoardRequest, isLoopback } from "./boards/http";
+import type { FileBoardStore } from "./boards/store";
 import { CommandDedupStore } from "./dedup";
 import { PairingCoordinator } from "./pairing";
 import type { AttentionNotifier } from "./push/notifier";
@@ -46,6 +48,8 @@ export interface ServerDeps {
   readonly notifier: AttentionNotifier | null;
   /** The shared drop box; null disables `/drops` and the drop frames. */
   readonly drops: DropBox | null;
+  /** Live dashboards; null disables `/boards` and leaves `board.subscribe` an empty snapshot. */
+  readonly boards: FileBoardStore | null;
   readonly pairing: PairingUI;
   readonly log: (line: string) => void;
 }
@@ -112,6 +116,12 @@ export class RelayServer {
         this.handleDropChange(change);
       };
     }
+    const boards = this.deps.boards;
+    if (boards !== null) {
+      boards.onChange = (delta) => {
+        for (const ws of this.sockets) ws.data.session?.boardChanged(delta);
+      };
+    }
     const server = Bun.serve<SocketData>({
       port: this.config.port,
       hostname: "0.0.0.0",
@@ -124,8 +134,11 @@ export class RelayServer {
             return undefined;
           return new Response("websocket upgrade required", { status: 426 });
         }
+        const remote = srv.requestIP(request)?.address ?? "";
         if (path === "/drops" || path.startsWith("/drops/"))
-          return this.handleDropRequest(request, path, srv.requestIP(request)?.address ?? "");
+          return this.handleDropRequest(request, path, remote);
+        if (path === "/boards" || path.startsWith("/boards/"))
+          return handleBoardRequest(this.deps.boards, request, path, remote);
         return new Response("not found", { status: 404 });
       },
       websocket: {
@@ -260,8 +273,7 @@ export class RelayServer {
       });
     }
     if (request.method === "POST" && path === "/drops") {
-      if (remote !== "127.0.0.1" && remote !== "::1" && remote !== "::ffff:127.0.0.1")
-        return new Response("loopback only", { status: 403 });
+      if (!isLoopback(remote)) return new Response("loopback only", { status: 403 });
       const type = request.headers.get("content-type") ?? "application/octet-stream";
       try {
         if (type.startsWith("text/plain")) {
@@ -298,6 +310,7 @@ export class RelayServer {
         devices: this.deps.devices,
         push: this.deps.push,
         drops: this.deps.drops,
+        boards: this.deps.boards,
         pairing: this.pairing,
         dedup: this.dedup,
       },

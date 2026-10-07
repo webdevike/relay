@@ -2,6 +2,10 @@ import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { type AgentAsk, type AgentAskAnswer, type AgentImage, type AgentMessage, type AgentOptions, type AgentSession, type ClientMessage, type InputEvent, type KeyName, type ServerMessage } from "@relay/protocol";
 import { AgentsDeltaTracker } from "../src/agents/delta-tracker";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { FileBoardStore } from "../src/boards/store";
 import { CommandDedupStore } from "../src/dedup";
 import { PairingCoordinator } from "../src/pairing";
 import { AckFailure, type AgentConfigChange, type AgentProvider, type DeviceStore, type DropBox, type FrameSink, type InputSink, type PairedDevice, type PairingUI, type PushRegistry, type TextInjecting } from "../src/seams";
@@ -94,6 +98,7 @@ interface HarnessOptions {
   tracker?: AgentsDeltaTracker;
   push?: PushRegistry;
   drops?: DropBox;
+  boards?: FileBoardStore;
 }
 
 function harness(options: HarnessOptions = {}): Harness {
@@ -131,6 +136,7 @@ function harness(options: HarnessOptions = {}): Harness {
     devices,
     push: options.push ?? null,
     drops: options.drops ?? null,
+    boards: options.boards ?? null,
     pairing: new PairingCoordinator(ui),
     dedup: options.dedup ?? new CommandDedupStore(),
   };
@@ -550,5 +556,41 @@ describe("AgentsDeltaTracker", () => {
     tracker.seed([a]);
     expect(tracker.apply([{ ...a, thinkingLevel: "low" }])).toEqual({ t: "agents.delta", rev: 1, upsert: [{ ...a, thinkingLevel: "low" }] });
     expect(tracker.apply([{ ...a, thinkingLevel: "low", model: "N" }])).toEqual({ t: "agents.delta", rev: 2, upsert: [{ ...a, thinkingLevel: "low", model: "N" }] });
+  });
+});
+
+describe("boards", () => {
+  it("board.subscribe answers a snapshot and only subscribed sockets get deltas; board.get re-sends the snapshot", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "relay-boards-"));
+    try {
+      const boards = new FileBoardStore(dir, () => undefined);
+      const first = await boards.put("ops", { title: "Ops" });
+      // Each harness has its own pairing coordinator, so both phones pair independently.
+      const subscribed = harness({ boards });
+      pair(subscribed);
+      const other = harness({ boards });
+      pair(other);
+      boards.onChange = (delta) => {
+        subscribed.session.boardChanged(delta);
+        other.session.boardChanged(delta);
+      };
+      subscribed.session.receive({ t: "board.subscribe" });
+      expect(subscribed.sink.last()).toEqual({ t: "board.snapshot", rev: 1, boards: [first] });
+      const otherSent = other.sink.sent.length;
+      const next = await boards.apply("ops", [{ op: "upsert", id: "a", spec: { widget: "divider" } }]);
+      expect(subscribed.sink.last()).toEqual({ t: "board.delta", rev: 2, board: next });
+      expect(other.sink.sent).toHaveLength(otherSent);
+      other.session.receive({ t: "board.get" });
+      expect(other.sink.last()).toEqual({ t: "board.snapshot", rev: 2, boards: [next] });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("a host without boards answers subscribe with an empty snapshot", () => {
+    const h = harness();
+    pair(h);
+    h.session.receive({ t: "board.subscribe" });
+    expect(h.sink.last()).toEqual({ t: "board.snapshot", rev: 0, boards: [] });
   });
 });

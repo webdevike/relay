@@ -15,6 +15,7 @@ import pkg from "../package.json";
 import { defaultSocketPath, OmpBridgeProvider } from "./agents/bridge";
 import { FileDeviceStore } from "./device-store";
 import { FileDropStore } from "./drops/store";
+import { FileBoardStore } from "./boards/store";
 import { detectTextTyper, KeyboardInjector } from "./input/keyboard";
 import { ClipboardPaster, systemCopy } from "./input/paste";
 import type { EventPoster } from "./input/poster";
@@ -31,15 +32,22 @@ import { ClipboardWatcher, systemPaste, systemWatch } from "./drops/clipboard";
 
 const USAGE = `relay-linux <command>
 
-  serve [--port N] [--name NAME] [--agent-home DIR] [--no-clipboard]
+  serve [--port N] [--name NAME] [--agent-home DIR] [--no-clipboard] [--boards DIR]
                                    run the host (default command); --agent-home is where a
                                    session started from the phone opens (default: $HOME);
-                                   --no-clipboard stops desktop copies from becoming drops
+                                   --no-clipboard stops desktop copies from becoming drops;
+                                   --boards (or $RELAY_BOARDS_DIR) stores live dashboards
+                                   there (default: boards disabled)
   devices                          list paired phones
   forget <deviceId>                remove a paired phone
   share <text | url | path> ...    add to the drop box of the running host: one existing file
                                    goes as a file, anything else as text; \`share -\` or no
                                    arguments reads stdin
+  board list                       list the running host's dashboards
+  board get <slug>                 print one dashboard
+  board put <slug> [< json]        create/replace from {title, workspace?, icon?, widgets?}
+  board ops <slug> [< json]        apply a BoardOp[] array, all or nothing
+  board rm <slug>                  delete a dashboard
 
 Input goes through /dev/uinput: your user needs read/write on it (e.g. membership in the
 \`input\` group, then log out and back in).`;
@@ -75,6 +83,7 @@ function serve(
   name: string,
   agentHome: string | null,
   watchClipboard: boolean,
+  boardsDir: string | null,
 ): void {
   let device: UinputDevice | null = null;
   try {
@@ -97,6 +106,7 @@ function serve(
   const agents = new OmpBridgeProvider(defaultSocketPath(), log, agentHome);
   const pushTokens = new FilePushTokenStore();
   const drops = new FileDropStore();
+  const boards = boardsDir === null ? null : new FileBoardStore(boardsDir, log);
   // `isViewing` only runs once sessions change, long after `server` below is initialised.
   const notifier = new AttentionNotifier({
     tokens: pushTokens,
@@ -136,6 +146,7 @@ function serve(
       devices: new FileDeviceStore(),
       push: pushTokens,
       drops,
+      boards,
       notifier,
       pairing: new TerminalPairingUI(),
       log,
@@ -155,6 +166,7 @@ function serve(
       ? "agent.start disabled (no --agent-home and no $HOME)"
       : `agent.start opens omp in ${agentHome}`,
   );
+  log(boardsDir === null ? "boards disabled (no --boards or $RELAY_BOARDS_DIR)" : `boards stored in ${boardsDir}`);
 
   const advertiser = new BonjourAdvertiser(name, boundPort, log);
   advertiser.start();
@@ -182,15 +194,20 @@ function serve(
   process.on("SIGTERM", shutdown);
 }
 
-/** `share` body: one existing file goes as a blob, anything else (or stdin) as text. */
-async function share(positionals: string[]): Promise<void> {
+/** The running host's loopback base URL, from the port `serve` left in serve.json. */
+function hostUrl(): string {
   let info: z.infer<typeof ServeInfo>;
   try {
     info = ServeInfo.parse(JSON.parse(readFileSync(serveInfoPath(), "utf8")));
   } catch {
     throw new Error("relay-linux serve is not running");
   }
-  const url = `http://127.0.0.1:${info.port}/drops`;
+  return `http://127.0.0.1:${info.port}`;
+}
+
+/** `share` body: one existing file goes as a blob, anything else (or stdin) as text. */
+async function share(positionals: string[]): Promise<void> {
+  const url = `${hostUrl()}/drops`;
   let response: Response;
   const single = positionals.length === 1 ? positionals[0] : undefined;
   if (single !== undefined && single !== "-" && isFile(single)) {
@@ -228,6 +245,48 @@ function isFile(path: string): boolean {
   }
 }
 
+/** `board <list|get|put|ops|rm>`: prints the host's JSON reply; exits 1 with its error otherwise. */
+async function board(positionals: string[]): Promise<void> {
+  const [action, slug] = positionals;
+  const base = `${hostUrl()}/boards`;
+  const target = (): string => {
+    if (slug === undefined) throw new Error(`board ${action ?? ""}: missing <slug>`);
+    return `${base}/${encodeURIComponent(slug)}`;
+  };
+  let response: Response;
+  switch (action ?? "") {
+    case "list":
+      response = await fetch(base);
+      break;
+    case "get":
+      response = await fetch(target());
+      break;
+    case "put":
+      response = await fetch(target(), { method: "PUT", headers: { "content-type": "application/json" }, body: await Bun.stdin.text() });
+      break;
+    case "ops":
+      response = await fetch(`${target()}/ops`, { method: "POST", headers: { "content-type": "application/json" }, body: await Bun.stdin.text() });
+      break;
+    case "rm":
+      response = await fetch(target(), { method: "DELETE" });
+      break;
+    default:
+      throw new Error(`board: expected list, get, put, ops or rm\n\n${USAGE}`);
+  }
+  const text = await response.text();
+  if (!response.ok) {
+    let message = text;
+    try {
+      message = z.object({ error: z.string() }).parse(JSON.parse(text)).error;
+    } catch {
+      // not a JSON error body; print it as is
+    }
+    console.error(`board ${action}: ${response.status} ${message}`);
+    process.exit(1);
+  }
+  console.log(JSON.stringify(JSON.parse(text), null, 2));
+}
+
 async function main(argv: string[]): Promise<void> {
   const { values, positionals } = parseArgs({
     args: argv,
@@ -237,6 +296,7 @@ async function main(argv: string[]): Promise<void> {
       name: { type: "string", default: hostname() },
       "agent-home": { type: "string" },
       "no-clipboard": { type: "boolean", default: false },
+      boards: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -255,6 +315,7 @@ async function main(argv: string[]): Promise<void> {
         values.name,
         values["agent-home"] ?? process.env["HOME"] ?? null,
         !values["no-clipboard"],
+        values.boards ?? process.env["RELAY_BOARDS_DIR"] ?? null,
       );
       return;
     }
@@ -281,6 +342,9 @@ async function main(argv: string[]): Promise<void> {
     }
     case "share":
       await share(positionals.slice(1));
+      return;
+    case "board":
+      await board(positionals.slice(1));
       return;
     default:
       throw new Error(`unknown command ${command}\n\n${USAGE}`);
