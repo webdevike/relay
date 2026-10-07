@@ -1,16 +1,20 @@
 /**
- * The bottom panel while typing instead of speaking: a multiline field with a send button and a
- * mic that hands the panel back to voice. The draft survives leaving typing mode (only a send
- * clears it), so dropping the keyboard to read the transcript costs nothing.
+ * The bottom panel while typing instead of speaking: a multiline field with the send button
+ * pinned inside its bottom-right corner. Swiping the keyboard away hands the panel back to voice.
+ * The draft survives leaving typing mode (only a send clears it), so dropping the keyboard to read
+ * the transcript costs nothing.
  */
 import { useEffect, useRef } from "react";
 import { StyleSheet, TextInput, View } from "react-native";
 import { IconButton } from "@/ui/IconButton";
 import { spacing, type, useColors, useScheme } from "@/theme";
 
-/** Room the field may grow to before it scrolls: about five lines. */
-const MAX_FIELD_HEIGHT = type.body.lineHeight * 5 + spacing.sm * 2;
 const BUTTON_SIZE = 44;
+/** Gap between the send button and the field's edge. */
+const INSET = 4;
+const FIELD_MIN_HEIGHT = BUTTON_SIZE + INSET * 2;
+/** Room the field may grow to before it scrolls: about five lines. */
+const MAX_FIELD_HEIGHT = type.body.lineHeight * 5 + spacing.md * 2;
 
 export interface TypedReplyProps {
   draft: string;
@@ -18,10 +22,9 @@ export interface TypedReplyProps {
   /** False while the dictation pipeline is busy (a send in flight, the sent check); the field stays editable. */
   canSend: boolean;
   onSend: () => void;
-  onVoice: () => void;
 }
 
-export function TypedReply({ draft, onDraft, canSend, onSend, onVoice }: TypedReplyProps) {
+export function TypedReply({ draft, onDraft, canSend, onSend }: TypedReplyProps) {
   const colors = useColors();
   const scheme = useScheme();
   const field = useRef<TextInput>(null);
@@ -31,14 +34,7 @@ export function TypedReply({ draft, onDraft, canSend, onSend, onVoice }: TypedRe
   }, []);
   const sendable = canSend && draft.trim() !== "";
   return (
-    <View style={styles.row}>
-      <IconButton
-        symbol="mic"
-        size={BUTTON_SIZE}
-        tintColor={colors.textMuted}
-        backgroundColor={colors.bg}
-        onPress={onVoice}
-      />
+    <View>
       <TextInput
         ref={field}
         style={[styles.field, { backgroundColor: colors.bg, color: colors.text }]}
@@ -51,28 +47,32 @@ export function TypedReply({ draft, onDraft, canSend, onSend, onVoice }: TypedRe
         selectionColor={colors.accent}
         accessibilityLabel="Reply"
       />
-      <IconButton
-        symbol="arrow.up"
-        size={BUTTON_SIZE}
-        tintColor={colors.bg}
-        backgroundColor={colors.accent}
-        disabled={!sendable}
-        onPress={onSend}
-      />
+      <View style={styles.send}>
+        <IconButton
+          symbol="arrow.up"
+          size={BUTTON_SIZE}
+          tintColor={colors.bg}
+          backgroundColor={colors.accent}
+          disabled={!sendable}
+          onPress={onSend}
+        />
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: "row", alignItems: "flex-end", gap: spacing.sm },
   field: {
-    flex: 1,
+    minHeight: FIELD_MIN_HEIGHT,
     maxHeight: MAX_FIELD_HEIGHT,
-    minHeight: BUTTON_SIZE,
-    paddingHorizontal: spacing.md,
-    paddingVertical: (BUTTON_SIZE - type.body.lineHeight) / 2,
-    borderRadius: BUTTON_SIZE / 2,
+    paddingLeft: spacing.lg,
+    // Text never runs under the button.
+    paddingRight: BUTTON_SIZE + INSET + spacing.sm,
+    paddingVertical: (FIELD_MIN_HEIGHT - type.body.lineHeight) / 2,
+    borderRadius: FIELD_MIN_HEIGHT / 2,
     fontSize: type.body.fontSize,
     lineHeight: type.body.lineHeight,
   },
+  /** Pinned to the bottom-right corner, so it stays put as the draft grows. */
+  send: { position: "absolute", right: INSET, bottom: INSET },
 });
