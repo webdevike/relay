@@ -10,13 +10,11 @@ export interface CutoutProps {
   /** Content width for a pill; omit for a circle. */
   width?: number;
   style: ViewStyle;
-  /** Ring color: whatever the element is carved out of. Defaults to the screen background. */
-  color?: string;
   children: ReactNode;
 }
 
 /** A ring of screen background around an edge element so it reads as carved out of the surfaces it straddles. */
-export function Cutout({ size, width = size, style, color, children }: CutoutProps) {
+export function Cutout({ size, width = size, style, children }: CutoutProps) {
   const colors = useColors();
   const outerHeight = size + CUTOUT_GAP * 2;
   const outerWidth = width + CUTOUT_GAP * 2;
@@ -32,7 +30,7 @@ export function Cutout({ size, width = size, style, color, children }: CutoutPro
           borderBottomLeftRadius: outerHeight / 2,
           borderBottomRightRadius: outerHeight / 2,
           padding: CUTOUT_GAP,
-          backgroundColor: color ?? colors.bg,
+          backgroundColor: colors.bg,
         },
         style,
       ]}

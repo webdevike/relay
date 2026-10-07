@@ -668,7 +668,6 @@ export default function AgentInbox() {
               onDraft={setDraft}
               canSend={phase === "idle"}
               onSend={sendTyped}
-              surfaceColor={colors.surfaceRaised}
             />
           </NotchedSurface>
         )}
