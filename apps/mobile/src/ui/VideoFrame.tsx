@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 import { VideoView, type VideoPlayer } from "expo-video";
 import { radii, spacing, useColors } from "@/theme";
@@ -17,21 +17,31 @@ export interface VideoFrameProps {
 /**
  * Base video element: a rounded, sized frame around a native video surface (first frame shows as
  * the poster), a center play button while paused, a spinner while loading, and a corner button for
- * the system full-screen player. Tapping the picture toggles playback.
+ * the system full-screen player. Tapping the picture toggles playback. Inline the frame draws its
+ * own controls; full screen turns the native controls on, since the overlay buttons don't follow the
+ * player there and without them full screen has no play button and no Done to leave.
  */
 export function VideoFrame({ player, width, height, playing, loading, onToggle }: VideoFrameProps) {
   const colors = useColors();
   const view = useRef<VideoView>(null);
+  const [fullscreen, setFullscreen] = useState(false);
+
+  // Enter only after the render that switched native controls on, so full screen opens with them.
+  useEffect(() => {
+    if (fullscreen) void view.current?.enterFullscreen();
+  }, [fullscreen]);
+
   return (
     <View style={{ width, height, borderRadius: radii.sm, overflow: "hidden", backgroundColor: colors.surface }}>
       <VideoView
         ref={view}
         player={player}
-        nativeControls={false}
+        nativeControls={fullscreen}
         contentFit="contain"
         fullscreenOptions={{ enable: true }}
         allowsPictureInPicture={false}
         allowsVideoFrameAnalysis={false}
+        onFullscreenExit={() => setFullscreen(false)}
         style={{ width, height }}
       />
       <Pressable
@@ -52,7 +62,7 @@ export function VideoFrame({ player, width, height, playing, loading, onToggle }
           symbol="arrow.up.left.and.arrow.down.right"
           tone="overlay"
           size={32}
-          onPress={() => void view.current?.enterFullscreen()}
+          onPress={() => setFullscreen(true)}
         />
       </View>
     </View>
