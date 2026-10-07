@@ -39,6 +39,12 @@ export function byteSize(bytes: number): string {
   return scaled(clamped / KIB / KIB / KIB, "GB");
 }
 
+/** Media position as m:ss ("0:07", "12:30"); negatives clamp to 0:00. */
+export function mediaClock(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
 function scaled(value: number, unit: string): string {
   return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${unit}`;
 }

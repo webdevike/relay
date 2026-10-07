@@ -88,6 +88,18 @@ Inline player: play/pause, a progress bar Isaac taps to seek, elapsed/total time
 - Formats AVPlayer streams: wav, m4a/aac, mp3. Generate speech with `pocket-tts generate --text "…" --voice eve --output-path /tmp/x.wav` (`eve` is Isaac's default voice).
 - `title`: optional heading.
 
+## Video
+
+Inline video player: a frame sized to the video's aspect ratio (16:9 until it loads) showing the first frame, tap the picture or the play button to play or pause, the same progress bar and elapsed/total time as audio, and a corner button that opens the system full-screen player. Plays even with the phone on silent. Use it for screen recordings and repro clips.
+
+```ui
+{"widget":"video","title":"Checkout repro","src":"/drops/<id>/<token>"}
+```
+
+- Share the file first, same as audio: `cd ~/Code/relay/apps/linux && bun run src/main.ts share <path>` prints `shared file <id> /drops/<id>/<token>`; use that path as `src`. An absolute `https://` URL also works; local paths are rejected.
+- Formats AVPlayer streams: mp4 or mov with h264 (or hevc) video and aac audio. Encode with `-movflags +faststart` so playback starts before the whole file arrives: `ffmpeg -i in.mov -c:v libx264 -c:a aac -movflags +faststart out.mp4`.
+- `title`: optional heading.
+
 ## Gallery
 
 Image carousel for references (Dribbble shots, screenshots, mockups): one image per page, swipe or tap the chevrons, title and caption under each, an open-link icon when `url` is set. Tapping an image opens a full-screen pager: swipe between images, pinch or double tap to zoom, drag to pan while zoomed, tap to close.

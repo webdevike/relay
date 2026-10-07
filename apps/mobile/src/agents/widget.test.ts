@@ -54,6 +54,22 @@ describe("parseWidget", () => {
     expect(parseWidget('{"widget":"audio"}')).toBeNull();
   });
 
+  it("accepts video only from host drop paths or http(s) URLs, stripping unknown fields like its siblings", () => {
+    expect(parseWidget('{"widget":"video","title":"Repro","src":"/drops/abc/tok"}')).toEqual({
+      widget: "video",
+      title: "Repro",
+      src: "/drops/abc/tok",
+    });
+    expect(parseWidget('{"widget":"video","src":"https://cdn.x.test/a.mp4","poster":"x.png"}')).toEqual({
+      widget: "video",
+      src: "https://cdn.x.test/a.mp4",
+    });
+    expect(parseWidget('{"widget":"video","src":"/Users/me/clip.mp4"}')).toBeNull();
+    expect(parseWidget('{"widget":"video","src":"file:///tmp/clip.mp4"}')).toBeNull();
+    expect(parseWidget('{"widget":"video","title":"No source"}')).toBeNull();
+    expect(parseWidget('{"widget":"stack","children":[{"widget":"video","src":"/tmp/x.mp4"},{"widget":"divider"}]}')).toBeNull();
+  });
+
   it("parses a gallery, dropping a non-http source link instead of rejecting the image", () => {
     expect(
       parseWidget('{"widget":"gallery","images":[{"src":"https://cdn.x.test/a.png","title":"A","url":"javascript:alert(1)"},{"src":"/drops/abc/tok"}]}'),
