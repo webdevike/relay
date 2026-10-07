@@ -131,10 +131,21 @@ describe("FileBoardStore", () => {
 });
 
 describe("board HTTP", () => {
-  const call = (boards: FileBoardStore | null, method: string, path: string, body?: unknown, remote = "127.0.0.1") =>
+  const call = (
+    boards: FileBoardStore | null,
+    method: string,
+    path: string,
+    body?: unknown,
+    remote = "127.0.0.1",
+    headers: Record<string, string> = method === "GET" ? {} : { "content-type": "application/json" },
+  ) =>
     handleBoardRequest(
       boards,
-      new Request(`http://127.0.0.1${path}`, body === undefined ? { method } : { method, body: typeof body === "string" ? body : JSON.stringify(body) }),
+      new Request(`http://127.0.0.1${path}`, {
+        method,
+        headers,
+        ...(body === undefined ? {} : { body: typeof body === "string" ? body : JSON.stringify(body) }),
+      }),
       path,
       remote,
     );
@@ -161,5 +172,20 @@ describe("board HTTP", () => {
     expect((await call(boards, "GET", "/boards", undefined, "192.168.1.5")).status).toBe(403);
     expect((await call(null, "GET", "/boards")).status).toBe(404);
     expect(boards.rev).toBe(1);
+  });
+
+  it("rejects writes a browser page could send: 415 without a JSON content-type, 403 with an Origin", async () => {
+    const { boards } = store();
+    await call(boards, "PUT", "/boards/h", { title: "H" });
+    const ops = [{ op: "upsert", id: "a", spec: stat("1") }];
+    expect((await call(boards, "POST", "/boards/h/ops", ops, "127.0.0.1", { "content-type": "text/plain" })).status).toBe(415);
+    expect((await call(boards, "POST", "/boards/h/ops", ops, "127.0.0.1", {})).status).toBe(415);
+    expect((await call(boards, "DELETE", "/boards/h", undefined, "127.0.0.1", {})).status).toBe(415);
+    const origin = { "content-type": "application/json", origin: "https://evil.example" };
+    expect((await call(boards, "POST", "/boards/h/ops", ops, "127.0.0.1", origin)).status).toBe(403);
+    expect((await call(boards, "PUT", "/boards/h", { title: "X" }, "127.0.0.1", origin)).status).toBe(403);
+    expect((await call(boards, "GET", "/boards/h", undefined, "127.0.0.1", { origin: "https://evil.example" })).status).toBe(200);
+    expect((await call(boards, "PUT", "/boards/h", { title: "H2" }, "127.0.0.1", { "content-type": "application/json; charset=utf-8" })).status).toBe(200);
+    expect(boards.rev).toBe(2);
   });
 });

@@ -17,7 +17,9 @@ async function jsonBody(request: Request): Promise<unknown> {
 
 /**
  * GET /boards, GET|PUT|DELETE /boards/<slug>, POST /boards/<slug>/ops. Answers `{rev, boards}`
- * or `{rev, board?}`; a bad body is 400 `{error}`, an unknown board 404 `{error}`.
+ * or `{rev, board?}`; a bad body is 400 `{error}`, an unknown board 404 `{error}`. Writes must be
+ * `application/json` with no Origin header: a browser page on this machine passes the loopback
+ * check, but can only send a no-preflight POST as text/plain and always attaches Origin.
  */
 export async function handleBoardRequest(
   boards: FileBoardStore | null,
@@ -31,6 +33,11 @@ export async function handleBoardRequest(
   if (rest.length > 0 || (tail !== undefined && tail !== "ops"))
     return Response.json({ error: "not found" }, { status: 404 });
   const method = request.method;
+  if (method !== "GET") {
+    if (request.headers.has("origin")) return Response.json({ error: "browser requests are not allowed" }, { status: 403 });
+    if (!(request.headers.get("content-type") ?? "").toLowerCase().startsWith("application/json"))
+      return Response.json({ error: "content-type must be application/json" }, { status: 415 });
+  }
   try {
     if (slug === undefined || slug === "") {
       if (method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });

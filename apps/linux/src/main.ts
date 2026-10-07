@@ -268,7 +268,7 @@ async function board(positionals: string[]): Promise<void> {
       response = await fetch(`${target()}/ops`, { method: "POST", headers: { "content-type": "application/json" }, body: await Bun.stdin.text() });
       break;
     case "rm":
-      response = await fetch(target(), { method: "DELETE" });
+      response = await fetch(target(), { method: "DELETE", headers: { "content-type": "application/json" } });
       break;
     default:
       throw new Error(`board: expected list, get, put, ops or rm\n\n${USAGE}`);
