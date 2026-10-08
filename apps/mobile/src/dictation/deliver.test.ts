@@ -8,6 +8,9 @@ import {
   setLaunchThinkingLevel,
 } from "./deliver";
 
+/** Plain prompts from the phone carry its surface tag; slash commands don't. */
+const TAG = "<surface>iPhone - Relay</surface>\n";
+
 function recorder(): { sent: Command[]; send: (cmd: Command) => Promise<void> } {
   const sent: Command[] = [];
   return {
@@ -48,8 +51,8 @@ describe("deliverDictation", () => {
       send,
     );
     expect(sent).toEqual([
-      { kind: "agent.reply", sessionId: "s1", text: "try again", submit: true },
-      { kind: "agent.reply", sessionId: "s1", text: "and also", submit: true },
+      { kind: "agent.reply", sessionId: "s1", text: `${TAG}try again`, submit: true },
+      { kind: "agent.reply", sessionId: "s1", text: `${TAG}and also`, submit: true },
     ]);
   });
 
@@ -107,7 +110,7 @@ describe("deliverDictation", () => {
       {
         kind: "agent.reply",
         sessionId: "s1",
-        text: "look",
+        text: `${TAG}look`,
         submit: true,
         images: [{ mimeType: "image/jpeg", data: "abc" }],
       },
@@ -175,7 +178,7 @@ describe("deliverDictation", () => {
       send,
     );
     expect(sent).toEqual([
-      { kind: "agent.reply", sessionId: "s1", text: "just this", submit: true },
+      { kind: "agent.reply", sessionId: "s1", text: `${TAG}just this`, submit: true },
     ]);
   });
 
@@ -218,7 +221,7 @@ describe("deliverDictation", () => {
       { text: "go", submit: false, skill: null, images: [], pasted: null, launch: true },
       send,
     );
-    expect(sent).toEqual([{ kind: "agent.start", prompt: "go", thinkingLevel: "high" }]);
+    expect(sent).toEqual([{ kind: "agent.start", prompt: `${TAG}go`, thinkingLevel: "high" }]);
     setLaunchThinkingLevel("");
   });
 });

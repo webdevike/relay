@@ -8,6 +8,7 @@
  */
 import type { Command } from "@relay/protocol";
 import type { DeliverInput } from "./machine";
+import { tagged } from "./surface";
 
 export type DictationTarget = { kind: "insert" } | { kind: "agent"; sessionId: string };
 
@@ -56,7 +57,7 @@ export function commandsFor(input: DeliverInput, to: DictationTarget): Command[]
     return [
       {
         kind: "agent.start",
-        ...(text.length > 0 ? { prompt: text } : {}),
+        ...(text.length > 0 ? { prompt: tagged(text) } : {}),
         ...(launchThinkingLevel.length > 0 ? { thinkingLevel: launchThinkingLevel } : {}),
       },
     ];
@@ -67,7 +68,7 @@ export function commandsFor(input: DeliverInput, to: DictationTarget): Command[]
       {
         kind: "agent.reply",
         sessionId: to.sessionId,
-        text,
+        text: tagged(text),
         submit: true,
         ...(images.length > 0 ? { images } : {}),
       },
