@@ -77,6 +77,29 @@ const Audio = z.object({
   src: MediaSrc,
 });
 
+/** Inline video player: a frame at the video's aspect ratio, play/pause, a seekable progress bar,
+ * elapsed/total time. */
+const Video = z.object({
+  widget: z.literal("video"),
+  title: z.string().optional(),
+  src: MediaSrc,
+});
+
+/** One gallery image. `url` (http(s) only) is the source page, e.g. the Dribbble shot. */
+const GalleryImage = z.object({
+  src: MediaSrc,
+  title: z.string().optional(),
+  caption: z.string().optional(),
+  url: z.string().url().refine((u) => /^https?:\/\//.test(u)).optional().catch(undefined),
+});
+
+/** Image carousel: swipe or chevrons inline; tap opens a full-screen pager with pinch zoom. */
+const Gallery = z.object({
+  widget: z.literal("gallery"),
+  title: z.string().optional(),
+  images: z.array(GalleryImage).min(1).max(50),
+});
+
 /** A line of text. `style` picks the type scale; an unknown style degrades to body. */
 const TextNode = z.object({
   widget: z.literal("text"),
@@ -136,6 +159,8 @@ type Leaf =
   | z.infer<typeof Tickets>
   | z.infer<typeof Compare>
   | z.infer<typeof Audio>
+  | z.infer<typeof Video>
+  | z.infer<typeof Gallery>
   | z.infer<typeof TextNode>
   | z.infer<typeof Rows>
   | z.infer<typeof Badge>
@@ -182,6 +207,8 @@ const Node: z.ZodType<WidgetSpec, z.ZodTypeDef, unknown> = z.discriminatedUnion(
   Tickets,
   Compare,
   Audio,
+  Video,
+  Gallery,
   TextNode,
   Rows,
   Badge,
@@ -199,6 +226,8 @@ export type TicketSpec = z.infer<typeof Ticket>;
 export type TicketsSpec = z.infer<typeof Tickets>;
 export type CompareSpec = z.infer<typeof Compare>;
 export type AudioSpec = z.infer<typeof Audio>;
+export type VideoSpec = z.infer<typeof Video>;
+export type GallerySpec = z.infer<typeof Gallery>;
 export type TextSpec = z.infer<typeof TextNode>;
 export type RowsSpec = z.infer<typeof Rows>;
 export type BadgeSpec = z.infer<typeof Badge>;
