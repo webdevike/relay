@@ -24,6 +24,30 @@ src/input/keyboard.ts  Named keys via uinput; text via wtype (Wayland) or a US-l
 - Wayland: `wtype` for Unicode text. Without it (or on X11) text falls back to uinput with a US
   layout and non-ASCII characters are refused with `invalid_command`.
 
+### NixOS
+
+The flake at the repo root packages the daemon (`bun` plus avahi, wtype and wl-clipboard on its
+PATH) and a module that sets up everything above:
+
+```nix
+# flake.nix inputs
+relay.url = "github:webdevike/relay";
+
+# configuration.nix (with relay in the module's args)
+imports = [ relay.nixosModules.default ];
+services.relay-linux = {
+  enable = true;
+  users = [ "you" ];   # joins the uinput group; log out and in once after the switch
+};
+```
+
+That enables `hardware.uinput`, avahi with user-service publishing, opens TCP 7817, and installs a
+systemd user unit `relay-linux` bound to `graphical-session.target`; the PIN shows in
+`journalctl --user -u relay-linux -f`. Without the module: `nix run github:webdevike/relay -- serve
+--port 7817` (uinput, avahi and the firewall are then yours to configure). For the Agent Inbox,
+symlink `/run/current-system/sw/share/relay-linux/omp-extension/relay-bridge.ts` into
+`~/.omp/agent/extensions/`.
+
 ## Run
 
 ```
