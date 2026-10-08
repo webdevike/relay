@@ -17,6 +17,7 @@
  * packages/protocol/fixtures. Change both or neither.
  */
 import { z } from "zod";
+import { WidgetNode } from "./widget";
 
 export const PROTOCOL_VERSION = 1 as const;
 export const BONJOUR_SERVICE_TYPE = "_relay._tcp" as const;
@@ -251,6 +252,76 @@ export const Snapshot = z.object({
 export type Snapshot = z.infer<typeof Snapshot>;
 
 // ---------------------------------------------------------------------------------------------
+// Boards: live dashboards. A board is a titled grid of widget tiles the host stores as JSON and
+// streams to subscribed clients. One global `rev` covers every board; each successful write bumps
+// it by one and sends the full changed board (or its removal) as a `board.delta`.
+// ---------------------------------------------------------------------------------------------
+
+export const MAX_BOARD_WIDGETS = 48;
+export const BOARD_COLUMNS = 12;
+
+/** Board slugs and tile ids: lowercase, file-name safe. */
+export const BoardSlug = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/);
+export const BoardWidgetId = BoardSlug;
+
+const BoardSpan = z.number().int().min(1).max(BOARD_COLUMNS);
+
+/** One tile: a widget spec spanning `span` of the board's 12 columns. */
+export const BoardWidget = z.object({
+  id: BoardWidgetId,
+  span: BoardSpan.default(BOARD_COLUMNS),
+  spec: WidgetNode,
+});
+export type BoardWidget = z.infer<typeof BoardWidget>;
+
+export const BoardTitle = z.string().min(1).max(120);
+
+export const Board = z
+  .object({
+    slug: BoardSlug,
+    title: BoardTitle,
+    workspace: z.string().optional(),
+    icon: z.string().optional(),
+    widgets: z.array(BoardWidget).max(MAX_BOARD_WIDGETS),
+    updatedAt: z.string().datetime(),
+  })
+  .superRefine((board, ctx) => {
+    const seen = new Set<string>();
+    for (const [index, widget] of board.widgets.entries()) {
+      if (seen.has(widget.id))
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["widgets", index, "id"], message: `duplicate widget id ${widget.id}` });
+      seen.add(widget.id);
+    }
+  });
+export type Board = z.infer<typeof Board>;
+
+/** Body of a create/replace (`PUT /boards/<slug>`); the host fills `slug` and `updatedAt`. */
+export const BoardPut = z.object({
+  title: BoardTitle,
+  workspace: z.string().optional(),
+  icon: z.string().optional(),
+  widgets: z.array(BoardWidget).max(MAX_BOARD_WIDGETS).optional(),
+});
+export type BoardPut = z.infer<typeof BoardPut>;
+
+/**
+ * One edit to an existing board. `upsert.after`: the tile id to place it after, null for first;
+ * absent keeps an existing tile where it is and appends a new one.
+ */
+export const BoardOp = z.discriminatedUnion("op", [
+  z.object({
+    op: z.literal("upsert"),
+    id: BoardWidgetId,
+    span: BoardSpan.optional(),
+    spec: WidgetNode,
+    after: BoardWidgetId.nullable().optional(),
+  }),
+  z.object({ op: z.literal("remove"), id: BoardWidgetId }),
+  z.object({ op: z.literal("meta"), title: BoardTitle.optional(), workspace: z.string().optional(), icon: z.string().optional() }),
+]);
+export type BoardOp = z.infer<typeof BoardOp>;
+
+// ---------------------------------------------------------------------------------------------
 // Ephemeral input events (phone -> Mac). Units: phone points; t: phone monotonic ms.
 // ---------------------------------------------------------------------------------------------
 
@@ -391,6 +462,10 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("push.unregister") }),
   /** Ask for the drop history; answered by `drop.list`. */
   z.object({ t: z.literal("drop.list") }),
+  /** Start receiving `board.delta` on this socket; answered by `board.snapshot`. */
+  z.object({ t: z.literal("board.subscribe") }),
+  /** Re-request every board (after a rev gap); answered by `board.snapshot`. */
+  z.object({ t: z.literal("board.get") }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 
@@ -459,6 +534,10 @@ export const ServerMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("drop.removed"), id: nonEmpty }),
   /** Answer to `drop.list`: the whole history, newest first. */
   z.object({ t: z.literal("drop.list"), drops: z.array(Drop).max(MAX_DROPS) }),
+  /** Every board at `rev`; the answer to `board.subscribe` and `board.get`. */
+  z.object({ t: z.literal("board.snapshot"), rev: z.number().int(), boards: z.array(Board) }),
+  /** One write: the changed board in full, or the slug that was deleted (exactly one of the two). */
+  z.object({ t: z.literal("board.delta"), rev: z.number().int(), board: Board.optional(), removed: BoardSlug.optional() }),
   z.object({ t: z.literal("ack"), id: nonEmpty }),
   z.object({ t: z.literal("nack"), id: nonEmpty, error: AckError }),
   z.object({ t: z.literal("pong"), ts: ms, serverTs: ms }),
@@ -498,3 +577,4 @@ export function encode(message: ClientMessage | ServerMessage): string {
 }
 
 export * from "./hmac";
+export * from "./widget";

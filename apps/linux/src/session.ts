@@ -20,6 +20,7 @@ import {
   type Snapshot,
 } from "@relay/protocol";
 import type { AgentsDeltaTracker } from "./agents/delta-tracker";
+import type { BoardDelta, FileBoardStore } from "./boards/store";
 import type { CommandDedupStore } from "./dedup";
 import type { PairingCoordinator } from "./pairing";
 import {
@@ -49,6 +50,8 @@ export interface SessionDeps {
   readonly push: PushRegistry | null;
   /** null when the host has no drop box; drop frames and commands are then refused. */
   readonly drops: DropBox | null;
+  /** null when the host has no boards dir; `board.subscribe` then gets an empty snapshot. */
+  readonly boards: FileBoardStore | null;
   readonly pairing: PairingCoordinator;
   readonly dedup: CommandDedupStore;
 }
@@ -108,6 +111,8 @@ export class ClientSession {
   private name: string | null = null;
   /** Per-conversation rev for `agent.messages`, keyed by the subscribed session id. */
   private readonly subscriptions = new Map<string, number>();
+  /** Set by `board.subscribe`; only subscribed sockets get `board.delta`. */
+  private boardsSubscribed = false;
 
   constructor(
     private readonly sink: FrameSink,
@@ -159,6 +164,11 @@ export class ClientSession {
   agentMessageUpdated(sessionId: string, id: string, text: string, streaming: boolean): void {
     if (this.phase.kind !== "authenticated" || !this.subscriptions.has(sessionId)) return;
     this.sink.send({ t: "agent.message.update", sessionId, id, text, streaming });
+  }
+
+  /** Forwards a board write iff this socket sent `board.subscribe`. */
+  boardChanged(delta: BoardDelta): void {
+    if (this.phase.kind === "authenticated" && this.boardsSubscribed) this.sink.send(delta);
   }
 
   /** Shows a pending ask iff subscribed to `sessionId`; the phone renders it and may answer it. */
@@ -403,6 +413,13 @@ export class ClientSession {
           t: "drop.list",
           drops: this.deps.drops === null ? [] : [...this.deps.drops.list()],
         });
+        break;
+      case "board.subscribe":
+        this.boardsSubscribed = true;
+        this.sink.send(this.deps.boards?.snapshot() ?? { t: "board.snapshot", rev: 0, boards: [] });
+        break;
+      case "board.get":
+        this.sink.send(this.deps.boards?.snapshot() ?? { t: "board.snapshot", rev: 0, boards: [] });
         break;
       case "hello":
       case "auth":
