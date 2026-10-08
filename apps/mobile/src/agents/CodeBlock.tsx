@@ -113,6 +113,7 @@ export function CodeBlock({ code, lang }: CodeBlockProps) {
                       </RNText>
                     );
                   })}
+                  {i < tokens.length - 1 && !line.some((t) => t.empty) ? "\n" : null}
                 </RNText>
               ))}
             </RNText>
