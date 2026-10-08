@@ -8,6 +8,7 @@ import { colors, radii, spacing } from "@/theme";
 import { useAgentsStore } from "@/state/agents";
 import { requestAgentImage } from "@/connection";
 import { loadSkia } from "@/dictation/skia";
+import { untagged } from "@/dictation/surface";
 import { ImageViewer } from "./ImageViewer";
 import { modelShortName, VendorLogo } from "./VendorLogo";
 import { MessageText } from "./MessageText";
@@ -114,7 +115,7 @@ function MessageRow({ sessionId, message, onOpenImage }: MessageRowProps) {
               gap: spacing.sm,
             }}
           >
-            {message.text.length > 0 && <MessageText text={message.text} />}
+            {message.text.length > 0 && <MessageText text={untagged(message.text)} />}
             {images}
           </View>
         </View>
