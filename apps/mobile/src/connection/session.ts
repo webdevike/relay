@@ -69,7 +69,6 @@ export class SessionMachine {
   private candidate: { host: string; port: number } | null = null;
   private attempts = 0;
   private backgrounded = false;
-  private autoPairOnUnpaired = false;
   private awaitingPong = false;
   private missedPongs = 0;
   private lastRttMs: number | null = null;
@@ -177,7 +176,6 @@ export class SessionMachine {
 
   private onStartPairing(): Effect[] {
     if (this.state === "needs_pairing") {
-      this.autoPairOnUnpaired = true;
       return this.beginConnect();
     }
     if (this.state !== "hello") return [];
@@ -249,17 +247,14 @@ export class SessionMachine {
     return [{ type: "send", message: { t: "auth", proof } }];
   }
 
+  /** Always asks: a tailnet host answers `pair.ok` straight away, any other host shows a PIN. */
   private onUnpaired(): Effect[] {
     if (this.state !== "hello") return [];
-    if (this.autoPairOnUnpaired) {
-      this.autoPairOnUnpaired = false;
-      this.state = "pairing_request";
-      return [
-        { type: "send", message: { t: "pair.request" } },
-        { type: "storeUpdate", partial: { status: "pairing", pairing: { pinRequired: false, failure: null } } },
-      ];
-    }
-    return [{ type: "storeUpdate", partial: { status: "pairing", pairing: { pinRequired: false, failure: null } } }];
+    this.state = "pairing_request";
+    return [
+      { type: "send", message: { t: "pair.request" } },
+      { type: "storeUpdate", partial: { status: "pairing", pairing: { pinRequired: false, failure: null } } },
+    ];
   }
 
   private onPairPending(): Effect[] {
@@ -269,7 +264,7 @@ export class SessionMachine {
   }
 
   private onPairOk(secret: string): Effect[] {
-    if (this.state !== "pairing_pin") return [];
+    if (this.state !== "pairing_pin" && this.state !== "pairing_request") return [];
     this.secretHex = secret;
     this.state = "authenticating";
     return [{ type: "storeSecret", hex: secret }];

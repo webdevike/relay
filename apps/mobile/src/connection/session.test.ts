@@ -31,7 +31,6 @@ describe("SessionMachine full pairing path", () => {
     await step({ type: "serviceFound", service, pairedSecretHex: null }, 10);
     await step({ type: "socketOpen" }, 20);
     await step({ type: "server", message: { t: "unpaired" } }, 30);
-    await step({ type: "startPairing" }, 40);
     await step({ type: "server", message: { t: "pair.pending" } }, 50);
     await step({ type: "pinEntered", pin: "123456" }, 60);
     await step({ type: "server", message: { t: "pair.ok", secret: "aabbcc" } }, 70);
@@ -44,7 +43,6 @@ describe("SessionMachine full pairing path", () => {
       { type: "storeUpdate", partial: { status: "connecting", macName: "Isaacs-Mac" } },
       { type: "connect", host: "192.168.1.5", port: 8443 },
       { type: "send", message: { t: "hello", v: 1, deviceId: "device-1", deviceName: "iPhone", platform: "ios" } },
-      { type: "storeUpdate", partial: { status: "pairing", pairing: { pinRequired: false, failure: null } } },
       { type: "send", message: { t: "pair.request" } },
       { type: "storeUpdate", partial: { status: "pairing", pairing: { pinRequired: false, failure: null } } },
       { type: "storeUpdate", partial: { status: "pairing", pairing: { pinRequired: true, failure: null } } },

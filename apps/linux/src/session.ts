@@ -53,6 +53,8 @@ export interface SessionDeps {
   /** null when the host has no boards dir; `board.subscribe` then gets an empty snapshot. */
   readonly boards: FileBoardStore | null;
   readonly pairing: PairingCoordinator;
+  /** Peer IP; tailnet addresses (Tailscale CGNAT / ULA ranges) pair without a PIN. */
+  readonly remoteAddress: string;
   readonly dedup: CommandDedupStore;
 }
 
@@ -279,6 +281,11 @@ export class ClientSession {
       this.fail("protocol", "expected pair.request");
       return;
     }
+    // Tailscale already authenticated this peer as a device on Isaac's tailnet: no PIN.
+    if (isTailnetAddress(this.deps.remoteAddress)) {
+      this.issueSecret(phase.deviceId, phase.deviceName);
+      return;
+    }
     const pin = randomInt(0, 1_000_000).toString().padStart(6, "0");
     if (!this.deps.pairing.begin(phase.deviceName, pin)) {
       this.fail("busy", "another pairing is already in progress");
@@ -320,11 +327,15 @@ export class ClientSession {
       return;
     }
     this.stopPairingTimeout();
-    const secret = randomBytes(32);
-    this.deps.devices.save(secret, phase.deviceId, phase.deviceName);
     this.deps.pairing.end();
+    this.issueSecret(phase.deviceId, phase.deviceName);
+  }
+
+  private issueSecret(deviceId: string, deviceName: string): void {
+    const secret = randomBytes(32);
+    this.deps.devices.save(secret, deviceId, deviceName);
     this.sink.send({ t: "pair.ok", secret: toHex(secret) });
-    this.authenticate(phase.deviceId);
+    this.authenticate(deviceId);
   }
 
   private handleAuthenticated(deviceId: string, message: ClientMessage): void {
@@ -616,4 +627,12 @@ export class ClientSession {
     this.sink.close();
     this.onClose(this);
   }
+}
+
+/** Tailscale assigns 100.64.0.0/10 (IPv4) and fd7a:115c:a1e0::/48 (IPv6); Bun may report IPv4 as `::ffff:`-mapped. */
+export function isTailnetAddress(address: string): boolean {
+  const ip = address.replace(/^::ffff:/i, "");
+  const v4 = /^100\.(\d+)\.\d+\.\d+$/.exec(ip);
+  if (v4 !== null) return Number(v4[1]) >= 64 && Number(v4[1]) <= 127;
+  return ip.toLowerCase().startsWith("fd7a:115c:a1e0:");
 }

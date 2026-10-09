@@ -312,6 +312,7 @@ export class RelayServer {
         drops: this.deps.drops,
         boards: this.deps.boards,
         pairing: this.pairing,
+        remoteAddress: ws.remoteAddress,
         dedup: this.dedup,
       },
       (closed) => {

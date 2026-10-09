@@ -91,6 +91,7 @@ interface Harness {
 
 interface HarnessOptions {
   granted?: boolean;
+  remoteAddress?: string;
   devices?: MemoryDevices;
   dedup?: CommandDedupStore;
   failText?: boolean;
@@ -138,6 +139,7 @@ function harness(options: HarnessOptions = {}): Harness {
     drops: options.drops ?? null,
     boards: options.boards ?? null,
     pairing: new PairingCoordinator(ui),
+    remoteAddress: options.remoteAddress ?? "192.168.1.20",
     dedup: options.dedup ?? new CommandDedupStore(),
   };
   const sink = new RecordingSink();
@@ -203,6 +205,18 @@ describe("pairing", () => {
     second.session.receive({ ...hello, deviceId: "phone-2" });
     second.session.receive({ t: "pair.request" });
     expect(second.sink.last()).toEqual({ t: "pair.pending" });
+  });
+
+  it("pairs a tailnet peer without a PIN and rejects look-alike LAN addresses", () => {
+    const h = harness({ remoteAddress: "::ffff:100.79.119.8" });
+    h.session.receive(hello);
+    h.session.receive({ t: "pair.request" });
+    expect(h.pins).toEqual([]);
+    expect(h.sink.sent.some((m) => m.t === "pair.ok")).toBe(true);
+    const lan = harness({ remoteAddress: "100.128.0.1" });
+    lan.session.receive(hello);
+    lan.session.receive({ t: "pair.request" });
+    expect(lan.sink.last()).toEqual({ t: "pair.pending" });
   });
 });
 
