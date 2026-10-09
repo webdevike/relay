@@ -12,19 +12,24 @@ export interface DiscoveredService {
 
 const PROTOCOL_TXT_VERSION = "1";
 
+/** Speaks the current protocol; services without the matching TXT version are never offered. */
+export function isCompatible(service: DiscoveredService): boolean {
+  return service.txt["v"] === PROTOCOL_TXT_VERSION;
+}
+
 /**
- * Picks the first valid preferred host. If none of the remembered hosts are present, returns the
- * first valid service so a newly encountered computer can enter the normal authenticated pairing
- * flow.
+ * Picks the service to connect to from every currently resolved service. When the session has a
+ * target host, only its Bonjour name counts as a match (another host on the LAN must never hijack
+ * the connection; switching is explicit, from the host picker); otherwise the first compatible
+ * service is the candidate.
  */
 export function pickCandidate(
   services: readonly DiscoveredService[],
-  pairedTargetNames: readonly string[],
+  targetBonjourName: string | null,
 ): DiscoveredService | null {
-  const valid = services.filter((service) => service.txt["v"] === PROTOCOL_TXT_VERSION);
-  for (const targetName of pairedTargetNames) {
-    const preferred = valid.find((service) => service.name === targetName);
-    if (preferred !== undefined) return preferred;
+  const valid = services.filter(isCompatible);
+  if (targetBonjourName !== null) {
+    return valid.find((service) => service.name === targetBonjourName) ?? null;
   }
   return valid[0] ?? null;
 }

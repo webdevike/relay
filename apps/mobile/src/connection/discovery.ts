@@ -1,10 +1,11 @@
 /**
- * Thin wrapper around react-native-zeroconf that scans for the Mac's `_relay._tcp` service and
- * reports the current best candidate. Selection policy lives in `./candidate` (see that file for
- * why it's separate); this file owns only the native scan lifecycle.
+ * Thin wrapper around react-native-zeroconf that scans for hosts' `_relay._tcp` service. One
+ * native scan serves two consumers: the session (`start`/`stop`, wants the best candidate) and the
+ * host picker (`browse`, wants every compatible service). Selection policy lives in `./candidate`
+ * (see that file for why it's separate); this file owns only the native scan lifecycle.
  */
 import Zeroconf, { type ZeroconfService } from "react-native-zeroconf";
-import { pickCandidate, type DiscoveredService } from "./candidate";
+import { isCompatible, pickCandidate, type DiscoveredService } from "./candidate";
 import { debug, warn } from "./log";
 
 export { pickCandidate };
@@ -22,13 +23,17 @@ function toDiscoveredService(raw: ZeroconfService): DiscoveredService {
 
 export interface DiscoveryHandlers {
   readonly onCandidate: (service: DiscoveredService) => void;
+  /** Every compatible service currently resolved, on each change. */
+  readonly onServices: (services: DiscoveredService[]) => void;
 }
 
 export class Discovery {
   private readonly zeroconf: Zeroconf;
   private readonly handlers: DiscoveryHandlers;
   private services: DiscoveredService[] = [];
-  private pairedTargetNames: readonly string[] = [];
+  private pairedBonjourName: string | null = null;
+  private seeking = false;
+  private browsing = false;
   private scanning = false;
 
   constructor(handlers: DiscoveryHandlers, zeroconf: Zeroconf = new Zeroconf()) {
@@ -39,22 +44,47 @@ export class Discovery {
     });
     this.zeroconf.on("remove", (name) => {
       this.services = this.services.filter((service) => service.name !== name);
+      this.handlers.onServices(this.services.filter(isCompatible));
     });
     this.zeroconf.on("error", (error) => {
       this.handleError(error);
     });
   }
 
-  start(pairedTargetNames: readonly string[]): void {
-    this.pairedTargetNames = pairedTargetNames;
+  /** Seeks a candidate; one already resolved by a running browse is reported immediately. */
+  start(pairedBonjourName: string | null): void {
+    this.pairedBonjourName = pairedBonjourName;
+    this.seeking = true;
+    debug("discovery", "seek", pairedBonjourName ?? "(no preferred host)");
+    if (!this.scanning) {
+      this.scan();
+      return;
+    }
+    const candidate = pickCandidate(this.services, pairedBonjourName);
+    if (candidate !== null) this.handlers.onCandidate(candidate);
+  }
+
+  /** Idempotent: safe to call whether or not a scan is running. Keeps scanning while browsing. */
+  stop(): void {
+    this.seeking = false;
+    if (!this.browsing) this.halt();
+  }
+
+  /** Keeps the scan running (and `onServices` firing) while the host picker is on screen. */
+  browse(on: boolean): void {
+    this.browsing = on;
+    if (on && !this.scanning) this.scan();
+    if (!on && !this.seeking) this.halt();
+  }
+
+  private scan(): void {
     this.services = [];
     this.scanning = true;
-    debug("discovery", "scan start", pairedTargetNames.join(", ") || "(no preferred host)");
+    this.handlers.onServices([]);
     this.zeroconf.scan(SERVICE_TYPE, SERVICE_PROTOCOL, SERVICE_DOMAIN);
   }
 
-  /** Idempotent: safe to call whether or not a scan is running. */
-  stop(): void {
+  private halt(): void {
     if (!this.scanning) return;
     this.scanning = false;
     this.zeroconf.stop();
@@ -63,7 +93,9 @@ export class Discovery {
   private handleResolved(raw: ZeroconfService): void {
     const service = toDiscoveredService(raw);
     this.services = [...this.services.filter((existing) => existing.name !== service.name), service];
-    const candidate = pickCandidate(this.services, this.pairedTargetNames);
+    this.handlers.onServices(this.services.filter(isCompatible));
+    if (!this.seeking) return;
+    const candidate = pickCandidate(this.services, this.pairedBonjourName);
     if (candidate !== null) this.handlers.onCandidate(candidate);
   }
 

@@ -17,6 +17,7 @@ import { createAgentFrameRouter } from "./agents";
 import { createDropFrameRouter } from "./drops";
 import * as identity from "./identity";
 import { Discovery, type DiscoveredService } from "./discovery";
+import { NO_HOSTS, removeHost, upsertHost, type PairedHosts } from "./hosts";
 import { parseManualHost } from "./manual-host";
 import { RelaySocket } from "./socket";
 import { SessionMachine, type Effect } from "./session";
@@ -25,13 +26,17 @@ import { debug, warn } from "./log";
 
 let started = false;
 let deviceId = "";
-let pairedTargetNames: string[] = [];
+let hosts: PairedHosts = NO_HOSTS;
+/**
+ * Id of the host the session aims at: a saved host, or one being paired from the host picker.
+ * `null` only with no saved hosts, when discovery takes the first host it finds.
+ */
+let target: string | null = null;
 let currentCandidate: DiscoveredService | null = null;
 let machine: SessionMachine | null = null;
 let wasActive = true;
 let appStateSubscription: NativeEventSubscription | null = null;
 let retryTimer: number | undefined;
-let candidateRequest = 0;
 /**
  * `host:port` the socket was last opened with (IPv6 bracketed), the origin for `/drops/...` blob
  * fetches. Only meaningful while `status === "connected"`; a later connect overwrites it.
@@ -51,17 +56,14 @@ const routeAgentFrame = createAgentFrameRouter(useAgentsStore.getState(), (messa
 const routeDropFrame = createDropFrameRouter(useDropsStore.getState());
 const discovery = new Discovery({
   onCandidate: (service) => {
-    void connectToCandidate(service);
+    currentCandidate = service;
+    const pairedSecretHex = hosts.hosts.find((host) => host.id === (target ?? service.name))?.secretHex ?? null;
+    void dispatch({ type: "serviceFound", service, pairedSecretHex });
+  },
+  onServices: (services) => {
+    useConnectionStore.getState().set({ discovered: services });
   },
 });
-async function connectToCandidate(service: DiscoveredService): Promise<void> {
-  const request = ++candidateRequest;
-  const paired = await identity.getPairedHost(service.name);
-  const fallback = paired === null ? await identity.getMostRecentPairedHost() : null;
-  if (request !== candidateRequest) return;
-  currentCandidate = service;
-  await dispatch({ type: "serviceFound", service, pairedSecretHex: paired?.secretHex ?? fallback?.secretHex ?? null });
-}
 
 socket.onOpen = () => {
   void dispatch({ type: "socketOpen" });
@@ -117,13 +119,14 @@ async function applyEffects(effects: Effect[]): Promise<void> {
         socket.send(encode(effect.message));
         break;
       case "startDiscovery": {
-        // A manual host replaces Bonjour entirely: hand the machine a synthetic resolved service.
-        const manual = parseManualHost(useSettingsStore.getState().manualHost);
+        // A typed `host:port` target skips Bonjour entirely: hand the machine a synthetic resolved service.
+        const manual = target === null ? null : parseManualHost(target);
         if (manual === null) {
-          discovery.start(pairedTargetNames);
+          discovery.start(target);
         } else {
           discovery.stop();
-          void connectToCandidate(manual);
+          currentCandidate = manual;
+          void dispatch({ type: "serviceFound", service: manual, pairedSecretHex: hosts.hosts.find((host) => host.id === target)?.secretHex ?? null });
         }
         break;
       }
@@ -138,24 +141,28 @@ async function applyEffects(effects: Effect[]): Promise<void> {
         }, effect.ms);
         break;
       case "storeSecret": {
-        if (currentCandidate === null) throw new Error("cannot store a pairing without a connection target");
-        await identity.savePairedHost({
-          targetName: currentCandidate.name,
-          macName: currentCandidate.name,
-          secretHex: effect.hex,
-        });
-        pairedTargetNames = await identity.getPairedTargetNames();
+        // With no target (nothing saved yet) the pairing belongs to whichever host discovery found.
+        const id = target ?? currentCandidate?.name ?? null;
+        if (id === null) break;
+        target = id;
+        const name = hosts.hosts.find((host) => host.id === id)?.name ?? currentCandidate?.name ?? id;
+        await persistHosts({ ...upsertHost(hosts, { id, name, address: hostAuthority ?? "", secretHex: effect.hex }), activeId: id });
         break;
       }
       case "forgetSecret":
-        if (currentCandidate !== null) {
-          await identity.forgetPairedHost(currentCandidate.name);
-          pairedTargetNames = await identity.getPairedTargetNames();
+        // The target host no longer knows this phone: its saved secret is dead.
+        if (target !== null) await persistHosts(removeHost(hosts, target));
+        break;
+      case "storeUpdate": {
+        useConnectionStore.getState().set(effect.partial);
+        // Keep the saved entry's name and address current with what the host reports on welcome.
+        const saved = hosts.hosts.find((host) => host.id === target);
+        const mac = effect.partial.mac;
+        if (saved !== undefined && mac !== undefined && mac !== null && (mac.name !== saved.name || (hostAuthority ?? "") !== saved.address)) {
+          await persistHosts(upsertHost(hosts, { ...saved, name: mac.name, address: hostAuthority ?? "" }));
         }
         break;
-      case "storeUpdate":
-        useConnectionStore.getState().set(effect.partial);
-        break;
+      }
     }
   }
 }
@@ -168,24 +175,33 @@ function sha256(data: Uint8Array): Promise<ArrayBuffer> {
   return digest(CryptoDigestAlgorithm.SHA256, new Uint8Array(data));
 }
 
-let settingsSubscription: (() => void) | null = null;
+/** Saves `next` to Keychain and publishes it, secrets stripped, to `useConnectionStore`. */
+async function persistHosts(next: PairedHosts): Promise<void> {
+  hosts = next;
+  publishHosts();
+  await identity.savePairedHosts(next);
+}
+
+function publishHosts(): void {
+  useConnectionStore.getState().set({
+    hosts: hosts.hosts.map((host) => ({ id: host.id, name: host.name, address: host.address })),
+    activeHostId: target,
+  });
+}
 
 async function boot(): Promise<void> {
   deviceId = await identity.getDeviceId();
   await identity.importProvisionedHost(deviceId);
-  pairedTargetNames = await identity.getPairedTargetNames();
+  hosts = await identity.loadPairedHosts();
+  target = hosts.activeId;
+  publishHosts();
   wasActive = AppState.currentState === "active";
   appStateSubscription = AppState.addEventListener("change", onAppStateChange);
-  settingsSubscription = useSettingsStore.subscribe((next, prev) => {
-    if (next.manualHost === prev.manualHost) return;
-    void resetSession();
-  });
   await resetSession();
 }
 
-/** Tears down socket, timers and discovery, then starts a fresh target-aware machine. */
+/** Tears down socket, timers and discovery, then starts a fresh machine aimed at `target`. */
 async function resetSession(): Promise<void> {
-  candidateRequest += 1;
   currentCandidate = null;
   discovery.stop();
   socket.close();
@@ -206,12 +222,32 @@ async function resetSession(): Promise<void> {
   await dispatch({ type: "appActive" });
 }
 
-async function runForgetMac(): Promise<void> {
-  if (currentCandidate !== null) {
-    await identity.forgetPairedHost(currentCandidate.name);
-    pairedTargetNames = await identity.getPairedTargetNames();
-  }
+/**
+ * Points the session at `id` (or discovery, for `null`). Everything the previous host said goes
+ * with it, and commands still waiting for its ack are cancelled rather than replayed on the new one.
+ */
+async function retarget(id: string | null): Promise<void> {
+  target = id;
+  publishHosts();
+  commandQueue.cancelAll();
+  useAgentsStore.getState().applyWelcome(0, []);
+  useDropsStore.getState().setAll([]);
   await resetSession();
+}
+
+/** A saved host connects with its secret; any other id starts pairing with it straight away. */
+async function switchHost(id: string): Promise<void> {
+  if (id === target && useConnectionStore.getState().status === "connected") return;
+  const saved = hosts.hosts.some((host) => host.id === id);
+  if (saved) await persistHosts({ ...hosts, activeId: id });
+  await retarget(id);
+  if (!saved) await dispatch({ type: "startPairing" });
+}
+
+async function forgetHost(id: string): Promise<void> {
+  const next = removeHost(hosts, id);
+  await persistHosts(next);
+  if (id === target) await retarget(next.activeId);
 }
 
 function onAppStateChange(next: AppStateStatus): void {
@@ -312,8 +348,11 @@ export const connection = {
       submitPin: (pin) => {
         void dispatch({ type: "pinEntered", pin });
       },
-      forgetMac: () => {
-        void runForgetMac();
+      switchHost: (id) => {
+        void switchHost(id);
+      },
+      forgetHost: (id) => {
+        void forgetHost(id);
       },
     });
     boot().catch((error: unknown) => {
@@ -325,18 +364,18 @@ export const connection = {
     started = false;
     appStateSubscription?.remove();
     appStateSubscription = null;
-    settingsSubscription?.();
-    settingsSubscription = null;
     discovery.stop();
     socket.close();
     clearTimeout(retryTimer);
     retryTimer = undefined;
     machine = null;
   },
-  forget(): void {
-    void runForgetMac();
-  },
 };
+
+/** Keeps Bonjour browsing (and `useConnectionStore().discovered` fresh) while a host picker is open. */
+export function browseHosts(on: boolean): void {
+  discovery.browse(on);
+}
 
 /** Mounts the connection lifecycle to the app's root component tree. */
 export function useConnectionLifecycle(): void {

@@ -8,25 +8,24 @@ function service(name: string, v = "1"): DiscoveredService {
 describe("pickCandidate", () => {
   it("filters out services with a mismatched or missing protocol TXT version", () => {
     const services = [service("old-mac", "0"), service("no-version", ""), service("current-mac", "1")];
-    expect(pickCandidate(services, [])).toEqual(service("current-mac", "1"));
+    expect(pickCandidate(services, null)).toEqual(service("current-mac", "1"));
   });
 
   it("picks the first valid service when no Mac is paired", () => {
     const services = [service("mac-a"), service("mac-b")];
-    expect(pickCandidate(services, [])).toEqual(service("mac-a"));
+    expect(pickCandidate(services, null)).toEqual(service("mac-a"));
   });
 
-  it("prefers the first remembered host that is present", () => {
+  it("picks only the target host when one is set", () => {
     const services = [service("mac-a"), service("mac-b"), service("mac-c")];
-    expect(pickCandidate(services, ["mac-c", "mac-b"])).toEqual(service("mac-c"));
+    expect(pickCandidate(services, "mac-c")).toEqual(service("mac-c"));
   });
 
-  it("allows a new host into the authenticated pairing flow when remembered hosts are absent", () => {
-    const services = [service("mac-a")];
-    expect(pickCandidate(services, ["mac-b"])).toEqual(service("mac-a"));
+  it("never lets another host hijack an absent target", () => {
+    expect(pickCandidate([service("mac-a")], "mac-b")).toBeNull();
   });
 
   it("returns null when nothing has resolved yet", () => {
-    expect(pickCandidate([], [])).toBeNull();
+    expect(pickCandidate([], null)).toBeNull();
   });
 });
