@@ -71,6 +71,15 @@ export class CommandQueue {
     entry.reject(new CommandError(error.code, error.message));
   }
 
+  /** Rejects everything pending: used when the phone switches hosts, where a replay would land on the wrong computer. */
+  cancelAll(): void {
+    for (const entry of this.pending.values()) {
+      clearTimeout(entry.timer);
+      entry.reject(new CommandError("internal", "cancelled: switched hosts"));
+    }
+    this.pending.clear();
+  }
+
   /** Sends every still-pending command, oldest first. */
   flush(send: (message: ClientMessage) => void): void {
     for (const entry of this.pending.values()) {

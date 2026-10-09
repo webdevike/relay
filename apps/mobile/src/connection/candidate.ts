@@ -12,19 +12,24 @@ export interface DiscoveredService {
 
 const PROTOCOL_TXT_VERSION = "1";
 
+/** Speaks the current protocol; services without the matching TXT version are never offered. */
+export function isCompatible(service: DiscoveredService): boolean {
+  return service.txt["v"] === PROTOCOL_TXT_VERSION;
+}
+
 /**
- * Picks the service to connect to from every currently resolved service. When a paired Mac
- * exists, only its remembered `bonjourName` counts as a match (a second Mac on the LAN must
- * never hijack the connection); otherwise the first resolved service is the candidate (v1
- * supports exactly one Mac). Services without the current protocol TXT version are ignored.
+ * Picks the service to connect to from every currently resolved service. When the session has a
+ * target host, only its Bonjour name counts as a match (another host on the LAN must never hijack
+ * the connection; switching is explicit, from the host picker); otherwise the first compatible
+ * service is the candidate.
  */
 export function pickCandidate(
   services: readonly DiscoveredService[],
-  pairedBonjourName: string | null,
+  targetBonjourName: string | null,
 ): DiscoveredService | null {
-  const valid = services.filter((service) => service.txt["v"] === PROTOCOL_TXT_VERSION);
-  if (pairedBonjourName !== null) {
-    return valid.find((service) => service.name === pairedBonjourName) ?? null;
+  const valid = services.filter(isCompatible);
+  if (targetBonjourName !== null) {
+    return valid.find((service) => service.name === targetBonjourName) ?? null;
   }
   return valid[0] ?? null;
 }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Switch, TextInput, View } from "react-native";
 import { SymbolView } from "expo-symbols";
 import { Screen } from "@/ui/Screen";
@@ -11,6 +11,7 @@ import { useConnectionStore } from "@/state/connection";
 import { useSettingsStore, type AppearanceChoice, type PointerSpeed, type Recognizer } from "@/state/settings";
 import { actions } from "@/state/actions";
 import { MANUAL_HOST_PLACEHOLDER, parseManualHost } from "@/connection/manual-host";
+import { browseHosts } from "@/connection";
 import { setNotificationsEnabled } from "@/notifications";
 import { warmVoz } from "@/dictation/actor";
 import { VozDictation } from "../modules/voz-dictation";
@@ -26,53 +27,112 @@ const appearances: { value: AppearanceChoice; label: string }[] = [
   { value: "dark", label: "Dark" },
 ];
 
-/**
- * Committed on blur/submit, not per keystroke: every committed change restarts the connection.
- */
-function HostAddressField() {
+/** Saved computers (tap to switch, Forget each), Bonjour hosts not yet paired, and add-by-address. */
+function HostsSection() {
   const colors = useColors();
   const scheme = useScheme();
-  const manualHost = useSettingsStore((state) => state.manualHost);
-  const set = useSettingsStore((state) => state.set);
-  const [draft, setDraft] = useState(manualHost);
+  const hosts = useConnectionStore((state) => state.hosts);
+  const activeId = useConnectionStore((state) => state.activeHostId);
+  const status = useConnectionStore((state) => state.status);
+  const discovered = useConnectionStore((state) => state.discovered);
+  const [draft, setDraft] = useState("");
   const invalid = draft.trim().length > 0 && parseManualHost(draft) === null;
 
-  const commit = () => {
-    const next = invalid ? "" : draft.trim();
-    setDraft(next);
-    if (next !== manualHost) set({ manualHost: next });
+  useEffect(() => {
+    browseHosts(true);
+    return () => {
+      browseHosts(false);
+    };
+  }, []);
+
+  const unpaired = discovered.filter((service) => !hosts.some((host) => host.id === service.name));
+  const add = () => {
+    const next = draft.trim();
+    if (next === "" || invalid) return;
+    setDraft("");
+    actions.switchHost(next);
   };
 
   return (
-    <View style={{ paddingHorizontal: spacing.xl, paddingVertical: spacing.md, gap: spacing.sm }}>
-      <Text variant="title">Host address</Text>
-      <TextInput
-        value={draft}
-        onChangeText={setDraft}
-        onBlur={commit}
-        onSubmitEditing={commit}
-        placeholder={`Automatic, or ${MANUAL_HOST_PLACEHOLDER}`}
-        placeholderTextColor={colors.textFaint}
-        keyboardAppearance={scheme}
-        autoCapitalize="none"
-        autoCorrect={false}
-        keyboardType="url"
-        returnKeyType="done"
-        style={{
-          ...type.body,
-          color: invalid ? colors.danger : colors.text,
-          backgroundColor: colors.surface,
-          borderRadius: radii.md,
-          paddingHorizontal: spacing.md,
-          paddingVertical: spacing.sm,
-        }}
-      />
-      <Text variant="caption" color={invalid ? "danger" : "textMuted"}>
-        {invalid
-          ? "Enter host:port, for example 192.168.1.20:7817."
-          : "Macs are found automatically. Enter host:port for a Linux host or to connect over Tailscale."}
-      </Text>
-    </View>
+    <>
+      <View style={{ paddingHorizontal: spacing.xl, paddingTop: spacing.md }}>
+        <Text variant="title">Computers</Text>
+      </View>
+      {hosts.length === 0 && unpaired.length === 0 ? (
+        <Row title="No computers yet" subtitle="Searching the network, or add one by address below" />
+      ) : null}
+      {hosts.map((host) => {
+        const active = host.id === activeId;
+        return (
+          <View key={host.id}>
+            <Row
+              title={host.name}
+              subtitle={`${active ? (status === "connected" ? "Connected" : "Connecting") : "Tap to switch"}${host.address ? ` · ${host.address}` : ""}`}
+              leading={
+                <SymbolView
+                  name={active ? "checkmark.circle.fill" : "desktopcomputer"}
+                  size={22}
+                  tintColor={active ? colors.accent : colors.textMuted}
+                />
+              }
+              onPress={() => {
+                actions.switchHost(host.id);
+              }}
+              trailing={
+                <Button
+                  label="Forget"
+                  variant="ghost"
+                  onPress={() => {
+                    actions.forgetHost(host.id);
+                  }}
+                />
+              }
+            />
+            <Separator />
+          </View>
+        );
+      })}
+      {unpaired.map((service) => (
+        <View key={service.name}>
+          <Row
+            title={service.name}
+            subtitle={service.name === activeId ? "Pairing: enter the PIN shown on the computer" : "Found nearby · tap to pair"}
+            leading={<SymbolView name="plus.circle" size={22} tintColor={colors.textMuted} />}
+            onPress={() => {
+              actions.switchHost(service.name);
+            }}
+          />
+          <Separator />
+        </View>
+      ))}
+      <View style={{ paddingHorizontal: spacing.xl, paddingVertical: spacing.md, gap: spacing.sm }}>
+        <TextInput
+          value={draft}
+          onChangeText={setDraft}
+          onSubmitEditing={add}
+          placeholder={`Add by address, ${MANUAL_HOST_PLACEHOLDER}`}
+          placeholderTextColor={colors.textFaint}
+          keyboardAppearance={scheme}
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType="url"
+          returnKeyType="go"
+          style={{
+            ...type.body,
+            color: invalid ? colors.danger : colors.text,
+            backgroundColor: colors.surface,
+            borderRadius: radii.md,
+            paddingHorizontal: spacing.md,
+            paddingVertical: spacing.sm,
+          }}
+        />
+        <Text variant="caption" color={invalid ? "danger" : "textMuted"}>
+          {invalid
+            ? "Enter host:port, for example 192.168.1.20:7817."
+            : "Use host:port for a Linux host or to connect over Tailscale."}
+        </Text>
+      </View>
+    </>
   );
 }
 
@@ -226,29 +286,11 @@ function ThinkingField() {
 
 export default function Settings() {
   const colors = useColors();
-  const macName = useConnectionStore((state) => state.macName);
-  const status = useConnectionStore((state) => state.status);
   const settings = useSettingsStore();
 
   return (
     <Screen title="Settings" scroll>
-      <Separator />
-      <Row
-        title={macName ?? "No Mac paired"}
-        subtitle={status === "connected" ? "Connected" : "Not connected"}
-        leading={<SymbolView name="desktopcomputer" size={22} tintColor={colors.textMuted} />}
-        trailing={
-          macName !== null ? (
-            <Button
-              label="Forget"
-              variant="ghost"
-              onPress={() => {
-                actions.forgetMac();
-              }}
-            />
-          ) : undefined
-        }
-      />
+      <HostsSection />
       <Separator />
       <Row
         title="Device name"
@@ -319,8 +361,6 @@ export default function Settings() {
           ))}
         </View>
       </View>
-      <Separator />
-      <HostAddressField />
       <Separator />
     </Screen>
   );
