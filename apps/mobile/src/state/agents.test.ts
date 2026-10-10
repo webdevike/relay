@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyDelta, applySnapshot, applyWelcome, appendMessages, clearAsk, emptyAgentsData, setAsk, setConversation, setImage } from "./agents";
+import { applyDelta, applySnapshot, applyWelcome, appendMessages, clearAsk, emptyAgentsData, setAsk, setConversation, setImage, subagentsOf } from "./agents";
 import type { AgentMessage, AgentSession } from "@relay/protocol";
 
 function session(id: string, lastActivityAt: number, status: AgentSession["status"] = "idle"): AgentSession {
@@ -51,6 +51,18 @@ describe("applySnapshot", () => {
     const second = applySnapshot(first, 5, [session("b", 200)]);
     expect(second.sessions["a"]).toBeUndefined();
     expect(second.order).toEqual(["b"]);
+  });
+
+  it("keeps subagents out of the inbox and lists them under their parent", () => {
+    const data = applySnapshot(emptyAgentsData, 1, [
+      session("parent", 100),
+      { ...session("parent:Zeta", 900, "working"), parentId: "parent" },
+      { ...session("parent:Alpha", 800, "ended"), parentId: "parent" },
+      session("other", 50),
+    ]);
+    expect(data.order).toEqual(["parent", "other"]);
+    expect(subagentsOf(data.sessions, "parent").map((s) => s.id)).toEqual(["parent:Alpha", "parent:Zeta"]);
+    expect(subagentsOf(data.sessions, "other")).toEqual([]);
   });
 });
 

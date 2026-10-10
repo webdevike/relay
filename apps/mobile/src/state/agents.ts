@@ -35,12 +35,14 @@ export function needsAttention(session: AgentSession): boolean {
 }
 
 /**
- * Manual sessions first (attention, then recency), then every job run newest first: the scrubber
- * shows them as two sections, and a job never displaces a hand-started session from slot one.
- * Hosts predating jobs send no `kind`; those sessions are all manual.
+ * The inbox's top-level sessions: manual sessions first (attention, then recency), then every job
+ * run newest first, so the scrubber shows them as two sections and a job never displaces a
+ * hand-started session from slot one. Subagents (`parentId` set) are left out; they are reached
+ * from their parent's chips. Hosts predating jobs send no `kind`; those sessions are all manual.
  */
 function orderByAttention(sessions: Record<string, AgentSession>): string[] {
   return Object.values(sessions)
+    .filter((session) => session.parentId === undefined)
     .sort((a, b) => {
       const section = Number(a.kind === "job") - Number(b.kind === "job");
       if (section !== 0) return section;
@@ -48,6 +50,13 @@ function orderByAttention(sessions: Record<string, AgentSession>): string[] {
       return attention !== 0 ? attention : b.lastActivityAt - a.lastActivityAt;
     })
     .map((session) => session.id);
+}
+
+/** A session's subagents, sorted by id so their chips keep their places as statuses change. */
+export function subagentsOf(sessions: Record<string, AgentSession>, parentId: string): AgentSession[] {
+  return Object.values(sessions)
+    .filter((session) => session.parentId === parentId)
+    .sort((a, b) => a.id.localeCompare(b.id));
 }
 
 /** Replaces the whole session set with a fresh snapshot. Always accepted (snapshots have no gap). */
