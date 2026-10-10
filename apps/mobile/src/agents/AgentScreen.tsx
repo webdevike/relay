@@ -132,17 +132,24 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
   useEffect(() => {
     if (linkedId !== undefined) setPickedId(linkedId);
   }, [linkedId]);
-  const selectedId = pinned
+  const baseId = pinned
     ? pinnedId
     : pickedId !== null && order.includes(pickedId)
       ? pickedId
       : order[0];
   const subagents = useMemo(
-    () => (selectedId === undefined ? [] : subagentsOf(sessions, selectedId)),
-    [sessions, selectedId],
+    () => (baseId === undefined ? [] : subagentsOf(sessions, baseId)),
+    [sessions, baseId],
   );
+  // The top scrubber can focus one of this session's subagents in place; the card then shows it.
+  const [subFocus, setSubFocus] = useState<string | null>(null);
+  useEffect(() => {
+    setSubFocus(null);
+  }, [baseId]);
+  const selectedId =
+    subFocus !== null && baseId !== undefined && sessions[subFocus]?.parentId === baseId ? subFocus : baseId;
   const parent = pinned ? sessions[sessions[pinnedId]?.parentId ?? ""] : undefined;
-  const index = selectedId === undefined ? -1 : order.indexOf(selectedId);
+  const index = baseId === undefined ? -1 : order.indexOf(baseId);
   const lastIndex = useRef(index);
   const direction = index >= lastIndex.current ? 1 : -1;
   lastIndex.current = index;
@@ -525,9 +532,14 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
                   }}
                 >
                   <AgentHeader session={session} />
-                  {subagents.length > 0 && (
+                  {subagents.length > 0 && baseId !== undefined && sessions[baseId] !== undefined && (
                     <SubagentScrubber
+                      parent={sessions[baseId]}
                       subagents={subagents}
+                      selectedId={selectedId ?? baseId}
+                      onSelect={(id) => {
+                        setSubFocus(id === baseId ? null : id);
+                      }}
                       onOpen={(id) => {
                         tapHaptic();
                         router.push({ pathname: "/agents/[sessionId]", params: { sessionId: id } });
