@@ -83,7 +83,7 @@ describe("parseWidget", () => {
       '{"widget":"pr","repo":"r","number":7,"title":"T","state":"weird","url":"javascript:x","checks":[{"name":"ci","status":"queued"}],"reviewers":[{"name":"Noah","state":"approved"}],"files":[{"file":"a.ts","patch":"@@ -1 +1 @@\\n-a\\n+b"}]}',
     );
     expect(spec).toMatchObject({ widget: "pr", state: "open", checks: [{ name: "ci", status: "pending" }], reviewers: [{ name: "Noah", state: "approved" }] });
-    expect(spec).not.toHaveProperty("url");
+    expect((spec as { url?: string }).url).toBeUndefined();
     expect(parseWidget('{"widget":"pr","repo":"r","number":0,"title":"T"}')).toBeNull();
   });
 
