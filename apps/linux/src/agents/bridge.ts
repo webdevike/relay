@@ -28,6 +28,8 @@ const StatusFrame = z.object({
   modelVendor: z.string().optional(),
   thinkingLevel: z.string().optional(),
   contextUsed: z.number().min(0).max(1).optional(),
+  /** A mirrored subagent stops taking replies when it finishes; top-level sessions never send it. */
+  canRespond: z.boolean().optional(),
 });
 
 const Inbound = z.discriminatedUnion("t", [
@@ -293,6 +295,7 @@ export class OmpBridgeProvider implements AgentProvider {
           ...(frame.statusDetail === undefined ? {} : { statusDetail: frame.statusDetail }),
           ...(frame.kind === undefined ? {} : { kind: frame.kind }),
           ...(frame.job === undefined ? {} : { job: frame.job }),
+          ...(frame.parentId === undefined ? {} : { parentId: frame.parentId }),
         };
         this.log(`agent session ${frame.sessionId} (${frame.title}) ${frame.status}`);
         this.publish();
@@ -305,9 +308,10 @@ export class OmpBridgeProvider implements AgentProvider {
           id: current.id,
           provider: current.provider,
           projectPath: current.projectPath,
-          canRespond: current.canRespond,
+          canRespond: frame.canRespond ?? current.canRespond,
           ...(current.kind === undefined ? {} : { kind: current.kind }),
           ...(current.job === undefined ? {} : { job: current.job }),
+          ...(current.parentId === undefined ? {} : { parentId: current.parentId }),
           title: frame.title ?? current.title,
           status: frame.status,
           lastActivity: frame.lastActivity,

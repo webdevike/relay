@@ -5,20 +5,27 @@
 //
 // Transport: JSONL over the host's unix socket (see apps/linux/src/agents/bridge.ts for the
 // frame contract). The extension reconnects forever with a small backoff, so the host may be
-// started or restarted at any time. Headless/subagent sessions (no UI) stay out of the inbox.
+// started or restarted at any time. Headless/subagent sessions (no UI) do not register on their
+// own: the interactive parent mirrors each of its subagents instead, as a session of its own with
+// `parentId` set (one socket per subagent, transcript tailed from the subagent's session file,
+// phone replies steering it the way omp's `steer_subagent` does).
 //
 // Images in the transcript travel as references (id = first 16 hex chars of the sha256 of the
 // bytes); the bytes stay here, newest MAX_IMAGES kept, and the host fetches them with `image`.
 
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { closeSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import { createConnection, type Socket } from "node:net";
 import { homedir } from "node:os";
 import { basename } from "node:path";
 import type { ImageContent, TextContent } from "@oh-my-pi/pi-ai";
 import type { ExtensionAPI, ExtensionContext, SessionManager } from "@oh-my-pi/pi-coding-agent";
 import { BUILTIN_SLASH_COMMAND_DEFS } from "@oh-my-pi/pi-coding-agent/slash-commands/builtin-registry";
+// omp's own agent registry and lifecycle singletons: the registry reports a subagent's run state,
+// the lifecycle manager revives a parked one and hands back its live session for a steer.
+import { AgentLifecycleManager } from "@oh-my-pi/pi-coding-agent/registry/agent-lifecycle";
+import { AgentRegistry } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
 // The ask tool's blocking dialog is mirrored to the phone: these describe the omp dialog shape this
 // wraps (from omp's own install) and the protocol frames the phone speaks. Both are type-only, erased.
 import type { ExtensionAskDialogQuestion, ExtensionAskDialogResult, ExtensionAskDialogResultItem } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/types";
@@ -84,6 +91,8 @@ interface SessionInfo extends Settings {
   lastActivity: string;
   lastActivityAt: number;
   canRespond: boolean;
+  /** Set on a mirrored subagent: the host-facing id of the session that spawned it. */
+  parentId?: string;
 }
 
 interface ModelOption {
@@ -311,7 +320,7 @@ function listModelOptions(models: readonly Model[]): ModelOption[] {
 
 type Outbound =
   | ({ t: "hello" } & SessionInfo)
-  | ({ t: "status"; status: Status; statusDetail?: string; lastActivity: string; lastActivityAt: number } & Settings)
+  | ({ t: "status"; status: Status; statusDetail?: string; lastActivity: string; lastActivityAt: number; canRespond?: boolean } & Settings)
   | { t: "messages"; append: InboxMessage[] }
   | { t: "message.update"; id: string; text: string; streaming: boolean }
   | { t: "result"; id: string; ok: boolean; error?: string; value?: unknown }
@@ -345,6 +354,103 @@ const SUBMIT_SETTLE_MS = 150;
 /** Transcript images kept per session for the phone to fetch; older ones answer null. */
 const MAX_IMAGES = 32;
 const IMAGE_ID_LENGTH = 16;
+
+/** omp's subagent channels on the extension event bus (`pi.events`), emitted by the task tool. */
+const SUBAGENT_LIFECYCLE = "task:subagent:lifecycle";
+const SUBAGENT_PROGRESS = "task:subagent:progress";
+/** How often a mirrored subagent's session file is checked for new transcript entries. */
+const TAIL_MS = 500;
+
+/** The task tool's lifecycle payload (`task:subagent:lifecycle`); only the fields used here. */
+interface SubagentLifecycle {
+  id: string;
+  agent: string;
+  description?: string;
+  status: "started" | "completed" | "failed" | "aborted";
+  sessionFile?: string;
+}
+
+/** The task tool's progress payload (`task:subagent:progress`); only the fields used here. */
+interface SubagentProgress {
+  agent: string;
+  sessionFile?: string;
+  progress: { id: string; description?: string; lastIntent?: string; currentTool?: string };
+}
+
+/** One socket to the host carrying one session; reconnects with a backoff until closed. */
+interface HostLink {
+  send: (frame: Outbound) => void;
+  close: () => void;
+}
+
+/**
+ * Opens a session's connection to the host. `hello` is asked again on every (re)connect so the
+ * host always gets the current state; returning null skips the attempt.
+ */
+function openHostLink(hello: () => Outbound | null, onFrame: (frame: Inbound) => void, onConnect?: () => void): HostLink {
+  let socket: Socket | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let closed = false;
+  let buffer = "";
+  const send = (frame: Outbound): void => {
+    if (socket === null || socket.destroyed || !socket.writable) return;
+    socket.write(`${JSON.stringify(frame)}\n`);
+  };
+  const schedule = (): void => {
+    if (closed || timer !== null) return;
+    timer = setTimeout(() => {
+      timer = null;
+      connect();
+    }, RECONNECT_MS);
+    timer.unref();
+  };
+  const connect = (): void => {
+    if (closed || socket !== null || hello() === null) return;
+    const next = createConnection(socketPath());
+    socket = next;
+    buffer = "";
+    next.setNoDelay(true);
+    next.on("connect", () => {
+      const frame = hello();
+      if (frame !== null) send(frame);
+      onConnect?.();
+    });
+    next.on("data", (chunk: Buffer) => {
+      buffer += chunk.toString("utf8");
+      let newline = buffer.indexOf("\n");
+      while (newline !== -1) {
+        const line = buffer.slice(0, newline);
+        buffer = buffer.slice(newline + 1);
+        if (line.trim().length > 0) {
+          try {
+            onFrame(JSON.parse(line) as Inbound);
+          } catch {
+            // A malformed host frame must never take the session down.
+          }
+        }
+        newline = buffer.indexOf("\n");
+      }
+    });
+    const drop = (): void => {
+      if (socket === next) socket = null;
+      next.destroy();
+      schedule();
+    };
+    next.on("error", drop);
+    next.on("close", drop);
+  };
+  connect();
+  return {
+    send,
+    close: () => {
+      closed = true;
+      clearTimeout(timer ?? undefined);
+      timer = null;
+      socket?.end();
+      socket = null;
+    },
+  };
+}
 
 export function socketPath(): string {
   const runtime = process.env["RELAY_AGENTS_SOCKET"];
@@ -491,6 +597,291 @@ function imageSize(bytes: Buffer, mimeType: ImageMimeType): { width: number; hei
   return null;
 }
 
+/** Stores one transcript image in `images` under its content hash (newest MAX_IMAGES kept) and returns the ref for the phone. */
+function internImage(images: Map<string, Image>, part: ImageContent): ImageRef | null {
+  const bytes = Buffer.from(part.data, "base64");
+  const mimeType = sniffMimeType(bytes);
+  if (mimeType === null) return null;
+  const id = createHash("sha256").update(bytes).digest("hex").slice(0, IMAGE_ID_LENGTH);
+  images.delete(id); // re-insert so a repeated image counts as newest
+  images.set(id, { mimeType, data: part.data });
+  while (images.size > MAX_IMAGES) {
+    const oldest = images.keys().next();
+    if (oldest.done === true) break;
+    images.delete(oldest.value);
+  }
+  const ref: ImageRef = { id, mimeType };
+  const size = imageSize(bytes, mimeType);
+  if (size !== null) {
+    ref.width = size.width;
+    ref.height = size.height;
+  }
+  return ref;
+}
+
+/** Image refs for every image part of a message's content; string content has none. */
+function imageRefsOf(images: Map<string, Image>, content: unknown): ImageRef[] {
+  if (!Array.isArray(content)) return [];
+  const refs: ImageRef[] = [];
+  for (const part of content as (TextContent | ImageContent)[]) {
+    if (part.type !== "image") continue;
+    const ref = internImage(images, part);
+    if (ref !== null) refs.push(ref);
+  }
+  return refs;
+}
+
+/** The transcript rows one finished omp message contributes: the same shapes the live session streams. */
+function rowsOf(message: Record<string, unknown>, images: Map<string, Image>, nextId: () => string): InboxMessage[] {
+  const at = typeof message["timestamp"] === "number" ? message["timestamp"] : Date.now();
+  const content = message["content"];
+  const rows: InboxMessage[] = [];
+  switch (message["role"]) {
+    case "user": {
+      const text = textOf(content);
+      const refs = imageRefsOf(images, content);
+      if (text.length === 0 && refs.length === 0) break;
+      const row: InboxMessage = { id: nextId(), role: message["synthetic"] === true ? "system" : "user", text, at };
+      if (refs.length > 0) row.images = refs;
+      rows.push(row);
+      break;
+    }
+    case "toolResult": {
+      const refs = imageRefsOf(images, content);
+      const name = typeof message["toolName"] === "string" ? message["toolName"] : "tool";
+      if (refs.length > 0) rows.push({ id: nextId(), role: "tool", text: "", at, tool: { name, summary: "" }, images: refs });
+      break;
+    }
+    case "assistant": {
+      const text = textOf(content);
+      if (text.length > 0) rows.push({ id: nextId(), role: "assistant", text, at });
+      if (!Array.isArray(content)) break;
+      for (const part of content as { type?: unknown; name?: unknown; arguments?: unknown }[]) {
+        if (part.type !== "toolCall" || typeof part.name !== "string") continue;
+        const summary = typeof part.arguments === "object" && part.arguments !== null ? summarizeArguments(part.arguments as Record<string, unknown>) : "";
+        rows.push({ id: nextId(), role: "tool", text: summary, at, tool: { name: part.name, summary } });
+      }
+      break;
+    }
+  }
+  return rows;
+}
+
+/** A mirrored subagent, driven by the parent's lifecycle/progress events. */
+interface SubagentMirror {
+  readonly running: boolean;
+  lifecycle: (event: SubagentLifecycle) => void;
+  progress: (event: SubagentProgress) => void;
+  close: () => void;
+}
+
+/** Finished subagents kept listed under their parent; older ones are dropped from the host. */
+const MAX_FINISHED_SUBAGENTS = 20;
+/** A finished subagent's file is still read this long, for the entries written after its end event. */
+const TAIL_AFTER_END_MS = 10_000;
+
+const endedLabel: Record<Exclude<SubagentLifecycle["status"], "started">, string> = {
+  completed: "Done",
+  failed: "Failed",
+  aborted: "Cancelled",
+};
+
+/**
+ * Delivers a phone message to a running subagent the way omp's `steer_subagent` does: revive the
+ * session through the lifecycle manager if it was parked, then prompt it with steer semantics (a
+ * streaming subagent takes it at its next step, an idle one starts a turn). Resolves once the
+ * message is accepted.
+ */
+async function steerSubagent(id: string, text: string, images: ImageContent[]): Promise<void> {
+  const ref = AgentRegistry.global().get(id);
+  if (ref === undefined || ref.kind !== "sub") throw new Error(`Subagent not running: ${id}`);
+  const session = await AgentLifecycleManager.global().ensureLive(id);
+  const accepted = Promise.withResolvers<void>();
+  const unsubscribe = session.subscribe((event: { type: string }) => {
+    if (event.type === "agent_start") accepted.resolve();
+  });
+  session
+    .prompt(text, { streamingBehavior: "steer", throwOnDrop: true, ...(images.length > 0 ? { images } : {}) })
+    .then(() => {
+      accepted.resolve();
+    }, accepted.reject);
+  try {
+    await accepted.promise;
+  } finally {
+    unsubscribe();
+  }
+}
+
+/**
+ * Registers one subagent with the host as its own session (`parentId` = the parent's id), tails its
+ * session file into the transcript, and answers the host's requests for it.
+ */
+function mirrorSubagent(parentId: string, projectPath: string, first: SubagentLifecycle): SubagentMirror {
+  const id = first.id;
+  const sessionId = `${parentId}:${id}`;
+  const history: InboxMessage[] = [];
+  const images = new Map<string, Image>();
+  let seq = 0;
+  let state: SubagentLifecycle["status"] = first.status;
+  let description = first.description;
+  let detail: string | undefined;
+  let lastActivity = first.description ?? first.agent;
+  let lastActivityAt = Date.now();
+  let sessionFile = first.sessionFile;
+  let offset = 0;
+  let partial = "";
+  let tailTimer: ReturnType<typeof setInterval> | null = null;
+  let tailStop: ReturnType<typeof setTimeout> | null = null;
+
+  const nextId = (): string => {
+    seq += 1;
+    return `${id}-${seq}`;
+  };
+
+  /** Name, run state and what it is doing right now; the chip on the parent shows these. */
+  const current = () => {
+    const running = state === "started";
+    const shown = running ? detail : endedLabel[state as keyof typeof endedLabel];
+    return {
+      title: id,
+      kind: "manual" as const,
+      status: (running ? "working" : "ended") as Status,
+      lastActivity,
+      lastActivityAt,
+      canRespond: running,
+      ...(shown === undefined ? {} : { statusDetail: shown }),
+    };
+  };
+  const hello = (): Outbound => ({ t: "hello", sessionId, provider: "omp", projectPath, parentId, ...current() });
+  const sendStatus = (): void => {
+    link.send({ t: "status", ...current() });
+  };
+
+  const perform = async (frame: Inbound): Promise<unknown> => {
+    switch (frame.t) {
+      case "conversation":
+        return history;
+      case "reply": {
+        if (state !== "started") throw new Error(`${id} has finished; it no longer takes messages`);
+        const attached: ImageContent[] = (frame.images ?? []).map((image) => ({ type: "image", data: image.data, mimeType: image.mimeType }));
+        await steerSubagent(id, frame.text, attached);
+        return undefined;
+      }
+      case "image":
+        return images.get(frame.imageId) ?? null;
+      case "options":
+        return { models: [], skills: [] };
+      case "abort":
+      case "end": {
+        const live = AgentRegistry.global().get(id)?.session;
+        if (live === undefined || live === null) throw new Error(`Subagent not running: ${id}`);
+        await live.abort();
+        return undefined;
+      }
+      case "configure":
+        throw new Error("a subagent's model and title are set by its parent");
+      case "ask":
+        throw new Error("subagents do not ask the phone");
+    }
+  };
+
+  const link = openHostLink(hello, (frame) => {
+    void perform(frame).then(
+      (value) => {
+        link.send({ t: "result", id: frame.id, ok: true, value });
+      },
+      (error: unknown) => {
+        link.send({ t: "result", id: frame.id, ok: false, error: error instanceof Error ? error.message : String(error) });
+      },
+    );
+  });
+
+  /** Reads whatever the subagent appended to its session file since the last look. */
+  const tail = (): void => {
+    if (sessionFile === undefined) return;
+    let size: number;
+    try {
+      size = statSync(sessionFile).size;
+    } catch {
+      return; // not written yet
+    }
+    if (size <= offset) return;
+    const fd = openSync(sessionFile, "r");
+    const chunk = Buffer.alloc(size - offset);
+    try {
+      readSync(fd, chunk, 0, chunk.length, offset);
+    } finally {
+      closeSync(fd);
+    }
+    offset = size;
+    const lines = (partial + chunk.toString("utf8")).split("\n");
+    partial = lines.pop() ?? "";
+    const appended: InboxMessage[] = [];
+    for (const line of lines) {
+      if (line.trim().length === 0) continue;
+      let entry: { type?: unknown; message?: unknown };
+      try {
+        entry = JSON.parse(line) as { type?: unknown; message?: unknown };
+      } catch {
+        continue;
+      }
+      if (entry.type !== "message" || typeof entry.message !== "object" || entry.message === null) continue;
+      appended.push(...rowsOf(entry.message as Record<string, unknown>, images, nextId));
+    }
+    if (appended.length === 0) return;
+    for (const row of appended) history.push(row);
+    if (history.length > 500) history.splice(0, history.length - 500);
+    link.send({ t: "messages", append: appended });
+    const said = appended.findLast((row) => row.role === "assistant");
+    if (said !== undefined) {
+      lastActivity = firstLine(said.text);
+      lastActivityAt = said.at;
+      sendStatus();
+    }
+  };
+  tailTimer = setInterval(tail, TAIL_MS);
+  tailTimer.unref();
+
+  const stopTail = (): void => {
+    clearInterval(tailTimer ?? undefined);
+    tailTimer = null;
+    clearTimeout(tailStop ?? undefined);
+    tailStop = null;
+  };
+
+  return {
+    get running() {
+      return state === "started";
+    },
+    lifecycle: (event) => {
+      if (event.sessionFile !== undefined) sessionFile = event.sessionFile;
+      if (event.description !== undefined) description = event.description;
+      state = event.status;
+      lastActivityAt = Date.now();
+      if (state !== "started") {
+        tail();
+        clearTimeout(tailStop ?? undefined);
+        tailStop = setTimeout(stopTail, TAIL_AFTER_END_MS);
+        tailStop.unref();
+      }
+      sendStatus();
+    },
+    progress: (event) => {
+      if (event.sessionFile !== undefined) sessionFile = event.sessionFile;
+      const progress = event.progress;
+      if (progress.description !== undefined) description = progress.description;
+      const next = progress.currentTool ?? progress.lastIntent ?? description;
+      if (next === detail) return;
+      detail = next;
+      sendStatus();
+    },
+    close: () => {
+      stopTail();
+      link.close();
+    },
+  };
+}
+
 export default function relayBridge(pi: ExtensionAPI): void {
   let ctx: ExtensionContext | null = null;
   let socket: Socket | null = null;
@@ -512,40 +903,6 @@ export default function relayBridge(pi: ExtensionAPI): void {
   // resolve callback here (keyed by the ask.request id) plus the questions, so an answer from the
   // phone can be shaped back into omp's dialog result. Cleared when a session ends or switches.
   const pendingAsks = new Map<string, { resolve: (result: ExtensionAskDialogResult | undefined) => void; questions: ExtensionAskDialogQuestion[] }>();
-
-  /** Interns one transcript image: stores the bytes under their content hash and returns the ref for the phone. */
-  const intern = (part: ImageContent): ImageRef | null => {
-    const bytes = Buffer.from(part.data, "base64");
-    const mimeType = sniffMimeType(bytes);
-    if (mimeType === null) return null;
-    const id = createHash("sha256").update(bytes).digest("hex").slice(0, IMAGE_ID_LENGTH);
-    images.delete(id); // re-insert so a repeated image counts as newest
-    images.set(id, { mimeType, data: part.data });
-    while (images.size > MAX_IMAGES) {
-      const oldest = images.keys().next();
-      if (oldest.done === true) break;
-      images.delete(oldest.value);
-    }
-    const ref: ImageRef = { id, mimeType };
-    const size = imageSize(bytes, mimeType);
-    if (size !== null) {
-      ref.width = size.width;
-      ref.height = size.height;
-    }
-    return ref;
-  };
-
-  /** Refs for every image part of a message's content; string content has none. */
-  const imagesOf = (content: string | readonly (TextContent | ImageContent)[]): ImageRef[] => {
-    if (typeof content === "string") return [];
-    const refs: ImageRef[] = [];
-    for (const part of content) {
-      if (part.type !== "image") continue;
-      const ref = intern(part);
-      if (ref !== null) refs.push(ref);
-    }
-    return refs;
-  };
 
   const settings = (): Settings => {
     const cwd = ctx?.sessionManager.getCwd() ?? "";
@@ -749,6 +1106,34 @@ export default function relayBridge(pi: ExtensionAPI): void {
     for (const pending of pendingAsks.values()) pending.resolve(undefined);
     pendingAsks.clear();
   };
+  // This session's subagents, each mirrored to the host as its own session (insertion-ordered, so
+  // the oldest finished one is the first dropped once more than MAX_FINISHED_SUBAGENTS are done).
+  // The task tool emits on the extension bus of the process that spawned them, which is this one.
+  const subagents = new Map<string, SubagentMirror>();
+  const closeSubagents = (): void => {
+    for (const mirror of subagents.values()) mirror.close();
+    subagents.clear();
+  };
+  const onSubagentLifecycle = (data: unknown): void => {
+    const event = data as SubagentLifecycle;
+    if (ctx === null || typeof event.id !== "string") return;
+    const existing = subagents.get(event.id);
+    if (existing !== undefined) {
+      existing.lifecycle(event);
+    } else if (event.status === "started") {
+      subagents.set(event.id, mirrorSubagent(ctx.sessionManager.getSessionId(), ctx.sessionManager.getCwd(), event));
+    }
+    const finished = [...subagents.entries()].filter(([, mirror]) => !mirror.running);
+    for (const [id, mirror] of finished.slice(0, Math.max(0, finished.length - MAX_FINISHED_SUBAGENTS))) {
+      mirror.close();
+      subagents.delete(id);
+    }
+  };
+  const onSubagentProgress = (data: unknown): void => {
+    const event = data as SubagentProgress;
+    subagents.get(event.progress?.id ?? "")?.progress(event);
+  };
+  let unsubscribeSubagents: (() => void) | null = null;
 
   const scheduleReconnect = (): void => {
     if (stopped || reconnectTimer !== null) return;
@@ -847,6 +1232,14 @@ export default function relayBridge(pi: ExtensionAPI): void {
     watchName(context);
     wrapAskDialog(context);
     connect();
+    if (unsubscribeSubagents === null) {
+      const offLifecycle = pi.events.on(SUBAGENT_LIFECYCLE, onSubagentLifecycle);
+      const offProgress = pi.events.on(SUBAGENT_PROGRESS, onSubagentProgress);
+      unsubscribeSubagents = () => {
+        offLifecycle();
+        offProgress();
+      };
+    }
     if (initialThinkingLevel !== undefined) {
       setTimeout(() => {
         if (ctx !== context || context.model === undefined) return;
@@ -878,6 +1271,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
   pi.on("session_switch", (_event, context) => {
     if (ctx === null) return;
     abandonAsks(); // the old session's blocked asks do not carry over
+    closeSubagents(); // and its subagents belong to it, not to the session switched to
     ctx = context;
     watchName(context);
     wrapAskDialog(context);
@@ -953,7 +1347,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
     const appended: InboxMessage[] = [];
     if (message.role === "user") {
       const text = textOf(message.content);
-      const refs = imagesOf(message.content);
+      const refs = imageRefsOf(images, message.content);
       if (text.length > 0 || refs.length > 0) {
         const item: InboxMessage = { id: nextId(), role: message.synthetic === true ? "system" : "user", text, at };
         if (refs.length > 0) item.images = refs;
@@ -961,7 +1355,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
       }
     } else if (message.role === "toolResult") {
       // Only a result that carries pictures (a rendered page, a screenshot) is worth a transcript entry.
-      const refs = imagesOf(message.content);
+      const refs = imageRefsOf(images, message.content);
       if (refs.length > 0) appended.push({ id: nextId(), role: "tool", text: "", at, tool: { name: message.toolName, summary: "" }, images: refs });
     } else if (message.role === "assistant") {
       const text = textOf(message.content);
@@ -1002,7 +1396,10 @@ export default function relayBridge(pi: ExtensionAPI): void {
     unwatchName?.();
     unwatchName = null;
     abandonAsks();
-    if (reconnectTimer !== null) clearTimeout(reconnectTimer);
+    closeSubagents();
+    unsubscribeSubagents?.();
+    unsubscribeSubagents = null;
+    clearTimeout(reconnectTimer ?? undefined);
     socket?.end();
     socket = null;
     ctx = null;
