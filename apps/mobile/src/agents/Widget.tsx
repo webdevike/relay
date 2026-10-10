@@ -14,6 +14,7 @@ import { Pill, type PillProps } from "@/ui/Pill";
 import { Text } from "@/ui/Text";
 import { AudioPlayer } from "./AudioPlayer";
 import { CompareSlider } from "./CompareSlider";
+import { DiagramView } from "./DiagramView";
 import { DiffView } from "./DiffView";
 import { EmailList } from "./EmailList";
 import { Gallery } from "./Gallery";
@@ -50,6 +51,8 @@ function Node({ spec }: { spec: WidgetSpec }) {
       return <VideoPlayer spec={spec} />;
     case "gallery":
       return <Gallery spec={spec} />;
+    case "diagram":
+      return <DiagramView spec={spec} />;
     case "text":
       return <TextBlock spec={spec} />;
     case "rows":

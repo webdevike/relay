@@ -100,6 +100,16 @@ const Gallery = z.object({
   images: z.array(GalleryImage).min(1).max(50),
 });
 
+/** A rendered diagram (a diagram-design page or mermaid chart rasterized on the host): the image at
+ * its own aspect ratio, tap for full screen with pinch zoom. `url` (http(s) only) is the live page. */
+const Diagram = z.object({
+  widget: z.literal("diagram"),
+  title: z.string().optional(),
+  caption: z.string().optional(),
+  src: MediaSrc,
+  url: z.string().url().refine((u) => /^https?:\/\//.test(u)).optional().catch(undefined),
+});
+
 /** A line of text. `style` picks the type scale; an unknown style degrades to body. */
 const TextNode = z.object({
   widget: z.literal("text"),
@@ -161,6 +171,7 @@ type Leaf =
   | z.infer<typeof Audio>
   | z.infer<typeof Video>
   | z.infer<typeof Gallery>
+  | z.infer<typeof Diagram>
   | z.infer<typeof TextNode>
   | z.infer<typeof Rows>
   | z.infer<typeof Badge>
@@ -209,6 +220,7 @@ const Node: z.ZodType<WidgetSpec, z.ZodTypeDef, unknown> = z.discriminatedUnion(
   Audio,
   Video,
   Gallery,
+  Diagram,
   TextNode,
   Rows,
   Badge,
@@ -228,6 +240,7 @@ export type CompareSpec = z.infer<typeof Compare>;
 export type AudioSpec = z.infer<typeof Audio>;
 export type VideoSpec = z.infer<typeof Video>;
 export type GallerySpec = z.infer<typeof Gallery>;
+export type DiagramSpec = z.infer<typeof Diagram>;
 export type TextSpec = z.infer<typeof TextNode>;
 export type RowsSpec = z.infer<typeof Rows>;
 export type BadgeSpec = z.infer<typeof Badge>;
