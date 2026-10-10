@@ -104,9 +104,13 @@ export function ZoomableImage({ uri, width, height, onTap, onZoomChange }: Zooma
       savedTranslateY.value = translateY.value;
     });
 
+  // Same guard as the single tap: two quick touches while panning or pinching must not reset zoom.
   const doubleTap = Gesture.Tap()
     .numberOfTaps(2)
-    .onEnd((event) => {
+    .maxDistance(10)
+    .requireExternalGestureToFail(pinch, pan)
+    .onEnd((event, success) => {
+      if (!success) return;
       if (scale.value > 1) {
         reset();
         return;
