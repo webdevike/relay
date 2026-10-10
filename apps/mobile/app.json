@@ -22,8 +22,7 @@
         "UIBackgroundModes": [],
         "ITSAppUsesNonExemptEncryption": false,
         "NSAppTransportSecurity": {
-          "NSAllowsArbitraryLoads": false,
-          "NSAllowsLocalNetworking": true,
+          "NSAllowsArbitraryLoads": true,
           "NSExceptionDomains": {
             "omarchy.tail80fdb0.ts.net": {
               "NSExceptionAllowsInsecureHTTPLoads": true,

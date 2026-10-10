@@ -78,16 +78,6 @@ describe("parseWidget", () => {
     expect(parseWidget('{"widget":"gallery","images":[{"src":"/Users/me/a.png"}]}')).toBeNull();
   });
 
-  it("parses a diagram from a drop or https image, dropping a non-http page link", () => {
-    expect(parseWidget('{"widget":"diagram","title":"Flow","src":"/drops/abc/tok","url":"javascript:alert(1)"}')).toEqual({
-      widget: "diagram",
-      title: "Flow",
-      src: "/drops/abc/tok",
-    });
-    expect(parseWidget('{"widget":"diagram","src":"/Users/me/d.png"}')).toBeNull();
-    expect(parseWidget('{"widget":"diagram","title":"No source"}')).toBeNull();
-  });
-
   it("parses emails, dropping a non-http url instead of rejecting the row", () => {
     expect(
       parseWidget('{"widget":"emails","emails":[{"from":"A","subject":"S","unread":true,"url":"javascript:alert(1)"}]}'),

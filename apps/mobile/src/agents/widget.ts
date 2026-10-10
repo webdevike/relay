@@ -9,7 +9,6 @@ export {
   type CardSpec,
   type ChartSpec,
   type CompareSpec,
-  type DiagramSpec,
   type DiffSpec,
   type EmailSpec,
   type EmailsSpec,
