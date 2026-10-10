@@ -5,8 +5,17 @@
 //
 // TXT mirrors RelayServer.swift: `v=1` (the phone filters on it) and `name=<host>`.
 
+import { networkInterfaces } from "node:os";
 import { BONJOUR_SERVICE_TYPE } from "@relay/protocol";
 import type { Subprocess } from "bun";
+import { isTailnetAddress } from "./session";
+
+/** This host's Tailscale IPv4, so phones connect over the tailnet (no PIN) instead of the LAN. */
+function tailnetAddress(): string | undefined {
+  return Object.values(networkInterfaces())
+    .flat()
+    .find((a) => a?.family === "IPv4" && isTailnetAddress(a.address))?.address;
+}
 
 const RESTART_DELAY_MS = 2000;
 
@@ -21,7 +30,8 @@ export class BonjourAdvertiser {
     port: number,
     private readonly log: (line: string) => void,
   ) {
-    const txt = ["v=1", `name=${name}`];
+    const ts = tailnetAddress();
+    const txt = ["v=1", `name=${name}`, ...(ts === undefined ? [] : [`ts=${ts}`])];
     this.argv =
       process.platform === "darwin"
         ? ["dns-sd", "-R", name, BONJOUR_SERVICE_TYPE, "local", String(port), ...txt]

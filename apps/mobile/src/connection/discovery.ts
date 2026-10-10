@@ -15,10 +15,11 @@ const SERVICE_TYPE = "relay"; // react-native-zeroconf builds `_<type>._<protoco
 const SERVICE_PROTOCOL = "tcp";
 const SERVICE_DOMAIN = "local.";
 
-/** Prefers an IPv4 address from `addresses`; falls back to the mDNS hostname. */
+/** Prefers the host's advertised Tailscale address (`ts`, no PIN), then IPv4, then the mDNS hostname. */
 function toDiscoveredService(raw: ZeroconfService): DiscoveredService {
+  const txt = raw.txt ?? {};
   const ipv4 = raw.addresses?.find((address) => /^\d{1,3}(\.\d{1,3}){3}$/.test(address));
-  return { name: raw.name, host: ipv4 ?? raw.host, port: raw.port, txt: raw.txt ?? {} };
+  return { name: raw.name, host: txt["ts"] ?? ipv4 ?? raw.host, port: raw.port, txt };
 }
 
 export interface DiscoveryHandlers {
