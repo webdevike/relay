@@ -13,7 +13,7 @@ import { radii, spacing, tabularNumbers, useColors } from "@/theme";
 import { MediaPlaceholder } from "@/ui/MediaPlaceholder";
 import { MediaTransport } from "@/ui/MediaTransport";
 import { Text } from "@/ui/Text";
-import { resolveDropSrc } from "./dropSrc";
+import { useDropSrc } from "./dropSrc";
 import type { AudioSpec } from "./widget";
 
 /** Within this many seconds of the end counts as finished, so play restarts from zero. */
@@ -21,7 +21,7 @@ const END_SLACK = 0.1;
 const RATES = [1, 1.25, 1.5, 1.75, 2];
 
 export function AudioPlayer({ spec }: { spec: AudioSpec }) {
-  const uri = resolveDropSrc(spec.src);
+  const uri = useDropSrc(spec.src);
   return (
     <View style={{ gap: spacing.sm }}>
       {spec.title !== undefined && <Text variant="label">{spec.title}</Text>}

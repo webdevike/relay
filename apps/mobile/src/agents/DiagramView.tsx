@@ -10,7 +10,7 @@ import { ImageCaption } from "@/ui/ImageCaption";
 import { ImageFrame } from "@/ui/ImageFrame";
 import { MediaPlaceholder } from "@/ui/MediaPlaceholder";
 import { Text } from "@/ui/Text";
-import { resolveDropSrc } from "./dropSrc";
+import { useDropSrc } from "./dropSrc";
 import { ImageViewer } from "./ImageViewer";
 import type { DiagramSpec } from "./widget";
 
@@ -20,7 +20,7 @@ const FALLBACK_ASPECT = 4 / 3;
 const MAX_HEIGHT_RATIO = 1.5;
 
 export function DiagramView({ spec }: { spec: DiagramSpec }) {
-  const uri = resolveDropSrc(spec.src);
+  const uri = useDropSrc(spec.src);
   const [width, setWidth] = useState(0);
   const [aspect, setAspect] = useState(FALLBACK_ASPECT);
   const [open, setOpen] = useState(false);

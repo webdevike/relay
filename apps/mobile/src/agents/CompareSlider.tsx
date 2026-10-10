@@ -12,7 +12,7 @@ import { radii, spacing, useColors } from "@/theme";
 import { MediaPlaceholder } from "@/ui/MediaPlaceholder";
 import { OverlayTag } from "@/ui/OverlayTag";
 import { Text } from "@/ui/Text";
-import { resolveDropSrc } from "./dropSrc";
+import { useDropSrc } from "./dropSrc";
 import type { CompareSpec } from "./widget";
 
 const KNOB = 32;
@@ -24,8 +24,8 @@ export function CompareSlider({ spec }: { spec: CompareSpec }) {
   const [width, setWidth] = useState(0);
   const [aspect, setAspect] = useState(DEFAULT_ASPECT);
   const position = useSharedValue(0.5);
-  const before = resolveDropSrc(spec.before.src);
-  const after = resolveDropSrc(spec.after.src);
+  const before = useDropSrc(spec.before.src);
+  const after = useDropSrc(spec.after.src);
   const height = width > 0 ? width / aspect : 0;
 
   const moveTo = (x: number) => {

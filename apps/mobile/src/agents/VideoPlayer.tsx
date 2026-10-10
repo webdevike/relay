@@ -14,7 +14,7 @@ import { MediaPlaceholder } from "@/ui/MediaPlaceholder";
 import { MediaTransport } from "@/ui/MediaTransport";
 import { Text } from "@/ui/Text";
 import { VideoFrame } from "@/ui/VideoFrame";
-import { resolveDropSrc } from "./dropSrc";
+import { useDropSrc } from "./dropSrc";
 import type { VideoSpec } from "./widget";
 
 /** Frame shape until the video track reports its real size. */
@@ -25,7 +25,7 @@ const MAX_HEIGHT_RATIO = 1;
 const END_SLACK = 0.1;
 
 export function VideoPlayer({ spec }: { spec: VideoSpec }) {
-  const uri = resolveDropSrc(spec.src);
+  const uri = useDropSrc(spec.src);
   const [width, setWidth] = useState(0);
   return (
     <View style={{ gap: spacing.sm }}>

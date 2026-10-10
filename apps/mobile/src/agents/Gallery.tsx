@@ -12,7 +12,7 @@ import { MediaPlaceholder } from "@/ui/MediaPlaceholder";
 import { PageDots, PageStepper } from "@/ui/PageControls";
 import { Pager, usePager } from "@/ui/Pager";
 import { Text } from "@/ui/Text";
-import { resolveDropSrc } from "./dropSrc";
+import { useDropSrc } from "./dropSrc";
 import { ImageViewer, type ViewerImage } from "./ImageViewer";
 import type { GallerySpec } from "./widget";
 
@@ -26,8 +26,8 @@ export function Gallery({ spec }: { spec: GallerySpec }) {
   const { page, setPage, go } = usePager(count);
   const height = width / ASPECT;
 
-  // Drop paths resolve only while connected to the host; null renders a placeholder.
-  const uris = spec.images.map((image) => resolveDropSrc(image.src));
+  // Drop paths resolve only while connected to the host; null renders a placeholder until it reconnects.
+  const uris = useDropSrc(spec.images.map((image) => image.src));
   const viewerImages = spec.images.flatMap((image, i): ViewerImage[] => {
     const uri = uris[i];
     return uri === null || uri === undefined ? [] : [{ ...image, uri }];
