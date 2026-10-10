@@ -62,6 +62,11 @@ export const AgentSession = z.object({
   kind: z.enum(["manual", "job"]).optional(),
   /** The scheduled job this session is a run of; present exactly when `kind` is "job". */
   job: z.object({ name: nonEmpty, runId: nonEmpty }).optional(),
+  /**
+   * Set on a subagent: the id of the session that spawned it. Phones list subagents under their
+   * parent rather than in the inbox. Absent on top-level sessions and from older hosts.
+   */
+  parentId: nonEmpty.optional(),
 });
 export type AgentSession = z.infer<typeof AgentSession>;
 

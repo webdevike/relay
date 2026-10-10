@@ -34,6 +34,18 @@ describe("rejections", () => {
   });
 });
 
+describe("agent sessions", () => {
+  const base = { id: "s", provider: "omp", title: "t", projectPath: "/p", status: "working", lastActivity: "", lastActivityAt: 1, canRespond: true };
+  it("carries a subagent's parentId, stays valid without one, and rejects an empty one", () => {
+    const frame = (session: object) => JSON.stringify({ t: "agents.snapshot", rev: 1, sessions: [session] });
+    const child = parseServerMessage(frame({ ...base, id: "Worker", parentId: "s" }));
+    expect(child.ok && child.value.t === "agents.snapshot" ? child.value.sessions[0]?.parentId : undefined).toBe("s");
+    const top = parseServerMessage(frame(base));
+    expect(top.ok && top.value.t === "agents.snapshot" ? top.value.sessions[0]?.parentId : "missing").toBeUndefined();
+    expect(parseServerMessage(frame({ ...base, parentId: "" })).ok).toBe(false);
+  });
+});
+
 describe("hmac", () => {
   it("matches RFC 4231 test case 2", async () => {
     const mac = await hmacSha256(new TextEncoder().encode("Jefe"), new TextEncoder().encode("what do ya want for nothing?"), sha256);
