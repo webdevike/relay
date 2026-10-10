@@ -42,7 +42,7 @@ import { TypedReply } from "@/agents/TypedReply";
 import { AskCard } from "@/agents/AskCard";
 import { type ActionWheelEntry } from "@/agents/ActionWheel";
 import { useActionWheel } from "@/agents/useActionWheel";
-import { SubagentChips } from "@/agents/SubagentChips";
+import { SubagentScrubber } from "@/agents/SubagentScrubber";
 import { tapHaptic } from "@/lib/haptics";
 import { copyText, readClipboardImage, readClipboardText } from "@/lib/clipboard";
 import { warn } from "@/connection/log";
@@ -526,7 +526,7 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
                 >
                   <AgentHeader session={session} />
                   {subagents.length > 0 && (
-                    <SubagentChips
+                    <SubagentScrubber
                       subagents={subagents}
                       onOpen={(id) => {
                         tapHaptic();
