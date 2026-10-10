@@ -78,6 +78,15 @@ describe("parseWidget", () => {
     expect(parseWidget('{"widget":"gallery","images":[{"src":"/Users/me/a.png"}]}')).toBeNull();
   });
 
+  it("parses a PR, degrading unknown statuses and dropping non-http links", () => {
+    const spec = parseWidget(
+      '{"widget":"pr","repo":"r","number":7,"title":"T","state":"weird","url":"javascript:x","checks":[{"name":"ci","status":"queued"}],"reviewers":[{"name":"Noah","state":"approved"}],"files":[{"file":"a.ts","patch":"@@ -1 +1 @@\\n-a\\n+b"}]}',
+    );
+    expect(spec).toMatchObject({ widget: "pr", state: "open", checks: [{ name: "ci", status: "pending" }], reviewers: [{ name: "Noah", state: "approved" }] });
+    expect(spec).not.toHaveProperty("url");
+    expect(parseWidget('{"widget":"pr","repo":"r","number":0,"title":"T"}')).toBeNull();
+  });
+
   it("parses emails, dropping a non-http url instead of rejecting the row", () => {
     expect(
       parseWidget('{"widget":"emails","emails":[{"from":"A","subject":"S","unread":true,"url":"javascript:alert(1)"}]}'),

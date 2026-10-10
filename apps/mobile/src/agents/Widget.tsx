@@ -15,6 +15,7 @@ import { Text } from "@/ui/Text";
 import { AudioPlayer } from "./AudioPlayer";
 import { CompareSlider } from "./CompareSlider";
 import { DiffView } from "./DiffView";
+import { PrCard } from "./PrCard";
 import { EmailList } from "./EmailList";
 import { Gallery } from "./Gallery";
 import { VideoPlayer } from "./VideoPlayer";
@@ -56,6 +57,8 @@ function Node({ spec }: { spec: WidgetSpec }) {
       return <Rows spec={spec} />;
     case "badge":
       return <Badge spec={spec} />;
+    case "pr":
+      return <PrCard spec={spec} />;
     case "diff":
       return <DiffView spec={spec} />;
     case "emails":

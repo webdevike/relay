@@ -148,6 +148,34 @@ const Emails = z.object({
   emails: z.array(Email).min(1).max(50),
 });
 
+const HttpUrl = z.string().url().refine((u) => /^https?:\/\//.test(u)).optional().catch(undefined);
+
+/** One CI run (a GitHub Actions job). An unknown status degrades to pending. */
+const PrCheck = z.object({
+  name: z.string(),
+  status: z.enum(["success", "failure", "pending", "skipped"]).catch("pending"),
+  duration: z.string().optional(),
+  url: HttpUrl,
+});
+
+/** A pull request, GitHub-mobile style: header, then Overview (markdown body + reviewers),
+ * Checks, and Files (one unified diff per file) tabs. */
+const Pr = z.object({
+  widget: z.literal("pr"),
+  repo: z.string(),
+  number: z.number().int().positive(),
+  title: z.string(),
+  state: z.enum(["open", "draft", "merged", "closed"]).catch("open"),
+  author: z.string().optional(),
+  branch: z.string().optional(),
+  base: z.string().optional(),
+  url: HttpUrl,
+  body: z.string().max(50_000).optional(),
+  reviewers: z.array(z.object({ name: z.string(), state: z.enum(["approved", "changes", "pending", "commented"]).catch("pending") })).max(20).optional(),
+  checks: z.array(PrCheck).max(50).optional(),
+  files: z.array(z.object({ file: z.string(), patch: z.string().min(1).max(50_000), additions: z.number().int().optional(), deletions: z.number().int().optional() })).max(30).optional(),
+});
+
 /** Most children a container takes and deepest containers nest; past either, the whole spec
  * falls back to code rather than rendering something unbounded. */
 export const MAX_CHILDREN = 24;
@@ -166,7 +194,8 @@ type Leaf =
   | z.infer<typeof Badge>
   | z.infer<typeof Divider>
   | z.infer<typeof Diff>
-  | z.infer<typeof Emails>;
+  | z.infer<typeof Emails>
+  | z.infer<typeof Pr>;
 
 /** Lays children out in a column (default) or a row of equal-width columns. */
 export interface StackSpec {
@@ -215,6 +244,7 @@ const Node: z.ZodType<WidgetSpec, z.ZodTypeDef, unknown> = z.discriminatedUnion(
   Divider,
   Diff,
   Emails,
+  Pr,
   Stack,
   Card,
 ]);
@@ -234,6 +264,7 @@ export type BadgeSpec = z.infer<typeof Badge>;
 export type DiffSpec = z.infer<typeof Diff>;
 export type EmailSpec = z.infer<typeof Email>;
 export type EmailsSpec = z.infer<typeof Emails>;
+export type PrSpec = z.infer<typeof Pr>;
 export type Tone = NonNullable<z.infer<typeof Tone>>;
 
 /** A widget tree as an embeddable schema: container depth is checked before zod descends. */

@@ -12,6 +12,7 @@ export {
   type DiffSpec,
   type EmailSpec,
   type EmailsSpec,
+  type PrSpec,
   type GallerySpec,
   type RowsSpec,
   type Series,
