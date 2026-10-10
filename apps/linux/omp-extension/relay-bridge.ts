@@ -503,8 +503,6 @@ export default function relayBridge(pi: ExtensionAPI): void {
   let lastActivity = "";
   let lastActivityAt = Date.now();
   let statusDetail: string | undefined;
-  /** The last assistant message of the current turn ended with a question and no tool call followed. */
-  let askedQuestion = false;
   /** Stops the session-name subscription of the current context (auto titles, /rename, replan refresh). */
   let unwatchName: (() => void) | null = null;
   const history: InboxMessage[] = [];
@@ -728,6 +726,8 @@ export default function relayBridge(pi: ExtensionAPI): void {
     const original = ui.askDialog.bind(ui);
     ui.askDialog = (questions, dialogOptions) => {
       const askId = nextId();
+      // A blocking ask is the one moment a session truly waits on Isaac; it drives the push.
+      setStatus("waiting", questions[0]?.question);
       send({ t: "ask.request", id: askId, questions });
       const phone = new Promise<ExtensionAskDialogResult | undefined>((resolve) => {
         pendingAsks.set(askId, { resolve, questions });
@@ -737,6 +737,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
       return Promise.race([terminal, answered]).then(({ who, result }) => {
         pendingAsks.delete(askId);
         send({ t: "ask.resolved", id: askId });
+        if (status === "waiting") setStatus("working");
         if (who === "phone") process.stdin.push("\x1b");
         return result;
       });
@@ -893,8 +894,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
 
   pi.on("agent_end", () => {
     if (ctx === null) return;
-    // A turn that ends on a question is the agent waiting on the user, not merely idle.
-    setStatus(askedQuestion ? "waiting" : "idle");
+    setStatus("idle");
   });
 
   pi.on("tool_execution_start", (event) => {
@@ -978,15 +978,12 @@ export default function relayBridge(pi: ExtensionAPI): void {
       } else if (text.length > 0) {
         appended.push({ id: nextId(), role: "assistant", text, at });
       }
-      let calledTool = false;
       for (const part of message.content) {
         if (part.type === "toolCall") {
-          calledTool = true;
           const summary = summarizeArguments(part.arguments);
           appended.push({ id: nextId(), role: "tool", text: summary, at, tool: { name: part.name, summary } });
         }
       }
-      askedQuestion = !calledTool && text.trimEnd().endsWith("?");
       if (text.length > 0) {
         lastActivity = firstLine(text);
         lastActivityAt = at;

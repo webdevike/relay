@@ -1,13 +1,13 @@
 // Pushes a notification to every registered phone when a session starts waiting on the user
-// (`waiting` or `needs_permission`), then again every REMINDER_MS while it keeps waiting. A phone
-// that is looking at that session right now (connected and subscribed to it) is skipped; it has the
-// live card in front of it. Delivery goes through Expo's push service, which holds the APNs key.
+// (`waiting`, i.e. a blocking ask, or `needs_permission`), then one reminder after REMINDER_MS if it
+// is still waiting. A phone looking at that session right now is skipped; it has the live card.
+// Delivery goes through Expo's push service, which holds the APNs key. Drops never push.
 
-import type { AgentSession, AgentStatus, Drop } from "@relay/protocol";
+import type { AgentSession, AgentStatus } from "@relay/protocol";
 import type { SessionClock } from "../session";
 import type { PushTokenSource } from "./token-store";
 
-export const REMINDER_MS = 10 * 60_000;
+export const REMINDER_MS = 30 * 60_000;
 
 /** Tap routing on the phone: a session opens the inbox card, a drop opens the Drops list. */
 export type PushData = { readonly sessionId: string } | { readonly dropId: string };
@@ -85,18 +85,13 @@ export class AttentionNotifier {
     if (entry === undefined || !waitsOnUser(entry.session.status)) return;
     const session = entry.session;
     entry.cancelReminder?.();
-    entry.cancelReminder = this.deps.clock.after(REMINDER_MS, () => {
+    entry.cancelReminder = reminder ? null : this.deps.clock.after(REMINDER_MS, () => {
       this.notify(sessionId, true);
     });
 
     const title = reminder ? `${session.title} is still waiting` : session.title;
     const body = session.status === "needs_permission" ? `Needs permission${session.statusDetail === undefined ? "" : `: ${session.statusDetail}`}` : session.lastActivity;
     this.send(title, body, { sessionId: session.id }, (deviceId) => this.deps.isViewing(deviceId, session.id));
-  }
-
-  /** Announces a host-origin drop to every registered phone. */
-  announceDrop(drop: Drop, hostName: string): void {
-    this.send(`Shared from ${hostName}`, drop.title, { dropId: drop.id }, () => false);
   }
 
   private send(title: string, body: string, data: PushData, skip: (deviceId: string) => boolean): void {

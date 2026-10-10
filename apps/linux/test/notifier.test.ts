@@ -94,20 +94,16 @@ describe("AttentionNotifier", () => {
     expect(h.sent).toEqual([]);
   });
 
-  it("reminds every REMINDER_MS while still waiting, and stops once answered or gone", () => {
+  it("reminds once after REMINDER_MS while still waiting, then goes quiet", () => {
     const h = harness();
     h.notifier.observe([session("a", "waiting"), session("b", "waiting")]);
     expect(h.sent).toHaveLength(2);
-    h.clock.advance(REMINDER_MS);
-    expect(h.sent).toHaveLength(4);
-    expect(h.sent[2]?.[0]?.title).toBe("a is still waiting");
     h.notifier.observe([session("a", "working"), session("b", "waiting")]);
     h.clock.advance(REMINDER_MS);
-    expect(h.sent).toHaveLength(5);
-    expect(h.sent[4]?.[0]?.data).toEqual({ sessionId: "b" });
-    h.notifier.observe([]);
+    expect(h.sent).toHaveLength(3);
+    expect(h.sent[2]?.[0]?.title).toBe("b is still waiting");
     h.clock.advance(REMINDER_MS * 3);
-    expect(h.sent).toHaveLength(5);
+    expect(h.sent).toHaveLength(3);
   });
 
   it("does not remind a phone that opened the session in the meantime", () => {

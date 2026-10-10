@@ -241,8 +241,6 @@ export class RelayServer {
         ? { t: "drop.new", drop: change.drop }
         : { t: "drop.removed", id: change.id };
     for (const ws of this.sockets) ws.data.session?.broadcast(message);
-    if (change.kind === "added" && change.drop.origin === "host")
-      this.deps.notifier?.announceDrop(change.drop, this.config.hostName);
   }
 
   /**
