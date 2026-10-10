@@ -124,10 +124,14 @@ export function ZoomableImage({ uri, width, height, onTap, onZoomChange }: Zooma
       zoomChanged(true);
     });
 
+  // A pinch or pan ending with a finger lift must not read as a tap: the tap only wins when both
+  // fail, and any movement past a few points cancels it.
   const singleTap = Gesture.Tap()
     .numberOfTaps(1)
-    .onEnd(() => {
-      scheduleOnRN(onTap);
+    .maxDistance(10)
+    .requireExternalGestureToFail(pinch, pan)
+    .onEnd((_event, success) => {
+      if (success) scheduleOnRN(onTap);
     });
 
   const gesture = Gesture.Simultaneous(pinch, pan, Gesture.Exclusive(doubleTap, singleTap));
