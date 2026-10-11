@@ -716,7 +716,7 @@ async function steerSubagent(id: string, text: string, images: ImageContent[]): 
  * Registers one subagent with the host as its own session (`parentId` = the parent's id), tails its
  * session file into the transcript, and answers the host's requests for it.
  */
-function mirrorSubagent(parentId: string, projectPath: string, first: SubagentLifecycle): SubagentMirror {
+function mirrorSubagent(parentId: string, projectPath: string, first: SubagentLifecycle, onDismiss: () => void): SubagentMirror {
   const id = first.id;
   const sessionId = `${parentId}:${id}`;
   const history: InboxMessage[] = [];
@@ -771,11 +771,18 @@ function mirrorSubagent(parentId: string, projectPath: string, first: SubagentLi
         return images.get(frame.imageId) ?? null;
       case "options":
         return { models: [], skills: [] };
-      case "abort":
-      case "end": {
+      case "abort": {
         const live = AgentRegistry.global().get(id)?.session;
         if (live === undefined || live === null) throw new Error(`Subagent not running: ${id}`);
         await live.abort();
+        return undefined;
+      }
+      case "end": {
+        // A running subagent is stopped; a finished one is cleared off the phone (the host drops it
+        // once this link closes, after the ack below has gone out).
+        const live = state === "started" ? AgentRegistry.global().get(id)?.session : undefined;
+        if (live !== undefined && live !== null) await live.abort();
+        setTimeout(onDismiss, 0);
         return undefined;
       }
       case "configure":
@@ -1121,7 +1128,13 @@ export default function relayBridge(pi: ExtensionAPI): void {
     if (existing !== undefined) {
       existing.lifecycle(event);
     } else if (event.status === "started") {
-      subagents.set(event.id, mirrorSubagent(ctx.sessionManager.getSessionId(), ctx.sessionManager.getCwd(), event));
+      subagents.set(
+        event.id,
+        mirrorSubagent(ctx.sessionManager.getSessionId(), ctx.sessionManager.getCwd(), event, () => {
+          subagents.get(event.id)?.close();
+          subagents.delete(event.id);
+        }),
+      );
     }
     const finished = [...subagents.entries()].filter(([, mirror]) => !mirror.running);
     for (const [id, mirror] of finished.slice(0, Math.max(0, finished.length - MAX_FINISHED_SUBAGENTS))) {

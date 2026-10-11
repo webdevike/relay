@@ -42,7 +42,7 @@ import { TypedReply } from "@/agents/TypedReply";
 import { AskCard } from "@/agents/AskCard";
 import { type ActionWheelEntry } from "@/agents/ActionWheel";
 import { useActionWheel } from "@/agents/useActionWheel";
-import { SubagentScrubber } from "@/agents/SubagentScrubber";
+import { SubagentsSheet } from "@/agents/SubagentsSheet";
 import { tapHaptic } from "@/lib/haptics";
 import { copyText, readClipboardImage, readClipboardText } from "@/lib/clipboard";
 import { warn } from "@/connection/log";
@@ -132,24 +132,18 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
   useEffect(() => {
     if (linkedId !== undefined) setPickedId(linkedId);
   }, [linkedId]);
-  const baseId = pinned
+  const selectedId = pinned
     ? pinnedId
     : pickedId !== null && order.includes(pickedId)
       ? pickedId
       : order[0];
   const subagents = useMemo(
-    () => (baseId === undefined ? [] : subagentsOf(sessions, baseId)),
-    [sessions, baseId],
+    () => (selectedId === undefined ? [] : subagentsOf(sessions, selectedId)),
+    [sessions, selectedId],
   );
-  // The top scrubber can focus one of this session's subagents in place; the card then shows it.
-  const [subFocus, setSubFocus] = useState<string | null>(null);
-  useEffect(() => {
-    setSubFocus(null);
-  }, [baseId]);
-  const selectedId =
-    subFocus !== null && baseId !== undefined && sessions[subFocus]?.parentId === baseId ? subFocus : baseId;
+  const [subagentsOpen, setSubagentsOpen] = useState(false);
   const parent = pinned ? sessions[sessions[pinnedId]?.parentId ?? ""] : undefined;
-  const index = baseId === undefined ? -1 : order.indexOf(baseId);
+  const index = selectedId === undefined ? -1 : order.indexOf(selectedId);
   const lastIndex = useRef(index);
   const direction = index >= lastIndex.current ? 1 : -1;
   lastIndex.current = index;
@@ -532,20 +526,6 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
                   }}
                 >
                   <AgentHeader session={session} />
-                  {subagents.length > 0 && baseId !== undefined && sessions[baseId] !== undefined && (
-                    <SubagentScrubber
-                      parent={sessions[baseId]}
-                      subagents={subagents}
-                      selectedId={selectedId ?? baseId}
-                      onSelect={(id) => {
-                        setSubFocus(id === baseId ? null : id);
-                      }}
-                      onOpen={(id) => {
-                        tapHaptic();
-                        router.push({ pathname: "/agents/[sessionId]", params: { sessionId: id } });
-                      }}
-                    />
-                  )}
                 </NotchedSurface>
               </Animated.View>
               <GestureDetector gesture={chatGesture}>
@@ -738,6 +718,7 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
                   <Banner tone="danger" message={launchError} />
                 </View>
               ) : pending !== undefined ? null : canRespond ? (
+                <>
                 <Cutout size={MIC_SIZE} style={styles.mic}>
                   <ActionCarousel
                     actions={seamActions}
@@ -746,6 +727,21 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
                     size={MIC_SIZE}
                   />
                 </Cutout>
+                {!pinned && subagents.length > 0 && (
+                  <View style={styles.subagentsButton}>
+                    <IconButton
+                      symbol="person.2"
+                      size={START_SIZE}
+                      tintColor={subagents.some((s) => s.status === "working") ? colors.working : colors.textMuted}
+                      backgroundColor={colors.bg}
+                      onPress={() => {
+                        tapHaptic();
+                        setSubagentsOpen(true);
+                      }}
+                    />
+                  </View>
+                )}
+                </>
               ) : (
                 <View style={styles.banner}>
                   <Banner
@@ -804,6 +800,26 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
           </NotchedSurface>
         )}
       </KeyboardAvoidingView>
+      <SubagentsSheet
+        visible={subagentsOpen && subagents.length > 0}
+        subagents={subagents}
+        onClose={() => {
+          setSubagentsOpen(false);
+        }}
+        onOpen={(id) => {
+          tapHaptic();
+          setSubagentsOpen(false);
+          router.push({ pathname: "/agents/[sessionId]", params: { sessionId: id } });
+        }}
+        onClear={(ids) => {
+          tapHaptic();
+          for (const id of ids) {
+            sendCommand({ kind: "agent.end", sessionId: id }).catch((error: unknown) => {
+              warn(`clear subagent ${id}: ${String(error)}`);
+            });
+          }
+        }}
+      />
       <AgentSettingsSheet
         sessionId={settingsFor}
         onClose={() => {
@@ -896,6 +912,13 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     marginBottom: spacing.sm,
     padding: spacing.md,
+  },
+  /** Subagents button on the seam, right of the mic. */
+  subagentsButton: {
+    position: "absolute",
+    left: "50%",
+    marginLeft: MIC_SIZE / 2 + CUTOUT_GAP + spacing.lg,
+    top: -(START_SIZE / 2 + spacing.sm / 2),
   },
   mic: {
     alignSelf: "center",
