@@ -26,7 +26,9 @@ export type ScreenInput =
   | { readonly t: "key"; readonly key: ScreenKey }
   /** Relative cursor move in host points; scroll without x/y acts at the cursor. */
   | { readonly t: "move"; readonly dx: number; readonly dy: number }
-  | { readonly t: "click"; readonly button: "left" | "right" };
+  | { readonly t: "click"; readonly button: "left" | "right" }
+  /** Smaller, lower-quality frames while the phone drives the trackpad. */
+  | { readonly t: "lite"; readonly on: boolean };
 
 /** A running capture; `stop` ends it without an `onEnd` call. */
 export interface ScreenWatch {

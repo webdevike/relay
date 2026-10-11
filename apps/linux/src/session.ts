@@ -75,6 +75,8 @@ const MAX_PIN_ATTEMPTS = 3;
 const EMPTY_OPTIONS: AgentOptions = { models: [], skills: [] };
 /** Skip live-view frames while this much is still queued on the socket: the phone gets the latest, not a backlog. */
 const MAX_SCREEN_BACKLOG = 512 * 1024;
+/** Trackpad quiet this long switches live-view frames back to full size and quality. */
+const SCREEN_LITE_IDLE_MS = 600;
 
 function noInputDevice(): AckFailure {
   return new AckFailure({
@@ -129,6 +131,8 @@ export class ClientSession {
   /** Live-view trackpad acceleration, carried across `screen.move`s like the uinput trackpad's. */
   private readonly screenPointer = new PointerModel();
   private lastScreenMoveAt: number | null = null;
+  /** Set while lite (trackpad-sized) frames are on; cancels the switch back to full frames. */
+  private cancelScreenLite: (() => void) | null = null;
 
   constructor(
     private readonly sink: FrameSink,
@@ -487,6 +491,7 @@ export class ClientSession {
         this.lastScreenMoveAt = message.at;
         const { dx, dy } = this.screenPointer.accelerate(message.dx, message.dy, dt);
         if (dx !== 0 || dy !== 0) this.screenWatch?.input({ t: "move", dx, dy });
+        this.screenLite();
         break;
       }
       case "screen.click":
@@ -668,10 +673,22 @@ export class ClientSession {
     this.screenWindowId = windowId;
   }
 
+  /** Smaller frames while the trackpad is in use; back to full size once it rests for a moment. */
+  private screenLite(): void {
+    if (this.cancelScreenLite === null) this.screenWatch?.input({ t: "lite", on: true });
+    this.cancelScreenLite?.();
+    this.cancelScreenLite = this.clock.after(SCREEN_LITE_IDLE_MS, () => {
+      this.cancelScreenLite = null;
+      this.screenWatch?.input({ t: "lite", on: false });
+    });
+  }
+
   private stopScreen(): void {
     const watch = this.screenWatch;
     this.screenWatch = null;
     this.screenWindowId = null;
+    this.cancelScreenLite?.();
+    this.cancelScreenLite = null;
     watch?.stop();
   }
 

@@ -118,6 +118,8 @@ final class FrameWriter: NSObject, SCStreamOutput, SCStreamDelegate {
   let windowID: CGWindowID
   let context = CIContext(options: [.cacheIntermediates: false])
   let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
+  /// JPEG quality; lowered with the frame size while the phone drives the trackpad (`lite`).
+  var quality = 0.55
 
   init(windowID: CGWindowID) { self.windowID = windowID }
 
@@ -132,8 +134,8 @@ final class FrameWriter: NSObject, SCStreamOutput, SCStreamDelegate {
 
   /// Encodes and writes one frame, cursor packet first. Also used for the screenshot sent at start.
   func emit(_ image: CIImage, width: Int, height: Int) {
-    let quality = CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String)
-    guard let jpeg = context.jpegRepresentation(of: image, colorSpace: colorSpace, options: [quality: 0.55]) else { return }
+    let option = CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String)
+    guard let jpeg = context.jpegRepresentation(of: image, colorSpace: colorSpace, options: [option: quality]) else { return }
     // The phone draws the cursor itself (captured cursors trail input by a frame), so keep it current.
     Wire.cursor(windowID, refresh: true)
     Wire.write([UInt32(jpeg.count), UInt32(width), UInt32(height)], jpeg)
@@ -161,10 +163,13 @@ func watch(_ id: CGWindowID, fps: Int, maxWidth: Int) async {
   guard let window = (await shareable()).windows.first(where: { $0.windowID == id }) else { fail(3, "no window \(id)") }
   let filter = SCContentFilter(desktopIndependentWindow: window)
   let scale = Double(filter.pointPixelScale)
-  let width = min(Double(maxWidth), window.frame.width * scale)
+  let full = min(Double(maxWidth), window.frame.width * scale)
   let config = SCStreamConfiguration()
-  config.width = max(2, Int(width.rounded()))
-  config.height = max(2, Int((width * window.frame.height / window.frame.width).rounded()))
+  let size = { (width: Double) in
+    config.width = max(2, Int(width.rounded()))
+    config.height = max(2, Int((width * window.frame.height / window.frame.width).rounded()))
+  }
+  size(full)
   config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(max(1, fps)))
   config.pixelFormat = kCVPixelFormatType_32BGRA
   config.queueDepth = 3
@@ -188,6 +193,13 @@ func watch(_ id: CGWindowID, fps: Int, maxWidth: Int) async {
   // The host holds our stdin open for as long as it wants frames; EOF (or its death) ends us.
   // Meanwhile each line is an input command for the watched window.
   let input = Input(windowID: id)
+  // While the phone drives the trackpad, frames shrink to two thirds and lower quality: about half
+  // the bytes to send and decode, which is what keeps the picture keeping up with the cursor.
+  input.onLite = { lite in
+    writer.quality = lite ? 0.45 : 0.55
+    size(lite ? (full * 2 / 3).rounded() : full)
+    stream.updateConfiguration(config) { error in if let error { input.log("resize failed: \(error.localizedDescription)") } }
+  }
   Thread.detachNewThread {
     while let line = readLine() { input.handle(line) }
     exit(0)
@@ -210,11 +222,16 @@ final class Input {
     "return": 36, "tab": 48, "delete": 51, "escape": 53, "left": 123, "right": 124, "down": 125, "up": 126,
   ]
 
+  /// Switches frames between full and trackpad (`lite`) size; set by `watch`.
+  var onLite: ((Bool) -> Void)?
+
   init(windowID: CGWindowID) { self.windowID = windowID }
 
   func handle(_ line: String) {
     guard let json = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
           let kind = json["t"] as? String else { return log("bad input line") }
+    // Frame sizing is capture-side and needs no Accessibility.
+    if kind == "lite" { onLite?((json["on"] as? Bool) ?? false); return }
     guard AXIsProcessTrusted() else { return log("accessibility permission denied; input dropped") }
     // Trackpad input acts wherever the cursor is, like a real trackpad: no window lookup or focus.
     if kind == "move" { return move(dx: (json["dx"] as? Double) ?? 0, dy: (json["dy"] as? Double) ?? 0) }

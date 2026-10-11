@@ -665,6 +665,8 @@ describe("screen", () => {
     h.session.receive({ t: "screen.key", key: "return" });
     h.session.receive({ t: "screen.move", dx: 3, dy: -2, at: 1000 });
     h.session.receive({ t: "screen.click", button: "right" });
+    h.session.receive({ t: "screen.move", dx: 1, dy: 1, at: 1100 });
+    h.clock.advance(600);
     expect(screen.watches[0]?.inputs).toEqual([
       { t: "tap", x: 0.25, y: 0.1 },
       { t: "scroll", dx: 0, dy: -40, x: 0.5, y: 0.5 },
@@ -672,7 +674,11 @@ describe("screen", () => {
       { t: "key", key: "return" },
       // Accelerated by PointerModel: first move assumes 16 ms, gain ~1.5.
       { t: "move", dx: 4, dy: -3 },
+      // Trackpad use switches to lite frames once, and back after it rests.
+      { t: "lite", on: true },
       { t: "click", button: "right" },
+      { t: "move", dx: 1, dy: 1 },
+      { t: "lite", on: false },
     ]);
   });
 
