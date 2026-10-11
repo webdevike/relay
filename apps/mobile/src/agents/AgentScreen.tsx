@@ -141,9 +141,11 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
     : pickedId !== null && order.includes(pickedId)
       ? pickedId
       : order[0];
+  // Cleared on the phone: hidden at once, whether or not the session's bridge can drop them.
+  const [cleared, setCleared] = useState<ReadonlySet<string>>(new Set());
   const subagents = useMemo(
-    () => (selectedId === undefined ? [] : subagentsOf(sessions, selectedId)),
-    [sessions, selectedId],
+    () => (selectedId === undefined ? [] : subagentsOf(sessions, selectedId).filter((s) => !cleared.has(s.id))),
+    [sessions, selectedId, cleared],
   );
   const [subagentsOpen, setSubagentsOpen] = useState(false);
   // Same gesture system as the mic beside it, so the seam's pan handlers never swallow the tap.
@@ -842,6 +844,7 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
         }}
         onClear={(ids) => {
           tapHaptic();
+          setCleared((prev) => new Set([...prev, ...ids]));
           for (const id of ids) {
             sendCommand({ kind: "agent.end", sessionId: id }).catch((error: unknown) => {
               warn(`clear subagent ${id}: ${String(error)}`);
