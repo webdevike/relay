@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { FileBoardStore } from "../src/boards/store";
 import { CommandDedupStore } from "../src/dedup";
 import { PairingCoordinator } from "../src/pairing";
-import { AckFailure, type AgentConfigChange, type AgentProvider, type DeviceStore, type DropBox, type FrameSink, type InputSink, type PairedDevice, type PairingUI, type PushRegistry, type ScreenCapture, type TextInjecting } from "../src/seams";
+import { AckFailure, type AgentConfigChange, type AgentProvider, type DeviceStore, type DropBox, type FrameSink, type InputSink, type PairedDevice, type PairingUI, type PushRegistry, type ScreenCapture, type ScreenInput, type ScreenWatch, type TextInjecting } from "../src/seams";
 import { NO_SCREEN } from "../src/screen/capture";
 import { ClientSession, PAIRING_TIMEOUT_MS, type SessionClock, type SessionDeps } from "../src/session";
 
@@ -615,14 +615,15 @@ describe("boards", () => {
 
 describe("screen", () => {
   class FakeScreen implements ScreenCapture {
-    readonly watches: { windowId: number; stopped: boolean; frame: (jpeg: number[]) => void; end: (error: "gone") => void }[] = [];
+    readonly watches: { windowId: number; stopped: boolean; inputs: ScreenInput[]; frame: (jpeg: number[]) => void; end: (error: "gone") => void }[] = [];
     list(): Promise<{ windows: { id: number; app: string; title: string; width: number; height: number }[] }> {
       return Promise.resolve({ windows: [{ id: 7, app: "Arc", title: "Work", width: 800, height: 600 }] });
     }
-    watch(windowId: number, onFrame: (frame: { jpeg: Uint8Array; width: number; height: number }) => void, onEnd: (error: "gone") => void): { stop: () => void } {
+    watch(windowId: number, onFrame: (frame: { jpeg: Uint8Array; width: number; height: number }) => void, onEnd: (error: "gone") => void): ScreenWatch {
       const entry = {
         windowId,
         stopped: false,
+        inputs: [] as ScreenInput[],
         frame: (jpeg: number[]) => {
           onFrame({ jpeg: new Uint8Array(jpeg), width: 4, height: 3 });
         },
@@ -633,9 +634,31 @@ describe("screen", () => {
         stop: () => {
           entry.stopped = true;
         },
+        input: (event) => {
+          entry.inputs.push(event);
+        },
       };
     }
   }
+
+  it("forwards tap, scroll and key input to the watched window only", () => {
+    const screen = new FakeScreen();
+    const h = harness({ screen });
+    pair(h);
+    h.session.receive({ t: "screen.tap", windowId: 7, x: 0.5, y: 0.5 });
+    h.session.receive({ t: "screen.watch", windowId: 7 });
+    h.session.receive({ t: "screen.tap", windowId: 7, x: 0.25, y: 0.1 });
+    h.session.receive({ t: "screen.tap", windowId: 9, x: 0.25, y: 0.1 });
+    h.session.receive({ t: "screen.scroll", windowId: 7, dx: 0, dy: -40, x: 0.5, y: 0.5 });
+    h.session.receive({ t: "screen.key", text: "hello" });
+    h.session.receive({ t: "screen.key", key: "return" });
+    expect(screen.watches[0]?.inputs).toEqual([
+      { t: "tap", x: 0.25, y: 0.1 },
+      { t: "scroll", dx: 0, dy: -40, x: 0.5, y: 0.5 },
+      { t: "text", text: "hello" },
+      { t: "key", key: "return" },
+    ]);
+  });
 
   it("lists windows, streams base64 frames, replaces and stops watches, and stops on disconnect", async () => {
     const screen = new FakeScreen();

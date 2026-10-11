@@ -1,13 +1,14 @@
 // Live view on macOS: drives the `relay-screen` ScreenCaptureKit helper that ships inside
 // "Relay Host.app" next to the compiled daemon (Screen Recording permission belongs to the app).
 // `list` is one short run; `watch` keeps one helper per watcher alive, reads length-prefixed JPEGs
-// from its stdout, and ends it by closing stdin (or SIGTERM), so no viewer means no capture.
+// from its stdout, writes phone input to its stdin as JSON lines, and ends it by closing stdin (or
+// SIGTERM), so no viewer means no capture.
 
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { ScreenWindow, type ScreenError } from "@relay/protocol";
 import { z } from "zod";
-import type { ScreenCapture, ScreenFrame, ScreenWatch } from "../seams";
+import type { ScreenCapture, ScreenFrame, ScreenInput, ScreenWatch } from "../seams";
 
 const FPS = 10;
 /** iPhone Pro Max portrait width in pixels; frames never go wider. */
@@ -37,7 +38,7 @@ export const NO_SCREEN: ScreenCapture = {
     queueMicrotask(() => {
       onEnd("unavailable");
     });
-    return { stop: () => undefined };
+    return { stop: () => undefined, input: () => undefined };
   },
 };
 
@@ -92,18 +93,31 @@ export class HelperScreenCapture implements ScreenCapture {
         }
       }
     })();
-    void Promise.all([child.exited, new Response(child.stderr).text()]).then(([code, err]) => {
+    void (async () => {
+      // Input failures (no Accessibility, window gone) arrive as stderr lines while the watch runs.
+      let tail = "";
+      for await (const chunk of child.stderr.pipeThrough(new TextDecoderStream())) {
+        const lines = (tail + chunk).split("\n");
+        tail = lines.pop() ?? "";
+        for (const line of lines) if (line.trim() !== "") this.log(`screen: ${windowId}: ${line}`);
+      }
+      const code = await child.exited;
       if (ended.stopped) return;
       ended.stopped = true;
-      this.log(`screen: watch ${windowId} ended (${code}): ${err.trim()}`);
+      this.log(`screen: watch ${windowId} ended (${code})${tail === "" ? "" : `: ${tail}`}`);
       onEnd(errorFor(code));
-    });
+    })();
     return {
       stop: () => {
         if (ended.stopped) return;
         ended.stopped = true;
         void child.stdin.end();
         child.kill();
+      },
+      input: (event: ScreenInput) => {
+        if (ended.stopped) return;
+        void child.stdin.write(`${JSON.stringify(event)}\n`);
+        void child.stdin.flush();
       },
     };
   }

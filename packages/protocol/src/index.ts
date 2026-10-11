@@ -282,6 +282,12 @@ export type ScreenWindow = z.infer<typeof ScreenWindow>;
 export const ScreenError = z.enum(["denied", "gone", "unavailable", "failed"]);
 export type ScreenError = z.infer<typeof ScreenError>;
 
+/** Named keys the live view can press on the watched window's app. */
+export const ScreenKey = z.enum(["return", "delete", "tab", "escape", "left", "right", "up", "down"]);
+export type ScreenKey = z.infer<typeof ScreenKey>;
+
+const unit = z.number().min(0).max(1);
+
 // ---------------------------------------------------------------------------------------------
 // Boards: live dashboards. A board is a titled grid of widget tiles the host stores as JSON and
 // streams to subscribed clients. One global `rev` covers every board; each successful write bumps
@@ -503,6 +509,25 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("screen.watch"), windowId: z.number().int().nonnegative() }),
   /** Stop the running watch, if any. */
   z.object({ t: z.literal("screen.stop") }),
+  /**
+   * Click the watched window at `x`,`y`, normalized 0..1 over its frame (0,0 top-left). Ephemeral
+   * like `input`: ignored unless `windowId` is the window this socket is watching.
+   */
+  z.object({ t: z.literal("screen.tap"), windowId: z.number().int().nonnegative(), x: unit, y: unit }),
+  /**
+   * Scroll the watched window by `dx`,`dy` points of the host window (natural direction: positive
+   * `dy` moves content down), with the pointer at `x`,`y` (normalized; the window centre if omitted).
+   */
+  z.object({
+    t: z.literal("screen.scroll"),
+    windowId: z.number().int().nonnegative(),
+    dx: z.number(),
+    dy: z.number(),
+    x: unit.optional(),
+    y: unit.optional(),
+  }),
+  /** Type `text` or press `key` (exactly one) into the watched window's app. */
+  z.object({ t: z.literal("screen.key"), text: z.string().min(1).max(2000).optional(), key: ScreenKey.optional() }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 

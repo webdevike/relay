@@ -1,7 +1,7 @@
 // Seams between transport, input and storage. Mirrors apps/mac/Sources/RelayCore/Seams.swift:
 // the session only ever talks to these; input/ and the stores implement them; main.ts wires them.
 
-import type { AckError, AgentAsk, AgentAskAnswer, AgentImage, AgentMessage, AgentOptions, AgentSession, Command, Drop, DropOrigin, InputEvent, KeyName, ScreenError, ScreenWindow, ServerMessage } from "@relay/protocol";
+import type { AckError, AgentAsk, AgentAskAnswer, AgentImage, AgentMessage, AgentOptions, AgentSession, Command, Drop, DropOrigin, InputEvent, KeyName, ScreenError, ScreenKey, ScreenWindow, ServerMessage } from "@relay/protocol";
 
 /** Outbound side of one connection. `send` after `close` is a no-op. */
 export interface FrameSink {
@@ -18,9 +18,18 @@ export interface ScreenFrame {
   readonly height: number;
 }
 
+/** Phone input for the watched window; points are normalized 0..1 over the window. */
+export type ScreenInput =
+  | { readonly t: "tap"; readonly x: number; readonly y: number }
+  | { readonly t: "scroll"; readonly dx: number; readonly dy: number; readonly x?: number; readonly y?: number }
+  | { readonly t: "text"; readonly text: string }
+  | { readonly t: "key"; readonly key: ScreenKey };
+
 /** A running capture; `stop` ends it without an `onEnd` call. */
 export interface ScreenWatch {
   stop(): void;
+  /** Clicks, scrolls or types into the watched window; dropped once stopped. */
+  input(event: ScreenInput): void;
 }
 
 /** Window capture for the live view (ScreenCaptureKit through the `relay-screen` helper on macOS). */

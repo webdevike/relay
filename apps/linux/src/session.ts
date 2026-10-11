@@ -123,6 +123,8 @@ export class ClientSession {
   private boardsSubscribed = false;
   /** The live-view capture this socket is watching, if any; at most one per socket. */
   private screenWatch: ScreenWatch | null = null;
+  /** Window `screenWatch` captures; screen input naming any other window is dropped. */
+  private screenWindowId: number | null = null;
 
   constructor(
     private readonly sink: FrameSink,
@@ -457,6 +459,24 @@ export class ClientSession {
       case "screen.stop":
         this.stopScreen();
         break;
+      // Input only reaches the window this socket is watching; anything else is stale and dropped.
+      case "screen.tap":
+        if (message.windowId === this.screenWindowId) this.screenWatch?.input({ t: "tap", x: message.x, y: message.y });
+        break;
+      case "screen.scroll":
+        if (message.windowId === this.screenWindowId)
+          this.screenWatch?.input({
+            t: "scroll",
+            dx: message.dx,
+            dy: message.dy,
+            ...(message.x === undefined ? {} : { x: message.x }),
+            ...(message.y === undefined ? {} : { y: message.y }),
+          });
+        break;
+      case "screen.key":
+        if (message.text !== undefined) this.screenWatch?.input({ t: "text", text: message.text });
+        else if (message.key !== undefined) this.screenWatch?.input({ t: "key", key: message.key });
+        break;
       case "hello":
       case "auth":
       case "pair.request":
@@ -621,15 +641,18 @@ export class ClientSession {
       (error) => {
         if (this.screenWatch !== watch) return;
         this.screenWatch = null;
+        this.screenWindowId = null;
         if (!this.closed) this.sink.send({ t: "screen.ended", windowId, error });
       },
     );
     this.screenWatch = watch;
+    this.screenWindowId = windowId;
   }
 
   private stopScreen(): void {
     const watch = this.screenWatch;
     this.screenWatch = null;
+    this.screenWindowId = null;
     watch?.stop();
   }
 

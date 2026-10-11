@@ -4,9 +4,11 @@
 //
 //   relay-screen list                  JSON array of {id, app, title, width, height}, front to back
 //   relay-screen watch <id> [fps] [w]  frames on stdout until stdin closes: per frame a 12-byte
-//                                      big-endian header (jpeg length, width, height) + the JPEG
+//                                      big-endian header (jpeg length, width, height) + the JPEG.
+//                                      stdin takes one JSON input command per line (see `Input`).
 //   relay-screen request               asks macOS for Screen Recording access; prints true/false
 import AppKit
+import ApplicationServices
 import CoreGraphics
 import CoreImage
 import CoreMedia
@@ -122,12 +124,116 @@ func watch(_ id: CGWindowID, fps: Int, maxWidth: Int) async {
     fail(1, "capture failed: \(error.localizedDescription)")
   }
   // The host holds our stdin open for as long as it wants frames; EOF (or its death) ends us.
-  DispatchQueue.global().async {
-    while !FileHandle.standardInput.availableData.isEmpty {}
+  // Meanwhile each line is an input command for the watched window.
+  let input = Input(windowID: id)
+  Thread.detachNewThread {
+    while let line = readLine() { input.handle(line) }
     exit(0)
   }
   // Top-level code is async here, so park this task instead of calling dispatchMain().
   while true { try? await Task.sleep(nanoseconds: 3_600_000_000_000); _ = (stream, writer) }
+}
+
+/**
+ * Phone input for the watched window, one JSON object per stdin line:
+ * `{"t":"tap","x":0.5,"y":0.1}` (normalized over the window), `{"t":"scroll","dx":0,"dy":-40,"x":..,"y":..}`
+ * (points, natural direction), `{"t":"text","text":"hi"}`, `{"t":"key","key":"return"}`.
+ * Needs Accessibility (posting events); without it every command logs and is dropped.
+ */
+final class Input {
+  let windowID: CGWindowID
+  static let keyCodes: [String: CGKeyCode] = [
+    "return": 36, "tab": 48, "delete": 51, "escape": 53, "left": 123, "right": 124, "down": 125, "up": 126,
+  ]
+
+  init(windowID: CGWindowID) { self.windowID = windowID }
+
+  func handle(_ line: String) {
+    guard let json = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+          let kind = json["t"] as? String else { return log("bad input line") }
+    guard AXIsProcessTrusted() else { return log("accessibility permission denied; input dropped") }
+    guard let (bounds, pid) = windowInfo() else { return log("window \(windowID) gone; input dropped") }
+    focus(pid: pid, bounds: bounds)
+    let at = { (x: Any?, y: Any?) -> CGPoint in
+      let nx = (x as? Double) ?? 0.5, ny = (y as? Double) ?? 0.5
+      return CGPoint(x: bounds.minX + bounds.width * min(max(nx, 0), 1), y: bounds.minY + bounds.height * min(max(ny, 0), 1))
+    }
+    switch kind {
+    case "tap":
+      let point = at(json["x"], json["y"])
+      post(CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left))
+      post(CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: point, mouseButton: .left))
+      post(CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: point, mouseButton: .left))
+    case "scroll":
+      // Scroll goes to the window under the pointer, so park the pointer over ours first.
+      let point = at(json["x"], json["y"])
+      post(CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left))
+      let dy = Int32(((json["dy"] as? Double) ?? 0).rounded()), dx = Int32(((json["dx"] as? Double) ?? 0).rounded())
+      let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: dy, wheel2: dx, wheel3: 0)
+      event?.location = point
+      post(event)
+    case "text":
+      guard let text = json["text"] as? String else { return }
+      // keyboardSetUnicodeString carries at most ~20 UTF-16 units per event.
+      let units = Array(text.utf16)
+      for start in stride(from: 0, to: units.count, by: 16) {
+        let chunk = Array(units[start..<min(start + 16, units.count)])
+        for down in [true, false] {
+          let event = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: down)
+          event?.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: chunk)
+          post(event)
+        }
+      }
+    case "key":
+      guard let name = json["key"] as? String, let code = Input.keyCodes[name] else { return log("unknown key") }
+      post(CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true))
+      post(CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: false))
+    default:
+      log("unknown input \(kind)")
+    }
+  }
+
+  /// Global bounds (top-left origin, the CGEvent space) and owner pid of the watched window, now.
+  func windowInfo() -> (CGRect, pid_t)? {
+    guard let info = (CGWindowListCopyWindowInfo([.optionIncludingWindow], windowID) as? [[String: Any]])?.first,
+          let dict = info[kCGWindowBounds as String] as? NSDictionary,
+          let bounds = CGRect(dictionaryRepresentation: dict),
+          let pid = info[kCGWindowOwnerPID as String] as? pid_t else { return nil }
+    return (bounds, pid)
+  }
+
+  /// Brings the app forward and raises the AX window matching `bounds`, so input lands in it.
+  func focus(pid: pid_t, bounds: CGRect) {
+    let app = NSRunningApplication(processIdentifier: pid)
+    let wasActive = app?.isActive ?? false
+    if !wasActive { app?.activate() }
+    let axApp = AXUIElementCreateApplication(pid)
+    var value: CFTypeRef?
+    if AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &value) == .success,
+       let windows = value as? [AXUIElement] {
+      let match = windows.first { window in
+        var pos: CFTypeRef?, size: CFTypeRef?
+        var p = CGPoint.zero, s = CGSize.zero
+        guard AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &pos) == .success,
+              AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &size) == .success,
+              let posValue = pos, let sizeValue = size,
+              AXValueGetValue(posValue as! AXValue, .cgPoint, &p), AXValueGetValue(sizeValue as! AXValue, .cgSize, &s) else { return false }
+        return abs(p.x - bounds.minX) < 2 && abs(p.y - bounds.minY) < 2 && abs(s.width - bounds.width) < 2 && abs(s.height - bounds.height) < 2
+      }
+      if let match { AXUIElementPerformAction(match, kAXRaiseAction as CFString) }
+    }
+    // Give the window server a beat to deliver focus before the first event.
+    if !wasActive { usleep(120_000) }
+  }
+
+  func post(_ event: CGEvent?) {
+    event?.post(tap: .cghidEventTap)
+    usleep(8_000)
+  }
+
+  func log(_ message: String) {
+    FileHandle.standardError.write(Data("input: \(message)\n".utf8))
+  }
 }
 
 
