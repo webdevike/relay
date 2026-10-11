@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import { FlatList, Image, RefreshControl, StyleSheet, TextInput, View, type LayoutRectangle } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import type { ScreenError, ScreenWindow } from "@relay/protocol";
+import type { InputEvent, ScreenError, ScreenWindow } from "@relay/protocol";
 import { Screen } from "@/ui/Screen";
 import { IconButton } from "@/ui/IconButton";
 import { Separator } from "@/ui/Separator";
@@ -19,7 +19,37 @@ import { spacing } from "@/theme";
 import { tapHaptic } from "@/lib/haptics";
 import { useConnectionStore } from "@/state/connection";
 import { useScreenStore } from "@/state/screen";
-import { requestScreenWindows, sendScreenKey, sendScreenScroll, sendScreenTap, stopScreenWatch, watchScreen } from "@/connection";
+import { requestScreenWindows, sendScreenClick, sendScreenKey, sendScreenMove, sendScreenScroll, sendScreenTap, stopScreenWatch, watchScreen } from "@/connection";
+import { TrackpadSurface } from "@/trackpad/TrackpadSurface";
+
+/**
+ * Trackpad events from the shared gesture model, as live-view commands. One batch (one frame)
+ * of moves goes out as a single relative move; drag holds are not supported here and fall back
+ * to plain moves.
+ */
+function sendTrackpad(events: InputEvent[]): void {
+  let dx = 0;
+  let dy = 0;
+  let at: number | null = null;
+  const flushMove = (): void => {
+    if (at !== null && (dx !== 0 || dy !== 0)) sendScreenMove(dx, dy, at);
+    dx = 0;
+    dy = 0;
+    at = null;
+  };
+  for (const event of events) {
+    if (event.k === "move") {
+      dx += event.dx;
+      dy += event.dy;
+      at = event.t;
+      continue;
+    }
+    flushMove();
+    if (event.k === "click") sendScreenClick(event.button);
+    else if (event.k === "scroll" && (event.dx !== 0 || event.dy !== 0)) sendScreenScroll(event.dx, event.dy);
+  }
+  flushMove();
+}
 
 const ERROR_TEXT: Record<ScreenError, string> = {
   denied: "The host needs Screen Recording permission: System Settings > Privacy & Security > Screen & System Audio Recording > Relay Host.",
@@ -77,7 +107,12 @@ export default function LiveView() {
           </View>
         }
       >
-        <LiveFrame window={watching} connected={connected} />
+        <View style={styles.live}>
+          <LiveFrame window={watching} connected={connected} />
+        </View>
+        <View style={styles.trackpad}>
+          <TrackpadSurface wheel={[]} onWheel={() => undefined} send={sendTrackpad} />
+        </View>
         <HiddenKeyboard inputRef={keyboard} />
       </Screen>
     );
@@ -157,7 +192,7 @@ function LiveFrame({ window, connected }: { window: ScreenWindow; connected: boo
       const point = normalized(event.x, event.y) ?? { x: 0.5, y: 0.5 };
       // Phone points to host window points, so a drag moves the content as far as the fingers did.
       const scale = image === null ? 1 : window.width / image.width;
-      sendScreenScroll(event.changeX * scale, event.changeY * scale, point.x, point.y);
+      sendScreenScroll(event.changeX * scale, event.changeY * scale, point);
     });
 
   return (
@@ -228,6 +263,8 @@ const styles = StyleSheet.create({
   padded: { paddingHorizontal: spacing.xl, paddingBottom: spacing.lg },
   actions: { flexDirection: "row", gap: spacing.sm },
   live: { flex: 1 },
+  /** Frame above, trackpad below at ~35% of the screen. */
+  trackpad: { flex: 0.54 },
   frame: { width: "100%", maxHeight: "100%", alignItems: "center", justifyContent: "center", backgroundColor: "#000" },
   caption: { paddingHorizontal: spacing.xl, paddingTop: spacing.sm },
   hidden: { position: "absolute", width: 1, height: 1, opacity: 0, left: -100 },

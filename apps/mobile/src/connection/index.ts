@@ -330,10 +330,25 @@ export function sendScreenTap(x: number, y: number): void {
   socket.send(encode({ t: "screen.tap", windowId: watchingWindow, x, y }));
 }
 
-/** Ephemeral: scroll the watched window by host points (positive `dy` moves content down) with the pointer at `x`,`y`. */
-export function sendScreenScroll(dx: number, dy: number, x: number, y: number): void {
+/**
+ * Ephemeral: scroll the watched window by host points (positive `dy` moves content down), with the
+ * pointer at `x`,`y` (normalized) or, without them, wherever the host cursor is (trackpad scroll).
+ */
+export function sendScreenScroll(dx: number, dy: number, at?: { x: number; y: number }): void {
   if (watchingWindow === null || useConnectionStore.getState().status !== "connected") return;
-  socket.send(encode({ t: "screen.scroll", windowId: watchingWindow, dx, dy, x, y }));
+  socket.send(encode({ t: "screen.scroll", windowId: watchingWindow, dx, dy, ...at }));
+}
+
+/** Ephemeral trackpad move: raw phone points at client time `at`; the host accelerates and clamps. */
+export function sendScreenMove(dx: number, dy: number, at: number): void {
+  if (watchingWindow === null || useConnectionStore.getState().status !== "connected") return;
+  socket.send(encode({ t: "screen.move", dx, dy, at }));
+}
+
+/** Ephemeral trackpad click at the host cursor. */
+export function sendScreenClick(button: "left" | "right"): void {
+  if (watchingWindow === null || useConnectionStore.getState().status !== "connected") return;
+  socket.send(encode({ t: "screen.click", button }));
 }
 
 /** Ephemeral: type `text`, or press a named key, into the watched window's app. */
