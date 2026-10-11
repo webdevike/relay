@@ -38,11 +38,18 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
       return
     }
 
-    let sceneWindow = UIWindow(windowScene: windowScene)
+    // The AppDelegate made the window at launch (the dev launcher needs one then); adopt it here.
+    let sceneWindow = appDelegate.window ?? UIWindow(windowScene: windowScene)
+    sceneWindow.windowScene = windowScene
     window = sceneWindow
     // React Native internals still read application.delegate.window.
     appDelegate.window = sceneWindow
+#if DEBUG
+    // Debug builds: expo-dev-launcher owns startup (launcher UI, then the Metro bundle).
+    sceneWindow.makeKeyAndVisible()
+#else
     factory.startReactNative(withModuleName: "main", in: sceneWindow, launchOptions: nil)
+#endif
 
     if !connectionOptions.urlContexts.isEmpty {
       self.scene(scene, openURLContexts: connectionOptions.urlContexts)
@@ -73,7 +80,13 @@ function patchAppDelegate(contents) {
     throw new Error("withSceneLifecycle: AppDelegate.swift no longer matches the Expo SDK 54 template; update the plugin.");
   }
   return contents
-    .replace(STARTUP_BLOCK, "")
+    // expo-dev-launcher's launch subscriber fatals without a window, before any scene connects.
+    // Debug builds keep the stock launch-time start: expo-dev-launcher prepares itself inside it and
+    // throws if its launch subscriber runs first. The scene then adopts that window.
+    .replace(
+      STARTUP_BLOCK,
+      "#if DEBUG\n    window = UIWindow(frame: UIScreen.main.bounds)\n    factory.startReactNative(withModuleName: \"main\", in: window, launchOptions: launchOptions)\n#endif\n",
+    )
     .replace(LINKING_MARKER, `${SCENE_CONFIGURATION}${LINKING_MARKER}`)
     .replace(RN_DELEGATE_MARKER, `${SCENE_DELEGATE}${RN_DELEGATE_MARKER}`);
 }
