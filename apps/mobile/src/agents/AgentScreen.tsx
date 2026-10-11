@@ -772,11 +772,11 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
                   </Cutout>
                 )}
                 </>
-              ) : (
+              ) : pinned ? null : (
                 <View style={styles.banner}>
                   <Banner
                     tone="warn"
-                    message={pinned ? "This subagent has finished; it no longer takes messages." : "This session can't take replies."}
+                    message="This session can't take replies."
                   />
                 </View>
               )
