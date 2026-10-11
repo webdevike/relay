@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Image, Keyboard, KeyboardAvoidingView, Pressable, StyleSheet, View } from "react-native";
-import { GestureDetector } from "react-native-gesture-handler";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { SymbolView } from "expo-symbols";
 import { useFocusEffect, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -69,6 +69,10 @@ const SLIDE_PX = 28;
 const PANEL_TOP = MIC_SIZE / 2 + CUTOUT_GAP + spacing.md;
 const PANEL_HEIGHT = PANEL_TOP + TRACK_HEIGHT + spacing.md + 16 + spacing.lg;
 const START_SIZE = 36;
+const SUBAGENTS_SIZE = 44;
+const SUBAGENTS_NOTCH_SIZE = SUBAGENTS_SIZE + CUTOUT_GAP * 2;
+/** Centre of the subagents button, right of the mic's centre: clear of the mic's notch by a real gap. */
+const SUBAGENTS_OFFSET = MIC_NOTCH_SIZE / 2 + spacing.xxl + SUBAGENTS_NOTCH_SIZE / 2;
 /** A launched omp normally registers within a few seconds; past this the spinner is a lie. */
 const LAUNCH_TIMEOUT_MS = 20_000;
 /** Id of the stand-in session shown while a dictated launch waits for the real one to register. */
@@ -142,6 +146,18 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
     [sessions, selectedId],
   );
   const [subagentsOpen, setSubagentsOpen] = useState(false);
+  // Same gesture system as the mic beside it, so the seam's pan handlers never swallow the tap.
+  const subagentsTap = useMemo(
+    () =>
+      Gesture.Tap()
+        .runOnJS(true)
+        .onEnd((_event, success) => {
+          if (!success) return;
+          tapHaptic();
+          setSubagentsOpen(true);
+        }),
+    [],
+  );
   const parent = pinned ? sessions[sessions[pinnedId]?.parentId ?? ""] : undefined;
   const index = selectedId === undefined ? -1 : order.indexOf(selectedId);
   const lastIndex = useRef(index);
@@ -383,6 +399,7 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
   const { skill: armed, images, pasted, phase } = useDictation();
   const [headerHeight, setHeaderHeight] = useState(0);
   const [chatHeight, setChatHeight] = useState(0);
+  const [chatWidth, setChatWidth] = useState(0);
   // The header slides up by its own height and the chat grows into the gap; the seam pill rides
   // along so it stays on the chat's top edge.
   const headerStyle = useAnimatedStyle(() => ({
@@ -459,9 +476,15 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
         : [{ cy: headerHeight + spacing.sm / 2, width: pillWidth, height: PILL_NOTCH_HEIGHT }],
     [pillWidth, headerHeight],
   );
+  const subagentsShown = !pinned && subagents.length > 0 && chatWidth > 0;
   const seamNotches = useCallback(
-    (cy: number): Notch[] => [{ cy, width: MIC_NOTCH_SIZE, height: MIC_NOTCH_SIZE }],
-    [],
+    (cy: number): Notch[] => [
+      { cy, width: MIC_NOTCH_SIZE, height: MIC_NOTCH_SIZE },
+      ...(subagentsShown
+        ? [{ cx: chatWidth / 2 + SUBAGENTS_OFFSET, cy, width: SUBAGENTS_NOTCH_SIZE, height: SUBAGENTS_NOTCH_SIZE }]
+        : []),
+    ],
+    [subagentsShown, chatWidth],
   );
   const chatNotches = useMemo<Notch[]>(() => {
     const pillCy = typing ? PILL_INSET + PILL_NOTCH_HEIGHT / 2 : -spacing.sm / 2;
@@ -536,6 +559,7 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
                   style={styles.chat}
                   onLayout={(event) => {
                     setChatHeight(event.nativeEvent.layout.height);
+                    setChatWidth(event.nativeEvent.layout.width);
                   }}
                 >
                   <AgentCard
@@ -727,19 +751,23 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
                     size={MIC_SIZE}
                   />
                 </Cutout>
-                {!pinned && subagents.length > 0 && (
-                  <View style={styles.subagentsButton}>
-                    <IconButton
-                      symbol="person.2"
-                      size={START_SIZE}
-                      tintColor={subagents.some((s) => s.status === "working") ? colors.working : colors.textMuted}
-                      backgroundColor={colors.bg}
-                      onPress={() => {
-                        tapHaptic();
-                        setSubagentsOpen(true);
-                      }}
-                    />
-                  </View>
+                {subagentsShown && (
+                  <Cutout size={SUBAGENTS_SIZE} style={styles.subagentsButton}>
+                    <GestureDetector gesture={subagentsTap}>
+                      <View
+                        accessible
+                        accessibilityRole="button"
+                        accessibilityLabel={`Subagents, ${String(subagents.length)}`}
+                        style={[styles.subagentsFace, { backgroundColor: colors.surfaceRaised }]}
+                      >
+                        <SymbolView
+                          name="person.2.fill"
+                          size={17}
+                          tintColor={subagents.some((s) => s.status === "working") ? colors.working : colors.textMuted}
+                        />
+                      </View>
+                    </GestureDetector>
+                  </Cutout>
                 )}
                 </>
               ) : (
@@ -915,10 +943,17 @@ const styles = StyleSheet.create({
   },
   /** Subagents button on the seam, right of the mic. */
   subagentsButton: {
-    position: "absolute",
     left: "50%",
-    marginLeft: MIC_SIZE / 2 + CUTOUT_GAP + spacing.lg,
-    top: -(START_SIZE / 2 + spacing.sm / 2),
+    marginLeft: SUBAGENTS_OFFSET - SUBAGENTS_NOTCH_SIZE / 2,
+    // Ring centred on the seam, like the mic's.
+    top: -(SUBAGENTS_SIZE / 2 + CUTOUT_GAP + spacing.sm / 2),
+  },
+  subagentsFace: {
+    width: SUBAGENTS_SIZE,
+    height: SUBAGENTS_SIZE,
+    borderRadius: SUBAGENTS_SIZE / 2,
+    alignItems: "center",
+    justifyContent: "center",
   },
   mic: {
     alignSelf: "center",
