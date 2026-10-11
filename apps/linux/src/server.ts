@@ -24,6 +24,7 @@ import type {
   InputSink,
   PairingUI,
   PushRegistry,
+  ScreenCapture,
   TextInjecting,
 } from "./seams";
 import { ClientSession } from "./session";
@@ -50,6 +51,8 @@ export interface ServerDeps {
   readonly drops: DropBox | null;
   /** Live dashboards; null disables `/boards` and leaves `board.subscribe` an empty snapshot. */
   readonly boards: FileBoardStore | null;
+  /** Live-view window capture; `NO_SCREEN` on hosts without one. */
+  readonly screen: ScreenCapture;
   readonly pairing: PairingUI;
   readonly log: (line: string) => void;
 }
@@ -77,6 +80,9 @@ class WebSocketFrameSink implements FrameSink {
     this.ws.send(encode(message));
   }
 
+  get buffered(): number {
+    return this.ws.getBufferedAmount();
+  }
   close(): void {
     if (this.closed) return;
     this.closed = true;
@@ -312,6 +318,7 @@ export class RelayServer {
         pairing: this.pairing,
         remoteAddress: ws.remoteAddress,
         dedup: this.dedup,
+        screen: this.deps.screen,
       },
       (closed) => {
         const reason = closed.closeReason;

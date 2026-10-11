@@ -26,6 +26,7 @@ import { TerminalPairingUI } from "./pairing";
 import { ExpoPushSender } from "./push/expo";
 import { AttentionNotifier } from "./push/notifier";
 import { FilePushTokenStore } from "./push/token-store";
+import { findScreenHelper, HelperScreenCapture, NO_SCREEN } from "./screen/capture";
 import { RelayServer } from "./server";
 import { systemClock } from "./session";
 import { ClipboardWatcher, systemPaste, systemWatch } from "./drops/clipboard";
@@ -135,6 +136,8 @@ function serve(
             clipboard.expect(mimeType, bytes);
           },
   });
+  const screenHelper = findScreenHelper();
+  log(screenHelper === null ? "live view: no relay-screen helper; screen.* answers unavailable" : `live view: ${screenHelper}`);
   const server: RelayServer = new RelayServer(
     { port, hostName: name, version: pkg.version },
     {
@@ -147,6 +150,7 @@ function serve(
       push: pushTokens,
       drops,
       boards,
+      screen: screenHelper === null ? NO_SCREEN : new HelperScreenCapture(screenHelper, log),
       notifier,
       pairing: new TerminalPairingUI(),
       log,

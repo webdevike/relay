@@ -33,6 +33,8 @@ import {
   type InputAccess,
   type InputSink,
   type PushRegistry,
+  type ScreenCapture,
+  type ScreenWatch,
   type TextInjecting,
 } from "./seams";
 
@@ -56,6 +58,8 @@ export interface SessionDeps {
   /** Peer IP; tailnet addresses (Tailscale CGNAT / ULA ranges) pair without a PIN. */
   readonly remoteAddress: string;
   readonly dedup: CommandDedupStore;
+  /** Window capture for the live view; `NO_SCREEN` where the host has none. */
+  readonly screen: ScreenCapture;
 }
 
 /** Clock and scheduling seams so tests drive time deterministically. */
@@ -68,6 +72,8 @@ export interface SessionClock {
 export const PAIRING_TIMEOUT_MS = 120_000;
 const MAX_PIN_ATTEMPTS = 3;
 const EMPTY_OPTIONS: AgentOptions = { models: [], skills: [] };
+/** Skip live-view frames while this much is still queued on the socket: the phone gets the latest, not a backlog. */
+const MAX_SCREEN_BACKLOG = 512 * 1024;
 
 function noInputDevice(): AckFailure {
   return new AckFailure({
@@ -115,6 +121,8 @@ export class ClientSession {
   private readonly subscriptions = new Map<string, number>();
   /** Set by `board.subscribe`; only subscribed sockets get `board.delta`. */
   private boardsSubscribed = false;
+  /** The live-view capture this socket is watching, if any; at most one per socket. */
+  private screenWatch: ScreenWatch | null = null;
 
   constructor(
     private readonly sink: FrameSink,
@@ -221,6 +229,7 @@ export class ClientSession {
     if (this.closed) return;
     this.endPairingIfPending();
     this.stopPairingTimeout();
+    this.stopScreen();
     this.closed = true;
     this.onClose(this);
   }
@@ -432,6 +441,22 @@ export class ClientSession {
       case "board.get":
         this.sink.send(this.deps.boards?.snapshot() ?? { t: "board.snapshot", rev: 0, boards: [] });
         break;
+      case "screen.list":
+        void this.deps.screen.list().then(
+          (result) => {
+            if (!this.closed) this.sink.send({ t: "screen.list", ...result });
+          },
+          () => {
+            if (!this.closed) this.sink.send({ t: "screen.list", windows: [], error: "failed" });
+          },
+        );
+        break;
+      case "screen.watch":
+        this.watchScreen(message.windowId);
+        break;
+      case "screen.stop":
+        this.stopScreen();
+        break;
       case "hello":
       case "auth":
       case "pair.request":
@@ -579,6 +604,35 @@ export class ClientSession {
     return this.deps.drops;
   }
 
+  private watchScreen(windowId: number): void {
+    this.stopScreen();
+    const watch = this.deps.screen.watch(
+      windowId,
+      (frame) => {
+        if (this.closed || this.screenWatch !== watch || this.sink.buffered > MAX_SCREEN_BACKLOG) return;
+        this.sink.send({
+          t: "screen.frame",
+          windowId,
+          width: frame.width,
+          height: frame.height,
+          jpeg: Buffer.from(frame.jpeg).toString("base64"),
+        });
+      },
+      (error) => {
+        if (this.screenWatch !== watch) return;
+        this.screenWatch = null;
+        if (!this.closed) this.sink.send({ t: "screen.ended", windowId, error });
+      },
+    );
+    this.screenWatch = watch;
+  }
+
+  private stopScreen(): void {
+    const watch = this.screenWatch;
+    this.screenWatch = null;
+    watch?.stop();
+  }
+
   private authenticate(deviceId: string): void {
     this.phase = { kind: "authenticated", deviceId };
     this.sink.send({ t: "welcome", state: this.snapshot() });
@@ -621,6 +675,7 @@ export class ClientSession {
   private fail(code: ErrorCode, message: string): void {
     this.endPairingIfPending();
     this.stopPairingTimeout();
+    this.stopScreen();
     this.closed = true;
     this.failure = `${code}: ${message}`;
     this.sink.send({ t: "error", code, message });

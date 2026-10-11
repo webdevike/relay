@@ -1,12 +1,33 @@
 // Seams between transport, input and storage. Mirrors apps/mac/Sources/RelayCore/Seams.swift:
 // the session only ever talks to these; input/ and the stores implement them; main.ts wires them.
 
-import type { AckError, AgentAsk, AgentAskAnswer, AgentImage, AgentMessage, AgentOptions, AgentSession, Command, Drop, DropOrigin, InputEvent, KeyName, ServerMessage } from "@relay/protocol";
+import type { AckError, AgentAsk, AgentAskAnswer, AgentImage, AgentMessage, AgentOptions, AgentSession, Command, Drop, DropOrigin, InputEvent, KeyName, ScreenError, ScreenWindow, ServerMessage } from "@relay/protocol";
 
 /** Outbound side of one connection. `send` after `close` is a no-op. */
 export interface FrameSink {
   send(message: ServerMessage): void;
   close(): void;
+  /** Bytes queued on the socket and not yet written; live-view frames are skipped while it is high. */
+  readonly buffered: number;
+}
+
+/** One captured frame: JPEG bytes and their pixel size. */
+export interface ScreenFrame {
+  readonly jpeg: Uint8Array;
+  readonly width: number;
+  readonly height: number;
+}
+
+/** A running capture; `stop` ends it without an `onEnd` call. */
+export interface ScreenWatch {
+  stop(): void;
+}
+
+/** Window capture for the live view (ScreenCaptureKit through the `relay-screen` helper on macOS). */
+export interface ScreenCapture {
+  list(): Promise<{ windows: ScreenWindow[]; error?: ScreenError }>;
+  /** Frames flow to `onFrame` until `stop`, or until capture ends on its own, reported once via `onEnd`. */
+  watch(windowId: number, onFrame: (frame: ScreenFrame) => void, onEnd: (error: ScreenError) => void): ScreenWatch;
 }
 
 /** Consumes ephemeral trackpad input. Must be cheap and never block; drop rather than queue. */
