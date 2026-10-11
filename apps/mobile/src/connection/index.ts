@@ -7,7 +7,7 @@
 import { useEffect } from "react";
 import { AppState, type AppStateStatus, type NativeEventSubscription } from "react-native";
 import { CryptoDigestAlgorithm, digest } from "expo-crypto";
-import { encode, parseServerMessage, WS_PATH, type Command, type InputEvent } from "@relay/protocol";
+import { encode, parseServerMessage, WS_PATH, type Command, type InputEvent, type ScreenKey } from "@relay/protocol";
 import { useConnectionStore } from "@/state/connection";
 import { useAgentsStore } from "@/state/agents";
 import { useDropsStore } from "@/state/drops";
@@ -322,6 +322,24 @@ export function stopScreenWatch(): void {
   watchingWindow = null;
   useScreenStore.getState().clearWatch();
   if (useConnectionStore.getState().status === "connected") socket.send(encode({ t: "screen.stop" }));
+}
+
+/** Ephemeral, like `sendInput`: click the watched window at normalized `x`,`y` (0..1, top-left origin). */
+export function sendScreenTap(x: number, y: number): void {
+  if (watchingWindow === null || useConnectionStore.getState().status !== "connected") return;
+  socket.send(encode({ t: "screen.tap", windowId: watchingWindow, x, y }));
+}
+
+/** Ephemeral: scroll the watched window by host points (positive `dy` moves content down) with the pointer at `x`,`y`. */
+export function sendScreenScroll(dx: number, dy: number, x: number, y: number): void {
+  if (watchingWindow === null || useConnectionStore.getState().status !== "connected") return;
+  socket.send(encode({ t: "screen.scroll", windowId: watchingWindow, dx, dy, x, y }));
+}
+
+/** Ephemeral: type `text`, or press a named key, into the watched window's app. */
+export function sendScreenKey(input: { text: string } | { key: ScreenKey }): void {
+  if (watchingWindow === null || useConnectionStore.getState().status !== "connected") return;
+  socket.send(encode({ t: "screen.key", ...input }));
 }
 
 /**
