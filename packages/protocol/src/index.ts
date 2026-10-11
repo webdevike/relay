@@ -528,6 +528,14 @@ export const ClientMessage = z.discriminatedUnion("t", [
   }),
   /** Type `text` or press `key` (exactly one) into the watched window's app. */
   z.object({ t: z.literal("screen.key"), text: z.string().min(1).max(2000).optional(), key: ScreenKey.optional() }),
+  /**
+   * Trackpad: move the host cursor by raw phone `dx`,`dy` points at phone time `at`; the host
+   * accelerates them (PointerModel, like `input` moves) and clamps to the displays. Ephemeral;
+   * needs a running watch on this socket.
+   */
+  z.object({ t: z.literal("screen.move"), dx: z.number().finite(), dy: z.number().finite(), at: ms }),
+  /** Trackpad: click `button` wherever the host cursor is. */
+  z.object({ t: z.literal("screen.click"), button: z.enum(["left", "right"]) }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 

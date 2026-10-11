@@ -137,7 +137,9 @@ func watch(_ id: CGWindowID, fps: Int, maxWidth: Int) async {
 /**
  * Phone input for the watched window, one JSON object per stdin line:
  * `{"t":"tap","x":0.5,"y":0.1}` (normalized over the window), `{"t":"scroll","dx":0,"dy":-40,"x":..,"y":..}`
- * (points, natural direction), `{"t":"text","text":"hi"}`, `{"t":"key","key":"return"}`.
+ * (points, natural direction; at the cursor when x/y are absent), `{"t":"text","text":"hi"}`,
+ * `{"t":"key","key":"return"}`, and trackpad-style `{"t":"move","dx":3,"dy":-1}` (relative, points,
+ * clamped to the displays) and `{"t":"click","button":"left"|"right"}` (at the cursor).
  * Needs Accessibility (posting events); without it every command logs and is dropped.
  */
 final class Input {
@@ -152,6 +154,12 @@ final class Input {
     guard let json = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
           let kind = json["t"] as? String else { return log("bad input line") }
     guard AXIsProcessTrusted() else { return log("accessibility permission denied; input dropped") }
+    // Trackpad input acts wherever the cursor is, like a real trackpad: no window lookup or focus.
+    if kind == "move" { return move(dx: (json["dx"] as? Double) ?? 0, dy: (json["dy"] as? Double) ?? 0) }
+    if kind == "click" { return click(right: (json["button"] as? String) == "right") }
+    if kind == "scroll", json["x"] == nil || json["y"] == nil {
+      return scroll(at: cursor(), dx: (json["dx"] as? Double) ?? 0, dy: (json["dy"] as? Double) ?? 0)
+    }
     guard let (bounds, pid) = windowInfo() else { return log("window \(windowID) gone; input dropped") }
     focus(pid: pid, bounds: bounds)
     let at = { (x: Any?, y: Any?) -> CGPoint in
@@ -168,10 +176,7 @@ final class Input {
       // Scroll goes to the window under the pointer, so park the pointer over ours first.
       let point = at(json["x"], json["y"])
       post(CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left))
-      let dy = Int32(((json["dy"] as? Double) ?? 0).rounded()), dx = Int32(((json["dx"] as? Double) ?? 0).rounded())
-      let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: dy, wheel2: dx, wheel3: 0)
-      event?.location = point
-      post(event)
+      scroll(at: point, dx: (json["dx"] as? Double) ?? 0, dy: (json["dy"] as? Double) ?? 0)
     case "text":
       guard let text = json["text"] as? String else { return }
       // keyboardSetUnicodeString carries at most ~20 UTF-16 units per event.
@@ -191,6 +196,38 @@ final class Input {
     default:
       log("unknown input \(kind)")
     }
+  }
+
+  func cursor() -> CGPoint { CGEvent(source: nil)?.location ?? .zero }
+
+  /// Relative pointer move, clamped to the union of all displays (top-left origin, CGEvent space).
+  func move(dx: Double, dy: Double) {
+    var ids = [CGDirectDisplayID](repeating: 0, count: 16)
+    var count: UInt32 = 0
+    CGGetActiveDisplayList(16, &ids, &count)
+    let screens = ids.prefix(Int(count)).map { CGDisplayBounds($0) }
+    let target = CGPoint(x: cursor().x + dx, y: cursor().y + dy)
+    // Stay on the display containing the target, else pull back onto the nearest one.
+    let clamped = screens.contains(where: { $0.contains(target) }) ? target : screens.map { bounds in
+      CGPoint(x: min(max(target.x, bounds.minX), bounds.maxX - 1), y: min(max(target.y, bounds.minY), bounds.maxY - 1))
+    }.min { hypot($0.x - target.x, $0.y - target.y) < hypot($1.x - target.x, $1.y - target.y) } ?? target
+    let event = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: clamped, mouseButton: .left)
+    event?.setIntegerValueField(.mouseEventDeltaX, value: Int64(dx.rounded()))
+    event?.setIntegerValueField(.mouseEventDeltaY, value: Int64(dy.rounded()))
+    event?.post(tap: .cghidEventTap)
+  }
+
+  func click(right: Bool) {
+    let point = cursor()
+    let button: CGMouseButton = right ? .right : .left
+    post(CGEvent(mouseEventSource: nil, mouseType: right ? .rightMouseDown : .leftMouseDown, mouseCursorPosition: point, mouseButton: button))
+    post(CGEvent(mouseEventSource: nil, mouseType: right ? .rightMouseUp : .leftMouseUp, mouseCursorPosition: point, mouseButton: button))
+  }
+
+  func scroll(at point: CGPoint, dx: Double, dy: Double) {
+    let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: Int32(dy.rounded()), wheel2: Int32(dx.rounded()), wheel3: 0)
+    event?.location = point
+    post(event)
   }
 
   /// Global bounds (top-left origin, the CGEvent space) and owner pid of the watched window, now.

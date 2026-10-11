@@ -23,6 +23,7 @@ import type { AgentsDeltaTracker } from "./agents/delta-tracker";
 import type { BoardDelta, FileBoardStore } from "./boards/store";
 import type { CommandDedupStore } from "./dedup";
 import type { PairingCoordinator } from "./pairing";
+import { PointerModel } from "./input/pointer-model";
 import {
   AckFailure,
   type AgentProvider,
@@ -125,6 +126,9 @@ export class ClientSession {
   private screenWatch: ScreenWatch | null = null;
   /** Window `screenWatch` captures; screen input naming any other window is dropped. */
   private screenWindowId: number | null = null;
+  /** Live-view trackpad acceleration, carried across `screen.move`s like the uinput trackpad's. */
+  private readonly screenPointer = new PointerModel();
+  private lastScreenMoveAt: number | null = null;
 
   constructor(
     private readonly sink: FrameSink,
@@ -476,6 +480,17 @@ export class ClientSession {
       case "screen.key":
         if (message.text !== undefined) this.screenWatch?.input({ t: "text", text: message.text });
         else if (message.key !== undefined) this.screenWatch?.input({ t: "key", key: message.key });
+        break;
+      case "screen.move": {
+        // Same acceleration curve as the full-screen trackpad (`input` moves).
+        const dt = this.lastScreenMoveAt === null ? 16 : Math.max(message.at - this.lastScreenMoveAt, 1);
+        this.lastScreenMoveAt = message.at;
+        const { dx, dy } = this.screenPointer.accelerate(message.dx, message.dy, dt);
+        if (dx !== 0 || dy !== 0) this.screenWatch?.input({ t: "move", dx, dy });
+        break;
+      }
+      case "screen.click":
+        this.screenWatch?.input({ t: "click", button: message.button });
         break;
       case "hello":
       case "auth":

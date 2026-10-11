@@ -23,7 +23,10 @@ export type ScreenInput =
   | { readonly t: "tap"; readonly x: number; readonly y: number }
   | { readonly t: "scroll"; readonly dx: number; readonly dy: number; readonly x?: number; readonly y?: number }
   | { readonly t: "text"; readonly text: string }
-  | { readonly t: "key"; readonly key: ScreenKey };
+  | { readonly t: "key"; readonly key: ScreenKey }
+  /** Relative cursor move in host points; scroll without x/y acts at the cursor. */
+  | { readonly t: "move"; readonly dx: number; readonly dy: number }
+  | { readonly t: "click"; readonly button: "left" | "right" };
 
 /** A running capture; `stop` ends it without an `onEnd` call. */
 export interface ScreenWatch {

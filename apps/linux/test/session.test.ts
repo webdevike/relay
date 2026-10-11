@@ -652,11 +652,16 @@ describe("screen", () => {
     h.session.receive({ t: "screen.scroll", windowId: 7, dx: 0, dy: -40, x: 0.5, y: 0.5 });
     h.session.receive({ t: "screen.key", text: "hello" });
     h.session.receive({ t: "screen.key", key: "return" });
+    h.session.receive({ t: "screen.move", dx: 3, dy: -2, at: 1000 });
+    h.session.receive({ t: "screen.click", button: "right" });
     expect(screen.watches[0]?.inputs).toEqual([
       { t: "tap", x: 0.25, y: 0.1 },
       { t: "scroll", dx: 0, dy: -40, x: 0.5, y: 0.5 },
       { t: "text", text: "hello" },
       { t: "key", key: "return" },
+      // Accelerated by PointerModel: first move assumes 16 ms, gain ~1.5.
+      { t: "move", dx: 4, dy: -3 },
+      { t: "click", button: "right" },
     ]);
   });
 
