@@ -9,6 +9,7 @@
 //                                      command per line (see `Input`), handled in this process.
 //   relay-screen request               asks macOS for Screen Recording access; prints true/false
 import AppKit
+import IOKit.pwr_mgt
 import ApplicationServices
 import CoreGraphics
 import CoreImage
@@ -126,12 +127,16 @@ final class FrameWriter: NSObject, SCStreamOutput, SCStreamDelegate {
           let attachments = CMSampleBufferGetSampleAttachmentsArray(buffer, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
           let raw = attachments.first?[.status] as? Int, SCFrameStatus(rawValue: raw) == .complete,
           let pixels = CMSampleBufferGetImageBuffer(buffer) else { return }
-    let image = CIImage(cvPixelBuffer: pixels)
+    emit(CIImage(cvPixelBuffer: pixels), width: CVPixelBufferGetWidth(pixels), height: CVPixelBufferGetHeight(pixels))
+  }
+
+  /// Encodes and writes one frame, cursor packet first. Also used for the screenshot sent at start.
+  func emit(_ image: CIImage, width: Int, height: Int) {
     let quality = CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String)
     guard let jpeg = context.jpegRepresentation(of: image, colorSpace: colorSpace, options: [quality: 0.55]) else { return }
     // The phone draws the cursor itself (captured cursors trail input by a frame), so keep it current.
     Wire.cursor(windowID, refresh: true)
-    Wire.write([UInt32(jpeg.count), UInt32(CVPixelBufferGetWidth(pixels)), UInt32(CVPixelBufferGetHeight(pixels))], jpeg)
+    Wire.write([UInt32(jpeg.count), UInt32(width), UInt32(height)], jpeg)
   }
 
   func stream(_: SCStream, didStopWithError error: Error) {
@@ -147,6 +152,12 @@ final class FrameWriter: NSObject, SCStreamOutput, SCStreamDelegate {
 
 func watch(_ id: CGWindowID, fps: Int, maxWidth: Int) async {
   deniedIfNoAccess()
+  // A sleeping display makes SCStream deliver nothing at all, so a watcher wakes it and keeps it
+  // awake for as long as the watch runs (the assertion dies with this process).
+  var wake: IOPMAssertionID = 0
+  IOPMAssertionDeclareUserActivity("Relay live view" as CFString, kIOPMUserActiveLocal, &wake)
+  var awake: IOPMAssertionID = 0
+  IOPMAssertionCreateWithName(kIOPMAssertPreventUserIdleDisplaySleep as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn), "Relay live view" as CFString, &awake)
   guard let window = (await shareable()).windows.first(where: { $0.windowID == id }) else { fail(3, "no window \(id)") }
   let filter = SCContentFilter(desktopIndependentWindow: window)
   let scale = Double(filter.pointPixelScale)
@@ -168,6 +179,11 @@ func watch(_ id: CGWindowID, fps: Int, maxWidth: Int) async {
     fail(2, "screen recording permission denied")
   } catch {
     fail(1, "capture failed: \(error.localizedDescription)")
+  }
+  // SCStream only sends a frame when the window changes; a static window would leave the phone on
+  // "waiting for the first frame", so send a screenshot of it right away.
+  if let shot = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config) {
+    writer.emit(CIImage(cgImage: shot), width: shot.width, height: shot.height)
   }
   // The host holds our stdin open for as long as it wants frames; EOF (or its death) ends us.
   // Meanwhile each line is an input command for the watched window.
