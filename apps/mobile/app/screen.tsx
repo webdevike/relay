@@ -10,6 +10,7 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { SymbolView } from "expo-symbols";
 import type { InputEvent, ScreenError, ScreenWindow } from "@relay/protocol";
 import { Screen } from "@/ui/Screen";
+import { LiveImage } from "@/ui/LiveImage";
 import { IconButton } from "@/ui/IconButton";
 import { Separator } from "@/ui/Separator";
 import { EmptyState } from "@/ui/EmptyState";
@@ -221,7 +222,7 @@ function LiveFrame({ window, connected }: { window: ScreenWindow; connected: boo
               Waiting for the first frame…
             </Text>
           ) : (
-            <Image source={{ uri: frame.uri }} style={StyleSheet.absoluteFill} resizeMode="contain" fadeDuration={0} />
+            <LiveImage uri={frame.uri} />
           )}
           {cursor !== null && image !== null && cursor.x >= 0 && cursor.x <= 1 && cursor.y >= 0 && cursor.y <= 1 && (
             // Frames are captured without the cursor; this one moves as soon as the host reports it.
