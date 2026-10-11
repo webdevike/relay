@@ -80,6 +80,7 @@ export function createAgentFrameRouter(store: AgentsStoreActions, send: (message
       case "screen.list":
       case "screen.frame":
       case "screen.ended":
+      case "screen.cursor":
         // Session, command, drop, board and screen traffic; owned by SessionMachine, CommandQueue and the other routers.
         return;
     }

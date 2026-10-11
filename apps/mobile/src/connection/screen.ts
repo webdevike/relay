@@ -5,7 +5,7 @@
 import type { ServerMessage } from "@relay/protocol";
 import type { ScreenStore } from "@/state/screen";
 
-export type ScreenStoreActions = Pick<ScreenStore, "setList" | "setFrame" | "setEnded">;
+export type ScreenStoreActions = Pick<ScreenStore, "setList" | "setFrame" | "setEnded" | "setCursor">;
 
 export type ScreenFrameRouter = (message: ServerMessage) => void;
 
@@ -22,6 +22,8 @@ export function createScreenFrameRouter(store: ScreenStoreActions, watching: () 
         width: message.width,
         height: message.height,
       });
+    } else if (message.t === "screen.cursor" && message.windowId === watching()) {
+      store.setCursor(message.x, message.y);
     } else if (message.t === "screen.ended" && message.windowId === watching()) {
       store.setEnded(message.error);
     }

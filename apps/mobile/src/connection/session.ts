@@ -238,6 +238,7 @@ export class SessionMachine {
       case "screen.list":
       case "screen.frame":
       case "screen.ended":
+      case "screen.cursor":
       case "ack":
       case "nack":
         // Agent, drop, board and screen frames are routed to their stores and ack/nack to CommandQueue by index.ts.

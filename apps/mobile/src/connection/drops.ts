@@ -44,6 +44,7 @@ export function createDropFrameRouter(store: DropsStoreActions): DropFrameRouter
       case "screen.list":
       case "screen.frame":
       case "screen.ended":
+      case "screen.cursor":
       case "ack":
       case "nack":
       case "pong":

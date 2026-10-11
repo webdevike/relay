@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import { FlatList, Image, RefreshControl, StyleSheet, TextInput, View, type LayoutRectangle } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { SymbolView } from "expo-symbols";
 import type { InputEvent, ScreenError, ScreenWindow } from "@relay/protocol";
 import { Screen } from "@/ui/Screen";
 import { IconButton } from "@/ui/IconButton";
@@ -23,9 +24,9 @@ import { requestScreenWindows, sendScreenClick, sendScreenKey, sendScreenMove, s
 import { TrackpadSurface } from "@/trackpad/TrackpadSurface";
 
 /**
- * Trackpad events from the shared gesture model, as live-view commands. One batch (one frame)
- * of moves goes out as a single relative move; drag holds are not supported here and fall back
- * to plain moves.
+ * Trackpad events from the shared gesture model, as live-view commands. TrackpadSurface already
+ * flushes once per animation frame, so each batch's moves go out as one summed relative move;
+ * drag holds are not supported here and fall back to plain moves.
  */
 function sendTrackpad(events: InputEvent[]): void {
   let dx = 0;
@@ -160,6 +161,7 @@ export default function LiveView() {
 function LiveFrame({ window, connected }: { window: ScreenWindow; connected: boolean }) {
   const frame = useScreenStore((state) => state.frame);
   const ended = useScreenStore((state) => state.ended);
+  const cursor = useScreenStore((state) => state.cursor);
   const [box, setBox] = useState<LayoutRectangle | null>(null);
   const aspect = frame === null ? window.width / window.height : frame.width / frame.height;
 
@@ -221,6 +223,12 @@ function LiveFrame({ window, connected }: { window: ScreenWindow; connected: boo
           ) : (
             <Image source={{ uri: frame.uri }} style={StyleSheet.absoluteFill} resizeMode="contain" fadeDuration={0} />
           )}
+          {cursor !== null && image !== null && cursor.x >= 0 && cursor.x <= 1 && cursor.y >= 0 && cursor.y <= 1 && (
+            // Frames are captured without the cursor; this one moves as soon as the host reports it.
+            <View pointerEvents="none" style={[styles.cursor, { left: image.left + cursor.x * image.width, top: image.top + cursor.y * image.height }]}>
+              <SymbolView name="cursorarrow" size={18} tintColor="#FFFFFF" />
+            </View>
+          )}
         </View>
       </GestureDetector>
       {window.title !== "" && (
@@ -268,4 +276,6 @@ const styles = StyleSheet.create({
   frame: { width: "100%", maxHeight: "100%", alignItems: "center", justifyContent: "center", backgroundColor: "#000" },
   caption: { paddingHorizontal: spacing.xl, paddingTop: spacing.sm },
   hidden: { position: "absolute", width: 1, height: 1, opacity: 0, left: -100 },
+  /** The arrow's tip sits at the symbol's top-left, a few points in from the box corner. */
+  cursor: { position: "absolute", marginLeft: -4, marginTop: -2, shadowColor: "#000", shadowOpacity: 0.6, shadowRadius: 1.5, shadowOffset: { width: 0, height: 0 } },
 });

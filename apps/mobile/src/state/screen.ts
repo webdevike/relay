@@ -20,10 +20,13 @@ export interface ScreenStore {
   frame: ScreenFrameState | null;
   /** Why the current watch stopped on the host's side; cleared by the next watch. */
   ended: ScreenError | null;
+  /** Host cursor over the watched window, normalized (outside 0..1 when off it); null until known. */
+  cursor: { x: number; y: number } | null;
   setList: (windows: ScreenWindow[], error: ScreenError | null) => void;
   setFrame: (frame: ScreenFrameState) => void;
   setEnded: (error: ScreenError) => void;
-  /** Forget the frame and any end reason, before a new watch or after leaving the view. */
+  setCursor: (x: number, y: number) => void;
+  /** Forget the frame, cursor and any end reason, before a new watch or after leaving the view. */
   clearWatch: () => void;
 }
 
@@ -32,6 +35,7 @@ export const useScreenStore = create<ScreenStore>((set) => ({
   listError: null,
   frame: null,
   ended: null,
+  cursor: null,
   setList: (windows, error) => {
     set({ windows, listError: error });
   },
@@ -41,7 +45,10 @@ export const useScreenStore = create<ScreenStore>((set) => ({
   setEnded: (error) => {
     set({ ended: error });
   },
+  setCursor: (x, y) => {
+    set({ cursor: { x, y } });
+  },
   clearWatch: () => {
-    set({ frame: null, ended: null });
+    set({ frame: null, ended: null, cursor: null });
   },
 }));
