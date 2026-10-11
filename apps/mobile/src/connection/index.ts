@@ -11,10 +11,12 @@ import { encode, parseServerMessage, WS_PATH, type Command, type InputEvent } fr
 import { useConnectionStore } from "@/state/connection";
 import { useAgentsStore } from "@/state/agents";
 import { useDropsStore } from "@/state/drops";
+import { useScreenStore } from "@/state/screen";
 import { setActions } from "@/state/actions";
 import { useSettingsStore } from "@/state/settings";
 import { createAgentFrameRouter } from "./agents";
 import { createDropFrameRouter } from "./drops";
+import { createScreenFrameRouter } from "./screen";
 import * as identity from "./identity";
 import { Discovery, type DiscoveredService } from "./discovery";
 import { NO_HOSTS, removeHost, upsertHost, type PairedHosts } from "./hosts";
@@ -42,6 +44,8 @@ let retryTimer: number | undefined;
  * fetches. Only meaningful while `status === "connected"`; a later connect overwrites it.
  */
 let hostAuthority: string | null = null;
+/** Window the live view is watching; re-sent on every welcome because the host drops watches with the socket. */
+let watchingWindow: number | null = null;
 
 const commandQueue = new CommandQueue();
 const socket = new RelaySocket();
@@ -54,6 +58,7 @@ function imageKey(sessionId: string, id: string): string {
 
 const routeAgentFrame = createAgentFrameRouter(useAgentsStore.getState(), (message) => socket.send(encode(message)));
 const routeDropFrame = createDropFrameRouter(useDropsStore.getState());
+const routeScreenFrame = createScreenFrameRouter(useScreenStore.getState(), () => watchingWindow);
 const discovery = new Discovery({
   onCandidate: (service) => {
     currentCandidate = service;
@@ -94,10 +99,12 @@ socket.onMessage = (data) => {
     imagesInFlight.clear();
     // The host owns the drop history; the phone never trusts its copy across a (re)connection.
     socket.send(encode({ t: "drop.list" }));
+    if (watchingWindow !== null) socket.send(encode({ t: "screen.watch", windowId: watchingWindow }));
   }
   if (message.t === "agent.image") imagesInFlight.delete(imageKey(message.sessionId, message.id));
   routeAgentFrame(message);
   routeDropFrame(message);
+  routeScreenFrame(message);
   void dispatch({ type: "server", message });
 };
 
@@ -232,6 +239,9 @@ async function retarget(id: string | null): Promise<void> {
   commandQueue.cancelAll();
   useAgentsStore.getState().applyWelcome(0, []);
   useDropsStore.getState().setAll([]);
+  useScreenStore.getState().setList([], null);
+  watchingWindow = null;
+  useScreenStore.getState().clearWatch();
   await resetSession();
 }
 
@@ -289,6 +299,29 @@ export function requestAgentOptions(sessionId: string): void {
 export function requestDrops(): void {
   if (useConnectionStore.getState().status !== "connected") return;
   socket.send(encode({ t: "drop.list" }));
+}
+
+/** Ephemeral; the answer lands in `useScreenStore().windows`. */
+export function requestScreenWindows(): void {
+  if (useConnectionStore.getState().status !== "connected") return;
+  socket.send(encode({ t: "screen.list" }));
+}
+
+/**
+ * Starts streaming `windowId` into `useScreenStore().frame`, replacing any earlier watch. Survives
+ * reconnects (re-sent on welcome) until `stopScreenWatch`.
+ */
+export function watchScreen(windowId: number): void {
+  watchingWindow = windowId;
+  useScreenStore.getState().clearWatch();
+  if (useConnectionStore.getState().status === "connected") socket.send(encode({ t: "screen.watch", windowId }));
+}
+
+export function stopScreenWatch(): void {
+  if (watchingWindow === null) return;
+  watchingWindow = null;
+  useScreenStore.getState().clearWatch();
+  if (useConnectionStore.getState().status === "connected") socket.send(encode({ t: "screen.stop" }));
 }
 
 /**

@@ -233,9 +233,14 @@ export class SessionMachine {
       case "drop.new":
       case "drop.removed":
       case "drop.list":
+      case "board.snapshot":
+      case "board.delta":
+      case "screen.list":
+      case "screen.frame":
+      case "screen.ended":
       case "ack":
       case "nack":
-        // Agent and drop frames are routed to their stores and ack/nack to CommandQueue by index.ts.
+        // Agent, drop, board and screen frames are routed to their stores and ack/nack to CommandQueue by index.ts.
         return [];
     }
   }
