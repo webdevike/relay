@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { View, type ViewStyle } from "react-native";
+import { View, type StyleProp, type ViewStyle } from "react-native";
 import { useColors } from "@/theme";
 
 export const CUTOUT_GAP = 4;
@@ -9,7 +9,7 @@ export interface CutoutProps {
   size: number;
   /** Content width for a pill; omit for a circle. */
   width?: number;
-  style: ViewStyle;
+  style: StyleProp<ViewStyle>;
   children: ReactNode;
 }
 

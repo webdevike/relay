@@ -752,7 +752,7 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
                   />
                 </Cutout>
                 {subagentsShown && (
-                  <Cutout size={SUBAGENTS_SIZE} style={styles.subagentsButton}>
+                  <Cutout size={SUBAGENTS_SIZE} style={[styles.subagentsButton, { left: chatWidth / 2 + SUBAGENTS_OFFSET - SUBAGENTS_NOTCH_SIZE / 2 }]}>
                     <GestureDetector gesture={subagentsTap}>
                       <View
                         accessible
@@ -828,8 +828,9 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
           </NotchedSurface>
         )}
       </KeyboardAvoidingView>
+      {subagentsOpen && subagents.length > 0 && (
       <SubagentsSheet
-        visible={subagentsOpen && subagents.length > 0}
+        visible
         subagents={subagents}
         onClose={() => {
           setSubagentsOpen(false);
@@ -848,6 +849,7 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
           }
         }}
       />
+      )}
       <AgentSettingsSheet
         sessionId={settingsFor}
         onClose={() => {
@@ -943,8 +945,6 @@ const styles = StyleSheet.create({
   },
   /** Subagents button on the seam, right of the mic. */
   subagentsButton: {
-    left: "50%",
-    marginLeft: SUBAGENTS_OFFSET - SUBAGENTS_NOTCH_SIZE / 2,
     // Ring centred on the seam, like the mic's.
     top: -(SUBAGENTS_SIZE / 2 + CUTOUT_GAP + spacing.sm / 2),
   },
