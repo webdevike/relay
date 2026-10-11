@@ -5,7 +5,7 @@
  * the host. Frames replace each other in `useScreenStore`, so nothing queues on the phone.
  */
 import { useEffect, useRef, useState } from "react";
-import { FlatList, Image, RefreshControl, StyleSheet, TextInput, View, type LayoutRectangle } from "react-native";
+import { FlatList, RefreshControl, StyleSheet, TextInput, View, type LayoutRectangle } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { SymbolView } from "expo-symbols";
 import type { InputEvent, ScreenError, ScreenWindow } from "@relay/protocol";
