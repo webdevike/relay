@@ -10,10 +10,13 @@ import { ScreenWindow, type ScreenError } from "@relay/protocol";
 import { z } from "zod";
 import type { ScreenCapture, ScreenFrame, ScreenInput, ScreenWatch } from "../seams";
 
-const FPS = 10;
+/** High enough that the cursor and scrolling feel live; idle windows send nothing, so it is cheap. */
+const FPS = 30;
 /** iPhone Pro Max portrait width in pixels; frames never go wider. */
 const MAX_WIDTH = 1170;
 const HEADER = 12;
+/** Length word marking a cursor packet (RelayScreen.swift `Wire`): the other words are Float32 x,y. */
+const CURSOR = 0xffff_ffff;
 
 /** Exit codes from RelayScreen.swift. */
 function errorFor(code: number | null): ScreenError {
@@ -34,7 +37,7 @@ export function findScreenHelper(): string | null {
 /** Stands in on hosts without the helper: every request reports `unavailable`. */
 export const NO_SCREEN: ScreenCapture = {
   list: () => Promise.resolve({ windows: [], error: "unavailable" }),
-  watch: (_windowId, _onFrame, onEnd) => {
+  watch: (_windowId, _onFrame, _onCursor, onEnd) => {
     queueMicrotask(() => {
       onEnd("unavailable");
     });
@@ -67,7 +70,12 @@ export class HelperScreenCapture implements ScreenCapture {
     return { windows: parsed.data };
   }
 
-  watch(windowId: number, onFrame: (frame: ScreenFrame) => void, onEnd: (error: ScreenError) => void): ScreenWatch {
+  watch(
+    windowId: number,
+    onFrame: (frame: ScreenFrame) => void,
+    onCursor: (x: number, y: number) => void,
+    onEnd: (error: ScreenError) => void,
+  ): ScreenWatch {
     // An object, not a `let`: the frame loop reads it after `stop`/exit flip it from other closures.
     const ended = { stopped: false };
     const child = Bun.spawn([this.helper, "watch", String(windowId), String(FPS), String(MAX_WIDTH)], {
@@ -82,6 +90,13 @@ export class HelperScreenCapture implements ScreenCapture {
         while (pending.length >= HEADER) {
           const view = new DataView(pending.buffer, pending.byteOffset, HEADER);
           const length = view.getUint32(0);
+          if (length === CURSOR) {
+            const x = view.getFloat32(4);
+            const y = view.getFloat32(8);
+            pending = pending.subarray(HEADER);
+            if (!ended.stopped) onCursor(x, y);
+            continue;
+          }
           if (pending.length < HEADER + length) break;
           const frame: ScreenFrame = {
             width: view.getUint32(4),

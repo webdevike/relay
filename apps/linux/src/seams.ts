@@ -38,8 +38,16 @@ export interface ScreenWatch {
 /** Window capture for the live view (ScreenCaptureKit through the `relay-screen` helper on macOS). */
 export interface ScreenCapture {
   list(): Promise<{ windows: ScreenWindow[]; error?: ScreenError }>;
-  /** Frames flow to `onFrame` until `stop`, or until capture ends on its own, reported once via `onEnd`. */
-  watch(windowId: number, onFrame: (frame: ScreenFrame) => void, onEnd: (error: ScreenError) => void): ScreenWatch;
+  /**
+   * Frames flow to `onFrame` and cursor positions (normalized over the window, outside 0..1 when
+   * off it) to `onCursor` until `stop`, or until capture ends on its own, reported once via `onEnd`.
+   */
+  watch(
+    windowId: number,
+    onFrame: (frame: ScreenFrame) => void,
+    onCursor: (x: number, y: number) => void,
+    onEnd: (error: ScreenError) => void,
+  ): ScreenWatch;
 }
 
 /** Consumes ephemeral trackpad input. Must be cheap and never block; drop rather than queue. */

@@ -4,8 +4,9 @@
 //
 //   relay-screen list                  JSON array of {id, app, title, width, height}, front to back
 //   relay-screen watch <id> [fps] [w]  frames on stdout until stdin closes: per frame a 12-byte
-//                                      big-endian header (jpeg length, width, height) + the JPEG.
-//                                      stdin takes one JSON input command per line (see `Input`).
+//                                      big-endian header (jpeg length, width, height) + the JPEG,
+//                                      plus cursor packets (see `Wire`). stdin takes one JSON input
+//                                      command per line (see `Input`), handled in this process.
 //   relay-screen request               asks macOS for Screen Recording access; prints true/false
 import AppKit
 import ApplicationServices
@@ -65,11 +66,57 @@ func list() async {
   FileHandle.standardOutput.write(Data("\n".utf8))
 }
 
+/// stdout is shared by the frame queue and the input thread; every packet goes out whole under one lock.
+/// Packet: 12-byte big-endian header (length, width, height) + JPEG, or a cursor packet whose
+/// length is 0xFFFFFFFF and whose other two words are the cursor's x,y as Float32 bit patterns,
+/// normalized over the window (outside 0..1 when the cursor is off it).
+enum Wire {
+  static let lock = NSLock()
+  static var lastCursor: CGPoint?
+
+  static func write(_ words: [UInt32], _ body: Data = Data()) {
+    var packet = Data(capacity: 12 + body.count)
+    for value in words { withUnsafeBytes(of: value.bigEndian) { packet.append(contentsOf: $0) } }
+    packet.append(body)
+    lock.lock(); defer { lock.unlock() }
+    FileHandle.standardOutput.write(packet)
+  }
+
+  /// Window bounds as of the last frame; moves reuse them so a move costs no window-server query.
+  static var bounds: CGRect?
+
+  /// Sends where the cursor sits over `windowID` (`at` when the caller just put it there), unless
+  /// it has not moved since the last packet. `refresh` re-reads the window's bounds.
+  static func cursor(_ windowID: CGWindowID, at known: CGPoint? = nil, refresh: Bool = false) {
+    lock.lock()
+    var frame = bounds
+    lock.unlock()
+    if refresh || frame == nil { frame = windowInfo(windowID)?.0 }
+    guard let frame, frame.width > 0, frame.height > 0 else { return }
+    let at = known ?? CGEvent(source: nil)?.location ?? .zero
+    let point = CGPoint(x: (at.x - frame.minX) / frame.width, y: (at.y - frame.minY) / frame.height)
+    lock.lock()
+    bounds = frame
+    let changed = lastCursor != point
+    lastCursor = point
+    lock.unlock()
+    if changed { write([0xFFFF_FFFF, Float32(point.x).bitPattern, Float32(point.y).bitPattern]) }
+  }
+}
+
+/// Global bounds (top-left origin, the CGEvent space) and owner pid of a window, now.
+func windowInfo(_ windowID: CGWindowID) -> (CGRect, pid_t)? {
+  guard let info = (CGWindowListCopyWindowInfo([.optionIncludingWindow], windowID) as? [[String: Any]])?.first,
+        let dict = info[kCGWindowBounds as String] as? NSDictionary,
+        let bounds = CGRect(dictionaryRepresentation: dict),
+        let pid = info[kCGWindowOwnerPID as String] as? pid_t else { return nil }
+  return (bounds, pid)
+}
+
 final class FrameWriter: NSObject, SCStreamOutput, SCStreamDelegate {
   let windowID: CGWindowID
   let context = CIContext(options: [.cacheIntermediates: false])
   let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
-  let out = FileHandle.standardOutput
 
   init(windowID: CGWindowID) { self.windowID = windowID }
 
@@ -82,11 +129,9 @@ final class FrameWriter: NSObject, SCStreamOutput, SCStreamDelegate {
     let image = CIImage(cvPixelBuffer: pixels)
     let quality = CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String)
     guard let jpeg = context.jpegRepresentation(of: image, colorSpace: colorSpace, options: [quality: 0.55]) else { return }
-    var header = Data(capacity: 12)
-    for value in [UInt32(jpeg.count), UInt32(CVPixelBufferGetWidth(pixels)), UInt32(CVPixelBufferGetHeight(pixels))] {
-      withUnsafeBytes(of: value.bigEndian) { header.append(contentsOf: $0) }
-    }
-    out.write(header + jpeg)
+    // The phone draws the cursor itself (captured cursors trail input by a frame), so keep it current.
+    Wire.cursor(windowID, refresh: true)
+    Wire.write([UInt32(jpeg.count), UInt32(CVPixelBufferGetWidth(pixels)), UInt32(CVPixelBufferGetHeight(pixels))], jpeg)
   }
 
   func stream(_: SCStream, didStopWithError error: Error) {
@@ -112,7 +157,8 @@ func watch(_ id: CGWindowID, fps: Int, maxWidth: Int) async {
   config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(max(1, fps)))
   config.pixelFormat = kCVPixelFormatType_32BGRA
   config.queueDepth = 3
-  config.showsCursor = true
+  // The phone overlays its own cursor from cursor packets, ahead of the frames.
+  config.showsCursor = false
   let writer = FrameWriter(windowID: id)
   let stream = SCStream(filter: filter, configuration: config, delegate: writer)
   do {
@@ -160,7 +206,7 @@ final class Input {
     if kind == "scroll", json["x"] == nil || json["y"] == nil {
       return scroll(at: cursor(), dx: (json["dx"] as? Double) ?? 0, dy: (json["dy"] as? Double) ?? 0)
     }
-    guard let (bounds, pid) = windowInfo() else { return log("window \(windowID) gone; input dropped") }
+    guard let (bounds, pid) = windowInfo(windowID) else { return log("window \(windowID) gone; input dropped") }
     focus(pid: pid, bounds: bounds)
     let at = { (x: Any?, y: Any?) -> CGPoint in
       let nx = (x as? Double) ?? 0.5, ny = (y as? Double) ?? 0.5
@@ -206,7 +252,8 @@ final class Input {
     var count: UInt32 = 0
     CGGetActiveDisplayList(16, &ids, &count)
     let screens = ids.prefix(Int(count)).map { CGDisplayBounds($0) }
-    let target = CGPoint(x: cursor().x + dx, y: cursor().y + dy)
+    let start = cursor()
+    let target = CGPoint(x: start.x + dx, y: start.y + dy)
     // Stay on the display containing the target, else pull back onto the nearest one.
     let clamped = screens.contains(where: { $0.contains(target) }) ? target : screens.map { bounds in
       CGPoint(x: min(max(target.x, bounds.minX), bounds.maxX - 1), y: min(max(target.y, bounds.minY), bounds.maxY - 1))
@@ -215,6 +262,8 @@ final class Input {
     event?.setIntegerValueField(.mouseEventDeltaX, value: Int64(dx.rounded()))
     event?.setIntegerValueField(.mouseEventDeltaY, value: Int64(dy.rounded()))
     event?.post(tap: .cghidEventTap)
+    // Tell the phone right away; it draws the cursor from this instead of waiting for a frame.
+    Wire.cursor(windowID, at: clamped)
   }
 
   func click(right: Bool) {
@@ -230,14 +279,6 @@ final class Input {
     post(event)
   }
 
-  /// Global bounds (top-left origin, the CGEvent space) and owner pid of the watched window, now.
-  func windowInfo() -> (CGRect, pid_t)? {
-    guard let info = (CGWindowListCopyWindowInfo([.optionIncludingWindow], windowID) as? [[String: Any]])?.first,
-          let dict = info[kCGWindowBounds as String] as? NSDictionary,
-          let bounds = CGRect(dictionaryRepresentation: dict),
-          let pid = info[kCGWindowOwnerPID as String] as? pid_t else { return nil }
-    return (bounds, pid)
-  }
 
   /// Brings the app forward and raises the AX window matching `bounds`, so input lands in it.
   func focus(pid: pid_t, bounds: CGRect) {

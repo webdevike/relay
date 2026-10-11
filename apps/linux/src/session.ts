@@ -653,6 +653,10 @@ export class ClientSession {
           jpeg: Buffer.from(frame.jpeg).toString("base64"),
         });
       },
+      // Tiny and latency-critical: sent even when frames are being skipped for backlog.
+      (x, y) => {
+        if (!this.closed && this.screenWatch === watch) this.sink.send({ t: "screen.cursor", windowId, x, y });
+      },
       (error) => {
         if (this.screenWatch !== watch) return;
         this.screenWatch = null;

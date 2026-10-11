@@ -618,6 +618,12 @@ export const ServerMessage = z.discriminatedUnion("t", [
     height: z.number().int().positive(),
     jpeg: nonEmpty,
   }),
+  /**
+   * Where the host cursor is over the watched window, normalized (outside 0..1 when off it).
+   * Sent right after every trackpad move and before frames, so the phone draws the cursor itself
+   * (frames are captured without one) at input speed rather than frame speed.
+   */
+  z.object({ t: z.literal("screen.cursor"), windowId: z.number().int().nonnegative(), x: z.number(), y: z.number() }),
   /** The watch ended without the phone asking (window closed, permission missing, capture died). */
   z.object({ t: z.literal("screen.ended"), windowId: z.number().int().nonnegative(), error: ScreenError }),
   z.object({ t: z.literal("ack"), id: nonEmpty }),

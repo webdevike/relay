@@ -615,11 +615,11 @@ describe("boards", () => {
 
 describe("screen", () => {
   class FakeScreen implements ScreenCapture {
-    readonly watches: { windowId: number; stopped: boolean; inputs: ScreenInput[]; frame: (jpeg: number[]) => void; end: (error: "gone") => void }[] = [];
+    readonly watches: { windowId: number; stopped: boolean; inputs: ScreenInput[]; frame: (jpeg: number[]) => void; cursor: (x: number, y: number) => void; end: (error: "gone") => void }[] = [];
     list(): Promise<{ windows: { id: number; app: string; title: string; width: number; height: number }[] }> {
       return Promise.resolve({ windows: [{ id: 7, app: "Arc", title: "Work", width: 800, height: 600 }] });
     }
-    watch(windowId: number, onFrame: (frame: { jpeg: Uint8Array; width: number; height: number }) => void, onEnd: (error: "gone") => void): ScreenWatch {
+    watch(windowId: number, onFrame: (frame: { jpeg: Uint8Array; width: number; height: number }) => void, onCursor: (x: number, y: number) => void, onEnd: (error: "gone") => void): ScreenWatch {
       const entry = {
         windowId,
         stopped: false,
@@ -627,6 +627,7 @@ describe("screen", () => {
         frame: (jpeg: number[]) => {
           onFrame({ jpeg: new Uint8Array(jpeg), width: 4, height: 3 });
         },
+        cursor: onCursor,
         end: onEnd,
       };
       this.watches.push(entry);
@@ -640,6 +641,16 @@ describe("screen", () => {
       };
     }
   }
+
+  it("forwards cursor positions, even while frames are skipped for backlog", () => {
+    const screen = new FakeScreen();
+    const h = harness({ screen });
+    pair(h);
+    h.session.receive({ t: "screen.watch", windowId: 7 });
+    h.sink.buffered = 10_000_000;
+    screen.watches[0]?.cursor(0.25, 0.5);
+    expect(h.sink.last()).toEqual({ t: "screen.cursor", windowId: 7, x: 0.25, y: 0.5 });
+  });
 
   it("forwards tap, scroll and key input to the watched window only", () => {
     const screen = new FakeScreen();
