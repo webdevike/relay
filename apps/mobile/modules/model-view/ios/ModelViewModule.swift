@@ -55,6 +55,9 @@ final class ModelSceneView: ExpoView, UIGestureRecognizerDelegate {
   private let camera = SCNNode()
   private var src: String?
   private var task: URLSessionDataTask?
+  /// GLTFKit2's SceneKit bridge hands SceneKit index data that points into the asset's buffers
+  /// without copying, so the asset must outlive the scene or the meshes draw from freed memory.
+  private var asset: GLTFAsset?
   private var radius: Float = 0
   private var fitDistance: Float = 1
   private var distance: Float = 1
@@ -109,6 +112,7 @@ final class ModelSceneView: ExpoView, UIGestureRecognizerDelegate {
     self.src = src
     task?.cancel()
     sceneView.scene = nil
+    asset = nil
     guard let url = URL(string: src), url.scheme == "http" || url.scheme == "https" else {
       fail(src, "This model link is not supported.")
       return
@@ -120,21 +124,23 @@ final class ModelSceneView: ExpoView, UIGestureRecognizerDelegate {
         DispatchQueue.main.async { self?.fail(src, "Could not download this model.") }
         return
       }
+      let asset: GLTFAsset
       let scene: SCNScene
       do {
-        let asset = try GLTFAsset(data: data, options: [.createNormalsIfAbsentKey: true])
+        asset = try GLTFAsset(data: data, options: [.createNormalsIfAbsentKey: true])
         scene = SCNScene(gltfAsset: asset)
       } catch {
         DispatchQueue.main.async { self?.fail(src, "Could not read this model.") }
         return
       }
-      DispatchQueue.main.async { self?.show(scene, for: src) }
+      DispatchQueue.main.async { self?.show(scene, from: asset, for: src) }
     }
     task?.resume()
   }
 
-  private func show(_ loaded: SCNScene, for src: String) {
+  private func show(_ loaded: SCNScene, from asset: GLTFAsset, for src: String) {
     guard src == self.src else { return }
+    self.asset = asset
     let model = SCNNode()
     for child in loaded.rootNode.childNodes {
       model.addChildNode(child)
@@ -155,6 +161,17 @@ final class ModelSceneView: ExpoView, UIGestureRecognizerDelegate {
     scene.lightingEnvironment.contents = Self.environment
     scene.lightingEnvironment.intensity = 1.5
     scene.rootNode.addChildNode(turntable)
+    // GLTFKit2's converted nodes never draw in this view (the same mesh on a plain SCNNode does),
+    // so each mesh moves onto a fresh node with the same transform relative to `model`.
+    var meshes: [SCNNode] = []
+    model.enumerateHierarchy { node, _ in
+      guard let geometry = node.geometry else { return }
+      let fresh = SCNNode(geometry: geometry)
+      fresh.simdTransform = node.simdConvertTransform(matrix_identity_float4x4, to: model)
+      node.geometry = nil
+      meshes.append(fresh)
+    }
+    meshes.forEach { model.addChildNode($0) }
     scene.rootNode.addChildNode(orbit)
 
     yaw = 0
