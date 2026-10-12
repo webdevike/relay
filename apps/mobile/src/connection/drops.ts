@@ -37,11 +37,19 @@ export function createDropFrameRouter(store: DropsStoreActions): DropFrameRouter
       case "agent.message.update":
       case "agent.options":
       case "agent.image":
+      case "agent.ask":
+      case "agent.ask.resolved":
+      case "board.snapshot":
+      case "board.delta":
+      case "screen.list":
+      case "screen.frame":
+      case "screen.ended":
+      case "screen.cursor":
       case "ack":
       case "nack":
       case "pong":
-        // Session, command and agent traffic; owned by SessionMachine, CommandQueue and the
-        // agent frame router.
+        // Session, command, agent, board and screen traffic; owned by SessionMachine, CommandQueue
+        // and the other routers.
         return;
     }
   };

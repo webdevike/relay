@@ -257,6 +257,38 @@ export const Snapshot = z.object({
 export type Snapshot = z.infer<typeof Snapshot>;
 
 // ---------------------------------------------------------------------------------------------
+// Live view: the phone watches one host window. `screen.list` asks for the capturable windows;
+// `screen.watch` starts a stream of `screen.frame` JPEGs (base64, scaled to about phone width,
+// only sent when the window changed) until `screen.stop`, another `screen.watch`, or the socket
+// closes. The host drops frames while the socket is backed up, so the phone always sees the latest.
+// ---------------------------------------------------------------------------------------------
+
+export const ScreenWindow = z.object({
+  /** CGWindowID; stable while the window lives. */
+  id: z.number().int().nonnegative(),
+  app: z.string(),
+  title: z.string(),
+  /** Size in points. */
+  width: z.number(),
+  height: z.number(),
+});
+export type ScreenWindow = z.infer<typeof ScreenWindow>;
+
+/**
+ * Why a watch or list failed. `denied`: the host lacks Screen Recording permission;
+ * `gone`: the window closed; `unavailable`: this host cannot capture (no helper, not a Mac);
+ * `failed`: anything else.
+ */
+export const ScreenError = z.enum(["denied", "gone", "unavailable", "failed"]);
+export type ScreenError = z.infer<typeof ScreenError>;
+
+/** Named keys the live view can press on the watched window's app. */
+export const ScreenKey = z.enum(["return", "delete", "tab", "escape", "left", "right", "up", "down"]);
+export type ScreenKey = z.infer<typeof ScreenKey>;
+
+const unit = z.number().min(0).max(1);
+
+// ---------------------------------------------------------------------------------------------
 // Boards: live dashboards. A board is a titled grid of widget tiles the host stores as JSON and
 // streams to subscribed clients. One global `rev` covers every board; each successful write bumps
 // it by one and sends the full changed board (or its removal) as a `board.delta`.
@@ -471,6 +503,39 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("board.subscribe") }),
   /** Re-request every board (after a rev gap); answered by `board.snapshot`. */
   z.object({ t: z.literal("board.get") }),
+  /** Ask for the capturable host windows; answered by `screen.list`. */
+  z.object({ t: z.literal("screen.list") }),
+  /** Stream `windowId` as `screen.frame`s, replacing any watch already running on this socket. */
+  z.object({ t: z.literal("screen.watch"), windowId: z.number().int().nonnegative() }),
+  /** Stop the running watch, if any. */
+  z.object({ t: z.literal("screen.stop") }),
+  /**
+   * Click the watched window at `x`,`y`, normalized 0..1 over its frame (0,0 top-left). Ephemeral
+   * like `input`: ignored unless `windowId` is the window this socket is watching.
+   */
+  z.object({ t: z.literal("screen.tap"), windowId: z.number().int().nonnegative(), x: unit, y: unit }),
+  /**
+   * Scroll the watched window by `dx`,`dy` points of the host window (natural direction: positive
+   * `dy` moves content down), with the pointer at `x`,`y` (normalized; the window centre if omitted).
+   */
+  z.object({
+    t: z.literal("screen.scroll"),
+    windowId: z.number().int().nonnegative(),
+    dx: z.number(),
+    dy: z.number(),
+    x: unit.optional(),
+    y: unit.optional(),
+  }),
+  /** Type `text` or press `key` (exactly one) into the watched window's app. */
+  z.object({ t: z.literal("screen.key"), text: z.string().min(1).max(2000).optional(), key: ScreenKey.optional() }),
+  /**
+   * Trackpad: move the host cursor by raw phone `dx`,`dy` points at phone time `at`; the host
+   * accelerates them (PointerModel, like `input` moves) and clamps to the displays. Ephemeral;
+   * needs a running watch on this socket.
+   */
+  z.object({ t: z.literal("screen.move"), dx: z.number().finite(), dy: z.number().finite(), at: ms }),
+  /** Trackpad: click `button` wherever the host cursor is. */
+  z.object({ t: z.literal("screen.click"), button: z.enum(["left", "right"]) }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 
@@ -543,6 +608,24 @@ export const ServerMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("board.snapshot"), rev: z.number().int(), boards: z.array(Board) }),
   /** One write: the changed board in full, or the slug that was deleted (exactly one of the two). */
   z.object({ t: z.literal("board.delta"), rev: z.number().int(), board: Board.optional(), removed: BoardSlug.optional() }),
+  /** Answer to `screen.list`: capturable windows, front to back. `error` set means none could be listed. */
+  z.object({ t: z.literal("screen.list"), windows: z.array(ScreenWindow), error: ScreenError.optional() }),
+  /** One captured frame of the watched window: base64 JPEG, `width` x `height` pixels. */
+  z.object({
+    t: z.literal("screen.frame"),
+    windowId: z.number().int().nonnegative(),
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
+    jpeg: nonEmpty,
+  }),
+  /**
+   * Where the host cursor is over the watched window, normalized (outside 0..1 when off it).
+   * Sent right after every trackpad move and before frames, so the phone draws the cursor itself
+   * (frames are captured without one) at input speed rather than frame speed.
+   */
+  z.object({ t: z.literal("screen.cursor"), windowId: z.number().int().nonnegative(), x: z.number(), y: z.number() }),
+  /** The watch ended without the phone asking (window closed, permission missing, capture died). */
+  z.object({ t: z.literal("screen.ended"), windowId: z.number().int().nonnegative(), error: ScreenError }),
   z.object({ t: z.literal("ack"), id: nonEmpty }),
   z.object({ t: z.literal("nack"), id: nonEmpty, error: AckError }),
   z.object({ t: z.literal("pong"), ts: ms, serverTs: ms }),

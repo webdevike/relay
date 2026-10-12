@@ -114,6 +114,15 @@ export default function Home() {
             }}
           />
         </View>
+        <Tile
+          symbol="macwindow"
+          title="Live view"
+          caption="Watch a host window"
+          size="wide"
+          onPress={() => {
+            router.push("/screen");
+          }}
+        />
       </View>
     </Screen>
   );

@@ -23,6 +23,7 @@ import type { AgentsDeltaTracker } from "./agents/delta-tracker";
 import type { BoardDelta, FileBoardStore } from "./boards/store";
 import type { CommandDedupStore } from "./dedup";
 import type { PairingCoordinator } from "./pairing";
+import { PointerModel } from "./input/pointer-model";
 import {
   AckFailure,
   type AgentProvider,
@@ -33,6 +34,8 @@ import {
   type InputAccess,
   type InputSink,
   type PushRegistry,
+  type ScreenCapture,
+  type ScreenWatch,
   type TextInjecting,
 } from "./seams";
 
@@ -56,6 +59,8 @@ export interface SessionDeps {
   /** Peer IP; tailnet addresses (Tailscale CGNAT / ULA ranges) pair without a PIN. */
   readonly remoteAddress: string;
   readonly dedup: CommandDedupStore;
+  /** Window capture for the live view; `NO_SCREEN` where the host has none. */
+  readonly screen: ScreenCapture;
 }
 
 /** Clock and scheduling seams so tests drive time deterministically. */
@@ -68,6 +73,10 @@ export interface SessionClock {
 export const PAIRING_TIMEOUT_MS = 120_000;
 const MAX_PIN_ATTEMPTS = 3;
 const EMPTY_OPTIONS: AgentOptions = { models: [], skills: [] };
+/** Skip live-view frames while this much is still queued on the socket: the phone gets the latest, not a backlog. */
+const MAX_SCREEN_BACKLOG = 512 * 1024;
+/** Trackpad quiet this long switches live-view frames back to full size and quality. */
+const SCREEN_LITE_IDLE_MS = 600;
 
 function noInputDevice(): AckFailure {
   return new AckFailure({
@@ -115,6 +124,15 @@ export class ClientSession {
   private readonly subscriptions = new Map<string, number>();
   /** Set by `board.subscribe`; only subscribed sockets get `board.delta`. */
   private boardsSubscribed = false;
+  /** The live-view capture this socket is watching, if any; at most one per socket. */
+  private screenWatch: ScreenWatch | null = null;
+  /** Window `screenWatch` captures; screen input naming any other window is dropped. */
+  private screenWindowId: number | null = null;
+  /** Live-view trackpad acceleration, carried across `screen.move`s like the uinput trackpad's. */
+  private readonly screenPointer = new PointerModel();
+  private lastScreenMoveAt: number | null = null;
+  /** Set while lite (trackpad-sized) frames are on; cancels the switch back to full frames. */
+  private cancelScreenLite: (() => void) | null = null;
 
   constructor(
     private readonly sink: FrameSink,
@@ -221,6 +239,7 @@ export class ClientSession {
     if (this.closed) return;
     this.endPairingIfPending();
     this.stopPairingTimeout();
+    this.stopScreen();
     this.closed = true;
     this.onClose(this);
   }
@@ -432,6 +451,52 @@ export class ClientSession {
       case "board.get":
         this.sink.send(this.deps.boards?.snapshot() ?? { t: "board.snapshot", rev: 0, boards: [] });
         break;
+      case "screen.list":
+        void this.deps.screen.list().then(
+          (result) => {
+            if (!this.closed) this.sink.send({ t: "screen.list", ...result });
+          },
+          () => {
+            if (!this.closed) this.sink.send({ t: "screen.list", windows: [], error: "failed" });
+          },
+        );
+        break;
+      case "screen.watch":
+        this.watchScreen(message.windowId);
+        break;
+      case "screen.stop":
+        this.stopScreen();
+        break;
+      // Input only reaches the window this socket is watching; anything else is stale and dropped.
+      case "screen.tap":
+        if (message.windowId === this.screenWindowId) this.screenWatch?.input({ t: "tap", x: message.x, y: message.y });
+        break;
+      case "screen.scroll":
+        if (message.windowId === this.screenWindowId)
+          this.screenWatch?.input({
+            t: "scroll",
+            dx: message.dx,
+            dy: message.dy,
+            ...(message.x === undefined ? {} : { x: message.x }),
+            ...(message.y === undefined ? {} : { y: message.y }),
+          });
+        break;
+      case "screen.key":
+        if (message.text !== undefined) this.screenWatch?.input({ t: "text", text: message.text });
+        else if (message.key !== undefined) this.screenWatch?.input({ t: "key", key: message.key });
+        break;
+      case "screen.move": {
+        // Same acceleration curve as the full-screen trackpad (`input` moves).
+        const dt = this.lastScreenMoveAt === null ? 16 : Math.max(message.at - this.lastScreenMoveAt, 1);
+        this.lastScreenMoveAt = message.at;
+        const { dx, dy } = this.screenPointer.accelerate(message.dx, message.dy, dt);
+        if (dx !== 0 || dy !== 0) this.screenWatch?.input({ t: "move", dx, dy });
+        this.screenLite();
+        break;
+      }
+      case "screen.click":
+        this.screenWatch?.input({ t: "click", button: message.button });
+        break;
       case "hello":
       case "auth":
       case "pair.request":
@@ -579,6 +644,54 @@ export class ClientSession {
     return this.deps.drops;
   }
 
+  private watchScreen(windowId: number): void {
+    this.stopScreen();
+    const watch = this.deps.screen.watch(
+      windowId,
+      (frame) => {
+        if (this.closed || this.screenWatch !== watch || this.sink.buffered > MAX_SCREEN_BACKLOG) return;
+        this.sink.send({
+          t: "screen.frame",
+          windowId,
+          width: frame.width,
+          height: frame.height,
+          jpeg: Buffer.from(frame.jpeg).toString("base64"),
+        });
+      },
+      // Tiny and latency-critical: sent even when frames are being skipped for backlog.
+      (x, y) => {
+        if (!this.closed && this.screenWatch === watch) this.sink.send({ t: "screen.cursor", windowId, x, y });
+      },
+      (error) => {
+        if (this.screenWatch !== watch) return;
+        this.screenWatch = null;
+        this.screenWindowId = null;
+        if (!this.closed) this.sink.send({ t: "screen.ended", windowId, error });
+      },
+    );
+    this.screenWatch = watch;
+    this.screenWindowId = windowId;
+  }
+
+  /** Smaller frames while the trackpad is in use; back to full size once it rests for a moment. */
+  private screenLite(): void {
+    if (this.cancelScreenLite === null) this.screenWatch?.input({ t: "lite", on: true });
+    this.cancelScreenLite?.();
+    this.cancelScreenLite = this.clock.after(SCREEN_LITE_IDLE_MS, () => {
+      this.cancelScreenLite = null;
+      this.screenWatch?.input({ t: "lite", on: false });
+    });
+  }
+
+  private stopScreen(): void {
+    const watch = this.screenWatch;
+    this.screenWatch = null;
+    this.screenWindowId = null;
+    this.cancelScreenLite?.();
+    this.cancelScreenLite = null;
+    watch?.stop();
+  }
+
   private authenticate(deviceId: string): void {
     this.phase = { kind: "authenticated", deviceId };
     this.sink.send({ t: "welcome", state: this.snapshot() });
@@ -621,6 +734,7 @@ export class ClientSession {
   private fail(code: ErrorCode, message: string): void {
     this.endPairingIfPending();
     this.stopPairingTimeout();
+    this.stopScreen();
     this.closed = true;
     this.failure = `${code}: ${message}`;
     this.sink.send({ t: "error", code, message });

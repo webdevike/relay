@@ -8,12 +8,14 @@ import { join } from "node:path";
 import { FileBoardStore } from "../src/boards/store";
 import { CommandDedupStore } from "../src/dedup";
 import { PairingCoordinator } from "../src/pairing";
-import { AckFailure, type AgentConfigChange, type AgentProvider, type DeviceStore, type DropBox, type FrameSink, type InputSink, type PairedDevice, type PairingUI, type PushRegistry, type TextInjecting } from "../src/seams";
+import { AckFailure, type AgentConfigChange, type AgentProvider, type DeviceStore, type DropBox, type FrameSink, type InputSink, type PairedDevice, type PairingUI, type PushRegistry, type ScreenCapture, type ScreenInput, type ScreenWatch, type TextInjecting } from "../src/seams";
+import { NO_SCREEN } from "../src/screen/capture";
 import { ClientSession, PAIRING_TIMEOUT_MS, type SessionClock, type SessionDeps } from "../src/session";
 
 class RecordingSink implements FrameSink {
   readonly sent: ServerMessage[] = [];
   closed = false;
+  buffered = 0;
   private waiters: { readonly count: number; readonly resolve: () => void }[] = [];
   send(message: ServerMessage): void {
     if (this.closed) return;
@@ -100,6 +102,7 @@ interface HarnessOptions {
   push?: PushRegistry;
   drops?: DropBox;
   boards?: FileBoardStore;
+  screen?: ScreenCapture;
 }
 
 function harness(options: HarnessOptions = {}): Harness {
@@ -141,6 +144,7 @@ function harness(options: HarnessOptions = {}): Harness {
     pairing: new PairingCoordinator(ui),
     remoteAddress: options.remoteAddress ?? "192.168.1.20",
     dedup: options.dedup ?? new CommandDedupStore(),
+    screen: options.screen ?? NO_SCREEN,
   };
   const sink = new RecordingSink();
   const clock = new FakeClock();
@@ -606,5 +610,124 @@ describe("boards", () => {
     pair(h);
     h.session.receive({ t: "board.subscribe" });
     expect(h.sink.last()).toEqual({ t: "board.snapshot", rev: 0, boards: [] });
+  });
+});
+
+describe("screen", () => {
+  class FakeScreen implements ScreenCapture {
+    readonly watches: { windowId: number; stopped: boolean; inputs: ScreenInput[]; frame: (jpeg: number[]) => void; cursor: (x: number, y: number) => void; end: (error: "gone") => void }[] = [];
+    list(): Promise<{ windows: { id: number; app: string; title: string; width: number; height: number }[] }> {
+      return Promise.resolve({ windows: [{ id: 7, app: "Arc", title: "Work", width: 800, height: 600 }] });
+    }
+    watch(windowId: number, onFrame: (frame: { jpeg: Uint8Array; width: number; height: number }) => void, onCursor: (x: number, y: number) => void, onEnd: (error: "gone") => void): ScreenWatch {
+      const entry = {
+        windowId,
+        stopped: false,
+        inputs: [] as ScreenInput[],
+        frame: (jpeg: number[]) => {
+          onFrame({ jpeg: new Uint8Array(jpeg), width: 4, height: 3 });
+        },
+        cursor: onCursor,
+        end: onEnd,
+      };
+      this.watches.push(entry);
+      return {
+        stop: () => {
+          entry.stopped = true;
+        },
+        input: (event) => {
+          entry.inputs.push(event);
+        },
+      };
+    }
+  }
+
+  it("forwards cursor positions, even while frames are skipped for backlog", () => {
+    const screen = new FakeScreen();
+    const h = harness({ screen });
+    pair(h);
+    h.session.receive({ t: "screen.watch", windowId: 7 });
+    h.sink.buffered = 10_000_000;
+    screen.watches[0]?.cursor(0.25, 0.5);
+    expect(h.sink.last()).toEqual({ t: "screen.cursor", windowId: 7, x: 0.25, y: 0.5 });
+  });
+
+  it("forwards tap, scroll and key input to the watched window only", () => {
+    const screen = new FakeScreen();
+    const h = harness({ screen });
+    pair(h);
+    h.session.receive({ t: "screen.tap", windowId: 7, x: 0.5, y: 0.5 });
+    h.session.receive({ t: "screen.watch", windowId: 7 });
+    h.session.receive({ t: "screen.tap", windowId: 7, x: 0.25, y: 0.1 });
+    h.session.receive({ t: "screen.tap", windowId: 9, x: 0.25, y: 0.1 });
+    h.session.receive({ t: "screen.scroll", windowId: 7, dx: 0, dy: -40, x: 0.5, y: 0.5 });
+    h.session.receive({ t: "screen.key", text: "hello" });
+    h.session.receive({ t: "screen.key", key: "return" });
+    h.session.receive({ t: "screen.move", dx: 3, dy: -2, at: 1000 });
+    h.session.receive({ t: "screen.click", button: "right" });
+    h.session.receive({ t: "screen.move", dx: 1, dy: 1, at: 1100 });
+    h.clock.advance(600);
+    expect(screen.watches[0]?.inputs).toEqual([
+      { t: "tap", x: 0.25, y: 0.1 },
+      { t: "scroll", dx: 0, dy: -40, x: 0.5, y: 0.5 },
+      { t: "text", text: "hello" },
+      { t: "key", key: "return" },
+      // Accelerated by PointerModel: first move assumes 16 ms, gain ~1.5.
+      { t: "move", dx: 4, dy: -3 },
+      // Trackpad use switches to lite frames once, and back after it rests.
+      { t: "lite", on: true },
+      { t: "click", button: "right" },
+      { t: "move", dx: 1, dy: 1 },
+      { t: "lite", on: false },
+    ]);
+  });
+
+  it("lists windows, streams base64 frames, replaces and stops watches, and stops on disconnect", async () => {
+    const screen = new FakeScreen();
+    const h = harness({ screen });
+    pair(h);
+    const count = h.sink.sent.length;
+    h.session.receive({ t: "screen.list" });
+    await h.sink.sentCount(count + 1);
+    expect(h.sink.last()).toEqual({ t: "screen.list", windows: [{ id: 7, app: "Arc", title: "Work", width: 800, height: 600 }] });
+
+    h.session.receive({ t: "screen.watch", windowId: 7 });
+    screen.watches[0]?.frame([1, 2, 3]);
+    expect(h.sink.last()).toEqual({ t: "screen.frame", windowId: 7, width: 4, height: 3, jpeg: "AQID" });
+
+    // A backed-up socket skips frames instead of queueing them.
+    const before = h.sink.sent.length;
+    h.sink.buffered = 10_000_000;
+    screen.watches[0]?.frame([9]);
+    expect(h.sink.sent).toHaveLength(before);
+    h.sink.buffered = 0;
+
+    h.session.receive({ t: "screen.watch", windowId: 8 });
+    expect(screen.watches[0]?.stopped).toBe(true);
+    screen.watches[0]?.frame([1]);
+    expect(h.sink.sent).toHaveLength(before);
+
+    screen.watches[1]?.end("gone");
+    expect(h.sink.last()).toEqual({ t: "screen.ended", windowId: 8, error: "gone" });
+
+    h.session.receive({ t: "screen.watch", windowId: 7 });
+    h.session.receive({ t: "screen.stop" });
+    expect(screen.watches[2]?.stopped).toBe(true);
+
+    h.session.receive({ t: "screen.watch", windowId: 7 });
+    h.session.handleDisconnect();
+    expect(screen.watches[3]?.stopped).toBe(true);
+  });
+
+  it("a host without capture answers unavailable", async () => {
+    const h = harness();
+    pair(h);
+    const count = h.sink.sent.length;
+    h.session.receive({ t: "screen.list" });
+    await h.sink.sentCount(count + 1);
+    expect(h.sink.last()).toEqual({ t: "screen.list", windows: [], error: "unavailable" });
+    h.session.receive({ t: "screen.watch", windowId: 3 });
+    await h.sink.sentCount(count + 2);
+    expect(h.sink.last()).toEqual({ t: "screen.ended", windowId: 3, error: "unavailable" });
   });
 });

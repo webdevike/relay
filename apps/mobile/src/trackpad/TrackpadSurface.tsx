@@ -27,9 +27,11 @@ function toRawTouches(event: GestureTouchEvent, phase: TouchPhase): RawTouch[] {
 }
 
 export interface TrackpadSurfaceProps {
-  /** Entries of the wheel a still hold opens; `onWheel` gets the picked key. */
+  /** Entries of the wheel a still hold opens; `onWheel` gets the picked key. Empty: no wheel. */
   wheel: ActionWheelEntry[];
   onWheel: (key: string) => void;
+  /** Where batched events go; the full-screen trackpad's `sendInput` by default. */
+  send?: (events: InputEvent[]) => void;
 }
 
 /**
@@ -39,7 +41,7 @@ export interface TrackpadSurfaceProps {
  * (the only visual feedback is a discrete click flash) — so a UI-thread worklet hop would only
  * add a `scheduleOnRN` round-trip before doing the same JS work, not remove one.
  */
-export function TrackpadSurface({ wheel: entries, onWheel }: TrackpadSurfaceProps) {
+export function TrackpadSurface({ wheel: entries, onWheel, send = sendInput }: TrackpadSurfaceProps) {
   const colors = useColors();
   const status = useConnectionStore((state) => state.status);
   const connected = status === "connected";
@@ -56,7 +58,7 @@ export function TrackpadSurface({ wheel: entries, onWheel }: TrackpadSurfaceProp
     if (deadRef.current || bufferRef.current.length === 0) return;
     const batch = bufferRef.current;
     bufferRef.current = [];
-    sendInput(batch);
+    send(batch);
   };
 
   const scheduleFlush = (): void => {
@@ -141,8 +143,8 @@ export function TrackpadSurface({ wheel: entries, onWheel }: TrackpadSurfaceProp
       .onTouchesCancelled((event) => {
         feed(event, "cancelled");
       });
-    return Gesture.Simultaneous(touches, wheelGesture);
-  }, [model, wheelGesture]);
+    return entries.length === 0 ? touches : Gesture.Simultaneous(touches, wheelGesture);
+  }, [model, wheelGesture, entries.length]);
 
   const flashStyle = useAnimatedStyle(() => ({ opacity: flashOpacity.value }));
 
@@ -165,7 +167,7 @@ export function TrackpadSurface({ wheel: entries, onWheel }: TrackpadSurfaceProp
             </View>
           )}
         </View>
-        {wheel}
+        {entries.length > 0 && wheel}
       </View>
     </GestureDetector>
   );
