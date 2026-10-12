@@ -12,6 +12,8 @@ export {
   type DiffSpec,
   type EmailSpec,
   type EmailsSpec,
+  type GallerySpec,
+  type ModelSpec,
   type RowsSpec,
   type Series,
   type StackSpec,
@@ -20,5 +22,6 @@ export {
   type TicketSpec,
   type TicketsSpec,
   type Tone,
+  type VideoSpec,
   type WidgetSpec,
 } from "@relay/protocol";

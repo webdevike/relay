@@ -17,6 +17,7 @@ import { CompareSlider } from "./CompareSlider";
 import { DiffView } from "./DiffView";
 import { EmailList } from "./EmailList";
 import { Gallery } from "./Gallery";
+import { ModelViewer } from "./ModelViewer";
 import { VideoPlayer } from "./VideoPlayer";
 import type { BadgeSpec, CardSpec, ChartSpec, RowsSpec, StackSpec, StatSpec, TextSpec, TicketSpec, TicketsSpec, Tone, WidgetSpec } from "./widget";
 
@@ -50,6 +51,8 @@ function Node({ spec }: { spec: WidgetSpec }) {
       return <VideoPlayer spec={spec} />;
     case "gallery":
       return <Gallery spec={spec} />;
+    case "model":
+      return <ModelViewer spec={spec} />;
     case "text":
       return <TextBlock spec={spec} />;
     case "rows":

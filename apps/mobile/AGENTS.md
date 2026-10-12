@@ -17,6 +17,7 @@ Current primitives:
 - Links: `lib/links.ts` `openExternal`, `ui/LinkButton.tsx` (text / icon / overlay). Never call `Linking.openURL` from a widget.
 - Pagination: `ui/Pager.tsx` (`usePager`, `Pager`), `ui/PageControls.tsx` (`PageStepper`, `PageCounter`, `PageDots`). Never hand-roll a paging `ScrollView` or chevrons.
 - Media: `ui/ImageFrame.tsx`, `ui/VideoFrame.tsx` (aspect-sized `expo-video` surface, center play, spinner, full-screen corner button), `ui/MediaTransport.tsx` (`MediaTransport` row plus `PlayButton`, `SeekBar`; shared by audio and video, times via `lib/format.ts` `mediaClock`), `ui/MediaPlaceholder.tsx` (host-not-connected and failed states), `ui/ImageCaption.tsx`, `ui/OverlayTag.tsx` (corner labels/badges on media), `agents/ZoomableImage.tsx` (pinch/pan/double-tap), `agents/ImageViewer.tsx` (full-screen pager).
+- 3D: `ui/ModelView.tsx` (sized frame around the native glTF view in `modules/model-view`, SceneKit + GLTFKit2: fit to frame, drag orbits, pinch zooms, optional spin, spinner while loading, placeholder on failure). Never put a web view or three.js in a widget for 3D.
 - Existing: `ui/Pill`, `ui/IconButton` (`tone="overlay"` for white-on-glass controls over media), `ui/Text`, `ui/Row`, `ui/Button`, `ui/Sheet`.
 
 A widget file should read as layout: primitives wired to its spec, with no styling or gesture

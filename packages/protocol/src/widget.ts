@@ -100,6 +100,16 @@ const Gallery = z.object({
   images: z.array(GalleryImage).min(1).max(50),
 });
 
+/** Interactive 3D model (GLB, or glTF with embedded buffers): framed to fit, one-finger drag orbits,
+ * pinch zooms. `autoRotate` spins it on a turntable until touched; a bad value just leaves it still. */
+const Model = z.object({
+  widget: z.literal("model"),
+  src: MediaSrc,
+  title: z.string().optional(),
+  caption: z.string().optional(),
+  autoRotate: z.boolean().optional().catch(undefined),
+});
+
 /** A line of text. `style` picks the type scale; an unknown style degrades to body. */
 const TextNode = z.object({
   widget: z.literal("text"),
@@ -161,6 +171,7 @@ type Leaf =
   | z.infer<typeof Audio>
   | z.infer<typeof Video>
   | z.infer<typeof Gallery>
+  | z.infer<typeof Model>
   | z.infer<typeof TextNode>
   | z.infer<typeof Rows>
   | z.infer<typeof Badge>
@@ -209,6 +220,7 @@ const Node: z.ZodType<WidgetSpec, z.ZodTypeDef, unknown> = z.discriminatedUnion(
   Audio,
   Video,
   Gallery,
+  Model,
   TextNode,
   Rows,
   Badge,
@@ -228,6 +240,7 @@ export type CompareSpec = z.infer<typeof Compare>;
 export type AudioSpec = z.infer<typeof Audio>;
 export type VideoSpec = z.infer<typeof Video>;
 export type GallerySpec = z.infer<typeof Gallery>;
+export type ModelSpec = z.infer<typeof Model>;
 export type TextSpec = z.infer<typeof TextNode>;
 export type RowsSpec = z.infer<typeof Rows>;
 export type BadgeSpec = z.infer<typeof Badge>;

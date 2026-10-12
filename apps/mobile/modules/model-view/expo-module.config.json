@@ -1,0 +1,8 @@
+{
+  "platforms": ["apple"],
+  "apple": {
+    "podspecPath": ["ios/ModelView.podspec", "gltfkit2/GLTFKit2.podspec"],
+    "swiftModuleName": ["ModelView", "GLTFKit2"],
+    "modules": ["ModelViewModule"]
+  }
+}

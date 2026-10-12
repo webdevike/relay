@@ -1,8 +1,8 @@
 ---
 name: relay-widgets
 description: >
-  Render a native chart, stat card, paged ticket carousel, before/after image slider, or
-  audio player in the Relay phone app's chat by emitting a ```ui fenced block whose body
+  Render a native chart, stat card, paged ticket carousel, before/after image slider, audio
+  player, or interactive 3D model in the Relay phone app's chat by emitting a ```ui fenced block whose body
   is a JSON widget spec. Use when a reply is better shown as a bar/line chart, a headline
   metric, a swipeable list of ticket summaries (Linear issues, PRs), visual proof, or a
   clip Isaac should hear (TTS output, recordings) than as prose or a Markdown table. The Relay app
@@ -110,6 +110,19 @@ Image carousel for references (Dribbble shots, screenshots, mockups): one image 
 
 - `images`: 1 to 50 `{ src, title?, caption?, url? }`. `src` is a host drop path (share the file first, same as compare) or an absolute `https://` URL; local paths are rejected. `url` is the source page (http(s) only).
 - Prefer large sources (Dribbble CDN `resize=1600x1200`) so zoom stays sharp; the carousel frame is 4:3 and images fit inside it.
+
+## Model
+
+Interactive 3D model (GLB): fitted to a 4:3 frame, one-finger drag orbits it (turntable, tilt stops short of straight up/down), pinch zooms, a "3D" corner tag once loaded. Dragging on the model orbits it instead of scrolling the chat. Use it for 3D assets: Blender exports, product models, game props.
+
+```ui
+{"widget":"model","title":"Mug on a coaster","src":"/drops/<id>/<token>","caption":"Blender export · 54 KB","autoRotate":true}
+```
+
+- Share the file first, same as audio: `cd ~/Code/relay/apps/linux && bun run src/main.ts share <path>` prints `shared file <id> /drops/<id>/<token>`; use that path as `src`. An absolute `https://` URL also works; local paths are rejected.
+- Format: GLB (binary glTF 2.0), or a `.gltf` whose buffers and images are embedded as data URIs; a `.gltf` pointing at sidecar files fails. PBR materials and embedded textures render. Draco-compressed meshes and KTX2 textures do not load, so export plain GLB. From Blender: `bpy.ops.export_scene.gltf(filepath=..., export_format="GLB")`.
+- `title`, `caption`: optional, above and below the frame. `autoRotate`: optional `true` spins the model slowly until Isaac touches it.
+- Relay only for now (Isaac approved shipping it on Relay first, 2026-10-11): EvaOS has no `model` renderer yet and shows the block as a code block until it ships. This is the one exception to the both-sides rule below; emit it when the reply is for the phone.
 
 ## Building a new widget (app side)
 
