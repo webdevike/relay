@@ -10,13 +10,13 @@ import { ImageCaption } from "@/ui/ImageCaption";
 import { MediaPlaceholder } from "@/ui/MediaPlaceholder";
 import { ModelView } from "@/ui/ModelView";
 import { Text } from "@/ui/Text";
-import { resolveDropSrc } from "./dropSrc";
+import { useDropSrc } from "./dropSrc";
 import type { ModelSpec } from "./widget";
 
 const ASPECT = 4 / 3;
 
 export function ModelViewer({ spec }: { spec: ModelSpec }) {
-  const uri = resolveDropSrc(spec.src);
+  const uri = useDropSrc(spec.src);
   const [width, setWidth] = useState(0);
   const height = width / ASPECT;
   return (
