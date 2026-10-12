@@ -87,6 +87,26 @@ describe("parseWidget", () => {
     expect(parseWidget('{"widget":"pr","repo":"r","number":0,"title":"T"}')).toBeNull();
   });
 
+  it("parses a 3D model from a host drop path or https URL, degrading a bad autoRotate", () => {
+    expect(parseWidget('{"widget":"model","src":"/drops/abc/tok","title":"Chair","caption":"Drag to orbit","autoRotate":true}')).toEqual({
+      widget: "model",
+      src: "/drops/abc/tok",
+      title: "Chair",
+      caption: "Drag to orbit",
+      autoRotate: true,
+    });
+    expect(parseWidget('{"widget":"model","src":"https://cdn.x.test/a.glb","autoRotate":"yes"}')).toEqual({
+      widget: "model",
+      src: "https://cdn.x.test/a.glb",
+    });
+  });
+
+  it("rejects a model with a local path or no src", () => {
+    expect(parseWidget('{"widget":"model","src":"/Users/me/chair.glb"}')).toBeNull();
+    expect(parseWidget('{"widget":"model","src":"file:///tmp/chair.glb"}')).toBeNull();
+    expect(parseWidget('{"widget":"model","title":"No source"}')).toBeNull();
+  });
+
   it("parses emails, dropping a non-http url instead of rejecting the row", () => {
     expect(
       parseWidget('{"widget":"emails","emails":[{"from":"A","subject":"S","unread":true,"url":"javascript:alert(1)"}]}'),

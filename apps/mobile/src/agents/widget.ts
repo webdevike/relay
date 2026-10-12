@@ -14,6 +14,7 @@ export {
   type EmailsSpec,
   type PrSpec,
   type GallerySpec,
+  type ModelSpec,
   type RowsSpec,
   type Series,
   type StackSpec,
