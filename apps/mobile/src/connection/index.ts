@@ -12,11 +12,13 @@ import { useConnectionStore } from "@/state/connection";
 import { useAgentsStore } from "@/state/agents";
 import { useDropsStore } from "@/state/drops";
 import { useScreenStore } from "@/state/screen";
+import { useBoardsStore } from "@/state/boards";
 import { setActions } from "@/state/actions";
 import { useSettingsStore } from "@/state/settings";
 import { createAgentFrameRouter } from "./agents";
 import { createDropFrameRouter } from "./drops";
 import { createScreenFrameRouter } from "./screen";
+import { createBoardFrameRouter } from "./boards";
 import * as identity from "./identity";
 import { Discovery, type DiscoveredService } from "./discovery";
 import { NO_HOSTS, removeHost, upsertHost, type PairedHosts } from "./hosts";
@@ -59,6 +61,7 @@ function imageKey(sessionId: string, id: string): string {
 const routeAgentFrame = createAgentFrameRouter(useAgentsStore.getState(), (message) => socket.send(encode(message)));
 const routeDropFrame = createDropFrameRouter(useDropsStore.getState());
 const routeScreenFrame = createScreenFrameRouter(useScreenStore.getState(), () => watchingWindow);
+const routeBoardFrame = createBoardFrameRouter(useBoardsStore.getState());
 const discovery = new Discovery({
   onCandidate: (service) => {
     currentCandidate = service;
@@ -100,11 +103,14 @@ socket.onMessage = (data) => {
     // The host owns the drop history; the phone never trusts its copy across a (re)connection.
     socket.send(encode({ t: "drop.list" }));
     if (watchingWindow !== null) socket.send(encode({ t: "screen.watch", windowId: watchingWindow }));
+    // Dashboards stream live; the host forgets the subscription with the socket.
+    socket.send(encode({ t: "board.subscribe" }));
   }
   if (message.t === "agent.image") imagesInFlight.delete(imageKey(message.sessionId, message.id));
   routeAgentFrame(message);
   routeDropFrame(message);
   routeScreenFrame(message);
+  routeBoardFrame(message);
   void dispatch({ type: "server", message });
 };
 
@@ -239,6 +245,7 @@ async function retarget(id: string | null): Promise<void> {
   commandQueue.cancelAll();
   useAgentsStore.getState().applyWelcome(0, []);
   useDropsStore.getState().setAll([]);
+  useBoardsStore.getState().setAll([]);
   useScreenStore.getState().setList([], null);
   watchingWindow = null;
   useScreenStore.getState().clearWatch();

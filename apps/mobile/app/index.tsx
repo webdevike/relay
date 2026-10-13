@@ -10,6 +10,7 @@ import { Screen } from "@/ui/Screen";
 import { Pill } from "@/ui/Pill";
 import { Banner } from "@/ui/Banner";
 import { Tile } from "@/home/Tile";
+import { useBoardsStore } from "@/state/boards";
 import { spacing } from "@/theme";
 import { useConnectionStore, type ConnectionStatus } from "@/state/connection";
 import { needsAttention, useAgentsStore } from "@/state/agents";
@@ -37,6 +38,7 @@ function inboxCaption(available: boolean, sessions: number, needing: number): st
 }
 
 export default function Home() {
+  const boards = useBoardsStore((state) => state.boards);
   const router = useRouter();
   const status = useConnectionStore((state) => state.status);
   const mac = useConnectionStore((state) => state.mac);
@@ -121,6 +123,15 @@ export default function Home() {
           size="wide"
           onPress={() => {
             router.push("/screen");
+          }}
+        />
+        <Tile
+          symbol="chart.xyaxis.line"
+          title="Boards"
+          caption={boards.length === 0 ? "Live dashboards from the host" : boards.map((b) => b.title).join(", ")}
+          size="wide"
+          onPress={() => {
+            router.push("/boards");
           }}
         />
       </View>
