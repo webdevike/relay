@@ -31,6 +31,7 @@ import {
   resetDictationTarget,
   setDictationTarget,
   setLaunchListener,
+  setLaunchProfile,
   setLaunchThinkingLevel,
 } from "@/dictation/deliver";
 import { dictationActor } from "@/dictation/actor";
@@ -300,9 +301,11 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
   const startSession = (): void => {
     beginLaunch(null);
     const level = useSettingsStore.getState().defaultThinkingLevel;
+    const profile = useSettingsStore.getState().ompProfile;
     sendCommand({
       kind: "agent.start",
       ...(level.length > 0 ? { thinkingLevel: level } : {}),
+      ...(profile === "" ? {} : { profile }),
     }).catch((error: unknown) => {
       setLaunching(false);
       setLaunchPrompt(null);
@@ -327,6 +330,10 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
   useEffect(() => {
     setLaunchThinkingLevel(defaultThinkingLevel);
   }, [defaultThinkingLevel]);
+  const ompProfile = useSettingsStore((state) => state.ompProfile);
+  useEffect(() => {
+    setLaunchProfile(ompProfile);
+  }, [ompProfile]);
 
   const canRespond = session?.canRespond === true;
 

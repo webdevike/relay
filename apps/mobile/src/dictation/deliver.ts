@@ -16,6 +16,7 @@ const INSERT: DictationTarget = { kind: "insert" };
 let target: DictationTarget = INSERT;
 let onLaunch: ((prompt: string) => void) | null = null;
 let launchThinkingLevel = "";
+let launchProfile: "personal" | "work" | "" = "";
 
 export function setDictationTarget(next: DictationTarget): void {
   target = next;
@@ -28,6 +29,11 @@ export function resetDictationTarget(): void {
 /** Thinking level a launched session opens with; empty leaves omp's default. The inbox mirrors the setting here. */
 export function setLaunchThinkingLevel(level: string): void {
   launchThinkingLevel = level;
+}
+
+/** Isolated omp profile a launched session uses; empty keeps the host's current account. */
+export function setLaunchProfile(profile: "personal" | "work" | ""): void {
+  launchProfile = profile;
 }
 
 /** Called with the delivered text (possibly empty) the moment a launch dictation is sent. */
@@ -59,6 +65,7 @@ export function commandsFor(input: DeliverInput, to: DictationTarget): Command[]
         kind: "agent.start",
         ...(text.length > 0 ? { prompt: tagged(text) } : {}),
         ...(launchThinkingLevel.length > 0 ? { thinkingLevel: launchThinkingLevel } : {}),
+        ...(launchProfile === "" ? {} : { profile: launchProfile }),
       },
     ];
   }

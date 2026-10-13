@@ -38,6 +38,10 @@ Simulator dev client: build with `xcodebuild -workspace ios/Relay.xcworkspace -s
 
 The Agent Inbox composer is one multiline field with a 44-point Send button pinned inside its bottom-right corner; swiping the keyboard away returns to voice. Its static panel keeps the button unclipped as the draft grows. Enabled Send taps provide one light haptic when Settings > Haptics is on; blank or busy drafts cannot send.
 
+Settings > omp account chooses Current, Personal, or Work for sessions started from the phone.
+Named choices pass `--profile personal` or `--profile work` to omp on the host, keeping ChatGPT
+authentication, sessions, settings, and caches separate. Log into each named profile once on the host.
+
 ## Pairing and security (V1)
 
 Plaintext WebSocket on the LAN. A physically paired iPhone can receive quick trust through its protected app-data channel, with no PIN entry; the transient transfer file is deleted after its secret moves into Keychain. Other first contacts use a 6-digit PIN for 120 s. The phone keeps independent credentials per connection target, so switching computers does not replace existing trust. Every later connection is `challenge` (32-byte nonce) → `auth` (HMAC-SHA256 proof) → `welcome`. Trackpad input is dropped, never queued, when disconnected; commands are acked and deduplicated by id across reconnects. No TLS yet: fine at home, not on hostile Wi-Fi.

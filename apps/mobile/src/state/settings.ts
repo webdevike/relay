@@ -7,6 +7,8 @@ export type PointerSpeed = "slow" | "normal" | "fast";
 export type Recognizer = "apple" | "voz";
 /** `system` follows the iOS appearance; `light`/`dark` pin the app regardless of it. */
 export type AppearanceChoice = "system" | "light" | "dark";
+/** Isolated omp account used for sessions started from the phone. */
+export type OmpProfile = "" | "personal" | "work";
 
 export interface SettingsState {
   deviceName: string;
@@ -23,6 +25,8 @@ export interface SettingsState {
   recognizer: Recognizer;
   /** Thinking level new phone-started sessions open with; empty leaves omp's own default. */
   defaultThinkingLevel: string;
+  /** Isolated omp profile new phone-started sessions use; empty keeps the host's current account. */
+  ompProfile: OmpProfile;
   appearance: AppearanceChoice;
   /** Playback speed for audio widgets; the last choice carries to the next clip. */
   audioRate: number;
@@ -41,6 +45,7 @@ export const useSettingsStore = create<SettingsState>()(
       notificationsEnabled: false,
       recognizer: "voz",
       defaultThinkingLevel: "",
+      ompProfile: "",
       appearance: "system",
       audioRate: 1,
       set: (partial) => {

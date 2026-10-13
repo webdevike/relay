@@ -256,6 +256,37 @@ function AppearanceField() {
   );
 }
 
+const ompProfiles = [
+  { value: "", label: "Current" },
+  { value: "personal", label: "Personal" },
+  { value: "work", label: "Work" },
+] as const;
+
+function OmpProfileField() {
+  const profile = useSettingsStore((state) => state.ompProfile);
+  const set = useSettingsStore((state) => state.set);
+  return (
+    <View style={{ paddingHorizontal: spacing.xl, paddingVertical: spacing.md, gap: spacing.md }}>
+      <Text variant="title">omp account</Text>
+      <View style={{ flexDirection: "row", gap: spacing.sm }}>
+        {ompProfiles.map((option) => (
+          <Button
+            key={option.value}
+            label={option.label}
+            variant={profile === option.value ? "primary" : "secondary"}
+            onPress={() => {
+              set({ ompProfile: option.value });
+            }}
+          />
+        ))}
+      </View>
+      <Text variant="caption" color="textMuted">
+        Named profiles keep ChatGPT auth, sessions, settings and caches separate. Log into each profile once on the host.
+      </Text>
+    </View>
+  );
+}
+
 /** omp's thinking selectors; a model that lacks one keeps its own default (the bridge validates). */
 const thinkingLevels = ["", "off", "low", "medium", "high", "xhigh"] as const;
 
@@ -345,6 +376,7 @@ export default function Settings() {
       <RecognizerField />
       <Separator />
       <ThinkingField />
+      <OmpProfileField />
       <Separator />
       <View style={{ paddingHorizontal: spacing.xl, paddingVertical: spacing.md, gap: spacing.md }}>
         <Text variant="title">Pointer speed</Text>

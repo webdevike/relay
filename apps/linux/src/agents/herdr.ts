@@ -97,9 +97,10 @@ async function ensureServer(log: (line: string) => void): Promise<z.infer<typeof
  * Creates a workspace for `home` (labelled after it, so several read "Eva", "Eva", "Eva" in
  * herdr's list until omp titles the pane) and starts omp in its root pane. `prompt`, when given,
  * goes into the pane's env as `RELAY_INITIAL_PROMPT` for the session's bridge to submit as the
- * first turn; `thinkingLevel` likewise as `RELAY_THINKING_LEVEL`. Resolves with the pane id; rejects with `AckFailure` (`agent_launch_failed`).
+ * first turn; `thinkingLevel` likewise as `RELAY_THINKING_LEVEL`. A named `profile` is passed to
+ * omp after herdr's `--` separator. Resolves with the pane id; rejects with `AckFailure` (`agent_launch_failed`).
  */
-export async function launchInHerdr(home: string, log: (line: string) => void, prompt?: string, thinkingLevel?: string): Promise<string> {
+export async function launchInHerdr(home: string, log: (line: string) => void, prompt?: string, thinkingLevel?: string, profile?: "personal" | "work"): Promise<string> {
   if (Bun.which("herdr") === null) throw fail("herdr is not installed on the host (not on PATH)");
   try {
     await ensureServer(log);
@@ -112,7 +113,7 @@ export async function launchInHerdr(home: string, log: (line: string) => void, p
       await herdr(["workspace", "create", "--cwd", home, "--label", label, ...env, "--no-focus"]),
     ).root_pane.pane_id;
     const name = `relay-${Date.now().toString(36)}`;
-    await herdr(["agent", "start", name, "--kind", "omp", "--pane", paneId, "--timeout", String(AGENT_START_TIMEOUT_MS)]);
+    await herdr(["agent", "start", name, "--kind", "omp", "--pane", paneId, "--timeout", String(AGENT_START_TIMEOUT_MS), ...(profile === undefined ? [] : ["--", "--profile", profile])]);
     return paneId;
   } catch (error) {
     if (error instanceof AckFailure) throw error;

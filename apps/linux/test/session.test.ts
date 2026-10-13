@@ -366,9 +366,9 @@ class FakeProvider implements AgentProvider {
   image(sessionId: string, id: string): Promise<AgentImage | null> {
     return Promise.resolve(sessionId === "s1" && id === "img1" ? { mimeType: "image/png", data: "iVBOR" } : null);
   }
-  launched = 0;
-  launch(): Promise<void> {
-    this.launched += 1;
+  readonly launched: [string | undefined, string | undefined, "personal" | "work" | undefined][] = [];
+  launch(prompt?: string, thinkingLevel?: string, profile?: "personal" | "work"): Promise<void> {
+    this.launched.push([prompt, thinkingLevel, profile]);
     return Promise.resolve();
   }
   options(sessionId: string): Promise<AgentOptions | null> {
@@ -483,6 +483,16 @@ describe("agent topics", () => {
       { t: "nack", id: "e1", error: { code: "invalid_command" } },
       { t: "nack", id: "e2", error: { code: "invalid_command" } },
     ]);
+  });
+
+  it("passes a named omp profile when starting a session", async () => {
+    const agents = new FakeProvider();
+    const h = harness({ agents });
+    pair(h);
+    h.session.receive({ t: "cmd", id: "start-profile", cmd: { kind: "agent.start", prompt: "hello", thinkingLevel: "high", profile: "work" } });
+    await h.sink.sentCount(5);
+    expect(agents.launched).toEqual([["hello", "high", "work"]]);
+    expect(h.sink.last()).toEqual({ t: "ack", id: "start-profile" });
   });
 
   it("answers agent.image with the provider's bytes and null for an unknown id", async () => {

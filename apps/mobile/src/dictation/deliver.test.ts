@@ -5,6 +5,7 @@ import {
   resetDictationTarget,
   setDictationTarget,
   setLaunchListener,
+  setLaunchProfile,
   setLaunchThinkingLevel,
 } from "./deliver";
 
@@ -24,6 +25,8 @@ function recorder(): { sent: Command[]; send: (cmd: Command) => Promise<void> } 
 
 afterEach(() => {
   resetDictationTarget();
+  setLaunchProfile("");
+  setLaunchThinkingLevel("");
 });
 
 describe("deliverDictation", () => {
@@ -223,5 +226,15 @@ describe("deliverDictation", () => {
     );
     expect(sent).toEqual([{ kind: "agent.start", prompt: `${TAG}go`, thinkingLevel: "high" }]);
     setLaunchThinkingLevel("");
+  });
+
+  it("a launch carries the selected omp profile", async () => {
+    setLaunchProfile("personal");
+    const { sent, send } = recorder();
+    await deliverDictation(
+      { text: "go", submit: false, skill: null, images: [], pasted: null, launch: true },
+      send,
+    );
+    expect(sent).toEqual([{ kind: "agent.start", prompt: `${TAG}go`, profile: "personal" }]);
   });
 });

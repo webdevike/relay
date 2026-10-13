@@ -412,6 +412,8 @@ export const Command = z.discriminatedUnion("kind", [
     prompt: z.string().min(1).max(MAX_DROP_TEXT).optional(),
     /** Thinking level the session opens with; ignored when its model lacks it. */
     thinkingLevel: nonEmpty.optional(),
+    /** Isolated omp auth/session profile. Omitted keeps the host's current account. */
+    profile: z.enum(["personal", "work"]).optional(),
   }),
   /** Change one or more session settings; omitted fields are left alone. */
   z.object({
