@@ -55,6 +55,13 @@ import type {
 const CHART_HEIGHT = 140;
 /** A grid drops columns rather than squeeze a cell narrower than this. */
 const MIN_GRID_CELL = 140;
+/** Narrowest a cell in a row of buttons, badges, or links gets before the row wraps. */
+const MIN_INLINE_CELL = 96;
+const INLINE_WIDGETS: Partial<Record<WidgetSpec["widget"], true>> = {
+  button: true,
+  badge: true,
+  link: true,
+};
 
 const seriesColor = (colors: Colors, index: number, color?: string): string =>
   color ?? [colors.accent, colors.ok, colors.warn, colors.danger][index % 4] ?? colors.accent;
@@ -161,21 +168,35 @@ function Node({ spec }: { spec: WidgetSpec }) {
   }
 }
 
-/** Horizontal stacks become vertical in narrow containers so text and media remain readable. */
+/** Horizontal stacks become vertical in narrow containers so text and media remain readable. A row
+ * of only buttons, badges, or links stays a row at any width: equal cells that wrap onto another
+ * line when they don't fit. */
 function Stack({ spec }: { spec: StackSpec }) {
   const [width, setWidth] = useState(0);
-  const row = spec.direction === "horizontal" && width >= 480;
+  const horizontal = spec.direction === "horizontal";
+  const inline = horizontal && spec.children.every((child) => INLINE_WIDGETS[child.widget] === true);
+  const row = inline || (horizontal && width >= 480);
   return (
     <View
       onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
       style={{
         flexDirection: row ? "row" : "column",
+        flexWrap: inline ? "wrap" : "nowrap",
         gap: spacing[spec.gap ?? "sm"],
-        alignItems: row ? "flex-start" : "stretch",
+        alignItems: inline ? "center" : row ? "flex-start" : "stretch",
       }}
     >
       {spec.children.map((child, i) => (
-        <View key={i} style={row ? { flex: 1, minWidth: 0 } : undefined}>
+        <View
+          key={i}
+          style={
+            inline
+              ? { flexGrow: 1, flexBasis: 0, minWidth: MIN_INLINE_CELL }
+              : row
+                ? { flex: 1, minWidth: 0 }
+                : undefined
+          }
+        >
           <Node spec={child} />
         </View>
       ))}
