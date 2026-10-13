@@ -21,7 +21,7 @@ export default function Boards() {
 
   if (slug !== undefined) {
     return (
-      <Screen title={board?.title ?? "Board"}>
+      <Screen title={board?.title ?? "Board"} scroll>
         {board === undefined ? (
           <EmptyState symbol="questionmark.square.dashed" title="Board not found" body="The host doesn't have this board right now." />
         ) : (
@@ -32,7 +32,7 @@ export default function Boards() {
   }
 
   return (
-    <Screen title="Boards">
+    <Screen title="Boards" scroll>
       {boards.length === 0 ? (
         <EmptyState symbol="chart.xyaxis.line" title="No boards yet" body="Dashboards on the host show up here and update live." />
       ) : (
