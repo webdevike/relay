@@ -49,11 +49,6 @@ import { warn } from "@/connection/log";
 
 const MIC_SIZE = 60;
 const CARD_RADIUS = 28;
-const BACK_SIZE = 40;
-const BACK_NOTCH_SIZE = BACK_SIZE + CUTOUT_GAP * 2;
-const BACK_INSET = 12;
-/** Raise the back cutout above the title's first line while keeping its top inside the safe area. */
-const BACK_RAISE = 12;
 /** The armed-skill notch on the seam between the header and the chat. */
 const NOTCH_HEIGHT = 32;
 /** The bites the surfaces take: the element plus the ring of screen background around it. */
@@ -477,10 +472,10 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
   const pillWidth = notchShown ? notchWidth(armed, images.length, pasted) + CUTOUT_GAP * 2 : 0;
   const seamShown = canRespond && !typing;
   const headerNotches = useMemo<Notch[]>(
-    () => [
-      { cx: BACK_INSET + BACK_NOTCH_SIZE / 2, cy: -BACK_RAISE, width: BACK_NOTCH_SIZE, height: BACK_NOTCH_SIZE },
-      ...(pillWidth === 0 ? [] : [{ cy: headerHeight + spacing.sm / 2, width: pillWidth, height: PILL_NOTCH_HEIGHT }]),
-    ],
+    () =>
+      pillWidth === 0
+        ? []
+        : [{ cy: headerHeight + spacing.sm / 2, width: pillWidth, height: PILL_NOTCH_HEIGHT }],
     [pillWidth, headerHeight],
   );
   const subagentsShown = !pinned && subagents.length > 0 && chatWidth > 0;
@@ -557,16 +552,6 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
                 >
                   <AgentHeader session={session} />
                 </NotchedSurface>
-                <Cutout size={BACK_SIZE} style={{ top: -BACK_NOTCH_SIZE / 2 - BACK_RAISE, left: BACK_INSET }}>
-                  <IconButton
-                    symbol="chevron.left"
-                    size={BACK_SIZE}
-                    iconSize={14}
-                    tintColor={colors.textMuted}
-                    backgroundColor={colors.surfaceRaised}
-                    onPress={() => router.canGoBack() ? router.back() : router.replace("/")}
-                  />
-                </Cutout>
               </Animated.View>
               <GestureDetector gesture={chatGesture}>
                 <NotchedSurface
@@ -912,7 +897,7 @@ function notchWidth(token: string | null, chips: number, pasted: string | null):
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  stack: { flex: 1, marginHorizontal: spacing.md, marginTop: BACK_NOTCH_SIZE / 2 + BACK_RAISE },
+  stack: { flex: 1, marginHorizontal: spacing.md, marginTop: spacing.sm },
   /** The empty state's card, which nothing bites into. */
   card: {
     borderRadius: CARD_RADIUS,
