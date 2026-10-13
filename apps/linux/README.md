@@ -34,8 +34,9 @@ compiled daemon. For source runs, set `RELAY_INPUT_LIBRARY` to that built librar
 
 Grant **Relay Host** access in System Settings → Privacy & Security →
 Device Control and Data Access (Accessibility). Until granted, input is refused
-while pairing and chat continue to work. Trust is checked live, so granting access
-does not require restarting the host; reconnect the phone to refresh its status.
+while pairing and chat continue to work. Trust is checked live, but macOS can cache
+the result in the daemon. Restart Relay Host after granting access, then reconnect
+the phone to refresh its status.
 The native backend uses all active display bounds, including extended AirPlay displays.
 Existing Linux Ctrl shortcuts map to macOS Command, and text uses UTF-16 events.
 
