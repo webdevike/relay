@@ -104,7 +104,7 @@ function TableView({ block }: { block: Extract<Block, { kind: "table" }> }) {
   const colors = useColors();
   const columns = Math.max(block.header.length, ...block.rows.map((r) => r.length));
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1 }}>
+    <ScrollView horizontal style={{ flexGrow: 0 }} showsHorizontalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1 }}>
       <View style={{ borderWidth: 1, borderColor: colors.hairline, borderRadius: radii.md, overflow: "hidden", alignSelf: "flex-start" }}>
         <TableRow cells={block.header} columns={columns} align={block.align} header />
         {block.rows.map((row, i) => (

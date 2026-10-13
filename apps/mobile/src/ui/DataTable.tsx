@@ -50,8 +50,10 @@ export function DataTable({ columns, rows }: DataTableProps) {
         setWidth(event.nativeEvent.layout.width);
       }}
     >
+      {/* flexGrow 0: ScrollView's default grow inflates a shrink-to-fit parent (a user bubble). */}
       <ScrollView
         horizontal
+        style={{ flexGrow: 0 }}
         bounces={false}
         scrollEnabled={total > width}
         showsHorizontalScrollIndicator={false}

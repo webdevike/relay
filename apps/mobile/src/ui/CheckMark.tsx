@@ -1,4 +1,5 @@
 import { View } from "react-native";
+import { SymbolView } from "expo-symbols";
 import { radii, useColors } from "@/theme";
 
 export interface CheckMarkProps {
@@ -6,10 +7,9 @@ export interface CheckMarkProps {
   size?: number;
 }
 
-/** The done/not-done box: a hairline square, filled in accent with a small inner square when done. */
+/** The done/not-done box: a hairline square, filled in accent with a checkmark when done. */
 export function CheckMark({ checked, size = 22 }: CheckMarkProps) {
   const colors = useColors();
-  const inner = Math.round(size * 0.36);
   return (
     <View
       style={{
@@ -24,7 +24,12 @@ export function CheckMark({ checked, size = 22 }: CheckMarkProps) {
       }}
     >
       {checked && (
-        <View style={{ width: inner, height: inner, borderRadius: 2, backgroundColor: colors.bg }} />
+        <SymbolView
+          name="checkmark"
+          size={Math.round(size * 0.6)}
+          weight="bold"
+          tintColor={colors.bg}
+        />
       )}
     </View>
   );

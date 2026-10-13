@@ -92,7 +92,8 @@ export function CodeBlock({ code, lang }: CodeBlockProps) {
           <SymbolView name={copied ? "checkmark" : "doc.on.doc"} size={14} tintColor={copied ? colors.ok : colors.textMuted} />
         </Pressable>
       </View>
-      <ScrollView horizontal bounces={false} showsHorizontalScrollIndicator={false} contentContainerStyle={{ padding: spacing.md }}>
+      {/* flexGrow 0: ScrollView's default grow inflates a shrink-to-fit parent (a user bubble) to thousands of points. */}
+      <ScrollView horizontal style={{ flexGrow: 0 }} bounces={false} showsHorizontalScrollIndicator={false} contentContainerStyle={{ padding: spacing.md }}>
         <Highlight code={code} language={language} theme={codeThemes[scheme]}>
           {({ tokens, getTokenProps }) => (
             <RNText style={{ fontFamily: mono, fontSize: FONT_SIZE, lineHeight: LINE_HEIGHT, color: colors.text }} selectable>
