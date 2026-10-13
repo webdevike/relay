@@ -270,6 +270,7 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
   // words shows them immediately; the host hands them to omp as its first turn.
   const [launching, setLaunching] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
+  const [launchProfile, setLaunchProfileChoice] = useState(useSettingsStore.getState().ompProfile);
   const knownIds = useRef(new Set(order));
   useEffect(() => {
     const fresh = order.filter((id) => !knownIds.current.has(id));
@@ -301,7 +302,7 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
   const startSession = (): void => {
     beginLaunch(null);
     const level = useSettingsStore.getState().defaultThinkingLevel;
-    const profile = useSettingsStore.getState().ompProfile;
+    const profile = launchProfile;
     sendCommand({
       kind: "agent.start",
       ...(level.length > 0 ? { thinkingLevel: level } : {}),
@@ -330,10 +331,12 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
   useEffect(() => {
     setLaunchThinkingLevel(defaultThinkingLevel);
   }, [defaultThinkingLevel]);
-  const ompProfile = useSettingsStore((state) => state.ompProfile);
   useEffect(() => {
-    setLaunchProfile(ompProfile);
-  }, [ompProfile]);
+    setLaunchProfile(launchProfile);
+  }, [launchProfile]);
+  const chooseLaunchProfile = (profile: "" | "personal" | "work"): void => {
+    setLaunchProfileChoice(profile);
+  };
 
   const canRespond = session?.canRespond === true;
 
@@ -862,6 +865,8 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
       )}
       <AgentSettingsSheet
         sessionId={settingsFor}
+        launchProfile={launchProfile}
+        onLaunchProfileChange={chooseLaunchProfile}
         onClose={() => {
           setSettingsFor(null);
         }}

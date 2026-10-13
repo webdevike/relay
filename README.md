@@ -38,9 +38,11 @@ Simulator dev client: build with `xcodebuild -workspace ios/Relay.xcworkspace -s
 
 The Agent Inbox composer is one multiline field with a 44-point Send button pinned inside its bottom-right corner; swiping the keyboard away returns to voice. Its static panel keeps the button unclipped as the draft grows. Enabled Send taps provide one light haptic when Settings > Haptics is on; blank or busy drafts cannot send.
 
-Settings > omp account chooses Current, Personal, or Work for sessions started from the phone.
-Named choices pass `--profile personal` or `--profile work` to omp on the host, keeping ChatGPT
-authentication, sessions, settings, and caches separate. Log into each named profile once on the host.
+Long-press a GPT session in the scrubber to choose Current, Personal, or Work for the next session.
+The account setting stays hidden for non-GPT models because only ChatGPT authentication uses it.
+Settings > omp account supplies its initial default. Named choices pass `--profile personal` or
+`--profile work` to omp on the host, keeping authentication, sessions, settings, and caches separate.
+Log into each named profile once on the host.
 
 ## Pairing and security (V1)
 

@@ -16,6 +16,8 @@ import { tapHaptic } from "@/lib/haptics";
 
 export interface AgentSettingsSheetProps {
   sessionId: string | null;
+  launchProfile: "" | "personal" | "work";
+  onLaunchProfileChange: (profile: "" | "personal" | "work") => void;
   onClose: () => void;
 }
 
@@ -174,7 +176,12 @@ function SkillRow({
  * what it is doing. Each change is sent as soon as it is made; the card updates when the host
  * reports the new settings back.
  */
-export function AgentSettingsSheet({ sessionId, onClose }: AgentSettingsSheetProps) {
+export function AgentSettingsSheet({
+  sessionId,
+  launchProfile,
+  onLaunchProfileChange,
+  onClose,
+}: AgentSettingsSheetProps) {
   const colors = useColors();
   const session = useAgentsStore((state) =>
     sessionId === null ? undefined : state.sessions[sessionId],
@@ -241,6 +248,10 @@ export function AgentSettingsSheet({ sessionId, onClose }: AgentSettingsSheetPro
   const thinkingLevels =
     current?.thinkingLevels ?? (session.thinkingLevel === undefined ? [] : [session.thinkingLevel]);
   const armedName = skills === undefined || armed === null ? undefined : skillNameOf(skills, armed);
+  const usesGpt =
+    current !== undefined &&
+    (current.provider.toLowerCase().includes("openai") ||
+      current.id.toLowerCase().startsWith("gpt"));
 
   return (
     <Sheet visible onClose={onClose}>
@@ -321,6 +332,26 @@ export function AgentSettingsSheet({ sessionId, onClose }: AgentSettingsSheetPro
           </View>
         )}
       </Section>
+      {usesGpt && (
+        <Section label="Account" trailing="New sessions">
+          <View style={styles.chips}>
+            {(["", "personal", "work"] as const).map((profile) => (
+              <Chip
+                key={profile || "current"}
+                label={profile === "" ? "Current" : profile[0].toUpperCase() + profile.slice(1)}
+                selected={profile === launchProfile}
+                onPress={() => {
+                  tapHaptic();
+                  onLaunchProfileChange(profile);
+                }}
+              />
+            ))}
+          </View>
+          <Text variant="caption" color="textFaint" style={styles.note}>
+            Account is fixed when a session starts. This choice applies to the next new session.
+          </Text>
+        </Section>
+      )}
       <Section
         label="Skill"
         trailing={armedName === undefined ? "None armed" : `${armedName} armed`}
