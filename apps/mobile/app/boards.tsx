@@ -1,10 +1,10 @@
 /**
  * Live dashboards from the host. Without a slug: the list of boards. With one: that board's tiles
- * on the host's 12-column grid, re-rendered on every `board.delta`, so a board fed by a host-side
- * sampler (the office Wi-Fi meter) reads as a live view.
+ * on the host's grid on larger screens and full-width tiles on phones, updated on `board.delta`.
+ * A board fed by a host-side sampler (the office Wi-Fi meter) reads as a live view.
  */
 import { router, useLocalSearchParams } from "expo-router";
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, View, useWindowDimensions } from "react-native";
 import type { Board } from "@relay/protocol";
 import { Screen } from "@/ui/Screen";
 import { Row } from "@/ui/Row";
@@ -54,10 +54,11 @@ export default function Boards() {
 }
 
 function BoardGrid({ board }: { board: Board }) {
+  const { width } = useWindowDimensions();
   return (
     <View style={styles.grid}>
       {board.widgets.map((w) => (
-        <View key={w.id} style={[styles.cell, { width: `${(w.span / 12) * 100}%` }]}>
+        <View key={w.id} style={[styles.cell, { width: width < 600 ? "100%" : `${(w.span / 12) * 100}%` }]}>
           <Widget spec={w.spec} />
         </View>
       ))}
