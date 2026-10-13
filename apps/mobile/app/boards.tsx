@@ -21,7 +21,7 @@ export default function Boards() {
 
   if (slug !== undefined) {
     return (
-      <Screen title={board?.title ?? "Board"} scroll>
+      <Screen title={board?.title ?? "Board"} onBack={() => router.canGoBack() ? router.back() : router.replace("/boards")} scroll>
         {board === undefined ? (
           <EmptyState symbol="questionmark.square.dashed" title="Board not found" body="The host doesn't have this board right now." />
         ) : (
@@ -32,7 +32,7 @@ export default function Boards() {
   }
 
   return (
-    <Screen title="Boards" scroll>
+    <Screen title="Boards" onBack={() => router.canGoBack() ? router.back() : router.replace("/")} scroll>
       {boards.length === 0 ? (
         <EmptyState symbol="chart.xyaxis.line" title="No boards yet" body="Dashboards on the host show up here and update live." />
       ) : (

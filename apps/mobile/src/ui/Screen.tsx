@@ -3,26 +3,32 @@ import { ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Text } from "./Text";
 import { spacing, useColors } from "@/theme";
+import { IconButton } from "./IconButton";
 
 export interface ScreenProps {
   title?: string;
   headerRight?: ReactNode;
+  /** Optional back action displayed as a chevron to the left of the title. */
+  onBack?: () => void;
   children: ReactNode;
   /** Body scrolls under a fixed header; for screens whose content can outgrow the viewport. */
   scroll?: boolean;
 }
 
-export function Screen({ title, headerRight, children, scroll = false }: ScreenProps) {
+export function Screen({ title, headerRight, onBack, children, scroll = false }: ScreenProps) {
   const colors = useColors();
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: colors.bg }]} edges={["top", "bottom"]}>
-      {(title !== undefined || headerRight !== undefined) && (
+      {(title !== undefined || headerRight !== undefined || onBack !== undefined) && (
         <View style={styles.header}>
+          <View style={styles.heading}>
+            {onBack !== undefined && <IconButton symbol="chevron.left" size={44} backgroundColor="transparent" onPress={onBack} />}
           {title !== undefined && (
             <Text variant="largeTitle" style={styles.title}>
               {title}
             </Text>
           )}
+          </View>
           {headerRight}
         </View>
       )}
@@ -53,6 +59,7 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.lg,
     minHeight: 56,
   },
+  heading: { flex: 1, flexDirection: "row", alignItems: "center", gap: spacing.sm },
   title: { flexShrink: 1 },
   body: { flex: 1 },
 });
