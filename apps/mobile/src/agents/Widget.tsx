@@ -1,5 +1,5 @@
 /**
- * Renders a generative-UI widget spec (see widget.ts) natively — no WebView, no code
+ * Renders a generative-UI widget spec (see widget.ts) natively: no WebView, no code
  * execution. Charts draw on Skia (already in the app) with a plain-View fallback when the
  * native module is absent. Deterministic and instant: the agent writes the spec, this paints it.
  */
@@ -7,35 +7,55 @@ import { useState } from "react";
 import { View } from "react-native";
 import { loadSkia } from "@/dictation/skia";
 import { radii, spacing, tabularNumbers, type, useColors, type Colors } from "@/theme";
+import { Callout } from "@/ui/Callout";
+import { Collapse } from "@/ui/Collapse";
 import { LinkButton } from "@/ui/LinkButton";
 import { PageDots, PageStepper } from "@/ui/PageControls";
 import { Pager, usePager } from "@/ui/Pager";
 import { Pill, type PillProps } from "@/ui/Pill";
+import { SegmentedTabs } from "@/ui/SegmentedTabs";
 import { Text } from "@/ui/Text";
 import { AudioPlayer } from "./AudioPlayer";
+import {
+  AvatarWidget,
+  ButtonWidget,
+  CodeWidget,
+  ListWidget,
+  ProgressWidget,
+  QuoteWidget,
+  TableWidget,
+  TimelineWidget,
+} from "./BlockWidgets";
 import { CompareSlider } from "./CompareSlider";
 import { DiffView } from "./DiffView";
 import { PrCard } from "./PrCard";
 import { EmailList } from "./EmailList";
 import { Gallery } from "./Gallery";
+import { ImageBlock } from "./ImageBlock";
 import { Recipe } from "./Recipe";
 import { ModelViewer } from "./ModelViewer";
+import { ReplyInput } from "./ReplyInput";
+import { toneColor } from "./tone";
 import { VideoPlayer } from "./VideoPlayer";
 import type {
   BadgeSpec,
   CardSpec,
   ChartSpec,
+  GridSpec,
   RowsSpec,
   StackSpec,
   StatSpec,
+  TabsSpec,
   TextSpec,
   TicketSpec,
   TicketsSpec,
-  Tone,
   WidgetSpec,
 } from "./widget";
 
 const CHART_HEIGHT = 140;
+/** A grid drops columns rather than squeeze a cell narrower than this. */
+const MIN_GRID_CELL = 140;
+
 const seriesColor = (colors: Colors, index: number, color?: string): string =>
   color ?? [colors.accent, colors.ok, colors.warn, colors.danger][index % 4] ?? colors.accent;
 
@@ -92,6 +112,30 @@ function Node({ spec }: { spec: WidgetSpec }) {
       return <DiffView spec={spec} />;
     case "emails":
       return <EmailList spec={spec} />;
+    case "button":
+      return <ButtonWidget spec={spec} />;
+    case "link":
+      return <LinkButton url={spec.url} label={spec.label} />;
+    case "image":
+      return <ImageBlock spec={spec} />;
+    case "table":
+      return <TableWidget spec={spec} />;
+    case "progress":
+      return <ProgressWidget spec={spec} />;
+    case "list":
+      return <ListWidget spec={spec} />;
+    case "callout":
+      return <Callout text={spec.text} title={spec.title} tone={toneColor[spec.tone]} />;
+    case "code":
+      return <CodeWidget spec={spec} />;
+    case "quote":
+      return <QuoteWidget spec={spec} />;
+    case "avatar":
+      return <AvatarWidget spec={spec} />;
+    case "timeline":
+      return <TimelineWidget spec={spec} />;
+    case "input":
+      return <ReplyInput spec={spec} />;
     case "divider":
       return <View style={{ height: 1, backgroundColor: colors.hairline }} />;
     case "stack":
@@ -101,6 +145,18 @@ function Node({ spec }: { spec: WidgetSpec }) {
         <View style={frame(colors)}>
           <CardBody spec={spec} />
         </View>
+      );
+    case "grid":
+      return <Grid spec={spec} />;
+    case "tabs":
+      return <Tabs spec={spec} />;
+    case "collapse":
+      return (
+        <Collapse title={spec.title} initiallyOpen={spec.open}>
+          {spec.children.map((child, i) => (
+            <Node key={i} spec={child} />
+          ))}
+        </Collapse>
       );
   }
 }
@@ -138,6 +194,53 @@ function CardBody({ spec }: { spec: CardSpec }) {
   );
 }
 
+/** Rows of `columns` equal cells; a narrow container drops columns so no cell gets too thin. */
+function Grid({ spec }: { spec: GridSpec }) {
+  const [width, setWidth] = useState(0);
+  const gap = spacing[spec.gap ?? "sm"];
+  const fit = Math.max(1, Math.floor((width + gap) / (MIN_GRID_CELL + gap)));
+  const columns = width === 0 ? spec.columns : Math.min(spec.columns, fit);
+  const rows = Array.from({ length: Math.ceil(spec.children.length / columns) }, (_, r) =>
+    spec.children.slice(r * columns, (r + 1) * columns),
+  );
+  return (
+    <View onLayout={(event) => setWidth(event.nativeEvent.layout.width)} style={{ gap }}>
+      {rows.map((row, r) => (
+        <View key={r} style={{ flexDirection: "row", gap }}>
+          {Array.from({ length: columns }, (_, c) => {
+            const child = row[c];
+            return (
+              <View key={c} style={{ flex: 1, minWidth: 0 }}>
+                {child !== undefined && <Node spec={child} />}
+              </View>
+            );
+          })}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+/** A segmented bar over the selected tab's pane; the first tab shows first. */
+function Tabs({ spec }: { spec: TabsSpec }) {
+  const [selected, setSelected] = useState("0");
+  const pane = spec.tabs[Number(selected)] ?? spec.tabs[0];
+  return (
+    <View style={{ gap: spacing.md }}>
+      <SegmentedTabs
+        tabs={spec.tabs.map((tab, i) => ({ key: String(i), label: tab.label }))}
+        value={selected}
+        onChange={setSelected}
+      />
+      <View style={{ gap: spacing.sm }}>
+        {pane?.children.map((child, i) => (
+          <Node key={`${selected}-${i}`} spec={child} />
+        ))}
+      </View>
+    </View>
+  );
+}
+
 const textStyle = {
   heading: { variant: "title", color: "text" },
   body: { variant: "body", color: "text" },
@@ -153,14 +256,6 @@ function TextBlock({ spec }: { spec: TextSpec }) {
     </Text>
   );
 }
-
-const toneColor = {
-  accent: "accent",
-  ok: "ok",
-  warn: "warn",
-  danger: "danger",
-  muted: "textMuted",
-} as const satisfies Record<Tone, NonNullable<PillProps["tone"]>>;
 
 /** Label left, value right, hairline between rows. A toned value colors only the value. */
 function Rows({ spec }: { spec: RowsSpec }) {

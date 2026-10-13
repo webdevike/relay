@@ -231,6 +231,179 @@ describe("parseWidget", () => {
   });
 });
 
+// The shared contract's parity fixtures: EvaOS's serde parser tests the same JSON strings.
+describe("design-system nodes", () => {
+  it("accepts a reply button with its variant and tone", () => {
+    expect(
+      parseWidget(
+        '{"widget":"button","label":"Approve","reply":"approve ENG-1","variant":"primary","tone":"ok"}',
+      ),
+    ).toEqual({
+      widget: "button",
+      label: "Approve",
+      reply: "approve ENG-1",
+      variant: "primary",
+      tone: "ok",
+    });
+  });
+
+  it("degrades an unknown button variant to secondary", () => {
+    expect(
+      parseWidget('{"widget":"button","label":"Open","url":"https://linear.app","variant":"weird"}'),
+    ).toEqual({ widget: "button", label: "Open", url: "https://linear.app", variant: "secondary" });
+  });
+
+  it("accepts a table with mixed column and cell shapes", () => {
+    expect(
+      parseWidget(
+        '{"widget":"table","columns":["Item",{"label":"Qty","align":"right"}],"rows":[["Apples",3],[{"text":"Pears","tone":"warn","bold":true},"12"]]}',
+      ),
+    ).toEqual({
+      widget: "table",
+      columns: ["Item", { label: "Qty", align: "right" }],
+      rows: [
+        ["Apples", 3],
+        [{ text: "Pears", tone: "warn", bold: true }, "12"],
+      ],
+    });
+  });
+
+  it("clamps progress into 0..max and defaults the tone to accent", () => {
+    expect(parseWidget('{"widget":"progress","value":150,"max":120,"label":"Upload"}')).toEqual({
+      widget: "progress",
+      value: 120,
+      max: 120,
+      label: "Upload",
+      tone: "accent",
+    });
+    expect(parseWidget('{"widget":"progress","value":-5,"max":0}')).toMatchObject({
+      value: 0,
+      max: 100,
+    });
+  });
+
+  it("accepts a check list of plain and detailed items", () => {
+    expect(
+      parseWidget(
+        '{"widget":"list","style":"check","items":["a",{"text":"b","checked":true,"caption":"done"}]}',
+      ),
+    ).toEqual({
+      widget: "list",
+      style: "check",
+      items: ["a", { text: "b", checked: true, caption: "done" }],
+    });
+    expect(parseWidget('{"widget":"list","style":"stars","items":["a"]}')).toMatchObject({
+      style: "bullet",
+    });
+  });
+
+  it("degrades an unknown callout tone to accent", () => {
+    expect(parseWidget('{"widget":"callout","tone":"nope","text":"Heads up"}')).toEqual({
+      widget: "callout",
+      text: "Heads up",
+      tone: "accent",
+    });
+  });
+
+  it("drops an out-of-range image aspect and a non-http link", () => {
+    expect(
+      parseWidget(
+        '{"widget":"image","src":"https://x.com/a.png","aspect":9,"url":"javascript:alert(1)"}',
+      ),
+    ).toEqual({ widget: "image", src: "https://x.com/a.png" });
+  });
+
+  it("accepts tabs holding text and code panes", () => {
+    expect(
+      parseWidget(
+        '{"widget":"tabs","tabs":[{"label":"A","children":[{"widget":"text","text":"a"}]},{"label":"B","children":[{"widget":"code","code":"let x = 1","language":"ts"}]}]}',
+      ),
+    ).toEqual({
+      widget: "tabs",
+      tabs: [
+        { label: "A", children: [{ widget: "text", text: "a" }] },
+        { label: "B", children: [{ widget: "code", code: "let x = 1", language: "ts" }] },
+      ],
+    });
+  });
+
+  it("accepts a grid, dropping an avatar's non-media src for initials", () => {
+    expect(
+      parseWidget(
+        '{"widget":"grid","columns":3,"children":[{"widget":"stat","label":"A","value":"1"},{"widget":"avatar","name":"Isaac Smith","src":"file:///x"}]}',
+      ),
+    ).toEqual({
+      widget: "grid",
+      columns: 3,
+      children: [
+        { widget: "stat", label: "A", value: "1" },
+        { widget: "avatar", name: "Isaac Smith" },
+      ],
+    });
+    expect(
+      parseWidget('{"widget":"grid","columns":5,"children":[{"widget":"divider"}]}'),
+    ).toMatchObject({ columns: 2 });
+  });
+
+  it("accepts a collapse of timeline, quote, link, and input, filling their defaults", () => {
+    expect(
+      parseWidget(
+        '{"widget":"collapse","title":"More","children":[{"widget":"timeline","items":[{"title":"Merged","time":"2h","tone":"ok"}]},{"widget":"quote","text":"ship it","cite":"Noah"},{"widget":"link","label":"PR","url":"https://github.com"},{"widget":"input","placeholder":"Name","reply":"rename to {value}"}]}',
+      ),
+    ).toEqual({
+      widget: "collapse",
+      title: "More",
+      open: false,
+      children: [
+        { widget: "timeline", items: [{ title: "Merged", time: "2h", tone: "ok" }] },
+        { widget: "quote", text: "ship it", cite: "Noah" },
+        { widget: "link", label: "PR", url: "https://github.com" },
+        { widget: "input", placeholder: "Name", button: "Send", reply: "rename to {value}" },
+      ],
+    });
+  });
+
+  it.each([
+    ['{"widget":"button","label":"x"}', "a button with no action"],
+    ['{"widget":"button","label":"x","url":"https://a.com","reply":"y"}', "a button with both"],
+    ['{"widget":"table","columns":["a","b"],"rows":[["only one"]]}', "a short table row"],
+    [
+      '{"widget":"tabs","tabs":[{"label":"solo","children":[{"widget":"divider"}]}]}',
+      "a single tab",
+    ],
+    ['{"widget":"input","reply":"no placeholder token"}', "an input reply without {value}"],
+    ['{"widget":"link","label":"x","url":"ftp://a"}', "a non-http link"],
+    ['{"widget":"button","label":"  ","reply":"y"}', "a blank button label"],
+  ])("rejects %s (%s)", (json) => {
+    expect(parseWidget(json)).toBeNull();
+  });
+
+  it("counts grid, tabs, and collapse toward the depth limit", () => {
+    // collapse > grid > tabs > card > `inner`
+    const nest = (inner: object) =>
+      JSON.stringify({
+        widget: "collapse",
+        title: "a",
+        children: [
+          {
+            widget: "grid",
+            children: [
+              {
+                widget: "tabs",
+                tabs: [
+                  { label: "x", children: [{ widget: "card", children: [inner] }] },
+                  { label: "y", children: [{ widget: "divider" }] },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+    expect(parseWidget(nest({ widget: "stack", children: [{ widget: "divider" }] }))).toBeNull();
+    expect(parseWidget(nest({ widget: "divider" }))).not.toBeNull();
+  });
+});
+
 describe("ui fences", () => {
   it("turns a valid ```ui fence into a widget block", () => {
     const blocks = parseBlocks('text\n```ui\n{"widget":"stat","label":"L","value":"9"}\n```');

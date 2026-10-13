@@ -24,6 +24,19 @@ const dark = {
 export type Colors = typeof dark;
 export type ColorToken = keyof Colors;
 export type ColorScheme = "light" | "dark";
+/** The palette colors a tone (pill, callout, bar, timeline dot) can take. */
+export type ToneToken = Extract<ColorToken, "accent" | "ok" | "warn" | "danger" | "textMuted">;
+
+/** A `#RRGGBB` palette color at the given opacity, for tinted surfaces and tinted hairlines. */
+export function withAlpha(hex: string, alpha: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
+}
+
+/** The low-alpha fill behind toned content; the muted tone sits on the raised surface instead. */
+export function toneFill(colors: Colors, tone: ToneToken, alpha = 0.16): string {
+  return tone === "textMuted" ? colors.surfaceRaised : withAlpha(colors[tone], alpha);
+}
 
 const light: Colors = {
   bg: "#F6F6F8",

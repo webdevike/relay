@@ -120,12 +120,17 @@ const Model = z.object({
   autoRotate: z.boolean().optional().catch(undefined),
 });
 
-const HttpUrl = z
+/** An absolute http(s) URL, validated strictly: required links reject the spec when it's bad. */
+const WebUrl = z
   .string()
   .url()
-  .refine((u) => /^https?:\/\//.test(u))
-  .optional()
-  .catch(undefined);
+  .refine((u) => /^https?:\/\//.test(u));
+
+/** An optional http(s) link that degrades to absent when it's bad, rather than rejecting. */
+const HttpUrl = WebUrl.optional().catch(undefined);
+
+/** A required string with something other than whitespace in it. */
+const NonEmpty = z.string().refine((s) => s.trim().length > 0);
 
 const RecipeIngredient = z.object({
   item: z.string().min(1),
@@ -150,7 +155,10 @@ const TextNode = z.object({
 });
 
 /** Tones shared by badges and row values; an unknown tone degrades to neutral. */
-const Tone = z.enum(["accent", "ok", "warn", "danger", "muted"]).optional().catch(undefined);
+const ToneName = z.enum(["accent", "ok", "warn", "danger", "muted"]);
+const Tone = ToneName.optional().catch(undefined);
+/** A tone that falls back to accent when missing or unknown. */
+const AccentTone = ToneName.catch("accent");
 
 /** Label/value pairs on hairline dividers: summaries, checks, key facts. */
 const Rows = z.object({
@@ -239,6 +247,136 @@ const Pr = z.object({
     .optional(),
 });
 
+/** A tappable action: `url` opens externally, `reply` sends text as the session's next turn.
+ * Exactly one of the two (enforced in `finish`); an unknown variant degrades to secondary. */
+const Button = z.object({
+  widget: z.literal("button"),
+  label: NonEmpty,
+  url: WebUrl.optional(),
+  reply: NonEmpty.optional(),
+  variant: z.enum(["primary", "secondary", "subtle"]).catch("secondary"),
+  tone: Tone,
+});
+
+/** Inline text link to an http(s) page. */
+const Link = z.object({
+  widget: z.literal("link"),
+  label: NonEmpty,
+  url: WebUrl,
+});
+
+/** One framed image; tap opens the full-screen viewer. `aspect` is width/height, and one outside
+ * 0.25..4 falls back to the image's own shape. */
+const ImageNode = z.object({
+  widget: z.literal("image"),
+  src: MediaSrc,
+  alt: z.string().optional(),
+  caption: z.string().optional(),
+  url: HttpUrl,
+  aspect: z.number().min(0.25).max(4).optional().catch(undefined),
+});
+
+const TableColumn = z.union([
+  z.string(),
+  z.object({
+    label: z.string(),
+    align: z.enum(["left", "right", "center"]).optional().catch(undefined),
+  }),
+]);
+
+const TableCell = z.union([
+  z.string(),
+  z.number().finite(),
+  z.object({ text: z.string(), tone: Tone, bold: z.boolean().optional() }),
+]);
+
+/** A data table. Every row has exactly one cell per column (enforced in `finish`). */
+const Table = z.object({
+  widget: z.literal("table"),
+  title: z.string().optional(),
+  columns: z.array(TableColumn).min(1).max(8),
+  rows: z.array(z.array(TableCell)).min(1).max(100),
+});
+
+/** A labelled bar. A bad `max` degrades to 100; `value` is clamped into 0..max in `finish`. */
+const Progress = z.object({
+  widget: z.literal("progress"),
+  value: z.number().finite(),
+  max: z.number().finite().positive().catch(100),
+  label: z.string().optional(),
+  caption: z.string().optional(),
+  tone: AccentTone,
+});
+
+const ListItem = z.union([
+  z.string(),
+  z.object({ text: NonEmpty, caption: z.string().optional(), checked: z.boolean().optional() }),
+]);
+
+/** Bulleted, numbered, or static checklist; an unknown style degrades to bullets. */
+const List = z.object({
+  widget: z.literal("list"),
+  style: z.enum(["bullet", "number", "check"]).catch("bullet"),
+  items: z.array(ListItem).min(1).max(50),
+});
+
+/** A tinted note with a tone icon. */
+const Callout = z.object({
+  widget: z.literal("callout"),
+  text: NonEmpty,
+  title: z.string().optional(),
+  tone: AccentTone,
+});
+
+/** A syntax-highlighted code block with an optional title. */
+const Code = z.object({
+  widget: z.literal("code"),
+  code: z
+    .string()
+    .max(50_000)
+    .refine((s) => s.trim().length > 0),
+  language: z.string().optional(),
+  title: z.string().optional(),
+});
+
+const Quote = z.object({
+  widget: z.literal("quote"),
+  text: NonEmpty,
+  cite: z.string().optional(),
+});
+
+/** A person: photo (or initials when there's none or it's not a valid source), name, subtitle. */
+const Avatar = z.object({
+  widget: z.literal("avatar"),
+  name: NonEmpty,
+  subtitle: z.string().optional(),
+  src: MediaSrc.optional().catch(undefined),
+});
+
+const TimelineEntry = z.object({
+  title: NonEmpty,
+  time: z.string().optional(),
+  text: z.string().optional(),
+  tone: Tone,
+});
+
+const Timeline = z.object({
+  widget: z.literal("timeline"),
+  items: z.array(TimelineEntry).min(1).max(30),
+});
+
+/** A text field whose submit sends `reply` with `{value}` replaced by the typed text. */
+const Input = z.object({
+  widget: z.literal("input"),
+  placeholder: z.string().optional(),
+  button: z.string().default("Send"),
+  reply: z
+    .string()
+    .refine((s) => s.includes("{value}"))
+    .default("{value}"),
+  multiline: z.boolean().optional(),
+});
+
 /** Most children a container takes and deepest containers nest; past either, the whole spec
  * falls back to code rather than rendering something unbounded. */
 export const MAX_CHILDREN = 24;
@@ -260,13 +398,28 @@ type Leaf =
   | z.infer<typeof Divider>
   | z.infer<typeof Diff>
   | z.infer<typeof Emails>
-  | z.infer<typeof Pr>;
+  | z.infer<typeof Pr>
+  | z.infer<typeof Button>
+  | z.infer<typeof Link>
+  | z.infer<typeof ImageNode>
+  | z.infer<typeof Table>
+  | z.infer<typeof Progress>
+  | z.infer<typeof List>
+  | z.infer<typeof Callout>
+  | z.infer<typeof Code>
+  | z.infer<typeof Quote>
+  | z.infer<typeof Avatar>
+  | z.infer<typeof Timeline>
+  | z.infer<typeof Input>
+
+const Gap = z.enum(["xs", "sm", "md", "lg"]);
+export type Gap = z.infer<typeof Gap>;
 
 /** Lays children out in a column (default) or a row of equal-width columns. */
 export interface StackSpec {
   widget: "stack";
   direction?: "vertical" | "horizontal" | undefined;
-  gap?: "xs" | "sm" | "md" | "lg" | undefined;
+  gap?: Gap | undefined;
   children: WidgetSpec[];
 }
 
@@ -277,7 +430,29 @@ export interface CardSpec {
   children: WidgetSpec[];
 }
 
-export type WidgetSpec = Leaf | StackSpec | CardSpec;
+/** Wraps children into rows of `columns` equal cells. */
+export interface GridSpec {
+  widget: "grid";
+  columns: 2 | 3 | 4;
+  gap?: Gap | undefined;
+  children: WidgetSpec[];
+}
+
+/** A tab bar over one visible pane per tab. */
+export interface TabsSpec {
+  widget: "tabs";
+  tabs: { label: string; children: WidgetSpec[] }[];
+}
+
+/** A header row that shows or hides its children. */
+export interface CollapseSpec {
+  widget: "collapse";
+  title: string;
+  open: boolean;
+  children: WidgetSpec[];
+}
+
+export type WidgetSpec = Leaf | StackSpec | CardSpec | GridSpec | TabsSpec | CollapseSpec;
 
 // Input is `unknown`: the `.catch` fields accept shapes the output type doesn't.
 const Children: z.ZodType<WidgetSpec[], z.ZodTypeDef, unknown> = z.lazy(() =>
@@ -287,7 +462,7 @@ const Children: z.ZodType<WidgetSpec[], z.ZodTypeDef, unknown> = z.lazy(() =>
 const Stack = z.object({
   widget: z.literal("stack"),
   direction: z.enum(["vertical", "horizontal"]).optional().catch(undefined),
-  gap: z.enum(["xs", "sm", "md", "lg"]).optional().catch(undefined),
+  gap: Gap.optional().catch(undefined),
   children: Children,
 });
 
@@ -297,26 +472,80 @@ const Card = z.object({
   children: Children,
 });
 
-const Node: z.ZodType<WidgetSpec, z.ZodTypeDef, unknown> = z.discriminatedUnion("widget", [
-  Chart,
-  Stat,
-  Tickets,
-  Compare,
-  Audio,
-  Video,
-  Gallery,
-  Model,
-  Recipe,
-  TextNode,
-  Rows,
-  Badge,
-  Divider,
-  Diff,
-  Emails,
-  Pr,
-  Stack,
-  Card,
-]);
+const Grid = z.object({
+  widget: z.literal("grid"),
+  columns: z.union([z.literal(2), z.literal(3), z.literal(4)]).catch(2),
+  gap: Gap.optional().catch(undefined),
+  children: Children,
+});
+
+const Tabs = z.object({
+  widget: z.literal("tabs"),
+  tabs: z
+    .array(z.object({ label: NonEmpty, children: Children }))
+    .min(2)
+    .max(6),
+});
+
+const Collapse = z.object({
+  widget: z.literal("collapse"),
+  title: NonEmpty,
+  open: z.boolean().default(false),
+  children: Children,
+});
+
+const Node: z.ZodType<WidgetSpec, z.ZodTypeDef, unknown> = z
+  .discriminatedUnion("widget", [
+    Chart,
+    Stat,
+    Tickets,
+    Compare,
+    Audio,
+    Video,
+    Gallery,
+    Model,
+    Recipe,
+    TextNode,
+    Rows,
+    Badge,
+    Divider,
+    Diff,
+    Emails,
+    Pr,
+    Button,
+    Link,
+    ImageNode,
+    Table,
+    Progress,
+    List,
+    Callout,
+    Code,
+    Quote,
+    Avatar,
+    Timeline,
+    Input,
+    Stack,
+    Card,
+    Grid,
+    Tabs,
+    Collapse,
+  ])
+  .transform(finish);
+
+/** Rules spanning several fields, which zod's discriminated union members can't carry themselves. */
+function finish(node: WidgetSpec, ctx: z.RefinementCtx): WidgetSpec {
+  const reject = (message: string) => {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+    return z.NEVER;
+  };
+  if (node.widget === "button" && (node.url === undefined) === (node.reply === undefined))
+    return reject("a button needs exactly one of url or reply");
+  if (node.widget === "table" && node.rows.some((row) => row.length !== node.columns.length))
+    return reject("every table row needs one cell per column");
+  if (node.widget === "progress")
+    return { ...node, value: Math.min(Math.max(node.value, 0), node.max) };
+  return node;
+}
 
 export type Series = z.infer<typeof Series>;
 export type ChartSpec = z.infer<typeof Chart>;
@@ -337,6 +566,22 @@ export type DiffSpec = z.infer<typeof Diff>;
 export type EmailSpec = z.infer<typeof Email>;
 export type EmailsSpec = z.infer<typeof Emails>;
 export type PrSpec = z.infer<typeof Pr>;
+export type ButtonSpec = z.infer<typeof Button>;
+export type LinkSpec = z.infer<typeof Link>;
+export type ImageSpec = z.infer<typeof ImageNode>;
+export type TableColumn = z.infer<typeof TableColumn>;
+export type TableCell = z.infer<typeof TableCell>;
+export type TableSpec = z.infer<typeof Table>;
+export type ProgressSpec = z.infer<typeof Progress>;
+export type ListItem = z.infer<typeof ListItem>;
+export type ListSpec = z.infer<typeof List>;
+export type CalloutSpec = z.infer<typeof Callout>;
+export type CodeSpec = z.infer<typeof Code>;
+export type QuoteSpec = z.infer<typeof Quote>;
+export type AvatarSpec = z.infer<typeof Avatar>;
+export type TimelineEntry = z.infer<typeof TimelineEntry>;
+export type TimelineSpec = z.infer<typeof Timeline>;
+export type InputSpec = z.infer<typeof Input>;
 export type Tone = NonNullable<z.infer<typeof Tone>>;
 
 /** A widget tree as an embeddable schema: container depth is checked before zod descends. */
@@ -353,18 +598,31 @@ export const WidgetNode = z
 
 /** Container nesting depth of raw JSON, checked before zod so a hostile spec can't recurse deep. */
 function containerDepth(node: unknown, limit: number): number {
-  if (
-    typeof node !== "object" ||
-    node === null ||
-    !("children" in node) ||
-    !Array.isArray(node.children)
-  )
-    return 0;
-  const children: unknown[] = node.children;
+  const children = childLists(node);
+  if (children === null) return 0;
   if (limit <= 0) return 1;
   let deepest = 0;
   for (const child of children) deepest = Math.max(deepest, containerDepth(child, limit - 1));
   return 1 + deepest;
+}
+
+/** A raw node's children, or null for a leaf. A `tabs` node is one container level: every tab's
+ * children sit one level below it. */
+function childLists(node: unknown): unknown[] | null {
+  if (typeof node !== "object" || node === null) return null;
+  if ("children" in node && Array.isArray(node.children)) {
+    const children: unknown[] = node.children;
+    return children;
+  }
+  if ("tabs" in node && Array.isArray(node.tabs)) {
+    const tabs: unknown[] = node.tabs;
+    return tabs.flatMap((tab): unknown[] =>
+      typeof tab === "object" && tab !== null && "children" in tab && Array.isArray(tab.children)
+        ? (tab.children as unknown[])
+        : [],
+    );
+  }
+  return null;
 }
 
 /** Parses and validates a ```ui payload. Returns null on any malformed field so the transcript

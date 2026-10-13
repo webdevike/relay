@@ -4,6 +4,8 @@ import { Fragment } from "react";
 import { Platform, Text as RNText, ScrollView, type TextStyle, View } from "react-native";
 import { openExternal } from "@/lib/links";
 import { radii, spacing, type, useColors } from "@/theme";
+import { BlockQuote } from "@/ui/BlockQuote";
+import { ListItem } from "@/ui/ListItem";
 import { Text } from "@/ui/Text";
 import { CodeBlock } from "./CodeBlock";
 import { type Align, type Block, type Inline, parseBlocks } from "./markdown";
@@ -54,11 +56,11 @@ function BlockView({ block }: { block: Block }) {
       );
     case "blockquote":
       return (
-        <View style={{ borderLeftWidth: 3, borderLeftColor: colors.hairline, paddingLeft: spacing.md, gap: spacing.sm }}>
+        <BlockQuote>
           {block.blocks.map((b, i) => (
             <BlockView key={i} block={b} />
           ))}
-        </View>
+        </BlockQuote>
       );
     case "list":
       return <ListView block={block} />;
@@ -74,16 +76,19 @@ function ListView({ block }: { block: Extract<Block, { kind: "list" }> }) {
   return (
     <View style={{ gap: spacing.xs }}>
       {block.items.map((item, i) => (
-        <View key={i} style={{ flexDirection: "row" }}>
-          <RNText style={{ fontSize: type.body.fontSize, lineHeight: type.body.lineHeight, color: colors.textMuted, width: block.ordered ? 24 : 16 }}>
-            {block.ordered ? `${block.start + i}.` : "•"}
-          </RNText>
-          <View style={{ flex: 1, gap: spacing.xs }}>
-            {item.blocks.map((b, j) => (
-              <BlockView key={j} block={b} />
-            ))}
-          </View>
-        </View>
+        <ListItem
+          key={i}
+          markerWidth={block.ordered ? 24 : 16}
+          marker={
+            <RNText style={{ fontSize: type.body.fontSize, lineHeight: type.body.lineHeight, color: colors.textMuted }}>
+              {block.ordered ? `${block.start + i}.` : "•"}
+            </RNText>
+          }
+        >
+          {item.blocks.map((b, j) => (
+            <BlockView key={j} block={b} />
+          ))}
+        </ListItem>
       ))}
     </View>
   );

@@ -40,6 +40,7 @@ import { AgentCard, AgentHeader } from "@/agents/AgentCard";
 import { AgentScrubber, TRACK_HEIGHT } from "@/agents/AgentScrubber";
 import { AgentSettingsSheet } from "@/agents/AgentSettingsSheet";
 import { TypedReply } from "@/agents/TypedReply";
+import { SessionWidgetActions } from "@/agents/WidgetActions";
 import { AskCard } from "@/agents/AskCard";
 import { type ActionWheelEntry } from "@/agents/ActionWheel";
 import { useActionWheel } from "@/agents/useActionWheel";
@@ -574,14 +575,17 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
                     setChatWidth(event.nativeEvent.layout.width);
                   }}
                 >
-                  <AgentCard
-                    sessionId={selectedId}
-                    messages={messages}
-                    connected={connected}
-                    status={session.status}
-                    activity={session.statusDetail}
-                    {...(pending === undefined ? {} : { activityLabel: "Starting omp" })}
-                  />
+                  {/* Reply buttons and inputs in the transcript answer this session; none while it's still launching. */}
+                  <SessionWidgetActions sessionId={pending === undefined ? selectedId : undefined}>
+                    <AgentCard
+                      sessionId={selectedId}
+                      messages={messages}
+                      connected={connected}
+                      status={session.status}
+                      activity={session.statusDetail}
+                      {...(pending === undefined ? {} : { activityLabel: "Starting omp" })}
+                    />
+                  </SessionWidgetActions>
                 </NotchedSurface>
               </GestureDetector>
               {notchShown && (

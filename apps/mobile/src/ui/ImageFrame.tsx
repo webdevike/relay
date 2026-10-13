@@ -11,10 +11,12 @@ export interface ImageFrameProps {
   onPress?: (() => void) | undefined;
   badge?: SFSymbol | undefined;
   resizeMode?: "contain" | "cover" | undefined;
+  /** Alt text read by VoiceOver. */
+  alt?: string | undefined;
 }
 
 /** Base image element: a rounded, sized frame around an image, optionally tappable with a corner badge. */
-export function ImageFrame({ uri, width, height, onPress, badge, resizeMode }: ImageFrameProps) {
+export function ImageFrame({ uri, width, height, onPress, badge, resizeMode, alt }: ImageFrameProps) {
   const colors = useColors();
   const frame = (
     <View
@@ -26,7 +28,13 @@ export function ImageFrame({ uri, width, height, onPress, badge, resizeMode }: I
         backgroundColor: colors.surface,
       }}
     >
-      <Image source={{ uri }} resizeMode={resizeMode ?? "contain"} style={{ width, height }} />
+      <Image
+        source={{ uri }}
+        resizeMode={resizeMode ?? "contain"}
+        style={{ width, height }}
+        accessible={alt !== undefined}
+        accessibilityLabel={alt}
+      />
       {badge !== undefined ? <OverlayTag icon={badge} corner="bottom-right" /> : null}
     </View>
   );

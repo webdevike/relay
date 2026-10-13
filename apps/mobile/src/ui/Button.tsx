@@ -1,6 +1,6 @@
 import { ActivityIndicator, Pressable } from "react-native";
 import { Text } from "./Text";
-import { radii, spacing, useColors, type Colors } from "@/theme";
+import { radii, spacing, useColors, type ColorToken, type Colors, type ToneToken } from "@/theme";
 import { tapHaptic } from "@/lib/haptics";
 
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
@@ -11,12 +11,14 @@ export interface ButtonProps {
   variant?: ButtonVariant;
   disabled?: boolean;
   loading?: boolean;
+  /** Tints the primary fill, or the label of a secondary or ghost button. */
+  tone?: ToneToken | undefined;
 }
 
-function backgroundFor(variant: ButtonVariant, colors: Colors): string {
+function backgroundFor(variant: ButtonVariant, colors: Colors, tone: ToneToken | undefined): string {
   switch (variant) {
     case "primary":
-      return colors.accent;
+      return colors[tone ?? "accent"];
     case "ghost":
       return "transparent";
     case "secondary":
@@ -25,15 +27,24 @@ function backgroundFor(variant: ButtonVariant, colors: Colors): string {
   }
 }
 
-const textColorFor: Record<ButtonVariant, "bg" | "text" | "accent" | "danger"> = {
+const textColorFor: Record<ButtonVariant, ColorToken> = {
   primary: "bg",
   secondary: "text",
   ghost: "accent",
   danger: "danger",
 };
 
-export function Button({ label, onPress, variant = "primary", disabled = false, loading = false }: ButtonProps) {
+export function Button({
+  label,
+  onPress,
+  variant = "primary",
+  disabled = false,
+  loading = false,
+  tone,
+}: ButtonProps) {
   const colors = useColors();
+  const textColor =
+    tone === undefined || variant === "primary" || variant === "danger" ? textColorFor[variant] : tone;
   return (
     <Pressable
       disabled={disabled || loading}
@@ -47,14 +58,14 @@ export function Button({ label, onPress, variant = "primary", disabled = false, 
         paddingHorizontal: spacing.lg,
         alignItems: "center",
         justifyContent: "center",
-        backgroundColor: backgroundFor(variant, colors),
+        backgroundColor: backgroundFor(variant, colors, tone),
         opacity: disabled || loading ? 0.5 : pressed ? 0.85 : 1,
       })}
     >
       {loading ? (
         <ActivityIndicator color={variant === "primary" ? colors.bg : colors.text} />
       ) : (
-        <Text variant="label" color={textColorFor[variant]}>
+        <Text variant="label" color={textColor} numberOfLines={1}>
           {label}
         </Text>
       )}
