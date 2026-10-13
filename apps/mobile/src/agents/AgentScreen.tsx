@@ -561,6 +561,7 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
                   <IconButton
                     symbol="chevron.left"
                     size={BACK_SIZE}
+                    iconSize={14}
                     tintColor={colors.textMuted}
                     backgroundColor={colors.surfaceRaised}
                     onPress={() => router.canGoBack() ? router.back() : router.replace("/")}

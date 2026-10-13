@@ -8,6 +8,8 @@ export interface IconButtonProps {
   symbol: SFSymbol;
   onPress: () => void;
   size?: number;
+  /** Glyph size independent of the button's touch area and background. */
+  iconSize?: number;
   tintColor?: string;
   disabled?: boolean;
   backgroundColor?: string;
@@ -26,6 +28,7 @@ export function IconButton({
   symbol,
   onPress,
   size = 40,
+  iconSize = size * 0.45,
   tintColor: tintOverride,
   disabled = false,
   backgroundColor: backgroundOverride,
@@ -59,7 +62,7 @@ export function IconButton({
           <sk.Circle cx={size / 2} cy={size / 2} r={size / 2} color={backgroundColor} />
         </sk.Canvas>
       )}
-      <SymbolView name={symbol} size={size * 0.45} tintColor={tintColor} />
+      <SymbolView name={symbol} size={iconSize} tintColor={tintColor} />
     </Pressable>
   );
 }
