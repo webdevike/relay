@@ -40,7 +40,10 @@ const Ticket = z.object({
   title: z.string(),
   summary: z.string(),
   state: z.string().optional(),
-  stateType: z.enum(["triage", "backlog", "unstarted", "started", "completed", "canceled"]).optional().catch(undefined),
+  stateType: z
+    .enum(["triage", "backlog", "unstarted", "started", "completed", "canceled"])
+    .optional()
+    .catch(undefined),
   priority: z.string().optional(),
   assignee: z.string().optional(),
   updated: z.string().optional(),
@@ -55,7 +58,9 @@ const Tickets = z.object({
 
 /** A media source: a host drop path (`/drops/<id>/<token>`, fetched from the connected host) or an
  * absolute http(s) URL. Anything else (local file paths, data URIs) is rejected. */
-const MediaSrc = z.string().refine((s) => /^\/drops\/[^/]+\/[^/]+$/.test(s) || /^https?:\/\//.test(s));
+const MediaSrc = z
+  .string()
+  .refine((s) => /^\/drops\/[^/]+\/[^/]+$/.test(s) || /^https?:\/\//.test(s));
 
 const CompareSide = z.object({
   src: MediaSrc,
@@ -90,7 +95,12 @@ const GalleryImage = z.object({
   src: MediaSrc,
   title: z.string().optional(),
   caption: z.string().optional(),
-  url: z.string().url().refine((u) => /^https?:\/\//.test(u)).optional().catch(undefined),
+  url: z
+    .string()
+    .url()
+    .refine((u) => /^https?:\/\//.test(u))
+    .optional()
+    .catch(undefined),
 });
 
 /** Image carousel: swipe or chevrons inline; tap opens a full-screen pager with pinch zoom. */
@@ -108,6 +118,28 @@ const Model = z.object({
   title: z.string().optional(),
   caption: z.string().optional(),
   autoRotate: z.boolean().optional().catch(undefined),
+});
+
+const HttpUrl = z
+  .string()
+  .url()
+  .refine((u) => /^https?:\/\//.test(u))
+  .optional()
+  .catch(undefined);
+
+const RecipeIngredient = z.object({
+  item: z.string().min(1),
+  section: z.string().optional(),
+});
+
+/** Interactive recipe: ingredients are checkable and directions live on a separate tab. */
+const Recipe = z.object({
+  widget: z.literal("recipe"),
+  title: z.string().min(1),
+  meta: z.array(z.string().min(1)).max(4).optional(),
+  ingredients: z.array(RecipeIngredient).min(1).max(50),
+  directions: z.array(z.string().min(1)).min(1).max(30),
+  source: HttpUrl,
 });
 
 /** A line of text. `style` picks the type scale; an unknown style degrades to body. */
@@ -148,7 +180,12 @@ const Email = z.object({
   snippet: z.string().optional(),
   date: z.string().optional(),
   unread: z.boolean().optional(),
-  url: z.string().url().refine((u) => /^https?:\/\//.test(u)).optional().catch(undefined),
+  url: z
+    .string()
+    .url()
+    .refine((u) => /^https?:\/\//.test(u))
+    .optional()
+    .catch(undefined),
 });
 
 /** An inbox list: sender, subject, snippet, time, unread dot; flat rows on hairlines. */
@@ -157,8 +194,6 @@ const Emails = z.object({
   title: z.string().optional(),
   emails: z.array(Email).min(1).max(50),
 });
-
-const HttpUrl = z.string().url().refine((u) => /^https?:\/\//.test(u)).optional().catch(undefined);
 
 /** One CI run (a GitHub Actions job). An unknown status degrades to pending. */
 const PrCheck = z.object({
@@ -181,9 +216,27 @@ const Pr = z.object({
   base: z.string().optional(),
   url: HttpUrl,
   body: z.string().max(50_000).optional(),
-  reviewers: z.array(z.object({ name: z.string(), state: z.enum(["approved", "changes", "pending", "commented"]).catch("pending") })).max(20).optional(),
+  reviewers: z
+    .array(
+      z.object({
+        name: z.string(),
+        state: z.enum(["approved", "changes", "pending", "commented"]).catch("pending"),
+      }),
+    )
+    .max(20)
+    .optional(),
   checks: z.array(PrCheck).max(50).optional(),
-  files: z.array(z.object({ file: z.string(), patch: z.string().min(1).max(50_000), additions: z.number().int().optional(), deletions: z.number().int().optional() })).max(30).optional(),
+  files: z
+    .array(
+      z.object({
+        file: z.string(),
+        patch: z.string().min(1).max(50_000),
+        additions: z.number().int().optional(),
+        deletions: z.number().int().optional(),
+      }),
+    )
+    .max(30)
+    .optional(),
 });
 
 /** Most children a container takes and deepest containers nest; past either, the whole spec
@@ -200,6 +253,7 @@ type Leaf =
   | z.infer<typeof Video>
   | z.infer<typeof Gallery>
   | z.infer<typeof Model>
+  | z.infer<typeof Recipe>
   | z.infer<typeof TextNode>
   | z.infer<typeof Rows>
   | z.infer<typeof Badge>
@@ -226,7 +280,9 @@ export interface CardSpec {
 export type WidgetSpec = Leaf | StackSpec | CardSpec;
 
 // Input is `unknown`: the `.catch` fields accept shapes the output type doesn't.
-const Children: z.ZodType<WidgetSpec[], z.ZodTypeDef, unknown> = z.lazy(() => z.array(Node).min(1).max(MAX_CHILDREN));
+const Children: z.ZodType<WidgetSpec[], z.ZodTypeDef, unknown> = z.lazy(() =>
+  z.array(Node).min(1).max(MAX_CHILDREN),
+);
 
 const Stack = z.object({
   widget: z.literal("stack"),
@@ -250,6 +306,7 @@ const Node: z.ZodType<WidgetSpec, z.ZodTypeDef, unknown> = z.discriminatedUnion(
   Video,
   Gallery,
   Model,
+  Recipe,
   TextNode,
   Rows,
   Badge,
@@ -271,6 +328,8 @@ export type AudioSpec = z.infer<typeof Audio>;
 export type VideoSpec = z.infer<typeof Video>;
 export type GallerySpec = z.infer<typeof Gallery>;
 export type ModelSpec = z.infer<typeof Model>;
+export type RecipeIngredient = z.infer<typeof RecipeIngredient>;
+export type RecipeSpec = z.infer<typeof Recipe>;
 export type TextSpec = z.infer<typeof TextNode>;
 export type RowsSpec = z.infer<typeof Rows>;
 export type BadgeSpec = z.infer<typeof Badge>;
@@ -285,13 +344,22 @@ export const WidgetNode = z
   .unknown()
   .superRefine((raw, ctx) => {
     if (containerDepth(raw, MAX_DEPTH) > MAX_DEPTH)
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `containers nest deeper than ${MAX_DEPTH}` });
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `containers nest deeper than ${MAX_DEPTH}`,
+      });
   })
   .pipe(Node);
 
 /** Container nesting depth of raw JSON, checked before zod so a hostile spec can't recurse deep. */
 function containerDepth(node: unknown, limit: number): number {
-  if (typeof node !== "object" || node === null || !("children" in node) || !Array.isArray(node.children)) return 0;
+  if (
+    typeof node !== "object" ||
+    node === null ||
+    !("children" in node) ||
+    !Array.isArray(node.children)
+  )
+    return 0;
   const children: unknown[] = node.children;
   if (limit <= 0) return 1;
   let deepest = 0;

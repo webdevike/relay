@@ -15,6 +15,8 @@ export {
   type PrSpec,
   type GallerySpec,
   type ModelSpec,
+  type RecipeIngredient,
+  type RecipeSpec,
   type RowsSpec,
   type Series,
   type StackSpec,

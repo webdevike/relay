@@ -18,21 +18,45 @@ import { DiffView } from "./DiffView";
 import { PrCard } from "./PrCard";
 import { EmailList } from "./EmailList";
 import { Gallery } from "./Gallery";
+import { Recipe } from "./Recipe";
 import { ModelViewer } from "./ModelViewer";
 import { VideoPlayer } from "./VideoPlayer";
-import type { BadgeSpec, CardSpec, ChartSpec, RowsSpec, StackSpec, StatSpec, TextSpec, TicketSpec, TicketsSpec, Tone, WidgetSpec } from "./widget";
+import type {
+  BadgeSpec,
+  CardSpec,
+  ChartSpec,
+  RowsSpec,
+  StackSpec,
+  StatSpec,
+  TextSpec,
+  TicketSpec,
+  TicketsSpec,
+  Tone,
+  WidgetSpec,
+} from "./widget";
 
 const CHART_HEIGHT = 140;
 const seriesColor = (colors: Colors, index: number, color?: string): string =>
   color ?? [colors.accent, colors.ok, colors.warn, colors.danger][index % 4] ?? colors.accent;
 
-const frame = (colors: Colors) => ({ borderWidth: 1, borderColor: colors.hairline, borderRadius: radii.md, padding: spacing.md, gap: spacing.sm }) as const;
+const frame = (colors: Colors) =>
+  ({
+    borderWidth: 1,
+    borderColor: colors.hairline,
+    borderRadius: radii.md,
+    padding: spacing.md,
+    gap: spacing.sm,
+  }) as const;
 
 /** Every widget sits in one hairline frame. A root card *is* that frame (no border inside a border);
  * cards nested deeper draw their own. */
 export function Widget({ spec }: { spec: WidgetSpec }) {
   const colors = useColors();
-  return <View style={frame(colors)}>{spec.widget === "card" ? <CardBody spec={spec} /> : <Node spec={spec} />}</View>;
+  return (
+    <View style={frame(colors)}>
+      {spec.widget === "card" ? <CardBody spec={spec} /> : <Node spec={spec} />}
+    </View>
+  );
 }
 
 function Node({ spec }: { spec: WidgetSpec }) {
@@ -54,6 +78,8 @@ function Node({ spec }: { spec: WidgetSpec }) {
       return <Gallery spec={spec} />;
     case "model":
       return <ModelViewer spec={spec} />;
+    case "recipe":
+      return <Recipe spec={spec} />;
     case "text":
       return <TextBlock spec={spec} />;
     case "rows":
@@ -84,7 +110,14 @@ function Stack({ spec }: { spec: StackSpec }) {
   const [width, setWidth] = useState(0);
   const row = spec.direction === "horizontal" && width >= 480;
   return (
-    <View onLayout={(event) => setWidth(event.nativeEvent.layout.width)} style={{ flexDirection: row ? "row" : "column", gap: spacing[spec.gap ?? "sm"], alignItems: row ? "flex-start" : "stretch" }}>
+    <View
+      onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
+      style={{
+        flexDirection: row ? "row" : "column",
+        gap: spacing[spec.gap ?? "sm"],
+        alignItems: row ? "flex-start" : "stretch",
+      }}
+    >
       {spec.children.map((child, i) => (
         <View key={i} style={row ? { flex: 1, minWidth: 0 } : undefined}>
           <Node spec={child} />
@@ -121,10 +154,13 @@ function TextBlock({ spec }: { spec: TextSpec }) {
   );
 }
 
-const toneColor = { accent: "accent", ok: "ok", warn: "warn", danger: "danger", muted: "textMuted" } as const satisfies Record<
-  Tone,
-  NonNullable<PillProps["tone"]>
->;
+const toneColor = {
+  accent: "accent",
+  ok: "ok",
+  warn: "warn",
+  danger: "danger",
+  muted: "textMuted",
+} as const satisfies Record<Tone, NonNullable<PillProps["tone"]>>;
 
 /** Label left, value right, hairline between rows. A toned value colors only the value. */
 function Rows({ spec }: { spec: RowsSpec }) {
@@ -148,7 +184,12 @@ function Rows({ spec }: { spec: RowsSpec }) {
           <Text variant="body" color="textMuted" style={{ flexShrink: 1 }}>
             {row.label}
           </Text>
-          <Text variant="body" color={row.tone === undefined ? "text" : toneColor[row.tone]} tabular style={{ flexShrink: 1, textAlign: compact ? "left" : "right" }}>
+          <Text
+            variant="body"
+            color={row.tone === undefined ? "text" : toneColor[row.tone]}
+            tabular
+            style={{ flexShrink: 1, textAlign: compact ? "left" : "right" }}
+          >
             {row.value}
           </Text>
         </View>
@@ -158,7 +199,9 @@ function Rows({ spec }: { spec: RowsSpec }) {
 }
 
 function Badge({ spec }: { spec: BadgeSpec }) {
-  return <Pill label={spec.label} tone={spec.tone === undefined ? "textMuted" : toneColor[spec.tone]} />;
+  return (
+    <Pill label={spec.label} tone={spec.tone === undefined ? "textMuted" : toneColor[spec.tone]} />
+  );
 }
 
 const stateTone: Record<NonNullable<TicketSpec["stateType"]>, NonNullable<PillProps["tone"]>> = {
@@ -198,7 +241,9 @@ function Tickets({ spec }: { spec: TicketsSpec }) {
 }
 
 function TicketCard({ ticket }: { ticket: TicketSpec }) {
-  const meta = [ticket.priority, ticket.assignee, ticket.updated].filter((part): part is string => part !== undefined && part !== "");
+  const meta = [ticket.priority, ticket.assignee, ticket.updated].filter(
+    (part): part is string => part !== undefined && part !== "",
+  );
   const url = ticket.url;
   return (
     <View style={{ gap: spacing.sm, paddingRight: spacing.xs }}>
@@ -206,7 +251,12 @@ function TicketCard({ ticket }: { ticket: TicketSpec }) {
         <Text variant="caption" color="textMuted" style={tabularNumbers}>
           {ticket.id}
         </Text>
-        {ticket.state !== undefined && <Pill label={ticket.state} tone={ticket.stateType === undefined ? "textMuted" : stateTone[ticket.stateType]} />}
+        {ticket.state !== undefined && (
+          <Pill
+            label={ticket.state}
+            tone={ticket.stateType === undefined ? "textMuted" : stateTone[ticket.stateType]}
+          />
+        )}
       </View>
       <Text variant="title">{ticket.title}</Text>
       <Text variant="body" color="textMuted">
@@ -217,9 +267,7 @@ function TicketCard({ ticket }: { ticket: TicketSpec }) {
           {meta.join(" · ")}
         </Text>
       )}
-      {url !== undefined && (
-        <LinkButton url={url} label="Open in Linear" />
-      )}
+      {url !== undefined && <LinkButton url={url} label="Open in Linear" />}
     </View>
   );
 }
@@ -251,16 +299,28 @@ function Chart({ spec }: { spec: ChartSpec }) {
   const groups = Math.max(...spec.series.map((s) => s.points.length));
   const stacked = spec.kind === "bar" && spec.stacked === true;
   const max = stacked
-    ? Math.max(1, ...Array.from({ length: groups }, (_, g) => spec.series.reduce((sum, s) => sum + (s.points[g] ?? 0), 0)))
+    ? Math.max(
+        1,
+        ...Array.from({ length: groups }, (_, g) =>
+          spec.series.reduce((sum, s) => sum + (s.points[g] ?? 0), 0),
+        ),
+      )
     : Math.max(1, ...spec.series.flatMap((s) => s.points));
 
   return (
     <View style={{ gap: spacing.sm }}>
       {spec.title !== undefined && <Text variant="label">{spec.title}</Text>}
       <View style={{ height: CHART_HEIGHT }} onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
-        {width > 0 && (spec.kind === "bar" ? <Bars spec={spec} width={width} max={max} /> : <Lines spec={spec} width={width} max={max} />)}
+        {width > 0 &&
+          (spec.kind === "bar" ? (
+            <Bars spec={spec} width={width} max={max} />
+          ) : (
+            <Lines spec={spec} width={width} max={max} />
+          ))}
       </View>
-      {spec.labels !== undefined && <AxisLabels labels={spec.labels} count={groups} width={width} />}
+      {spec.labels !== undefined && (
+        <AxisLabels labels={spec.labels} count={groups} width={width} />
+      )}
       {spec.series.length > 1 && <Legend spec={spec} />}
     </View>
   );
@@ -290,7 +350,18 @@ function Bars({ spec, width, max }: { spec: ChartSpec; width: number; max: numbe
     return (
       <View style={{ flex: 1 }}>
         {rects.map((r, i) => (
-          <View key={i} style={{ position: "absolute", left: r.x, top: r.y, width: barWidth, height: r.h, backgroundColor: r.color, borderRadius: 2 }} />
+          <View
+            key={i}
+            style={{
+              position: "absolute",
+              left: r.x,
+              top: r.y,
+              width: barWidth,
+              height: r.h,
+              backgroundColor: r.color,
+              borderRadius: 2,
+            }}
+          />
         ))}
       </View>
     );
@@ -300,7 +371,15 @@ function Bars({ spec, width, max }: { spec: ChartSpec; width: number; max: numbe
   return (
     <Canvas style={{ flex: 1 }}>
       {rects.map((r, i) => (
-        <RoundedRect key={i} x={r.x} y={r.y} width={Math.max(1, barWidth - 2)} height={r.h} r={2} color={r.color} />
+        <RoundedRect
+          key={i}
+          x={r.x}
+          y={r.y}
+          width={Math.max(1, barWidth - 2)}
+          height={r.h}
+          r={2}
+          color={r.color}
+        />
       ))}
     </Canvas>
   );
@@ -336,7 +415,15 @@ function Lines({ spec, width, max }: { spec: ChartSpec; width: number; max: numb
   return (
     <Canvas style={{ flex: 1 }}>
       {paths.map((p, i) => (
-        <Path key={i} path={p.path} color={p.color} style="stroke" strokeWidth={2} strokeCap="round" strokeJoin="round" />
+        <Path
+          key={i}
+          path={p.path}
+          color={p.color}
+          style="stroke"
+          strokeWidth={2}
+          strokeCap="round"
+          strokeJoin="round"
+        />
       ))}
     </Canvas>
   );
@@ -347,7 +434,13 @@ function AxisLabels({ labels, count, width }: { labels: string[]; count: number;
   return (
     <View style={{ flexDirection: "row", width }}>
       {slots.map((label, i) => (
-        <Text key={i} variant="caption" color="textMuted" style={{ flex: 1, textAlign: "center", fontSize: 10 }} numberOfLines={1}>
+        <Text
+          key={i}
+          variant="caption"
+          color="textMuted"
+          style={{ flex: 1, textAlign: "center", fontSize: 10 }}
+          numberOfLines={1}
+        >
           {label}
         </Text>
       ))}
@@ -361,7 +454,14 @@ function Legend({ spec }: { spec: ChartSpec }) {
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.md }}>
       {spec.series.map((s, i) => (
         <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: spacing.xs }}>
-          <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: seriesColor(colors, i, s.color) }} />
+          <View
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: 2,
+              backgroundColor: seriesColor(colors, i, s.color),
+            }}
+          />
           <Text variant="caption" color="textMuted">
             {s.name ?? `Series ${i + 1}`}
           </Text>

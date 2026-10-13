@@ -4,7 +4,9 @@ import { MAX_CHILDREN, MAX_DEPTH, parseWidget } from "./widget";
 
 describe("parseWidget", () => {
   it("parses a chart spec", () => {
-    const spec = parseWidget('{"widget":"chart","kind":"bar","title":"Calls","labels":["M","T"],"series":[{"points":[1,2,3]}]}');
+    const spec = parseWidget(
+      '{"widget":"chart","kind":"bar","title":"Calls","labels":["M","T"],"series":[{"points":[1,2,3]}]}',
+    );
     expect(spec).toEqual({
       widget: "chart",
       kind: "bar",
@@ -15,7 +17,11 @@ describe("parseWidget", () => {
   });
 
   it("parses a stat spec and normalises a bad delta direction", () => {
-    expect(parseWidget('{"widget":"stat","label":"Collected","value":"$7.9k","delta":{"value":"12%","direction":"sideways"}}')).toEqual({
+    expect(
+      parseWidget(
+        '{"widget":"stat","label":"Collected","value":"$7.9k","delta":{"value":"12%","direction":"sideways"}}',
+      ),
+    ).toEqual({
       widget: "stat",
       label: "Collected",
       value: "$7.9k",
@@ -25,15 +31,26 @@ describe("parseWidget", () => {
 
   it("parses tickets, degrading a bad stateType and url instead of rejecting the card", () => {
     expect(
-      parseWidget('{"widget":"tickets","tickets":[{"id":"ENG-1","title":"T","summary":"S","state":"Doing","stateType":"wip","url":"not a url"}]}'),
-    ).toEqual({ widget: "tickets", tickets: [{ id: "ENG-1", title: "T", summary: "S", state: "Doing" }] });
+      parseWidget(
+        '{"widget":"tickets","tickets":[{"id":"ENG-1","title":"T","summary":"S","state":"Doing","stateType":"wip","url":"not a url"}]}',
+      ),
+    ).toEqual({
+      widget: "tickets",
+      tickets: [{ id: "ENG-1", title: "T", summary: "S", state: "Doing" }],
+    });
     expect(parseWidget('{"widget":"tickets","tickets":[]}')).toBeNull();
     expect(parseWidget('{"widget":"tickets","tickets":[{"id":"ENG-1","title":"T"}]}')).toBeNull();
   });
 
   it("accepts compare images only as host drop paths or http(s) URLs", () => {
     const spec = (before: string) =>
-      parseWidget(JSON.stringify({ widget: "compare", before: { src: before, label: "Before" }, after: { src: "https://x.test/a.png" } }));
+      parseWidget(
+        JSON.stringify({
+          widget: "compare",
+          before: { src: before, label: "Before" },
+          after: { src: "https://x.test/a.png" },
+        }),
+      );
     expect(spec("/drops/abc/tok")).toEqual({
       widget: "compare",
       before: { src: "/drops/abc/tok", label: "Before" },
@@ -60,20 +77,31 @@ describe("parseWidget", () => {
       title: "Repro",
       src: "/drops/abc/tok",
     });
-    expect(parseWidget('{"widget":"video","src":"https://cdn.x.test/a.mp4","poster":"x.png"}')).toEqual({
+    expect(
+      parseWidget('{"widget":"video","src":"https://cdn.x.test/a.mp4","poster":"x.png"}'),
+    ).toEqual({
       widget: "video",
       src: "https://cdn.x.test/a.mp4",
     });
     expect(parseWidget('{"widget":"video","src":"/Users/me/clip.mp4"}')).toBeNull();
     expect(parseWidget('{"widget":"video","src":"file:///tmp/clip.mp4"}')).toBeNull();
     expect(parseWidget('{"widget":"video","title":"No source"}')).toBeNull();
-    expect(parseWidget('{"widget":"stack","children":[{"widget":"video","src":"/tmp/x.mp4"},{"widget":"divider"}]}')).toBeNull();
+    expect(
+      parseWidget(
+        '{"widget":"stack","children":[{"widget":"video","src":"/tmp/x.mp4"},{"widget":"divider"}]}',
+      ),
+    ).toBeNull();
   });
 
   it("parses a gallery, dropping a non-http source link instead of rejecting the image", () => {
     expect(
-      parseWidget('{"widget":"gallery","images":[{"src":"https://cdn.x.test/a.png","title":"A","url":"javascript:alert(1)"},{"src":"/drops/abc/tok"}]}'),
-    ).toEqual({ widget: "gallery", images: [{ src: "https://cdn.x.test/a.png", title: "A" }, { src: "/drops/abc/tok" }] });
+      parseWidget(
+        '{"widget":"gallery","images":[{"src":"https://cdn.x.test/a.png","title":"A","url":"javascript:alert(1)"},{"src":"/drops/abc/tok"}]}',
+      ),
+    ).toEqual({
+      widget: "gallery",
+      images: [{ src: "https://cdn.x.test/a.png", title: "A" }, { src: "/drops/abc/tok" }],
+    });
     expect(parseWidget('{"widget":"gallery","images":[]}')).toBeNull();
     expect(parseWidget('{"widget":"gallery","images":[{"src":"/Users/me/a.png"}]}')).toBeNull();
   });
@@ -82,20 +110,31 @@ describe("parseWidget", () => {
     const spec = parseWidget(
       '{"widget":"pr","repo":"r","number":7,"title":"T","state":"weird","url":"javascript:x","checks":[{"name":"ci","status":"queued"}],"reviewers":[{"name":"Noah","state":"approved"}],"files":[{"file":"a.ts","patch":"@@ -1 +1 @@\\n-a\\n+b"}]}',
     );
-    expect(spec).toMatchObject({ widget: "pr", state: "open", checks: [{ name: "ci", status: "pending" }], reviewers: [{ name: "Noah", state: "approved" }] });
+    expect(spec).toMatchObject({
+      widget: "pr",
+      state: "open",
+      checks: [{ name: "ci", status: "pending" }],
+      reviewers: [{ name: "Noah", state: "approved" }],
+    });
     expect((spec as { url?: string }).url).toBeUndefined();
     expect(parseWidget('{"widget":"pr","repo":"r","number":0,"title":"T"}')).toBeNull();
   });
 
   it("parses a 3D model from a host drop path or https URL, degrading a bad autoRotate", () => {
-    expect(parseWidget('{"widget":"model","src":"/drops/abc/tok","title":"Chair","caption":"Drag to orbit","autoRotate":true}')).toEqual({
+    expect(
+      parseWidget(
+        '{"widget":"model","src":"/drops/abc/tok","title":"Chair","caption":"Drag to orbit","autoRotate":true}',
+      ),
+    ).toEqual({
       widget: "model",
       src: "/drops/abc/tok",
       title: "Chair",
       caption: "Drag to orbit",
       autoRotate: true,
     });
-    expect(parseWidget('{"widget":"model","src":"https://cdn.x.test/a.glb","autoRotate":"yes"}')).toEqual({
+    expect(
+      parseWidget('{"widget":"model","src":"https://cdn.x.test/a.glb","autoRotate":"yes"}'),
+    ).toEqual({
       widget: "model",
       src: "https://cdn.x.test/a.glb",
     });
@@ -107,9 +146,33 @@ describe("parseWidget", () => {
     expect(parseWidget('{"widget":"model","title":"No source"}')).toBeNull();
   });
 
+  it("parses a recipe with checkable ingredients and separate directions", () => {
+    expect(
+      parseWidget(
+        '{"widget":"recipe","title":"Tacos","meta":["15 minutes","Serves 6"],"ingredients":[{"section":"Tacos","item":"1 lb ground pork"},{"item":"6 corn tortillas"}],"directions":["Mix the pork.","Sear the tacos."],"source":"https://example.com/recipe"}',
+      ),
+    ).toEqual({
+      widget: "recipe",
+      title: "Tacos",
+      meta: ["15 minutes", "Serves 6"],
+      ingredients: [{ section: "Tacos", item: "1 lb ground pork" }, { item: "6 corn tortillas" }],
+      directions: ["Mix the pork.", "Sear the tacos."],
+      source: "https://example.com/recipe",
+    });
+    expect(
+      parseWidget('{"widget":"recipe","title":"Empty","ingredients":[],"directions":["Cook"]}'),
+    ).toBeNull();
+    expect(
+      parseWidget(
+        '{"widget":"recipe","title":"Empty","ingredients":[{"item":"Salt"}],"directions":[]}',
+      ),
+    ).toBeNull();
+  });
   it("parses emails, dropping a non-http url instead of rejecting the row", () => {
     expect(
-      parseWidget('{"widget":"emails","emails":[{"from":"A","subject":"S","unread":true,"url":"javascript:alert(1)"}]}'),
+      parseWidget(
+        '{"widget":"emails","emails":[{"from":"A","subject":"S","unread":true,"url":"javascript:alert(1)"}]}',
+      ),
     ).toEqual({ widget: "emails", emails: [{ from: "A", subject: "S", unread: true }] });
     expect(parseWidget('{"widget":"emails","emails":[]}')).toBeNull();
     expect(parseWidget('{"widget":"emails","emails":[{"from":"A"}]}')).toBeNull();
@@ -122,7 +185,11 @@ describe("parseWidget", () => {
         title: "Brief",
         children: [
           { widget: "text", text: "Hi", style: "shouty" },
-          { widget: "stack", direction: "diagonal", children: [{ widget: "badge", label: "Live", tone: "neon" }, { widget: "divider" }] },
+          {
+            widget: "stack",
+            direction: "diagonal",
+            children: [{ widget: "badge", label: "Live", tone: "neon" }, { widget: "divider" }],
+          },
           { widget: "rows", rows: [{ label: "PRs", value: "3", tone: "ok" }] },
         ],
       }),
@@ -145,7 +212,14 @@ describe("parseWidget", () => {
     expect(parseWidget(JSON.stringify(nest(MAX_DEPTH + 1)))).toBeNull();
     expect(parseWidget('{"widget":"stack","children":[]}')).toBeNull();
     expect(parseWidget('{"widget":"stack","children":[{"widget":"stat","label":"x"}]}')).toBeNull();
-    expect(parseWidget(JSON.stringify({ widget: "stack", children: Array(MAX_CHILDREN + 1).fill({ widget: "divider" }) }))).toBeNull();
+    expect(
+      parseWidget(
+        JSON.stringify({
+          widget: "stack",
+          children: Array(MAX_CHILDREN + 1).fill({ widget: "divider" }),
+        }),
+      ),
+    ).toBeNull();
   });
 
   it("rejects unknown widgets, bad JSON, empty series, and non-finite points", () => {
