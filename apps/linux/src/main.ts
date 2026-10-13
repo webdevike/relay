@@ -17,6 +17,7 @@ import { FileDeviceStore } from "./device-store";
 import { FileDropStore } from "./drops/store";
 import { FileBoardStore } from "./boards/store";
 import { detectTextTyper, KeyboardInjector } from "./input/keyboard";
+import { MacInputDevice } from "./input/macos";
 import { ClipboardPaster, systemCopy } from "./input/paste";
 import type { EventPoster } from "./input/poster";
 import { TrackpadInputSink } from "./input/trackpad";
@@ -86,10 +87,15 @@ function serve(
   watchClipboard: boolean,
   boardsDir: string | null,
 ): void {
-  let device: UinputDevice | null = null;
+  let device: UinputDevice | MacInputDevice | null = null;
   try {
-    device = new UinputDevice();
-    log("virtual input device created");
+    device = process.platform === "darwin" ? new MacInputDevice() : new UinputDevice();
+    if (device instanceof MacInputDevice) {
+      log(`macOS input: Accessibility ${device.granted ? "granted" : "required"}`);
+      if (!device.granted) device.requestAccess();
+    } else {
+      log("virtual input device created");
+    }
   } catch (error) {
     console.error(`input unavailable: ${error instanceof Error ? error.message : String(error)}`);
     console.error(
@@ -97,12 +103,10 @@ function serve(
     );
   }
   const poster = device ?? NO_INPUT;
-  const typer = detectTextTyper();
-  log(
-    typer === null
-      ? "text input: uinput US layout (ASCII only; install wtype on Wayland for Unicode)"
-      : "text input: wtype",
-  );
+  const typer = device instanceof MacInputDevice ? device.typeText.bind(device) : detectTextTyper();
+  log(device instanceof MacInputDevice ? "text input: macOS Unicode" : typer === null
+    ? "text input: uinput US layout (ASCII only; install wtype on Wayland for Unicode)"
+    : "text input: wtype");
 
   const agents = new OmpBridgeProvider(defaultSocketPath(), log, agentHome);
   const pushTokens = new FilePushTokenStore();
@@ -143,7 +147,7 @@ function serve(
     {
       input: new TrackpadInputSink(poster),
       text: new KeyboardInjector(poster, typer),
-      access: { granted: device !== null },
+      access: { get granted() { return device instanceof MacInputDevice ? device.granted : device !== null; } },
       images,
       agents,
       devices: new FileDeviceStore(),

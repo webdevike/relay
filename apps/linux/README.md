@@ -24,13 +24,23 @@ src/input/keyboard.ts  Named keys via uinput; text via wtype (Wayland) or a US-l
 - Wayland: `wtype` for Unicode text. Without it (or on X11) text falls back to uinput with a US
   layout and non-ASCII characters are refused with `invalid_command`.
 
-### macOS (Agent Inbox only)
+### macOS
 
-The same daemon runs on macOS for omp sessions: Bonjour goes through the system mDNSResponder
-(`dns-sd -R`, built in), the agent socket is `/tmp/relay-agents.sock`, and the extension above
-installs the same way. There is no `/dev/uinput`, so the phone connects with
-`accessibilityGranted: false` (trackpad and keyboard refused; that is the Swift app in `apps/mac`),
-the clipboard watcher is off (no `wl-paste`), and `agent.start` fails (no Herdr).
+The bundled `Relay Host.app` uses `relay-input.dylib` (CoreGraphics) for phone
+trackpad movement, clicks, dragging, pixel scrolling and Unicode keyboard input.
+It does not attempt to open `/dev/uinput` on macOS. Build with
+`sh apps/mac-host/build.sh <version>`; the native input library ships beside the
+compiled daemon. For source runs, set `RELAY_INPUT_LIBRARY` to that built library.
+
+Grant **Relay Host** access in System Settings → Privacy & Security →
+Device Control and Data Access (Accessibility). Until granted, input is refused
+while pairing and chat continue to work. Trust is checked live, so granting access
+does not require restarting the host; reconnect the phone to refresh its status.
+The native backend uses all active display bounds, including extended AirPlay displays.
+Existing Linux Ctrl shortcuts map to macOS Command, and text uses UTF-16 events.
+
+Bonjour goes through the system mDNSResponder (`dns-sd -R`), the agent socket is
+`/tmp/relay-agents.sock`, and the clipboard watcher remains off without `wl-paste`.
 
 ### NixOS
 
