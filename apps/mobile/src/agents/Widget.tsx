@@ -79,11 +79,12 @@ function Node({ spec }: { spec: WidgetSpec }) {
   }
 }
 
-/** Horizontal children share the width equally, so stats or badges line up as columns. */
+/** Horizontal stacks become vertical in narrow containers so text and media remain readable. */
 function Stack({ spec }: { spec: StackSpec }) {
-  const row = spec.direction === "horizontal";
+  const [width, setWidth] = useState(0);
+  const row = spec.direction === "horizontal" && width >= 480;
   return (
-    <View style={{ flexDirection: row ? "row" : "column", gap: spacing[spec.gap ?? "sm"], alignItems: row ? "flex-start" : "stretch" }}>
+    <View onLayout={(event) => setWidth(event.nativeEvent.layout.width)} style={{ flexDirection: row ? "row" : "column", gap: spacing[spec.gap ?? "sm"], alignItems: row ? "flex-start" : "stretch" }}>
       {spec.children.map((child, i) => (
         <View key={i} style={row ? { flex: 1, minWidth: 0 } : undefined}>
           <Node spec={child} />
@@ -128,15 +129,17 @@ const toneColor = { accent: "accent", ok: "ok", warn: "warn", danger: "danger", 
 /** Label left, value right, hairline between rows. A toned value colors only the value. */
 function Rows({ spec }: { spec: RowsSpec }) {
   const colors = useColors();
+  const [width, setWidth] = useState(0);
+  const compact = width < 320;
   return (
-    <View>
+    <View onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
       {spec.rows.map((row, i) => (
         <View
           key={i}
           style={{
-            flexDirection: "row",
+            flexDirection: compact ? "column" : "row",
             justifyContent: "space-between",
-            gap: spacing.md,
+            gap: compact ? spacing.xs : spacing.md,
             paddingVertical: spacing.sm,
             borderTopWidth: i === 0 ? 0 : 1,
             borderTopColor: colors.hairline,
@@ -145,7 +148,7 @@ function Rows({ spec }: { spec: RowsSpec }) {
           <Text variant="body" color="textMuted" style={{ flexShrink: 1 }}>
             {row.label}
           </Text>
-          <Text variant="body" color={row.tone === undefined ? "text" : toneColor[row.tone]} tabular style={{ flexShrink: 1, textAlign: "right" }}>
+          <Text variant="body" color={row.tone === undefined ? "text" : toneColor[row.tone]} tabular style={{ flexShrink: 1, textAlign: compact ? "left" : "right" }}>
             {row.value}
           </Text>
         </View>
