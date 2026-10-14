@@ -25,6 +25,7 @@ import { UinputDevice } from "./input/uinput";
 import { BonjourAdvertiser } from "./mdns";
 import { TerminalPairingUI } from "./pairing";
 import { ExpoPushSender } from "./push/expo";
+import { InboxService } from "./inbox/service";
 import { AttentionNotifier } from "./push/notifier";
 import { FilePushTokenStore } from "./push/token-store";
 import { findScreenHelper, HelperScreenCapture, NO_SCREEN } from "./screen/capture";
@@ -117,7 +118,17 @@ function serve(
     tokens: pushTokens,
     sender: new ExpoPushSender(),
     isViewing: (deviceId, sessionId): boolean => server.isViewing(deviceId, sessionId),
+    suppressed: (): boolean => server.escalatorConnected(),
     clock: systemClock,
+    log,
+  });
+  const inbox = new InboxService({
+    tokens: pushTokens,
+    sender: new ExpoPushSender(),
+    broadcast: (message, exceptDeviceId): void => {
+      server.broadcastExcept(message, exceptDeviceId);
+    },
+    isViewing: (deviceId, sessionId): boolean => server.isViewing(deviceId, sessionId),
     log,
   });
   const clipboard =
@@ -156,6 +167,7 @@ function serve(
       boards,
       screen: screenHelper === null ? NO_SCREEN : new HelperScreenCapture(screenHelper, log),
       notifier,
+      inbox,
       pairing: new TerminalPairingUI(),
       log,
     },

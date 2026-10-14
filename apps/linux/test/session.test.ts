@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { type AgentApproval, type AgentAsk, type AgentAskAnswer, type AgentImage, type AgentMessage, type AgentOptions, type AgentSession, type ApprovalConfirmation, type ClientMessage, type GateStatus, type InputEvent, type KeyName, type ServerMessage } from "@relay/protocol";
+import { type AgentApproval, type AgentAsk, type AgentAskAnswer, type AgentImage, type AgentMessage, type AgentOptions, type AgentSession, type ApprovalConfirmation, type ClientMessage, type GateStatus, type InboxItem, type InputEvent, type KeyName, type ServerMessage } from "@relay/protocol";
 import { AgentsDeltaTracker } from "../src/agents/delta-tracker";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { FileBoardStore } from "../src/boards/store";
 import { CommandDedupStore } from "../src/dedup";
 import { PairingCoordinator } from "../src/pairing";
-import { AckFailure, type AgentConfigChange, type AgentProvider, type DeviceStore, type DropBox, type FrameSink, type GateCommand, type InputSink, type PairedDevice, type PairingUI, type PushRegistry, type ScreenCapture, type ScreenInput, type ScreenWatch, type TextInjecting } from "../src/seams";
+import { AckFailure, type AgentConfigChange, type AgentProvider, type DeviceStore, type DropBox, type FrameSink, type GateCommand, type InboxRelaying, type InputSink, type PairedDevice, type PairingUI, type PushRegistry, type ScreenCapture, type ScreenInput, type ScreenWatch, type TextInjecting } from "../src/seams";
 import { NO_SCREEN } from "../src/screen/capture";
 import { ClientSession, PAIRING_TIMEOUT_MS, type SessionClock, type SessionDeps } from "../src/session";
 
@@ -103,6 +103,7 @@ interface HarnessOptions {
   drops?: DropBox;
   boards?: FileBoardStore;
   screen?: ScreenCapture;
+  inbox?: InboxRelaying;
 }
 
 function harness(options: HarnessOptions = {}): Harness {
@@ -145,6 +146,7 @@ function harness(options: HarnessOptions = {}): Harness {
     remoteAddress: options.remoteAddress ?? "192.168.1.20",
     dedup: options.dedup ?? new CommandDedupStore(),
     screen: options.screen ?? NO_SCREEN,
+    inbox: options.inbox ?? null,
   };
   const sink = new RecordingSink();
   const clock = new FakeClock();
@@ -154,8 +156,8 @@ function harness(options: HarnessOptions = {}): Harness {
 
 const hello: ClientMessage = { t: "hello", v: 1, deviceId: "phone-1", deviceName: "Isaac's iPhone", platform: "ios" };
 
-function pair(h: Harness): string {
-  h.session.receive(hello);
+function pair(h: Harness, deviceId = "phone-1"): string {
+  h.session.receive({ t: "hello", v: 1, deviceId, deviceName: "Isaac's iPhone", platform: "ios" });
   expect(h.sink.last()).toEqual({ t: "unpaired" });
   h.session.receive({ t: "pair.request" });
   expect(h.sink.last()).toEqual({ t: "pair.pending" });
@@ -617,6 +619,73 @@ describe("tool approvals", () => {
       { t: "ack", id: "k3" },
       { t: "nack", id: "k4", error: { code: "agent_not_found", message: "gone" } },
     ]);
+  });
+});
+
+class FakeInbox implements InboxRelaying {
+  readonly items: [string, InboxItem][] = [];
+  readonly resolved: [string, string][] = [];
+  readonly claims: [string, string, string][] = [];
+  readonly released: string[] = [];
+  open: InboxItem[] = [];
+  item(deviceId: string, item: InboxItem): void {
+    this.items.push([deviceId, item]);
+  }
+  resolve(deviceId: string, resolve: { id: string }): void {
+    this.resolved.push([deviceId, resolve.id]);
+  }
+  pending(): readonly InboxItem[] {
+    return this.open;
+  }
+  claim(id: string, deviceId: string, answer: string): void {
+    this.claims.push([id, deviceId, answer]);
+  }
+  release(id: string): void {
+    this.released.push(id);
+  }
+  readonly settledIds: string[] = [];
+  settled(kind: "approval" | "ask", requestId: string): void {
+    this.settledIds.push(`${kind}:${requestId}`);
+  }
+}
+
+describe("phone escalation inbox", () => {
+  const item: InboxItem = { id: "approval:t1", kind: "alert", title: "t", body: "b", at: 1 };
+
+  it("hands inbox frames to the inbox with the sending device, and replays open items to a phone, not to EvaOS", () => {
+    const inbox = new FakeInbox();
+    inbox.open = [item];
+    const evaos = harness({ inbox });
+    pair(evaos, "evaos");
+    expect(evaos.sink.sent.filter((m) => m.t === "inbox.item")).toEqual([]);
+    evaos.session.receive({ t: "inbox.item", item });
+    evaos.session.receive({ t: "inbox.resolve", id: "approval:t1", by: "mac" });
+    expect(inbox.items).toEqual([["evaos", item]]);
+    expect(inbox.resolved).toEqual([["evaos", "approval:t1"]]);
+    const phone = harness({ inbox });
+    pair(phone);
+    expect(phone.sink.last()).toEqual({ t: "inbox.item", item });
+  });
+
+  it("claims a phone's approve, deny and ask answer before running it, and gives the claim back when it fails", async () => {
+    const inbox = new FakeInbox();
+    const agents = new FakeProvider();
+    agents.approval = { id: "t1", toolName: "bash", command: "git push --force", destructive: "force push", requiresBiometric: true };
+    const h = harness({ agents, inbox });
+    pair(h);
+    h.session.receive({ t: "cmd", id: "k1", cmd: { kind: "agent.approve", sessionId: "s1", approvalId: "t1" } });
+    h.session.receive({ t: "cmd", id: "k2", cmd: { kind: "agent.approve", sessionId: "s1", approvalId: "t1", confirmed: "biometric" } });
+    h.session.receive({ t: "cmd", id: "k3", cmd: { kind: "agent.deny", sessionId: "s1", approvalId: "t2" } });
+    h.session.receive({ t: "cmd", id: "k4", cmd: { kind: "agent.ask.answer", sessionId: "s1", askId: "a1", results: [{ id: "q1", selectedOptions: ["Yes"] }] } });
+    await h.sink.sentCount(5);
+    expect(inbox.claims).toEqual([
+      ["approval:t1", "phone-1", "Approved"],
+      ["approval:t1", "phone-1", "Approved"],
+      ["approval:t2", "phone-1", "Denied"],
+      ["ask:a1", "phone-1", "Yes"],
+    ]);
+    // k1 had no Face ID: refused, so its claim is given back.
+    expect(inbox.released).toEqual(["approval:t1"]);
   });
 });
 

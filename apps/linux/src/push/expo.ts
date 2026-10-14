@@ -17,13 +17,24 @@ const Ticket = z.union([
 const Response = z.object({ data: z.array(Ticket) });
 
 export class ExpoPushSender implements PushSender {
-  constructor(private readonly fetchImpl: typeof fetch = fetch) {}
+  /** `url` is overridable (`RELAY_EXPO_PUSH_URL`) so a scratch host can be pointed at a local capture. */
+  constructor(
+    private readonly fetchImpl: typeof fetch = fetch,
+    private readonly url: string = process.env["RELAY_EXPO_PUSH_URL"] ?? EXPO_PUSH_URL,
+  ) {}
 
   async send(messages: readonly PushMessage[]): Promise<readonly PushOutcome[]> {
-    const response = await this.fetchImpl(EXPO_PUSH_URL, {
+    const response = await this.fetchImpl(this.url, {
       method: "POST",
       headers: { "content-type": "application/json", accept: "application/json", "accept-encoding": "gzip, deflate" },
-      body: JSON.stringify(messages.map((message) => ({ ...message, sound: "default", priority: "high" }))),
+      body: JSON.stringify(
+        messages.map(({ contentAvailable, ...message }) => ({
+          sound: "default",
+          priority: "high",
+          ...message,
+          ...(contentAvailable === true ? { _contentAvailable: true } : {}),
+        })),
+      ),
     });
     if (!response.ok) throw new Error(`expo push: HTTP ${response.status}`);
     const parsed = Response.safeParse(await response.json());

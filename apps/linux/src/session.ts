@@ -7,6 +7,7 @@
 
 import { createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import {
+  ESCALATOR_DEVICE_ID,
   PROTOCOL_VERSION,
   parseClientMessage,
   toHex,
@@ -32,6 +33,7 @@ import {
   type DropBox,
   type FrameSink,
   type ImagePasting,
+  type InboxRelaying,
   type InputAccess,
   type InputSink,
   type PushRegistry,
@@ -62,6 +64,8 @@ export interface SessionDeps {
   readonly dedup: CommandDedupStore;
   /** Window capture for the live view; `NO_SCREEN` where the host has none. */
   readonly screen: ScreenCapture;
+  /** null when the host has no phone-escalation inbox; `inbox.*` frames are then ignored. */
+  readonly inbox: InboxRelaying | null;
 }
 
 /** Clock and scheduling seams so tests drive time deterministically. */
@@ -518,6 +522,12 @@ export class ClientSession {
       case "screen.click":
         this.screenWatch?.input({ t: "click", button: message.button });
         break;
+      case "inbox.item":
+        this.deps.inbox?.item(deviceId, message.item);
+        break;
+      case "inbox.resolve":
+        this.deps.inbox?.resolve(deviceId, message);
+        break;
       case "hello":
       case "auth":
       case "pair.request":
@@ -537,7 +547,7 @@ export class ClientSession {
     }
     if (lookup.kind === "inFlight") return;
 
-    void this.execute(id, cmd).then((response) => {
+    void this.execute(id, cmd, deviceId).then((response) => {
       this.deps.dedup.complete(deviceId, id, response);
       // The waiter list never includes this sink; send to ourselves even if the socket closed
       // meanwhile (FrameSink.send after close is a no-op).
@@ -545,9 +555,9 @@ export class ClientSession {
     });
   }
 
-  private async execute(id: string, cmd: Command): Promise<ServerMessage> {
+  private async execute(id: string, cmd: Command, deviceId: string): Promise<ServerMessage> {
     try {
-      await this.run(cmd);
+      await this.run(cmd, deviceId);
       return { t: "ack", id };
     } catch (error) {
       return error instanceof AckFailure
@@ -563,7 +573,27 @@ export class ClientSession {
     }
   }
 
-  private run(cmd: Command): Promise<void> {
+  /**
+   * Runs `act`, which settles inbox item `id`, with the answer claimed first: omp's resolved event
+   * can land before `act` returns, and the Mac's row must hear who answered. A failed answer
+   * (Face ID missing, approval already gone) gives the claim back.
+   */
+  private claimed(id: string, deviceId: string, answer: string, act: () => Promise<void>): Promise<void> {
+    const inbox = this.deps.inbox;
+    if (inbox === null) return act();
+    inbox.claim(id, deviceId, answer);
+    try {
+      return act().catch((error: unknown) => {
+        inbox.release(id);
+        throw error;
+      });
+    } catch (error) {
+      inbox.release(id);
+      throw error;
+    }
+  }
+
+  private run(cmd: Command, deviceId: string): Promise<void> {
     switch (cmd.kind) {
       case "text.insert":
         return this.deps.access.granted
@@ -611,14 +641,23 @@ export class ClientSession {
         return this.agents().abort(cmd.sessionId);
       case "agent.end":
         return this.agents().end(cmd.sessionId);
-      case "agent.ask.answer":
-        return this.agents().answerAsk(cmd.sessionId, cmd.askId, cmd.results);
+      case "agent.ask.answer": {
+        const first = cmd.results[0];
+        const answer = first?.selectedOptions[0] ?? first?.customInput ?? "Answered";
+        return this.claimed(`ask:${cmd.askId}`, deviceId, answer, () =>
+          this.agents().answerAsk(cmd.sessionId, cmd.askId, cmd.results),
+        );
+      }
       case "agent.ask.cancel":
         return this.agents().cancelAsk(cmd.sessionId, cmd.askId);
       case "agent.approve":
-        return this.agents().decideApproval(cmd.sessionId, cmd.approvalId, true, cmd.confirmed);
+        return this.claimed(`approval:${cmd.approvalId}`, deviceId, "Approved", () =>
+          this.agents().decideApproval(cmd.sessionId, cmd.approvalId, true, cmd.confirmed),
+        );
       case "agent.deny":
-        return this.agents().decideApproval(cmd.sessionId, cmd.approvalId, false);
+        return this.claimed(`approval:${cmd.approvalId}`, deviceId, "Denied", () =>
+          this.agents().decideApproval(cmd.sessionId, cmd.approvalId, false),
+        );
       case "drop.put": {
         if ((cmd.text === undefined) === (cmd.image === undefined)) {
           return Promise.reject(
@@ -727,6 +766,10 @@ export class ClientSession {
   private authenticate(deviceId: string): void {
     this.phase = { kind: "authenticated", deviceId };
     this.sink.send({ t: "welcome", state: this.snapshot() });
+    // Items that opened while this device was away; the escalator itself is the one that sent them.
+    if (deviceId !== ESCALATOR_DEVICE_ID) {
+      for (const item of this.deps.inbox?.pending() ?? []) this.sink.send({ t: "inbox.item", item });
+    }
   }
 
   private snapshot(): Snapshot {

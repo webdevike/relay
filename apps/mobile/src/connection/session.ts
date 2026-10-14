@@ -232,6 +232,8 @@ export class SessionMachine {
       case "agent.ask.resolved":
       case "agent.approval":
       case "agent.approval.resolved":
+      case "inbox.item":
+      case "inbox.resolve":
       case "drop.new":
       case "drop.removed":
       case "drop.list":

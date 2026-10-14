@@ -45,6 +45,7 @@ function harness(outcome: (message: PushMessage) => PushOutcome = () => ({ ok: t
   const sent: PushMessage[][] = [];
   const viewing = new Set<string>();
   const logs: string[] = [];
+  const suppressed = { value: false };
   const notifier = new AttentionNotifier({
     tokens,
     sender: {
@@ -54,10 +55,11 @@ function harness(outcome: (message: PushMessage) => PushOutcome = () => ({ ok: t
       },
     },
     isViewing: (deviceId, sessionId) => viewing.has(`${deviceId}/${sessionId}`),
+    suppressed: () => suppressed.value,
     clock,
     log: (line) => logs.push(line),
   });
-  return { clock, tokens, sent, viewing, logs, notifier };
+  return { clock, tokens, sent, viewing, logs, notifier, suppressed };
 }
 
 describe("AttentionNotifier", () => {
@@ -82,6 +84,18 @@ describe("AttentionNotifier", () => {
     const h = harness();
     h.notifier.observe([session("a", "needs_permission", { statusDetail: "bash: rm -rf dist" })]);
     expect(h.sent[0]?.[0]?.body).toBe("Needs permission: bash: rm -rf dist");
+  });
+
+  it("stays quiet while the escalation engine is connected: it decides what reaches the phone", () => {
+    const h = harness();
+    h.suppressed.value = true;
+    h.notifier.observe([session("a", "needs_permission", { statusDetail: "bash" })]);
+    h.clock.advance(REMINDER_MS);
+    expect(h.sent).toEqual([]);
+    h.suppressed.value = false;
+    h.notifier.observe([session("a", "working")]);
+    h.notifier.observe([session("a", "waiting")]);
+    expect(h.sent).toHaveLength(1);
   });
 
   it("skips a phone that has the session open, and every phone when none is registered", () => {

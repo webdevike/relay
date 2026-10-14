@@ -3,7 +3,7 @@
 // mutation runs on it, so the session needs no locking. The session never sees the socket; it
 // only calls `FrameSink.send`, wired here to `ws.send`.
 
-import { encode, MAX_DROP_BYTES, WS_PATH, type ServerMessage } from "@relay/protocol";
+import { ESCALATOR_DEVICE_ID, encode, MAX_DROP_BYTES, WS_PATH, type ServerMessage } from "@relay/protocol";
 import { basename } from "node:path";
 import type { Server, ServerWebSocket } from "bun";
 import { AgentsDeltaTracker } from "./agents/delta-tracker";
@@ -20,6 +20,7 @@ import type {
   DropChange,
   FrameSink,
   ImagePasting,
+  InboxRelaying,
   InputAccess,
   InputSink,
   PairingUI,
@@ -53,6 +54,8 @@ export interface ServerDeps {
   readonly boards: FileBoardStore | null;
   /** Live-view window capture; `NO_SCREEN` on hosts without one. */
   readonly screen: ScreenCapture;
+  /** The phone-escalation inbox EvaOS feeds; null disables `inbox.*` frames. */
+  readonly inbox: InboxRelaying | null;
   readonly pairing: PairingUI;
   readonly log: (line: string) => void;
 }
@@ -217,6 +220,23 @@ export class RelayServer {
     return false;
   }
 
+  /** Sends `message` to every authenticated device except `exceptDeviceId` (`null`: all of them). */
+  broadcastExcept(message: ServerMessage, exceptDeviceId: string | null): void {
+    for (const ws of this.sockets) {
+      const session = ws.data.session;
+      if (session !== null && session.deviceId !== exceptDeviceId) session.broadcast(message);
+    }
+  }
+
+  /** Whether the escalation engine (EvaOS) is connected and authenticated. */
+  escalatorConnected(): boolean {
+    for (const ws of this.sockets) {
+      const session = ws.data.session;
+      if (session !== null && session.isAuthenticated && session.deviceId === ESCALATOR_DEVICE_ID) return true;
+    }
+    return false;
+  }
+
   private handleProviderChange(change: AgentProviderChange): void {
     if (change.kind === "sessions") {
       const sessions = this.deps.agents?.sessions ?? [];
@@ -234,6 +254,7 @@ export class RelayServer {
       return;
     }
     if (change.kind === "ask.resolved") {
+      this.deps.inbox?.settled("ask", change.id);
       for (const ws of this.sockets) ws.data.session?.agentAskResolved(change.sessionId, change.id);
       return;
     }
@@ -242,6 +263,8 @@ export class RelayServer {
       return;
     }
     if (change.kind === "approval.resolved") {
+      // Before the frame below, so EvaOS hears "phone" ahead of the plain resolve it reacts to.
+      this.deps.inbox?.settled("approval", change.id);
       for (const ws of this.sockets) ws.data.session?.agentApprovalResolved(change.sessionId, change.id);
       return;
     }
@@ -332,6 +355,7 @@ export class RelayServer {
         remoteAddress: ws.remoteAddress,
         dedup: this.dedup,
         screen: this.deps.screen,
+        inbox: this.deps.inbox,
       },
       (closed) => {
         const reason = closed.closeReason;

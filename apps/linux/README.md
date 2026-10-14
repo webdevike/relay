@@ -126,6 +126,28 @@ a `destructive` name. Approving one needs `confirmed: "biometric"` (Face ID on t
 `confirmed: "desktop"` (EvaOS, at the Mac); without it the ack is `biometric_required`. Denying never needs
 it. There is no "always allow" for these, and the protocol has none for any approval.
 
+### Phone escalation (`inbox.item`, `inbox.resolve`)
+
+EvaOS decides what reaches the phone (apps/evaos `src/inbox/escalate.rs`: away from the Mac, 45 s unanswered,
+not quiet hours or a habit break, rate limited) and speaks to the host as the device `evaos`
+(`ESCALATOR_DEVICE_ID`). `src/inbox/service.ts` is the host half:
+
+- `inbox.item` from `evaos` (an `approval`, an `ask` with up to four options, or an `alert`) is kept, relayed
+  to every other device and replayed to a device that connects later. A new id also pushes a Time Sensitive
+  notification through Expo with the item's `categoryId` (`INBOX_CATEGORY`: `relay.approval`,
+  `relay.approval.biometric`, `relay.ask`) and everything the phone needs to answer with the app killed
+  (`data`). The same id again, `silent` items and sessions a phone has open do not push. A `passive` item (a
+  digest) pushes with no sound and is not kept.
+- `inbox.resolve` from `evaos` (answered on the Mac or in the chat) is relayed to the phones and withdraws
+  the delivered notification with a silent push (`{ withdraw: <id> }`, content-available).
+- A phone's own answer (`agent.approve`, `agent.deny`, `agent.ask.answer`) is claimed by the session before it
+  runs (`InboxRelaying.claim`); omp's resolved event then makes the host send `inbox.resolve { by: "phone",
+  answer }` to every device, EvaOS included, ahead of the plain `agent.approval.resolved`, so the Mac's row
+  reads "answered on iPhone". A refused answer (no Face ID) releases the claim.
+- While `evaos` is connected the host's own "session is waiting" pushes (`AttentionNotifier`) are suppressed:
+  the engine already applied the rules. Without EvaOS they behave as before.
+- `RELAY_EXPO_PUSH_URL` points the push sender somewhere else (a scratch host captures sends locally).
+
 ## Differences from the Mac app
 
 - No tray/menu UI; the terminal is the UI.

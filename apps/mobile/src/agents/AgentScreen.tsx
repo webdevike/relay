@@ -42,6 +42,7 @@ import { AgentSettingsSheet } from "@/agents/AgentSettingsSheet";
 import { TypedReply } from "@/agents/TypedReply";
 import { SessionWidgetActions } from "@/agents/WidgetActions";
 import { AskCard } from "@/agents/AskCard";
+import { SessionApprovalCard } from "@/agents/SessionApprovalCard";
 import { HabitGate } from "@/gate/HabitGate";
 import { useGateStore } from "@/state/gate";
 import { type ActionWheelEntry } from "@/agents/ActionWheel";
@@ -219,6 +220,11 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
   // subscribe, so it survives a reconnect or a scrub away and back.
   const pendingAsk = useAgentsStore((state) =>
     selectedId === undefined ? undefined : state.asks[selectedId],
+  );
+  // The tool call it is blocked on, if any (replayed on subscribe like the ask). Destructive calls
+  // need Face ID on this phone; see `SessionApprovalCard`.
+  const pendingApproval = useAgentsStore((state) =>
+    selectedId === undefined ? undefined : state.approvals[selectedId],
   );
   const gateLocked = useGateStore((state) => state.gate?.locked === true);
   const answerAsk = useCallback(
@@ -726,7 +732,11 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
             </View>
           )}
           {wheel}
-          {session !== undefined && pendingAsk !== undefined ? (
+          {session !== undefined && selectedId !== undefined && pendingApproval !== undefined ? (
+            <View style={styles.askOverlay}>
+              <SessionApprovalCard sessionId={selectedId} approval={pendingApproval} />
+            </View>
+          ) : session !== undefined && pendingAsk !== undefined ? (
             <View style={styles.askOverlay}>
               <AskCard ask={pendingAsk} onSubmit={answerAsk} onCancel={cancelAsk} />
             </View>

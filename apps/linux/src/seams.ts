@@ -1,7 +1,7 @@
 // Seams between transport, input and storage. Mirrors apps/mac/Sources/RelayCore/Seams.swift:
 // the session only ever talks to these; input/ and the stores implement them; main.ts wires them.
 
-import type { AckError, AgentApproval, AgentAsk, AgentAskAnswer, AgentImage, AgentMessage, AgentOptions, AgentSession, ApprovalConfirmation, Command, Drop, DropOrigin, GateStatus, InputEvent, KeyName, ScreenError, ScreenKey, ScreenWindow, ServerMessage } from "@relay/protocol";
+import type { AckError, AgentApproval, AgentAsk, AgentAskAnswer, AgentImage, AgentMessage, AgentOptions, AgentSession, ApprovalConfirmation, Command, Drop, DropOrigin, GateStatus, InboxItem, InboxResolve, InputEvent, KeyName, ScreenError, ScreenKey, ScreenWindow, ServerMessage } from "@relay/protocol";
 
 /** Outbound side of one connection. `send` after `close` is a no-op. */
 export interface FrameSink {
@@ -93,6 +93,23 @@ export interface DeviceStore {
 export interface PushRegistry {
   register(deviceId: string, token: string): void;
   unregister(deviceId: string): void;
+}
+
+/**
+ * What the session needs of the phone-escalation inbox (`inbox/service.ts`): frames the escalator
+ * sends, the items a device that just connected missed, and the claim a phone's answer makes so
+ * the Mac's row can say who answered.
+ */
+export interface InboxRelaying {
+  item(deviceId: string, item: InboxItem): void;
+  resolve(deviceId: string, resolve: Pick<InboxResolve, "id" | "answer">): void;
+  pending(): readonly InboxItem[];
+  /** `deviceId` is about to answer `id` (`approval:<approval id>` or `ask:<ask id>`) with `answer`. */
+  claim(id: string, deviceId: string, answer: string): void;
+  /** The claimed answer failed; forget it. */
+  release(id: string): void;
+  /** omp reported the approval or ask closed, whoever answered. */
+  settled(kind: "approval" | "ask", requestId: string): void;
 }
 
 export type DropChange = { readonly kind: "added"; readonly drop: Drop } | { readonly kind: "removed"; readonly id: string };

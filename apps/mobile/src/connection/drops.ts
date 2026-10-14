@@ -41,6 +41,8 @@ export function createDropFrameRouter(store: DropsStoreActions): DropFrameRouter
       case "agent.ask.resolved":
       case "agent.approval":
       case "agent.approval.resolved":
+      case "inbox.item":
+      case "inbox.resolve":
       case "board.snapshot":
       case "board.delta":
       case "gate.status":

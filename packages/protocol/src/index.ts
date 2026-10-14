@@ -163,6 +163,77 @@ export type AgentApproval = z.infer<typeof AgentApproval>;
 export const ApprovalConfirmation = z.enum(["biometric", "desktop"]);
 export type ApprovalConfirmation = z.infer<typeof ApprovalConfirmation>;
 
+/**
+ * The device id EvaOS pairs with: the escalation engine that decides what reaches the phone. The
+ * host suppresses its own "session is waiting" pushes while this device is connected, because the
+ * engine already applies the away, 45 s, quiet hours, habit break and rate-limit rules.
+ */
+export const ESCALATOR_DEVICE_ID = "evaos" as const;
+
+/**
+ * Notification categories the phone registers at launch and the host names in an inbox push, so a
+ * lock-screen notification carries its actions. A destructive approval gets its own category: its
+ * Approve opens the app for Face ID instead of acting from the lock screen.
+ */
+export const INBOX_CATEGORY = {
+  approval: "relay.approval",
+  approvalBiometric: "relay.approval.biometric",
+  ask: "relay.ask",
+} as const;
+
+const InboxItemBase = {
+  /** `approval:<approval id>` or `ask:<ask id>` for the two actionable kinds, so the host can name them from a command. */
+  id: nonEmpty,
+  sessionId: nonEmpty.optional(),
+  title: z.string(),
+  /** What it is about, verbatim for an agent's question. */
+  body: z.string(),
+  /** When it began waiting on the Mac, epoch ms. */
+  at: ms,
+  /** Other items folded into this one's notification ("+1 more"). */
+  more: z.number().int().nonnegative().optional(),
+  /** Deliver to a connected phone but do not push (a second blocked agent inside the fold window). */
+  silent: z.boolean().optional(),
+  /**
+   * A digest, not something waiting on Isaac: pushed without a sound and without breaking through
+   * Focus (`passive`), relayed to connected phones, and not kept to replay or withdraw.
+   */
+  passive: z.boolean().optional(),
+};
+
+/**
+ * One thing waiting on Isaac. `approval` items carry omp's approval verbatim, with
+ * `requiresBiometric` for destructive calls: Approve then needs Face ID on the phone. `ask` items
+ * carry the question's options so a phone answers inline; an ask that has several questions or
+ * free text only is an `alert`, answered by opening the app.
+ */
+export const InboxItem = z.discriminatedUnion("kind", [
+  z.object({ ...InboxItemBase, kind: z.literal("approval"), approval: AgentApproval }),
+  z.object({
+    ...InboxItemBase,
+    kind: z.literal("ask"),
+    ask: z.object({
+      id: nonEmpty,
+      questionId: nonEmpty,
+      question: z.string(),
+      options: z.array(nonEmpty).min(1).max(4),
+    }),
+  }),
+  z.object({ ...InboxItemBase, kind: z.literal("alert") }),
+]);
+export type InboxItem = z.infer<typeof InboxItem>;
+
+/**
+ * Where an item was settled: `mac` (EvaOS, the chat, the terminal) or `phone`. `answer` is the
+ * short outcome for display ("Approved", "Denied", or the picked option).
+ */
+const InboxResolveFields = {
+  id: nonEmpty,
+  by: z.enum(["mac", "phone"]),
+  answer: z.string().optional(),
+};
+export type InboxResolve = z.infer<z.ZodObject<typeof InboxResolveFields>>;
+
 /** The phone's answer to one question: the chosen option labels, plus any typed input or note. */
 export const AgentAskAnswer = z.object({
   id: nonEmpty,
@@ -648,6 +719,18 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("screen.move"), dx: z.number().finite(), dy: z.number().finite(), at: ms }),
   /** Trackpad: click `button` wherever the host cursor is. */
   z.object({ t: z.literal("screen.click"), button: z.enum(["left", "right"]) }),
+  /**
+   * Escalate `item` to the phone. Only the escalator (`ESCALATOR_DEVICE_ID`) may send it; the host
+   * stores it, relays it to every other device and pushes a notification for a new id.
+   */
+  z.object({ t: z.literal("inbox.item"), item: InboxItem }),
+  /**
+   * An item closed on this device (EvaOS: answered on the Mac or in the chat). The host forgets it,
+   * relays the frame to the other devices and withdraws the phone notification. A phone does not
+   * send it for its own answer: the host derives it from the `agent.approve`, `agent.deny` or
+   * `agent.ask.answer` it carries out.
+   */
+  z.object({ t: z.literal("inbox.resolve"), ...InboxResolveFields }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 
@@ -713,6 +796,16 @@ export const ServerMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("agent.approval"), sessionId: nonEmpty, approval: AgentApproval }),
   /** A pending approval was settled (here, in the terminal or on another device); dismiss it. */
   z.object({ t: z.literal("agent.approval.resolved"), sessionId: nonEmpty, id: nonEmpty }),
+  /**
+   * An item the escalation engine in EvaOS wants Isaac to see on the phone (`ESCALATOR_DEVICE_ID`
+   * sends it, the host relays it to every other device). A new id also pushes a Time Sensitive
+   * notification; the same id again (a changed `more`) updates what is already shown, and `silent`
+   * skips the push. Replayed to a device right after it authenticates, so a phone never misses
+   * one that opened while it was away.
+   */
+  z.object({ t: z.literal("inbox.item"), item: InboxItem }),
+  /** The item closed (answered on the Mac, in the chat, or on a phone); withdraw its notification. */
+  z.object({ t: z.literal("inbox.resolve"), ...InboxResolveFields }),
   /** `image` is null when the session no longer has that image. */
   z.object({ t: z.literal("agent.image"), sessionId: nonEmpty, id: nonEmpty, image: AgentImage.nullable() }),
   /** A drop was added on either side; also mirrored as a push notification for host-origin drops. */

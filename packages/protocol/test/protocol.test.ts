@@ -122,3 +122,41 @@ describe("tool approvals", () => {
     }
   });
 });
+
+describe("inbox frames", () => {
+  const approval = { id: "call-1", toolName: "bash", command: "git push --force", destructive: "force push", requiresBiometric: true };
+  const items = [
+    { id: "approval:call-1", kind: "approval", sessionId: "s-1", title: "ENG-6243 needs approval", body: "git push --force", at: 1, approval },
+    { id: "ask:a-1", kind: "ask", sessionId: "s-1", title: "ENG-6227 asked you", body: "Apply both nits?", at: 2, more: 1, ask: { id: "a-1", questionId: "q-1", question: "Apply both nits?", options: ["Yes", "No"] } },
+    { id: "gate:2026-10-14", kind: "alert", title: "Break due", body: "Walk", at: 3, silent: true },
+    { id: "digest:4", kind: "alert", title: "Morning digest", body: "2 need you, 5 updates", at: 4, passive: true },
+  ];
+
+  it("inbox.item and inbox.resolve round-trip both ways", () => {
+    for (const item of items) {
+      for (const parse of [parseClientMessage, parseServerMessage]) {
+        const r = parse(JSON.stringify({ t: "inbox.item", item }));
+        expect(r.ok, item.id).toBe(true);
+        if (r.ok) expect(r.value).toEqual({ t: "inbox.item", item });
+      }
+    }
+    for (const frame of [
+      { t: "inbox.resolve", id: "approval:call-1", by: "phone", answer: "Approved" },
+      { t: "inbox.resolve", id: "ask:a-1", by: "mac" },
+    ]) {
+      for (const parse of [parseClientMessage, parseServerMessage]) {
+        const r = parse(JSON.stringify(frame));
+        expect(r.ok, JSON.stringify(frame)).toBe(true);
+        if (r.ok) expect(r.value).toEqual(frame);
+      }
+    }
+  });
+
+  it("rejects an approval item with no approval, an ask with five options or none, and an unknown resolver", () => {
+    expect(parseClientMessage(JSON.stringify({ t: "inbox.item", item: { id: "approval:x", kind: "approval", title: "t", body: "b", at: 1 } })).ok).toBe(false);
+    const ask = (options: string[]) => ({ id: "ask:x", kind: "ask", title: "t", body: "b", at: 1, ask: { id: "x", questionId: "q", question: "?", options } });
+    expect(parseClientMessage(JSON.stringify({ t: "inbox.item", item: ask(["a", "b", "c", "d", "e"]) })).ok).toBe(false);
+    expect(parseClientMessage(JSON.stringify({ t: "inbox.item", item: ask([]) })).ok).toBe(false);
+    expect(parseClientMessage(JSON.stringify({ t: "inbox.resolve", id: "x", by: "watch" })).ok).toBe(false);
+  });
+});

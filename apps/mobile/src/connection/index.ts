@@ -29,6 +29,7 @@ import { RelaySocket } from "./socket";
 import { SessionMachine, type Effect } from "./session";
 import { CommandQueue } from "./commands";
 import { debug, warn } from "./log";
+import { withdrawNotification } from "@/inbox/withdraw";
 
 let started = false;
 let deviceId = "";
@@ -112,6 +113,12 @@ socket.onMessage = (data) => {
     socket.send(encode({ t: "gate.get" }));
   }
   if (message.t === "agent.image") imagesInFlight.delete(imageKey(message.sessionId, message.id));
+  // Answered on the Mac, in the chat or on another device: take its notification off the lock screen.
+  if (message.t === "inbox.resolve") {
+    withdrawNotification(message.id).catch((error: unknown) => {
+      warn("inbox", "withdraw failed", error);
+    });
+  }
   routeAgentFrame(message);
   routeDropFrame(message);
   routeScreenFrame(message);
@@ -389,6 +396,17 @@ export function registerPush(token: string): void {
 export function unregisterPush(): void {
   if (useConnectionStore.getState().status !== "connected") return;
   socket.send(encode({ t: "push.unregister" }));
+}
+
+/**
+ * Reconnects now. A notification action can wake the app in the background, where it closed its
+ * socket on backgrounding and no `appActive` will come; without this the answer would have no host
+ * to go to. A no-op while connected or already connecting.
+ */
+export function wakeConnection(): void {
+  const status = useConnectionStore.getState().status;
+  if (status === "connected" || status === "connecting" || status === "authenticating" || status === "pairing") return;
+  void dispatch({ type: "appActive" });
 }
 
 /**

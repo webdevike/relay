@@ -9,14 +9,31 @@ import type { PushTokenSource } from "./token-store";
 
 export const REMINDER_MS = 30 * 60_000;
 
-/** Tap routing on the phone: a session opens the inbox card, a drop opens the Drops list. */
-export type PushData = { readonly sessionId: string } | { readonly dropId: string };
+/**
+ * Tap routing on the phone: a session opens the inbox card, a drop opens the Drops list, and an
+ * inbox push carries what the phone needs to answer it (`InboxPushData`) or, for a withdraw, the id
+ * of the notification to remove.
+ */
+export type PushData =
+  | { readonly sessionId: string }
+  | { readonly dropId: string }
+  | { readonly id: string; readonly kind: string; readonly sessionId?: string }
+  | { readonly withdraw: string };
 
 export interface PushMessage {
   readonly to: string;
-  readonly title: string;
-  readonly body: string;
+  /** Absent on a silent push. */
+  readonly title?: string;
+  readonly body?: string;
   readonly data: PushData;
+  /** iOS interruption level; `time-sensitive` breaks through Focus (needs the app's entitlement). */
+  readonly interruptionLevel?: "passive" | "active" | "time-sensitive";
+  /** The notification category whose actions the phone registered. */
+  readonly categoryId?: string;
+  /** Wakes the app in the background (a silent push the app handles without showing). */
+  readonly contentAvailable?: boolean;
+  /** `null` for no sound; the sender defaults to the system sound. */
+  readonly sound?: string | null;
 }
 
 export type PushOutcome = { readonly ok: true } | { readonly ok: false; readonly error: string; readonly unregistered: boolean };
@@ -31,6 +48,8 @@ export interface NotifierDeps {
   readonly sender: PushSender;
   /** Whether `deviceId` has this session open on screen right now. */
   readonly isViewing: (deviceId: string, sessionId: string) => boolean;
+  /** True while the escalation engine is connected and owns what reaches the phone. */
+  readonly suppressed?: () => boolean;
   readonly clock: SessionClock;
   readonly log: (line: string) => void;
 }
@@ -95,6 +114,9 @@ export class AttentionNotifier {
   }
 
   private send(title: string, body: string, data: PushData, skip: (deviceId: string) => boolean): void {
+    // EvaOS applies the away, 45 s, quiet hours, habit break and rate-limit rules and sends what passes
+    // as `inbox.item`; pushing here too would ping Isaac while he sits at the Mac.
+    if (this.deps.suppressed?.() === true) return;
     const recipients: { deviceId: string; token: string }[] = [];
     for (const [deviceId, token] of this.deps.tokens.tokens()) {
       if (skip(deviceId)) continue;

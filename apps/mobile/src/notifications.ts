@@ -1,8 +1,9 @@
 /**
  * Push notifications for sessions that wait on the user and for host-origin drops. The host
- * decides when to notify (see apps/linux/src/push/notifier.ts); the phone's job is the permission
- * prompt, handing the host its Expo push token on every connection while the setting is on, and
- * opening the session or drop box a tapped notification points at.
+ * decides when to notify (see apps/linux/src/push/notifier.ts and inbox/service.ts); the phone's
+ * job is the permission prompt, handing the host its Expo push token on every connection while the
+ * setting is on, registering the lock-screen actions of an agent blocked on Isaac (`@/inbox`),
+ * and opening the session or drop box a tapped notification points at.
  */
 import { useEffect } from "react";
 import Constants from "expo-constants";
@@ -12,6 +13,9 @@ import { registerPush, unregisterPush } from "@/connection";
 import { warn } from "@/connection/log";
 import { useConnectionStore } from "@/state/connection";
 import { useSettingsStore } from "@/state/settings";
+import { registerWithdrawTask } from "@/inbox/background";
+import { registerInboxCategories } from "@/inbox/categories";
+import { respondToInbox } from "@/inbox/respond";
 
 Notifications.setNotificationHandler({
   handleNotification: () => Promise.resolve({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: false }),
@@ -78,18 +82,34 @@ function openTarget(notification: Notifications.Notification): void {
   router.navigate({ pathname: "/agents", params: { sessionId } });
 }
 
-/** Mounts at the root: re-registers on every connection and routes notification taps. */
+/** An inbox action (Approve, Deny, an ask's answer) is answered in place; any other response opens what it points at. */
+function route(response: Notifications.NotificationResponse): void {
+  respondToInbox(response)
+    .then((answered) => {
+      if (!answered) openTarget(response.notification);
+    })
+    .catch((error: unknown) => {
+      warn("push", "notification response failed", error);
+    });
+}
+
+/** Mounts at the root: re-registers on every connection and routes notification taps and actions. */
 export function usePushNotifications(): void {
   useEffect(() => {
     void syncRegistration();
+    registerInboxCategories().catch((error: unknown) => {
+      warn("push", "inbox actions unavailable", error);
+    });
+    registerWithdrawTask().catch((error: unknown) => {
+      warn("push", "withdraw task unavailable", error);
+    });
     const unsubscribe = useConnectionStore.subscribe((next, prev) => {
       if (next.status === "connected" && prev.status !== "connected") void syncRegistration();
     });
+    // An action chosen while the app was not running arrives as the launch response.
     const launch = Notifications.getLastNotificationResponse();
-    if (launch) openTarget(launch.notification);
-    const responses = Notifications.addNotificationResponseReceivedListener((response) => {
-      openTarget(response.notification);
-    });
+    if (launch) route(launch);
+    const responses = Notifications.addNotificationResponseReceivedListener(route);
     return () => {
       unsubscribe();
       responses.remove();

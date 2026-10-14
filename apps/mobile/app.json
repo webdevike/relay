@@ -12,6 +12,9 @@
     "ios": {
       "bundleIdentifier": "com.ike.relay",
       "supportsTablet": false,
+      "entitlements": {
+        "com.apple.developer.usernotifications.time-sensitive": true
+      },
       "infoPlist": {
         "NSLocalNetworkUsageDescription": "Relay finds your Mac on the local network.",
         "NSBonjourServices": [
@@ -19,7 +22,9 @@
         ],
         "NSMicrophoneUsageDescription": "Relay listens while you dictate.",
         "NSSpeechRecognitionUsageDescription": "Relay turns your dictation into text for your Mac.",
-        "UIBackgroundModes": [],
+        "UIBackgroundModes": [
+          "remote-notification"
+        ],
         "ITSAppUsesNonExemptEncryption": false,
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,
@@ -36,6 +41,12 @@
       "expo-router",
       "expo-secure-store",
       "expo-notifications",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Relay confirms it is you before approving a destructive action from your phone."
+        }
+      ],
       "./plugins/withSceneLifecycle",
       [
         "expo-speech-recognition",

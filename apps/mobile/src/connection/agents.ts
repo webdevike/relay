@@ -68,6 +68,8 @@ export function createAgentFrameRouter(store: AgentsStoreActions, send: (message
       case "agent.approval.resolved":
         store.clearApproval(message.sessionId, message.id);
         return;
+      case "inbox.item":
+      case "inbox.resolve":
       case "challenge":
       case "unpaired":
       case "pair.pending":
