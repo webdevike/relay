@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyDelta, applySnapshot, applyWelcome, appendMessages, clearAsk, emptyAgentsData, setAsk, setConversation, setImage, subagentsOf } from "./agents";
+import { applyDelta, applySnapshot, applyWelcome, appendMessages, clearApproval, clearAsk, emptyAgentsData, setApproval, setAsk, setConversation, setImage, subagentsOf } from "./agents";
 import type { AgentMessage, AgentSession } from "@relay/protocol";
 
 function session(id: string, lastActivityAt: number, status: AgentSession["status"] = "idle"): AgentSession {
@@ -150,5 +150,23 @@ describe("setAsk / clearAsk", () => {
 
   it("is dropped by welcome", () => {
     expect(applyWelcome(setAsk(emptyAgentsData, "s1", ask), 1, [session("s1", 100)]).asks).toEqual({});
+  });
+});
+
+describe("setApproval / clearApproval", () => {
+  const approval = { id: "t1", toolName: "bash", command: "git push --force", destructive: "force push", requiresBiometric: true };
+
+  it("stores the pending approval under the session", () => {
+    expect(setApproval(emptyAgentsData, "s1", approval).approvals["s1"]).toBe(approval);
+  });
+
+  it("clears it when the resolved id matches, and keeps a newer one on a stale resolve", () => {
+    expect(clearApproval(setApproval(emptyAgentsData, "s1", approval), "s1", "t1").approvals["s1"]).toBeUndefined();
+    const newer = { ...approval, id: "t2" };
+    expect(clearApproval(setApproval(emptyAgentsData, "s1", newer), "s1", "t1").approvals["s1"]).toBe(newer);
+  });
+
+  it("is dropped by welcome", () => {
+    expect(applyWelcome(setApproval(emptyAgentsData, "s1", approval), 1, [session("s1", 100)]).approvals).toEqual({});
   });
 });

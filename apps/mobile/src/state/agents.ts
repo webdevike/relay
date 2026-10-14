@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { AgentAsk, AgentImage, AgentMessage, AgentOptions, AgentSession } from "@relay/protocol";
+import type { AgentApproval, AgentAsk, AgentImage, AgentMessage, AgentOptions, AgentSession } from "@relay/protocol";
 
 export interface ConversationState {
   rev: number;
@@ -25,9 +25,14 @@ export interface AgentsData {
    * the terminal, or on another device); the host replays the current one on `agent.subscribe`.
    */
   asks: Record<string, AgentAsk>;
+  /**
+   * The tool approval each session is blocked on, if any. A phone answers it with `agent.approve`
+   * (Face ID first when `requiresBiometric`) or `agent.deny`; cleared when it settles anywhere.
+   */
+  approvals: Record<string, AgentApproval>;
 }
 
-export const emptyAgentsData: AgentsData = { rev: 0, sessions: {}, order: [], conversations: {}, options: {}, images: {}, asks: {} };
+export const emptyAgentsData: AgentsData = { rev: 0, sessions: {}, order: [], conversations: {}, options: {}, images: {}, asks: {}, approvals: {} };
 
 /** Sessions blocked on the user (a question or an approval prompt) sort ahead of everything else. */
 export function needsAttention(session: AgentSession): boolean {
@@ -75,7 +80,7 @@ export function applySnapshot(
  * old socket (subscriptions do not survive a reconnect).
  */
 export function applyWelcome(data: AgentsData, rev: number, sessions: AgentSession[]): AgentsData {
-  return { ...applySnapshot(data, rev, sessions), conversations: {}, options: {}, images: {}, asks: {} };
+  return { ...applySnapshot(data, rev, sessions), conversations: {}, options: {}, images: {}, asks: {}, approvals: {} };
 }
 
 /**
@@ -175,6 +180,19 @@ export function clearAsk(data: AgentsData, sessionId: string, id: string): Agent
   return { ...data, asks };
 }
 
+/** Stores the tool approval a session just became blocked on, replacing any earlier one. */
+export function setApproval(data: AgentsData, sessionId: string, approval: AgentApproval): AgentsData {
+  return { ...data, approvals: { ...data.approvals, [sessionId]: approval } };
+}
+
+/** Clears a session's pending approval, but only when `id` matches the one stored (as `clearAsk`). */
+export function clearApproval(data: AgentsData, sessionId: string, id: string): AgentsData {
+  if (data.approvals[sessionId]?.id !== id) return data;
+  const approvals = { ...data.approvals };
+  delete approvals[sessionId];
+  return { ...data, approvals };
+}
+
 export interface AgentsStore extends AgentsData {
   applyWelcome: (rev: number, sessions: AgentSession[]) => void;
   applySnapshot: (rev: number, sessions: AgentSession[]) => void;
@@ -186,6 +204,8 @@ export interface AgentsStore extends AgentsData {
   setImage: (sessionId: string, id: string, image: AgentImage | null) => void;
   setAsk: (sessionId: string, ask: AgentAsk) => void;
   clearAsk: (sessionId: string, id: string) => void;
+  setApproval: (sessionId: string, approval: AgentApproval) => void;
+  clearApproval: (sessionId: string, id: string) => void;
 }
 
 export const useAgentsStore = create<AgentsStore>((set, get) => ({
@@ -223,5 +243,11 @@ export const useAgentsStore = create<AgentsStore>((set, get) => ({
   },
   clearAsk: (sessionId, id) => {
     set(clearAsk(get(), sessionId, id));
+  },
+  setApproval: (sessionId, approval) => {
+    set(setApproval(get(), sessionId, approval));
+  },
+  clearApproval: (sessionId, id) => {
+    set(clearApproval(get(), sessionId, id));
   },
 }));

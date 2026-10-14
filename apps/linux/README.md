@@ -108,6 +108,24 @@ profile's isolated authentication and state. `<dir>` is `serve --agent-home DIR`
 `agent.end` (End session in the phone's session sheet) submits `/exit` in the TUI once the ack has
 gone out, so omp tears down exactly as it would from the keyboard and its terminal closes.
 
+### Tool approvals
+
+A session in an approval mode (`--approval-mode always-ask`, or `write` for a write or exec tool) blocks
+on omp's prompt `ctx.ui.select("Allow tool: <name>\n<details>", ["Approve", "Deny"])`. The extension wraps
+that select: the prompt still opens in the terminal, and the host also gets `approval.request` (tool call
+id, tool name, the detail lines verbatim, omp's reason) and sends subscribed devices `agent.approval`.
+`agent.approve` / `agent.deny` (`sessionId`, `approvalId` = the tool call id) answer it; whichever answers
+first wins, a device's answer closes the terminal selector through its abort signal and omp carries on as if
+it had been picked there, and every device gets `agent.approval.resolved`. A late answer nacks
+`agent_cannot_respond`. The host replays a pending approval to a device that subscribes after it was raised,
+and the extension raises it again if the host restarted meanwhile.
+
+A call that matches the destructive list (`src/agents/destructive.ts`: force push, `rm -rf`, deploy, writes
+under `prod`/`production` paths; the same list as EvaOS's inbox) is sent with `requiresBiometric: true` and
+a `destructive` name. Approving one needs `confirmed: "biometric"` (Face ID on the phone) or
+`confirmed: "desktop"` (EvaOS, at the Mac); without it the ack is `biometric_required`. Denying never needs
+it. There is no "always allow" for these, and the protocol has none for any approval.
+
 ## Differences from the Mac app
 
 - No tray/menu UI; the terminal is the UI.

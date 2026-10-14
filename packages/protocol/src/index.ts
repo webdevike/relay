@@ -138,6 +138,31 @@ export const AgentAsk = z.object({
 });
 export type AgentAsk = z.infer<typeof AgentAsk>;
 
+/**
+ * A tool call omp is blocked on until it is approved or denied. `id` is omp's tool call id;
+ * `command` is what omp's own approval prompt shows, verbatim (the shell command for `bash`).
+ * When `requiresBiometric` is set the call matches a destructive pattern (force push, `rm -rf`,
+ * deploy, prod writes): a phone must have Face ID confirmed before it sends `agent.approve`, and
+ * must never offer "always allow" for it. `destructive` names the pattern, for display.
+ */
+export const AgentApproval = z.object({
+  id: nonEmpty,
+  toolName: nonEmpty,
+  command: z.string(),
+  reason: z.string().optional(),
+  destructive: nonEmpty.optional(),
+  requiresBiometric: z.boolean(),
+});
+export type AgentApproval = z.infer<typeof AgentApproval>;
+
+/**
+ * How the person approving was confirmed. `biometric`: Face ID or Touch ID on the device sending
+ * the command. `desktop`: they are at the host's own screen, looking at the command (EvaOS).
+ * An approval with `requiresBiometric` is refused without one of them.
+ */
+export const ApprovalConfirmation = z.enum(["biometric", "desktop"]);
+export type ApprovalConfirmation = z.infer<typeof ApprovalConfirmation>;
+
 /** The phone's answer to one question: the chosen option labels, plus any typed input or note. */
 export const AgentAskAnswer = z.object({
   id: nonEmpty,
@@ -498,6 +523,19 @@ export const Command = z.discriminatedUnion("kind", [
   /** Dismiss a pending `agent.ask` without answering: omp's ask dialog resolves as cancelled. */
   z.object({ kind: z.literal("agent.ask.cancel"), sessionId: nonEmpty, askId: nonEmpty }),
   /**
+   * Approve the tool call omp is blocked on (`approvalId` is `AgentApproval.id`); omp then runs
+   * it. Destructive calls (`requiresBiometric`) need `confirmed`, else the ack is
+   * `biometric_required`.
+   */
+  z.object({
+    kind: z.literal("agent.approve"),
+    sessionId: nonEmpty,
+    approvalId: nonEmpty,
+    confirmed: ApprovalConfirmation.optional(),
+  }),
+  /** Deny the tool call omp is blocked on; omp reports it denied and carries on. Needs no confirmation. */
+  z.object({ kind: z.literal("agent.deny"), sessionId: nonEmpty, approvalId: nonEmpty }),
+  /**
    * Add a drop from the phone. Exactly one of `text` or `image`; the host classifies text that
    * is a single URL as a `link`.
    */
@@ -521,6 +559,7 @@ export const AckError = z.object({
     "accessibility_denied",
     "agent_not_found",
     "agent_cannot_respond",
+    "biometric_required",
     "agent_launch_failed",
     "agent_configure_failed",
     "invalid_command",
@@ -670,6 +709,10 @@ export const ServerMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("agent.ask"), sessionId: nonEmpty, ask: AgentAsk }),
   /** A pending ask was answered or cancelled (from the terminal or another device); dismiss its card. */
   z.object({ t: z.literal("agent.ask.resolved"), sessionId: nonEmpty, id: nonEmpty }),
+  /** The session is blocked on a tool approval; answer with `agent.approve` or `agent.deny`. */
+  z.object({ t: z.literal("agent.approval"), sessionId: nonEmpty, approval: AgentApproval }),
+  /** A pending approval was settled (here, in the terminal or on another device); dismiss it. */
+  z.object({ t: z.literal("agent.approval.resolved"), sessionId: nonEmpty, id: nonEmpty }),
   /** `image` is null when the session no longer has that image. */
   z.object({ t: z.literal("agent.image"), sessionId: nonEmpty, id: nonEmpty, image: AgentImage.nullable() }),
   /** A drop was added on either side; also mirrored as a push notification for host-origin drops. */

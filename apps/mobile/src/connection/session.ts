@@ -230,6 +230,8 @@ export class SessionMachine {
       case "agent.image":
       case "agent.ask":
       case "agent.ask.resolved":
+      case "agent.approval":
+      case "agent.approval.resolved":
       case "drop.new":
       case "drop.removed":
       case "drop.list":

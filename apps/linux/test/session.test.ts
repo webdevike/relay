@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { type AgentAsk, type AgentAskAnswer, type AgentImage, type AgentMessage, type AgentOptions, type AgentSession, type ClientMessage, type GateStatus, type InputEvent, type KeyName, type ServerMessage } from "@relay/protocol";
+import { type AgentApproval, type AgentAsk, type AgentAskAnswer, type AgentImage, type AgentMessage, type AgentOptions, type AgentSession, type ApprovalConfirmation, type ClientMessage, type GateStatus, type InputEvent, type KeyName, type ServerMessage } from "@relay/protocol";
 import { AgentsDeltaTracker } from "../src/agents/delta-tracker";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -413,6 +413,19 @@ class FakeProvider implements AgentProvider {
   pendingAsk(sessionId: string): AgentAsk | null {
     return sessionId === "s1" ? this.pending : null;
   }
+  readonly decided: [string, string, boolean, ApprovalConfirmation | undefined][] = [];
+  decideApproval(sessionId: string, approvalId: string, allow: boolean, confirmed?: ApprovalConfirmation): Promise<void> {
+    if (sessionId !== "s1") return Promise.reject(new AckFailure({ code: "agent_not_found", message: "gone" }));
+    if (allow && this.approval?.requiresBiometric === true && confirmed === undefined) {
+      return Promise.reject(new AckFailure({ code: "biometric_required", message: "needs Face ID" }));
+    }
+    this.decided.push([sessionId, approvalId, allow, confirmed]);
+    return Promise.resolve();
+  }
+  approval: AgentApproval | null = null;
+  pendingApproval(sessionId: string): AgentApproval | null {
+    return sessionId === "s1" ? this.approval : null;
+  }
   gate: GateStatus | null = null;
   readonly gateRuns: GateCommand[] = [];
   runGate(cmd: GateCommand): Promise<void> {
@@ -571,6 +584,38 @@ describe("agent topics", () => {
     expect(h.sink.sent.slice(-2)).toEqual([
       { t: "ack", id: "k1" },
       { t: "nack", id: "k2", error: { code: "agent_not_found", message: "gone" } },
+    ]);
+  });
+});
+
+describe("tool approvals", () => {
+  it("replays a pending approval on subscribe, forwards its resolve, and drives decideApproval", async () => {
+    const agents = new FakeProvider();
+    const approval: AgentApproval = { id: "t1", toolName: "bash", command: "Command: git push --force", destructive: "force push", requiresBiometric: true };
+    agents.approval = approval;
+    const h = harness({ agents });
+    pair(h);
+    h.session.receive({ t: "agent.subscribe", sessionId: "s1" });
+    await h.sink.sentCount(6);
+    expect(h.sink.last()).toEqual({ t: "agent.approval", sessionId: "s1", approval });
+    h.session.agentApprovalResolved("s1", "t1");
+    h.session.agentApprovalResolved("other", "t1");
+    expect(h.sink.last()).toEqual({ t: "agent.approval.resolved", sessionId: "s1", id: "t1" });
+    // Destructive: approving needs a confirmation, denying never does, an unknown session nacks.
+    h.session.receive({ t: "cmd", id: "k1", cmd: { kind: "agent.approve", sessionId: "s1", approvalId: "t1" } });
+    h.session.receive({ t: "cmd", id: "k2", cmd: { kind: "agent.approve", sessionId: "s1", approvalId: "t1", confirmed: "biometric" } });
+    h.session.receive({ t: "cmd", id: "k3", cmd: { kind: "agent.deny", sessionId: "s1", approvalId: "t1" } });
+    h.session.receive({ t: "cmd", id: "k4", cmd: { kind: "agent.deny", sessionId: "nope", approvalId: "t1" } });
+    await h.sink.sentCount(11);
+    expect(agents.decided).toEqual([
+      ["s1", "t1", true, "biometric"],
+      ["s1", "t1", false, undefined],
+    ]);
+    expect(h.sink.sent.slice(-4)).toEqual([
+      { t: "nack", id: "k1", error: { code: "biometric_required", message: "needs Face ID" } },
+      { t: "ack", id: "k2" },
+      { t: "ack", id: "k3" },
+      { t: "nack", id: "k4", error: { code: "agent_not_found", message: "gone" } },
     ]);
   });
 });

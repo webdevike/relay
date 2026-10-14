@@ -3,19 +3,21 @@
 // dropping is the session ending. Frames are JSONL both ways.
 //
 //   extension -> host   hello (full session info) | status | messages { append } |
-//                       result { id, ok, error?, value? } | gate.status { gate }
+//                       result { id, ok, error?, value? } | gate.status { gate } |
+//                       approval.request { id, toolName, command, reason? } | approval.resolved { id }
 //   host -> extension   conversation { id } | reply { id, text, submit, images? } | options { id } |
 //                       image { id, imageId } | configure { id, ...change } | abort { id } | end { id } |
-//                       gate { id, action, target?, reason?, photo? }
+//                       gate { id, action, target?, reason?, photo? } | approval { id, approvalId, allow }
 //
 // Sessions are validated with zod at this boundary: a misbehaving extension version can only
 // produce a logged parse error, never a malformed frame on the phone's WebSocket.
 
 import { existsSync, unlinkSync } from "node:fs";
 import type { Socket, SocketHandler } from "bun";
-import { AgentAskQuestion, AgentImage, AgentMessage, AgentOptions, AgentSession, AgentStatus, GateStatus, type AgentAsk, type AgentAskAnswer, type AgentImage as AgentImageT, type AgentSession as AgentSessionT, type AgentMessage as AgentMessageT, type AgentOptions as AgentOptionsT, type GateStatus as GateStatusT } from "@relay/protocol";
+import { AgentAskQuestion, type AgentApproval, type ApprovalConfirmation, AgentImage, AgentMessage, AgentOptions, AgentSession, AgentStatus, GateStatus, type AgentAsk, type AgentAskAnswer, type AgentImage as AgentImageT, type AgentSession as AgentSessionT, type AgentMessage as AgentMessageT, type AgentOptions as AgentOptionsT, type GateStatus as GateStatusT } from "@relay/protocol";
 import { z } from "zod";
 import { AckFailure, type AgentConfigChange, type AgentProvider, type AgentProviderChange, type GateCommand } from "../seams";
+import { destructivePattern } from "./destructive";
 import { launchInHerdr } from "./herdr";
 
 const StatusFrame = z.object({
@@ -41,12 +43,15 @@ const Inbound = z.discriminatedUnion("t", [
   z.object({ t: z.literal("result"), id: z.string().min(1), ok: z.boolean(), error: z.string().optional(), value: z.unknown().optional() }),
   z.object({ t: z.literal("ask.request"), id: z.string().min(1), questions: z.array(AgentAskQuestion).min(1) }),
   z.object({ t: z.literal("ask.resolved"), id: z.string().min(1) }),
+  /** omp is blocked on a tool approval; `command` is its approval prompt's detail lines, verbatim. */
+  z.object({ t: z.literal("approval.request"), id: z.string().min(1), toolName: z.string().min(1), command: z.string(), reason: z.string().optional() }),
+  z.object({ t: z.literal("approval.resolved"), id: z.string().min(1) }),
   /** Each top-level session polls the gate CLI and reports what it read; `null` when the CLI is missing or failing. */
   z.object({ t: z.literal("gate.status"), gate: GateStatus.nullable() }),
 ]);
 type Inbound = z.infer<typeof Inbound>;
 
-type RequestKind = "conversation" | "reply" | "options" | "image" | "configure" | "abort" | "end" | "ask" | "gate";
+type RequestKind = "conversation" | "reply" | "options" | "image" | "configure" | "abort" | "end" | "ask" | "approval" | "gate";
 
 /** The error code a rejected request maps to; the extension's message is passed through. */
 const failureCode: Record<RequestKind, AckFailure["error"]["code"]> = {
@@ -58,6 +63,7 @@ const failureCode: Record<RequestKind, AckFailure["error"]["code"]> = {
   abort: "internal",
   end: "internal",
   ask: "agent_cannot_respond",
+  approval: "agent_cannot_respond",
   gate: "gate_failed",
 };
 
@@ -101,6 +107,8 @@ export class OmpBridgeProvider implements AgentProvider {
   private requestSeq = 0;
   /** The ask each session is currently blocked on, by omp session id; replayed to phones that subscribe late. */
   private readonly pendingAsks = new Map<string, AgentAsk>();
+  /** The tool approval each session is currently blocked on, by omp session id; replayed like asks. */
+  private readonly pendingApprovals = new Map<string, AgentApproval>();
   private gateState: GateStatusT | null = null;
   /** `gateState` minus the ticking countdown: a change here is what phones are told about. */
   private gateKey = "null";
@@ -195,6 +203,20 @@ export class OmpBridgeProvider implements AgentProvider {
 
   pendingAsk(sessionId: string): AgentAsk | null {
     return this.pendingAsks.get(sessionId) ?? null;
+  }
+
+  async decideApproval(sessionId: string, approvalId: string, allow: boolean, confirmed?: ApprovalConfirmation): Promise<void> {
+    const connection = this.require(sessionId);
+    const pending = this.pendingApprovals.get(sessionId);
+    if (pending?.id !== approvalId) throw new AckFailure({ code: "agent_cannot_respond", message: `approval ${approvalId} already settled` });
+    if (allow && pending.requiresBiometric && confirmed === undefined) {
+      throw new AckFailure({ code: "biometric_required", message: `${pending.destructive ?? "this call"} needs Face ID or the desktop to approve` });
+    }
+    await this.request(connection, "approval", { approvalId, allow });
+  }
+
+  pendingApproval(sessionId: string): AgentApproval | null {
+    return this.pendingApprovals.get(sessionId) ?? null;
   }
 
   get gate(): GateStatusT | null {
@@ -390,6 +412,28 @@ export class OmpBridgeProvider implements AgentProvider {
         this.onChange?.({ kind: "ask.resolved", sessionId: connection.session.id, id: frame.id });
         return;
       }
+      case "approval.request": {
+        if (connection.session === null) return;
+        const destructive = destructivePattern(frame.command);
+        const approval: AgentApproval = {
+          id: frame.id,
+          toolName: frame.toolName,
+          command: frame.command,
+          ...(frame.reason === undefined ? {} : { reason: frame.reason }),
+          ...(destructive === null ? {} : { destructive }),
+          requiresBiometric: destructive !== null,
+        };
+        this.pendingApprovals.set(connection.session.id, approval);
+        this.onChange?.({ kind: "approval", sessionId: connection.session.id, approval });
+        return;
+      }
+      case "approval.resolved": {
+        if (connection.session === null) return;
+        // As with asks: a stale resolve never wipes a newer approval.
+        if (this.pendingApprovals.get(connection.session.id)?.id === frame.id) this.pendingApprovals.delete(connection.session.id);
+        this.onChange?.({ kind: "approval.resolved", sessionId: connection.session.id, id: frame.id });
+        return;
+      }
       case "gate.status":
         connection.gate = frame.gate;
         this.setGate(frame.gate);
@@ -413,7 +457,10 @@ export class OmpBridgeProvider implements AgentProvider {
       pending.reject(new AckFailure({ code: "agent_not_found", message: "omp session disconnected" }));
     }
     connection.pending.clear();
-    if (connection.session !== null) this.pendingAsks.delete(connection.session.id);
+    if (connection.session !== null) {
+      this.pendingAsks.delete(connection.session.id);
+      this.pendingApprovals.delete(connection.session.id);
+    }
     connection.socket.end();
     // With the last reporting session gone nobody can reach the gate any more.
     if (connection.gate !== undefined && ![...this.connections].some((other) => other.gate !== undefined)) this.setGate(null);

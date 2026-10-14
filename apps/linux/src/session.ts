@@ -10,6 +10,7 @@ import {
   PROTOCOL_VERSION,
   parseClientMessage,
   toHex,
+  type AgentApproval,
   type AgentAsk,
   type AgentMessage,
   type AgentOptions,
@@ -191,6 +192,14 @@ export class ClientSession {
     if (this.phase.kind === "authenticated" && this.boardsSubscribed) this.sink.send(delta);
   }
 
+  /** A session already blocked on an ask or a tool approval when the phone opens it still gets the card. */
+  private replayPending(sessionId: string): void {
+    const ask = this.deps.agents?.pendingAsk(sessionId) ?? null;
+    if (ask !== null) this.agentAsk(sessionId, ask);
+    const approval = this.deps.agents?.pendingApproval(sessionId) ?? null;
+    if (approval !== null) this.agentApproval(sessionId, approval);
+  }
+
   /** Shows a pending ask iff subscribed to `sessionId`; the phone renders it and may answer it. */
   agentAsk(sessionId: string, ask: AgentAsk): void {
     if (this.phase.kind !== "authenticated" || !this.subscriptions.has(sessionId)) return;
@@ -201,6 +210,18 @@ export class ClientSession {
   agentAskResolved(sessionId: string, id: string): void {
     if (this.phase.kind !== "authenticated" || !this.subscriptions.has(sessionId)) return;
     this.sink.send({ t: "agent.ask.resolved", sessionId, id });
+  }
+
+  /** Shows a pending tool approval iff subscribed to `sessionId`; the phone may approve or deny it. */
+  agentApproval(sessionId: string, approval: AgentApproval): void {
+    if (this.phase.kind !== "authenticated" || !this.subscriptions.has(sessionId)) return;
+    this.sink.send({ t: "agent.approval", sessionId, approval });
+  }
+
+  /** Tells the phone a pending approval closed iff subscribed; it dismisses that card. */
+  agentApprovalResolved(sessionId: string, id: string): void {
+    if (this.phase.kind !== "authenticated" || !this.subscriptions.has(sessionId)) return;
+    this.sink.send({ t: "agent.approval.resolved", sessionId, id });
   }
 
   receiveRaw(raw: string): void {
@@ -389,15 +410,12 @@ export class ClientSession {
               rev: 0,
               messages: messages ?? [],
             });
-            // A session already blocked on an ask when the phone opens it still gets the card.
-            const pending = this.deps.agents?.pendingAsk(sessionId) ?? null;
-            if (pending !== null) this.agentAsk(sessionId, pending);
+            this.replayPending(sessionId);
           },
           () => {
             if (this.closed || this.subscriptions.get(sessionId) !== 0) return;
             this.sink.send({ t: "agent.conversation", sessionId, rev: 0, messages: [] });
-            const pending = this.deps.agents?.pendingAsk(sessionId) ?? null;
-            if (pending !== null) this.agentAsk(sessionId, pending);
+            this.replayPending(sessionId);
           },
         );
         break;
@@ -597,6 +615,10 @@ export class ClientSession {
         return this.agents().answerAsk(cmd.sessionId, cmd.askId, cmd.results);
       case "agent.ask.cancel":
         return this.agents().cancelAsk(cmd.sessionId, cmd.askId);
+      case "agent.approve":
+        return this.agents().decideApproval(cmd.sessionId, cmd.approvalId, true, cmd.confirmed);
+      case "agent.deny":
+        return this.agents().decideApproval(cmd.sessionId, cmd.approvalId, false);
       case "drop.put": {
         if ((cmd.text === undefined) === (cmd.image === undefined)) {
           return Promise.reject(

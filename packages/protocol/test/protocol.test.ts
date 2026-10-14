@@ -94,3 +94,31 @@ describe("habit gate", () => {
     expect(parseClientMessage(JSON.stringify({ t: "gate.get" })).ok).toBe(true);
   });
 });
+
+describe("tool approvals", () => {
+  const approval = { id: "call-1", toolName: "bash", command: "git push --force", destructive: "force push", requiresBiometric: true };
+
+  it("approve and deny commands parse, confirmation optional", () => {
+    for (const cmd of [
+      { kind: "agent.approve", sessionId: "s-1", approvalId: "call-1", confirmed: "biometric" },
+      { kind: "agent.approve", sessionId: "s-1", approvalId: "call-1" },
+      { kind: "agent.deny", sessionId: "s-1", approvalId: "call-1" },
+    ]) {
+      const r = parseClientMessage(JSON.stringify({ t: "cmd", id: "c-1", cmd }));
+      expect(r.ok, JSON.stringify(cmd)).toBe(true);
+    }
+    expect(parseClientMessage(JSON.stringify({ t: "cmd", id: "c-1", cmd: { kind: "agent.approve", sessionId: "s-1", approvalId: "call-1", confirmed: "yes" } })).ok).toBe(false);
+  });
+
+  it("approval frames round-trip", () => {
+    for (const m of [
+      { t: "agent.approval", sessionId: "s-1", approval },
+      { t: "agent.approval.resolved", sessionId: "s-1", id: "call-1" },
+      { t: "nack", id: "c-1", error: { code: "biometric_required", message: "needs Face ID" } },
+    ]) {
+      const r = parseServerMessage(JSON.stringify(m));
+      expect(r.ok, JSON.stringify(m)).toBe(true);
+      if (r.ok) expect(r.value).toEqual(m);
+    }
+  });
+});

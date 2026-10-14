@@ -237,6 +237,14 @@ export class RelayServer {
       for (const ws of this.sockets) ws.data.session?.agentAskResolved(change.sessionId, change.id);
       return;
     }
+    if (change.kind === "approval") {
+      for (const ws of this.sockets) ws.data.session?.agentApproval(change.sessionId, change.approval);
+      return;
+    }
+    if (change.kind === "approval.resolved") {
+      for (const ws of this.sockets) ws.data.session?.agentApprovalResolved(change.sessionId, change.id);
+      return;
+    }
     if (change.kind === "gate") {
       const message: ServerMessage = { t: "gate.status", gate: this.deps.agents?.gate ?? null };
       for (const ws of this.sockets) ws.data.session?.broadcast(message);

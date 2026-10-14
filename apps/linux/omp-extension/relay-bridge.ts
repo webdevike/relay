@@ -332,6 +332,10 @@ type Outbound =
   // when that ask closed (answered in the terminal, cancelled, or answered from the phone itself).
   | { t: "ask.request"; id: string; questions: AgentAskQuestion[] }
   | { t: "ask.resolved"; id: string }
+  // A tool call is blocked on omp's approval prompt in the TUI: mirror it (the prompt's detail lines
+  // verbatim) and tell the host when it settled (approved or denied in the terminal, or from a phone).
+  | { t: "approval.request"; id: string; toolName: string; command: string; reason?: string }
+  | { t: "approval.resolved"; id: string }
   // What the habit gate CLI reports (validated by the host); null when the CLI is missing or failing.
   | { t: "gate.status"; gate: unknown };
 
@@ -345,6 +349,8 @@ type Inbound =
   | { t: "end"; id: string }
   // The phone answered a pending ask (askId is the ask.request id), or cancelled it (cancel: true).
   | { t: "ask"; id: string; askId: string; results?: AgentAskAnswer[]; cancel?: boolean }
+  // A device approved (allow: true) or denied the pending tool approval (approvalId is the approval.request id).
+  | { t: "approval"; id: string; approvalId: string; allow: boolean }
   // A phone's habit gate command: start or finish a habit/task (`target`), or override with a reason.
   | { t: "gate"; id: string; action: "start" | "done" | "override"; target?: string; reason?: string; photo?: Image };
 
@@ -967,6 +973,14 @@ export default function relayBridge(pi: ExtensionAPI): void {
   // resolve callback here (keyed by the ask.request id) plus the questions, so an answer from the
   // phone can be shaped back into omp's dialog result. Cleared when a session ends or switches.
   const pendingAsks = new Map<string, { resolve: (result: ExtensionAskDialogResult | undefined) => void; questions: ExtensionAskDialogQuestion[] }>();
+  // omp asks for a tool approval with ctx.ui.select("Allow tool: <name>\n<detail lines>", ["Approve", "Deny"]).
+  // The requested events (tool name, call id, reason) wait here for that prompt to arrive; each
+  // in-flight prompt keeps the host's answer callback keyed by the call id.
+  const requestedApprovals: { id: string; toolName: string; reason?: string }[] = [];
+  /** In-flight approvals by call id: the request frame (resent when the host reconnects) and the callback that answers it. */
+  const pendingApprovals = new Map<string, { frame: Outbound; decide: (allow: boolean) => void }>();
+  /** The select wrapper installed on omp's UI, so a session_switch does not wrap it a second time. */
+  let installedSelect: unknown = null;
 
   const settings = (): Settings => {
     const cwd = ctx?.sessionManager.getCwd() ?? "";
@@ -1162,6 +1176,14 @@ export default function relayBridge(pi: ExtensionAPI): void {
         pending.resolve({ kind: "submit", results });
         return undefined;
       }
+      case "approval": {
+        // A device decided the pending tool approval. A missing entry means it already settled elsewhere.
+        const pending = pendingApprovals.get(frame.approvalId);
+        if (pending === undefined) throw new Error(`approval ${frame.approvalId} already settled`);
+        pendingApprovals.delete(frame.approvalId);
+        pending.decide(frame.allow);
+        return undefined;
+      }
       case "gate": {
         const gate = await performGate(frame);
         reportGate(gate);
@@ -1202,6 +1224,57 @@ export default function relayBridge(pi: ExtensionAPI): void {
   const abandonAsks = (): void => {
     for (const pending of pendingAsks.values()) pending.resolve(undefined);
     pendingAsks.clear();
+  };
+
+  // Wrap ctx.ui.select so omp's tool approval reaches both surfaces: the prompt goes to the host as
+  // an approval.request while the ORIGINAL selector still opens in the TUI. Whichever answers first
+  // wins; if a device won, the terminal selector is closed through its abort signal and omp is
+  // handed "Approve" or "Deny" exactly as if it had been picked there. Every other select passes through.
+  //
+  // ctx.ui is a Proxy over omp's real UI whose own `select` reads the real one late; assigning
+  // through it replaces the real one. So the function to wrap is read off the target (the
+  // descriptor), not through the proxy, or the proxy's select would call the wrapper again forever.
+  const wrapApprovalDialog = (context: ExtensionContext): void => {
+    const ui = context.ui;
+    const original = Object.getOwnPropertyDescriptor(ui, "select")?.value as ExtensionContext["ui"]["select"] | undefined;
+    if (typeof original !== "function" || original === installedSelect) return;
+    ui.select = installedSelect = (title: string, options: Parameters<typeof original>[1], dialogOptions?: Parameters<typeof original>[2]) => {
+      const head = "Allow tool: ";
+      if (!title.startsWith(head) || !Array.isArray(options) || options.length !== 2 || options[0] !== "Approve" || options[1] !== "Deny") {
+        return original(title, options, dialogOptions);
+      }
+      const [first = "", ...lines] = title.split("\n");
+      const toolName = first.slice(head.length);
+      const index = requestedApprovals.findIndex((requested) => requested.toolName === toolName);
+      if (index < 0) return original(title, options, dialogOptions);
+      const [requested] = requestedApprovals.splice(index, 1);
+      if (requested === undefined) return original(title, options, dialogOptions);
+      const detail = lines.filter((line) => !line.startsWith("Reason: "));
+      // bash shows its command as "Command: <cmd>": the command itself is what is verbatim.
+      if (toolName === "bash" && detail[0]?.startsWith("Command: ")) detail[0] = detail[0].slice("Command: ".length);
+      const frame: Outbound = { t: "approval.request", id: requested.id, toolName, command: detail.join("\n") };
+      if (requested.reason !== undefined) frame.reason = requested.reason;
+      send(frame);
+      const device = new Promise<boolean>((resolve) => {
+        pendingApprovals.set(requested.id, { frame, decide: resolve });
+      });
+      const closeTerminal = new AbortController();
+      const signal = dialogOptions?.signal === undefined ? closeTerminal.signal : AbortSignal.any([dialogOptions.signal, closeTerminal.signal]);
+      const terminal = original(title, options, { ...dialogOptions, signal });
+      return Promise.race([terminal.then((choice) => ({ who: "terminal" as const, choice })), device.then((allow) => ({ who: "device" as const, choice: allow ? "Approve" : "Deny" }))]).then(({ who, choice }) => {
+        pendingApprovals.delete(requested.id);
+        send({ t: "approval.resolved", id: requested.id });
+        if (who === "device") closeTerminal.abort();
+        return choice;
+      });
+    };
+  };
+
+  /** Abandons every in-flight approval (session end or switch): each resolves as a denial. */
+  const abandonApprovals = (): void => {
+    for (const pending of pendingApprovals.values()) pending.decide(false);
+    pendingApprovals.clear();
+    requestedApprovals.length = 0;
   };
   // This session's subagents, each mirrored to the host as its own session (insertion-ordered, so
   // the oldest finished one is the first dropped once more than MAX_FINISHED_SUBAGENTS are done).
@@ -1257,6 +1330,8 @@ export default function relayBridge(pi: ExtensionAPI): void {
     next.setNoDelay(true);
     next.on("connect", () => {
       send({ t: "hello", ...current, status, lastActivity, lastActivityAt });
+      // A host that restarted while a tool waits for approval learns of it again.
+      for (const pending of pendingApprovals.values()) send(pending.frame);
       // ctx.model is still unresolved during session_start; report the settings once it is.
       setTimeout(sendStatus, SETTINGS_SETTLE_MS).unref();
       // A fresh host connection knows nothing of the gate yet.
@@ -1337,6 +1412,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
     stopped = false;
     watchName(context);
     wrapAskDialog(context);
+    wrapApprovalDialog(context);
     connect();
     if (gateTimer === null) {
       gateTimer = setInterval(pollGate, GATE_POLL_MS);
@@ -1381,10 +1457,12 @@ export default function relayBridge(pi: ExtensionAPI): void {
   pi.on("session_switch", (_event, context) => {
     if (ctx === null) return;
     abandonAsks(); // the old session's blocked asks do not carry over
+    abandonApprovals();
     closeSubagents(); // and its subagents belong to it, not to the session switched to
     ctx = context;
     watchName(context);
     wrapAskDialog(context);
+    wrapApprovalDialog(context);
     history.length = 0;
     images.clear();
     const current = info();
@@ -1408,11 +1486,14 @@ export default function relayBridge(pi: ExtensionAPI): void {
 
   pi.on("tool_approval_requested", (event) => {
     if (ctx === null) return;
+    requestedApprovals.push({ id: event.toolCallId, toolName: event.toolName, ...(event.reason === undefined ? {} : { reason: event.reason }) });
     setStatus("needs_permission", undefined, event.toolName);
   });
 
-  pi.on("tool_approval_resolved", () => {
+  pi.on("tool_approval_resolved", (event) => {
     if (ctx === null) return;
+    const index = requestedApprovals.findIndex((requested) => requested.id === event.toolCallId);
+    if (index >= 0) requestedApprovals.splice(index, 1);
     setStatus("working");
   });
 
@@ -1506,6 +1587,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
     unwatchName?.();
     unwatchName = null;
     abandonAsks();
+    abandonApprovals();
     closeSubagents();
     unsubscribeSubagents?.();
     unsubscribeSubagents = null;

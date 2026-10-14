@@ -1,7 +1,7 @@
 // Seams between transport, input and storage. Mirrors apps/mac/Sources/RelayCore/Seams.swift:
 // the session only ever talks to these; input/ and the stores implement them; main.ts wires them.
 
-import type { AckError, AgentAsk, AgentAskAnswer, AgentImage, AgentMessage, AgentOptions, AgentSession, Command, Drop, DropOrigin, GateStatus, InputEvent, KeyName, ScreenError, ScreenKey, ScreenWindow, ServerMessage } from "@relay/protocol";
+import type { AckError, AgentApproval, AgentAsk, AgentAskAnswer, AgentImage, AgentMessage, AgentOptions, AgentSession, ApprovalConfirmation, Command, Drop, DropOrigin, GateStatus, InputEvent, KeyName, ScreenError, ScreenKey, ScreenWindow, ServerMessage } from "@relay/protocol";
 
 /** Outbound side of one connection. `send` after `close` is a no-op. */
 export interface FrameSink {
@@ -149,6 +149,10 @@ export type AgentProviderChange =
   | { readonly kind: "ask"; readonly sessionId: string; readonly ask: AgentAsk }
   /** A pending ask closed (answered in the TUI, cancelled, or answered from a phone); dismiss its card. */
   | { readonly kind: "ask.resolved"; readonly sessionId: string; readonly id: string }
+  /** The session is now blocked on a tool approval; the transport shows it to subscribed phones. */
+  | { readonly kind: "approval"; readonly sessionId: string; readonly approval: AgentApproval }
+  /** A pending approval closed (approved, denied, or settled in the TUI); dismiss it. */
+  | { readonly kind: "approval.resolved"; readonly sessionId: string; readonly id: string }
   /** The habit gate's state changed; read `gate` again. */
   | { readonly kind: "gate" };
 
@@ -190,6 +194,14 @@ export interface AgentProvider {
   cancelAsk(sessionId: string, askId: string): Promise<void>;
   /** The ask the session is currently blocked on, replayed to a phone that subscribes late; null when none. */
   pendingAsk(sessionId: string): AgentAsk | null;
+  /**
+   * Approve (`allow`) or deny the tool call the session is blocked on, so omp carries on. A
+   * destructive call needs `confirmed`. Rejects with `AckFailure` (`agent_not_found`,
+   * `agent_cannot_respond` when the approval is gone, `biometric_required`).
+   */
+  decideApproval(sessionId: string, approvalId: string, allow: boolean, confirmed?: ApprovalConfirmation): Promise<void>;
+  /** The approval the session is currently blocked on, replayed to a phone that subscribes late; null when none. */
+  pendingApproval(sessionId: string): AgentApproval | null;
   /** The habit gate as the omp bridge last reported it; null when no session reports one. */
   readonly gate: GateStatus | null;
   /**
