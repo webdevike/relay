@@ -39,7 +39,8 @@ final class App: NSObject, NSApplicationDelegate {
     p.executableURL = Bundle.main.url(forAuxiliaryExecutable: "relay-host")
     let home = FileManager.default.homeDirectoryForCurrentUser.path
     let agentHome = FileManager.default.fileExists(atPath: "\(home)/Eva") ? "\(home)/Eva" : home
-    p.arguments = ["serve", "--port", "7817", "--name", Host.current().localizedName ?? "Mac", "--agent-home", agentHome, "--no-clipboard"]
+    let boards = "\(home)/Library/Application Support/Relay/boards"
+    p.arguments = ["serve", "--port", "7817", "--name", Host.current().localizedName ?? "Mac", "--agent-home", agentHome, "--no-clipboard", "--boards", boards]
     FileManager.default.createFile(atPath: logURL.path, contents: nil)
     let log = try? FileHandle(forWritingTo: logURL)
     log?.seekToEndOfFile()
