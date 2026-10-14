@@ -268,6 +268,23 @@ describe("design-system nodes", () => {
     });
   });
 
+  it("accepts table cells with a url and a brand icon, including an icon-only cell", () => {
+    expect(
+      parseWidget(
+        '{"widget":"table","columns":["PR","Links"],"rows":[[{"text":"#42","url":"https://github.com/o/r/pull/42","icon":"github"},{"text":"","url":"https://linear.app/t/ENG-1","icon":"linear"}]]}',
+      ),
+    ).toEqual({
+      widget: "table",
+      columns: ["PR", "Links"],
+      rows: [
+        [
+          { text: "#42", url: "https://github.com/o/r/pull/42", icon: "github" },
+          { text: "", url: "https://linear.app/t/ENG-1", icon: "linear" },
+        ],
+      ],
+    });
+  });
+
   it("clamps progress into 0..max and defaults the tone to accent", () => {
     expect(parseWidget('{"widget":"progress","value":150,"max":120,"label":"Upload"}')).toEqual({
       widget: "progress",
@@ -373,6 +390,8 @@ describe("design-system nodes", () => {
     ],
     ['{"widget":"input","reply":"no placeholder token"}', "an input reply without {value}"],
     ['{"widget":"link","label":"x","url":"ftp://a"}', "a non-http link"],
+    ['{"widget":"table","columns":["a"],"rows":[[{"text":"x","url":"javascript:alert(1)"}]]}', "a non-http table cell url"],
+    ['{"widget":"table","columns":["a"],"rows":[[{"text":"x","icon":"gitlab"}]]}', "an unknown table cell icon"],
     ['{"widget":"button","label":"  ","reply":"y"}', "a blank button label"],
   ])("rejects %s (%s)", (json) => {
     expect(parseWidget(json)).toBeNull();

@@ -1,7 +1,12 @@
 import { useState } from "react";
-import { ScrollView, View } from "react-native";
+import { Pressable, ScrollView, View } from "react-native";
+import type { TableCellIcon } from "@relay/protocol";
+import { openExternal } from "@/lib/links";
 import { spacing, useColors, type ColorToken } from "@/theme";
+import { BrandIcon } from "./BrandIcon";
 import { Text } from "./Text";
+
+const ICON_SIZE = 14;
 
 /** Rough advance of one 13pt character, for sizing columns before anything is measured. */
 const CHAR_WIDTH = 7;
@@ -20,6 +25,10 @@ export interface DataCell {
   text: string;
   color?: ColorToken | undefined;
   bold?: boolean | undefined;
+  /** Tapping the cell opens this http(s) URL externally; the text takes the accent color. */
+  url?: string | undefined;
+  /** Brand mark drawn before the text, in the text color. */
+  icon?: TableCellIcon | undefined;
 }
 
 export interface DataTableProps {
@@ -36,7 +45,10 @@ export interface DataTableProps {
 export function DataTable({ columns, rows }: DataTableProps) {
   const [width, setWidth] = useState(0);
   const natural = columns.map((column, c) => {
-    const chars = Math.max(column.label.length, ...rows.map((row) => row[c]?.text.length ?? 0));
+    const chars = Math.max(
+      column.label.length,
+      ...rows.map((row) => (row[c]?.text.length ?? 0) + (row[c]?.icon === undefined ? 0 : 3)),
+    );
     return Math.min(Math.max(chars * CHAR_WIDTH + spacing.sm * 2, MIN_COLUMN), MAX_COLUMN);
   });
   const total = natural.reduce((sum, w) => sum + w, 0);
@@ -89,28 +101,61 @@ function DataRow({ cells, columns, widths, first = false }: DataRowProps) {
     >
       {columns.map((column, c) => {
         const cell = cells[c];
-        return (
-          <View
-            key={c}
+        const color = cell?.color ?? (cell?.url === undefined ? "text" : "accent");
+        const text = cell?.text ?? "";
+        const label = (
+          <Text
+            variant="label"
+            color={color}
+            tabular={column.align === "right"}
             style={{
-              width: widths[c],
-              paddingVertical: spacing.sm,
-              paddingLeft: c === 0 ? 0 : spacing.sm,
-              paddingRight: c === last ? 0 : spacing.sm,
+              textAlign: column.align,
+              fontWeight: cell?.bold === true ? "600" : "400",
+              flexShrink: 1,
             }}
           >
-            <Text
-              variant="label"
-              color={cell?.color ?? "text"}
-              tabular={column.align === "right"}
+            {text}
+          </Text>
+        );
+        const content =
+          cell?.icon === undefined ? (
+            label
+          ) : (
+            <View
               style={{
-                textAlign: column.align,
-                fontWeight: cell?.bold === true ? "600" : "400",
+                flexDirection: "row",
+                alignItems: "center",
+                gap: spacing.xs,
+                justifyContent:
+                  column.align === "right" ? "flex-end" : column.align === "center" ? "center" : "flex-start",
               }}
             >
-              {cell?.text ?? ""}
-            </Text>
+              <BrandIcon name={cell.icon} size={ICON_SIZE} color={colors[color]} />
+              {text.length > 0 && label}
+            </View>
+          );
+        const style = {
+          width: widths[c],
+          paddingVertical: spacing.sm,
+          paddingLeft: c === 0 ? 0 : spacing.sm,
+          paddingRight: c === last ? 0 : spacing.sm,
+        };
+        const url = cell?.url;
+        return url === undefined ? (
+          <View key={c} style={style}>
+            {content}
           </View>
+        ) : (
+          <Pressable
+            key={c}
+            accessibilityRole="link"
+            onPress={() => {
+              openExternal(url);
+            }}
+            style={({ pressed }) => [style, { opacity: pressed ? 0.6 : 1 }]}
+          >
+            {content}
+          </Pressable>
         );
       })}
     </View>

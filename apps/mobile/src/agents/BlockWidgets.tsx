@@ -78,6 +78,8 @@ export function TableWidget({ spec }: { spec: TableSpec }) {
                 text: cell.text,
                 color: cell.tone === undefined ? undefined : toneColor[cell.tone],
                 bold: cell.bold,
+                url: cell.url,
+                icon: cell.icon,
               },
     ),
   );

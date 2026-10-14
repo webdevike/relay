@@ -284,10 +284,21 @@ const TableColumn = z.union([
   }),
 ]);
 
+/** Brand marks a table cell can draw before its text (Simple Icons, monochrome in the text color). */
+export const TABLE_CELL_ICONS = ["github", "linear"] as const;
+
+/** A cell with `url` is a tappable link (http(s) only, like `link`); with an `icon`, `text` may be
+ * empty for an icon-only cell. */
 const TableCell = z.union([
   z.string(),
   z.number().finite(),
-  z.object({ text: z.string(), tone: Tone, bold: z.boolean().optional() }),
+  z.object({
+    text: z.string(),
+    tone: Tone,
+    bold: z.boolean().optional(),
+    url: WebUrl.optional(),
+    icon: z.enum(TABLE_CELL_ICONS).optional(),
+  }),
 ]);
 
 /** A data table. Every row has exactly one cell per column (enforced in `finish`). */
@@ -571,6 +582,7 @@ export type LinkSpec = z.infer<typeof Link>;
 export type ImageSpec = z.infer<typeof ImageNode>;
 export type TableColumn = z.infer<typeof TableColumn>;
 export type TableCell = z.infer<typeof TableCell>;
+export type TableCellIcon = (typeof TABLE_CELL_ICONS)[number];
 export type TableSpec = z.infer<typeof Table>;
 export type ProgressSpec = z.infer<typeof Progress>;
 export type ListItem = z.infer<typeof ListItem>;
