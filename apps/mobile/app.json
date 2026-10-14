@@ -59,6 +59,7 @@
           "microphonePermission": false
         }
       ],
+      "./plugins/withPodDeploymentFloor",
       [
         "expo-build-properties",
         {
