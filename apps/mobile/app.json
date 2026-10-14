@@ -52,6 +52,14 @@
         }
       ],
       [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Relay takes a photo as proof when you finish a habit.",
+          "photosPermission": "Relay picks a photo as proof when you finish a habit.",
+          "microphonePermission": false
+        }
+      ],
+      [
         "expo-build-properties",
         {
           "ios": {

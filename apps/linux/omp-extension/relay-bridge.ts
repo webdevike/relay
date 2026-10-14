@@ -12,13 +12,17 @@
 //
 // Images in the transcript travel as references (id = first 16 hex chars of the sha256 of the
 // bytes); the bytes stay here, newest MAX_IMAGES kept, and the host fetches them with `image`.
+//
+// Habit gate: each top-level session reads Eva's gate CLI (`habit-gate.ts status`) every few
+// seconds and reports changes as `gate.status`; the phone's start/done/override come back as a
+// `gate` request run through the same CLI (a proof photo is handed over as a temp file).
 
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { closeSync, openSync, readFileSync, readSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createConnection, type Socket } from "node:net";
-import { homedir } from "node:os";
-import { basename } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { basename, join } from "node:path";
 import type { ImageContent, TextContent } from "@oh-my-pi/pi-ai";
 import type { ExtensionAPI, ExtensionContext, SessionManager } from "@oh-my-pi/pi-coding-agent";
 import { BUILTIN_SLASH_COMMAND_DEFS } from "@oh-my-pi/pi-coding-agent/slash-commands/builtin-registry";
@@ -327,7 +331,9 @@ type Outbound =
   // The ask tool is now blocking in the TUI: mirror its choices to the phone, and tell the phone
   // when that ask closed (answered in the terminal, cancelled, or answered from the phone itself).
   | { t: "ask.request"; id: string; questions: AgentAskQuestion[] }
-  | { t: "ask.resolved"; id: string };
+  | { t: "ask.resolved"; id: string }
+  // What the habit gate CLI reports (validated by the host); null when the CLI is missing or failing.
+  | { t: "gate.status"; gate: unknown };
 
 type Inbound =
   | { t: "conversation"; id: string }
@@ -338,7 +344,9 @@ type Inbound =
   | { t: "abort"; id: string }
   | { t: "end"; id: string }
   // The phone answered a pending ask (askId is the ask.request id), or cancelled it (cancel: true).
-  | { t: "ask"; id: string; askId: string; results?: AgentAskAnswer[]; cancel?: boolean };
+  | { t: "ask"; id: string; askId: string; results?: AgentAskAnswer[]; cancel?: boolean }
+  // A phone's habit gate command: start or finish a habit/task (`target`), or override with a reason.
+  | { t: "gate"; id: string; action: "start" | "done" | "override"; target?: string; reason?: string; photo?: Image };
 
 /** Thinking selectors a model accepts; "off" applies to any model, the rest come from its catalog entry. */
 function thinkingLevelsFor(model: Model): ThinkingLevel[] {
@@ -503,6 +511,53 @@ function renameInHerdr(title: string): void {
   };
   rename(["tab", "rename", HERDR.tab, label]);
   if (HERDR.workspace !== undefined) rename(["workspace", "rename", HERDR.workspace, label]);
+}
+
+/** The habit gate CLI (Eva's `habit-gate.ts`); every gate read and change goes through it. */
+const GATE_CLI = process.env["RELAY_GATE_CLI"] ?? join(homedir(), "Eva", ".omp", "tools", "habit-gate.ts");
+/** omp runs as its own binary, so the CLI needs a real bun; herdr panes may not have ~/.bun/bin on PATH. */
+const BUN = existsSync(join(homedir(), ".bun", "bin", "bun")) ? join(homedir(), ".bun", "bin", "bun") : "bun";
+/** How often each session re-reads the gate; changes reach the host (and the phone) on the next read. */
+const GATE_POLL_MS = 5000;
+const GATE_CLI_TIMEOUT_MS = 10_000;
+
+/**
+ * Runs `habit-gate.ts <args> --json` and resolves with its JSON. A non-zero exit rejects with the
+ * CLI's `{ error }` message, so the phone sees why (timer not done, photo missing).
+ */
+function runGateCli(args: string[]): Promise<unknown> {
+  const { promise, resolve, reject } = Promise.withResolvers<unknown>();
+  execFile(BUN, [GATE_CLI, ...args, "--json"], { timeout: GATE_CLI_TIMEOUT_MS }, (error, stdout, stderr) => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(stdout);
+    } catch {
+      parsed = undefined;
+    }
+    if (error === null && parsed !== undefined) {
+      resolve(parsed);
+      return;
+    }
+    const cliError = typeof parsed === "object" && parsed !== null && "error" in parsed && typeof parsed.error === "string" ? parsed.error : undefined;
+    reject(new Error(cliError ?? (stderr.trim() || error?.message || "habit gate CLI printed no JSON")));
+  });
+  return promise;
+}
+
+/** Runs one phone gate command; a proof photo goes to the CLI as a temp file it copies away. */
+async function performGate(frame: Extract<Inbound, { t: "gate" }>): Promise<unknown> {
+  if (frame.action === "override") return runGateCli(["override", frame.reason ?? ""]);
+  if (frame.target === undefined) throw new Error(`gate ${frame.action} needs a habit or task id`);
+  if (frame.action === "start") return runGateCli(["start", frame.target]);
+  if (frame.photo === undefined) return runGateCli(["done", frame.target]);
+  const ext = frame.photo.mimeType === "image/png" ? "png" : frame.photo.mimeType === "image/webp" ? "webp" : "jpg";
+  const path = join(tmpdir(), `relay-gate-${Date.now()}.${ext}`);
+  writeFileSync(path, Buffer.from(frame.photo.data, "base64"));
+  try {
+    return await runGateCli(["done", frame.target, "--photo", path]);
+  } finally {
+    rmSync(path, { force: true });
+  }
 }
 
 function firstLine(text: string): string {
@@ -789,6 +844,8 @@ function mirrorSubagent(parentId: string, projectPath: string, first: SubagentLi
         throw new Error("a subagent's model and title are set by its parent");
       case "ask":
         throw new Error("subagents do not ask the phone");
+      case "gate":
+        throw new Error("the habit gate is reached through top-level sessions");
     }
   };
 
@@ -955,6 +1012,34 @@ export default function relayBridge(pi: ExtensionAPI): void {
     send(frame);
   };
 
+  // The habit gate is read from its CLI every GATE_POLL_MS and reported to the host whenever it
+  // changed. The countdown is left out of the comparison: the phone ticks it from `endsAt`.
+  let gateKey: string | null = null;
+  let gateReading = false;
+  let gateTimer: ReturnType<typeof setInterval> | null = null;
+  const reportGate = (gate: unknown): void => {
+    const key = JSON.stringify(gate, (field, value: unknown) => (field === "remainingSeconds" ? undefined : value));
+    if (key === gateKey) return;
+    gateKey = key;
+    send({ t: "gate.status", gate });
+  };
+  const pollGate = (): void => {
+    if (gateReading || socket === null) return;
+    if (!existsSync(GATE_CLI)) {
+      // Never installed here: say nothing. Removed after reporting: tell the host it is gone.
+      if (gateKey !== null) reportGate(null);
+      return;
+    }
+    gateReading = true;
+    runGateCli(["status"])
+      .then(reportGate, () => {
+        reportGate(null);
+      })
+      .finally(() => {
+        gateReading = false;
+      });
+  };
+
   const nextId = (): string => {
     seq += 1;
     return `${Date.now()}-${seq}`;
@@ -1077,6 +1162,11 @@ export default function relayBridge(pi: ExtensionAPI): void {
         pending.resolve({ kind: "submit", results });
         return undefined;
       }
+      case "gate": {
+        const gate = await performGate(frame);
+        reportGate(gate);
+        return gate;
+      }
     }
   };
 
@@ -1169,6 +1259,9 @@ export default function relayBridge(pi: ExtensionAPI): void {
       send({ t: "hello", ...current, status, lastActivity, lastActivityAt });
       // ctx.model is still unresolved during session_start; report the settings once it is.
       setTimeout(sendStatus, SETTINGS_SETTLE_MS).unref();
+      // A fresh host connection knows nothing of the gate yet.
+      gateKey = null;
+      pollGate();
     });
     next.on("data", (chunk: Buffer) => {
       buffer += chunk.toString("utf8");
@@ -1245,6 +1338,10 @@ export default function relayBridge(pi: ExtensionAPI): void {
     watchName(context);
     wrapAskDialog(context);
     connect();
+    if (gateTimer === null) {
+      gateTimer = setInterval(pollGate, GATE_POLL_MS);
+      gateTimer.unref();
+    }
     if (unsubscribeSubagents === null) {
       const offLifecycle = pi.events.on(SUBAGENT_LIFECYCLE, onSubagentLifecycle);
       const offProgress = pi.events.on(SUBAGENT_PROGRESS, onSubagentProgress);
@@ -1413,6 +1510,8 @@ export default function relayBridge(pi: ExtensionAPI): void {
     unsubscribeSubagents?.();
     unsubscribeSubagents = null;
     clearTimeout(reconnectTimer ?? undefined);
+    clearInterval(gateTimer ?? undefined);
+    gateTimer = null;
     socket?.end();
     socket = null;
     ctx = null;

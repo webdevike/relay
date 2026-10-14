@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { type AgentAsk, type AgentAskAnswer, type AgentImage, type AgentMessage, type AgentOptions, type AgentSession, type ClientMessage, type InputEvent, type KeyName, type ServerMessage } from "@relay/protocol";
+import { type AgentAsk, type AgentAskAnswer, type AgentImage, type AgentMessage, type AgentOptions, type AgentSession, type ClientMessage, type GateStatus, type InputEvent, type KeyName, type ServerMessage } from "@relay/protocol";
 import { AgentsDeltaTracker } from "../src/agents/delta-tracker";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { FileBoardStore } from "../src/boards/store";
 import { CommandDedupStore } from "../src/dedup";
 import { PairingCoordinator } from "../src/pairing";
-import { AckFailure, type AgentConfigChange, type AgentProvider, type DeviceStore, type DropBox, type FrameSink, type InputSink, type PairedDevice, type PairingUI, type PushRegistry, type ScreenCapture, type ScreenInput, type ScreenWatch, type TextInjecting } from "../src/seams";
+import { AckFailure, type AgentConfigChange, type AgentProvider, type DeviceStore, type DropBox, type FrameSink, type GateCommand, type InputSink, type PairedDevice, type PairingUI, type PushRegistry, type ScreenCapture, type ScreenInput, type ScreenWatch, type TextInjecting } from "../src/seams";
 import { NO_SCREEN } from "../src/screen/capture";
 import { ClientSession, PAIRING_TIMEOUT_MS, type SessionClock, type SessionDeps } from "../src/session";
 
@@ -413,6 +413,13 @@ class FakeProvider implements AgentProvider {
   pendingAsk(sessionId: string): AgentAsk | null {
     return sessionId === "s1" ? this.pending : null;
   }
+  gate: GateStatus | null = null;
+  readonly gateRuns: GateCommand[] = [];
+  runGate(cmd: GateCommand): Promise<void> {
+    if (cmd.kind === "gate.done" && cmd.photo === undefined) return Promise.reject(new AckFailure({ code: "gate_failed", message: "Draw needs a photo" }));
+    this.gateRuns.push(cmd);
+    return Promise.resolve();
+  }
 }
 
 describe("agent topics", () => {
@@ -565,6 +572,54 @@ describe("agent topics", () => {
       { t: "ack", id: "k1" },
       { t: "nack", id: "k2", error: { code: "agent_not_found", message: "gone" } },
     ]);
+  });
+});
+
+describe("habit gate", () => {
+  const locked: GateStatus = { locked: true, blocked: true, reason: "planned break", active: null, habits: [{ id: "draw", name: "Draw", minutes: 10, photo: true }], tasks: [], canFinish: false, remainingSeconds: null };
+
+  it("answers gate.get with the provider's gate, or null without a provider", () => {
+    const agents = new FakeProvider();
+    agents.gate = locked;
+    const h = harness({ agents });
+    pair(h);
+    h.session.receive({ t: "gate.get" });
+    expect(h.sink.last()).toEqual({ t: "gate.status", gate: locked });
+    const bare = harness();
+    pair(bare);
+    bare.session.receive({ t: "gate.get" });
+    expect(bare.sink.last()).toEqual({ t: "gate.status", gate: null });
+  });
+
+  it("runs gate commands through the provider and passes its failures through as nacks", async () => {
+    const agents = new FakeProvider();
+    const h = harness({ agents });
+    pair(h);
+    const photo: AgentImage = { mimeType: "image/jpeg", data: "/9j/4AAQ" };
+    h.session.receive({ t: "cmd", id: "g1", cmd: { kind: "gate.start", id: "draw" } });
+    h.session.receive({ t: "cmd", id: "g2", cmd: { kind: "gate.done", id: "draw" } });
+    h.session.receive({ t: "cmd", id: "g3", cmd: { kind: "gate.done", id: "draw", photo } });
+    h.session.receive({ t: "cmd", id: "g4", cmd: { kind: "gate.override", reason: "on call" } });
+    await h.sink.sentCount(8);
+    expect(agents.gateRuns).toEqual([
+      { kind: "gate.start", id: "draw" },
+      { kind: "gate.done", id: "draw", photo },
+      { kind: "gate.override", reason: "on call" },
+    ]);
+    expect(h.sink.sent.slice(-4)).toEqual([
+      { t: "ack", id: "g1" },
+      { t: "nack", id: "g2", error: { code: "gate_failed", message: "Draw needs a photo" } },
+      { t: "ack", id: "g3" },
+      { t: "ack", id: "g4" },
+    ]);
+  });
+
+  it("nacks gate commands as gate_unavailable on a host without an agent bridge", async () => {
+    const h = harness();
+    pair(h);
+    h.session.receive({ t: "cmd", id: "g1", cmd: { kind: "gate.start", id: "walk" } });
+    await h.sink.sentCount(5);
+    expect(h.sink.last()).toMatchObject({ t: "nack", id: "g1", error: { code: "gate_unavailable" } });
   });
 });
 

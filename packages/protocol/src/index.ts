@@ -289,6 +289,67 @@ export type ScreenKey = z.infer<typeof ScreenKey>;
 const unit = z.number().min(0).max(1);
 
 // ---------------------------------------------------------------------------------------------
+// Habit gate: at planned breaks the host locks its AI tools until a habit (or a one-time task) is
+// done. The host only relays: the gate's own CLI owns the state, the omp bridge reports it as
+// `gate.status` and runs the phone's `gate.start` / `gate.done` / `gate.override` through it.
+// ---------------------------------------------------------------------------------------------
+
+/** Longest typed override reason. */
+export const MAX_GATE_REASON = 500;
+
+/** A recurring habit; `photo` means `gate.done` needs a proof picture. */
+export const GateHabit = z.object({
+  id: nonEmpty,
+  name: nonEmpty,
+  minutes: z.number().nonnegative(),
+  photo: z.boolean(),
+});
+export type GateHabit = z.infer<typeof GateHabit>;
+
+/** A one-time task; `minutes: null` has no timer, `done` ones are no longer offered. */
+export const GateTask = z.object({
+  id: nonEmpty,
+  name: nonEmpty,
+  minutes: z.number().nonnegative().nullable(),
+  done: z.boolean(),
+});
+export type GateTask = z.infer<typeof GateTask>;
+
+/** The habit or task whose timer is running; times are ISO 8601. */
+export const GateActive = z.object({
+  kind: z.enum(["habit", "task"]),
+  id: nonEmpty,
+  startedAt: nonEmpty,
+  endsAt: nonEmpty,
+});
+export type GateActive = z.infer<typeof GateActive>;
+
+/** Today's planned breaks, placed around the calendar (or evenly spaced when it could not be read). */
+export const GatePlan = z.object({
+  date: nonEmpty,
+  breaks: z.array(z.object({ at: nonEmpty, done: z.boolean() })),
+  source: z.enum(["calendar", "fallback"]),
+});
+export type GatePlan = z.infer<typeof GatePlan>;
+
+/**
+ * The gate as its CLI reports it. `blocked`: locked with no finished habit, so AI tools refuse;
+ * `canFinish`: the active timer has run out and `gate.done` will be accepted.
+ */
+export const GateStatus = z.object({
+  locked: z.boolean(),
+  blocked: z.boolean(),
+  reason: z.string().nullable(),
+  active: GateActive.nullable(),
+  habits: z.array(GateHabit),
+  tasks: z.array(GateTask),
+  canFinish: z.boolean(),
+  remainingSeconds: z.number().nullable(),
+  plan: GatePlan.nullable().optional(),
+});
+export type GateStatus = z.infer<typeof GateStatus>;
+
+// ---------------------------------------------------------------------------------------------
 // Boards: live dashboards. A board is a titled grid of widget tiles the host stores as JSON and
 // streams to subscribed clients. One global `rev` covers every board; each successful write bumps
 // it by one and sends the full changed board (or its removal) as a `board.delta`.
@@ -446,6 +507,12 @@ export const Command = z.discriminatedUnion("kind", [
     image: AgentImage.optional(),
   }),
   z.object({ kind: z.literal("drop.delete"), id: nonEmpty }),
+  /** Start the timer of a habit or one-time task (by id) while the gate is locked. */
+  z.object({ kind: z.literal("gate.start"), id: nonEmpty }),
+  /** Finish the active habit or task; `photo` is the proof a photo habit requires. */
+  z.object({ kind: z.literal("gate.done"), id: nonEmpty, photo: AgentImage.optional() }),
+  /** Unlock without a habit; the typed reason is logged with the gate's history. */
+  z.object({ kind: z.literal("gate.override"), reason: z.string().trim().min(1).max(MAX_GATE_REASON) }),
 ]);
 export type Command = z.infer<typeof Command>;
 
@@ -460,6 +527,8 @@ export const AckError = z.object({
     "internal",
     "drop_unavailable",
     "drop_not_found",
+    "gate_unavailable",
+    "gate_failed",
   ]),
   message: z.string(),
 });
@@ -505,6 +574,8 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("board.subscribe") }),
   /** Re-request every board (after a rev gap); answered by `board.snapshot`. */
   z.object({ t: z.literal("board.get") }),
+  /** Ask for the habit gate's current state; answered by `gate.status`. */
+  z.object({ t: z.literal("gate.get") }),
   /** Ask for the capturable host windows; answered by `screen.list`. */
   z.object({ t: z.literal("screen.list") }),
   /** Stream `windowId` as `screen.frame`s, replacing any watch already running on this socket. */
@@ -610,6 +681,8 @@ export const ServerMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("board.snapshot"), rev: z.number().int(), boards: z.array(Board) }),
   /** One write: the changed board in full, or the slug that was deleted (exactly one of the two). */
   z.object({ t: z.literal("board.delta"), rev: z.number().int(), board: Board.optional(), removed: BoardSlug.optional() }),
+  /** The habit gate changed, or the answer to `gate.get`. `null`: no bridge reports a gate on this host. */
+  z.object({ t: z.literal("gate.status"), gate: GateStatus.nullable() }),
   /** Answer to `screen.list`: capturable windows, front to back. `error` set means none could be listed. */
   z.object({ t: z.literal("screen.list"), windows: z.array(ScreenWindow), error: ScreenError.optional() }),
   /** One captured frame of the watched window: base64 JPEG, `width` x `height` pixels. */

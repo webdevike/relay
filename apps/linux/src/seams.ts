@@ -1,7 +1,7 @@
 // Seams between transport, input and storage. Mirrors apps/mac/Sources/RelayCore/Seams.swift:
 // the session only ever talks to these; input/ and the stores implement them; main.ts wires them.
 
-import type { AckError, AgentAsk, AgentAskAnswer, AgentImage, AgentMessage, AgentOptions, AgentSession, Command, Drop, DropOrigin, InputEvent, KeyName, ScreenError, ScreenKey, ScreenWindow, ServerMessage } from "@relay/protocol";
+import type { AckError, AgentAsk, AgentAskAnswer, AgentImage, AgentMessage, AgentOptions, AgentSession, Command, Drop, DropOrigin, GateStatus, InputEvent, KeyName, ScreenError, ScreenKey, ScreenWindow, ServerMessage } from "@relay/protocol";
 
 /** Outbound side of one connection. `send` after `close` is a no-op. */
 export interface FrameSink {
@@ -148,7 +148,9 @@ export type AgentProviderChange =
   /** The session is now blocked on an ask; the transport shows it to subscribed phones. */
   | { readonly kind: "ask"; readonly sessionId: string; readonly ask: AgentAsk }
   /** A pending ask closed (answered in the TUI, cancelled, or answered from a phone); dismiss its card. */
-  | { readonly kind: "ask.resolved"; readonly sessionId: string; readonly id: string };
+  | { readonly kind: "ask.resolved"; readonly sessionId: string; readonly id: string }
+  /** The habit gate's state changed; read `gate` again. */
+  | { readonly kind: "gate" };
 
 /**
  * One coding-agent integration (omp on Linux). Provider-independent by construction: the
@@ -188,9 +190,18 @@ export interface AgentProvider {
   cancelAsk(sessionId: string, askId: string): Promise<void>;
   /** The ask the session is currently blocked on, replayed to a phone that subscribes late; null when none. */
   pendingAsk(sessionId: string): AgentAsk | null;
+  /** The habit gate as the omp bridge last reported it; null when no session reports one. */
+  readonly gate: GateStatus | null;
+  /**
+   * Run a phone's gate command through the gate CLI. Rejects with `AckFailure` (`gate_unavailable`
+   * when no session reports a gate, `gate_failed` with the CLI's message otherwise).
+   */
+  runGate(cmd: GateCommand): Promise<void>;
   /** Set by the transport. */
   onChange: ((change: AgentProviderChange) => void) | null;
 }
 
 export type AgentConfigChange = Omit<Extract<Command, { kind: "agent.configure" }>, "kind">;
+
+export type GateCommand = Extract<Command, { kind: "gate.start" | "gate.done" | "gate.override" }>;
 

@@ -13,12 +13,14 @@ import { useAgentsStore } from "@/state/agents";
 import { useDropsStore } from "@/state/drops";
 import { useScreenStore } from "@/state/screen";
 import { useBoardsStore } from "@/state/boards";
+import { useGateStore } from "@/state/gate";
 import { setActions } from "@/state/actions";
 import { useSettingsStore } from "@/state/settings";
 import { createAgentFrameRouter } from "./agents";
 import { createDropFrameRouter } from "./drops";
 import { createScreenFrameRouter } from "./screen";
 import { createBoardFrameRouter } from "./boards";
+import { createGateFrameRouter } from "./gate";
 import * as identity from "./identity";
 import { Discovery, type DiscoveredService } from "./discovery";
 import { NO_HOSTS, removeHost, upsertHost, type PairedHosts } from "./hosts";
@@ -62,6 +64,7 @@ const routeAgentFrame = createAgentFrameRouter(useAgentsStore.getState(), (messa
 const routeDropFrame = createDropFrameRouter(useDropsStore.getState());
 const routeScreenFrame = createScreenFrameRouter(useScreenStore.getState(), () => watchingWindow);
 const routeBoardFrame = createBoardFrameRouter(useBoardsStore.getState());
+const routeGateFrame = createGateFrameRouter(useGateStore.getState());
 const discovery = new Discovery({
   onCandidate: (service) => {
     currentCandidate = service;
@@ -105,12 +108,15 @@ socket.onMessage = (data) => {
     if (watchingWindow !== null) socket.send(encode({ t: "screen.watch", windowId: watchingWindow }));
     // Dashboards stream live; the host forgets the subscription with the socket.
     socket.send(encode({ t: "board.subscribe" }));
+    // The habit gate may have locked or unlocked while the phone was away.
+    socket.send(encode({ t: "gate.get" }));
   }
   if (message.t === "agent.image") imagesInFlight.delete(imageKey(message.sessionId, message.id));
   routeAgentFrame(message);
   routeDropFrame(message);
   routeScreenFrame(message);
   routeBoardFrame(message);
+  routeGateFrame(message);
   void dispatch({ type: "server", message });
 };
 
@@ -246,6 +252,7 @@ async function retarget(id: string | null): Promise<void> {
   useAgentsStore.getState().applyWelcome(0, []);
   useDropsStore.getState().setAll([]);
   useBoardsStore.getState().setAll([]);
+  useGateStore.getState().set(null);
   useScreenStore.getState().setList([], null);
   watchingWindow = null;
   useScreenStore.getState().clearWatch();

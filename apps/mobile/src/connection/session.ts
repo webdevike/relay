@@ -235,6 +235,7 @@ export class SessionMachine {
       case "drop.list":
       case "board.snapshot":
       case "board.delta":
+      case "gate.status":
       case "screen.list":
       case "screen.frame":
       case "screen.ended":

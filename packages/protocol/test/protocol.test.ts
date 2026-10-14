@@ -64,3 +64,33 @@ describe("hmac", () => {
     expect(toHex(fromHex("00ff10"))).toBe("00ff10");
   });
 });
+
+describe("habit gate", () => {
+  const status = {
+    locked: true,
+    blocked: true,
+    reason: "planned break",
+    active: { kind: "habit", id: "draw", startedAt: "2026-10-13T15:00:00.000Z", endsAt: "2026-10-13T15:10:00.000Z" },
+    habits: [{ id: "draw", name: "Draw", minutes: 10, photo: true }],
+    tasks: [{ id: "taxes", name: "File taxes", minutes: null, done: false }],
+    canFinish: false,
+    remainingSeconds: 420,
+    plan: { date: "2026-10-13", breaks: [{ at: "2026-10-13T15:00:00.000Z", done: false }], source: "calendar" },
+  };
+  it("carries the CLI status and drops fields the phone does not use", () => {
+    const parsed = parseServerMessage(JSON.stringify({ t: "gate.status", gate: { ...status, history: [{ id: "walk" }], lockedAt: "x" } }));
+    expect(parsed.ok && parsed.value.t === "gate.status" ? parsed.value.gate : null).toEqual(status);
+    expect(parseServerMessage(JSON.stringify({ t: "gate.status", gate: null })).ok).toBe(true);
+    expect(parseServerMessage(JSON.stringify({ t: "gate.status", gate: { ...status, active: { kind: "chore", id: "x", startedAt: "a", endsAt: "b" } } })).ok).toBe(false);
+  });
+  it("takes start, done with an optional photo, and override with a reason", () => {
+    const cmd = (body: object) => JSON.stringify({ t: "cmd", id: "c", cmd: body });
+    expect(parseClientMessage(cmd({ kind: "gate.start", id: "walk" })).ok).toBe(true);
+    expect(parseClientMessage(cmd({ kind: "gate.done", id: "walk" })).ok).toBe(true);
+    expect(parseClientMessage(cmd({ kind: "gate.done", id: "draw", photo: { mimeType: "image/jpeg", data: "AAAA" } })).ok).toBe(true);
+    expect(parseClientMessage(cmd({ kind: "gate.override", reason: "on call" })).ok).toBe(true);
+    expect(parseClientMessage(cmd({ kind: "gate.override", reason: "   " })).ok).toBe(false);
+    expect(parseClientMessage(cmd({ kind: "gate.start", id: "" })).ok).toBe(false);
+    expect(parseClientMessage(JSON.stringify({ t: "gate.get" })).ok).toBe(true);
+  });
+});

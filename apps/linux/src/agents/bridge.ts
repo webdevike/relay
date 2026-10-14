@@ -3,18 +3,19 @@
 // dropping is the session ending. Frames are JSONL both ways.
 //
 //   extension -> host   hello (full session info) | status | messages { append } |
-//                       result { id, ok, error?, value? }
+//                       result { id, ok, error?, value? } | gate.status { gate }
 //   host -> extension   conversation { id } | reply { id, text, submit, images? } | options { id } |
-//                       image { id, imageId } | configure { id, ...change } | abort { id } | end { id }
+//                       image { id, imageId } | configure { id, ...change } | abort { id } | end { id } |
+//                       gate { id, action, target?, reason?, photo? }
 //
 // Sessions are validated with zod at this boundary: a misbehaving extension version can only
 // produce a logged parse error, never a malformed frame on the phone's WebSocket.
 
 import { existsSync, unlinkSync } from "node:fs";
 import type { Socket, SocketHandler } from "bun";
-import { AgentAskQuestion, AgentImage, AgentMessage, AgentOptions, AgentSession, AgentStatus, type AgentAsk, type AgentAskAnswer, type AgentImage as AgentImageT, type AgentSession as AgentSessionT, type AgentMessage as AgentMessageT, type AgentOptions as AgentOptionsT } from "@relay/protocol";
+import { AgentAskQuestion, AgentImage, AgentMessage, AgentOptions, AgentSession, AgentStatus, GateStatus, type AgentAsk, type AgentAskAnswer, type AgentImage as AgentImageT, type AgentSession as AgentSessionT, type AgentMessage as AgentMessageT, type AgentOptions as AgentOptionsT, type GateStatus as GateStatusT } from "@relay/protocol";
 import { z } from "zod";
-import { AckFailure, type AgentConfigChange, type AgentProvider, type AgentProviderChange } from "../seams";
+import { AckFailure, type AgentConfigChange, type AgentProvider, type AgentProviderChange, type GateCommand } from "../seams";
 import { launchInHerdr } from "./herdr";
 
 const StatusFrame = z.object({
@@ -40,10 +41,12 @@ const Inbound = z.discriminatedUnion("t", [
   z.object({ t: z.literal("result"), id: z.string().min(1), ok: z.boolean(), error: z.string().optional(), value: z.unknown().optional() }),
   z.object({ t: z.literal("ask.request"), id: z.string().min(1), questions: z.array(AgentAskQuestion).min(1) }),
   z.object({ t: z.literal("ask.resolved"), id: z.string().min(1) }),
+  /** Each top-level session polls the gate CLI and reports what it read; `null` when the CLI is missing or failing. */
+  z.object({ t: z.literal("gate.status"), gate: GateStatus.nullable() }),
 ]);
 type Inbound = z.infer<typeof Inbound>;
 
-type RequestKind = "conversation" | "reply" | "options" | "image" | "configure" | "abort" | "end" | "ask";
+type RequestKind = "conversation" | "reply" | "options" | "image" | "configure" | "abort" | "end" | "ask" | "gate";
 
 /** The error code a rejected request maps to; the extension's message is passed through. */
 const failureCode: Record<RequestKind, AckFailure["error"]["code"]> = {
@@ -55,9 +58,12 @@ const failureCode: Record<RequestKind, AckFailure["error"]["code"]> = {
   abort: "internal",
   end: "internal",
   ask: "agent_cannot_respond",
+  gate: "gate_failed",
 };
 
 const REQUEST_TIMEOUT_MS = 5000;
+/** The gate CLI is a fresh bun process per command, and `done` copies a photo; give it longer. */
+const GATE_TIMEOUT_MS = 15_000;
 /** A session that answered with something unparseable offers nothing rather than failing the request. */
 const NO_OPTIONS: AgentOptionsT = { models: [], skills: [] };
 
@@ -75,6 +81,8 @@ interface Connection {
   outbound: Buffer | null;
   session: AgentSessionT | null;
   readonly pending: Map<string, Pending>;
+  /** What this session last read from the gate CLI; undefined until it has reported once. */
+  gate: GateStatusT | null | undefined;
 }
 
 export function defaultSocketPath(): string {
@@ -93,6 +101,9 @@ export class OmpBridgeProvider implements AgentProvider {
   private requestSeq = 0;
   /** The ask each session is currently blocked on, by omp session id; replayed to phones that subscribe late. */
   private readonly pendingAsks = new Map<string, AgentAsk>();
+  private gateState: GateStatusT | null = null;
+  /** `gateState` minus the ticking countdown: a change here is what phones are told about. */
+  private gateKey = "null";
 
   constructor(
     private readonly path: string,
@@ -114,7 +125,7 @@ export class OmpBridgeProvider implements AgentProvider {
     if (existsSync(this.path)) unlinkSync(this.path); // stale socket from a previous run
     const handler: SocketHandler<Connection> = {
       open: (socket) => {
-        socket.data = { socket, buffer: "", outbound: null, session: null, pending: new Map() };
+        socket.data = { socket, buffer: "", outbound: null, session: null, pending: new Map(), gate: undefined };
         this.connections.add(socket.data);
       },
       data: (socket, chunk) => {
@@ -186,6 +197,29 @@ export class OmpBridgeProvider implements AgentProvider {
     return this.pendingAsks.get(sessionId) ?? null;
   }
 
+  get gate(): GateStatusT | null {
+    return this.gateState;
+  }
+
+  /** Runs on the session that reported the gate last; its answer is the gate's new state. */
+  async runGate(cmd: GateCommand): Promise<void> {
+    let reporter: Connection | undefined;
+    for (const connection of this.connections) {
+      if (connection.gate !== undefined && connection.gate !== null) reporter = connection;
+    }
+    if (reporter === undefined) {
+      throw new AckFailure({ code: "gate_unavailable", message: "no omp session on the host can reach the habit gate" });
+    }
+    const body =
+      cmd.kind === "gate.start"
+        ? { action: "start", target: cmd.id }
+        : cmd.kind === "gate.done"
+          ? { action: "done", target: cmd.id, ...(cmd.photo === undefined ? {} : { photo: cmd.photo }) }
+          : { action: "override", reason: cmd.reason };
+    const parsed = GateStatus.safeParse(await this.request(reporter, "gate", body, GATE_TIMEOUT_MS));
+    if (parsed.success) this.setGate(parsed.data);
+  }
+
   /**
    * Opens a new omp session in its own herdr workspace in `home`. Herdr owns the process, so a
    * host restart never takes the session with it; it registers itself over the socket like any
@@ -218,14 +252,14 @@ export class OmpBridgeProvider implements AgentProvider {
    * Sends `{ t, id, ...body }` and resolves with the matching `result.value`, or rejects with
    * `AckFailure` when the extension answers `ok: false` or stays silent.
    */
-  private request(connection: Connection, t: RequestKind, body: Record<string, unknown>): Promise<unknown> {
+  private request(connection: Connection, t: RequestKind, body: Record<string, unknown>, timeoutMs = REQUEST_TIMEOUT_MS): Promise<unknown> {
     this.requestSeq += 1;
     const id = `${t}-${this.requestSeq}`;
     const { promise, resolve, reject } = Promise.withResolvers<unknown>();
     const timer = setTimeout(() => {
       connection.pending.delete(id);
-      reject(new AckFailure({ code: "internal", message: `omp session did not answer ${t} within ${REQUEST_TIMEOUT_MS} ms` }));
-    }, REQUEST_TIMEOUT_MS);
+      reject(new AckFailure({ code: "internal", message: `omp session did not answer ${t} within ${timeoutMs} ms` }));
+    }, timeoutMs);
     connection.pending.set(id, { resolve, reject, timer, kind: t });
     this.write(connection, `${JSON.stringify({ t, id, ...body })}\n`);
     return promise;
@@ -356,9 +390,21 @@ export class OmpBridgeProvider implements AgentProvider {
         this.onChange?.({ kind: "ask.resolved", sessionId: connection.session.id, id: frame.id });
         return;
       }
+      case "gate.status":
+        connection.gate = frame.gate;
+        this.setGate(frame.gate);
+        return;
     }
   }
 
+  /** Every session reads the same gate file, so the latest report from any of them is the gate. */
+  private setGate(gate: GateStatusT | null): void {
+    this.gateState = gate;
+    const key = gate === null ? "null" : JSON.stringify({ ...gate, remainingSeconds: null });
+    if (key === this.gateKey) return;
+    this.gateKey = key;
+    this.onChange?.({ kind: "gate" });
+  }
 
   private drop(connection: Connection): void {
     if (!this.connections.delete(connection)) return;
@@ -369,6 +415,8 @@ export class OmpBridgeProvider implements AgentProvider {
     connection.pending.clear();
     if (connection.session !== null) this.pendingAsks.delete(connection.session.id);
     connection.socket.end();
+    // With the last reporting session gone nobody can reach the gate any more.
+    if (connection.gate !== undefined && ![...this.connections].some((other) => other.gate !== undefined)) this.setGate(null);
     if (connection.session !== null) {
       this.log(`agent session ${connection.session.id} ended`);
       this.publish();

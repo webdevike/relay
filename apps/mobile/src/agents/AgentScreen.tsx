@@ -42,6 +42,8 @@ import { AgentSettingsSheet } from "@/agents/AgentSettingsSheet";
 import { TypedReply } from "@/agents/TypedReply";
 import { SessionWidgetActions } from "@/agents/WidgetActions";
 import { AskCard } from "@/agents/AskCard";
+import { HabitGate } from "@/gate/HabitGate";
+import { useGateStore } from "@/state/gate";
 import { type ActionWheelEntry } from "@/agents/ActionWheel";
 import { useActionWheel } from "@/agents/useActionWheel";
 import { SubagentsSheet } from "@/agents/SubagentsSheet";
@@ -218,6 +220,7 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
   const pendingAsk = useAgentsStore((state) =>
     selectedId === undefined ? undefined : state.asks[selectedId],
   );
+  const gateLocked = useGateStore((state) => state.gate?.locked === true);
   const answerAsk = useCallback(
     (results: { id: string; selectedOptions: string[]; customInput?: string }[]) => {
       if (selectedId === undefined || pendingAsk === undefined) return;
@@ -723,10 +726,17 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
             </View>
           )}
           {wheel}
-          {session !== undefined && pendingAsk !== undefined && (
+          {session !== undefined && pendingAsk !== undefined ? (
             <View style={styles.askOverlay}>
               <AskCard ask={pendingAsk} onSubmit={answerAsk} onCancel={cancelAsk} />
             </View>
+          ) : (
+            gateLocked && (
+              // A locked habit gate refuses prompts, so its card takes the ask's spot until it unlocks.
+              <View style={styles.askOverlay}>
+                <HabitGate />
+              </View>
+            )
           )}
         </View>
         {session !== undefined && typing && (
@@ -991,7 +1001,7 @@ const styles = StyleSheet.create({
     right: spacing.lg,
     top: spacing.sm,
   },
-  /** The pending-ask card, floating at the bottom of the transcript, above the reply seam. */
+  /** The pending-ask (or locked habit gate) card, floating at the bottom of the transcript, above the reply seam. */
   askOverlay: {
     position: "absolute",
     left: spacing.sm,

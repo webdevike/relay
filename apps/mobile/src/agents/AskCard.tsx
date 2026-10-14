@@ -3,8 +3,9 @@ import { Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native
 import type { AgentAsk, AgentAskQuestion } from "@relay/protocol";
 import { Text } from "@/ui/Text";
 import { Button } from "@/ui/Button";
+import { Card } from "@/ui/Card";
+import { OptionRow } from "@/ui/OptionRow";
 import { radii, spacing, useColors } from "@/theme";
-import { tapHaptic } from "@/lib/haptics";
 
 /** One answer per question: chosen option labels, or free text the user typed instead. */
 export interface AskAnswer {
@@ -24,52 +25,6 @@ export interface AskCardProps {
 function toggle(current: string[], label: string, multi: boolean): string[] {
   if (current.includes(label)) return current.filter((entry) => entry !== label);
   return multi ? [...current, label] : [label];
-}
-
-interface OptionRowProps {
-  label: string;
-  description: string | undefined;
-  selected: boolean;
-  recommended: boolean;
-  onPress: () => void;
-}
-
-function OptionRow({ label, description, selected, recommended, onPress }: OptionRowProps) {
-  const colors = useColors();
-  return (
-    <Pressable
-      onPress={() => {
-        tapHaptic();
-        onPress();
-      }}
-      style={({ pressed }) => ({
-        borderRadius: radii.md,
-        borderWidth: 1,
-        borderColor: selected ? colors.accent : colors.hairline,
-        // Selected: the accent at 0.12 opacity.
-        backgroundColor: selected ? `${colors.accent}1F` : colors.surface,
-        paddingVertical: spacing.sm,
-        paddingHorizontal: spacing.md,
-        opacity: pressed ? 0.85 : 1,
-      })}
-    >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
-        <Text variant="body" color={selected ? "accent" : "text"} style={{ flex: 1 }}>
-          {label}
-        </Text>
-        {recommended && (
-          <Text variant="caption" color="accent">
-            Recommended
-          </Text>
-        )}
-      </View>
-      {description !== undefined && description.length > 0 && (
-        <Text variant="caption" color="textMuted" style={{ marginTop: spacing.xs }}>
-          {description}
-        </Text>
-      )}
-    </Pressable>
-  );
 }
 
 function Question({
@@ -103,7 +58,7 @@ function Question({
             label={option.label}
             description={option.description}
             selected={selected.includes(option.label)}
-            recommended={question.recommended === index}
+            badge={question.recommended === index ? "Recommended" : undefined}
             onPress={() => {
               onToggle(option.label);
             }}
@@ -173,7 +128,7 @@ export function AskCard({ ask, onSubmit, onCancel }: AskCardProps) {
   };
 
   return (
-    <View style={[styles.card, { borderColor: colors.hairline, backgroundColor: colors.surfaceRaised }]}>
+    <Card maxHeight={400}>
       <View style={styles.header}>
         {total > 1 ? (
           <View style={styles.progress}>
@@ -210,17 +165,11 @@ export function AskCard({ ask, onSubmit, onCancel }: AskCardProps) {
           <Button label="Next" disabled={!canAdvance} onPress={() => setStep((s) => Math.min(s + 1, total - 1))} />
         )}
       </View>
-    </View>
+    </Card>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    overflow: "hidden",
-    maxHeight: 400,
-  },
   header: {
     flexDirection: "row",
     alignItems: "center",

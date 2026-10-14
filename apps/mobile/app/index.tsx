@@ -2,7 +2,7 @@
  * Home: a 2x2 grid of widgets, one per thing the phone can do with the host, each carrying its
  * live fact (session count, drop count, host state) so the screen answers "what is going on"
  * before anything is tapped. Trackpad and Drops share the top row, Agent Inbox and the host
- * (which opens Settings) the bottom.
+ * (which opens Settings) the bottom. While the host's habit gate is locked its card leads.
  */
 import { useRouter } from "expo-router";
 import { StyleSheet, View } from "react-native";
@@ -15,6 +15,8 @@ import { spacing } from "@/theme";
 import { useConnectionStore, type ConnectionStatus } from "@/state/connection";
 import { needsAttention, useAgentsStore } from "@/state/agents";
 import { useDropsStore } from "@/state/drops";
+import { useGateStore } from "@/state/gate";
+import { HabitGate } from "@/gate/HabitGate";
 import { actions } from "@/state/actions";
 import { countOf } from "@/lib/format";
 
@@ -54,9 +56,10 @@ export default function Home() {
   const drops = useDropsStore((state) => state.drops);
   const latestDrop = drops[0];
   const pill = pillFor[status];
+  const gateLocked = useGateStore((state) => state.gate?.locked === true);
 
   return (
-    <Screen title={macName ?? "Relay"} headerRight={<Pill label={pill.label} tone={pill.tone} />}>
+    <Screen title={macName ?? "Relay"} headerRight={<Pill label={pill.label} tone={pill.tone} />} scroll={gateLocked}>
       {status === "offline" && (
         <View style={styles.banner}>
           <Banner tone="danger" message="Can't reach your host on this network." />
@@ -73,6 +76,11 @@ export default function Home() {
               router.push("/pairing");
             }}
           />
+        </View>
+      )}
+      {gateLocked && (
+        <View style={styles.gate}>
+          <HabitGate />
         </View>
       )}
       <View style={styles.grid}>
@@ -141,6 +149,7 @@ export default function Home() {
 
 const styles = StyleSheet.create({
   banner: { paddingBottom: spacing.lg },
+  gate: { paddingHorizontal: spacing.xl, paddingBottom: spacing.lg },
   grid: { paddingHorizontal: spacing.xl, gap: spacing.md },
   row: { flexDirection: "row", gap: spacing.md },
 });

@@ -451,6 +451,9 @@ export class ClientSession {
       case "board.get":
         this.sink.send(this.deps.boards?.snapshot() ?? { t: "board.snapshot", rev: 0, boards: [] });
         break;
+      case "gate.get":
+        this.sink.send({ t: "gate.status", gate: this.deps.agents?.gate ?? null });
+        break;
       case "screen.list":
         void this.deps.screen.list().then(
           (result) => {
@@ -625,6 +628,13 @@ export class ClientSession {
           : Promise.reject(
               new AckFailure({ code: "drop_not_found", message: `no drop ${cmd.id}` }),
             );
+      case "gate.start":
+      case "gate.done":
+      case "gate.override":
+        if (this.deps.agents === null) {
+          return Promise.reject(new AckFailure({ code: "gate_unavailable", message: "this host has no agent bridge to reach the habit gate" }));
+        }
+        return this.deps.agents.runGate(cmd);
     }
   }
 

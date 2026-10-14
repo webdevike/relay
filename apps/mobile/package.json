@@ -28,6 +28,8 @@
     "expo-dev-client": "~6.0.21",
     "expo-file-system": "~19.0.24",
     "expo-haptics": "~15.0.8",
+    "expo-image-manipulator": "~14.0.8",
+    "expo-image-picker": "~17.0.11",
     "expo-keep-awake": "~15.0.8",
     "expo-linking": "~8.0.12",
     "expo-media-library": "~18.2.1",
