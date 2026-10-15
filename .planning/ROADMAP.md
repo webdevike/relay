@@ -137,7 +137,7 @@ Plans:
 Plans:
 **Wave 1** (Wave 0 foundations)
 
-- [ ] 03-01-PLAN.md: EvaFs readStamp/edit/create with stale refusal, per-path queue, runner job-name rule, write scan over renderer and preload (wave 1)
+- [x] 03-01-PLAN.md: EvaFs readStamp/edit/create with stale refusal, per-path queue, runner job-name rule, write scan over renderer and preload (wave 1)
 - [ ] 03-02-PLAN.md: Env seams (EVAOS_HABIT_GATE_BIN, EVAOS_JOB_RUN_BIN, EVAOS_NOW, EVAOS_HABIT_PHOTOS_DIR) and the spawn helper (wave 1)
 - [ ] 03-03-PLAN.md: Dated fixture root eva-p3, fake habit gate, fake job-run, makeEvaFixture and e2e launch defaults (wave 1)
 - [ ] 03-04-PLAN.md: Workspace, journal, todo and dashboard rules ported from Rust (wave 1)
@@ -256,7 +256,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 1. Foundation, Harness and the Two Spikes | 10/10 | Complete   | 2026-10-15 |
 | 2. Shell, Navigation and Theme Tokens | 13/13 | Complete    | 2026-10-15 |
-| 3. Dashboard, Workspaces, Jobs, Habits and Meetings | 0/19 | Planned | - |
+| 3. Dashboard, Workspaces, Jobs, Habits and Meetings | 1/19 | In Progress|  |
 | 4. Chat Parity | 0/TBD | Not started | - |
 | 5. Rich Replies | 0/TBD | Not started | - |
 | 6. Side Panel, Eregon and Global Search | 0/TBD | Not started | - |

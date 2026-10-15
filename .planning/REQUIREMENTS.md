@@ -60,7 +60,7 @@ Requirements for the parity milestone. Each maps to roadmap phases. The source o
 - [ ] **DASH-04**: Recent Workspaces shows the two most recent with a smoothed activity line, hatched current week, daily bars and a 7D / 30D / 90D switch
 - [ ] **DASH-05**: Workspaces grid shows tagline, latest journal title or thread, last active and open todos; compact and wide card layouts reflow as the README describes
 - [ ] **DASH-06**: Data reloads on window activation, the refresh button and `⌘R`
-- [ ] **DASH-07**: User can add a todo (`⌘N`, hero button, top bar) that appends `- [ ] T<next> [workspace] … (added date)` after the last open row of `memory/todos.md`, with the next id computed from both todos files and a re-read check before writing
+- [x] **DASH-07**: User can add a todo (`⌘N`, hero button, top bar) that appends `- [ ] T<next> [workspace] … (added date)` after the last open row of `memory/todos.md`, with the next id computed from both todos files and a re-read check before writing
 - [ ] **DASH-08**: Workspace page shows the header chips, New Todo preselecting the workspace, Open File, activity bars, the merged Timeline with Show all, open todos and the file's `##` sections
 
 ### Chat Parity
@@ -116,14 +116,14 @@ Requirements for the parity milestone. Each maps to roadmap phases. The source o
 ### Jobs, Habits, Meetings
 
 - [ ] **JOBS-01**: Jobs page lists each `jobs/<name>/job.md` with schedule, enabled switch, last run, run state and next due computed as the README describes
-- [ ] **JOBS-02**: User can create and edit jobs with inline validation of names and durations; saves change only edited lines, write via temp file and rename, and refuse a file changed on disk since opening
+- [x] **JOBS-02**: User can create and edit jobs with inline validation of names and durations; saves change only edited lines, write via temp file and rename, and refuse a file changed on disk since opening
 - [ ] **JOBS-03**: User can Run now (`bun .omp/tools/job-run.ts <name>` detached), open the last session, and delete a job after confirmation
 - [ ] **HABT-01**: Habits page reads `habit-gate.ts status --json` on launch, every 4 seconds, on page open, on activation and `⌘R`, and shows gate state, habits, one-time tasks, today's breaks and history
 - [ ] **HABT-02**: User can add, edit and remove habits and tasks through the habit-gate CLI subcommands
 - [ ] **HABT-03**: While locked, a nearly opaque gate overlay covers the window, hides the browser view, and offers Start, countdown, Done, Choose photo and Override with a typed reason
 - [ ] **MEET-01**: Meetings sidebar page lists `work/meetings/<stem>.json` records newest first grouped by day, with test calls folded, and a title search
 - [ ] **MEET-02**: Meeting Home shows the summary line and Detail shows title, time, attendees, Open Notes and proposals
-- [ ] **MEET-03**: Accept appends a todo through `EvaFs` and Dismiss writes the record's `status` field
+- [x] **MEET-03**: Accept appends a todo through `EvaFs` and Dismiss writes the record's `status` field
 
 ### Inbox and Relay
 
@@ -229,7 +229,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DASH-04 | Phase 3 | Pending |
 | DASH-05 | Phase 3 | Pending |
 | DASH-06 | Phase 3 | Pending |
-| DASH-07 | Phase 3 | Pending |
+| DASH-07 | Phase 3 | Complete |
 | DASH-08 | Phase 3 | Pending |
 | CHTP-01 | Phase 4 | Pending |
 | CHTP-02 | Phase 4 | Pending |
@@ -267,14 +267,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SRCH-03 | Phase 6 | Pending |
 | SRCH-04 | Phase 6 | Pending |
 | JOBS-01 | Phase 3 | Pending |
-| JOBS-02 | Phase 3 | Pending |
+| JOBS-02 | Phase 3 | Complete |
 | JOBS-03 | Phase 3 | Pending |
 | HABT-01 | Phase 3 | Pending |
 | HABT-02 | Phase 3 | Pending |
 | HABT-03 | Phase 3 | Pending |
 | MEET-01 | Phase 3 | Pending |
 | MEET-02 | Phase 3 | Pending |
-| MEET-03 | Phase 3 | Pending |
+| MEET-03 | Phase 3 | Complete |
 | RELY-01 | Phase 7 | Pending |
 | RELY-02 | Phase 7 | Pending |
 | INBX-01 | Phase 7 | Pending |
