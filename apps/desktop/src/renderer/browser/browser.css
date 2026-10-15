@@ -79,31 +79,6 @@
 .eva-overlay-body {
   margin: 0 0 var(--eva-space-md);
 }
-.eva-divider {
-  position: relative;
-  flex: none;
-  width: 4px;
-  cursor: col-resize;
-  background: transparent;
-}
-.eva-divider::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -2px;
-  right: -2px;
-}
-.eva-divider:hover,
-.eva-divider.is-dragging {
-  background: var(--eva-border);
-}
-.eva-rail-test {
-  margin: 0 var(--eva-space-md);
-}
-.eva-app.is-rail-collapsed .eva-rail {
-  display: none;
-}
 .eva-tab-close {
   flex: none;
   margin-left: auto;

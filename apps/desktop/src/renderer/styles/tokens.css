@@ -26,10 +26,6 @@
   --eva-fw-semibold: 600;
   --eva-font-mono: var(--eva-font-code);
 
-  --eva-rail-w: 272px;
-  --eva-panel-w: 480px;
-  --eva-panel-min: 320px;
-  --eva-panel-max: 960px;
   --eva-main-min: 480px;
   --eva-tab-strip-h: 36px;
   --eva-address-h: 40px;
@@ -88,12 +84,6 @@ body {
   outline-offset: 2px;
 }
 
-.eva-app {
-  display: flex;
-  height: 100%;
-  min-width: 0;
-}
-
 .eva-label {
   font-size: var(--eva-fz-label);
   font-weight: var(--eva-fw-semibold);
@@ -104,47 +94,9 @@ body {
   color: var(--eva-text-dim);
 }
 
-.eva-rail {
-  box-sizing: border-box;
-  flex: 0 0 var(--eva-rail-w);
-  width: var(--eva-rail-w);
-  display: flex;
-  flex-direction: column;
-  background: var(--eva-surface);
-  border-right: 1px solid var(--eva-border);
-  -webkit-app-region: drag;
-}
-.eva-rail > * {
-  -webkit-app-region: no-drag;
-}
-.eva-rail-traffic {
-  height: 72px;
-  flex: none;
-  -webkit-app-region: drag;
-}
-.eva-rail-body {
-  padding: 0 var(--eva-space-lg);
-  flex: 1;
-}
-.eva-wordmark {
-  font-size: var(--eva-fz-display);
-  font-weight: var(--eva-fw-semibold);
-  line-height: 1.2;
-  margin: 0 0 var(--eva-space-sm);
-}
-.eva-rail-foot {
-  padding: var(--eva-space-md) var(--eva-space-lg);
-}
-.eva-env-badge {
-  font-family: var(--eva-font-mono);
-  font-size: var(--eva-fz-label);
-  font-weight: var(--eva-fw-regular);
-  color: var(--eva-text-dim);
-}
-
 .eva-chat {
   flex: 1 1 0;
-  min-width: var(--eva-main-min);
+  min-width: 0;
   display: flex;
   flex-direction: column;
   background: var(--eva-bg);
@@ -176,13 +128,10 @@ body {
 
 .eva-browser {
   box-sizing: border-box;
-  flex: 0 0 var(--eva-panel-w);
-  width: var(--eva-panel-w);
-  min-width: var(--eva-panel-min);
-  max-width: var(--eva-panel-max);
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  border-left: 1px solid var(--eva-border);
   background: var(--eva-surface);
 }
 .eva-tab-strip {

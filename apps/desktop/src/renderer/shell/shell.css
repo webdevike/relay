@@ -1,0 +1,155 @@
+.eva-shell {
+  --eva-sidebar-w: 272px;
+  --eva-panel-w: 420px;
+  --eva-main-left: 0px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  background: var(--eva-chrome);
+  color: var(--eva-chrome-text);
+}
+.eva-shell-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  box-sizing: border-box;
+  padding-top: 8px;
+}
+
+.eva-sidebar {
+  flex: none;
+  box-sizing: border-box;
+  width: var(--eva-sidebar-w);
+  overflow: hidden;
+  background: var(--eva-chrome);
+  transition: width var(--eva-dur-slide) var(--eva-ease);
+  -webkit-app-region: drag;
+}
+body.eva-resizing .eva-sidebar {
+  transition: none;
+}
+.eva-sidebar-inner {
+  width: 100%;
+  height: 100%;
+  min-width: 200px;
+  box-sizing: border-box;
+  padding-top: 36px;
+  padding-right: 8px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.eva-sidebar-inner > * {
+  -webkit-app-region: no-drag;
+}
+.eva-sidebar-nav {
+  flex: 1;
+  padding: 0 var(--eva-space-md);
+}
+.eva-sidebar-foot {
+  padding: var(--eva-space-sm) var(--eva-space-md);
+}
+.eva-wordmark {
+  font-size: var(--eva-fz-display);
+  font-weight: var(--eva-fw-semibold);
+  line-height: 1.2;
+  margin: 0 0 var(--eva-space-sm);
+}
+.eva-env-badge {
+  font-family: var(--eva-font-mono);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-text-dim);
+}
+
+.eva-card {
+  box-sizing: border-box;
+  background: var(--eva-c-background);
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius);
+  box-shadow: var(--eva-shadow);
+  overflow: hidden;
+  min-width: 0;
+}
+.eva-main-card {
+  flex: 1;
+  margin-left: var(--eva-main-left);
+  margin-right: 8px;
+  display: flex;
+  flex-direction: column;
+}
+.eva-main-card > .eva-chat {
+  min-width: 0;
+  flex: 1;
+}
+/* Traffic lights sit at the window corner when the sidebar is not showing. */
+.eva-shell:not([data-sidebar-state='open']) .eva-chat-header {
+  padding-left: 80px;
+}
+
+.eva-panel-wrap {
+  position: relative;
+  flex: none;
+  width: var(--eva-panel-w);
+  margin-right: 8px;
+  display: flex;
+}
+.eva-panel-wrap[data-open='false'] {
+  display: none;
+}
+.eva-panel-card {
+  flex: 1;
+  display: flex;
+}
+
+.eva-grip {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  z-index: 2;
+  cursor: col-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  outline-offset: -2px;
+}
+.eva-grip-sidebar {
+  left: calc(var(--eva-sidebar-w) - 8px);
+}
+.eva-grip-panel {
+  left: -8px;
+}
+.eva-grip-bar {
+  width: 2px;
+  height: 36px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--eva-c-muted-foreground) 50%, transparent);
+  opacity: 0;
+  transition: opacity var(--eva-dur-fast) var(--eva-ease);
+}
+.eva-grip:hover .eva-grip-bar,
+.eva-grip:focus-visible .eva-grip-bar,
+.eva-grip.is-dragging .eva-grip-bar {
+  opacity: 1;
+}
+
+.eva-footer {
+  flex: none;
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  background: var(--eva-chrome);
+}
+.eva-footer-help {
+  height: 28px;
+  color: var(--eva-chrome-text);
+}
+.eva-footer-eregon {
+  flex: 1;
+  display: flex;
+  justify-content: flex-end;
+}
