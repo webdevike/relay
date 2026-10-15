@@ -73,7 +73,7 @@ Requirements for the parity milestone. Each maps to roadmap phases. The source o
 - [x] **CHTP-06**: Composer matches the README's two-line box with toolbar: model picker, access mode, context ring, omp account selector on unsent chats, image paste and drop
 - [x] **CHTP-07**: Settings › Chat switches for thinking and tool details apply to the chat view and persist as `show_thinking` / `show_tools`
 - [x] **CHTP-08**: Question cards render every blocked `ask` with inline single-choice answers (`1`-`4`), and extension UI requests (select, confirm, input, editor) are answerable
-- [ ] **CHTP-09**: Subagent chips show running and finished subagents with Clear done, and the background jobs strip shows unfinished jobs while the omp process runs
+- [x] **CHTP-09**: Subagent chips show running and finished subagents with Clear done, and the background jobs strip shows unfinished jobs while the omp process runs
 - [x] **CHTP-10**: Sending into a session another writer owns prompts first, and a shared writer registry tracks which pane owns which session
 - [x] **CHTP-11**: Prompts carry the `<surface><machine> - EvaOS</surface>` tag as the README describes
 - [x] **CHTP-12**: User can choose the Claude Code harness in Settings › Chat and chats then run through that bridge
@@ -239,7 +239,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CHTP-06 | Phase 4 | Complete |
 | CHTP-07 | Phase 4 | Complete |
 | CHTP-08 | Phase 4 | Complete |
-| CHTP-09 | Phase 4 | Pending |
+| CHTP-09 | Phase 4 | Complete |
 | CHTP-10 | Phase 4 | Complete |
 | CHTP-11 | Phase 4 | Complete |
 | CHTP-12 | Phase 4 | Complete |
