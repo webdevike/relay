@@ -8,7 +8,14 @@ import {
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { APP_DIR, EVA_FIXTURE_ROOT, FAKE_OMP, SESSIONS_FIXTURE_DIR } from './helpers/paths'
+import {
+  APP_DIR,
+  EVA_FIXTURE_ROOT,
+  FAKE_GATE,
+  FAKE_JOB_RUN,
+  FAKE_OMP,
+  SESSIONS_FIXTURE_DIR,
+} from './helpers/paths'
 
 interface Fixtures {
   launchEnv: Record<string, string>
@@ -34,6 +41,12 @@ export function buildLaunchEnv(
     EVAOS_EVA_ROOT: EVA_FIXTURE_ROOT,
     EVAOS_OMP_BIN: FAKE_OMP,
     EVAOS_SESSIONS_DIR: SESSIONS_FIXTURE_DIR,
+    // Phase 3: every launch runs the unlocked fake gate with per-test state, so no spec sees a gate overlay.
+    EVAOS_HABIT_GATE_BIN: FAKE_GATE,
+    EVAOS_JOB_RUN_BIN: FAKE_JOB_RUN,
+    FAKE_GATE_STATE: path.join(configDir, 'fake-gate.json'),
+    FAKE_GATE_PHOTOS: path.join(configDir, 'habit-photos'),
+    EVAOS_HABIT_PHOTOS_DIR: path.join(configDir, 'habit-photos'),
     ELECTRON_DISABLE_SECURITY_WARNINGS: '1',
     ...launchEnv,
   })
