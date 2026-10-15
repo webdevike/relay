@@ -17,7 +17,10 @@ class MemoryTransport implements ChatTransport {
     this.started.push(opts)
     return this.startGate ?? Promise.resolve()
   }
+  /** When set, send() rejects with it (models EPIPE after omp exited). */
+  sendError: Error | null = null
   send(text: string) {
+    if (this.sendError) return Promise.reject(this.sendError)
     this.sent.push(text)
     return Promise.resolve()
   }
@@ -124,6 +127,21 @@ describe('SessionManager', () => {
     await mgr.send('pane-1', 'three')
     expect(transports).toHaveLength(2)
     expect(transports[1]!.sent).toEqual(['<surface>Mac - EvaOS</surface>\nthree'])
+    vi.useRealTimers()
+  })
+
+  it('a failed transport write takes the unconfirmed row back out and rethrows', async () => {
+    const { mgr, transports, batches } = setup()
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    await mgr.send('pane-1', 'ok')
+    await vi.advanceTimersByTimeAsync(16)
+    transports[0]!.sendError = new Error('EPIPE')
+    await expect(mgr.send('pane-1', 'lost')).rejects.toThrow('EPIPE')
+    expect(mgr.snapshot('pane-1').messages.map((m) => m.text)).toEqual(['ok'])
+    await vi.advanceTimersByTimeAsync(16)
+    const last = batches.at(-1)!
+    expect(last.ops.filter((o) => o.op === 'upsert')).toEqual([])
+    expect(last.ops.filter((o) => o.op === 'remove').map((o) => o.id)).toEqual(['sent-2'])
     vi.useRealTimers()
   })
 

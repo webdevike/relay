@@ -93,6 +93,14 @@ export class LiveReducer {
     return m
   }
 
+  /** Takes back one prompt omp never received (the write failed). Only unconfirmed rows qualify. */
+  dropUnconfirmedRow(id: string): boolean {
+    const ix = this.msgs.findIndex((m) => m.id === id && unconfirmed(m))
+    if (ix < 0) return false
+    this.msgs.splice(ix, 1)
+    return true
+  }
+
   apply(frame: Json & { type?: unknown }): ApplyResult {
     const dirty = new Set<string>()
     const removed = new Set<string>()

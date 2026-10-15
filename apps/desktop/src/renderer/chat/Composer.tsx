@@ -22,7 +22,11 @@ export function Composer({ paneId, disabled }: { paneId: string; disabled: boole
     if (value === '' || disabled) return
     setText('')
     const r = await invoke('chat.send', { paneId, text: value })
-    if (!r.ok) chatStore.getState().setError(paneId, r.error.message)
+    if (!r.ok) {
+      // Give the prompt back unless something new was typed meanwhile.
+      setText((current) => (current === '' ? value : current))
+      chatStore.getState().setError(paneId, r.error.message)
+    }
   }
 
   return (

@@ -112,7 +112,15 @@ export class SessionManager {
     }
     const row = pane.reducer.sendPrompt(text)
     pane.batcher.markUpsert(row, pane.reducer.indexOf(row.id))
-    await pane.transport!.send(tagged(text, this.deps.machineLabel))
+    try {
+      await pane.transport!.send(tagged(text, this.deps.machineLabel))
+    } catch (e) {
+      // omp never received the prompt (EPIPE after exit, for example): take the row back out
+      // so it does not sit there unconfirmed forever.
+      pane.reducer.dropUnconfirmedRow(row.id)
+      pane.batcher.markRemove(row.id)
+      throw e
+    }
   }
 
   private async startTransport(pane: Pane): Promise<void> {

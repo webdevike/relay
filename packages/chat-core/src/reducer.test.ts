@@ -105,6 +105,18 @@ describe('LiveReducer', () => {
     ])
   })
 
+  it('dropUnconfirmedRow takes back one pending prompt and nothing else', () => {
+    const r = mk()
+    r.apply({ type: 'message_end', messageId: 'u0', message: user('earlier') })
+    const a = r.sendPrompt('first')
+    const b = r.sendPrompt('second')
+    expect(r.dropUnconfirmedRow(a.id)).toBe(true)
+    expect(r.messages().map((m) => m.text)).toEqual(['earlier', 'second'])
+    expect(r.dropUnconfirmedRow(a.id)).toBe(false)
+    expect(r.dropUnconfirmedRow('u0')).toBe(false)
+    expect(r.messages().map((m) => m.id)).toEqual(['u0', b.id])
+  })
+
   it('a rejected prompt drops the unconfirmed copy and adds a notice', () => {
     const r = mk()
     r.sendPrompt('bad')

@@ -9,6 +9,7 @@ vi.mock('../ipc', () => ({
 }))
 
 import { Composer } from './Composer'
+import { chatStore } from './chat-store'
 
 const wrap = (disabled = false) =>
   render(
@@ -25,6 +26,30 @@ describe('Composer', () => {
     await user.type(box, 'hi there{Enter}')
     expect(invoke).toHaveBeenCalledWith('chat.send', { paneId: 'pane-1', text: 'hi there' })
     expect(box).toHaveValue('')
+  })
+
+  it('a failed send gives the text back and reports the error on the pane', async () => {
+    invoke.mockClear()
+    invoke.mockImplementationOnce(() =>
+      Promise.resolve({
+        ok: false,
+        error: { code: 'spawn-failed', message: 'Could not start omp: ENOENT' },
+      } as unknown as { ok: true; value: { accepted: true } }),
+    )
+    chatStore.setState({ panes: {} })
+    chatStore.getState().openPane('pane-1', {
+      file: '/f',
+      title: 't',
+      messages: [],
+      meta: { model: null, thinking: null, contextTokens: null },
+    })
+    const user = userEvent.setup()
+    wrap()
+    const box = screen.getByTestId('composer-input')
+    await user.type(box, 'keep me{Enter}')
+    expect(invoke).toHaveBeenCalledWith('chat.send', { paneId: 'pane-1', text: 'keep me' })
+    expect(box).toHaveValue('keep me')
+    expect(chatStore.getState().panes['pane-1']!.error).toBe('Could not start omp: ENOENT')
   })
 
   it('Shift+Enter inserts a newline and does not send', async () => {
