@@ -38,7 +38,7 @@ const FIXED_PAGES: readonly string[] = [
   'memory',
   'files',
   'settings',
-  'help'
+  'help',
 ]
 
 export function pageKey(page: PageKey): string {
@@ -56,7 +56,7 @@ export function placeOf(page: PageKey, extra: Partial<Omit<Place, 'page'>> = {})
     chat: page === 'chat' ? 'draft' : null,
     settingsSection: 'Theme',
     meeting: null,
-    ...extra
+    ...extra,
   }
 }
 
@@ -107,7 +107,7 @@ export function placeToJson(place: Place): PlaceJson {
     page: pageKey(place.page),
     chat: place.page === 'chat' ? (place.chat ?? 'draft') : null,
     settings_section: place.settingsSection,
-    meeting: place.meeting
+    meeting: place.meeting,
   }
 }
 
@@ -124,6 +124,6 @@ export function placeFromJson(value: unknown): Place | null {
     page,
     chat,
     settingsSection: section,
-    meeting: typeof v.meeting === 'string' ? v.meeting : null
+    meeting: typeof v.meeting === 'string' ? v.meeting : null,
   }
 }

@@ -7,7 +7,7 @@ import {
   placeOf,
   placeToJson,
   samePlace,
-  type PageKey
+  type PageKey,
 } from './place'
 
 describe('pages', () => {
@@ -26,7 +26,7 @@ describe('pages', () => {
       'memory',
       'files',
       'settings',
-      'help'
+      'help',
     ]
     for (const p of pages) expect(pageFromKey(pageKey(p))).toBe(p)
     expect(pageFromKey('nope')).toBeNull()
@@ -39,15 +39,15 @@ describe('saved places', () => {
       page: 'settings',
       chat: null,
       settingsSection: 'Theme',
-      meeting: null
+      meeting: null,
     })
     expect(placeFromJson({ page: 'chat' })?.chat).toBe('draft')
     expect(placeFromJson({ page: 'chat', chat: '/s/a.jsonl' })?.chat).toBe('/s/a.jsonl')
     expect(placeFromJson({ page: 'settings', settings_section: 'Chat' })?.settingsSection).toBe(
-      'Chat'
+      'Chat',
     )
     expect(placeFromJson({ page: 'settings', settings_section: 'Bogus' })?.settingsSection).toBe(
-      'Theme'
+      'Theme',
     )
     expect(placeFromJson({ page: 'nope' })).toBeNull()
     expect(placeFromJson({})).toBeNull()
@@ -60,7 +60,7 @@ describe('saved places', () => {
       page: 'chat',
       chat: '/s/a.jsonl',
       settings_section: 'Theme',
-      meeting: null
+      meeting: null,
     })
     expect(placeToJson(placeOf('jobs')).chat).toBeNull()
   })
