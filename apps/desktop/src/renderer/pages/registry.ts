@@ -4,6 +4,7 @@ import { createElement } from 'react'
 import { DashboardPage } from '../dashboard/DashboardPage'
 import { pageMeta } from './page-meta'
 import { PlaceholderPage } from './PlaceholderPage'
+import { JobsPage } from '../jobs/JobsPage'
 import { WorkspacePage } from '../workspace/WorkspacePage'
 import { SettingsPage } from '../settings/SettingsPage'
 
@@ -11,9 +12,10 @@ export type PageRegistryKind = 'page' | 'settings' | 'workspace' | 'board' | 'me
 
 const PAGE_BY_SLUG: Record<string, ComponentType<{ place: Place }>> = {
   dashboard: DashboardPage,
+  jobs: JobsPage,
 }
 
-/** Dispatches kind 'page' by slug; later plans add jobs, habits and meetings to the map. */
+/** Dispatches kind 'page' by slug; later plans add habits and meetings to the map. */
 export function PageBySlug({ place }: { place: Place }) {
   const Page = PAGE_BY_SLUG[pageMeta(place).slug] ?? PlaceholderPage
   return createElement(Page, { place })

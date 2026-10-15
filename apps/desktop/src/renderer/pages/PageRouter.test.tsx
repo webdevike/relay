@@ -9,6 +9,9 @@ vi.mock('../ipc', () => ({
 vi.mock('../chat/ChatPane', () => ({
   ChatPane: () => <main data-testid="chat-pane">chat</main>,
 }))
+vi.mock('../jobs/JobsPage', () => ({
+  JobsPage: () => <div data-testid="page-jobs">jobs</div>,
+}))
 vi.mock('../dashboard/DashboardPage', () => ({
   DashboardPage: () => <div data-testid="page-dashboard">dash</div>,
 }))
@@ -72,6 +75,12 @@ describe('PageRouter', () => {
       expect(screen.queryByText('dash')).toBeNull()
       r.unmount()
     }
+  })
+
+  it('renders the jobs page for the jobs place', () => {
+    go(placeOf('jobs'))
+    ui()
+    expect(screen.getByTestId('page-jobs')).toHaveTextContent('jobs')
   })
 
   it('keeps the chat pane mounted and hidden off the chat place', () => {
