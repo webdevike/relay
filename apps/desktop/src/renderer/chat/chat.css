@@ -175,15 +175,13 @@
 .eva-composer {
   flex: none;
   display: flex;
-  align-items: flex-end;
+  flex-direction: column;
   gap: var(--eva-space-sm);
   min-height: 56px;
   padding: var(--eva-space-sm) var(--eva-space-md);
   background: var(--eva-surface);
-  border-top: 1px solid var(--eva-border);
 }
 .eva-composer-field {
-  flex: 1;
   min-width: 0;
 }
 

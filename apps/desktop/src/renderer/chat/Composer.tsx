@@ -1,34 +1,109 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ActionIcon, Textarea } from '@mantine/core'
-import { IconArrowUp, IconPlayerStopFilled } from '@tabler/icons-react'
+import { IconArrowUp, IconPhoto, IconPlayerStopFilled } from '@tabler/icons-react'
 import { invoke } from '../ipc'
 import { chatStore, useChatStore } from './chat-store'
+import { ImageChips } from './composer/ImageChips'
+import {
+  ACCEPTED_IMAGE_TYPES,
+  MAX_PROMPT_IMAGES,
+  readImageFiles,
+  type ReadImage,
+} from './composer/image-input'
+import './composer/composer.css'
+
+type Attached = ReadImage & { id: string }
+
+const NOTICE = {
+  'not-image': 'Only images can be attached.',
+  'too-large': 'Images must be 20 MB or smaller.',
+  'too-many': `You can attach up to ${MAX_PROMPT_IMAGES} images.`,
+} as const
+
+const hasFiles = (e: React.DragEvent): boolean =>
+  Array.from(e.dataTransfer?.types ?? []).includes('Files')
 
 /**
- * Phase 1 composer stub: Enter sends (a send while a reply runs is a steer), Shift+Enter inserts
- * a newline. Stop and Escape abort the running turn.
+ * Composer: Enter sends (a send while a reply runs is a steer), Shift+Enter inserts a newline.
+ * Stop and Escape abort the running turn. Images arrive by paste, drop or the attach button.
  */
 export function Composer({ paneId, disabled }: { paneId: string; disabled: boolean }) {
   const [text, setText] = useState('')
+  const [images, setImages] = useState<Attached[]>([])
+  const [notice, setNotice] = useState<string | null>(null)
+  const [dragging, setDragging] = useState(false)
+  const dragDepth = useRef(0)
+  const nextId = useRef(0)
+  const picker = useRef<HTMLInputElement>(null)
+  const imagesRef = useRef(images)
+  imagesRef.current = images
   const running = useChatStore((s) => s.panes[paneId]?.running ?? false)
   const stopped = useChatStore((s) => s.panes[paneId]?.stopped ?? false)
   const hasError = useChatStore((s) => (s.panes[paneId]?.error ?? null) !== null)
+
+  // Object URLs still held on unmount are released (T-04-30).
+  useEffect(
+    () => () => {
+      for (const img of imagesRef.current) URL.revokeObjectURL(img.previewUrl)
+    },
+    [],
+  )
 
   const abort = async (): Promise<void> => {
     await invoke('chat.abort', { paneId })
   }
 
+  const attach = async (files: File[]): Promise<void> => {
+    if (disabled || files.length === 0) return
+    const room = MAX_PROMPT_IMAGES - imagesRef.current.length
+    const read = await readImageFiles(files)
+    const kept = read.images.slice(0, Math.max(room, 0))
+    for (const extra of read.images.slice(kept.length)) URL.revokeObjectURL(extra.previewUrl)
+    setNotice(
+      read.rejected
+        ? NOTICE[read.rejected]
+        : read.images.length > kept.length
+          ? NOTICE['too-many']
+          : null,
+    )
+    if (kept.length > 0) {
+      setImages((cur) => [...cur, ...kept.map((k) => ({ ...k, id: `img-${nextId.current++}` }))])
+    }
+  }
+
+  const remove = (id: string): void => {
+    setImages((cur) => {
+      const gone = cur.find((i) => i.id === id)
+      if (gone) URL.revokeObjectURL(gone.previewUrl)
+      return cur.filter((i) => i.id !== id)
+    })
+  }
+
+  const canSend = !disabled && (text.trim() !== '' || images.length > 0)
+
   const send = async (): Promise<void> => {
     const value = text.trim()
-    if (value === '' || disabled) return
+    if ((value === '' && images.length === 0) || disabled) return
+    const sending = images
     setText('')
-    const r = await invoke('chat.send', { paneId, text: value })
+    setImages([])
+    setNotice(null)
+    const payload = {
+      paneId,
+      text: value,
+      ...(sending.length > 0
+        ? { images: sending.map((i) => ({ mimeType: i.mimeType, data: i.data })) }
+        : {}),
+    }
+    const r = await invoke('chat.send', payload as Parameters<typeof invoke<'chat.send'>>[1])
     if (r.ok) {
       // A prompt that went through supersedes any earlier failure or unexpected exit.
       chatStore.getState().setError(paneId, null)
+      for (const img of sending) URL.revokeObjectURL(img.previewUrl)
     } else {
       // Give the prompt back unless something new was typed meanwhile.
       setText((current) => (current === '' ? value : current))
+      setImages((current) => [...sending, ...current])
       chatStore.getState().setError(paneId, r.error.message)
     }
   }
@@ -41,11 +116,46 @@ export function Composer({ paneId, disabled }: { paneId: string; disabled: boole
   }
 
   return (
-    <div className="eva-composer" data-testid="composer">
+    <div
+      className="eva-composer"
+      data-testid="composer"
+      data-dragging={dragging ? 'true' : undefined}
+      onPaste={(e) => {
+        const files = Array.from(e.clipboardData?.files ?? []).filter((f) =>
+          f.type.startsWith('image/'),
+        )
+        if (files.length === 0) return
+        e.preventDefault()
+        void attach(files)
+      }}
+      onDragEnter={(e) => {
+        if (!hasFiles(e) || disabled) return
+        e.preventDefault()
+        dragDepth.current += 1
+        setDragging(true)
+      }}
+      onDragOver={(e) => {
+        if (hasFiles(e) && !disabled) e.preventDefault()
+      }}
+      onDragLeave={(e) => {
+        if (!hasFiles(e)) return
+        dragDepth.current = Math.max(0, dragDepth.current - 1)
+        if (dragDepth.current === 0) setDragging(false)
+      }}
+      onDrop={(e) => {
+        if (!hasFiles(e)) return
+        e.preventDefault()
+        dragDepth.current = 0
+        setDragging(false)
+        void attach(Array.from(e.dataTransfer.files))
+      }}
+    >
+      {dragging ? <div className="eva-composer-drop">Drop images to attach</div> : null}
+      <ImageChips chips={images} onRemove={remove} />
       <Textarea
         autosize
-        minRows={1}
-        maxRows={6}
+        minRows={2}
+        maxRows={8}
         className="eva-composer-field"
         data-testid="composer-input"
         aria-label="Message"
@@ -69,27 +179,57 @@ export function Composer({ paneId, disabled }: { paneId: string; disabled: boole
           }
         }}
       />
-      {running ? (
+      <div className="eva-composer-toolbar">
+        <input
+          ref={picker}
+          type="file"
+          hidden
+          multiple
+          accept={ACCEPTED_IMAGE_TYPES.join(',')}
+          data-testid="composer-file-input"
+          onChange={(e) => {
+            const files = Array.from(e.currentTarget.files ?? [])
+            e.currentTarget.value = ''
+            void attach(files)
+          }}
+        />
         <ActionIcon
           size={28}
-          variant="default"
-          data-testid="composer-stop"
-          aria-label="Stop"
-          onClick={() => void abort()}
+          variant="subtle"
+          aria-label="Attach image"
+          disabled={disabled}
+          onClick={() => picker.current?.click()}
         >
-          <IconPlayerStopFilled size={14} />
+          <IconPhoto size={16} />
         </ActionIcon>
+        <div className="eva-composer-spacer" />
+        {running ? (
+          <ActionIcon
+            size={28}
+            variant="default"
+            data-testid="composer-stop"
+            aria-label="Stop response"
+            onClick={() => void abort()}
+          >
+            <IconPlayerStopFilled size={14} />
+          </ActionIcon>
+        ) : null}
+        <ActionIcon
+          size={28}
+          variant="filled"
+          data-testid="composer-send"
+          aria-label="Send message"
+          disabled={!canSend}
+          onClick={() => void send()}
+        >
+          <IconArrowUp size={16} />
+        </ActionIcon>
+      </div>
+      {notice ? (
+        <div className="eva-composer-notice" role="status">
+          {notice}
+        </div>
       ) : null}
-      <ActionIcon
-        size={28}
-        variant="filled"
-        data-testid="composer-send"
-        aria-label="Send message"
-        disabled={disabled || text.trim() === ''}
-        onClick={() => void send()}
-      >
-        <IconArrowUp size={16} />
-      </ActionIcon>
     </div>
   )
 }

@@ -1,0 +1,60 @@
+.eva-composer {
+  position: relative;
+  border: 2px solid transparent;
+  border-top-color: var(--eva-border);
+}
+.eva-composer[data-dragging='true'] {
+  border: 2px dashed var(--eva-c-primary-background);
+}
+.eva-composer-drop {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--eva-c-primary-background);
+  background: var(--eva-surface);
+  opacity: 0.92;
+  pointer-events: none;
+}
+.eva-composer-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--eva-space-sm);
+}
+.eva-composer-chip {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  border: 1px solid var(--eva-border);
+  border-radius: var(--eva-radius, 6px);
+}
+.eva-composer-chip img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+.eva-composer-chip-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+}
+.eva-composer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--eva-space-sm);
+  min-height: 32px;
+}
+.eva-composer-spacer {
+  flex: 1;
+}
+.eva-composer-notice {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--eva-danger);
+}

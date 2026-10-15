@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MantineProvider } from '@mantine/core'
 
@@ -114,5 +114,80 @@ describe('Composer', () => {
     expect(
       screen.getByPlaceholderText('Session is not running. Resume it to send a message.'),
     ).toBeDisabled()
+  })
+
+  describe('images', () => {
+    const png = () => new File([new Uint8Array([1, 2, 3])], 'a.png', { type: 'image/png' })
+    const revoke = vi.fn()
+    beforeEach(() => {
+      revoke.mockClear()
+      vi.stubGlobal(
+        'URL',
+        Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:x'), revokeObjectURL: revoke }),
+      )
+    })
+    afterEach(() => vi.unstubAllGlobals())
+
+    const pasteImage = async () => {
+      fireEvent.paste(screen.getByTestId('composer-input'), {
+        clipboardData: { files: [png()], types: ['Files'] },
+      })
+      await screen.findByAltText('Pasted image 1')
+    }
+
+    it('paste adds a chip, Send is enabled with empty text, Enter sends the images', async () => {
+      invoke.mockClear()
+      const user = userEvent.setup()
+      wrap()
+      expect(screen.getByTestId('composer-send')).toBeDisabled()
+      await pasteImage()
+      expect(screen.getByTestId('composer-send')).toBeEnabled()
+      await user.type(screen.getByTestId('composer-input'), '{Enter}')
+      expect(invoke).toHaveBeenCalledWith('chat.send', {
+        paneId: 'pane-1',
+        text: '',
+        images: [{ mimeType: 'image/png', data: 'AQID' }],
+      })
+      await waitFor(() => expect(screen.queryByAltText('Pasted image 1')).toBeNull())
+      expect(revoke).toHaveBeenCalledWith('blob:x')
+    })
+
+    it('Remove image 1 removes the chip and revokes its url', async () => {
+      const user = userEvent.setup()
+      wrap()
+      await pasteImage()
+      await user.click(screen.getByLabelText('Remove image 1'))
+      expect(screen.queryByAltText('Pasted image 1')).toBeNull()
+      expect(revoke).toHaveBeenCalledWith('blob:x')
+    })
+
+    it('a failed send keeps the text and the chips', async () => {
+      invoke.mockImplementationOnce(() =>
+        Promise.resolve({
+          ok: false,
+          error: { code: 'x', message: 'nope' },
+        } as unknown as { ok: true; value: { accepted: true } }),
+      )
+      const user = userEvent.setup()
+      wrap()
+      await pasteImage()
+      await user.type(screen.getByTestId('composer-input'), 'look{Enter}')
+      await screen.findByAltText('Pasted image 1')
+      expect(screen.getByTestId('composer-input')).toHaveValue('look')
+    })
+
+    it('dropping a text file shows the notice; the overlay follows dragenter and drop', async () => {
+      wrap()
+      const box = screen.getByTestId('composer')
+      const dt = (files: File[]) => ({ dataTransfer: { files, types: ['Files'] } })
+      fireEvent.dragEnter(box, dt([]))
+      expect(screen.getByText('Drop images to attach')).toBeTruthy()
+      fireEvent.drop(box, dt([new File(['x'], 'a.txt', { type: 'text/plain' })]))
+      expect(screen.queryByText('Drop images to attach')).toBeNull()
+      expect(await screen.findByText('Only images can be attached.')).toBeTruthy()
+      fireEvent.dragEnter(box, dt([]))
+      fireEvent.dragLeave(box, dt([]))
+      expect(screen.queryByText('Drop images to attach')).toBeNull()
+    })
   })
 })
