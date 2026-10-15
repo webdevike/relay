@@ -4,8 +4,10 @@ import * as path from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import { cmd } from '@evaos/chat-core/frames'
 import { LineFramer, type Frame } from '@evaos/chat-core/line-framer'
-import type { ChatTransport, TransportExit } from '@evaos/chat-core/transport'
+import type { ChatTransport, PromptImage, TransportExit } from '@evaos/chat-core/transport'
 import { resolveSpawnPath } from './shell-path'
+
+type StartOpts = { sessionFile: string | null; cwd: string; args?: readonly string[] }
 
 export interface OmpTransportOptions {
   ompBin: string
@@ -54,15 +56,20 @@ export class OmpStdioTransport implements ChatTransport {
     for (const cb of [...this.listeners]) cb(f)
   }
 
-  start(opts: { sessionFile: string; cwd: string }): Promise<void> {
+  start(opts: StartOpts): Promise<void> {
     if (this.started) return Promise.reject(new Error('transport already started'))
     this.started = this.launch(opts)
     return this.started
   }
 
-  private async launch(opts: { sessionFile: string; cwd: string }): Promise<void> {
+  private async launch(opts: StartOpts): Promise<void> {
     const spawnPath = await resolveSpawnPath(this.opts.live)
-    const args = ['--mode', 'rpc-ui', '--resume', opts.sessionFile]
+    const args = [
+      '--mode',
+      'rpc-ui',
+      ...(opts.sessionFile ? ['--resume', opts.sessionFile] : []),
+      ...(opts.args ?? []),
+    ]
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       PATH: spawnPath,
@@ -140,8 +147,9 @@ export class OmpStdioTransport implements ChatTransport {
     })
   }
 
-  send(text: string): Promise<void> {
-    return this.write(cmd.prompt(`evaos-${++this.counter}`, text))
+  send(text: string, images?: readonly PromptImage[]): Promise<void> {
+    const prompt = cmd.prompt(`evaos-${++this.counter}`, text)
+    return this.write(images && images.length > 0 ? { ...prompt, images: [...images] } : prompt)
   }
 
   // Rust behaviour: every prompt carries streamingBehavior 'steer', so a mid-turn prompt is a steer.

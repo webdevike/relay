@@ -1,5 +1,8 @@
 import type { Frame } from './line-framer'
 
+/** An image attached to a prompt (omp RPC `images` field). `data` is base64 without the data: prefix. */
+export type PromptImage = { type: 'image'; data: string; mimeType: string }
+
 export type TransportExit = { code: number | null; signal: string | null; timedOut: boolean }
 
 /**
@@ -15,9 +18,10 @@ export type TransportExit = { code: number | null; signal: string | null; timedO
  */
 export interface ChatTransport {
   readonly kind: string
-  start(opts: { sessionFile: string; cwd: string }): Promise<void>
+  /** `sessionFile: null` starts a new chat (no --resume); `args` are extra launch flags. */
+  start(opts: { sessionFile: string | null; cwd: string; args?: readonly string[] }): Promise<void>
   /** Sends a prompt (omp treats a prompt sent mid-turn as a steer). */
-  send(text: string): Promise<void>
+  send(text: string, images?: readonly PromptImage[]): Promise<void>
   steer(text: string): Promise<void>
   abort(): Promise<void>
   /** Writes a raw command object as one JSON line; an `id` is filled in when missing. */

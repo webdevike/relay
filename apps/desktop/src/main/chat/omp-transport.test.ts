@@ -50,4 +50,57 @@ describe('OmpStdioTransport', () => {
     expect(exit.timedOut).toBe(false)
     expect(exit.signal).toBeNull()
   })
+
+  describe('argv and prompt images', () => {
+    const rec = path.join(dir, 'record.sh')
+    const out = path.join(dir, 'rec.out')
+    fs.writeFileSync(
+      rec,
+      `#!/bin/sh\nprintf '%s\\n' "$*" > "${out}.argv"\n: > "${out}.in"\nwhile IFS= read -r line; do printf '%s\\n' "$line" >> "${out}.in"; done\nexit 0\n`,
+      { mode: 0o755 },
+    )
+    const run = async (
+      start: Parameters<OmpStdioTransport['start']>[0],
+      body: (t: OmpStdioTransport) => Promise<void>,
+    ) => {
+      const t = new OmpStdioTransport({ ompBin: rec, live: false })
+      await t.start(start)
+      await body(t)
+      await t.close({ timeoutMs: 5000 })
+      return t
+    }
+
+    it('resume argv is unchanged', async () => {
+      const t = await run({ sessionFile: '/s/a.jsonl', cwd: process.cwd() }, async () => {})
+      expect(t.spawnArgs).toEqual(['--mode', 'rpc-ui', '--resume', '/s/a.jsonl'])
+    })
+
+    it('a new chat has no --resume and appends launch args', async () => {
+      const t = await run(
+        { sessionFile: null, cwd: process.cwd(), args: ['--approval-mode', 'write'] },
+        async () => {},
+      )
+      expect(t.spawnArgs).toEqual(['--mode', 'rpc-ui', '--approval-mode', 'write'])
+      expect(fs.readFileSync(`${out}.argv`, 'utf8').trim()).toBe('--mode rpc-ui --approval-mode write')
+    })
+
+    it('send carries images only when given', async () => {
+      await run({ sessionFile: null, cwd: process.cwd() }, async (t) => {
+        await t.send('hi', [{ type: 'image', data: 'AAA', mimeType: 'image/png' }])
+        await t.send('plain')
+      })
+      const lines = fs
+        .readFileSync(`${out}.in`, 'utf8')
+        .trim()
+        .split('\n')
+        .map((l) => JSON.parse(l) as Record<string, unknown>)
+      expect(lines).toHaveLength(2)
+      expect(lines[0]).toMatchObject({
+        type: 'prompt',
+        message: 'hi',
+        images: [{ type: 'image', data: 'AAA', mimeType: 'image/png' }],
+      })
+      expect('images' in lines[1]!).toBe(false)
+    })
+  })
 })
