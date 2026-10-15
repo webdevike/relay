@@ -11,10 +11,10 @@ Requirements for the parity milestone. Each maps to roadmap phases. The source o
 
 - [x] **FOUND-01**: Developer can run `pnpm install`, `pnpm dev` and `pnpm build` on an Electron (latest stable) + electron-vite + React + TypeScript + Mantine workspace and see the app window open
 - [x] **FOUND-02**: Developer can run `pnpm test` (Vitest, separate main / preload / renderer projects) and `pnpm e2e` (Playwright `_electron` against the built app) and both pass
-- [ ] **FOUND-03**: Every write to the Eva checkout goes through one `EvaFs` gateway with a closed allowlist (todos append, explicit Files save, `job.md` edit/create/delete, meeting `status`), and a test fails if any other path writes there
+- [x] **FOUND-03**: Every write to the Eva checkout goes through one `EvaFs` gateway with a closed allowlist (todos append, explicit Files save, `job.md` edit/create/delete, meeting `status`), and a test fails if any other path writes there
 - [x] **FOUND-04**: Dev and test runs default to a fixture Eva root, a fake omp binary and a temporary config dir; using the live checkout or live omp requires an explicit opt-in flag
 - [x] **FOUND-05**: The app stores its own state (`layout.json`, `chat.json`, `inbox.jsonl`, theme) in a config folder separate from the Rust app's, overridable with `$EVAOS_CONFIG_DIR`
-- [ ] **FOUND-06**: A `proofShot` helper captures composite screenshots (DOM plus every WebContentsView via `capturePage`), rejects blank images, and writes them under `proof/<phase>/`
+- [x] **FOUND-06**: A `proofShot` helper captures composite screenshots (DOM plus every WebContentsView via `capturePage`), rejects blank images, and writes them under `proof/<phase>/`
 - [x] **FOUND-07**: A green-gate script runs install, typecheck, lint (including an em-dash lint on UI strings), unit tests, build and an e2e launch with zero console errors; every phase ends with it passing
 - [x] **FOUND-08**: Main and renderer communicate only through a typed IPC contract validated with Zod at the boundary
 
@@ -192,10 +192,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | FOUND-01 | Phase 1 | Complete |
 | FOUND-02 | Phase 1 | Complete |
-| FOUND-03 | Phase 1 | Pending |
+| FOUND-03 | Phase 1 | Complete |
 | FOUND-04 | Phase 1 | Complete |
 | FOUND-05 | Phase 1 | Complete |
-| FOUND-06 | Phase 1 | Pending |
+| FOUND-06 | Phase 1 | Complete |
 | FOUND-07 | Phase 1 | Complete |
 | FOUND-08 | Phase 1 | Complete |
 | CHAT-01 | Phase 1 | Pending |
