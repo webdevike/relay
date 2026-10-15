@@ -189,13 +189,113 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (filled by roadmap) | | |
+| FOUND-01 | Phase 1 | Pending |
+| FOUND-02 | Phase 1 | Pending |
+| FOUND-03 | Phase 1 | Pending |
+| FOUND-04 | Phase 1 | Pending |
+| FOUND-05 | Phase 1 | Pending |
+| FOUND-06 | Phase 1 | Pending |
+| FOUND-07 | Phase 1 | Pending |
+| FOUND-08 | Phase 1 | Pending |
+| CHAT-01 | Phase 1 | Pending |
+| CHAT-02 | Phase 1 | Pending |
+| CHAT-03 | Phase 1 | Pending |
+| CHAT-04 | Phase 1 | Pending |
+| CHAT-05 | Phase 1 | Pending |
+| CHAT-06 | Phase 1 | Pending |
+| CHAT-07 | Phase 1 | Pending |
+| CHAT-08 | Phase 1 | Pending |
+| BROW-01 | Phase 1 | Pending |
+| BROW-02 | Phase 1 | Pending |
+| BROW-03 | Phase 1 | Pending |
+| BROW-04 | Phase 1 | Pending |
+| BROW-05 | Phase 1 | Pending |
+| BROW-06 | Phase 1 | Pending |
+| BROW-07 | Phase 1 | Pending |
+| SHEL-01 | Phase 2 | Pending |
+| SHEL-02 | Phase 2 | Pending |
+| SHEL-03 | Phase 2 | Pending |
+| SHEL-04 | Phase 2 | Pending |
+| SHEL-05 | Phase 2 | Pending |
+| SHEL-06 | Phase 2 | Pending |
+| SHEL-07 | Phase 2 | Pending |
+| SHEL-08 | Phase 2 | Pending |
+| DASH-01 | Phase 3 | Pending |
+| DASH-02 | Phase 3 | Pending |
+| DASH-03 | Phase 3 | Pending |
+| DASH-04 | Phase 3 | Pending |
+| DASH-05 | Phase 3 | Pending |
+| DASH-06 | Phase 3 | Pending |
+| DASH-07 | Phase 3 | Pending |
+| DASH-08 | Phase 3 | Pending |
+| CHTP-01 | Phase 4 | Pending |
+| CHTP-02 | Phase 4 | Pending |
+| CHTP-03 | Phase 4 | Pending |
+| CHTP-04 | Phase 4 | Pending |
+| CHTP-05 | Phase 4 | Pending |
+| CHTP-06 | Phase 4 | Pending |
+| CHTP-07 | Phase 4 | Pending |
+| CHTP-08 | Phase 4 | Pending |
+| CHTP-09 | Phase 4 | Pending |
+| CHTP-10 | Phase 4 | Pending |
+| CHTP-11 | Phase 4 | Pending |
+| CHTP-12 | Phase 4 | Pending |
+| CHTP-13 | Phase 4 | Pending |
+| CHTP-14 | Phase 4 | Pending |
+| RICH-01 | Phase 5 | Pending |
+| RICH-02 | Phase 5 | Pending |
+| RICH-03 | Phase 5 | Pending |
+| RICH-04 | Phase 5 | Pending |
+| RICH-05 | Phase 5 | Pending |
+| RICH-06 | Phase 5 | Pending |
+| PANL-01 | Phase 6 | Pending |
+| PANL-02 | Phase 6 | Pending |
+| PANL-03 | Phase 6 | Pending |
+| PANL-04 | Phase 6 | Pending |
+| PANL-05 | Phase 6 | Pending |
+| PANL-06 | Phase 6 | Pending |
+| PANL-07 | Phase 6 | Pending |
+| ERGN-01 | Phase 6 | Pending |
+| ERGN-02 | Phase 6 | Pending |
+| ERGN-03 | Phase 6 | Pending |
+| ERGN-04 | Phase 6 | Pending |
+| SRCH-01 | Phase 6 | Pending |
+| SRCH-02 | Phase 6 | Pending |
+| SRCH-03 | Phase 6 | Pending |
+| SRCH-04 | Phase 6 | Pending |
+| JOBS-01 | Phase 3 | Pending |
+| JOBS-02 | Phase 3 | Pending |
+| JOBS-03 | Phase 3 | Pending |
+| HABT-01 | Phase 3 | Pending |
+| HABT-02 | Phase 3 | Pending |
+| HABT-03 | Phase 3 | Pending |
+| MEET-01 | Phase 3 | Pending |
+| MEET-02 | Phase 3 | Pending |
+| MEET-03 | Phase 3 | Pending |
+| RELY-01 | Phase 7 | Pending |
+| RELY-02 | Phase 7 | Pending |
+| INBX-01 | Phase 7 | Pending |
+| INBX-02 | Phase 7 | Pending |
+| INBX-03 | Phase 7 | Pending |
+| INBX-04 | Phase 7 | Pending |
+| INBX-05 | Phase 7 | Pending |
+| INBX-06 | Phase 7 | Pending |
+| INBX-07 | Phase 7 | Pending |
+| SETT-01 | Phase 2 | Pending |
+| THEM-01 | Phase 2 | Pending |
+| THEM-02 | Phase 2 | Pending |
+| THEM-03 | Phase 7 | Pending |
+| THEM-04 | Phase 7 | Pending |
+| THEM-05 | Phase 7 | Pending |
+| THEM-06 | Phase 7 | Pending |
+| PROF-01 | Phase 1 | Pending |
+| PROF-02 | Phase 1 | Pending |
 
 **Coverage:**
 - v1 requirements: 101 total
-- Mapped to phases: 0
-- Unmapped: 101 ⚠️
+- Mapped to phases: 101
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-10-14*
-*Last updated: 2026-10-14 after initial definition*
+*Last updated: 2026-10-14 after roadmap creation*
