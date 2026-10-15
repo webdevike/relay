@@ -147,7 +147,9 @@ test('a recently active unowned chat refuses rename; Esc leaves the title', asyn
   await expect(shell.locator(sel('chat-row-error'))).toHaveText(
     'This chat may be open in a terminal. Rename it there, or try again later.',
   )
-  expect(readLog().filter((e) => e.detail?.argv?.includes('rpc'))).toHaveLength(0)
+  expect(
+    readLog().filter((e) => e.detail?.argv?.includes('rpc') && e.detail.argv.includes('--resume')),
+  ).toHaveLength(0)
   await expect(rowOf(shell, 'p4-other5')).toContainText('Grocery list 5')
 })
 

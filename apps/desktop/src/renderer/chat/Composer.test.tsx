@@ -3,7 +3,14 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MantineProvider } from '@mantine/core'
 
-const invoke = vi.fn(() => Promise.resolve({ ok: true, value: { accepted: true } }))
+// Only chat.send is scripted; the toolbar's launch and model reads get an empty value.
+const sendResults: unknown[] = []
+const invoke = vi.fn((channel: string, ..._rest: unknown[]) =>
+  channel === 'chat.send'
+    ? Promise.resolve(sendResults.shift() ?? { ok: true, value: { accepted: true } })
+    : Promise.resolve({ ok: true, value: {} }),
+)
+const sent = (): unknown[][] => invoke.mock.calls.filter((c) => c[0] === 'chat.send')
 vi.mock('../ipc', () => ({
   invoke: (...a: unknown[]) => (invoke as (...x: unknown[]) => unknown)(...a),
 }))
@@ -30,12 +37,10 @@ describe('Composer', () => {
 
   it('a failed send gives the text back and reports the error on the pane', async () => {
     invoke.mockClear()
-    invoke.mockImplementationOnce(() =>
-      Promise.resolve({
-        ok: false,
-        error: { code: 'spawn-failed', message: 'Could not start omp: ENOENT' },
-      } as unknown as { ok: true; value: { accepted: true } }),
-    )
+    sendResults.push({
+      ok: false,
+      error: { code: 'spawn-failed', message: 'Could not start omp: ENOENT' },
+    })
     chatStore.setState({ panes: {} })
     chatStore.getState().openPane('pane-1', {
       file: '/f',
@@ -88,7 +93,7 @@ describe('Composer', () => {
     wrap()
     await user.type(screen.getByTestId('composer-input'), 'x')
     expect(chatStore.getState().panes['pane-1']!.error).toBeNull()
-    expect(invoke).not.toHaveBeenCalled()
+    expect(sent()).toHaveLength(0)
   })
 
   it('Shift+Enter inserts a newline and does not send', async () => {
@@ -97,7 +102,7 @@ describe('Composer', () => {
     wrap()
     const box = screen.getByTestId('composer-input')
     await user.type(box, 'a{Shift>}{Enter}{/Shift}b')
-    expect(invoke).not.toHaveBeenCalled()
+    expect(sent()).toHaveLength(0)
     expect(box).toHaveValue('a\nb')
   })
 
@@ -106,7 +111,7 @@ describe('Composer', () => {
     const user = userEvent.setup()
     wrap()
     await user.type(screen.getByTestId('composer-input'), '   {Enter}')
-    expect(invoke).not.toHaveBeenCalled()
+    expect(sent()).toHaveLength(0)
   })
 
   it('disabled shows the not-running placeholder', () => {
@@ -162,12 +167,7 @@ describe('Composer', () => {
     })
 
     it('a failed send keeps the text and the chips', async () => {
-      invoke.mockImplementationOnce(() =>
-        Promise.resolve({
-          ok: false,
-          error: { code: 'x', message: 'nope' },
-        } as unknown as { ok: true; value: { accepted: true } }),
-      )
+      sendResults.push({ ok: false, error: { code: 'x', message: 'nope' } })
       const user = userEvent.setup()
       wrap()
       await pasteImage()

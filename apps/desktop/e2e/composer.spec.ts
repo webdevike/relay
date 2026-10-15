@@ -19,7 +19,9 @@ const readLog = (): Ev[] =>
         .filter(Boolean)
         .map((l) => JSON.parse(l) as Ev)
     : []
-const spawns = (): Ev[] => readLog().filter((e) => e.event === 'spawn')
+// Only chat processes (rpc-ui); the model catalog process also logs a spawn.
+const spawns = (): Ev[] =>
+  readLog().filter((e) => e.event === 'spawn' && argvOf(e).includes('rpc-ui'))
 const argvOf = (e: Ev): string[] => (e.detail?.argv as string[] | undefined) ?? []
 
 let fx: ChatFixture
@@ -57,7 +59,9 @@ const send = async (shell: Page, text: string): Promise<void> => {
 test('toolbar: model, context ring, access restart, images flag', async ({ app, shell }) => {
   await openRow(shell, 'p4-ecard')
   await send(shell, 'hi')
-  await expect(shell.locator(sel('chat-log'))).toContainText('Foxes are primarily nocturnal hunters')
+  await expect(shell.locator(sel('chat-log'))).toContainText(
+    'Foxes are primarily nocturnal hunters',
+  )
 
   // 1. Model picker: pick another model, set_model reaches omp and the label follows get_state.
   const model = shell.locator(sel('composer-model'))
@@ -68,15 +72,8 @@ test('toolbar: model, context ring, access restart, images flag', async ({ app, 
   await proofShot(app, shell, 'composer-model-picker', { phase: 'phase-4' })
   await shell.locator(sel('model-option-anthropic-claude-opus-5-5')).click()
   await expect
-    .poll(() =>
-      readLog().some(
-        (e) =>
-          e.event === 'stdin-line' &&
-          JSON.stringify(e.detail).includes('set_model') &&
-          JSON.stringify(e.detail).includes('claude-opus-5-5'),
-      ),
-    )
-    .toBe(true)
+    .poll(() => readLog().find((e) => e.event === 'set-model')?.detail)
+    .toEqual({ provider: 'anthropic', modelId: 'claude-opus-5-5' })
   await expect(model).toContainText('Opus 5.5')
 
   // 2. Context ring: 42000 of 200000 from get_state.
@@ -127,19 +124,32 @@ test('account selector shows on unsent chats only and adds --profile', async ({ 
   await expect(account).toContainText('Work')
   await proofShot(app, shell, 'composer-account', { phase: 'phase-4' })
   await send(shell, 'hello account')
-  await expect(shell.locator(sel('chat-log'))).toContainText('Foxes are primarily nocturnal hunters')
+  await expect(shell.locator(sel('chat-log'))).toContainText(
+    'Foxes are primarily nocturnal hunters',
+  )
   const argv = argvOf(spawns()[0]!)
   expect(argv).toContain('--profile')
   expect(argv[argv.indexOf('--profile') + 1]).toBe('work')
   await expect(account).toHaveCount(0)
 })
 
-test('toolbar controls are disabled with no open session', async ({ shell }) => {
-  await shell.locator(sel('nav-chat')).click()
-  await expect(shell.locator(sel('composer-model'))).toHaveAttribute('aria-disabled', 'true')
+test('toolbar controls are disabled while the session is closed', async ({ shell }) => {
+  await openRow(shell, 'p4-ecard')
+  await send(shell, 'hi')
+  await expect(shell.locator(sel('chat-log'))).toContainText(
+    'Foxes are primarily nocturnal hunters',
+  )
+  const model = shell.locator(sel('composer-model'))
+  await expect(model).toHaveAttribute('aria-disabled', 'false')
+  await shell.evaluate(() =>
+    (
+      window as unknown as {
+        eva: { invoke(c: string, i: unknown): Promise<unknown> }
+      }
+    ).eva.invoke('chat.close', { paneId: 'pane-1' }),
+  )
+  await expect(model).toHaveAttribute('aria-disabled', 'true')
   await expect(shell.locator(sel('composer-access'))).toHaveAttribute('aria-disabled', 'true')
-  const opacity = await shell
-    .locator(sel('composer-model'))
-    .evaluate((el) => getComputedStyle(el).opacity)
+  const opacity = await model.evaluate((el) => getComputedStyle(el).opacity)
   expect(Number(opacity)).toBeCloseTo(0.5, 1)
 })

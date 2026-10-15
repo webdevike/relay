@@ -8,7 +8,7 @@ const SMALL = '2026-10-01T09-00-00-000Z_small'
 const FILE = path.join(SESSIONS_FIXTURE_DIR, `${SMALL}.jsonl`)
 const LOG = path.join(os.tmpdir(), `evaos-fake-omp-${process.pid}.log`)
 
-type Ev = { event: string; detail: { type?: string } | null }
+type Ev = { event: string; detail: { type?: string; argv?: string[] } | null }
 type Eva = {
   invoke(
     c: string,
@@ -113,7 +113,12 @@ test.describe('chat control', () => {
     const box = shell.locator('[data-testid=composer-input]')
     await box.fill('Again')
     await box.press('Enter')
-    await expect.poll(() => readLog().filter((e) => e.event === 'spawn').length).toBe(2)
+    await expect
+      .poll(
+        () =>
+          readLog().filter((e) => e.event === 'spawn' && e.detail?.argv?.includes('rpc-ui')).length,
+      )
+      .toBe(2)
   })
 
   test('quitting while a reply runs ends stdin only', async ({ shell, app }) => {
@@ -136,9 +141,10 @@ test.describe('chat control', () => {
       return eva.invoke('chat.send', { paneId: 'pane-2', text: 'hi' })
     }, FILE)
     expect(r.ok).toBe(false)
-    expect(r.error!.code).toBe('already-owned')
+    // Since 04-17 the refusal asks first; a confirmed send still never starts a second process.
+    expect(r.error!.code).toBe('owned-elsewhere')
     expect(r.error!.message).toBe(
-      'This session is already open in another EvaOS window or pane. Close it there first.',
+      'Another pane is writing to this chat. Sending from here may interleave messages.',
     )
   })
 })

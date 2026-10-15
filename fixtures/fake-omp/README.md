@@ -10,7 +10,7 @@ Tests must never attach to a real omp session.
 - `FAKE_OMP_SESSIONS_DIR`: a chat started without `--resume` reports a planned `<ISO with - for : and .>_<uuid>.jsonl` path in this dir as `get_state.data.sessionFile` (null when unset) and creates it (session header plus the user message) on the first prompt.
 - `FAKE_OMP_CHUNK`: `line` (default) | `1` (byte per write) | `glued` (whole replay in one write) | `emoji-split` (split inside the first multibyte char of each line) | `burst` (no delay) | `slow` (150 ms per frame).
 - `FAKE_OMP_DELAY_MS` per-frame delay (default 15). `FAKE_OMP_RECORDING`: `turn` (default) | `long-turn` (~400 message_update frames).
-- `FAKE_OMP_LOG=<path>`: JSON lines `{ t, event: spawn|stdin-line|stdin-end|signal|exit, detail }`.
+- `FAKE_OMP_LOG=<path>`: JSON lines `{ t, event: spawn|stdin-line|stdin-end|signal|exit|set-model, detail }` (`set-model` carries `{provider, modelId}`).
 - `FAKE_OMP_STDERR=1`: one stderr line per prompt.
 
 ## Behaviour

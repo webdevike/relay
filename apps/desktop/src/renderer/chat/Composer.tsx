@@ -5,6 +5,8 @@ import { invoke } from '../ipc'
 import { chatStore, useChatStore } from './chat-store'
 import { WriterPrompt } from './WriterPrompt'
 import { ImageChips } from './composer/ImageChips'
+import { Toolbar } from './composer/Toolbar'
+import { useLaunchState } from './composer/useLaunchState'
 import {
   ACCEPTED_IMAGE_TYPES,
   MAX_PROMPT_IMAGES,
@@ -19,6 +21,7 @@ const NOTICE = {
   'not-image': 'Only images can be attached.',
   'too-large': 'Images must be 20 MB or smaller.',
   'too-many': `You can attach up to ${MAX_PROMPT_IMAGES} images.`,
+  'no-images': 'This model does not accept images.',
 } as const
 
 const hasFiles = (e: React.DragEvent): boolean =>
@@ -42,6 +45,8 @@ export function Composer({ paneId, disabled }: { paneId: string; disabled: boole
   imagesRef.current = images
   const running = useChatStore((s) => s.panes[paneId]?.running ?? false)
   const stopped = useChatStore((s) => s.panes[paneId]?.stopped ?? false)
+  const launch = useLaunchState(paneId, !disabled)
+  const imagesBlocked = launch.state !== null && !launch.state.imagesAllowed
   const hasError = useChatStore((s) => (s.panes[paneId]?.error ?? null) !== null)
 
   // Object URLs still held on unmount are released (T-04-30).
@@ -58,6 +63,10 @@ export function Composer({ paneId, disabled }: { paneId: string; disabled: boole
 
   const attach = async (files: File[]): Promise<void> => {
     if (disabled || files.length === 0) return
+    if (imagesBlocked) {
+      setNotice(NOTICE['no-images'])
+      return
+    }
     const room = MAX_PROMPT_IMAGES - imagesRef.current.length
     const read = await readImageFiles(files)
     const kept = read.images.slice(0, Math.max(room, 0))
@@ -184,30 +193,38 @@ export function Composer({ paneId, disabled }: { paneId: string; disabled: boole
           }
         }}
       />
-      <div className="eva-composer-toolbar">
-        <input
-          ref={picker}
-          type="file"
-          hidden
-          multiple
-          accept={ACCEPTED_IMAGE_TYPES.join(',')}
-          data-testid="composer-file-input"
-          onChange={(e) => {
-            const files = Array.from(e.currentTarget.files ?? [])
-            e.currentTarget.value = ''
-            void attach(files)
-          }}
-        />
-        <ActionIcon
-          size={28}
-          variant="subtle"
-          aria-label="Attach image"
-          disabled={disabled}
-          onClick={() => picker.current?.click()}
-        >
-          <IconPhoto size={16} />
-        </ActionIcon>
-        <div className="eva-composer-spacer" />
+      <Toolbar
+        paneId={paneId}
+        disabled={disabled}
+        launch={launch}
+        attach={
+          <>
+            <input
+              ref={picker}
+              type="file"
+              hidden
+              multiple
+              accept={ACCEPTED_IMAGE_TYPES.join(',')}
+              data-testid="composer-file-input"
+              onChange={(e) => {
+                const files = Array.from(e.currentTarget.files ?? [])
+                e.currentTarget.value = ''
+                void attach(files)
+              }}
+            />
+            <ActionIcon
+              size={28}
+              variant="subtle"
+              aria-label="Attach image"
+              aria-disabled={disabled || imagesBlocked}
+              disabled={disabled || imagesBlocked}
+              onClick={() => picker.current?.click()}
+            >
+              <IconPhoto size={16} />
+            </ActionIcon>
+          </>
+        }
+      >
         {running ? (
           <ActionIcon
             size={28}
@@ -229,7 +246,7 @@ export function Composer({ paneId, disabled }: { paneId: string; disabled: boole
         >
           <IconArrowUp size={16} />
         </ActionIcon>
-      </div>
+      </Toolbar>
       <WriterPrompt
         opened={writerPrompt !== null}
         message={writerPrompt ?? ''}

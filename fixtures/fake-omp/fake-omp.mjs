@@ -284,6 +284,7 @@ async function handle(cmd) {
     case 'set_subagent_subscription':
       return respond(id, type, { data: { level: cmd.level ?? 'off' } })
     case 'set_model': {
+      log('set-model', { provider: cmd.provider, modelId: cmd.modelId })
       const known = MODELS.find((m) => m.provider === cmd.provider && m.id === cmd.modelId)
       state.model = known ?? { id: String(cmd.modelId), provider: String(cmd.provider), contextWindow: 200000 }
       return respond(id, type, { data: {} })

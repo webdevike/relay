@@ -11,7 +11,10 @@ import { proofShot } from './helpers/proofShot'
 // Pane 2 is created through the e2e test hook; real second panes arrive in Phase 6.
 const LOG = path.join(os.tmpdir(), `evaos-fake-omp-writers-${process.pid}.log`)
 
-type Ev = { event: string; detail: { message?: string; resumeFile?: string } | null }
+type Ev = {
+  event: string
+  detail: { message?: string; resumeFile?: string; argv?: string[] } | null
+}
 const readLog = (): Ev[] =>
   fs.existsSync(LOG)
     ? fs
@@ -129,7 +132,10 @@ test('a chat written in the last 10 minutes that no pane owns prompts first', as
   await box.press('Enter')
   const modal = shell.getByText('Chat is open elsewhere')
   await expect(modal).toBeVisible()
-  expect(readLog().filter((e) => e.event === 'spawn')).toHaveLength(0)
+  // The model catalog process also logs a spawn; only chat processes (rpc-ui) count.
+  expect(
+    readLog().filter((e) => e.event === 'spawn' && e.detail?.argv?.includes('rpc-ui')),
+  ).toHaveLength(0)
   await shell.getByRole('button', { name: 'Send anyway' }).click()
   await expect(modal).toHaveCount(0)
   await expect.poll(prompts).toHaveLength(1)

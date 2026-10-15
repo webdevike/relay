@@ -255,6 +255,7 @@ export const chatStore = createStore<ChatState>((set) => ({
           dialog,
           deadDialog,
           thinking: snap.meta.thinking ?? p.thinking,
+          contextWindow: snap.meta.contextWindow ?? p.contextWindow,
           ...(typeof snap.sessionFile === 'string' && p.file === ''
             ? { file: snap.sessionFile, boundTo: snap.sessionFile }
             : {}),
