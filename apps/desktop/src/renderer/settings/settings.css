@@ -1,0 +1,92 @@
+.eva-settings {
+  width: 100%;
+}
+.eva-settings-col {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: var(--eva-space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.eva-settings-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--eva-c-foreground);
+}
+.eva-settings-desc {
+  margin: 0;
+  font-size: 14px;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-settings-card {
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius);
+  background: var(--eva-c-secondary-background);
+}
+.eva-settings-card-pad {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.eva-settings-card-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--eva-c-foreground);
+}
+.eva-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  cursor: pointer;
+}
+.eva-settings-row + .eva-settings-row {
+  border-top: 1px solid var(--eva-c-border);
+}
+.eva-settings-row-static {
+  cursor: default;
+}
+.eva-settings-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.eva-settings-label-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--eva-c-foreground);
+}
+.eva-settings-label-help {
+  font-size: 14px;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-settings-appearance {
+  width: 280px;
+  flex: none;
+}
+.eva-switch {
+  --switch-width: 40px;
+  --switch-height: 24px;
+  --switch-thumb-size: 16px;
+  --switch-track-label-padding: 0;
+}
+.eva-switch .mantine-Switch-track {
+  background: var(--eva-c-switch-background);
+  border-color: transparent;
+  transition: background var(--eva-dur-fast);
+}
+.eva-switch .mantine-Switch-thumb {
+  background: var(--eva-c-primary-foreground);
+  border-color: transparent;
+  transition: inset-inline-start var(--eva-dur-fast);
+}
+.eva-switch input:checked + .mantine-Switch-track {
+  background: var(--eva-c-primary-background);
+  border-color: transparent;
+}

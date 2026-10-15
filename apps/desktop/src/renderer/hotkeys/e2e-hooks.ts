@@ -1,6 +1,6 @@
 import { invoke } from '../ipc'
 import { setAppearance } from '../theme/theme-store'
-import { placeOf, type PageKey } from '@evaos/shell-core'
+import { placeOf, type PageKey, type Place } from '@evaos/shell-core'
 import { navigateTo, tabsStore } from '../tabs/tabs-store'
 import { tabTitle } from '../tabs/tab-meta'
 import type { Appearance } from '@evaos/theme-core'
@@ -21,7 +21,7 @@ export interface EvaosShellHooks {
     active: number
     list: Array<{ id: number; page: string; pinned: boolean; title: string }>
   }
-  openPlace(page: string, newTab?: boolean): void
+  openPlace(page: string, newTab?: boolean, extra?: Partial<Omit<Place, 'page'>>): void
   openChat(): void
   setPageFiller(on: boolean): void
 }
@@ -74,7 +74,7 @@ export function initE2e(): Promise<boolean> {
             })),
           }
         },
-        openPlace: (page, newTab) => navigateTo(placeOf(page as PageKey), { newTab }),
+        openPlace: (page, newTab, extra) => navigateTo(placeOf(page as PageKey, extra), { newTab }),
         openChat: () => navigateTo(placeOf('chat')),
         setPageFiller: (on) => {
           if (window.__evaosShell) window.__evaosShell.pageFiller = on
