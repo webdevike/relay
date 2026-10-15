@@ -1,10 +1,18 @@
-import { Profiler, useLayoutEffect, useRef, type ProfilerOnRenderCallback } from 'react'
+import {
+  Profiler,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  type ProfilerOnRenderCallback,
+} from 'react'
 import { VList, type VListHandle } from 'virtua'
 import type { ChatMessage } from '@evaos/chat-core/message'
 import { MessageRow } from './MessageRow'
 import { Pills } from './Pills'
 import { pinReducer, type PinState } from './pin'
 import { chatStore, useChatStore } from './chat-store'
+import { startSettings, useSettings } from '../settings/settings-store'
 
 declare global {
   interface Window {
@@ -24,13 +32,22 @@ const onRender: ProfilerOnRenderCallback = (_id, _phase, actualDuration) => {
  */
 export function ChatLog({
   paneId,
-  messages,
+  messages: all,
   file,
 }: {
   paneId: string
   messages: ChatMessage[]
   file: string
 }) {
+  const showThinking = useSettings((s) => s.show_thinking)
+  useEffect(() => {
+    void startSettings()
+  }, [])
+  // Settings > Chat > Show thinking applies live: thinking rows are dropped, not collapsed.
+  const messages = useMemo(
+    () => (showThinking ? all : all.filter((m) => m.role !== 'thinking')),
+    [all, showThinking],
+  )
   const ref = useRef<VListHandle>(null)
   const pin = useRef<PinState>({ pinned: true, newReply: false })
   const first = useRef(true)

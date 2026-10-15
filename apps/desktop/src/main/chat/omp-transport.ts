@@ -14,6 +14,21 @@ export interface OmpTransportOptions {
   live: boolean
   /** Extra env for the next spawn only (e2e `setFakeEnv`). */
   takeExtraEnv?: () => Record<string, string>
+  /** Transport label; the Claude bridge reuses this process and framing code as 'claude'. */
+  kind?: string
+  /** Replaces the default omp argv and spawn command (the Claude bridge). */
+  command?: (a: {
+    spawnPath: string
+    sessionFile: string | null
+    args: readonly string[]
+    env: NodeJS.ProcessEnv
+  }) => {
+    file: string
+    argv: string[]
+    env: NodeJS.ProcessEnv
+    /** What is recorded in spawnArgs (the bridge's own argv, without the interpreter). */
+    visibleArgs: string[]
+  }
 }
 
 function nodeOnPath(spawnPath: string): boolean {
@@ -31,7 +46,7 @@ function nodeOnPath(spawnPath: string): boolean {
  * Never signals the child: closing stdin is the only way this transport ends it (D-17).
  */
 export class OmpStdioTransport implements ChatTransport {
-  readonly kind = 'omp-stdio'
+  readonly kind: string
   spawnArgs: string[] = []
   spawnCwd = ''
   pid: number | null = null
@@ -43,7 +58,9 @@ export class OmpStdioTransport implements ChatTransport {
   private started: Promise<void> | null = null
   private closing = false
 
-  constructor(private opts: OmpTransportOptions) {}
+  constructor(private opts: OmpTransportOptions) {
+    this.kind = opts.kind ?? 'omp-stdio'
+  }
 
   onFrame(cb: (f: Frame) => void): () => void {
     this.listeners.add(cb)
@@ -64,25 +81,42 @@ export class OmpStdioTransport implements ChatTransport {
 
   private async launch(opts: StartOpts): Promise<void> {
     const spawnPath = await resolveSpawnPath(this.opts.live)
-    const args = [
-      '--mode',
-      'rpc-ui',
-      ...(opts.sessionFile ? ['--resume', opts.sessionFile] : []),
-      ...(opts.args ?? []),
-    ]
-    const env: NodeJS.ProcessEnv = {
+    const baseEnv: NodeJS.ProcessEnv = {
       ...process.env,
       PATH: spawnPath,
       ...(this.opts.takeExtraEnv?.() ?? {}),
     }
-    let bin = this.opts.ompBin
-    let argv = args
-    if (bin.endsWith('.mjs') && !nodeOnPath(spawnPath)) {
-      argv = [bin, ...args]
-      bin = process.execPath
-      env.ELECTRON_RUN_AS_NODE = '1'
+    let bin: string
+    let argv: string[]
+    let env: NodeJS.ProcessEnv
+    if (this.opts.command) {
+      const c = this.opts.command({
+        spawnPath,
+        sessionFile: opts.sessionFile,
+        args: opts.args ?? [],
+        env: baseEnv,
+      })
+      bin = c.file
+      argv = c.argv
+      env = c.env
+      this.spawnArgs = c.visibleArgs
+    } else {
+      const args = [
+        '--mode',
+        'rpc-ui',
+        ...(opts.sessionFile ? ['--resume', opts.sessionFile] : []),
+        ...(opts.args ?? []),
+      ]
+      env = baseEnv
+      bin = this.opts.ompBin
+      argv = args
+      if (bin.endsWith('.mjs') && !nodeOnPath(spawnPath)) {
+        argv = [bin, ...args]
+        bin = process.execPath
+        env.ELECTRON_RUN_AS_NODE = '1'
+      }
+      this.spawnArgs = args
     }
-    this.spawnArgs = args
     this.spawnCwd = opts.cwd
     const child = spawn(bin, argv, { cwd: opts.cwd, env, stdio: ['pipe', 'pipe', 'pipe'] })
     this.child = child

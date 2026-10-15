@@ -60,9 +60,9 @@ test('chat switches persist, survive relaunch', async ({ app, shell, configDir }
   await expect
     .poll(() => {
       const d = readJson(file)
-      return d ? `${d['show_thinking']}|${d['show_tools']}` : ''
+      return d ? String(d['show_thinking']) : ''
     })
-    .toBe('true|true')
+    .toBe('true')
   await app.close()
 
   const app2 = await launchApp(configDir)

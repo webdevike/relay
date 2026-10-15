@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { placeOf } from '@evaos/shell-core'
 
 const invoke = vi.fn()
+const MISSING = 'Claude Code was not found. Install it, then try again.'
+let harnessStatus = { omp: true, claude: true }
 vi.mock('../ipc', () => ({ invoke: (...a: unknown[]) => invoke(...a) }))
 vi.mock('@mantine/notifications', () => ({ notifications: { show: vi.fn() } }))
 vi.mock('../theme/theme-store', () => ({
@@ -25,10 +27,13 @@ function page(section: 'Theme' | 'Chat' | 'Notifications') {
 
 beforeEach(() => {
   invoke.mockReset()
+  harnessStatus = { omp: true, claude: true }
   invoke.mockImplementation(async (c: string, input: Record<string, boolean>) =>
     c === 'settings.load'
-      ? { ok: true, value: { show_thinking: true, show_tools: true } }
-      : { ok: true, value: { show_thinking: true, show_tools: true, ...input } },
+      ? { ok: true, value: { show_thinking: false, show_tools: true, harness: 'omp' } }
+      : c === 'chat.harnessStatus'
+        ? { ok: true, value: harnessStatus }
+        : { ok: true, value: { show_thinking: false, show_tools: true, harness: 'omp', ...input } },
   )
   resetSettingsForTest()
 })
@@ -48,7 +53,7 @@ describe('SettingsPage', () => {
     ).toBeInTheDocument()
   })
 
-  it('Chat section switches default on', () => {
+  it('Chat section switches default to Rust values', () => {
     page('Chat')
     expect(screen.getByTestId('settings-chat')).toHaveTextContent(
       "What conversations show besides Eva's replies.",
@@ -56,7 +61,7 @@ describe('SettingsPage', () => {
     const a = screen.getByTestId('settings-show-thinking')
     const b = screen.getByTestId('settings-show-tools')
     expect(a).toHaveAttribute('role', 'switch')
-    expect(a).toBeChecked()
+    expect(a).not.toBeChecked()
     expect(b).toBeChecked()
     expect(
       screen.getByText("The model's reasoning before each reply, in gray."),
@@ -69,10 +74,36 @@ describe('SettingsPage', () => {
     fireEvent.click(screen.getByText('Show thinking'))
     await waitFor(() =>
       expect(invoke.mock.calls.filter((c) => c[0] === 'settings.save')).toEqual([
-        ['settings.save', { show_thinking: false }],
+        ['settings.save', { show_thinking: true }],
       ]),
     )
-    expect(screen.getByTestId('settings-show-thinking')).not.toBeChecked()
+    expect(screen.getByTestId('settings-show-thinking')).toBeChecked()
+  })
+
+  it('Harness control saves the choice and explains when Claude Code is missing', async () => {
+    harnessStatus = { omp: true, claude: false }
+    page('Chat')
+    const ctl = screen.getByTestId('settings-harness')
+    expect(ctl).toHaveTextContent('omp')
+    expect(ctl).toHaveTextContent('Claude Code')
+    expect(screen.getByText('Applies to new chats.')).toBeInTheDocument()
+    expect(screen.queryByText(MISSING)).toBeNull()
+    fireEvent.click(screen.getByText('Claude Code'))
+    await waitFor(() =>
+      expect(invoke.mock.calls.filter((c) => c[0] === 'settings.save')).toEqual([
+        ['settings.save', { harness: 'claude' }],
+      ]),
+    )
+    expect(await screen.findByText(MISSING)).toBeInTheDocument()
+  })
+
+  it('Harness notice stays hidden when Claude Code is found', async () => {
+    page('Chat')
+    fireEvent.click(screen.getByText('Claude Code'))
+    await waitFor(() =>
+      expect(invoke.mock.calls.filter((c) => c[0] === 'settings.save')).toHaveLength(1),
+    )
+    expect(screen.queryByText(MISSING)).toBeNull()
   })
 
   it('Notifications section', () => {
