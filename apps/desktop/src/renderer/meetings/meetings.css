@@ -140,6 +140,7 @@
 }
 .eva-mt-proposal {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--eva-space-md);
@@ -228,4 +229,14 @@
   font-size: var(--eva-fz-label);
   font-weight: 600;
   color: var(--eva-c-muted-foreground);
+}
+
+.eva-mt-refusal {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--eva-space-md);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-danger, var(--eva-text));
 }

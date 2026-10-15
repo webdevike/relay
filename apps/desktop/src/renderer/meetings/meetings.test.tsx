@@ -289,3 +289,100 @@ describe('MeetingPage', () => {
     expect(act).toBeDefined()
   })
 })
+
+describe('proposal actions', () => {
+  function respond(map: Record<string, unknown>): void {
+    invoke.mockImplementation((async (ch: string, input: { stem?: string }) => {
+      if (ch in map) return map[ch]
+      if (ch === 'meetings.list') return { ok: true, value: data.list }
+      if (ch === 'meetings.get') return { ok: true, value: data.details[input.stem!] }
+      return { ok: true, value: {} }
+    }) as never)
+  }
+  const detailWith = (statuses: Record<string, string>) => ({
+    ...DETAIL,
+    meeting: {
+      ...DETAIL.meeting,
+      proposals: DETAIL.meeting.proposals.map((p) => ({ ...p, status: statuses[p.id] ?? p.status })),
+    },
+  })
+
+  it('shows both actions and disables them while pending', async () => {
+    let release!: (v: unknown) => void
+    respond({ 'meetings.accept': new Promise((r) => (release = r)) })
+    invoke.mockImplementationOnce(async () => ({ ok: true, value: {} }))
+    seedTab('meetings', { meeting: 'standup' })
+    wrap(<MeetingPage place={placeOf('meetings', { meeting: 'standup' })} />)
+    const accept = await screen.findByTestId('meeting-accept-standup#1')
+    expect(accept).toHaveTextContent('Accept todo')
+    expect(screen.getByTestId('meeting-dismiss-standup#1')).toHaveTextContent('Dismiss proposal')
+    fireEvent.click(accept)
+    await waitFor(() => expect(screen.getByTestId('meeting-dismiss-standup#1')).toBeDisabled())
+    expect(screen.getByTestId('meeting-accept-standup#2')).not.toBeDisabled()
+    release({ ok: true, value: { todoId: 'T16', tag: 'eva' } })
+  })
+
+  it('accept toasts, reloads and moves the row to Remembered', async () => {
+    respond({ 'meetings.accept': { ok: true, value: { todoId: 'T16', tag: 'eva' } } })
+    seedTab('meetings', { meeting: 'standup' })
+    wrap(<MeetingPage place={placeOf('meetings', { meeting: 'standup' })} />)
+    const btn = await screen.findByTestId('meeting-accept-standup#1')
+    data.details = { standup: detailWith({ 'standup#1': 'accepted' }) }
+    fireEvent.click(btn)
+    await waitFor(() => expect(show).toHaveBeenCalledWith(expect.objectContaining({ message: 'Added T16 to Eva.' })))
+    await waitFor(() =>
+      expect(within(screen.getByTestId('meeting-remembered')).getByTestId('proposal-status-standup#1')).toHaveTextContent(
+        'Accepted',
+      ),
+    )
+  })
+
+  it('dismiss toasts without a confirmation and shows Dismissed', async () => {
+    respond({ 'meetings.dismiss': { ok: true, value: { status: 'dismissed' } } })
+    seedTab('meetings', { meeting: 'standup' })
+    wrap(<MeetingPage place={placeOf('meetings', { meeting: 'standup' })} />)
+    const btn = await screen.findByTestId('meeting-dismiss-standup#2')
+    data.details = { standup: detailWith({ 'standup#2': 'dismissed' }) }
+    fireEvent.click(btn)
+    await waitFor(() => expect(show).toHaveBeenCalledWith(expect.objectContaining({ message: 'Dismissed.' })))
+    await waitFor(() => expect(screen.getByTestId('proposal-status-standup#2')).toHaveTextContent('Dismissed'))
+  })
+
+  it('shows the changed-on-disk alert with Reload, and the partial-accept message', async () => {
+    respond({ 'meetings.accept': { ok: false, error: { code: 'not-proposed', message: 'x' } } })
+    seedTab('meetings', { meeting: 'standup' })
+    wrap(<MeetingPage place={placeOf('meetings', { meeting: 'standup' })} />)
+    fireEvent.click(await screen.findByTestId('meeting-accept-standup#1'))
+    const alert = await screen.findByTestId('meeting-refusal-standup#1')
+    expect(alert).toHaveAttribute('role', 'alert')
+    expect(alert).toHaveTextContent('work/meetings/standup.json changed on disk. Reload the meeting and try again.')
+    const before = invoke.mock.calls.filter((c) => c[0] === 'meetings.get').length
+    fireEvent.click(screen.getByTestId('meeting-reload-standup#1'))
+    await waitFor(() =>
+      expect(invoke.mock.calls.filter((c) => c[0] === 'meetings.get').length).toBeGreaterThan(before),
+    )
+    expect(screen.queryByTestId('meeting-refusal-standup#1')).toBeNull()
+
+    respond({
+      'meetings.accept': {
+        ok: false,
+        error: { code: 'partial-accept', message: 'Added T16 but could not mark the proposal accepted. Reload the meeting.' },
+      },
+    })
+    fireEvent.click(screen.getByTestId('meeting-accept-standup#2'))
+    expect(await screen.findByTestId('meeting-refusal-standup#2')).toHaveTextContent('Added T16 but could not')
+  })
+
+  it('Home waiting rows carry the actions and drop after success', async () => {
+    respond({ 'meetings.dismiss': { ok: true, value: { status: 'dismissed' } } })
+    wrap(<MeetingsHome place={placeOf('meetings')} />)
+    const btn = await screen.findByTestId('meeting-dismiss-planning#2')
+    expect(screen.getByTestId('meeting-accept-planning#2')).toBeInTheDocument()
+    data.list = {
+      ...LIST,
+      digest: { ...LIST.digest, waiting: LIST.digest.waiting.filter((w) => w.proposal.id !== 'planning#2') },
+    }
+    fireEvent.click(btn)
+    await waitFor(() => expect(screen.queryByTestId('proposal-planning#2')).toBeNull())
+  })
+})

@@ -1,10 +1,11 @@
 import { useEffect } from 'react'
+import { notifications } from '@mantine/notifications'
 import { useStore } from 'zustand'
 import { createStore } from 'zustand/vanilla'
 import type { MeetingSummary, Proposal } from '@evaos/contract'
-import { setMeetingTitles } from '../eva/names-store'
+import { setMeetingTitles, workspaceTitle } from '../eva/names-store'
 import { invoke } from '../ipc'
-import { registerReloader } from '../reload/reload'
+import { registerReloader, reloadAll } from '../reload/reload'
 
 export interface MeetingDigest {
   recentCount: number
@@ -109,6 +110,53 @@ export async function loadMeeting(stem: string): Promise<void> {
   } catch {
     // keep the cached copy
   }
+}
+
+export type ProposalResult =
+  | { ok: true }
+  | { ok: false; code: string; message: string }
+
+function workspaceName(tag: string): string {
+  return tag === 'eva' ? 'Eva' : (workspaceTitle(tag) ?? tag)
+}
+
+async function afterWrite(stem: string): Promise<void> {
+  await Promise.all([loadMeeting(stem), loadMeetings()])
+  void reloadAll()
+}
+
+async function act(
+  stem: string,
+  run: () => ReturnType<typeof invoke<'meetings.accept'>> | ReturnType<typeof invoke<'meetings.dismiss'>>,
+  toast: (value: never) => string,
+): Promise<ProposalResult> {
+  let r
+  try {
+    r = await run()
+  } catch {
+    return { ok: false, code: 'internal', message: 'The meeting could not be updated.' }
+  }
+  if (!r.ok) return { ok: false, code: r.error.code, message: r.error.message }
+  notifications.show({ message: toast(r.value as never), color: 'green', autoClose: 4000 })
+  await afterWrite(stem)
+  return { ok: true }
+}
+
+/** Accept a proposal as a todo; resolves with a result the row renders. */
+export function acceptProposal(stem: string, proposalId: string): Promise<ProposalResult> {
+  return act(
+    stem,
+    () => invoke('meetings.accept', { stem, proposalId }),
+    (v: { todoId: string; tag: string }) => `Added ${v.todoId} to ${workspaceName(v.tag)}.`,
+  )
+}
+
+export function dismissProposal(stem: string, proposalId: string): Promise<ProposalResult> {
+  return act(
+    stem,
+    () => invoke('meetings.dismiss', { stem, proposalId }),
+    () => 'Dismissed.',
+  )
 }
 
 async function reloadAllMeetings(): Promise<void> {

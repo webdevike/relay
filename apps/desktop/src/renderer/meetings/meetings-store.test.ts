@@ -72,3 +72,29 @@ describe('meetingsStore', () => {
     expect(invoke).not.toHaveBeenCalled()
   })
 })
+
+describe('proposal actions', () => {
+  it('returns the refusal and does not reload on failure', async () => {
+    invoke.mockResolvedValue({ ok: false, error: { code: 'not-proposed', message: 'gone' } })
+    const { acceptProposal } = await import('./meetings-store')
+    await expect(acceptProposal('standup', 'standup#1')).resolves.toEqual({
+      ok: false,
+      code: 'not-proposed',
+      message: 'gone',
+    })
+    expect(invoke).toHaveBeenCalledTimes(1)
+  })
+
+  it('reloads the meeting and list after a successful dismiss', async () => {
+    invoke.mockImplementation(async (ch: string) => {
+      if (ch === 'meetings.dismiss') return { ok: true, value: { status: 'dismissed' } }
+      if (ch === 'meetings.list') return { ok: true, value: listValue() }
+      return { ok: true, value: { meeting: null, notes: 'none', protocol: null } }
+    })
+    const { dismissProposal } = await import('./meetings-store')
+    await expect(dismissProposal('standup', 'standup#1')).resolves.toEqual({ ok: true })
+    const channels = invoke.mock.calls.map((c) => c[0])
+    expect(channels).toContain('meetings.get')
+    expect(channels).toContain('meetings.list')
+  })
+})
