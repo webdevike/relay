@@ -140,7 +140,7 @@ Requirements for the parity milestone. Each maps to roadmap phases. The source o
 ### Settings and Theme
 
 - [x] **SETT-01**: Settings page lists Chat, Theme and Notifications sections in the sidebar and shows the picked one in main
-- [ ] **THEM-01**: The app theme is a set of CSS variables applied imperatively (139 color keys, typography, radius, shadows) so edits apply live without remounting
+- [x] **THEM-01**: The app theme is a set of CSS variables applied imperatively (139 color keys, typography, radius, shadows) so edits apply live without remounting
 - [x] **THEM-02**: One theme has light and dark versions; Light / Dark / System picks which shows, and the editor's Light / Dark picks the version edited
 - [ ] **THEM-03**: User can start from EvaOS's theme or one of the 10 paired kit themes with swatches
 - [ ] **THEM-04**: User can edit every color key grouped as the README describes, with a picker and hex entry, typography (interface and code font, sizes), syntax tokens (41, color / italic / bold), radius and shadows
@@ -285,7 +285,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INBX-06 | Phase 7 | Pending |
 | INBX-07 | Phase 7 | Pending |
 | SETT-01 | Phase 2 | Complete |
-| THEM-01 | Phase 2 | Pending |
+| THEM-01 | Phase 2 | Complete |
 | THEM-02 | Phase 2 | Complete |
 | THEM-03 | Phase 7 | Pending |
 | THEM-04 | Phase 7 | Pending |
