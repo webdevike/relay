@@ -138,15 +138,16 @@ test('tabs: create, switch, close, target=_blank, last tab, hotkeys from the gue
   )
   await sendKey(app, 't', ['meta'])
   await expect.poll(() => tabCount(shell)).toBe(2)
+  await shell.locator('[data-testid^=tab-t]').first().click()
+  await sendKey(app, 'l', ['meta'])
+  await expect(shell.locator('[data-testid=address-input]')).toBeFocused()
+  // The page saw none of the forwarded chords.
+  expect(await guest(app, 'window.__kd')).toBe(0)
   await sendKey(app, 'w', ['meta'])
   await expect.poll(() => tabCount(shell)).toBe(1)
   expect(
     await app.evaluate(() => !(globalThis as unknown as G).__evaosTest.win.isDestroyed()),
   ).toBe(true)
-  await sendKey(app, 'l', ['meta'])
-  await expect(shell.locator('[data-testid=address-input]')).toBeFocused()
-  // The first tab was active again after Cmd+W; its page saw no keydown.
-  expect(await guest(app, 'window.__kd')).toBe(0)
 })
 
 test('suggestions from in-app history', async ({ app, shell, configDir }) => {

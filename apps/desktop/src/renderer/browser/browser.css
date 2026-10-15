@@ -104,3 +104,61 @@
 .eva-app.is-rail-collapsed .eva-rail {
   display: none;
 }
+.eva-tab-close {
+  flex: none;
+  margin-left: auto;
+}
+.eva-suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  box-sizing: border-box;
+  margin: 0 var(--eva-space-sm);
+  background: var(--eva-surface-2);
+  border: 1px solid var(--eva-border);
+  border-radius: 8px;
+  overflow: hidden;
+  animation: eva-suggest-in 120ms ease-out;
+}
+.eva-suggestion {
+  display: flex;
+  align-items: center;
+  gap: var(--eva-space-sm);
+  height: 32px;
+  padding: 0 var(--eva-space-sm);
+  cursor: pointer;
+  min-width: 0;
+}
+.eva-suggestion.is-active {
+  background: var(--eva-border);
+}
+.eva-suggestion-title {
+  font-weight: 600;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-suggestion-url {
+  color: var(--eva-text-dim);
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@keyframes eva-suggest-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .eva-suggestions {
+    animation: none;
+  }
+}

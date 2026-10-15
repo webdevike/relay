@@ -4,6 +4,7 @@ import { AddressRow } from './AddressRow'
 import { PageStateCard } from './PageStateCard'
 import { TabStrip } from './TabStrip'
 import { activeTab, startBrowserStore, useBrowserStore } from './browser-store'
+import { useBrowserHotkeys } from './useBrowserHotkeys'
 import { useSlotSync } from './useSlotSync'
 
 export function BrowserPanel() {
@@ -13,6 +14,7 @@ export function BrowserPanel() {
   const tab = useBrowserStore(activeTab)
   useEffect(() => startBrowserStore(), [])
   useSlotSync(slot)
+  useBrowserHotkeys()
 
   const showCard = tab !== undefined && (tab.blank || tab.error !== null)
   return (
