@@ -1,7 +1,30 @@
 import { describe, expect, it } from 'vitest'
-import { normalize } from './address'
+import { BLOCKED_URL_CODE, loadableUrl, normalize } from './address'
 
 const search = (q: string) => `https://www.google.com/search?q=${q}`
+
+describe('loadableUrl', () => {
+  it('allows http, https and about', () => {
+    expect(loadableUrl('http://127.0.0.1:3000/')).toBe(true)
+    expect(loadableUrl('https://example.com/a?b#c')).toBe(true)
+    expect(loadableUrl('about:blank')).toBe(true)
+  })
+  it('refuses file, chrome, javascript, data and malformed input', () => {
+    expect(loadableUrl('file:///Users/ike/Eva/memory/facts.md')).toBe(false)
+    expect(loadableUrl('chrome://settings')).toBe(false)
+    expect(loadableUrl('javascript:alert(1)')).toBe(false)
+    expect(loadableUrl('data:text/html,hi')).toBe(false)
+    expect(loadableUrl('not a url')).toBe(false)
+    expect(loadableUrl('')).toBe(false)
+  })
+  it('opens extension pages only for the extension host', () => {
+    const page = 'chrome-extension://nngceckbapebfimnlniiiahkandclblb/popup/index.html'
+    expect(loadableUrl(page)).toBe(false)
+    expect(loadableUrl(page, { fromExtension: true })).toBe(true)
+    expect(loadableUrl('file:///etc/hosts', { fromExtension: true })).toBe(false)
+    expect(BLOCKED_URL_CODE).toBe(-20)
+  })
+})
 
 describe('normalize', () => {
   it('returns null for empty input', () => {

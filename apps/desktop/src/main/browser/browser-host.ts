@@ -1,4 +1,5 @@
 import { WebContentsView, clipboard, shell } from 'electron'
+import { BLOCKED_URL_CODE, LOADABLE_PROTOCOLS, loadableUrl } from '@evaos/browser-core/address'
 import { matchesAppChord } from '@evaos/browser-core/hotkeys'
 import type { TabState, TabsSnapshot } from '@evaos/contract'
 import type { MainContext } from '../context'
@@ -20,7 +21,10 @@ interface Tab {
   control?: PageControl
 }
 
-const ALLOWED_PROTOCOLS = new Set(['http:', 'https:', 'about:'])
+export interface NavigateOptions {
+  /** The extension host may open its own `chrome-extension:` pages (popouts, options). */
+  fromExtension?: boolean
+}
 
 function hostOf(url: string): string {
   try {
@@ -100,7 +104,7 @@ export class BrowserHost {
     return this.tabs.get(this.activeId)!.view
   }
 
-  createTab(url?: string, activate = false): TabState {
+  createTab(url?: string, activate = false, opts: NavigateOptions = {}): TabState {
     const id = `t${this.nextId++}`
     const view = new WebContentsView({
       webPreferences: {
@@ -133,7 +137,7 @@ export class BrowserHost {
     if (this.activeId === id) for (const cb of this.activated) cb(state, view)
     this.applyBounds()
     this.changed()
-    if (url) this.navigate(id, url)
+    if (url) this.navigate(id, url, opts)
     return { ...state }
   }
 
@@ -170,7 +174,7 @@ export class BrowserHost {
     })
     const guard = (event: { preventDefault(): void }, url: string): void => {
       try {
-        if (!ALLOWED_PROTOCOLS.has(new URL(url).protocol)) event.preventDefault()
+        if (!LOADABLE_PROTOCOLS.has(new URL(url).protocol)) event.preventDefault()
       } catch {
         event.preventDefault()
       }
@@ -230,10 +234,21 @@ export class BrowserHost {
     return t
   }
 
-  navigate(tabId: string, url: string): void {
+  /**
+   * The one place a guest view is told to load a URL (address bar, new tab, extension
+   * createTab, error-card retry). Schemes outside the allow-list never reach loadURL: the tab
+   * shows the error card under BLOCKED_URL_CODE instead, matching the will-navigate guard.
+   */
+  navigate(tabId: string, url: string, opts: NavigateOptions = {}): void {
     const t = this.tab(tabId)
     t.state.url = url
     t.state.blank = false
+    if (!loadableUrl(url, opts)) {
+      t.state.loading = false
+      t.state.error = { host: hostOf(url), code: BLOCKED_URL_CODE }
+      this.changed()
+      return
+    }
     t.state.error = null
     this.applyBounds()
     this.changed()
@@ -250,12 +265,8 @@ export class BrowserHost {
   }
   reload(id: string): void {
     const t = this.tab(id)
-    if (t.state.error) {
-      t.state.error = null
-      this.applyBounds()
-      this.changed()
-      t.view.webContents.loadURL(t.state.url).catch(() => {})
-    } else t.view.webContents.reload()
+    if (t.state.error) this.navigate(id, t.state.url)
+    else t.view.webContents.reload()
   }
   stop(id: string): void {
     this.tab(id).view.webContents.stop()

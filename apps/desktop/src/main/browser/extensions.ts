@@ -42,7 +42,9 @@ export async function setupExtensions(ctx: MainContext, browser: BrowserHost): P
     license: 'GPL-3.0',
     session: guest,
     createTab: async (details) => {
-      const tab = browser.createTab(details.url, details.active !== false)
+      const tab = browser.createTab(details.url, details.active !== false, {
+        fromExtension: true,
+      })
       const wc = browser.tabById(tab.id)
       if (!wc) throw new Error('tab vanished')
       return [wc, ctx.win]

@@ -1,3 +1,23 @@
+/** Schemes a guest view may load, whoever asks (address bar, links, extensions). */
+export const LOADABLE_PROTOCOLS: ReadonlySet<string> = new Set(['http:', 'https:', 'about:'])
+
+/** Chromium's ERR_BLOCKED_BY_CLIENT; the host reports a refused scheme under this code. */
+export const BLOCKED_URL_CODE = -20
+
+/**
+ * Whether the guest view may load `url`. `file:`, `chrome:` and friends are refused at this
+ * single choke point so the address bar cannot bypass the page-navigation guard. Extension
+ * pages (`chrome-extension:`) open only when the extension host itself asks.
+ */
+export function loadableUrl(url: string, opts: { fromExtension?: boolean } = {}): boolean {
+  // Same scheme grammar as the URL parser (RFC 3986), without needing a URL global here.
+  const m = /^([a-z][a-z0-9+.-]*):/i.exec(url)
+  if (!m) return false
+  const protocol = m[1]!.toLowerCase() + ':'
+  if (LOADABLE_PROTOCOLS.has(protocol)) return true
+  return protocol === 'chrome-extension:' && opts.fromExtension === true
+}
+
 /**
  * Port of the Rust address bar rules (apps/evaos/src/panel/browser.rs `normalize`):
  * a bare 2 to 5 digit port opens loopback, a typed scheme is kept, localhost and loopback

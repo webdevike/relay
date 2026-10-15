@@ -11,6 +11,7 @@ interface HostLike {
     getBounds(): Rect
     webContents: {
       session: unknown
+      getURL(): string
       getLastWebPreferences(): { sandbox?: boolean; contextIsolation?: boolean; preload?: string }
       executeJavaScript(code: string): Promise<unknown>
     }
@@ -200,6 +201,22 @@ test('browser panel: navigate, history, bounds, overlay, hardening, errors', asy
   await expect(shell.getByText('This page could not be loaded')).toBeVisible()
   await expect(shell.getByRole('button', { name: 'Try again' })).toBeVisible()
   await expect.poll(async () => (await activeInfo(app)).visible).toBe(false)
+
+  // Schemes outside http/https/about typed in the address bar never reach the guest view.
+  const guestUrl = () =>
+    app.evaluate(() => {
+      const t = (
+        globalThis as unknown as { __evaosTest: { hooks: { browser: { host: HostLike } } } }
+      ).__evaosTest
+      return t.hooks.browser.host.activeView().webContents.getURL()
+    })
+  for (const blocked of ['file:///etc/hosts', 'chrome://settings']) {
+    await navigate(shell, blocked)
+    await expect(shell.getByText('This address cannot be opened here')).toBeVisible()
+    await expect(shell.getByRole('button', { name: 'Try again' })).toHaveCount(0)
+    expect(await guestUrl()).not.toMatch(/^(file|chrome):/)
+    await expect.poll(async () => (await activeInfo(app)).visible).toBe(false)
+  }
 
   recordMetrics('browser', {
     boundsDeltaPx: maxDelta,
