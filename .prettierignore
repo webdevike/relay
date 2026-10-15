@@ -1,0 +1,13 @@
+.planning
+fixtures
+proof
+out
+release
+pnpm-lock.yaml
+.claude
+.tools
+logs
+test-results
+IDEA.md
+CLAUDE.md
+*.sh

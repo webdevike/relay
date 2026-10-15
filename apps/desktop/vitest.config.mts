@@ -1,0 +1,32 @@
+import { defineConfig } from 'vitest/config'
+import react from '@vitejs/plugin-react'
+
+const exclude = ['e2e/**/*.spec.ts', 'out/**', '**/node_modules/**']
+
+export default defineConfig({
+  test: {
+    projects: [
+      {
+        test: {
+          name: 'main',
+          environment: 'node',
+          include: ['src/main/**/*.test.ts', 'e2e/helpers/**/*.test.ts'],
+          exclude,
+        },
+      },
+      {
+        test: { name: 'preload', environment: 'node', include: ['src/preload/**/*.test.ts'], exclude },
+      },
+      {
+        plugins: [react()],
+        test: {
+          name: 'renderer',
+          environment: 'jsdom',
+          include: ['src/renderer/**/*.test.{ts,tsx}'],
+          exclude,
+          setupFiles: ['./src/renderer/test-setup.ts'],
+        },
+      },
+    ],
+  },
+})
