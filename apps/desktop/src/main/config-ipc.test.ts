@@ -80,3 +80,16 @@ describe('settings', () => {
     expect(loadSettings(createConfigStore(dir))).toEqual({ show_thinking: false, show_tools: true })
   })
 })
+describe('index wiring', () => {
+  it('registers every new handler', () => {
+    const src = fs.readFileSync(path.join(__dirname, 'index.ts'), 'utf8')
+    for (const n of [
+      'registerLayoutIpc',
+      'registerThemeIpc',
+      'registerSettingsIpc',
+      'registerEvaIpc',
+      'installQuitGuard',
+    ])
+      expect(src).toContain(`${n}(`)
+  })
+})
