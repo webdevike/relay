@@ -347,6 +347,16 @@ describe('contract', () => {
         invokeContract['chat.pin'].input.safeParse({ id: 'abc_1.2-3', pinned: true }).success,
       ).toBe(true)
     })
+    it('launch patch strings cannot read as omp flags', () => {
+      const r = invokeContract['chat.setLaunch'].input
+      const ok = (launch: unknown) => r.safeParse({ paneId: 'pane-1', patch: launch }).success
+      expect(ok({ model: { provider: 'anthropic', modelId: 'claude-opus-4.5' } })).toBe(true)
+      expect(ok({ thinking: 'high' })).toBe(true)
+      expect(ok({ thinking: '--approval-mode' })).toBe(false)
+      expect(ok({ model: { provider: '-x', modelId: 'm' } })).toBe(false)
+      expect(ok({ model: { provider: 'a', modelId: '--evil' } })).toBe(false)
+    })
+
     it('chat.readImage only takes sha256 tokens', () => {
       const r = invokeContract['chat.readImage'].input
       expect(r.safeParse({ token: 'blob:sha256:XYZ' }).success).toBe(false)

@@ -65,10 +65,16 @@ export const DialogResponseSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('cancel') }),
 ])
 
+/** Launch strings end up in omp's argv: no leading `-`, so they can never read as another flag. */
+const LaunchTokenSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$/)
+
 export const LaunchPatchSchema = z
   .object({
-    model: z.object({ provider: z.string().max(120), modelId: z.string().max(200) }),
-    thinking: z.string().max(32),
+    model: z.object({
+      provider: LaunchTokenSchema.max(120),
+      modelId: LaunchTokenSchema.max(200),
+    }),
+    thinking: LaunchTokenSchema.max(32),
     approval: ApprovalSchema,
     profile: ProfileSchema.nullable(),
     fast: z.boolean(),
