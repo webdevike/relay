@@ -953,6 +953,18 @@ describe('SessionManager new chats and status', () => {
       vi.useRealTimers()
     })
 
+    it('a resumed chat with no process shows the chosen model and thinking, not history', async () => {
+      const { mgr } = setup({ deps })
+      mgr.open('pane-1', '/s/a.jsonl', [], {
+        model: ['a', 'img'],
+        thinking: 'low',
+        contextTokens: null,
+      })
+      await mgr.setLaunch('pane-1', { model: { provider: 'a', modelId: 'txt' }, thinking: 'high' })
+      expect(mgr.launchState('pane-1')).toMatchObject({ model: ['a', 'txt'], thinking: 'high' })
+      vi.useRealTimers()
+    })
+
     it('imagesAllowed follows the catalog entry of the current model', async () => {
       const { mgr } = setup({ deps })
       mgr.openDraft('pane-1', meta)

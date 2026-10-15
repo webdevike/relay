@@ -470,7 +470,10 @@ export class SessionManager {
     const pane = this.pane(paneId)
     const harness = this.harnessOf(pane)
     const meta = pane.reducer.meta()
-    const model = meta.model ?? pane.launch.model ?? null
+    // With a live process omp's confirmed values win; without one the user's pending choice does.
+    const live = pane.transport !== null
+    const model =
+      (live ? (meta.model ?? pane.launch.model) : (pane.launch.model ?? meta.model)) ?? null
     const known = model
       ? this.deps.models?.()?.find((m) => m.provider === model[0] && m.id === model[1])
       : undefined
@@ -478,7 +481,10 @@ export class SessionManager {
       approval: pane.launch.approval ?? this.deps.defaultApproval?.(harness) ?? 'yolo',
       profile: pane.launch.profile,
       model: model ? [model[0], model[1]] : null,
-      thinking: meta.thinking ?? pane.launch.thinking ?? null,
+      thinking:
+        (live
+          ? (meta.thinking ?? pane.launch.thinking)
+          : (pane.launch.thinking ?? meta.thinking)) ?? null,
       fast: pane.launch.fast ?? false,
       unsent: pane.draft && !pane.prompted,
       harness,
