@@ -67,7 +67,7 @@ export function ChatPane() {
         </div>
       ) : null}
       {pane ? (
-        <ChatLog messages={pane.messages} file={pane.file} />
+        <ChatLog paneId={PANE_ID} messages={pane.messages} file={pane.file} />
       ) : (
         <div className="eva-chat-empty">
           <h2 className="eva-heading">No messages yet</h2>

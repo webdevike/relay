@@ -41,6 +41,7 @@ export interface ChatState {
       stopped?: boolean
     },
   ): void
+  setPin(paneId: string, unpinned: boolean, newReply: boolean): void
   setReconnecting(paneId: string, value: boolean): void
   setError(paneId: string, error: string | null): void
 }
@@ -129,6 +130,12 @@ export const chatStore = createStore<ChatState>((set) => ({
         stopped: snap.stopped ?? p.stopped,
         lastSeq: snap.seq,
       })),
+    ),
+  setPin: (paneId, unpinned, newReply) =>
+    set((s) =>
+      patchPane(s, paneId, (p) =>
+        p.unpinned === unpinned && p.newReply === newReply ? p : { ...p, unpinned, newReply },
+      ),
     ),
   setReconnecting: (paneId, value) =>
     set((s) =>
