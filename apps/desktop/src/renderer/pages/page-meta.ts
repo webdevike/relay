@@ -1,5 +1,5 @@
 import type { Place } from '@evaos/shell-core'
-import { workspaceTitle } from '../eva/names-store'
+import { meetingTitle, workspaceTitle } from '../eva/names-store'
 
 export interface NavPage {
   slug: string
@@ -116,7 +116,7 @@ export function pageMeta(place: Place): PageMeta {
     return {
       kind: 'meeting',
       slug: 'meeting',
-      title: place.meeting,
+      title: meetingTitle(place.meeting) ?? place.meeting,
       description: later('This meeting and its notes'),
     }
   }

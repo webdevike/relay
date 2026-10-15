@@ -9,7 +9,7 @@ vi.mock('../ipc', () => ({
 import { placeOf, saveTabs } from '@evaos/shell-core'
 import { runAction } from '../hotkeys/router'
 import { openPlace } from '../navigation/navigate'
-import { setWorkspaceNames } from '../eva/names-store'
+import { setMeetingTitles, setWorkspaceNames } from '../eva/names-store'
 import { tabIconName, tabTitle } from './tab-meta'
 import {
   activePlace,
@@ -194,6 +194,10 @@ describe('tab-meta', () => {
     expect(tabTitle(placeOf('workspace:flo'))).toBe('Flo')
     expect(tabIconName(placeOf('workspace:flo'))).toBe('IconFolder')
     expect(tabTitle(placeOf('board:main'))).toBe('main')
+    expect(tabTitle(placeOf('meetings', { meeting: 'zz' }))).toBe('zz')
+    setMeetingTitles({ zz: 'Zed sync' })
+    expect(tabTitle(placeOf('meetings', { meeting: 'zz' }))).toBe('Zed sync')
+    expect(tabIconName(placeOf('meetings', { meeting: 'zz' }))).toBe('IconUsers')
   })
   it('icons', () => {
     expect(tabIconName(placeOf('habits'))).toBe('IconFlame')

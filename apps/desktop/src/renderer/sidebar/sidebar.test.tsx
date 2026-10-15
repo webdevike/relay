@@ -2,7 +2,18 @@ import { MantineProvider } from '@mantine/core'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const invoke = vi.fn(async (..._a: unknown[]) => ({ ok: true, value: { live: false } }))
+const invoke = vi.fn(async (...a: unknown[]) =>
+  a[0] === 'meetings.list'
+    ? {
+        ok: true,
+        value: {
+          now: Date.now(),
+          meetings: [],
+          digest: { recentCount: 0, waiting: [], out: [], decisions: [] },
+        },
+      }
+    : { ok: true, value: { live: false } },
+)
 vi.mock('../ipc', () => ({
   invoke: (...a: unknown[]) => invoke(...a),
   on: () => () => {},
@@ -168,7 +179,7 @@ describe('sub-pages', () => {
     })
   })
 
-  it('chats and meetings placeholders', () => {
+  it('chats placeholder and the meetings body', () => {
     const { unmount } = wrap(<SubPage level="chats" />)
     expect(screen.getByTestId('chat-new')).toHaveAttribute('aria-label', 'New chat')
     expect(screen.getByPlaceholderText('Search chats')).toBeInTheDocument()
@@ -178,9 +189,8 @@ describe('sub-pages', () => {
     unmount()
     wrap(<SubPage level="meetings" />)
     expect(screen.getByPlaceholderText('Search meetings')).toBeInTheDocument()
-    expect(screen.getByTestId('sidebar-sub-empty')).toHaveTextContent(
-      'Your meetings arrive in a later update.',
-    )
+    expect(screen.getByTestId('sidebar-sub-empty')).toHaveTextContent('Loading meetings')
+    expect(screen.getByTestId('meetings-home')).toHaveTextContent('Meetings')
   })
 
   it('Esc ordering: clear, blur, then pop the level', () => {

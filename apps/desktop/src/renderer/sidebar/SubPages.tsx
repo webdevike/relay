@@ -5,6 +5,7 @@ import { SETTINGS_SECTIONS, placeOf, type SettingsSection } from '@evaos/shell-c
 import { openPlace } from '../navigation/navigate'
 import { activePlace, newChatTab, useTabs } from '../tabs/tabs-store'
 import { ScrollArea } from '../ui/ScrollArea'
+import { MeetingsList } from '../meetings/MeetingsList'
 import { SearchBox } from './SearchBox'
 import { backToRoot, type NavLevel } from './nav-level'
 
@@ -12,11 +13,7 @@ const SECTION_ICON = { Theme: IconPalette, Chat: IconMessage, Notifications: Ico
 
 const COPY = {
   chats: { title: 'Chats', search: 'Search chats', empty: 'Your chats arrive in a later update.' },
-  meetings: {
-    title: 'Meetings',
-    search: 'Search meetings',
-    empty: 'Your meetings arrive in a later update.',
-  },
+  meetings: { title: 'Meetings', search: 'Search meetings', empty: '' },
 } as const
 
 export function SubPage({ level }: { level: Exclude<NavLevel, 'root'> }) {
@@ -59,7 +56,7 @@ export function SubPage({ level }: { level: Exclude<NavLevel, 'root'> }) {
             <button
               type="button"
               className="eva-sb-title-btn"
-              data-testid="sidebar-sub-title"
+              data-testid="meetings-home"
               onClick={(e) => openPlace(placeOf('meetings'), { newTab: e.metaKey })}
             >
               {title}
@@ -93,7 +90,9 @@ export function SubPage({ level }: { level: Exclude<NavLevel, 'root'> }) {
       </div>
       <div className="eva-sb-scroll">
         <ScrollArea fadeBg="var(--eva-chrome)">
-          {copy ? (
+          {level === 'meetings' ? (
+            <MeetingsList query={query} />
+          ) : copy ? (
             <div className="eva-sb-empty eva-dim" data-testid="sidebar-sub-empty">
               {copy.empty}
             </div>

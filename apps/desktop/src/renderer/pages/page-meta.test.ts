@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { placeOf } from '@evaos/shell-core'
-import { setWorkspaceNames } from '../eva/names-store'
+import { setMeetingTitles, setWorkspaceNames } from '../eva/names-store'
 import { NAV_PAGES, pageMeta } from './page-meta'
 
 describe('page-meta', () => {
@@ -55,6 +55,8 @@ describe('page-meta', () => {
       slug: 'meeting',
       title: 'stem',
     })
+    setMeetingTitles({ stem: 'Daily standup' })
+    expect(pageMeta(placeOf('meetings', { meeting: 'stem' })).title).toBe('Daily standup')
     expect(pageMeta(placeOf('meetings')).kind).toBe('page')
     expect(pageMeta(placeOf('settings', { settingsSection: 'Chat' })).kind).toBe('settings')
   })

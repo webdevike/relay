@@ -15,6 +15,12 @@ vi.mock('../jobs/JobsPage', () => ({
 vi.mock('../habits/HabitsPage', () => ({
   HabitsPage: () => <div data-testid="page-habits">habits</div>,
 }))
+vi.mock('../meetings/MeetingsHome', () => ({
+  MeetingsHome: () => <div data-testid="page-meetings">meetings home</div>,
+}))
+vi.mock('../meetings/MeetingPage', () => ({
+  MeetingPage: () => <div data-testid="page-meeting">meeting detail</div>,
+}))
 vi.mock('../dashboard/DashboardPage', () => ({
   DashboardPage: () => <div data-testid="page-dashboard">dash</div>,
 }))
@@ -90,6 +96,16 @@ describe('PageRouter', () => {
     go(placeOf('habits'))
     ui()
     expect(screen.getByTestId('page-habits')).toHaveTextContent('habits')
+  })
+
+  it('renders Meetings home and Meeting detail', () => {
+    go(placeOf('meetings'))
+    const { unmount } = ui()
+    expect(screen.getByTestId('page-meetings')).toHaveTextContent('meetings home')
+    unmount()
+    go(placeOf('meetings', { meeting: 'standup' }))
+    ui()
+    expect(screen.getByTestId('page-meeting')).toHaveTextContent('meeting detail')
   })
 
   it('keeps the chat pane mounted and hidden off the chat place', () => {
