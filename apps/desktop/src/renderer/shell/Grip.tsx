@@ -47,6 +47,9 @@ export function Grip({ edge }: { edge: Edge }) {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
       window.removeEventListener('pointercancel', up)
+      // Also covers unmounting mid-drag (e.g. Cmd+B hides the sidebar).
+      document.body.style.userSelect = ''
+      document.body.classList.remove('eva-resizing')
     }
   }, [dragging, edge])
 

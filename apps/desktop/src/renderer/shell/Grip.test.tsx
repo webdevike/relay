@@ -43,6 +43,14 @@ describe('Grip', () => {
     expect(overlayStore.getState().ids.size).toBe(0)
   })
 
+  it('unmounting mid-drag restores user-select and the resizing class', () => {
+    const { unmount } = render(<Grip edge="sidebar" />)
+    fireEvent.pointerDown(screen.getByTestId('grip-sidebar'), { clientX: 272, button: 0 })
+    expect(document.body.classList.contains('eva-resizing')).toBe(true)
+    unmount()
+    expect(document.body.style.userSelect).toBe('')
+    expect(document.body.classList.contains('eva-resizing')).toBe(false)
+  })
   it('negates dx for the panel', async () => {
     render(<Grip edge="panel" />)
     fireEvent.pointerDown(screen.getByTestId('grip-panel'), { clientX: 800, button: 0 })
