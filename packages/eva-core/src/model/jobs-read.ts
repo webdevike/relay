@@ -101,11 +101,11 @@ export function readJobRun(
   const runs = join(root, 'jobs', '.runs')
   const lastText = readText(join(runs, name, 'last-run'))
   const lastN = lastText === null ? NaN : Number(lastText.trim())
-  const lastRunAt = Number.isFinite(lastN) && lastN > 0 ? lastN : null
+  const lastRunAt = Number.isFinite(lastN) && lastN > 0 ? Math.floor(lastN) : null
   const latest = latestRun(join(runs, name))
   const sessionFile =
     latest?.sessionFile && fileExists(latest.sessionFile) ? latest.sessionFile : null
-  const base = { lastRunAt, runNote: latest?.note ?? null, sessionFile }
+  const base = { lastRunAt, runNote: latest?.note?.slice(0, 500) ?? null, sessionFile }
   if (lockLive(join(runs, `${name}.lock`), pidAlive)) {
     return { ...base, runState: 'running', runStateRaw: null }
   }
@@ -125,7 +125,7 @@ export function readJobRun(
 function firstLine(body: string): string | null {
   for (const line of body.split('\n')) {
     const t = line.trim()
-    if (t) return t
+    if (t) return t.slice(0, 500)
   }
   return null
 }
@@ -136,7 +136,7 @@ export function listJobs(root: string, nowMs: number, opts: JobsReadOpts = {}): 
   let names: string[]
   try {
     names = readdirSync(join(root, 'jobs'), { withFileTypes: true })
-      .filter((e) => e.isDirectory() && !e.name.startsWith('.') && nameError(e.name) === null)
+      .filter((e) => e.isDirectory() && !e.name.startsWith('.') && nameError(e.name) === null && e.name.length <= 64)
       .map((e) => e.name)
   } catch {
     return []

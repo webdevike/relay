@@ -30,11 +30,15 @@ export const JOB_COPY = {
 
 const UNIT_MS: Record<string, number> = { ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 }
 
+/** About a year; larger values are rejected so due times stay safe integers. */
+const MAX_DURATION_MS = 366 * 86_400_000
+
 /** The runner's duration syntax in ms (bare number is minutes), or null when invalid. */
 export function parseDuration(text: string): number | null {
-  const m = /^(\d+)\s*(ms|s|m|h|d)?$/.exec(text.trim())
+  const m = /^(\d{1,9})[ \t]*(ms|s|m|h|d)?$/.exec(text.trim())
   if (!m) return null
-  return Number(m[1]) * UNIT_MS[m[2] ?? 'm']!
+  const ms = Number(m[1]) * UNIT_MS[m[2] ?? 'm']!
+  return ms > MAX_DURATION_MS ? null : ms
 }
 
 /** null when the name is a valid job folder name, else the rule text. */

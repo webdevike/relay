@@ -114,6 +114,14 @@ describe('parseDuration', () => {
   it('rejects bad input', () => {
     for (const bad of ['1.5h', 'h', '-1m', '', '5x']) expect(parseDuration(bad)).toBeNull()
   })
+  it('rejects absurdly large durations so due times stay safe integers', () => {
+    expect(parseDuration('9999999999d')).toBeNull()
+    expect(parseDuration('366d')).not.toBeNull()
+    expect(parseDuration('367d')).toBeNull()
+  })
+  it('rejects embedded newlines', () => {
+    expect(parseDuration('5\n\nm')).toBeNull()
+  })
 })
 
 describe('validateJob', () => {

@@ -253,6 +253,8 @@ describe('readers', () => {
     writeFileSync(join(dir, 'broken.json'), '{ nope')
     writeFileSync(join(dir, '.tmp.json'), record('x', ''))
     writeFileSync(join(dir, 'notes.md'), 'nope')
+    writeFileSync(join(dir, 'Weekly sync.json'), record('w', '2026-10-08T15:30:00.000Z'))
+    writeFileSync(join(dir, '_x.json'), record('x', '2026-10-08T15:30:00.000Z'))
     expect(readMeetings(root).map((m) => m.stem)).toEqual(['newer', 'older'])
     expect(readMeetings(join(root, 'missing'))).toEqual([])
     expect(readMeetingFile(root, 'newer')?.meeting.title).toBe('Team Daily Standup')

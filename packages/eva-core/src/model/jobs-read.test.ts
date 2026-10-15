@@ -32,6 +32,18 @@ describe('listJobs', () => {
     job('no-file', null)
     expect(listJobs(root, NOW, dead).map((j) => j.name)).toEqual(['alpha', 'zeta'])
   })
+  it('clamps long descriptions and notes, floors fractional last-run, skips long names', () => {
+    job('long', `${'x'.repeat(900)}\n`)
+    job('a'.repeat(65), 'x\n')
+    mkdirSync(join(root, 'jobs/.runs/long'), { recursive: true })
+    writeFileSync(join(root, 'jobs/.runs/long/last-run'), '1760000000000.7')
+    run('long', '2026-10-01T010101', { state: 'done', note: 'n'.repeat(900) })
+    const list = listJobs(root, NOW, dead)
+    expect(list.map((j) => j.name)).toEqual(['long'])
+    expect(list[0]!.description).toHaveLength(500)
+    expect(list[0]!.runNote).toHaveLength(500)
+    expect(list[0]!.lastRunAt).toBe(1_760_000_000_000)
+  })
   it('returns an empty list without a jobs folder', () => {
     rmSync(join(root, 'jobs'), { recursive: true })
     expect(listJobs(root, NOW)).toEqual([])

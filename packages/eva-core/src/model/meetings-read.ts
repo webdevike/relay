@@ -18,7 +18,7 @@ function isFile(path: string): boolean {
   }
 }
 
-/** Every readable record, newest first. Dotfiles, non-.json files and invalid JSON are skipped. */
+/** Every readable record, newest first. Dotfiles, non-.json files, stems failing STEM_RE and invalid JSON are skipped. */
 export function readMeetings(root: string): Meeting[] {
   const dir = meetingsDir(root)
   let names: string[]
@@ -30,6 +30,8 @@ export function readMeetings(root: string): Meeting[] {
   const out: Meeting[] = []
   for (const name of names) {
     if (name.startsWith('.') || !name.endsWith('.json')) continue
+    // Stems the contract (and STEM_RE) cannot address are not listed.
+    if (!STEM_RE.test(name.slice(0, -'.json'.length))) continue
     const path = join(dir, name)
     if (!isFile(path)) continue
     try {

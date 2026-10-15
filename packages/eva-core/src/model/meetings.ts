@@ -76,8 +76,8 @@ export function isSkipped(value: unknown): boolean {
 function parseProposal(v: unknown): Proposal | null {
   if (!isObj(v)) return null
   return {
-    id: str(v.id),
-    kind: str(v.kind),
+    id: str(v.id).slice(0, 300),
+    kind: str(v.kind).slice(0, 32),
     text: str(v.text),
     workspace: strOrNull(v.workspace),
     item: strOrNull(v.item),
@@ -90,7 +90,7 @@ function parseProposal(v: unknown): Proposal | null {
 function parseMemory(v: unknown): Memory | null {
   if (!isObj(v)) return null
   return {
-    kind: str(v.kind),
+    kind: str(v.kind).slice(0, 32),
     text: str(v.text),
     where: Array.isArray(v.where) ? v.where.filter((w): w is string => typeof w === 'string') : [],
     p: numOrNull(v.p),
