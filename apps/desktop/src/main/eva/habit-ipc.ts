@@ -70,15 +70,23 @@ export function createHabitService(
   root: string,
   onSpawn?: (cmd: Command) => void,
 ): HabitService {
-  let inflight: Promise<GateStatus> | null = null
+  let inflight: { epoch: number; promise: Promise<GateStatus> } | null = null
+  // A status read that began before a command must never be shared with a read after it.
+  let epoch = 0
   return {
     status() {
-      if (!inflight) {
-        inflight = runGate(build, root, gateArgs({ action: 'status' }), onSpawn).finally(() => {
-          inflight = null
-        })
-      }
-      return inflight
+      if (inflight && inflight.epoch === epoch) return inflight.promise
+      const mine = epoch
+      const promise: Promise<GateStatus> = runGate(
+        build,
+        root,
+        gateArgs({ action: 'status' }),
+        onSpawn,
+      ).finally(() => {
+        if (inflight?.promise === promise) inflight = null
+      })
+      inflight = { epoch: mine, promise }
+      return promise
     },
     async run(input) {
       let args: string[]
@@ -88,7 +96,10 @@ export function createHabitService(
         if (e instanceof GateArgError) throw coded(e.message, 'invalid-input')
         throw e
       }
-      return runGate(build, root, args, onSpawn)
+      epoch += 1
+      const result = await runGate(build, root, args, onSpawn)
+      epoch += 1
+      return result
     },
   }
 }

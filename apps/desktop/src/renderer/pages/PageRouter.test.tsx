@@ -12,6 +12,9 @@ vi.mock('../chat/ChatPane', () => ({
 vi.mock('../jobs/JobsPage', () => ({
   JobsPage: () => <div data-testid="page-jobs">jobs</div>,
 }))
+vi.mock('../habits/HabitsPage', () => ({
+  HabitsPage: () => <div data-testid="page-habits">habits</div>,
+}))
 vi.mock('../dashboard/DashboardPage', () => ({
   DashboardPage: () => <div data-testid="page-dashboard">dash</div>,
 }))
@@ -81,6 +84,12 @@ describe('PageRouter', () => {
     go(placeOf('jobs'))
     ui()
     expect(screen.getByTestId('page-jobs')).toHaveTextContent('jobs')
+  })
+
+  it('renders the habits page for the habits place', () => {
+    go(placeOf('habits'))
+    ui()
+    expect(screen.getByTestId('page-habits')).toHaveTextContent('habits')
   })
 
   it('keeps the chat pane mounted and hidden off the chat place', () => {

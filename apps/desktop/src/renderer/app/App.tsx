@@ -5,6 +5,7 @@ import { initE2e } from '../hotkeys/e2e-hooks'
 import { loadLayout, registerLayoutActions } from '../shell/layout-store'
 import { startTabs } from '../tabs/tabs-store'
 import { startSidebar } from '../sidebar/sidebar-store'
+import { startHabits } from '../habits/habit-store'
 import { startReload } from '../reload/reload'
 import { NewTodoModal } from '../todo/NewTodoModal'
 import { startNewTodo } from '../todo/new-todo-store'
@@ -21,6 +22,7 @@ export function App() {
     const stopSidebar = startSidebar()
     const stopReload = startReload()
     const stopNewTodo = startNewTodo()
+    const stopHabits = startHabits()
     return () => {
       stopRouter()
       stopQuit()
@@ -29,6 +31,7 @@ export function App() {
       stopSidebar()
       stopReload()
       stopNewTodo()
+      stopHabits()
     }
   }, [])
   return (
