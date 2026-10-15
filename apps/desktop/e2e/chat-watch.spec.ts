@@ -32,9 +32,7 @@ const appearedAt = (shell: Page, selector: string, present = true): Promise<numb
     )
     .then(() => shell.evaluate(() => Date.now()))
 
-test('new, appended and deleted session files update the list within 500 ms', async ({
-  shell,
-}) => {
+test('new, appended and deleted session files update the list within 500 ms', async ({ shell }) => {
   await openChats(shell)
   const latencies: number[] = []
   for (let i = 0; i < 3; i++) {
@@ -70,6 +68,9 @@ test('new, appended and deleted session files update the list within 500 ms', as
 
 test('background jobs show Job; owned sessions show Working then Open', async ({ app, shell }) => {
   await openChats(shell)
+  // Groups show five rows; expand every one so the job chat is visible wherever it landed.
+  for (const more of await shell.locator('[data-testid^="chat-show-more-"]').all())
+    await more.click()
   await expect(shell.locator(sel('chat-row-p4-jobs'))).toContainText('Job')
 
   await shell.locator(sel('chat-row-p4-ecard')).click()
@@ -81,5 +82,5 @@ test('background jobs show Job; owned sessions show Working then Open', async ({
   await expect(row).toContainText('Working')
   await proofShot(app, shell, 'chat-status', { phase: 'phase-4' })
   await expect(row).not.toContainText('Working', { timeout: 15_000 })
-  await expect(row.locator('[data-status="open"]')).toHaveCount(1)
+  await expect(row.locator('.eva-cl-dot[data-status="open"]')).toHaveCount(1)
 })

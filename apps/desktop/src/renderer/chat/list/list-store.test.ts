@@ -6,7 +6,7 @@ vi.mock('../../ipc', () => ({ invoke: (...a: unknown[]) => invoke(...a), on: () 
 import { Categories } from '@evaos/chat-core/categories'
 import { groupChats } from '@evaos/chat-core/chat-groups'
 import type { ChatList } from '@evaos/contract'
-import { LIST_LOAD_ERROR, listStore, resetListForTests } from './list-store'
+import { HIGHLIGHT_MS, LIST_LOAD_ERROR, listStore, resetListForTests } from './list-store'
 
 const prefs = {
   chat_categories: [],
@@ -105,5 +105,26 @@ describe('list-store', () => {
     void listStore.getState().toggleCollapsed('eCard')
     listStore.getState().setList({ ...value(1), prefs: { ...prefs, collapsed_groups: ['Other'] } })
     expect(listStore.getState().collapsed.has('eCard')).toBe(false)
+  })
+
+  it('setList keeps identity of unchanged rows and marks changed ones for 300 ms', () => {
+    vi.useFakeTimers()
+    try {
+      listStore.getState().setList(value(3))
+      const first = listStore.getState().list!.rows
+      expect(listStore.getState().changed.size).toBe(0)
+      const next = value(3)
+      next.rows[1] = { ...next.rows[1]!, status: 'working' }
+      listStore.getState().setList(next)
+      const rows = listStore.getState().list!.rows
+      expect(rows[0]).toBe(first[0])
+      expect(rows[2]).toBe(first[2])
+      expect(rows[1]).not.toBe(first[1])
+      expect([...listStore.getState().changed]).toEqual(['g1'])
+      vi.advanceTimersByTime(HIGHLIGHT_MS + 1)
+      expect(listStore.getState().changed.size).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

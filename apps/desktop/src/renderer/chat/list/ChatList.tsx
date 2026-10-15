@@ -8,7 +8,8 @@ import { openPlace } from '../../navigation/navigate'
 import { activePlace, useTabs } from '../../tabs/tabs-store'
 import { ChatRow } from './ChatRow'
 import { GroupHeader } from './GroupHeader'
-import { listStore, useListStore } from './list-store'
+import { registerReloader } from '../../reload/reload'
+import { listStore, subscribeListChanges, useListStore } from './list-store'
 
 const EMPTY_HEADING = 'No chats yet'
 const EMPTY_BODY = 'Start a new chat to talk with Eva. Your omp sessions appear here.'
@@ -42,7 +43,15 @@ export function ChatList({ query: rawQuery }: { query: string }) {
 
   useEffect(() => {
     void listStore.getState().load()
+    const off = subscribeListChanges()
+    // Belt: window focus (and the reload action) rescans, as the Rust app does.
+    const offReload = registerReloader('chat-list', () => listStore.getState().load(), [])
+    return () => {
+      off()
+      offReload()
+    }
   }, [])
+  const changed = useListStore((s) => s.changed)
 
   const view = useMemo(
     () =>
@@ -60,7 +69,13 @@ export function ChatList({ query: rawQuery }: { query: string }) {
     openPlace(placeOf('chat', { chat: row.file }), { newTab: e.metaKey })
 
   const rowEl = (row: Row) => (
-    <ChatRow key={row.id} row={row} active={activeChat === row.file} onOpen={open} />
+    <ChatRow
+      key={row.id}
+      row={row}
+      active={activeChat === row.file}
+      changed={changed.has(row.id)}
+      onOpen={open}
+    />
   )
 
   if (error && (!list || list.rows.length === 0)) {

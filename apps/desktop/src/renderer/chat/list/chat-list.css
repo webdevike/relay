@@ -130,16 +130,28 @@
 .eva-cl-dot[data-status='open'] {
   border: 1.5px solid var(--eva-text-dim);
 }
+.eva-cl-row[data-changed='true'] {
+  animation: eva-cl-flash 300ms ease-out;
+}
+@keyframes eva-cl-flash {
+  from {
+    background: var(--eva-nav-active-bg);
+  }
+}
 @keyframes eva-cl-pulse {
   50% {
     opacity: 0.4;
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .eva-cl-row[data-changed='true'] {
+    animation: none;
+  }
   .eva-cl-dot[data-status='working'] {
     animation: none;
   }
 }
+html[data-eva-motion='off'] .eva-cl-row[data-changed='true'],
 html[data-eva-motion='off'] .eva-cl-dot[data-status='working'],
 html[data-eva-motion='off'] .eva-cl-chev {
   animation: none;

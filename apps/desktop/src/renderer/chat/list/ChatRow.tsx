@@ -1,6 +1,6 @@
 import { Tooltip } from '@mantine/core'
 import { IconMessage, IconPlayerPlay } from '@tabler/icons-react'
-import type { MouseEvent } from 'react'
+import { memo, type MouseEvent } from 'react'
 import type { ChatRow as Row } from '@evaos/contract'
 import { STATUS_LABEL, type ChatStatus } from '@evaos/chat-core/status'
 
@@ -27,10 +27,12 @@ export function StatusIndicator({ status }: { status: ChatStatus | null }) {
 export interface ChatRowProps {
   row: Row
   active: boolean
+  /** Fades the background for 300 ms after a title, status or mtime change. */
+  changed?: boolean
   onOpen: (row: Row, e: MouseEvent) => void
 }
 
-export function ChatRow({ row, active, onOpen }: ChatRowProps) {
+function ChatRowImpl({ row, active, changed, onOpen }: ChatRowProps) {
   const trailing = row.status !== null && row.status !== 'open' ? STATUS_LABEL[row.status] : null
   return (
     <Tooltip label={row.title} openDelay={600} position="right" withinPortal>
@@ -41,6 +43,8 @@ export function ChatRow({ row, active, onOpen }: ChatRowProps) {
         className="eva-cl-row"
         data-testid={`chat-row-${row.id}`}
         data-active={active ? 'true' : undefined}
+        data-changed={changed ? 'true' : undefined}
+        aria-label={`${row.title}${row.status !== null ? `, ${STATUS_LABEL[row.status]}` : ''}`}
         data-running={row.running ? 'true' : undefined}
         onClick={(e) => onOpen(row, e)}
       >
@@ -52,3 +56,5 @@ export function ChatRow({ row, active, onOpen }: ChatRowProps) {
     </Tooltip>
   )
 }
+
+export const ChatRow = memo(ChatRowImpl)
