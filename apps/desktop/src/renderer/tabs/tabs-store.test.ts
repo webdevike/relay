@@ -17,6 +17,7 @@ import {
   startTabs,
   tabsStore,
   togglePinOf,
+  flushPendingTabs,
 } from './tabs-store'
 
 const flush = async (): Promise<void> => {
@@ -91,6 +92,19 @@ describe('save failures', () => {
     navigateTo(placeOf('jobs'))
     await vi.advanceTimersByTimeAsync(300)
     expect(saves()).toHaveLength(2)
+  })
+})
+
+describe('flushPendingTabs', () => {
+  it('writes a debounced change immediately', async () => {
+    startTabs()
+    await flush()
+    navigateTo(placeOf('inbox'))
+    expect(saves()).toHaveLength(0)
+    flushPendingTabs()
+    expect(saves()).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(saves()).toHaveLength(1)
   })
 })
 

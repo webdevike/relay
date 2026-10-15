@@ -55,6 +55,12 @@ export const togglePinOf = (id: number): void => update((t) => togglePin(t, id))
 
 const SAVE_DELAY = 250
 let started: (() => void) | null = null
+let flushNow: () => void = () => {}
+
+/** Writes a pending debounced tab save immediately (quit, pagehide). No-op when nothing is queued. */
+export function flushPendingTabs(): void {
+  flushNow()
+}
 
 /** Idempotent. Loads layout.json tabs, binds the navigator, registers actions, persists changes. */
 export function startTabs(): () => void {
@@ -95,6 +101,14 @@ export function startTabs(): () => void {
     }
   }
 
+  flushNow = (): void => {
+    if (!timer) return
+    clearTimeout(timer)
+    flush()
+  }
+  const onPageHide = (): void => flushNow()
+  if (typeof window !== 'undefined') window.addEventListener('pagehide', onPageHide)
+
   const unsub = tabsStore.subscribe((s, prev) => {
     if (!s.loaded || s.tabs === prev.tabs) return
     if (JSON.stringify(saveTabs(s.tabs)) === lastSaved) return
@@ -122,6 +136,8 @@ export function startTabs(): () => void {
   const dispose = (): void => {
     disposed = true
     unsub()
+    if (typeof window !== 'undefined') window.removeEventListener('pagehide', onPageHide)
+    flushNow = () => {}
     if (timer) clearTimeout(timer)
     offs.forEach((o) => o())
     setNavigator(null)
