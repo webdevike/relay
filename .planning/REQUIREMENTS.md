@@ -71,12 +71,12 @@ Requirements for the parity milestone. Each maps to roadmap phases. The source o
 - [ ] **CHTP-04**: User can right-click a chat for Rename, Pin / Unpin, Archive / Unarchive and Delete, with rename reaching the running omp or a short resume as the README describes
 - [ ] **CHTP-05**: Chat list updates within 500 ms of session file changes without refocusing the window
 - [ ] **CHTP-06**: Composer matches the README's two-line box with toolbar: model picker, access mode, context ring, omp account selector on unsent chats, image paste and drop
-- [ ] **CHTP-07**: Settings › Chat switches for thinking and tool details apply to the chat view and persist as `show_thinking` / `show_tools`
+- [x] **CHTP-07**: Settings › Chat switches for thinking and tool details apply to the chat view and persist as `show_thinking` / `show_tools`
 - [ ] **CHTP-08**: Question cards render every blocked `ask` with inline single-choice answers (`1`-`4`), and extension UI requests (select, confirm, input, editor) are answerable
 - [ ] **CHTP-09**: Subagent chips show running and finished subagents with Clear done, and the background jobs strip shows unfinished jobs while the omp process runs
 - [ ] **CHTP-10**: Sending into a session another writer owns prompts first, and a shared writer registry tracks which pane owns which session
 - [ ] **CHTP-11**: Prompts carry the `<surface><machine> - EvaOS</surface>` tag as the README describes
-- [ ] **CHTP-12**: User can choose the Claude Code harness in Settings › Chat and chats then run through that bridge
+- [x] **CHTP-12**: User can choose the Claude Code harness in Settings › Chat and chats then run through that bridge
 - [ ] **CHTP-13**: Inline images in prompts and tool results render in the chat with an image viewer
 - [ ] **CHTP-14**: Starting a new chat works through the transport the chat plan's ADR selects (direct omp child or herdr plus Relay), and the choice is recorded in PROJECT.md
 
@@ -237,12 +237,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CHTP-04 | Phase 4 | Pending |
 | CHTP-05 | Phase 4 | Pending |
 | CHTP-06 | Phase 4 | Pending |
-| CHTP-07 | Phase 4 | Pending |
+| CHTP-07 | Phase 4 | Complete |
 | CHTP-08 | Phase 4 | Pending |
 | CHTP-09 | Phase 4 | Pending |
 | CHTP-10 | Phase 4 | Pending |
 | CHTP-11 | Phase 4 | Pending |
-| CHTP-12 | Phase 4 | Pending |
+| CHTP-12 | Phase 4 | Complete |
 | CHTP-13 | Phase 4 | Pending |
 | CHTP-14 | Phase 4 | Pending |
 | RICH-01 | Phase 5 | Pending |
