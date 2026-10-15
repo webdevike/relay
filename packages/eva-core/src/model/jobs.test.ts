@@ -172,6 +172,6 @@ describe('labels', () => {
     expect(untilLabel(now + 120 * m, now)).toBe('in 2h')
   })
   it('copy has no em dashes', () => {
-    expect(JSON.stringify(JOB_COPY) + JOB_COPY.nameTaken('x')).not.toContain('—')
+    expect(JSON.stringify(JOB_COPY) + JOB_COPY.nameTaken('x')).not.toContain(String.fromCharCode(8212))
   })
 })
