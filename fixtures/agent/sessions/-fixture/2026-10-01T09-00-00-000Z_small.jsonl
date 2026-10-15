@@ -1,0 +1,10 @@
+{"type":"title","v":1,"title":"Fixture chat","updatedAt":1790845200000,"pad":"    "}
+{"type":"session","version":3,"id":"small","timestamp":"2026-10-01T09:00:00.000Z","cwd":"/fixture/eva-root"}
+{"type":"model_change","id":"m1","parentId":null,"model":"anthropic/claude-opus-5-5"}
+{"type":"message","id":"u1","parentId":"m1","message":{"role":"user","content":"<surface>machine - EvaOS</surface>\nPlease sketch a tiny greeter.","attribution":"user"}}
+{"type":"message","id":"x1","parentId":"u1","message":{"role":"assistant","content":[{"type":"text","text":"ABANDONED-BRANCH-REPLY"}]}}
+{"type":"message","id":"a1","parentId":"u1","message":{"role":"assistant","provider":"anthropic","model":"claude-opus-5-5","content":[{"type":"thinking","thinking":"Weighing a one line greeter against a class."},{"type":"text","text":"Here is a small greeter:\n```ts\nfunction greet(name: string) {\n  return `Hello, ${name}`\n}\n```\nThat is all it needs."},{"type":"toolCall","id":"call1","name":"read","arguments":{"i":"Reading the style notes","path":"notes/style.md"}}],"usage":{"input":1200,"cacheRead":300,"cacheWrite":0},"stopReason":"toolUse"}}
+{"type":"message","id":"r1","parentId":"a1","message":{"role":"toolResult","toolCallId":"call1","toolName":"read","content":[{"type":"text","text":"Prefer short functions."}],"isError":false}}
+{"type":"message","id":"h1","parentId":"r1","message":{"role":"user","content":[{"type":"text","text":"AGENT-HANDOFF-HIDDEN"}],"attribution":"agent"}}
+{"type":"message","id":"u2","parentId":"h1","message":{"role":"user","content":"Thanks, <b>bold</b> stays literal.","attribution":"user"}}
+{"type":"message","id":"a2","parentId":"u2","message":{"role":"assistant","provider":"anthropic","model":"claude-opus-5-5","content":[{"type":"text","text":"You are welcome."}],"usage":{"input":1500,"cacheRead":300,"cacheWrite":0},"stopReason":"stop"}}

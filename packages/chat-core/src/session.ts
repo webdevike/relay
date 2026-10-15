@@ -1,0 +1,239 @@
+import { makeMessage, type ChatMessage, type SessionMeta } from './message'
+
+type Json = Record<string, unknown>
+
+const isObj = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v)
+const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined)
+const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : [])
+
+/** `text` without a leading `<surface>...</surface>` tag from any client. */
+export function untagged(text: string): string {
+  const trimmed = text.trimStart()
+  if (!trimmed.startsWith('<surface>')) return text
+  const end = trimmed.indexOf('</surface>')
+  if (end < 0) return text
+  return trimmed.slice(end + '</surface>'.length).replace(/^[\r\n]+/, '')
+}
+
+/** `text` on one line, cut to `max` characters with an ellipsis. */
+export function oneLine(text: string, max: number): string {
+  const line = text.split(/\s+/).filter(Boolean).join(' ')
+  const chars = Array.from(line)
+  if (chars.length <= max) return line
+  return chars.slice(0, max - 1).join('') + '…'
+}
+
+function toolSummary(args: unknown): string {
+  if (!isObj(args)) return ''
+  for (const key of ['i', 'path', 'command', 'pattern', 'url', 'query', 'title']) {
+    const v = str(args[key])
+    if (v) return oneLine(v, 120)
+  }
+  return ''
+}
+
+/** A tool's input as the expanded row shows it: the command or code it carries, else its arguments without intent and path. */
+function toolInput(args: unknown): string {
+  if (!isObj(args)) return ''
+  const command = str(args.command)
+  if (command) return command
+  const code = str(args.code)
+  if (code) return code
+  const rest: Json = {}
+  for (const [k, v] of Object.entries(args)) if (k !== 'i' && k !== 'path') rest[k] = v
+  return Object.keys(rest).length === 0 ? '' : JSON.stringify(rest, null, 2)
+}
+
+function contextTokens(message: Json): number | null {
+  const snap = message.contextSnapshot
+  if (isObj(snap) && typeof snap.promptTokens === 'number') return snap.promptTokens
+  const usage = message.usage
+  if (isObj(usage) && typeof usage.input === 'number') {
+    const cr = typeof usage.cacheRead === 'number' ? usage.cacheRead : 0
+    const cw = typeof usage.cacheWrite === 'number' ? usage.cacheWrite : 0
+    return usage.input + cr + cw
+  }
+  return null
+}
+
+/** A prompt Isaac wrote: its text parts joined. Null for agent-authored and empty prompts. */
+function promptParts(message: Json): { text: string; images: number } | null {
+  if (message.role !== 'user') return null
+  if ((str(message.attribution) ?? 'user') !== 'user') return null
+  const content = message.content
+  let text: string
+  let images = 0
+  if (typeof content === 'string') {
+    text = content
+  } else {
+    const parts = arr(content).filter(isObj)
+    text = parts
+      .filter((p) => p.type === 'text')
+      .map((p) => str(p.text))
+      .filter((t): t is string => t !== undefined)
+      .join('\n\n')
+    images = parts.filter((p) => p.type === 'image').length
+  }
+  text = untagged(text)
+  return text.trim() !== '' || images > 0 ? { text, images } : null
+}
+
+function textOf(content: unknown): string {
+  if (typeof content === 'string') return content
+  const pieces: string[] = []
+  for (const part of arr(content)) {
+    if (!isObj(part)) continue
+    if (part.type === 'text' && typeof part.text === 'string') pieces.push(part.text)
+    else if (part.type === 'image') pieces.push('[image]')
+  }
+  return pieces.join('\n\n')
+}
+
+export function messagesFrom(message: Json, id: string): ChatMessage[] {
+  if (message.role === 'user') {
+    const prompt = promptParts(message)
+    if (!prompt) return []
+    const images = Array.from({ length: prompt.images }, (_, n) => ({ label: `Image ${n + 1}` }))
+    return [makeMessage(id, 'user', prompt.text, { images })]
+  }
+  if (message.role !== 'assistant') return []
+  const out: ChatMessage[] = []
+  const parts = arr(message.content).filter(isObj)
+  const thinking = parts
+    .filter((p) => p.type === 'thinking')
+    .map((p) => str(p.thinking)?.trim() ?? '')
+    .filter((t) => t !== '')
+  if (thinking.length > 0)
+    out.push(makeMessage(`${id}-thinking`, 'thinking', thinking.join('\n\n')))
+  const text = textOf(message.content)
+  if (text.trim() !== '') out.push(makeMessage(id, 'assistant', text))
+  parts
+    .filter((p) => p.type === 'toolCall')
+    .forEach((call, n) => {
+      const name = str(call.name) ?? 'tool'
+      out.push(
+        makeMessage(`${id}-tool${n}`, 'tool', name, {
+          detail: toolSummary(call.arguments),
+          tool: {
+            call: str(call.id) ?? '',
+            input: toolInput(call.arguments),
+            result: null,
+            isError: false,
+            status: 'running',
+          },
+        }),
+      )
+    })
+  const error = str(message.errorMessage)
+  if (message.stopReason === 'error' && error !== undefined) {
+    out.push(makeMessage(`${id}-error`, 'notice', `Error: ${oneLine(error, 240)}`))
+  }
+  return out
+}
+
+/** Puts a `toolResult` message's output on the tool row it answers. False when it is not one, or no row shows its call. */
+export function attachResult(messages: ChatMessage[], message: Json): boolean {
+  if (message.role !== 'toolResult') return false
+  const call = str(message.toolCallId)
+  if (call === undefined) return false
+  const row = [...messages].reverse().find((m) => m.tool?.call === call)
+  if (!row?.tool) return false
+  const content = message.content
+  const text =
+    typeof content === 'string'
+      ? [content]
+      : arr(content)
+          .filter(isObj)
+          .filter((p) => p.type === 'text')
+          .map((p) => str(p.text))
+          .filter((t): t is string => t !== undefined)
+  const isError = message.isError === true
+  row.tool = {
+    ...row.tool,
+    result: text.join('\n\n'),
+    isError,
+    status: isError ? 'failed' : 'done',
+  }
+  return true
+}
+
+export interface ParsedSession {
+  messages: ChatMessage[]
+  meta: SessionMeta
+  title: string
+}
+
+/** Port of Rust `session()` for omp session files: the active branch only. */
+export function parseSession(text: string): ParsedSession {
+  const records: Json[] = []
+  for (const line of text.split('\n')) {
+    if (line.trim() === '') continue
+    try {
+      const v: unknown = JSON.parse(line)
+      if (isObj(v)) records.push(v)
+    } catch {
+      // malformed line: skipped
+    }
+  }
+  const entries = records.filter((r) => typeof r.id === 'string')
+  const byId = new Map<string, Json>()
+  for (const e of entries) byId.set(e.id as string, e)
+
+  const branch: Json[] = []
+  const seen = new Set<Json>()
+  let next: Json | undefined = entries[entries.length - 1]
+  while (next && !seen.has(next)) {
+    seen.add(next)
+    branch.push(next)
+    const parent = str(next.parentId)
+    next = parent !== undefined ? byId.get(parent) : undefined
+  }
+  branch.reverse()
+
+  const meta: SessionMeta = { model: null, thinking: null, contextTokens: null }
+  for (const entry of branch) {
+    if (entry.type === 'model_change') {
+      const model = str(entry.model)
+      const slash = model?.indexOf('/') ?? -1
+      if (model !== undefined && slash > 0)
+        meta.model = [model.slice(0, slash), model.slice(slash + 1)]
+    } else if (entry.type === 'thinking_level_change') {
+      meta.thinking = str(entry.thinkingLevel) ?? null
+    } else if (
+      entry.type === 'message' &&
+      isObj(entry.message) &&
+      entry.message.role === 'assistant'
+    ) {
+      const m = entry.message
+      const provider = str(m.provider)
+      const id = str(m.model)
+      if (provider !== undefined && id !== undefined) meta.model = [provider, id]
+      const tokens = contextTokens(m)
+      if (tokens !== null) meta.contextTokens = tokens
+    }
+  }
+
+  const messages: ChatMessage[] = []
+  for (const entry of branch) {
+    if (entry.type !== 'message' || !isObj(entry.message)) continue
+    if (!attachResult(messages, entry.message)) {
+      messages.push(...messagesFrom(entry.message, str(entry.id) ?? ''))
+    }
+  }
+
+  let title = ''
+  for (const r of records.slice(0, 4)) {
+    if (r.type === 'title' || r.type === 'session') {
+      const t = str(r.title)
+      if (t) {
+        title = t
+        break
+      }
+    }
+  }
+  if (title === '') {
+    const first = messages.find((m) => m.role === 'user')
+    if (first) title = Array.from(first.text.trim()).slice(0, 60).join('')
+  }
+  return { messages, meta, title }
+}
