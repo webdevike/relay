@@ -16,7 +16,14 @@ const rows: ActivityRow[] = counts.map((count, i) => ({
 function setup(r = rows) {
   return render(
     <MantineProvider>
-      <ActivityChart rows={r} name="Flo" rangeLabel="7 days" height={160} width={600} testid="chart" />
+      <ActivityChart
+        rows={r}
+        name="Flo"
+        rangeLabel="7 days"
+        height={160}
+        width={600}
+        testid="chart"
+      />
     </MantineProvider>,
   )
 }
@@ -44,7 +51,9 @@ describe('ActivityChart', () => {
 
   it('has an accessible label and hidden table', () => {
     setup()
-    expect(screen.getByRole('img', { name: 'Activity for Flo: 6 updates in 7 days' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('img', { name: 'Activity for Flo: 6 updates in 7 days' }),
+    ).toBeInTheDocument()
     expect(screen.getAllByRole('row').length).toBe(8)
   })
 

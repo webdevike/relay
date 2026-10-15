@@ -76,7 +76,12 @@ export function ActivityChart({
       data-testid={testid}
       style={{ height }}
     >
-      <ComposedChart width={w} height={height} data={rows} margin={{ top: 16, right: 4, bottom: 0, left: 4 }}>
+      <ComposedChart
+        width={w}
+        height={height}
+        data={rows}
+        margin={{ top: 16, right: 4, bottom: 0, left: 4 }}
+      >
         <defs>
           <pattern
             id="eva-hatch"
@@ -107,7 +112,13 @@ export function ActivityChart({
             label={{ value: 'This week', position: 'insideTopLeft', fill: DIM, fontSize: 12 }}
           />
         )}
-        <Bar dataKey="count" barSize={barSize} radius={2} minPointSize={1} isAnimationActive={false}>
+        <Bar
+          dataKey="count"
+          barSize={barSize}
+          radius={2}
+          minPointSize={1}
+          isAnimationActive={false}
+        >
           {rows.map((r) => (
             <Cell key={r.date} fill={r.isToday ? ACCENT : MUTED} />
           ))}
@@ -124,12 +135,17 @@ export function ActivityChart({
           content={({ payload, label }) => (
             <ChartTooltip
               label={String(label ?? '')}
-              payload={(payload ?? []).map((p) => ({
-                name: 'updates',
-                value: p.value as number,
-                color: ACCENT,
-              }))}
-              series={[{ name: 'updates', color: ACCENT }]}
+              payload={(payload ?? [])
+                .filter((p) => p.dataKey === 'count')
+                .slice(0, 1)
+                .map((p) => ({
+                  name: 'count',
+                  dataKey: 'count',
+                  value: p.value as number,
+                  color: ACCENT,
+                  payload: p.payload as Record<string, unknown>,
+                }))}
+              series={[{ name: 'count', label: 'updates', color: ACCENT }]}
               valueFormatter={(v) => `${v} updates`}
             />
           )}

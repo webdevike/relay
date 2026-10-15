@@ -33,7 +33,7 @@ function Skeleton() {
 export function DashboardPage(_props: { place: Place }) {
   const root = useRef<HTMLDivElement>(null)
   const [compact, setCompact] = useState(false)
-  const entrance = useEntrance()
+  const entrance = useEntrance('dashboard')
   const data = useDashboard((s) => s.data)
   const loading = useDashboard((s) => s.loading)
   const error = useDashboard((s) => s.error)

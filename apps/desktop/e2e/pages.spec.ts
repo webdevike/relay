@@ -16,12 +16,6 @@ const open = (shell: Page, slug: string): Promise<void> =>
   shell.evaluate((s) => (window as unknown as Hooks).__evaosShell.openPlace(s), slug)
 
 const PAGES: Array<[string, string, string, string]> = [
-  [
-    'dashboard',
-    'Dashboard',
-    'Dashboard',
-    'Your workspaces, activity and open todos will appear here in a later update.',
-  ],
   ['inbox', 'Inbox', 'Inbox', 'Digests and approvals from Eva will appear here in a later update.'],
   ['jobs', 'Jobs', 'Jobs', 'Scheduled jobs and their runs will appear here in a later update.'],
   ['habits', 'Habits', 'Habits', 'Your habits and streaks will appear here in a later update.'],
@@ -52,6 +46,14 @@ test('every placeholder page renders its copy and tab title', async ({ shell }) 
     await expect(page).toContainText(desc)
     await expect(shell.locator('[role=tab][data-active=true]')).toContainText(tabTitle)
   }
+})
+
+test('dashboard is a real page, not a placeholder', async ({ shell }) => {
+  await open(shell, 'inbox')
+  await open(shell, 'dashboard')
+  await expect(shell.locator('[data-testid=page-dashboard]')).toBeVisible()
+  await expect(shell.locator('[data-testid=dash-hero]')).toBeVisible()
+  await expect(shell.locator('[role=tab][data-active=true]')).toContainText('Dashboard')
 })
 
 test('scroll memory, fades and contained overscroll', async ({ shell }) => {

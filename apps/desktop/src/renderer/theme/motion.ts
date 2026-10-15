@@ -11,6 +11,8 @@ export function resolveMotionOff(input: {
 }
 
 let playedThisLaunch = false
+/** Named entrances (pages) that already played this launch; the shell uses the default key. */
+const playedKeys = new Set<string>()
 let motionOff = false
 let mql: MediaQueryList | null = null
 let handler: (() => void) | null = null
@@ -39,17 +41,21 @@ export function initMotion(info: { e2e: boolean; noMotion: boolean }): void {
  * True for the first mount of the launch while motion is on. The flag flips in an effect,
  * not in the initializer, so StrictMode's double render still plays the entrance once.
  */
-export function useEntrance(): boolean {
-  const [play] = useState(() => !playedThisLaunch && !motionOff)
+export function useEntrance(key?: string): boolean {
+  const [play] = useState(() => !(key ? playedKeys.has(key) : playedThisLaunch) && !motionOff)
   useEffect(() => {
-    playedThisLaunch = true
-    document.documentElement.dataset['evaPlayed'] = 'true'
-  }, [])
+    if (key) playedKeys.add(key)
+    else {
+      playedThisLaunch = true
+      document.documentElement.dataset['evaPlayed'] = 'true'
+    }
+  }, [key])
   return play
 }
 
 export function resetEntranceForTests(): void {
   playedThisLaunch = false
+  playedKeys.clear()
   motionOff = false
   delete document.documentElement.dataset['evaPlayed']
 }
