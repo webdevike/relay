@@ -3,7 +3,7 @@ import type { Frame } from '@evaos/chat-core/line-framer'
 import type { ChatTransport, TransportExit } from '@evaos/chat-core/transport'
 import type { Batch } from '@evaos/contract'
 import { EOF_ERROR } from '@evaos/chat-core/reducer'
-import { STILL_CLOSING, SessionManager } from './session-manager'
+import { ALREADY_OWNED, STILL_CLOSING, SessionManager } from './session-manager'
 
 class MemoryTransport implements ChatTransport {
   readonly kind = 'memory'
@@ -387,6 +387,39 @@ describe('SessionManager', () => {
     // The replaced pane stayed inert; the fresh pane starts its own seq at 1.
     await vi.advanceTimersByTimeAsync(16)
     expect(batches.map((b) => b.seq)).toEqual([1, 1])
+    vi.useRealTimers()
+  })
+
+  it('two panes waiting on one closing process: exactly one spawns, the other is refused', async () => {
+    const { mgr, transports } = setup()
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    mgr.open('pane-2', '/s/a.jsonl', [], meta)
+    await mgr.send('pane-1', 'a')
+    await vi.advanceTimersByTimeAsync(16)
+    let exited!: (e: TransportExit) => void
+    transports[0]!.closeResult = new Promise((r) => {
+      exited = r
+    })
+    const closing = mgr.close('pane-1')
+    // Both panes send while the old omp is still finishing its turn (grace window).
+    const first = mgr.send('pane-1', 'b')
+    const second = mgr.send('pane-2', 'c').then(
+      () => null,
+      (e: unknown) => e,
+    )
+    await vi.advanceTimersByTimeAsync(100)
+    expect(transports).toHaveLength(1)
+    exited({ code: 0, signal: null, timedOut: false })
+    await closing
+    await first
+    // The file is released once; only one waiter may take it (single writer, D-17).
+    expect(await second).toMatchObject({ code: 'already-owned', message: ALREADY_OWNED })
+    expect(transports).toHaveLength(2)
+    expect(transports[1]!.started).toEqual([{ sessionFile: '/s/a.jsonl', cwd: '/eva' }])
+    expect(transports[1]!.sent).toEqual(['<surface>Mac - EvaOS</surface>\nb'])
+    expect(mgr.transportOf('pane-1')).toBe(transports[1])
+    expect(mgr.transportOf('pane-2')).toBeNull()
+    expect(mgr.has('/s/a.jsonl')).toBe(true)
     vi.useRealTimers()
   })
 

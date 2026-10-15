@@ -143,19 +143,28 @@ export class SessionManager {
   }
 
   /**
-   * Waits for a previous process on the same file to finish closing, then refuses if the file
-   * is still owned (another pane's live process, or one whose close timed out and is still
-   * running). Resolves with the file free to take.
+   * Waits for a previous process on the same file to finish closing, then claims the file for a
+   * new transport. The free check and the claim run in one synchronous step (no await between
+   * them), so two panes released by the same close cannot both find the file free: the second
+   * is refused with `already-owned` (another pane's live process, or one whose close timed out
+   * and is still running). A pane replaced while it waited never claims.
    */
-  private async acquire(pane: Pane): Promise<void> {
+  private async acquire(pane: Pane): Promise<ChatTransport> {
     for (;;) {
       const owner = this.owners.get(pane.key)
-      if (!owner) return
-      if (owner.closing) {
+      if (owner?.closing) {
         await owner.closing
         continue
       }
-      throw new CodedError('already-owned', owner.pane === pane ? STILL_CLOSING : ALREADY_OWNED)
+      if (this.panes.get(pane.paneId) !== pane) {
+        throw new CodedError('session-closed', 'The session was closed before omp started.')
+      }
+      if (owner) {
+        throw new CodedError('already-owned', owner.pane === pane ? STILL_CLOSING : ALREADY_OWNED)
+      }
+      const transport = this.deps.createTransport()
+      this.owners.set(pane.key, { pane, transport, closing: null })
+      return transport
     }
   }
 
@@ -164,12 +173,7 @@ export class SessionManager {
   }
 
   private async startTransport(pane: Pane): Promise<void> {
-    await this.acquire(pane)
-    if (this.panes.get(pane.paneId) !== pane) {
-      throw new CodedError('session-closed', 'The session was closed before omp started.')
-    }
-    const transport = this.deps.createTransport()
-    this.owners.set(pane.key, { pane, transport, closing: null })
+    const transport = await this.acquire(pane)
     pane.transport = transport
     pane.unsubscribe = transport.onFrame((f) => this.onFrame(pane, transport, f))
     try {
