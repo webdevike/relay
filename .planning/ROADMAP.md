@@ -6,7 +6,7 @@ Port EvaOS from Rust + gpui to Electron + React + TypeScript at README parity. T
 
 ## Phases
 
-- [ ] **Phase 1: Foundation, Harness and the Two Spikes** - Toolchain, EvaFs guard, proof harness, omp chat streaming spike, Chromium browser panel spike
+- [x] **Phase 1: Foundation, Harness and the Two Spikes** - Toolchain, EvaFs guard, proof harness, omp chat streaming spike, Chromium browser panel spike (completed 2026-10-15)
 - [ ] **Phase 2: Shell, Navigation and Theme Tokens** - Three-column shell, sidebar, main tabs, hotkey router, overlay stack, CSS-variable theming
 - [ ] **Phase 3: Dashboard, Workspaces, Jobs, Habits and Meetings** - Every Eva data page, New Todo, atomic job writes, gate overlay
 - [ ] **Phase 4: Chat Parity** - Session catalog, categories, composer, questions, subagents, writer registry, harness, transport ADR
@@ -56,7 +56,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 01-10-PLAN.md: Proof screenshots, validated metrics.json, packaged smoke, drag region, final proof gate (wave 5)
+- [x] 01-10-PLAN.md: Proof screenshots, validated metrics.json, packaged smoke, drag region, final proof gate (wave 5)
 
 **UI hint**: yes
 
@@ -164,7 +164,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation, Harness and the Two Spikes | 9/10 | In Progress|  |
+| 1. Foundation, Harness and the Two Spikes | 10/10 | Complete   | 2026-10-15 |
 | 2. Shell, Navigation and Theme Tokens | 0/TBD | Not started | - |
 | 3. Dashboard, Workspaces, Jobs, Habits and Meetings | 0/TBD | Not started | - |
 | 4. Chat Parity | 0/TBD | Not started | - |

@@ -149,7 +149,7 @@ Requirements for the parity milestone. Each maps to roadmap phases. The source o
 
 ### Proof
 
-- [ ] **PROF-01**: Each phase ends with the built app running and Playwright screenshots under `proof/<phase>/` paired with state assertions
+- [x] **PROF-01**: Each phase ends with the built app running and Playwright screenshots under `proof/<phase>/` paired with state assertions
 - [x] **PROF-02**: The spike records chat streaming numbers (gapless sequence check, frame-time p95 on the benchmark fixture) and browser checks (bounds match slot, overlay hides view, CDP text probe) in `proof/`
 
 ## v2 Requirements
@@ -291,7 +291,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | THEM-04 | Phase 7 | Pending |
 | THEM-05 | Phase 7 | Pending |
 | THEM-06 | Phase 7 | Pending |
-| PROF-01 | Phase 1 | Pending |
+| PROF-01 | Phase 1 | Complete |
 | PROF-02 | Phase 1 | Complete |
 
 **Coverage:**
