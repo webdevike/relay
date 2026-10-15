@@ -5,12 +5,19 @@ import { test, expect, launchApp } from './fixtures'
 
 test.use({ startOnChat: false, colorScheme: 'dark' })
 
+interface Hooks {
+  openPlace(page: string, newTab?: boolean, extra?: { settingsSection: string }): void
+  tabs(): { active: number; list: Array<{ title: string }> }
+}
+type W = { __evaosShell?: Hooks }
+
 type Section = 'Theme' | 'Chat' | 'Notifications'
 
 async function open(page: Page, section: Section): Promise<void> {
-  await page.waitForFunction(() => Boolean(window.__evaosShell))
+  await page.waitForFunction(() => Boolean((window as unknown as W).__evaosShell))
   await page.evaluate(
-    (s) => window.__evaosShell!.openPlace('settings', false, { settingsSection: s }),
+    (s) =>
+      (window as unknown as W).__evaosShell!.openPlace('settings', false, { settingsSection: s }),
     section,
   )
   await page.waitForSelector(`[data-testid=settings-${section.toLowerCase()}]`)
@@ -35,7 +42,7 @@ test('sections render with titles, descriptions and tab titles', async ({ shell 
     const root = shell.locator(`[data-testid=settings-${section.toLowerCase()}]`)
     await expect(root.locator('h1')).toHaveText(section)
     await expect(root).toContainText(desc)
-    const tabs = await shell.evaluate(() => window.__evaosShell!.tabs())
+    const tabs = await shell.evaluate(() => (window as unknown as W).__evaosShell!.tabs())
     expect(tabs.list[tabs.active]!.title).toBe(`Settings: ${section}`)
   }
 })
