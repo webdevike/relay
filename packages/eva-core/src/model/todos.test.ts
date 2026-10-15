@@ -18,7 +18,8 @@ describe('parseOpenTodos', () => {
     ])
   })
   it('agrees with the sidebar count', () => {
-    const text = '## Open\n- [ ] T3 [flo] Fix (added 2026-10-13)\n- [ ] T4 nope\n- [ ] Q5 [a] x\n- [ ] T6 [a]\n'
+    const text =
+      '## Open\n- [ ] T3 [flo] Fix (added 2026-10-13)\n- [ ] T4 nope\n- [ ] Q5 [a] x\n- [ ] T6 [a]\n'
     expect(parseOpenTodos(text).length).toBe(countOpenTodos(text))
     expect(isOpenTodoRow('- [ ] T3 [flo] Fix')).toBe(true)
     expect(isOpenTodoRow('- [ ] T4 nope')).toBe(false)

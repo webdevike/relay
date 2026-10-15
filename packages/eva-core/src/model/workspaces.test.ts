@@ -14,7 +14,7 @@ import {
   type Workspace,
 } from './workspaces'
 
-const DASH = '—'
+const DASH = '\u2014'
 let root: string
 
 beforeEach(() => {
@@ -74,11 +74,11 @@ describe('workspaceFrom', () => {
     `## 2026-10-14 ${DASH} [flo] Journal title\n- b1\n\n## 2026-10-10 [relay] Other\n\n## 2026-10-12 [flo] Older\n`,
     'memory/journal.md',
   )
-  const ws = workspaceFrom(
-    { id: 'flo', path: 'workspaces/flo.md', text: WS_TEXT },
-    journal,
-    ['flo', 'flo', 'relay'],
-  )
+  const ws = workspaceFrom({ id: 'flo', path: 'workspaces/flo.md', text: WS_TEXT }, journal, [
+    'flo',
+    'flo',
+    'relay',
+  ])
 
   it('extracts names, tagline, sections and bodies', () => {
     expect(ws.name).toBe(`Flo ${DASH} Field ops (beta)`)

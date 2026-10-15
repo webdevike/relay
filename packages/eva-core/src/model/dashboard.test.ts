@@ -57,7 +57,13 @@ describe('activityRows', () => {
   it('labels a 7 day range with weekday initials', () => {
     const rows = activityRows(daily, 7, TODAY)
     expect(rows.map((r) => r.date)).toEqual([
-      '2026-10-09', '2026-10-10', '2026-10-11', '2026-10-12', '2026-10-13', '2026-10-14', '2026-10-15',
+      '2026-10-09',
+      '2026-10-10',
+      '2026-10-11',
+      '2026-10-12',
+      '2026-10-13',
+      '2026-10-14',
+      '2026-10-15',
     ])
     expect(rows.map((r) => r.count)).toEqual([83, 84, 85, 86, 87, 88, 89])
     expect(rows.map((r) => r.tick)).toEqual(['F', 'S', 'S', 'M', 'T', 'W', 'T'])
@@ -117,7 +123,10 @@ describe('readers', () => {
     put('workspaces/goodops.md', '# GoodOps (formerly GoodWord)\n\nTagline here.\n')
     put('memory/journal.md', '## 2026-10-14 [goodword] Alias entry\n- x\n')
     put('memory/archive/2026-09.md', '## 2026-09-01 [eva] Old one\n')
-    put('memory/todos.md', '# Todos\n\n## Open\n\n- [ ] T2 [eva-app] second\n- [ ] T1 [goodword] first\n')
+    put(
+      'memory/todos.md',
+      '# Todos\n\n## Open\n\n- [ ] T2 [eva-app] second\n- [ ] T1 [goodword] first\n',
+    )
     const p = readDashboard(root, TODAY, 5)
     expect(p.today).toBe(TODAY)
     expect(p.workspaces.map((w) => w.id).sort()).toEqual(['eva', 'goodops'])
