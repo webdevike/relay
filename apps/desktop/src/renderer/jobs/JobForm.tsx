@@ -21,6 +21,7 @@ import {
   formErrors,
   initialForm,
   isDirty,
+  mergeFresh,
   toSaveInput,
   type JobFormState,
   type ScheduleMode,
@@ -164,8 +165,10 @@ function Form({ mode, jobName }: { mode: 'create' | 'update'; jobName: string })
   const keepEditing = async (): Promise<void> => {
     const l = await fetchJob()
     if (!l) return
-    // Adopt the fresh text as the basis; the typed fields stay.
-    setLoaded({ basis: l.basis, initial: loaded?.initial ?? l.initial })
+    // Adopt the fresh text as basis and baseline; only fields the user changed keep their value.
+    const old = loaded?.initial ?? l.initial
+    setLoaded(l)
+    setForm((f) => mergeFresh(f, old, l.initial))
     setStale(false)
   }
 

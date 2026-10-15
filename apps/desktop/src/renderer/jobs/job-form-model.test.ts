@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { JOB_COPY } from '@evaos/eva-core/model/jobs'
-import { formErrors, initialForm, isDirty, toSaveInput } from './job-form-model'
+import { formErrors, initialForm, isDirty, mergeFresh, toSaveInput } from './job-form-model'
 
 const loaded = (every: string) => ({
   settings: { every, enabled: true, maxRun: '', keep: '' },
@@ -31,5 +31,24 @@ describe('job form model', () => {
     expect(formErrors({ ...base, steps: '  ' }, 'create', []).steps).toBe(JOB_COPY.steps)
     expect(formErrors({ ...base, keep: '0', maxRun: '' }, 'create', [])).toEqual({})
     expect(formErrors({ ...base, schedule: 'manual', every: 'junk' }, 'create', [])).toEqual({})
+  })
+})
+
+describe('mergeFresh', () => {
+  const settings = { every: '2h', enabled: true, maxRun: '', keep: '' }
+  const old = initialForm('nightly', { settings, steps: 'one\n' })
+  const fresh = initialForm('nightly', {
+    settings: { ...settings, keep: '1h', enabled: false },
+    steps: 'one\ntwo\n',
+  })
+  it('keeps user-changed fields and adopts external edits to the rest', () => {
+    const form = { ...old, maxRun: '5m' }
+    const merged = mergeFresh(form, old, fresh)
+    expect(merged).toMatchObject({ maxRun: '5m', keep: '1h', enabled: false, steps: 'one\ntwo\n' })
+    expect(isDirty(merged, fresh)).toBe(true)
+    expect(isDirty(mergeFresh(old, old, fresh), fresh)).toBe(false)
+  })
+  it('keeps user-edited steps over fresh steps', () => {
+    expect(mergeFresh({ ...old, steps: 'mine\n' }, old, fresh).steps).toBe('mine\n')
   })
 })

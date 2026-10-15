@@ -76,3 +76,25 @@ export function isDirty(a: JobFormState, b: JobFormState): boolean {
     a.steps !== b.steps
   )
 }
+
+/**
+ * Fields the user changed since `oldInitial` keep their typed value; every other field takes the
+ * fresh disk value, so saving never rewrites external edits to fields the user did not touch.
+ */
+export function mergeFresh(
+  form: JobFormState,
+  oldInitial: JobFormState,
+  fresh: JobFormState,
+): JobFormState {
+  const same = (k: keyof JobFormState): boolean => form[k] === oldInitial[k]
+  const schedule = same('schedule') && same('every')
+  return {
+    name: fresh.name,
+    schedule: schedule ? fresh.schedule : form.schedule,
+    every: schedule ? fresh.every : form.every,
+    maxRun: same('maxRun') ? fresh.maxRun : form.maxRun,
+    keep: same('keep') ? fresh.keep : form.keep,
+    enabled: same('enabled') ? fresh.enabled : form.enabled,
+    steps: same('steps') ? fresh.steps : form.steps,
+  }
+}
