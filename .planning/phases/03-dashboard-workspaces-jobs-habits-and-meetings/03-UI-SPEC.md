@@ -45,7 +45,9 @@ Exceptions (layout constants, all multiples of 4): the values below are not spac
 | Chart height | 160 (wide), 128 (compact) | |
 | Table row height | 48 (Jobs, Habits), 36 (history, today's breaks) | |
 | Filter chip height | 28 | |
-| Detail form width | 480 inside `EvaModal` (Job and Habit forms) | Jobs form is a modal, not a page |
+| Detail form width | 480 (Habit form) and 560 (Job form) inside `EvaModal` | Forms are modals, not pages |
+| Habits column widths | 88 (Minutes, Proof), 112 (Streak) | Layout constants, multiples of 4 |
+| Chip and meeting row padding | 12 | Layout constant, multiple of 4 |
 | Gate overlay content column | `max-width: 480px` | |
 | Meeting row | 48 high, day heading 28 high | Sidebar sub-page |
 | Icon tile | 48 by 48 (empty states) | Same as P2 |
@@ -194,7 +196,7 @@ Empty: icon tile + "No jobs yet" (Heading 16) + "Create a job to have Eva run st
 Header row: "Habits" (Display), refresh `ActionIcon`, primary "Add habit" (`habits-add`). Under it, a **gate status strip** (`habit-gate-strip`, full width, 48 high, padding 16, border, radius): locked: `IconLock` + "Locked: finish a habit to unlock AI tools." (warning left bar 4px); unlocked: `IconLockOpen` + "Unlocked. {Next break at 2:30 PM. | No more breaks today.}" (success left bar). Plus plan source badge at right: "From your calendar" / "Evenly spaced (calendar unavailable)" / "Planned".
 
 Sections (each: section title Heading 16 with icon, then a card):
-1. **Habits** (`IconActivity`): table, columns Habit, Minutes, Proof, Streak (header Label 12/600 dim; Minutes and Proof 90 wide, Streak 110). Rows 48, click opens the habit form. Proof cell badge "Photo" or "Honor". Streak cell: "{n} days" or "None yet" dim. Empty: "No habits yet. Add one to have something to pick at a break."
+1. **Habits** (`IconActivity`): table, columns Habit, Minutes, Proof, Streak (header Label 12/600 dim; Minutes and Proof 88 wide, Streak 112). Rows 48, click opens the habit form. Proof cell badge "Photo" or "Honor". Streak cell: "{n} days" or "None yet" dim. Empty: "No habits yet. Add one to have something to pick at a break."
 2. **One-time tasks** (`IconListTodo`): rows 48, name, minutes, "Remove task" `ActionIcon` (`IconX`, tooltip "Remove task"). An inline add row at the top: name input (placeholder "Something you keep putting off") + minutes input (placeholder "Minutes (optional)") + "Add task" button; validation "Say what the task is." and "Minutes must be a whole number from 1 to {max}." Empty: "No open tasks."
 3. **Today's breaks** (`IconClock`): rows 36 with state icon: `IconCircleCheck` + "Done" (success), `IconClock` + "Upcoming" (dim); time, habit name, "Task" badge when a task, overridden rows show "Overridden: {reason}". Empty: "No breaks planned for today yet."
 4. **History** (`IconClock`): rows 36 grouped by day ("Today", "Yesterday", "Sep 14"), entry name, time, "Task" badge, proof photo `ActionIcon` (`IconPhoto`, tooltip "Open the proof photo", opens through `shell.openPath`). Empty: "Nothing finished yet."
