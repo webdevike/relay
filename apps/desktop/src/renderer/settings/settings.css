@@ -70,29 +70,35 @@
   width: 280px;
   flex: none;
 }
-.eva-settings-theme-picker {
-  width: 280px;
+.eva-theme-preset-row {
+  display: flex;
+  align-items: center;
+  gap: var(--eva-space-native-sm);
+  margin-bottom: var(--eva-space-md);
+}
+.eva-theme-preset-label {
+  width: 78px;
+  flex: none;
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+}
+.eva-theme-preset-content,
+.eva-theme-swatches {
+  display: inline-flex;
+  align-items: center;
+}
+.eva-theme-preset-content {
+  gap: var(--eva-space-native-xs);
+}
+.eva-theme-swatches {
+  gap: var(--eva-space-xs);
   flex: none;
 }
-.eva-settings-theme-dropdown {
-  background: var(--eva-c-popover-background);
-  color: var(--eva-c-popover-foreground);
-  border-color: var(--eva-c-border);
-}
-.eva-settings-theme-option[data-combobox-selected],
-.eva-settings-theme-option[data-combobox-active] {
-  background: var(--eva-c-accent-background);
-  color: var(--eva-c-accent-foreground);
-}
-@media (max-width: 600px) {
-  .eva-settings-theme-row {
-    align-items: stretch;
-    flex-direction: column;
-    gap: 8px;
-  }
-  .eva-settings-theme-picker {
-    width: 100%;
-  }
+.eva-theme-swatches > span {
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--eva-border);
+  border-radius: var(--eva-radius-sm);
 }
 .eva-switch {
   --switch-width: 40px;

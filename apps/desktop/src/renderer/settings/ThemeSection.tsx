@@ -1,18 +1,29 @@
-import { useEffect, useId, useState } from 'react'
-import { Select } from '@mantine/core'
+import { useEffect, useState } from 'react'
+import { Button, Menu } from '@mantine/core'
+import { IconCheck, IconChevronDown } from '@tabler/icons-react'
+import { getThemePreset } from '@evaos/theme-core'
 import { invoke } from '../ipc'
 import { setThemeBase, useTheme } from '../theme/theme-store'
 import { AppearanceControl } from '../theme/AppearanceControl'
 
+function Swatches({ family, mode }: { family: string; mode: 'light' | 'dark' }) {
+  const colors = getThemePreset(family, mode)?.colors
+  return (
+    <span className="eva-theme-swatches" aria-hidden="true">
+      {(['primary.background', 'background', 'border', 'foreground'] as const).map((key) => (
+        <span key={key} style={{ backgroundColor: colors?.[key] ?? 'var(--eva-border)' }} />
+      ))}
+    </span>
+  )
+}
+
 export function ThemeSection() {
-  const pickerId = useId()
-  const helpId = `${pickerId}-help`
   const base = useTheme((s) => s.doc.base)
+  const mode = useTheme((s) => s.resolved)
   const saving = useTheme((s) => s.baseSaving)
   const saveError = useTheme((s) => s.baseError)
   const [themes, setThemes] = useState<{ id: string; name: string }[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
-
   useEffect(() => {
     let live = true
     void invoke('theme.list', {})
@@ -28,44 +39,60 @@ export function ThemeSection() {
       live = false
     }
   }, [])
-
   return (
     <>
+      <div className="eva-theme-preset-row">
+        <span className="eva-theme-preset-label">Start from</span>
+        <Menu
+          width={300}
+          position="bottom-start"
+          withinPortal
+          classNames={{ dropdown: 'eva-menu-dropdown', item: 'eva-menu-item' }}
+        >
+          <Menu.Target>
+            <Button
+              variant="outline"
+              size="sm"
+              data-testid="theme-family-picker"
+              aria-label="Theme family"
+              aria-busy={saving}
+              disabled={themes === null || saving || loadError !== null}
+              title="Theme for both Light and Dark"
+            >
+              <span className="eva-theme-preset-content">
+                <Swatches family={base} mode={mode} />
+                {base}
+                <IconChevronDown size={11} />
+              </span>
+            </Button>
+          </Menu.Target>
+          <Menu.Dropdown style={{ maxHeight: 460, overflowY: 'auto' }}>
+            {(themes ?? []).map(({ id, name }, index) => (
+              <div key={id}>
+                {index === 1 ? (
+                  <>
+                    <Menu.Divider />
+                    <Menu.Label>gpui-kit themes</Menu.Label>
+                  </>
+                ) : null}
+                <Menu.Item
+                  onClick={() => void setThemeBase(id)}
+                  leftSection={<Swatches family={id} mode={mode} />}
+                  rightSection={id === base ? <IconCheck size={14} aria-label="Selected" /> : null}
+                >
+                  {name}
+                </Menu.Item>
+              </div>
+            ))}
+          </Menu.Dropdown>
+        </Menu>
+      </div>
+      {(loadError ?? saveError) ? (
+        <p role="alert" className="eva-control-error">
+          {loadError ?? saveError}
+        </p>
+      ) : null}
       <div className="eva-settings-card">
-        <div className="eva-settings-row eva-settings-row-static eva-settings-theme-row">
-          <div className="eva-settings-label">
-            <label className="eva-settings-label-title" htmlFor={pickerId}>
-              Theme family
-            </label>
-            <span className="eva-settings-label-help" id={helpId}>
-              Applies to both Light and Dark. Your color edits stay in place.
-            </span>
-          </div>
-          <Select
-            id={pickerId}
-            data-testid="theme-family-picker"
-            className="eva-settings-theme-picker"
-            classNames={{
-              dropdown: 'eva-settings-theme-dropdown',
-              option: 'eva-settings-theme-option',
-            }}
-            aria-describedby={helpId}
-            aria-busy={saving}
-            data={(themes ?? [{ id: base, name: base }]).map(({ id, name }) => ({
-              value: id,
-              label: name,
-            }))}
-            value={base}
-            placeholder={base}
-            disabled={themes === null || saving || loadError !== null}
-            allowDeselect={false}
-            error={loadError ?? saveError}
-            errorProps={{ role: 'alert' }}
-            onChange={(value) => {
-              if (value !== null) void setThemeBase(value)
-            }}
-          />
-        </div>
         <div className="eva-settings-row eva-settings-row-static">
           <div className="eva-settings-label">
             <span className="eva-settings-label-title">Appearance</span>

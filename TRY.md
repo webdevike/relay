@@ -63,6 +63,7 @@ Headless and test launches set `EVAOS_E2E=1` (background accessory app) and `EVA
 - Verified second pass: 1,074 unit tests and 184 Electron scenarios passed, 2 opt-in scenarios skipped; typecheck/build clean. Native reference captures and wide/compact Electron proof are under `proof/ux-parity/`. Escape abort retains precedence over sidebar Back while the composer is focused and replying. Category action hit targets and drag across a scrolled list are exercised.
 - Settings > Theme now offers a live theme-family picker for 13 paired native families. Selection and appearance persist in the port's own `theme.json`; shared/per-mode edits and unknown document fields survive base changes. Failed saves roll back the family and display an error. Full color/font editing remains deferred.
 - Theme-picker verification: typecheck/build clean, 1,086 unit tests passed and 8 Electron settings/theme scenarios passed, including live switch without remount, Light mode, relaunch, override preservation and switching back. Screenshot: `proof/ux-parity/theme-picker.png`.
+- Picker presentation now follows native `theme_editor.rs`: compact “Start from” outline trigger, four color swatches in the trigger and each menu row, selected checkmark, separate EvaOS entry and “gpui-kit themes” section, 300px menu width and 460px scroll cap. This matches the picker, not the still-deferred full property editor/preview layout.
 
 ## Missing versus current EvaOS
 

@@ -56,9 +56,9 @@ describe('SettingsPage', () => {
   it('loads the catalog and restores the selected family and appearance', async () => {
     initTheme('dark', parseThemeDoc({ base: 'Flexoki', app: { appearance: 'dark' } }))
     page('Theme')
-    const picker = screen.getByRole('combobox', { name: 'Theme family' })
+    const picker = screen.getByRole('button', { name: 'Theme family' })
     await waitFor(() => expect(picker).toBeEnabled())
-    expect(picker).toHaveValue('Flexoki')
+    expect(picker).toHaveTextContent('Flexoki')
     expect(screen.getByRole('radio', { name: 'Dark' })).toBeChecked()
     expect(invoke).toHaveBeenCalledWith('theme.list', {})
   })
@@ -69,13 +69,9 @@ describe('SettingsPage', () => {
     const picker = screen.getByTestId('theme-family-picker')
     await waitFor(() => expect(picker).toBeEnabled())
     await user.click(picker)
-    expect((await screen.findAllByRole('option')).map((option) => option.textContent)).toEqual([
-      'EvaOS',
-      'Flexoki',
-      'Gruvbox',
-    ])
-    await user.keyboard('{ArrowDown}{Enter}')
-    await waitFor(() => expect(picker).toHaveValue('Flexoki'))
+    await screen.findByRole('menuitem', { name: 'Flexoki' })
+    await user.keyboard('{ArrowDown}{ArrowDown}{Enter}')
+    await waitFor(() => expect(picker).toHaveTextContent('Flexoki'))
     expect(themeStore.getState().doc.base).toBe('Flexoki')
     expect(themeStore.getState().appearance).toBe('system')
     expect(invoke.mock.calls.filter(([channel]) => channel === 'theme.setBase')).toEqual([
@@ -99,9 +95,9 @@ describe('SettingsPage', () => {
     const picker = screen.getByTestId('theme-family-picker')
     await waitFor(() => expect(picker).toBeEnabled())
     await user.click(picker)
-    await user.click(await screen.findByRole('option', { name: 'Flexoki' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Flexoki' }))
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('previous theme'))
-    expect(picker).toHaveValue('EvaOS')
+    expect(picker).toHaveTextContent('EvaOS')
     expect(picker).toBeEnabled()
     expect(themeStore.getState().doc.base).toBe('EvaOS')
   })
