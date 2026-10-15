@@ -86,10 +86,7 @@ describe('settings', () => {
     expect(loadSettings(config)).toEqual({ show_thinking: false, show_tools: true, harness: 'omp' })
   })
   it('chat.json wins, settings.json fills missing keys', () => {
-    fs.writeFileSync(
-      path.join(dir, 'chat.json'),
-      '{"show_thinking":true,"chat_categories":["X"]}',
-    )
+    fs.writeFileSync(path.join(dir, 'chat.json'), '{"show_thinking":true,"chat_categories":["X"]}')
     fs.writeFileSync(path.join(dir, 'settings.json'), '{"show_tools":false,"show_thinking":false}')
     expect(loadSettings(config)).toEqual({ show_thinking: true, show_tools: false, harness: 'omp' })
   })
