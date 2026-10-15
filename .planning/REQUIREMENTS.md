@@ -45,12 +45,12 @@ Requirements for the parity milestone. Each maps to roadmap phases. The source o
 
 - [x] **SHEL-01**: App shows `[sidebar][main card][right panel card]` over a footer strip, with the README's shrink order, the three-column floor, automatic sidebar folding, and a 760 by 720 minimum window
 - [x] **SHEL-02**: User can drag the sidebar and panel edges within the README's ranges, double-click to reset, and widths persist in `layout.json`
-- [x] **SHEL-03**: Sidebar shows the nav pages, Recent journal titles filtered by `⌘F`, Tasks and Jobs counts, Setting, Help Center, the account menu and Light / Dark / System, and slides to sub-pages for Chats, Settings and Meetings with Back and Esc
+- [ ] **SHEL-03**: Sidebar shows the nav pages, Recent journal titles filtered by `⌘F`, Tasks and Jobs counts, Setting, Help Center, the account menu and Light / Dark / System, and slides to sub-pages for Chats, Settings and Meetings with Back and Esc
 - [x] **SHEL-04**: User can open main tabs (`⌘T`), close them (`⌘W`, without stopping a chat), move through per-tab history (`⌘[`, `⌘]`), `⌘`-click to open in a new tab, right-click Pin / Unpin / Close / Close others, with tabs persisted in `layout.json`
 - [x] **SHEL-05**: Every README hotkey works (`⌘N ⌘R ⌘B ⌘⇧B ⌘J ⌘K ⌘F ⌘T ⌘W ⌘[ ⌘] ⌘S ⌘1-9`, Esc ladders) through one hotkey router that yields to a focused terminal
 - [ ] **SHEL-06**: Scroll areas are contained with thin themed scrollbars and continuation fades, and each main page keeps its own scroll position across navigation
 - [ ] **SHEL-07**: The entrance animation plays once per launch with the README's timing and can be disabled for tests
-- [x] **SHEL-08**: Quitting with unsaved Files edits asks before closing
+- [ ] **SHEL-08**: Quitting with unsaved Files edits asks before closing
 
 ### Dashboard and Workspaces
 
@@ -139,7 +139,7 @@ Requirements for the parity milestone. Each maps to roadmap phases. The source o
 
 ### Settings and Theme
 
-- [x] **SETT-01**: Settings page lists Chat, Theme and Notifications sections in the sidebar and shows the picked one in main
+- [ ] **SETT-01**: Settings page lists Chat, Theme and Notifications sections in the sidebar and shows the picked one in main
 - [x] **THEM-01**: The app theme is a set of CSS variables applied imperatively (139 color keys, typography, radius, shadows) so edits apply live without remounting
 - [x] **THEM-02**: One theme has light and dark versions; Light / Dark / System picks which shows, and the editor's Light / Dark picks the version edited
 - [ ] **THEM-03**: User can start from EvaOS's theme or one of the 10 paired kit themes with swatches
@@ -217,12 +217,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | BROW-09 | Phase 1 | Complete |
 | SHEL-01 | Phase 2 | Complete |
 | SHEL-02 | Phase 2 | Complete |
-| SHEL-03 | Phase 2 | Complete |
+| SHEL-03 | Phase 2 | Pending |
 | SHEL-04 | Phase 2 | Complete |
 | SHEL-05 | Phase 2 | Complete |
 | SHEL-06 | Phase 2 | Pending |
 | SHEL-07 | Phase 2 | Pending |
-| SHEL-08 | Phase 2 | Complete |
+| SHEL-08 | Phase 2 | Pending |
 | DASH-01 | Phase 3 | Pending |
 | DASH-02 | Phase 3 | Pending |
 | DASH-03 | Phase 3 | Pending |
@@ -284,7 +284,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INBX-05 | Phase 7 | Pending |
 | INBX-06 | Phase 7 | Pending |
 | INBX-07 | Phase 7 | Pending |
-| SETT-01 | Phase 2 | Complete |
+| SETT-01 | Phase 2 | Pending |
 | THEM-01 | Phase 2 | Complete |
 | THEM-02 | Phase 2 | Complete |
 | THEM-03 | Phase 7 | Pending |
