@@ -18,18 +18,44 @@
   --eva-space-2xl: 48px;
   --eva-space-3xl: 64px;
 
-  --eva-fz-body: 14px;
-  --eva-fz-label: 12px;
-  --eva-fz-heading: 16px;
-  --eva-fz-display: 20px;
+  /* Native scale.rs steps, separate from the port's legacy layout spacing. */
+  --eva-space-native-xs: calc(var(--eva-font-size) * 10 / 14);
+  --eva-space-native-sm: calc(var(--eva-font-size) * 12 / 14);
+  --eva-space-native-lg: calc(var(--eva-font-size) * 20 / 14);
+  --eva-fz-caption: calc(var(--eva-font-size) * 11 / 14);
+  --eva-lh-body: 1.45;
+  --eva-lh-label: 1.4;
+  --eva-control-xs: calc(var(--eva-font-size) * 30 / 14);
+  --eva-control-sm: calc(var(--eva-font-size) * 36 / 14);
+  --eva-control-md: calc(var(--eva-font-size) * 42 / 14);
+  --eva-control-lg: calc(var(--eva-font-size) * 50 / 14);
+  --eva-tile-xs: calc(var(--eva-font-size) * 18 / 14);
+  --eva-tile-md: calc(var(--eva-font-size) * 2);
+  --eva-tile-lg: calc(var(--eva-font-size) * 34 / 14);
+  --eva-radius-sm: calc(var(--eva-radius) / 2);
+  --eva-radius-xl: calc(var(--eva-radius) * 2);
+  --eva-radius-round: 9999px;
+  --eva-chat-column-w: 780px;
+  --eva-kit-control-xs: calc(var(--eva-font-size) * 1.25);
+  --eva-kit-control-sm: calc(var(--eva-font-size) * 1.5);
+  --eva-kit-control-md: calc(var(--eva-font-size) * 2);
+  --eva-kit-control-lg: calc(var(--eva-font-size) * 2.75);
+  --eva-kit-input-px: 10px;
+  --eva-kit-input-py: 8px;
+
+  --eva-fz-body: var(--eva-font-size);
+  --eva-fz-label: calc(var(--eva-font-size) * 12 / 14);
+  --eva-fz-heading: calc(var(--eva-font-size) * 16 / 14);
+  --eva-fz-display: calc(var(--eva-font-size) * 20 / 14);
+  --eva-fw-medium: 500;
   --eva-fw-regular: 400;
   --eva-fw-semibold: 600;
   --eva-font-mono: var(--eva-font-code);
 
   --eva-main-min: 480px;
-  --eva-tab-strip-h: 36px;
+  --eva-tab-strip-h: var(--eva-tile-lg);
   --eva-address-h: 40px;
-  --eva-chat-header-h: 40px;
+  --eva-chat-header-h: 56px;
 }
 
 /* Aliases of the live kit variables written by the ThemeApplier (D-15). */
@@ -63,6 +89,85 @@
   --eva-dur-fast: 120ms;
 }
 
+/* The native input frame uses input.border and ring, not a library palette. */
+:root[data-mantine-color-scheme] {
+  --mantine-color-text: var(--eva-text);
+  --mantine-color-dimmed: var(--eva-text-dim);
+  --mantine-color-body: var(--eva-bg);
+  --mantine-color-error: var(--eva-danger);
+  --mantine-primary-color-filled: var(--eva-c-primary-background);
+  --mantine-primary-color-filled-hover: var(--eva-c-primary-hover-background);
+  --mantine-primary-color-light: var(--eva-c-accent-background);
+  --mantine-primary-color-light-color: var(--eva-c-primary-background);
+}
+.eva-control-input {
+  background: var(--eva-bg);
+  border-color: var(--eva-c-input-border);
+  border-radius: var(--eva-radius);
+  color: var(--eva-text);
+  caret-color: var(--eva-c-caret);
+  font-family: var(--eva-font-ui);
+  line-height: var(--eva-lh-body);
+}
+html[data-resolved='dark'] .eva-control-input:not(.eva-composer-input) {
+  background: color-mix(in oklab, var(--eva-c-input-border) 70%, transparent);
+}
+.eva-control-input::placeholder {
+  color: var(--eva-text-dim);
+  opacity: 1;
+}
+.eva-control-input:focus,
+.eva-control-input:focus-within {
+  border-color: var(--eva-c-ring);
+}
+.eva-control-input[data-error] {
+  border-color: var(--eva-danger);
+  color: var(--eva-danger);
+}
+.eva-control-input[data-success] {
+  border-color: var(--eva-ok);
+}
+.eva-control-input:not(.eva-composer-input):disabled,
+.eva-control-input:not(.eva-composer-input)[data-disabled] {
+  background: var(--eva-surface);
+  color: var(--eva-text-dim);
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.eva-control-input-section {
+  color: var(--eva-text-dim);
+}
+.eva-control-label {
+  color: var(--eva-text);
+  font-size: var(--eva-fz-body);
+  font-weight: var(--eva-fw-medium);
+  line-height: var(--eva-lh-body);
+}
+.eva-control-description,
+.eva-control-error {
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
+}
+.eva-control-description {
+  color: var(--eva-text-dim);
+}
+.eva-control-error {
+  color: var(--eva-danger);
+}
+.eva-control-button,
+.eva-control-icon {
+  font-family: var(--eva-font-ui);
+  font-weight: var(--eva-fw-medium);
+}
+.eva-control-button:disabled,
+.eva-control-button[data-disabled],
+.eva-control-icon:disabled,
+.eva-control-icon[data-disabled] {
+  background: var(--eva-c-muted-background);
+  color: var(--eva-text-dim);
+  border-color: var(--eva-border);
+}
+
 html,
 body,
 #root {
@@ -75,12 +180,12 @@ body {
   color: var(--eva-text);
   font-family: var(--eva-font-ui);
   font-size: var(--eva-fz-body);
-  line-height: 1.5;
+  line-height: var(--eva-lh-body);
   overflow: hidden;
 }
 
 :focus-visible {
-  outline: 2px solid var(--eva-c-primary-background);
+  outline: 2px solid var(--eva-c-ring);
   outline-offset: 2px;
 }
 
@@ -102,12 +207,14 @@ body {
   background: var(--eva-bg);
 }
 .eva-chat-header {
+  box-sizing: border-box;
   height: var(--eva-chat-header-h);
   flex: none;
   display: flex;
   align-items: center;
-  padding: 0 var(--eva-space-md);
-  border-bottom: 1px solid var(--eva-c-border);
+  min-width: 0;
+  gap: var(--eva-space-native-sm);
+  padding: 0 var(--eva-space-native-lg);
 }
 .eva-chat-empty {
   flex: 1;

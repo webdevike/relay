@@ -168,89 +168,96 @@ export function Composer({ paneId, disabled }: { paneId: string; disabled: boole
         void attach(Array.from(e.dataTransfer.files))
       }}
     >
-      {dragging ? <div className="eva-composer-drop">Drop images to attach</div> : null}
-      <ImageChips chips={images} onRemove={remove} />
-      <Textarea
-        autosize
-        minRows={2}
-        maxRows={8}
-        className="eva-composer-field"
-        data-testid="composer-input"
-        aria-label="Message"
-        placeholder={
-          disabled || stopped
-            ? 'Session is not running. Resume it to send a message.'
-            : 'Message Eva'
-        }
-        disabled={disabled}
-        value={text}
-        onChange={(e) => edit(e.currentTarget.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Escape' && running) {
-            e.preventDefault()
-            void abort()
-            return
+      <div className="eva-composer-frame">
+        {dragging ? <div className="eva-composer-drop">Drop images to attach</div> : null}
+        <ImageChips chips={images} onRemove={remove} />
+        <Textarea
+          autosize
+          minRows={2}
+          maxRows={8}
+          className="eva-composer-field"
+          classNames={{ input: 'eva-composer-input' }}
+          variant="unstyled"
+          data-testid="composer-input"
+          aria-label="Message"
+          placeholder={
+            disabled || stopped
+              ? 'Session is not running. Resume it to send a message.'
+              : 'Message Eva'
           }
-          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-            e.preventDefault()
-            void send()
+          disabled={disabled}
+          value={text}
+          onChange={(e) => edit(e.currentTarget.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape' && running) {
+              e.preventDefault()
+              void abort()
+              return
+            }
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault()
+              void send()
+            }
+          }}
+        />
+        <Toolbar
+          paneId={paneId}
+          disabled={disabled}
+          launch={launch}
+          attach={
+            <>
+              <input
+                ref={picker}
+                type="file"
+                hidden
+                multiple
+                accept={ACCEPTED_IMAGE_TYPES.join(',')}
+                data-testid="composer-file-input"
+                onChange={(e) => {
+                  const files = Array.from(e.currentTarget.files ?? [])
+                  e.currentTarget.value = ''
+                  void attach(files)
+                }}
+              />
+              <ActionIcon
+                className="eva-composer-attach"
+                size="var(--eva-tile-md)"
+                variant="subtle"
+                aria-label="Attach image"
+                aria-disabled={disabled || imagesBlocked}
+                disabled={disabled || imagesBlocked}
+                onClick={() => picker.current?.click()}
+              >
+                <IconPhoto size={16} />
+              </ActionIcon>
+            </>
           }
-        }}
-      />
-      <Toolbar
-        paneId={paneId}
-        disabled={disabled}
-        launch={launch}
-        attach={
-          <>
-            <input
-              ref={picker}
-              type="file"
-              hidden
-              multiple
-              accept={ACCEPTED_IMAGE_TYPES.join(',')}
-              data-testid="composer-file-input"
-              onChange={(e) => {
-                const files = Array.from(e.currentTarget.files ?? [])
-                e.currentTarget.value = ''
-                void attach(files)
-              }}
-            />
-            <ActionIcon
-              size={28}
-              variant="subtle"
-              aria-label="Attach image"
-              aria-disabled={disabled || imagesBlocked}
-              disabled={disabled || imagesBlocked}
-              onClick={() => picker.current?.click()}
-            >
-              <IconPhoto size={16} />
-            </ActionIcon>
-          </>
-        }
-      >
-        {running ? (
-          <ActionIcon
-            size={28}
-            variant="default"
-            data-testid="composer-stop"
-            aria-label="Stop response"
-            onClick={() => void abort()}
-          >
-            <IconPlayerStopFilled size={14} />
-          </ActionIcon>
-        ) : null}
-        <ActionIcon
-          size={28}
-          variant="filled"
-          data-testid="composer-send"
-          aria-label="Send message"
-          disabled={!canSend}
-          onClick={() => void send()}
         >
-          <IconArrowUp size={16} />
-        </ActionIcon>
-      </Toolbar>
+          {running ? (
+            <ActionIcon
+              className="eva-composer-round"
+              size="var(--eva-tile-md)"
+              variant="default"
+              data-testid="composer-stop"
+              aria-label="Stop response"
+              onClick={() => void abort()}
+            >
+              <IconPlayerStopFilled size={14} />
+            </ActionIcon>
+          ) : null}
+          <ActionIcon
+            className="eva-composer-round"
+            size="var(--eva-tile-md)"
+            variant="filled"
+            data-testid="composer-send"
+            aria-label="Send message"
+            disabled={!canSend}
+            onClick={() => void send()}
+          >
+            <IconArrowUp size={16} />
+          </ActionIcon>
+        </Toolbar>
+      </div>
       <WriterPrompt
         opened={writerPrompt !== null}
         message={writerPrompt ?? ''}

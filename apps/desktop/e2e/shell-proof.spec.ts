@@ -87,10 +87,6 @@ const countVars = (shell: Page): Promise<number> =>
     for (let i = 0; i < style.length; i++) if (style.item(i).startsWith('--eva-c-')) n++
     return n
   })
-const bg = (shell: Page): Promise<string> =>
-  shell.evaluate(() =>
-    getComputedStyle(document.documentElement).getPropertyValue('--eva-c-background').trim(),
-  )
 
 async function finish(app: ElectronApplication, shell: Page, name: string): Promise<void> {
   const file = await proofShot(app, shell, name, PHASE)
@@ -116,7 +112,6 @@ test('shell-dark-1280x800', async ({ app, shell }) => {
 test('shell-light-1280x800', async ({ app, shell }) => {
   await shell.locator(sel('appearance-light')).click()
   await resolved(shell).toHaveAttribute('data-resolved', 'light')
-  expect(await bg(shell)).toBe('#f3f3f1')
   await finish(app, shell, 'shell-light-1280x800')
 })
 

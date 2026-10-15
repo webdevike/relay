@@ -1,51 +1,56 @@
-/* Overlay wrapper surfaces (D-13). Only --eva-* aliases; fallbacks keep this green before 02-07. */
+/* Native menu surfaces and row spacing from ui.rs::menu_popover/menu_list. */
 .eva-modal-backdrop {
-  /* The one place a literal rgb is allowed, as written in the UI spec. */
-  background: rgb(0 0 0 / 0.5);
+  background: var(--eva-c-overlay);
   backdrop-filter: none;
 }
 .eva-modal-content,
 .eva-menu-dropdown,
 .eva-popover-dropdown {
-  background: var(--eva-popover-bg, var(--eva-surface));
-  color: var(--eva-popover-fg, var(--eva-text));
-  border: 1px solid var(--eva-c-border, var(--eva-border));
-  box-shadow: var(--eva-shadow, 0 8px 24px rgb(0 0 0 / 0.35));
-  border-radius: var(--eva-radius, 6px);
+  background: var(--eva-popover-bg);
+  color: var(--eva-popover-fg);
+  border: 1px solid var(--eva-border);
+  box-shadow: var(--eva-shadow);
+  border-radius: var(--eva-radius-xl);
 }
 .eva-modal-content {
-  padding: 16px;
+  padding: var(--eva-space-md);
+  border-radius: var(--eva-radius-lg);
 }
 .eva-modal-header {
   background: transparent;
-  padding: 0 0 var(--eva-space-sm);
+  padding: 0 0 var(--eva-space-native-xs);
   min-height: 0;
 }
 .eva-modal-title {
-  font-size: var(--eva-fz-heading, 16px);
-  font-weight: 600;
-  line-height: 1.4;
+  font-size: var(--eva-fz-heading);
+  font-weight: var(--eva-fw-medium);
+  line-height: 1.55;
 }
 .eva-modal-body {
   padding: 0;
-  font-size: var(--eva-fz-body, 14px);
+  font-size: var(--eva-fz-body);
+  line-height: var(--eva-lh-body);
 }
 .eva-menu-dropdown {
-  padding: 4px;
-  max-height: 320px;
+  padding: var(--eva-space-native-xs);
+  max-height: min(460px, calc(100vh - var(--eva-space-xl)));
   overflow-y: auto;
 }
 .eva-menu-item {
-  height: 32px;
-  padding: 0 8px;
-  gap: 8px;
-  font-size: var(--eva-fz-body, 14px);
+  min-height: calc(var(--eva-fz-body) * var(--eva-lh-body) + var(--eva-space-sm) * 2);
+  height: auto;
+  padding: var(--eva-space-sm) var(--eva-space-native-sm);
+  gap: var(--eva-space-native-sm);
+  border-radius: var(--eva-radius);
+  font-size: var(--eva-fz-body);
+  line-height: var(--eva-lh-body);
   color: inherit;
 }
 .eva-menu-item:hover,
 .eva-menu-item[data-hovered] {
-  background: var(--eva-hover, var(--eva-surface-2));
+  background: var(--eva-hover);
 }
 .eva-popover-dropdown {
-  padding: 8px;
+  padding: var(--eva-space-native-xs);
+  max-width: calc(100vw - var(--eva-space-xl));
 }

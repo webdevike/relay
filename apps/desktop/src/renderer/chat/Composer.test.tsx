@@ -146,6 +146,7 @@ describe('Composer', () => {
       wrap()
       expect(screen.getByTestId('composer-send')).toBeDisabled()
       await pasteImage()
+      expect(screen.getByText('a.png')).toHaveAttribute('title', 'a.png')
       expect(screen.getByTestId('composer-send')).toBeEnabled()
       await user.type(screen.getByTestId('composer-input'), '{Enter}')
       expect(invoke).toHaveBeenCalledWith('chat.send', {

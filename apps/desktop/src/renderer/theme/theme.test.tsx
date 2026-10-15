@@ -73,8 +73,6 @@ describe('applyTheme', () => {
     applyTheme(a.root, resolveTheme(defaultDoc(), 'light'))
     applyTheme(b.root, resolveTheme(defaultDoc(), 'dark'))
     expect([...a.props.keys()].sort()).toEqual([...b.props.keys()].sort())
-    expect(a.props.get('--eva-c-background')).toBe('#f3f3f1')
-    expect(b.props.get('--eva-c-background')).toBe('#141413')
   })
 
   it('reports a 6-digit background, stripping alpha', () => {

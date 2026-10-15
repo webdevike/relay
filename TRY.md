@@ -48,10 +48,17 @@ Headless and test launches set `EVAOS_E2E=1` (background accessory app) and `EVA
 ## What works
 
 - Three-column shell, sidebar, main tabs (pin, context menu), folding at narrow widths, hotkeys, overlay stack, quit guard.
-- Theme tokens and bundled themes, Appearance and Settings pages (Theme, Chat, Notifications).
+- Theme tokens and bundled themes, Appearance and Settings pages (Theme, Chat, Notifications). Component geometry and interactions follow native EvaOS independently of palette and font choices. The default remains the EvaOS preset; Flexoki is supported by the resolver without forcing Inter typography. Full theme editing remains deferred to phase 7.
 - Dashboard with activity charts and filters, workspace pages, New Todo (Cmd+N), jobs list and job form (create, edit, stale-on-disk refusal, Run now, delete), habits (with the locked gate overlay), meetings (Home, Detail, Accept, Dismiss), live change watching of Eva data.
 - Chat: session list grouped by workspace with Pinned, search, collapse, categories with drag and drop, rename and delete, status (Working, Job, Open), virtualized transcript, streaming from a live omp session with abort and steer, composer with model, access and account pickers, image paste and drop, question cards, subagent chips, jobs strip, Claude Code bridge harness choice, new chats.
 - Browser panel: real Chromium WebContentsView, address bar (URL, search, bare port), subtabs, history suggestions, DevTools, CDP page control, hides under overlays, Chrome extensions (Bitwarden from the Web Store), Arc login import.
+
+### Native component and interaction alignment
+
+- Component spacing follows native `scale.rs` (4/10/12/16/20/32), with theme-driven input borders, focus rings, control sizes and corner radii rather than a separate Mantine accent palette.
+- Chat uses a 56px header, 34px main tab strip, 780px transcript maximum, native message insets and a single rounded composer with a borderless 2-to-8-row textarea. Toolbar groups wrap at narrow widths; attachment chips show filenames and image-only prompts do not render empty bubbles.
+- Resize handles capture their pointer, keep the final release position, clean up on cancel/blur/unmount and save preferred widths rather than widths temporarily squeezed by the window. Dragging is immediate; manual sidebar toggles use the native 220ms in-out transition. Automatic folding and panel toggles remain immediate. Reduced motion disables spatial transitions.
+- Verification: typecheck passed, 1,072 unit tests passed, and 25 Electron scenarios passed covering composer controls/images, panel drag/reset/persistence, folding, sidebar shortcuts and motion. Before/after proof is in `proof/ux-parity/`; refreshed full-size/light/compact proof is in `proof/phase-2/`.
 
 ## Missing versus current EvaOS
 

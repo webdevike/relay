@@ -7,8 +7,8 @@ import type { LaunchControls } from './useLaunchState'
 import { useChatStore } from '../chat-store'
 
 /**
- * The composer's toolbar row, left to right: attach, model, access, account (unsent omp chats
- * only), spacer, context ring, then the actions (Stop, Send) the composer passes in.
+ * Native wrapping toolbar: attach, account and access at the left; context, model and
+ * actions at the right. The right group wraps as a unit at narrow panel widths.
  */
 export function Toolbar({
   paneId,
@@ -32,20 +32,23 @@ export function Toolbar({
   return (
     <>
       <div className="eva-composer-toolbar">
-        {attach}
-        <ModelPicker
-          state={state}
-          models={launch.models}
-          disabled={off}
-          onChange={(p) => void launch.apply(p)}
-        />
-        <AccessPicker state={state} disabled={off} onChange={(p) => void launch.apply(p)} />
-        {state && state.unsent && state.harness === 'omp' ? (
-          <AccountPicker state={state} disabled={off} onChange={(p) => void launch.apply(p)} />
-        ) : null}
-        <div className="eva-composer-spacer" />
-        <ContextRing tokens={tokens} window={window} />
-        {children}
+        <div className="eva-composer-tools">
+          {attach}
+          {state && state.unsent && state.harness === 'omp' ? (
+            <AccountPicker state={state} disabled={off} onChange={(p) => void launch.apply(p)} />
+          ) : null}
+          <AccessPicker state={state} disabled={off} onChange={(p) => void launch.apply(p)} />
+        </div>
+        <div className="eva-composer-actions">
+          <ContextRing tokens={tokens} window={window} />
+          <ModelPicker
+            state={state}
+            models={launch.models}
+            disabled={off}
+            onChange={(p) => void launch.apply(p)}
+          />
+          {children}
+        </div>
       </div>
       {launch.error ? (
         <div className="eva-composer-notice" role="alert" data-testid="composer-launch-error">

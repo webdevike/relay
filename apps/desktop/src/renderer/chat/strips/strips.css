@@ -1,18 +1,25 @@
 .eva-chips {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: var(--eva-space-sm);
-  padding: var(--eva-space-xs) var(--eva-space-md);
+  gap: var(--eva-space-native-xs);
+  width: calc(100% - var(--eva-space-native-lg) * 2);
+  max-width: var(--eva-chat-column-w);
+  margin: var(--eva-space-native-xs) auto 0;
+  overflow-x: auto;
   flex: none;
 }
 .eva-chip {
   display: inline-flex;
+  flex: none;
   align-items: center;
   gap: var(--eva-space-xs);
-  height: 24px;
-  padding: 0 var(--eva-space-sm);
-  border-radius: 12px;
+  min-height: calc(var(--eva-fz-label) * var(--eva-lh-label));
+  padding: var(--eva-space-xs) var(--eva-space-native-sm);
+  border-radius: var(--eva-radius-round);
+  font-family: var(--eva-font-ui);
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
   border: 1px solid var(--eva-border);
   background: var(--eva-surface);
   color: var(--eva-text);
@@ -27,7 +34,7 @@
 .eva-chip:focus-visible,
 .eva-chips-clear:focus-visible,
 .eva-jobs-head:focus-visible {
-  outline: 2px solid var(--eva-accent);
+  outline: 2px solid var(--eva-c-ring);
   outline-offset: 1px;
 }
 .eva-chips-clear {
@@ -48,7 +55,7 @@
 .eva-spinner {
   width: 12px;
   height: 12px;
-  border-radius: 50%;
+  border-radius: var(--eva-radius-round);
   border: 2px solid var(--eva-border);
   border-top-color: var(--eva-text);
   animation: eva-spin 0.8s linear infinite;
@@ -66,9 +73,12 @@
 
 .eva-jobs {
   flex: none;
-  margin: 0 var(--eva-space-md);
+  box-sizing: border-box;
+  width: calc(100% - var(--eva-space-native-lg) * 2);
+  max-width: var(--eva-chat-column-w);
+  margin: var(--eva-space-native-xs) auto 0;
   border: 1px solid var(--eva-border);
-  border-radius: var(--eva-space-sm);
+  border-radius: var(--eva-radius);
   background: var(--eva-surface);
 }
 .eva-jobs-head {

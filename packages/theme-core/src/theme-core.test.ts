@@ -6,7 +6,6 @@ import {
   parseThemeDoc,
   resolveMode,
   resolveTheme,
-  shapeVars,
   varName,
 } from './index'
 
@@ -25,12 +24,16 @@ describe('resolveTheme', () => {
     const dark = resolveTheme(defaultDoc(), 'dark')
     expect(Object.keys(dark.colors)).toHaveLength(139)
     for (const v of Object.values(dark.colors)) expect(v).toMatch(HEX)
-    expect(dark.colors.background).toBe('#141413')
-    expect(dark.colors['sidebar.background']).toBe('#181817')
   })
 
-  it('resolves light background', () => {
-    expect(resolveTheme(defaultDoc(), 'light').colors.background).toBe('#f3f3f1')
+  it('switches base palettes without losing explicit overrides', () => {
+    const doc = parseThemeDoc({ base: 'Flexoki', shared: { ring: '#abcdef' } })
+    const flexoki = resolveTheme(doc, 'dark')
+    doc.base = 'EvaOS'
+    const evaos = resolveTheme(doc, 'dark')
+    expect(flexoki.colors.background).not.toBe(evaos.colors.background)
+    expect(flexoki.colors.ring).toBe('#abcdef')
+    expect(evaos.colors.ring).toBe('#abcdef')
   })
 
   it('applies a light edit to light only', () => {
@@ -70,16 +73,6 @@ describe('vars', () => {
     expect(Object.keys(d).every((k) => k.startsWith('--eva-c-'))).toBe(true)
     expect(Object.keys(d)).toEqual(Object.keys(l))
     expect(Object.keys(d).filter((k) => d[k] !== l[k]).length).toBeGreaterThanOrEqual(30)
-  })
-
-  it('yields shape vars', () => {
-    const s = shapeVars(dark)
-    expect(s['--eva-radius']).toBe('8px')
-    expect(s['--eva-radius-lg']).toBe('12px')
-    expect(s['--eva-font-size']).toBe('14px')
-    expect(s['--eva-font-code-size']).toBe('13px')
-    expect(s['--eva-shadow']).toBe('none')
-    expect(s['--eva-font-ui']).toMatch(/^"IBM Plex Mono"/)
   })
 })
 

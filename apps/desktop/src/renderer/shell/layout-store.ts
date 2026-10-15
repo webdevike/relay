@@ -17,7 +17,7 @@ export type Edge = 'sidebar' | 'panel'
 
 export interface LayoutState {
   windowWidth: number
-  /** Saved widths (what layout.json holds). */
+  /** Preferred widths persisted to layout.json, never overwritten by window fitting. */
   sidebarWidth: number
   panelWidth: number
   /** Preferences, memory only (D-04). */
@@ -90,17 +90,11 @@ export function previewWidth(edge: Edge, px: number): void {
   if (!Number.isFinite(px)) return
   const s = layoutStore.getState()
   if (edge === 'sidebar') {
-    const w = fit(s.windowWidth, clampSidebar(px), s.panelOpen ? s.panelWidth : undefined).sidebar
-    if (w === 0) return
+    const w = clampSidebar(px)
+    if (fit(s.windowWidth, w, s.panelOpen ? s.panelWidth : undefined).sidebar === 0) return
     patch({ sidebarWidth: w })
   } else {
-    const w = fit(
-      s.windowWidth,
-      s.sidebarWanted ? s.sidebarWidth : undefined,
-      Math.max(px, PANEL_MIN),
-    ).panel
-    if (w === 0) return
-    patch({ panelWidth: w })
+    patch({ panelWidth: Math.max(px, PANEL_MIN) })
   }
 }
 
@@ -113,9 +107,9 @@ function saveLayoutPatch(p: { sidebarWidth: number } | { panelWidth: number }): 
 export function commitWidth(edge: Edge): void {
   const s = layoutStore.getState()
   if (edge === 'sidebar') {
-    saveLayoutPatch({ sidebarWidth: Math.round(s.sidebarPx || s.sidebarWidth) })
+    saveLayoutPatch({ sidebarWidth: Math.round(s.sidebarWidth) })
   } else {
-    saveLayoutPatch({ panelWidth: Math.round(s.panelPx || s.panelWidth) })
+    saveLayoutPatch({ panelWidth: Math.round(s.panelWidth) })
   }
 }
 

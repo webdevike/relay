@@ -122,8 +122,8 @@ function MessageRowImpl({ m }: { m: ChatMessage }) {
   if (m.role === 'user') {
     body = (
       <div className="eva-turn-user">
-        <div className="eva-bubble">{m.text}</div>
         <Images images={m.images} />
+        {m.text.trim() !== '' ? <div className="eva-bubble">{m.text}</div> : null}
       </div>
     )
   } else if (m.role === 'assistant') {

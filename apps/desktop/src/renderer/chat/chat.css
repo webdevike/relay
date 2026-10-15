@@ -1,15 +1,21 @@
 .eva-mono {
   font-family: var(--eva-font-mono);
 }
-.eva-chat-title {
+.eva-chat-header .eva-chat-title {
   margin: 0;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: var(--eva-fz-body);
+  font-weight: var(--eva-fw-medium);
+  line-height: var(--eva-lh-body);
 }
 .eva-chat-file {
-  margin-left: var(--eva-space-md);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-left: 0;
   white-space: nowrap;
 }
 
@@ -30,7 +36,7 @@
   background: var(--eva-surface);
   color: var(--eva-text);
   border: 1px solid var(--eva-border);
-  border-radius: var(--eva-space-sm);
+  border-radius: var(--eva-radius);
   cursor: pointer;
   text-align: left;
 }
@@ -55,29 +61,30 @@
   scrollbar-color: var(--eva-border) transparent;
 }
 .eva-row {
-  padding: var(--eva-space-sm) var(--eva-space-md);
+  padding: var(--eva-space-sm) var(--eva-space-native-lg);
 }
 .eva-row-inner {
-  max-width: 760px;
+  max-width: var(--eva-chat-column-w);
   margin: 0 auto;
 }
 .eva-turn-user {
   display: flex;
-  justify-content: flex-end;
-  margin-top: var(--eva-space-md);
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--eva-space-native-xs);
 }
 .eva-bubble {
   max-width: 80%;
-  background: var(--eva-surface-2);
-  border-radius: 12px;
-  padding: var(--eva-space-sm) var(--eva-space-md);
+  background: var(--eva-c-muted-background);
+  border-radius: var(--eva-radius-lg);
+  padding: var(--eva-space-native-xs) var(--eva-space-md);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 .eva-assistant {
   display: flex;
   flex-direction: column;
-  gap: var(--eva-space-sm);
+  gap: var(--eva-space-native-xs);
 }
 .eva-prose {
   white-space: pre-wrap;
@@ -88,10 +95,10 @@
   margin: 0;
   background: var(--eva-surface);
   border: 1px solid var(--eva-border);
-  border-radius: var(--eva-space-sm);
+  border-radius: var(--eva-radius);
   padding: var(--eva-space-sm) var(--eva-space-md);
   font-family: var(--eva-font-mono);
-  font-size: 12px;
+  font-size: var(--eva-fz-label);
   white-space: pre;
   overflow-x: auto;
 }
@@ -102,8 +109,8 @@
 .eva-row-toggle {
   display: flex;
   align-items: center;
-  gap: var(--eva-space-sm);
-  min-height: 28px;
+  gap: var(--eva-space-native-xs);
+  min-height: calc(var(--eva-fz-label) * var(--eva-lh-label));
   width: 100%;
   padding: 0;
   background: none;
@@ -111,6 +118,9 @@
   color: inherit;
   cursor: pointer;
   text-align: left;
+  font-family: var(--eva-font-ui);
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
 }
 .eva-chevron {
   flex: none;
@@ -126,10 +136,7 @@
   padding: var(--eva-space-xs) 0 var(--eva-space-sm) var(--eva-space-lg);
 }
 .eva-row-tool {
-  background: var(--eva-surface);
-  border: 1px solid var(--eva-border);
-  border-radius: var(--eva-space-sm);
-  padding: 0 var(--eva-space-sm);
+  color: var(--eva-text-dim);
 }
 .eva-tool-detail {
   flex: 1;
@@ -163,6 +170,9 @@
 }
 .eva-chat-reconnecting {
   margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .eva-error-banner {
@@ -176,10 +186,15 @@
   flex: none;
   display: flex;
   flex-direction: column;
-  gap: var(--eva-space-sm);
-  min-height: 56px;
-  padding: var(--eva-space-sm) var(--eva-space-md);
-  background: var(--eva-surface);
+  gap: var(--eva-space-native-xs);
+  padding: var(--eva-space-native-xs) var(--eva-space-native-lg) var(--eva-space-native-lg);
+  background: var(--eva-bg);
+}
+.eva-composer > * {
+  width: 100%;
+  max-width: var(--eva-chat-column-w);
+  box-sizing: border-box;
+  margin-inline: auto;
 }
 .eva-composer-field {
   min-width: 0;
@@ -196,9 +211,9 @@
   gap: var(--eva-space-xs);
   height: 28px;
   padding: 0 var(--eva-space-md);
-  border-radius: 9999px;
-  font-size: 12px;
-  font-weight: 600;
+  border-radius: var(--eva-radius-round);
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-medium);
   line-height: 1.4;
   cursor: pointer;
   animation: eva-pill-in 120ms ease-out;
@@ -236,5 +251,8 @@
   gap: var(--eva-space-sm);
 }
 .eva-chat-owner {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }

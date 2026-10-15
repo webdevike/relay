@@ -1,6 +1,8 @@
 /* Entrance timeline (D-17). Only opacity and transform animate. Settles at 1.975s. */
 
 :root {
+  --eva-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --eva-ease-out-cubic: cubic-bezier(0.33, 1, 0.68, 1);
   --eva-cue-rise: 10px;
   --eva-cue-sidebar-delay: 0s;
   --eva-cue-sidebar-duration: 0.15s;
@@ -52,62 +54,62 @@
 }
 
 .eva-cue-sidebar {
-  animation: eva-fade var(--eva-cue-sidebar-duration) var(--eva-ease)
+  animation: eva-fade var(--eva-cue-sidebar-duration) var(--eva-ease-out-cubic)
     calc(var(--eva-cue-sidebar-delay)) both;
 }
 
 .eva-cue-hero {
-  animation: eva-cue var(--eva-cue-hero-duration) var(--eva-ease) calc(var(--eva-cue-hero-delay))
+  animation: eva-cue var(--eva-cue-hero-duration) var(--eva-ease-out-cubic) calc(var(--eva-cue-hero-delay))
     both;
 }
 
 .eva-cue-sections {
-  animation: eva-cue var(--eva-cue-sections-duration) var(--eva-ease)
+  animation: eva-cue var(--eva-cue-sections-duration) var(--eva-ease-out-cubic)
     calc(var(--eva-cue-sections-delay)) both;
 }
 
 .eva-cue-first-card {
-  animation: eva-cue var(--eva-cue-first-card-duration) var(--eva-ease)
+  animation: eva-cue var(--eva-cue-first-card-duration) var(--eva-ease-out-cubic)
     calc(var(--eva-cue-first-card-delay)) both;
 }
 
 .eva-cue-first-chart {
-  animation: eva-cue var(--eva-cue-first-chart-duration) var(--eva-ease)
+  animation: eva-cue var(--eva-cue-first-chart-duration) var(--eva-ease-out-cubic)
     calc(var(--eva-cue-first-chart-delay)) both;
 }
 
 .eva-cue-second-card {
-  animation: eva-cue var(--eva-cue-second-card-duration) var(--eva-ease)
+  animation: eva-cue var(--eva-cue-second-card-duration) var(--eva-ease-out-cubic)
     calc(var(--eva-cue-second-card-delay)) both;
 }
 
 .eva-cue-second-chart {
-  animation: eva-cue var(--eva-cue-second-chart-duration) var(--eva-ease)
+  animation: eva-cue var(--eva-cue-second-chart-duration) var(--eva-ease-out-cubic)
     calc(var(--eva-cue-second-chart-delay)) both;
 }
 
 .eva-cue-grid-cards {
-  animation: eva-cue var(--eva-cue-grid-cards-duration) var(--eva-ease)
+  animation: eva-cue var(--eva-cue-grid-cards-duration) var(--eva-ease-out-cubic)
     calc(var(--eva-cue-grid-cards-delay) + var(--i, 0) * var(--eva-cue-grid-cards-step)) both;
 }
 
 .eva-cue-aside-title {
-  animation: eva-cue var(--eva-cue-aside-title-duration) var(--eva-ease)
+  animation: eva-cue var(--eva-cue-aside-title-duration) var(--eva-ease-out-cubic)
     calc(var(--eva-cue-aside-title-delay)) both;
 }
 
 .eva-cue-aside-rows {
-  animation: eva-cue var(--eva-cue-aside-rows-duration) var(--eva-ease)
+  animation: eva-cue var(--eva-cue-aside-rows-duration) var(--eva-ease-out-cubic)
     calc(var(--eva-cue-aside-rows-delay) + var(--i, 0) * var(--eva-cue-aside-rows-step)) both;
 }
 
 .eva-cue-stats-title {
-  animation: eva-cue var(--eva-cue-stats-title-duration) var(--eva-ease)
+  animation: eva-cue var(--eva-cue-stats-title-duration) var(--eva-ease-out-cubic)
     calc(var(--eva-cue-stats-title-delay)) both;
 }
 
 .eva-cue-stat-cards {
-  animation: eva-cue var(--eva-cue-stat-cards-duration) var(--eva-ease)
+  animation: eva-cue var(--eva-cue-stat-cards-duration) var(--eva-ease-out-cubic)
     calc(var(--eva-cue-stat-cards-delay) + var(--i, 0) * var(--eva-cue-stat-cards-step)) both;
 }
 
@@ -145,4 +147,15 @@ html[data-eva-motion='off'] {
 
 html[data-eva-motion='off'] [class*='eva-cue-'] {
   animation: none;
+}
+
+/* Also honor the system setting before motion bootstrap, and when it changes live. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --eva-dur-slide: 0s;
+    --eva-dur-fast: 0s;
+  }
+  [class*='eva-cue-'] {
+    animation: none;
+  }
 }

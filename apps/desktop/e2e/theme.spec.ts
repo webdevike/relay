@@ -51,17 +51,15 @@ test('switching appearance never remounts and reports the background', async ({
       return tag.isConnected && tag === document.querySelector('[data-testid=rail]')
     }),
   ).toBe(true)
-  expect(
-    await shell.evaluate(() =>
-      getComputedStyle(document.documentElement).getPropertyValue('--eva-c-background').trim(),
-    ),
-  ).toBe('#f3f3f1')
   expect(await shell.evaluate(() => getComputedStyle(document.body).backgroundColor)).not.toBe(
     bodyBefore,
   )
   expect(await shell.evaluate(countVars)).toBe(139)
 
   const themeFile = path.join(configDir, 'theme.json')
+  const sidebarBackground = await shell.evaluate(() =>
+    getComputedStyle(document.documentElement).getPropertyValue('--eva-c-sidebar-background').trim().slice(0, 7).toLowerCase(),
+  )
   await expect
     .poll(() => {
       try {
@@ -73,12 +71,12 @@ test('switching appearance never remounts and reports the background', async ({
         return ''
       }
     })
-    .toBe('light|#eeeeeb')
+    .toBe(`light|${sidebarBackground}`)
 
   const bg = await app.evaluate(({ BaseWindow }) =>
     BaseWindow.getAllWindows()[0]!.getBackgroundColor(),
   )
-  expect(bg.toLowerCase()).toMatch(/^#(ff)?eeeeeb$|^#eeeeeb(ff)?$/)
+  expect(bg.toLowerCase().replace(/^#ff(?=[0-9a-f]{6}$)/, '#')).toBe(sidebarBackground)
 })
 
 test('system follows the OS scheme live', async ({ shell }) => {

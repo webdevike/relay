@@ -17,7 +17,7 @@
   min-height: 0;
   display: flex;
   box-sizing: border-box;
-  padding-top: 8px;
+  padding-top: var(--eva-gap);
 }
 
 .eva-sidebar {
@@ -26,11 +26,7 @@
   width: var(--eva-sidebar-w);
   overflow: hidden;
   background: var(--eva-chrome);
-  transition: width var(--eva-dur-slide) var(--eva-ease);
   -webkit-app-region: drag;
-}
-body.eva-resizing .eva-sidebar {
-  transition: none;
 }
 .eva-card {
   box-sizing: border-box;
@@ -44,7 +40,7 @@ body.eva-resizing .eva-sidebar {
 .eva-main-card {
   flex: 1;
   margin-left: var(--eva-main-left);
-  margin-right: 8px;
+  margin-right: var(--eva-gap);
   display: flex;
   flex-direction: column;
 }
@@ -57,7 +53,7 @@ body.eva-resizing .eva-sidebar {
   position: relative;
   flex: none;
   width: var(--eva-panel-w);
-  margin-right: 8px;
+  margin-right: var(--eva-gap);
   display: flex;
 }
 .eva-panel-wrap[data-open='false'] {
@@ -68,23 +64,46 @@ body.eva-resizing .eva-sidebar {
   display: flex;
 }
 
+/* Native sidebar toggles interpolate both fitted columns and main's left inset together. */
+.eva-shell[data-sidebar-transition='true'] .eva-sidebar,
+.eva-shell[data-sidebar-transition='true'] .eva-panel-wrap {
+  transition: width var(--eva-dur-slide) var(--eva-ease-in-out);
+}
+.eva-shell[data-sidebar-transition='true'] .eva-main-card {
+  transition: margin-left var(--eva-dur-slide) var(--eva-ease-in-out);
+}
+.eva-shell[data-sidebar-transition='true'] .eva-grip-sidebar {
+  transition: left var(--eva-dur-slide) var(--eva-ease-in-out);
+}
+body.eva-resizing,
+body.eva-resizing * {
+  cursor: col-resize !important;
+}
+body.eva-resizing .eva-sidebar,
+body.eva-resizing .eva-panel-wrap,
+body.eva-resizing .eva-main-card,
+body.eva-resizing .eva-grip-sidebar {
+  transition: none !important;
+}
+
 .eva-grip {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 8px;
+  width: var(--eva-gap);
   z-index: 2;
   cursor: col-resize;
   display: flex;
   align-items: center;
   justify-content: center;
   outline-offset: -2px;
+  -webkit-app-region: no-drag;
 }
 .eva-grip-sidebar {
-  left: calc(var(--eva-sidebar-w) - 8px);
+  left: calc(var(--eva-sidebar-w) - var(--eva-gap) / 2);
 }
 .eva-grip-panel {
-  left: -8px;
+  left: calc(-1 * var(--eva-gap));
 }
 .eva-grip-bar {
   width: 2px;
@@ -92,7 +111,6 @@ body.eva-resizing .eva-sidebar {
   border-radius: 999px;
   background: color-mix(in srgb, var(--eva-c-muted-foreground) 50%, transparent);
   opacity: 0;
-  transition: opacity var(--eva-dur-fast) var(--eva-ease);
 }
 .eva-grip:hover .eva-grip-bar,
 .eva-grip:focus-visible .eva-grip-bar,
@@ -104,7 +122,7 @@ body.eva-resizing .eva-sidebar {
   flex: none;
   height: 32px;
   box-sizing: border-box;
-  padding: 0 8px;
+  padding: 0 var(--eva-gap);
   display: flex;
   align-items: center;
   background: var(--eva-chrome);

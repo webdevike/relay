@@ -4,9 +4,10 @@ import { IconX } from '@tabler/icons-react'
 export interface Chip {
   id: string
   previewUrl: string
+  name: string
 }
 
-/** 48px thumbnails of the images attached to the next prompt, each with a remove button. */
+/** Native attachment chips: compact preview, truncated filename and a quiet remove action. */
 export function ImageChips({
   chips,
   onRemove,
@@ -20,10 +21,10 @@ export function ImageChips({
       {chips.map((chip, i) => (
         <div key={chip.id} className="eva-composer-chip" data-testid="composer-chip">
           <img src={chip.previewUrl} alt={`Pasted image ${i + 1}`} draggable={false} />
+          <span className="eva-composer-chip-name" title={chip.name}>{chip.name}</span>
           <ActionIcon
-            size={20}
-            radius="xl"
-            variant="filled"
+            size="var(--eva-kit-control-xs)"
+            variant="subtle"
             className="eva-composer-chip-remove"
             aria-label={`Remove image ${i + 1}`}
             onClick={() => onRemove(chip.id)}

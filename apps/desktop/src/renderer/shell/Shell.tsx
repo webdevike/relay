@@ -1,5 +1,6 @@
 import './shell.css'
 import { useLayoutEffect, useState } from 'react'
+import { GAP } from '@evaos/shell-core'
 import { TestOverlay, useTestOverlayOpener } from '../overlay/TestOverlay'
 import { SidebarColumn } from '../sidebar/SidebarColumn'
 import { Footer } from './Footer'
@@ -17,15 +18,24 @@ export function Shell() {
   useLayoutEffect(() => {
     const root = document.querySelector<HTMLElement>('[data-testid=shell]')
     let lastFitted = layoutStore.getState().sidebarWidth
+    let previous = layoutStore.getState()
     const write = (): void => {
       if (!root) return
       const s = layoutStore.getState()
+      // Native animates manual sidebar toggles only, including the panel's refit.
+      // Window fitting, panel toggles and live resize must stay under the pointer.
+      root.dataset['sidebarTransition'] = String(
+        s.sidebarWanted !== previous.sidebarWanted &&
+          s.windowWidth === previous.windowWidth &&
+          s.panelOpen === previous.panelOpen,
+      )
+      previous = s
       if (s.sidebarPx > 0) lastFitted = s.sidebarPx
       // Sidebar content keeps its width while the column folds or hides (D-17).
-      root.style.setProperty('--eva-sidebar-inner-w', `${Math.max(lastFitted - 8, 0)}px`)
+      root.style.setProperty('--eva-sidebar-inner-w', `${Math.max(lastFitted - GAP, 0)}px`)
       root.style.setProperty('--eva-sidebar-w', `${s.sidebarPx}px`)
       root.style.setProperty('--eva-panel-w', `${s.panelPx}px`)
-      root.style.setProperty('--eva-main-left', s.sidebarPx > 0 ? '0px' : '8px')
+      root.style.setProperty('--eva-main-left', s.sidebarPx > 0 ? '0px' : `${GAP}px`)
     }
     setWindowWidth(window.innerWidth)
     write()

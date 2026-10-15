@@ -18,6 +18,14 @@ describe('MessageRow', () => {
     expect(screen.getByText('hello there')).toHaveClass('eva-bubble')
   })
 
+  it('does not paint an empty bubble for an image-only prompt', () => {
+    const { container } = wrap(
+      <MessageRow m={makeMessage('u', 'user', '', { images: [{ label: 'Image 1', src: PNG }] })} />,
+    )
+    expect(container.querySelector('.eva-bubble')).toBeNull()
+    expect(screen.getByAltText('Image 1 of 1')).toBeInTheDocument()
+  })
+
   it('renders fenced code in a pre and keeps prose literal', () => {
     const { container } = wrap(
       <MessageRow m={makeMessage('a', 'assistant', 'a\n```ts\nconst x = 1\n```\nb')} />,
@@ -75,6 +83,7 @@ describe('MessageRow', () => {
     expect(buttons).toHaveLength(2)
     expect(screen.getByAltText('Image 1 of 2')).toBeInTheDocument()
     expect(screen.getByAltText('Image 2 of 2')).toBeInTheDocument()
+    expect(container.querySelector('.eva-turn-user')?.firstElementChild).toHaveClass('eva-chat-images')
     expect((buttons[0] as HTMLElement).style.width).toBe('240px')
     expect((buttons[0] as HTMLElement).style.height).toBe('120px')
     expect((buttons[1] as HTMLElement).style.height).toBe('160px')

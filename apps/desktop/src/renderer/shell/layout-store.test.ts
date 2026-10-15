@@ -93,6 +93,37 @@ describe('drag', () => {
     expect(1016 - g().sidebarPx - g().panelPx - 16).toBeGreaterThanOrEqual(480)
   })
 
+  it('persists requested widths rather than the temporary fit of a narrow window', () => {
+    previewWidth('sidebar', 300)
+    previewWidth('panel', 600)
+    setWindowWidth(1100)
+    expect(g()).toMatchObject({ sidebarPx: 284, panelPx: 320 })
+    commitWidth('sidebar')
+    commitWidth('panel')
+    expect(invoke).toHaveBeenCalledWith('layout.save', { sidebarWidth: 300 })
+    expect(invoke).toHaveBeenCalledWith('layout.save', { panelWidth: 600 })
+    setWindowWidth(1600)
+    expect(g()).toMatchObject({ sidebarPx: 300, panelPx: 600 })
+  })
+
+  it('keeps a clamped drag preference when the current window cannot display it', () => {
+    setWindowWidth(1100)
+    previewWidth('sidebar', 500)
+    previewWidth('panel', 600)
+    expect(g()).toMatchObject({
+      sidebarWidth: 420,
+      sidebarPx: 284,
+      panelWidth: 600,
+      panelPx: 320,
+    })
+    commitWidth('sidebar')
+    commitWidth('panel')
+    expect(invoke).toHaveBeenCalledWith('layout.save', { sidebarWidth: 420 })
+    expect(invoke).toHaveBeenCalledWith('layout.save', { panelWidth: 600 })
+    setWindowWidth(1800)
+    expect(g()).toMatchObject({ sidebarPx: 420, panelPx: 600 })
+  })
+
   it('resets to defaults and saves once each', () => {
     previewWidth('sidebar', 300)
     resetWidth('sidebar')

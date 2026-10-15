@@ -6,10 +6,10 @@
   cursor: pointer;
   background: var(--eva-surface);
   border: 1px solid var(--eva-border);
-  border-radius: var(--eva-radius, 6px);
+  border-radius: var(--eva-radius);
 }
 .eva-chat-image:focus-visible {
-  outline: 2px solid var(--eva-c-primary-background);
+  outline: 2px solid var(--eva-c-ring);
   outline-offset: 2px;
 }
 .eva-chat-image img {
@@ -20,9 +20,12 @@
 }
 .eva-chat-images {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--eva-space-sm);
-  margin-top: var(--eva-space-sm);
+  flex-direction: column;
+  width: 100%;
+  gap: var(--eva-space-native-xs);
+}
+.eva-turn-user .eva-chat-images {
+  align-items: flex-end;
 }
 .eva-image-viewer {
   display: flex;
@@ -35,5 +38,5 @@
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
-  border-radius: var(--eva-radius, 6px);
+  border-radius: var(--eva-radius);
 }

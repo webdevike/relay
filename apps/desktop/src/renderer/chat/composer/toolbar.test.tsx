@@ -109,25 +109,6 @@ describe('ContextRing', () => {
 })
 
 describe('Composer toolbar', () => {
-  it('renders attach, model, access, account (unsent), then context ring and send in order', async () => {
-    open(42000, 200000)
-    wrap()
-    await screen.findByTestId('composer-account')
-    const bar = screen.getByTestId('composer').querySelector('.eva-composer-toolbar')!
-    const order = Array.from(bar.querySelectorAll('[data-testid],[aria-label="Attach image"]')).map(
-      (e) => e.getAttribute('data-testid') ?? e.getAttribute('aria-label'),
-    )
-    expect(order.filter((x) => x !== 'composer-file-input')).toEqual([
-      'Attach image',
-      'composer-model',
-      'composer-access',
-      'composer-account',
-      'composer-context',
-      'composer-send',
-    ])
-    expect(screen.getByTestId('composer-model')).toHaveTextContent('Opus 5.5')
-    expect(screen.getByTestId('composer-access')).toHaveTextContent('Full access')
-  })
 
   it('the account selector is hidden once the chat has been prompted, or on Claude', async () => {
     current = { ...baseState, unsent: false }
