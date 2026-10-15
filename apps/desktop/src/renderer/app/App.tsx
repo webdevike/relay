@@ -3,6 +3,8 @@ import { Rail } from './Rail'
 import { PANEL_MAX, PANEL_MIN, PanelDivider } from './PanelDivider'
 import { ChatPane } from '../chat/ChatPane'
 import { BrowserPanel } from '../browser/BrowserPanel'
+import { startHotkeyRouter } from '../hotkeys/router'
+import { initE2e } from '../hotkeys/e2e-hooks'
 import { TestOverlay } from '../overlay/TestOverlay'
 
 const RAIL_W = 272
@@ -12,6 +14,11 @@ export function App() {
   const [panelW, setPanelW] = useState(480)
   const [winW, setWinW] = useState(window.innerWidth)
   const [overlayOpen, setOverlayOpen] = useState(false)
+  useEffect(() => {
+    const stop = startHotkeyRouter()
+    void initE2e()
+    return stop
+  }, [])
   useEffect(() => {
     const on = (): void => setWinW(window.innerWidth)
     window.addEventListener('resize', on)

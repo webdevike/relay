@@ -1,6 +1,7 @@
 import { WebContentsView, clipboard, shell } from 'electron'
 import { BLOCKED_URL_CODE, loadableUrl } from '@evaos/browser-core/address'
 import { matchesAppChord } from '@evaos/browser-core/hotkeys'
+import { FORWARD_FROM_GUEST, chordOfInput } from '@evaos/shell-core'
 import type { TabState, TabsSnapshot } from '@evaos/contract'
 import type { MainContext } from '../context'
 import { emit } from '../ipc/handle'
@@ -177,14 +178,16 @@ export class BrowserHost {
       return { action: 'deny' }
     })
     wc.on('before-input-event', (event, input) => {
-      const chord = matchesAppChord(input)
-      if (!chord) return
-      event.preventDefault()
-      if (chord === 'devtools') {
+      if (matchesAppChord(input) === 'devtools') {
+        event.preventDefault()
         wc.openDevTools({ mode: 'detach' })
         return
       }
-      emit(this.ctx, 'browser.hotkey', { chord })
+      // Allow-listed chords only (T-02-23); plain typing, cmd+c and cmd+v stay with the page.
+      const chord = chordOfInput(input)
+      if (!chord || !FORWARD_FROM_GUEST.has(chord)) return
+      event.preventDefault()
+      emit(this.ctx, 'app.hotkey', { chord, fromGuest: true })
     })
     // Page-initiated navigations follow the same allow-list as navigate(); a tab the extension
     // host opened may move between its own chrome-extension: pages.
