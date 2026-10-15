@@ -48,7 +48,7 @@ function resultText(frame: Json): string | null {
 
 /**
  * Port of Rust `Live::apply` (chat.rs). `message_update` carries the full message snapshot in
- * `message.content`; the `assistantMessageEvent` delta is ignored (D-16). `message_end` is
+ * `message.content`; the per-event delta is ignored (D-16). `message_end` is
  * authoritative. Frames are applied synchronously, one at a time.
  */
 export class LiveReducer {
