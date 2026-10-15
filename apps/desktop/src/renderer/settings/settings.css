@@ -70,6 +70,30 @@
   width: 280px;
   flex: none;
 }
+.eva-settings-theme-picker {
+  width: 280px;
+  flex: none;
+}
+.eva-settings-theme-dropdown {
+  background: var(--eva-c-popover-background);
+  color: var(--eva-c-popover-foreground);
+  border-color: var(--eva-c-border);
+}
+.eva-settings-theme-option[data-combobox-selected],
+.eva-settings-theme-option[data-combobox-active] {
+  background: var(--eva-c-accent-background);
+  color: var(--eva-c-accent-foreground);
+}
+@media (max-width: 600px) {
+  .eva-settings-theme-row {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .eva-settings-theme-picker {
+    width: 100%;
+  }
+}
 .eva-switch {
   --switch-width: 40px;
   --switch-height: 24px;

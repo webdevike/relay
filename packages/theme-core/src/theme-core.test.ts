@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   COLOR_KEYS,
+  BASE_DARK,
+  BASE_LIGHT,
+  THEME_CATALOG,
+  getThemePreset,
+  hasThemeFamily,
   colorVars,
   defaultDoc,
   parseThemeDoc,
@@ -24,6 +29,39 @@ describe('resolveTheme', () => {
     const dark = resolveTheme(defaultDoc(), 'dark')
     expect(Object.keys(dark.colors)).toHaveLength(139)
     for (const v of Object.values(dark.colors)) expect(v).toMatch(HEX)
+  })
+
+  it('offers only paired families and resolves their native colors in both modes', () => {
+    expect(THEME_CATALOG.map(({ id }) => id)).toEqual([
+      'EvaOS', 'Ayu', 'Bold Tech', 'Bubblegum', 'Catppuccin', 'Everforest', 'Flexoki',
+      'Gruvbox', 'Hybrid', 'macOS Classic', 'Mellifluous', 'Molokai', 'Solarized',
+    ])
+    for (const { id } of THEME_CATALOG) {
+      expect(hasThemeFamily(id)).toBe(true)
+      for (const mode of ['light', 'dark'] as const) {
+        const preset = getThemePreset(id, mode)!
+        expect(preset).toBeDefined()
+        const resolved = resolveTheme(parseThemeDoc({ base: id }), mode)
+        const kit = mode === 'dark' ? BASE_DARK : BASE_LIGHT
+        for (const key of COLOR_KEYS) {
+          expect(resolved.colors[key]).toBe(preset.colors[key] ?? kit[key])
+          expect(resolved.colors[key]).toMatch(HEX)
+        }
+      }
+    }
+    expect(hasThemeFamily('Adventure')).toBe(false)
+    expect(hasThemeFamily('toString')).toBe(false)
+    expect(getThemePreset('missing', 'dark')).toBeUndefined()
+  })
+
+  it('uses the last native variant per mode and kit fallback rather than EvaOS colors', () => {
+    expect(getThemePreset('Catppuccin', 'light')?.colors.background).toBe('#E5E9EF')
+    expect(getThemePreset('Catppuccin', 'dark')?.colors.background).toBe('#181825')
+    const bubblegum = resolveTheme(parseThemeDoc({ base: 'Bubblegum' }), 'light')
+    expect(bubblegum.colors['tab_bar.background']).toBe(BASE_LIGHT['tab_bar.background'])
+    expect(bubblegum.radius).toBe(14)
+    expect(bubblegum.radiusLg).toBe(20)
+    expect(bubblegum.font).toEqual(resolveTheme(defaultDoc(), 'light').font)
   })
 
   it('switches base palettes without losing explicit overrides', () => {

@@ -1,5 +1,6 @@
 export * from './keys'
 export * from './bundled'
+export * from './catalog'
 export * from './doc'
 export * from './resolve'
 export * from './vars'

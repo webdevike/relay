@@ -1,25 +1,24 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MantineProvider } from '@mantine/core'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { placeOf } from '@evaos/shell-core'
+import { parseThemeDoc } from '@evaos/theme-core'
 
 const invoke = vi.fn()
 const MISSING = 'Claude Code was not found. Install it, then try again.'
 let harnessStatus = { omp: true, claude: true }
 vi.mock('../ipc', () => ({ invoke: (...a: unknown[]) => invoke(...a) }))
 vi.mock('@mantine/notifications', () => ({ notifications: { show: vi.fn() } }))
-vi.mock('../theme/theme-store', () => ({
-  setAppearance: vi.fn(),
-  useAppearance: () => 'system',
-}))
 
 import { SettingsPage } from './SettingsPage'
 import { resetSettingsForTest } from './settings-store'
+import { initTheme, themeStore } from '../theme/theme-store'
 import { pageRegistry } from '../pages/registry'
 
 function page(section: 'Theme' | 'Chat' | 'Notifications') {
   return render(
-    <MantineProvider>
+    <MantineProvider env="test">
       <SettingsPage place={placeOf('settings', { settingsSection: section })} />
     </MantineProvider>,
   )
@@ -28,29 +27,94 @@ function page(section: 'Theme' | 'Chat' | 'Notifications') {
 beforeEach(() => {
   invoke.mockReset()
   harnessStatus = { omp: true, claude: true }
-  invoke.mockImplementation(async (c: string, input: Record<string, boolean>) =>
-    c === 'settings.load'
-      ? { ok: true, value: { show_thinking: false, show_tools: true, harness: 'omp' } }
-      : c === 'chat.harnessStatus'
-        ? { ok: true, value: harnessStatus }
-        : { ok: true, value: { show_thinking: false, show_tools: true, harness: 'omp', ...input } },
-  )
+  invoke.mockImplementation(async (c: string, input: Record<string, unknown>) => {
+    if (c === 'settings.load')
+      return { ok: true, value: { show_thinking: false, show_tools: true, harness: 'omp' } }
+    if (c === 'chat.harnessStatus') return { ok: true, value: harnessStatus }
+    if (c === 'theme.list')
+      return {
+        ok: true,
+        value: {
+          themes: [
+            { id: 'EvaOS', name: 'EvaOS' },
+            { id: 'Flexoki', name: 'Flexoki' },
+            { id: 'Gruvbox', name: 'Gruvbox' },
+          ],
+        },
+      }
+    return { ok: true, value: { show_thinking: false, show_tools: true, harness: 'omp', ...input } }
+  })
   resetSettingsForTest()
+  initTheme('system')
+  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+    configurable: true,
+    value: vi.fn(),
+  })
 })
 
 describe('SettingsPage', () => {
-  it('Theme section', () => {
+  it('loads the catalog and restores the selected family and appearance', async () => {
+    initTheme('dark', parseThemeDoc({ base: 'Flexoki', app: { appearance: 'dark' } }))
     page('Theme')
-    const root = screen.getByTestId('settings-theme')
-    expect(root).toHaveTextContent('Colors, fonts and shape for the whole app.')
-    expect(screen.getByText('Appearance')).toBeInTheDocument()
-    expect(screen.getByText('Light, Dark or System. System follows your Mac.')).toBeInTheDocument()
-    const ctl = screen.getByTestId('appearance-settings')
-    for (const l of ['Light', 'Dark', 'System']) expect(ctl).toHaveTextContent(l)
-    expect(screen.getByText('Theme editor')).toBeInTheDocument()
-    expect(
-      screen.getByText('Editing colors, fonts and shape arrives in a later update.'),
-    ).toBeInTheDocument()
+    const picker = screen.getByRole('combobox', { name: 'Theme family' })
+    await waitFor(() => expect(picker).toBeEnabled())
+    expect(picker).toHaveValue('Flexoki')
+    expect(screen.getByRole('radio', { name: 'Dark' })).toBeChecked()
+    expect(invoke).toHaveBeenCalledWith('theme.list', {})
+  })
+
+  it('picks a catalog family by keyboard and preserves appearance', async () => {
+    const user = userEvent.setup()
+    page('Theme')
+    const picker = screen.getByTestId('theme-family-picker')
+    await waitFor(() => expect(picker).toBeEnabled())
+    await user.click(picker)
+    expect((await screen.findAllByRole('option')).map((option) => option.textContent)).toEqual([
+      'EvaOS',
+      'Flexoki',
+      'Gruvbox',
+    ])
+    await user.keyboard('{ArrowDown}{Enter}')
+    await waitFor(() => expect(picker).toHaveValue('Flexoki'))
+    expect(themeStore.getState().doc.base).toBe('Flexoki')
+    expect(themeStore.getState().appearance).toBe('system')
+    expect(invoke.mock.calls.filter(([channel]) => channel === 'theme.setBase')).toEqual([
+      ['theme.setBase', { base: 'Flexoki' }],
+    ])
+    await user.click(screen.getByRole('radio', { name: 'Light' }))
+    expect(themeStore.getState().appearance).toBe('light')
+    expect(themeStore.getState().doc.base).toBe('Flexoki')
+    expect(invoke).toHaveBeenCalledWith('theme.setAppearance', { appearance: 'light' })
+  })
+
+  it('restores the previous selection and reports a save failure', async () => {
+    const user = userEvent.setup()
+    const original = invoke.getMockImplementation()!
+    invoke.mockImplementation((channel: string, input: Record<string, unknown>) =>
+      channel === 'theme.setBase'
+        ? Promise.resolve({ ok: false, error: { code: 'IO', message: 'read only' } })
+        : original(channel, input),
+    )
+    page('Theme')
+    const picker = screen.getByTestId('theme-family-picker')
+    await waitFor(() => expect(picker).toBeEnabled())
+    await user.click(picker)
+    await user.click(await screen.findByRole('option', { name: 'Flexoki' }))
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('previous theme'))
+    expect(picker).toHaveValue('EvaOS')
+    expect(picker).toBeEnabled()
+    expect(themeStore.getState().doc.base).toBe('EvaOS')
+  })
+
+  it('shows a catalog failure without offering unavailable families', async () => {
+    invoke.mockImplementation(async () => ({
+      ok: false,
+      error: { code: 'IO', message: 'unavailable' },
+    }))
+    page('Theme')
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Could not load'))
+    expect(screen.getByTestId('theme-family-picker')).toBeDisabled()
+    expect(themeStore.getState().doc.base).toBe('EvaOS')
   })
 
   it('Chat section switches default to Rust values', () => {

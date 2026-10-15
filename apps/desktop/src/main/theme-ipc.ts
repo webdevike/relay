@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { parseThemeDoc } from '@evaos/theme-core'
+import { hasThemeFamily, parseThemeDoc, THEME_CATALOG } from '@evaos/theme-core'
 import type { ConfigStore } from './config-store'
 import type { MainContext } from './context'
 import { handle } from './ipc/handle'
@@ -28,6 +28,19 @@ export function loadAppearance(config: ConfigStore): Appearance {
   return parseThemeDoc(readDoc(config)).app.appearance
 }
 
+export function loadTheme(config: ConfigStore): { appearance: Appearance; doc: Record<string, unknown> } {
+  const doc = readDoc(config)
+  return { appearance: parseThemeDoc(doc).app.appearance, doc }
+}
+
+export function saveBase(config: ConfigStore, base: string): void {
+  if (!hasThemeFamily(base)) {
+    throw Object.assign(new Error(`Unknown theme family: ${base}`), { code: 'unknown-theme' })
+  }
+  const doc = config.readForMerge(FILE)
+  config.writeJson(FILE, { ...doc, base })
+}
+
 export function saveAppearance(config: ConfigStore, appearance: Appearance): void {
   patchApp(config, 'appearance', appearance)
 }
@@ -43,7 +56,12 @@ export function readLastBackground(config: ConfigStore): string {
 }
 
 export function registerThemeIpc(ctx: MainContext, queue: WriteQueue): void {
-  handle(ctx, 'theme.load', () => ({ appearance: loadAppearance(ctx.config) }))
+  handle(ctx, 'theme.load', () => loadTheme(ctx.config))
+  handle(ctx, 'theme.list', () => ({ themes: [...THEME_CATALOG] }))
+  handle(ctx, 'theme.setBase', async ({ base }) => {
+    await queue.enqueue(() => saveBase(ctx.config, base))
+    return {}
+  })
   handle(ctx, 'theme.setAppearance', async ({ appearance }) => {
     await queue.enqueue(() => saveAppearance(ctx.config, appearance))
     return {}

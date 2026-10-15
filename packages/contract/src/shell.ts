@@ -58,7 +58,15 @@ export const shellInvoke = {
   },
   'theme.load': {
     input: z.object({}).strict(),
-    output: z.object({ appearance: AppearanceSchema }),
+    output: z.object({ appearance: AppearanceSchema, doc: z.unknown() }),
+  },
+  'theme.list': {
+    input: z.object({}).strict(),
+    output: z.object({ themes: z.array(z.object({ id: z.string(), name: z.string() })) }),
+  },
+  'theme.setBase': {
+    input: z.object({ base: z.string() }).strict(),
+    output: Empty,
   },
   'theme.setAppearance': {
     input: z.object({ appearance: AppearanceSchema }).strict(),

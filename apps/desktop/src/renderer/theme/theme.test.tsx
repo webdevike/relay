@@ -2,7 +2,7 @@ import { StrictMode, useEffect, useRef } from 'react'
 import { act, render } from '@testing-library/react'
 import { MantineProvider } from '@mantine/core'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { defaultDoc, resolveTheme } from '@evaos/theme-core'
+import { defaultDoc, parseThemeDoc, resolveTheme } from '@evaos/theme-core'
 
 const invoke = vi.fn()
 const show = vi.fn()
@@ -13,8 +13,15 @@ vi.mock('@mantine/notifications', () => ({
 
 import { applyTheme, reportBackground } from './applier'
 import { createStaticColorSchemeManager } from './color-scheme-manager'
-import { disposeThemeListeners, initTheme, setAppearance, themeStore } from './theme-store'
+import {
+  disposeThemeListeners,
+  initTheme,
+  setAppearance,
+  setThemeBase,
+  themeStore,
+} from './theme-store'
 import { ThemeBridge } from './ThemeBridge'
+import { bootstrapTheme } from './bootstrap'
 
 type Listener = () => void
 let dark = true
@@ -124,10 +131,109 @@ describe('theme store', () => {
       'Could not save your settings. Check that the EvaOS config folder is writable, then try again.',
     )
   })
+
+  it('previews a family immediately and saves without replacing edits or appearance', async () => {
+    const doc = parseThemeDoc({
+      base: 'EvaOS',
+      shared: { foreground: '#123456' },
+      dark: { edits: { background: '#234567' }, unknown: true },
+      light: { edits: { background: '#345678' } },
+      app: { appearance: 'system', unknown: true },
+      future: { enabled: true },
+    })
+    initTheme('system', doc)
+    let finish!: (result: { ok: true; value: object }) => void
+    const save = new Promise<{ ok: true; value: object }>((resolve) => {
+      finish = resolve
+    })
+    invoke.mockImplementation((channel: string) =>
+      channel === 'theme.setBase' ? save : Promise.resolve({ ok: true, value: {} }),
+    )
+    const pending = setThemeBase('Flexoki')
+    expect(themeStore.getState().baseSaving).toBe(true)
+    expect(themeStore.getState().doc.base).toBe('Flexoki')
+    expect(document.documentElement.style.getPropertyValue('--eva-c-border')).toBe(
+      resolveTheme({ ...doc, base: 'Flexoki' }, 'dark').colors.border,
+    )
+    expect(document.documentElement.style.getPropertyValue('--eva-c-foreground')).toBe('#123456')
+    expect(document.documentElement.style.getPropertyValue('--eva-c-background')).toBe('#234567')
+    await setThemeBase('EvaOS')
+    expect(invoke.mock.calls.filter(([channel]) => channel === 'theme.setBase')).toHaveLength(1)
+    setAppearance('light')
+    finish({ ok: true, value: {} })
+    await pending
+    expect(themeStore.getState().baseSaving).toBe(false)
+    expect(themeStore.getState().appearance).toBe('light')
+    expect(themeStore.getState().doc).toEqual({
+      ...doc,
+      base: 'Flexoki',
+      app: { appearance: 'light' },
+    })
+    expect(themeStore.getState().doc.raw).toBe(doc.raw)
+    expect(document.documentElement.style.getPropertyValue('--eva-c-background')).toBe('#345678')
+  })
+
+  it.each(['result', 'rejection'])(
+    'restores only the base after a failed %s save',
+    async (failure) => {
+      const doc = parseThemeDoc({ base: 'EvaOS', shared: { foreground: '#123456' } })
+      initTheme('dark', doc)
+      invoke.mockImplementation((channel: string) => {
+        if (channel !== 'theme.setBase') return Promise.resolve({ ok: true, value: {} })
+        return failure === 'rejection'
+          ? Promise.reject(new Error('read only'))
+          : Promise.resolve({ ok: false, error: { code: 'IO', message: 'read only' } })
+      })
+      const pending = setThemeBase('Flexoki')
+      setAppearance('light')
+      await pending
+      expect(themeStore.getState().doc.base).toBe('EvaOS')
+      expect(themeStore.getState().doc.shared).toEqual(doc.shared)
+      expect(themeStore.getState().appearance).toBe('light')
+      expect(themeStore.getState().baseSaving).toBe(false)
+      expect(themeStore.getState().baseError).toContain('previous theme has been restored')
+      expect(document.documentElement.style.getPropertyValue('--eva-c-background')).toBe(
+        resolveTheme(doc, 'light').colors.background,
+      )
+    },
+  )
+})
+
+describe('theme bootstrap', () => {
+  it('restores the complete saved document before the renderer starts', async () => {
+    const raw = {
+      base: 'Flexoki',
+      shared: { foreground: '#123456' },
+      light: { edits: { background: '#abcdef' } },
+      dark: { edits: { background: '#fedcba' } },
+      app: { appearance: 'light', future: true },
+      future: { enabled: true },
+    }
+    invoke.mockImplementation(async (channel: string) => {
+      if (channel === 'theme.load') return { ok: true, value: { appearance: 'light', doc: raw } }
+      if (channel === 'app.info') return { ok: true, value: { noMotion: true, e2e: false } }
+      return { ok: true, value: {} }
+    })
+    await expect(bootstrapTheme()).resolves.toEqual({ resolved: 'light' })
+    expect(themeStore.getState().doc).toEqual(parseThemeDoc(raw))
+    expect(themeStore.getState().doc.raw).toBe(raw)
+    expect(document.documentElement.style.getPropertyValue('--eva-c-foreground')).toBe('#123456')
+    expect(document.documentElement.style.getPropertyValue('--eva-c-background')).toBe('#abcdef')
+  })
+
+  it('tolerates an older load response without a document', async () => {
+    invoke.mockImplementation(async (channel: string) =>
+      channel === 'theme.load'
+        ? { ok: true, value: { appearance: 'dark' } }
+        : { ok: true, value: { noMotion: true, e2e: false } },
+    )
+    await expect(bootstrapTheme()).resolves.toEqual({ resolved: 'dark' })
+    expect(themeStore.getState().doc).toEqual(defaultDoc())
+  })
 })
 
 describe('no remount', () => {
-  it('keeps element identity and mount count across an appearance switch', () => {
+  it('keeps element identity and mount count across appearance and family switches', async () => {
     initTheme('light')
     let mounts = 0
     let el: HTMLElement | null = null
@@ -160,5 +266,10 @@ describe('no remount', () => {
     expect(setScheme).toHaveBeenCalledWith('dark')
     for (const c of setScheme.mock.calls) expect(c[0]).not.toBe('auto')
     expect(document.documentElement.getAttribute('data-mantine-color-scheme')).toBe('dark')
+    await act(async () => setThemeBase('Flexoki'))
+    expect(getByTestId('probe')).toBe(before)
+    expect(mounts).toBe(mountsBefore)
+    expect(themeStore.getState().doc.base).toBe('Flexoki')
+    expect(themeStore.getState().resolved).toBe('dark')
   })
 })

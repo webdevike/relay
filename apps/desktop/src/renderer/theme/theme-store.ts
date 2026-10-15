@@ -14,6 +14,8 @@ export interface ThemeState {
   appearance: Appearance
   resolved: 'light' | 'dark'
   doc: ThemeDoc
+  baseSaving: boolean
+  baseError: string | null
 }
 
 const QUERY = '(prefers-color-scheme: dark)'
@@ -26,6 +28,8 @@ export const themeStore = createStore<ThemeState>(() => ({
   appearance: 'system',
   resolved: 'dark',
   doc: defaultDoc(),
+  baseSaving: false,
+  baseError: null,
 }))
 
 let mql: MediaQueryList | null = null
@@ -53,12 +57,14 @@ function attachMedia(): void {
 
 export function initTheme(appearance: Appearance, doc: ThemeDoc = defaultDoc()): void {
   attachMedia()
+  themeStore.setState({ baseSaving: false, baseError: null })
   apply(appearance, doc)
 }
 
 export function setAppearance(appearance: Appearance): void {
   attachMedia()
-  apply(appearance, themeStore.getState().doc)
+  const doc = themeStore.getState().doc
+  apply(appearance, { ...doc, app: { ...doc.app, appearance } })
   void invoke('theme.setAppearance', { appearance }).then(
     (r) => {
       if (!r.ok) notifySaveFailure()
@@ -67,12 +73,36 @@ export function setAppearance(appearance: Appearance): void {
   )
 }
 
+/** Applies immediately, then restores only the family if persistence fails. */
+export async function setThemeBase(base: string): Promise<void> {
+  const previous = themeStore.getState()
+  if (previous.baseSaving || previous.doc.base === base) return
+  themeStore.setState({ baseSaving: true, baseError: null })
+  apply(previous.appearance, { ...previous.doc, base })
+  try {
+    const result = await invoke('theme.setBase', { base })
+    if (!result.ok) throw new Error(result.error.message)
+    themeStore.setState({ baseSaving: false })
+  } catch {
+    const current = themeStore.getState()
+    apply(current.appearance, { ...current.doc, base: previous.doc.base })
+    themeStore.setState({
+      baseSaving: false,
+      baseError: 'Could not save the theme. Your previous theme has been restored.',
+    })
+  }
+}
+
 function notifySaveFailure(): void {
   notifications.show({
     color: 'red',
     message:
       'Could not save your settings. Check that the EvaOS config folder is writable, then try again.',
   })
+}
+
+export function useTheme<T>(selector: (state: ThemeState) => T): T {
+  return useStore(themeStore, selector)
 }
 
 export function useAppearance(): Appearance {

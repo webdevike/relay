@@ -12,7 +12,9 @@ vi.mock('electron', () => ({
 
 import { createConfigStore, type ConfigStore } from './config-store'
 import { loadLayout, saveLayout } from './layout-ipc'
-import { loadAppearance, readLastBackground, saveAppearance, saveLastBackground } from './theme-ipc'
+import {
+  loadAppearance, loadTheme, readLastBackground, saveAppearance, saveBase, saveLastBackground,
+} from './theme-ipc'
 import { loadSettings, saveSettings } from './settings-ipc'
 import { createWriteQueue } from './write-queue'
 
@@ -78,6 +80,39 @@ describe('theme', () => {
     expect(readLastBackground(config)).toBe('#181817')
     saveLastBackground(config, '#222222')
     expect(readLastBackground(config)).toBe('#222222')
+  })
+  it('persists base and appearance across stores without losing edit layers or unknown keys', async () => {
+    const original = {
+      base: 'EvaOS',
+      shared: { ring: '#123456', futureShape: { radius: 20 } },
+      light: { edits: { background: '#abcdef' }, futureMode: true },
+      dark: { edits: { ring: '#654321' } },
+      app: { appearance: 'system', lastBackground: '#111111', futureApp: [1, 2] },
+      futureRoot: { version: 2 },
+    }
+    fs.writeFileSync(path.join(dir, 'theme.json'), JSON.stringify(original))
+    const queue = createWriteQueue()
+    await Promise.all([
+      queue.enqueue(() => saveBase(config, 'Catppuccin')),
+      queue.enqueue(() => saveAppearance(config, 'light')),
+      queue.enqueue(() => saveLastBackground(config, '#222222')),
+    ])
+    const expected = {
+      ...original,
+      base: 'Catppuccin',
+      app: { ...original.app, appearance: 'light', lastBackground: '#222222' },
+    }
+    expect(loadTheme(createConfigStore(dir))).toEqual({ appearance: 'light', doc: expected })
+    expect(read('theme.json')).toEqual(expected)
+  })
+
+  it('rejects unknown and unpaired bases without changing the saved document', () => {
+    const original = '{"base":"Flexoki","app":{"appearance":"dark"},"future":true}'
+    fs.writeFileSync(path.join(dir, 'theme.json'), original)
+    for (const base of ['missing', 'Adventure', 'toString', '']) {
+      expect(() => saveBase(config, base)).toThrow(expect.objectContaining({ code: 'unknown-theme' }))
+      expect(fs.readFileSync(path.join(dir, 'theme.json'), 'utf8')).toBe(original)
+    }
   })
 })
 
