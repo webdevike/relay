@@ -141,6 +141,16 @@ describe('LiveReducer', () => {
     expect(rows(r)).toEqual([['notice', 'Error: nope', false]])
   })
 
+  it('notice ids stay unique when a rejected prompt shrinks the list', () => {
+    const r = mk()
+    r.sendPrompt('x')
+    r.apply({ type: 'notice', message: 'heads up' })
+    r.apply({ type: 'prompt_result', status: 'error', error: { message: 'boom' } })
+    const ids = r.messages().map((m) => m.id)
+    expect(ids).toHaveLength(2)
+    expect(new Set(ids).size).toBe(2)
+  })
+
   it('prompt_result error and aborted add notices', () => {
     const r = mk()
     r.sendPrompt('x')

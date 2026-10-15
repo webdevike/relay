@@ -65,6 +65,8 @@ function dialogTitle(d: Dialog): string {
  */
 export class LiveReducer {
   private msgs: ChatMessage[]
+  /** Monotonic so a notice id is never reused after `dropUnconfirmed` shrinks the list. */
+  private noticeSeq = 0
   private metaState: SessionMeta
   private sent = 0
   private stderr: string[] = []
@@ -326,7 +328,9 @@ export class LiveReducer {
   }
 
   private notice(text: string, dirty: Set<string>): void {
-    const id = `notice-${this.msgs.length}`
+    let id: string
+    do id = `notice-${++this.noticeSeq}`
+    while (this.indexOf(id) >= 0)
     this.insert([makeMessage(id, 'notice', text)], dirty)
   }
 
