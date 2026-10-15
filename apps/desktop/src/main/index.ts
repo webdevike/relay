@@ -37,46 +37,52 @@ function bootstrap(): void {
   app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
 
   void app.whenReady().then(() => {
-    installAppMenu()
-    const config = createConfigStore(env.configDir)
-    const prev = config.readJson<{ launchCount?: number }>('app-state.json', {})
-    config.writeJson('app-state.json', {
-      launchCount: (prev.launchCount ?? 0) + 1,
-      lastLaunch: new Date().toISOString(),
-    })
+    try {
+      installAppMenu()
+      const config = createConfigStore(env.configDir)
+      const prev = config.readJson<{ launchCount?: number }>('app-state.json', {})
+      config.writeJson('app-state.json', {
+        launchCount: (prev.launchCount ?? 0) + 1,
+        lastLaunch: new Date().toISOString(),
+      })
 
-    const { win, shell } = createMainWindow(env, readLastBackground(config))
-    const quitHooks: Array<() => Promise<void>> = []
-    const ctx: MainContext = {
-      env,
-      win,
-      shell,
-      config,
-      onBeforeQuit: (fn) => {
-        quitHooks.push(fn)
-      },
+      const { win, shell } = createMainWindow(env, readLastBackground(config))
+      const quitHooks: Array<() => Promise<void>> = []
+      const ctx: MainContext = {
+        env,
+        win,
+        shell,
+        config,
+        onBeforeQuit: (fn) => {
+          quitHooks.push(fn)
+        },
+      }
+
+      const guard = installQuitGuard(ctx)
+      let quitting = false
+      app.on('before-quit', (event) => {
+        if (quitting || quitHooks.length === 0 || !guard.approved()) return
+        quitting = true
+        event.preventDefault()
+        const all = Promise.allSettled(quitHooks.map((h) => h()))
+        const cap = new Promise((r) => setTimeout(r, 12_000))
+        void Promise.race([all, cap]).finally(() => app.exit(0))
+      })
+
+      const queue = createWriteQueue()
+      registerAppIpc(ctx)
+      registerLayoutIpc(ctx, queue)
+      registerThemeIpc(ctx, queue)
+      registerSettingsIpc(ctx, queue)
+      registerEvaIpc(ctx)
+      registerChat(ctx)
+      registerBrowser(ctx)
+      installTestHooks(ctx)
+    } catch (e) {
+      // A half-started app (no window, no IPC) is worse than a clear failure.
+      dialog.showErrorBox('EvaOS', e instanceof Error ? e.message : String(e))
+      app.exit(2)
     }
-
-    const guard = installQuitGuard(ctx)
-    let quitting = false
-    app.on('before-quit', (event) => {
-      if (quitting || quitHooks.length === 0 || !guard.approved()) return
-      quitting = true
-      event.preventDefault()
-      const all = Promise.allSettled(quitHooks.map((h) => h()))
-      const cap = new Promise((r) => setTimeout(r, 12_000))
-      void Promise.race([all, cap]).finally(() => app.exit(0))
-    })
-
-    const queue = createWriteQueue()
-    registerAppIpc(ctx)
-    registerLayoutIpc(ctx, queue)
-    registerThemeIpc(ctx, queue)
-    registerSettingsIpc(ctx, queue)
-    registerEvaIpc(ctx)
-    registerChat(ctx)
-    registerBrowser(ctx)
-    installTestHooks(ctx)
   })
 
   app.on('window-all-closed', () => app.quit())
