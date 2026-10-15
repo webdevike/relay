@@ -1,4 +1,6 @@
 .eva-shell {
+  --eva-traffic: 80px;
+  --eva-gap: 8px;
   --eva-sidebar-w: 272px;
   --eva-panel-w: 420px;
   --eva-main-left: 0px;
@@ -82,10 +84,6 @@ body.eva-resizing .eva-sidebar {
 .eva-main-card > .eva-chat {
   min-width: 0;
   flex: 1;
-}
-/* Traffic lights sit at the window corner when the sidebar is not showing. */
-.eva-shell:not([data-sidebar-state='open']) .eva-chat-header {
-  padding-left: 80px;
 }
 
 .eva-panel-wrap {

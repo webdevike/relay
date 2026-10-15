@@ -107,8 +107,7 @@ body {
   display: flex;
   align-items: center;
   padding: 0 var(--eva-space-md);
-  border-bottom: 1px solid var(--eva-border);
-  -webkit-app-region: drag;
+  border-bottom: 1px solid var(--eva-c-border);
 }
 .eva-chat-empty {
   flex: 1;

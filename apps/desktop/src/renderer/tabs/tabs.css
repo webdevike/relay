@@ -1,0 +1,116 @@
+.eva-tabbar {
+  flex: none;
+  height: 40px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--eva-c-border);
+  background: var(--eva-c-background);
+  min-width: 0;
+}
+.eva-tabbar[data-lead-in='true'] {
+  padding-left: calc(var(--eva-traffic) - var(--eva-gap) - 1px);
+}
+.eva-tabbar > * {
+  -webkit-app-region: no-drag;
+}
+.eva-tabbar > .eva-tabbar-spacer {
+  -webkit-app-region: drag;
+  flex: 1 0 8px;
+  align-self: stretch;
+}
+.eva-tabbar-btn {
+  flex: none;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-tabbar-btn:hover {
+  background: var(--eva-hover);
+}
+.eva-tabbar-btn[aria-pressed='true'] {
+  color: var(--eva-c-foreground);
+}
+.eva-tabs-scroll {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.eva-tabs-scroll::-webkit-scrollbar {
+  display: none;
+}
+.eva-tab {
+  flex: none;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  min-width: 96px;
+  max-width: 200px;
+  padding: 0 8px;
+  border-radius: var(--eva-radius);
+  color: var(--eva-c-tab-foreground);
+  cursor: pointer;
+  user-select: none;
+  outline-offset: -2px;
+}
+.eva-tab:hover {
+  background: var(--eva-hover);
+}
+.eva-tab[data-active='true'] {
+  background: var(--eva-c-tab-active-background);
+  color: var(--eva-c-tab-active-foreground);
+  box-shadow: inset 0 0 0 1px var(--eva-c-border);
+}
+.eva-tab-pinned {
+  min-width: 28px;
+  width: 28px;
+  padding: 0;
+  justify-content: center;
+}
+.eva-tab-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-tab-close {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--eva-dur-fast) var(--eva-ease);
+}
+.eva-tab:hover .eva-tab-close,
+.eva-tab[data-active='true'] .eva-tab-close {
+  opacity: 1;
+}
+.eva-tab-close:hover {
+  background: var(--eva-hover);
+}
+.eva-tab-menu-anchor {
+  position: fixed;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.eva-tip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

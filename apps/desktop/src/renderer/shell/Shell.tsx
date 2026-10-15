@@ -1,9 +1,9 @@
 import './shell.css'
 import { useLayoutEffect, useState } from 'react'
-import { ChatPane } from '../chat/ChatPane'
 import { TestOverlay, useTestOverlayOpener } from '../overlay/TestOverlay'
 import { SidebarColumn } from '../sidebar/SidebarColumn'
 import { Footer } from './Footer'
+import { MainCard } from './MainCard'
 import { Grip } from './Grip'
 import { PanelCard } from './PanelCard'
 import { layoutStore, setWindowWidth, useLayout } from './layout-store'
@@ -48,8 +48,7 @@ export function Shell() {
         <SidebarColumn />
         {state === 'open' ? <Grip edge="sidebar" /> : null}
         <section className="eva-card eva-main-card" data-testid="main-card">
-          {/* 02-09 puts the tab strip and page router in this slot. */}
-          <ChatPane />
+          <MainCard />
         </section>
         <PanelCard />
       </div>
