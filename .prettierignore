@@ -11,3 +11,5 @@ test-results
 IDEA.md
 CLAUDE.md
 *.sh
+packages/theme-core/src/base-light.ts
+packages/theme-core/src/base-dark.ts
