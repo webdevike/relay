@@ -4,7 +4,14 @@ import * as fs from 'node:fs'
 import * as net from 'node:net'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { APP_DIR, EVA_FIXTURE_ROOT, FAKE_OMP, SESSIONS_FIXTURE_DIR } from './helpers/paths'
+import {
+  APP_DIR,
+  EVA_FIXTURE_ROOT,
+  FAKE_GATE,
+  FAKE_JOB_RUN,
+  FAKE_OMP,
+  SESSIONS_FIXTURE_DIR,
+} from './helpers/paths'
 
 const EXE = path.join(APP_DIR, 'release/mac-arm64/EvaOS Electron.app/Contents/MacOS/EvaOS Electron')
 
@@ -27,6 +34,7 @@ type Invoke = { eva: { invoke(c: string, i: unknown): Promise<unknown> } }
 test('packaged dir build launches, shows the shell and starts the extension host', async () => {
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'evaos-pkg-'))
   const port = await freePort()
+  const fakeLog = path.join(configDir, 'fake-log.jsonl')
   const env: Record<string, string> = {}
   for (const [k, v] of Object.entries(process.env)) {
     if (v !== undefined && !k.startsWith('EVAOS_')) env[k] = v
@@ -37,6 +45,13 @@ test('packaged dir build launches, shows the shell and starts the extension host
     EVAOS_EVA_ROOT: EVA_FIXTURE_ROOT,
     EVAOS_OMP_BIN: FAKE_OMP,
     EVAOS_SESSIONS_DIR: SESSIONS_FIXTURE_DIR,
+    // Packaged builds default to live mode; the fakes win so the smoke never touches real Eva tools.
+    EVAOS_HABIT_GATE_BIN: FAKE_GATE,
+    EVAOS_JOB_RUN_BIN: FAKE_JOB_RUN,
+    FAKE_LOG: fakeLog,
+    FAKE_GATE_STATE: path.join(configDir, 'fake-gate.json'),
+    FAKE_GATE_PHOTOS: path.join(configDir, 'habit-photos'),
+    EVAOS_HABIT_PHOTOS_DIR: path.join(configDir, 'habit-photos'),
     ELECTRON_DISABLE_SECURITY_WARNINGS: '1',
     EVAOS_HIDDEN_WINDOW: '1',
   })
@@ -85,6 +100,29 @@ test('packaged dir build launches, shows the shell and starts the extension host
       (window as unknown as Invoke).eva.invoke('browser.extensions', {}),
     )) as { ok: boolean }
     expect(ext.ok).toBe(true)
+
+    // Dashboard renders in the packaged build (banner assets and chokidar bundled).
+    await expect(shell.locator('[data-testid=page-dashboard]')).toBeVisible()
+    await expect(shell.locator('[data-testid=dash-hero]')).toBeVisible()
+    // One habits poll, then prove only the fakes ran. The main-process 'spawnLog' hook is not
+    // reachable over CDP in a packaged run, so the fakes' own FAKE_LOG is the record: every
+    // spawn (gate or job-run) must have gone through them, and the gate was polled at least once.
+    await shell.evaluate(() =>
+      (
+        window as unknown as { __evaosShell: { openPlace(p: string): void } }
+      ).__evaosShell.openPlace('habits'),
+    )
+    await expect(shell.locator('[data-testid=page-habits]')).toBeVisible()
+    await expect
+      .poll(() => (fs.existsSync(fakeLog) ? fs.readFileSync(fakeLog, 'utf8').trim() : ''))
+      .not.toBe('')
+    const tools = fs
+      .readFileSync(fakeLog, 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => (JSON.parse(l) as { tool: string }).tool)
+    expect(tools.length).toBeGreaterThan(0)
+    for (const t of tools) expect(['gate', 'job-run']).toContain(t)
 
     // The guest browser panel exists and the browser tab strip rendered.
     await expect(shell.locator('[data-testid=browser-slot]')).toBeVisible()
