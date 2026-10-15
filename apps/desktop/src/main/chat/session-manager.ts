@@ -3,6 +3,12 @@ import * as path from 'node:path'
 import { parseFrame } from '@evaos/chat-core/frames'
 import { cmd } from '@evaos/chat-core/frames'
 import { LiveReducer } from '@evaos/chat-core/reducer'
+import {
+  answerSummary,
+  dialogResponse,
+  dialogStatus,
+  type DialogAnswer,
+} from '@evaos/chat-core/dialogs'
 import { SeqBatcher, type Batch, type Snapshot } from '@evaos/chat-core/batcher'
 import type { ChatMessage, SessionMeta } from '@evaos/chat-core/message'
 import { tagged } from '@evaos/chat-core/tagged'
@@ -148,8 +154,12 @@ export class SessionManager {
   liveStatus(file: string): LiveStatus | null {
     const owner = this.owners.get(this.real(file))
     if (!owner) return null
-    // The dialog stays null until the question slice lands.
-    return { paneId: owner.pane.paneId, working: owner.pane.reducer.running, dialog: null }
+    const d = owner.pane.reducer.dialog
+    return {
+      paneId: owner.pane.paneId,
+      working: owner.pane.reducer.running,
+      dialog: d ? dialogStatus(d) : null,
+    }
   }
 
   /** Fires with the owned file's realpath on owner add or remove, working toggle and bind. */
@@ -356,6 +366,7 @@ export class SessionManager {
     const frame =
       parsed.type === 'unknown' ? raw : (parsed as Record<string, unknown> & { type: string })
     const wasWorking = pane.reducer.running
+    const hadDialog = pane.reducer.dialog
     const res = pane.reducer.apply(frame)
     for (const id of res.dirty) {
       const ix = pane.reducer.indexOf(id)
@@ -364,7 +375,9 @@ export class SessionManager {
     for (const id of res.removed) pane.batcher.markRemove(id)
     if (res.meta) pane.batcher.markMeta(res.meta)
     this.bindDraft(pane, transport, frame)
-    if (pane.reducer.running !== wasWorking) this.notify(pane.key)
+    if (pane.reducer.running !== wasWorking || pane.reducer.dialog !== hadDialog) {
+      this.notify(pane.key)
+    }
     if (res.effect) void pane.transport?.write(res.effect).catch(() => undefined)
     if (frame.type === '_eof') {
       // omp is already gone: nothing to close() and no second `_eof` to apply.
@@ -462,9 +475,44 @@ export class SessionManager {
 
   /** Returns whether an abort command was written (false for unknown panes or stopped sessions). */
   async abort(paneId: string): Promise<boolean> {
-    const t = this.panes.get(paneId)?.transport
-    if (!t) return false
+    const pane = this.panes.get(paneId)
+    const t = pane?.transport
+    if (!pane || !t) return false
+    // omp must never stay blocked on a question the abort made moot: cancel it first.
+    const d = pane.reducer.dialog
+    if (d) {
+      await t.write(dialogResponse(d.id, { kind: 'cancel' })).catch(() => undefined)
+      this.applyDialogChange(pane, pane.reducer.cancelPending('abort'))
+    }
     await t.abort().catch(() => undefined)
+    return true
+  }
+
+  private applyDialogChange(
+    pane: Pane,
+    res: { dirty: string[]; meta?: import('@evaos/chat-core/batcher').MetaPatch },
+  ): void {
+    for (const id of res.dirty) {
+      const ix = pane.reducer.indexOf(id)
+      if (ix >= 0) pane.batcher.markUpsert(pane.reducer.messages()[ix]!, ix)
+    }
+    if (res.meta) pane.batcher.markMeta(res.meta)
+    this.notify(pane.key)
+  }
+
+  /**
+   * Answers the pane's pending dialog. False (and nothing written) when there is no pending
+   * dialog with this id, so a stale or forged id can never answer a different question (T-04-40).
+   */
+  async answerUi(paneId: string, id: string, answer: DialogAnswer): Promise<boolean> {
+    const pane = this.panes.get(paneId)
+    const t = pane?.transport
+    const d = pane?.reducer.dialog
+    if (!pane || !t || !d || d.id !== id) return false
+    await t.write(dialogResponse(id, answer))
+    // The write awaited: only the same dialog may be marked answered.
+    if (pane.reducer.dialog?.id !== id) return true
+    this.applyDialogChange(pane, pane.reducer.answer(id, answerSummary(answer)))
     return true
   }
 
@@ -477,6 +525,7 @@ export class SessionManager {
         running: p.reducer.running,
         connected: p.transport !== null,
         error: p.reducer.error,
+        dialog: p.reducer.dialog,
       },
     )
   }

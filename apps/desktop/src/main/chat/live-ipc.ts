@@ -99,6 +99,9 @@ export function registerLiveIpc(ctx: MainContext, manager: SessionManager): void
     return { accepted: true as const }
   })
   handle(ctx, 'chat.abort', async ({ paneId }) => ({ sent: await manager.abort(paneId) }))
+  handle(ctx, 'chat.answerUi', async ({ paneId, id, response }) => ({
+    sent: await manager.answerUi(paneId, id, response),
+  }))
   handle(ctx, 'chat.close', async ({ paneId }) => ({ exit: await manager.close(paneId) }))
   handle(ctx, 'chat.openDraft', ({ paneId }) => {
     const meta = { model: null, thinking: null, contextTokens: null }

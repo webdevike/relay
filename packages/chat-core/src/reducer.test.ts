@@ -179,22 +179,96 @@ describe('LiveReducer', () => {
     expect(res.meta).toEqual({ running: true })
   })
 
-  it('dialog requests are cancelled, presentation updates are not', () => {
+  it('a select request is held as a dialog with a log row, not auto-cancelled', () => {
     const r = mk()
-    expect(r.apply({ type: 'extension_ui_request', id: 'u1', method: 'select' }).effect).toEqual({
-      type: 'extension_ui_response',
+    const res = r.apply({
+      type: 'extension_ui_request',
       id: 'u1',
-      cancelled: true,
+      method: 'select',
+      title: 'Pick',
+      options: ['A', 'B'],
     })
-    expect(
-      r.apply({ type: 'extension_ui_request', id: 'u2', method: 'setWidget' }).effect,
-    ).toBeUndefined()
-    expect(
-      r.apply({ type: 'extension_ui_request', id: 'u3', method: 'notify' }).effect,
-    ).toBeUndefined()
-    expect(
-      r.apply({ type: 'extension_ui_request', id: 'u4', method: 'setStatus' }).effect,
-    ).toBeUndefined()
+    expect(res.effect).toBeUndefined()
+    expect(res.meta?.dialog).toMatchObject({ kind: 'select', id: 'u1' })
+    expect(r.dialog?.id).toBe('u1')
+    expect(r.messages().at(-1)).toMatchObject({ id: 'dialog-u1', role: 'notice', text: 'Pick' })
+  })
+
+  it('presentation updates are ignored', () => {
+    const r = mk()
+    for (const method of ['setWidget', 'notify', 'setStatus']) {
+      const res = r.apply({ type: 'extension_ui_request', id: 'x', method })
+      expect(res.effect).toBeUndefined()
+      expect(res.meta).toBeUndefined()
+    }
+    expect(r.dialog).toBeNull()
+  })
+
+  it('an unreadable ask is cancelled with the notice', () => {
+    const r = mk()
+    const res = r.apply({ type: 'extension_ui_request', id: 'u9', method: 'ask', questions: 'x' })
+    expect(res.effect).toEqual({ type: 'extension_ui_response', id: 'u9', cancelled: true })
+    expect(r.messages().at(-1)?.text).toBe(
+      "omp asked a question EvaOS couldn't read, so it was cancelled.",
+    )
+    expect(r.dialog).toBeNull()
+  })
+
+  it('a cancel for the pending id clears the dialog and marks the row dead', () => {
+    const r = mk()
+    r.apply({ type: 'extension_ui_request', id: 'u1', method: 'confirm', title: 'Sure?' })
+    const res = r.apply({ type: 'extension_ui_request', id: 'c', method: 'cancel', targetId: 'u1' })
+    expect(res.meta?.dialog).toBeNull()
+    expect(r.messages().find((m) => m.id === 'dialog-u1')?.text).toBe(
+      'This question can no longer be answered.',
+    )
+  })
+
+  it('a cancel for another id leaves the dialog', () => {
+    const r = mk()
+    r.apply({ type: 'extension_ui_request', id: 'u1', method: 'confirm', title: 'Sure?' })
+    r.apply({ type: 'extension_ui_request', id: 'c', method: 'cancel', targetId: 'other' })
+    expect(r.dialog?.id).toBe('u1')
+  })
+
+  it('answer() rewrites the row and only for the pending id', () => {
+    const r = mk()
+    r.apply({
+      type: 'extension_ui_request',
+      id: 'u1',
+      method: 'select',
+      title: 'Pick',
+      options: ['A'],
+    })
+    expect(r.answer('nope', 'A').dirty).toEqual([])
+    expect(r.dialog).not.toBeNull()
+    const res = r.answer('u1', 'A')
+    expect(res.dirty).toEqual(['dialog-u1'])
+    expect(res.meta).toEqual({ dialog: null })
+    expect(r.messages().find((m) => m.id === 'dialog-u1')?.text).toBe('Answered: A')
+  })
+
+  it('eof with a pending dialog marks it dead and clears it, expected or not', () => {
+    for (const expected of [true, false]) {
+      const r = mk()
+      r.apply({ type: 'extension_ui_request', id: 'u1', method: 'confirm', title: 'Sure?' })
+      const res = r.apply({ type: '_eof', code: 0, expected })
+      expect(res.effect).toBeUndefined()
+      expect(res.meta?.dialog).toBeNull()
+      expect(r.dialog).toBeNull()
+      expect(r.messages().find((m) => m.id === 'dialog-u1')?.text).toBe(
+        'This question can no longer be answered.',
+      )
+    }
+  })
+
+  it('cancelPending(abort) drops the dialog so omp is never left blocked', () => {
+    const r = mk()
+    r.apply({ type: 'extension_ui_request', id: 'u1', method: 'input', title: 'Name?' })
+    const res = r.cancelPending('abort')
+    expect(res.meta).toEqual({ dialog: null })
+    expect(r.dialog).toBeNull()
+    expect(r.cancelPending('abort').dirty).toEqual([])
   })
 
   it('get_state fills model and context, model changes ask for a re-read', () => {

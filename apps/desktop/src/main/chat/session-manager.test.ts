@@ -288,7 +288,7 @@ describe('SessionManager', () => {
     const { mgr, transports } = setup()
     mgr.open('pane-1', '/s/a.jsonl', [], meta)
     await mgr.send('pane-1', 'hi')
-    transports[0]!.push({ type: 'extension_ui_request', id: 'u1', method: 'confirm' })
+    transports[0]!.push({ type: 'extension_ui_request', id: 'u1', method: 'ask', questions: 'x' })
     expect(transports[0]!.written.at(-1)).toEqual({
       type: 'extension_ui_response',
       id: 'u1',
@@ -700,5 +700,116 @@ describe('SessionManager new chats and status', () => {
     await mgr.close('pane-1')
     expect(mgr.ownerOf('/s/new.jsonl')).toBeNull()
     vi.useRealTimers()
+  })
+
+  describe('dialogs', () => {
+    const selectFrame = {
+      type: 'extension_ui_request',
+      id: 'u1',
+      method: 'select',
+      title: 'Pick',
+      options: ['A', 'B'],
+    } as unknown as Frame
+
+    it('holds a dialog, reports status and includes it in the snapshot', async () => {
+      const { mgr, transports } = setup()
+      mgr.open('pane-1', '/s/a.jsonl', [], meta)
+      await mgr.send('pane-1', 'a')
+      const seen: string[] = []
+      mgr.onStatusChange((f) => seen.push(f))
+      transports[0]!.push(selectFrame)
+      expect(mgr.liveStatus('/s/a.jsonl')?.dialog).toBe('other')
+      expect(seen).toHaveLength(1)
+      expect(mgr.snapshot('pane-1').dialog).toMatchObject({ kind: 'select', id: 'u1' })
+      expect(transports[0]!.written.at(-1)?.type).not.toBe('extension_ui_response')
+      transports[0]!.push({
+        type: 'extension_ui_request',
+        id: 'u2',
+        method: 'confirm',
+        title: 'Sure?',
+      } as unknown as Frame)
+      expect(mgr.liveStatus('/s/a.jsonl')?.dialog).toBe('confirm')
+      vi.useRealTimers()
+    })
+
+    it('answerUi writes the response, updates the row and clears the dialog', async () => {
+      const { mgr, transports, batches } = setup()
+      mgr.open('pane-1', '/s/a.jsonl', [], meta)
+      await mgr.send('pane-1', 'a')
+      transports[0]!.push(selectFrame)
+      const seen: string[] = []
+      mgr.onStatusChange((f) => seen.push(f))
+      expect(await mgr.answerUi('pane-1', 'u1', { kind: 'select', value: 'B' })).toBe(true)
+      expect(transports[0]!.written.at(-1)).toEqual({
+        type: 'extension_ui_response',
+        id: 'u1',
+        value: 'B',
+      })
+      expect(mgr.snapshot('pane-1').dialog).toBeNull()
+      expect(mgr.snapshot('pane-1').messages.find((m) => m.id === 'dialog-u1')?.text).toBe(
+        'Answered: B',
+      )
+      expect(seen).toHaveLength(1)
+      expect(mgr.liveStatus('/s/a.jsonl')?.dialog).toBeNull()
+      vi.advanceTimersByTime(20)
+      const metas = batches.flatMap((b) => b.ops).filter((o) => o.op === 'meta')
+      expect(metas.at(-1)).toMatchObject({ patch: { dialog: null } })
+      vi.useRealTimers()
+    })
+
+    it('answerUi with a stale or wrong id writes nothing', async () => {
+      const { mgr, transports } = setup()
+      mgr.open('pane-1', '/s/a.jsonl', [], meta)
+      await mgr.send('pane-1', 'a')
+      const before = transports[0]!.written.length
+      expect(await mgr.answerUi('pane-1', 'u1', { kind: 'cancel' })).toBe(false)
+      transports[0]!.push(selectFrame)
+      expect(await mgr.answerUi('pane-1', 'other', { kind: 'cancel' })).toBe(false)
+      expect(await mgr.answerUi('pane-9', 'u1', { kind: 'cancel' })).toBe(false)
+      expect(transports[0]!.written).toHaveLength(before)
+      expect(mgr.snapshot('pane-1').dialog).not.toBeNull()
+      vi.useRealTimers()
+    })
+
+    it('abort cancels the pending dialog so omp is never left blocked', async () => {
+      const { mgr, transports } = setup()
+      mgr.open('pane-1', '/s/a.jsonl', [], meta)
+      await mgr.send('pane-1', 'a')
+      transports[0]!.push(selectFrame)
+      expect(await mgr.abort('pane-1')).toBe(true)
+      expect(transports[0]!.written.at(-1)).toEqual({
+        type: 'extension_ui_response',
+        id: 'u1',
+        cancelled: true,
+      })
+      expect(mgr.snapshot('pane-1').dialog).toBeNull()
+      vi.useRealTimers()
+    })
+
+    it('close with a pending dialog marks it dead and writes no frame after exit', async () => {
+      const { mgr, transports } = setup()
+      mgr.open('pane-1', '/s/a.jsonl', [], meta)
+      await mgr.send('pane-1', 'a')
+      transports[0]!.push(selectFrame)
+      const before = transports[0]!.written.length
+      await mgr.close('pane-1')
+      expect(transports[0]!.written).toHaveLength(before)
+      const snap = mgr.snapshot('pane-1')
+      expect(snap.dialog).toBeNull()
+      expect(snap.messages.find((m) => m.id === 'dialog-u1')?.text).toBe(
+        'This question can no longer be answered.',
+      )
+      vi.useRealTimers()
+    })
+
+    it('an _eof with a pending dialog clears it and fires a status change', async () => {
+      const { mgr, transports } = setup()
+      mgr.open('pane-1', '/s/a.jsonl', [], meta)
+      await mgr.send('pane-1', 'a')
+      transports[0]!.push(selectFrame)
+      transports[0]!.push({ type: '_eof', code: 1, signal: null } as unknown as Frame)
+      expect(mgr.snapshot('pane-1').dialog).toBeNull()
+      vi.useRealTimers()
+    })
   })
 })

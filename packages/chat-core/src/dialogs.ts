@@ -150,3 +150,26 @@ export function dialogResponse(id: string, answer: DialogAnswer): Record<string,
 export function dialogStatus(d: Dialog): 'confirm' | 'other' {
   return d.kind === 'confirm' ? 'confirm' : 'other'
 }
+
+const oneLined = (t: string, max: number): string => {
+  const flat = t.replace(/\s+/g, ' ').trim()
+  return flat.length > max ? flat.slice(0, max) : flat
+}
+
+/** What the log row shows after the user answered: `Answered: {summary}`. */
+export function answerSummary(a: DialogAnswer): string {
+  switch (a.kind) {
+    case 'select':
+      return a.value
+    case 'confirm':
+      return a.confirmed ? 'Confirm' : 'Declined'
+    case 'text':
+      return oneLined(a.value, 80)
+    case 'cancel':
+      return 'Declined'
+    case 'ask': {
+      const parts = a.answers.flatMap((x) => ('typed' in x ? [x.typed] : x.picked))
+      return oneLined(parts.join(', '), 160) || 'Declined'
+    }
+  }
+}

@@ -1,6 +1,7 @@
 import { attachResult, messagesFrom, oneLine } from './session'
 import { makeMessage, type ChatMessage, type SessionMeta } from './message'
 import type { MetaPatch } from './batcher'
+import { parseDialog, UNREADABLE_ASK_NOTICE, type Dialog } from './dialogs'
 
 type Json = Record<string, unknown>
 const isObj = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -8,7 +9,8 @@ const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : und
 
 const SENT = 'sent-'
 const STDERR_LINES = 20
-const DIALOG_METHODS = new Set(['select', 'confirm', 'input', 'editor', 'ask'])
+const DIALOG_METHODS = new Set(['select', 'confirm', 'input', 'editor', 'ask', 'cancel'])
+export const DEAD_DIALOG_TEXT = 'This question can no longer be answered.'
 export const EOF_ERROR =
   'The session ended unexpectedly. Output so far is kept. Resume the session to continue.'
 
@@ -46,6 +48,11 @@ function resultText(frame: Json): string | null {
   return null
 }
 
+function dialogTitle(d: Dialog): string {
+  if (d.kind === 'ask') return d.questions.map((q) => q.question).join(' / ')
+  return d.title
+}
+
 /**
  * Port of Rust `Live::apply` (chat.rs). `message_update` carries the full message snapshot in
  * `message.content`; the per-event delta is ignored (D-16). `message_end` is
@@ -59,6 +66,8 @@ export class LiveReducer {
   private owned = new Map<string, string[]>()
   working = false
   error: string | null = null
+  /** The blocking question omp waits on, if any. Held until answered, cancelled or omp exits. */
+  dialog: Dialog | null = null
 
   constructor(history: ChatMessage[], meta: SessionMeta) {
     this.msgs = [...history]
@@ -131,6 +140,7 @@ export class LiveReducer {
     return {
       running: this.working,
       error: this.error,
+      dialog: this.dialog,
       model: this.metaState.model,
       contextTokens: this.metaState.contextTokens,
     }
@@ -140,6 +150,7 @@ export class LiveReducer {
     const p: MetaPatch = {}
     if (b.running !== this.working) p.running = this.working
     if (b.error !== this.error) p.error = this.error
+    if (b.dialog !== this.dialog) p.dialog = this.dialog
     if (b.model !== this.metaState.model) p.model = this.metaState.model
     if (b.contextTokens !== this.metaState.contextTokens)
       p.contextTokens = this.metaState.contextTokens
@@ -189,13 +200,9 @@ export class LiveReducer {
         this.toolEnd(frame, dirty)
         return
       case 'extension_ui_request': {
-        const id = str(frame.id)
         const method = str(frame.method)
-        // Dialogs are cancelled so omp never blocks waiting for an answer nobody can give (T-01-25).
-        if (id !== undefined && method !== undefined && DIALOG_METHODS.has(method)) {
-          return { type: 'extension_ui_response', id, cancelled: true }
-        }
-        return
+        if (method === undefined || !DIALOG_METHODS.has(method)) return
+        return this.dialogRequest(frame, dirty)
       }
       case 'notice': {
         const text = str(frame.message)
@@ -212,6 +219,7 @@ export class LiveReducer {
       }
       case '_eof':
         this.working = false
+        this.killDialog(dirty)
         this.dropUnconfirmed(removed)
         if (frame.expected !== true) this.error = EOF_ERROR
         return
@@ -248,6 +256,59 @@ export class LiveReducer {
       default:
         return
     }
+  }
+
+  private dialogRequest(frame: Json, dirty: Set<string>): Json | undefined {
+    const parsed = parseDialog(frame)
+    if (parsed === null) return
+    if ('cancelTarget' in parsed) {
+      if (this.dialog?.id === parsed.cancelTarget) this.killDialog(dirty)
+      return
+    }
+    if ('unreadable' in parsed) {
+      this.notice(UNREADABLE_ASK_NOTICE, dirty)
+      // omp must never stay blocked on a question nobody can read.
+      return { type: 'extension_ui_response', id: parsed.unreadable.id, cancelled: true }
+    }
+    if (this.dialog) this.killDialog(dirty)
+    this.dialog = parsed.dialog
+    this.insert(
+      [makeMessage(`dialog-${parsed.dialog.id}`, 'notice', dialogTitle(parsed.dialog))],
+      dirty,
+    )
+    return
+  }
+
+  /** The pending question can never be answered: its row says so and the dialog is dropped. */
+  private killDialog(dirty: Set<string>): void {
+    const d = this.dialog
+    if (!d) return
+    this.dialog = null
+    this.setDialogRow(d.id, DEAD_DIALOG_TEXT, dirty)
+  }
+
+  private setDialogRow(id: string, text: string, dirty: Set<string>): void {
+    const ix = this.indexOf(`dialog-${id}`)
+    if (ix < 0) return
+    this.msgs[ix] = { ...this.msgs[ix]!, text }
+    dirty.add(`dialog-${id}`)
+  }
+
+  /** The user answered the pending dialog `id`; the row now reads `Answered: {summary}`. */
+  answer(id: string, summary: string): { dirty: string[]; meta?: MetaPatch } {
+    if (this.dialog?.id !== id) return { dirty: [] }
+    const dirty = new Set<string>()
+    this.dialog = null
+    this.setDialogRow(id, `Answered: ${summary}`, dirty)
+    return { dirty: [...dirty], meta: { dialog: null } }
+  }
+
+  /** Drops the pending dialog when omp exited or the turn was aborted. */
+  cancelPending(_reason: 'eof' | 'abort'): { dirty: string[]; meta?: MetaPatch } {
+    if (!this.dialog) return { dirty: [] }
+    const dirty = new Set<string>()
+    this.killDialog(dirty)
+    return { dirty: [...dirty], meta: { dialog: null } }
   }
 
   private notice(text: string, dirty: Set<string>): void {
