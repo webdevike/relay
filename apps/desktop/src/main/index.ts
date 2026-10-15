@@ -7,6 +7,7 @@ import { registerBrowser } from './browser'
 import { registerChat } from './chat'
 import { registerEvaIpc } from './eva-ipc'
 import { registerLayoutIpc } from './layout-ipc'
+import { installQuitGuard } from './quit-guard'
 import { registerSettingsIpc } from './settings-ipc'
 import { readLastBackground, registerThemeIpc } from './theme-ipc'
 import { createWriteQueue } from './write-queue'
@@ -56,9 +57,10 @@ function bootstrap(): void {
       },
     }
 
+    const guard = installQuitGuard(ctx)
     let quitting = false
     app.on('before-quit', (event) => {
-      if (quitting || quitHooks.length === 0) return
+      if (quitting || quitHooks.length === 0 || !guard.approved()) return
       quitting = true
       event.preventDefault()
       const all = Promise.allSettled(quitHooks.map((h) => h()))
