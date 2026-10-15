@@ -197,7 +197,52 @@ Plans:
   4. User can pick the Claude Code harness and start a new chat through the transport the ADR selects, recorded in PROJECT.md, with prompts carrying the surface tag
   5. The built app is running and `proof/phase-4/` screenshots exist against fake omp and fixture sessions
 
-**Plans**: TBD
+**Plans**: 19 plans in 8 waves
+
+Plans:
+**Wave 1**
+
+- [ ] 04-01-PLAN.md: Chat list rules ported from Rust (workspaces, session id, categories, groupChats) (wave 1)
+- [ ] 04-02-PLAN.md: Session rules ported from Rust (dialogs, jobs and subagents, launch argv and models, image header reader) (wave 1)
+- [ ] 04-03-PLAN.md: Fake omp Phase 4 scenarios, fixtures/agent-p4 and the tmp-copy chat fixture helper (wave 1)
+- [ ] 04-04-PLAN.md: Env seams (EVAOS_AGENT_DIR, EVAOS_CLAUDE_BRIDGE_BIN, EVAOS_CLAUDE_BIN), fake Claude bridge, e2e launch env (wave 1)
+- [ ] 04-05-PLAN.md: Status constants, widened message/meta/transport types and the full Phase 4 chat IPC contract (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 04-06-PLAN.md: Chats list slice: grouped tree, Pinned, running first, Show N more, open from the list (wave 2)
+- [ ] 04-07-PLAN.md: Settings > Chat in chat.json, harness selector and the Claude bridge transport (wave 2)
+- [ ] 04-08-PLAN.md: Inline images in prompts and tool results with the viewer (wave 2)
+- [ ] 04-09-PLAN.md: Composer image paste, drop, attach and send (wave 2)
+
+**Wave 3**
+
+- [ ] 04-10-PLAN.md: New chat through a direct omp child (or Claude bridge), surface tag on every path, transport ADR (wave 3)
+- [ ] 04-11-PLAN.md: Search incl. archived, collapsible headers saved to chat.json, Archived (n) toggle (wave 3)
+
+**Wave 4**
+
+- [ ] 04-12-PLAN.md: Live list within 500 ms (fs events plus recent-file poll) and live status rows (wave 4)
+- [ ] 04-13-PLAN.md: Question cards and extension UI requests with 1-4 hotkeys (wave 4)
+
+**Wave 5**
+
+- [ ] 04-14-PLAN.md: Right-click Rename (RPC or short resume), Pin, Archive, Delete (wave 5)
+- [ ] 04-15-PLAN.md: Subagent chips with Clear done and the background jobs strip (wave 5)
+
+**Wave 6**
+
+- [ ] 04-16-PLAN.md: Custom categories, Move to, drag and drop of chats and headers (dnd-kit) (wave 6)
+- [ ] 04-17-PLAN.md: Shared writer registry and the confirm prompt before shared sends (wave 6)
+
+**Wave 7**
+
+- [ ] 04-18-PLAN.md: Composer toolbar: model picker, access mode, account selector, context ring (wave 7)
+
+**Wave 8**
+
+- [ ] 04-19-PLAN.md: Phase 4 tour, packaged smoke on fakes, full gate and proof index (wave 8)
+
 **UI hint**: yes
 
 ### Phase 5: Rich Replies
