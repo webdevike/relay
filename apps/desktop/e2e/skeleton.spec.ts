@@ -25,4 +25,9 @@ test('skeleton: shell renders and app.info round-trips', async ({ app, shell, co
   await expect(shell.locator('[data-testid=env-badge]')).toHaveText('Fixture data')
   const windows = await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().length)
   expect(windows).toBe(1)
+  // A window opened while macOS reports it occluded (locked screen, other Space) must still paint.
+  const paintsOccluded = await app.evaluate(({ app }) =>
+    app.commandLine.hasSwitch('disable-backgrounding-occluded-windows'),
+  )
+  expect(paintsOccluded).toBe(true)
 })

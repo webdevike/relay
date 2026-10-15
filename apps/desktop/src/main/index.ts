@@ -24,6 +24,12 @@ function bootstrap(): void {
   app.setPath('userData', env.configDir)
   installWriteGuard(env)
 
+  // macOS reports a window as occluded while the screen is locked, on another Space or under
+  // a full-screen app. Chromium then backgrounds every WebContentsView in it and never
+  // composites a frame, so a window opened in that state stays an empty #17181c box. The shell
+  // streams live chat and must paint whenever its window is shown.
+  app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
+
   void app.whenReady().then(() => {
     installAppMenu()
     const config = createConfigStore(env.configDir)
