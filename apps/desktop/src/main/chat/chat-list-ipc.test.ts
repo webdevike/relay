@@ -17,6 +17,7 @@ import {
   deleteChat,
   renameChat,
   saveArchived,
+  saveCategories,
   saveCollapsed,
   savePin,
   type ChatOpsDeps,
@@ -59,6 +60,30 @@ describe('chat.setCollapsed', () => {
       q.enqueue(() => saveCollapsed(config, ['Other', 'Eva'])),
     ])
     expect(read()).toMatchObject({ collapsed_groups: ['Other', 'Eva'], show_thinking: true })
+  })
+})
+
+describe('chat.setCategories', () => {
+  it('writes the three keys in one write and keeps every other key', () => {
+    fs.writeFileSync(
+      path.join(dir, 'chat.json'),
+      JSON.stringify({ harness: 'claude', collapsed_groups: ['Other'], archived_chats: ['x'] }),
+    )
+    expect(
+      saveCategories(config, {
+        chat_categories: ['Focus'],
+        chat_group_order: ['Focus', 'Relay'],
+        chat_assignments: { a: 'Focus' },
+      }),
+    ).toEqual({ saved: true })
+    expect(read()).toEqual({
+      harness: 'claude',
+      collapsed_groups: ['Other'],
+      archived_chats: ['x'],
+      chat_categories: ['Focus'],
+      chat_group_order: ['Focus', 'Relay'],
+      chat_assignments: { a: 'Focus' },
+    })
   })
 })
 

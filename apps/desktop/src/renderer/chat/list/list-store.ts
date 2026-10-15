@@ -1,5 +1,7 @@
 import { useStore } from 'zustand'
 import { createStore } from 'zustand/vanilla'
+import { Categories } from '@evaos/chat-core/categories'
+import { groupChats } from '@evaos/chat-core/chat-groups'
 import type { ChatList, ChatRow } from '@evaos/contract'
 import { notifications } from '@mantine/notifications'
 import { invoke, on } from '../../ipc'
@@ -41,7 +43,20 @@ export interface ListState {
   setDeleting(row: ChatRow | null): void
   pin(id: string, pinned: boolean): Promise<void>
   archive(id: string, archived: boolean): Promise<void>
+  /** Category edits: each returns the Rust error string when the op is rejected, else null. */
+  createCategory(name: string): Promise<string | null>
+  renameCategory(from: string, to: string): Promise<string | null>
+  deleteCategory(name: string): Promise<string | null>
+  moveChat(id: string, group: string | null): Promise<string | null>
+  reorderGroups(moving: string, target: string): Promise<string | null>
+  /** The delete-category dialog and the category being renamed inline. */
+  deletingCategory: string | null
+  renamingCategory: string | null
+  setDeletingCategory(name: string | null): void
+  setRenamingCategory(name: string | null): void
 }
+
+export const CATEGORY_FAILED = 'Could not save your categories. Try again.'
 
 export const ARCHIVE_FAILED = 'Could not archive this chat. Try again.'
 export const PIN_FAILED = 'Could not change the pin. Try again.'
@@ -77,6 +92,8 @@ export const listStore = createStore<ListState>((set, get) => ({
   renamePending: false,
   rowError: null,
   deleting: null,
+  deletingCategory: null,
+  renamingCategory: null,
   async load() {
     const r = await invoke('chat.list', {})
     // The contract already validated the value in main; this guards a failed invoke only.
@@ -156,7 +173,59 @@ export const listStore = createStore<ListState>((set, get) => ({
     }
     if (archived) showArchivedToast(() => void get().archive(id, false))
   },
+  setDeletingCategory: (name) => set({ deletingCategory: name, menu: null }),
+  setRenamingCategory: (name) => set({ renamingCategory: name }),
+  createCategory: (name) => editCategories(set, get, (c) => c.add(name)),
+  renameCategory: (from, to) => editCategories(set, get, (c) => c.rename(from, to)),
+  deleteCategory: (name) =>
+    editCategories(set, get, (c) => {
+      c.remove(name)
+      return { ok: true }
+    }),
+  moveChat: (id, group) =>
+    editCategories(set, get, (c) => {
+      c.assign(id, group)
+      return { ok: true }
+    }),
+  reorderGroups: (moving, target) =>
+    editCategories(set, get, (c, l) => {
+      const shown = groupChats(l.rows, c, {
+        query: '',
+        collapsed: new Set(),
+        expanded: new Set(),
+      }).groups.map((g) => g.name)
+      c.reorder(shown, moving, target)
+      return { ok: true }
+    }),
 }))
+
+type Edit = (c: Categories, list: ChatList) => { ok: true } | { ok: false; error: string }
+
+/**
+ * Applies one Categories op to a copy of the prefs, shows it at once, then saves the three keys in
+ * one write. A rejected op changes nothing; a failed save rolls back.
+ */
+async function editCategories(
+  set: (partial: Partial<ListState>) => void,
+  get: () => ListState,
+  edit: Edit,
+): Promise<string | null> {
+  const list = get().list
+  if (!list) return null
+  const cats = Categories.fromPrefs(list.prefs)
+  const res = edit(cats, list)
+  if (!res.ok) return res.error
+  const next = { ...list.prefs, ...cats.toPrefs() }
+  set({ list: { ...list, prefs: next } })
+  const r = await invoke('chat.setCategories', cats.toPrefs())
+  if (!r.ok) {
+    const cur = get().list
+    if (cur && cur.prefs === next) set({ list: { ...cur, prefs: list.prefs } })
+    notifications.show({ color: 'red', message: CATEGORY_FAILED, autoClose: 6000 })
+    return CATEGORY_FAILED
+  }
+  return null
+}
 
 /** Replaces fields of one row in place (a later pushed list wins). */
 function patchRow(
@@ -194,5 +263,7 @@ export function resetListForTests(): void {
     renamePending: false,
     rowError: null,
     deleting: null,
+    deletingCategory: null,
+    renamingCategory: null,
   })
 }

@@ -30,6 +30,24 @@ export function saveCollapsed(config: ConfigStore, groups: readonly string[]): {
   return { saved: true }
 }
 
+export interface CategoryWrite {
+  chat_categories: string[]
+  chat_group_order: string[]
+  chat_assignments: Record<string, string>
+}
+
+/** One read-modify-write of chat.json that changes only the three category keys. */
+export function saveCategories(config: ConfigStore, next: CategoryWrite): { saved: true } {
+  const existing = config.readForMerge(CHAT_FILE)
+  config.writeJson(CHAT_FILE, {
+    ...existing,
+    chat_categories: next.chat_categories,
+    chat_group_order: next.chat_group_order,
+    chat_assignments: next.chat_assignments,
+  })
+  return { saved: true }
+}
+
 /** Adds or removes one id in chat.json `archived_chats` (sorted); every other key survives. */
 export function saveArchived(
   config: ConfigStore,
@@ -138,6 +156,13 @@ export function registerChatListIpc(
   handle(ctx, 'chat.list', () => service.list())
   handle(ctx, 'chat.setCollapsed', ({ groups }) =>
     queue.enqueue(() => saveCollapsed(ctx.config, groups)),
+  )
+  handle(ctx, 'chat.setCategories', (next) =>
+    queue.enqueue(() => {
+      const out = saveCategories(ctx.config, next)
+      emitList()
+      return out
+    }),
   )
   handle(ctx, 'chat.pin', ({ id, pinned }) =>
     queue.enqueue(() => {

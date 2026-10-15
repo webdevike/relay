@@ -208,3 +208,82 @@ describe('list-store row actions', () => {
     expect(invoke).toHaveBeenCalledWith('chat.pin', { id: 'g0', pinned: true })
   })
 })
+
+describe('category ops', () => {
+  const seed = async (): Promise<void> => {
+    invoke.mockResolvedValueOnce({ ok: true, value: value(3) })
+    await listStore.getState().load()
+    invoke.mockReset()
+    invoke.mockResolvedValue({ ok: true, value: { saved: true } })
+  }
+
+  it('createCategory persists the three keys with the new name first', async () => {
+    await seed()
+    expect(await listStore.getState().createCategory('Focus')).toBeNull()
+    expect(invoke).toHaveBeenCalledTimes(1)
+    expect(invoke).toHaveBeenCalledWith('chat.setCategories', {
+      chat_categories: ['Focus'],
+      chat_group_order: ['Focus'],
+      chat_assignments: {},
+    })
+    expect(listStore.getState().list?.prefs.chat_categories).toEqual(['Focus'])
+  })
+
+  it('an empty or duplicate name returns the Rust error and calls nothing', async () => {
+    await seed()
+    expect(await listStore.getState().createCategory(' ')).toBe('Give the category a name.')
+    await listStore.getState().createCategory('Focus')
+    invoke.mockClear()
+    expect(await listStore.getState().createCategory('focus')).toBe(
+      'A category with that name already exists.',
+    )
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
+  it('moveChat assigns and null clears; deleteCategory frees its chats', async () => {
+    await seed()
+    await listStore.getState().createCategory('Focus')
+    await listStore.getState().moveChat('g1', 'Focus')
+    expect(listStore.getState().list?.prefs.chat_assignments).toEqual({ g1: 'Focus' })
+    await listStore.getState().deleteCategory('Focus')
+    expect(listStore.getState().list?.prefs).toMatchObject({
+      chat_categories: [],
+      chat_group_order: [],
+      chat_assignments: {},
+    })
+    await listStore.getState().moveChat('g1', 'Relay')
+    await listStore.getState().moveChat('g1', null)
+    expect(listStore.getState().list?.prefs.chat_assignments).toEqual({})
+  })
+
+  it('renameCategory carries the assignments along', async () => {
+    await seed()
+    await listStore.getState().createCategory('Focus')
+    await listStore.getState().moveChat('g1', 'Focus')
+    expect(await listStore.getState().renameCategory('Focus', 'Deep work')).toBeNull()
+    expect(listStore.getState().list?.prefs).toMatchObject({
+      chat_categories: ['Deep work'],
+      chat_assignments: { g1: 'Deep work' },
+    })
+    expect(await listStore.getState().renameCategory('Relay', 'X')).toBe(
+      'Only your own categories can be renamed.',
+    )
+  })
+
+  it('reorderGroups follows the Rust semantics', async () => {
+    await seed()
+    await listStore.getState().createCategory('Focus')
+    await listStore.getState().reorderGroups('Other', 'Focus')
+    expect(listStore.getState().list?.prefs.chat_group_order[0]).toBe('Other')
+  })
+
+  it('a failed save rolls the prefs back', async () => {
+    await seed()
+    invoke.mockResolvedValue({ ok: false, error: { code: 'x', message: 'no' } })
+    expect(await listStore.getState().createCategory('Focus')).toBe(
+      'Could not save your categories. Try again.',
+    )
+    expect(listStore.getState().list?.prefs.chat_categories).toEqual([])
+    expect(show).toHaveBeenCalled()
+  })
+})
