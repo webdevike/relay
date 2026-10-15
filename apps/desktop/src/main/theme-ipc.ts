@@ -19,7 +19,7 @@ function readDoc(config: ConfigStore): Record<string, unknown> {
 }
 
 function patchApp(config: ConfigStore, key: string, value: unknown): void {
-  const doc = readDoc(config)
+  const doc = config.readForMerge(FILE)
   const prevApp = isRecord(doc['app']) ? doc['app'] : {}
   config.writeJson(FILE, { ...doc, app: { ...prevApp, [key]: value } })
 }

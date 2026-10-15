@@ -7,6 +7,12 @@ export interface ConfigStore {
   /** File text, or null only when the file does not exist. */
   readText(name: string): string | null
   writeJson(name: string, value: unknown): void
+  /**
+   * Existing object to merge into before a write. Missing file gives {}. Unreadable (EACCES, EIO)
+   * throws so the writer aborts. Unparseable or non-object content is copied to `<name>.bad`
+   * first, so a merge-write never silently destroys it.
+   */
+  readForMerge(name: string): Record<string, unknown>
 }
 
 function checkName(name: string): void {
@@ -39,6 +45,22 @@ export function createConfigStore(configDir: string): ConfigStore {
         if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null
         throw e
       }
+    },
+    readForMerge(name: string): Record<string, unknown> {
+      checkName(name)
+      const file = path.join(configDir, name)
+      const text = this.readText(name)
+      if (text === null) return {}
+      try {
+        const v: unknown = JSON.parse(text)
+        if (typeof v === 'object' && v !== null && !Array.isArray(v)) {
+          return v as Record<string, unknown>
+        }
+      } catch {
+        // fall through to the backup
+      }
+      fs.writeFileSync(`${file}.bad`, text)
+      return {}
     },
     writeJson(name: string, value: unknown): void {
       checkName(name)

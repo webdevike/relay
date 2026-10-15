@@ -27,8 +27,9 @@ export function loadSettings(config: ConfigStore): ChatSettings {
 }
 
 export function saveSettings(config: ConfigStore, patch: Partial<ChatSettings>): ChatSettings {
+  const existing = config.readForMerge(FILE)
   const merged = { ...loadSettings(config), ...patch }
-  config.writeJson(FILE, { ...readFile(config), ...merged })
+  config.writeJson(FILE, { ...existing, ...merged })
   return merged
 }
 

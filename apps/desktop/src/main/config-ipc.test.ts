@@ -103,3 +103,21 @@ describe('index wiring', () => {
       expect(src).toContain(`${n}(`)
   })
 })
+
+describe('merge-write over a corrupt file', () => {
+  it('backs up unparseable theme.json and settings.json instead of losing it silently', () => {
+    fs.writeFileSync(path.join(dir, 'theme.json'), '{broken')
+    saveLastBackground(config, '#112233')
+    expect(fs.readFileSync(path.join(dir, 'theme.json.bad'), 'utf8')).toBe('{broken')
+    expect(read('theme.json')).toMatchObject({ app: { lastBackground: '#112233' } })
+    fs.writeFileSync(path.join(dir, 'settings.json'), '[1]')
+    saveSettings(config, { show_tools: false })
+    expect(fs.readFileSync(path.join(dir, 'settings.json.bad'), 'utf8')).toBe('[1]')
+  })
+  it('keeps unknown keys and does not back up a healthy file', () => {
+    fs.writeFileSync(path.join(dir, 'theme.json'), '{"rustKey": 1}')
+    saveAppearance(config, 'dark')
+    expect(read('theme.json')).toMatchObject({ rustKey: 1, app: { appearance: 'dark' } })
+    expect(fs.existsSync(path.join(dir, 'theme.json.bad'))).toBe(false)
+  })
+})
