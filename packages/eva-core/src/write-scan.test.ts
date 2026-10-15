@@ -7,6 +7,9 @@ const WRITE_RE =
   /\b(writeFile|writeFileSync|appendFile|appendFileSync|rename|renameSync|rmSync|unlink|unlinkSync|createWriteStream|copyFile|copyFileSync|mkdirSync)\s*\(|\bfs\.(rm|mkdir)\s*\(|\bfsp?\.promises\.(rm|mkdir)\s*\(/
 const ALLOWED = new Set([
   'apps/desktop/src/main/config-store.ts',
+  // Reviewed writer for the exact writes current EvaOS performs on omp's agent dir: the pins file,
+  // session delete and the mtime restore after a short-resume rename.
+  'apps/desktop/src/main/chat/session-ops.ts',
   // Pure in-memory category editing; its `rename(from, to)` method touches no file.
   'packages/chat-core/src/categories.ts',
 ])

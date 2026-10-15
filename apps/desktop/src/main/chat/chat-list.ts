@@ -130,6 +130,8 @@ const strings = (v: unknown): string[] =>
 /** Every omp session as list rows: cached by mtime and size, so a repeat scan reads nothing. */
 export class ChatListService {
   private cache = new Map<string, Entry>()
+  /** Titles set by a rename until the file changes (the running omp may not have written it yet). */
+  private overrides = new Map<string, { title: string; mtimeMs: number; size: number }>()
   private readonly now: () => number
   private readonly liveFiles: () => ReadonlySet<string>
   private readonly readFile: (file: string, size: number) => FileSample
@@ -143,6 +145,16 @@ export class ChatListService {
   invalidate(file?: string): void {
     if (file === undefined) this.cache.clear()
     else this.cache.delete(file)
+  }
+
+  /** Shows `title` for `file` until its mtime or size changes. */
+  setTitle(file: string, title: string): void {
+    try {
+      const st = fs.statSync(file)
+      this.overrides.set(file, { title, mtimeMs: st.mtimeMs, size: st.size })
+    } catch {
+      this.overrides.delete(file)
+    }
   }
 
   private prefs(): { prefs: ChatPrefs; archived: Set<string> } {
@@ -216,11 +228,17 @@ export class ChatListService {
         this.cache.set(file, entry)
       }
       const id = sessionId(file)
+      let shown = entry.title
+      const ov = this.overrides.get(file)
+      if (ov) {
+        if (ov.mtimeMs === st.mtimeMs && ov.size === st.size) shown = ov.title
+        else this.overrides.delete(file)
+      }
       const owned = this.deps.liveStatus?.(file) ?? null
       rows.push({
         id,
         file,
-        title: entry.title || id,
+        title: shown || id,
         mtimeMs: st.mtimeMs,
         archived: archived.has(id),
         pinned: pins.has(id),
@@ -234,6 +252,7 @@ export class ChatListService {
       })
     }
     for (const file of this.cache.keys()) if (!seen.has(file)) this.cache.delete(file)
+    for (const file of this.overrides.keys()) if (!seen.has(file)) this.overrides.delete(file)
     rows.sort((a, b) => b.mtimeMs - a.mtimeMs || a.file.localeCompare(b.file))
     return { rows, prefs, error: null }
   }

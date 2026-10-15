@@ -97,6 +97,17 @@ describe('ChatListService', () => {
     expect(rows[0].title).toBe('Renamed')
   })
 
+  it('setTitle shows a title until the file changes', () => {
+    const s = setup()
+    const a = session(s.sessionsDir, 'a', [{ type: 'title', title: 'A' }])
+    const svc = new ChatListService({ ...s, now: () => NOW })
+    svc.list()
+    svc.setTitle(a, 'Override')
+    expect(svc.list().rows[0].title).toBe('Override')
+    fs.appendFileSync(a, rec({ type: 'title', title: 'From file' }) + '\n')
+    expect(svc.list().rows[0].title).toBe('From file')
+  })
+
   it('a repeat list reads no unchanged file, and a changed file is read again', () => {
     const s = setup()
     const a = session(s.sessionsDir, 'a', [{ type: 'title', title: 'A' }])

@@ -27,13 +27,13 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     liveFiles: () => manager.liveFiles(),
     liveStatus: (file) => manager.liveStatus(file),
   })
-  registerChatListIpc(ctx, queue, list, manager)
+  const emitList = (): void => emit(ctx, 'chat.listChanged', list.list())
+  registerChatListIpc(ctx, queue, list, manager, emitList)
 
   const watch = new ChatWatch({
     dir: ctx.env.sessionsDir,
     isLive: (f) => manager.liveFiles().has(f),
   })
-  const emitList = (): void => emit(ctx, 'chat.listChanged', list.list())
   watch.onChange((files) => {
     for (const f of files) list.invalidate(f)
     emitList()
