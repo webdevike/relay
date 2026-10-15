@@ -69,6 +69,33 @@ describe('stream drain', () => {
     expect(requestSnapshot).toHaveBeenCalledTimes(1)
   })
 
+  it('a snapshot that returns null or rejects clears the label and the stash', async () => {
+    const { drain, requestSnapshot, flush } = setup()
+    drain.push(batch(1, a('x', 'a')))
+    flush()
+    drain.push(batch(5, a('x', 'gap')))
+    expect(pane().reconnecting).toBe(true)
+    expect(requestSnapshot).toHaveBeenCalledTimes(1)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(pane().reconnecting).toBe(false)
+    // The stashed gap batch is gone; in-order batches apply again without another snapshot.
+    drain.push(batch(2, a('x', 'ab')))
+    flush()
+    expect(pane().messages.map((m) => m.text)).toEqual(['ab'])
+    expect(pane().lastSeq).toBe(2)
+    expect(requestSnapshot).toHaveBeenCalledTimes(1)
+
+    requestSnapshot.mockImplementationOnce(() => Promise.reject(new Error('ipc down')))
+    drain.push(batch(9, a('x', 'gap2')))
+    expect(pane().reconnecting).toBe(true)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(pane().reconnecting).toBe(false)
+    drain.push(batch(3, a('x', 'abc')))
+    flush()
+    expect(pane().messages.map((m) => m.text)).toEqual(['abc'])
+    expect(requestSnapshot).toHaveBeenCalledTimes(2)
+  })
+
   it('drops a held batch the snapshot cannot reach instead of resyncing forever', async () => {
     // Main restarted its seq (the pane was reopened on another file) and a late batch from the
     // old process arrives under the same paneId.

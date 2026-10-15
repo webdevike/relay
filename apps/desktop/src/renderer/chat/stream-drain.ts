@@ -68,6 +68,21 @@ export function createStreamDrain(opts: StreamDrainOptions) {
     return tail ? tail.seq : (opts.store.getState().panes[paneId]?.lastSeq ?? 0)
   }
 
+  /** Takes the label down once it has been visible for `minReconnect`. */
+  const clearLabel = (paneId: string): void => {
+    const wait = Math.max(0, minReconnect - (now() - (reconnectSince.get(paneId) ?? 0)))
+    const clear = (): void => opts.store.getState().setReconnecting(paneId, false)
+    if (wait === 0) clear()
+    else later(clear, wait)
+  }
+
+  /** A snapshot that failed or returned nothing: the pane keeps what it has and waits for the next batch. */
+  const fail = (paneId: string): void => {
+    resyncing.delete(paneId)
+    stash.delete(paneId)
+    clearLabel(paneId)
+  }
+
   const resync = (paneId: string): void => {
     resyncing.add(paneId)
     queues.delete(paneId)
@@ -79,18 +94,18 @@ export function createStreamDrain(opts: StreamDrainOptions) {
       .requestSnapshot(paneId)
       .then((snap) => {
         if (disposed) return
+        if (!snap) {
+          fail(paneId)
+          return
+        }
         resyncing.delete(paneId)
-        if (!snap) return
         queues.delete(paneId)
         opts.store.getState().applySnapshot(paneId, snap)
         const st = statsOf(paneId)
         st.snapshots += 1
         st.lastSeq = snap.seq
         report(paneId)
-        const wait = Math.max(0, minReconnect - (now() - (reconnectSince.get(paneId) ?? 0)))
-        const clear = (): void => opts.store.getState().setReconnecting(paneId, false)
-        if (wait === 0) clear()
-        else later(clear, wait)
+        clearLabel(paneId)
         // Batches that arrived while the snapshot was in flight continue from its seq. A held
         // batch the snapshot cannot reach (main restarted its seq, for example after the pane was
         // reopened on another file) is dropped: re-stashing it would resync forever. The next
@@ -109,7 +124,7 @@ export function createStreamDrain(opts: StreamDrainOptions) {
         }
       })
       .catch(() => {
-        resyncing.delete(paneId)
+        if (!disposed) fail(paneId)
       })
   }
 
