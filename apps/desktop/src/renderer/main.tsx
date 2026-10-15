@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { MantineProvider } from '@mantine/core'
 import { Notifications } from '@mantine/notifications'
 import '@mantine/core/styles.css'
+import '@mantine/charts/styles.css'
 import '@mantine/notifications/styles.css'
 import './styles/tokens.css'
 import './styles/motion.css'
@@ -22,7 +23,7 @@ async function start(): Promise<void> {
         defaultColorScheme={resolved}
       >
         <ThemeBridge />
-        <Notifications position="bottom-left" />
+        <Notifications position="bottom-right" />
         <App />
       </MantineProvider>
     </StrictMode>,
