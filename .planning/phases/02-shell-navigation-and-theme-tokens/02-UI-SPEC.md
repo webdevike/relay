@@ -1,7 +1,8 @@
 ---
 phase: 2
 slug: shell-navigation-and-theme-tokens
-status: draft
+status: approved
+reviewed_at: 2026-10-15
 shadcn_initialized: false
 preset: none
 created: 2026-10-15
@@ -224,7 +225,7 @@ Nav row spec (`data-testid="nav-<slug>"`, slug lowercase: dashboard, inbox, chat
 Recent group (`data-testid="recent"`):
 - Toggle row `data-testid="recent-toggle"`: 36px high, `padding: 0 4px`, label "Recent" Body 14/600, `IconChevronDown` 14 dim at the right; rotates -90deg when collapsed (120ms). Open by default; open state is in memory.
 - Open body: `margin-left: 12px; padding-left: 12px; border-left: 1px solid var(--eva-chrome-border)`. Rows `data-testid="recent-item"`: 28px high, `padding: 0 8px`, Label 12/400, color `--eva-chrome-text`, single line truncated, `title` attribute with the full text. Up to 8 entries, newest first, filtered by the sidebar search. In Phase 2 rows are static text (no hover fill, no pointer) because navigation to workspaces lands in Phase 3; the row component takes an optional `onOpen` so Phase 3 only passes a handler and gains hover and pointer styles.
-- Empty states: search active with no hits: "No matches" (Label 12 dim, 28px row). No journal entries at all: "Nothing recent yet".
+- Empty states: search active with no hits: "No recent items match your search" (Label 12 dim, 28px row). No journal entries at all: "Nothing recent yet".
 - Titles come from `eva.sidebar` (journal `## YYYY-MM-DD` headings, title text after the date).
 
 Account menu (`data-testid="account-trigger"`): row 36px high, `padding: 0 8px`, gap 8, avatar 28 circle (`--eva-hover` fill, `IconUser` 16), label "Account" Body 14/600, `IconSelector` 14 dim at the right; opens an `EvaMenu` above the trigger (`position="top-start"`, width = trigger width, `data-testid="account-menu"`). Items (32px high, Body 14, icon 16): Settings (`IconSettings`; opens the Settings sub-page and the Settings place, same as the Setting row) and Quit (`IconPower`, `Kbd` "⌘Q" at the right; routes through the quit guard).
@@ -399,7 +400,7 @@ No em dashes. Sentence case. No exclamation marks. Placeholders say what arrives
 | Nav labels | Dashboard, Inbox, Chat, Jobs, Habits, Meetings, Calendar, Tasks, Memory, Files, Setting, Help Center |
 | Sidebar search placeholders | Search (main nav) / Search chats / Search meetings |
 | Recent group label | Recent |
-| Recent empty (filter) | No matches |
+| Recent empty (filter) | No recent items match your search |
 | Recent empty (no entries) | Nothing recent yet |
 | Count badge overflow | 99+ |
 | Back row | Back (tooltip: Back to menu) |
@@ -566,11 +567,11 @@ No component registry is used. Runtime dependencies added in this phase (none ex
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
+- [x] Dimension 1 Copywriting: PASS (FLAG: native quit dialog keeps Save / Discard / Cancel)
+- [x] Dimension 2 Visuals: PASS
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS
+- [x] Dimension 5 Spacing: PASS (FLAG: 71px traffic-light inset and 2px grip bar are derived sizes, not spacing)
+- [x] Dimension 6 Registry Safety: PASS
 
-**Approval:** pending
+**Approval:** approved 2026-10-15 (gsd-ui-checker, unattended run)
