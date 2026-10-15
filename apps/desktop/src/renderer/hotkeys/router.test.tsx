@@ -22,6 +22,8 @@ import {
   registerAction,
   registerOverlayChord,
   registerTerminalScope,
+  setChordLock,
+  dispatchChord,
   startHotkeyRouter,
 } from './router'
 
@@ -40,6 +42,30 @@ beforeEach(() => {
 afterEach(() => {
   stop()
   setPanelFocused(false)
+})
+
+describe('chord lock', () => {
+  afterEach(() => setChordLock(null))
+  it('consumes every chord but cmd+q, including guest chords, until cleared', () => {
+    const fn = vi.fn()
+    const offs = [registerAction('new-tab', fn), registerAction('new-todo', fn)]
+    setChordLock((c) => c === 'cmd+q')
+    for (const [k, code] of [
+      ['t', 'KeyT'],
+      ['n', 'KeyN'],
+      ['r', 'KeyR'],
+      ['w', 'KeyW'],
+    ] as const)
+      expect(key({ key: k, code, metaKey: true }).defaultPrevented).toBe(true)
+    expect(key({ key: 'Escape', code: 'Escape' }).defaultPrevented).toBe(true)
+    expect(dispatchChord('cmd+t', { fromGuest: true })).toBe(true)
+    expect(fn).not.toHaveBeenCalled()
+    expect(key({ key: 'q', code: 'KeyQ', metaKey: true }).defaultPrevented).toBe(false)
+    setChordLock(null)
+    key({ key: 't', code: 'KeyT', metaKey: true })
+    expect(fn).toHaveBeenCalled()
+    offs.forEach((o) => o())
+  })
 })
 
 describe('hotkey router', () => {

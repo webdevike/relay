@@ -75,10 +75,22 @@ export function registerTerminalScope(passThrough: readonly string[]): () => voi
   return scopes.register('terminal', '*', terminalClaim(passThrough))
 }
 
+let chordLock: ((chord: string) => boolean) | null = null
+
+/** While set, only chords for which `allow` is true dispatch; the rest are consumed (the gate). */
+export function setChordLock(allow: ((chord: string) => boolean) | null): void {
+  chordLock = allow
+}
+
 export function dispatchChord(
   chord: string,
   opts: { fromGuest: boolean; event?: Pick<Event, 'preventDefault' | 'stopPropagation'> },
 ): boolean {
+  if (chordLock && !chordLock(chord)) {
+    opts.event?.preventDefault()
+    opts.event?.stopPropagation()
+    return true
+  }
   fromGuestNow = opts.fromGuest
   try {
     const d = scopes.dispatch(chord)

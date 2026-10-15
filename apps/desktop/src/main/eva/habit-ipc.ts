@@ -1,10 +1,11 @@
 import * as os from 'node:os'
+import * as path from 'node:path'
 import { GateStatusSchema, type GateStatus, type InvokeInput } from '@evaos/contract'
 import { gateArgs, GateArgError, type GateAction } from '@evaos/eva-core/model/gate-args'
 import type { MainContext } from '../context'
 import { handle } from '../ipc/handle'
 import { openPathChecked } from './open-path'
-import { takePhotoToken } from './photo-tokens'
+import { issuePhotoToken, takePhotoToken } from './photo-tokens'
 import { buildCommand, childPathFor, recordSpawn, runCapture, type Command } from './spawn'
 
 export const GATE_TIMEOUT_MS = 15_000
@@ -104,6 +105,32 @@ export function createHabitService(
   }
 }
 
+export const PHOTO_EXTENSIONS = ['png', 'jpg', 'jpeg', 'heic', 'gif', 'webp']
+
+interface OpenDialog {
+  showOpenDialog(
+    win: never,
+    options: Electron.OpenDialogOptions,
+  ): Promise<{ canceled: boolean; filePaths: string[] }>
+}
+
+/** Native picker for a proof photo; the path never leaves main, only a single-use token. */
+export async function choosePhoto(
+  win: unknown,
+  getDialog: () => Promise<OpenDialog> | OpenDialog = async () =>
+    (await import('electron')).dialog as unknown as OpenDialog,
+): Promise<{ token: string | null; name: string | null }> {
+  const res = (await getDialog()).showOpenDialog(win as never, {
+    title: 'Choose a proof photo',
+    buttonLabel: 'Use photo',
+    properties: ['openFile'],
+    filters: [{ name: 'Images', extensions: PHOTO_EXTENSIONS }],
+  })
+  const file = res.canceled ? undefined : res.filePaths[0]
+  if (!file) return { token: null, name: null }
+  return { token: issuePhotoToken(file), name: path.basename(file) }
+}
+
 export function registerHabitIpc(ctx: MainContext): void {
   const root = ctx.env.evaRoot
   const service = createHabitService(
@@ -129,6 +156,8 @@ export function registerHabitIpc(ctx: MainContext): void {
   )
   handle(ctx, 'habit.status', () => service.status())
   handle(ctx, 'habit.run', (input) => service.run(input))
+  // The dialog is read at call time so e2e can replace dialog.showOpenDialog.
+  handle(ctx, 'habit.choosePhoto', () => choosePhoto(ctx.win))
   handle(ctx, 'habit.openPhoto', async ({ path }) => {
     await openPathChecked(ctx, path, { allowRoots: [ctx.env.habitPhotosDir] })
     return { opened: true as const }

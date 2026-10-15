@@ -4,7 +4,7 @@ import * as path from 'node:path'
 import { makeEvaFixture } from '../../../e2e/helpers/eva-fixture'
 import { FAKE_GATE } from '../../../e2e/helpers/paths'
 import { issuePhotoToken, takePhotoToken } from './photo-tokens'
-import { createHabitService, runGate } from './habit-ipc'
+import { choosePhoto, createHabitService, runGate } from './habit-ipc'
 import { buildCommand } from './spawn'
 import { openPathChecked } from './open-path'
 
@@ -118,5 +118,27 @@ describe('habit.openPhoto confinement', () => {
         { code: 'open-failed' },
       )
     }
+  })
+})
+
+describe('habit.choosePhoto', () => {
+  it('issues a single-use token for the chosen file and passes image filters', async () => {
+    const calls: unknown[] = []
+    const dlg = (r: { canceled: boolean; filePaths: string[] }) => () => ({
+      showOpenDialog: async (_w: never, o: unknown) => (calls.push(o), r),
+    })
+    const got = await choosePhoto({}, dlg({ canceled: false, filePaths: ['/tmp/x.png'] }))
+    expect(got.name).toBe('x.png')
+    expect(takePhotoToken(got.token!)).toBe('/tmp/x.png')
+    expect(takePhotoToken(got.token!)).toBeNull()
+    expect(calls[0]).toMatchObject({
+      buttonLabel: 'Use photo',
+      properties: ['openFile'],
+      filters: [{ extensions: ['png', 'jpg', 'jpeg', 'heic', 'gif', 'webp'] }],
+    })
+    expect(await choosePhoto({}, dlg({ canceled: true, filePaths: [] }))).toEqual({
+      token: null,
+      name: null,
+    })
   })
 })
