@@ -199,7 +199,9 @@ export class BrowserHost {
       s.url = url
       s.blank = false
       s.error = null
-      if (counted) this.history.visit(url, s.title)
+      // At did-navigate `s.title` still belongs to the previous page; count the visit without a
+      // title and let page-title-updated supply the right one (an empty title never replaces).
+      if (counted) this.history.visit(url, '')
       this.navState(tab)
       this.changed()
     }
