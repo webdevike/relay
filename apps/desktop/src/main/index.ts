@@ -81,7 +81,7 @@ function bootstrap(): void {
       registerThemeIpc(ctx, queue)
       registerSettingsIpc(ctx, queue)
       registerEvaIpc(ctx)
-      registerChat(ctx)
+      registerChat(ctx, queue)
       const evaWatch = startEvaWatch(ctx)
       ctx.onBeforeQuit(() => evaWatch.close())
       registerBrowser(ctx)
