@@ -11,6 +11,7 @@ import * as path from 'node:path'
 import {
   APP_DIR,
   EVA_FIXTURE_ROOT,
+  FAKE_CLAUDE_BRIDGE,
   FAKE_GATE,
   FAKE_JOB_RUN,
   FAKE_OMP,
@@ -47,6 +48,9 @@ export function buildLaunchEnv(
     FAKE_GATE_STATE: path.join(configDir, 'fake-gate.json'),
     FAKE_GATE_PHOTOS: path.join(configDir, 'habit-photos'),
     EVAOS_HABIT_PHOTOS_DIR: path.join(configDir, 'habit-photos'),
+    // Phase 4: no spec can start a real Claude run.
+    EVAOS_CLAUDE_BRIDGE_BIN: FAKE_CLAUDE_BRIDGE,
+    EVAOS_CLAUDE_BIN: FAKE_CLAUDE_BRIDGE,
     ELECTRON_DISABLE_SECURITY_WARNINGS: '1',
     ...launchEnv,
     // Last, so no spec can make a test window visible over Isaac's work.

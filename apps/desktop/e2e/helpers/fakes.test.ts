@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { FAKE_GATE, FAKE_JOB_RUN } from './paths'
+import { FAKE_CLAUDE_BRIDGE, FAKE_GATE, FAKE_JOB_RUN } from './paths'
 
 let dir: string
 beforeEach(() => {
@@ -190,5 +190,32 @@ describe('fake job-run', () => {
       .split('\n')
       .map((l) => JSON.parse(l))
     expect(log[0]).toMatchObject({ tool: 'job-run', argv: ['nightly'] })
+  })
+})
+
+describe('fake claude bridge', () => {
+  it('delegates to fake-omp and logs the bridge invocation', () => {
+    const log = path.join(dir, 'omp.jsonl')
+    const r = spawnSync(
+      process.execPath,
+      [FAKE_CLAUDE_BRIDGE, '--rpc', '--no-relay', '--resume', 'f.jsonl'],
+      {
+        env: env({ FAKE_OMP_LOG: log }),
+        input: '',
+        encoding: 'utf8',
+      },
+    )
+    expect(r.status).toBe(0)
+    const lines = fs
+      .readFileSync(log, 'utf8')
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l))
+    expect(lines[0]).toMatchObject({
+      event: 'claude-bridge',
+      detail: { argv: ['--rpc', '--no-relay', '--resume', 'f.jsonl'] },
+    })
+    expect(lines.some((l) => l.event === 'spawn')).toBe(true)
+    expect(r.stdout).toContain('ready')
   })
 })
