@@ -32,39 +32,6 @@
 body.eva-resizing .eva-sidebar {
   transition: none;
 }
-.eva-sidebar-inner {
-  width: 100%;
-  height: 100%;
-  min-width: 200px;
-  box-sizing: border-box;
-  padding-top: 36px;
-  padding-right: 8px;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.eva-sidebar-inner > * {
-  -webkit-app-region: no-drag;
-}
-.eva-sidebar-nav {
-  flex: 1;
-  padding: 0 var(--eva-space-md);
-}
-.eva-sidebar-foot {
-  padding: var(--eva-space-sm) var(--eva-space-md);
-}
-.eva-wordmark {
-  font-size: var(--eva-fz-display);
-  font-weight: var(--eva-fw-semibold);
-  line-height: 1.2;
-  margin: 0 0 var(--eva-space-sm);
-}
-.eva-env-badge {
-  font-family: var(--eva-font-mono);
-  font-size: var(--eva-fz-label);
-  color: var(--eva-text-dim);
-}
-
 .eva-card {
   box-sizing: border-box;
   background: var(--eva-c-background);

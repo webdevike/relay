@@ -1,29 +1,59 @@
-import { useEffect, useState } from 'react'
-import { invoke } from '../ipc'
+import { useEffect, useRef, useState } from 'react'
+import { DISMISS_PRIORITY, useDismissable } from '../hotkeys/dismiss'
+import { useEntrance } from '../theme/motion'
+import { MainNav } from './MainNav'
+import { SubPage } from './SubPages'
+import { backToRoot, useNavLevel, type NavLevel } from './nav-level'
+import './sidebar.css'
 
-/** Placeholder owned by 02-08; 02-10 replaces the body with the real sidebar. */
+const motionOff = (): boolean => document.documentElement.dataset['evaMotion'] === 'off'
+
 export function SidebarColumn() {
-  const [live, setLive] = useState<boolean | null>(null)
+  const level = useNavLevel()
+  const entrance = useEntrance()
+  const [settled, setSettled] = useState<NavLevel>('root')
+  const lastSub = useRef<Exclude<NavLevel, 'root'> | null>(null)
+  if (level !== 'root') lastSub.current = level
+
+  // Esc pops the sub-page at the lowest band (D-12).
+  useDismissable(DISMISS_PRIORITY.subPageBack, backToRoot, level !== 'root')
+
   useEffect(() => {
-    let cancelled = false
-    void invoke('app.info', {}).then((res) => {
-      if (!cancelled && res.ok) setLive(res.value.live)
-    })
-    return () => {
-      cancelled = true
+    if (motionOff()) {
+      setSettled(level)
+      return
     }
-  }, [])
+    // transitionend is the primary signal; the timer covers a transition that never fires.
+    const t = setTimeout(() => setSettled(level), 320)
+    return () => clearTimeout(t)
+  }, [level])
+
+  const sub = level !== 'root' ? level : settled !== 'root' ? lastSub.current : null
+  const rootAway = level !== 'root' && settled !== 'root'
+  const subAway = level === 'root' && settled === 'root'
+
   return (
-    <aside className="eva-sidebar" data-testid="sidebar" data-sidebar-level="root">
+    <aside
+      className={`eva-sidebar${entrance ? ' eva-cue-sidebar' : ''}`}
+      data-testid="sidebar"
+      data-sidebar-level={level}
+    >
       <div className="eva-sidebar-inner" data-testid="rail">
-        <nav aria-label="Main" className="eva-sidebar-nav">
-          <h1 className="eva-wordmark">EvaOS</h1>
-          <div className="eva-label eva-dim">Chats and tools arrive in a later update.</div>
-        </nav>
-        <div className="eva-sidebar-foot">
-          <span className="eva-env-badge" data-testid="env-badge">
-            {live === null ? '' : live ? 'Live Eva data' : 'Fixture data'}
-          </span>
+        <div
+          className="eva-sb-track"
+          data-level={level}
+          onTransitionEnd={(e) => {
+            if (e.target === e.currentTarget) setSettled(level)
+          }}
+        >
+          <div className="eva-sb-slot" data-away={rootAway ? 'true' : undefined} inert={rootAway}>
+            <nav aria-label="Main" className="eva-sb-nav">
+              <MainNav />
+            </nav>
+          </div>
+          <div className="eva-sb-slot" data-away={subAway ? 'true' : undefined} inert={subAway}>
+            {sub ? <SubPage level={sub} /> : null}
+          </div>
         </div>
       </div>
     </aside>

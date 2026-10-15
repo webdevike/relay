@@ -4,6 +4,7 @@ import { startQuitBridge } from '../dirty/quit-bridge'
 import { initE2e } from '../hotkeys/e2e-hooks'
 import { loadLayout, registerLayoutActions } from '../shell/layout-store'
 import { startTabs } from '../tabs/tabs-store'
+import { startSidebar } from '../sidebar/sidebar-store'
 import { Shell } from '../shell/Shell'
 
 export function App() {
@@ -14,11 +15,13 @@ export function App() {
     void initE2e()
     void loadLayout()
     const stopTabs = startTabs()
+    const stopSidebar = startSidebar()
     return () => {
       stopRouter()
       stopQuit()
       stopLayout()
       stopTabs()
+      stopSidebar()
     }
   }, [])
   return <Shell />

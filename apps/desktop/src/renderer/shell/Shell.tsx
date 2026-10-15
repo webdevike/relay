@@ -16,9 +16,13 @@ export function Shell() {
   // Widths go to CSS variables imperatively, never through React state per frame (Pitfall 8).
   useLayoutEffect(() => {
     const root = document.querySelector<HTMLElement>('[data-testid=shell]')
+    let lastFitted = layoutStore.getState().sidebarWidth
     const write = (): void => {
       if (!root) return
       const s = layoutStore.getState()
+      if (s.sidebarPx > 0) lastFitted = s.sidebarPx
+      // Sidebar content keeps its width while the column folds or hides (D-17).
+      root.style.setProperty('--eva-sidebar-inner-w', `${Math.max(lastFitted - 8, 0)}px`)
       root.style.setProperty('--eva-sidebar-w', `${s.sidebarPx}px`)
       root.style.setProperty('--eva-panel-w', `${s.panelPx}px`)
       root.style.setProperty('--eva-main-left', s.sidebarPx > 0 ? '0px' : '8px')
