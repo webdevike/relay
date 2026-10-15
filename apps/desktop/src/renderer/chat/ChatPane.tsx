@@ -6,8 +6,9 @@ import { PANE_ID, SessionList } from './SessionList'
 import { chatStore, useChatStore } from './chat-store'
 import { createStreamDrain } from './stream-drain'
 import { invoke, on } from '../ipc'
-import { activePlace, useTabs } from '../tabs/tabs-store'
-import { openChatFile } from './open-chat'
+import { placeOf } from '@evaos/shell-core'
+import { activePlace, replaceActivePlace, useTabs } from '../tabs/tabs-store'
+import { openChatFile, openDraftPane } from './open-chat'
 
 declare global {
   interface Window {
@@ -25,10 +26,20 @@ export function ChatPane() {
     return p.page === 'chat' ? p.chat : null
   })
 
-  // A tab whose place is a session path shows that session; 'draft' leaves the pane as it is.
+  const activeIx = useTabs((s) => s.tabs.active)
+
+  // A tab whose place is a session path shows that session; a draft tab shows a new chat.
   useEffect(() => {
-    if (placeChat && placeChat !== 'draft') void openChatFile(placeChat)
-  }, [placeChat])
+    if (placeChat === 'draft') void openDraftPane()
+    else if (placeChat) void openChatFile(placeChat)
+  }, [placeChat, activeIx])
+
+  // A new chat that omp gave a session file: the tab follows it in place, so Back never returns
+  // to a dead draft and the pane does not reopen.
+  const boundTo = pane?.boundTo ?? null
+  useEffect(() => {
+    if (boundTo && placeChat === 'draft') replaceActivePlace(placeOf('chat', { chat: boundTo }))
+  }, [boundTo, placeChat])
 
   // One drain for the whole app: batches from main are applied once per animation frame.
   useEffect(() => {
@@ -62,7 +73,7 @@ export function ChatPane() {
             ) : null}
             <h2 className="eva-heading eva-chat-title">{pane.title}</h2>
             <span className="eva-label eva-dim eva-mono eva-chat-file">
-              {pane.file.split('/').pop()}
+              {pane.file ? pane.file.split('/').pop() : ''}
             </span>
             {pane.reconnecting ? (
               <span className="eva-label eva-dim eva-chat-reconnecting">
@@ -77,12 +88,21 @@ export function ChatPane() {
           {pane.error}
         </div>
       ) : null}
-      {pane ? (
-        <ChatLog paneId={PANE_ID} messages={pane.messages} file={pane.file} />
+      {pane && !(pane.file === '' && pane.messages.length === 0) ? (
+        <ChatLog
+          paneId={PANE_ID}
+          messages={pane.messages}
+          // A draft keeps its log key when omp names the file, so binding never jumps the scroll.
+          file={pane.boundTo ? '' : pane.file}
+        />
       ) : (
         <div className="eva-chat-empty">
           <h2 className="eva-heading">No messages yet</h2>
-          <div className="eva-dim">Resume a session to see its messages here.</div>
+          <div className="eva-dim">
+            {pane
+              ? 'Type a message to start a new chat, or resume a session.'
+              : 'Resume a session to see its messages here.'}
+          </div>
           <SessionList />
         </div>
       )}

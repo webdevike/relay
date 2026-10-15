@@ -70,7 +70,7 @@ const activeChatPlace = (shell: Page): Promise<string | null> =>
         }
       }
     ).__evaosShell.tabs()
-    return t.list.find((x) => x.id === t.active)?.chat ?? t.list[t.active]?.chat ?? null
+    return t.list[t.active]?.chat ?? null
   })
 
 test.describe('new chat on omp', () => {

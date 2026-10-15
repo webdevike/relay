@@ -47,6 +47,14 @@ export function navigateTo(place: Place, opts?: OpenPlaceOptions): void {
   update((t) => (opts?.newTab ? navigate(forkTab(t), place) : navigate(t, place)))
 }
 
+/** Points the active tab at `place` without adding history (a draft chat that got its file). */
+export function replaceActivePlace(place: Place): void {
+  update((t) => {
+    const cur = activeTab(t)
+    return { ...t, list: t.list.map((x) => (x === cur ? { ...x, here: place } : x)) }
+  })
+}
+
 export const newChatTab = (): void => update(openNewChat)
 export const activate = (id: number): void => update((t) => switchTo(t, id))
 export const close = (id: number): void => update((t) => closeTab(t, id))

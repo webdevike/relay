@@ -1,9 +1,10 @@
 import { useStore } from 'zustand'
 import { createStore } from 'zustand/vanilla'
-import type { ChatMessage, SessionMeta } from '@evaos/chat-core/message'
+import type { ChatMessage, Dialog, SessionMeta } from '@evaos/chat-core/message'
 import type { Op } from '@evaos/contract'
 
 export interface PaneState {
+  /** Empty for a draft chat until omp reports the session file it created. */
   file: string
   title: string
   messages: ChatMessage[]
@@ -21,6 +22,12 @@ export interface PaneState {
    * so a resync snapshot carrying this same text must not bring the banner back.
    */
   dismissedError: string | null
+  /** The open question omp is asking, if any. */
+  dialog: Dialog | null
+  contextWindow: number | null
+  thinking: string | null
+  /** Set when a draft got its session file from omp; the tab place follows it. */
+  boundTo: string | null
 }
 
 export interface OpenData {
@@ -46,6 +53,8 @@ export interface ChatState {
       running: boolean
       connected: boolean
       error: string | null
+      dialog?: Dialog | null
+      sessionFile?: string | null
     },
   ): void
   setPin(paneId: string, unpinned: boolean, newReply: boolean): void
@@ -74,7 +83,18 @@ export function applyOpsToPane(pane: PaneState, ops: Op[], seq: number): PaneSta
     }
     return messages
   }
-  let { running, error, meta, stopped, dismissedError } = pane
+  let {
+    running,
+    error,
+    meta,
+    stopped,
+    dismissedError,
+    dialog,
+    contextWindow,
+    thinking,
+    file,
+    boundTo,
+  } = pane
   for (const op of ops) {
     if (op.op === 'upsert') {
       const ix = messages.findLastIndex((m) => m.id === op.message.id)
@@ -95,6 +115,13 @@ export function applyOpsToPane(pane: PaneState, ops: Op[], seq: number): PaneSta
         dismissedError = null
       }
       if (p.connected !== undefined) stopped = !p.connected
+      if (p.dialog !== undefined) dialog = p.dialog
+      if (p.contextWindow !== undefined) contextWindow = p.contextWindow
+      if (p.thinking !== undefined) thinking = p.thinking
+      if (typeof p.sessionFile === 'string' && file === '') {
+        file = p.sessionFile
+        boundTo = p.sessionFile
+      }
       if (p.model !== undefined || p.contextTokens !== undefined) {
         meta = {
           ...meta,
@@ -104,7 +131,21 @@ export function applyOpsToPane(pane: PaneState, ops: Op[], seq: number): PaneSta
       }
     }
   }
-  return { ...pane, messages, running, error, meta, stopped, dismissedError, lastSeq: seq }
+  return {
+    ...pane,
+    file,
+    messages,
+    running,
+    error,
+    meta,
+    stopped,
+    dismissedError,
+    dialog,
+    contextWindow,
+    thinking,
+    boundTo,
+    lastSeq: seq,
+  }
 }
 
 /** Lives outside React so the streaming drain (plan 01-05) can `setState` without a render. */
@@ -124,6 +165,10 @@ export const chatStore = createStore<ChatState>((set) => ({
           reconnecting: false,
           error: null,
           dismissedError: null,
+          dialog: null,
+          contextWindow: null,
+          thinking: data.meta.thinking ?? null,
+          boundTo: null,
         },
       },
     })),
@@ -147,6 +192,11 @@ export const chatStore = createStore<ChatState>((set) => ({
           stopped: !snap.connected,
           error: dismissed ? null : snap.error,
           dismissedError: dismissed ? p.dismissedError : null,
+          dialog: snap.dialog !== undefined ? snap.dialog : p.dialog,
+          thinking: snap.meta.thinking ?? p.thinking,
+          ...(typeof snap.sessionFile === 'string' && p.file === ''
+            ? { file: snap.sessionFile, boundTo: snap.sessionFile }
+            : {}),
           lastSeq: snap.seq,
         }
       }),
