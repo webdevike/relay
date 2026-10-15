@@ -20,7 +20,13 @@ export interface EvaosShellHooks {
   pageFiller: boolean
   tabs(): {
     active: number
-    list: Array<{ id: number; page: string; pinned: boolean; title: string }>
+    list: Array<{
+      id: number
+      page: string
+      chat: string | null
+      pinned: boolean
+      title: string
+    }>
   }
   openPlace(page: string, newTab?: boolean, extra?: Partial<Omit<Place, 'page'>>): void
   openChat(): void
@@ -70,6 +76,7 @@ export function initE2e(): Promise<boolean> {
             list: t.list.map((x) => ({
               id: x.id,
               page: x.here.page,
+              chat: x.here.chat,
               pinned: x.pinned,
               title: tabTitle(x.here),
             })),

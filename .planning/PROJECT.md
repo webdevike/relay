@@ -88,6 +88,7 @@ Chat with a live omp session streams smoothly (virtualized long scrollback, no d
 | WebContentsView for the browser panel | Modern Electron API with DevTools and CDP, no BrowserView deprecation | — Pending |
 | Coarse granularity, YOLO, parallel plans, research + plan check + verifier on | Recommended defaults chosen for the unattended run | — Pending |
 | Keep Bitwarden and Arc login import in the browser panel, via real Chrome extensions (`electron-chrome-extensions` + `electron-chrome-web-store`) rather than reimplementation | Isaac's recorded decision (CLAUDE.md, 2026-10-14); research had proposed dropping them as anti-features | — Pending |
+| New chats start through a direct `omp --mode rpc-ui` child owned by SessionManager; herdr plus Relay rejected for now; Claude Code is a second transport | Relay is read-only and outside this repo; a direct child matches the Rust app, keeps token streaming one hop, and the same frames serve both harnesses | Accepted (Phase 4, docs/adr/0001-chat-transport.md) |
 
 ## Evolution
 

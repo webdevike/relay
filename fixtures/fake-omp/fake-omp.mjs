@@ -315,6 +315,7 @@ async function handle(cmd) {
     case 'prompt': {
       await respond(id, type)
       const text = String(cmd.message ?? '')
+      log('prompt', { message: text })
       if (replay) {
         steers.push({ id, text })
         return emit({ type: 'queue_update', steering: steers.map((s) => s.text), followUp: [] })
