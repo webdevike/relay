@@ -35,6 +35,11 @@ function assistantContextTokens(message: Json): number | null {
   return null
 }
 
+/** A usable context window: omp reports 0 when it does not know one. */
+function windowOf(v: unknown): number | null {
+  return typeof v === 'number' && v > 0 ? v : null
+}
+
 function resultText(frame: Json): string | null {
   const r = frame.result
   if (typeof r === 'string') return r
@@ -143,6 +148,8 @@ export class LiveReducer {
       dialog: this.dialog,
       model: this.metaState.model,
       contextTokens: this.metaState.contextTokens,
+      contextWindow: this.metaState.contextWindow ?? null,
+      thinking: this.metaState.thinking,
     }
   }
 
@@ -154,6 +161,9 @@ export class LiveReducer {
     if (b.model !== this.metaState.model) p.model = this.metaState.model
     if (b.contextTokens !== this.metaState.contextTokens)
       p.contextTokens = this.metaState.contextTokens
+    if (b.contextWindow !== (this.metaState.contextWindow ?? null))
+      p.contextWindow = this.metaState.contextWindow ?? null
+    if (b.thinking !== this.metaState.thinking) p.thinking = this.metaState.thinking
     return Object.keys(p).length > 0 ? p : undefined
   }
 
@@ -247,6 +257,10 @@ export class LiveReducer {
         const usage = data.contextUsage
         if (isObj(usage) && typeof usage.tokens === 'number')
           this.metaState.contextTokens = usage.tokens
+        if (isObj(usage)) {
+          const w = windowOf(usage.contextWindow)
+          if (w !== null) this.metaState.contextWindow = w
+        }
         return
       }
       case 'set_model':
@@ -382,6 +396,10 @@ export class LiveReducer {
     this.owned.set(id, nextIds)
     const ctx = streaming ? null : assistantContextTokens(message)
     if (ctx !== null) this.metaState.contextTokens = ctx
+    if (!streaming && isObj(message.usage)) {
+      const w = windowOf(message.usage.contextWindow)
+      if (w !== null) this.metaState.contextWindow = w
+    }
     if (!streaming) {
       const provider = str(message.provider)
       const model = str(message.model)

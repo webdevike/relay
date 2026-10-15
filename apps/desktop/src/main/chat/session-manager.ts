@@ -14,6 +14,16 @@ import type { ChatMessage, SessionMeta } from '@evaos/chat-core/message'
 import { tagged } from '@evaos/chat-core/tagged'
 import { isRecentlyActive } from '@evaos/chat-core/chat-groups'
 import type { ChatTransport, PromptImage, TransportExit } from '@evaos/chat-core/transport'
+import {
+  claudeArgs,
+  ompArgs,
+  type Approval,
+  type Harness,
+  type Launch,
+  type ModelInfo,
+  type Profile,
+} from '@evaos/chat-core/launch'
+import type { LaunchPatch, LaunchState } from '@evaos/contract'
 
 export class CodedError extends Error {
   constructor(
@@ -33,6 +43,18 @@ export const MAYBE_RUNNING_ELSEWHERE =
 export const STILL_CLOSING =
   'The previous omp process for this session is still running. Wait for it to exit before sending again.'
 
+export const BUSY_ACCESS = 'Wait for the reply to finish, then change access.'
+export const NOT_UNSENT = 'The account can only be chosen before the first message.'
+
+/** What the user chose in the composer toolbar for one pane; applied live or at the next start. */
+interface PaneLaunch {
+  approval?: Approval
+  profile: Profile | null
+  model?: readonly [string, string]
+  thinking?: string
+  fast?: boolean
+}
+
 export interface SessionManagerDeps {
   createTransport: () => ChatTransport
   emit: (batch: Batch) => void
@@ -47,6 +69,12 @@ export interface SessionManagerDeps {
   now?: () => number
   /** Default launch flags for a new chat (approval from omp config); extended per pane later. */
   launchArgs?: (harness: 'omp' | 'claude') => string[]
+  /** The approval mode a harness starts with when the user chose none. */
+  defaultApproval?: (harness: Harness) => Approval
+  /** The harness a new process would use (Settings), for panes with no process yet. */
+  harness?: () => Harness
+  /** The already loaded model catalog, or null; never starts a process. */
+  models?: () => readonly ModelInfo[] | null
 }
 
 /** What the chat list, writers and rename need to know about a file this app owns. */
@@ -70,6 +98,11 @@ interface Pane {
   timer: unknown
   framesIn: number
   batches: number
+  launch: PaneLaunch
+  /** A new chat (opened as a draft). */
+  draft: boolean
+  /** A prompt has been sent from this pane. */
+  prompted: boolean
 }
 
 /**
@@ -132,6 +165,9 @@ export class SessionManager {
       timer: null,
       framesIn: 0,
       batches: 0,
+      launch: { profile: null },
+      draft: false,
+      prompted: false,
     })
   }
 
@@ -151,6 +187,9 @@ export class SessionManager {
       timer: null,
       framesIn: 0,
       batches: 0,
+      launch: { profile: null },
+      draft: true,
+      prompted: false,
     })
   }
 
@@ -299,6 +338,7 @@ export class SessionManager {
     text: string,
     images: ReadonlyArray<{ mimeType: string; data: string }> | undefined,
   ): Promise<void> {
+    pane.prompted = true
     // sendPrompt() runs outside apply(), so its meta change (clearing an EOF error) is diffed here.
     const hadError = pane.reducer.error !== null
     const wasWorking = pane.reducer.running
@@ -399,14 +439,112 @@ export class SessionManager {
     this.notify(key)
   }
 
+  /**
+   * Flags for the next start. Nothing chosen: a resumed chat keeps the session's own choices and
+   * a new chat gets the configured defaults. Anything chosen: the full Launch, in omp's order.
+   */
+  private startArgs(pane: Pane, harness: Harness): string[] | undefined {
+    const l = pane.launch
+    const chosen =
+      l.approval !== undefined ||
+      l.model !== undefined ||
+      l.thinking !== undefined ||
+      l.profile !== null
+    if (!chosen) return pane.key === null ? this.deps.launchArgs?.(harness) : undefined
+    const launch: Launch = {
+      approval: l.approval ?? this.deps.defaultApproval?.(harness) ?? 'yolo',
+      profile: l.profile,
+      ...(l.model !== undefined ? { model: l.model } : {}),
+      ...(l.thinking !== undefined ? { thinking: l.thinking } : {}),
+    }
+    return harness === 'claude' ? claudeArgs(launch) : ompArgs(launch)
+  }
+
+  private harnessOf(pane: Pane): Harness {
+    if (pane.transport) return pane.transport.kind === 'claude' ? 'claude' : 'omp'
+    return this.deps.harness?.() ?? 'omp'
+  }
+
+  /** The toolbar's view of one pane: what is chosen, whether the account can still be picked. */
+  launchState(paneId: string): LaunchState {
+    const pane = this.pane(paneId)
+    const harness = this.harnessOf(pane)
+    const meta = pane.reducer.meta()
+    const model = meta.model ?? pane.launch.model ?? null
+    const known = model
+      ? this.deps.models?.()?.find((m) => m.provider === model[0] && m.id === model[1])
+      : undefined
+    return {
+      approval: pane.launch.approval ?? this.deps.defaultApproval?.(harness) ?? 'yolo',
+      profile: pane.launch.profile,
+      model: model ? [model[0], model[1]] : null,
+      thinking: meta.thinking ?? pane.launch.thinking ?? null,
+      fast: pane.launch.fast ?? false,
+      unsent: pane.draft && !pane.prompted,
+      harness,
+      imagesAllowed: known ? known.images : true,
+    }
+  }
+
+  /**
+   * Applies a toolbar choice: live model, thinking and fast go to omp as commands; access
+   * restarts an idle omp on the same file (stdin closed, never signalled); the account is only
+   * for a new chat before its first prompt. With no process the choice is kept for the next start.
+   */
+  async setLaunch(paneId: string, patch: LaunchPatch): Promise<LaunchState> {
+    const pane = this.pane(paneId)
+    if (patch.profile !== undefined && patch.profile !== pane.launch.profile) {
+      if (!(pane.draft && !pane.prompted) || this.harnessOf(pane) !== 'omp') {
+        throw new CodedError('not-unsent', NOT_UNSENT)
+      }
+    }
+    const current = this.launchState(paneId).approval
+    const restart =
+      patch.approval !== undefined && patch.approval !== current && pane.transport !== null
+    if (restart && (pane.reducer.running || pane.starting)) {
+      throw new CodedError('busy', BUSY_ACCESS)
+    }
+    if (patch.profile !== undefined) pane.launch.profile = patch.profile
+    if (patch.model !== undefined) pane.launch.model = [patch.model.provider, patch.model.modelId]
+    if (patch.thinking !== undefined) pane.launch.thinking = patch.thinking
+    if (patch.fast !== undefined) pane.launch.fast = patch.fast
+    if (patch.approval !== undefined) pane.launch.approval = patch.approval
+
+    const live = pane.transport
+    if (live && !restart) {
+      if (patch.model !== undefined) {
+        await live.write({
+          type: 'set_model',
+          provider: patch.model.provider,
+          modelId: patch.model.modelId,
+        })
+      }
+      if (patch.thinking !== undefined) {
+        await live.write({ type: 'set_thinking_level', level: patch.thinking })
+      }
+      if (patch.fast !== undefined) {
+        await live.write({ type: 'set_fast_mode', enabled: patch.fast })
+      }
+    }
+    if (restart) {
+      await this.release(pane)
+      if (this.panes.get(pane.paneId) === pane && !pane.transport) {
+        pane.starting = this.startTransport(pane).finally(() => {
+          pane.starting = null
+        })
+        await pane.starting
+      }
+    }
+    return this.launchState(paneId)
+  }
+
   private async startTransport(pane: Pane): Promise<void> {
     const transport = await this.acquire(pane)
     pane.transport = transport
     pane.unsubscribe = transport.onFrame((f) => this.onFrame(pane, transport, f))
     try {
       const harness = transport.kind === 'claude' ? 'claude' : 'omp'
-      // A resumed chat keeps the session's own launch choices; only a new chat gets the defaults.
-      const args = pane.key === null ? this.deps.launchArgs?.(harness) : undefined
+      const args = this.startArgs(pane, harness)
       await transport.start({
         sessionFile: pane.key,
         cwd: this.deps.cwd,
@@ -434,6 +572,12 @@ export class SessionManager {
     pane.batcher.markMeta({ connected: true })
     await transport.write(cmd.setAskDialog('evaos-ask')).catch(() => undefined)
     await transport.write(cmd.getState('evaos-state')).catch(() => undefined)
+    // Fast mode has no launch flag: apply the choice made before this process existed.
+    if (pane.launch.fast !== undefined) {
+      await transport
+        .write({ type: 'set_fast_mode', enabled: pane.launch.fast })
+        .catch(() => undefined)
+    }
     if (!stillMine()) {
       throw new CodedError('session-closed', 'The session ended while it was starting.')
     }

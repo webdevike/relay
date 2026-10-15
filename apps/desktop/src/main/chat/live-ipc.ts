@@ -5,6 +5,8 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { claudeArgs, ompArgs, readApproval, type Approval } from '@evaos/chat-core/launch'
+import { buildCommand, childPathFor } from '../eva/spawn'
+import { ModelCatalog } from './models'
 import type { OmpStdioTransport } from './omp-transport'
 import { loadSettings } from '../settings-ipc'
 import { createChatTransport } from './transport-factory'
@@ -43,14 +45,43 @@ function claudeApproval(ctx: MainContext): Approval {
   return 'yolo'
 }
 
-/** Default flags for a new chat: the approval mode its harness is configured with. */
-export function defaultLaunchArgs(ctx: MainContext, harness: 'omp' | 'claude'): string[] {
-  if (harness === 'claude') return claudeArgs({ approval: claudeApproval(ctx), profile: null })
-  const approval = readApproval(
+/** The approval mode a harness is configured with (omp config, or Claude settings). */
+export function defaultApproval(ctx: MainContext, harness: 'omp' | 'claude'): Approval {
+  if (harness === 'claude') return claudeApproval(ctx)
+  return readApproval(
     readText(path.join(ctx.env.evaRoot, '.omp/config.yml')),
     readText(path.join(ctx.env.agentDir, 'config.yml')),
   )
-  return ompArgs({ approval, profile: null })
+}
+
+/** Default flags for a new chat: the approval mode its harness is configured with. */
+export function defaultLaunchArgs(ctx: MainContext, harness: 'omp' | 'claude'): string[] {
+  const approval = defaultApproval(ctx, harness)
+  return harness === 'claude'
+    ? claudeArgs({ approval, profile: null })
+    : ompArgs({ approval, profile: null })
+}
+
+/** One catalog per app: omp's model list from a throwaway `--mode rpc --no-session` process. */
+const catalogs = new WeakMap<MainContext, ModelCatalog>()
+export function catalogFor(ctx: MainContext): ModelCatalog {
+  let c = catalogs.get(ctx)
+  if (!c) {
+    c = new ModelCatalog({
+      cwd: ctx.env.evaRoot,
+      cmd: async () => {
+        const home = os.homedir()
+        return buildCommand(ctx.env.ompBin, ['--mode', 'rpc', '--no-session'], {
+          pathEnv: await childPathFor(ctx.env.live, home),
+          homedir: home,
+          execPath: process.execPath,
+          baseEnv: process.env,
+        })
+      },
+    })
+    catalogs.set(ctx, c)
+  }
+  return c
 }
 
 export function createSessionManager(ctx: MainContext): SessionManager {
@@ -66,6 +97,9 @@ export function createSessionManager(ctx: MainContext): SessionManager {
         return e
       }).transport,
     launchArgs: (harness) => defaultLaunchArgs(ctx, harness),
+    defaultApproval: (harness) => defaultApproval(ctx, harness),
+    harness: () => loadSettings(ctx.config).harness,
+    models: () => catalogFor(ctx).peek(),
     emit: (batch: Batch) => {
       // Test hook: the batch consumed a seq but never reaches the renderer (gap recovery e2e).
       if (dropNext.delete(batch.paneId)) return
@@ -118,5 +152,14 @@ export function registerLiveIpc(ctx: MainContext, manager: SessionManager): void
     manager.openDraft(paneId, meta)
     return { meta, harness: loadSettings(ctx.config).harness }
   })
+  handle(ctx, 'chat.models', async () => ({ models: await catalogFor(ctx).list() }))
+  handle(ctx, 'chat.launchState', async ({ paneId }) => {
+    // Warm the catalog so imagesAllowed reflects the current model; a failure only means unknown.
+    await catalogFor(ctx)
+      .list()
+      .catch(() => undefined)
+    return manager.launchState(paneId)
+  })
+  handle(ctx, 'chat.setLaunch', ({ paneId, patch }) => manager.setLaunch(paneId, patch))
   handle(ctx, 'chat.snapshot', ({ paneId }) => manager.snapshot(paneId))
 }

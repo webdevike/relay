@@ -283,6 +283,53 @@ describe('LiveReducer', () => {
     expect(r.apply({ type: 'model_changed' }).effect).toEqual({ type: 'get_state' })
   })
 
+  it('get_state with a context window emits it, and thinking level emits a thinking patch', () => {
+    const r = mk()
+    const res = r.apply({
+      type: 'response',
+      command: 'get_state',
+      success: true,
+      data: {
+        thinkingLevel: 'high',
+        contextUsage: { tokens: 42000, contextWindow: 200000 },
+      },
+    })
+    expect(res.meta).toEqual({ contextTokens: 42000, contextWindow: 200000, thinking: 'high' })
+    // The same reading again changes nothing.
+    const again = r.apply({
+      type: 'response',
+      command: 'get_state',
+      success: true,
+      data: { thinkingLevel: 'high', contextUsage: { tokens: 42000, contextWindow: 200000 } },
+    })
+    expect(again.meta).toBeUndefined()
+  })
+
+  it('a zero context window is unknown, not a window', () => {
+    const r = mk()
+    const res = r.apply({
+      type: 'response',
+      command: 'get_state',
+      success: true,
+      data: { contextUsage: { tokens: 900, contextWindow: 0 } },
+    })
+    expect(res.meta).toEqual({ contextTokens: 900 })
+  })
+
+  it('an assistant message end carries usage.contextWindow', () => {
+    const r = mk()
+    const res = r.apply({
+      type: 'message_end',
+      messageId: 'a1',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { input: 100, contextWindow: 1000 },
+      },
+    })
+    expect(res.meta).toMatchObject({ contextTokens: 100, contextWindow: 1000 })
+  })
+
   it('unknown frames change nothing', () => {
     const r = mk()
     const res = r.apply({ type: 'something_new', x: 1 })

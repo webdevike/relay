@@ -72,6 +72,7 @@ function setup(
     kind?: string
     stat?: (f: string) => number | null
     now?: () => number
+    deps?: Partial<import('./session-manager').SessionManagerDeps>
   } = {},
 ) {
   vi.useFakeTimers()
@@ -92,6 +93,7 @@ function setup(
     ...(opts.stat ? { stat: opts.stat } : {}),
     ...(opts.now ? { now: opts.now } : {}),
     ...(opts.launchArgs ? { launchArgs: opts.launchArgs } : {}),
+    ...(opts.deps ?? {}),
   })
   return { mgr, transports, batches }
 }
@@ -925,6 +927,126 @@ describe('SessionManager new chats and status', () => {
       transports[0]!.push(selectFrame)
       transports[0]!.push({ type: '_eof', code: 1, signal: null } as unknown as Frame)
       expect(mgr.snapshot('pane-1').dialog).toBeNull()
+      vi.useRealTimers()
+    })
+  })
+  describe('composer toolbar launch', () => {
+    const models = [
+      { provider: 'a', id: 'img', name: 'Img', contextWindow: 1000, images: true, levels: [] },
+      { provider: 'a', id: 'txt', name: 'Txt', contextWindow: 1000, images: false, levels: [] },
+    ]
+    const deps = { defaultApproval: () => 'yolo' as const, models: () => models }
+
+    it('a fresh draft reports defaults, unsent, and images allowed when the model is unknown', () => {
+      const { mgr } = setup({ deps })
+      mgr.openDraft('pane-1', meta)
+      expect(mgr.launchState('pane-1')).toEqual({
+        approval: 'yolo',
+        profile: null,
+        model: null,
+        thinking: null,
+        fast: false,
+        unsent: true,
+        harness: 'omp',
+        imagesAllowed: true,
+      })
+      vi.useRealTimers()
+    })
+
+    it('imagesAllowed follows the catalog entry of the current model', async () => {
+      const { mgr } = setup({ deps })
+      mgr.openDraft('pane-1', meta)
+      await mgr.setLaunch('pane-1', { model: { provider: 'a', modelId: 'txt' } })
+      expect(mgr.launchState('pane-1').imagesAllowed).toBe(false)
+      await mgr.setLaunch('pane-1', { model: { provider: 'a', modelId: 'img' } })
+      expect(mgr.launchState('pane-1').imagesAllowed).toBe(true)
+      vi.useRealTimers()
+    })
+
+    it('model, thinking and fast on a live pane are written as omp commands', async () => {
+      const { mgr, transports } = setup({ deps })
+      mgr.open('pane-1', '/s/a.jsonl', [], meta)
+      await mgr.send('pane-1', 'hi')
+      const t = transports[0]!
+      await mgr.setLaunch('pane-1', { model: { provider: 'a', modelId: 'img' } })
+      await mgr.setLaunch('pane-1', { thinking: 'high' })
+      await mgr.setLaunch('pane-1', { fast: true })
+      expect(t.written).toContainEqual({ type: 'set_model', provider: 'a', modelId: 'img' })
+      expect(t.written).toContainEqual({ type: 'set_thinking_level', level: 'high' })
+      expect(t.written).toContainEqual({ type: 'set_fast_mode', enabled: true })
+      vi.useRealTimers()
+    })
+
+    it('choices on a pane with no process become launch flags at the next start', async () => {
+      const { mgr, transports } = setup({ deps })
+      mgr.openDraft('pane-1', meta)
+      await mgr.setLaunch('pane-1', { model: { provider: 'a', modelId: 'img' }, thinking: 'low' })
+      await mgr.setLaunch('pane-1', { approval: 'write', profile: 'work' })
+      await mgr.send('pane-1', 'hi')
+      expect(transports[0]!.started[0]!.args).toEqual([
+        '--profile',
+        'work',
+        '--model',
+        'a/img',
+        '--thinking',
+        'low',
+        '--approval-mode',
+        'write',
+      ])
+      vi.useRealTimers()
+    })
+
+    it('approval on an idle live pane closes stdin and restarts on the same file, never killing', async () => {
+      const { mgr, transports } = setup({ deps })
+      mgr.open('pane-1', '/s/a.jsonl', [], meta)
+      await mgr.send('pane-1', 'hi')
+      const state = await mgr.setLaunch('pane-1', { approval: 'always-ask' })
+      expect(state.approval).toBe('always-ask')
+      expect(transports).toHaveLength(2)
+      expect(transports[0]!.closeCalls).toBe(1)
+      expect(transports[1]!.started[0]).toMatchObject({
+        sessionFile: '/s/a.jsonl',
+        args: ['--approval-mode', 'always-ask'],
+      })
+      expect(mgr.transportOf('pane-1')).toBe(transports[1])
+      expect('kill' in transports[0]!).toBe(false)
+      vi.useRealTimers()
+    })
+
+    it('approval on a working pane is refused as busy and changes nothing', async () => {
+      const { mgr, transports } = setup({ deps })
+      mgr.open('pane-1', '/s/a.jsonl', [], meta)
+      await mgr.send('pane-1', 'hi')
+      transports[0]!.push({ type: 'agent_start' } as unknown as Frame)
+      await expect(mgr.setLaunch('pane-1', { approval: 'write' })).rejects.toMatchObject({
+        code: 'busy',
+        message: 'Wait for the reply to finish, then change access.',
+      })
+      expect(transports).toHaveLength(1)
+      expect(transports[0]!.closeCalls).toBe(0)
+      expect(mgr.launchState('pane-1').approval).toBe('yolo')
+      vi.useRealTimers()
+    })
+
+    it('the account is accepted before the first prompt and refused after it', async () => {
+      const { mgr } = setup({ deps })
+      mgr.openDraft('pane-1', meta)
+      await mgr.setLaunch('pane-1', { profile: 'personal' })
+      expect(mgr.launchState('pane-1').profile).toBe('personal')
+      await mgr.send('pane-1', 'hi')
+      expect(mgr.launchState('pane-1').unsent).toBe(false)
+      await expect(mgr.setLaunch('pane-1', { profile: 'work' })).rejects.toMatchObject({
+        code: 'not-unsent',
+      })
+      vi.useRealTimers()
+    })
+
+    it('the account is refused on a resumed chat', async () => {
+      const { mgr } = setup({ deps })
+      mgr.open('pane-1', '/s/a.jsonl', [], meta)
+      await expect(mgr.setLaunch('pane-1', { profile: 'work' })).rejects.toMatchObject({
+        code: 'not-unsent',
+      })
       vi.useRealTimers()
     })
   })
