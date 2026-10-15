@@ -1,5 +1,5 @@
 import { MantineProvider } from '@mantine/core'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const invoke = vi.fn()
@@ -74,5 +74,21 @@ describe('ChatList search and fold', () => {
     expect(screen.queryByTestId('chat-row-c')).toBeNull()
     expect(invoke).toHaveBeenCalledWith('chat.setCollapsed', { groups: ['Other'] })
     expect(listStore.getState().collapsed.has('Other')).toBe(true)
+  })
+})
+
+describe('ChatList row menu', () => {
+  it('right-click and Shift+F10 open the menu for that row', async () => {
+    mount('')
+    const row = await screen.findByTestId('chat-row-a')
+    fireEvent.contextMenu(row, { clientX: 20, clientY: 30 })
+    expect(await screen.findByTestId('row-menu')).toBeInTheDocument()
+    expect(listStore.getState().menu).toMatchObject({ id: 'a', x: 20, y: 30 })
+    await act(async () => {
+      listStore.getState().closeMenu()
+    })
+    fireEvent.keyDown(screen.getByTestId('chat-row-c'), { key: 'F10', shiftKey: true })
+    await waitFor(() => expect(listStore.getState().menu).toMatchObject({ id: 'c' }))
+    expect(await screen.findByTestId('row-menu')).toBeInTheDocument()
   })
 })

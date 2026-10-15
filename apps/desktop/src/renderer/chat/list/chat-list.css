@@ -186,3 +186,80 @@ html[data-eva-motion='off'] .eva-cl-chev {
     transition: none;
   }
 }
+
+/* Row actions: the `...` button, inline rename, error line, menu anchor and delete dialog. */
+.eva-cl-rowwrap {
+  position: relative;
+}
+.eva-cl-actions {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  opacity: 0;
+}
+.eva-cl-rowwrap:hover .eva-cl-actions,
+.eva-cl-rowwrap:focus-within .eva-cl-actions,
+.eva-cl-actions:focus-visible {
+  opacity: 1;
+}
+.eva-cl-rowwrap:hover .eva-cl-trailing,
+.eva-cl-rowwrap:focus-within .eva-cl-trailing {
+  visibility: hidden;
+}
+.eva-cl-rename {
+  flex: 1;
+  min-width: 0;
+  height: 22px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border: 1px solid var(--eva-accent);
+  border-radius: var(--eva-radius);
+  background: var(--eva-surface, transparent);
+  color: var(--eva-text);
+  font: inherit;
+  font-size: var(--eva-fz-body);
+}
+.eva-cl-rename:focus {
+  outline: none;
+}
+.eva-cl-row-error {
+  padding: 2px var(--eva-space-sm) 4px 32px;
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-danger-background);
+}
+.eva-cl-menu-anchor {
+  position: fixed;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.eva-menu-item.eva-cl-menu-danger {
+  color: var(--eva-c-danger-background);
+}
+.eva-cl-toast {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--eva-space-sm);
+}
+.eva-cl-delete-body {
+  margin: 0 0 var(--eva-space-md, 12px);
+}
+.eva-cl-delete-error {
+  margin: 0 0 var(--eva-space-md, 12px);
+  color: var(--eva-c-danger-background);
+}
+.eva-cl-delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--eva-space-sm);
+}
+/* Outlined danger: the theme's danger foreground is itself red, so a filled button would not meet 4.5:1. */
+.eva-cl-delete-confirm {
+  background: transparent;
+  border: 1px solid var(--eva-c-danger-background);
+  color: var(--eva-c-danger-background);
+}
+.eva-cl-delete-confirm:hover {
+  background: var(--eva-hover);
+}

@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const invoke = vi.fn()
+const show = vi.fn()
+const hide = vi.fn()
+vi.mock('@mantine/notifications', () => ({
+  notifications: { show: (...a: unknown[]) => show(...a), hide: (...a: unknown[]) => hide(...a) },
+}))
 vi.mock('../../ipc', () => ({ invoke: (...a: unknown[]) => invoke(...a), on: () => () => {} }))
 
 import { Categories } from '@evaos/chat-core/categories'
@@ -31,6 +36,8 @@ const value = (n: number): ChatList => ({
 })
 
 beforeEach(() => {
+  show.mockReset()
+  hide.mockReset()
   invoke.mockReset()
   resetListForTests()
 })
@@ -126,5 +133,78 @@ describe('list-store', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('list-store row actions', () => {
+  const seed = async () => {
+    invoke.mockResolvedValueOnce({ ok: true, value: value(3) })
+    await listStore.getState().load()
+    invoke.mockReset()
+  }
+
+  it('archive is optimistic, calls chat.archive and shows the toast with Undo', async () => {
+    await seed()
+    invoke.mockResolvedValue({ ok: true, value: { archived: ['g1'] } })
+    const p = listStore.getState().archive('g1', true)
+    expect(listStore.getState().list?.rows.find((r) => r.id === 'g1')?.archived).toBe(true)
+    await p
+    expect(invoke).toHaveBeenCalledWith('chat.archive', { id: 'g1', archived: true })
+    expect(show).toHaveBeenCalledTimes(1)
+    expect(show.mock.calls[0][0]).toMatchObject({ id: 'chat-archived', autoClose: 6000 })
+  })
+
+  it('a failed archive rolls back and shows an error, not the Undo toast', async () => {
+    await seed()
+    invoke.mockResolvedValue({ ok: false, error: { code: 'internal', message: 'x' } })
+    await listStore.getState().archive('g1', true)
+    expect(listStore.getState().list?.rows.find((r) => r.id === 'g1')?.archived).toBe(false)
+    expect(show.mock.calls[0][0]).toMatchObject({ color: 'red' })
+  })
+
+  it('unarchive shows no toast', async () => {
+    await seed()
+    invoke.mockResolvedValue({ ok: true, value: { archived: [] } })
+    await listStore.getState().archive('g1', false)
+    expect(show).not.toHaveBeenCalled()
+  })
+
+  it('commitRename calls chat.rename with the trimmed name and patches the title', async () => {
+    await seed()
+    invoke.mockResolvedValue({ ok: true, value: { title: 'Better', via: 'resume' } })
+    const r = listStore.getState().list!.rows[1]
+    listStore.getState().startRename(r.id)
+    await listStore.getState().commitRename(r, '  Better ')
+    expect(invoke).toHaveBeenCalledWith('chat.rename', { file: r.file, name: 'Better' })
+    expect(listStore.getState().renaming).toBeNull()
+    expect(listStore.getState().list?.rows[1].title).toBe('Better')
+  })
+
+  it('an empty or unchanged name cancels without a call', async () => {
+    await seed()
+    const r = listStore.getState().list!.rows[0]
+    listStore.getState().startRename(r.id)
+    await listStore.getState().commitRename(r, '   ')
+    expect(invoke).not.toHaveBeenCalled()
+    expect(listStore.getState().renaming).toBeNull()
+  })
+
+  it('a rename error is kept for the row', async () => {
+    await seed()
+    invoke.mockResolvedValue({
+      ok: false,
+      error: { code: 'maybe-running', message: 'May be open elsewhere.' },
+    })
+    const r = listStore.getState().list!.rows[0]
+    await listStore.getState().commitRename(r, 'Other')
+    expect(listStore.getState().rowError).toEqual({ id: r.id, message: 'May be open elsewhere.' })
+    expect(listStore.getState().list?.rows[0].title).toBe(r.title)
+  })
+
+  it('pin calls chat.pin', async () => {
+    await seed()
+    invoke.mockResolvedValue({ ok: true, value: { pins: ['g0'] } })
+    await listStore.getState().pin('g0', true)
+    expect(invoke).toHaveBeenCalledWith('chat.pin', { id: 'g0', pinned: true })
   })
 })

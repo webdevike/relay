@@ -40,7 +40,10 @@ const openChats = async (shell: Page): Promise<void> => {
   await shell.locator(sel('nav-chat')).click()
   await shell.waitForSelector('[role=tree]')
   for (const more of await shell.locator('[data-testid^="chat-show-more-"]').all()) {
-    if ((await more.textContent())?.startsWith('Show ') && !(await more.textContent())?.includes('fewer'))
+    if (
+      (await more.textContent())?.startsWith('Show ') &&
+      !(await more.textContent())?.includes('fewer')
+    )
       await more.click()
   }
 }
@@ -96,12 +99,12 @@ test('archive from the actions button, toast Undo restores', async ({ shell, con
   await shell.locator(sel('row-menu-archive')).click()
   await expect(shell.getByText('Chat archived')).toBeVisible()
   await expect(row).toHaveCount(0)
-  await expect(shell.locator(sel('chat-archived-toggle'))).toContainText('Archived (2)')
+  await expect(shell.locator(sel('chat-archived-toggle'))).toContainText('Archived (1)')
   await expect.poll(() => archivedIds(configDir)).toContain('p4-other4')
 
   await shell.getByRole('button', { name: 'Undo' }).click()
   await expect(rowOf(shell, 'p4-other4')).toBeVisible()
-  await expect(shell.locator(sel('chat-archived-toggle'))).toContainText('Archived (1)')
+  await expect(shell.locator(sel('chat-archived-toggle'))).toHaveCount(0)
   await expect.poll(() => archivedIds(configDir)).not.toContain('p4-other4')
 })
 
@@ -128,7 +131,9 @@ test('inline rename: Esc cancels, Enter commits through a short resume with mtim
   await expect(rowOf(shell, 'p4-rename')).toContainText('Renamed by test')
   expect(Math.abs(fs.statSync(file).mtimeMs - before)).toBeLessThan(1000)
   const spawns = readLog().filter((e) => e.event === 'spawn')
-  expect(spawns.some((e) => e.detail?.argv?.includes('rpc') && e.detail.argv.includes('--resume'))).toBe(true)
+  expect(
+    spawns.some((e) => e.detail?.argv?.includes('rpc') && e.detail.argv.includes('--resume')),
+  ).toBe(true)
 })
 
 test('a recently active unowned chat refuses rename; Esc leaves the title', async ({ shell }) => {
@@ -153,7 +158,10 @@ test('an owned chat renames over its running omp; delete is refused', async ({ s
   const box = shell.locator(sel('composer-input'))
   await box.fill('hi')
   await box.press('Enter')
-  await expect(shell.locator(sel('chat-log'))).toContainText('Steer', { timeout: 15000 }).catch(() => undefined)
+  // The prompt reached the owned omp, so the app now owns the session.
+  await expect
+    .poll(() => readLog().some((e) => e.event === 'stdin-line' && e.detail?.type === 'prompt'))
+    .toBe(true)
 
   await rowOf(shell, 'p4-ecard').click({ button: 'right' })
   await shell.locator(sel('row-menu-rename')).click()
@@ -161,7 +169,9 @@ test('an owned chat renames over its running omp; delete is refused', async ({ s
   await shell.locator(sel('chat-rename-input')).press('Enter')
   await expect(rowOf(shell, 'p4-ecard')).toContainText('Owned rename')
   await expect
-    .poll(() => readLog().some((e) => e.event === 'stdin-line' && e.detail?.type === 'set_session_name'))
+    .poll(() =>
+      readLog().some((e) => e.event === 'stdin-line' && e.detail?.type === 'set_session_name'),
+    )
     .toBe(true)
 
   await rowOf(shell, 'p4-ecard').click({ button: 'right' })
