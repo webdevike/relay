@@ -4,7 +4,7 @@ export type Frame = Record<string, unknown> & { type: string }
 
 /**
  * Splits an omp rpc-ui byte stream into JSON frames (D-15).
- * - splits on "\n" only (never readline: U+2028/2029 may appear inside JSON strings)
+ * - splits on "\n" only (not a line-reader helper: U+2028/2029 may appear inside JSON strings)
  * - StringDecoder keeps multibyte characters intact across chunk boundaries
  * - a bad line is reported through onBadLine and never drops its neighbours
  * - no line length cap here; omp v1 lines are at most 1 MiB (maxFrameBytes)
