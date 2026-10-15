@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Frame } from '@evaos/chat-core/line-framer'
 import type { ChatTransport, TransportExit } from '@evaos/chat-core/transport'
 import type { Batch } from '@evaos/contract'
+import { EOF_ERROR } from '@evaos/chat-core/reducer'
 import { SessionManager } from './session-manager'
 
 class MemoryTransport implements ChatTransport {
@@ -158,6 +159,32 @@ describe('SessionManager', () => {
     await mgr.closeAll()
     expect(transports[1]!.closeCalls).toBe(1)
     expect(vi.getTimerCount()).toBe(0)
+    vi.useRealTimers()
+  })
+
+  it('an _eof frame from omp detaches the pane: no close(), no second _eof, one final batch', async () => {
+    const { mgr, transports, batches } = setup()
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    await mgr.send('pane-1', 'hi')
+    await vi.advanceTimersByTimeAsync(16)
+    const t = transports[0]!
+    t.push({ type: '_eof', code: 1, signal: null })
+    expect(t.closeCalls).toBe(0)
+    expect(mgr.transportOf('pane-1')).toBeNull()
+    expect(mgr.has('/s/a.jsonl')).toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
+    const last = batches.at(-1)!
+    expect(last.seq).toBe(2)
+    expect(last.ops.filter((o) => o.op === 'remove').map((o) => o.id)).toEqual(['sent-1'])
+    expect(last.ops.find((o) => o.op === 'meta')).toMatchObject({
+      patch: { connected: false, running: false, error: EOF_ERROR },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(batches.at(-1)).toBe(last)
+    expect(mgr.snapshot('pane-1').messages).toEqual([])
+    // The next send starts a fresh process.
+    await mgr.send('pane-1', 'again')
+    expect(transports).toHaveLength(2)
     vi.useRealTimers()
   })
 

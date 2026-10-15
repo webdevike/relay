@@ -148,10 +148,21 @@ export class SessionManager {
     if (res.meta) pane.batcher.markMeta(res.meta)
     if (res.effect) void pane.transport?.write(res.effect).catch(() => undefined)
     if (frame.type === '_eof') {
-      pane.batcher.markMeta({ connected: false })
+      // omp is already gone: nothing to close() and no second `_eof` to apply.
+      pane.batcher.markMeta({ connected: false, running: false })
       this.flush(pane)
-      void this.release(pane)
+      this.detach(pane)
     }
+  }
+
+  /** Stops the flush timer and forgets the transport; never touches the process itself. */
+  private detach(pane: Pane): void {
+    if (pane.timer !== null) this.clearIv(pane.timer)
+    pane.timer = null
+    pane.unsubscribe?.()
+    pane.unsubscribe = null
+    pane.transport = null
+    if (this.owners.get(pane.key) === pane.paneId) this.owners.delete(pane.key)
   }
 
   private flush(pane: Pane): void {
@@ -168,12 +179,7 @@ export class SessionManager {
   private async release(pane: Pane, timeoutMs = 2000): Promise<TransportExit | null> {
     const t = pane.transport
     if (!t) return null
-    if (pane.timer !== null) this.clearIv(pane.timer)
-    pane.timer = null
-    pane.unsubscribe?.()
-    pane.unsubscribe = null
-    pane.transport = null
-    if (this.owners.get(pane.key) === pane.paneId) this.owners.delete(pane.key)
+    this.detach(pane)
     let exit: TransportExit | null = null
     try {
       exit = await t.close({ timeoutMs })

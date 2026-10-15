@@ -95,11 +95,19 @@ export class OmpStdioTransport implements ChatTransport {
       /* EPIPE after exit: the _eof frame reports it */
     })
 
+    // `_eof` is emitted from exactly one place. A spawn that fails (ENOENT, EACCES) emits
+    // `error` and then `close` (verified on Node 24), so the `close` handler covers that case
+    // too; a second `_eof` from the `error` handler would reach the reducer while start() is
+    // still rejecting and race the caller's own cleanup.
+    let eofSent = false
     this.exit = new Promise<TransportExit>((resolve) => {
       child.once('close', (code, signal) => {
         framer.end()
         if (carry !== '') this.emit({ type: '_stderr', line: carry })
-        this.emit({ type: '_eof', code, signal, expected: this.closing })
+        if (!eofSent) {
+          eofSent = true
+          this.emit({ type: '_eof', code, signal, expected: this.closing })
+        }
         resolve({ code, signal, timedOut: false })
       })
     })
@@ -109,11 +117,7 @@ export class OmpStdioTransport implements ChatTransport {
         this.pid = child.pid ?? null
         resolve()
       })
-      child.once('error', (e) => {
-        reject(e)
-        // A child that never started still ends the session for the reducer.
-        this.emit({ type: '_eof', code: null, signal: null })
-      })
+      child.once('error', (e) => reject(e))
     })
   }
 
