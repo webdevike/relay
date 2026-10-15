@@ -1,5 +1,8 @@
 import { invoke } from '../ipc'
 import { setAppearance } from '../theme/theme-store'
+import { placeOf, type PageKey } from '@evaos/shell-core'
+import { navigateTo, tabsStore } from '../tabs/tabs-store'
+import { tabTitle } from '../tabs/tab-meta'
 import type { Appearance } from '@evaos/theme-core'
 
 export interface HotkeyLogEntry {
@@ -14,6 +17,8 @@ export interface EvaosShellHooks {
   clearDirty(id: string): void
   setAppearance(appearance: Appearance): void
   pageFiller: boolean
+  tabs(): { active: number; list: Array<{ id: number; page: string; pinned: boolean; title: string }> }
+  openPlace(page: string, newTab?: boolean): void
 }
 
 declare global {
@@ -52,6 +57,19 @@ export function initE2e(): Promise<boolean> {
         clearDirty: (id) => dirtyHooks?.clear(id),
         setAppearance: (a) => setAppearance(a),
         pageFiller: false,
+        tabs: () => {
+          const t = tabsStore.getState().tabs
+          return {
+            active: t.active,
+            list: t.list.map((x) => ({
+              id: x.id,
+              page: x.here.page,
+              pinned: x.pinned,
+              title: tabTitle(x.here),
+            })),
+          }
+        },
+        openPlace: (page, newTab) => navigateTo(placeOf(page as PageKey), { newTab }),
       }
     }
     return e2e
