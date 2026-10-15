@@ -11,9 +11,11 @@ class MemoryTransport implements ChatTransport {
   written: Array<Record<string, unknown>> = []
   sent: string[] = []
   private cb: ((f: Frame) => void) | null = null
+  /** When set, start() settles with this promise (models a slow or failing spawn). */
+  startGate: Promise<void> | null = null
   start(opts: { sessionFile: string; cwd: string }) {
     this.started.push(opts)
-    return Promise.resolve()
+    return this.startGate ?? Promise.resolve()
   }
   send(text: string) {
     this.sent.push(text)
@@ -49,13 +51,14 @@ class MemoryTransport implements ChatTransport {
 const meta = { model: null, thinking: null, contextTokens: null }
 const asst = (t: string) => ({ role: 'assistant', content: [{ type: 'text', text: t }] })
 
-function setup() {
+function setup(opts: { firstStartGate?: Promise<void> } = {}) {
   vi.useFakeTimers()
   const transports: MemoryTransport[] = []
   const batches: Batch[] = []
   const mgr = new SessionManager({
     createTransport: () => {
       const t = new MemoryTransport()
+      if (transports.length === 0 && opts.firstStartGate) t.startGate = opts.firstStartGate
       transports.push(t)
       return t
     },
@@ -81,6 +84,46 @@ describe('SessionManager', () => {
       '<surface>Mac - EvaOS</surface>\nhello',
       '<surface>Mac - EvaOS</surface>\nsteer me',
     ])
+    vi.useRealTimers()
+  })
+
+  it('a second send during spawn waits for the same start and keeps prompt order', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((r) => {
+      release = r
+    })
+    const { mgr, transports } = setup({ firstStartGate: gate })
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    const p1 = mgr.send('pane-1', 'one')
+    const p2 = mgr.send('pane-1', 'two')
+    await Promise.resolve()
+    expect(transports).toHaveLength(1)
+    expect(transports[0]!.sent).toEqual([])
+    release()
+    await Promise.all([p1, p2])
+    expect(transports).toHaveLength(1)
+    expect(transports[0]!.written.map((c) => c.type)).toEqual(['set_ask_dialog', 'get_state'])
+    expect(transports[0]!.sent).toEqual([
+      '<surface>Mac - EvaOS</surface>\none',
+      '<surface>Mac - EvaOS</surface>\ntwo',
+    ])
+    vi.useRealTimers()
+  })
+
+  it('both sends during a failed spawn reject with spawn-failed and the pane recovers', async () => {
+    const gate = Promise.reject(new Error('ENOENT'))
+    gate.catch(() => undefined)
+    const { mgr, transports } = setup({ firstStartGate: gate })
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    const p1 = mgr.send('pane-1', 'one')
+    const p2 = mgr.send('pane-1', 'two')
+    await expect(p1).rejects.toMatchObject({ code: 'spawn-failed' })
+    await expect(p2).rejects.toMatchObject({ code: 'spawn-failed' })
+    expect(mgr.transportOf('pane-1')).toBeNull()
+    expect(mgr.has('/s/a.jsonl')).toBe(false)
+    await mgr.send('pane-1', 'three')
+    expect(transports).toHaveLength(2)
+    expect(transports[1]!.sent).toEqual(['<surface>Mac - EvaOS</surface>\nthree'])
     vi.useRealTimers()
   })
 

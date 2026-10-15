@@ -37,6 +37,8 @@ interface Pane {
   reducer: LiveReducer
   batcher: SeqBatcher
   transport: ChatTransport | null
+  /** In-flight startTransport(); a second send during spawn awaits it instead of writing early. */
+  starting: Promise<void> | null
   unsubscribe: (() => void) | null
   timer: unknown
   framesIn: number
@@ -81,6 +83,7 @@ export class SessionManager {
       reducer: new LiveReducer(history, meta),
       batcher: new SeqBatcher(paneId),
       transport: null,
+      starting: null,
       unsubscribe: null,
       timer: null,
       framesIn: 0,
@@ -100,7 +103,13 @@ export class SessionManager {
 
   async send(paneId: string, text: string): Promise<void> {
     const pane = this.pane(paneId)
-    if (!pane.transport) await this.startTransport(pane)
+    if (pane.starting) await pane.starting
+    else if (!pane.transport) {
+      pane.starting = this.startTransport(pane).finally(() => {
+        pane.starting = null
+      })
+      await pane.starting
+    }
     const row = pane.reducer.sendPrompt(text)
     pane.batcher.markUpsert(row, pane.reducer.indexOf(row.id))
     await pane.transport!.send(tagged(text, this.deps.machineLabel))
