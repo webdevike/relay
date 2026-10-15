@@ -9,6 +9,7 @@ import { startHabits } from '../habits/habit-store'
 import { startReload } from '../reload/reload'
 import { NewTodoModal } from '../todo/NewTodoModal'
 import { startNewTodo } from '../todo/new-todo-store'
+import { GateOverlay } from '../habits/GateOverlay'
 import { Shell } from '../shell/Shell'
 
 export function App() {
@@ -38,6 +39,7 @@ export function App() {
     <>
       <Shell />
       <NewTodoModal />
+      <GateOverlay />
     </>
   )
 }
