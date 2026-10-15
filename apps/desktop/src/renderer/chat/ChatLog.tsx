@@ -17,6 +17,12 @@ export function ChatLog({ messages, file }: { messages: ChatMessage[]; file: str
     if (last >= 0) ref.current?.scrollToIndex(last, { align: 'end' })
   }, [file])
 
+  // Follow the stream while the user is at the bottom (pill logic arrives in plan 01-06).
+  useLayoutEffect(() => {
+    const last = messages.length - 1
+    if (pinned.current && last >= 0) ref.current?.scrollToIndex(last, { align: 'end' })
+  }, [messages])
+
   return (
     <div className="eva-log" data-testid="chat-log" role="log" aria-live="off">
       <VList

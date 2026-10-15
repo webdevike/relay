@@ -11,14 +11,26 @@ const recorded = fs
   .readFileSync(path.join(FIXTURES_DIR, 'fake-omp/recordings/turn.jsonl'), 'utf8')
   .split('\n')
   .filter(Boolean)
-  .map((l) => JSON.parse(l).frame as { type: string; message?: { role: string; content: { text: string }[] } })
+  .map(
+    (l) =>
+      JSON.parse(l).frame as {
+        type: string
+        message?: { role: string; content: { text: string }[] }
+      },
+  )
   .filter((f) => f.type === 'message_end' && f.message?.role === 'assistant')
   .pop()!.message!.content[0]!.text
 
 type Stats = { batches: number; gaps: number; snapshots: number; lastSeq: number }
 type Hooks = {
   dropNextBatch(p: string): void
-  stats(p: string): { batches: number; lastSeq: number; spawnArgs: string[]; pid: number | null; cwd: string }
+  stats(p: string): {
+    batches: number
+    lastSeq: number
+    spawnArgs: string[]
+    pid: number | null
+    cwd: string
+  }
 }
 
 const rendererStats = (page: import('@playwright/test').Page) =>
@@ -39,11 +51,15 @@ for (const chunk of ['line', '1', 'glued', 'emoji-split']) {
       await shell.locator('[data-testid=composer-input]').press('Enter')
       await expect(log).toContainText('Say hello')
       if (chunk !== 'glued') {
-        await expect(shell.locator('[data-testid=chat-header] [aria-label="Eva is replying"]')).toBeVisible()
+        await expect(
+          shell.locator('[data-testid=chat-header] [aria-label="Eva is replying"]'),
+        ).toBeVisible()
       }
       await expect(log).toContainText('Foxes are primarily nocturnal hunters')
       await expect(log).toContainText('🚀')
-      await expect(shell.locator('[data-testid=chat-header] [aria-label="Eva is replying"]')).toHaveCount(0)
+      await expect(
+        shell.locator('[data-testid=chat-header] [aria-label="Eva is replying"]'),
+      ).toHaveCount(0)
 
       // The final text appears exactly once, code fence included.
       const body = (await log.innerText()).replace(/\s+/g, ' ')
@@ -57,9 +73,10 @@ for (const chunk of ['line', '1', 'glued', 'emoji-split']) {
       expect(s.gaps).toBe(0)
       expect(s.lastSeq).toBe(s.batches)
 
-      const main = await app.evaluate(
-        () =>
-          (globalThis as unknown as { __evaosTest: { hooks: { chat: Hooks } } }).__evaosTest.hooks.chat.stats('pane-1'),
+      const main = await app.evaluate(() =>
+        (
+          globalThis as unknown as { __evaosTest: { hooks: { chat: Hooks } } }
+        ).__evaosTest.hooks.chat.stats('pane-1'),
       )
       expect(main.spawnArgs).toEqual([
         '--mode',
@@ -80,12 +97,18 @@ test.describe('gap recovery', () => {
     const log = shell.locator('[data-testid=chat-log]')
     await expect(log).toContainText('Please sketch a tiny greeter.')
     await app.evaluate(() => {
-      ;(globalThis as unknown as { __evaosTest: { hooks: { chat: Hooks } } }).__evaosTest.hooks.chat.dropNextBatch('pane-1')
+      ;(
+        globalThis as unknown as { __evaosTest: { hooks: { chat: Hooks } } }
+      ).__evaosTest.hooks.chat.dropNextBatch('pane-1')
     })
     await shell.locator('[data-testid=composer-input]').fill('Say hello')
     await shell.locator('[data-testid=composer-input]').press('Enter')
-    await expect(shell.locator('[data-testid=chat-header]')).toContainText('Reconnecting to the stream.')
-    await expect(shell.locator('[data-testid=chat-header]')).not.toContainText('Reconnecting to the stream.')
+    await expect(shell.locator('[data-testid=chat-header]')).toContainText(
+      'Reconnecting to the stream.',
+    )
+    await expect(shell.locator('[data-testid=chat-header]')).not.toContainText(
+      'Reconnecting to the stream.',
+    )
     await expect(log).toContainText('Foxes are primarily nocturnal hunters')
     await expect(log).toContainText('🚀')
     const body = (await log.innerText()).replace(/\s+/g, ' ')

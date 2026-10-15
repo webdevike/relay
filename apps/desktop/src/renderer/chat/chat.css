@@ -152,3 +152,37 @@
     transition: none;
   }
 }
+
+.eva-streaming-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-right: var(--eva-space-sm);
+  border-radius: 50%;
+  background: var(--eva-accent);
+}
+.eva-chat-reconnecting {
+  margin-left: auto;
+  white-space: nowrap;
+}
+.eva-error-banner {
+  flex: none;
+  padding: var(--eva-space-sm) var(--eva-space-md);
+  color: var(--eva-danger);
+  border-bottom: 1px solid var(--eva-border);
+  background: var(--eva-surface);
+}
+.eva-composer {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  gap: var(--eva-space-sm);
+  min-height: 56px;
+  padding: var(--eva-space-sm) var(--eva-space-md);
+  background: var(--eva-surface);
+  border-top: 1px solid var(--eva-border);
+}
+.eva-composer-field {
+  flex: 1;
+  min-width: 0;
+}

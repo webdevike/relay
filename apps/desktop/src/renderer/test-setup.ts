@@ -16,3 +16,10 @@ if (!window.matchMedia) {
     dispatchEvent: () => false,
   })) as unknown as typeof window.matchMedia
 }
+
+// jsdom has no FontFaceSet; Mantine's autosize Textarea listens on it.
+if (!(document as unknown as { fonts?: unknown }).fonts) {
+  Object.defineProperty(document, 'fonts', {
+    value: { addEventListener: () => {}, removeEventListener: () => {} },
+  })
+}
