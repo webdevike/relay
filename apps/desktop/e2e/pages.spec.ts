@@ -17,7 +17,6 @@ const open = (shell: Page, slug: string): Promise<void> =>
 
 const PAGES: Array<[string, string, string, string]> = [
   ['inbox', 'Inbox', 'Inbox', 'Digests and approvals from Eva will appear here in a later update.'],
-  ['habits', 'Habits', 'Habits', 'Your habits and streaks will appear here in a later update.'],
   [
     'meetings',
     'Meetings',
@@ -60,6 +59,13 @@ test('jobs is a real page, not a placeholder', async ({ shell }) => {
   await expect(shell.locator('[data-testid=page-jobs]')).toBeVisible()
   await expect(shell.locator('[data-testid=jobs-table]')).toBeVisible()
   await expect(shell.locator('[role=tab][data-active=true]')).toContainText('Jobs')
+})
+
+test('habits is a real page, not a placeholder', async ({ shell }) => {
+  await open(shell, 'habits')
+  await expect(shell.locator('[data-testid=page-habits]')).toBeVisible()
+  await expect(shell.locator('[data-testid=habit-gate-strip]')).toBeVisible()
+  await expect(shell.locator('[role=tab][data-active=true]')).toContainText('Habits')
 })
 
 test('scroll memory, fades and contained overscroll', async ({ shell }) => {
