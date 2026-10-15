@@ -12,12 +12,13 @@
     "extensionPopup": "ok",
     "bitwardenInstalled": true,
     "bitwardenVersion": "2026.9.3",
-    "bitwardenContentScript": true
+    "bitwardenContentScript": true,
+    "dragRegion": "still-needs-isaac: macOS screen was locked, so posted OS mouse events cannot reach any window"
   },
   "chat": {
     "messages": 5000,
     "framesReplayed": 827,
-    "batches": 748,
+    "batches": 776,
     "seqGaps": 0,
     "seqContiguous": true,
     "display": {
@@ -25,22 +26,22 @@
     },
     "idle": {
       "p50": 8.4,
-      "p95": 16.9,
+      "p95": 16.7,
       "p99": 17.1,
-      "max": 17.6,
-      "n": 427
+      "max": 18.6,
+      "n": 479
     },
     "stream": {
-      "p50": 8.4,
-      "p95": 16.8,
-      "p99": 17.1,
-      "max": 18.2,
-      "n": 748,
+      "p50": 8.3,
+      "p95": 16.7,
+      "p99": 16.8,
+      "max": 17.4,
+      "n": 725,
       "longFrames": 0
     },
     "gate": {
       "rule": "streamP95 <= max(16.7, idleP95 * 1.25) and zero frames over 50 ms",
-      "budgetMs": 21.13,
+      "budgetMs": 20.88,
       "passed": true
     },
     "pinnedGapPx": 0,
