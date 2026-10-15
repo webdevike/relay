@@ -27,7 +27,7 @@ describe('page-meta', () => {
     expect(get('help').title).toBe('Help Center')
     expect(get('setting').title).toBe('Setting')
     for (const n of NAV_PAGES) {
-      expect(JSON.stringify(n)).not.toContain('—')
+      expect(JSON.stringify(n)).not.toContain(String.fromCharCode(0x2014))
     }
   })
 
