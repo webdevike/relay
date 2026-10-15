@@ -114,7 +114,7 @@ Plans:
 
 **Wave 9**
 
-- [ ] 02-13-PLAN.md: hotkey, motion and quit-guard e2e, proof screenshots, gate, checklist (wave 9)
+- [x] 02-13-PLAN.md: hotkey, motion and quit-guard e2e, proof screenshots, gate, checklist (wave 9)
 
 **UI hint**: yes
 
@@ -207,7 +207,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation, Harness and the Two Spikes | 10/10 | Complete   | 2026-10-15 |
-| 2. Shell, Navigation and Theme Tokens | 12/13 | In Progress|  |
+| 2. Shell, Navigation and Theme Tokens | 13/13 | Complete   | 2026-10-15 |
 | 3. Dashboard, Workspaces, Jobs, Habits and Meetings | 0/TBD | Not started | - |
 | 4. Chat Parity | 0/TBD | Not started | - |
 | 5. Rich Replies | 0/TBD | Not started | - |
