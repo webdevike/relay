@@ -51,8 +51,8 @@ export function createSessionManager(ctx: MainContext): SessionManager {
 }
 
 export function registerLiveIpc(ctx: MainContext, manager: SessionManager): void {
-  handle(ctx, 'chat.send', async ({ paneId, text }) => {
-    await manager.send(paneId, text)
+  handle(ctx, 'chat.send', async ({ paneId, text, images }) => {
+    await manager.send(paneId, text, images ? { images } : {})
     return { accepted: true as const }
   })
   handle(ctx, 'chat.abort', async ({ paneId }) => ({ sent: await manager.abort(paneId) }))

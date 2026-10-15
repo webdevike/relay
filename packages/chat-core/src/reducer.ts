@@ -86,10 +86,20 @@ export class LiveReducer {
   }
 
   /** Shows a prompt at once; omp echoes it later. A new prompt supersedes a previous EOF error. */
-  sendPrompt(text: string): ChatMessage {
+  sendPrompt(
+    text: string,
+    images?: ReadonlyArray<{ mimeType: string; data: string }>,
+  ): ChatMessage {
     this.error = null
     this.sent += 1
-    const m = makeMessage(`${SENT}${this.sent}`, 'user', text, { unconfirmed: true })
+    const m = makeMessage(`${SENT}${this.sent}`, 'user', text, {
+      unconfirmed: true,
+      images: (images ?? []).map((img, i) => ({
+        label: `Image ${i + 1}`,
+        src: `data:${img.mimeType};base64,${img.data}`,
+        mimeType: img.mimeType,
+      })),
+    })
     this.msgs.push(m)
     return m
   }
@@ -344,6 +354,9 @@ export class LiveReducer {
       const shown = this.msgs.findIndex((m) => unconfirmed(m) && m.text.trim() === norm)
       const ix = shown >= 0 ? shown : this.msgs.findIndex(unconfirmed)
       if (ix >= 0) {
+        // omp may echo the prompt without its image data: keep what the user attached.
+        const shownImages = this.msgs[ix]!.images
+        if (prompt.images.length === 0 && shownImages.length > 0) prompt.images = shownImages
         removed.add(this.msgs[ix]!.id)
         this.msgs.splice(ix, 1)
       }

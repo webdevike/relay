@@ -5,7 +5,7 @@ import { LiveReducer } from '@evaos/chat-core/reducer'
 import { SeqBatcher, type Batch, type Snapshot } from '@evaos/chat-core/batcher'
 import type { ChatMessage, SessionMeta } from '@evaos/chat-core/message'
 import { tagged } from '@evaos/chat-core/tagged'
-import type { ChatTransport, TransportExit } from '@evaos/chat-core/transport'
+import type { ChatTransport, PromptImage, TransportExit } from '@evaos/chat-core/transport'
 
 export class CodedError extends Error {
   constructor(
@@ -114,7 +114,11 @@ export class SessionManager {
     return p
   }
 
-  async send(paneId: string, text: string): Promise<void> {
+  async send(
+    paneId: string,
+    text: string,
+    opts: { images?: ReadonlyArray<{ mimeType: string; data: string }> } = {},
+  ): Promise<void> {
     const pane = this.pane(paneId)
     if (pane.starting) await pane.starting
     else if (!pane.transport) {
@@ -128,11 +132,15 @@ export class SessionManager {
     if (!transport) throw new CodedError('session-closed', 'The session is not running.')
     // sendPrompt() runs outside apply(), so its meta change (clearing an EOF error) is diffed here.
     const hadError = pane.reducer.error !== null
-    const row = pane.reducer.sendPrompt(text)
+    const row = pane.reducer.sendPrompt(text, opts.images)
     if (hadError) pane.batcher.markMeta({ error: null })
     pane.batcher.markUpsert(row, pane.reducer.indexOf(row.id))
     try {
-      await transport.send(tagged(text, this.deps.machineLabel))
+      const images: PromptImage[] | undefined =
+        opts.images && opts.images.length > 0
+          ? opts.images.map((i) => ({ type: 'image', data: i.data, mimeType: i.mimeType }))
+          : undefined
+      await transport.send(tagged(text, this.deps.machineLabel), images)
     } catch (e) {
       // omp never received the prompt (EPIPE after exit, for example): take the row back out
       // so it does not sit there unconfirmed forever.

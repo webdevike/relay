@@ -83,6 +83,23 @@ describe('LiveReducer', () => {
     expect(r.messages()[0]!.tool).toMatchObject({ result: 'file body', status: 'done' })
   })
 
+  it('sendPrompt with images labels them and keeps them when omp echoes the prompt', () => {
+    const r = mk()
+    const sent = r.sendPrompt('look', [{ mimeType: 'image/png', data: 'AAA' }])
+    expect(sent.images).toEqual([
+      { label: 'Image 1', src: 'data:image/png;base64,AAA', mimeType: 'image/png' },
+    ])
+    r.apply({ type: 'message_end', messageId: 'u1', message: user('look') })
+    const row = r.messages().find((m) => m.role === 'user')!
+    expect(row.unconfirmed).toBeUndefined()
+    expect(row.images).toHaveLength(1)
+    expect(row.images[0]!.src).toBe('data:image/png;base64,AAA')
+  })
+
+  it('sendPrompt without images leaves images empty', () => {
+    expect(mk().sendPrompt('hi').images).toEqual([])
+  })
+
   it('a sent prompt shows at once and omps echo replaces it in place', () => {
     const r = mk()
     r.apply({ type: 'message_end', messageId: 'a0', message: asst([text('earlier')]) })

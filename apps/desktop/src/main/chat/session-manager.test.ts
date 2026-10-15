@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Frame } from '@evaos/chat-core/line-framer'
-import type { ChatTransport, TransportExit } from '@evaos/chat-core/transport'
+import type { ChatTransport, PromptImage, TransportExit } from '@evaos/chat-core/transport'
 import type { Batch } from '@evaos/contract'
 import { EOF_ERROR } from '@evaos/chat-core/reducer'
 import { ALREADY_OWNED, STILL_CLOSING, SessionManager } from './session-manager'
@@ -10,6 +10,7 @@ class MemoryTransport implements ChatTransport {
   started: Array<{ sessionFile: string; cwd: string }> = []
   written: Array<Record<string, unknown>> = []
   sent: string[] = []
+  sentImages: Array<readonly PromptImage[] | undefined> = []
   private cb: ((f: Frame) => void) | null = null
   /** When set, start() settles with this promise (models a slow or failing spawn). */
   startGate: Promise<void> | null = null
@@ -19,9 +20,10 @@ class MemoryTransport implements ChatTransport {
   }
   /** When set, send() rejects with it (models EPIPE after omp exited). */
   sendError: Error | null = null
-  send(text: string) {
+  send(text: string, images?: readonly PromptImage[]) {
     if (this.sendError) return Promise.reject(this.sendError)
     this.sent.push(text)
+    this.sentImages.push(images)
     return Promise.resolve()
   }
   steer(text: string) {
@@ -77,6 +79,47 @@ function setup(opts: { firstStartGate?: Promise<void> } = {}) {
 }
 
 describe('SessionManager', () => {
+  it('send with images maps them to prompt images and echoes them in the row', async () => {
+    const { mgr, transports } = setup()
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    await mgr.send('pane-1', 'look', { images: [{ mimeType: 'image/png', data: 'AAA' }] })
+    const t = transports[0]!
+    expect(t.sent).toEqual(['<surface>Mac - EvaOS</surface>\nlook'])
+    expect(t.sentImages[0]).toEqual([{ type: 'image', data: 'AAA', mimeType: 'image/png' }])
+    const row = mgr.snapshot('pane-1').messages.at(-1)!
+    expect(row.images).toEqual([
+      { label: 'Image 1', src: 'data:image/png;base64,AAA', mimeType: 'image/png' },
+    ])
+  })
+
+  it('send without images passes images undefined', async () => {
+    const { mgr, transports } = setup()
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    await mgr.send('pane-1', 'plain')
+    await mgr.send('pane-1', 'empty list', { images: [] })
+    expect(transports[0]!.sentImages).toEqual([undefined, undefined])
+  })
+
+  it('an image-only send writes one untagged prompt (tagged() leaves blank text alone)', async () => {
+    const { mgr, transports } = setup()
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    await mgr.send('pane-1', '', { images: [{ mimeType: 'image/gif', data: 'BBB' }] })
+    const t = transports[0]!
+    expect(t.sent).toEqual([''])
+    expect(t.sentImages[0]).toHaveLength(1)
+  })
+
+  it('a failed image send takes the row back out', async () => {
+    const { mgr, transports } = setup()
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    await mgr.send('pane-1', 'one')
+    transports[0]!.sendError = new Error('EPIPE')
+    await expect(
+      mgr.send('pane-1', 'two', { images: [{ mimeType: 'image/png', data: 'A' }] }),
+    ).rejects.toThrow('EPIPE')
+    expect(mgr.snapshot('pane-1').messages.filter((m) => m.images.length > 0)).toHaveLength(0)
+  })
+
   it('starts the transport once on first send, with handshake commands before the prompt', async () => {
     const { mgr, transports } = setup()
     mgr.open('pane-1', '/s/a.jsonl', [], meta)
