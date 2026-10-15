@@ -25,10 +25,11 @@ if ! grep -q DONE logs/status 2>/dev/null || grep -q STUCK logs/status; then
 fi
 log "finalize pass"
 touch logs/finalized
-claude -p --dangerously-skip-permissions --output-format stream-json --verbose "Isaac wakes up soon and wants to try this Electron port of EvaOS. Never wait for input.
+claude -p --dangerously-skip-permissions --output-format stream-json --verbose "Isaac wants to try this Electron port of EvaOS now. Never wait for input.
+Scope was cut on purpose: the run stops after phase 4 (chat parity); phases 5 to 7 are deferred, not failed. Do not start them.
 1. Read .planning/ (ROADMAP, STATE) and note which phases finished and which did not.
 2. Install deps, build, run the tests, and launch the app headlessly with Playwright for Electron. Fix anything that stops it from building or launching. Commit fixes.
-3. Make a launchable app: package a macOS .app (electron-builder, unsigned, dir target) and copy it to ~/Applications/EvaOS Electron.app.
+3. Make a launchable app: package a macOS .app (electron-builder, unsigned, dir target) and copy it to ~/Applications/EvaOS Electron.app. Launch checks use EVAOS_HIDDEN_WINDOW=1 so nothing covers Isaac's screen.
 4. Write TRY.md at the repo root: how to open it, what works, what is missing vs current EvaOS, known bugs, and screenshot paths under proof/. No em dashes.
 5. Add a '## Verify by hand' checklist to TRY.md: every 'still-needs-isaac' item and every '## Deferred gaps' entry from all phases' VERIFICATION.md files, grouped by phase. Commit." >> logs/finalize.jsonl 2>> logs/stderr.log
 log "finalize done"
