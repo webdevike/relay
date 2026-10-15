@@ -6,6 +6,8 @@ export interface CategoryPrefs {
   chat_assignments: Record<string, string>
 }
 
+const EXISTS = 'A category with that name already exists.'
+
 type Result = { ok: true } | { ok: false; error: string }
 
 function strings(v: unknown): string[] {
@@ -80,7 +82,7 @@ export class Categories {
     if (!n) return { ok: false, error: 'Give the category a name.' }
     const lower = n.toLowerCase()
     if (this.names().some((x) => x.toLowerCase() === lower)) {
-      return { ok: false, error: 'A category with that name already exists.' }
+      return { ok: false, error: EXISTS }
     }
     this.custom.push(n)
     this.order.unshift(n)
@@ -88,12 +90,13 @@ export class Categories {
   }
 
   rename(from: string, to: string): Result {
-    if (!this.isCustom(from)) return { ok: false, error: 'Only your own categories can be renamed.' }
+    if (!this.isCustom(from))
+      return { ok: false, error: 'Only your own categories can be renamed.' }
     const n = to.trim()
     if (!n) return { ok: false, error: 'Give the category a name.' }
     const lower = n.toLowerCase()
     if (n !== from && this.names().some((x) => x.toLowerCase() === lower)) {
-      return { ok: false, error: 'A category with that name already exists.' }
+      return { ok: false, error: EXISTS }
     }
     this.custom = this.custom.map((x) => (x === from ? n : x))
     this.order = this.order.map((x) => (x === from ? n : x))
