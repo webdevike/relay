@@ -8,13 +8,18 @@ mkdir -p logs
 log() { echo "$(date '+%F %T') $*" >> logs/watchdog.log; }
 pgrep -f "run-phases.sh|claude -p --dangerously-skip-permissions" >/dev/null && { log "running, HEAD $(git rev-parse --short HEAD)"; exit 0; }
 [[ -f logs/finalized ]] && exit 0
-if ! grep -q DONE logs/status 2>/dev/null; then
+# Not finished cleanly (driver died, or a phase stuck, e.g. a usage limit): retry every 20m, up to 6
+# times, which doubles as backoff. After the cap, fall through and finalize whatever exists.
+if ! grep -q DONE logs/status 2>/dev/null || grep -q STUCK logs/status; then
   n=$(cat logs/restarts 2>/dev/null || echo 0)
-  (( n >= 4 )) && { log "driver dead, restart cap hit"; exit 0; }
-  echo $((n + 1)) > logs/restarts
-  log "driver dead without DONE, restart $((n + 1))"
-  nohup "$PWD/run-phases.sh" >> logs/driver.log 2>&1 &
-  exit 0
+  if (( n < 6 )); then
+    echo $((n + 1)) > logs/restarts
+    [[ -f logs/status ]] && mv logs/status "logs/status.$n"
+    log "not finished, restart $((n + 1))"
+    nohup "$PWD/run-phases.sh" >> logs/driver.log 2>&1 &
+    exit 0
+  fi
+  log "restart cap hit, finalizing what exists"
 fi
 log "finalize pass"
 touch logs/finalized
