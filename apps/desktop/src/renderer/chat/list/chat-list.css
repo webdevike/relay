@@ -198,6 +198,8 @@ html[data-eva-motion='off'] .eva-cl-chev {
   opacity: 0;
 }
 .eva-cl-rowwrap:hover .eva-cl-actions,
+.eva-cl-grouprow:hover .eva-cl-actions,
+.eva-cl-grouprow:focus-within .eva-cl-actions,
 .eva-cl-rowwrap:focus-within .eva-cl-actions,
 .eva-cl-actions:focus-visible {
   opacity: 1;
@@ -262,4 +264,60 @@ html[data-eva-motion='off'] .eva-cl-chev {
 }
 .eva-cl-delete-confirm:hover {
   background: var(--eva-hover);
+}
+
+/* Categories: header row, grip, drag states, drop indicator and the inline name field. */
+.eva-cl-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--eva-space-sm) 0 var(--eva-space-md, 12px);
+}
+.eva-cl-grouprow {
+  position: relative;
+}
+.eva-cl-grouprow[data-dragging='true'],
+.eva-cl-rowwrap[data-dragging='true'] {
+  z-index: 5;
+  opacity: 0.6;
+  background: var(--eva-hover);
+  border-radius: var(--eva-radius);
+}
+.eva-cl-grouprow[data-drop='true']::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--eva-c-primary-background);
+  pointer-events: none;
+}
+.eva-cl-grouprow[data-drop='true'] .eva-cl-group {
+  background: var(--eva-hover);
+}
+.eva-cl-grip {
+  flex: none;
+  margin-left: -6px;
+  margin-right: -6px;
+  color: var(--eva-text-dim);
+  opacity: 0;
+  cursor: grab;
+}
+.eva-cl-grouprow:hover .eva-cl-grip,
+.eva-cl-group:focus-visible .eva-cl-grip {
+  opacity: 1;
+}
+.eva-cl-newcat,
+.eva-cl-catinput {
+  display: flex;
+  flex-direction: column;
+  padding: 2px var(--eva-space-sm);
+}
+.eva-cl-grouprow > .eva-cl-catinput {
+  height: 32px;
+  justify-content: center;
+}
+.eva-cl-catinput .eva-cl-row-error {
+  padding-left: 0;
 }

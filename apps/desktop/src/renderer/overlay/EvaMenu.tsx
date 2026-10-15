@@ -38,4 +38,5 @@ export const EvaMenu = Object.assign(EvaMenuRoot, {
   Item: Menu.Item,
   Label: Menu.Label,
   Divider: Menu.Divider,
+  Sub: Menu.Sub,
 })

@@ -103,7 +103,16 @@ test('categories: create, move, drag, keyboard reorder, persist, rename, delete'
   expect(at).toBeGreaterThan(1)
   await shell.locator(sel('chat-group-Relay')).focus()
   await shell.keyboard.press('Space')
+  // dnd-kit attaches its key listeners a tick after activation: wait for each announcement.
+  const live = (): Promise<string> =>
+    shell.evaluate(() =>
+      [...document.querySelectorAll('[aria-live]')].map((e) => e.textContent).join('|'),
+    )
+  await expect.poll(live).toContain('Over the Relay group.')
+  await shell.waitForTimeout(250)
   await shell.keyboard.press('ArrowUp')
+  await expect.poll(live).toContain('Over the EvaOS group.')
+  await shell.waitForTimeout(250)
   await shell.keyboard.press('Space')
   await expect.poll(() => groupNames(shell).then((g) => g.indexOf('Relay'))).toBe(at - 1)
   const order = await groupNames(shell)

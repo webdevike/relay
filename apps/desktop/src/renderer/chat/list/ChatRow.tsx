@@ -1,5 +1,6 @@
 import { ActionIcon, Tooltip } from '@mantine/core'
 import { IconDots, IconMessage, IconPlayerPlay } from '@tabler/icons-react'
+import { useDraggable } from '@dnd-kit/core'
 import { memo, useEffect, useRef, type KeyboardEvent, type MouseEvent } from 'react'
 import type { ChatRow as Row } from '@evaos/contract'
 import { DISMISS_PRIORITY, useDismissable } from '../../hotkeys/dismiss'
@@ -40,6 +41,9 @@ export interface ChatRowProps {
   onCancelRename?: () => void
   /** A failed action's message, shown under the row. */
   error?: string | null
+  /** The group the row sits in; undefined for pinned rows. Archived rows pass `noDrag`. */
+  group?: string
+  noDrag?: boolean
 }
 
 function RenameInput({
@@ -109,7 +113,14 @@ function ChatRowImpl({
   onCommitRename,
   onCancelRename,
   error,
+  group,
+  noDrag,
 }: ChatRowProps) {
+  const drag = useDraggable({
+    id: `chat:${row.id}`,
+    data: { type: 'chat', id: row.id, group },
+    disabled: noDrag === true || renaming === true,
+  })
   const trailing = row.status !== null && row.status !== 'open' ? STATUS_LABEL[row.status] : null
   const errorEl = error ? (
     <div role="alert" className="eva-cl-row-error" data-testid="chat-row-error">
@@ -149,9 +160,25 @@ function ChatRowImpl({
   }
 
   return (
-    <div className="eva-cl-rowwrap">
-      <Tooltip label={row.title} openDelay={600} position="right" withinPortal>
+    <div
+      className="eva-cl-rowwrap"
+      data-dragging={drag.isDragging ? 'true' : undefined}
+      style={
+        drag.transform
+          ? { transform: `translate3d(${drag.transform.x}px, ${drag.transform.y}px, 0)` }
+          : undefined
+      }
+    >
+      <Tooltip
+        label={row.title}
+        openDelay={600}
+        position="right"
+        withinPortal
+        disabled={drag.isDragging}
+      >
         <button
+          ref={drag.setNodeRef}
+          {...drag.attributes}
           type="button"
           role="treeitem"
           aria-selected={active}
@@ -167,7 +194,11 @@ function ChatRowImpl({
             e.preventDefault()
             onMenu(row, e.clientX, e.clientY)
           }}
-          onKeyDown={onKeyDown}
+          {...drag.listeners}
+          onKeyDown={(e) => {
+            drag.listeners?.onKeyDown?.(e)
+            onKeyDown(e)
+          }}
         >
           <StatusIndicator status={row.status} />
           <span className="eva-cl-title">{row.title}</span>

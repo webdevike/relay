@@ -67,7 +67,7 @@ test('menu order, pin and unpin edit session-pins.json', async ({ app, shell }) 
   await openChats(shell)
   await rowOf(shell, 'p4-other2').click({ button: 'right' })
   await expect(shell.locator(sel('row-menu'))).toBeVisible()
-  expect(await menuItems(shell)).toEqual(['Rename', 'Pin', 'Archive', 'Delete'])
+  expect(await menuItems(shell)).toEqual(['Rename', 'Pin', 'Archive', 'Move to', 'Delete'])
   await proofShot(app, shell, 'chat-menu', { phase: 'phase-4' })
 
   await shell.locator(sel('row-menu-pin')).click()

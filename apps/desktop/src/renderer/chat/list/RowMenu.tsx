@@ -1,9 +1,11 @@
 import {
   IconArchive,
   IconArchiveOff,
+  IconFolderSymlink,
   IconPencil,
   IconPin,
   IconPinnedOff,
+  IconPlus,
   IconTrash,
 } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
@@ -109,5 +111,44 @@ export function RowMenu({
       </EvaMenu.Dropdown>
     </EvaMenu>,
     document.body,
+  )
+}
+
+export interface MoveToProps {
+  row: Row
+  /** Every category name offered, in list order. */
+  groups: readonly string[]
+  onMove: (row: Row, group: string) => void
+  onNewCategory: (row: Row) => void
+}
+
+/** `Move to` submenu for the menuExtraItems slot: every category, then `New category`. */
+export function MoveToItem({ row, groups, onMove, onNewCategory }: MoveToProps) {
+  return (
+    <EvaMenu.Sub>
+      <EvaMenu.Sub.Target>
+        <EvaMenu.Sub.Item
+          data-testid="row-menu-move"
+          leftSection={<IconFolderSymlink size={16} stroke={1.5} />}
+        >
+          Move to
+        </EvaMenu.Sub.Item>
+      </EvaMenu.Sub.Target>
+      <EvaMenu.Sub.Dropdown data-testid="row-menu-move-list">
+        {groups.map((g) => (
+          <EvaMenu.Item key={g} data-testid={`row-menu-move-${g}`} onClick={() => onMove(row, g)}>
+            {g}
+          </EvaMenu.Item>
+        ))}
+        <EvaMenu.Divider />
+        <EvaMenu.Item
+          data-testid="row-menu-move-new"
+          leftSection={<IconPlus size={16} stroke={1.5} />}
+          onClick={() => onNewCategory(row)}
+        >
+          New category
+        </EvaMenu.Item>
+      </EvaMenu.Sub.Dropdown>
+    </EvaMenu.Sub>
   )
 }
