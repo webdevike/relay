@@ -130,7 +130,13 @@ export function createEvaFs(opts: { root: string }): EvaFs {
         await withEvaFsWrite(async () => {
           await fs.promises.mkdir(path.dirname(dir), { recursive: true })
           await fs.promises.mkdir(dir)
-          await atomicWrite(abs, data)
+          try {
+            await atomicWrite(abs, data)
+          } catch (err) {
+            // Do not strand an empty folder that every retry would report as already-exists.
+            await fs.promises.rmdir(dir).catch(() => {})
+            throw err
+          }
         })
       })
     },

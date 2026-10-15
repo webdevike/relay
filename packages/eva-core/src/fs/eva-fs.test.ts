@@ -211,6 +211,14 @@ describe('EvaFs readStamp, edit, create', () => {
     ).rejects.toBeInstanceOf(EvaFsDenied)
   })
 
+  it('create removes the folder it made when the write fails', async () => {
+    const evafs = createEvaFs({ root })
+    await expect(evafs.create('job-md', 'jobs/failing/job.md', {} as never)).rejects.toBeDefined()
+    expect(fs.existsSync(path.join(root, 'jobs/failing'))).toBe(false)
+    await evafs.create('job-md', 'jobs/failing/job.md', 'ok')
+    expect(fs.readFileSync(path.join(root, 'jobs/failing/job.md'), 'utf8')).toBe('ok')
+  })
+
   it('edit and create satisfy the runtime write trap', async () => {
     const uninstall = installWriteTrap({ protectedRoots: [root], allowRoots: [] })
     try {
