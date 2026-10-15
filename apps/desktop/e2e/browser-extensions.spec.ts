@@ -42,9 +42,10 @@ test('a checked-in MV3 extension runs its content script in persist:browser only
   shell,
 }) => {
   const list = (await shell.evaluate(() =>
-    (
-      window as unknown as { eva: { invoke(c: string, i: unknown): Promise<unknown> } }
-    ).eva.invoke('browser.extensions', {}),
+    (window as unknown as { eva: { invoke(c: string, i: unknown): Promise<unknown> } }).eva.invoke(
+      'browser.extensions',
+      {},
+    ),
   )) as { ok: boolean; value: { extensions: Array<{ name: string }> } }
   expect(list.ok).toBe(true)
   expect(list.value.extensions.map((e) => e.name)).toContain('EvaOS Test Extension')
@@ -73,7 +74,9 @@ test('a checked-in MV3 extension runs its content script in persist:browser only
 test('extension action button shows in the toolbar and opens its popup', async ({ app, shell }) => {
   const action = shell.locator('[data-testid=extension-actions] browser-action-list')
   await expect(action).toBeAttached()
-  const button = shell.locator('[data-testid=extension-actions] browser-action-list >> [part=action]').first()
+  const button = shell
+    .locator('[data-testid=extension-actions] browser-action-list >> [part=action]')
+    .first()
   let result = 'ok'
   try {
     await expect(button).toBeVisible({ timeout: 8000 })

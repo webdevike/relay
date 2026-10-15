@@ -92,6 +92,9 @@ test('Bitwarden installs from the Web Store into persist:browser and injects', a
       (c.auxData?.type === 'isolated' && /bitwarden/i.test(c.name ?? '')),
   )
   recordMetrics('browser', { bitwardenContentScript: hit })
-  console.log('bitwarden contexts', JSON.stringify(contexts.map((c) => [c.name, c.origin, c.auxData?.type])))
+  console.log(
+    'bitwarden contexts',
+    JSON.stringify(contexts.map((c) => [c.name, c.origin, c.auxData?.type])),
+  )
   expect(hit).toBe(true)
 })

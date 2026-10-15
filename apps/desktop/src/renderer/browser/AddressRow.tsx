@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { ActionIcon, Progress, TextInput, Tooltip } from '@mantine/core'
+import { ActionIcon, Loader, Progress, TextInput, Tooltip } from '@mantine/core'
+import { notifications } from '@mantine/notifications'
 import {
   IconArrowLeft,
   IconArrowRight,
+  IconCookie,
   IconCopy,
   IconExternalLink,
   IconRefresh,
@@ -10,6 +12,7 @@ import {
 } from '@tabler/icons-react'
 import type { TabState } from '@evaos/contract'
 import { invoke } from '../ipc'
+import { ImportArcModal } from './ImportArcModal'
 import { ExtensionActions } from './ExtensionActions'
 import { Suggestions, type SuggestionItem } from './Suggestions'
 
@@ -43,6 +46,8 @@ export function AddressRow({ tab }: { tab: TabState | undefined }) {
   const [active, setActive] = useState(-1)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const seq = useRef(0)
+  const [importOpen, setImportOpen] = useState(false)
+  const [importing, setImporting] = useState(false)
   const close = (): void => {
     seq.current++
     if (timer.current) clearTimeout(timer.current)
@@ -68,6 +73,27 @@ export function AddressRow({ tab }: { tab: TabState | undefined }) {
     close()
     if (tabId) void invoke('browser.navigate', { tabId, input: value })
     input.current?.blur()
+  }
+  const runImport = async (): Promise<void> => {
+    setImportOpen(false)
+    setImporting(true)
+    try {
+      const r = await invoke('browser.importArc', {})
+      if (r.ok) {
+        notifications.show({
+          message: `Imported ${r.value.count} logins. Reloading the page.`,
+          autoClose: 5000,
+        })
+      } else {
+        notifications.show({
+          color: 'red',
+          message: `Could not import Arc logins: ${r.error.message}. Check that Arc is installed and allow Keychain access, then try again.`,
+          autoClose: 8000,
+        })
+      }
+    } finally {
+      setImporting(false)
+    }
   }
   const url = tab?.url ?? ''
   useEffect(() => setText(url), [url])
@@ -135,7 +161,24 @@ export function AddressRow({ tab }: { tab: TabState | undefined }) {
         <IconExternalLink size={16} />
       </Btn>
       <Suggestions items={items} active={active} onPick={(it) => go(it.url)} />
+      <Tooltip label="Import Arc logins" openDelay={400}>
+        <ActionIcon
+          variant="subtle"
+          size={28}
+          aria-label="Import Arc logins"
+          data-testid="btn-import-arc"
+          disabled={importing}
+          onClick={() => setImportOpen(true)}
+        >
+          {importing ? <Loader size={14} /> : <IconCookie size={16} />}
+        </ActionIcon>
+      </Tooltip>
       <ExtensionActions />
+      <ImportArcModal
+        opened={importOpen}
+        onConfirm={() => void runImport()}
+        onCancel={() => setImportOpen(false)}
+      />
       {tab?.loading ? (
         <Progress className="eva-address-progress" value={100} animated size={2} radius={0} />
       ) : null}

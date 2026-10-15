@@ -36,8 +36,7 @@ export async function setupExtensions(ctx: MainContext, browser: BrowserHost): P
   if (process.env.EVAOS_NO_EXTENSIONS === '1') return
   const guest = session.fromPartition(GUEST_PARTITION)
 
-  const idOf = (wc: Electron.WebContents): string | undefined =>
-    browser.tabByWebContents(wc.id)?.id
+  const idOf = (wc: Electron.WebContents): string | undefined => browser.tabByWebContents(wc.id)?.id
 
   const extensions = new ElectronChromeExtensions({
     license: 'GPL-3.0',

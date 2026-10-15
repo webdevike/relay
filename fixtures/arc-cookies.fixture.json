@@ -1,0 +1,5 @@
+[
+  { "name": "evaos_session", "value": "fixture-user", "url": "http://127.0.0.1/", "expires": -1, "httpOnly": false, "secure": false, "sameSite": "Lax" },
+  { "name": "evaos_pref", "value": "synthetic", "domain": ".example.com", "path": "/", "expires": 1893456000, "httpOnly": false, "secure": true, "sameSite": "None" },
+  { "name": "__Host-evaos_fixture", "value": "synthetic-host", "url": "https://github.com/", "expires": 1893456000, "httpOnly": true, "secure": true, "sameSite": "Strict" }
+]

@@ -10,6 +10,7 @@ export default tseslint.config(
       '.claude/**',
       '.planning/**',
       'fixtures/**',
+      'apps/desktop/e2e/fixtures/test-extension/**',
       '.tools/**',
       'node_modules/**',
       '**/node_modules/**',

@@ -1,6 +1,9 @@
 import { normalize } from '@evaos/browser-core/address'
 import type { MainContext } from '../context'
 import { handle } from '../ipc/handle'
+import { session } from 'electron'
+import { importArcLogins } from './arc-import'
+import { GUEST_PARTITION } from './guest-session'
 import { listExtensions } from './extensions'
 import type { BrowserHost } from './browser-host'
 
@@ -39,6 +42,9 @@ export function registerBrowserIpc(ctx: MainContext, host: BrowserHost): void {
     return { ok: true as const }
   })
   handle(ctx, 'browser.extensions', () => ({ extensions: listExtensions() }))
+  handle(ctx, 'browser.importArc', () =>
+    importArcLogins(ctx.env, session.fromPartition(GUEST_PARTITION), host),
+  )
   handle(ctx, 'browser.setSlot', (rect) => {
     host.setSlot(rect)
     return { ok: true as const }
