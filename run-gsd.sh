@@ -12,8 +12,8 @@ $NOTE" >> "logs/$2.jsonl" 2>> logs/stderr.log
 }
 [[ -f .planning/ROADMAP.md ]] || run "/gsd:new-project --auto @IDEA.md" new-project
 for i in {1..12}; do
+  before=$(git rev-parse HEAD)
   run "/gsd:autonomous" "autonomous-$i"
-  grep -q '"phases_remaining": *0\|All phases complete' "logs/autonomous-$i.jsonl" && break
-  [[ -z "$(git status --porcelain .planning)" ]] && ! git log -1 --since='20 minutes ago' -q >/dev/null 2>&1 && break
+  # Stop once a pass makes no commits: nothing left to do, or it is stuck.
+  [[ "$(git rev-parse HEAD)" == "$before" ]] && break
 done
-echo "DONE $(date)" >> logs/status
