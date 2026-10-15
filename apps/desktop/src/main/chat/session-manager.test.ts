@@ -3,7 +3,7 @@ import type { Frame } from '@evaos/chat-core/line-framer'
 import type { ChatTransport, TransportExit } from '@evaos/chat-core/transport'
 import type { Batch } from '@evaos/contract'
 import { EOF_ERROR } from '@evaos/chat-core/reducer'
-import { SessionManager } from './session-manager'
+import { STILL_CLOSING, SessionManager } from './session-manager'
 
 class MemoryTransport implements ChatTransport {
   readonly kind = 'memory'
@@ -324,6 +324,75 @@ describe('SessionManager', () => {
     expect(transports).toHaveLength(2)
     expect(transports[1]!.started[0]!.sessionFile).toBe('/s/b.jsonl')
     expect(vi.getTimerCount()).toBe(1)
+    vi.useRealTimers()
+  })
+
+  it('a send inside the close grace window waits for the previous omp to exit (single writer)', async () => {
+    const { mgr, transports } = setup()
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    await mgr.send('pane-1', 'a')
+    await vi.advanceTimersByTimeAsync(16)
+    let exited!: (e: TransportExit) => void
+    transports[0]!.closeResult = new Promise((r) => {
+      exited = r
+    })
+    const closing = mgr.close('pane-1')
+    // omp is still finishing its turn and appending to the session file.
+    const pending = mgr.send('pane-1', 'b')
+    await vi.advanceTimersByTimeAsync(100)
+    expect(transports).toHaveLength(1)
+    expect(mgr.has('/s/a.jsonl')).toBe(true)
+    exited({ code: 0, signal: null, timedOut: false })
+    await closing
+    await pending
+    expect(transports).toHaveLength(2)
+    expect(transports[1]!.sent).toEqual(['<surface>Mac - EvaOS</surface>\nb'])
+    expect(mgr.has('/s/a.jsonl')).toBe(true)
+    vi.useRealTimers()
+  })
+
+  it('switching to another session and back during the grace window waits as well', async () => {
+    const { mgr, transports, batches } = setup()
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    await mgr.send('pane-1', 'a')
+    await vi.advanceTimersByTimeAsync(16)
+    let exited!: (e: TransportExit) => void
+    transports[0]!.closeResult = new Promise((r) => {
+      exited = r
+    })
+    mgr.open('pane-1', '/s/b.jsonl', [], meta)
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    const pending = mgr.send('pane-1', 'back')
+    await vi.advanceTimersByTimeAsync(100)
+    expect(transports).toHaveLength(1)
+    expect(mgr.has('/s/a.jsonl')).toBe(true)
+    exited({ code: 0, signal: null, timedOut: false })
+    await pending
+    expect(transports).toHaveLength(2)
+    expect(transports[1]!.started[0]!.sessionFile).toBe('/s/a.jsonl')
+    // The replaced pane stayed inert; the fresh pane starts its own seq at 1.
+    await vi.advanceTimersByTimeAsync(16)
+    expect(batches.map((b) => b.seq)).toEqual([1, 1])
+    vi.useRealTimers()
+  })
+
+  it('a timed-out close keeps the file owned until the process reports its exit', async () => {
+    const { mgr, transports } = setup()
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    await mgr.send('pane-1', 'a')
+    transports[0]!.closeResult = Promise.resolve({ code: null, signal: null, timedOut: true })
+    await mgr.close('pane-1', 50)
+    expect(mgr.has('/s/a.jsonl')).toBe(true)
+    await expect(mgr.send('pane-1', 'b')).rejects.toMatchObject({
+      code: 'already-owned',
+      message: STILL_CLOSING,
+    })
+    expect(transports).toHaveLength(1)
+    // The process finally exits on its own.
+    transports[0]!.push({ type: '_eof', code: 0, signal: null })
+    expect(mgr.has('/s/a.jsonl')).toBe(false)
+    await mgr.send('pane-1', 'c')
+    expect(transports).toHaveLength(2)
     vi.useRealTimers()
   })
 

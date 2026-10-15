@@ -18,6 +18,8 @@ export class CodedError extends Error {
 
 export const ALREADY_OWNED =
   'This session is already open in another EvaOS window or pane. Close it there first.'
+export const STILL_CLOSING =
+  'The previous omp process for this session is still running. Wait for it to exit before sending again.'
 
 export interface SessionManagerDeps {
   createTransport: () => ChatTransport
@@ -45,11 +47,22 @@ interface Pane {
   batches: number
 }
 
+/**
+ * The omp process writing one session file (single writer, D-17). Held from spawn until the
+ * process has exited: a close() in flight keeps it, so a send during the grace window waits
+ * instead of starting a second writer on the same file.
+ */
+interface Owner {
+  pane: Pane
+  transport: ChatTransport
+  closing: Promise<TransportExit | null> | null
+}
+
 /** Per-pane live sessions: applies omp frames in order and emits seq-stamped 16 ms batches. */
 export class SessionManager {
   private panes = new Map<string, Pane>()
-  /** realpath of a session file -> pane that owns its omp process (single writer, D-17). */
-  private owners = new Map<string, string>()
+  /** realpath of a session file -> the process that owns it. */
+  private owners = new Map<string, Owner>()
   private setIv: (fn: () => void, ms: number) => unknown
   private clearIv: (h: unknown) => void
   private real: (f: string) => string
@@ -126,22 +139,43 @@ export class SessionManager {
     }
   }
 
-  private async startTransport(pane: Pane): Promise<void> {
-    const owner = this.owners.get(pane.key)
-    if (owner !== undefined && owner !== pane.paneId) {
-      throw new CodedError('already-owned', ALREADY_OWNED)
+  /**
+   * Waits for a previous process on the same file to finish closing, then refuses if the file
+   * is still owned (another pane's live process, or one whose close timed out and is still
+   * running). Resolves with the file free to take.
+   */
+  private async acquire(pane: Pane): Promise<void> {
+    for (;;) {
+      const owner = this.owners.get(pane.key)
+      if (!owner) return
+      if (owner.closing) {
+        await owner.closing
+        continue
+      }
+      throw new CodedError('already-owned', owner.pane === pane ? STILL_CLOSING : ALREADY_OWNED)
     }
-    this.owners.set(pane.key, pane.paneId)
+  }
+
+  private disown(key: string, transport: ChatTransport): void {
+    if (this.owners.get(key)?.transport === transport) this.owners.delete(key)
+  }
+
+  private async startTransport(pane: Pane): Promise<void> {
+    await this.acquire(pane)
+    if (this.panes.get(pane.paneId) !== pane) {
+      throw new CodedError('session-closed', 'The session was closed before omp started.')
+    }
     const transport = this.deps.createTransport()
+    this.owners.set(pane.key, { pane, transport, closing: null })
     pane.transport = transport
-    pane.unsubscribe = transport.onFrame((f) => this.onFrame(pane, f))
+    pane.unsubscribe = transport.onFrame((f) => this.onFrame(pane, transport, f))
     try {
       await transport.start({ sessionFile: pane.key, cwd: this.deps.cwd })
     } catch (e) {
       pane.unsubscribe?.()
       pane.unsubscribe = null
       pane.transport = null
-      this.owners.delete(pane.key)
+      this.disown(pane.key, transport)
       throw new CodedError(
         'spawn-failed',
         `Could not start omp: ${e instanceof Error ? e.message : String(e)}`,
@@ -165,7 +199,11 @@ export class SessionManager {
   }
 
   /** Applied synchronously, one frame at a time: there is no await between reading and applying. */
-  private onFrame(pane: Pane, raw: Record<string, unknown> & { type: string }): void {
+  private onFrame(
+    pane: Pane,
+    transport: ChatTransport,
+    raw: Record<string, unknown> & { type: string },
+  ): void {
     pane.framesIn += 1
     const parsed = parseFrame(raw)
     const frame =
@@ -182,18 +220,21 @@ export class SessionManager {
       // omp is already gone: nothing to close() and no second `_eof` to apply.
       pane.batcher.markMeta({ connected: false, running: false })
       this.flush(pane)
+      this.disown(pane.key, transport)
       this.detach(pane)
     }
   }
 
-  /** Stops the flush timer and forgets the transport; never touches the process itself. */
+  /**
+   * Stops the flush timer and forgets the transport; never touches the process itself and
+   * leaves file ownership alone (the process may still be writing until it exits).
+   */
   private detach(pane: Pane): void {
     if (pane.timer !== null) this.clearIv(pane.timer)
     pane.timer = null
     pane.unsubscribe?.()
     pane.unsubscribe = null
     pane.transport = null
-    if (this.owners.get(pane.key) === pane.paneId) this.owners.delete(pane.key)
   }
 
   private flush(pane: Pane): void {
@@ -205,18 +246,39 @@ export class SessionManager {
 
   /**
    * Ends stdin and waits for omp to exit. Never signals (D-17). A timeout leaves the process
-   * alone. The pane keeps its history and the next send starts a new process.
+   * alone. The pane keeps its history and the next send starts a new process, but only once
+   * this one has exited: the file stays owned through the close and, after a timeout, until
+   * the process reports its `_eof`.
    */
   private async release(pane: Pane, timeoutMs = 2000): Promise<TransportExit | null> {
     const t = pane.transport
     if (!t) return null
     this.detach(pane)
-    let exit: TransportExit | null = null
-    try {
-      exit = await t.close({ timeoutMs })
-    } catch {
-      exit = null
-    }
+    const current = this.owners.get(pane.key)
+    const held = current?.transport === t ? current : null
+    const done = t
+      .close({ timeoutMs })
+      .then(
+        (e): TransportExit | null => e,
+        (): TransportExit | null => null,
+      )
+      .then((exit) => {
+        if (held) {
+          held.closing = null
+          if (exit && !exit.timedOut) this.disown(pane.key, t)
+          else {
+            // Still running (or unknown): keep the file until the process itself ends.
+            const off = t.onFrame((f) => {
+              if (f.type !== '_eof') return
+              off()
+              this.disown(pane.key, t)
+            })
+          }
+        }
+        return exit
+      })
+    if (held) held.closing = done
+    const exit = await done
     // Only the pane still registered under this id may apply `_eof` and emit. A pane replaced
     // by `open()` on another file while omp was live must stay inert: its batcher's seq is
     // ahead of the new one and a late batch under the same paneId would strand the renderer.
