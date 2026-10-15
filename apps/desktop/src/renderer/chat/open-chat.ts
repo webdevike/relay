@@ -1,3 +1,4 @@
+import { notifications } from '@mantine/notifications'
 import { invoke } from '../ipc'
 import { chatStore } from './chat-store'
 import { PANE_ID } from './SessionList'
@@ -7,14 +8,21 @@ let draftInflight = false
 /** Calls reach main in order, so the latest call is what main ends up holding; older results are dropped. */
 let latest = 0
 
-/** Opens a session file into the chat pane. A no-op when the pane already shows it or is loading it. */
+/**
+ * Opens a session file into the chat pane. A no-op when the pane already shows it (and no other
+ * open is in flight) or is loading it. Clicking the shown chat while another open is in flight
+ * re-opens it, so main (which already took the other open) and the pane agree again.
+ */
 export async function openChatFile(file: string): Promise<void> {
-  if (chatStore.getState().panes[PANE_ID]?.file === file || inflight === file) return
+  const shown = chatStore.getState().panes[PANE_ID]?.file === file
+  if ((shown && inflight === null) || inflight === file) return
   inflight = file
   const mine = ++latest
   try {
     const r = await invoke('chat.open', { paneId: PANE_ID, file })
-    if (r.ok && mine === latest) chatStore.getState().openPane(PANE_ID, { file, ...r.value })
+    if (mine !== latest) return
+    if (r.ok) chatStore.getState().openPane(PANE_ID, { file, ...r.value })
+    else notifications.show({ color: 'red', message: r.error.message, autoClose: 8000 })
   } finally {
     if (inflight === file) inflight = null
   }
