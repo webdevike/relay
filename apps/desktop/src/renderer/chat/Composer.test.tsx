@@ -52,6 +52,45 @@ describe('Composer', () => {
     expect(chatStore.getState().panes['pane-1']!.error).toBe('Could not start omp: ENOENT')
   })
 
+  it('a successful send clears a previous pane error, so a restored prompt can be re-sent', async () => {
+    invoke.mockClear()
+    chatStore.setState({ panes: {} })
+    chatStore.getState().openPane('pane-1', {
+      file: '/f',
+      title: 't',
+      messages: [],
+      meta: { model: null, thinking: null, contextTokens: null },
+    })
+    const user = userEvent.setup()
+    wrap()
+    const box = screen.getByTestId('composer-input')
+    await user.type(box, 'second try')
+    // The error lands after the text is in place (as the WR-08 restore does), so only the
+    // successful send can clear it here.
+    chatStore.getState().setError('pane-1', 'Could not start omp: ENOENT')
+    expect(box).toBeEnabled()
+    await user.keyboard('{Enter}')
+    expect(invoke).toHaveBeenCalledWith('chat.send', { paneId: 'pane-1', text: 'second try' })
+    expect(chatStore.getState().panes['pane-1']!.error).toBeNull()
+  })
+
+  it('editing the composer clears the pane error', async () => {
+    invoke.mockClear()
+    chatStore.setState({ panes: {} })
+    chatStore.getState().openPane('pane-1', {
+      file: '/f',
+      title: 't',
+      messages: [],
+      meta: { model: null, thinking: null, contextTokens: null },
+    })
+    chatStore.getState().setError('pane-1', 'The session ended unexpectedly.')
+    const user = userEvent.setup()
+    wrap()
+    await user.type(screen.getByTestId('composer-input'), 'x')
+    expect(chatStore.getState().panes['pane-1']!.error).toBeNull()
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
   it('Shift+Enter inserts a newline and does not send', async () => {
     invoke.mockClear()
     const user = userEvent.setup()

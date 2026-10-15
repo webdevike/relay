@@ -301,9 +301,14 @@ describe('SessionManager', () => {
     await vi.advanceTimersByTimeAsync(100)
     expect(batches.at(-1)).toBe(last)
     expect(mgr.snapshot('pane-1').messages).toEqual([])
-    // The next send starts a fresh process.
+    // The next send starts a fresh process and takes the EOF error down with it.
     await mgr.send('pane-1', 'again')
     expect(transports).toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(16)
+    expect(batches.at(-1)!.seq).toBe(3)
+    expect(batches.at(-1)!.ops.find((o) => o.op === 'meta')).toMatchObject({
+      patch: { connected: true, error: null },
+    })
     vi.useRealTimers()
   })
 

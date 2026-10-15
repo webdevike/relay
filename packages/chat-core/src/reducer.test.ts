@@ -151,6 +151,17 @@ describe('LiveReducer', () => {
     expect(res.meta?.error).toBeUndefined()
   })
 
+  it('a new prompt after an unexpected _eof clears the error', () => {
+    const r = mk()
+    r.apply({ type: '_eof', code: 1 })
+    expect(r.error).toBe(EOF_ERROR)
+    r.sendPrompt('try again')
+    expect(r.error).toBeNull()
+    // The next applied frame does not report the error as a change: it is already gone.
+    const res = r.apply({ type: 'agent_start' })
+    expect(res.meta).toEqual({ running: true })
+  })
+
   it('dialog requests are cancelled, presentation updates are not', () => {
     const r = mk()
     expect(r.apply({ type: 'extension_ui_request', id: 'u1', method: 'select' }).effect).toEqual({

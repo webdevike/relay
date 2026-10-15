@@ -12,6 +12,7 @@ export function Composer({ paneId, disabled }: { paneId: string; disabled: boole
   const [text, setText] = useState('')
   const running = useChatStore((s) => s.panes[paneId]?.running ?? false)
   const stopped = useChatStore((s) => s.panes[paneId]?.stopped ?? false)
+  const hasError = useChatStore((s) => (s.panes[paneId]?.error ?? null) !== null)
 
   const abort = async (): Promise<void> => {
     await invoke('chat.abort', { paneId })
@@ -22,11 +23,19 @@ export function Composer({ paneId, disabled }: { paneId: string; disabled: boole
     if (value === '' || disabled) return
     setText('')
     const r = await invoke('chat.send', { paneId, text: value })
-    if (!r.ok) {
+    if (r.ok) {
+      // A prompt that went through supersedes any earlier failure or unexpected exit.
+      chatStore.getState().setError(paneId, null)
+    } else {
       // Give the prompt back unless something new was typed meanwhile.
       setText((current) => (current === '' ? value : current))
       chatStore.getState().setError(paneId, r.error.message)
     }
+  }
+
+  const edit = (value: string): void => {
+    setText(value)
+    if (hasError) chatStore.getState().setError(paneId, null)
   }
 
   return (
@@ -45,7 +54,7 @@ export function Composer({ paneId, disabled }: { paneId: string; disabled: boole
         }
         disabled={disabled}
         value={text}
-        onChange={(e) => setText(e.currentTarget.value)}
+        onChange={(e) => edit(e.currentTarget.value)}
         onKeyDown={(e) => {
           if (e.key === 'Escape' && running) {
             e.preventDefault()

@@ -85,8 +85,9 @@ export class LiveReducer {
     return this.stderr
   }
 
-  /** Shows a prompt at once; omp echoes it later. */
+  /** Shows a prompt at once; omp echoes it later. A new prompt supersedes a previous EOF error. */
   sendPrompt(text: string): ChatMessage {
+    this.error = null
     this.sent += 1
     const m = makeMessage(`${SENT}${this.sent}`, 'user', text, { unconfirmed: true })
     this.msgs.push(m)

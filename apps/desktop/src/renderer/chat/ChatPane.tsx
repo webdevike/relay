@@ -40,7 +40,7 @@ export function ChatPane() {
     return () => drain.dispose()
   }, [])
 
-  const unavailable = !pane || pane.error !== null
+  // An error is a banner, not a lock: the next send retries (and restarts omp if it exited).
   return (
     <main className="eva-chat" data-testid="chat-pane">
       <div className="eva-chat-header" data-testid="chat-header">
@@ -75,7 +75,7 @@ export function ChatPane() {
           <SessionList />
         </div>
       )}
-      <Composer paneId={PANE_ID} disabled={unavailable} />
+      <Composer paneId={PANE_ID} disabled={!pane} />
     </main>
   )
 }

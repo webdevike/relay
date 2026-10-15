@@ -126,7 +126,10 @@ export class SessionManager {
     // The pane may have been closed, replaced or lost its process while the start was awaited.
     const transport = pane.transport
     if (!transport) throw new CodedError('session-closed', 'The session is not running.')
+    // sendPrompt() runs outside apply(), so its meta change (clearing an EOF error) is diffed here.
+    const hadError = pane.reducer.error !== null
     const row = pane.reducer.sendPrompt(text)
+    if (hadError) pane.batcher.markMeta({ error: null })
     pane.batcher.markUpsert(row, pane.reducer.indexOf(row.id))
     try {
       await transport.send(tagged(text, this.deps.machineLabel))
