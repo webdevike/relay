@@ -68,6 +68,16 @@ export const browserInvoke = {
     }),
   },
   'browser.openDevTools': { input: tabOnly, output: okOut },
+  'browser.extensions': {
+    input: z.object({}).strict(),
+    output: z.object({
+      extensions: z.array(z.object({ id: z.string(), name: z.string(), version: z.string() })),
+    }),
+  },
+  'browser.importArc': {
+    input: z.object({}).strict(),
+    output: z.object({ count: z.number().int().min(0) }),
+  },
 } as const
 
 export const HotkeyChordSchema = z.enum([

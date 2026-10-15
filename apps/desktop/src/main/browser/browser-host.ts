@@ -38,8 +38,12 @@ export class BrowserHost {
   private slot: SlotRect = { x: 0, y: 0, width: 0, height: 0 }
   private occluded = false
   private created: Array<(tab: TabState, view: WebContentsView) => void> = []
+  private activated: Array<(tab: TabState, view: WebContentsView) => void> = []
+  private closed: Array<(tab: TabState, view: WebContentsView) => void> = []
 
   readonly history: HistoryStore
+  /** Resolves when the extension host is ready; navigation from IPC waits on it. */
+  ready: Promise<void> = Promise.resolve()
 
   constructor(private readonly ctx: MainContext) {
     this.history = new HistoryStore(ctx.config)
@@ -53,6 +57,32 @@ export class BrowserHost {
 
   onTabCreated(cb: (tab: TabState, view: WebContentsView) => void): void {
     this.created.push(cb)
+  }
+
+  onTabActivated(cb: (tab: TabState, view: WebContentsView) => void): void {
+    this.activated.push(cb)
+  }
+
+  onTabClosed(cb: (tab: TabState, view: WebContentsView) => void): void {
+    this.closed.push(cb)
+  }
+
+  /** Tab state and view by webContents id, for the extension host. */
+  tabByWebContents(wcId: number): { id: string; view: WebContentsView } | undefined {
+    for (const [id, t] of this.tabs) {
+      if (!t.view.webContents.isDestroyed() && t.view.webContents.id === wcId) {
+        return { id, view: t.view }
+      }
+    }
+    return undefined
+  }
+
+  tabById(id: string): WebContentsView['webContents'] | undefined {
+    return this.tabs.get(id)?.view.webContents
+  }
+
+  activeTabId(): string {
+    return this.activeId
   }
 
   snapshot(): TabsSnapshot {
@@ -100,6 +130,7 @@ export class BrowserHost {
     this.wire(tab)
     if (!this.activeId || activate) this.activeId = id
     for (const cb of this.created) cb(state, view)
+    if (this.activeId === id) for (const cb of this.activated) cb(state, view)
     this.applyBounds()
     this.changed()
     if (url) this.navigate(id, url)
@@ -248,6 +279,7 @@ export class BrowserHost {
     const idx = this.order.indexOf(id)
     this.order.splice(idx, 1)
     this.tabs.delete(id)
+    for (const cb of this.closed) cb(t.state, t.view)
     try {
       this.ctx.win.contentView.removeChildView(t.view)
     } catch {
@@ -259,7 +291,11 @@ export class BrowserHost {
       this.createTab(undefined, true)
       return this.activeId
     }
-    if (this.activeId === id) this.activeId = this.order[idx] ?? this.order[idx - 1]!
+    if (this.activeId === id) {
+      this.activeId = this.order[idx] ?? this.order[idx - 1]!
+      const next = this.tabs.get(this.activeId)!
+      for (const cb of this.activated) cb(next.state, next.view)
+    }
     this.changed()
     return this.activeId
   }
@@ -268,6 +304,8 @@ export class BrowserHost {
     this.tab(id)
     this.activeId = id
     this.changed()
+    const t = this.tab(id)
+    for (const cb of this.activated) cb(t.state, t.view)
     return id
   }
 
