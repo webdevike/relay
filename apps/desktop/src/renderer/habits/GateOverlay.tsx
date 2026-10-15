@@ -76,8 +76,11 @@ function Gate() {
   const act = async (action: Parameters<typeof runHabit>[0]): Promise<void> => {
     setFailure(null)
     const r = await runHabit(action)
-    if (!r.ok) setFailure(r.message)
-    else setOverriding(false)
+    if (!r.ok) {
+      setFailure(r.message)
+      // The main side no longer knows this photo: make the user choose again.
+      if (r.code === 'invalid-input') setPhoto(null)
+    } else setOverriding(false)
   }
 
   const choosePhoto = async (): Promise<void> => {

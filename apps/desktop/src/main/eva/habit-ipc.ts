@@ -5,7 +5,7 @@ import { gateArgs, GateArgError, type GateAction } from '@evaos/eva-core/model/g
 import type { MainContext } from '../context'
 import { handle } from '../ipc/handle'
 import { openPathChecked } from './open-path'
-import { issuePhotoToken, takePhotoToken } from './photo-tokens'
+import { issuePhotoToken, peekPhotoToken, takePhotoToken } from './photo-tokens'
 import { buildCommand, childPathFor, recordSpawn, runCapture, type Command } from './spawn'
 
 export const GATE_TIMEOUT_MS = 15_000
@@ -51,7 +51,7 @@ export function toGateAction(input: HabitRun): GateAction {
     case 'done': {
       let photo: string | null = null
       if (input.photoToken !== null) {
-        photo = takePhotoToken(input.photoToken)
+        photo = peekPhotoToken(input.photoToken)
         if (photo === null) throw coded('That photo is no longer available.', 'invalid-input')
       }
       return { action: 'done', id: input.id, photo }
@@ -99,6 +99,8 @@ export function createHabitService(
       }
       epoch += 1
       const result = await runGate(build, root, args, onSpawn)
+      // Consumed only once the gate accepted the photo, so a failed Done can be retried.
+      if (input.action === 'done' && input.photoToken !== null) takePhotoToken(input.photoToken)
       epoch += 1
       return result
     },

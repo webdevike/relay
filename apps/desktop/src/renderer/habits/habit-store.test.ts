@@ -73,6 +73,7 @@ describe('habit polling', () => {
     await expect(runHabit({ action: 'habit-rm', id: 'x' })).resolves.toEqual({
       ok: false,
       message: 'bad',
+      code: 'gate-error',
     })
     expect(habitStore.getState().busy).toBe(false)
   })

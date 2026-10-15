@@ -71,7 +71,7 @@ const firstLine = (text: string): string => text.trim().split('\n')[0] || 'no de
 /** Runs one CLI command; its reply carries the new status, so no re-poll is needed. */
 export async function runHabit(
   action: HabitAction,
-): Promise<{ ok: true } | { ok: false; message: string }> {
+): Promise<{ ok: true } | { ok: false; message: string; code?: string }> {
   habitStore.setState((s) => ({ busy: true, generation: s.generation + 1 }))
   let r
   try {
@@ -94,6 +94,7 @@ export async function runHabit(
   return {
     ok: false,
     message: firstLine(r && !r.ok ? r.error.message : 'The habit gate did not answer.'),
+    ...(r && !r.ok ? { code: r.error.code } : {}),
   }
 }
 

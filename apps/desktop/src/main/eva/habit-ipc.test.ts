@@ -3,7 +3,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { makeEvaFixture } from '../../../e2e/helpers/eva-fixture'
 import { FAKE_GATE } from '../../../e2e/helpers/paths'
-import { issuePhotoToken, takePhotoToken } from './photo-tokens'
+import { issuePhotoToken, peekPhotoToken, takePhotoToken } from './photo-tokens'
 import { choosePhoto, createHabitService, PHOTO_EXTENSIONS, runGate } from './habit-ipc'
 import { buildCommand } from './spawn'
 import { openPathChecked } from './open-path'
@@ -86,6 +86,12 @@ describe('habit service', () => {
     await expect(
       service.run({ action: 'done', id: 'walk', photoToken: token }),
     ).rejects.toMatchObject({ code: 'invalid-input' })
+    // A failed Done keeps the token usable.
+    const keep = issuePhotoToken(photo)
+    await expect(
+      service.run({ action: 'done', id: 'missing-habit', photoToken: keep }),
+    ).rejects.toBeDefined()
+    expect(peekPhotoToken(keep)).toBe(photo)
     await expect(
       service.run({ action: 'done', id: 'walk', photoToken: 'nope' }),
     ).rejects.toMatchObject({ code: 'invalid-input' })
@@ -95,7 +101,7 @@ describe('habit service', () => {
 describe('photo tokens', () => {
   it('are single use and expire', () => {
     const t = issuePhotoToken('/a/b.png', 1000)
-    expect(takePhotoToken(t, 1000 + 11 * 60 * 1000)).toBeNull()
+    expect(takePhotoToken(t, 1000 + 11 * 60 * 60 * 1000 + 1)).toBeNull()
     const u = issuePhotoToken('/a/c.png', 1000)
     expect(takePhotoToken(u, 2000)).toBe('/a/c.png')
     expect(takePhotoToken(u, 2000)).toBeNull()
