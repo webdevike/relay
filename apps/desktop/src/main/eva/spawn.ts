@@ -87,17 +87,32 @@ export async function childPathFor(live: boolean, homedir: string): Promise<stri
   ])
 }
 
-/** Starts a child the app never waits on or signals (CONTEXT: never killed by the app). */
-export function spawnDetached(cmd: Command, cwd: string): void {
-  const child = spawn(cmd.file, cmd.argv, {
-    cwd,
-    env: cmd.env,
-    stdio: 'ignore',
-    detached: true,
-    shell: false,
+/**
+ * Starts a child the app never waits on or signals (CONTEXT: never killed by the app). Resolves
+ * once the process has started; rejects with code 'spawn-failed' when it cannot (for example ENOENT).
+ */
+export function spawnDetached(cmd: Command, cwd: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd.file, cmd.argv, {
+      cwd,
+      env: cmd.env,
+      stdio: 'ignore',
+      detached: true,
+      shell: false,
+    })
+    child.once('error', (e) => {
+      console.error('[spawn] detached start failed:', e.message)
+      reject(
+        Object.assign(new Error(`Could not start ${cmd.file}: ${e.message}`), {
+          code: 'spawn-failed',
+        }),
+      )
+    })
+    child.once('spawn', () => {
+      child.unref()
+      resolve()
+    })
   })
-  child.on('error', (e) => console.error('[spawn] detached start failed:', e.message))
-  child.unref()
 }
 
 export interface CaptureResult {

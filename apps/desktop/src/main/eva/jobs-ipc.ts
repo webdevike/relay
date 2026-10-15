@@ -126,7 +126,7 @@ function realSpawner(ctx: MainContext): JobSpawner {
       cwd: ctx.env.evaRoot,
       at: Date.now(),
     })
-    spawnDetached(cmd, ctx.env.evaRoot)
+    await spawnDetached(cmd, ctx.env.evaRoot)
   }
 }
 

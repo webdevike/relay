@@ -106,12 +106,20 @@ describe('spawnDetached', () => {
       s,
       "import { writeFileSync } from 'node:fs'\nwriteFileSync('marker.txt', process.cwd())",
     )
-    spawnDetached(nodeCmd(s), dir)
+    await spawnDetached(nodeCmd(s), dir)
     const marker = path.join(dir, 'marker.txt')
     for (let i = 0; i < 50 && !fs.existsSync(marker); i++)
       await new Promise((r) => setTimeout(r, 100))
     expect(fs.existsSync(marker)).toBe(true)
     expect(fs.realpathSync(fs.readFileSync(marker, 'utf8'))).toBe(fs.realpathSync(dir))
+  })
+})
+
+describe('spawnDetached failure', () => {
+  it('rejects with spawn-failed when the binary does not exist', async () => {
+    await expect(
+      spawnDetached({ file: path.join(dir, 'no-such-bin'), argv: [], env: process.env }, dir),
+    ).rejects.toMatchObject({ code: 'spawn-failed' })
   })
 })
 
