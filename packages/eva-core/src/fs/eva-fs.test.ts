@@ -4,6 +4,8 @@ import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { matchWrite } from './allowlist'
 import { createEvaFs, EvaFsDenied } from './eva-fs'
+import { createPathQueue } from './path-queue'
+import { installWriteTrap } from './write-trap'
 
 let root: string
 beforeEach(() => {
@@ -85,5 +87,132 @@ describe('EvaFs write and remove', () => {
     const err = await evafs.write('todo-append', 'memory/journal.md', 'x').catch((e: unknown) => e)
     expect(err).toBeInstanceOf(EvaFsDenied)
     expect(err).toMatchObject({ kind: 'todo-append', path: 'memory/journal.md' })
+  })
+})
+
+describe('EvaFs readStamp, edit, create', () => {
+  const todos = (): string => path.join(root, 'memory/todos.md')
+
+  it('readStamp returns text, stat and sha256; null when missing; denies bad path', async () => {
+    const evafs = createEvaFs({ root })
+    const s = await evafs.readStamp('todo-append', 'memory/todos.md')
+    expect(s?.text).toBe('# T\n')
+    expect(s?.hash).toMatch(/^[0-9a-f]{64}$/)
+    expect(s?.size).toBe(4)
+    expect(typeof s?.mtimeMs).toBe('number')
+    expect(await evafs.readStamp('job-md', 'jobs/none/job.md')).toBeNull()
+    await expect(evafs.readStamp('todo-append', 'memory/journal.md')).rejects.toBeInstanceOf(
+      EvaFsDenied,
+    )
+  })
+
+  it('edit applies the transform atomically; no-op writes nothing', async () => {
+    const evafs = createEvaFs({ root })
+    const r = await evafs.edit('todo-append', 'memory/todos.md', (t) => t + 'a\n')
+    expect(r).toEqual({ before: '# T\n', after: '# T\na\n', changed: true })
+    expect(fs.readdirSync(path.join(root, 'memory'))).toEqual(['todos.md'])
+    const m = fs.statSync(todos()).mtimeMs
+    expect((await evafs.edit('todo-append', 'memory/todos.md', (t) => t)).changed).toBe(false)
+    expect((await evafs.edit('todo-append', 'memory/todos.md', () => null)).changed).toBe(false)
+    expect(fs.statSync(todos()).mtimeMs).toBe(m)
+  })
+
+  it('edit with a stale expected basis refuses with changed-on-disk', async () => {
+    const evafs = createEvaFs({ root })
+    const err = await evafs
+      .edit('todo-append', 'memory/todos.md', (t) => t + 'x', { expected: 'old' })
+      .catch((e: unknown) => e)
+    expect(err).toMatchObject({ code: 'changed-on-disk' })
+    expect(fs.readFileSync(todos(), 'utf8')).toBe('# T\n')
+  })
+
+  it('edit refuses when the file changes mid-edit; retryOnChange retries once', async () => {
+    const evafs = createEvaFs({ root })
+    let fired = false
+    const sneaky = (t: string): string => {
+      if (!fired) {
+        fired = true
+        fs.writeFileSync(todos(), '# T\nexternal\n')
+      }
+      return t + 'mine\n'
+    }
+    await expect(evafs.edit('todo-append', 'memory/todos.md', sneaky)).rejects.toMatchObject({
+      code: 'changed-on-disk',
+    })
+    expect(fs.readFileSync(todos(), 'utf8')).toBe('# T\nexternal\n')
+
+    fired = false
+    fs.writeFileSync(todos(), '# T\n')
+    let calls = 0
+    const r = await evafs.edit(
+      'todo-append',
+      'memory/todos.md',
+      (t) => {
+        calls++
+        return sneaky(t)
+      },
+      { retryOnChange: true },
+    )
+    expect(calls).toBe(2)
+    expect(r.changed).toBe(true)
+    expect(fs.readFileSync(todos(), 'utf8')).toBe('# T\nexternal\nmine\n')
+  })
+
+  it('edit on a missing file throws not-found', async () => {
+    const evafs = createEvaFs({ root })
+    await expect(evafs.edit('job-md', 'jobs/none/job.md', (t) => t)).rejects.toMatchObject({
+      code: 'not-found',
+    })
+  })
+
+  it('concurrent edits on one path serialize; createPathQueue semantics', async () => {
+    const evafs = createEvaFs({ root })
+    await Promise.all([
+      evafs.edit('todo-append', 'memory/todos.md', (t) => t + 'one\n'),
+      evafs.edit('todo-append', 'memory/todos.md', (t) => t + 'two\n'),
+    ])
+    expect(fs.readFileSync(todos(), 'utf8')).toBe('# T\none\ntwo\n')
+
+    const q = createPathQueue()
+    const order: string[] = []
+    const gate = new Promise<void>((r) => setTimeout(r, 20))
+    const a = q.run('k', async () => {
+      await gate
+      order.push('a')
+    })
+    const b = q.run('k', async () => {
+      order.push('b')
+    })
+    const c = q.run('other', async () => {
+      order.push('c')
+    })
+    await Promise.all([a, b, c])
+    expect(order).toEqual(['c', 'a', 'b'])
+    await expect(q.run('k', () => Promise.reject(new Error('boom')))).rejects.toThrow('boom')
+    expect(await q.run('k', async () => 7)).toBe(7)
+  })
+
+  it('create makes jobs/<name>/job.md and refuses an existing one', async () => {
+    const evafs = createEvaFs({ root })
+    await evafs.create('job-md', 'jobs/new-job/job.md', 'data')
+    expect(fs.readFileSync(path.join(root, 'jobs/new-job/job.md'), 'utf8')).toBe('data')
+    await expect(evafs.create('job-md', 'jobs/new-job/job.md', 'x')).rejects.toMatchObject({
+      code: 'already-exists',
+    })
+    await expect(
+      evafs.create('todo-append' as never, 'memory/todos.md', 'x'),
+    ).rejects.toBeInstanceOf(EvaFsDenied)
+  })
+
+  it('edit and create satisfy the runtime write trap', async () => {
+    const uninstall = installWriteTrap({ protectedRoots: [root], allowRoots: [] })
+    try {
+      const evafs = createEvaFs({ root })
+      await evafs.edit('todo-append', 'memory/todos.md', (t) => t + 'z\n')
+      await evafs.create('job-md', 'jobs/trap-job/job.md', 'd')
+      expect(() => fs.writeFileSync(path.join(root, 'raw.txt'), 'x')).toThrow()
+    } finally {
+      uninstall()
+    }
   })
 })
