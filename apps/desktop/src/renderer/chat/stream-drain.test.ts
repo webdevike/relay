@@ -12,7 +12,14 @@ const batch = (seq: number, ...messages: ChatMessage[]): Batch => ({
   ops: messages.map((message) => ({ op: 'upsert' as const, message })),
 })
 
-function setup(opts: { snapshot?: Snapshot } = {}) {
+function setup(
+  opts: {
+    snapshot?: Snapshot
+    minReconnectMs?: number
+    setTimeout?: (fn: () => void, ms: number) => unknown
+    now?: () => number
+  } = {},
+) {
   chatStore.setState({ panes: {} })
   chatStore.getState().openPane('pane-1', { file: '/f', title: 't', messages: [], meta })
   let tick: (() => void) | null = null
@@ -20,7 +27,14 @@ function setup(opts: { snapshot?: Snapshot } = {}) {
     tick = cb
   })
   const requestSnapshot = vi.fn(() => Promise.resolve(opts.snapshot ?? null))
-  const drain = createStreamDrain({ store: chatStore, raf, requestSnapshot, minReconnectMs: 0 })
+  const drain = createStreamDrain({
+    store: chatStore,
+    raf,
+    requestSnapshot,
+    minReconnectMs: opts.minReconnectMs ?? 0,
+    setTimeout: opts.setTimeout,
+    now: opts.now,
+  })
   return { drain, raf, requestSnapshot, flush: () => tick?.() }
 }
 const pane = () => chatStore.getState().panes['pane-1']!
@@ -152,6 +166,39 @@ describe('stream drain', () => {
     expect(pane().stopped).toBe(true)
     expect(pane().error).toBe('The session ended unexpectedly.')
     expect(pane().messages.map((m) => m.text)).toEqual(['done'])
+  })
+
+  it('a stale deferred label clear does not take down a later resync, nor fire after dispose', async () => {
+    const timers: Array<() => void> = []
+    const snapshot: Snapshot = {
+      seq: 5,
+      messages: [],
+      meta,
+      running: true,
+      connected: true,
+      error: null,
+    }
+    const { drain, flush } = setup({
+      snapshot,
+      minReconnectMs: 400,
+      now: () => 0,
+      setTimeout: (fn) => timers.push(fn),
+    })
+    drain.push(batch(1, a('x', 'a')))
+    flush()
+    drain.push(batch(3, a('x', 'gap')))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(timers).toHaveLength(1)
+    // The first snapshot has landed; before its label timer fires a second gap starts a new resync.
+    drain.push(batch(9, a('x', 'gap again')))
+    expect(pane().reconnecting).toBe(true)
+    timers[0]!()
+    expect(pane().reconnecting).toBe(true)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(timers).toHaveLength(2)
+    drain.dispose()
+    timers[1]!()
+    expect(pane().reconnecting).toBe(true)
   })
 
   it('upsert keeps position, appends new ids, and only the changed row changes identity', () => {

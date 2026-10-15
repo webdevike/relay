@@ -73,7 +73,11 @@ export function createStreamDrain(opts: StreamDrainOptions) {
   /** Takes the label down once it has been visible for `minReconnect`. */
   const clearLabel = (paneId: string): void => {
     const wait = Math.max(0, minReconnect - (now() - (reconnectSince.get(paneId) ?? 0)))
-    const clear = (): void => opts.store.getState().setReconnecting(paneId, false)
+    const clear = (): void => {
+      // A resync that started meanwhile owns the label now; after dispose() there is nothing to clear.
+      if (disposed || resyncing.has(paneId)) return
+      opts.store.getState().setReconnecting(paneId, false)
+    }
     if (wait === 0) clear()
     else later(clear, wait)
   }
