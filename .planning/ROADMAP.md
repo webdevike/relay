@@ -109,7 +109,7 @@ Plans:
 
 **Wave 8**
 
-- [ ] 02-11-PLAN.md: sidebar, counts, Recent, sub-pages, account menu (wave 8)
+- [x] 02-11-PLAN.md: sidebar, counts, Recent, sub-pages, account menu (wave 8)
 - [x] 02-12-PLAN.md: Settings pages (Theme, Chat, Notifications) (wave 8)
 
 **Wave 9**
@@ -207,7 +207,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation, Harness and the Two Spikes | 10/10 | Complete   | 2026-10-15 |
-| 2. Shell, Navigation and Theme Tokens | 11/13 | In Progress|  |
+| 2. Shell, Navigation and Theme Tokens | 12/13 | In Progress|  |
 | 3. Dashboard, Workspaces, Jobs, Habits and Meetings | 0/TBD | Not started | - |
 | 4. Chat Parity | 0/TBD | Not started | - |
 | 5. Rich Replies | 0/TBD | Not started | - |
