@@ -1,14 +1,30 @@
 import type { z } from 'zod'
-import { appInvoke } from './app'
+import { appEvents, appInvoke } from './app'
+import { shellInvoke } from './shell'
+import { evaInvoke } from './eva'
 import { chatEvents, chatInvoke } from './chat'
 import { browserEvents, browserInvoke } from './browser'
 
 export * from './result'
 export { AppInfoSchema, type AppInfo } from './app'
+export {
+  type SavedTabs,
+  type Appearance,
+  type ChatSettings,
+  SavedTabsSchema,
+  AppearanceSchema,
+  ChatSettingsSchema,
+} from './shell'
 export { type TabState, type TabsSnapshot } from './browser'
 
-export const invokeContract = { ...appInvoke, ...chatInvoke, ...browserInvoke }
-export const eventContract = { ...chatEvents, ...browserEvents }
+export const invokeContract = {
+  ...appInvoke,
+  ...shellInvoke,
+  ...evaInvoke,
+  ...chatInvoke,
+  ...browserInvoke,
+}
+export const eventContract = { ...appEvents, ...chatEvents, ...browserEvents }
 
 export type InvokeChannel = keyof typeof invokeContract
 export type EventChannel = keyof typeof eventContract

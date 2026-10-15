@@ -37,4 +37,64 @@ describe('contract', () => {
     expect(out.safeParse({ ...base, connected: false, error: 'ended' }).success).toBe(true)
     expect(out.safeParse({ ...base, connected: true, error: null }).success).toBe(true)
   })
+
+  it('includes the Phase 2 channels', () => {
+    for (const c of [
+      'layout.load',
+      'layout.save',
+      'theme.load',
+      'theme.setAppearance',
+      'settings.load',
+      'settings.save',
+      'eva.sidebar',
+      'app.setBackground',
+      'app.quit',
+      'app.unsavedEdits.reply',
+      'app.saveDirty.reply',
+    ])
+      expect(INVOKE_CHANNELS).toContain(c)
+    for (const c of ['app.hotkey', 'app.unsavedEdits.request', 'app.saveDirty.request'])
+      expect(EVENT_CHANNELS).toContain(c)
+  })
+
+  it('validates app.setBackground colors', () => {
+    const i = invokeContract['app.setBackground'].input
+    expect(i.safeParse({ color: 'red' }).success).toBe(false)
+    expect(i.safeParse({ color: '#fff' }).success).toBe(false)
+    expect(i.safeParse({ color: '#181817' }).success).toBe(true)
+  })
+
+  it('layout.save is strict and bounded', () => {
+    const i = invokeContract['layout.save'].input
+    const place = { page: 'home' }
+    const tab = (n: number) => ({
+      here: place,
+      back: Array.from({ length: n }, () => place),
+      forward: [],
+      pinned: false,
+    })
+    expect(i.safeParse({ extra: 1 }).success).toBe(false)
+    expect(i.safeParse({ tabs: { active: 0, list: [tab(51)] } }).success).toBe(false)
+    expect(i.safeParse({ tabs: { active: 0, list: [tab(50)] } }).success).toBe(true)
+  })
+
+  it('settings.save accepts partials', () => {
+    expect(invokeContract['settings.save'].input.safeParse({ show_thinking: false }).success).toBe(
+      true,
+    )
+  })
+
+  it('app.info output defaults noMotion to false', () => {
+    const out = invokeContract['app.info'].output.parse({
+      evaRoot: '/e',
+      configDir: '/c',
+      ompBin: 'omp',
+      sessionsDir: '/s',
+      live: false,
+      e2e: true,
+      launchCount: 1,
+      version: '1',
+    })
+    expect(out.noMotion).toBe(false)
+  })
 })

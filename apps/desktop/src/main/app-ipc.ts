@@ -14,6 +14,7 @@ export function registerAppIpc(ctx: MainContext): void {
       e2e: ctx.env.e2e,
       launchCount: state.launchCount ?? 0,
       version: app.getVersion(),
+      noMotion: false,
     }
   })
 }
