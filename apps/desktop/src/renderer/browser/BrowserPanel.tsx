@@ -19,8 +19,8 @@ export function BrowserPanel() {
   const showCard = tab !== undefined && (tab.blank || tab.error !== null)
   return (
     <section className="eva-browser" data-testid="browser-panel">
-      <TabStrip tabs={tabs} activeId={activeId} />
       <AddressRow tab={tab} />
+      <TabStrip tabs={tabs} activeId={activeId} />
       <div className="eva-browser-slot" data-testid="browser-slot" ref={slot}>
         {showCard && tab ? <PageStateCard tab={tab} /> : null}
       </div>

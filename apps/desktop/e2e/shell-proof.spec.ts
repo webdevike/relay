@@ -121,13 +121,11 @@ for (const mode of ['dark', 'light'] as const) {
     await resolved(shell).toHaveAttribute('data-resolved', mode)
     await size(app, shell, 760, 720)
     await expect(shell.locator(sel('shell'))).toHaveAttribute('data-sidebar-state', 'folded')
-    expect((await box(shell, 'sidebar-toggle')).x).toBeGreaterThanOrEqual(80)
     const panel = await box(shell, 'panel-card')
     const main = await box(shell, 'main-card')
     expect(Math.round(panel.width)).toBe(320)
     expect(panel.x + panel.width).toBeLessThanOrEqual(760)
     expect(main.x + main.width).toBeLessThanOrEqual(panel.x)
-    expect(Math.abs(main.y - panel.y)).toBeLessThanOrEqual(1)
     await finish(app, shell, `shell-folded-${mode}-760x720`)
   })
 

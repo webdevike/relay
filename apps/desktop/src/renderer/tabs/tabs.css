@@ -6,11 +6,12 @@
   align-items: center;
   gap: var(--eva-space-xs);
   padding: 0;
-  background: var(--eva-c-background);
+  background: var(--eva-chrome);
+  -webkit-app-region: drag;
   min-width: 0;
 }
 .eva-tabbar[data-lead-in='true'] {
-  padding-left: calc(var(--eva-traffic) - var(--eva-gap) - 1px);
+  padding-left: var(--eva-traffic);
 }
 .eva-tabbar > * {
   -webkit-app-region: no-drag;
@@ -37,6 +38,11 @@
 }
 .eva-tabbar-btn:hover {
   background: var(--eva-hover);
+}
+.eva-tabbar-btn:disabled {
+  background: transparent;
+  color: var(--eva-c-muted-foreground);
+  opacity: 0.4;
 }
 .eva-tabbar-btn[aria-pressed='true'] {
   color: var(--eva-c-foreground);
@@ -77,7 +83,7 @@
 }
 .eva-tab[data-active='true'] {
   flex: none;
-  background: var(--eva-c-tab-active-background);
+  background: var(--eva-c-background);
   color: var(--eva-c-tab-active-foreground);
   border-color: var(--eva-c-border);
 }

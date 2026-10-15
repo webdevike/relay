@@ -12,7 +12,8 @@ import { createTabs, placeOf, type Tab } from '@evaos/shell-core'
 import { layoutStore, resetLayoutStoreForTests, setWindowWidth } from '../shell/layout-store'
 import { overlayStore } from '../overlay/overlay-store'
 import { FOLDED_LABEL, TabBar } from './TabBar'
-import { tabsStore } from './tabs-store'
+import { MainHeader } from '../shell/MainHeader'
+import { activePlace, navigateTo, tabsStore } from './tabs-store'
 
 const tab = (id: number, page: string, pinned = false): Tab => ({
   id,
@@ -125,7 +126,12 @@ describe('TabBar', () => {
 
   it('toggles reflect layout state', () => {
     seed([tab(0, 'inbox')])
-    ui()
+    render(
+      <MantineProvider>
+        <TabBar />
+        <MainHeader />
+      </MantineProvider>,
+    )
     const sb = screen.getByTestId('sidebar-toggle')
     expect(sb).toHaveAttribute('aria-label', 'Hide sidebar')
     expect(sb).toHaveAttribute('aria-pressed', 'true')
@@ -144,5 +150,26 @@ describe('TabBar', () => {
     expect(layoutStore.getState().panelOpen).toBe(false)
     expect(pt).toHaveAttribute('aria-pressed', 'false')
     expect(pt).toHaveAttribute('aria-label', 'Open panel')
+  })
+
+  it('navigates the active tab history and disables unavailable directions', () => {
+    seed([tab(0, 'inbox'), tab(1, 'jobs')])
+    ui()
+    const back = screen.getByRole('button', { name: 'Back' })
+    const forward = screen.getByRole('button', { name: 'Forward' })
+    expect(back).toBeDisabled()
+    expect(forward).toBeDisabled()
+    act(() => navigateTo(placeOf('dashboard')))
+    expect(back).not.toBeDisabled()
+    fireEvent.click(back)
+    expect(activePlace(tabsStore.getState()).page).toBe('inbox')
+    expect(back).toBeDisabled()
+    expect(forward).not.toBeDisabled()
+    fireEvent.click(forward)
+    expect(activePlace(tabsStore.getState()).page).toBe('dashboard')
+    expect(forward).toBeDisabled()
+    fireEvent.click(screen.getByTestId('tab-1'))
+    expect(back).toBeDisabled()
+    expect(forward).toBeDisabled()
   })
 })

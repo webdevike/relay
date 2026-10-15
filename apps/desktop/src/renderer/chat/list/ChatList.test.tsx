@@ -59,8 +59,7 @@ describe('ChatList search and fold', () => {
         <ChatList query="zzz" />
       </MantineProvider>,
     )
-    expect(await screen.findByText('No chats match "zzz"')).toBeInTheDocument()
-    expect(screen.getByText('Try a different title.')).toBeInTheDocument()
+    expect(await screen.findByText('No chats match.')).toBeInTheDocument()
   })
 
   it('a group header toggles collapse with aria-expanded and saves', async () => {

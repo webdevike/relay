@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MantineProvider } from '@mantine/core'
 
@@ -17,6 +17,7 @@ vi.mock('../ipc', () => ({
 
 import { Composer } from './Composer'
 import { chatStore } from './chat-store'
+import { DISMISS_PRIORITY, dismissTop, useDismissable } from '../hotkeys/dismiss'
 
 const wrap = (disabled = false) =>
   render(
@@ -25,6 +26,10 @@ const wrap = (disabled = false) =>
     </MantineProvider>,
   )
 
+function SidebarBack({ onBack }: { onBack: () => void }) {
+  useDismissable(DISMISS_PRIORITY.subPageBack, onBack)
+  return null
+}
 describe('Composer', () => {
   it('Enter sends and clears', async () => {
     const user = userEvent.setup()
@@ -112,6 +117,32 @@ describe('Composer', () => {
     wrap()
     await user.type(screen.getByTestId('composer-input'), '   {Enter}')
     expect(sent()).toHaveLength(0)
+  })
+
+  it('focused running composer aborts before sidebar Back in the capture Escape ladder', async () => {
+    invoke.mockClear()
+    chatStore.setState({ panes: {} })
+    chatStore.getState().openPane('pane-1', {
+      file: '/f',
+      title: 't',
+      messages: [],
+      meta: { model: null, thinking: null, contextTokens: null },
+    })
+    chatStore.getState().applyOps('pane-1', [{ op: 'meta', patch: { running: true } }], 1)
+    const back = vi.fn()
+    render(<SidebarBack onBack={back} />)
+    wrap()
+    fireEvent.focus(screen.getByTestId('composer-input'))
+    act(() => {
+      expect(dismissTop()).toBe(true)
+    })
+    expect(invoke).toHaveBeenCalledWith('chat.abort', { paneId: 'pane-1' })
+    expect(back).not.toHaveBeenCalled()
+    fireEvent.blur(screen.getByTestId('composer-input'))
+    act(() => {
+      dismissTop()
+    })
+    expect(back).toHaveBeenCalledTimes(1)
   })
 
   it('disabled shows the not-running placeholder', () => {

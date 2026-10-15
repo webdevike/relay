@@ -1,6 +1,6 @@
 import { useDraggable, useDroppable } from '@dnd-kit/core'
 import { ActionIcon } from '@mantine/core'
-import { IconChevronRight, IconDots, IconGripVertical } from '@tabler/icons-react'
+import { IconChevronRight, IconDots, IconFolder, IconGripVertical } from '@tabler/icons-react'
 import type { KeyboardEvent } from 'react'
 import { CategoryInput } from './CategoryInput'
 
@@ -108,6 +108,7 @@ export function GroupHeader({
           className="eva-cl-chev"
           style={{ transform: collapsed ? undefined : 'rotate(90deg)' }}
         />
+        <IconFolder size={16} stroke={1.5} aria-hidden />
         <span className="eva-cl-group-name">{name}</span>
         <span className="eva-cl-badge">{total}</span>
         {runningCount > 0 ? <span className="eva-cl-running">{runningCount} running</span> : null}

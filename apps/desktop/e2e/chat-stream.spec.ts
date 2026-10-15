@@ -44,7 +44,10 @@ for (const chunk of ['line', '1', 'glued', 'emoji-split']) {
     test.use({ launchEnv: { FAKE_OMP_CHUNK: chunk, FAKE_OMP_DELAY_MS: '5' } })
 
     test('streams the reply in order with zero gaps', async ({ shell, app }) => {
-      await shell.locator(`[data-testid=session-${SMALL}]`).click()
+      await shell.getByTestId('nav-chat').click()
+      await shell.getByTestId('chat-tree').getByRole('treeitem', {
+        name: /^Fixture chat(?:,|$)/,
+      }).click()
       const log = shell.locator('[data-testid=chat-log]')
       await expect(log).toContainText('Please sketch a tiny greeter.')
       await shell.locator('[data-testid=composer-input]').fill('Say hello')
@@ -93,7 +96,10 @@ test.describe('gap recovery', () => {
   test.use({ launchEnv: { FAKE_OMP_CHUNK: 'line', FAKE_OMP_DELAY_MS: '40' } })
 
   test('a dropped batch shows Reconnecting then heals from a snapshot', async ({ shell, app }) => {
-    await shell.locator(`[data-testid=session-${SMALL}]`).click()
+    await shell.getByTestId('nav-chat').click()
+    await shell.getByTestId('chat-tree').getByRole('treeitem', {
+      name: /^Fixture chat(?:,|$)/,
+    }).click()
     const log = shell.locator('[data-testid=chat-log]')
     await expect(log).toContainText('Please sketch a tiny greeter.')
     await app.evaluate(() => {

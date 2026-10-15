@@ -10,8 +10,6 @@ import { recordMetrics } from './helpers/metrics'
 import { proofShot } from './helpers/proofShot'
 import { test, expect } from './fixtures'
 
-const BENCH = '2026-10-02T09-00-00-000Z_bench5000'
-
 test.use({ launchEnv: { FAKE_OMP_RECORDING: 'long-turn', FAKE_OMP_DELAY_MS: '16' } })
 
 const gap = (shell: Page): Promise<number> =>
@@ -33,7 +31,10 @@ test('chat benchmark: 5,000 messages, pinned follow, pills, frame-time vs idle b
   app,
 }) => {
   test.setTimeout(120_000)
-  await shell.locator(`[data-testid=session-${BENCH}]`).click()
+  await shell.getByTestId('nav-chat').click()
+  await shell.getByTestId('chat-tree').getByRole('treeitem', {
+    name: /^Benchmark 5000(?:,|$)/,
+  }).click()
   const log = shell.locator('[data-testid=chat-log]')
   await expect(log).toContainText('LAST-MESSAGE-MARKER')
   await expect.poll(() => gap(shell)).toBeLessThan(24)

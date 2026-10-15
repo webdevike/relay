@@ -2,6 +2,8 @@ import './tabs.css'
 import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import { ActionIcon, Kbd, Tooltip } from '@mantine/core'
 import {
+  IconArrowLeft,
+  IconArrowRight,
   IconAsterisk,
   IconBrain,
   IconCalendar,
@@ -12,8 +14,6 @@ import {
   IconHelp,
   IconInbox,
   IconLayoutDashboard,
-  IconLayoutSidebar,
-  IconLayoutSidebarRight,
   IconListCheck,
   IconMessage,
   IconPin,
@@ -25,9 +25,9 @@ import {
 } from '@tabler/icons-react'
 import { EvaMenu } from '../overlay'
 import { useNamesVersion } from '../eva/names-store'
-import { togglePanel, toggleSidebar, useLayout } from '../shell/layout-store'
+import { useLayout } from '../shell/layout-store'
 import { tabIconName, tabTitle } from './tab-meta'
-import { activate, close, closeOthersOf, newChatTab, togglePinOf, useTabs } from './tabs-store'
+import { activate, close, closeOthersOf, goBack, goForward, newChatTab, togglePinOf, useTabs } from './tabs-store'
 
 const ICONS: Record<string, Icon> = {
   IconLayoutDashboard,
@@ -64,7 +64,6 @@ export function TabBar() {
   useNamesVersion()
   const tabs = useTabs((s) => s.tabs)
   const state = useLayout((s) => s.state)
-  const panelOpen = useLayout((s) => s.panelOpen)
   const [menu, setMenu] = useState<{ id: number; x: number; y: number } | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const activeId = tabs.list[tabs.active]?.id
@@ -74,9 +73,6 @@ export function TabBar() {
     el?.scrollIntoView?.({ inline: 'nearest', block: 'nearest', behavior: 'smooth' })
   }, [activeId])
 
-  const sidebarLabel =
-    state === 'open' ? 'Hide sidebar' : state === 'hidden' ? 'Show sidebar' : FOLDED_LABEL
-  const sidebarTip = state === 'folded' ? FOLDED_LABEL : withKbd(sidebarLabel, '⌘B')
 
   const onKey = (e: KeyboardEvent<HTMLElement>, id: number): void => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -109,17 +105,14 @@ export function TabBar() {
       data-testid="tabbar"
       data-lead-in={state !== 'open' ? 'true' : 'false'}
     >
-      <Tooltip label={sidebarTip} position="bottom" openDelay={400}>
-        <ActionIcon
-          variant="subtle"
-          size={28}
-          className="eva-tabbar-btn"
-          data-testid="sidebar-toggle"
-          aria-label={sidebarLabel}
-          aria-pressed={state === 'open'}
-          onClick={() => toggleSidebar()}
-        >
-          <IconLayoutSidebar size={16} stroke={1.5} />
+      <Tooltip label={withKbd('Back', '⌘[')} position="bottom" openDelay={400}>
+        <ActionIcon variant="subtle" className="eva-tabbar-btn" data-testid="tab-back" aria-label="Back" disabled={!tabs.list[tabs.active]?.back.length} onClick={goBack}>
+          <IconArrowLeft size={16} stroke={1.5} />
+        </ActionIcon>
+      </Tooltip>
+      <Tooltip label={withKbd('Forward', '⌘]')} position="bottom" openDelay={400}>
+        <ActionIcon variant="subtle" className="eva-tabbar-btn" data-testid="tab-forward" aria-label="Forward" disabled={!tabs.list[tabs.active]?.forward.length} onClick={goForward}>
+          <IconArrowRight size={16} stroke={1.5} />
         </ActionIcon>
       </Tooltip>
 
@@ -194,23 +187,6 @@ export function TabBar() {
 
       <div className="eva-tabbar-spacer" data-testid="tabbar-drag" />
 
-      <Tooltip
-        label={withKbd(panelOpen ? 'Close panel' : 'Open panel', '⌘⇧B')}
-        position="bottom-end"
-        openDelay={400}
-      >
-        <ActionIcon
-          variant="subtle"
-          size={28}
-          className="eva-tabbar-btn"
-          data-testid="panel-toggle"
-          aria-label={panelOpen ? 'Close panel' : 'Open panel'}
-          aria-pressed={panelOpen}
-          onClick={() => togglePanel()}
-        >
-          <IconLayoutSidebarRight size={16} stroke={1.5} />
-        </ActionIcon>
-      </Tooltip>
 
       <EvaMenu
         opened={menu !== null}

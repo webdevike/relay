@@ -32,9 +32,6 @@ import { GroupHeader } from './GroupHeader'
 import { registerReloader } from '../../reload/reload'
 import { listStore, subscribeListChanges, useListStore } from './list-store'
 
-const EMPTY_HEADING = 'No chats yet'
-const EMPTY_BODY = 'Start a new chat to talk with Eva. Your omp sessions appear here.'
-
 const DEBOUNCE_MS = 100
 
 const { openMenu, closeMenu, startRename, cancelRename, commitRename, setDeleting, pin, archive } =
@@ -251,21 +248,48 @@ export function ChatList({ query: rawQuery }: { query: string }) {
       </div>
     )
   }
+  const noMatches = view.searching && view.pinned.length === 0 && view.groups.length === 0
+  const agentSummary = (
+    <div className="eva-cl-agent-wrap">
+      <div className="eva-cl-agent">
+        <span className="eva-cl-agent-current">
+          Eva <span className="eva-dim">{list.rows.length}</span>
+        </span>
+      </div>
+      {list.rows.length > 0 && !noMatches ? (
+        <ActionIcon
+          className="eva-cl-new-category"
+          variant="subtle"
+          size="var(--eva-tile-sm, 22px)"
+          aria-label="New category"
+          title="New category"
+          data-testid="new-category"
+          onClick={() => setCreating({ moveId: null })}
+        >
+          <IconPlus size={14} stroke={1.5} />
+        </ActionIcon>
+      ) : null}
+    </div>
+  )
   if (list.rows.length === 0) {
     return (
-      <div className="eva-sb-empty" data-testid="sidebar-sub-empty">
-        <div className="eva-cl-empty-heading">{EMPTY_HEADING}</div>
-        <div className="eva-dim">{EMPTY_BODY}</div>
-      </div>
+      <>
+        {agentSummary}
+        <div className="eva-cl-empty eva-dim" data-testid="sidebar-sub-empty">
+          No chats in this repo yet.
+        </div>
+      </>
     )
   }
 
-  if (view.searching && view.pinned.length === 0 && view.groups.length === 0) {
+  if (noMatches) {
     return (
-      <div className="eva-sb-empty" data-testid="sidebar-sub-empty">
-        <div className="eva-cl-empty-heading">{`No chats match "${query.trim()}"`}</div>
-        <div className="eva-dim">Try a different title.</div>
-      </div>
+      <>
+        {agentSummary}
+        <div className="eva-cl-empty eva-dim" data-testid="sidebar-sub-empty">
+          No chats match.
+        </div>
+      </>
     )
   }
 
@@ -278,18 +302,7 @@ export function ChatList({ query: rawQuery }: { query: string }) {
       onDragCancel={() => setDropGroup(null)}
       accessibility={{ announcements, screenReaderInstructions }}
     >
-      <div className="eva-cl-head">
-        <span className="eva-cl-section">Categories</span>
-        <ActionIcon
-          variant="subtle"
-          size={28}
-          aria-label="New category"
-          data-testid="new-category"
-          onClick={() => setCreating({ moveId: null })}
-        >
-          <IconPlus size={16} stroke={1.5} />
-        </ActionIcon>
-      </div>
+      {agentSummary}
       <div role="tree" aria-label="Chats" className="eva-cl" data-testid="chat-tree">
         {view.pinned.length > 0 ? (
           <div role="treeitem" aria-expanded aria-selected={false} data-testid="chat-pinned">

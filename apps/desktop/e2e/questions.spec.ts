@@ -5,7 +5,6 @@ import type { Page } from '@playwright/test'
 import { proofShot } from './helpers/proofShot'
 import { test, expect } from './fixtures'
 
-const SMALL = '2026-10-01T09-00-00-000Z_small'
 const LOG = path.join(os.tmpdir(), `evaos-fake-omp-questions-${process.pid}.log`)
 
 type Ev = { event: string; detail: Record<string, unknown> | null }
@@ -35,7 +34,10 @@ test.describe('question cards and extension UI', () => {
   test.use({ launchEnv: { FAKE_OMP_LOG: LOG, FAKE_OMP_DELAY_MS: '10' } })
   test.beforeEach(async ({ shell }) => {
     fs.rmSync(LOG, { force: true })
-    await shell.locator(`[data-testid=session-${SMALL}]`).click()
+    await shell.getByTestId('nav-chat').click()
+    await shell.getByTestId('chat-tree').getByRole('treeitem', {
+      name: /^Fixture chat(?:,|$)/,
+    }).click()
     await expect(logOf(shell)).toContainText('Please sketch a tiny greeter.')
   })
   test.afterAll(() => {

@@ -1,7 +1,8 @@
 import { notifications } from '@mantine/notifications'
 import { invoke } from '../ipc'
 import { chatStore } from './chat-store'
-import { PANE_ID } from './SessionList'
+
+export const PANE_ID = 'pane-1'
 
 let inflight: string | null = null
 let draftInflight = false

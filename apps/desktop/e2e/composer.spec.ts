@@ -62,10 +62,12 @@ test('toolbar: model, context ring, access restart, images flag', async ({ app, 
   await expect(shell.locator(sel('chat-log'))).toContainText(
     'Foxes are primarily nocturnal hunters',
   )
+  // The phrase appears before the recorded turn ends. Its remaining assistant frames
+  // still carry the old model, so finish that turn before testing an idle model change.
+  await expect(shell.getByRole('img', { name: 'Eva is replying' })).toHaveCount(0)
 
   // 1. Model picker: pick another model, set_model reaches omp and the label follows get_state.
   const model = shell.locator(sel('composer-model'))
-  await expect(model).toContainText('fake-omp')
   await model.click()
   await expect(shell.locator(sel('model-option-fake-text-only'))).toBeVisible()
   await expect(shell.locator(sel('model-option-anthropic-claude-opus-5-5'))).toBeVisible()

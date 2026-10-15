@@ -18,30 +18,30 @@
   "chat": {
     "messages": 5000,
     "framesReplayed": 827,
-    "batches": 776,
+    "batches": 775,
     "seqGaps": 0,
     "seqContiguous": true,
     "display": {
       "hz": 119.97361755371094
     },
     "idle": {
-      "p50": 8.4,
-      "p95": 16.7,
-      "p99": 17.1,
-      "max": 18.6,
-      "n": 479
+      "p50": 8.5,
+      "p95": 16.9,
+      "p99": 17.9,
+      "max": 26.7,
+      "n": 422
     },
     "stream": {
-      "p50": 8.3,
-      "p95": 16.7,
-      "p99": 16.8,
-      "max": 17.4,
-      "n": 725,
+      "p50": 8.4,
+      "p95": 16.8,
+      "p99": 17.1,
+      "max": 17.9,
+      "n": 737,
       "longFrames": 0
     },
     "gate": {
       "rule": "streamP95 <= max(16.7, idleP95 * 1.25) and zero frames over 50 ms",
-      "budgetMs": 20.88,
+      "budgetMs": 21.13,
       "passed": true
     },
     "pinnedGapPx": 0,

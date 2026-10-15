@@ -1,8 +1,13 @@
+.eva-browser {
+  --eva-address-h: var(--eva-control-lg);
+  --eva-tab-strip-h: var(--eva-control-md);
+}
+
 .eva-tab-strip {
   display: flex;
   align-items: center;
-  gap: var(--eva-space-xs);
-  padding: 0 var(--eva-space-sm);
+  gap: var(--eva-space-native-xs);
+  padding: 0 var(--eva-space-native-sm);
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -11,12 +16,14 @@
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: var(--eva-space-sm);
-  height: 28px;
-  min-width: 96px;
-  max-width: 200px;
-  padding: 0 var(--eva-space-sm);
-  border-top: 2px solid transparent;
+  gap: var(--eva-space-native-xs);
+  height: var(--eva-control-xs);
+  min-width: 0;
+  max-width: 220px;
+  padding: 0 var(--eva-space-native-xs);
+  border: 1px solid transparent;
+  border-radius: var(--eva-radius);
+  font-size: var(--eva-fz-label);
   color: var(--eva-text-dim);
   cursor: pointer;
 }
@@ -25,7 +32,7 @@
 }
 .eva-tab.is-active {
   background: var(--eva-surface-2);
-  border-top-color: var(--eva-accent);
+  border-color: var(--eva-border);
   color: var(--eva-text);
 }
 .eva-tab-title {
@@ -44,19 +51,17 @@
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: var(--eva-space-sm);
-  padding: 0 var(--eva-space-sm);
+  gap: var(--eva-space-xs);
+  padding: 0 var(--eva-space-native-xs) 0 var(--eva-space-native-sm);
 }
 .eva-address-input {
   flex: 1;
   min-width: 0;
 }
 .eva-address-input input {
-  height: 28px;
-  min-height: 28px;
-  background: var(--eva-surface-2);
-  border-color: var(--eva-border);
-  border-radius: 8px;
+  height: var(--eva-kit-control-md);
+  min-height: var(--eva-kit-control-md);
+  border-radius: var(--eva-radius);
   color: var(--eva-text);
 }
 .eva-address-progress {
@@ -76,6 +81,11 @@
   padding: var(--eva-space-lg);
   text-align: center;
 }
+.eva-page-card-icon {
+  width: var(--eva-tile-md);
+  height: var(--eva-tile-md);
+  color: var(--eva-text-dim);
+}
 .eva-overlay-body {
   margin: 0 0 var(--eva-space-md);
 }
@@ -93,7 +103,7 @@
   margin: 0 var(--eva-space-sm);
   background: var(--eva-surface-2);
   border: 1px solid var(--eva-border);
-  border-radius: 8px;
+  border-radius: var(--eva-radius);
   overflow: hidden;
   animation: eva-suggest-in 120ms ease-out;
 }

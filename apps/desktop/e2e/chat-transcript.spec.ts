@@ -18,16 +18,21 @@ type Eva = {
   invoke(c: string, i: unknown): Promise<{ ok: boolean; value?: { messages: unknown[] } }>
 }
 
-const SMALL = '2026-10-01T09-00-00-000Z_small'
 const BENCH = '2026-10-02T09-00-00-000Z_bench5000'
 
 test('chat transcript: past session shows the active branch with collapsed rows', async ({
   shell,
 }) => {
-  const list = shell.locator('[data-testid=session-list]')
+  await expect(shell.getByRole('heading', { name: 'What should Eva work on?' })).toBeVisible()
+  await expect(shell.getByTestId('composer-input')).toHaveAttribute(
+    'placeholder',
+    'Ask anything, or start with / for a command',
+  )
+  await shell.getByTestId('nav-chat').click()
+  const list = shell.getByTestId('chat-tree')
   await expect(list).toContainText('Fixture chat')
   await expect(list).toContainText('Benchmark 5000')
-  await shell.locator(`[data-testid=session-${SMALL}]`).click()
+  await list.getByRole('treeitem', { name: /^Fixture chat(?:,|$)/ }).click()
   await expect(shell.locator('[data-testid=chat-header]')).toContainText('Fixture chat')
 
   const log = shell.locator('[data-testid=chat-log]')
@@ -55,7 +60,10 @@ test('chat transcript: past session shows the active branch with collapsed rows'
 test('chat transcript: 5,000 message session mounts a window and opens at the end', async ({
   shell,
 }) => {
-  await shell.locator(`[data-testid=session-${BENCH}]`).click()
+  await shell.getByTestId('nav-chat').click()
+  await shell.getByTestId('chat-tree').getByRole('treeitem', {
+    name: /^Benchmark 5000(?:,|$)/,
+  }).click()
   const log = shell.locator('[data-testid=chat-log]')
   await expect(log).toBeVisible()
   await expect(log).toContainText('LAST-MESSAGE-MARKER')

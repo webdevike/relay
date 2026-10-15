@@ -43,11 +43,16 @@ const chatJson = (
 }
 
 async function dragTo(shell: Page, from: Locator, to: Locator, hold = false): Promise<void> {
+  await from.scrollIntoViewIfNeeded()
   const a = (await from.boundingBox())!
-  const b = (await to.boundingBox())!
   await shell.mouse.move(a.x + a.width / 2, a.y + a.height / 2)
   await shell.mouse.down()
-  await shell.mouse.move(a.x + a.width / 2, a.y + a.height / 2 + 8, { steps: 3 })
+  await shell.mouse.move(a.x + a.width / 2, a.y + a.height / 2 - 8, { steps: 3 })
+  // The native row heights can put the source and target farther apart than the
+  // viewport. Activate on the visible source before scrolling to the destination.
+  await expect(shell.getByRole('status')).toContainText('Picked up a chat.')
+  await to.scrollIntoViewIfNeeded()
+  const b = (await to.boundingBox())!
   await shell.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 12 })
   if (!hold) await shell.mouse.up()
 }
@@ -138,7 +143,8 @@ test('categories: create, move, drag, keyboard reorder, persist, rename, delete'
     expect(await groupNames(page)).toEqual(order)
 
     // 6. Rename, then delete with the confirm modal.
-    await page.locator(sel('group-actions-Focus')).click({ force: true })
+    await page.locator(sel('chat-group-Focus')).hover()
+    await page.locator(sel('group-actions-Focus')).click()
     await page.locator(sel('group-menu-rename')).click()
     const rename = page.locator(sel('category-input'))
     await rename.fill('Deep work')
@@ -146,7 +152,8 @@ test('categories: create, move, drag, keyboard reorder, persist, rename, delete'
     await expect(page.locator(sel('chat-section-Deep work'))).toBeVisible()
     await expect.poll(() => chatJson(configDir).chat_categories).toEqual(['Deep work'])
 
-    await page.locator(sel('group-actions-Deep work')).click({ force: true })
+    await page.locator(sel('chat-group-Deep work')).hover()
+    await page.locator(sel('group-actions-Deep work')).click()
     await page.locator(sel('group-menu-delete')).click()
     const modal = page.locator(sel('delete-category-modal'))
     await expect(modal).toContainText('Delete category "Deep work"?')

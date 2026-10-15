@@ -1,7 +1,32 @@
 .eva-cl {
   display: flex;
   flex-direction: column;
-  padding: 0 var(--eva-space-sm);
+  gap: 1px;
+  padding-bottom: var(--eva-space-native-sm);
+}
+.eva-cl-agent-wrap {
+  position: relative;
+}
+.eva-cl-agent {
+  display: flex;
+  margin: var(--eva-space-native-xs) var(--eva-space-native-xs) 0;
+  padding: 2px;
+  border-radius: var(--eva-radius);
+  background: var(--eva-c-muted-background);
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
+}
+.eva-cl-agent-current {
+  flex: 1;
+  padding: 3px 0;
+  border-radius: var(--eva-radius);
+  background: var(--eva-bg);
+  text-align: center;
+}
+.eva-cl-empty {
+  padding: var(--eva-space-md) var(--eva-space-native-xs) 0;
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
 }
 .eva-cl-section {
   display: flex;
@@ -15,10 +40,11 @@
 .eva-cl-group {
   display: flex;
   align-items: center;
-  gap: var(--eva-space-sm);
+  gap: var(--eva-space-native-xs);
   width: 100%;
-  height: 32px;
-  padding: 0 var(--eva-space-sm);
+  min-height: calc(var(--eva-font-size) * 37 / 14);
+  margin-top: var(--eva-space-native-xs);
+  padding: var(--eva-space-native-xs);
   box-sizing: border-box;
   border: 0;
   border-radius: var(--eva-radius);
@@ -37,25 +63,20 @@
   transition: transform var(--eva-dur-fast) ease-out;
 }
 .eva-cl-group-name {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--eva-fz-label);
-  font-weight: var(--eva-fw-semibold);
+  font-weight: var(--eva-fw-regular);
 }
 .eva-cl-badge {
-  min-width: 20px;
-  height: 20px;
-  padding: 0 6px;
-  box-sizing: border-box;
-  border-radius: 999px;
-  background: var(--eva-hover);
+  flex: none;
+  margin-right: auto;
+  color: var(--eva-text-dim);
   font-size: var(--eva-fz-label);
   font-variant-numeric: tabular-nums;
-  line-height: 20px;
-  text-align: center;
 }
 .eva-cl-running {
   font-size: var(--eva-fz-label);
@@ -64,16 +85,16 @@
 .eva-cl-rows {
   display: flex;
   flex-direction: column;
-  margin-left: var(--eva-space-sm);
-  border-left: 1px solid var(--eva-chrome-border);
+  gap: 1px;
+  margin-left: var(--eva-space-native-sm);
 }
 .eva-cl-row {
   display: flex;
   align-items: center;
-  gap: var(--eva-space-sm);
+  gap: var(--eva-space-xs);
   width: 100%;
-  height: 28px;
-  padding: 0 var(--eva-space-sm);
+  min-height: calc(var(--eva-font-size) * 40 / 14);
+  padding: var(--eva-space-native-xs);
   box-sizing: border-box;
   border: 0;
   border-radius: var(--eva-radius);
@@ -177,10 +198,6 @@ html[data-eva-motion='off'] .eva-cl-chev {
   font-size: var(--eva-fz-label);
   line-height: 28px;
 }
-.eva-cl-empty-heading {
-  font-weight: var(--eva-fw-semibold);
-  margin-bottom: var(--eva-space-xs);
-}
 @media (prefers-reduced-motion: reduce) {
   .eva-cl-chev {
     transition: none;
@@ -191,9 +208,12 @@ html[data-eva-motion='off'] .eva-cl-chev {
 .eva-cl-rowwrap {
   position: relative;
 }
-.eva-cl-actions {
+.eva-cl-rowwrap > .eva-cl-actions,
+.eva-cl-grouprow > .eva-cl-actions {
   position: absolute;
-  top: 2px;
+  z-index: 1;
+  top: 50%;
+  transform: translateY(-50%);
   right: 2px;
   opacity: 0;
 }
@@ -266,12 +286,16 @@ html[data-eva-motion='off'] .eva-cl-chev {
   background: var(--eva-hover);
 }
 
-/* Categories: header row, grip, drag states, drop indicator and the inline name field. */
-.eva-cl-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 var(--eva-space-sm) 0 var(--eva-space-md, 12px);
+/* Categories: the compact add action, grip, drag states and inline name field. */
+.eva-cl-new-category {
+  position: absolute;
+  top: calc(var(--eva-space-native-xs) + 2px);
+  right: calc(var(--eva-space-native-xs) + 2px);
+  opacity: 0;
+}
+.eva-cl-agent-wrap:hover .eva-cl-new-category,
+.eva-cl-agent-wrap:focus-within .eva-cl-new-category {
+  opacity: 1;
 }
 .eva-cl-grouprow {
   position: relative;

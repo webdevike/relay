@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ActionIcon, Textarea } from '@mantine/core'
-import { IconArrowUp, IconPhoto, IconPlayerStopFilled } from '@tabler/icons-react'
+import { IconArrowUp, IconPlayerStopFilled, IconPlus } from '@tabler/icons-react'
 import { invoke } from '../ipc'
 import { chatStore, useChatStore } from './chat-store'
 import { WriterPrompt } from './WriterPrompt'
@@ -14,6 +14,7 @@ import {
   type ReadImage,
 } from './composer/image-input'
 import './composer/composer.css'
+import { DISMISS_PRIORITY, useDismissable } from '../hotkeys/dismiss'
 
 type Attached = ReadImage & { id: string }
 
@@ -36,6 +37,7 @@ export function Composer({ paneId, disabled }: { paneId: string; disabled: boole
   const [images, setImages] = useState<Attached[]>([])
   const [notice, setNotice] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
+  const [focused, setFocused] = useState(false)
   /** Set while the shared writer prompt is open: main's message for why it asked. */
   const [writerPrompt, setWriterPrompt] = useState<string | null>(null)
   const dragDepth = useRef(0)
@@ -60,6 +62,10 @@ export function Composer({ paneId, disabled }: { paneId: string; disabled: boole
   const abort = async (): Promise<void> => {
     await invoke('chat.abort', { paneId })
   }
+
+  // The window router handles Escape in capture phase. Claim it ahead of sidebar Back
+  // only while this composer has focus; modal/popover dismissers keep their priority.
+  useDismissable(DISMISS_PRIORITY.subPageBack + 1, () => void abort(), running && focused)
 
   const attach = async (files: File[]): Promise<void> => {
     if (disabled || files.length === 0) return
@@ -183,11 +189,13 @@ export function Composer({ paneId, disabled }: { paneId: string; disabled: boole
           placeholder={
             disabled || stopped
               ? 'Session is not running. Resume it to send a message.'
-              : 'Message Eva'
+              : 'Ask anything, or start with / for a command'
           }
           disabled={disabled}
           value={text}
           onChange={(e) => edit(e.currentTarget.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
           onKeyDown={(e) => {
             if (e.key === 'Escape' && running) {
               e.preventDefault()
@@ -221,14 +229,14 @@ export function Composer({ paneId, disabled }: { paneId: string; disabled: boole
               />
               <ActionIcon
                 className="eva-composer-attach"
-                size="var(--eva-tile-md)"
+                size="var(--eva-kit-control-sm)"
                 variant="subtle"
                 aria-label="Attach image"
                 aria-disabled={disabled || imagesBlocked}
                 disabled={disabled || imagesBlocked}
                 onClick={() => picker.current?.click()}
               >
-                <IconPhoto size={16} />
+                <IconPlus size="calc(var(--eva-font-size) * .875)" />
               </ActionIcon>
             </>
           }
@@ -242,7 +250,7 @@ export function Composer({ paneId, disabled }: { paneId: string; disabled: boole
               aria-label="Stop response"
               onClick={() => void abort()}
             >
-              <IconPlayerStopFilled size={14} />
+              <IconPlayerStopFilled size="calc(var(--eva-font-size) * .75)" />
             </ActionIcon>
           ) : null}
           <ActionIcon
@@ -254,7 +262,7 @@ export function Composer({ paneId, disabled }: { paneId: string; disabled: boole
             disabled={!canSend}
             onClick={() => void send()}
           >
-            <IconArrowUp size={16} />
+            <IconArrowUp size="calc(var(--eva-font-size) * .875)" />
           </ActionIcon>
         </Toolbar>
       </div>

@@ -290,6 +290,20 @@ html[data-eva-motion='off'] .eva-sb-track {
 .eva-sb-title-btn {
   cursor: pointer;
 }
+.eva-sb-page[data-level='chats'] [data-testid='sidebar-back'] {
+  align-self: flex-start;
+  width: auto;
+  height: var(--eva-control-xs);
+  gap: var(--eva-space-xs);
+  padding: 0 var(--eva-space-native-xs) 0 var(--eva-space-xs);
+  color: var(--eva-text-dim);
+}
+.eva-sb-page[data-level='chats'] [data-testid='sidebar-back']:hover {
+  color: var(--eva-chrome-text);
+}
+.eva-sb-page[data-level='chats'] .eva-sb-sub-title {
+  padding-right: 0;
+}
 .eva-env-badge {
   font-family: var(--eva-font-mono);
   font-size: var(--eva-fz-label);

@@ -17,7 +17,6 @@
   min-height: 0;
   display: flex;
   box-sizing: border-box;
-  padding-top: var(--eva-gap);
 }
 
 .eva-sidebar {
@@ -37,10 +36,18 @@
   overflow: hidden;
   min-width: 0;
 }
-.eva-main-card {
+.eva-main-column {
   flex: 1;
+  min-width: 0;
+  min-height: 0;
   margin-left: var(--eva-main-left);
   margin-right: var(--eva-gap);
+  display: flex;
+  flex-direction: column;
+}
+.eva-main-card {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
@@ -55,6 +62,7 @@
   width: var(--eva-panel-w);
   margin-right: var(--eva-gap);
   display: flex;
+  padding-top: var(--eva-gap);
 }
 .eva-panel-wrap[data-open='false'] {
   display: none;
@@ -62,6 +70,7 @@
 .eva-panel-card {
   flex: 1;
   display: flex;
+  flex-direction: column;
 }
 
 /* Native sidebar toggles interpolate both fitted columns and main's left inset together. */
@@ -69,7 +78,7 @@
 .eva-shell[data-sidebar-transition='true'] .eva-panel-wrap {
   transition: width var(--eva-dur-slide) var(--eva-ease-in-out);
 }
-.eva-shell[data-sidebar-transition='true'] .eva-main-card {
+.eva-shell[data-sidebar-transition='true'] .eva-main-column {
   transition: margin-left var(--eva-dur-slide) var(--eva-ease-in-out);
 }
 .eva-shell[data-sidebar-transition='true'] .eva-grip-sidebar {
@@ -81,7 +90,7 @@ body.eva-resizing * {
 }
 body.eva-resizing .eva-sidebar,
 body.eva-resizing .eva-panel-wrap,
-body.eva-resizing .eva-main-card,
+body.eva-resizing .eva-main-column,
 body.eva-resizing .eva-grip-sidebar {
   transition: none !important;
 }
@@ -135,4 +144,49 @@ body.eva-resizing .eva-grip-sidebar {
   flex: 1;
   display: flex;
   justify-content: flex-end;
+}
+
+.eva-main-header,
+.eva-panel-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: var(--eva-chat-header-h);
+  box-sizing: border-box;
+  gap: var(--eva-space-native-sm);
+  padding: 0 var(--eva-space-native-lg);
+  -webkit-app-region: drag;
+}
+.eva-main-header-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-header-btn {
+  flex: none;
+  width: var(--eva-tile-md);
+  height: var(--eva-tile-md);
+  color: var(--eva-c-muted-foreground);
+  -webkit-app-region: no-drag;
+}
+.eva-panel-header {
+  padding-left: var(--eva-space-native-sm);
+  padding-right: var(--eva-space-xs);
+  gap: var(--eva-space-xs);
+  border-bottom: 1px solid var(--eva-c-border);
+}
+.eva-panel-tool {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--eva-space-native-xs);
+  color: var(--eva-c-foreground);
+}
+.eva-panel-tool svg {
+  flex: none;
+  color: var(--eva-c-muted-foreground);
 }

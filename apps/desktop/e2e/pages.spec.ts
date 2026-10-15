@@ -3,8 +3,6 @@ import { test, expect } from './fixtures'
 
 test.use({ startOnChat: false, colorScheme: 'dark' })
 
-const SMALL = '2026-10-01T09-00-00-000Z_small'
-
 type Hooks = {
   __evaosShell: {
     openPlace(p: string, n?: boolean): void
@@ -88,7 +86,10 @@ test('scroll memory, fades and contained overscroll', async ({ shell }) => {
 
 test('chat pane survives tab switches', async ({ shell }) => {
   await shell.evaluate(() => (window as unknown as Hooks).__evaosShell.openChat())
-  await shell.locator(`[data-testid=session-${SMALL}]`).click()
+  await shell.getByTestId('nav-chat').click()
+  await shell.getByTestId('chat-tree').getByRole('treeitem', {
+    name: /^Fixture chat(?:,|$)/,
+  }).click()
   const log = shell.locator('[data-testid=chat-log]')
   await expect(log).toContainText('Please sketch a tiny greeter.')
 

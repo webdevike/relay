@@ -1,15 +1,23 @@
 import { PageRouter } from '../pages/PageRouter'
 import { TabBar } from '../tabs/TabBar'
-import { useTabs } from '../tabs/tabs-store'
+import { activePlace, useTabs } from '../tabs/tabs-store'
+import { MainHeader } from './MainHeader'
 
-/** Tab strip on top; page router below. */
+/** Native main column: draggable tabs above, not inside, the bordered page. */
 export function MainCard() {
   const loaded = useTabs((s) => s.loaded)
-  if (!loaded) return null
+  const isChat = useTabs((s) => activePlace(s).page === 'chat')
   return (
-    <>
-      <TabBar />
-      <PageRouter />
-    </>
+    <div className="eva-main-column" data-testid="main-column">
+      {loaded ? <TabBar /> : null}
+      <section className="eva-card eva-main-card" data-testid="main-card">
+        {loaded ? (
+          <>
+            {isChat ? null : <MainHeader />}
+            <PageRouter />
+          </>
+        ) : null}
+      </section>
+    </div>
   )
 }

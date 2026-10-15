@@ -50,8 +50,7 @@ test('search opens every group, includes archived chats and clears with Escape',
   await proofShot(app, shell, 'chat-search', { phase: 'phase-4' })
 
   await search.fill('zzz')
-  await expect(shell.locator(sel('sidebar-sub-empty'))).toContainText('No chats match "zzz"')
-  await expect(shell.locator(sel('sidebar-sub-empty'))).toContainText('Try a different title.')
+  await expect(shell.locator(sel('chat-tree')).getByRole('treeitem', { level: 2 })).toHaveCount(0)
 
   await shell.keyboard.press('Escape')
   await expect(search).toHaveValue('')

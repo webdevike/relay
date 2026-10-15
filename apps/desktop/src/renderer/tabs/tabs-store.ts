@@ -60,6 +60,8 @@ export const activate = (id: number): void => update((t) => switchTo(t, id))
 export const close = (id: number): void => update((t) => closeTab(t, id))
 export const closeOthersOf = (id: number): void => update((t) => closeOthers(t, id))
 export const togglePinOf = (id: number): void => update((t) => togglePin(t, id))
+export const goBack = (): void => update(back)
+export const goForward = (): void => update(forward)
 
 const SAVE_DELAY = 250
 let started: (() => void) | null = null
@@ -77,8 +79,8 @@ export function startTabs(): () => void {
   const offs = [
     registerAction('new-tab', newChatTab),
     registerAction('close-tab', () => update(closeActive)),
-    registerAction('history-back', () => update(back)),
-    registerAction('history-forward', () => update(forward)),
+    registerAction('history-back', goBack),
+    registerAction('history-forward', goForward),
   ]
 
   let lastSaved = JSON.stringify(saveTabs(tabsStore.getState().tabs))

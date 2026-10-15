@@ -89,7 +89,7 @@ test('implemented chords have real effects', async ({ shell }) => {
   await shell.keyboard.press('Meta+b')
   await expect.poll(() => state(shell)).toBe('open')
 
-  const panelToggle = shell.locator(sel('panel-toggle'))
+  const panelToggle = shell.locator(`${sel('panel-toggle')}:visible`)
   await expect(panelToggle).toHaveAttribute('aria-pressed', 'true')
   await shell.keyboard.press('Meta+Shift+b')
   await expect(panelToggle).toHaveAttribute('aria-pressed', 'false')

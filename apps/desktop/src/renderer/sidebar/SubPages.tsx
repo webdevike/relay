@@ -1,5 +1,5 @@
 import { ActionIcon, Kbd, Tooltip } from '@mantine/core'
-import { IconBell, IconChevronLeft, IconMessage, IconPalette, IconPlus } from '@tabler/icons-react'
+import { IconBell, IconChevronLeft, IconEdit, IconMessage, IconPalette } from '@tabler/icons-react'
 import { useState, type MouseEvent } from 'react'
 import { SETTINGS_SECTIONS, placeOf, type SettingsSection } from '@evaos/shell-core'
 import { openPlace } from '../navigation/navigate'
@@ -31,6 +31,7 @@ export function SubPage({ level }: { level: Exclude<NavLevel, 'root'> }) {
     <div
       className="eva-sb-page"
       data-testid={`sidebar-sub-${level}`}
+      data-level={level}
       role="region"
       aria-label={title}
     >
@@ -70,12 +71,12 @@ export function SubPage({ level }: { level: Exclude<NavLevel, 'root'> }) {
           {level === 'chats' ? (
             <ActionIcon
               variant="subtle"
-              size={28}
+              size="var(--eva-kit-control-sm)"
               aria-label="New chat"
               data-testid="chat-new"
               onClick={newChatTab}
             >
-              <IconPlus size={16} />
+              <IconEdit size="calc(var(--eva-font-size) * .875)" stroke={1.5} />
             </ActionIcon>
           ) : null}
         </div>

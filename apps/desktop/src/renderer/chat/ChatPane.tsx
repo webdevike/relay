@@ -1,9 +1,10 @@
 import './chat.css'
-import { useEffect, useMemo } from 'react'
+import { ActionIcon, Tooltip } from '@mantine/core'
+import { IconLayoutSidebar, IconLayoutSidebarRight } from '@tabler/icons-react'
+import { useEffect, useMemo, useState } from 'react'
 import { ChatLog } from './ChatLog'
 import { Composer } from './Composer'
 import { PendingDialog } from './cards/PendingDialog'
-import { PANE_ID, SessionList } from './SessionList'
 import { JobsStrip } from './strips/JobsStrip'
 import { SubagentChips } from './strips/SubagentChips'
 import { chatStore, hiddenKey, useChatStore } from './chat-store'
@@ -11,7 +12,8 @@ import { createStreamDrain } from './stream-drain'
 import { invoke, on } from '../ipc'
 import { placeOf } from '@evaos/shell-core'
 import { activePlace, replaceActivePlace, useTabs } from '../tabs/tabs-store'
-import { openChatFile, openDraftPane } from './open-chat'
+import { openChatFile, openDraftPane, PANE_ID } from './open-chat'
+import { togglePanel, toggleSidebar, useLayout } from '../shell/layout-store'
 
 declare global {
   interface Window {
@@ -24,6 +26,15 @@ declare global {
 
 export function ChatPane() {
   const pane = useChatStore((s) => s.panes[PANE_ID])
+  const [evaRoot, setEvaRoot] = useState<string | null>(null)
+  const sidebarState = useLayout((s) => s.state)
+  const panelOpen = useLayout((s) => s.panelOpen)
+  const sidebarLabel =
+    sidebarState === 'open'
+      ? 'Hide sidebar'
+      : sidebarState === 'hidden'
+        ? 'Show sidebar'
+        : 'Sidebar hidden to fit the window. Widen the window or close the panel to bring it back.'
   const placeChat = useTabs((s) => {
     const p = activePlace(s)
     return p.page === 'chat' ? p.chat : null
@@ -59,7 +70,10 @@ export function ChatPane() {
   useEffect(() => {
     let e2e = false
     void invoke('app.info', {}).then((r) => {
-      e2e = r.ok && r.value.e2e
+      if (r.ok) {
+        e2e = r.value.e2e
+        setEvaRoot(r.value.evaRoot)
+      }
     })
     const drain = createStreamDrain({
       store: chatStore,
@@ -80,15 +94,29 @@ export function ChatPane() {
   return (
     <main className="eva-chat" data-testid="chat-pane">
       <div className="eva-chat-header" data-testid="chat-header">
+        <Tooltip label={sidebarLabel} position="bottom">
+          <ActionIcon
+            variant="subtle"
+            size="var(--eva-kit-control-sm)"
+            data-testid="sidebar-toggle"
+            aria-label={sidebarLabel}
+            aria-pressed={sidebarState === 'open'}
+            onClick={() => toggleSidebar()}
+          >
+            <IconLayoutSidebar size="calc(var(--eva-font-size) * .875)" stroke={1.5} />
+          </ActionIcon>
+        </Tooltip>
         {pane ? (
           <>
             {pane.running ? (
               <span className="eva-streaming-dot" role="img" aria-label="Eva is replying" />
             ) : null}
-            <h2 className="eva-heading eva-chat-title">{pane.title}</h2>
-            <span className="eva-label eva-dim eva-mono eva-chat-file">
-              {pane.file ? pane.file.split('/').pop() : ''}
-            </span>
+            <h2 className="eva-heading eva-chat-title" title={pane.file || undefined}>
+              {pane.title}
+            </h2>
+            {pane.file && !pane.extras.running && !pane.owner ? (
+              <span className="eva-chat-saved">Saved session</span>
+            ) : null}
             {pane.owner && pane.owner !== PANE_ID && !pane.extras.running ? (
               <span className="eva-label eva-dim eva-chat-owner" data-testid="chat-owner">
                 Owned by another pane
@@ -100,7 +128,22 @@ export function ChatPane() {
               </span>
             ) : null}
           </>
-        ) : null}
+        ) : (
+          <h2 className="eva-heading eva-chat-title">New chat</h2>
+        )}
+        <Tooltip label={panelOpen ? 'Close panel' : 'Open panel'} position="bottom">
+          <ActionIcon
+            variant="subtle"
+            size="var(--eva-kit-control-sm)"
+            className="eva-chat-panel-toggle"
+            data-testid="panel-toggle"
+            aria-label={panelOpen ? 'Close panel' : 'Open panel'}
+            aria-pressed={panelOpen}
+            onClick={() => togglePanel()}
+          >
+            <IconLayoutSidebarRight size="calc(var(--eva-font-size) * .875)" stroke={1.5} />
+          </ActionIcon>
+        </Tooltip>
       </div>
       {pane?.error ? (
         <div className="eva-error-banner" role="alert" data-testid="chat-error">
@@ -116,13 +159,12 @@ export function ChatPane() {
         />
       ) : (
         <div className="eva-chat-empty">
-          <h2 className="eva-heading">No messages yet</h2>
-          <div className="eva-dim">
-            {pane
-              ? 'Type a message to start a new chat, or resume a session.'
-              : 'Resume a session to see its messages here.'}
+          <div className="eva-chat-intro">
+            <h2>What should Eva work on?</h2>
+            {evaRoot ? (
+              <div className="eva-dim">Each chat is an omp session in {evaRoot}.</div>
+            ) : null}
           </div>
-          <SessionList />
         </div>
       )}
       {pane ? (

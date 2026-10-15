@@ -13,10 +13,9 @@ vi.mock('../ipc', () => ({ invoke: (...a: [string, { file: string }]) => invoke(
 vi.mock('@mantine/notifications', () => ({
   notifications: { show: (...a: unknown[]) => show(...a) },
 }))
-vi.mock('./SessionList', () => ({ PANE_ID: 'chat' }))
 
 import { chatStore } from './chat-store'
-import { openChatFile } from './open-chat'
+import { openChatFile, PANE_ID } from './open-chat'
 
 const ok = (title: string) => ({
   ok: true,
@@ -39,7 +38,7 @@ describe('openChatFile', () => {
     const a = openChatFile('/s/a.jsonl')
     pending.get('/s/a.jsonl')!(ok('A'))
     await a
-    expect(chatStore.getState().panes.chat?.file).toBe('/s/a.jsonl')
+    expect(chatStore.getState().panes[PANE_ID]?.file).toBe('/s/a.jsonl')
 
     const b = openChatFile('/s/b.jsonl')
     const again = openChatFile('/s/a.jsonl')
@@ -47,7 +46,7 @@ describe('openChatFile', () => {
     pending.get('/s/b.jsonl')!(ok('B'))
     pending.get('/s/a.jsonl')!(ok('A'))
     await Promise.all([b, again])
-    expect(chatStore.getState().panes.chat?.file).toBe('/s/a.jsonl')
+    expect(chatStore.getState().panes[PANE_ID]?.file).toBe('/s/a.jsonl')
   })
 
   it('surfaces a failed open', async () => {

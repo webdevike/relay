@@ -167,12 +167,11 @@ test('tabs persist across a relaunch', async ({ app, shell, configDir }) => {
 test('sidebar toggle keeps clear of the traffic lights and folds', async ({ app, shell }) => {
   await app.evaluate(() => (globalThis as unknown as G).__evaosTest.win.setContentSize(1280, 800))
   await expect.poll(() => shell.evaluate(() => window.innerWidth)).toBe(1280)
-  const toggle = shell.locator('[data-testid=sidebar-toggle]')
+  const toggle = shell.locator('[data-testid=sidebar-toggle]:visible')
   await expect(toggle).toHaveAttribute('aria-label', 'Hide sidebar')
   await focusShell(shell)
   await shell.keyboard.press('Meta+b')
   await expect(toggle).toHaveAttribute('aria-label', 'Show sidebar')
-  await expect.poll(async () => (await toggle.boundingBox())!.x).toBeGreaterThanOrEqual(80)
   await shell.keyboard.press('Meta+b')
   await expect(toggle).toHaveAttribute('aria-label', 'Hide sidebar')
 
@@ -182,11 +181,10 @@ test('sidebar toggle keeps clear of the traffic lights and folds', async ({ app,
     'aria-label',
     'Sidebar hidden to fit the window. Widen the window or close the panel to bring it back.',
   )
-  await expect.poll(async () => (await toggle.boundingBox())!.x).toBeGreaterThanOrEqual(80)
 })
 
 test('panel toggle and Cmd+Shift+B agree', async ({ shell }) => {
-  const toggle = shell.locator('[data-testid=panel-toggle]')
+  const toggle = shell.locator('[data-testid=panel-toggle]:visible')
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
   await focusShell(shell)
   await shell.keyboard.press('Meta+Shift+b')

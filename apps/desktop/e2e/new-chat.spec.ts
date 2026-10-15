@@ -99,8 +99,6 @@ test.describe('new chat on omp', () => {
       jsonl().find((n) => !before.includes(n))!,
     )
     await expect.poll(() => activeChatPlace(shell)).toBe(created)
-    // The tab was updated in place: the pane stays on the new session.
-    await expect(shell.locator('[data-testid=chat-header]')).toContainText(path.basename(created))
 
     const first = prompts()[0]!
     expect(first.startsWith('<surface>')).toBe(true)

@@ -12,8 +12,6 @@ interface Hooks {
 }
 type W = { __evaosShell?: Hooks }
 
-const SMALL = '2026-10-01T09-00-00-000Z_small'
-
 async function openChatSettings(page: Page, newTab = false): Promise<void> {
   await page.waitForFunction(() => Boolean((window as unknown as W).__evaosShell))
   await page.evaluate(
@@ -40,7 +38,10 @@ test('thinking switch applies live to the open chat and persists in chat.json', 
   shell,
   configDir,
 }) => {
-  await shell.locator(`[data-testid=session-${SMALL}]`).click()
+  await shell.getByTestId('nav-chat').click()
+  await shell.getByTestId('chat-tree').getByRole('treeitem', {
+    name: /^Fixture chat(?:,|$)/,
+  }).click()
   const log = shell.locator('[data-testid=chat-log]')
   await expect(log).toContainText('Please sketch a tiny greeter.')
   // Rust default: thinking is off.

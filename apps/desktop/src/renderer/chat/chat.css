@@ -1,8 +1,12 @@
 .eva-mono {
   font-family: var(--eva-font-mono);
 }
+.eva-chat .eva-chat-header {
+  -webkit-app-region: drag;
+}
 .eva-chat-header .eva-chat-title {
   margin: 0;
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -11,44 +15,50 @@
   font-weight: var(--eva-fw-medium);
   line-height: var(--eva-lh-body);
 }
-.eva-chat-file {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-left: 0;
-  white-space: nowrap;
+.eva-chat-header > button {
+  flex: none;
+  -webkit-app-region: no-drag;
 }
-
-.eva-session-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--eva-space-xs);
-  margin-top: var(--eva-space-lg);
-  width: 100%;
-  max-width: 480px;
+.eva-chat-saved {
+  flex: none;
+  padding: 2px var(--eva-space-native-xs);
+  border-radius: var(--eva-radius-round);
+  background: var(--eva-c-muted-background);
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
 }
-.eva-session-item {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  padding: var(--eva-space-sm) var(--eva-space-md);
-  background: var(--eva-surface);
-  color: var(--eva-text);
-  border: 1px solid var(--eva-border);
-  border-radius: var(--eva-radius);
-  cursor: pointer;
+.eva-chat-panel-toggle {
+  margin-left: auto;
+}
+.eva-chat .eva-chat-empty {
+  min-height: 0;
+  overflow-y: auto;
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: var(--eva-space-native-xs) var(--eva-space-native-lg) var(--eva-space-native-lg);
   text-align: left;
 }
-.eva-session-item:hover {
-  background: var(--eva-surface-2);
+.eva-chat-intro {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--eva-space-native-xs);
+  width: 100%;
+  max-width: var(--eva-chat-column-w);
+  box-sizing: border-box;
+  margin-inline: auto;
+  padding-block: var(--eva-space-xl);
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
+  overflow-wrap: anywhere;
 }
-.eva-session-title,
-.eva-session-file {
+.eva-chat-intro h2 {
   max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  margin: 0;
+  font-size: calc(var(--eva-font-size) * 22 / 14);
+  font-weight: var(--eva-fw-medium);
+  line-height: 1.4;
+  text-align: center;
 }
 
 .eva-log {

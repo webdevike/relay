@@ -61,9 +61,7 @@ export function Shell() {
       <div className="eva-shell-body">
         <SidebarColumn />
         {state === 'open' ? <Grip edge="sidebar" /> : null}
-        <section className="eva-card eva-main-card" data-testid="main-card">
-          <MainCard />
-        </section>
+        <MainCard />
         <PanelCard />
       </div>
       <Footer />

@@ -5,7 +5,6 @@ import type { Page } from '@playwright/test'
 import { test, expect } from './fixtures'
 import { proofShot } from './helpers/proofShot'
 
-const SMALL = '2026-10-01T09-00-00-000Z_small'
 const LOG = path.join(os.tmpdir(), `evaos-fake-omp-images-${process.pid}.log`)
 
 // A 1x1 PNG and a 1x1 GIF.
@@ -63,7 +62,10 @@ test.describe('composer images', () => {
   })
 
   test('paste, drop, remove and send images', async ({ app, shell }) => {
-    await shell.locator(`[data-testid=session-${SMALL}]`).click()
+    await shell.getByTestId('nav-chat').click()
+    await shell.getByTestId('chat-tree').getByRole('treeitem', {
+      name: /^Fixture chat(?:,|$)/,
+    }).click()
     const log = shell.locator('[data-testid=chat-log]')
     await expect(log).toContainText('Please sketch a tiny greeter.')
     const composer = shell.locator('[data-testid=composer]')
