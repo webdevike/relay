@@ -33,7 +33,7 @@ created: 2026-10-15
 
 Scale unchanged (4, 8, 16, 24, 32, 48, 64 as `--eva-space-*`).
 
-Phase 4 constants (multiples of 4 unless marked):
+Phase 4 constants (multiples of 4 unless marked). Non-scale values below (12px padding and chip radius, 20px badge/ring, 28px rows, 36px option rows, 56px text area, 2px lines, 1px rule) are component dimensions, not spacing-scale values.
 
 | Constant | Value | Notes |
 |----------|-------|-------|
@@ -110,6 +110,7 @@ Destructive: `--eva-c-danger-background` used only on the Delete menu item text/
 - List updates within 500 ms of file change; changed rows animate background fade 300ms (none under reduced motion). Scroll position and focus are preserved across updates.
 
 ### Composer (CHTP-06, CHTP-13)
+- Focal point: the chat log is the default focal point; when a question is pending, the pinned question card above the composer is the focal point (it takes the first focus stop after the log).
 - Two-line box: auto-growing textarea above a 32px toolbar. Enter sends, Shift+Enter newline, Cmd+Enter also sends. While the process is streaming, Send becomes `Stop` (square icon) and Enter queues nothing; behavior follows existing `Composer.tsx`.
 - Toolbar left to right: attach image ActionIcon, model picker (`EvaPopover` list, shows current model name, Label 12px, truncated at 160px), access mode picker (segmented popover, label of current mode), omp account selector (visible only on unsent chats; hidden once the first prompt is sent), spacer, context ring (Tooltip: `Context {n}% used`), Send.
 - Image paste and drop: paste of clipboard images and file drop onto composer adds thumbnail chips (48px, remove x button 20px, alt text `Pasted image {n}`). Drop target state: 2px dashed `--eva-c-primary-background` border and overlay text `Drop images to attach`. Non-image files are rejected with an inline notice below the toolbar.
@@ -119,7 +120,7 @@ Destructive: `--eva-c-danger-background` used only on the Delete menu item text/
 - One card per blocked `ask`, rendered in the log flow at the position of the request, and also pinned above the composer while unanswered.
 - Content: question text (Body), then single-choice option rows numbered `1` to `4` with Kbd chip at left. Options beyond four show without hotkeys and are reachable by arrow keys. Selecting an option answers immediately (no separate submit); the card then collapses to a one-line answered summary `Answered: {option}`.
 - Hotkeys: keys `1` to `4` answer while the composer is not focused and no text input has focus; ignored inside terminal and inputs. Arrow Up/Down move focus, Enter selects. Role `radiogroup` with `aria-label` of the question.
-- Extension UI requests: `select` renders as the same card; `confirm` renders two buttons (`Confirm`, `Cancel`); `input` renders TextInput plus `Submit`; `editor` renders a multi-line textarea (min 4 rows, mono) plus `Submit` and `Cancel`. Cancel sends the RPC cancel frame.
+- Extension UI requests: `select` renders as the same card; `confirm` renders two buttons (`Confirm`, `Decline`; initial focus `Decline`); `input` renders TextInput plus `Send answer`; `editor` renders a multi-line textarea (min 4 rows, mono) plus `Send answer` and `Discard input`. `Decline` and `Discard input` send the RPC cancel frame.
 - Unanswerable (process exited): card dims, options disabled, caption `This question can no longer be answered.`
 
 ### Subagent chips and jobs strip (CHTP-09)
@@ -128,7 +129,7 @@ Destructive: `--eva-c-danger-background` used only on the Delete menu item text/
 - Jobs strip: shown only while the omp process runs and at least one job is unfinished. Collapsed row text `{n} background jobs running`, `1 background job running` for one; click expands to rows with job name and elapsed time (tabular). Disappears when the process ends or jobs finish.
 
 ### Shared writer prompt (CHTP-10)
-- Sending into a session owned by another pane or window opens `EvaModal` (400px): title `Chat is open elsewhere`, body `Another pane is writing to this chat. Sending from here may interleave messages.`, buttons `Cancel` and `Send anyway`. Initial focus on `Cancel`. Choice is remembered for that session until the owner changes.
+- Sending into a session owned by another pane or window opens `EvaModal` (400px): title `Chat is open elsewhere`, body `Another pane is writing to this chat. Sending from here may interleave messages.`, buttons `Don't send` and `Send anyway`. Initial focus on `Don't send`. Choice is remembered for that session until the owner changes.
 - A small `Owned by another pane` Label chip appears in the chat header when the owner is not this pane.
 
 ### Settings > Chat (CHTP-07, CHTP-12)
@@ -138,6 +139,9 @@ Destructive: `--eva-c-danger-background` used only on the Delete menu item text/
 ### Inline images and viewer (CHTP-13)
 - Prompt and tool-result images render as thumbnails (cap 240px, preserve aspect ratio, reserve space from known dimensions to avoid log jump). Click or Enter opens the viewer `EvaModal` with Esc/close, left/right arrows between images in the same message, and `Download` not offered. Images carry alt text (`Image {n} of {m}`).
 - Viewer is a Mantine overlay, so `useOccludeBrowser` applies [P2].
+
+### Icon-only aria-labels
+`Attach image`, `Chat actions` (row `...`), `New category`, `Remove image {n}`, `Stop response` (Send button while streaming).
 
 ### Motion and accessibility
 - Transitions 120 to 200ms ease-out; all motion off under `prefers-reduced-motion`.
@@ -152,7 +156,7 @@ Destructive: `--eva-c-danger-background` used only on the Delete menu item text/
 | Element | Copy |
 |---------|------|
 | Primary CTA (sidebar) | `New chat` |
-| Primary CTA (composer) | `Send` (streaming: `Stop`) |
+| Primary CTA (composer) | `Send message` (streaming: `Stop`, aria-label `Stop response`) |
 | Composer placeholder | `Message Eva` |
 | Chat list empty heading | `No chats yet` |
 | Chat list empty body | `Start a new chat to talk with Eva. Your omp sessions appear here.` |
@@ -169,11 +173,15 @@ Destructive: `--eva-c-danger-background` used only on the Delete menu item text/
 | Question dead | `This question can no longer be answered.` |
 | Jobs strip | `{n} background jobs running` / `1 background job running` |
 | Subagent clear | `Clear done` |
-| Writer prompt | title `Chat is open elsewhere`; confirm `Send anyway`; cancel `Cancel` |
+| Writer prompt | title `Chat is open elsewhere`; confirm `Send anyway`; cancel `Don't send` (initial focus) |
 | Drop overlay | `Drop images to attach` |
-| Destructive: Delete chat | title `Delete this chat?`; body `This removes the session file for "{title}". This cannot be undone.`; buttons `Delete chat` (danger) and `Cancel` (initial focus) |
-| Destructive: Delete category | title `Delete category "{name}"?`; body `Chats in it return to their workspace group. No chats are deleted.`; buttons `Delete category` and `Cancel` |
+| Destructive: Delete chat | title `Delete this chat?`; body `This removes the session file for "{title}". This cannot be undone.`; buttons `Delete chat` (danger) and `Keep chat` (initial focus) |
+| Destructive: Delete category | title `Delete category "{name}"?`; body `Chats in it return to their workspace group. No chats are deleted.`; buttons `Delete category` and `Keep category` (initial focus) |
 | Archive | no confirmation; toast `Chat archived` with `Undo` action (6s) |
+| Extension UI: confirm | buttons `Confirm` / `Decline` (initial focus `Decline`) |
+| Extension UI: input | button `Send answer` |
+| Extension UI: editor | buttons `Send answer` / `Discard input` (initial focus on textarea) |
+| Icon aria-labels | `Attach image`, `Chat actions`, `New category`, `Remove image {n}`, `Stop response` |
 | Settings labels | `Show thinking`, `Show tool details`, `Harness`, helper `Applies to new chats.` |
 
 ---
