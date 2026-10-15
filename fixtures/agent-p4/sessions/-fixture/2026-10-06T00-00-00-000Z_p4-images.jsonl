@@ -1,0 +1,5 @@
+{"type":"title","v":1,"title":"Image prompt","updatedAt":1791194400000}
+{"type":"session","version":3,"id":"p4-images","timestamp":"2026-10-06T00:00:00.000Z","cwd":"/fixture/eva-root"}
+{"type":"message","id":"u1","parentId":null,"message":{"role":"user","content":"Hello from p4-images","attribution":"user"}}
+{"type":"message","id":"a1","parentId":"u1","message":{"role":"assistant","provider":"anthropic","model":"claude-opus-5-5","content":[{"type":"text","text":"Reply for Image prompt."}],"stopReason":"stop"}}
+{"type":"message","id":"ui1","parentId":"a1","message":{"role":"user","content":[{"type":"text","text":"Look at these two images"},{"type":"image","data":"iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR4nGO4Y2ODFTEMLQkAXrdVAdmuFfUAAAAASUVORK5CYII=","mimeType":"image/png"},{"type":"image","data":"blob:sha256:838a858911cb1fd05d04c22c419a7b08403fb93a1ba6f0830426a8b7bb449091","mimeType":"image/png"}],"attribution":"user"}}
