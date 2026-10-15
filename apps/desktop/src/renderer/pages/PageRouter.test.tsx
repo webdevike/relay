@@ -9,6 +9,9 @@ vi.mock('../ipc', () => ({
 vi.mock('../chat/ChatPane', () => ({
   ChatPane: () => <main data-testid="chat-pane">chat</main>,
 }))
+vi.mock('../dashboard/DashboardPage', () => ({
+  DashboardPage: () => <div data-testid="page-dashboard">dash</div>,
+}))
 const scrollAreaProps = vi.fn()
 vi.mock('../ui/ScrollArea', () => ({
   ScrollArea: (p: { children: React.ReactNode; scrollKey?: string; 'data-testid'?: string }) => {
@@ -54,6 +57,20 @@ describe('PageRouter', () => {
     go(placeOf('tasks'))
     expect(screen.getByTestId('page-tasks')).toBeInTheDocument()
     expect(screen.queryByTestId('page-inbox')).toBeNull()
+  })
+
+  it('dispatches kind page by slug: dashboard page, placeholders for the rest', () => {
+    go(placeOf('dashboard'))
+    const { unmount } = ui()
+    expect(screen.getByTestId('page-dashboard')).toHaveTextContent('dash')
+    unmount()
+    for (const slug of ['calendar', 'tasks', 'memory', 'files', 'help'] as const) {
+      go(placeOf(slug))
+      const r = ui()
+      expect(screen.getByTestId(`page-${slug}`)).toBeInTheDocument()
+      expect(screen.queryByText('dash')).toBeNull()
+      r.unmount()
+    }
   })
 
   it('keeps the chat pane mounted and hidden off the chat place', () => {
