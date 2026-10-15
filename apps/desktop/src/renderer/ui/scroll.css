@@ -1,0 +1,39 @@
+.eva-scroll {
+  position: relative;
+  min-height: 0;
+}
+.eva-scroll-viewport {
+  overscroll-behavior: contain;
+}
+.eva-scroll-scrollbar {
+  background: transparent;
+}
+.eva-scroll-thumb::before {
+  background: var(--eva-scroll-thumb, var(--eva-border));
+  border-radius: 999px;
+}
+.eva-scroll-scrollbar:hover .eva-scroll-thumb::before {
+  background: var(--eva-scroll-thumb-hover, var(--eva-text-dim));
+}
+.eva-scroll-fade {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 16px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms;
+  z-index: 1;
+}
+.eva-scroll-fade-top {
+  top: 0;
+  background: linear-gradient(to bottom, var(--eva-scroll-fade-bg, var(--eva-bg)), transparent);
+}
+.eva-scroll-fade-bottom {
+  bottom: 0;
+  background: linear-gradient(to top, var(--eva-scroll-fade-bg, var(--eva-bg)), transparent);
+}
+.eva-scroll[data-fade-top='true'] .eva-scroll-fade-top,
+.eva-scroll[data-fade-bottom='true'] .eva-scroll-fade-bottom {
+  opacity: 1;
+}

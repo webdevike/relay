@@ -136,7 +136,20 @@ test('tabs: create, switch, close, target=_blank, last tab, hotkeys from the gue
     app,
     'window.__kd = 0; document.addEventListener("keydown", () => { window.__kd++ }); 0',
   )
+  // cmd+t is the global new-tab action now (02-06): it reaches the router from the guest.
   await sendKey(app, 't', ['meta'])
+  await expect
+    .poll(() =>
+      shell.evaluate(() =>
+        (
+          (window as unknown as { __evaosHotkeys?: Array<{ chord: string; action: string }> })
+            .__evaosHotkeys ?? []
+        ).some((h) => h.chord === 'cmd+t' && h.action === 'new-tab'),
+      ),
+    )
+    .toBe(true)
+  // Browser subtabs are added with the panel + button.
+  await shell.locator('[data-testid=tab-new]').click()
   await expect.poll(() => tabCount(shell)).toBe(2)
   await shell.locator('[data-testid^=tab-t]').first().click()
   await sendKey(app, 'l', ['meta'])

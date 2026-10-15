@@ -4,6 +4,7 @@ import { PANEL_MAX, PANEL_MIN, PanelDivider } from './PanelDivider'
 import { ChatPane } from '../chat/ChatPane'
 import { BrowserPanel } from '../browser/BrowserPanel'
 import { startHotkeyRouter } from '../hotkeys/router'
+import { startQuitBridge } from '../dirty/quit-bridge'
 import { initE2e } from '../hotkeys/e2e-hooks'
 import { TestOverlay, useTestOverlayOpener } from '../overlay/TestOverlay'
 
@@ -16,9 +17,13 @@ export function App() {
   const [overlayOpen, setOverlayOpen] = useState(false)
   useTestOverlayOpener(() => setOverlayOpen(true))
   useEffect(() => {
-    const stop = startHotkeyRouter()
+    const stopRouter = startHotkeyRouter()
+    const stopQuit = startQuitBridge()
     void initE2e()
-    return stop
+    return () => {
+      stopRouter()
+      stopQuit()
+    }
   }, [])
   useEffect(() => {
     const on = (): void => setWinW(window.innerWidth)

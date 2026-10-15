@@ -153,7 +153,10 @@ test('browser panel: navigate, history, bounds, overlay, hardening, errors', asy
   await expect(shell.locator('[data-testid=overlay-test]')).toBeVisible()
   await expect(shell.getByText('Test overlay', { exact: true }).last()).toBeVisible()
   await expect.poll(async () => (await activeInfo(app)).visible).toBe(false)
-  await shell.getByRole('button', { name: 'Close', exact: true }).click()
+  await shell
+    .getByTestId('overlay-test')
+    .getByRole('button', { name: 'Close', exact: true })
+    .click()
   await expect.poll(async () => (await activeInfo(app)).visible).toBe(true)
   const after = (await activeInfo(app)).bounds
   expect(after).toEqual(before)
