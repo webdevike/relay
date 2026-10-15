@@ -62,9 +62,9 @@ Display: 119.97 Hz.
 - Pills per UI-SPEC with a 120 ms fade disabled under reduced motion; never both at once.
 
 ## Task Commits
-1. Failing chat control e2e: `15c6fd0` (see git log for the exact hash)
-2. Abort, steer, close and quit lifecycle: see `feat(01-06): abort, steer, close and quit lifecycle`
-3. Pin, pills and benchmark: see `feat(01-06): pin-to-bottom, Jump to latest and New reply pills`
+1. Failing chat control e2e: `68a73eb`
+2. Abort, steer, close and quit lifecycle: `eb56203`
+3. Pin, pills and benchmark: `e8c0bd1`
 
 ## Deviations from Plan
 
@@ -79,8 +79,6 @@ Display: 119.97 Hz.
 **5. onBeforeQuit registration moved** from `live-ipc.ts` to `chat/index.ts` to match the plan's grep acceptance.
 
 **6. Profiler p95 recorded as null**: production React skips Profiler callbacks; the Profiler hook stays for dev and profiling builds.
-
-**7. `state.record-metric` / `state.add-decision`**: see Self-Check notes below if they errored.
 
 ## Known Stubs
 None for this plan. Jump and New reply appear only while unpinned; a send while unpinned does not re-pin (matches the plan, not specified by Rust either).
