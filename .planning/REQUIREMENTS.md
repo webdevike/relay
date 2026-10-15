@@ -77,7 +77,7 @@ Requirements for the parity milestone. Each maps to roadmap phases. The source o
 - [ ] **CHTP-10**: Sending into a session another writer owns prompts first, and a shared writer registry tracks which pane owns which session
 - [ ] **CHTP-11**: Prompts carry the `<surface><machine> - EvaOS</surface>` tag as the README describes
 - [x] **CHTP-12**: User can choose the Claude Code harness in Settings › Chat and chats then run through that bridge
-- [ ] **CHTP-13**: Inline images in prompts and tool results render in the chat with an image viewer
+- [x] **CHTP-13**: Inline images in prompts and tool results render in the chat with an image viewer
 - [ ] **CHTP-14**: Starting a new chat works through the transport the chat plan's ADR selects (direct omp child or herdr plus Relay), and the choice is recorded in PROJECT.md
 
 ### Rich Replies
@@ -243,7 +243,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CHTP-10 | Phase 4 | Pending |
 | CHTP-11 | Phase 4 | Pending |
 | CHTP-12 | Phase 4 | Complete |
-| CHTP-13 | Phase 4 | Pending |
+| CHTP-13 | Phase 4 | Complete |
 | CHTP-14 | Phase 4 | Pending |
 | RICH-01 | Phase 5 | Pending |
 | RICH-02 | Phase 5 | Pending |
