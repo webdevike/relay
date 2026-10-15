@@ -91,6 +91,16 @@ describe('TabBar', () => {
     expect(screen.getByTestId('tab-menu-close-others')).not.toHaveAttribute('data-disabled')
   })
 
+  it('Close tab is disabled for a pinned tab', async () => {
+    seed([tab(0, 'inbox', true), tab(1, 'jobs')], 1)
+    ui()
+    fireEvent.contextMenu(screen.getByTestId('tab-pinned-0'))
+    await screen.findByTestId('tab-menu')
+    expect(screen.getByTestId('tab-menu-close')).toHaveAttribute('data-disabled', 'true')
+    fireEvent.click(screen.getByTestId('tab-menu-close'))
+    expect(tabsStore.getState().tabs.list).toHaveLength(2)
+  })
+
   it('Close others is disabled when no other unpinned tab exists', async () => {
     seed([tab(0, 'inbox', true), tab(1, 'jobs')], 1)
     ui()

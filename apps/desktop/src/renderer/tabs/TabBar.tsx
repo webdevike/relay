@@ -237,6 +237,7 @@ export function TabBar() {
               <EvaMenu.Item
                 data-testid="tab-menu-close"
                 leftSection={<IconX size={16} stroke={1.5} />}
+                disabled={menuTab.pinned}
                 onClick={() => close(menuTab.id)}
               >
                 Close tab
