@@ -1,0 +1,85 @@
+import * as fs from 'node:fs'
+import * as path from 'node:path'
+import type { Page } from '@playwright/test'
+import { test as base, expect } from './fixtures'
+import { makeChatFixture, type ChatFixture } from './helpers/chat-fixture'
+import { proofShot } from './helpers/proofShot'
+import { proofOutDir } from './helpers/metrics'
+
+// The window is never focused by this spec: the list must follow files on its own.
+let fx: ChatFixture
+const test = base.extend({
+  launchEnv: async ({}, use) => {
+    fx = makeChatFixture()
+    await use({ ...fx.launchEnv, FAKE_OMP_DELAY_MS: '5' })
+    fx.cleanup()
+  },
+})
+
+const sel = (id: string): string => `[data-testid="${id}"]`
+const openChats = async (shell: Page): Promise<void> => {
+  await shell.locator(sel('nav-chat')).click()
+  await shell.waitForSelector('[role=tree]')
+}
+
+/** Resolves with the page-side Date.now() at which the selector first matched (polled every 25 ms). */
+const appearedAt = (shell: Page, selector: string, present = true): Promise<number> =>
+  shell
+    .waitForFunction(
+      ([s, want]) => (document.querySelector(s as string) !== null) === want,
+      [selector, present] as const,
+      { polling: 25, timeout: 5000 },
+    )
+    .then(() => shell.evaluate(() => Date.now()))
+
+test('new, appended and deleted session files update the list within 500 ms', async ({
+  shell,
+}) => {
+  await openChats(shell)
+  const latencies: number[] = []
+  for (let i = 0; i < 3; i++) {
+    const id = `p4-copy${i}`
+    const dest = path.join(fx.sessionsDir, `2026-10-05T23-0${i}-00-000Z_${id}.jsonl`)
+    const started = Date.now()
+    fs.copyFileSync(fx.file('p4-other1'), dest)
+    const seen = await appearedAt(shell, sel(`chat-row-${id}`))
+    latencies.push(seen - started)
+  }
+  const dir = proofOutDir('phase-4')
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(
+    path.join(dir, 'chat-watch-latency.json'),
+    JSON.stringify({ budgetMs: 500, trialsMs: latencies }, null, 2) + '\n',
+  )
+  expect(latencies.filter((l) => l < 500).length).toBeGreaterThanOrEqual(2)
+
+  // A write through a descriptor the writer keeps open (what omp does).
+  const row = shell.locator(sel('chat-row-p4-other3'))
+  await expect(row).toContainText('Grocery list 3')
+  const title = JSON.stringify({ type: 'title', title: 'Renamed while open' })
+  const t0 = Date.now()
+  const pending = fx.append('p4-other3', title, { holdOpen: true })
+  await expect(row).toContainText('Renamed while open', { timeout: 1000 })
+  expect(Date.now() - t0).toBeLessThan(1500)
+  await pending
+
+  // Delete a copy.
+  fs.rmSync(path.join(fx.sessionsDir, '2026-10-05T23-00-00-000Z_p4-copy0.jsonl'))
+  await appearedAt(shell, sel('chat-row-p4-copy0'), false)
+})
+
+test('background jobs show Job; owned sessions show Working then Open', async ({ app, shell }) => {
+  await openChats(shell)
+  await expect(shell.locator(sel('chat-row-p4-jobs'))).toContainText('Job')
+
+  await shell.locator(sel('chat-row-p4-ecard')).click()
+  await expect(shell.locator(sel('chat-log'))).toContainText('Hello from p4-ecard')
+  const box = shell.locator(sel('composer-input'))
+  await box.fill('[slow] hi')
+  await box.press('Enter')
+  const row = shell.locator(sel('chat-row-p4-ecard'))
+  await expect(row).toContainText('Working')
+  await proofShot(app, shell, 'chat-status', { phase: 'phase-4' })
+  await expect(row).not.toContainText('Working', { timeout: 15_000 })
+  await expect(row.locator('[data-status="open"]')).toHaveCount(1)
+})
