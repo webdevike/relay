@@ -84,7 +84,7 @@ test('every fixture session appears: tree rows plus hidden plus archived', async
   // 17 sessions: 1 archived stays behind its toggle.
   expect(rows).toBe(16)
   const archived = shell.locator(sel('chat-archived-toggle'))
-  await expect(archived).toContainText('1')
+  await expect(archived).toContainText('Archived (1)')
   await archived.click()
   await expect(shell.locator(sel('chat-row-p4-archived'))).toBeVisible()
 })

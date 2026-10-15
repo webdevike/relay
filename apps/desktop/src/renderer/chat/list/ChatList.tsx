@@ -13,8 +13,23 @@ import { listStore, useListStore } from './list-store'
 const EMPTY_HEADING = 'No chats yet'
 const EMPTY_BODY = 'Start a new chat to talk with Eva. Your omp sessions appear here.'
 
-export function ChatList({ query: _query }: { query: string }) {
-  // Search filtering ships with the search plan; browse mode is all this slice renders.
+const DEBOUNCE_MS = 100
+
+function useDebounced(value: string): string {
+  const [v, setV] = useState(value)
+  useEffect(() => {
+    if (value === '') {
+      setV('')
+      return
+    }
+    const t = setTimeout(() => setV(value), DEBOUNCE_MS)
+    return () => clearTimeout(t)
+  }, [value])
+  return v
+}
+
+export function ChatList({ query: rawQuery }: { query: string }) {
+  const query = useDebounced(rawQuery)
   const list = useListStore((s) => s.list)
   const error = useListStore((s) => s.error)
   const expanded = useListStore((s) => s.expanded)
@@ -23,7 +38,7 @@ export function ChatList({ query: _query }: { query: string }) {
     const p = activePlace(s)
     return p.page === 'chat' ? p.chat : null
   })
-  const [archivedOpen, setArchivedOpen] = useState(false)
+  const archivedOpen = useListStore((s) => s.showArchived)
 
   useEffect(() => {
     void listStore.getState().load()
@@ -33,12 +48,12 @@ export function ChatList({ query: _query }: { query: string }) {
     () =>
       list
         ? groupChats(list.rows, Categories.fromPrefs(list.prefs), {
-            query: '',
+            query,
             collapsed,
             expanded,
           })
         : null,
-    [list, collapsed, expanded],
+    [list, collapsed, expanded, query],
   )
 
   const open = (row: Row, e: MouseEvent): void =>
@@ -71,6 +86,15 @@ export function ChatList({ query: _query }: { query: string }) {
     )
   }
 
+  if (view.searching && view.pinned.length === 0 && view.groups.length === 0) {
+    return (
+      <div className="eva-sb-empty" data-testid="sidebar-sub-empty">
+        <div className="eva-cl-empty-heading">{`No chats match "${query.trim()}"`}</div>
+        <div className="eva-dim">Try a different title.</div>
+      </div>
+    )
+  }
+
   return (
     <div role="tree" aria-label="Chats" className="eva-cl" data-testid="chat-tree">
       {view.pinned.length > 0 ? (
@@ -94,7 +118,7 @@ export function ChatList({ query: _query }: { query: string }) {
             total={g.total}
             runningCount={g.runningCount}
             collapsed={g.collapsed}
-            onToggle={() => listStore.getState().toggleCollapsed(g.name)}
+            onToggle={() => void listStore.getState().toggleCollapsed(g.name)}
           />
           {g.collapsed ? null : (
             <div role="group" className="eva-cl-rows">
@@ -124,10 +148,9 @@ export function ChatList({ query: _query }: { query: string }) {
             className="eva-cl-group"
             data-testid="chat-archived-toggle"
             aria-expanded={archivedOpen}
-            onClick={() => setArchivedOpen((o) => !o)}
+            onClick={() => listStore.getState().toggleArchived()}
           >
-            <span className="eva-cl-group-name">Archived</span>
-            <span className="eva-cl-badge">{view.archived.length}</span>
+            <span className="eva-cl-group-name">{`Archived (${view.archived.length})`}</span>
           </button>
           {archivedOpen ? (
             <div role="group" className="eva-cl-rows">

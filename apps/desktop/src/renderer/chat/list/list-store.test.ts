@@ -75,9 +75,34 @@ describe('list-store', () => {
     expect(listStore.getState().expanded.has('Other')).toBe(false)
   })
 
-  it('setList keeps local collapse state after the first list', () => {
+  it('toggleCollapsed updates at once and saves the full set', async () => {
+    invoke.mockResolvedValue({ ok: true, value: { saved: true } })
     listStore.getState().setList(value(1))
-    listStore.getState().toggleCollapsed('eCard')
+    const p = listStore.getState().toggleCollapsed('Other')
+    expect(listStore.getState().collapsed.has('Other')).toBe(true)
+    await p
+    expect(invoke).toHaveBeenCalledWith('chat.setCollapsed', { groups: ['eCard', 'Other'] })
+  })
+
+  it('toggleCollapsed rolls back when the save fails', async () => {
+    invoke.mockResolvedValue({ ok: false, error: { code: 'x', message: 'boom' } })
+    listStore.getState().setList(value(1))
+    await listStore.getState().toggleCollapsed('Other')
+    expect(listStore.getState().collapsed.has('Other')).toBe(false)
+    expect(listStore.getState().collapsed.has('eCard')).toBe(true)
+  })
+
+  it('toggleArchived flips showArchived', () => {
+    listStore.getState().toggleArchived()
+    expect(listStore.getState().showArchived).toBe(true)
+    listStore.getState().toggleArchived()
+    expect(listStore.getState().showArchived).toBe(false)
+  })
+
+  it('setList keeps local collapse state after the first list', () => {
+    invoke.mockResolvedValue({ ok: true, value: { saved: true } })
+    listStore.getState().setList(value(1))
+    void listStore.getState().toggleCollapsed('eCard')
     listStore.getState().setList({ ...value(1), prefs: { ...prefs, collapsed_groups: ['Other'] } })
     expect(listStore.getState().collapsed.has('eCard')).toBe(false)
   })

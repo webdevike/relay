@@ -169,3 +169,8 @@ html[data-eva-motion='off'] .eva-cl-chev {
   font-weight: var(--eva-fw-semibold);
   margin-bottom: var(--eva-space-xs);
 }
+@media (prefers-reduced-motion: reduce) {
+  .eva-cl-chev {
+    transition: none;
+  }
+}
