@@ -13,8 +13,12 @@ interface TestGlobal {
 const g = globalThis as unknown as { __evaosTest?: TestGlobal }
 const providers: Array<() => WebContentsView[]> = []
 
+const pendingHooks: Record<string, unknown> = {}
+
+/** Hooks registered before installTestHooks runs (e.g. the write guard) are kept and attached later. */
 export function registerTestHook(name: string, value: unknown): void {
   if (g.__evaosTest) g.__evaosTest.hooks[name] = value
+  else pendingHooks[name] = value
 }
 
 export function registerViewProvider(fn: () => WebContentsView[]): void {
@@ -30,7 +34,7 @@ export function installTestHooks(ctx: MainContext): void {
     shell: ctx.shell,
     errors,
     extraViews: [],
-    hooks: {},
+    hooks: { ...pendingHooks },
     views: () => [...t.extraViews, ...providers.flatMap((p) => p())],
   }
   g.__evaosTest = t
