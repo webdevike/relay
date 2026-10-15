@@ -33,7 +33,7 @@ created: 2026-10-15
 
 Unchanged: xs 4, sm 8, md 16, lg 24, xl 32, 2xl 48, 3xl 64 (`--eva-space-*`). Page content column is centered, `max-width: 1120px` (Dashboard, Jobs, Habits, Workspace), `padding: var(--eva-space-lg)`; section gap 24; card inner padding 16; card-to-card gap 16 (wide) and 8 (compact); label-to-control gap 4; row padding 12 by 16 is NOT used, rows use `padding: 8px 16px`.
 
-Exceptions (layout constants, all multiples of 4):
+Exceptions (layout constants, all multiples of 4): the values below are not spacing tokens; each is a declared layout constant (component or breakpoint geometry) that stays on the 4-point grid, so they are intentional and not ad hoc spacing.
 
 | Constant | Value | Notes |
 |----------|-------|-------|
@@ -85,12 +85,13 @@ Roles are inherited from Phase 2 (dominant `--eva-c-background`, secondary `--ev
 | Warning | `--eva-c-warning-background` | Job run state "failed or stale" dot, "Time's up" countdown strip, changed-on-disk banner |
 | Destructive | `--eva-c-danger-background` | Delete job and Remove habit confirm buttons, inline validation errors (text uses `foreground`, red bar or icon carries the color), Override button outline |
 
-Accent reserved for (exhaustive for Phase 3, in addition to the Phase 2 list):
-1. Primary buttons: "New Todo" (hero and modal submit "Add todo"), "New job" / "Create job" / "Save", "Add habit", "Start" and "Done" on the gate overlay, "Accept" on a meeting proposal. At most one accent button per visible surface.
-2. Selected filter chip (All / Active / Has Todos / Quiet) and selected chart range segment (7D / 30D / 90D): selected uses `--eva-c-tab-active-background` and weight 600, not accent (matches Appearance control). Accent is NOT used for these.
-3. Current-day bar and the series line stroke in the Recent Workspaces chart (one series per workspace card, line and current-week hatch use accent at 100% and 35% respectively; past bars use `--eva-c-muted-foreground` at 40%).
-4. Active Switch track when a job or habit is enabled (P2 rule 5 extended).
-5. Gate overlay countdown ring or bar fill.
+Accent reserved for (exhaustive for Phase 3, in addition to the Phase 2 list; the list is numbered 1 to 4 below):
+1. Primary buttons: "New Todo" (hero and modal submit "Add todo"), "New job" / "Create job" / "Save job", "Add habit" / "Save habit", "Start break" and "Mark break done" on the gate overlay, "Accept todo" on a meeting proposal. At most one accent button per visible surface.
+2. Current-day bar and the series line stroke in the Recent Workspaces chart (one series per workspace card, line and current-week hatch use accent at 100% and 35% respectively; past bars use `--eva-c-muted-foreground` at 40%).
+3. Active Switch track when a job or habit is enabled (P2 rule 5 extended).
+4. Gate overlay countdown ring or bar fill.
+
+Note (not accent): the selected filter chip (All / Active / Has Todos / Quiet) and the selected chart range segment (7D / 30D / 90D) use `--eva-c-tab-active-background` and weight 600, matching the Appearance control. Accent is NOT used for these.
 
 Never accent: card titles, icons in rows, borders, hover fills, count badges, links in body text (links use `foreground` with underline on hover).
 
@@ -154,13 +155,13 @@ Missing workspace (deleted while open): centered state "Workspace not found" (He
 
 ### New Todo modal (`EvaModal`, width 480, `data-testid="new-todo-modal"`)
 
-Triggers: `⌘N` (action `new-todo`, global scope; ignored when another overlay is open or a text input in a modal has focus), hero button, workspace page button, and the top bar (a `+` is NOT added to the Phase 2 tab strip; "top bar" in DASH-07 is satisfied by the hero action row and `⌘N`; [auto]).
+Triggers: `⌘N` (action `new-todo`, global scope; ignored when another overlay is open or a text input in a modal has focus), hero button, workspace page button, and the top bar. Accepted decision: the hero button and `⌘N` satisfy the "top bar" trigger in DASH-07; no `+` button is added to the Phase 2 tab strip [auto].
 
 Fields, gap 16:
 - "Workspace" `Select` (searchable, `data-testid="new-todo-workspace"`), options all workspaces plus "Eva"; preselected from context (workspace page) else last used else Eva.
 - "Todo" `Textarea` autosize 2 to 5 rows, `data-testid="new-todo-text"`, placeholder "What needs doing", required, trimmed, single logical line (newlines are collapsed to a space on submit with an inline hint "Line breaks become spaces." shown only when pasted text had them).
 - Preview line (Label 12 dim, mono): `T{next} [{workspace}] {text} (added {YYYY-MM-DD})`, updated live; shows exactly the row that will be appended; `data-testid="new-todo-preview"`.
-- Footer: secondary "Cancel", primary "Add todo" (disabled until text is non-empty; `Kbd` "⌘↵" submits from the textarea).
+- Footer: secondary "Discard todo", primary "Add todo" (disabled until text is non-empty; `Kbd` "⌘↵" submits from the textarea).
 Behavior: submit calls the `EvaFs` append-after-last-open-row writer; the modal shows "Adding" on the button while pending. On success: close, toast "Added T{n} to {workspace}." (success accent bar), reload the dashboard data, focus returns to the trigger. On changed-file refusal or write failure: the modal stays open, inline error (danger icon + text, `role="alert"`): "Could not add the todo. memory/todos.md changed while you were typing or could not be written. Review the preview and try again." and the preview re-reads the next id.
 
 ### Jobs page (`page-jobs`)
@@ -183,7 +184,7 @@ Empty: icon tile + "No jobs yet" (Heading 16) + "Create a job to have Eva run st
 - "Max run" duration text input, validation same duration copy; "Keep" integer input ("Keep the last {n} runs"), validation "Keep must be a whole number of 1 or more."
 - "Enabled" Switch row.
 - "Steps" `Textarea` (mono, autosize 6 to 16 rows, `data-testid="job-steps"`), the body of `job.md`.
-- Footer left: "Run now" (tooltip "Starts job-run.ts now; the saved job.md is what runs"), "Open last session" (disabled with tooltip "No run yet" when none), "Delete" (danger outline, edit mode only). Footer right: "Cancel", primary "Create job" (create) or "Save". Save is disabled until valid and dirty; the form registers with the dirty registry so quit guard lists "Job {name}".
+- Footer left: "Run now" (tooltip "Starts job-run.ts now; the saved job.md is what runs"), "Open last session" (disabled with tooltip "No run yet" when none), "Delete" (danger outline, edit mode only). Footer right: "Discard changes", primary "Create job" (create) or "Save job". "Save job" is disabled until valid and dirty; the form registers with the dirty registry so quit guard lists "Job {name}".
 - Delete confirmation: inline confirm panel replaces the footer (not a second modal): "Delete jobs/{name} and everything in it?" with "Keep" (default focus) and danger "Delete job". Body copy under it (Label 12 dim): "This removes the folder from the Eva repo. Running processes are not stopped."
 - Changed-on-disk refusal: warning banner at the top of the form (`role="alert"`, warning left bar, `foreground` text): "jobs/{name}/job.md changed on disk since you opened it. Your edits were not saved." with buttons "Reload from disk" and "Keep editing". Save stays disabled until one is chosen.
 - Success toasts (from Rust): "Saved jobs/{name}/job.md.", "Started {name}.", "Deleted jobs/{name}.". Run now spawn failure: "Could not start {name}. Check that bun is installed and try again."
@@ -198,9 +199,9 @@ Sections (each: section title Heading 16 with icon, then a card):
 3. **Today's breaks** (`IconClock`): rows 36 with state icon: `IconCircleCheck` + "Done" (success), `IconClock` + "Upcoming" (dim); time, habit name, "Task" badge when a task, overridden rows show "Overridden: {reason}". Empty: "No breaks planned for today yet."
 4. **History** (`IconClock`): rows 36 grouped by day ("Today", "Yesterday", "Sep 14"), entry name, time, "Task" badge, proof photo `ActionIcon` (`IconPhoto`, tooltip "Open the proof photo", opens through `shell.openPath`). Empty: "Nothing finished yet."
 
-Habit form (`EvaModal`, width 480, title "New habit" or the habit name): "Name" (placeholder "Stretch", validation "Give the habit a name."), "Minutes" (validation as above), "Photo proof" Switch row ("Ask for a photo when this break is done"). Footer: "Cancel", "Remove" (danger outline, edit only), primary "Add habit" or "Save". Remove confirmation inline like jobs: "Remove {title}? Its history stays." with "Keep" and danger "Remove habit". Success toast "Saved {name}." Edits run the habit-gate CLI; a CLI failure shows inline `role="alert"`: "The habit gate did not accept that change: {stderr first line}. Fix it and try again."
+Habit form (`EvaModal`, width 480, title "New habit" or the habit name): "Name" (placeholder "Stretch", validation "Give the habit a name."), "Minutes" (validation as above), "Photo proof" Switch row ("Ask for a photo when this break is done"). Footer: "Discard changes", "Remove" (danger outline, edit only), primary "Add habit" or "Save habit". Remove confirmation inline like jobs: "Remove {title}? Its history stays." with "Keep" and danger "Remove habit". Success toast "Saved {name}." Edits run the habit-gate CLI; a CLI failure shows inline `role="alert"`: "Could not save the habit change. The habit gate said: {first stderr line}. Fix it and try again."
 
-States: loading "Loading habits"; read error (card with retry): "Couldn't read the habit gate" body "Check that .omp/tools/habit-gate.ts runs in the Eva repo, then try again." with button "Try again". Polling every 4 s while the window is visible updates content in place with no spinner and no scroll jump; a stale-error (previous data kept, latest poll failed) shows a small Label 12 dim "Showing the last status. Retrying." under the strip.
+States: loading "Loading habits"; read error (card with retry): "Could not read the habit gate" body "Check that .omp/tools/habit-gate.ts runs in the Eva repo, then try again." with button "Try again". Polling every 4 s while the window is visible updates content in place with no spinner and no scroll jump; a stale-error (previous data kept, latest poll failed) shows a small Label 12 dim "Showing the last status. Retrying." under the strip.
 
 ### Gate overlay (HABT-03, `data-testid="gate-overlay"`)
 
@@ -209,9 +210,9 @@ Mounted at the shell root (above everything, `z-index: 400`, above overlay wrapp
 Surface: near-opaque (see Color), content column `max-width: 480px`, centered vertically and horizontally, gap 16, text left aligned:
 - Icon tile 48 with `IconLock`; heading "Time for a break" (Display 20/600); body (Body 14 dim): "Eva's AI tools are locked until you finish a habit."
 - **No active timer**: a list of habit choices (`gate-pick-<id>`, radio rows 48 high, name + "{n} min" + proof badge "Photo" or "Honor"; tasks show "Task, {m} min"), selection by click or arrow keys; primary **Start** (`gate-start`, disabled until a row is selected, preselects the first).
-- **Timer running**: large countdown (Display 20/600 tabular-nums, `gate-countdown`, format `mm:ss`) with a `Progress` bar (accent fill, 4px tall, track `--eva-c-border`), instruction line: "Go do it. Done unlocks when the timer ends." When the timer ends the line becomes "Time's up. Mark it done to unlock." with a warning left bar. Primary **Done** (`gate-done`, disabled until the timer ends; when the habit needs a photo it is also disabled until a photo is chosen, helper "Photo proof required"). **Choose photo** (`gate-photo`, secondary, `IconPhoto`, opens the native file dialog filtered to images with button label "Use photo"; once chosen the label becomes "Change photo" and the file name shows as a Label 12 chip; the native dialog is stubbed in e2e).
-- **Override** (`gate-override`, tertiary text button at the bottom, `IconPlayerSkipForward`): expands an inline form (not a modal): label "Why skip this break?" `Textarea` (required, min 3 characters, placeholder "Why skip this break?"), validation "Give a reason to override.", buttons "Cancel" and danger "Override gate" (disabled until valid). The reason is passed to the CLI and appears in Today's breaks as "Overridden: {reason}".
-- Failure from the CLI: `role="alert"` line above the buttons: "The habit gate did not accept that: {first stderr line}. Try again."
+- **Timer running**: large countdown (Display 20/600 tabular-nums, `gate-countdown`, format `mm:ss`) with a `Progress` bar (accent fill, 4px tall, track `--eva-c-border`), instruction line: "Go do it. Mark break done unlocks when the timer ends." When the timer ends the line becomes "Time's up. Mark break done to unlock." with a warning left bar. Primary **Mark break done** (`gate-done`, disabled until the timer ends; when the habit needs a photo it is also disabled until a photo is chosen, helper "Photo proof required"). **Choose photo** (`gate-photo`, secondary, `IconPhoto`, opens the native file dialog filtered to images with button label "Use photo"; once chosen the label becomes "Change photo" and the file name shows as a Label 12 chip; the native dialog is stubbed in e2e).
+- **Override** (`gate-override`, tertiary text button at the bottom, `IconPlayerSkipForward`): expands an inline form (not a modal): label "Why skip this break?" `Textarea` (required, min 3 characters, placeholder "Why skip this break?"), validation "Give a reason to override.", buttons "Keep gate locked" and danger "Override gate" (disabled until valid). The reason is passed to the CLI and appears in Today's breaks as "Overridden: {reason}".
+- Failure from the CLI: `role="alert"` line above the buttons: "Could not update the gate. The habit gate said: {first stderr line}. Try again."
 
 All gate actions go through the habit-gate CLI [CTX]; the overlay re-polls immediately after each action.
 
@@ -223,14 +224,14 @@ All gate actions go through the habit-gate CLI [CTX]; the overlay re-polls immed
 - Search: title filter, case-insensitive substring, 0 ms. `⌘F` focuses it while the sub-page is visible [P2]. Empty states: "No meetings yet." (no records), "No meetings match." (search), loading "Loading meetings".
 
 **Meeting Home** (`page-meetings`): column `max-width: 720px`, padding 24, gap 24. Display "Meetings" with summary line (Body 14 dim, `meetings-summary`): "{n} meetings, {k} waiting on you" ("1 meeting", singular for 1). Sections (Heading 16 with a divider-free spacing):
-- "Waiting on you": proposal rows (meeting title Label 12 dim, proposal text Body 14, "From {source}" Label 12 dim, **Accept** primary-small and **Dismiss** secondary-small; same behavior as Detail). Empty: "Nothing waiting on you."
+- "Waiting on you": proposal rows (meeting title Label 12 dim, proposal text Body 14, "From {source}" Label 12 dim, **Accept todo** primary-small and **Dismiss proposal** secondary-small; same behavior as Detail). Empty: "Nothing waiting on you."
 - "Who's out": rows only when present (attendee, dates).
 - "Recent decisions": up to 5 decisions with their meeting titles; "Show all {n}" / "Show fewer" toggle.
 
 **Meeting Detail** (`page-meeting`, place `meeting(stem)`, tab title is the meeting title with `IconUsers`): column `max-width: 720px`, padding 24, gap 24.
-- Header: title (Display 20/600), time (Body 14 dim, "Sep 14, 2:30 PM to 3:15 PM"), attendees chips (Label 12, 28 high, up to 6 then "+{n}"), "Open Notes" secondary button (`IconExternalLink`, opens the notes file with `shell.openPath`; failure toast "Couldn't open {path}. Check that the file exists, then try again.").
+- Header: title (Display 20/600), time (Body 14 dim, "Sep 14, 2:30 PM to 3:15 PM"), attendees chips (Label 12, 28 high, up to 6 then "+{n}"), "Open Notes" secondary button (`IconExternalLink`, opens the notes file with `shell.openPath`; failure toast "Could not open {path}. Check that the file exists, then try again.").
 - Tabs row (`role="tablist"`, Label 12/600): "Overview" and "Transcript". Overview sections (Heading 16): "Summary" (Body 14 paragraphs; empty "The notes have no summary."), "Decisions", "Open questions", "Attendees", "For you" (proposal rows with Accept and Dismiss), "Remembered" (rows already accepted or dismissed, dim, with a status badge "Accepted" / "Dismissed"). Transcript: filter input "Filter transcript", lines as speaker (Label 12/600) + text (Body 14); empty "The notes have no transcript." and "No lines match." Test-call meetings show the single line "Eva skipped this as a test call." Notes loading "Loading notes"; missing "Notes file not found".
-- Accept: appends a todo via `EvaFs` with the proposal text and the meeting's workspace (or Eva), toast "Added T{n} to {workspace}."; the row moves to Remembered as "Accepted". Dismiss: writes `status` via `EvaFs` with no confirmation (reversible by editing the file, and non-destructive), toast "Dismissed.". Both buttons are disabled while pending; refusal (changed on disk) shows the inline `role="alert"` under the row: "{file} changed on disk. Reload the meeting and try again." with a "Reload" button.
+- Accept todo: appends a todo via `EvaFs` with the proposal text and the meeting's workspace (or Eva), toast "Added T{n} to {workspace}."; the row moves to Remembered as "Accepted". Dismiss proposal: writes `status` via `EvaFs` with no confirmation (reversible by editing the file, and non-destructive), toast "Dismissed.". Both buttons are disabled while pending; refusal (changed on disk) shows the inline `role="alert"` under the row: "{file} changed on disk. Reload the meeting and try again." with a "Reload" button.
 
 ---
 
@@ -271,14 +272,14 @@ All gate actions go through the habit-gate CLI [CTX]; the overlay re-polls immed
 | Workspace timeline | Show all {n} / Show fewer; empty: No updates yet |
 | Workspace sections empty | This workspace file has no sections. |
 | Workspace missing | Workspace not found / It may have been removed from the Eva repo. Go back to the Dashboard. / Open Dashboard |
-| New Todo modal | Title: New Todo; fields: Workspace, Todo (placeholder What needs doing); buttons: Cancel, Add todo |
+| New Todo modal | Title: New Todo; fields: Workspace, Todo (placeholder What needs doing); buttons: Discard todo, Add todo |
 | New Todo success | Added T{n} to {workspace}. |
 | New Todo error | Could not add the todo. memory/todos.md changed while you were typing or could not be written. Review the preview and try again. |
 | Jobs title and CTA | Jobs / New job |
 | Jobs empty | No jobs yet / Create a job to have Eva run steps on a schedule. |
 | Jobs columns | Name, Schedule, Last run, Next due, Enabled |
 | Job form labels | Name, Schedule, Interval, Max run, Keep, Enabled, Steps |
-| Job form buttons | Create job, Save, Cancel, Run now, Open last session, Delete |
+| Job form buttons | Create job, Save job, Discard changes, Run now, Open last session, Delete |
 | Job validation | Use lowercase letters, numbers and hyphens, starting with a letter. / A job named {name} already exists. / Use a number followed by m, h or d, like 30m, 2h or 1d. / Keep must be a whole number of 1 or more. |
 | Job toasts | Saved jobs/{name}/job.md. / Started {name}. / Deleted jobs/{name}. |
 | Job run failure | Could not start {name}. Check that bun is installed and try again. |
@@ -293,17 +294,17 @@ All gate actions go through the habit-gate CLI [CTX]; the overlay re-polls immed
 | Habit form | New habit; labels Name, Minutes, Photo proof; placeholders Stretch, Something you keep putting off, Minutes (optional) |
 | Habit validation | Give the habit a name. / Say what the task is. / Minutes must be a whole number from 1 to {max}. |
 | Habit remove confirmation | Remove habit: Remove {title}? Its history stays. (buttons: Keep, Remove habit) |
-| Habits read error | Couldn't read the habit gate / Check that .omp/tools/habit-gate.ts runs in the Eva repo, then try again. (Try again) |
+| Habits read error | Could not read the habit gate / Check that .omp/tools/habit-gate.ts runs in the Eva repo, then try again. (Try again) |
 | Habits stale | Showing the last status. Retrying. |
 | Gate heading and body | Time for a break / Eva's AI tools are locked until you finish a habit. |
-| Gate actions | Start, Done, Choose photo, Change photo, Use photo (dialog button), Override |
-| Gate timer lines | Go do it. Done unlocks when the timer ends. / Time's up. Mark it done to unlock. / Photo proof required |
-| Gate override | Why skip this break? / Give a reason to override. / buttons Cancel, Override gate |
-| Gate error | The habit gate did not accept that: {first stderr line}. Try again. |
+| Gate actions | Start break, Mark break done, Choose photo, Change photo, Use photo (dialog button), Override |
+| Gate timer lines | Go do it. Mark break done unlocks when the timer ends. / Time's up. Mark break done to unlock. / Photo proof required |
+| Gate override | Why skip this break? / Give a reason to override. / buttons Keep gate locked, Override gate |
+| Gate error | Could not update the gate. The habit gate said: {first stderr line}. Try again. |
 | Meetings home | Meetings; summary {n} meetings, {k} waiting on you; sections Waiting on you, Who's out, Recent decisions |
 | Meetings empty | No meetings yet. / No meetings match. / Nothing waiting on you. / Loading meetings |
 | Meetings test folder | Test calls ({n}) |
-| Meeting detail | Open Notes, Overview, Transcript, Summary, Decisions, Open questions, Attendees, For you, Remembered, Accept, Dismiss |
+| Meeting detail | Open Notes, Overview, Transcript, Summary, Decisions, Open questions, Attendees, For you, Remembered, Accept todo, Dismiss proposal |
 | Meeting notes states | Loading notes / Notes file not found / The notes have no summary. / The notes have no transcript. / No lines match. / Eva skipped this as a test call. / Filter transcript (placeholder) |
 | Meeting toasts and errors | Added T{n} to {workspace}. / Dismissed. / {file} changed on disk. Reload the meeting and try again. |
 | Destructive confirmations | Delete job (inline confirm, see above); Remove habit (inline confirm); Override gate (typed reason required); Dismiss proposal (no confirmation, reversible); all other actions are non-destructive |
