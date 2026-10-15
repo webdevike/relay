@@ -1,4 +1,4 @@
-import { BaseWindow, WebContentsView } from 'electron'
+import { BaseWindow, WebContentsView, dialog } from 'electron'
 import * as path from 'node:path'
 import type { Env } from './env'
 import { isAppUrl } from './app-url'
@@ -45,11 +45,33 @@ export function createMainWindow(
   })
 
   const dev = process.env.ELECTRON_RENDERER_URL
-  if (dev) void shell.webContents.loadURL(dev)
-  else void shell.webContents.loadFile(path.join(rendererDir, 'index.html'))
+  // Never leave an invisible process: a failed load shows the window and an error, and a
+  // fallback timer shows it even if neither load event arrives.
+  const reportLoadFailure = (detail: string): void => {
+    if (!win.isDestroyed()) win.show()
+    dialog.showErrorBox('EvaOS', `The interface failed to load.\n\n${detail}`)
+  }
+  shell.webContents.on('did-fail-load', (_e, code, description, _url, isMainFrame) => {
+    if (!isMainFrame || code === -3) return // -3 is ERR_ABORTED (a superseded navigation)
+    reportLoadFailure(`${description} (${code})`)
+  })
+  const load = dev
+    ? shell.webContents.loadURL(dev)
+    : shell.webContents.loadFile(path.join(rendererDir, 'index.html'))
+  load.catch(() => {
+    // did-fail-load already reported it; nothing else to do.
+  })
 
   if (env.e2e) win.showInactive()
-  else shell.webContents.once('did-finish-load', () => win.show())
+  else {
+    const fallback = setTimeout(() => {
+      if (!win.isDestroyed() && !win.isVisible()) win.show()
+    }, 10_000)
+    shell.webContents.once('did-finish-load', () => {
+      clearTimeout(fallback)
+      win.show()
+    })
+  }
 
   return { win, shell }
 }
