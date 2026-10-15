@@ -2,6 +2,8 @@ import { memo, useState } from 'react'
 import { Collapse } from '@mantine/core'
 import { IconChevronRight } from '@tabler/icons-react'
 import type { ChatMessage } from '@evaos/chat-core/message'
+import { ChatImage } from './ChatImage'
+import { ImageViewer } from './ImageViewer'
 
 export type Segment = { kind: 'text' | 'code'; text: string }
 
@@ -55,6 +57,37 @@ function ThinkingRow({ m }: { m: ChatMessage }) {
   )
 }
 
+/** Thumbnails for a message's images; Enter or click opens the viewer on that image. */
+function Images({ images }: { images: ChatMessage['images'] }) {
+  const [open, setOpen] = useState<number | null>(null)
+  const [last, setLast] = useState(0)
+  if (images.length === 0) return null
+  return (
+    <>
+      <div className="eva-chat-images" data-testid="chat-images">
+        {images.map((image, i) => (
+          <ChatImage
+            key={i}
+            image={image}
+            index={i}
+            total={images.length}
+            onOpen={() => {
+              setLast(i)
+              setOpen(i)
+            }}
+          />
+        ))}
+      </div>
+      <ImageViewer
+        images={images}
+        start={last}
+        opened={open !== null}
+        onClose={() => setOpen(null)}
+      />
+    </>
+  )
+}
+
 function ToolRow({ m }: { m: ChatMessage }) {
   const [open, setOpen] = useState(false)
   const tool = m.tool
@@ -79,6 +112,7 @@ function ToolRow({ m }: { m: ChatMessage }) {
           </div>
         ) : null}
       </Collapse>
+      <Images images={m.images} />
     </div>
   )
 }
@@ -89,6 +123,7 @@ function MessageRowImpl({ m }: { m: ChatMessage }) {
     body = (
       <div className="eva-turn-user">
         <div className="eva-bubble">{m.text}</div>
+        <Images images={m.images} />
       </div>
     )
   } else if (m.role === 'assistant') {
