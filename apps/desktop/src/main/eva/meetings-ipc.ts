@@ -122,10 +122,16 @@ export function meetingsAccept(
     const text = built.text.replace(/\s*[\r\n]+\s*/g, ' ').trim()
     const added = await appendTodoVia(evaFs, root, tag, text, clock.today())
     try {
-      await evaFs.edit('meeting-status', `work/meetings/${stem}.json`, (cur) =>
-        setProposalStatus(cur, proposalId, 'accepted'),
+      await evaFs.edit(
+        'meeting-status',
+        `work/meetings/${stem}.json`,
+        (cur) => setProposalStatus(cur, proposalId, 'accepted'),
+        { retryOnChange: true },
       )
-    } catch {
+    } catch (err) {
+      // Already accepted (a retry saw our own or another write): the todo is in, so this is success.
+      if ((err as { code?: unknown } | null)?.code === 'not-proposed')
+        return { todoId: added.id, tag }
       throw coded(
         `Added ${added.id} but could not mark the proposal accepted. Reload the meeting.`,
         'partial-accept',

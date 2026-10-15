@@ -173,6 +173,27 @@ describe('meetings.accept and meetings.dismiss', () => {
     })
   })
 
+  it('retries the status edit once and treats not-proposed after the append as success', async () => {
+    const root = tmpRoot()
+    const real = createEvaFs({ root })
+    const seen: Array<{ retryOnChange?: boolean } | undefined> = []
+    const spy: EvaFs = {
+      ...real,
+      edit: (kind, rel, fn, o) => {
+        if (kind === 'meeting-status') {
+          seen.push(o)
+          return Promise.reject(Object.assign(new Error('x'), { code: 'not-proposed' }))
+        }
+        return real.edit(kind, rel, fn, o)
+      },
+    }
+    await expect(meetingsAccept(root, spy, clk, 'standup', 'standup#1')).resolves.toEqual({
+      todoId: 'T16',
+      tag: 'flo',
+    })
+    expect(seen[0]?.retryOnChange).toBe(true)
+  })
+
   it('dismisses without touching todos and refuses bad targets', async () => {
     const root = tmpRoot()
     const evaFs = createEvaFs({ root })
