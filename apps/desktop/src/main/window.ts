@@ -1,17 +1,11 @@
 import { BaseWindow, WebContentsView } from 'electron'
 import * as path from 'node:path'
-import { pathToFileURL } from 'node:url'
 import type { Env } from './env'
+import { isAppUrl } from './app-url'
+
+export { isAppUrl }
 
 const rendererDir = path.join(__dirname, '../renderer')
-
-/** True when `url` belongs to the app's own renderer (dev server or built file). */
-export function isAppUrl(url: string | undefined): boolean {
-  if (!url) return false
-  const dev = process.env.ELECTRON_RENDERER_URL
-  if (dev && url.startsWith(new URL(dev).origin)) return true
-  return url.startsWith(pathToFileURL(rendererDir).href)
-}
 
 export function createMainWindow(env: Env): { win: BaseWindow; shell: WebContentsView } {
   const win = new BaseWindow({
