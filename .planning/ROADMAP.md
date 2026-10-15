@@ -101,7 +101,7 @@ Plans:
 
 **Wave 6**
 
-- [ ] 02-09-PLAN.md: tabs store, tab strip, context menu, toggles (wave 6)
+- [x] 02-09-PLAN.md: tabs store, tab strip, context menu, toggles (wave 6)
 
 **Wave 7**
 
@@ -207,7 +207,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation, Harness and the Two Spikes | 10/10 | Complete   | 2026-10-15 |
-| 2. Shell, Navigation and Theme Tokens | 8/13 | In Progress|  |
+| 2. Shell, Navigation and Theme Tokens | 9/13 | In Progress|  |
 | 3. Dashboard, Workspaces, Jobs, Habits and Meetings | 0/TBD | Not started | - |
 | 4. Chat Parity | 0/TBD | Not started | - |
 | 5. Rich Replies | 0/TBD | Not started | - |
