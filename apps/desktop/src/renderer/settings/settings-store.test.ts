@@ -42,6 +42,7 @@ describe('settings store', () => {
     invoke.mockReturnValue(new Promise((r) => (release = r)))
     const p = setSetting('show_thinking', false)
     expect(settingsStore.getState().show_thinking).toBe(false)
+    await Promise.resolve()
     expect(invoke).toHaveBeenCalledTimes(1)
     expect(invoke).toHaveBeenCalledWith('settings.save', { show_thinking: false })
     release({ ok: true, value: { show_thinking: false, show_tools: true } })
