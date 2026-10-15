@@ -25,6 +25,16 @@ export function registerBrowserIpc(ctx: MainContext, host: BrowserHost): void {
       return { ok: true as const }
     })
   }
+  handle(ctx, 'browser.createTab', ({ url }) =>
+    host.createTab(url ? (normalize(url) ?? undefined) : undefined, true),
+  )
+  handle(ctx, 'browser.closeTab', ({ tabId }) => ({ activeId: host.closeTab(tabId) }))
+  handle(ctx, 'browser.activateTab', ({ tabId }) => ({ activeId: host.activateTab(tabId) }))
+  handle(ctx, 'browser.suggest', ({ text }) => ({ items: host.history.suggest(text) }))
+  handle(ctx, 'browser.openDevTools', ({ tabId }) => {
+    host.openDevTools(tabId)
+    return { ok: true as const }
+  })
   handle(ctx, 'browser.setSlot', (rect) => {
     host.setSlot(rect)
     return { ok: true as const }

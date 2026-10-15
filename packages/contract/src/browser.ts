@@ -49,7 +49,41 @@ export const browserInvoke = {
     input: z.object({ occluded: z.boolean() }).strict(),
     output: z.object({ visible: z.boolean() }),
   },
+  'browser.createTab': {
+    input: z.object({ url: z.string().max(2048).optional() }).strict(),
+    output: TabStateSchema,
+  },
+  'browser.closeTab': {
+    input: tabOnly,
+    output: z.object({ activeId: z.string() }),
+  },
+  'browser.activateTab': {
+    input: tabOnly,
+    output: z.object({ activeId: z.string() }),
+  },
+  'browser.suggest': {
+    input: z.object({ text: z.string().max(512) }).strict(),
+    output: z.object({
+      items: z.array(z.object({ url: z.string(), title: z.string() })).max(6),
+    }),
+  },
+  'browser.openDevTools': { input: tabOnly, output: okOut },
 } as const
+
+export const HotkeyChordSchema = z.enum([
+  'new-tab',
+  'close-tab',
+  'focus-address',
+  'search',
+  'eregon',
+  'new-todo',
+  'toggle-panel',
+  'prev-tab',
+  'next-tab',
+])
+export type HotkeyChord = z.output<typeof HotkeyChordSchema>
+
 export const browserEvents = {
   'browser.tabs': TabsSnapshotSchema,
+  'browser.hotkey': z.object({ chord: HotkeyChordSchema }),
 } as const

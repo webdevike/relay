@@ -19,7 +19,9 @@ interface HostLike {
   activeView(): ViewLike
   snapshot(): { tabs: Array<{ id: string; title: string }>; activeId: string }
 }
-type G = { __evaosTest: { win: { isDestroyed(): boolean }; hooks: { browser: { host: HostLike } } } }
+type G = {
+  __evaosTest: { win: { isDestroyed(): boolean }; hooks: { browser: { host: HostLike } } }
+}
 
 const states = (app: ElectronApplication) =>
   app.evaluate(() => {
@@ -104,9 +106,9 @@ test('tabs: create, switch, close, target=_blank, last tab, hotkeys from the gue
   // target=_blank opens a new foreground tab.
   await app.evaluate(() => {
     const h = (globalThis as unknown as G).__evaosTest.hooks.browser.host
-    return h.activeView().webContents.executeJavaScript(
-      'document.querySelector("a[target=_blank]").click()',
-    )
+    return h
+      .activeView()
+      .webContents.executeJavaScript('document.querySelector("a[target=_blank]").click()')
   })
   await expect.poll(() => tabCount(shell)).toBe(3)
   await expect
@@ -138,9 +140,9 @@ test('tabs: create, switch, close, target=_blank, last tab, hotkeys from the gue
   await expect.poll(() => tabCount(shell)).toBe(2)
   await sendKey(app, 'w', ['meta'])
   await expect.poll(() => tabCount(shell)).toBe(1)
-  expect(await app.evaluate(() => !(globalThis as unknown as G).__evaosTest.win.isDestroyed())).toBe(
-    true,
-  )
+  expect(
+    await app.evaluate(() => !(globalThis as unknown as G).__evaosTest.win.isDestroyed()),
+  ).toBe(true)
   await sendKey(app, 'l', ['meta'])
   await expect(shell.locator('[data-testid=address-input]')).toBeFocused()
   // The first tab was active again after Cmd+W; its page saw no keydown.

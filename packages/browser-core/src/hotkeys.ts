@@ -47,11 +47,7 @@ export function matchesAppChord(input: InputLike): AppChord | null {
   if (!input.meta || input.control) return null
   const key = input.key.toLowerCase()
   for (const [name, spec] of Object.entries(APP_CHORDS) as Array<[AppChord, ChordSpec]>) {
-    if (
-      spec.key === key &&
-      !!spec.shift === !!input.shift &&
-      !!spec.alt === !!input.alt
-    ) {
+    if (spec.key === key && !!spec.shift === !!input.shift && !!spec.alt === !!input.alt) {
       return name
     }
   }

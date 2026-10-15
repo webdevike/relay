@@ -9,7 +9,7 @@ export function registerBrowser(ctx: MainContext): BrowserHost {
   const host = new BrowserHost(ctx)
   registerBrowserIpc(ctx, host)
   registerViewProvider(() => host.views())
-  registerTestHook('browser', { host })
+  registerTestHook('browser', { host, pageControl: (id: string) => host.pageControl(id) })
   host.createTab()
   ctx.win.on('closed', () => host.dispose())
   ctx.onBeforeQuit(async () => host.dispose())

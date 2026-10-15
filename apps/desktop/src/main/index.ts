@@ -5,6 +5,7 @@ import { loadEnv } from './env'
 import { registerAppIpc } from './app-ipc'
 import { registerBrowser } from './browser'
 import { registerChat } from './chat'
+import { installAppMenu } from './menu'
 import { installWriteGuard } from './eva/write-guard'
 import { installTestHooks } from './test-hooks'
 import { createMainWindow } from './window'
@@ -24,6 +25,7 @@ function bootstrap(): void {
   installWriteGuard(env)
 
   void app.whenReady().then(() => {
+    installAppMenu()
     const config = createConfigStore(env.configDir)
     const prev = config.readJson<{ launchCount?: number }>('app-state.json', {})
     config.writeJson('app-state.json', {

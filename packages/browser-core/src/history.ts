@@ -57,8 +57,6 @@ export function suggest(list: readonly Visit[], typed: string, limit = 6): Visit
         : 2
     found.push([rank, v])
   }
-  found.sort(
-    ([ra, a], [rb, b]) => ra - rb || b.visits - a.visits || a.key.length - b.key.length,
-  )
+  found.sort(([ra, a], [rb, b]) => ra - rb || b.visits - a.visits || a.key.length - b.key.length)
   return found.slice(0, limit).map(([, v]) => v)
 }

@@ -1,8 +1,11 @@
 import { WebContentsView, clipboard, shell } from 'electron'
+import { matchesAppChord } from '@evaos/browser-core/hotkeys'
 import type { TabState, TabsSnapshot } from '@evaos/contract'
 import type { MainContext } from '../context'
 import { emit } from '../ipc/handle'
 import { GUEST_PARTITION } from './guest-session'
+import { HistoryStore } from './history-store'
+import { PageControl } from './page-control'
 
 export interface SlotRect {
   x: number
@@ -14,6 +17,7 @@ export interface SlotRect {
 interface Tab {
   view: WebContentsView
   state: TabState
+  control?: PageControl
 }
 
 const ALLOWED_PROTOCOLS = new Set(['http:', 'https:', 'about:'])
@@ -35,7 +39,17 @@ export class BrowserHost {
   private occluded = false
   private created: Array<(tab: TabState, view: WebContentsView) => void> = []
 
-  constructor(private readonly ctx: MainContext) {}
+  readonly history: HistoryStore
+
+  constructor(private readonly ctx: MainContext) {
+    this.history = new HistoryStore(ctx.config)
+  }
+
+  pageControl(tabId: string): PageControl {
+    const t = this.tab(tabId)
+    t.control ??= new PageControl(t.view.webContents)
+    return t.control
+  }
 
   onTabCreated(cb: (tab: TabState, view: WebContentsView) => void): void {
     this.created.push(cb)
@@ -56,7 +70,7 @@ export class BrowserHost {
     return this.tabs.get(this.activeId)!.view
   }
 
-  createTab(url?: string): TabState {
+  createTab(url?: string, activate = false): TabState {
     const id = `t${this.nextId++}`
     const view = new WebContentsView({
       webPreferences: {
@@ -84,7 +98,7 @@ export class BrowserHost {
     this.ctx.win.contentView.addChildView(view)
     view.setVisible(false)
     this.wire(tab)
-    if (!this.activeId) this.activeId = id
+    if (!this.activeId || activate) this.activeId = id
     for (const cb of this.created) cb(state, view)
     this.applyBounds()
     this.changed()
@@ -95,8 +109,34 @@ export class BrowserHost {
   private wire(tab: Tab): void {
     const wc = tab.view.webContents
     const s = tab.state
-    // 01-08 routes foreground-tab dispositions to new tabs; here every popup is denied.
-    wc.setWindowOpenHandler(() => ({ action: 'deny' }))
+    // Always deny; only http(s) foreground/background tab dispositions become app-created tabs
+    // in the same hardened partition. new-window popups stay denied (T-01-37).
+    wc.setWindowOpenHandler((details) => {
+      if (details.disposition === 'foreground-tab' || details.disposition === 'background-tab') {
+        try {
+          const p = new URL(details.url).protocol
+          if (p === 'http:' || p === 'https:') {
+            const fg = details.disposition === 'foreground-tab'
+            setImmediate(() => {
+              if (!this.ctx.win.isDestroyed()) this.createTab(details.url, fg)
+            })
+          }
+        } catch {
+          /* not a URL */
+        }
+      }
+      return { action: 'deny' }
+    })
+    wc.on('before-input-event', (event, input) => {
+      const chord = matchesAppChord(input)
+      if (!chord) return
+      event.preventDefault()
+      if (chord === 'devtools') {
+        wc.openDevTools({ mode: 'detach' })
+        return
+      }
+      emit(this.ctx, 'browser.hotkey', { chord })
+    })
     const guard = (event: { preventDefault(): void }, url: string): void => {
       try {
         if (!ALLOWED_PROTOCOLS.has(new URL(url).protocol)) event.preventDefault()
@@ -108,6 +148,7 @@ export class BrowserHost {
     wc.on('will-redirect', (e) => guard(e, e.url))
     wc.on('page-title-updated', (_e, title) => {
       s.title = title
+      this.history.title(wc.getURL(), title)
       this.changed()
     })
     wc.on('did-start-loading', () => {
@@ -116,19 +157,20 @@ export class BrowserHost {
     })
     wc.on('did-stop-loading', () => {
       s.loading = false
-      this.history(tab)
+      this.navState(tab)
       this.changed()
     })
-    const nav = (url: string): void => {
+    const nav = (url: string, counted: boolean): void => {
       s.url = url
       s.blank = false
       s.error = null
-      this.history(tab)
+      if (counted) this.history.visit(url, s.title)
+      this.navState(tab)
       this.changed()
     }
-    wc.on('did-navigate', (_e, url) => nav(url))
+    wc.on('did-navigate', (_e, url) => nav(url, true))
     wc.on('did-navigate-in-page', (_e, url, isMainFrame) => {
-      if (isMainFrame) nav(url)
+      if (isMainFrame) nav(url, false)
     })
     wc.on('did-fail-load', (_e, code, _desc, url, isMainFrame) => {
       if (!isMainFrame || code === -3) return
@@ -136,7 +178,7 @@ export class BrowserHost {
       s.blank = false
       s.loading = false
       s.error = { host: hostOf(url), code }
-      this.history(tab)
+      this.navState(tab)
       this.changed()
     })
     wc.on('page-favicon-updated', (_e, favicons) => {
@@ -145,7 +187,7 @@ export class BrowserHost {
     })
   }
 
-  private history(tab: Tab): void {
+  private navState(tab: Tab): void {
     const h = tab.view.webContents.navigationHistory
     tab.state.canGoBack = h.canGoBack()
     tab.state.canGoForward = h.canGoForward()
@@ -201,6 +243,38 @@ export class BrowserHost {
     }
   }
 
+  closeTab(id: string): string {
+    const t = this.tab(id)
+    const idx = this.order.indexOf(id)
+    this.order.splice(idx, 1)
+    this.tabs.delete(id)
+    try {
+      this.ctx.win.contentView.removeChildView(t.view)
+    } catch {
+      /* window already gone */
+    }
+    if (!t.view.webContents.isDestroyed()) t.view.webContents.close()
+    if (this.order.length === 0) {
+      this.activeId = ''
+      this.createTab(undefined, true)
+      return this.activeId
+    }
+    if (this.activeId === id) this.activeId = this.order[idx] ?? this.order[idx - 1]!
+    this.changed()
+    return this.activeId
+  }
+
+  activateTab(id: string): string {
+    this.tab(id)
+    this.activeId = id
+    this.changed()
+    return id
+  }
+
+  openDevTools(id: string): void {
+    this.tab(id).view.webContents.openDevTools({ mode: 'detach' })
+  }
+
   setSlot(rect: SlotRect): void {
     this.slot = rect
     this.applyBounds()
@@ -246,6 +320,7 @@ export class BrowserHost {
   }
 
   dispose(): void {
+    this.history.flush()
     for (const t of this.tabs.values()) {
       try {
         this.ctx.win.contentView.removeChildView(t.view)
