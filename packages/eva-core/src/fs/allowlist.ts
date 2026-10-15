@@ -13,7 +13,7 @@ export type WriteKind = (typeof WRITE_KINDS)[number]
 
 export type MatchResult = { ok: true; abs: string } | { ok: false; reason: string }
 
-const NAME_RE = /^[a-z0-9][a-z0-9-_]*$/
+const NAME_RE = /^[a-z0-9][a-z0-9-]*$/
 const STEM_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 
 /** Realpath of the nearest existing ancestor of `abs`, with the missing tail re-appended. */

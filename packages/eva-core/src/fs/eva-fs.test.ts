@@ -26,6 +26,13 @@ describe('allowlist per kind', () => {
     expect(matchWrite('job-md', root, 'jobs/x/other.md').ok).toBe(false)
     expect(matchWrite('job-md', root, 'jobs/x/y/job.md').ok).toBe(false)
   })
+  it('job names follow the runner regex', () => {
+    expect(matchWrite('job-md', root, 'jobs/0-nightly/job.md').ok).toBe(true)
+    for (const bad of ['my_job', 'My-Job', '-x'])
+      expect(matchWrite('job-md', root, `jobs/${bad}/job.md`).ok, bad).toBe(false)
+    expect(matchWrite('job-delete', root, 'jobs/my_job').ok).toBe(false)
+    expect(matchWrite('job-delete', root, 'jobs/0-nightly').ok).toBe(true)
+  })
   it('job-delete accepts jobs/<name> only', () => {
     expect(matchWrite('job-delete', root, 'jobs/daily').ok).toBe(true)
     expect(matchWrite('job-delete', root, 'jobs').ok).toBe(false)

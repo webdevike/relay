@@ -33,16 +33,22 @@ describe('static write scan', () => {
     expect(scanSource('const x = readFileSync(p)')).toEqual([])
   })
 
+  it('does not flag spawn or execFile calls', () => {
+    expect(scanSource("spawn('bun', args)\nexecFile('bun', args, cb)")).toEqual([])
+  })
+
   it('finds no write API outside packages/eva-core/src/fs', () => {
     const files: string[] = []
-    walk(path.join(REPO, 'apps/desktop/src/main'), files)
+    for (const dir of ['main', 'renderer', 'preload']) {
+      walk(path.join(REPO, 'apps/desktop/src', dir), files)
+    }
     for (const pkg of fs.readdirSync(path.join(REPO, 'packages'))) {
       walk(path.join(REPO, 'packages', pkg, 'src'), files)
     }
     const offenders: string[] = []
     for (const file of files) {
       const rel = path.relative(REPO, file).split(path.sep).join('/')
-      if (rel.endsWith('.test.ts') || rel.startsWith('packages/eva-core/src/fs/')) continue
+      if (/\.test\.tsx?$/.test(rel) || rel.startsWith('packages/eva-core/src/fs/')) continue
       if (ALLOWED.has(rel)) continue
       for (const line of scanSource(fs.readFileSync(file, 'utf8'))) offenders.push(`${rel}:${line}`)
     }
