@@ -50,6 +50,14 @@ afterEach(() => stop())
 const press = (key: string) => fireEvent.keyDown(window, { key, code: `Digit${key}` })
 
 describe('QuestionCard', () => {
+  it('re-arms after a failed answer so the user can retry', async () => {
+    const onAnswer = vi.fn(async (..._a: unknown[]) => false)
+    render(<QuestionCard dialog={select} onAnswer={onAnswer} />)
+    await userEvent.click(screen.getByRole('radio', { name: /A$/ }))
+    await userEvent.click(screen.getByRole('radio', { name: /B$/ }))
+    expect(onAnswer).toHaveBeenCalledTimes(2)
+  })
+
   it('renders a radiogroup with key chips 1 to 4 only', () => {
     const { container } = render(<QuestionCard dialog={select} onAnswer={() => undefined} />)
     expect(screen.getByRole('radiogroup', { name: 'Pick one' })).toBeTruthy()

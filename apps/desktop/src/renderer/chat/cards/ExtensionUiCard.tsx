@@ -12,7 +12,7 @@ export function ExtensionUiCard({
 }: {
   dialog: Free
   dead?: boolean
-  onAnswer: (response: DialogResponse) => void
+  onAnswer: (response: DialogResponse) => void | Promise<boolean>
 }) {
   const [value, setValue] = useState(dialog.kind === 'editor' ? (dialog.prefill ?? '') : '')
   const declineRef = useRef<HTMLButtonElement>(null)
@@ -28,7 +28,10 @@ export function ExtensionUiCard({
   const answer = (r: DialogResponse): void => {
     if (sent.current || dead) return
     sent.current = true
-    onAnswer(r)
+    // A failed or stale answer re-arms the card so the user can try again.
+    void Promise.resolve(onAnswer(r)).then((ok) => {
+      if (ok === false) sent.current = false
+    })
   }
   const sendText = (): void => answer({ kind: 'text', value })
   const cancel = (): void => answer({ kind: 'cancel' })

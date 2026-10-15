@@ -1,5 +1,5 @@
 import './cards.css'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { DialogResponse } from '@evaos/contract'
 import { invoke } from '../../ipc'
 import { useChatStore } from '../chat-store'
@@ -12,14 +12,23 @@ export function PendingDialog({ paneId }: { paneId: string }) {
   const deadDialog = useChatStore((s) => s.panes[paneId]?.deadDialog ?? null)
   const [failed, setFailed] = useState<string | null>(null)
   const dialog = live ?? deadDialog
+  const dialogId = dialog?.id ?? null
+  useEffect(() => setFailed(null), [dialogId])
   if (!dialog) return null
   const dead = live === null
 
-  const answer = (response: DialogResponse): void => {
+  const answer = async (response: DialogResponse): Promise<boolean> => {
     setFailed(null)
-    void invoke('chat.answerUi', { paneId, id: dialog.id, response }).then((r) => {
-      if (!r.ok) setFailed(r.error.message)
-    })
+    const r = await invoke('chat.answerUi', { paneId, id: dialog.id, response })
+    if (!r.ok) {
+      setFailed(r.error.message)
+      return false
+    }
+    if (!r.value.sent) {
+      setFailed('This question is no longer waiting for an answer.')
+      return false
+    }
+    return true
   }
 
   return (

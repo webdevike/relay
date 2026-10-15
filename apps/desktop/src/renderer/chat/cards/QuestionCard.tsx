@@ -25,7 +25,7 @@ export function QuestionCard({
 }: {
   dialog: Choice
   dead?: boolean
-  onAnswer: (response: DialogResponse) => void
+  onAnswer: (response: DialogResponse) => void | Promise<boolean>
 }) {
   const qs = questionsOf(dialog)
   const [picks, setPicks] = useState<string[][]>(() => qs.map(() => []))
@@ -38,7 +38,10 @@ export function QuestionCard({
   const submit = (next: string[][]): void => {
     if (sent.current || dead) return
     sent.current = true
-    onAnswer(respond(dialog, qs, next))
+    // A failed or stale answer re-arms the card so the user can try again.
+    void Promise.resolve(onAnswer(respond(dialog, qs, next))).then((ok) => {
+      if (ok === false) sent.current = false
+    })
   }
 
   const choose = (qi: number, label: string): void => {
