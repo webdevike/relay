@@ -1,0 +1,142 @@
+import { describe, expect, it, vi } from 'vitest'
+import type { Frame } from '@evaos/chat-core/line-framer'
+import type { ChatTransport, TransportExit } from '@evaos/chat-core/transport'
+import type { Batch } from '@evaos/contract'
+import { SessionManager } from './session-manager'
+
+class MemoryTransport implements ChatTransport {
+  readonly kind = 'memory'
+  started: Array<{ sessionFile: string; cwd: string }> = []
+  written: Array<Record<string, unknown>> = []
+  sent: string[] = []
+  private cb: ((f: Frame) => void) | null = null
+  start(opts: { sessionFile: string; cwd: string }) {
+    this.started.push(opts)
+    return Promise.resolve()
+  }
+  send(text: string) {
+    this.sent.push(text)
+    return Promise.resolve()
+  }
+  steer(text: string) {
+    return this.send(text)
+  }
+  abort() {
+    return Promise.resolve()
+  }
+  write(c: Record<string, unknown>) {
+    this.written.push(c)
+    return Promise.resolve()
+  }
+  close(): Promise<TransportExit> {
+    return Promise.resolve({ code: 0, signal: null, timedOut: false })
+  }
+  onFrame(cb: (f: Frame) => void) {
+    this.cb = cb
+    return () => {
+      this.cb = null
+    }
+  }
+  push(f: Frame) {
+    this.cb?.(f)
+  }
+}
+
+const meta = { model: null, thinking: null, contextTokens: null }
+const asst = (t: string) => ({ role: 'assistant', content: [{ type: 'text', text: t }] })
+
+function setup() {
+  vi.useFakeTimers()
+  const transports: MemoryTransport[] = []
+  const batches: Batch[] = []
+  const mgr = new SessionManager({
+    createTransport: () => {
+      const t = new MemoryTransport()
+      transports.push(t)
+      return t
+    },
+    emit: (b) => batches.push(b),
+    cwd: '/eva',
+    machineLabel: 'Mac',
+    realpath: (f) => f,
+  })
+  return { mgr, transports, batches }
+}
+
+describe('SessionManager', () => {
+  it('starts the transport once on first send, with handshake commands before the prompt', async () => {
+    const { mgr, transports } = setup()
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    await mgr.send('pane-1', 'hello')
+    await mgr.send('pane-1', 'steer me')
+    expect(transports).toHaveLength(1)
+    const t = transports[0]!
+    expect(t.started).toEqual([{ sessionFile: '/s/a.jsonl', cwd: '/eva' }])
+    expect(t.written.map((c) => c.type)).toEqual(['set_ask_dialog', 'get_state'])
+    expect(t.sent).toEqual([
+      '<surface>Mac - EvaOS</surface>\nhello',
+      '<surface>Mac - EvaOS</surface>\nsteer me',
+    ])
+    vi.useRealTimers()
+  })
+
+  it('emits seq-stamped batches 1, 2, 3 per non-empty 16 ms flush', async () => {
+    const { mgr, transports, batches } = setup()
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    await mgr.send('pane-1', 'hi')
+    const t = transports[0]!
+    await vi.advanceTimersByTimeAsync(16)
+    expect(batches.map((b) => b.seq)).toEqual([1])
+    t.push({ type: 'agent_start' })
+    await vi.advanceTimersByTimeAsync(16)
+    t.push({ type: 'message_update', messageId: 'm1', message: asst('a') })
+    t.push({ type: 'message_update', messageId: 'm1', message: asst('ab') })
+    await vi.advanceTimersByTimeAsync(16)
+    await vi.advanceTimersByTimeAsync(48)
+    expect(batches.map((b) => b.seq)).toEqual([1, 2, 3])
+    const last = batches[2]!.ops.filter((o) => o.op === 'upsert')
+    expect(last).toHaveLength(1)
+    expect(last[0]).toMatchObject({ message: { id: 'm1', text: 'ab' } })
+    expect(mgr.snapshot('pane-1').seq).toBe(3)
+    vi.useRealTimers()
+  })
+
+  it('refuses a second pane on the same session file', async () => {
+    const { mgr } = setup()
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    mgr.open('pane-2', '/s/a.jsonl', [], meta)
+    await mgr.send('pane-1', 'one')
+    await expect(mgr.send('pane-2', 'two')).rejects.toMatchObject({ code: 'already-owned' })
+    vi.useRealTimers()
+  })
+
+  it('writes reducer effects back to the transport', async () => {
+    const { mgr, transports } = setup()
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    await mgr.send('pane-1', 'hi')
+    transports[0]!.push({ type: 'extension_ui_request', id: 'u1', method: 'confirm' })
+    expect(transports[0]!.written.at(-1)).toEqual({
+      type: 'extension_ui_response',
+      id: 'u1',
+      cancelled: true,
+    })
+    vi.useRealTimers()
+  })
+
+  it('snapshot returns the reducer messages with the current seq', async () => {
+    const { mgr, transports } = setup()
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    await mgr.send('pane-1', 'hi')
+    transports[0]!.push({ type: 'message_update', messageId: 'm1', message: asst('x') })
+    const snap = mgr.snapshot('pane-1')
+    expect(snap.messages.map((m) => m.id)).toEqual(['m1', 'sent-1'])
+    expect(snap.seq).toBe(0)
+    vi.useRealTimers()
+  })
+
+  it('send without an opened session is rejected with a code', async () => {
+    const { mgr } = setup()
+    await expect(mgr.send('pane-1', 'x')).rejects.toMatchObject({ code: 'no-session' })
+    vi.useRealTimers()
+  })
+})

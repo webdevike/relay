@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { ChatMessageSchema, SessionMetaSchema } from '@evaos/chat-core/message'
 
-// Chat channels. Plan 01-05 adds the live-session keys and events.
+// Chat channels: transcript (01-03) and the live session (01-05).
 export const PaneIdSchema = z.string().regex(/^[a-z0-9-]{1,32}$/)
 
 export const chatInvoke = {
@@ -24,5 +24,47 @@ export const chatInvoke = {
       meta: SessionMetaSchema,
     }),
   },
+  'chat.send': {
+    input: z.object({ paneId: PaneIdSchema, text: z.string().min(1).max(200_000) }).strict(),
+    output: z.object({ accepted: z.literal(true) }),
+  },
+  'chat.snapshot': {
+    input: z.object({ paneId: PaneIdSchema }).strict(),
+    output: z.object({
+      seq: z.number().int().nonnegative(),
+      messages: z.array(ChatMessageSchema),
+      meta: SessionMetaSchema,
+      running: z.boolean(),
+    }),
+  },
 } as const
-export const chatEvents = {} as const
+
+export const MetaPatchSchema = z
+  .object({
+    running: z.boolean(),
+    connected: z.boolean(),
+    error: z.string().nullable(),
+    notice: z.string().nullable(),
+    model: z.tuple([z.string(), z.string()]).nullable(),
+    contextTokens: z.number().nullable(),
+  })
+  .partial()
+
+export const OpSchema = z.discriminatedUnion('op', [
+  z.object({
+    op: z.literal('upsert'),
+    message: ChatMessageSchema,
+    at: z.number().int().optional(),
+  }),
+  z.object({ op: z.literal('remove'), id: z.string() }),
+  z.object({ op: z.literal('meta'), patch: MetaPatchSchema }),
+])
+export const BatchSchema = z.object({
+  paneId: PaneIdSchema,
+  seq: z.number().int().positive(),
+  ops: z.array(OpSchema),
+})
+export type Batch = z.infer<typeof BatchSchema>
+export type Op = z.infer<typeof OpSchema>
+
+export const chatEvents = { 'chat.batch': BatchSchema } as const

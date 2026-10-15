@@ -1,6 +1,6 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { parseSession } from '@evaos/chat-core/session'
+import { parseSession, type ParsedSession } from '@evaos/chat-core/session'
 import { listSessionFiles } from '@evaos/chat-core/sessions-dir'
 import type { MainContext } from '../context'
 import { handle } from '../ipc/handle'
@@ -29,10 +29,15 @@ export function resolveInsideSessionsDir(sessionsDir: string, file: string): str
   return real
 }
 
-export function registerTranscriptIpc(ctx: MainContext): void {
+export function registerTranscriptIpc(
+  ctx: MainContext,
+  onOpened?: (paneId: string, file: string, parsed: ParsedSession) => void,
+): void {
   handle(ctx, 'chat.listSessions', () => ({ sessions: listSessionFiles(ctx.env.sessionsDir) }))
-  handle(ctx, 'chat.open', ({ file }) => {
+  handle(ctx, 'chat.open', ({ paneId, file }) => {
     const real = resolveInsideSessionsDir(ctx.env.sessionsDir, file)
-    return parseSession(fs.readFileSync(real, 'utf8'))
+    const parsed = parseSession(fs.readFileSync(real, 'utf8'))
+    onOpened?.(paneId, real, parsed)
+    return parsed
   })
 }
