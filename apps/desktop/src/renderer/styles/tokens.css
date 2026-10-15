@@ -1,0 +1,187 @@
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-weight: 400;
+  src: url('../assets/fonts/IBMPlexMono-Regular.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-weight: 600;
+  src: url('../assets/fonts/IBMPlexMono-SemiBold.ttf') format('truetype');
+}
+
+:root {
+  --eva-space-xs: 4px;
+  --eva-space-sm: 8px;
+  --eva-space-md: 16px;
+  --eva-space-lg: 24px;
+  --eva-space-xl: 32px;
+  --eva-space-2xl: 48px;
+  --eva-space-3xl: 64px;
+
+  --eva-fz-body: 14px;
+  --eva-fz-label: 12px;
+  --eva-fz-heading: 16px;
+  --eva-fz-display: 20px;
+  --eva-fw-regular: 400;
+  --eva-fw-semibold: 600;
+  --eva-font-mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+
+  --eva-rail-w: 272px;
+  --eva-panel-w: 480px;
+  --eva-panel-min: 320px;
+  --eva-panel-max: 960px;
+  --eva-main-min: 480px;
+  --eva-tab-strip-h: 36px;
+  --eva-address-h: 40px;
+  --eva-chat-header-h: 40px;
+}
+
+:root,
+[data-mantine-color-scheme='dark'] {
+  --eva-bg: #17181c;
+  --eva-surface: #202228;
+  --eva-surface-2: #2a2d35;
+  --eva-border: #34373f;
+  --eva-text: #e6e8ec;
+  --eva-text-dim: #9aa0ab;
+  --eva-accent: #7c8cff;
+  --eva-accent-fg: #0b0c10;
+  --eva-ok: #4cc38a;
+  --eva-warn: #e5a54b;
+  --eva-danger: #ef5b5b;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--eva-bg);
+  color: var(--eva-text);
+  font-size: var(--eva-fz-body);
+  line-height: 1.5;
+  overflow: hidden;
+}
+
+:focus-visible {
+  outline: 2px solid var(--eva-accent);
+  outline-offset: 2px;
+}
+
+.eva-app {
+  display: flex;
+  height: 100%;
+  min-width: 0;
+}
+
+.eva-label {
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-semibold);
+  line-height: 1.4;
+}
+
+.eva-dim {
+  color: var(--eva-text-dim);
+}
+
+.eva-rail {
+  box-sizing: border-box;
+  flex: 0 0 var(--eva-rail-w);
+  width: var(--eva-rail-w);
+  display: flex;
+  flex-direction: column;
+  background: var(--eva-surface);
+  border-right: 1px solid var(--eva-border);
+  -webkit-app-region: drag;
+}
+.eva-rail > * {
+  -webkit-app-region: no-drag;
+}
+.eva-rail-traffic {
+  height: 72px;
+  flex: none;
+  -webkit-app-region: drag;
+}
+.eva-rail-body {
+  padding: 0 var(--eva-space-lg);
+  flex: 1;
+}
+.eva-wordmark {
+  font-size: var(--eva-fz-display);
+  font-weight: var(--eva-fw-semibold);
+  line-height: 1.2;
+  margin: 0 0 var(--eva-space-sm);
+}
+.eva-rail-foot {
+  padding: var(--eva-space-md) var(--eva-space-lg);
+}
+.eva-env-badge {
+  font-family: var(--eva-font-mono);
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-regular);
+  color: var(--eva-text-dim);
+}
+
+.eva-chat {
+  flex: 1 1 0;
+  min-width: var(--eva-main-min);
+  display: flex;
+  flex-direction: column;
+  background: var(--eva-bg);
+}
+.eva-chat-header {
+  height: var(--eva-chat-header-h);
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--eva-space-md);
+  border-bottom: 1px solid var(--eva-border);
+  -webkit-app-region: drag;
+}
+.eva-chat-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--eva-space-xl);
+  text-align: center;
+}
+.eva-heading {
+  font-size: var(--eva-fz-heading);
+  font-weight: var(--eva-fw-semibold);
+  line-height: 1.2;
+  margin: 0 0 var(--eva-space-sm);
+}
+
+.eva-browser {
+  box-sizing: border-box;
+  flex: 0 0 var(--eva-panel-w);
+  width: var(--eva-panel-w);
+  min-width: var(--eva-panel-min);
+  max-width: var(--eva-panel-max);
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--eva-border);
+  background: var(--eva-surface);
+}
+.eva-tab-strip {
+  height: var(--eva-tab-strip-h);
+  flex: none;
+  background: var(--eva-surface);
+}
+.eva-address-row {
+  height: var(--eva-address-h);
+  flex: none;
+  background: var(--eva-surface);
+}
+.eva-browser-slot {
+  flex: 1;
+  background: var(--eva-bg);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}

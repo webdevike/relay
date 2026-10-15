@@ -1,0 +1,57 @@
+import { BaseWindow, WebContentsView } from 'electron'
+import * as path from 'node:path'
+import { pathToFileURL } from 'node:url'
+import type { Env } from './env'
+
+const rendererDir = path.join(__dirname, '../renderer')
+
+/** True when `url` belongs to the app's own renderer (dev server or built file). */
+export function isAppUrl(url: string | undefined): boolean {
+  if (!url) return false
+  const dev = process.env.ELECTRON_RENDERER_URL
+  if (dev && url.startsWith(new URL(dev).origin)) return true
+  return url.startsWith(pathToFileURL(rendererDir).href)
+}
+
+export function createMainWindow(env: Env): { win: BaseWindow; shell: WebContentsView } {
+  const win = new BaseWindow({
+    width: 1280,
+    height: 800,
+    minWidth: 760,
+    minHeight: 720,
+    titleBarStyle: 'hiddenInset',
+    show: false,
+    backgroundColor: '#17181c',
+  })
+
+  const shell = new WebContentsView({
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/index.js'),
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      backgroundThrottling: false,
+    },
+  })
+  win.contentView.addChildView(shell)
+  const fit = (): void => {
+    const b = win.getContentBounds()
+    shell.setBounds({ x: 0, y: 0, width: b.width, height: b.height })
+  }
+  fit()
+  win.on('resize', fit)
+
+  shell.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  shell.webContents.on('will-navigate', (event, url) => {
+    if (!isAppUrl(url)) event.preventDefault()
+  })
+
+  const dev = process.env.ELECTRON_RENDERER_URL
+  if (dev) void shell.webContents.loadURL(dev)
+  else void shell.webContents.loadFile(path.join(rendererDir, 'index.html'))
+
+  if (env.e2e) win.showInactive()
+  else shell.webContents.once('did-finish-load', () => win.show())
+
+  return { win, shell }
+}
