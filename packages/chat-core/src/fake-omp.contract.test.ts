@@ -61,16 +61,21 @@ const start = (env: Record<string, string> = {}) => {
   const dir = mkdtempSync(join(tmpdir(), 'fake-omp-test-'))
   const resume = join(dir, 'session.jsonl')
   writeFileSync(resume, '{"type":"session"}\n')
-  const h = new Harness(
-    { FAKE_OMP_DELAY_MS: '1', FAKE_OMP_LOG: join(dir, 'life.log'), ...env },
-    ['--mode', 'rpc-ui', '--resume', resume],
-  )
+  const h = new Harness({ FAKE_OMP_DELAY_MS: '1', FAKE_OMP_LOG: join(dir, 'life.log'), ...env }, [
+    '--mode',
+    'rpc-ui',
+    '--resume',
+    resume,
+  ])
   live.push(h)
   return { h, dir, resume, logPath: join(dir, 'life.log') }
 }
 const startRaw = (args: string[], env: Record<string, string> = {}) => {
   const dir = mkdtempSync(join(tmpdir(), 'fake-omp-test-'))
-  const h = new Harness({ FAKE_OMP_DELAY_MS: '1', FAKE_OMP_LOG: join(dir, 'life.log'), ...env }, args)
+  const h = new Harness(
+    { FAKE_OMP_DELAY_MS: '1', FAKE_OMP_LOG: join(dir, 'life.log'), ...env },
+    args,
+  )
   live.push(h)
   return { h, dir, logPath: join(dir, 'life.log') }
 }
@@ -78,6 +83,7 @@ const readLog = (p: string) =>
   readFileSync(p, 'utf8')
     .trim()
     .split('\n')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- loose fake-omp wire JSON in a contract test
     .map((l) => JSON.parse(l) as { event: string; detail: any })
 
 describe('fake omp contract', () => {
@@ -209,7 +215,10 @@ describe('fake omp contract', () => {
       expect(existsSync(file)).toBe(false)
       h.send({ type: 'prompt', id: 'p', message: 'hello new' })
       await h.until((f) => f.some((x) => x.type === 'session_settled'))
-      const lines = readFileSync(file, 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+      const lines = readFileSync(file, 'utf8')
+        .trim()
+        .split('\n')
+        .map((l) => JSON.parse(l))
       expect(lines[0].type).toBe('session')
       expect(lines[1].message.content).toBe('hello new')
     })
@@ -224,11 +233,18 @@ describe('fake omp contract', () => {
     it('rpc mode set_session_name rewrites the title and exits 0', async () => {
       const dir = mkdtempSync(join(tmpdir(), 'fake-omp-ren-'))
       const f = join(dir, 'a.jsonl')
-      writeFileSync(f, '{"type":"title","v":1,"title":"Old"}\n{"type":"session","id":"a","cwd":"/x"}\n')
+      writeFileSync(
+        f,
+        '{"type":"title","v":1,"title":"Old"}\n{"type":"session","id":"a","cwd":"/x"}\n',
+      )
       const { h } = startRaw(['--mode', 'rpc', '--resume', f])
       h.send({ type: 'set_session_name', id: 'evaos-rename', name: 'New name' })
       await h.until((fr) => fr.some((x) => x.id === 'evaos-rename'))
-      expect(h.frames.find((x) => x.id === 'evaos-rename')).toMatchObject({ type: 'response', command: 'set_session_name', success: true })
+      expect(h.frames.find((x) => x.id === 'evaos-rename')).toMatchObject({
+        type: 'response',
+        command: 'set_session_name',
+        success: true,
+      })
       const first = JSON.parse(readFileSync(f, 'utf8').split('\n')[0])
       expect(first).toMatchObject({ type: 'title', title: 'New name' })
       h.child.stdin.end()
@@ -241,7 +257,9 @@ describe('fake omp contract', () => {
       await h.until((f) => f.some((x) => x.id === 'm'))
       const models = h.frames.find((x) => x.id === 'm')?.data.models
       expect(models).toHaveLength(4)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- loose fake-omp wire JSON in a contract test
       expect(models.some((m: any) => !m.input.includes('image'))).toBe(true)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- loose fake-omp wire JSON in a contract test
       expect(models.some((m: any) => m.contextWindow === null)).toBe(true)
       expect(models[0].contextWindow).toBe(200000)
     })
@@ -254,7 +272,8 @@ describe('fake omp contract', () => {
       h.send({ type: 'set_session_name', id: 'd', name: 'Live name' })
       h.send({ type: 'get_state', id: 's' })
       await h.until((f) => f.some((x) => x.id === 's'))
-      for (const id of ['a', 'b', 'c', 'd']) expect(h.frames.find((x) => x.id === id)?.success).toBe(true)
+      for (const id of ['a', 'b', 'c', 'd'])
+        expect(h.frames.find((x) => x.id === id)?.success).toBe(true)
       const d = h.frames.find((x) => x.id === 's')?.data
       expect(d.model.id).toBe('text-only')
       expect(d.thinkingLevel).toBe('high')
@@ -264,42 +283,74 @@ describe('fake omp contract', () => {
 
     it('prompt images are logged and answered', async () => {
       const { h, logPath } = start()
-      h.send({ type: 'prompt', id: 'p', message: 'look', images: [{ type: 'image', data: 'AAAA', mimeType: 'image/png' }] })
+      h.send({
+        type: 'prompt',
+        id: 'p',
+        message: 'look',
+        images: [{ type: 'image', data: 'AAAA', mimeType: 'image/png' }],
+      })
       await h.until((f) => f.some((x) => x.type === 'session_settled'))
-      const end = h.frames.filter((x) => x.type === 'message_end' && x.message.role === 'assistant').at(-1)
+      const end = h.frames
+        .filter((x) => x.type === 'message_end' && x.message.role === 'assistant')
+        .at(-1)
       expect(end?.message.content[0].text).toBe('Got 1 image(s)')
-      expect(readLog(logPath).find((e) => e.event === 'prompt-images')?.detail).toEqual({ count: 1, mimeTypes: ['image/png'] })
+      expect(readLog(logPath).find((e) => e.event === 'prompt-images')?.detail).toEqual({
+        count: 1,
+        mimeTypes: ['image/png'],
+      })
     })
 
     it('ignores launch switches and keeps unsupported modes failing', async () => {
-      const { h } = startRaw(['--mode', 'rpc-ui', '--approval-mode', 'x', '--profile', 'p', '--model', 'm', '--thinking', 'low'])
+      const { h } = startRaw([
+        '--mode',
+        'rpc-ui',
+        '--approval-mode',
+        'x',
+        '--profile',
+        'p',
+        '--model',
+        'm',
+        '--thinking',
+        'low',
+      ])
       h.send({ type: 'get_state', id: 's' })
       await h.until((f) => f.some((x) => x.id === 's'))
       const bad = startRaw(['--mode', 'print'])
       expect((await bad.h.exit).code).toBe(2)
     })
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- loose fake-omp wire JSON in a contract test
     const dialogs: Array<[string, string, (r: any) => void]> = [
       ['[select]', 'select', (r) => expect(r.options).toHaveLength(5)],
       ['[confirm]', 'confirm', () => {}],
       ['[input]', 'input', () => {}],
       ['[editor]', 'editor', () => {}],
-      ['[ask]', 'ask', (r) => {
-        expect(r.questions).toHaveLength(1)
-        expect(r.questions[0].options).toHaveLength(4)
-        expect(r.questions[0].recommended).toBe(1)
-      }],
-      ['[ask-multi]', 'ask', (r) => {
-        expect(r.questions).toHaveLength(2)
-        expect(r.questions[1].multi).toBe(true)
-      }],
+      [
+        '[ask]',
+        'ask',
+        (r) => {
+          expect(r.questions).toHaveLength(1)
+          expect(r.questions[0].options).toHaveLength(4)
+          expect(r.questions[0].recommended).toBe(1)
+        },
+      ],
+      [
+        '[ask-multi]',
+        'ask',
+        (r) => {
+          expect(r.questions).toHaveLength(2)
+          expect(r.questions[1].multi).toBe(true)
+        },
+      ],
       ['[ask-bad]', 'ask', (r) => expect(typeof r.questions).toBe('string')],
     ]
     for (const [kw, method, check] of dialogs) {
       it(`${kw} emits ${method}, waits, logs the response and continues`, async () => {
         const { h, logPath } = start()
         h.send({ type: 'prompt', id: 'p', message: `${kw} go` })
-        await h.until((f) => f.some((x) => x.type === 'extension_ui_request' && x.method === method))
+        await h.until((f) =>
+          f.some((x) => x.type === 'extension_ui_request' && x.method === method),
+        )
         const req = h.frames.find((x) => x.type === 'extension_ui_request')!
         expect(req.id).toMatch(/^ui-\d+$/)
         check(req)
@@ -307,9 +358,14 @@ describe('fake omp contract', () => {
         expect(h.frames.some((x) => x.type === 'session_settled')).toBe(false)
         h.send({ type: 'extension_ui_response', id: req.id, value: 'Beta' })
         await h.until((f) => f.some((x) => x.type === 'session_settled'))
-        const end = h.frames.filter((x) => x.type === 'message_end' && x.message.role === 'assistant').at(-1)
+        const end = h.frames
+          .filter((x) => x.type === 'message_end' && x.message.role === 'assistant')
+          .at(-1)
         expect(end?.message.content[0].text).toBe('Answer received: {"value":"Beta"}')
-        expect(readLog(logPath).find((e) => e.event === 'ui-response')?.detail).toMatchObject({ id: req.id, value: 'Beta' })
+        expect(readLog(logPath).find((e) => e.event === 'ui-response')?.detail).toMatchObject({
+          id: req.id,
+          value: 'Beta',
+        })
       })
     }
 
@@ -317,9 +373,15 @@ describe('fake omp contract', () => {
       const { h } = start()
       h.send({ type: 'prompt', id: 'p', message: '[confirm]' })
       await h.until((f) => f.some((x) => x.type === 'extension_ui_request'))
-      h.send({ type: 'extension_ui_response', id: h.frames.find((x) => x.type === 'extension_ui_request')!.id, cancelled: true })
+      h.send({
+        type: 'extension_ui_response',
+        id: h.frames.find((x) => x.type === 'extension_ui_request')!.id,
+        cancelled: true,
+      })
       await h.until((f) => f.some((x) => x.type === 'session_settled'))
-      const end = h.frames.filter((x) => x.type === 'message_end' && x.message.role === 'assistant').at(-1)
+      const end = h.frames
+        .filter((x) => x.type === 'message_end' && x.message.role === 'assistant')
+        .at(-1)
       expect(end?.message.content[0].text).toBe('Answer received: cancelled')
     })
 

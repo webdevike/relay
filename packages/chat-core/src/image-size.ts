@@ -1,6 +1,8 @@
 // PNG, JPEG, GIF and WebP dimensions from header bytes. Bounds-checked: truncated input is null.
 
-export function imageSize(bytes: Uint8Array): { width: number; height: number; mime: string } | null {
+export function imageSize(
+  bytes: Uint8Array,
+): { width: number; height: number; mime: string } | null {
   const b = bytes
   const n = b.length
   const u16be = (o: number) => ((b[o] as number) << 8) | (b[o + 1] as number)
@@ -27,7 +29,11 @@ export function imageSize(bytes: Uint8Array): { width: number; height: number; m
   if (n >= 16 && ascii(0, 'RIFF') && ascii(8, 'WEBP')) {
     if (ascii(12, 'VP8X') && n >= 30) return ok(u24le(24) + 1, u24le(27) + 1, 'image/webp')
     if (ascii(12, 'VP8L') && n >= 25 && b[20] === 0x2f) {
-      const bits = (b[21] as number) | ((b[22] as number) << 8) | ((b[23] as number) << 16) | ((b[24] as number) * 16777216)
+      const bits =
+        (b[21] as number) |
+        ((b[22] as number) << 8) |
+        ((b[23] as number) << 16) |
+        ((b[24] as number) * 16777216)
       return ok((bits & 0x3fff) + 1, ((bits >>> 14) & 0x3fff) + 1, 'image/webp')
     }
     if (ascii(12, 'VP8 ') && n >= 30 && b[23] === 0x9d && b[24] === 0x01 && b[25] === 0x2a) {
@@ -51,7 +57,8 @@ export function imageSize(bytes: Uint8Array): { width: number; height: number; m
       }
       const len = u16be(o + 2)
       if (len < 2) return null
-      const sof = marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc
+      const sof =
+        marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc
       if (sof) {
         if (o + 9 > n) return null
         return ok(u16be(o + 7), u16be(o + 5), 'image/jpeg')

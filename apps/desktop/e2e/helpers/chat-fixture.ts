@@ -36,11 +36,15 @@ export function makeChatFixture(): ChatFixture {
   const sessionsDir = path.join(agentDir, 'sessions', '-fixture')
   const file = (id: string): string => findIn(sessionsDir, id)
 
-  const manifest = JSON.parse(fs.readFileSync(path.join(agentDir, 'mtimes.json'), 'utf8')) as Record<string, number>
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(agentDir, 'mtimes.json'), 'utf8'),
+  ) as Record<string, number>
   const now = Date.now()
   for (const [key, minutes] of Object.entries(manifest)) {
     const [id, sub] = key.split('/')
-    const target = sub ? path.join(path.dirname(file(id)), path.basename(file(id), '.jsonl'), `${sub}.jsonl`) : file(id)
+    const target = sub
+      ? path.join(path.dirname(file(id)), path.basename(file(id), '.jsonl'), `${sub}.jsonl`)
+      : file(id)
     const when = new Date(now - minutes * 60_000)
     fs.utimesSync(target, when, when)
   }

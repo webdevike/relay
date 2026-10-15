@@ -22,15 +22,40 @@ describe('imageSize', () => {
   })
   it('reads VP8X, VP8L and VP8 WebP', () => {
     const riff = (chunk: string, body: number[]) =>
-      Uint8Array.from([...ascii('RIFF'), 0, 0, 0, 0, ...ascii('WEBP'), ...ascii(chunk), 0, 0, 0, 0, ...body])
+      Uint8Array.from([
+        ...ascii('RIFF'),
+        0,
+        0,
+        0,
+        0,
+        ...ascii('WEBP'),
+        ...ascii(chunk),
+        0,
+        0,
+        0,
+        0,
+        ...body,
+      ])
     // VP8X: flags(4) then width-1 (3 bytes) height-1 (3 bytes)
-    expect(imageSize(riff('VP8X', [0, 0, 0, 0, 99, 0, 0, 49, 0, 0]))).toEqual({ width: 100, height: 50, mime: 'image/webp' })
+    expect(imageSize(riff('VP8X', [0, 0, 0, 0, 99, 0, 0, 49, 0, 0]))).toEqual({
+      width: 100,
+      height: 50,
+      mime: 'image/webp',
+    })
     // VP8L: 0x2f then 14 bit w-1, 14 bit h-1
     const w = 9
     const h = 19
     const bits = w | (h << 14)
     expect(
-      imageSize(riff('VP8L', [0x2f, bits & 255, (bits >> 8) & 255, (bits >> 16) & 255, (bits >>> 24) & 255])),
+      imageSize(
+        riff('VP8L', [
+          0x2f,
+          bits & 255,
+          (bits >> 8) & 255,
+          (bits >> 16) & 255,
+          (bits >>> 24) & 255,
+        ]),
+      ),
     ).toEqual({ width: 10, height: 20, mime: 'image/webp' })
     // VP8: 3 byte frame tag, start code, then 16 bit w, h
     expect(imageSize(riff('VP8 ', [0, 0, 0, 0x9d, 0x01, 0x2a, 64, 0, 32, 0]))).toEqual({

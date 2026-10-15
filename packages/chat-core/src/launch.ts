@@ -49,7 +49,17 @@ export function claudeArgs(l: Launch): string[] {
 /** Full argv (after the binary) for the short resume that renames a session. */
 export function renameArgs(h: Harness, file: string): string[] {
   return h === 'omp'
-    ? ['--mode', 'rpc', '--resume', file, '--no-extensions', '--no-skills', '--no-rules', '--no-lsp', '--no-title']
+    ? [
+        '--mode',
+        'rpc',
+        '--resume',
+        file,
+        '--no-extensions',
+        '--no-skills',
+        '--no-rules',
+        '--no-lsp',
+        '--no-title',
+      ]
     : ['--rpc', '--no-relay', '--resume', file]
 }
 
@@ -70,7 +80,11 @@ const isObj = (v: unknown): v is Record<string, unknown> =>
  * `off` and exist only for reasoning models with efforts.
  */
 export function parseModels(data: unknown): ModelInfo[] {
-  const list = Array.isArray(data) ? data : isObj(data) && Array.isArray(data.models) ? data.models : []
+  const list = Array.isArray(data)
+    ? data
+    : isObj(data) && Array.isArray(data.models)
+      ? data.models
+      : []
   const out: ModelInfo[] = []
   for (const m of list as unknown[]) {
     if (!isObj(m) || typeof m.provider !== 'string' || typeof m.id !== 'string') continue
@@ -102,9 +116,7 @@ export function foldModels(models: readonly ModelInfo[]): ModelInfo[] {
 }
 
 export type ContextReading =
-  | { kind: 'percent'; value: number }
-  | { kind: 'tokens'; value: number }
-  | { kind: 'unavailable' }
+  { kind: 'percent'; value: number } | { kind: 'tokens'; value: number } | { kind: 'unavailable' }
 
 export function contextPercent(tokens: number | null, window: number | null): ContextReading {
   if (tokens === null) return { kind: 'unavailable' }
@@ -122,7 +134,9 @@ function approvalFrom(config: string | null): Approval | null {
   for (const line of config.split('\n')) {
     const rest = line.trim()
     if (!rest.startsWith('approvalMode:')) continue
-    const value = (rest.slice('approvalMode:'.length).split('#')[0] ?? '').trim().replace(/^["']+|["']+$/g, '')
+    const value = (rest.slice('approvalMode:'.length).split('#')[0] ?? '')
+      .trim()
+      .replace(/^["']+|["']+$/g, '')
     const hit = APPROVALS.find((a) => a === value)
     if (hit !== undefined) return hit
   }

@@ -12,10 +12,7 @@ export const WORKSPACES: ReadonlyArray<readonly [string, readonly string[]]> = [
   ['OpenFlight', ['openflight', 'launch monitor', 'golf']],
   ['Bambee', ['bambee']],
   ['Hexagon', ['hexagon', 'ponder']],
-  [
-    'Eva',
-    ['eva', 'eren', 'elysia', 'omp', 'subagent', 'subagents', 'skill', 'journal', 'harness'],
-  ],
+  ['Eva', ['eva', 'eren', 'elysia', 'omp', 'subagent', 'subagents', 'skill', 'journal', 'harness']],
 ]
 
 /** The group for chats no workspace claims. */

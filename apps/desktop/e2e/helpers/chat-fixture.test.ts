@@ -33,9 +33,16 @@ describe('chat fixture', () => {
       })
       const files = fs.readdirSync(fx.sessionsDir).filter((n) => n.endsWith('.jsonl'))
       expect(files.length).toBeGreaterThanOrEqual(17)
-      for (const n of files) expect(Date.now() - fs.statSync(path.join(fx.sessionsDir, n)).mtimeMs).toBeGreaterThan(3600_000)
-      expect(fs.statSync(fx.file('p4-ecard')).mtimeMs).toBeGreaterThan(fs.statSync(fx.file('p4-relay')).mtimeMs)
-      expect(JSON.parse(fs.readFileSync(path.join(fx.agentDir, 'session-pins.json'), 'utf8'))).toEqual(['p4-pinned'])
+      for (const n of files)
+        expect(Date.now() - fs.statSync(path.join(fx.sessionsDir, n)).mtimeMs).toBeGreaterThan(
+          3600_000,
+        )
+      expect(fs.statSync(fx.file('p4-ecard')).mtimeMs).toBeGreaterThan(
+        fs.statSync(fx.file('p4-relay')).mtimeMs,
+      )
+      expect(
+        JSON.parse(fs.readFileSync(path.join(fx.agentDir, 'session-pins.json'), 'utf8')),
+      ).toEqual(['p4-pinned'])
     } finally {
       fx.cleanup()
     }
@@ -58,7 +65,9 @@ describe('chat fixture', () => {
   it('writeChatPrefs writes pretty chat.json', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-prefs-'))
     writeChatPrefs(dir, { archived_chats: ['p4-archived'] })
-    expect(fs.readFileSync(path.join(dir, 'chat.json'), 'utf8')).toBe('{\n  "archived_chats": [\n    "p4-archived"\n  ]\n}\n')
+    expect(fs.readFileSync(path.join(dir, 'chat.json'), 'utf8')).toBe(
+      '{\n  "archived_chats": [\n    "p4-archived"\n  ]\n}\n',
+    )
     fs.rmSync(dir, { recursive: true, force: true })
   })
 })

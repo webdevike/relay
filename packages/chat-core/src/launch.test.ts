@@ -18,21 +18,45 @@ describe('argv', () => {
   })
   it('orders profile, model, thinking, approval', () => {
     expect(
-      ompArgs({ approval: 'always-ask', profile: 'work', model: ['anthropic', 'claude-x'], thinking: 'high' }),
-    ).toEqual(['--profile', 'work', '--model', 'anthropic/claude-x', '--thinking', 'high', '--approval-mode', 'always-ask'])
-  })
-  it('claude flags drop the profile', () => {
-    expect(claudeArgs({ approval: 'write', profile: 'work', model: ['anthropic', 'opus'], thinking: 'off' })).toEqual([
+      ompArgs({
+        approval: 'always-ask',
+        profile: 'work',
+        model: ['anthropic', 'claude-x'],
+        thinking: 'high',
+      }),
+    ).toEqual([
+      '--profile',
+      'work',
       '--model',
-      'anthropic/opus',
+      'anthropic/claude-x',
       '--thinking',
-      'off',
+      'high',
       '--approval-mode',
-      'write',
+      'always-ask',
     ])
   })
+  it('claude flags drop the profile', () => {
+    expect(
+      claudeArgs({
+        approval: 'write',
+        profile: 'work',
+        model: ['anthropic', 'opus'],
+        thinking: 'off',
+      }),
+    ).toEqual(['--model', 'anthropic/opus', '--thinking', 'off', '--approval-mode', 'write'])
+  })
   it('rename short resume argv', () => {
-    expect(renameArgs('omp', '/f')).toEqual(['--mode', 'rpc', '--resume', '/f', '--no-extensions', '--no-skills', '--no-rules', '--no-lsp', '--no-title'])
+    expect(renameArgs('omp', '/f')).toEqual([
+      '--mode',
+      'rpc',
+      '--resume',
+      '/f',
+      '--no-extensions',
+      '--no-skills',
+      '--no-rules',
+      '--no-lsp',
+      '--no-title',
+    ])
     expect(renameArgs('claude', '/f')).toEqual(['--rpc', '--no-relay', '--resume', '/f'])
   })
 })
@@ -41,18 +65,43 @@ describe('models', () => {
   it('parses levels, images and skips malformed', () => {
     const m = parseModels({
       models: [
-        { provider: 'anthropic', id: 'o', name: 'Opus', reasoning: true, input: ['text', 'image'], contextWindow: 1000, thinking: { efforts: ['low', 'high'] } },
-        { provider: 'p', id: 'x', reasoning: false, input: ['text'], thinking: { efforts: ['low'] } },
+        {
+          provider: 'anthropic',
+          id: 'o',
+          name: 'Opus',
+          reasoning: true,
+          input: ['text', 'image'],
+          contextWindow: 1000,
+          thinking: { efforts: ['low', 'high'] },
+        },
+        {
+          provider: 'p',
+          id: 'x',
+          reasoning: false,
+          input: ['text'],
+          thinking: { efforts: ['low'] },
+        },
         { id: 'broken' },
         'junk',
       ],
     })
     expect(m).toHaveLength(2)
-    expect(m[0]).toMatchObject({ levels: ['off', 'low', 'high'], images: true, contextWindow: 1000 })
+    expect(m[0]).toMatchObject({
+      levels: ['off', 'low', 'high'],
+      images: true,
+      contextWindow: 1000,
+    })
     expect(m[1]).toMatchObject({ levels: [], images: false, name: 'x', contextWindow: null })
   })
   it('folds dated aliases newest first', () => {
-    const mk = (id: string, name: string, provider = 'a') => ({ provider, id, name, contextWindow: null, images: false, levels: [] })
+    const mk = (id: string, name: string, provider = 'a') => ({
+      provider,
+      id,
+      name,
+      contextWindow: null,
+      images: false,
+      levels: [],
+    })
     const out = foldModels([
       mk('claude-haiku-4-5-20251001', 'Haiku'),
       mk('claude-haiku-4-5', 'Haiku'),
@@ -72,7 +121,9 @@ describe('contextPercent', () => {
 
 describe('approval and constants', () => {
   it('reads project then global then default', () => {
-    expect(readApproval('tools:\n  approvalMode: "write" # ask\n', 'approvalMode: always-ask')).toBe('write')
+    expect(
+      readApproval('tools:\n  approvalMode: "write" # ask\n', 'approvalMode: always-ask'),
+    ).toBe('write')
     expect(readApproval(null, 'approvalMode: always-ask')).toBe('always-ask')
     expect(readApproval('approvalMode: bogus', 'approvalMode: write')).toBe('write')
     expect(readApproval(null, null)).toBe('yolo')
