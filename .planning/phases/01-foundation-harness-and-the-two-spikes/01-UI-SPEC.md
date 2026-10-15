@@ -1,7 +1,8 @@
 ---
 phase: 1
 slug: foundation-harness-and-the-two-spikes
-status: draft
+status: approved
+reviewed_at: 2026-10-14
 shadcn_initialized: false
 preset: none
 created: 2026-10-14
@@ -105,7 +106,7 @@ Light scheme: out of scope. Declare only the dark values now; Phase 7 adds `[dat
 
 Window composition [CTX D-06, D-07, D-20]: the shell `WebContentsView` fills the `BaseWindow`; the React app renders three columns, left to right:
 
-1. Placeholder left rail (272px): background `--eva-surface`, right border `--eva-border`. Top: wordmark "EvaOS" (Display). Below: a single dimmed Label line "Chats and tools arrive in a later update." Contains no interactive items except a Settings-free spike "Test overlay" `Button variant="subtle"` pinned to the bottom (needed for D-08 overlay proof). Decorative only otherwise.
+1. Placeholder left rail (272px): background `--eva-surface`, right border `--eva-border`. Top: wordmark "EvaOS" (Display). Below: a single dimmed Label line "Chats and tools arrive in a later update." Contains no interactive items except one spike-only "Test overlay" `Button variant="subtle"` pinned to the bottom (needed for the D-08 overlay proof; removed in Phase 2). Decorative only otherwise.
 2. Chat main (flex 1, min 480px): vertical stack of header (40px), message log (flex 1), composer stub (min 56px).
 3. Browser panel (default 480px, 320 to 960px): vertical stack of tab strip (36px), address row (40px), a loading bar (2px, absolutely overlaid at the bottom edge of the address row), then the browser slot `div` (flex 1, `data-testid="browser-slot"`, background `--eva-bg`, no padding). The panel's left edge is a resize divider.
 
@@ -132,7 +133,7 @@ Left: session title (Heading, single line, ellipsis) from the resumed session fi
 Phase 1 proves resume and streaming, not composer parity (Phase 4). The stub: a `Textarea` (autosize 1 to 6 rows, Body text), a Send `ActionIcon` (28px), a Stop `ActionIcon` shown while a turn is in progress. Enter sends (`prompt`), Shift+Enter inserts a newline, Escape while focused and turn in progress sends `abort`. Disabled with placeholder copy while the transport is not connected. No attachments, model picker or slash menu.
 
 ### Browser panel chrome [README Side panel > Browser; CTX D-09, D-11]
-- Tab strip (36px, `--eva-surface`): one tab per browser tab, each 28px high, min 96px max 200px wide, 8px horizontal padding, title (Label, single line ellipsis), close `x` (14px) shown on hover and on the active tab. Active tab: `--eva-surface-2` fill, 2px accent top line, `--eva-text` title. Inactive: transparent, `--eva-text-dim`. A page-loading spinner (Mantine `Loader size={12}`) replaces the favicon slot while loading; favicon is 14px when available. A `+` `ActionIcon` (28px) ends the strip (new tab). Overflow: horizontal scroll, no wrapping, no shrinking below min width. Middle-click closes a tab. Closing the last tab opens a new blank tab (never an empty strip). Links meant for a new window open as new tabs [README].
+- Tab strip (36px, `--eva-surface`): one tab per browser tab, each 28px high, min 96px max 200px wide, 8px horizontal padding, title (Label, single line ellipsis), close `x` (14px) shown on hover and on the active tab. Active tab: `--eva-surface-2` fill, 2px accent top line, `--eva-text` title. Inactive: transparent, `--eva-text-dim`. A page-loading spinner (Mantine `Loader size={12}`) replaces the favicon slot while loading; favicon is 14px when available. A `+` `ActionIcon` (28px) ends the strip (new tab). Overflow: horizontal scroll, no wrapping, no shrinking below min width. Middle-click closes a tab. Closing the last tab opens a new blank tab (never an empty strip). Links with `target=_blank` open as new tabs [README]; `window.open` popups are denied by default per D-09 (OAuth popups are deferred).
 - Address row (40px, `--eva-surface`, 8px padding, 8px gaps): Back, Forward, Reload (becomes Stop while loading) `ActionIcon`s (28px, `variant="subtle"`, tooltip with label), then the address `TextInput` (flex 1, 28px tall, `--eva-surface-2` fill, 8px radius, Body text, Select-all on focus), then Copy link, Open in default browser, Import Arc logins (`IconCookie`) as `ActionIcon`s. Back and Forward are `disabled` (opacity 0.4, not focusable-skipped) per history state.
 - Address resolution [CTX D-11]: `http(s)://` or host-like text navigates; a bare integer opens `http://127.0.0.1:<port>/`; anything else searches with the README default engine. Escape in the field reverts the text to the current page URL.
 - Suggestions (up to 6, README): a list directly under the address row, width of the input, `--eva-surface-2` fill, 1px `--eva-border`, 8px radius, 8px vertical padding, rows 32px high (title Label weight 600 + URL Label dim, single line each side by side with ellipsis). Up and Down move the highlight (`--eva-border` fill), Enter opens the highlighted row or the typed text, Escape closes. While the list shows, the browser view is hidden via `useOccludeBrowser()` [CTX D-08] because a native view would cover it.
@@ -146,7 +147,7 @@ Every Mantine `Modal`, `Menu`, `Popover` and the suggestions list calls `useOccl
 ### Interaction states
 - Hover: surface steps to `--eva-surface-2` (rows, tabs, ActionIcons). Pressed: no scale or shift.
 - Focus-visible: 2px `--eva-accent` outline, 2px offset, on every focusable element in the shell. The chrome rows must be fully keyboard operable (Tab order: tabs, +, Back, Forward, Reload, address, Copy, Open, Import). The guest page receives focus only when the slot is clicked; app hotkeys in a guest are forwarded to the shell [CTX D-09].
-- Motion: only the 120ms opacity fades (pills, suggestions, Collapse at 150ms height). No spring, slide or glow. All motion off under `prefers-reduced-motion`.
+- Motion: 120ms opacity fades (pills, suggestions) and a 150ms height transition for `Collapse`; nothing else. No spring, slide or glow. All motion off under `prefers-reduced-motion`.
 - Cursor: default everywhere except tabs, buttons, pills (pointer) and the divider (col-resize).
 - Window drag region: the chat header row (`-webkit-app-region: drag`) with interactive children marked `no-drag`; traffic lights inset with a 72px left spacer in the placeholder rail wordmark row (`titleBarStyle: "hiddenInset"`) [auto].
 
@@ -249,11 +250,11 @@ Third-party component registries are not used. npm dependencies (Mantine, `@tabl
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
+- [x] Dimension 1 Copywriting: PASS (FLAG: generic Cancel / Try again labels accepted for the spike)
+- [x] Dimension 2 Visuals: PASS
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS
+- [x] Dimension 5 Spacing: PASS (FLAG: 6/14/12/18 px values are sizes, not spacing tokens; accepted)
+- [x] Dimension 6 Registry Safety: PASS
 
 **Approval:** pending
