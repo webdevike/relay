@@ -202,15 +202,15 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 04-01-PLAN.md: Chat list rules ported from Rust (workspaces, session id, categories, groupChats) (wave 1)
-- [ ] 04-02-PLAN.md: Session rules ported from Rust (dialogs, jobs and subagents, launch argv and models, image header reader) (wave 1)
-- [ ] 04-03-PLAN.md: Fake omp Phase 4 scenarios, fixtures/agent-p4 and the tmp-copy chat fixture helper (wave 1)
-- [ ] 04-04-PLAN.md: Env seams (EVAOS_AGENT_DIR, EVAOS_CLAUDE_BRIDGE_BIN, EVAOS_CLAUDE_BIN), fake Claude bridge, e2e launch env (wave 1)
-- [ ] 04-05-PLAN.md: Status constants, widened message/meta/transport types and the full Phase 4 chat IPC contract (wave 1)
+- [x] 04-01-PLAN.md: Chat list rules ported from Rust (workspaces, session id, categories, groupChats) (wave 1)
+- [x] 04-02-PLAN.md: Session rules ported from Rust (dialogs, jobs and subagents, launch argv and models, image header reader) (wave 1)
+- [x] 04-03-PLAN.md: Fake omp Phase 4 scenarios, fixtures/agent-p4 and the tmp-copy chat fixture helper (wave 1)
+- [x] 04-04-PLAN.md: Env seams (EVAOS_AGENT_DIR, EVAOS_CLAUDE_BRIDGE_BIN, EVAOS_CLAUDE_BIN), fake Claude bridge, e2e launch env (wave 1)
+- [x] 04-05-PLAN.md: Status constants, widened message/meta/transport types and the full Phase 4 chat IPC contract (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 04-06-PLAN.md: Chats list slice: grouped tree, Pinned, running first, Show N more, open from the list (wave 2)
+- [x] 04-06-PLAN.md: Chats list slice: grouped tree, Pinned, running first, Show N more, open from the list (wave 2)
 - [ ] 04-07-PLAN.md: Settings > Chat in chat.json, harness selector and the Claude bridge transport (wave 2)
 - [ ] 04-08-PLAN.md: Inline images in prompts and tool results with the viewer (wave 2)
 - [ ] 04-09-PLAN.md: Composer image paste, drop, attach and send (wave 2)
@@ -302,7 +302,7 @@ Plans:
 | 1. Foundation, Harness and the Two Spikes | 10/10 | Complete   | 2026-10-15 |
 | 2. Shell, Navigation and Theme Tokens | 13/13 | Complete    | 2026-10-15 |
 | 3. Dashboard, Workspaces, Jobs, Habits and Meetings | 19/19 | Complete    | 2026-10-15 |
-| 4. Chat Parity | 0/TBD | Not started | - |
+| 4. Chat Parity | 6/19 | In Progress|  |
 | 5. Rich Replies | 0/TBD | Not started | - |
 | 6. Side Panel, Eregon and Global Search | 0/TBD | Not started | - |
 | 7. Relay, Inbox, Notifications and Theme Editor | 0/TBD | Not started | - |
