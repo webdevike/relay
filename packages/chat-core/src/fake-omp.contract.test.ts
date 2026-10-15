@@ -9,7 +9,9 @@ const here = dirname(fileURLToPath(import.meta.url))
 const FAKE = join(here, '../../../fixtures/fake-omp/fake-omp.mjs')
 const REC = join(here, '../../../fixtures/fake-omp/recordings')
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
 type F = Record<string, any> & { type: string }
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 class Harness {
   child: ChildProcessWithoutNullStreams
