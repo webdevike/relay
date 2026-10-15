@@ -20,9 +20,9 @@ step "vitest"
 pnpm exec vitest run
 step "build"
 pnpm -C apps/desktop build
-# sentinel before
+node scripts/sentinel.ts before
 step "e2e"
 pnpm -C apps/desktop e2e:run
-# sentinel after
+node scripts/sentinel.ts after
 # packaged smoke
 echo GATE GREEN
