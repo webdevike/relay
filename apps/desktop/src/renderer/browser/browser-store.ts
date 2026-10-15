@@ -1,5 +1,6 @@
 import { useStore } from 'zustand'
 import { createStore } from 'zustand/vanilla'
+import { notifications } from '@mantine/notifications'
 import type { TabState, TabsSnapshot } from '@evaos/contract'
 import { invoke, on } from '../ipc'
 
@@ -19,13 +20,19 @@ export function useBrowserStore<T>(sel: (s: BrowserState) => T): T {
   return useStore(browserStore, sel)
 }
 
-/** Loads the current tabs and follows `browser.tabs` events; returns the unsubscribe. */
+/** Loads the current tabs and follows `browser.tabs` and `browser.notice`; returns the unsubscribe. */
 export function startBrowserStore(): () => void {
-  const off = on('browser.tabs', (p) => browserStore.getState().set(p))
+  const offTabs = on('browser.tabs', (p) => browserStore.getState().set(p))
+  const offNotice = on('browser.notice', (p) =>
+    notifications.show({ message: p.message, autoClose: 4000 }),
+  )
   void invoke('browser.state', {}).then((r) => {
     if (r.ok) browserStore.getState().set(r.value)
   })
-  return off
+  return () => {
+    offTabs()
+    offNotice()
+  }
 }
 
 export function activeTab(s: BrowserState): TabState | undefined {

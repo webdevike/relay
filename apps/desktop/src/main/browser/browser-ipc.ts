@@ -32,7 +32,9 @@ export function registerBrowserIpc(ctx: MainContext, host: BrowserHost): void {
   }
   handle(ctx, 'browser.createTab', async ({ url }) => {
     await host.ready
-    return host.createTab(url ? (normalize(url) ?? undefined) : undefined, true)
+    const tab = host.createTab(url ? (normalize(url) ?? undefined) : undefined, true)
+    if (!tab) throw Object.assign(new Error('Tab limit reached'), { code: 'tab-limit' })
+    return tab
   })
   handle(ctx, 'browser.closeTab', ({ tabId }) => ({ activeId: host.closeTab(tabId) }))
   handle(ctx, 'browser.activateTab', ({ tabId }) => ({ activeId: host.activateTab(tabId) }))

@@ -96,4 +96,6 @@ export type HotkeyChord = z.output<typeof HotkeyChordSchema>
 export const browserEvents = {
   'browser.tabs': TabsSnapshotSchema,
   'browser.hotkey': z.object({ chord: HotkeyChordSchema }),
+  /** A short, user-facing note from the browser host (for example the tab limit). */
+  'browser.notice': z.object({ message: z.string().max(200) }),
 } as const

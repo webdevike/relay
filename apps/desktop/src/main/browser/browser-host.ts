@@ -26,6 +26,9 @@ export interface NavigateOptions {
   fromExtension?: boolean
 }
 
+/** Upper bound on open tabs; each one is a full renderer process a guest page could spawn. */
+export const MAX_TABS = 32
+
 function hostOf(url: string): string {
   try {
     return new URL(url).host || url
@@ -104,7 +107,14 @@ export class BrowserHost {
     return this.tabs.get(this.activeId)!.view
   }
 
-  createTab(url?: string, activate = false, opts: NavigateOptions = {}): TabState {
+  /** Returns null (and tells the shell why) once MAX_TABS are open. */
+  createTab(url?: string, activate = false, opts: NavigateOptions = {}): TabState | null {
+    if (this.order.length >= MAX_TABS) {
+      emit(this.ctx, 'browser.notice', {
+        message: `Tab limit reached (${MAX_TABS}). Close a tab to open another.`,
+      })
+      return null
+    }
     const id = `t${this.nextId++}`
     const view = new WebContentsView({
       webPreferences: {
@@ -144,9 +154,11 @@ export class BrowserHost {
   private wire(tab: Tab): void {
     const wc = tab.view.webContents
     const s = tab.state
-    // Always deny; only http(s) foreground/background tab dispositions become app-created tabs
-    // in the same hardened partition. new-window popups stay denied (T-01-37).
+    // Always deny; only http(s) foreground/background tab dispositions from the active tab
+    // become app-created tabs in the same hardened partition (a background page cannot spawn
+    // tabs). new-window popups stay denied (T-01-37).
     wc.setWindowOpenHandler((details) => {
+      if (tab.state.id !== this.activeId) return { action: 'deny' }
       if (details.disposition === 'foreground-tab' || details.disposition === 'background-tab') {
         try {
           const p = new URL(details.url).protocol
