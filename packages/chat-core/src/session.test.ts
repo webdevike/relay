@@ -178,3 +178,83 @@ describe('parseSession', () => {
     ])
   })
 })
+
+describe('images in transcripts', () => {
+  const PNG_1X1 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAHnOcQAAAAABJRU5ErkJggg=='
+  const HASH = 'a'.repeat(64)
+  const line = (id: string, parent: string | null, message: unknown): string =>
+    JSON.stringify({ type: 'message', id, parentId: parent, message })
+
+  it('inline image part gets a data URL and dimensions', () => {
+    const { messages } = parseSession(
+      line('u', null, {
+        role: 'user',
+        content: [{ type: 'image', data: PNG_1X1, mimeType: 'image/png' }],
+      }),
+    )
+    expect(messages[0]?.images).toEqual([
+      {
+        label: 'Image 1',
+        src: `data:image/png;base64,${PNG_1X1}`,
+        mimeType: 'image/png',
+        width: 1,
+        height: 1,
+      },
+    ])
+  })
+
+  it('blob reference keeps its token and has no dimensions', () => {
+    const { messages } = parseSession(
+      line('u', null, {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'hi' },
+          { type: 'image', data: `blob:sha256:${HASH}`, mimeType: 'image/png' },
+        ],
+      }),
+    )
+    expect(messages[0]?.images).toEqual([
+      { label: 'Image 1', src: `blob:sha256:${HASH}`, mimeType: 'image/png' },
+    ])
+  })
+
+  it('non-image bytes and bad tokens get no src', () => {
+    const { messages } = parseSession(
+      line('u', null, {
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            data: btoa('<svg xmlns="http://www.w3.org/2000/svg"/>'),
+            mimeType: 'image/svg+xml',
+          },
+          { type: 'image', data: 'blob:sha256:../../etc/passwd', mimeType: 'image/png' },
+        ],
+      }),
+    )
+    expect(messages[0]?.images).toEqual([{ label: 'Image 1' }, { label: 'Image 2' }])
+  })
+
+  it('tool result images attach to the tool row', () => {
+    const { messages } = parseSession(
+      [
+        line('c', null, {
+          role: 'assistant',
+          content: [{ type: 'toolCall', id: 't1', name: 'screenshot', arguments: {} }],
+        }),
+        line('d', 'c', {
+          role: 'toolResult',
+          toolCallId: 't1',
+          content: [
+            { type: 'text', text: 'ok' },
+            { type: 'image', data: PNG_1X1, mimeType: 'image/png' },
+          ],
+        }),
+      ].join('\n'),
+    )
+    const tool = messages.find((m) => m.role === 'tool')
+    expect(tool?.images).toHaveLength(1)
+    expect(tool?.images[0]?.width).toBe(1)
+  })
+})

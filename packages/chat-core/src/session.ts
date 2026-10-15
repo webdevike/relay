@@ -1,4 +1,5 @@
-import { makeMessage, type ChatMessage, type SessionMeta } from './message'
+import { imageSize } from './image-size'
+import { makeMessage, type ChatImage, type ChatMessage, type SessionMeta } from './message'
 
 type Json = Record<string, unknown>
 
@@ -56,13 +57,47 @@ function contextTokens(message: Json): number | null {
   return null
 }
 
+const BLOB_TOKEN = /^blob:sha256:[a-f0-9]{64}$/
+const HEADER_B64_CHARS = 87_380 // ~64 KB decoded, a multiple of 4
+
+/** The renderable shape of one `image` content part. Only png, jpeg, gif and webp ever get a `src`. */
+export function imageFrom(part: Json, n: number): ChatImage {
+  const label = `Image ${n + 1}`
+  const data = str(part.data)
+  if (data === undefined) return { label }
+  if (BLOB_TOKEN.test(data)) {
+    const mimeType = str(part.mimeType)
+    return { label, src: data, ...(mimeType !== undefined ? { mimeType } : {}) }
+  }
+  try {
+    const head = data.slice(0, HEADER_B64_CHARS)
+    const size = imageSize(Uint8Array.from(atob(head), (c) => c.charCodeAt(0)))
+    if (size === null) return { label }
+    return {
+      label,
+      src: `data:${size.mime};base64,${data}`,
+      mimeType: size.mime,
+      width: size.width,
+      height: size.height,
+    }
+  } catch {
+    return { label }
+  }
+}
+
+const imagesOf = (content: unknown): ChatImage[] =>
+  arr(content)
+    .filter(isObj)
+    .filter((p) => p.type === 'image')
+    .map((p, n) => imageFrom(p, n))
+
 /** A prompt Isaac wrote: its text parts joined. Null for agent-authored and empty prompts. */
-function promptParts(message: Json): { text: string; images: number } | null {
+function promptParts(message: Json): { text: string; images: ChatImage[] } | null {
   if (message.role !== 'user') return null
   if ((str(message.attribution) ?? 'user') !== 'user') return null
   const content = message.content
   let text: string
-  let images = 0
+  let images: ChatImage[] = []
   if (typeof content === 'string') {
     text = content
   } else {
@@ -72,10 +107,10 @@ function promptParts(message: Json): { text: string; images: number } | null {
       .map((p) => str(p.text))
       .filter((t): t is string => t !== undefined)
       .join('\n\n')
-    images = parts.filter((p) => p.type === 'image').length
+    images = imagesOf(parts)
   }
   text = untagged(text)
-  return text.trim() !== '' || images > 0 ? { text, images } : null
+  return text.trim() !== '' || images.length > 0 ? { text, images } : null
 }
 
 function textOf(content: unknown): string {
@@ -93,8 +128,7 @@ export function messagesFrom(message: Json, id: string): ChatMessage[] {
   if (message.role === 'user') {
     const prompt = promptParts(message)
     if (!prompt) return []
-    const images = Array.from({ length: prompt.images }, (_, n) => ({ label: `Image ${n + 1}` }))
-    return [makeMessage(id, 'user', prompt.text, { images })]
+    return [makeMessage(id, 'user', prompt.text, { images: prompt.images })]
   }
   if (message.role !== 'assistant') return []
   const out: ChatMessage[] = []
@@ -148,6 +182,8 @@ export function attachResult(messages: ChatMessage[], message: Json): boolean {
           .map((p) => str(p.text))
           .filter((t): t is string => t !== undefined)
   const isError = message.isError === true
+  const images = imagesOf(content)
+  if (images.length > 0) row.images = images
   row.tool = {
     ...row.tool,
     result: text.join('\n\n'),

@@ -4,6 +4,7 @@ import { parseSession, type ParsedSession } from '@evaos/chat-core/session'
 import { listSessionFiles } from '@evaos/chat-core/sessions-dir'
 import type { MainContext } from '../context'
 import { handle } from '../ipc/handle'
+import { readBlobImage } from './media'
 
 class CodedError extends Error {
   constructor(
@@ -40,4 +41,5 @@ export function registerTranscriptIpc(
     onOpened?.(paneId, real, parsed)
     return parsed
   })
+  handle(ctx, 'chat.readImage', ({ token }) => readBlobImage(ctx.env.agentDir, token))
 }
