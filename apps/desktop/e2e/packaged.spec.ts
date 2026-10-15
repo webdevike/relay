@@ -38,6 +38,7 @@ test('packaged dir build launches, shows the shell and starts the extension host
     EVAOS_OMP_BIN: FAKE_OMP,
     EVAOS_SESSIONS_DIR: SESSIONS_FIXTURE_DIR,
     ELECTRON_DISABLE_SECURITY_WARNINGS: '1',
+    EVAOS_HIDDEN_WINDOW: '1',
   })
   const child = spawn(EXE, [`--remote-debugging-port=${port}`], { env, stdio: 'ignore' })
   try {

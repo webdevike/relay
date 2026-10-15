@@ -49,6 +49,8 @@ export function buildLaunchEnv(
     EVAOS_HABIT_PHOTOS_DIR: path.join(configDir, 'habit-photos'),
     ELECTRON_DISABLE_SECURITY_WARNINGS: '1',
     ...launchEnv,
+    // Last, so no spec can make a test window visible over Isaac's work.
+    EVAOS_HIDDEN_WINDOW: '1',
   })
   return env
 }

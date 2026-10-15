@@ -10,6 +10,8 @@ export interface Env {
   arcExportCmd: string[] | null
   live: boolean
   e2e: boolean
+  /** EVAOS_HIDDEN_WINDOW=1: transparent, click-through, never-active window (all test launches). */
+  hiddenWindow: boolean
   noMotion: boolean
   repoRoot: string
   habitGateBin: string
@@ -135,6 +137,7 @@ export function resolveEnv(input: ResolveEnvInput): Env {
     arcExportCmd: parseArcCmd(env.EVAOS_ARC_EXPORT_CMD),
     live,
     e2e: env.EVAOS_E2E === '1',
+    hiddenWindow: env.EVAOS_HIDDEN_WINDOW === '1',
     noMotion: env.EVAOS_NO_MOTION === '1',
     repoRoot,
   }

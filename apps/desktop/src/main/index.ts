@@ -37,9 +37,9 @@ function bootstrap(): void {
   app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
 
   // Test and proof runs happen while Isaac works on the same Mac: run as an accessory app (no
-  // Dock icon, never becomes the active app) so launches don't steal focus. showInactive in
-  // window.ts keeps the window itself from taking key status.
-  if (env.e2e && process.platform === 'darwin') app.setActivationPolicy('accessory')
+  // Dock icon, never becomes the active app) so launches don't steal focus. window.ts keeps the
+  // window itself transparent, click-through and inactive.
+  if (env.hiddenWindow && process.platform === 'darwin') app.setActivationPolicy('accessory')
 
   void app.whenReady().then(() => {
     try {

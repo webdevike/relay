@@ -45,10 +45,21 @@ export function createMainWindow(
   })
 
   const dev = process.env.ELECTRON_RENDERER_URL
+  // Test launches run while Isaac works on this Mac, including specs that exercise the real
+  // (non-e2e) show path. The window must exist and paint (CDP screenshots and capturePage read
+  // the compositor, not the screen), but it stays invisible, click-through and never active.
+  if (env.hiddenWindow) {
+    win.setOpacity(0)
+    win.setIgnoreMouseEvents(true)
+  }
+  const show = (): void => {
+    if (env.hiddenWindow) win.showInactive()
+    else win.show()
+  }
   // Never leave an invisible process: a failed load shows the window and an error, and a
   // fallback timer shows it even if neither load event arrives.
   const reportLoadFailure = (detail: string): void => {
-    if (!win.isDestroyed()) win.show()
+    if (!win.isDestroyed()) show()
     dialog.showErrorBox('EvaOS', `The interface failed to load.\n\n${detail}`)
   }
   shell.webContents.on('did-fail-load', (_e, code, description, _url, isMainFrame) => {
@@ -62,20 +73,14 @@ export function createMainWindow(
     // did-fail-load already reported it; nothing else to do.
   })
 
-  if (env.e2e) {
-    // Tests run while Isaac works on this Mac. The window must exist and paint (CDP screenshots
-    // and capturePage read the compositor, not the screen), but it stays invisible and lets every
-    // click through, so it never covers his windows.
-    win.setOpacity(0)
-    win.setIgnoreMouseEvents(true)
-    win.showInactive()
-  } else {
+  if (env.e2e) win.showInactive()
+  else {
     const fallback = setTimeout(() => {
-      if (!win.isDestroyed() && !win.isVisible()) win.show()
+      if (!win.isDestroyed() && !win.isVisible()) show()
     }, 10_000)
     shell.webContents.once('did-finish-load', () => {
       clearTimeout(fallback)
-      win.show()
+      show()
     })
   }
 
