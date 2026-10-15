@@ -1,4 +1,5 @@
 import * as fs from 'node:fs'
+import * as path from 'node:path'
 import { parseFrame } from '@evaos/chat-core/frames'
 import { cmd } from '@evaos/chat-core/frames'
 import { LiveReducer } from '@evaos/chat-core/reducer'
@@ -30,12 +31,22 @@ export interface SessionManagerDeps {
   setInterval?: (fn: () => void, ms: number) => unknown
   clearInterval?: (handle: unknown) => void
   realpath?: (file: string) => string
+  /** Default launch flags for a new chat (approval from omp config); extended per pane later. */
+  launchArgs?: (harness: 'omp' | 'claude') => string[]
+}
+
+/** What the chat list, writers and rename need to know about a file this app owns. */
+export interface LiveStatus {
+  paneId: string
+  working: boolean
+  dialog: 'confirm' | 'other' | null
 }
 
 interface Pane {
   paneId: string
-  file: string
-  key: string
+  /** Null for a draft until omp reports the session file it created. */
+  file: string | null
+  key: string | null
   reducer: LiveReducer
   batcher: SeqBatcher
   transport: ChatTransport | null
@@ -66,6 +77,7 @@ export class SessionManager {
   private setIv: (fn: () => void, ms: number) => unknown
   private clearIv: (h: unknown) => void
   private real: (f: string) => string
+  private statusListeners = new Set<(file: string) => void>()
 
   constructor(private deps: SessionManagerDeps) {
     this.setIv = deps.setInterval ?? ((fn, ms) => setInterval(fn, ms))
@@ -104,6 +116,69 @@ export class SessionManager {
     })
   }
 
+  /** A new chat: no file yet. The first send starts omp without --resume and binds on get_state. */
+  openDraft(paneId: string, meta: SessionMeta): void {
+    const existing = this.panes.get(paneId)
+    if (existing?.transport) void this.release(existing)
+    this.panes.set(paneId, {
+      paneId,
+      file: null,
+      key: null,
+      reducer: new LiveReducer([], meta),
+      batcher: new SeqBatcher(paneId),
+      transport: null,
+      starting: null,
+      unsubscribe: null,
+      timer: null,
+      framesIn: 0,
+      batches: 0,
+    })
+  }
+
+  /** The pane whose omp owns this session file, else null. */
+  ownerOf(file: string): string | null {
+    return this.owners.get(this.real(file))?.pane.paneId ?? null
+  }
+
+  /** Realpaths of every session file with a live owner. */
+  liveFiles(): ReadonlySet<string> {
+    return new Set(this.owners.keys())
+  }
+
+  liveStatus(file: string): LiveStatus | null {
+    const owner = this.owners.get(this.real(file))
+    if (!owner) return null
+    // The dialog stays null until the question slice lands.
+    return { paneId: owner.pane.paneId, working: owner.pane.reducer.running, dialog: null }
+  }
+
+  /** Fires with the owned file's realpath on owner add or remove, working toggle and bind. */
+  onStatusChange(cb: (file: string) => void): () => void {
+    this.statusListeners.add(cb)
+    return () => {
+      this.statusListeners.delete(cb)
+    }
+  }
+
+  private notify(key: string | null): void {
+    if (key === null) return
+    for (const cb of [...this.statusListeners]) {
+      try {
+        cb(key)
+      } catch {
+        // a listener must not break frame handling
+      }
+    }
+  }
+
+  /** Renames through the owning process (single writer): false when this app does not own it. */
+  async renameOwned(file: string, name: string): Promise<boolean> {
+    const owner = this.owners.get(this.real(file))
+    if (!owner) return false
+    await owner.transport.write({ type: 'set_session_name', name })
+    return true
+  }
+
   has(file: string): boolean {
     return this.owners.has(this.real(file))
   }
@@ -132,7 +207,9 @@ export class SessionManager {
     if (!transport) throw new CodedError('session-closed', 'The session is not running.')
     // sendPrompt() runs outside apply(), so its meta change (clearing an EOF error) is diffed here.
     const hadError = pane.reducer.error !== null
+    const wasWorking = pane.reducer.running
     const row = pane.reducer.sendPrompt(text, opts.images)
+    if (pane.reducer.running !== wasWorking) this.notify(pane.key)
     if (hadError) pane.batcher.markMeta({ error: null })
     pane.batcher.markUpsert(row, pane.reducer.indexOf(row.id))
     try {
@@ -158,8 +235,16 @@ export class SessionManager {
    * and is still running). A pane replaced while it waited never claims.
    */
   private async acquire(pane: Pane): Promise<ChatTransport> {
+    if (pane.key === null) {
+      // An unbound draft has no file to collide on: the owner is registered when omp reports it.
+      if (this.panes.get(pane.paneId) !== pane) {
+        throw new CodedError('session-closed', 'The session was closed before omp started.')
+      }
+      return this.deps.createTransport()
+    }
+    const key = pane.key
     for (;;) {
-      const owner = this.owners.get(pane.key)
+      const owner = this.owners.get(key)
       if (owner?.closing) {
         await owner.closing
         continue
@@ -176,13 +261,48 @@ export class SessionManager {
         )
       }
       const transport = this.deps.createTransport()
-      this.owners.set(pane.key, { pane, transport, closing: null })
+      this.owners.set(key, { pane, transport, closing: null })
+      this.notify(key)
       return transport
     }
   }
 
-  private disown(key: string, transport: ChatTransport): void {
-    if (this.owners.get(key)?.transport === transport) this.owners.delete(key)
+  private disown(key: string | null, transport: ChatTransport): void {
+    if (key === null) return
+    if (this.owners.get(key)?.transport === transport) {
+      this.owners.delete(key)
+      this.notify(key)
+    }
+  }
+
+  /** Realpath of a file omp is about to create: its directory is resolved when the file is not there yet. */
+  private realNew(file: string): string {
+    const direct = this.real(file)
+    if (direct !== file) return direct
+    return path.join(this.real(path.dirname(file)), path.basename(file))
+  }
+
+  /**
+   * A draft's `get_state` reports the session file omp created. Bind the pane to it and register
+   * the owner. Only an absolute `.jsonl` path is accepted (T-04-31). When another pane already
+   * owns that file the draft keeps running unregistered: no second owner, no second process.
+   */
+  private bindDraft(pane: Pane, transport: ChatTransport, raw: Record<string, unknown>): void {
+    if (pane.key !== null || raw.type !== 'response' || raw.command !== 'get_state') return
+    if (raw.success === false) return
+    const data = raw.data
+    const file =
+      typeof data === 'object' && data !== null
+        ? (data as Record<string, unknown>).sessionFile
+        : undefined
+    if (typeof file !== 'string' || !path.isAbsolute(file) || !file.endsWith('.jsonl')) return
+    const key = this.realNew(file)
+    if (this.owners.has(key)) return
+    pane.file = file
+    pane.key = key
+    this.owners.set(key, { pane, transport, closing: null })
+    pane.batcher.markMeta({ sessionFile: file })
+    this.notify(key)
   }
 
   private async startTransport(pane: Pane): Promise<void> {
@@ -190,7 +310,14 @@ export class SessionManager {
     pane.transport = transport
     pane.unsubscribe = transport.onFrame((f) => this.onFrame(pane, transport, f))
     try {
-      await transport.start({ sessionFile: pane.key, cwd: this.deps.cwd })
+      const harness = transport.kind === 'claude' ? 'claude' : 'omp'
+      // A resumed chat keeps the session's own launch choices; only a new chat gets the defaults.
+      const args = pane.key === null ? this.deps.launchArgs?.(harness) : undefined
+      await transport.start({
+        sessionFile: pane.key,
+        cwd: this.deps.cwd,
+        ...(args ? { args } : {}),
+      })
     } catch (e) {
       pane.unsubscribe?.()
       pane.unsubscribe = null
@@ -228,6 +355,7 @@ export class SessionManager {
     const parsed = parseFrame(raw)
     const frame =
       parsed.type === 'unknown' ? raw : (parsed as Record<string, unknown> & { type: string })
+    const wasWorking = pane.reducer.running
     const res = pane.reducer.apply(frame)
     for (const id of res.dirty) {
       const ix = pane.reducer.indexOf(id)
@@ -235,6 +363,8 @@ export class SessionManager {
     }
     for (const id of res.removed) pane.batcher.markRemove(id)
     if (res.meta) pane.batcher.markMeta(res.meta)
+    this.bindDraft(pane, transport, frame)
+    if (pane.reducer.running !== wasWorking) this.notify(pane.key)
     if (res.effect) void pane.transport?.write(res.effect).catch(() => undefined)
     if (frame.type === '_eof') {
       // omp is already gone: nothing to close() and no second `_eof` to apply.
@@ -274,7 +404,7 @@ export class SessionManager {
     const t = pane.transport
     if (!t) return null
     this.detach(pane)
-    const current = this.owners.get(pane.key)
+    const current = pane.key === null ? undefined : this.owners.get(pane.key)
     const held = current?.transport === t ? current : null
     const done = t
       .close({ timeoutMs })

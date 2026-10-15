@@ -7,14 +7,14 @@ import { ALREADY_OWNED, STILL_CLOSING, SessionManager } from './session-manager'
 
 class MemoryTransport implements ChatTransport {
   readonly kind = 'memory'
-  started: Array<{ sessionFile: string; cwd: string }> = []
+  started: Array<{ sessionFile: string | null; cwd: string; args?: readonly string[] }> = []
   written: Array<Record<string, unknown>> = []
   sent: string[] = []
   sentImages: Array<readonly PromptImage[] | undefined> = []
   private cb: ((f: Frame) => void) | null = null
   /** When set, start() settles with this promise (models a slow or failing spawn). */
   startGate: Promise<void> | null = null
-  start(opts: { sessionFile: string; cwd: string }) {
+  start(opts: { sessionFile: string | null; cwd: string; args?: readonly string[] }) {
     this.started.push(opts)
     return this.startGate ?? Promise.resolve()
   }
@@ -59,7 +59,13 @@ class MemoryTransport implements ChatTransport {
 const meta = { model: null, thinking: null, contextTokens: null }
 const asst = (t: string) => ({ role: 'assistant', content: [{ type: 'text', text: t }] })
 
-function setup(opts: { firstStartGate?: Promise<void> } = {}) {
+function setup(
+  opts: {
+    firstStartGate?: Promise<void>
+    launchArgs?: (h: 'omp' | 'claude') => string[]
+    kind?: string
+  } = {},
+) {
   vi.useFakeTimers()
   const transports: MemoryTransport[] = []
   const batches: Batch[] = []
@@ -67,6 +73,7 @@ function setup(opts: { firstStartGate?: Promise<void> } = {}) {
     createTransport: () => {
       const t = new MemoryTransport()
       if (transports.length === 0 && opts.firstStartGate) t.startGate = opts.firstStartGate
+      if (opts.kind) (t as { kind: string }).kind = opts.kind
       transports.push(t)
       return t
     },
@@ -74,6 +81,7 @@ function setup(opts: { firstStartGate?: Promise<void> } = {}) {
     cwd: '/eva',
     machineLabel: 'Mac',
     realpath: (f) => f,
+    ...(opts.launchArgs ? { launchArgs: opts.launchArgs } : {}),
   })
   return { mgr, transports, batches }
 }
@@ -511,6 +519,186 @@ describe('SessionManager', () => {
     const exit = await mgr.close('pane-1', 50)
     expect(exit).toEqual({ code: null, signal: null, timedOut: true })
     expect(abortSpy).not.toHaveBeenCalled()
+    vi.useRealTimers()
+  })
+})
+
+const stateFrame = (file: string | null) =>
+  ({
+    type: 'response',
+    command: 'get_state',
+    success: true,
+    id: 'evaos-state',
+    data: { sessionFile: file },
+  }) as unknown as Frame
+const TAG = '<surface>Mac - EvaOS</surface>\n'
+
+describe('SessionManager new chats and status', () => {
+  it('a draft starts omp without a file and with the default launch args', async () => {
+    const { mgr, transports } = setup({ launchArgs: (h) => ['--approval-mode', `${h}-x`] })
+    mgr.openDraft('pane-1', meta)
+    expect(mgr.liveFiles().size).toBe(0)
+    await mgr.send('pane-1', 'hi')
+    expect(transports[0]!.started).toEqual([
+      { sessionFile: null, cwd: '/eva', args: ['--approval-mode', 'omp-x'] },
+    ])
+    expect(mgr.liveFiles().size).toBe(0)
+    vi.useRealTimers()
+  })
+
+  it('a claude transport gets the claude default args', async () => {
+    const { mgr, transports } = setup({ launchArgs: (h) => [h], kind: 'claude' })
+    mgr.openDraft('pane-1', meta)
+    await mgr.send('pane-1', 'hi')
+    expect(transports[0]!.started[0]!.args).toEqual(['claude'])
+    vi.useRealTimers()
+  })
+
+  it('a resumed chat does not get the default launch args', async () => {
+    const { mgr, transports } = setup({ launchArgs: () => ['--approval-mode', 'yolo'] })
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    await mgr.send('pane-1', 'hi')
+    expect(transports[0]!.started).toEqual([{ sessionFile: '/s/a.jsonl', cwd: '/eva' }])
+    vi.useRealTimers()
+  })
+
+  it('get_state binds the draft: owner, meta patch and status event', async () => {
+    const { mgr, transports, batches } = setup()
+    const seen: string[] = []
+    mgr.onStatusChange((f) => seen.push(f))
+    mgr.openDraft('pane-1', meta)
+    await mgr.send('pane-1', 'hi')
+    transports[0]!.push(stateFrame('/s/new.jsonl'))
+    expect(mgr.ownerOf('/s/new.jsonl')).toBe('pane-1')
+    expect([...mgr.liveFiles()]).toEqual(['/s/new.jsonl'])
+    expect(seen).toContain('/s/new.jsonl')
+    vi.advanceTimersByTime(20)
+    const patches = batches.flatMap((b) => b.ops).filter((o) => o.op === 'meta')
+    expect(patches.some((o) => o.op === 'meta' && o.patch.sessionFile === '/s/new.jsonl')).toBe(
+      true,
+    )
+    vi.useRealTimers()
+  })
+
+  it('a second get_state with the same file does nothing', async () => {
+    const { mgr, transports } = setup()
+    const seen: string[] = []
+    mgr.openDraft('pane-1', meta)
+    await mgr.send('pane-1', 'hi')
+    transports[0]!.push(stateFrame('/s/new.jsonl'))
+    mgr.onStatusChange((f) => seen.push(f))
+    transports[0]!.push(stateFrame('/s/new.jsonl'))
+    expect(seen).toEqual([])
+    vi.useRealTimers()
+  })
+
+  it('only an absolute .jsonl path binds', async () => {
+    const { mgr, transports } = setup()
+    mgr.openDraft('pane-1', meta)
+    await mgr.send('pane-1', 'hi')
+    for (const bad of ['rel/x.jsonl', '/s/x.txt', null]) transports[0]!.push(stateFrame(bad))
+    expect(mgr.liveFiles().size).toBe(0)
+    vi.useRealTimers()
+  })
+
+  it('a draft that binds to an already owned file keeps the first owner', async () => {
+    const { mgr, transports } = setup()
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    await mgr.send('pane-1', 'a')
+    mgr.openDraft('pane-2', meta)
+    await mgr.send('pane-2', 'b')
+    transports[1]!.push(stateFrame('/s/a.jsonl'))
+    expect(mgr.ownerOf('/s/a.jsonl')).toBe('pane-1')
+    expect(transports).toHaveLength(2)
+    vi.useRealTimers()
+  })
+
+  it('tags every send path exactly once', async () => {
+    const { mgr, transports } = setup()
+    mgr.openDraft('pane-1', meta)
+    await mgr.send('pane-1', 'first')
+    await mgr.send('pane-1', 'steer while running')
+    await mgr.send('pane-1', 'with image', { images: [{ mimeType: 'image/png', data: 'A' }] })
+    mgr.open('pane-2', '/s/r.jsonl', [], meta)
+    await mgr.send('pane-2', 'resumed')
+    expect(transports[0]!.sent).toEqual([
+      `${TAG}first`,
+      `${TAG}steer while running`,
+      `${TAG}with image`,
+    ])
+    expect(transports[1]!.sent).toEqual([`${TAG}resumed`])
+    for (const t of transports)
+      for (const m of t.sent) expect(m.split('<surface>').length - 1).toBe(1)
+    vi.useRealTimers()
+  })
+
+  it('tags a prompt sent through a claude transport', async () => {
+    const { mgr, transports } = setup({ kind: 'claude' })
+    mgr.openDraft('pane-1', meta)
+    await mgr.send('pane-1', 'hello')
+    expect(transports[0]!.sent).toEqual([`${TAG}hello`])
+    vi.useRealTimers()
+  })
+
+  it('liveStatus mirrors working and status events fire on agent_start and agent_end', async () => {
+    const { mgr, transports } = setup()
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    await mgr.send('pane-1', 'a')
+    const seen: string[] = []
+    mgr.onStatusChange((f) => seen.push(f))
+    expect(mgr.liveStatus('/s/a.jsonl')).toEqual({ paneId: 'pane-1', working: false, dialog: null })
+    transports[0]!.push({ type: 'agent_start' } as Frame)
+    expect(mgr.liveStatus('/s/a.jsonl')?.working).toBe(true)
+    transports[0]!.push({ type: 'agent_end', messages: [] } as unknown as Frame)
+    expect(mgr.liveStatus('/s/a.jsonl')?.working).toBe(false)
+    expect(seen).toEqual(['/s/a.jsonl', '/s/a.jsonl'])
+    expect(mgr.liveStatus('/s/none.jsonl')).toBeNull()
+    vi.useRealTimers()
+  })
+
+  it('an _eof disowns the file and fires a status change', async () => {
+    const { mgr, transports } = setup()
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    await mgr.send('pane-1', 'a')
+    const seen: string[] = []
+    mgr.onStatusChange((f) => seen.push(f))
+    transports[0]!.push({ type: '_eof', code: 1, signal: null } as unknown as Frame)
+    expect(mgr.ownerOf('/s/a.jsonl')).toBeNull()
+    expect(mgr.liveFiles().size).toBe(0)
+    expect(seen).toContain('/s/a.jsonl')
+    vi.useRealTimers()
+  })
+
+  it('onStatusChange returns an unsubscribe', async () => {
+    const { mgr } = setup()
+    const seen: string[] = []
+    const off = mgr.onStatusChange((f) => seen.push(f))
+    off()
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    await mgr.send('pane-1', 'a')
+    expect(seen).toEqual([])
+    vi.useRealTimers()
+  })
+
+  it('renameOwned writes set_session_name to the owner and refuses other files', async () => {
+    const { mgr, transports } = setup()
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    await mgr.send('pane-1', 'a')
+    expect(await mgr.renameOwned('/s/a.jsonl', 'Better name')).toBe(true)
+    expect(transports[0]!.written.at(-1)).toEqual({ type: 'set_session_name', name: 'Better name' })
+    const before = transports[0]!.written.length
+    expect(await mgr.renameOwned('/s/other.jsonl', 'x')).toBe(false)
+    expect(transports[0]!.written).toHaveLength(before)
+    vi.useRealTimers()
+  })
+
+  it('closing a bound draft frees its file', async () => {
+    const { mgr, transports } = setup()
+    mgr.openDraft('pane-1', meta)
+    await mgr.send('pane-1', 'hi')
+    transports[0]!.push(stateFrame('/s/new.jsonl'))
+    await mgr.close('pane-1')
+    expect(mgr.ownerOf('/s/new.jsonl')).toBeNull()
     vi.useRealTimers()
   })
 })
