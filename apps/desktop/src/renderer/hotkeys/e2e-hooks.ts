@@ -22,6 +22,8 @@ export interface EvaosShellHooks {
     list: Array<{ id: number; page: string; pinned: boolean; title: string }>
   }
   openPlace(page: string, newTab?: boolean): void
+  openChat(): void
+  setPageFiller(on: boolean): void
 }
 
 declare global {
@@ -73,6 +75,10 @@ export function initE2e(): Promise<boolean> {
           }
         },
         openPlace: (page, newTab) => navigateTo(placeOf(page as PageKey), { newTab }),
+        openChat: () => navigateTo(placeOf('chat')),
+        setPageFiller: (on) => {
+          if (window.__evaosShell) window.__evaosShell.pageFiller = on
+        },
       }
     }
     return e2e

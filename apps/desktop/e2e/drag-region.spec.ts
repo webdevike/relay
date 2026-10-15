@@ -4,6 +4,8 @@ import { REPO_ROOT } from './helpers/paths'
 import { spawnSync } from 'node:child_process'
 import * as path from 'node:path'
 
+test.use({ startOnChat: false })
+
 // Moves the real window with real OS mouse events, so it only runs on request.
 test.skip(process.env.EVAOS_OS_EVENTS !== '1', 'set EVAOS_OS_EVENTS=1 to post real mouse events')
 

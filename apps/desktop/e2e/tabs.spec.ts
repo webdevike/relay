@@ -16,7 +16,7 @@ type Snap = {
 }
 type Shell = { __evaosShell: { tabs(): Snap; openPlace(p: string, n?: boolean): void } }
 
-test.use({ colorScheme: 'dark' })
+test.use({ colorScheme: 'dark', startOnChat: false })
 
 let server: StaticServer
 test.beforeAll(async () => {
