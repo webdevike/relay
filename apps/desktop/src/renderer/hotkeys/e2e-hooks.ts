@@ -17,7 +17,10 @@ export interface EvaosShellHooks {
   clearDirty(id: string): void
   setAppearance(appearance: Appearance): void
   pageFiller: boolean
-  tabs(): { active: number; list: Array<{ id: number; page: string; pinned: boolean; title: string }> }
+  tabs(): {
+    active: number
+    list: Array<{ id: number; page: string; pinned: boolean; title: string }>
+  }
   openPlace(page: string, newTab?: boolean): void
 }
 

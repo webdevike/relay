@@ -18,6 +18,7 @@ import {
   type Place,
   type Tabs,
 } from '@evaos/shell-core'
+import type { InvokeInput } from '@evaos/contract'
 import { invoke } from '../ipc'
 import { registerAction } from '../hotkeys/router'
 import { setNavigator, type OpenPlaceOptions } from '../navigation/navigate'
@@ -77,7 +78,9 @@ export function startTabs(): () => void {
     if (json === lastSaved) return
     lastSaved = json
     try {
-      void Promise.resolve(invoke('layout.save', { tabs: saved })).catch(() => {
+      void Promise.resolve(
+        invoke('layout.save', { tabs: saved as InvokeInput<'layout.save'>['tabs'] }),
+      ).catch(() => {
         lastSaved = ''
       })
     } catch {

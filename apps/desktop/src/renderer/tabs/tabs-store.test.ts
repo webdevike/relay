@@ -90,7 +90,7 @@ describe('navigation', () => {
 
   it('newTab forks, and an already open place is switched to', () => {
     navigateTo(placeOf('inbox'), { newTab: true })
-    expect(t().list.map((x) => x.here.page)).toEqual(['inbox', 'dashboard'].reverse().reverse())
+    expect(t().list.map((x) => x.here.page)).toEqual(['dashboard', 'inbox'])
     navigateTo(placeOf('dashboard'), { newTab: true })
     expect(t().list).toHaveLength(2)
     expect(activePlace(tabsStore.getState()).page).toBe('dashboard')
