@@ -256,14 +256,16 @@ export class BrowserHost {
   navigate(tabId: string, url: string, opts: NavigateOptions = {}): void {
     const t = this.tab(tabId)
     if (opts.fromExtension) t.fromExtension = true
-    t.state.url = url
-    t.state.blank = false
     if (!loadableUrl(url, opts)) {
+      // The view still shows the previous page, so `url`, `blank` and the history flags keep
+      // describing it; the refused address travels in `error.host` for the card.
       t.state.loading = false
       t.state.error = { host: hostOf(url), code: BLOCKED_URL_CODE }
       this.changed()
       return
     }
+    t.state.url = url
+    t.state.blank = false
     t.state.error = null
     this.applyBounds()
     this.changed()
