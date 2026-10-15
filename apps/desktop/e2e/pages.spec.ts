@@ -17,12 +17,6 @@ const open = (shell: Page, slug: string): Promise<void> =>
 
 const PAGES: Array<[string, string, string, string]> = [
   ['inbox', 'Inbox', 'Inbox', 'Digests and approvals from Eva will appear here in a later update.'],
-  [
-    'meetings',
-    'Meetings',
-    'Meetings',
-    'Meetings and their notes will appear here in a later update.',
-  ],
   ['calendar', 'Calendar', 'Calendar', 'Your calendar will appear here in a later update.'],
   ['tasks', 'Tasks', 'Tasks', 'Your open todos will appear here in a later update.'],
   ['memory', 'Memory', 'Memory', "Eva's memory will appear here in a later update."],
