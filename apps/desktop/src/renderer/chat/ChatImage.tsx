@@ -9,16 +9,41 @@ export const THUMB_PLACEHOLDER = 160
 const DATA_IMAGE = /^data:image\/(png|jpeg|gif|webp);base64,/
 const BLOB_TOKEN = /^blob:sha256:[a-f0-9]{64}$/
 
+/** Decoded data URLs can be about 27 MB each, so only the most recent few stay in memory. */
+export const BLOB_CACHE_MAX = 24
+
 const blobCache = new Map<string, Promise<string | null>>()
 
-/** One chat.readImage per token for the life of the renderer. */
+/**
+ * One chat.readImage per token while it stays cached. Failures are never cached (omp may still be
+ * writing the blob), and the least recently used entry is evicted past BLOB_CACHE_MAX.
+ */
 export function loadBlob(token: string): Promise<string | null> {
-  let hit = blobCache.get(token)
-  if (!hit) {
-    hit = invoke('chat.readImage', { token }).then((r) => (r.ok ? r.value.dataUrl : null))
+  const hit = blobCache.get(token)
+  if (hit) {
+    blobCache.delete(token)
     blobCache.set(token, hit)
+    return hit
   }
-  return hit
+  const pending = invoke('chat.readImage', { token })
+    .then((r) => (r.ok ? r.value.dataUrl : null))
+    .catch(() => null)
+    .then((url) => {
+      if (url === null && blobCache.get(token) === pending) blobCache.delete(token)
+      return url
+    })
+  blobCache.set(token, pending)
+  while (blobCache.size > BLOB_CACHE_MAX) {
+    const oldest = blobCache.keys().next().value
+    if (oldest === undefined) break
+    blobCache.delete(oldest)
+  }
+  return pending
+}
+
+/** Test hook: forget every cached blob. */
+export function clearBlobCache(): void {
+  blobCache.clear()
 }
 
 /** The `<img>` source for an image: a safe data URL now, or a blob read in flight (null until it lands). */
@@ -27,6 +52,7 @@ export function useImageSrc(image: ChatImageData): string | null {
   const direct = src !== undefined && DATA_IMAGE.test(src) ? src : null
   const [blob, setBlob] = useState<string | null>(null)
   useEffect(() => {
+    setBlob(null)
     if (src === undefined || !BLOB_TOKEN.test(src)) return
     let live = true
     void loadBlob(src).then((url) => {
