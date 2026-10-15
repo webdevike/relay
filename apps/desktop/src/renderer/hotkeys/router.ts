@@ -103,13 +103,29 @@ export function dispatchChord(
   }
 }
 
+/** True when plain digits belong to the focused element (inputs, editors, the terminal). */
+function isTypingTarget(): boolean {
+  const el = document.activeElement
+  if (!(el instanceof HTMLElement)) return false
+  if (el.isContentEditable) return true
+  if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') return true
+  return el.closest('.xterm') !== null
+}
+
 function onKeyDown(e: KeyboardEvent): void {
   // Held keys must not retrigger actions (Cmd+T, Cmd+W); main drops guest repeats the same way.
   if (e.isComposing || e.repeat) return
   const chord = chordOf(e)
   if (!chord || isNativeEditChord(chord)) return
-  // Only cmd/ctrl/alt chords and Escape; plain typing is never touched.
-  if (chord !== 'escape' && !/^(cmd|ctrl|alt)\+/.test(chord) && !/\+(cmd|ctrl|alt)\+/.test(chord))
+  // Only cmd/ctrl/alt chords and Escape; plain typing is never touched. The one exception is a
+  // bare 1 to 4 outside any text input, which page handlers (question cards) may claim.
+  const pickDigit = /^[1-4]$/.test(chord) && !isTypingTarget()
+  if (
+    !pickDigit &&
+    chord !== 'escape' &&
+    !/^(cmd|ctrl|alt)\+/.test(chord) &&
+    !/\+(cmd|ctrl|alt)\+/.test(chord)
+  )
     return
   dispatchChord(chord, { fromGuest: false, event: e })
 }

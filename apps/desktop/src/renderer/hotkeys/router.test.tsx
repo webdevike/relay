@@ -21,6 +21,7 @@ import { setPanelFocused } from './panel-focus'
 import {
   registerAction,
   registerOverlayChord,
+  registerPageChord,
   registerTerminalScope,
   setChordLock,
   dispatchChord,
@@ -188,5 +189,27 @@ describe('hotkey router', () => {
     key({ key: 'b', code: 'KeyB', metaKey: true, isComposing: true })
     expect(fn).not.toHaveBeenCalled()
     off()
+  })
+})
+
+describe('plain digit chords', () => {
+  it('reach a page handler outside inputs, never inside them', () => {
+    const fn = vi.fn(() => 'consumed' as const)
+    const off = registerPageChord('2', fn)
+    expect(key({ key: '2', code: 'Digit2' }).defaultPrevented).toBe(true)
+    expect(fn).toHaveBeenCalledTimes(1)
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    input.focus()
+    key({ key: '2', code: 'Digit2' })
+    expect(fn).toHaveBeenCalledTimes(1)
+    input.remove()
+    key({ key: '5', code: 'Digit5' })
+    expect(fn).toHaveBeenCalledTimes(1)
+    off()
+  })
+
+  it('stay unhandled when no page handler claims them', () => {
+    expect(key({ key: '1', code: 'Digit1' }).defaultPrevented).toBe(false)
   })
 })

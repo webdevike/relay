@@ -2,6 +2,7 @@ import './chat.css'
 import { useEffect } from 'react'
 import { ChatLog } from './ChatLog'
 import { Composer } from './Composer'
+import { PendingDialog } from './cards/PendingDialog'
 import { PANE_ID, SessionList } from './SessionList'
 import { chatStore, useChatStore } from './chat-store'
 import { createStreamDrain } from './stream-drain'
@@ -106,6 +107,7 @@ export function ChatPane() {
           <SessionList />
         </div>
       )}
+      <PendingDialog paneId={PANE_ID} />
       <Composer paneId={PANE_ID} disabled={!pane} />
     </main>
   )

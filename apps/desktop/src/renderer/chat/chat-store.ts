@@ -24,6 +24,8 @@ export interface PaneState {
   dismissedError: string | null
   /** The open question omp is asking, if any. */
   dialog: Dialog | null
+  /** A question that was open when omp exited unanswered: shown dimmed until a new one or a restart. */
+  deadDialog: Dialog | null
   contextWindow: number | null
   thinking: string | null
   /** Set when a draft got its session file from omp; the tab place follows it. */
@@ -90,6 +92,7 @@ export function applyOpsToPane(pane: PaneState, ops: Op[], seq: number): PaneSta
     stopped,
     dismissedError,
     dialog,
+    deadDialog,
     contextWindow,
     thinking,
     file,
@@ -114,8 +117,12 @@ export function applyOpsToPane(pane: PaneState, ops: Op[], seq: number): PaneSta
         error = p.error
         dismissedError = null
       }
-      if (p.connected !== undefined) stopped = !p.connected
+      if (p.connected !== undefined) {
+        stopped = !p.connected
+        if (p.connected) deadDialog = null
+      }
       if (p.dialog !== undefined) dialog = p.dialog
+      if (dialog !== null) deadDialog = null
       if (p.contextWindow !== undefined) contextWindow = p.contextWindow
       if (p.thinking !== undefined) thinking = p.thinking
       if (typeof p.sessionFile === 'string' && file === '') {
@@ -131,6 +138,8 @@ export function applyOpsToPane(pane: PaneState, ops: Op[], seq: number): PaneSta
       }
     }
   }
+  // The dialog cleared because omp exited, not because it was answered: keep it as a dead card.
+  if (pane.dialog !== null && dialog === null && stopped) deadDialog = pane.dialog
   return {
     ...pane,
     file,
@@ -141,6 +150,7 @@ export function applyOpsToPane(pane: PaneState, ops: Op[], seq: number): PaneSta
     stopped,
     dismissedError,
     dialog,
+    deadDialog,
     contextWindow,
     thinking,
     boundTo,
@@ -166,6 +176,7 @@ export const chatStore = createStore<ChatState>((set) => ({
           error: null,
           dismissedError: null,
           dialog: null,
+          deadDialog: null,
           contextWindow: null,
           thinking: data.meta.thinking ?? null,
           boundTo: null,
@@ -184,6 +195,9 @@ export const chatStore = createStore<ChatState>((set) => ({
       patchPane(s, paneId, (p) => {
         // Main still reports the error the user dismissed by typing: keep it hidden.
         const dismissed = snap.error !== null && snap.error === p.dismissedError
+        const dialog = snap.dialog !== undefined ? snap.dialog : p.dialog
+        const deadDialog =
+          dialog !== null || snap.connected ? null : p.dialog !== null ? p.dialog : p.deadDialog
         return {
           ...p,
           messages: snap.messages,
@@ -192,7 +206,8 @@ export const chatStore = createStore<ChatState>((set) => ({
           stopped: !snap.connected,
           error: dismissed ? null : snap.error,
           dismissedError: dismissed ? p.dismissedError : null,
-          dialog: snap.dialog !== undefined ? snap.dialog : p.dialog,
+          dialog,
+          deadDialog,
           thinking: snap.meta.thinking ?? p.thinking,
           ...(typeof snap.sessionFile === 'string' && p.file === ''
             ? { file: snap.sessionFile, boundTo: snap.sessionFile }
