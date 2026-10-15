@@ -4,7 +4,7 @@ import * as path from 'node:path'
 import { makeEvaFixture } from '../../../e2e/helpers/eva-fixture'
 import { FAKE_GATE } from '../../../e2e/helpers/paths'
 import { issuePhotoToken, takePhotoToken } from './photo-tokens'
-import { choosePhoto, createHabitService, runGate } from './habit-ipc'
+import { choosePhoto, createHabitService, PHOTO_EXTENSIONS, runGate } from './habit-ipc'
 import { buildCommand } from './spawn'
 import { openPathChecked } from './open-path'
 
@@ -111,8 +111,20 @@ describe('habit.openPhoto confinement', () => {
     const ctx = { env: { evaRoot: fx.root, e2e: false } } as never
     const seen: string[] = []
     const opener = async (p: string) => (seen.push(p), '')
-    await openPathChecked(ctx, path.join(photos, 'p.png'), { allowRoots: [photos], opener })
+    await openPathChecked(ctx, path.join(photos, 'p.png'), {
+      allowRoots: [photos],
+      allowExts: PHOTO_EXTENSIONS,
+      opener,
+    })
     expect(seen).toHaveLength(1)
+    fs.writeFileSync(path.join(photos, 'x.command'), 'x')
+    await expect(
+      openPathChecked(ctx, path.join(photos, 'x.command'), {
+        allowRoots: [photos],
+        allowExts: PHOTO_EXTENSIONS,
+        opener,
+      }),
+    ).rejects.toMatchObject({ code: 'open-failed' })
     for (const p of ['/etc/hosts', path.join(photos, '..', 'gate.json')]) {
       await expect(openPathChecked(ctx, p, { allowRoots: [photos], opener })).rejects.toMatchObject(
         { code: 'open-failed' },

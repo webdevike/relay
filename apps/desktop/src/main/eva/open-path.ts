@@ -11,6 +11,8 @@ export interface OpenPathOptions {
   /** Realpath containment roots; defaults to the Eva root. */
   allowRoots?: string[]
   requireExt?: string
+  /** Allowed extensions without the dot, case-insensitive; anything else is refused. */
+  allowExts?: string[]
   /** Injectable for tests; the default is electron's shell.openPath. */
   opener?: Opener
 }
@@ -50,6 +52,12 @@ export async function openPathChecked(
   }
   if (opts.requireExt && path.extname(real).toLowerCase() !== opts.requireExt.toLowerCase()) {
     throw failed(`Could not open ${abs}`)
+  }
+  if (opts.allowExts) {
+    const ext = path.extname(real).slice(1).toLowerCase()
+    if (!opts.allowExts.some((e) => e.toLowerCase() === ext)) {
+      throw failed(`Could not open ${abs}`)
+    }
   }
   const roots = await Promise.all(
     (opts.allowRoots ?? [ctx.env.evaRoot]).map((r) => fs.promises.realpath(r).catch(() => r)),

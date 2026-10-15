@@ -40,6 +40,18 @@ describe('openPathChecked', () => {
     await expect(openPathChecked(ctx(false), p, { opener: async () => 'boom' })).rejects.toThrow(p)
   })
 
+  it('refuses extensions outside allowExts, case-insensitively', async () => {
+    fs.writeFileSync(path.join(root, 'run.command'), 'x')
+    fs.writeFileSync(path.join(root, 'p.PNG'), 'x')
+    const opts = { opener: ok, allowExts: ['png'] }
+    await expect(
+      openPathChecked(ctx(false), path.join(root, 'run.command'), opts),
+    ).rejects.toMatchObject({ code: 'open-failed' })
+    await expect(
+      openPathChecked(ctx(false), path.join(root, 'p.PNG'), opts),
+    ).resolves.toBeUndefined()
+  })
+
   it('records instead of opening in e2e', async () => {
     let called = false
     await openPathChecked(ctx(true), path.join(root, 'a.md'), {

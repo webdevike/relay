@@ -160,8 +160,11 @@ export function registerHabitIpc(ctx: MainContext): void {
   handle(ctx, 'habit.run', (input) => service.run(input))
   // The dialog is read at call time so e2e can replace dialog.showOpenDialog.
   handle(ctx, 'habit.choosePhoto', () => choosePhoto(ctx.win))
-  handle(ctx, 'habit.openPhoto', async ({ path }) => {
-    await openPathChecked(ctx, path, { allowRoots: [ctx.env.habitPhotosDir] })
+  handle(ctx, 'habit.openPhoto', async ({ path: photo }) => {
+    await openPathChecked(ctx, photo, {
+      allowRoots: [ctx.env.habitPhotosDir],
+      allowExts: PHOTO_EXTENSIONS,
+    })
     return { opened: true as const }
   })
 }
