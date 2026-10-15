@@ -180,7 +180,11 @@ export class SessionManager {
     } catch {
       exit = null
     }
-    if (exit && !exit.timedOut && pane.batcher) {
+    // Only the pane still registered under this id may apply `_eof` and emit. A pane replaced
+    // by `open()` on another file while omp was live must stay inert: its batcher's seq is
+    // ahead of the new one and a late batch under the same paneId would strand the renderer.
+    if (this.panes.get(pane.paneId) !== pane) return exit
+    if (exit && !exit.timedOut) {
       // Our own unsubscribe means no `_eof` frame reached the reducer: apply it here.
       const res = pane.reducer.apply({
         type: '_eof',

@@ -91,10 +91,22 @@ export function createStreamDrain(opts: StreamDrainOptions) {
         const clear = (): void => opts.store.getState().setReconnecting(paneId, false)
         if (wait === 0) clear()
         else later(clear, wait)
-        // Batches that arrived while the snapshot was in flight continue from its seq.
+        // Batches that arrived while the snapshot was in flight continue from its seq. A held
+        // batch the snapshot cannot reach (main restarted its seq, for example after the pane was
+        // reopened on another file) is dropped: re-stashing it would resync forever. The next
+        // live batch resyncs once more if anything is still missing.
         const held = (stash.get(paneId) ?? []).sort((a, b) => a.seq - b.seq)
         stash.delete(paneId)
-        for (const b of held) push(b)
+        for (const b of held) {
+          const last = lastSeq(paneId)
+          if (b.seq <= last) continue
+          if (b.seq !== last + 1) {
+            statsOf(paneId).gaps += 1
+            report(paneId)
+            break
+          }
+          push(b)
+        }
       })
       .catch(() => {
         resyncing.delete(paneId)

@@ -161,6 +161,26 @@ describe('SessionManager', () => {
     vi.useRealTimers()
   })
 
+  it('reopening a pane on another file while omp is live never emits under the old seq', async () => {
+    const { mgr, transports, batches } = setup()
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    await mgr.send('pane-1', 'a')
+    await vi.advanceTimersByTimeAsync(16)
+    expect(batches.map((b) => b.seq)).toEqual([1])
+    mgr.open('pane-1', '/s/b.jsonl', [], meta)
+    await vi.advanceTimersByTimeAsync(50)
+    expect(transports[0]!.closeCalls).toBe(1)
+    // The old pane's `_eof` flush (seq 2) must not reach the renderer: it now sits at seq 0.
+    expect(batches.map((b) => b.seq)).toEqual([1])
+    expect(mgr.snapshot('pane-1').seq).toBe(0)
+    expect(mgr.has('/s/a.jsonl')).toBe(false)
+    await mgr.send('pane-1', 'b')
+    expect(transports).toHaveLength(2)
+    expect(transports[1]!.started[0]!.sessionFile).toBe('/s/b.jsonl')
+    expect(vi.getTimerCount()).toBe(1)
+    vi.useRealTimers()
+  })
+
   it('close() on a transport that never exits resolves timedOut and only calls close', async () => {
     const { mgr, transports } = setup()
     mgr.open('pane-1', '/s/a.jsonl', [], meta)

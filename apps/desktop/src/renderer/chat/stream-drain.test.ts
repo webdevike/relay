@@ -69,6 +69,26 @@ describe('stream drain', () => {
     expect(requestSnapshot).toHaveBeenCalledTimes(1)
   })
 
+  it('drops a held batch the snapshot cannot reach instead of resyncing forever', async () => {
+    // Main restarted its seq (the pane was reopened on another file) and a late batch from the
+    // old process arrives under the same paneId.
+    const snapshot: Snapshot = { seq: 0, messages: [], meta, running: false }
+    const { drain, requestSnapshot, flush } = setup({ snapshot })
+    drain.push(batch(57, a('x', 'stale')))
+    expect(requestSnapshot).toHaveBeenCalledTimes(1)
+    await new Promise((r) => setTimeout(r, 0))
+    flush()
+    expect(requestSnapshot).toHaveBeenCalledTimes(1)
+    expect(pane().reconnecting).toBe(false)
+    expect(pane().lastSeq).toBe(0)
+    expect(pane().messages).toEqual([])
+    drain.push(batch(1, a('y', 'fresh')))
+    flush()
+    expect(pane().messages.map((m) => m.text)).toEqual(['fresh'])
+    expect(pane().lastSeq).toBe(1)
+    expect(requestSnapshot).toHaveBeenCalledTimes(1)
+  })
+
   it('upsert keeps position, appends new ids, and only the changed row changes identity', () => {
     const { drain, flush } = setup()
     drain.push(batch(1, a('a', '1'), a('b', '2'), a('c', '3')))
