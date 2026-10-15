@@ -35,7 +35,7 @@ Port EvaOS from Rust + gpui to Electron + React + TypeScript at README parity. T
 Plans:
 **Wave 1**
 
-- [ ] 01-01-PLAN.md: Walking Skeleton: pnpm workspace, BaseWindow shell, typed `app.info` IPC, env contract, Vitest + Playwright, green gate (wave 1)
+- [x] 01-01-PLAN.md: Walking Skeleton: pnpm workspace, BaseWindow shell, typed `app.info` IPC, env contract, Vitest + Playwright, green gate (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -164,7 +164,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation, Harness and the Two Spikes | 0/10 | Planned | - |
+| 1. Foundation, Harness and the Two Spikes | 1/10 | In Progress|  |
 | 2. Shell, Navigation and Theme Tokens | 0/TBD | Not started | - |
 | 3. Dashboard, Workspaces, Jobs, Habits and Meetings | 0/TBD | Not started | - |
 | 4. Chat Parity | 0/TBD | Not started | - |

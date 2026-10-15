@@ -4,13 +4,13 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Phase 1 UI-SPEC approved
-last_updated: "2026-10-15T04:29:39.097Z"
-last_activity: 2026-10-15 -- Phase 1 planning complete
+last_updated: "2026-10-15T04:36:19.161Z"
+last_activity: 2026-10-15
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 10
-  completed_plans: 0
+  completed_plans: 1
   percent: 0
 ---
 
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-14)
 
 **Core value:** Chat with a live omp session streams smoothly (virtualized long scrollback, no dropped or reordered tokens) next to a real Chromium browser panel, clearly beating the current gpui app on both.
-**Current focus:** Phase 1: Foundation, Harness and the Two Spikes
+**Current focus:** Phase 01 — Foundation, Harness and the Two Spikes
 
 ## Current Position
 
-Phase: 1 of 7 (Foundation, Harness and the Two Spikes)
-Plan: 0 of TBD in current phase
+Phase: 01 (Foundation, Harness and the Two Spikes) — EXECUTING
+Plan: 2 of 10
 Status: Ready to execute
-Last activity: 2026-10-15 -- Phase 1 planning complete
+Last activity: 2026-10-15
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█░░░░░░░░░] 10%
 
 ## Performance Metrics
 
@@ -47,6 +47,7 @@ Progress: [░░░░░░░░░░] 0%
 | - | - | - | - |
 
 *Updated after each plan completion*
+| Phase 01 P01 | 40min | 3 tasks | 60 files |
 
 ## Accumulated Context
 
@@ -58,6 +59,7 @@ Recent decisions affecting current work:
 - [Roadmap]: 7 phases; Phase 2 and 3 split from the research's single Phase 2, Rich Replies split from Chat Parity
 - [Roadmap]: THEM-01/02 (CSS variable architecture) land in Phase 2; editor (THEM-03..06) in Phase 7
 - [Roadmap]: Relay phone escalation and pairing stay dry-run unless EVAOS_PORT_LIVE=1
+- [Phase 01-01]: pnpm 12 allowBuilds replaces onlyBuiltDependencies; BaseWindow + shell view verified, no fallback
 
 ### Pending Todos
 
@@ -76,6 +78,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-10-15T03:31:19.223Z
+Last session: 2026-10-15T04:36:16.184Z
 Stopped at: Phase 1 UI-SPEC approved
-Resume file: .planning/phases/01-foundation-harness-and-the-two-spikes/01-UI-SPEC.md
+Resume file: None
