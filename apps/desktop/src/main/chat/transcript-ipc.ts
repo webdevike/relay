@@ -17,7 +17,12 @@ class CodedError extends Error {
 
 /** Resolves `file` and refuses anything that does not live inside the sessions directory (T-01-12). */
 export function resolveInsideSessionsDir(sessionsDir: string, file: string): string {
-  const base = fs.realpathSync(sessionsDir)
+  let base: string
+  try {
+    base = fs.realpathSync(sessionsDir)
+  } catch {
+    throw new CodedError('outside-sessions-dir', 'Sessions directory not found')
+  }
   let real: string
   try {
     real = fs.realpathSync(file)
@@ -26,6 +31,10 @@ export function resolveInsideSessionsDir(sessionsDir: string, file: string): str
   }
   if (!real.startsWith(base + path.sep)) {
     throw new CodedError('outside-sessions-dir', 'Session file is outside the sessions directory')
+  }
+  // Only top-level `.jsonl` regular files are sessions; subagent transcripts, folders and other files are not.
+  if (path.dirname(real) !== base || !real.endsWith('.jsonl') || !fs.statSync(real).isFile()) {
+    throw new CodedError('outside-sessions-dir', 'Not a session file')
   }
   return real
 }

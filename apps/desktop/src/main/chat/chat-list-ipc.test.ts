@@ -170,6 +170,19 @@ describe('chat actions', () => {
     }
   })
 
+  it('refuses nested files, non-jsonl files and folders inside the sessions dir', () => {
+    const sub = path.join(sessions, '2026_sub')
+    fs.mkdirSync(sub)
+    const nested = path.join(sub, 'agent.jsonl')
+    const notes = path.join(sessions, 'notes.txt')
+    fs.writeFileSync(nested, '{}\n')
+    fs.writeFileSync(notes, 'x')
+    for (const p of [nested, notes, sub]) {
+      expect(() => deleteChat(mk(), p)).toThrowError(/Not a session file/)
+      expect(fs.existsSync(p)).toBe(true)
+    }
+  })
+
   it('delete refuses owned and recently active chats', () => {
     const f = session('2026_ddd.jsonl')
     expect(() => deleteChat(mk('pane'), f)).toThrowError(/Close this chat/)
