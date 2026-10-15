@@ -12,6 +12,7 @@ Isaac is asleep. Sessions run headless, one per phase. Never wait for input.
 ## Boundaries
 - Read-only: `/Users/ike/Eva/apps/evaos`, `/Users/ike/Eva/work/relay`, anything outside this repo except the exact Eva data writes current EvaOS performs.
 - No global config changes, no remote, no push.
+- Isaac works on this Mac while you run. Never steal focus: every app launch (e2e, proof, smoke, diagnostics, packaged checks) sets `EVAOS_E2E=1` so the app runs as a background accessory app with `showInactive`. Never use `open`, `pnpm dev`, or `pnpm dev:live` to launch a visible app, never call `win.focus()`/`app.focus()` in test paths, and never drive real OS mouse or keyboard events (no `EVAOS_OS_EVENTS=1`, no cliclick/osascript/computer use).
 
 ## Isaac's decisions
 - Browser keeps Bitwarden and Arc login import; do not drop them as anti-features. Prefer real Chrome extensions over reimplementation: load them with `electron-chrome-extensions` + `electron-chrome-web-store` (Bitwarden extension from the Chrome Web Store) in the browser panel's session. If the roadmap omitted this, add it to the browser phase (or insert a decimal phase) before marking browser parity complete.
