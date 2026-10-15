@@ -15,6 +15,7 @@ export interface EvaosShellHooks {
   openTestOverlay(): void
   markDirty(label: string): string
   clearDirty(id: string): void
+  dirtySaves(): number
   setAppearance(appearance: Appearance): void
   pageFiller: boolean
   tabs(): {
@@ -34,7 +35,8 @@ declare global {
 }
 
 let overlayOpener: (() => void) | null = null
-let dirtyHooks: { mark(label: string): string; clear(id: string): void } | null = null
+type DirtyHooks = { mark(label: string): string; clear(id: string): void; saves(): number }
+let dirtyHooks: DirtyHooks | null = null
 
 /** TestOverlay fills this so window.__evaosShell.openTestOverlay works under e2e. */
 export function setTestOverlayOpener(fn: (() => void) | null): void {
@@ -42,9 +44,7 @@ export function setTestOverlayOpener(fn: (() => void) | null): void {
 }
 
 /** The dirty store fills these for markDirty and clearDirty. */
-export function setDirtyHooks(
-  h: { mark(label: string): string; clear(id: string): void } | null,
-): void {
+export function setDirtyHooks(h: DirtyHooks | null): void {
   dirtyHooks = h
 }
 
@@ -60,6 +60,7 @@ export function initE2e(): Promise<boolean> {
         openTestOverlay: () => overlayOpener?.(),
         markDirty: (label) => dirtyHooks?.mark(label) ?? '',
         clearDirty: (id) => dirtyHooks?.clear(id),
+        dirtySaves: () => dirtyHooks?.saves() ?? 0,
         setAppearance: (a) => setAppearance(a),
         pageFiller: false,
         tabs: () => {

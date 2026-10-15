@@ -52,13 +52,23 @@ export function useDirtyCount(): number {
 }
 
 let e2eSeq = 0
+let e2eSaves = 0
 const e2eUnregister = new Map<string, () => void>()
 setDirtyHooks({
   mark(label) {
     const id = `e2e-dirty-${++e2eSeq}`
-    e2eUnregister.set(id, registerDirty(id, { label, save: () => {} }))
+    e2eUnregister.set(
+      id,
+      registerDirty(id, {
+        label,
+        save: () => {
+          e2eSaves++
+        },
+      }),
+    )
     return id
   },
+  saves: () => e2eSaves,
   clear(id) {
     e2eUnregister.get(id)?.()
     e2eUnregister.delete(id)
