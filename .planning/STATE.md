@@ -4,13 +4,13 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Completed 04-14-PLAN.md
-last_updated: "2026-10-15T19:33:51.590Z"
+last_updated: "2026-10-15T19:42:48.406Z"
 last_activity: 2026-10-15
 progress:
   total_phases: 7
   completed_phases: 3
   total_plans: 61
-  completed_plans: 57
+  completed_plans: 58
   percent: 43
 ---
 
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-10-14)
 ## Current Position
 
 Phase: 4 (chat-parity) — EXECUTING
-Plan: 11 of 19
+Plan: 12 of 19
 Status: Ready to execute
 Last activity: 2026-10-15
 
-Progress: [█████████░] 93%
+Progress: [██████████] 95%
 
 ## Performance Metrics
 
@@ -50,6 +50,7 @@ Progress: [█████████░] 93%
 *Updated after each plan completion*
 | Phase 01 P01 | 40min | 3 tasks | 60 files |
 | Phase 04 P14 | 50min | 3 tasks | 20 files |
+| Phase 04 P16 | 45min | 3 tasks | 20 files |
 
 ## Accumulated Context
 
@@ -63,6 +64,7 @@ Recent decisions affecting current work:
 - [Roadmap]: Relay phone escalation and pairing stay dry-run unless EVAOS_PORT_LIVE=1
 - [Phase 01-01]: pnpm 12 allowBuilds replaces onlyBuiltDependencies; BaseWindow + shell view verified, no fallback
 - [Phase 04]: 04-14: row menu portalled to body; Shift+F10 opens next task; rename input on Esc ladder; delete confirm outlined danger
+- [Phase 04]: 04-16: header droppable shares the draggable id; Move to is EvaMenu.Sub
 
 ### Pending Todos
 
@@ -81,6 +83,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-10-15T19:33:51.571Z
+Last session: 2026-10-15T19:42:45.259Z
 Stopped at: Completed 04-14-PLAN.md
 Resume file: None

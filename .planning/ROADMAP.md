@@ -232,7 +232,7 @@ Plans:
 
 **Wave 6**
 
-- [ ] 04-16-PLAN.md: Custom categories, Move to, drag and drop of chats and headers (dnd-kit) (wave 6)
+- [x] 04-16-PLAN.md: Custom categories, Move to, drag and drop of chats and headers (dnd-kit) (wave 6)
 - [ ] 04-17-PLAN.md: Shared writer registry and the confirm prompt before shared sends (wave 6)
 
 **Wave 7**
@@ -302,7 +302,7 @@ Plans:
 | 1. Foundation, Harness and the Two Spikes | 10/10 | Complete   | 2026-10-15 |
 | 2. Shell, Navigation and Theme Tokens | 13/13 | Complete    | 2026-10-15 |
 | 3. Dashboard, Workspaces, Jobs, Habits and Meetings | 19/19 | Complete    | 2026-10-15 |
-| 4. Chat Parity | 15/19 | In Progress|  |
+| 4. Chat Parity | 16/19 | In Progress|  |
 | 5. Rich Replies | 0/TBD | Not started | - |
 | 6. Side Panel, Eregon and Global Search | 0/TBD | Not started | - |
 | 7. Relay, Inbox, Notifications and Theme Editor | 0/TBD | Not started | - |
