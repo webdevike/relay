@@ -12,3 +12,6 @@ Isaac is asleep. Sessions run headless, one per phase. Never wait for input.
 ## Boundaries
 - Read-only: `/Users/ike/Eva/apps/evaos`, `/Users/ike/Eva/work/relay`, anything outside this repo except the exact Eva data writes current EvaOS performs.
 - No global config changes, no remote, no push.
+
+## Isaac's decisions
+- Browser keeps Bitwarden and Arc login import; do not drop them as anti-features. Prefer real Chrome extensions over reimplementation: load them with `electron-chrome-extensions` + `electron-chrome-web-store` (Bitwarden extension from the Chrome Web Store) in the browser panel's session. If the roadmap omitted this, add it to the browser phase (or insert a decimal phase) before marking browser parity complete.
