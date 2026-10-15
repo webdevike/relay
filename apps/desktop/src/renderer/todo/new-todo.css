@@ -1,0 +1,28 @@
+.eva-new-todo {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.eva-new-todo-preview {
+  font-family: var(--eva-font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  color: var(--mantine-color-dimmed);
+  overflow-wrap: anywhere;
+  min-height: 18px;
+}
+.eva-new-todo-hint {
+  font-size: 12px;
+  color: var(--mantine-color-dimmed);
+}
+.eva-new-todo-error {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 13px;
+  color: var(--mantine-color-red-6);
+}
+.eva-new-todo-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

@@ -6,6 +6,8 @@ import { loadLayout, registerLayoutActions } from '../shell/layout-store'
 import { startTabs } from '../tabs/tabs-store'
 import { startSidebar } from '../sidebar/sidebar-store'
 import { startReload } from '../reload/reload'
+import { NewTodoModal } from '../todo/NewTodoModal'
+import { startNewTodo } from '../todo/new-todo-store'
 import { Shell } from '../shell/Shell'
 
 export function App() {
@@ -18,6 +20,7 @@ export function App() {
     const stopTabs = startTabs()
     const stopSidebar = startSidebar()
     const stopReload = startReload()
+    const stopNewTodo = startNewTodo()
     return () => {
       stopRouter()
       stopQuit()
@@ -25,7 +28,13 @@ export function App() {
       stopTabs()
       stopSidebar()
       stopReload()
+      stopNewTodo()
     }
   }, [])
-  return <Shell />
+  return (
+    <>
+      <Shell />
+      <NewTodoModal />
+    </>
+  )
 }
