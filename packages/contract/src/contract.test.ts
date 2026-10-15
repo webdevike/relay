@@ -280,4 +280,10 @@ describe('contract', () => {
       expect(INVOKE_CHANNELS).toContain(ch)
     expect(EVENT_CHANNELS).toContain('eva.changed')
   })
+
+  it('reads an append-only gate status past the old array caps', () => {
+    const history = Array.from({ length: 6000 }, (_, i) => ({ kind: 'habit', id: `h${i}` }))
+    const tasks = Array.from({ length: 2500 }, (_, i) => ({ id: `t${i}`, name: 'x' }))
+    expect(GateStatusSchema.safeParse({ history, tasks }).success).toBe(true)
+  })
 })

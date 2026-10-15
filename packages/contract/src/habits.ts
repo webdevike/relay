@@ -26,7 +26,6 @@ export const GateStatusSchema = z.object({
       date: str,
       breaks: z
         .array(z.object({ at: str, done: z.boolean().default(false) }))
-        .max(200)
         .default([]),
       source: str,
     })
@@ -44,7 +43,6 @@ export const GateStatusSchema = z.object({
         override: z.string().nullable().default(null),
       }),
     )
-    .max(5000)
     .default([]),
   habits: z
     .array(
@@ -55,7 +53,6 @@ export const GateStatusSchema = z.object({
         photo: z.boolean().default(false),
       }),
     )
-    .max(500)
     .default([]),
   tasks: z
     .array(
@@ -66,7 +63,6 @@ export const GateStatusSchema = z.object({
         done: z.boolean().default(false),
       }),
     )
-    .max(2000)
     .default([]),
   schedule: z
     .object({
