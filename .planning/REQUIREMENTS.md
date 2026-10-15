@@ -22,7 +22,7 @@ Requirements for the parity milestone. Each maps to roadmap phases. The source o
 
 - [x] **CHAT-01**: User can open a past omp session and see its transcript parsed from the session file (active branch, user and assistant messages, tool calls, thinking blocks)
 - [ ] **CHAT-02**: User can send a prompt into a past chat; the app starts `omp --mode rpc-ui --resume <session file>` in the Eva repo and streams the reply over stdin/stdout JSON lines
-- [ ] **CHAT-03**: Streamed frames arrive in order with no drops: a UTF-8-aware line framer in main, per-session sequence numbers, and a renderer that resyncs from a snapshot on any gap, verified by a test that feeds 1-byte, glued and split-emoji chunks
+- [x] **CHAT-03**: Streamed frames arrive in order with no drops: a UTF-8-aware line framer in main, per-session sequence numbers, and a renderer that resyncs from a snapshot on any gap, verified by a test that feeds 1-byte, glued and split-emoji chunks
 - [x] **CHAT-04**: Chat log is virtualized and stays smooth on a 5,000-message fixture while streaming, measured by a frame-time benchmark recorded in `proof/`
 - [ ] **CHAT-05**: Log follows new content while pinned to the bottom; scrolling up shows Jump to latest, then New reply when output arrives; clicking or scrolling down resumes following
 - [ ] **CHAT-06**: User can abort a running reply and steer with a new prompt while one is running, as the README describes
@@ -200,7 +200,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FOUND-08 | Phase 1 | Complete |
 | CHAT-01 | Phase 1 | Complete |
 | CHAT-02 | Phase 1 | Pending |
-| CHAT-03 | Phase 1 | Pending |
+| CHAT-03 | Phase 1 | Complete |
 | CHAT-04 | Phase 1 | Complete |
 | CHAT-05 | Phase 1 | Pending |
 | CHAT-06 | Phase 1 | Pending |

@@ -41,7 +41,7 @@ Plans:
 
 - [x] 01-02-PLAN.md: EvaFs allowlist + runtime write trap + scan, fixture Eva root, proofShot composite, metrics helper, advisory sentinel (wave 2)
 - [x] 01-03-PLAN.md: Transcript slice: session parser port, session list, virtualized log, 5,000-message fixture (wave 2)
-- [ ] 01-04-PLAN.md: Recorded omp turn, deterministic fake omp, LineFramer + chunking tests (wave 2)
+- [x] 01-04-PLAN.md: Recorded omp turn, deterministic fake omp, LineFramer + chunking tests (wave 2)
 - [ ] 01-07-PLAN.md: Browser single-tab slice: hardened WebContentsView, address bar, bounds sync, OverlayStack (wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
@@ -164,7 +164,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation, Harness and the Two Spikes | 3/10 | In Progress|  |
+| 1. Foundation, Harness and the Two Spikes | 4/10 | In Progress|  |
 | 2. Shell, Navigation and Theme Tokens | 0/TBD | Not started | - |
 | 3. Dashboard, Workspaces, Jobs, Habits and Meetings | 0/TBD | Not started | - |
 | 4. Chat Parity | 0/TBD | Not started | - |
