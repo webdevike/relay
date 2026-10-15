@@ -4,6 +4,7 @@ import * as fs from 'node:fs'
 import * as net from 'node:net'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { makeChatFixture } from './helpers/chat-fixture'
 import {
   APP_DIR,
   EVA_FIXTURE_ROOT,
@@ -35,6 +36,9 @@ test('packaged dir build launches, shows the shell and starts the extension host
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'evaos-pkg-'))
   const port = await freePort()
   const fakeLog = path.join(configDir, 'fake-log.jsonl')
+  // Chats read a disposable copy of the fixture agent dir, never the live ~/.omp.
+  const chatFx = makeChatFixture()
+  const ompLog = path.join(configDir, 'fake-omp.jsonl')
   const env: Record<string, string> = {}
   for (const [k, v] of Object.entries(process.env)) {
     if (v !== undefined && !k.startsWith('EVAOS_')) env[k] = v
@@ -53,6 +57,9 @@ test('packaged dir build launches, shows the shell and starts the extension host
     FAKE_GATE_PHOTOS: path.join(configDir, 'habit-photos'),
     EVAOS_HABIT_PHOTOS_DIR: path.join(configDir, 'habit-photos'),
     ELECTRON_DISABLE_SECURITY_WARNINGS: '1',
+    ...chatFx.launchEnv,
+    FAKE_OMP_LOG: ompLog,
+    FAKE_OMP_DELAY_MS: '10',
     EVAOS_HIDDEN_WINDOW: '1',
   })
   const child = spawn(EXE, [`--remote-debugging-port=${port}`], { env, stdio: 'ignore' })
@@ -124,6 +131,34 @@ test('packaged dir build launches, shows the shell and starts the extension host
     expect(tools.length).toBeGreaterThan(0)
     for (const t of tools) expect(['gate', 'job-run']).toContain(t)
 
+    // Chats: the tree lists the fixture sessions and a sent prompt starts only the fake omp,
+    // resuming a file inside the fixture sessions dir (T-04-60).
+    await shell.locator('[data-testid=nav-chat]').click()
+    await shell.waitForSelector('[role=tree]')
+    await expect(shell.locator('[data-testid="chat-row-p4-ecard"]')).toBeVisible()
+    expect(await shell.locator('[data-testid^="chat-row-"]').count()).toBeGreaterThan(3)
+    await shell.locator('[data-testid="chat-row-p4-ecard"]').click()
+    await expect(shell.locator('[data-testid=chat-log]')).toContainText('Hello from p4-ecard')
+    const box = shell.locator('[data-testid=composer-input]')
+    await box.fill('packaged hello')
+    await box.press('Enter')
+    await expect(shell.locator('[data-testid=chat-log]')).toContainText(
+      'Foxes are primarily nocturnal hunters',
+    )
+    const spawns = fs
+      .readFileSync(ompLog, 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => JSON.parse(l) as { event: string; detail: { resumeFile?: string } | null })
+      .filter((e) => e.event === 'spawn')
+    expect(spawns.length).toBeGreaterThan(0)
+    // Spawns without a resume file are side probes (e.g. the model catalog); any that resume a
+    // session must resume one inside the fixture sessions dir, and at least one does.
+    const resumed = spawns.map((sp) => sp.detail?.resumeFile).filter((f): f is string => !!f)
+    expect(resumed.length).toBeGreaterThan(0)
+    for (const f of resumed)
+      expect(fs.realpathSync(f).startsWith(fs.realpathSync(chatFx.sessionsDir))).toBe(true)
+
     // The guest browser panel exists and the browser tab strip rendered.
     await expect(shell.locator('[data-testid=browser-slot]')).toBeVisible()
     await shell.waitForTimeout(500)
@@ -133,5 +168,6 @@ test('packaged dir build launches, shows the shell and starts the extension host
     child.kill('SIGTERM')
     await new Promise((r) => setTimeout(r, 500))
     fs.rmSync(configDir, { recursive: true, force: true })
+    chatFx.cleanup()
   }
 })

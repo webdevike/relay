@@ -7,7 +7,7 @@ import {
   type ProfilerOnRenderCallback,
 } from 'react'
 import { VList, type VListHandle } from 'virtua'
-import type { ChatMessage } from '@evaos/chat-core/message'
+import { makeMessage, type ChatMessage } from '@evaos/chat-core/message'
 import { MessageRow } from './MessageRow'
 import { Pills } from './Pills'
 import { pinReducer, type PinState } from './pin'
@@ -30,6 +30,28 @@ const onRender: ProfilerOnRenderCallback = (_id, _phase, actualDuration) => {
  * on scroll-up without ever moving the scroll position, and re-pins on the pill or by scrolling
  * back down (CHAT-05, D-18). Scrolling is instant, never smooth.
  */
+function foldToolRuns(list: ChatMessage[]): ChatMessage[] {
+  const out: ChatMessage[] = []
+  let run: ChatMessage[] = []
+  const flush = (): void => {
+    if (run.length === 0) return
+    const n = run.length
+    out.push(
+      makeMessage(`${run[0]!.id}-tools`, 'tool', n === 1 ? '1 tool call' : `${n} tool calls`),
+    )
+    run = []
+  }
+  for (const m of list) {
+    if (m.role === 'tool') run.push(m)
+    else {
+      flush()
+      out.push(m)
+    }
+  }
+  flush()
+  return out
+}
+
 export function ChatLog({
   paneId,
   messages: all,
@@ -40,14 +62,16 @@ export function ChatLog({
   file: string
 }) {
   const showThinking = useSettings((s) => s.show_thinking)
+  const showTools = useSettings((s) => s.show_tools)
   useEffect(() => {
     void startSettings()
   }, [])
   // Settings > Chat > Show thinking applies live: thinking rows are dropped, not collapsed.
-  const messages = useMemo(
-    () => (showThinking ? all : all.filter((m) => m.role !== 'thinking')),
-    [all, showThinking],
-  )
+  // Show tool details off folds each run of tool calls into one line (the Rust tool group).
+  const messages = useMemo(() => {
+    const base = showThinking ? all : all.filter((m) => m.role !== 'thinking')
+    return showTools ? base : foldToolRuns(base)
+  }, [all, showThinking, showTools])
   const ref = useRef<VListHandle>(null)
   const pin = useRef<PinState>({ pinned: true, newReply: false })
   const first = useRef(true)
