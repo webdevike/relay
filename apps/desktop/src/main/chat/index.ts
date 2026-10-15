@@ -20,7 +20,7 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
   const extras = new ExtrasService({ manager, emit: (e) => emit(ctx, 'chat.extras', e) })
   registerTranscriptIpc(ctx, (paneId, file, parsed) => {
     manager.open(paneId, file, parsed.messages, parsed.meta)
-    // The renderer starts a freshly opened pane with empty extras; main then fills them in.
+    // The event reaches the renderer before this invoke resolves; the store carries it over.
     extras.reset(paneId)
     extras.refresh(paneId)
   })

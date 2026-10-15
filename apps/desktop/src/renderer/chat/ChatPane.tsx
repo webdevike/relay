@@ -1,10 +1,12 @@
 import './chat.css'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { ChatLog } from './ChatLog'
 import { Composer } from './Composer'
 import { PendingDialog } from './cards/PendingDialog'
 import { PANE_ID, SessionList } from './SessionList'
-import { chatStore, useChatStore } from './chat-store'
+import { JobsStrip } from './strips/JobsStrip'
+import { SubagentChips } from './strips/SubagentChips'
+import { chatStore, hiddenKey, useChatStore } from './chat-store'
 import { createStreamDrain } from './stream-drain'
 import { invoke, on } from '../ipc'
 import { placeOf } from '@evaos/shell-core'
@@ -26,6 +28,17 @@ export function ChatPane() {
     const p = activePlace(s)
     return p.page === 'chat' ? p.chat : null
   })
+
+  const hiddenDone = useChatStore((s) => s.hiddenDone)
+  const hiddenNames = useMemo(() => {
+    const names = new Set<string>()
+    for (const a of pane?.extras.subagents ?? [])
+      if (pane && hiddenDone.has(hiddenKey(pane.file, a.name))) names.add(a.name)
+    return names
+  }, [pane, hiddenDone])
+
+  // Subagents and jobs come from main (file-derived), pushed per pane.
+  useEffect(() => on('chat.extras', (e) => chatStore.getState().setExtras(e)), [])
 
   const activeIx = useTabs((s) => s.tabs.active)
 
@@ -107,7 +120,15 @@ export function ChatPane() {
           <SessionList />
         </div>
       )}
+      {pane ? (
+        <SubagentChips
+          subagents={pane.extras.subagents}
+          hidden={hiddenNames}
+          onClearDone={() => chatStore.getState().clearDone(PANE_ID)}
+        />
+      ) : null}
       <PendingDialog paneId={PANE_ID} />
+      {pane ? <JobsStrip running={pane.extras.running} jobs={pane.extras.jobs} /> : null}
       <Composer paneId={PANE_ID} disabled={!pane} />
     </main>
   )

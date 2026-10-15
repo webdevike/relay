@@ -60,9 +60,6 @@ export function lastAssistantLine(text: string): string {
   return ''
 }
 
-const EMPTY: Extras = { paneId: 'x', running: false, subagents: [], jobs: [] }
-const emptyKey = (paneId: string): string => JSON.stringify({ ...EMPTY, paneId })
-
 export class ExtrasService {
   private readonly readText: (f: string) => string
   private readonly readDir: (d: string) => Array<{ name: string; mtimeMs: number }>
@@ -74,9 +71,9 @@ export class ExtrasService {
     this.readDir = o.readDir ?? defaultReadDir
   }
 
-  /** The renderer starts a freshly opened pane with empty extras. */
+  /** A pane was opened on a (new) file: the next refresh emits even when nothing differs. */
   reset(paneId: string): void {
-    this.last.set(paneId, emptyKey(paneId))
+    this.last.delete(paneId)
   }
 
   refresh(paneId?: string): void {
@@ -111,7 +108,6 @@ export class ExtrasService {
     }
     const key = JSON.stringify(e)
     if (this.last.get(p.paneId) === key) return
-    if (!this.last.has(p.paneId) && key === emptyKey(p.paneId)) return
     this.last.set(p.paneId, key)
     this.o.emit(e)
   }

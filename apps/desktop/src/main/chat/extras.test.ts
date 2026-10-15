@@ -77,10 +77,12 @@ describe('ExtrasService', () => {
     expect(out[1]!.jobs).toEqual([])
   })
 
-  it('a pane with nothing to show emits nothing until reset says otherwise', () => {
+  it('the first refresh of a pane emits even when empty, then stays quiet', () => {
     const { svc, out } = setup([{ paneId: 'pane-1', file: '/s/x.jsonl', live: false }])
     svc.refresh()
-    expect(out).toHaveLength(0)
+    svc.refresh()
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({ running: false, subagents: [], jobs: [] })
   })
 
   it('onFilesChanged refreshes only the pane whose file or folder changed', () => {
@@ -100,7 +102,7 @@ describe('ExtrasService', () => {
     expect(out).toHaveLength(2)
   })
 
-  it('reset makes the next identical result emit only when it is non-empty', () => {
+  it('reset makes the next identical result emit again', () => {
     const { svc, dirs, out } = setup([{ paneId: 'pane-1', file: '/s/x.jsonl', live: false }])
     dirs['/s/x'] = [{ name: 'b.jsonl', mtimeMs: 5 }]
     svc.refresh()

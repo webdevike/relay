@@ -1,7 +1,18 @@
 import { useStore } from 'zustand'
 import { createStore } from 'zustand/vanilla'
-import type { ChatMessage, Dialog, SessionMeta } from '@evaos/chat-core/message'
-import type { Op } from '@evaos/contract'
+import type { BgJob, ChatMessage, Dialog, SessionMeta, Subagent } from '@evaos/chat-core/message'
+import type { Extras, Op } from '@evaos/contract'
+
+export interface PaneExtras {
+  subagents: Subagent[]
+  jobs: BgJob[]
+  /** This app's omp process for the pane runs. */
+  running: boolean
+}
+
+export const NO_EXTRAS: PaneExtras = { subagents: [], jobs: [], running: false }
+
+export const hiddenKey = (file: string, name: string): string => `${file}\0${name}`
 
 export interface PaneState {
   /** Empty for a draft chat until omp reports the session file it created. */
@@ -30,6 +41,8 @@ export interface PaneState {
   thinking: string | null
   /** Set when a draft got its session file from omp; the tab place follows it. */
   boundTo: string | null
+  /** Subagents and background jobs main derives from the session files. */
+  extras: PaneExtras
 }
 
 export interface OpenData {
@@ -41,6 +54,12 @@ export interface OpenData {
 
 export interface ChatState {
   panes: Record<string, PaneState>
+  /** Finished subagent chips cleared by the user, as `hiddenKey`s, for this app run. */
+  hiddenDone: ReadonlySet<string>
+  /** Extras that arrived before their pane was opened (main emits during `chat.open`). */
+  pendingExtras: Record<string, PaneExtras>
+  setExtras(e: Extras): void
+  clearDone(paneId: string): void
   openPane(paneId: string, data: OpenData): void
   setMessages(paneId: string, messages: ChatMessage[]): void
   /** Applies one drained batch worth of ops. Only changed rows get a new object identity. */
@@ -161,6 +180,23 @@ export function applyOpsToPane(pane: PaneState, ops: Op[], seq: number): PaneSta
 /** Lives outside React so the streaming drain (plan 01-05) can `setState` without a render. */
 export const chatStore = createStore<ChatState>((set) => ({
   panes: {},
+  hiddenDone: new Set<string>(),
+  pendingExtras: {},
+  setExtras: (e) =>
+    set((s) => {
+      const extras = { subagents: e.subagents, jobs: e.jobs, running: e.running }
+      return s.panes[e.paneId]
+        ? patchPane(s, e.paneId, (p) => ({ ...p, extras }))
+        : { pendingExtras: { ...s.pendingExtras, [e.paneId]: extras } }
+    }),
+  clearDone: (paneId) =>
+    set((s) => {
+      const pane = s.panes[paneId]
+      if (!pane) return s
+      const next = new Set(s.hiddenDone)
+      for (const a of pane.extras.subagents) if (a.done) next.add(hiddenKey(pane.file, a.name))
+      return { hiddenDone: next }
+    }),
   openPane: (paneId, data) =>
     set((s) => ({
       panes: {
@@ -180,6 +216,12 @@ export const chatStore = createStore<ChatState>((set) => ({
           contextWindow: null,
           thinking: data.meta.thinking ?? null,
           boundTo: null,
+          // Main emits extras for the new file before this resolves, so what the pane (or the
+          // pending slot) already holds is for this file.
+          extras:
+            data.file === ''
+              ? NO_EXTRAS
+              : (s.panes[paneId]?.extras ?? s.pendingExtras[paneId] ?? NO_EXTRAS),
         },
       },
     })),

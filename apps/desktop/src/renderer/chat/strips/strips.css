@@ -1,0 +1,109 @@
+.eva-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--eva-space-sm);
+  padding: var(--eva-space-xs) var(--eva-space-md);
+  flex: none;
+}
+.eva-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--eva-space-xs);
+  height: 24px;
+  padding: 0 var(--eva-space-sm);
+  border-radius: 12px;
+  border: 1px solid var(--eva-border);
+  background: var(--eva-surface);
+  color: var(--eva-text);
+  cursor: pointer;
+}
+.eva-chip[data-state='done'] {
+  color: var(--eva-text-dim);
+}
+.eva-chip[data-state='failed'] {
+  color: var(--eva-danger);
+}
+.eva-chip:focus-visible,
+.eva-chips-clear:focus-visible,
+.eva-jobs-head:focus-visible {
+  outline: 2px solid var(--eva-accent);
+  outline-offset: 1px;
+}
+.eva-chips-clear {
+  background: none;
+  border: 0;
+  color: var(--eva-text-dim);
+  cursor: pointer;
+  padding: 0 var(--eva-space-xs);
+}
+.eva-chips-clear:hover {
+  color: var(--eva-text);
+}
+.eva-chip-popover {
+  max-width: 320px;
+  padding: var(--eva-space-sm) var(--eva-space-md);
+  overflow-wrap: anywhere;
+}
+.eva-spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--eva-border);
+  border-top-color: var(--eva-text);
+  animation: eva-spin 0.8s linear infinite;
+}
+@keyframes eva-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .eva-spinner {
+    animation: none;
+  }
+}
+
+.eva-jobs {
+  flex: none;
+  margin: 0 var(--eva-space-md);
+  border: 1px solid var(--eva-border);
+  border-radius: var(--eva-space-sm);
+  background: var(--eva-surface);
+}
+.eva-jobs-head {
+  display: flex;
+  align-items: center;
+  gap: var(--eva-space-xs);
+  width: 100%;
+  height: 32px;
+  padding: 0 var(--eva-space-md);
+  background: none;
+  border: 0;
+  color: var(--eva-text);
+  cursor: pointer;
+  text-align: left;
+}
+.eva-jobs-rows {
+  max-height: calc(28px * 4);
+  overflow-y: auto;
+  border-top: 1px solid var(--eva-border);
+}
+.eva-jobs-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--eva-space-md);
+  height: 28px;
+  padding: 0 var(--eva-space-md);
+}
+.eva-jobs-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-jobs-elapsed {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
