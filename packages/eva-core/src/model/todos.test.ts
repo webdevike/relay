@@ -72,3 +72,11 @@ describe('real files', () => {
     expect(countOpenTodos(todos)).toBe(24)
   })
 })
+
+describe('maxTodoId overflow', () => {
+  it('ignores digit runs that are not safe integers', () => {
+    expect(maxTodoId(`T${'9'.repeat(400)} and T25`)).toBe(25)
+    expect(maxTodoId('T1000000000000000000000 T3')).toBe(3)
+    expect(nextTodoId(`T${'9'.repeat(400)}`, '')).toBe('T1')
+  })
+})

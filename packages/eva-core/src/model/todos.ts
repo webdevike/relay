@@ -81,7 +81,11 @@ export function parseOpenTodos(text: string): OpenTodo[] {
 /** Port of eva.rs max_todo_id: every `T<digits>` at a word start, prose included. */
 export function maxTodoId(text: string): number {
   let max = 0
-  for (const m of text.matchAll(/(?<![\p{L}\p{N}])T(\d+)/gu)) max = Math.max(max, Number(m[1]))
+  for (const m of text.matchAll(/(?<![\p{L}\p{N}])T(\d+)/gu)) {
+    const n = Number(m[1])
+    // Prose digit runs beyond a safe integer must never become an id (Infinity, 1e+21).
+    if (Number.isSafeInteger(n)) max = Math.max(max, n)
+  }
   return max
 }
 
