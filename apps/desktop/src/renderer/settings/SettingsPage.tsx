@@ -20,6 +20,9 @@ export function SettingsPage({ place }: { place: Place }) {
     place.settingsSection in SECTIONS ? place.settingsSection : 'Theme'
   ) as keyof typeof SECTIONS
   const { Body, desc } = SECTIONS[name]
+  if (name === 'Theme') {
+    return <div className="eva-settings eva-settings-theme" data-testid="settings-theme"><ThemeSection /></div>
+  }
   return (
     <div className="eva-settings" data-testid={`settings-${name.toLowerCase()}`}>
       <div className="eva-settings-col">

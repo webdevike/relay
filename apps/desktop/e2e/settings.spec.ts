@@ -31,17 +31,22 @@ const readJson = (file: string): Record<string, unknown> | null => {
   }
 }
 
-test('sections render with titles, descriptions and tab titles', async ({ shell }) => {
-  const cases: [Section, string][] = [
-    ['Theme', 'Colors, fonts and shape for the whole app.'],
+test('sections render their native content and tab titles', async ({ shell }) => {
+  const cases: [Section, string | null][] = [
+    ['Theme', null],
     ['Chat', "What conversations show besides Eva's replies."],
     ['Notifications', 'How the inbox tells you about new items.'],
   ]
   for (const [section, desc] of cases) {
     await open(shell, section)
     const root = shell.locator(`[data-testid=settings-${section.toLowerCase()}]`)
-    await expect(root.locator('h1')).toHaveText(section)
-    await expect(root).toContainText(desc)
+    if (desc) {
+      await expect(root.locator('h1')).toHaveText(section)
+      await expect(root).toContainText(desc)
+    } else {
+      await expect(root.getByTestId('theme-editor')).toBeVisible()
+      await expect(root.getByRole('heading', { name: 'Preview', exact: true })).toBeVisible()
+    }
     const tabs = await shell.evaluate(() => (window as unknown as W).__evaosShell!.tabs())
     expect(tabs.list[tabs.active]!.title).toBe(`Settings: ${section}`)
   }
@@ -81,13 +86,12 @@ test('appearance applies live from Settings and persists to theme.json', async (
   shell,
   configDir,
 }) => {
+  await shell.emulateMedia({ colorScheme: 'dark' })
   await open(shell, 'Theme')
-  const ctl = shell.locator('[data-testid=appearance-settings]')
+  const ctl = shell.locator('[data-testid=settings-theme] .eva-theme-mode-row')
   await expect(ctl).toBeVisible()
-  await expect(ctl.locator('[data-testid=appearance-system]')).toHaveAttribute(
-    'data-active',
-    'true',
-  )
+  await expect(ctl.getByRole('radio', { name: 'System', exact: true })).toHaveCount(0)
+  await expect(shell.locator('html')).toHaveAttribute('data-appearance', 'system')
   await shell.evaluate(() => {
     ;(window as unknown as { __tag: Element | null }).__tag = document.querySelector(
       '[data-testid=settings-theme]',
@@ -98,7 +102,7 @@ test('appearance applies live from Settings and persists to theme.json', async (
   const appearance = () =>
     (readJson(themeFile)?.['app'] as { appearance?: string } | undefined)?.appearance
 
-  await ctl.locator('[data-testid=appearance-light]').click()
+  await ctl.getByText('Light', { exact: true }).click()
   await expect(html).toHaveAttribute('data-resolved', 'light')
   await expect(html).toHaveAttribute('data-appearance', 'light')
   expect(
@@ -109,18 +113,27 @@ test('appearance applies live from Settings and persists to theme.json', async (
   ).toBe(true)
   await expect.poll(appearance).toBe('light')
 
-  await ctl.locator('[data-testid=appearance-dark]').click()
+  await ctl.getByText('Dark', { exact: true }).click()
   await expect(html).toHaveAttribute('data-resolved', 'dark')
   await expect.poll(appearance).toBe('dark')
+
+  await shell.getByTestId('appearance').getByTestId('appearance-system').click()
+  await expect(html).toHaveAttribute('data-appearance', 'system')
+  await expect(html).toHaveAttribute('data-resolved', 'dark')
+  await expect(ctl.getByRole('radio', { name: 'Dark', exact: true })).toBeChecked()
+  await expect.poll(appearance).toBe('system')
 })
 
-test('arrow keys move the appearance selection', async ({ shell }) => {
+test('arrow keys move the native Light and Dark edit selection', async ({ shell }) => {
   await open(shell, 'Theme')
   const html = shell.locator('html')
-  await shell.locator('[data-testid=appearance-settings] input:checked').focus()
-  // Selection starts on System (last); ArrowLeft moves to Dark.
-  await shell.keyboard.press('ArrowLeft')
-  await expect(html).toHaveAttribute('data-appearance', 'dark')
+  const ctl = shell.locator('[data-testid=settings-theme] .eva-theme-mode-row')
+  // System resolves to Dark; the editor offers the two actual mode palettes.
+  await ctl.getByRole('radio', { name: 'Dark', exact: true }).focus()
   await shell.keyboard.press('ArrowLeft')
   await expect(html).toHaveAttribute('data-appearance', 'light')
+  await expect(ctl.getByRole('radio', { name: 'Light', exact: true })).toBeChecked()
+  await shell.keyboard.press('ArrowRight')
+  await expect(html).toHaveAttribute('data-appearance', 'dark')
+  await expect(ctl.getByRole('radio', { name: 'Dark', exact: true })).toBeChecked()
 })

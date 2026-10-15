@@ -222,11 +222,10 @@ test('settings-theme-light', async ({ app, shell }) => {
     }),
   )
   await expect(shell.locator(sel('settings-theme'))).toBeVisible()
-  await shell.locator(sel('appearance-settings')).locator(sel('appearance-light')).click()
+  const mode = shell.locator('[data-testid=settings-theme] .eva-theme-mode-row')
+  await mode.getByText('Light', { exact: true }).click()
   await resolved(shell).toHaveAttribute('data-resolved', 'light')
-  await expect(
-    shell.locator(sel('appearance-settings')).locator(sel('appearance-light')),
-  ).toHaveAttribute('data-active', 'true')
+  await expect(mode.getByRole('radio', { name: 'Light', exact: true })).toBeChecked()
   await finish(app, shell, 'settings-theme-light')
 })
 

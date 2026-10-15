@@ -3,6 +3,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { defaultDoc, parseThemeDoc, resolveTheme, serializeThemeDoc } from '@evaos/theme-core'
 vi.mock('electron', () => ({
   app: {},
   ipcMain: {},
@@ -13,7 +14,7 @@ vi.mock('electron', () => ({
 import { createConfigStore, type ConfigStore } from './config-store'
 import { loadLayout, saveLayout } from './layout-ipc'
 import {
-  loadAppearance, loadTheme, readLastBackground, saveAppearance, saveBase, saveLastBackground,
+  loadAppearance, loadTheme, readLastBackground, saveAppearance, saveBase, saveLastBackground, saveThemeDoc,
 } from './theme-ipc'
 import { loadSettings, saveSettings } from './settings-ipc'
 import { createWriteQueue } from './write-queue'
@@ -113,6 +114,48 @@ describe('theme', () => {
       expect(() => saveBase(config, base)).toThrow(expect.objectContaining({ code: 'unknown-theme' }))
       expect(fs.readFileSync(path.join(dir, 'theme.json'), 'utf8')).toBe(original)
     }
+  })
+
+  it('queues complete docs with base/appearance writes and restores native overrides on reload', async () => {
+    config.writeJson('theme.json', { future: { enabled: true }, app: { lastBackground: '#111111', nativeOnly: 2 } })
+    const doc = defaultDoc()
+    doc.shared = { 'font.family': 'Inter', 'font.size': 18, 'mono_font.family': 'Menlo', 'mono_font.size': 15, radius: 3, 'radius.lg': 17, shadow: true }
+    doc.light.edits.ring = '#112233'
+    doc.dark.edits = { ring: '#abcdef', highlight: { syntax: { keyword: { color: '#123456', font_style: 'italic', font_weight: 700 } } } }
+    const queue = createWriteQueue()
+    await Promise.all([
+      queue.enqueue(() => saveThemeDoc(config, serializeThemeDoc(doc))),
+      queue.enqueue(() => saveBase(config, 'Flexoki')),
+      queue.enqueue(() => saveAppearance(config, 'light')),
+      queue.enqueue(() => saveLastBackground(config, '#222222')),
+    ])
+    const loaded = loadTheme(createConfigStore(dir))
+    const restored = parseThemeDoc(loaded.doc)
+    expect(loaded.appearance).toBe('light')
+    expect(restored.base).toBe('Flexoki')
+    expect(restored.shared).toEqual(doc.shared)
+    expect(restored.dark.edits).toEqual(doc.dark.edits)
+    expect(restored.light.edits).toEqual(doc.light.edits)
+    expect(resolveTheme(restored, 'dark').highlight.syntax.keyword).toMatchObject({ color: '#123456', font_style: 'italic', font_weight: 700 })
+    expect(loaded.doc).toMatchObject({ future: { enabled: true }, app: { lastBackground: '#222222', nativeOnly: 2 } })
+  })
+
+  it('rejects invalid whole docs without writing and persists removed overrides', () => {
+    const doc = defaultDoc()
+    doc.shared['font.size'] = 18
+    doc.dark.edits.ring = '#123456'
+    saveThemeDoc(config, serializeThemeDoc(doc))
+    const original = fs.readFileSync(path.join(dir, 'theme.json'), 'utf8')
+    for (const shared of [{ 'font.size': 0 }, { radius: Infinity }, { shadow: 'false' }, { 'font.family': 'x\";background:red' }]) {
+      expect(() => saveThemeDoc(config, { ...serializeThemeDoc(doc), shared })).toThrow()
+      expect(fs.readFileSync(path.join(dir, 'theme.json'), 'utf8')).toBe(original)
+    }
+    delete doc.shared['font.size']
+    delete doc.dark.edits.ring
+    saveThemeDoc(config, serializeThemeDoc(doc))
+    const restored = parseThemeDoc(loadTheme(config).doc)
+    expect(restored.shared['font.size']).toBeUndefined()
+    expect(restored.dark.edits.ring).toBeUndefined()
   })
 })
 

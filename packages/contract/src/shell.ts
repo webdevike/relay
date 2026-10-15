@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { validateThemeDoc } from '@evaos/theme-core'
 
 export const SavedPlaceSchema = z
   .object({
@@ -26,6 +27,14 @@ export type SavedTabs = z.infer<typeof SavedTabsSchema>
 
 export const AppearanceSchema = z.enum(['light', 'dark', 'system'])
 export type Appearance = z.infer<typeof AppearanceSchema>
+
+export const ThemeDocumentSchema = z.unknown().superRefine((value, ctx) => {
+  try {
+    validateThemeDoc(value)
+  } catch (error) {
+    ctx.addIssue({ code: 'custom', message: error instanceof Error ? error.message : 'Invalid theme document' })
+  }
+})
 
 export const ChatSettingsSchema = z.object({
   show_thinking: z.boolean(),
@@ -70,6 +79,10 @@ export const shellInvoke = {
   },
   'theme.setAppearance': {
     input: z.object({ appearance: AppearanceSchema }).strict(),
+    output: Empty,
+  },
+  'theme.saveDoc': {
+    input: z.object({ doc: ThemeDocumentSchema }).strict(),
     output: Empty,
   },
   'settings.load': { input: z.object({}).strict(), output: ChatSettingsSchema },

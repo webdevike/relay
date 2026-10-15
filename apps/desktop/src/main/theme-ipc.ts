@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { hasThemeFamily, parseThemeDoc, THEME_CATALOG } from '@evaos/theme-core'
+import { hasThemeFamily, parseThemeDoc, serializeThemeDoc, validateThemeDoc, THEME_CATALOG } from '@evaos/theme-core'
 import type { ConfigStore } from './config-store'
 import type { MainContext } from './context'
 import { handle } from './ipc/handle'
@@ -41,6 +41,14 @@ export function saveBase(config: ConfigStore, base: string): void {
   config.writeJson(FILE, { ...doc, base })
 }
 
+export function saveThemeDoc(config: ConfigStore, value: unknown): void {
+  const doc = validateThemeDoc(value)
+  const previous = config.readForMerge(FILE)
+  const merged = serializeThemeDoc(doc, previous)
+  validateThemeDoc(merged)
+  config.writeJson(FILE, merged)
+}
+
 export function saveAppearance(config: ConfigStore, appearance: Appearance): void {
   patchApp(config, 'appearance', appearance)
 }
@@ -60,6 +68,10 @@ export function registerThemeIpc(ctx: MainContext, queue: WriteQueue): void {
   handle(ctx, 'theme.list', () => ({ themes: [...THEME_CATALOG] }))
   handle(ctx, 'theme.setBase', async ({ base }) => {
     await queue.enqueue(() => saveBase(ctx.config, base))
+    return {}
+  })
+  handle(ctx, 'theme.saveDoc', async ({ doc }) => {
+    await queue.enqueue(() => saveThemeDoc(ctx.config, doc))
     return {}
   })
   handle(ctx, 'theme.setAppearance', async ({ appearance }) => {

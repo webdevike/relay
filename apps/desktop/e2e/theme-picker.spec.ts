@@ -24,7 +24,7 @@ test('theme family applies without remount, preserves edits and survives relaunc
   const file = path.join(configDir, 'theme.json')
   await expect.poll(() => JSON.parse(fs.readFileSync(file, 'utf8')).base).toBe('Flexoki')
   expect(await shell.evaluate(() => (window as unknown as { __themeMarker: Element }).__themeMarker === document.querySelector('[data-testid=settings-theme]'))).toBe(true)
-  await shell.locator('[data-testid=appearance-settings] [data-testid=appearance-light]').click()
+  await shell.locator('.eva-theme-mode-row label').filter({ hasText: 'Light' }).click()
   await expect(shell.locator('html')).toHaveAttribute('data-resolved', 'light')
   await app.close()
   const saved = JSON.parse(fs.readFileSync(file, 'utf8'))

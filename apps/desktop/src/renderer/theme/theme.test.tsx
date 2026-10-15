@@ -18,6 +18,7 @@ import {
   initTheme,
   setAppearance,
   setThemeBase,
+  saveThemeDoc,
   themeStore,
 } from './theme-store'
 import { ThemeBridge } from './ThemeBridge'
@@ -197,6 +198,68 @@ describe('theme store', () => {
       )
     },
   )
+
+  it('applies and saves a complete native document including shared shape and syntax', async () => {
+    initTheme('dark')
+    const doc = parseThemeDoc({
+      base: 'Flexoki', shared: { 'font.family': 'Inter', 'font.size': 18, 'mono_font.size': 15, radius: 4, 'radius.lg': 20, shadow: true },
+      light: { edits: {} },
+      dark: { edits: { highlight: { syntax: { keyword: { color: '#112233', font_style: 'italic', font_weight: 700 } } } } },
+      app: { appearance: 'dark' }, future: true,
+    })
+    const saving = saveThemeDoc(doc)
+    expect(themeStore.getState().doc).toBe(doc)
+    expect(themeStore.getState().docSaving).toBe(true)
+    expect(document.documentElement.style.getPropertyValue('--eva-font-size')).toBe('18px')
+    expect(document.documentElement.style.getPropertyValue('--eva-radius')).toBe('4px')
+    await saving
+    expect(themeStore.getState().docSaving).toBe(false)
+    expect(invoke).toHaveBeenCalledWith('theme.saveDoc', { doc: expect.objectContaining({ future: true, shared: expect.objectContaining({ 'font.size': 18 }) }) })
+  })
+
+  it.each(['result', 'rejection'])('rolls back complete edits after a %s failure, retaining later appearance', async (failure) => {
+    const original = parseThemeDoc({ shared: { 'font.size': 14 }, app: { appearance: 'dark' } })
+    initTheme('dark', original)
+    invoke.mockImplementation((channel: string) => {
+      if (channel !== 'theme.saveDoc') return Promise.resolve({ ok: true, value: {} })
+      return failure === 'rejection' ? Promise.reject(new Error('read only')) : Promise.resolve({ ok: false, error: { code: 'IO', message: 'read only' } })
+    })
+    const next = { ...original, shared: { 'font.size': 20 }, dark: { edits: { ring: '#123456' } } }
+    const saving = saveThemeDoc(next)
+    setAppearance('light')
+    await expect(saving).rejects.toMatchObject({ message: 'read only' })
+    expect(themeStore.getState().appearance).toBe('light')
+    expect(themeStore.getState().doc.shared).toEqual(original.shared)
+    expect(themeStore.getState().doc.dark).toEqual(original.dark)
+    expect(themeStore.getState().docError).toContain('previous theme has been restored')
+    expect(themeStore.getState().docSaving).toBe(false)
+    expect(document.documentElement.style.getPropertyValue('--eva-font-size')).toBe('14px')
+  })
+
+  it('queues rapid edits without losing the last live value and rolls back to the last persisted value', async () => {
+    initTheme('dark')
+    let finish!: (result: unknown) => void
+    const first = new Promise<unknown>((resolve) => { finish = resolve })
+    let writes = 0
+    invoke.mockImplementation((channel: string) => {
+      if (channel !== 'theme.saveDoc') return Promise.resolve({ ok: true, value: {} })
+      writes += 1
+      return writes === 1 ? first : Promise.resolve({ ok: false, error: { code: 'IO', message: 'read only' } })
+    })
+    const one = { ...themeStore.getState().doc, shared: { 'font.size': 16 } }
+    const two = { ...one, shared: { 'font.size': 20 } }
+    const savingOne = saveThemeDoc(one)
+    const savingTwo = saveThemeDoc(two)
+    const failure = expect(savingTwo).rejects.toMatchObject({ message: 'read only' })
+    expect(themeStore.getState().doc).toBe(two)
+    finish({ ok: true, value: {} })
+    await savingOne
+    await failure
+    expect(writes).toBe(2)
+    expect(themeStore.getState().doc).toEqual(one)
+    expect(themeStore.getState().docSaving).toBe(false)
+    expect(document.documentElement.style.getPropertyValue('--eva-font-size')).toBe('16px')
+  })
 })
 
 describe('theme bootstrap', () => {
@@ -228,7 +291,7 @@ describe('theme bootstrap', () => {
         : { ok: true, value: { noMotion: true, e2e: false } },
     )
     await expect(bootstrapTheme()).resolves.toEqual({ resolved: 'dark' })
-    expect(themeStore.getState().doc).toEqual(defaultDoc())
+    expect(themeStore.getState().doc).toEqual({ ...defaultDoc(), app: { appearance: 'dark' } })
   })
 })
 

@@ -10,6 +10,10 @@ import {
   defaultDoc,
   parseThemeDoc,
   resolveMode,
+  serializeThemeDoc,
+  validateThemeDoc,
+  shapeVars,
+  exportTheme,
   resolveTheme,
   varName,
 } from './index'
@@ -93,6 +97,34 @@ describe('resolveTheme', () => {
     expect(resolveTheme(doc, 'light').colors.ring).toBe('#111111')
     expect(resolveTheme(doc, 'dark').colors.ring).toBe('#222222')
   })
+
+  it('resolves native shared typography and shape in both modes', () => {
+    const doc = parseThemeDoc({
+      base: 'Bubblegum',
+      shared: { 'font.family': 'Inter', 'font.size': 18, 'mono_font.family': 'Menlo', 'mono_font.size': 16, radius: 0, 'radius.lg': 22, shadow: false },
+    })
+    for (const mode of ['light', 'dark'] as const) {
+      const theme = resolveTheme(doc, mode)
+      expect(theme.font).toEqual({ family: 'Inter', size: 18 })
+      expect(theme.monoFont).toEqual({ family: 'Menlo', size: 16 })
+      expect(theme.radius).toBe(0)
+      expect(theme.radiusLg).toBe(22)
+      expect(theme.shadow).toBe(false)
+      expect(shapeVars(theme)).toMatchObject({ '--eva-font-size': '18px', '--eva-font-code-size': '16px', '--eva-radius': '0px', '--eva-shadow': 'none' })
+    }
+  })
+
+  it('loads native nested colors and per-mode syntax styles without crossing modes', () => {
+    const doc = parseThemeDoc({
+      dark: { edits: { colors: { ring: '#123456' }, highlight: { 'editor.background': '#123123', syntax: { keyword: { color: '#abcdef', font_style: 'italic', font_weight: 700 } } } } },
+    })
+    const dark = resolveTheme(doc, 'dark')
+    expect(dark.colors.ring).toBe('#123456')
+    expect(dark.highlight['editor.background']).toBe('#123123')
+    expect(dark.highlight.syntax.keyword).toMatchObject({ color: '#abcdef', font_style: 'italic', font_weight: 700 })
+    expect(resolveTheme(doc, 'light').highlight).toEqual(resolveTheme(defaultDoc(), 'light').highlight)
+    expect(resolveTheme(parseThemeDoc({ base: 'Ayu' }), 'dark').highlight.syntax.keyword?.color).not.toBe(dark.highlight.syntax.keyword?.color)
+  })
 })
 
 describe('vars', () => {
@@ -139,5 +171,115 @@ describe('parseThemeDoc', () => {
   it('resolves system appearance', () => {
     expect(resolveMode('system', true)).toBe('dark')
     expect(resolveMode('light', true)).toBe('light')
+  })
+
+  it('filters malformed shared and syntax values at the tolerant load boundary', () => {
+    const doc = parseThemeDoc({
+      shared: { 'font.family': 'x\"; color:red', 'font.size': 1000, radius: -1, shadow: 'false' },
+      dark: { edits: { highlight: { 'editor.background': 'url(x)', syntax: { keyword: { color: 'red', font_style: 'url(x)', font_weight: Infinity } } } } },
+    })
+    expect(doc.shared).toEqual({})
+    expect(doc.dark.edits.highlight?.syntax?.keyword).toEqual({})
+    expect(resolveTheme(doc, 'dark').highlight.syntax.keyword?.color).toMatch(HEX)
+  })
+})
+
+describe('whole document persistence', () => {
+  it('strictly rejects malformed known fields instead of silently saving defaults', () => {
+    const valid = serializeThemeDoc(defaultDoc())
+    expect(validateThemeDoc(valid)).toEqual(parseThemeDoc(valid))
+    for (const invalid of [
+      null, {}, { ...valid, base: 'toString' }, { ...valid, shared: [] },
+      { ...valid, shared: { 'font.size': NaN } },
+      { ...valid, shared: { 'mono_font.size': 8 } },
+      { ...valid, shared: { radius: 25 } },
+      { ...valid, shared: { 'radius.lg': -1 } },
+      { ...valid, shared: { shadow: 'true' } },
+      { ...valid, shared: { 'font.family': 'bad\";x' } },
+      { ...valid, light: { edits: { colors: { ring: 'red' } } } },
+      { ...valid, dark: { edits: { highlight: { syntax: { keyword: { font_weight: 901 } } } } } },
+      { ...valid, app: { appearance: 'neon' } },
+    ]) expect(() => validateThemeDoc(invalid)).toThrow()
+  })
+
+  it('removes owned overrides on reset while retaining unknown nested fields', () => {
+    const doc = parseThemeDoc({
+      shared: { 'font.size': 18, futureShape: 3 },
+      dark: { futureMode: true, edits: { ring: '#111111', colors: { background: '#222222', futureColor: 'native-value' }, highlight: { 'editor.background': '#333333', futureHighlight: true, syntax: { keyword: { color: '#444444', futureStyle: 5 } } } } },
+      app: { appearance: 'dark', futureApp: 4 },
+      futureRoot: { a: 1 },
+    })
+    doc.shared = {}
+    doc.dark.edits = {}
+    const serialized = serializeThemeDoc(doc, { futureRoot: { b: 2 }, futureWriter: true })
+    expect(serialized).toMatchObject({
+      shared: { futureShape: 3 },
+      dark: { futureMode: true, edits: { colors: { futureColor: 'native-value' }, highlight: { futureHighlight: true, syntax: { keyword: { futureStyle: 5 } } } } },
+      app: { appearance: 'dark', futureApp: 4 }, futureRoot: { a: 1, b: 2 }, futureWriter: true,
+    })
+    expect(parseThemeDoc(serialized).shared).toEqual({})
+    expect(parseThemeDoc(serialized).dark.edits.ring).toBeUndefined()
+    expect(parseThemeDoc(serialized).dark.edits.background).toBeUndefined()
+    expect(parseThemeDoc(serialized).dark.edits.highlight?.syntax?.keyword?.color).toBeUndefined()
+  })
+})
+
+describe('document safety', () => {
+  it('accepts the native editor range endpoints and future JSON values', () => {
+    for (const shared of [
+      { 'font.size': 10, 'mono_font.size': 9, radius: 0, 'radius.lg': 0 },
+      { 'font.size': 24, 'mono_font.size': 24, radius: 24, 'radius.lg': 32 },
+    ]) {
+      const doc = { ...serializeThemeDoc(defaultDoc()), shared, future: { enabled: true, list: [null, 1, 'x'] } }
+      expect(validateThemeDoc(doc).shared).toEqual(shared)
+    }
+  })
+
+  it('does not persist non-JSON unknown values or pollute prototypes while preserving unknown keys', () => {
+    const valid = serializeThemeDoc(defaultDoc())
+    const circular: Record<string, unknown> = {}
+    circular.self = circular
+    for (const future of [undefined, Infinity, () => {}, new Date(), circular]) {
+      expect(() => validateThemeDoc({ ...valid, future })).toThrow()
+    }
+    const doc = parseThemeDoc(JSON.parse(JSON.stringify(valid).slice(0, -1) + ',\"__proto__\":{\"polluted\":true}}'))
+    const result = serializeThemeDoc(doc)
+    expect(Object.hasOwn(result, '__proto__')).toBe(true)
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined()
+  })
+})
+
+describe('portable theme export', () => {
+  it('exports both fully flattened native palettes with typography, shape and syntax', () => {
+    const doc = parseThemeDoc({
+      base: 'Flexoki',
+      shared: { 'font.family': 'Inter', 'font.size': 18, 'mono_font.family': 'Menlo', 'mono_font.size': 15, radius: 3, 'radius.lg': 19, shadow: true },
+      light: { edits: { ring: '#112233' } },
+      dark: { edits: { ring: '#abcdef', highlight: { syntax: { keyword: { color: '#123456', font_style: 'italic', font_weight: 700 } } } } },
+      app: { appearance: 'dark' }, future: true,
+    })
+    const exported = exportTheme(doc)
+    expect(exported).toMatchObject({ name: 'EvaOS', author: 'Isaac Weber', $schema: expect.stringContaining('gpui-kit') })
+    expect(exported.themes).toHaveLength(2)
+    for (const [index, mode] of (['light', 'dark'] as const).entries()) {
+      const theme = exported.themes[index]!
+      const resolved = resolveTheme(doc, mode)
+      expect(theme).toMatchObject({
+        name: mode === 'light' ? 'EvaOS Light' : 'EvaOS Dark', mode,
+        'font.family': 'Inter', 'font.size': 18, 'mono_font.family': 'Menlo', 'mono_font.size': 15,
+        radius: 3, 'radius.lg': 19, shadow: true,
+      })
+      expect(theme.colors).toEqual(resolved.colors)
+      expect(Object.keys(theme.colors)).toHaveLength(COLOR_KEYS.length)
+      expect(theme.highlight).toEqual(resolved.highlight)
+      expect(theme).not.toHaveProperty('edits')
+    }
+    expect(exported.themes[0]!.colors.ring).toBe('#112233')
+    expect(exported.themes[1]!.colors.ring).toBe('#abcdef')
+    expect(exported.themes[1]!.highlight.syntax.keyword).toMatchObject({ color: '#123456', font_style: 'italic', font_weight: 700 })
+    expect(exported).not.toHaveProperty('app')
+    expect(exported).not.toHaveProperty('raw')
+    expect(exported).not.toHaveProperty('shared')
+    expect(JSON.parse(JSON.stringify(exported))).toEqual(exported)
   })
 })

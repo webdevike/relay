@@ -4,6 +4,8 @@ import {
   defaultDoc,
   resolveMode,
   resolveTheme,
+  serializeThemeDoc,
+  validateThemeDoc,
   type Appearance,
   type ThemeDoc,
 } from '@evaos/theme-core'
@@ -16,6 +18,8 @@ export interface ThemeState {
   doc: ThemeDoc
   baseSaving: boolean
   baseError: string | null
+  docSaving: boolean
+  docError: string | null
 }
 
 const QUERY = '(prefers-color-scheme: dark)'
@@ -30,10 +34,16 @@ export const themeStore = createStore<ThemeState>(() => ({
   doc: defaultDoc(),
   baseSaving: false,
   baseError: null,
+  docSaving: false,
+  docError: null,
 }))
 
 let mql: MediaQueryList | null = null
 let mqlHandler: (() => void) | null = null
+let docWrites: Promise<void> = Promise.resolve()
+let docRevision = 0
+let pendingDocWrites = 0
+let persistedDoc = defaultDoc()
 
 function apply(appearance: Appearance, doc: ThemeDoc): void {
   const mode = resolveMode(appearance, prefersDark())
@@ -57,7 +67,10 @@ function attachMedia(): void {
 
 export function initTheme(appearance: Appearance, doc: ThemeDoc = defaultDoc()): void {
   attachMedia()
-  themeStore.setState({ baseSaving: false, baseError: null })
+  if (doc.app.appearance !== appearance) doc = { ...doc, app: { ...doc.app, appearance } }
+  docRevision += 1
+  persistedDoc = doc
+  themeStore.setState({ baseSaving: false, baseError: null, docSaving: false, docError: null })
   apply(appearance, doc)
 }
 
@@ -76,7 +89,7 @@ export function setAppearance(appearance: Appearance): void {
 /** Applies immediately, then restores only the family if persistence fails. */
 export async function setThemeBase(base: string): Promise<void> {
   const previous = themeStore.getState()
-  if (previous.baseSaving || previous.doc.base === base) return
+  if (previous.baseSaving || previous.docSaving || previous.doc.base === base) return
   themeStore.setState({ baseSaving: true, baseError: null })
   apply(previous.appearance, { ...previous.doc, base })
   try {
@@ -90,6 +103,44 @@ export async function setThemeBase(base: string): Promise<void> {
       baseSaving: false,
       baseError: 'Could not save the theme. Your previous theme has been restored.',
     })
+  }
+}
+
+/** Apply every edit immediately; serialize persistence and restore the last successful doc on failure. */
+export async function saveThemeDoc(doc: ThemeDoc): Promise<void> {
+  const wireDoc = serializeThemeDoc(doc)
+  validateThemeDoc(wireDoc)
+  const previous = themeStore.getState()
+  if (previous.baseSaving) throw new Error('Wait for the theme preset to finish saving.')
+  if (pendingDocWrites === 0) persistedDoc = previous.doc
+  const revision = ++docRevision
+  pendingDocWrites += 1
+  themeStore.setState({ docSaving: true, docError: null })
+  apply(doc.app.appearance, doc)
+  const write = docWrites.then(async () => {
+    // An appearance switch made after this edit must not be undone by a queued full-doc write.
+    const appearance = themeStore.getState().appearance
+    const result = await invoke('theme.saveDoc', {
+      doc: { ...wireDoc, app: { ...(wireDoc.app as Record<string, unknown>), appearance } },
+    })
+    if (!result.ok) throw new Error(result.error.message)
+    persistedDoc = appearance === doc.app.appearance ? doc : { ...doc, app: { ...doc.app, appearance } }
+  })
+  docWrites = write.catch(() => {})
+  try {
+    await write
+  } catch (error) {
+    if (revision === docRevision) {
+      const current = themeStore.getState()
+      const appearance = current.appearance === doc.app.appearance ? persistedDoc.app.appearance : current.appearance
+      const base = current.doc.base === doc.base ? persistedDoc.base : current.doc.base
+      apply(appearance, { ...persistedDoc, base, app: { ...persistedDoc.app, appearance } })
+      themeStore.setState({ docError: 'Could not save the theme. Your previous theme has been restored.' })
+    }
+    throw error
+  } finally {
+    pendingDocWrites -= 1
+    themeStore.setState({ docSaving: pendingDocWrites > 0 })
   }
 }
 

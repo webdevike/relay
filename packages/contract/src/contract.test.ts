@@ -8,6 +8,7 @@ import {
 } from './index'
 import { ChatStatusSchema } from './chat'
 import { CHAT_STATUSES } from '@evaos/chat-core/status'
+import { defaultDoc, serializeThemeDoc } from '@evaos/theme-core'
 
 describe('contract', () => {
   it('lists app.info as an invoke channel', () => {
@@ -70,6 +71,17 @@ describe('contract', () => {
     expect(i.safeParse({ color: 'red' }).success).toBe(false)
     expect(i.safeParse({ color: '#fff' }).success).toBe(false)
     expect(i.safeParse({ color: '#181817' }).success).toBe(true)
+  })
+
+  it('validates complete theme documents and preserves unknown fields at the IPC boundary', () => {
+    const input = invokeContract['theme.saveDoc'].input
+    const doc = { ...serializeThemeDoc(defaultDoc()), future: { enabled: true } }
+    expect(INVOKE_CHANNELS).toContain('theme.saveDoc')
+    expect(input.parse({ doc })).toEqual({ doc })
+    expect(input.safeParse({ doc, extra: true }).success).toBe(false)
+    for (const invalid of [undefined, {}, { ...doc, base: 'missing' }, { ...doc, shared: { 'font.size': -1 } }, { ...doc, dark: { edits: { highlight: { syntax: { keyword: { color: 'red' } } } } } }]) {
+      expect(input.safeParse({ doc: invalid }).success).toBe(false)
+    }
   })
 
   it('layout.save is strict and bounded', () => {

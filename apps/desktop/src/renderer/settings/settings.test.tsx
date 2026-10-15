@@ -1,9 +1,9 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MantineProvider } from '@mantine/core'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { placeOf } from '@evaos/shell-core'
-import { parseThemeDoc } from '@evaos/theme-core'
+import { exportTheme, parseThemeDoc } from '@evaos/theme-core'
 
 const invoke = vi.fn()
 const MISSING = 'Claude Code was not found. Install it, then try again.'
@@ -15,6 +15,7 @@ import { SettingsPage } from './SettingsPage'
 import { resetSettingsForTest } from './settings-store'
 import { initTheme, themeStore } from '../theme/theme-store'
 import { pageRegistry } from '../pages/registry'
+import { dismissTop } from '../hotkeys/dismiss'
 
 function page(section: 'Theme' | 'Chat' | 'Notifications') {
   return render(
@@ -111,6 +112,137 @@ describe('SettingsPage', () => {
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Could not load'))
     expect(screen.getByTestId('theme-family-picker')).toBeDisabled()
     expect(themeStore.getState().doc.base).toBe('EvaOS')
+  })
+
+  it('occludes the browser for menus and color pickers and joins the Escape dismissal ladder', async () => {
+    const user = userEvent.setup()
+    page('Theme')
+    const family = screen.getByTestId('theme-family-picker')
+    await waitFor(() => expect(family).toBeEnabled())
+    await user.click(family)
+    await waitFor(() => expect(invoke).toHaveBeenLastCalledWith('browser.setOccluded', { occluded: true }))
+    act(() => { expect(dismissTop()).toBe(true) })
+    await waitFor(() => expect(invoke).toHaveBeenLastCalledWith('browser.setOccluded', { occluded: false }))
+    await user.click(screen.getByRole('button', { name: 'Pick background color' }))
+    await waitFor(() => expect(invoke).toHaveBeenLastCalledWith('browser.setOccluded', { occluded: true }))
+    act(() => { expect(dismissTop()).toBe(true) })
+    await waitFor(() => expect(invoke).toHaveBeenLastCalledWith('browser.setOccluded', { occluded: false }))
+    await user.click(within(screen.getByTestId('theme-preview')).getByRole('button', { name: 'Open menu' }))
+    await waitFor(() => expect(invoke).toHaveBeenLastCalledWith('browser.setOccluded', { occluded: true }))
+    act(() => { expect(dismissTop()).toBe(true) })
+    await waitFor(() => expect(invoke).toHaveBeenLastCalledWith('browser.setOccluded', { occluded: false }))
+  })
+
+  it('renders the full native editor and all live preview panels', () => {
+    page('Theme')
+    expect(screen.getByTestId('theme-editor')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Theme' })).not.toBeInTheDocument()
+    for (const name of ['Colors', 'Typography', 'Syntax', 'Other', 'Export']) {
+      expect(screen.getByRole('tab', { name })).toBeInTheDocument()
+    }
+    const preview = within(screen.getByTestId('theme-preview'))
+    for (const name of ['Buttons', 'Controls', 'Tabs and tags', 'Alerts', 'Chart colors', 'Text and code', 'Popover and menu']) {
+      expect(preview.getByRole('region', { name })).toBeInTheDocument()
+    }
+    expect(preview.getByRole('img', { name: /Ten bars/ }).children).toHaveLength(10)
+  })
+
+  it('searches every property section and persists mode colors with undo, redo and reset', async () => {
+    const user = userEvent.setup()
+    initTheme('dark')
+    page('Theme')
+    const search = screen.getByTestId('theme-property-search')
+    fireEvent.change(search, { target: { value: 'background' } })
+    const color = screen.getByRole('textbox', { name: 'background' })
+    fireEvent.change(color, { target: { value: '#102030' } })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Undo' })).toBeEnabled())
+    expect(themeStore.getState().doc.dark.edits.background).toBe('#102030')
+    expect(themeStore.getState().doc.light.edits.background).toBeUndefined()
+    expect(invoke).toHaveBeenCalledWith('theme.saveDoc', expect.objectContaining({ doc: expect.any(Object) }))
+    await user.click(screen.getByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(themeStore.getState().doc.dark.edits.background).toBeUndefined())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Redo' })).toBeEnabled())
+    await user.click(screen.getByRole('button', { name: 'Redo' }))
+    await waitFor(() => expect(themeStore.getState().doc.dark.edits.background).toBe('#102030'))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Reset Dark' })).toBeEnabled())
+    await user.click(screen.getByRole('button', { name: 'Reset Dark' }))
+    await waitFor(() => expect(themeStore.getState().doc.dark.edits).toEqual({}))
+    fireEvent.change(search, { target: { value: 'font.family' } })
+    expect(screen.getByRole('combobox', { name: 'Font family' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Code font family' })).toBeInTheDocument()
+  })
+
+  it('saves typography and shared shape edits without losing mode colors', async () => {
+    const user = userEvent.setup()
+    initTheme('dark', parseThemeDoc({ dark: { edits: { background: '#102030' } } }))
+    page('Theme')
+    await user.click(screen.getByRole('tab', { name: 'Typography' }))
+    const font = screen.getByRole('combobox', { name: 'Font family' })
+    fireEvent.change(font, { target: { value: 'Georgia' } })
+    fireEvent.blur(font)
+    await waitFor(() => expect(themeStore.getState().doc.shared['font.family']).toBe('Georgia'))
+    await user.click(screen.getByRole('tab', { name: 'Other' }))
+    const shadows = screen.getByRole('switch', { name: 'Control shadows' })
+    const previous = (shadows as HTMLInputElement).checked
+    await user.click(shadows)
+    await waitFor(() => expect(themeStore.getState().doc.shared.shadow).toBe(!previous))
+    expect(themeStore.getState().doc.dark.edits.background).toBe('#102030')
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Reset shared edits' })).toBeEnabled())
+    await user.click(screen.getByRole('button', { name: 'Reset shared edits' }))
+    await waitFor(() => expect(themeStore.getState().doc.shared).toEqual({}))
+    expect(themeStore.getState().doc.dark.edits.background).toBe('#102030')
+  })
+
+  it('edits real syntax colors, italic and bold styles', async () => {
+    const user = userEvent.setup()
+    initTheme('dark', parseThemeDoc({ dark: { edits: { highlight: { syntax: { keyword: { font_style: 'normal', font_weight: 400 } } } } } }))
+    page('Theme')
+    await user.click(screen.getByRole('tab', { name: 'Syntax' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Syntax keyword color' }), { target: { value: '#aabbcc' } })
+    await waitFor(() => expect(themeStore.getState().doc.dark.edits.highlight?.syntax?.keyword?.color).toBe('#aabbcc'))
+    await user.click(screen.getByRole('button', { name: 'Italic keyword' }))
+    await waitFor(() => expect(themeStore.getState().doc.dark.edits.highlight?.syntax?.keyword?.font_style).toBe('italic'))
+    await user.click(screen.getByRole('button', { name: 'Bold keyword' }))
+    await waitFor(() => expect(themeStore.getState().doc.dark.edits.highlight?.syntax?.keyword?.font_weight).toBe(700))
+    const preview = within(screen.getByTestId('theme-preview'))
+    expect(preview.getByText('fn')).toHaveStyle({ color: '#aabbcc', fontStyle: 'italic', fontWeight: '700' })
+  })
+
+  it('restores failed document edits and does not add a failed undo step', async () => {
+    const original = invoke.getMockImplementation()!
+    invoke.mockImplementation((channel: string, input: Record<string, unknown>) =>
+      channel === 'theme.saveDoc'
+        ? Promise.resolve({ ok: false, error: { code: 'IO', message: 'read only' } })
+        : original(channel, input),
+    )
+    initTheme('dark')
+    page('Theme')
+    fireEvent.change(screen.getByRole('textbox', { name: 'background' }), { target: { value: '#102030' } })
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/restored|previous/i))
+    expect(themeStore.getState().doc.dark.edits.background).toBeUndefined()
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled()
+  })
+
+  it('keeps preview interaction local and copies the actual exported theme', async () => {
+    const user = userEvent.setup()
+    const writeText = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue()
+    page('Theme')
+    const preview = within(screen.getByTestId('theme-preview'))
+    await user.type(preview.getByPlaceholderText('Type to preview'), 'Hello theme')
+    expect(preview.getByPlaceholderText('Type to preview')).toHaveValue('Hello theme')
+    await user.click(preview.getByRole('checkbox', { name: 'Checkbox' }))
+    expect(preview.getByRole('checkbox', { name: 'Checkbox' })).not.toBeChecked()
+    await user.click(preview.getByRole('tab', { name: 'Activity' }))
+    expect(preview.getByRole('radio', { name: 'Week' })).toBeChecked()
+    await user.click(preview.getByRole('button', { name: 'Open menu' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Rename' }))
+    expect(preview.getByRole('status')).toHaveTextContent('Rename selected')
+    expect(invoke.mock.calls.some(([channel]) => channel === 'theme.saveDoc')).toBe(false)
+    await user.click(screen.getByRole('tab', { name: 'Export' }))
+    await user.click(screen.getByRole('button', { name: 'Copy JSON' }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(screen.getByLabelText('Theme JSON').textContent))
+    expect(screen.getByRole('button', { name: 'Copied' })).toBeInTheDocument()
+    expect(JSON.parse(writeText.mock.calls[0]![0])).toEqual(exportTheme(themeStore.getState().doc))
   })
 
   it('Chat section switches default to Rust values', () => {

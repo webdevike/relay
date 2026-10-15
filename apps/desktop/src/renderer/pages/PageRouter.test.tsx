@@ -129,6 +129,19 @@ describe('PageRouter', () => {
     expect(screen.getByTestId('settings-chat')).toBeInTheDocument()
   })
 
+  it('lets only the theme editor own its two independent scroll areas', () => {
+    go(placeOf('settings', { settingsSection: 'Theme' }))
+    const { unmount } = ui()
+    expect(screen.getByTestId('theme-editor')).toBeInTheDocument()
+    expect(screen.queryByTestId('page-scroll')).toBeNull()
+    expect(scrollAreaProps).toHaveBeenCalledWith('theme-controls')
+    expect(scrollAreaProps).toHaveBeenCalledWith('theme-preview')
+    unmount()
+    go(placeOf('settings', { settingsSection: 'Chat' }))
+    ui()
+    expect(screen.getByTestId('page-scroll')).toContainElement(screen.getByTestId('settings-chat'))
+  })
+
   it('falls back to the placeholder for an unknown kind', () => {
     const saved = pageRegistry.settings
     ;(pageRegistry as Record<string, unknown>).settings = undefined
