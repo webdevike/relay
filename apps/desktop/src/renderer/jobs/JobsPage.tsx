@@ -14,6 +14,7 @@ import type { Place } from '@evaos/shell-core'
 import type { JobSummaryDto } from '@evaos/contract'
 import { agoLabel, scheduleLabel } from '@evaos/eva-core/model/jobs'
 import { registerReloader } from '../reload/reload'
+import { JobForm } from './JobForm'
 import { formatNextDue } from './job-format'
 import { loadJobs, openJobForm, setJobEnabled, useJobs } from './jobs-store'
 import './jobs.css'
@@ -189,6 +190,7 @@ export function JobsPage(_props: { place: Place }) {
         {list && list.length > 0 ? newJob : null}
       </div>
       {body}
+      <JobForm />
     </div>
   )
 }

@@ -1,0 +1,51 @@
+.eva-job-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.eva-job-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.eva-job-mono,
+.eva-job-mono textarea,
+textarea.eva-job-mono {
+  font-family: var(--eva-font-code, ui-monospace, monospace);
+}
+.eva-job-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--eva-c-foreground);
+  border-left: 4px solid var(--eva-c-warning-background);
+  background: var(--eva-c-secondary-background);
+}
+.eva-job-banner-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+.eva-job-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.eva-job-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.eva-job-footer-left,
+.eva-job-footer-right {
+  display: flex;
+  gap: 8px;
+}
+.eva-job-confirm .eva-job-footer {
+  justify-content: flex-end;
+}
