@@ -10,6 +10,7 @@ import {
 } from '@tabler/icons-react'
 import type { TabState } from '@evaos/contract'
 import { invoke } from '../ipc'
+import { ExtensionActions } from './ExtensionActions'
 import { Suggestions, type SuggestionItem } from './Suggestions'
 
 function Btn(props: {
@@ -134,7 +135,7 @@ export function AddressRow({ tab }: { tab: TabState | undefined }) {
         <IconExternalLink size={16} />
       </Btn>
       <Suggestions items={items} active={active} onPick={(it) => go(it.url)} />
-      {/* Plan 01-09 adds the Import Arc logins button after this point. */}
+      <ExtensionActions />
       {tab?.loading ? (
         <Progress className="eva-address-progress" value={100} animated size={2} radius={0} />
       ) : null}

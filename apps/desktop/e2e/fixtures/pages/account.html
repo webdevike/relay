@@ -1,0 +1,14 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Account</title>
+  </head>
+  <body>
+    <h1 id="state">SIGNED OUT</h1>
+    <script>
+      const m = document.cookie.match(/(?:^|; )evaos_session=([^;]*)/)
+      if (m) document.getElementById('state').textContent = 'SIGNED IN ' + m[1]
+    </script>
+  </body>
+</html>

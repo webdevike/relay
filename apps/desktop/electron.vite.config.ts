@@ -18,7 +18,13 @@ const devCsp = {
 
 export default defineConfig({
   main: { build: { rollupOptions: { input: { index: 'src/main/index.ts' } } } },
-  preload: { build: { rollupOptions: { input: { index: 'src/preload/index.ts' } } } },
+  // A sandboxed preload cannot require node_modules, so the browser-action element injector is bundled in.
+  preload: {
+    build: {
+      externalizeDeps: { exclude: ['electron-chrome-extensions'] },
+      rollupOptions: { input: { index: 'src/preload/index.ts' } },
+    },
+  },
   renderer: {
     root: 'src/renderer',
     plugins: [react(), devCsp],

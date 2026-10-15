@@ -58,6 +58,8 @@ export async function setupExtensions(ctx: MainContext, browser: BrowserHost): P
     },
   })
   host = extensions
+  // crx:// icons are shown by <browser-action-list> in the shell page, so the protocol lives on the shell session.
+  ElectronChromeExtensions.handleCRXProtocol(ctx.shell.webContents.session)
 
   browser.onTabCreated((_tab, view) => extensions.addTab(view.webContents, ctx.win))
   browser.onTabActivated((_tab, view) => extensions.selectTab(view.webContents))

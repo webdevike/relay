@@ -19,3 +19,15 @@ declare global {
     }
   }
 }
+
+declare module 'react' {
+  namespace JSX {
+    interface IntrinsicElements {
+      'browser-action-list': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement> & {
+        partition?: string
+        alignment?: string
+        tab?: string
+      }
+    }
+  }
+}

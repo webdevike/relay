@@ -69,3 +69,31 @@ test('a checked-in MV3 extension runs its content script in persist:browser only
   expect(await shell.locator('#ext-ok').count()).toBe(0)
   recordMetrics('browser', { extensionLoaded: true, extensionContentScript: true })
 })
+
+test('extension action button shows in the toolbar and opens its popup', async ({ app, shell }) => {
+  const action = shell.locator('[data-testid=extension-actions] browser-action-list')
+  await expect(action).toBeAttached()
+  const button = shell.locator('[data-testid=extension-actions] browser-action-list >> [part=action]').first()
+  let result = 'ok'
+  try {
+    await expect(button).toBeVisible({ timeout: 8000 })
+    await button.click()
+    await expect
+      .poll(
+        async () =>
+          app
+            .windows()
+            .map((w) => w.url())
+            .find((u) => u.startsWith('chrome-extension://') && u.includes('popup.html')) ?? '',
+        { timeout: 8000 },
+      )
+      .toContain('chrome-extension://')
+    const popup = app.windows().find((w) => w.url().startsWith('chrome-extension://'))!
+    await expect(popup.locator('body')).toContainText('TEST POPUP')
+  } catch (e) {
+    result = `deferred: ${(e as Error).message.split('\n')[0]}`
+    throw e
+  } finally {
+    recordMetrics('browser', { extensionPopup: result })
+  }
+})

@@ -162,3 +162,9 @@
     animation: none;
   }
 }
+
+.eva-extension-actions {
+  display: flex;
+  align-items: center;
+  flex: none;
+}
