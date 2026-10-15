@@ -168,6 +168,43 @@ describe('stream drain', () => {
     expect(pane().messages.map((m) => m.text)).toEqual(['done'])
   })
 
+  it('a resync does not bring back the error banner the user dismissed by typing', async () => {
+    const EOF = 'The session ended unexpectedly.'
+    const snapshot: Snapshot = {
+      seq: 3,
+      messages: [],
+      meta,
+      running: false,
+      connected: false,
+      error: EOF,
+    }
+    const { drain, flush } = setup({ snapshot })
+    drain.push({
+      paneId: 'pane-1',
+      seq: 1,
+      ops: [{ op: 'meta', patch: { connected: false, error: EOF } }],
+    })
+    flush()
+    expect(pane().error).toBe(EOF)
+    // The user starts typing: the banner goes, but main still holds the error.
+    chatStore.getState().dismissError('pane-1')
+    expect(pane().error).toBeNull()
+    // A gap before Enter is pressed resyncs from a snapshot that still carries the same text.
+    drain.push(batch(3))
+    await new Promise((r) => setTimeout(r, 0))
+    flush()
+    expect(pane().lastSeq).toBe(3)
+    expect(pane().stopped).toBe(true)
+    expect(pane().error).toBeNull()
+    // A new error from main (a batch, or a snapshot with other text) shows again.
+    drain.push({ paneId: 'pane-1', seq: 4, ops: [{ op: 'meta', patch: { error: EOF } }] })
+    flush()
+    expect(pane().error).toBe(EOF)
+    expect(pane().dismissedError).toBeNull()
+    chatStore.getState().setError('pane-1', null)
+    expect(pane().dismissedError).toBeNull()
+  })
+
   it('a stale deferred label clear does not take down a later resync, nor fire after dispose', async () => {
     const timers: Array<() => void> = []
     const snapshot: Snapshot = {

@@ -16,6 +16,11 @@ export interface PaneState {
   lastSeq: number
   reconnecting: boolean
   error: string | null
+  /**
+   * The banner text the user dismissed by typing. Main keeps its error until the next prompt,
+   * so a resync snapshot carrying this same text must not bring the banner back.
+   */
+  dismissedError: string | null
 }
 
 export interface OpenData {
@@ -46,6 +51,8 @@ export interface ChatState {
   setPin(paneId: string, unpinned: boolean, newReply: boolean): void
   setReconnecting(paneId: string, value: boolean): void
   setError(paneId: string, error: string | null): void
+  /** Hides the current error banner locally (the user is typing); a new error shows again. */
+  dismissError(paneId: string): void
 }
 
 function patchPane(
@@ -67,7 +74,7 @@ export function applyOpsToPane(pane: PaneState, ops: Op[], seq: number): PaneSta
     }
     return messages
   }
-  let { running, error, meta, stopped } = pane
+  let { running, error, meta, stopped, dismissedError } = pane
   for (const op of ops) {
     if (op.op === 'upsert') {
       const ix = messages.findLastIndex((m) => m.id === op.message.id)
@@ -82,7 +89,11 @@ export function applyOpsToPane(pane: PaneState, ops: Op[], seq: number): PaneSta
     } else {
       const p = op.patch
       if (p.running !== undefined) running = p.running
-      if (p.error !== undefined) error = p.error
+      if (p.error !== undefined) {
+        // A batch is main speaking now: a fresh error shows even if the last one was dismissed.
+        error = p.error
+        dismissedError = null
+      }
       if (p.connected !== undefined) stopped = !p.connected
       if (p.model !== undefined || p.contextTokens !== undefined) {
         meta = {
@@ -93,7 +104,7 @@ export function applyOpsToPane(pane: PaneState, ops: Op[], seq: number): PaneSta
       }
     }
   }
-  return { ...pane, messages, running, error, meta, stopped, lastSeq: seq }
+  return { ...pane, messages, running, error, meta, stopped, dismissedError, lastSeq: seq }
 }
 
 /** Lives outside React so the streaming drain (plan 01-05) can `setState` without a render. */
@@ -112,6 +123,7 @@ export const chatStore = createStore<ChatState>((set) => ({
           lastSeq: 0,
           reconnecting: false,
           error: null,
+          dismissedError: null,
         },
       },
     })),
@@ -124,15 +136,20 @@ export const chatStore = createStore<ChatState>((set) => ({
     set((s) => patchPane(s, paneId, (p) => applyOpsToPane(p, ops, seq))),
   applySnapshot: (paneId, snap) =>
     set((s) =>
-      patchPane(s, paneId, (p) => ({
-        ...p,
-        messages: snap.messages,
-        meta: snap.meta,
-        running: snap.running,
-        stopped: !snap.connected,
-        error: snap.error,
-        lastSeq: snap.seq,
-      })),
+      patchPane(s, paneId, (p) => {
+        // Main still reports the error the user dismissed by typing: keep it hidden.
+        const dismissed = snap.error !== null && snap.error === p.dismissedError
+        return {
+          ...p,
+          messages: snap.messages,
+          meta: snap.meta,
+          running: snap.running,
+          stopped: !snap.connected,
+          error: dismissed ? null : snap.error,
+          dismissedError: dismissed ? p.dismissedError : null,
+          lastSeq: snap.seq,
+        }
+      }),
     ),
   setPin: (paneId, unpinned, newReply) =>
     set((s) =>
@@ -144,7 +161,14 @@ export const chatStore = createStore<ChatState>((set) => ({
     set((s) =>
       patchPane(s, paneId, (p) => (p.reconnecting === value ? p : { ...p, reconnecting: value })),
     ),
-  setError: (paneId, error) => set((s) => patchPane(s, paneId, (p) => ({ ...p, error }))),
+  setError: (paneId, error) =>
+    set((s) => patchPane(s, paneId, (p) => ({ ...p, error, dismissedError: null }))),
+  dismissError: (paneId) =>
+    set((s) =>
+      patchPane(s, paneId, (p) =>
+        p.error === null ? p : { ...p, error: null, dismissedError: p.error },
+      ),
+    ),
 }))
 
 export function useChatStore<T>(selector: (s: ChatState) => T): T {

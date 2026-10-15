@@ -35,7 +35,9 @@ export function Composer({ paneId, disabled }: { paneId: string; disabled: boole
 
   const edit = (value: string): void => {
     setText(value)
-    if (hasError) chatStore.getState().setError(paneId, null)
+    // Dismissed, not cleared: main keeps its error until the next prompt, and a resync in
+    // between must not bring the banner back.
+    if (hasError) chatStore.getState().dismissError(paneId)
   }
 
   return (
