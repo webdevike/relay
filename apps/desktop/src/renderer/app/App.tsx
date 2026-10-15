@@ -5,7 +5,7 @@ import { ChatPane } from '../chat/ChatPane'
 import { BrowserPanel } from '../browser/BrowserPanel'
 import { startHotkeyRouter } from '../hotkeys/router'
 import { initE2e } from '../hotkeys/e2e-hooks'
-import { TestOverlay } from '../overlay/TestOverlay'
+import { TestOverlay, useTestOverlayOpener } from '../overlay/TestOverlay'
 
 const RAIL_W = 272
 const MAIN_MIN = 480
@@ -14,6 +14,7 @@ export function App() {
   const [panelW, setPanelW] = useState(480)
   const [winW, setWinW] = useState(window.innerWidth)
   const [overlayOpen, setOverlayOpen] = useState(false)
+  useTestOverlayOpener(() => setOverlayOpen(true))
   useEffect(() => {
     const stop = startHotkeyRouter()
     void initE2e()

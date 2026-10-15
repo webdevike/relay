@@ -1,0 +1,51 @@
+/* Overlay wrapper surfaces (D-13). Only --eva-* aliases; fallbacks keep this green before 02-07. */
+.eva-modal-backdrop {
+  /* The one place a literal rgb is allowed, as written in the UI spec. */
+  background: rgb(0 0 0 / 0.5);
+  backdrop-filter: none;
+}
+.eva-modal-content,
+.eva-menu-dropdown,
+.eva-popover-dropdown {
+  background: var(--eva-popover-bg, var(--eva-surface));
+  color: var(--eva-popover-fg, var(--eva-text));
+  border: 1px solid var(--eva-c-border, var(--eva-border));
+  box-shadow: var(--eva-shadow, 0 8px 24px rgb(0 0 0 / 0.35));
+  border-radius: var(--eva-radius, 6px);
+}
+.eva-modal-content {
+  padding: 16px;
+}
+.eva-modal-header {
+  background: transparent;
+  padding: 0 0 var(--eva-space-sm);
+  min-height: 0;
+}
+.eva-modal-title {
+  font-size: var(--eva-fz-heading, 16px);
+  font-weight: 600;
+  line-height: 1.4;
+}
+.eva-modal-body {
+  padding: 0;
+  font-size: var(--eva-fz-body, 14px);
+}
+.eva-menu-dropdown {
+  padding: 4px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.eva-menu-item {
+  height: 32px;
+  padding: 0 8px;
+  gap: 8px;
+  font-size: var(--eva-fz-body, 14px);
+  color: inherit;
+}
+.eva-menu-item:hover,
+.eva-menu-item[data-hovered] {
+  background: var(--eva-hover, var(--eva-surface-2));
+}
+.eva-popover-dropdown {
+  padding: 8px;
+}
