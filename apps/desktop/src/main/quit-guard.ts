@@ -13,7 +13,8 @@ export interface Failure extends Entry {
 }
 
 export interface QuitGuardDeps {
-  askEdits(): Promise<Entry[]>
+  /** null means the renderer did not answer: unknown, so the user is asked (fail closed). */
+  askEdits(): Promise<Entry[] | null>
   saveAll(): Promise<Failure[]>
   dialog: {
     confirm(message: string, detail: string): Promise<0 | 1 | 2>
@@ -39,8 +40,12 @@ export function createQuitGuard(deps: QuitGuardDeps): {
 
   async function run(): Promise<boolean> {
     const entries = await deps.askEdits()
-    if (entries.length === 0) return true
-    const choice = await deps.dialog.confirm('You have unsaved changes', confirmDetail(entries))
+    if (entries !== null && entries.length === 0) return true
+    const detail =
+      entries === null
+        ? `EvaOS could not check for unsaved edits.\n\nSave them before EvaOS closes, or discard them. Cancel keeps EvaOS open.`
+        : confirmDetail(entries)
+    const choice = await deps.dialog.confirm('You have unsaved changes', detail)
     if (choice === 2) return false
     if (choice === 1) return true
     const failures = await deps.saveAll()
@@ -122,7 +127,11 @@ export function installQuitGuard(ctx: MainContext): ReturnType<typeof createQuit
 
   const guard = createQuitGuard({
     askEdits: () =>
-      edits.request<Entry[]>((id) => emit(ctx, 'app.unsavedEdits.request', { id }), 2000, []),
+      edits.request<Entry[] | null>(
+        (id) => emit(ctx, 'app.unsavedEdits.request', { id }),
+        2000,
+        null,
+      ),
     saveAll: () =>
       saves.request<Failure[]>((id) => emit(ctx, 'app.saveDirty.request', { id }), 30_000, [
         { id: 'timeout', label: 'your changes', message: 'Save timed out' },

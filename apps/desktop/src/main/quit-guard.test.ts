@@ -12,6 +12,7 @@ import {
   confirmDetail,
   createQuitGuard,
   createReplyRegistry,
+  type Entry,
   type Failure,
   type QuitGuardDeps,
 } from './quit-guard'
@@ -54,14 +55,15 @@ describe('quit guard', () => {
       'Could not save notes.md. EvaOS stays open so nothing is lost.',
     )
   })
-  it('hung renderer counts as nothing dirty', async () => {
+  it('hung renderer fails closed and asks the user', async () => {
     vi.useFakeTimers()
     const reg = createReplyRegistry()
-    const askEdits = () => reg.request(() => {}, 2000, [])
-    const m = make({ askEdits })
+    const askEdits = () => reg.request<Entry[] | null>(() => {}, 2000, null)
+    const m = make({ askEdits, choice: 2 })
     const p = m.g.guardedClose()
     await vi.advanceTimersByTimeAsync(2000)
-    expect(await p).toBe(true)
+    expect(await p).toBe(false)
+    expect(m.confirm).toHaveBeenCalledTimes(1)
     vi.useRealTimers()
   })
   it('registry ignores unknown ids and resolves known ones', async () => {

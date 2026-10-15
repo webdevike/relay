@@ -31,7 +31,10 @@ export function registerDirty(id: string, entry: DirtyEntry): () => void {
 }
 
 export function listDirty(): Array<{ id: string; label: string }> {
-  return [...dirtyStore.getState().entries].map(([id, e]) => ({ id, label: e.label }))
+  // Capped to the IPC contract so a reply is never rejected (a rejected reply fails the quit guard).
+  return [...dirtyStore.getState().entries]
+    .slice(0, 100)
+    .map(([id, e]) => ({ id: id.slice(0, 200), label: e.label.slice(0, 200) }))
 }
 
 export async function saveAllDirty(): Promise<DirtyFailure[]> {
@@ -41,7 +44,9 @@ export async function saveAllDirty(): Promise<DirtyFailure[]> {
       await e.save()
     } catch (err) {
       const message = (err instanceof Error ? err.message : String(err)).slice(0, 500)
-      failures.push({ id, label: e.label, message })
+      if (failures.length < 100) {
+        failures.push({ id: id.slice(0, 200), label: e.label.slice(0, 200), message })
+      }
     }
   }
   return failures
