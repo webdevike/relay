@@ -12,6 +12,8 @@ const ALLOWED = new Set([
   'apps/desktop/src/main/chat/session-ops.ts',
   // Pure in-memory category editing; its `rename(from, to)` method touches no file.
   'packages/chat-core/src/categories.ts',
+  // Calls that in-memory `Categories.rename(from, to)`; persistence goes through chat.setCategories.
+  'apps/desktop/src/renderer/chat/list/list-store.ts',
 ])
 
 export function scanSource(text: string): number[] {
