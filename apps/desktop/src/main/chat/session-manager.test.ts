@@ -30,8 +30,11 @@ class MemoryTransport implements ChatTransport {
   abort() {
     return Promise.resolve()
   }
+  /** Runs inside write(); lets a test push a frame (an early `_eof`) mid-handshake. */
+  writeHook: ((c: Record<string, unknown>) => void) | null = null
   write(c: Record<string, unknown>) {
     this.written.push(c)
+    this.writeHook?.(c)
     return Promise.resolve()
   }
   closeCalls = 0
@@ -127,6 +130,61 @@ describe('SessionManager', () => {
     await mgr.send('pane-1', 'three')
     expect(transports).toHaveLength(2)
     expect(transports[1]!.sent).toEqual(['<surface>Mac - EvaOS</surface>\nthree'])
+    vi.useRealTimers()
+  })
+
+  it('a pane replaced while omp is spawning leaves no timer, no stray batch and one close', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((r) => {
+      release = r
+    })
+    const { mgr, transports, batches } = setup({ firstStartGate: gate })
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    const pending = mgr.send('pane-1', 'one')
+    await Promise.resolve()
+    expect(transports).toHaveLength(1)
+    // The user clicks another session before omp is up.
+    mgr.open('pane-1', '/s/b.jsonl', [], meta)
+    expect(transports[0]!.closeCalls).toBe(1)
+    release()
+    await expect(pending).rejects.toMatchObject({ code: 'session-closed' })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(vi.getTimerCount()).toBe(0)
+    expect(batches).toEqual([])
+    expect(transports[0]!.written).toEqual([])
+    expect(transports[0]!.sent).toEqual([])
+    // The new pane starts clean at seq 1 on its own process.
+    await mgr.send('pane-1', 'two')
+    await vi.advanceTimersByTimeAsync(16)
+    expect(transports).toHaveLength(2)
+    expect(batches.map((b) => b.seq)).toEqual([1])
+    vi.useRealTimers()
+  })
+
+  it('omp exiting during the handshake rejects the pending send with a code, not a TypeError', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((r) => {
+      release = r
+    })
+    const { mgr, transports, batches } = setup({ firstStartGate: gate })
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    const created = () => transports[0]
+    const pending = mgr.send('pane-1', 'one')
+    await Promise.resolve()
+    // omp dies right after the first handshake command is written.
+    created()!.writeHook = (c) => {
+      if (c.type === 'set_ask_dialog') created()!.push({ type: '_eof', code: 1, signal: null })
+    }
+    release()
+    await expect(pending).rejects.toMatchObject({ code: 'session-closed' })
+    expect(created()!.sent).toEqual([])
+    expect(mgr.transportOf('pane-1')).toBeNull()
+    expect(vi.getTimerCount()).toBe(0)
+    // The exit itself was reported once, as an unexpected end.
+    expect(batches).toHaveLength(1)
+    expect(batches[0]!.ops.find((o) => o.op === 'meta')).toMatchObject({
+      patch: { connected: false, running: false, error: EOF_ERROR },
+    })
     vi.useRealTimers()
   })
 

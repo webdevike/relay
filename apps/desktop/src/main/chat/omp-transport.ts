@@ -37,6 +37,8 @@ export class OmpStdioTransport implements ChatTransport {
   private listeners = new Set<(f: Frame) => void>()
   private counter = 0
   private exit: Promise<TransportExit> | null = null
+  /** The in-flight start(); close() waits on it so a close requested mid-spawn still ends stdin. */
+  private started: Promise<void> | null = null
   private closing = false
 
   constructor(private opts: OmpTransportOptions) {}
@@ -52,8 +54,13 @@ export class OmpStdioTransport implements ChatTransport {
     for (const cb of [...this.listeners]) cb(f)
   }
 
-  async start(opts: { sessionFile: string; cwd: string }): Promise<void> {
-    if (this.child) throw new Error('transport already started')
+  start(opts: { sessionFile: string; cwd: string }): Promise<void> {
+    if (this.started) return Promise.reject(new Error('transport already started'))
+    this.started = this.launch(opts)
+    return this.started
+  }
+
+  private async launch(opts: { sessionFile: string; cwd: string }): Promise<void> {
     const spawnPath = await resolveSpawnPath(this.opts.live)
     const args = ['--mode', 'rpc-ui', '--resume', opts.sessionFile]
     const env: NodeJS.ProcessEnv = {
@@ -147,9 +154,13 @@ export class OmpStdioTransport implements ChatTransport {
   }
 
   async close(opts?: { timeoutMs?: number }): Promise<TransportExit> {
+    this.closing = true
+    // A close requested while start() is still spawning waits for the child, so the process is
+    // ended (stdin EOF) rather than left running with nobody holding it. A failed start leaves
+    // nothing to close.
+    if (this.started) await this.started.catch(() => undefined)
     const child = this.child
     if (!child || !this.exit) return { code: null, signal: null, timedOut: false }
-    this.closing = true
     child.stdin?.end()
     const timeoutMs = opts?.timeoutMs ?? 5000
     let timer: NodeJS.Timeout | undefined

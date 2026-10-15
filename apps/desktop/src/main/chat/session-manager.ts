@@ -110,10 +110,13 @@ export class SessionManager {
       })
       await pane.starting
     }
+    // The pane may have been closed, replaced or lost its process while the start was awaited.
+    const transport = pane.transport
+    if (!transport) throw new CodedError('session-closed', 'The session is not running.')
     const row = pane.reducer.sendPrompt(text)
     pane.batcher.markUpsert(row, pane.reducer.indexOf(row.id))
     try {
-      await pane.transport!.send(tagged(text, this.deps.machineLabel))
+      await transport.send(tagged(text, this.deps.machineLabel))
     } catch (e) {
       // omp never received the prompt (EPIPE after exit, for example): take the row back out
       // so it does not sit there unconfirmed forever.
@@ -144,10 +147,21 @@ export class SessionManager {
         `Could not start omp: ${e instanceof Error ? e.message : String(e)}`,
       )
     }
+    // `open()` on another file, `close()` or an early `_eof` may have detached this pane while
+    // the spawn was awaited. The detach already handed the process to close() (or it is gone),
+    // so the only thing left is to not install a timer or write a handshake on its behalf.
+    const stillMine = (): boolean =>
+      pane.transport === transport && this.panes.get(pane.paneId) === pane
+    if (!stillMine()) {
+      throw new CodedError('session-closed', 'The session was closed before omp started.')
+    }
     pane.timer = this.setIv(() => this.flush(pane), this.deps.intervalMs ?? 16)
     pane.batcher.markMeta({ connected: true })
     await transport.write(cmd.setAskDialog('evaos-ask')).catch(() => undefined)
     await transport.write(cmd.getState('evaos-state')).catch(() => undefined)
+    if (!stillMine()) {
+      throw new CodedError('session-closed', 'The session ended while it was starting.')
+    }
   }
 
   /** Applied synchronously, one frame at a time: there is no await between reading and applying. */
