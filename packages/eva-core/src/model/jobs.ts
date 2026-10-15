@@ -171,6 +171,9 @@ export function validateJob(input: {
     errors.name = JOB_COPY.nameTaken(input.name)
   }
   const duration = (value: string, allowZero: boolean): string | undefined => {
+    // Control characters (newlines) would corrupt the frontmatter line this value is written to.
+    // eslint-disable-next-line no-control-regex
+    if (/[\u0000-\u001f\u007f]/.test(value.trim())) return JOB_COPY.duration
     const v = value.trim()
     if (v === '') return undefined
     const ms = parseDuration(v)

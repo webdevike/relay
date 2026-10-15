@@ -190,3 +190,14 @@ describe('labels', () => {
     )
   })
 })
+
+describe('validateJob control characters', () => {
+  it('rejects embedded newlines in every, max_run and keep', () => {
+    const base = { name: 'a', mode: 'create' as const, steps: 's', existingNames: [] }
+    const bad = { every: '5\n\nm', enabled: true, maxRun: '1h\nx: y', keep: '1\rm' }
+    const errors = validateJob({ ...base, settings: bad })
+    expect(errors.every).toBeDefined()
+    expect(errors.maxRun).toBeDefined()
+    expect(errors.keep).toBeDefined()
+  })
+})
