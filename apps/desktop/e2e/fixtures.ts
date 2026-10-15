@@ -18,6 +18,38 @@ interface Fixtures {
   rendererErrors: string[]
 }
 
+/** Never inherit EVAOS_* from the test process: a spec must not launch the app in live mode by accident. */
+export function buildLaunchEnv(
+  configDir: string,
+  launchEnv: Record<string, string> = {},
+): Record<string, string> {
+  const env: Record<string, string> = {}
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v !== undefined && !k.startsWith('EVAOS_')) env[k] = v
+  }
+  Object.assign(env, {
+    EVAOS_E2E: '1',
+    EVAOS_CONFIG_DIR: configDir,
+    EVAOS_EVA_ROOT: EVA_FIXTURE_ROOT,
+    EVAOS_OMP_BIN: FAKE_OMP,
+    EVAOS_SESSIONS_DIR: SESSIONS_FIXTURE_DIR,
+    ELECTRON_DISABLE_SECURITY_WARNINGS: '1',
+    ...launchEnv,
+  })
+  return env
+}
+
+export function launchApp(
+  configDir: string,
+  launchEnv: Record<string, string> = {},
+): Promise<ElectronApplication> {
+  return _electron.launch({
+    args: ['.'],
+    cwd: APP_DIR,
+    env: buildLaunchEnv(configDir, launchEnv),
+  })
+}
+
 export const test = base.extend<Fixtures>({
   launchEnv: [{}, { option: true }],
   configDir: async ({}, use) => {
@@ -26,21 +58,7 @@ export const test = base.extend<Fixtures>({
     fs.rmSync(dir, { recursive: true, force: true })
   },
   app: async ({ configDir, launchEnv }, use) => {
-    // Never inherit EVAOS_* from the test process: a spec must not launch the app in live mode by accident.
-    const env: Record<string, string> = {}
-    for (const [k, v] of Object.entries(process.env)) {
-      if (v !== undefined && !k.startsWith('EVAOS_')) env[k] = v
-    }
-    Object.assign(env, {
-      EVAOS_E2E: '1',
-      EVAOS_CONFIG_DIR: configDir,
-      EVAOS_EVA_ROOT: EVA_FIXTURE_ROOT,
-      EVAOS_OMP_BIN: FAKE_OMP,
-      EVAOS_SESSIONS_DIR: SESSIONS_FIXTURE_DIR,
-      ELECTRON_DISABLE_SECURITY_WARNINGS: '1',
-      ...launchEnv,
-    })
-    const app = await _electron.launch({ args: ['.'], cwd: APP_DIR, env })
+    const app = await launchApp(configDir, launchEnv)
     await use(app)
     await app.close()
   },

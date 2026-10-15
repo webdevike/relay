@@ -16,7 +16,7 @@ export function TabStrip({ tabs, activeId }: { tabs: TabState[]; activeId: strin
         <div
           key={t.id}
           className={`eva-tab${t.id === activeId ? ' is-active' : ''}`}
-          data-testid={`tab-${t.id}`}
+          data-testid={`browser-tab-${t.id}`}
           onClick={() => void invoke('browser.activateTab', { tabId: t.id })}
           onAuxClick={(e) => {
             if (e.button === 1) {
@@ -39,7 +39,7 @@ export function TabStrip({ tabs, activeId }: { tabs: TabState[]; activeId: strin
               variant="subtle"
               size={18}
               aria-label="Close tab"
-              data-testid={`tab-close-${t.id}`}
+              data-testid={`browser-tab-close-${t.id}`}
               className="eva-tab-close"
               onClick={(e) => {
                 e.stopPropagation()
@@ -56,7 +56,7 @@ export function TabStrip({ tabs, activeId }: { tabs: TabState[]; activeId: strin
           variant="subtle"
           size={28}
           aria-label="New tab"
-          data-testid="tab-new"
+          data-testid="browser-tab-new"
           className="eva-tab-new"
           onClick={() => void invoke('browser.createTab', {})}
         >

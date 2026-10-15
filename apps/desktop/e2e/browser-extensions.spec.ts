@@ -51,7 +51,7 @@ test('a checked-in MV3 extension runs its content script in persist:browser only
   expect(list.value.extensions.map((e) => e.name)).toContain('EvaOS Test Extension')
 
   await nav(shell, server.url('/a.html'))
-  await expect(shell.locator('[data-testid^=tab-t]').first()).toContainText('Page A')
+  await expect(shell.locator('[data-testid^=browser-tab-t]').first()).toContainText('Page A')
   const tabId = await app.evaluate(
     () => (globalThis as unknown as G).__evaosTest.hooks.browser.host.snapshot().activeId,
   )

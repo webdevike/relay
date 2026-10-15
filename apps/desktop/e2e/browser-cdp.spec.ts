@@ -39,7 +39,7 @@ async function nav(shell: Page, input: string): Promise<void> {
 
 test('PageControl over CDP, DevTools detached and coexisting', async ({ app, shell }) => {
   await nav(shell, server.url('/b.html'))
-  await expect(shell.locator('[data-testid^=tab-t]').first()).toContainText('Page B')
+  await expect(shell.locator('[data-testid^=browser-tab-t]').first()).toContainText('Page B')
   const tabId = await app.evaluate(
     () => (globalThis as unknown as G).__evaosTest.hooks.browser.host.snapshot().activeId,
   )
@@ -60,7 +60,7 @@ test('PageControl over CDP, DevTools detached and coexisting', async ({ app, she
   expect(await pc('click', '#nope')).toBe(false)
   expect(await pc('evaluate', 'document.title')).toBe('Page B')
   await pc('navigate', server.url('/a.html'))
-  await expect(shell.locator('[data-testid^=tab-t]').first()).toContainText('Page A')
+  await expect(shell.locator('[data-testid^=browser-tab-t]').first()).toContainText('Page A')
 
   // PageControl.navigate goes through the host's allow-list like the address bar does.
   await pc('navigate', 'file:///etc/hosts')
@@ -68,7 +68,7 @@ test('PageControl over CDP, DevTools detached and coexisting', async ({ app, she
   expect(await pc('evaluate', 'location.href')).toBe(server.url('/a.html'))
   await pc('navigate', server.url('/a.html'))
   await expect(shell.getByText('This address cannot be opened here')).toHaveCount(0)
-  await expect(shell.locator('[data-testid^=tab-t]').first()).toContainText('Page A')
+  await expect(shell.locator('[data-testid^=browser-tab-t]').first()).toContainText('Page A')
 
   await app.evaluate(() => {
     const wc = (globalThis as unknown as G).__evaosTest.hooks.browser.host.activeView().webContents

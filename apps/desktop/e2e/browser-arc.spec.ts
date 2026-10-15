@@ -55,7 +55,7 @@ test('Import Arc logins: confirm modal, cookies only in persist:browser, never o
   expect(fs.existsSync(MARK)).toBe(false)
 
   await nav(shell, server.url('/account.html'))
-  await expect(shell.locator('[data-testid^=tab-t]').first()).toContainText('Account')
+  await expect(shell.locator('[data-testid^=browser-tab-t]').first()).toContainText('Account')
   const text = () =>
     app.evaluate(async () => {
       const t = (globalThis as unknown as G).__evaosTest.hooks.browser

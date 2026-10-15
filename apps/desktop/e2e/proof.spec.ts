@@ -61,13 +61,13 @@ test.beforeEach(async ({ app, shell }) => {
 
 test('browser-two-tabs', async ({ app, shell }) => {
   await nav(shell, server.url('/a.html'))
-  await expect(shell.locator('[data-testid^=tab-t]').first()).toContainText('Page A')
-  await shell.locator('[data-testid=tab-new]').click()
-  await expect.poll(() => shell.locator('[data-testid^=tab-t]').count()).toBe(2)
-  await shell.locator('[data-testid=tab-t2]').click()
+  await expect(shell.locator('[data-testid^=browser-tab-t]').first()).toContainText('Page A')
+  await shell.locator('[data-testid=browser-tab-new]').click()
+  await expect.poll(() => shell.locator('[data-testid^=browser-tab-t]').count()).toBe(2)
+  await shell.locator('[data-testid=browser-tab-t2]').click()
   await nav(shell, server.url('/b.html'))
-  await expect(shell.locator('[data-testid=tab-t2]')).toContainText('Page B')
-  await expect(shell.locator('[data-testid=tab-t1]')).toContainText('Page A')
+  await expect(shell.locator('[data-testid=browser-tab-t2]')).toContainText('Page B')
+  await expect(shell.locator('[data-testid=browser-tab-t1]')).toContainText('Page A')
   await expect.poll(() => viewVisible(app)).toBe(true)
   const slot = (await shell.locator('[data-testid=browser-slot]').boundingBox())!
   const bounds = await app.evaluate(() =>
@@ -84,9 +84,9 @@ test('browser-two-tabs', async ({ app, shell }) => {
 
 test('browser-suggestions', async ({ app, shell }) => {
   await nav(shell, server.url('/a.html'))
-  await expect(shell.locator('[data-testid^=tab-t]').first()).toContainText('Page A')
+  await expect(shell.locator('[data-testid^=browser-tab-t]').first()).toContainText('Page A')
   await nav(shell, server.url('/b.html'))
-  await expect(shell.locator('[data-testid^=tab-t]').first()).toContainText('Page B')
+  await expect(shell.locator('[data-testid^=browser-tab-t]').first()).toContainText('Page B')
   await shell.locator('[data-testid=address-input]').fill('page')
   await expect(shell.locator('[data-testid=suggestions]')).toBeVisible()
   await expect.poll(() => viewVisible(app)).toBe(false)
@@ -95,8 +95,12 @@ test('browser-suggestions', async ({ app, shell }) => {
 
 test('overlay-open', async ({ app, shell }) => {
   await nav(shell, server.url('/a.html'))
-  await expect(shell.locator('[data-testid^=tab-t]').first()).toContainText('Page A')
-  await shell.locator('[data-testid=overlay-open]').click()
+  await expect(shell.locator('[data-testid^=browser-tab-t]').first()).toContainText('Page A')
+  await shell.evaluate(() =>
+    (
+      window as unknown as { __evaosShell: { openTestOverlay(): void } }
+    ).__evaosShell.openTestOverlay(),
+  )
   await expect(shell.locator('[data-testid=overlay-test]')).toBeVisible()
   await expect.poll(() => viewVisible(app)).toBe(false)
   await proofShot(app, shell, 'overlay-open')
@@ -104,7 +108,7 @@ test('overlay-open', async ({ app, shell }) => {
 
 test('import-arc-confirm', async ({ app, shell }) => {
   await nav(shell, server.url('/a.html'))
-  await expect(shell.locator('[data-testid^=tab-t]').first()).toContainText('Page A')
+  await expect(shell.locator('[data-testid^=browser-tab-t]').first()).toContainText('Page A')
   await shell.locator('[data-testid=btn-import-arc]').click()
   await expect(shell.locator('[data-testid=import-arc-modal]')).toBeVisible()
   await expect(shell.getByText('Import Arc logins', { exact: true }).last()).toBeVisible()
@@ -114,7 +118,7 @@ test('import-arc-confirm', async ({ app, shell }) => {
 
 test('extension-loaded', async ({ app, shell }) => {
   await nav(shell, server.url('/a.html'))
-  await expect(shell.locator('[data-testid^=tab-t]').first()).toContainText('Page A')
+  await expect(shell.locator('[data-testid^=browser-tab-t]').first()).toContainText('Page A')
   const text = () =>
     app.evaluate(async () => {
       const t = (globalThis as unknown as G).__evaosTest.hooks.browser

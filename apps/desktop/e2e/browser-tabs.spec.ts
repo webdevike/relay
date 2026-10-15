@@ -58,7 +58,7 @@ async function nav(shell: Page, input: string): Promise<void> {
   await addr.fill(input)
   await addr.press('Enter')
 }
-const tabCount = (shell: Page) => shell.locator('[data-testid^=tab-t]').count()
+const tabCount = (shell: Page) => shell.locator('[data-testid^=browser-tab-t]').count()
 
 let server: StaticServer
 test.beforeAll(async () => {
@@ -74,19 +74,19 @@ test('tabs: create, switch, close, target=_blank, last tab, hotkeys from the gue
 }) => {
   const a = server.url('/a.html')
   const b = server.url('/b.html')
-  await shell.locator('[data-testid=tab-new]').click()
-  await shell.locator('[data-testid=tab-new]').click()
+  await shell.locator('[data-testid=browser-tab-new]').click()
+  await shell.locator('[data-testid=browser-tab-new]').click()
   await expect.poll(() => tabCount(shell)).toBe(3)
   expect((await states(app)).length).toBe(3)
 
-  await shell.locator('[data-testid=tab-t2]').click()
+  await shell.locator('[data-testid=browser-tab-t2]').click()
   await nav(shell, a)
-  await expect(shell.locator('[data-testid=tab-t2]')).toContainText('Page A')
-  await shell.locator('[data-testid=tab-t3]').click()
+  await expect(shell.locator('[data-testid=browser-tab-t2]')).toContainText('Page A')
+  await shell.locator('[data-testid=browser-tab-t3]').click()
   await nav(shell, b)
-  await expect(shell.locator('[data-testid=tab-t3]')).toContainText('Page B')
+  await expect(shell.locator('[data-testid=browser-tab-t3]')).toContainText('Page B')
 
-  await shell.locator('[data-testid=tab-t2]').click()
+  await shell.locator('[data-testid=browser-tab-t2]').click()
   await expect
     .poll(async () => (await states(app)).map((s) => s.visible))
     .toEqual([false, true, false])
@@ -100,7 +100,7 @@ test('tabs: create, switch, close, target=_blank, last tab, hotkeys from the gue
   })
 
   // Middle-click closes.
-  await shell.locator('[data-testid=tab-t3]').click({ button: 'middle' })
+  await shell.locator('[data-testid=browser-tab-t3]').click({ button: 'middle' })
   await expect.poll(() => tabCount(shell)).toBe(2)
 
   // target=_blank opens a new foreground tab.
@@ -120,18 +120,18 @@ test('tabs: create, switch, close, target=_blank, last tab, hotkeys from the gue
 
   // Close everything; one blank tab remains.
   for (let n = 0; n < 5; n++) {
-    const first = shell.locator('[data-testid^=tab-close-]').first()
+    const first = shell.locator('[data-testid^=browser-tab-close-]').first()
     if ((await first.count()) === 0) break
-    await shell.locator('[data-testid^=tab-t]').first().hover()
+    await shell.locator('[data-testid^=browser-tab-t]').first().hover()
     await first.click({ force: true })
     if ((await tabCount(shell)) === 1 && (await shell.getByText('New tab').count()) > 0) break
   }
   await expect.poll(() => tabCount(shell)).toBe(1)
-  await expect(shell.locator('[data-testid^=tab-t]').first()).toContainText('New tab')
+  await expect(shell.locator('[data-testid^=browser-tab-t]').first()).toContainText('New tab')
 
   // Hotkeys pressed while the guest is focused go to the shell, not the page.
   await nav(shell, a)
-  await expect(shell.locator('[data-testid^=tab-t]').first()).toContainText('Page A')
+  await expect(shell.locator('[data-testid^=browser-tab-t]').first()).toContainText('Page A')
   await guest(
     app,
     'window.__kd = 0; document.addEventListener("keydown", () => { window.__kd++ }); 0',
@@ -149,9 +149,9 @@ test('tabs: create, switch, close, target=_blank, last tab, hotkeys from the gue
     )
     .toBe(true)
   // Browser subtabs are added with the panel + button.
-  await shell.locator('[data-testid=tab-new]').click()
+  await shell.locator('[data-testid=browser-tab-new]').click()
   await expect.poll(() => tabCount(shell)).toBe(2)
-  await shell.locator('[data-testid^=tab-t]').first().click()
+  await shell.locator('[data-testid^=browser-tab-t]').first().click()
   await sendKey(app, 'l', ['meta'])
   await expect(shell.locator('[data-testid=address-input]')).toBeFocused()
   // The page saw none of the forwarded chords.
@@ -167,9 +167,9 @@ test('suggestions from in-app history', async ({ app, shell, configDir }) => {
   const a = server.url('/a.html')
   const b = server.url('/b.html')
   await nav(shell, a)
-  await expect(shell.locator('[data-testid^=tab-t]').first()).toContainText('Page A')
+  await expect(shell.locator('[data-testid^=browser-tab-t]').first()).toContainText('Page A')
   await nav(shell, b)
-  await expect(shell.locator('[data-testid^=tab-t]').first()).toContainText('Page B')
+  await expect(shell.locator('[data-testid^=browser-tab-t]').first()).toContainText('Page B')
   await expect
     .poll(() => fs.existsSync(path.join(configDir, 'browser-history.json')), { timeout: 5000 })
     .toBe(true)

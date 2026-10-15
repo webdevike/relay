@@ -95,7 +95,7 @@ test('browser panel: navigate, history, bounds, overlay, hardening, errors', asy
   app,
   shell,
 }) => {
-  const title = shell.locator('[data-testid^=tab-t1]').first()
+  const title = shell.locator('[data-testid^=browser-tab-t1]').first()
   await expect(shell.getByText('New tab', { exact: true }).first()).toBeVisible()
   await expect(
     shell.getByText('Type a web address, a search, or a local port such as 3000.'),
@@ -135,7 +135,7 @@ test('browser panel: navigate, history, bounds, overlay, hardening, errors', asy
   await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.setSize(1100, 760))
   await frames(shell)
   maxDelta = Math.max(maxDelta, await expectBoundsEqualSlot(app, shell))
-  const div = await shell.locator('[data-testid=panel-divider]').boundingBox()
+  const div = await shell.locator('[data-testid=grip-panel]').boundingBox()
   if (!div) throw new Error('no divider')
   const cx = div.x + div.width / 2
   const cy = div.y + div.height / 2
@@ -149,7 +149,11 @@ test('browser panel: navigate, history, bounds, overlay, hardening, errors', asy
 
   // Overlay hides the view and restores it with identical bounds.
   const before = (await activeInfo(app)).bounds
-  await shell.locator('[data-testid=overlay-open]').click()
+  await shell.evaluate(() =>
+    (
+      window as unknown as { __evaosShell: { openTestOverlay(): void } }
+    ).__evaosShell.openTestOverlay(),
+  )
   await expect(shell.locator('[data-testid=overlay-test]')).toBeVisible()
   await expect(shell.getByText('Test overlay', { exact: true }).last()).toBeVisible()
   await expect.poll(async () => (await activeInfo(app)).visible).toBe(false)
