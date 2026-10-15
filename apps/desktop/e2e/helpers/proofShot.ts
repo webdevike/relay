@@ -4,6 +4,7 @@ import * as path from 'node:path'
 import { PNG } from 'pngjs'
 import { assertNotBlank, BlankImageError, blit, type Rect } from './image'
 import { proofOutDir } from './metrics'
+import { APP_DIR } from './paths'
 
 export { BlankImageError }
 
@@ -71,7 +72,10 @@ export async function proofShot(
       rects.push({ x, y, width: src.width, height: src.height })
     }
     assertNotBlank(base, rects)
-    const dir = proofOutDir(opts.phase ?? 'phase-1')
+    // Harness self-tests never pollute the committed proof tree.
+    const dir = name.startsWith('harness-')
+      ? path.join(APP_DIR, 'test-results/proof/phase-1')
+      : proofOutDir(opts.phase ?? 'phase-1')
     fs.mkdirSync(dir, { recursive: true })
     const file = path.join(dir, `${name}.png`)
     fs.writeFileSync(file, PNG.sync.write(base))

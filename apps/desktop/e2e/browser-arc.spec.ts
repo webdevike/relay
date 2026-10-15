@@ -74,7 +74,7 @@ test('Import Arc logins: confirm modal, cookies only in persist:browser, never o
     )
     .toBe(false)
   expect(fs.existsSync(MARK)).toBe(false)
-  await proofShot(app, shell, 'import-arc-modal')
+  await proofShot(app, shell, 'harness-import-arc-modal')
 
   await shell.locator('[data-testid=import-arc-confirm]').click()
   await expect(shell.getByText('Imported 3 logins. Reloading the page.')).toBeVisible()

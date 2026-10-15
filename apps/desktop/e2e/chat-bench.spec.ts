@@ -41,9 +41,17 @@ test('chat benchmark: 5,000 messages, pinned follow, pills, frame-time vs idle b
     ;(window as unknown as { __evaosChatProfile: number[] }).__evaosChatProfile = []
   })
 
-  // Idle baseline, same run, same window.
+  // Quiesce: the extension host (host.ready), the 5,000-row load and its GC must settle before
+  // anything is sampled, so a stray startup frame never lands inside a measured window.
+  await shell.waitForTimeout(2500)
+  // Warm-up: a second of unmeasured rAF activity so the compositor is in steady state.
   await startFrameSampler(shell)
-  await shell.waitForTimeout(3000)
+  await shell.waitForTimeout(1000)
+  await stopFrameSampler(shell)
+
+  // Idle baseline, same run, same window (longer than before so one stray frame is visible).
+  await startFrameSampler(shell)
+  await shell.waitForTimeout(5000)
   const idle = percentiles(await stopFrameSampler(shell))
 
   // Streaming while pinned.
@@ -67,13 +75,17 @@ test('chat benchmark: 5,000 messages, pinned follow, pills, frame-time vs idle b
       // The capture itself blocks frames, so it is taken outside the sampled window.
       frames = frames.concat(await stopFrameSampler(shell))
       await proofShot(app, shell, 'chat-streaming')
+      // Let the capture's compositor work drain before sampling resumes.
+      await shell.waitForTimeout(400)
       await startFrameSampler(shell)
     }
     await shell.waitForTimeout(500)
   }
   frames = frames.concat(await stopFrameSampler(shell))
   const stream = percentiles(frames)
-  const longFrames = frames.slice(10).filter((d) => d > 50).length
+  const longList = frames.slice(10).filter((d) => d > 50)
+  const longFrames = longList.length
+  if (longFrames > 0) console.log(`LONG FRAMES (ms): ${longList.join(', ')}`)
   const lafs = await longAnimationFrames(shell)
   const profile = await shell.evaluate(
     () => (window as unknown as { __evaosChatProfile?: number[] }).__evaosChatProfile ?? [],
