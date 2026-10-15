@@ -165,7 +165,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation, Harness and the Two Spikes | 10/10 | Complete   | 2026-10-15 |
-| 2. Shell, Navigation and Theme Tokens | 0/TBD | Not started | - |
+| 2. Shell, Navigation and Theme Tokens | 2/4 | In Progress|  |
 | 3. Dashboard, Workspaces, Jobs, Habits and Meetings | 0/TBD | Not started | - |
 | 4. Chat Parity | 0/TBD | Not started | - |
 | 5. Rich Replies | 0/TBD | Not started | - |

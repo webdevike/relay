@@ -43,14 +43,14 @@ Requirements for the parity milestone. Each maps to roadmap phases. The source o
 
 ### Shell and Navigation
 
-- [ ] **SHEL-01**: App shows `[sidebar][main card][right panel card]` over a footer strip, with the README's shrink order, the three-column floor, automatic sidebar folding, and a 760 by 720 minimum window
-- [ ] **SHEL-02**: User can drag the sidebar and panel edges within the README's ranges, double-click to reset, and widths persist in `layout.json`
-- [ ] **SHEL-03**: Sidebar shows the nav pages, Recent journal titles filtered by `⌘F`, Tasks and Jobs counts, Setting, Help Center, the account menu and Light / Dark / System, and slides to sub-pages for Chats, Settings and Meetings with Back and Esc
-- [ ] **SHEL-04**: User can open main tabs (`⌘T`), close them (`⌘W`, without stopping a chat), move through per-tab history (`⌘[`, `⌘]`), `⌘`-click to open in a new tab, right-click Pin / Unpin / Close / Close others, with tabs persisted in `layout.json`
-- [ ] **SHEL-05**: Every README hotkey works (`⌘N ⌘R ⌘B ⌘⇧B ⌘J ⌘K ⌘F ⌘T ⌘W ⌘[ ⌘] ⌘S ⌘1-9`, Esc ladders) through one hotkey router that yields to a focused terminal
+- [x] **SHEL-01**: App shows `[sidebar][main card][right panel card]` over a footer strip, with the README's shrink order, the three-column floor, automatic sidebar folding, and a 760 by 720 minimum window
+- [x] **SHEL-02**: User can drag the sidebar and panel edges within the README's ranges, double-click to reset, and widths persist in `layout.json`
+- [x] **SHEL-03**: Sidebar shows the nav pages, Recent journal titles filtered by `⌘F`, Tasks and Jobs counts, Setting, Help Center, the account menu and Light / Dark / System, and slides to sub-pages for Chats, Settings and Meetings with Back and Esc
+- [x] **SHEL-04**: User can open main tabs (`⌘T`), close them (`⌘W`, without stopping a chat), move through per-tab history (`⌘[`, `⌘]`), `⌘`-click to open in a new tab, right-click Pin / Unpin / Close / Close others, with tabs persisted in `layout.json`
+- [x] **SHEL-05**: Every README hotkey works (`⌘N ⌘R ⌘B ⌘⇧B ⌘J ⌘K ⌘F ⌘T ⌘W ⌘[ ⌘] ⌘S ⌘1-9`, Esc ladders) through one hotkey router that yields to a focused terminal
 - [ ] **SHEL-06**: Scroll areas are contained with thin themed scrollbars and continuation fades, and each main page keeps its own scroll position across navigation
 - [ ] **SHEL-07**: The entrance animation plays once per launch with the README's timing and can be disabled for tests
-- [ ] **SHEL-08**: Quitting with unsaved Files edits asks before closing
+- [x] **SHEL-08**: Quitting with unsaved Files edits asks before closing
 
 ### Dashboard and Workspaces
 
@@ -139,9 +139,9 @@ Requirements for the parity milestone. Each maps to roadmap phases. The source o
 
 ### Settings and Theme
 
-- [ ] **SETT-01**: Settings page lists Chat, Theme and Notifications sections in the sidebar and shows the picked one in main
+- [x] **SETT-01**: Settings page lists Chat, Theme and Notifications sections in the sidebar and shows the picked one in main
 - [ ] **THEM-01**: The app theme is a set of CSS variables applied imperatively (139 color keys, typography, radius, shadows) so edits apply live without remounting
-- [ ] **THEM-02**: One theme has light and dark versions; Light / Dark / System picks which shows, and the editor's Light / Dark picks the version edited
+- [x] **THEM-02**: One theme has light and dark versions; Light / Dark / System picks which shows, and the editor's Light / Dark picks the version edited
 - [ ] **THEM-03**: User can start from EvaOS's theme or one of the 10 paired kit themes with swatches
 - [ ] **THEM-04**: User can edit every color key grouped as the README describes, with a picker and hex entry, typography (interface and code font, sizes), syntax tokens (41, color / italic / bold), radius and shadows
 - [ ] **THEM-05**: Undo and redo cover every edit, with drags within about a second coalesced into one step, and a live preview of real components updates as edits happen
@@ -215,14 +215,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 | BROW-07 | Phase 1 | Complete |
 | BROW-08 | Phase 1 | Complete |
 | BROW-09 | Phase 1 | Complete |
-| SHEL-01 | Phase 2 | Pending |
-| SHEL-02 | Phase 2 | Pending |
-| SHEL-03 | Phase 2 | Pending |
-| SHEL-04 | Phase 2 | Pending |
-| SHEL-05 | Phase 2 | Pending |
+| SHEL-01 | Phase 2 | Complete |
+| SHEL-02 | Phase 2 | Complete |
+| SHEL-03 | Phase 2 | Complete |
+| SHEL-04 | Phase 2 | Complete |
+| SHEL-05 | Phase 2 | Complete |
 | SHEL-06 | Phase 2 | Pending |
 | SHEL-07 | Phase 2 | Pending |
-| SHEL-08 | Phase 2 | Pending |
+| SHEL-08 | Phase 2 | Complete |
 | DASH-01 | Phase 3 | Pending |
 | DASH-02 | Phase 3 | Pending |
 | DASH-03 | Phase 3 | Pending |
@@ -284,9 +284,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INBX-05 | Phase 7 | Pending |
 | INBX-06 | Phase 7 | Pending |
 | INBX-07 | Phase 7 | Pending |
-| SETT-01 | Phase 2 | Pending |
+| SETT-01 | Phase 2 | Complete |
 | THEM-01 | Phase 2 | Pending |
-| THEM-02 | Phase 2 | Pending |
+| THEM-02 | Phase 2 | Complete |
 | THEM-03 | Phase 7 | Pending |
 | THEM-04 | Phase 7 | Pending |
 | THEM-05 | Phase 7 | Pending |
