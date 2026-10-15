@@ -69,7 +69,7 @@ Requirements for the parity milestone. Each maps to roadmap phases. The source o
 - [x] **CHTP-02**: User can search chats by title and the search opens every group in full including archived chats
 - [ ] **CHTP-03**: User can create, rename and delete custom categories, move chats by drag and drop or right-click Move to, and reorder headers by drag
 - [x] **CHTP-04**: User can right-click a chat for Rename, Pin / Unpin, Archive / Unarchive and Delete, with rename reaching the running omp or a short resume as the README describes
-- [ ] **CHTP-05**: Chat list updates within 500 ms of session file changes without refocusing the window
+- [x] **CHTP-05**: Chat list updates within 500 ms of session file changes without refocusing the window
 - [x] **CHTP-06**: Composer matches the README's two-line box with toolbar: model picker, access mode, context ring, omp account selector on unsent chats, image paste and drop
 - [x] **CHTP-07**: Settings › Chat switches for thinking and tool details apply to the chat view and persist as `show_thinking` / `show_tools`
 - [ ] **CHTP-08**: Question cards render every blocked `ask` with inline single-choice answers (`1`-`4`), and extension UI requests (select, confirm, input, editor) are answerable
@@ -235,7 +235,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CHTP-02 | Phase 4 | Complete |
 | CHTP-03 | Phase 4 | Pending |
 | CHTP-04 | Phase 4 | Complete |
-| CHTP-05 | Phase 4 | Pending |
+| CHTP-05 | Phase 4 | Complete |
 | CHTP-06 | Phase 4 | Complete |
 | CHTP-07 | Phase 4 | Complete |
 | CHTP-08 | Phase 4 | Pending |
