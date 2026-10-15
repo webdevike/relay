@@ -75,6 +75,25 @@ describe('startTabs', () => {
   })
 })
 
+describe('save failures', () => {
+  it('a not-ok save reply is retried on the next change', async () => {
+    startTabs()
+    await flush()
+    let ok = false
+    invoke.mockImplementation(async (ch: string) =>
+      ch === 'layout.save' ? (ok ? { ok: true, value: {} } : { ok: false, error: 'x' }) : {},
+    )
+    navigateTo(placeOf('inbox'))
+    await vi.advanceTimersByTimeAsync(300)
+    expect(saves()).toHaveLength(1)
+    ok = true
+    navigateTo(placeOf('inbox'))
+    navigateTo(placeOf('jobs'))
+    await vi.advanceTimersByTimeAsync(300)
+    expect(saves()).toHaveLength(2)
+  })
+})
+
 describe('navigation', () => {
   beforeEach(async () => {
     startTabs()

@@ -104,12 +104,18 @@ export function previewWidth(edge: Edge, px: number): void {
   }
 }
 
+function saveLayoutPatch(p: { sidebarWidth: number } | { panelWidth: number }): void {
+  void invoke('layout.save', p).then((r) => {
+    if (!r.ok) console.warn('layout.save failed', r.error)
+  })
+}
+
 export function commitWidth(edge: Edge): void {
   const s = layoutStore.getState()
   if (edge === 'sidebar') {
-    void invoke('layout.save', { sidebarWidth: Math.round(s.sidebarPx || s.sidebarWidth) })
+    saveLayoutPatch({ sidebarWidth: Math.round(s.sidebarPx || s.sidebarWidth) })
   } else {
-    void invoke('layout.save', { panelWidth: Math.round(s.panelPx || s.panelWidth) })
+    saveLayoutPatch({ panelWidth: Math.round(s.panelPx || s.panelWidth) })
   }
 }
 
@@ -117,8 +123,7 @@ export function resetWidth(edge: Edge): void {
   if (edge === 'sidebar') patch({ sidebarWidth: SIDEBAR_DEFAULT })
   else patch({ panelWidth: PANEL_DEFAULT })
   // Save the default itself so a narrow window does not persist a squeezed width.
-  void invoke(
-    'layout.save',
+  saveLayoutPatch(
     edge === 'sidebar' ? { sidebarWidth: SIDEBAR_DEFAULT } : { panelWidth: PANEL_DEFAULT },
   )
 }

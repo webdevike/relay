@@ -113,13 +113,18 @@ export function loadTabs(saved: unknown): Tabs {
   return createTabs(list, active)
 }
 
+/** Bounds mirror the contract's SavedTabsSchema so a save is never rejected for size. */
+export const MAX_SAVED_TABS = 100
+export const MAX_SAVED_HISTORY = 50
+
 export function saveTabs(tabs: Tabs): SavedTabs {
+  const list = tabs.list.slice(0, MAX_SAVED_TABS)
   return {
-    active: tabs.active,
-    list: tabs.list.map((t) => ({
+    active: Math.max(0, Math.min(tabs.active, list.length - 1)),
+    list: list.map((t) => ({
       here: placeToJson(t.here),
-      back: t.back.map(placeToJson),
-      forward: t.forward.map(placeToJson),
+      back: t.back.slice(-MAX_SAVED_HISTORY).map(placeToJson),
+      forward: t.forward.slice(0, MAX_SAVED_HISTORY).map(placeToJson),
       pinned: t.pinned,
     })),
   }

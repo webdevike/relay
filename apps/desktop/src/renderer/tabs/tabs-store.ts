@@ -77,12 +77,19 @@ export function startTabs(): () => void {
     const json = JSON.stringify(saved)
     if (json === lastSaved) return
     lastSaved = json
+    // invoke resolves to a Result and never rejects: a rejected save must reset lastSaved so the
+    // next change retries instead of treating the unsaved JSON as persisted.
     try {
       void Promise.resolve(
         invoke('layout.save', { tabs: saved as InvokeInput<'layout.save'>['tabs'] }),
-      ).catch(() => {
-        lastSaved = ''
-      })
+      ).then(
+        (r) => {
+          if (!r.ok) lastSaved = ''
+        },
+        () => {
+          lastSaved = ''
+        },
+      )
     } catch {
       lastSaved = ''
     }

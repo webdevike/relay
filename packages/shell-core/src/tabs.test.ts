@@ -8,6 +8,7 @@ import {
   closeOthers,
   closeTab,
   createTabs,
+  defaultTabs,
   forkTab,
   forward,
   loadTabs,
@@ -183,5 +184,15 @@ describe('tabs', () => {
     const t = loadTabs({ active: 99, list: [{ here: { page: 'inbox' }, back: many }] })
     expect(t.list[0].back).toHaveLength(50)
     expect(t.active).toBe(0)
+  })
+})
+
+describe('saveTabs bounds', () => {
+  it('caps the list at 100 and clamps active', () => {
+    let tabs = defaultTabs()
+    for (let i = 0; i < 120; i++) tabs = openNewChat(tabs)
+    const saved = saveTabs(tabs)
+    expect(saved.list).toHaveLength(100)
+    expect(saved.active).toBe(99)
   })
 })
