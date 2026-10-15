@@ -1,0 +1,52 @@
+{
+  "stem": "standup",
+  "title": "Daily standup",
+  "start": "{{at-0-09:30}}",
+  "notes": "{{root}}/work/meetings/notes/standup.md",
+  "processed": true,
+  "memorized": [
+    {
+      "kind": "decision",
+      "text": "Ship the beta Friday",
+      "where": [],
+      "p": 0.9
+    },
+    {
+      "kind": "availability",
+      "text": "Sam is out ({{day+3}})",
+      "where": [],
+      "p": 0.8
+    }
+  ],
+  "proposals": [
+    {
+      "id": "standup#1",
+      "kind": "todo",
+      "text": "Send the beta build to Sam",
+      "workspace": "flo",
+      "p": 0.8,
+      "source": "Isaac",
+      "status": "proposed"
+    },
+    {
+      "id": "standup#2",
+      "kind": "ticket",
+      "text": "Crash on login",
+      "p": 0.7,
+      "source": "Sam",
+      "status": "proposed"
+    },
+    {
+      "id": "standup#3",
+      "kind": "todo",
+      "text": "Book the room",
+      "workspace": "relay",
+      "p": 0.6,
+      "source": "Isaac",
+      "status": "accepted"
+    }
+  ],
+  "extra": {
+    "keep": "me"
+  }
+}

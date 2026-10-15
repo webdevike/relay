@@ -1,0 +1,7 @@
+{
+  "state": "done",
+  "startedAt": "{{at-0-03:00}}",
+  "endedAt": "{{at-0-03:05}}",
+  "note": "omp exit 0",
+  "sessionFile": "{{session-file}}"
+}

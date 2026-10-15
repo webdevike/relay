@@ -1,0 +1,28 @@
+{
+  "stem": "planning",
+  "title": "Sprint planning",
+  "start": "{{at-1-14:00}}",
+  "notes": "",
+  "processed": true,
+  "memorized": [],
+  "proposals": [
+    {
+      "id": "planning#1",
+      "kind": "todo",
+      "text": "Cut the sprint scope",
+      "workspace": "relay",
+      "p": 0.7,
+      "source": "Isaac",
+      "status": "dismissed"
+    },
+    {
+      "id": "planning#2",
+      "kind": "todo",
+      "text": "Draft the sprint goals",
+      "workspace": "relay",
+      "p": 0.75,
+      "source": "Priya",
+      "status": "proposed"
+    }
+  ]
+}
