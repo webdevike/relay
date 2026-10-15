@@ -116,19 +116,17 @@ export function installQuitGuard(ctx: MainContext): ReturnType<typeof createQuit
   const box = (opts: Electron.MessageBoxOptions): Promise<Electron.MessageBoxReturnValue> =>
     ctx.win.isDestroyed()
       ? dialog.showMessageBox(opts)
-      : dialog.showMessageBox(ctx.win as unknown as Electron.BrowserWindow, opts).catch(() =>
-          dialog.showMessageBox(opts),
-        )
+      : dialog
+          .showMessageBox(ctx.win as unknown as Electron.BrowserWindow, opts)
+          .catch(() => dialog.showMessageBox(opts))
 
   const guard = createQuitGuard({
     askEdits: () =>
       edits.request<Entry[]>((id) => emit(ctx, 'app.unsavedEdits.request', { id }), 2000, []),
     saveAll: () =>
-      saves.request<Failure[]>(
-        (id) => emit(ctx, 'app.saveDirty.request', { id }),
-        30_000,
-        [{ id: 'timeout', label: 'your changes', message: 'Save timed out' }],
-      ),
+      saves.request<Failure[]>((id) => emit(ctx, 'app.saveDirty.request', { id }), 30_000, [
+        { id: 'timeout', label: 'your changes', message: 'Save timed out' },
+      ]),
     dialog: {
       async confirm(message, detail) {
         const r = await box({

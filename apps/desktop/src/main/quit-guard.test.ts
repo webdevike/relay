@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 
-vi.mock('electron', () => ({ app: {}, dialog: {}, ipcMain: {}, BaseWindow: class {}, WebContentsView: class {} }))
+vi.mock('electron', () => ({
+  app: {},
+  dialog: {},
+  ipcMain: {},
+  BaseWindow: class {},
+  WebContentsView: class {},
+}))
 
 import {
   confirmDetail,

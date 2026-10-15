@@ -13,7 +13,12 @@ export function loadLayout(config: ConfigStore): {
   reset: boolean
 } {
   const r = readLayoutText(config.readText(FILE))
-  return { sidebarWidth: r.sidebarWidth, panelWidth: r.panelWidth, tabs: r.tabs, reset: r.malformed }
+  return {
+    sidebarWidth: r.sidebarWidth,
+    panelWidth: r.panelWidth,
+    tabs: r.tabs,
+    reset: r.malformed,
+  }
 }
 
 export function saveLayout(config: ConfigStore, patch: LayoutPatch): void {

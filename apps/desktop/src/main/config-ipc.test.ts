@@ -3,16 +3,16 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('electron', () => ({ app: {}, ipcMain: {}, BaseWindow: class {}, WebContentsView: class {} }))
+vi.mock('electron', () => ({
+  app: {},
+  ipcMain: {},
+  BaseWindow: class {},
+  WebContentsView: class {},
+}))
 
 import { createConfigStore, type ConfigStore } from './config-store'
 import { loadLayout, saveLayout } from './layout-ipc'
-import {
-  loadAppearance,
-  readLastBackground,
-  saveAppearance,
-  saveLastBackground,
-} from './theme-ipc'
+import { loadAppearance, readLastBackground, saveAppearance, saveLastBackground } from './theme-ipc'
 import { loadSettings, saveSettings } from './settings-ipc'
 import { createWriteQueue } from './write-queue'
 
@@ -27,7 +27,12 @@ const read = (n: string): Record<string, unknown> =>
 
 describe('layout', () => {
   it('defaults when missing, reset when malformed, clamps', () => {
-    expect(loadLayout(config)).toEqual({ sidebarWidth: 272, panelWidth: 420, tabs: null, reset: false })
+    expect(loadLayout(config)).toEqual({
+      sidebarWidth: 272,
+      panelWidth: 420,
+      tabs: null,
+      reset: false,
+    })
     fs.writeFileSync(path.join(dir, 'layout.json'), '{not json')
     expect(loadLayout(config)).toMatchObject({ sidebarWidth: 272, panelWidth: 420, reset: true })
     fs.writeFileSync(path.join(dir, 'layout.json'), '{"sidebar_width": 9999}')
@@ -41,7 +46,12 @@ describe('layout', () => {
       q.enqueue(() => saveLayout(config, { sidebarWidth: 300.4, tabs })),
       q.enqueue(() => saveLayout(config, { panelWidth: 500 })),
     ])
-    expect(read('layout.json')).toMatchObject({ sidebar_width: 300, panel_width: 500, zoom: 2, tabs })
+    expect(read('layout.json')).toMatchObject({
+      sidebar_width: 300,
+      panel_width: 500,
+      zoom: 2,
+      tabs,
+    })
   })
   it('queue survives a rejected task', async () => {
     const q = createWriteQueue()
