@@ -1,5 +1,5 @@
 import { WebContentsView, clipboard, shell } from 'electron'
-import { BLOCKED_URL_CODE, LOADABLE_PROTOCOLS, loadableUrl } from '@evaos/browser-core/address'
+import { BLOCKED_URL_CODE, loadableUrl } from '@evaos/browser-core/address'
 import { matchesAppChord } from '@evaos/browser-core/hotkeys'
 import type { TabState, TabsSnapshot } from '@evaos/contract'
 import type { MainContext } from '../context'
@@ -19,6 +19,8 @@ interface Tab {
   view: WebContentsView
   state: TabState
   control?: PageControl
+  /** Opened by the extension host: its own `chrome-extension:` pages may load and link to each other. */
+  fromExtension?: boolean
 }
 
 export interface NavigateOptions {
@@ -184,12 +186,10 @@ export class BrowserHost {
       }
       emit(this.ctx, 'browser.hotkey', { chord })
     })
+    // Page-initiated navigations follow the same allow-list as navigate(); a tab the extension
+    // host opened may move between its own chrome-extension: pages.
     const guard = (event: { preventDefault(): void }, url: string): void => {
-      try {
-        if (!LOADABLE_PROTOCOLS.has(new URL(url).protocol)) event.preventDefault()
-      } catch {
-        event.preventDefault()
-      }
+      if (!loadableUrl(url, { fromExtension: tab.fromExtension })) event.preventDefault()
     }
     wc.on('will-navigate', (e) => guard(e, e.url))
     wc.on('will-redirect', (e) => guard(e, e.url))
@@ -255,6 +255,7 @@ export class BrowserHost {
    */
   navigate(tabId: string, url: string, opts: NavigateOptions = {}): void {
     const t = this.tab(tabId)
+    if (opts.fromExtension) t.fromExtension = true
     t.state.url = url
     t.state.blank = false
     if (!loadableUrl(url, opts)) {
@@ -279,7 +280,8 @@ export class BrowserHost {
   }
   reload(id: string): void {
     const t = this.tab(id)
-    if (t.state.error) this.navigate(id, t.state.url)
+    // A retry keeps the tab's extension status, so an errored chrome-extension: page can load.
+    if (t.state.error) this.navigate(id, t.state.url, { fromExtension: t.fromExtension })
     else t.view.webContents.reload()
   }
   stop(id: string): void {
