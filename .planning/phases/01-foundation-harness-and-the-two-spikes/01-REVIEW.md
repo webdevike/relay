@@ -1,8 +1,9 @@
 ---
 phase: 01-foundation-harness-and-the-two-spikes
-reviewed: 2026-10-15T05:55:23Z
+reviewed: 2026-10-15T06:47:25Z
 depth: standard
-files_reviewed: 101
+iteration: 3
+files_reviewed: 102
 files_reviewed_list:
   - apps/desktop/e2e/fixtures.ts
   - apps/desktop/e2e/fixtures/test-extension/content.js
@@ -15,6 +16,7 @@ files_reviewed_list:
   - apps/desktop/electron.vite.config.ts
   - apps/desktop/playwright.config.ts
   - apps/desktop/src/main/app-ipc.ts
+  - apps/desktop/src/main/app-url.ts
   - apps/desktop/src/main/browser/arc-import.ts
   - apps/desktop/src/main/browser/browser-host.ts
   - apps/desktop/src/main/browser/browser-ipc.ts
@@ -106,265 +108,198 @@ files_reviewed_list:
   - scripts/scrub-recording.mjs
   - scripts/sentinel.ts
 findings:
-  critical: 1
-  warning: 8
-  info: 12
-  total: 21
+  critical: 0
+  warning: 1
+  info: 17
+  total: 18
 status: issues_found
 ---
 
-# Phase 1: Code Review Report
+# Phase 1: Code Review Report (iteration 3, final)
 
-**Reviewed:** 2026-10-15T05:55:23Z
+**Reviewed:** 2026-10-15T06:47:25Z
 **Depth:** standard
-**Files Reviewed:** 101
+**Files Reviewed:** 102
 **Status:** issues_found
 
 ## Summary
 
-All 101 listed files were read in full. The trust boundaries called out for this phase hold up well: the IPC `handle()` wrapper validates input with Zod and checks the sender frame; the preload exposes one `window.eva` object and filters channels; guest views run sandboxed in `persist:browser` with every permission denied; `resolveInsideSessionsDir` does a correct realpath-plus-separator containment check; the omp transport never signals the child; Arc cookie values are never logged or persisted outside the guest session; `eva-core` write containment and the runtime write trap are sound; no em dash appears in any UI string.
+Final re-review after the iteration-2 fix loop (commits 4fe5bea through 35c289f). Every file in scope was read again. The fix-range diff (12 non-test files) was traced against its callers: `SessionManager` against `live-ipc.ts`, `transcript-ipc.ts` and `OmpStdioTransport`; `Composer`/`ChatPane` against `chat-store` and the drain; `Snapshot` through `batcher.ts`, the contract, `applySnapshot` and `stream-drain`; `PageControl` against `BrowserHost.navigate()` and the CDP e2e.
 
-The defects found are concentrated in the live-chat sequencing path (the phase's core value) and in a few hardening gaps around the browser panel:
+All five iteration-2 Warnings are resolved in the current code, and the two adjacent Info items the fixer took (IN-14, IN-15) are resolved too. The lifecycle paths were walked by hand for new races: `open()` on another file while `acquire()` or `transport.start()` is pending, `_eof` during the handshake writes, a close that times out and the deferred disown, a send during the grace window on the same pane and on a fresh pane for the same file, and the renderer side of a send that fails after the reducer error was cleared. All of those end in a consistent state.
 
-- **Critical:** the renderer stream drain can enter an unbounded resync loop whenever a batch arrives whose `seq` is greater than the seq of the snapshot it then fetches. The session manager produces exactly such a batch when a pane is reopened on a different file while an omp process is still live (the old batcher flushes late under the same `paneId`).
-- **Warnings:** double `_eof` emission on spawn failure (verified: Node emits `error` and then `close` for ENOENT), a send-during-spawn race that bricks the pane, a resync path that never clears the "Reconnecting" label, two prefix checks in `isAppUrl` without a separator, an address-bar bypass of the guest protocol allow-list, stale titles persisted into browser history, no cap on guest-created tabs, and prompt text lost on a failed send.
-- **Info:** mostly dead code, unused forward-looking exports, a lint scope gap, and small robustness notes.
+One new Warning came out of the WR-02 fix. `acquire()` releases its waiters without claiming the file, and the claim (`owners.set`) happens in the caller after one more microtask hop, so two panes waiting on the same closing process both see the key free and both spawn omp on the same session file. With a single paneId (all the Phase 1 renderer ever uses) the "pane still registered" check saves it, so it is not reachable from today's UI; it is reachable through the IPC contract with two paneIds, which is exactly the multi-pane case the manager's `ALREADY_OWNED` guard and its two-pane test are written for. The ordering was confirmed with a standalone simulation of the same control flow.
 
-Deliberate Phase 1 stubs (no reopen UI, no transport for other agents, EvaFs with no callers) were not reported as bugs.
+Fourteen Info items are carried forward from earlier iterations by id (IN-14 and IN-15 are closed). Three new Info items were added: a misleading `ALREADY_OWNED` message after a pane object is replaced, a resync re-asserting an error banner the user dismissed by typing, and the blocked URL being written into `TabState.url` before the allow-list check.
 
-## Critical Issues
+## Iteration 2 findings verified
 
-### CR-01: Stream drain loops forever when a held batch's seq is ahead of the snapshot; session reopen produces exactly that batch
-
-**File:** `apps/desktop/src/renderer/chat/stream-drain.ts:94-97` and `:128-136`; trigger in `apps/desktop/src/main/chat/session-manager.ts:69-89` and `:168-201`
-**Issue:** `resync()` fetches a snapshot, applies it, then replays every stashed batch through `push()`. `push()` compares the batch seq to the snapshot seq: if `batch.seq <= last` it drops it, if `batch.seq === last + 1` it queues it, otherwise it calls `resync()` again and re-stashes the same batch. There is no retry cap and no rule that discards a batch that can never be reached. So any batch with `seq > snapshot.seq + 1` causes an infinite `requestSnapshot` IPC loop with the "Reconnecting to the stream." label stuck on.
-
-The main process produces such a batch today. `SessionManager.open()` for a pane that already has a live transport on a different file calls `void this.release(existing)` and then replaces the pane entry with a fresh `SeqBatcher` (seq 0). `release()` keeps the old `Pane` object, awaits `t.close()` (up to 2 s), then applies `_eof` to the old reducer and calls `this.flush(pane)`, which emits a batch under the **same `paneId`** with the **old** batcher's seq (for example 57). The renderer has just run `openPane` (lastSeq 0), receives seq 57, resyncs, gets a snapshot from the new batcher (seq 0), replays seq 57, and loops. Phase 1 has no UI for reopening a live pane, but `chat.open` is a public IPC channel and the e2e harness calls it directly, so this is reachable.
-
-**Fix:**
-
-In `session-manager.ts`, make a released pane inert once it is no longer the registered pane for its id, and never let its batcher emit:
-
-```ts
-private async release(pane: Pane, timeoutMs = 2000): Promise<TransportExit | null> {
-  const t = pane.transport
-  if (!t) return null
-  // ... existing teardown ...
-  const exit = await t.close({ timeoutMs }).catch(() => null)
-  // Only the pane still registered under this id may apply _eof and emit.
-  if (this.panes.get(pane.paneId) !== pane) return exit
-  if (exit && !exit.timedOut) {
-    // ... existing _eof application and flush ...
-  }
-  return exit
-}
-```
-
-In `stream-drain.ts`, make a gap unrecoverable-by-replay drop the batch instead of re-stashing, and bound retries:
-
-```ts
-.then((snap) => {
-  // ...
-  const held = (stash.get(paneId) ?? []).sort((a, b) => a.seq - b.seq)
-  stash.delete(paneId)
-  for (const b of held) {
-    if (b.seq <= snap.seq) continue           // already in the snapshot
-    if (b.seq === snap.seq + 1) { push(b); continue }
-    // A held batch the snapshot cannot reach means main restarted its seq; drop it.
-    statsOf(paneId).gaps += 1
-    break
-  }
-})
-```
-
-Add a unit test in `stream-drain.test.ts` that pushes `{seq: 57}` against a snapshot `{seq: 0}` and asserts `requestSnapshot` is called once.
+| Id | Status | Evidence |
+|----|--------|----------|
+| WR-01 | resolved | `session-manager.ts:190-194` checks `stillMine()` (same transport object, same pane registered under the paneId) right after `transport.start()`, before the timer or `markMeta({ connected: true })`; `:199-201` checks again after the two handshake writes. `send()` re-reads `pane.transport` at `:127-128` and rejects with `session-closed` instead of dereferencing null. `omp-transport.ts:57-61` records the in-flight `start()` and `close()` awaits it at `:161` before looking for the child, so a close requested during `resolveSpawnPath` ends stdin of the real process. `release()` runs `detach()` synchronously (`:259`) before `open()` replaces the pane, so no timer or batch is ever installed on the replaced pane. |
+| WR-02 | resolved | Ownership is `Owner { pane, transport, closing }` keyed by `realpath` (`:55-59`, `:85`). `release()` keeps the owner, sets `held.closing` (`:283`) and only disowns when the close resolved without timing out (`:271`); after a timeout a one-off `_eof` listener disowns when the process actually exits (`:274-278`). `acquire()` waits on `closing` and refuses with `already-owned` (`STILL_CLOSING` for the same pane) while the file is held (`:150-160`). Residual two-waiter race is new WR-01 below. |
+| WR-03 | resolved | `ChatPane.tsx:78` passes `disabled={!pane}`; the error is a banner only (`:64-68`). `Composer.tsx:26-28` clears the error on a successful send and `:36-39` on edit. `reducer.ts:89-90` clears `error` in `sendPrompt()`, and `session-manager.ts:130-132` diffs that into `markMeta({ error: null })` since `sendPrompt` runs outside `apply()`. |
+| WR-04 | resolved | `batcher.ts:21-31` `Snapshot` carries `connected` and `error`; `session-manager.ts:324-335` fills them from `p.transport !== null` and `p.reducer.error`; `contract/chat.ts:55-56` requires both; `chat-store.ts:132-133` sets `stopped: !snap.connected, error: snap.error`; `stream-drain.ts:5-12` type matches. The dead `stopped?` slot is gone. |
+| WR-05 | resolved | `page-control.ts:12-16,47-49` takes a `load` callback and `navigate()` only calls it; `browser-host.ts:61-65` passes `(url) => this.navigate(tabId, url)`. `wc.loadURL` has exactly one call site (`browser-host.ts:270`). The CDP e2e asserts `file:///etc/hosts` through `PageControl` shows the blocked card and leaves `location.href` on `a.html`. |
+| IN-14 | resolved (extra) | `browser-host.ts:22-23` `Tab.fromExtension`, set sticky at `:258`, passed back by `reload()` at `:284`, used by the `will-navigate`/`will-redirect` guard at `:191-193`. |
+| IN-15 | resolved (extra) | `stream-drain.ts:76-80` the deferred clear returns when `disposed` or `resyncing.has(paneId)`. |
 
 ## Warnings
 
-### WR-01: `_eof` emitted twice on spawn failure and applied twice on normal exit; `release()` races the `startTransport` failure path
+### WR-01: Two panes waiting on the same closing process both pass `acquire()` and spawn omp on one session file
 
-**File:** `apps/desktop/src/main/chat/omp-transport.ts:98-117`; `apps/desktop/src/main/chat/session-manager.ts:150-154`, `:183-199`
-**Issue:** For a spawn that fails (ENOENT, EACCES), Node emits `error` and then `close` (verified locally: `error -> close:-2`). The transport emits `_eof` from the `error` handler (`code: null`) and again from the `close` handler (`code: -2`, with `framer.end()`). The first `_eof` is delivered synchronously while `onFrame` is still subscribed (the `catch` in `startTransport` runs on a later microtask), so the reducer sets `EOF_ERROR`, a batch is flushed, and `release()` is kicked off concurrently with `startTransport`'s own cleanup. The renderer then receives both an "ended unexpectedly" banner and a `spawn-failed` IPC error that overwrites it. On a normal exit, `onFrame` applies `_eof` once and then `release()` applies a second synthetic `_eof` (expected: true) and flushes a second batch; harmless today only because the reducer happens to be idempotent for that frame.
-**Fix:** Emit `_eof` from one place only. In `start()`, drop the `this.emit({ type: '_eof' ... })` from the `error` handler (the `close` handler already covers it), or set a `eofSent` flag checked by both. In `SessionManager.onFrame`, when the frame is `_eof`, call a `detach(pane)` that clears the timer, unsubscribes and drops the owner without calling `t.close()` or re-applying `_eof`:
+**File:** `apps/desktop/src/main/chat/session-manager.ts:150-160`, `:166-173`
+**Issue:** `acquire()` is the check half of a check-and-set whose set half (`this.owners.set(pane.key, ...)` at line 172) lives in the caller behind one more `await`. When `owner.closing` resolves, every waiter's continuation is queued in registration order. Waiter A re-reads the map (the owner was already deleted inside the `.then` that resolves `closing`), finds no owner and returns; waiter B's continuation runs next, also finds no owner and returns; only then does A's `startTransport` resume and set itself as owner, and B's resumes and overwrites it. Both call `createTransport()` and `transport.start({ sessionFile: pane.key })`: two `omp --resume` processes append to one session `.jsonl`, the single-writer rule (D-17) that WR-02 was fixed to protect, and the second `owners.set` means `disown()` from the first process never matches, so the first process is also unreachable to `closeAll()`. The pattern was reproduced in isolation (same loop, same `.then` ordering): both waiters spawn and the map ends with the second owner.
 
-```ts
-if (frame.type === '_eof') {
-  pane.batcher.markMeta({ connected: false, running: false })
-  this.flush(pane)
-  this.detach(pane) // timer, unsubscribe, transport = null, owners.delete; no close(), no second _eof
-}
-```
-
-### WR-02: Second `send` during spawn hits a null child and bricks the pane
-
-**File:** `apps/desktop/src/main/chat/session-manager.ts:101-107`; `apps/desktop/src/main/chat/omp-transport.ts:55-74`, `:120-126`
-**Issue:** `startTransport` assigns `pane.transport` before `await transport.start()`. `start()` first awaits `resolveSpawnPath()` (up to 3 s in live mode on the first spawn) before it spawns. A second `chat.send` arriving in that window sees `pane.transport` set, skips `startTransport`, and calls `transport.send()`; `write()` finds `this.child` null and rejects with "The session is not running." That becomes an `internal` IPC error, `Composer` calls `setError`, and `ChatPane` disables the composer permanently (`unavailable = pane.error !== null`) with no recovery UI. The first prompt's unconfirmed row also stays in the list.
-**Fix:** Keep a `starting: Promise<void> | null` on the pane and await it:
+Reachability, precisely: with one paneId the replaced pane object fails `this.panes.get(pane.paneId) !== pane` at line 168 and bails, so the Phase 1 renderer (always `pane-1`) cannot hit this. It is reachable through the IPC contract with two paneIds on the same file while the first pane's process is in its 2 to 10 s grace window: `open('pane-1', f)`, `send('pane-1')`, `close('pane-1')` (or `open('pane-1', g)`), then `send('pane-1')` and `send('pane-2')` before the old omp exits. That is the configuration the manager's own `refuses a second pane on the same session file` test and the `ALREADY_OWNED` message exist for; the test only covers the steady state, not the grace window.
+**Fix:** Make the claim atomic with the check by setting the owner inside the loop, before any further await:
 
 ```ts
-async send(paneId: string, text: string): Promise<void> {
-  const pane = this.pane(paneId)
-  if (!pane.transport) pane.starting ??= this.startTransport(pane).finally(() => { pane.starting = null })
-  await pane.starting
-  // ...
-}
-```
-
-### WR-03: Resync leaves `reconnecting: true` forever and leaks the stash when the snapshot fails or returns null
-
-**File:** `apps/desktop/src/renderer/chat/stream-drain.ts:78-101`
-**Issue:** When `requestSnapshot` resolves `null` (`chat.snapshot` returned `ok: false`, for example `no-session`) the code returns before `setReconnecting(paneId, false)`; when it rejects, the `.catch` only clears `resyncing`. In both cases the "Reconnecting to the stream." label stays on and `stash.get(paneId)` is never drained or deleted, so stashed batches accumulate until the next successful resync.
-**Fix:** Clear the label and the stash on every exit path:
-
-```ts
-.then((snap) => { if (disposed) return; resyncing.delete(paneId); if (!snap) { fail(paneId); return } /* ... */ })
-.catch(() => { resyncing.delete(paneId); fail(paneId) })
-// where
-const fail = (paneId: string): void => { stash.delete(paneId); opts.store.getState().setReconnecting(paneId, false) }
-```
-
-### WR-04: `isAppUrl` prefix checks have no separator, so sibling paths and look-alike hosts pass
-
-**File:** `apps/desktop/src/main/window.ts:9-14`
-**Issue:** `url.startsWith(new URL(dev).origin)` accepts `http://localhost:5173.evil.example/...` (origin is `http://localhost:5173` with no trailing slash), and `url.startsWith(pathToFileURL(rendererDir).href)` accepts `file:///.../out/renderer-anything/x.html` because the href has no trailing `/`. This function is the sender check for every IPC handler and the `will-navigate` guard for the shell. Exploitability is low today (only the shell has the preload, and the shell cannot navigate away), but it is the one gate that protects the IPC surface and should be exact.
-**Fix:**
-
-```ts
-export function isAppUrl(url: string | undefined): boolean {
-  if (!url) return false
-  const dev = process.env.ELECTRON_RENDERER_URL
-  if (dev) { const o = new URL(dev).origin; return url === o || url.startsWith(o + '/') }
-  const base = pathToFileURL(rendererDir).href + '/'
-  return url.startsWith(base)
-}
-```
-
-### WR-05: Address bar and extension `createTab` bypass the guest protocol allow-list
-
-**File:** `apps/desktop/src/main/browser/browser-host.ts:171-179` (guard) vs `:233-243` (`navigate`); `apps/desktop/src/main/browser/browser-ipc.ts:12-18`, `:33-36`; `apps/desktop/src/main/browser/extensions.ts:44-49`; `packages/browser-core/src/address.ts:10`
-**Issue:** `ALLOWED_PROTOCOLS` (`http:`, `https:`, `about:`) is enforced only on `will-navigate` / `will-redirect`, which fire for page-initiated navigations. `host.navigate()` calls `loadURL` directly, and `normalize()` returns any input containing `://` verbatim, so typing `file:///Users/ike/Eva/memory/facts.md` or `chrome://settings` into the address bar loads it inside the guest view (in the partition that will hold imported Arc cookies). The extension `createTab` callback likewise passes `details.url` with no check. The result is an inconsistent policy: a link to `file://` on a page is blocked, the same URL typed in the bar is loaded.
-**Fix:** Apply the allow-list in `navigate()` and `createTab()` (the single choke points), and surface a `blank`/error state instead of loading:
-
-```ts
-navigate(tabId: string, url: string): void {
-  const t = this.tab(tabId)
-  let proto = ''
-  try { proto = new URL(url).protocol } catch { /* fallthrough */ }
-  if (!ALLOWED_PROTOCOLS.has(proto)) {
-    t.state.error = { host: hostOf(url), code: -300 } // ERR_INVALID_URL
-    this.changed(); return
+private async acquire(pane: Pane, transport: ChatTransport): Promise<void> {
+  for (;;) {
+    const owner = this.owners.get(pane.key)
+    if (!owner) {
+      // Claim synchronously: no await between the check and the set.
+      this.owners.set(pane.key, { pane, transport, closing: null })
+      return
+    }
+    if (owner.closing) {
+      await owner.closing
+      continue
+    }
+    throw new CodedError('already-owned', owner.pane === pane ? STILL_CLOSING : ALREADY_OWNED)
   }
-  // ...
+}
+
+private async startTransport(pane: Pane): Promise<void> {
+  const transport = this.deps.createTransport()
+  await this.acquire(pane, transport)
+  if (this.panes.get(pane.paneId) !== pane) {
+    this.disown(pane.key, transport)
+    throw new CodedError('session-closed', 'The session was closed before omp started.')
+  }
+  pane.transport = transport
+  // ... unchanged from here
 }
 ```
 
-### WR-06: `did-navigate` records history with the previous page's title
-
-**File:** `apps/desktop/src/main/browser/browser-host.ts:194-202`; `packages/browser-core/src/history.ts:34-38`
-**Issue:** `nav(url, true)` calls `this.history.visit(url, s.title)` at `did-navigate` time, when `s.title` still holds the **previous** page's title (`page-title-updated` fires later). `addVisit` replaces the stored title whenever the incoming title is non-empty, so every navigation first writes the wrong title for the new URL. It is corrected only if `page-title-updated` fires with a non-empty title; pages that set no title, or an immediate `flush()` (500 ms timer, or `dispose()` on quit), persist the wrong title into `browser-history.json`, and `suggest()` then matches the new URL against the old page's words.
-**Fix:** Count the visit with an empty title and let `page-title-updated` supply it:
-
-```ts
-if (counted) this.history.visit(url, '')
-```
-and reset `s.title = ''` in `nav()` so the tab strip does not show the old title during load.
-
-### WR-07: No cap on tabs a guest page can create
-
-**File:** `apps/desktop/src/main/browser/browser-host.ts:145-160`; `packages/contract/src/browser.ts:3`
-**Issue:** Every `foreground-tab` / `background-tab` disposition with an http(s) URL becomes a new `WebContentsView` via `setImmediate`. A hostile page (or a runaway script clicking `target=_blank` anchors) can create an unbounded number of views, each a full renderer process; the shell receives a `browser.tabs` snapshot per creation. There is no upper bound and no per-page rate limit. Separately, `TabIdSchema` is `^t[0-9]{1,6}$`, so after a million tab ids the renderer can no longer address tabs; harmless in practice but the two limits are unrelated.
-**Fix:** Add a `MAX_TABS` (for example 32) checked in `createTab()`, and in the window-open handler only honour openers that are the active tab:
-
-```ts
-if (this.order.length >= MAX_TABS) return { ...currentActiveState }
-```
-and in `setWindowOpenHandler`: `if (tab.id !== this.activeId) return { action: 'deny' }`.
-
-### WR-08: A failed send loses the prompt text and leaves an unconfirmed row behind
-
-**File:** `apps/desktop/src/renderer/chat/Composer.tsx:20-26`; `apps/desktop/src/main/chat/session-manager.ts:104-106`
-**Issue:** `Composer.send` calls `setText('')` before awaiting `chat.send`; on `!r.ok` the user's text is gone and only a banner is shown. On the main side, `send()` pushes the unconfirmed row and marks it for upsert before `transport.send()`; if the write rejects (EPIPE after omp exited, or WR-02), the row stays in the reducer forever because nothing removes it on that path.
-**Fix:** Clear the field only after success (`if (r.ok) setText('')` or restore on failure), and in `SessionManager.send` wrap the transport write:
-
-```ts
-try { await pane.transport!.send(tagged(text, this.deps.machineLabel)) }
-catch (e) { pane.reducer.dropUnconfirmedRow(row.id); pane.batcher.markRemove(row.id); throw e }
-```
+Add a test: two panes on the same file, close the first with the close promise held, send on both, release the close, and assert exactly one new transport was started and the other send rejected with `already-owned`.
 
 ## Info
+
+Carried forward (still present at the cited lines unless noted):
 
 ### IN-01: Em dash lint does not scan `apps/desktop/src/main/**`
 
 **File:** `scripts/lint-em-dash.ts:43-46`
-**Issue:** Renderer-facing strings live in main too (`ALREADY_OWNED` in `session-manager.ts:19`, Arc failure reasons in `arc-import.ts`, "The session is not running." in `omp-transport.ts:125`). They are currently clean, but the project rule is unenforced there.
-**Fix:** Add `fs.globSync('apps/desktop/src/main/**/*.ts')` to the file list.
+**Issue:** Unchanged. `STILL_CLOSING` (`session-manager.ts:21-22`) is another user-facing string in main that is clean but unlinted.
+**Fix:** Add `fs.globSync('apps/desktop/src/main/**/*.ts')`.
 
 ### IN-02: IPC output validation only runs in dev, and `.parse` strips unknown keys
 
 **File:** `apps/desktop/src/main/ipc/handle.ts:35`
-**Issue:** In dev the output passes through `entry.output.parse(value)`, which strips unknown object keys; packaged builds return the raw handler value. Tests therefore exercise a slightly different payload shape than what ships.
-**Fix:** Either validate in both modes (cost is small at these payload sizes) or use `safeParse` for a dev-only assertion and always return `value`.
+**Fix:** Validate in both modes or use `safeParse` as a dev-only assertion and always return `value`.
 
 ### IN-03: Address input text is overwritten by any URL change, including in-page navigation
 
-**File:** `apps/desktop/src/renderer/browser/AddressRow.tsx:98-99`
-**Issue:** `useEffect(() => setText(url), [url])` resets what the user is typing whenever the page changes its hash or pushes state.
-**Fix:** Skip the reset while the input is focused (`document.activeElement === input.current`).
+**File:** `apps/desktop/src/renderer/browser/AddressRow.tsx:99`
+**Fix:** Skip the reset while the input is focused.
 
 ### IN-04: `CodedError` is defined twice
 
 **File:** `apps/desktop/src/main/chat/transcript-ipc.ts:8-15`; `apps/desktop/src/main/chat/session-manager.ts:10-17`
-**Issue:** Identical class in two modules; the first is not exported.
-**Fix:** Import `CodedError` from `session-manager.ts` (or move it to `ipc/handle.ts`).
+**Fix:** Import from `session-manager.ts` or move to `ipc/handle.ts`.
 
 ### IN-05: Dead code
 
-**File:** `apps/desktop/src/main/browser/history-store.ts:15-16` (`counted` set is never read or written); `apps/desktop/src/main/chat/session-manager.ts:183` (`&& pane.batcher` is always true)
-**Fix:** Remove both.
+**File:** `apps/desktop/src/main/browser/history-store.ts:15-16`
+**Issue:** The `counted` set is still never read or written.
+**Fix:** Remove `counted`.
 
 ### IN-06: Unused exports
 
-**File:** `apps/desktop/src/main/browser/extensions.ts:19` (`getExtensionHost`); `packages/chat-core/src/sessions-dir.ts:94` (`resolveLiveSessionsDir`, the env resolver hard-codes `sessions/-Eva` instead); `packages/chat-core/src/frames.ts:81` (`cmd.cancelUi`, the reducer builds the same object inline at `reducer.ts:177`); `apps/desktop/src/main/chat/session-manager.ts:91` (`has`); `packages/chat-core/src/reducer.ts:84` (`stderrLines`, stderr is collected but never surfaced); `packages/contract/src/result.ts:4` (`ok`)
-**Issue:** Some are forward stubs for later phases; `resolveLiveSessionsDir` in particular duplicates the Rust `omp_sessions_dir` logic that `env.ts:88` ignores, so the live sessions dir may differ from what the Rust app uses.
-**Fix:** Either wire `resolveLiveSessionsDir` into `resolveEnv` for live mode or delete it; use `cmd.cancelUi` in the reducer; drop the rest or mark them with a phase reference.
+**File:** `apps/desktop/src/main/browser/extensions.ts:19` (`getExtensionHost`); `packages/chat-core/src/sessions-dir.ts:94` (`resolveLiveSessionsDir`, while `env.ts:88` hard-codes `sessions/-Eva`); `packages/chat-core/src/frames.ts:81` (`cmd.cancelUi`, reducer builds the same object at `reducer.ts:186`); `apps/desktop/src/main/chat/session-manager.ts:107` (`has`, now used only by tests); `packages/chat-core/src/reducer.ts:84` (`stderrLines`); `packages/contract/src/result.ts:4` (`ok`)
+**Fix:** Wire `resolveLiveSessionsDir` into live `resolveEnv` or delete it; use `cmd.cancelUi`; drop or phase-tag the rest.
 
 ### IN-07: `SeqBatcher` `at` is captured at mark time, not flush time
 
-**File:** `packages/chat-core/src/batcher.ts:36-38`, `:58-65`; `apps/desktop/src/main/chat/session-manager.ts:143-147`
-**Issue:** `at` is the row index when `markUpsert` ran. If a later frame in the same 16 ms window removes a row **before** that index, the renderer inserts the new row one slot too late. Today this cannot happen because the reducer only removes tail rows (unconfirmed prompts) and owned rows are stable, but that invariant is not stated anywhere and the core value is "no reordered tokens".
-**Fix:** Recompute `at` for new ids at `flush()` time from the reducer (pass an `indexOf` callback), or document the append-only invariant next to `markUpsert`.
+**File:** `packages/chat-core/src/batcher.ts:42-44`, `:64-71`
+**Fix:** Recompute `at` at flush or document the append-only invariant next to `markUpsert`.
 
 ### IN-08: Guest favicons load in the privileged shell renderer on the default session
 
-**File:** `apps/desktop/src/renderer/browser/TabStrip.tsx:34`; `apps/desktop/src/renderer/index.html` CSP `img-src ... http: https:`
-**Issue:** `<img src={t.favicon}>` fetches a guest-controlled URL from the shell's (default) session, so the request carries no guest cookies but does reveal the shell to the remote host and decodes remote images in the app's renderer process.
-**Fix:** Have main fetch the favicon in the guest session and hand the renderer a `data:` URL, or serve it through a custom protocol; then drop `http: https:` from `img-src`.
+**File:** `apps/desktop/src/renderer/browser/TabStrip.tsx:34`; `apps/desktop/src/renderer/index.html:7` (`img-src ... http: https:`)
+**Fix:** Fetch favicons in the guest session in main and hand the renderer a `data:` URL; then drop `http: https:` from `img-src`.
 
 ### IN-09: Preload surface is wider than the comment claims
 
 **File:** `apps/desktop/src/preload/index.ts:7-8`
-**Issue:** `injectBrowserAction()` exposes electron-chrome-extensions' own `contextBridge` object and IPC channels in addition to `window.eva`. The comment "nothing else is added to the bridge" is inaccurate, and those channels are not covered by the `isAppUrl` sender check in `handle.ts`.
-**Fix:** Correct the comment and note in the threat model that the extension library's browser-action IPC is a second, library-owned bridge.
+**Fix:** Correct the comment; note the library-owned browser-action bridge in the threat model.
 
 ### IN-10: Recording scrubber rewrites `id` but not `toolCallId`
 
 **File:** `scripts/scrub-recording.mjs:32`
-**Issue:** Every `id` key becomes `fixture-id` while `toolCallId` is untouched, so a recorded turn that used tools would have tool rows whose results never attach. Current recordings use `--no-tools`, so this is latent.
-**Fix:** Scrub `id` only on frame objects (`type` present), or map `id`/`toolCallId` through the same per-value table.
+**Fix:** Scrub `id` only on frame objects, or map `id`/`toolCallId` through one table.
 
 ### IN-11: Gate tooling side effects and hard-coded paths
 
-**File:** `scripts/check-metrics.ts:52-55` (a "check" script rewrites `metrics.json`); `scripts/sentinel.ts:11` (absolute `/Users/ike/...` repo list)
-**Fix:** Move the note injection to the writer in `e2e/helpers/metrics.ts`; derive the sentinel repo list from `EVAOS_EVA_ROOT` / `os.homedir()`.
+**File:** `scripts/check-metrics.ts:52-55`; `scripts/sentinel.ts:11`
+**Fix:** Move the note injection to the metrics writer; derive the sentinel repo list from `EVAOS_EVA_ROOT` / `os.homedir()`.
 
 ### IN-12: `tabId` is referenced before its declaration
 
 **File:** `apps/desktop/src/renderer/browser/AddressRow.tsx:72-76` vs `:100`
-**Issue:** `go()` closes over `tabId`, which is declared 28 lines later. It is TDZ-safe because `go` only runs after render, but it reads as a bug.
 **Fix:** Move `const tabId = tab?.id` above `go`.
+
+### IN-13: The tab-limit notice can be spammed by the active guest page
+
+**File:** `apps/desktop/src/main/browser/browser-host.ts:113-119`, `:162-178`
+**Fix:** Rate-limit the notice (once per second) or deny silently in the window-open handler and emit only for user-initiated creations.
+
+### IN-14: resolved in 35c289f (see table above).
+
+### IN-15: resolved in 3884027 (see table above).
+
+### IN-16: Login-shell PATH probe takes the whole stdout, including anything the rc files print
+
+**File:** `apps/desktop/src/main/chat/shell-path.ts:15-18`
+**Fix:** Use the last line of stdout, or run `-lc` first and fall back to `-ilc`.
+
+New in iteration 3:
+
+### IN-17: `acquire()` reports `ALREADY_OWNED` ("another window or pane") for the user's own pane after `open()` replaced the pane object
+
+**File:** `apps/desktop/src/main/chat/session-manager.ts:158`; `:84-105`
+**Issue:** `owner.pane === pane` compares pane objects. `open()` always creates a new `Pane` object for the paneId, so after a timed-out close followed by a re-open of the same file in the same pane (same paneId, same key), the next send is refused with `ALREADY_OWNED`, which tells the user the session is open "in another EvaOS window or pane", when it is their own previous omp still exiting. `STILL_CLOSING` is the message that applies. Reachable only through `chat.open` while a pane exists (not from the Phase 1 UI).
+**Fix:** Compare paneIds: `owner.pane.paneId === pane.paneId ? STILL_CLOSING : ALREADY_OWNED`.
+
+### IN-18: Typing clears the renderer error banner, but the reducer keeps it, so a later resync brings the banner back
+
+**File:** `apps/desktop/src/renderer/chat/Composer.tsx:36-39`; `apps/desktop/src/main/chat/session-manager.ts:331-332`; `packages/chat-core/src/reducer.ts:61`, `:89-90`
+**Issue:** `edit()` calls `setError(paneId, null)` locally; main's `LiveReducer.error` stays `EOF_ERROR` until the next `sendPrompt()`. `chat.snapshot` returns `p.reducer.error`, so if a gap resync happens between the user starting to type and pressing Enter (a batch dropped while omp is restarted, for example), `applySnapshot` re-asserts the banner the user just dismissed. Cosmetic; the snapshot is the truth and the next successful send clears both sides.
+**Fix:** Either do not clear on edit (clear only on a successful send, which also updates main), or treat the banner as dismissed locally with a separate `errorDismissed` flag that `applySnapshot` preserves.
+
+### IN-19: A refused URL is written into `TabState.url` before the allow-list check
+
+**File:** `apps/desktop/src/main/browser/browser-host.ts:259-266`
+**Issue:** `navigate()` sets `t.state.url = url` and `blank = false` before `loadableUrl()` runs, so for a blocked scheme the tab's `url` (address bar text, `copyLink`, the label in `TabStrip` when there is no title) becomes `file:///etc/hosts` while the view still shows the previous page, and `canGoBack`/`canGoForward` still describe that page. `openExternal` is unaffected (it re-checks http/https). The error card already uses `tab.error.host`, so the state does not need the URL to render it.
+**Fix:** Keep the previous `url` when the scheme is refused and carry the typed address only in `error.host`:
+
+```ts
+if (!loadableUrl(url, opts)) {
+  t.state.loading = false
+  t.state.error = { host: hostOf(url), code: BLOCKED_URL_CODE }
+  this.changed()
+  return
+}
+t.state.url = url
+t.state.blank = false
+t.state.error = null
+```
 
 ---
 
-_Reviewed: 2026-10-15T05:55:23Z_
+_Reviewed: 2026-10-15T06:47:25Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
+_Iteration: 3_
