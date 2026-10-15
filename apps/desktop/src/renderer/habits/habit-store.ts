@@ -72,6 +72,9 @@ const firstLine = (text: string): string => text.trim().split('\n')[0] || 'no de
 export async function runHabit(
   action: HabitAction,
 ): Promise<{ ok: true } | { ok: false; message: string; code?: string }> {
+  if (habitStore.getState().busy) {
+    return { ok: false, message: 'Another habit command is still running.' }
+  }
   habitStore.setState((s) => ({ busy: true, generation: s.generation + 1 }))
   let r
   try {

@@ -74,6 +74,8 @@ export function createHabitService(
   let inflight: { epoch: number; promise: Promise<GateStatus> } | null = null
   // A status read that began before a command must never be shared with a read after it.
   let epoch = 0
+  // Commands run one at a time: two gate processes must never write the same state file.
+  let tail: Promise<unknown> = Promise.resolve()
   return {
     status() {
       if (inflight && inflight.epoch === epoch) return inflight.promise
@@ -89,21 +91,30 @@ export function createHabitService(
       inflight = { epoch: mine, promise }
       return promise
     },
-    async run(input) {
-      let args: string[]
-      try {
-        args = gateArgs(toGateAction(input))
-      } catch (e) {
-        if (e instanceof GateArgError) throw coded(e.message, 'invalid-input')
-        throw e
-      }
-      epoch += 1
+    run(input) {
+      const result = tail.then(() => runOne(input))
+      tail = result.catch(() => undefined)
+      return result
+    },
+  }
+
+  async function runOne(input: HabitRun): Promise<GateStatus> {
+    let args: string[]
+    try {
+      args = gateArgs(toGateAction(input))
+    } catch (e) {
+      if (e instanceof GateArgError) throw coded(e.message, 'invalid-input')
+      throw e
+    }
+    epoch += 1
+    try {
       const result = await runGate(build, root, args, onSpawn)
       // Consumed only once the gate accepted the photo, so a failed Done can be retried.
       if (input.action === 'done' && input.photoToken !== null) takePhotoToken(input.photoToken)
-      epoch += 1
       return result
-    },
+    } finally {
+      epoch += 1
+    }
   }
 }
 

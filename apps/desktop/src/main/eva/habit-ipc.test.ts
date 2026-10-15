@@ -46,6 +46,22 @@ describe('habit service', () => {
     expect(fx.gateLog()).toHaveLength(1)
   })
 
+  it('serializes overlapping commands', async () => {
+    const { fx, builder } = setup()
+    let builds = 0
+    const inner = builder(FAKE_GATE)
+    const service = createHabitService((argv) => (builds++, inner(argv)), fx.root)
+    const first = service.run({ action: 'habit-add', name: 'One', minutes: 5, photo: false })
+    const second = service.run({ action: 'habit-add', name: 'Two', minutes: 5, photo: false })
+    await new Promise((r) => setTimeout(r, 3))
+    expect(builds).toBe(1)
+    await Promise.all([first, second])
+    expect(builds).toBe(2)
+    expect((await service.status()).habits.map((h) => h.id)).toEqual(
+      expect.arrayContaining(['one', 'two']),
+    )
+  })
+
   it('habit-add runs the right argv and returns the new status', async () => {
     const { fx, service } = setup()
     const s = await service.run({ action: 'habit-add', name: 'Read', minutes: 15, photo: false })

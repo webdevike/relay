@@ -68,6 +68,16 @@ describe('habit polling', () => {
     expect(habitStore.getState().generation).toBeGreaterThanOrEqual(gen0 + 2)
   })
 
+  it('refuses a second command while one is running', async () => {
+    let release!: (v: unknown) => void
+    invoke.mockReturnValueOnce(new Promise((r) => (release = r)))
+    const first = runHabit({ action: 'habit-rm', id: 'x' })
+    await expect(runHabit({ action: 'habit-rm', id: 'y' })).resolves.toMatchObject({ ok: false })
+    expect(invoke).toHaveBeenCalledTimes(1)
+    release(okStatus('a'))
+    await expect(first).resolves.toEqual({ ok: true })
+  })
+
   it('reports the first error line of a failed command', async () => {
     invoke.mockResolvedValue({ ok: false, error: { code: 'gate-error', message: 'bad\nmore' } })
     await expect(runHabit({ action: 'habit-rm', id: 'x' })).resolves.toEqual({
