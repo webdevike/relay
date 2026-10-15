@@ -237,7 +237,7 @@ Plans:
 
 **Wave 7**
 
-- [ ] 04-18-PLAN.md: Composer toolbar: model picker, access mode, account selector, context ring (wave 7)
+- [x] 04-18-PLAN.md: Composer toolbar: model picker, access mode, account selector, context ring (wave 7)
 
 **Wave 8**
 
@@ -302,7 +302,7 @@ Plans:
 | 1. Foundation, Harness and the Two Spikes | 10/10 | Complete   | 2026-10-15 |
 | 2. Shell, Navigation and Theme Tokens | 13/13 | Complete    | 2026-10-15 |
 | 3. Dashboard, Workspaces, Jobs, Habits and Meetings | 19/19 | Complete    | 2026-10-15 |
-| 4. Chat Parity | 17/19 | In Progress|  |
+| 4. Chat Parity | 18/19 | In Progress|  |
 | 5. Rich Replies | 0/TBD | Not started | - |
 | 6. Side Panel, Eregon and Global Search | 0/TBD | Not started | - |
 | 7. Relay, Inbox, Notifications and Theme Editor | 0/TBD | Not started | - |
