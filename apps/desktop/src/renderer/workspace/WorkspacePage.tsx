@@ -64,7 +64,7 @@ function Timeline({ data }: { data: WorkspaceDetail }) {
                       <IconMessages size={14} aria-label="Thread" />
                     )}
                     <span className="eva-ws-entry-text">
-                      <span className="eva-dash-clamp">{r.title}</span>
+                      <span className="eva-ws-clamp">{r.title}</span>
                       <span className="eva-dash-dim eva-dash-label">{r.source}</span>
                     </span>
                   </li>

@@ -133,3 +133,10 @@
   font-size: var(--eva-fz-body);
   overflow-wrap: anywhere;
 }
+.eva-ws-clamp {
+  font-size: var(--eva-fz-body);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
