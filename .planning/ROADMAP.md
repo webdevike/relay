@@ -27,7 +27,19 @@ Port EvaOS from Rust + gpui to Electron + React + TypeScript at README parity. T
   3. On a 5,000-message fixture the log stays smooth while streaming, follows when pinned, shows Jump to latest then New reply when scrolled up, and the frame-time p95 and gapless seq results are recorded in `proof/`
   4. User opens a browser tool in the side panel, navigates by URL, search or bare port (`3000`), uses back/forward/reload/subtabs/DevTools, and the view's bounds match its slot through resizes and hide under a full-window overlay; a CDP text probe reads the page; the Bitwarden Chrome extension loads in the browser session and imported Arc logins keep a site signed in
   5. The built app is running and `proof/phase-1/` holds composite screenshots (DOM plus native browser view) that pass the blank-image check
-**Plans**: TBD
+**Plans**: 10 plans in 5 waves (Walking Skeleton: 01-SKELETON.md)
+
+Plans:
+- [ ] 01-01-PLAN.md: Walking Skeleton: pnpm workspace, BaseWindow shell, typed `app.info` IPC, env contract, Vitest + Playwright, green gate (wave 1)
+- [ ] 01-02-PLAN.md: EvaFs allowlist + runtime write trap + scan, fixture Eva root, proofShot composite, metrics helper, advisory sentinel (wave 2)
+- [ ] 01-03-PLAN.md: Transcript slice: session parser port, session list, virtualized log, 5,000-message fixture (wave 2)
+- [ ] 01-04-PLAN.md: Recorded omp turn, deterministic fake omp, LineFramer + chunking tests (wave 2)
+- [ ] 01-05-PLAN.md: Streaming slice: reducer port, ChatTransport, SessionManager seq batches, rAF drain with resync, composer send (wave 3)
+- [ ] 01-06-PLAN.md: Abort, steer, stdin-close lifecycle, pin/pills, 5,000-message frame-time benchmark (wave 4)
+- [ ] 01-07-PLAN.md: Browser single-tab slice: hardened WebContentsView, address bar, bounds sync, OverlayStack (wave 2)
+- [ ] 01-08-PLAN.md: Subtabs, history suggestions, DevTools, CDP PageControl, hotkey forwarding (wave 3)
+- [ ] 01-09-PLAN.md: Chrome extensions + Bitwarden from the Web Store, Import Arc logins (wave 4)
+- [ ] 01-10-PLAN.md: Proof screenshots, validated metrics.json, packaged smoke, drag region, final proof gate (wave 5)
 **UI hint**: yes
 
 ### Phase 2: Shell, Navigation and Theme Tokens
@@ -116,7 +128,7 @@ Port EvaOS from Rust + gpui to Electron + React + TypeScript at README parity. T
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation, Harness and the Two Spikes | 0/TBD | Not started | - |
+| 1. Foundation, Harness and the Two Spikes | 0/10 | Planned | - |
 | 2. Shell, Navigation and Theme Tokens | 0/TBD | Not started | - |
 | 3. Dashboard, Workspaces, Jobs, Habits and Meetings | 0/TBD | Not started | - |
 | 4. Chat Parity | 0/TBD | Not started | - |
