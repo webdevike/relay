@@ -43,6 +43,15 @@ afterEach(() => {
 })
 
 describe('hotkey router', () => {
+  it('ignores auto-repeated keydown events', () => {
+    const fn = vi.fn()
+    const off = registerAction('toggle-panel', fn)
+    key({ key: 'B', code: 'KeyB', metaKey: true, shiftKey: true, repeat: true })
+    expect(fn).not.toHaveBeenCalled()
+    key({ key: 'B', code: 'KeyB', metaKey: true, shiftKey: true })
+    expect(fn).toHaveBeenCalledTimes(1)
+    off()
+  })
   it('dispatches a global chord and ignores plain typing and native edit chords', () => {
     const fn = vi.fn()
     const off = registerAction('toggle-panel', fn)

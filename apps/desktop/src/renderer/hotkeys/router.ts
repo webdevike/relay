@@ -92,7 +92,8 @@ export function dispatchChord(
 }
 
 function onKeyDown(e: KeyboardEvent): void {
-  if (e.isComposing) return
+  // Held keys must not retrigger actions (Cmd+T, Cmd+W); main drops guest repeats the same way.
+  if (e.isComposing || e.repeat) return
   const chord = chordOf(e)
   if (!chord || isNativeEditChord(chord)) return
   // Only cmd/ctrl/alt chords and Escape; plain typing is never touched.
