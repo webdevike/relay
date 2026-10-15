@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { makeEvaFixture } from '../../../e2e/helpers/eva-fixture'
-import { meetingsGet, meetingsList, meetingsOpenNotes } from './meetings-ipc'
+import { createEvaFs, type EvaFs } from '@evaos/eva-core'
+import { meetingsAccept, meetingsDismiss, meetingsGet, meetingsList, meetingsOpenNotes } from './meetings-ipc'
 
 const fixtures: Array<{ cleanup(): void }> = []
 const NOW = new Date(2026, 9, 15, 12, 0, 0)
@@ -78,5 +79,89 @@ describe('meetings.openNotes', () => {
       await expect(meetingsOpenNotes(root, 'standup', [root], open)).rejects.toMatchObject({ code: 'no-notes' })
     }
     expect(open).not.toHaveBeenCalled()
+  })
+})
+
+describe('meetings.accept and meetings.dismiss', () => {
+  const clk = { today: () => '2026-10-15' }
+  const rd = (root: string, rel: string): string => fs.readFileSync(path.join(root, rel), 'utf8')
+
+  it('accepts a todo proposal: row after T11, status accepted, fields kept', async () => {
+    const root = tmpRoot()
+    const before = JSON.parse(rd(root, 'work/meetings/standup.json'))
+    const r = await meetingsAccept(root, createEvaFs({ root }), clk, 'standup', 'standup#1')
+    expect(r).toEqual({ todoId: 'T16', tag: 'flo' })
+    const lines = rd(root, 'memory/todos.md').split('\n')
+    const i = lines.findIndex((l) => l.includes('T11 [flo]'))
+    expect(lines[i + 1]).toBe(
+      '- [ ] T16 [flo] Send the beta build to Sam (from meeting Daily standup, 2026-10-15) (added 2026-10-15)',
+    )
+    const after = JSON.parse(rd(root, 'work/meetings/standup.json'))
+    expect(after.proposals[0].status).toBe('accepted')
+    before.proposals[0].status = 'accepted'
+    expect(after).toEqual(before)
+    expect(Object.keys(after)).toEqual(Object.keys(before))
+  })
+
+  it('accepts a ticket without workspace as an eva Draft ticket', async () => {
+    const root = tmpRoot()
+    const r = await meetingsAccept(root, createEvaFs({ root }), clk, 'standup', 'standup#2')
+    expect(r.tag).toBe('eva')
+    expect(rd(root, 'memory/todos.md')).toContain('[eva] Draft ticket: Crash on login (from meeting')
+  })
+
+  it('refuses a second accept and never duplicates under concurrency', async () => {
+    const root = tmpRoot()
+    const evaFs = createEvaFs({ root })
+    await meetingsAccept(root, evaFs, clk, 'standup', 'standup#1')
+    const todos = rd(root, 'memory/todos.md')
+    await expect(meetingsAccept(root, evaFs, clk, 'standup', 'standup#1')).rejects.toMatchObject({
+      code: 'not-proposed',
+    })
+    expect(rd(root, 'memory/todos.md')).toBe(todos)
+    const root2 = tmpRoot()
+    const fs2 = createEvaFs({ root: root2 })
+    const rs = await Promise.allSettled([
+      meetingsAccept(root2, fs2, clk, 'standup', 'standup#2'),
+      meetingsAccept(root2, fs2, clk, 'standup', 'standup#2'),
+    ])
+    expect(rs.filter((x) => x.status === 'fulfilled')).toHaveLength(1)
+    expect(rd(root2, 'memory/todos.md').match(/Crash on login/g)).toHaveLength(1)
+  })
+
+  it('falls back to eva for an unsafe workspace id', async () => {
+    const root = tmpRoot()
+    const file = path.join(root, 'work/meetings/standup.json')
+    const rec = JSON.parse(fs.readFileSync(file, 'utf8'))
+    rec.proposals[0].workspace = 'a/b'
+    fs.writeFileSync(file, JSON.stringify(rec, null, 2))
+    const r = await meetingsAccept(root, createEvaFs({ root }), clk, 'standup', 'standup#1')
+    expect(r.tag).toBe('eva')
+  })
+
+  it('reports partial-accept naming the todo when the status edit fails', async () => {
+    const root = tmpRoot()
+    const real = createEvaFs({ root })
+    const flaky: EvaFs = {
+      ...real,
+      edit: (kind, rel, fn, o) =>
+        kind === 'meeting-status' ? Promise.reject(new Error('disk')) : real.edit(kind, rel, fn, o),
+    }
+    await expect(meetingsAccept(root, flaky, clk, 'standup', 'standup#1')).rejects.toMatchObject({
+      code: 'partial-accept',
+      message: expect.stringContaining('T16'),
+    })
+  })
+
+  it('dismisses without touching todos and refuses bad targets', async () => {
+    const root = tmpRoot()
+    const evaFs = createEvaFs({ root })
+    const todos = rd(root, 'memory/todos.md')
+    await expect(meetingsDismiss(root, evaFs, 'planning', 'planning#2')).resolves.toEqual({ status: 'dismissed' })
+    const rec = JSON.parse(rd(root, 'work/meetings/planning.json'))
+    expect(rec.proposals.map((p: { status: string }) => p.status)).toEqual(['dismissed', 'dismissed'])
+    expect(rd(root, 'memory/todos.md')).toBe(todos)
+    await expect(meetingsDismiss(root, evaFs, 'planning', 'planning#2')).rejects.toMatchObject({ code: 'not-proposed' })
+    await expect(meetingsDismiss(root, evaFs, 'nope', 'x#1')).rejects.toMatchObject({ code: 'not-found' })
   })
 })
