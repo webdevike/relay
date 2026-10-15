@@ -11,6 +11,11 @@ const TYPES: Record<string, string> = {
   '.json': 'application/json',
 }
 
+const PIXEL = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  'base64',
+)
+
 export interface StaticServer {
   port: number
   url(p?: string): string
@@ -21,6 +26,12 @@ export interface StaticServer {
 export async function startStaticServer(): Promise<StaticServer> {
   const server = http.createServer((req, res) => {
     const pathname = new URL(req.url ?? '/', 'http://127.0.0.1').pathname
+    if (pathname === '/favicon.ico') {
+      // A real image keeps the shell console clean when it renders the tab favicon.
+      res.writeHead(200, { 'content-type': 'image/png' })
+      res.end(PIXEL)
+      return
+    }
     const name = pathname === '/' ? 'a.html' : path.basename(pathname)
     const file = path.join(PAGES, name)
     if (!file.startsWith(PAGES) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {

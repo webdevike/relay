@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
+import { Button } from '@mantine/core'
 import { invoke } from '../ipc'
 
-export function Rail() {
+export function Rail({ onOpenTestOverlay }: { onOpenTestOverlay?: () => void } = {}) {
   const [live, setLive] = useState<boolean | null>(null)
 
   useEffect(() => {
@@ -21,6 +22,16 @@ export function Rail() {
         <h1 className="eva-wordmark">EvaOS</h1>
         <div className="eva-label eva-dim">Chats and tools arrive in a later update.</div>
       </div>
+      {onOpenTestOverlay ? (
+        <Button
+          variant="subtle"
+          className="eva-rail-test"
+          data-testid="overlay-open"
+          onClick={onOpenTestOverlay}
+        >
+          Test overlay
+        </Button>
+      ) : null}
       <div className="eva-rail-foot">
         <span className="eva-env-badge" data-testid="env-badge">
           {live === null ? '' : live ? 'Live Eva data' : 'Fixture data'}

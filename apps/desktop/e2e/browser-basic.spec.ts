@@ -116,9 +116,7 @@ test('browser panel: navigate, history, bounds, overlay, hardening, errors', asy
 
   const url = `http://127.0.0.1:${server.port}/`
   await shell.locator('[data-testid=btn-copy-link]').click()
-  await expect
-    .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
-    .toBe(url)
+  await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe(url)
 
   await app.evaluate(({ shell: sh }) => {
     const g = globalThis as unknown as { __opened: string[] }
@@ -180,9 +178,10 @@ test('browser panel: navigate, history, bounds, overlay, hardening, errors', asy
 
   // Search URL (the request itself is cancelled by the e2e network rule).
   const tabs = await shell.evaluate(() =>
-    (
-      window as unknown as { eva: { invoke(c: string, i: unknown): Promise<unknown> } }
-    ).eva.invoke('browser.state', {}),
+    (window as unknown as { eva: { invoke(c: string, i: unknown): Promise<unknown> } }).eva.invoke(
+      'browser.state',
+      {},
+    ),
   )
   const tabId = (tabs as { ok: true; value: { activeId: string } }).value.activeId
   const res = await shell.evaluate(

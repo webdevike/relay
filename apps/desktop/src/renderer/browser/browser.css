@@ -1,0 +1,106 @@
+.eva-tab-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--eva-space-xs);
+  padding: 0 var(--eva-space-sm);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.eva-tab {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--eva-space-sm);
+  height: 28px;
+  min-width: 96px;
+  max-width: 200px;
+  padding: 0 var(--eva-space-sm);
+  border-top: 2px solid transparent;
+  color: var(--eva-text-dim);
+  cursor: pointer;
+}
+.eva-tab:hover {
+  background: var(--eva-surface-2);
+}
+.eva-tab.is-active {
+  background: var(--eva-surface-2);
+  border-top-color: var(--eva-accent);
+  color: var(--eva-text);
+}
+.eva-tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-tab-icon {
+  flex: none;
+}
+.eva-tab-new {
+  flex: none;
+}
+.eva-address-row {
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--eva-space-sm);
+  padding: 0 var(--eva-space-sm);
+}
+.eva-address-input {
+  flex: 1;
+  min-width: 0;
+}
+.eva-address-input input {
+  height: 28px;
+  min-height: 28px;
+  background: var(--eva-surface-2);
+  border-color: var(--eva-border);
+  border-radius: 8px;
+  color: var(--eva-text);
+}
+.eva-address-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+.eva-browser-slot {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.eva-page-card {
+  max-width: 320px;
+  padding: var(--eva-space-lg);
+  text-align: center;
+}
+.eva-overlay-body {
+  margin: 0 0 var(--eva-space-md);
+}
+.eva-divider {
+  position: relative;
+  flex: none;
+  width: 4px;
+  cursor: col-resize;
+  background: transparent;
+}
+.eva-divider::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -2px;
+  right: -2px;
+}
+.eva-divider:hover,
+.eva-divider.is-dragging {
+  background: var(--eva-border);
+}
+.eva-rail-test {
+  margin: 0 var(--eva-space-md);
+}
+.eva-app.is-rail-collapsed .eva-rail {
+  display: none;
+}

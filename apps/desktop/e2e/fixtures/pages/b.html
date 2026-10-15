@@ -21,7 +21,10 @@
     <h1 id="text">PAGE B TEXT</h1>
     <button
       id="btn"
-      onclick="document.body.dataset.clicked = 'yes'; document.getElementById('text').textContent = 'CLICKED'"
+      onclick="
+        document.body.dataset.clicked = 'yes'
+        document.getElementById('text').textContent = 'CLICKED'
+      "
     >
       Click me
     </button>
