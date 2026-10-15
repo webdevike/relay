@@ -1,6 +1,7 @@
 import { readSidebar } from '@evaos/eva-core'
 import type { MainContext } from './context'
 import { registerDashboardIpc } from './eva/dashboard-ipc'
+import { registerHabitIpc } from './eva/habit-ipc'
 import { registerJobsIpc } from './eva/jobs-ipc'
 import { registerWorkspaceIpc } from './eva/workspace-ipc'
 import { registerTodoIpc } from './eva/todo-ipc'
@@ -13,4 +14,5 @@ export function registerEvaIpc(ctx: MainContext): void {
   registerTodoIpc(ctx)
   registerWorkspaceIpc(ctx)
   registerJobsIpc(ctx)
+  registerHabitIpc(ctx)
 }
