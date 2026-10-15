@@ -1,0 +1,78 @@
+import type { ChatMessage, SessionMeta } from './message'
+
+export type MetaPatch = {
+  running?: boolean
+  connected?: boolean
+  error?: string | null
+  notice?: string | null
+  model?: [string, string] | null
+  contextTokens?: number | null
+}
+
+/** `at` is the row's index in the full list after the batch; used only when the id is new to the renderer. */
+export type Op =
+  | { op: 'upsert'; message: ChatMessage; at?: number }
+  | { op: 'remove'; id: string }
+  | { op: 'meta'; patch: MetaPatch }
+
+export type Batch = { paneId: string; seq: number; ops: Op[] }
+
+export interface Snapshot {
+  seq: number
+  messages: ChatMessage[]
+  meta: SessionMeta
+  running: boolean
+}
+
+/** Coalesces ops between flushes (last upsert per id wins) and stamps each non-empty batch with seq + 1. */
+export class SeqBatcher {
+  private seq = 0
+  private upserts = new Map<string, { message: ChatMessage; at?: number }>()
+  private removes = new Set<string>()
+  private meta: MetaPatch = {}
+
+  constructor(readonly paneId: string) {}
+
+  markUpsert(message: ChatMessage, at?: number): void {
+    this.upserts.set(message.id, { message, at })
+  }
+
+  markRemove(id: string): void {
+    this.upserts.delete(id)
+    this.removes.add(id)
+  }
+
+  markMeta(patch: MetaPatch): void {
+    Object.assign(this.meta, patch)
+  }
+
+  get currentSeq(): number {
+    return this.seq
+  }
+
+  flush(): Batch | null {
+    const hasMeta = Object.keys(this.meta).length > 0
+    if (this.upserts.size === 0 && this.removes.size === 0 && !hasMeta) return null
+    const ops: Op[] = []
+    for (const id of this.removes) ops.push({ op: 'remove', id })
+    const ups = [...this.upserts.values()].sort((a, b) => (a.at ?? 1e12) - (b.at ?? 1e12))
+    for (const u of ups) {
+      ops.push(
+        u.at === undefined
+          ? { op: 'upsert', message: u.message }
+          : { op: 'upsert', message: u.message, at: u.at },
+      )
+    }
+    if (hasMeta) ops.push({ op: 'meta', patch: this.meta })
+    this.upserts = new Map()
+    this.removes = new Set()
+    this.meta = {}
+    this.seq += 1
+    return { paneId: this.paneId, seq: this.seq, ops }
+  }
+
+  /** The current seq with the reducer's state. Pending (unflushed) ops are already part of `messages`, so they are discarded. */
+  snapshot(messages: ChatMessage[], meta: SessionMeta, running: boolean): Snapshot {
+    return { seq: this.seq, messages, meta, running }
+  }
+}
