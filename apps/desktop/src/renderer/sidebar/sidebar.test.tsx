@@ -183,9 +183,7 @@ describe('sub-pages', () => {
     const { unmount } = wrap(<SubPage level="chats" />)
     expect(screen.getByTestId('chat-new')).toHaveAttribute('aria-label', 'New chat')
     expect(screen.getByPlaceholderText('Search chats')).toBeInTheDocument()
-    expect(screen.getByTestId('sidebar-sub-empty')).toHaveTextContent(
-      'Your chats arrive in a later update.',
-    )
+    expect(screen.getByTestId('sidebar-sub-empty')).toHaveTextContent('Loading chats')
     unmount()
     wrap(<SubPage level="meetings" />)
     expect(screen.getByPlaceholderText('Search meetings')).toBeInTheDocument()

@@ -6,6 +6,8 @@ import { PANE_ID, SessionList } from './SessionList'
 import { chatStore, useChatStore } from './chat-store'
 import { createStreamDrain } from './stream-drain'
 import { invoke, on } from '../ipc'
+import { activePlace, useTabs } from '../tabs/tabs-store'
+import { openChatFile } from './open-chat'
 
 declare global {
   interface Window {
@@ -18,6 +20,15 @@ declare global {
 
 export function ChatPane() {
   const pane = useChatStore((s) => s.panes[PANE_ID])
+  const placeChat = useTabs((s) => {
+    const p = activePlace(s)
+    return p.page === 'chat' ? p.chat : null
+  })
+
+  // A tab whose place is a session path shows that session; 'draft' leaves the pane as it is.
+  useEffect(() => {
+    if (placeChat && placeChat !== 'draft') void openChatFile(placeChat)
+  }, [placeChat])
 
   // One drain for the whole app: batches from main are applied once per animation frame.
   useEffect(() => {

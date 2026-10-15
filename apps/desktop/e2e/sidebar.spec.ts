@@ -84,9 +84,7 @@ test('chats sub-page slides, Back and Esc return, Cmd+F focuses its search', asy
   await expect.poll(() => level(shell)).toBe('chats')
   await expect(shell.locator(sel('sidebar-sub-chats'))).toBeVisible()
   await expect(shell.locator(sel('chat-pane'))).toBeVisible()
-  await expect(shell.locator(sel('sidebar-sub-empty'))).toHaveText(
-    'Your chats arrive in a later update.',
-  )
+  await expect(shell.locator(sel('chat-tree'))).toBeVisible()
   await shell.keyboard.press('Meta+f')
   await expect(shell.locator(sel('sidebar-sub-search'))).toBeFocused()
   await shell.keyboard.press('Escape')

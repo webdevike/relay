@@ -1,3 +1,4 @@
+import type { Page } from '@playwright/test'
 import { test as base, expect } from './fixtures'
 import { makeChatFixture, writeChatPrefs, type ChatFixture } from './helpers/chat-fixture'
 import { proofShot } from './helpers/proofShot'
@@ -17,10 +18,13 @@ const test = base.extend({
 })
 
 const sel = (id: string): string => `[data-testid="${id}"]`
+const openChats = async (shell: Page): Promise<void> => {
+  await shell.locator(sel('nav-chat')).click()
+  await shell.waitForSelector('[role=tree]')
+}
 
 test('chats are grouped with Pinned on top and five visible per group', async ({ app, shell }) => {
-  const tree = shell.locator('[role=tree]')
-  await expect(tree).toBeVisible()
+  await openChats(shell)
   await expect(shell.locator(sel('chat-pinned'))).toContainText('Pinned planning notes')
 
   const groups = await shell.$$eval('[data-testid^="chat-group-"]', (els) =>
@@ -55,7 +59,8 @@ test('a recently written chat sorts first in its group and counts as running', a
   fx.touch('p4-other7', 0)
   // The list reads on mount; reopen the sub page by reloading the renderer.
   await shell.reload()
-  await shell.waitForSelector('[role=tree]')
+  await shell.waitForSelector(sel('rail'))
+  await openChats(shell)
   const other = shell.locator(sel('chat-section-Other'))
   await expect(other.locator('[data-testid^="chat-row-"]').first()).toHaveAttribute(
     'data-testid',
@@ -65,6 +70,7 @@ test('a recently written chat sorts first in its group and counts as running', a
 })
 
 test('clicking a chat opens its transcript in the chat pane', async ({ shell }) => {
+  await openChats(shell)
   await shell.locator(sel('chat-row-p4-ecard')).click()
   await expect(shell.locator(sel('chat-header'))).toContainText('eCard reports app cleanup')
   await expect(shell.locator(sel('chat-log'))).toContainText('Hello from p4-ecard')
@@ -72,7 +78,7 @@ test('clicking a chat opens its transcript in the chat pane', async ({ shell }) 
 })
 
 test('every fixture session appears: tree rows plus hidden plus archived', async ({ shell }) => {
-  await shell.waitForSelector('[role=tree]')
+  await openChats(shell)
   for (const name of ['Other']) await shell.locator(sel(`chat-show-more-${name}`)).click()
   const rows = await shell.locator('[data-testid^="chat-row-"]').count()
   // 17 sessions: 1 archived stays behind its toggle.

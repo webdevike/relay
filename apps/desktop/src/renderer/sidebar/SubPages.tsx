@@ -6,13 +6,14 @@ import { openPlace } from '../navigation/navigate'
 import { activePlace, newChatTab, useTabs } from '../tabs/tabs-store'
 import { ScrollArea } from '../ui/ScrollArea'
 import { MeetingsList } from '../meetings/MeetingsList'
+import { ChatList } from '../chat/list/ChatList'
 import { SearchBox } from './SearchBox'
 import { backToRoot, type NavLevel } from './nav-level'
 
 const SECTION_ICON = { Theme: IconPalette, Chat: IconMessage, Notifications: IconBell } as const
 
 const COPY = {
-  chats: { title: 'Chats', search: 'Search chats', empty: 'Your chats arrive in a later update.' },
+  chats: { title: 'Chats', search: 'Search chats', empty: '' },
   meetings: { title: 'Meetings', search: 'Search meetings', empty: '' },
 } as const
 
@@ -92,6 +93,8 @@ export function SubPage({ level }: { level: Exclude<NavLevel, 'root'> }) {
         <ScrollArea fadeBg="var(--eva-chrome)">
           {level === 'meetings' ? (
             <MeetingsList query={query} />
+          ) : level === 'chats' ? (
+            <ChatList query={query} />
           ) : copy ? (
             <div className="eva-sb-empty eva-dim" data-testid="sidebar-sub-empty">
               {copy.empty}

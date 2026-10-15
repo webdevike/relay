@@ -12,7 +12,7 @@ describe('status', () => {
       'has-question': 'Has a question',
       job: 'Job',
     })
-    for (const s of CHAT_STATUSES) expect(STATUS_LABEL[s]).not.toContain('—')
+    for (const s of CHAT_STATUSES) expect(STATUS_LABEL[s]).not.toContain('\u2014')
   })
   it('precedence', () => {
     expect(rowStatus({ ...base, owned: true, working: true, dialog: 'confirm' })).toBe(
