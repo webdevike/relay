@@ -217,7 +217,7 @@ Plans:
 
 **Wave 3**
 
-- [ ] 04-10-PLAN.md: New chat through a direct omp child (or Claude bridge), surface tag on every path, transport ADR (wave 3)
+- [x] 04-10-PLAN.md: New chat through a direct omp child (or Claude bridge), surface tag on every path, transport ADR (wave 3)
 - [ ] 04-11-PLAN.md: Search incl. archived, collapsible headers saved to chat.json, Archived (n) toggle (wave 3)
 
 **Wave 4**
@@ -302,7 +302,7 @@ Plans:
 | 1. Foundation, Harness and the Two Spikes | 10/10 | Complete   | 2026-10-15 |
 | 2. Shell, Navigation and Theme Tokens | 13/13 | Complete    | 2026-10-15 |
 | 3. Dashboard, Workspaces, Jobs, Habits and Meetings | 19/19 | Complete    | 2026-10-15 |
-| 4. Chat Parity | 9/19 | In Progress|  |
+| 4. Chat Parity | 10/19 | In Progress|  |
 | 5. Rich Replies | 0/TBD | Not started | - |
 | 6. Side Panel, Eregon and Global Search | 0/TBD | Not started | - |
 | 7. Relay, Inbox, Notifications and Theme Editor | 0/TBD | Not started | - |
