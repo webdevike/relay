@@ -74,4 +74,16 @@ describe('SeqBatcher', () => {
     )
     expect(snap).toMatchObject({ seq: 0, running: false, connected: false, error: 'ended' })
   })
+
+  it('meta patches for dialog, sessionFile and contextWindow merge; the last dialog wins', () => {
+    const b = new SeqBatcher('p')
+    const d = { kind: 'confirm', id: 'x', title: 't', message: 'm' } as const
+    b.markMeta({ dialog: d })
+    b.markMeta({ dialog: null, sessionFile: '/s/a.jsonl' })
+    b.markMeta({ contextWindow: 200000 })
+    const batch = b.flush()
+    expect(batch?.ops).toEqual([
+      { op: 'meta', patch: { dialog: null, sessionFile: '/s/a.jsonl', contextWindow: 200000 } },
+    ])
+  })
 })

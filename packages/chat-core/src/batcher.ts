@@ -1,4 +1,4 @@
-import type { ChatMessage, SessionMeta } from './message'
+import type { ChatMessage, Dialog, SessionMeta } from './message'
 
 export type MetaPatch = {
   running?: boolean
@@ -7,6 +7,10 @@ export type MetaPatch = {
   notice?: string | null
   model?: [string, string] | null
   contextTokens?: number | null
+  contextWindow?: number | null
+  thinking?: string | null
+  dialog?: Dialog | null
+  sessionFile?: string | null
 }
 
 /** `at` is the row's index in the full list after the batch; used only when the id is new to the renderer. */
@@ -26,9 +30,11 @@ export interface Snapshot {
   /** False once omp exited or was closed (drives the renderer's `stopped`). */
   connected: boolean
   error: string | null
+  dialog?: Dialog | null
+  sessionFile?: string | null
 }
 
-export type SnapshotState = Pick<Snapshot, 'running' | 'connected' | 'error'>
+export type SnapshotState = Pick<Snapshot, 'running' | 'connected' | 'error' | 'dialog' | 'sessionFile'>
 
 /** Coalesces ops between flushes (last upsert per id wins) and stamps each non-empty batch with seq + 1. */
 export class SeqBatcher {
