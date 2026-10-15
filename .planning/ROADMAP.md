@@ -52,7 +52,7 @@ Plans:
 **Wave 4** *(blocked on Wave 3 completion)*
 
 - [x] 01-06-PLAN.md: Abort, steer, stdin-close lifecycle, pin/pills, 5,000-message frame-time benchmark (wave 4)
-- [ ] 01-09-PLAN.md: Chrome extensions + Bitwarden from the Web Store, Import Arc logins (wave 4)
+- [x] 01-09-PLAN.md: Chrome extensions + Bitwarden from the Web Store, Import Arc logins (wave 4)
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
@@ -164,7 +164,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation, Harness and the Two Spikes | 8/10 | In Progress|  |
+| 1. Foundation, Harness and the Two Spikes | 9/10 | In Progress|  |
 | 2. Shell, Navigation and Theme Tokens | 0/TBD | Not started | - |
 | 3. Dashboard, Workspaces, Jobs, Habits and Meetings | 0/TBD | Not started | - |
 | 4. Chat Parity | 0/TBD | Not started | - |
