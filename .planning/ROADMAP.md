@@ -20,12 +20,12 @@ Port EvaOS from Rust + gpui to Electron + React + TypeScript at README parity. T
 **Goal**: A runnable, safe Electron workspace where a live omp session streams gaplessly into a virtualized chat log beside a real Chromium browser panel, with proof captured.
 **Mode:** mvp
 **Depends on**: Nothing (first phase)
-**Requirements**: FOUND-01, FOUND-02, FOUND-03, FOUND-04, FOUND-05, FOUND-06, FOUND-07, FOUND-08, CHAT-01, CHAT-02, CHAT-03, CHAT-04, CHAT-05, CHAT-06, CHAT-07, CHAT-08, BROW-01, BROW-02, BROW-03, BROW-04, BROW-05, BROW-06, BROW-07, PROF-01, PROF-02
+**Requirements**: FOUND-01, FOUND-02, FOUND-03, FOUND-04, FOUND-05, FOUND-06, FOUND-07, FOUND-08, CHAT-01, CHAT-02, CHAT-03, CHAT-04, CHAT-05, CHAT-06, CHAT-07, CHAT-08, BROW-01, BROW-02, BROW-03, BROW-04, BROW-05, BROW-06, BROW-07, BROW-08, BROW-09, PROF-01, PROF-02
 **Success Criteria** (what must be TRUE):
   1. `pnpm dev` opens the app window and the green-gate script passes (typecheck, lint with em-dash check, Vitest, build, Playwright launch with zero console errors); attempting any write to the Eva checkout outside the EvaFs allowlist fails a test, and dev/test default to the fixture root, fake omp and temp config dir
   2. User opens a past omp session, sees its transcript, sends a prompt and watches the reply stream in order with no drops (1-byte, glued and split-emoji chunk tests pass); abort and steer work, and closing a chat closes stdin without ever sending SIGKILL
   3. On a 5,000-message fixture the log stays smooth while streaming, follows when pinned, shows Jump to latest then New reply when scrolled up, and the frame-time p95 and gapless seq results are recorded in `proof/`
-  4. User opens a browser tool in the side panel, navigates by URL, search or bare port (`3000`), uses back/forward/reload/subtabs/DevTools, and the view's bounds match its slot through resizes and hide under a full-window overlay; a CDP text probe reads the page
+  4. User opens a browser tool in the side panel, navigates by URL, search or bare port (`3000`), uses back/forward/reload/subtabs/DevTools, and the view's bounds match its slot through resizes and hide under a full-window overlay; a CDP text probe reads the page; the Bitwarden Chrome extension loads in the browser session and imported Arc logins keep a site signed in
   5. The built app is running and `proof/phase-1/` holds composite screenshots (DOM plus native browser view) that pass the blank-image check
 **Plans**: TBD
 **UI hint**: yes

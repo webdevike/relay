@@ -21,6 +21,7 @@ Chat with a live omp session streams smoothly (virtualized long scrollback, no d
 - [ ] Chat view that starts or resumes an omp session (`omp --mode rpc-ui --resume <session file>` over stdin/stdout JSON lines, per `omp://rpc.md`) and streams replies with no dropped or reordered tokens
 - [ ] Virtualized chat log that stays smooth on long scrollback, follows while pinned to bottom, and shows Jump to latest / New reply pills when scrolled up
 - [ ] Browser panel built on Electron WebContentsView with DevTools and CDP page control: back, forward, reload, address bar (URL, search, bare local port), subtabs, title following, open in default browser, copy link
+- [ ] Browser session loads real Chrome extensions (Bitwarden from the Chrome Web Store) and imports Arc logins, per Isaac's decision
 - [ ] Measurable proof that browser quality and chat streaming smoothness beat current EvaOS, captured as Playwright screenshots under `proof/`
 
 **Parity (every feature in the EvaOS README)**
@@ -86,6 +87,7 @@ Chat with a live omp session streams smoothly (virtualized long scrollback, no d
 | Backend reuse decided per module (Rust sidecar vs TypeScript rewrite) | Whichever is simpler; justified in each plan | — Pending |
 | WebContentsView for the browser panel | Modern Electron API with DevTools and CDP, no BrowserView deprecation | — Pending |
 | Coarse granularity, YOLO, parallel plans, research + plan check + verifier on | Recommended defaults chosen for the unattended run | — Pending |
+| Keep Bitwarden and Arc login import in the browser panel, via real Chrome extensions (`electron-chrome-extensions` + `electron-chrome-web-store`) rather than reimplementation | Isaac's recorded decision (CLAUDE.md, 2026-10-14); research had proposed dropping them as anti-features | — Pending |
 
 ## Evolution
 

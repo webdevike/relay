@@ -38,6 +38,8 @@ Requirements for the parity milestone. Each maps to roadmap phases. The source o
 - [ ] **BROW-05**: User can open DevTools for the page, and the app can drive the page through the Chrome DevTools Protocol (navigate, read text, click) via a `PageControl` module
 - [ ] **BROW-06**: Guest pages run in a sandboxed partition with no preload, `window.open` and permission requests denied by default, and app hotkeys forwarded from the guest
 - [ ] **BROW-07**: Typing in the address bar suggests up to six pages from in-app history, ranked as the README describes (Arc history import deferred)
+- [ ] **BROW-08**: Browser panel session loads real Chrome extensions through `electron-chrome-extensions` and `electron-chrome-web-store`, and the Bitwarden extension installed from the Chrome Web Store autofills credentials in guest pages
+- [ ] **BROW-09**: User can import Arc logins (cookies for the README's site list) into the browser panel session so already signed-in sites stay signed in
 
 ### Shell and Navigation
 
@@ -157,7 +159,7 @@ Deferred to a later milestone. Tracked but not in the current roadmap.
 ### Search and Browser extras
 
 - **SRCH-05**: Semantic search tier (intent, live and embedding ranking) after 400 ms idle
-- **BROW-08**: Arc history import for address suggestions
+- **BROW-10**: Arc history import for address suggestions
 
 ### Widgets
 
@@ -175,7 +177,6 @@ Explicitly excluded. Documented to prevent scope creep.
 |---------|--------|
 | `chat-order` and `chat-sections` experiments and the experimental build | Experimental-only; not part of the shipping README surface |
 | WKWebView focus hacks, Safari user-agent synthesis, popup bridging | gpui and WebKit workarounds Electron makes unnecessary |
-| Arc cookie import and Bitwarden autofill | Security-sensitive and unverified as wanted; flagged for Isaac |
 | Native cell-canvas terminal, gpui scaffolding, Rust snapshot CLI, `control.sock` | Replaced by xterm.js, Electron and Playwright |
 | Voice input in chat | omp RPC has no voice input in the current app either |
 | Empty pages (Calendar, Tasks, Memory, Files, Help Center) beyond their empty states | Not built in the Rust app |
@@ -212,6 +213,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | BROW-05 | Phase 1 | Pending |
 | BROW-06 | Phase 1 | Pending |
 | BROW-07 | Phase 1 | Pending |
+| BROW-08 | Phase 1 | Pending |
+| BROW-09 | Phase 1 | Pending |
 | SHEL-01 | Phase 2 | Pending |
 | SHEL-02 | Phase 2 | Pending |
 | SHEL-03 | Phase 2 | Pending |
@@ -292,8 +295,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PROF-02 | Phase 1 | Pending |
 
 **Coverage:**
-- v1 requirements: 101 total
-- Mapped to phases: 101
+- v1 requirements: 103 total
+- Mapped to phases: 103
 - Unmapped: 0
 
 ---
