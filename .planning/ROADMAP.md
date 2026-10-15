@@ -9,7 +9,7 @@ Port EvaOS from Rust + gpui to Electron + React + TypeScript at README parity. T
 - [x] **Phase 1: Foundation, Harness and the Two Spikes** - Toolchain, EvaFs guard, proof harness, omp chat streaming spike, Chromium browser panel spike (completed 2026-10-15)
 - [x] **Phase 2: Shell, Navigation and Theme Tokens** - Three-column shell, sidebar, main tabs, hotkey router, overlay stack, CSS-variable theming (completed 2026-10-15)
 - [x] **Phase 3: Dashboard, Workspaces, Jobs, Habits and Meetings** - Every Eva data page, New Todo, atomic job writes, gate overlay (completed 2026-10-15)
-- [ ] **Phase 4: Chat Parity** - Session catalog, categories, composer, questions, subagents, writer registry, harness, transport ADR
+- [x] **Phase 4: Chat Parity** - Session catalog, categories, composer, questions, subagents, writer registry, harness, transport ADR (completed 2026-10-15)
 - [ ] **Phase 5: Rich Replies** - Streaming markdown, mermaid, diagram blocks and all 30 ui widgets with actions
 - [ ] **Phase 6: Side Panel, Eregon and Global Search** - Terminal, Files, Side chats, iOS Simulator, Eregon floating chats, instant search
 - [ ] **Phase 7: Relay, Inbox, Notifications and Theme Editor** - Relay client, inbox store and page, digests, notification prefs, full theme editor
@@ -241,7 +241,7 @@ Plans:
 
 **Wave 8**
 
-- [ ] 04-19-PLAN.md: Phase 4 tour, packaged smoke on fakes, full gate and proof index (wave 8)
+- [x] 04-19-PLAN.md: Phase 4 tour, packaged smoke on fakes, full gate and proof index (wave 8)
 
 **UI hint**: yes
 
@@ -302,7 +302,7 @@ Plans:
 | 1. Foundation, Harness and the Two Spikes | 10/10 | Complete   | 2026-10-15 |
 | 2. Shell, Navigation and Theme Tokens | 13/13 | Complete    | 2026-10-15 |
 | 3. Dashboard, Workspaces, Jobs, Habits and Meetings | 19/19 | Complete    | 2026-10-15 |
-| 4. Chat Parity | 18/19 | In Progress|  |
+| 4. Chat Parity | 19/19 | Complete   | 2026-10-15 |
 | 5. Rich Replies | 0/TBD | Not started | - |
 | 6. Side Panel, Eregon and Global Search | 0/TBD | Not started | - |
 | 7. Relay, Inbox, Notifications and Theme Editor | 0/TBD | Not started | - |
