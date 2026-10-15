@@ -1,0 +1,154 @@
+.eva-mono {
+  font-family: var(--eva-font-mono);
+}
+.eva-chat-title {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-chat-file {
+  margin-left: var(--eva-space-md);
+  white-space: nowrap;
+}
+
+.eva-session-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--eva-space-xs);
+  margin-top: var(--eva-space-lg);
+  width: 100%;
+  max-width: 480px;
+}
+.eva-session-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: var(--eva-space-sm) var(--eva-space-md);
+  background: var(--eva-surface);
+  color: var(--eva-text);
+  border: 1px solid var(--eva-border);
+  border-radius: var(--eva-space-sm);
+  cursor: pointer;
+  text-align: left;
+}
+.eva-session-item:hover {
+  background: var(--eva-surface-2);
+}
+.eva-session-title,
+.eva-session-file {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.eva-log {
+  flex: 1 1 0;
+  min-height: 0;
+  position: relative;
+}
+.eva-log > div {
+  scrollbar-width: thin;
+  scrollbar-color: var(--eva-border) transparent;
+}
+.eva-row {
+  padding: var(--eva-space-sm) var(--eva-space-md);
+}
+.eva-row-inner {
+  max-width: 760px;
+  margin: 0 auto;
+}
+.eva-turn-user {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--eva-space-md);
+}
+.eva-bubble {
+  max-width: 80%;
+  background: var(--eva-surface-2);
+  border-radius: 12px;
+  padding: var(--eva-space-sm) var(--eva-space-md);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.eva-assistant {
+  display: flex;
+  flex-direction: column;
+  gap: var(--eva-space-sm);
+}
+.eva-prose {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.eva-code,
+.eva-pre {
+  margin: 0;
+  background: var(--eva-surface);
+  border: 1px solid var(--eva-border);
+  border-radius: var(--eva-space-sm);
+  padding: var(--eva-space-sm) var(--eva-space-md);
+  font-family: var(--eva-font-mono);
+  font-size: 12px;
+  white-space: pre;
+  overflow-x: auto;
+}
+.eva-pre {
+  max-height: 240px;
+  overflow: auto;
+}
+.eva-row-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--eva-space-sm);
+  min-height: 28px;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.eva-chevron {
+  flex: none;
+  transition: transform 150ms;
+}
+.eva-chevron[data-open='true'] {
+  transform: rotate(90deg);
+}
+.eva-thinking-text {
+  font-style: italic;
+  color: var(--eva-text-dim);
+  white-space: pre-wrap;
+  padding: var(--eva-space-xs) 0 var(--eva-space-sm) var(--eva-space-lg);
+}
+.eva-row-tool {
+  background: var(--eva-surface);
+  border: 1px solid var(--eva-border);
+  border-radius: var(--eva-space-sm);
+  padding: 0 var(--eva-space-sm);
+}
+.eva-tool-detail {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-tool-status {
+  margin-left: auto;
+}
+.eva-tool-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--eva-space-sm);
+  padding-bottom: var(--eva-space-sm);
+}
+@media (prefers-reduced-motion: reduce) {
+  .eva-chevron {
+    transition: none;
+  }
+}

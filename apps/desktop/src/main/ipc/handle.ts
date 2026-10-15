@@ -35,6 +35,11 @@ export function handle<K extends InvokeChannel>(
       const out = app.isPackaged ? value : (entry.output.parse(value) as InvokeOutput<K>)
       return { ok: true, value: out }
     } catch (e) {
+      // A handler can fail with a stable kebab-case code (for example `outside-sessions-dir`).
+      const code = (e as { code?: unknown } | null)?.code
+      if (typeof code === 'string' && /^[a-z][a-z-]*$/.test(code)) {
+        return err(code, e instanceof Error ? e.message : String(e)) as Result<InvokeOutput<K>>
+      }
       return err('internal', e instanceof Error ? e.message : String(e)) as Result<InvokeOutput<K>>
     }
   })

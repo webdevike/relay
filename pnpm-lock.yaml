@@ -307,9 +307,16 @@ importers:
       zod:
         specifier: 4.6.7
         version: 4.6.7
+    devDependencies:
+      '@types/node':
+        specifier: ^24.19.2
+        version: 24.19.2
 
   packages/contract:
     dependencies:
+      '@evaos/chat-core':
+        specifier: workspace:*
+        version: link:../chat-core
       zod:
         specifier: 4.6.7
         version: 4.6.7

@@ -47,6 +47,14 @@ test('chat transcript: 5,000 message session mounts a window and opens at the en
   const log = shell.locator('[data-testid=chat-log]')
   await expect(log).toBeVisible()
   await expect(log).toContainText('LAST-MESSAGE-MARKER')
+  await expect
+    .poll(() =>
+      log.evaluate((el) => {
+        const sc = el.firstElementChild as HTMLElement
+        return sc.scrollHeight - sc.scrollTop - sc.clientHeight
+      }),
+    )
+    .toBeLessThan(48)
   const mounted = await shell.locator('[data-testid^=msg-]').count()
   expect(mounted).toBeGreaterThan(0)
   expect(mounted).toBeLessThan(200)

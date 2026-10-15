@@ -1,4 +1,6 @@
 import type { MainContext } from '../context'
+import { registerTranscriptIpc } from './transcript-ipc'
 
-/** Plan 01-03 fills this in. */
-export function registerChat(_ctx: MainContext): void {}
+export function registerChat(ctx: MainContext): void {
+  registerTranscriptIpc(ctx)
+}

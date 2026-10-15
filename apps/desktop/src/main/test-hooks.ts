@@ -39,6 +39,8 @@ export function installTestHooks(ctx: MainContext): void {
   }
   g.__evaosTest = t
   ctx.shell.webContents.on('console-message', (details) => {
-    if (details.level === 'error') errors.push(details.message)
+    // The ResizeObserver loop notice is a benign browser warning the virtualized log can trigger.
+    if (details.level === 'error' && !details.message.startsWith('ResizeObserver loop'))
+      errors.push(details.message)
   })
 }
