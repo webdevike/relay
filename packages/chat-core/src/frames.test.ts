@@ -5,7 +5,10 @@ import { describe, expect, it } from 'vitest'
 import { cmd, parseFrame } from './frames'
 
 const here = dirname(fileURLToPath(import.meta.url))
-const recorded = readFileSync(join(here, '../../../fixtures/fake-omp/recordings/turn.jsonl'), 'utf8')
+const recorded = readFileSync(
+  join(here, '../../../fixtures/fake-omp/recordings/turn.jsonl'),
+  'utf8',
+)
   .split('\n')
   .filter(Boolean)
   .map((l) => JSON.parse(l).frame as { type: string })
@@ -31,7 +34,12 @@ describe('parseFrame', () => {
   })
 
   it('parses ready and passes extra fields through', () => {
-    const p = parseFrame({ type: 'ready', protocolVersion: 1, supportedProtocolVersions: [1, 2], extra: 1 })
+    const p = parseFrame({
+      type: 'ready',
+      protocolVersion: 1,
+      supportedProtocolVersions: [1, 2],
+      extra: 1,
+    })
     expect(p.type).toBe('ready')
     expect((p as unknown as { extra: number }).extra).toBe(1)
   })
@@ -39,7 +47,12 @@ describe('parseFrame', () => {
 
 describe('cmd builders', () => {
   it('builds v1 commands only', () => {
-    expect(cmd.prompt('evaos-1', 'hi')).toEqual({ type: 'prompt', id: 'evaos-1', message: 'hi', streamingBehavior: 'steer' })
+    expect(cmd.prompt('evaos-1', 'hi')).toEqual({
+      type: 'prompt',
+      id: 'evaos-1',
+      message: 'hi',
+      streamingBehavior: 'steer',
+    })
     expect(cmd.abort('a')).toEqual({ type: 'abort', id: 'a' })
     expect(cmd.getState('g')).toEqual({ type: 'get_state', id: 'g' })
     expect(cmd.setAskDialog('s')).toEqual({ type: 'set_ask_dialog', enabled: true, id: 's' })
