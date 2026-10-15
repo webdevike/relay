@@ -51,18 +51,18 @@ test('chat switches persist, survive relaunch', async ({ app, shell, configDir }
   await open(shell, 'Chat')
   const thinking = shell.locator('[data-testid=settings-show-thinking]')
   const tools = shell.locator('[data-testid=settings-show-tools]')
-  await expect(thinking).toBeChecked()
-  await expect(tools).toBeChecked()
-  await shell.getByText('Show thinking', { exact: true }).click()
   await expect(thinking).not.toBeChecked()
   await expect(tools).toBeChecked()
-  const file = path.join(configDir, 'settings.json')
+  await shell.getByText('Show thinking', { exact: true }).click()
+  await expect(thinking).toBeChecked()
+  await expect(tools).toBeChecked()
+  const file = path.join(configDir, 'chat.json')
   await expect
     .poll(() => {
       const d = readJson(file)
       return d ? `${d['show_thinking']}|${d['show_tools']}` : ''
     })
-    .toBe('false|true')
+    .toBe('true|true')
   await app.close()
 
   const app2 = await launchApp(configDir)
@@ -70,7 +70,7 @@ test('chat switches persist, survive relaunch', async ({ app, shell, configDir }
     const page = await app2.firstWindow()
     await page.waitForSelector('[data-testid=rail]', { state: 'attached' })
     await open(page, 'Chat')
-    await expect(page.locator('[data-testid=settings-show-thinking]')).not.toBeChecked()
+    await expect(page.locator('[data-testid=settings-show-thinking]')).toBeChecked()
     await expect(page.locator('[data-testid=settings-show-tools]')).toBeChecked()
   } finally {
     await app2.close()

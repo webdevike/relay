@@ -1,6 +1,18 @@
+import * as fs from 'node:fs'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import { SESSIONS_FIXTURE_DIR } from './helpers/paths'
-import { test, expect } from './fixtures'
+import { test as base, expect } from './fixtures'
+
+// Rust default is thinking off; this spec asserts the collapsed thinking row, so it opts in.
+const test = base.extend<object>({
+  configDir: async ({}, use) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evaos-e2e-'))
+    fs.writeFileSync(path.join(dir, 'chat.json'), '{"show_thinking":true}')
+    await use(dir)
+    fs.rmSync(dir, { recursive: true, force: true })
+  },
+})
 
 type Eva = {
   invoke(c: string, i: unknown): Promise<{ ok: boolean; value?: { messages: unknown[] } }>

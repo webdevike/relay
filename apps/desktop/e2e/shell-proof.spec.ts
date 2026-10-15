@@ -217,7 +217,7 @@ test('settings-chat', async ({ app, shell }) => {
     }),
   )
   await expect(shell.locator(sel('settings-chat'))).toBeVisible()
-  await expect(shell.locator(sel('settings-show-thinking'))).toBeChecked()
+  await expect(shell.locator(sel('settings-show-thinking'))).not.toBeChecked()
   await expect(shell.locator(sel('settings-show-tools'))).toBeChecked()
   await finish(app, shell, 'settings-chat')
 })
