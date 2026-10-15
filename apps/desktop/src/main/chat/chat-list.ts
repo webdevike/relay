@@ -3,7 +3,9 @@ import * as path from 'node:path'
 import type { ChatList, ChatPrefs, ChatRow } from '@evaos/contract'
 import { isRecentlyActive } from '@evaos/chat-core/chat-groups'
 import { sessionId } from '@evaos/chat-core/session-id'
+import { backgroundJobs } from '@evaos/chat-core/jobs'
 import { oneLine, parseSession } from '@evaos/chat-core/session'
+import { rowStatus } from '@evaos/chat-core/status'
 import type { ConfigStore } from '../config-store'
 
 export const LIST_ERROR =
@@ -19,6 +21,8 @@ export interface ChatListDeps {
   now?: () => number
   /** Session files this app owns a live process for. */
   liveFiles?: () => ReadonlySet<string>
+  /** Live state of a session file this app owns, else null. */
+  liveStatus?: (file: string) => { working: boolean; dialog: 'confirm' | 'other' | null } | null
   /** Test seam: how a changed file is read. */
   readFile?: (file: string) => FileSample
 }
@@ -36,7 +40,11 @@ interface Entry {
   mtimeMs: number
   size: number
   title: string
+  jobs: number
 }
+
+/** Files past this size skip the background-job scan (the status stays as without jobs). */
+const JOBS_SCAN_MAX = 8 * 1024 * 1024
 
 function sampleFile(file: string, size: number): FileSample {
   const fd = fs.openSync(file, 'r')
@@ -48,7 +56,12 @@ function sampleFile(file: string, size: number): FileSample {
     }
     const head = read(Math.min(CHUNK, size), 0)
     const tail = size <= CHUNK ? head : read(CHUNK, size - CHUNK)
-    return { head, tail, full: () => fs.readFileSync(file, 'utf8') }
+    let whole: string | null = null
+    return {
+      head,
+      tail,
+      full: () => (whole ??= fs.readFileSync(file, 'utf8')),
+    }
   } finally {
     fs.closeSync(fd)
   }
@@ -191,15 +204,19 @@ export class ChatListService {
       let entry = this.cache.get(file)
       if (!entry || entry.mtimeMs !== st.mtimeMs || entry.size !== st.size) {
         let title = ''
+        let jobs = 0
         try {
-          title = resolveTitle(this.readFile(file, st.size), st.size)
+          const sample = this.readFile(file, st.size)
+          title = resolveTitle(sample, st.size)
+          if (st.size <= JOBS_SCAN_MAX) jobs = backgroundJobs(sample.full()).length
         } catch {
           // unreadable file: listed untitled
         }
-        entry = { mtimeMs: st.mtimeMs, size: st.size, title }
+        entry = { mtimeMs: st.mtimeMs, size: st.size, title, jobs }
         this.cache.set(file, entry)
       }
       const id = sessionId(file)
+      const owned = this.deps.liveStatus?.(file) ?? null
       rows.push({
         id,
         file,
@@ -207,8 +224,13 @@ export class ChatListService {
         mtimeMs: st.mtimeMs,
         archived: archived.has(id),
         pinned: pins.has(id),
-        running: live.has(file) || isRecentlyActive(st.mtimeMs, now),
-        status: null,
+        running: live.has(file) || owned !== null || isRecentlyActive(st.mtimeMs, now),
+        status: rowStatus({
+          owned: owned !== null,
+          working: owned?.working ?? false,
+          dialog: owned?.dialog ?? null,
+          jobs: entry.jobs,
+        }),
       })
     }
     for (const file of this.cache.keys()) if (!seen.has(file)) this.cache.delete(file)

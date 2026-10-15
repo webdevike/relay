@@ -3,6 +3,7 @@ import type { MainContext } from '../context'
 import { handle } from '../ipc/handle'
 import type { WriteQueue } from '../write-queue'
 import type { ChatListService } from './chat-list'
+import type { SessionManager } from './session-manager'
 
 const CHAT_FILE = 'chat.json'
 
@@ -18,6 +19,8 @@ export function registerChatListIpc(
   ctx: MainContext,
   queue: WriteQueue,
   service: ChatListService,
+  // Passed through for the rename and delete rules (single writer) in later plans.
+  _manager: SessionManager,
 ): void {
   handle(ctx, 'chat.list', () => service.list())
   handle(ctx, 'chat.setCollapsed', ({ groups }) =>

@@ -193,4 +193,50 @@ describe('ChatListService', () => {
     expect(out.rows).toEqual([])
     expect(out.error).toBe(LIST_ERROR)
   })
+
+  describe('live status', () => {
+    const bgCall = (id: string) => ({
+      type: 'message',
+      message: {
+        role: 'toolResult',
+        toolName: 'bash',
+        content: [{ type: 'text', text: `Started ${id}` }],
+        details: { async: { state: 'running', jobId: id, type: 'bash' } },
+      },
+    })
+
+    it('maps working, dialog and open through rowStatus', () => {
+      const s = setup()
+      const a = session(s.sessionsDir, 'a', [{ type: 'title', title: 'A' }])
+      const b = session(s.sessionsDir, 'b', [{ type: 'title', title: 'B' }])
+      const c = session(s.sessionsDir, 'c', [{ type: 'title', title: 'C' }])
+      session(s.sessionsDir, 'd', [{ type: 'title', title: 'D' }])
+      const live: Record<string, { working: boolean; dialog: 'confirm' | 'other' | null }> = {
+        [a]: { working: true, dialog: null },
+        [b]: { working: false, dialog: 'confirm' },
+        [c]: { working: false, dialog: null },
+      }
+      const svc = new ChatListService({ ...s, now: () => NOW, liveStatus: (f) => live[f] ?? null })
+      const by = Object.fromEntries(svc.list().rows.map((r) => [r.title, r.status]))
+      expect(by).toEqual({ A: 'working', B: 'needs-approval', C: 'open', D: null })
+    })
+
+    it('shows job for an unowned file with an unfinished background job, parsed once per mtime+size', () => {
+      const s = setup()
+      session(s.sessionsDir, 'j', [{ type: 'title', title: 'J' }, bgCall('bg_1')])
+      let reads = 0
+      const svc = new ChatListService({
+        ...s,
+        now: () => NOW,
+        readFile: (f) => {
+          reads++
+          const text = fs.readFileSync(f, 'utf8')
+          return { head: text, tail: text, full: () => text }
+        },
+      })
+      expect(svc.list().rows[0].status).toBe('job')
+      expect(svc.list().rows[0].status).toBe('job')
+      expect(reads).toBe(1)
+    })
+  })
 })
