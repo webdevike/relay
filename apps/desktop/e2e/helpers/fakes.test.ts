@@ -19,12 +19,14 @@ const env = (extra: Record<string, string> = {}) => ({
   ...extra,
 })
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Json = any
 const gate = (args: string[], extra: Record<string, string> = {}) => {
   const r = spawnSync(process.execPath, [FAKE_GATE, ...args, '--json'], {
     env: env(extra),
     encoding: 'utf8',
   })
-  let json: any
+  let json: Json = null
   try {
     json = JSON.parse(r.stdout)
   } catch {
@@ -42,7 +44,7 @@ describe('fake gate', () => {
     for (const k of ['lockedAt', 'reason', 'active', 'plan', 'history', 'habits', 'tasks', 'schedule', 'canFinish', 'remainingSeconds', 'blocked']) {
       expect(json).toHaveProperty(k)
     }
-    expect(json.habits.map((h: any) => h.id)).toEqual(['stretch', 'walk'])
+    expect(json.habits.map((h: { id: string }) => h.id)).toEqual(['stretch', 'walk'])
     expect(json.plan.source).toBe('calendar')
   })
 
@@ -97,8 +99,8 @@ describe('fake gate', () => {
     const b = gate(['habit', 'add', 'Read x', '--minutes', '5'])
     expect(b.json.habits.at(-1).id).toBe('read-x-2')
     const e = gate(['habit', 'edit', 'read-x', '--name=Reading', '--minutes', '20', '--no-photo'])
-    expect(e.json.habits.find((h: any) => h.id === 'read-x')).toMatchObject({ name: 'Reading', minutes: 20, photo: false })
-    expect(gate(['habit', 'rm', 'read-x']).json.habits.some((h: any) => h.id === 'read-x')).toBe(false)
+    expect(e.json.habits.find((h: { id: string }) => h.id === 'read-x')).toMatchObject({ name: 'Reading', minutes: 20, photo: false })
+    expect(gate(['habit', 'rm', 'read-x']).json.habits.some((h: { id: string }) => h.id === 'read-x')).toBe(false)
     const t = gate(['task', 'add', 'Mail', 'package'])
     expect(t.json.tasks.at(-1)).toMatchObject({ id: 'mail-package', minutes: null, done: false })
     expect(gate(['task', 'rm', 'mail-package']).json.tasks.length).toBe(1)
