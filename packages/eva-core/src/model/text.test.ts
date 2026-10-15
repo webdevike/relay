@@ -12,7 +12,7 @@ import {
 } from './dates'
 import { parseJournal, parseJournalHeading } from './journal'
 
-const DASH = '—'
+const DASH = '\u2014'
 
 describe('tags', () => {
   it('canonicalises tags and aliases', () => {
