@@ -1,4 +1,4 @@
-import { lstatSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
+import { readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { extname, isAbsolute, join } from 'node:path'
 import { isInside } from '../fs/allowlist'
 import { parseMeeting, sortMeetings, type Meeting } from './meetings'

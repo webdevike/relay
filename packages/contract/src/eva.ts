@@ -16,7 +16,10 @@ export const Stem = z
 export const Text = (n: number) => z.string().max(n)
 
 // The reader keeps the Rust rule: any `T...` token. Strictness lives in the accept output only.
-const TodoId = z.string().regex(/^T\S*$/).max(100)
+const TodoId = z
+  .string()
+  .regex(/^T\S*$/)
+  .max(100)
 
 export const WorkspaceSummarySchema = z.object({
   id: z.string().max(100),

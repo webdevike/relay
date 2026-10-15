@@ -1,5 +1,4 @@
 import * as os from 'node:os'
-import * as path from 'node:path'
 import { createPathQueue, type EvaFs } from '@evaos/eva-core'
 import {
   dayKey,

@@ -24,9 +24,7 @@ export const GateStatusSchema = z.object({
   plan: z
     .object({
       date: str,
-      breaks: z
-        .array(z.object({ at: str, done: z.boolean().default(false) }))
-        .default([]),
+      breaks: z.array(z.object({ at: str, done: z.boolean().default(false) })).default([]),
       source: str,
     })
     .nullable()
