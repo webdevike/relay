@@ -91,7 +91,9 @@ test('Save runs the registered save, then nothing is left to ask', async ({ app,
   expect(await calls(app)).toHaveLength(1)
 })
 
-test('nothing dirty closes without a dialog', async ({ app }) => {
+// `shell` waits for the renderer to mount: before that nobody answers the guard, which now
+// fails closed (asks the user) instead of treating silence as "nothing dirty".
+test('nothing dirty closes without a dialog', async ({ app, shell: _shell }) => {
   await stub(app)
   expect(await guarded(app)).toBe(true)
   expect(await calls(app)).toHaveLength(0)
