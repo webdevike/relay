@@ -31,12 +31,12 @@ Requirements for the parity milestone. Each maps to roadmap phases. The source o
 
 ### Browser Panel (spike)
 
-- [ ] **BROW-01**: User can open a Browser tool in the side panel backed by Electron WebContentsView, with back, forward, reload, copy link and open in the default browser
-- [ ] **BROW-02**: Address bar accepts a URL, a search query, or a bare local port (`3000` opens `http://127.0.0.1:3000/`), and the tab title follows the page
+- [x] **BROW-01**: User can open a Browser tool in the side panel backed by Electron WebContentsView, with back, forward, reload, copy link and open in the default browser
+- [x] **BROW-02**: Address bar accepts a URL, a search query, or a bare local port (`3000` opens `http://127.0.0.1:3000/`), and the tab title follows the page
 - [ ] **BROW-03**: User can open multiple browser subtabs with + and close them; each is its own WebContentsView
-- [ ] **BROW-04**: The browser view's bounds track the React layout slot through drags and resizes, and it hides whenever a full-window overlay (global search, dialogs, gate overlay) is shown, through one shared overlay mechanism
+- [x] **BROW-04**: The browser view's bounds track the React layout slot through drags and resizes, and it hides whenever a full-window overlay (global search, dialogs, gate overlay) is shown, through one shared overlay mechanism
 - [ ] **BROW-05**: User can open DevTools for the page, and the app can drive the page through the Chrome DevTools Protocol (navigate, read text, click) via a `PageControl` module
-- [ ] **BROW-06**: Guest pages run in a sandboxed partition with no preload, `window.open` and permission requests denied by default, and app hotkeys forwarded from the guest
+- [x] **BROW-06**: Guest pages run in a sandboxed partition with no preload, `window.open` and permission requests denied by default, and app hotkeys forwarded from the guest
 - [ ] **BROW-07**: Typing in the address bar suggests up to six pages from in-app history, ranked as the README describes (Arc history import deferred)
 - [ ] **BROW-08**: Browser panel session loads real Chrome extensions through `electron-chrome-extensions` and `electron-chrome-web-store`, and the Bitwarden extension installed from the Chrome Web Store autofills credentials in guest pages
 - [ ] **BROW-09**: User can import Arc logins (cookies for the README's site list) into the browser panel session so already signed-in sites stay signed in
@@ -206,12 +206,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CHAT-06 | Phase 1 | Pending |
 | CHAT-07 | Phase 1 | Pending |
 | CHAT-08 | Phase 1 | Pending |
-| BROW-01 | Phase 1 | Pending |
-| BROW-02 | Phase 1 | Pending |
+| BROW-01 | Phase 1 | Complete |
+| BROW-02 | Phase 1 | Complete |
 | BROW-03 | Phase 1 | Pending |
-| BROW-04 | Phase 1 | Pending |
+| BROW-04 | Phase 1 | Complete |
 | BROW-05 | Phase 1 | Pending |
-| BROW-06 | Phase 1 | Pending |
+| BROW-06 | Phase 1 | Complete |
 | BROW-07 | Phase 1 | Pending |
 | BROW-08 | Phase 1 | Pending |
 | BROW-09 | Phase 1 | Pending |
