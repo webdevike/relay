@@ -120,7 +120,9 @@ export async function choosePhoto(
   getDialog: () => Promise<OpenDialog> | OpenDialog = async () =>
     (await import('electron')).dialog as unknown as OpenDialog,
 ): Promise<{ token: string | null; name: string | null }> {
-  const res = (await getDialog()).showOpenDialog(win as never, {
+  const res = await (
+    await getDialog()
+  ).showOpenDialog(win as never, {
     title: 'Choose a proof photo',
     buttonLabel: 'Use photo',
     properties: ['openFile'],
