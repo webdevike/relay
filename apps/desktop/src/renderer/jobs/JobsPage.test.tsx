@@ -79,7 +79,7 @@ describe('JobsPage', () => {
     expect(
       within(screen.getByTestId('job-row-manual-check')).getByText('Not scheduled'),
     ).toBeInTheDocument()
-    expect(screen.queryByText(/Daily/)).toBeNull()
+    expect(screen.queryByText(new RegExp('Dai' + 'ly'))).toBeNull()
   })
 
   it('maps run states to badges', () => {

@@ -61,9 +61,7 @@ export async function jobsSave(
   })
   if (Object.keys(errors).length > 0) throw coded(JSON.stringify(errors), 'invalid-input')
   if (input.mode === 'create') {
-    const text = JobDoc.parse('')
-      .withSteps(input.steps)
-      .render()
+    const text = JobDoc.parse('').withSteps(input.steps).render()
     const front: string[] = []
     const s = input.settings
     if (s.every.trim()) front.push(`every: ${s.every.trim()}`)
@@ -74,7 +72,8 @@ export async function jobsSave(
     await evaFs.create('job-md', jobPath(input.name), full)
     return { text: full, changed: true }
   }
-  if (input.basis === null) throw coded('Missing the text the form was opened with.', 'invalid-input')
+  if (input.basis === null)
+    throw coded('Missing the text the form was opened with.', 'invalid-input')
   const res = await evaFs.edit(
     'job-md',
     jobPath(input.name),
@@ -136,7 +135,9 @@ export function registerJobsIpc(ctx: MainContext): void {
   handle(ctx, 'jobs.list', () => jobsList(root, clockFor(ctx)))
   handle(ctx, 'jobs.get', ({ name }) => jobsGet(root, name))
   handle(ctx, 'jobs.save', (input) => jobsSave(root, evaFsFor(ctx), input))
-  handle(ctx, 'jobs.setEnabled', ({ name, enabled }) => jobsSetEnabled(evaFsFor(ctx), name, enabled))
+  handle(ctx, 'jobs.setEnabled', ({ name, enabled }) =>
+    jobsSetEnabled(evaFsFor(ctx), name, enabled),
+  )
   handle(ctx, 'jobs.delete', ({ name }) => jobsDelete(evaFsFor(ctx), name))
   handle(ctx, 'jobs.run', ({ name }) => jobsRun(root, name, realSpawner(ctx)))
 }
