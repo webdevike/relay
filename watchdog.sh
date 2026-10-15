@@ -6,14 +6,14 @@ cd "${0:A:h}"
 export PATH="$PWD/node_modules/.bin:$PATH"
 mkdir -p logs
 log() { echo "$(date '+%F %T') $*" >> logs/watchdog.log; }
-pgrep -f "evaos-electron/run-gsd.sh|claude -p --dangerously-skip-permissions" >/dev/null && { log "running, HEAD $(git rev-parse --short HEAD)"; exit 0; }
+pgrep -f "run-phases.sh|claude -p --dangerously-skip-permissions" >/dev/null && { log "running, HEAD $(git rev-parse --short HEAD)"; exit 0; }
 [[ -f logs/finalized ]] && exit 0
 if ! grep -q DONE logs/status 2>/dev/null; then
   n=$(cat logs/restarts 2>/dev/null || echo 0)
   (( n >= 4 )) && { log "driver dead, restart cap hit"; exit 0; }
   echo $((n + 1)) > logs/restarts
   log "driver dead without DONE, restart $((n + 1))"
-  nohup "$PWD/run-gsd.sh" >> logs/driver.log 2>&1 &
+  nohup "$PWD/run-phases.sh" >> logs/driver.log 2>&1 &
   exit 0
 fi
 log "finalize pass"
