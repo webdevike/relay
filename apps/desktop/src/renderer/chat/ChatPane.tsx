@@ -89,6 +89,11 @@ export function ChatPane() {
             <span className="eva-label eva-dim eva-mono eva-chat-file">
               {pane.file ? pane.file.split('/').pop() : ''}
             </span>
+            {pane.owner && pane.owner !== PANE_ID && !pane.extras.running ? (
+              <span className="eva-label eva-dim eva-chat-owner" data-testid="chat-owner">
+                Owned by another pane
+              </span>
+            ) : null}
             {pane.reconnecting ? (
               <span className="eva-label eva-dim eva-chat-reconnecting">
                 Reconnecting to the stream.

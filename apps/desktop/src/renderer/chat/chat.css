@@ -226,3 +226,15 @@
     animation: none;
   }
 }
+
+.eva-writer-prompt-body {
+  margin: 0 0 var(--eva-space-md, 12px);
+}
+.eva-writer-prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--eva-space-sm);
+}
+.eva-chat-owner {
+  white-space: nowrap;
+}

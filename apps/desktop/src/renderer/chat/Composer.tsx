@@ -3,6 +3,7 @@ import { ActionIcon, Textarea } from '@mantine/core'
 import { IconArrowUp, IconPhoto, IconPlayerStopFilled } from '@tabler/icons-react'
 import { invoke } from '../ipc'
 import { chatStore, useChatStore } from './chat-store'
+import { WriterPrompt } from './WriterPrompt'
 import { ImageChips } from './composer/ImageChips'
 import {
   ACCEPTED_IMAGE_TYPES,
@@ -32,6 +33,8 @@ export function Composer({ paneId, disabled }: { paneId: string; disabled: boole
   const [images, setImages] = useState<Attached[]>([])
   const [notice, setNotice] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
+  /** Set while the shared writer prompt is open: main's message for why it asked. */
+  const [writerPrompt, setWriterPrompt] = useState<string | null>(null)
   const dragDepth = useRef(0)
   const nextId = useRef(0)
   const picker = useRef<HTMLInputElement>(null)
@@ -81,7 +84,7 @@ export function Composer({ paneId, disabled }: { paneId: string; disabled: boole
 
   const canSend = !disabled && (text.trim() !== '' || images.length > 0)
 
-  const send = async (): Promise<void> => {
+  const send = async (force = false): Promise<void> => {
     const value = text.trim()
     if ((value === '' && images.length === 0) || disabled) return
     const sending = images
@@ -91,6 +94,7 @@ export function Composer({ paneId, disabled }: { paneId: string; disabled: boole
     const payload = {
       paneId,
       text: value,
+      ...(force ? { force: true } : {}),
       ...(sending.length > 0
         ? { images: sending.map((i) => ({ mimeType: i.mimeType, data: i.data })) }
         : {}),
@@ -104,7 +108,8 @@ export function Composer({ paneId, disabled }: { paneId: string; disabled: boole
       // Give the prompt back unless something new was typed meanwhile.
       setText((current) => (current === '' ? value : current))
       setImages((current) => [...sending, ...current])
-      chatStore.getState().setError(paneId, r.error.message)
+      if (r.error.code === 'owned-elsewhere') setWriterPrompt(r.error.message)
+      else chatStore.getState().setError(paneId, r.error.message)
     }
   }
 
@@ -225,6 +230,15 @@ export function Composer({ paneId, disabled }: { paneId: string; disabled: boole
           <IconArrowUp size={16} />
         </ActionIcon>
       </div>
+      <WriterPrompt
+        opened={writerPrompt !== null}
+        message={writerPrompt ?? ''}
+        onCancel={() => setWriterPrompt(null)}
+        onConfirm={() => {
+          setWriterPrompt(null)
+          void send(true)
+        }}
+      />
       {notice ? (
         <div className="eva-composer-notice" role="status">
           {notice}

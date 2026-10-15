@@ -43,6 +43,8 @@ export interface PaneState {
   boundTo: string | null
   /** Subagents and background jobs main derives from the session files. */
   extras: PaneExtras
+  /** The pane that owned this file when it was opened (null when none). */
+  owner?: string | null
 }
 
 export interface OpenData {
@@ -50,6 +52,8 @@ export interface OpenData {
   title: string
   messages: ChatMessage[]
   meta: SessionMeta
+  /** The pane that runs omp for this file when it is not this one. */
+  owner?: string | null
 }
 
 export interface ChatState {
