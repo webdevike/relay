@@ -5,6 +5,7 @@ import { browserEvents, browserInvoke } from './browser'
 
 export * from './result'
 export { AppInfoSchema, type AppInfo } from './app'
+export { type TabState, type TabsSnapshot } from './browser'
 
 export const invokeContract = { ...appInvoke, ...chatInvoke, ...browserInvoke }
 export const eventContract = { ...chatEvents, ...browserEvents }

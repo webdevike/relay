@@ -179,10 +179,17 @@ test('browser panel: navigate, history, bounds, overlay, hardening, errors', asy
   expect(geoErr).toBe('error')
 
   // Search URL (the request itself is cancelled by the e2e network rule).
-  const tabs = await shell.evaluate(() => window.eva.invoke('browser.state', {}))
+  const tabs = await shell.evaluate(() =>
+    (
+      window as unknown as { eva: { invoke(c: string, i: unknown): Promise<unknown> } }
+    ).eva.invoke('browser.state', {}),
+  )
   const tabId = (tabs as { ok: true; value: { activeId: string } }).value.activeId
   const res = await shell.evaluate(
-    (id) => window.eva.invoke('browser.navigate', { tabId: id, input: 'hello world' }),
+    (id) =>
+      (
+        window as unknown as { eva: { invoke(c: string, i: unknown): Promise<unknown> } }
+      ).eva.invoke('browser.navigate', { tabId: id, input: 'hello world' }),
     tabId,
   )
   expect((res as { ok: true; value: { url: string } }).value.url).toBe(
