@@ -88,12 +88,12 @@ Plans:
 
 **Wave 3**
 
-- [ ] 02-05-PLAN.md: main handlers (layout, theme, background, settings, sidebar, noMotion) and quit guard (wave 3)
-- [ ] 02-06-PLAN.md: HotkeyRouter, dismiss stack, overlay wrappers, ScrollArea, dirty registry (wave 3)
+- [x] 02-05-PLAN.md: main handlers (layout, theme, background, settings, sidebar, noMotion) and quit guard (wave 3)
+- [x] 02-06-PLAN.md: HotkeyRouter, dismiss stack, overlay wrappers, ScrollArea, dirty registry (wave 3)
 
 **Wave 4**
 
-- [ ] 02-07-PLAN.md: ThemeApplier, token aliases, Appearance control, entrance timeline (wave 4)
+- [x] 02-07-PLAN.md: ThemeApplier, token aliases, Appearance control, entrance timeline (wave 4)
 
 **Wave 5**
 
@@ -207,7 +207,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation, Harness and the Two Spikes | 10/10 | Complete   | 2026-10-15 |
-| 2. Shell, Navigation and Theme Tokens | 4/4 | Complete   | 2026-10-15 |
+| 2. Shell, Navigation and Theme Tokens | 7/13 | In Progress|  |
 | 3. Dashboard, Workspaces, Jobs, Habits and Meetings | 0/TBD | Not started | - |
 | 4. Chat Parity | 0/TBD | Not started | - |
 | 5. Rich Replies | 0/TBD | Not started | - |
