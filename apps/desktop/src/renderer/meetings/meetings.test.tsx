@@ -13,7 +13,10 @@ const invoke = vi.fn(async (ch: string, input: { stem?: string }) => {
   if (ch === 'meetings.openNotes') return data.open ?? { ok: true, value: { opened: true } }
   return { ok: true, value: {} }
 })
-vi.mock('../ipc', () => ({ invoke: (...a: unknown[]) => invoke(...(a as [string, never])), on: () => () => {} }))
+vi.mock('../ipc', () => ({
+  invoke: (...a: unknown[]) => invoke(...(a as [string, never])),
+  on: () => () => {},
+}))
 const show = vi.fn()
 vi.mock('@mantine/notifications', () => ({
   notifications: { show: (...a: unknown[]) => show(...a) },
@@ -72,7 +75,11 @@ const LIST = {
     waiting: [
       { stem: 'standup', title: 'Daily standup', proposal: prop('standup#1') },
       { stem: 'standup', title: 'Daily standup', proposal: prop('standup#2') },
-      { stem: 'planning', title: 'Sprint planning', proposal: prop('planning#2', 'proposed', { source: null }) },
+      {
+        stem: 'planning',
+        title: 'Sprint planning',
+        proposal: prop('planning#2', 'proposed', { source: null }),
+      },
     ],
     out: [{ text: 'Sam is out', date: '2026-10-18', stem: 'standup', title: 'Daily standup' }],
     decisions: Array.from({ length: 7 }, (_, i) => ({
@@ -98,7 +105,12 @@ const PROTOCOL = {
 const DETAIL = {
   meeting: {
     ...sum('standup', 'Daily standup', at(0, 9, 30), { pending: 2, hasNotes: true }),
-    proposals: [prop('standup#1'), prop('standup#2'), prop('standup#3', 'accepted'), prop('standup#4', 'dismissed')],
+    proposals: [
+      prop('standup#1'),
+      prop('standup#2'),
+      prop('standup#3', 'accepted'),
+      prop('standup#4', 'dismissed'),
+    ],
     memorized: [],
   },
   notes: 'ok',
@@ -108,7 +120,10 @@ const DETAIL = {
 function seedTab(page: string, extra = {}): void {
   tabsStore.setState(
     {
-      tabs: createTabs([{ id: 0, here: placeOf(page as never, extra), back: [], forward: [], pinned: false }], 0),
+      tabs: createTabs(
+        [{ id: 0, here: placeOf(page as never, extra), back: [], forward: [], pinned: false }],
+        0,
+      ),
       loaded: true,
     },
     true,
@@ -137,8 +152,14 @@ describe('MeetingsList', () => {
     const row = screen.getByTestId('meeting-row-standup')
     expect(row).toHaveTextContent('Daily standup')
     expect(row).toHaveTextContent(/\d{1,2}:\d{2}\s?[AP]M/)
-    expect(screen.getByTestId('meeting-waiting-standup')).toHaveAttribute('aria-label', 'Waiting on you, 2 proposals')
-    expect(screen.getByTestId('meeting-waiting-planning')).toHaveAttribute('aria-label', 'Waiting on you, 1 proposal')
+    expect(screen.getByTestId('meeting-waiting-standup')).toHaveAttribute(
+      'aria-label',
+      'Waiting on you, 2 proposals',
+    )
+    expect(screen.getByTestId('meeting-waiting-planning')).toHaveAttribute(
+      'aria-label',
+      'Waiting on you, 1 proposal',
+    )
     const tests = screen.getByTestId('meetings-tests')
     expect(tests).toHaveTextContent('Test calls (1)')
     expect(tests).toHaveAttribute('aria-expanded', 'false')
@@ -152,9 +173,13 @@ describe('MeetingsList', () => {
     wrap(<MeetingsList query="" />)
     const row = await screen.findByTestId('meeting-row-standup')
     fireEvent.click(row)
-    expect(openPlace).toHaveBeenLastCalledWith(placeOf('meetings', { meeting: 'standup' }), { newTab: false })
+    expect(openPlace).toHaveBeenLastCalledWith(placeOf('meetings', { meeting: 'standup' }), {
+      newTab: false,
+    })
     fireEvent.click(row, { metaKey: true })
-    expect(openPlace).toHaveBeenLastCalledWith(placeOf('meetings', { meeting: 'standup' }), { newTab: true })
+    expect(openPlace).toHaveBeenLastCalledWith(placeOf('meetings', { meeting: 'standup' }), {
+      newTab: true,
+    })
   })
 
   it('marks the active meeting row', async () => {
@@ -170,10 +195,18 @@ describe('MeetingsList', () => {
     await screen.findByTestId('meetings-list')
     expect(screen.getByTestId('meeting-row-planning')).toBeInTheDocument()
     expect(screen.queryByTestId('meeting-row-standup')).toBeNull()
-    rerender(<MantineProvider><MeetingsList query="test" /></MantineProvider>)
+    rerender(
+      <MantineProvider>
+        <MeetingsList query="test" />
+      </MantineProvider>,
+    )
     expect(screen.getByTestId('meetings-tests')).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByTestId('meeting-row-test-call')).toBeInTheDocument()
-    rerender(<MantineProvider><MeetingsList query="zzz" /></MantineProvider>)
+    rerender(
+      <MantineProvider>
+        <MeetingsList query="zzz" />
+      </MantineProvider>,
+    )
     expect(screen.getByTestId('sidebar-sub-empty')).toHaveTextContent('No meetings match.')
   })
 
@@ -181,14 +214,18 @@ describe('MeetingsList', () => {
     data.list = { ...LIST, meetings: [] }
     wrap(<MeetingsList query="" />)
     expect(screen.getByTestId('sidebar-sub-empty')).toHaveTextContent('Loading meetings')
-    await waitFor(() => expect(screen.getByTestId('sidebar-sub-empty')).toHaveTextContent('No meetings yet.'))
+    await waitFor(() =>
+      expect(screen.getByTestId('sidebar-sub-empty')).toHaveTextContent('No meetings yet.'),
+    )
   })
 })
 
 describe('MeetingsHome', () => {
   it('shows the summary and sections', async () => {
     wrap(<MeetingsHome place={placeOf('meetings')} />)
-    expect(await screen.findByTestId('meetings-summary')).toHaveTextContent('2 meetings this week, 3 waiting on you')
+    expect(await screen.findByTestId('meetings-summary')).toHaveTextContent(
+      '2 meetings this week, 3 waiting on you',
+    )
     const waiting = within(screen.getByTestId('meetings-waiting'))
     expect(waiting.getAllByTestId(/^proposal-/)).toHaveLength(3)
     expect(waiting.getAllByText('Daily standup')).toHaveLength(2)
@@ -198,9 +235,14 @@ describe('MeetingsHome', () => {
   })
 
   it('uses the singular and the empty state', async () => {
-    data.list = { ...LIST, digest: { ...LIST.digest, recentCount: 1, waiting: [], out: [], decisions: [] } }
+    data.list = {
+      ...LIST,
+      digest: { ...LIST.digest, recentCount: 1, waiting: [], out: [], decisions: [] },
+    }
     wrap(<MeetingsHome place={placeOf('meetings')} />)
-    expect(await screen.findByTestId('meetings-summary')).toHaveTextContent('1 meeting this week, 0 waiting on you')
+    expect(await screen.findByTestId('meetings-summary')).toHaveTextContent(
+      '1 meeting this week, 0 waiting on you',
+    )
     expect(screen.getByText('Nothing waiting on you.')).toBeInTheDocument()
     expect(screen.queryByTestId('meetings-out')).toBeNull()
   })
@@ -228,10 +270,19 @@ describe('MeetingPage', () => {
     expect(chips.queryByText('G')).toBeNull()
     expect(chips.getByText('+2')).toBeInTheDocument()
     expect(screen.getByTestId('meeting-open-notes')).toHaveTextContent('Open Notes')
-    for (const h of ['Summary', 'Decisions', 'Open questions', 'Attendees', 'For you', 'Remembered']) {
+    for (const h of [
+      'Summary',
+      'Decisions',
+      'Open questions',
+      'Attendees',
+      'For you',
+      'Remembered',
+    ]) {
       expect(screen.getByRole('heading', { name: h })).toBeInTheDocument()
     }
-    expect(within(screen.getByTestId('meeting-for-you')).getAllByTestId(/^proposal-standup/)).toHaveLength(2)
+    expect(
+      within(screen.getByTestId('meeting-for-you')).getAllByTestId(/^proposal-standup/),
+    ).toHaveLength(2)
     const rem = within(screen.getByTestId('meeting-remembered'))
     expect(rem.getByTestId('proposal-status-standup#3')).toHaveTextContent('Accepted')
     expect(rem.getByTestId('proposal-status-standup#4')).toHaveTextContent('Dismissed')
@@ -249,7 +300,10 @@ describe('MeetingPage', () => {
   })
 
   it('toasts when Open Notes fails', async () => {
-    data.open = { ok: false, error: { code: 'open-failed', message: 'Could not open /x/standup.md' } }
+    data.open = {
+      ok: false,
+      error: { code: 'open-failed', message: 'Could not open /x/standup.md' },
+    }
     page()
     fireEvent.click(await screen.findByTestId('meeting-open-notes'))
     await waitFor(() => expect(show).toHaveBeenCalled())
@@ -303,7 +357,10 @@ describe('proposal actions', () => {
     ...DETAIL,
     meeting: {
       ...DETAIL.meeting,
-      proposals: DETAIL.meeting.proposals.map((p) => ({ ...p, status: statuses[p.id] ?? p.status })),
+      proposals: DETAIL.meeting.proposals.map((p) => ({
+        ...p,
+        status: statuses[p.id] ?? p.status,
+      })),
     },
   })
 
@@ -329,11 +386,13 @@ describe('proposal actions', () => {
     const btn = await screen.findByTestId('meeting-accept-standup#1')
     data.details = { standup: detailWith({ 'standup#1': 'accepted' }) }
     fireEvent.click(btn)
-    await waitFor(() => expect(show).toHaveBeenCalledWith(expect.objectContaining({ message: 'Added T16 to Eva.' })))
     await waitFor(() =>
-      expect(within(screen.getByTestId('meeting-remembered')).getByTestId('proposal-status-standup#1')).toHaveTextContent(
-        'Accepted',
-      ),
+      expect(show).toHaveBeenCalledWith(expect.objectContaining({ message: 'Added T16 to Eva.' })),
+    )
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId('meeting-remembered')).getByTestId('proposal-status-standup#1'),
+      ).toHaveTextContent('Accepted'),
     )
   })
 
@@ -344,8 +403,12 @@ describe('proposal actions', () => {
     const btn = await screen.findByTestId('meeting-dismiss-standup#2')
     data.details = { standup: detailWith({ 'standup#2': 'dismissed' }) }
     fireEvent.click(btn)
-    await waitFor(() => expect(show).toHaveBeenCalledWith(expect.objectContaining({ message: 'Dismissed.' })))
-    await waitFor(() => expect(screen.getByTestId('proposal-status-standup#2')).toHaveTextContent('Dismissed'))
+    await waitFor(() =>
+      expect(show).toHaveBeenCalledWith(expect.objectContaining({ message: 'Dismissed.' })),
+    )
+    await waitFor(() =>
+      expect(screen.getByTestId('proposal-status-standup#2')).toHaveTextContent('Dismissed'),
+    )
   })
 
   it('shows the changed-on-disk alert with Reload, and the partial-accept message', async () => {
@@ -355,22 +418,31 @@ describe('proposal actions', () => {
     fireEvent.click(await screen.findByTestId('meeting-accept-standup#1'))
     const alert = await screen.findByTestId('meeting-refusal-standup#1')
     expect(alert).toHaveAttribute('role', 'alert')
-    expect(alert).toHaveTextContent('work/meetings/standup.json changed on disk. Reload the meeting and try again.')
+    expect(alert).toHaveTextContent(
+      'work/meetings/standup.json changed on disk. Reload the meeting and try again.',
+    )
     const before = invoke.mock.calls.filter((c) => c[0] === 'meetings.get').length
     fireEvent.click(screen.getByTestId('meeting-reload-standup#1'))
     await waitFor(() =>
-      expect(invoke.mock.calls.filter((c) => c[0] === 'meetings.get').length).toBeGreaterThan(before),
+      expect(invoke.mock.calls.filter((c) => c[0] === 'meetings.get').length).toBeGreaterThan(
+        before,
+      ),
     )
     expect(screen.queryByTestId('meeting-refusal-standup#1')).toBeNull()
 
     respond({
       'meetings.accept': {
         ok: false,
-        error: { code: 'partial-accept', message: 'Added T16 but could not mark the proposal accepted. Reload the meeting.' },
+        error: {
+          code: 'partial-accept',
+          message: 'Added T16 but could not mark the proposal accepted. Reload the meeting.',
+        },
       },
     })
     fireEvent.click(screen.getByTestId('meeting-accept-standup#2'))
-    expect(await screen.findByTestId('meeting-refusal-standup#2')).toHaveTextContent('Added T16 but could not')
+    expect(await screen.findByTestId('meeting-refusal-standup#2')).toHaveTextContent(
+      'Added T16 but could not',
+    )
   })
 
   it('Home waiting rows carry the actions and drop after success', async () => {
@@ -380,7 +452,10 @@ describe('proposal actions', () => {
     expect(screen.getByTestId('meeting-accept-planning#2')).toBeInTheDocument()
     data.list = {
       ...LIST,
-      digest: { ...LIST.digest, waiting: LIST.digest.waiting.filter((w) => w.proposal.id !== 'planning#2') },
+      digest: {
+        ...LIST.digest,
+        waiting: LIST.digest.waiting.filter((w) => w.proposal.id !== 'planning#2'),
+      },
     }
     fireEvent.click(btn)
     await waitFor(() => expect(screen.queryByTestId('proposal-planning#2')).toBeNull())

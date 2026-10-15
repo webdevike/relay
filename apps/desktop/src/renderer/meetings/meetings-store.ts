@@ -112,9 +112,7 @@ export async function loadMeeting(stem: string): Promise<void> {
   }
 }
 
-export type ProposalResult =
-  | { ok: true }
-  | { ok: false; code: string; message: string }
+export type ProposalResult = { ok: true } | { ok: false; code: string; message: string }
 
 function workspaceName(tag: string): string {
   return tag === 'eva' ? 'Eva' : (workspaceTitle(tag) ?? tag)
@@ -127,7 +125,8 @@ async function afterWrite(stem: string): Promise<void> {
 
 async function act(
   stem: string,
-  run: () => ReturnType<typeof invoke<'meetings.accept'>> | ReturnType<typeof invoke<'meetings.dismiss'>>,
+  run: () =>
+    ReturnType<typeof invoke<'meetings.accept'>> | ReturnType<typeof invoke<'meetings.dismiss'>>,
   toast: (value: never) => string,
 ): Promise<ProposalResult> {
   let r

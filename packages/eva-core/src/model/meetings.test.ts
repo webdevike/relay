@@ -46,12 +46,33 @@ function record(stem: string, start: string): string {
 
 function mk(stem: string, start: string | null, over: Partial<Meeting> = {}): Meeting {
   return {
-    stem, title: '', start, notes: null, skipped: false, skippedReason: null,
-    proposals: [], memorized: [], ...over,
+    stem,
+    title: '',
+    start,
+    notes: null,
+    skipped: false,
+    skippedReason: null,
+    proposals: [],
+    memorized: [],
+    ...over,
   }
 }
-function prop(id: string, status: Proposal['status'] = 'proposed', over: Partial<Proposal> = {}): Proposal {
-  return { id, kind: 'todo', text: 't', workspace: null, item: null, p: null, source: null, status, ...over }
+function prop(
+  id: string,
+  status: Proposal['status'] = 'proposed',
+  over: Partial<Proposal> = {},
+): Proposal {
+  return {
+    id,
+    kind: 'todo',
+    text: 't',
+    workspace: null,
+    item: null,
+    p: null,
+    source: null,
+    status,
+    ...over,
+  }
 }
 
 describe('parse and sort', () => {
@@ -61,7 +82,12 @@ describe('parse and sort', () => {
     const c = parseMeeting('undated-a', record('z', 'soon'))!
     const d = parseMeeting('undated-b', record('z', 'soon'))!
     expect(a.stem).toBe('older')
-    expect(sortMeetings([c, a, d, b]).map((m) => m.stem)).toEqual(['newer', 'older', 'undated-b', 'undated-a'])
+    expect(sortMeetings([c, a, d, b]).map((m) => m.stem)).toEqual([
+      'newer',
+      'older',
+      'undated-b',
+      'undated-a',
+    ])
     expect(parseMeeting('bad', '{ nope')).toBeNull()
     expect(parseMeeting('arr', '[]')).toBeNull()
     expect(b.proposals[0]!.item).toBe('ENG-2075')
@@ -81,7 +107,10 @@ describe('skipped, title, pending', () => {
   it('falls back to the stem and counts pending', () => {
     expect(displayTitle(mk('abc', null))).toBe('abc')
     expect(displayTitle(mk('abc', null, { title: 'Hi' }))).toBe('Hi')
-    const m = parseMeeting('p', '{"proposals":[{"id":"1","status":"weird"},{"id":"2"},{"id":"3","status":"accepted"}]}')!
+    const m = parseMeeting(
+      'p',
+      '{"proposals":[{"id":"1","status":"weird"},{"id":"2"},{"id":"3","status":"accepted"}]}',
+    )!
     expect(pendingProposals(m)).toBe(2)
   })
 })
@@ -126,7 +155,12 @@ describe('digest', () => {
     const now = new Date('2026-10-07T18:00:00Z')
     const newest = mk('newest', '2026-10-07T15:30:00Z', {
       memorized: [
-        { kind: 'availability', text: 'Steve: out until the 18th. (2026-10-18)', where: [], p: null },
+        {
+          kind: 'availability',
+          text: 'Steve: out until the 18th. (2026-10-18)',
+          where: [],
+          p: null,
+        },
         { kind: 'availability', text: 'Ann: out until the 2nd. (2026-10-02)', where: [], p: null },
         { kind: 'decision', text: 'Ship it.', where: [], p: null },
       ],
@@ -166,11 +200,19 @@ describe('digest', () => {
 
 describe('todoText', () => {
   it('prefixes tickets and tags', () => {
-    expect(todoText(prop('1', 'proposed', { kind: 'ticket', text: ' Rate limits ' }), 'Standup', '2026-10-07')).toEqual({
+    expect(
+      todoText(
+        prop('1', 'proposed', { kind: 'ticket', text: ' Rate limits ' }),
+        'Standup',
+        '2026-10-07',
+      ),
+    ).toEqual({
       tag: 'eva',
       text: 'Draft ticket: Rate limits (from meeting Standup, 2026-10-07)',
     })
-    expect(todoText(prop('1', 'proposed', { workspace: ' ecardsystems ' }), 'Standup', '').tag).toBe('ecardsystems')
+    expect(
+      todoText(prop('1', 'proposed', { workspace: ' ecardsystems ' }), 'Standup', '').tag,
+    ).toBe('ecardsystems')
     expect(todoText(prop('1'), 'Standup', '').text).toBe('t (from meeting Standup)')
   })
 })
@@ -184,14 +226,20 @@ describe('setProposalStatus', () => {
     expected.proposals[1].status = 'dismissed'
     expect(JSON.parse(out)).toEqual(expected)
     expect(Object.keys(JSON.parse(out))).toEqual(Object.keys(JSON.parse(src)))
-    expect(Object.keys(JSON.parse(out).proposals[0])).toEqual(Object.keys(JSON.parse(src).proposals[0]))
+    expect(Object.keys(JSON.parse(out).proposals[0])).toEqual(
+      Object.keys(JSON.parse(src).proposals[0]),
+    )
     expect(out).toBe(`${JSON.stringify(expected, null, 2)}\n`)
     expect(out.includes('\n  "extra"')).toBe(true)
   })
   it('refuses non-proposed and unknown', () => {
     const src = setProposalStatus(record(STEM, '2026-10-07T15:30:00.000Z'), `${STEM}#1`, 'accepted')
-    expect(() => setProposalStatus(src, `${STEM}#1`, 'dismissed')).toThrow(expect.objectContaining({ code: 'not-proposed' }))
-    expect(() => setProposalStatus(src, 'nope', 'accepted')).toThrow(expect.objectContaining({ code: 'not-found' }))
+    expect(() => setProposalStatus(src, `${STEM}#1`, 'dismissed')).toThrow(
+      expect.objectContaining({ code: 'not-proposed' }),
+    )
+    expect(() => setProposalStatus(src, 'nope', 'accepted')).toThrow(
+      expect.objectContaining({ code: 'not-found' }),
+    )
   })
 })
 

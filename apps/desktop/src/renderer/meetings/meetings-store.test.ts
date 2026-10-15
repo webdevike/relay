@@ -16,7 +16,15 @@ import {
 const listValue = (title = 'Daily standup') => ({
   now: 1,
   meetings: [
-    { stem: 'standup', title, start: null, skipped: false, skippedReason: null, pending: 0, hasNotes: false },
+    {
+      stem: 'standup',
+      title,
+      start: null,
+      skipped: false,
+      skippedReason: null,
+      pending: 0,
+      hasNotes: false,
+    },
   ],
   digest: { recentCount: 0, waiting: [], out: [], decisions: [] },
 })
@@ -56,7 +64,10 @@ describe('meetingsStore', () => {
   })
 
   it('caches details per stem and refreshes them on reload', async () => {
-    const detail = (n: number) => ({ ok: true, value: { meeting: null, notes: 'none', protocol: null, n } })
+    const detail = (n: number) => ({
+      ok: true,
+      value: { meeting: null, notes: 'none', protocol: null, n },
+    })
     invoke.mockImplementation(async (ch: string) =>
       ch === 'meetings.list' ? { ok: true, value: listValue() } : detail(invoke.mock.calls.length),
     )

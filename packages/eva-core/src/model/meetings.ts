@@ -114,7 +114,8 @@ export function parseMeeting(stem: string, jsonText: string): Meeting | null {
     start: strOrNull(raw.start),
     notes: strOrNull(raw.notes),
     skipped: isSkipped(raw.skipped),
-    skippedReason: typeof raw.skipped === 'string' && raw.skipped.trim() !== '' ? raw.skipped : null,
+    skippedReason:
+      typeof raw.skipped === 'string' && raw.skipped.trim() !== '' ? raw.skipped : null,
     proposals: list(raw.proposals, parseProposal),
     memorized: list(raw.memorized, parseMemory),
   }
@@ -158,7 +159,11 @@ const SIDEBAR = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric
 const RUST = new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
 
 /** Today, Yesterday, else `Sep 14` (sidebar) or `Mon, Oct 5` (rust); null key is Undated. */
-export function dayLabel(key: string | null, today: string, style: DayLabelStyle = 'sidebar'): string {
+export function dayLabel(
+  key: string | null,
+  today: string,
+  style: DayLabelStyle = 'sidebar',
+): string {
   if (key === null) return 'Undated'
   if (key === today) return 'Today'
   if (key === addDays(today, -1)) return 'Yesterday'
@@ -201,7 +206,8 @@ export function filterByTitle(
 ): { meetings: Meeting[]; forceTestsOpen: boolean } {
   const q = query.trim().toLowerCase()
   return {
-    meetings: q === '' ? [...meetings] : meetings.filter((m) => displayTitle(m).toLowerCase().includes(q)),
+    meetings:
+      q === '' ? [...meetings] : meetings.filter((m) => displayTitle(m).toLowerCase().includes(q)),
     forceTestsOpen: q !== '',
   }
 }
@@ -246,7 +252,12 @@ export function digest(meetings: readonly Meeting[], now: Date): Digest {
 
 /** The home subtext, e.g. `3 meetings this week. 7 action items waiting on you.` */
 export function digestLine(recent: number, waiting: number): string {
-  const a = recent === 0 ? 'No meetings this week.' : recent === 1 ? '1 meeting this week.' : `${recent} meetings this week.`
+  const a =
+    recent === 0
+      ? 'No meetings this week.'
+      : recent === 1
+        ? '1 meeting this week.'
+        : `${recent} meetings this week.`
   const b =
     waiting === 0
       ? 'Nothing waiting on you.'
@@ -257,11 +268,18 @@ export function digestLine(recent: number, waiting: number): string {
 }
 
 /** Todo tag and text for accepting a proposal; `localDay` is the meeting's local YYYY-MM-DD or ''. */
-export function todoText(p: Proposal, meetingTitle: string, localDay: string): { tag: string; text: string } {
+export function todoText(
+  p: Proposal,
+  meetingTitle: string,
+  localDay: string,
+): { tag: string; text: string } {
   const ws = p.workspace?.trim()
   const prefix = p.kind === 'ticket' ? 'Draft ticket: ' : ''
   const from = localDay === '' ? meetingTitle : `${meetingTitle}, ${localDay}`
-  return { tag: ws ? ws : DEFAULT_WORKSPACE, text: `${prefix}${p.text.trim()} (from meeting ${from})` }
+  return {
+    tag: ws ? ws : DEFAULT_WORKSPACE,
+    text: `${prefix}${p.text.trim()} (from meeting ${from})`,
+  }
 }
 
 /**
@@ -280,10 +298,15 @@ export function setProposalStatus(
     throw new MeetingError('invalid-record', 'The meeting record is not valid JSON.')
   }
   const proposals = isObj(record) && Array.isArray(record.proposals) ? record.proposals : []
-  const proposal = proposals.find((p): p is Record<string, unknown> => isObj(p) && p.id === proposalId)
+  const proposal = proposals.find(
+    (p): p is Record<string, unknown> => isObj(p) && p.id === proposalId,
+  )
   if (!proposal) throw new MeetingError('not-found', `No proposal ${proposalId}.`)
   if (statusOf(proposal.status) !== 'proposed') {
-    throw new MeetingError('not-proposed', `Proposal ${proposalId} is already ${String(proposal.status)}.`)
+    throw new MeetingError(
+      'not-proposed',
+      `Proposal ${proposalId} is already ${String(proposal.status)}.`,
+    )
   }
   proposal.status = status
   return `${JSON.stringify(record, null, 2)}\n`

@@ -63,7 +63,9 @@ test('Accept todo appends the row, marks the proposal and moves it to Remembered
   await expect(
     shell.locator(sel('meeting-remembered')).locator(q('proposal-standup#1')),
   ).toContainText('Accepted')
-  await expect(shell.locator(sel('meeting-for-you')).locator(q('proposal-standup#1'))).toHaveCount(0)
+  await expect(shell.locator(sel('meeting-for-you')).locator(q('proposal-standup#1'))).toHaveCount(
+    0,
+  )
   await expect(shell.locator(sel('count-tasks'))).toHaveText(String(EXPECT_P3.openTodos + 1))
   await proofShot(app, shell, 'meeting-accepted', PHASE)
 })

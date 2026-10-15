@@ -154,19 +154,21 @@ export interface PickItem {
 /** Overlay picker: habits, then open tasks. */
 export function pickItems(habits: readonly GateHabit[], tasks: readonly GateTask[]): PickItem[] {
   return [
-    ...habits.map(
-      (h): PickItem => ({ id: h.id, name: h.name, meta: `${h.minutes} min`, photo: h.photo, kind: 'habit' }),
-    ),
+    ...habits.map((h): PickItem => ({
+      id: h.id,
+      name: h.name,
+      meta: `${h.minutes} min`,
+      photo: h.photo,
+      kind: 'habit',
+    })),
     ...tasks
       .filter((t) => !t.done)
-      .map(
-        (t): PickItem => ({
-          id: t.id,
-          name: t.name,
-          meta: t.minutes === null ? 'Task' : `Task, ${t.minutes} min`,
-          photo: false,
-          kind: 'task',
-        }),
-      ),
+      .map((t): PickItem => ({
+        id: t.id,
+        name: t.name,
+        meta: t.minutes === null ? 'Task' : `Task, ${t.minutes} min`,
+        photo: false,
+        kind: 'task',
+      })),
   ]
 }

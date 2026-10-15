@@ -43,7 +43,10 @@ export function readMeetings(root: string): Meeting[] {
 }
 
 /** One record and its raw text, or null for a bad stem, a missing file or invalid JSON. */
-export function readMeetingFile(root: string, stem: string): { meeting: Meeting; text: string } | null {
+export function readMeetingFile(
+  root: string,
+  stem: string,
+): { meeting: Meeting; text: string } | null {
   if (!STEM_RE.test(stem)) return null
   const path = join(meetingsDir(root), `${stem}.json`)
   try {

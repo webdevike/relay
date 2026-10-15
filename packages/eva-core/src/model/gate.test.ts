@@ -13,15 +13,28 @@ import {
 } from './gate'
 
 const h = (over: Partial<GateHistory>): GateHistory => ({
-  kind: 'habit', id: 'walk', name: 'Walk', startedAt: null, doneAt: '2026-10-12T15:15:00.000Z',
-  photo: null, override: null, ...over,
+  kind: 'habit',
+  id: 'walk',
+  name: 'Walk',
+  startedAt: null,
+  doneAt: '2026-10-12T15:15:00.000Z',
+  photo: null,
+  override: null,
+  ...over,
 })
 const HISTORY: GateHistory[] = [
   h({ doneAt: '2026-10-12T15:15:00.000Z', startedAt: '2026-10-12T15:00:00.000Z' }),
   h({ doneAt: '2026-10-11T15:15:00.000Z', startedAt: '2026-10-11T15:00:00.000Z' }),
   h({ doneAt: '2026-10-09T15:15:00.000Z', startedAt: '2026-10-09T15:00:00.000Z' }),
   h({ kind: 'override', doneAt: '2026-10-13T15:15:00.000Z', override: 'call' }),
-  h({ kind: 'override', id: '', name: 'Override', startedAt: '2026-10-13T16:00:00.000Z', doneAt: '2026-10-13T16:01:00.000Z', override: 'incident' }),
+  h({
+    kind: 'override',
+    id: '',
+    name: 'Override',
+    startedAt: '2026-10-13T16:00:00.000Z',
+    doneAt: '2026-10-13T16:01:00.000Z',
+    override: 'incident',
+  }),
 ]
 const day = (iso: string): string => localDate(new Date(iso))
 
@@ -111,16 +124,48 @@ describe('gateArgs', () => {
   it('builds every subcommand', () => {
     expect(gateArgs({ action: 'status' })).toEqual(['status'])
     expect(gateArgs({ action: 'start', id: 'walk' })).toEqual(['start', 'walk'])
-    expect(gateArgs({ action: 'done', id: 'walk', photo: '/tmp/p.jpg' })).toEqual(['done', 'walk', '--photo', '/tmp/p.jpg'])
+    expect(gateArgs({ action: 'done', id: 'walk', photo: '/tmp/p.jpg' })).toEqual([
+      'done',
+      'walk',
+      '--photo',
+      '/tmp/p.jpg',
+    ])
     expect(gateArgs({ action: 'done', id: 'walk', photo: null })).toEqual(['done', 'walk'])
     expect(gateArgs({ action: 'override', reason: ' fire ' })).toEqual(['override', 'fire'])
-    expect(gateArgs({ action: 'habit-add', name: 'Draw', minutes: 10, photo: true })).toEqual(['habit', 'add', 'Draw', '--minutes', '10', '--photo'])
-    expect(gateArgs({ action: 'habit-add', name: 'Draw', minutes: 10, photo: false })).toEqual(['habit', 'add', 'Draw', '--minutes', '10'])
-    expect(gateArgs({ action: 'habit-edit', id: 'draw', name: 'Draw 2', minutes: 10, photo: true })).toEqual(['habit', 'edit', 'draw', '--name=Draw 2', '--minutes', '10', '--photo'])
-    expect(gateArgs({ action: 'habit-edit', id: 'draw', name: 'Draw', minutes: 10, photo: false })).toEqual(['habit', 'edit', 'draw', '--name=Draw', '--minutes', '10', '--no-photo'])
+    expect(gateArgs({ action: 'habit-add', name: 'Draw', minutes: 10, photo: true })).toEqual([
+      'habit',
+      'add',
+      'Draw',
+      '--minutes',
+      '10',
+      '--photo',
+    ])
+    expect(gateArgs({ action: 'habit-add', name: 'Draw', minutes: 10, photo: false })).toEqual([
+      'habit',
+      'add',
+      'Draw',
+      '--minutes',
+      '10',
+    ])
+    expect(
+      gateArgs({ action: 'habit-edit', id: 'draw', name: 'Draw 2', minutes: 10, photo: true }),
+    ).toEqual(['habit', 'edit', 'draw', '--name=Draw 2', '--minutes', '10', '--photo'])
+    expect(
+      gateArgs({ action: 'habit-edit', id: 'draw', name: 'Draw', minutes: 10, photo: false }),
+    ).toEqual(['habit', 'edit', 'draw', '--name=Draw', '--minutes', '10', '--no-photo'])
     expect(gateArgs({ action: 'habit-rm', id: 'draw' })).toEqual(['habit', 'rm', 'draw'])
-    expect(gateArgs({ action: 'task-add', name: 'Taxes', minutes: null })).toEqual(['task', 'add', 'Taxes'])
-    expect(gateArgs({ action: 'task-add', name: 'Taxes', minutes: 30 })).toEqual(['task', 'add', 'Taxes', '--minutes', '30'])
+    expect(gateArgs({ action: 'task-add', name: 'Taxes', minutes: null })).toEqual([
+      'task',
+      'add',
+      'Taxes',
+    ])
+    expect(gateArgs({ action: 'task-add', name: 'Taxes', minutes: 30 })).toEqual([
+      'task',
+      'add',
+      'Taxes',
+      '--minutes',
+      '30',
+    ])
     expect(gateArgs({ action: 'task-rm', id: 'taxes' })).toEqual(['task', 'rm', 'taxes'])
   })
   it('rejects unsafe input', () => {

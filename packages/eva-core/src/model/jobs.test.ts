@@ -117,7 +117,12 @@ describe('parseDuration', () => {
 })
 
 describe('validateJob', () => {
-  const base = { mode: 'create' as const, settings: BLANK, steps: 'x', existingNames: [] as string[] }
+  const base = {
+    mode: 'create' as const,
+    settings: BLANK,
+    steps: 'x',
+    existingNames: [] as string[],
+  }
   it('checks names', () => {
     expect(validateJob({ ...base, name: '0-nightly' }).name).toBeUndefined()
     expect(validateJob({ ...base, name: 'Nightly' }).name).toBe(JOB_COPY.nameRule)
@@ -172,6 +177,8 @@ describe('labels', () => {
     expect(untilLabel(now + 120 * m, now)).toBe('in 2h')
   })
   it('copy has no em dashes', () => {
-    expect(JSON.stringify(JOB_COPY) + JOB_COPY.nameTaken('x')).not.toContain(String.fromCharCode(8212))
+    expect(JSON.stringify(JOB_COPY) + JOB_COPY.nameTaken('x')).not.toContain(
+      String.fromCharCode(8212),
+    )
   })
 })

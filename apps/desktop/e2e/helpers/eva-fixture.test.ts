@@ -32,7 +32,16 @@ describe('makeEvaFixture', () => {
     const d = new Date()
     const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
     expect(runs.some((r) => r.startsWith(`${today}T0300`))).toBe(true)
-    expect(fs.existsSync(path.join(fx.root, 'jobs/.runs/nightly', runs.find((r) => r !== 'last-run')!, 'status.json'))).toBe(true)
+    expect(
+      fs.existsSync(
+        path.join(
+          fx.root,
+          'jobs/.runs/nightly',
+          runs.find((r) => r !== 'last-run')!,
+          'status.json',
+        ),
+      ),
+    ).toBe(true)
   })
 
   it('resolves dates relative to opts.now', () => {
@@ -42,7 +51,13 @@ describe('makeEvaFixture', () => {
     expect(j).toContain('## 2026-10-14 — [relay] Relay notes')
     const rec = JSON.parse(fx.read('work/meetings/standup.json'))
     const start = new Date(rec.start)
-    expect([start.getFullYear(), start.getMonth(), start.getDate(), start.getHours(), start.getMinutes()]).toEqual([2026, 9, 15, 9, 30])
+    expect([
+      start.getFullYear(),
+      start.getMonth(),
+      start.getDate(),
+      start.getHours(),
+      start.getMinutes(),
+    ]).toEqual([2026, 9, 15, 9, 30])
     expect(path.isAbsolute(rec.notes)).toBe(true)
     expect(rec.notes.startsWith(fx.root)).toBe(true)
     expect(fs.existsSync(rec.notes)).toBe(true)
@@ -81,7 +96,10 @@ describe('makeEvaFixture', () => {
       pendingProposals: 3,
       meetingsThisWeek: 2,
     })
-    const readme = fs.readFileSync(path.join(__dirname, '../../../../fixtures/eva-p3/README.md'), 'utf8')
+    const readme = fs.readFileSync(
+      path.join(__dirname, '../../../../fixtures/eva-p3/README.md'),
+      'utf8',
+    )
     expect(readme).toContain('T16')
     expect(readme).toContain('Quiet 2')
   })
@@ -98,7 +116,9 @@ describe('buildLaunchEnv fake defaults', () => {
       expect(env.FAKE_GATE_STATE).toBe('/tmp/cfg/fake-gate.json')
       expect(env.FAKE_GATE_PHOTOS).toBe('/tmp/cfg/habit-photos')
       expect(env.EVAOS_HABIT_PHOTOS_DIR).toBe('/tmp/cfg/habit-photos')
-      expect(buildLaunchEnv('/tmp/cfg', { FAKE_GATE_SCENARIO: 'locked' }).FAKE_GATE_SCENARIO).toBe('locked')
+      expect(buildLaunchEnv('/tmp/cfg', { FAKE_GATE_SCENARIO: 'locked' }).FAKE_GATE_SCENARIO).toBe(
+        'locked',
+      )
     } finally {
       delete process.env.EVAOS_LIVE
     }

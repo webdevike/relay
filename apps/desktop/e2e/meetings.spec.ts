@@ -90,7 +90,9 @@ test('meeting detail shows the overview, transcript and opens the notes', async 
   await expect(shell.locator(sel('meeting-attendees'))).toContainText('Priya')
   await expect(page).toContainText('The team reviewed the beta build')
   await expect(page.getByRole('heading', { name: 'Decisions' })).toBeVisible()
-  await expect(shell.locator(sel('meeting-for-you')).locator('[data-testid^=proposal-]')).toHaveCount(2)
+  await expect(
+    shell.locator(sel('meeting-for-you')).locator('[data-testid^=proposal-]'),
+  ).toHaveCount(2)
   const remembered = shell.locator(sel('meeting-remembered'))
   await expect(remembered).toContainText('Book the room')
   await expect(remembered).toContainText('Accepted')

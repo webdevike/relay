@@ -101,7 +101,12 @@ describe('parseProtocol', () => {
     const p = parseProtocol('# Title\n---\n## Other\nstuff\n## Summary\nok')
     expect(p.summary).toEqual(['ok'])
     expect(parseProtocol('')).toEqual({
-      attendees: [], attendeesSource: null, summary: [], decisions: [], questions: [], transcript: [],
+      attendees: [],
+      attendeesSource: null,
+      summary: [],
+      decisions: [],
+      questions: [],
+      transcript: [],
     })
   })
 })

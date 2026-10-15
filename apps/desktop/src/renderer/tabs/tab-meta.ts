@@ -41,7 +41,8 @@ export function tabTitle(place: Place): string {
     return workspaceTitle(id) ?? id
   }
   if (place.page.startsWith('board:')) return place.page.slice('board:'.length)
-  if (place.page === 'meetings' && place.meeting) return meetingTitle(place.meeting) ?? place.meeting
+  if (place.page === 'meetings' && place.meeting)
+    return meetingTitle(place.meeting) ?? place.meeting
   return TITLES[place.page] ?? place.page
 }
 

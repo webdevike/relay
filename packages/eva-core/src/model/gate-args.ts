@@ -66,19 +66,30 @@ export function gateArgs(a: GateAction): string[] {
       return ['override', text('Reason', a.reason)]
     case 'habit-add':
       return [
-        'habit', 'add', text('Name', a.name), '--minutes', minutes(a.minutes),
+        'habit',
+        'add',
+        text('Name', a.name),
+        '--minutes',
+        minutes(a.minutes),
         ...(a.photo ? ['--photo'] : []),
       ]
     case 'habit-edit':
       return [
-        'habit', 'edit', id(a.id), `--name=${text('Name', a.name)}`, '--minutes', minutes(a.minutes),
+        'habit',
+        'edit',
+        id(a.id),
+        `--name=${text('Name', a.name)}`,
+        '--minutes',
+        minutes(a.minutes),
         a.photo ? '--photo' : '--no-photo',
       ]
     case 'habit-rm':
       return ['habit', 'rm', id(a.id)]
     case 'task-add':
       return [
-        'task', 'add', text('Name', a.name),
+        'task',
+        'add',
+        text('Name', a.name),
         ...(a.minutes === null ? [] : ['--minutes', minutes(a.minutes)]),
       ]
     case 'task-rm':

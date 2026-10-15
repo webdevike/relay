@@ -11,7 +11,10 @@ function tree(): string {
   fs.mkdirSync(path.join(root, 'memory'))
   fs.writeFileSync(path.join(root, 'workspaces', 'flo.md'), '# Flo\n\nA tagline.\n')
   fs.writeFileSync(path.join(root, 'workspaces', 'relay.md'), '# Relay\n\nShip it.\n')
-  fs.writeFileSync(path.join(root, 'memory', 'todos.md'), '# Todos\n\n## Open\n\n- [ ] T1 [relay] Do a thing\n')
+  fs.writeFileSync(
+    path.join(root, 'memory', 'todos.md'),
+    '# Todos\n\n## Open\n\n- [ ] T1 [relay] Do a thing\n',
+  )
   fs.writeFileSync(path.join(root, 'memory', 'journal.md'), '')
   return root
 }

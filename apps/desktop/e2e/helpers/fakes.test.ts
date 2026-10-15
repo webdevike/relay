@@ -41,7 +41,19 @@ describe('fake gate', () => {
     const { code, json } = gate(['status'])
     expect(code).toBe(0)
     expect(json.locked).toBe(false)
-    for (const k of ['lockedAt', 'reason', 'active', 'plan', 'history', 'habits', 'tasks', 'schedule', 'canFinish', 'remainingSeconds', 'blocked']) {
+    for (const k of [
+      'lockedAt',
+      'reason',
+      'active',
+      'plan',
+      'history',
+      'habits',
+      'tasks',
+      'schedule',
+      'canFinish',
+      'remainingSeconds',
+      'blocked',
+    ]) {
       expect(json).toHaveProperty(k)
     }
     expect(json.habits.map((h: { id: string }) => h.id)).toEqual(['stretch', 'walk'])
@@ -95,12 +107,23 @@ describe('fake gate', () => {
 
   it('habit and task management with de-duplicated slugs', () => {
     const a = gate(['habit', 'add', 'Read --x', '--minutes', '15', '--photo'])
-    expect(a.json.habits.at(-1)).toEqual({ id: 'read-x', name: 'Read --x', minutes: 15, photo: true })
+    expect(a.json.habits.at(-1)).toEqual({
+      id: 'read-x',
+      name: 'Read --x',
+      minutes: 15,
+      photo: true,
+    })
     const b = gate(['habit', 'add', 'Read x', '--minutes', '5'])
     expect(b.json.habits.at(-1).id).toBe('read-x-2')
     const e = gate(['habit', 'edit', 'read-x', '--name=Reading', '--minutes', '20', '--no-photo'])
-    expect(e.json.habits.find((h: { id: string }) => h.id === 'read-x')).toMatchObject({ name: 'Reading', minutes: 20, photo: false })
-    expect(gate(['habit', 'rm', 'read-x']).json.habits.some((h: { id: string }) => h.id === 'read-x')).toBe(false)
+    expect(e.json.habits.find((h: { id: string }) => h.id === 'read-x')).toMatchObject({
+      name: 'Reading',
+      minutes: 20,
+      photo: false,
+    })
+    expect(
+      gate(['habit', 'rm', 'read-x']).json.habits.some((h: { id: string }) => h.id === 'read-x'),
+    ).toBe(false)
     const t = gate(['task', 'add', 'Mail', 'package'])
     expect(t.json.tasks.at(-1)).toMatchObject({ id: 'mail-package', minutes: null, done: false })
     expect(gate(['task', 'rm', 'mail-package']).json.tasks.length).toBe(1)
@@ -113,7 +136,11 @@ describe('fake gate', () => {
     const r = gate(['status'])
     expect(r.code).toBe(1)
     expect(r.json.error).toBe('simulated failure')
-    const lines = fs.readFileSync(path.join(dir, 'log.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+    const lines = fs
+      .readFileSync(path.join(dir, 'log.jsonl'), 'utf8')
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l))
     expect(lines.length).toBe(2)
     expect(lines[0]).toMatchObject({ tool: 'gate', argv: ['status', '--json'] })
   })
@@ -121,7 +148,11 @@ describe('fake gate', () => {
 
 describe('fake job-run', () => {
   const run = (args: string[], extra: Record<string, string>) =>
-    spawnSync(process.execPath, [FAKE_JOB_RUN, ...args], { cwd: dir, env: env(extra), encoding: 'utf8' })
+    spawnSync(process.execPath, [FAKE_JOB_RUN, ...args], {
+      cwd: dir,
+      env: env(extra),
+      encoding: 'utf8',
+    })
 
   it('creates then removes the lock and leaves status and last-run', async () => {
     fs.mkdirSync(path.join(dir, 'jobs/.runs'), { recursive: true })
@@ -136,18 +167,28 @@ describe('fake job-run', () => {
     expect(fs.existsSync(lock)).toBe(true)
     expect(await done).toBe(0)
     expect(fs.existsSync(lock)).toBe(false)
-    const runs = fs.readdirSync(path.join(dir, 'jobs/.runs/nightly')).filter((n) => n !== 'last-run')
+    const runs = fs
+      .readdirSync(path.join(dir, 'jobs/.runs/nightly'))
+      .filter((n) => n !== 'last-run')
     expect(runs).toHaveLength(1)
-    const status = JSON.parse(fs.readFileSync(path.join(dir, 'jobs/.runs/nightly', runs[0], 'status.json'), 'utf8'))
+    const status = JSON.parse(
+      fs.readFileSync(path.join(dir, 'jobs/.runs/nightly', runs[0], 'status.json'), 'utf8'),
+    )
     expect(status.state).toBe('done')
-    expect(Number(fs.readFileSync(path.join(dir, 'jobs/.runs/nightly/last-run'), 'utf8'))).toBeGreaterThan(0)
+    expect(
+      Number(fs.readFileSync(path.join(dir, 'jobs/.runs/nightly/last-run'), 'utf8')),
+    ).toBeGreaterThan(0)
   })
 
   it('writes nothing without FAKE_JOB_RUN_WRITE and rejects bad names', () => {
     expect(run(['nightly'], {}).status).toBe(0)
     expect(fs.existsSync(path.join(dir, 'jobs'))).toBe(false)
     expect(run(['Bad_Name'], {}).status).toBe(2)
-    const log = fs.readFileSync(path.join(dir, 'log.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+    const log = fs
+      .readFileSync(path.join(dir, 'log.jsonl'), 'utf8')
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l))
     expect(log[0]).toMatchObject({ tool: 'job-run', argv: ['nightly'] })
   })
 })

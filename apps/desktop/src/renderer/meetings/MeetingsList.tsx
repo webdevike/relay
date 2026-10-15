@@ -31,15 +31,7 @@ function asMeeting(m: MeetingSummary): Meeting {
   }
 }
 
-function Row({
-  m,
-  active,
-  dim,
-}: {
-  m: MeetingSummary
-  active: boolean
-  dim?: boolean
-}) {
+function Row({ m, active, dim }: { m: MeetingSummary; active: boolean; dim?: boolean }) {
   const open = (e: MouseEvent): void =>
     openPlace(placeOf('meetings', { meeting: m.stem }), { newTab: e.metaKey })
   return (

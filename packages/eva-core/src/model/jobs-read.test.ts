@@ -97,7 +97,10 @@ describe('listJobs', () => {
   })
 
   it('derives description, schedule, next due and script', () => {
-    job('a', '---\nevery: 10m\nmax_run: 5m\nkeep: 0\nscript: ./go.sh\n---\n\n  First line  \n2. next\n')
+    job(
+      'a',
+      '---\nevery: 10m\nmax_run: 5m\nkeep: 0\nscript: ./go.sh\n---\n\n  First line  \n2. next\n',
+    )
     job('b', '---\nevery: 10m\nenabled: false\n---\nsteps\n')
     job('c', '---\nevery: 0m\n---\n')
     mkdirSync(join(root, 'jobs/.runs/a'), { recursive: true })
@@ -113,7 +116,12 @@ describe('listJobs', () => {
       nextDueAt: 601_000,
       hasScript: true,
     })
-    expect(by.b).toMatchObject({ enabled: false, scheduled: false, nextDueAt: null, hasScript: false })
+    expect(by.b).toMatchObject({
+      enabled: false,
+      scheduled: false,
+      nextDueAt: null,
+      hasScript: false,
+    })
     expect(by.c).toMatchObject({ description: null, scheduled: false, nextDueAt: null })
   })
 })

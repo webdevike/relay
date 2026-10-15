@@ -95,10 +95,7 @@ export function readJobRun(
   root: string,
   name: string,
   opts: JobsReadOpts = {},
-): Pick<
-  JobSummary,
-  'lastRunAt' | 'runState' | 'runStateRaw' | 'runNote' | 'sessionFile'
-> {
+): Pick<JobSummary, 'lastRunAt' | 'runState' | 'runStateRaw' | 'runNote' | 'sessionFile'> {
   const pidAlive = opts.pidAlive ?? defaultPidAlive
   const fileExists = opts.fileExists ?? existsSync
   const runs = join(root, 'jobs', '.runs')

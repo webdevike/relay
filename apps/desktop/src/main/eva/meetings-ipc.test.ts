@@ -3,7 +3,13 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { makeEvaFixture } from '../../../e2e/helpers/eva-fixture'
 import { createEvaFs, type EvaFs } from '@evaos/eva-core'
-import { meetingsAccept, meetingsDismiss, meetingsGet, meetingsList, meetingsOpenNotes } from './meetings-ipc'
+import {
+  meetingsAccept,
+  meetingsDismiss,
+  meetingsGet,
+  meetingsList,
+  meetingsOpenNotes,
+} from './meetings-ipc'
 
 const fixtures: Array<{ cleanup(): void }> = []
 const NOW = new Date(2026, 9, 15, 12, 0, 0)
@@ -21,7 +27,13 @@ afterEach(() => {
 describe('meetings.list', () => {
   it('lists, sorts and digests the fixture meetings', () => {
     const r = meetingsList(tmpRoot(), clock)
-    expect(r.meetings.map((m) => m.stem)).toEqual(['test-call', 'standup', 'planning', 'retro', 'undated'])
+    expect(r.meetings.map((m) => m.stem)).toEqual([
+      'test-call',
+      'standup',
+      'planning',
+      'retro',
+      'undated',
+    ])
     const by = (s: string) => r.meetings.find((m) => m.stem === s)!
     expect(by('test-call').skipped).toBe(true)
     expect(by('standup').pending).toBe(2)
@@ -60,7 +72,9 @@ describe('meetings.openNotes', () => {
   it('opens the resolved .md path with the checked options', async () => {
     const root = tmpRoot()
     const open = vi.fn(async () => {})
-    await expect(meetingsOpenNotes(root, 'standup', ['/h', root], open)).resolves.toEqual({ opened: true })
+    await expect(meetingsOpenNotes(root, 'standup', ['/h', root], open)).resolves.toEqual({
+      opened: true,
+    })
     expect(open).toHaveBeenCalledWith(path.join(root, 'work/meetings/notes/standup.md'), {
       allowRoots: ['/h', root],
       requireExt: '.md',
@@ -70,13 +84,17 @@ describe('meetings.openNotes', () => {
   it('refuses a missing, relative or non-md notes value', async () => {
     const root = tmpRoot()
     const open = vi.fn(async () => {})
-    await expect(meetingsOpenNotes(root, 'planning', [root], open)).rejects.toMatchObject({ code: 'no-notes' })
+    await expect(meetingsOpenNotes(root, 'planning', [root], open)).rejects.toMatchObject({
+      code: 'no-notes',
+    })
     const file = path.join(root, 'work/meetings/standup.json')
     const rec = JSON.parse(fs.readFileSync(file, 'utf8'))
     for (const bad of ['notes/standup.md', '/etc/passwd']) {
       rec.notes = bad
       fs.writeFileSync(file, JSON.stringify(rec))
-      await expect(meetingsOpenNotes(root, 'standup', [root], open)).rejects.toMatchObject({ code: 'no-notes' })
+      await expect(meetingsOpenNotes(root, 'standup', [root], open)).rejects.toMatchObject({
+        code: 'no-notes',
+      })
     }
     expect(open).not.toHaveBeenCalled()
   })
@@ -107,7 +125,9 @@ describe('meetings.accept and meetings.dismiss', () => {
     const root = tmpRoot()
     const r = await meetingsAccept(root, createEvaFs({ root }), clk, 'standup', 'standup#2')
     expect(r.tag).toBe('eva')
-    expect(rd(root, 'memory/todos.md')).toContain('[eva] Draft ticket: Crash on login (from meeting')
+    expect(rd(root, 'memory/todos.md')).toContain(
+      '[eva] Draft ticket: Crash on login (from meeting',
+    )
   })
 
   it('refuses a second accept and never duplicates under concurrency', async () => {
@@ -157,11 +177,20 @@ describe('meetings.accept and meetings.dismiss', () => {
     const root = tmpRoot()
     const evaFs = createEvaFs({ root })
     const todos = rd(root, 'memory/todos.md')
-    await expect(meetingsDismiss(root, evaFs, 'planning', 'planning#2')).resolves.toEqual({ status: 'dismissed' })
+    await expect(meetingsDismiss(root, evaFs, 'planning', 'planning#2')).resolves.toEqual({
+      status: 'dismissed',
+    })
     const rec = JSON.parse(rd(root, 'work/meetings/planning.json'))
-    expect(rec.proposals.map((p: { status: string }) => p.status)).toEqual(['dismissed', 'dismissed'])
+    expect(rec.proposals.map((p: { status: string }) => p.status)).toEqual([
+      'dismissed',
+      'dismissed',
+    ])
     expect(rd(root, 'memory/todos.md')).toBe(todos)
-    await expect(meetingsDismiss(root, evaFs, 'planning', 'planning#2')).rejects.toMatchObject({ code: 'not-proposed' })
-    await expect(meetingsDismiss(root, evaFs, 'nope', 'x#1')).rejects.toMatchObject({ code: 'not-found' })
+    await expect(meetingsDismiss(root, evaFs, 'planning', 'planning#2')).rejects.toMatchObject({
+      code: 'not-proposed',
+    })
+    await expect(meetingsDismiss(root, evaFs, 'nope', 'x#1')).rejects.toMatchObject({
+      code: 'not-found',
+    })
   })
 })

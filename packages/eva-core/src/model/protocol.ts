@@ -34,19 +34,17 @@ function attendeesOf(line: string): { names: string[]; source: string | null } {
     }
   }
   return {
-    names: rest.split(',').map((n) => n.trim()).filter((n) => n !== ''),
+    names: rest
+      .split(',')
+      .map((n) => n.trim())
+      .filter((n) => n !== ''),
     source,
   }
 }
 
 function isSpeaker(who: string): boolean {
   const w = who.trim()
-  return (
-    w !== '' &&
-    [...w].length <= 40 &&
-    w.split(/\s+/).length <= 4 &&
-    !/[.?!,"[\]]/.test(w)
-  )
+  return w !== '' && [...w].length <= 40 && w.split(/\s+/).length <= 4 && !/[.?!,"[\]]/.test(w)
 }
 
 function transcriptLine(line: string): TranscriptLine | null {
