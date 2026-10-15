@@ -8,7 +8,7 @@ Port EvaOS from Rust + gpui to Electron + React + TypeScript at README parity. T
 
 - [x] **Phase 1: Foundation, Harness and the Two Spikes** - Toolchain, EvaFs guard, proof harness, omp chat streaming spike, Chromium browser panel spike (completed 2026-10-15)
 - [x] **Phase 2: Shell, Navigation and Theme Tokens** - Three-column shell, sidebar, main tabs, hotkey router, overlay stack, CSS-variable theming (completed 2026-10-15)
-- [ ] **Phase 3: Dashboard, Workspaces, Jobs, Habits and Meetings** - Every Eva data page, New Todo, atomic job writes, gate overlay
+- [x] **Phase 3: Dashboard, Workspaces, Jobs, Habits and Meetings** - Every Eva data page, New Todo, atomic job writes, gate overlay (completed 2026-10-15)
 - [ ] **Phase 4: Chat Parity** - Session catalog, categories, composer, questions, subagents, writer registry, harness, transport ADR
 - [ ] **Phase 5: Rich Replies** - Streaming markdown, mermaid, diagram blocks and all 30 ui widgets with actions
 - [ ] **Phase 6: Side Panel, Eregon and Global Search** - Terminal, Files, Side chats, iOS Simulator, Eregon floating chats, instant search
@@ -138,48 +138,48 @@ Plans:
 **Wave 1** (Wave 0 foundations)
 
 - [x] 03-01-PLAN.md: EvaFs readStamp/edit/create with stale refusal, per-path queue, runner job-name rule, write scan over renderer and preload (wave 1)
-- [ ] 03-02-PLAN.md: Env seams (EVAOS_HABIT_GATE_BIN, EVAOS_JOB_RUN_BIN, EVAOS_NOW, EVAOS_HABIT_PHOTOS_DIR) and the spawn helper (wave 1)
-- [ ] 03-03-PLAN.md: Dated fixture root eva-p3, fake habit gate, fake job-run, makeEvaFixture and e2e launch defaults (wave 1)
-- [ ] 03-04-PLAN.md: Workspace, journal, todo and dashboard rules ported from Rust (wave 1)
-- [ ] 03-05-PLAN.md: JobDoc line editor, runner-parity validation, run-state reader (wave 1)
-- [ ] 03-06-PLAN.md: Gate presentation rules, habit-gate argv builder, meetings and protocol ports (wave 1)
-- [ ] 03-07-PLAN.md: Chart and watcher deps, hatch spike, shared ActivityChart, toasts bottom-right (wave 1)
-- [ ] 03-08-PLAN.md: Full Phase 3 IPC contract (eva, jobs, habits, meetings, eva.changed) (wave 1)
+- [x] 03-02-PLAN.md: Env seams (EVAOS_HABIT_GATE_BIN, EVAOS_JOB_RUN_BIN, EVAOS_NOW, EVAOS_HABIT_PHOTOS_DIR) and the spawn helper (wave 1)
+- [x] 03-03-PLAN.md: Dated fixture root eva-p3, fake habit gate, fake job-run, makeEvaFixture and e2e launch defaults (wave 1)
+- [x] 03-04-PLAN.md: Workspace, journal, todo and dashboard rules ported from Rust (wave 1)
+- [x] 03-05-PLAN.md: JobDoc line editor, runner-parity validation, run-state reader (wave 1)
+- [x] 03-06-PLAN.md: Gate presentation rules, habit-gate argv builder, meetings and protocol ports (wave 1)
+- [x] 03-07-PLAN.md: Chart and watcher deps, hatch spike, shared ActivityChart, toasts bottom-right (wave 1)
+- [x] 03-08-PLAN.md: Full Phase 3 IPC contract (eva, jobs, habits, meetings, eva.changed) (wave 1)
 
 **Wave 2**
 
-- [ ] 03-09-PLAN.md: Dashboard slice: data, reload seam (focus, refresh, Cmd+R), hero, charts, filters, grid, aside, e2e (wave 2)
+- [x] 03-09-PLAN.md: Dashboard slice: data, reload seam (focus, refresh, Cmd+R), hero, charts, filters, grid, aside, e2e (wave 2)
 
 **Wave 3**
 
-- [ ] 03-10-PLAN.md: Live change watch (chokidar narrow paths, eva.changed) (wave 3)
-- [ ] 03-11-PLAN.md: New Todo slice (Cmd+N, hero, EvaFs append after last open row) (wave 3)
+- [x] 03-10-PLAN.md: Live change watch (chokidar narrow paths, eva.changed) (wave 3)
+- [x] 03-11-PLAN.md: New Todo slice (Cmd+N, hero, EvaFs append after last open row) (wave 3)
 
 **Wave 4**
 
-- [ ] 03-12-PLAN.md: Workspace page slice, openPath gate, tab titles (wave 4)
+- [x] 03-12-PLAN.md: Workspace page slice, openPath gate, tab titles (wave 4)
 
 **Wave 5**
 
-- [ ] 03-13-PLAN.md: Jobs list slice with enabled switch and all jobs.* main handlers (wave 5)
+- [x] 03-13-PLAN.md: Jobs list slice with enabled switch and all jobs.* main handlers (wave 5)
 
 **Wave 6**
 
-- [ ] 03-14-PLAN.md: Job form: create, edit, stale refusal, Run now, open last session, delete (wave 6)
-- [ ] 03-15-PLAN.md: Habits page slice over the habit-gate CLI with 4 s polling and edits (wave 6)
+- [x] 03-14-PLAN.md: Job form: create, edit, stale refusal, Run now, open last session, delete (wave 6)
+- [x] 03-15-PLAN.md: Habits page slice over the habit-gate CLI with 4 s polling and edits (wave 6)
 
 **Wave 7**
 
-- [ ] 03-16-PLAN.md: Locked gate overlay (hides browser, chord lock, Start/Done/photo/Override) (wave 7)
-- [ ] 03-17-PLAN.md: Meetings slice: sidebar list, Home, Detail (wave 7)
+- [x] 03-16-PLAN.md: Locked gate overlay (hides browser, chord lock, Start/Done/photo/Override) (wave 7)
+- [x] 03-17-PLAN.md: Meetings slice: sidebar list, Home, Detail (wave 7)
 
 **Wave 8**
 
-- [ ] 03-18-PLAN.md: Meeting Accept and Dismiss through EvaFs (wave 8)
+- [x] 03-18-PLAN.md: Meeting Accept and Dismiss through EvaFs (wave 8)
 
 **Wave 9**
 
-- [ ] 03-19-PLAN.md: Cross-page tour, packaged smoke on fakes, full gate and proof index (wave 9)
+- [x] 03-19-PLAN.md: Cross-page tour, packaged smoke on fakes, full gate and proof index (wave 9)
 
 **UI hint**: yes
 
@@ -256,7 +256,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 1. Foundation, Harness and the Two Spikes | 10/10 | Complete   | 2026-10-15 |
 | 2. Shell, Navigation and Theme Tokens | 13/13 | Complete    | 2026-10-15 |
-| 3. Dashboard, Workspaces, Jobs, Habits and Meetings | 1/19 | In Progress|  |
+| 3. Dashboard, Workspaces, Jobs, Habits and Meetings | 19/19 | Complete    | 2026-10-15 |
 | 4. Chat Parity | 0/TBD | Not started | - |
 | 5. Rich Replies | 0/TBD | Not started | - |
 | 6. Side Panel, Eregon and Global Search | 0/TBD | Not started | - |
