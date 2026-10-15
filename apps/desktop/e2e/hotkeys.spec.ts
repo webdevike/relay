@@ -70,6 +70,12 @@ test('every README chord reaches the router and is logged', async ({ shell }) =>
     await focusShell(shell)
     await shell.keyboard.press(chord)
     await expect.poll(() => actions(shell), { message: chord }).toContain(action)
+    if (action === 'new-todo') {
+      // Cmd+N now opens the New Todo modal; close it so later chords reach the page scope.
+      await expect(shell.locator(sel('new-todo-text'))).toBeVisible()
+      await shell.keyboard.press('Escape')
+      await expect(shell.locator(sel('new-todo-text'))).toBeHidden()
+    }
   }
   const seen = await actions(shell)
   for (const [, action] of chords) expect(seen).toContain(action)
