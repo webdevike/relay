@@ -108,6 +108,15 @@ describe('SessionManager', () => {
     expect(transports[0]!.sentImages).toEqual([undefined, undefined])
   })
 
+  it('paneFiles lists bound panes and is live only while a transport exists', async () => {
+    const { mgr } = setup()
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    mgr.openDraft('pane-2', meta)
+    expect(mgr.paneFiles()).toEqual([{ paneId: 'pane-1', file: '/s/a.jsonl', live: false }])
+    await mgr.send('pane-1', 'hello')
+    expect(mgr.paneFiles()).toEqual([{ paneId: 'pane-1', file: '/s/a.jsonl', live: true }])
+  })
+
   it('an image-only send writes one untagged prompt (tagged() leaves blank text alone)', async () => {
     const { mgr, transports } = setup()
     mgr.open('pane-1', '/s/a.jsonl', [], meta)

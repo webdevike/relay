@@ -3,6 +3,7 @@ import { emit } from '../ipc/handle'
 import type { WriteQueue } from '../write-queue'
 import { ChatListService } from './chat-list'
 import { ChatWatch } from './chat-watch'
+import { ExtrasService } from './extras'
 import { registerChatListIpc } from './chat-list-ipc'
 import { createSessionManager, registerLiveIpc } from './live-ipc'
 import { registerTranscriptIpc } from './transcript-ipc'
@@ -16,9 +17,13 @@ const STATUS_COALESCE_MS = 30
 
 export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
   const manager = createSessionManager(ctx)
-  registerTranscriptIpc(ctx, (paneId, file, parsed) =>
-    manager.open(paneId, file, parsed.messages, parsed.meta),
-  )
+  const extras = new ExtrasService({ manager, emit: (e) => emit(ctx, 'chat.extras', e) })
+  registerTranscriptIpc(ctx, (paneId, file, parsed) => {
+    manager.open(paneId, file, parsed.messages, parsed.meta)
+    // The renderer starts a freshly opened pane with empty extras; main then fills them in.
+    extras.reset(paneId)
+    extras.refresh(paneId)
+  })
   registerLiveIpc(ctx, manager)
   const list = new ChatListService({
     sessionsDir: ctx.env.sessionsDir,
@@ -37,10 +42,12 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
   watch.onChange((files) => {
     for (const f of files) list.invalidate(f)
     emitList()
+    extras.onFilesChanged(files)
   })
   // The app's own sessions change status without any file change.
   let statusTimer: NodeJS.Timeout | null = null
   const offStatus = manager.onStatusChange(() => {
+    extras.refresh()
     if (statusTimer) return
     statusTimer = setTimeout(() => {
       statusTimer = null

@@ -151,6 +151,15 @@ export class SessionManager {
     return new Set(this.owners.keys())
   }
 
+  /** Panes bound to a session file; `live` while this app holds an omp process for the pane. */
+  paneFiles(): Array<{ paneId: string; file: string; live: boolean }> {
+    const out: Array<{ paneId: string; file: string; live: boolean }> = []
+    for (const p of this.panes.values()) {
+      if (p.file !== null) out.push({ paneId: p.paneId, file: p.file, live: p.transport !== null })
+    }
+    return out
+  }
+
   liveStatus(file: string): LiveStatus | null {
     const owner = this.owners.get(this.real(file))
     if (!owner) return null
