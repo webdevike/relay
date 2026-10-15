@@ -2,7 +2,7 @@
 // Source: gpui-component 0.7.0 theme/default-theme.json ("Default Dark"),
 // default-colors.json and the apply_config fallbacks in schema.rs.
 // gpui-component data is Apache-2.0 licensed.
-import type { ColorKey } from './keys.ts'
+import type { ColorKey } from './keys'
 
 export const BASE_DARK: Record<ColorKey, string> = {
   'accent.background': '#262626',

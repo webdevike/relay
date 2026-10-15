@@ -1,6 +1,6 @@
 // Copied verbatim from apps/evaos/assets/themes/evaos.json (EvaOS Light and EvaOS Dark).
 // The `highlight` block is ignored until Phase 7.
-import type { ColorKey } from './keys.ts'
+import type { ColorKey } from './keys'
 
 export interface BundledTheme {
   name: string
