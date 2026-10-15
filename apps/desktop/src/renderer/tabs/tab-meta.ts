@@ -1,4 +1,5 @@
 import type { Place } from '@evaos/shell-core'
+import { workspaceTitle } from '../eva/names-store'
 
 const TITLES: Record<string, string> = {
   dashboard: 'Dashboard',
@@ -35,13 +36,16 @@ const ICONS: Record<string, string> = {
 export function tabTitle(place: Place): string {
   if (place.page === 'chat') return 'New chat'
   if (place.page === 'settings') return `Settings: ${place.settingsSection}`
-  if (place.page.startsWith('workspace:')) return place.page.slice('workspace:'.length)
+  if (place.page.startsWith('workspace:')) {
+    const id = place.page.slice('workspace:'.length)
+    return workspaceTitle(id) ?? id
+  }
   if (place.page.startsWith('board:')) return place.page.slice('board:'.length)
   return TITLES[place.page] ?? place.page
 }
 
 export function tabIconName(place: Place): string {
-  if (place.page.startsWith('workspace:')) return 'IconFile'
+  if (place.page.startsWith('workspace:')) return 'IconFolder'
   if (place.page.startsWith('board:')) return 'IconListCheck'
   return ICONS[place.page] ?? 'IconFile'
 }

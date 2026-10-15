@@ -4,6 +4,7 @@ import { createElement } from 'react'
 import { DashboardPage } from '../dashboard/DashboardPage'
 import { pageMeta } from './page-meta'
 import { PlaceholderPage } from './PlaceholderPage'
+import { WorkspacePage } from '../workspace/WorkspacePage'
 import { SettingsPage } from '../settings/SettingsPage'
 
 export type PageRegistryKind = 'page' | 'settings' | 'workspace' | 'board' | 'meeting'
@@ -22,7 +23,7 @@ export function PageBySlug({ place }: { place: Place }) {
 export const pageRegistry: Record<PageRegistryKind, ComponentType<{ place: Place }>> = {
   page: PageBySlug,
   settings: SettingsPage,
-  workspace: PlaceholderPage,
+  workspace: WorkspacePage,
   board: PlaceholderPage,
   meeting: PlaceholderPage,
 }

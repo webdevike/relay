@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { placeOf } from '@evaos/shell-core'
+import { setWorkspaceNames } from '../eva/names-store'
 import { NAV_PAGES, pageMeta } from './page-meta'
 
 describe('page-meta', () => {
@@ -42,6 +43,8 @@ describe('page-meta', () => {
       slug: 'workspace',
       title: 'abc',
     })
+    setWorkspaceNames({ flo: 'Flo' })
+    expect(pageMeta(placeOf('workspace:flo')).title).toBe('Flo')
     expect(pageMeta(placeOf('board:b1'))).toMatchObject({
       kind: 'board',
       slug: 'board',

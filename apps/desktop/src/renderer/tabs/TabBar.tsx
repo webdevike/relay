@@ -8,6 +8,7 @@ import {
   IconCalendarTime,
   IconFile,
   IconFlame,
+  IconFolder,
   IconHelp,
   IconInbox,
   IconLayoutDashboard,
@@ -23,6 +24,7 @@ import {
   type Icon,
 } from '@tabler/icons-react'
 import { EvaMenu } from '../overlay'
+import { useNamesVersion } from '../eva/names-store'
 import { togglePanel, toggleSidebar, useLayout } from '../shell/layout-store'
 import { tabIconName, tabTitle } from './tab-meta'
 import { activate, close, closeOthersOf, newChatTab, togglePinOf, useTabs } from './tabs-store'
@@ -38,6 +40,7 @@ const ICONS: Record<string, Icon> = {
   IconListCheck,
   IconBrain,
   IconFile,
+  IconFolder,
   IconSettings,
   IconHelp,
 }
@@ -58,6 +61,7 @@ function withKbd(label: string, chord: string) {
 }
 
 export function TabBar() {
+  useNamesVersion()
   const tabs = useTabs((s) => s.tabs)
   const state = useLayout((s) => s.state)
   const panelOpen = useLayout((s) => s.panelOpen)

@@ -1,4 +1,5 @@
 import type { Place } from '@evaos/shell-core'
+import { workspaceTitle } from '../eva/names-store'
 
 export interface NavPage {
   slug: string
@@ -100,7 +101,12 @@ export function pageMeta(place: Place): PageMeta {
   const page = place.page
   if (page.startsWith('workspace:')) {
     const id = page.slice('workspace:'.length)
-    return { kind: 'workspace', slug: 'workspace', title: id, description: later('This workspace') }
+    return {
+      kind: 'workspace',
+      slug: 'workspace',
+      title: workspaceTitle(id) ?? id,
+      description: later('This workspace'),
+    }
   }
   if (page.startsWith('board:')) {
     const slug = page.slice('board:'.length)

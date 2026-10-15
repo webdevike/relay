@@ -24,6 +24,7 @@ import { createTabs, placeOf, type Place } from '@evaos/shell-core'
 import { tabsStore } from '../tabs/tabs-store'
 import { PageRouter } from './PageRouter'
 import { pageRegistry } from './registry'
+import { WorkspacePage } from '../workspace/WorkspacePage'
 
 function go(place: Place): void {
   act(() => {
@@ -103,6 +104,10 @@ describe('PageRouter', () => {
     } finally {
       ;(pageRegistry as Record<string, unknown>).settings = saved
     }
+  })
+
+  it('maps the workspace kind to WorkspacePage', () => {
+    expect(pageRegistry.workspace).toBe(WorkspacePage)
   })
 
   it('passes the place key as scrollKey', () => {
