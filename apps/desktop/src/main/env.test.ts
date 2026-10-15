@@ -62,4 +62,9 @@ describe('resolveEnv', () => {
   it('rejects a malformed arc command', () => {
     expect(() => resolveEnv(base({ env: { EVAOS_ARC_EXPORT_CMD: 'nope' } }))).toThrow(/JSON array/)
   })
+
+  it('reads EVAOS_NO_MOTION', () => {
+    expect(resolveEnv(base({ env: { EVAOS_NO_MOTION: '1' } })).noMotion).toBe(true)
+    expect(resolveEnv(base()).noMotion).toBe(false)
+  })
 })

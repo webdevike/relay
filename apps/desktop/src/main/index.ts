@@ -5,6 +5,11 @@ import { loadEnv } from './env'
 import { registerAppIpc } from './app-ipc'
 import { registerBrowser } from './browser'
 import { registerChat } from './chat'
+import { registerEvaIpc } from './eva-ipc'
+import { registerLayoutIpc } from './layout-ipc'
+import { registerSettingsIpc } from './settings-ipc'
+import { readLastBackground, registerThemeIpc } from './theme-ipc'
+import { createWriteQueue } from './write-queue'
 import { installAppMenu } from './menu'
 import { installWriteGuard } from './eva/write-guard'
 import { installTestHooks } from './test-hooks'
@@ -39,7 +44,7 @@ function bootstrap(): void {
       lastLaunch: new Date().toISOString(),
     })
 
-    const { win, shell } = createMainWindow(env)
+    const { win, shell } = createMainWindow(env, readLastBackground(config))
     const quitHooks: Array<() => Promise<void>> = []
     const ctx: MainContext = {
       env,
@@ -61,7 +66,12 @@ function bootstrap(): void {
       void Promise.race([all, cap]).finally(() => app.exit(0))
     })
 
+    const queue = createWriteQueue()
     registerAppIpc(ctx)
+    registerLayoutIpc(ctx, queue)
+    registerThemeIpc(ctx, queue)
+    registerSettingsIpc(ctx, queue)
+    registerEvaIpc(ctx)
     registerChat(ctx)
     registerBrowser(ctx)
     installTestHooks(ctx)

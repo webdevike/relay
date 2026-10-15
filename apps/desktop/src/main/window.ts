@@ -7,7 +7,10 @@ export { isAppUrl }
 
 const rendererDir = path.join(__dirname, '../renderer')
 
-export function createMainWindow(env: Env): { win: BaseWindow; shell: WebContentsView } {
+export function createMainWindow(
+  env: Env,
+  backgroundColor = '#181817',
+): { win: BaseWindow; shell: WebContentsView } {
   const win = new BaseWindow({
     width: 1280,
     height: 800,
@@ -15,7 +18,7 @@ export function createMainWindow(env: Env): { win: BaseWindow; shell: WebContent
     minHeight: 720,
     titleBarStyle: 'hiddenInset',
     show: false,
-    backgroundColor: '#17181c',
+    backgroundColor,
   })
 
   const shell = new WebContentsView({
@@ -27,6 +30,7 @@ export function createMainWindow(env: Env): { win: BaseWindow; shell: WebContent
       backgroundThrottling: false,
     },
   })
+  shell.setBackgroundColor(backgroundColor)
   win.contentView.addChildView(shell)
   const fit = (): void => {
     const b = win.getContentBounds()

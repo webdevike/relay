@@ -4,6 +4,8 @@ import * as path from 'node:path'
 export interface ConfigStore {
   readonly dir: string
   readJson<T>(name: string, fallback: T): T
+  /** File text, or null only when the file does not exist. */
+  readText(name: string): string | null
   writeJson(name: string, value: unknown): void
 }
 
@@ -27,6 +29,15 @@ export function createConfigStore(configDir: string): ConfigStore {
         return JSON.parse(fs.readFileSync(path.join(configDir, name), 'utf8')) as T
       } catch {
         return fallback
+      }
+    },
+    readText(name: string): string | null {
+      checkName(name)
+      try {
+        return fs.readFileSync(path.join(configDir, name), 'utf8')
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null
+        throw e
       }
     },
     writeJson(name: string, value: unknown): void {
