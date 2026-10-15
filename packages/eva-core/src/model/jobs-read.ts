@@ -136,7 +136,13 @@ export function listJobs(root: string, nowMs: number, opts: JobsReadOpts = {}): 
   let names: string[]
   try {
     names = readdirSync(join(root, 'jobs'), { withFileTypes: true })
-      .filter((e) => e.isDirectory() && !e.name.startsWith('.') && nameError(e.name) === null && e.name.length <= 64)
+      .filter(
+        (e) =>
+          e.isDirectory() &&
+          !e.name.startsWith('.') &&
+          nameError(e.name) === null &&
+          e.name.length <= 64,
+      )
       .map((e) => e.name)
   } catch {
     return []
