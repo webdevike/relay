@@ -68,6 +68,17 @@ describe('meetings.get', () => {
   })
 })
 
+describe('meetings.get notes confinement', () => {
+  it('does not read an .md outside the roots', () => {
+    const root = tmpRoot()
+    const file = path.join(root, 'work/meetings/standup.json')
+    const rec = JSON.parse(fs.readFileSync(file, 'utf8'))
+    rec.notes = '/etc/hosts.md'
+    fs.writeFileSync(file, JSON.stringify(rec))
+    expect(meetingsGet(root, 'standup', [root])).toMatchObject({ notes: 'missing', protocol: null })
+  })
+})
+
 describe('meetings.openNotes', () => {
   it('opens the resolved .md path with the checked options', async () => {
     const root = tmpRoot()

@@ -10,7 +10,12 @@ import {
   todoText,
   type Meeting,
 } from '@evaos/eva-core/model/meetings'
-import { readMeetingFile, readMeetings, readNotes } from '@evaos/eva-core/model/meetings-read'
+import {
+  readMeetingFile,
+  readMeetings,
+  readNotes,
+  resolveNotesPath,
+} from '@evaos/eva-core/model/meetings-read'
 import { parseProtocol } from '@evaos/eva-core/model/protocol'
 import type { MainContext } from '../context'
 import { handle } from '../ipc/handle'
@@ -54,7 +59,7 @@ export function meetingsList(root: string, clock: Clock) {
   }
 }
 
-export function meetingsGet(root: string, stem: string) {
+export function meetingsGet(root: string, stem: string, roots: string[] = [os.homedir(), root]) {
   const found = readMeetingFile(root, stem)
   if (!found) return { meeting: null, notes: 'none' as const, protocol: null }
   const m = found.meeting
@@ -66,7 +71,7 @@ export function meetingsGet(root: string, stem: string) {
   if (m.notes === null || m.notes.trim() === '') {
     return { meeting: base, notes: 'none' as const, protocol: null }
   }
-  const text = readNotes(m.notes)
+  const text = readNotes(m.notes, roots)
   if (text === null) return { meeting: base, notes: 'missing' as const, protocol: null }
   return { meeting: base, notes: 'ok' as const, protocol: parseProtocol(text) }
 }
@@ -80,7 +85,7 @@ export async function meetingsOpenNotes(
 ): Promise<{ opened: true }> {
   const found = readMeetingFile(root, stem)
   const notes = found?.meeting.notes ?? null
-  if (notes === null || !path.isAbsolute(notes) || !notes.toLowerCase().endsWith('.md')) {
+  if (notes === null || resolveNotesPath(notes, roots) === null) {
     throw coded('This meeting has no notes file.', 'no-notes')
   }
   await open(notes, { allowRoots: roots, requireExt: '.md' })

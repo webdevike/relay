@@ -1,5 +1,6 @@
-import { lstatSync, readFileSync, readdirSync, statSync } from 'node:fs'
-import { isAbsolute, join } from 'node:path'
+import { lstatSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
+import { extname, isAbsolute, join } from 'node:path'
+import { isInside } from '../fs/allowlist'
 import { parseMeeting, sortMeetings, type Meeting } from './meetings'
 
 // Read-only. Writes go through EvaFs.
@@ -61,12 +62,34 @@ export function readMeetingFile(
   }
 }
 
-/** Notes text for an absolute .md regular file; anything else is null. */
-export function readNotes(path: string): string | null {
-  if (!isAbsolute(path) || !path.endsWith('.md')) return null
+/**
+ * The single notes resolver: absolute .md, realpath inside one of the roots, a regular file.
+ * Returns the real path, or null for anything else.
+ */
+export function resolveNotesPath(path: string, roots: string[]): string | null {
+  if (!isAbsolute(path) || extname(path).toLowerCase() !== '.md') return null
   try {
-    if (!lstatSync(path).isFile()) return null
-    return readFileSync(path, 'utf8')
+    const real = realpathSync(path)
+    if (extname(real).toLowerCase() !== '.md' || !statSync(real).isFile()) return null
+    const ok = roots.some((r) => {
+      try {
+        return isInside(real, realpathSync(r))
+      } catch {
+        return false
+      }
+    })
+    return ok ? real : null
+  } catch {
+    return null
+  }
+}
+
+/** Notes text for an absolute .md regular file inside the roots; anything else is null. */
+export function readNotes(path: string, roots: string[]): string | null {
+  const real = resolveNotesPath(path, roots)
+  if (real === null) return null
+  try {
+    return readFileSync(real, 'utf8')
   } catch {
     return null
   }
