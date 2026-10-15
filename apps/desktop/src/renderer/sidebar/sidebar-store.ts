@@ -76,14 +76,13 @@ export function countLabel(n: number): string | null {
 
 let started: (() => void) | null = null
 
-/** Idempotent: initial refresh, refresh on window focus, reload and focus-search actions. */
+/** Idempotent: initial refresh, refresh on window focus and the focus-search action. The reload action lives in reload/reload.ts. */
 export function startSidebar(): () => void {
   if (started) return started
   const onFocus = (): void => {
     void refreshSidebar()
   }
   window.addEventListener('focus', onFocus)
-  const offReload = registerAction('reload', () => void refreshSidebar())
   const offFocus = registerAction('focus-search', () => {
     if (layoutStore.getState().state === 'hidden') toggleSidebar(true)
     else if (layoutStore.getState().state === 'folded') return
@@ -92,7 +91,6 @@ export function startSidebar(): () => void {
   void refreshSidebar()
   const dispose = (): void => {
     window.removeEventListener('focus', onFocus)
-    offReload()
     offFocus()
     started = null
   }

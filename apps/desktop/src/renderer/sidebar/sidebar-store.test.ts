@@ -4,6 +4,7 @@ const invoke = vi.fn()
 vi.mock('../ipc', () => ({ invoke: (...a: unknown[]) => invoke(...a), on: () => () => {} }))
 
 import { runAction } from '../hotkeys/router'
+import { startReload } from '../reload/reload'
 import { layoutStore, resetLayoutStoreForTests } from '../shell/layout-store'
 import {
   countLabel,
@@ -62,14 +63,25 @@ describe('sidebar store', () => {
     expect(sidebarStore.getState().error).toBe(false)
   })
 
-  it('reload action refreshes once, concurrent calls share a promise', async () => {
+  it('startSidebar no longer owns the reload action', async () => {
     startSidebar()
+    await refreshSidebar()
+    invoke.mockClear()
+    runAction('reload')
+    await Promise.resolve()
+    expect(invoke).toHaveBeenCalledTimes(0)
+  })
+
+  it('reload action refreshes the sidebar once through reload.ts', async () => {
+    startSidebar()
+    const stop = startReload()
     await refreshSidebar()
     invoke.mockClear()
     runAction('reload')
     runAction('reload')
     await refreshSidebar()
     expect(invoke).toHaveBeenCalledTimes(1)
+    stop()
   })
 
   it('filterRecent is case-insensitive over title and tag and keeps order', () => {
