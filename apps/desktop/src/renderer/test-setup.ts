@@ -23,3 +23,12 @@ if (!(document as unknown as { fonts?: unknown }).fonts) {
     value: { addEventListener: () => {}, removeEventListener: () => {} },
   })
 }
+
+// jsdom has no ResizeObserver; Mantine's FloatingIndicator (SegmentedControl) needs one.
+if (!('ResizeObserver' in globalThis)) {
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver
+}

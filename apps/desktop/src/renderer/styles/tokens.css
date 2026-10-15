@@ -24,7 +24,7 @@
   --eva-fz-display: 20px;
   --eva-fw-regular: 400;
   --eva-fw-semibold: 600;
-  --eva-font-mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+  --eva-font-mono: var(--eva-font-code);
 
   --eva-rail-w: 272px;
   --eva-panel-w: 480px;
@@ -36,19 +36,35 @@
   --eva-chat-header-h: 40px;
 }
 
-:root,
-[data-mantine-color-scheme='dark'] {
-  --eva-bg: #17181c;
-  --eva-surface: #202228;
-  --eva-surface-2: #2a2d35;
-  --eva-border: #34373f;
-  --eva-text: #e6e8ec;
-  --eva-text-dim: #9aa0ab;
-  --eva-accent: #7c8cff;
-  --eva-accent-fg: #0b0c10;
-  --eva-ok: #4cc38a;
-  --eva-warn: #e5a54b;
-  --eva-danger: #ef5b5b;
+/* Aliases of the live kit variables written by the ThemeApplier (D-15). */
+:root {
+  --eva-bg: var(--eva-c-background);
+  --eva-surface: var(--eva-c-secondary-background);
+  --eva-surface-2: var(--eva-c-accent-background);
+  --eva-border: var(--eva-c-border);
+  --eva-text: var(--eva-c-foreground);
+  --eva-text-dim: var(--eva-c-muted-foreground);
+  --eva-accent: var(--eva-c-primary-background);
+  --eva-accent-fg: var(--eva-c-primary-foreground);
+  --eva-ok: var(--eva-c-success-background);
+  --eva-warn: var(--eva-c-warning-background);
+  --eva-danger: var(--eva-c-danger-background);
+
+  --eva-chrome: var(--eva-c-sidebar-background);
+  --eva-chrome-text: var(--eva-c-sidebar-foreground);
+  --eva-chrome-border: var(--eva-c-sidebar-border);
+  --eva-hover: var(--eva-c-accent-background);
+  --eva-nav-active-bg: var(--eva-c-sidebar-primary-background);
+  --eva-nav-active-fg: var(--eva-c-sidebar-primary-foreground);
+  --eva-popover-bg: var(--eva-c-popover-background);
+  --eva-popover-fg: var(--eva-c-popover-foreground);
+  --eva-scroll-thumb: var(--eva-c-scrollbar-thumb-background);
+  --eva-scroll-thumb-hover: var(--eva-c-scrollbar-thumb-hover-background);
+  --eva-scroll-fade-bg: var(--eva-c-background);
+
+  --eva-ease: cubic-bezier(0.215, 0.61, 0.355, 1);
+  --eva-dur-slide: 220ms;
+  --eva-dur-fast: 120ms;
 }
 
 html,
@@ -61,13 +77,14 @@ body,
 body {
   background: var(--eva-bg);
   color: var(--eva-text);
+  font-family: var(--eva-font-ui);
   font-size: var(--eva-fz-body);
   line-height: 1.5;
   overflow: hidden;
 }
 
 :focus-visible {
-  outline: 2px solid var(--eva-accent);
+  outline: 2px solid var(--eva-c-primary-background);
   outline-offset: 2px;
 }
 

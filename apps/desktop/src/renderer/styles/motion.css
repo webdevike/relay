@@ -1,0 +1,148 @@
+/* Entrance timeline (D-17). Only opacity and transform animate. Settles at 1.975s. */
+
+:root {
+  --eva-cue-rise: 10px;
+  --eva-cue-sidebar-delay: 0s;
+  --eva-cue-sidebar-duration: 0.15s;
+  --eva-cue-hero-delay: 0.05s;
+  --eva-cue-hero-duration: 0.2s;
+  --eva-cue-sections-delay: 0.15s;
+  --eva-cue-sections-duration: 0.175s;
+  --eva-cue-first-card-delay: 0.5s;
+  --eva-cue-first-card-duration: 0.15s;
+  --eva-cue-first-chart-delay: 0.55s;
+  --eva-cue-first-chart-duration: 0.35s;
+  --eva-cue-second-card-delay: 0.925s;
+  --eva-cue-second-card-duration: 0.15s;
+  --eva-cue-second-chart-delay: 0.975s;
+  --eva-cue-second-chart-duration: 0.225s;
+  --eva-cue-grid-cards-delay: 1.225s;
+  --eva-cue-grid-cards-duration: 0.2s;
+  --eva-cue-grid-cards-step: 0.075s;
+  --eva-cue-aside-title-delay: 1.5s;
+  --eva-cue-aside-title-duration: 0.15s;
+  --eva-cue-aside-rows-delay: 1.55s;
+  --eva-cue-aside-rows-duration: 0.15s;
+  --eva-cue-aside-rows-step: 0.05s;
+  --eva-cue-stats-title-delay: 1.6s;
+  --eva-cue-stats-title-duration: 0.15s;
+  --eva-cue-stat-cards-delay: 1.75s;
+  --eva-cue-stat-cards-duration: 0.15s;
+  --eva-cue-stat-cards-step: 0.04s;
+}
+
+@keyframes eva-cue {
+  from {
+    opacity: 0;
+    transform: translateY(var(--eva-cue-rise));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes eva-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.eva-cue-sidebar {
+  animation: eva-fade var(--eva-cue-sidebar-duration) var(--eva-ease)
+    calc(var(--eva-cue-sidebar-delay)) both;
+}
+
+.eva-cue-hero {
+  animation: eva-cue var(--eva-cue-hero-duration) var(--eva-ease) calc(var(--eva-cue-hero-delay))
+    both;
+}
+
+.eva-cue-sections {
+  animation: eva-cue var(--eva-cue-sections-duration) var(--eva-ease)
+    calc(var(--eva-cue-sections-delay)) both;
+}
+
+.eva-cue-first-card {
+  animation: eva-cue var(--eva-cue-first-card-duration) var(--eva-ease)
+    calc(var(--eva-cue-first-card-delay)) both;
+}
+
+.eva-cue-first-chart {
+  animation: eva-cue var(--eva-cue-first-chart-duration) var(--eva-ease)
+    calc(var(--eva-cue-first-chart-delay)) both;
+}
+
+.eva-cue-second-card {
+  animation: eva-cue var(--eva-cue-second-card-duration) var(--eva-ease)
+    calc(var(--eva-cue-second-card-delay)) both;
+}
+
+.eva-cue-second-chart {
+  animation: eva-cue var(--eva-cue-second-chart-duration) var(--eva-ease)
+    calc(var(--eva-cue-second-chart-delay)) both;
+}
+
+.eva-cue-grid-cards {
+  animation: eva-cue var(--eva-cue-grid-cards-duration) var(--eva-ease)
+    calc(var(--eva-cue-grid-cards-delay) + var(--i, 0) * var(--eva-cue-grid-cards-step)) both;
+}
+
+.eva-cue-aside-title {
+  animation: eva-cue var(--eva-cue-aside-title-duration) var(--eva-ease)
+    calc(var(--eva-cue-aside-title-delay)) both;
+}
+
+.eva-cue-aside-rows {
+  animation: eva-cue var(--eva-cue-aside-rows-duration) var(--eva-ease)
+    calc(var(--eva-cue-aside-rows-delay) + var(--i, 0) * var(--eva-cue-aside-rows-step)) both;
+}
+
+.eva-cue-stats-title {
+  animation: eva-cue var(--eva-cue-stats-title-duration) var(--eva-ease)
+    calc(var(--eva-cue-stats-title-delay)) both;
+}
+
+.eva-cue-stat-cards {
+  animation: eva-cue var(--eva-cue-stat-cards-duration) var(--eva-ease)
+    calc(var(--eva-cue-stat-cards-delay) + var(--i, 0) * var(--eva-cue-stat-cards-step)) both;
+}
+
+html[data-eva-motion='off'] {
+  --eva-cue-sidebar-delay: 0s;
+  --eva-cue-sidebar-duration: 0s;
+  --eva-cue-hero-delay: 0s;
+  --eva-cue-hero-duration: 0s;
+  --eva-cue-sections-delay: 0s;
+  --eva-cue-sections-duration: 0s;
+  --eva-cue-first-card-delay: 0s;
+  --eva-cue-first-card-duration: 0s;
+  --eva-cue-first-chart-delay: 0s;
+  --eva-cue-first-chart-duration: 0s;
+  --eva-cue-second-card-delay: 0s;
+  --eva-cue-second-card-duration: 0s;
+  --eva-cue-second-chart-delay: 0s;
+  --eva-cue-second-chart-duration: 0s;
+  --eva-cue-grid-cards-delay: 0s;
+  --eva-cue-grid-cards-duration: 0s;
+  --eva-cue-grid-cards-step: 0s;
+  --eva-cue-aside-title-delay: 0s;
+  --eva-cue-aside-title-duration: 0s;
+  --eva-cue-aside-rows-delay: 0s;
+  --eva-cue-aside-rows-duration: 0s;
+  --eva-cue-aside-rows-step: 0s;
+  --eva-cue-stats-title-delay: 0s;
+  --eva-cue-stats-title-duration: 0s;
+  --eva-cue-stat-cards-delay: 0s;
+  --eva-cue-stat-cards-duration: 0s;
+  --eva-cue-stat-cards-step: 0s;
+  --eva-dur-slide: 0s;
+  --eva-dur-fast: 0s;
+}
+
+html[data-eva-motion='off'] [class*='eva-cue-'] {
+  animation: none;
+}

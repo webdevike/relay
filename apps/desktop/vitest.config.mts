@@ -26,6 +26,8 @@ export default defineConfig({
         plugins: [react()],
         test: {
           name: 'renderer',
+          // Style tests read tokens.css and motion.css through ?raw; do not blank CSS.
+          css: { include: [/\.css(\?.*)?$/] },
           environment: 'jsdom',
           include: ['src/renderer/**/*.test.{ts,tsx}'],
           exclude,
