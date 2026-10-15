@@ -28,6 +28,22 @@ export const chatInvoke = {
     input: z.object({ paneId: PaneIdSchema, text: z.string().min(1).max(200_000) }).strict(),
     output: z.object({ accepted: z.literal(true) }),
   },
+  'chat.abort': {
+    input: z.object({ paneId: PaneIdSchema }).strict(),
+    output: z.object({ sent: z.boolean() }),
+  },
+  'chat.close': {
+    input: z.object({ paneId: PaneIdSchema }).strict(),
+    output: z.object({
+      exit: z
+        .object({
+          code: z.number().nullable(),
+          signal: z.string().nullable(),
+          timedOut: z.boolean(),
+        })
+        .nullable(),
+    }),
+  },
   'chat.snapshot': {
     input: z.object({ paneId: PaneIdSchema }).strict(),
     output: z.object({

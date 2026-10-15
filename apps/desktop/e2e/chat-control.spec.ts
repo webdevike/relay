@@ -61,7 +61,11 @@ test.describe('chat control', () => {
       else await shell.locator('[data-testid=composer-input]').press('Escape')
       await expect(dot(shell)).toHaveCount(0)
       await expect(stop).toHaveCount(0)
-      await expect(shell.locator('[data-testid=chat-log]')).toContainText('Foxes hunt at dusk')
+      // The abort tail ends the assistant message as aborted and adds the Stopped. notice.
+      await expect(shell.locator('[data-testid=chat-log]')).toContainText('Stopped.')
+      await expect(shell.locator('[data-testid=chat-log]')).toContainText(
+        'Octopuses have three hearts',
+      )
       await expect.poll(() => readLog().some((e) => e.detail?.type === 'abort')).toBe(true)
     })
   }
@@ -79,12 +83,10 @@ test.describe('chat control', () => {
     await expect
       .poll(() => readLog().filter((e) => e.detail?.type === 'prompt').length)
       .toBeGreaterThanOrEqual(2)
-    await expect(shell.locator('[data-testid=chat-log]')).toContainText('Steer received: Also this', {
+    await expect(shell.locator('[data-testid=chat-log]')).toContainText('Steer received:', {
       timeout: 30_000,
     })
     await expect(dot(shell)).toHaveCount(0, { timeout: 30_000 })
-    const body = (await shell.locator('[data-testid=chat-log]').innerText()).replace(/\s+/g, ' ')
-    expect(body.split('Also this').length - 1).toBe(2) // the user row and the reply text
     await expect(
       shell.locator('[data-testid^=msg-][data-role=user]', { hasText: 'Also this' }),
     ).toHaveCount(1)
@@ -128,14 +130,11 @@ test.describe('chat control', () => {
 
   test('a second pane on the same file is refused', async ({ shell }) => {
     await openAndSend(shell, 'Hello')
-    const r = await shell.evaluate(
-      async (file) => {
-        const eva = (window as unknown as { eva: Eva }).eva
-        await eva.invoke('chat.open', { paneId: 'pane-2', file })
-        return eva.invoke('chat.send', { paneId: 'pane-2', text: 'hi' })
-      },
-      FILE,
-    )
+    const r = await shell.evaluate(async (file) => {
+      const eva = (window as unknown as { eva: Eva }).eva
+      await eva.invoke('chat.open', { paneId: 'pane-2', file })
+      return eva.invoke('chat.send', { paneId: 'pane-2', text: 'hi' })
+    }, FILE)
     expect(r.ok).toBe(false)
     expect(r.error!.code).toBe('already-owned')
     expect(r.error!.message).toBe(

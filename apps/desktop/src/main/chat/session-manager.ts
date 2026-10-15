@@ -5,7 +5,7 @@ import { LiveReducer } from '@evaos/chat-core/reducer'
 import { SeqBatcher, type Batch, type Snapshot } from '@evaos/chat-core/batcher'
 import type { ChatMessage, SessionMeta } from '@evaos/chat-core/message'
 import { tagged } from '@evaos/chat-core/tagged'
-import type { ChatTransport } from '@evaos/chat-core/transport'
+import type { ChatTransport, TransportExit } from '@evaos/chat-core/transport'
 
 export class CodedError extends Error {
   constructor(
@@ -161,19 +161,58 @@ export class SessionManager {
     this.deps.emit(batch)
   }
 
-  private async release(pane: Pane): Promise<void> {
+  /**
+   * Ends stdin and waits for omp to exit. Never signals (D-17). A timeout leaves the process
+   * alone. The pane keeps its history and the next send starts a new process.
+   */
+  private async release(pane: Pane, timeoutMs = 2000): Promise<TransportExit | null> {
+    const t = pane.transport
+    if (!t) return null
     if (pane.timer !== null) this.clearIv(pane.timer)
     pane.timer = null
     pane.unsubscribe?.()
     pane.unsubscribe = null
-    const t = pane.transport
     pane.transport = null
     if (this.owners.get(pane.key) === pane.paneId) this.owners.delete(pane.key)
-    if (t) await t.close({ timeoutMs: 2000 }).catch(() => undefined)
+    let exit: TransportExit | null = null
+    try {
+      exit = await t.close({ timeoutMs })
+    } catch {
+      exit = null
+    }
+    if (exit && !exit.timedOut && pane.batcher) {
+      // Our own unsubscribe means no `_eof` frame reached the reducer: apply it here.
+      const res = pane.reducer.apply({
+        type: '_eof',
+        code: exit.code,
+        signal: exit.signal,
+        expected: true,
+      })
+      for (const id of res.dirty) {
+        const ix = pane.reducer.indexOf(id)
+        if (ix >= 0) pane.batcher.markUpsert(pane.reducer.messages()[ix]!, ix)
+      }
+      for (const id of res.removed) pane.batcher.markRemove(id)
+      if (res.meta) pane.batcher.markMeta(res.meta)
+      pane.batcher.markMeta({ connected: false, running: false })
+      this.flush(pane)
+    }
+    return exit
   }
 
-  async abort(paneId: string): Promise<void> {
-    await this.pane(paneId).transport?.abort()
+  /** `chat.close`: ends stdin and waits up to `timeoutMs` for exit (CHAT-07). */
+  async close(paneId: string, timeoutMs = 10_000): Promise<TransportExit | null> {
+    const pane = this.panes.get(paneId)
+    if (!pane?.transport) return null
+    return this.release(pane, timeoutMs)
+  }
+
+  /** Returns whether an abort command was written (false for unknown panes or stopped sessions). */
+  async abort(paneId: string): Promise<boolean> {
+    const t = this.panes.get(paneId)?.transport
+    if (!t) return false
+    await t.abort().catch(() => undefined)
+    return true
   }
 
   snapshot(paneId: string): Snapshot {
@@ -198,7 +237,7 @@ export class SessionManager {
   /** Quit hook: ends stdin on every live omp this app started. Never signals (D-17). */
   async closeAll(): Promise<void> {
     await Promise.allSettled(
-      [...this.panes.values()].filter((p) => p.transport).map((p) => this.release(p)),
+      [...this.panes.values()].filter((p) => p.transport).map((p) => this.release(p, 10_000)),
     )
   }
 }

@@ -55,10 +55,14 @@ export const test = base.extend<Fixtures>({
     })
     await page.waitForSelector('[data-testid=rail]')
     await use(page)
-    const mainErrors = await app.evaluate(
-      () =>
-        (globalThis as unknown as { __evaosTest?: { errors: string[] } }).__evaosTest?.errors ?? [],
-    )
+    // A spec that quits the app itself (quit lifecycle) leaves nothing to ask.
+    const mainErrors = await app
+      .evaluate(
+        () =>
+          (globalThis as unknown as { __evaosTest?: { errors: string[] } }).__evaosTest?.errors ??
+          [],
+      )
+      .catch(() => [] as string[])
     expect(rendererErrors, 'renderer console errors').toEqual([])
     expect(mainErrors, 'main-side console errors').toEqual([])
   },

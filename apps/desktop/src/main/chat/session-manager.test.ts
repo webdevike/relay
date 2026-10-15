@@ -28,8 +28,11 @@ class MemoryTransport implements ChatTransport {
     this.written.push(c)
     return Promise.resolve()
   }
+  closeCalls = 0
+  closeResult: Promise<TransportExit> = Promise.resolve({ code: 0, signal: null, timedOut: false })
   close(): Promise<TransportExit> {
-    return Promise.resolve({ code: 0, signal: null, timedOut: false })
+    this.closeCalls += 1
+    return this.closeResult
   }
   onFrame(cb: (f: Frame) => void) {
     this.cb = cb
@@ -137,6 +140,36 @@ describe('SessionManager', () => {
   it('send without an opened session is rejected with a code', async () => {
     const { mgr } = setup()
     await expect(mgr.send('pane-1', 'x')).rejects.toMatchObject({ code: 'no-session' })
+    vi.useRealTimers()
+  })
+
+  it('close() releases ownership, stops flushing and closeAll() closes every pane', async () => {
+    const { mgr, transports } = setup()
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    mgr.open('pane-2', '/s/b.jsonl', [], meta)
+    await mgr.send('pane-1', 'a')
+    await mgr.send('pane-2', 'b')
+    expect(mgr.has('/s/a.jsonl')).toBe(true)
+    const exit = await mgr.close('pane-1')
+    expect(exit).toEqual({ code: 0, signal: null, timedOut: false })
+    expect(transports[0]!.closeCalls).toBe(1)
+    expect(mgr.has('/s/a.jsonl')).toBe(false)
+    expect(await mgr.close('pane-1')).toBeNull()
+    await mgr.closeAll()
+    expect(transports[1]!.closeCalls).toBe(1)
+    expect(vi.getTimerCount()).toBe(0)
+    vi.useRealTimers()
+  })
+
+  it('close() on a transport that never exits resolves timedOut and only calls close', async () => {
+    const { mgr, transports } = setup()
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    await mgr.send('pane-1', 'a')
+    transports[0]!.closeResult = Promise.resolve({ code: null, signal: null, timedOut: true })
+    const abortSpy = vi.spyOn(transports[0]!, 'abort')
+    const exit = await mgr.close('pane-1', 50)
+    expect(exit).toEqual({ code: null, signal: null, timedOut: true })
+    expect(abortSpy).not.toHaveBeenCalled()
     vi.useRealTimers()
   })
 })

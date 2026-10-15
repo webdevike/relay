@@ -9,6 +9,8 @@ export interface PaneState {
   messages: ChatMessage[]
   meta: SessionMeta
   running: boolean
+  /** True after omp exited or was closed; the next send starts a new process. */
+  stopped: boolean
   unpinned: boolean
   newReply: boolean
   lastSeq: number
@@ -31,7 +33,13 @@ export interface ChatState {
   applyOps(paneId: string, ops: Op[], seq: number): void
   applySnapshot(
     paneId: string,
-    snap: { seq: number; messages: ChatMessage[]; meta: SessionMeta; running: boolean },
+    snap: {
+      seq: number
+      messages: ChatMessage[]
+      meta: SessionMeta
+      running: boolean
+      stopped?: boolean
+    },
   ): void
   setReconnecting(paneId: string, value: boolean): void
   setError(paneId: string, error: string | null): void
@@ -56,7 +64,7 @@ export function applyOpsToPane(pane: PaneState, ops: Op[], seq: number): PaneSta
     }
     return messages
   }
-  let { running, error, meta } = pane
+  let { running, error, meta, stopped } = pane
   for (const op of ops) {
     if (op.op === 'upsert') {
       const ix = messages.findLastIndex((m) => m.id === op.message.id)
@@ -72,6 +80,7 @@ export function applyOpsToPane(pane: PaneState, ops: Op[], seq: number): PaneSta
       const p = op.patch
       if (p.running !== undefined) running = p.running
       if (p.error !== undefined) error = p.error
+      if (p.connected !== undefined) stopped = !p.connected
       if (p.model !== undefined || p.contextTokens !== undefined) {
         meta = {
           ...meta,
@@ -81,7 +90,7 @@ export function applyOpsToPane(pane: PaneState, ops: Op[], seq: number): PaneSta
       }
     }
   }
-  return { ...pane, messages, running, error, meta, lastSeq: seq }
+  return { ...pane, messages, running, error, meta, stopped, lastSeq: seq }
 }
 
 /** Lives outside React so the streaming drain (plan 01-05) can `setState` without a render. */
@@ -94,6 +103,7 @@ export const chatStore = createStore<ChatState>((set) => ({
         [paneId]: {
           ...data,
           running: false,
+          stopped: false,
           unpinned: false,
           newReply: false,
           lastSeq: 0,
@@ -116,6 +126,7 @@ export const chatStore = createStore<ChatState>((set) => ({
         messages: snap.messages,
         meta: snap.meta,
         running: snap.running,
+        stopped: snap.stopped ?? p.stopped,
         lastSeq: snap.seq,
       })),
     ),

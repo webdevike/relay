@@ -47,7 +47,6 @@ export function createSessionManager(ctx: MainContext): SessionManager {
       },
     })
   }
-  ctx.onBeforeQuit(() => manager.closeAll())
   return manager
 }
 
@@ -56,5 +55,7 @@ export function registerLiveIpc(ctx: MainContext, manager: SessionManager): void
     await manager.send(paneId, text)
     return { accepted: true as const }
   })
+  handle(ctx, 'chat.abort', async ({ paneId }) => ({ sent: await manager.abort(paneId) }))
+  handle(ctx, 'chat.close', async ({ paneId }) => ({ exit: await manager.close(paneId) }))
   handle(ctx, 'chat.snapshot', ({ paneId }) => manager.snapshot(paneId))
 }

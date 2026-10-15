@@ -175,4 +175,42 @@ describe('LiveReducer', () => {
     expect(res).toEqual({ dirty: [], removed: [] })
     expect(r.messages()).toHaveLength(0)
   })
+
+  it('a steer sent mid-turn stays the last row, unconfirmed, until its echo replaces it in place', () => {
+    const r = mk()
+    r.sendPrompt('first')
+    r.apply({ type: 'agent_start' })
+    r.apply({ type: 'message_end', messageId: 'u1', message: user('first') })
+    r.apply({ type: 'message_update', messageId: 'a1', message: asst([text('working')]) })
+    const steer = r.sendPrompt('Also this')
+    expect(steer.unconfirmed).toBe(true)
+    r.apply({ type: 'message_update', messageId: 'a1', message: asst([text('working more')]) })
+    expect(r.messages().map((m) => m.id)).toEqual(['u1', 'a1', steer.id])
+    expect(r.messages().at(-1)!.unconfirmed).toBe(true)
+    r.apply({ type: 'message_end', messageId: 'a1', message: asst([text('done one')]) })
+    expect(r.messages().at(-1)!.id).toBe(steer.id)
+    const res = r.apply({ type: 'message_end', messageId: 'u2', message: user('Also this') })
+    expect(res.removed).toEqual([steer.id])
+    expect(r.messages().map((m) => [m.id, m.unconfirmed ?? false])).toEqual([
+      ['u1', false],
+      ['a1', false],
+      ['u2', false],
+    ])
+  })
+
+  it('the abort tail keeps the partial text, stops running and adds no error', () => {
+    const r = mk()
+    r.apply({ type: 'agent_start' })
+    r.apply({ type: 'message_update', messageId: 'a1', message: asst([text('partial text')]) })
+    r.apply({
+      type: 'message_end',
+      messageId: 'a1',
+      message: { ...asst([text('partial text')]), stopReason: 'aborted' },
+    })
+    r.apply({ type: 'agent_end', yielded: true })
+    r.apply({ type: 'prompt_result', status: 'aborted', sessionSettled: true })
+    expect(r.running).toBe(false)
+    expect(r.messages().some((m) => m.text.startsWith('Error'))).toBe(false)
+    expect(r.messages()[0]).toMatchObject({ role: 'assistant', text: 'partial text' })
+  })
 })

@@ -8,4 +8,6 @@ export function registerChat(ctx: MainContext): void {
     manager.open(paneId, file, parsed.messages, parsed.meta),
   )
   registerLiveIpc(ctx, manager)
+  // Quit ends stdin on every omp this app started and waits; it never signals (D-17).
+  ctx.onBeforeQuit(() => manager.closeAll())
 }
