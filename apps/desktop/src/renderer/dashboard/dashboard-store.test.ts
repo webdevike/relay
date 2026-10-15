@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const invoke = vi.fn()
 vi.mock('../ipc', () => ({ invoke: (...a: unknown[]) => invoke(...a), on: () => () => {} }))
 
+import { workspaceTitle } from '../eva/names-store'
 import {
   dashboardStore,
   loadDashboard,
@@ -40,6 +41,12 @@ beforeEach(() => {
 })
 
 describe('dashboard store', () => {
+  it('publishes workspace names after a load', async () => {
+    invoke.mockResolvedValueOnce({ ok: true, value: payload })
+    await loadDashboard()
+    expect(workspaceTitle('flo')).toBe('Flo')
+  })
+
   it('loads, then keeps previous data on failure and sets error', async () => {
     invoke.mockResolvedValueOnce({ ok: true, value: payload })
     expect(dashboardStore.getState().loading).toBe(true)

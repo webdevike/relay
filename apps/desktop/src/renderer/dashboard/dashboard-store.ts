@@ -3,6 +3,7 @@ import { createStore } from 'zustand/vanilla'
 import type { DashboardPayload } from '@evaos/contract'
 import type { FilterId } from '@evaos/eva-core/model/dashboard'
 import { invoke } from '../ipc'
+import { setWorkspaceNames } from '../eva/names-store'
 
 export type Range = 7 | 30 | 90
 
@@ -44,8 +45,10 @@ async function runOnce(): Promise<void> {
   dashboardStore.setState({ reloading: true })
   try {
     const r = await invoke('eva.dashboard', {})
-    if (r.ok) dashboardStore.setState({ data: r.value, error: false, loading: false })
-    else dashboardStore.setState({ error: true, loading: false })
+    if (r.ok) {
+      dashboardStore.setState({ data: r.value, error: false, loading: false })
+      setWorkspaceNames(Object.fromEntries(r.value.workspaces.map((w) => [w.id, w.displayName])))
+    } else dashboardStore.setState({ error: true, loading: false })
   } catch {
     dashboardStore.setState({ error: true, loading: false })
   } finally {
