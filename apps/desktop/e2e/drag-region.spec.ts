@@ -17,24 +17,37 @@ type G = {
   }
 }
 
-test('chat header is a drag region and moves the window under real mouse events', async ({
+test('tab strip spacer is a drag region and moves the window under real mouse events', async ({
   app,
   shell,
 }) => {
   const css = await shell.evaluate(() => {
-    const h = document.querySelector('[data-testid=chat-header]') as HTMLElement
+    const h = document.querySelector('[data-testid=tabbar-drag]') as HTMLElement
     const v = (el: Element): string =>
       getComputedStyle(el).getPropertyValue('-webkit-app-region') ||
       getComputedStyle(el).getPropertyValue('app-region')
     const rail = document.querySelector('[data-testid=rail]')!
     const noDrag = Array.from(rail.children).filter((c) => v(c) === 'no-drag').length
-    return { header: v(h), noDragRailChildren: noDrag }
+    const sidebar = document.querySelector('[data-testid=sidebar]') as HTMLElement
+    const tabsNoDrag = ['sidebar-toggle', 'tab-new', 'panel-toggle'].every(
+      (id) => v(document.querySelector(`[data-testid=${id}]`)!) === 'no-drag',
+    )
+    const tabEl = document.querySelector('[role=tab]')!
+    const tabNoDrag = v(tabEl) === 'no-drag' || v(tabEl.parentElement!) === 'no-drag'
+    return {
+      header: v(h),
+      sidebar: v(sidebar),
+      tabsNoDrag: tabsNoDrag && tabNoDrag,
+      noDragRailChildren: noDrag,
+    }
   })
   expect(css.header).toBe('drag')
+  expect(css.sidebar).toBe('drag')
+  expect(css.tabsNoDrag).toBe(true)
   expect(css.noDragRailChildren).toBeGreaterThan(0)
 
   const rect = await shell.evaluate(() => {
-    const r = document.querySelector('[data-testid=chat-header]')!.getBoundingClientRect()
+    const r = document.querySelector('[data-testid=tabbar-drag]')!.getBoundingClientRect()
     return { x: r.x, y: r.y, w: r.width, h: r.height }
   })
   await app.evaluate(() => (globalThis as unknown as G).__evaosTest.win.focus())

@@ -64,12 +64,12 @@ test('widths at 1280 and the fold vectors', async ({ app, shell }) => {
 
   await size(app, shell, 1016)
   await expect.poll(() => state(shell)).toBe('open')
-  expect((await box(shell, 'sidebar')).width).toBe(200)
+  await expect.poll(async () => (await box(shell, 'sidebar')).width).toBe(200)
 
   await size(app, shell, 1015)
   await expect.poll(() => state(shell)).toBe('folded')
-  expect((await box(shell, 'sidebar')).width).toBe(0)
-  expect((await box(shell, 'main-card')).x).toBe(8)
+  await expect.poll(async () => (await box(shell, 'sidebar')).width).toBe(0)
+  await expect.poll(async () => (await box(shell, 'main-card')).x).toBe(8)
 
   for (const w of [800, 760]) {
     await size(app, shell, w)
