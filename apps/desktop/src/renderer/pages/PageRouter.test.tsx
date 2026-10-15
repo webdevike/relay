@@ -1,0 +1,96 @@
+import { MantineProvider } from '@mantine/core'
+import { act, render, screen } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('../ipc', () => ({
+  invoke: async () => ({ ok: true, value: {} }),
+  on: () => () => {},
+}))
+vi.mock('../chat/ChatPane', () => ({
+  ChatPane: () => <main data-testid="chat-pane">chat</main>,
+}))
+const scrollAreaProps = vi.fn()
+vi.mock('../ui/ScrollArea', () => ({
+  ScrollArea: (p: { children: React.ReactNode; scrollKey?: string; 'data-testid'?: string }) => {
+    scrollAreaProps(p.scrollKey)
+    return <div data-testid={p['data-testid']}>{p.children}</div>
+  },
+}))
+
+import { createTabs, placeOf, type Place } from '@evaos/shell-core'
+import { tabsStore } from '../tabs/tabs-store'
+import { PageRouter } from './PageRouter'
+import { pageRegistry } from './registry'
+
+function go(place: Place): void {
+  act(() => {
+    tabsStore.setState(
+      {
+        tabs: createTabs([{ id: 0, here: place, back: [], forward: [], pinned: false }], 0),
+        loaded: true,
+      },
+      true,
+    )
+  })
+}
+const ui = () =>
+  render(
+    <MantineProvider>
+      <PageRouter />
+    </MantineProvider>,
+  )
+
+beforeEach(() => scrollAreaProps.mockClear())
+
+describe('PageRouter', () => {
+  it('renders placeholders inside page-scroll and remounts per navigation', () => {
+    go(placeOf('inbox'))
+    ui()
+    expect(screen.getByTestId('page-scroll')).toContainElement(screen.getByTestId('page-inbox'))
+    expect(screen.getByRole('heading', { name: 'Inbox' })).toBeInTheDocument()
+    expect(
+      screen.getByText('Digests and approvals from Eva will appear here in a later update.'),
+    ).toBeInTheDocument()
+    go(placeOf('tasks'))
+    expect(screen.getByTestId('page-tasks')).toBeInTheDocument()
+    expect(screen.queryByTestId('page-inbox')).toBeNull()
+  })
+
+  it('keeps the chat pane mounted and hidden off the chat place', () => {
+    go(placeOf('chat'))
+    ui()
+    const pane = screen.getByTestId('chat-pane')
+    const wrap = screen.getByTestId('page-chat-wrap')
+    expect(wrap.style.display).toBe('flex')
+    expect(screen.queryByTestId('page-scroll')).toBeNull()
+    go(placeOf('inbox'))
+    expect(screen.getByTestId('chat-pane')).toBe(pane)
+    expect(wrap.style.display).toBe('none')
+    go(placeOf('chat'))
+    expect(screen.getByTestId('chat-pane')).toBe(pane)
+    expect(wrap.style.display).toBe('flex')
+  })
+
+  it('renders settings through the registry', () => {
+    go(placeOf('settings', { settingsSection: 'Chat' }))
+    ui()
+    expect(screen.getByTestId('settings-chat')).toBeInTheDocument()
+  })
+
+  it('falls back to the placeholder for an unknown kind', () => {
+    const saved = pageRegistry.settings
+    ;(pageRegistry as Record<string, unknown>).settings = undefined
+    try {
+      go(placeOf('settings'))
+      expect(() => ui()).not.toThrow()
+    } finally {
+      ;(pageRegistry as Record<string, unknown>).settings = saved
+    }
+  })
+
+  it('passes the place key as scrollKey', () => {
+    go(placeOf('files'))
+    ui()
+    expect(scrollAreaProps).toHaveBeenCalledWith('page:files')
+  })
+})
