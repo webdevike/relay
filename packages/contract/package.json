@@ -2,7 +2,14 @@
   "name": "@evaos/contract",
   "version": "0.0.0",
   "private": true,
-  "exports": { ".": "./src/index.ts", "./*": "./src/*.ts" },
-  "scripts": { "typecheck": "tsc --noEmit -p ." },
-  "dependencies": { "zod": "4.6.7" }
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "zod": "4.6.7"
+  }
 }

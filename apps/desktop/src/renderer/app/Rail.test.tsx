@@ -4,7 +4,16 @@ import { Rail } from './Rail'
 
 const info = (live: boolean) => ({
   ok: true,
-  value: { evaRoot: '/x', configDir: '/c', ompBin: 'o', sessionsDir: '/s', live, e2e: false, launchCount: 1, version: '1' },
+  value: {
+    evaRoot: '/x',
+    configDir: '/c',
+    ompBin: 'o',
+    sessionsDir: '/s',
+    live,
+    e2e: false,
+    launchCount: 1,
+    version: '1',
+  },
 })
 
 describe('Rail', () => {

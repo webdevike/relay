@@ -15,7 +15,12 @@ export default defineConfig({
         },
       },
       {
-        test: { name: 'preload', environment: 'node', include: ['src/preload/**/*.test.ts'], exclude },
+        test: {
+          name: 'preload',
+          environment: 'node',
+          include: ['src/preload/**/*.test.ts'],
+          exclude,
+        },
       },
       {
         plugins: [react()],

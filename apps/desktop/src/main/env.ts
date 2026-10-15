@@ -35,11 +35,7 @@ function real(p: string): string {
 /** Mirrors the Rust `binary()` lookup: PATH, then the usual install locations. */
 function findOmp(env: NodeJS.ProcessEnv, homedir: string): string {
   const dirs = (env.PATH ?? '').split(path.delimiter).filter(Boolean)
-  dirs.push(
-    path.join(homedir, '.local/bin'),
-    path.join(homedir, '.bun/bin'),
-    '/opt/homebrew/bin',
-  )
+  dirs.push(path.join(homedir, '.local/bin'), path.join(homedir, '.bun/bin'), '/opt/homebrew/bin')
   for (const d of dirs) {
     const candidate = path.join(d, 'omp')
     try {

@@ -16,7 +16,10 @@ import { isAppUrl } from '../window'
 export function handle<K extends InvokeChannel>(
   _ctx: MainContext,
   channel: K,
-  fn: (input: InvokeInput<K>, event: IpcMainInvokeEvent) => Promise<InvokeOutput<K>> | InvokeOutput<K>,
+  fn: (
+    input: InvokeInput<K>,
+    event: IpcMainInvokeEvent,
+  ) => Promise<InvokeOutput<K>> | InvokeOutput<K>,
 ): void {
   const entry = invokeContract[channel]
   ipcMain.handle(channel, async (event, raw): Promise<Result<InvokeOutput<K>>> => {

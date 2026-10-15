@@ -8,7 +8,15 @@ describe('contract', () => {
   })
 
   it('rejects app.info output missing evaRoot', () => {
-    const bad = { configDir: '/x', ompBin: 'omp', sessionsDir: '/s', live: false, e2e: true, launchCount: 1, version: '1' }
+    const bad = {
+      configDir: '/x',
+      ompBin: 'omp',
+      sessionsDir: '/s',
+      live: false,
+      e2e: true,
+      launchCount: 1,
+      version: '1',
+    }
     expect(invokeContract['app.info'].output.safeParse(bad).success).toBe(false)
   })
 

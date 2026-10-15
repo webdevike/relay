@@ -27,7 +27,9 @@ describe('resolveEnv', () => {
   })
 
   it('refuses the real Eva root without EVAOS_LIVE', () => {
-    expect(() => resolveEnv(base({ env: { EVAOS_EVA_ROOT: '/home/u/Eva' } }))).toThrow(/EVAOS_LIVE=1/)
+    expect(() => resolveEnv(base({ env: { EVAOS_EVA_ROOT: '/home/u/Eva' } }))).toThrow(
+      /EVAOS_LIVE=1/,
+    )
   })
 
   it('uses the real root and profile dir when EVAOS_LIVE=1', () => {
@@ -48,7 +50,9 @@ describe('resolveEnv', () => {
 
   it('EVAOS_CONFIG_DIR always wins and the arc command can be overridden', () => {
     const e = resolveEnv(
-      base({ env: { EVAOS_CONFIG_DIR: '/c', EVAOS_ARC_EXPORT_CMD: '["node","x.js"]', EVAOS_E2E: '1' } }),
+      base({
+        env: { EVAOS_CONFIG_DIR: '/c', EVAOS_ARC_EXPORT_CMD: '["node","x.js"]', EVAOS_E2E: '1' },
+      }),
     )
     expect(e.configDir).toBe('/c')
     expect(e.arcExportCmd).toEqual(['node', 'x.js'])

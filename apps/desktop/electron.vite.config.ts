@@ -1,5 +1,6 @@
 import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
+import { resolve } from 'node:path'
 
 // The built app keeps the strict CSP from index.html; only the dev server relaxes it for HMR.
 const devCsp = {
@@ -21,6 +22,6 @@ export default defineConfig({
   renderer: {
     root: 'src/renderer',
     plugins: [react(), devCsp],
-    build: { rollupOptions: { input: 'src/renderer/index.html' } },
+    build: { rollupOptions: { input: resolve(__dirname, 'src/renderer/index.html') } },
   },
 })
