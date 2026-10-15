@@ -24,5 +24,11 @@ node scripts/sentinel.ts before
 step "e2e"
 pnpm -C apps/desktop e2e:run
 node scripts/sentinel.ts after
-# packaged smoke
+if [ "${EVAOS_PROOF:-}" = "1" ]; then
+  step "metrics"
+  node scripts/check-metrics.ts proof/phase-1/metrics.json
+fi
+step "packaged smoke"
+pnpm -C apps/desktop package
+EVAOS_PACKAGED=1 pnpm -C apps/desktop e2e:run e2e/packaged.spec.ts
 echo GATE GREEN

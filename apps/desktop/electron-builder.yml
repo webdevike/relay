@@ -1,0 +1,18 @@
+appId: dev.eva.evaos-electron
+productName: EvaOS Electron
+directories:
+  output: release
+files:
+  - out/**
+  - package.json
+asarUnpack:
+  - '**/node_modules/node-pty/**'
+  - '**/node_modules/electron-chrome-extensions/**'
+npmRebuild: false
+mac:
+  target:
+    - target: dir
+      arch: arm64
+  identity: null
+  hardenedRuntime: false
+  gatekeeperAssess: false
