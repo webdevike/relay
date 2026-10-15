@@ -21,6 +21,8 @@
     "@evaos/chat-core": "workspace:*",
     "@evaos/contract": "workspace:*",
     "@evaos/eva-core": "workspace:*",
+    "@evaos/shell-core": "workspace:*",
+    "@evaos/theme-core": "workspace:*",
     "@mantine/core": "9.7.2",
     "@mantine/hooks": "9.7.2",
     "@mantine/notifications": "9.7.2",

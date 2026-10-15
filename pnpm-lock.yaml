@@ -212,6 +212,12 @@ importers:
       '@evaos/eva-core':
         specifier: workspace:*
         version: link:../../packages/eva-core
+      '@evaos/shell-core':
+        specifier: workspace:*
+        version: link:../../packages/shell-core
+      '@evaos/theme-core':
+        specifier: workspace:*
+        version: link:../../packages/theme-core
       '@mantine/core':
         specifier: 9.7.2
         version: 9.7.2(@mantine/hooks@9.7.2(react@19.3.1))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -330,6 +336,18 @@ importers:
       '@types/node':
         specifier: ^24.19.2
         version: 24.19.2
+
+  packages/shell-core:
+    dependencies:
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
+
+  packages/theme-core:
+    dependencies:
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
 
 packages:
 
