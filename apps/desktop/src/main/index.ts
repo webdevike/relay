@@ -13,6 +13,7 @@ import { readLastBackground, registerThemeIpc } from './theme-ipc'
 import { createWriteQueue } from './write-queue'
 import { installAppMenu } from './menu'
 import { installWriteGuard } from './eva/write-guard'
+import { startEvaWatch } from './eva/watch'
 import { installTestHooks } from './test-hooks'
 import { createMainWindow } from './window'
 
@@ -81,6 +82,8 @@ function bootstrap(): void {
       registerSettingsIpc(ctx, queue)
       registerEvaIpc(ctx)
       registerChat(ctx)
+      const evaWatch = startEvaWatch(ctx)
+      ctx.onBeforeQuit(() => evaWatch.close())
       registerBrowser(ctx)
       installTestHooks(ctx)
     } catch (e) {
