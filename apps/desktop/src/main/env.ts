@@ -19,6 +19,12 @@ export interface Env {
   /** EVAOS_NOW raw ISO 8601 string; null when unset. */
   now: string | null
   habitPhotosDir: string
+  /** EVAOS_AGENT_DIR: omp agent dir (session-pins.json, blobs). */
+  agentDir: string
+  /** EVAOS_CLAUDE_BRIDGE_BIN: Claude harness bridge script. */
+  claudeBridgeBin: string
+  /** EVAOS_CLAUDE_BIN: claude CLI. */
+  claudeBin: string
 }
 
 export interface ResolveEnvInput {
@@ -53,6 +59,18 @@ function findOmp(env: NodeJS.ProcessEnv, homedir: string): string {
     }
   }
   return 'omp'
+}
+
+function findClaude(env: NodeJS.ProcessEnv, homedir: string): string {
+  for (const d of (env.PATH ?? '').split(path.delimiter).filter(Boolean)) {
+    const candidate = path.join(d, 'claude')
+    try {
+      if (fs.statSync(candidate).isFile()) return candidate
+    } catch {
+      /* keep looking */
+    }
+  }
+  return path.join(homedir, '.local/bin/claude')
 }
 
 function parseArcCmd(raw: string | undefined): string[] | null {
@@ -120,6 +138,24 @@ export function resolveEnv(input: ResolveEnvInput): Env {
       ? path.join(homedir, '.config/eva/habit-photos')
       : path.join(tmpdir, 'evaos-fake-gate/photos')
 
+  const agentDir = env.EVAOS_AGENT_DIR
+    ? env.EVAOS_AGENT_DIR
+    : live
+      ? env.PI_CODING_AGENT_DIR || path.join(homedir, '.omp/agent')
+      : path.join(repoRoot, 'fixtures/agent')
+
+  const fakeBridge = path.join(repoRoot, 'fixtures/fake-claude-bridge/fake-bridge.mjs')
+  const claudeBridgeBin = env.EVAOS_CLAUDE_BRIDGE_BIN
+    ? env.EVAOS_CLAUDE_BRIDGE_BIN
+    : live
+      ? path.join(evaRoot, '.claude/bridge/session.ts')
+      : fakeBridge
+  const claudeBin = env.EVAOS_CLAUDE_BIN
+    ? env.EVAOS_CLAUDE_BIN
+    : live
+      ? findClaude(env, homedir)
+      : fakeBridge
+
   const now = env.EVAOS_NOW ? env.EVAOS_NOW : null
   if (now !== null && !Number.isFinite(Date.parse(now))) {
     throw new Error('EVAOS_NOW must be an ISO 8601 date-time')
@@ -130,6 +166,9 @@ export function resolveEnv(input: ResolveEnvInput): Env {
     jobRunBin,
     now,
     habitPhotosDir,
+    agentDir,
+    claudeBridgeBin,
+    claudeBin,
     evaRoot,
     ompBin,
     configDir,

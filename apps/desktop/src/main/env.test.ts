@@ -101,4 +101,30 @@ describe('resolveEnv', () => {
     expect(resolveEnv(base({ env: { EVAOS_NO_MOTION: '1' } })).noMotion).toBe(true)
     expect(resolveEnv(base()).noMotion).toBe(false)
   })
+
+  it('defaults agent dir and the Claude bridge to fixtures outside live mode', () => {
+    const e = resolveEnv(base())
+    expect(e.agentDir).toBe('/repo/fixtures/agent')
+    expect(e.claudeBridgeBin).toBe('/repo/fixtures/fake-claude-bridge/fake-bridge.mjs')
+    expect(e.claudeBin).toBe(e.claudeBridgeBin)
+  })
+
+  it('uses the real agent dir and bridge when live', () => {
+    const e = resolveEnv(base({ env: { EVAOS_LIVE: '1', EVAOS_EVA_ROOT: '/x' } }))
+    expect(e.agentDir).toBe('/home/u/.omp/agent')
+    expect(e.claudeBridgeBin).toBe('/x/.claude/bridge/session.ts')
+    expect(e.claudeBin).toBe('/home/u/.local/bin/claude')
+    const p = resolveEnv(
+      base({ env: { EVAOS_LIVE: '1', EVAOS_EVA_ROOT: '/x', PI_CODING_AGENT_DIR: '/a' } }),
+    )
+    expect(p.agentDir).toBe('/a')
+  })
+
+  it('explicit agent dir and Claude seams win in both modes', () => {
+    const env = { EVAOS_AGENT_DIR: '/ad', EVAOS_CLAUDE_BRIDGE_BIN: '/cb', EVAOS_CLAUDE_BIN: '/cc' }
+    for (const live of [{}, { EVAOS_LIVE: '1', EVAOS_EVA_ROOT: '/x' }]) {
+      const e = resolveEnv(base({ env: { ...env, ...live } }))
+      expect([e.agentDir, e.claudeBridgeBin, e.claudeBin]).toEqual(['/ad', '/cb', '/cc'])
+    }
+  })
 })
