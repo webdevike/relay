@@ -1,3 +1,4 @@
+import { on } from '../ipc'
 import { registerAction } from '../hotkeys/router'
 import { refreshSidebar } from '../sidebar/sidebar-store'
 
@@ -30,9 +31,11 @@ export function startReload(): () => void {
   }
   window.addEventListener('focus', onFocus)
   const off = registerAction('reload', () => void reloadAll())
+  const offChanged = on('eva.changed', () => void reloadAll())
   const dispose = (): void => {
     window.removeEventListener('focus', onFocus)
     off()
+    offChanged()
     started = null
   }
   started = dispose
