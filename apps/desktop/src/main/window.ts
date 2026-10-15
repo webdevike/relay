@@ -62,8 +62,14 @@ export function createMainWindow(
     // did-fail-load already reported it; nothing else to do.
   })
 
-  if (env.e2e) win.showInactive()
-  else {
+  if (env.e2e) {
+    // Tests run while Isaac works on this Mac. The window must exist and paint (CDP screenshots
+    // and capturePage read the compositor, not the screen), but it stays invisible and lets every
+    // click through, so it never covers his windows.
+    win.setOpacity(0)
+    win.setIgnoreMouseEvents(true)
+    win.showInactive()
+  } else {
     const fallback = setTimeout(() => {
       if (!win.isDestroyed() && !win.isVisible()) win.show()
     }, 10_000)
