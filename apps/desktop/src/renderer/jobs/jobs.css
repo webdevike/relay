@@ -140,3 +140,15 @@ html[data-eva-motion='off'] .eva-jobs-spin {
 .eva-jobs-state[data-tone='success'] {
   color: var(--eva-c-success, #5fb878);
 }
+.eva-jobs-row > span:not(.eva-jobs-name):not(.eva-jobs-switch-cell):not(.eva-jobs-last) {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.eva-jobs-grid {
+  grid-template-columns: minmax(0, 1.3fr) minmax(88px, 0.8fr) minmax(150px, 1.6fr) minmax(
+      0,
+      1.2fr
+    ) 56px;
+  column-gap: 12px;
+}
