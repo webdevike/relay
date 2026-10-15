@@ -443,6 +443,22 @@ describe('SessionManager', () => {
     vi.useRealTimers()
   })
 
+  it('re-opening the same file in the same pane after a timed-out close reports still closing, not another pane', async () => {
+    const { mgr, transports } = setup()
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    await mgr.send('pane-1', 'a')
+    transports[0]!.closeResult = Promise.resolve({ code: null, signal: null, timedOut: true })
+    await mgr.close('pane-1', 50)
+    // chat.open on the same file replaces the Pane object under the same paneId.
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    await expect(mgr.send('pane-1', 'b')).rejects.toMatchObject({
+      code: 'already-owned',
+      message: STILL_CLOSING,
+    })
+    expect(transports).toHaveLength(1)
+    vi.useRealTimers()
+  })
+
   it('close() on a transport that never exits resolves timedOut and only calls close', async () => {
     const { mgr, transports } = setup()
     mgr.open('pane-1', '/s/a.jsonl', [], meta)

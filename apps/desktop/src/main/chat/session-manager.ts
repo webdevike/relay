@@ -160,7 +160,12 @@ export class SessionManager {
         throw new CodedError('session-closed', 'The session was closed before omp started.')
       }
       if (owner) {
-        throw new CodedError('already-owned', owner.pane === pane ? STILL_CLOSING : ALREADY_OWNED)
+        // By paneId, not pane object: open() replaces the Pane, but the same pane's own omp
+        // still exiting after a timed-out close is "still closing", not "another pane".
+        throw new CodedError(
+          'already-owned',
+          owner.pane.paneId === pane.paneId ? STILL_CLOSING : ALREADY_OWNED,
+        )
       }
       const transport = this.deps.createTransport()
       this.owners.set(pane.key, { pane, transport, closing: null })
