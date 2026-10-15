@@ -5,14 +5,28 @@ import { Notifications } from '@mantine/notifications'
 import '@mantine/core/styles.css'
 import '@mantine/notifications/styles.css'
 import './styles/tokens.css'
+import './styles/motion.css'
 import { theme } from './theme'
 import { App } from './app/App'
+import { bootstrapTheme } from './theme/bootstrap'
+import { createStaticColorSchemeManager } from './theme/color-scheme-manager'
+import { ThemeBridge } from './theme/ThemeBridge'
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <MantineProvider theme={theme} defaultColorScheme="dark">
-      <Notifications position="bottom-left" />
-      <App />
-    </MantineProvider>
-  </StrictMode>,
-)
+async function start(): Promise<void> {
+  const { resolved } = await bootstrapTheme()
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <MantineProvider
+        theme={theme}
+        colorSchemeManager={createStaticColorSchemeManager(resolved)}
+        defaultColorScheme={resolved}
+      >
+        <ThemeBridge />
+        <Notifications position="bottom-left" />
+        <App />
+      </MantineProvider>
+    </StrictMode>,
+  )
+}
+
+void start()

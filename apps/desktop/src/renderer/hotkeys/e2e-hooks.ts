@@ -1,4 +1,6 @@
 import { invoke } from '../ipc'
+import { setAppearance } from '../theme/theme-store'
+import type { Appearance } from '@evaos/theme-core'
 
 export interface HotkeyLogEntry {
   chord: string
@@ -10,6 +12,7 @@ export interface EvaosShellHooks {
   openTestOverlay(): void
   markDirty(label: string): string
   clearDirty(id: string): void
+  setAppearance(appearance: Appearance): void
   pageFiller: boolean
 }
 
@@ -47,6 +50,7 @@ export function initE2e(): Promise<boolean> {
         openTestOverlay: () => overlayOpener?.(),
         markDirty: (label) => dirtyHooks?.mark(label) ?? '',
         clearDirty: (id) => dirtyHooks?.clear(id),
+        setAppearance: (a) => setAppearance(a),
         pageFiller: false,
       }
     }

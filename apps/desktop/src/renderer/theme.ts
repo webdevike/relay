@@ -18,5 +18,7 @@ export const theme = createTheme({
   colors: { eva },
   spacing: { xs: '4px', sm: '8px', md: '16px', lg: '24px', xl: '32px' },
   fontSizes: { xs: '12px', sm: '12px', md: '14px', lg: '16px', xl: '20px' },
-  fontFamilyMonospace: '"IBM Plex Mono", ui-monospace, Menlo, monospace',
+  fontFamily: 'var(--eva-font-ui)',
+  fontFamilyMonospace: 'var(--eva-font-code)',
+  defaultRadius: 'var(--eva-radius)',
 })
