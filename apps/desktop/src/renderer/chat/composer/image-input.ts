@@ -32,13 +32,16 @@ function toBase64(file: File): Promise<string> {
 
 /**
  * Reads png/jpeg/gif/webp files up to 20 MB. Other files are skipped and the first reason is
- * reported; oversize files are rejected before any encoding (T-04-28).
+ * reported; oversize files are rejected before any encoding (T-04-28). At most `limit` files are
+encoded; `truncated` says more acceptable files were skipped.
  */
 export async function readImageFiles(
   files: Iterable<File>,
-): Promise<{ images: ReadImage[]; rejected: RejectReason }> {
+  limit = Infinity,
+): Promise<{ images: ReadImage[]; rejected: RejectReason; truncated: boolean }> {
   const images: ReadImage[] = []
   let rejected: RejectReason = null
+  let truncated = false
   for (const file of files) {
     if (!accepted(file.type)) {
       rejected ??= 'not-image'
@@ -48,6 +51,11 @@ export async function readImageFiles(
       rejected ??= 'too-large'
       continue
     }
+    if (images.length >= limit) {
+      // Past the caller's capacity: never encode a file that would be thrown away.
+      truncated = true
+      continue
+    }
     images.push({
       mimeType: file.type,
       data: await toBase64(file),
@@ -55,5 +63,5 @@ export async function readImageFiles(
       previewUrl: URL.createObjectURL(file),
     })
   }
-  return { images, rejected }
+  return { images, rejected, truncated }
 }

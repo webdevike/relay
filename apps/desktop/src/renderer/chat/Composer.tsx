@@ -67,14 +67,18 @@ export function Composer({ paneId, disabled }: { paneId: string; disabled: boole
       setNotice(NOTICE['no-images'])
       return
     }
-    const room = MAX_PROMPT_IMAGES - imagesRef.current.length
-    const read = await readImageFiles(files)
-    const kept = read.images.slice(0, Math.max(room, 0))
+    const read = await readImageFiles(
+      files,
+      Math.max(MAX_PROMPT_IMAGES - imagesRef.current.length, 0),
+    )
+    // Capacity is read again after the await: an overlapping paste or drop may have filled it.
+    const room = Math.max(MAX_PROMPT_IMAGES - imagesRef.current.length, 0)
+    const kept = read.images.slice(0, room)
     for (const extra of read.images.slice(kept.length)) URL.revokeObjectURL(extra.previewUrl)
     setNotice(
       read.rejected
         ? NOTICE[read.rejected]
-        : read.images.length > kept.length
+        : read.truncated || read.images.length > kept.length
           ? NOTICE['too-many']
           : null,
     )

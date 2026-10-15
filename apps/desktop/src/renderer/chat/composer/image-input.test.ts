@@ -34,6 +34,13 @@ describe('readImageFiles', () => {
     expect(r.images).toHaveLength(1)
   })
 
+  it('encodes at most `limit` files and reports truncation', async () => {
+    const mk = (n: string) => new File([new Uint8Array([1])], n, { type: 'image/png' })
+    const r = await readImageFiles([mk('a.png'), mk('b.png'), mk('c.png')], 2)
+    expect(r.images.map((i) => i.name)).toEqual(['a.png', 'b.png'])
+    expect(r.truncated).toBe(true)
+  })
+
   it('rejects an svg (not in the allow-list)', async () => {
     const svg = new File(['<svg/>'], 'a.svg', { type: 'image/svg+xml' })
     expect((await readImageFiles([svg])).rejected).toBe('not-image')
