@@ -27,7 +27,11 @@ export type SavedTabs = z.infer<typeof SavedTabsSchema>
 export const AppearanceSchema = z.enum(['light', 'dark', 'system'])
 export type Appearance = z.infer<typeof AppearanceSchema>
 
-export const ChatSettingsSchema = z.object({ show_thinking: z.boolean(), show_tools: z.boolean() })
+export const ChatSettingsSchema = z.object({
+  show_thinking: z.boolean(),
+  show_tools: z.boolean(),
+  harness: z.enum(['omp', 'claude']),
+})
 export type ChatSettings = z.infer<typeof ChatSettingsSchema>
 
 const Empty = z.object({})

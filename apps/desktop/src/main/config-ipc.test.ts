@@ -82,12 +82,62 @@ describe('theme', () => {
 })
 
 describe('settings', () => {
-  it('defaults true, saves partial, survives reload', () => {
-    expect(saveSettings(config, { show_thinking: false })).toEqual({
+  it('defaults follow Rust: thinking off, tools on, harness omp', () => {
+    expect(loadSettings(config)).toEqual({ show_thinking: false, show_tools: true, harness: 'omp' })
+  })
+  it('chat.json wins, settings.json fills missing keys', () => {
+    fs.writeFileSync(
+      path.join(dir, 'chat.json'),
+      '{"show_thinking":true,"chat_categories":["X"]}',
+    )
+    fs.writeFileSync(path.join(dir, 'settings.json'), '{"show_tools":false,"show_thinking":false}')
+    expect(loadSettings(config)).toEqual({ show_thinking: true, show_tools: false, harness: 'omp' })
+  })
+  it('save writes chat.json, keeps unknown keys, never touches settings.json', () => {
+    fs.writeFileSync(path.join(dir, 'chat.json'), '{"chat_categories":["X"],"zoom":2}')
+    const legacy = '{"show_tools":false}'
+    fs.writeFileSync(path.join(dir, 'settings.json'), legacy)
+    expect(saveSettings(config, { harness: 'claude' })).toEqual({
       show_thinking: false,
-      show_tools: true,
+      show_tools: false,
+      harness: 'claude',
     })
-    expect(loadSettings(createConfigStore(dir))).toEqual({ show_thinking: false, show_tools: true })
+    expect(read('chat.json')).toEqual({ chat_categories: ['X'], zoom: 2, harness: 'claude' })
+    expect(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8')).toBe(legacy)
+  })
+  it('partial saves survive reload', () => {
+    saveSettings(config, { show_thinking: true })
+    saveSettings(config, { show_tools: false })
+    expect(loadSettings(createConfigStore(dir))).toEqual({
+      show_thinking: true,
+      show_tools: false,
+      harness: 'omp',
+    })
+  })
+  it('a corrupt chat.json is backed up and the save still succeeds', () => {
+    fs.writeFileSync(path.join(dir, 'chat.json'), '{broken')
+    expect(saveSettings(config, { harness: 'claude' }).harness).toBe('claude')
+    expect(fs.readFileSync(path.join(dir, 'chat.json.bad'), 'utf8')).toBe('{broken')
+  })
+  it('chat.harnessStatus reflects whether the claude files exist', async () => {
+    const handlers = new Map<string, () => unknown>()
+    vi.doMock('./ipc/handle', () => ({
+      handle: (_c: unknown, name: string, fn: () => unknown) => handlers.set(name, fn),
+    }))
+    vi.resetModules()
+    const { registerSettingsIpc } = await import('./settings-ipc')
+    const bin = path.join(dir, 'claude')
+    const bridge = path.join(dir, 'bridge.mjs')
+    const ctx = (b: string, br: string) =>
+      ({ config, env: { ompBin: 'omp', claudeBin: b, claudeBridgeBin: br } }) as never
+    registerSettingsIpc(ctx(bin, bridge), createWriteQueue())
+    expect(handlers.get('chat.harnessStatus')!()).toEqual({ omp: true, claude: false })
+    fs.writeFileSync(bin, '')
+    fs.writeFileSync(bridge, '')
+    expect(handlers.get('chat.harnessStatus')!()).toEqual({ omp: true, claude: true })
+    fs.rmSync(bridge)
+    expect(handlers.get('chat.harnessStatus')!()).toEqual({ omp: true, claude: false })
+    vi.doUnmock('./ipc/handle')
   })
 })
 describe('index wiring', () => {
@@ -105,14 +155,14 @@ describe('index wiring', () => {
 })
 
 describe('merge-write over a corrupt file', () => {
-  it('backs up unparseable theme.json and settings.json instead of losing it silently', () => {
+  it('backs up unparseable theme.json and chat.json instead of losing it silently', () => {
     fs.writeFileSync(path.join(dir, 'theme.json'), '{broken')
     saveLastBackground(config, '#112233')
     expect(fs.readFileSync(path.join(dir, 'theme.json.bad'), 'utf8')).toBe('{broken')
     expect(read('theme.json')).toMatchObject({ app: { lastBackground: '#112233' } })
-    fs.writeFileSync(path.join(dir, 'settings.json'), '[1]')
+    fs.writeFileSync(path.join(dir, 'chat.json'), '[1]')
     saveSettings(config, { show_tools: false })
-    expect(fs.readFileSync(path.join(dir, 'settings.json.bad'), 'utf8')).toBe('[1]')
+    expect(fs.readFileSync(path.join(dir, 'chat.json.bad'), 'utf8')).toBe('[1]')
   })
   it('keeps unknown keys and does not back up a healthy file', () => {
     fs.writeFileSync(path.join(dir, 'theme.json'), '{"rustKey": 1}')
