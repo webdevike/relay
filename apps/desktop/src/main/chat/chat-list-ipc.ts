@@ -8,7 +8,7 @@ import type { MainContext } from '../context'
 import { buildCommand, childPathFor } from '../eva/spawn'
 import { handle } from '../ipc/handle'
 import type { WriteQueue } from '../write-queue'
-import type { ChatListService } from './chat-list'
+import { SESSION_ID_RE, type ChatListService } from './chat-list'
 import {
   CHAT_RUNNING_MESSAGE,
   CodedError,
@@ -63,7 +63,8 @@ export function saveArchived(
   else set.delete(id)
   const next = [...set].sort()
   config.writeJson(CHAT_FILE, { ...existing, archived_chats: next })
-  return { archived: next }
+  // Entries from the shared file that are not valid ids stay on disk but never reach the output schema.
+  return { archived: next.filter((x) => SESSION_ID_RE.test(x)) }
 }
 
 /** Pins or unpins one id in omp's pins file, keeping every other pin. */
@@ -71,7 +72,7 @@ export function savePin(agentDir: string, id: string, pinned: boolean): { pins: 
   const set = new Set(readPins(agentDir))
   if (pinned) set.add(id)
   else set.delete(id)
-  return { pins: writePins(agentDir, [...set]) }
+  return { pins: writePins(agentDir, [...set]).filter((x) => SESSION_ID_RE.test(x)) }
 }
 
 export interface ChatOpsDeps {

@@ -124,6 +124,9 @@ function resolveTitle(sample: FileSample, size: number): string {
   return ''
 }
 
+/** Mirrors `SessionIdSchema` in the contract. */
+export const SESSION_ID_RE = /^[A-Za-z0-9._-]{1,128}$/
+
 const strings = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
 
@@ -164,7 +167,10 @@ export class ChatListService {
     const chat_assignments: Record<string, string> = {}
     if (typeof assignedRaw === 'object' && assignedRaw !== null && !Array.isArray(assignedRaw)) {
       for (const [id, name] of Object.entries(assignedRaw)) {
-        if (typeof name === 'string') chat_assignments[id] = name
+        // Same predicates as ChatPrefsSchema, so one legacy entry cannot fail list or category saves.
+        if (typeof name === 'string' && name.length <= 120 && SESSION_ID_RE.test(id)) {
+          chat_assignments[id] = name
+        }
       }
     }
     return {

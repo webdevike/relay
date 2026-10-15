@@ -160,7 +160,12 @@ describe('ChatListService', () => {
         archived_chats: ['a', 3],
         chat_categories: ['Mine', 1],
         chat_group_order: ['Mine'],
-        chat_assignments: { a: 'Mine', b: 9 },
+        chat_assignments: {
+          a: 'Mine',
+          b: 9,
+          'bad id/x': 'Mine',
+          long: 'x'.repeat(121),
+        },
         collapsed_groups: ['Other', null],
       }),
     )
