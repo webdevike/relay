@@ -41,7 +41,19 @@ export type EventPayload<K extends EventChannel> = z.output<(typeof eventContrac
 
 export const INVOKE_CHANNELS: readonly string[] = Object.keys(invokeContract)
 export const EVENT_CHANNELS: readonly string[] = Object.keys(eventContract)
-export { BatchSchema, OpSchema, type Batch, type Op } from './chat'
+export {
+  BatchSchema,
+  OpSchema,
+  type Batch,
+  type Op,
+  type ChatList,
+  type ChatRow,
+  type ChatPrefs,
+  type DialogResponse,
+  type LaunchState,
+  type LaunchPatch,
+  type Extras,
+} from './chat'
 export {
   type WorkspaceSummary,
   type OpenTodoDto,

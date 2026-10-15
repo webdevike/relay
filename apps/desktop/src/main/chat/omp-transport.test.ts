@@ -81,7 +81,9 @@ describe('OmpStdioTransport', () => {
         async () => {},
       )
       expect(t.spawnArgs).toEqual(['--mode', 'rpc-ui', '--approval-mode', 'write'])
-      expect(fs.readFileSync(`${out}.argv`, 'utf8').trim()).toBe('--mode rpc-ui --approval-mode write')
+      expect(fs.readFileSync(`${out}.argv`, 'utf8').trim()).toBe(
+        '--mode rpc-ui --approval-mode write',
+      )
     })
 
     it('send carries images only when given', async () => {

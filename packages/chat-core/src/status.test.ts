@@ -15,7 +15,9 @@ describe('status', () => {
     for (const s of CHAT_STATUSES) expect(STATUS_LABEL[s]).not.toContain('—')
   })
   it('precedence', () => {
-    expect(rowStatus({ ...base, owned: true, working: true, dialog: 'confirm' })).toBe('needs-approval')
+    expect(rowStatus({ ...base, owned: true, working: true, dialog: 'confirm' })).toBe(
+      'needs-approval',
+    )
     expect(rowStatus({ ...base, owned: true, dialog: 'other' })).toBe('has-question')
     expect(rowStatus({ ...base, owned: true, working: true })).toBe('working')
     expect(rowStatus({ ...base, owned: true, jobs: 2 })).toBe('job')

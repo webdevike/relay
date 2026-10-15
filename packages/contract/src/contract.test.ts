@@ -6,6 +6,8 @@ import {
   eventContract,
   invokeContract,
 } from './index'
+import { ChatStatusSchema } from './chat'
+import { CHAT_STATUSES } from '@evaos/chat-core/status'
 
 describe('contract', () => {
   it('lists app.info as an invoke channel', () => {
@@ -285,5 +287,110 @@ describe('contract', () => {
     const history = Array.from({ length: 6000 }, (_, i) => ({ kind: 'habit', id: `h${i}` }))
     const tasks = Array.from({ length: 2500 }, (_, i) => ({ id: `t${i}`, name: 'x' }))
     expect(GateStatusSchema.safeParse({ history, tasks }).success).toBe(true)
+  })
+
+  describe('phase 4 chat channels', () => {
+    const png = { mimeType: 'image/png', data: 'AAA' }
+    const send = invokeContract['chat.send'].input
+    it('declares every channel and event', () => {
+      for (const c of [
+        'list',
+        'setCollapsed',
+        'setCategories',
+        'archive',
+        'pin',
+        'rename',
+        'delete',
+        'openDraft',
+        'answerUi',
+        'models',
+        'launchState',
+        'setLaunch',
+        'readImage',
+        'harnessStatus',
+      ]) {
+        expect(INVOKE_CHANNELS).toContain(`chat.${c}`)
+      }
+      expect(EVENT_CHANNELS).toContain('chat.listChanged')
+      expect(EVENT_CHANNELS).toContain('chat.extras')
+      expect(Object.keys(eventContract)).toContain('chat.extras')
+    })
+    it('chat.send text or images', () => {
+      expect(send.safeParse({ paneId: 'p', text: '  ' }).success).toBe(false)
+      expect(send.safeParse({ paneId: 'p', text: '', images: [png] }).success).toBe(true)
+      expect(send.safeParse({ paneId: 'p', text: 'x', images: Array(9).fill(png) }).success).toBe(
+        false,
+      )
+      expect(
+        send.safeParse({
+          paneId: 'p',
+          text: 'x',
+          images: [{ mimeType: 'image/svg+xml', data: 'A' }],
+        }).success,
+      ).toBe(false)
+      expect(send.safeParse({ paneId: 'p', text: 'x', force: true }).success).toBe(true)
+    })
+    it('chat.rename validates and trims', () => {
+      const r = invokeContract['chat.rename'].input
+      expect(r.safeParse({ file: '/s/a.jsonl', name: '' }).success).toBe(false)
+      expect(r.safeParse({ file: '/s/a.jsonl', name: 'x'.repeat(201) }).success).toBe(false)
+      expect(r.parse({ file: '/s/a.jsonl', name: '  hi  ' }).name).toBe('hi')
+    })
+    it('archive and pin reject path-like ids', () => {
+      expect(
+        invokeContract['chat.archive'].input.safeParse({ id: '../x', archived: true }).success,
+      ).toBe(false)
+      expect(invokeContract['chat.pin'].input.safeParse({ id: '../x', pinned: true }).success).toBe(
+        false,
+      )
+      expect(
+        invokeContract['chat.pin'].input.safeParse({ id: 'abc_1.2-3', pinned: true }).success,
+      ).toBe(true)
+    })
+    it('chat.readImage only takes sha256 tokens', () => {
+      const r = invokeContract['chat.readImage'].input
+      expect(r.safeParse({ token: 'blob:sha256:XYZ' }).success).toBe(false)
+      expect(r.safeParse({ token: '../../etc/passwd' }).success).toBe(false)
+      expect(r.safeParse({ token: 'blob:sha256:' + 'a0'.repeat(32) }).success).toBe(true)
+    })
+    it('chat.answerUi accepts each response kind and rejects unknown', () => {
+      const a = invokeContract['chat.answerUi'].input
+      const ok = (response: unknown) => a.safeParse({ paneId: 'p', id: 'i', response }).success
+      expect(ok({ kind: 'select', value: 'a' })).toBe(true)
+      expect(ok({ kind: 'confirm', confirmed: true })).toBe(true)
+      expect(ok({ kind: 'text', value: 'a' })).toBe(true)
+      expect(
+        ok({
+          kind: 'ask',
+          answers: [
+            { id: 'q', picked: ['a'] },
+            { id: 'r', typed: 'z' },
+          ],
+        }),
+      ).toBe(true)
+      expect(ok({ kind: 'cancel' })).toBe(true)
+      expect(ok({ kind: 'nope' })).toBe(false)
+    })
+    it('chat.setLaunch rejects bad approval and extra keys', () => {
+      const l = invokeContract['chat.setLaunch'].input
+      expect(l.safeParse({ paneId: 'p', patch: { approval: 'none' } }).success).toBe(false)
+      expect(l.safeParse({ paneId: 'p', patch: { extra: 1 } }).success).toBe(false)
+      expect(l.safeParse({ paneId: 'p', patch: { approval: 'write', fast: true } }).success).toBe(
+        true,
+      )
+    })
+    it('ChatStatusSchema options equal CHAT_STATUSES', () => {
+      expect(ChatStatusSchema.options).toEqual([...CHAT_STATUSES])
+    })
+    it('chat.open output accepts an owner and snapshot a dialog', () => {
+      expect(
+        invokeContract['chat.open'].output.safeParse({
+          title: 't',
+          messages: [],
+          meta: { model: null, thinking: null, contextTokens: null },
+          owner: 'p2',
+        }).success,
+      ).toBe(true)
+    })
   })
 })

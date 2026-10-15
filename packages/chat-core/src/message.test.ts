@@ -5,7 +5,9 @@ const base = { id: 'a', role: 'user', text: 'x', detail: '', streaming: false }
 
 describe('ChatMessageSchema images', () => {
   it('still parses label-only images', () => {
-    expect(ChatMessageSchema.safeParse({ ...base, images: [{ label: 'Image' }] }).success).toBe(true)
+    expect(ChatMessageSchema.safeParse({ ...base, images: [{ label: 'Image' }] }).success).toBe(
+      true,
+    )
   })
   it('parses images with src and dimensions', () => {
     const r = ChatMessageSchema.safeParse({

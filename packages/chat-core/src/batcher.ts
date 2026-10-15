@@ -34,7 +34,10 @@ export interface Snapshot {
   sessionFile?: string | null
 }
 
-export type SnapshotState = Pick<Snapshot, 'running' | 'connected' | 'error' | 'dialog' | 'sessionFile'>
+export type SnapshotState = Pick<
+  Snapshot,
+  'running' | 'connected' | 'error' | 'dialog' | 'sessionFile'
+>
 
 /** Coalesces ops between flushes (last upsert per id wins) and stamps each non-empty batch with seq + 1. */
 export class SeqBatcher {
