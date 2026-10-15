@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // Deterministic omp stand-in for `--mode rpc-ui` (D-23). No dependencies. See README.md.
-// Never opens the --resume file for writing; exits 0 when stdin closes; logs signals instead of hiding them.
-import { appendFileSync, readFileSync } from 'node:fs'
+// Never opens the --resume file for writing in rpc-ui mode (only the short-lived `--mode rpc` rename does);
+// exits 0 when stdin closes; logs signals instead of hiding them.
+import { randomUUID } from 'node:crypto'
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -29,7 +31,10 @@ const log = (event, detail) => {
 }
 log('spawn', { argv, resumeFile, chunk: CHUNK })
 
-if (mode !== 'rpc-ui') {
+const SESSIONS_DIR = process.env.FAKE_OMP_SESSIONS_DIR || null
+const RPC_ONLY = mode === 'rpc'
+
+if (mode !== 'rpc-ui' && mode !== 'rpc') {
   process.stderr.write(`fake-omp: unsupported mode ${mode}\n`)
   process.exit(2)
 }
@@ -77,6 +82,30 @@ let msgCounter = 0
 let replay = null // { id, aborted, promptId, curAssistantId }
 let steers = [] // { id, text }
 let messageCount = 0
+const state = { model: { id: 'fake-omp', provider: 'fake', contextWindow: 200000 }, thinkingLevel: 'off', fastModeEnabled: false, sessionName: null }
+const MODELS = [
+  { provider: 'anthropic', id: 'claude-opus-5-5', name: 'Opus 5.5', reasoning: true, input: ['text', 'image'], contextWindow: 200000, thinking: { efforts: ['low', 'medium', 'high'] } },
+  { provider: 'anthropic', id: 'claude-opus-5-5-20261001', name: 'Opus 5.5 (2026-10-01)', reasoning: true, input: ['text', 'image'], contextWindow: 200000, thinking: { efforts: ['low', 'medium', 'high'] } },
+  { provider: 'fake', id: 'text-only', name: 'Text Only', reasoning: false, input: ['text'], contextWindow: 32000 },
+  { provider: 'fake', id: 'no-window', name: 'No Window', reasoning: false, input: ['text', 'image'], contextWindow: null },
+]
+// A chat started without --resume: omp plans the file now and writes it on the first prompt.
+const plannedFile = resumeFile
+  ? null
+  : SESSIONS_DIR
+    ? join(SESSIONS_DIR, `${new Date().toISOString().replace(/[:.]/g, '-')}_${randomUUID()}.jsonl`)
+    : null
+let planCreated = false
+const ensureSessionFile = (text) => {
+  if (resumeFile || !plannedFile || planCreated) return
+  planCreated = true
+  mkdirSync(dirname(plannedFile), { recursive: true })
+  const header = { type: 'session', version: 3, id: 'fake-session', timestamp: new Date().toISOString(), cwd: process.cwd() }
+  const user = { type: 'message', id: 'u1', parentId: null, message: { role: 'user', content: text, attribution: 'user' } }
+  writeFileSync(plannedFile, JSON.stringify(header) + '\n' + JSON.stringify(user) + '\n')
+}
+const pending = new Map() // dialog request id -> resolver
+let uiCounter = 0
 
 const nextMsgId = () => `msg-${++msgCounter}`
 
@@ -103,17 +132,18 @@ async function playFrames(frames, ctx, glue) {
     if (glue) lines.push(JSON.stringify(f) + '\n')
     else {
       await emit(f)
-      if (DELAY) await sleep(DELAY)
+      const d = ctx.delay ?? DELAY
+      if (d) await sleep(d)
     }
   }
   if (glue) await writeLines(lines)
   return true
 }
 
-function shortReply(text) {
+function shortReply(text, opts = {}) {
   const base = { api: 'anthropic-messages', provider: 'anthropic', model: 'fake-omp', usage: { input: 1, output: 1 } }
-  const parts = ['Steer ', 'received: ', text]
-  const out = [{ type: 'agent_start' }, { type: 'turn_start' }]
+  const parts = opts.parts ?? ['Steer ', 'received: ', text]
+  const out = opts.skipStart ? [{ type: 'turn_start' }] : [{ type: 'agent_start' }, { type: 'turn_start' }]
   out.push({ type: 'message_start', message: { role: 'user', content: [{ type: 'text', text }], attribution: 'user', timestamp: 1700000000000 }, messageId: 'x' })
   out.push({ type: 'message_end', message: { role: 'user', content: [{ type: 'text', text }], attribution: 'user', timestamp: 1700000000000 }, messageId: 'x' })
   let acc = ''
@@ -134,6 +164,7 @@ function shortReply(text) {
 async function runReplay(promptId, text) {
   const ctx = { promptId, text, aborted: false, cur: null, assistant: null }
   replay = ctx
+  ensureSessionFile(text)
   if (STDERR) process.stderr.write(`fake-omp: handling prompt ${promptId}\n`)
   await playFrames(turnFrames, ctx, CHUNK === 'glued')
   if (ctx.aborted) return
@@ -150,25 +181,135 @@ async function runReplay(promptId, text) {
   }
 }
 
+const DIALOG_KEYWORDS = ['[ask-multi]', '[ask-bad]', '[select]', '[confirm]', '[input]', '[editor]', '[ask]']
+const dialogFrame = (kw, id) => {
+  switch (kw) {
+    case '[select]':
+      return { method: 'select', title: 'Pick one', options: ['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon'], optionDetails: [{}, { description: 'second option' }, {}, {}, {}] }
+    case '[confirm]':
+      return { method: 'confirm', title: 'Proceed?', message: 'This is a confirm dialog' }
+    case '[input]':
+      return { method: 'input', title: 'Your name', placeholder: 'type here' }
+    case '[editor]':
+      return { method: 'editor', title: 'Edit notes', prefill: 'draft text' }
+    case '[ask]':
+      return {
+        method: 'ask',
+        questions: [{ id: 'q1', question: 'Which database?', options: [{ label: 'Postgres' }, { label: 'SQLite' }, { label: 'MySQL' }, { label: 'DuckDB' }], recommended: 1 }],
+      }
+    case '[ask-multi]':
+      return {
+        method: 'ask',
+        questions: [
+          { id: 'db', question: 'Which database?', options: [{ label: 'Postgres' }, { label: 'SQLite' }], recommended: 1 },
+          { id: 'f', question: 'Features?', options: [{ label: 'Auth' }, { label: 'Search' }, { label: 'Export' }], multi: true },
+        ],
+      }
+    default:
+      return { method: 'ask', questions: 'not-an-array' }
+  }
+}
+
+async function runDialog(promptId, text, kw, slow) {
+  const ctx = { promptId, text, aborted: false, cur: null, assistant: null, delay: slow ? 400 : undefined }
+  replay = ctx
+  ensureSessionFile(text)
+  await emit({ type: 'agent_start' })
+  const reqId = `ui-${++uiCounter}`
+  const answer = new Promise((res) => pending.set(reqId, res))
+  ctx.pendingId = reqId
+  await emit({ type: 'extension_ui_request', id: reqId, ...dialogFrame(kw) })
+  const resp = await answer
+  pending.delete(reqId)
+  if (ctx.aborted) return
+  const { type: _t, id: _i, ...rest } = resp
+  const body = resp.cancelled ? 'cancelled' : JSON.stringify(rest)
+  const reply = `Answer received: ${body}`
+  await playFrames(shortReply(text, { parts: [reply], skipStart: true }), ctx, false)
+  if (!ctx.aborted) replay = null
+}
+
+async function runPlain(promptId, text, images, slow) {
+  const ctx = { promptId, text, aborted: false, cur: null, assistant: null, delay: slow ? 400 : undefined }
+  replay = ctx
+  ensureSessionFile(text)
+  const parts = images ? [`Got ${images.length} image(s)`] : ['Slow ', 'reply ', 'for ', 'racing ', 'writers']
+  await playFrames(shortReply(text, { parts }), ctx, false)
+  if (!ctx.aborted) replay = null
+}
+
+function renameFile(file, name) {
+  const lines = readFileSync(file, 'utf8').split('\n')
+  const rec = { type: 'title', v: 1, title: name, updatedAt: Date.now() }
+  let at = -1
+  for (let i = 0; i < Math.min(4, lines.length); i++) {
+    try {
+      if (JSON.parse(lines[i]).type === 'title') {
+        at = i
+        break
+      }
+    } catch {
+      /* skip */
+    }
+  }
+  if (at >= 0) lines[at] = JSON.stringify(rec)
+  else lines.unshift(JSON.stringify(rec))
+  writeFileSync(file, lines.join('\n'))
+}
+
 const respond = (id, command, extra = {}) => emit({ ...(id ? { id } : {}), type: 'response', command, success: true, ...extra })
 
+async function handleRpc(cmd) {
+  const { type, id } = cmd
+  switch (type) {
+    case 'set_session_name':
+      if (!resumeFile) return emit({ ...(id ? { id } : {}), type: 'response', command: type, success: false, error: 'no session' })
+      renameFile(resumeFile, String(cmd.name ?? ''))
+      return respond(id, type)
+    case 'get_available_models':
+      return respond(id, type, { data: { models: MODELS } })
+    case 'get_state':
+      return respond(id, type, { data: { sessionFile: resumeFile, sessionId: 'fake-session', model: state.model, thinkingLevel: state.thinkingLevel } })
+    default:
+      return emit({ ...(id ? { id } : {}), type: 'response', command: type, success: false, error: `Unknown command: ${type}` })
+  }
+}
+
 async function handle(cmd) {
+  if (RPC_ONLY) return handleRpc(cmd)
   const { type, id } = cmd
   switch (type) {
     case 'set_ask_dialog':
       return respond(id, type, { data: { enabled: cmd.enabled !== false } })
     case 'set_subagent_subscription':
       return respond(id, type, { data: { level: cmd.level ?? 'off' } })
+    case 'set_model': {
+      const known = MODELS.find((m) => m.provider === cmd.provider && m.id === cmd.modelId)
+      state.model = known ?? { id: String(cmd.modelId), provider: String(cmd.provider), contextWindow: 200000 }
+      return respond(id, type, { data: {} })
+    }
+    case 'set_thinking_level':
+      state.thinkingLevel = String(cmd.level)
+      return respond(id, type, { data: {} })
+    case 'set_fast_mode':
+      state.fastModeEnabled = cmd.enabled === true
+      return respond(id, type, { data: {} })
+    case 'set_session_name':
+      state.sessionName = String(cmd.name ?? '')
+      return respond(id, type, { data: {} })
     case 'get_state':
       return respond(id, type, {
         data: {
-          sessionFile: resumeFile,
+          sessionFile: resumeFile ?? plannedFile,
           sessionId: 'fake-session',
+          sessionName: state.sessionName,
           isStreaming: replay !== null,
           isSettled: replay === null,
           messageCount,
-          model: { id: 'fake-omp', provider: 'fake' },
-          thinkingLevel: 'off',
+          model: state.model,
+          thinkingLevel: state.thinkingLevel,
+          fastModeEnabled: state.fastModeEnabled,
+          contextUsage: { tokens: 42000, contextWindow: state.model.contextWindow ?? 0 },
         },
       })
     case 'prompt': {
@@ -178,8 +319,14 @@ async function handle(cmd) {
         steers.push({ id, text })
         return emit({ type: 'queue_update', steering: steers.map((s) => s.text), followUp: [] })
       }
+      const images = Array.isArray(cmd.images) && cmd.images.length ? cmd.images : null
+      if (images) log('prompt-images', { count: images.length, mimeTypes: images.map((i) => i.mimeType) })
+      const slow = text.includes('[slow]')
+      const kw = DIALOG_KEYWORDS.find((k) => text.includes(k))
       // do not await: stdin must keep being served while replaying
-      void runReplay(id, text)
+      if (kw) void runDialog(id, text, kw, slow)
+      else if (images || slow) void runPlain(id, text, images, slow)
+      else void runReplay(id, text)
       return
     }
     case 'abort': {
@@ -188,13 +335,18 @@ async function handle(cmd) {
       ctx.aborted = true
       replay = null
       steers = []
+      if (ctx.pendingId && pending.has(ctx.pendingId)) pending.get(ctx.pendingId)({ cancelled: true })
       const t = { promptId: ctx.promptId, text: ctx.text, aborted: false, cur: ctx.assistant, assistant: ctx.assistant, abortId: id }
       // tail's first frame is the aborted assistant message_end: keep the live assistant id
       await playFrames(abortTail, t, false)
       return
     }
-    case 'extension_ui_response':
+    case 'extension_ui_response': {
+      log('ui-response', cmd)
+      const res = pending.get(cmd.id)
+      if (res) res(cmd)
       return
+    }
     default:
       return emit({ ...(id ? { id } : {}), type: 'response', command: type, success: false, error: `Unknown command: ${type}` })
   }
@@ -224,6 +376,7 @@ process.stdin.on('data', (d) => {
 process.stdin.on('end', async () => {
   log('stdin-end', null)
   if (replay) replay.aborted = true
+  for (const res of pending.values()) res({ cancelled: true })
   await chain
   setTimeout(() => {
     log('exit', { code: 0 })
