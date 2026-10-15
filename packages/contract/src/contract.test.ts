@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { EVENT_CHANNELS, INVOKE_CHANNELS, invokeContract } from './index'
+import {
+  EVENT_CHANNELS,
+  INVOKE_CHANNELS,
+  GateStatusSchema,
+  eventContract,
+  invokeContract,
+} from './index'
 
 describe('contract', () => {
   it('lists app.info as an invoke channel', () => {
@@ -96,5 +102,182 @@ describe('contract', () => {
       version: '1',
     })
     expect(out.noMotion).toBe(false)
+  })
+
+  it('eva and jobs inputs are strict and reject path-like ids', () => {
+    const c = invokeContract
+    expect(c['eva.workspace'].input.safeParse({ id: 'ok', x: 1 }).success).toBe(false)
+    for (const id of ['../x', 'a/b'])
+      expect(c['eva.workspace'].input.safeParse({ id }).success).toBe(false)
+    expect(c['jobs.get'].input.safeParse({ name: 'Upper' }).success).toBe(false)
+    expect(c['jobs.run'].input.safeParse({ name: 'a/b' }).success).toBe(false)
+    expect(c['jobs.delete'].input.safeParse({ name: 'ok', y: 1 }).success).toBe(false)
+  })
+
+  it('eva.dashboard daily is exactly 90 and todo.add is bounded', () => {
+    const ws = (n: number) => ({
+      id: 'a',
+      name: 'a',
+      displayName: 'A',
+      tagline: null,
+      latest: null,
+      lastActive: null,
+      openTodos: 0,
+      builtIn: false,
+      hasFile: true,
+      aliases: [],
+      daily: Array.from({ length: n }, () => 0),
+    })
+    const d = (n: number) => ({
+      today: '2026-10-15',
+      generatedAt: 1,
+      workspaces: [ws(n)],
+      todos: [],
+      updates7d: 0,
+    })
+    const out = invokeContract['eva.dashboard'].output
+    expect(out.safeParse(d(90)).success).toBe(true)
+    expect(out.safeParse(d(89)).success).toBe(false)
+    const i = invokeContract['eva.todo.add'].input
+    expect(i.safeParse({ tag: 'a', text: '' }).success).toBe(false)
+    expect(i.safeParse({ tag: 'a', text: 'x'.repeat(2001) }).success).toBe(false)
+    expect(i.safeParse({ tag: 'a', text: 'x' }).success).toBe(true)
+  })
+
+  it('jobs.save and jobs.list shapes', () => {
+    const settings = { every: '1h', enabled: true, maxRun: '10m', keep: '5' }
+    const i = invokeContract['jobs.save'].input
+    expect(
+      i.safeParse({ name: 'a', mode: 'create', basis: null, settings, steps: 's' }).success,
+    ).toBe(true)
+    expect(
+      i.safeParse({ name: 'a', mode: 'update', basis: 'txt', settings, steps: 's' }).success,
+    ).toBe(true)
+    const job = {
+      name: 'a',
+      description: null,
+      every: null,
+      enabled: true,
+      scheduled: false,
+      maxRun: null,
+      keep: null,
+      lastRunAt: null,
+      runState: 'other',
+      runStateRaw: 'weird',
+      runNote: null,
+      sessionFile: null,
+      nextDueAt: null,
+      hasScript: false,
+    }
+    const out = invokeContract['jobs.list'].output
+    expect(out.safeParse({ now: 1, jobs: [job] }).success).toBe(true)
+    expect(out.safeParse({ now: 1, jobs: [{ ...job, runState: 'weird' }] }).success).toBe(false)
+  })
+
+  it('eva.changed payload', () => {
+    const e = eventContract['eva.changed']
+    expect(e.safeParse({ areas: ['memory'] }).success).toBe(true)
+    expect(e.safeParse({ areas: ['x'] }).success).toBe(false)
+  })
+
+  it('GateStatusSchema is lenient', () => {
+    const live = {
+      locked: false,
+      lockedAt: null,
+      reason: null,
+      active: null,
+      plan: {
+        date: '2026-10-15',
+        breaks: [{ at: '2026-10-15T15:40:00.000Z', done: true }],
+        source: 'calendar',
+      },
+      history: [
+        {
+          kind: 'habit',
+          id: 'draw',
+          name: 'Draw',
+          startedAt: '2026-10-14T18:25:30.037Z',
+          doneAt: '2026-10-14T18:37:31.001Z',
+          photo: '/p/x.heic',
+          override: null,
+        },
+      ],
+      canFinish: false,
+      remainingSeconds: 0,
+      blocked: false,
+      newField: 1,
+    }
+    expect(GateStatusSchema.safeParse(live).success).toBe(true)
+    const empty = GateStatusSchema.parse({})
+    expect(empty.locked).toBe(false)
+    expect(empty.habits).toEqual([])
+    expect(empty.history).toEqual([])
+    const n = GateStatusSchema.parse({
+      history: [{ kind: null, id: null, name: null, doneAt: 'x' }],
+    })
+    expect(n.history[0]).toMatchObject({ kind: '', id: '', name: '' })
+  })
+
+  it('habit.run actions', () => {
+    const i = invokeContract['habit.run'].input
+    const ok = [
+      { action: 'start', id: 'walk' },
+      { action: 'done', id: 'walk', photoToken: null },
+      { action: 'done', id: 'walk', photoToken: 'tok' },
+      { action: 'override', reason: 'x' },
+      { action: 'habit-add', name: 'W', minutes: 5, photo: false },
+      { action: 'habit-edit', id: 'w', name: 'W', minutes: 5, photo: true },
+      { action: 'habit-rm', id: 'w' },
+      { action: 'task-add', name: 'T', minutes: null },
+      { action: 'task-rm', id: 't' },
+    ]
+    for (const a of ok) expect(i.safeParse(a).success).toBe(true)
+    const add = (minutes: number, name = 'W') => ({
+      action: 'habit-add',
+      name,
+      minutes,
+      photo: false,
+    })
+    for (const m of [0, 601, 2.5]) expect(i.safeParse(add(m)).success).toBe(false)
+    expect(i.safeParse(add(5, 'x'.repeat(201))).success).toBe(false)
+    expect(i.safeParse({ action: 'nope' }).success).toBe(false)
+    expect(i.safeParse({ action: 'done', id: 'w', photoToken: null, photo: '/x' }).success).toBe(
+      false,
+    )
+  })
+
+  it('meetings inputs and get output', () => {
+    const c = invokeContract
+    for (const stem of ['a/b', '.hidden'])
+      expect(c['meetings.get'].input.safeParse({ stem }).success).toBe(false)
+    const out = c['meetings.get'].output
+    expect(out.safeParse({ meeting: null, notes: 'none', protocol: null }).success).toBe(true)
+  })
+
+  it('includes every Phase 3 channel', () => {
+    for (const ch of [
+      'eva.dashboard',
+      'eva.workspace',
+      'eva.workspace.openFile',
+      'eva.todo.preview',
+      'eva.todo.add',
+      'jobs.list',
+      'jobs.get',
+      'jobs.save',
+      'jobs.setEnabled',
+      'jobs.delete',
+      'jobs.run',
+      'habit.status',
+      'habit.run',
+      'habit.choosePhoto',
+      'habit.openPhoto',
+      'meetings.list',
+      'meetings.get',
+      'meetings.accept',
+      'meetings.dismiss',
+      'meetings.openNotes',
+    ])
+      expect(INVOKE_CHANNELS).toContain(ch)
+    expect(EVENT_CHANNELS).toContain('eva.changed')
   })
 })

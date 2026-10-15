@@ -1,7 +1,10 @@
 import type { z } from 'zod'
 import { appEvents, appInvoke } from './app'
 import { shellInvoke } from './shell'
-import { evaInvoke } from './eva'
+import { evaEvents, evaInvoke } from './eva'
+import { jobsInvoke } from './jobs'
+import { habitsInvoke } from './habits'
+import { meetingsInvoke } from './meetings'
 import { chatEvents, chatInvoke } from './chat'
 import { browserEvents, browserInvoke } from './browser'
 
@@ -21,10 +24,13 @@ export const invokeContract = {
   ...appInvoke,
   ...shellInvoke,
   ...evaInvoke,
+  ...jobsInvoke,
+  ...habitsInvoke,
+  ...meetingsInvoke,
   ...chatInvoke,
   ...browserInvoke,
 }
-export const eventContract = { ...appEvents, ...chatEvents, ...browserEvents }
+export const eventContract = { ...appEvents, ...chatEvents, ...browserEvents, ...evaEvents }
 
 export type InvokeChannel = keyof typeof invokeContract
 export type EventChannel = keyof typeof eventContract
@@ -36,3 +42,12 @@ export type EventPayload<K extends EventChannel> = z.output<(typeof eventContrac
 export const INVOKE_CHANNELS: readonly string[] = Object.keys(invokeContract)
 export const EVENT_CHANNELS: readonly string[] = Object.keys(eventContract)
 export { BatchSchema, OpSchema, type Batch, type Op } from './chat'
+export {
+  type WorkspaceSummary,
+  type OpenTodoDto,
+  type DashboardPayload,
+  type WorkspaceDetail,
+} from './eva'
+export { type JobSummaryDto, type JobSettingsDto } from './jobs'
+export { GateStatusSchema, type GateStatus } from './habits'
+export { type Proposal, type MeetingSummary } from './meetings'
