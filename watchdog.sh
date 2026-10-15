@@ -4,6 +4,8 @@
 set -u
 cd "${0:A:h}"
 export PATH="$PWD/node_modules/.bin:$PATH"
+# An unattended job, so the habit gate must never lock it (AGENTS.md: jobs are never gated).
+export EVA_GATE_OFF=1
 mkdir -p logs
 log() { echo "$(date '+%F %T') $*" >> logs/watchdog.log; }
 pgrep -f "run-phases.sh|claude -p --dangerously-skip-permissions" >/dev/null && { log "running, HEAD $(git rev-parse --short HEAD)"; exit 0; }
