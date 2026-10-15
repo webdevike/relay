@@ -7,6 +7,8 @@ export interface Snapshot {
   messages: ChatMessage[]
   meta: SessionMeta
   running: boolean
+  connected: boolean
+  error: string | null
 }
 
 export interface DrainStats {

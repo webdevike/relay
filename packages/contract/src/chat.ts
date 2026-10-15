@@ -46,11 +46,14 @@ export const chatInvoke = {
   },
   'chat.snapshot': {
     input: z.object({ paneId: PaneIdSchema }).strict(),
+    // A resync replaces the pane wholesale, so the snapshot carries every field a meta op can.
     output: z.object({
       seq: z.number().int().nonnegative(),
       messages: z.array(ChatMessageSchema),
       meta: SessionMetaSchema,
       running: z.boolean(),
+      connected: z.boolean(),
+      error: z.string().nullable(),
     }),
   },
 } as const

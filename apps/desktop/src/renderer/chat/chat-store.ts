@@ -31,6 +31,7 @@ export interface ChatState {
   setMessages(paneId: string, messages: ChatMessage[]): void
   /** Applies one drained batch worth of ops. Only changed rows get a new object identity. */
   applyOps(paneId: string, ops: Op[], seq: number): void
+  /** Replaces the pane with a `chat.snapshot`; `connected` and `error` come along so a lost `_eof` batch is not lost twice. */
   applySnapshot(
     paneId: string,
     snap: {
@@ -38,7 +39,8 @@ export interface ChatState {
       messages: ChatMessage[]
       meta: SessionMeta
       running: boolean
-      stopped?: boolean
+      connected: boolean
+      error: string | null
     },
   ): void
   setPin(paneId: string, unpinned: boolean, newReply: boolean): void
@@ -127,7 +129,8 @@ export const chatStore = createStore<ChatState>((set) => ({
         messages: snap.messages,
         meta: snap.meta,
         running: snap.running,
-        stopped: snap.stopped ?? p.stopped,
+        stopped: !snap.connected,
+        error: snap.error,
         lastSeq: snap.seq,
       })),
     ),

@@ -44,7 +44,14 @@ describe('stream drain', () => {
   })
 
   it('recovers from a seq gap with one snapshot, ignores late batches, applies the next', async () => {
-    const snapshot: Snapshot = { seq: 6, messages: [a('x', 'snap')], meta, running: true }
+    const snapshot: Snapshot = {
+      seq: 6,
+      messages: [a('x', 'snap')],
+      meta,
+      running: true,
+      connected: true,
+      error: null,
+    }
     const { drain, requestSnapshot, flush } = setup({ snapshot })
     drain.push(batch(1, a('x', 'a')))
     flush()
@@ -99,7 +106,14 @@ describe('stream drain', () => {
   it('drops a held batch the snapshot cannot reach instead of resyncing forever', async () => {
     // Main restarted its seq (the pane was reopened on another file) and a late batch from the
     // old process arrives under the same paneId.
-    const snapshot: Snapshot = { seq: 0, messages: [], meta, running: false }
+    const snapshot: Snapshot = {
+      seq: 0,
+      messages: [],
+      meta,
+      running: false,
+      connected: true,
+      error: null,
+    }
     const { drain, requestSnapshot, flush } = setup({ snapshot })
     drain.push(batch(57, a('x', 'stale')))
     expect(requestSnapshot).toHaveBeenCalledTimes(1)
@@ -114,6 +128,30 @@ describe('stream drain', () => {
     expect(pane().messages.map((m) => m.text)).toEqual(['fresh'])
     expect(pane().lastSeq).toBe(1)
     expect(requestSnapshot).toHaveBeenCalledTimes(1)
+  })
+
+  it('a snapshot taken after omp exited restores the stopped state and the EOF banner', async () => {
+    // The dropped batch was the `_eof` one (connected: false, error): the snapshot must carry both.
+    const snapshot: Snapshot = {
+      seq: 3,
+      messages: [a('x', 'done')],
+      meta,
+      running: false,
+      connected: false,
+      error: 'The session ended unexpectedly.',
+    }
+    const { drain, flush } = setup({ snapshot })
+    drain.push(batch(1, a('x', 'd')))
+    flush()
+    expect(pane().stopped).toBe(false)
+    drain.push(batch(3, a('x', 'late')))
+    await new Promise((r) => setTimeout(r, 0))
+    flush()
+    expect(pane().lastSeq).toBe(3)
+    expect(pane().running).toBe(false)
+    expect(pane().stopped).toBe(true)
+    expect(pane().error).toBe('The session ended unexpectedly.')
+    expect(pane().messages.map((m) => m.text)).toEqual(['done'])
   })
 
   it('upsert keeps position, appends new ids, and only the changed row changes identity', () => {

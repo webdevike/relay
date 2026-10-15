@@ -326,7 +326,11 @@ export class SessionManager {
     return p.batcher.snapshot(
       p.reducer.messages().slice(),
       { ...p.reducer.meta() },
-      p.reducer.running,
+      {
+        running: p.reducer.running,
+        connected: p.transport !== null,
+        error: p.reducer.error,
+      },
     )
   }
 

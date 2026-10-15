@@ -56,10 +56,22 @@ describe('SeqBatcher', () => {
     const snap = b.snapshot(
       [m('a', 'x')],
       { model: null, thinking: null, contextTokens: null },
-      true,
+      { running: true, connected: true, error: null },
     )
     expect(snap.seq).toBe(1)
     expect(snap.messages).toHaveLength(1)
     expect(snap.running).toBe(true)
+    expect(snap.connected).toBe(true)
+    expect(snap.error).toBeNull()
+  })
+
+  it('snapshot carries the stopped state and the error a lost meta batch would have had', () => {
+    const b = new SeqBatcher('p')
+    const snap = b.snapshot(
+      [],
+      { model: null, thinking: null, contextTokens: null },
+      { running: false, connected: false, error: 'ended' },
+    )
+    expect(snap).toMatchObject({ seq: 0, running: false, connected: false, error: 'ended' })
   })
 })

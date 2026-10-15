@@ -24,4 +24,17 @@ describe('contract', () => {
     expect(invokeContract['app.info'].input.safeParse({ extra: 1 }).success).toBe(false)
     expect(invokeContract['app.info'].input.safeParse({}).success).toBe(true)
   })
+
+  it('chat.snapshot output carries connected and error, not just running', () => {
+    const base = {
+      seq: 0,
+      messages: [],
+      meta: { model: null, thinking: null, contextTokens: null },
+      running: false,
+    }
+    const out = invokeContract['chat.snapshot'].output
+    expect(out.safeParse(base).success).toBe(false)
+    expect(out.safeParse({ ...base, connected: false, error: 'ended' }).success).toBe(true)
+    expect(out.safeParse({ ...base, connected: true, error: null }).success).toBe(true)
+  })
 })

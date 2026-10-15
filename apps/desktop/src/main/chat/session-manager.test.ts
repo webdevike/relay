@@ -254,6 +254,8 @@ describe('SessionManager', () => {
     const snap = mgr.snapshot('pane-1')
     expect(snap.messages.map((m) => m.id)).toEqual(['m1', 'sent-1'])
     expect(snap.seq).toBe(0)
+    expect(snap.connected).toBe(true)
+    expect(snap.error).toBeNull()
     vi.useRealTimers()
   })
 
@@ -300,7 +302,14 @@ describe('SessionManager', () => {
     })
     await vi.advanceTimersByTimeAsync(100)
     expect(batches.at(-1)).toBe(last)
-    expect(mgr.snapshot('pane-1').messages).toEqual([])
+    // A resync after the lost `_eof` batch still learns that omp is gone and why.
+    expect(mgr.snapshot('pane-1')).toMatchObject({
+      seq: 2,
+      messages: [],
+      running: false,
+      connected: false,
+      error: EOF_ERROR,
+    })
     // The next send starts a fresh process and takes the EOF error down with it.
     await mgr.send('pane-1', 'again')
     expect(transports).toHaveLength(2)

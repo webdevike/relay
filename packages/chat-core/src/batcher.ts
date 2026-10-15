@@ -17,12 +17,18 @@ export type Op =
 
 export type Batch = { paneId: string; seq: number; ops: Op[] }
 
+/** The whole pane state a resync replaces: everything a MetaPatch can carry must be here too. */
 export interface Snapshot {
   seq: number
   messages: ChatMessage[]
   meta: SessionMeta
   running: boolean
+  /** False once omp exited or was closed (drives the renderer's `stopped`). */
+  connected: boolean
+  error: string | null
 }
+
+export type SnapshotState = Pick<Snapshot, 'running' | 'connected' | 'error'>
 
 /** Coalesces ops between flushes (last upsert per id wins) and stamps each non-empty batch with seq + 1. */
 export class SeqBatcher {
@@ -72,7 +78,7 @@ export class SeqBatcher {
   }
 
   /** The current seq with the reducer's state. Pending (unflushed) ops are already part of `messages`, so they are discarded. */
-  snapshot(messages: ChatMessage[], meta: SessionMeta, running: boolean): Snapshot {
-    return { seq: this.seq, messages, meta, running }
+  snapshot(messages: ChatMessage[], meta: SessionMeta, state: SnapshotState): Snapshot {
+    return { seq: this.seq, messages, meta, ...state }
   }
 }
