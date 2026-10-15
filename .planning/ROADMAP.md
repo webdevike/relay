@@ -73,7 +73,49 @@ Plans:
   3. Switching Light / Dark / System recolors the whole app live without remounting (139 color keys as CSS variables), the entrance animation plays once per launch and can be disabled for tests, and quitting with unsaved Files edits prompts
   4. The built app is running and `proof/phase-2/` screenshots (light and dark, folded and wide, tabs) exist with matching state assertions
 
-**Plans**: TBD
+**Plans**: 13 plans in 9 waves
+
+Plans:
+**Wave 1**
+
+- [x] 02-01-PLAN.md: shell-core fit, layout-file, chords and scopes; theme-core skeleton (wave 1)
+- [x] 02-02-PLAN.md: contract channels and sidebar data readers (wave 1)
+
+**Wave 2**
+
+- [x] 02-03-PLAN.md: tabs and places model port (wave 2)
+- [x] 02-04-PLAN.md: theme-core 139 keys, bundled themes, resolveTheme (wave 2)
+
+**Wave 3**
+
+- [ ] 02-05-PLAN.md: main handlers (layout, theme, background, settings, sidebar, noMotion) and quit guard (wave 3)
+- [ ] 02-06-PLAN.md: HotkeyRouter, dismiss stack, overlay wrappers, ScrollArea, dirty registry (wave 3)
+
+**Wave 4**
+
+- [ ] 02-07-PLAN.md: ThemeApplier, token aliases, Appearance control, entrance timeline (wave 4)
+
+**Wave 5**
+
+- [ ] 02-08-PLAN.md: three-column frame, grips, layout store, footer, spike removal (wave 5)
+
+**Wave 6**
+
+- [ ] 02-09-PLAN.md: tabs store, tab strip, context menu, toggles (wave 6)
+
+**Wave 7**
+
+- [ ] 02-10-PLAN.md: page router, placeholder pages, scroll memory, chat keep-alive (wave 7)
+
+**Wave 8**
+
+- [ ] 02-11-PLAN.md: sidebar, counts, Recent, sub-pages, account menu (wave 8)
+- [ ] 02-12-PLAN.md: Settings pages (Theme, Chat, Notifications) (wave 8)
+
+**Wave 9**
+
+- [ ] 02-13-PLAN.md: hotkey, motion and quit-guard e2e, proof screenshots, gate, checklist (wave 9)
+
 **UI hint**: yes
 
 ### Phase 3: Dashboard, Workspaces, Jobs, Habits and Meetings
