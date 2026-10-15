@@ -63,6 +63,40 @@ describe('resolveEnv', () => {
     expect(() => resolveEnv(base({ env: { EVAOS_ARC_EXPORT_CMD: 'nope' } }))).toThrow(/JSON array/)
   })
 
+  it('defaults gate, job-run, clock and photo dir to fakes outside live mode', () => {
+    const e = resolveEnv(base())
+    expect(e.habitGateBin).toBe('/repo/fixtures/fake-gate/fake-gate.mjs')
+    expect(e.jobRunBin).toBe('/repo/fixtures/fake-job-run/fake-job-run.mjs')
+    expect(e.now).toBeNull()
+    expect(e.habitPhotosDir).toBe('/tmp/evaos-fake-gate/photos')
+  })
+
+  it('uses the real tools and photo dir when live', () => {
+    const e = resolveEnv(base({ env: { EVAOS_LIVE: '1', EVAOS_EVA_ROOT: '/x' } }))
+    expect(e.habitGateBin).toBe('/x/.omp/tools/habit-gate.ts')
+    expect(e.jobRunBin).toBe('/x/.omp/tools/job-run.ts')
+    expect(e.habitPhotosDir).toBe('/home/u/.config/eva/habit-photos')
+  })
+
+  it('explicit seams win in both modes', () => {
+    const env = {
+      EVAOS_HABIT_GATE_BIN: '/g',
+      EVAOS_JOB_RUN_BIN: '/j',
+      EVAOS_HABIT_PHOTOS_DIR: '/p',
+    }
+    for (const live of [{}, { EVAOS_LIVE: '1', EVAOS_EVA_ROOT: '/x' }]) {
+      const e = resolveEnv(base({ env: { ...env, ...live } }))
+      expect([e.habitGateBin, e.jobRunBin, e.habitPhotosDir]).toEqual(['/g', '/j', '/p'])
+    }
+  })
+
+  it('validates EVAOS_NOW', () => {
+    expect(resolveEnv(base({ env: { EVAOS_NOW: '2026-10-15T12:00:00Z' } })).now).toBe(
+      '2026-10-15T12:00:00Z',
+    )
+    expect(() => resolveEnv(base({ env: { EVAOS_NOW: 'yesterday' } }))).toThrow(/EVAOS_NOW/)
+  })
+
   it('reads EVAOS_NO_MOTION', () => {
     expect(resolveEnv(base({ env: { EVAOS_NO_MOTION: '1' } })).noMotion).toBe(true)
     expect(resolveEnv(base()).noMotion).toBe(false)

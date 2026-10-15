@@ -12,6 +12,11 @@ export interface Env {
   e2e: boolean
   noMotion: boolean
   repoRoot: string
+  habitGateBin: string
+  jobRunBin: string
+  /** EVAOS_NOW raw ISO 8601 string; null when unset. */
+  now: string | null
+  habitPhotosDir: string
 }
 
 export interface ResolveEnvInput {
@@ -95,7 +100,34 @@ export function resolveEnv(input: ResolveEnvInput): Env {
       ? path.join(homedir, 'Library/Application Support/EvaOS Electron')
       : path.join(tmpdir, `evaos-electron-dev-${pid}`)
 
+  const habitGateBin = env.EVAOS_HABIT_GATE_BIN
+    ? env.EVAOS_HABIT_GATE_BIN
+    : live
+      ? path.join(evaRoot, '.omp/tools/habit-gate.ts')
+      : path.join(repoRoot, 'fixtures/fake-gate/fake-gate.mjs')
+
+  const jobRunBin = env.EVAOS_JOB_RUN_BIN
+    ? env.EVAOS_JOB_RUN_BIN
+    : live
+      ? path.join(evaRoot, '.omp/tools/job-run.ts')
+      : path.join(repoRoot, 'fixtures/fake-job-run/fake-job-run.mjs')
+
+  const habitPhotosDir = env.EVAOS_HABIT_PHOTOS_DIR
+    ? env.EVAOS_HABIT_PHOTOS_DIR
+    : live
+      ? path.join(homedir, '.config/eva/habit-photos')
+      : path.join(tmpdir, 'evaos-fake-gate/photos')
+
+  const now = env.EVAOS_NOW ? env.EVAOS_NOW : null
+  if (now !== null && !Number.isFinite(Date.parse(now))) {
+    throw new Error('EVAOS_NOW must be an ISO 8601 date-time')
+  }
+
   return {
+    habitGateBin,
+    jobRunBin,
+    now,
+    habitPhotosDir,
     evaRoot,
     ompBin,
     configDir,
