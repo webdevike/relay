@@ -4,9 +4,16 @@ import type { WebContents } from 'electron'
  * CDP control of one page through `webContents.debugger`. Main-process only (agents later); it
  * attaches lazily and treats a `detach` (DevTools closing, crash) as normal: the next call
  * re-attaches. DevTools and this client coexist on Electron 44 (multi-client CDP).
+ *
+ * Navigation is not done here: `load` is the host's `navigate()`, the one place that applies the
+ * guest protocol allow-list and keeps the tab state in step, so an agent handing this class a
+ * `file:` or `chrome:` URL gets the same blocked card as the address bar.
  */
 export class PageControl {
-  constructor(private readonly wc: WebContents) {
+  constructor(
+    private readonly wc: WebContents,
+    private readonly load: (url: string) => void,
+  ) {
     wc.debugger.on('detach', () => {
       /* next call re-attaches */
     })
@@ -37,7 +44,7 @@ export class PageControl {
     )
   }
 
-  async navigate(url: string): Promise<void> {
-    await this.wc.loadURL(url)
+  navigate(url: string): void {
+    this.load(url)
   }
 }

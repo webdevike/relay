@@ -7,7 +7,7 @@ interface PC {
   readText(): Promise<string>
   click(sel: string): Promise<boolean>
   evaluate(expr: string): Promise<unknown>
-  navigate(url: string): Promise<void>
+  navigate(url: string): void
 }
 type G = {
   __evaosTest: {
@@ -60,6 +60,14 @@ test('PageControl over CDP, DevTools detached and coexisting', async ({ app, she
   expect(await pc('click', '#nope')).toBe(false)
   expect(await pc('evaluate', 'document.title')).toBe('Page B')
   await pc('navigate', server.url('/a.html'))
+  await expect(shell.locator('[data-testid^=tab-t]').first()).toContainText('Page A')
+
+  // PageControl.navigate goes through the host's allow-list like the address bar does.
+  await pc('navigate', 'file:///etc/hosts')
+  await expect(shell.getByText('This address cannot be opened here')).toBeVisible()
+  expect(await pc('evaluate', 'location.href')).toBe(server.url('/a.html'))
+  await pc('navigate', server.url('/a.html'))
+  await expect(shell.getByText('This address cannot be opened here')).toHaveCount(0)
   await expect(shell.locator('[data-testid^=tab-t]').first()).toContainText('Page A')
 
   await app.evaluate(() => {

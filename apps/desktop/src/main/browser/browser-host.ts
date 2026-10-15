@@ -58,7 +58,7 @@ export class BrowserHost {
 
   pageControl(tabId: string): PageControl {
     const t = this.tab(tabId)
-    t.control ??= new PageControl(t.view.webContents)
+    t.control ??= new PageControl(t.view.webContents, (url) => this.navigate(tabId, url))
     return t.control
   }
 
