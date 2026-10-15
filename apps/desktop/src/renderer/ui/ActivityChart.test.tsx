@@ -36,6 +36,20 @@ describe('ActivityChart', () => {
     expect(area?.getAttribute('fill')).toBe('url(#eva-hatch)')
   })
 
+  it('positions the week hatch by date even when tick labels repeat', () => {
+    const repeated = rows.map((r) => ({ ...r, tick: 'M' }))
+    const { container } = setup(repeated)
+    const area = container.querySelector('.recharts-reference-area-rect')!
+    const bars = Array.from(container.querySelectorAll('.recharts-bar-rectangle path'))
+    const barX = (i: number) => Number(bars[i]!.getAttribute('x'))
+    const x = Number(area.getAttribute('x'))
+    const width = Number(area.getAttribute('width'))
+    // The hatch starts at the fourth day (index 3), not at the first matching label.
+    expect(x).toBeGreaterThan(barX(2))
+    expect(x).toBeLessThan(barX(4))
+    expect(x + width).toBeGreaterThan(barX(6))
+  })
+
   it('renders 7 bars and one line, today accented', () => {
     const { container } = setup()
     const bars = container.querySelectorAll('.recharts-bar-rectangle')

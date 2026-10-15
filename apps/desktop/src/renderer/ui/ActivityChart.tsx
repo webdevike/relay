@@ -65,6 +65,8 @@ export function ActivityChart({
   const weekRows = rows.filter((r) => r.inWeek)
   const first = weekRows[0]
   const last = weekRows[weekRows.length - 1]
+  // Ticks are sparse or repeated, so dates are the unique category keys and ticks only label them.
+  const tickByDate = new Map(rows.map((r) => [r.date, r.tick]))
   const barSize = Math.max(2, Math.floor((w / Math.max(rows.length, 1)) * 0.6))
 
   return (
@@ -95,7 +97,8 @@ export function ActivityChart({
         </defs>
         <CartesianGrid vertical={false} stroke={GRID} />
         <XAxis
-          dataKey="tick"
+          dataKey="date"
+          tickFormatter={(d: string) => tickByDate.get(d) ?? ''}
           tickLine={false}
           axisLine={false}
           interval="preserveStartEnd"
@@ -104,8 +107,8 @@ export function ActivityChart({
         <YAxis hide allowDecimals={false} />
         {first && last && (
           <ReferenceArea
-            x1={first.tick}
-            x2={last.tick}
+            x1={first.date}
+            x2={last.date}
             fill="url(#eva-hatch)"
             stroke="none"
             ifOverflow="visible"
