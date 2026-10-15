@@ -2,6 +2,8 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+  max-height: calc(100vh - 140px);
+  overflow-y: auto;
 }
 .eva-job-field {
   display: flex;
@@ -48,4 +50,15 @@ textarea.eva-job-mono {
 }
 .eva-job-confirm .eva-job-footer {
   justify-content: flex-end;
+}
+
+.eva-job-form > .eva-job-footer,
+.eva-job-form > .eva-job-confirm {
+  position: sticky;
+  bottom: 0;
+  padding-top: 8px;
+  background: var(--mantine-color-body);
+}
+.eva-job-footer-right {
+  margin-left: auto;
 }
