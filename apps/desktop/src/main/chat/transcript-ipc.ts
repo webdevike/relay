@@ -33,13 +33,14 @@ export function resolveInsideSessionsDir(sessionsDir: string, file: string): str
 export function registerTranscriptIpc(
   ctx: MainContext,
   onOpened?: (paneId: string, file: string, parsed: ParsedSession) => void,
+  ownerOf?: (file: string) => string | null,
 ): void {
   handle(ctx, 'chat.listSessions', () => ({ sessions: listSessionFiles(ctx.env.sessionsDir) }))
   handle(ctx, 'chat.open', ({ paneId, file }) => {
     const real = resolveInsideSessionsDir(ctx.env.sessionsDir, file)
     const parsed = parseSession(fs.readFileSync(real, 'utf8'))
     onOpened?.(paneId, real, parsed)
-    return parsed
+    return { ...parsed, owner: ownerOf?.(real) ?? null }
   })
   handle(ctx, 'chat.readImage', ({ token }) => readBlobImage(ctx.env.agentDir, token))
 }

@@ -18,12 +18,16 @@ const STATUS_COALESCE_MS = 30
 export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
   const manager = createSessionManager(ctx)
   const extras = new ExtrasService({ manager, emit: (e) => emit(ctx, 'chat.extras', e) })
-  registerTranscriptIpc(ctx, (paneId, file, parsed) => {
-    manager.open(paneId, file, parsed.messages, parsed.meta)
-    // The event reaches the renderer before this invoke resolves; the store carries it over.
-    extras.reset(paneId)
-    extras.refresh(paneId)
-  })
+  registerTranscriptIpc(
+    ctx,
+    (paneId, file, parsed) => {
+      manager.open(paneId, file, parsed.messages, parsed.meta)
+      // The event reaches the renderer before this invoke resolves; the store carries it over.
+      extras.reset(paneId)
+      extras.refresh(paneId)
+    },
+    (file) => manager.ownerOf(file),
+  )
   registerLiveIpc(ctx, manager)
   const list = new ChatListService({
     sessionsDir: ctx.env.sessionsDir,

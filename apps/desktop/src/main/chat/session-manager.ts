@@ -12,6 +12,7 @@ import {
 import { SeqBatcher, type Batch, type Snapshot } from '@evaos/chat-core/batcher'
 import type { ChatMessage, SessionMeta } from '@evaos/chat-core/message'
 import { tagged } from '@evaos/chat-core/tagged'
+import { isRecentlyActive } from '@evaos/chat-core/chat-groups'
 import type { ChatTransport, PromptImage, TransportExit } from '@evaos/chat-core/transport'
 
 export class CodedError extends Error {
@@ -25,6 +26,10 @@ export class CodedError extends Error {
 
 export const ALREADY_OWNED =
   'This session is already open in another EvaOS window or pane. Close it there first.'
+export const OWNED_ELSEWHERE =
+  'Another pane is writing to this chat. Sending from here may interleave messages.'
+export const MAYBE_RUNNING_ELSEWHERE =
+  'This chat was written to in the last 10 minutes and another omp may still be running it. Sending from here may interleave messages.'
 export const STILL_CLOSING =
   'The previous omp process for this session is still running. Wait for it to exit before sending again.'
 
@@ -37,6 +42,9 @@ export interface SessionManagerDeps {
   setInterval?: (fn: () => void, ms: number) => unknown
   clearInterval?: (handle: unknown) => void
   realpath?: (file: string) => string
+  /** mtime of a session file in ms (null when unreadable); injectable for tests. */
+  stat?: (file: string) => number | null
+  now?: () => number
   /** Default launch flags for a new chat (approval from omp config); extended per pane later. */
   launchArgs?: (harness: 'omp' | 'claude') => string[]
 }
@@ -84,6 +92,11 @@ export class SessionManager {
   private clearIv: (h: unknown) => void
   private real: (f: string) => string
   private statusListeners = new Set<(file: string) => void>()
+  /**
+   * Confirmed shared writes: realpath -> the pane that owned the file when the user chose
+   * `Send anyway`, or 'external' when no pane here owned it. Dropped when the owner changes.
+   */
+  private remembered = new Map<string, string>()
 
   constructor(private deps: SessionManagerDeps) {
     this.setIv = deps.setInterval ?? ((fn, ms) => setInterval(fn, ms))
@@ -181,6 +194,11 @@ export class SessionManager {
 
   private notify(key: string | null): void {
     if (key === null) return
+    const mem = this.remembered.get(key)
+    if (mem !== undefined) {
+      const current = this.owners.get(key)?.pane.paneId ?? null
+      if (current !== (mem === 'external' ? null : mem)) this.remembered.delete(key)
+    }
     for (const cb of [...this.statusListeners]) {
       try {
         cb(key)
@@ -208,12 +226,59 @@ export class SessionManager {
     return p
   }
 
+  private statMtime(file: string): number | null {
+    if (this.deps.stat) return this.deps.stat(file)
+    try {
+      return fs.statSync(file).mtimeMs
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Single-writer guard for a pane that does not run omp itself. Returns the owning process
+   * when a confirmed send must go through it, null when this pane may start its own, and
+   * throws `owned-elsewhere` while the user has not confirmed.
+   */
+  private writerFor(pane: Pane, force: boolean): Owner | null {
+    if (pane.transport || pane.starting || pane.key === null) return null
+    const key = pane.key
+    const owner = this.owners.get(key)
+    if (owner && owner.pane.paneId !== pane.paneId && !owner.closing) {
+      if (this.remembered.get(key) !== owner.pane.paneId) {
+        if (!force) throw new CodedError('owned-elsewhere', OWNED_ELSEWHERE)
+        this.remembered.set(key, owner.pane.paneId)
+      }
+      // Never a second process for a file this app already runs (T-04-54).
+      if (owner.pane.transport !== owner.transport) {
+        throw new CodedError('already-owned', ALREADY_OWNED)
+      }
+      return owner
+    }
+    if (!owner && !this.remembered.has(key)) {
+      const mtime = this.statMtime(pane.file ?? key)
+      const now = (this.deps.now ?? Date.now)()
+      if (mtime !== null && isRecentlyActive(mtime, now)) {
+        if (!force) throw new CodedError('owned-elsewhere', MAYBE_RUNNING_ELSEWHERE)
+        this.remembered.set(key, 'external')
+      }
+    } else if (!owner && force) {
+      this.remembered.set(key, 'external')
+    }
+    return null
+  }
+
   async send(
     paneId: string,
     text: string,
-    opts: { images?: ReadonlyArray<{ mimeType: string; data: string }> } = {},
+    opts: { images?: ReadonlyArray<{ mimeType: string; data: string }>; force?: boolean } = {},
   ): Promise<void> {
     const pane = this.pane(paneId)
+    const routed = this.writerFor(pane, opts.force === true)
+    if (routed) {
+      await this.deliver(routed.pane, routed.transport, text, opts.images)
+      return
+    }
     if (pane.starting) await pane.starting
     else if (!pane.transport) {
       pane.starting = this.startTransport(pane).finally(() => {
@@ -224,19 +289,29 @@ export class SessionManager {
     // The pane may have been closed, replaced or lost its process while the start was awaited.
     const transport = pane.transport
     if (!transport) throw new CodedError('session-closed', 'The session is not running.')
+    await this.deliver(pane, transport, text, opts.images)
+  }
+
+  /** Echoes the prompt row into `pane` and writes it to `transport`. */
+  private async deliver(
+    pane: Pane,
+    transport: ChatTransport,
+    text: string,
+    images: ReadonlyArray<{ mimeType: string; data: string }> | undefined,
+  ): Promise<void> {
     // sendPrompt() runs outside apply(), so its meta change (clearing an EOF error) is diffed here.
     const hadError = pane.reducer.error !== null
     const wasWorking = pane.reducer.running
-    const row = pane.reducer.sendPrompt(text, opts.images)
+    const row = pane.reducer.sendPrompt(text, images)
     if (pane.reducer.running !== wasWorking) this.notify(pane.key)
     if (hadError) pane.batcher.markMeta({ error: null })
     pane.batcher.markUpsert(row, pane.reducer.indexOf(row.id))
     try {
-      const images: PromptImage[] | undefined =
-        opts.images && opts.images.length > 0
-          ? opts.images.map((i) => ({ type: 'image', data: i.data, mimeType: i.mimeType }))
+      const promptImages: PromptImage[] | undefined =
+        images && images.length > 0
+          ? images.map((i) => ({ type: 'image', data: i.data, mimeType: i.mimeType }))
           : undefined
-      await transport.send(tagged(text, this.deps.machineLabel), images)
+      await transport.send(tagged(text, this.deps.machineLabel), promptImages)
     } catch (e) {
       // omp never received the prompt (EPIPE after exit, for example): take the row back out
       // so it does not sit there unconfirmed forever.

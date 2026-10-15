@@ -3,7 +3,13 @@ import type { Frame } from '@evaos/chat-core/line-framer'
 import type { ChatTransport, PromptImage, TransportExit } from '@evaos/chat-core/transport'
 import type { Batch } from '@evaos/contract'
 import { EOF_ERROR } from '@evaos/chat-core/reducer'
-import { ALREADY_OWNED, STILL_CLOSING, SessionManager } from './session-manager'
+import {
+  ALREADY_OWNED,
+  MAYBE_RUNNING_ELSEWHERE,
+  OWNED_ELSEWHERE,
+  STILL_CLOSING,
+  SessionManager,
+} from './session-manager'
 
 class MemoryTransport implements ChatTransport {
   readonly kind = 'memory'
@@ -64,6 +70,8 @@ function setup(
     firstStartGate?: Promise<void>
     launchArgs?: (h: 'omp' | 'claude') => string[]
     kind?: string
+    stat?: (f: string) => number | null
+    now?: () => number
   } = {},
 ) {
   vi.useFakeTimers()
@@ -81,12 +89,111 @@ function setup(
     cwd: '/eva',
     machineLabel: 'Mac',
     realpath: (f) => f,
+    ...(opts.stat ? { stat: opts.stat } : {}),
+    ...(opts.now ? { now: opts.now } : {}),
     ...(opts.launchArgs ? { launchArgs: opts.launchArgs } : {}),
   })
   return { mgr, transports, batches }
 }
 
 describe('SessionManager', () => {
+  describe('shared writers', () => {
+    it('refuses an unconfirmed send into a file another pane owns and writes nothing', async () => {
+      const { mgr, transports } = setup()
+      mgr.open('pane-1', '/s/a.jsonl', [], meta)
+      mgr.open('pane-2', '/s/a.jsonl', [], meta)
+      await mgr.send('pane-2', 'first')
+      expect(transports[0]!.sent).toHaveLength(1)
+      await expect(mgr.send('pane-1', 'second')).rejects.toMatchObject({
+        code: 'owned-elsewhere',
+        message: OWNED_ELSEWHERE,
+      })
+      expect(transports[0]!.sent).toHaveLength(1)
+      expect(transports).toHaveLength(1)
+      vi.useRealTimers()
+    })
+
+    it('a forced send goes through the owner transport and never starts a second process', async () => {
+      const { mgr, transports } = setup()
+      mgr.open('pane-1', '/s/a.jsonl', [], meta)
+      mgr.open('pane-2', '/s/a.jsonl', [], meta)
+      await mgr.send('pane-2', 'first')
+      await mgr.send('pane-1', 'second', { force: true })
+      expect(transports).toHaveLength(1)
+      expect(transports[0]!.sent).toEqual([
+        '<surface>Mac - EvaOS</surface>\nfirst',
+        '<surface>Mac - EvaOS</surface>\nsecond',
+      ])
+      expect(mgr.transportOf('pane-1')).toBeNull()
+      expect(mgr.snapshot('pane-2').messages.some((m) => m.text === 'second')).toBe(true)
+      vi.useRealTimers()
+    })
+
+    it('remembers the choice for later sends from the same pane', async () => {
+      const { mgr, transports } = setup()
+      mgr.open('pane-1', '/s/a.jsonl', [], meta)
+      mgr.open('pane-2', '/s/a.jsonl', [], meta)
+      await mgr.send('pane-2', 'first')
+      await mgr.send('pane-1', 'second', { force: true })
+      await mgr.send('pane-1', 'third')
+      expect(transports[0]!.sent).toHaveLength(3)
+      expect(transports).toHaveLength(1)
+      vi.useRealTimers()
+    })
+
+    it('drops the memory when the owner changes', async () => {
+      const { mgr, transports } = setup()
+      mgr.open('pane-1', '/s/a.jsonl', [], meta)
+      mgr.open('pane-2', '/s/a.jsonl', [], meta)
+      mgr.open('pane-3', '/s/a.jsonl', [], meta)
+      await mgr.send('pane-2', 'first')
+      await mgr.send('pane-1', 'second', { force: true })
+      // pane-2's process exits; pane-3 takes the file.
+      transports[0]!.push({ type: '_eof', code: 0, signal: null })
+      expect(mgr.has('/s/a.jsonl')).toBe(false)
+      await mgr.send('pane-3', 'mine')
+      expect(transports).toHaveLength(2)
+      await expect(mgr.send('pane-1', 'again')).rejects.toMatchObject({ code: 'owned-elsewhere' })
+      vi.useRealTimers()
+    })
+
+    it('prompts for an unowned file written in the last 10 minutes, then starts a transport on force', async () => {
+      const now = 10_000_000
+      const { mgr, transports } = setup({ stat: () => now - 60_000, now: () => now })
+      mgr.open('pane-1', '/s/a.jsonl', [], meta)
+      await expect(mgr.send('pane-1', 'hi')).rejects.toMatchObject({
+        code: 'owned-elsewhere',
+        message: MAYBE_RUNNING_ELSEWHERE,
+      })
+      expect(transports).toHaveLength(0)
+      await mgr.send('pane-1', 'hi', { force: true })
+      expect(transports).toHaveLength(1)
+      expect(transports[0]!.sent).toHaveLength(1)
+      // Now the owner: later sends need no confirmation.
+      await mgr.send('pane-1', 'more')
+      expect(transports[0]!.sent).toHaveLength(2)
+      vi.useRealTimers()
+    })
+
+    it('sends without a prompt when the file is older than 10 minutes', async () => {
+      const now = 10_000_000
+      const { mgr, transports } = setup({ stat: () => now - 11 * 60_000, now: () => now })
+      mgr.open('pane-1', '/s/a.jsonl', [], meta)
+      await mgr.send('pane-1', 'hi')
+      expect(transports).toHaveLength(1)
+      vi.useRealTimers()
+    })
+
+    it('exposes the owner pane through ownerOf', async () => {
+      const { mgr } = setup()
+      mgr.open('pane-2', '/s/a.jsonl', [], meta)
+      expect(mgr.ownerOf('/s/a.jsonl')).toBeNull()
+      await mgr.send('pane-2', 'a')
+      expect(mgr.ownerOf('/s/a.jsonl')).toBe('pane-2')
+      vi.useRealTimers()
+    })
+  })
+
   it('send with images maps them to prompt images and echoes them in the row', async () => {
     const { mgr, transports } = setup()
     mgr.open('pane-1', '/s/a.jsonl', [], meta)
@@ -289,7 +396,7 @@ describe('SessionManager', () => {
     mgr.open('pane-1', '/s/a.jsonl', [], meta)
     mgr.open('pane-2', '/s/a.jsonl', [], meta)
     await mgr.send('pane-1', 'one')
-    await expect(mgr.send('pane-2', 'two')).rejects.toMatchObject({ code: 'already-owned' })
+    await expect(mgr.send('pane-2', 'two')).rejects.toMatchObject({ code: 'owned-elsewhere' })
     vi.useRealTimers()
   })
 

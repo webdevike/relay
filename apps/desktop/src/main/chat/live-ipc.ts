@@ -9,6 +9,7 @@ import type { OmpStdioTransport } from './omp-transport'
 import { loadSettings } from '../settings-ipc'
 import { createChatTransport } from './transport-factory'
 import { SessionManager } from './session-manager'
+import { parseSession } from '@evaos/chat-core/session'
 import { machineLabel } from '@evaos/chat-core/tagged'
 import type { Batch } from '@evaos/contract'
 
@@ -79,6 +80,12 @@ export function createSessionManager(ctx: MainContext): SessionManager {
       setFakeEnv: (env: Record<string, string>) => {
         extraEnv = { ...env }
       },
+      // Phase 6 brings real second panes; until then e2e drives one through these two.
+      openInPane: (paneId: string, file: string) => {
+        const parsed = parseSession(fs.readFileSync(file, 'utf8'))
+        manager.open(paneId, file, parsed.messages, parsed.meta)
+      },
+      sendFromPane: (paneId: string, text: string) => manager.send(paneId, text),
       stats: (paneId: string) => {
         const t = manager.transportOf(paneId) as OmpStdioTransport | null
         return {
@@ -94,8 +101,11 @@ export function createSessionManager(ctx: MainContext): SessionManager {
 }
 
 export function registerLiveIpc(ctx: MainContext, manager: SessionManager): void {
-  handle(ctx, 'chat.send', async ({ paneId, text, images }) => {
-    await manager.send(paneId, text, images ? { images } : {})
+  handle(ctx, 'chat.send', async ({ paneId, text, images, force }) => {
+    await manager.send(paneId, text, {
+      ...(images ? { images } : {}),
+      ...(force ? { force } : {}),
+    })
     return { accepted: true as const }
   })
   handle(ctx, 'chat.abort', async ({ paneId }) => ({ sent: await manager.abort(paneId) }))
