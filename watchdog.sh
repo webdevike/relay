@@ -22,5 +22,6 @@ claude -p --dangerously-skip-permissions --output-format stream-json --verbose "
 1. Read .planning/ (ROADMAP, STATE) and note which phases finished and which did not.
 2. Install deps, build, run the tests, and launch the app headlessly with Playwright for Electron. Fix anything that stops it from building or launching. Commit fixes.
 3. Make a launchable app: package a macOS .app (electron-builder, unsigned, dir target) and copy it to ~/Applications/EvaOS Electron.app.
-4. Write TRY.md at the repo root: how to open it, what works, what is missing vs current EvaOS, known bugs, and screenshot paths under proof/. No em dashes. Commit." >> logs/finalize.jsonl 2>> logs/stderr.log
+4. Write TRY.md at the repo root: how to open it, what works, what is missing vs current EvaOS, known bugs, and screenshot paths under proof/. No em dashes.
+5. Add a '## Verify by hand' checklist to TRY.md: every 'still-needs-isaac' item and every '## Deferred gaps' entry from all phases' VERIFICATION.md files, grouped by phase. Commit." >> logs/finalize.jsonl 2>> logs/stderr.log
 log "finalize done"
