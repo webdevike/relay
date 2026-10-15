@@ -170,7 +170,7 @@ let off: (() => void) | null = null
 
 /** Ref-counted: the 'meetings' reloader is registered while any meetings surface is mounted. */
 export function mountMeetings(): () => void {
-  if (mounted++ === 0) off = registerReloader('meetings', reloadAllMeetings)
+  if (mounted++ === 0) off = registerReloader('meetings', reloadAllMeetings, ['meetings'])
   void loadMeetings()
   let done = false
   return () => {

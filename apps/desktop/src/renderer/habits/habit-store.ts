@@ -111,7 +111,7 @@ export function startHabits(): () => void {
   }
   const timer = setInterval(tick, POLL_MS)
   document.addEventListener('visibilitychange', tick)
-  const off = registerReloader('habits', pollHabits)
+  const off = registerReloader('habits', pollHabits, [])
   void pollHabits()
   const dispose = (): void => {
     clearInterval(timer)

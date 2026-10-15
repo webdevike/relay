@@ -109,7 +109,7 @@ export function JobsPage(_props: { place: Place }) {
   const error = useJobs((s) => s.error)
 
   useEffect(() => {
-    const off = registerReloader('jobs', loadJobs)
+    const off = registerReloader('jobs', loadJobs, ['jobs'])
     void loadJobs()
     return off
   }, [])

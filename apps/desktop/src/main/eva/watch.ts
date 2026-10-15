@@ -18,6 +18,11 @@ export function watchTargets(root: string): string[] {
   ]
 }
 
+/** Dependency/VCS folders and the atomic-write temp files (`.<name>.<pid>.tmp`) never count as changes. */
+export function isIgnoredPath(p: string): boolean {
+  return /(^|\/)(node_modules|\.git)(\/|$)/.test(p) || /(^|\/)\.[^/]*\.tmp$/.test(p)
+}
+
 export function areaFor(root: string, changedPath: string): EvaArea | null {
   const rel = path.relative(root, changedPath)
   if (rel.startsWith('..') || path.isAbsolute(rel)) return null
@@ -43,7 +48,7 @@ export function startEvaWatchWith(
     ignoreInitial: true,
     depth: 4,
     awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 50 },
-    ignored: (p: string) => /(^|\/)(node_modules|\.git)(\/|$)/.test(p),
+    ignored: isIgnoredPath,
   })
   const onChange = (p: string): void => {
     if (closed) return
@@ -61,7 +66,7 @@ export function startEvaWatchWith(
   }
   watcher.on('add', onChange).on('change', onChange).on('unlink', onChange)
   watcher.on('addDir', onChange).on('unlinkDir', onChange)
-  watcher.on('error', () => {})
+  watcher.on('error', (err) => console.error('[eva-watch] watcher error:', (err as Error).message))
 
   return {
     async close() {

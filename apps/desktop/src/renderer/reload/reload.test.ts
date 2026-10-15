@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const invoke = vi.fn()
-const handlers: Array<() => void> = []
+const handlers: Array<(e?: unknown) => void> = []
 const unsub = vi.fn()
 vi.mock('../ipc', () => ({
   invoke: (...a: unknown[]) => invoke(...a),
-  on: (_c: string, fn: () => void) => {
+  on: (_c: string, fn: (e?: unknown) => void) => {
     handlers.push(fn)
     return unsub
   },
@@ -76,7 +76,7 @@ describe('eva.changed', () => {
     registerReloader('a', a)
     const stop = startReload()
     expect(handlers).toHaveLength(1)
-    handlers[0]!()
+    handlers[0]!({ areas: ['memory'] })
     await Promise.resolve()
     expect(a).toHaveBeenCalledTimes(1)
     stop()
@@ -89,10 +89,35 @@ describe('eva.changed', () => {
       n++
     })
     const stop = startReload()
-    handlers[0]!()
-    handlers[0]!()
+    handlers[0]!({ areas: ['memory'] })
+    handlers[0]!({ areas: ['memory'] })
     await new Promise((r) => setTimeout(r, 10))
     expect(n).toBeLessThanOrEqual(2)
+    stop()
+  })
+
+  it('passes areas through so reloaders subscribe by area', async () => {
+    const all = vi.fn(async () => {})
+    const jobs = vi.fn(async () => {})
+    const none = vi.fn(async () => {})
+    registerReloader('all', all)
+    registerReloader('jobs', jobs, ['jobs'])
+    registerReloader('none', none, [])
+    const stop = startReload()
+    handlers[0]!({ areas: ['meetings'] })
+    await new Promise((r) => setTimeout(r, 5))
+    expect([all.mock.calls.length, jobs.mock.calls.length, none.mock.calls.length]).toEqual([
+      1, 0, 0,
+    ])
+    handlers[0]!({ areas: ['jobs'] })
+    await new Promise((r) => setTimeout(r, 5))
+    expect([all.mock.calls.length, jobs.mock.calls.length, none.mock.calls.length]).toEqual([
+      2, 1, 0,
+    ])
+    window.dispatchEvent(new Event('focus'))
+    expect([all.mock.calls.length, jobs.mock.calls.length, none.mock.calls.length]).toEqual([
+      3, 2, 1,
+    ])
     stop()
   })
 })

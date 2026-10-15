@@ -2,7 +2,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { areaFor, startEvaWatchWith, watchTargets, type EvaArea } from './watch'
+import { areaFor, isIgnoredPath, startEvaWatchWith, watchTargets, type EvaArea } from './watch'
 
 const R = '/eva'
 const roots: string[] = []
@@ -39,6 +39,16 @@ describe('watchTargets / areaFor', () => {
     expect(areaFor(R, '/eva/work/meetings/m.json')).toBe('meetings')
     expect(areaFor(R, '/eva/work/items/i.md')).toBeNull()
     expect(areaFor(R, '/other/x')).toBeNull()
+  })
+})
+
+describe('isIgnoredPath', () => {
+  it('ignores temp files and vcs folders but not run state', () => {
+    expect(isIgnoredPath('/eva/work/meetings/.m.json.123.tmp')).toBe(true)
+    expect(isIgnoredPath('/eva/memory/.todos.md.9.tmp')).toBe(true)
+    expect(isIgnoredPath('/eva/node_modules/x')).toBe(true)
+    expect(isIgnoredPath('/eva/jobs/.runs/a/last-run')).toBe(false)
+    expect(isIgnoredPath('/eva/memory/todos.md')).toBe(false)
   })
 })
 
