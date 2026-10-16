@@ -65,6 +65,8 @@ export default function Eva() {
   const setPending = useAssistantStore((state) => state.setPending);
   const connected = useConnectionStore((state) => state.status === "connected");
   const [draft, setDraft] = useState("");
+  // The pill grows into a card only once the text needs a second line, as Dot's does.
+  const [wrapped, setWrapped] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   // True once the host acked the sent turn, while the snapshot may not list it yet.
   const [delivered, setDelivered] = useState(false);
@@ -190,16 +192,19 @@ export default function Eva() {
           )}
           <View style={styles.pillRow}>
             <FloatingPill
-              expanded={text !== ""}
+              expanded={wrapped && text !== ""}
               leading={<AttachButton />}
               trailing={text === "" ? <DictateButton /> : <SendButton onPress={send} disabled={!canSend} />}
             >
               <FloatingPillInput
                 value={draft}
                 onChangeText={setDraft}
+                onLines={(lines) => {
+                  setWrapped(lines > 1);
+                }}
                 placeholder={connected ? "Message" : "Not connected"}
                 editable={connected}
-                tall={text !== ""}
+                tall={wrapped && text !== ""}
                 accessibilityLabel="Message Eva"
               />
             </FloatingPill>

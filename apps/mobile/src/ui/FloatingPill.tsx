@@ -8,6 +8,8 @@ export const PILL_HEIGHT = 48;
 const CARD_MIN_HEIGHT = 120;
 /** Room a multiline field grows to before it scrolls: about five lines. */
 const MAX_FIELD_HEIGHT = 22 * 5 + 26;
+/** One line of the field's 17pt text; the content height divided by this is the line count. */
+const LINE_HEIGHT = 22;
 
 const GLASS_DARK = "rgba(60,60,64,0.82)";
 
@@ -53,10 +55,12 @@ export interface FloatingPillInputProps {
   accessibilityLabel?: string;
   /** Taller minimum height, for a field inside an expanded pill. */
   tall?: boolean;
+  /** Called with the number of lines the text takes whenever it changes. */
+  onLines?: (lines: number) => void;
 }
 
 /** The borderless multiline text field that lives inside a `FloatingPill`. */
-export function FloatingPillInput({ value, onChangeText, placeholder, editable = true, accessibilityLabel, tall = false }: FloatingPillInputProps) {
+export function FloatingPillInput({ value, onChangeText, placeholder, editable = true, accessibilityLabel, tall = false, onLines }: FloatingPillInputProps) {
   const colors = useColors();
   const scheme = useScheme();
   return (
@@ -70,6 +74,9 @@ export function FloatingPillInput({ value, onChangeText, placeholder, editable =
       keyboardAppearance={scheme}
       selectionColor={colors.accent}
       accessibilityLabel={accessibilityLabel ?? placeholder}
+      onContentSizeChange={(event) => {
+        onLines?.(Math.max(1, Math.round(event.nativeEvent.contentSize.height / LINE_HEIGHT)));
+      }}
       style={{
         minHeight: tall ? CARD_MIN_HEIGHT - PILL_HEIGHT : PILL_HEIGHT,
         maxHeight: MAX_FIELD_HEIGHT,
