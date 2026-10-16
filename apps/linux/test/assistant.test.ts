@@ -77,7 +77,14 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-function harness(options: { prime?: string; remembered?: string; agentHome?: null; launchFails?: boolean } = {}) {
+/** Writes an omp session file: one `message` entry per given message. */
+function transcriptFile(dir: string, name: string, messages: Record<string, unknown>[]): string {
+  const file = join(dir, name);
+  writeFileSync(file, messages.map((message) => JSON.stringify({ type: "message", message })).join("\n"));
+  return file;
+}
+
+function harness(options: { prime?: string; remembered?: string; history?: string[]; agentHome?: null; launchFails?: boolean } = {}) {
   const home = mkdtempSync(join(tmpdir(), "eva-home-"));
   dirs.push(home);
   if (options.prime !== undefined) {
@@ -85,7 +92,7 @@ function harness(options: { prime?: string; remembered?: string; agentHome?: nul
     writeFileSync(join(home, ".omp", "assistant", "prime.md"), options.prime);
   }
   const store = new FileAssistantStore(join(home, "assistant.json"));
-  if (options.remembered !== undefined) store.save({ sessionFile: options.remembered });
+  if (options.remembered !== undefined || options.history !== undefined) store.save({ ...(options.remembered === undefined ? {} : { sessionFile: options.remembered }), history: options.history ?? [] });
   const agents = fakeProvider();
   const files = new Map<string, string>();
   const launches: LaunchOptions[] = [];
@@ -144,7 +151,7 @@ const flush = (): Promise<void> => {
 };
 
 describe("toAssistantMessages", () => {
-  it("keeps user and assistant rows, turns prefixed job messages into status rows, and drops the rest", () => {
+  it("keeps user and assistant rows and drops tool rows, system rows, job lines and the prime", () => {
     const rows: AgentMessage[] = [
       { id: "p", role: "user", text: "You are Eva.", at: 1 },
       { id: "u1", role: "user", text: "morning", at: 2 },
@@ -157,7 +164,6 @@ describe("toAssistantMessages", () => {
     ];
     expect(toAssistantMessages(rows, "You are Eva.")).toEqual([
       { id: "u1", role: "user", text: "morning", at: 2 },
-      { id: "j1", role: "status", text: "furry-drop finished", at: 6 },
       { id: "a2", role: "assistant", text: "The furry-drop run is done.", at: 7 },
       { id: "u2", role: "user", text: "You are Eva.", at: 8 },
     ]);
@@ -184,6 +190,25 @@ describe("AssistantService snapshot", () => {
         { id: "a1", role: "assistant", text: "hello", at: 3 },
       ],
     });
+  });
+});
+
+describe("toAssistantMessages machinery", () => {
+  it("hides job lines, the prime, empty replies and the silence marker, whole or streaming in", () => {
+    const rows: AgentMessage[] = [
+      { id: "p", role: "user", text: "You are Eva.", at: 1 },
+      { id: "a0", role: "assistant", text: "", at: 2 },
+      { id: "j1", role: "user", text: `${STATUS_PREFIX}Rollover: fresh context`, at: 3 },
+      { id: "a1", role: "assistant", text: "(nothing to report)", at: 4 },
+      { id: "a2", role: "assistant", text: "  (nothing to report)\n", at: 5 },
+      { id: "a3", role: "assistant", text: "(nothing", at: 6, streaming: true },
+      { id: "a4", role: "assistant", text: "(nothing to report) but wait", at: 7 },
+      { id: "a5", role: "assistant", text: "(", at: 8 },
+    ];
+    expect(toAssistantMessages(rows, "You are Eva.")).toEqual([
+      { id: "a4", role: "assistant", text: "(nothing to report) but wait", at: 7 },
+      { id: "a5", role: "assistant", text: "(", at: 8 },
+    ]);
   });
 });
 
@@ -242,7 +267,7 @@ describe("AssistantService turns", () => {
     h.register("working");
     await turn;
     expect(h.agents.replies).toEqual([["eva-1", "hi", true]]);
-    expect(h.remembered()).toEqual({ sessionFile: "/sessions/eva.jsonl" });
+    expect(h.remembered()).toEqual({ sessionFile: "/sessions/eva.jsonl", history: [] });
   });
 
   it("resumes the remembered transcript when its file still exists, with no prime, as soon as Eva registers", async () => {
@@ -316,11 +341,94 @@ describe("AssistantService changes", () => {
     ]);
   });
 
-  it("remembers the session file as soon as a status report carries it", () => {
-    const h = harness();
+  it("remembers the session file as soon as a status report carries it, keeping the history", () => {
+    const h = harness({ history: ["/sessions/old.jsonl"] });
     h.register("idle");
-    expect(h.remembered()).toBeNull();
+    expect(h.remembered()).toEqual({ history: ["/sessions/old.jsonl"] });
     h.register("idle", "/sessions/eva.jsonl");
-    expect(h.remembered()).toEqual({ sessionFile: "/sessions/eva.jsonl" });
+    expect(h.remembered()).toEqual({ sessionFile: "/sessions/eva.jsonl", history: ["/sessions/old.jsonl"] });
+  });
+
+  it("never pushes the silence marker", async () => {
+    const h = harness();
+    h.register("working");
+    h.service.observe({ kind: "message", sessionId: "eva-1", id: "a1", text: "(nothing to report)", streaming: false });
+    h.service.observe({ kind: "conversation", sessionId: "eva-1", appended: [{ id: "a2", role: "assistant", text: " (nothing to report)\n", at: 1 }] });
+    await flush();
+    expect(h.pushes).toEqual([]);
+  });
+});
+
+describe("AssistantService earlier contexts", () => {
+  it("shows each history transcript in order, then the live session, with unique ids and the machinery filtered out", async () => {
+    const h = harness({ prime: "You are Eva." });
+    const first = transcriptFile(h.home, "2026-10-14T0400_aaaa.jsonl", [
+      { role: "user", content: "You are Eva.", timestamp: 1 },
+      { role: "assistant", content: [{ type: "toolCall", name: "read", arguments: { path: "thread.md" } }], timestamp: 2 },
+      { role: "user", content: "morning", timestamp: 3 },
+      { role: "assistant", content: [{ type: "text", text: "Morning." }], timestamp: 4 },
+      { role: "user", content: `${STATUS_PREFIX}Heartbeat: 1 new.`, timestamp: 5 },
+      { role: "assistant", content: [{ type: "text", text: "(nothing to report)" }], timestamp: 6 },
+    ]);
+    const second = transcriptFile(h.home, "2026-10-15T0400_bbbb.jsonl", [
+      { role: "user", content: "You are Eva.\n\nAn older second paragraph.", timestamp: 10 },
+      { role: "user", content: "again", timestamp: 11 },
+      { role: "assistant", content: [{ type: "text", text: "Hi again." }], timestamp: 12 },
+    ]);
+    new FileAssistantStore(join(h.home, "assistant.json")).save({ sessionFile: "/sessions/live.jsonl", history: [first, second] });
+    h.register("idle", "/sessions/live.jsonl");
+    h.agents.transcript = [
+      { id: "p", role: "user", text: "You are Eva.", at: 20 },
+      { id: "a0", role: "assistant", text: "", at: 21 },
+      { id: "u1", role: "user", text: "live", at: 22 },
+    ];
+    const snapshot = await h.service.snapshot();
+    expect(snapshot.messages).toEqual([
+      { id: "2026-10-14T0400_aaaa-3", role: "user", text: "morning", at: 3 },
+      { id: "2026-10-14T0400_aaaa-4", role: "assistant", text: "Morning.", at: 4 },
+      { id: "2026-10-15T0400_bbbb-2", role: "user", text: "again", at: 11 },
+      { id: "2026-10-15T0400_bbbb-3", role: "assistant", text: "Hi again.", at: 12 },
+      { id: "u1", role: "user", text: "live", at: 22 },
+    ]);
+    expect(new Set(snapshot.messages.map((message) => message.id)).size).toBe(snapshot.messages.length);
+  });
+
+  it("keeps the history through a rollover (no live session, no session file) and rereads a transcript that grew", async () => {
+    const h = harness();
+    const file = transcriptFile(h.home, "2026-10-14T0400_aaaa.jsonl", [{ role: "user", content: "one", timestamp: 1 }]);
+    new FileAssistantStore(join(h.home, "assistant.json")).save({ history: [file] });
+    expect(await h.service.snapshot()).toEqual({ rev: 0, busy: false, sessionId: "", messages: [{ id: "2026-10-14T0400_aaaa-1", role: "user", text: "one", at: 1 }] });
+    transcriptFile(h.home, "2026-10-14T0400_aaaa.jsonl", [
+      { role: "user", content: "one", timestamp: 1 },
+      { role: "assistant", content: [{ type: "text", text: "two" }], timestamp: 2 },
+    ]);
+    expect((await h.service.snapshot()).messages.map((message) => message.text)).toEqual(["one", "two"]);
+  });
+
+  it("starts a new primed session after a rollover and keeps the history in assistant.json", async () => {
+    const h = harness({ prime: "You are Eva.", history: ["/sessions/old.jsonl"] });
+    const turn = h.service.turn("hi");
+    await flush();
+    expect(h.launches).toEqual([{ env: { EVA_ASSISTANT: "1" }, prompt: "You are Eva." }]);
+    h.register("idle", "/sessions/new.jsonl");
+    h.register("working");
+    await turn;
+    expect(h.remembered()).toEqual({ sessionFile: "/sessions/new.jsonl", history: ["/sessions/old.jsonl"] });
+  });
+
+  it("shows the transcript a restart will resume while no session is live, and leaves it out of the history once live", async () => {
+    const h = harness();
+    const file = transcriptFile(h.home, "2026-10-16T0400_cccc.jsonl", [{ role: "user", content: "kept", timestamp: 1 }]);
+    new FileAssistantStore(join(h.home, "assistant.json")).save({ sessionFile: file, history: [file] });
+    expect((await h.service.snapshot()).messages.map((message) => message.text)).toEqual(["kept"]);
+    h.register("idle", file);
+    h.agents.transcript = [{ id: "u1", role: "user", text: "kept", at: 1 }];
+    expect((await h.service.snapshot()).messages).toEqual([{ id: "u1", role: "user", text: "kept", at: 1 }]);
+  });
+
+  it("reads an assistant.json from before the history field as empty history", () => {
+    const h = harness();
+    writeFileSync(join(h.home, "assistant.json"), JSON.stringify({ sessionFile: "/sessions/eva.jsonl" }));
+    expect(h.remembered()).toEqual({ sessionFile: "/sessions/eva.jsonl", history: [] });
   });
 });

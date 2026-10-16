@@ -18,7 +18,6 @@
 // `gate` request run through the same CLI (a proof photo is handed over as a temp file).
 
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
 import { closeSync, existsSync, openSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createConnection, type Socket } from "node:net";
 import { homedir, tmpdir } from "node:os";
@@ -34,38 +33,24 @@ import { AgentRegistry } from "@oh-my-pi/pi-coding-agent/registry/agent-registry
 // wraps (from omp's own install) and the protocol frames the phone speaks. Both are type-only, erased.
 import type { ExtensionAskDialogQuestion, ExtensionAskDialogResult, ExtensionAskDialogResultItem } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/types";
 import type { AgentAskAnswer, AgentAskQuestion } from "@relay/protocol";
+// Shared with the host's assistant service: omp's session transcript read into inbox rows. Imported
+// by relative path (this file is symlinked into omp's extensions dir, and bun resolves the real path).
+import {
+  firstLine,
+  imageRefsOf,
+  parseSessionRows,
+  rowsOf,
+  summarizeArguments,
+  textOf,
+  type Image,
+  type InboxMessage,
+} from "../src/agents/transcript";
 
 type Model = NonNullable<ExtensionContext["model"]>;
 type ThinkingLevel = Parameters<ExtensionAPI["setThinkingLevel"]>[0];
 type SlashCommand = ReturnType<ExtensionAPI["getCommands"]>[number];
 
 type Status = "working" | "waiting" | "needs_permission" | "idle" | "ended";
-type Role = "user" | "assistant" | "tool" | "system";
-
-type ImageMimeType = "image/jpeg" | "image/png" | "image/webp";
-
-/** Image bytes as they cross the socket in both directions. */
-interface Image {
-  mimeType: ImageMimeType;
-  data: string;
-}
-
-interface ImageRef {
-  id: string;
-  mimeType: ImageMimeType;
-  width?: number;
-  height?: number;
-}
-
-interface InboxMessage {
-  id: string;
-  role: Role;
-  text: string;
-  at: number;
-  tool?: { name: string; summary: string };
-  images?: ImageRef[];
-  streaming?: boolean;
-}
 
 interface JobRef {
   /** The job folder name (`furry-drop`). */
@@ -362,14 +347,10 @@ function thinkingLevelsFor(model: Model): ThinkingLevel[] {
 }
 
 const RECONNECT_MS = 3000;
-const MAX_SUMMARY = 120;
 /** ctx.model is still unresolved during session_start; the settings get a second report after this. */
 const SETTINGS_SETTLE_MS = 2000;
 /** Time for the fed Enter to clear the editor before a held draft is put back. */
 const SUBMIT_SETTLE_MS = 150;
-/** Transcript images kept per session for the phone to fetch; older ones answer null. */
-const MAX_IMAGES = 32;
-const IMAGE_ID_LENGTH = 16;
 
 /** omp's subagent channels on the extension event bus (`pi.events`), emitted by the task tool. */
 const SUBAGENT_LIFECYCLE = "task:subagent:lifecycle";
@@ -574,168 +555,6 @@ async function performGate(frame: Extract<Inbound, { t: "gate" }>): Promise<unkn
   } finally {
     rmSync(path, { force: true });
   }
-}
-
-function firstLine(text: string): string {
-  const line = text.trim().split("\n").find((candidate) => candidate.trim().length > 0) ?? "";
-  return line.length > MAX_SUMMARY ? `${line.slice(0, MAX_SUMMARY - 1)}…` : line;
-}
-
-function summarizeArguments(args: Record<string, unknown>): string {
-  const intent = args["i"];
-  if (typeof intent === "string" && intent.length > 0) return firstLine(intent);
-  const parts: string[] = [];
-  for (const [key, value] of Object.entries(args)) {
-    if (typeof value === "string") parts.push(`${key}=${firstLine(value)}`);
-    else if (typeof value === "number" || typeof value === "boolean") parts.push(`${key}=${String(value)}`);
-    if (parts.join(" ").length > MAX_SUMMARY) break;
-  }
-  return firstLine(parts.join(" "));
-}
-
-/** Text of a user/assistant message: string content or the joined text parts. */
-function textOf(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  const parts: string[] = [];
-  for (const part of content) {
-    if (typeof part === "object" && part !== null && "type" in part && part.type === "text" && "text" in part && typeof part.text === "string") {
-      parts.push(part.text);
-    }
-  }
-  return parts.join("\n").trim();
-}
-
-/** PNG by signature, JPEG by SOI, WebP by RIFF header (omp re-encodes attachments to WebP); anything else is skipped. */
-function sniffMimeType(bytes: Buffer): ImageMimeType | null {
-  if (bytes.length >= 8 && bytes.readUInt32BE(0) === 0x89504e47 && bytes.readUInt32BE(4) === 0x0d0a1a0a) return "image/png";
-  if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xd8) return "image/jpeg";
-  if (bytes.length >= 12 && bytes.toString("latin1", 0, 4) === "RIFF" && bytes.toString("latin1", 8, 12) === "WEBP") return "image/webp";
-  return null;
-}
-
-/** WebP size from the first chunk: VP8X canvas, VP8L 14-bit fields, or the VP8 key frame header. */
-function webpSize(bytes: Buffer): { width: number; height: number } | null {
-  if (bytes.length < 30) return null;
-  const chunk = bytes.toString("latin1", 12, 16);
-  if (chunk === "VP8X") {
-    return { width: 1 + bytes.readUIntLE(24, 3), height: 1 + bytes.readUIntLE(27, 3) };
-  }
-  if (chunk === "VP8L") {
-    const bits = bytes.readUInt32LE(21);
-    return { width: 1 + (bits & 0x3fff), height: 1 + ((bits >>> 14) & 0x3fff) };
-  }
-  if (chunk === "VP8 ") {
-    const width = bytes.readUInt16LE(26) & 0x3fff;
-    const height = bytes.readUInt16LE(28) & 0x3fff;
-    return width > 0 && height > 0 ? { width, height } : null;
-  }
-  return null;
-}
-
-/** Pixel size from the PNG IHDR, the WebP header, or the first JPEG SOF marker; null when the header is not there. */
-function imageSize(bytes: Buffer, mimeType: ImageMimeType): { width: number; height: number } | null {
-  if (mimeType === "image/png") {
-    if (bytes.length < 24 || bytes.toString("latin1", 12, 16) !== "IHDR") return null;
-    const width = bytes.readUInt32BE(16);
-    const height = bytes.readUInt32BE(20);
-    return width > 0 && height > 0 ? { width, height } : null;
-  }
-  if (mimeType === "image/webp") return webpSize(bytes);
-  let offset = 2;
-  while (offset + 4 <= bytes.length) {
-    if (bytes[offset] !== 0xff) return null;
-    const marker = bytes[offset + 1] ?? 0;
-    if (marker === 0xff) {
-      offset += 1; // fill byte before a marker
-      continue;
-    }
-    if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
-      offset += 2; // standalone marker, no length
-      continue;
-    }
-    if (marker === 0xd9 || marker === 0xda) return null; // end of image / scan data before any frame header
-    const length = bytes.readUInt16BE(offset + 2);
-    // Frame headers (SOFn) carry the dimensions; DHT (C4), JPG (C8) and DAC (CC) share the range but do not.
-    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
-      if (offset + 9 > bytes.length) return null;
-      const height = bytes.readUInt16BE(offset + 5);
-      const width = bytes.readUInt16BE(offset + 7);
-      return width > 0 && height > 0 ? { width, height } : null;
-    }
-    offset += 2 + length;
-  }
-  return null;
-}
-
-/** Stores one transcript image in `images` under its content hash (newest MAX_IMAGES kept) and returns the ref for the phone. */
-function internImage(images: Map<string, Image>, part: ImageContent): ImageRef | null {
-  const bytes = Buffer.from(part.data, "base64");
-  const mimeType = sniffMimeType(bytes);
-  if (mimeType === null) return null;
-  const id = createHash("sha256").update(bytes).digest("hex").slice(0, IMAGE_ID_LENGTH);
-  images.delete(id); // re-insert so a repeated image counts as newest
-  images.set(id, { mimeType, data: part.data });
-  while (images.size > MAX_IMAGES) {
-    const oldest = images.keys().next();
-    if (oldest.done === true) break;
-    images.delete(oldest.value);
-  }
-  const ref: ImageRef = { id, mimeType };
-  const size = imageSize(bytes, mimeType);
-  if (size !== null) {
-    ref.width = size.width;
-    ref.height = size.height;
-  }
-  return ref;
-}
-
-/** Image refs for every image part of a message's content; string content has none. */
-function imageRefsOf(images: Map<string, Image>, content: unknown): ImageRef[] {
-  if (!Array.isArray(content)) return [];
-  const refs: ImageRef[] = [];
-  for (const part of content as (TextContent | ImageContent)[]) {
-    if (part.type !== "image") continue;
-    const ref = internImage(images, part);
-    if (ref !== null) refs.push(ref);
-  }
-  return refs;
-}
-
-/** The transcript rows one finished omp message contributes: the same shapes the live session streams. */
-function rowsOf(message: Record<string, unknown>, images: Map<string, Image>, nextId: () => string): InboxMessage[] {
-  const at = typeof message["timestamp"] === "number" ? message["timestamp"] : Date.now();
-  const content = message["content"];
-  const rows: InboxMessage[] = [];
-  switch (message["role"]) {
-    case "user": {
-      const text = textOf(content);
-      const refs = imageRefsOf(images, content);
-      if (text.length === 0 && refs.length === 0) break;
-      const row: InboxMessage = { id: nextId(), role: message["synthetic"] === true ? "system" : "user", text, at };
-      if (refs.length > 0) row.images = refs;
-      rows.push(row);
-      break;
-    }
-    case "toolResult": {
-      const refs = imageRefsOf(images, content);
-      const name = typeof message["toolName"] === "string" ? message["toolName"] : "tool";
-      if (refs.length > 0) rows.push({ id: nextId(), role: "tool", text: "", at, tool: { name, summary: "" }, images: refs });
-      break;
-    }
-    case "assistant": {
-      const text = textOf(content);
-      if (text.length > 0) rows.push({ id: nextId(), role: "assistant", text, at });
-      if (!Array.isArray(content)) break;
-      for (const part of content as { type?: unknown; name?: unknown; arguments?: unknown }[]) {
-        if (part.type !== "toolCall" || typeof part.name !== "string") continue;
-        const summary = typeof part.arguments === "object" && part.arguments !== null ? summarizeArguments(part.arguments as Record<string, unknown>) : "";
-        rows.push({ id: nextId(), role: "tool", text: summary, at, tool: { name: part.name, summary } });
-      }
-      break;
-    }
-  }
-  return rows;
 }
 
 /** A mirrored subagent, driven by the parent's lifecycle/progress events. */
@@ -1440,17 +1259,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
     } catch {
       return; // a new session has no file yet
     }
-    for (const line of raw.split("\n")) {
-      if (line.trim().length === 0) continue;
-      let entry: { type?: unknown; message?: unknown };
-      try {
-        entry = JSON.parse(line) as { type?: unknown; message?: unknown };
-      } catch {
-        continue;
-      }
-      if (entry.type !== "message" || typeof entry.message !== "object" || entry.message === null) continue;
-      for (const row of rowsOf(entry.message as Record<string, unknown>, images, nextId)) record(row);
-    }
+    for (const row of parseSessionRows(raw, images, nextId)) record(row);
   };
 
   pi.on("session_start", (_event, context) => {

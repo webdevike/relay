@@ -4,24 +4,35 @@
 //     started with `EVA_ASSISTANT=1`), and starts or resumes it on the first turn that needs it;
 //   - remembers the session file (assistant.json) so a host or omp restart resumes the same
 //     transcript (`omp --resume <file>`) rather than opening a new one;
-//   - shapes the transcript into `AssistantSnapshot` frames for the phones following the thread,
-//     debounced, on every change of that one session;
+//   - shapes the transcript into `AssistantSnapshot` frames for the phones following the thread:
+//     the earlier contexts (the transcripts in assistant.json's `history`, which the nightly
+//     rollover fills) followed by the live session, debounced, on every change of that session;
+//   - hides the machinery: job lines, the prime, empty replies and the silence marker;
 //   - pushes each settled reply of Eva's to every registered phone not looking at the thread;
 //   - takes messages from the host's own jobs (`relay-linux assistant say`) as prefixed turns
 //     that Eva then relays to Isaac in her own words.
 
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { basename, join } from "node:path";
 import type { AgentImage, AgentMessage, AgentSession, AssistantMessage, AssistantSnapshot, ServerMessage } from "@relay/protocol";
 import type { LaunchOptions } from "../agents/herdr";
+import { parseSessionRows } from "../agents/transcript";
 import type { PushSender } from "../push/notifier";
 import type { PushTokenSource } from "../push/token-store";
 import { AckFailure, type AgentProvider, type AgentProviderChange, type AssistantRelaying } from "../seams";
 import type { SessionClock } from "../session";
 import type { AssistantStore } from "./store";
 
-/** A turn from the host's jobs rather than from Isaac; the phone shows the rest as a status row. */
+/** A turn from the host's jobs rather than from Isaac; the thread hides it (and Eva's silent answer to it). */
 export const STATUS_PREFIX = "[From Eva's background jobs] ";
+/** What Eva answers when a job line needs nothing from Isaac; the host hides the reply. */
+export const SILENCE_MARKER = "(nothing to report)";
+
+/** Whether `text` is exactly the silence marker. */
+export function isSilent(text: string): boolean {
+  return text.trim() === SILENCE_MARKER;
+}
+
 /** Where the persona for a brand-new thread is read from, under the agent home. */
 export const PRIME_FILE = join(".omp", "assistant", "prime.md");
 export const PUSH_TITLE = "Eva";
@@ -51,9 +62,11 @@ export interface AssistantServiceDeps {
 }
 
 /**
- * The thread as the phone shows it: Isaac's turns, Eva's replies, and the host's job messages as
- * status rows (prefix stripped). Tool rows and omp's synthetic system rows are left out, as is a
- * reply still empty while streaming and the persona prime (the first user turn, when it is one).
+ * The thread as the phone shows it: Isaac's turns and Eva's replies. Left out: tool rows, omp's
+ * synthetic system rows, the host's job lines (`STATUS_PREFIX`: machinery, never shown), the
+ * persona prime (the first user turn, when it is one, in this or an older revision), a reply with
+ * nothing to show (still empty while streaming, or a prime turn that only ran tools) and the
+ * silence marker, whole or still streaming in.
  */
 export function toAssistantMessages(messages: readonly AgentMessage[], prime: string | null): AssistantMessage[] {
   const out: AssistantMessage[] = [];
@@ -61,15 +74,14 @@ export function toAssistantMessages(messages: readonly AgentMessage[], prime: st
   for (const message of messages) {
     const images = message.images === undefined || message.images.length === 0 ? {} : { images: message.images };
     if (message.role === "user") {
-      const isPrime = firstUser && prime !== null && message.text.trim() === prime;
+      // An earlier context's prime may predate an edit of prime.md: its opening paragraph still matches.
+      const isPrime = firstUser && prime !== null && (message.text.trim() === prime || message.text.startsWith(prime.split("\n", 1)[0] ?? prime));
       firstUser = false;
-      if (isPrime) continue;
-      if (message.text.startsWith(STATUS_PREFIX)) {
-        out.push({ id: message.id, role: "status", text: message.text.slice(STATUS_PREFIX.length), at: message.at });
-      } else {
-        out.push({ id: message.id, role: "user", text: message.text, at: message.at, ...images });
-      }
+      if (isPrime || message.text.startsWith(STATUS_PREFIX)) continue;
+      out.push({ id: message.id, role: "user", text: message.text, at: message.at, ...images });
     } else if (message.role === "assistant" && (message.text.length > 0 || "images" in images)) {
+      const trimmed = message.text.trim();
+      if (trimmed === SILENCE_MARKER || (message.streaming === true && trimmed.length > 0 && SILENCE_MARKER.startsWith(trimmed))) continue;
       out.push({ id: message.id, role: "assistant", text: message.text, at: message.at, ...images });
     }
   }
@@ -91,6 +103,8 @@ export class AssistantService implements AssistantRelaying {
   private waiter: Starting | null = null;
   private persisted: string | null = null;
   private primeCache: string | null | undefined;
+  /** Parsed, filtered earlier transcripts by file; stale once the file's mtime or size moves. */
+  private readonly transcripts = new Map<string, { mtimeMs: number; size: number; messages: AssistantMessage[] }>();
 
   constructor(private readonly deps: AssistantServiceDeps) {}
 
@@ -102,9 +116,10 @@ export class AssistantService implements AssistantRelaying {
   async snapshot(): Promise<AssistantSnapshot> {
     const session = this.current();
     const rev = this.rev;
-    if (session === undefined) return { rev, messages: [], busy: false, sessionId: "" };
+    const earlier = this.earlier(session === undefined ? null : this.deps.sessionFile(session.id));
+    if (session === undefined) return { rev, messages: earlier, busy: false, sessionId: "" };
     const messages = (await this.deps.agents.conversation(session.id)) ?? [];
-    return { rev, messages: toAssistantMessages(messages, this.prime()), busy: session.status === "working", sessionId: session.id };
+    return { rev, messages: [...earlier, ...toAssistantMessages(messages, this.prime())], busy: session.status === "working", sessionId: session.id };
   }
 
   async turn(text: string, images?: readonly AgentImage[]): Promise<void> {
@@ -162,13 +177,53 @@ export class AssistantService implements AssistantRelaying {
     });
   }
 
-  /** Writes the session file to assistant.json once it is known and whenever it changes. */
+  /** Writes the session file to assistant.json once it is known and whenever it changes; the history stays as the rollover left it. */
   private remember(sessionId: string): void {
     const file = this.deps.sessionFile(sessionId);
     if (file === null || file === this.persisted) return;
     this.persisted = file;
-    this.deps.store.save({ sessionFile: file });
+    this.deps.store.save({ history: this.deps.store.load()?.history ?? [], sessionFile: file });
     this.deps.log(`assistant: thread is ${file}`);
+  }
+
+  /**
+   * The thread before the live session, as the phone shows it: every earlier context's transcript
+   * in `history` order, and, while no session is live, the one a restart will resume. Each file is
+   * read once and again only when it changes. Text only: the host holds no bytes to serve the
+   * images of a finished context.
+   */
+  private earlier(live: string | null): AssistantMessage[] {
+    const record = this.deps.store.load();
+    if (record === null) return [];
+    const files = record.history.filter((file) => file !== live);
+    if (live === null && record.sessionFile !== undefined && !files.includes(record.sessionFile)) files.push(record.sessionFile);
+    for (const cached of [...this.transcripts.keys()]) if (!files.includes(cached)) this.transcripts.delete(cached);
+    return files.flatMap((file) => this.transcript(file));
+  }
+
+  private transcript(file: string): AssistantMessage[] {
+    let stat: { mtimeMs: number; size: number };
+    try {
+      stat = statSync(file);
+    } catch {
+      return [];
+    }
+    const cached = this.transcripts.get(file);
+    if (cached !== undefined && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.messages;
+    let raw: string;
+    try {
+      raw = readFileSync(file, "utf8");
+    } catch {
+      return [];
+    }
+    const stamp = basename(file, ".jsonl");
+    let seq = 0;
+    const messages = toAssistantMessages(
+      parseSessionRows(raw, null, () => `${stamp}-${++seq}`),
+      this.prime(),
+    );
+    this.transcripts.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, messages });
+    return messages;
   }
 
   private ensureSession(): Promise<AgentSession> {
@@ -231,6 +286,7 @@ export class AssistantService implements AssistantRelaying {
 
   /** A settled reply goes to every phone that is not already looking at it. */
   private push(text: string): void {
+    if (isSilent(text)) return;
     const recipients: { deviceId: string; token: string }[] = [];
     for (const [deviceId, token] of this.deps.tokens.tokens()) {
       if (this.deps.isViewing(deviceId)) continue;

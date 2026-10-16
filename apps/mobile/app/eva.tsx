@@ -174,7 +174,8 @@ export default function Eva() {
   // Image bytes are fetched against the omp session the thread runs in; empty while Eva is not running.
   const sessionId = snapshot === null || snapshot.sessionId === "" ? null : snapshot.sessionId;
 
-  const messages = snapshot?.messages ?? [];
+  // Machinery is invisible: the host no longer sends job lines as `status` rows, and an older host's are not shown.
+  const messages = (snapshot?.messages ?? []).filter((message) => message.role !== "status");
   const rows: AssistantMessage[] =
     pending === null ? messages : [...messages, { id: PENDING_ID, role: "user", text: pending.text, at: Date.now() }];
   const newestFirst = [...rows].reverse();

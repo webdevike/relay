@@ -1,7 +1,9 @@
 // Where the host remembers Eva's thread between restarts: `$XDG_CONFIG_HOME/relay/assistant.json`
-// (dir 0700, file 0600, written atomically like devices.json) holding the omp session file the
-// thread lives in. The transcript itself is omp's; this is only the pointer that lets the host
-// resume it (`omp --resume <file>`) instead of starting Eva over.
+// (dir 0700, file 0600, written atomically like devices.json). It holds the omp session file the
+// live thread lives in, and `history`: the session files of earlier contexts (the nightly rollover
+// moves the finished one there), which the host reads back so the thread on the phone stays whole.
+// The transcripts themselves are omp's; this is only the pointer that lets the host resume the
+// live one (`omp --resume <file>`) and replay the old ones. Older files without `history` read as [].
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -9,8 +11,10 @@ import { dirname, join } from "node:path";
 import { z } from "zod";
 
 const AssistantRecord = z.object({
-  /** Absolute path of the omp session file (`~/.omp/agent/sessions/<cwd>/<stamp>_<id>.jsonl`). */
-  sessionFile: z.string().min(1),
+  /** Absolute path of the live omp session file (`~/.omp/agent/sessions/<cwd>/<stamp>_<id>.jsonl`); absent between a rollover and the next turn. */
+  sessionFile: z.string().min(1).optional(),
+  /** Session files of earlier contexts, oldest first. */
+  history: z.array(z.string().min(1)).default([]),
 });
 export type AssistantRecord = z.infer<typeof AssistantRecord>;
 
