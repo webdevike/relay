@@ -19,8 +19,8 @@ const dark = {
   warn: "#FBBF24",
   danger: "#F87171",
   working: "#7C9CFF",
-  /** Fill of the user's own chat bubbles (Eva); text on it is white in both palettes. */
-  bubbleUser: "#5B8DEF",
+  /** Fill of the user's own chat bubbles (Eva), a muted blue; text on it is white in both palettes. */
+  bubbleUser: "#6D8DB4",
 };
 
 export type Colors = typeof dark;

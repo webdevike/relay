@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type Block, imageBasename, imageSrcKind, parseBlocks, parseInline, topLevelImages } from "./markdown";
+import { type Block, imageBasename, imageSrcKind, parseBlocks, parseInline, previewText, topLevelImages } from "./markdown";
 
 describe("parseInline", () => {
   it("splits inline code out of prose and keeps it literal", () => {
@@ -225,5 +225,29 @@ describe("imageBasename", () => {
     expect(imageBasename("/Users/ike/Desktop/Screenshot%202026.png")).toBe("Screenshot 2026.png");
     expect(imageBasename("file:///tmp/shot.png?x=1")).toBe("shot.png");
     expect(imageBasename("shot.png")).toBe("shot.png");
+  });
+});
+
+describe("previewText", () => {
+  it("shows an image-only message as Photo", () => {
+    expect(previewText("![Orange cat](https://images.unsplash.com/photo-1?w=800)")).toBe("Photo");
+  });
+
+  it("keeps the prose before an image", () => {
+    expect(previewText("Here you go ![cat](https://x.test/a.png)")).toBe("Here you go");
+  });
+
+  it("drops emphasis and code marks and shows link labels", () => {
+    expect(previewText("**Done**: see [the docs](https://x.test) and run `bun test`")).toBe("Done: see the docs and run bun test");
+  });
+
+  it("skips blank lines and reads list and heading text", () => {
+    expect(previewText("\n# Plan\n- one")).toBe("Plan");
+    expect(previewText("- **first** item\n- second")).toBe("first item");
+  });
+
+  it("is empty for nothing readable", () => {
+    expect(previewText("")).toBe("");
+    expect(previewText("---")).toBe("");
   });
 });

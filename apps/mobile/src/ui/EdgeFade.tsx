@@ -15,19 +15,22 @@ export interface EdgeFadeProps {
   strength?: number;
   /** Fraction of the height held at full strength before easing out. Default 0.45. */
   solid?: number;
+  /** Which edge of the parent the fade hugs. Default `top`. */
+  edge?: "top" | "bottom";
 }
 
 /**
- * A top-edge fade: the page background at the top edge easing to transparent, laid over a
- * scrolling list so rows passing under a floating header dim out. Touches pass through.
+ * An edge fade: `color` at the top (or bottom) edge easing to transparent, laid over a scrolling
+ * list so rows passing under a floating header dim out. Touches pass through.
  */
-export function EdgeFade({ color, height, strength = 1, solid = DEFAULT_SOLID }: EdgeFadeProps) {
+export function EdgeFade({ color, height, strength = 1, solid = DEFAULT_SOLID, edge = "top" }: EdgeFadeProps) {
   const sk = loadSkia();
+  const bottom = edge === "bottom";
   return (
-    <View pointerEvents="none" style={[styles.root, { height }]}>
+    <View pointerEvents="none" style={[styles.root, bottom ? styles.bottom : styles.top, { height }]}>
       {sk === null ? (
         Array.from({ length: BANDS }, (_, i) => {
-          const t = (i + 0.5) / BANDS;
+          const t = ((bottom ? BANDS - 1 - i : i) + 0.5) / BANDS;
           const opacity = strength * (t <= solid ? 1 : 1 - (t - solid) / (1 - solid));
           return <View key={i} style={{ height: height / BANDS, backgroundColor: color, opacity }} />;
         })
@@ -35,8 +38,8 @@ export function EdgeFade({ color, height, strength = 1, solid = DEFAULT_SOLID }:
         <sk.Canvas style={StyleSheet.absoluteFill}>
           <sk.Fill>
             <sk.LinearGradient
-              start={sk.vec(0, 0)}
-              end={sk.vec(0, height)}
+              start={sk.vec(0, bottom ? height : 0)}
+              end={sk.vec(0, bottom ? 0 : height)}
               colors={[withAlpha(color, strength), withAlpha(color, strength), withAlpha(color, 0)]}
               positions={[0, solid, 1]}
             />
@@ -48,5 +51,7 @@ export function EdgeFade({ color, height, strength = 1, solid = DEFAULT_SOLID }:
 }
 
 const styles = StyleSheet.create({
-  root: { position: "absolute", top: 0, left: 0, right: 0 },
+  root: { position: "absolute", left: 0, right: 0 },
+  top: { top: 0 },
+  bottom: { bottom: 0 },
 });

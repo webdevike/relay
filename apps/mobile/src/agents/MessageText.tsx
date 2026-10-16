@@ -6,7 +6,6 @@ import { openExternal } from "@/lib/links";
 import { radii, spacing, type, useColors } from "@/theme";
 import { BlockQuote } from "@/ui/BlockQuote";
 import { ListItem } from "@/ui/ListItem";
-import { Text } from "@/ui/Text";
 import { CodeBlock } from "./CodeBlock";
 import { MarkdownImages } from "./MarkdownImages";
 import { type Align, type Block, type Inline, type MessageImage, parseBlocks } from "./markdown";
@@ -28,7 +27,11 @@ export interface MessageTextProps {
   skipImages?: boolean;
 }
 
-const LARGE_BODY = { fontSize: 17, lineHeight: 22 } as const;
+/** Chat body text: 17pt on a 20pt line, as Dot sets it. */
+export const LARGE_BODY = { fontSize: 17, lineHeight: 20 } as const;
+/** Width of a list's marker column (bullet or number), which is also the indent of the item text. */
+const LIST_INDENT = 20;
+const BULLET = 6;
 
 export function MessageText({ text, large = false, skipImages = false }: MessageTextProps) {
   const body = large ? LARGE_BODY : type.body;
@@ -103,11 +106,13 @@ function ListView({ block, body }: { block: Extract<Block, { kind: "list" }>; bo
       {block.items.map((item, i) => (
         <ListItem
           key={i}
-          markerWidth={block.ordered ? 24 : 16}
+          markerWidth={LIST_INDENT}
           marker={
-            <RNText style={{ fontSize: body.fontSize, lineHeight: body.lineHeight, color: colors.textMuted }}>
-              {block.ordered ? `${block.start + i}.` : "•"}
-            </RNText>
+            block.ordered ? (
+              <RNText style={{ fontSize: body.fontSize, lineHeight: body.lineHeight, color: colors.text }}>{`${block.start + i}.`}</RNText>
+            ) : (
+              <View style={{ width: BULLET, height: BULLET, borderRadius: BULLET / 2, backgroundColor: colors.text, marginTop: (body.lineHeight - BULLET) / 2 }} />
+            )
           }
         >
           {item.blocks.map((b, j) => (

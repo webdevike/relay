@@ -483,3 +483,46 @@ function parseList(lines: string[], start: number): { block: Block; next: number
   commit();
   return { block: { kind: "list", ordered, start: startNum, items }, next: i };
 }
+
+/**
+ * The first line of a message as plain text, for a one-line preview: emphasis and code marks are
+ * dropped, a link shows its label, an image shows as `Photo`. Empty when nothing is readable.
+ */
+export function previewText(text: string): string {
+  for (const block of parseBlocks(text)) {
+    const line = blockPreview(block);
+    if (line !== "") return line;
+  }
+  return "";
+}
+
+function blockPreview(block: Block): string {
+  switch (block.kind) {
+    case "image":
+      return "Photo";
+    case "heading":
+    case "paragraph":
+      return inlinePreview(block.inline);
+    case "list":
+      return block.items.map((item) => item.blocks.map(blockPreview).find((line) => line !== "") ?? "").find((line) => line !== "") ?? "";
+    case "blockquote":
+      return block.blocks.map(blockPreview).find((line) => line !== "") ?? "";
+    case "table":
+      return block.header.map(inlinePreview).filter((cell) => cell !== "").join(" ");
+    case "code":
+      return "Code";
+    case "widget":
+    case "hr":
+      return "";
+  }
+}
+
+function inlinePreview(runs: Inline[]): string {
+  const joined = runs.map((run) => run.text).join("");
+  return (
+    joined
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => line !== "") ?? ""
+  );
+}

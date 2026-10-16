@@ -21,6 +21,7 @@ import { useAssistantStore } from "@/state/assistant";
 import { HabitGate } from "@/gate/HabitGate";
 import { actions } from "@/state/actions";
 import { countOf } from "@/lib/format";
+import { previewText } from "@/agents/markdown";
 
 const pillFor: Record<ConnectionStatus, { label: string; tone: "accent" | "ok" | "warn" | "danger" | "textMuted" }> = {
   idle: { label: "Not connected", tone: "textMuted" },
@@ -59,14 +60,14 @@ export default function Home() {
   const latestDrop = drops[0];
   const pill = pillFor[status];
   const gateLocked = useGateStore((state) => state.gate?.locked === true);
-  // Eva's last reply, reduced to its first non-empty line (markdown marks and all); the tile truncates it.
+  // Eva's last reply as one plain line (images read "Photo", links show their text); the tile truncates it.
   const evaCaption = useAssistantStore((state) => {
     const messages = state.snapshot?.messages ?? [];
     for (let i = messages.length - 1; i >= 0; i--) {
       const message = messages[i];
       if (message?.role !== "assistant") continue;
-      const line = message.text.split("\n").find((candidate) => candidate.trim() !== "");
-      if (line !== undefined) return line.trim();
+      const line = previewText(message.text);
+      if (line !== "") return line;
     }
     return "Your assistant";
   });

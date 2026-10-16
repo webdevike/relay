@@ -16,11 +16,11 @@ import { useDropSrc } from "./dropSrc";
 import { ImageViewer, type ViewerImage } from "./ImageViewer";
 import { type ImageSrcKind, imageBasename, imageSrcKind, type MessageImage } from "./markdown";
 
-const TILE_WIDTH = 170;
+const TILE_WIDTH = 188;
 const MIN_HEIGHT = 110;
 const MAX_HEIGHT = 220;
 const RADIUS = 22;
-const GAP = 12;
+const GAP = 4;
 
 export function MarkdownImages({ images }: { images: MessageImage[] }) {
   const [viewing, setViewing] = useState<number | null>(null);

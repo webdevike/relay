@@ -30,7 +30,6 @@ export interface MessageImageStackProps {
   /** Images still on the phone (a sent turn the host has not listed yet), shown without a fetch. */
   local?: { uri: string; width: number; height: number }[] | undefined;
   align: "flex-start" | "flex-end";
-  opacity?: number;
   /** Tapped image: the loaded uris of this stack and the index of the one tapped among them. */
   onOpen: (uris: string[], index: number) => void;
 }
@@ -47,7 +46,7 @@ function fit(width: number | undefined, height: number | undefined): { width: nu
  * until then a raised placeholder holds the spot, and a `null` answer (the host no longer has the
  * image) shows a photo glyph.
  */
-export function MessageImageStack({ sessionId, refs, local, align, opacity = 1, onOpen }: MessageImageStackProps) {
+export function MessageImageStack({ sessionId, refs, local, align, onOpen }: MessageImageStackProps) {
   const colors = useColors();
   const fetched = useAgentsStore((state) => (sessionId === null ? undefined : state.images[sessionId]));
   useEffect(() => {
@@ -66,7 +65,7 @@ export function MessageImageStack({ sessionId, refs, local, align, opacity = 1, 
   const loaded = items.flatMap((item) => (typeof item.uri === "string" ? [item.uri] : []));
 
   return (
-    <View style={[styles.stack, { alignItems: align, opacity }]}>
+    <View style={[styles.stack, { alignItems: align }]}>
       {items.map((item) => {
         const size = fit(item.width, item.height);
         const { uri } = item;

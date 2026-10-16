@@ -6,12 +6,19 @@ import { spacing, useColors, useScheme } from "@/theme";
 export const PILL_HEIGHT = 48;
 /** Minimum height of the expanded card. */
 const CARD_MIN_HEIGHT = 120;
-/** Room a multiline field grows to before it scrolls: about five lines. */
-const MAX_FIELD_HEIGHT = 22 * 5 + 26;
-/** One line of the field's 17pt text; the content height divided by this is the line count. */
+/** One line of the field's 17pt text. */
 const LINE_HEIGHT = 22;
+/** Vertical padding of the field above and below the text; the reported content height includes both. */
+const FIELD_PADDING_Y = 13;
+/** Room a multiline field grows to before it scrolls: about five lines. */
+const MAX_FIELD_HEIGHT = LINE_HEIGHT * 5 + 2 * FIELD_PADDING_Y;
+/** Opaque pill fill in dark mode, so the list never reads through it. */
+const FILL_DARK = "#202020";
 
-const GLASS_DARK = "rgba(60,60,64,0.82)";
+/** Number of text lines in a field whose content (padding included) is `contentHeight` tall. */
+function lineCount(contentHeight: number): number {
+  return Math.max(1, Math.round((contentHeight - 2 * FIELD_PADDING_Y) / LINE_HEIGHT));
+}
 
 export interface FloatingPillProps {
   /** Control at the left edge: beside the field when collapsed, bottom-left of the card when expanded. */
@@ -25,7 +32,7 @@ export interface FloatingPillProps {
 }
 
 /**
- * A full-width rounded bar that floats over a scrolling page: translucent dark grey in dark mode,
+ * A full-width rounded bar that floats over a scrolling page: opaque #202020 in dark mode,
  * the surface colour in light. No hairline, no shadow. The element tree is the same collapsed and
  * expanded (only styles change), so a focused field keeps focus while the bar grows.
  */
@@ -36,7 +43,7 @@ export function FloatingPill({ leading, trailing, expanded = false, children }: 
     <View
       style={[
         styles.pill,
-        { backgroundColor: dark ? GLASS_DARK : colors.surface },
+        { backgroundColor: dark ? FILL_DARK : colors.surface },
         expanded ? styles.pillExpanded : styles.pillCollapsed,
       ]}
     >
@@ -57,10 +64,12 @@ export interface FloatingPillInputProps {
   tall?: boolean;
   /** Called with the number of lines the text takes whenever it changes. */
   onLines?: (lines: number) => void;
+  /** Called when the field takes focus. */
+  onFocus?: () => void;
 }
 
 /** The borderless multiline text field that lives inside a `FloatingPill`. */
-export function FloatingPillInput({ value, onChangeText, placeholder, editable = true, accessibilityLabel, tall = false, onLines }: FloatingPillInputProps) {
+export function FloatingPillInput({ value, onChangeText, placeholder, editable = true, accessibilityLabel, tall = false, onLines, onFocus }: FloatingPillInputProps) {
   const colors = useColors();
   const scheme = useScheme();
   return (
@@ -74,14 +83,15 @@ export function FloatingPillInput({ value, onChangeText, placeholder, editable =
       keyboardAppearance={scheme}
       selectionColor={colors.accent}
       accessibilityLabel={accessibilityLabel ?? placeholder}
+      onFocus={onFocus}
       onContentSizeChange={(event) => {
-        onLines?.(Math.max(1, Math.round(event.nativeEvent.contentSize.height / LINE_HEIGHT)));
+        onLines?.(lineCount(event.nativeEvent.contentSize.height));
       }}
       style={{
         minHeight: tall ? CARD_MIN_HEIGHT - PILL_HEIGHT : PILL_HEIGHT,
         maxHeight: MAX_FIELD_HEIGHT,
-        paddingTop: 13,
-        paddingBottom: 13,
+        paddingTop: FIELD_PADDING_Y,
+        paddingBottom: FIELD_PADDING_Y,
         paddingHorizontal: spacing.xs,
         color: colors.text,
         fontSize: 17,
