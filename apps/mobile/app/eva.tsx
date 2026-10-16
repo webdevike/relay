@@ -12,8 +12,8 @@
  * on the left with a typing bubble while she works; the composer is a floating pill the list
  * scrolls under, which grows into a card once there is text.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { FlatList, Keyboard, KeyboardAvoidingView, Pressable, StyleSheet, View, type LayoutChangeEvent } from "react-native";
+import { useCallback, useMemo, useState } from "react";
+import { ActionSheetIOS, FlatList, Keyboard, KeyboardAvoidingView, Pressable, StyleSheet, View, type LayoutChangeEvent } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { SymbolView } from "expo-symbols";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -27,8 +27,6 @@ import { EmptyState } from "@/ui/EmptyState";
 import { ExpandableContent } from "@/ui/ExpandableContent";
 import { FloatingPill, FloatingPillInput, PILL_HEIGHT } from "@/ui/FloatingPill";
 import { IconButton } from "@/ui/IconButton";
-import { Row as MenuRow } from "@/ui/Row";
-import { Sheet } from "@/ui/Sheet";
 import { Text } from "@/ui/Text";
 import { TopBlur } from "@/ui/TopBlur";
 import { TypingBubble } from "@/ui/TypingBubble";
@@ -77,14 +75,10 @@ export default function Eva() {
   const [failure, setFailure] = useState<string | null>(null);
   // True once the host acked the sent turn, while the snapshot may not list it yet.
   const [delivered, setDelivered] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
   // The composer floats over the list, so the list pads itself by however tall the composer is.
   const [composerHeight, setComposerHeight] = useState(PILL_HEIGHT + COMPOSER_BOTTOM);
   // Images queued on the composer, sent with the next turn.
   const [photos, setPhotos] = useState<Photo[]>([]);
-  const [attachOpen, setAttachOpen] = useState(false);
-  // Whether the clipboard holds an image; checked each time the attach sheet opens.
-  const [clipboardReady, setClipboardReady] = useState(false);
   // The images of the tapped bubble, open in the full-screen viewer.
   const [viewing, setViewing] = useState<{ uris: string[]; start: number } | null>(null);
   const viewerImages = useMemo(() => (viewing === null ? null : viewing.uris.map((uri) => ({ uri }))), [viewing]);
@@ -99,28 +93,11 @@ export default function Eva() {
     }, []),
   );
 
-  useEffect(() => {
-    if (!attachOpen) return;
-    let live = true;
-    clipboardHasImage().then(
-      (has) => {
-        if (live) setClipboardReady(has);
-      },
-      () => {
-        if (live) setClipboardReady(false);
-      },
-    );
-    return () => {
-      live = false;
-    };
-  }, [attachOpen]);
-
   const text = draft.trim();
   const canSend = connected && (text !== "" || photos.length > 0);
   const full = photos.length >= MAX_REPLY_IMAGES;
 
   const attach = (source: "library" | "clipboard"): void => {
-    setAttachOpen(false);
     setFailure(null);
     const picked =
       source === "library"
@@ -180,9 +157,40 @@ export default function Eva() {
     setComposerHeight(event.nativeEvent.layout.height);
   };
 
-  const go = (path: "/screen" | "/agents"): void => {
-    setMenuOpen(false);
-    router.push(path);
+  /** The avatar menu: a native action sheet, since a bottom-sheet modal did not present on this screen. */
+  const openMenu = (): void => {
+    Keyboard.dismiss();
+    ActionSheetIOS.showActionSheetWithOptions(
+      { title: AGENT_NAME, options: [`${AGENT_NAME}'s computer`, "Agent Inbox", "Cancel"], cancelButtonIndex: 2 },
+      (index) => {
+        if (index === 0) router.push("/screen");
+        if (index === 1) router.push("/agents");
+      },
+    );
+  };
+
+  /** The attach menu, native too; the paste row is disabled when the clipboard holds no image. */
+  const openAttach = (): void => {
+    Keyboard.dismiss();
+    clipboardHasImage().then(
+      (has) => {
+        ActionSheetIOS.showActionSheetWithOptions(
+          {
+            title: full ? `Up to ${String(MAX_REPLY_IMAGES)} images` : "Attach",
+            options: ["Photo library", has ? "Paste image" : "Paste image (none on the clipboard)", "Cancel"],
+            cancelButtonIndex: 2,
+            disabledButtonIndices: full ? [0, 1] : has ? [] : [1],
+          },
+          (index) => {
+            if (index === 0) attach("library");
+            if (index === 1) attach("clipboard");
+          },
+        );
+      },
+      () => {
+        setFailure("Couldn't read the clipboard.");
+      },
+    );
   };
 
   return (
@@ -232,9 +240,7 @@ export default function Eva() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`${AGENT_NAME} menu`}
-              onPress={() => {
-                setMenuOpen(true);
-              }}
+              onPress={openMenu}
             >
               <AvatarRing name={AGENT_NAME} breathing={busy} />
             </Pressable>
@@ -259,13 +265,7 @@ export default function Eva() {
               expanded={photos.length > 0 || (wrapped && text !== "")}
               leading={
                 <AttachButton
-                  onPress={() => {
-                    // The sheet does not present over a focused field with the keyboard up.
-                    Keyboard.dismiss();
-                    setTimeout(() => {
-                      setAttachOpen(true);
-                    }, 50);
-                  }}
+                  onPress={openAttach}
                   disabled={!connected}
                 />
               }
@@ -296,62 +296,6 @@ export default function Eva() {
           </View>
         </View>
       </KeyboardAvoidingView>
-      <Sheet
-        visible={menuOpen}
-        onClose={() => {
-          setMenuOpen(false);
-        }}
-      >
-        <Text variant="title" style={styles.menuTitle}>
-          {AGENT_NAME}
-        </Text>
-        <View style={styles.menuRows}>
-          <MenuRow
-            title={`${AGENT_NAME}'s computer`}
-            leading={<SymbolView name="laptopcomputer" size={20} tintColor={colors.textMuted} />}
-            onPress={() => {
-              go("/screen");
-            }}
-          />
-          <MenuRow
-            title="Agent Inbox"
-            leading={<SymbolView name="tray" size={20} tintColor={colors.textMuted} />}
-            onPress={() => {
-              go("/agents");
-            }}
-          />
-        </View>
-      </Sheet>
-      <Sheet
-        visible={attachOpen}
-        onClose={() => {
-          setAttachOpen(false);
-        }}
-      >
-        <Text variant="title" style={styles.menuTitle}>
-          Attach
-        </Text>
-        <View style={styles.menuRows}>
-          <MenuRow
-            title="Photo library"
-            {...(full ? { subtitle: `Up to ${String(MAX_REPLY_IMAGES)} images` } : {})}
-            disabled={full}
-            leading={<SymbolView name="photo.on.rectangle" size={20} tintColor={colors.textMuted} />}
-            onPress={() => {
-              attach("library");
-            }}
-          />
-          <MenuRow
-            title="Paste image"
-            {...(full ? { subtitle: `Up to ${String(MAX_REPLY_IMAGES)} images` } : clipboardReady ? {} : { subtitle: "No image on the clipboard" })}
-            disabled={full || !clipboardReady}
-            leading={<SymbolView name="doc.on.clipboard" size={20} tintColor={colors.textMuted} />}
-            onPress={() => {
-              attach("clipboard");
-            }}
-          />
-        </View>
-      </Sheet>
       <ImageViewer
         images={viewerImages}
         start={viewing?.start ?? 0}
