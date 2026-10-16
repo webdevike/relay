@@ -15,7 +15,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { ActionSheetIOS, FlatList, Keyboard, KeyboardAvoidingView, Pressable, StyleSheet, View, type LayoutChangeEvent } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { SymbolView } from "expo-symbols";
 import { useFocusEffect, useRouter } from "expo-router";
 import { MAX_REPLY_IMAGES, type AssistantMessage } from "@relay/protocol";
 import { AttachmentTray } from "@/ui/AttachmentTray";
