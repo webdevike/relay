@@ -10,15 +10,16 @@ import type { PushTokenSource } from "./token-store";
 export const REMINDER_MS = 30 * 60_000;
 
 /**
- * Tap routing on the phone: a session opens the inbox card, a drop opens the Drops list, and an
+ * Tap routing on the phone: a session opens the inbox card, a drop opens the Drops list, an
  * inbox push carries what the phone needs to answer it (`InboxPushData`) or, for a withdraw, the id
- * of the notification to remove.
+ * of the notification to remove, and an Eva reply opens her thread.
  */
 export type PushData =
   | { readonly sessionId: string }
   | { readonly dropId: string }
   | { readonly id: string; readonly kind: string; readonly sessionId?: string }
-  | { readonly withdraw: string };
+  | { readonly withdraw: string }
+  | { readonly assistant: true };
 
 export interface PushMessage {
   readonly to: string;

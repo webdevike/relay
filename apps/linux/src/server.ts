@@ -15,6 +15,7 @@ import type { AttentionNotifier } from "./push/notifier";
 import type {
   AgentProvider,
   AgentProviderChange,
+  AssistantRelaying,
   DeviceStore,
   DropBox,
   DropChange,
@@ -56,6 +57,8 @@ export interface ServerDeps {
   readonly screen: ScreenCapture;
   /** The phone-escalation inbox EvaOS feeds; null disables `inbox.*` frames. */
   readonly inbox: InboxRelaying | null;
+  /** Eva's assistant thread; null disables `assistant.*` frames and `POST /assistant/say`. */
+  readonly assistant: AssistantRelaying | null;
   readonly pairing: PairingUI;
   readonly log: (line: string) => void;
 }
@@ -148,6 +151,7 @@ export class RelayServer {
           return this.handleDropRequest(request, path, remote);
         if (path === "/boards" || path.startsWith("/boards/"))
           return handleBoardRequest(this.deps.boards, request, path, remote);
+        if (path === "/assistant/say") return this.handleAssistantSay(request, remote);
         return new Response("not found", { status: 404 });
       },
       websocket: {
@@ -220,6 +224,22 @@ export class RelayServer {
     return false;
   }
 
+  /** Whether the phone `deviceId` has Eva's thread open on some live connection. */
+  isViewingAssistant(deviceId: string): boolean {
+    for (const ws of this.sockets) {
+      const session = ws.data.session;
+      if (session !== null && session.deviceId === deviceId && session.isFollowingAssistant()) return true;
+    }
+    return false;
+  }
+
+  /** Sends `message` to every socket following Eva's thread. */
+  broadcastAssistant(message: ServerMessage): void {
+    for (const ws of this.sockets) {
+      if (ws.data.session?.isFollowingAssistant() === true) ws.data.session.broadcast(message);
+    }
+  }
+
   /** Sends `message` to every authenticated device except `exceptDeviceId` (`null`: all of them). */
   broadcastExcept(message: ServerMessage, exceptDeviceId: string | null): void {
     for (const ws of this.sockets) {
@@ -238,6 +258,7 @@ export class RelayServer {
   }
 
   private handleProviderChange(change: AgentProviderChange): void {
+    this.deps.assistant?.observe(change);
     if (change.kind === "sessions") {
       const sessions = this.deps.agents?.sessions ?? [];
       const delta = this.agentsTracker.apply(sessions);
@@ -283,6 +304,25 @@ export class RelayServer {
         ? { t: "drop.new", drop: change.drop }
         : { t: "drop.removed", id: change.id };
     for (const ws of this.sockets) ws.data.session?.broadcast(message);
+  }
+
+  /**
+   * `POST /assistant/say` (text/plain, loopback only, like `POST /drops`) is how `relay-linux
+   * assistant say` and the host's jobs hand Eva a message to relay to Isaac.
+   */
+  private async handleAssistantSay(request: Request, remote: string): Promise<Response> {
+    const assistant = this.deps.assistant;
+    if (assistant === null) return new Response("assistant disabled", { status: 404 });
+    if (request.method !== "POST") return new Response("method not allowed", { status: 405 });
+    if (!isLoopback(remote)) return new Response("loopback only", { status: 403 });
+    const text = (await request.text()).trim();
+    if (text === "") return new Response("empty text", { status: 400 });
+    try {
+      await assistant.say(text);
+      return new Response("ok");
+    } catch (error) {
+      return new Response(error instanceof Error ? error.message : String(error), { status: 503 });
+    }
   }
 
   /**
@@ -356,6 +396,7 @@ export class RelayServer {
         dedup: this.dedup,
         screen: this.deps.screen,
         inbox: this.deps.inbox,
+        assistant: this.deps.assistant,
       },
       (closed) => {
         const reason = closed.closeReason;

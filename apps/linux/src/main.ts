@@ -13,6 +13,8 @@ import { Drop } from "@relay/protocol";
 import { z } from "zod";
 import pkg from "../package.json";
 import { defaultSocketPath, OmpBridgeProvider } from "./agents/bridge";
+import { AssistantService } from "./assistant/service";
+import { FileAssistantStore } from "./assistant/store";
 import { FileDeviceStore } from "./device-store";
 import { FileDropStore } from "./drops/store";
 import { FileBoardStore } from "./boards/store";
@@ -51,6 +53,9 @@ const USAGE = `relay-linux <command>
   board put <slug> [< json]        create/replace from {title, workspace?, icon?, widgets?}
   board ops <slug> [< json]        apply a BoardOp[] array, all or nothing
   board rm <slug>                  delete a dashboard
+  assistant say <text> ...         hand Eva (the assistant thread of the running host) a message
+                                   from a background job; she relays it to Isaac. \`say -\` or
+                                   no text reads stdin
 
 Input goes through /dev/uinput: your user needs read/write on it (e.g. membership in the
 \`input\` group, then log out and back in).`;
@@ -131,6 +136,21 @@ function serve(
     isViewing: (deviceId, sessionId): boolean => server.isViewing(deviceId, sessionId),
     log,
   });
+  const assistant = new AssistantService({
+    agents,
+    launch: (options) => agents.launchWith(options),
+    sessionFile: (sessionId) => agents.sessionFile(sessionId),
+    agentHome,
+    store: new FileAssistantStore(),
+    tokens: pushTokens,
+    sender: new ExpoPushSender(),
+    broadcast: (message): void => {
+      server.broadcastAssistant(message);
+    },
+    isViewing: (deviceId): boolean => server.isViewingAssistant(deviceId),
+    clock: systemClock,
+    log,
+  });
   const clipboard =
     watchClipboard && Bun.which("wl-paste") !== null
       ? new ClipboardWatcher({
@@ -168,6 +188,7 @@ function serve(
       screen: screenHelper === null ? NO_SCREEN : new HelperScreenCapture(screenHelper, log),
       notifier,
       inbox,
+      assistant,
       pairing: new TerminalPairingUI(),
       log,
     },
@@ -255,6 +276,21 @@ async function share(positionals: string[]): Promise<void> {
   const drop = Drop.parse(await response.json());
   // Blob drops also print their fetch path so an agent can reference it (e.g. a ```ui compare widget).
   console.log(drop.file ? `shared ${drop.kind} ${drop.id} ${drop.file.path}` : `shared ${drop.kind} ${drop.id}`);
+}
+
+/** `assistant say <text>`: the running host hands the text to Eva as a turn from the host's jobs. */
+async function assistantSay(positionals: string[]): Promise<void> {
+  const text = positionals.length === 0 || positionals[0] === "-" ? await Bun.stdin.text() : positionals.join(" ");
+  const response = await fetch(`${hostUrl()}/assistant/say`, {
+    method: "POST",
+    headers: { "content-type": "text/plain; charset=utf-8" },
+    body: text,
+  });
+  if (!response.ok) {
+    console.error(await response.text());
+    process.exit(1);
+  }
+  console.log("told Eva");
 }
 
 function isFile(path: string): boolean {
@@ -366,6 +402,12 @@ async function main(argv: string[]): Promise<void> {
     case "board":
       await board(positionals.slice(1));
       return;
+    case "assistant": {
+      const verb = positionals[1];
+      if (verb !== "say") throw new Error(`assistant: unknown subcommand ${verb ?? "(none)"}; try \`assistant say <text>\``);
+      await assistantSay(positionals.slice(2));
+      return;
+    }
     default:
       throw new Error(`unknown command ${command}\n\n${USAGE}`);
   }

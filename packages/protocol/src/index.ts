@@ -56,10 +56,11 @@ export const AgentSession = z.object({
   /** Share of the model's context window in use, 0..1, when the provider reports it. */
   contextUsed: z.number().min(0).max(1).optional(),
   /**
-   * Hand-started, or a run the host's job launcher scheduled. Absent on older hosts, which only
-   * ever had manual sessions.
+   * Hand-started, a run the host's job launcher scheduled, or the host's one long-lived Eva
+   * assistant thread (hidden from inbox lists, read through `assistant.get`). Absent on older
+   * hosts, which only ever had manual sessions.
    */
-  kind: z.enum(["manual", "job"]).optional(),
+  kind: z.enum(["manual", "job", "assistant"]).optional(),
   /** The scheduled job this session is a run of; present exactly when `kind` is "job". */
   job: z.object({ name: nonEmpty, runId: nonEmpty }).optional(),
   /**
@@ -329,6 +330,27 @@ export const AgentMessage = z.object({
   streaming: z.boolean().optional(),
 });
 export type AgentMessage = z.infer<typeof AgentMessage>;
+
+/**
+ * The personal assistant is a first-class conversation, separate from omp's operational session
+ * inbox. Its durable transcript is owned by the host and replayed on every phone connection.
+ */
+export const AssistantMessage = z.object({
+  id: nonEmpty,
+  role: z.enum(["user", "assistant", "card", "status", "error"]),
+  text: z.string(),
+  title: z.string().optional(),
+  at: ms,
+});
+export type AssistantMessage = z.infer<typeof AssistantMessage>;
+
+export const AssistantSnapshot = z.object({
+  rev: z.number().int().nonnegative(),
+  messages: z.array(AssistantMessage),
+  busy: z.boolean(),
+});
+export type AssistantSnapshot = z.infer<typeof AssistantSnapshot>;
+
 
 export const MacState = z.object({
   name: nonEmpty,
@@ -622,6 +644,8 @@ export const Command = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("gate.done"), id: nonEmpty, photo: AgentImage.optional() }),
   /** Unlock without a habit; the typed reason is logged with the gate's history. */
   z.object({ kind: z.literal("gate.override"), reason: z.string().trim().min(1).max(MAX_GATE_REASON) }),
+  /** Give the persistent personal assistant a new turn. */
+  z.object({ kind: z.literal("assistant.turn"), text: z.string().trim().min(1).max(MAX_DROP_TEXT) }),
 ]);
 export type Command = z.infer<typeof Command>;
 
@@ -684,6 +708,8 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("board.subscribe") }),
   /** Re-request every board (after a rev gap); answered by `board.snapshot`. */
   z.object({ t: z.literal("board.get") }),
+  /** Ask for the persistent personal assistant's durable conversation. */
+  z.object({ t: z.literal("assistant.get") }),
   /** Ask for the habit gate's current state; answered by `gate.status`. */
   z.object({ t: z.literal("gate.get") }),
   /** Ask for the capturable host windows; answered by `screen.list`. */
@@ -808,6 +834,8 @@ export const ServerMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("inbox.resolve"), ...InboxResolveFields }),
   /** `image` is null when the session no longer has that image. */
   z.object({ t: z.literal("agent.image"), sessionId: nonEmpty, id: nonEmpty, image: AgentImage.nullable() }),
+  /** Full durable personal-assistant thread, sent on request and after each completed turn. */
+  z.object({ t: z.literal("assistant.snapshot"), snapshot: AssistantSnapshot }),
   /** A drop was added on either side; also mirrored as a push notification for host-origin drops. */
   z.object({ t: z.literal("drop.new"), drop: Drop }),
   z.object({ t: z.literal("drop.removed"), id: nonEmpty }),

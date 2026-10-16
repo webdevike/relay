@@ -64,6 +64,27 @@
     "sessions": []
   },
   {
+    "t": "assistant.snapshot",
+    "snapshot": {
+      "rev": 3,
+      "busy": false,
+      "messages": [
+        {
+          "id": "a-1",
+          "role": "status",
+          "text": "furry-drop finished: 12 files uploaded",
+          "at": 1788900000000
+        },
+        {
+          "id": "a-2",
+          "role": "assistant",
+          "text": "The furry-drop run just finished; 12 files went up.",
+          "at": 1788900001000
+        }
+      ]
+    }
+  },
+  {
     "t": "agents.delta",
     "rev": 9,
     "upsert": [

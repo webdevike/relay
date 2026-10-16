@@ -76,9 +76,11 @@ interface JobRef {
 
 interface Settings {
   title: string;
-  /** Hand-started omp, or a run the job launcher scheduled; the phone files jobs separately. */
-  kind: "manual" | "job";
+  /** Hand-started omp, a run the job launcher scheduled, or the host's one Eva assistant thread; the phone files each apart. */
+  kind: "manual" | "job" | "assistant";
   job?: JobRef;
+  /** The transcript on disk, once omp has one; the host keeps the assistant's to resume it after a restart. */
+  sessionFile?: string;
   model?: string;
   modelVendor?: string;
   thinkingLevel?: string;
@@ -484,6 +486,14 @@ function jobRef(): JobRef | undefined {
   return { name, runId };
 }
 const JOB = jobRef();
+/**
+ * The relay host starts Eva's one long-lived assistant thread with `EVA_ASSISTANT=1`
+ * (apps/linux/src/assistant/service.ts): it registers as kind "assistant" under the fixed title
+ * "Eva", never as a job, and its transcript is seeded from the session file so a resumed thread
+ * (`omp -r`) shows its history rather than starting blank on the phone.
+ */
+const ASSISTANT = process.env["EVA_ASSISTANT"] === "1";
+const ASSISTANT_TITLE = "Eva";
 /** Local wall-clock start, "HH:MM": the job's default title carries it so runs of one job tell apart. */
 const JOB_START = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
 
@@ -985,8 +995,13 @@ export default function relayBridge(pi: ExtensionAPI): void {
   const settings = (): Settings => {
     const cwd = ctx?.sessionManager.getCwd() ?? "";
     const fallbackTitle = JOB === undefined ? basename(cwd) : `${JOB.name} · ${JOB_START}`;
-    const base: Settings = { title: pi.getSessionName() ?? fallbackTitle, kind: JOB === undefined ? "manual" : "job" };
-    if (JOB !== undefined) base.job = JOB;
+    const base: Settings = ASSISTANT
+      ? { title: ASSISTANT_TITLE, kind: "assistant" }
+      : { title: pi.getSessionName() ?? fallbackTitle, kind: JOB === undefined ? "manual" : "job" };
+    if (!ASSISTANT && JOB !== undefined) base.job = JOB;
+    // Like the name subscription below: the read-only context type hides the file getter the real manager has.
+    const sessionFile = ctx === null ? undefined : (ctx.sessionManager as SessionManager).getSessionFile();
+    if (typeof sessionFile === "string" && sessionFile.length > 0) base.sessionFile = sessionFile;
     const model = ctx?.model;
     if (model !== undefined) {
       base.model = model.name;
@@ -1093,8 +1108,12 @@ export default function relayBridge(pi: ExtensionAPI): void {
           // Submitted. A dictated transcript that already starts with "/" is a typed command; anything
           // else is offered to Jev, which rewrites it to `/command …` when the speaker named one and
           // otherwise hands it back unchanged (see routeVoiceCommand). Routing never blocks the reply.
-          const text = frame.text.startsWith("/") ? frame.text : ((await routeVoiceCommand(pi.getCommands(), frame.text)) ?? frame.text);
-          if (text.startsWith("/") || pi.getSessionName() === undefined) {
+          // Eva's thread is conversation, not a command line: what Isaac says there goes in as said.
+          const text = frame.text.startsWith("/") || ASSISTANT ? frame.text : ((await routeVoiceCommand(pi.getCommands(), frame.text)) ?? frame.text);
+          // Eva's title is fixed, so her turns never need the editor path's auto title; keeping them
+          // off the editor also means a turn arriving while the prime is still being typed in
+          // (see the initial prompt below) steers in behind it instead of replacing it.
+          if (text.startsWith("/") || (pi.getSessionName() === undefined && !ASSISTANT)) {
             // A slash command only runs through the editor's own submit path (sendUserMessage skips
             // command handling), so it goes in as if typed and Enter is fed to the terminal reader.
             // The same path is the only one that starts omp's auto title (maybeStartTitleGeneration
@@ -1381,7 +1400,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
     unwatchName = manager.onSessionNameChanged(() => {
       if (ctx !== context) return;
       const name = pi.getSessionName();
-      if (name !== undefined && name.length > 0) renameInHerdr(name);
+      if (name !== undefined && name.length > 0) renameInHerdr(ASSISTANT ? ASSISTANT_TITLE : name);
       sendStatus();
     });
   };
@@ -1406,6 +1425,34 @@ export default function relayBridge(pi: ExtensionAPI): void {
     initialPromptTimer = null;
   };
 
+  /**
+   * A resumed assistant thread (`omp -r <file>`) has its past turns on disk only: read them into
+   * the transcript so the phone's thread carries on where it left off instead of starting blank.
+   * The file holds every entry ever written; Eva's thread is linear, so all of it is the thread.
+   * The live `messages` stream appends behind these as the session goes on.
+   */
+  const seedHistory = (context: ExtensionContext): void => {
+    const file = (context.sessionManager as SessionManager).getSessionFile();
+    if (typeof file !== "string" || file.length === 0) return;
+    let raw: string;
+    try {
+      raw = readFileSync(file, "utf8");
+    } catch {
+      return; // a new session has no file yet
+    }
+    for (const line of raw.split("\n")) {
+      if (line.trim().length === 0) continue;
+      let entry: { type?: unknown; message?: unknown };
+      try {
+        entry = JSON.parse(line) as { type?: unknown; message?: unknown };
+      } catch {
+        continue;
+      }
+      if (entry.type !== "message" || typeof entry.message !== "object" || entry.message === null) continue;
+      for (const row of rowsOf(entry.message as Record<string, unknown>, images, nextId)) record(row);
+    }
+  };
+
   pi.on("session_start", (_event, context) => {
     if (!context.hasUI) return; // headless, print, and subagent sessions are not inbox items
     ctx = context;
@@ -1413,6 +1460,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
     watchName(context);
     wrapAskDialog(context);
     wrapApprovalDialog(context);
+    if (ASSISTANT && history.length === 0) seedHistory(context);
     connect();
     if (gateTimer === null) {
       gateTimer = setInterval(pollGate, GATE_POLL_MS);
@@ -1465,6 +1513,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
     wrapApprovalDialog(context);
     history.length = 0;
     images.clear();
+    if (ASSISTANT) seedHistory(context);
     const current = info();
     if (current !== null) send({ t: "hello", ...current });
   });

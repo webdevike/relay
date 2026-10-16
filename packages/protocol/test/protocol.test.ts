@@ -44,6 +44,22 @@ describe("agent sessions", () => {
     expect(top.ok && top.value.t === "agents.snapshot" ? top.value.sessions[0]?.parentId : "missing").toBeUndefined();
     expect(parseServerMessage(frame({ ...base, parentId: "" })).ok).toBe(false);
   });
+  it("accepts the assistant kind and rejects an unknown one", () => {
+    const frame = (session: object) => JSON.stringify({ t: "agents.snapshot", rev: 1, sessions: [session] });
+    const eva = parseServerMessage(frame({ ...base, id: "eva", title: "Eva", kind: "assistant" }));
+    expect(eva.ok && eva.value.t === "agents.snapshot" ? eva.value.sessions[0]?.kind : undefined).toBe("assistant");
+    expect(parseServerMessage(frame({ ...base, kind: "robot" })).ok).toBe(false);
+  });
+});
+
+describe("assistant thread", () => {
+  it("assistant.turn needs text, assistant.snapshot carries every role", () => {
+    expect(parseClientMessage(JSON.stringify({ t: "cmd", id: "c", cmd: { kind: "assistant.turn", text: "  " } })).ok).toBe(false);
+    const messages = ["user", "assistant", "card", "status", "error"].map((role, i) => ({ id: `m-${i}`, role, text: role, at: i + 1 }));
+    const r = parseServerMessage(JSON.stringify({ t: "assistant.snapshot", snapshot: { rev: 2, busy: true, messages } }));
+    expect(r.ok && r.value.t === "assistant.snapshot" ? r.value.snapshot.messages.length : 0).toBe(5);
+    expect(parseServerMessage(JSON.stringify({ t: "assistant.snapshot", snapshot: { rev: -1, busy: false, messages: [] } })).ok).toBe(false);
+  });
 });
 
 describe("hmac", () => {

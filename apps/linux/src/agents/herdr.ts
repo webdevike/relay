@@ -93,27 +93,47 @@ async function ensureServer(log: (line: string) => void): Promise<z.infer<typeof
   }
 }
 
+/** How the pane's omp is started; the fields are independent and all optional. */
+export interface LaunchOptions {
+  /** Submitted as the first turn once omp is up (rides in the pane env as `RELAY_INITIAL_PROMPT`). */
+  readonly prompt?: string;
+  /** The session's thinking level (`RELAY_THINKING_LEVEL`). */
+  readonly thinkingLevel?: string;
+  /** A named omp profile, passed after herdr's `--` separator. */
+  readonly profile?: "personal" | "work";
+  /** Extra pane env, e.g. `EVA_ASSISTANT=1` for the assistant thread. */
+  readonly env?: Readonly<Record<string, string>>;
+  /** An omp session file to resume (`omp --resume <file>`) instead of starting a new transcript. */
+  readonly resume?: string;
+}
+
 /**
  * Creates a workspace for `home` (labelled after it, so several read "Eva", "Eva", "Eva" in
  * herdr's list until omp titles the pane) and starts omp in its root pane. `prompt`, when given,
  * goes into the pane's env as `RELAY_INITIAL_PROMPT` for the session's bridge to submit as the
- * first turn; `thinkingLevel` likewise as `RELAY_THINKING_LEVEL`. A named `profile` is passed to
- * omp after herdr's `--` separator. Resolves with the pane id; rejects with `AckFailure` (`agent_launch_failed`).
+ * first turn; `thinkingLevel` likewise as `RELAY_THINKING_LEVEL`. A named `profile` and a
+ * `resume` target are passed to omp after herdr's `--` separator. Resolves with the pane id;
+ * rejects with `AckFailure` (`agent_launch_failed`).
  */
-export async function launchInHerdr(home: string, log: (line: string) => void, prompt?: string, thinkingLevel?: string, profile?: "personal" | "work"): Promise<string> {
+export async function launchInHerdr(home: string, log: (line: string) => void, options: LaunchOptions = {}): Promise<string> {
   if (Bun.which("herdr") === null) throw fail("herdr is not installed on the host (not on PATH)");
   try {
     await ensureServer(log);
     const label = basename(home);
     const env = ["--env", "RELAY_HERDR_OWNED=1"];
-    if (prompt !== undefined) env.push("--env", `RELAY_INITIAL_PROMPT=${prompt}`);
-    if (thinkingLevel !== undefined) env.push("--env", `RELAY_THINKING_LEVEL=${thinkingLevel}`);
+    for (const [key, value] of Object.entries(options.env ?? {})) env.push("--env", `${key}=${value}`);
+    if (options.prompt !== undefined) env.push("--env", `RELAY_INITIAL_PROMPT=${options.prompt}`);
+    if (options.thinkingLevel !== undefined) env.push("--env", `RELAY_THINKING_LEVEL=${options.thinkingLevel}`);
     const paneId = result(
       WorkspaceCreated,
       await herdr(["workspace", "create", "--cwd", home, "--label", label, ...env, "--no-focus"]),
     ).root_pane.pane_id;
     const name = `relay-${Date.now().toString(36)}`;
-    await herdr(["agent", "start", name, "--kind", "omp", "--pane", paneId, "--timeout", String(AGENT_START_TIMEOUT_MS), ...(profile === undefined ? [] : ["--", "--profile", profile])]);
+    const ompArgs = [
+      ...(options.profile === undefined ? [] : ["--profile", options.profile]),
+      ...(options.resume === undefined ? [] : [`--resume=${options.resume}`]),
+    ];
+    await herdr(["agent", "start", name, "--kind", "omp", "--pane", paneId, "--timeout", String(AGENT_START_TIMEOUT_MS), ...(ompArgs.length === 0 ? [] : ["--", ...ompArgs])]);
     return paneId;
   } catch (error) {
     if (error instanceof AckFailure) throw error;

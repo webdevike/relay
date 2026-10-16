@@ -8,9 +8,9 @@ import { join } from "node:path";
 import { FileBoardStore } from "../src/boards/store";
 import { CommandDedupStore } from "../src/dedup";
 import { PairingCoordinator } from "../src/pairing";
-import { AckFailure, type AgentConfigChange, type AgentProvider, type DeviceStore, type DropBox, type FrameSink, type GateCommand, type InboxRelaying, type InputSink, type PairedDevice, type PairingUI, type PushRegistry, type ScreenCapture, type ScreenInput, type ScreenWatch, type TextInjecting } from "../src/seams";
+import { AckFailure, type AgentConfigChange, type AgentProvider, type AssistantRelaying, type DeviceStore, type DropBox, type FrameSink, type GateCommand, type InboxRelaying, type InputSink, type PairedDevice, type PairingUI, type PushRegistry, type ScreenCapture, type ScreenInput, type ScreenWatch, type TextInjecting } from "../src/seams";
 import { NO_SCREEN } from "../src/screen/capture";
-import { ClientSession, PAIRING_TIMEOUT_MS, type SessionClock, type SessionDeps } from "../src/session";
+import { ASSISTANT_FOLLOW_MS, ClientSession, PAIRING_TIMEOUT_MS, type SessionClock, type SessionDeps } from "../src/session";
 
 class RecordingSink implements FrameSink {
   readonly sent: ServerMessage[] = [];
@@ -104,6 +104,7 @@ interface HarnessOptions {
   boards?: FileBoardStore;
   screen?: ScreenCapture;
   inbox?: InboxRelaying;
+  assistant?: AssistantRelaying;
 }
 
 function harness(options: HarnessOptions = {}): Harness {
@@ -147,6 +148,7 @@ function harness(options: HarnessOptions = {}): Harness {
     dedup: options.dedup ?? new CommandDedupStore(),
     screen: options.screen ?? NO_SCREEN,
     inbox: options.inbox ?? null,
+    assistant: options.assistant ?? null,
   };
   const sink = new RecordingSink();
   const clock = new FakeClock();
@@ -734,6 +736,71 @@ describe("habit gate", () => {
     h.session.receive({ t: "cmd", id: "g1", cmd: { kind: "gate.start", id: "walk" } });
     await h.sink.sentCount(5);
     expect(h.sink.last()).toMatchObject({ t: "nack", id: "g1", error: { code: "gate_unavailable" } });
+  });
+});
+
+describe("assistant thread", () => {
+  class FakeAssistant implements AssistantRelaying {
+    readonly turns: string[] = [];
+    readonly snapshotValue = { rev: 3, messages: [{ id: "a1", role: "assistant" as const, text: "hi Isaac", at: 1 }], busy: true };
+    snapshot(): Promise<typeof this.snapshotValue> {
+      return Promise.resolve(this.snapshotValue);
+    }
+    turn(text: string): Promise<void> {
+      if (text === "fail") return Promise.reject(new AckFailure({ code: "agent_launch_failed", message: "Eva did not come up" }));
+      this.turns.push(text);
+      return Promise.resolve();
+    }
+    say(text: string): Promise<void> {
+      return this.turn(`[From Eva's background jobs] ${text}`);
+    }
+    observe(): void {
+      // nothing to watch here
+    }
+  }
+
+  it("answers assistant.get with the service's snapshot and follows the thread for a while", async () => {
+    const assistant = new FakeAssistant();
+    const h = harness({ assistant });
+    pair(h);
+    expect(h.session.isFollowingAssistant()).toBe(false);
+    h.session.receive({ t: "assistant.get" });
+    await h.sink.sentCount(5);
+    expect(h.sink.last()).toEqual({ t: "assistant.snapshot", snapshot: assistant.snapshotValue });
+    expect(h.session.isFollowingAssistant()).toBe(true);
+    h.clock.advance(ASSISTANT_FOLLOW_MS + 1);
+    expect(h.session.isFollowingAssistant()).toBe(false);
+    h.session.receive({ t: "assistant.get" });
+    expect(h.session.isFollowingAssistant()).toBe(true);
+  });
+
+  it("answers assistant.get empty on a host without the thread", () => {
+    const h = harness();
+    pair(h);
+    h.session.receive({ t: "assistant.get" });
+    expect(h.sink.last()).toEqual({ t: "assistant.snapshot", snapshot: { rev: 0, messages: [], busy: false } });
+  });
+
+  it("hands assistant.turn to the service and acks, passing its launch failure through as a nack", async () => {
+    const assistant = new FakeAssistant();
+    const h = harness({ assistant });
+    pair(h);
+    h.session.receive({ t: "cmd", id: "t1", cmd: { kind: "assistant.turn", text: "what did the run do?" } });
+    h.session.receive({ t: "cmd", id: "t2", cmd: { kind: "assistant.turn", text: "fail" } });
+    await h.sink.sentCount(6);
+    expect(assistant.turns).toEqual(["what did the run do?"]);
+    expect(h.sink.sent.slice(-2)).toEqual([
+      { t: "ack", id: "t1" },
+      { t: "nack", id: "t2", error: { code: "agent_launch_failed", message: "Eva did not come up" } },
+    ]);
+  });
+
+  it("nacks assistant.turn as agent_launch_failed on a host without the thread", async () => {
+    const h = harness();
+    pair(h);
+    h.session.receive({ t: "cmd", id: "t1", cmd: { kind: "assistant.turn", text: "hello?" } });
+    await h.sink.sentCount(5);
+    expect(h.sink.last()).toMatchObject({ t: "nack", id: "t1", error: { code: "agent_launch_failed" } });
   });
 });
 

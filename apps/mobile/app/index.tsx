@@ -1,8 +1,9 @@
 /**
- * Home: a 2x2 grid of widgets, one per thing the phone can do with the host, each carrying its
+ * Home: a grid of widgets, one per thing the phone can do with the host, each carrying its
  * live fact (session count, drop count, host state) so the screen answers "what is going on"
- * before anything is tapped. Trackpad and Drops share the top row, Agent Inbox and the host
- * (which opens Settings) the bottom. While the host's habit gate is locked its card leads.
+ * before anything is tapped. Eva leads with her last word; Trackpad and Drops share the next
+ * row, Agent Inbox and the host (which opens Settings) the one after. While the host's habit
+ * gate is locked its card leads.
  */
 import { useRouter } from "expo-router";
 import { StyleSheet, View } from "react-native";
@@ -16,6 +17,7 @@ import { useConnectionStore, type ConnectionStatus } from "@/state/connection";
 import { needsAttention, useAgentsStore } from "@/state/agents";
 import { useDropsStore } from "@/state/drops";
 import { useGateStore } from "@/state/gate";
+import { useAssistantStore } from "@/state/assistant";
 import { HabitGate } from "@/gate/HabitGate";
 import { actions } from "@/state/actions";
 import { countOf } from "@/lib/format";
@@ -57,6 +59,17 @@ export default function Home() {
   const latestDrop = drops[0];
   const pill = pillFor[status];
   const gateLocked = useGateStore((state) => state.gate?.locked === true);
+  // Eva's last reply, reduced to its first non-empty line (markdown marks and all); the tile truncates it.
+  const evaCaption = useAssistantStore((state) => {
+    const messages = state.snapshot?.messages ?? [];
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const message = messages[i];
+      if (message?.role !== "assistant") continue;
+      const line = message.text.split("\n").find((candidate) => candidate.trim() !== "");
+      if (line !== undefined) return line.trim();
+    }
+    return "Your assistant";
+  });
 
   return (
     <Screen title={macName ?? "Relay"} headerRight={<Pill label={pill.label} tone={pill.tone} />} scroll={gateLocked}>
@@ -84,6 +97,15 @@ export default function Home() {
         </View>
       )}
       <View style={styles.grid}>
+        <Tile
+          symbol="bubble.left.and.text.bubble.right"
+          title="Eva"
+          caption={evaCaption}
+          size="wide"
+          onPress={() => {
+            router.push("/eva");
+          }}
+        />
         <View style={styles.row}>
           <Tile
             symbol="cursor.rays"

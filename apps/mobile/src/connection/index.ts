@@ -14,6 +14,7 @@ import { useDropsStore } from "@/state/drops";
 import { useScreenStore } from "@/state/screen";
 import { useBoardsStore } from "@/state/boards";
 import { useGateStore } from "@/state/gate";
+import { useAssistantStore } from "@/state/assistant";
 import { setActions } from "@/state/actions";
 import { useSettingsStore } from "@/state/settings";
 import { createAgentFrameRouter } from "./agents";
@@ -21,6 +22,7 @@ import { createDropFrameRouter } from "./drops";
 import { createScreenFrameRouter } from "./screen";
 import { createBoardFrameRouter } from "./boards";
 import { createGateFrameRouter } from "./gate";
+import { createAssistantFrameRouter } from "./assistant";
 import * as identity from "./identity";
 import { Discovery, type DiscoveredService } from "./discovery";
 import { NO_HOSTS, removeHost, upsertHost, type PairedHosts } from "./hosts";
@@ -51,6 +53,14 @@ let retryTimer: number | undefined;
 let hostAuthority: string | null = null;
 /** Window the live view is watching; re-sent on every welcome because the host drops watches with the socket. */
 let watchingWindow: number | null = null;
+/**
+ * Whether the Eva screen is on screen. The host treats a socket as following the thread (live
+ * snapshots, no push to this phone) for five minutes after each `assistant.get`, so while the
+ * screen shows the driver re-asks on every welcome and every `ASSISTANT_FOLLOW_MS`.
+ */
+let assistantWatched = false;
+let assistantFollowTimer: number | undefined;
+const ASSISTANT_FOLLOW_MS = 4 * 60_000;
 
 const commandQueue = new CommandQueue();
 const socket = new RelaySocket();
@@ -66,6 +76,7 @@ const routeDropFrame = createDropFrameRouter(useDropsStore.getState());
 const routeScreenFrame = createScreenFrameRouter(useScreenStore.getState(), () => watchingWindow);
 const routeBoardFrame = createBoardFrameRouter(useBoardsStore.getState());
 const routeGateFrame = createGateFrameRouter(useGateStore.getState());
+const routeAssistantFrame = createAssistantFrameRouter(useAssistantStore.getState());
 const discovery = new Discovery({
   onCandidate: (service) => {
     currentCandidate = service;
@@ -111,6 +122,8 @@ socket.onMessage = (data) => {
     socket.send(encode({ t: "board.subscribe" }));
     // The habit gate may have locked or unlocked while the phone was away.
     socket.send(encode({ t: "gate.get" }));
+    // Eva's thread is only fetched while her screen is showing; the screen asks again on focus.
+    if (assistantWatched) socket.send(encode({ t: "assistant.get" }));
   }
   if (message.t === "agent.image") imagesInFlight.delete(imageKey(message.sessionId, message.id));
   // Answered on the Mac, in the chat or on another device: take its notification off the lock screen.
@@ -124,6 +137,7 @@ socket.onMessage = (data) => {
   routeScreenFrame(message);
   routeBoardFrame(message);
   routeGateFrame(message);
+  routeAssistantFrame(message);
   void dispatch({ type: "server", message });
 };
 
@@ -320,6 +334,29 @@ export function requestAgentOptions(sessionId: string): void {
 export function requestDrops(): void {
   if (useConnectionStore.getState().status !== "connected") return;
   socket.send(encode({ t: "drop.list" }));
+}
+
+/**
+ * Ephemeral; the answer lands in `useAssistantStore().snapshot`. Also marks the Eva screen as
+ * showing: the driver re-asks on every welcome and every `ASSISTANT_FOLLOW_MS` until
+ * `stopAssistant`, keeping the host's follow window open. Sends nothing while not connected (the
+ * welcome will).
+ */
+export function requestAssistant(): void {
+  assistantWatched = true;
+  clearInterval(assistantFollowTimer);
+  assistantFollowTimer = setInterval(() => {
+    if (useConnectionStore.getState().status === "connected") socket.send(encode({ t: "assistant.get" }));
+  }, ASSISTANT_FOLLOW_MS);
+  if (useConnectionStore.getState().status !== "connected") return;
+  socket.send(encode({ t: "assistant.get" }));
+}
+
+/** The Eva screen left: stop following, so Eva's replies reach this phone as pushes again. */
+export function stopAssistant(): void {
+  assistantWatched = false;
+  clearInterval(assistantFollowTimer);
+  assistantFollowTimer = undefined;
 }
 
 /** Ephemeral; the answer lands in `useScreenStore().windows`. */

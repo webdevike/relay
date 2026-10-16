@@ -64,6 +64,16 @@ describe("applySnapshot", () => {
     expect(subagentsOf(data.sessions, "parent").map((s) => s.id)).toEqual(["parent:Alpha", "parent:Zeta"]);
     expect(subagentsOf(data.sessions, "other")).toEqual([]);
   });
+
+  it("keeps the personal assistant out of the inbox", () => {
+    const data = applySnapshot(emptyAgentsData, 1, [
+      { ...session("eva", 900, "working"), kind: "assistant", title: "Eva" },
+      session("manual", 100),
+      { ...session("run", 50), kind: "job", job: { name: "sweep", runId: "r1" } },
+    ]);
+    expect(data.order).toEqual(["manual", "run"]);
+    expect(data.sessions["eva"]?.title).toBe("Eva");
+  });
 });
 
 describe("applyDelta", () => {

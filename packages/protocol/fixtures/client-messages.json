@@ -123,5 +123,16 @@
   {
     "t": "agent.unsubscribe",
     "sessionId": "s-1"
+  },
+  {
+    "t": "assistant.get"
+  },
+  {
+    "t": "cmd",
+    "id": "c-4",
+    "cmd": {
+      "kind": "assistant.turn",
+      "text": "what did the furry-drop run do?"
+    }
   }
 ]

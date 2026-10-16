@@ -18,7 +18,7 @@ import { AgentAskQuestion, type AgentApproval, type ApprovalConfirmation, AgentI
 import { z } from "zod";
 import { AckFailure, type AgentConfigChange, type AgentProvider, type AgentProviderChange, type GateCommand } from "../seams";
 import { destructivePattern } from "./destructive";
-import { launchInHerdr } from "./herdr";
+import { launchInHerdr, type LaunchOptions } from "./herdr";
 
 const StatusFrame = z.object({
   t: z.literal("status"),
@@ -33,10 +33,12 @@ const StatusFrame = z.object({
   contextUsed: z.number().min(0).max(1).optional(),
   /** A mirrored subagent stops taking replies when it finishes; top-level sessions never send it. */
   canRespond: z.boolean().optional(),
+  /** The transcript on disk, once omp has one; the assistant service keeps it to resume the thread. */
+  sessionFile: z.string().min(1).optional(),
 });
 
 const Inbound = z.discriminatedUnion("t", [
-  z.object({ t: z.literal("hello") }).merge(AgentSession.omit({ id: true })).extend({ sessionId: z.string().min(1) }),
+  z.object({ t: z.literal("hello") }).merge(AgentSession.omit({ id: true })).extend({ sessionId: z.string().min(1), sessionFile: z.string().min(1).optional() }),
   StatusFrame,
   z.object({ t: z.literal("messages"), append: z.array(AgentMessage).min(1) }),
   z.object({ t: z.literal("message.update"), id: z.string().min(1), text: z.string(), streaming: z.boolean() }),
@@ -86,6 +88,8 @@ interface Connection {
   /** Outbound bytes the kernel buffer did not take yet; flushed on `drain`. */
   outbound: Buffer | null;
   session: AgentSessionT | null;
+  /** Where omp writes this session's transcript, when it told us. */
+  sessionFile: string | null;
   readonly pending: Map<string, Pending>;
   /** What this session last read from the gate CLI; undefined until it has reported once. */
   gate: GateStatusT | null | undefined;
@@ -133,7 +137,7 @@ export class OmpBridgeProvider implements AgentProvider {
     if (existsSync(this.path)) unlinkSync(this.path); // stale socket from a previous run
     const handler: SocketHandler<Connection> = {
       open: (socket) => {
-        socket.data = { socket, buffer: "", outbound: null, session: null, pending: new Map(), gate: undefined };
+        socket.data = { socket, buffer: "", outbound: null, session: null, sessionFile: null, pending: new Map(), gate: undefined };
         this.connections.add(socket.data);
       },
       data: (socket, chunk) => {
@@ -247,12 +251,27 @@ export class OmpBridgeProvider implements AgentProvider {
    * host restart never takes the session with it; it registers itself over the socket like any
    * other. `prompt` rides in the pane's env and the session's bridge submits it once omp is up.
    */
-  async launch(prompt?: string, thinkingLevel?: string, profile?: "personal" | "work"): Promise<void> {
+  launch(prompt?: string, thinkingLevel?: string, profile?: "personal" | "work"): Promise<void> {
+    return this.launchWith({
+      ...(prompt === undefined ? {} : { prompt }),
+      ...(thinkingLevel === undefined ? {} : { thinkingLevel }),
+      ...(profile === undefined ? {} : { profile }),
+    });
+  }
+
+  /** `launch` with the full option set: extra pane env and a transcript to resume (the assistant thread). */
+  async launchWith(options: LaunchOptions): Promise<void> {
     if (this.home === null) {
       throw new AckFailure({ code: "agent_launch_failed", message: "host was started without --agent-home" });
     }
-    const paneId = await launchInHerdr(this.home, this.log, prompt, thinkingLevel, profile);
-    this.log(`launched omp${profile === undefined ? "" : ` (${profile})`} in ${this.home} (herdr pane ${paneId})${prompt === undefined ? "" : " with a first prompt"}`);
+    const paneId = await launchInHerdr(this.home, this.log, options);
+    const what = options.resume === undefined ? `omp${options.profile === undefined ? "" : ` (${options.profile})`}` : `omp resuming ${options.resume}`;
+    this.log(`launched ${what} in ${this.home} (herdr pane ${paneId})${options.prompt === undefined ? "" : " with a first prompt"}`);
+  }
+
+  /** The transcript file of a live session, when omp reported one; null otherwise. */
+  sessionFile(sessionId: string): string | null {
+    return this.find(sessionId)?.sessionFile ?? null;
   }
 
   private find(sessionId: string): Connection | undefined {
@@ -353,6 +372,7 @@ export class OmpBridgeProvider implements AgentProvider {
           ...(frame.job === undefined ? {} : { job: frame.job }),
           ...(frame.parentId === undefined ? {} : { parentId: frame.parentId }),
         };
+        connection.sessionFile = frame.sessionFile ?? null;
         this.log(`agent session ${frame.sessionId} (${frame.title}) ${frame.status}`);
         this.publish();
         return;
@@ -378,6 +398,7 @@ export class OmpBridgeProvider implements AgentProvider {
           ...(frame.thinkingLevel === undefined ? {} : { thinkingLevel: frame.thinkingLevel }),
           ...(frame.contextUsed === undefined ? {} : { contextUsed: frame.contextUsed }),
         };
+        if (frame.sessionFile !== undefined) connection.sessionFile = frame.sessionFile;
         this.publish();
         return;
       }

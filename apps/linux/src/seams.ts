@@ -1,7 +1,7 @@
 // Seams between transport, input and storage. Mirrors apps/mac/Sources/RelayCore/Seams.swift:
 // the session only ever talks to these; input/ and the stores implement them; main.ts wires them.
 
-import type { AckError, AgentApproval, AgentAsk, AgentAskAnswer, AgentImage, AgentMessage, AgentOptions, AgentSession, ApprovalConfirmation, Command, Drop, DropOrigin, GateStatus, InboxItem, InboxResolve, InputEvent, KeyName, ScreenError, ScreenKey, ScreenWindow, ServerMessage } from "@relay/protocol";
+import type { AckError, AgentApproval, AgentAsk, AgentAskAnswer, AgentImage, AgentMessage, AgentOptions, AgentSession, ApprovalConfirmation, AssistantSnapshot, Command, Drop, DropOrigin, GateStatus, InboxItem, InboxResolve, InputEvent, KeyName, ScreenError, ScreenKey, ScreenWindow, ServerMessage } from "@relay/protocol";
 
 /** Outbound side of one connection. `send` after `close` is a no-op. */
 export interface FrameSink {
@@ -110,6 +110,22 @@ export interface InboxRelaying {
   release(id: string): void;
   /** omp reported the approval or ask closed, whoever answered. */
   settled(kind: "approval" | "ask", requestId: string): void;
+}
+
+/**
+ * What the session and server need of Eva's assistant thread (`assistant/service.ts`): the thread
+ * as a snapshot, a turn from a phone or from the host's own jobs, and the provider changes the
+ * service watches for the thread's session.
+ */
+export interface AssistantRelaying {
+  /** The thread as it stands; empty and idle while Eva is not running. */
+  snapshot(): Promise<AssistantSnapshot>;
+  /** Delivers `text` as Isaac's next turn, starting or resuming Eva first. Rejects with `AckFailure` (`agent_launch_failed`). */
+  turn(text: string): Promise<void>;
+  /** A background job's message to Eva, delivered as a turn she then tells Isaac about. Rejects like `turn`. */
+  say(text: string): Promise<void>;
+  /** Every provider change; the service picks out the assistant session's. */
+  observe(change: AgentProviderChange): void;
 }
 
 export type DropChange = { readonly kind: "added"; readonly drop: Drop } | { readonly kind: "removed"; readonly id: string };

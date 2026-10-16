@@ -3,7 +3,7 @@
  * decides when to notify (see apps/linux/src/push/notifier.ts and inbox/service.ts); the phone's
  * job is the permission prompt, handing the host its Expo push token on every connection while the
  * setting is on, registering the lock-screen actions of an agent blocked on Isaac (`@/inbox`),
- * and opening the session or drop box a tapped notification points at.
+ * and opening the session, drop box or Eva thread a tapped notification points at.
  */
 import { useEffect } from "react";
 import Constants from "expo-constants";
@@ -69,9 +69,13 @@ export async function setNotificationsEnabled(enabled: boolean): Promise<boolean
   return true;
 }
 
-/** A session notification carries `sessionId`, a drop notification `dropId`; anything else is ignored. */
+/** An Eva push carries `assistant`, a session notification `sessionId`, a drop notification `dropId`; anything else is ignored. */
 function openTarget(notification: Notifications.Notification): void {
   const data = notification.request.content.data;
+  if (data["assistant"] === true) {
+    router.navigate({ pathname: "/eva" });
+    return;
+  }
   const dropId: unknown = data["dropId"];
   if (typeof dropId === "string") {
     router.navigate({ pathname: "/drops" });

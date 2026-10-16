@@ -29,6 +29,7 @@ import { PointerModel } from "./input/pointer-model";
 import {
   AckFailure,
   type AgentProvider,
+  type AssistantRelaying,
   type DeviceStore,
   type DropBox,
   type FrameSink,
@@ -66,6 +67,8 @@ export interface SessionDeps {
   readonly screen: ScreenCapture;
   /** null when the host has no phone-escalation inbox; `inbox.*` frames are then ignored. */
   readonly inbox: InboxRelaying | null;
+  /** null when the host has no Eva thread; `assistant.get` then answers empty and `assistant.turn` nacks. */
+  readonly assistant: AssistantRelaying | null;
 }
 
 /** Clock and scheduling seams so tests drive time deterministically. */
@@ -82,6 +85,13 @@ const EMPTY_OPTIONS: AgentOptions = { models: [], skills: [] };
 const MAX_SCREEN_BACKLOG = 512 * 1024;
 /** Trackpad quiet this long switches live-view frames back to full size and quality. */
 const SCREEN_LITE_IDLE_MS = 600;
+/**
+ * A socket that asked for the thread (`assistant.get`) follows it this long: it gets every
+ * `assistant.snapshot` and its device gets no Eva push. The phone re-asks while the thread stays
+ * on screen; a socket that goes quiet drops out of the thread without a frame to say so.
+ */
+export const ASSISTANT_FOLLOW_MS = 5 * 60_000;
+const EMPTY_ASSISTANT: ServerMessage = { t: "assistant.snapshot", snapshot: { rev: 0, messages: [], busy: false } };
 
 function noInputDevice(): AckFailure {
   return new AckFailure({
@@ -138,6 +148,8 @@ export class ClientSession {
   private lastScreenMoveAt: number | null = null;
   /** Set while lite (trackpad-sized) frames are on; cancels the switch back to full frames. */
   private cancelScreenLite: (() => void) | null = null;
+  /** When this socket last sent `assistant.get`; null before it ever did. */
+  private assistantAskedAt: number | null = null;
 
   constructor(
     private readonly sink: FrameSink,
@@ -174,6 +186,11 @@ export class ClientSession {
   /** Whether the phone currently has `sessionId`'s conversation open (subscribed on this socket). */
   isSubscribed(sessionId: string): boolean {
     return this.phase.kind === "authenticated" && this.subscriptions.has(sessionId);
+  }
+
+  /** Whether the phone has Eva's thread open on this socket (asked for it within ASSISTANT_FOLLOW_MS). */
+  isFollowingAssistant(): boolean {
+    return this.phase.kind === "authenticated" && this.assistantAskedAt !== null && this.clock.now() - this.assistantAskedAt <= ASSISTANT_FOLLOW_MS;
   }
 
   /** Forwards appended agent messages iff subscribed to `sessionId`; bumps that subscription's rev. */
@@ -476,6 +493,23 @@ export class ClientSession {
       case "gate.get":
         this.sink.send({ t: "gate.status", gate: this.deps.agents?.gate ?? null });
         break;
+      case "assistant.get": {
+        this.assistantAskedAt = this.clock.now();
+        const assistant = this.deps.assistant;
+        if (assistant === null) {
+          this.sink.send(EMPTY_ASSISTANT);
+          break;
+        }
+        void assistant.snapshot().then(
+          (snapshot) => {
+            if (!this.closed) this.sink.send({ t: "assistant.snapshot", snapshot });
+          },
+          () => {
+            if (!this.closed) this.sink.send(EMPTY_ASSISTANT);
+          },
+        );
+        break;
+      }
       case "screen.list":
         void this.deps.screen.list().then(
           (result) => {
@@ -696,6 +730,11 @@ export class ClientSession {
           return Promise.reject(new AckFailure({ code: "gate_unavailable", message: "this host has no agent bridge to reach the habit gate" }));
         }
         return this.deps.agents.runGate(cmd);
+      case "assistant.turn":
+        if (this.deps.assistant === null) {
+          return Promise.reject(new AckFailure({ code: "agent_launch_failed", message: "this host has no Eva thread" }));
+        }
+        return this.deps.assistant.turn(cmd.text);
     }
   }
 
