@@ -30,7 +30,9 @@ import { Text } from "@/ui/Text";
 import { TopBlur } from "@/ui/TopBlur";
 import { TypingBubble } from "@/ui/TypingBubble";
 import { ImageViewer } from "@/agents/ImageViewer";
+import { MarkdownImages } from "@/agents/MarkdownImages";
 import { MessageImageStack } from "@/agents/MessageImageStack";
+import { topLevelImages } from "@/agents/markdown";
 import { MessageText } from "@/agents/MessageText";
 import { radii, spacing, useColors, useScheme } from "@/theme";
 import { useAssistantStore } from "@/state/assistant";
@@ -414,19 +416,27 @@ function Row({ message, pending, receipt, sessionId, local, onOpenImages }: RowP
           )}
         </View>
       );
-    case "assistant":
+    case "assistant": {
+      // Markdown images Eva embeds stack above the bubble as tiles, as Dot's do; the prose keeps its bubble.
+      const { images: tiles, hasBody } = topLevelImages(message.text);
       return (
         <View style={styles.evaRow}>
           {images("flex-start")}
-          {(hasText || imageCount === 0) && (
+          {tiles.length > 0 && (
+            <View style={styles.tiles}>
+              <MarkdownImages images={tiles} />
+            </View>
+          )}
+          {(hasBody || (imageCount === 0 && tiles.length === 0)) && (
             <View style={[styles.evaBubble, { backgroundColor: dark ? colors.surfaceRaised : colors.surface }]}>
               <ExpandableContent maxHeight={BUBBLE_MAX_HEIGHT}>
-                <MessageText text={message.text} large />
+                <MessageText text={message.text} large skipImages />
               </ExpandableContent>
             </View>
           )}
         </View>
       );
+    }
     case "status":
       return (
         <Text variant="label" color="textMuted" style={styles.status}>
@@ -462,6 +472,7 @@ const styles = StyleSheet.create({
   userText: { fontSize: 17, lineHeight: 23, color: "#FFFFFF" },
   receipt: { marginTop: spacing.xs, marginRight: spacing.xs, fontSize: 15, lineHeight: 20, fontWeight: "400" },
   evaRow: { paddingHorizontal: spacing.lg },
+  tiles: { gap: spacing.md, marginBottom: spacing.sm, alignItems: "flex-start" },
   evaBubble: { alignSelf: "flex-start", maxWidth: EVA_MAX_WIDTH, borderRadius: 24, paddingVertical: 14, paddingHorizontal: 18 },
   card: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.lg, padding: spacing.md, gap: spacing.sm },
   status: { textAlign: "center", paddingHorizontal: spacing.xxxl, fontWeight: "400" },

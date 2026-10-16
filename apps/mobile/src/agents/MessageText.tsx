@@ -1,5 +1,5 @@
 /** Transcript text rendered from Markdown: headings, emphasis, lists, tables, blockquotes,
- * links, inline code, and fenced blocks (CodeBlock). */
+ * links, images, inline code, and fenced blocks (CodeBlock). */
 import { Fragment } from "react";
 import { Platform, Text as RNText, ScrollView, type TextStyle, View } from "react-native";
 import { openExternal } from "@/lib/links";
@@ -8,7 +8,8 @@ import { BlockQuote } from "@/ui/BlockQuote";
 import { ListItem } from "@/ui/ListItem";
 import { Text } from "@/ui/Text";
 import { CodeBlock } from "./CodeBlock";
-import { type Align, type Block, type Inline, parseBlocks } from "./markdown";
+import { MarkdownImages } from "./MarkdownImages";
+import { type Align, type Block, type Inline, type MessageImage, parseBlocks } from "./markdown";
 import { Widget } from "./Widget";
 
 const mono = Platform.select({ ios: "Menlo", default: "monospace" });
@@ -23,17 +24,29 @@ export interface MessageTextProps {
   text: string;
   /** Chat-sized body text (17pt) for a transcript that sits on the page itself; default is the 15pt body. */
   large?: boolean;
+  /** Leave the top-level images out: the caller shows them itself (`topLevelImages` + `MarkdownImages`), e.g. above a bubble. */
+  skipImages?: boolean;
 }
 
 const LARGE_BODY = { fontSize: 17, lineHeight: 22 } as const;
 
-export function MessageText({ text, large = false }: MessageTextProps) {
+export function MessageText({ text, large = false, skipImages = false }: MessageTextProps) {
   const body = large ? LARGE_BODY : type.body;
+  // Images in a row share one tile stack (and one viewer), so they page together.
+  const rows: (Block | { kind: "images"; images: MessageImage[] })[] = [];
+  for (const block of parseBlocks(text)) {
+    if (block.kind !== "image") {
+      rows.push(block);
+      continue;
+    }
+    if (skipImages) continue;
+    const last = rows[rows.length - 1];
+    if (last?.kind === "images") last.images.push({ src: block.src, alt: block.alt });
+    else rows.push({ kind: "images", images: [{ src: block.src, alt: block.alt }] });
+  }
   return (
     <View style={{ gap: spacing.sm }}>
-      {parseBlocks(text).map((block, i) => (
-        <BlockView key={i} block={block} body={body} />
-      ))}
+      {rows.map((row, i) => (row.kind === "images" ? <MarkdownImages key={i} images={row.images} /> : <BlockView key={i} block={row} body={body} />))}
     </View>
   );
 }
@@ -78,6 +91,8 @@ function BlockView({ block, body }: { block: Block; body: BodySize }) {
       return <TableView block={block} />;
     case "widget":
       return <Widget spec={block.spec} />;
+    case "image":
+      return <MarkdownImages images={[{ src: block.src, alt: block.alt }]} />;
   }
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type Block, parseBlocks, parseInline } from "./markdown";
+import { type Block, imageBasename, imageSrcKind, parseBlocks, parseInline, topLevelImages } from "./markdown";
 
 describe("parseInline", () => {
   it("splits inline code out of prose and keeps it literal", () => {
@@ -139,5 +139,91 @@ describe("parseBlocks", () => {
     expect(parseBlocks("> quoted **line**")).toEqual<Block[]>([
       { kind: "blockquote", blocks: [{ kind: "paragraph", inline: [{ text: "quoted " }, { text: "line", bold: true }] }] },
     ]);
+  });
+
+  it("turns a paragraph that is only an image into an image block", () => {
+    expect(parseBlocks("![Cat](https://images.unsplash.com/photo-1?w=800)")).toEqual<Block[]>([
+      { kind: "image", src: "https://images.unsplash.com/photo-1?w=800", alt: "Cat" },
+    ]);
+  });
+
+  it("places an inline image after the paragraph it sits in", () => {
+    expect(parseBlocks("Here is **the shot** ![Home](/drops/abc/tok) from the Mac.\nNext line.\n\nAfter")).toEqual<Block[]>([
+      {
+        kind: "paragraph",
+        inline: [{ text: "Here is " }, { text: "the shot", bold: true }, { text: " from the Mac.\nNext line." }],
+      },
+      { kind: "image", src: "/drops/abc/tok", alt: "Home" },
+      { kind: "paragraph", inline: [{ text: "After" }] },
+    ]);
+  });
+
+  it("makes one block per image when several sit on their own lines", () => {
+    expect(parseBlocks("![a](https://x.test/a.png)\n![b](/drops/id/tok)")).toEqual<Block[]>([
+      { kind: "image", src: "https://x.test/a.png", alt: "a" },
+      { kind: "image", src: "/drops/id/tok", alt: "b" },
+    ]);
+  });
+
+  it("treats a linked image as the image and drops the link", () => {
+    expect(parseBlocks("[![Badge](https://img.test/b.svg)](https://link.test/page)")).toEqual<Block[]>([
+      { kind: "image", src: "https://img.test/b.svg", alt: "Badge" },
+    ]);
+  });
+
+  it("keeps image syntax inside code spans and unfinished images as text", () => {
+    expect(parseBlocks("use `![a](b)` here")).toEqual<Block[]>([
+      { kind: "paragraph", inline: [{ text: "use " }, { text: "![a](b)", code: true }, { text: " here" }] },
+    ]);
+    expect(parseBlocks("![a](https://x.test/a.p")).toMatchObject([{ kind: "paragraph" }]);
+  });
+
+  it("finds images inside list items and ignores a title after the destination", () => {
+    expect(parseBlocks('- ![a](https://x.test/a.png "A title")')).toEqual<Block[]>([
+      {
+        kind: "list",
+        ordered: false,
+        start: 1,
+        items: [{ blocks: [{ kind: "image", src: "https://x.test/a.png", alt: "a" }] }],
+      },
+    ]);
+  });
+
+  it("hoists top-level images and reports whether prose is left", () => {
+    expect(topLevelImages("![a](https://x.test/a.png)\n\n![b](/drops/i/t)")).toEqual({
+      images: [
+        { src: "https://x.test/a.png", alt: "a" },
+        { src: "/drops/i/t", alt: "b" },
+      ],
+      hasBody: false,
+    });
+    expect(topLevelImages("Look ![a](https://x.test/a.png)")).toEqual({
+      images: [{ src: "https://x.test/a.png", alt: "a" }],
+      hasBody: true,
+    });
+    expect(topLevelImages("- ![a](https://x.test/a.png)")).toEqual({ images: [], hasBody: true });
+  });
+});
+
+describe("imageSrcKind", () => {
+  it("accepts http(s) URLs and the exact drop path `relay-linux share` prints", () => {
+    expect(imageSrcKind("https://x.test/a.png")).toBe("remote");
+    expect(imageSrcKind("http://x.test/a.png")).toBe("remote");
+    expect(imageSrcKind("/drops/6f1c2d3e-0000-4000-8000-123456789abc/" + "ab".repeat(32))).toBe("drop");
+  });
+
+  it("treats everything else as a path on the Mac", () => {
+    expect(imageSrcKind("/Users/ike/Desktop/shot.png")).toBe("local");
+    expect(imageSrcKind("file:///tmp/shot.png")).toBe("local");
+    expect(imageSrcKind("/drops/abc")).toBe("local");
+    expect(imageSrcKind("shot.png")).toBe("local");
+  });
+});
+
+describe("imageBasename", () => {
+  it("returns the last path segment, decoded and without query", () => {
+    expect(imageBasename("/Users/ike/Desktop/Screenshot%202026.png")).toBe("Screenshot 2026.png");
+    expect(imageBasename("file:///tmp/shot.png?x=1")).toBe("shot.png");
+    expect(imageBasename("shot.png")).toBe("shot.png");
   });
 });

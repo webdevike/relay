@@ -2,8 +2,8 @@
  * A small, streaming-friendly Markdown parser for the transcript. Pure (no React Native)
  * so it stays testable in vitest. Covers the slice agents actually emit: headings, bold,
  * italic, strikethrough, inline code, links, fenced code, blockquotes, ordered and
- * unordered lists (nested), GitHub pipe tables, and horizontal rules. Anything it does not
- * recognise stays literal text.
+ * unordered lists (nested), GitHub pipe tables, horizontal rules, and images. Anything it does
+ * not recognise stays literal text.
  *
  * A fence still open at the end of the input (the agent is mid-stream) is treated as a
  * closed code block, so highlighting begins as soon as the fence line lands.
@@ -26,6 +26,12 @@ export interface ListItem {
   blocks: Block[];
 }
 
+/** One markdown image: `![alt](src)`. */
+export interface MessageImage {
+  src: string;
+  alt: string;
+}
+
 export type Block =
   | { kind: "heading"; level: number; inline: Inline[] }
   | { kind: "paragraph"; inline: Inline[] }
@@ -34,6 +40,7 @@ export type Block =
   | { kind: "blockquote"; blocks: Block[] }
   | { kind: "table"; header: Inline[][]; align: Align[]; rows: Inline[][][] }
   | { kind: "widget"; spec: WidgetSpec }
+  | ({ kind: "image" } & MessageImage)
   | { kind: "hr" };
 
 const FENCE = /^(`{3,}|~{3,})[ \t]*([\w+#.-]*)[^\n]*$/;
@@ -158,9 +165,110 @@ function matchAutolink(text: string, at: number): { text: string; href: string; 
   return { text: raw, href, end: at + raw.length };
 }
 
+/** Where an image `src` can be fetched from: any http(s) URL, a host drop path, or nowhere (a path on the Mac). */
+export type ImageSrcKind = "remote" | "drop" | "local";
+
+/** A drop path is exactly what `relay-linux share` prints: `/drops/<id>/<token>`. */
+export function imageSrcKind(src: string): ImageSrcKind {
+  if (/^https?:\/\//i.test(src)) return "remote";
+  if (/^\/drops\/[^/]+\/[^/]+$/.test(src)) return "drop";
+  return "local";
+}
+
+/** Last path segment of a local image `src` (a `file://` URL, query and percent-escapes included). */
+export function imageBasename(src: string): string {
+  const path = src.replace(/^file:\/\//i, "").replace(/[?#].*$/, "");
+  const name = path.split("/").filter((s) => s !== "").pop() ?? "";
+  try {
+    return decodeURIComponent(name) || src;
+  } catch {
+    return name || src;
+  }
+}
+
+/** `![alt](src)` at `at`: the destination may be `<wrapped>`, carry a title, or hold balanced parentheses. */
+function matchImage(text: string, at: number): { alt: string; src: string; end: number } | null {
+  if (!text.startsWith("![", at)) return null;
+  const close = text.indexOf("]", at + 2);
+  if (close === -1 || text[close + 1] !== "(") return null;
+  let depth = 1;
+  let j = close + 2;
+  for (; j < text.length; j += 1) {
+    const c = text[j];
+    if (c === "(") depth += 1;
+    else if (c === ")") {
+      depth -= 1;
+      if (depth === 0) break;
+    }
+  }
+  if (depth !== 0) return null;
+  const alt = text.slice(at + 2, close);
+  const dest = text.slice(close + 2, j).trim();
+  if (alt.includes("\n") || dest.includes("\n")) return null;
+  const m = /^<([^>]*)>|^(\S+)/.exec(dest);
+  const src = (m?.[1] ?? m?.[2] ?? "").trim();
+  if (src === "") return null;
+  return { alt, src, end: j + 1 };
+}
+
+/**
+ * Pulls `![alt](src)` images out of paragraph text (leaving code spans alone), since a Text can't
+ * host one. A linked image `[![alt](src)](href)` counts as the image; the link is dropped.
+ */
+function extractImages(text: string): { rest: string; images: { src: string; alt: string }[] } {
+  const images: { src: string; alt: string }[] = [];
+  let rest = "";
+  let i = 0;
+  while (i < text.length) {
+    const c = text[i];
+    if (c === "`") {
+      const end = text.indexOf("`", i + 1);
+      if (end > i + 1) {
+        rest += text.slice(i, end + 1);
+        i = end + 1;
+        continue;
+      }
+    }
+    let image = null as { alt: string; src: string; end: number } | null;
+    if (c === "[" && text.startsWith("[![", i)) {
+      const inner = matchImage(text, i + 1);
+      if (inner && text[inner.end] === "]" && text[inner.end + 1] === "(") {
+        const paren = text.indexOf(")", inner.end + 2);
+        if (paren > inner.end + 2 && !text.slice(inner.end + 2, paren).includes("\n")) image = { ...inner, end: paren + 1 };
+      }
+    } else if (c === "!") {
+      image = matchImage(text, i);
+    }
+    if (image) {
+      images.push({ src: image.src, alt: image.alt });
+      i = image.end;
+      // Removing an image between two spaces must not leave a double one behind.
+      if (/[ \t]$/.test(rest)) while (text[i] === " " || text[i] === "\t") i += 1;
+      continue;
+    }
+    rest += c;
+    i += 1;
+  }
+  return { rest, images };
+}
+
 /** Block-level parse of a whole message. */
 export function parseBlocks(text: string): Block[] {
   return parseLines(text.split("\n"));
+}
+
+/**
+ * The top-level images of a message, for a chat that shows them as tiles outside the text bubble,
+ * and whether anything else is left to put in the bubble (`hasBody`).
+ */
+export function topLevelImages(text: string): { images: MessageImage[]; hasBody: boolean } {
+  const images: MessageImage[] = [];
+  let hasBody = false;
+  for (const block of parseBlocks(text)) {
+    if (block.kind === "image") images.push({ src: block.src, alt: block.alt });
+    else hasBody = true;
+  }
+  return { images, hasBody };
 }
 
 function parseLines(lines: string[]): Block[] {
@@ -246,7 +354,19 @@ function parseLines(lines: string[]): Block[] {
       para.push(l);
       i += 1;
     }
-    blocks.push({ kind: "paragraph", inline: parseInline(para.join("\n")) });
+    // An image becomes its own block after the paragraph's prose (nothing is left of an image-only one).
+    const { rest, images } = extractImages(para.join("\n"));
+    if (images.length === 0) {
+      blocks.push({ kind: "paragraph", inline: parseInline(para.join("\n")) });
+      continue;
+    }
+    const prose = rest
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l !== "")
+      .join("\n");
+    if (prose !== "") blocks.push({ kind: "paragraph", inline: parseInline(prose) });
+    for (const image of images) blocks.push({ kind: "image", src: image.src, alt: image.alt });
   }
 
   return blocks;
