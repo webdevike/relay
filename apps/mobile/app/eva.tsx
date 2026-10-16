@@ -53,8 +53,8 @@ const COMPOSER_BOTTOM = spacing.md;
 /** An assistant bubble shows about 12 lines of 17/22 text before "Show more". */
 const BUBBLE_MAX_HEIGHT = 22 * 12;
 /** Proportion of the width a bubble may take. */
-const USER_MAX_WIDTH = "75%";
-const EVA_MAX_WIDTH = "90%";
+const USER_MAX_WIDTH = "80%";
+const EVA_MAX_WIDTH = "84%";
 
 export default function Eva() {
   const colors = useColors();
@@ -249,17 +249,15 @@ function BackButton({ onPress }: { onPress: () => void }) {
 
 /** "+" at the pill's left. Attachments are not wired yet, so it shows dimmed and inert. */
 function AttachButton() {
-  const colors = useColors();
-  const dark = useScheme() === "dark";
   return (
     <IconButton
       symbol="plus"
-      size={28}
-      glyphSize={15}
+      size={32}
+      glyphSize={22}
       onPress={noop}
       disabled
-      disabledOpacity={0.5}
-      backgroundColor={dark ? "rgba(255,255,255,0.12)" : colors.surfaceRaised}
+      disabledOpacity={0.8}
+      backgroundColor="transparent"
       accessibilityLabel="Attach, coming soon"
     />
   );
@@ -271,10 +269,10 @@ function DictateButton() {
     <IconButton
       symbol="mic"
       size={32}
-      glyphSize={19}
+      glyphSize={21}
       onPress={noop}
       disabled
-      disabledOpacity={0.5}
+      disabledOpacity={0.8}
       backgroundColor="transparent"
       accessibilityLabel="Dictate, coming soon"
     />
@@ -364,15 +362,15 @@ function Row({ message, pending, receipt }: { message: AssistantMessage; pending
 const styles = StyleSheet.create({
   root: { flex: 1 },
   fill: { flex: 1 },
-  list: { gap: spacing.lg },
+  list: { gap: spacing.xl },
   header: { position: "absolute", left: 0, right: 0, alignItems: "center" },
   back: { position: "absolute", top: spacing.xs, left: spacing.lg },
   userRow: { paddingHorizontal: spacing.lg, alignItems: "flex-end" },
-  userBubble: { maxWidth: USER_MAX_WIDTH, borderRadius: 22, paddingVertical: 14, paddingHorizontal: 18 },
-  userText: { fontSize: 17, lineHeight: 22, color: "#FFFFFF" },
-  receipt: { marginTop: spacing.xs, fontWeight: "400" },
+  userBubble: { maxWidth: USER_MAX_WIDTH, borderRadius: 24, paddingVertical: 11, paddingHorizontal: 18 },
+  userText: { fontSize: 17, lineHeight: 23, color: "#FFFFFF" },
+  receipt: { marginTop: spacing.xs, marginRight: spacing.xs, fontSize: 15, lineHeight: 20, fontWeight: "400" },
   evaRow: { paddingHorizontal: spacing.lg },
-  evaBubble: { alignSelf: "flex-start", maxWidth: EVA_MAX_WIDTH, borderRadius: 22, padding: 18 },
+  evaBubble: { alignSelf: "flex-start", maxWidth: EVA_MAX_WIDTH, borderRadius: 24, paddingVertical: 14, paddingHorizontal: 18 },
   card: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.lg, padding: spacing.md, gap: spacing.sm },
   status: { textAlign: "center", paddingHorizontal: spacing.xxxl, fontWeight: "400" },
   composer: { paddingBottom: COMPOSER_BOTTOM },

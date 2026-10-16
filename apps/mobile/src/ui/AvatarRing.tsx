@@ -15,11 +15,12 @@ import { Text } from "./Text";
 /** A full ring breath, out and back: the loop runs 1.0 to 1.06 in this long each way. */
 const BREATH_MS = 1200;
 const BREATH_SCALE = 1.06;
-const INNER_RATIO = 44 / 72;
+const INNER_RATIO = 30 / 72;
 
+// A ring: a pale translucent disc with a dark hole, so the blurred page shows through its centre.
 const RING = {
-  dark: { outer: "rgba(255,255,255,0.35)", inner: "#C9C9CF" },
-  light: { outer: "rgba(0,0,0,0.12)", inner: "rgba(0,0,0,0.28)" },
+  dark: { outer: "rgba(196,202,220,0.78)", inner: "rgba(16,16,18,0.92)" },
+  light: { outer: "rgba(70,80,110,0.55)", inner: "rgba(255,255,255,0.92)" },
 } as const;
 
 export interface AvatarRingProps {
@@ -83,6 +84,6 @@ function Disc({ size, color }: { size: number; color: string }) {
 const styles = StyleSheet.create({
   root: { alignItems: "center", gap: spacing.sm - 2 },
   center: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
-  chip: { borderRadius: 14, paddingHorizontal: spacing.md, paddingVertical: spacing.xs },
-  name: { fontSize: 15, lineHeight: 20, fontWeight: "700" },
+  chip: { borderRadius: 16, paddingHorizontal: spacing.md + 2, paddingVertical: spacing.xs + 1 },
+  name: { fontSize: 17, lineHeight: 22, fontWeight: "700" },
 });
