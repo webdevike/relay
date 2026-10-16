@@ -13,6 +13,11 @@ export interface IconButtonProps {
   backgroundColor?: string;
   /** `overlay`: white glyph on a translucent disc, for controls over photos or the black viewer. */
   tone?: "default" | "overlay";
+  accessibilityLabel?: string;
+  /** Glyph point size; defaults to 45% of the button. */
+  glyphSize?: number;
+  /** Opacity while disabled; defaults to 0.4. */
+  disabledOpacity?: number;
 }
 
 const OVERLAY = { tint: "#FFFFFF", background: "rgba(255,255,255,0.12)" } as const;
@@ -30,6 +35,9 @@ export function IconButton({
   disabled = false,
   backgroundColor: backgroundOverride,
   tone = "default",
+  accessibilityLabel,
+  glyphSize,
+  disabledOpacity = 0.4,
 }: IconButtonProps) {
   const colors = useColors();
   const overlay = tone === "overlay";
@@ -40,6 +48,9 @@ export function IconButton({
   return (
     <Pressable
       disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ disabled }}
       onPress={() => {
         tapHaptic();
         onPress();
@@ -49,7 +60,7 @@ export function IconButton({
         height: size,
         alignItems: "center",
         justifyContent: "center",
-        opacity: disabled ? 0.4 : pressed ? 0.8 : 1,
+        opacity: disabled ? disabledOpacity : pressed ? 0.8 : 1,
       })}
     >
       {sk === null ? (
@@ -59,7 +70,7 @@ export function IconButton({
           <sk.Circle cx={size / 2} cy={size / 2} r={size / 2} color={backgroundColor} />
         </sk.Canvas>
       )}
-      <SymbolView name={symbol} size={size * 0.45} tintColor={tintColor} />
+      <SymbolView name={symbol} size={glyphSize ?? size * 0.45} tintColor={tintColor} />
     </Pressable>
   );
 }

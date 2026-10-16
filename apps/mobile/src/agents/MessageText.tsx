@@ -21,19 +21,29 @@ const COL_WIDTH = 140;
 
 export interface MessageTextProps {
   text: string;
+  /** Chat-sized body text (17pt) for a transcript that sits on the page itself; default is the 15pt body. */
+  large?: boolean;
 }
 
-export function MessageText({ text }: MessageTextProps) {
+const LARGE_BODY = { fontSize: 17, lineHeight: 22 } as const;
+
+export function MessageText({ text, large = false }: MessageTextProps) {
+  const body = large ? LARGE_BODY : type.body;
   return (
     <View style={{ gap: spacing.sm }}>
       {parseBlocks(text).map((block, i) => (
-        <BlockView key={i} block={block} />
+        <BlockView key={i} block={block} body={body} />
       ))}
     </View>
   );
 }
 
-function BlockView({ block }: { block: Block }) {
+interface BodySize {
+  fontSize: number;
+  lineHeight: number;
+}
+
+function BlockView({ block, body }: { block: Block; body: BodySize }) {
   const colors = useColors();
   switch (block.kind) {
     case "code":
@@ -50,7 +60,7 @@ function BlockView({ block }: { block: Block }) {
     }
     case "paragraph":
       return (
-        <RNText style={{ fontSize: type.body.fontSize, lineHeight: type.body.lineHeight, color: colors.text }}>
+        <RNText style={{ fontSize: body.fontSize, lineHeight: body.lineHeight, color: colors.text }}>
           <Inlines runs={block.inline} />
         </RNText>
       );
@@ -58,12 +68,12 @@ function BlockView({ block }: { block: Block }) {
       return (
         <BlockQuote>
           {block.blocks.map((b, i) => (
-            <BlockView key={i} block={b} />
+            <BlockView key={i} block={b} body={body} />
           ))}
         </BlockQuote>
       );
     case "list":
-      return <ListView block={block} />;
+      return <ListView block={block} body={body} />;
     case "table":
       return <TableView block={block} />;
     case "widget":
@@ -71,7 +81,7 @@ function BlockView({ block }: { block: Block }) {
   }
 }
 
-function ListView({ block }: { block: Extract<Block, { kind: "list" }> }) {
+function ListView({ block, body }: { block: Extract<Block, { kind: "list" }>; body: BodySize }) {
   const colors = useColors();
   return (
     <View style={{ gap: spacing.xs }}>
@@ -80,13 +90,13 @@ function ListView({ block }: { block: Extract<Block, { kind: "list" }> }) {
           key={i}
           markerWidth={block.ordered ? 24 : 16}
           marker={
-            <RNText style={{ fontSize: type.body.fontSize, lineHeight: type.body.lineHeight, color: colors.textMuted }}>
+            <RNText style={{ fontSize: body.fontSize, lineHeight: body.lineHeight, color: colors.textMuted }}>
               {block.ordered ? `${block.start + i}.` : "•"}
             </RNText>
           }
         >
           {item.blocks.map((b, j) => (
-            <BlockView key={j} block={b} />
+            <BlockView key={j} block={b} body={body} />
           ))}
         </ListItem>
       ))}

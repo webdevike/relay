@@ -19,6 +19,8 @@ const dark = {
   warn: "#FBBF24",
   danger: "#F87171",
   working: "#7C9CFF",
+  /** Fill of the user's own chat bubbles (Eva); text on it is white in both palettes. */
+  bubbleUser: "#5B8DEF",
 };
 
 export type Colors = typeof dark;
@@ -51,6 +53,7 @@ const light: Colors = {
   warn: "#B45309",
   danger: "#DC2626",
   working: "#3D5FE0",
+  bubbleUser: "#3F7AE8",
 };
 
 export const palettes: Record<ColorScheme, Colors> = { dark, light };
