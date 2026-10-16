@@ -13,7 +13,7 @@
  * scrolls under, which grows into a card once there is text.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FlatList, KeyboardAvoidingView, Pressable, StyleSheet, View, type LayoutChangeEvent } from "react-native";
+import { FlatList, Keyboard, KeyboardAvoidingView, Pressable, StyleSheet, View, type LayoutChangeEvent } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { SymbolView } from "expo-symbols";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -260,7 +260,11 @@ export default function Eva() {
               leading={
                 <AttachButton
                   onPress={() => {
-                    setAttachOpen(true);
+                    // The sheet does not present over a focused field with the keyboard up.
+                    Keyboard.dismiss();
+                    setTimeout(() => {
+                      setAttachOpen(true);
+                    }, 50);
                   }}
                   disabled={!connected}
                 />
