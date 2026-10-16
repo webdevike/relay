@@ -341,6 +341,8 @@ export const AssistantMessage = z.object({
   text: z.string(),
   title: z.string().optional(),
   at: ms,
+  /** Pictures on the row: Isaac's attachments, or screenshots Eva produced. Bytes come from `agent.image` for the snapshot's `sessionId`. */
+  images: z.array(AgentImageRef).optional(),
 });
 export type AssistantMessage = z.infer<typeof AssistantMessage>;
 
@@ -348,6 +350,8 @@ export const AssistantSnapshot = z.object({
   rev: z.number().int().nonnegative(),
   messages: z.array(AssistantMessage),
   busy: z.boolean(),
+  /** The omp session the thread runs in (what `agent.image` takes); empty while Eva is not running. */
+  sessionId: z.string(),
 });
 export type AssistantSnapshot = z.infer<typeof AssistantSnapshot>;
 
@@ -644,8 +648,12 @@ export const Command = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("gate.done"), id: nonEmpty, photo: AgentImage.optional() }),
   /** Unlock without a habit; the typed reason is logged with the gate's history. */
   z.object({ kind: z.literal("gate.override"), reason: z.string().trim().min(1).max(MAX_GATE_REASON) }),
-  /** Give the persistent personal assistant a new turn. */
-  z.object({ kind: z.literal("assistant.turn"), text: z.string().trim().min(1).max(MAX_DROP_TEXT) }),
+  /** Give the persistent personal assistant a new turn. Text may be empty only when images are present (the host nacks a turn with neither). */
+  z.object({
+    kind: z.literal("assistant.turn"),
+    text: z.string().trim().max(MAX_DROP_TEXT),
+    images: z.array(AgentImage).min(1).max(MAX_REPLY_IMAGES).optional(),
+  }),
 ]);
 export type Command = z.infer<typeof Command>;
 

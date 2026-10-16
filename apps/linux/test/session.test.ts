@@ -742,13 +742,15 @@ describe("habit gate", () => {
 describe("assistant thread", () => {
   class FakeAssistant implements AssistantRelaying {
     readonly turns: string[] = [];
-    readonly snapshotValue = { rev: 3, messages: [{ id: "a1", role: "assistant" as const, text: "hi Isaac", at: 1 }], busy: true };
+    readonly turnImages: (readonly AgentImage[] | undefined)[] = [];
+    readonly snapshotValue = { rev: 3, messages: [{ id: "a1", role: "assistant" as const, text: "hi Isaac", at: 1 }], busy: true, sessionId: "eva-1" };
     snapshot(): Promise<typeof this.snapshotValue> {
       return Promise.resolve(this.snapshotValue);
     }
-    turn(text: string): Promise<void> {
+    turn(text: string, images?: readonly AgentImage[]): Promise<void> {
       if (text === "fail") return Promise.reject(new AckFailure({ code: "agent_launch_failed", message: "Eva did not come up" }));
       this.turns.push(text);
+      this.turnImages.push(images);
       return Promise.resolve();
     }
     say(text: string): Promise<void> {
@@ -778,7 +780,7 @@ describe("assistant thread", () => {
     const h = harness();
     pair(h);
     h.session.receive({ t: "assistant.get" });
-    expect(h.sink.last()).toEqual({ t: "assistant.snapshot", snapshot: { rev: 0, messages: [], busy: false } });
+    expect(h.sink.last()).toEqual({ t: "assistant.snapshot", snapshot: { rev: 0, messages: [], busy: false, sessionId: "" } });
   });
 
   it("hands assistant.turn to the service and acks, passing its launch failure through as a nack", async () => {
@@ -792,6 +794,22 @@ describe("assistant thread", () => {
     expect(h.sink.sent.slice(-2)).toEqual([
       { t: "ack", id: "t1" },
       { t: "nack", id: "t2", error: { code: "agent_launch_failed", message: "Eva did not come up" } },
+    ]);
+  });
+
+  it("passes assistant.turn images through, and nacks a turn with neither text nor images as invalid_command", async () => {
+    const assistant = new FakeAssistant();
+    const h = harness({ assistant });
+    pair(h);
+    const image = { mimeType: "image/png" as const, data: "AAAA" };
+    h.session.receive({ t: "cmd", id: "t1", cmd: { kind: "assistant.turn", text: "", images: [image] } });
+    h.session.receive({ t: "cmd", id: "t2", cmd: { kind: "assistant.turn", text: "" } });
+    await h.sink.sentCount(6);
+    expect(assistant.turns).toEqual([""]);
+    expect(assistant.turnImages).toEqual([[image]]);
+    expect(h.sink.sent.slice(-2)).toMatchObject([
+      { t: "ack", id: "t1" },
+      { t: "nack", id: "t2", error: { code: "invalid_command" } },
     ]);
   });
 

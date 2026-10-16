@@ -11,19 +11,21 @@ export interface ImageFrameProps {
   onPress?: (() => void) | undefined;
   badge?: SFSymbol | undefined;
   resizeMode?: "contain" | "cover" | undefined;
+  /** Corner radius; defaults to the small token. */
+  radius?: number | undefined;
   /** Alt text read by VoiceOver. */
   alt?: string | undefined;
 }
 
 /** Base image element: a rounded, sized frame around an image, optionally tappable with a corner badge. */
-export function ImageFrame({ uri, width, height, onPress, badge, resizeMode, alt }: ImageFrameProps) {
+export function ImageFrame({ uri, width, height, onPress, badge, resizeMode, radius, alt }: ImageFrameProps) {
   const colors = useColors();
   const frame = (
     <View
       style={{
         width,
         height,
-        borderRadius: radii.sm,
+        borderRadius: radius ?? radii.sm,
         overflow: "hidden",
         backgroundColor: colors.surface,
       }}

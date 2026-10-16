@@ -5,9 +5,12 @@
  */
 import { create } from "zustand";
 import type { AssistantSnapshot } from "@relay/protocol";
+import type { Photo } from "@/lib/photo";
 
 export interface PendingTurn {
   text: string;
+  /** The photos sent with the turn, kept so the echo bubble can show them until the host lists refs. */
+  images: Photo[];
   /** The snapshot rev held when the turn was sent; any later rev means the host has taken it. */
   sinceRev: number;
 }
@@ -16,16 +19,19 @@ export interface AssistantStore {
   snapshot: AssistantSnapshot | null;
   pending: PendingTurn | null;
   set: (snapshot: AssistantSnapshot) => void;
-  setPending: (text: string | null) => void;
+  /** Echo a sent turn; null clears it. */
+  setPending: (turn: { text: string; images: Photo[] } | null) => void;
 }
 
 /**
  * A snapshot that lists the echoed words as a user message, or that moved past the rev held at
- * send time (the host's transcript changed after the turn went up), retires the echo.
+ * send time (the host's transcript changed after the turn went up), retires the echo. An
+ * image-only turn has no words to match, so it waits for the rev to move.
  */
 export function settlePending(snapshot: AssistantSnapshot, pending: PendingTurn | null): PendingTurn | null {
   if (pending === null) return null;
   if (snapshot.rev > pending.sinceRev) return null;
+  if (pending.text === "") return pending;
   return snapshot.messages.some((message) => message.role === "user" && message.text === pending.text) ? null : pending;
 }
 
@@ -35,7 +41,7 @@ export const useAssistantStore = create<AssistantStore>((set, get) => ({
   set: (snapshot) => {
     set({ snapshot, pending: settlePending(snapshot, get().pending) });
   },
-  setPending: (text) => {
-    set({ pending: text === null ? null : { text, sinceRev: get().snapshot?.rev ?? -1 } });
+  setPending: (turn) => {
+    set({ pending: turn === null ? null : { ...turn, sinceRev: get().snapshot?.rev ?? -1 } });
   },
 }));

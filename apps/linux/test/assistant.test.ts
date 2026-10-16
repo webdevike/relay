@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { AgentMessage, AgentSession, ServerMessage } from "@relay/protocol";
+import type { AgentImage, AgentMessage, AgentSession, ServerMessage } from "@relay/protocol";
 import type { LaunchOptions } from "../src/agents/herdr";
 import { AssistantService, REGISTER_TIMEOUT_MS, SNAPSHOT_DEBOUNCE_MS, STATUS_PREFIX, toAssistantMessages } from "../src/assistant/service";
 import { FileAssistantStore, type AssistantRecord } from "../src/assistant/store";
@@ -35,7 +35,7 @@ const eva = (status: AgentSession["status"]): AgentSession => ({ id: "eva-1", pr
 const other: AgentSession = { id: "s1", provider: "omp", title: "relay", projectPath: "/w/relay", status: "working", lastActivity: "", lastActivityAt: 2, canRespond: true, kind: "manual" };
 
 /** Just enough of the provider: the session list, a conversation per session, and recorded replies. */
-function fakeProvider(): AgentProvider & { sessions: AgentSession[]; transcript: AgentMessage[]; replies: [string, string, boolean][] } {
+function fakeProvider(): AgentProvider & { sessions: AgentSession[]; transcript: AgentMessage[]; replies: [string, string, boolean][]; replyImages: (readonly AgentImage[] | undefined)[] } {
   const unsupported = (): never => {
     throw new Error("not used here");
   };
@@ -46,12 +46,14 @@ function fakeProvider(): AgentProvider & { sessions: AgentSession[]; transcript:
     sessions: [],
     transcript: [],
     replies: [],
+    replyImages: [],
     start: () => undefined,
     conversation(sessionId) {
       return Promise.resolve(sessionId === "eva-1" ? this.transcript : null);
     },
-    reply(sessionId, text, submit) {
+    reply(sessionId, text, submit, images) {
       this.replies.push([sessionId, text, submit]);
+      this.replyImages.push(images);
       return Promise.resolve();
     },
     launch: unsupported,
@@ -166,7 +168,7 @@ describe("toAssistantMessages", () => {
 describe("AssistantService snapshot", () => {
   it("is empty and idle without a live Eva, and busy with her mapped transcript while she works", async () => {
     const h = harness({ prime: "You are Eva.\n" });
-    expect(await h.service.snapshot()).toEqual({ rev: 0, messages: [], busy: false });
+    expect(await h.service.snapshot()).toEqual({ rev: 0, messages: [], busy: false, sessionId: "" });
     h.register("working");
     h.agents.transcript = [
       { id: "p", role: "user", text: "You are Eva.", at: 1 },
@@ -176,11 +178,43 @@ describe("AssistantService snapshot", () => {
     expect(await h.service.snapshot()).toEqual({
       rev: 1,
       busy: true,
+      sessionId: "eva-1",
       messages: [
         { id: "u1", role: "user", text: "hi", at: 2 },
         { id: "a1", role: "assistant", text: "hello", at: 3 },
       ],
     });
+  });
+});
+
+describe("toAssistantMessages images", () => {
+  it("carries image refs on user and assistant rows, and keeps an image-only reply", () => {
+    const ref = { id: "img-1", mimeType: "image/png" as const, width: 10, height: 20 };
+    const rows: AgentMessage[] = [
+      { id: "u1", role: "user", text: "", at: 1, images: [ref] },
+      { id: "a1", role: "assistant", text: "", at: 2, images: [{ id: "img-2", mimeType: "image/webp" }] },
+      { id: "a2", role: "assistant", text: "look", at: 3, images: [] },
+    ];
+    expect(toAssistantMessages(rows, null)).toEqual([
+      { id: "u1", role: "user", text: "", at: 1, images: [ref] },
+      { id: "a1", role: "assistant", text: "", at: 2, images: [{ id: "img-2", mimeType: "image/webp" }] },
+      { id: "a2", role: "assistant", text: "look", at: 3 },
+    ]);
+  });
+
+  it("snapshots the session id with the images, and a turn with images reaches the provider", async () => {
+    const h = harness();
+    h.register("idle");
+    const image = { mimeType: "image/jpeg" as const, data: "AAAA" };
+    await h.service.turn("see this", [image]);
+    await h.service.turn("plain");
+    expect(h.agents.replies).toEqual([
+      ["eva-1", "see this", true],
+      ["eva-1", "plain", true],
+    ]);
+    expect(h.agents.replyImages).toEqual([[image], undefined]);
+    h.agents.transcript = [{ id: "u1", role: "user", text: "see this", at: 1, images: [{ id: "i1", mimeType: "image/jpeg" }] }];
+    expect(await h.service.snapshot()).toMatchObject({ sessionId: "eva-1", messages: [{ id: "u1", images: [{ id: "i1", mimeType: "image/jpeg" }] }] });
   });
 });
 
@@ -258,7 +292,7 @@ describe("AssistantService changes", () => {
     h.service.observe({ kind: "conversation", sessionId: "s1", appended: [{ id: "x", role: "user", text: "other", at: 1 }] });
     h.clock.advance(SNAPSHOT_DEBOUNCE_MS);
     await flush();
-    expect(h.broadcasts).toEqual([{ t: "assistant.snapshot", snapshot: { rev: 3, busy: true, messages: [{ id: "u1", role: "user", text: "hi", at: 1 }] } }]);
+    expect(h.broadcasts).toEqual([{ t: "assistant.snapshot", snapshot: { rev: 3, busy: true, sessionId: "eva-1", messages: [{ id: "u1", role: "user", text: "hi", at: 1 }] } }]);
     h.service.observe({ kind: "sessions" }); // nothing about Eva changed
     h.clock.advance(SNAPSHOT_DEBOUNCE_MS);
     await flush();

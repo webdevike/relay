@@ -2,7 +2,9 @@
  * Eva, the personal assistant: one durable conversation the host keeps for Isaac, separate from
  * the Agent Inbox. The host owns the thread (`useAssistantStore` mirrors its snapshot while this
  * screen is showing); this screen renders it as a chat, sends a turn with `assistant.turn`, and
- * echoes the sent words until the host's next snapshot carries them.
+ * echoes the sent words and pictures until the host's next snapshot carries them. The pill's "+"
+ * opens a sheet to pick library photos or paste a clipboard image; queued images show as
+ * thumbnails above the field. Bubbles stack their images above the text, tap to open.
  *
  * Look (after OpenAI's Dots chat): no title; the agent's avatar ring and name chip float at the
  * top centre over a list that blurs and fades beneath them (tapping them opens a menu); the user's
@@ -10,12 +12,13 @@
  * on the left with a typing bubble while she works; the composer is a floating pill the list
  * scrolls under, which grows into a card once there is text.
  */
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { FlatList, KeyboardAvoidingView, Pressable, StyleSheet, View, type LayoutChangeEvent } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { SymbolView } from "expo-symbols";
 import { useFocusEffect, useRouter } from "expo-router";
-import type { AssistantMessage } from "@relay/protocol";
+import { MAX_REPLY_IMAGES, type AssistantMessage } from "@relay/protocol";
+import { AttachmentTray } from "@/ui/AttachmentTray";
 import { AvatarRing } from "@/ui/AvatarRing";
 import { Banner } from "@/ui/Banner";
 import { Callout } from "@/ui/Callout";
@@ -29,12 +32,16 @@ import { Sheet } from "@/ui/Sheet";
 import { Text } from "@/ui/Text";
 import { TopBlur } from "@/ui/TopBlur";
 import { TypingBubble } from "@/ui/TypingBubble";
+import { ImageViewer } from "@/agents/ImageViewer";
+import { MessageImageStack } from "@/agents/MessageImageStack";
 import { MessageText } from "@/agents/MessageText";
 import { radii, spacing, useColors, useScheme } from "@/theme";
 import { useAssistantStore } from "@/state/assistant";
 import { useConnectionStore } from "@/state/connection";
 import { requestAssistant, sendCommand, stopAssistant } from "@/connection";
 import { notifyHaptic } from "@/lib/haptics";
+import { clipboardHasImage, readClipboardPhoto } from "@/lib/clipboard";
+import { chooseLibraryPhotos, type Photo } from "@/lib/photo";
 
 /** Within this many points of the newest message, a new one keeps the list pinned to it. */
 const BOTTOM_STICK_PX = 80;
@@ -73,6 +80,14 @@ export default function Eva() {
   const [menuOpen, setMenuOpen] = useState(false);
   // The composer floats over the list, so the list pads itself by however tall the composer is.
   const [composerHeight, setComposerHeight] = useState(PILL_HEIGHT + COMPOSER_BOTTOM);
+  // Images queued on the composer, sent with the next turn.
+  const [photos, setPhotos] = useState<Photo[]>([]);
+  const [attachOpen, setAttachOpen] = useState(false);
+  // Whether the clipboard holds an image; checked each time the attach sheet opens.
+  const [clipboardReady, setClipboardReady] = useState(false);
+  // The images of the tapped bubble, open in the full-screen viewer.
+  const [viewing, setViewing] = useState<{ uris: string[]; start: number } | null>(null);
+  const viewerImages = useMemo(() => (viewing === null ? null : viewing.uris.map((uri) => ({ uri }))), [viewing]);
 
   // The thread is fetched only while this screen shows; the driver re-asks on every welcome in between.
   useFocusEffect(
@@ -84,28 +99,68 @@ export default function Eva() {
     }, []),
   );
 
+  useEffect(() => {
+    if (!attachOpen) return;
+    let live = true;
+    clipboardHasImage().then(
+      (has) => {
+        if (live) setClipboardReady(has);
+      },
+      () => {
+        if (live) setClipboardReady(false);
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [attachOpen]);
+
   const text = draft.trim();
-  const canSend = connected && text !== "";
+  const canSend = connected && (text !== "" || photos.length > 0);
+  const full = photos.length >= MAX_REPLY_IMAGES;
+
+  const attach = (source: "library" | "clipboard"): void => {
+    setAttachOpen(false);
+    setFailure(null);
+    const picked =
+      source === "library"
+        ? chooseLibraryPhotos(MAX_REPLY_IMAGES - photos.length)
+        : readClipboardPhoto().then((photo) => (photo === null ? [] : [photo]));
+    picked.then(
+      (added) => {
+        setPhotos((current) => [...current, ...added].slice(0, MAX_REPLY_IMAGES));
+      },
+      (error: unknown) => {
+        setFailure(error instanceof Error && error.message !== "" ? error.message : "Couldn't attach the image.");
+      },
+    );
+  };
 
   const send = (): void => {
     if (!canSend) return;
+    const sent = photos;
     setFailure(null);
     setDelivered(false);
-    setPending(text);
+    setPending({ text, images: sent });
     setDraft("");
-    sendCommand({ kind: "assistant.turn", text }).then(
+    setPhotos([]);
+    sendCommand({ kind: "assistant.turn", text, ...(sent.length > 0 ? { images: sent.map((photo) => photo.image) } : {}) }).then(
       () => {
         setDelivered(true);
       },
       (error: unknown) => {
         notifyHaptic("error");
-        // The words come back to the field, so a lost connection never eats a message.
+        // The words and pictures come back to the composer, so a lost connection never eats a message.
         setPending(null);
         setDraft((current) => (current === "" ? text : current));
+        setPhotos((current) => (current.length === 0 ? sent : current));
         setFailure(error instanceof Error && error.message !== "" ? error.message : "Couldn't reach Eva.");
       },
     );
   };
+
+  // Image bytes are fetched against the omp session the thread runs in; empty while Eva is not running.
+  const sessionId = snapshot === null || snapshot.sessionId === "" ? null : snapshot.sessionId;
 
   const messages = snapshot?.messages ?? [];
   const rows: AssistantMessage[] =
@@ -150,7 +205,16 @@ export default function Eva() {
               keyExtractor={(message) => message.id}
               extraData={`${latestUserId ?? ""}|${receipt ?? ""}`}
               renderItem={({ item }) => (
-                <Row message={item} pending={item.id === PENDING_ID} receipt={item.id === latestUserId ? receipt : null} />
+                <Row
+                  message={item}
+                  pending={item.id === PENDING_ID}
+                  receipt={item.id === latestUserId ? receipt : null}
+                  sessionId={sessionId}
+                  local={item.id === PENDING_ID ? pending?.images : undefined}
+                  onOpenImages={(uris, start) => {
+                    setViewing({ uris, start });
+                  }}
+                />
               )}
               // Inverted: the header sits at the visual bottom, below the newest row.
               ListHeaderComponent={busy ? <TypingRow /> : null}
@@ -192,10 +256,27 @@ export default function Eva() {
           )}
           <View style={styles.pillRow}>
             <FloatingPill
-              expanded={wrapped && text !== ""}
-              leading={<AttachButton />}
-              trailing={text === "" ? <DictateButton /> : <SendButton onPress={send} disabled={!canSend} />}
+              expanded={photos.length > 0 || (wrapped && text !== "")}
+              leading={
+                <AttachButton
+                  onPress={() => {
+                    setAttachOpen(true);
+                  }}
+                  disabled={!connected}
+                />
+              }
+              trailing={text === "" && photos.length === 0 ? <DictateButton /> : <SendButton onPress={send} disabled={!canSend} />}
             >
+              {photos.length > 0 && (
+                <View style={styles.tray}>
+                  <AttachmentTray
+                    uris={photos.map((photo) => photo.uri)}
+                    onRemove={(index) => {
+                      setPhotos((current) => current.filter((_, i) => i !== index));
+                    }}
+                  />
+                </View>
+              )}
               <FloatingPillInput
                 value={draft}
                 onChangeText={setDraft}
@@ -237,6 +318,43 @@ export default function Eva() {
           />
         </View>
       </Sheet>
+      <Sheet
+        visible={attachOpen}
+        onClose={() => {
+          setAttachOpen(false);
+        }}
+      >
+        <Text variant="title" style={styles.menuTitle}>
+          Attach
+        </Text>
+        <View style={styles.menuRows}>
+          <MenuRow
+            title="Photo library"
+            {...(full ? { subtitle: `Up to ${String(MAX_REPLY_IMAGES)} images` } : {})}
+            disabled={full}
+            leading={<SymbolView name="photo.on.rectangle" size={20} tintColor={colors.textMuted} />}
+            onPress={() => {
+              attach("library");
+            }}
+          />
+          <MenuRow
+            title="Paste image"
+            {...(full ? { subtitle: `Up to ${String(MAX_REPLY_IMAGES)} images` } : clipboardReady ? {} : { subtitle: "No image on the clipboard" })}
+            disabled={full || !clipboardReady}
+            leading={<SymbolView name="doc.on.clipboard" size={20} tintColor={colors.textMuted} />}
+            onPress={() => {
+              attach("clipboard");
+            }}
+          />
+        </View>
+      </Sheet>
+      <ImageViewer
+        images={viewerImages}
+        start={viewing?.start ?? 0}
+        onClose={() => {
+          setViewing(null);
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -252,20 +370,9 @@ function BackButton({ onPress }: { onPress: () => void }) {
   );
 }
 
-/** "+" at the pill's left. Attachments are not wired yet, so it shows dimmed and inert. */
-function AttachButton() {
-  return (
-    <IconButton
-      symbol="plus"
-      size={32}
-      glyphSize={22}
-      onPress={noop}
-      disabled
-      disabledOpacity={0.8}
-      backgroundColor="transparent"
-      accessibilityLabel="Attach, coming soon"
-    />
-  );
+/** "+" at the pill's left: opens the attach sheet. */
+function AttachButton({ onPress, disabled }: { onPress: () => void; disabled: boolean }) {
+  return <IconButton symbol="plus" size={32} glyphSize={22} onPress={onPress} disabled={disabled} backgroundColor="transparent" accessibilityLabel="Attach image" />;
 }
 
 /** Mic at the pill's right while the field is empty. Dictation is not wired here yet. */
@@ -301,7 +408,7 @@ function SendButton({ onPress, disabled }: { onPress: () => void; disabled: bool
   );
 }
 
-/** The attach and dictate buttons are disabled; this only satisfies the required `onPress`. */
+/** The dictate button is disabled; this only satisfies the required `onPress`. */
 const noop = (): undefined => undefined;
 
 /** The typing bubble, as the newest row while Eva is working. */
@@ -313,16 +420,46 @@ function TypingRow() {
   );
 }
 
-function Row({ message, pending, receipt }: { message: AssistantMessage; pending: boolean; receipt: string | null }) {
+interface RowProps {
+  message: AssistantMessage;
+  pending: boolean;
+  receipt: string | null;
+  /** The omp session the thread runs in, for fetching image bytes; null while Eva is not running. */
+  sessionId: string | null;
+  /** The echoed turn's images, still on the phone; shown instead of the message's host refs. */
+  local: Photo[] | undefined;
+  onOpenImages: (uris: string[], start: number) => void;
+}
+
+function Row({ message, pending, receipt, sessionId, local, onOpenImages }: RowProps) {
   const colors = useColors();
   const dark = useScheme() === "dark";
+  const hasText = message.text !== "";
+  const imageCount = local !== undefined ? local.length : (message.images?.length ?? 0);
+  // Images stack above the text, left or right with the bubble.
+  const images = (align: "flex-start" | "flex-end") =>
+    imageCount === 0 ? null : (
+      <View style={hasText ? styles.imagesAbove : undefined}>
+        <MessageImageStack
+          sessionId={sessionId}
+          refs={message.images}
+          local={local}
+          align={align}
+          opacity={pending ? 0.6 : 1}
+          onOpen={onOpenImages}
+        />
+      </View>
+    );
   switch (message.role) {
     case "user":
       return (
         <View style={styles.userRow}>
-          <View style={[styles.userBubble, { backgroundColor: colors.bubbleUser, opacity: pending ? 0.6 : 1 }]}>
-            <Text style={styles.userText}>{message.text}</Text>
-          </View>
+          {images("flex-end")}
+          {(hasText || imageCount === 0) && (
+            <View style={[styles.userBubble, { backgroundColor: colors.bubbleUser, opacity: pending ? 0.6 : 1 }]}>
+              <Text style={styles.userText}>{message.text}</Text>
+            </View>
+          )}
           {receipt !== null && (
             <Text variant="label" color="textMuted" style={styles.receipt}>
               {receipt}
@@ -333,11 +470,14 @@ function Row({ message, pending, receipt }: { message: AssistantMessage; pending
     case "assistant":
       return (
         <View style={styles.evaRow}>
-          <View style={[styles.evaBubble, { backgroundColor: dark ? colors.surfaceRaised : colors.surface }]}>
-            <ExpandableContent maxHeight={BUBBLE_MAX_HEIGHT}>
-              <MessageText text={message.text} large />
-            </ExpandableContent>
-          </View>
+          {images("flex-start")}
+          {(hasText || imageCount === 0) && (
+            <View style={[styles.evaBubble, { backgroundColor: dark ? colors.surfaceRaised : colors.surface }]}>
+              <ExpandableContent maxHeight={BUBBLE_MAX_HEIGHT}>
+                <MessageText text={message.text} large />
+              </ExpandableContent>
+            </View>
+          )}
         </View>
       );
     case "status":
@@ -383,4 +523,6 @@ const styles = StyleSheet.create({
   pillRow: { paddingHorizontal: spacing.lg },
   menuTitle: { textAlign: "center", paddingBottom: spacing.md },
   menuRows: { marginHorizontal: -spacing.xl },
+  imagesAbove: { marginBottom: spacing.xs },
+  tray: { paddingTop: spacing.md },
 });

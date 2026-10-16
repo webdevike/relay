@@ -53,12 +53,22 @@ describe("agent sessions", () => {
 });
 
 describe("assistant thread", () => {
-  it("assistant.turn needs text, assistant.snapshot carries every role", () => {
-    expect(parseClientMessage(JSON.stringify({ t: "cmd", id: "c", cmd: { kind: "assistant.turn", text: "  " } })).ok).toBe(false);
+  it("assistant.turn needs text or images, assistant.snapshot carries every role", () => {
+    const turn = (cmd: object) => parseClientMessage(JSON.stringify({ t: "cmd", id: "c", cmd: { kind: "assistant.turn", ...cmd } })).ok;
+    expect(turn({ text: "  " })).toBe(true); // the host nacks an empty turn; the wire shape allows it for image turns
+    expect(turn({ text: "", images: [{ mimeType: "image/png", data: "AAAA" }] })).toBe(true);
+    expect(turn({ text: "hi", images: [] })).toBe(false);
+    expect(turn({ text: "hi", images: Array.from({ length: 5 }, () => ({ mimeType: "image/png", data: "AAAA" })) })).toBe(false);
+    expect(turn({ text: "hi", images: [{ mimeType: "image/gif", data: "AAAA" }] })).toBe(false);
     const messages = ["user", "assistant", "card", "status", "error"].map((role, i) => ({ id: `m-${i}`, role, text: role, at: i + 1 }));
-    const r = parseServerMessage(JSON.stringify({ t: "assistant.snapshot", snapshot: { rev: 2, busy: true, messages } }));
+    const r = parseServerMessage(JSON.stringify({ t: "assistant.snapshot", snapshot: { rev: 2, busy: true, sessionId: "eva-1", messages } }));
     expect(r.ok && r.value.t === "assistant.snapshot" ? r.value.snapshot.messages.length : 0).toBe(5);
-    expect(parseServerMessage(JSON.stringify({ t: "assistant.snapshot", snapshot: { rev: -1, busy: false, messages: [] } })).ok).toBe(false);
+    const withImages = parseServerMessage(
+      JSON.stringify({ t: "assistant.snapshot", snapshot: { rev: 2, busy: false, sessionId: "eva-1", messages: [{ id: "m", role: "assistant", text: "", at: 1, images: [{ id: "i1", mimeType: "image/png" }] }] } }),
+    );
+    expect(withImages.ok && withImages.value.t === "assistant.snapshot" ? withImages.value.snapshot.messages[0]?.images?.[0]?.id : undefined).toBe("i1");
+    expect(parseServerMessage(JSON.stringify({ t: "assistant.snapshot", snapshot: { rev: 2, busy: false, messages: [] } })).ok).toBe(false);
+    expect(parseServerMessage(JSON.stringify({ t: "assistant.snapshot", snapshot: { rev: -1, busy: false, sessionId: "", messages: [] } })).ok).toBe(false);
   });
 });
 

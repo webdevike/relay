@@ -91,7 +91,7 @@ const SCREEN_LITE_IDLE_MS = 600;
  * on screen; a socket that goes quiet drops out of the thread without a frame to say so.
  */
 export const ASSISTANT_FOLLOW_MS = 5 * 60_000;
-const EMPTY_ASSISTANT: ServerMessage = { t: "assistant.snapshot", snapshot: { rev: 0, messages: [], busy: false } };
+const EMPTY_ASSISTANT: ServerMessage = { t: "assistant.snapshot", snapshot: { rev: 0, messages: [], busy: false, sessionId: "" } };
 
 function noInputDevice(): AckFailure {
   return new AckFailure({
@@ -734,7 +734,10 @@ export class ClientSession {
         if (this.deps.assistant === null) {
           return Promise.reject(new AckFailure({ code: "agent_launch_failed", message: "this host has no Eva thread" }));
         }
-        return this.deps.assistant.turn(cmd.text);
+        if (cmd.text.length === 0 && cmd.images === undefined) {
+          return Promise.reject(new AckFailure({ code: "invalid_command", message: "turn has neither text nor images" }));
+        }
+        return this.deps.assistant.turn(cmd.text, cmd.images);
     }
   }
 

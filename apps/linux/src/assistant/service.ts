@@ -12,7 +12,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AgentMessage, AgentSession, AssistantMessage, AssistantSnapshot, ServerMessage } from "@relay/protocol";
+import type { AgentImage, AgentMessage, AgentSession, AssistantMessage, AssistantSnapshot, ServerMessage } from "@relay/protocol";
 import type { LaunchOptions } from "../agents/herdr";
 import type { PushSender } from "../push/notifier";
 import type { PushTokenSource } from "../push/token-store";
@@ -59,6 +59,7 @@ export function toAssistantMessages(messages: readonly AgentMessage[], prime: st
   const out: AssistantMessage[] = [];
   let firstUser = true;
   for (const message of messages) {
+    const images = message.images === undefined || message.images.length === 0 ? {} : { images: message.images };
     if (message.role === "user") {
       const isPrime = firstUser && prime !== null && message.text.trim() === prime;
       firstUser = false;
@@ -66,10 +67,10 @@ export function toAssistantMessages(messages: readonly AgentMessage[], prime: st
       if (message.text.startsWith(STATUS_PREFIX)) {
         out.push({ id: message.id, role: "status", text: message.text.slice(STATUS_PREFIX.length), at: message.at });
       } else {
-        out.push({ id: message.id, role: "user", text: message.text, at: message.at });
+        out.push({ id: message.id, role: "user", text: message.text, at: message.at, ...images });
       }
-    } else if (message.role === "assistant" && message.text.length > 0) {
-      out.push({ id: message.id, role: "assistant", text: message.text, at: message.at });
+    } else if (message.role === "assistant" && (message.text.length > 0 || "images" in images)) {
+      out.push({ id: message.id, role: "assistant", text: message.text, at: message.at, ...images });
     }
   }
   return out;
@@ -101,14 +102,14 @@ export class AssistantService implements AssistantRelaying {
   async snapshot(): Promise<AssistantSnapshot> {
     const session = this.current();
     const rev = this.rev;
-    if (session === undefined) return { rev, messages: [], busy: false };
+    if (session === undefined) return { rev, messages: [], busy: false, sessionId: "" };
     const messages = (await this.deps.agents.conversation(session.id)) ?? [];
-    return { rev, messages: toAssistantMessages(messages, this.prime()), busy: session.status === "working" };
+    return { rev, messages: toAssistantMessages(messages, this.prime()), busy: session.status === "working", sessionId: session.id };
   }
 
-  async turn(text: string): Promise<void> {
+  async turn(text: string, images?: readonly AgentImage[]): Promise<void> {
     const session = await this.ensureSession();
-    await this.deps.agents.reply(session.id, text, true);
+    await this.deps.agents.reply(session.id, text, true, images);
   }
 
   say(text: string): Promise<void> {

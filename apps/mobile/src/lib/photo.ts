@@ -13,6 +13,19 @@ export interface Photo {
   image: AgentImage;
   /** Local file of the same JPEG, for a preview. */
   uri: string;
+  width: number;
+  height: number;
+}
+
+/** Scales a picked asset down to MAX_EDGE and re-encodes it as JPEG. */
+async function encodeAsset(asset: ImagePicker.ImagePickerAsset): Promise<Photo> {
+  const context = ImageManipulator.manipulate(asset.uri);
+  if (Math.max(asset.width, asset.height) > MAX_EDGE) context.resize(asset.width >= asset.height ? { width: MAX_EDGE } : { height: MAX_EDGE });
+  const rendered = await context.renderAsync();
+  const saved = await rendered.saveAsync({ format: SaveFormat.JPEG, compress: JPEG_QUALITY, base64: true });
+  if (saved.base64 === undefined || saved.base64.length === 0) throw new Error("The photo could not be encoded.");
+  if (saved.base64.length > MAX_IMAGE_BASE64) throw new Error("The photo is too large to send.");
+  return { image: { mimeType: "image/jpeg", data: saved.base64 }, uri: saved.uri, width: saved.width, height: saved.height };
 }
 
 /**
@@ -29,11 +42,12 @@ export async function choosePhoto(source: PhotoSource): Promise<Photo | null> {
   const result = source === "camera" ? await ImagePicker.launchCameraAsync(options) : await ImagePicker.launchImageLibraryAsync(options);
   const asset = result.canceled ? undefined : result.assets[0];
   if (asset === undefined) return null;
-  const context = ImageManipulator.manipulate(asset.uri);
-  if (Math.max(asset.width, asset.height) > MAX_EDGE) context.resize(asset.width >= asset.height ? { width: MAX_EDGE } : { height: MAX_EDGE });
-  const rendered = await context.renderAsync();
-  const saved = await rendered.saveAsync({ format: SaveFormat.JPEG, compress: JPEG_QUALITY, base64: true });
-  if (saved.base64 === undefined || saved.base64.length === 0) throw new Error("The photo could not be encoded.");
-  if (saved.base64.length > MAX_IMAGE_BASE64) throw new Error("The photo is too large to send.");
-  return { image: { mimeType: "image/jpeg", data: saved.base64 }, uri: saved.uri };
+  return encodeAsset(asset);
+}
+
+/** Up to `limit` library photos in one pick, each scaled and encoded as `choosePhoto` does. Empty when the user backs out. */
+export async function chooseLibraryPhotos(limit: number): Promise<Photo[]> {
+  const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 1, allowsMultipleSelection: true, selectionLimit: limit });
+  if (result.canceled) return [];
+  return Promise.all(result.assets.slice(0, limit).map(encodeAsset));
 }

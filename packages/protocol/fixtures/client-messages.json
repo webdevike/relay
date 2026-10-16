@@ -134,5 +134,14 @@
       "kind": "assistant.turn",
       "text": "what did the furry-drop run do?"
     }
+  },
+  {
+    "t": "cmd",
+    "id": "c-5",
+    "cmd": {
+      "kind": "assistant.turn",
+      "text": "",
+      "images": [{ "mimeType": "image/png", "data": "AAAA" }]
+    }
   }
 ]

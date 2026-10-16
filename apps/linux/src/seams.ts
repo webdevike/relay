@@ -120,8 +120,8 @@ export interface InboxRelaying {
 export interface AssistantRelaying {
   /** The thread as it stands; empty and idle while Eva is not running. */
   snapshot(): Promise<AssistantSnapshot>;
-  /** Delivers `text` as Isaac's next turn, starting or resuming Eva first. Rejects with `AckFailure` (`agent_launch_failed`). */
-  turn(text: string): Promise<void>;
+  /** Delivers `text` and any `images` as Isaac's next turn, starting or resuming Eva first. Rejects with `AckFailure` (`agent_launch_failed`). */
+  turn(text: string, images?: readonly AgentImage[]): Promise<void>;
   /** A background job's message to Eva, delivered as a turn she then tells Isaac about. Rejects like `turn`. */
   say(text: string): Promise<void>;
   /** Every provider change; the service picks out the assistant session's. */
