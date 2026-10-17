@@ -199,10 +199,11 @@ export default function Eva() {
   const openMenu = (): void => {
     Keyboard.dismiss();
     ActionSheetIOS.showActionSheetWithOptions(
-      { title: AGENT_NAME, options: [`${AGENT_NAME}'s computer`, "Agent Inbox", "Cancel"], cancelButtonIndex: 2 },
+      { title: AGENT_NAME, options: [`${AGENT_NAME}'s computer`, "Mac live view", "Agent Inbox", "Cancel"], cancelButtonIndex: 3 },
       (index) => {
-        if (index === 0) router.push("/screen");
-        if (index === 1) router.push("/agents");
+        if (index === 0) router.push("/eva-computer");
+        if (index === 1) router.push("/screen");
+        if (index === 2) router.push("/agents");
       },
     );
   };

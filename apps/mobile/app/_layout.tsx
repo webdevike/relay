@@ -32,6 +32,7 @@ export default function RootLayout() {
           }}
         >
           <Stack.Screen name="trackpad" options={{ orientation: "all" }} />
+          <Stack.Screen name="eva-computer" options={{ gestureEnabled: false, contentStyle: { backgroundColor: "#000000" } }} />
         </Stack>
       </BottomSheetModalProvider>
     </GestureHandlerRootView>
