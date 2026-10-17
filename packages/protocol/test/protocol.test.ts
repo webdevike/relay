@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { webcrypto } from "node:crypto";
 import client from "../fixtures/client-messages.json";
 import server from "../fixtures/server-messages.json";
-import { authProof, fromHex, hmacSha256, parseClientMessage, parseServerMessage, toHex } from "../src";
+import { MAX_SIGNIN_FIELD, authProof, fromHex, hmacSha256, parseClientMessage, parseServerMessage, toHex } from "../src";
 
 const sha256 = (d: Uint8Array) => webcrypto.subtle.digest("SHA-256", d);
 
@@ -69,6 +69,19 @@ describe("assistant thread", () => {
     expect(withImages.ok && withImages.value.t === "assistant.snapshot" ? withImages.value.snapshot.messages[0]?.images?.[0]?.id : undefined).toBe("i1");
     expect(parseServerMessage(JSON.stringify({ t: "assistant.snapshot", snapshot: { rev: 2, busy: false, messages: [] } })).ok).toBe(false);
     expect(parseServerMessage(JSON.stringify({ t: "assistant.snapshot", snapshot: { rev: -1, busy: false, sessionId: "", messages: [] } })).ok).toBe(false);
+  });
+  it("assistant.signin carries credentials, and a message may carry a signin handoff", () => {
+    const signin = (cmd: object) => parseClientMessage(JSON.stringify({ t: "cmd", id: "c", cmd: { kind: "assistant.signin", messageId: "m1", url: "https://github.com/login", username: "isaac", password: "pw", ...cmd } })).ok;
+    expect(signin({})).toBe(true);
+    expect(signin({ password: "" })).toBe(false);
+    expect(signin({ password: "x".repeat(MAX_SIGNIN_FIELD + 1) })).toBe(false);
+    expect(signin({ messageId: "" })).toBe(false);
+    expect(signin({ url: undefined })).toBe(false);
+    const frame = (message: object) => parseServerMessage(JSON.stringify({ t: "assistant.snapshot", snapshot: { rev: 1, busy: false, sessionId: "eva-1", messages: [{ id: "m", role: "assistant", text: "Sign in", at: 1, ...message }] } }));
+    const parsed = frame({ signin: { url: "https://github.com/login", host: "github.com" } });
+    expect(parsed.ok && parsed.value.t === "assistant.snapshot" ? parsed.value.snapshot.messages[0]?.signin : null).toEqual({ url: "https://github.com/login", host: "github.com" });
+    expect(frame({ signin: { url: "https://github.com/login", host: "github.com", submitted: true } }).ok).toBe(true);
+    expect(frame({ signin: { url: "https://github.com/login" } }).ok).toBe(false);
   });
 });
 

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { AgentImage, AgentMessage, AgentSession, ServerMessage } from "@relay/protocol";
 import type { LaunchOptions } from "../src/agents/herdr";
 import { AssistantService, REGISTER_TIMEOUT_MS, SNAPSHOT_DEBOUNCE_MS, STATUS_PREFIX, toAssistantMessages } from "../src/assistant/service";
+import { type FillSpawn, splitSignin } from "../src/assistant/signin";
 import { FileAssistantStore, type AssistantRecord } from "../src/assistant/store";
 import type { PushMessage } from "../src/push/notifier";
 import { AckFailure, type AgentProvider } from "../src/seams";
@@ -84,7 +85,28 @@ function transcriptFile(dir: string, name: string, messages: Record<string, unkn
   return file;
 }
 
-function harness(options: { prime?: string; remembered?: string; history?: string[]; agentHome?: null; launchFails?: boolean } = {}) {
+/** A fake `eva-browser.ts fill`: records argv, cwd and stdin, then exits with `exit` after writing `stderr`. */
+function fakeFill(outcome: { exit: number; stderr?: string } = { exit: 0 }) {
+  const runs: { argv: readonly string[]; cwd: string; stdin: string }[] = [];
+  const spawn: FillSpawn = (argv, cwd) => {
+    const run = { argv, cwd, stdin: "" };
+    runs.push(run);
+    return {
+      stdin: {
+        write: (chunk) => {
+          run.stdin += chunk;
+        },
+        end: () => undefined,
+      },
+      stderr: new Response(outcome.stderr ?? "").body ?? new ReadableStream(),
+      exited: Promise.resolve(outcome.exit),
+      kill: () => undefined,
+    };
+  };
+  return { runs, spawn };
+}
+
+function harness(options: { prime?: string; remembered?: string; history?: string[]; agentHome?: null; launchFails?: boolean; fill?: { exit: number; stderr?: string } } = {}) {
   const home = mkdtempSync(join(tmpdir(), "eva-home-"));
   dirs.push(home);
   if (options.prime !== undefined) {
@@ -105,6 +127,7 @@ function harness(options: { prime?: string; remembered?: string; history?: strin
   const broadcasts: ServerMessage[] = [];
   const logs: string[] = [];
   const clock = new FakeClock();
+  const fill = fakeFill(options.fill);
   const service = new AssistantService({
     agents,
     launch: (launchOptions) => {
@@ -132,6 +155,7 @@ function harness(options: { prime?: string; remembered?: string; history?: strin
     isViewing: (deviceId) => viewing.has(deviceId),
     clock,
     log: (line) => logs.push(line),
+    spawn: fill.spawn,
   });
   /** Eva registers: the provider lists her and reports the session change. */
   const register = (status: AgentSession["status"], sessionFile?: string): void => {
@@ -140,7 +164,7 @@ function harness(options: { prime?: string; remembered?: string; history?: strin
     service.observe({ kind: "sessions" });
   };
   const remembered = (): AssistantRecord | null => store.load();
-  return { home, service, agents, launches, tokens, viewing, pushes, broadcasts, logs, clock, register, remembered };
+  return { home, service, agents, launches, tokens, viewing, pushes, broadcasts, logs, clock, register, remembered, fills: fill.runs };
 }
 
 const flush = (): Promise<void> => {
@@ -430,5 +454,106 @@ describe("AssistantService earlier contexts", () => {
     const h = harness();
     writeFileSync(join(h.home, "assistant.json"), JSON.stringify({ sessionFile: "/sessions/eva.jsonl" }));
     expect(h.remembered()).toEqual({ sessionFile: "/sessions/eva.jsonl", history: [] });
+  });
+});
+
+describe("sign-in token", () => {
+  it("strips the token from a reply and carries url and host", () => {
+    expect(splitSignin("Sign in to GitHub.\n[[signin:https://github.com/login]]", false)).toEqual({
+      text: "Sign in to GitHub.",
+      signin: { url: "https://github.com/login", host: "github.com" },
+    });
+    expect(splitSignin("[[signin:http://localhost:3000/x?a=1]]\n", false)).toEqual({ text: "", signin: { url: "http://localhost:3000/x?a=1", host: "localhost" } });
+  });
+
+  it("cuts a token that is not an http(s) url without a card, and leaves a token in mid-text alone", () => {
+    expect(splitSignin("hi [[signin:javascript:alert(1)]]", false)).toEqual({ text: "hi" });
+    expect(splitSignin("hi [[signin:not a url]]", false)).toEqual({ text: "hi [[signin:not a url]]" });
+    expect(splitSignin("[[signin:https://a.com]] then more", false)).toEqual({ text: "[[signin:https://a.com]] then more" });
+  });
+
+  it("hides a token that is still streaming in, but not other text", () => {
+    for (const partial of ["Sign in.\n[", "Sign in.\n[[", "Sign in.\n[[sig", "Sign in.\n[[signin:", "Sign in.\n[[signin:https://git"]) {
+      expect(splitSignin(partial, true)).toEqual({ text: "Sign in." });
+      expect(splitSignin(partial, false)).toEqual({ text: partial });
+    }
+    expect(splitSignin("array[[0]] is", true)).toEqual({ text: "array[[0]] is" });
+    expect(splitSignin("done\n[[signin:https://github.com/login]]", true).signin?.host).toBe("github.com");
+  });
+
+  it("shows the card on the assistant row and leaves a reply that is only the token", () => {
+    const rows: AgentMessage[] = [
+      { id: "a1", role: "assistant", text: "Please sign in.\n[[signin:https://github.com/login]]", at: 1 },
+      { id: "a2", role: "assistant", text: "[[", at: 2, streaming: true },
+      { id: "a3", role: "assistant", text: "[[signin:https://x.org/in]]", at: 3 },
+    ];
+    expect(toAssistantMessages(rows, null)).toEqual([
+      { id: "a1", role: "assistant", text: "Please sign in.", at: 1, signin: { url: "https://github.com/login", host: "github.com" } },
+      { id: "a3", role: "assistant", text: "", at: 3, signin: { url: "https://x.org/in", host: "x.org" } },
+    ]);
+  });
+
+  it("pushes a sign-in reply without the token", async () => {
+    const h = harness();
+    h.register("working");
+    h.service.observe({ kind: "conversation", sessionId: "eva-1", appended: [{ id: "a1", role: "assistant", text: "Sign in please.\n[[signin:https://github.com/login]]", at: 1 }] });
+    await flush();
+    expect(h.pushes.map((push) => push.body)).toEqual(["Sign in please.", "Sign in please."]);
+  });
+});
+
+describe("AssistantService signin", () => {
+  const signinRow: AgentMessage = { id: "a1", role: "assistant", text: "Please sign in.\n[[signin:https://github.com/login]]", at: 1 };
+
+  it("runs the browser tool with the credentials on stdin only, marks the message submitted and tells Eva", async () => {
+    const h = harness();
+    h.register("idle");
+    h.agents.transcript = [signinRow];
+    await h.service.signin("a1", "https://github.com/login", "isaac", "hunter2");
+    expect(h.fills).toHaveLength(1);
+    expect(h.fills[0]?.argv).toEqual(["bun", join(h.home, ".omp", "tools", "eva-browser.ts"), "fill", "https://github.com/login"]);
+    expect(h.fills[0]?.cwd).toBe(h.home);
+    expect(JSON.parse(h.fills[0]?.stdin ?? "")).toEqual({ username: "isaac", password: "hunter2" });
+    expect(h.fills[0]?.argv.join(" ")).not.toContain("hunter2");
+    await flush();
+    expect(h.agents.replies).toEqual([["eva-1", `${STATUS_PREFIX}Credentials submitted for github.com in your browser tab; continue there.`, true]]);
+    expect(h.logs.join("\n")).not.toContain("hunter2");
+    expect(h.logs.join("\n")).not.toContain("isaac");
+    const snapshot = await h.service.snapshot();
+    expect(snapshot.messages).toEqual([
+      { id: "a1", role: "assistant", text: "Please sign in.", at: 1, signin: { url: "https://github.com/login", host: "github.com", submitted: true } },
+    ]);
+  });
+
+  it("broadcasts a snapshot that carries submitted", async () => {
+    const h = harness();
+    h.register("idle");
+    h.agents.transcript = [signinRow];
+    await h.service.signin("a1", "https://github.com/login", "isaac", "hunter2");
+    h.clock.advance(SNAPSHOT_DEBOUNCE_MS);
+    await flush();
+    const frame = h.broadcasts.at(-1);
+    expect(frame?.t === "assistant.snapshot" ? frame.snapshot.messages[0]?.signin?.submitted : null).toBe(true);
+  });
+
+  it("nacks with the tool's last stderr line and leaves the message unsubmitted", async () => {
+    const h = harness({ fill: { exit: 1, stderr: "warming up\nIncorrect password.\n" } });
+    h.register("idle");
+    h.agents.transcript = [signinRow];
+    await expect(h.service.signin("a1", "https://github.com/login", "isaac", "nope")).rejects.toMatchObject({
+      error: { code: "invalid_command", message: "Incorrect password." },
+    });
+    await flush();
+    expect(h.agents.replies).toEqual([]);
+    expect((await h.service.snapshot()).messages[0]?.signin?.submitted).toBeUndefined();
+    expect(h.logs.join("\n")).not.toContain("nope");
+  });
+
+  it("names the exit code when the tool says nothing, and refuses a url that is not http(s) or a host without an agent home", async () => {
+    const h = harness({ fill: { exit: 3 } });
+    await expect(h.service.signin("a1", "https://github.com/login", "u", "p")).rejects.toMatchObject({ error: { code: "invalid_command", message: "eva-browser fill exited 3" } });
+    await expect(h.service.signin("a1", "file:///etc/passwd", "u", "p")).rejects.toMatchObject({ error: { code: "invalid_command" } });
+    expect(h.fills).toHaveLength(1);
+    await expect(harness({ agentHome: null }).service.signin("a1", "https://github.com/login", "u", "p")).rejects.toMatchObject({ error: { code: "agent_launch_failed" } });
   });
 });

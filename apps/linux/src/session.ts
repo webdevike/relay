@@ -738,6 +738,11 @@ export class ClientSession {
           return Promise.reject(new AckFailure({ code: "invalid_command", message: "turn has neither text nor images" }));
         }
         return this.deps.assistant.turn(cmd.text, cmd.images);
+      case "assistant.signin":
+        if (this.deps.assistant === null) {
+          return Promise.reject(new AckFailure({ code: "agent_launch_failed", message: "this host has no Eva thread" }));
+        }
+        return this.deps.assistant.signin(cmd.messageId, cmd.url, cmd.username, cmd.password);
     }
   }
 

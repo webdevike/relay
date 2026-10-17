@@ -8,6 +8,8 @@ import type { AckError, ClientMessage, Command } from "@relay/protocol";
 
 const MAX_PENDING = 64;
 const TIMEOUT_MS = 10_000;
+/** The host acks a sign-in once the browser tool has typed the credentials and the page settled (it gives the tool 60 s). */
+export const SIGNIN_TIMEOUT_MS = 70_000;
 
 /** Rejection shape for a nacked or timed-out command: `AckError`'s fields plus `"timeout"`. */
 export class CommandError extends Error {
@@ -50,7 +52,7 @@ export class CommandQueue {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new CommandError("timeout", "command timed out waiting for an ack"));
-      }, TIMEOUT_MS);
+      }, cmd.kind === "assistant.signin" ? SIGNIN_TIMEOUT_MS : TIMEOUT_MS);
       this.pending.set(id, { id, cmd, resolve, reject, timer });
     });
   }

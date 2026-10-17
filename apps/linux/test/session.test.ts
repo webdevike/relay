@@ -756,6 +756,12 @@ describe("assistant thread", () => {
     say(text: string): Promise<void> {
       return this.turn(`[From Eva's background jobs] ${text}`);
     }
+    readonly signins: string[][] = [];
+    signin(messageId: string, url: string, username: string, password: string): Promise<void> {
+      if (password === "wrong") return Promise.reject(new AckFailure({ code: "invalid_command", message: "Incorrect password." }));
+      this.signins.push([messageId, url, username, password]);
+      return Promise.resolve();
+    }
     observe(): void {
       // nothing to watch here
     }
@@ -795,6 +801,29 @@ describe("assistant thread", () => {
       { t: "ack", id: "t1" },
       { t: "nack", id: "t2", error: { code: "agent_launch_failed", message: "Eva did not come up" } },
     ]);
+  });
+
+  it("hands assistant.signin to the service, and nacks the tool's error as invalid_command", async () => {
+    const assistant = new FakeAssistant();
+    const h = harness({ assistant });
+    pair(h);
+    const url = "https://github.com/login";
+    h.session.receive({ t: "cmd", id: "s1", cmd: { kind: "assistant.signin", messageId: "a1", url, username: "isaac", password: "pw" } });
+    h.session.receive({ t: "cmd", id: "s2", cmd: { kind: "assistant.signin", messageId: "a1", url, username: "isaac", password: "wrong" } });
+    await h.sink.sentCount(6);
+    expect(assistant.signins).toEqual([["a1", url, "isaac", "pw"]]);
+    expect(h.sink.sent.slice(-2)).toEqual([
+      { t: "ack", id: "s1" },
+      { t: "nack", id: "s2", error: { code: "invalid_command", message: "Incorrect password." } },
+    ]);
+  });
+
+  it("nacks assistant.signin as agent_launch_failed on a host without the thread", async () => {
+    const h = harness();
+    pair(h);
+    h.session.receive({ t: "cmd", id: "s1", cmd: { kind: "assistant.signin", messageId: "a1", url: "https://github.com/login", username: "u", password: "p" } });
+    await h.sink.sentCount(5);
+    expect(h.sink.last()).toMatchObject({ t: "nack", id: "s1", error: { code: "agent_launch_failed" } });
   });
 
   it("passes assistant.turn images through, and nacks a turn with neither text nor images as invalid_command", async () => {

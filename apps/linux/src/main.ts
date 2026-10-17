@@ -14,6 +14,7 @@ import { z } from "zod";
 import pkg from "../package.json";
 import { defaultSocketPath, OmpBridgeProvider } from "./agents/bridge";
 import { AssistantService } from "./assistant/service";
+import { spawnFill } from "./assistant/signin";
 import { FileAssistantStore } from "./assistant/store";
 import { FileDeviceStore } from "./device-store";
 import { FileDropStore } from "./drops/store";
@@ -150,6 +151,7 @@ function serve(
     isViewing: (deviceId): boolean => server.isViewingAssistant(deviceId),
     clock: systemClock,
     log,
+    spawn: spawnFill,
   });
   const clipboard =
     watchClipboard && Bun.which("wl-paste") !== null

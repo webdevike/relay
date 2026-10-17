@@ -124,6 +124,8 @@ export interface AssistantRelaying {
   turn(text: string, images?: readonly AgentImage[]): Promise<void>;
   /** A background job's message to Eva, delivered as a turn she then tells Isaac about. Rejects like `turn`. */
   say(text: string): Promise<void>;
+  /** Types Isaac's credentials into the login page `url` Eva asked him to sign in to (message `messageId`). Rejects with `AckFailure`. */
+  signin(messageId: string, url: string, username: string, password: string): Promise<void>;
   /** Every provider change; the service picks out the assistant session's. */
   observe(change: AgentProviderChange): void;
 }

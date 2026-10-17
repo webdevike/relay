@@ -18,9 +18,13 @@ export interface PendingTurn {
 export interface AssistantStore {
   snapshot: AssistantSnapshot | null;
   pending: PendingTurn | null;
+  /** Messages whose sign-in the host took, shown submitted before its snapshot says so. */
+  signedIn: Record<string, true>;
   set: (snapshot: AssistantSnapshot) => void;
   /** Echo a sent turn; null clears it. */
   setPending: (turn: { text: string; images: Photo[] } | null) => void;
+  /** The host acked the credentials for this message. */
+  markSignedIn: (messageId: string) => void;
 }
 
 /**
@@ -38,10 +42,14 @@ export function settlePending(snapshot: AssistantSnapshot, pending: PendingTurn 
 export const useAssistantStore = create<AssistantStore>((set, get) => ({
   snapshot: null,
   pending: null,
+  signedIn: {},
   set: (snapshot) => {
     set({ snapshot, pending: settlePending(snapshot, get().pending) });
   },
   setPending: (turn) => {
     set({ pending: turn === null ? null : { ...turn, sinceRev: get().snapshot?.rev ?? -1 } });
+  },
+  markSignedIn: (messageId) => {
+    set({ signedIn: { ...get().signedIn, [messageId]: true } });
   },
 }));

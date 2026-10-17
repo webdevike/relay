@@ -143,5 +143,16 @@
       "text": "",
       "images": [{ "mimeType": "image/png", "data": "AAAA" }]
     }
+  },
+  {
+    "t": "cmd",
+    "id": "c-6",
+    "cmd": {
+      "kind": "assistant.signin",
+      "messageId": "a-3",
+      "url": "https://github.com/login",
+      "username": "isaac",
+      "password": "hunter2"
+    }
   }
 ]

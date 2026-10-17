@@ -264,6 +264,8 @@ export type AgentImage = z.infer<typeof AgentImage>;
 export const MAX_DROPS = 100;
 /** Longest text drop, in UTF-16 code units; anything bigger goes as a file. */
 export const MAX_DROP_TEXT = 64 * 1024;
+/** Longest username or password a sign-in command carries, in UTF-16 code units. */
+export const MAX_SIGNIN_FIELD = 1024;
 /** Largest blob the host keeps per drop, in bytes. */
 export const MAX_DROP_BYTES = 50 * 1024 * 1024;
 
@@ -343,6 +345,8 @@ export const AssistantMessage = z.object({
   at: ms,
   /** Pictures on the row: Isaac's attachments, or screenshots Eva produced. Bytes come from `agent.image` for the snapshot's `sessionId`. */
   images: z.array(AgentImageRef).optional(),
+  /** Eva asked Isaac to sign in to a site in her browser: the page and its host. `submitted` once the host typed credentials into the login page. */
+  signin: z.object({ url: nonEmpty, host: nonEmpty, submitted: z.boolean().optional() }).optional(),
 });
 export type AssistantMessage = z.infer<typeof AssistantMessage>;
 
@@ -653,6 +657,17 @@ export const Command = z.discriminatedUnion("kind", [
     kind: z.literal("assistant.turn"),
     text: z.string().trim().max(MAX_DROP_TEXT),
     images: z.array(AgentImage).min(1).max(MAX_REPLY_IMAGES).optional(),
+  }),
+  /**
+   * Credentials for the sign-in Eva asked for in message `messageId`. The host types them into the
+   * login page of `url` in her browser; the model never sees them.
+   */
+  z.object({
+    kind: z.literal("assistant.signin"),
+    messageId: nonEmpty,
+    url: nonEmpty,
+    username: z.string().max(MAX_SIGNIN_FIELD),
+    password: z.string().min(1).max(MAX_SIGNIN_FIELD),
   }),
 ]);
 export type Command = z.infer<typeof Command>;

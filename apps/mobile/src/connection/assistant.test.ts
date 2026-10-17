@@ -16,7 +16,7 @@ function snapshot(rev: number, texts: string[], busy = false): AssistantSnapshot
 let route: AssistantFrameRouter;
 
 beforeEach(() => {
-  useAssistantStore.setState({ snapshot: null, pending: null });
+  useAssistantStore.setState({ snapshot: null, pending: null, signedIn: {} });
   route = createAssistantFrameRouter(useAssistantStore.getState());
 });
 
@@ -72,6 +72,29 @@ describe("assistant.snapshot", () => {
     route({ t: "assistant.snapshot", snapshot: withImages });
     expect(useAssistantStore.getState().snapshot?.sessionId).toBe("eva-session");
     expect(useAssistantStore.getState().snapshot?.messages[0]?.images?.[0]?.id).toBe("img1");
+  });
+
+  it("keeps a message's signin handoff, submitted or not", () => {
+    const signin = { url: "https://github.com/login", host: "github.com" };
+    const withSignin: AssistantSnapshot = {
+      rev: 1,
+      busy: false,
+      sessionId: "eva-session",
+      messages: [
+        { id: "m0", role: "assistant", text: "Sign in please.", at: 1, signin },
+        { id: "m1", role: "assistant", text: "Done.", at: 2, signin: { ...signin, submitted: true } },
+      ],
+    };
+    route({ t: "assistant.snapshot", snapshot: withSignin });
+    const stored = useAssistantStore.getState().snapshot?.messages;
+    expect(stored?.[0]?.signin).toEqual(signin);
+    expect(stored?.[1]?.signin).toEqual({ ...signin, submitted: true });
+  });
+
+  it("remembers a sign-in the host acked until its snapshot carries submitted", () => {
+    useAssistantStore.getState().markSignedIn("m0");
+    useAssistantStore.getState().markSignedIn("m1");
+    expect(useAssistantStore.getState().signedIn).toEqual({ m0: true, m1: true });
   });
 });
 

@@ -26,6 +26,7 @@ import { EmptyState } from "@/ui/EmptyState";
 import { ExpandableContent } from "@/ui/ExpandableContent";
 import { FloatingPill, FloatingPillInput, PILL_HEIGHT } from "@/ui/FloatingPill";
 import { IconButton } from "@/ui/IconButton";
+import { SignInCard } from "@/ui/SignInCard";
 import { Text } from "@/ui/Text";
 import { TopBlur } from "@/ui/TopBlur";
 import { TypingBubble } from "@/ui/TypingBubble";
@@ -233,6 +234,12 @@ export default function Eva() {
     );
   };
 
+  /** Sign-in card tapped: the credentials sheet, a modal route (the bottom-sheet modal did not present on this screen). */
+  const openSignIn = (messageId: string, signin: NonNullable<AssistantMessage["signin"]>): void => {
+    Keyboard.dismiss();
+    router.push({ pathname: "/eva-signin", params: { messageId, url: signin.url, host: signin.host } });
+  };
+
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: bg }]} edges={["bottom"]}>
       <KeyboardAvoidingView style={styles.fill} behavior="padding">
@@ -265,6 +272,7 @@ export default function Eva() {
                       setViewing({ uris, start });
                     }}
                     onExpanded={anchorExpanded}
+                    onSignIn={openSignIn}
                   />
                 </View>
               )}
@@ -437,9 +445,12 @@ interface RowProps {
   onOpenImages: (uris: string[], start: number) => void;
   /** An assistant bubble's "Show more" grew it by this much. */
   onExpanded: (growth: number) => void;
+  /** The sign-in card was tapped. */
+  onSignIn: (messageId: string, signin: NonNullable<AssistantMessage["signin"]>) => void;
 }
 
-function Row({ message, receipt, sessionId, local, onOpenImages, onExpanded }: RowProps) {
+function Row({ message, receipt, sessionId, local, onOpenImages, onExpanded, onSignIn }: RowProps) {
+  const signedIn = useAssistantStore((state) => state.signedIn[message.id] === true);
   const colors = useColors();
   const bubbleFill = useScheme() === "dark" ? BUBBLE_DARK : colors.surface;
   const hasText = message.text !== "";
@@ -477,15 +488,29 @@ function Row({ message, receipt, sessionId, local, onOpenImages, onExpanded }: R
     case "assistant": {
       // Markdown images Eva embeds stack above the bubble as tiles, as Dot's do; the prose keeps its bubble.
       const { images: tiles, hasBody } = topLevelImages(message.text);
+      const { signin } = message;
+      const showBubble = hasBody || (imageCount === 0 && tiles.length === 0 && signin === undefined);
       return (
         <View style={styles.evaRow}>
+          {signin !== undefined && (
+            <View style={showBubble || imageCount > 0 || tiles.length > 0 ? styles.signinAbove : undefined}>
+              <SignInCard
+                host={signin.host}
+                submitted={signin.submitted === true || signedIn}
+                fill={bubbleFill}
+                onPress={() => {
+                  onSignIn(message.id, signin);
+                }}
+              />
+            </View>
+          )}
           {images("flex-start")}
           {tiles.length > 0 && (
             <View style={[styles.tiles, hasBody && styles.tilesAboveCaption]}>
               <MarkdownImages images={tiles} />
             </View>
           )}
-          {(hasBody || (imageCount === 0 && tiles.length === 0)) && (
+          {showBubble && (
             <View style={[styles.evaBubble, { backgroundColor: bubbleFill }]}>
               <ExpandableContent maxHeight={BUBBLE_MAX_HEIGHT} fadeHeight={BUBBLE_FADE_HEIGHT} fadeColor={bubbleFill} onExpanded={onExpanded}>
                 <MessageText text={message.text} large skipImages />
@@ -540,5 +565,6 @@ const styles = StyleSheet.create({
   menuTitle: { textAlign: "center", paddingBottom: spacing.md },
   menuRows: { marginHorizontal: -spacing.xl },
   imagesAbove: { marginBottom: spacing.xs },
+  signinAbove: { marginBottom: spacing.sm },
   tray: { paddingTop: spacing.md },
 });

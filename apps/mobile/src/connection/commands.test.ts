@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AckError, ClientMessage, Command } from "@relay/protocol";
-import { CommandError, CommandQueue } from "./commands";
+import { CommandError, CommandQueue, SIGNIN_TIMEOUT_MS } from "./commands";
 
 const insertText: Command = { kind: "text.insert", text: "hi" };
 
@@ -76,6 +76,16 @@ describe("CommandQueue", () => {
       const promise = queue.enqueue(insertText);
       const assertion = expect(promise).rejects.toMatchObject({ code: "timeout" });
       await vi.advanceTimersByTimeAsync(10_000);
+      await assertion;
+    });
+
+    it("gives a sign-in the browser tool's time: still pending after 10s, a timeout at 70s", async () => {
+      const queue = new CommandQueue();
+      const promise = queue.enqueue({ kind: "assistant.signin", messageId: "m1", url: "https://github.com/login", username: "isaac", password: "pw" });
+      const assertion = expect(promise).rejects.toMatchObject({ code: "timeout" });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(queue.size).toBe(1);
+      await vi.advanceTimersByTimeAsync(SIGNIN_TIMEOUT_MS - 10_000);
       await assertion;
     });
 

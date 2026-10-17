@@ -88,6 +88,13 @@
           "role": "assistant",
           "text": "The furry-drop run just finished; 12 files went up.",
           "at": 1788900001000
+        },
+        {
+          "id": "a-3",
+          "role": "assistant",
+          "text": "I need you to sign in to GitHub.",
+          "at": 1788900002000,
+          "signin": { "url": "https://github.com/login", "host": "github.com", "submitted": true }
         }
       ]
     }

@@ -21,6 +21,7 @@ import type { PushSender } from "../push/notifier";
 import type { PushTokenSource } from "../push/token-store";
 import { AckFailure, type AgentProvider, type AgentProviderChange, type AssistantRelaying } from "../seams";
 import type { SessionClock } from "../session";
+import { type FillSpawn, runFill, signinHost, splitSignin } from "./signin";
 import type { AssistantStore } from "./store";
 
 /** A turn from the host's jobs rather than from Isaac; the thread hides it (and Eva's silent answer to it). */
@@ -59,6 +60,8 @@ export interface AssistantServiceDeps {
   readonly isViewing: (deviceId: string) => boolean;
   readonly clock: SessionClock;
   readonly log: (line: string) => void;
+  /** Starts the browser tool that types credentials into a login page (`spawnFill` in the host). */
+  readonly spawn: FillSpawn;
 }
 
 /**
@@ -82,7 +85,9 @@ export function toAssistantMessages(messages: readonly AgentMessage[], prime: st
     } else if (message.role === "assistant" && (message.text.length > 0 || "images" in images)) {
       const trimmed = message.text.trim();
       if (trimmed === SILENCE_MARKER || (message.streaming === true && trimmed.length > 0 && SILENCE_MARKER.startsWith(trimmed))) continue;
-      out.push({ id: message.id, role: "assistant", text: message.text, at: message.at, ...images });
+      const { text, signin } = splitSignin(message.text, message.streaming === true);
+      if (text.length === 0 && signin === undefined && !("images" in images)) continue;
+      out.push({ id: message.id, role: "assistant", text, at: message.at, ...images, ...(signin === undefined ? {} : { signin }) });
     }
   }
   return out;
@@ -105,6 +110,8 @@ export class AssistantService implements AssistantRelaying {
   private primeCache: string | null | undefined;
   /** Parsed, filtered earlier transcripts by file; stale once the file's mtime or size moves. */
   private readonly transcripts = new Map<string, { mtimeMs: number; size: number; messages: AssistantMessage[] }>();
+  /** Messages whose sign-in the host has filled. Kept in memory only; a host restart forgets it. */
+  private readonly submitted = new Set<string>();
 
   constructor(private readonly deps: AssistantServiceDeps) {}
 
@@ -117,9 +124,9 @@ export class AssistantService implements AssistantRelaying {
     const session = this.current();
     const rev = this.rev;
     const earlier = this.earlier(session === undefined ? null : this.deps.sessionFile(session.id));
-    if (session === undefined) return { rev, messages: earlier, busy: false, sessionId: "" };
+    if (session === undefined) return { rev, messages: this.markSubmitted(earlier), busy: false, sessionId: "" };
     const messages = (await this.deps.agents.conversation(session.id)) ?? [];
-    return { rev, messages: [...earlier, ...toAssistantMessages(messages, this.prime())], busy: session.status === "working", sessionId: session.id };
+    return { rev, messages: this.markSubmitted([...earlier, ...toAssistantMessages(messages, this.prime())]), busy: session.status === "working", sessionId: session.id };
   }
 
   async turn(text: string, images?: readonly AgentImage[]): Promise<void> {
@@ -129,6 +136,39 @@ export class AssistantService implements AssistantRelaying {
 
   say(text: string): Promise<void> {
     return this.turn(`${STATUS_PREFIX}${text}`);
+  }
+
+  /**
+   * Types Isaac's credentials into the login page Eva pointed him at (message `messageId`, page
+   * `url`) through the browser tool, then marks the message submitted and tells Eva to carry on in
+   * her tab. Rejects with `AckFailure`: `invalid_command` for a url that is not http(s) or the
+   * tool's own error, `internal` when the tool cannot start. The credentials go to the tool's
+   * stdin only; they are never logged.
+   */
+  async signin(messageId: string, url: string, username: string, password: string): Promise<void> {
+    const home = this.deps.agentHome;
+    if (home === null) throw new AckFailure({ code: "agent_launch_failed", message: "host was started without --agent-home" });
+    const host = signinHost(url);
+    if (host === null) throw new AckFailure({ code: "invalid_command", message: "sign-in url must be http(s)" });
+    try {
+      await runFill(this.deps.spawn, home, url, { username, password });
+    } catch (error) {
+      this.deps.log(`assistant: sign-in to ${host} failed: ${error instanceof AckFailure ? error.error.message : "tool did not run"}`);
+      throw error;
+    }
+    this.deps.log(`assistant: credentials submitted for ${host}`);
+    this.submitted.add(messageId);
+    this.changed();
+    this.say(`Credentials submitted for ${host} in your browser tab; continue there.`).catch((error: unknown) => {
+      this.deps.log(`assistant: sign-in follow-up not delivered: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  }
+
+  private markSubmitted(messages: AssistantMessage[]): AssistantMessage[] {
+    if (this.submitted.size === 0) return messages;
+    return messages.map((message) =>
+      message.signin !== undefined && this.submitted.has(message.id) ? { ...message, signin: { ...message.signin, submitted: true } } : message,
+    );
   }
 
   observe(change: AgentProviderChange): void {
@@ -285,8 +325,10 @@ export class AssistantService implements AssistantRelaying {
   }
 
   /** A settled reply goes to every phone that is not already looking at it. */
-  private push(text: string): void {
-    if (isSilent(text)) return;
+  private push(raw: string): void {
+    if (isSilent(raw)) return;
+    const { text: shown, signin } = splitSignin(raw, false);
+    const text = signin === undefined ? raw : shown.trim().length > 0 ? shown.trim() : `Sign in to ${signin.host}`;
     const recipients: { deviceId: string; token: string }[] = [];
     for (const [deviceId, token] of this.deps.tokens.tokens()) {
       if (this.deps.isViewing(deviceId)) continue;
