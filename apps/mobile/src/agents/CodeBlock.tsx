@@ -52,9 +52,11 @@ const COPIED_MS = 1200;
 export interface CodeBlockProps {
   code: string;
   lang: string | null;
+  /** A closed ```ui block that failed validation: the header says so instead of passing as code. */
+  invalid?: boolean;
 }
 
-export function CodeBlock({ code, lang }: CodeBlockProps) {
+export function CodeBlock({ code, lang, invalid = false }: CodeBlockProps) {
   const colors = useColors();
   const scheme = useScheme();
   const language = prismLanguage(lang);
@@ -74,8 +76,8 @@ export function CodeBlock({ code, lang }: CodeBlockProps) {
           borderBottomColor: colors.hairline,
         }}
       >
-        <Text variant="caption" color="textMuted">
-          {lang ?? "code"}
+        <Text variant="caption" color={invalid ? "warn" : "textMuted"}>
+          {invalid ? "Widget couldn't render" : (lang ?? "code")}
         </Text>
         <Pressable
           hitSlop={8}

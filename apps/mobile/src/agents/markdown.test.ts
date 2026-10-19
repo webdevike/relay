@@ -80,7 +80,7 @@ describe("parseBlocks", () => {
   it("keeps prose on either side of a fence and lowercases the language", () => {
     expect(parseBlocks("before\n```TS\nconst a = 1;\n```\nafter")).toEqual<Block[]>([
       { kind: "paragraph", inline: [{ text: "before" }] },
-      { kind: "code", lang: "ts", code: "const a = 1;" },
+      { kind: "code", lang: "ts", code: "const a = 1;", invalid: false },
       { kind: "paragraph", inline: [{ text: "after" }] },
     ]);
   });
@@ -88,7 +88,7 @@ describe("parseBlocks", () => {
   it("treats an unterminated fence as code so a streaming reply highlights immediately", () => {
     expect(parseBlocks("look:\n```bash\nls -la")).toEqual<Block[]>([
       { kind: "paragraph", inline: [{ text: "look:" }] },
-      { kind: "code", lang: "bash", code: "ls -la" },
+      { kind: "code", lang: "bash", code: "ls -la", invalid: false },
     ]);
   });
 

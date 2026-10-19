@@ -505,7 +505,17 @@ const Collapse = z.object({
   children: Children,
 });
 
-const Node: z.ZodType<WidgetSpec, z.ZodTypeDef, unknown> = z
+/** Agents habitually write `"type"` (the Block Kit / Adaptive Cards convention) for the node kind,
+ * so it is accepted as an alias for `"widget"` on every node. */
+function aliasType(raw: unknown): unknown {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw) || "widget" in raw) return raw;
+  const { type, ...rest } = raw as Record<string, unknown>;
+  return typeof type === "string" ? { widget: type, ...rest } : raw;
+}
+
+const Node: z.ZodType<WidgetSpec, z.ZodTypeDef, unknown> = z.preprocess(
+  aliasType,
+  z
   .discriminatedUnion("widget", [
     Chart,
     Stat,
@@ -541,7 +551,8 @@ const Node: z.ZodType<WidgetSpec, z.ZodTypeDef, unknown> = z
     Tabs,
     Collapse,
   ])
-  .transform(finish);
+  .transform(finish),
+);
 
 /** Rules spanning several fields, which zod's discriminated union members can't carry themselves. */
 function finish(node: WidgetSpec, ctx: z.RefinementCtx): WidgetSpec {

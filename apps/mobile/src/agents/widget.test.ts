@@ -432,8 +432,27 @@ describe("ui fences", () => {
     ]);
   });
 
-  it("falls back to a code block when the ui payload is malformed", () => {
+  it("marks a closed but malformed ui block invalid so it doesn't pass as plain code", () => {
     const blocks = parseBlocks("```ui\nnot json\n```");
-    expect(blocks).toEqual([{ kind: "code", lang: "ui", code: "not json" }]);
+    expect(blocks).toEqual([{ kind: "code", lang: "ui", code: "not json", invalid: true }]);
+  });
+
+  it("doesn't flag a ui block that is still streaming", () => {
+    const blocks = parseBlocks('```ui\n{"widget":"stat","lab');
+    expect(blocks).toEqual([{ kind: "code", lang: "ui", code: '{"widget":"stat","lab', invalid: false }]);
+  });
+});
+
+describe("type alias", () => {
+  it("accepts `type` for the node kind at every depth", () => {
+    expect(
+      parseWidget('{"type":"stack","children":[{"type":"button","label":"Go","reply":"go"}]}'),
+    ).toEqual(parseWidget('{"widget":"stack","children":[{"widget":"button","label":"Go","reply":"go"}]}'));
+    expect(parseWidget('{"type":"button","label":"Go","reply":"go"}')).not.toBeNull();
+  });
+
+  it("lets an explicit `widget` win over `type`", () => {
+    expect(parseWidget('{"widget":"stat","type":"sparkle","label":"L","value":"9"}')).not.toBeNull();
+    expect(parseWidget('{"type":"sparkle","label":"L","value":"9"}')).toBeNull();
   });
 });

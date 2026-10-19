@@ -35,7 +35,7 @@ export interface MessageImage {
 export type Block =
   | { kind: "heading"; level: number; inline: Inline[] }
   | { kind: "paragraph"; inline: Inline[] }
-  | { kind: "code"; lang: string | null; code: string }
+  | { kind: "code"; lang: string | null; code: string; invalid: boolean }
   | { kind: "list"; ordered: boolean; start: number; items: ListItem[] }
   | { kind: "blockquote"; blocks: Block[] }
   | { kind: "table"; header: Inline[][]; align: Align[]; rows: Inline[][][] }
@@ -289,9 +289,11 @@ function parseLines(lines: string[]): Block[] {
       const closer = marker.charAt(0);
       const body: string[] = [];
       i += 1;
+      let closed = false;
       while (i < lines.length) {
         const t = (lines[i] ?? "").trim();
         if (t.length >= 3 && t === closer.repeat(t.length)) {
+          closed = true;
           i += 1;
           break;
         }
@@ -301,7 +303,9 @@ function parseLines(lines: string[]): Block[] {
       const code = body.join("\n");
       const lang = name === "" ? null : name.toLowerCase();
       const spec = lang === "ui" ? parseWidget(code) : null;
-      blocks.push(spec ? { kind: "widget", spec } : { kind: "code", lang, code });
+      // A still-streaming ui block is just unfinished, not invalid.
+      const invalid = lang === "ui" && closed && !spec;
+      blocks.push(spec ? { kind: "widget", spec } : { kind: "code", lang, code, invalid });
       continue;
     }
 

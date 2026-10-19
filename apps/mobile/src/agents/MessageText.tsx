@@ -63,7 +63,7 @@ function BlockView({ block, body }: { block: Block; body: BodySize }) {
   const colors = useColors();
   switch (block.kind) {
     case "code":
-      return <CodeBlock code={block.code} lang={block.lang} />;
+      return <CodeBlock code={block.code} lang={block.lang} invalid={block.invalid} />;
     case "hr":
       return <View style={{ height: 1, backgroundColor: colors.hairline, marginVertical: spacing.xs }} />;
     case "heading": {
