@@ -113,15 +113,6 @@ export class RelayServer {
   /** Returns the bound port. */
   start(): number {
     if (this.server !== null) throw new Error("already started");
-    const agents = this.deps.agents;
-    if (agents !== null) {
-      agents.start();
-      this.agentsTracker.seed(agents.sessions);
-      this.deps.notifier?.seed(agents.sessions);
-      agents.onChange = (change) => {
-        this.handleProviderChange(change);
-      };
-    }
     const drops = this.deps.drops;
     if (drops !== null) {
       drops.onChange = (change) => {
@@ -176,6 +167,17 @@ export class RelayServer {
       },
     });
     this.server = server;
+    // The port is the single-instance lock: claim the agent socket only after it binds, or a
+    // second host that loses the port would first unlink the live host's socket.
+    const agents = this.deps.agents;
+    if (agents !== null) {
+      agents.start();
+      this.agentsTracker.seed(agents.sessions);
+      this.deps.notifier?.seed(agents.sessions);
+      agents.onChange = (change) => {
+        this.handleProviderChange(change);
+      };
+    }
     return server.port ?? this.config.port;
   }
 
