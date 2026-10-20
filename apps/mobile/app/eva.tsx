@@ -6,29 +6,30 @@
  * opens a sheet to pick library photos or paste a clipboard image; queued images show as
  * thumbnails above the field. Bubbles stack their images above the text, tap to open.
  *
- * Look (after OpenAI's Dots chat): no title; the agent's avatar ring and name chip float at the
- * top centre over a list that blurs and fades beneath them (tapping them opens a menu); the user's
+ * Look (after OpenAI's Dots chat): no title; the agent's avatar ring and name chip occupy a
+ * dedicated header above the scrolling conversation (tapping them opens a menu); the user's
  * words are blue bubbles on the right with a delivery receipt, Eva's replies are dark grey bubbles
- * on the left with a typing bubble while she works; the composer is a floating pill the list
- * scrolls under, which grows into a card once there is text.
+ * on the left with a typing bubble while she works. The rounded composer keeps multiline text
+ * above a persistent row of attachment, dictation and send controls. Dictation fills the draft.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActionSheetIOS, FlatList, Keyboard, KeyboardAvoidingView, Pressable, StyleSheet, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
+import { ActionSheetIOS, FlatList, Keyboard, KeyboardAvoidingView, Pressable, StyleSheet, TextInput, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
+import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from "expo-speech-recognition";
+import Animated, { FadeIn, FadeOut, ReduceMotion, useReducedMotion } from "react-native-reanimated";
+import { SymbolView } from "expo-symbols";
 import { MAX_REPLY_IMAGES, type AssistantMessage } from "@relay/protocol";
 import { AttachmentTray } from "@/ui/AttachmentTray";
 import { AvatarRing, NAME_PILL_GAP, NAME_PILL_HEIGHT, RING_SIZE } from "@/ui/AvatarRing";
 import { Banner } from "@/ui/Banner";
 import { Callout } from "@/ui/Callout";
-import { EdgeFade } from "@/ui/EdgeFade";
 import { EmptyState } from "@/ui/EmptyState";
 import { ExpandableContent } from "@/ui/ExpandableContent";
-import { FloatingPill, FloatingPillInput, PILL_HEIGHT } from "@/ui/FloatingPill";
 import { IconButton } from "@/ui/IconButton";
 import { SignInCard } from "@/ui/SignInCard";
 import { Text } from "@/ui/Text";
-import { TopBlur } from "@/ui/TopBlur";
+import { MessageAppearance } from "@/ui/MessageAppearance";
 import { TypingBubble } from "@/ui/TypingBubble";
 import { ImageViewer } from "@/agents/ImageViewer";
 import { MarkdownImages } from "@/agents/MarkdownImages";
@@ -48,17 +49,13 @@ const BOTTOM_STICK_PX = 80;
 /** Id of the row echoing a sent turn before the host's snapshot lists it. */
 const PENDING_ID = "pending-turn";
 /** Name on the chip under the avatar ring. */
-const AGENT_NAME = "Eva";
+const AGENT_NAME = "Astra";
 /** The avatar ring starts this far below the status bar. */
 const HEADER_TOP = 2;
 /** Space below the status bar that the avatar ring and its name pill take. */
 const HEADER_HEIGHT = HEADER_TOP + RING_SIZE + NAME_PILL_GAP + NAME_PILL_HEIGHT;
 /** The oldest rows start this far below the header, so they open clear of the avatar. */
 const HEADER_GAP = 8;
-/** The blur and the dark gradient end at the ring's bottom edge. */
-const FADE_BELOW_INSET = HEADER_TOP + RING_SIZE;
-/** Opacity of the black gradient at the top edge of the blurred zone. */
-const FADE_STRENGTH = 0.9;
 /** Gap between the pill and the bottom safe area. */
 const COMPOSER_BOTTOM = spacing.md;
 /** An assistant bubble shows about 20 lines of text before "Show more". */
@@ -74,7 +71,7 @@ const GAP_SENDER = 16;
 const GAP_RUN = 4;
 /** Proportion of the width a bubble may take. */
 const USER_MAX_WIDTH = "80%";
-const EVA_MAX_WIDTH = "84%";
+const EVA_MAX_WIDTH = "100%";
 
 export default function Eva() {
   const colors = useColors();
@@ -85,11 +82,14 @@ export default function Eva() {
   const setPending = useAssistantStore((state) => state.setPending);
   const connected = useConnectionStore((state) => state.status === "connected");
   const [draft, setDraft] = useState("");
-  // The pill grows into a card only once the text needs a second line, as Dot's does.
-  const [wrapped, setWrapped] = useState(false);
+  const [listening, setListening] = useState(false);
+  const recording = useRef(false);
+  const dictationBase = useRef("");
+  const dictationFinal = useRef("");
+  const [inputHeight, setInputHeight] = useState(40);
   const [failure, setFailure] = useState<string | null>(null);
   // The composer floats over the list, so the list pads itself by however tall the composer is.
-  const [composerHeight, setComposerHeight] = useState(PILL_HEIGHT + COMPOSER_BOTTOM);
+  const [composerHeight, setComposerHeight] = useState(108 + COMPOSER_BOTTOM);
   // Images queued on the composer, sent with the next turn.
   const [photos, setPhotos] = useState<Photo[]>([]);
   // The images of the tapped bubble, open in the full-screen viewer.
@@ -97,7 +97,85 @@ export default function Eva() {
   const listRef = useRef<FlatList<AssistantMessage>>(null);
   // The list's scroll offset (0 is the newest message, the visual bottom), for anchoring "Show more".
   const offsetRef = useRef(0);
+  const following = useRef(true);
+  const draggingList = useRef(false);
+  const scrollingToBottom = useRef(false);
+  const followFrame = useRef<number | null>(null);
+  const [awayFromBottom, setAwayFromBottom] = useState(false);
+  const reducedMotion = useReducedMotion();
+  const knownMessages = useRef(new Set(snapshot?.messages.map((message) => message.id) ?? []));
+  const loadedHistory = useRef(snapshot !== null);
+  useEffect(() => {
+    if (snapshot === null) return;
+    loadedHistory.current = true;
+    for (const message of snapshot.messages) knownMessages.current.add(message.id);
+    if (pending !== null) knownMessages.current.add(PENDING_ID);
+    else knownMessages.current.delete(PENDING_ID);
+  }, [snapshot, pending]);
+  useEffect(() => () => {
+    if (followFrame.current !== null) cancelAnimationFrame(followFrame.current);
+  }, []);
   const viewerImages = useMemo(() => (viewing === null ? null : viewing.uris.map((uri) => ({ uri }))), [viewing]);
+
+  useSpeechRecognitionEvent("result", (event) => {
+    if (!recording.current) return;
+    const transcript = event.results[0]?.transcript ?? "";
+    setDraft([dictationBase.current, dictationFinal.current, transcript].filter(Boolean).join(" "));
+    if (event.isFinal) {
+      dictationFinal.current = [dictationFinal.current, transcript].filter(Boolean).join(" ");
+    }
+  });
+  useSpeechRecognitionEvent("end", () => {
+    recording.current = false;
+    setListening(false);
+  });
+  useSpeechRecognitionEvent("error", (event) => {
+    if (!recording.current) return;
+    recording.current = false;
+    setListening(false);
+    if (event.error !== "aborted") setFailure(event.message || "Couldn't start dictation.");
+  });
+  const focused = useRef(false);
+  const requestingMic = useRef(false);
+  useFocusEffect(useCallback(() => {
+    focused.current = true;
+    return () => {
+      focused.current = false;
+      if (recording.current) ExpoSpeechRecognitionModule.abort();
+      recording.current = false;
+      setListening(false);
+    };
+  }, []));
+
+  const dictate = async (): Promise<void> => {
+    if (recording.current) {
+      ExpoSpeechRecognitionModule.stop();
+      return;
+    }
+    if (requestingMic.current) return;
+    requestingMic.current = true;
+    Keyboard.dismiss();
+    setFailure(null);
+    try {
+      if (!ExpoSpeechRecognitionModule.isRecognitionAvailable()) throw new Error("Speech recognition is unavailable.");
+      const permission = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      if (!focused.current) return;
+      if (!permission.granted) throw new Error("Allow microphone and speech recognition access in Settings to dictate.");
+      dictationBase.current = draft.trim();
+      dictationFinal.current = "";
+      recording.current = true;
+      setListening(true);
+      ExpoSpeechRecognitionModule.start({
+        lang: "en-US", interimResults: true, continuous: true, addsPunctuation: true, iosTaskHint: "dictation",
+      });
+    } catch (error) {
+      recording.current = false;
+      setListening(false);
+      setFailure(error instanceof Error ? error.message : "Couldn't start dictation.");
+    } finally {
+      requestingMic.current = false;
+    }
+  };
 
   // The thread is fetched only while this screen shows; the driver re-asks on every welcome in between.
   useFocusEffect(
@@ -109,19 +187,34 @@ export default function Eva() {
     }, []),
   );
 
-  /** Always back to the newest message, whether or not the list was pinned there. */
+  /** Explicit navigation resumes following; streaming never takes ownership from a reader. */
   const scrollToBottom = useCallback(() => {
-    listRef.current?.scrollToOffset({ offset: 0, animated: true });
+    following.current = true;
+    setAwayFromBottom(false);
+    scrollingToBottom.current = true;
+    draggingList.current = false;
+    listRef.current?.scrollToOffset({ offset: 0, animated: !reducedMotion });
+  }, [reducedMotion]);
+
+  const followContent = useCallback(() => {
+    if (!following.current || draggingList.current) return;
+    if (followFrame.current !== null) cancelAnimationFrame(followFrame.current);
+    followFrame.current = requestAnimationFrame(() => {
+      followFrame.current = null;
+      if (following.current && !draggingList.current) {
+        listRef.current?.scrollToOffset({ offset: 0, animated: false });
+      }
+    });
   }, []);
 
-  // Sending adds the echo row; scroll once it has laid out.
-  useEffect(() => {
-    if (pending === null) return;
-    const frame = requestAnimationFrame(scrollToBottom);
-    return () => {
-      cancelAnimationFrame(frame);
-    };
-  }, [pending, scrollToBottom]);
+  const observeScroll = (event: NativeSyntheticEvent<NativeScrollEvent>): void => {
+    offsetRef.current = Math.max(0, event.nativeEvent.contentOffset.y);
+    // Layout anchoring can move an inverted list's offset. Only a reader gesture unpins it.
+    if (!draggingList.current) return;
+    const near = offsetRef.current <= BOTTOM_STICK_PX;
+    following.current = near;
+    setAwayFromBottom(!near);
+  };
 
   /** "Show more" grew a bubble by `growth`: move the offset with it so the clamp stays where it was on screen. */
   const anchorExpanded = useCallback((growth: number) => {
@@ -131,7 +224,7 @@ export default function Eva() {
   }, []);
 
   const text = draft.trim();
-  const canSend = connected && (text !== "" || photos.length > 0);
+  const canSend = connected && !listening && (text !== "" || photos.length > 0);
   const full = photos.length >= MAX_REPLY_IMAGES;
 
   const attach = (source: "camera" | "library" | "clipboard"): void => {
@@ -180,6 +273,8 @@ export default function Eva() {
   const rows: AssistantMessage[] =
     pending === null ? messages : [...messages, { id: PENDING_ID, role: "user", text: pending.text, at: Date.now() }];
   const newestFirst = [...rows].reverse();
+  // Capture membership before effects run; FlatList may render its cells asynchronously.
+  const enteringMessages = new Set(rows.filter((message) => loadedHistory.current && !knownMessages.current.has(message.id)).map((message) => message.id));
   const busy = snapshot?.busy === true;
 
   // Only the newest user message carries a receipt: Sending while its echo is pending, Seen once
@@ -189,7 +284,6 @@ export default function Eva() {
 
   const dark = useScheme() === "dark";
   const bg = dark ? BG_DARK : colors.bg;
-  const topZone = insets.top + FADE_BELOW_INSET;
   const listTop = insets.top + HEADER_HEIGHT + HEADER_GAP;
 
   const onComposerLayout = (event: LayoutChangeEvent): void => {
@@ -255,17 +349,18 @@ export default function Eva() {
           ) : (
             <FlatList
               ref={listRef}
-              style={styles.fill}
+              style={[styles.fill, { marginTop: listTop }]}
               data={newestFirst}
               inverted
               keyExtractor={(message) => message.id}
               extraData={`${latestUserId ?? ""}|${receipt ?? ""}`}
               renderItem={({ item, index }) => (
                 // Inverted: the next index is the older row above this one, and a row's top margin is the space above it.
-                <View style={{ marginTop: gapAbove(item, newestFirst[index + 1]) }}>
+                <MessageAppearance animate={enteringMessages.has(item.id)} user={item.role === "user"} gap={gapAbove(item, newestFirst[index + 1])}>
                   <Row
                     message={item}
                     receipt={item.id === latestUserId ? receipt : null}
+                    streaming={busy && index === 0 && item.role === "assistant"}
                     sessionId={sessionId}
                     local={item.id === PENDING_ID ? pending?.images : undefined}
                     onOpenImages={(uris, start) => {
@@ -274,24 +369,38 @@ export default function Eva() {
                     onExpanded={anchorExpanded}
                     onSignIn={openSignIn}
                   />
-                </View>
+                </MessageAppearance>
               )}
               // Inverted: the header sits at the visual bottom, below the newest row.
-              ListHeaderComponent={busy ? <TypingRow gap={newestFirst[0]?.role === "user" ? GAP_SENDER : GAP_RUN} /> : null}
-              // Inverted: the top padding is the visual bottom (above the composer), the bottom
-              // padding the visual top (below the avatar).
-              contentContainerStyle={{ paddingTop: composerHeight + spacing.md, paddingBottom: listTop }}
-              maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: BOTTOM_STICK_PX }}
-              onScroll={(event: NativeSyntheticEvent<NativeScrollEvent>) => {
-                offsetRef.current = event.nativeEvent.contentOffset.y;
+              ListHeaderComponent={busy ? <TypingRow streaming={newestFirst[0]?.role === "assistant"} gap={newestFirst[0]?.role === "user" ? GAP_SENDER : GAP_RUN} /> : null}
+              // Inverted: reserve room at the visual bottom for the floating composer.
+              contentContainerStyle={{ paddingTop: composerHeight + spacing.md }}
+              maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+              onContentSizeChange={followContent}
+              onScroll={observeScroll}
+              onScrollBeginDrag={() => { scrollingToBottom.current = false; draggingList.current = true; }}
+              onScrollEndDrag={(event) => { observeScroll(event); draggingList.current = false; }}
+              onMomentumScrollBegin={() => { if (!scrollingToBottom.current) draggingList.current = true; }}
+              onMomentumScrollEnd={(event) => {
+                if (!scrollingToBottom.current) observeScroll(event);
+                scrollingToBottom.current = false;
+                draggingList.current = false;
               }}
               scrollEventThrottle={16}
               keyboardDismissMode="interactive"
               keyboardShouldPersistTaps="handled"
             />
           )}
-          <TopBlur height={topZone} />
-          <EdgeFade color={bg} height={topZone} strength={FADE_STRENGTH} solid={0} />
+          {awayFromBottom && (
+            <Animated.View entering={FadeIn.duration(180).reduceMotion(ReduceMotion.System)} exiting={FadeOut.duration(160).reduceMotion(ReduceMotion.System)}
+              style={[styles.jump, { bottom: composerHeight + spacing.sm }]}>
+              <Pressable accessibilityRole="button" accessibilityLabel="Scroll to bottom" onPress={scrollToBottom}
+                style={({ pressed }) => [styles.jumpButton, { backgroundColor: colors.surfaceRaised, borderColor: colors.hairline, opacity: pressed ? 0.8 : 1 }]}>
+                <SymbolView name="arrow.down" size={16} tintColor={colors.text} />
+                <Text style={styles.jumpLabel}>Scroll to bottom</Text>
+              </Pressable>
+            </Animated.View>
+          )}
           <View pointerEvents="box-none" style={[styles.header, { top: insets.top + HEADER_TOP }]}>
             <Pressable
               accessibilityRole="button"
@@ -317,16 +426,7 @@ export default function Eva() {
             </View>
           )}
           <View style={styles.pillRow}>
-            <FloatingPill
-              expanded={photos.length > 0 || (wrapped && text !== "")}
-              leading={
-                <AttachButton
-                  onPress={openAttach}
-                  disabled={!connected}
-                />
-              }
-              trailing={text === "" && photos.length === 0 ? <DictateButton /> : <SendButton onPress={send} disabled={!canSend} />}
-            >
+            <View style={[styles.composerCard, { backgroundColor: dark ? BUBBLE_DARK : colors.surface, borderColor: colors.hairline }]}>
               {photos.length > 0 && (
                 <View style={styles.tray}>
                   <AttachmentTray
@@ -337,19 +437,30 @@ export default function Eva() {
                   />
                 </View>
               )}
-              <FloatingPillInput
+              <TextInput
                 value={draft}
                 onChangeText={setDraft}
-                onLines={(lines) => {
-                  setWrapped(lines > 1);
+                onFocus={followContent}
+                placeholder={listening ? "Listening…" : connected ? "Message Eva" : "Not connected"}
+                editable={connected && !listening}
+                multiline
+                keyboardAppearance={dark ? "dark" : "light"}
+                placeholderTextColor={colors.textMuted}
+                selectionColor={colors.accent}
+                onContentSizeChange={(event) => {
+                  setInputHeight(Math.max(40, Math.min(128, Math.ceil(event.nativeEvent.contentSize.height))));
                 }}
-                onFocus={scrollToBottom}
-                placeholder={connected ? "Message" : "Not connected"}
-                editable={connected}
-                tall={wrapped && text !== ""}
+                style={[styles.composerInput, { height: inputHeight, color: colors.text }]}
                 accessibilityLabel="Message Eva"
               />
-            </FloatingPill>
+              <View style={styles.composerToolbar}>
+                <AttachButton onPress={openAttach} disabled={!connected || listening} />
+                <View style={styles.composerActions}>
+                  <DictateButton onPress={() => { void dictate(); }} active={listening} disabled={!connected} />
+                  <SendButton onPress={send} disabled={!canSend} />
+                </View>
+              </View>
+            </View>
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -375,46 +486,26 @@ function BackButton({ onPress }: { onPress: () => void }) {
   );
 }
 
-/** "+" at the pill's left: opens the attach sheet. */
+/** Composer actions stay visible in the bottom row, including the disabled send arrow. */
 function AttachButton({ onPress, disabled }: { onPress: () => void; disabled: boolean }) {
-  return <IconButton symbol="plus" size={32} glyphSize={22} onPress={onPress} disabled={disabled} backgroundColor="transparent" accessibilityLabel="Attach image" />;
+  const colors = useColors();
+  return <IconButton symbol="plus" size={44} glyphSize={24} onPress={onPress} disabled={disabled}
+    backgroundColor={colors.hairline} accessibilityLabel="Attach image" />;
 }
 
-/** Mic at the pill's right while the field is empty. Dictation is not wired here yet. */
-function DictateButton() {
-  return (
-    <IconButton
-      symbol="mic"
-      size={32}
-      glyphSize={21}
-      onPress={noop}
-      disabled
-      disabledOpacity={0.8}
-      backgroundColor="transparent"
-      accessibilityLabel="Dictate, coming soon"
-    />
-  );
+function DictateButton({ onPress, active, disabled }: { onPress: () => void; active: boolean; disabled: boolean }) {
+  const colors = useColors();
+  return <IconButton symbol={active ? "stop.fill" : "mic"} size={44} glyphSize={21} onPress={onPress} disabled={disabled}
+    backgroundColor={active ? colors.accent : colors.hairline}
+    accessibilityLabel={active ? "Stop dictation" : "Dictate message"} />;
 }
 
-/** Filled round arrow that replaces the mic once there is text: user-bubble blue with a white arrow. */
 function SendButton({ onPress, disabled }: { onPress: () => void; disabled: boolean }) {
   const colors = useColors();
-  return (
-    <IconButton
-      symbol="arrow.up"
-      size={32}
-      glyphSize={16}
-      onPress={onPress}
-      disabled={disabled}
-      backgroundColor={colors.bubbleUser}
-      tintColor="#FFFFFF"
-      accessibilityLabel="Send"
-    />
-  );
+  return <IconButton symbol="arrow.up" size={44} glyphSize={21} onPress={onPress} disabled={disabled} disabledOpacity={0.8}
+    backgroundColor={disabled ? colors.hairline : colors.bubbleUser}
+    tintColor={disabled ? colors.textMuted : "#FFFFFF"} accessibilityLabel="Send" />;
 }
-
-/** The dictate button is disabled; this only satisfies the required `onPress`. */
-const noop = (): undefined => undefined;
 
 /** Space above a row: the sender gap when the row above (older) is by someone else, the run gap when it is by the same one. */
 function gapAbove(message: AssistantMessage, above: AssistantMessage | undefined): number {
@@ -427,10 +518,10 @@ function senderOf(message: AssistantMessage): "user" | "status" | "eva" {
 }
 
 /** The typing bubble, as the newest row while Eva is working. */
-function TypingRow({ gap }: { gap: number }) {
+function TypingRow({ gap, streaming }: { gap: number; streaming: boolean }) {
   return (
     <View style={[styles.evaRow, { marginTop: gap }]}>
-      <TypingBubble />
+      <TypingBubble streaming={streaming} />
     </View>
   );
 }
@@ -438,6 +529,7 @@ function TypingRow({ gap }: { gap: number }) {
 interface RowProps {
   message: AssistantMessage;
   receipt: string | null;
+  streaming: boolean;
   /** The omp session the thread runs in, for fetching image bytes; null while Eva is not running. */
   sessionId: string | null;
   /** The echoed turn's images, still on the phone; shown instead of the message's host refs. */
@@ -449,10 +541,12 @@ interface RowProps {
   onSignIn: (messageId: string, signin: NonNullable<AssistantMessage["signin"]>) => void;
 }
 
-function Row({ message, receipt, sessionId, local, onOpenImages, onExpanded, onSignIn }: RowProps) {
+function Row({ message, receipt, streaming, sessionId, local, onOpenImages, onExpanded, onSignIn }: RowProps) {
   const signedIn = useAssistantStore((state) => state.signedIn[message.id] === true);
   const colors = useColors();
-  const bubbleFill = useScheme() === "dark" ? BUBBLE_DARK : colors.surface;
+  const bubbleFill = colors.surface;
+  const streamed = useRef(streaming);
+  if (streaming) streamed.current = true;
   const hasText = message.text !== "";
   const imageCount = local !== undefined ? local.length : (message.images?.length ?? 0);
   // Images stack above the text, left or right with the bubble.
@@ -511,10 +605,12 @@ function Row({ message, receipt, sessionId, local, onOpenImages, onExpanded, onS
             </View>
           )}
           {showBubble && (
-            <View style={[styles.evaBubble, { backgroundColor: bubbleFill }]}>
-              <ExpandableContent maxHeight={BUBBLE_MAX_HEIGHT} fadeHeight={BUBBLE_FADE_HEIGHT} fadeColor={bubbleFill} onExpanded={onExpanded}>
-                <MessageText text={message.text} large skipImages />
-              </ExpandableContent>
+            <View style={[styles.evaBubble, { backgroundColor: bubbleFill, borderColor: colors.hairline }]}>
+              {streamed.current ? <MessageText text={message.text} large skipImages streaming={streaming} /> : (
+                <ExpandableContent maxHeight={BUBBLE_MAX_HEIGHT} fadeHeight={BUBBLE_FADE_HEIGHT} fadeColor={bubbleFill} onExpanded={onExpanded}>
+                  <MessageText text={message.text} large skipImages />
+                </ExpandableContent>
+              )}
             </View>
           )}
         </View>
@@ -556,12 +652,19 @@ const styles = StyleSheet.create({
   evaRow: { paddingHorizontal: spacing.lg },
   tiles: { alignItems: "flex-start" },
   tilesAboveCaption: { marginBottom: GAP_RUN },
-  evaBubble: { alignSelf: "flex-start", maxWidth: EVA_MAX_WIDTH, borderRadius: 24, padding: 16 },
+  evaBubble: { alignSelf: "flex-start", maxWidth: EVA_MAX_WIDTH, borderRadius: 24, borderWidth: StyleSheet.hairlineWidth, padding: 16 },
   card: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.lg, padding: spacing.md, gap: spacing.sm },
   status: { textAlign: "center", paddingHorizontal: spacing.xxxl, fontWeight: "400" },
   composer: { paddingBottom: COMPOSER_BOTTOM },
   banner: { paddingBottom: spacing.sm },
   pillRow: { paddingHorizontal: spacing.lg },
+  composerActions: { flexDirection: "row", gap: spacing.sm },
+  composerCard: { borderRadius: 28, borderWidth: StyleSheet.hairlineWidth, padding: 10, gap: 4 },
+  composerInput: { fontSize: 17, lineHeight: 22, paddingTop: 4, paddingBottom: 4, paddingHorizontal: 6, textAlignVertical: "top" },
+  composerToolbar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  jump: { position: "absolute", right: spacing.lg },
+  jumpButton: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: spacing.sm, borderWidth: StyleSheet.hairlineWidth, borderRadius: 22, paddingHorizontal: spacing.md },
+  jumpLabel: { fontSize: 13, lineHeight: 18 },
   menuTitle: { textAlign: "center", paddingBottom: spacing.md },
   menuRows: { marginHorizontal: -spacing.xl },
   imagesAbove: { marginBottom: spacing.xs },

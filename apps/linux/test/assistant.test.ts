@@ -32,7 +32,7 @@ class FakeClock implements SessionClock {
   }
 }
 
-const eva = (status: AgentSession["status"]): AgentSession => ({ id: "eva-1", provider: "omp", title: "Eva", projectPath: "/home/ike/Eva", status, lastActivity: "", lastActivityAt: 1, canRespond: true, kind: "assistant" });
+const astra = (status: AgentSession["status"]): AgentSession => ({ id: "eva-1", provider: "omp", title: "Astra", projectPath: "/home/ike/Eva", status, lastActivity: "", lastActivityAt: 1, canRespond: true, kind: "assistant" });
 const other: AgentSession = { id: "s1", provider: "omp", title: "relay", projectPath: "/w/relay", status: "working", lastActivity: "", lastActivityAt: 2, canRespond: true, kind: "manual" };
 
 /** Just enough of the provider: the session list, a conversation per session, and recorded replies. */
@@ -157,9 +157,9 @@ function harness(options: { prime?: string; remembered?: string; history?: strin
     log: (line) => logs.push(line),
     spawn: fill.spawn,
   });
-  /** Eva registers: the provider lists her and reports the session change. */
+  /** Astra registers: the provider lists her and reports the session change. */
   const register = (status: AgentSession["status"], sessionFile?: string): void => {
-    agents.sessions = [other, eva(status)];
+    agents.sessions = [other, astra(status)];
     if (sessionFile !== undefined) files.set("eva-1", sessionFile);
     service.observe({ kind: "sessions" });
   };
@@ -177,31 +177,42 @@ const flush = (): Promise<void> => {
 describe("toAssistantMessages", () => {
   it("keeps user and assistant rows and drops tool rows, system rows, job lines and the prime", () => {
     const rows: AgentMessage[] = [
-      { id: "p", role: "user", text: "You are Eva.", at: 1 },
+      { id: "p", role: "user", text: "You are Astra.", at: 1 },
       { id: "u1", role: "user", text: "morning", at: 2 },
       { id: "a1", role: "assistant", text: "", at: 3, streaming: true },
       { id: "t1", role: "tool", text: "ls", at: 4, tool: { name: "bash", summary: "ls" } },
       { id: "s1", role: "system", text: "injected", at: 5 },
       { id: "j1", role: "user", text: `${STATUS_PREFIX}furry-drop finished`, at: 6 },
       { id: "a2", role: "assistant", text: "The furry-drop run is done.", at: 7 },
-      { id: "u2", role: "user", text: "You are Eva.", at: 8 },
+      { id: "u2", role: "user", text: "You are Astra.", at: 8 },
     ];
-    expect(toAssistantMessages(rows, "You are Eva.")).toEqual([
+    expect(toAssistantMessages(rows, "You are Astra.")).toEqual([
       { id: "u1", role: "user", text: "morning", at: 2 },
       { id: "a2", role: "assistant", text: "The furry-drop run is done.", at: 7 },
-      { id: "u2", role: "user", text: "You are Eva.", at: 8 },
+      { id: "u2", role: "user", text: "You are Astra.", at: 8 },
     ]);
-    expect(toAssistantMessages(rows.slice(0, 1), null)).toEqual([{ id: "p", role: "user", text: "You are Eva.", at: 1 }]);
+    expect(toAssistantMessages(rows.slice(0, 1), null)).toEqual([{ id: "p", role: "user", text: "You are Astra.", at: 1 }]);
+  });
+
+  it("hides the pre-rename Eva prime and background-job prefix from stored history", () => {
+    const rows: AgentMessage[] = [
+      { id: "p", role: "user", text: "You are Eva, Isaac's personal assistant, in your one continuous thread with him.", at: 1 },
+      { id: "j", role: "user", text: "[From Eva's background jobs] old heartbeat", at: 2 },
+      { id: "u", role: "user", text: "hello Astra", at: 3 },
+    ];
+    expect(toAssistantMessages(rows, "You are Astra, Isaac's personal assistant.\n")).toEqual([
+      { id: "u", role: "user", text: "hello Astra", at: 3 },
+    ]);
   });
 });
 
 describe("AssistantService snapshot", () => {
-  it("is empty and idle without a live Eva, and busy with her mapped transcript while she works", async () => {
-    const h = harness({ prime: "You are Eva.\n" });
+  it("is empty and idle without a live Astra, and busy with her mapped transcript while she works", async () => {
+    const h = harness({ prime: "You are Astra.\n" });
     expect(await h.service.snapshot()).toEqual({ rev: 0, messages: [], busy: false, sessionId: "" });
     h.register("working");
     h.agents.transcript = [
-      { id: "p", role: "user", text: "You are Eva.", at: 1 },
+      { id: "p", role: "user", text: "You are Astra.", at: 1 },
       { id: "u1", role: "user", text: "hi", at: 2 },
       { id: "a1", role: "assistant", text: "hello", at: 3 },
     ];
@@ -360,8 +371,8 @@ describe("AssistantService changes", () => {
     h.service.observe({ kind: "conversation", sessionId: "eva-1", appended: [{ id: "a3", role: "assistant", text: "x".repeat(200), at: 2 }] });
     await flush();
     expect(h.pushes.map((push) => [push.to, push.title, push.body, push.data, push.interruptionLevel])).toEqual([
-      ["ExponentPushToken[one]", "Eva", "On it, the run finished fine.", { assistant: true }, undefined],
-      ["ExponentPushToken[one]", "Eva", `${"x".repeat(179)}…`, { assistant: true }, undefined],
+      ["ExponentPushToken[one]", "Astra", "On it, the run finished fine.", { assistant: true }, undefined],
+      ["ExponentPushToken[one]", "Astra", `${"x".repeat(179)}…`, { assistant: true }, undefined],
     ]);
   });
 

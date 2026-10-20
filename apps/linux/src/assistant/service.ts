@@ -24,9 +24,11 @@ import type { SessionClock } from "../session";
 import { type FillSpawn, runFill, signinHost, splitSignin } from "./signin";
 import type { AssistantStore } from "./store";
 
-/** A turn from the host's jobs rather than from Isaac; the thread hides it (and Eva's silent answer to it). */
-export const STATUS_PREFIX = "[From Eva's background jobs] ";
-/** What Eva answers when a job line needs nothing from Isaac; the host hides the reply. */
+/** A turn from the host's jobs rather than from Isaac; the thread hides it (and Astra's silent answer to it). */
+export const STATUS_PREFIX = "[From Astra's background jobs] ";
+const LEGACY_STATUS_PREFIX = "[From Eva's background jobs] ";
+const LEGACY_PRIME_START = "You are Eva, Isaac's personal assistant";
+/** What Astra answers when a job line needs nothing from Isaac; the host hides the reply. */
 export const SILENCE_MARKER = "(nothing to report)";
 
 /** Whether `text` is exactly the silence marker. */
@@ -36,11 +38,11 @@ export function isSilent(text: string): boolean {
 
 /** Where the persona for a brand-new thread is read from, under the agent home. */
 export const PRIME_FILE = join(".omp", "assistant", "prime.md");
-export const PUSH_TITLE = "Eva";
+export const PUSH_TITLE = "Astra";
 export const MAX_PUSH_BODY = 180;
 /** Streaming updates arrive every ~120 ms; snapshots go out at most this often. */
 export const SNAPSHOT_DEBOUNCE_MS = 150;
-/** How long a launched Eva has to register (and, for a primed thread, to take the prime) before the turn fails. */
+/** How long a launched Astra has to register (and, for a primed thread, to take the prime) before the turn fails. */
 export const REGISTER_TIMEOUT_MS = 30_000;
 
 export interface AssistantServiceDeps {
@@ -49,7 +51,7 @@ export interface AssistantServiceDeps {
   readonly launch: (options: LaunchOptions) => Promise<void>;
   /** The transcript file of a live session, when omp reported one. */
   readonly sessionFile: (sessionId: string) => string | null;
-  /** Where Eva runs and where her prime lives; null when the host has no `--agent-home`. */
+  /** Where Astra runs and where her prime lives; null when the host has no `--agent-home`. */
   readonly agentHome: string | null;
   readonly store: AssistantStore;
   readonly tokens: PushTokenSource & { unregister(deviceId: string): void };
@@ -65,11 +67,10 @@ export interface AssistantServiceDeps {
 }
 
 /**
- * The thread as the phone shows it: Isaac's turns and Eva's replies. Left out: tool rows, omp's
- * synthetic system rows, the host's job lines (`STATUS_PREFIX`: machinery, never shown), the
- * persona prime (the first user turn, when it is one, in this or an older revision), a reply with
- * nothing to show (still empty while streaming, or a prime turn that only ran tools) and the
- * silence marker, whole or still streaming in.
+ * The thread as the phone shows it: Isaac's turns and Astra's replies. Left out: tool rows, omp's
+ * synthetic system rows, the host's job lines (current and legacy prefixes), the persona prime
+ * (including the pre-rename Eva prime), a reply with nothing to show (still empty while streaming,
+ * or a prime turn that only ran tools) and the silence marker, whole or still streaming in.
  */
 export function toAssistantMessages(messages: readonly AgentMessage[], prime: string | null): AssistantMessage[] {
   const out: AssistantMessage[] = [];
@@ -77,10 +78,13 @@ export function toAssistantMessages(messages: readonly AgentMessage[], prime: st
   for (const message of messages) {
     const images = message.images === undefined || message.images.length === 0 ? {} : { images: message.images };
     if (message.role === "user") {
-      // An earlier context's prime may predate an edit of prime.md: its opening paragraph still matches.
-      const isPrime = firstUser && prime !== null && (message.text.trim() === prime || message.text.startsWith(prime.split("\n", 1)[0] ?? prime));
+      // Earlier contexts may predate edits of prime.md or Astra's rename.
+      const isPrime =
+        firstUser &&
+        ((prime !== null && (message.text.trim() === prime || message.text.startsWith(prime.split("\n", 1)[0] ?? prime))) ||
+          message.text.startsWith(LEGACY_PRIME_START));
       firstUser = false;
-      if (isPrime || message.text.startsWith(STATUS_PREFIX)) continue;
+      if (isPrime || message.text.startsWith(STATUS_PREFIX) || message.text.startsWith(LEGACY_STATUS_PREFIX)) continue;
       out.push({ id: message.id, role: "user", text: message.text, at: message.at, ...images });
     } else if (message.role === "assistant" && (message.text.length > 0 || "images" in images)) {
       const trimmed = message.text.trim();
@@ -93,7 +97,7 @@ export function toAssistantMessages(messages: readonly AgentMessage[], prime: st
   return out;
 }
 
-/** What a launched Eva must report before a turn goes in: just a session, or the prime underway. */
+/** What a launched Astra must report before a turn goes in: just a session, or the prime underway. */
 interface Starting {
   readonly primed: boolean;
   readonly resolve: (session: AgentSession) => void;
@@ -290,7 +294,7 @@ export class AssistantService implements AssistantRelaying {
     const { promise, resolve, reject } = Promise.withResolvers<AgentSession>();
     const cancel = this.deps.clock.after(REGISTER_TIMEOUT_MS, () => {
       this.waiter = null;
-      reject(new AckFailure({ code: "agent_launch_failed", message: "Eva did not come up within 30 s" }));
+      reject(new AckFailure({ code: "agent_launch_failed", message: "Astra did not come up within 30 s" }));
     });
     this.waiter = { primed: prime !== null, resolve };
     try {

@@ -100,7 +100,7 @@ export default function Home() {
       <View style={styles.grid}>
         <Tile
           symbol="bubble.left.and.text.bubble.right"
-          title="Eva"
+          title="Astra"
           caption={evaCaption}
           size="wide"
           onPress={() => {

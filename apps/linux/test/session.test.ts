@@ -748,13 +748,13 @@ describe("assistant thread", () => {
       return Promise.resolve(this.snapshotValue);
     }
     turn(text: string, images?: readonly AgentImage[]): Promise<void> {
-      if (text === "fail") return Promise.reject(new AckFailure({ code: "agent_launch_failed", message: "Eva did not come up" }));
+      if (text === "fail") return Promise.reject(new AckFailure({ code: "agent_launch_failed", message: "Astra did not come up" }));
       this.turns.push(text);
       this.turnImages.push(images);
       return Promise.resolve();
     }
     say(text: string): Promise<void> {
-      return this.turn(`[From Eva's background jobs] ${text}`);
+      return this.turn(`[From Astra's background jobs] ${text}`);
     }
     readonly signins: string[][] = [];
     signin(messageId: string, url: string, username: string, password: string): Promise<void> {
@@ -799,7 +799,7 @@ describe("assistant thread", () => {
     expect(assistant.turns).toEqual(["what did the run do?"]);
     expect(h.sink.sent.slice(-2)).toEqual([
       { t: "ack", id: "t1" },
-      { t: "nack", id: "t2", error: { code: "agent_launch_failed", message: "Eva did not come up" } },
+      { t: "nack", id: "t2", error: { code: "agent_launch_failed", message: "Astra did not come up" } },
     ]);
   });
 

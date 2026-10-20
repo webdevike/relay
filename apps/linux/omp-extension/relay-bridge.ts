@@ -468,13 +468,13 @@ function jobRef(): JobRef | undefined {
 }
 const JOB = jobRef();
 /**
- * The relay host starts Eva's one long-lived assistant thread with `EVA_ASSISTANT=1`
+ * The relay host starts Astra's one long-lived assistant thread with `EVA_ASSISTANT=1`
  * (apps/linux/src/assistant/service.ts): it registers as kind "assistant" under the fixed title
- * "Eva", never as a job, and its transcript is seeded from the session file so a resumed thread
+ * "Astra", never as a job, and its transcript is seeded from the session file so a resumed thread
  * (`omp -r`) shows its history rather than starting blank on the phone.
  */
 const ASSISTANT = process.env["EVA_ASSISTANT"] === "1";
-const ASSISTANT_TITLE = "Eva";
+const ASSISTANT_TITLE = "Astra";
 /** Local wall-clock start, "HH:MM": the job's default title carries it so runs of one job tell apart. */
 const JOB_START = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
 
@@ -927,9 +927,9 @@ export default function relayBridge(pi: ExtensionAPI): void {
           // Submitted. A dictated transcript that already starts with "/" is a typed command; anything
           // else is offered to Jev, which rewrites it to `/command …` when the speaker named one and
           // otherwise hands it back unchanged (see routeVoiceCommand). Routing never blocks the reply.
-          // Eva's thread is conversation, not a command line: what Isaac says there goes in as said.
+          // Astra's thread is conversation, not a command line: what Isaac says there goes in as said.
           const text = frame.text.startsWith("/") || ASSISTANT ? frame.text : ((await routeVoiceCommand(pi.getCommands(), frame.text)) ?? frame.text);
-          // Eva's title is fixed, so her turns never need the editor path's auto title; keeping them
+          // Astra's title is fixed, so her turns never need the editor path's auto title; keeping them
           // off the editor also means a turn arriving while the prime is still being typed in
           // (see the initial prompt below) steers in behind it instead of replacing it.
           if (text.startsWith("/") || (pi.getSessionName() === undefined && !ASSISTANT)) {
@@ -1247,7 +1247,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
   /**
    * A resumed assistant thread (`omp -r <file>`) has its past turns on disk only: read them into
    * the transcript so the phone's thread carries on where it left off instead of starting blank.
-   * The file holds every entry ever written; Eva's thread is linear, so all of it is the thread.
+   * The file holds every entry ever written; Astra's thread is linear, so all of it is the thread.
    * The live `messages` stream appends behind these as the session goes on.
    */
   const seedHistory = (context: ExtensionContext): void => {

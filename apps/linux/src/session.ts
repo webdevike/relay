@@ -67,7 +67,7 @@ export interface SessionDeps {
   readonly screen: ScreenCapture;
   /** null when the host has no phone-escalation inbox; `inbox.*` frames are then ignored. */
   readonly inbox: InboxRelaying | null;
-  /** null when the host has no Eva thread; `assistant.get` then answers empty and `assistant.turn` nacks. */
+  /** null when the host has no Astra thread; `assistant.get` then answers empty and `assistant.turn` nacks. */
   readonly assistant: AssistantRelaying | null;
 }
 
@@ -732,7 +732,7 @@ export class ClientSession {
         return this.deps.agents.runGate(cmd);
       case "assistant.turn":
         if (this.deps.assistant === null) {
-          return Promise.reject(new AckFailure({ code: "agent_launch_failed", message: "this host has no Eva thread" }));
+          return Promise.reject(new AckFailure({ code: "agent_launch_failed", message: "this host has no Astra thread" }));
         }
         if (cmd.text.length === 0 && cmd.images === undefined) {
           return Promise.reject(new AckFailure({ code: "invalid_command", message: "turn has neither text nor images" }));
@@ -740,7 +740,7 @@ export class ClientSession {
         return this.deps.assistant.turn(cmd.text, cmd.images);
       case "assistant.signin":
         if (this.deps.assistant === null) {
-          return Promise.reject(new AckFailure({ code: "agent_launch_failed", message: "this host has no Eva thread" }));
+          return Promise.reject(new AckFailure({ code: "agent_launch_failed", message: "this host has no Astra thread" }));
         }
         return this.deps.assistant.signin(cmd.messageId, cmd.url, cmd.username, cmd.password);
     }

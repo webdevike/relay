@@ -292,7 +292,7 @@ async function assistantSay(positionals: string[]): Promise<void> {
     console.error(await response.text());
     process.exit(1);
   }
-  console.log("told Eva");
+  console.log("told Astra");
 }
 
 function isFile(path: string): boolean {
