@@ -299,7 +299,7 @@ export class AssistantService implements AssistantRelaying {
     this.waiter = { primed: prime !== null, resolve };
     try {
       await this.deps.launch({
-        env: { EVA_ASSISTANT: "1" },
+        env: { ASTRA_ASSISTANT: "1" },
         ...(resume === null ? {} : { resume }),
         ...(prime === null ? {} : { prompt: prime }),
       });

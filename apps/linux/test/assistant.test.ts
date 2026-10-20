@@ -302,7 +302,7 @@ describe("AssistantService turns", () => {
     const h = harness({ prime: "You are Eva.\n" });
     const turn = h.service.turn("hi");
     await flush();
-    expect(h.launches).toEqual([{ env: { EVA_ASSISTANT: "1" }, prompt: "You are Eva." }]);
+    expect(h.launches).toEqual([{ env: { ASTRA_ASSISTANT: "1" }, prompt: "You are Eva." }]);
     h.register("idle", "/sessions/eva.jsonl");
     await flush();
     expect(h.agents.replies).toEqual([]);
@@ -320,7 +320,7 @@ describe("AssistantService turns", () => {
     const h = harness({ prime: "You are Eva.", remembered: file });
     const turn = h.service.turn("back?");
     await flush();
-    expect(h.launches).toEqual([{ env: { EVA_ASSISTANT: "1" }, resume: file }]);
+    expect(h.launches).toEqual([{ env: { ASTRA_ASSISTANT: "1" }, resume: file }]);
     h.register("idle", file);
     await turn;
     expect(h.agents.replies).toEqual([["eva-1", "back?", true]]);
@@ -331,7 +331,7 @@ describe("AssistantService turns", () => {
     const first = h.service.turn("one");
     const second = h.service.turn("two");
     await flush();
-    expect(h.launches).toEqual([{ env: { EVA_ASSISTANT: "1" } }]);
+    expect(h.launches).toEqual([{ env: { ASTRA_ASSISTANT: "1" } }]);
     h.register("idle");
     await Promise.all([first, second]);
     expect(h.agents.replies.map(([, text]) => text)).toEqual(["one", "two"]);
@@ -451,7 +451,7 @@ describe("AssistantService earlier contexts", () => {
     const h = harness({ prime: "You are Eva.", history: ["/sessions/old.jsonl"] });
     const turn = h.service.turn("hi");
     await flush();
-    expect(h.launches).toEqual([{ env: { EVA_ASSISTANT: "1" }, prompt: "You are Eva." }]);
+    expect(h.launches).toEqual([{ env: { ASTRA_ASSISTANT: "1" }, prompt: "You are Eva." }]);
     h.register("idle", "/sessions/new.jsonl");
     h.register("working");
     await turn;

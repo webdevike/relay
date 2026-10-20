@@ -468,12 +468,14 @@ function jobRef(): JobRef | undefined {
 }
 const JOB = jobRef();
 /**
- * The relay host starts Astra's one long-lived assistant thread with `EVA_ASSISTANT=1`
+ * The relay host starts Astra's one long-lived assistant thread with `ASTRA_ASSISTANT=1`
  * (apps/linux/src/assistant/service.ts): it registers as kind "assistant" under the fixed title
  * "Astra", never as a job, and its transcript is seeded from the session file so a resumed thread
- * (`omp -r`) shows its history rather than starting blank on the phone.
+ * (`omp -r`) shows its history rather than starting blank on the phone. The former
+ * `EVA_ASSISTANT` marker is intentionally not accepted, so stale pre-rename sessions cannot claim
+ * Astra's singleton slot.
  */
-const ASSISTANT = process.env["EVA_ASSISTANT"] === "1";
+const ASSISTANT = process.env["ASTRA_ASSISTANT"] === "1";
 const ASSISTANT_TITLE = "Astra";
 /** Local wall-clock start, "HH:MM": the job's default title carries it so runs of one job tell apart. */
 const JOB_START = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
