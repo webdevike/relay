@@ -226,6 +226,13 @@ describe("AssistantService snapshot", () => {
       ],
     });
   });
+
+  it("ignores legacy Eva-titled assistant processes after the Astra cutover", async () => {
+    const h = harness({ prime: "You are Astra.\n" });
+    h.agents.sessions = [{ ...astra("working"), title: "Eva" }];
+    h.service.observe({ kind: "sessions" });
+    expect(await h.service.snapshot()).toEqual({ rev: 0, messages: [], busy: false, sessionId: "" });
+  });
 });
 
 describe("toAssistantMessages machinery", () => {

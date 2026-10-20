@@ -119,9 +119,9 @@ export class AssistantService implements AssistantRelaying {
 
   constructor(private readonly deps: AssistantServiceDeps) {}
 
-  /** The live assistant session, if omp has one registered. */
+  /** The live Astra session. Legacy Eva-titled assistant processes are ignored after the rename. */
   current(): AgentSession | undefined {
-    return this.deps.agents.sessions.find((session) => session.kind === "assistant");
+    return this.deps.agents.sessions.find((session) => session.kind === "assistant" && session.title === PUSH_TITLE);
   }
 
   async snapshot(): Promise<AssistantSnapshot> {
