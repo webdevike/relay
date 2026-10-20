@@ -19,6 +19,7 @@ describe('pages', () => {
       'inbox',
       'chat',
       'jobs',
+      'test-bench',
       'habits',
       'meetings',
       'calendar',
@@ -35,6 +36,7 @@ describe('pages', () => {
 
 describe('saved places', () => {
   it('saved places tolerate missing fields', () => {
+    expect(placeFromJson(placeToJson(placeOf('test-bench')))).toEqual(placeOf('test-bench'))
     expect(placeFromJson({ page: 'settings' })).toEqual({
       page: 'settings',
       chat: null,

@@ -7,6 +7,7 @@
     "dev": "electron-vite dev",
     "dev:live": "node -e \"console.warn('EVAOS LIVE MODE: real Eva root and real omp')\" && EVAOS_LIVE=1 EVAOS_EVA_ROOT=$HOME/Eva EVAOS_OMP_BIN=omp electron-vite dev",
     "build": "electron-vite build",
+    "test-bench": "node scripts/test-bench.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "e2e": "electron-vite build && playwright test",
     "e2e:run": "playwright test",

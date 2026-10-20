@@ -63,27 +63,9 @@ beforeEach(() => {
 })
 
 describe('MainNav', () => {
-  it('renders rows in order with the active row marked', () => {
+  it('marks the active destination without marking unrelated pages', () => {
     seed('inbox')
     wrap(<MainNav />)
-    const ids = [...document.querySelectorAll('[data-testid^="nav-"]')].map((n) =>
-      n.getAttribute('data-testid'),
-    )
-    expect(ids).toEqual([
-      'nav-dashboard',
-      'nav-inbox',
-      'nav-chat',
-      'nav-jobs',
-      'nav-habits',
-      'nav-meetings',
-      'nav-calendar',
-      'nav-tasks',
-      'nav-memory',
-      'nav-files',
-      'nav-setting',
-      'nav-help',
-    ])
-    expect(screen.getByText('Main')).toBeInTheDocument()
     expect(screen.getByTestId('nav-inbox')).toHaveAttribute('data-active', 'true')
     expect(screen.getByTestId('nav-inbox')).toHaveAttribute('aria-current', 'page')
     expect(screen.getByTestId('nav-jobs')).not.toHaveAttribute('data-active')

@@ -1,6 +1,6 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "types": ["node"], "lib": ["ES2023", "DOM"] },
+  "compilerOptions": { "types": ["node"], "lib": ["ES2024", "DOM"] },
   "include": [
     "src/main",
     "src/preload",

@@ -10,12 +10,14 @@ import { MeetingsHome } from '../meetings/MeetingsHome'
 import { JobsPage } from '../jobs/JobsPage'
 import { WorkspacePage } from '../workspace/WorkspacePage'
 import { SettingsPage } from '../settings/SettingsPage'
+import { TestBenchPage } from '../test-bench/TestBenchPage'
 
 export type PageRegistryKind = 'page' | 'settings' | 'workspace' | 'board' | 'meeting'
 
 const PAGE_BY_SLUG: Record<string, ComponentType<{ place: Place }>> = {
   dashboard: DashboardPage,
   jobs: JobsPage,
+  'test-bench': TestBenchPage,
   habits: HabitsPage,
   meetings: MeetingsHome,
 }

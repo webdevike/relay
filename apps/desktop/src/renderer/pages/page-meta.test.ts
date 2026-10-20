@@ -9,6 +9,7 @@ describe('page-meta', () => {
       'dashboard',
       'inbox',
       'chat',
+      'test-bench',
       'jobs',
       'habits',
       'meetings',
@@ -33,6 +34,11 @@ describe('page-meta', () => {
   })
 
   it('maps places to meta', () => {
+    expect(pageMeta(placeOf('test-bench'))).toMatchObject({
+      kind: 'page',
+      slug: 'test-bench',
+      title: 'Test Bench',
+    })
     expect(pageMeta(placeOf('inbox'))).toMatchObject({
       kind: 'page',
       slug: 'inbox',

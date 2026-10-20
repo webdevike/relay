@@ -1,0 +1,182 @@
+.bench-scroll {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.bench-page {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: var(--eva-space-lg, 24px);
+  color: var(--eva-c-foreground);
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.bench-page h1 {
+  font-size: 24px;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+.bench-page h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+.bench-page h3,
+.bench-page h4 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 16px 0 8px;
+}
+.bench-page p {
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+.bench-muted,
+.bench-page small {
+  color: var(--eva-c-muted-foreground);
+}
+.bench-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.bench-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.bench-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.bench-page details {
+  border-top: 1px solid var(--eva-c-border);
+  padding: 12px 0;
+}
+.bench-page summary {
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.bench-setup > .bench-section {
+  padding-top: 12px;
+}
+.bench-page summary:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: 4px;
+}
+.bench-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius);
+}
+.bench-page table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.bench-page caption {
+  text-align: left;
+  padding: 12px;
+  color: var(--eva-c-muted-foreground);
+}
+.bench-page th,
+.bench-page td {
+  padding: 12px;
+  border-bottom: 1px solid var(--eva-c-border);
+  text-align: right;
+  vertical-align: top;
+}
+.bench-page th {
+  font-weight: 500;
+}
+.bench-page th:first-child {
+  text-align: left;
+}
+.bench-page th:last-child,
+.bench-page td:last-child {
+  text-align: center;
+}
+.bench-page tr:last-child > * {
+  border-bottom: 0;
+}
+.bench-page small {
+  display: block;
+  max-width: 320px;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  margin-top: 4px;
+}
+.bench-page code {
+  overflow-wrap: anywhere;
+}
+.bench-page pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 400px;
+  overflow: auto;
+  padding: 16px;
+  background: var(--eva-c-secondary-background);
+  font-size: 12px;
+}
+.bench-ladder {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  font-size: 13px;
+  color: var(--eva-c-muted-foreground);
+}
+.bench-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 24px;
+  font-size: 13px;
+}
+.bench-metrics > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.bench-metrics dd {
+  margin: 0;
+  text-align: right;
+}
+.bench-images {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.bench-images figure {
+  margin: 0;
+  min-width: 0;
+}
+.bench-images figcaption {
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+.bench-images img {
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--eva-c-border);
+}
+.bench-page [role='alert'] {
+  color: var(--eva-c-foreground);
+  font-weight: 500;
+}
+@media (max-width: 760px) {
+  .bench-controls,
+  .bench-images,
+  .bench-metrics {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .bench-page {
+    padding-top: 24px;
+  }
+}

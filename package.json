@@ -8,6 +8,7 @@
     "dev": "pnpm -C apps/desktop dev",
     "dev:live": "pnpm -C apps/desktop dev:live",
     "build": "pnpm -C apps/desktop build",
+    "test-bench": "pnpm --silent -C apps/desktop test-bench",
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint . && prettier --check . && node scripts/lint-em-dash.ts",
     "test": "vitest run",

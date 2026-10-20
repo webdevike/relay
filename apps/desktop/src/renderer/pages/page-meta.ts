@@ -29,6 +29,13 @@ export const NAV_PAGES: readonly NavPage[] = [
   },
   { slug: 'chat', page: 'chat', title: 'Chat', description: '', icon: 'IconMessage' },
   {
+    slug: 'test-bench',
+    page: 'test-bench',
+    title: 'Test Bench',
+    description: 'Compare UI/UX verification against captured evidence.',
+    icon: 'IconListCheck',
+  },
+  {
     slug: 'jobs',
     page: 'jobs',
     title: 'Jobs',

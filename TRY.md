@@ -35,15 +35,15 @@ Headless and test launches set `EVAOS_E2E=1` (background accessory app) and `EVA
 
 ## Phases
 
-| Phase | Status |
-|-------|--------|
-| 1 Foundation, harness, chat and browser spikes | done |
-| 2 Shell, navigation, theme tokens | done |
-| 3 Dashboard, workspaces, jobs, habits, meetings | done |
-| 4 Chat parity | done |
-| 5 Rich replies | deferred |
-| 6 Side panel, Eregon, global search | deferred |
-| 7 Relay, inbox, notifications, theme editor | deferred |
+| Phase                                           | Status   |
+| ----------------------------------------------- | -------- |
+| 1 Foundation, harness, chat and browser spikes  | done     |
+| 2 Shell, navigation, theme tokens               | done     |
+| 3 Dashboard, workspaces, jobs, habits, meetings | done     |
+| 4 Chat parity                                   | done     |
+| 5 Rich replies                                  | deferred |
+| 6 Side panel, Eregon, global search             | deferred |
+| 7 Relay, inbox, notifications, theme editor     | deferred |
 
 ## What works
 
@@ -131,3 +131,82 @@ Everything below was `still-needs-isaac` or deferred in the phase VERIFICATION f
 - Deferred gap: Claude Code transcripts are not listed or rendered in the chat list.
 - Deferred gap: `Show tool details` is a one-line fold per tool run, not the Rust group summary with tool names.
 - Deferred gap: `chat-transcript.spec.ts` 5,000-message test is flaky (about 50%).
+
+## Test Bench: isolated text-observation comparisons
+
+Open **Test Bench** in the EvaOS sidebar. Choose two to four model configurations,
+run the comparison, or open a saved comparison. Setup collapses when reviewing
+results; per-model scorecards, case evidence and raw verdicts expand on demand.
+Cancel run stops only this comparison. Saved history remains usable offline.
+
+Build once with `pnpm build`. The CLI runs Electron main (not Node mode), creates no
+shell window, and uses the same engine, schemas, scorecards and store as the UI.
+All commands print one JSON result on stdout; run progress is JSON on stderr.
+The Node launcher clears `ELECTRON_RUN_AS_NODE`, keeps Chromium in a separate
+process group, and forwards terminal cancellation through stdin instead of
+interrupting Chromium's native startup. JSON output is drained before exit.
+
+Use a stable explicit config directory for both CLI and UI reload:
+
+```sh
+export EVAOS_CONFIG_DIR=/tmp/evaos-test-bench-proof
+export EVAOS_OMP_BIN="$HOME/.local/bin/omp"
+pnpm --silent test-bench models
+pnpm --silent test-bench run --model jev/jev-1.13.0 --model openai-codex/gpt-5.6-luna
+pnpm --silent test-bench list
+pnpm --silent test-bench show <run-id>
+```
+
+The run example selects two real configurations across all 24 cases, not a smoke
+subset. Use an exact omp `provider/model` returned by `models`; availability is
+discovery, not a promise that a subsequent authenticated inference succeeds.
+For another existing omp account, use `models --profile work` and
+`run --model jev/jev-1.13.0 --profile work --model provider/model`.
+`--profile current|personal|work` applies to subsequent omp `--model` flags.
+Jev always uses current host credentials. Select 2–4 distinct configurations.
+
+Jev reads `TYPESAFE_API_KEY` or `<EVAOS_EVA_ROOT>/secrets/jev.env` on the host only.
+Dev mode otherwise uses the fixture Eva root; provide the existing key in the
+environment for proof without switching the whole app to live mode. Never put
+keys in model flags or evidence. omp uses its existing account/profile routing;
+no credentials are copied, no login is added and global config is unchanged.
+Account-backed Jev catalog aliases are pinned to `jev-1.13.0` (stable) and
+`jev-1.14.0` (preview), confirmed in https://docs.typesafe.ai/models.md.
+Returned identity is retained when supplied; absent identity/version/cost stays
+unavailable. Jev probabilities remain in bounded raw typed answers, not a new
+confidence-based scoring policy. Unsupported cost is never represented as zero.
+
+Each omp judgment uses a fresh external temporary cwd, disabled tools/extensions/
+skills/rules/LSP/session saving, and a pre-prompt empty-tool/zero-history/exact-model
+gate. Context contract `omp-context-2026-10-20` accepts only the fixed evaluator
+prompt plus the observed generic workstation/memory instructions, not memories,
+workspace or session facts. Unknown startup context fails closed. Discovery uses
+the same safe argv/cwd; only owned children are terminated. This asserts observed
+runtime capabilities/context, not a claim about opaque provider internals.
+
+Both routes receive digest-identical criterion, versioned rubric/skill, text
+observations and limits; screenshots are human evidence, not model image inputs.
+Defaults: 30s browser capture, 60s judgment, 1h comparison, 32KiB envelope,
+64KiB raw answer and 8MiB PNG. `run --judgment-ms 30000 --total-ms 1800000`
+can lower time limits; schema maxima remain fixed. Ctrl-C cancels owned work and
+persists partial results. Exit 0: complete/qualified; 1: completed verdict mismatch
+or critical failure; 2: invalid input or infrastructure failure (takes precedence
+over partial cancellation); 130: cancellation without other infrastructure errors.
+Valid `list`/`show` return 0 regardless of a historical run's verdict.
+
+Results and PNG evidence live under
+`$EVAOS_CONFIG_DIR/test-bench/runs/<run-id>/`. Reopen EvaOS with the same config
+directory and select Test Bench to inspect saved runs, case evidence/raw answers
+and version hashes. No provider calls are needed to list/show saved data.
+False passes/detection use valid defective decisions; false alarms use valid clean
+decisions; abstention uses valid decisions and coverage uses attempted judgments.
+Infrastructure, collector failures and unattempted cases stay separate; zero
+denominators are unavailable. Critical false passes veto Inspect qualification.
+Repair/Build/Delegate are unassessed; this small pilot makes no production-safety
+or automatic permission-promotion claim.
+
+Focused integration proof: run the provider/CLI regression files with Vitest,
+then the real two-model command above, inspect clean/defective PNGs, cancel a
+separate run, inspect explicit provider errors, and reload CLI/UI against the same
+config. Run rendered proof with `EVAOS_E2E=1 EVAOS_HIDDEN_WINDOW=1`; do not restart
+or focus the working app. Mock tests alone are not the real 24-case acceptance.
