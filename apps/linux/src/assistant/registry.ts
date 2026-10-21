@@ -18,12 +18,24 @@ export interface AssistantAgentConfig {
   readonly title: string;
   /** What the agent covers, e.g. "eCard Systems work"; shown under its title on the phone. Absent when the registry has none. */
   readonly scope?: string;
+  /** The omp profile (account) the agent's session runs under; absent means omp's default. */
+  readonly profile?: "personal" | "work";
+  /** The omp model the agent's session starts on (`omp --model`); absent means the profile's default. */
+  readonly model?: string;
 }
 
 const Registry = z
   .object({
     agents: z
-      .array(z.object({ id: AssistantAgentId, title: z.string().trim().min(1), scope: z.string().optional() }))
+      .array(
+        z.object({
+          id: AssistantAgentId,
+          title: z.string().trim().min(1),
+          scope: z.string().optional(),
+          profile: z.enum(["personal", "work"]).optional(),
+          model: z.string().trim().min(1).optional(),
+        }),
+      )
       .min(1),
   })
   .superRefine((registry, ctx) => {
@@ -47,8 +59,14 @@ export function loadRegistry(agentHome: string): readonly AssistantAgentConfig[]
   if (!parsed.success) {
     throw new Error(`invalid ${path}: ${parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`);
   }
-  return parsed.data.agents.map(({ id, title, scope }) => {
+  return parsed.data.agents.map(({ id, title, scope, profile, model }) => {
     const trimmed = scope?.trim();
-    return trimmed === undefined || trimmed === "" ? { id, title } : { id, title, scope: trimmed };
+    return {
+      id,
+      title,
+      ...(trimmed === undefined || trimmed === "" ? {} : { scope: trimmed }),
+      ...(profile === undefined ? {} : { profile }),
+      ...(model === undefined ? {} : { model }),
+    };
   });
 }

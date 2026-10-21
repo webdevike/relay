@@ -174,9 +174,9 @@ export class AssistantService implements AssistantThread {
     this.prefix = statusPrefix(deps.agent.title);
   }
 
-  /** This agent's live session: the assistant session the bridge reports under this registry id. */
+  /** This agent's live session: the assistant session the bridge reports under this registry id, unless it has ended (a dead omp takes no turns). */
   current(): AgentSession | undefined {
-    return this.deps.agents.sessions.find((session) => session.kind === "assistant" && session.assistant === this.id);
+    return this.deps.agents.sessions.find((session) => session.kind === "assistant" && session.assistant === this.id && session.status !== "ended");
   }
 
   async snapshot(): Promise<AssistantSnapshot> {
@@ -209,6 +209,7 @@ export class AssistantService implements AssistantThread {
 
   async turn(text: string, images?: readonly AgentImage[]): Promise<void> {
     const session = await this.ensureSession();
+    this.deps.log(`assistant ${this.id}: turn to session ${session.id} (${session.status})`);
     await this.deps.agents.reply(session.id, text, true, images);
   }
 
@@ -384,6 +385,8 @@ export class AssistantService implements AssistantThread {
       await this.deps.launch({
         env: { RELAY_ASSISTANT: this.id, RELAY_ASSISTANT_TITLE: this.title },
         label: this.title,
+        ...(this.deps.agent.profile === undefined ? {} : { profile: this.deps.agent.profile }),
+        ...(this.deps.agent.model === undefined ? {} : { model: this.deps.agent.model }),
         ...(resume === null ? {} : { resume }),
         ...(prime === null ? {} : { prompt: prime }),
       });

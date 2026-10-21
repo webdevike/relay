@@ -7,7 +7,9 @@
 // The pane runs the user's interactive shell, so `omp` resolves through the shell's PATH rather
 // than the service's; only `herdr` itself must be reachable from here.
 
-import { basename } from "node:path";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { basename, join } from "node:path";
 import { z } from "zod";
 import { AckFailure } from "../seams";
 
@@ -16,6 +18,15 @@ const SERVER_POLL_MS = 250;
 const AGENT_START_TIMEOUT_MS = 30000;
 /** Transient unit that owns a server this daemon had to start; `--collect` lets the name be reused. */
 const SERVER_UNIT = "herdr-server";
+/**
+ * A named omp profile isolates extension discovery too, so its session would never join herdr or
+ * this host. Profiled sessions load the shared config baseline and these managed integrations from
+ * `~/.omp/agent` while credentials and transcripts stay in the profile (as EvaOS does).
+ */
+const PROFILE_INTEGRATIONS = ["herdr-omp-agent-state.ts", "relay-bridge.ts"];
+/** Waiting for a new pane's shell: up to 10 tries, 500 ms apart. */
+const SHELL_READY_ATTEMPTS = 10;
+const SHELL_READY_POLL_MS = 500;
 
 const Reply = z.object({
   result: z.record(z.string(), z.unknown()).optional(),
@@ -101,6 +112,8 @@ export interface LaunchOptions {
   readonly thinkingLevel?: string;
   /** A named omp profile, passed after herdr's `--` separator. */
   readonly profile?: "personal" | "work";
+  /** The model omp starts on (`omp --model <id>`), passed after herdr's `--` separator. */
+  readonly model?: string;
   /** Extra pane env, e.g. `RELAY_ASSISTANT=<id>` for an assistant thread. */
   readonly env?: Readonly<Record<string, string>>;
   /** An omp session file to resume (`omp --resume <file>`) instead of starting a new transcript. */
@@ -132,14 +145,36 @@ export async function launchInHerdr(home: string, log: (line: string) => void, o
     ).root_pane.pane_id;
     const name = `relay-${Date.now().toString(36)}`;
     const ompArgs = [
-      ...(options.profile === undefined ? [] : ["--profile", options.profile]),
+      ...(options.profile === undefined ? [] : ["--profile", options.profile, ...profileIntegrations()]),
+      ...(options.model === undefined ? [] : ["--model", options.model]),
       ...(options.resume === undefined ? [] : [`--resume=${options.resume}`]),
     ];
-    await herdr(["agent", "start", name, "--kind", "omp", "--pane", paneId, "--timeout", String(AGENT_START_TIMEOUT_MS), ...(ompArgs.length === 0 ? [] : ["--", ...ompArgs])]);
+    const start = ["agent", "start", name, "--kind", "omp", "--pane", paneId, "--timeout", String(AGENT_START_TIMEOUT_MS), ...(ompArgs.length === 0 ? [] : ["--", ...ompArgs])];
+    // A fresh workspace's shell can still be starting (slow rc files); herdr refuses the pane until its prompt is up.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await herdr(start);
+        break;
+      } catch (error) {
+        if (!(error instanceof HerdrError) || !error.message.includes("not an available shell") || attempt === SHELL_READY_ATTEMPTS) throw error;
+        await Bun.sleep(SHELL_READY_POLL_MS);
+      }
+    }
     return paneId;
   } catch (error) {
     if (error instanceof AckFailure) throw error;
     if (error instanceof HerdrError) throw fail(`herdr: ${error.message}`);
     throw error;
   }
+}
+
+function profileIntegrations(): string[] {
+  const agent = join(homedir(), ".omp", "agent");
+  const args = ["--config", join(agent, "config.yml")];
+  for (const name of PROFILE_INTEGRATIONS) {
+    const path = join(agent, "extensions", name);
+    if (!existsSync(path)) throw fail(`missing omp integration for profiled sessions: ${path}`);
+    args.push("--extension", path);
+  }
+  return args;
 }
