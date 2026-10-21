@@ -1,10 +1,10 @@
 import { useMemo, useEffect, useRef, useState } from "react";
-import { FlatList, Image, Pressable, View, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
+import { FlatList, Image, Pressable, View } from "react-native";
 import { SymbolView } from "expo-symbols";
 import type { AgentImageRef, AgentMessage, AgentSession, AgentStatus } from "@relay/protocol";
 import { Text } from "@/ui/Text";
 import { Pill, type PillProps } from "@/ui/Pill";
-import { radii, spacing, useColors, type Colors } from "@/theme";
+import { spacing, useColors, type Colors } from "@/theme";
 import { useAgentsStore } from "@/state/agents";
 import { requestAgentImage } from "@/connection";
 import { loadSkia } from "@/dictation/skia";
@@ -14,8 +14,10 @@ import { modelShortName, VendorLogo } from "./VendorLogo";
 import { MessageText } from "./MessageText";
 import { ActivityRow } from "./ActivityRow";
 import { ToolRow } from "./ToolRow";
-/** Within this many points of the newest message, a new one keeps the list pinned to it. */
-const BOTTOM_STICK_PX = 80;
+import { MessageAppearance } from "@/ui/MessageAppearance";
+import { ScrollToBottom } from "@/ui/ScrollToBottom";
+import { useInvertedChatScroll } from "@/ui/useInvertedChatScroll";
+import { useMessageEntrances } from "@/ui/useMessageEntrances";
 /**
  * Where each session's transcript was left, as the inverted list's offset (0 = the newest message
  * in view). A card mounts straight at that offset, so switching sessions never scrolls.
@@ -112,26 +114,23 @@ function MessageRow({ sessionId, message, onOpenImage }: MessageRowProps) {
               maxWidth: "85%",
               // The accent at 0.16 opacity.
               backgroundColor: `${colors.accent}29`,
-              borderRadius: radii.md,
+              borderWidth: 1,
+              borderColor: colors.hairline,
+              borderRadius: 24,
               paddingHorizontal: spacing.md,
               paddingVertical: spacing.sm,
               gap: spacing.sm,
             }}
           >
-            {message.text.length > 0 && <MessageText text={untagged(message.text)} />}
+            {message.text.length > 0 && <MessageText text={untagged(message.text)} large />}
             {images}
           </View>
         </View>
       );
     case "assistant":
       return (
-        <View style={{ paddingHorizontal: spacing.xl, gap: spacing.sm }}>
-          {message.text.length > 0 && <MessageText text={message.text} />}
-          {message.streaming === true && message.text.length > 0 && (
-            <Text variant="caption" color="accent">
-              ▍
-            </Text>
-          )}
+        <View style={{ paddingHorizontal: spacing.lg, gap: spacing.sm }}>
+          {message.text.length > 0 && <MessageText text={message.text} large streaming={message.streaming === true} />}
           {images}
         </View>
       );
@@ -257,47 +256,55 @@ export interface AgentCardProps {
 /**
  * One session's transcript. The list is inverted (newest message at offset 0), so a fresh card
  * shows the end without a single scroll, a session comes back at the offset it was left at, and
- * a new message only pulls the view when it was already within `BOTTOM_STICK_PX` of the newest.
+ * a new message only pulls the view when the reader was already near the newest.
  */
 export function AgentCard({ sessionId, messages, connected, status, activity, activityLabel }: AgentCardProps) {
   const [viewing, setViewing] = useState<string | null>(null);
   const viewingImages = useMemo(() => (viewing === null ? null : [{ uri: viewing }]), [viewing]);
   const newestFirst = useMemo(() => (messages === undefined ? undefined : [...messages].reverse()), [messages]);
   const newest = messages === undefined ? undefined : messages[messages.length - 1];
-  const showActivity = status === "working" && !(newest?.streaming === true && newest.text.length > 0);
-  const remember = (event: NativeSyntheticEvent<NativeScrollEvent>): void => {
-    if (sessionId !== undefined) scrollMemory.set(sessionId, Math.max(0, event.nativeEvent.contentOffset.y));
-  };
-  // Read once per mount: the prop only seeds the native scroll view's first position.
+  const showActivity = status === "working";
+  const streamingText = newest?.streaming === true && newest.text.length > 0;
+  // Read once per mount: returning to a session preserves both its position and follow mode.
   const initialOffset = useRef(sessionId === undefined ? 0 : (scrollMemory.get(sessionId) ?? 0));
+  const { listRef, awayFromBottom, scrollToBottom, scrollHandlers } = useInvertedChatScroll<AgentMessage>({
+    initialOffset: initialOffset.current,
+    onOffset: (offset) => { if (sessionId !== undefined) scrollMemory.set(sessionId, offset); },
+  });
+  const enteringMessages = useMessageEntrances(messages, messages !== undefined);
 
   if (messages === undefined || sessionId === undefined) {
     return <CardPlaceholder text={connected ? "Loading conversation…" : "Connect to your host to load this conversation."} />;
   }
   if (messages.length === 0 && !showActivity) return <CardPlaceholder text="No messages yet." />;
   return (
-    <>
+    <View style={{ flex: 1 }}>
       <FlatList
+        ref={listRef}
         style={{ flex: 1 }}
         data={newestFirst}
         inverted
         keyExtractor={(message) => message.id}
-        renderItem={({ item }) => <MessageRow sessionId={sessionId} message={item} onOpenImage={setViewing} />}
+        renderItem={({ item }) => (
+          <MessageAppearance animate={enteringMessages.has(item.id) && (item.role === "user" || item.role === "assistant")} user={item.role === "user"} gap={0}>
+            <MessageRow sessionId={sessionId} message={item} onOpenImage={setViewing} />
+          </MessageAppearance>
+        )}
         contentContainerStyle={{ paddingVertical: spacing.lg, gap: spacing.sm }}
-        ListHeaderComponent={showActivity ? <ActivityRow label={activityLabel ?? (activity === undefined ? "Thinking" : `Running ${activity}`)} /> : null}
+        ListHeaderComponent={showActivity ? <ActivityRow label={activityLabel ?? (streamingText ? "Responding" : activity === undefined ? "Working" : `Running ${activity}`)} /> : null}
         contentOffset={{ x: 0, y: initialOffset.current }}
-        maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: BOTTOM_STICK_PX }}
-        onScroll={remember}
-        onScrollEndDrag={remember}
-        onMomentumScrollEnd={remember}
-        scrollEventThrottle={100}
+        maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+        {...scrollHandlers}
+        keyboardDismissMode="interactive"
+        keyboardShouldPersistTaps="handled"
       />
+      <ScrollToBottom visible={awayFromBottom} onPress={scrollToBottom} bottom={spacing.lg} />
       <ImageViewer
         images={viewingImages}
         onClose={() => {
           setViewing(null);
         }}
       />
-    </>
+    </View>
   );
 }

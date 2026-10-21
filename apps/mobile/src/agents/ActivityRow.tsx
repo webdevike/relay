@@ -1,12 +1,7 @@
-/**
- * The bottom-of-transcript sign of life while a session is working and nothing is streaming:
- * the thinking mark and what the agent is on ("Running bash", "Thinking"). Without it the phone
- * shows nothing between the user's message and the first tool row.
- */
-import { View } from "react-native";
+/** The same quiet live activity indicator used by every phone transcript. */
+import Animated, { FadeIn, FadeOut, ReduceMotion } from "react-native-reanimated";
 import { spacing } from "@/theme";
-import { Text } from "@/ui/Text";
-import { ThinkingMark } from "./ThinkingMark";
+import { TypingBubble } from "@/ui/TypingBubble";
 
 export interface ActivityRowProps {
   /** What the agent is on: "Thinking", "Running bash", "Starting omp". */
@@ -15,11 +10,8 @@ export interface ActivityRowProps {
 
 export function ActivityRow({ label }: ActivityRowProps) {
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingHorizontal: spacing.xl, paddingVertical: spacing.xs }}>
-      <ThinkingMark />
-      <Text variant="caption" color="textMuted" numberOfLines={1}>
-        {label}
-      </Text>
-    </View>
+    <Animated.View entering={FadeIn.duration(180).reduceMotion(ReduceMotion.System)} exiting={FadeOut.duration(150).reduceMotion(ReduceMotion.System)} style={{ paddingHorizontal: spacing.xl }}>
+      <TypingBubble label={label} />
+    </Animated.View>
   );
 }

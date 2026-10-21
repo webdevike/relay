@@ -12,13 +12,12 @@
  * on the left with a typing bubble while she works. The rounded composer keeps multiline text
  * above a persistent row of attachment, dictation and send controls. Dictation fills the draft.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActionSheetIOS, FlatList, Keyboard, KeyboardAvoidingView, Pressable, StyleSheet, TextInput, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { ActionSheetIOS, FlatList, Keyboard, KeyboardAvoidingView, Pressable, StyleSheet, TextInput, View, type LayoutChangeEvent } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from "expo-speech-recognition";
-import Animated, { FadeIn, FadeOut, ReduceMotion, useReducedMotion } from "react-native-reanimated";
-import { SymbolView } from "expo-symbols";
+import Animated, { FadeIn, FadeOut, ReduceMotion } from "react-native-reanimated";
 import { MAX_REPLY_IMAGES, type AssistantMessage } from "@relay/protocol";
 import { AttachmentTray } from "@/ui/AttachmentTray";
 import { AvatarRing, NAME_PILL_GAP, NAME_PILL_HEIGHT, RING_SIZE } from "@/ui/AvatarRing";
@@ -31,6 +30,9 @@ import { SignInCard } from "@/ui/SignInCard";
 import { Text } from "@/ui/Text";
 import { MessageAppearance } from "@/ui/MessageAppearance";
 import { TypingBubble } from "@/ui/TypingBubble";
+import { ScrollToBottom } from "@/ui/ScrollToBottom";
+import { useInvertedChatScroll } from "@/ui/useInvertedChatScroll";
+import { useMessageEntrances } from "@/ui/useMessageEntrances";
 import { ImageViewer } from "@/agents/ImageViewer";
 import { MarkdownImages } from "@/agents/MarkdownImages";
 import { MessageImageStack } from "@/agents/MessageImageStack";
@@ -44,8 +46,6 @@ import { notifyHaptic } from "@/lib/haptics";
 import { clipboardHasImage, readClipboardPhoto } from "@/lib/clipboard";
 import { choosePhoto, chooseLibraryPhotos, type Photo } from "@/lib/photo";
 
-/** Within this many points of the newest message, a new one keeps the list pinned to it. */
-const BOTTOM_STICK_PX = 80;
 /** Id of the row echoing a sent turn before the host's snapshot lists it. */
 const PENDING_ID = "pending-turn";
 /** Name on the chip under the avatar ring. */
@@ -71,7 +71,6 @@ const GAP_SENDER = 16;
 const GAP_RUN = 4;
 /** Proportion of the width a bubble may take. */
 const USER_MAX_WIDTH = "80%";
-const EVA_MAX_WIDTH = "100%";
 
 export default function Eva() {
   const colors = useColors();
@@ -94,27 +93,7 @@ export default function Eva() {
   const [photos, setPhotos] = useState<Photo[]>([]);
   // The images of the tapped bubble, open in the full-screen viewer.
   const [viewing, setViewing] = useState<{ uris: string[]; start: number } | null>(null);
-  const listRef = useRef<FlatList<AssistantMessage>>(null);
-  // The list's scroll offset (0 is the newest message, the visual bottom), for anchoring "Show more".
-  const offsetRef = useRef(0);
-  const following = useRef(true);
-  const draggingList = useRef(false);
-  const scrollingToBottom = useRef(false);
-  const followFrame = useRef<number | null>(null);
-  const [awayFromBottom, setAwayFromBottom] = useState(false);
-  const reducedMotion = useReducedMotion();
-  const knownMessages = useRef(new Set(snapshot?.messages.map((message) => message.id) ?? []));
-  const loadedHistory = useRef(snapshot !== null);
-  useEffect(() => {
-    if (snapshot === null) return;
-    loadedHistory.current = true;
-    for (const message of snapshot.messages) knownMessages.current.add(message.id);
-    if (pending !== null) knownMessages.current.add(PENDING_ID);
-    else knownMessages.current.delete(PENDING_ID);
-  }, [snapshot, pending]);
-  useEffect(() => () => {
-    if (followFrame.current !== null) cancelAnimationFrame(followFrame.current);
-  }, []);
+  const { listRef, offsetRef, awayFromBottom, scrollToBottom, followContent, scrollHandlers } = useInvertedChatScroll<AssistantMessage>();
   const viewerImages = useMemo(() => (viewing === null ? null : viewing.uris.map((uri) => ({ uri }))), [viewing]);
 
   useSpeechRecognitionEvent("result", (event) => {
@@ -187,34 +166,6 @@ export default function Eva() {
     }, []),
   );
 
-  /** Explicit navigation resumes following; streaming never takes ownership from a reader. */
-  const scrollToBottom = useCallback(() => {
-    following.current = true;
-    setAwayFromBottom(false);
-    scrollingToBottom.current = true;
-    draggingList.current = false;
-    listRef.current?.scrollToOffset({ offset: 0, animated: !reducedMotion });
-  }, [reducedMotion]);
-
-  const followContent = useCallback(() => {
-    if (!following.current || draggingList.current) return;
-    if (followFrame.current !== null) cancelAnimationFrame(followFrame.current);
-    followFrame.current = requestAnimationFrame(() => {
-      followFrame.current = null;
-      if (following.current && !draggingList.current) {
-        listRef.current?.scrollToOffset({ offset: 0, animated: false });
-      }
-    });
-  }, []);
-
-  const observeScroll = (event: NativeSyntheticEvent<NativeScrollEvent>): void => {
-    offsetRef.current = Math.max(0, event.nativeEvent.contentOffset.y);
-    // Layout anchoring can move an inverted list's offset. Only a reader gesture unpins it.
-    if (!draggingList.current) return;
-    const near = offsetRef.current <= BOTTOM_STICK_PX;
-    following.current = near;
-    setAwayFromBottom(!near);
-  };
 
   /** "Show more" grew a bubble by `growth`: move the offset with it so the clamp stays where it was on screen. */
   const anchorExpanded = useCallback((growth: number) => {
@@ -273,8 +224,7 @@ export default function Eva() {
   const rows: AssistantMessage[] =
     pending === null ? messages : [...messages, { id: PENDING_ID, role: "user", text: pending.text, at: Date.now() }];
   const newestFirst = [...rows].reverse();
-  // Capture membership before effects run; FlatList may render its cells asynchronously.
-  const enteringMessages = new Set(rows.filter((message) => loadedHistory.current && !knownMessages.current.has(message.id)).map((message) => message.id));
+  const enteringMessages = useMessageEntrances(rows, snapshot !== null);
   const busy = snapshot?.busy === true;
 
   // Only the newest user message carries a receipt: Sending while its echo is pending, Seen once
@@ -376,31 +326,12 @@ export default function Eva() {
               // Inverted: reserve room at the visual bottom for the floating composer.
               contentContainerStyle={{ paddingTop: composerHeight + spacing.md }}
               maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
-              onContentSizeChange={followContent}
-              onScroll={observeScroll}
-              onScrollBeginDrag={() => { scrollingToBottom.current = false; draggingList.current = true; }}
-              onScrollEndDrag={(event) => { observeScroll(event); draggingList.current = false; }}
-              onMomentumScrollBegin={() => { if (!scrollingToBottom.current) draggingList.current = true; }}
-              onMomentumScrollEnd={(event) => {
-                if (!scrollingToBottom.current) observeScroll(event);
-                scrollingToBottom.current = false;
-                draggingList.current = false;
-              }}
-              scrollEventThrottle={16}
+              {...scrollHandlers}
               keyboardDismissMode="interactive"
               keyboardShouldPersistTaps="handled"
             />
           )}
-          {awayFromBottom && (
-            <Animated.View entering={FadeIn.duration(180).reduceMotion(ReduceMotion.System)} exiting={FadeOut.duration(160).reduceMotion(ReduceMotion.System)}
-              style={[styles.jump, { bottom: composerHeight + spacing.sm }]}>
-              <Pressable accessibilityRole="button" accessibilityLabel="Scroll to bottom" onPress={scrollToBottom}
-                style={({ pressed }) => [styles.jumpButton, { backgroundColor: colors.surfaceRaised, borderColor: colors.hairline, opacity: pressed ? 0.8 : 1 }]}>
-                <SymbolView name="arrow.down" size={16} tintColor={colors.text} />
-                <Text style={styles.jumpLabel}>Scroll to bottom</Text>
-              </Pressable>
-            </Animated.View>
-          )}
+          <ScrollToBottom visible={awayFromBottom} onPress={scrollToBottom} bottom={composerHeight + spacing.sm} />
           <View pointerEvents="box-none" style={[styles.header, { top: insets.top + HEADER_TOP }]}>
             <Pressable
               accessibilityRole="button"
@@ -517,12 +448,13 @@ function senderOf(message: AssistantMessage): "user" | "status" | "eva" {
   return message.role === "user" ? "user" : message.role === "status" ? "status" : "eva";
 }
 
-/** The typing bubble, as the newest row while Eva is working. */
+/** Activity appears at the live edge of the inverted list, without a bouncing bubble. */
 function TypingRow({ gap, streaming }: { gap: number; streaming: boolean }) {
   return (
-    <View style={[styles.evaRow, { marginTop: gap }]}>
+    <Animated.View entering={FadeIn.duration(180).reduceMotion(ReduceMotion.System)} exiting={FadeOut.duration(150).reduceMotion(ReduceMotion.System)}
+      style={[styles.evaRow, { marginTop: gap }]}>
       <TypingBubble streaming={streaming} />
-    </View>
+    </Animated.View>
   );
 }
 
@@ -544,7 +476,7 @@ interface RowProps {
 function Row({ message, receipt, streaming, sessionId, local, onOpenImages, onExpanded, onSignIn }: RowProps) {
   const signedIn = useAssistantStore((state) => state.signedIn[message.id] === true);
   const colors = useColors();
-  const bubbleFill = colors.surface;
+  const bubbleFill = useScheme() === "dark" ? BUBBLE_DARK : colors.surface;
   const streamed = useRef(streaming);
   if (streaming) streamed.current = true;
   const hasText = message.text !== "";
@@ -605,7 +537,7 @@ function Row({ message, receipt, streaming, sessionId, local, onOpenImages, onEx
             </View>
           )}
           {showBubble && (
-            <View style={[styles.evaBubble, { backgroundColor: bubbleFill, borderColor: colors.hairline }]}>
+            <View style={[styles.evaBubble, { backgroundColor: bubbleFill }]}>
               {streamed.current ? <MessageText text={message.text} large skipImages streaming={streaming} /> : (
                 <ExpandableContent maxHeight={BUBBLE_MAX_HEIGHT} fadeHeight={BUBBLE_FADE_HEIGHT} fadeColor={bubbleFill} onExpanded={onExpanded}>
                   <MessageText text={message.text} large skipImages />
@@ -652,7 +584,7 @@ const styles = StyleSheet.create({
   evaRow: { paddingHorizontal: spacing.lg },
   tiles: { alignItems: "flex-start" },
   tilesAboveCaption: { marginBottom: GAP_RUN },
-  evaBubble: { alignSelf: "flex-start", maxWidth: EVA_MAX_WIDTH, borderRadius: 24, borderWidth: StyleSheet.hairlineWidth, padding: 16 },
+  evaBubble: { alignSelf: "flex-start", maxWidth: "88%", borderRadius: 22, paddingVertical: 11, paddingHorizontal: 17 },
   card: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.lg, padding: spacing.md, gap: spacing.sm },
   status: { textAlign: "center", paddingHorizontal: spacing.xxxl, fontWeight: "400" },
   composer: { paddingBottom: COMPOSER_BOTTOM },
@@ -662,9 +594,6 @@ const styles = StyleSheet.create({
   composerCard: { borderRadius: 28, borderWidth: StyleSheet.hairlineWidth, padding: 10, gap: 4 },
   composerInput: { fontSize: 17, lineHeight: 22, paddingTop: 4, paddingBottom: 4, paddingHorizontal: 6, textAlignVertical: "top" },
   composerToolbar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  jump: { position: "absolute", right: spacing.lg },
-  jumpButton: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: spacing.sm, borderWidth: StyleSheet.hairlineWidth, borderRadius: 22, paddingHorizontal: spacing.md },
-  jumpLabel: { fontSize: 13, lineHeight: 18 },
   menuTitle: { textAlign: "center", paddingBottom: spacing.md },
   menuRows: { marginHorizontal: -spacing.xl },
   imagesAbove: { marginBottom: spacing.xs },
