@@ -1,13 +1,16 @@
 /**
  * The host's assistant threads (Astra, Nova, … from its registry) as it last sent them, one per
- * agent id. Not persisted: the host owns the registry (`assistant.agents`, asked on every welcome)
- * and each transcript, which it replays on `assistant.get` (asked while that agent's thread is on
+ * agent id. Not persisted: the host owns the registry (`assistant.agents`, asked on every welcome
+ * and whenever the Assistants screen is focused, and pushed again when an agent's status or last
+ * reply changes; each entry carries its scope, status and last reply) and each transcript, which it replays on `assistant.get` (asked while that agent's thread is on
  * screen) and after every turn. `pending` is the phone's optimistic echo of a sent turn, shown
  * until a snapshot carries it.
  */
 import { create } from "zustand";
-import type { AssistantAgent, AssistantSnapshot } from "@relay/protocol";
+import type { AssistantAgent, AssistantSnapshot, AssistantStatus } from "@relay/protocol";
+import { countOf } from "@/lib/format";
 import type { Photo } from "@/lib/photo";
+import { previewText } from "@/agents/markdown";
 
 export interface PendingTurn {
   text: string;
@@ -59,6 +62,32 @@ export function threadOf(store: Pick<AssistantStore, "threads">, agent: string):
 /** The registry title for `agent`, or the id itself before the host has listed its agents. */
 export function agentTitle(agents: AssistantAgent[] | null, agent: string): string {
   return agents?.find((entry) => entry.id === agent)?.title ?? agent;
+}
+
+/** The words a status pill shows. A host from before statuses sends none, and the row shows no pill. */
+export const STATUS_LABEL: Record<AssistantStatus, string> = {
+  working: "Working",
+  needs_you: "Needs you",
+  idle: "Idle",
+  not_started: "Not started",
+};
+
+/** The agent with the most recent last reply and that reply; null when none has said anything. */
+export function latestReply(agents: AssistantAgent[] | null): { agent: AssistantAgent; text: string; at: number } | null {
+  let latest: { agent: AssistantAgent; text: string; at: number } | null = null;
+  for (const agent of agents ?? []) {
+    if (agent.lastReply !== undefined && (latest === null || agent.lastReply.at > latest.at)) latest = { agent, ...agent.lastReply };
+  }
+  return latest;
+}
+
+/** The home tile's caption: the newest reply across agents as one plain line led by who said it, else how many agents there are. */
+export function assistantsCaption(agents: AssistantAgent[] | null): string {
+  const reply = latestReply(agents);
+  const line = reply === null ? "" : previewText(reply.text);
+  if (reply !== null && line !== "") return `${reply.agent.title}: ${line}`;
+  const count = agents?.length ?? 0;
+  return count === 0 ? "No assistants yet" : countOf(count, "assistant");
 }
 
 export const useAssistantStore = create<AssistantStore>((set, get) => {

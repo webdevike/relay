@@ -1,9 +1,9 @@
 /**
  * Home: a grid of widgets, one per thing the phone can do with the host, each carrying its
  * live fact (session count, drop count, host state) so the screen answers "what is going on"
- * before anything is tapped. Eva leads with her last word; Trackpad and Drops share the next
- * row, Agent Inbox and the host (which opens Settings) the one after. While the host's habit
- * gate is locked its card leads.
+ * before anything is tapped. Assistants leads with the newest reply of any agent (the list and
+ * each thread live under it); Trackpad and Drops share the next row, Agent Inbox and the host
+ * (which opens Settings) the one after. While the host's habit gate is locked its card leads.
  */
 import { useRouter } from "expo-router";
 import { StyleSheet, View } from "react-native";
@@ -17,12 +17,10 @@ import { useConnectionStore, type ConnectionStatus } from "@/state/connection";
 import { needsAttention, useAgentsStore } from "@/state/agents";
 import { useDropsStore } from "@/state/drops";
 import { useGateStore } from "@/state/gate";
-import type { AssistantAgent } from "@relay/protocol";
-import { threadOf, useAssistantStore } from "@/state/assistant";
+import { assistantsCaption, useAssistantStore } from "@/state/assistant";
 import { HabitGate } from "@/gate/HabitGate";
 import { actions } from "@/state/actions";
 import { countOf } from "@/lib/format";
-import { previewText } from "@/agents/markdown";
 
 const pillFor: Record<ConnectionStatus, { label: string; tone: "accent" | "ok" | "warn" | "danger" | "textMuted" }> = {
   idle: { label: "Not connected", tone: "textMuted" },
@@ -43,21 +41,6 @@ function inboxCaption(available: boolean, sessions: number, needing: number): st
   return `${base}, ${needing} ${needing === 1 ? "needs" : "need"} you`;
 }
 
-/** One registry assistant: its title, and its last reply as one plain line (images read "Photo", links show their text); the tile truncates it. */
-function AssistantTile({ agent, onPress }: { agent: AssistantAgent; onPress: () => void }) {
-  const caption = useAssistantStore((state) => {
-    const messages = threadOf(state, agent.id).snapshot?.messages ?? [];
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const message = messages[i];
-      if (message?.role !== "assistant") continue;
-      const line = previewText(message.text);
-      if (line !== "") return line;
-    }
-    return "Your assistant";
-  });
-  return <Tile symbol="bubble.left.and.text.bubble.right" title={agent.title} caption={caption} size="wide" onPress={onPress} />;
-}
-
 export default function Home() {
   const boards = useBoardsStore((state) => state.boards);
   const router = useRouter();
@@ -76,8 +59,8 @@ export default function Home() {
   const latestDrop = drops[0];
   const pill = pillFor[status];
   const gateLocked = useGateStore((state) => state.gate?.locked === true);
-  // The host's registry, asked on every welcome; none until the first answer.
-  const assistants = useAssistantStore((state) => state.agents) ?? [];
+  // The host's registry, asked on every welcome and kept live by the host; none until the first answer.
+  const assistantsLine = useAssistantStore((state) => assistantsCaption(state.agents));
 
   return (
     <Screen title={macName ?? "Relay"} headerRight={<Pill label={pill.label} tone={pill.tone} />} scroll={gateLocked}>
@@ -105,15 +88,15 @@ export default function Home() {
         </View>
       )}
       <View style={styles.grid}>
-        {assistants.map((agent) => (
-          <AssistantTile
-            key={agent.id}
-            agent={agent}
-            onPress={() => {
-              router.push({ pathname: "/eva", params: { agent: agent.id } });
-            }}
-          />
-        ))}
+        <Tile
+          symbol="bubble.left.and.text.bubble.right"
+          title="Assistants"
+          caption={assistantsLine}
+          size="wide"
+          onPress={() => {
+            router.push("/assistants");
+          }}
+        />
         <View style={styles.row}>
           <Tile
             symbol="cursor.rays"

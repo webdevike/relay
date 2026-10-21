@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import type { AssistantSnapshot } from "@relay/protocol";
-import { agentTitle, threadOf, useAssistantStore } from "@/state/assistant";
+import type { AssistantAgent, AssistantSnapshot } from "@relay/protocol";
+import { agentTitle, assistantsCaption, latestReply, STATUS_LABEL, threadOf, useAssistantStore } from "@/state/assistant";
 import { createAssistantFrameRouter, type AssistantFrameRouter } from "./assistant";
 
 function snapshot(rev: number, texts: string[], busy = false): AssistantSnapshot {
@@ -34,6 +34,58 @@ describe("assistant.agents", () => {
     route({ t: "assistant.agents", agents });
     expect(useAssistantStore.getState().agents).toEqual(agents);
     expect(agentTitle(useAssistantStore.getState().agents, "nova")).toBe("Nova");
+  });
+
+  it("keeps each agent's scope, status and last reply, and replaces the list when the host pushes a fresh one", () => {
+    const first: AssistantAgent[] = [
+      { id: "astra", title: "Astra", scope: "eCard Systems work", status: "working", lastReply: { text: "Reviewing the PR.", at: 10 } },
+      { id: "nova", title: "Nova", scope: "Personal", status: "not_started" },
+    ];
+    route({ t: "assistant.agents", agents: first });
+    expect(useAssistantStore.getState().agents).toEqual(first);
+    const second: AssistantAgent[] = [
+      { id: "astra", title: "Astra", scope: "eCard Systems work", status: "needs_you", lastReply: { text: "Approve the deploy?", at: 20 } },
+      { id: "nova", title: "Nova", scope: "Personal", status: "idle", lastReply: { text: "Flight moved to 9:40.", at: 15 } },
+    ];
+    route({ t: "assistant.agents", agents: second });
+    expect(useAssistantStore.getState().agents).toEqual(second);
+  });
+
+  it("still takes a list from a host that sends only id and title", () => {
+    route({ t: "assistant.agents", agents: [{ id: "astra", title: "Astra" }] });
+    expect(useAssistantStore.getState().agents).toEqual([{ id: "astra", title: "Astra" }]);
+    expect(assistantsCaption(useAssistantStore.getState().agents)).toBe("1 assistant");
+  });
+
+  it("leaves threads alone when the list changes", () => {
+    route({ t: "assistant.snapshot", agent: "nova", snapshot: snapshot(1, ["hi"]) });
+    route({ t: "assistant.agents", agents: [{ id: "nova", title: "Nova", status: "idle" }] });
+    expect(thread("nova").snapshot?.rev).toBe(1);
+  });
+});
+
+describe("Assistants summaries", () => {
+  const agents: AssistantAgent[] = [
+    { id: "astra", title: "Astra", status: "idle", lastReply: { text: "Standup is at 9:30.", at: 100 } },
+    { id: "nova", title: "Nova", status: "idle", lastReply: { text: "**Flight** moved to [9:40](https://example.com).\nSecond line.", at: 200 } },
+    { id: "sage", title: "Sage", status: "not_started" },
+  ];
+
+  it("picks the most recent last reply across agents", () => {
+    expect(latestReply(agents)?.agent.id).toBe("nova");
+    expect(latestReply([{ id: "sage", title: "Sage" }])).toBeNull();
+    expect(latestReply(null)).toBeNull();
+  });
+
+  it("captions the home tile with that reply as one plain line led by who said it, else the agent count", () => {
+    expect(assistantsCaption(agents)).toBe("Nova: Flight moved to 9:40.");
+    expect(assistantsCaption([{ id: "a", title: "A" }, { id: "b", title: "B" }])).toBe("2 assistants");
+    expect(assistantsCaption([])).toBe("No assistants yet");
+    expect(assistantsCaption(null)).toBe("No assistants yet");
+  });
+
+  it("labels every status", () => {
+    expect(STATUS_LABEL).toEqual({ working: "Working", needs_you: "Needs you", idle: "Idle", not_started: "Not started" });
   });
 });
 

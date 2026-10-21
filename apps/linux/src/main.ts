@@ -14,7 +14,7 @@ import { z } from "zod";
 import pkg from "../package.json";
 import { defaultSocketPath, OmpBridgeProvider } from "./agents/bridge";
 import { type AssistantAgentConfig, loadRegistry, REGISTRY_FILE } from "./assistant/registry";
-import { AssistantService, AssistantThreads } from "./assistant/service";
+import { AssistantService, AssistantThreads, type AssistantThreadsDeps } from "./assistant/service";
 import { spawnFill } from "./assistant/signin";
 import { defaultAssistantPath, FileAssistantStore } from "./assistant/store";
 import { FileDeviceStore } from "./device-store";
@@ -155,7 +155,14 @@ function serve(
     clock: systemClock,
     log,
     spawn: spawnFill,
-  }));
+  }), {
+    // The phones' agent list follows status and last-reply changes on its own, without waiting for a request.
+    broadcast: (message): void => {
+      server.broadcastExcept(message, null);
+    },
+    clock: systemClock,
+    log,
+  });
   const clipboard =
     watchClipboard && Bun.which("wl-paste") !== null
       ? new ClipboardWatcher({
@@ -244,7 +251,11 @@ function serve(
  * One thread per agent in `<agentHome>/.omp/assistant/agents.json`, read once at start; null (and
  * logged) when there is no agent home or the registry is missing or invalid.
  */
-function assistantThreads(agentHome: string | null, create: (agent: AssistantAgentConfig) => AssistantService): AssistantThreads | null {
+function assistantThreads(
+  agentHome: string | null,
+  create: (agent: AssistantAgentConfig) => AssistantService,
+  deps: AssistantThreadsDeps,
+): AssistantThreads | null {
   if (agentHome === null) {
     log("assistant threads disabled (no --agent-home)");
     return null;
@@ -257,7 +268,7 @@ function assistantThreads(agentHome: string | null, create: (agent: AssistantAge
     return null;
   }
   log(`assistant threads: ${registry.map((agent) => `${agent.title} (${agent.id})`).join(", ")}`);
-  return new AssistantThreads(registry.map(create));
+  return new AssistantThreads(registry.map(create), deps);
 }
 
 /** The running host's loopback base URL, from the port `serve` left in serve.json. */

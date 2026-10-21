@@ -515,9 +515,17 @@ export class ClientSession {
         );
         break;
       }
-      case "assistant.agents":
-        this.sink.send({ t: "assistant.agents", agents: (this.deps.assistant?.threads ?? []).map(({ id, title }) => ({ id, title })) });
+      case "assistant.agents": {
+        const assistant = this.deps.assistant;
+        if (assistant === null) {
+          this.sink.send({ t: "assistant.agents", agents: [] });
+          break;
+        }
+        void assistant.agents().then((agents) => {
+          if (!this.closed) this.sink.send({ t: "assistant.agents", agents });
+        });
         break;
+      }
       case "screen.list":
         void this.deps.screen.list().then(
           (result) => {

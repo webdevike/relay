@@ -17,7 +17,7 @@
 
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
-import type { AgentImage, AgentMessage, AgentSession, AssistantMessage, AssistantSnapshot, ServerMessage } from "@relay/protocol";
+import type { AgentImage, AgentMessage, AgentSession, AssistantAgent, AssistantMessage, AssistantSnapshot, AssistantStatus, ServerMessage } from "@relay/protocol";
 import type { LaunchOptions } from "../agents/herdr";
 import { parseSessionRows } from "../agents/transcript";
 import type { PushSender } from "../push/notifier";
@@ -48,6 +48,8 @@ export function primeFile(id: string): string {
   return join(".omp", "assistant", "agents", id, "prime.md");
 }
 export const MAX_PUSH_BODY = 180;
+/** Characters of a reply kept for the agent list's preview line. */
+export const MAX_LAST_REPLY = 140;
 /** Streaming updates arrive every ~120 ms; snapshots go out at most this often. */
 export const SNAPSHOT_DEBOUNCE_MS = 150;
 /** How long a launched agent has to register (and, for a primed thread, to take the prime) before the turn fails. */
@@ -108,6 +110,40 @@ export function toAssistantMessages(messages: readonly AgentMessage[], prime: st
   return out;
 }
 
+/** Where an agent's thread stands from its live session: no session is "not_started" (never launched, or the bridge lists none). */
+export function assistantStatus(session: AgentSession | undefined): AssistantStatus {
+  if (session === undefined) return "not_started";
+  switch (session.status) {
+    case "working":
+      return "working";
+    case "waiting":
+    case "needs_permission":
+      return "needs_you";
+    case "idle":
+    case "ended":
+      return "idle";
+  }
+}
+
+/**
+ * The newest reply worth previewing in `messages` (already the phone's view of the thread, so job
+ * lines, the prime, empty rows and the silence marker are gone): the text of the last assistant
+ * row, clipped to `MAX_LAST_REPLY`, or `Sign in to <host>` for a sign-in request with no words.
+ * A row with only pictures has no text and is passed over. Null when the agent never said anything.
+ */
+export function lastReplyOf(messages: readonly AssistantMessage[]): { text: string; at: number } | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role !== "assistant") continue;
+    const text = message.text.trim() === "" && message.signin !== undefined ? `Sign in to ${message.signin.host}` : message.text.trim();
+    if (text === "") continue;
+    const head = text.slice(0, MAX_LAST_REPLY - 1);
+    const clipped = text.length <= MAX_LAST_REPLY ? text : `${/[\uD800-\uDBFF]$/.test(head) ? head.slice(0, -1) : head.trimEnd()}…`;
+    return { text: clipped, at: message.at };
+  }
+  return null;
+}
+
 /** What a launched agent must report before a turn goes in: just a session, or the prime underway. */
 interface Starting {
   readonly primed: boolean;
@@ -152,6 +188,25 @@ export class AssistantService implements AssistantThread {
     return { rev, messages: this.markSubmitted([...earlier, ...toAssistantMessages(messages, this.prime(), this.prefix)]), busy: session.status === "working", sessionId: session.id };
   }
 
+  /**
+   * This agent's row in `assistant.agents`. The reply comes from the transcripts the snapshot is
+   * built from (earlier contexts, which are cached by mtime, then the live session) minus any
+   * reply still streaming in, so the row changes once per settled reply, not once per token.
+   */
+  async listing(): Promise<AssistantAgent> {
+    const session = this.current();
+    const earlier = this.earlier(session === undefined ? null : this.deps.sessionFile(session.id));
+    const live = session === undefined ? [] : ((await this.deps.agents.conversation(session.id)) ?? []).filter((message) => message.streaming !== true);
+    const lastReply = lastReplyOf([...earlier, ...toAssistantMessages(live, this.prime(), this.prefix)]);
+    return {
+      id: this.id,
+      title: this.title,
+      ...(this.deps.agent.scope === undefined ? {} : { scope: this.deps.agent.scope }),
+      status: assistantStatus(session),
+      ...(lastReply === null ? {} : { lastReply }),
+    };
+  }
+
   async turn(text: string, images?: readonly AgentImage[]): Promise<void> {
     const session = await this.ensureSession();
     await this.deps.agents.reply(session.id, text, true, images);
@@ -194,13 +249,14 @@ export class AssistantService implements AssistantThread {
     );
   }
 
-  observe(change: AgentProviderChange): void {
+  /** Takes a provider change; true when this agent's `assistant.agents` row may have changed (its status moved or a reply settled). */
+  observe(change: AgentProviderChange): boolean {
     if (change.kind === "sessions") {
       const session = this.current();
       // Before the key check: the file can arrive in a later status report that changes nothing else.
       if (session !== undefined) this.remember(session.id);
       const key = session === undefined ? null : `${session.id} ${session.status}`;
-      if (key === this.seen) return;
+      if (key === this.seen) return false;
       this.seen = key;
       if (session !== undefined) {
         const waiter = this.waiter;
@@ -210,18 +266,23 @@ export class AssistantService implements AssistantThread {
         }
       }
       this.changed();
-      return;
+      return true;
     }
-    if (change.kind !== "conversation" && change.kind !== "message") return;
-    if (change.sessionId !== this.current()?.id) return;
+    if (change.kind !== "conversation" && change.kind !== "message") return false;
+    if (change.sessionId !== this.current()?.id) return false;
     this.changed();
     if (change.kind === "conversation") {
+      let settled = false;
       for (const message of change.appended) {
-        if (message.role === "assistant" && message.streaming !== true && message.text.length > 0) this.push(message.text);
+        if (message.role !== "assistant" || message.streaming === true) continue;
+        settled = true;
+        if (message.text.length > 0) this.push(message.text);
       }
-    } else if (!change.streaming && change.text.length > 0) {
-      this.push(change.text);
+      return settled;
     }
+    if (change.streaming) return false;
+    if (change.text.length > 0) this.push(change.text);
+    return true;
   }
 
   private changed(): void {
@@ -380,15 +441,71 @@ export class AssistantService implements AssistantThread {
   }
 }
 
-/** Every registry agent's thread, in registry order; the first answers requests that name no agent. */
+export interface AssistantThreadsDeps {
+  /** Sends the refreshed `assistant.agents` frame to every connected phone. */
+  readonly broadcast: (message: ServerMessage) => void;
+  readonly clock: SessionClock;
+  readonly log: (line: string) => void;
+}
+
+/**
+ * Every registry agent's thread, in registry order; the first answers requests that name no agent.
+ * With `deps`, it also keeps the phones' agent list live: when an agent's status moves or a reply
+ * settles it sends a fresh `assistant.agents` frame, debounced like snapshots and skipped when the
+ * list came out the same as the last one sent.
+ */
 export class AssistantThreads implements AssistantRelaying {
-  constructor(readonly threads: readonly AssistantService[]) {}
+  private cancelFlush: (() => void) | null = null;
+  /** The last list broadcast, serialized; null before the first and after a request (which makes the next change always go out). */
+  private lastSent: string | null = null;
+  private flushes = 0;
+
+  constructor(
+    readonly threads: readonly AssistantService[],
+    private readonly deps?: AssistantThreadsDeps,
+  ) {}
 
   thread(id: string | undefined): AssistantService | undefined {
     return id === undefined ? this.threads[0] : this.threads.find((thread) => thread.id === id);
   }
 
+  /** One listing per thread; a thread whose transcript cannot be read still appears, with its registry entry alone. */
+  async agents(): Promise<AssistantAgent[]> {
+    this.lastSent = null;
+    return this.list();
+  }
+
   observe(change: AgentProviderChange): void {
-    for (const thread of this.threads) thread.observe(change);
+    let listed = false;
+    for (const thread of this.threads) listed = thread.observe(change) || listed;
+    if (listed) this.scheduleBroadcast();
+  }
+
+  private list(): Promise<AssistantAgent[]> {
+    return Promise.all(
+      this.threads.map((thread) =>
+        thread.listing().catch((error: unknown): AssistantAgent => {
+          this.deps?.log(`assistant ${thread.id}: listing failed: ${error instanceof Error ? error.message : String(error)}`);
+          return { id: thread.id, title: thread.title };
+        }),
+      ),
+    );
+  }
+
+  private scheduleBroadcast(): void {
+    const deps = this.deps;
+    if (deps === undefined || this.cancelFlush !== null) return;
+    this.cancelFlush = deps.clock.after(SNAPSHOT_DEBOUNCE_MS, () => {
+      this.cancelFlush = null;
+      const flush = (this.flushes += 1);
+      void this.list().then((agents) => {
+        // A later flush owns the newer list.
+        if (flush !== this.flushes) return;
+        const key = JSON.stringify(agents);
+        if (key === this.lastSent) return;
+        this.lastSent = key;
+        deps.broadcast({ t: "assistant.agents", agents });
+      });
+    });
   }
 }

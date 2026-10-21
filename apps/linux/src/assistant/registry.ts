@@ -16,6 +16,8 @@ export interface AssistantAgentConfig {
   readonly id: string;
   /** Shown on the phone, used as the push title, the herdr workspace label and the job-line prefix. */
   readonly title: string;
+  /** What the agent covers, e.g. "eCard Systems work"; shown under its title on the phone. Absent when the registry has none. */
+  readonly scope?: string;
 }
 
 const Registry = z
@@ -45,5 +47,8 @@ export function loadRegistry(agentHome: string): readonly AssistantAgentConfig[]
   if (!parsed.success) {
     throw new Error(`invalid ${path}: ${parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`);
   }
-  return parsed.data.agents.map(({ id, title }) => ({ id, title }));
+  return parsed.data.agents.map(({ id, title, scope }) => {
+    const trimmed = scope?.trim();
+    return trimmed === undefined || trimmed === "" ? { id, title } : { id, title, scope: trimmed };
+  });
 }

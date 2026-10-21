@@ -68,6 +68,16 @@ describe("assistant agents", () => {
     expect(parseServerMessage(JSON.stringify({ t: "assistant.agents", agents: [{ id: "astra", title: "" }] })).ok).toBe(false);
     expect(parseServerMessage(JSON.stringify({ t: "assistant.snapshot", snapshot: { rev: 0, busy: false, sessionId: "", messages: [] } })).ok).toBe(false);
   });
+
+  it("carries scope, status and last reply per agent, all optional, and rejects an unknown status", () => {
+    const parse = (agent: object) => parseServerMessage(JSON.stringify({ t: "assistant.agents", agents: [{ id: "astra", title: "Astra", ...agent }] }));
+    const rich = parse({ scope: "eCard Systems work", status: "working", lastReply: { text: "On it.", at: 5 } });
+    expect(rich.ok && rich.value.t === "assistant.agents" ? rich.value.agents[0] : undefined).toEqual({ id: "astra", title: "Astra", scope: "eCard Systems work", status: "working", lastReply: { text: "On it.", at: 5 } });
+    for (const status of ["working", "needs_you", "idle", "not_started"]) expect(parse({ status }).ok, status).toBe(true);
+    expect(parse({}).ok).toBe(true);
+    expect(parse({ status: "busy" }).ok).toBe(false);
+    expect(parse({ lastReply: { text: "x" } }).ok).toBe(false);
+  });
 });
 
 describe("assistant thread", () => {

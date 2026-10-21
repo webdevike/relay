@@ -2,11 +2,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { AgentImage, AgentMessage, AgentSession, ServerMessage } from "@relay/protocol";
+import type { AgentImage, AgentMessage, AgentSession, AssistantMessage, ServerMessage } from "@relay/protocol";
 import type { LaunchOptions } from "../src/agents/herdr";
 import { loadRegistry } from "../src/assistant/registry";
 import { handleAssistantSay } from "../src/assistant/http";
-import { AssistantService, AssistantThreads, REGISTER_TIMEOUT_MS, SNAPSHOT_DEBOUNCE_MS, statusPrefix, toAssistantMessages } from "../src/assistant/service";
+import { assistantStatus, AssistantService, AssistantThreads, lastReplyOf, MAX_LAST_REPLY, REGISTER_TIMEOUT_MS, SNAPSHOT_DEBOUNCE_MS, statusPrefix, toAssistantMessages } from "../src/assistant/service";
 import { type FillSpawn, splitSignin } from "../src/assistant/signin";
 import { defaultAssistantPath, FileAssistantStore, type AssistantRecord } from "../src/assistant/store";
 import type { PushMessage } from "../src/push/notifier";
@@ -127,7 +127,7 @@ interface Shared {
 }
 
 interface HarnessOptions {
-  agent?: { id: string; title: string };
+  agent?: { id: string; title: string; scope?: string };
   /** Run beside another harness's thread. */
   beside?: Shared;
   prime?: string;
@@ -395,6 +395,8 @@ describe("registry and store paths", () => {
       writeFileSync(join(home, ".omp", "assistant", "agents.json"), JSON.stringify(value));
     };
     write({ agents: [{ id: "astra", title: "Astra", scope: "eCard Systems work" }, { id: "nova", title: "Nova", scope: "Personal" }] });
+    expect(loadRegistry(home)).toEqual([{ ...ASTRA, scope: "eCard Systems work" }, { ...NOVA, scope: "Personal" }]);
+    write({ agents: [{ id: "astra", title: "Astra", scope: "  " }, { id: "nova", title: "Nova" }] });
     expect(loadRegistry(home)).toEqual([ASTRA, NOVA]);
     for (const bad of [{ agents: [] }, { agents: [{ id: "Astra", title: "Astra" }] }, { agents: [ASTRA, { id: "astra", title: "Again" }] }, { agents: [{ id: "nova", title: " " }] }]) {
       write(bad);
@@ -752,5 +754,172 @@ describe("AssistantService signin", () => {
     await expect(h.service.signin("a1", "file:///etc/passwd", "u", "p")).rejects.toMatchObject({ error: { code: "invalid_command" } });
     expect(h.fills).toHaveLength(1);
     await expect(harness({ agentHome: null }).service.signin("a1", "https://github.com/login", "u", "p")).rejects.toMatchObject({ error: { code: "agent_launch_failed" } });
+  });
+});
+
+describe("assistantStatus", () => {
+  it("maps the live session the way EvaOS does, and no session to not_started", () => {
+    expect(assistantStatus(undefined)).toBe("not_started");
+    expect(assistantStatus(astra("working"))).toBe("working");
+    expect(assistantStatus(astra("waiting"))).toBe("needs_you");
+    expect(assistantStatus(astra("needs_permission"))).toBe("needs_you");
+    expect(assistantStatus(astra("idle"))).toBe("idle");
+    expect(assistantStatus(astra("ended"))).toBe("idle");
+  });
+});
+
+describe("lastReplyOf", () => {
+  const row = (id: string, role: AssistantMessage["role"], text: string, at: number, extra: Partial<AssistantMessage> = {}): AssistantMessage => ({ id, role, text, at, ...extra });
+
+  it("is the newest assistant row, not a later user row, with its time", () => {
+    expect(lastReplyOf([row("a", "assistant", "first", 1), row("b", "assistant", "second", 2), row("c", "user", "thanks", 3)])).toEqual({ text: "second", at: 2 });
+    expect(lastReplyOf([row("c", "user", "hello", 1)])).toBeNull();
+    expect(lastReplyOf([])).toBeNull();
+  });
+
+  it("passes over rows with no words, and names a sign-in request by its host", () => {
+    const signin = { url: "https://example.com/login", host: "example.com" };
+    expect(lastReplyOf([row("a", "assistant", "real", 1), row("b", "assistant", "  ", 2), row("c", "assistant", "", 3, { images: [{ id: "i", mimeType: "image/png" }] })])).toEqual({ text: "real", at: 1 });
+    expect(lastReplyOf([row("a", "assistant", "", 4, { signin })])).toEqual({ text: "Sign in to example.com", at: 4 });
+  });
+
+  it("clips a long reply to the preview length with an ellipsis, and leaves a short one whole", () => {
+    const long = "x".repeat(400);
+    const reply = lastReplyOf([row("a", "assistant", long, 1)]);
+    expect(reply?.text).toHaveLength(MAX_LAST_REPLY);
+    expect(reply?.text.endsWith("…")).toBe(true);
+    expect(lastReplyOf([row("a", "assistant", "y".repeat(MAX_LAST_REPLY), 1)])?.text).toBe("y".repeat(MAX_LAST_REPLY));
+    // Never ends on half an emoji.
+    const emoji = lastReplyOf([row("a", "assistant", `${"z".repeat(MAX_LAST_REPLY - 2)}😀😀`, 1)]);
+    expect(emoji?.text).toBe(`${"z".repeat(MAX_LAST_REPLY - 2)}…`);
+  });
+});
+
+describe("AssistantService listing", () => {
+  it("is not_started with its scope and no reply before the agent has ever run", async () => {
+    const h = harness({ agent: { ...ASTRA, scope: "eCard Systems work" } });
+    expect(await h.service.listing()).toEqual({ id: "astra", title: "Astra", scope: "eCard Systems work", status: "not_started" });
+    expect(await harness().service.listing()).toEqual({ id: "astra", title: "Astra", status: "not_started" });
+  });
+
+  it("is the newest settled reply of the live session with the session's status, hiding job lines, the silence marker and a reply still streaming", async () => {
+    const h = harness({ prime: "You are Astra." });
+    h.register("working");
+    h.agents.transcript = [
+      { id: "p", role: "user", text: "You are Astra.", at: 1 },
+      { id: "u1", role: "user", text: "standup?", at: 2 },
+      { id: "a1", role: "assistant", text: "Standup is at 9:30.", at: 3 },
+      { id: "j", role: "user", text: `${STATUS_PREFIX}Heartbeat: 1 new.`, at: 4 },
+      { id: "a2", role: "assistant", text: "(nothing to report)", at: 5 },
+      { id: "a3", role: "assistant", text: "Drafting the", at: 6, streaming: true },
+    ];
+    expect(await h.service.listing()).toEqual({ id: "astra", title: "Astra", status: "working", lastReply: { text: "Standup is at 9:30.", at: 3 } });
+    h.register("waiting");
+    expect((await h.service.listing()).status).toBe("needs_you");
+    h.register("idle");
+    expect((await h.service.listing()).status).toBe("idle");
+  });
+
+  it("falls back to the earlier contexts' reply while the live session has none yet, and still shows it with no session at all", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "eva-listing-"));
+    dirs.push(dir);
+    const old = transcriptFile(dir, "2026-10-14.jsonl", [
+      { role: "user", content: "morning", timestamp: 1 },
+      { role: "assistant", content: [{ type: "text", text: "Morning, Isaac." }], timestamp: 2 },
+    ]);
+    const h = harness({ history: [old] });
+    expect(await h.service.listing()).toMatchObject({ status: "not_started", lastReply: { text: "Morning, Isaac." } });
+    h.register("idle", "/sessions/new.jsonl");
+    h.agents.transcript = [];
+    expect(await h.service.listing()).toMatchObject({ status: "idle", lastReply: { text: "Morning, Isaac." } });
+  });
+});
+
+describe("assistant.agents list", () => {
+  const frames = (broadcasts: ServerMessage[]) => broadcasts.filter((message) => message.t === "assistant.agents");
+
+  function pair() {
+    const a = harness({ agent: { ...ASTRA, scope: "eCard Systems work" } });
+    const n = harness({ agent: { ...NOVA, scope: "Personal" }, beside: a });
+    const broadcasts: ServerMessage[] = [];
+    const threads = new AssistantThreads([a.service, n.service], { broadcast: (message) => broadcasts.push(message), clock: a.clock, log: () => undefined });
+    return { a, n, threads, broadcasts };
+  }
+
+  it("lists every agent in registry order with scope, status and last reply", async () => {
+    const { a, n, threads } = pair();
+    a.register("working");
+    n.register("waiting");
+    a.agents.transcript = [{ id: "a1", role: "assistant", text: "Reviewing the PR.", at: 7 }];
+    expect(await threads.agents()).toEqual([
+      { id: "astra", title: "Astra", scope: "eCard Systems work", status: "working", lastReply: { text: "Reviewing the PR.", at: 7 } },
+      { id: "nova", title: "Nova", scope: "Personal", status: "needs_you" },
+    ]);
+  });
+
+  it("broadcasts one debounced fresh list when a reply settles or a status moves, and nothing for streaming text or unchanged lists", async () => {
+    const { a, n, threads, broadcasts } = pair();
+    a.register("idle");
+    n.register("idle");
+    // Streaming growth and other sessions' news do not touch the list.
+    threads.observe({ kind: "message", sessionId: "eva-1", id: "a1", text: "On", streaming: true });
+    threads.observe({ kind: "conversation", sessionId: "s1", appended: [{ id: "x", role: "assistant", text: "other", at: 1 }] });
+    a.clock.advance(SNAPSHOT_DEBOUNCE_MS);
+    await flush();
+    expect(frames(broadcasts)).toEqual([]);
+
+    a.agents.transcript = [{ id: "a1", role: "assistant", text: "On it.", at: 5 }];
+    threads.observe({ kind: "message", sessionId: "eva-1", id: "a1", text: "On it.", streaming: false });
+    threads.observe({ kind: "conversation", sessionId: "eva-1", appended: [{ id: "a1", role: "assistant", text: "On it.", at: 5 }] });
+    a.clock.advance(SNAPSHOT_DEBOUNCE_MS);
+    await flush();
+    expect(frames(broadcasts)).toEqual([
+      {
+        t: "assistant.agents",
+        agents: [
+          { id: "astra", title: "Astra", scope: "eCard Systems work", status: "idle", lastReply: { text: "On it.", at: 5 } },
+          { id: "nova", title: "Nova", scope: "Personal", status: "idle" },
+        ],
+      },
+    ]);
+
+    // A silent answer settles but leaves the list as it was: no second frame.
+    a.agents.transcript = [...a.agents.transcript, { id: "a2", role: "assistant", text: "(nothing to report)", at: 6 }];
+    threads.observe({ kind: "message", sessionId: "eva-1", id: "a2", text: "(nothing to report)", streaming: false });
+    a.clock.advance(SNAPSHOT_DEBOUNCE_MS);
+    await flush();
+    expect(frames(broadcasts)).toHaveLength(1);
+
+    // Nova starts working.
+    n.agents.sessions = n.agents.sessions.map((session) => (session.id === "nova-1" ? nova("working") : session));
+    threads.observe({ kind: "sessions" });
+    a.clock.advance(SNAPSHOT_DEBOUNCE_MS);
+    await flush();
+    expect(frames(broadcasts)).toHaveLength(2);
+    expect(frames(broadcasts)[1]).toMatchObject({ agents: [{ id: "astra" }, { id: "nova", status: "working" }] });
+  });
+
+  it("goes out again after a request even when the list came out the same, so no phone is left behind", async () => {
+    const { a, threads, broadcasts } = pair();
+    a.agents.sessions = [astra("idle")];
+    threads.observe({ kind: "sessions" });
+    a.clock.advance(SNAPSHOT_DEBOUNCE_MS);
+    await flush();
+    expect(frames(broadcasts)).toHaveLength(1);
+    await threads.agents();
+    threads.observe({ kind: "message", sessionId: "eva-1", id: "m", text: "hi", streaming: false });
+    a.clock.advance(SNAPSHOT_DEBOUNCE_MS);
+    await flush();
+    expect(frames(broadcasts)).toHaveLength(2);
+  });
+
+  it("sends no frames without broadcast deps", async () => {
+    const h = harness();
+    const threads = new AssistantThreads([h.service]);
+    h.register("idle");
+    threads.observe({ kind: "message", sessionId: "eva-1", id: "m", text: "hi", streaming: false });
+    h.clock.advance(SNAPSHOT_DEBOUNCE_MS);
+    await flush();
+    expect(await threads.agents()).toEqual([{ id: "astra", title: "Astra", status: "idle" }]);
   });
 });

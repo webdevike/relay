@@ -123,7 +123,7 @@ socket.onMessage = (data) => {
     socket.send(encode({ t: "board.subscribe" }));
     // The habit gate may have locked or unlocked while the phone was away.
     socket.send(encode({ t: "gate.get" }));
-    // The assistant tiles come from the host's registry, which may have changed while away.
+    // The Assistants list comes from the host's registry and live sessions, which may have changed while away.
     socket.send(encode({ t: "assistant.agents" }));
     // A thread is only fetched while its screen is showing; the screen asks again on focus.
     if (watchedAssistant !== null) socket.send(encode({ t: "assistant.get", agent: watchedAssistant }));
@@ -337,6 +337,12 @@ export function requestAgentOptions(sessionId: string): void {
 export function requestDrops(): void {
   if (useConnectionStore.getState().status !== "connected") return;
   socket.send(encode({ t: "drop.list" }));
+}
+
+/** Ephemeral; the answer lands in `useAssistantStore().agents`. Also sent on every welcome; the host pushes it again when a status or last reply changes. */
+export function requestAssistantAgents(): void {
+  if (useConnectionStore.getState().status !== "connected") return;
+  socket.send(encode({ t: "assistant.agents" }));
 }
 
 /**

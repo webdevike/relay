@@ -342,8 +342,24 @@ export const AgentMessage = z.object({
 });
 export type AgentMessage = z.infer<typeof AgentMessage>;
 
-/** One assistant thread the host runs, as listed by `assistant.agents`. */
-export const AssistantAgent = z.object({ id: AssistantAgentId, title: nonEmpty });
+/** Where an assistant's thread stands, from its live omp session: no session is "not_started". */
+export const AssistantStatus = z.enum(["working", "needs_you", "idle", "not_started"]);
+export type AssistantStatus = z.infer<typeof AssistantStatus>;
+
+/**
+ * One assistant thread the host runs, as listed by `assistant.agents`. Everything beyond `id` and
+ * `title` is optional so builds from before the Assistants screen keep parsing, and hosts from
+ * before it keep parsing here.
+ */
+export const AssistantAgent = z.object({
+  id: AssistantAgentId,
+  title: nonEmpty,
+  /** What the registry says the agent covers, e.g. "eCard Systems work". */
+  scope: z.string().optional(),
+  status: AssistantStatus.optional(),
+  /** The newest reply of the agent worth showing (never the silence marker), one clipped line. */
+  lastReply: z.object({ text: z.string(), at: ms }).optional(),
+});
 export type AssistantAgent = z.infer<typeof AssistantAgent>;
 
 /**

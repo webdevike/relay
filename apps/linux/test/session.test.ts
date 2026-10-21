@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { type AgentApproval, type AgentAsk, type AgentAskAnswer, type AgentImage, type AgentMessage, type AgentOptions, type AgentSession, type ApprovalConfirmation, type AssistantSnapshot, type ClientMessage, type GateStatus, type InboxItem, type InputEvent, type KeyName, type ServerMessage } from "@relay/protocol";
+import { type AgentApproval, type AgentAsk, type AgentAskAnswer, type AgentImage, type AgentMessage, type AgentOptions, type AgentSession, type ApprovalConfirmation, type AssistantAgent, type AssistantSnapshot, type ClientMessage, type GateStatus, type InboxItem, type InputEvent, type KeyName, type ServerMessage } from "@relay/protocol";
 import { AgentsDeltaTracker } from "../src/agents/delta-tracker";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -753,6 +753,9 @@ describe("assistant threads", () => {
     snapshot(): Promise<AssistantSnapshot> {
       return Promise.resolve(this.snapshotValue);
     }
+    listing(): Promise<AssistantAgent> {
+      return Promise.resolve({ id: this.id, title: this.title, scope: `${this.title} scope`, status: "idle", lastReply: { text: `hi from ${this.title}`, at: 1 } });
+    }
     turn(text: string, images?: readonly AgentImage[]): Promise<void> {
       if (text === "fail") return Promise.reject(new AckFailure({ code: "agent_launch_failed", message: `${this.title} did not come up` }));
       this.turns.push(text);
@@ -776,6 +779,9 @@ describe("assistant threads", () => {
     readonly threads = [this.astra, this.nova];
     thread(id: string | undefined): FakeThread | undefined {
       return id === undefined ? this.astra : this.threads.find((thread) => thread.id === id);
+    }
+    agents(): Promise<AssistantAgent[]> {
+      return Promise.all(this.threads.map((thread) => thread.listing()));
     }
     observe(): void {
       // nothing to watch here
@@ -825,11 +831,18 @@ describe("assistant threads", () => {
     expect(bare.sink.last()).toEqual({ t: "assistant.snapshot", agent: "astra", snapshot: { rev: 0, messages: [], busy: false, sessionId: "" } });
   });
 
-  it("lists the agents in registry order, and none on a host without threads", () => {
+  it("lists the agents in registry order with their scope, status and last reply, and none on a host without threads", async () => {
     const h = harness({ assistant: new FakeThreads() });
     pair(h);
     h.session.receive({ t: "assistant.agents" });
-    expect(h.sink.last()).toEqual({ t: "assistant.agents", agents: [{ id: "astra", title: "Astra" }, { id: "nova", title: "Nova" }] });
+    await h.sink.sentCount(5);
+    expect(h.sink.last()).toEqual({
+      t: "assistant.agents",
+      agents: [
+        { id: "astra", title: "Astra", scope: "Astra scope", status: "idle", lastReply: { text: "hi from Astra", at: 1 } },
+        { id: "nova", title: "Nova", scope: "Nova scope", status: "idle", lastReply: { text: "hi from Nova", at: 1 } },
+      ],
+    });
     const bare = harness();
     pair(bare);
     bare.session.receive({ t: "assistant.agents" });

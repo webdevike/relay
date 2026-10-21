@@ -67,7 +67,13 @@
     "t": "assistant.agents",
     "agents": [
       { "id": "astra", "title": "Astra" },
-      { "id": "nova", "title": "Nova" }
+      {
+        "id": "nova",
+        "title": "Nova",
+        "scope": "Personal",
+        "status": "needs_you",
+        "lastReply": { "text": "Your flight moved to 9:40.", "at": 1760000000000 }
+      }
     ]
   },
   {

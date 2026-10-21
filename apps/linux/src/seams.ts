@@ -1,7 +1,7 @@
 // Seams between transport, input and storage. Mirrors apps/mac/Sources/RelayCore/Seams.swift:
 // the session only ever talks to these; input/ and the stores implement them; main.ts wires them.
 
-import type { AckError, AgentApproval, AgentAsk, AgentAskAnswer, AgentImage, AgentMessage, AgentOptions, AgentSession, ApprovalConfirmation, AssistantSnapshot, Command, Drop, DropOrigin, GateStatus, InboxItem, InboxResolve, InputEvent, KeyName, ScreenError, ScreenKey, ScreenWindow, ServerMessage } from "@relay/protocol";
+import type { AckError, AgentApproval, AgentAsk, AgentAskAnswer, AgentImage, AgentMessage, AgentOptions, AgentSession, ApprovalConfirmation, AssistantAgent, AssistantSnapshot, Command, Drop, DropOrigin, GateStatus, InboxItem, InboxResolve, InputEvent, KeyName, ScreenError, ScreenKey, ScreenWindow, ServerMessage } from "@relay/protocol";
 
 /** Outbound side of one connection. `send` after `close` is a no-op. */
 export interface FrameSink {
@@ -123,6 +123,8 @@ export interface AssistantThread {
   readonly title: string;
   /** The thread as it stands; empty and idle while the agent is not running. */
   snapshot(): Promise<AssistantSnapshot>;
+  /** This agent's row in `assistant.agents`: its registry entry, where its session stands and its newest reply. */
+  listing(): Promise<AssistantAgent>;
   /** Delivers `text` and any `images` as Isaac's next turn, starting or resuming the agent first. Rejects with `AckFailure` (`agent_launch_failed`). */
   turn(text: string, images?: readonly AgentImage[]): Promise<void>;
   /** A background job's message to the agent, delivered as a turn it then tells Isaac about. Rejects like `turn`. */
@@ -137,6 +139,8 @@ export interface AssistantRelaying {
   readonly threads: readonly AssistantThread[];
   /** Thread `id`, or the default when `id` is undefined (requests from older phones); undefined for an unknown id. */
   thread(id: string | undefined): AssistantThread | undefined;
+  /** Every thread's listing in registry order, as `assistant.agents` carries it. */
+  agents(): Promise<AssistantAgent[]>;
   /** Every provider change; each thread picks out its own session's. */
   observe(change: AgentProviderChange): void;
 }

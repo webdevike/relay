@@ -1,5 +1,6 @@
 /**
- * One assistant's thread (`/eva?agent=<id>`: Astra, Nova, … from the host's registry): a durable
+ * One assistant's thread (`/eva?agent=<id>`: Astra, Nova, … from the host's registry, opened from
+ * the Assistants list at `/assistants`, which Back returns to): a durable
  * conversation the host keeps for Isaac, separate from the Agent Inbox. The host owns the thread
  * (`useAssistantStore().threads[agent]` mirrors its snapshot while this screen is showing); this
  * screen renders it as a chat, sends a turn with `assistant.turn`, and
@@ -350,7 +351,9 @@ function Thread({ agent }: { agent: string }) {
             <View style={styles.back}>
               <BackButton
                 onPress={() => {
-                  router.back();
+                  // Opened from Assistants it goes back there; a notification tap into a cold app has nothing behind it.
+                  if (router.canGoBack()) router.back();
+                  else router.replace("/assistants");
                 }}
               />
             </View>
