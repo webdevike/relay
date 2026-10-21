@@ -40,6 +40,23 @@ export type AgentStatus = z.infer<typeof AgentStatus>;
 export const AssistantAgentId = z.string().regex(/^[a-z][a-z0-9-]*$/);
 export type AssistantAgentId = z.infer<typeof AssistantAgentId>;
 
+/** The omp profile a session runs on and the email it is signed in with. */
+export const AgentAccount = z.object({
+  /** `OMP_PROFILE` ("personal", "work"), or "current" for omp's unprofiled default. */
+  profile: nonEmpty,
+  email: nonEmpty.optional(),
+});
+export type AgentAccount = z.infer<typeof AgentAccount>;
+
+/**
+ * What a session shows for its account: "Personal · <email>" or "Work · <email>". The current
+ * profile is Isaac's work login, so anything but "personal" reads as Work.
+ */
+export function accountLabel(account: AgentAccount): string {
+  const kind = account.profile === "personal" ? "Personal" : "Work";
+  return account.email === undefined ? kind : `${kind} · ${account.email}`;
+}
+
 /** Provider-independent view of one coding-agent session. */
 export const AgentSession = z.object({
   id: nonEmpty,
@@ -62,6 +79,11 @@ export const AgentSession = z.object({
   thinkingLevel: z.string().optional(),
   /** Share of the model's context window in use, 0..1, when the provider reports it. */
   contextUsed: z.number().min(0).max(1).optional(),
+  /**
+   * The omp account the session runs on: its profile (`OMP_PROFILE`, "current" when unset) and
+   * the email that profile is signed in with, when known. Absent from providers without accounts.
+   */
+  account: AgentAccount.optional(),
   /**
    * Hand-started, a run the host's job launcher scheduled, or one of the host's long-lived
    * assistant threads (hidden from inbox lists, read through `assistant.get`). Absent on older

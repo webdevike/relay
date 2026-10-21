@@ -1,7 +1,7 @@
 import { useMemo, useEffect, useRef, useState } from "react";
 import { FlatList, Image, Pressable, View } from "react-native";
 import { SymbolView } from "expo-symbols";
-import type { AgentImageRef, AgentMessage, AgentSession, AgentStatus } from "@relay/protocol";
+import { accountLabel, type AgentImageRef, type AgentMessage, type AgentSession, type AgentStatus } from "@relay/protocol";
 import { Text } from "@/ui/Text";
 import { Pill, type PillProps } from "@/ui/Pill";
 import { spacing, useColors, type Colors } from "@/theme";
@@ -173,7 +173,7 @@ export interface AgentHeaderProps {
   session: AgentSession;
 }
 
-/** The session's title, status, and model: the inbox's top card. */
+/** The session's title, status, account, and model: the inbox's top card. */
 export function AgentHeader({ session }: AgentHeaderProps) {
   const pill = pillFor[session.status];
   return (
@@ -187,6 +187,11 @@ export function AgentHeader({ session }: AgentHeaderProps) {
       {session.statusDetail !== undefined && (
         <Text variant="caption" color="textMuted" numberOfLines={1}>
           {session.statusDetail}
+        </Text>
+      )}
+      {session.account !== undefined && (
+        <Text variant="caption" color="textFaint" numberOfLines={1} testID="agent-account">
+          {accountLabel(session.account)}
         </Text>
       )}
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm }}>

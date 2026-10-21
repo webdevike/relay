@@ -14,7 +14,7 @@
 
 import { existsSync, unlinkSync } from "node:fs";
 import type { Socket, SocketHandler } from "bun";
-import { AgentAskQuestion, type AgentApproval, type ApprovalConfirmation, AgentImage, AgentMessage, AgentOptions, AgentSession, AgentStatus, GateStatus, type AgentAsk, type AgentAskAnswer, type AgentImage as AgentImageT, type AgentSession as AgentSessionT, type AgentMessage as AgentMessageT, type AgentOptions as AgentOptionsT, type GateStatus as GateStatusT } from "@relay/protocol";
+import { AgentAccount, AgentAskQuestion, type AgentApproval, type ApprovalConfirmation, AgentImage, AgentMessage, AgentOptions, AgentSession, AgentStatus, GateStatus, type AgentAsk, type AgentAskAnswer, type AgentImage as AgentImageT, type AgentSession as AgentSessionT, type AgentMessage as AgentMessageT, type AgentOptions as AgentOptionsT, type GateStatus as GateStatusT } from "@relay/protocol";
 import { z } from "zod";
 import { AckFailure, type AgentConfigChange, type AgentProvider, type AgentProviderChange, type GateCommand } from "../seams";
 import { destructivePattern } from "./destructive";
@@ -31,6 +31,7 @@ const StatusFrame = z.object({
   modelVendor: z.string().optional(),
   thinkingLevel: z.string().optional(),
   contextUsed: z.number().min(0).max(1).optional(),
+  account: AgentAccount.optional(),
   /** A mirrored subagent stops taking replies when it finishes; top-level sessions never send it. */
   canRespond: z.boolean().optional(),
   /** The transcript on disk, once omp has one; the assistant service keeps it to resume the thread. */
@@ -372,9 +373,10 @@ export class OmpBridgeProvider implements AgentProvider {
           ...(frame.assistant === undefined ? {} : { assistant: frame.assistant }),
           ...(frame.job === undefined ? {} : { job: frame.job }),
           ...(frame.parentId === undefined ? {} : { parentId: frame.parentId }),
+          ...(frame.account === undefined ? {} : { account: frame.account }),
         };
         connection.sessionFile = frame.sessionFile ?? null;
-        this.log(`agent session ${frame.sessionId} (${frame.title}) ${frame.status}`);
+        this.log(`agent session ${frame.sessionId} (${frame.title}) ${frame.status}${frame.account === undefined ? "" : ` on ${frame.account.profile}${frame.account.email === undefined ? "" : ` (${frame.account.email})`}`}`);
         this.publish();
         return;
       }
@@ -399,6 +401,7 @@ export class OmpBridgeProvider implements AgentProvider {
           ...(frame.modelVendor === undefined ? {} : { modelVendor: frame.modelVendor }),
           ...(frame.thinkingLevel === undefined ? {} : { thinkingLevel: frame.thinkingLevel }),
           ...(frame.contextUsed === undefined ? {} : { contextUsed: frame.contextUsed }),
+          ...((frame.account ?? current.account) === undefined ? {} : { account: frame.account ?? current.account }),
         };
         if (frame.sessionFile !== undefined) connection.sessionFile = frame.sessionFile;
         this.publish();

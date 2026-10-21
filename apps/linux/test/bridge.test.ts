@@ -1,0 +1,38 @@
+import { describe, expect, it } from "vitest";
+import { accountLabel } from "@relay/protocol";
+import { OmpBridgeProvider } from "../src/agents/bridge";
+
+/** Feeds extension frames straight into the provider, past the unix socket. */
+function connect(provider: OmpBridgeProvider): (frame: object) => void {
+  const connection = { socket: null, buffer: "", outbound: null, session: null, sessionFile: null, pending: new Map(), gate: undefined };
+  const inner = provider as unknown as { connections: Set<unknown>; receive(connection: unknown, chunk: Uint8Array): void };
+  inner.connections.add(connection);
+  return (frame) => {
+    inner.receive(connection, Buffer.from(`${JSON.stringify(frame)}\n`));
+  };
+}
+
+const hello = { t: "hello", sessionId: "s1", provider: "omp", title: "Eva", projectPath: "/Users/ike/Eva", status: "idle", lastActivity: "", lastActivityAt: 1, canRespond: true };
+
+describe("session account", () => {
+  it("passes the hello frame's profile through and keeps it when a status omits it", () => {
+    const logs: string[] = [];
+    const provider = new OmpBridgeProvider("/unused.sock", (line) => logs.push(line), null);
+    const send = connect(provider);
+    send({ ...hello, account: { profile: "personal" } });
+    expect(provider.sessions[0]?.account).toEqual({ profile: "personal" });
+    expect(logs.at(-1)).toContain("on personal");
+
+    send({ t: "status", status: "working", lastActivity: "", lastActivityAt: 2, account: { profile: "personal", email: "ikey2244@gmail.com" } });
+    expect(provider.sessions[0]?.account).toEqual({ profile: "personal", email: "ikey2244@gmail.com" });
+
+    send({ t: "status", status: "idle", lastActivity: "", lastActivityAt: 3 });
+    expect(provider.sessions[0]?.account?.email).toBe("ikey2244@gmail.com");
+  });
+
+  it("labels the current profile as Work", () => {
+    expect(accountLabel({ profile: "current", email: "iweber@ecardsystems.com" })).toBe("Work · iweber@ecardsystems.com");
+    expect(accountLabel({ profile: "work" })).toBe("Work");
+    expect(accountLabel({ profile: "personal", email: "ikey2244@gmail.com" })).toBe("Personal · ikey2244@gmail.com");
+  });
+});

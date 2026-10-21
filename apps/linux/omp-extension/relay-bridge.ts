@@ -73,6 +73,8 @@ interface Settings {
   thinkingLevel?: string;
   /** Share of the context window in use, 0..1. */
   contextUsed?: number;
+  /** The omp profile this process runs on and the email it is signed in with, once probed. */
+  account?: Account;
 }
 
 interface SessionInfo extends Settings {
@@ -549,6 +551,50 @@ function runGateCli(args: string[]): Promise<unknown> {
   return promise;
 }
 
+interface Account {
+  profile: string;
+  email?: string;
+}
+
+/** `--profile` sets OMP_PROFILE inside omp; unset means the unprofiled "current" store. */
+const PROFILE = (process.env["OMP_PROFILE"] ?? process.env["PI_PROFILE"] ?? "").trim() || "current";
+/** omp is its own compiled binary; a source run under bun falls back to `omp` on PATH. */
+const OMP = basename(process.execPath).startsWith("omp") ? process.execPath : "omp";
+let account: Account = { profile: PROFILE };
+
+/**
+ * Reads the profile's signed-in email from `omp usage accounts --json` (`identityKey` is
+ * `email:<address>|org:<id>`), once per process. Resolves either way; the profile alone stands
+ * when omp can't say.
+ */
+function probeAccount(): Promise<void> {
+  const { promise, resolve } = Promise.withResolvers<void>();
+  const args = PROFILE === "current" ? [] : ["--profile", PROFILE];
+  execFile(OMP, [...args, "usage", "accounts", "--json"], { timeout: 15_000 }, (_error, stdout) => {
+    try {
+      const report = JSON.parse(stdout) as { accounts?: { identityKey?: unknown }[] };
+      for (const entry of report.accounts ?? []) {
+        if (typeof entry.identityKey !== "string") continue;
+        const email = entry.identityKey.split("|").find((part) => part.startsWith("email:"))?.slice("email:".length);
+        if (email !== undefined && email.length > 0) {
+          account = { profile: PROFILE, email };
+          break;
+        }
+      }
+    } catch {
+      // No JSON: keep the profile alone.
+    }
+    resolve();
+  });
+  return promise;
+}
+let accountProbe: Promise<void> | null = null;
+/** Probes on the first interactive session, not at load: every omp process loads this file. */
+function probedAccount(): Promise<void> {
+  accountProbe ??= probeAccount();
+  return accountProbe;
+}
+
 /** Runs one phone gate command; a proof photo goes to the CLI as a temp file it copies away. */
 async function performGate(frame: Extract<Inbound, { t: "gate" }>): Promise<unknown> {
   if (frame.action === "override") return runGateCli(["override", frame.reason ?? ""]);
@@ -648,6 +694,7 @@ function mirrorSubagent(parentId: string, projectPath: string, first: SubagentLi
       lastActivityAt,
       canRespond: running,
       ...(shown === undefined ? {} : { statusDetail: shown }),
+      account,
     };
   };
   const hello = (): Outbound => ({ t: "hello", sessionId, provider: "omp", projectPath, parentId, ...current() });
@@ -839,6 +886,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
     if (level !== undefined) base.thinkingLevel = level;
     const usage = ctx?.getContextUsage();
     if (usage !== undefined && Number.isFinite(usage.percent)) base.contextUsed = Math.min(1, Math.max(0, usage.percent / 100));
+    base.account = account;
     return base;
   };
 
@@ -1280,6 +1328,8 @@ export default function relayBridge(pi: ExtensionAPI): void {
     wrapApprovalDialog(context);
     if (ASSISTANT !== null && history.length === 0) seedHistory(context);
     connect();
+    // A hello sent before the email probe landed carries the profile alone; the email follows.
+    void probedAccount().then(sendStatus);
     if (gateTimer === null) {
       gateTimer = setInterval(pollGate, GATE_POLL_MS);
       gateTimer.unref();
