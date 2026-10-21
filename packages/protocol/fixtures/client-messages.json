@@ -128,10 +128,18 @@
     "t": "assistant.get"
   },
   {
+    "t": "assistant.get",
+    "agent": "nova"
+  },
+  {
+    "t": "assistant.agents"
+  },
+  {
     "t": "cmd",
     "id": "c-4",
     "cmd": {
       "kind": "assistant.turn",
+      "agent": "astra",
       "text": "what did the furry-drop run do?"
     }
   },
@@ -149,6 +157,7 @@
     "id": "c-6",
     "cmd": {
       "kind": "assistant.signin",
+      "agent": "nova",
       "messageId": "a-3",
       "url": "https://github.com/login",
       "username": "isaac",

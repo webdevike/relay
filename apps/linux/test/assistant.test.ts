@@ -4,9 +4,11 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentImage, AgentMessage, AgentSession, ServerMessage } from "@relay/protocol";
 import type { LaunchOptions } from "../src/agents/herdr";
-import { AssistantService, REGISTER_TIMEOUT_MS, SNAPSHOT_DEBOUNCE_MS, STATUS_PREFIX, toAssistantMessages } from "../src/assistant/service";
+import { loadRegistry } from "../src/assistant/registry";
+import { handleAssistantSay } from "../src/assistant/http";
+import { AssistantService, AssistantThreads, REGISTER_TIMEOUT_MS, SNAPSHOT_DEBOUNCE_MS, statusPrefix, toAssistantMessages } from "../src/assistant/service";
 import { type FillSpawn, splitSignin } from "../src/assistant/signin";
-import { FileAssistantStore, type AssistantRecord } from "../src/assistant/store";
+import { defaultAssistantPath, FileAssistantStore, type AssistantRecord } from "../src/assistant/store";
 import type { PushMessage } from "../src/push/notifier";
 import { AckFailure, type AgentProvider } from "../src/seams";
 import type { SessionClock } from "../src/session";
@@ -32,11 +34,18 @@ class FakeClock implements SessionClock {
   }
 }
 
-const astra = (status: AgentSession["status"]): AgentSession => ({ id: "eva-1", provider: "omp", title: "Astra", projectPath: "/home/ike/Eva", status, lastActivity: "", lastActivityAt: 1, canRespond: true, kind: "assistant" });
+const ASTRA = { id: "astra", title: "Astra" };
+const NOVA = { id: "nova", title: "Nova" };
+const STATUS_PREFIX = statusPrefix("Astra");
+const ASTRA_ENV = { env: { RELAY_ASSISTANT: "astra", RELAY_ASSISTANT_TITLE: "Astra" }, label: "Astra" };
+const astra = (status: AgentSession["status"]): AgentSession => ({ id: "eva-1", provider: "omp", title: "Astra", projectPath: "/home/ike/Eva", status, lastActivity: "", lastActivityAt: 1, canRespond: true, kind: "assistant", assistant: "astra" });
+const nova = (status: AgentSession["status"]): AgentSession => ({ id: "nova-1", provider: "omp", title: "Nova", projectPath: "/home/ike/Eva", status, lastActivity: "", lastActivityAt: 1, canRespond: true, kind: "assistant", assistant: "nova" });
 const other: AgentSession = { id: "s1", provider: "omp", title: "relay", projectPath: "/w/relay", status: "working", lastActivity: "", lastActivityAt: 2, canRespond: true, kind: "manual" };
 
 /** Just enough of the provider: the session list, a conversation per session, and recorded replies. */
-function fakeProvider(): AgentProvider & { sessions: AgentSession[]; transcript: AgentMessage[]; replies: [string, string, boolean][]; replyImages: (readonly AgentImage[] | undefined)[] } {
+type FakeProvider = AgentProvider & { sessions: AgentSession[]; transcript: AgentMessage[]; novaTranscript: AgentMessage[]; replies: [string, string, boolean][]; replyImages: (readonly AgentImage[] | undefined)[] };
+
+function fakeProvider(): FakeProvider {
   const unsupported = (): never => {
     throw new Error("not used here");
   };
@@ -46,11 +55,12 @@ function fakeProvider(): AgentProvider & { sessions: AgentSession[]; transcript:
     onChange: null,
     sessions: [],
     transcript: [],
+    novaTranscript: [],
     replies: [],
     replyImages: [],
     start: () => undefined,
     conversation(sessionId) {
-      return Promise.resolve(sessionId === "eva-1" ? this.transcript : null);
+      return Promise.resolve(sessionId === "eva-1" ? this.transcript : sessionId === "nova-1" ? this.novaTranscript : null);
     },
     reply(sessionId, text, submit, images) {
       this.replies.push([sessionId, text, submit]);
@@ -106,29 +116,55 @@ function fakeFill(outcome: { exit: number; stderr?: string } = { exit: 0 }) {
   return { runs, spawn };
 }
 
-function harness(options: { prime?: string; remembered?: string; history?: string[]; agentHome?: null; launchFails?: boolean; fill?: { exit: number; stderr?: string } } = {}) {
-  const home = mkdtempSync(join(tmpdir(), "eva-home-"));
-  dirs.push(home);
+/** What a second harness shares with the first: agent home, provider, phones and the push recorder. */
+interface Shared {
+  readonly home: string;
+  readonly agents: FakeProvider;
+  readonly files: Map<string, string>;
+  readonly tokens: Map<string, string>;
+  readonly pushes: PushMessage[];
+  readonly clock: FakeClock;
+}
+
+interface HarnessOptions {
+  agent?: { id: string; title: string };
+  /** Run beside another harness's thread. */
+  beside?: Shared;
+  prime?: string;
+  remembered?: string;
+  history?: string[];
+  agentHome?: null;
+  launchFails?: boolean;
+  fill?: { exit: number; stderr?: string };
+}
+
+function harness(options: HarnessOptions = {}) {
+  const agent = options.agent ?? ASTRA;
+  const beside = options.beside;
+  const home = beside?.home ?? mkdtempSync(join(tmpdir(), "eva-home-"));
+  if (beside === undefined) dirs.push(home);
   if (options.prime !== undefined) {
-    mkdirSync(join(home, ".omp", "assistant"), { recursive: true });
-    writeFileSync(join(home, ".omp", "assistant", "prime.md"), options.prime);
+    mkdirSync(join(home, ".omp", "assistant", "agents", agent.id), { recursive: true });
+    writeFileSync(join(home, ".omp", "assistant", "agents", agent.id, "prime.md"), options.prime);
   }
-  const store = new FileAssistantStore(join(home, "assistant.json"));
+  const storePath = join(home, `${agent.id}.json`);
+  const store = new FileAssistantStore(storePath);
   if (options.remembered !== undefined || options.history !== undefined) store.save({ ...(options.remembered === undefined ? {} : { sessionFile: options.remembered }), history: options.history ?? [] });
-  const agents = fakeProvider();
-  const files = new Map<string, string>();
+  const agents = beside?.agents ?? fakeProvider();
+  const files = beside?.files ?? new Map<string, string>();
   const launches: LaunchOptions[] = [];
-  const tokens = new Map([
+  const tokens = beside?.tokens ?? new Map([
     ["phone-1", "ExponentPushToken[one]"],
     ["phone-2", "ExponentPushToken[two]"],
   ]);
   const viewing = new Set<string>();
-  const pushes: PushMessage[] = [];
+  const pushes: PushMessage[] = beside?.pushes ?? [];
   const broadcasts: ServerMessage[] = [];
   const logs: string[] = [];
-  const clock = new FakeClock();
+  const clock = beside?.clock ?? new FakeClock();
   const fill = fakeFill(options.fill);
   const service = new AssistantService({
+    agent,
     agents,
     launch: (launchOptions) => {
       launches.push(launchOptions);
@@ -157,14 +193,15 @@ function harness(options: { prime?: string; remembered?: string; history?: strin
     log: (line) => logs.push(line),
     spawn: fill.spawn,
   });
-  /** Astra registers: the provider lists her and reports the session change. */
+  /** The agent registers: the provider lists its session (beside the others already listed) and reports the change. */
   const register = (status: AgentSession["status"], sessionFile?: string): void => {
-    agents.sessions = [other, astra(status)];
-    if (sessionFile !== undefined) files.set("eva-1", sessionFile);
+    const session = agent.id === "nova" ? nova(status) : astra(status);
+    agents.sessions = [...agents.sessions.filter((listed) => listed.id !== session.id && listed.id !== other.id), other, session];
+    if (sessionFile !== undefined) files.set(session.id, sessionFile);
     service.observe({ kind: "sessions" });
   };
   const remembered = (): AssistantRecord | null => store.load();
-  return { home, service, agents, launches, tokens, viewing, pushes, broadcasts, logs, clock, register, remembered, fills: fill.runs };
+  return { home, storePath, service, agents, files, launches, tokens, viewing, pushes, broadcasts, logs, clock, register, remembered, fills: fill.runs };
 }
 
 const flush = (): Promise<void> => {
@@ -186,23 +223,32 @@ describe("toAssistantMessages", () => {
       { id: "a2", role: "assistant", text: "The furry-drop run is done.", at: 7 },
       { id: "u2", role: "user", text: "You are Astra.", at: 8 },
     ];
-    expect(toAssistantMessages(rows, "You are Astra.")).toEqual([
+    expect(toAssistantMessages(rows, "You are Astra.", STATUS_PREFIX)).toEqual([
       { id: "u1", role: "user", text: "morning", at: 2 },
       { id: "a2", role: "assistant", text: "The furry-drop run is done.", at: 7 },
       { id: "u2", role: "user", text: "You are Astra.", at: 8 },
     ]);
-    expect(toAssistantMessages(rows.slice(0, 1), null)).toEqual([{ id: "p", role: "user", text: "You are Astra.", at: 1 }]);
+    expect(toAssistantMessages(rows.slice(0, 1), null, STATUS_PREFIX)).toEqual([{ id: "p", role: "user", text: "You are Astra.", at: 1 }]);
   });
 
-  it("hides the pre-rename Eva prime and background-job prefix from stored history", () => {
+  it("hides the pre-registry Eva and Astra primes and job prefixes from stored history", () => {
     const rows: AgentMessage[] = [
       { id: "p", role: "user", text: "You are Eva, Isaac's personal assistant, in your one continuous thread with him.", at: 1 },
       { id: "j", role: "user", text: "[From Eva's background jobs] old heartbeat", at: 2 },
-      { id: "u", role: "user", text: "hello Astra", at: 3 },
+      { id: "k", role: "user", text: "[From Astra's background jobs] old heartbeat", at: 3 },
+      { id: "u", role: "user", text: "hello Astra", at: 4 },
     ];
-    expect(toAssistantMessages(rows, "You are Astra, Isaac's personal assistant.\n")).toEqual([
-      { id: "u", role: "user", text: "hello Astra", at: 3 },
-    ]);
+    expect(toAssistantMessages(rows, "You are Astra, for eCard Systems work.\n", STATUS_PREFIX)).toEqual([{ id: "u", role: "user", text: "hello Astra", at: 4 }]);
+    const astraPrime: AgentMessage = { id: "p", role: "user", text: "You are Astra, Isaac's personal assistant, in your one continuous thread with him.", at: 1 };
+    expect(toAssistantMessages([astraPrime, ...rows.slice(1)], "You are Nova.", statusPrefix("Nova"))).toEqual([{ id: "u", role: "user", text: "hello Astra", at: 4 }]);
+  });
+
+  it("hides each agent's own job prefix", () => {
+    const rows: AgentMessage[] = [
+      { id: "j", role: "user", text: "[From Nova's background jobs] Gmail: 2 new", at: 1 },
+      { id: "u", role: "user", text: "hi Nova", at: 2 },
+    ];
+    expect(toAssistantMessages(rows, null, statusPrefix("Nova"))).toEqual([{ id: "u", role: "user", text: "hi Nova", at: 2 }]);
   });
 });
 
@@ -227,11 +273,144 @@ describe("AssistantService snapshot", () => {
     });
   });
 
-  it("ignores legacy Eva-titled assistant processes after the Astra cutover", async () => {
+  it("ignores assistant sessions of other agents and ones that name no agent (the pre-registry markers)", async () => {
     const h = harness({ prime: "You are Astra.\n" });
-    h.agents.sessions = [{ ...astra("working"), title: "Eva" }];
+    h.agents.sessions = [nova("working"), { ...other, id: "old", title: "Astra", kind: "assistant" }];
     h.service.observe({ kind: "sessions" });
     expect(await h.service.snapshot()).toEqual({ rev: 0, messages: [], busy: false, sessionId: "" });
+  });
+});
+
+describe("several agents", () => {
+  it("keep separate snapshots, stores, primes and launches", async () => {
+    const a = harness({ prime: "You are Astra." });
+    const n = harness({ agent: NOVA, beside: a, prime: "You are Nova." });
+    const astraTurn = a.service.turn("ECS standup?");
+    const novaTurn = n.service.turn("groceries");
+    await flush();
+    expect(a.launches).toEqual([{ ...ASTRA_ENV, prompt: "You are Astra." }]);
+    expect(n.launches).toEqual([{ env: { RELAY_ASSISTANT: "nova", RELAY_ASSISTANT_TITLE: "Nova" }, label: "Nova", prompt: "You are Nova." }]);
+    a.register("working", "/sessions/astra.jsonl");
+    n.service.observe({ kind: "sessions" });
+    n.register("working", "/sessions/nova.jsonl");
+    a.service.observe({ kind: "sessions" });
+    await Promise.all([astraTurn, novaTurn]);
+    expect(a.agents.replies).toEqual([
+      ["eva-1", "ECS standup?", true],
+      ["nova-1", "groceries", true],
+    ]);
+    a.agents.transcript = [{ id: "u1", role: "user", text: "ECS standup?", at: 1 }];
+    a.agents.novaTranscript = [
+      { id: "p", role: "user", text: "You are Nova.", at: 1 },
+      { id: "u2", role: "user", text: "groceries", at: 2 },
+    ];
+    expect(await a.service.snapshot()).toMatchObject({ sessionId: "eva-1", messages: [{ id: "u1", text: "ECS standup?" }] });
+    expect(await n.service.snapshot()).toMatchObject({ sessionId: "nova-1", messages: [{ id: "u2", text: "groceries" }] });
+    expect(a.storePath).not.toBe(n.storePath);
+    expect(a.remembered()).toEqual({ sessionFile: "/sessions/astra.jsonl", history: [] });
+    expect(n.remembered()).toEqual({ sessionFile: "/sessions/nova.jsonl", history: [] });
+  });
+
+  it("broadcast only their own session's changes, under their own agent id", async () => {
+    const a = harness();
+    const n = harness({ agent: NOVA, beside: a });
+    a.register("idle");
+    n.register("working");
+    a.clock.advance(SNAPSHOT_DEBOUNCE_MS);
+    await flush();
+    a.broadcasts.length = 0;
+    n.broadcasts.length = 0;
+    a.agents.novaTranscript = [{ id: "u1", role: "user", text: "hi", at: 1 }];
+    const change = { kind: "conversation", sessionId: "nova-1", appended: [{ id: "u1", role: "user", text: "hi", at: 1 }] } as const;
+    a.service.observe(change);
+    n.service.observe(change);
+    a.clock.advance(SNAPSHOT_DEBOUNCE_MS);
+    await flush();
+    expect(a.broadcasts).toEqual([]);
+    expect(n.broadcasts).toEqual([{ t: "assistant.snapshot", agent: "nova", snapshot: { rev: 2, busy: true, sessionId: "nova-1", messages: [{ id: "u1", role: "user", text: "hi", at: 1 }] } }]);
+  });
+
+  it("push with their own title and agent id, skipping phones viewing that agent only", async () => {
+    const a = harness();
+    const n = harness({ agent: NOVA, beside: a });
+    a.register("working");
+    n.register("working");
+    n.viewing.add("phone-1");
+    const reply = (sessionId: string, text: string) => ({ kind: "conversation", sessionId, appended: [{ id: `${sessionId}-a`, role: "assistant", text, at: 1 }] }) as const;
+    for (const service of [a.service, n.service]) {
+      service.observe(reply("eva-1", "PR #12 needs review"));
+      service.observe(reply("nova-1", "Milk is out"));
+    }
+    await flush();
+    expect(a.pushes.map((push) => [push.to, push.title, push.body, push.data])).toEqual([
+      ["ExponentPushToken[one]", "Astra", "PR #12 needs review", { assistant: true, agent: "astra" }],
+      ["ExponentPushToken[two]", "Astra", "PR #12 needs review", { assistant: true, agent: "astra" }],
+      ["ExponentPushToken[two]", "Nova", "Milk is out", { assistant: true, agent: "nova" }],
+    ]);
+  });
+
+  it("route by id, with the first registry agent as the default", () => {
+    const a = harness();
+    const n = harness({ agent: NOVA, beside: a });
+    const threads = new AssistantThreads([a.service, n.service]);
+    expect(threads.thread(undefined)).toBe(a.service);
+    expect(threads.thread("nova")).toBe(n.service);
+    expect(threads.thread("eva")).toBeUndefined();
+  });
+});
+
+describe("POST /assistant/say", () => {
+  const say = (threads: AssistantThreads, query: string, body = "furry-drop finished", remote = "127.0.0.1") =>
+    handleAssistantSay(threads, new Request(`http://127.0.0.1/assistant/say${query}`, { method: "POST", body, headers: { "content-type": "text/plain" } }), remote);
+
+  it("hands the text to the named agent as a job line", async () => {
+    const a = harness();
+    const n = harness({ agent: NOVA, beside: a });
+    a.register("idle");
+    n.register("idle");
+    const response = await say(new AssistantThreads([a.service, n.service]), "?agent=nova");
+    expect(response.status).toBe(200);
+    expect(a.agents.replies).toEqual([["nova-1", `${statusPrefix("Nova")}furry-drop finished`, true]]);
+  });
+
+  it("is a 400 for a missing or unknown agent, never the default, and loopback only", async () => {
+    const a = harness();
+    a.register("idle");
+    const threads = new AssistantThreads([a.service]);
+    for (const query of ["", "?agent=", "?agent=nova"]) expect((await say(threads, query)).status).toBe(400);
+    expect((await say(threads, "?agent=astra", "x", "192.168.1.9")).status).toBe(403);
+    expect((await say(threads, "?agent=astra", "  ")).status).toBe(400);
+    expect((await handleAssistantSay(null, new Request("http://127.0.0.1/assistant/say?agent=astra", { method: "POST", body: "x" }), "127.0.0.1")).status).toBe(404);
+    expect(a.agents.replies).toEqual([]);
+  });
+});
+
+describe("registry and store paths", () => {
+  it("reads agents in file order and rejects a missing file, bad ids, duplicates and an empty list", () => {
+    const home = mkdtempSync(join(tmpdir(), "eva-home-"));
+    dirs.push(home);
+    expect(() => loadRegistry(home)).toThrow(/cannot read/);
+    mkdirSync(join(home, ".omp", "assistant"), { recursive: true });
+    const write = (value: unknown): void => {
+      writeFileSync(join(home, ".omp", "assistant", "agents.json"), JSON.stringify(value));
+    };
+    write({ agents: [{ id: "astra", title: "Astra", scope: "eCard Systems work" }, { id: "nova", title: "Nova", scope: "Personal" }] });
+    expect(loadRegistry(home)).toEqual([ASTRA, NOVA]);
+    for (const bad of [{ agents: [] }, { agents: [{ id: "Astra", title: "Astra" }] }, { agents: [ASTRA, { id: "astra", title: "Again" }] }, { agents: [{ id: "nova", title: " " }] }]) {
+      write(bad);
+      expect(() => loadRegistry(home)).toThrow(/invalid/);
+    }
+  });
+
+  it("keeps one store file per agent under relay/assistants", () => {
+    const saved = process.env["XDG_CONFIG_HOME"];
+    process.env["XDG_CONFIG_HOME"] = "/cfg";
+    try {
+      expect(defaultAssistantPath("nova")).toBe("/cfg/relay/assistants/nova.json");
+    } finally {
+      if (saved === undefined) delete process.env["XDG_CONFIG_HOME"];
+      else process.env["XDG_CONFIG_HOME"] = saved;
+    }
   });
 });
 
@@ -247,7 +426,7 @@ describe("toAssistantMessages machinery", () => {
       { id: "a4", role: "assistant", text: "(nothing to report) but wait", at: 7 },
       { id: "a5", role: "assistant", text: "(", at: 8 },
     ];
-    expect(toAssistantMessages(rows, "You are Eva.")).toEqual([
+    expect(toAssistantMessages(rows, "You are Eva.", STATUS_PREFIX)).toEqual([
       { id: "a4", role: "assistant", text: "(nothing to report) but wait", at: 7 },
       { id: "a5", role: "assistant", text: "(", at: 8 },
     ]);
@@ -262,7 +441,7 @@ describe("toAssistantMessages images", () => {
       { id: "a1", role: "assistant", text: "", at: 2, images: [{ id: "img-2", mimeType: "image/webp" }] },
       { id: "a2", role: "assistant", text: "look", at: 3, images: [] },
     ];
-    expect(toAssistantMessages(rows, null)).toEqual([
+    expect(toAssistantMessages(rows, null, STATUS_PREFIX)).toEqual([
       { id: "u1", role: "user", text: "", at: 1, images: [ref] },
       { id: "a1", role: "assistant", text: "", at: 2, images: [{ id: "img-2", mimeType: "image/webp" }] },
       { id: "a2", role: "assistant", text: "look", at: 3 },
@@ -302,7 +481,7 @@ describe("AssistantService turns", () => {
     const h = harness({ prime: "You are Eva.\n" });
     const turn = h.service.turn("hi");
     await flush();
-    expect(h.launches).toEqual([{ env: { ASTRA_ASSISTANT: "1" }, prompt: "You are Eva." }]);
+    expect(h.launches).toEqual([{ ...ASTRA_ENV, prompt: "You are Eva." }]);
     h.register("idle", "/sessions/eva.jsonl");
     await flush();
     expect(h.agents.replies).toEqual([]);
@@ -320,7 +499,7 @@ describe("AssistantService turns", () => {
     const h = harness({ prime: "You are Eva.", remembered: file });
     const turn = h.service.turn("back?");
     await flush();
-    expect(h.launches).toEqual([{ env: { ASTRA_ASSISTANT: "1" }, resume: file }]);
+    expect(h.launches).toEqual([{ ...ASTRA_ENV, resume: file }]);
     h.register("idle", file);
     await turn;
     expect(h.agents.replies).toEqual([["eva-1", "back?", true]]);
@@ -331,7 +510,7 @@ describe("AssistantService turns", () => {
     const first = h.service.turn("one");
     const second = h.service.turn("two");
     await flush();
-    expect(h.launches).toEqual([{ env: { ASTRA_ASSISTANT: "1" } }]);
+    expect(h.launches).toEqual([ASTRA_ENV]);
     h.register("idle");
     await Promise.all([first, second]);
     expect(h.agents.replies.map(([, text]) => text)).toEqual(["one", "two"]);
@@ -359,7 +538,7 @@ describe("AssistantService changes", () => {
     h.service.observe({ kind: "conversation", sessionId: "s1", appended: [{ id: "x", role: "user", text: "other", at: 1 }] });
     h.clock.advance(SNAPSHOT_DEBOUNCE_MS);
     await flush();
-    expect(h.broadcasts).toEqual([{ t: "assistant.snapshot", snapshot: { rev: 3, busy: true, sessionId: "eva-1", messages: [{ id: "u1", role: "user", text: "hi", at: 1 }] } }]);
+    expect(h.broadcasts).toEqual([{ t: "assistant.snapshot", agent: "astra", snapshot: { rev: 3, busy: true, sessionId: "eva-1", messages: [{ id: "u1", role: "user", text: "hi", at: 1 }] } }]);
     h.service.observe({ kind: "sessions" }); // nothing about Eva changed
     h.clock.advance(SNAPSHOT_DEBOUNCE_MS);
     await flush();
@@ -378,8 +557,8 @@ describe("AssistantService changes", () => {
     h.service.observe({ kind: "conversation", sessionId: "eva-1", appended: [{ id: "a3", role: "assistant", text: "x".repeat(200), at: 2 }] });
     await flush();
     expect(h.pushes.map((push) => [push.to, push.title, push.body, push.data, push.interruptionLevel])).toEqual([
-      ["ExponentPushToken[one]", "Astra", "On it, the run finished fine.", { assistant: true }, undefined],
-      ["ExponentPushToken[one]", "Astra", `${"x".repeat(179)}…`, { assistant: true }, undefined],
+      ["ExponentPushToken[one]", "Astra", "On it, the run finished fine.", { assistant: true, agent: "astra" }, undefined],
+      ["ExponentPushToken[one]", "Astra", `${"x".repeat(179)}…`, { assistant: true, agent: "astra" }, undefined],
     ]);
   });
 
@@ -417,7 +596,7 @@ describe("AssistantService earlier contexts", () => {
       { role: "user", content: "again", timestamp: 11 },
       { role: "assistant", content: [{ type: "text", text: "Hi again." }], timestamp: 12 },
     ]);
-    new FileAssistantStore(join(h.home, "assistant.json")).save({ sessionFile: "/sessions/live.jsonl", history: [first, second] });
+    new FileAssistantStore(h.storePath).save({ sessionFile: "/sessions/live.jsonl", history: [first, second] });
     h.register("idle", "/sessions/live.jsonl");
     h.agents.transcript = [
       { id: "p", role: "user", text: "You are Eva.", at: 20 },
@@ -438,7 +617,7 @@ describe("AssistantService earlier contexts", () => {
   it("keeps the history through a rollover (no live session, no session file) and rereads a transcript that grew", async () => {
     const h = harness();
     const file = transcriptFile(h.home, "2026-10-14T0400_aaaa.jsonl", [{ role: "user", content: "one", timestamp: 1 }]);
-    new FileAssistantStore(join(h.home, "assistant.json")).save({ history: [file] });
+    new FileAssistantStore(h.storePath).save({ history: [file] });
     expect(await h.service.snapshot()).toEqual({ rev: 0, busy: false, sessionId: "", messages: [{ id: "2026-10-14T0400_aaaa-1", role: "user", text: "one", at: 1 }] });
     transcriptFile(h.home, "2026-10-14T0400_aaaa.jsonl", [
       { role: "user", content: "one", timestamp: 1 },
@@ -447,11 +626,11 @@ describe("AssistantService earlier contexts", () => {
     expect((await h.service.snapshot()).messages.map((message) => message.text)).toEqual(["one", "two"]);
   });
 
-  it("starts a new primed session after a rollover and keeps the history in assistant.json", async () => {
+  it("starts a new primed session after a rollover and keeps the history in the agent's store", async () => {
     const h = harness({ prime: "You are Eva.", history: ["/sessions/old.jsonl"] });
     const turn = h.service.turn("hi");
     await flush();
-    expect(h.launches).toEqual([{ env: { ASTRA_ASSISTANT: "1" }, prompt: "You are Eva." }]);
+    expect(h.launches).toEqual([{ ...ASTRA_ENV, prompt: "You are Eva." }]);
     h.register("idle", "/sessions/new.jsonl");
     h.register("working");
     await turn;
@@ -461,16 +640,16 @@ describe("AssistantService earlier contexts", () => {
   it("shows the transcript a restart will resume while no session is live, and leaves it out of the history once live", async () => {
     const h = harness();
     const file = transcriptFile(h.home, "2026-10-16T0400_cccc.jsonl", [{ role: "user", content: "kept", timestamp: 1 }]);
-    new FileAssistantStore(join(h.home, "assistant.json")).save({ sessionFile: file, history: [file] });
+    new FileAssistantStore(h.storePath).save({ sessionFile: file, history: [file] });
     expect((await h.service.snapshot()).messages.map((message) => message.text)).toEqual(["kept"]);
     h.register("idle", file);
     h.agents.transcript = [{ id: "u1", role: "user", text: "kept", at: 1 }];
     expect((await h.service.snapshot()).messages).toEqual([{ id: "u1", role: "user", text: "kept", at: 1 }]);
   });
 
-  it("reads an assistant.json from before the history field as empty history", () => {
+  it("reads a store file without the history field as empty history", () => {
     const h = harness();
-    writeFileSync(join(h.home, "assistant.json"), JSON.stringify({ sessionFile: "/sessions/eva.jsonl" }));
+    writeFileSync(h.storePath, JSON.stringify({ sessionFile: "/sessions/eva.jsonl" }));
     expect(h.remembered()).toEqual({ sessionFile: "/sessions/eva.jsonl", history: [] });
   });
 });
@@ -505,7 +684,7 @@ describe("sign-in token", () => {
       { id: "a2", role: "assistant", text: "[[", at: 2, streaming: true },
       { id: "a3", role: "assistant", text: "[[signin:https://x.org/in]]", at: 3 },
     ];
-    expect(toAssistantMessages(rows, null)).toEqual([
+    expect(toAssistantMessages(rows, null, STATUS_PREFIX)).toEqual([
       { id: "a1", role: "assistant", text: "Please sign in.", at: 1, signin: { url: "https://github.com/login", host: "github.com" } },
       { id: "a3", role: "assistant", text: "", at: 3, signin: { url: "https://x.org/in", host: "x.org" } },
     ]);

@@ -13,9 +13,10 @@ import { Drop } from "@relay/protocol";
 import { z } from "zod";
 import pkg from "../package.json";
 import { defaultSocketPath, OmpBridgeProvider } from "./agents/bridge";
-import { AssistantService } from "./assistant/service";
+import { type AssistantAgentConfig, loadRegistry, REGISTRY_FILE } from "./assistant/registry";
+import { AssistantService, AssistantThreads } from "./assistant/service";
 import { spawnFill } from "./assistant/signin";
-import { FileAssistantStore } from "./assistant/store";
+import { defaultAssistantPath, FileAssistantStore } from "./assistant/store";
 import { FileDeviceStore } from "./device-store";
 import { FileDropStore } from "./drops/store";
 import { FileBoardStore } from "./boards/store";
@@ -54,9 +55,10 @@ const USAGE = `relay-linux <command>
   board put <slug> [< json]        create/replace from {title, workspace?, icon?, widgets?}
   board ops <slug> [< json]        apply a BoardOp[] array, all or nothing
   board rm <slug>                  delete a dashboard
-  assistant say <text> ...         hand Eva (the assistant thread of the running host) a message
-                                   from a background job; she relays it to Isaac. \`say -\` or
-                                   no text reads stdin
+  assistant say --agent <id> <text> ...
+                                   hand assistant thread <id> (from <agent-home>/${REGISTRY_FILE})
+                                   of the running host a message from a background job; it
+                                   relays it to Isaac. \`say -\` or no text reads stdin
 
 Input goes through /dev/uinput: your user needs read/write on it (e.g. membership in the
 \`input\` group, then log out and back in).`;
@@ -137,22 +139,23 @@ function serve(
     isViewing: (deviceId, sessionId): boolean => server.isViewing(deviceId, sessionId),
     log,
   });
-  const assistant = new AssistantService({
+  const assistant = assistantThreads(agentHome, (agent) => new AssistantService({
+    agent,
     agents,
     launch: (options) => agents.launchWith(options),
     sessionFile: (sessionId) => agents.sessionFile(sessionId),
     agentHome,
-    store: new FileAssistantStore(),
+    store: new FileAssistantStore(defaultAssistantPath(agent.id)),
     tokens: pushTokens,
     sender: new ExpoPushSender(),
     broadcast: (message): void => {
-      server.broadcastAssistant(message);
+      server.broadcastAssistant(agent.id, message);
     },
-    isViewing: (deviceId): boolean => server.isViewingAssistant(deviceId),
+    isViewing: (deviceId): boolean => server.isViewingAssistant(deviceId, agent.id),
     clock: systemClock,
     log,
     spawn: spawnFill,
-  });
+  }));
   const clipboard =
     watchClipboard && Bun.which("wl-paste") !== null
       ? new ClipboardWatcher({
@@ -237,6 +240,26 @@ function serve(
   process.on("SIGTERM", shutdown);
 }
 
+/**
+ * One thread per agent in `<agentHome>/.omp/assistant/agents.json`, read once at start; null (and
+ * logged) when there is no agent home or the registry is missing or invalid.
+ */
+function assistantThreads(agentHome: string | null, create: (agent: AssistantAgentConfig) => AssistantService): AssistantThreads | null {
+  if (agentHome === null) {
+    log("assistant threads disabled (no --agent-home)");
+    return null;
+  }
+  let registry: readonly AssistantAgentConfig[];
+  try {
+    registry = loadRegistry(agentHome);
+  } catch (error) {
+    log(`assistant threads disabled: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
+  log(`assistant threads: ${registry.map((agent) => `${agent.title} (${agent.id})`).join(", ")}`);
+  return new AssistantThreads(registry.map(create));
+}
+
 /** The running host's loopback base URL, from the port `serve` left in serve.json. */
 function hostUrl(): string {
   let info: z.infer<typeof ServeInfo>;
@@ -280,10 +303,11 @@ async function share(positionals: string[]): Promise<void> {
   console.log(drop.file ? `shared ${drop.kind} ${drop.id} ${drop.file.path}` : `shared ${drop.kind} ${drop.id}`);
 }
 
-/** `assistant say <text>`: the running host hands the text to Eva as a turn from the host's jobs. */
-async function assistantSay(positionals: string[]): Promise<void> {
+/** `assistant say --agent <id> <text>`: the running host hands the text to agent `id` as a turn from the host's jobs. */
+async function assistantSay(agent: string | undefined, positionals: string[]): Promise<void> {
+  if (agent === undefined || agent === "") throw new Error("assistant say: missing --agent <id>");
   const text = positionals.length === 0 || positionals[0] === "-" ? await Bun.stdin.text() : positionals.join(" ");
-  const response = await fetch(`${hostUrl()}/assistant/say`, {
+  const response = await fetch(`${hostUrl()}/assistant/say?agent=${encodeURIComponent(agent)}`, {
     method: "POST",
     headers: { "content-type": "text/plain; charset=utf-8" },
     body: text,
@@ -292,7 +316,7 @@ async function assistantSay(positionals: string[]): Promise<void> {
     console.error(await response.text());
     process.exit(1);
   }
-  console.log("told Astra");
+  console.log(`told ${agent}`);
 }
 
 function isFile(path: string): boolean {
@@ -355,6 +379,7 @@ async function main(argv: string[]): Promise<void> {
       "agent-home": { type: "string" },
       "no-clipboard": { type: "boolean", default: false },
       boards: { type: "string" },
+      agent: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -406,8 +431,8 @@ async function main(argv: string[]): Promise<void> {
       return;
     case "assistant": {
       const verb = positionals[1];
-      if (verb !== "say") throw new Error(`assistant: unknown subcommand ${verb ?? "(none)"}; try \`assistant say <text>\``);
-      await assistantSay(positionals.slice(2));
+      if (verb !== "say") throw new Error(`assistant: unknown subcommand ${verb ?? "(none)"}; try \`assistant say --agent <id> <text>\``);
+      await assistantSay(values.agent, positionals.slice(2));
       return;
     }
     default:

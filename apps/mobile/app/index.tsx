@@ -17,7 +17,8 @@ import { useConnectionStore, type ConnectionStatus } from "@/state/connection";
 import { needsAttention, useAgentsStore } from "@/state/agents";
 import { useDropsStore } from "@/state/drops";
 import { useGateStore } from "@/state/gate";
-import { useAssistantStore } from "@/state/assistant";
+import type { AssistantAgent } from "@relay/protocol";
+import { threadOf, useAssistantStore } from "@/state/assistant";
 import { HabitGate } from "@/gate/HabitGate";
 import { actions } from "@/state/actions";
 import { countOf } from "@/lib/format";
@@ -42,6 +43,21 @@ function inboxCaption(available: boolean, sessions: number, needing: number): st
   return `${base}, ${needing} ${needing === 1 ? "needs" : "need"} you`;
 }
 
+/** One registry assistant: its title, and its last reply as one plain line (images read "Photo", links show their text); the tile truncates it. */
+function AssistantTile({ agent, onPress }: { agent: AssistantAgent; onPress: () => void }) {
+  const caption = useAssistantStore((state) => {
+    const messages = threadOf(state, agent.id).snapshot?.messages ?? [];
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const message = messages[i];
+      if (message?.role !== "assistant") continue;
+      const line = previewText(message.text);
+      if (line !== "") return line;
+    }
+    return "Your assistant";
+  });
+  return <Tile symbol="bubble.left.and.text.bubble.right" title={agent.title} caption={caption} size="wide" onPress={onPress} />;
+}
+
 export default function Home() {
   const boards = useBoardsStore((state) => state.boards);
   const router = useRouter();
@@ -60,17 +76,8 @@ export default function Home() {
   const latestDrop = drops[0];
   const pill = pillFor[status];
   const gateLocked = useGateStore((state) => state.gate?.locked === true);
-  // Eva's last reply as one plain line (images read "Photo", links show their text); the tile truncates it.
-  const evaCaption = useAssistantStore((state) => {
-    const messages = state.snapshot?.messages ?? [];
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const message = messages[i];
-      if (message?.role !== "assistant") continue;
-      const line = previewText(message.text);
-      if (line !== "") return line;
-    }
-    return "Your assistant";
-  });
+  // The host's registry, asked on every welcome; none until the first answer.
+  const assistants = useAssistantStore((state) => state.agents) ?? [];
 
   return (
     <Screen title={macName ?? "Relay"} headerRight={<Pill label={pill.label} tone={pill.tone} />} scroll={gateLocked}>
@@ -98,15 +105,15 @@ export default function Home() {
         </View>
       )}
       <View style={styles.grid}>
-        <Tile
-          symbol="bubble.left.and.text.bubble.right"
-          title="Astra"
-          caption={evaCaption}
-          size="wide"
-          onPress={() => {
-            router.push("/eva");
-          }}
-        />
+        {assistants.map((agent) => (
+          <AssistantTile
+            key={agent.id}
+            agent={agent}
+            onPress={() => {
+              router.push({ pathname: "/eva", params: { agent: agent.id } });
+            }}
+          />
+        ))}
         <View style={styles.row}>
           <Tile
             symbol="cursor.rays"

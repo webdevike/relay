@@ -54,11 +54,12 @@ let hostAuthority: string | null = null;
 /** Window the live view is watching; re-sent on every welcome because the host drops watches with the socket. */
 let watchingWindow: number | null = null;
 /**
- * Whether the Eva screen is on screen. The host treats a socket as following the thread (live
- * snapshots, no push to this phone) for five minutes after each `assistant.get`, so while the
- * screen shows the driver re-asks on every welcome and every `ASSISTANT_FOLLOW_MS`.
+ * The assistant whose thread is on screen, if any. The host treats a socket as following an
+ * agent's thread (live snapshots, no push to this phone for that agent) for five minutes after
+ * each `assistant.get`, so while the screen shows the driver re-asks on every welcome and every
+ * `ASSISTANT_FOLLOW_MS`.
  */
-let assistantWatched = false;
+let watchedAssistant: string | null = null;
 let assistantFollowTimer: number | undefined;
 const ASSISTANT_FOLLOW_MS = 4 * 60_000;
 
@@ -122,8 +123,10 @@ socket.onMessage = (data) => {
     socket.send(encode({ t: "board.subscribe" }));
     // The habit gate may have locked or unlocked while the phone was away.
     socket.send(encode({ t: "gate.get" }));
-    // Eva's thread is only fetched while her screen is showing; the screen asks again on focus.
-    if (assistantWatched) socket.send(encode({ t: "assistant.get" }));
+    // The assistant tiles come from the host's registry, which may have changed while away.
+    socket.send(encode({ t: "assistant.agents" }));
+    // A thread is only fetched while its screen is showing; the screen asks again on focus.
+    if (watchedAssistant !== null) socket.send(encode({ t: "assistant.get", agent: watchedAssistant }));
   }
   if (message.t === "agent.image") imagesInFlight.delete(imageKey(message.sessionId, message.id));
   // Answered on the Mac, in the chat or on another device: take its notification off the lock screen.
@@ -337,24 +340,28 @@ export function requestDrops(): void {
 }
 
 /**
- * Ephemeral; the answer lands in `useAssistantStore().snapshot`. Also marks the Eva screen as
- * showing: the driver re-asks on every welcome and every `ASSISTANT_FOLLOW_MS` until
+ * Ephemeral; the answer lands in `useAssistantStore().threads[agent]`. Also marks `agent`'s
+ * thread as showing: the driver re-asks on every welcome and every `ASSISTANT_FOLLOW_MS` until
  * `stopAssistant`, keeping the host's follow window open. Sends nothing while not connected (the
  * welcome will).
  */
-export function requestAssistant(): void {
-  assistantWatched = true;
+export function requestAssistant(agent: string): void {
+  watchedAssistant = agent;
   clearInterval(assistantFollowTimer);
   assistantFollowTimer = setInterval(() => {
-    if (useConnectionStore.getState().status === "connected") socket.send(encode({ t: "assistant.get" }));
+    if (useConnectionStore.getState().status === "connected") socket.send(encode({ t: "assistant.get", agent }));
   }, ASSISTANT_FOLLOW_MS);
   if (useConnectionStore.getState().status !== "connected") return;
-  socket.send(encode({ t: "assistant.get" }));
+  socket.send(encode({ t: "assistant.get", agent }));
 }
 
-/** The Eva screen left: stop following, so Eva's replies reach this phone as pushes again. */
-export function stopAssistant(): void {
-  assistantWatched = false;
+/**
+ * `agent`'s thread left the screen: stop following, so its replies reach this phone as pushes
+ * again. A no-op when another agent's thread has already taken over (its focus can land first).
+ */
+export function stopAssistant(agent: string): void {
+  if (watchedAssistant !== agent) return;
+  watchedAssistant = null;
   clearInterval(assistantFollowTimer);
   assistantFollowTimer = undefined;
 }

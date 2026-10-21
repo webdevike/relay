@@ -101,15 +101,17 @@ export interface LaunchOptions {
   readonly thinkingLevel?: string;
   /** A named omp profile, passed after herdr's `--` separator. */
   readonly profile?: "personal" | "work";
-  /** Extra pane env, e.g. `EVA_ASSISTANT=1` for the assistant thread. */
+  /** Extra pane env, e.g. `RELAY_ASSISTANT=<id>` for an assistant thread. */
   readonly env?: Readonly<Record<string, string>>;
   /** An omp session file to resume (`omp --resume <file>`) instead of starting a new transcript. */
   readonly resume?: string;
+  /** The herdr workspace label (an assistant thread's title, e.g. "Astra"); default basename(home). */
+  readonly label?: string;
 }
 
 /**
- * Creates a workspace for `home` (labelled after it, so several read "Eva", "Eva", "Eva" in
- * herdr's list until omp titles the pane) and starts omp in its root pane. `prompt`, when given,
+ * Creates a workspace for `home` (labelled `label`, else after `home`, so several read "Eva",
+ * "Eva", "Eva" in herdr's list until omp titles the pane) and starts omp in its root pane. `prompt`, when given,
  * goes into the pane's env as `RELAY_INITIAL_PROMPT` for the session's bridge to submit as the
  * first turn; `thinkingLevel` likewise as `RELAY_THINKING_LEVEL`. A named `profile` and a
  * `resume` target are passed to omp after herdr's `--` separator. Resolves with the pane id;
@@ -119,7 +121,7 @@ export async function launchInHerdr(home: string, log: (line: string) => void, o
   if (Bun.which("herdr") === null) throw fail("herdr is not installed on the host (not on PATH)");
   try {
     await ensureServer(log);
-    const label = basename(home);
+    const label = options.label ?? basename(home);
     const env = ["--env", "RELAY_HERDR_OWNED=1"];
     for (const [key, value] of Object.entries(options.env ?? {})) env.push("--env", `${key}=${value}`);
     if (options.prompt !== undefined) env.push("--env", `RELAY_INITIAL_PROMPT=${options.prompt}`);

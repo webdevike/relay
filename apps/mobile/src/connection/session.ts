@@ -241,6 +241,7 @@ export class SessionMachine {
       case "board.delta":
       case "gate.status":
       case "assistant.snapshot":
+      case "assistant.agents":
       case "screen.list":
       case "screen.frame":
       case "screen.ended":

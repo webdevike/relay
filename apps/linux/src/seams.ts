@@ -113,20 +113,31 @@ export interface InboxRelaying {
 }
 
 /**
- * What the session and server need of Eva's assistant thread (`assistant/service.ts`): the thread
- * as a snapshot, a turn from a phone or from the host's own jobs, and the provider changes the
- * service watches for the thread's session.
+ * One of the host's long-lived assistant threads (`assistant/service.ts`), named by its registry
+ * entry: the thread as a snapshot, a turn from a phone or from the host's own jobs, and a sign-in.
  */
-export interface AssistantRelaying {
-  /** The thread as it stands; empty and idle while Eva is not running. */
+export interface AssistantThread {
+  /** Registry id, e.g. "astra". */
+  readonly id: string;
+  /** Registry title, e.g. "Astra". */
+  readonly title: string;
+  /** The thread as it stands; empty and idle while the agent is not running. */
   snapshot(): Promise<AssistantSnapshot>;
-  /** Delivers `text` and any `images` as Isaac's next turn, starting or resuming Eva first. Rejects with `AckFailure` (`agent_launch_failed`). */
+  /** Delivers `text` and any `images` as Isaac's next turn, starting or resuming the agent first. Rejects with `AckFailure` (`agent_launch_failed`). */
   turn(text: string, images?: readonly AgentImage[]): Promise<void>;
-  /** A background job's message to Eva, delivered as a turn she then tells Isaac about. Rejects like `turn`. */
+  /** A background job's message to the agent, delivered as a turn it then tells Isaac about. Rejects like `turn`. */
   say(text: string): Promise<void>;
-  /** Types Isaac's credentials into the login page `url` Eva asked him to sign in to (message `messageId`). Rejects with `AckFailure`. */
+  /** Types Isaac's credentials into the login page `url` the agent asked him to sign in to (message `messageId`). Rejects with `AckFailure`. */
   signin(messageId: string, url: string, username: string, password: string): Promise<void>;
-  /** Every provider change; the service picks out the assistant session's. */
+}
+
+/** What the session and server need of the host's assistant threads: every registry agent's thread. */
+export interface AssistantRelaying {
+  /** Registry order; the first is the default. */
+  readonly threads: readonly AssistantThread[];
+  /** Thread `id`, or the default when `id` is undefined (requests from older phones); undefined for an unknown id. */
+  thread(id: string | undefined): AssistantThread | undefined;
+  /** Every provider change; each thread picks out its own session's. */
   observe(change: AgentProviderChange): void;
 }
 

@@ -61,8 +61,10 @@ interface JobRef {
 
 interface Settings {
   title: string;
-  /** Hand-started omp, a run the job launcher scheduled, or the host's one Eva assistant thread; the phone files each apart. */
+  /** Hand-started omp, a run the job launcher scheduled, or one of the host's assistant threads; the phone files each apart. */
   kind: "manual" | "job" | "assistant";
+  /** The registry id of the assistant thread this session runs; set exactly when `kind` is "assistant". */
+  assistant?: string;
   job?: JobRef;
   /** The transcript on disk, once omp has one; the host keeps the assistant's to resume it after a restart. */
   sessionFile?: string;
@@ -468,15 +470,19 @@ function jobRef(): JobRef | undefined {
 }
 const JOB = jobRef();
 /**
- * The relay host starts Astra's one long-lived assistant thread with `ASTRA_ASSISTANT=1`
- * (apps/linux/src/assistant/service.ts): it registers as kind "assistant" under the fixed title
- * "Astra", never as a job, and its transcript is seeded from the session file so a resumed thread
- * (`omp -r`) shows its history rather than starting blank on the phone. The former
- * `EVA_ASSISTANT` marker is intentionally not accepted, so stale pre-rename sessions cannot claim
- * Astra's singleton slot.
+ * The relay host starts each long-lived assistant thread with `RELAY_ASSISTANT=<registry id>` and
+ * `RELAY_ASSISTANT_TITLE=<title>` (apps/linux/src/assistant/service.ts): it registers as kind
+ * "assistant" with `assistant: <id>` under that title, never as a job, and its transcript is seeded
+ * from the session file so a resumed thread (`omp -r`) shows its history rather than starting
+ * blank on the phone. The former `ASTRA_ASSISTANT`/`EVA_ASSISTANT` markers are intentionally not
+ * accepted, so stale pre-registry sessions cannot claim a thread's slot.
  */
-const ASSISTANT = process.env["ASTRA_ASSISTANT"] === "1";
-const ASSISTANT_TITLE = "Astra";
+const ASSISTANT: { readonly id: string; readonly title: string } | null = (() => {
+  const id = process.env["RELAY_ASSISTANT"];
+  if (id === undefined || id.length === 0) return null;
+  const title = process.env["RELAY_ASSISTANT_TITLE"];
+  return { id, title: title === undefined || title.length === 0 ? id : title };
+})();
 /** Local wall-clock start, "HH:MM": the job's default title carries it so runs of one job tell apart. */
 const JOB_START = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
 
@@ -816,10 +822,11 @@ export default function relayBridge(pi: ExtensionAPI): void {
   const settings = (): Settings => {
     const cwd = ctx?.sessionManager.getCwd() ?? "";
     const fallbackTitle = JOB === undefined ? basename(cwd) : `${JOB.name} · ${JOB_START}`;
-    const base: Settings = ASSISTANT
-      ? { title: ASSISTANT_TITLE, kind: "assistant" }
-      : { title: pi.getSessionName() ?? fallbackTitle, kind: JOB === undefined ? "manual" : "job" };
-    if (!ASSISTANT && JOB !== undefined) base.job = JOB;
+    const base: Settings =
+      ASSISTANT !== null
+        ? { title: ASSISTANT.title, kind: "assistant", assistant: ASSISTANT.id }
+        : { title: pi.getSessionName() ?? fallbackTitle, kind: JOB === undefined ? "manual" : "job" };
+    if (ASSISTANT === null && JOB !== undefined) base.job = JOB;
     // Like the name subscription below: the read-only context type hides the file getter the real manager has.
     const sessionFile = ctx === null ? undefined : (ctx.sessionManager as SessionManager).getSessionFile();
     if (typeof sessionFile === "string" && sessionFile.length > 0) base.sessionFile = sessionFile;
@@ -929,12 +936,12 @@ export default function relayBridge(pi: ExtensionAPI): void {
           // Submitted. A dictated transcript that already starts with "/" is a typed command; anything
           // else is offered to Jev, which rewrites it to `/command …` when the speaker named one and
           // otherwise hands it back unchanged (see routeVoiceCommand). Routing never blocks the reply.
-          // Astra's thread is conversation, not a command line: what Isaac says there goes in as said.
-          const text = frame.text.startsWith("/") || ASSISTANT ? frame.text : ((await routeVoiceCommand(pi.getCommands(), frame.text)) ?? frame.text);
-          // Astra's title is fixed, so her turns never need the editor path's auto title; keeping them
+          // An assistant thread is conversation, not a command line: what Isaac says there goes in as said.
+          const text = frame.text.startsWith("/") || ASSISTANT !== null ? frame.text : ((await routeVoiceCommand(pi.getCommands(), frame.text)) ?? frame.text);
+          // An assistant's title is fixed, so its turns never need the editor path's auto title; keeping them
           // off the editor also means a turn arriving while the prime is still being typed in
           // (see the initial prompt below) steers in behind it instead of replacing it.
-          if (text.startsWith("/") || (pi.getSessionName() === undefined && !ASSISTANT)) {
+          if (text.startsWith("/") || (pi.getSessionName() === undefined && ASSISTANT === null)) {
             // A slash command only runs through the editor's own submit path (sendUserMessage skips
             // command handling), so it goes in as if typed and Enter is fed to the terminal reader.
             // The same path is the only one that starts omp's auto title (maybeStartTitleGeneration
@@ -1221,7 +1228,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
     unwatchName = manager.onSessionNameChanged(() => {
       if (ctx !== context) return;
       const name = pi.getSessionName();
-      if (name !== undefined && name.length > 0) renameInHerdr(ASSISTANT ? ASSISTANT_TITLE : name);
+      if (name !== undefined && name.length > 0) renameInHerdr(ASSISTANT !== null ? ASSISTANT.title : name);
       sendStatus();
     });
   };
@@ -1249,7 +1256,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
   /**
    * A resumed assistant thread (`omp -r <file>`) has its past turns on disk only: read them into
    * the transcript so the phone's thread carries on where it left off instead of starting blank.
-   * The file holds every entry ever written; Astra's thread is linear, so all of it is the thread.
+   * The file holds every entry ever written; an assistant thread is linear, so all of it is the thread.
    * The live `messages` stream appends behind these as the session goes on.
    */
   const seedHistory = (context: ExtensionContext): void => {
@@ -1271,7 +1278,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
     watchName(context);
     wrapAskDialog(context);
     wrapApprovalDialog(context);
-    if (ASSISTANT && history.length === 0) seedHistory(context);
+    if (ASSISTANT !== null && history.length === 0) seedHistory(context);
     connect();
     if (gateTimer === null) {
       gateTimer = setInterval(pollGate, GATE_POLL_MS);
@@ -1324,7 +1331,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
     wrapApprovalDialog(context);
     history.length = 0;
     images.clear();
-    if (ASSISTANT) seedHistory(context);
+    if (ASSISTANT !== null) seedHistory(context);
     const current = info();
     if (current !== null) send({ t: "hello", ...current });
   });

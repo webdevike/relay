@@ -65,9 +65,10 @@ describe("applySnapshot", () => {
     expect(subagentsOf(data.sessions, "other")).toEqual([]);
   });
 
-  it("keeps the personal assistant out of the inbox", () => {
+  it("keeps the assistant threads out of the inbox", () => {
     const data = applySnapshot(emptyAgentsData, 1, [
-      { ...session("astra", 900, "working"), kind: "assistant", title: "Astra" },
+      { ...session("astra", 900, "working"), kind: "assistant", assistant: "astra", title: "Astra" },
+      { ...session("nova", 800, "idle"), kind: "assistant", assistant: "nova", title: "Nova" },
       session("manual", 100),
       { ...session("run", 50), kind: "job", job: { name: "sweep", runId: "r1" } },
     ]);

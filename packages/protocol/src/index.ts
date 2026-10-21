@@ -33,6 +33,13 @@ const nonEmpty = z.string().min(1);
 export const AgentStatus = z.enum(["working", "waiting", "needs_permission", "idle", "ended"]);
 export type AgentStatus = z.infer<typeof AgentStatus>;
 
+/**
+ * Registry id of one of the host's long-lived assistant threads (e.g. "astra", "nova"). Requests
+ * that omit it address the registry's first agent, which is what older phone builds expect.
+ */
+export const AssistantAgentId = z.string().regex(/^[a-z][a-z0-9-]*$/);
+export type AssistantAgentId = z.infer<typeof AssistantAgentId>;
+
 /** Provider-independent view of one coding-agent session. */
 export const AgentSession = z.object({
   id: nonEmpty,
@@ -56,11 +63,13 @@ export const AgentSession = z.object({
   /** Share of the model's context window in use, 0..1, when the provider reports it. */
   contextUsed: z.number().min(0).max(1).optional(),
   /**
-   * Hand-started, a run the host's job launcher scheduled, or the host's one long-lived Eva
-   * assistant thread (hidden from inbox lists, read through `assistant.get`). Absent on older
+   * Hand-started, a run the host's job launcher scheduled, or one of the host's long-lived
+   * assistant threads (hidden from inbox lists, read through `assistant.get`). Absent on older
    * hosts, which only ever had manual sessions.
    */
   kind: z.enum(["manual", "job", "assistant"]).optional(),
+  /** The registry id of the assistant this session runs; present exactly when `kind` is "assistant". */
+  assistant: AssistantAgentId.optional(),
   /** The scheduled job this session is a run of; present exactly when `kind` is "job". */
   job: z.object({ name: nonEmpty, runId: nonEmpty }).optional(),
   /**
@@ -333,9 +342,13 @@ export const AgentMessage = z.object({
 });
 export type AgentMessage = z.infer<typeof AgentMessage>;
 
+/** One assistant thread the host runs, as listed by `assistant.agents`. */
+export const AssistantAgent = z.object({ id: AssistantAgentId, title: nonEmpty });
+export type AssistantAgent = z.infer<typeof AssistantAgent>;
+
 /**
- * The personal assistant is a first-class conversation, separate from omp's operational session
- * inbox. Its durable transcript is owned by the host and replayed on every phone connection.
+ * Each assistant is a first-class conversation, separate from omp's operational session inbox.
+ * Its durable transcript is owned by the host and replayed on every phone connection.
  */
 export const AssistantMessage = z.object({
   id: nonEmpty,
@@ -354,7 +367,7 @@ export const AssistantSnapshot = z.object({
   rev: z.number().int().nonnegative(),
   messages: z.array(AssistantMessage),
   busy: z.boolean(),
-  /** The omp session the thread runs in (what `agent.image` takes); empty while Eva is not running. */
+  /** The omp session the thread runs in (what `agent.image` takes); empty while the assistant is not running. */
   sessionId: z.string(),
 });
 export type AssistantSnapshot = z.infer<typeof AssistantSnapshot>;
@@ -652,18 +665,21 @@ export const Command = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("gate.done"), id: nonEmpty, photo: AgentImage.optional() }),
   /** Unlock without a habit; the typed reason is logged with the gate's history. */
   z.object({ kind: z.literal("gate.override"), reason: z.string().trim().min(1).max(MAX_GATE_REASON) }),
-  /** Give the persistent personal assistant a new turn. Text may be empty only when images are present (the host nacks a turn with neither). */
+  /** Give a persistent assistant (`agent`, default the registry's first) a new turn. Text may be empty only when images are present (the host nacks a turn with neither). */
   z.object({
     kind: z.literal("assistant.turn"),
+    agent: AssistantAgentId.optional(),
     text: z.string().trim().max(MAX_DROP_TEXT),
     images: z.array(AgentImage).min(1).max(MAX_REPLY_IMAGES).optional(),
   }),
   /**
-   * Credentials for the sign-in Eva asked for in message `messageId`. The host types them into the
-   * login page of `url` in her browser; the model never sees them.
+   * Credentials for the sign-in an assistant (`agent`, default the registry's first) asked for in
+   * message `messageId`. The host types them into the login page of `url` in its browser; the
+   * model never sees them.
    */
   z.object({
     kind: z.literal("assistant.signin"),
+    agent: AssistantAgentId.optional(),
     messageId: nonEmpty,
     url: nonEmpty,
     username: z.string().max(MAX_SIGNIN_FIELD),
@@ -731,8 +747,10 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("board.subscribe") }),
   /** Re-request every board (after a rev gap); answered by `board.snapshot`. */
   z.object({ t: z.literal("board.get") }),
-  /** Ask for the persistent personal assistant's durable conversation. */
-  z.object({ t: z.literal("assistant.get") }),
+  /** Ask for an assistant's durable conversation (`agent`, default the registry's first); answered by `assistant.snapshot`. */
+  z.object({ t: z.literal("assistant.get"), agent: AssistantAgentId.optional() }),
+  /** Ask which assistant threads the host runs; answered by `assistant.agents`. */
+  z.object({ t: z.literal("assistant.agents") }),
   /** Ask for the habit gate's current state; answered by `gate.status`. */
   z.object({ t: z.literal("gate.get") }),
   /** Ask for the capturable host windows; answered by `screen.list`. */
@@ -857,8 +875,10 @@ export const ServerMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("inbox.resolve"), ...InboxResolveFields }),
   /** `image` is null when the session no longer has that image. */
   z.object({ t: z.literal("agent.image"), sessionId: nonEmpty, id: nonEmpty, image: AgentImage.nullable() }),
-  /** Full durable personal-assistant thread, sent on request and after each completed turn. */
-  z.object({ t: z.literal("assistant.snapshot"), snapshot: AssistantSnapshot }),
+  /** Full durable thread of assistant `agent`, sent on request and after each completed turn. */
+  z.object({ t: z.literal("assistant.snapshot"), agent: AssistantAgentId, snapshot: AssistantSnapshot }),
+  /** Answer to `assistant.agents`: the host's assistant threads in registry order (the first is the default). */
+  z.object({ t: z.literal("assistant.agents"), agents: z.array(AssistantAgent) }),
   /** A drop was added on either side; also mirrored as a push notification for host-origin drops. */
   z.object({ t: z.literal("drop.new"), drop: Drop }),
   z.object({ t: z.literal("drop.removed"), id: nonEmpty }),

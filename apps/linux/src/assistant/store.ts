@@ -1,9 +1,10 @@
-// Where the host remembers Eva's thread between restarts: `$XDG_CONFIG_HOME/relay/assistant.json`
-// (dir 0700, file 0600, written atomically like devices.json). It holds the omp session file the
-// live thread lives in, and `history`: the session files of earlier contexts (the nightly rollover
-// moves the finished one there), which the host reads back so the thread on the phone stays whole.
-// The transcripts themselves are omp's; this is only the pointer that lets the host resume the
-// live one (`omp --resume <file>`) and replay the old ones. Older files without `history` read as [].
+// Where the host remembers each assistant thread between restarts:
+// `$XDG_CONFIG_HOME/relay/assistants/<id>.json`, one file per registry agent (dir 0700, file 0600,
+// written atomically like devices.json). It holds the omp session file the live thread lives in,
+// and `history`: the session files of earlier contexts (the nightly rollover moves the finished one
+// there), which the host reads back so the thread on the phone stays whole. The transcripts
+// themselves are omp's; this is only the pointer that lets the host resume the live one
+// (`omp --resume <file>`) and replay the old ones. Files without `history` read as [].
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -19,18 +20,19 @@ const AssistantRecord = z.object({
 export type AssistantRecord = z.infer<typeof AssistantRecord>;
 
 export interface AssistantStore {
-  /** The remembered thread; null before Eva ever ran or when the file is unreadable. */
+  /** The remembered thread; null before the agent ever ran or when the file is unreadable. */
   load(): AssistantRecord | null;
   save(record: AssistantRecord): void;
 }
 
-export function defaultAssistantPath(): string {
+/** The store file of registry agent `id`. */
+export function defaultAssistantPath(id: string): string {
   const base = process.env["XDG_CONFIG_HOME"] ?? join(homedir(), ".config");
-  return join(base, "relay", "assistant.json");
+  return join(base, "relay", "assistants", `${id}.json`);
 }
 
 export class FileAssistantStore implements AssistantStore {
-  constructor(private readonly path: string = defaultAssistantPath()) {}
+  constructor(private readonly path: string) {}
 
   load(): AssistantRecord | null {
     if (!existsSync(this.path)) return null;

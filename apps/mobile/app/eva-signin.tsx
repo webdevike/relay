@@ -1,6 +1,6 @@
 /**
- * "Sign in to continue": the sheet behind a sign-in card in Eva's thread (Dot's handoff). Two ways
- * through. `Username and password` reveals a form; submit sends `assistant.signin`, and the host
+ * "Sign in to continue": the sheet behind a sign-in card in an assistant's thread (Dot's handoff). Two ways
+ * through. `Username and password` reveals a form; submit sends `assistant.signin` for that agent, and the host
  * types the credentials into the login page in Eva's contained browser, so the model never sees
  * them. `Open Eva's browser` opens her computer for logins a form cannot do (Google, Apple,
  * passkeys). A full-screen modal route: the bottom-sheet modal did not present on the Eva screen.
@@ -26,7 +26,7 @@ const ICON = 48;
 export default function EvaSignIn() {
   const colors = useColors();
   const router = useRouter();
-  const { messageId, url, host } = useLocalSearchParams<{ messageId: string; url: string; host: string }>();
+  const { agent, messageId, url, host } = useLocalSearchParams<{ agent: string; messageId: string; url: string; host: string }>();
   const markSignedIn = useAssistantStore((state) => state.markSignedIn);
   const [form, setForm] = useState(false);
   const [username, setUsername] = useState("");
@@ -40,10 +40,10 @@ export default function EvaSignIn() {
     if (!ready) return;
     setBusy(true);
     setFailure(null);
-    sendCommand({ kind: "assistant.signin", messageId, url, username: username.trim(), password }).then(
+    sendCommand({ kind: "assistant.signin", agent, messageId, url, username: username.trim(), password }).then(
       () => {
         notifyHaptic("success");
-        markSignedIn(messageId);
+        markSignedIn(agent, messageId);
         router.dismiss();
       },
       (error: unknown) => {

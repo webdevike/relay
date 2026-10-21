@@ -44,11 +44,29 @@ describe("agent sessions", () => {
     expect(top.ok && top.value.t === "agents.snapshot" ? top.value.sessions[0]?.parentId : "missing").toBeUndefined();
     expect(parseServerMessage(frame({ ...base, parentId: "" })).ok).toBe(false);
   });
-  it("accepts the assistant kind and rejects an unknown one", () => {
+  it("accepts the assistant kind with its registry id, and rejects an unknown kind or a malformed id", () => {
     const frame = (session: object) => JSON.stringify({ t: "agents.snapshot", rev: 1, sessions: [session] });
-    const eva = parseServerMessage(frame({ ...base, id: "eva", title: "Eva", kind: "assistant" }));
-    expect(eva.ok && eva.value.t === "agents.snapshot" ? eva.value.sessions[0]?.kind : undefined).toBe("assistant");
+    const nova = parseServerMessage(frame({ ...base, id: "nova-1", title: "Nova", kind: "assistant", assistant: "nova" }));
+    expect(nova.ok && nova.value.t === "agents.snapshot" ? [nova.value.sessions[0]?.kind, nova.value.sessions[0]?.assistant] : undefined).toEqual(["assistant", "nova"]);
     expect(parseServerMessage(frame({ ...base, kind: "robot" })).ok).toBe(false);
+    expect(parseServerMessage(frame({ ...base, kind: "assistant", assistant: "Nova" })).ok).toBe(false);
+  });
+});
+
+describe("assistant agents", () => {
+  it("addresses get, turn and signin to an optional agent id, and lists the agents", () => {
+    expect(parseClientMessage(JSON.stringify({ t: "assistant.get" })).ok).toBe(true);
+    const get = parseClientMessage(JSON.stringify({ t: "assistant.get", agent: "nova" }));
+    expect(get.ok && get.value.t === "assistant.get" ? get.value.agent : undefined).toBe("nova");
+    expect(parseClientMessage(JSON.stringify({ t: "assistant.get", agent: "" })).ok).toBe(false);
+    expect(parseClientMessage(JSON.stringify({ t: "assistant.get", agent: "9lives" })).ok).toBe(false);
+    expect(parseClientMessage(JSON.stringify({ t: "cmd", id: "c", cmd: { kind: "assistant.turn", agent: "astra", text: "hi" } })).ok).toBe(true);
+    expect(parseClientMessage(JSON.stringify({ t: "cmd", id: "c", cmd: { kind: "assistant.turn", agent: "Astra", text: "hi" } })).ok).toBe(false);
+    expect(parseClientMessage(JSON.stringify({ t: "assistant.agents" })).ok).toBe(true);
+    const list = parseServerMessage(JSON.stringify({ t: "assistant.agents", agents: [{ id: "astra", title: "Astra" }, { id: "nova", title: "Nova" }] }));
+    expect(list.ok && list.value.t === "assistant.agents" ? list.value.agents.map((agent) => agent.id) : []).toEqual(["astra", "nova"]);
+    expect(parseServerMessage(JSON.stringify({ t: "assistant.agents", agents: [{ id: "astra", title: "" }] })).ok).toBe(false);
+    expect(parseServerMessage(JSON.stringify({ t: "assistant.snapshot", snapshot: { rev: 0, busy: false, sessionId: "", messages: [] } })).ok).toBe(false);
   });
 });
 
@@ -61,14 +79,14 @@ describe("assistant thread", () => {
     expect(turn({ text: "hi", images: Array.from({ length: 5 }, () => ({ mimeType: "image/png", data: "AAAA" })) })).toBe(false);
     expect(turn({ text: "hi", images: [{ mimeType: "image/gif", data: "AAAA" }] })).toBe(false);
     const messages = ["user", "assistant", "card", "status", "error"].map((role, i) => ({ id: `m-${i}`, role, text: role, at: i + 1 }));
-    const r = parseServerMessage(JSON.stringify({ t: "assistant.snapshot", snapshot: { rev: 2, busy: true, sessionId: "eva-1", messages } }));
+    const r = parseServerMessage(JSON.stringify({ t: "assistant.snapshot", agent: "astra", snapshot: { rev: 2, busy: true, sessionId: "eva-1", messages } }));
     expect(r.ok && r.value.t === "assistant.snapshot" ? r.value.snapshot.messages.length : 0).toBe(5);
     const withImages = parseServerMessage(
-      JSON.stringify({ t: "assistant.snapshot", snapshot: { rev: 2, busy: false, sessionId: "eva-1", messages: [{ id: "m", role: "assistant", text: "", at: 1, images: [{ id: "i1", mimeType: "image/png" }] }] } }),
+      JSON.stringify({ t: "assistant.snapshot", agent: "astra", snapshot: { rev: 2, busy: false, sessionId: "eva-1", messages: [{ id: "m", role: "assistant", text: "", at: 1, images: [{ id: "i1", mimeType: "image/png" }] }] } }),
     );
     expect(withImages.ok && withImages.value.t === "assistant.snapshot" ? withImages.value.snapshot.messages[0]?.images?.[0]?.id : undefined).toBe("i1");
-    expect(parseServerMessage(JSON.stringify({ t: "assistant.snapshot", snapshot: { rev: 2, busy: false, messages: [] } })).ok).toBe(false);
-    expect(parseServerMessage(JSON.stringify({ t: "assistant.snapshot", snapshot: { rev: -1, busy: false, sessionId: "", messages: [] } })).ok).toBe(false);
+    expect(parseServerMessage(JSON.stringify({ t: "assistant.snapshot", agent: "astra", snapshot: { rev: 2, busy: false, messages: [] } })).ok).toBe(false);
+    expect(parseServerMessage(JSON.stringify({ t: "assistant.snapshot", agent: "astra", snapshot: { rev: -1, busy: false, sessionId: "", messages: [] } })).ok).toBe(false);
   });
   it("assistant.signin carries credentials, and a message may carry a signin handoff", () => {
     const signin = (cmd: object) => parseClientMessage(JSON.stringify({ t: "cmd", id: "c", cmd: { kind: "assistant.signin", messageId: "m1", url: "https://github.com/login", username: "isaac", password: "pw", ...cmd } })).ok;
@@ -77,7 +95,7 @@ describe("assistant thread", () => {
     expect(signin({ password: "x".repeat(MAX_SIGNIN_FIELD + 1) })).toBe(false);
     expect(signin({ messageId: "" })).toBe(false);
     expect(signin({ url: undefined })).toBe(false);
-    const frame = (message: object) => parseServerMessage(JSON.stringify({ t: "assistant.snapshot", snapshot: { rev: 1, busy: false, sessionId: "eva-1", messages: [{ id: "m", role: "assistant", text: "Sign in", at: 1, ...message }] } }));
+    const frame = (message: object) => parseServerMessage(JSON.stringify({ t: "assistant.snapshot", agent: "astra", snapshot: { rev: 1, busy: false, sessionId: "eva-1", messages: [{ id: "m", role: "assistant", text: "Sign in", at: 1, ...message }] } }));
     const parsed = frame({ signin: { url: "https://github.com/login", host: "github.com" } });
     expect(parsed.ok && parsed.value.t === "assistant.snapshot" ? parsed.value.snapshot.messages[0]?.signin : null).toEqual({ url: "https://github.com/login", host: "github.com" });
     expect(frame({ signin: { url: "https://github.com/login", host: "github.com", submitted: true } }).ok).toBe(true);

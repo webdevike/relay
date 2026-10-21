@@ -1,7 +1,7 @@
-// The sign-in handoff: Eva ends a reply with `[[signin:<url>]]` when a site wants Isaac to log in,
-// and the phone answers with `assistant.signin`. The host hands the credentials to
-// `<agentHome>/.omp/tools/eva-browser.ts fill <url>` on stdin, which types them into the login page
-// in Eva's contained browser. The credentials never reach argv, the log or the model.
+// The sign-in handoff: an assistant thread ends a reply with `[[signin:<url>]]` when a site wants
+// Isaac to log in, and the phone answers with `assistant.signin` for that agent. The host hands the
+// credentials to `<agentHome>/.omp/tools/eva-browser.ts fill <url>` on stdin, which types them into
+// the login page in Eva's contained browser. The credentials never reach argv, the log or the model.
 
 import { join } from "node:path";
 import type { AssistantMessage } from "@relay/protocol";
@@ -14,7 +14,7 @@ export const FILL_TIMEOUT_MS = 60_000;
 /** Longest tool error the phone is shown. */
 export const MAX_FILL_ERROR = 300;
 
-/** The token Eva ends a reply with. The url has no whitespace or `]`. */
+/** The token an assistant ends a reply with. The url has no whitespace or `]`. */
 const TOKEN = /[ \t\r\n]*\[\[signin:([^\]\s]+)\]\][ \t\r\n]*$/;
 const OPENER = "[[signin:";
 

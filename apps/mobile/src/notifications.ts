@@ -3,7 +3,7 @@
  * decides when to notify (see apps/linux/src/push/notifier.ts and inbox/service.ts); the phone's
  * job is the permission prompt, handing the host its Expo push token on every connection while the
  * setting is on, registering the lock-screen actions of an agent blocked on Isaac (`@/inbox`),
- * and opening the session, drop box or Eva thread a tapped notification points at.
+ * and opening the session, drop box or assistant thread a tapped notification points at.
  */
 import { useEffect } from "react";
 import Constants from "expo-constants";
@@ -16,6 +16,7 @@ import { useSettingsStore } from "@/state/settings";
 import { registerWithdrawTask } from "@/inbox/background";
 import { registerInboxCategories } from "@/inbox/categories";
 import { respondToInbox } from "@/inbox/respond";
+import { notificationTarget } from "@/notification-target";
 
 Notifications.setNotificationHandler({
   handleNotification: () => Promise.resolve({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: false }),
@@ -69,21 +70,10 @@ export async function setNotificationsEnabled(enabled: boolean): Promise<boolean
   return true;
 }
 
-/** An Eva push carries `assistant`, a session notification `sessionId`, a drop notification `dropId`; anything else is ignored. */
+/** Opens what a tapped notification points at (`notificationTarget`); anything else is ignored. */
 function openTarget(notification: Notifications.Notification): void {
-  const data = notification.request.content.data;
-  if (data["assistant"] === true) {
-    router.navigate({ pathname: "/eva" });
-    return;
-  }
-  const dropId: unknown = data["dropId"];
-  if (typeof dropId === "string") {
-    router.navigate({ pathname: "/drops" });
-    return;
-  }
-  const sessionId: unknown = data["sessionId"];
-  if (typeof sessionId !== "string") return;
-  router.navigate({ pathname: "/agents", params: { sessionId } });
+  const target = notificationTarget(notification.request.content.data);
+  if (target !== null) router.navigate(target);
 }
 
 /** An inbox action (Approve, Deny, an ask's answer) is answered in place; any other response opens what it points at. */

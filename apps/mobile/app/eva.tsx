@@ -1,21 +1,22 @@
 /**
- * Eva, the personal assistant: one durable conversation the host keeps for Isaac, separate from
- * the Agent Inbox. The host owns the thread (`useAssistantStore` mirrors its snapshot while this
- * screen is showing); this screen renders it as a chat, sends a turn with `assistant.turn`, and
+ * One assistant's thread (`/eva?agent=<id>`: Astra, Nova, … from the host's registry): a durable
+ * conversation the host keeps for Isaac, separate from the Agent Inbox. The host owns the thread
+ * (`useAssistantStore().threads[agent]` mirrors its snapshot while this screen is showing); this
+ * screen renders it as a chat, sends a turn with `assistant.turn`, and
  * echoes the sent words and pictures until the host's next snapshot carries them. The pill's "+"
  * opens a sheet to pick library photos or paste a clipboard image; queued images show as
  * thumbnails above the field. Bubbles stack their images above the text, tap to open.
  *
  * Look (after OpenAI's Dots chat): no title; the agent's avatar ring and name chip occupy a
  * dedicated header above the scrolling conversation (tapping them opens a menu); the user's
- * words are blue bubbles on the right with a delivery receipt, Eva's replies are dark grey bubbles
+ * words are blue bubbles on the right with a delivery receipt, the agent's replies are dark grey bubbles
  * on the left with a typing bubble while she works. The rounded composer keeps multiline text
  * above a persistent row of attachment, dictation and send controls. Dictation fills the draft.
  */
 import { useCallback, useMemo, useRef, useState } from "react";
 import { ActionSheetIOS, FlatList, Keyboard, KeyboardAvoidingView, Pressable, StyleSheet, TextInput, View, type LayoutChangeEvent } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from "expo-speech-recognition";
 import Animated, { FadeIn, FadeOut, ReduceMotion } from "react-native-reanimated";
 import { MAX_REPLY_IMAGES, type AssistantMessage } from "@relay/protocol";
@@ -39,7 +40,7 @@ import { MessageImageStack } from "@/agents/MessageImageStack";
 import { topLevelImages } from "@/agents/markdown";
 import { LARGE_BODY, MessageText } from "@/agents/MessageText";
 import { radii, spacing, useColors, useScheme } from "@/theme";
-import { useAssistantStore } from "@/state/assistant";
+import { agentTitle, threadOf, useAssistantStore } from "@/state/assistant";
 import { useConnectionStore } from "@/state/connection";
 import { requestAssistant, sendCommand, stopAssistant } from "@/connection";
 import { notifyHaptic } from "@/lib/haptics";
@@ -48,8 +49,6 @@ import { choosePhoto, chooseLibraryPhotos, type Photo } from "@/lib/photo";
 
 /** Id of the row echoing a sent turn before the host's snapshot lists it. */
 const PENDING_ID = "pending-turn";
-/** Name on the chip under the avatar ring. */
-const AGENT_NAME = "Astra";
 /** The avatar ring starts this far below the status bar. */
 const HEADER_TOP = 2;
 /** Space below the status bar that the avatar ring and its name pill take. */
@@ -72,12 +71,19 @@ const GAP_RUN = 4;
 /** Proportion of the width a bubble may take. */
 const USER_MAX_WIDTH = "80%";
 
+/** Keyed by agent, so moving to another agent's thread (a notification tap) starts with a fresh composer. */
 export default function Eva() {
+  const { agent } = useLocalSearchParams<{ agent: string }>();
+  return <Thread key={agent} agent={agent} />;
+}
+
+function Thread({ agent }: { agent: string }) {
   const colors = useColors();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const snapshot = useAssistantStore((state) => state.snapshot);
-  const pending = useAssistantStore((state) => state.pending);
+  const title = useAssistantStore((state) => agentTitle(state.agents, agent));
+  const snapshot = useAssistantStore((state) => threadOf(state, agent).snapshot);
+  const pending = useAssistantStore((state) => threadOf(state, agent).pending);
   const setPending = useAssistantStore((state) => state.setPending);
   const connected = useConnectionStore((state) => state.status === "connected");
   const [draft, setDraft] = useState("");
@@ -159,11 +165,11 @@ export default function Eva() {
   // The thread is fetched only while this screen shows; the driver re-asks on every welcome in between.
   useFocusEffect(
     useCallback(() => {
-      requestAssistant();
+      requestAssistant(agent);
       return () => {
-        stopAssistant();
+        stopAssistant(agent);
       };
-    }, []),
+    }, [agent]),
   );
 
 
@@ -201,22 +207,22 @@ export default function Eva() {
     if (!canSend) return;
     const sent = photos;
     setFailure(null);
-    setPending({ text, images: sent });
+    setPending(agent, { text, images: sent });
     setDraft("");
     setPhotos([]);
-    sendCommand({ kind: "assistant.turn", text, ...(sent.length > 0 ? { images: sent.map((photo) => photo.image) } : {}) }).catch(
+    sendCommand({ kind: "assistant.turn", agent, text, ...(sent.length > 0 ? { images: sent.map((photo) => photo.image) } : {}) }).catch(
       (error: unknown) => {
         notifyHaptic("error");
         // The words and pictures come back to the composer, so a lost connection never eats a message.
-        setPending(null);
+        setPending(agent, null);
         setDraft((current) => (current === "" ? text : current));
         setPhotos((current) => (current.length === 0 ? sent : current));
-        setFailure(error instanceof Error && error.message !== "" ? error.message : "Couldn't reach Eva.");
+        setFailure(error instanceof Error && error.message !== "" ? error.message : `Couldn't reach ${title}.`);
       },
     );
   };
 
-  // Image bytes are fetched against the omp session the thread runs in; empty while Eva is not running.
+  // Image bytes are fetched against the omp session the thread runs in; empty while the agent is not running.
   const sessionId = snapshot === null || snapshot.sessionId === "" ? null : snapshot.sessionId;
 
   // Machinery is invisible: the host no longer sends job lines as `status` rows, and an older host's are not shown.
@@ -244,7 +250,7 @@ export default function Eva() {
   const openMenu = (): void => {
     Keyboard.dismiss();
     ActionSheetIOS.showActionSheetWithOptions(
-      { title: AGENT_NAME, options: [`${AGENT_NAME}'s computer`, "Mac live view", "Agent Inbox", "Cancel"], cancelButtonIndex: 3 },
+      { title, options: [`${title}'s computer`, "Mac live view", "Agent Inbox", "Cancel"], cancelButtonIndex: 3 },
       (index) => {
         if (index === 0) router.push("/eva-computer");
         if (index === 1) router.push("/screen");
@@ -281,7 +287,7 @@ export default function Eva() {
   /** Sign-in card tapped: the credentials sheet, a modal route (the bottom-sheet modal did not present on this screen). */
   const openSignIn = (messageId: string, signin: NonNullable<AssistantMessage["signin"]>): void => {
     Keyboard.dismiss();
-    router.push({ pathname: "/eva-signin", params: { messageId, url: signin.url, host: signin.host } });
+    router.push({ pathname: "/eva-signin", params: { agent, messageId, url: signin.url, host: signin.host } });
   };
 
   return (
@@ -292,7 +298,7 @@ export default function Eva() {
             <View style={[styles.fill, { paddingTop: listTop, paddingBottom: composerHeight }]}>
               <EmptyState
                 symbol="bubble.left.and.text.bubble.right"
-                title="Say hi to Eva"
+                title={`Say hi to ${title}`}
                 body={connected || snapshot !== null ? "She lives on your Mac and keeps this one conversation going, day and night." : "Connect to your host to load the conversation."}
               />
             </View>
@@ -308,6 +314,7 @@ export default function Eva() {
                 // Inverted: the next index is the older row above this one, and a row's top margin is the space above it.
                 <MessageAppearance animate={enteringMessages.has(item.id)} user={item.role === "user"} gap={gapAbove(item, newestFirst[index + 1])}>
                   <Row
+                    agent={agent}
                     message={item}
                     receipt={item.id === latestUserId ? receipt : null}
                     streaming={busy && index === 0 && item.role === "assistant"}
@@ -335,10 +342,10 @@ export default function Eva() {
           <View pointerEvents="box-none" style={[styles.header, { top: insets.top + HEADER_TOP }]}>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={`${AGENT_NAME} menu`}
+              accessibilityLabel={`${title} menu`}
               onPress={openMenu}
             >
-              <AvatarRing name={AGENT_NAME} breathing={busy} />
+              <AvatarRing name={title} breathing={busy} />
             </Pressable>
             <View style={styles.back}>
               <BackButton
@@ -372,7 +379,7 @@ export default function Eva() {
                 value={draft}
                 onChangeText={setDraft}
                 onFocus={followContent}
-                placeholder={listening ? "Listening…" : connected ? "Message Eva" : "Not connected"}
+                placeholder={listening ? "Listening…" : connected ? `Message ${title}` : "Not connected"}
                 editable={connected && !listening}
                 multiline
                 keyboardAppearance={dark ? "dark" : "light"}
@@ -382,7 +389,7 @@ export default function Eva() {
                   setInputHeight(Math.max(40, Math.min(128, Math.ceil(event.nativeEvent.contentSize.height))));
                 }}
                 style={[styles.composerInput, { height: inputHeight, color: colors.text }]}
-                accessibilityLabel="Message Eva"
+                accessibilityLabel={`Message ${title}`}
               />
               <View style={styles.composerToolbar}>
                 <AttachButton onPress={openAttach} disabled={!connected || listening} />
@@ -459,10 +466,12 @@ function TypingRow({ gap, streaming }: { gap: number; streaming: boolean }) {
 }
 
 interface RowProps {
+  /** The thread's agent id, for its acked sign-ins. */
+  agent: string;
   message: AssistantMessage;
   receipt: string | null;
   streaming: boolean;
-  /** The omp session the thread runs in, for fetching image bytes; null while Eva is not running. */
+  /** The omp session the thread runs in, for fetching image bytes; null while the agent is not running. */
   sessionId: string | null;
   /** The echoed turn's images, still on the phone; shown instead of the message's host refs. */
   local: Photo[] | undefined;
@@ -473,8 +482,8 @@ interface RowProps {
   onSignIn: (messageId: string, signin: NonNullable<AssistantMessage["signin"]>) => void;
 }
 
-function Row({ message, receipt, streaming, sessionId, local, onOpenImages, onExpanded, onSignIn }: RowProps) {
-  const signedIn = useAssistantStore((state) => state.signedIn[message.id] === true);
+function Row({ agent, message, receipt, streaming, sessionId, local, onOpenImages, onExpanded, onSignIn }: RowProps) {
+  const signedIn = useAssistantStore((state) => threadOf(state, agent).signedIn[message.id] === true);
   const colors = useColors();
   const bubbleFill = useScheme() === "dark" ? BUBBLE_DARK : colors.surface;
   const streamed = useRef(streaming);

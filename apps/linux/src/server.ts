@@ -7,6 +7,7 @@ import { ESCALATOR_DEVICE_ID, encode, MAX_DROP_BYTES, WS_PATH, type ServerMessag
 import { basename } from "node:path";
 import type { Server, ServerWebSocket } from "bun";
 import { AgentsDeltaTracker } from "./agents/delta-tracker";
+import { handleAssistantSay } from "./assistant/http";
 import { handleBoardRequest, isLoopback } from "./boards/http";
 import type { FileBoardStore } from "./boards/store";
 import { CommandDedupStore } from "./dedup";
@@ -57,7 +58,7 @@ export interface ServerDeps {
   readonly screen: ScreenCapture;
   /** The phone-escalation inbox EvaOS feeds; null disables `inbox.*` frames. */
   readonly inbox: InboxRelaying | null;
-  /** Eva's assistant thread; null disables `assistant.*` frames and `POST /assistant/say`. */
+  /** The host's assistant threads; null disables `assistant.*` frames and `POST /assistant/say`. */
   readonly assistant: AssistantRelaying | null;
   readonly pairing: PairingUI;
   readonly log: (line: string) => void;
@@ -142,7 +143,7 @@ export class RelayServer {
           return this.handleDropRequest(request, path, remote);
         if (path === "/boards" || path.startsWith("/boards/"))
           return handleBoardRequest(this.deps.boards, request, path, remote);
-        if (path === "/assistant/say") return this.handleAssistantSay(request, remote);
+        if (path === "/assistant/say") return handleAssistantSay(this.deps.assistant, request, remote);
         return new Response("not found", { status: 404 });
       },
       websocket: {
@@ -226,19 +227,19 @@ export class RelayServer {
     return false;
   }
 
-  /** Whether the phone `deviceId` has Eva's thread open on some live connection. */
-  isViewingAssistant(deviceId: string): boolean {
+  /** Whether the phone `deviceId` has agent `agent`'s thread open on some live connection. */
+  isViewingAssistant(deviceId: string, agent: string): boolean {
     for (const ws of this.sockets) {
       const session = ws.data.session;
-      if (session !== null && session.deviceId === deviceId && session.isFollowingAssistant()) return true;
+      if (session !== null && session.deviceId === deviceId && session.isFollowingAssistant(agent)) return true;
     }
     return false;
   }
 
-  /** Sends `message` to every socket following Eva's thread. */
-  broadcastAssistant(message: ServerMessage): void {
+  /** Sends `message` to every socket following agent `agent`'s thread. */
+  broadcastAssistant(agent: string, message: ServerMessage): void {
     for (const ws of this.sockets) {
-      if (ws.data.session?.isFollowingAssistant() === true) ws.data.session.broadcast(message);
+      if (ws.data.session?.isFollowingAssistant(agent) === true) ws.data.session.broadcast(message);
     }
   }
 
@@ -306,25 +307,6 @@ export class RelayServer {
         ? { t: "drop.new", drop: change.drop }
         : { t: "drop.removed", id: change.id };
     for (const ws of this.sockets) ws.data.session?.broadcast(message);
-  }
-
-  /**
-   * `POST /assistant/say` (text/plain, loopback only, like `POST /drops`) is how `relay-linux
-   * assistant say` and the host's jobs hand Eva a message to relay to Isaac.
-   */
-  private async handleAssistantSay(request: Request, remote: string): Promise<Response> {
-    const assistant = this.deps.assistant;
-    if (assistant === null) return new Response("assistant disabled", { status: 404 });
-    if (request.method !== "POST") return new Response("method not allowed", { status: 405 });
-    if (!isLoopback(remote)) return new Response("loopback only", { status: 403 });
-    const text = (await request.text()).trim();
-    if (text === "") return new Response("empty text", { status: 400 });
-    try {
-      await assistant.say(text);
-      return new Response("ok");
-    } catch (error) {
-      return new Response(error instanceof Error ? error.message : String(error), { status: 503 });
-    }
   }
 
   /**

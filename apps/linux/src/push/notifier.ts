@@ -12,14 +12,14 @@ export const REMINDER_MS = 30 * 60_000;
 /**
  * Tap routing on the phone: a session opens the inbox card, a drop opens the Drops list, an
  * inbox push carries what the phone needs to answer it (`InboxPushData`) or, for a withdraw, the id
- * of the notification to remove, and an Eva reply opens her thread.
+ * of the notification to remove, and an assistant reply opens that agent's thread.
  */
 export type PushData =
   | { readonly sessionId: string }
   | { readonly dropId: string }
   | { readonly id: string; readonly kind: string; readonly sessionId?: string }
   | { readonly withdraw: string }
-  | { readonly assistant: true };
+  | { readonly assistant: true; readonly agent: string };
 
 export interface PushMessage {
   readonly to: string;

@@ -15,6 +15,7 @@ import {
   type AgentAsk,
   type AgentMessage,
   type AgentOptions,
+  type AssistantSnapshot,
   type ClientMessage,
   type Command,
   type ErrorCode,
@@ -30,6 +31,7 @@ import {
   AckFailure,
   type AgentProvider,
   type AssistantRelaying,
+  type AssistantThread,
   type DeviceStore,
   type DropBox,
   type FrameSink,
@@ -67,7 +69,7 @@ export interface SessionDeps {
   readonly screen: ScreenCapture;
   /** null when the host has no phone-escalation inbox; `inbox.*` frames are then ignored. */
   readonly inbox: InboxRelaying | null;
-  /** null when the host has no Astra thread; `assistant.get` then answers empty and `assistant.turn` nacks. */
+  /** null when the host has no assistant threads; `assistant.get` then answers empty and `assistant.turn` nacks. */
   readonly assistant: AssistantRelaying | null;
 }
 
@@ -86,12 +88,13 @@ const MAX_SCREEN_BACKLOG = 512 * 1024;
 /** Trackpad quiet this long switches live-view frames back to full size and quality. */
 const SCREEN_LITE_IDLE_MS = 600;
 /**
- * A socket that asked for the thread (`assistant.get`) follows it this long: it gets every
- * `assistant.snapshot` and its device gets no Eva push. The phone re-asks while the thread stays
- * on screen; a socket that goes quiet drops out of the thread without a frame to say so.
+ * A socket that asked for an agent's thread (`assistant.get`) follows that thread this long: it
+ * gets every `assistant.snapshot` of that agent and its device gets no push for that agent. The
+ * phone re-asks while the thread stays on screen; a socket that goes quiet drops out of the thread
+ * without a frame to say so. Each agent is followed separately.
  */
 export const ASSISTANT_FOLLOW_MS = 5 * 60_000;
-const EMPTY_ASSISTANT: ServerMessage = { t: "assistant.snapshot", snapshot: { rev: 0, messages: [], busy: false, sessionId: "" } };
+const EMPTY_ASSISTANT: AssistantSnapshot = { rev: 0, messages: [], busy: false, sessionId: "" };
 
 function noInputDevice(): AckFailure {
   return new AckFailure({
@@ -148,8 +151,8 @@ export class ClientSession {
   private lastScreenMoveAt: number | null = null;
   /** Set while lite (trackpad-sized) frames are on; cancels the switch back to full frames. */
   private cancelScreenLite: (() => void) | null = null;
-  /** When this socket last sent `assistant.get`; null before it ever did. */
-  private assistantAskedAt: number | null = null;
+  /** When this socket last sent `assistant.get`, by agent id; absent for agents it never asked for. */
+  private readonly assistantAskedAt = new Map<string, number>();
 
   constructor(
     private readonly sink: FrameSink,
@@ -188,9 +191,10 @@ export class ClientSession {
     return this.phase.kind === "authenticated" && this.subscriptions.has(sessionId);
   }
 
-  /** Whether the phone has Eva's thread open on this socket (asked for it within ASSISTANT_FOLLOW_MS). */
-  isFollowingAssistant(): boolean {
-    return this.phase.kind === "authenticated" && this.assistantAskedAt !== null && this.clock.now() - this.assistantAskedAt <= ASSISTANT_FOLLOW_MS;
+  /** Whether the phone has agent `agent`'s thread open on this socket (asked for it within ASSISTANT_FOLLOW_MS). */
+  isFollowingAssistant(agent: string): boolean {
+    const askedAt = this.assistantAskedAt.get(agent);
+    return this.phase.kind === "authenticated" && askedAt !== undefined && this.clock.now() - askedAt <= ASSISTANT_FOLLOW_MS;
   }
 
   /** Forwards appended agent messages iff subscribed to `sessionId`; bumps that subscription's rev. */
@@ -494,22 +498,26 @@ export class ClientSession {
         this.sink.send({ t: "gate.status", gate: this.deps.agents?.gate ?? null });
         break;
       case "assistant.get": {
-        this.assistantAskedAt = this.clock.now();
-        const assistant = this.deps.assistant;
-        if (assistant === null) {
-          this.sink.send(EMPTY_ASSISTANT);
+        // An unknown agent, or no agent from an old phone on a host without threads, follows nothing.
+        const thread = this.deps.assistant?.thread(message.agent);
+        if (thread === undefined) {
+          if (message.agent !== undefined) this.sink.send({ t: "assistant.snapshot", agent: message.agent, snapshot: EMPTY_ASSISTANT });
           break;
         }
-        void assistant.snapshot().then(
+        this.assistantAskedAt.set(thread.id, this.clock.now());
+        void thread.snapshot().then(
           (snapshot) => {
-            if (!this.closed) this.sink.send({ t: "assistant.snapshot", snapshot });
+            if (!this.closed) this.sink.send({ t: "assistant.snapshot", agent: thread.id, snapshot });
           },
           () => {
-            if (!this.closed) this.sink.send(EMPTY_ASSISTANT);
+            if (!this.closed) this.sink.send({ t: "assistant.snapshot", agent: thread.id, snapshot: EMPTY_ASSISTANT });
           },
         );
         break;
       }
+      case "assistant.agents":
+        this.sink.send({ t: "assistant.agents", agents: (this.deps.assistant?.threads ?? []).map(({ id, title }) => ({ id, title })) });
+        break;
       case "screen.list":
         void this.deps.screen.list().then(
           (result) => {
@@ -731,19 +739,22 @@ export class ClientSession {
         }
         return this.deps.agents.runGate(cmd);
       case "assistant.turn":
-        if (this.deps.assistant === null) {
-          return Promise.reject(new AckFailure({ code: "agent_launch_failed", message: "this host has no Astra thread" }));
-        }
         if (cmd.text.length === 0 && cmd.images === undefined) {
           return Promise.reject(new AckFailure({ code: "invalid_command", message: "turn has neither text nor images" }));
         }
-        return this.deps.assistant.turn(cmd.text, cmd.images);
+        return this.assistantThread(cmd.agent).turn(cmd.text, cmd.images);
       case "assistant.signin":
-        if (this.deps.assistant === null) {
-          return Promise.reject(new AckFailure({ code: "agent_launch_failed", message: "this host has no Astra thread" }));
-        }
-        return this.deps.assistant.signin(cmd.messageId, cmd.url, cmd.username, cmd.password);
+        return this.assistantThread(cmd.agent).signin(cmd.messageId, cmd.url, cmd.username, cmd.password);
     }
+  }
+
+  /** Thread `agent` (the default when absent); throws `AckFailure` on a host without threads or for an unknown agent. */
+  private assistantThread(agent: string | undefined): AssistantThread {
+    const assistant = this.deps.assistant;
+    if (assistant === null) throw new AckFailure({ code: "agent_launch_failed", message: "this host has no assistant threads" });
+    const thread = assistant.thread(agent);
+    if (thread === undefined) throw new AckFailure({ code: "agent_not_found", message: `no assistant ${agent ?? "(default)"} on this host` });
+    return thread;
   }
 
   private agents(): AgentProvider {

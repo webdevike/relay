@@ -64,7 +64,15 @@
     "sessions": []
   },
   {
+    "t": "assistant.agents",
+    "agents": [
+      { "id": "astra", "title": "Astra" },
+      { "id": "nova", "title": "Nova" }
+    ]
+  },
+  {
     "t": "assistant.snapshot",
+    "agent": "astra",
     "snapshot": {
       "rev": 3,
       "busy": false,

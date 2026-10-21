@@ -51,7 +51,7 @@ export default function EvaComputer() {
 
   const close = (): void => {
     if (router.canGoBack()) router.back();
-    else router.replace("/eva");
+    else router.replace("/");
   };
   const reload = useCallback((): void => {
     setFailure(null);

@@ -369,6 +369,7 @@ export class OmpBridgeProvider implements AgentProvider {
           canRespond: frame.canRespond,
           ...(frame.statusDetail === undefined ? {} : { statusDetail: frame.statusDetail }),
           ...(frame.kind === undefined ? {} : { kind: frame.kind }),
+          ...(frame.assistant === undefined ? {} : { assistant: frame.assistant }),
           ...(frame.job === undefined ? {} : { job: frame.job }),
           ...(frame.parentId === undefined ? {} : { parentId: frame.parentId }),
         };
@@ -386,6 +387,7 @@ export class OmpBridgeProvider implements AgentProvider {
           projectPath: current.projectPath,
           canRespond: frame.canRespond ?? current.canRespond,
           ...(current.kind === undefined ? {} : { kind: current.kind }),
+          ...(current.assistant === undefined ? {} : { assistant: current.assistant }),
           ...(current.job === undefined ? {} : { job: current.job }),
           ...(current.parentId === undefined ? {} : { parentId: current.parentId }),
           title: frame.title ?? current.title,

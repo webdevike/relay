@@ -1,6 +1,6 @@
 // Reads an omp session transcript (JSONL) into the inbox rows the phone and EvaOS show. Shared by
 // the relay-bridge omp extension (live messages and the seed of a resumed thread) and by the host's
-// assistant service (the earlier transcripts of Eva's thread). The extension runs under omp's bun
+// assistant service (the earlier transcripts of each assistant thread). The extension runs under omp's bun
 // with no node_modules and imports this by relative path, so this file may only use node built-ins
 // and must stay free of the repo's packages (no zod, no @relay/protocol).
 
