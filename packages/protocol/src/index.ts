@@ -7,7 +7,8 @@
  *
  * Three traffic classes, never mixed:
  *  - handshake   hello / challenge / auth / pair.* / welcome. Ordered, one in flight.
- *  - ephemeral   `input` batches. Fire-and-forget. Dropped when not connected, never queued.
+ *  - ephemeral   `input` batches and `call.*` frames. Fire-and-forget. Dropped when not
+ *                connected, never queued.
  *  - reliable    `cmd` with a client-generated id, answered by exactly one `ack`. The phone
  *                retries un-acked cmds on reconnect; the Mac dedups by id.
  *  - state       Mac -> phone snapshots and deltas with a monotonically increasing `rev` per
@@ -398,6 +399,8 @@ export const AssistantMessage = z.object({
   images: z.array(AgentImageRef).optional(),
   /** Eva asked Isaac to sign in to a site in her browser: the page and its host. `submitted` once the host typed credentials into the login page. */
   signin: z.object({ url: nonEmpty, host: nonEmpty, submitted: z.boolean().optional() }).optional(),
+  /** A user row Isaac said on a call rather than typed (the host strips the voice-turn note from its text). */
+  voice: z.boolean().optional(),
 });
 export type AssistantMessage = z.infer<typeof AssistantMessage>;
 
@@ -464,6 +467,34 @@ export const ScreenKey = z.enum(["return", "delete", "tab", "escape", "left", "r
 export type ScreenKey = z.infer<typeof ScreenKey>;
 
 const unit = z.number().min(0).max(1);
+
+// ---------------------------------------------------------------------------------------------
+// Calls: a live voice conversation with one assistant thread over this socket (not telephony).
+// The phone streams its microphone as `call.audio` (PCM16 LE mono at CALL_INPUT_RATE, base64,
+// about 100 ms a frame) and plays the host's `call.audio` (PCM16 LE mono at CALL_OUTPUT_RATE).
+// The host finds the utterances (VAD + speech-to-text), hands each one to the assistant as a
+// voice turn in its normal thread, and speaks the reply. Speech while the host is talking is a
+// barge-in: it sends `call.flush` and starts a new audio generation. A call lives and dies with
+// its socket; there is at most one per socket.
+// ---------------------------------------------------------------------------------------------
+
+export const CALL_INPUT_RATE = 16_000;
+export const CALL_OUTPUT_RATE = 24_000;
+/** Largest audio payload (base64 length) one call frame carries, either way: about a second. */
+export const MAX_CALL_AUDIO_BASE64 = 64 * 1024;
+
+export const CallId = z.string().min(1).max(64);
+
+/**
+ * Where a call stands. `connecting`: the host is warming its speech models; `listening`: waiting
+ * for Isaac; `hearing`: he is talking; `thinking`: his words went to the assistant, no reply audio
+ * yet; `speaking`: reply (or filler) audio is playing; `ended`: over, `error` says why if it failed.
+ */
+export const CallState = z.enum(["connecting", "listening", "hearing", "thinking", "speaking", "ended"]);
+export type CallState = z.infer<typeof CallState>;
+
+const CallAudio = z.string().min(1).max(MAX_CALL_AUDIO_BASE64);
+
 
 // ---------------------------------------------------------------------------------------------
 // Habit gate: at planned breaks the host locks its AI tools until a habit (or a one-time task) is
@@ -836,6 +867,14 @@ export const ClientMessage = z.discriminatedUnion("t", [
    * `agent.ask.answer` it carries out.
    */
   z.object({ t: z.literal("inbox.resolve"), ...InboxResolveFields }),
+  /** Call assistant `agent` on this socket; ends any call already on it. Answered by `call.state`. */
+  z.object({ t: z.literal("call.start"), callId: CallId, agent: AssistantAgentId }),
+  /** About 100 ms of microphone, PCM16 LE mono at CALL_INPUT_RATE, base64. Ignored for any other call. */
+  z.object({ t: z.literal("call.audio"), callId: CallId, pcm: CallAudio }),
+  /** The phone stopped (or resumed) sending its microphone; the host drops any half-heard utterance. */
+  z.object({ t: z.literal("call.mute"), callId: CallId, muted: z.boolean() }),
+  /** Hang up. The host answers with `call.state` `ended`. */
+  z.object({ t: z.literal("call.end"), callId: CallId }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 
@@ -946,6 +985,22 @@ export const ServerMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("screen.cursor"), windowId: z.number().int().nonnegative(), x: z.number(), y: z.number() }),
   /** The watch ended without the phone asking (window closed, permission missing, capture died). */
   z.object({ t: z.literal("screen.ended"), windowId: z.number().int().nonnegative(), error: ScreenError }),
+  /**
+   * Where call `callId` with assistant `agent` stands. `text` is what was just heard (`thinking`)
+   * or is being said (`speaking`); `error` comes with `ended` when the call failed.
+   */
+  z.object({
+    t: z.literal("call.state"),
+    callId: CallId,
+    agent: AssistantAgentId,
+    state: CallState,
+    text: z.string().optional(),
+    error: z.string().optional(),
+  }),
+  /** Reply audio, PCM16 LE mono at CALL_OUTPUT_RATE, base64; play in order, dropping any `gen` below the last `call.flush`. */
+  z.object({ t: z.literal("call.audio"), callId: CallId, gen: z.number().int().nonnegative(), pcm: CallAudio }),
+  /** Barge-in: stop playback now and drop queued or late audio of generations below `gen`. */
+  z.object({ t: z.literal("call.flush"), callId: CallId, gen: z.number().int().nonnegative() }),
   z.object({ t: z.literal("ack"), id: nonEmpty }),
   z.object({ t: z.literal("nack"), id: nonEmpty, error: AckError }),
   z.object({ t: z.literal("pong"), ts: ms, serverTs: ms }),

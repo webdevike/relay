@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { webcrypto } from "node:crypto";
 import client from "../fixtures/client-messages.json";
 import server from "../fixtures/server-messages.json";
-import { MAX_SIGNIN_FIELD, authProof, fromHex, hmacSha256, parseClientMessage, parseServerMessage, toHex } from "../src";
+import { MAX_CALL_AUDIO_BASE64, MAX_SIGNIN_FIELD, authProof, fromHex, hmacSha256, parseClientMessage, parseServerMessage, toHex } from "../src";
 
 const sha256 = (d: Uint8Array) => webcrypto.subtle.digest("SHA-256", d);
 
@@ -225,5 +225,46 @@ describe("inbox frames", () => {
     expect(parseClientMessage(JSON.stringify({ t: "inbox.item", item: ask(["a", "b", "c", "d", "e"]) })).ok).toBe(false);
     expect(parseClientMessage(JSON.stringify({ t: "inbox.item", item: ask([]) })).ok).toBe(false);
     expect(parseClientMessage(JSON.stringify({ t: "inbox.resolve", id: "x", by: "watch" })).ok).toBe(false);
+  });
+});
+
+describe("call frames", () => {
+  const roundTrip = (parse: typeof parseClientMessage | typeof parseServerMessage, frame: object) => {
+    const r = parse(JSON.stringify(frame));
+    expect(r.ok, JSON.stringify(frame)).toBe(true);
+    if (r.ok) expect(r.value).toEqual(frame);
+  };
+
+  it("phone frames: start, audio, mute and end round-trip", () => {
+    roundTrip(parseClientMessage, { t: "call.start", callId: "c-1", agent: "astra" });
+    roundTrip(parseClientMessage, { t: "call.audio", callId: "c-1", pcm: "AAAA" });
+    roundTrip(parseClientMessage, { t: "call.mute", callId: "c-1", muted: true });
+    roundTrip(parseClientMessage, { t: "call.end", callId: "c-1" });
+  });
+
+  it("host frames: every state, audio with its generation, and flush round-trip", () => {
+    for (const state of ["connecting", "listening", "hearing", "thinking", "speaking", "ended"]) {
+      roundTrip(parseServerMessage, { t: "call.state", callId: "c-1", agent: "nova", state });
+    }
+    roundTrip(parseServerMessage, { t: "call.state", callId: "c-1", agent: "nova", state: "thinking", text: "what time is it" });
+    roundTrip(parseServerMessage, { t: "call.state", callId: "c-1", agent: "nova", state: "ended", error: "speech models unavailable" });
+    roundTrip(parseServerMessage, { t: "call.audio", callId: "c-1", gen: 2, pcm: "AAAA" });
+    roundTrip(parseServerMessage, { t: "call.flush", callId: "c-1", gen: 3 });
+  });
+
+  it("rejects a malformed agent, an empty or oversized frame, an unknown state, a negative generation and wrong-direction frames", () => {
+    expect(parseClientMessage(JSON.stringify({ t: "call.start", callId: "c-1", agent: "Astra" })).ok).toBe(false);
+    expect(parseClientMessage(JSON.stringify({ t: "call.start", callId: "", agent: "astra" })).ok).toBe(false);
+    expect(parseClientMessage(JSON.stringify({ t: "call.audio", callId: "c-1", pcm: "" })).ok).toBe(false);
+    expect(parseClientMessage(JSON.stringify({ t: "call.audio", callId: "c-1", pcm: "A".repeat(MAX_CALL_AUDIO_BASE64 + 1) })).ok).toBe(false);
+    expect(parseServerMessage(JSON.stringify({ t: "call.state", callId: "c-1", agent: "astra", state: "ringing" })).ok).toBe(false);
+    expect(parseServerMessage(JSON.stringify({ t: "call.audio", callId: "c-1", gen: -1, pcm: "AAAA" })).ok).toBe(false);
+    expect(parseServerMessage(JSON.stringify({ t: "call.start", callId: "c-1", agent: "astra" })).ok).toBe(false);
+    expect(parseClientMessage(JSON.stringify({ t: "call.flush", callId: "c-1", gen: 1 })).ok).toBe(false);
+  });
+
+  it("assistant rows may say they were spoken on a call", () => {
+    const r = parseServerMessage(JSON.stringify({ t: "assistant.snapshot", agent: "astra", snapshot: { rev: 1, busy: false, sessionId: "s", messages: [{ id: "m", role: "user", text: "what time is it", at: 1, voice: true }] } }));
+    expect(r.ok && r.value.t === "assistant.snapshot" ? r.value.snapshot.messages[0]?.voice : undefined).toBe(true);
   });
 });
