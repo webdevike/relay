@@ -10,11 +10,15 @@ import { sendCall } from "@/connection";
 import { useCallStore } from "@/state/call";
 import { useConnectionStore } from "@/state/connection";
 import { VoiceCall } from "../../modules/voice-call";
+import { callStats } from "./stats";
 
 let subscriptions: EventSubscription[] = [];
 /** A call whose microphone has produced nothing this long after opening is ended with a reason. */
 const NO_AUDIO_MS = 3_000;
 let unsubscribeStore: (() => void) | null = null;
+/** Microphone and level events that reached JS in the current call, for its report. */
+let micEvents = 0;
+let levelEvents = 0;
 
 /** Whether this build has the call audio module (dev clients from before calls do not). */
 export function callsSupported(): boolean {
@@ -33,15 +37,16 @@ export async function startCall(agent: string): Promise<void> {
   if (!(await native.requestPermission())) throw new Error("Allow microphone access for Relay in Settings to call.");
   const id = randomUUID();
   useCallStore.getState().begin(id, agent);
-  let frames = 0;
-  let levels = 0;
+  micEvents = 0;
+  levelEvents = 0;
+  callStats.audioIn = 0;
   subscriptions = [
     native.addListener("audio", ({ pcm }) => {
-      frames += 1;
+      micEvents += 1;
       sendCall({ t: "call.audio", callId: id, pcm });
     }),
     native.addListener("level", ({ value }) => {
-      levels += 1;
+      levelEvents += 1;
       useCallStore.getState().update(id, { level: value });
     }),
     native.addListener("interrupted", () => {
@@ -66,19 +71,26 @@ export async function startCall(agent: string): Promise<void> {
   sendCall({ t: "call.start", callId: id, agent });
   // A deaf call looks exactly like one where nobody answers; say so instead.
   setTimeout(() => {
-    if (frames > 0 || useCallStore.getState().call?.id !== id) return;
-    // Read before hanging up stops the engine; says whether the tap ran and whether events reached JS.
-    const details = `${native.diagnostics()}; js audio events ${String(frames)}, level events ${String(levels)}`;
-    endCall(`The microphone sent no audio (${details})`);
+    if (micEvents > 0 || useCallStore.getState().call?.id !== id) return;
+    endCall("The microphone sent no audio");
   }, NO_AUDIO_MS);
 }
 
-/** Hangs up (`error` when it ends because something failed); the call screen shows it ended. */
+/** The native engine's state and what reached JS, read before hanging up stops the engine. */
+function report(): string {
+  return `${VoiceCall?.diagnostics() ?? "no native module"}; js mic events ${String(micEvents)}, level events ${String(levelEvents)}, reply frames ${String(callStats.audioIn)}`;
+}
+
+/**
+ * Hangs up (`error` when it ends because something failed); the call screen shows it ended. The
+ * host always gets the audio report in `reason`, so its log shows what both directions did.
+ */
 export function endCall(error?: string): void {
   const call = useCallStore.getState().call;
   if (call === null || call.state === "ended") return;
-  sendCall({ t: "call.end", callId: call.id, ...(error === undefined ? {} : { reason: error.slice(0, 2000) }) });
-  useCallStore.getState().update(call.id, { state: "ended", error: error ?? null });
+  const details = report();
+  sendCall({ t: "call.end", callId: call.id, reason: `${error ?? "hung up"} (${details})`.slice(0, 2000) });
+  useCallStore.getState().update(call.id, { state: "ended", error: error === undefined ? null : `${error} (${details})` });
 }
 
 export function setCallMuted(muted: boolean): void {

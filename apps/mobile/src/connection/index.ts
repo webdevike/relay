@@ -17,6 +17,7 @@ import { useGateStore } from "@/state/gate";
 import { useAssistantStore } from "@/state/assistant";
 import { callIsLive, useCallStore } from "@/state/call";
 import { createCallFrameRouter } from "@/call/frames";
+import { callStats } from "@/call/stats";
 import { VoiceCall } from "../../modules/voice-call";
 import { setActions } from "@/state/actions";
 import { useSettingsStore } from "@/state/settings";
@@ -85,6 +86,7 @@ const routeCallFrame = createCallFrameRouter(
   { update: useCallStore.getState().update, current: () => useCallStore.getState().call },
   {
     play: (pcm) => {
+      callStats.audioIn += 1;
       VoiceCall?.play(pcm);
     },
     flush: () => {

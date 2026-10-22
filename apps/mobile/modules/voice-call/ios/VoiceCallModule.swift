@@ -38,6 +38,9 @@ public class VoiceCallModule: Module {
   private var restarts = 0
   private var lastRestart = "none"
   private var startError = "none"
+  private var scheduled = 0
+  private var played = 0
+  private var playDropped = "none"
 
   public func definition() -> ModuleDefinition {
     Name("VoiceCall")
@@ -114,6 +117,9 @@ public class VoiceCallModule: Module {
     restarts = 0
     lastRestart = "none"
     startError = "none"
+    scheduled = 0
+    played = 0
+    playDropped = "none"
     lock.unlock()
     installTap(on: input)
     engine.prepare()
@@ -159,12 +165,20 @@ public class VoiceCallModule: Module {
     }
   }
 
-  /** Rewires the tap for the input's current format and starts the engine again (main queue). */
+  /**
+   * Rewires both directions for the current route and starts the engine again (main queue): the
+   * tap with the input's current format, and the player -> mixer -> output chain, whose implicit
+   * mixer -> output link was made for the old output format (a switch to Bluetooth HFP changes it).
+   */
   private func restart(_ why: String) {
     guard let engine, let player else { return }
     engine.stop()
     engine.inputNode.removeTap(onBus: 0)
     installTap(on: engine.inputNode)
+    engine.disconnectNodeOutput(player)
+    engine.disconnectNodeOutput(engine.mainMixerNode)
+    engine.connect(player, to: engine.mainMixerNode, format: playFormat)
+    engine.connect(engine.mainMixerNode, to: engine.outputNode, format: nil)
     engine.prepare()
     var failure = "none"
     do {
@@ -196,7 +210,11 @@ public class VoiceCallModule: Module {
       return "\(Int(f.sampleRate))Hz/\(f.channelCount)ch"
     } ?? "no engine"
     lock.lock()
-    let line = "mic \(permission); session \(session.category.rawValue)/\(session.mode.rawValue) inputAvailable=\(session.isInputAvailable) in=[\(inputs)] out=[\(outputs)]; engine running=\(engine?.isRunning ?? false) input \(format) vp \(voiceProcessing); restarts \(restarts) (last \(lastRestart)) start error \(startError); taps \(taps) last \(lastTapFormat); sent \(framesSent); dropped \(dropped)"
+    let output = engine.map { node in
+      let f = node.outputNode.outputFormat(forBus: 0)
+      return "\(Int(f.sampleRate))Hz/\(f.channelCount)ch mixer vol \(node.mainMixerNode.outputVolume)"
+    } ?? "no engine"
+    let line = "mic \(permission); session \(session.category.rawValue)/\(session.mode.rawValue) inputAvailable=\(session.isInputAvailable) in=[\(inputs)] out=[\(outputs)] volume \(session.outputVolume); engine running=\(engine?.isRunning ?? false) input \(format) output \(output) vp \(voiceProcessing); restarts \(restarts) (last \(lastRestart)) start error \(startError); taps \(taps) last \(lastTapFormat); sent \(framesSent); dropped \(dropped); play scheduled \(scheduled) played \(played) player playing=\(player?.isPlaying ?? false) play dropped \(playDropped)"
     lock.unlock()
     return line
   }
@@ -314,12 +332,25 @@ public class VoiceCallModule: Module {
     lock.unlock()
   }
 
-  /** Host audio (24 kHz PCM16, base64) onto the player, after what is already scheduled. */
+  /**
+   * Host audio (24 kHz PCM16, base64) onto the player, after what is already scheduled. A stopped
+   * engine is restarted and an idle player started first, so nothing is queued into silence.
+   */
   private func schedule(_ base64: String) {
-    guard let player, let data = Data(base64Encoded: base64), data.count >= 2 else { return }
+    guard let engine, let player else {
+      notePlay(drop: "no engine")
+      return
+    }
+    guard let data = Data(base64Encoded: base64), data.count >= 2 else {
+      notePlay(drop: "bad base64")
+      return
+    }
     let count = data.count / 2
     guard let buffer = AVAudioPCMBuffer(pcmFormat: playFormat, frameCapacity: AVAudioFrameCount(count)),
-          let channel = buffer.floatChannelData?[0] else { return }
+          let channel = buffer.floatChannelData?[0] else {
+      notePlay(drop: "no buffer")
+      return
+    }
     buffer.frameLength = AVAudioFrameCount(count)
     data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
       let samples = raw.bindMemory(to: Int16.self)
@@ -327,7 +358,26 @@ public class VoiceCallModule: Module {
         channel[index] = Float(Int16(littleEndian: samples[index])) / 32768
       }
     }
-    player.scheduleBuffer(buffer, completionHandler: nil)
+    if !engine.isRunning {
+      notePlay(drop: "engine was stopped at playback")
+      restart("stopped at playback")
+    }
+    player.scheduleBuffer(buffer) { [weak self] in
+      guard let self else { return }
+      self.lock.lock()
+      self.played += 1
+      self.lock.unlock()
+    }
+    if !player.isPlaying { player.play() }
+    lock.lock()
+    scheduled += 1
+    lock.unlock()
+  }
+
+  private func notePlay(drop reason: String) {
+    lock.lock()
+    playDropped = reason
+    lock.unlock()
   }
 }
 
