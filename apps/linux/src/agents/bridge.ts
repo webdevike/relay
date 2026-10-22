@@ -14,7 +14,7 @@
 
 import { existsSync, unlinkSync } from "node:fs";
 import type { Socket, SocketHandler } from "bun";
-import { AgentAccount, AgentAskQuestion, type AgentApproval, type ApprovalConfirmation, AgentImage, AgentMessage, AgentOptions, AgentSession, AgentStatus, GateStatus, type AgentAsk, type AgentAskAnswer, type AgentImage as AgentImageT, type AgentSession as AgentSessionT, type AgentMessage as AgentMessageT, type AgentOptions as AgentOptionsT, type GateStatus as GateStatusT } from "@relay/protocol";
+import { AgentAccount, AgentAskQuestion, AgentBackgroundJob, type AgentApproval, type ApprovalConfirmation, AgentImage, AgentMessage, AgentOptions, AgentSession, AgentStatus, GateStatus, type AgentAsk, type AgentAskAnswer, type AgentImage as AgentImageT, type AgentSession as AgentSessionT, type AgentMessage as AgentMessageT, type AgentOptions as AgentOptionsT, type GateStatus as GateStatusT } from "@relay/protocol";
 import { z } from "zod";
 import { AckFailure, type AgentConfigChange, type AgentProvider, type AgentProviderChange, type GateCommand } from "../seams";
 import { destructivePattern } from "./destructive";
@@ -36,6 +36,10 @@ const StatusFrame = z.object({
   canRespond: z.boolean().optional(),
   /** The transcript on disk, once omp has one; the assistant service keeps it to resume the thread. */
   sessionFile: z.string().min(1).optional(),
+  /** Running and just-ended async jobs; absent when there are none. Every status carries the current list. */
+  backgroundJobs: z.array(AgentBackgroundJob).optional(),
+  /** Set while a handoff or compaction summarizes the session; absent otherwise. */
+  handingOff: z.boolean().optional(),
 });
 
 const Inbound = z.discriminatedUnion("t", [
@@ -374,6 +378,8 @@ export class OmpBridgeProvider implements AgentProvider {
           ...(frame.job === undefined ? {} : { job: frame.job }),
           ...(frame.parentId === undefined ? {} : { parentId: frame.parentId }),
           ...(frame.account === undefined ? {} : { account: frame.account }),
+          ...(frame.backgroundJobs === undefined || frame.backgroundJobs.length === 0 ? {} : { backgroundJobs: frame.backgroundJobs }),
+          ...(frame.handingOff === true ? { handingOff: true } : {}),
         };
         connection.sessionFile = frame.sessionFile ?? null;
         this.log(`agent session ${frame.sessionId} (${frame.title}) ${frame.status}${frame.account === undefined ? "" : ` on ${frame.account.profile}${frame.account.email === undefined ? "" : ` (${frame.account.email})`}`}`);
@@ -402,6 +408,8 @@ export class OmpBridgeProvider implements AgentProvider {
           ...(frame.thinkingLevel === undefined ? {} : { thinkingLevel: frame.thinkingLevel }),
           ...(frame.contextUsed === undefined ? {} : { contextUsed: frame.contextUsed }),
           ...((frame.account ?? current.account) === undefined ? {} : { account: frame.account ?? current.account }),
+          ...(frame.backgroundJobs === undefined || frame.backgroundJobs.length === 0 ? {} : { backgroundJobs: frame.backgroundJobs }),
+          ...(frame.handingOff === true ? { handingOff: true } : {}),
         };
         if (frame.sessionFile !== undefined) connection.sessionFile = frame.sessionFile;
         this.publish();

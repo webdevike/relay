@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { accountLabel } from "@relay/protocol";
 import { OmpBridgeProvider } from "../src/agents/bridge";
+import { AgentsDeltaTracker } from "../src/agents/delta-tracker";
 
 /** Feeds extension frames straight into the provider, past the unix socket. */
 function connect(provider: OmpBridgeProvider): (frame: object) => void {
@@ -34,5 +35,46 @@ describe("session account", () => {
     expect(accountLabel({ profile: "current", email: "iweber@ecardsystems.com" })).toBe("Work · iweber@ecardsystems.com");
     expect(accountLabel({ profile: "work" })).toBe("Work");
     expect(accountLabel({ profile: "personal", email: "ikey2244@gmail.com" })).toBe("Personal · ikey2244@gmail.com");
+  });
+});
+
+describe("session activity", () => {
+  const job = { id: "bg_1", type: "bash", label: "bun test --watch", state: "running", startedAt: 5 };
+
+  it("passes background jobs and the handoff flag through, and drops them when a status omits them", () => {
+    const logs: string[] = [];
+    const provider = new OmpBridgeProvider("/unused.sock", (line) => logs.push(line), null);
+    const send = connect(provider);
+    send({ ...hello, backgroundJobs: [job], handingOff: true });
+    expect(provider.sessions[0]?.backgroundJobs).toEqual([job]);
+    expect(provider.sessions[0]?.handingOff).toBe(true);
+
+    send({ t: "status", status: "working", lastActivity: "", lastActivityAt: 2, backgroundJobs: [{ ...job, state: "done" }] });
+    expect(provider.sessions[0]?.backgroundJobs?.[0]?.state).toBe("done");
+    expect(provider.sessions[0]?.handingOff).toBeUndefined();
+
+    send({ t: "status", status: "idle", lastActivity: "", lastActivityAt: 3 });
+    expect(provider.sessions[0]?.backgroundJobs).toBeUndefined();
+  });
+
+  it("drops a status whose job is malformed", () => {
+    const logs: string[] = [];
+    const provider = new OmpBridgeProvider("/unused.sock", (line) => logs.push(line), null);
+    const send = connect(provider);
+    send(hello);
+    send({ t: "status", status: "working", lastActivity: "", lastActivityAt: 2, backgroundJobs: [{ ...job, state: "paused" }] });
+    expect(provider.sessions[0]?.status).toBe("idle");
+    expect(logs.at(-1)).toContain("malformed frame");
+  });
+
+  it("publishes a delta when only the jobs or the handoff flag change", () => {
+    const tracker = new AgentsDeltaTracker();
+    const base = { id: "s1", provider: "omp", title: "Eva", projectPath: "/p", status: "working" as const, lastActivity: "", lastActivityAt: 1, canRespond: true };
+    tracker.seed([base]);
+    expect(tracker.apply([{ ...base, handingOff: true }])).toMatchObject({ upsert: [{ handingOff: true }] });
+    expect(tracker.apply([{ ...base, handingOff: true }])).not.toHaveProperty("upsert");
+    const running = { ...job, state: "running" as const };
+    expect(tracker.apply([{ ...base, handingOff: true, backgroundJobs: [running] }])).toHaveProperty("upsert");
+    expect(tracker.apply([{ ...base, handingOff: true, backgroundJobs: [{ ...running, state: "done" as const }] }])).toHaveProperty("upsert");
   });
 });

@@ -36,6 +36,8 @@ export const MAX_SUMMARY = 120;
 /** Transcript images kept per session for the phone to fetch; older ones answer null. */
 export const MAX_IMAGES = 32;
 export const IMAGE_ID_LENGTH = 16;
+/** The transcript row a compaction leaves behind: omp summarized the earlier turns in place. */
+export const COMPACTION_NOTICE = "Context refreshed: earlier turns summarized";
 
 export function firstLine(text: string): string {
   const line = text.trim().split("\n").find((candidate) => candidate.trim().length > 0) ?? "";
@@ -173,7 +175,7 @@ export function imageRefsOf(images: Map<string, Image> | null, content: unknown)
 }
 
 /** The transcript rows one finished omp message contributes: the same shapes the live session streams. */
-export function rowsOf(message: Record<string, unknown>, images: Map<string, Image> | null, nextId: () => string): InboxMessage[] {
+function rowsOf(message: Record<string, unknown>, images: Map<string, Image> | null, nextId: () => string): InboxMessage[] {
   const at = typeof message["timestamp"] === "number" ? message["timestamp"] : Date.now();
   const content = message["content"];
   const rows: InboxMessage[] = [];
@@ -209,21 +211,33 @@ export function rowsOf(message: Record<string, unknown>, images: Map<string, Ima
 }
 
 /**
+ * The rows one session-file entry contributes: a `message` entry's rows, or the notice a
+ * `compaction` entry (a `/handoff`, `/compact`, or omp compacting on its own) leaves.
+ */
+function entryRows(entry: { type?: unknown; message?: unknown; timestamp?: unknown }, images: Map<string, Image> | null, nextId: () => string): InboxMessage[] {
+  if (entry.type === "compaction") {
+    const at = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : Number.NaN;
+    return [{ id: nextId(), role: "system", text: COMPACTION_NOTICE, at: Number.isFinite(at) ? at : Date.now() }];
+  }
+  if (entry.type !== "message" || typeof entry.message !== "object" || entry.message === null) return [];
+  return rowsOf(entry.message as Record<string, unknown>, images, nextId);
+}
+
+/**
  * Every row of a session file's text, in order. The file holds one JSON entry per line; only
- * `message` entries are rows and a line that does not parse is skipped (a half-written tail).
+ * `message` and `compaction` entries are rows and a line that does not parse is skipped (a half-written tail).
  */
 export function parseSessionRows(raw: string, images: Map<string, Image> | null, nextId: () => string): InboxMessage[] {
   const rows: InboxMessage[] = [];
   for (const line of raw.split("\n")) {
     if (line.trim().length === 0) continue;
-    let entry: { type?: unknown; message?: unknown };
+    let entry: { type?: unknown; message?: unknown; timestamp?: unknown };
     try {
-      entry = JSON.parse(line) as { type?: unknown; message?: unknown };
+      entry = JSON.parse(line) as { type?: unknown; message?: unknown; timestamp?: unknown };
     } catch {
       continue;
     }
-    if (entry.type !== "message" || typeof entry.message !== "object" || entry.message === null) continue;
-    rows.push(...rowsOf(entry.message as Record<string, unknown>, images, nextId));
+    rows.push(...entryRows(entry, images, nextId));
   }
   return rows;
 }

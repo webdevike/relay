@@ -36,15 +36,17 @@ import type { AgentAskAnswer, AgentAskQuestion } from "@relay/protocol";
 // Shared with the host's assistant service: omp's session transcript read into inbox rows. Imported
 // by relative path (this file is symlinked into omp's extensions dir, and bun resolves the real path).
 import {
+  COMPACTION_NOTICE,
   firstLine,
   imageRefsOf,
   parseSessionRows,
-  rowsOf,
   summarizeArguments,
   textOf,
   type Image,
   type InboxMessage,
 } from "../src/agents/transcript";
+// Same constraint: the session's async jobs (`bg_N` bash, eval cells) read from its messages.
+import { BackgroundJobs, ENDED_JOB_LINGER_MS, type BackgroundJob } from "../src/agents/background-jobs";
 
 type Model = NonNullable<ExtensionContext["model"]>;
 type ThinkingLevel = Parameters<ExtensionAPI["setThinkingLevel"]>[0];
@@ -77,7 +79,15 @@ interface Settings {
   account?: Account;
 }
 
-interface SessionInfo extends Settings {
+/** What the session is busy with besides its turn; every status report carries the current state. */
+interface Activity {
+  /** Running async jobs and the ones that ended within the last minute; absent when there are none. */
+  backgroundJobs?: BackgroundJob[];
+  /** Set while a `/handoff` or a compaction is summarizing the session; absent otherwise. */
+  handingOff?: true;
+}
+
+interface SessionInfo extends Settings, Activity {
   sessionId: string;
   provider: "omp";
   projectPath: string;
@@ -105,6 +115,8 @@ interface SkillChoice {
   command: string;
   /** False: complete on its own, sent as soon as it is picked. */
   takesText: boolean;
+  /** What the command expects after it (`[focus instructions]`, `<objective>`), when omp says. */
+  hint?: string;
 }
 
 interface SkillOption extends SkillChoice {
@@ -115,10 +127,11 @@ interface SkillOption extends SkillChoice {
 const SKILL_COMMAND_PREFIX = "skill:";
 
 /**
- * What the phone's wheel offers, in omp's own order: authored skills first, then prompt and
- * extension commands, then the built-ins that take an argument. A built-in with subcommands is
- * one entry whose choices are the subcommands (`/goal` → set, show, pause...); a subcommand with
- * a usage takes dictated text, the rest are complete on their own.
+ * What the phone's wheel and slash menu offer, in omp's own order: authored skills first, then
+ * prompt and extension commands, then the built-ins that take an argument. A built-in with
+ * subcommands is one entry whose choices are the subcommands (`/goal` → set, show, pause...); a
+ * subcommand with a usage takes dictated text, the rest are complete on their own. Built-ins carry
+ * omp's argument hint (`inlineHint`, a subcommand's `usage`); omp reports none for the others.
  */
 function listSkillOptions(commands: readonly SlashCommand[]): SkillOption[] {
   const skills: SkillOption[] = [];
@@ -134,18 +147,20 @@ function listSkillOptions(commands: readonly SlashCommand[]): SkillOption[] {
   const builtins: SkillOption[] = [];
   for (const command of BUILTIN_SLASH_COMMAND_DEFS) {
     const takesText = command.allowArgs === true;
+    const hint = "inlineHint" in command && typeof command.inlineHint === "string" && command.inlineHint.length > 0 ? { hint: command.inlineHint } : {};
     if (command.subcommands !== undefined) {
       const choices = command.subcommands.map((sub) => ({
         name: sub.name,
         description: sub.description ?? "",
         command: `/${command.name} ${sub.name}`,
         takesText: sub.usage !== undefined,
+        ...(sub.usage === undefined || sub.usage.length === 0 ? {} : { hint: sub.usage }),
       }));
-      builtins.push({ name: command.name, description: command.description, command: `/${command.name}`, takesText, choices });
+      builtins.push({ name: command.name, description: command.description, command: `/${command.name}`, takesText, ...hint, choices });
       continue;
     }
     if (!takesText) continue;
-    builtins.push({ name: command.name, description: command.description, command: `/${command.name}`, takesText });
+    builtins.push({ name: command.name, description: command.description, command: `/${command.name}`, takesText, ...hint });
   }
   return [...skills, ...others, ...builtins];
 }
@@ -315,7 +330,7 @@ function listModelOptions(models: readonly Model[]): ModelOption[] {
 
 type Outbound =
   | ({ t: "hello" } & SessionInfo)
-  | ({ t: "status"; status: Status; statusDetail?: string; lastActivity: string; lastActivityAt: number; canRespond?: boolean } & Settings)
+  | ({ t: "status"; status: Status; statusDetail?: string; lastActivity: string; lastActivityAt: number; canRespond?: boolean } & Settings & Activity)
   | { t: "messages"; append: InboxMessage[] }
   | { t: "message.update"; id: string; text: string; streaming: boolean }
   | { t: "result"; id: string; ok: boolean; error?: string; value?: unknown }
@@ -355,6 +370,13 @@ const RECONNECT_MS = 3000;
 const SETTINGS_SETTLE_MS = 2000;
 /** Time for the fed Enter to clear the editor before a held draft is put back. */
 const SUBMIT_SETTLE_MS = 150;
+/**
+ * A handoff that never compacts (refused, failed, cancelled; omp only says so in the TUI) stops
+ * showing as in progress after this, the bound EvaOS uses too.
+ */
+const HANDOFF_TIMEOUT_MS = 5 * 60_000;
+/** A `/handoff` typed in the terminal or fed from the phone, with or without focus instructions. */
+const HANDOFF_COMMAND = /^\/handoff(\s|$)/;
 
 /** omp's subagent channels on the extension event bus (`pi.events`), emitted by the task tool. */
 const SUBAGENT_LIFECYCLE = "task:subagent:lifecycle";
@@ -770,18 +792,7 @@ function mirrorSubagent(parentId: string, projectPath: string, first: SubagentLi
     offset = size;
     const lines = (partial + chunk.toString("utf8")).split("\n");
     partial = lines.pop() ?? "";
-    const appended: InboxMessage[] = [];
-    for (const line of lines) {
-      if (line.trim().length === 0) continue;
-      let entry: { type?: unknown; message?: unknown };
-      try {
-        entry = JSON.parse(line) as { type?: unknown; message?: unknown };
-      } catch {
-        continue;
-      }
-      if (entry.type !== "message" || typeof entry.message !== "object" || entry.message === null) continue;
-      appended.push(...rowsOf(entry.message as Record<string, unknown>, images, nextId));
-    }
+    const appended = parseSessionRows(lines.join("\n"), images, nextId);
     if (appended.length === 0) return;
     for (const row of appended) history.push(row);
     if (history.length > 500) history.splice(0, history.length - 500);
@@ -865,6 +876,16 @@ export default function relayBridge(pi: ExtensionAPI): void {
   const pendingApprovals = new Map<string, { frame: Outbound; decide: (allow: boolean) => void }>();
   /** The select wrapper installed on omp's UI, so a session_switch does not wrap it a second time. */
   let installedSelect: unknown = null;
+  // The async jobs this session left running (`bg_N` bash, eval cells), read from its messages.
+  const backgroundJobs = new BackgroundJobs();
+  // Set while a /handoff or a compaction summarizes the session; cleared when the compaction lands.
+  let handingOff = false;
+  let handoffTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const activity = (): Activity => {
+    const jobs = backgroundJobs.list(Date.now());
+    return { ...(jobs.length === 0 ? {} : { backgroundJobs: jobs }), ...(handingOff ? { handingOff: true as const } : {}) };
+  };
 
   const settings = (): Settings => {
     const cwd = ctx?.sessionManager.getCwd() ?? "";
@@ -894,6 +915,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
     if (ctx === null) return null;
     const base: SessionInfo = {
       ...settings(),
+      ...activity(),
       sessionId: ctx.sessionManager.getSessionId(),
       provider: "omp",
       projectPath: ctx.sessionManager.getCwd(),
@@ -912,9 +934,24 @@ export default function relayBridge(pi: ExtensionAPI): void {
   };
 
   const sendStatus = (): void => {
-    const frame: Outbound = { t: "status", status, lastActivity, lastActivityAt, ...settings() };
+    const frame: Outbound = { t: "status", status, lastActivity, lastActivityAt, ...settings(), ...activity() };
     if (statusDetail !== undefined) frame.statusDetail = statusDetail;
     send(frame);
+  };
+
+  /** Shows or clears the handoff state; a handoff that never compacts (refused, failed) clears itself after HANDOFF_TIMEOUT_MS. */
+  const setHandingOff = (on: boolean): void => {
+    clearTimeout(handoffTimer ?? undefined);
+    handoffTimer = null;
+    if (on) {
+      handoffTimer = setTimeout(() => {
+        setHandingOff(false);
+      }, HANDOFF_TIMEOUT_MS);
+      handoffTimer.unref();
+    }
+    if (handingOff === on) return;
+    handingOff = on;
+    sendStatus();
   };
 
   // The habit gate is read from its CLI every GATE_POLL_MS and reported to the host whenever it
@@ -1381,6 +1418,11 @@ export default function relayBridge(pi: ExtensionAPI): void {
     wrapApprovalDialog(context);
     history.length = 0;
     images.clear();
+    // Background jobs and a handoff belong to the session that started them.
+    backgroundJobs.clear();
+    clearTimeout(handoffTimer ?? undefined);
+    handoffTimer = null;
+    handingOff = false;
     if (ASSISTANT !== null) seedHistory(context);
     const current = info();
     if (current !== null) send({ t: "hello", ...current });
@@ -1412,6 +1454,39 @@ export default function relayBridge(pi: ExtensionAPI): void {
     const index = requestedApprovals.findIndex((requested) => requested.id === event.toolCallId);
     if (index >= 0) requestedApprovals.splice(index, 1);
     setStatus("working");
+  });
+
+  // A `/handoff` summarizes the session into a document and compacts in place; the phone shows it
+  // in progress until the compaction lands. `input` sees every editor submit, typed in the terminal
+  // or fed from the phone. omp refuses a handoff while a turn streams, so only an idle one counts.
+  pi.on("input", (event) => {
+    if (ctx === null || !ctx.isIdle()) return;
+    if (HANDOFF_COMMAND.test(event.text.trimStart())) setHandingOff(true);
+  });
+
+  // omp compacting on its own (context full, or its own auto handoff). Watched here rather than
+  // through session_before_compact: any handler of that event turns off omp's speculative compaction.
+  pi.on("auto_compaction_start", () => {
+    if (ctx === null) return;
+    setHandingOff(true);
+  });
+
+  pi.on("auto_compaction_end", () => {
+    if (ctx === null) return;
+    setHandingOff(false);
+  });
+
+  // Every compaction that lands (a /handoff, /compact, or omp's own): the transcript says so, the
+  // handoff is over, and the context reading is re-reported since the window just emptied.
+  pi.on("session_compact", () => {
+    if (ctx === null) return;
+    const notice: InboxMessage = { id: nextId(), role: "system", text: COMPACTION_NOTICE, at: Date.now() };
+    record(notice);
+    send({ t: "messages", append: [notice] });
+    clearTimeout(handoffTimer ?? undefined);
+    handoffTimer = null;
+    handingOff = false;
+    sendStatus();
   });
 
   // Assistant text streams: one transcript row is appended empty at message_start, its text
@@ -1484,12 +1559,23 @@ export default function relayBridge(pi: ExtensionAPI): void {
         if (part.type === "toolCall") {
           const summary = summarizeArguments(part.arguments);
           appended.push({ id: nextId(), role: "tool", text: summary, at, tool: { name: part.name, summary } });
+          // Its result may start a background job, labelled with what the call runs.
+          backgroundJobs.noteToolCall(part.id, part.arguments);
         }
       }
       if (text.length > 0) {
         lastActivity = firstLine(text);
         lastActivityAt = at;
         sendStatus();
+      }
+    }
+    // A tool result can start a background job; it, a `wait`, a proc:// kill or omp's async-result
+    // delivery (a custom message) can end one. An ended job lingers, then drops off with a fresh report.
+    if (message.role !== "assistant" && "details" in message) {
+      const toolCallId = "toolCallId" in message ? message.toolCallId : undefined;
+      if (backgroundJobs.apply({ toolCallId, details: message.details }, at)) {
+        sendStatus();
+        setTimeout(sendStatus, ENDED_JOB_LINGER_MS).unref();
       }
     }
     if (appended.length === 0) return;
@@ -1509,6 +1595,8 @@ export default function relayBridge(pi: ExtensionAPI): void {
     unsubscribeSubagents?.();
     unsubscribeSubagents = null;
     clearTimeout(reconnectTimer ?? undefined);
+    clearTimeout(handoffTimer ?? undefined);
+    handoffTimer = null;
     clearInterval(gateTimer ?? undefined);
     gateTimer = null;
     socket?.end();

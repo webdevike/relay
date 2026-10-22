@@ -98,15 +98,24 @@ the phone ride along on the reply as image parts of that user turn (so they alwa
 `/command` sent with images goes to the model as text rather than being dispatched); images in the
 transcript, whether pasted or returned by a tool, are listed on the message as references and
 fetched by id with `agent.image` (the extension keeps the newest 32). `agent.options`
-answers with the models the session can switch to and the entries for the phone's skill wheel:
-authored skills (`/skill:<name>`), prompt and extension commands, and the built-in commands that
-take text (`/handoff`, `/rename`, ...); a built-in with subcommands offers the ones that take text
-(`/goal set`, `/compact <mode>`), each entry carrying the exact token to prefix. `agent.start`
+answers with the models the session can switch to and the entries for the phone's skill wheel and
+its typed `/` menu: authored skills (`/skill:<name>`), prompt and extension commands, and the
+built-in commands that take text (`/handoff`, `/rename`, ...); a built-in with subcommands offers the
+ones that take text (`/goal set`, `/compact <mode>`), each entry carrying the exact token to prefix
+and, for built-ins, omp's argument `hint` (`[focus instructions]`, `<objective>`). `agent.start`
 (the plus on the phone's scrubber) creates a Herdr workspace and starts omp there. It passes the
 phone's optional `personal` or `work` profile after Herdr's argument separator, so omp reads that
 profile's isolated authentication and state. `<dir>` is `serve --agent-home DIR` (default `$HOME`).
 `agent.end` (End session in the phone's session sheet) submits `/exit` in the TUI once the ack has
 gone out, so omp tears down exactly as it would from the keyboard and its terminal closes.
+
+Each status also carries what the session is busy with besides its turn. `backgroundJobs` lists its
+async jobs (`bg_N` bash commands, eval cells; read from tool results whose `details.async.state` is
+`running`, ended by omp's async-result delivery, a `wait` snapshot, or a proc:// kill), each with
+its command as the label; an ended job stays listed for a minute with how it finished.
+`handingOff` is set from a `/handoff` submit (or omp compacting on its own) until the compaction
+lands, at most five minutes; every compaction adds a "Context refreshed: earlier turns summarized"
+row to the transcript.
 
 ### Tool approvals
 
