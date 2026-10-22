@@ -22,6 +22,8 @@ export interface AssistantAgentConfig {
   readonly profile?: "personal" | "work";
   /** The omp model the agent's session starts on (`omp --model`); absent means the profile's default. */
   readonly model?: string;
+  /** The pocket-tts voice calls with the agent speak in (a catalog name such as "alba"); absent means the host's default. */
+  readonly voice?: string;
 }
 
 const Registry = z
@@ -34,6 +36,7 @@ const Registry = z
           scope: z.string().optional(),
           profile: z.enum(["personal", "work"]).optional(),
           model: z.string().trim().min(1).optional(),
+          voice: z.string().trim().min(1).optional(),
         }),
       )
       .min(1),
@@ -59,7 +62,7 @@ export function loadRegistry(agentHome: string): readonly AssistantAgentConfig[]
   if (!parsed.success) {
     throw new Error(`invalid ${path}: ${parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`);
   }
-  return parsed.data.agents.map(({ id, title, scope, profile, model }) => {
+  return parsed.data.agents.map(({ id, title, scope, profile, model, voice }) => {
     const trimmed = scope?.trim();
     return {
       id,
@@ -67,6 +70,7 @@ export function loadRegistry(agentHome: string): readonly AssistantAgentConfig[]
       ...(trimmed === undefined || trimmed === "" ? {} : { scope: trimmed }),
       ...(profile === undefined ? {} : { profile }),
       ...(model === undefined ? {} : { model }),
+      ...(voice === undefined ? {} : { voice }),
     };
   });
 }

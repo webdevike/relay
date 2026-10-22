@@ -9,6 +9,7 @@ import { handleAssistantSay } from "../src/assistant/http";
 import { assistantStatus, AssistantService, AssistantThreads, lastReplyOf, MAX_LAST_REPLY, REGISTER_TIMEOUT_MS, SNAPSHOT_DEBOUNCE_MS, statusPrefix, toAssistantMessages } from "../src/assistant/service";
 import { type FillSpawn, splitSignin } from "../src/assistant/signin";
 import { defaultAssistantPath, FileAssistantStore, type AssistantRecord } from "../src/assistant/store";
+import { voiceTurn } from "../src/assistant/voice";
 import type { PushMessage } from "../src/push/notifier";
 import { AckFailure, type AgentProvider } from "../src/seams";
 import type { SessionClock } from "../src/session";
@@ -249,6 +250,19 @@ describe("toAssistantMessages", () => {
       { id: "u", role: "user", text: "hi Nova", at: 2 },
     ];
     expect(toAssistantMessages(rows, null, statusPrefix("Nova"))).toEqual([{ id: "u", role: "user", text: "hi Nova", at: 2 }]);
+  });
+
+  it("shows a call's turns as Isaac's words marked voice, and a reply's details marker as a paragraph break", () => {
+    const rows: AgentMessage[] = [
+      { id: "u1", role: "user", text: voiceTurn("what time is it"), at: 1 },
+      { id: "a1", role: "assistant", text: "It's 4:30.\n[[details]]\nNext up: standup at 5.", at: 2 },
+      { id: "u2", role: "user", text: "typed one", at: 3 },
+    ];
+    expect(toAssistantMessages(rows, null, STATUS_PREFIX)).toEqual([
+      { id: "u1", role: "user", text: "what time is it", at: 1, voice: true },
+      { id: "a1", role: "assistant", text: "It's 4:30.\n\nNext up: standup at 5.", at: 2 },
+      { id: "u2", role: "user", text: "typed one", at: 3 },
+    ]);
   });
 });
 

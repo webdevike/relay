@@ -27,6 +27,7 @@ import type { SessionClock } from "../session";
 import type { AssistantAgentConfig } from "./registry";
 import { type FillSpawn, runFill, signinHost, splitSignin } from "./signin";
 import type { AssistantStore } from "./store";
+import { splitVoiceTurn, withoutDetailsMarker } from "./voice";
 
 /** A turn from the host's jobs rather than from Isaac, for agent `title`; the thread hides it (and the agent's silent answer to it). */
 export function statusPrefix(title: string): string {
@@ -83,7 +84,8 @@ export interface AssistantServiceDeps {
  * omp's synthetic system rows, the host's job lines (`prefix` and the legacy prefixes), the persona
  * prime (including the pre-registry Eva and Astra primes), a reply with nothing to show (still empty
  * while streaming, or a prime turn that only ran tools) and the silence marker, whole or still
- * streaming in.
+ * streaming in. A turn said on a call shows its words without the voice note, marked `voice`; a
+ * reply's details marker becomes a paragraph break.
  */
 export function toAssistantMessages(messages: readonly AgentMessage[], prime: string | null, prefix: string): AssistantMessage[] {
   const out: AssistantMessage[] = [];
@@ -98,13 +100,14 @@ export function toAssistantMessages(messages: readonly AgentMessage[], prime: st
           LEGACY_PRIME_STARTS.some((start) => message.text.startsWith(start)));
       firstUser = false;
       if (isPrime || message.text.startsWith(prefix) || LEGACY_STATUS_PREFIXES.some((legacy) => message.text.startsWith(legacy))) continue;
-      out.push({ id: message.id, role: "user", text: message.text, at: message.at, ...images });
+      const { text, voice } = splitVoiceTurn(message.text);
+      out.push({ id: message.id, role: "user", text, at: message.at, ...images, ...(voice ? { voice } : {}) });
     } else if (message.role === "assistant" && (message.text.length > 0 || "images" in images)) {
       const trimmed = message.text.trim();
       if (trimmed === SILENCE_MARKER || (message.streaming === true && trimmed.length > 0 && SILENCE_MARKER.startsWith(trimmed))) continue;
       const { text, signin } = splitSignin(message.text, message.streaming === true);
       if (text.length === 0 && signin === undefined && !("images" in images)) continue;
-      out.push({ id: message.id, role: "assistant", text, at: message.at, ...images, ...(signin === undefined ? {} : { signin }) });
+      out.push({ id: message.id, role: "assistant", text: withoutDetailsMarker(text), at: message.at, ...images, ...(signin === undefined ? {} : { signin }) });
     }
   }
   return out;
@@ -153,6 +156,8 @@ interface Starting {
 export class AssistantService implements AssistantThread {
   readonly id: string;
   readonly title: string;
+  /** The pocket-tts voice calls with this agent speak in; undefined for the host's default. */
+  readonly voice: string | undefined;
   /** This agent's job-line prefix (`statusPrefix(title)`). */
   private readonly prefix: string;
   private rev = 0;
@@ -171,6 +176,7 @@ export class AssistantService implements AssistantThread {
   constructor(private readonly deps: AssistantServiceDeps) {
     this.id = deps.agent.id;
     this.title = deps.agent.title;
+    this.voice = deps.agent.voice;
     this.prefix = statusPrefix(deps.agent.title);
   }
 
@@ -334,7 +340,7 @@ export class AssistantService implements AssistantThread {
       return [];
     }
     const cached = this.transcripts.get(file);
-    if (cached !== undefined && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.messages;
+    if (cached?.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.messages;
     let raw: string;
     try {
       raw = readFileSync(file, "utf8");
