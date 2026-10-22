@@ -25,6 +25,8 @@ declare class VoiceCallNative extends NativeModule<VoiceCallEvents> {
   play(pcm: string): void;
   /** Drops everything queued and stops playback now. */
   flush(): void;
+  /** One line on the audio session, route, permission, engine and microphone tap, for a call that hears nothing. */
+  diagnostics(): string;
 }
 
 export const VoiceCall = requireOptionalNativeModule<VoiceCallNative>("VoiceCall");

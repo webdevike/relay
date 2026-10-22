@@ -34,12 +34,14 @@ export async function startCall(agent: string): Promise<void> {
   const id = randomUUID();
   useCallStore.getState().begin(id, agent);
   let frames = 0;
+  let levels = 0;
   subscriptions = [
     native.addListener("audio", ({ pcm }) => {
       frames += 1;
       sendCall({ t: "call.audio", callId: id, pcm });
     }),
     native.addListener("level", ({ value }) => {
+      levels += 1;
       useCallStore.getState().update(id, { level: value });
     }),
     native.addListener("interrupted", () => {
@@ -64,7 +66,10 @@ export async function startCall(agent: string): Promise<void> {
   sendCall({ t: "call.start", callId: id, agent });
   // A deaf call looks exactly like one where nobody answers; say so instead.
   setTimeout(() => {
-    if (frames === 0 && useCallStore.getState().call?.id === id) endCall("The microphone sent no audio. Hang up and try again; if it repeats, restart Relay.");
+    if (frames > 0 || useCallStore.getState().call?.id !== id) return;
+    // Read before hanging up stops the engine; says whether the tap ran and whether events reached JS.
+    const details = `${native.diagnostics()}; js audio events ${String(frames)}, level events ${String(levels)}`;
+    endCall(`The microphone sent no audio (${details})`);
   }, NO_AUDIO_MS);
 }
 
@@ -72,7 +77,7 @@ export async function startCall(agent: string): Promise<void> {
 export function endCall(error?: string): void {
   const call = useCallStore.getState().call;
   if (call === null || call.state === "ended") return;
-  sendCall({ t: "call.end", callId: call.id });
+  sendCall({ t: "call.end", callId: call.id, ...(error === undefined ? {} : { reason: error.slice(0, 2000) }) });
   useCallStore.getState().update(call.id, { state: "ended", error: error ?? null });
 }
 

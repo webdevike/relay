@@ -873,8 +873,8 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("call.audio"), callId: CallId, pcm: CallAudio }),
   /** The phone stopped (or resumed) sending its microphone; the host drops any half-heard utterance. */
   z.object({ t: z.literal("call.mute"), callId: CallId, muted: z.boolean() }),
-  /** Hang up. The host answers with `call.state` `ended`. */
-  z.object({ t: z.literal("call.end"), callId: CallId }),
+  /** Hang up. `reason`: why the phone ended it (a failure, with diagnostics); the host logs it. Answered with `call.state` `ended`. */
+  z.object({ t: z.literal("call.end"), callId: CallId, reason: z.string().max(2000).optional() }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 

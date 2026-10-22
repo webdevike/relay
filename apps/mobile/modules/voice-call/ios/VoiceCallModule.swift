@@ -28,6 +28,12 @@ public class VoiceCallModule: Module {
   /** Guards `pending`, `muted` and `buffersSinceLevel`, touched from the audio thread and from JS. */
   private let lock = NSLock()
   private let playFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: playRate, channels: 1, interleaved: false)!
+  /** What the engine did, for `diagnostics()` when a call hears nothing. Guarded by `lock`. */
+  private var taps = 0
+  private var lastTapFormat = "none"
+  private var framesSent = 0
+  private var dropped = "none"
+  private var voiceProcessing = "off"
 
   public func definition() -> ModuleDefinition {
     Name("VoiceCall")
@@ -63,6 +69,11 @@ public class VoiceCallModule: Module {
       player.play()
     }
 
+    /** One line describing the session, route, engine and tap, for a call that hears nothing. */
+    Function("diagnostics") { () -> String in
+      self.diagnostics()
+    }
+
     OnDestroy {
       self.stopEngine()
     }
@@ -77,7 +88,13 @@ public class VoiceCallModule: Module {
 
     let engine = AVAudioEngine()
     let input = engine.inputNode
-    try input.setVoiceProcessingEnabled(true)
+    // Echo cancellation; a call still works without it (no barge-in on speaker), so a failure is noted, not fatal.
+    do {
+      try input.setVoiceProcessingEnabled(true)
+      voiceProcessing = "on"
+    } catch {
+      voiceProcessing = "failed: \(error.localizedDescription)"
+    }
     let player = AVAudioPlayerNode()
     engine.attach(player)
     engine.connect(player, to: engine.mainMixerNode, format: playFormat)
@@ -86,6 +103,10 @@ public class VoiceCallModule: Module {
     pending.removeAll()
     muted = false
     buffersSinceLevel = 0
+    taps = 0
+    lastTapFormat = "none"
+    framesSent = 0
+    dropped = "none"
     lock.unlock()
     carry = []
     carryPos = 0
@@ -107,6 +128,27 @@ public class VoiceCallModule: Module {
         self?.sendEvent("interrupted", [:])
       }
     }
+  }
+
+  private func diagnostics() -> String {
+    let session = AVAudioSession.sharedInstance()
+    let permission: String
+    switch AVAudioApplication.shared.recordPermission {
+    case .granted: permission = "granted"
+    case .denied: permission = "denied"
+    case .undetermined: permission = "undetermined"
+    @unknown default: permission = "unknown"
+    }
+    let inputs = session.currentRoute.inputs.map { $0.portType.rawValue }.joined(separator: ",")
+    let outputs = session.currentRoute.outputs.map { $0.portType.rawValue }.joined(separator: ",")
+    let format = engine.map { node in
+      let f = node.inputNode.outputFormat(forBus: 0)
+      return "\(Int(f.sampleRate))Hz/\(f.channelCount)ch"
+    } ?? "no engine"
+    lock.lock()
+    let line = "mic \(permission); session \(session.category.rawValue)/\(session.mode.rawValue) inputAvailable=\(session.isInputAvailable) in=[\(inputs)] out=[\(outputs)]; engine running=\(engine?.isRunning ?? false) input \(format) vp \(voiceProcessing); taps \(taps) last \(lastTapFormat); sent \(framesSent); dropped \(dropped)"
+    lock.unlock()
+    return line
   }
 
   private func stopEngine() {
@@ -131,7 +173,15 @@ public class VoiceCallModule: Module {
   private func ingest(_ buffer: AVAudioPCMBuffer) {
     let length = Int(buffer.frameLength)
     let channels = Int(buffer.format.channelCount)
-    guard length > 0, channels > 0 else { return }
+    let rate = buffer.format.sampleRate
+    lock.lock()
+    taps += 1
+    lastTapFormat = "\(length)fr \(Int(rate))Hz/\(channels)ch \(buffer.format.commonFormat.rawValue)\(buffer.format.isInterleaved ? "i" : "d")"
+    lock.unlock()
+    guard length > 0, channels > 0, rate > 0 else {
+      note(drop: "empty tap buffer or 0 Hz input")
+      return
+    }
     var source = carry
     source.reserveCapacity(carry.count + length)
     // Deinterleaved: one pointer per channel. Interleaved: one pointer, channels side by side.
@@ -156,9 +206,10 @@ public class VoiceCallModule: Module {
         source.append(sum / Float(channels))
       }
     } else {
+      note(drop: "tap buffer has neither float nor int16 samples")
       return
     }
-    let step = buffer.format.sampleRate / micRate
+    let step = rate / micRate
     var position = carryPos
     var out: [Int16] = []
     var energy: Float = 0
@@ -196,12 +247,23 @@ public class VoiceCallModule: Module {
     for frame in frames {
       sendEvent("audio", ["pcm": frame])
     }
+    if !frames.isEmpty {
+      lock.lock()
+      framesSent += frames.count
+      lock.unlock()
+    }
     if emitLevel {
       // RMS in dBFS, mapped so speech at a normal distance spans most of 0..1.
       let rms = silent ? 0 : (energy / Float(count)).squareRoot()
       let db = 20 * log10(max(rms, 1e-6))
       sendEvent("level", ["value": min(1, max(0, (db + 50) / 40))])
     }
+  }
+
+  private func note(drop reason: String) {
+    lock.lock()
+    dropped = reason
+    lock.unlock()
   }
 
   /** Host audio (24 kHz PCM16, base64) onto the player, after what is already scheduled. */

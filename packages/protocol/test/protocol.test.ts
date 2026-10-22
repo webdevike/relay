@@ -240,6 +240,7 @@ describe("call frames", () => {
     roundTrip(parseClientMessage, { t: "call.audio", callId: "c-1", pcm: "AAAA" });
     roundTrip(parseClientMessage, { t: "call.mute", callId: "c-1", muted: true });
     roundTrip(parseClientMessage, { t: "call.end", callId: "c-1" });
+    roundTrip(parseClientMessage, { t: "call.end", callId: "c-1", reason: "The microphone sent no audio (taps 0)" });
   });
 
   it("host frames: every state, audio with its generation, and flush round-trip", () => {

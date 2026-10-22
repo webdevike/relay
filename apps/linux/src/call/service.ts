@@ -54,7 +54,7 @@ export class CallService implements CallRelaying {
         if (call?.id === message.callId) call.mute(message.muted);
         return;
       case "call.end":
-        if (call?.id === message.callId) call.end();
+        if (call?.id === message.callId) call.end(message.reason === undefined ? undefined : `phone: ${message.reason}`);
         return;
     }
   }
