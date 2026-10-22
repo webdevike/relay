@@ -18,14 +18,15 @@ private let frameBytes = Int(micRate / 10) * 2
 public class VoiceCallModule: Module {
   private var engine: AVAudioEngine?
   private var player: AVAudioPlayerNode?
-  private var converter: AVAudioConverter?
+  /** Microphone samples (mono, hardware rate) not yet averaged into a 16 kHz sample, and where the next one starts; audio thread only. */
+  private var carry: [Float] = []
+  private var carryPos: Double = 0
   private var pending = Data()
   private var muted = false
   private var buffersSinceLevel = 0
   private var interruption: NSObjectProtocol?
   /** Guards `pending`, `muted` and `buffersSinceLevel`, touched from the audio thread and from JS. */
   private let lock = NSLock()
-  private let micFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: micRate, channels: 1, interleaved: true)!
   private let playFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: playRate, channels: 1, interleaved: false)!
 
   public func definition() -> ModuleDefinition {
@@ -81,17 +82,16 @@ public class VoiceCallModule: Module {
     engine.attach(player)
     engine.connect(player, to: engine.mainMixerNode, format: playFormat)
 
-    let hardware = input.outputFormat(forBus: 0)
-    guard let converter = AVAudioConverter(from: hardware, to: micFormat) else {
-      throw VoiceCallError.format("cannot convert \(hardware) to 16 kHz mono")
-    }
-    converter.downmix = true
     lock.lock()
     pending.removeAll()
     muted = false
     buffersSinceLevel = 0
     lock.unlock()
-    input.installTap(onBus: 0, bufferSize: 1024, format: hardware) { [weak self] buffer, _ in
+    carry = []
+    carryPos = 0
+    // The node's own format (nil): with voice processing on it can change between configuration
+    // and start, and a tap or converter fixed to the earlier format gets nothing usable.
+    input.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
       self?.ingest(buffer)
     }
     engine.prepare()
@@ -99,7 +99,6 @@ public class VoiceCallModule: Module {
     player.play()
     self.engine = engine
     self.player = player
-    self.converter = converter
     interruption = NotificationCenter.default.addObserver(
       forName: AVAudioSession.interruptionNotification, object: session, queue: .main
     ) { [weak self] note in
@@ -121,35 +120,64 @@ public class VoiceCallModule: Module {
     engine.stop()
     self.engine = nil
     self.player = nil
-    self.converter = nil
     try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
   }
 
-  /** Microphone buffer (audio thread): convert to 16 kHz PCM16, send whole 100 ms frames. */
+  /**
+   * Microphone buffer (audio thread): downmix to mono, box-average down to 16 kHz (whatever rate the
+   * hardware runs at), PCM16, and send whole 100 ms frames. Done by hand rather than with
+   * AVAudioConverter, whose silent failures on voice-processed input left calls deaf.
+   */
   private func ingest(_ buffer: AVAudioPCMBuffer) {
-    guard let converter else { return }
-    let capacity = AVAudioFrameCount(Double(buffer.frameLength) * micRate / buffer.format.sampleRate) + 64
-    guard let out = AVAudioPCMBuffer(pcmFormat: micFormat, frameCapacity: capacity) else { return }
-    var given = false
-    var error: NSError?
-    converter.convert(to: out, error: &error) { _, status in
-      if given {
-        status.pointee = .noDataNow
-        return nil
+    let length = Int(buffer.frameLength)
+    let channels = Int(buffer.format.channelCount)
+    guard length > 0, channels > 0 else { return }
+    var source = carry
+    source.reserveCapacity(carry.count + length)
+    // Deinterleaved: one pointer per channel. Interleaved: one pointer, channels side by side.
+    let interleaved = buffer.format.isInterleaved
+    let at = { (channel: Int, index: Int) -> (Int, Int) in interleaved ? (0, index * channels + channel) : (channel, index) }
+    if let data = buffer.floatChannelData {
+      for index in 0..<length {
+        var sum: Float = 0
+        for channel in 0..<channels {
+          let (row, column) = at(channel, index)
+          sum += data[row][column]
+        }
+        source.append(sum / Float(channels))
       }
-      given = true
-      status.pointee = .haveData
-      return buffer
+    } else if let data = buffer.int16ChannelData {
+      for index in 0..<length {
+        var sum: Float = 0
+        for channel in 0..<channels {
+          let (row, column) = at(channel, index)
+          sum += Float(data[row][column]) / 32768
+        }
+        source.append(sum / Float(channels))
+      }
+    } else {
+      return
     }
-    guard error == nil, out.frameLength > 0, let samples = out.int16ChannelData else { return }
-    let count = Int(out.frameLength)
+    let step = buffer.format.sampleRate / micRate
+    var position = carryPos
+    var out: [Int16] = []
     var energy: Float = 0
-    for index in 0..<count {
-      let value = Float(samples[0][index]) / 32768
+    while Int(position + step) <= source.count {
+      let start = Int(position)
+      let end = max(start + 1, Int(position + step))
+      var sum: Float = 0
+      for index in start..<end { sum += source[index] }
+      let value = max(-1, min(1, sum / Float(end - start)))
       energy += value * value
+      out.append(Int16(value * 32767))
+      position += step
     }
-    let bytes = Data(bytes: samples[0], count: count * 2)
-
+    let consumed = Int(position)
+    carry = Array(source[consumed...])
+    carryPos = position - Double(consumed)
+    guard !out.isEmpty else { return }
+    let count = out.count
+    let bytes = out.withUnsafeBufferPointer { Data(buffer: $0) }
     var frames: [String] = []
     lock.lock()
     let silent = muted

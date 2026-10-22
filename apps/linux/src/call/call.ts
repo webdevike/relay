@@ -21,6 +21,8 @@ import { ReplySpeech } from "./speech";
 export const FILLER_AFTER_MS = 1_500;
 /** A turn the agent never starts working on within this long stops holding the call in `thinking`. */
 export const TURN_START_GRACE_MS = 20_000;
+/** How often a call logs what the phone's microphone delivered. */
+export const MIC_REPORT_MS = 10_000;
 
 /** What the ears report for one call. */
 export interface EarsEvents {
@@ -80,6 +82,16 @@ function isNoise(text: string): boolean {
   return !/[a-z0-9]/i.test(text) || /^[[(].*[\])]$/.test(text);
 }
 
+/** Level of one microphone frame (base64 PCM16 LE), in dBFS; -Infinity for digital silence. */
+function rmsDb(pcm: string): number {
+  const bytes = Buffer.from(pcm, "base64");
+  const samples = Math.floor(bytes.byteLength / 2);
+  if (samples === 0) return -Infinity;
+  let energy = 0;
+  for (let at = 0; at < samples * 2; at += 2) energy += (bytes.readInt16LE(at) / 32768) ** 2;
+  return 10 * Math.log10(energy / samples);
+}
+
 export class VoiceCall {
   readonly id: string;
   private state: CallState | null = null;
@@ -115,6 +127,11 @@ export class VoiceCall {
   private firstAudioLogged = true;
   private cancelFiller: (() => void) | null = null;
   private cancelGrace: (() => void) | null = null;
+  /** Microphone frames from the phone in the current report window, and the loudest one's level. */
+  private micFrames = 0;
+  private micPeakDb = -Infinity;
+  private micTotal = 0;
+  private cancelMicReport: (() => void) | null = null;
 
   constructor(private readonly deps: CallDeps) {
     this.id = deps.callId;
@@ -130,6 +147,7 @@ export class VoiceCall {
 
   async start(): Promise<void> {
     this.setState("connecting");
+    const asked = this.deps.clock.now();
     let ears: Ears;
     try {
       ears = await this.deps.voice.ears({
@@ -152,13 +170,35 @@ export class VoiceCall {
       return;
     }
     this.ears = ears;
-    this.deps.log(`call ${this.id}: ${this.deps.thread.title} is listening`);
+    this.deps.log(`call ${this.id}: ${this.deps.thread.title} is listening (ears ready in ${String(this.deps.clock.now() - asked)} ms)`);
     this.setState("listening");
+    this.reportMic();
+  }
+
+  /**
+   * Logs what the phone's microphone delivers every MIC_REPORT_MS: frames and the loudest level,
+   * or that nothing came. A call that hears nothing is otherwise silent in the log.
+   */
+  private reportMic(): void {
+    this.cancelMicReport = this.deps.clock.after(MIC_REPORT_MS, () => {
+      if (this.ended) return;
+      const level = this.micFrames === 0 ? "" : `, loudest ${this.micPeakDb.toFixed(0)} dBFS`;
+      this.deps.log(`call ${this.id}: mic ${String(this.micFrames)} frames in ${String(MIC_REPORT_MS / 1000)} s${level}${this.micTotal === 0 ? " (no audio from the phone yet)" : ""}${this.muted ? " (muted)" : ""}`);
+      this.micFrames = 0;
+      this.micPeakDb = -Infinity;
+      this.reportMic();
+    });
   }
 
   /** Microphone audio from the phone. */
   audio(pcm: string): void {
-    if (!this.ended && !this.muted) this.ears?.audio(pcm);
+    if (this.ended) return;
+    const db = rmsDb(pcm);
+    if (this.micTotal === 0) this.deps.log(`call ${this.id}: first mic frame, ${String(Buffer.byteLength(pcm, "base64"))} bytes at ${db.toFixed(0)} dBFS`);
+    this.micTotal += 1;
+    this.micFrames += 1;
+    this.micPeakDb = Math.max(this.micPeakDb, db);
+    if (!this.muted) this.ears?.audio(pcm);
   }
 
   mute(muted: boolean): void {
@@ -178,6 +218,7 @@ export class VoiceCall {
     this.cancelIdle?.();
     this.cancelFiller?.();
     this.cancelGrace?.();
+    this.cancelMicReport?.();
     this.queue.length = 0;
     this.ears?.close();
     this.ears = null;
@@ -215,6 +256,7 @@ export class VoiceCall {
   private speechStarted(): void {
     if (this.ended || this.muted) return;
     this.hearing = true;
+    this.deps.log(`call ${this.id}: speech started`);
     if (this.pumping || this.queue.length > 0 || this.deps.clock.now() < this.playEndsAt) this.bargeIn();
     this.setState("hearing");
   }

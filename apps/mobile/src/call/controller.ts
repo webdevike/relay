@@ -12,6 +12,8 @@ import { useConnectionStore } from "@/state/connection";
 import { VoiceCall } from "../../modules/voice-call";
 
 let subscriptions: EventSubscription[] = [];
+/** A call whose microphone has produced nothing this long after opening is ended with a reason. */
+const NO_AUDIO_MS = 3_000;
 let unsubscribeStore: (() => void) | null = null;
 
 /** Whether this build has the call audio module (dev clients from before calls do not). */
@@ -31,8 +33,10 @@ export async function startCall(agent: string): Promise<void> {
   if (!(await native.requestPermission())) throw new Error("Allow microphone access for Relay in Settings to call.");
   const id = randomUUID();
   useCallStore.getState().begin(id, agent);
+  let frames = 0;
   subscriptions = [
     native.addListener("audio", ({ pcm }) => {
+      frames += 1;
       sendCall({ t: "call.audio", callId: id, pcm });
     }),
     native.addListener("level", ({ value }) => {
@@ -58,6 +62,10 @@ export async function startCall(agent: string): Promise<void> {
     return;
   }
   sendCall({ t: "call.start", callId: id, agent });
+  // A deaf call looks exactly like one where nobody answers; say so instead.
+  setTimeout(() => {
+    if (frames === 0 && useCallStore.getState().call?.id === id) endCall("The microphone sent no audio. Hang up and try again; if it repeats, restart Relay.");
+  }, NO_AUDIO_MS);
 }
 
 /** Hangs up (`error` when it ends because something failed); the call screen shows it ended. */
