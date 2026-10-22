@@ -199,8 +199,7 @@ html[data-eva-motion='off'] [data-reloading='true'] .eva-dash-spin {
 }
 .eva-dash-chip:focus-visible,
 .eva-dash-card:focus-visible,
-.eva-dash-name-link:focus-visible,
-.eva-dash-link:focus-visible {
+.eva-dash-name-link:focus-visible {
   outline: 2px solid var(--eva-c-primary-background);
   outline-offset: 2px;
 }
@@ -357,16 +356,6 @@ html[data-eva-motion='off'] [data-reloading='true'] .eva-dash-spin {
   border: 1px solid var(--eva-c-border);
   border-radius: 999px;
   color: var(--eva-c-muted-foreground);
-}
-.eva-dash-link {
-  background: none;
-  border: 0;
-  padding: 4px 0;
-  font: inherit;
-  font-size: var(--eva-fz-label);
-  font-weight: 600;
-  color: var(--eva-c-foreground);
-  cursor: pointer;
 }
 .eva-dash-stats {
   display: grid;

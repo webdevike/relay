@@ -27,7 +27,7 @@ describe('scopes', () => {
       expect(s.dispatch(c)).toEqual({ result: 'yield', scope: 'terminal' })
     }
     expect(g).not.toHaveBeenCalled()
-    for (const c of ['cmd+b', 'cmd+shift+b', 'cmd+k', 'cmd+j', 'cmd+t', 'cmd+w', 'cmd+q']) {
+    for (const c of ['cmd+b', 'cmd+shift+b', 'cmd+t', 'cmd+w', 'cmd+q']) {
       expect(terminalClaim(TERMINAL_PASS_THROUGH)(c)).toBe(false)
       expect(s.dispatch(c).scope).toBe('global')
     }

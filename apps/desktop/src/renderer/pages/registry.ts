@@ -3,7 +3,6 @@ import type { Place } from '@evaos/shell-core'
 import { createElement } from 'react'
 import { DashboardPage } from '../dashboard/DashboardPage'
 import { pageMeta } from './page-meta'
-import { PlaceholderPage } from './PlaceholderPage'
 import { HabitsPage } from '../habits/HabitsPage'
 import { MeetingPage } from '../meetings/MeetingPage'
 import { MeetingsHome } from '../meetings/MeetingsHome'
@@ -12,7 +11,7 @@ import { WorkspacePage } from '../workspace/WorkspacePage'
 import { SettingsPage } from '../settings/SettingsPage'
 import { TestBenchPage } from '../test-bench/TestBenchPage'
 
-export type PageRegistryKind = 'page' | 'settings' | 'workspace' | 'board' | 'meeting'
+export type PageRegistryKind = 'page' | 'settings' | 'workspace' | 'meeting'
 
 const PAGE_BY_SLUG: Record<string, ComponentType<{ place: Place }>> = {
   dashboard: DashboardPage,
@@ -22,17 +21,16 @@ const PAGE_BY_SLUG: Record<string, ComponentType<{ place: Place }>> = {
   meetings: MeetingsHome,
 }
 
-/** Dispatches kind 'page' by slug; jobs, habits and meetings are real pages. */
+/** Dispatches the implemented top-level pages. */
 export function PageBySlug({ place }: { place: Place }) {
-  const Page = PAGE_BY_SLUG[pageMeta(place).slug] ?? PlaceholderPage
+  const Page = PAGE_BY_SLUG[pageMeta(place).slug]
   return createElement(Page, { place })
 }
 
-/** Later plans and phases register over these entries. */
+/** Detail pages and settings share the place-driven router. */
 export const pageRegistry: Record<PageRegistryKind, ComponentType<{ place: Place }>> = {
   page: PageBySlug,
   settings: SettingsPage,
   workspace: WorkspacePage,
-  board: PlaceholderPage,
   meeting: MeetingPage,
 }

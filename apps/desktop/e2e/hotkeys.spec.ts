@@ -44,7 +44,7 @@ async function focusShell(shell: Page): Promise<void> {
   await shell.locator(sel('tabbar-drag')).click()
 }
 
-test('every README chord reaches the router and is logged', async ({ shell }) => {
+test('implemented app chords reach the router and are logged', async ({ shell }) => {
   await focusShell(shell)
   await clearLog(shell)
   const chords: Array<[string, string]> = [
@@ -52,19 +52,11 @@ test('every README chord reaches the router and is logged', async ({ shell }) =>
     ['Meta+r', 'reload'],
     ['Meta+b', 'toggle-sidebar'],
     ['Meta+Shift+b', 'toggle-panel'],
-    ['Meta+j', 'toggle-eregon'],
-    ['Meta+k', 'toggle-search'],
     ['Meta+f', 'focus-search'],
     ['Meta+t', 'new-tab'],
     ['Meta+w', 'close-tab'],
     ['Meta+[', 'history-back'],
     ['Meta+]', 'history-forward'],
-    ['Meta+s', 'save'],
-    ...Array.from({ length: 9 }, (_, i): [string, string] => [
-      `Meta+${i + 1}`,
-      `pick-model-${i + 1}`,
-    ]),
-    ['Meta+Shift+c', 'copy-page-url'],
   ]
   for (const [chord, action] of chords) {
     await focusShell(shell)
@@ -102,12 +94,12 @@ test('implemented chords have real effects', async ({ shell }) => {
   await shell.keyboard.press('Meta+w')
   await expect.poll(async () => (await tabs(shell)).list.length).toBe(1)
 
-  await shell.evaluate(() => (window as unknown as W).__evaosShell.openPlace('inbox'))
-  await expect.poll(async () => (await tabs(shell)).list[0]!.title).toBe('Inbox')
+  await shell.evaluate(() => (window as unknown as W).__evaosShell.openPlace('habits'))
+  await expect.poll(async () => (await tabs(shell)).list[0]!.title).toBe('Habits')
   await shell.keyboard.press('Meta+[')
   await expect.poll(async () => (await tabs(shell)).list[0]!.title).toBe('Dashboard')
   await shell.keyboard.press('Meta+]')
-  await expect.poll(async () => (await tabs(shell)).list[0]!.title).toBe('Inbox')
+  await expect.poll(async () => (await tabs(shell)).list[0]!.title).toBe('Habits')
 
   await shell.keyboard.press('Meta+f')
   await expect(shell.locator(sel('sidebar-search'))).toBeFocused()

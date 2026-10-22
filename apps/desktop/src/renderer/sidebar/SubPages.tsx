@@ -1,5 +1,5 @@
 import { ActionIcon, Kbd, Tooltip } from '@mantine/core'
-import { IconBell, IconChevronLeft, IconEdit, IconMessage, IconPalette } from '@tabler/icons-react'
+import { IconChevronLeft, IconEdit, IconMessage, IconPalette } from '@tabler/icons-react'
 import { useState, type MouseEvent } from 'react'
 import { SETTINGS_SECTIONS, placeOf, type SettingsSection } from '@evaos/shell-core'
 import { openPlace } from '../navigation/navigate'
@@ -10,11 +10,11 @@ import { ChatList } from '../chat/list/ChatList'
 import { SearchBox } from './SearchBox'
 import { backToRoot, type NavLevel } from './nav-level'
 
-const SECTION_ICON = { Theme: IconPalette, Chat: IconMessage, Notifications: IconBell } as const
+const SECTION_ICON = { Theme: IconPalette, Chat: IconMessage } as const
 
 const COPY = {
-  chats: { title: 'Chats', search: 'Search chats', empty: '' },
-  meetings: { title: 'Meetings', search: 'Search meetings', empty: '' },
+  chats: { title: 'Chats', search: 'Search chats' },
+  meetings: { title: 'Meetings', search: 'Search meetings' },
 } as const
 
 export function SubPage({ level }: { level: Exclude<NavLevel, 'root'> }) {
@@ -91,15 +91,11 @@ export function SubPage({ level }: { level: Exclude<NavLevel, 'root'> }) {
         ) : null}
       </div>
       <div className="eva-sb-scroll">
-        <ScrollArea fadeBg="var(--eva-chrome)">
+        <ScrollArea>
           {level === 'meetings' ? (
             <MeetingsList query={query} />
           ) : level === 'chats' ? (
             <ChatList query={query} />
-          ) : copy ? (
-            <div className="eva-sb-empty eva-dim" data-testid="sidebar-sub-empty">
-              {copy.empty}
-            </div>
           ) : (
             SETTINGS_SECTIONS.map((s) => {
               const Glyph = SECTION_ICON[s]

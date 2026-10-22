@@ -1,9 +1,8 @@
 import { invoke } from '../ipc'
-import { setAppearance } from '../theme/theme-store'
-import { placeOf, type PageKey, type Place } from '@evaos/shell-core'
+import { setColorScheme, type ColorScheme } from '../theme/theme-config'
+import { pageFromKey, placeOf, type Place } from '@evaos/shell-core'
 import { navigateTo, tabsStore } from '../tabs/tabs-store'
 import { tabTitle } from '../tabs/tab-meta'
-import type { Appearance } from '@evaos/theme-core'
 
 export interface HotkeyLogEntry {
   chord: string
@@ -16,8 +15,7 @@ export interface EvaosShellHooks {
   markDirty(label: string): string
   clearDirty(id: string): void
   dirtySaves(): number
-  setAppearance(appearance: Appearance): void
-  pageFiller: boolean
+  setAppearance(appearance: ColorScheme): void
   tabs(): {
     active: number
     list: Array<{
@@ -30,7 +28,6 @@ export interface EvaosShellHooks {
   }
   openPlace(page: string, newTab?: boolean, extra?: Partial<Omit<Place, 'page'>>): void
   openChat(): void
-  setPageFiller(on: boolean): void
 }
 
 declare global {
@@ -67,8 +64,7 @@ export function initE2e(): Promise<boolean> {
         markDirty: (label) => dirtyHooks?.mark(label) ?? '',
         clearDirty: (id) => dirtyHooks?.clear(id),
         dirtySaves: () => dirtyHooks?.saves() ?? 0,
-        setAppearance: (a) => setAppearance(a),
-        pageFiller: false,
+        setAppearance: (a) => setColorScheme(a),
         tabs: () => {
           const t = tabsStore.getState().tabs
           return {
@@ -82,11 +78,11 @@ export function initE2e(): Promise<boolean> {
             })),
           }
         },
-        openPlace: (page, newTab, extra) => navigateTo(placeOf(page as PageKey, extra), { newTab }),
-        openChat: () => navigateTo(placeOf('chat')),
-        setPageFiller: (on) => {
-          if (window.__evaosShell) window.__evaosShell.pageFiller = on
+        openPlace: (key, newTab, extra) => {
+          const page = pageFromKey(key)
+          if (page) navigateTo(placeOf(page, extra), { newTab })
         },
+        openChat: () => navigateTo(placeOf('chat')),
       }
     }
     return e2e

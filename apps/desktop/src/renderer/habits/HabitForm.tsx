@@ -105,7 +105,6 @@ function Form({
           Photo proof
         </Text>
         <Switch
-          className="eva-switch"
           aria-labelledby="habit-photo-label"
           label="Ask for a photo when this break is done"
           data-testid="habit-photo"

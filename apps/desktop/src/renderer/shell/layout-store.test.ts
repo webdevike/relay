@@ -161,11 +161,11 @@ describe('loadLayout', () => {
 
 describe('openPlace', () => {
   it('is a no-op until bound', () => {
-    expect(() => openPlace(placeOf('help'))).not.toThrow()
+    expect(() => openPlace(placeOf('jobs'))).not.toThrow()
     const fn = vi.fn()
     setNavigator(fn)
-    openPlace(placeOf('help'), { newTab: true })
-    expect(fn).toHaveBeenCalledWith(placeOf('help'), { newTab: true })
+    openPlace(placeOf('jobs'), { newTab: true })
+    expect(fn).toHaveBeenCalledWith(placeOf('jobs'), { newTab: true })
     setNavigator(null)
   })
 })

@@ -3,8 +3,6 @@ import { useEffect, useRef } from 'react'
 /** Esc ladder priority bands (D-12): higher runs first. */
 export const DISMISS_PRIORITY = {
   overlay: 100,
-  globalSearch: 80,
-  eregon: 60,
   subPageBack: 10,
 } as const
 

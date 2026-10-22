@@ -41,14 +41,13 @@ export function registerAction(id: ActionId, fn: () => void): () => void {
   }
 }
 
-/** Runs an action; actions without a feature yet run a named no-op stub (D-14). */
+/** Runs the most recently registered handler for an implemented action. */
 export function runAction(id: ActionId, chord?: string): void {
   const c = chord ?? GLOBAL_CHORDS.find((g) => g.action === id)?.chord ?? ''
   log(c, id)
   const list = actions.get(id)
   const fn = list?.[list.length - 1]
   if (fn) fn()
-  // else: named stub, nothing to do until the owning feature registers.
 }
 
 for (const { chord, action } of GLOBAL_CHORDS) {

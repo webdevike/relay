@@ -42,7 +42,7 @@ function mount(scrollKey?: string) {
     </MantineProvider>,
   )
   const root = r.getByTestId('sa')
-  const viewport = root.querySelector<HTMLElement>('.eva-scroll-viewport')!
+  const viewport = root.querySelector<HTMLElement>('.mantine-ScrollArea-viewport')!
   return { r, root, viewport }
 }
 
@@ -54,25 +54,6 @@ function scrollTo(viewport: HTMLElement, top: number): void {
 }
 
 describe('ScrollArea', () => {
-  it('fades follow the scroll position', () => {
-    const { root, viewport } = mount()
-    expect(root.dataset.fadeTop).toBe('false')
-    expect(root.dataset.fadeBottom).toBe('true')
-    scrollTo(viewport, 100)
-    expect(root.dataset.fadeTop).toBe('true')
-    expect(root.dataset.fadeBottom).toBe('true')
-    scrollTo(viewport, 300)
-    expect(root.dataset.fadeTop).toBe('true')
-    expect(root.dataset.fadeBottom).toBe('false')
-  })
-
-  it('shows no fades without overflow', () => {
-    scrollHeight = 150
-    const { root } = mount()
-    expect(root.dataset.fadeTop).toBe('false')
-    expect(root.dataset.fadeBottom).toBe('false')
-  })
-
   it('restores and saves scrollTop per key', async () => {
     setScroll('page:a', 120)
     setScroll('page:b', 40)

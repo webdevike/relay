@@ -15,9 +15,8 @@ import { SearchBox } from './SearchBox'
 import { openSub, useNavLevel } from './nav-level'
 import { countLabel, useSidebarData } from './sidebar-store'
 
-const MAIN = NAV_PAGES.filter((n) => n.slug !== 'setting' && n.slug !== 'help')
+const MAIN = NAV_PAGES.filter((n) => n.slug !== 'setting')
 const SETTING = NAV_PAGES.find((n) => n.slug === 'setting')!
-const HELP = NAV_PAGES.find((n) => n.slug === 'help')!
 
 function EnvBadge() {
   const [live, setLive] = useState<boolean | null>(null)
@@ -42,13 +41,12 @@ const settingsPlace = (): Place => placeOf('settings', { settingsSection: 'Theme
 export function MainNav() {
   const here = useTabs(activePlace)
   const level = useNavLevel()
-  const todos = useSidebarData((s) => s.openTodos)
   const jobs = useSidebarData((s) => s.scheduledJobs)
   const error = useSidebarData((s) => s.error)
   const [query, setQuery] = useState('')
   const { ref, width } = useElementSize<HTMLDivElement>()
 
-  const go = (page: string, e: MouseEvent): void => {
+  const go = (page: Place['page'], e: MouseEvent): void => {
     const newTab = e.metaKey
     if (page === 'chat') {
       // A plain click on Chat while already on a chat only drills in.
@@ -61,7 +59,7 @@ export function MainNav() {
       openPlace(settingsPlace(), { newTab })
       openSub('settings')
     } else {
-      openPlace(placeOf(page as never), { newTab })
+      openPlace(placeOf(page), { newTab })
     }
   }
 
@@ -73,7 +71,7 @@ export function MainNav() {
             <IconAsterisk size={20} aria-hidden />
           </span>
           <span className="eva-sb-brand-text">
-            <span className="eva-sb-brand-name">EvaOS</span>
+            <span className="eva-sb-brand-name">Relay</span>
             <span className="eva-sb-brand-sub eva-dim">Work OS</span>
           </span>
         </div>
@@ -86,7 +84,7 @@ export function MainNav() {
         />
       </div>
       <div className="eva-sb-scroll">
-        <ScrollArea data-testid="sidebar-scroll" fadeBg="var(--eva-chrome)">
+        <ScrollArea data-testid="sidebar-scroll">
           <div className="eva-sb-section eva-sb-section-main">Main</div>
           {MAIN.map((n) => (
             <NavRow
@@ -95,16 +93,8 @@ export function MainNav() {
               title={n.title}
               icon={n.icon}
               active={here.page === n.page}
-              count={
-                n.slug === 'tasks' && !error
-                  ? countLabel(todos)
-                  : n.slug === 'jobs' && !error
-                    ? countLabel(jobs)
-                    : null
-              }
-              countTestid={
-                n.slug === 'tasks' ? 'count-tasks' : n.slug === 'jobs' ? 'count-jobs' : undefined
-              }
+              count={n.slug === 'jobs' && !error ? countLabel(jobs) : null}
+              countTestid={n.slug === 'jobs' ? 'count-jobs' : undefined}
               chevron={n.slug === 'chat' || n.slug === 'meetings'}
               onClick={(e) => go(n.page, e)}
             />
@@ -125,13 +115,6 @@ export function MainNav() {
           icon={SETTING.icon}
           active={here.page === 'settings'}
           onClick={(e) => go('settings', e)}
-        />
-        <NavRow
-          slug={HELP.slug}
-          title={HELP.title}
-          icon={HELP.icon}
-          active={here.page === 'help'}
-          onClick={(e) => go('help', e)}
         />
         <AccountMenu />
         <AppearanceControl iconOnly={width > 0 && width < 248} />

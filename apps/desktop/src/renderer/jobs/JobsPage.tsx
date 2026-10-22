@@ -88,7 +88,6 @@ function Row({ job, now }: { job: JobSummaryDto; now: number }) {
       <span className="eva-jobs-switch-cell" onClick={(e) => e.stopPropagation()}>
         <Tooltip label={job.enabled ? 'Enabled' : 'Disabled'} openDelay={300}>
           <Switch
-            className="eva-switch"
             size="md"
             data-testid={`job-enabled-${job.name}`}
             aria-label={`Enable ${job.name}`}

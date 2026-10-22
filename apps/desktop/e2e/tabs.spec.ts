@@ -78,16 +78,16 @@ test('Cmd+T, Cmd+W and the last tab', async ({ shell }) => {
 
 test('navigation, history chords and place dedupe', async ({ shell }) => {
   await focusShell(shell)
-  await open(shell, 'inbox')
-  await expect.poll(() => titles(shell)).toEqual(['Inbox'])
+  await open(shell, 'habits')
+  await expect.poll(() => titles(shell)).toEqual(['Habits'])
   await shell.keyboard.press('Meta+[')
   await expect.poll(() => titles(shell)).toEqual(['Dashboard'])
   await shell.keyboard.press('Meta+]')
-  await expect.poll(() => titles(shell)).toEqual(['Inbox'])
+  await expect.poll(() => titles(shell)).toEqual(['Habits'])
 
   await open(shell, 'jobs', true)
-  await expect.poll(() => titles(shell)).toEqual(['Inbox', 'Jobs'])
-  await open(shell, 'inbox')
+  await expect.poll(() => titles(shell)).toEqual(['Habits', 'Jobs'])
+  await open(shell, 'habits')
   await expect.poll(async () => (await tabs(shell)).active).toBe(0)
   expect((await tabs(shell)).list).toHaveLength(2)
 })
@@ -96,7 +96,7 @@ test('context menu, pin, pinned rules', async ({ app, shell }) => {
   const addr = shell.locator('[data-testid=address-input]')
   await addr.fill(String(server.port))
   await addr.press('Enter')
-  await open(shell, 'inbox', true)
+  await open(shell, 'habits', true)
   await expect.poll(async () => (await tabs(shell)).list.length).toBe(2)
   const [first, second] = (await tabs(shell)).list
   await expect.poll(() => viewVisible(app)).toBe(true)
@@ -133,7 +133,7 @@ test('context menu, pin, pinned rules', async ({ app, shell }) => {
 })
 
 test('tabs persist across a relaunch', async ({ app, shell, configDir }) => {
-  await open(shell, 'inbox', true)
+  await open(shell, 'habits', true)
   await expect.poll(async () => (await tabs(shell)).list.length).toBe(2)
   const first = (await tabs(shell)).list[0]!
   await shell.locator(`[data-testid=tab-${first.id}]`).click({ button: 'right' })

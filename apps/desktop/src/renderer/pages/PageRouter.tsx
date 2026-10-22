@@ -11,9 +11,9 @@ export function PageRouter() {
   const place = useTabs(activePlace)
   const meta = pageMeta(place)
   const isChat = meta.kind === 'chat'
-  const isTheme = meta.kind === 'settings' && !['Chat', 'Notifications'].includes(place.settingsSection)
+  const isTheme = meta.kind === 'settings' && place.settingsSection === 'Theme'
   const key = placeKey(place)
-  const Page = pageRegistry[meta.kind as PageRegistryKind] ?? pageRegistry.page
+  const Page = pageRegistry[meta.kind as PageRegistryKind]
   return (
     <>
       <div
@@ -25,13 +25,10 @@ export function PageRouter() {
       </div>
       {isChat ? null : (
         <div className="eva-page-area">
-          {isTheme ? <Page key={key} place={place} /> : (
-            <ScrollArea
-              data-testid="page-scroll"
-              scrollKey={key}
-              fadeBg="var(--eva-c-background)"
-              className="eva-page-scroll"
-            >
+          {isTheme ? (
+            <Page key={key} place={place} />
+          ) : (
+            <ScrollArea data-testid="page-scroll" scrollKey={key} className="eva-page-scroll">
               <Page key={key} place={place} />
             </ScrollArea>
           )}

@@ -37,20 +37,14 @@ test('nav rows, counts and recent items come from the fixture root', async ({ sh
   )
   expect(ids).toEqual([
     'nav-dashboard',
-    'nav-inbox',
     'nav-chat',
+    'nav-test-bench',
     'nav-jobs',
     'nav-habits',
     'nav-meetings',
-    'nav-calendar',
-    'nav-tasks',
-    'nav-memory',
-    'nav-files',
     'nav-setting',
-    'nav-help',
   ])
   await expect(shell.locator(sel('nav-dashboard'))).toHaveAttribute('data-active', 'true')
-  await expect(shell.locator(sel('count-tasks'))).toHaveText('2')
   await expect(shell.locator(sel('count-jobs'))).toHaveText('1')
   await expect(shell.locator(sel('recent-item'))).toHaveCount(3)
   for (const t of await shell.$$eval(sel('recent-item'), (els) => els.map((e) => e.textContent))) {
@@ -59,12 +53,12 @@ test('nav rows, counts and recent items come from the fixture root', async ({ sh
 })
 
 test('plain click replaces, cmd-click opens a tab, pinned opens another', async ({ shell }) => {
-  await shell.locator(sel('nav-inbox')).click()
-  await expect.poll(async () => (await tabs(shell)).list.map((t) => t.title)).toEqual(['Inbox'])
-  await expect(shell.locator(sel('nav-inbox'))).toHaveAttribute('data-active', 'true')
+  await shell.locator(sel('nav-habits')).click()
+  await expect.poll(async () => (await tabs(shell)).list.map((t) => t.title)).toEqual(['Habits'])
+  await expect(shell.locator(sel('nav-habits'))).toHaveAttribute('data-active', 'true')
   await expect(shell.locator(sel('nav-dashboard'))).not.toHaveAttribute('data-active', 'true')
 
-  await shell.locator(sel('nav-tasks')).click({ modifiers: ['Meta'] })
+  await shell.locator(sel('nav-dashboard')).click({ modifiers: ['Meta'] })
   await expect.poll(async () => (await tabs(shell)).list.length).toBe(2)
 
   const first = (await tabs(shell)).list[0]!
@@ -75,7 +69,7 @@ test('plain click replaces, cmd-click opens a tab, pinned opens another', async 
   await shell.locator(sel('nav-jobs')).click()
   await expect.poll(async () => (await tabs(shell)).list.length).toBe(3)
   const list = (await tabs(shell)).list
-  expect(list[0]!.page).toBe('inbox')
+  expect(list[0]!.page).toBe('habits')
   expect(list[0]!.pinned).toBe(true)
 })
 
@@ -122,7 +116,7 @@ test('account menu takes Esc first and hides the browser view', async ({ app, sh
 test('settings sub-page opens a settings section', async ({ shell }) => {
   await shell.locator(sel('nav-setting')).click()
   await expect.poll(() => level(shell)).toBe('settings')
-  await expect(shell.locator('[data-testid^=settings-item-]')).toHaveCount(3)
+  await expect(shell.locator('[data-testid^=settings-item-]')).toHaveCount(2)
   await shell.locator(sel('settings-item-chat')).click()
   await expect
     .poll(async () => (await tabs(shell)).list[(await tabs(shell)).active]!.title)

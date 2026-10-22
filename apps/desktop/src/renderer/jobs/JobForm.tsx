@@ -318,7 +318,6 @@ function Form({ mode, jobName }: { mode: 'create' | 'update'; jobName: string })
         classNames={{ input: 'eva-job-mono' }}
       />
       <Switch
-        className="eva-switch"
         label="Enabled"
         data-testid="job-form-enabled"
         checked={form.enabled}

@@ -16,6 +16,8 @@ step "prettier"
 pnpm exec prettier --check .
 step "em-dash lint"
 node scripts/lint-em-dash.ts
+step "spacing lint"
+node scripts/lint-spacing.ts
 step "vitest"
 pnpm exec vitest run
 step "build"

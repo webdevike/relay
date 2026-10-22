@@ -15,22 +15,24 @@ describe('pages', () => {
     const pages: PageKey[] = [
       'dashboard',
       'workspace:alpha',
-      'board:ops',
-      'inbox',
       'chat',
       'jobs',
       'test-bench',
       'habits',
       'meetings',
-      'calendar',
-      'tasks',
-      'memory',
-      'files',
       'settings',
-      'help',
     ]
     for (const p of pages) expect(pageFromKey(pageKey(p))).toBe(p)
     expect(pageFromKey('nope')).toBeNull()
+  })
+
+  it('rejects removed destinations when restoring navigation', () => {
+    for (const page of ['inbox', 'calendar', 'tasks', 'memory', 'files', 'help', 'board:ops']) {
+      expect(pageFromKey(page)).toBeNull()
+      expect(placeFromJson({ page })).toBeNull()
+    }
+    expect(placeFromJson({ page: 'settings', settings_section: 'Notifications' })?.settingsSection)
+      .toBe('Theme')
   })
 })
 
@@ -71,7 +73,7 @@ describe('saved places', () => {
 describe('place matching', () => {
   it('places match by what they show', () => {
     expect(samePlace(placeOf('jobs'), placeOf('jobs'))).toBe(true)
-    expect(samePlace(placeOf('jobs'), placeOf('tasks'))).toBe(false)
+    expect(samePlace(placeOf('jobs'), placeOf('habits'))).toBe(false)
     expect(samePlace(placeOf('chat'), placeOf('chat'))).toBe(false)
     const a = placeOf('chat', { chat: '/s/a.jsonl' })
     expect(samePlace(a, placeOf('chat', { chat: '/s/a.jsonl' }))).toBe(true)

@@ -1,7 +1,5 @@
 import { IconChecklist } from '@tabler/icons-react'
-import { placeOf } from '@evaos/shell-core'
 import type { DashboardPayload } from '@evaos/contract'
-import { openPlace } from '../navigation/navigate'
 
 const MAX_ROWS = 6
 
@@ -12,7 +10,6 @@ export function DashboardAside({ data, entrance }: { data: DashboardPayload; ent
     ['Workspaces', data.workspaces.length],
     ['Open todos', data.todos.length],
     ['Updates, 7 days', data.updates7d],
-    ['PRs to review', 0],
   ]
   return (
     <aside className="eva-dash-aside">
@@ -41,13 +38,6 @@ export function DashboardAside({ data, entrance }: { data: DashboardPayload; ent
             ))}
           </ul>
         )}
-        <button
-          type="button"
-          className="eva-dash-link"
-          onClick={() => openPlace(placeOf('tasks'), { newTab: false })}
-        >
-          Show all in Tasks
-        </button>
       </section>
       <section aria-labelledby="dash-stats-title" data-testid="dash-stats">
         <h2 id="dash-stats-title" className={`eva-dash-h2${cue('stats-title')}`}>

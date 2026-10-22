@@ -2,21 +2,15 @@
 
 export type FixedPage =
   | 'dashboard'
-  | 'inbox'
   | 'chat'
   | 'jobs'
   | 'test-bench'
   | 'habits'
   | 'meetings'
-  | 'calendar'
-  | 'tasks'
-  | 'memory'
-  | 'files'
   | 'settings'
-  | 'help'
-export type PageKey = FixedPage | `workspace:${string}` | `board:${string}`
+export type PageKey = FixedPage | `workspace:${string}`
 
-export const SETTINGS_SECTIONS = ['Theme', 'Chat', 'Notifications'] as const
+export const SETTINGS_SECTIONS = ['Theme', 'Chat'] as const
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
 
 export interface Place {
@@ -29,18 +23,12 @@ export interface Place {
 
 const FIXED_PAGES: readonly string[] = [
   'dashboard',
-  'inbox',
   'chat',
   'jobs',
   'test-bench',
   'habits',
   'meetings',
-  'calendar',
-  'tasks',
-  'memory',
-  'files',
   'settings',
-  'help',
 ]
 
 export function pageKey(page: PageKey): string {
@@ -48,7 +36,7 @@ export function pageKey(page: PageKey): string {
 }
 
 export function pageFromKey(key: string): PageKey | null {
-  if (key.startsWith('workspace:') || key.startsWith('board:')) return key as PageKey
+  if (key.startsWith('workspace:')) return key as PageKey
   return FIXED_PAGES.includes(key) ? (key as PageKey) : null
 }
 

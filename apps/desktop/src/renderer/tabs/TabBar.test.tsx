@@ -42,11 +42,11 @@ beforeEach(() => {
 
 describe('TabBar', () => {
   it('renders tablist, tabs, pinned icons', () => {
-    seed([tab(0, 'dashboard', true), tab(1, 'inbox'), tab(2, 'jobs')], 1)
+    seed([tab(0, 'dashboard', true), tab(1, 'habits'), tab(2, 'jobs')], 1)
     ui()
     expect(screen.getByRole('tablist', { name: 'Open pages' })).toBeInTheDocument()
     expect(screen.getByTestId('tab-1')).toHaveAttribute('data-active', 'true')
-    expect(screen.getByTestId('tab-1')).toHaveTextContent('Inbox')
+    expect(screen.getByTestId('tab-1')).toHaveTextContent('Habits')
     expect(screen.getByTestId('tab-close-1')).toHaveAttribute('aria-label', 'Close tab')
     const pinned = screen.getByTestId('tab-pinned-0')
     expect(pinned).not.toHaveTextContent('Dashboard')
@@ -54,7 +54,7 @@ describe('TabBar', () => {
   })
 
   it('click, middle click, close button and plus', () => {
-    seed([tab(0, 'dashboard', true), tab(1, 'inbox'), tab(2, 'jobs')], 0)
+    seed([tab(0, 'dashboard', true), tab(1, 'habits'), tab(2, 'jobs')], 0)
     ui()
     fireEvent.click(screen.getByTestId('tab-2'))
     expect(tabsStore.getState().tabs.list[tabsStore.getState().tabs.active]!.id).toBe(2)
@@ -75,7 +75,7 @@ describe('TabBar', () => {
   })
 
   it('context menu pins, disables Close others, occludes the browser', async () => {
-    seed([tab(0, 'inbox'), tab(1, 'jobs')], 0)
+    seed([tab(0, 'habits'), tab(1, 'jobs')], 0)
     ui()
     fireEvent.contextMenu(screen.getByTestId('tab-1'), { clientX: 50, clientY: 20 })
     expect(await screen.findByTestId('tab-menu')).toBeInTheDocument()
@@ -93,7 +93,7 @@ describe('TabBar', () => {
   })
 
   it('Close tab is disabled for a pinned tab', async () => {
-    seed([tab(0, 'inbox', true), tab(1, 'jobs')], 1)
+    seed([tab(0, 'habits', true), tab(1, 'jobs')], 1)
     ui()
     fireEvent.contextMenu(screen.getByTestId('tab-pinned-0'))
     await screen.findByTestId('tab-menu')
@@ -103,7 +103,7 @@ describe('TabBar', () => {
   })
 
   it('Close others is disabled when no other unpinned tab exists', async () => {
-    seed([tab(0, 'inbox', true), tab(1, 'jobs')], 1)
+    seed([tab(0, 'habits', true), tab(1, 'jobs')], 1)
     ui()
     fireEvent.contextMenu(screen.getByTestId('tab-1'))
     await screen.findByTestId('tab-menu')
@@ -111,7 +111,7 @@ describe('TabBar', () => {
   })
 
   it('arrow keys move focus and Enter activates', () => {
-    seed([tab(0, 'inbox'), tab(1, 'jobs')], 0)
+    seed([tab(0, 'habits'), tab(1, 'jobs')], 0)
     ui()
     const a = screen.getByTestId('tab-0')
     const b = screen.getByTestId('tab-1')
@@ -125,7 +125,7 @@ describe('TabBar', () => {
   })
 
   it('toggles reflect layout state', () => {
-    seed([tab(0, 'inbox')])
+    seed([tab(0, 'habits')])
     render(
       <MantineProvider>
         <TabBar />
@@ -153,7 +153,7 @@ describe('TabBar', () => {
   })
 
   it('navigates the active tab history and disables unavailable directions', () => {
-    seed([tab(0, 'inbox'), tab(1, 'jobs')])
+    seed([tab(0, 'habits'), tab(1, 'jobs')])
     ui()
     const back = screen.getByRole('button', { name: 'Back' })
     const forward = screen.getByRole('button', { name: 'Forward' })
@@ -162,7 +162,7 @@ describe('TabBar', () => {
     act(() => navigateTo(placeOf('dashboard')))
     expect(back).not.toBeDisabled()
     fireEvent.click(back)
-    expect(activePlace(tabsStore.getState()).page).toBe('inbox')
+    expect(activePlace(tabsStore.getState()).page).toBe('habits')
     expect(back).toBeDisabled()
     expect(forward).not.toBeDisabled()
     fireEvent.click(forward)

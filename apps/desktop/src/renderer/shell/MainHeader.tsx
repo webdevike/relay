@@ -22,7 +22,7 @@ export function MainHeader() {
           <IconLayoutSidebar size={16} stroke={1.5} />
         </ActionIcon>
       </Tooltip>
-      <span className="eva-label eva-main-header-title">{tabTitle(place)}</span>
+      <span className="eva-main-header-title">{tabTitle(place)}</span>
       <Tooltip label={<span className="eva-tip">{panelLabel} <Kbd size="xs">⌘⇧B</Kbd></span>} position="bottom-end" openDelay={400}>
         <ActionIcon variant="subtle" className="eva-header-btn" data-testid="panel-toggle" aria-label={panelLabel} aria-pressed={panelOpen} onClick={() => togglePanel()}>
           <IconLayoutSidebarRight size={16} stroke={1.5} />

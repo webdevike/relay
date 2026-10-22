@@ -32,11 +32,43 @@ export function createSlotSync(el: HTMLElement, send: (r: Rect) => void): () => 
   const ro = new ResizeObserver(schedule)
   ro.observe(el)
   window.addEventListener('resize', schedule)
+  // A shell slide moves the slot without resizing it, which ResizeObserver never reports:
+  // follow the rect every frame while a shell column is transitioning.
+  // Capped, in case a column is hidden mid-slide and its transitionend never arrives.
+  let moving = 0
+  let follow = 0
+  let stopAt = 0
+  const track = (): void => {
+    flush()
+    if (moving > 0 && performance.now() > stopAt) moving = 0
+    follow = moving > 0 ? requestAnimationFrame(track) : 0
+  }
+  const isShellColumn = (e: Event): boolean =>
+    e.target instanceof Element &&
+    e.target.matches('.eva-panel-wrap, .eva-sidebar, .eva-main-column')
+  const onRun = (e: Event): void => {
+    if (!isShellColumn(e)) return
+    moving += 1
+    stopAt = performance.now() + 1000
+    if (!follow) follow = requestAnimationFrame(track)
+  }
+  const onEnd = (e: Event): void => {
+    if (!isShellColumn(e)) return
+    moving = Math.max(0, moving - 1)
+    if (!moving) schedule()
+  }
+  document.addEventListener('transitionrun', onRun)
+  document.addEventListener('transitionend', onEnd)
+  document.addEventListener('transitioncancel', onEnd)
   schedule()
   return () => {
     ro.disconnect()
     window.removeEventListener('resize', schedule)
+    document.removeEventListener('transitionrun', onRun)
+    document.removeEventListener('transitionend', onEnd)
+    document.removeEventListener('transitioncancel', onEnd)
     if (frame) cancelAnimationFrame(frame)
+    if (follow) cancelAnimationFrame(follow)
   }
 }
 

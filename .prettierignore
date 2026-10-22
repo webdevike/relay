@@ -11,6 +11,4 @@ test-results
 IDEA.md
 CLAUDE.md
 *.sh
-packages/theme-core/src/base-light.ts
-packages/theme-core/src/base-dark.ts
 packages/eva-core/src/model/__fixtures__

@@ -64,19 +64,19 @@ beforeEach(() => {
 
 describe('MainNav', () => {
   it('marks the active destination without marking unrelated pages', () => {
-    seed('inbox')
+    seed('habits')
     wrap(<MainNav />)
-    expect(screen.getByTestId('nav-inbox')).toHaveAttribute('data-active', 'true')
-    expect(screen.getByTestId('nav-inbox')).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByTestId('nav-habits')).toHaveAttribute('data-active', 'true')
+    expect(screen.getByTestId('nav-habits')).toHaveAttribute('aria-current', 'page')
     expect(screen.getByTestId('nav-jobs')).not.toHaveAttribute('data-active')
   })
 
   it('click, cmd-click and drill-in rows', () => {
     wrap(<MainNav />)
-    fireEvent.click(screen.getByTestId('nav-inbox'))
-    expect(openPlace).toHaveBeenLastCalledWith(placeOf('inbox'), { newTab: false })
-    fireEvent.click(screen.getByTestId('nav-inbox'), { metaKey: true })
-    expect(openPlace).toHaveBeenLastCalledWith(placeOf('inbox'), { newTab: true })
+    fireEvent.click(screen.getByTestId('nav-habits'))
+    expect(openPlace).toHaveBeenLastCalledWith(placeOf('habits'), { newTab: false })
+    fireEvent.click(screen.getByTestId('nav-habits'), { metaKey: true })
+    expect(openPlace).toHaveBeenLastCalledWith(placeOf('habits'), { newTab: true })
     fireEvent.click(screen.getByTestId('nav-chat'))
     expect(navLevelStore.getState().level).toBe('chats')
     backToRoot()
@@ -93,12 +93,10 @@ describe('MainNav', () => {
   it('counts show above zero, cap at 99+ and hide on error', () => {
     sidebarStore.setState({ openTodos: 2, scheduledJobs: 150, loaded: true })
     const { unmount } = wrap(<MainNav />)
-    expect(screen.getByTestId('count-tasks')).toHaveTextContent('2')
     expect(screen.getByTestId('count-jobs')).toHaveTextContent('99+')
     unmount()
     sidebarStore.setState({ openTodos: 0, scheduledJobs: 0 })
     wrap(<MainNav />)
-    expect(screen.queryByTestId('count-tasks')).toBeNull()
     expect(screen.queryByTestId('count-jobs')).toBeNull()
     act(() => sidebarStore.setState({ error: true }))
     expect(
@@ -111,7 +109,7 @@ describe('MainNav', () => {
   it('error hides counts even when numbers are set', () => {
     sidebarStore.setState({ openTodos: 5, scheduledJobs: 5, error: true })
     wrap(<MainNav />)
-    expect(screen.queryByTestId('count-tasks')).toBeNull()
+    expect(screen.queryByTestId('count-jobs')).toBeNull()
   })
 })
 
@@ -129,15 +127,9 @@ describe('RecentList and search', () => {
     expect(screen.queryByText('No recent items match your search')).toBeNull()
   })
 
-  it('shows Nothing recent yet and accepts onOpen', () => {
-    const { unmount } = wrap(<RecentList query="" />)
+  it('shows Nothing recent yet', () => {
+    wrap(<RecentList query="" />)
     expect(screen.getByText('Nothing recent yet')).toBeInTheDocument()
-    unmount()
-    sidebarStore.setState({ recent: recent(1) })
-    const onOpen = vi.fn()
-    wrap(<RecentList query="" onOpen={onOpen} />)
-    fireEvent.click(screen.getByTestId('recent-item'))
-    expect(onOpen).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -149,7 +141,6 @@ describe('sub-pages', () => {
     expect(screen.getByTestId('sidebar')).toHaveAttribute('data-sidebar-level', 'settings')
     expect(screen.getByTestId('sidebar-back')).toBeInTheDocument()
     expect(screen.getByTestId('settings-item-theme')).toBeInTheDocument()
-    expect(screen.getByTestId('settings-item-notifications')).toBeInTheDocument()
     expect(screen.getByTestId('settings-item-chat')).toHaveAttribute('data-active', 'true')
     fireEvent.click(screen.getByTestId('settings-item-chat'))
     expect(openPlace).toHaveBeenLastCalledWith(placeOf('settings', { settingsSection: 'Chat' }), {
@@ -161,7 +152,7 @@ describe('sub-pages', () => {
     })
   })
 
-  it('chats placeholder and the meetings body', () => {
+  it('shows chat and meeting search with their loading states', () => {
     const { unmount } = wrap(<SubPage level="chats" />)
     expect(screen.getByTestId('chat-new')).toHaveAttribute('aria-label', 'New chat')
     expect(screen.getByPlaceholderText('Search chats')).toBeInTheDocument()

@@ -12,7 +12,7 @@
   display: flex;
   width: calc(var(--eva-sidebar-inner-w, 264px) * 2);
   height: 100%;
-  transition: transform var(--eva-dur-slide) var(--eva-ease-in-out);
+  transition: transform var(--eva-dur-slide) var(--eva-ease-slide);
   -webkit-app-region: no-drag;
 }
 .eva-sb-track[data-level='chats'],
@@ -146,6 +146,9 @@ html[data-eva-motion='off'] .eva-sb-track {
   font-size: var(--eva-fz-body);
   text-align: left;
   cursor: pointer;
+  transition:
+    background-color var(--eva-dur-fast) ease,
+    color var(--eva-dur-fast) ease;
 }
 .eva-sb-scroll .eva-sb-row + .eva-sb-row {
   margin-top: var(--eva-space-xs);

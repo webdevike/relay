@@ -80,14 +80,6 @@ async function loadPage(shell: Page, app: ElectronApplication): Promise<void> {
 const resolved = (shell: Page) => expect(shell.locator('html'))
 const tabs = (shell: Page): Promise<Snap> =>
   shell.evaluate(() => (window as unknown as Shell).__evaosShell.tabs())
-const countVars = (shell: Page): Promise<number> =>
-  shell.evaluate(() => {
-    const style = getComputedStyle(document.documentElement)
-    let n = 0
-    for (let i = 0; i < style.length; i++) if (style.item(i).startsWith('--eva-c-')) n++
-    return n
-  })
-
 async function finish(app: ElectronApplication, shell: Page, name: string): Promise<void> {
   const file = await proofShot(app, shell, name, PHASE)
   expect(fs.existsSync(file)).toBe(true)
@@ -105,7 +97,6 @@ test('shell-dark-1280x800', async ({ app, shell }) => {
   await expect(shell.locator(sel('shell'))).toHaveAttribute('data-sidebar-state', 'open')
   expect((await box(shell, 'sidebar')).width).toBe(272)
   expect(Math.abs((await box(shell, 'panel-card')).width - 420)).toBeLessThanOrEqual(1)
-  expect(await countVars(shell)).toBe(139)
   await finish(app, shell, 'shell-dark-1280x800')
 })
 
@@ -211,7 +202,7 @@ test('settings-chat', async ({ app, shell }) => {
   )
   await expect(shell.locator(sel('settings-chat'))).toBeVisible()
   await expect(shell.locator(sel('settings-show-thinking'))).not.toBeChecked()
-  await expect(shell.locator(sel('settings-show-tools'))).toBeChecked()
+  await expect(shell.locator(sel('settings-show-tools'))).not.toBeChecked()
   await finish(app, shell, 'settings-chat')
 })
 
@@ -222,10 +213,10 @@ test('settings-theme-light', async ({ app, shell }) => {
     }),
   )
   await expect(shell.locator(sel('settings-theme'))).toBeVisible()
-  const mode = shell.locator('[data-testid=settings-theme] .eva-theme-mode-row')
-  await mode.getByText('Light', { exact: true }).click()
+  const toggle = shell.getByTestId('theme-color-scheme')
+  if ((await toggle.getAttribute('data-scheme')) !== 'light') await toggle.click()
   await resolved(shell).toHaveAttribute('data-resolved', 'light')
-  await expect(mode.getByRole('radio', { name: 'Light', exact: true })).toBeChecked()
+  await expect(toggle).toHaveAttribute('data-scheme', 'light')
   await finish(app, shell, 'settings-theme-light')
 })
 

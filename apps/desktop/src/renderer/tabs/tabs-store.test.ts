@@ -63,14 +63,14 @@ describe('startTabs', () => {
     const saved = {
       active: 1,
       list: [
-        { here: { page: 'inbox' }, back: [], forward: [], pinned: true },
+        { here: { page: 'habits' }, back: [], forward: [], pinned: true },
         { here: { page: 'jobs' }, back: [], forward: [], pinned: false },
       ],
     }
     loadWith(saved)
     startTabs()
     await flush()
-    expect(t().list.map((x) => x.here.page)).toEqual(['inbox', 'jobs'])
+    expect(t().list.map((x) => x.here.page)).toEqual(['habits', 'jobs'])
     expect(t().active).toBe(1)
     await vi.advanceTimersByTimeAsync(1000)
     expect(saves()).toHaveLength(0)
@@ -85,11 +85,11 @@ describe('save failures', () => {
     invoke.mockImplementation(async (ch: string) =>
       ch === 'layout.save' ? (ok ? { ok: true, value: {} } : { ok: false, error: 'x' }) : {},
     )
-    navigateTo(placeOf('inbox'))
+    navigateTo(placeOf('habits'))
     await vi.advanceTimersByTimeAsync(300)
     expect(saves()).toHaveLength(1)
     ok = true
-    navigateTo(placeOf('inbox'))
+    navigateTo(placeOf('habits'))
     navigateTo(placeOf('jobs'))
     await vi.advanceTimersByTimeAsync(300)
     expect(saves()).toHaveLength(2)
@@ -100,7 +100,7 @@ describe('flushPendingTabs', () => {
   it('writes a debounced change immediately', async () => {
     startTabs()
     await flush()
-    navigateTo(placeOf('inbox'))
+    navigateTo(placeOf('habits'))
     expect(saves()).toHaveLength(0)
     flushPendingTabs()
     expect(saves()).toHaveLength(1)
@@ -116,15 +116,15 @@ describe('navigation', () => {
   })
 
   it('replaces the active place and pushes history', () => {
-    navigateTo(placeOf('inbox'))
+    navigateTo(placeOf('habits'))
     expect(t().list).toHaveLength(1)
-    expect(activePlace(tabsStore.getState()).page).toBe('inbox')
+    expect(activePlace(tabsStore.getState()).page).toBe('habits')
     expect(t().list[0]!.back).toHaveLength(1)
   })
 
   it('newTab forks, and an already open place is switched to', () => {
-    navigateTo(placeOf('inbox'), { newTab: true })
-    expect(t().list.map((x) => x.here.page)).toEqual(['dashboard', 'inbox'])
+    navigateTo(placeOf('habits'), { newTab: true })
+    expect(t().list.map((x) => x.here.page)).toEqual(['dashboard', 'habits'])
     navigateTo(placeOf('dashboard'), { newTab: true })
     expect(t().list).toHaveLength(2)
     expect(activePlace(tabsStore.getState()).page).toBe('dashboard')
@@ -151,17 +151,17 @@ describe('navigation', () => {
     runAction('close-tab')
     expect(t().list).toHaveLength(1)
     togglePinOf(t().list[0]!.id)
-    navigateTo(placeOf('inbox'))
+    navigateTo(placeOf('habits'))
     runAction('history-back')
     expect(activePlace(tabsStore.getState()).page).toBe('dashboard')
     runAction('history-forward')
-    expect(activePlace(tabsStore.getState()).page).toBe('inbox')
+    expect(activePlace(tabsStore.getState()).page).toBe('habits')
   })
 
   it('openPlace reaches the store with newTab forwarded', () => {
-    openPlace(placeOf('files'), { newTab: true })
+    openPlace(placeOf('jobs'), { newTab: true })
     expect(t().list).toHaveLength(2)
-    expect(activePlace(tabsStore.getState()).page).toBe('files')
+    expect(activePlace(tabsStore.getState()).page).toBe('jobs')
   })
 })
 
@@ -169,7 +169,7 @@ describe('persistence', () => {
   it('coalesces bursts into one save after 250 ms and skips no-ops', async () => {
     startTabs()
     await flush()
-    navigateTo(placeOf('inbox'))
+    navigateTo(placeOf('habits'))
     navigateTo(placeOf('jobs'))
     await vi.advanceTimersByTimeAsync(249)
     expect(saves()).toHaveLength(0)
@@ -185,15 +185,13 @@ describe('persistence', () => {
 describe('tab-meta', () => {
   it('titles', () => {
     expect(tabTitle(placeOf('dashboard'))).toBe('Dashboard')
-    expect(tabTitle(placeOf('help'))).toBe('Help Center')
     expect(tabTitle(placeOf('chat'))).toBe('New chat')
-    for (const s of ['Theme', 'Chat', 'Notifications'] as const)
+    for (const s of ['Theme', 'Chat'] as const)
       expect(tabTitle(placeOf('settings', { settingsSection: s }))).toBe(`Settings: ${s}`)
     expect(tabTitle(placeOf('workspace:abc'))).toBe('abc')
     setWorkspaceNames({ flo: 'Flo' })
     expect(tabTitle(placeOf('workspace:flo'))).toBe('Flo')
     expect(tabIconName(placeOf('workspace:flo'))).toBe('IconFolder')
-    expect(tabTitle(placeOf('board:main'))).toBe('main')
     expect(tabTitle(placeOf('meetings', { meeting: 'zz' }))).toBe('zz')
     setMeetingTitles({ zz: 'Zed sync' })
     expect(tabTitle(placeOf('meetings', { meeting: 'zz' }))).toBe('Zed sync')
@@ -203,6 +201,6 @@ describe('tab-meta', () => {
     expect(tabIconName(placeOf('habits'))).toBe('IconFlame')
     expect(tabIconName(placeOf('chat'))).toBe('IconMessage')
     expect(tabIconName(placeOf('settings'))).toBe('IconSettings')
-    expect(tabIconName(placeOf('files'))).toBe('IconFile')
+    expect(tabIconName(placeOf('jobs'))).toBe('IconCalendarTime')
   })
 })

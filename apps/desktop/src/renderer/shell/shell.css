@@ -1,3 +1,6 @@
+/* Inset-card shell after ecard-table-lab: navigation on the shell background, main view and
+   side panel as bordered 10px cards (border only, no shadow), 44px card headers on a hairline,
+   panel and sidebar slide on one curve, a pill grip that fades in on the gap. */
 .eva-shell {
   --eva-traffic: 80px;
   --eva-gap: 8px;
@@ -31,8 +34,7 @@
   box-sizing: border-box;
   background: var(--eva-c-background);
   border: 1px solid var(--eva-c-border);
-  border-radius: var(--eva-radius);
-  box-shadow: var(--eva-shadow);
+  border-radius: var(--eva-card-radius);
   overflow: hidden;
   min-width: 0;
 }
@@ -56,33 +58,58 @@
   flex: 1;
 }
 
+/* The wrap animates its width; the card inside keeps the last open width and is clipped,
+   so content never squeezes while the panel slides. */
 .eva-panel-wrap {
   position: relative;
   flex: none;
   width: var(--eva-panel-w);
   margin-right: var(--eva-gap);
   display: flex;
-  padding-top: var(--eva-gap);
+  /* Starts level with the main card, below the tab strip, so the two headers line up. */
+  padding-top: var(--eva-tab-strip-h);
 }
 .eva-panel-wrap[data-open='false'] {
   display: none;
 }
-.eva-panel-card {
+.eva-panel-wrap[data-closing='true'] {
+  margin-right: 0;
+}
+.eva-panel-clip {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  overflow: hidden;
+}
+.eva-panel-card {
+  flex: none;
+  width: var(--eva-panel-inner-w, var(--eva-panel-w));
   display: flex;
   flex-direction: column;
 }
 
-/* Native sidebar toggles interpolate both fitted columns and main's left inset together. */
+/* Sidebar toggles interpolate both fitted columns and main's left inset together. */
 .eva-shell[data-sidebar-transition='true'] .eva-sidebar,
 .eva-shell[data-sidebar-transition='true'] .eva-panel-wrap {
-  transition: width var(--eva-dur-slide) var(--eva-ease-in-out);
+  transition: width var(--eva-dur-slide) var(--eva-ease-slide);
 }
 .eva-shell[data-sidebar-transition='true'] .eva-main-column {
-  transition: margin-left var(--eva-dur-slide) var(--eva-ease-in-out);
+  transition: margin-left var(--eva-dur-slide) var(--eva-ease-slide);
 }
 .eva-shell[data-sidebar-transition='true'] .eva-grip-sidebar {
-  transition: left var(--eva-dur-slide) var(--eva-ease-in-out);
+  transition: left var(--eva-dur-slide) var(--eva-ease-slide);
+}
+/* Panel toggles slide the panel, page included, in from and out to the right edge. */
+.eva-shell[data-panel-transition='true'] .eva-panel-wrap {
+  transition:
+    width var(--eva-dur-slide) var(--eva-ease-slide),
+    margin-right var(--eva-dur-slide) var(--eva-ease-slide);
+}
+@starting-style {
+  .eva-shell[data-panel-transition='true'] .eva-panel-wrap[data-open='true'] {
+    width: 0;
+    margin-right: 0;
+  }
 }
 body.eva-resizing,
 body.eva-resizing * {
@@ -95,6 +122,7 @@ body.eva-resizing .eva-grip-sidebar {
   transition: none !important;
 }
 
+/* The gap itself is the grab area; a short pill appears on hover, focus and drag. */
 .eva-grip {
   position: absolute;
   top: 0;
@@ -105,8 +133,14 @@ body.eva-resizing .eva-grip-sidebar {
   display: flex;
   align-items: center;
   justify-content: center;
-  outline-offset: -2px;
+  outline: none;
   -webkit-app-region: no-drag;
+  --eva-grip-color: var(--mantine-color-gray-4);
+  --eva-grip-active: var(--mantine-color-gray-5);
+}
+[data-mantine-color-scheme='dark'] .eva-grip {
+  --eva-grip-color: var(--mantine-color-dark-3);
+  --eva-grip-active: var(--mantine-color-dark-2);
 }
 .eva-grip-sidebar {
   left: calc(var(--eva-sidebar-w) - var(--eva-gap) / 2);
@@ -115,35 +149,22 @@ body.eva-resizing .eva-grip-sidebar {
   left: calc(-1 * var(--eva-gap));
 }
 .eva-grip-bar {
-  width: 2px;
-  height: 36px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--eva-c-muted-foreground) 50%, transparent);
+  width: 3px;
+  height: 32px;
+  border-radius: 2px;
+  background: var(--eva-grip-color);
   opacity: 0;
+  transition:
+    opacity var(--eva-dur-fast) ease,
+    background-color var(--eva-dur-fast) ease;
 }
 .eva-grip:hover .eva-grip-bar,
 .eva-grip:focus-visible .eva-grip-bar,
 .eva-grip.is-dragging .eva-grip-bar {
   opacity: 1;
 }
-
-.eva-footer {
-  flex: none;
-  height: 32px;
-  box-sizing: border-box;
-  padding: 0 var(--eva-gap);
-  display: flex;
-  align-items: center;
-  background: var(--eva-chrome);
-}
-.eva-footer-help {
-  height: 28px;
-  color: var(--eva-chrome-text);
-}
-.eva-footer-eregon {
-  flex: 1;
-  display: flex;
-  justify-content: flex-end;
+.eva-grip.is-dragging .eva-grip-bar {
+  background: var(--eva-grip-active);
 }
 
 .eva-main-header,
@@ -154,8 +175,9 @@ body.eva-resizing .eva-grip-sidebar {
   min-width: 0;
   height: var(--eva-chat-header-h);
   box-sizing: border-box;
-  gap: var(--eva-space-native-sm);
-  padding: 0 var(--eva-space-native-lg);
+  gap: var(--eva-space-sm);
+  padding: 0 var(--eva-space-sm) 0 10px;
+  border-bottom: 1px solid var(--eva-c-border);
   -webkit-app-region: drag;
 }
 .eva-main-header-title {
@@ -164,26 +186,41 @@ body.eva-resizing .eva-grip-sidebar {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 15px;
+  font-weight: var(--eva-fw-medium);
+  line-height: 1.2;
+  color: var(--eva-c-foreground);
 }
 .eva-header-btn {
   flex: none;
-  width: var(--eva-tile-md);
-  height: var(--eva-tile-md);
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  border-radius: 6px;
   color: var(--eva-c-muted-foreground);
+  transition:
+    color var(--eva-dur-fast) ease,
+    background-color var(--eva-dur-fast) ease;
   -webkit-app-region: no-drag;
 }
+.eva-header-btn:hover {
+  color: var(--eva-c-foreground);
+}
 .eva-panel-header {
-  padding-left: var(--eva-space-native-sm);
-  padding-right: var(--eva-space-xs);
-  gap: var(--eva-space-xs);
-  border-bottom: 1px solid var(--eva-c-border);
+  padding-left: 16px;
 }
 .eva-panel-tool {
   flex: 1;
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: var(--eva-space-native-xs);
+  gap: var(--eva-space-sm);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 14px;
+  font-weight: var(--eva-fw-medium);
   color: var(--eva-c-foreground);
 }
 .eva-panel-tool svg {

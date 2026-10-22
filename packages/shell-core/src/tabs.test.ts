@@ -53,8 +53,8 @@ describe('tabs', () => {
     tabs = navigate(forkTab(tabs), p('jobs'))
     expect(heres(tabs)).toEqual(['dashboard', 'jobs'])
     expect(tabs.active).toBe(1)
-    tabs = navigate(forkTab(tabs), p('tasks'))
-    expect(heres(tabs)).toEqual(['dashboard', 'jobs', 'tasks'])
+    tabs = navigate(forkTab(tabs), p('habits'))
+    expect(heres(tabs)).toEqual(['dashboard', 'jobs', 'habits'])
     expect(tabs.active).toBe(2)
     // Rust still records the forked place as history.
     expect(tabs.list[2].back).toEqual([p('jobs')])
@@ -62,8 +62,8 @@ describe('tabs', () => {
 
   it('a pinned tab stays put', () => {
     let tabs = at([p('dashboard'), p('jobs')], 1)
-    tabs = navigate(tabs, p('tasks'))
-    expect(heres(tabs)).toEqual(['dashboard', 'tasks', 'jobs'])
+    tabs = navigate(tabs, p('habits'))
+    expect(heres(tabs)).toEqual(['dashboard', 'habits', 'jobs'])
     expect(tabs.active).toBe(1)
     expect(tabs.list[0].back).toEqual([])
     expect(tabs.list[1].pinned).toBe(false)
@@ -77,29 +77,29 @@ describe('tabs', () => {
   })
 
   it('pinning keeps pinned tabs first', () => {
-    let tabs = at([p('dashboard'), p('jobs'), p('tasks')])
+    let tabs = at([p('dashboard'), p('jobs'), p('habits')])
     tabs = activate(tabs, 1)
     tabs = togglePin(tabs, 2)
-    expect(heres(tabs)).toEqual(['tasks', 'dashboard', 'jobs'])
+    expect(heres(tabs)).toEqual(['habits', 'dashboard', 'jobs'])
     expect(tabs.active).toBe(2)
     tabs = togglePin(tabs, tabs.list[2].id)
-    expect(heres(tabs)).toEqual(['tasks', 'jobs', 'dashboard'])
+    expect(heres(tabs)).toEqual(['habits', 'jobs', 'dashboard'])
     tabs = togglePin(tabs, tabs.list[0].id)
-    expect(heres(tabs)).toEqual(['jobs', 'tasks', 'dashboard'])
+    expect(heres(tabs)).toEqual(['jobs', 'habits', 'dashboard'])
     expect(tabs.active).toBe(0)
   })
 
   it('saved tabs load pinned first', () => {
-    const base = at([p('jobs'), p('tasks')]).list
+    const base = at([p('jobs'), p('habits')]).list
     base[1].pinned = true
     const tabs = createTabs(base, 0)
-    expect(heres(tabs)).toEqual(['tasks', 'jobs'])
+    expect(heres(tabs)).toEqual(['habits', 'jobs'])
     expect(tabs.active).toBe(1)
   })
 
   it('keeps 50 history entries, back and forward step, navigate clears forward', () => {
     let tabs = at([p('dashboard')])
-    const pages: PageKey[] = ['jobs', 'tasks']
+    const pages: PageKey[] = ['jobs', 'habits']
     for (let i = 0; i < 51; i++) tabs = navigate(tabs, placeOf('meetings', { meeting: `m${i}` }))
     expect(HISTORY).toBe(50)
     expect(activeTab(tabs).back).toHaveLength(50)
@@ -124,12 +124,12 @@ describe('tabs', () => {
   })
 
   it('close rules with pins and index fixup', () => {
-    let tabs = at([p('dashboard'), p('jobs'), p('tasks')], 1)
+    let tabs = at([p('dashboard'), p('jobs'), p('habits')], 1)
     expect(closeActive(tabs)).toBe(tabs)
     tabs = closeOthers(tabs, tabs.list[2].id)
-    expect(heres(tabs)).toEqual(['dashboard', 'tasks'])
+    expect(heres(tabs)).toEqual(['dashboard', 'habits'])
     expect(tabs.active).toBe(1)
-    tabs = at([p('dashboard'), p('jobs'), p('tasks')])
+    tabs = at([p('dashboard'), p('jobs'), p('habits')])
     tabs = activate(tabs, 2)
     tabs = closeTab(tabs, 0)
     expect(tabs.active).toBe(1)
@@ -168,6 +168,26 @@ describe('tabs', () => {
     expect(saveTabs(loadTabs(fixture))).toEqual(fixture)
   })
 
+  it('drops removed pages from tabs and history while preserving the active supported tab', () => {
+    const tabs = loadTabs({
+      active: 1,
+      list: [
+        { here: { page: 'inbox' } },
+        {
+          here: { page: 'jobs' },
+          back: [{ page: 'dashboard' }, { page: 'tasks' }, { page: 'board:ops' }],
+          forward: [{ page: 'help' }, { page: 'habits' }],
+        },
+        { here: { page: 'meetings' } },
+      ],
+    })
+    expect(heres(tabs)).toEqual(['jobs', 'meetings'])
+    expect(activeTab(tabs).here.page).toBe('jobs')
+    expect(activeTab(tabs).back.map((place) => place.page)).toEqual(['dashboard'])
+    expect(activeTab(tabs).forward.map((place) => place.page)).toEqual(['habits'])
+    expect(heres(loadTabs({ list: [{ here: { page: 'board:ops' } }] }))).toEqual(['dashboard'])
+  })
+
   it('load never throws and falls back to Dashboard', () => {
     for (const v of [
       null,
@@ -181,7 +201,7 @@ describe('tabs', () => {
       expect(heres(loadTabs(v))).toEqual(['dashboard'])
     }
     const many = Array.from({ length: 80 }, () => ({ page: 'jobs' }))
-    const t = loadTabs({ active: 99, list: [{ here: { page: 'inbox' }, back: many }] })
+    const t = loadTabs({ active: 99, list: [{ here: { page: 'habits' }, back: many }] })
     expect(t.list[0].back).toHaveLength(50)
     expect(t.active).toBe(0)
   })

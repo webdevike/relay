@@ -70,24 +70,11 @@ export type ActionId =
   | 'reload'
   | 'toggle-sidebar'
   | 'toggle-panel'
-  | 'toggle-eregon'
-  | 'toggle-search'
   | 'focus-search'
   | 'new-tab'
   | 'close-tab'
   | 'history-back'
   | 'history-forward'
-  | 'save'
-  | 'pick-model-1'
-  | 'pick-model-2'
-  | 'pick-model-3'
-  | 'pick-model-4'
-  | 'pick-model-5'
-  | 'pick-model-6'
-  | 'pick-model-7'
-  | 'pick-model-8'
-  | 'pick-model-9'
-  | 'copy-page-url'
   | 'dismiss'
 
 export const GLOBAL_CHORDS: ReadonlyArray<{ chord: string; action: ActionId }> = [
@@ -95,24 +82,11 @@ export const GLOBAL_CHORDS: ReadonlyArray<{ chord: string; action: ActionId }> =
   { chord: 'cmd+r', action: 'reload' },
   { chord: 'cmd+b', action: 'toggle-sidebar' },
   { chord: 'cmd+shift+b', action: 'toggle-panel' },
-  { chord: 'cmd+j', action: 'toggle-eregon' },
-  { chord: 'cmd+k', action: 'toggle-search' },
   { chord: 'cmd+f', action: 'focus-search' },
   { chord: 'cmd+t', action: 'new-tab' },
   { chord: 'cmd+w', action: 'close-tab' },
   { chord: 'cmd+[', action: 'history-back' },
   { chord: 'cmd+]', action: 'history-forward' },
-  { chord: 'cmd+s', action: 'save' },
-  { chord: 'cmd+1', action: 'pick-model-1' },
-  { chord: 'cmd+2', action: 'pick-model-2' },
-  { chord: 'cmd+3', action: 'pick-model-3' },
-  { chord: 'cmd+4', action: 'pick-model-4' },
-  { chord: 'cmd+5', action: 'pick-model-5' },
-  { chord: 'cmd+6', action: 'pick-model-6' },
-  { chord: 'cmd+7', action: 'pick-model-7' },
-  { chord: 'cmd+8', action: 'pick-model-8' },
-  { chord: 'cmd+9', action: 'pick-model-9' },
-  { chord: 'cmd+shift+c', action: 'copy-page-url' },
   { chord: 'escape', action: 'dismiss' },
 ]
 
@@ -126,8 +100,6 @@ export function actionFor(chord: string): ActionId | null {
 export const TERMINAL_PASS_THROUGH = [
   'cmd+shift+b',
   'cmd+b',
-  'cmd+k',
-  'cmd+j',
   'cmd+t',
   'cmd+w',
   'cmd+q',

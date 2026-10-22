@@ -160,15 +160,12 @@ test('reload triggers: Cmd+R, window focus and the refresh button', async ({
     fs.writeFileSync(file, lines.join('\n'))
   }
   const summary = shell.locator(sel('dash-summary'))
-  const count = shell.locator(sel('count-tasks'))
   await expect(summary).toContainText('5 open todos')
-  const before = Number(await count.textContent())
 
   addRow('T20')
   await shell.locator(sel('dash-hero')).click()
   await shell.keyboard.press('Meta+r')
   await expect(summary).toContainText('6 open todos')
-  await expect(count).toHaveText(String(before + 1))
 
   addRow('T21')
   await shell.evaluate(() => window.dispatchEvent(new Event('focus')))

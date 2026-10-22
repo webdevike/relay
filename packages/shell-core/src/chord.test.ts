@@ -40,10 +40,8 @@ describe('chordOfInput', () => {
 describe('chord table', () => {
   it('maps actions', () => {
     expect(actionFor('cmd+shift+b')).toBe('toggle-panel')
-    expect(actionFor('cmd+7')).toBe('pick-model-7')
     expect(actionFor('escape')).toBe('dismiss')
     expect(actionFor('cmd+c')).toBeNull()
-    expect(actionFor('cmd+shift+c')).toBe('copy-page-url')
   })
   it('forwards from guests', () => {
     expect(FORWARD_FROM_GUEST.has('cmd+l')).toBe(true)

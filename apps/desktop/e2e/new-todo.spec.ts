@@ -77,7 +77,6 @@ test('Cmd+N adds a row right after the last open row', async ({ app, shell, evaF
   await expect(shell.locator(sel('dash-summary'))).toContainText(
     `${EXPECT_P3.openTodos + 1} open todos`,
   )
-  await expect(shell.locator(sel('count-tasks'))).toHaveText(String(EXPECT_P3.openTodos + 1))
 })
 
 test('the hero button preselects the last used workspace and ids keep counting', async ({

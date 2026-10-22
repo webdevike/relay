@@ -59,33 +59,6 @@ const ui = () =>
 beforeEach(() => scrollAreaProps.mockClear())
 
 describe('PageRouter', () => {
-  it('renders placeholders inside page-scroll and remounts per navigation', () => {
-    go(placeOf('inbox'))
-    ui()
-    expect(screen.getByTestId('page-scroll')).toContainElement(screen.getByTestId('page-inbox'))
-    expect(screen.getByRole('heading', { name: 'Inbox' })).toBeInTheDocument()
-    expect(
-      screen.getByText('Digests and approvals from Eva will appear here in a later update.'),
-    ).toBeInTheDocument()
-    go(placeOf('tasks'))
-    expect(screen.getByTestId('page-tasks')).toBeInTheDocument()
-    expect(screen.queryByTestId('page-inbox')).toBeNull()
-  })
-
-  it('dispatches kind page by slug: dashboard page, placeholders for the rest', () => {
-    go(placeOf('dashboard'))
-    const { unmount } = ui()
-    expect(screen.getByTestId('page-dashboard')).toHaveTextContent('dash')
-    unmount()
-    for (const slug of ['calendar', 'tasks', 'memory', 'files', 'help'] as const) {
-      go(placeOf(slug))
-      const r = ui()
-      expect(screen.getByTestId(`page-${slug}`)).toBeInTheDocument()
-      expect(screen.queryByText('dash')).toBeNull()
-      r.unmount()
-    }
-  })
-
   it('renders the jobs page for the jobs place', () => {
     go(placeOf('jobs'))
     ui()
@@ -115,7 +88,7 @@ describe('PageRouter', () => {
     const wrap = screen.getByTestId('page-chat-wrap')
     expect(wrap.style.display).toBe('flex')
     expect(screen.queryByTestId('page-scroll')).toBeNull()
-    go(placeOf('inbox'))
+    go(placeOf('jobs'))
     expect(screen.getByTestId('chat-pane')).toBe(pane)
     expect(wrap.style.display).toBe('none')
     go(placeOf('chat'))
@@ -142,24 +115,13 @@ describe('PageRouter', () => {
     expect(screen.getByTestId('page-scroll')).toContainElement(screen.getByTestId('settings-chat'))
   })
 
-  it('falls back to the placeholder for an unknown kind', () => {
-    const saved = pageRegistry.settings
-    ;(pageRegistry as Record<string, unknown>).settings = undefined
-    try {
-      go(placeOf('settings'))
-      expect(() => ui()).not.toThrow()
-    } finally {
-      ;(pageRegistry as Record<string, unknown>).settings = saved
-    }
-  })
-
   it('maps the workspace kind to WorkspacePage', () => {
     expect(pageRegistry.workspace).toBe(WorkspacePage)
   })
 
   it('passes the place key as scrollKey', () => {
-    go(placeOf('files'))
+    go(placeOf('jobs'))
     ui()
-    expect(scrollAreaProps).toHaveBeenCalledWith('page:files')
+    expect(scrollAreaProps).toHaveBeenCalledWith('page:jobs')
   })
 })

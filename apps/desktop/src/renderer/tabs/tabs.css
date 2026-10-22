@@ -77,6 +77,10 @@
   cursor: pointer;
   user-select: none;
   outline-offset: -2px;
+  transition:
+    background-color var(--eva-dur-fast) ease,
+    border-color var(--eva-dur-fast) ease,
+    color var(--eva-dur-fast) ease;
 }
 .eva-tab:hover {
   background: var(--eva-hover);

@@ -110,7 +110,8 @@ export function loadTabs(saved: unknown): Tabs {
     typeof root.active === 'number' && Number.isFinite(root.active) && root.active >= 0
       ? Math.floor(root.active)
       : 0
-  return createTabs(list, active)
+  const activeIndex = list.findIndex((tab) => tab.id === active)
+  return createTabs(list, activeIndex < 0 ? Math.min(active, list.length - 1) : activeIndex)
 }
 
 /** Bounds mirror the contract's SavedTabsSchema so a save is never rejected for size. */

@@ -1,14 +1,12 @@
 import { IconChevronDown } from '@tabler/icons-react'
 import { useState } from 'react'
-import { filterRecent, useSidebarData, type RecentItem } from './sidebar-store'
+import { filterRecent, useSidebarData } from './sidebar-store'
 
 export interface RecentListProps {
   query: string
-  /** Optional: rows are inert until a later phase wires them. */
-  onOpen?: (item: RecentItem) => void
 }
 
-export function RecentList({ query, onOpen }: RecentListProps) {
+export function RecentList({ query }: RecentListProps) {
   const recent = useSidebarData((s) => s.recent)
   const [open, setOpen] = useState(true)
   const rows = filterRecent(recent, query).slice(0, 8)
@@ -42,7 +40,6 @@ export function RecentList({ query, onOpen }: RecentListProps) {
                 className="eva-sb-recent-item"
                 data-testid="recent-item"
                 title={r.title}
-                onClick={onOpen ? () => onOpen(r) : undefined}
               >
                 {r.title}
               </div>

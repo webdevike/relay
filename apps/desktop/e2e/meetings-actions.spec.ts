@@ -2,7 +2,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import type { Page } from '@playwright/test'
 import { test as base, expect } from './fixtures'
-import { makeEvaFixture, EXPECT_P3, type EvaFixture } from './helpers/eva-fixture'
+import { makeEvaFixture, type EvaFixture } from './helpers/eva-fixture'
 import { proofShot } from './helpers/proofShot'
 
 const test = base.extend<{ evaFx: EvaFixture }>({
@@ -66,7 +66,6 @@ test('Accept todo appends the row, marks the proposal and moves it to Remembered
   await expect(shell.locator(sel('meeting-for-you')).locator(q('proposal-standup#1'))).toHaveCount(
     0,
   )
-  await expect(shell.locator(sel('count-tasks'))).toHaveText(String(EXPECT_P3.openTodos + 1))
   await proofShot(app, shell, 'meeting-accepted', PHASE)
 })
 
