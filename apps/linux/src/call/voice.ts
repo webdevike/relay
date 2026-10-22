@@ -15,7 +15,7 @@ import type { Ears, EarsEvents, VoiceStack } from "./call";
 import { sentences } from "./speech";
 
 /** Workers no call has used for this long are stopped. */
-export const IDLE_STOP_MS = 10 * 60_000;
+export const IDLE_STOP_MS = 30 * 60_000;
 /** A worker gets this long to load its models (the first run also downloads them). */
 const READY_TIMEOUT_MS = 180_000;
 /** A filler that takes longer than this is too late to be useful. */
@@ -145,15 +145,23 @@ export class EvaRealtimeVoice implements VoiceStack {
     return join(this.config.root, ".venv", "bin", "python");
   }
 
+  /**
+   * Loads the ears, the filler brain and pocket-tts ahead of a call (the phone opened an
+   * assistant's thread), so the call does not wait ~10 s for cold models. With no call they stop
+   * IDLE_STOP_MS after the last warm-up.
+   */
+  warm(): void {
+    if (!existsSync(this.python)) return;
+    this.startModels();
+    this.earsProcess().ready.catch(() => undefined);
+    if (this.streams === 0) this.scheduleIdle();
+  }
+
   async ears(events: EarsEvents): Promise<Ears> {
     if (!existsSync(this.python)) throw new Error(`no Python venv at ${this.python} (eva-realtime README: Layout)`);
     this.clearIdle();
     this.streams += 1;
-    // The filler and the mouth warm up while the ears load, so the first turn does not pay for them.
-    this.brain().ready.catch(() => undefined);
-    this.ensureTts().catch((error: unknown) => {
-      this.config.log(`voice: pocket-tts not ready: ${error instanceof Error ? error.message : String(error)}`);
-    });
+    this.startModels();
     const worker = this.earsProcess();
     try {
       await worker.ready;
@@ -323,10 +331,21 @@ export class EvaRealtimeVoice implements VoiceStack {
     throw new Error(`pocket-tts did not come up on ${this.config.ttsUrl}`);
   }
 
+  /** The filler brain and the mouth, started (not awaited) so the first turn does not pay for them. */
+  private startModels(): void {
+    this.brain().ready.catch(() => undefined);
+    this.ensureTts().catch((error: unknown) => {
+      this.config.log(`voice: pocket-tts not ready: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  }
+
   /** One ears stream closed; with none left the workers stop after IDLE_STOP_MS. */
   private release(): void {
     this.streams = Math.max(0, this.streams - 1);
-    if (this.streams > 0) return;
+    if (this.streams === 0) this.scheduleIdle();
+  }
+
+  private scheduleIdle(): void {
     this.clearIdle();
     this.idleTimer = setTimeout(() => {
       this.idleTimer = undefined;

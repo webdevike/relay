@@ -59,6 +59,10 @@ export class CallService implements CallRelaying {
     }
   }
 
+  warm(): void {
+    this.deps.voice.warm();
+  }
+
   drop(sink: FrameSink): void {
     this.calls.get(sink)?.end();
   }

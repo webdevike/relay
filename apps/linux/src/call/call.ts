@@ -51,6 +51,8 @@ export interface VoiceStack {
   filler(heard: string): Promise<string>;
   /** `text` said in `voice` (a pocket-tts voice; the default when absent) as PCM16 LE mono at CALL_OUTPUT_RATE, in pieces as it is made. Ends early when `signal` aborts. */
   speak(text: string, voice: string | undefined, signal: AbortSignal): AsyncIterable<Uint8Array>;
+  /** Loads the models ahead of a likely call, so it starts warm. */
+  warm(): void;
 }
 
 /** The assistant thread a call talks to. */

@@ -156,6 +156,8 @@ export interface CallRelaying {
   drop(sink: FrameSink): void;
   /** Every provider change; each call picks out its agent's session. */
   observe(change: AgentProviderChange): void;
+  /** A phone opened an assistant's thread: a call may follow, so load the speech models now. */
+  warm(): void;
 }
 
 export type DropChange = { readonly kind: "added"; readonly drop: Drop } | { readonly kind: "removed"; readonly id: string };

@@ -509,6 +509,8 @@ export class ClientSession {
           break;
         }
         this.assistantAskedAt.set(thread.id, this.clock.now());
+        // The thread is on screen and its Call button one tap away: start the speech models now.
+        this.deps.calls?.warm();
         void thread.snapshot().then(
           (snapshot) => {
             if (!this.closed) this.sink.send({ t: "assistant.snapshot", agent: thread.id, snapshot });

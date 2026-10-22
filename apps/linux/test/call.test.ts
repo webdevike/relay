@@ -63,6 +63,9 @@ class FakeVoice implements VoiceStack {
     this.said.push(text);
     yield PIECE;
   }
+  warm(): void {
+    // Nothing to load.
+  }
 }
 
 class FakeThread implements CallThread {

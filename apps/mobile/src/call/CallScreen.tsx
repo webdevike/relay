@@ -21,7 +21,8 @@ import { useCallStore } from "@/state/call";
 import { endCall, hangUp, setCallMuted } from "./controller";
 
 const LABEL: Record<CallState, string> = {
-  connecting: "Connecting",
+  // Held until the host says its ears are warm (`call.state` listening); talking before that is lost.
+  connecting: "Connecting…",
   listening: "Listening",
   hearing: "Hearing you",
   thinking: "Thinking",

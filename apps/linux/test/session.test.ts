@@ -1116,7 +1116,37 @@ describe("calls", () => {
     observe(): void {
       // Provider changes reach calls through the server, not the session.
     }
+    warms = 0;
+    warm(): void {
+      this.warms += 1;
+    }
   }
+
+  it("warms the speech models when a phone opens an assistant's thread", () => {
+    const calls = new FakeCalls();
+    const empty: AssistantSnapshot = { rev: 0, messages: [], busy: false, sessionId: "" };
+    const astra: AssistantThread = {
+      id: "astra",
+      title: "Astra",
+      snapshot: () => Promise.resolve(empty),
+      listing: () => Promise.resolve({ id: "astra", title: "Astra" }),
+      turn: () => Promise.resolve(),
+      say: () => Promise.resolve(),
+      signin: () => Promise.resolve(),
+    };
+    const assistant: AssistantRelaying = {
+      threads: [astra],
+      thread: (id) => (id === "astra" ? astra : undefined),
+      agents: () => Promise.resolve([]),
+      observe: () => undefined,
+    };
+    const h = harness({ calls, assistant });
+    pair(h);
+    h.session.receive({ t: "assistant.get", agent: "astra" });
+    expect(calls.warms).toBe(1);
+    h.session.receive({ t: "assistant.get", agent: "eva" });
+    expect(calls.warms).toBe(1);
+  });
 
   it("hands every call frame to the calls with this socket's sink, and hangs up when the socket goes", () => {
     const calls = new FakeCalls();
