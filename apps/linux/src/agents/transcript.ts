@@ -59,7 +59,7 @@ export function textOf(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
   const parts: string[] = [];
-  for (const part of content) {
+  for (const part of content as unknown[]) {
     if (typeof part === "object" && part !== null && "type" in part && part.type === "text" && "text" in part && typeof part.text === "string") {
       parts.push(part.text);
     }

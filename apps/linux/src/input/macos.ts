@@ -52,11 +52,12 @@ export class MacInputDevice implements EventPoster {
     this.library.symbols.relay_input_key(code, flags);
   }
 
-  async typeText(text: string): Promise<void> {
-    if (text.length === 0) return;
+  typeText(text: string): Promise<void> {
+    if (text.length === 0) return Promise.resolve();
     const units = new Uint16Array(text.length);
     for (let i = 0; i < text.length; i++) units[i] = text.charCodeAt(i);
     this.library.symbols.relay_input_text(ptr(units), units.length);
+    return Promise.resolve();
   }
 
   close(): void {
