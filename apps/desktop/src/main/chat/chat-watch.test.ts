@@ -44,8 +44,20 @@ describe('classify', () => {
 })
 
 describe('ChatWatch', () => {
+  it('watches every sessions dir it is given', async () => {
+    const other = path.join(dir, 'other')
+    fs.mkdirSync(other)
+    watch = new ChatWatch({ dirs: [path.join(dir, 'missing'), other] })
+    const got = collect(watch)
+    watch.start()
+    await ready()
+    fs.writeFileSync(path.join(other, 'b.jsonl'), '{}\n')
+    await until(() => got.batches.length > 0, 1500)
+    expect(got.batches.flat()).toContain(path.join(other, 'b.jsonl'))
+  })
+
   it('reports a new jsonl within the budget', async () => {
-    watch = new ChatWatch({ dir })
+    watch = new ChatWatch({ dirs: [dir] })
     const got = collect(watch)
     watch.start()
     await ready()
@@ -61,7 +73,7 @@ describe('ChatWatch', () => {
     fs.writeFileSync(file, '{}\n')
     const old = new Date(Date.now() - 3 * 3600_000)
     fs.utimesSync(file, old, old)
-    watch = new ChatWatch({ dir })
+    watch = new ChatWatch({ dirs: [dir] })
     const got = collect(watch)
     watch.start()
     await ready()
@@ -80,7 +92,7 @@ describe('ChatWatch', () => {
   it('reports a deleted file', async () => {
     const file = path.join(dir, 'gone.jsonl')
     fs.writeFileSync(file, '{}\n')
-    watch = new ChatWatch({ dir })
+    watch = new ChatWatch({ dirs: [dir] })
     const got = collect(watch)
     watch.start()
     await ready()
@@ -90,7 +102,7 @@ describe('ChatWatch', () => {
   })
 
   it('ignores other files and folds a burst into one batch', async () => {
-    watch = new ChatWatch({ dir })
+    watch = new ChatWatch({ dirs: [dir] })
     const got = collect(watch)
     watch.start()
     await ready()
@@ -104,7 +116,7 @@ describe('ChatWatch', () => {
 
   it('reports a subagent folder change', async () => {
     fs.mkdirSync(path.join(dir, 'sess'))
-    watch = new ChatWatch({ dir })
+    watch = new ChatWatch({ dirs: [dir] })
     const got = collect(watch)
     watch.start()
     await ready()
@@ -114,7 +126,7 @@ describe('ChatWatch', () => {
   })
 
   it('stops everything on close', async () => {
-    watch = new ChatWatch({ dir })
+    watch = new ChatWatch({ dirs: [dir] })
     const got = collect(watch)
     watch.start()
     await ready()

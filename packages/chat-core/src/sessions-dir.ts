@@ -90,8 +90,45 @@ export function listSessionFiles(dir: string, limit = 50): SessionFile[] {
     })
 }
 
-/** Port of Rust `omp_sessions_dir`: the `sessions/*` dir whose newest file records the Eva root as cwd. */
-export function resolveLiveSessionsDir(evaRoot: string, agentDir: string): string | null {
+/**
+ * Every omp store under the omp home (native chat.rs omp_agent_dirs_from): `defaultDir` first,
+ * then the Current one (`<home>/agent`) when `defaultDir` is a profile's, then each named
+ * profile's `<home>/profiles/<name>/agent`. A thread on another profile stays findable.
+ */
+export function ompAgentDirsFrom(defaultDir: string): string[] {
+  const dirs = [defaultDir]
+  let home = path.dirname(defaultDir)
+  const isDir = (p: string): boolean => {
+    try {
+      return fs.statSync(p).isDirectory()
+    } catch {
+      return false
+    }
+  }
+  const parent = path.dirname(home)
+  if (path.basename(parent) === 'profiles') {
+    home = path.dirname(parent)
+    const current = path.join(home, 'agent')
+    if (isDir(current)) dirs.push(current)
+  }
+  let names: string[] = []
+  try {
+    names = fs.readdirSync(path.join(home, 'profiles')).sort()
+  } catch {
+    // no profiles
+  }
+  for (const name of names) {
+    const dir = path.join(home, 'profiles', name, 'agent')
+    if (dir !== defaultDir && !dirs.includes(dir) && isDir(dir)) dirs.push(dir)
+  }
+  return dirs
+}
+
+/**
+ * The `sessions/*` dir of one omp store whose newest file records `root` as its cwd (native
+ * omp_sessions_dir_in), or null.
+ */
+export function ompSessionsDirIn(agentDir: string, root: string): string | null {
   const real = (p: string): string => {
     try {
       return fs.realpathSync(p)
@@ -99,7 +136,7 @@ export function resolveLiveSessionsDir(evaRoot: string, agentDir: string): strin
       return p
     }
   }
-  const root = real(evaRoot)
+  const want = real(root)
   const base = path.join(agentDir, 'sessions')
   let entries: string[]
   try {
@@ -112,7 +149,14 @@ export function resolveLiveSessionsDir(evaRoot: string, agentDir: string): strin
     const newest = jsonlFiles(dir).sort((a, b) => b.mtimeMs - a.mtimeMs)[0]
     if (!newest) continue
     const cwd = readHeader(newest.file).cwd
-    if (cwd !== null && real(cwd) === root) return dir
+    if (cwd !== null && real(cwd) === want) return dir
   }
   return null
+}
+
+/** Every omp sessions dir for chats started in `root`, across all stores (native sessions_dirs). */
+export function sessionsDirs(root: string, defaultAgentDir: string): string[] {
+  return ompAgentDirsFrom(defaultAgentDir)
+    .map((agent) => ompSessionsDirIn(agent, root))
+    .filter((dir): dir is string => dir !== null)
 }

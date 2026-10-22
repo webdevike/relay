@@ -27,6 +27,17 @@ export const PromptImageSchema = z
   })
   .strict()
 
+/** Who a chat belongs to, from its first prompt (native chat.rs agent_for_prompt). */
+export const ChatAgentSchema = z.enum(['Eva', 'Eren', 'Elysia', 'Jobs'])
+export type ChatAgent = z.infer<typeof ChatAgentSchema>
+
+/** The work a chat is on: a work-item key, the checkout's branch, and the ledger's PR number. */
+export const ChatWorkSchema = z.object({
+  key: z.string().nullable(),
+  branch: z.string().nullable(),
+  pr: z.number().int().positive().nullable(),
+})
+
 export const ChatRowSchema = z.object({
   id: z.string(),
   file: z.string(),
@@ -36,12 +47,33 @@ export const ChatRowSchema = z.object({
   pinned: z.boolean(),
   running: z.boolean(),
   status: ChatStatusSchema.nullable(),
+  agent: ChatAgentSchema,
+  /** Workspace from the paths the session's tool calls touched (native worked_in), or null. */
+  workedIn: z.string().nullable(),
+  work: ChatWorkSchema.nullable(),
+  /** Last model the session used, for the hover card. */
+  model: z.string().nullable(),
+  /** Open background jobs (native "Monitoring" when > 0). */
+  jobs: z.number().int().nonnegative(),
+  /** The last reply stopped on an error or abort. */
+  failed: z.boolean(),
+  /** Native return time (order.rs): the latest idle/blocked/ended transition, else creation. */
+  returnedMs: z.number(),
+  openedMs: z.number().nullable(),
+  /** When Isaac last unsettled it. */
+  keptMs: z.number().nullable(),
+  snoozedUntilMs: z.number().nullable(),
+  /** Set when a snooze ran out and the chat has not been opened since. */
+  wokeMs: z.number().nullable(),
+  /** Start of the current run while working, for "Working 16s". */
+  startedMs: z.number().nullable(),
 })
 export const ChatPrefsSchema = z.object({
   chat_categories: z.array(z.string()),
   chat_group_order: z.array(z.string()),
   chat_assignments: z.record(SessionIdSchema, z.string().max(120)),
   collapsed_groups: z.array(z.string()),
+  chat_agent: ChatAgentSchema,
 })
 export const ChatListSchema = z.object({
   rows: z.array(ChatRowSchema),
@@ -195,6 +227,18 @@ export const chatInvoke = {
   'chat.pin': {
     input: z.object({ id: SessionIdSchema, pinned: z.boolean() }).strict(),
     output: z.object({ pins: z.array(SessionIdSchema) }),
+  },
+  'chat.setAgent': {
+    input: z.object({ agent: ChatAgentSchema }).strict(),
+    output: z.object({ saved: z.literal(true) }),
+  },
+  'chat.markRead': {
+    input: z.object({ id: SessionIdSchema }).strict(),
+    output: z.object({ saved: z.literal(true) }),
+  },
+  'chat.snooze': {
+    input: z.object({ id: SessionIdSchema, untilMs: z.number().int().positive().nullable() }).strict(),
+    output: z.object({ saved: z.literal(true) }),
   },
   'chat.rename': {
     input: z.object({ file: AbsPathSchema, name: z.string().trim().min(1).max(200) }).strict(),

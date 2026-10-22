@@ -1,11 +1,10 @@
 import { useStore } from 'zustand'
 import { createStore } from 'zustand/vanilla'
 import { Categories } from '@evaos/chat-core/categories'
-import { groupChats } from '@evaos/chat-core/chat-groups'
-import type { ChatList, ChatRow } from '@evaos/contract'
+import type { ChatAgent, ChatList, ChatRow } from '@evaos/contract'
 import { notifications } from '@mantine/notifications'
 import { invoke, on } from '../../ipc'
-import { showArchivedToast } from './archive-toast'
+import { showSettledToast } from './settle-toast'
 
 export const LIST_LOAD_ERROR =
   'Could not read your chats. Check that the sessions folder exists, then reload.'
@@ -15,17 +14,21 @@ export interface ListState {
   /** Row ids whose title, status or mtime just changed; cleared after HIGHLIGHT_MS. */
   changed: Set<string>
   error: string | null
-  /** Groups showing every chat instead of five (`Show N more`). */
+  /** Folders showing every chat instead of ten (`Show N more`); in memory only, as native. */
   expanded: Set<string>
   /** Collapsed groups; seeded from chat.json on the first list, toggled locally after. */
   collapsed: Set<string>
   load(): Promise<void>
   setList(l: ChatList): void
   toggleExpanded(group: string): void
-  /** The `Archived (n)` section at the bottom of the list, when not searching. */
-  showArchived: boolean
+  /** The `Snoozed (n)` and `Settled (n)` folds at the bottom; closed by default. */
+  showSnoozed: boolean
+  showSettled: boolean
   toggleCollapsed(group: string): Promise<void>
-  toggleArchived(): void
+  toggleSnoozed(): void
+  toggleSettled(): void
+  /** Lists only this agent's chats; saved in chat.json `chat_agent`. */
+  setAgent(agent: ChatAgent): Promise<void>
   /** Row menu: one instance for the whole list, anchored at a viewport point. */
   menu: { id: string; x: number; y: number } | null
   /** The chat being renamed inline, and whether its commit is in flight. */
@@ -42,13 +45,17 @@ export interface ListState {
   commitRename(row: ChatRow, name: string): Promise<void>
   setDeleting(row: ChatRow | null): void
   pin(id: string, pinned: boolean): Promise<void>
-  archive(id: string, archived: boolean): Promise<void>
+  /** Settle (archive) or Unsettle; unsettling also keeps it listed from now (native `kept`). */
+  settle(id: string, settled: boolean): Promise<void>
+  /** Snooze until a time, or Unsnooze with null. */
+  snooze(id: string, untilMs: number | null): Promise<void>
+  /** The chat was shown: read since it returned, and no longer woke. */
+  markRead(id: string): Promise<void>
   /** Category edits: each returns the Rust error string when the op is rejected, else null. */
   createCategory(name: string): Promise<string | null>
   renameCategory(from: string, to: string): Promise<string | null>
   deleteCategory(name: string): Promise<string | null>
   moveChat(id: string, group: string | null): Promise<string | null>
-  reorderGroups(moving: string, target: string): Promise<string | null>
   /** The delete-category dialog and the category being renamed inline. */
   deletingCategory: string | null
   renamingCategory: string | null
@@ -58,19 +65,30 @@ export interface ListState {
 
 export const CATEGORY_FAILED = 'Could not save your categories. Try again.'
 
-export const ARCHIVE_FAILED = 'Could not archive this chat. Try again.'
+export const SETTLE_FAILED = 'Could not settle this chat. Try again.'
+export const UNSETTLE_FAILED = 'Could not unsettle this chat. Try again.'
 export const PIN_FAILED = 'Could not change the pin. Try again.'
+export const SNOOZE_FAILED = 'Could not change the snooze. Try again.'
+export const AGENT_FAILED = 'Could not save the agent. Try again.'
 
 export const HIGHLIGHT_MS = 300
 
+const sameWork = (a: ChatRow['work'], b: ChatRow['work']): boolean =>
+  a === b || (a !== null && b !== null && a.key === b.key && a.branch === b.branch && a.pr === b.pr)
+
+/** Every field equal; `work` by value. */
 const sameRow = (a: ChatRow, b: ChatRow): boolean =>
-  a.file === b.file &&
-  a.title === b.title &&
-  a.status === b.status &&
-  a.mtimeMs === b.mtimeMs &&
-  a.archived === b.archived &&
-  a.pinned === b.pinned &&
-  a.running === b.running
+  (Object.keys(a) as (keyof ChatRow)[]).every((k) =>
+    k === 'work' ? sameWork(a.work, b.work) : a[k] === b[k],
+  )
+
+/** What the highlight flash marks: a new title, status or return. */
+const flashes = (a: ChatRow, b: ChatRow): boolean =>
+  a.title !== b.title || a.status !== b.status || a.returnedMs !== b.returnedMs
+
+const failed = (message: string): void => {
+  notifications.show({ color: 'red', message, autoClose: 6000 })
+}
 
 let highlightTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -86,7 +104,8 @@ export const listStore = createStore<ListState>((set, get) => ({
   error: null,
   expanded: new Set(),
   collapsed: new Set(),
-  showArchived: false,
+  showSnoozed: false,
+  showSettled: false,
   menu: null,
   renaming: null,
   renamePending: false,
@@ -111,7 +130,7 @@ export const listStore = createStore<ListState>((set, get) => ({
     const rows = l.rows.map((r) => {
       const old = before.get(r.id)
       if (old && sameRow(old, r)) return old
-      if (prev !== null) changed.add(r.id)
+      if (prev !== null && (!old || flashes(old, r))) changed.add(r.id)
       return r
     })
     set((s) => ({
@@ -138,7 +157,21 @@ export const listStore = createStore<ListState>((set, get) => ({
     // Roll back only if nothing else changed the set meanwhile.
     if (!r.ok && get().collapsed === next) set({ collapsed: before })
   },
-  toggleArchived: () => set((s) => ({ showArchived: !s.showArchived })),
+  toggleSnoozed: () => set((s) => ({ showSnoozed: !s.showSnoozed })),
+  toggleSettled: () => set((s) => ({ showSettled: !s.showSettled })),
+  async setAgent(agent) {
+    const list = get().list
+    if (!list || list.prefs.chat_agent === agent) return
+    const before = list.prefs
+    const next = { ...before, chat_agent: agent }
+    set({ list: { ...list, prefs: next } })
+    const r = await invoke('chat.setAgent', { agent })
+    if (!r.ok) {
+      const cur = get().list
+      if (cur && cur.prefs === next) set({ list: { ...cur, prefs: before } })
+      failed(AGENT_FAILED)
+    }
+  },
   openMenu: (id, x, y) => set({ menu: { id, x, y }, rowError: null }),
   closeMenu: () => set({ menu: null }),
   startRename: (id) => set({ renaming: id, renamePending: false, rowError: null, menu: null }),
@@ -161,17 +194,34 @@ export const listStore = createStore<ListState>((set, get) => ({
   setDeleting: (row) => set({ deleting: row, menu: null }),
   async pin(id, pinned) {
     const r = await invoke('chat.pin', { id, pinned })
-    if (!r.ok) notifications.show({ color: 'red', message: PIN_FAILED, autoClose: 6000 })
+    if (!r.ok) failed(PIN_FAILED)
   },
-  async archive(id, archived) {
-    patchRow(set, get, id, { archived })
-    const r = await invoke('chat.archive', { id, archived })
+  async settle(id, settled) {
+    const row = get().list?.rows.find((r) => r.id === id)
+    if (!row) return
+    patchRow(set, get, id, settled ? { archived: true } : { archived: false, keptMs: Date.now() })
+    const r = await invoke('chat.archive', { id, archived: settled })
     if (!r.ok) {
-      patchRow(set, get, id, { archived: !archived })
-      notifications.show({ color: 'red', message: ARCHIVE_FAILED, autoClose: 6000 })
+      patchRow(set, get, id, { archived: row.archived, keptMs: row.keptMs })
+      failed(settled ? SETTLE_FAILED : UNSETTLE_FAILED)
       return
     }
-    if (archived) showArchivedToast(() => void get().archive(id, false))
+    if (settled) showSettledToast(() => void get().settle(id, false))
+  },
+  async snooze(id, untilMs) {
+    const row = get().list?.rows.find((r) => r.id === id)
+    if (!row) return
+    patchRow(set, get, id, { snoozedUntilMs: untilMs })
+    const r = await invoke('chat.snooze', { id, untilMs })
+    if (!r.ok) {
+      patchRow(set, get, id, { snoozedUntilMs: row.snoozedUntilMs })
+      failed(SNOOZE_FAILED)
+    }
+  },
+  async markRead(id) {
+    patchRow(set, get, id, { openedMs: Date.now(), wokeMs: null })
+    // A failed save only leaves the chat unread until the next list push.
+    await invoke('chat.markRead', { id })
   },
   setDeletingCategory: (name) => set({ deletingCategory: name, menu: null }),
   setRenamingCategory: (name) => set({ renamingCategory: name }),
@@ -187,19 +237,9 @@ export const listStore = createStore<ListState>((set, get) => ({
       c.assign(id, group)
       return { ok: true }
     }),
-  reorderGroups: (moving, target) =>
-    editCategories(set, get, (c, l) => {
-      const shown = groupChats(l.rows, c, {
-        query: '',
-        collapsed: new Set(),
-        expanded: new Set(),
-      }).groups.map((g) => g.name)
-      c.reorder(shown, moving, target)
-      return { ok: true }
-    }),
 }))
 
-type Edit = (c: Categories, list: ChatList) => { ok: true } | { ok: false; error: string }
+type Edit = (c: Categories) => { ok: true } | { ok: false; error: string }
 
 /**
  * Applies one Categories op to a copy of the prefs, shows it at once, then saves the three keys in
@@ -213,7 +253,7 @@ async function editCategories(
   const list = get().list
   if (!list) return null
   const cats = Categories.fromPrefs(list.prefs)
-  const res = edit(cats, list)
+  const res = edit(cats)
   if (!res.ok) return res.error
   const next = { ...list.prefs, ...cats.toPrefs() }
   set({ list: { ...list, prefs: next } })
@@ -257,7 +297,8 @@ export function resetListForTests(): void {
     error: null,
     expanded: new Set(),
     collapsed: new Set(),
-    showArchived: false,
+    showSnoozed: false,
+    showSettled: false,
     menu: null,
     renaming: null,
     renamePending: false,

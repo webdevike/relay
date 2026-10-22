@@ -4,7 +4,8 @@ import { watch, type FSWatcher } from 'chokidar'
 import { RECENTLY_ACTIVE_MS } from '@evaos/chat-core/chat-groups'
 
 export interface ChatWatchOptions {
-  dir: string
+  /** Sessions dirs to watch (the chat list spans several omp stores). */
+  dirs: readonly string[]
   debounceMs?: number
   /** Stat poll period for recently active or live files. */
   pollMs?: number
@@ -74,15 +75,17 @@ export class ChatWatch {
   start(): void {
     if (this.watcher || this.closed) return
     this.snapshot()
-    const watcher = watch(this.o.dir, {
+    const watcher = watch([...this.o.dirs], {
       ignoreInitial: true,
       depth: 1,
       awaitWriteFinish: false,
       followSymlinks: false,
     })
     const hit = (p: string): void => {
-      const target = classify(this.o.dir, p)
-      if (target !== null) this.mark(target)
+      for (const dir of this.o.dirs) {
+        const target = classify(dir, p)
+        if (target !== null) return this.mark(target)
+      }
     }
     watcher.on('add', hit).on('change', hit).on('unlink', hit)
     watcher.on('addDir', hit).on('unlinkDir', hit)
@@ -124,17 +127,21 @@ export class ChatWatch {
     }, this.debounceMs)
   }
 
-  private names(): string[] {
-    try {
-      return fs.readdirSync(this.o.dir).filter((n) => n.endsWith('.jsonl'))
-    } catch {
-      return []
+  /** Every session file directly in the dirs. */
+  private files(): string[] {
+    const out: string[] = []
+    for (const dir of this.o.dirs) {
+      try {
+        for (const n of fs.readdirSync(dir)) if (n.endsWith('.jsonl')) out.push(path.join(dir, n))
+      } catch {
+        // a missing store: nothing to watch yet
+      }
     }
+    return out
   }
 
   private snapshot(): void {
-    for (const n of this.names()) {
-      const f = path.join(this.o.dir, n)
+    for (const f of this.files()) {
       const st = this.statOf(f)
       if (st) this.stamps.set(f, st)
     }
@@ -168,8 +175,7 @@ export class ChatWatch {
     }
     if (all) {
       const present = new Set<string>()
-      for (const n of this.names()) {
-        const f = path.join(this.o.dir, n)
+      for (const f of this.files()) {
         present.add(f)
         check(f)
       }

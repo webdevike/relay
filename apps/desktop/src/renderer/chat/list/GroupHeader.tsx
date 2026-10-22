@@ -1,18 +1,23 @@
-import { useDraggable, useDroppable } from '@dnd-kit/core'
-import { ActionIcon } from '@mantine/core'
-import { IconChevronRight, IconDots, IconFolder, IconGripVertical } from '@tabler/icons-react'
+import { useDroppable } from '@dnd-kit/core'
+import { Accordion, ActionIcon } from '@mantine/core'
+import { IconDots } from '@tabler/icons-react'
 import type { KeyboardEvent } from 'react'
 import { CategoryInput } from './CategoryInput'
+import type { LookStatus } from './look'
+import { ProjectBadge } from './ProjectBadge'
+import { StatusIcon } from './StatusIcon'
 
 export interface GroupHeaderProps {
   name: string
-  total: number
-  runningCount: number
-  collapsed: boolean
-  onToggle: () => void
-  /** A user-made category: shows the grip and the header menu. */
+  count: number
+  /**
+   * The most urgent status among the folder's chats (native look::hint), shown open or collapsed
+   * so a collapsed folder still says that something in it runs.
+   */
+  hint: LookStatus | null
+  /** A user-made category: has the header menu (Rename, Delete). */
   custom?: boolean
-  /** A drag is hovering this header: draws the drop indicator. */
+  /** A dragged chat is over this header: draws the drop indicator. */
   dropTarget?: boolean
   onMenu?: (name: string, x: number, y: number) => void
   /** The name is an inline input. */
@@ -21,12 +26,15 @@ export interface GroupHeaderProps {
   onCancelRename?: () => void
 }
 
+/**
+ * A workspace folder's header (native look_list): the Accordion.Control of the folder's item, so
+ * it carries aria-expanded and aria-controls for its panel. Chevron, badge, name, count, status
+ * hint; custom categories add a `...` menu beside the control. Must render inside Accordion.Item.
+ */
 export function GroupHeader({
   name,
-  total,
-  runningCount,
-  collapsed,
-  onToggle,
+  count,
+  hint,
   custom,
   dropTarget,
   onMenu,
@@ -34,16 +42,11 @@ export function GroupHeader({
   onRename,
   onCancelRename,
 }: GroupHeaderProps) {
-  const drag = useDraggable({
-    id: `group:${name}`,
-    data: { type: 'group', name },
-    disabled: renaming,
-  })
   const drop = useDroppable({ id: `group:${name}`, data: { type: 'group', name } })
 
   if (renaming) {
     return (
-      <div className="eva-cl-grouprow">
+      <div className="eva-cl-grouprow" data-renaming="true">
         <CategoryInput
           initial={name}
           onSubmit={(to) => onRename?.(name, to) ?? Promise.resolve(null)}
@@ -53,12 +56,13 @@ export function GroupHeader({
     )
   }
 
+  const menu = custom === true && onMenu !== undefined
   const openAtRect = (el: HTMLElement): void => {
     const r = el.getBoundingClientRect()
     onMenu?.(name, r.left, r.bottom)
   }
   const onKeyDown = (e: KeyboardEvent<HTMLElement>): void => {
-    if (custom && ((e.shiftKey && e.key === 'F10') || e.key === 'ContextMenu')) {
+    if (menu && ((e.shiftKey && e.key === 'F10') || e.key === 'ContextMenu')) {
       e.preventDefault()
       const el = e.currentTarget
       setTimeout(() => openAtRect(el), 0)
@@ -67,53 +71,28 @@ export function GroupHeader({
 
   return (
     <div
-      ref={(el) => {
-        drop.setNodeRef(el)
-      }}
+      ref={drop.setNodeRef}
       className="eva-cl-grouprow"
       data-drop={dropTarget ? 'true' : undefined}
-      data-dragging={drag.isDragging ? 'true' : undefined}
-      style={
-        drag.transform
-          ? { transform: `translate3d(${drag.transform.x}px, ${drag.transform.y}px, 0)` }
-          : undefined
-      }
+      data-menu={menu ? 'true' : undefined}
     >
-      <button
-        ref={drag.setNodeRef}
-        {...drag.attributes}
-        type="button"
+      <Accordion.Control
         className="eva-cl-group"
         data-testid={`chat-group-${name}`}
-        aria-expanded={!collapsed}
-        onClick={onToggle}
-        {...drag.listeners}
-        onKeyDown={(e) => {
-          drag.listeners?.onKeyDown?.(e)
-          onKeyDown(e)
-        }}
+        onKeyDown={onKeyDown}
         onContextMenu={(e) => {
-          if (!custom || !onMenu) return
+          if (!menu) return
           e.preventDefault()
           onMenu(name, e.clientX, e.clientY)
         }}
       >
-        {custom ? (
-          <IconGripVertical size={14} stroke={1.5} aria-hidden className="eva-cl-grip" />
-        ) : null}
-        <IconChevronRight
-          size={14}
-          stroke={1.5}
-          aria-hidden
-          className="eva-cl-chev"
-          style={{ transform: collapsed ? undefined : 'rotate(90deg)' }}
-        />
-        <IconFolder size={16} stroke={1.5} aria-hidden />
+        <ProjectBadge name={name} size="md" />
         <span className="eva-cl-group-name">{name}</span>
-        <span className="eva-cl-badge">{total}</span>
-        {runningCount > 0 ? <span className="eva-cl-running">{runningCount} running</span> : null}
-      </button>
-      {custom && onMenu ? (
+        <span className="eva-cl-count">{count}</span>
+        <span className="eva-cl-spacer" />
+        {hint !== null ? <StatusIcon status={hint} /> : null}
+      </Accordion.Control>
+      {menu ? (
         <ActionIcon
           variant="subtle"
           size={24}
@@ -124,7 +103,7 @@ export function GroupHeader({
           onClick={(e) => openAtRect(e.currentTarget)}
           onKeyDown={onKeyDown}
         >
-          <IconDots size={16} stroke={1.5} />
+          <IconDots size={14} stroke={1.5} />
         </ActionIcon>
       ) : null}
     </div>

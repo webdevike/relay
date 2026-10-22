@@ -19,7 +19,7 @@ const test = base.extend({
 const sel = (id: string): string => `[data-testid="${id}"]`
 const openChats = async (shell: Page): Promise<void> => {
   await shell.locator(sel('nav-chat')).click()
-  await shell.waitForSelector('[role=tree]')
+  await shell.waitForSelector('[data-testid=chat-tree]')
 }
 
 /** Resolves with the page-side Date.now() at which the selector first matched (polled every 25 ms). */
@@ -66,12 +66,30 @@ test('new, appended and deleted session files update the list within 500 ms', as
   await appearedAt(shell, sel('chat-row-p4-copy0'), false)
 })
 
-test('background jobs show Job; owned sessions show Working then Open', async ({ app, shell }) => {
+test('a running chat with background jobs shows Monitoring; an owned run shows Working then idles', async ({
+  app,
+  shell,
+}) => {
+  // Its turn ends just now with a build still running: running, idle and holding a background
+  // job, so Monitoring.
+  await fx.append(
+    'p4-jobs',
+    JSON.stringify({
+      type: 'message',
+      id: 'a2',
+      parentId: 'd1',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Watching the build.' }],
+        stopReason: 'stop',
+      },
+    }),
+  )
   await openChats(shell)
-  // Groups show five rows; expand every one so the job chat is visible wherever it landed.
+  // Folders show ten rows; expand every one so the job chat is visible wherever it landed.
   for (const more of await shell.locator('[data-testid^="chat-show-more-"]').all())
     await more.click()
-  await expect(shell.locator(sel('chat-row-p4-jobs'))).toContainText('Job')
+  await expect(shell.locator(sel('chat-row-p4-jobs'))).toContainText('Monitoring')
 
   await shell.locator(sel('chat-row-p4-ecard')).click()
   await expect(shell.locator(sel('chat-log'))).toContainText('Hello from p4-ecard')
@@ -79,8 +97,10 @@ test('background jobs show Job; owned sessions show Working then Open', async ({
   await box.fill('[slow] hi')
   await box.press('Enter')
   const row = shell.locator(sel('chat-row-p4-ecard'))
-  await expect(row).toContainText('Working')
+  await expect(row).toContainText(/Working \d+s/)
   await proofShot(app, shell, 'chat-status', { phase: 'phase-4' })
   await expect(row).not.toContainText('Working', { timeout: 15_000 })
-  await expect(row.locator('.eva-cl-dot[data-status="open"]')).toHaveCount(1)
+  // Idle and shown, so read: no status pill, just its age.
+  await expect(row.locator('.eva-cl-pill')).toHaveCount(0)
+  await expect(row.locator('.eva-cl-age')).toHaveCount(1)
 })

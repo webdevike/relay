@@ -8,7 +8,6 @@ import {
 } from './index'
 import { ChatStatusSchema } from './chat'
 import { CHAT_STATUSES } from '@evaos/chat-core/status'
-import { defaultDoc, serializeThemeDoc } from '@evaos/theme-core'
 
 describe('contract', () => {
   it('lists app.info as an invoke channel', () => {
@@ -52,7 +51,7 @@ describe('contract', () => {
       'layout.load',
       'layout.save',
       'theme.load',
-      'theme.setAppearance',
+      'theme.save',
       'settings.load',
       'settings.save',
       'eva.sidebar',
@@ -73,14 +72,19 @@ describe('contract', () => {
     expect(i.safeParse({ color: '#181817' }).success).toBe(true)
   })
 
-  it('validates complete theme documents and preserves unknown fields at the IPC boundary', () => {
-    const input = invokeContract['theme.saveDoc'].input
-    const doc = { ...serializeThemeDoc(defaultDoc()), future: { enabled: true } }
-    expect(INVOKE_CHANNELS).toContain('theme.saveDoc')
-    expect(input.parse({ doc })).toEqual({ doc })
-    expect(input.safeParse({ doc, extra: true }).success).toBe(false)
-    for (const invalid of [undefined, {}, { ...doc, base: 'missing' }, { ...doc, shared: { 'font.size': -1 } }, { ...doc, dark: { edits: { highlight: { syntax: { keyword: { color: 'red' } } } } } }]) {
-      expect(input.safeParse({ doc: invalid }).success).toBe(false)
+  it('theme.save takes a config object and a preset name, nothing else', () => {
+    const input = invokeContract['theme.save'].input
+    const theme = { config: { primaryColor: 'teal', semantic: { light: {} } }, preset: 'custom' }
+    expect(input.parse(theme)).toEqual(theme)
+    expect(input.safeParse({ ...theme, extra: true }).success).toBe(false)
+    for (const invalid of [
+      {},
+      { config: theme.config },
+      { preset: 'default' },
+      { config: [], preset: 'x' },
+      { config: {}, preset: 1 },
+    ]) {
+      expect(input.safeParse(invalid).success).toBe(false)
     }
   })
 
@@ -358,6 +362,60 @@ describe('contract', () => {
       expect(
         invokeContract['chat.pin'].input.safeParse({ id: 'abc_1.2-3', pinned: true }).success,
       ).toBe(true)
+    })
+    it('chat list order and agent channels validate their inputs', () => {
+      for (const c of ['setAgent', 'markRead', 'snooze']) {
+        expect(INVOKE_CHANNELS).toContain(`chat.${c}`)
+      }
+      const agent = invokeContract['chat.setAgent'].input
+      expect(agent.safeParse({ agent: 'Elysia' }).success).toBe(true)
+      expect(agent.safeParse({ agent: 'Astra' }).success).toBe(false)
+      const snooze = invokeContract['chat.snooze'].input
+      expect(snooze.safeParse({ id: 'abc', untilMs: 1_800_000_000_000 }).success).toBe(true)
+      expect(snooze.safeParse({ id: 'abc', untilMs: null }).success).toBe(true)
+      expect(snooze.safeParse({ id: 'abc', untilMs: -1 }).success).toBe(false)
+      expect(snooze.safeParse({ id: '../x', untilMs: null }).success).toBe(false)
+      expect(invokeContract['chat.markRead'].input.safeParse({ id: '../x' }).success).toBe(false)
+    })
+    it('chat.list rows carry the native look facts', () => {
+      const row = {
+        id: 'a',
+        file: '/s/a.jsonl',
+        title: 'A',
+        mtimeMs: 1,
+        archived: false,
+        pinned: false,
+        running: true,
+        status: 'working',
+        agent: 'Eren',
+        workedIn: 'Relay',
+        work: { key: 'ENG-7', branch: 'feat/ENG-7-x', pr: 225 },
+        model: 'anthropic/claude-opus-5-5',
+        jobs: 0,
+        failed: false,
+        returnedMs: 1,
+        openedMs: null,
+        keptMs: null,
+        snoozedUntilMs: null,
+        wokeMs: null,
+        startedMs: 1,
+      }
+      const prefs = {
+        chat_categories: [],
+        chat_group_order: [],
+        chat_assignments: {},
+        collapsed_groups: [],
+        chat_agent: 'Eva',
+      }
+      const list = invokeContract['chat.list'].output
+      expect(list.safeParse({ rows: [row], prefs, error: null }).success).toBe(true)
+      expect(
+        list.safeParse({ rows: [{ ...row, agent: 'Nova' }], prefs, error: null }).success,
+      ).toBe(false)
+      expect(
+        list.safeParse({ rows: [{ ...row, work: { ...row.work, pr: 0 } }], prefs, error: null })
+          .success,
+      ).toBe(false)
     })
     it('launch patch strings cannot read as omp flags', () => {
       const r = invokeContract['chat.setLaunch'].input

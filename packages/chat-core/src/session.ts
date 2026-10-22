@@ -91,13 +91,16 @@ const imagesOf = (content: unknown): ChatImage[] =>
     .filter((p) => p.type === 'image')
     .map((p, n) => imageFrom(p, n))
 
-/** A prompt Isaac wrote: its text parts joined. Null for agent-authored and empty prompts. */
-function promptParts(message: Json): { text: string; images: ChatImage[] } | null {
+/**
+ * A prompt Isaac wrote, without decoding its images: the untagged text parts joined and how many
+ * images it carries. Null for agent-authored and empty prompts.
+ */
+export function promptText(message: Json): { text: string; images: number } | null {
   if (message.role !== 'user') return null
   if ((str(message.attribution) ?? 'user') !== 'user') return null
   const content = message.content
   let text: string
-  let images: ChatImage[] = []
+  let images = 0
   if (typeof content === 'string') {
     text = content
   } else {
@@ -107,10 +110,17 @@ function promptParts(message: Json): { text: string; images: ChatImage[] } | nul
       .map((p) => str(p.text))
       .filter((t): t is string => t !== undefined)
       .join('\n\n')
-    images = imagesOf(parts)
+    images = parts.filter((p) => p.type === 'image').length
   }
   text = untagged(text)
-  return text.trim() !== '' || images.length > 0 ? { text, images } : null
+  return text.trim() !== '' || images > 0 ? { text, images } : null
+}
+
+/** A prompt Isaac wrote: its text parts joined. Null for agent-authored and empty prompts. */
+function promptParts(message: Json): { text: string; images: ChatImage[] } | null {
+  const prompt = promptText(message)
+  if (prompt === null) return null
+  return { text: prompt.text, images: prompt.images > 0 ? imagesOf(message.content) : [] }
 }
 
 function textOf(content: unknown): string {

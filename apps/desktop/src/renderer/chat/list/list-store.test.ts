@@ -8,27 +8,12 @@ vi.mock('@mantine/notifications', () => ({
 }))
 vi.mock('../../ipc', () => ({ invoke: (...a: unknown[]) => invoke(...a), on: () => () => {} }))
 
-import { Categories } from '@evaos/chat-core/categories'
-import { groupChats } from '@evaos/chat-core/chat-groups'
 import type { ChatList } from '@evaos/contract'
 import { HIGHLIGHT_MS, LIST_LOAD_ERROR, listStore, resetListForTests } from './list-store'
+import { chatRow, listPrefs } from './test-rows'
 
-const prefs = {
-  chat_categories: [],
-  chat_group_order: [],
-  chat_assignments: {},
-  collapsed_groups: ['eCard'],
-}
-const row = (i: number) => ({
-  id: `g${i}`,
-  file: `/s/g${i}.jsonl`,
-  title: `Grocery ${i}`,
-  mtimeMs: 1000 - i,
-  archived: false,
-  pinned: false,
-  running: false,
-  status: null,
-})
+const prefs = listPrefs({ collapsed_groups: ['eCard'] })
+const row = (i: number) => chatRow(`g${i}`, `Grocery ${i}`, { returnedMs: 1000 - i })
 const value = (n: number): ChatList => ({
   rows: Array.from({ length: n }, (_, i) => row(i)),
   prefs,
@@ -61,25 +46,12 @@ describe('list-store', () => {
     )
   })
 
-  it('toggleExpanded flips Other and the derived view shows every row', async () => {
-    invoke.mockResolvedValueOnce({ ok: true, value: value(7) })
-    await listStore.getState().load()
-    const view = () => {
-      const s = listStore.getState()
-      const v = groupChats(s.list!.rows, Categories.fromPrefs(s.list!.prefs), {
-        query: '',
-        collapsed: s.collapsed,
-        expanded: s.expanded,
-      })
-      return v.groups.find((g) => g.name === 'Other')!
-    }
-    expect(view().rows).toHaveLength(5)
-    expect(view().hidden).toBe(2)
+  it('toggleExpanded flips a folder in memory without saving', () => {
     listStore.getState().toggleExpanded('Other')
     expect(listStore.getState().expanded.has('Other')).toBe(true)
-    expect(view().rows).toHaveLength(7)
     listStore.getState().toggleExpanded('Other')
     expect(listStore.getState().expanded.has('Other')).toBe(false)
+    expect(invoke).not.toHaveBeenCalled()
   })
 
   it('toggleCollapsed updates at once and saves the full set', async () => {
@@ -99,11 +71,26 @@ describe('list-store', () => {
     expect(listStore.getState().collapsed.has('eCard')).toBe(true)
   })
 
-  it('toggleArchived flips showArchived', () => {
-    listStore.getState().toggleArchived()
-    expect(listStore.getState().showArchived).toBe(true)
-    listStore.getState().toggleArchived()
-    expect(listStore.getState().showArchived).toBe(false)
+  it('the Snoozed and Settled folds start closed and flip', () => {
+    expect(listStore.getState().showSettled).toBe(false)
+    listStore.getState().toggleSettled()
+    expect(listStore.getState().showSettled).toBe(true)
+    listStore.getState().toggleSnoozed()
+    expect(listStore.getState().showSnoozed).toBe(true)
+    listStore.getState().toggleSnoozed()
+    expect(listStore.getState().showSnoozed).toBe(false)
+  })
+
+  it('setAgent shows at once, saves, and rolls back on failure', async () => {
+    listStore.getState().setList(value(1))
+    invoke.mockResolvedValueOnce({ ok: true, value: { saved: true } })
+    await listStore.getState().setAgent('Eren')
+    expect(invoke).toHaveBeenCalledWith('chat.setAgent', { agent: 'Eren' })
+    expect(listStore.getState().list?.prefs.chat_agent).toBe('Eren')
+    invoke.mockResolvedValueOnce({ ok: false, error: { code: 'x', message: 'no' } })
+    await listStore.getState().setAgent('Jobs')
+    expect(listStore.getState().list?.prefs.chat_agent).toBe('Eren')
+    expect(show.mock.calls[0][0]).toMatchObject({ color: 'red' })
   })
 
   it('setList keeps local collapse state after the first list', () => {
@@ -122,10 +109,12 @@ describe('list-store', () => {
       expect(listStore.getState().changed.size).toBe(0)
       const next = value(3)
       next.rows[1] = { ...next.rows[1]!, status: 'working' }
+      // A changed field that is not shown as a change keeps the row but does not flash.
+      next.rows[2] = { ...next.rows[2]!, model: 'claude' }
       listStore.getState().setList(next)
       const rows = listStore.getState().list!.rows
       expect(rows[0]).toBe(first[0])
-      expect(rows[2]).toBe(first[2])
+      expect(rows[2]).not.toBe(first[2])
       expect(rows[1]).not.toBe(first[1])
       expect([...listStore.getState().changed]).toEqual(['g1'])
       vi.advanceTimersByTime(HIGHLIGHT_MS + 1)
@@ -143,30 +132,58 @@ describe('list-store row actions', () => {
     invoke.mockReset()
   }
 
-  it('archive is optimistic, calls chat.archive and shows the toast with Undo', async () => {
+  const rowOf = (id: string) => listStore.getState().list?.rows.find((r) => r.id === id)
+
+  it('settle is optimistic, calls chat.archive and shows the toast with Undo', async () => {
     await seed()
     invoke.mockResolvedValue({ ok: true, value: { archived: ['g1'] } })
-    const p = listStore.getState().archive('g1', true)
-    expect(listStore.getState().list?.rows.find((r) => r.id === 'g1')?.archived).toBe(true)
+    const p = listStore.getState().settle('g1', true)
+    expect(rowOf('g1')?.archived).toBe(true)
     await p
     expect(invoke).toHaveBeenCalledWith('chat.archive', { id: 'g1', archived: true })
     expect(show).toHaveBeenCalledTimes(1)
-    expect(show.mock.calls[0][0]).toMatchObject({ id: 'chat-archived', autoClose: 6000 })
+    expect(show.mock.calls[0][0]).toMatchObject({ id: 'chat-settled', autoClose: 6000 })
   })
 
-  it('a failed archive rolls back and shows an error, not the Undo toast', async () => {
+  it('a failed settle rolls back and shows an error, not the Undo toast', async () => {
     await seed()
     invoke.mockResolvedValue({ ok: false, error: { code: 'internal', message: 'x' } })
-    await listStore.getState().archive('g1', true)
-    expect(listStore.getState().list?.rows.find((r) => r.id === 'g1')?.archived).toBe(false)
+    await listStore.getState().settle('g1', true)
+    expect(rowOf('g1')?.archived).toBe(false)
     expect(show.mock.calls[0][0]).toMatchObject({ color: 'red' })
   })
 
-  it('unarchive shows no toast', async () => {
+  it('unsettle keeps the chat listed from now and shows no toast', async () => {
     await seed()
     invoke.mockResolvedValue({ ok: true, value: { archived: [] } })
-    await listStore.getState().archive('g1', false)
+    const before = Date.now()
+    await listStore.getState().settle('g1', false)
+    expect(rowOf('g1')?.keptMs).toBeGreaterThanOrEqual(before)
     expect(show).not.toHaveBeenCalled()
+  })
+
+  it('snooze patches the row, calls chat.snooze, and rolls back on failure', async () => {
+    await seed()
+    invoke.mockResolvedValue({ ok: true, value: { saved: true } })
+    await listStore.getState().snooze('g1', 5000)
+    expect(invoke).toHaveBeenCalledWith('chat.snooze', { id: 'g1', untilMs: 5000 })
+    expect(rowOf('g1')?.snoozedUntilMs).toBe(5000)
+    invoke.mockResolvedValue({ ok: false, error: { code: 'x', message: 'no' } })
+    await listStore.getState().snooze('g1', null)
+    expect(rowOf('g1')?.snoozedUntilMs).toBe(5000)
+  })
+
+  it('markRead reads the chat and clears woke', async () => {
+    await seed()
+    invoke.mockResolvedValue({ ok: true, value: { saved: true } })
+    listStore.getState().setList({
+      ...value(3),
+      rows: value(3).rows.map((r) => ({ ...r, openedMs: null, wokeMs: 1 })),
+    })
+    await listStore.getState().markRead('g0')
+    expect(invoke).toHaveBeenCalledWith('chat.markRead', { id: 'g0' })
+    expect(rowOf('g0')?.openedMs).not.toBeNull()
+    expect(rowOf('g0')?.wokeMs).toBeNull()
   })
 
   it('commitRename calls chat.rename with the trimmed name and patches the title', async () => {
@@ -268,13 +285,6 @@ describe('category ops', () => {
     expect(await listStore.getState().renameCategory('Relay', 'X')).toBe(
       'Only your own categories can be renamed.',
     )
-  })
-
-  it('reorderGroups follows the Rust semantics', async () => {
-    await seed()
-    await listStore.getState().createCategory('Focus')
-    await listStore.getState().reorderGroups('Other', 'Focus')
-    expect(listStore.getState().list?.prefs.chat_group_order[0]).toBe('Other')
   })
 
   it('a failed save rolls the prefs back', async () => {

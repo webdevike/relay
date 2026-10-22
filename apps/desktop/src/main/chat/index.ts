@@ -1,7 +1,12 @@
+import * as os from 'node:os'
 import type { MainContext } from '../context'
 import { emit } from '../ipc/handle'
+import { startRelay } from '../relay'
+import { awaySignature } from '../relay/away'
 import type { WriteQueue } from '../write-queue'
-import { ChatListService } from './chat-list'
+import { AUTO_SETTLE_DAYS } from './chat-order'
+import { ChatListService, chatSessionsDirs } from './chat-list'
+import { importNativeChatState, nativeConfigDir } from './native-import'
 import { ChatWatch } from './chat-watch'
 import { ExtrasService } from './extras'
 import { registerChatListIpc } from './chat-list-ipc'
@@ -17,9 +22,12 @@ const STATUS_COALESCE_MS = 30
 
 export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
   const manager = createSessionManager(ctx)
+  // Resolved once at launch: every omp store's sessions dir for the Eva root (fixture dir when not live).
+  const sessionsDirs = chatSessionsDirs(ctx.env)
   const extras = new ExtrasService({ manager, emit: (e) => emit(ctx, 'chat.extras', e) })
   registerTranscriptIpc(
     ctx,
+    sessionsDirs,
     (paneId, file, parsed) => {
       manager.open(paneId, file, parsed.messages, parsed.meta)
       // The event reaches the renderer before this invoke resolves; the store carries it over.
@@ -29,18 +37,26 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     (file) => manager.ownerOf(file),
   )
   registerLiveIpc(ctx, manager)
+  // Before the list loads its order: a fresh live config starts from the native app's history.
+  if (ctx.env.live) importNativeChatState(ctx.config, nativeConfigDir())
+  const relay = startRelay(ctx)
   const list = new ChatListService({
-    sessionsDir: ctx.env.sessionsDir,
+    sessionsDirs,
     agentDir: ctx.env.agentDir,
+    evaRoot: ctx.env.evaRoot,
     config: ctx.config,
+    // Fixture sessions are days old; auto-settle would move them all under Settled in dev and e2e.
+    autoSettleDays: ctx.env.live ? AUTO_SETTLE_DAYS : null,
+    home: os.homedir(),
     liveFiles: () => manager.liveFiles(),
     liveStatus: (file) => manager.liveStatus(file),
+    relay: () => relay.sessions(),
   })
   const emitList = (): void => emit(ctx, 'chat.listChanged', list.list())
-  registerChatListIpc(ctx, queue, list, manager, emitList)
+  registerChatListIpc(ctx, queue, list, manager, sessionsDirs, emitList)
 
   const watch = new ChatWatch({
-    dir: ctx.env.sessionsDir,
+    dirs: sessionsDirs,
     isLive: (f) => manager.liveFiles().has(f),
   })
   watch.onChange((files) => {
@@ -48,21 +64,33 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     emitList()
     extras.onFilesChanged(files)
   })
-  // The app's own sessions change status without any file change.
-  let statusTimer: NodeJS.Timeout | null = null
-  const offStatus = manager.onStatusChange(() => {
-    extras.refresh()
+  // The app's own sessions and Relay's change status without any file change.
+  let statusTimer: NodeJS.Timeout | undefined
+  const scheduleList = (): void => {
     if (statusTimer) return
     statusTimer = setTimeout(() => {
-      statusTimer = null
+      statusTimer = undefined
       emitList()
     }, STATUS_COALESCE_MS)
+  }
+  const offStatus = manager.onStatusChange(() => {
+    extras.refresh()
+    scheduleList()
+  })
+  // Relay sends a delta on every bit of activity; only a change the list shows pushes a new one.
+  let relaySeen = awaySignature(relay.sessions())
+  const offRelay = relay.onChange(() => {
+    const next = awaySignature(relay.sessions())
+    if (next === relaySeen) return
+    relaySeen = next
+    scheduleList()
   })
   watch.start()
 
   ctx.onBeforeQuit(async () => {
     offStatus()
-    if (statusTimer) clearTimeout(statusTimer)
+    offRelay()
+    clearTimeout(statusTimer)
     await watch.close()
   })
   // Quit ends stdin on every omp this app started and waits; it never signals (D-17).

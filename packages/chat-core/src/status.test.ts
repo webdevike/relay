@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { CHAT_STATUSES, STATUS_LABEL, rowStatus } from './status'
 
-const base = { owned: false, working: false, dialog: null, jobs: 0 } as const
+const base = { owned: false, working: false, dialog: null, jobs: 0, job: false } as const
 
 describe('status', () => {
   it('labels are the Rust words sentence-cased with no em dash', () => {
@@ -23,5 +23,9 @@ describe('status', () => {
     expect(rowStatus({ ...base, owned: true, jobs: 2 })).toBe('job')
     expect(rowStatus({ ...base, owned: true })).toBe('open')
     expect(rowStatus(base)).toBeNull()
+    // A Relay job: an approval or a reply still wins.
+    expect(rowStatus({ ...base, job: true })).toBe('job')
+    expect(rowStatus({ ...base, job: true, working: true })).toBe('working')
+    expect(rowStatus({ ...base, job: true, dialog: 'confirm' })).toBe('needs-approval')
   })
 })

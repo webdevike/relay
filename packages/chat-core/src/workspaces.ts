@@ -40,3 +40,51 @@ export function workspaceOf(title: string): string {
 export function workspaceNames(): string[] {
   return [...WORKSPACES.map(([name]) => name), OTHER_WORKSPACE]
 }
+
+/**
+ * Tool-call paths that name the project a chat worked in when its title does not. More specific
+ * projects precede Eva, whose checkout holds all of these worktrees. Verbatim from chat.rs.
+ */
+export const WORK_PATHS: ReadonlyArray<readonly [string, readonly string[]]> = [
+  [
+    'eCard',
+    [
+      'ecardsystems/',
+      'ecard-repos/',
+      'react-client-reports-app',
+      'node-client-api-service',
+      'node-libraries-internal',
+      'platform-db-flyway',
+      'ecard-platform',
+      'work/items/eng-',
+    ],
+  ],
+  ['EvaOS', ['apps/evaos', 'work/evaos-']],
+  ['Relay', ['work/relay', 'apps/mobile']],
+  ['GoodOps', ['work/goodops', 'goodopshq/']],
+  ['Texo', ['work/texo']],
+  ['Flo', ['work/flo', 'flodoc']],
+  ['OpenFlight', ['work/openflight', 'launch-monitor']],
+]
+
+/**
+ * The workspace one raw session line points at: only assistant lines count (every session's boot
+ * message lists projects, which would classify every chat), lowercased, first WORK_PATHS match.
+ */
+export function workspaceOfLine(line: string): string | null {
+  if (!line.includes('"role":"assistant"') && !line.includes('"type":"assistant"')) return null
+  const lower = line.toLowerCase()
+  for (const [name, markers] of WORK_PATHS) {
+    if (markers.some((m) => lower.includes(m))) return name
+  }
+  return null
+}
+
+/** The workspace a session's assistant turns worked in: the first line naming one (native work_workspace). */
+export function workWorkspace(lines: Iterable<string>): string | null {
+  for (const line of lines) {
+    const name = workspaceOfLine(line)
+    if (name !== null) return name
+  }
+  return null
+}

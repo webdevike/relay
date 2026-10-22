@@ -5,52 +5,80 @@ import type { ChatRow as Row } from '@evaos/contract'
 
 import { ChatRow } from './ChatRow'
 import { RowMenu } from './RowMenu'
+import { chatRow } from './test-rows'
 
 vi.mock('../../ipc', () => ({
   invoke: async () => ({ ok: true, value: {} }),
   on: () => () => {},
 }))
 
-const base: Row = {
-  id: 'p4-x',
-  file: '/s/p4-x.jsonl',
-  title: 'Some chat',
-  mtimeMs: 1,
-  archived: false,
-  pinned: false,
-  running: false,
-  status: null,
-}
+const base: Row = chatRow('p4-x', 'Some chat')
 const handlers = () => ({
   onClose: vi.fn(),
   onRename: vi.fn(),
   onPin: vi.fn(),
-  onArchive: vi.fn(),
+  onSnooze: vi.fn(),
+  onSettle: vi.fn(),
   onDelete: vi.fn(),
 })
-const menu = (row: Row, extra?: React.ReactNode) =>
+const menu = (row: Row, settled = false, extra?: React.ReactNode) =>
   render(
     <MantineProvider>
-      <RowMenu row={row} anchor={{ x: 10, y: 10 }} {...handlers()} menuExtraItems={extra} />
+      <RowMenu
+        row={row}
+        settled={settled}
+        anchor={{ x: 10, y: 10 }}
+        {...handlers()}
+        menuExtraItems={extra}
+      />
     </MantineProvider>,
   )
-const labels = (): string[] =>
-  screen.getAllByRole('menuitem').map((el) => el.textContent?.trim() ?? '')
+const names = (): string[] =>
+  screen.getAllByRole('menuitem').map((el) => el.getAttribute('data-testid') ?? '')
 
 describe('RowMenu', () => {
-  it('lists Rename, Pin, Archive, Delete in that order', () => {
+  it('lists Rename, Pin, the Snooze presets, Settle, Delete in native order', () => {
     menu(base)
-    expect(labels()).toEqual(['Rename', 'Pin', 'Archive', 'Delete'])
+    const ids = names()
+    expect(ids[0]).toBe('row-menu-rename')
+    expect(ids[1]).toBe('row-menu-pin')
+    expect(ids.slice(2, -2).every((id) => id.startsWith('row-menu-snooze-'))).toBe(true)
+    expect(ids.slice(2, -2).length).toBeGreaterThan(0)
+    expect(ids.slice(-2)).toEqual(['row-menu-settle', 'row-menu-delete'])
+    expect(screen.getByText('Rename chat')).toBeInTheDocument()
+    expect(screen.getByText('Pin chat')).toBeInTheDocument()
+    expect(screen.getByText('Settle')).toBeInTheDocument()
+    expect(screen.getByText('In 1 hour')).toBeInTheDocument()
   })
 
-  it('flips to Unpin and Unarchive from the row state', () => {
-    menu({ ...base, pinned: true, archived: true })
-    expect(labels()).toEqual(['Rename', 'Unpin', 'Unarchive', 'Delete'])
+  it('flips to Unpin chat, Unsnooze and Unsettle from the row state', () => {
+    menu({ ...base, pinned: true, snoozedUntilMs: 5 }, true)
+    expect(names()).toEqual([
+      'row-menu-rename',
+      'row-menu-pin',
+      'row-menu-unsnooze',
+      'row-menu-settle',
+      'row-menu-delete',
+    ])
+    expect(screen.getByText('Unpin chat')).toBeInTheDocument()
+    expect(screen.getByText('Unsnooze')).toBeInTheDocument()
+    expect(screen.getByText('Unsettle')).toBeInTheDocument()
   })
 
-  it('puts extra items between Archive and the divider, before Delete', () => {
-    menu(base, <button role="menuitem">Move to</button>)
-    expect(labels()).toEqual(['Rename', 'Pin', 'Archive', 'Move to', 'Delete'])
+  it('offers no snooze for a chat waiting on Isaac', () => {
+    menu({ ...base, status: 'needs-approval' })
+    expect(names().some((id) => id.startsWith('row-menu-snooze-'))).toBe(false)
+  })
+
+  it('puts extra items after Settle, before Delete', () => {
+    menu(
+      base,
+      false,
+      <button role="menuitem" data-testid="row-menu-move">
+        Move to
+      </button>,
+    )
+    expect(names().slice(-3)).toEqual(['row-menu-settle', 'row-menu-move', 'row-menu-delete'])
   })
 
   it('marks Delete as the danger item', () => {
@@ -62,11 +90,15 @@ describe('RowMenu', () => {
     const h = handlers()
     render(
       <MantineProvider>
-        <RowMenu row={base} anchor={{ x: 1, y: 1 }} {...h} />
+        <RowMenu row={base} settled anchor={{ x: 1, y: 1 }} {...h} />
       </MantineProvider>,
     )
     fireEvent.click(screen.getByTestId('row-menu-pin'))
     expect(h.onPin).toHaveBeenCalledWith(base)
+    fireEvent.click(screen.getByTestId('row-menu-settle'))
+    expect(h.onSettle).toHaveBeenCalledWith(base, false)
+    fireEvent.click(screen.getByTestId('row-menu-snooze-In 1 hour'))
+    expect(h.onSnooze).toHaveBeenCalledWith(base, expect.any(Number))
     fireEvent.click(screen.getByTestId('row-menu-delete'))
     expect(h.onDelete).toHaveBeenCalledWith(base)
   })
@@ -74,7 +106,7 @@ describe('RowMenu', () => {
   it('stays closed without a row', () => {
     render(
       <MantineProvider>
-        <RowMenu row={null} anchor={null} {...handlers()} />
+        <RowMenu row={null} settled={false} anchor={null} {...handlers()} />
       </MantineProvider>,
     )
     expect(screen.queryByTestId('row-menu')).toBeNull()
@@ -85,20 +117,27 @@ describe('ChatRow menu triggers and inline rename', () => {
   const mount = (props: Partial<React.ComponentProps<typeof ChatRow>> = {}) =>
     render(
       <MantineProvider>
-        <ChatRow row={base} active={false} onOpen={vi.fn()} {...props} />
+        <ChatRow
+          row={base}
+          category="Other"
+          nested
+          settled={false}
+          now={2000}
+          active={false}
+          onOpen={vi.fn()}
+          {...props}
+        />
       </MantineProvider>,
     )
 
-  it('opens the menu on contextmenu, the Chat actions button and Shift+F10', async () => {
+  it('opens the menu on contextmenu and Shift+F10', async () => {
     const onMenu = vi.fn()
     mount({ onMenu })
     const row = screen.getByTestId('chat-row-p4-x')
     fireEvent.contextMenu(row, { clientX: 5, clientY: 6 })
     expect(onMenu).toHaveBeenLastCalledWith(base, 5, 6)
-    fireEvent.click(screen.getByRole('button', { name: 'Chat actions' }))
-    expect(onMenu).toHaveBeenCalledTimes(2)
     fireEvent.keyDown(row, { key: 'F10', shiftKey: true })
-    await waitFor(() => expect(onMenu).toHaveBeenCalledTimes(3))
+    await waitFor(() => expect(onMenu).toHaveBeenCalledTimes(2))
   })
 
   it('Enter commits the typed text once', () => {

@@ -5,8 +5,8 @@ import { test as base, expect, launchApp } from './fixtures'
 import { makeChatFixture, type ChatFixture } from './helpers/chat-fixture'
 import { proofShot } from './helpers/proofShot'
 
-// Categories: create, rename, delete, Move to, drag and drop and keyboard reorder, persisted in
-// chat.json. Runs on a tmp copy of the agent fixture; renderer-level mouse input only.
+// Categories: create, rename, delete, Move to, mouse and keyboard drag of a chat onto a folder,
+// persisted in chat.json. Folders order by their newest return, as native; there is no reorder. Runs on a tmp copy of the agent fixture; renderer-level mouse input only.
 let fx: ChatFixture
 const test = base.extend({
   launchEnv: async ({}, use) => {
@@ -19,7 +19,7 @@ const test = base.extend({
 const sel = (id: string): string => `[data-testid="${id}"]`
 const openChats = async (shell: Page): Promise<void> => {
   await shell.locator(sel('nav-chat')).click()
-  await shell.waitForSelector('[role=tree]')
+  await shell.waitForSelector('[data-testid=chat-tree]')
 }
 const rowOf = (shell: Page, id: string): Locator => shell.locator(sel(`chat-row-${id}`))
 const groupNames = async (shell: Page): Promise<string[]> =>
@@ -49,15 +49,16 @@ async function dragTo(shell: Page, from: Locator, to: Locator, hold = false): Pr
   await shell.mouse.down()
   await shell.mouse.move(a.x + a.width / 2, a.y + a.height / 2 - 8, { steps: 3 })
   // The native row heights can put the source and target farther apart than the
-  // viewport. Activate on the visible source before scrolling to the destination.
+  // viewport. Activate on the visible source before scrolling to the destination, and center
+  // it: a pointer resting near the list's edge would make dnd-kit auto-scroll past it.
   await expect(shell.getByRole('status')).toContainText('Picked up a chat.')
-  await to.scrollIntoViewIfNeeded()
+  await to.evaluate((el) => el.scrollIntoView({ block: 'center' }))
   const b = (await to.boundingBox())!
   await shell.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 12 })
   if (!hold) await shell.mouse.up()
 }
 
-test('categories: create, move, drag, keyboard reorder, persist, rename, delete', async ({
+test('categories: create, move, drag, keyboard move, persist, rename, delete', async ({
   app,
   shell,
   configDir,
@@ -73,7 +74,8 @@ test('categories: create, move, drag, keyboard reorder, persist, rename, delete'
   await input.fill('Focus')
   await input.press('Enter')
   await expect(shell.locator(sel('chat-section-Focus'))).toBeVisible()
-  expect((await groupNames(shell))[0]).toBe('Focus')
+  // An empty category lists after the busy folders, as a drop target.
+  expect((await groupNames(shell)).at(-1)).toBe('Focus')
   await expect(shell.locator(sel('chat-section-Focus'))).toContainText('No chats in this group')
 
   await shell.locator(sel('new-category')).click()
@@ -102,30 +104,31 @@ test('categories: create, move, drag, keyboard reorder, persist, rename, delete'
   ).toBeVisible()
   await proofShot(app, shell, 'categories', { phase: 'phase-4' })
 
-  // 4. Keyboard reorder: Relay moves above its previous neighbour.
-  const before = await groupNames(shell)
-  const at = before.indexOf('Relay')
-  expect(at).toBeGreaterThan(1)
-  await shell.locator(sel('chat-group-Relay')).focus()
-  await shell.keyboard.press('Space')
-  // dnd-kit attaches its key listeners a tick after activation: wait for each announcement.
+  // 4. Keyboard move: Space lifts a chat, arrows walk the folder headers, Space drops.
   const live = (): Promise<string> =>
     shell.evaluate(() =>
       [...document.querySelectorAll('[aria-live]')].map((e) => e.textContent).join('|'),
     )
-  await expect.poll(live).toContain('Over the Relay group.')
-  await shell.waitForTimeout(250)
-  await shell.keyboard.press('ArrowUp')
-  await expect.poll(live).toContain('Over the EvaOS group.')
-  await shell.waitForTimeout(250)
+  await rowOf(shell, 'p4-other3').focus()
   await shell.keyboard.press('Space')
-  await expect.poll(() => groupNames(shell).then((g) => g.indexOf('Relay'))).toBe(at - 1)
+  // dnd-kit attaches its key listeners a tick after activation: wait for each announcement.
+  await expect.poll(live).toMatch(/Picked up a chat\.|Over the /)
+  await shell.waitForTimeout(250)
+  for (let i = 0; i < 8 && !(await live()).includes('Over the Focus folder.'); i++) {
+    await shell.keyboard.press('ArrowUp')
+    await shell.waitForTimeout(250)
+  }
+  await expect.poll(live).toContain('Over the Focus folder.')
+  await shell.keyboard.press('Space')
+  await expect(
+    shell.locator(`${sel('chat-section-Focus')} ${sel('chat-row-p4-other3')}`),
+  ).toBeVisible()
   const order = await groupNames(shell)
 
   // 5. Persists across relaunch.
   await expect
     .poll(() => chatJson(configDir).chat_assignments)
-    .toEqual({ 'p4-other1': 'Focus', 'p4-other2': 'Focus' })
+    .toEqual({ 'p4-other1': 'Focus', 'p4-other2': 'Focus', 'p4-other3': 'Focus' })
   expect(chatJson(configDir).chat_categories).toEqual(['Focus'])
   await app.close()
   const app2 = await launchApp(configDir, fx.launchEnv)
@@ -133,7 +136,7 @@ test('categories: create, move, drag, keyboard reorder, persist, rename, delete'
     const page = await app2.firstWindow()
     await page.waitForSelector('[data-testid=rail]', { state: 'attached' })
     await page.locator(sel('nav-chat')).click()
-    await page.waitForSelector('[role=tree]')
+    await page.waitForSelector('[data-testid=chat-tree]')
     await expect(
       page.locator(`${sel('chat-section-Focus')} ${sel('chat-row-p4-other1')}`),
     ).toBeVisible()

@@ -1,5 +1,6 @@
 import * as fs from 'node:fs'
 import * as os from 'node:os'
+import type { ChatAgent } from '@evaos/contract'
 import { isRecentlyActive } from '@evaos/chat-core/chat-groups'
 import { sessionId } from '@evaos/chat-core/session-id'
 import { renameArgs } from '@evaos/chat-core/launch'
@@ -67,6 +68,13 @@ export function saveArchived(
   return { archived: next.filter((x) => SESSION_ID_RE.test(x)) }
 }
 
+/** One read-modify-write of chat.json that changes only `chat_agent`, the tab the list shows. */
+export function saveAgent(config: ConfigStore, agent: ChatAgent): { saved: true } {
+  const existing = config.readForMerge(CHAT_FILE)
+  config.writeJson(CHAT_FILE, { ...existing, chat_agent: agent })
+  return { saved: true }
+}
+
 /** Pins or unpins one id in omp's pins file, keeping every other pin. */
 export function savePin(agentDir: string, id: string, pinned: boolean): { pins: string[] } {
   const set = new Set(readPins(agentDir))
@@ -76,10 +84,11 @@ export function savePin(agentDir: string, id: string, pinned: boolean): { pins: 
 }
 
 export interface ChatOpsDeps {
-  sessionsDir: string
+  /** Every sessions dir the list spans; a chat outside them is refused. */
+  sessionsDirs: readonly string[]
   agentDir: string
   config: ConfigStore
-  service: Pick<ChatListService, 'invalidate' | 'setTitle'>
+  service: Pick<ChatListService, 'invalidate' | 'setTitle' | 'forget'>
   manager: Pick<SessionManager, 'ownerOf' | 'renameOwned'>
   /** Short `omp --mode rpc --resume` rename of a file nothing runs. */
   resume: (file: string, name: string) => Promise<void>
@@ -96,7 +105,7 @@ export async function renameChat(
   file: string,
   name: string,
 ): Promise<{ title: string; via: 'rpc' | 'resume' }> {
-  const real = resolveInsideSessionsDir(d.sessionsDir, file)
+  const real = resolveInsideSessionsDir(d.sessionsDirs, file)
   if (d.manager.ownerOf(real) !== null && (await d.manager.renameOwned(real, name))) {
     d.service.setTitle(file, name)
     d.emitList()
@@ -112,9 +121,9 @@ export async function renameChat(
   return { title: name, via: 'resume' }
 }
 
-/** Deletes an idle chat; an owned or recently active one is refused. Also forgets its marks. */
+/** Deletes an idle chat; an owned or recently active one is refused. Also forgets its pin, settle and order marks. */
 export function deleteChat(d: ChatOpsDeps, file: string): { deleted: true } {
-  const real = resolveInsideSessionsDir(d.sessionsDir, file)
+  const real = resolveInsideSessionsDir(d.sessionsDirs, file)
   const now = (d.now ?? Date.now)()
   if (d.manager.ownerOf(real) !== null || isRecentlyActive(fs.statSync(real).mtimeMs, now)) {
     throw new CodedError('chat-running', CHAT_RUNNING_MESSAGE)
@@ -124,6 +133,7 @@ export function deleteChat(d: ChatOpsDeps, file: string): { deleted: true } {
   if (readPins(d.agentDir).includes(id)) savePin(d.agentDir, id, false)
   const archived = d.config.readForMerge(CHAT_FILE).archived_chats
   if (Array.isArray(archived) && archived.includes(id)) saveArchived(d.config, id, false)
+  d.service.forget(id)
   d.service.invalidate(file)
   d.emitList()
   return { deleted: true }
@@ -134,10 +144,11 @@ export function registerChatListIpc(
   queue: WriteQueue,
   service: ChatListService,
   manager: SessionManager,
+  sessionsDirs: readonly string[],
   emitList: () => void = () => undefined,
 ): void {
   const ops: ChatOpsDeps = {
-    sessionsDir: ctx.env.sessionsDir,
+    sessionsDirs,
     agentDir: ctx.env.agentDir,
     config: ctx.config,
     service,
@@ -172,11 +183,34 @@ export function registerChatListIpc(
       return out
     }),
   )
+  // Settle or unsettle; unsettling records `kept`, so it stays out for another full stretch.
   handle(ctx, 'chat.archive', ({ id, archived }) =>
     queue.enqueue(() => {
       const out = saveArchived(ctx.config, id, archived)
+      if (!archived) service.keep(id)
       emitList()
       return out
+    }),
+  )
+  handle(ctx, 'chat.setAgent', ({ agent }) =>
+    queue.enqueue(() => {
+      const out = saveAgent(ctx.config, agent)
+      emitList()
+      return out
+    }),
+  )
+  handle(ctx, 'chat.markRead', ({ id }) =>
+    queue.enqueue(() => {
+      // Showing a read chat changes nothing, so it pushes no list.
+      if (service.markRead(id)) emitList()
+      return { saved: true as const }
+    }),
+  )
+  handle(ctx, 'chat.snooze', ({ id, untilMs }) =>
+    queue.enqueue(() => {
+      service.snooze(id, untilMs)
+      emitList()
+      return { saved: true as const }
     }),
   )
   // Not queued: a short resume can take seconds and must not hold up config writes.

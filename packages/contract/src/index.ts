@@ -14,10 +14,10 @@ export * from './result'
 export { AppInfoSchema, type AppInfo } from './app'
 export {
   type SavedTabs,
-  type Appearance,
+  type SavedTheme,
   type ChatSettings,
   SavedTabsSchema,
-  AppearanceSchema,
+  SavedThemeSchema,
   ChatSettingsSchema,
 } from './shell'
 export { type TabState, type TabsSnapshot } from './browser'
@@ -57,6 +57,8 @@ export {
   type Op,
   type ChatList,
   type ChatRow,
+  type ChatAgent,
+  ChatAgentSchema,
   type ChatPrefs,
   type DialogResponse,
   type LaunchState,

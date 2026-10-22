@@ -50,10 +50,15 @@ export class Categories {
     return workspaceNames().includes(name) || this.custom.includes(name)
   }
 
-  /** Where a chat goes: where it was moved, else the workspace its title names. */
-  categoryOf(id: string, title: string): string {
+  /**
+   * Where a chat goes (native chat_groups.rs category_of): where it was moved while that category
+   * exists, else the workspace its title names, else the one its work points at (`workedIn`).
+   */
+  categoryOf(id: string, title: string, workedIn: string | null): string {
     const name = Object.hasOwn(this.assigned, id) ? this.assigned[id] : undefined
-    return name !== undefined && this.exists(name) ? name : workspaceOf(title)
+    if (name !== undefined && this.exists(name)) return name
+    const named = workspaceOf(title)
+    return named === OTHER_WORKSPACE && workedIn !== null ? workedIn : named
   }
 
   /** Every category in display order: saved order, then custom, then workspaces. */
@@ -117,18 +122,6 @@ export class Categories {
   assign(id: string, name: string | null): void {
     if (name === null) delete this.assigned[id]
     else this.assigned[id] = name
-  }
-
-  /** Move `moving` to `target`'s place in the shown list: down lands after, up lands before. */
-  reorder(shown: readonly string[], moving: string, target: string): void {
-    const list = [...shown]
-    const from = list.indexOf(moving)
-    const to = list.indexOf(target)
-    if (from < 0 || to < 0) return
-    list.splice(from, 1)
-    list.splice(to, 0, moving)
-    for (const n of this.names()) if (!list.includes(n)) list.push(n)
-    this.order = list
   }
 }
 

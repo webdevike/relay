@@ -20,29 +20,37 @@ const test = base.extend({
 const sel = (id: string): string => `[data-testid="${id}"]`
 const openChats = async (shell: Page): Promise<void> => {
   await shell.locator(sel('nav-chat')).click()
-  await shell.waitForSelector('[role=tree]')
+  await shell.waitForSelector('[data-testid=chat-tree]')
 }
 
-test('chats are grouped with Pinned on top and five visible per group', async ({ app, shell }) => {
+test('pinned rows sit flat on top, folders follow newest first, ten rows per folder', async ({
+  app,
+  shell,
+}) => {
   await openChats(shell)
-  await expect(shell.locator(sel('chat-pinned'))).toContainText('Pinned planning notes')
+  // Pinned rows have no header: the first row of the tree, outside every folder.
+  await expect(shell.locator(`${sel('chat-tree')} > .eva-cl-rowwrap`).first()).toContainText(
+    'Pinned planning notes',
+  )
 
   const groups = await shell.$$eval('[data-testid^="chat-group-"]', (els) =>
     els.map((e) => e.getAttribute('data-testid')),
   )
+  // Folders follow their newest return (the fixture's file times on a first look).
   expect(groups).toEqual([
     'chat-group-eCard',
-    'chat-group-EvaOS',
     'chat-group-Relay',
-    'chat-group-Eva',
+    'chat-group-EvaOS',
     'chat-group-Other',
+    'chat-group-Eva',
   ])
 
   // Other holds the seven grocery lists plus four more untitled-by-workspace chats: 11 in all.
   const other = shell.locator(sel('chat-section-Other'))
-  await expect(other.locator('[data-testid^="chat-row-"]')).toHaveCount(5)
+  await expect(shell.locator(sel('chat-group-Other'))).toContainText('Other11')
+  await expect(other.locator('[data-testid^="chat-row-"]')).toHaveCount(10)
   const more = shell.locator(sel('chat-show-more-Other'))
-  await expect(more).toHaveText('Show 6 more')
+  await expect(more).toHaveText('Show 1 more')
   await proofShot(app, shell, 'chat-list', { phase: 'phase-4' })
 
   await more.click()
@@ -50,10 +58,10 @@ test('chats are grouped with Pinned on top and five visible per group', async ({
   await expect(more).toHaveText('Show fewer')
   await proofShot(app, shell, 'chat-list-expanded', { phase: 'phase-4' })
   await more.click()
-  await expect(other.locator('[data-testid^="chat-row-"]')).toHaveCount(5)
+  await expect(other.locator('[data-testid^="chat-row-"]')).toHaveCount(10)
 })
 
-test('a recently written chat sorts first in its group and counts as running', async ({
+test('a recently written chat returns to the top; its folder still collapses', async ({
   shell,
 }) => {
   fx.touch('p4-other7', 0)
@@ -66,7 +74,19 @@ test('a recently written chat sorts first in its group and counts as running', a
     'data-testid',
     'chat-row-p4-other7',
   )
-  await expect(shell.locator(sel('chat-group-Other'))).toContainText('1 running')
+  await expect(shell.locator('[data-testid^="chat-group-"]').first()).toHaveAttribute(
+    'data-testid',
+    'chat-group-Other',
+  )
+  // A folder with a running chat still collapses on a click, and its header keeps the hint.
+  const header = shell.locator(sel('chat-group-Other'))
+  await header.click()
+  await expect(header).toHaveAttribute('aria-expanded', 'false')
+  await expect(shell.locator(sel('chat-row-p4-other7'))).toHaveCount(0)
+  await expect(header.getByRole('img', { name: 'Done' })).toBeVisible()
+  await header.click()
+  await expect(header).toHaveAttribute('aria-expanded', 'true')
+  await expect(shell.locator(sel('chat-row-p4-other7'))).toBeVisible()
 })
 
 test('clicking a chat opens its transcript in the chat pane', async ({ shell }) => {
@@ -77,14 +97,15 @@ test('clicking a chat opens its transcript in the chat pane', async ({ shell }) 
   await expect(shell.locator(sel('chat-row-p4-ecard'))).toHaveAttribute('data-active', 'true')
 })
 
-test('every fixture session appears: tree rows plus hidden plus archived', async ({ shell }) => {
+test('every fixture session appears: tree rows plus hidden plus settled', async ({ shell }) => {
   await openChats(shell)
   for (const name of ['Other']) await shell.locator(sel(`chat-show-more-${name}`)).click()
   const rows = await shell.locator('[data-testid^="chat-row-"]').count()
-  // 17 sessions: 1 archived stays behind its toggle.
+  // 17 sessions: 1 archived stays behind the Settled fold.
   expect(rows).toBe(16)
-  const archived = shell.locator(sel('chat-archived-toggle'))
-  await expect(archived).toContainText('Archived (1)')
-  await archived.click()
+  const settled = shell.locator(sel('chat-settled-toggle'))
+  await expect(settled).toHaveText('Settled (1)')
+  await expect(settled).toHaveAttribute('aria-expanded', 'false')
+  await settled.click()
   await expect(shell.locator(sel('chat-row-p4-archived'))).toBeVisible()
 })

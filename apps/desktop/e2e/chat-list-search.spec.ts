@@ -22,19 +22,20 @@ const test = base.extend({
 const sel = (id: string): string => `[data-testid="${id}"]`
 const openChats = async (shell: Page): Promise<void> => {
   await shell.locator(sel('nav-chat')).click()
-  await shell.waitForSelector('[role=tree]')
+  await shell.waitForSelector('[data-testid=chat-tree]')
 }
 
-test('Archived (n) hides archived chats until activated', async ({ shell }) => {
+test('Settled (n) hides settled chats until activated', async ({ shell }) => {
   await openChats(shell)
   await expect(shell.locator(sel('chat-row-p4-archived'))).toHaveCount(0)
-  const toggle = shell.locator(sel('chat-archived-toggle'))
-  await expect(toggle).toContainText('Archived (1)')
+  const toggle = shell.locator(sel('chat-settled-toggle'))
+  await expect(toggle).toHaveText('Settled (1)')
   await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
   await expect(shell.locator(sel('chat-row-p4-archived'))).toBeVisible()
 })
 
-test('search opens every group, includes archived chats and clears with Escape', async ({
+test('search opens every folder and the Settled fold, and clears with Escape', async ({
   app,
   shell,
 }) => {
@@ -44,18 +45,18 @@ test('search opens every group, includes archived chats and clears with Escape',
   await search.click()
   await shell.keyboard.type('chat')
   await expect(shell.locator(sel('chat-row-p4-archived'))).toBeVisible()
-  await expect(shell.locator(sel('chat-row-p4-archived'))).toContainText('Archived')
+  await expect(shell.locator(sel('chat-settled-toggle'))).toHaveAttribute('aria-expanded', 'true')
   await expect(shell.locator('[data-testid^="chat-show-more-"]')).toHaveCount(0)
-  await expect(shell.locator(sel('chat-archived-toggle'))).toHaveCount(0)
   await proofShot(app, shell, 'chat-search', { phase: 'phase-4' })
 
   await search.fill('zzz')
-  await expect(shell.locator(sel('chat-tree')).getByRole('treeitem', { level: 2 })).toHaveCount(0)
+  await expect(shell.getByText('No chats match.')).toBeVisible()
+  await expect(shell.locator('[data-testid^="chat-row-"]')).toHaveCount(0)
 
   await shell.keyboard.press('Escape')
   await expect(search).toHaveValue('')
   await expect(shell.locator('[data-testid^="chat-row-"]')).toHaveCount(before)
-  await expect(shell.locator(sel('chat-archived-toggle'))).toContainText('Archived (1)')
+  await expect(shell.locator(sel('chat-settled-toggle'))).toHaveAttribute('aria-expanded', 'false')
 })
 
 test('a collapsed group stays collapsed across relaunch', async ({ app, shell, configDir }) => {
@@ -86,7 +87,7 @@ test('a collapsed group stays collapsed across relaunch', async ({ app, shell, c
     const page = await app2.firstWindow()
     await page.waitForSelector('[data-testid=rail]', { state: 'attached' })
     await page.locator(sel('nav-chat')).click()
-    await page.waitForSelector('[role=tree]')
+    await page.waitForSelector('[data-testid=chat-tree]')
     await expect(page.locator(sel('chat-group-Other'))).toHaveAttribute('aria-expanded', 'false')
     await expect(
       page.locator(sel('chat-section-Other')).locator('[data-testid^="chat-row-"]'),

@@ -11,13 +11,18 @@ import {
   type DragEndEvent,
   type DragOverEvent,
 } from '@dnd-kit/core'
-import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
-import { ActionIcon } from '@mantine/core'
-import { IconPlus } from '@tabler/icons-react'
-import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react'
-import type { ChatRow as Row } from '@evaos/contract'
+import { Accordion, ActionIcon, SegmentedControl, UnstyledButton } from '@mantine/core'
+import { IconChevronRight, IconPlus } from '@tabler/icons-react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent,
+} from 'react'
+import { ChatAgentSchema, type ChatAgent, type ChatRow as Row } from '@evaos/contract'
 import { Categories } from '@evaos/chat-core/categories'
-import { groupChats } from '@evaos/chat-core/chat-groups'
 import { placeOf } from '@evaos/shell-core'
 import { openPlace } from '../../navigation/navigate'
 import { activePlace, useTabs } from '../../tabs/tabs-store'
@@ -26,42 +31,58 @@ import { DeleteChatModal } from './DeleteChatModal'
 import { MoveToItem, RowMenu } from './RowMenu'
 import { CategoryInput } from './CategoryInput'
 import { DeleteCategoryModal } from './DeleteCategoryModal'
-import { ACTIVATION_DISTANCE, resolveDrop, type DragData } from './dnd'
+import { ACTIVATION_DISTANCE, folderKeyboardCoordinates, resolveDrop, type DragData } from './dnd'
 import { GroupMenu } from './GroupMenu'
 import { GroupHeader } from './GroupHeader'
 import { registerReloader } from '../../reload/reload'
 import { listStore, subscribeListChanges, useListStore } from './list-store'
+import { folderShown, folders, isRead, isSettled, isWorking, split, type Folder } from './look'
 
 const DEBOUNCE_MS = 100
+/** The clock ticks every second while a chat works (for "Working 16s"), else every minute. */
+const TICK_WORKING_MS = 1000
+const TICK_IDLE_MS = 60_000
+/** Accordion item values: a workspace folder, or the Snoozed / Settled fold. */
+const GROUP = 'group:'
+const FOLD = 'fold:'
 
-const { openMenu, closeMenu, startRename, cancelRename, commitRename, setDeleting, pin, archive } =
-  listStore.getState()
+const {
+  openMenu,
+  closeMenu,
+  startRename,
+  cancelRename,
+  commitRename,
+  setDeleting,
+  pin,
+  settle,
+  snooze,
+  markRead,
+} = listStore.getState()
 
 const onMenu = (r: Row, x: number, y: number): void => openMenu(r.id, x, y)
+const onSnooze = (r: Row, untilMs: number | null): void => void snooze(r.id, untilMs)
+const onSettle = (r: Row, settled: boolean): void => void settle(r.id, settled)
 
+// A pointer drops on the folder under it; the keyboard sensor has no pointer, so it takes the
+// nearest folder header.
 const collision: CollisionDetection = (args) =>
-  args.pointerCoordinates && args.active.data.current?.type === 'chat'
-    ? pointerWithin(args)
-    : closestCenter(args)
+  args.pointerCoordinates ? pointerWithin(args) : closestCenter(args)
 
 const announcements = {
-  onDragStart: ({ active }: { active: { data: { current?: unknown } } }): string => {
-    const d = active.data.current as DragData | undefined
-    return d?.type === 'group' ? `Picked up the ${d.name} group.` : 'Picked up a chat.'
-  },
+  onDragStart: (): string => 'Picked up a chat.',
   onDragOver: ({ over }: { over: { data: { current?: unknown } } | null }): string => {
     const d = over?.data.current as DragData | undefined
-    return d?.type === 'group' ? `Over the ${d.name} group.` : 'Not over a group.'
+    return d?.type === 'group' ? `Over the ${d.name} folder.` : 'Not over a folder.'
   },
   onDragEnd: ({ over }: { over: { data: { current?: unknown } } | null }): string => {
     const d = over?.data.current as DragData | undefined
-    return d?.type === 'group' ? `Dropped on the ${d.name} group.` : 'Dropped. Nothing changed.'
+    return d?.type === 'group' ? `Dropped on the ${d.name} folder.` : 'Dropped. Nothing changed.'
   },
   onDragCancel: (): string => 'Move cancelled.',
 }
 const screenReaderInstructions = {
   draggable:
-    'Press Space to pick up. Use the arrow keys to move between groups. Press Space to drop or Escape to cancel.',
+    'Press Space to pick up. Use the arrow keys to move between folders. Press Space to drop or Escape to cancel.',
 }
 
 function useDebounced(value: string): string {
@@ -77,17 +98,30 @@ function useDebounced(value: string): string {
   return v
 }
 
+/** The list's clock: re-renders every second while any chat works, else every minute. */
+function useNow(ticking: boolean): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    setNow(Date.now())
+    const t = setInterval(() => setNow(Date.now()), ticking ? TICK_WORKING_MS : TICK_IDLE_MS)
+    return () => clearInterval(t)
+  }, [ticking])
+  return now
+}
+
 export function ChatList({ query: rawQuery }: { query: string }) {
-  const query = useDebounced(rawQuery)
+  const query = useDebounced(rawQuery).trim().toLowerCase()
+  const searching = query !== ''
   const list = useListStore((s) => s.list)
   const error = useListStore((s) => s.error)
   const expanded = useListStore((s) => s.expanded)
   const collapsed = useListStore((s) => s.collapsed)
+  const snoozedOpen = useListStore((s) => s.showSnoozed) || searching
+  const settledOpen = useListStore((s) => s.showSettled) || searching
   const activeChat = useTabs((s) => {
     const p = activePlace(s)
     return p.page === 'chat' ? p.chat : null
   })
-  const archivedOpen = useListStore((s) => s.showArchived)
 
   useEffect(() => {
     void listStore.getState().load()
@@ -115,47 +149,58 @@ export function ChatList({ query: rawQuery }: { query: string }) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: ACTIVATION_DISTANCE } }),
     useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
+      coordinateGetter: folderKeyboardCoordinates,
       keyboardCodes: { start: ['Space'], cancel: ['Escape'], end: ['Space'] },
     }),
   )
 
-  const view = useMemo(
+  const agent = list?.prefs.chat_agent ?? 'Eva'
+  const cats = useMemo(() => (list ? Categories.fromPrefs(list.prefs) : null), [list])
+  const categoryOf = useCallback(
+    (r: Row): string => cats?.categoryOf(r.id, r.title, r.workedIn) ?? '',
+    [cats],
+  )
+  const rows = useMemo(
     () =>
       list
-        ? groupChats(list.rows, Categories.fromPrefs(list.prefs), {
-            query,
-            collapsed,
-            expanded,
-          })
-        : null,
-    [list, collapsed, expanded, query],
+        ? list.rows.filter(
+            (r) => r.agent === agent && (!searching || r.title.toLowerCase().includes(query)),
+          )
+        : [],
+    [list, agent, searching, query],
   )
+  const now = useNow(rows.some(isWorking))
+  const lists = useMemo(() => split(rows, now), [rows, now])
+  const shownFolders = useMemo((): Folder[] => {
+    const out = folders(lists.list, categoryOf)
+    if (searching || !cats) return out
+    // Electron's own empty categories stay listed as drop targets, after the busy folders.
+    for (const name of cats.names()) {
+      if (cats.isCustom(name) && !out.some((f) => f.name === name)) {
+        out.push({ name, rows: [], hint: null })
+      }
+    }
+    return out
+  }, [lists, categoryOf, searching, cats])
 
-  const shownGroups = useMemo(() => (view ? view.groups.map((g) => g.name) : []), [view])
-  const categoryNames = useMemo(
-    () => (list ? Categories.fromPrefs(list.prefs).names() : []),
-    [list],
-  )
+  // Native mark_read: a chat that is shown counts as read, also when it returns while shown.
+  const activeRow = list?.rows.find((r) => r.file === activeChat) ?? null
+  useEffect(() => {
+    if (activeRow && (!isRead(activeRow) || activeRow.wokeMs !== null)) void markRead(activeRow.id)
+  }, [activeRow])
 
   const onDragOver = useCallback(({ active, over }: DragOverEvent): void => {
     const o = over?.data.current as DragData | undefined
     const a = active.data.current as DragData | undefined
-    setDropGroup(o?.type === 'group' && !(a?.type === 'group' && a.name === o.name) ? o.name : null)
+    setDropGroup(o?.type === 'group' && a?.type === 'chat' && a.group !== o.name ? o.name : null)
   }, [])
-  const onDragEnd = useCallback(
-    ({ active, over }: DragEndEvent): void => {
-      setDropGroup(null)
-      const a = active.data.current as DragData | undefined
-      if (!a) return
-      const drop = resolveDrop(a, (over?.data.current as DragData | undefined) ?? null, shownGroups)
-      if (!drop) return
-      const st = listStore.getState()
-      if (drop.kind === 'assign') void st.moveChat(drop.id, drop.group)
-      else void st.reorderGroups(drop.moving, drop.target)
-    },
-    [shownGroups],
-  )
+  const onDragEnd = useCallback(({ active, over }: DragEndEvent): void => {
+    setDropGroup(null)
+    const a = active.data.current as DragData | undefined
+    if (!a) return
+    const drop = resolveDrop(a, (over?.data.current as DragData | undefined) ?? null)
+    if (drop) void listStore.getState().moveChat(drop.id, drop.group)
+  }, [])
 
   const createCategory = async (name: string): Promise<string | null> => {
     const err = await listStore.getState().createCategory(name)
@@ -167,19 +212,27 @@ export function ChatList({ query: rawQuery }: { query: string }) {
     return err
   }
 
-  const open = (row: Row, e: MouseEvent): void =>
+  const open = (row: Row, e: MouseEvent | KeyboardEvent): void => {
+    void markRead(row.id)
     openPlace(placeOf('chat', { chat: row.file }), { newTab: e.metaKey })
+  }
 
-  const rowEl = (row: Row, group?: string, noDrag?: boolean) => (
+  const rowEl = (row: Row, opts: { nested: boolean; settled?: boolean; group?: string }) => (
     <ChatRow
       key={row.id}
       row={row}
-      group={group}
-      noDrag={noDrag}
+      category={categoryOf(row)}
+      nested={opts.nested}
+      settled={opts.settled ?? false}
+      now={now}
+      group={opts.group}
+      noDrag={opts.group === undefined}
       active={activeChat === row.file}
       changed={changed.has(row.id)}
       onOpen={open}
       onMenu={onMenu}
+      onSnooze={onSnooze}
+      onSettle={onSettle}
       renaming={renaming === row.id}
       renamePending={renaming === row.id && renamePending}
       onCommitRename={commitRename}
@@ -192,17 +245,19 @@ export function ChatList({ query: rawQuery }: { query: string }) {
     <>
       <RowMenu
         row={menuRow}
+        settled={menuRow !== null && isSettled(menuRow, now)}
         anchor={menu ? { x: menu.x, y: menu.y } : null}
         onClose={closeMenu}
         onRename={(r) => startRename(r.id)}
         onPin={(r) => void pin(r.id, !r.pinned)}
-        onArchive={(r) => void archive(r.id, !r.archived)}
+        onSnooze={onSnooze}
+        onSettle={onSettle}
         onDelete={setDeleting}
         menuExtraItems={
-          menuRow ? (
+          menuRow && cats ? (
             <MoveToItem
               row={menuRow}
-              groups={categoryNames}
+              groups={cats.names()}
               onMove={(r, g) => void listStore.getState().moveChat(r.id, g)}
               onNewCategory={(r) => {
                 closeMenu()
@@ -241,51 +296,67 @@ export function ChatList({ query: rawQuery }: { query: string }) {
       </div>
     )
   }
-  if (!view || !list) {
+  if (!list || !cats) {
     return (
       <div className="eva-sb-empty eva-dim" data-testid="sidebar-sub-empty">
         Loading chats.
       </div>
     )
   }
-  const noMatches = view.searching && view.pinned.length === 0 && view.groups.length === 0
-  const agentSummary = (
+
+  // Native agent_switcher: every agent's chats counted, settled too; empty tabs hidden except
+  // Eva and the selected one.
+  const counts = new Map<ChatAgent, number>()
+  for (const r of list.rows) counts.set(r.agent, (counts.get(r.agent) ?? 0) + 1)
+  const tabs = ChatAgentSchema.options.filter(
+    (a) => (counts.get(a) ?? 0) > 0 || a === 'Eva' || a === agent,
+  )
+  const switcher = (
     <div className="eva-cl-agent-wrap">
-      <div className="eva-cl-agent">
-        <span className="eva-cl-agent-current">
-          Eva <span className="eva-dim">{list.rows.length}</span>
-        </span>
-      </div>
-      {list.rows.length > 0 && !noMatches ? (
-        <ActionIcon
-          className="eva-cl-new-category"
-          variant="subtle"
-          size="var(--eva-tile-sm, 22px)"
-          aria-label="New category"
-          title="New category"
-          data-testid="new-category"
-          onClick={() => setCreating({ moveId: null })}
-        >
-          <IconPlus size={14} stroke={1.5} />
-        </ActionIcon>
-      ) : null}
+      <SegmentedControl
+        className="eva-cl-agents"
+        data-testid="chat-agents"
+        size="xs"
+        fullWidth
+        value={agent}
+        onChange={(v) => void listStore.getState().setAgent(ChatAgentSchema.parse(v))}
+        data={tabs.map((a) => ({
+          value: a,
+          label: (
+            <span className="eva-cl-agent" data-testid={`chat-agent-${a.toLowerCase()}`}>
+              {a}
+              <span className="eva-cl-count">{counts.get(a) ?? 0}</span>
+            </span>
+          ),
+        }))}
+      />
+      <ActionIcon
+        className="eva-cl-new-category"
+        variant="subtle"
+        size={24}
+        aria-label="New category"
+        title="New category"
+        data-testid="new-category"
+        onClick={() => setCreating({ moveId: null })}
+      >
+        <IconPlus size={14} stroke={1.5} />
+      </ActionIcon>
     </div>
   )
   if (list.rows.length === 0) {
     return (
       <>
-        {agentSummary}
+        {switcher}
         <div className="eva-cl-empty eva-dim" data-testid="sidebar-sub-empty">
           No chats in this repo yet.
         </div>
       </>
     )
   }
-
-  if (noMatches) {
+  if (searching && rows.length === 0) {
     return (
       <>
-        {agentSummary}
+        {switcher}
         <div className="eva-cl-empty eva-dim" data-testid="sidebar-sub-empty">
           No chats match.
         </div>
@@ -293,96 +364,122 @@ export function ChatList({ query: rawQuery }: { query: string }) {
     )
   }
 
+  // Collapse always honors the click; only a search forces every folder and fold open. A
+  // collapsed folder still shows its status hint in the header.
+  const openValues = [
+    ...shownFolders
+      .filter((f) => searching || !collapsed.has(f.name))
+      .map((f) => `${GROUP}${f.name}`),
+    ...(snoozedOpen ? [`${FOLD}snoozed`] : []),
+    ...(settledOpen ? [`${FOLD}settled`] : []),
+  ]
+  const onAccordion = (next: string[]): void => {
+    if (searching) return
+    const toggled = [
+      ...openValues.filter((v) => !next.includes(v)),
+      ...next.filter((v) => !openValues.includes(v)),
+    ]
+    for (const v of toggled) {
+      if (v.startsWith(GROUP)) void listStore.getState().toggleCollapsed(v.slice(GROUP.length))
+      else if (v === `${FOLD}snoozed`) listStore.getState().toggleSnoozed()
+      else if (v === `${FOLD}settled`) listStore.getState().toggleSettled()
+    }
+  }
+
+  const fold = (id: 'snoozed' | 'settled', label: string, rowsIn: Row[], settled: boolean) => (
+    <Accordion.Item value={`${FOLD}${id}`} className="eva-cl-section">
+      <Accordion.Control className="eva-cl-fold" data-testid={`chat-${id}-toggle`}>
+        <span>{`${label} (${rowsIn.length})`}</span>
+        <span className="eva-cl-fold-line" aria-hidden />
+      </Accordion.Control>
+      <Accordion.Panel>{rowsIn.map((r) => rowEl(r, { nested: false, settled }))}</Accordion.Panel>
+    </Accordion.Item>
+  )
+
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={collision}
-      onDragOver={onDragOver}
-      onDragEnd={onDragEnd}
-      onDragCancel={() => setDropGroup(null)}
-      accessibility={{ announcements, screenReaderInstructions }}
-    >
-      {agentSummary}
-      <div role="tree" aria-label="Chats" className="eva-cl" data-testid="chat-tree">
-        {view.pinned.length > 0 ? (
-          <div role="treeitem" aria-expanded aria-selected={false} data-testid="chat-pinned">
-            <div className="eva-cl-section">Pinned</div>
-            <div role="group" className="eva-cl-rows">
-              {view.pinned.map((r) => rowEl(r as Row))}
+    <nav className="eva-cl-root" aria-label="Chats" data-testid="chat-list">
+      <DndContext
+        sensors={sensors}
+        collisionDetection={collision}
+        onDragOver={onDragOver}
+        onDragEnd={onDragEnd}
+        onDragCancel={() => setDropGroup(null)}
+        accessibility={{ announcements, screenReaderInstructions }}
+      >
+        {switcher}
+        <Accordion
+          unstyled
+          multiple
+          value={openValues}
+          onChange={onAccordion}
+          // Instant, as before: closed panels unmount, so hidden rows never count or take drops.
+          transitionDuration={0}
+          keepMounted={false}
+          chevronPosition="left"
+          chevron={<IconChevronRight size={12} stroke={1.75} aria-hidden />}
+          classNames={{
+            root: 'eva-cl',
+            chevron: 'eva-cl-chev',
+            label: 'eva-cl-control-label',
+            content: 'eva-cl-rows',
+          }}
+          data-testid="chat-tree"
+        >
+          {lists.pinned.map((r) => rowEl(r, { nested: false }))}
+          {shownFolders.map((f) => {
+            const more = expanded.has(f.name)
+            const shown = folderShown(f.rows.length, more, searching)
+            return (
+              <Accordion.Item
+                key={f.name}
+                value={`${GROUP}${f.name}`}
+                className="eva-cl-section"
+                data-testid={`chat-section-${f.name}`}
+              >
+                <GroupHeader
+                  name={f.name}
+                  count={f.rows.length}
+                  hint={f.hint}
+                  custom={cats.isCustom(f.name)}
+                  dropTarget={dropGroup === f.name}
+                  onMenu={(name, x, y) => setGroupMenu({ name, x, y })}
+                  renaming={renamingCategory === f.name}
+                  onRename={async (from, to) => {
+                    const err = await listStore.getState().renameCategory(from, to)
+                    if (err === null) listStore.getState().setRenamingCategory(null)
+                    return err
+                  }}
+                  onCancelRename={() => listStore.getState().setRenamingCategory(null)}
+                />
+                <Accordion.Panel className="eva-cl-nested">
+                  {f.rows.length === 0 ? (
+                    <div className="eva-cl-note">No chats in this group</div>
+                  ) : (
+                    f.rows.slice(0, shown).map((r) => rowEl(r, { nested: true, group: f.name }))
+                  )}
+                  {!searching && (f.rows.length > shown || more) ? (
+                    <UnstyledButton
+                      className="eva-cl-more"
+                      data-testid={`chat-show-more-${f.name}`}
+                      onClick={() => listStore.getState().toggleExpanded(f.name)}
+                    >
+                      {more ? 'Show fewer' : `Show ${f.rows.length - shown} more`}
+                    </UnstyledButton>
+                  ) : null}
+                </Accordion.Panel>
+              </Accordion.Item>
+            )
+          })}
+          {creating ? (
+            <div className="eva-cl-newcat" data-testid="new-category-row">
+              <CategoryInput onSubmit={createCategory} onCancel={() => setCreating(null)} />
             </div>
-          </div>
-        ) : null}
-        {view.groups.map((g) => (
-          <div
-            key={g.name}
-            role="treeitem"
-            aria-expanded={!g.collapsed}
-            aria-selected={false}
-            data-testid={`chat-section-${g.name}`}
-          >
-            <GroupHeader
-              name={g.name}
-              total={g.total}
-              runningCount={g.runningCount}
-              collapsed={g.collapsed}
-              onToggle={() => void listStore.getState().toggleCollapsed(g.name)}
-              custom={g.custom}
-              dropTarget={dropGroup === g.name}
-              onMenu={(name, x, y) => setGroupMenu({ name, x, y })}
-              renaming={renamingCategory === g.name}
-              onRename={async (from, to) => {
-                const err = await listStore.getState().renameCategory(from, to)
-                if (err === null) listStore.getState().setRenamingCategory(null)
-                return err
-              }}
-              onCancelRename={() => listStore.getState().setRenamingCategory(null)}
-            />
-            {g.collapsed ? null : (
-              <div role="group" className="eva-cl-rows">
-                {g.rows.length === 0 ? (
-                  <div className="eva-cl-note eva-dim">No chats in this group</div>
-                ) : (
-                  g.rows.map((r) => rowEl(r as Row, g.name))
-                )}
-                {g.hidden > 0 || expanded.has(g.name) ? (
-                  <button
-                    type="button"
-                    className="eva-cl-more"
-                    data-testid={`chat-show-more-${g.name}`}
-                    onClick={() => listStore.getState().toggleExpanded(g.name)}
-                  >
-                    {expanded.has(g.name) ? 'Show fewer' : `Show ${g.hidden} more`}
-                  </button>
-                ) : null}
-              </div>
-            )}
-          </div>
-        ))}
-        {creating ? (
-          <div className="eva-cl-newcat" data-testid="new-category-row">
-            <CategoryInput onSubmit={createCategory} onCancel={() => setCreating(null)} />
-          </div>
-        ) : null}
-        {view.archived.length > 0 ? (
-          <div role="treeitem" aria-expanded={archivedOpen} aria-selected={false}>
-            <button
-              type="button"
-              className="eva-cl-group"
-              data-testid="chat-archived-toggle"
-              aria-expanded={archivedOpen}
-              onClick={() => listStore.getState().toggleArchived()}
-            >
-              <span className="eva-cl-group-name">{`Archived (${view.archived.length})`}</span>
-            </button>
-            {archivedOpen ? (
-              <div role="group" className="eva-cl-rows">
-                {view.archived.map((r) => rowEl(r as Row, undefined, true))}
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
-      {overlays}
-    </DndContext>
+          ) : null}
+          {lists.snoozed.length > 0 ? fold('snoozed', 'Snoozed', lists.snoozed, false) : null}
+          {lists.settled.length > 0 ? fold('settled', 'Settled', lists.settled, true) : null}
+        </Accordion>
+        {overlays}
+      </DndContext>
+    </nav>
   )
 }

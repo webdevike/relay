@@ -18,6 +18,7 @@ import {
   renameChat,
   saveArchived,
   saveCategories,
+  saveAgent,
   saveCollapsed,
   savePin,
   type ChatOpsDeps,
@@ -95,21 +96,23 @@ describe('chat actions', () => {
     resume: [] as string[],
     titles: [] as string[],
     invalidated: [] as string[],
+    forgot: [] as string[],
     emitted: 0,
   }
   let sessions: string
   let agent: string
   const mk = (owner: string | null = null): ChatOpsDeps => {
-    for (const k of ['owned', 'resume', 'titles', 'invalidated'] as const) calls[k] = []
+    for (const k of ['owned', 'resume', 'titles', 'invalidated', 'forgot'] as const) calls[k] = []
     calls.emitted = 0
     return {
-      sessionsDir: sessions,
+      sessionsDirs: [path.join(sessions, '..', 'missing-store'), sessions],
       agentDir: agent,
       config,
       now: () => NOW,
       service: {
         invalidate: (f?: string) => void calls.invalidated.push(f ?? '*'),
         setTitle: (f: string, t: string) => void calls.titles.push(`${f}=${t}`),
+        forget: (id: string) => void calls.forgot.push(id),
       },
       manager: {
         ownerOf: () => owner,
@@ -191,7 +194,7 @@ describe('chat actions', () => {
     expect(fs.existsSync(f) && fs.existsSync(g)).toBe(true)
   })
 
-  it('delete removes the chat, its pin and its archive mark', () => {
+  it('delete removes the chat, its pin, its archive mark and its order marks', () => {
     const f = session('2026_fff.jsonl')
     fs.writeFileSync(path.join(agent, 'session-pins.json'), '["fff","keep"]')
     saveArchived(config, 'fff', true)
@@ -199,6 +202,7 @@ describe('chat actions', () => {
     expect(fs.existsSync(f)).toBe(false)
     expect(readPinsFile()).toEqual(['keep'])
     expect(read().archived_chats).toEqual([])
+    expect(calls.forgot).toEqual(['fff'])
     expect(calls.emitted).toBe(1)
   })
 
@@ -215,6 +219,26 @@ describe('chat actions', () => {
     expect(saveArchived(config, 'a', true)).toEqual({ archived: ['a', 'z'] })
     expect(read()).toMatchObject({ harness: 'claude', archived_chats: ['a', 'z'] })
     expect(saveArchived(config, 'a', false)).toEqual({ archived: ['z'] })
+  })
+
+  it('setAgent writes chat_agent and keeps every other key', () => {
+    fs.writeFileSync(path.join(dir, 'chat.json'), JSON.stringify({ harness: 'claude' }))
+    expect(saveAgent(config, 'Eren')).toEqual({ saved: true })
+    expect(read()).toEqual({ harness: 'claude', chat_agent: 'Eren' })
+  })
+
+  it('a chat in any of the sessions dirs can be deleted', () => {
+    const other = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'evaos-ops2-')))
+    try {
+      const f = path.join(other, '2026_ggg.jsonl')
+      fs.writeFileSync(f, '{}\n')
+      fs.utimesSync(f, OLD, OLD)
+      expect(() => deleteChat(mk(), f)).toThrowError(/outside/)
+      expect(deleteChat({ ...mk(), sessionsDirs: [sessions, other] }, f)).toEqual({ deleted: true })
+      expect(fs.existsSync(f)).toBe(false)
+    } finally {
+      fs.rmSync(other, { recursive: true, force: true })
+    }
   })
 
   it('serialises archive writes through the queue', async () => {

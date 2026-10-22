@@ -7,9 +7,23 @@ describe('Categories', () => {
       chat_categories: ['Errands'],
       chat_assignments: { a: 'Errands', b: 'Gone' },
     })
-    expect(cats.categoryOf('a', 'Fix Relay pairing')).toBe('Errands')
-    expect(cats.categoryOf('b', 'Fix Relay pairing')).toBe('Relay')
-    expect(cats.categoryOf('none', 'Fix Relay pairing')).toBe('Relay')
+    expect(cats.categoryOf('a', 'Fix Relay pairing', null)).toBe('Errands')
+    expect(cats.categoryOf('b', 'Fix Relay pairing', null)).toBe('Relay')
+    expect(cats.categoryOf('none', 'Fix Relay pairing', null)).toBe('Relay')
+  })
+
+  it('falls back to where the chat worked only when its title names no workspace', () => {
+    const cats = Categories.fromPrefs({
+      chat_categories: ['Errands'],
+      chat_assignments: { a: 'Errands', b: 'Gone' },
+    })
+    // An existing assignment wins over the title and the work.
+    expect(cats.categoryOf('a', 'Fix Relay pairing', 'eCard')).toBe('Errands')
+    // A title naming a workspace wins over the work.
+    expect(cats.categoryOf('none', 'Fix Relay pairing', 'eCard')).toBe('Relay')
+    // A title naming none: the work, else Other; a stale assignment is ignored.
+    expect(cats.categoryOf('b', 'Tidy the garage', 'eCard')).toBe('eCard')
+    expect(cats.categoryOf('none', 'Tidy the garage', null)).toBe('Other')
   })
 
   it('fromPrefs ignores bad entries and toPrefs round-trips', () => {
@@ -76,9 +90,9 @@ describe('Categories', () => {
   it('assign sets and clears', () => {
     const cats = Categories.fromPrefs({})
     cats.assign('a', 'Relay')
-    expect(cats.categoryOf('a', 'Grocery')).toBe('Relay')
+    expect(cats.categoryOf('a', 'Grocery', null)).toBe('Relay')
     cats.assign('a', null)
-    expect(cats.categoryOf('a', 'Grocery')).toBe('Other')
+    expect(cats.categoryOf('a', 'Grocery', null)).toBe('Other')
   })
 
   it('names orders saved order, then custom, then workspaces', () => {
@@ -92,16 +106,5 @@ describe('Categories', () => {
     expect(names.at(-1)).toBe('Other')
     expect(cats.rank('Relay')).toBe(0)
     expect(cats.rank('Nope')).toBeGreaterThan(100)
-  })
-
-  it('reorder lands after the target going down and before it going up', () => {
-    const shown = ['A', 'B', 'C', 'D']
-    const down = Categories.fromPrefs({ chat_categories: shown })
-    down.reorder(shown, 'A', 'C')
-    expect(down.names().slice(0, 4)).toEqual(['B', 'C', 'A', 'D'])
-    const up = Categories.fromPrefs({ chat_categories: shown })
-    up.reorder(shown, 'D', 'B')
-    expect(up.names().slice(0, 4)).toEqual(['A', 'D', 'B', 'C'])
-    expect(up.names()).toContain('Other')
   })
 })

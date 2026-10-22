@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { validateThemeDoc } from '@evaos/theme-core'
 
 export const SavedPlaceSchema = z
   .object({
@@ -25,16 +24,15 @@ export const SavedTabsSchema = z.object({
 })
 export type SavedTabs = z.infer<typeof SavedTabsSchema>
 
-export const AppearanceSchema = z.enum(['light', 'dark', 'system'])
-export type Appearance = z.infer<typeof AppearanceSchema>
-
-export const ThemeDocumentSchema = z.unknown().superRefine((value, ctx) => {
-  try {
-    validateThemeDoc(value)
-  } catch (error) {
-    ctx.addIssue({ code: 'custom', message: error instanceof Error ? error.message : 'Invalid theme document' })
-  }
+// The renderer's Texo-style theme state: the preset config, the preset name it came from, and
+// light or dark (kept apart from the preset). The config's shape belongs to the renderer, which
+// merges it over the Default preset when loading.
+export const SavedThemeSchema = z.object({
+  config: z.record(z.string(), z.unknown()),
+  preset: z.string().max(200),
+  colorScheme: z.enum(['light', 'dark']).optional(),
 })
+export type SavedTheme = z.infer<typeof SavedThemeSchema>
 
 export const ChatSettingsSchema = z.object({
   show_thinking: z.boolean(),
@@ -67,22 +65,10 @@ export const shellInvoke = {
   },
   'theme.load': {
     input: z.object({}).strict(),
-    output: z.object({ appearance: AppearanceSchema, doc: z.unknown() }),
+    output: z.object({ theme: SavedThemeSchema.nullable() }),
   },
-  'theme.list': {
-    input: z.object({}).strict(),
-    output: z.object({ themes: z.array(z.object({ id: z.string(), name: z.string() })) }),
-  },
-  'theme.setBase': {
-    input: z.object({ base: z.string() }).strict(),
-    output: Empty,
-  },
-  'theme.setAppearance': {
-    input: z.object({ appearance: AppearanceSchema }).strict(),
-    output: Empty,
-  },
-  'theme.saveDoc': {
-    input: z.object({ doc: ThemeDocumentSchema }).strict(),
+  'theme.save': {
+    input: SavedThemeSchema.strict(),
     output: Empty,
   },
   'settings.load': { input: z.object({}).strict(), output: ChatSettingsSchema },

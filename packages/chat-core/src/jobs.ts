@@ -13,9 +13,17 @@ export interface BgJob {
   startedAt: number
 }
 
-function applyRecord(record: Json, running: BgJob[], commands: Map<string, string>): void {
+/**
+ * Folds one session record into the open jobs. `commands` maps tool call ids to their commands for
+ * job labels; null skips labels (the list only counts jobs).
+ */
+export function applyJobRecord(
+  record: Json,
+  running: BgJob[],
+  commands: Map<string, string> | null,
+): void {
   const message = isObj(record.message) ? record.message : {}
-  if (Array.isArray(message.content)) {
+  if (commands !== null && Array.isArray(message.content)) {
     for (const part of message.content as unknown[]) {
       if (!isObj(part) || part.type !== 'toolCall') continue
       const id = str(part.id)
@@ -33,7 +41,7 @@ function applyRecord(record: Json, running: BgJob[], commands: Map<string, strin
       const at = running.findIndex((j) => j.id === jobId)
       if (at >= 0) running.splice(at, 1)
       const call = str(message.toolCallId)
-      const command = call === undefined ? undefined : commands.get(call)
+      const command = call === undefined ? undefined : commands?.get(call)
       const ts = Date.parse(str(record.timestamp) ?? '')
       running.push({
         id: jobId,
@@ -70,7 +78,7 @@ export function backgroundJobs(text: string): BgJob[] {
     } catch {
       continue
     }
-    if (isObj(record)) applyRecord(record, running, commands)
+    if (isObj(record)) applyJobRecord(record, running, commands)
   }
   return running
 }

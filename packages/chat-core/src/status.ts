@@ -10,17 +10,22 @@ export const STATUS_LABEL: Record<ChatStatus, string> = {
   job: 'Job',
 }
 
-/** Precedence follows Rust: a waiting dialog first, then working, then background jobs, then merely open. */
+/**
+ * Precedence follows Rust: a waiting dialog first, then working, then background jobs or a run
+ * Relay says Eva's job launcher started, then merely open.
+ */
 export function rowStatus(i: {
   owned: boolean
   working: boolean
   dialog: 'confirm' | 'other' | null
   jobs: number
+  /** Relay runs the session as a job (native Activity::Away { job }). */
+  job: boolean
 }): ChatStatus | null {
   if (i.dialog === 'confirm') return 'needs-approval'
   if (i.dialog === 'other') return 'has-question'
   if (i.working) return 'working'
-  if (i.jobs > 0) return 'job'
+  if (i.jobs > 0 || i.job) return 'job'
   if (i.owned) return 'open'
   return null
 }

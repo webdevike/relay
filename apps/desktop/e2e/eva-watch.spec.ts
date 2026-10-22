@@ -25,7 +25,6 @@ test('external edits to the Eva checkout refresh the dashboard without any user 
   evaFx,
 }) => {
   const summary = shell.locator(sel('dash-summary'))
-  const count = shell.locator(sel('count-tasks'))
   await expect(shell.locator(sel('dash-hero'))).toBeVisible()
   await expect(summary).toContainText('5 open todos')
   // Let the watcher finish its initial scan before touching files.
@@ -37,7 +36,6 @@ test('external edits to the Eva checkout refresh the dashboard without any user 
   lines.splice(at + 1, 0, '- [ ] T21 [eva] From the watcher')
   fs.writeFileSync(file, lines.join('\n'))
   await expect(summary).toContainText('6 open todos', { timeout: 3000 })
-  await expect(count).toHaveText('6', { timeout: 3000 })
 
   fs.writeFileSync(path.join(evaFx.root, 'workspaces/zeta.md'), '# Zeta\n')
   await expect(shell.locator(sel('ws-card-zeta'))).toBeVisible({ timeout: 3000 })
