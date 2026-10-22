@@ -26,7 +26,6 @@ import { AvatarRing, NAME_PILL_GAP, NAME_PILL_HEIGHT, RING_SIZE } from "@/ui/Ava
 import { Banner } from "@/ui/Banner";
 import { Callout } from "@/ui/Callout";
 import { EmptyState } from "@/ui/EmptyState";
-import { ExpandableContent } from "@/ui/ExpandableContent";
 import { IconButton } from "@/ui/IconButton";
 import { SignInCard } from "@/ui/SignInCard";
 import { Text } from "@/ui/Text";
@@ -39,7 +38,7 @@ import { ImageViewer } from "@/agents/ImageViewer";
 import { MarkdownImages } from "@/agents/MarkdownImages";
 import { MessageImageStack } from "@/agents/MessageImageStack";
 import { topLevelImages } from "@/agents/markdown";
-import { LARGE_BODY, MessageText } from "@/agents/MessageText";
+import { MessageText } from "@/agents/MessageText";
 import { radii, spacing, useColors, useScheme } from "@/theme";
 import { agentTitle, threadOf, useAssistantStore } from "@/state/assistant";
 import { useConnectionStore } from "@/state/connection";
@@ -58,10 +57,6 @@ const HEADER_HEIGHT = HEADER_TOP + RING_SIZE + NAME_PILL_GAP + NAME_PILL_HEIGHT;
 const HEADER_GAP = 8;
 /** Gap between the pill and the bottom safe area. */
 const COMPOSER_BOTTOM = spacing.md;
-/** An assistant bubble shows about 20 lines of text before "Show more". */
-const BUBBLE_MAX_HEIGHT = 22 * 20;
-/** The clamp's bottom edge fades out over two lines. */
-const BUBBLE_FADE_HEIGHT = 2 * LARGE_BODY.lineHeight;
 /** Thread background in dark mode: pure black, as Dot's; the pill and bubbles sit on it. */
 const BG_DARK = "#000000";
 /** Assistant bubble fill in dark mode. */
@@ -100,7 +95,7 @@ function Thread({ agent }: { agent: string }) {
   const [photos, setPhotos] = useState<Photo[]>([]);
   // The images of the tapped bubble, open in the full-screen viewer.
   const [viewing, setViewing] = useState<{ uris: string[]; start: number } | null>(null);
-  const { listRef, offsetRef, awayFromBottom, scrollToBottom, followContent, scrollHandlers } = useInvertedChatScroll<AssistantMessage>();
+  const { listRef, awayFromBottom, scrollToBottom, followContent, scrollHandlers } = useInvertedChatScroll<AssistantMessage>();
   const viewerImages = useMemo(() => (viewing === null ? null : viewing.uris.map((uri) => ({ uri }))), [viewing]);
 
   useSpeechRecognitionEvent("result", (event) => {
@@ -172,14 +167,6 @@ function Thread({ agent }: { agent: string }) {
       };
     }, [agent]),
   );
-
-
-  /** "Show more" grew a bubble by `growth`: move the offset with it so the clamp stays where it was on screen. */
-  const anchorExpanded = useCallback((growth: number) => {
-    requestAnimationFrame(() => {
-      listRef.current?.scrollToOffset({ offset: Math.max(0, offsetRef.current + growth), animated: false });
-    });
-  }, []);
 
   const text = draft.trim();
   const canSend = connected && !listening && (text !== "" || photos.length > 0);
@@ -324,7 +311,6 @@ function Thread({ agent }: { agent: string }) {
                     onOpenImages={(uris, start) => {
                       setViewing({ uris, start });
                     }}
-                    onExpanded={anchorExpanded}
                     onSignIn={openSignIn}
                   />
                 </MessageAppearance>
@@ -333,7 +319,6 @@ function Thread({ agent }: { agent: string }) {
               ListHeaderComponent={busy ? <TypingRow streaming={newestFirst[0]?.role === "assistant"} gap={newestFirst[0]?.role === "user" ? GAP_SENDER : GAP_RUN} /> : null}
               // Inverted: reserve room at the visual bottom for the floating composer.
               contentContainerStyle={{ paddingTop: composerHeight + spacing.md }}
-              maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
               {...scrollHandlers}
               keyboardDismissMode="interactive"
               keyboardShouldPersistTaps="handled"
@@ -479,18 +464,14 @@ interface RowProps {
   /** The echoed turn's images, still on the phone; shown instead of the message's host refs. */
   local: Photo[] | undefined;
   onOpenImages: (uris: string[], start: number) => void;
-  /** An assistant bubble's "Show more" grew it by this much. */
-  onExpanded: (growth: number) => void;
   /** The sign-in card was tapped. */
   onSignIn: (messageId: string, signin: NonNullable<AssistantMessage["signin"]>) => void;
 }
 
-function Row({ agent, message, receipt, streaming, sessionId, local, onOpenImages, onExpanded, onSignIn }: RowProps) {
+function Row({ agent, message, receipt, streaming, sessionId, local, onOpenImages, onSignIn }: RowProps) {
   const signedIn = useAssistantStore((state) => threadOf(state, agent).signedIn[message.id] === true);
   const colors = useColors();
   const bubbleFill = useScheme() === "dark" ? BUBBLE_DARK : colors.surface;
-  const streamed = useRef(streaming);
-  if (streaming) streamed.current = true;
   const hasText = message.text !== "";
   const imageCount = local !== undefined ? local.length : (message.images?.length ?? 0);
   // Images stack above the text, left or right with the bubble.
@@ -550,11 +531,7 @@ function Row({ agent, message, receipt, streaming, sessionId, local, onOpenImage
           )}
           {showBubble && (
             <View style={[styles.evaBubble, { backgroundColor: bubbleFill }]}>
-              {streamed.current ? <MessageText text={message.text} large skipImages streaming={streaming} /> : (
-                <ExpandableContent maxHeight={BUBBLE_MAX_HEIGHT} fadeHeight={BUBBLE_FADE_HEIGHT} fadeColor={bubbleFill} onExpanded={onExpanded}>
-                  <MessageText text={message.text} large skipImages />
-                </ExpandableContent>
-              )}
+              <MessageText text={message.text} large skipImages streaming={streaming} />
             </View>
           )}
         </View>
