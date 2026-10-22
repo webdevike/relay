@@ -24,7 +24,8 @@ public class VoiceCallModule: Module {
   private var pending = Data()
   private var muted = false
   private var buffersSinceLevel = 0
-  private var interruption: NSObjectProtocol?
+  /** Interruption, engine configuration change and route change observers of the running call. */
+  private var observers: [NSObjectProtocol] = []
   /** Guards `pending`, `muted` and `buffersSinceLevel`, touched from the audio thread and from JS. */
   private let lock = NSLock()
   private let playFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: playRate, channels: 1, interleaved: false)!
@@ -34,6 +35,9 @@ public class VoiceCallModule: Module {
   private var framesSent = 0
   private var dropped = "none"
   private var voiceProcessing = "off"
+  private var restarts = 0
+  private var lastRestart = "none"
+  private var startError = "none"
 
   public func definition() -> ModuleDefinition {
     Name("VoiceCall")
@@ -107,27 +111,73 @@ public class VoiceCallModule: Module {
     lastTapFormat = "none"
     framesSent = 0
     dropped = "none"
+    restarts = 0
+    lastRestart = "none"
+    startError = "none"
     lock.unlock()
-    carry = []
-    carryPos = 0
-    // The node's own format (nil): with voice processing on it can change between configuration
-    // and start, and a tap or converter fixed to the earlier format gets nothing usable.
-    input.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
-      self?.ingest(buffer)
-    }
+    installTap(on: input)
     engine.prepare()
     try engine.start()
     player.play()
     self.engine = engine
     self.player = player
-    interruption = NotificationCenter.default.addObserver(
-      forName: AVAudioSession.interruptionNotification, object: session, queue: .main
-    ) { [weak self] note in
-      let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
-      if raw == AVAudioSession.InterruptionType.began.rawValue {
-        self?.sendEvent("interrupted", [:])
+    let center = NotificationCenter.default
+    observers = [
+      center.addObserver(forName: AVAudioSession.interruptionNotification, object: session, queue: .main) { [weak self] note in
+        let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+        if raw == AVAudioSession.InterruptionType.began.rawValue {
+          self?.sendEvent("interrupted", [:])
+        }
+      },
+      // A route or format change (a Bluetooth headset switching to HFP, voice processing settling)
+      // stops the engine; nothing restarts it unless we do. Seen on Isaac's phone: engine stopped,
+      // route BluetoothHFP, zero taps.
+      center.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
+        self?.restart("configuration change")
+      },
+      center.addObserver(forName: AVAudioSession.routeChangeNotification, object: session, queue: .main) { [weak self] _ in
+        guard let self, let engine = self.engine, !engine.isRunning else { return }
+        self.restart("route change")
+      },
+    ]
+    // The configuration change can land before the observer above existed.
+    for delay in [0.5, 1.5] {
+      DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+        guard let self, let current = self.engine, current === engine, !current.isRunning else { return }
+        self.restart("stopped \(delay)s after start")
       }
     }
+  }
+
+  private func installTap(on input: AVAudioInputNode) {
+    carry = []
+    carryPos = 0
+    // The node's own format (nil): it changes with the route (48 kHz built-in, 16 or 8 kHz HFP) and
+    // with voice processing, and a tap fixed to an earlier format gets nothing usable.
+    input.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
+      self?.ingest(buffer)
+    }
+  }
+
+  /** Rewires the tap for the input's current format and starts the engine again (main queue). */
+  private func restart(_ why: String) {
+    guard let engine, let player else { return }
+    engine.stop()
+    engine.inputNode.removeTap(onBus: 0)
+    installTap(on: engine.inputNode)
+    engine.prepare()
+    var failure = "none"
+    do {
+      try engine.start()
+      player.play()
+    } catch {
+      failure = "\(why): \(error.localizedDescription)"
+    }
+    lock.lock()
+    restarts += 1
+    lastRestart = why
+    if failure != "none" { startError = failure }
+    lock.unlock()
   }
 
   private func diagnostics() -> String {
@@ -146,16 +196,14 @@ public class VoiceCallModule: Module {
       return "\(Int(f.sampleRate))Hz/\(f.channelCount)ch"
     } ?? "no engine"
     lock.lock()
-    let line = "mic \(permission); session \(session.category.rawValue)/\(session.mode.rawValue) inputAvailable=\(session.isInputAvailable) in=[\(inputs)] out=[\(outputs)]; engine running=\(engine?.isRunning ?? false) input \(format) vp \(voiceProcessing); taps \(taps) last \(lastTapFormat); sent \(framesSent); dropped \(dropped)"
+    let line = "mic \(permission); session \(session.category.rawValue)/\(session.mode.rawValue) inputAvailable=\(session.isInputAvailable) in=[\(inputs)] out=[\(outputs)]; engine running=\(engine?.isRunning ?? false) input \(format) vp \(voiceProcessing); restarts \(restarts) (last \(lastRestart)) start error \(startError); taps \(taps) last \(lastTapFormat); sent \(framesSent); dropped \(dropped)"
     lock.unlock()
     return line
   }
 
   private func stopEngine() {
-    if let interruption {
-      NotificationCenter.default.removeObserver(interruption)
-      self.interruption = nil
-    }
+    for observer in observers { NotificationCenter.default.removeObserver(observer) }
+    observers = []
     guard let engine else { return }
     engine.inputNode.removeTap(onBus: 0)
     player?.stop()
