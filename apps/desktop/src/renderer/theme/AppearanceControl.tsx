@@ -1,26 +1,24 @@
 import { SegmentedControl, Tooltip } from '@mantine/core'
-import { IconDeviceDesktop, IconMoon, IconSun } from '@tabler/icons-react'
-import type { Appearance } from '@evaos/theme-core'
-import { setAppearance, useAppearance } from './theme-store'
+import { IconMoon, IconSun } from '@tabler/icons-react'
+import { setColorScheme, useColorScheme, type ColorScheme } from './theme-config'
 import './appearance.css'
 
-const ITEMS: { value: Appearance; label: string; Icon: typeof IconSun }[] = [
+const ITEMS: { value: ColorScheme; label: string; Icon: typeof IconSun }[] = [
   { value: 'light', label: 'Light', Icon: IconSun },
   { value: 'dark', label: 'Dark', Icon: IconMoon },
-  { value: 'system', label: 'System', Icon: IconDeviceDesktop },
 ]
 
 export interface AppearanceControlProps {
   iconOnly?: boolean
-  /** Root testid; Settings passes appearance-settings. */
   testid?: string
 }
 
+/** The theme config's color scheme, as Texo's header toggle sets it. */
 export function AppearanceControl({
   iconOnly = false,
   testid = 'appearance',
 }: AppearanceControlProps) {
-  const value = useAppearance()
+  const value = useColorScheme()
   const data = ITEMS.map(({ value: v, label, Icon }) => {
     const inner = (
       <span
@@ -30,7 +28,7 @@ export function AppearanceControl({
         aria-label={iconOnly ? label : undefined}
       >
         <Icon size={14} aria-hidden />
-        {iconOnly ? null : <span className="eva-appearance-label">{label}</span>}
+        {iconOnly ? null : <span>{label}</span>}
       </span>
     )
     return {
@@ -46,14 +44,13 @@ export function AppearanceControl({
   })
   return (
     <SegmentedControl
-      className="eva-appearance"
       data-testid={testid}
       fullWidth
       aria-label="Appearance"
       role="radiogroup"
       data={data}
       value={value}
-      onChange={(v) => setAppearance(v as Appearance)}
+      onChange={(v) => setColorScheme(v as ColorScheme)}
     />
   )
 }

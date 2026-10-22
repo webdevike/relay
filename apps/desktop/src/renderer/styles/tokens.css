@@ -55,10 +55,62 @@
   --eva-main-min: 480px;
   --eva-tab-strip-h: var(--eva-tile-lg);
   --eva-address-h: 40px;
-  --eva-chat-header-h: 56px;
+  /* ecard-table-lab shell: 44px card headers, 10px card corners. */
+  --eva-chat-header-h: 44px;
+  --eva-card-radius: 10px;
 }
 
-/* Aliases of the live kit variables written by the ThemeApplier (D-15). */
+/*
+ * Mantine owns every color, font and radius (Texo's model): the active preset writes
+ * --mantine-* and --eva-color-* through cssVariablesResolver in theme/theme-config.tsx.
+ * --eva-c-* keep the shell's existing names and only point at those variables.
+ */
+:root {
+  --eva-font-ui: var(--mantine-font-family);
+  --eva-font-code: var(--mantine-font-family-monospace);
+  --eva-font-size: var(--mantine-font-size-sm);
+  --eva-font-code-size: var(--mantine-font-size-sm);
+  --eva-radius: var(--mantine-radius-default);
+  --eva-radius-lg: var(--mantine-radius-lg);
+  --eva-shadow: var(--mantine-shadow-xs);
+
+  --eva-c-background: var(--mantine-color-body);
+  --eva-c-foreground: var(--mantine-color-text);
+  --eva-c-muted-foreground: var(--mantine-color-dimmed);
+  --eva-c-border: var(--mantine-color-default-border);
+  --eva-c-input-border: var(--mantine-color-default-border);
+  --eva-c-ring: var(--mantine-primary-color-filled);
+  --eva-c-caret: var(--mantine-color-text);
+  --eva-c-overlay: rgb(0 0 0 / 0.6);
+  --eva-c-link: var(--mantine-color-anchor);
+  --eva-c-accent: var(--mantine-primary-color-filled);
+  --eva-c-accent-background: var(--mantine-color-default-hover);
+  --eva-c-secondary-background: var(--eva-color-surface);
+  --eva-c-secondary-active-background: var(--mantine-color-default-hover);
+  --eva-c-muted-background: var(--eva-color-muted);
+  --eva-c-group_box-background: var(--eva-color-card);
+  --eva-c-popover-background: var(--eva-color-popover);
+  --eva-c-popover-foreground: var(--mantine-color-text);
+  --eva-c-primary-background: var(--mantine-primary-color-filled);
+  --eva-c-primary-hover-background: var(--mantine-primary-color-filled-hover);
+  --eva-c-primary-foreground: var(--mantine-primary-color-contrast);
+  --eva-c-danger: var(--mantine-color-red-text);
+  --eva-c-danger-background: var(--mantine-color-red-filled);
+  --eva-c-success: var(--mantine-color-green-text);
+  --eva-c-success-background: var(--mantine-color-green-filled);
+  --eva-c-warning: var(--mantine-color-yellow-text);
+  --eva-c-warning-background: var(--mantine-color-yellow-filled);
+  --eva-c-sidebar-background: var(--eva-color-surface);
+  --eva-c-sidebar-foreground: var(--mantine-color-text);
+  --eva-c-sidebar-border: var(--mantine-color-default-border);
+  --eva-c-sidebar-primary-background: var(--mantine-primary-color-light);
+  --eva-c-sidebar-primary-foreground: var(--mantine-primary-color-light-color);
+  --eva-c-tab-foreground: var(--mantine-color-dimmed);
+  --eva-c-tab-active-background: var(--mantine-color-body);
+  --eva-c-tab-active-foreground: var(--mantine-color-text);
+}
+
+/* Older shell names for the same variables. */
 :root {
   --eva-bg: var(--eva-c-background);
   --eva-surface: var(--eva-c-secondary-background);
@@ -80,92 +132,12 @@
   --eva-nav-active-fg: var(--eva-c-sidebar-primary-foreground);
   --eva-popover-bg: var(--eva-c-popover-background);
   --eva-popover-fg: var(--eva-c-popover-foreground);
-  --eva-scroll-thumb: var(--eva-c-scrollbar-thumb-background);
-  --eva-scroll-thumb-hover: var(--eva-c-scrollbar-thumb-hover-background);
-  --eva-scroll-fade-bg: var(--eva-c-background);
 
   --eva-ease: cubic-bezier(0.215, 0.61, 0.355, 1);
-  --eva-dur-slide: 220ms;
+  /* One slide for the sidebar fold, sidebar drill-in and the right panel (table-lab's iOS-like curve). */
+  --eva-ease-slide: cubic-bezier(0.32, 0.72, 0, 1);
+  --eva-dur-slide: 260ms;
   --eva-dur-fast: 120ms;
-}
-
-/* The native input frame uses input.border and ring, not a library palette. */
-:root[data-mantine-color-scheme] {
-  --mantine-color-text: var(--eva-text);
-  --mantine-color-dimmed: var(--eva-text-dim);
-  --mantine-color-body: var(--eva-bg);
-  --mantine-color-error: var(--eva-danger);
-  --mantine-primary-color-filled: var(--eva-c-primary-background);
-  --mantine-primary-color-filled-hover: var(--eva-c-primary-hover-background);
-  --mantine-primary-color-light: var(--eva-c-accent-background);
-  --mantine-primary-color-light-color: var(--eva-c-primary-background);
-}
-.eva-control-input {
-  background: var(--eva-bg);
-  border-color: var(--eva-c-input-border);
-  border-radius: var(--eva-radius);
-  color: var(--eva-text);
-  caret-color: var(--eva-c-caret);
-  font-family: var(--eva-font-ui);
-  line-height: var(--eva-lh-body);
-}
-html[data-resolved='dark'] .eva-control-input:not(.eva-composer-input) {
-  background: color-mix(in oklab, var(--eva-c-input-border) 70%, transparent);
-}
-.eva-control-input::placeholder {
-  color: var(--eva-text-dim);
-  opacity: 1;
-}
-.eva-control-input:focus,
-.eva-control-input:focus-within {
-  border-color: var(--eva-c-ring);
-}
-.eva-control-input[data-error] {
-  border-color: var(--eva-danger);
-  color: var(--eva-danger);
-}
-.eva-control-input[data-success] {
-  border-color: var(--eva-ok);
-}
-.eva-control-input:not(.eva-composer-input):disabled,
-.eva-control-input:not(.eva-composer-input)[data-disabled] {
-  background: var(--eva-surface);
-  color: var(--eva-text-dim);
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.eva-control-input-section {
-  color: var(--eva-text-dim);
-}
-.eva-control-label {
-  color: var(--eva-text);
-  font-size: var(--eva-fz-body);
-  font-weight: var(--eva-fw-medium);
-  line-height: var(--eva-lh-body);
-}
-.eva-control-description,
-.eva-control-error {
-  font-size: var(--eva-fz-label);
-  line-height: var(--eva-lh-label);
-}
-.eva-control-description {
-  color: var(--eva-text-dim);
-}
-.eva-control-error {
-  color: var(--eva-danger);
-}
-.eva-control-button,
-.eva-control-icon {
-  font-family: var(--eva-font-ui);
-  font-weight: var(--eva-fw-medium);
-}
-.eva-control-button:disabled,
-.eva-control-button[data-disabled],
-.eva-control-icon:disabled,
-.eva-control-icon[data-disabled] {
-  background: var(--eva-c-muted-background);
-  color: var(--eva-text-dim);
-  border-color: var(--eva-border);
 }
 
 html,
@@ -213,8 +185,9 @@ body {
   display: flex;
   align-items: center;
   min-width: 0;
-  gap: var(--eva-space-native-sm);
-  padding: 0 var(--eva-space-native-lg);
+  gap: var(--eva-space-sm);
+  padding: 0 var(--eva-space-sm) 0 10px;
+  border-bottom: 1px solid var(--eva-c-border);
 }
 .eva-chat-empty {
   flex: 1;

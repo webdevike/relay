@@ -1,81 +1,53 @@
 import { app } from 'electron'
-import { hasThemeFamily, parseThemeDoc, serializeThemeDoc, validateThemeDoc, THEME_CATALOG } from '@evaos/theme-core'
+import { z } from 'zod'
+import { SavedThemeSchema, type SavedTheme } from '@evaos/contract'
 import type { ConfigStore } from './config-store'
 import type { MainContext } from './context'
 import { handle } from './ipc/handle'
 import type { WriteQueue } from './write-queue'
 
+// theme.json: { config, preset } from the renderer's Texo-style theme, plus app.lastBackground.
 const FILE = 'theme.json'
 export const DEFAULT_BACKGROUND = '#181817'
 
-type Appearance = 'light' | 'dark' | 'system'
+const AppStateSchema = z.object({ lastBackground: z.unknown().optional() }).passthrough()
+const ThemeFileSchema = z.object({ app: AppStateSchema.optional() }).passthrough()
+type ThemeFile = z.infer<typeof ThemeFileSchema>
 
-const isRecord = (v: unknown): v is Record<string, unknown> =>
-  typeof v === 'object' && v !== null && !Array.isArray(v)
-
-function readDoc(config: ConfigStore): Record<string, unknown> {
-  const v = config.readJson<unknown>(FILE, {})
-  return isRecord(v) ? v : {}
+/** A file whose app key is not an object loses only that key, never the rest. */
+function readFile(raw: unknown): ThemeFile {
+  const parsed = ThemeFileSchema.safeParse(raw)
+  if (parsed.success) return parsed.data
+  const whole = z.object({}).passthrough().safeParse(raw)
+  return whole.success ? { ...whole.data, app: undefined } : {}
 }
 
-function patchApp(config: ConfigStore, key: string, value: unknown): void {
-  const doc = config.readForMerge(FILE)
-  const prevApp = isRecord(doc['app']) ? doc['app'] : {}
-  config.writeJson(FILE, { ...doc, app: { ...prevApp, [key]: value } })
+/** The saved preset config, or null when the file holds none (first run, or an older theme format). */
+export function loadTheme(config: ConfigStore): { theme: SavedTheme | null } {
+  const parsed = SavedThemeSchema.safeParse(config.readJson<unknown>(FILE, {}))
+  return { theme: parsed.success ? parsed.data : null }
 }
 
-export function loadAppearance(config: ConfigStore): Appearance {
-  return parseThemeDoc(readDoc(config)).app.appearance
-}
-
-export function loadTheme(config: ConfigStore): { appearance: Appearance; doc: Record<string, unknown> } {
-  const doc = readDoc(config)
-  return { appearance: parseThemeDoc(doc).app.appearance, doc }
-}
-
-export function saveBase(config: ConfigStore, base: string): void {
-  if (!hasThemeFamily(base)) {
-    throw Object.assign(new Error(`Unknown theme family: ${base}`), { code: 'unknown-theme' })
-  }
-  const doc = config.readForMerge(FILE)
-  config.writeJson(FILE, { ...doc, base })
-}
-
-export function saveThemeDoc(config: ConfigStore, value: unknown): void {
-  const doc = validateThemeDoc(value)
-  const previous = config.readForMerge(FILE)
-  const merged = serializeThemeDoc(doc, previous)
-  validateThemeDoc(merged)
-  config.writeJson(FILE, merged)
-}
-
-export function saveAppearance(config: ConfigStore, appearance: Appearance): void {
-  patchApp(config, 'appearance', appearance)
+/** Replaces the theme and keeps only app state beside it, so an older format does not linger. */
+export function saveTheme(config: ConfigStore, theme: SavedTheme): void {
+  const { app: appState } = readFile(config.readForMerge(FILE))
+  config.writeJson(FILE, { ...(appState ? { app: appState } : {}), ...theme })
 }
 
 export function saveLastBackground(config: ConfigStore, color: string): void {
-  patchApp(config, 'lastBackground', color)
+  const doc = readFile(config.readForMerge(FILE))
+  config.writeJson(FILE, { ...doc, app: { ...doc.app, lastBackground: color } })
 }
 
 export function readLastBackground(config: ConfigStore): string {
-  const doc = readDoc(config)
-  const a = isRecord(doc['app']) ? doc['app']['lastBackground'] : undefined
-  return typeof a === 'string' && /^#[0-9a-fA-F]{6}$/.test(a) ? a : DEFAULT_BACKGROUND
+  const color = readFile(config.readJson<unknown>(FILE, {})).app?.lastBackground
+  return typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color) ? color : DEFAULT_BACKGROUND
 }
 
 export function registerThemeIpc(ctx: MainContext, queue: WriteQueue): void {
   handle(ctx, 'theme.load', () => loadTheme(ctx.config))
-  handle(ctx, 'theme.list', () => ({ themes: [...THEME_CATALOG] }))
-  handle(ctx, 'theme.setBase', async ({ base }) => {
-    await queue.enqueue(() => saveBase(ctx.config, base))
-    return {}
-  })
-  handle(ctx, 'theme.saveDoc', async ({ doc }) => {
-    await queue.enqueue(() => saveThemeDoc(ctx.config, doc))
-    return {}
-  })
-  handle(ctx, 'theme.setAppearance', async ({ appearance }) => {
-    await queue.enqueue(() => saveAppearance(ctx.config, appearance))
+  handle(ctx, 'theme.save', async (theme) => {
+    await queue.enqueue(() => saveTheme(ctx.config, theme))
     return {}
   })
   handle(ctx, 'app.setBackground', async ({ color }) => {

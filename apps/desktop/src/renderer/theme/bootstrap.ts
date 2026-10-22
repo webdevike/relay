@@ -1,41 +1,23 @@
-import {
-  defaultDoc,
-  parseThemeDoc,
-  resolveMode,
-  resolveTheme,
-  type Appearance,
-} from '@evaos/theme-core'
 import { invoke } from '../ipc'
-import { applyTheme } from './applier'
 import { initMotion } from './motion'
-import { initTheme, themeStore } from './theme-store'
+import { parseSavedTheme, persistTheme, seedTheme } from './theme-config'
 
-/** Applies the system-resolved bundled theme first so the first paint is never unstyled. */
-export async function bootstrapTheme(): Promise<{ resolved: 'light' | 'dark' }> {
-  try {
-    const mode = resolveMode('system', window.matchMedia('(prefers-color-scheme: dark)').matches)
-    applyTheme(document.documentElement, resolveTheme(defaultDoc(), mode))
-  } catch {
-    // fall through; initTheme below applies again
-  }
-  let appearance: Appearance = 'system'
-  let doc = defaultDoc()
+/** Seeds the saved preset config before first render (Texo reads it from storage the same way). */
+export async function bootstrapTheme(): Promise<void> {
+  let saved: unknown = null
   let noMotion = false
   let e2e = false
   try {
     const [theme, info] = await Promise.all([invoke('theme.load', {}), invoke('app.info', {})])
-    if (theme.ok) {
-      appearance = theme.value.appearance
-      doc = parseThemeDoc(theme.value.doc)
-    }
+    if (theme.ok) saved = theme.value.theme
     if (info.ok) {
       noMotion = info.value.noMotion
       e2e = info.value.e2e
     }
   } catch {
-    // fall back to system
+    // fall back to the Default preset
   }
-  initTheme(appearance, doc)
+  seedTheme(parseSavedTheme(saved))
+  persistTheme()
   initMotion({ e2e, noMotion })
-  return { resolved: themeStore.getState().resolved }
 }

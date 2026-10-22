@@ -1,27 +1,7 @@
-.eva-appearance {
-  height: 32px;
-  border-radius: var(--eva-radius);
-  background: var(--eva-c-tab_bar-segmented-background);
-}
-.eva-appearance .mantine-SegmentedControl-indicator {
-  border-radius: var(--eva-radius);
-  background: var(--eva-c-tab-active-background);
-  box-shadow: none;
-}
-.eva-appearance .mantine-SegmentedControl-label {
-  font-size: var(--eva-fz-label);
-  color: var(--eva-c-muted-foreground);
-}
-.eva-appearance .mantine-SegmentedControl-label[data-active] {
-  color: var(--eva-c-tab-active-foreground);
-  font-weight: var(--eva-fw-semibold);
-}
+/* The control is stock Mantine SegmentedControl; this only lays out each label's icon and text. */
 .eva-appearance-seg {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: var(--eva-space-xs);
-}
-.eva-appearance-seg[data-active='true'] .eva-appearance-label {
-  font-weight: var(--eva-fw-semibold);
+  gap: calc(var(--mantine-spacing-xs) / 2);
 }
