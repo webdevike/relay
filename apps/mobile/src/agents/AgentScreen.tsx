@@ -49,6 +49,7 @@ import { type ActionWheelEntry } from "@/agents/ActionWheel";
 import { useActionWheel } from "@/agents/useActionWheel";
 import { SubagentsSheet } from "@/agents/SubagentsSheet";
 import { SessionActivity } from "@/agents/SessionActivity";
+import { useSentCommand } from "@/agents/useSentCommand";
 import { tapHaptic } from "@/lib/haptics";
 import { copyText, readClipboardImage, readClipboardText } from "@/lib/clipboard";
 import { warn } from "@/connection/log";
@@ -212,6 +213,8 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
       : selectedId === undefined
         ? undefined
         : conversations[selectedId]?.messages;
+  // A slash command sent from here that the session has not answered yet.
+  const sent = useSentCommand(pending === undefined ? selectedId : undefined);
   // The session's skills and commands: the typed reply's "/" menu always has them; the wheel only
   // when it is on (without it the button gets none, so the swipe left does nothing).
   const commands = useAgentsStore((state) =>
@@ -596,10 +599,12 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
                       status={session.status}
                       activity={session.statusDetail}
                       {...(pending === undefined ? {} : { activityLabel: "Starting omp" })}
+                      sent={sent}
                     />
                   </SessionWidgetActions>
                   <SessionActivity
                     session={session}
+                    sent={sent}
                     bottomInset={seamShown ? MIC_NOTCH_SIZE / 2 - spacing.sm / 2 + spacing.xs : spacing.md}
                   />
                 </NotchedSurface>

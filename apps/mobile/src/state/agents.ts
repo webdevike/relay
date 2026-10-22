@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { AgentApproval, AgentAsk, AgentImage, AgentMessage, AgentOptions, AgentSession } from "@relay/protocol";
+import { sentCommand, settleOnMessages, settleOnSession, type SentCommand } from "@/lib/sentCommand";
 
 export interface ConversationState {
   rev: number;
@@ -30,9 +31,29 @@ export interface AgentsData {
    * (Face ID first when `requiresBiometric`) or `agent.deny`; cleared when it settles anywhere.
    */
   approvals: Record<string, AgentApproval>;
+  /**
+   * The slash command each session was last sent from this phone, while it has not answered it
+   * yet (see lib/sentCommand.ts). Settled by the session's own updates and transcript rows.
+   */
+  sent: Record<string, SentCommand>;
 }
 
-export const emptyAgentsData: AgentsData = { rev: 0, sessions: {}, order: [], conversations: {}, options: {}, images: {}, asks: {}, approvals: {} };
+export const emptyAgentsData: AgentsData = { rev: 0, sessions: {}, order: [], conversations: {}, options: {}, images: {}, asks: {}, approvals: {}, sent: {} };
+
+/** The sent commands once `sessions` arrived: settled ones go, and so do those of sessions that are gone. */
+function settleSent(sent: Record<string, SentCommand>, sessions: Record<string, AgentSession>): Record<string, SentCommand> {
+  const ids = Object.keys(sent);
+  if (ids.length === 0) return sent;
+  const next: Record<string, SentCommand> = {};
+  for (const id of ids) {
+    const pending = sent[id];
+    const session = sessions[id];
+    if (pending === undefined || session === undefined) continue;
+    const settled = settleOnSession(pending, session);
+    if (settled !== null) next[id] = settled;
+  }
+  return next;
+}
 
 /** Sessions blocked on the user (a question or an approval prompt) sort ahead of everything else. */
 export function needsAttention(session: AgentSession): boolean {
@@ -73,7 +94,7 @@ export function applySnapshot(
 ): AgentsData {
   const byId: Record<string, AgentSession> = {};
   for (const session of sessions) byId[session.id] = session;
-  return { ...data, rev, sessions: byId, order: orderByAttention(byId) };
+  return { ...data, rev, sessions: byId, order: orderByAttention(byId), sent: settleSent(data.sent, byId) };
 }
 
 /**
@@ -101,7 +122,7 @@ export function applyDelta(
   const filtered = removed.size === 0 ? sessions : Object.fromEntries(
     Object.entries(sessions).filter(([id]) => !removed.has(id)),
   );
-  return { data: { ...data, rev, sessions: filtered, order: orderByAttention(filtered) }, ok: true };
+  return { data: { ...data, rev, sessions: filtered, order: orderByAttention(filtered), sent: settleSent(data.sent, filtered) }, ok: true };
 }
 
 export function setConversation(
@@ -129,6 +150,9 @@ export function appendMessages(
 ): { data: AgentsData; ok: boolean } {
   const existing = data.conversations[sessionId];
   if (!existing || rev !== existing.rev + 1) return { data, ok: false };
+  const pending = data.sent[sessionId];
+  const settled = pending === undefined ? undefined : settleOnMessages(pending, append);
+  const sent = settled === pending ? data.sent : withSent(data.sent, sessionId, settled ?? undefined);
   return {
     data: {
       ...data,
@@ -136,9 +160,29 @@ export function appendMessages(
         ...data.conversations,
         [sessionId]: { rev, messages: [...existing.messages, ...append] },
       },
+      sent,
     },
     ok: true,
   };
+}
+
+/** `sent` with the session's command replaced, or removed when `command` is undefined. */
+function withSent(sent: Record<string, SentCommand>, sessionId: string, command: SentCommand | undefined): Record<string, SentCommand> {
+  if (command !== undefined) return { ...sent, [sessionId]: command };
+  return Object.fromEntries(Object.entries(sent).filter(([id]) => id !== sessionId));
+}
+
+/** Notes a reply the phone is sending: a slash command shows as running; any other text clears one. */
+export function noteSent(data: AgentsData, sessionId: string, text: string, now: number): AgentsData {
+  const command = sentCommand(text, data.sessions[sessionId], now);
+  if (command === null && data.sent[sessionId] === undefined) return data;
+  return { ...data, sent: withSent(data.sent, sessionId, command ?? undefined) };
+}
+
+/** Drops the session's sent command (the host refused it, or it timed out), but only the one sent at `at`. */
+export function dropSent(data: AgentsData, sessionId: string, at: number): AgentsData {
+  if (data.sent[sessionId]?.at !== at) return data;
+  return { ...data, sent: withSent(data.sent, sessionId, undefined) };
 }
 
 /**
@@ -207,6 +251,8 @@ export interface AgentsStore extends AgentsData {
   clearAsk: (sessionId: string, id: string) => void;
   setApproval: (sessionId: string, approval: AgentApproval) => void;
   clearApproval: (sessionId: string, id: string) => void;
+  noteSent: (sessionId: string, text: string, now: number) => void;
+  dropSent: (sessionId: string, at: number) => void;
 }
 
 export const useAgentsStore = create<AgentsStore>((set, get) => ({
@@ -250,5 +296,11 @@ export const useAgentsStore = create<AgentsStore>((set, get) => ({
   },
   clearApproval: (sessionId, id) => {
     set(clearApproval(get(), sessionId, id));
+  },
+  noteSent: (sessionId, text, now) => {
+    set(noteSent(get(), sessionId, text, now));
+  },
+  dropSent: (sessionId, at) => {
+    set(dropSent(get(), sessionId, at));
   },
 }));

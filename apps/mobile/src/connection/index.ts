@@ -508,10 +508,21 @@ export function requestAgentImage(sessionId: string, id: string): void {
   socket.send(encode({ t: "agent.image", sessionId, id }));
 }
 
-/** Reliable; resolves on ack, rejects with an `AckError`-shaped `Error` on nack. */
+/**
+ * Reliable; resolves on ack, rejects with an `AckError`-shaped `Error` on nack. A reply that is a
+ * slash command shows as running from this moment (`useAgentsStore().sent`), every path that sends
+ * one alike (typed, dictated, the skill wheel, a widget button); a refused one stops showing.
+ */
 export function sendCommand(cmd: Command): Promise<void> {
   const promise = commandQueue.enqueue(cmd);
   commandQueue.flush((message) => socket.send(encode(message)));
+  if (cmd.kind === "agent.reply") {
+    const at = Date.now();
+    useAgentsStore.getState().noteSent(cmd.sessionId, cmd.text, at);
+    promise.catch(() => {
+      useAgentsStore.getState().dropSent(cmd.sessionId, at);
+    });
+  }
   return promise;
 }
 

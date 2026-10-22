@@ -9,6 +9,8 @@ import { useAgentsStore } from "@/state/agents";
 import { requestAgentImage } from "@/connection";
 import { loadSkia } from "@/dictation/skia";
 import { untagged } from "@/dictation/surface";
+import { commandWord } from "@/lib/slash";
+import type { SentCommand } from "@/lib/sentCommand";
 import { ImageViewer } from "./ImageViewer";
 import { modelShortName, VendorLogo } from "./VendorLogo";
 import { MessageText } from "./MessageText";
@@ -106,7 +108,11 @@ function MessageRow({ sessionId, message, onOpenImage }: MessageRowProps) {
   const images =
     message.images === undefined || message.images.length === 0 ? null : <MessageImages sessionId={sessionId} refs={message.images} onOpen={onOpenImage} />;
   switch (message.role) {
-    case "user":
+    case "user": {
+      const text = untagged(message.text);
+      // A slash command reads as one: the command in a chip, whatever followed it under.
+      const command = commandWord(text);
+      const rest = command === undefined ? text : text.trimStart().slice(command.length).trim();
       return (
         <View style={{ alignItems: "flex-end", paddingHorizontal: spacing.xl }}>
           <View
@@ -122,11 +128,13 @@ function MessageRow({ sessionId, message, onOpenImage }: MessageRowProps) {
               gap: spacing.sm,
             }}
           >
-            {message.text.length > 0 && <MessageText text={untagged(message.text)} large />}
+            {command !== undefined && <Pill label={command} tone="accent" />}
+            {rest.length > 0 && <MessageText text={rest} large />}
             {images}
           </View>
         </View>
       );
+    }
     case "assistant":
       return (
         <View style={{ paddingHorizontal: spacing.lg, gap: spacing.sm }}>
@@ -256,6 +264,12 @@ export interface AgentCardProps {
   activity?: string | undefined;
   /** Replaces the activity row's text outright (e.g. "Starting omp" for a session not yet open). */
   activityLabel?: string | undefined;
+  /**
+   * A slash command the phone sent that the session has not answered yet: shown as the newest row
+   * (EvaOS's sent row), with "Running /name" in the activity row; a `/handoff` leaves the activity
+   * to the handoff banner.
+   */
+  sent?: SentCommand | undefined;
 }
 
 /**
@@ -263,12 +277,18 @@ export interface AgentCardProps {
  * shows the end without a single scroll, a session comes back at the offset it was left at, and
  * a new message only pulls the view when the reader was already near the newest.
  */
-export function AgentCard({ sessionId, messages, connected, status, activity, activityLabel }: AgentCardProps) {
+export function AgentCard({ sessionId, messages, connected, status, activity, activityLabel, sent }: AgentCardProps) {
   const [viewing, setViewing] = useState<string | null>(null);
   const viewingImages = useMemo(() => (viewing === null ? null : [{ uri: viewing }]), [viewing]);
-  const newestFirst = useMemo(() => (messages === undefined ? undefined : [...messages].reverse()), [messages]);
+  const newestFirst = useMemo(() => {
+    if (messages === undefined) return undefined;
+    const rows = [...messages].reverse();
+    if (sent !== undefined) rows.unshift({ id: `sent-${String(sent.at)}`, role: "user", text: sent.text, at: sent.at });
+    return rows;
+  }, [messages, sent]);
   const newest = messages === undefined ? undefined : messages[messages.length - 1];
-  const showActivity = status === "working";
+  const running = sent !== undefined && !sent.handoff ? `Running ${sent.name}` : undefined;
+  const showActivity = status === "working" || running !== undefined;
   const streamingText = newest?.streaming === true && newest.text.length > 0;
   // Read once per mount: returning to a session preserves both its position and follow mode.
   const initialOffset = useRef(sessionId === undefined ? 0 : (scrollMemory.get(sessionId) ?? 0));
@@ -281,7 +301,7 @@ export function AgentCard({ sessionId, messages, connected, status, activity, ac
   if (messages === undefined || sessionId === undefined) {
     return <CardPlaceholder text={connected ? "Loading conversation…" : "Connect to your host to load this conversation."} />;
   }
-  if (messages.length === 0 && !showActivity) return <CardPlaceholder text="No messages yet." />;
+  if (newestFirst?.length === 0 && !showActivity) return <CardPlaceholder text="No messages yet." />;
   return (
     <View style={{ flex: 1 }}>
       <FlatList
@@ -296,7 +316,7 @@ export function AgentCard({ sessionId, messages, connected, status, activity, ac
           </MessageAppearance>
         )}
         contentContainerStyle={{ paddingVertical: spacing.lg, gap: spacing.sm }}
-        ListHeaderComponent={showActivity ? <ActivityRow label={activityLabel ?? (streamingText ? "Responding" : activity === undefined ? "Working" : `Running ${activity}`)} /> : null}
+        ListHeaderComponent={showActivity ? <ActivityRow label={activityLabel ?? running ?? (streamingText ? "Responding" : activity === undefined ? "Working" : `Running ${activity}`)} /> : null}
         contentOffset={{ x: 0, y: initialOffset.current }}
         maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
         {...scrollHandlers}

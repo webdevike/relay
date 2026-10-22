@@ -1,9 +1,11 @@
 /**
  * What the focused session is busy with besides its turn, pinned to the bottom of the chat card
- * above the composer: the handoff banner while it summarizes itself and compacts in place, and one
- * chip per background job (`bg_N` bash commands, eval cells). Tapping a chip shows what it runs,
- * how it stands and for how long; tapping it again hides that. Mirrors EvaOS's handoff banner and
- * background-jobs strip (apps/evaos/src/chat_view.rs).
+ * above the composer: the handoff banner while it summarizes itself and compacts in place (from the
+ * moment the phone sends `/handoff`), the goal strip while it has a goal, and one chip per
+ * background job (`bg_N` bash commands, eval cells). The goal strip shows the objective and the
+ * tokens spent until the goal is met or dropped, with Pause or Resume. Tapping a job chip shows
+ * what it runs, how it stands and for how long; tapping it again hides that. Mirrors EvaOS's status
+ * strip and background-jobs strip (apps/evaos/src/chat_view.rs).
  */
 import { useEffect, useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, View } from "react-native";
@@ -12,7 +14,10 @@ import type { AgentBackgroundJobState, AgentSession } from "@relay/protocol";
 import { Banner } from "@/ui/Banner";
 import { Chip } from "@/ui/Chip";
 import { Text } from "@/ui/Text";
-import { elapsed } from "@/lib/format";
+import { sendCommand } from "@/connection";
+import { warn } from "@/connection/log";
+import { elapsed, tokenCount } from "@/lib/format";
+import type { SentCommand } from "@/lib/sentCommand";
 import { spacing, useColors, type ColorToken } from "@/theme";
 
 const stateWord: Record<AgentBackgroundJobState, string> = {
@@ -31,13 +36,17 @@ const endedGlyph: Record<Exclude<AgentBackgroundJobState, "running">, { symbol: 
 
 export interface SessionActivityProps {
   session: AgentSession;
+  /** The slash command the phone sent and the session has not answered yet; a `/handoff` shows the banner at once. */
+  sent?: SentCommand | undefined;
   /** Room left under the strip, clear of whatever bites into the card's bottom edge (the mic seam). */
   bottomInset: number;
 }
 
-export function SessionActivity({ session, bottomInset }: SessionActivityProps) {
+export function SessionActivity({ session, sent, bottomInset }: SessionActivityProps) {
   const colors = useColors();
   const jobs = session.backgroundJobs ?? [];
+  const handingOff = session.handingOff === true || sent?.handoff === true;
+  const goal = session.goal;
   const [openId, setOpenId] = useState<string | null>(null);
   const open = jobs.find((job) => job.id === openId);
   // The open job's running time ticks while it runs.
@@ -54,11 +63,33 @@ export function SessionActivity({ session, bottomInset }: SessionActivityProps) 
     };
   }, [ticking]);
 
-  if (session.handingOff !== true && jobs.length === 0) return null;
+  if (!handingOff && goal === undefined && jobs.length === 0) return null;
+  const goalAction = goal?.paused === true ? "resume" : "pause";
   return (
     <View style={[styles.strip, { paddingBottom: bottomInset }]}>
-      {session.handingOff === true && (
+      {handingOff ? (
         <Banner tone="info" busy message="Generating handoff" detail="Summarizing this session, then compacting in place" />
+      ) : (
+        goal !== undefined && (
+          // Like EvaOS, the handoff takes the goal's place while it runs.
+          <Banner
+            tone="info"
+            icon="target"
+            message={goal.paused ? "Goal paused" : "Goal"}
+            detail={goal.tokensUsed > 0 ? `${goal.objective} · ${tokenCount(goal.tokensUsed)}` : goal.objective}
+            detailLines={2}
+            {...(session.canRespond
+              ? {
+                  actionLabel: goal.paused ? "Resume" : "Pause",
+                  onAction: () => {
+                    sendCommand({ kind: "agent.reply", sessionId: session.id, text: `/goal ${goalAction}`, submit: true }).catch((error: unknown) => {
+                      warn("agents", `goal ${goalAction} failed`, error);
+                    });
+                  },
+                }
+              : {})}
+          />
+        )
       )}
       {jobs.length > 0 && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>

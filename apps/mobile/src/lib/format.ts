@@ -53,6 +53,14 @@ export function elapsed(ms: number): string {
   return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
 }
 
+/** A token count: "850 tokens", "41k tokens", "1.2M tokens" (whole thousands, one decimal of millions). */
+export function tokenCount(tokens: number): string {
+  const n = Math.max(0, Math.round(tokens));
+  if (n < 1000) return countOf(n, "token");
+  if (n < 1_000_000) return `${Math.floor(n / 1000)}k tokens`;
+  return `${(n / 1_000_000).toFixed(1)}M tokens`;
+}
+
 function scaled(value: number, unit: string): string {
   return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${unit}`;
 }

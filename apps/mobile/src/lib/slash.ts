@@ -11,6 +11,15 @@ import type { AgentSkill } from "@relay/protocol";
 export const MAX_SLASH_MATCHES = 8;
 
 /**
+ * The command a text starts with (`/handoff`, `/skill:review`, `/goal`), or undefined when it is
+ * not one. Only a skill's name may hold a slash (`/skill:agents/hallmark`), so a pasted path
+ * (`/Users/ike/notes.md`) is not a command.
+ */
+export function commandWord(text: string): string | undefined {
+  return /^\/(?:skill:[\w:./-]+|[A-Za-z][\w:.-]*)(?=\s|$)/.exec(text.trimStart())?.[0];
+}
+
+/**
  * What the slash menu lists for a draft: matching commands, or one command's subcommands once
  * `/name ` is typed. Empty when the draft is not completing a command, or the command is complete.
  */

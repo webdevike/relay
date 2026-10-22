@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { byteSize, elapsed, relativeTime, truncate } from "./format";
+import { byteSize, elapsed, relativeTime, tokenCount, truncate } from "./format";
 
 describe("relativeTime", () => {
   const now = 1_000_000;
@@ -65,5 +65,14 @@ describe("elapsed", () => {
     expect(elapsed(45_900)).toBe("45s");
     expect(elapsed(130_000)).toBe("2m 10s");
     expect(elapsed(3_900_000)).toBe("1h 5m");
+  });
+});
+
+describe("tokenCount", () => {
+  it("reads tokens, then whole thousands, then millions to one decimal", () => {
+    expect(tokenCount(1)).toBe("1 token");
+    expect(tokenCount(850)).toBe("850 tokens");
+    expect(tokenCount(41_999)).toBe("41k tokens");
+    expect(tokenCount(1_240_000)).toBe("1.2M tokens");
   });
 });
