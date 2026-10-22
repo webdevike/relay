@@ -9,7 +9,9 @@ import { splitSignin } from "../assistant/signin";
 /**
  * `markdown` as plain speech. Lines become sentences (a finished line without end punctuation
  * gets a period), so list items are said one by one. While `streaming`, an unclosed code fence
- * hides everything after it and a half-written sign-in token is held back.
+ * hides everything after it and a half-written sign-in token is held back. Clock times are
+ * spelled the way pocket-tts says them right ("2 12", "9 oh 5", "12 o'clock"); it reads "2:12"
+ * as nonsense.
  */
 export function speakable(markdown: string, streaming: boolean): string {
   const lines = splitSignin(spokenPart(markdown), streaming)
@@ -20,6 +22,10 @@ export function speakable(markdown: string, streaming: boolean): string {
     .replace(/`([^`]*)`?/g, "$1")
     .replace(/[*_~]{1,3}(?=\S)|(?<=\S)[*_~]{1,3}/g, "")
     .replace(/\s+[—–]\s+|—/g, ", ")
+    .replace(/\b(\d{1,2}):00(?=\s*[AaPp]\.?[Mm]\b)/g, "$1")
+    .replace(/\b(\d{1,2}):00\b/g, "$1 o'clock")
+    .replace(/\b(\d{1,2}):0(\d)\b/g, "$1 oh $2")
+    .replace(/\b(\d{1,2}):([1-5]\d)\b/g, "$1 $2")
     .split("\n")
     .map((line) => line.replace(/^\s*(?:#{1,6}\s+|>\s?|[-*+]\s+)/, "").trim())
     .filter((line) => line.length > 0 && !line.startsWith("|"));

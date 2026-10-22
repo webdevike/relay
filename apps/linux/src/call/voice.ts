@@ -1,7 +1,7 @@
 // The speech models calls run on, all local and all reused from Eva's voice stack:
 //   - ears: eva-realtime's `py/call_ears_worker.py` (silero VAD + mlx-whisper), one process for
 //     every call, each call its own stream inside it;
-//   - filler: eva-realtime's `py/brain_worker.py` in `ack` mode (Qwen3-0.6B on MLX);
+//   - filler: eva-realtime's `py/brain_worker.py` in `filler` mode (Qwen3-0.6B on MLX);
 //   - mouth: the warm pocket-tts server Eva's other voice tools use (`pocket-tts serve`, started
 //     here the way `.omp/tools/pocket-say.ts` starts it when it is not up).
 // Both Python workers run on eva-realtime's own venv, start with the first call and stop once no
@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { CALL_OUTPUT_RATE } from "@relay/protocol";
 import type { Subprocess } from "bun";
 import type { Ears, EarsEvents, VoiceStack } from "./call";
+import { sentences } from "./speech";
 
 /** Workers no call has used for this long are stopped. */
 export const IDLE_STOP_MS = 10 * 60_000;
@@ -19,6 +20,8 @@ export const IDLE_STOP_MS = 10 * 60_000;
 const READY_TIMEOUT_MS = 180_000;
 /** A filler that takes longer than this is too late to be useful. */
 const FILLER_TIMEOUT_MS = 5_000;
+/** Longest filler said; the brain's longer lines are dropped. */
+const MAX_FILLER_WORDS = 8;
 /** Audio goes to the phone in pieces of at least this many bytes (100 ms at CALL_OUTPUT_RATE). */
 const AUDIO_PIECE_BYTES = (CALL_OUTPUT_RATE / 10) * 2;
 
@@ -189,11 +192,13 @@ export class EvaRealtimeVoice implements VoiceStack {
     }, FILLER_TIMEOUT_MS);
     this.fillers.set(id, (text) => {
       clearTimeout(timer);
-      resolve(text);
+      // A 0.6B model rambles now and then; a long or odd line is worse than none.
+      const first = sentences(text)[0] ?? "";
+      resolve(first.split(/\s+/).length <= MAX_FILLER_WORDS ? first : "");
     });
     worker.ready.then(
       () => {
-        worker.write({ cmd: "gen", id, mode: "ack", text: heard });
+        worker.write({ cmd: "gen", id, mode: "filler", text: heard });
       },
       (error: unknown) => {
         clearTimeout(timer);
@@ -288,7 +293,7 @@ export class EvaRealtimeVoice implements VoiceStack {
     this.config.log("voice: starting filler brain (Qwen3-0.6B)");
     // MLX compiles on the first generation; pay that now, not on the first slow reply.
     void worker.ready.then(() => {
-      worker.write({ cmd: "gen", id: 0, mode: "ack", text: "Hello?" });
+      worker.write({ cmd: "gen", id: 0, mode: "filler", text: "Hello?" });
     }, () => undefined);
     return worker;
   }

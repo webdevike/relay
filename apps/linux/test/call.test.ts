@@ -185,6 +185,12 @@ describe("speech from replies", () => {
     expect(speakable("Sign in please [[sign", true)).toBe("Sign in please");
   });
 
+  it("spells clock times the way the voice says them right", () => {
+    expect(speakable("It's 2:12 PM. Standup at 9:05, lunch at 12:00 and the call at 3:00 pm.", false)).toBe(
+      "It's 2 12 PM. Standup at 9 oh 5, lunch at 12 o'clock and the call at 3 pm.",
+    );
+  });
+
   it("cuts sentences at end punctuation", () => {
     expect(sentences("It's 4:30. Anything else? Sure!")).toEqual(["It's 4:30.", "Anything else?", "Sure!"]);
   });
