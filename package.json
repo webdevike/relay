@@ -10,7 +10,7 @@
     "build": "pnpm -C apps/desktop build",
     "test-bench": "pnpm --silent -C apps/desktop test-bench",
     "typecheck": "pnpm -r typecheck",
-    "lint": "eslint . && prettier --check . && node scripts/lint-em-dash.ts",
+    "lint": "eslint . && prettier --check . && node scripts/lint-em-dash.ts && node scripts/lint-spacing.ts",
     "test": "vitest run",
     "e2e": "pnpm -C apps/desktop e2e",
     "gate": "bash scripts/gate.sh"
@@ -21,6 +21,7 @@
     "get-shit-done-cc": "^1.42.3",
     "globals": "^16.0.0",
     "prettier": "^3.6.0",
+    "stylelint": "^17.16.0",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.35.0",
     "vitest": "5.0.4"

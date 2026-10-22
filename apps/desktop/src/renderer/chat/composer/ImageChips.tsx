@@ -21,7 +21,9 @@ export function ImageChips({
       {chips.map((chip, i) => (
         <div key={chip.id} className="eva-composer-chip" data-testid="composer-chip">
           <img src={chip.previewUrl} alt={`Pasted image ${i + 1}`} draggable={false} />
-          <span className="eva-composer-chip-name" title={chip.name}>{chip.name}</span>
+          <span className="eva-composer-chip-name" title={chip.name}>
+            {chip.name}
+          </span>
           <ActionIcon
             size="var(--eva-kit-control-xs)"
             variant="subtle"

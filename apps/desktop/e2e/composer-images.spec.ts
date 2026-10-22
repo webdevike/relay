@@ -63,9 +63,12 @@ test.describe('composer images', () => {
 
   test('paste, drop, remove and send images', async ({ app, shell }) => {
     await shell.getByTestId('nav-chat').click()
-    await shell.getByTestId('chat-tree').getByRole('treeitem', {
-      name: /^Fixture chat(?:,|$)/,
-    }).click()
+    await shell
+      .getByTestId('chat-tree')
+      .getByRole('link', {
+        name: /^Fixture chat(?:,|$)/,
+      })
+      .click()
     const log = shell.locator('[data-testid=chat-log]')
     await expect(log).toContainText('Please sketch a tiny greeter.')
     const composer = shell.locator('[data-testid=composer]')

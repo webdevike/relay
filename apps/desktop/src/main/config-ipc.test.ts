@@ -3,7 +3,6 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { defaultDoc, parseThemeDoc, resolveTheme, serializeThemeDoc } from '@evaos/theme-core'
 vi.mock('electron', () => ({
   app: {},
   ipcMain: {},
@@ -13,9 +12,7 @@ vi.mock('electron', () => ({
 
 import { createConfigStore, type ConfigStore } from './config-store'
 import { loadLayout, saveLayout } from './layout-ipc'
-import {
-  loadAppearance, loadTheme, readLastBackground, saveAppearance, saveBase, saveLastBackground, saveThemeDoc,
-} from './theme-ipc'
+import { loadTheme, readLastBackground, saveLastBackground, saveTheme } from './theme-ipc'
 import { loadSettings, saveSettings } from './settings-ipc'
 import { createWriteQueue } from './write-queue'
 
@@ -64,104 +61,45 @@ describe('layout', () => {
 })
 
 describe('theme', () => {
-  it('keeps other keys and falls back to system', () => {
-    fs.writeFileSync(
-      path.join(dir, 'theme.json'),
-      '{"base":"X","app":{"appearance":"dark","lastBackground":"#111111"}}',
-    )
-    saveAppearance(config, 'light')
-    expect(read('theme.json')).toEqual({
-      base: 'X',
-      app: { appearance: 'light', lastBackground: '#111111' },
-    })
-    fs.writeFileSync(path.join(dir, 'theme.json'), '{"app":{"appearance":"neon"}}')
-    expect(loadAppearance(config)).toBe('system')
-  })
+  const saved = { config: { primaryColor: 'teal', colorScheme: 'dark' }, preset: 'custom' }
+
   it('persists the last background', () => {
     expect(readLastBackground(config)).toBe('#181817')
     saveLastBackground(config, '#222222')
     expect(readLastBackground(config)).toBe('#222222')
   })
-  it('persists base and appearance across stores without losing edit layers or unknown keys', async () => {
-    const original = {
-      base: 'EvaOS',
-      shared: { ring: '#123456', futureShape: { radius: 20 } },
-      light: { edits: { background: '#abcdef' }, futureMode: true },
-      dark: { edits: { ring: '#654321' } },
-      app: { appearance: 'system', lastBackground: '#111111', futureApp: [1, 2] },
-      futureRoot: { version: 2 },
-    }
-    fs.writeFileSync(path.join(dir, 'theme.json'), JSON.stringify(original))
+
+  it('loads nothing until a preset config is saved, including from the older theme format', () => {
+    expect(loadTheme(config)).toEqual({ theme: null })
+    fs.writeFileSync(
+      path.join(dir, 'theme.json'),
+      '{"base":"Flexoki","light":{"edits":{}},"app":{"appearance":"dark"}}',
+    )
+    expect(loadTheme(config)).toEqual({ theme: null })
+  })
+
+  it('replaces an older theme format, keeps app state, and survives a new store', async () => {
+    fs.writeFileSync(
+      path.join(dir, 'theme.json'),
+      JSON.stringify({ base: 'EvaOS', shared: { radius: 3 }, app: { lastBackground: '#111111' } }),
+    )
     const queue = createWriteQueue()
     await Promise.all([
-      queue.enqueue(() => saveBase(config, 'Catppuccin')),
-      queue.enqueue(() => saveAppearance(config, 'light')),
+      queue.enqueue(() => saveTheme(config, saved)),
       queue.enqueue(() => saveLastBackground(config, '#222222')),
     ])
-    const expected = {
-      ...original,
-      base: 'Catppuccin',
-      app: { ...original.app, appearance: 'light', lastBackground: '#222222' },
-    }
-    expect(loadTheme(createConfigStore(dir))).toEqual({ appearance: 'light', doc: expected })
-    expect(read('theme.json')).toEqual(expected)
-  })
-
-  it('rejects unknown and unpaired bases without changing the saved document', () => {
-    const original = '{"base":"Flexoki","app":{"appearance":"dark"},"future":true}'
-    fs.writeFileSync(path.join(dir, 'theme.json'), original)
-    for (const base of ['missing', 'Adventure', 'toString', '']) {
-      expect(() => saveBase(config, base)).toThrow(expect.objectContaining({ code: 'unknown-theme' }))
-      expect(fs.readFileSync(path.join(dir, 'theme.json'), 'utf8')).toBe(original)
-    }
-  })
-
-  it('queues complete docs with base/appearance writes and restores native overrides on reload', async () => {
-    config.writeJson('theme.json', { future: { enabled: true }, app: { lastBackground: '#111111', nativeOnly: 2 } })
-    const doc = defaultDoc()
-    doc.shared = { 'font.family': 'Inter', 'font.size': 18, 'mono_font.family': 'Menlo', 'mono_font.size': 15, radius: 3, 'radius.lg': 17, shadow: true }
-    doc.light.edits.ring = '#112233'
-    doc.dark.edits = { ring: '#abcdef', highlight: { syntax: { keyword: { color: '#123456', font_style: 'italic', font_weight: 700 } } } }
-    const queue = createWriteQueue()
-    await Promise.all([
-      queue.enqueue(() => saveThemeDoc(config, serializeThemeDoc(doc))),
-      queue.enqueue(() => saveBase(config, 'Flexoki')),
-      queue.enqueue(() => saveAppearance(config, 'light')),
-      queue.enqueue(() => saveLastBackground(config, '#222222')),
-    ])
-    const loaded = loadTheme(createConfigStore(dir))
-    const restored = parseThemeDoc(loaded.doc)
-    expect(loaded.appearance).toBe('light')
-    expect(restored.base).toBe('Flexoki')
-    expect(restored.shared).toEqual(doc.shared)
-    expect(restored.dark.edits).toEqual(doc.dark.edits)
-    expect(restored.light.edits).toEqual(doc.light.edits)
-    expect(resolveTheme(restored, 'dark').highlight.syntax.keyword).toMatchObject({ color: '#123456', font_style: 'italic', font_weight: 700 })
-    expect(loaded.doc).toMatchObject({ future: { enabled: true }, app: { lastBackground: '#222222', nativeOnly: 2 } })
-  })
-
-  it('rejects invalid whole docs without writing and persists removed overrides', () => {
-    const doc = defaultDoc()
-    doc.shared['font.size'] = 18
-    doc.dark.edits.ring = '#123456'
-    saveThemeDoc(config, serializeThemeDoc(doc))
-    const original = fs.readFileSync(path.join(dir, 'theme.json'), 'utf8')
-    for (const shared of [{ 'font.size': 0 }, { radius: Infinity }, { shadow: 'false' }, { 'font.family': 'x\";background:red' }]) {
-      expect(() => saveThemeDoc(config, { ...serializeThemeDoc(doc), shared })).toThrow()
-      expect(fs.readFileSync(path.join(dir, 'theme.json'), 'utf8')).toBe(original)
-    }
-    delete doc.shared['font.size']
-    delete doc.dark.edits.ring
-    saveThemeDoc(config, serializeThemeDoc(doc))
-    const restored = parseThemeDoc(loadTheme(config).doc)
-    expect(restored.shared['font.size']).toBeUndefined()
-    expect(restored.dark.edits.ring).toBeUndefined()
+    expect(read('theme.json')).toEqual({ ...saved, app: { lastBackground: '#222222' } })
+    expect(loadTheme(createConfigStore(dir))).toEqual({ theme: saved })
   })
 })
 
 describe('settings', () => {
-  it('defaults follow Rust: thinking off, tools on, harness omp', () => {
-    expect(loadSettings(config)).toEqual({ show_thinking: false, show_tools: true, harness: 'omp' })
+  it('defaults follow Rust: thinking off, tools off, harness omp', () => {
+    expect(loadSettings(config)).toEqual({
+      show_thinking: false,
+      show_tools: false,
+      harness: 'omp',
+    })
   })
   it('chat.json wins, settings.json fills missing keys', () => {
     fs.writeFileSync(path.join(dir, 'chat.json'), '{"show_thinking":true,"chat_categories":["X"]}')
@@ -241,8 +179,8 @@ describe('merge-write over a corrupt file', () => {
   })
   it('keeps unknown keys and does not back up a healthy file', () => {
     fs.writeFileSync(path.join(dir, 'theme.json'), '{"rustKey": 1}')
-    saveAppearance(config, 'dark')
-    expect(read('theme.json')).toMatchObject({ rustKey: 1, app: { appearance: 'dark' } })
+    saveLastBackground(config, '#112233')
+    expect(read('theme.json')).toMatchObject({ rustKey: 1, app: { lastBackground: '#112233' } })
     expect(fs.existsSync(path.join(dir, 'theme.json.bad'))).toBe(false)
   })
 })

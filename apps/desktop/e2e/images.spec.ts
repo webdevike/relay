@@ -16,7 +16,7 @@ const sel = (id: string): string => `[data-testid="${id}"]`
 
 test('prompt images render as thumbnails and open in a viewer', async ({ app, shell }) => {
   await shell.locator(sel('nav-chat')).click()
-  await shell.waitForSelector('[role=tree]')
+  await shell.waitForSelector('[data-testid=chat-tree]')
   const row = shell.locator(sel('chat-row-p4-images'))
   if (!(await row.isVisible())) {
     for (const more of await shell.locator('[data-testid^="chat-show-more-"]').all()) {

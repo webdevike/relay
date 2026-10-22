@@ -32,9 +32,12 @@ test('chat benchmark: 5,000 messages, pinned follow, pills, frame-time vs idle b
 }) => {
   test.setTimeout(120_000)
   await shell.getByTestId('nav-chat').click()
-  await shell.getByTestId('chat-tree').getByRole('treeitem', {
-    name: /^Benchmark 5000(?:,|$)/,
-  }).click()
+  await shell
+    .getByTestId('chat-tree')
+    .getByRole('link', {
+      name: /^Benchmark 5000(?:,|$)/,
+    })
+    .click()
   const log = shell.locator('[data-testid=chat-log]')
   await expect(log).toContainText('LAST-MESSAGE-MARKER')
   await expect.poll(() => gap(shell)).toBeLessThan(24)

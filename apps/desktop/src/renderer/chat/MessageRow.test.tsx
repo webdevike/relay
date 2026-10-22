@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MantineProvider } from '@mantine/core'
 import { makeMessage } from '@evaos/chat-core/message'
-import { MessageRow } from './MessageRow'
+import { MessageRow, ToolRunRow } from './MessageRow'
 
 const invoke = vi.hoisted(() => vi.fn())
 vi.mock('../ipc', () => ({ invoke }))
@@ -26,43 +26,112 @@ describe('MessageRow', () => {
     expect(screen.getByAltText('Image 1 of 1')).toBeInTheDocument()
   })
 
-  it('renders fenced code in a pre and keeps prose literal', () => {
-    const { container } = wrap(
-      <MessageRow m={makeMessage('a', 'assistant', 'a\n```ts\nconst x = 1\n```\nb')} />,
-    )
-    const pre = container.querySelector('pre')
-    expect(pre).not.toBeNull()
-    expect(pre!.textContent).toBe('const x = 1')
-    expect(container.textContent).toContain('a')
-    expect(container.textContent).toContain('b')
-    expect(container.querySelector('.eva-prose')).not.toBeNull()
+  it('renders assistant markdown: headings, lists, tables and a labelled code block', () => {
+    const text = [
+      '### Summary',
+      'Fixed **one** bug in `csv.ts`.',
+      '',
+      '- [x] CSV',
+      '- [ ] PDF',
+      '',
+      '| Source | Rows |',
+      '| --- | ---: |',
+      '| App | 214 |',
+      '',
+      '```ts',
+      'const x = 1',
+      '```',
+    ].join('\n')
+    const { container } = wrap(<MessageRow m={makeMessage('a', 'assistant', text)} />)
+    expect(container.querySelector('h3')?.textContent).toBe('Summary')
+    expect(container.querySelector('strong')?.textContent).toBe('one')
+    expect(container.querySelectorAll('input[type=checkbox]')).toHaveLength(2)
+    expect(container.querySelector('td')?.textContent).toBe('App')
+    const block = screen.getByTestId('code-block')
+    expect(block).toHaveTextContent('ts')
+    expect(block.querySelector('pre')!.textContent).toBe('const x = 1')
+    expect(screen.getByRole('button', { name: 'Copy code' })).toBeInTheDocument()
+    expect(container.textContent).not.toContain('**')
   })
 
-  it('renders an unterminated fence as code to the end', () => {
+  it('keeps one sentence per line as separate lines, but not inside code', () => {
+    const { container } = wrap(
+      <MessageRow m={makeMessage('a', 'assistant', 'First.\nSecond.\n```\na\nb\n```')} />,
+    )
+    expect(container.querySelector('p br')).not.toBeNull()
+    expect(container.querySelector('pre')!.textContent).toBe('a\nb')
+  })
+
+  it('streams an unterminated fence as code to the end', () => {
     const { container } = wrap(<MessageRow m={makeMessage('a', 'assistant', 'x\n```\nopen')} />)
     expect(container.querySelector('pre')!.textContent).toBe('open')
   })
 
-  it('hides thinking text until the chevron is clicked', () => {
-    wrap(<MessageRow m={makeMessage('t', 'thinking', 'secret musings')} />)
-    expect(screen.getByText('Thinking')).toBeInTheDocument()
-    expect(screen.queryByText('secret musings')).toBeNull()
-    fireEvent.click(screen.getByRole('button'))
-    expect(screen.getByText('secret musings')).toBeInTheDocument()
+  it('never renders raw HTML or script links from a reply', () => {
+    const { container } = wrap(
+      <MessageRow
+        m={makeMessage('a', 'assistant', '<img src=x onerror=alert(1)> [x](javascript:alert(1))')}
+      />,
+    )
+    expect(container.querySelector('img')).toBeNull()
+    expect(container.querySelector('a')?.getAttribute('href') ?? '').not.toContain('javascript')
   })
 
-  it('shows tool name and status, input and result when expanded', () => {
-    const m = makeMessage('c-tool0', 'tool', 'read', {
-      detail: 'Reading notes',
-      tool: { call: 'c', input: 'the input', result: 'the result', isError: false, status: 'done' },
+  it('opens web links in a new panel browser tab', () => {
+    invoke.mockResolvedValue({ ok: true, value: {} })
+    wrap(<MessageRow m={makeMessage('a', 'assistant', 'see [docs](https://x.example/a)')} />)
+    fireEvent.click(screen.getByRole('link', { name: 'docs' }))
+    expect(invoke).toHaveBeenCalledWith('browser.createTab', { url: 'https://x.example/a' })
+  })
+
+  it('shows thinking inline', () => {
+    wrap(<MessageRow m={makeMessage('t', 'thinking', 'secret musings')} />)
+    expect(screen.getByText('secret musings')).toHaveClass('eva-thinking')
+  })
+
+  it('shows a tool call with its input, a clipped output and failure', () => {
+    const output = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join('\n')
+    const m = makeMessage('c-tool0', 'tool', 'bash', {
+      detail: 'Running tests',
+      tool: { call: 'c', input: 'pnpm test', result: output, isError: true, status: 'failed' },
     })
-    wrap(<MessageRow m={m} />)
-    expect(screen.getByText('read')).toBeInTheDocument()
-    expect(screen.getByText('done')).toBeInTheDocument()
-    expect(screen.queryByText('the result')).toBeNull()
-    fireEvent.click(screen.getByRole('button'))
-    expect(screen.getByText('the input').tagName).toBe('PRE')
-    expect(screen.getByText('the result').tagName).toBe('PRE')
+    const { container } = wrap(<MessageRow m={m} />)
+    expect(screen.getByText('bash')).toBeInTheDocument()
+    expect(screen.getByText('Running tests')).toBeInTheDocument()
+    expect(screen.getByText('failed')).toBeInTheDocument()
+    expect(screen.getByText('pnpm test').tagName).toBe('PRE')
+    const out = container.querySelector('.eva-tool-output')!
+    expect(out.textContent).toContain('line 16')
+    expect(out.textContent).not.toContain('line 17')
+    expect(out.textContent).toContain('… 4 more lines')
+  })
+
+  it('folds a run of tools into one line that expands to each call', () => {
+    const tool = (id: string, name: string, detail: string) =>
+      makeMessage(id, 'tool', name, {
+        detail,
+        tool: { call: id, input: '', result: null, isError: false, status: 'done' },
+      })
+    wrap(
+      <ToolRunRow
+        tools={[tool('a', 'read', 'notes.md'), tool('b', 'edit', 'a.ts'), tool('c', 'read', 'b')]}
+      />,
+    )
+    const head = screen.getByRole('button', { name: 'Used 3 tools · read, edit' })
+    expect(head).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText('notes.md')).toBeNull()
+    fireEvent.click(head)
+    expect(screen.getByText('notes.md')).toBeInTheDocument()
+  })
+
+  it('labels a single folded tool by its intent', () => {
+    const m = makeMessage('a', 'tool', 'edit', {
+      detail: 'Fix header',
+      tool: { call: 'a', input: '', result: null, isError: false, status: 'done' },
+    })
+    wrap(<ToolRunRow tools={[m]} />)
+    expect(screen.getByText('edit · Fix header')).toBeInTheDocument()
+    expect(screen.queryByRole('button')).toBeNull()
   })
 
   it('renders HTML-looking text literally', () => {
@@ -83,7 +152,9 @@ describe('MessageRow', () => {
     expect(buttons).toHaveLength(2)
     expect(screen.getByAltText('Image 1 of 2')).toBeInTheDocument()
     expect(screen.getByAltText('Image 2 of 2')).toBeInTheDocument()
-    expect(container.querySelector('.eva-turn-user')?.firstElementChild).toHaveClass('eva-chat-images')
+    expect(container.querySelector('.eva-turn-user')?.firstElementChild).toHaveClass(
+      'eva-chat-images',
+    )
     expect((buttons[0] as HTMLElement).style.width).toBe('240px')
     expect((buttons[0] as HTMLElement).style.height).toBe('120px')
     expect((buttons[1] as HTMLElement).style.height).toBe('160px')

@@ -41,9 +41,12 @@ test.describe('chat control', () => {
 
   const openAndSend = async (shell: import('@playwright/test').Page, text: string) => {
     await shell.getByTestId('nav-chat').click()
-    await shell.getByTestId('chat-tree').getByRole('treeitem', {
-      name: /^Fixture chat(?:,|$)/,
-    }).click()
+    await shell
+      .getByTestId('chat-tree')
+      .getByRole('link', {
+        name: /^Fixture chat(?:,|$)/,
+      })
+      .click()
     await expect(shell.locator('[data-testid=chat-log]')).toContainText(
       'Please sketch a tiny greeter.',
     )

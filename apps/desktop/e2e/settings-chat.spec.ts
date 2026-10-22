@@ -39,9 +39,12 @@ test('thinking switch applies live to the open chat and persists in chat.json', 
   configDir,
 }) => {
   await shell.getByTestId('nav-chat').click()
-  await shell.getByTestId('chat-tree').getByRole('treeitem', {
-    name: /^Fixture chat(?:,|$)/,
-  }).click()
+  await shell
+    .getByTestId('chat-tree')
+    .getByRole('link', {
+      name: /^Fixture chat(?:,|$)/,
+    })
+    .click()
   const log = shell.locator('[data-testid=chat-log]')
   await expect(log).toContainText('Please sketch a tiny greeter.')
   // Rust default: thinking is off.
@@ -55,7 +58,7 @@ test('thinking switch applies live to the open chat and persists in chat.json', 
   const thinking = shell.locator('[data-testid=settings-show-thinking]')
   const tools = shell.locator('[data-testid=settings-show-tools]')
   await expect(thinking).not.toBeChecked()
-  await expect(tools).toBeChecked()
+  await expect(tools).not.toBeChecked()
   await proofShot(app, shell, 'settings-chat', { phase: 'phase-4' })
   await shell.getByText('Show thinking', { exact: true }).click()
   await expect(thinking).toBeChecked()
@@ -80,9 +83,9 @@ test.describe('settings.json fallback', () => {
   test.use({ startOnChat: false })
   test('settings.json values are honored when chat.json has none', async ({ shell, configDir }) => {
     // Written after launch: the first load happens when the Chat section opens.
-    fs.writeFileSync(path.join(configDir, 'settings.json'), '{"show_tools":false}')
+    fs.writeFileSync(path.join(configDir, 'settings.json'), '{"show_tools":true}')
     await openChatSettings(shell)
-    await expect(shell.locator('[data-testid=settings-show-tools]')).not.toBeChecked()
+    await expect(shell.locator('[data-testid=settings-show-tools]')).toBeChecked()
     await expect(shell.locator('[data-testid=settings-show-thinking]')).not.toBeChecked()
     expect(readChat(configDir)).toBeNull()
   })

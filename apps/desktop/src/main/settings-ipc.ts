@@ -40,7 +40,7 @@ export function loadSettings(config: ConfigStore): ChatSettings {
   }
   return {
     show_thinking: pickBool('show_thinking', files, false),
-    show_tools: pickBool('show_tools', files, true),
+    show_tools: pickBool('show_tools', files, false),
     harness,
   }
 }

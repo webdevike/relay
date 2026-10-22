@@ -180,3 +180,42 @@
     padding-top: 24px;
   }
 }
+.bench-view {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.bench-view[hidden] {
+  display: none;
+}
+/* Outside .bench-page so the chat components keep their own type and heading styles. */
+.bench-gallery {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 var(--eva-space-lg) var(--eva-space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.bench-gallery > p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.bench-gallery-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 24px;
+}
+.bench-gallery-chat {
+  height: min(820px, 80vh);
+  min-height: 480px;
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius-sm);
+  overflow: hidden;
+}
+/* The real chat header is a window drag region; inside a page it must stay clickable. */
+.bench-gallery-chat .eva-chat-header {
+  -webkit-app-region: no-drag;
+}

@@ -14,18 +14,18 @@
     "package": "electron-vite build && electron-builder --dir --publish never"
   },
   "dependencies": {
+    "@mantine/code-highlight": "9.7.2",
     "electron-chrome-extensions": "4.9.0",
     "electron-chrome-web-store": "0.13.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@dnd-kit/core": "6.3.1",
-    "@dnd-kit/sortable": "10.0.0",
     "@evaos/browser-core": "workspace:*",
     "@evaos/chat-core": "workspace:*",
     "@evaos/contract": "workspace:*",
     "@evaos/eva-core": "workspace:*",
     "@evaos/shell-core": "workspace:*",
-    "@evaos/theme-core": "workspace:*",
     "@mantine/charts": "9.7.2",
     "@mantine/core": "9.7.2",
     "@mantine/hooks": "9.7.2",
@@ -44,6 +44,7 @@
     "electron": "44.7.2",
     "electron-builder": "26.15.3",
     "electron-vite": "6.0.0",
+    "highlight.js": "^11.12.0",
     "jsdom": "^30.1.2",
     "pngjs": "7.0.0",
     "postcss": "^8.5.30",
@@ -52,7 +53,9 @@
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "react-is": "19.3.1",
+    "react-markdown": "^10.1.0",
     "recharts": "3.10.1",
+    "remark-gfm": "^4.0.1",
     "typescript": "~6.0.3",
     "virtua": "0.53.5",
     "vite": "8.3.4",

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Button, MultiSelect, Select } from '@mantine/core'
+import { Button, MultiSelect, SegmentedControl, Select } from '@mantine/core'
 import type { Place } from '@evaos/shell-core'
 import {
   BENCH_LIMITS,
@@ -11,7 +11,14 @@ import {
 } from '@evaos/contract'
 import { invoke, on } from '../ipc'
 import { ScrollArea } from '../ui/ScrollArea'
+import { ChatGallery } from './ChatGallery'
 import './test-bench.css'
+
+type BenchView = 'models' | 'gallery'
+const VIEWS: Array<{ value: BenchView; label: string }> = [
+  { value: 'models', label: 'Model comparison' },
+  { value: 'gallery', label: 'Chat gallery' },
+]
 
 const identity = (m: BenchIdentity): string => `${m.provider}/${m.model} (${m.profile})`
 const key = (m: BenchIdentity): string => JSON.stringify([m.provider, m.model, m.profile])
@@ -332,6 +339,7 @@ export function TestBenchPage(_props: { place: Place }) {
   const [activeId, setActiveId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const mounted = useRef(false)
+  const [view, setView] = useState<BenchView>('models')
   const selectedRun = useRef<string | null>(null)
   const generation = useRef(0)
   async function loadModels() {
@@ -429,127 +437,142 @@ export function TestBenchPage(_props: { place: Place }) {
       if (mounted.current) setError(message(e))
     }
   }
+  // The comparison stays mounted while the gallery shows, so a running trial keeps its state.
   return (
     <ScrollArea scrollKey="page:test-bench" className="bench-scroll" data-testid="page-test-bench">
       <main className="bench-page">
         <header>
           <h1>Test Bench</h1>
-          <p className="bench-muted">UI/UX · settings-form · 24 cases</p>
+          <SegmentedControl
+            aria-label="Test Bench view"
+            data-testid="bench-view"
+            value={view}
+            onChange={(v) => setView(v as BenchView)}
+            data={VIEWS}
+          />
+          {view === 'models' ? (
+            <p className="bench-muted">UI/UX · settings-form · 24 cases</p>
+          ) : null}
         </header>
-        <details open={!run || !!activeId} className="bench-setup">
-          <summary>Run a comparison</summary>
-          <section className="bench-section" aria-label="Run comparison">
-            <p className="bench-muted">
-              Choose 2 to 4 models. Each receives the same browser observations.
-            </p>
-            <MultiSelect
-              label="Model configurations"
-              placeholder={
-                catalogError
-                  ? 'Model discovery unavailable'
-                  : models === null
-                    ? 'Discovering models…'
-                    : 'Select exact models and accounts'
-              }
-              searchable
-              value={selected}
-              onChange={setSelected}
-              maxValues={4}
-              disabled={!!activeId || busy || !models?.length}
-              data={(models ?? []).map((m) => ({ value: key(m), label: identity(m) }))}
-            />
-            {catalogError && (
-              <p role="alert">
-                Model discovery: {catalogError}. Saved comparisons remain available.
+        <div className="bench-view" hidden={view !== 'models'}>
+          <details open={!run || !!activeId} className="bench-setup">
+            <summary>Run a comparison</summary>
+            <section className="bench-section" aria-label="Run comparison">
+              <p className="bench-muted">
+                Choose 2 to 4 models. Each receives the same browser observations.
               </p>
-            )}
-            {models?.length === 0 && <p>No models available through existing credentials.</p>}
-            <div className="bench-actions">
-              <Button
-                onClick={() => void start()}
-                disabled={
-                  busy || !!activeId || selected.length < 2 || selected.length > 4 || !models
+              <MultiSelect
+                label="Model configurations"
+                placeholder={
+                  catalogError
+                    ? 'Model discovery unavailable'
+                    : models === null
+                      ? 'Discovering models…'
+                      : 'Select exact models and accounts'
                 }
-              >
-                Run comparison
-              </Button>
-              <Button
-                variant="subtle"
-                onClick={() => void loadModels()}
-                disabled={!!activeId || busy}
-              >
-                Refresh models
-              </Button>
-              {activeId && (
-                <Button variant="outline" onClick={() => void cancel()} disabled={busy}>
-                  Cancel run
-                </Button>
+                searchable
+                value={selected}
+                onChange={setSelected}
+                maxValues={4}
+                disabled={!!activeId || busy || !models?.length}
+                data={(models ?? []).map((m) => ({ value: key(m), label: identity(m) }))}
+              />
+              {catalogError && (
+                <p role="alert">
+                  Model discovery: {catalogError}. Saved comparisons remain available.
+                </p>
               )}
+              {models?.length === 0 && <p>No models available through existing credentials.</p>}
+              <div className="bench-actions">
+                <Button
+                  onClick={() => void start()}
+                  disabled={
+                    busy || !!activeId || selected.length < 2 || selected.length > 4 || !models
+                  }
+                >
+                  Run comparison
+                </Button>
+                <Button
+                  variant="subtle"
+                  onClick={() => void loadModels()}
+                  disabled={!!activeId || busy}
+                >
+                  Refresh models
+                </Button>
+                {activeId && (
+                  <Button variant="outline" onClick={() => void cancel()} disabled={busy}>
+                    Cancel run
+                  </Button>
+                )}
+              </div>
+              <details>
+                <summary>Trial and execution limits</summary>
+                <p>
+                  16 development and 8 holdout cases. Versioned rubric and skill hashes are saved
+                  with each configuration.
+                </p>
+                <p>
+                  Capture {BENCH_LIMITS.captureMs / 1000}s; judgment{' '}
+                  {BENCH_LIMITS.judgmentMs / 1000}
+                  s; total {BENCH_LIMITS.totalMs / 60000} minutes. Input{' '}
+                  {BENCH_LIMITS.envelopeBytes} bytes; raw verdict {BENCH_LIMITS.rawBytes} bytes; PNG{' '}
+                  {BENCH_LIMITS.pngBytes} bytes.
+                </p>
+              </details>
+            </section>
+          </details>
+          {error && <p role="alert">{error}</p>}
+          {activeId && (
+            <p role="status">
+              Running comparison {activeId}.{' '}
+              {progress?.runId === activeId
+                ? `${progress.completed}/${progress.planned} judgments complete. Case ${progress.caseId ?? 'preparing'}, configuration ${progress.configId ?? 'preparing'}.`
+                : 'Preparing evidence.'}
+            </p>
+          )}
+          {progress && progress.status !== 'running' && (
+            <p role="status">
+              Latest run: {progress.status}, {progress.completed}/{progress.planned} judgments
+              complete.
+            </p>
+          )}
+          <section className="bench-section" aria-label="Saved comparisons">
+            <div className="bench-actions">
+              <Button variant="subtle" onClick={() => void loadHistory()}>
+                Refresh history
+              </Button>
             </div>
-            <details>
-              <summary>Trial and execution limits</summary>
-              <p>
-                16 development and 8 holdout cases. Versioned rubric and skill hashes are saved with
-                each configuration.
-              </p>
-              <p>
-                Capture {BENCH_LIMITS.captureMs / 1000}s; judgment {BENCH_LIMITS.judgmentMs / 1000}
-                s; total {BENCH_LIMITS.totalMs / 60000} minutes. Input {BENCH_LIMITS.envelopeBytes}{' '}
-                bytes; raw verdict {BENCH_LIMITS.rawBytes} bytes; PNG {BENCH_LIMITS.pngBytes} bytes.
-              </p>
-            </details>
+            {historyError && <p role="alert">History: {historyError}</p>}
+            {!history && !historyError && <p role="status">Loading saved comparisons…</p>}
+            {history?.length === 0 && (
+              <p>No saved comparisons. Select two configurations to run the trial.</p>
+            )}
+            {!!history?.length && (
+              <Select
+                label="Saved comparison"
+                value={run?.id ?? null}
+                onChange={(id) => void openRun(id)}
+                searchable
+                data={history.map((r) => ({
+                  value: r.id,
+                  label: `${new Date(r.createdAt).toLocaleString()} · ${r.status}`,
+                }))}
+              />
+            )}
           </section>
-        </details>
-        {error && <p role="alert">{error}</p>}
-        {activeId && (
-          <p role="status">
-            Running comparison {activeId}.{' '}
-            {progress?.runId === activeId
-              ? `${progress.completed}/${progress.planned} judgments complete. Case ${progress.caseId ?? 'preparing'}, configuration ${progress.configId ?? 'preparing'}.`
-              : 'Preparing evidence.'}
-          </p>
-        )}
-        {progress && progress.status !== 'running' && (
-          <p role="status">
-            Latest run: {progress.status}, {progress.completed}/{progress.planned} judgments
-            complete.
-          </p>
-        )}
-        <section className="bench-section" aria-label="Saved comparisons">
-          <div className="bench-actions">
-            <Button variant="subtle" onClick={() => void loadHistory()}>
-              Refresh history
-            </Button>
-          </div>
-          {historyError && <p role="alert">History: {historyError}</p>}
-          {!history && !historyError && <p role="status">Loading saved comparisons…</p>}
-          {history?.length === 0 && (
-            <p>No saved comparisons. Select two configurations to run the trial.</p>
+          {run ? (
+            <Results run={run} key={run.id} />
+          ) : (
+            <div className="bench-ladder" aria-label="Capability ladder">
+              <span>Inspect: Not yet assessed</span>
+              <span>Repair: Unassessed</span>
+              <span>Build: Unassessed</span>
+              <span>Delegate: Unassessed</span>
+            </div>
           )}
-          {!!history?.length && (
-            <Select
-              label="Saved comparison"
-              value={run?.id ?? null}
-              onChange={(id) => void openRun(id)}
-              searchable
-              data={history.map((r) => ({
-                value: r.id,
-                label: `${new Date(r.createdAt).toLocaleString()} · ${r.status}`,
-              }))}
-            />
-          )}
-        </section>
-        {run ? (
-          <Results run={run} key={run.id} />
-        ) : (
-          <div className="bench-ladder" aria-label="Capability ladder">
-            <span>Inspect: Not yet assessed</span>
-            <span>Repair: Unassessed</span>
-            <span>Build: Unassessed</span>
-            <span>Delegate: Unassessed</span>
-          </div>
-        )}
+        </div>
       </main>
+      {view === 'gallery' ? <ChatGallery /> : null}
     </ScrollArea>
   )
 }

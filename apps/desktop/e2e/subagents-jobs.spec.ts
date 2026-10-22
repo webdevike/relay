@@ -37,7 +37,7 @@ const sel = (id: string): string => `[data-testid="${id}"]`
 
 async function openChat(shell: Page, id: string): Promise<void> {
   await shell.locator(sel('nav-chat')).click()
-  await shell.waitForSelector('[role=tree]')
+  await shell.waitForSelector('[data-testid=chat-tree]')
   for (const more of await shell.locator('[data-testid^="chat-show-more-"]').all())
     await more.click()
   await shell.locator(sel(`chat-row-${id}`)).click()

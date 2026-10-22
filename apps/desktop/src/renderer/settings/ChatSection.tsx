@@ -25,7 +25,6 @@ function SwitchRow({ id, testid, title, help }: RowProps) {
         <span className="eva-settings-label-help">{help}</span>
       </span>
       <Switch
-        className="eva-switch"
         size="md"
         data-testid={testid}
         aria-label={title}

@@ -4,9 +4,9 @@
   padding: 0;
   overflow: hidden;
   cursor: pointer;
-  background: var(--eva-surface);
-  border: 1px solid var(--eva-border);
-  border-radius: var(--eva-radius);
+  background: var(--eva-c-muted-background);
+  border: 0;
+  border-radius: var(--eva-radius-lg);
 }
 .eva-chat-image:focus-visible {
   outline: 2px solid var(--eva-c-ring);

@@ -26,7 +26,7 @@ describe('settings store', () => {
   it('defaults follow Rust, applies load, tolerates failed load', async () => {
     expect(settingsStore.getState()).toMatchObject({
       show_thinking: false,
-      show_tools: true,
+      show_tools: false,
       harness: 'omp',
     })
     invoke.mockResolvedValue({
@@ -44,7 +44,7 @@ describe('settings store', () => {
     await startSettings()
     expect(settingsStore.getState()).toMatchObject({
       show_thinking: false,
-      show_tools: true,
+      show_tools: false,
       loaded: true,
     })
   })
@@ -80,15 +80,15 @@ describe('settings store', () => {
 
   it('reverts and toasts on an error result or a throw', async () => {
     invoke.mockResolvedValueOnce({ ok: false, error: { message: 'no' } })
-    await setSetting('show_tools', false)
-    expect(settingsStore.getState().show_tools).toBe(true)
+    await setSetting('show_tools', true)
+    expect(settingsStore.getState().show_tools).toBe(false)
     expect(show).toHaveBeenCalledWith(expect.objectContaining({ message: SAVE_ERROR_COPY }))
     expect(SAVE_ERROR_COPY).toBe(
       'Could not save your settings. Check that the EvaOS config folder is writable, then try again.',
     )
     invoke.mockRejectedValueOnce(new Error('boom'))
-    await setSetting('show_tools', false)
-    expect(settingsStore.getState().show_tools).toBe(true)
+    await setSetting('show_tools', true)
+    expect(settingsStore.getState().show_tools).toBe(false)
     expect(show).toHaveBeenCalledTimes(2)
   })
 

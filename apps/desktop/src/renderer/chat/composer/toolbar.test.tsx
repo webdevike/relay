@@ -109,7 +109,6 @@ describe('ContextRing', () => {
 })
 
 describe('Composer toolbar', () => {
-
   it('the account selector is hidden once the chat has been prompted, or on Claude', async () => {
     current = { ...baseState, unsent: false }
     open(1, 100)

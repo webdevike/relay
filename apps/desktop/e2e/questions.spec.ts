@@ -35,9 +35,12 @@ test.describe('question cards and extension UI', () => {
   test.beforeEach(async ({ shell }) => {
     fs.rmSync(LOG, { force: true })
     await shell.getByTestId('nav-chat').click()
-    await shell.getByTestId('chat-tree').getByRole('treeitem', {
-      name: /^Fixture chat(?:,|$)/,
-    }).click()
+    await shell
+      .getByTestId('chat-tree')
+      .getByRole('link', {
+        name: /^Fixture chat(?:,|$)/,
+      })
+      .click()
     await expect(logOf(shell)).toContainText('Please sketch a tiny greeter.')
   })
   test.afterAll(() => {

@@ -1,0 +1,2 @@
+{"type":"session","version":3,"id":"AuditEcardPaginator","timestamp":"2026-10-20T09:40:00.000Z","cwd":"/fixture/eva-root"}
+{"type":"message","id":"s1","parentId":null,"message":{"role":"user","content":"Check the eCard paginator for the same bug.","attribution":"agent"}}

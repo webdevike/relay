@@ -134,14 +134,13 @@ export function ChatPane() {
         <Tooltip label={panelOpen ? 'Close panel' : 'Open panel'} position="bottom">
           <ActionIcon
             variant="subtle"
-            size="var(--eva-kit-control-sm)"
-            className="eva-chat-panel-toggle"
+            className="eva-header-btn eva-chat-panel-toggle"
             data-testid="panel-toggle"
             aria-label={panelOpen ? 'Close panel' : 'Open panel'}
             aria-pressed={panelOpen}
             onClick={() => togglePanel()}
           >
-            <IconLayoutSidebarRight size="calc(var(--eva-font-size) * .875)" stroke={1.5} />
+            <IconLayoutSidebarRight size={16} stroke={1.5} />
           </ActionIcon>
         </Tooltip>
       </div>

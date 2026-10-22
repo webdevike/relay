@@ -6,7 +6,7 @@ import { test as base, expect } from './fixtures'
 import { makeChatFixture, type ChatFixture } from './helpers/chat-fixture'
 import { proofShot } from './helpers/proofShot'
 
-// Chat actions from the list: Rename, Pin, Archive, Delete. Everything runs on a tmp copy of the
+// Chat actions from the list: Rename, Pin, Snooze, Settle, Delete. Everything runs on a tmp copy of the
 // agent fixture (makeChatFixture); the repo fixtures are never touched.
 const LOG = path.join(os.tmpdir(), `evaos-fake-omp-chatops-${process.pid}.log`)
 
@@ -38,7 +38,7 @@ test.afterAll(() => {
 const sel = (id: string): string => `[data-testid="${id}"]`
 const openChats = async (shell: Page): Promise<void> => {
   await shell.locator(sel('nav-chat')).click()
-  await shell.waitForSelector('[role=tree]')
+  await shell.waitForSelector('[data-testid=chat-tree]')
   for (const more of await shell.locator('[data-testid^="chat-show-more-"]').all()) {
     if (
       (await more.textContent())?.startsWith('Show ') &&
@@ -59,25 +59,46 @@ const archivedIds = (configDir: string): string[] => {
     return []
   }
 }
-const menuItems = async (shell: Page): Promise<string[]> =>
-  (await shell.locator(`${sel('row-menu')} [role=menuitem]`).allTextContents()).map((t) => t.trim())
+const menuIds = (shell: Page): Promise<string[]> =>
+  shell
+    .locator(`${sel('row-menu')} [role=menuitem]`)
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-testid') ?? ''))
 const rowOf = (shell: Page, id: string) => shell.locator(sel(`chat-row-${id}`))
+// Pinned rows sit flat in the tree, outside every folder.
+const pinnedRow = (shell: Page, id: string) =>
+  shell.locator(`${sel('chat-tree')} > .eva-cl-rowwrap ${sel(`chat-row-${id}`)}`)
+const chatOrder = (configDir: string): { snoozed?: Record<string, unknown> } => {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(configDir, 'chat-order.json'), 'utf8'))
+  } catch {
+    return {}
+  }
+}
 
 test('menu order, pin and unpin edit session-pins.json', async ({ app, shell }) => {
   await openChats(shell)
   await rowOf(shell, 'p4-other2').click({ button: 'right' })
   await expect(shell.locator(sel('row-menu'))).toBeVisible()
-  expect(await menuItems(shell)).toEqual(['Rename', 'Pin', 'Archive', 'Move to', 'Delete'])
+  // Native order: Rename chat, Pin chat, the Snooze presets, Settle, then Move to and Delete.
+  const ids = await menuIds(shell)
+  expect(ids.slice(0, 2)).toEqual(['row-menu-rename', 'row-menu-pin'])
+  expect(ids.slice(2, -3).length).toBeGreaterThan(0)
+  expect(ids.slice(2, -3).every((id) => id.startsWith('row-menu-snooze-'))).toBe(true)
+  expect(ids.slice(-3)).toEqual(['row-menu-settle', 'row-menu-move', 'row-menu-delete'])
+  await expect(shell.locator(sel('row-menu-rename'))).toHaveText('Rename chat')
+  await expect(shell.locator(sel('row-menu-pin'))).toHaveText('Pin chat')
+  await expect(shell.locator(sel('row-menu-settle'))).toHaveText('Settle')
   await proofShot(app, shell, 'chat-menu', { phase: 'phase-4' })
 
   await shell.locator(sel('row-menu-pin')).click()
-  await expect(shell.locator(`${sel('chat-pinned')} ${sel('chat-row-p4-other2')}`)).toBeVisible()
+  await expect(pinnedRow(shell, 'p4-other2')).toBeVisible()
   expect(pins()).toEqual(['p4-other2', 'p4-pinned'])
 
   await rowOf(shell, 'p4-other2').click({ button: 'right' })
-  expect((await menuItems(shell))[1]).toBe('Unpin')
+  await expect(shell.locator(sel('row-menu-pin'))).toHaveText('Unpin chat')
   await shell.locator(sel('row-menu-pin')).click()
-  await expect(shell.locator(`${sel('chat-pinned')} ${sel('chat-row-p4-other2')}`)).toHaveCount(0)
+  await expect(pinnedRow(shell, 'p4-other2')).toHaveCount(0)
+  await expect(rowOf(shell, 'p4-other2')).toBeVisible()
   expect(pins()).toEqual(['p4-pinned'])
 })
 
@@ -90,22 +111,44 @@ test('Shift+F10 opens the menu from the keyboard', async ({ shell }) => {
   await expect(shell.locator(sel('row-menu'))).toHaveCount(0)
 })
 
-test('archive from the actions button, toast Undo restores', async ({ shell, configDir }) => {
+test('settle from the hover action, toast Undo restores', async ({ shell, configDir }) => {
   await openChats(shell)
   const row = rowOf(shell, 'p4-other4')
   await row.hover()
-  await shell.locator(sel('chat-actions-p4-other4')).click()
-  await expect(shell.locator(sel('row-menu'))).toBeVisible()
-  await shell.locator(sel('row-menu-archive')).click()
-  await expect(shell.getByText('Chat archived')).toBeVisible()
+  await shell.locator(sel('chat-settle-p4-other4')).click()
+  await expect(shell.getByText('Chat settled')).toBeVisible()
   await expect(row).toHaveCount(0)
-  await expect(shell.locator(sel('chat-archived-toggle'))).toContainText('Archived (1)')
+  await expect(shell.locator(sel('chat-settled-toggle'))).toHaveText('Settled (1)')
   await expect.poll(() => archivedIds(configDir)).toContain('p4-other4')
 
   await shell.getByRole('button', { name: 'Undo' }).click()
   await expect(rowOf(shell, 'p4-other4')).toBeVisible()
-  await expect(shell.locator(sel('chat-archived-toggle'))).toHaveCount(0)
+  await expect(shell.locator(sel('chat-settled-toggle'))).toHaveCount(0)
   await expect.poll(() => archivedIds(configDir)).not.toContain('p4-other4')
+})
+
+test('snooze from the menu folds the chat under Snoozed; Unsnooze brings it back', async ({
+  shell,
+  configDir,
+}) => {
+  await openChats(shell)
+  await rowOf(shell, 'p4-other3').click({ button: 'right' })
+  await shell.locator(sel('row-menu-snooze-In 1 hour')).click()
+  await expect(rowOf(shell, 'p4-other3')).toHaveCount(0)
+  const fold = shell.locator(sel('chat-snoozed-toggle'))
+  await expect(fold).toHaveText('Snoozed (1)')
+  await expect.poll(() => Object.keys(chatOrder(configDir).snoozed ?? {})).toEqual(['p4-other3'])
+
+  await fold.click()
+  const row = rowOf(shell, 'p4-other3')
+  await expect(row.getByLabel('Snoozed')).toBeVisible()
+  await row.click({ button: 'right' })
+  await shell.locator(sel('row-menu-unsnooze')).click()
+  await expect(fold).toHaveCount(0)
+  await expect(
+    shell.locator(`${sel('chat-section-Other')} ${sel('chat-row-p4-other3')}`),
+  ).toBeVisible()
+  await expect.poll(() => Object.keys(chatOrder(configDir).snoozed ?? {})).toEqual([])
 })
 
 test('inline rename: Esc cancels, Enter commits through a short resume with mtime kept', async ({

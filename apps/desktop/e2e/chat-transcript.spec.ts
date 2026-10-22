@@ -8,7 +8,7 @@ import { test as base, expect } from './fixtures'
 const test = base.extend<object>({
   configDir: async ({}, use) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evaos-e2e-'))
-    fs.writeFileSync(path.join(dir, 'chat.json'), '{"show_thinking":true}')
+    fs.writeFileSync(path.join(dir, 'chat.json'), '{"show_thinking":true,"show_tools":true}')
     await use(dir)
     fs.rmSync(dir, { recursive: true, force: true })
   },
@@ -20,7 +20,7 @@ type Eva = {
 
 const BENCH = '2026-10-02T09-00-00-000Z_bench5000'
 
-test('chat transcript: past session shows the active branch with collapsed rows', async ({
+test('chat transcript: past session shows the active branch with thinking and tool rows', async ({
   shell,
 }) => {
   await expect(shell.getByRole('heading', { name: 'What should Eva work on?' })).toBeVisible()
@@ -32,7 +32,7 @@ test('chat transcript: past session shows the active branch with collapsed rows'
   const list = shell.getByTestId('chat-tree')
   await expect(list).toContainText('Fixture chat')
   await expect(list).toContainText('Benchmark 5000')
-  await list.getByRole('treeitem', { name: /^Fixture chat(?:,|$)/ }).click()
+  await list.getByRole('link', { name: /^Fixture chat(?:,|$)/ }).click()
   await expect(shell.locator('[data-testid=chat-header]')).toContainText('Fixture chat')
 
   const log = shell.locator('[data-testid=chat-log]')
@@ -40,18 +40,14 @@ test('chat transcript: past session shows the active branch with collapsed rows'
   await expect(log).not.toContainText('<surface>')
   await expect(log).toContainText('Thanks, <b>bold</b> stays literal.')
 
-  const thinking = log.locator('[data-testid=thinking-u1-thinking], [data-testid$="-thinking"]')
-  await expect(thinking.first()).toContainText('Thinking')
-  await expect(log).not.toContainText('Weighing a one line greeter')
-  await thinking.first().locator('button').click()
-  await expect(log).toContainText('Weighing a one line greeter')
+  await expect(log.locator('.eva-thinking').first()).toContainText('Weighing a one line greeter')
 
   const tool = log.locator('[data-testid$="-tool0"]').first()
   await expect(tool).toContainText('read')
-  await expect(tool).toContainText('done')
 
-  await expect(log.locator('pre').first()).toContainText('function greet(name: string) {')
-  await expect(log.locator('pre').first()).toContainText('return `Hello, ${name}`')
+  const code = log.locator('[data-testid=code-block] pre').first()
+  await expect(code).toContainText('function greet(name: string) {')
+  await expect(code).toContainText('return `Hello, ${name}`')
 
   await expect(log).not.toContainText('ABANDONED-BRANCH-REPLY')
   await expect(log).not.toContainText('AGENT-HANDOFF-HIDDEN')
@@ -61,9 +57,12 @@ test('chat transcript: 5,000 message session mounts a window and opens at the en
   shell,
 }) => {
   await shell.getByTestId('nav-chat').click()
-  await shell.getByTestId('chat-tree').getByRole('treeitem', {
-    name: /^Benchmark 5000(?:,|$)/,
-  }).click()
+  await shell
+    .getByTestId('chat-tree')
+    .getByRole('link', {
+      name: /^Benchmark 5000(?:,|$)/,
+    })
+    .click()
   const log = shell.locator('[data-testid=chat-log]')
   await expect(log).toBeVisible()
   await expect(log).toContainText('LAST-MESSAGE-MARKER')

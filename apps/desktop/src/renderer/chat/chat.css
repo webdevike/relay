@@ -11,9 +11,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--eva-fz-body);
+  font-size: 15px;
   font-weight: var(--eva-fw-medium);
-  line-height: var(--eva-lh-body);
+  line-height: 1.2;
 }
 .eva-chat-header > button {
   flex: none;
@@ -88,49 +88,117 @@
   background: var(--eva-c-muted-background);
   border-radius: var(--eva-radius-lg);
   padding: var(--eva-space-native-xs) var(--eva-space-md);
+  line-height: 1.55;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.eva-assistant {
-  display: flex;
-  flex-direction: column;
-  gap: var(--eva-space-native-xs);
-}
-.eva-prose {
+.eva-thinking {
+  font-style: italic;
+  color: var(--eva-text-dim);
+  line-height: 1.55;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.eva-code,
-.eva-pre {
-  margin: 0;
-  background: var(--eva-surface);
+.eva-notice {
+  padding: var(--eva-space-xs) var(--eva-space-sm);
   border: 1px solid var(--eva-border);
   border-radius: var(--eva-radius);
-  padding: var(--eva-space-sm) var(--eva-space-md);
-  font-family: var(--eva-font-mono);
-  font-size: var(--eva-fz-label);
-  white-space: pre;
-  overflow-x: auto;
-}
-.eva-pre {
-  max-height: 240px;
-  overflow: auto;
-}
-.eva-row-toggle {
-  display: flex;
-  align-items: center;
-  gap: var(--eva-space-native-xs);
-  min-height: calc(var(--eva-fz-label) * var(--eva-lh-label));
-  width: 100%;
-  padding: 0;
-  background: none;
-  border: 0;
-  color: inherit;
-  cursor: pointer;
-  text-align: left;
-  font-family: var(--eva-font-ui);
+  color: var(--eva-text-dim);
   font-size: var(--eva-fz-label);
   line-height: var(--eva-lh-label);
+  overflow-wrap: anywhere;
+}
+
+/* Tool calls (chat_view.rs ToolBlock and tool_group). */
+.eva-tool,
+.eva-tool-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--eva-space-xs);
+  min-width: 0;
+}
+.eva-tool-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
+}
+.eva-tool-toggle {
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: var(--eva-font-ui);
+  text-align: left;
+  cursor: pointer;
+  transition: color 120ms;
+}
+.eva-tool-toggle:hover {
+  color: var(--eva-text);
+}
+.eva-tool-toggle:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: 2px;
+  border-radius: var(--eva-radius-sm);
+}
+.eva-tool-icon {
+  flex: none;
+}
+.eva-tool-name {
+  flex: none;
+  color: var(--eva-text);
+  font-weight: var(--eva-fw-semibold);
+}
+.eva-tool-summary,
+.eva-tool-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-tool-failed {
+  flex: none;
+  color: var(--eva-danger);
+}
+.eva-tool-code {
+  margin: 0;
+  padding: var(--eva-space-sm) var(--eva-space-native-sm);
+  border-radius: var(--eva-radius);
+  background: var(--eva-c-muted-background);
+  font-family: var(--eva-font-mono);
+  font-size: calc(var(--eva-font-size) * 13 / 14);
+  line-height: 1.5;
+  white-space: pre;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.eva-tool-output {
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+}
+.eva-tool-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-left: 6px;
+  padding-left: var(--eva-space-native-sm);
+  border-left: 1px solid var(--eva-border);
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
+  color: var(--eva-text-dim);
+}
+.eva-tool-line {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.eva-tool-line-name {
+  flex: none;
+  color: var(--eva-text);
 }
 .eva-chevron {
   flex: none;
@@ -138,31 +206,6 @@
 }
 .eva-chevron[data-open='true'] {
   transform: rotate(90deg);
-}
-.eva-thinking-text {
-  font-style: italic;
-  color: var(--eva-text-dim);
-  white-space: pre-wrap;
-  padding: var(--eva-space-xs) 0 var(--eva-space-sm) var(--eva-space-lg);
-}
-.eva-row-tool {
-  color: var(--eva-text-dim);
-}
-.eva-tool-detail {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.eva-tool-status {
-  margin-left: auto;
-}
-.eva-tool-body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--eva-space-sm);
-  padding-bottom: var(--eva-space-sm);
 }
 @media (prefers-reduced-motion: reduce) {
   .eva-chevron {
@@ -229,9 +272,13 @@
   animation: eva-pill-in 120ms ease-out;
 }
 .eva-pill-jump {
-  background: var(--eva-surface-2);
-  color: var(--eva-accent);
-  border: 1px solid var(--eva-accent);
+  background: var(--eva-surface);
+  color: var(--eva-text);
+  border: 1px solid var(--eva-border);
+  transition: background-color 120ms;
+}
+.eva-pill-jump:hover {
+  background: var(--eva-hover);
 }
 .eva-pill-new {
   background: var(--eva-accent);

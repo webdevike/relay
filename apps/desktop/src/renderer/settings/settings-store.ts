@@ -18,7 +18,7 @@ export const SAVE_ERROR_COPY =
 
 export const settingsStore = createStore<SettingsState>(() => ({
   show_thinking: false,
-  show_tools: true,
+  show_tools: false,
   harness: 'omp',
   loaded: false,
 }))
@@ -99,7 +99,7 @@ export function resetSettingsForTest(): void {
   chains.harness = Promise.resolve()
   settingsStore.setState({
     show_thinking: false,
-    show_tools: true,
+    show_tools: false,
     harness: 'omp',
     loaded: false,
   })

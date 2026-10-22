@@ -58,24 +58,26 @@ test('one session: question, image, live settings and a new chat', async ({ app,
   shell.on('pageerror', (e) => errors.push(e.message))
 
   await shell.locator(sel('nav-chat')).click()
-  await shell.waitForSelector('[role=tree]')
+  await shell.waitForSelector('[data-testid=chat-tree]')
   await openRow(shell, 'p4-ecard')
   await expect(shell.locator(sel('chat-log'))).toContainText('Hello from p4-ecard')
 
   // A pending question shows in the list, then answering clears it.
   const ecard = shell.locator(sel('chat-row-p4-ecard'))
   await send(shell, '[ask] tour')
-  await expect(ecard).toContainText('Has a question', { timeout: 500 })
+  const asked = ecard.locator('.eva-cl-pill[data-status="asked"]')
+  await expect(asked).toHaveCount(1, { timeout: 500 })
+  await expect(asked).toContainText('Input')
   await expect(shell.locator(sel('pending-dialog'))).toBeVisible()
   await shell.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
   await proofShot(app, shell, 'tour-chat-question', PHASE)
   await shell.keyboard.press('1')
   await expect(shell.locator(sel('chat-log'))).toContainText('Answer received')
   await expect(shell.locator(sel('pending-dialog'))).toHaveCount(0)
-  await expect(ecard).not.toContainText('Has a question')
-  await expect(ecard.locator('.eva-cl-dot[data-status="open"]')).toHaveCount(1, {
-    timeout: 15_000,
-  })
+  await expect(asked).toHaveCount(0)
+  // Idle and shown, so read: no status pill, just its age.
+  await expect(ecard.locator('.eva-cl-pill')).toHaveCount(0, { timeout: 15_000 })
+  await expect(ecard.locator('.eva-cl-age')).toHaveCount(1)
 
   // An image goes out and comes back as a thumbnail with the viewer.
   await shell.evaluate((b64) => {
@@ -107,10 +109,10 @@ test('one session: question, image, live settings and a new chat', async ({ app,
   await shell.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
 
-  // Settings > Chat applies live: tool details off folds the tool rows of an opened chat.
+  // Settings > Chat applies live: tool runs start folded; tool details on shows each call.
   await openRow(shell, 'p4-jobs')
-  const tools = log.locator('[data-testid$="-tool0"]')
-  await expect(tools.first()).toBeVisible()
+  await expect(log.locator('[data-testid=tool-group]').first()).toContainText('bash · sleep 5')
+  await expect(log.locator('[data-testid$="-tool0"]')).toHaveCount(0)
   type Hooks = {
     openPlace(p: string, n?: boolean, e?: { settingsSection: string }): void
     tabs(): { active: number; list: Array<{ id: number }> }
@@ -126,10 +128,10 @@ test('one session: question, image, live settings and a new chat', async ({ app,
   )
   await shell.waitForSelector(sel('settings-chat'))
   await shell.getByText('Show tool details', { exact: true }).click()
-  await expect(shell.locator(sel('settings-show-tools'))).not.toBeChecked()
+  await expect(shell.locator(sel('settings-show-tools'))).toBeChecked()
   await shell.locator(sel(`tab-${chatTab}`)).click()
-  await expect(log.locator('[data-testid$="-tool0"]')).toHaveCount(0)
-  await expect(log).toContainText('tool call')
+  await expect(log.locator('[data-testid$="-tool0"]').first()).toBeVisible()
+  await expect(log.locator('[data-testid=tool-group]')).toHaveCount(0)
 
   // A new chat appears in the list.
   await shell.locator(sel('chat-new')).click()
