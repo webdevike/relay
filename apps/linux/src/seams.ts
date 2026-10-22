@@ -1,7 +1,7 @@
 // Seams between transport, input and storage. Mirrors apps/mac/Sources/RelayCore/Seams.swift:
 // the session only ever talks to these; input/ and the stores implement them; main.ts wires them.
 
-import type { AckError, AgentApproval, AgentAsk, AgentAskAnswer, AgentImage, AgentMessage, AgentOptions, AgentSession, ApprovalConfirmation, AssistantAgent, AssistantSnapshot, Command, Drop, DropOrigin, GateStatus, InboxItem, InboxResolve, InputEvent, KeyName, ScreenError, ScreenKey, ScreenWindow, ServerMessage } from "@relay/protocol";
+import type { AckError, AgentApproval, AgentAsk, AgentAskAnswer, AgentImage, AgentMessage, AgentOptions, AgentSession, ApprovalConfirmation, AssistantAgent, AssistantSnapshot, ClientMessage, Command, Drop, DropOrigin, GateStatus, InboxItem, InboxResolve, InputEvent, KeyName, ScreenError, ScreenKey, ScreenWindow, ServerMessage } from "@relay/protocol";
 
 /** Outbound side of one connection. `send` after `close` is a no-op. */
 export interface FrameSink {
@@ -142,6 +142,19 @@ export interface AssistantRelaying {
   /** Every thread's listing in registry order, as `assistant.agents` carries it. */
   agents(): Promise<AssistantAgent[]>;
   /** Every provider change; each thread picks out its own session's. */
+  observe(change: AgentProviderChange): void;
+}
+
+/** The phone's `call.*` frames. */
+export type CallClientMessage = Extract<ClientMessage, { t: `call.${string}` }>;
+
+/** What the session and server need of the host's voice calls (`call/service.ts`): one call per socket, named by its sink. */
+export interface CallRelaying {
+  /** A `call.*` frame from the phone on `sink`; replies go back through it. */
+  receive(sink: FrameSink, message: CallClientMessage): void;
+  /** The socket closed: hang up its call. */
+  drop(sink: FrameSink): void;
+  /** Every provider change; each call picks out its agent's session. */
   observe(change: AgentProviderChange): void;
 }
 

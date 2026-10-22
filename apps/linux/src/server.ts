@@ -17,6 +17,7 @@ import type {
   AgentProvider,
   AgentProviderChange,
   AssistantRelaying,
+  CallRelaying,
   DeviceStore,
   DropBox,
   DropChange,
@@ -60,6 +61,8 @@ export interface ServerDeps {
   readonly inbox: InboxRelaying | null;
   /** The host's assistant threads; null disables `assistant.*` frames and `POST /assistant/say`. */
   readonly assistant: AssistantRelaying | null;
+  /** Voice calls with the assistant threads; null disables `call.*` frames. */
+  readonly calls: CallRelaying | null;
   readonly pairing: PairingUI;
   readonly log: (line: string) => void;
 }
@@ -262,6 +265,7 @@ export class RelayServer {
 
   private handleProviderChange(change: AgentProviderChange): void {
     this.deps.assistant?.observe(change);
+    this.deps.calls?.observe(change);
     if (change.kind === "sessions") {
       const sessions = this.deps.agents?.sessions ?? [];
       const delta = this.agentsTracker.apply(sessions);
@@ -381,6 +385,7 @@ export class RelayServer {
         screen: this.deps.screen,
         inbox: this.deps.inbox,
         assistant: this.deps.assistant,
+        calls: this.deps.calls,
       },
       (closed) => {
         const reason = closed.closeReason;

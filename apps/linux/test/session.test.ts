@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { FileBoardStore } from "../src/boards/store";
 import { CommandDedupStore } from "../src/dedup";
 import { PairingCoordinator } from "../src/pairing";
-import { AckFailure, type AgentConfigChange, type AgentProvider, type AssistantRelaying, type AssistantThread, type DeviceStore, type DropBox, type FrameSink, type GateCommand, type InboxRelaying, type InputSink, type PairedDevice, type PairingUI, type PushRegistry, type ScreenCapture, type ScreenInput, type ScreenWatch, type TextInjecting } from "../src/seams";
+import { AckFailure, type AgentConfigChange, type AgentProvider, type AssistantRelaying, type AssistantThread, type CallClientMessage, type CallRelaying, type DeviceStore, type DropBox, type FrameSink, type GateCommand, type InboxRelaying, type InputSink, type PairedDevice, type PairingUI, type PushRegistry, type ScreenCapture, type ScreenInput, type ScreenWatch, type TextInjecting } from "../src/seams";
 import { NO_SCREEN } from "../src/screen/capture";
 import { ASSISTANT_FOLLOW_MS, ClientSession, PAIRING_TIMEOUT_MS, type SessionClock, type SessionDeps } from "../src/session";
 
@@ -105,6 +105,7 @@ interface HarnessOptions {
   screen?: ScreenCapture;
   inbox?: InboxRelaying;
   assistant?: AssistantRelaying;
+  calls?: CallRelaying;
 }
 
 function harness(options: HarnessOptions = {}): Harness {
@@ -149,6 +150,7 @@ function harness(options: HarnessOptions = {}): Harness {
     screen: options.screen ?? NO_SCREEN,
     inbox: options.inbox ?? null,
     assistant: options.assistant ?? null,
+    calls: options.calls ?? null,
   };
   const sink = new RecordingSink();
   const clock = new FakeClock();
@@ -1098,5 +1100,56 @@ describe("screen", () => {
     h.session.receive({ t: "screen.watch", windowId: 3 });
     await h.sink.sentCount(count + 2);
     expect(h.sink.last()).toEqual({ t: "screen.ended", windowId: 3, error: "unavailable" });
+  });
+});
+
+describe("calls", () => {
+  class FakeCalls implements CallRelaying {
+    readonly received: { sink: FrameSink; message: CallClientMessage }[] = [];
+    readonly dropped: FrameSink[] = [];
+    receive(sink: FrameSink, message: CallClientMessage): void {
+      this.received.push({ sink, message });
+    }
+    drop(sink: FrameSink): void {
+      this.dropped.push(sink);
+    }
+    observe(): void {
+      // Provider changes reach calls through the server, not the session.
+    }
+  }
+
+  it("hands every call frame to the calls with this socket's sink, and hangs up when the socket goes", () => {
+    const calls = new FakeCalls();
+    const h = harness({ calls });
+    pair(h);
+    const frames: CallClientMessage[] = [
+      { t: "call.start", callId: "c1", agent: "astra" },
+      { t: "call.audio", callId: "c1", pcm: "AAAA" },
+      { t: "call.mute", callId: "c1", muted: true },
+      { t: "call.end", callId: "c1" },
+    ];
+    for (const frame of frames) h.session.receive(frame);
+    expect(calls.received.map((entry) => entry.message)).toEqual(frames);
+    expect(calls.received.every((entry) => entry.sink === h.sink)).toBe(true);
+    h.session.handleDisconnect();
+    expect(calls.dropped).toEqual([h.sink]);
+  });
+
+  it("ends a call at once on a host that cannot take calls, and ignores its other frames", () => {
+    const h = harness();
+    pair(h);
+    const before = h.sink.sent.length;
+    h.session.receive({ t: "call.audio", callId: "c1", pcm: "AAAA" });
+    expect(h.sink.sent).toHaveLength(before);
+    h.session.receive({ t: "call.start", callId: "c1", agent: "astra" });
+    expect(h.sink.last()).toEqual({ t: "call.state", callId: "c1", agent: "astra", state: "ended", error: "This host cannot take calls" });
+  });
+
+  it("refuses call frames before authentication", () => {
+    const calls = new FakeCalls();
+    const h = harness({ calls });
+    h.session.receive({ t: "call.start", callId: "c1", agent: "astra" });
+    expect(calls.received).toEqual([]);
+    expect(h.sink.last()).toMatchObject({ t: "error", code: "protocol" });
   });
 });

@@ -17,6 +17,8 @@ import { type AssistantAgentConfig, loadRegistry, REGISTRY_FILE } from "./assist
 import { AssistantService, AssistantThreads, type AssistantThreadsDeps } from "./assistant/service";
 import { spawnFill } from "./assistant/signin";
 import { defaultAssistantPath, FileAssistantStore } from "./assistant/store";
+import { CallService } from "./call/service";
+import { EvaRealtimeVoice } from "./call/voice";
 import { FileDeviceStore } from "./device-store";
 import { FileDropStore } from "./drops/store";
 import { FileBoardStore } from "./boards/store";
@@ -44,7 +46,10 @@ const USAGE = `relay-linux <command>
                                    session started from the phone opens (default: $HOME);
                                    --no-clipboard stops desktop copies from becoming drops;
                                    --boards (or $RELAY_BOARDS_DIR) stores live dashboards
-                                   there (default: boards disabled)
+                                   there (default: boards disabled). Calls to the assistants use
+                                   eva-realtime's speech workers ($RELAY_VOICE_ROOT, default
+                                   <agent-home>/apps/eva-realtime) and pocket-tts on
+                                   $POCKET_PORT (8853) in voice $POCKET_VOICE (stuart_bell)
   devices                          list paired phones
   forget <deviceId>                remove a paired phone
   share <text | url | path> ...    add to the drop box of the running host: one existing file
@@ -163,6 +168,34 @@ function serve(
     clock: systemClock,
     log,
   });
+  const voice =
+    assistant === null || agentHome === null
+      ? null
+      : new EvaRealtimeVoice({
+          root: process.env["RELAY_VOICE_ROOT"] ?? join(agentHome, "apps", "eva-realtime"),
+          ttsUrl: `http://127.0.0.1:${process.env["POCKET_PORT"] ?? "8853"}`,
+          defaultVoice: process.env["POCKET_VOICE"] ?? "stuart_bell",
+          log,
+        });
+  const calls =
+    assistant === null || voice === null
+      ? null
+      : new CallService({
+          thread: (id) => {
+            const thread = assistant.threads.find((candidate) => candidate.id === id);
+            if (thread === undefined) return undefined;
+            return {
+              id: thread.id,
+              title: thread.title,
+              ...(thread.voice === undefined ? {} : { voice: thread.voice }),
+              session: () => thread.current(),
+              turn: (text) => thread.turn(text),
+            };
+          },
+          voice,
+          clock: systemClock,
+          log,
+        });
   const clipboard =
     watchClipboard && Bun.which("wl-paste") !== null
       ? new ClipboardWatcher({
@@ -201,6 +234,7 @@ function serve(
       notifier,
       inbox,
       assistant,
+      calls,
       pairing: new TerminalPairingUI(),
       log,
     },
@@ -240,6 +274,7 @@ function serve(
     rmSync(infoPath, { force: true });
     advertiser.stop();
     server.stop();
+    voice?.stop();
     device?.close();
     process.exit(0);
   };

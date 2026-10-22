@@ -32,6 +32,7 @@ import {
   type AgentProvider,
   type AssistantRelaying,
   type AssistantThread,
+  type CallRelaying,
   type DeviceStore,
   type DropBox,
   type FrameSink,
@@ -71,6 +72,8 @@ export interface SessionDeps {
   readonly inbox: InboxRelaying | null;
   /** null when the host has no assistant threads; `assistant.get` then answers empty and `assistant.turn` nacks. */
   readonly assistant: AssistantRelaying | null;
+  /** null when the host cannot take calls; `call.start` then ends at once with an error. */
+  readonly calls: CallRelaying | null;
 }
 
 /** Clock and scheduling seams so tests drive time deterministically. */
@@ -286,6 +289,7 @@ export class ClientSession {
     this.endPairingIfPending();
     this.stopPairingTimeout();
     this.stopScreen();
+    this.deps.calls?.drop(this.sink);
     this.closed = true;
     this.onClose(this);
   }
@@ -577,6 +581,13 @@ export class ClientSession {
         break;
       case "inbox.resolve":
         this.deps.inbox?.resolve(deviceId, message);
+        break;
+      case "call.start":
+      case "call.audio":
+      case "call.mute":
+      case "call.end":
+        if (this.deps.calls !== null) this.deps.calls.receive(this.sink, message);
+        else if (message.t === "call.start") this.sink.send({ t: "call.state", callId: message.callId, agent: message.agent, state: "ended", error: "This host cannot take calls" });
         break;
       case "hello":
       case "auth":
@@ -876,6 +887,7 @@ export class ClientSession {
     this.endPairingIfPending();
     this.stopPairingTimeout();
     this.stopScreen();
+    this.deps.calls?.drop(this.sink);
     this.closed = true;
     this.failure = `${code}: ${message}`;
     this.sink.send({ t: "error", code, message });
