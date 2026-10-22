@@ -6,6 +6,8 @@ export interface Env {
   evaRoot: string
   ompBin: string
   configDir: string
+  /** Live default only: the pre-rename folder to move into configDir once. */
+  legacyConfigDir: string | null
   sessionsDir: string
   arcExportCmd: string[] | null
   live: boolean
@@ -25,6 +27,12 @@ export interface Env {
   claudeBridgeBin: string
   /** EVAOS_CLAUDE_BIN: claude CLI. */
   claudeBin: string
+  /**
+   * Chrome DevTools Protocol port on 127.0.0.1 so Eva can drive the running app with Playwright.
+   * Live default 9339 (Arc 9222, eva-browser 9292, Slack 9333, Chrome 9444); EVAOS_CDP_PORT
+   * overrides, 0 turns it off; null in tests.
+   */
+  cdpPort: number | null
 }
 
 export interface ResolveEnvInput {
@@ -114,11 +122,18 @@ export function resolveEnv(input: ResolveEnvInput): Env {
       ? path.join(env.PI_CODING_AGENT_DIR || path.join(homedir, '.omp/agent'), 'sessions/-Eva')
       : path.join(repoRoot, 'fixtures/agent/sessions/-fixture')
 
+  // The app is "Relay"; its folder is "Relay Desktop" because Relay Host already owns "Relay".
+  const supportDir = path.join(homedir, 'Library/Application Support')
   const configDir = env.EVAOS_CONFIG_DIR
     ? env.EVAOS_CONFIG_DIR
     : live
-      ? path.join(homedir, 'Library/Application Support/EvaOS Electron')
+      ? path.join(supportDir, 'Relay Desktop')
       : path.join(tmpdir, `evaos-electron-dev-${pid}`)
+  // Builds named "EvaOS Electron" kept their state here; moved once into configDir at launch.
+  const legacyConfigDir =
+    live && !env.EVAOS_CONFIG_DIR ? path.join(supportDir, 'EvaOS Electron') : null
+
+  const cdpPort = parseCdpPort(env.EVAOS_CDP_PORT, live && env.EVAOS_E2E !== '1')
 
   const habitGateBin = env.EVAOS_HABIT_GATE_BIN
     ? env.EVAOS_HABIT_GATE_BIN
@@ -172,6 +187,7 @@ export function resolveEnv(input: ResolveEnvInput): Env {
     evaRoot,
     ompBin,
     configDir,
+    legacyConfigDir,
     sessionsDir,
     arcExportCmd: parseArcCmd(env.EVAOS_ARC_EXPORT_CMD),
     live,
@@ -179,7 +195,17 @@ export function resolveEnv(input: ResolveEnvInput): Env {
     hiddenWindow: env.EVAOS_HIDDEN_WINDOW === '1',
     noMotion: env.EVAOS_NO_MOTION === '1',
     repoRoot,
+    cdpPort,
   }
+}
+
+function parseCdpPort(raw: string | undefined, liveDefault: boolean): number | null {
+  if (raw === undefined || raw === '') return liveDefault ? 9339 : null
+  const port = Number(raw)
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    throw new Error(`EVAOS_CDP_PORT must be a port number, got ${raw}`)
+  }
+  return port === 0 ? null : port
 }
 
 export function loadEnv(app: { isPackaged: boolean; getAppPath(): string }): Env {

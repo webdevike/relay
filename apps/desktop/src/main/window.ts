@@ -1,6 +1,7 @@
 import { BaseWindow, WebContentsView, dialog } from 'electron'
 import * as path from 'node:path'
 import type { Env } from './env'
+import { APP_NAME } from './app-name'
 import { isAppUrl } from './app-url'
 
 export { isAppUrl }
@@ -60,7 +61,7 @@ export function createMainWindow(
   // fallback timer shows it even if neither load event arrives.
   const reportLoadFailure = (detail: string): void => {
     if (!win.isDestroyed()) show()
-    dialog.showErrorBox('EvaOS', `The interface failed to load.\n\n${detail}`)
+    dialog.showErrorBox(APP_NAME, `The interface failed to load.\n\n${detail}`)
   }
   shell.webContents.on('did-fail-load', (_e, code, description, _url, isMainFrame) => {
     if (!isMainFrame || code === -3) return // -3 is ERR_ABORTED (a superseded navigation)

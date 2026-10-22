@@ -1,25 +1,26 @@
-# Try EvaOS Electron
+# Try Relay (desktop)
 
-An Electron + React + TypeScript port of EvaOS. It stops after phase 4 (chat parity) on purpose. Phases 5 to 7 are deferred, not failed.
+An Electron + React + TypeScript port of EvaOS, named Relay. It stops after phase 4 (chat parity) on purpose. Phases 5 to 7 are deferred, not failed.
 
 ## How to open it
 
 Installed copy (unsigned, built from this repo):
 
 ```
-open ~/"Applications/EvaOS Electron.app"
+open ~/"Applications/Relay.app"
 ```
 
-First launch may need right-click, Open, or `xattr -dr com.apple.quarantine ~/"Applications/EvaOS Electron.app"`.
+First launch may need right-click, Open, or `xattr -dr com.apple.quarantine ~/"Applications/Relay.app"`.
 
-Important: the packaged app runs in live mode. It reads the real Eva checkout at `~/Eva` and finds the real `omp` binary. It writes only what current EvaOS writes (todos, jobs, habits, meeting accept and dismiss, chat.json, layout).
+Important: the packaged app runs in live mode. It reads the real Eva checkout at `~/Eva` and finds the real `omp` binary. It writes only what current EvaOS writes (todos, jobs, habits, meeting accept and dismiss, chat.json, layout). Its own state lives in `~/Library/Application Support/Relay Desktop`; the first launch moves an older `EvaOS Electron` folder there.
 
 To rebuild and reinstall after changes:
 
 ```
 pnpm install
 pnpm -C apps/desktop package
-ditto "apps/desktop/release/mac-arm64/EvaOS Electron.app" ~/"Applications/EvaOS Electron.app"
+ditto "apps/desktop/release/mac-arm64/Relay.app" ~/"Applications/Relay.app"
+rm -rf ~/"Applications/EvaOS Electron.app"  # once, after the rename
 ```
 
 Dev mode, against fixtures and fake omp (safe): `pnpm dev`. Dev mode against real Eva and real omp: `pnpm dev:live`.
@@ -48,10 +49,22 @@ Headless and test launches set `EVAOS_E2E=1` (background accessory app) and `EVA
 ## What works
 
 - Three-column shell, sidebar, main tabs (pin, context menu), folding at narrow widths, hotkeys, overlay stack, quit guard.
-- Theme tokens and bundled themes, Appearance and Settings pages (Theme, Chat, Notifications). Component geometry and interactions follow native EvaOS independently of palette and font choices. The default remains the EvaOS preset. The theme editor and live preview are available; detailed remaining differences are listed below.
+- Theme tokens and bundled themes, Appearance and Settings pages (Theme and Chat). Component geometry and interactions follow native EvaOS independently of palette and font choices. The default remains the EvaOS preset. The theme editor and live preview are available; detailed remaining differences are listed below.
 - Dashboard with activity charts and filters, workspace pages, New Todo (Cmd+N), jobs list and job form (create, edit, stale-on-disk refusal, Run now, delete), habits (with the locked gate overlay), meetings (Home, Detail, Accept, Dismiss), live change watching of Eva data.
 - Chat: session list grouped by workspace with Pinned, search, collapse, categories with drag and drop, rename and delete, status (Working, Job, Open), virtualized transcript, streaming from a live omp session with abort and steer, composer with model, access and account pickers, image paste and drop, question cards, subagent chips, jobs strip, Claude Code bridge harness choice, new chats.
 - Browser panel: real Chromium WebContentsView, address bar (URL, search, bare port), subtabs, history suggestions, DevTools, CDP page control, hides under overlays, Chrome extensions (Bitwarden from the Web Store), Arc login import.
+
+### Implemented destinations only
+
+- The menu exposes Dashboard, Chat, Test Bench, Jobs, Habits, Meetings and Settings. Workspace and meeting detail pages remain available through real data.
+- Placeholder-only Inbox, Calendar, Tasks, Memory, Files, Help Center and board destinations have been removed, along with the empty Notifications settings section, Help footer and unused Eregon slot. Old saved tabs/history pointing at those pages are discarded; if no supported tabs remain, Dashboard opens. Old Notifications settings selections restore to Theme.
+- The Dashboard keeps its real todo summary and list, without a dead Tasks link or a hard-coded PR count. Use workspace pages for complete workspace todo lists; New Todo remains available.
+- The side panel exposes the functioning Browser only. Eregon, global search, save, model-number and copy-page-URL shortcut stubs are not registered. Sidebar search (Cmd+F), browser navigation/search and theme preview controls remain functional.
+- Verified this removal: workspace typecheck and production build passed, 94 focused unit tests passed, and 49 Electron scenarios passed covering pages, sidebar, tabs, hotkeys, settings, Dashboard, watchers, New Todo and meeting actions.
+
+Smoke check after rebuilding: launch with `EVAOS_E2E=1` for background operation, confirm only the implemented menu/settings rows appear, navigate Dashboard/Jobs/Habits/Meetings/Chat and workspace/detail pages, exercise tab history and pinning, confirm the browser stays usable across page changes, and exercise the Theme editor's interactive preview. Restore an old layout with removed pages in tab/history entries and confirm those entries cannot reopen.
+
+Focused Electron scenarios: `pages.spec.ts`, `sidebar.spec.ts`, `tabs.spec.ts`, `hotkeys.spec.ts`, `settings.spec.ts`, `dashboard.spec.ts`, `eva-watch.spec.ts`, `new-todo.spec.ts`, and `meetings-actions.spec.ts`.
 
 ### Native component and interaction alignment
 

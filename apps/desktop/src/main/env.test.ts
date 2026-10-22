@@ -36,7 +36,8 @@ describe('resolveEnv', () => {
     const e = resolveEnv(base({ env: { EVAOS_LIVE: '1' } }))
     expect(e.live).toBe(true)
     expect(e.evaRoot).toBe('/home/u/Eva')
-    expect(e.configDir).toBe('/home/u/Library/Application Support/EvaOS Electron')
+    expect(e.configDir).toBe('/home/u/Library/Application Support/Relay Desktop')
+    expect(e.legacyConfigDir).toBe('/home/u/Library/Application Support/EvaOS Electron')
     expect(e.sessionsDir).toBe('/home/u/.omp/agent/sessions/-Eva')
     expect(typeof e.ompBin).toBe('string')
   })
@@ -46,6 +47,7 @@ describe('resolveEnv', () => {
     expect(e.live).toBe(true)
     expect(e.evaRoot).toBe('/home/u/Eva')
     expect(e.configDir).toBe('/cfg')
+    expect(e.legacyConfigDir).toBeNull()
   })
 
   it('EVAOS_CONFIG_DIR always wins and the arc command can be overridden', () => {
@@ -100,6 +102,15 @@ describe('resolveEnv', () => {
   it('reads EVAOS_NO_MOTION', () => {
     expect(resolveEnv(base({ env: { EVAOS_NO_MOTION: '1' } })).noMotion).toBe(true)
     expect(resolveEnv(base()).noMotion).toBe(false)
+  })
+
+  it('opens CDP on 9339 only for the live app, never in tests, and honors EVAOS_CDP_PORT', () => {
+    expect(resolveEnv(base({ env: { EVAOS_LIVE: '1' } })).cdpPort).toBe(9339)
+    expect(resolveEnv(base()).cdpPort).toBeNull()
+    expect(resolveEnv(base({ env: { EVAOS_LIVE: '1', EVAOS_E2E: '1' } })).cdpPort).toBeNull()
+    expect(resolveEnv(base({ env: { EVAOS_LIVE: '1', EVAOS_CDP_PORT: '0' } })).cdpPort).toBeNull()
+    expect(resolveEnv(base({ env: { EVAOS_CDP_PORT: '9444' } })).cdpPort).toBe(9444)
+    expect(() => resolveEnv(base({ env: { EVAOS_CDP_PORT: 'x' } }))).toThrow(/EVAOS_CDP_PORT/)
   })
 
   it('defaults agent dir and the Claude bridge to fixtures outside live mode', () => {

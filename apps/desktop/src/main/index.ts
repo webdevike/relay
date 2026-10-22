@@ -1,4 +1,6 @@
 import { app, dialog } from 'electron'
+import { join } from 'node:path'
+import { APP_NAME, moveLegacyConfig } from './app-name'
 import { createConfigStore } from './config-store'
 import type { MainContext } from './context'
 import { loadEnv } from './env'
@@ -27,11 +29,13 @@ function bootstrap(): void {
   try {
     env = loadEnv(app)
   } catch (e) {
-    dialog.showErrorBox('EvaOS', e instanceof Error ? e.message : String(e))
+    dialog.showErrorBox(APP_NAME, e instanceof Error ? e.message : String(e))
     app.exit(2)
     return
   }
 
+  app.setName(APP_NAME)
+  moveLegacyConfig(env.legacyConfigDir, env.configDir)
   // Chromium profile, persist:browser and extension storage live under the config dir.
   app.setPath('userData', env.configDir)
   installWriteGuard(env)
@@ -41,6 +45,9 @@ function bootstrap(): void {
   // composites a frame, so a window opened in that state stays an empty #17181c box. The shell
   // streams live chat and must paint whenever its window is shown.
   app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
+  // Eva drives the running app over CDP (Playwright connectOverCDP); Chromium binds it to
+  // 127.0.0.1 only. Any local process can attach, which Isaac accepted on 2026-10-22.
+  if (env.cdpPort) app.commandLine.appendSwitch('remote-debugging-port', String(env.cdpPort))
 
   // Test and proof runs happen while Isaac works on the same Mac: run as an accessory app (no
   // Dock icon, never becomes the active app) so launches don't steal focus. window.ts keeps the
@@ -49,6 +56,9 @@ function bootstrap(): void {
 
   void app.whenReady().then(async () => {
     try {
+      if (process.platform === 'darwin' && !env.hiddenWindow) {
+        app.dock?.setIcon(join(app.getAppPath(), 'resources/icon.png'))
+      }
       installAppMenu()
       const config = createConfigStore(env.configDir)
       const prev = config.readJson<{ launchCount?: number }>('app-state.json', {})
@@ -111,7 +121,7 @@ function bootstrap(): void {
       installTestHooks(ctx)
     } catch (e) {
       // A half-started app (no window, no IPC) is worse than a clear failure.
-      dialog.showErrorBox('EvaOS', e instanceof Error ? e.message : String(e))
+      dialog.showErrorBox(APP_NAME, e instanceof Error ? e.message : String(e))
       app.exit(2)
     }
   })

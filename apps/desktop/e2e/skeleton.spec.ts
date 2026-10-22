@@ -7,7 +7,7 @@ type Eva = {
 }
 
 test('skeleton: shell renders and app.info round-trips', async ({ app, shell, configDir }) => {
-  await expect(shell.locator('[data-testid=rail]')).toContainText('EvaOS')
+  await expect(shell.locator('[data-testid=rail]')).toContainText('Relay')
   expect(await shell.evaluate(() => typeof (window as unknown as { eva?: Eva }).eva?.invoke)).toBe(
     'function',
   )

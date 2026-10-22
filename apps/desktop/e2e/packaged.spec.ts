@@ -14,7 +14,7 @@ import {
   SESSIONS_FIXTURE_DIR,
 } from './helpers/paths'
 
-const EXE = path.join(APP_DIR, 'release/mac-arm64/EvaOS Electron.app/Contents/MacOS/EvaOS Electron')
+const EXE = path.join(APP_DIR, 'release/mac-arm64/Relay.app/Contents/MacOS/Relay')
 
 test.skip(process.env.EVAOS_PACKAGED !== '1', 'set EVAOS_PACKAGED=1 after pnpm package')
 
@@ -134,7 +134,7 @@ test('packaged dir build launches, shows the shell and starts the extension host
     // Chats: the tree lists the fixture sessions and a sent prompt starts only the fake omp,
     // resuming a file inside the fixture sessions dir (T-04-60).
     await shell.locator('[data-testid=nav-chat]').click()
-    await shell.waitForSelector('[role=tree]')
+    await shell.waitForSelector('[data-testid=chat-tree]')
     await expect(shell.locator('[data-testid="chat-row-p4-ecard"]')).toBeVisible()
     expect(await shell.locator('[data-testid^="chat-row-"]').count()).toBeGreaterThan(3)
     await shell.locator('[data-testid="chat-row-p4-ecard"]').click()
