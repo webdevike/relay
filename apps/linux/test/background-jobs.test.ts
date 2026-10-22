@@ -65,7 +65,7 @@ describe("BackgroundJobs", () => {
   });
 });
 
-describe("compaction notice", () => {
+describe("session file rows", () => {
   it("turns a compaction entry into a system row between the messages", () => {
     let seq = 0;
     const raw = [
@@ -80,5 +80,20 @@ describe("compaction notice", () => {
       ["assistant", "hello"],
     ]);
     expect(rows[1]?.at).toBe(Date.parse("2026-10-22T10:00:00.000Z"));
+  });
+
+  it("shows a skill the user invoked as its command, and skips other custom messages", () => {
+    let seq = 0;
+    const skill = (attribution: string, args?: string) => ({ type: "custom_message", customType: "skill-prompt", content: "# Review\n...", display: true, attribution, details: { name: "review", path: "/s/SKILL.md", args, lineCount: 40 }, timestamp: "2026-10-22T10:00:00.000Z" });
+    const raw = [
+      JSON.stringify(skill("user", "the diff")),
+      JSON.stringify(skill("user")),
+      JSON.stringify(skill("agent", "auto")),
+      JSON.stringify({ type: "custom_message", customType: "goal-mode-context", content: "<goal_context>", display: false, timestamp: "2026-10-22T10:00:01.000Z" }),
+    ].join("\n");
+    expect(parseSessionRows(raw, null, () => String(++seq)).map((row) => [row.role, row.text])).toEqual([
+      ["user", "/skill:review the diff"],
+      ["user", "/skill:review"],
+    ]);
   });
 });

@@ -40,6 +40,7 @@ import {
   firstLine,
   imageRefsOf,
   parseSessionRows,
+  skillCommandOf,
   summarizeArguments,
   textOf,
   type Image,
@@ -47,6 +48,8 @@ import {
 } from "../src/agents/transcript";
 // Same constraint: the session's async jobs (`bg_N` bash, eval cells) read from its messages.
 import { BackgroundJobs, ENDED_JOB_LINGER_MS, type BackgroundJob } from "../src/agents/background-jobs";
+// And omp's goal mode: what the phone shows of it, and the `/goal` forms it can send.
+import { goalFromEntries, goalOf, phoneGoalCommand, sameGoal, type Goal } from "../src/agents/goal";
 
 type Model = NonNullable<ExtensionContext["model"]>;
 type ThinkingLevel = Parameters<ExtensionAPI["setThinkingLevel"]>[0];
@@ -85,6 +88,8 @@ interface Activity {
   backgroundJobs?: BackgroundJob[];
   /** Set while a `/handoff` or a compaction is summarizing the session; absent otherwise. */
   handingOff?: true;
+  /** The session's goal while active or paused; absent when it has none. */
+  goal?: Goal;
 }
 
 interface SessionInfo extends Settings, Activity {
@@ -377,6 +382,15 @@ const SUBMIT_SETTLE_MS = 150;
 const HANDOFF_TIMEOUT_MS = 5 * 60_000;
 /** A `/handoff` typed in the terminal or fed from the phone, with or without focus instructions. */
 const HANDOFF_COMMAND = /^\/handoff(\s|$)/;
+/** omp's own refusal of a handoff mid-turn, shown in the phone's transcript instead of the terminal's status line. */
+const HANDOFF_BUSY_NOTICE = "Handoff not started: wait for the current response to finish or stop it first.";
+/**
+ * omp confirms a goal drop in the terminal ("Drop goal?", Yes first). A drop sent from the phone is
+ * its own confirmation, so Enter is fed to take "Yes": once the command has opened the dialog, and
+ * again (up to GOAL_DROP_CONFIRM_TRIES) while the goal is still there.
+ */
+const GOAL_DROP_CONFIRM_MS = 300;
+const GOAL_DROP_CONFIRM_TRIES = 3;
 
 /** omp's subagent channels on the extension event bus (`pi.events`), emitted by the task tool. */
 const SUBAGENT_LIFECYCLE = "task:subagent:lifecycle";
@@ -881,10 +895,21 @@ export default function relayBridge(pi: ExtensionAPI): void {
   // Set while a /handoff or a compaction summarizes the session; cleared when the compaction lands.
   let handingOff = false;
   let handoffTimer: ReturnType<typeof setTimeout> | null = null;
+  // omp's goal while active or paused: seeded from the session's branch, then kept by goal_updated.
+  let goal: Goal | undefined;
 
   const activity = (): Activity => {
     const jobs = backgroundJobs.list(Date.now());
-    return { ...(jobs.length === 0 ? {} : { backgroundJobs: jobs }), ...(handingOff ? { handingOff: true as const } : {}) };
+    return {
+      ...(jobs.length === 0 ? {} : { backgroundJobs: jobs }),
+      ...(handingOff ? { handingOff: true as const } : {}),
+      ...(goal === undefined ? {} : { goal }),
+    };
+  };
+
+  /** The goal the session's branch leaves it with (a resumed session, a session switch). */
+  const seedGoal = (context: ExtensionContext): void => {
+    goal = goalFromEntries(context.sessionManager.getBranch());
   };
 
   const settings = (): Settings => {
@@ -992,6 +1017,36 @@ export default function relayBridge(pi: ExtensionAPI): void {
     if (history.length > 500) history.splice(0, history.length - 500);
   };
 
+  /** A system row in the transcript (a compaction landed, a phone command omp refused). */
+  const notice = (text: string): void => {
+    const row: InboxMessage = { id: nextId(), role: "system", text, at: Date.now() };
+    record(row);
+    send({ t: "messages", append: [row] });
+  };
+
+  /** Takes omp's latest goal; a changed one is reported at once. */
+  const setGoal = (next: Goal | undefined): void => {
+    if (sameGoal(goal, next)) return;
+    goal = next;
+    sendStatus();
+  };
+
+  /**
+   * Answers omp's "Drop goal?" confirm for a drop sent from the phone: Enter takes its default
+   * "Yes". Fed again while the goal is still there (the dialog may open a moment after the
+   * command), then `done` once it is gone, the tries run out, or the session changed.
+   */
+  const confirmGoalDrop = (context: ExtensionContext, tries: number, done: () => void): void => {
+    if (ctx !== context || goal === undefined || tries === 0) {
+      done();
+      return;
+    }
+    process.stdin.push("\r");
+    setTimeout(() => {
+      confirmGoalDrop(context, tries - 1, done);
+    }, GOAL_DROP_CONFIRM_MS).unref();
+  };
+
   const handleInbound = async (frame: Inbound): Promise<void> => {
     try {
       send({ t: "result", id: frame.id, ok: true, value: await perform(frame) });
@@ -1022,7 +1077,14 @@ export default function relayBridge(pi: ExtensionAPI): void {
           // else is offered to Jev, which rewrites it to `/command …` when the speaker named one and
           // otherwise hands it back unchanged (see routeVoiceCommand). Routing never blocks the reply.
           // An assistant thread is conversation, not a command line: what Isaac says there goes in as said.
-          const text = frame.text.startsWith("/") || ASSISTANT !== null ? frame.text : ((await routeVoiceCommand(pi.getCommands(), frame.text)) ?? frame.text);
+          const routed = frame.text.startsWith("/") || ASSISTANT !== null ? frame.text : ((await routeVoiceCommand(pi.getCommands(), frame.text)) ?? frame.text);
+          // `/goal` goes in the form the terminal runs without asking anything back (see phoneGoalCommand).
+          const text = phoneGoalCommand(routed) ?? routed;
+          if (HANDOFF_COMMAND.test(text) && !ctx.isIdle()) {
+            // omp refuses a handoff mid-turn and says so only in the terminal: tell the phone instead.
+            notice(HANDOFF_BUSY_NOTICE);
+            return undefined;
+          }
           // An assistant's title is fixed, so its turns never need the editor path's auto title; keeping them
           // off the editor also means a turn arriving while the prime is still being typed in
           // (see the initial prompt below) steers in behind it instead of replacing it.
@@ -1032,13 +1094,20 @@ export default function relayBridge(pi: ExtensionAPI): void {
             // The same path is the only one that starts omp's auto title (maybeStartTitleGeneration
             // hangs off the TUI submit, not off sendUserMessage), so until the session has a name
             // every phone prompt goes in that way too. Whatever draft was there comes back once the
-            // text has been taken, and the settings are re-reported since commands like /rename and
-            // /switch change them without an event.
+            // text has been taken (and a goal drop's confirm answered, so its Enter never sends the
+            // draft), and the settings are re-reported since commands like /rename and /switch
+            // change them without an event.
+            const context = ctx;
+            const confirmDrop = text === "/goal drop" && goal !== undefined;
             ctx.ui.setEditorText(text);
             process.stdin.push("\r");
-            setTimeout(() => {
-              if (existing.length > 0) ctx?.ui.setEditorText(existing);
+            const settle = (): void => {
+              if (existing.length > 0 && ctx === context) context.ui.setEditorText(existing);
               sendStatus();
+            };
+            setTimeout(() => {
+              if (confirmDrop) confirmGoalDrop(context, GOAL_DROP_CONFIRM_TRIES, settle);
+              else settle();
             }, SUBMIT_SETTLE_MS).unref();
           } else {
             // Same semantics as typing in the TUI and pressing Enter: prompt when idle, steer while streaming.
@@ -1364,6 +1433,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
     wrapAskDialog(context);
     wrapApprovalDialog(context);
     if (ASSISTANT !== null && history.length === 0) seedHistory(context);
+    seedGoal(context);
     connect();
     // A hello sent before the email probe landed carries the profile alone; the email follows.
     void probedAccount().then(sendStatus);
@@ -1418,11 +1488,12 @@ export default function relayBridge(pi: ExtensionAPI): void {
     wrapApprovalDialog(context);
     history.length = 0;
     images.clear();
-    // Background jobs and a handoff belong to the session that started them.
+    // Background jobs and a handoff belong to the session that started them; the goal is the new one's.
     backgroundJobs.clear();
     clearTimeout(handoffTimer ?? undefined);
     handoffTimer = null;
     handingOff = false;
+    seedGoal(context);
     if (ASSISTANT !== null) seedHistory(context);
     const current = info();
     if (current !== null) send({ t: "hello", ...current });
@@ -1476,13 +1547,18 @@ export default function relayBridge(pi: ExtensionAPI): void {
     setHandingOff(false);
   });
 
+  // omp's goal mode: set, paused, resumed, its token count growing, met or dropped. The phone shows
+  // it until it is met or dropped (goalOf drops anything but active and paused).
+  pi.on("goal_updated", (event) => {
+    if (ctx === null) return;
+    setGoal(goalOf(event.goal));
+  });
+
   // Every compaction that lands (a /handoff, /compact, or omp's own): the transcript says so, the
   // handoff is over, and the context reading is re-reported since the window just emptied.
   pi.on("session_compact", () => {
     if (ctx === null) return;
-    const notice: InboxMessage = { id: nextId(), role: "system", text: COMPACTION_NOTICE, at: Date.now() };
-    record(notice);
-    send({ t: "messages", append: [notice] });
+    notice(COMPACTION_NOTICE);
     clearTimeout(handoffTimer ?? undefined);
     handoffTimer = null;
     handingOff = false;
@@ -1536,6 +1612,10 @@ export default function relayBridge(pi: ExtensionAPI): void {
         if (refs.length > 0) item.images = refs;
         appended.push(item);
       }
+    } else if (message.role === "custom") {
+      // A `/skill:<name>` the user invoked: the transcript shows the command, not the skill's body.
+      const command = skillCommandOf(message);
+      if (command !== null) appended.push({ id: nextId(), role: "user", text: command, at });
     } else if (message.role === "toolResult") {
       // Only a result that carries pictures (a rendered page, a screenshot) is worth a transcript entry.
       const refs = imageRefsOf(images, message.content);

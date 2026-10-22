@@ -50,6 +50,7 @@ function sameSession(a: AgentSession | undefined, b: AgentSession): boolean {
     a.modelVendor === b.modelVendor &&
     a.thinkingLevel === b.thinkingLevel &&
     a.handingOff === b.handingOff &&
-    JSON.stringify(a.backgroundJobs) === JSON.stringify(b.backgroundJobs)
+    JSON.stringify(a.backgroundJobs) === JSON.stringify(b.backgroundJobs) &&
+    JSON.stringify(a.goal) === JSON.stringify(b.goal)
   );
 }

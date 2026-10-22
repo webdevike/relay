@@ -115,7 +115,19 @@ async jobs (`bg_N` bash commands, eval cells; read from tool results whose `deta
 its command as the label; an ended job stays listed for a minute with how it finished.
 `handingOff` is set from a `/handoff` submit (or omp compacting on its own) until the compaction
 lands, at most five minutes; every compaction adds a "Context refreshed: earlier turns summarized"
-row to the transcript.
+row to the transcript. A `/handoff` from the phone while a turn is streaming is not submitted (omp
+would refuse it in the terminal only); the transcript gets a system row saying so instead. `goal`
+is omp's goal mode while the goal is active or paused (`objective`, `paused`, `tokensUsed`), read
+from the session's last `mode_change` at start and kept by omp's `goal_updated` event; a goal that
+was met or dropped is gone. Extensions load once per omp process, so a session started before an
+extension change keeps reporting what the old code did until it is restarted.
+
+A `/goal` sent from the phone goes in the form the terminal runs without asking anything back
+(`src/agents/goal.ts`, as EvaOS maps it): `/goal <objective>` sets it, bare `/goal`, `status` and an
+objectiveless `set` read it (`/goal show`), `clear` drops it, and the "Drop goal?" confirm a drop
+opens in the terminal is answered Yes. A skill the user invoked (`/skill:<name> args`, omp's
+`skill-prompt` custom message) shows in the transcript as that command, live and when a session
+file is read.
 
 ### Tool approvals
 

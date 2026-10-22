@@ -174,6 +174,23 @@ export function imageRefsOf(images: Map<string, Image> | null, content: unknown)
   return refs;
 }
 
+/** omp's custom message type for a `/skill:<name>` prompt (pi-tui `SKILL_PROMPT_MESSAGE_TYPE`). */
+const SKILL_PROMPT = "skill-prompt";
+
+/**
+ * The command a user-invoked skill prompt came from (`/skill:review the diff`), or null for any
+ * other custom message. omp sends the skill's whole body to the model; the transcript shows what
+ * was typed instead, so a skill reads as the command that started its turn. Skills omp loads on
+ * its own (attribution other than "user") are not the user's and show nothing.
+ */
+export function skillCommandOf(message: { customType?: unknown; attribution?: unknown; details?: unknown }): string | null {
+  if (message.customType !== SKILL_PROMPT || message.attribution !== "user") return null;
+  const details = message.details as { name?: unknown; args?: unknown } | null | undefined;
+  if (typeof details?.name !== "string" || details.name.length === 0) return null;
+  const args = typeof details.args === "string" ? details.args.trim() : "";
+  return args.length === 0 ? `/skill:${details.name}` : `/skill:${details.name} ${args}`;
+}
+
 /** The transcript rows one finished omp message contributes: the same shapes the live session streams. */
 function rowsOf(message: Record<string, unknown>, images: Map<string, Image> | null, nextId: () => string): InboxMessage[] {
   const at = typeof message["timestamp"] === "number" ? message["timestamp"] : Date.now();
@@ -210,14 +227,28 @@ function rowsOf(message: Record<string, unknown>, images: Map<string, Image> | n
   return rows;
 }
 
+/** The fields of one session-file entry that make rows; every one is checked before use. */
+interface SessionEntryLine {
+  type?: unknown;
+  message?: unknown;
+  timestamp?: unknown;
+  customType?: unknown;
+  attribution?: unknown;
+  details?: unknown;
+}
+
 /**
- * The rows one session-file entry contributes: a `message` entry's rows, or the notice a
- * `compaction` entry (a `/handoff`, `/compact`, or omp compacting on its own) leaves.
+ * The rows one session-file entry contributes: a `message` entry's rows, the command row of a
+ * skill the user invoked (a `custom_message`), or the notice a `compaction` entry (a `/handoff`,
+ * `/compact`, or omp compacting on its own) leaves.
  */
-function entryRows(entry: { type?: unknown; message?: unknown; timestamp?: unknown }, images: Map<string, Image> | null, nextId: () => string): InboxMessage[] {
-  if (entry.type === "compaction") {
-    const at = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : Number.NaN;
-    return [{ id: nextId(), role: "system", text: COMPACTION_NOTICE, at: Number.isFinite(at) ? at : Date.now() }];
+function entryRows(entry: SessionEntryLine, images: Map<string, Image> | null, nextId: () => string): InboxMessage[] {
+  const stamp = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : Number.NaN;
+  const at = Number.isFinite(stamp) ? stamp : Date.now();
+  if (entry.type === "compaction") return [{ id: nextId(), role: "system", text: COMPACTION_NOTICE, at }];
+  if (entry.type === "custom_message") {
+    const command = skillCommandOf(entry);
+    return command === null ? [] : [{ id: nextId(), role: "user", text: command, at }];
   }
   if (entry.type !== "message" || typeof entry.message !== "object" || entry.message === null) return [];
   return rowsOf(entry.message as Record<string, unknown>, images, nextId);
@@ -225,15 +256,16 @@ function entryRows(entry: { type?: unknown; message?: unknown; timestamp?: unkno
 
 /**
  * Every row of a session file's text, in order. The file holds one JSON entry per line; only
- * `message` and `compaction` entries are rows and a line that does not parse is skipped (a half-written tail).
+ * `message`, user-invoked skill `custom_message` and `compaction` entries are rows, and a line
+ * that does not parse is skipped (a half-written tail).
  */
 export function parseSessionRows(raw: string, images: Map<string, Image> | null, nextId: () => string): InboxMessage[] {
   const rows: InboxMessage[] = [];
   for (const line of raw.split("\n")) {
     if (line.trim().length === 0) continue;
-    let entry: { type?: unknown; message?: unknown; timestamp?: unknown };
+    let entry: SessionEntryLine;
     try {
-      entry = JSON.parse(line) as { type?: unknown; message?: unknown; timestamp?: unknown };
+      entry = JSON.parse(line) as SessionEntryLine;
     } catch {
       continue;
     }

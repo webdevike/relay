@@ -14,7 +14,7 @@
 
 import { existsSync, unlinkSync } from "node:fs";
 import type { Socket, SocketHandler } from "bun";
-import { AgentAccount, AgentAskQuestion, AgentBackgroundJob, type AgentApproval, type ApprovalConfirmation, AgentImage, AgentMessage, AgentOptions, AgentSession, AgentStatus, GateStatus, type AgentAsk, type AgentAskAnswer, type AgentImage as AgentImageT, type AgentSession as AgentSessionT, type AgentMessage as AgentMessageT, type AgentOptions as AgentOptionsT, type GateStatus as GateStatusT } from "@relay/protocol";
+import { AgentAccount, AgentAskQuestion, AgentBackgroundJob, AgentGoal, type AgentApproval, type ApprovalConfirmation, AgentImage, AgentMessage, AgentOptions, AgentSession, AgentStatus, GateStatus, type AgentAsk, type AgentAskAnswer, type AgentImage as AgentImageT, type AgentSession as AgentSessionT, type AgentMessage as AgentMessageT, type AgentOptions as AgentOptionsT, type GateStatus as GateStatusT } from "@relay/protocol";
 import { z } from "zod";
 import { AckFailure, type AgentConfigChange, type AgentProvider, type AgentProviderChange, type GateCommand } from "../seams";
 import { destructivePattern } from "./destructive";
@@ -40,6 +40,8 @@ const StatusFrame = z.object({
   backgroundJobs: z.array(AgentBackgroundJob).optional(),
   /** Set while a handoff or compaction summarizes the session; absent otherwise. */
   handingOff: z.boolean().optional(),
+  /** The session's goal while active or paused; absent when it has none. Every status carries the current one. */
+  goal: AgentGoal.optional(),
 });
 
 const Inbound = z.discriminatedUnion("t", [
@@ -380,6 +382,7 @@ export class OmpBridgeProvider implements AgentProvider {
           ...(frame.account === undefined ? {} : { account: frame.account }),
           ...(frame.backgroundJobs === undefined || frame.backgroundJobs.length === 0 ? {} : { backgroundJobs: frame.backgroundJobs }),
           ...(frame.handingOff === true ? { handingOff: true } : {}),
+          ...(frame.goal === undefined ? {} : { goal: frame.goal }),
         };
         connection.sessionFile = frame.sessionFile ?? null;
         this.log(`agent session ${frame.sessionId} (${frame.title}) ${frame.status}${frame.account === undefined ? "" : ` on ${frame.account.profile}${frame.account.email === undefined ? "" : ` (${frame.account.email})`}`}`);
@@ -410,6 +413,7 @@ export class OmpBridgeProvider implements AgentProvider {
           ...((frame.account ?? current.account) === undefined ? {} : { account: frame.account ?? current.account }),
           ...(frame.backgroundJobs === undefined || frame.backgroundJobs.length === 0 ? {} : { backgroundJobs: frame.backgroundJobs }),
           ...(frame.handingOff === true ? { handingOff: true } : {}),
+          ...(frame.goal === undefined ? {} : { goal: frame.goal }),
         };
         if (frame.sessionFile !== undefined) connection.sessionFile = frame.sessionFile;
         this.publish();

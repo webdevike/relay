@@ -77,4 +77,25 @@ describe("session activity", () => {
     expect(tracker.apply([{ ...base, handingOff: true, backgroundJobs: [running] }])).toHaveProperty("upsert");
     expect(tracker.apply([{ ...base, handingOff: true, backgroundJobs: [{ ...running, state: "done" as const }] }])).toHaveProperty("upsert");
   });
+
+  it("passes the goal through, follows it on every status, and publishes when only it changes", () => {
+    const provider = new OmpBridgeProvider("/unused.sock", () => undefined, null);
+    const send = connect(provider);
+    const goal = { objective: "ship the strip", paused: false, tokensUsed: 1200 };
+    send({ ...hello, goal });
+    expect(provider.sessions[0]?.goal).toEqual(goal);
+    send({ t: "status", status: "working", lastActivity: "", lastActivityAt: 2, goal: { ...goal, paused: true } });
+    expect(provider.sessions[0]?.goal?.paused).toBe(true);
+    // Met or dropped: the extension stops sending it.
+    send({ t: "status", status: "idle", lastActivity: "", lastActivityAt: 3 });
+    expect(provider.sessions[0]?.goal).toBeUndefined();
+
+    const tracker = new AgentsDeltaTracker();
+    const base = { id: "s1", provider: "omp", title: "Eva", projectPath: "/p", status: "working" as const, lastActivity: "", lastActivityAt: 1, canRespond: true };
+    tracker.seed([base]);
+    expect(tracker.apply([{ ...base, goal }])).toMatchObject({ upsert: [{ goal }] });
+    expect(tracker.apply([{ ...base, goal }])).not.toHaveProperty("upsert");
+    expect(tracker.apply([{ ...base, goal: { ...goal, tokensUsed: 5000 } }])).toHaveProperty("upsert");
+    expect(tracker.apply([base])).toHaveProperty("upsert");
+  });
 });
