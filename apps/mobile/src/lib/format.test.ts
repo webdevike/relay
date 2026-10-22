@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { byteSize, relativeTime, truncate } from "./format";
+import { byteSize, elapsed, relativeTime, truncate } from "./format";
 
 describe("relativeTime", () => {
   const now = 1_000_000;
@@ -56,5 +56,14 @@ describe("byteSize", () => {
   it("shows one decimal under 10 of a unit and whole numbers above", () => {
     expect(byteSize(3.45 * 1024)).toBe("3.5 KB");
     expect(byteSize(12.6 * 1024 * 1024)).toBe("13 MB");
+  });
+});
+
+describe("elapsed", () => {
+  it("reads seconds, then minutes and seconds, then hours and minutes", () => {
+    expect(elapsed(-5)).toBe("0s");
+    expect(elapsed(45_900)).toBe("45s");
+    expect(elapsed(130_000)).toBe("2m 10s");
+    expect(elapsed(3_900_000)).toBe("1h 5m");
   });
 });

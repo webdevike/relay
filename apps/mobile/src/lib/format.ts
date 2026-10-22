@@ -45,6 +45,14 @@ export function mediaClock(seconds: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
+/** How long something has run: "45s", "2m 10s", "1h 5m"; negatives clamp to "0s". */
+export function elapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / SECOND));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
+  return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+}
+
 function scaled(value: number, unit: string): string {
   return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${unit}`;
 }

@@ -48,6 +48,7 @@ import { useGateStore } from "@/state/gate";
 import { type ActionWheelEntry } from "@/agents/ActionWheel";
 import { useActionWheel } from "@/agents/useActionWheel";
 import { SubagentsSheet } from "@/agents/SubagentsSheet";
+import { SessionActivity } from "@/agents/SessionActivity";
 import { tapHaptic } from "@/lib/haptics";
 import { copyText, readClipboardImage, readClipboardText } from "@/lib/clipboard";
 import { warn } from "@/connection/log";
@@ -211,11 +212,13 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
       : selectedId === undefined
         ? undefined
         : conversations[selectedId]?.messages;
-  // Without the wheel the button gets no skills, so the swipe left does nothing.
-  const wheelEnabled = useSettingsStore((state) => state.skillWheelEnabled);
-  const skills = useAgentsStore((state) =>
-    !wheelEnabled || selectedId === undefined ? undefined : state.options[selectedId]?.skills,
+  // The session's skills and commands: the typed reply's "/" menu always has them; the wheel only
+  // when it is on (without it the button gets none, so the swipe left does nothing).
+  const commands = useAgentsStore((state) =>
+    selectedId === undefined ? undefined : state.options[selectedId]?.skills,
   );
+  const wheelEnabled = useSettingsStore((state) => state.skillWheelEnabled);
+  const skills = wheelEnabled ? commands : undefined;
   // The multiple-choice prompt the focused session is blocked on, if any; the host replays it on
   // subscribe, so it survives a reconnect or a scrub away and back.
   const pendingAsk = useAgentsStore((state) =>
@@ -595,6 +598,10 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
                       {...(pending === undefined ? {} : { activityLabel: "Starting omp" })}
                     />
                   </SessionWidgetActions>
+                  <SessionActivity
+                    session={session}
+                    bottomInset={seamShown ? MIC_NOTCH_SIZE / 2 - spacing.sm / 2 + spacing.xs : spacing.md}
+                  />
                 </NotchedSurface>
               </GestureDetector>
               {notchShown && (
@@ -762,6 +769,7 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
               onDraft={setDraft}
               canSend={phase === "idle"}
               onSend={sendTyped}
+              skills={commands}
             />
           </NotchedSurface>
         )}

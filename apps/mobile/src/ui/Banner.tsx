@@ -1,4 +1,4 @@
-import { View } from "react-native";
+import { ActivityIndicator, View } from "react-native";
 import { Text } from "./Text";
 import { Button } from "./Button";
 import { radii, spacing, toneFill, useColors, type ToneToken } from "@/theme";
@@ -8,6 +8,10 @@ export type BannerTone = "info" | "warn" | "danger";
 export interface BannerProps {
   tone: BannerTone;
   message: string;
+  /** A muted second line under the message. */
+  detail?: string | undefined;
+  /** Leads with a spinner in the tone: something is in progress. */
+  busy?: boolean;
   actionLabel?: string;
   onAction?: () => void;
 }
@@ -18,10 +22,11 @@ const toneColor: Record<BannerTone, ToneToken> = {
   danger: "danger",
 };
 
-export function Banner({ tone, message, actionLabel, onAction }: BannerProps) {
+export function Banner({ tone, message, detail, busy = false, actionLabel, onAction }: BannerProps) {
   const colors = useColors();
   return (
     <View
+      accessibilityLiveRegion="polite"
       style={{
         flexDirection: "row",
         alignItems: "center",
@@ -33,9 +38,17 @@ export function Banner({ tone, message, actionLabel, onAction }: BannerProps) {
         marginHorizontal: spacing.xl,
       }}
     >
-      <Text variant="label" color={toneColor[tone]} style={{ flex: 1 }}>
-        {message}
-      </Text>
+      {busy && <ActivityIndicator size="small" color={colors[toneColor[tone]]} />}
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text variant="label" color={toneColor[tone]}>
+          {message}
+        </Text>
+        {detail !== undefined && detail.length > 0 && (
+          <Text variant="caption" color="textMuted">
+            {detail}
+          </Text>
+        )}
+      </View>
       {actionLabel !== undefined && onAction !== undefined && (
         <Button label={actionLabel} onPress={onAction} variant="ghost" />
       )}
