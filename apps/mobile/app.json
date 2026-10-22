@@ -20,10 +20,11 @@
         "NSBonjourServices": [
           "_relay._tcp"
         ],
-        "NSMicrophoneUsageDescription": "Relay listens while you dictate.",
+        "NSMicrophoneUsageDescription": "Relay listens while you dictate or talk to your assistants on a call.",
         "NSSpeechRecognitionUsageDescription": "Relay turns your dictation into text for your Mac.",
         "UIBackgroundModes": [
-          "remote-notification"
+          "remote-notification",
+          "audio"
         ],
         "ITSAppUsesNonExemptEncryption": false,
         "NSAppTransportSecurity": {

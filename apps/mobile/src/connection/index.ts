@@ -7,7 +7,7 @@
 import { useEffect } from "react";
 import { AppState, type AppStateStatus, type NativeEventSubscription } from "react-native";
 import { CryptoDigestAlgorithm, digest } from "expo-crypto";
-import { encode, parseServerMessage, WS_PATH, type Command, type InputEvent, type ScreenKey } from "@relay/protocol";
+import { encode, parseServerMessage, WS_PATH, type ClientMessage, type Command, type InputEvent, type ScreenKey } from "@relay/protocol";
 import { useConnectionStore } from "@/state/connection";
 import { useAgentsStore } from "@/state/agents";
 import { useDropsStore } from "@/state/drops";
@@ -15,6 +15,9 @@ import { useScreenStore } from "@/state/screen";
 import { useBoardsStore } from "@/state/boards";
 import { useGateStore } from "@/state/gate";
 import { useAssistantStore } from "@/state/assistant";
+import { callIsLive, useCallStore } from "@/state/call";
+import { createCallFrameRouter } from "@/call/frames";
+import { VoiceCall } from "../../modules/voice-call";
 import { setActions } from "@/state/actions";
 import { useSettingsStore } from "@/state/settings";
 import { createAgentFrameRouter } from "./agents";
@@ -78,6 +81,17 @@ const routeScreenFrame = createScreenFrameRouter(useScreenStore.getState(), () =
 const routeBoardFrame = createBoardFrameRouter(useBoardsStore.getState());
 const routeGateFrame = createGateFrameRouter(useGateStore.getState());
 const routeAssistantFrame = createAssistantFrameRouter(useAssistantStore.getState());
+const routeCallFrame = createCallFrameRouter(
+  { update: useCallStore.getState().update, current: () => useCallStore.getState().call },
+  {
+    play: (pcm) => {
+      VoiceCall?.play(pcm);
+    },
+    flush: () => {
+      VoiceCall?.flush();
+    },
+  },
+);
 const discovery = new Discovery({
   onCandidate: (service) => {
     currentCandidate = service;
@@ -93,6 +107,9 @@ socket.onOpen = () => {
   void dispatch({ type: "socketOpen" });
 };
 socket.onClose = () => {
+  // The host hangs up a call with its socket; say so here rather than leave the screen listening.
+  const call = useCallStore.getState().call;
+  if (call !== null && call.state !== "ended") useCallStore.getState().update(call.id, { state: "ended", error: "Lost the connection to your Mac" });
   void dispatch({ type: "socketClosed" });
 };
 socket.onError = (error) => {
@@ -141,6 +158,7 @@ socket.onMessage = (data) => {
   routeBoardFrame(message);
   routeGateFrame(message);
   routeAssistantFrame(message);
+  routeCallFrame(message);
   void dispatch({ type: "server", message });
 };
 
@@ -298,9 +316,14 @@ async function forgetHost(id: string): Promise<void> {
   if (id === target) await retarget(next.activeId);
 }
 
+/**
+ * Backgrounding closes the socket, except during a call: the call keeps the app running (audio
+ * background mode) and needs its socket. The deferred close happens when the call ends.
+ */
 function onAppStateChange(next: AppStateStatus): void {
   const active = next === "active";
   if (active === wasActive) return;
+  if (!active && callIsLive()) return;
   wasActive = active;
   if (active) {
     void dispatch({ type: "appActive" });
@@ -308,6 +331,17 @@ function onAppStateChange(next: AppStateStatus): void {
   }
   void dispatch({ type: "appBackground" });
   socket.close();
+}
+
+useCallStore.subscribe((store, previous) => {
+  const ended = (store.call === null || store.call.state === "ended") && previous.call !== null && previous.call.state !== "ended";
+  if (ended && AppState.currentState !== "active") onAppStateChange(AppState.currentState);
+});
+
+/** Ephemeral like `sendInput`: a call's frames are never queued; the host ends the call with the socket. */
+export function sendCall(message: Extract<ClientMessage, { t: `call.${string}` }>): void {
+  if (useConnectionStore.getState().status !== "connected") return;
+  socket.send(encode(message));
 }
 
 /** Ephemeral; no-op unless `status === "connected"`, and never queued. */

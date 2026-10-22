@@ -86,6 +86,11 @@ export function createAgentFrameRouter(store: AgentsStoreActions, send: (message
       case "board.snapshot":
       case "board.delta":
       case "gate.status":
+      case "call.state":
+      case "call.audio":
+      case "call.flush":
+      case "assistant.snapshot":
+      case "assistant.agents":
       case "screen.list":
       case "screen.frame":
       case "screen.ended":

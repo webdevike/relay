@@ -45,6 +45,9 @@ import { useConnectionStore } from "@/state/connection";
 import { requestAssistant, sendCommand, stopAssistant } from "@/connection";
 import { notifyHaptic } from "@/lib/haptics";
 import { clipboardHasImage, readClipboardPhoto } from "@/lib/clipboard";
+import { CallScreen } from "@/call/CallScreen";
+import { startCall } from "@/call/controller";
+import { useCallStore } from "@/state/call";
 import { choosePhoto, chooseLibraryPhotos, type Photo } from "@/lib/photo";
 
 /** Id of the row echoing a sent turn before the host's snapshot lists it. */
@@ -89,6 +92,7 @@ function Thread({ agent }: { agent: string }) {
   const dictationFinal = useRef("");
   const [inputHeight, setInputHeight] = useState(40);
   const [failure, setFailure] = useState<string | null>(null);
+  const onCall = useCallStore((state) => state.call?.agent === agent);
   // The composer floats over the list, so the list pads itself by however tall the composer is.
   const [composerHeight, setComposerHeight] = useState(108 + COMPOSER_BOTTOM);
   // Images queued on the composer, sent with the next turn.
@@ -342,6 +346,21 @@ function Thread({ agent }: { agent: string }) {
                 }}
               />
             </View>
+            <View style={styles.call}>
+              <IconButton
+                symbol="phone.fill"
+                tone={dark ? "overlay" : "default"}
+                disabled={!connected}
+                accessibilityLabel={`Call ${title}`}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setFailure(null);
+                  startCall(agent).catch((error: unknown) => {
+                    setFailure(error instanceof Error && error.message !== "" ? error.message : `Couldn't call ${title}.`);
+                  });
+                }}
+              />
+            </View>
           </View>
         </View>
         {/* Pulled over the list by its own height, so the list runs under it. */}
@@ -397,6 +416,7 @@ function Thread({ agent }: { agent: string }) {
           setViewing(null);
         }}
       />
+      {onCall && <CallScreen title={title} />}
     </SafeAreaView>
   );
 }
@@ -566,6 +586,7 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   header: { position: "absolute", left: 0, right: 0, alignItems: "center" },
   back: { position: "absolute", top: spacing.xs, left: spacing.lg },
+  call: { position: "absolute", top: spacing.xs, right: spacing.lg },
   userRow: { paddingHorizontal: spacing.lg, alignItems: "flex-end" },
   userBubble: { maxWidth: USER_MAX_WIDTH, borderRadius: 24, paddingVertical: 11, paddingHorizontal: 17 },
   userText: { fontSize: 17, lineHeight: 23, color: "#FFFFFF" },
