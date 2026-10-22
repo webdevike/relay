@@ -58,6 +58,26 @@ export function accountLabel(account: AgentAccount): string {
   return account.email === undefined ? kind : `${kind} · ${account.email}`;
 }
 
+/** Where a background job stands: still running, or how it ended. */
+export const AgentBackgroundJobState = z.enum(["running", "done", "failed", "cancelled"]);
+export type AgentBackgroundJobState = z.infer<typeof AgentBackgroundJobState>;
+
+/**
+ * Async work a session started and left running while it carries on: omp's `bg_N` bash commands
+ * and eval cells. Subagents are not listed here; they are sessions of their own (`parentId`).
+ */
+export const AgentBackgroundJob = z.object({
+  /** omp's job id (`bg_3`). */
+  id: nonEmpty,
+  /** omp's job type (`bash`, `eval`). */
+  type: nonEmpty,
+  /** What it runs: the command, the cell's title or first line, else the id. */
+  label: nonEmpty,
+  state: AgentBackgroundJobState,
+  startedAt: ms,
+});
+export type AgentBackgroundJob = z.infer<typeof AgentBackgroundJob>;
+
 /** Provider-independent view of one coding-agent session. */
 export const AgentSession = z.object({
   id: nonEmpty,
@@ -100,6 +120,16 @@ export const AgentSession = z.object({
    * parent rather than in the inbox. Absent on top-level sessions and from older hosts.
    */
   parentId: nonEmpty.optional(),
+  /**
+   * The session's background jobs: every running one, plus ones that ended within the last minute
+   * so the phone can show how they finished. Absent when there are none and from older hosts.
+   */
+  backgroundJobs: z.array(AgentBackgroundJob).optional(),
+  /**
+   * True while the session summarizes itself and compacts in place: a `/handoff` is running or
+   * omp started compacting on its own. Absent otherwise and from older hosts.
+   */
+  handingOff: z.boolean().optional(),
 });
 export type AgentSession = z.infer<typeof AgentSession>;
 
@@ -128,6 +158,8 @@ export const AgentSkillChoice = z.object({
   description: z.string(),
   command: nonEmpty.regex(/^\/\S+( \S+)*$/),
   takesText: z.boolean(),
+  /** What the command expects after it (`[focus instructions]`, `<objective>`), when it says. */
+  hint: z.string().optional(),
 });
 export type AgentSkillChoice = z.infer<typeof AgentSkillChoice>;
 

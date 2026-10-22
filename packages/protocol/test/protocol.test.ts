@@ -51,6 +51,43 @@ describe("agent sessions", () => {
     expect(parseServerMessage(frame({ ...base, kind: "robot" })).ok).toBe(false);
     expect(parseServerMessage(frame({ ...base, kind: "assistant", assistant: "Nova" })).ok).toBe(false);
   });
+  it("carries background jobs and the handoff flag, and rejects an unknown job state or an empty label", () => {
+    const frame = (session: object) => JSON.stringify({ t: "agents.snapshot", rev: 1, sessions: [session] });
+    const job = { id: "bg_3", type: "bash", label: "bun test --watch", state: "running", startedAt: 1 };
+    const busy = parseServerMessage(frame({ ...base, backgroundJobs: [job, { ...job, id: "bg_4", state: "failed" }], handingOff: true }));
+    expect(busy.ok && busy.value.t === "agents.snapshot" ? busy.value.sessions[0]?.backgroundJobs?.map((j) => j.state) : undefined).toEqual(["running", "failed"]);
+    expect(busy.ok && busy.value.t === "agents.snapshot" ? busy.value.sessions[0]?.handingOff : undefined).toBe(true);
+    const quiet = parseServerMessage(frame(base));
+    expect(quiet.ok && quiet.value.t === "agents.snapshot" ? [quiet.value.sessions[0]?.backgroundJobs, quiet.value.sessions[0]?.handingOff] : "missing").toEqual([undefined, undefined]);
+    expect(parseServerMessage(frame({ ...base, backgroundJobs: [{ ...job, state: "paused" }] })).ok).toBe(false);
+    expect(parseServerMessage(frame({ ...base, backgroundJobs: [{ ...job, label: "" }] })).ok).toBe(false);
+  });
+});
+
+describe("agent options", () => {
+  it("carries a skill's argument hint on entries and subcommands, and stays valid without one", () => {
+    const options = {
+      t: "agent.options",
+      sessionId: "s",
+      models: [],
+      skills: [
+        { name: "handoff", description: "Hand off", command: "/handoff", takesText: true, hint: "[focus instructions]" },
+        {
+          name: "goal",
+          description: "Goal mode",
+          command: "/goal",
+          takesText: true,
+          choices: [{ name: "set", description: "Set the goal", command: "/goal set", takesText: true, hint: "<objective>" }],
+        },
+        { name: "review", description: "", command: "/review", takesText: true },
+      ],
+    };
+    const parsed = parseServerMessage(JSON.stringify(options));
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok || parsed.value.t !== "agent.options") return;
+    expect(parsed.value.skills.map((skill) => skill.hint)).toEqual(["[focus instructions]", undefined, undefined]);
+    expect(parsed.value.skills[1]?.choices?.[0]?.hint).toBe("<objective>");
+  });
 });
 
 describe("assistant agents", () => {
