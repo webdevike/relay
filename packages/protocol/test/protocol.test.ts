@@ -62,6 +62,16 @@ describe("agent sessions", () => {
     expect(parseServerMessage(frame({ ...base, backgroundJobs: [{ ...job, state: "paused" }] })).ok).toBe(false);
     expect(parseServerMessage(frame({ ...base, backgroundJobs: [{ ...job, label: "" }] })).ok).toBe(false);
   });
+  it("carries the session's goal, and rejects an empty objective or fractional tokens", () => {
+    const frame = (session: object) => JSON.stringify({ t: "agents.snapshot", rev: 1, sessions: [session] });
+    const goal = { objective: "ship the goal strip", paused: true, tokensUsed: 12_000 };
+    const set = parseServerMessage(frame({ ...base, goal }));
+    expect(set.ok && set.value.t === "agents.snapshot" ? set.value.sessions[0]?.goal : undefined).toEqual(goal);
+    const none = parseServerMessage(frame(base));
+    expect(none.ok && none.value.t === "agents.snapshot" ? none.value.sessions[0]?.goal : "missing").toBeUndefined();
+    expect(parseServerMessage(frame({ ...base, goal: { ...goal, objective: "" } })).ok).toBe(false);
+    expect(parseServerMessage(frame({ ...base, goal: { ...goal, tokensUsed: 1.5 } })).ok).toBe(false);
+  });
 });
 
 describe("agent options", () => {

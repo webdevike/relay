@@ -78,6 +78,19 @@ export const AgentBackgroundJob = z.object({
 });
 export type AgentBackgroundJob = z.infer<typeof AgentBackgroundJob>;
 
+/**
+ * The session's goal (omp's goal mode: a persistent objective it keeps working toward), while it
+ * is active or paused. A goal that was met or dropped is gone.
+ */
+export const AgentGoal = z.object({
+  objective: nonEmpty,
+  /** Set aside with `/goal pause`; `/goal resume` picks it up again. */
+  paused: z.boolean(),
+  /** Tokens spent on it so far. */
+  tokensUsed: z.number().int().nonnegative(),
+});
+export type AgentGoal = z.infer<typeof AgentGoal>;
+
 /** Provider-independent view of one coding-agent session. */
 export const AgentSession = z.object({
   id: nonEmpty,
@@ -130,6 +143,8 @@ export const AgentSession = z.object({
    * omp started compacting on its own. Absent otherwise and from older hosts.
    */
   handingOff: z.boolean().optional(),
+  /** The session's goal while active or paused; absent when it has none and from older hosts. */
+  goal: AgentGoal.optional(),
 });
 export type AgentSession = z.infer<typeof AgentSession>;
 
