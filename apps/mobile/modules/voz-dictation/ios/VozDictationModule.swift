@@ -2,6 +2,11 @@
 // Voz transcribes finished audio, not a stream, so the module records the microphone into memory
 // while the finger is down and hands the whole clip to the model on `stop`. `level` events feed
 // the listening orb meanwhile; JS sees one transcript at the end instead of partials.
+//
+// `start`, `stop` and `abort` open and close the microphone in call order on one serial queue: a
+// tap (start and stop in the same instant) used to let `stop`, which ran on its own task, finish
+// before `start` opened the engine, and the microphone then stayed open with nothing to close it.
+// Closing hands the audio session back as playback only, deactivated.
 
 import AVFoundation
 import ExpoModulesCore
@@ -14,6 +19,10 @@ public class VozDictationModule: Module {
   private var sampleRate: Double = 0
   private var buffersSinceLevel = 0
   private let lock = NSLock()
+  /** Owns `engine` and `sessionOwned`; see the header. */
+  private let queue = DispatchQueue(label: "relay.voz-dictation", qos: .userInitiated)
+  /** Whether recording switched the audio session to record and has not handed it back yet. */
+  private var sessionOwned = false
 
   public func definition() -> ModuleDefinition {
     Name("VozDictation")
@@ -40,18 +49,24 @@ public class VozDictationModule: Module {
 
     AsyncFunction("start") { () throws in
       try self.startRecording()
-    }
+    }.runOnQueue(queue)
 
     /// Stops the microphone and returns the transcript of everything heard since `start`.
     AsyncFunction("stop") { () async throws -> String in
-      let (clip, rate) = self.stopRecording()
+      let (clip, rate) = await withCheckedContinuation { continuation in
+        self.queue.async { continuation.resume(returning: self.stopRecording()) }
+      }
       guard !clip.isEmpty else { return "" }
       let voz = try await self.model()
       return try await voz.transcribe(samples: clip, sampleRate: rate).text
     }
 
     Function("abort") {
-      _ = self.stopRecording()
+      self.queue.async { _ = self.stopRecording() }
+    }
+
+    OnDestroy {
+      self.queue.sync { _ = self.stopRecording() }
     }
   }
 
@@ -64,7 +79,17 @@ public class VozDictationModule: Module {
 
   private func startRecording() throws {
     _ = stopRecording()
+    do {
+      try openRecording()
+    } catch {
+      _ = stopRecording()
+      throw error
+    }
+  }
+
+  private func openRecording() throws {
     let session = AVAudioSession.sharedInstance()
+    sessionOwned = true
     try session.setCategory(.playAndRecord, mode: .measurement, options: [.duckOthers, .defaultToSpeaker])
     try session.setActive(true)
     let engine = AVAudioEngine()
@@ -78,18 +103,24 @@ public class VozDictationModule: Module {
     input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
       self?.ingest(buffer)
     }
+    // Held before it starts, so a failed start is torn down like any other.
+    self.engine = engine
     engine.prepare()
     try engine.start()
-    self.engine = engine
   }
 
-  /// Tears the microphone down and returns the clip (mono) with its sample rate.
+  /// Tears the microphone down, hands the session back, and returns the clip (mono) with its sample rate.
   private func stopRecording() -> ([Float], Double) {
     if let engine {
       engine.inputNode.removeTap(onBus: 0)
       engine.stop()
       self.engine = nil
-      try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+    }
+    if sessionOwned {
+      sessionOwned = false
+      let session = AVAudioSession.sharedInstance()
+      try? session.setCategory(.playback, mode: .default, options: [])
+      try? session.setActive(false, options: [.notifyOthersOnDeactivation])
     }
     lock.lock()
     let clip = samples

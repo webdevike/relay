@@ -3,6 +3,7 @@
  * (Voz on device when chosen and downloaded, else expo-speech-recognition) and the connection's
  * `sendCommand`.
  */
+import { AppState } from "react-native";
 import { PermissionStatus } from "expo-modules-core";
 import {
   ExpoSpeechRecognitionModule,
@@ -14,6 +15,7 @@ import { debug, warn } from "@/connection/log";
 import { useSettingsStore } from "@/state/settings";
 import { VozDictation } from "../../modules/voz-dictation";
 import { deliverDictation } from "./deliver";
+import "./session";
 import {
   dictationMachine,
   orbOf,
@@ -147,5 +149,11 @@ dictationActor.subscribe((snapshot) => {
 });
 
 dictationActor.start();
+
+// Dictation never runs on in the background: leaving the app drops what was being said, which
+// closes the recognizer and with it the microphone.
+AppState.addEventListener("change", (next) => {
+  if (next === "background") dictationActor.send({ type: "abandon" });
+});
 
 warmVoz();

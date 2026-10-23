@@ -15,7 +15,7 @@
  * above a persistent row of attachment, dictation and send controls. Dictation fills the draft.
  */
 import { useCallback, useMemo, useRef, useState } from "react";
-import { ActionSheetIOS, FlatList, Keyboard, KeyboardAvoidingView, Pressable, StyleSheet, TextInput, View, type LayoutChangeEvent } from "react-native";
+import { ActionSheetIOS, AppState, FlatList, Keyboard, KeyboardAvoidingView, Pressable, StyleSheet, TextInput, View, type LayoutChangeEvent } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from "expo-speech-recognition";
@@ -48,6 +48,7 @@ import { clipboardHasImage, readClipboardPhoto } from "@/lib/clipboard";
 import { CallScreen } from "@/call/CallScreen";
 import { startCall } from "@/call/controller";
 import { useCallStore } from "@/state/call";
+import "@/dictation/session";
 import { choosePhoto, chooseLibraryPhotos, type Photo } from "@/lib/photo";
 
 /** Id of the row echoing a sent turn before the host's snapshot lists it. */
@@ -124,7 +125,12 @@ function Thread({ agent }: { agent: string }) {
   const requestingMic = useRef(false);
   useFocusEffect(useCallback(() => {
     focused.current = true;
+    // Dictation stops when the app leaves the foreground, as when the thread does.
+    const appState = AppState.addEventListener("change", (next) => {
+      if (next === "background" && recording.current) ExpoSpeechRecognitionModule.abort();
+    });
     return () => {
+      appState.remove();
       focused.current = false;
       if (recording.current) ExpoSpeechRecognitionModule.abort();
       recording.current = false;
