@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { DEVICE_ID, Feed, RelayRefused, hello, parseSession, proof } from './feed'
+import {
+  DEVICE_ID,
+  Feed,
+  RelayRefused,
+  hello,
+  parseApproval,
+  parseAsk,
+  parseSession,
+  proof,
+} from './feed'
 
 const session = (id: string, status: string, extra: Record<string, unknown> = {}) => ({
   id,
@@ -14,7 +23,10 @@ const session = (id: string, status: string, extra: Record<string, unknown> = {}
 })
 
 const ids = (feed: Feed, frame: unknown) =>
-  feed.receive(frame).events.flatMap((e) => e.sessions.map((s) => `${s.id}:${s.status}`))
+  feed
+    .receive(frame)
+    .events.flatMap((e) => (e.kind === 'sessions' ? e.sessions : []))
+    .map((s) => `${s.id}:${s.status}`)
 
 function authenticated(): Feed {
   const feed = new Feed(Buffer.alloc(32, 7))
@@ -105,11 +117,148 @@ describe('Relay feed', () => {
       { t: 'pong', ts: 1, serverTs: 2 },
       { t: 'board.snapshot', rev: 1, boards: [] },
       { t: 'agent.messages', sessionId: 'a', append: [] },
-      { t: 'nack', id: 'c', error: { message: 'no' } },
       'not an object',
       null,
     ]) {
       expect(feed.receive(frame)).toEqual({ replies: [], events: [] })
     }
+  })
+
+  it('hears a subscribed reply as it streams: the conversation, appends and updates', () => {
+    const feed = authenticated()
+    const msg = (id: string, role: string, text: string, streaming?: boolean) => ({
+      id,
+      role,
+      text,
+      at: 1,
+      ...(streaming === undefined ? {} : { streaming }),
+    })
+    // Settled messages and anything but the assistant are the file's business.
+    expect(
+      feed.receive({
+        t: 'agent.conversation',
+        sessionId: 's',
+        rev: 0,
+        messages: [
+          msg('u', 'user', 'hi'),
+          msg('a1', 'assistant', 'done'),
+          msg('a2', 'assistant', 'Wor', true),
+        ],
+      }).events,
+    ).toEqual([{ kind: 'stream', session: 's', id: 'a2', text: 'Wor', streaming: true }])
+    expect(
+      feed.receive({
+        t: 'agent.messages',
+        sessionId: 's',
+        rev: 1,
+        append: [msg('a3', 'assistant', '', true)],
+      }).events,
+    ).toEqual([{ kind: 'stream', session: 's', id: 'a3', text: '', streaming: true }])
+    expect(
+      feed.receive({
+        t: 'agent.message.update',
+        sessionId: 's',
+        id: 'a3',
+        text: 'Working on it',
+        streaming: false,
+      }).events,
+    ).toEqual([{ kind: 'stream', session: 's', id: 'a3', text: 'Working on it', streaming: false }])
+  })
+
+  it('reads asks and approvals and their resolution', () => {
+    const feed = authenticated()
+    const ask = {
+      id: 'k1',
+      questions: [
+        {
+          id: 'q1',
+          question: 'Ship it?',
+          header: 'Deploy',
+          options: [{ label: 'Yes', description: 'now' }, { label: '' }, { label: 'No' }],
+          multi: false,
+          recommended: 1,
+        },
+        { id: 'q2', question: 'Nothing to pick', options: [] },
+      ],
+    }
+    expect(feed.receive({ t: 'agent.ask', sessionId: 's', ask }).events).toEqual([
+      {
+        kind: 'ask',
+        session: 's',
+        ask: {
+          id: 'k1',
+          questions: [
+            {
+              id: 'q1',
+              question: 'Ship it?',
+              header: 'Deploy',
+              options: [
+                { label: 'Yes', description: 'now' },
+                { label: 'No', description: null },
+              ],
+              multi: false,
+              recommended: 1,
+            },
+          ],
+        },
+      },
+    ])
+    expect(feed.receive({ t: 'agent.ask.resolved', sessionId: 's', id: 'k1' }).events).toEqual([
+      { kind: 'askResolved', session: 's', id: 'k1' },
+    ])
+    const approval = {
+      id: 'call-1',
+      toolName: 'bash',
+      command: 'rm -rf build',
+      destructive: 'rm -rf',
+      requiresBiometric: true,
+    }
+    expect(feed.receive({ t: 'agent.approval', sessionId: 's', approval }).events).toEqual([
+      {
+        kind: 'approval',
+        session: 's',
+        approval: {
+          id: 'call-1',
+          tool: 'bash',
+          command: 'rm -rf build',
+          reason: null,
+          destructive: 'rm -rf',
+        },
+      },
+    ])
+    expect(
+      feed.receive({ t: 'agent.approval.resolved', sessionId: 's', id: 'call-1' }).events,
+    ).toEqual([{ kind: 'approvalResolved', session: 's', id: 'call-1' }])
+    // Nothing to answer: no event.
+    expect(parseAsk({ id: 'k2', questions: [{ id: 'q', question: 'x', options: [] }] })).toBeNull()
+    expect(parseAsk({ questions: [] })).toBeNull()
+    expect(parseApproval({ id: 'c', command: 'ls' })).toBeNull()
+    expect(feed.receive({ t: 'agent.ask', sessionId: 's', ask: { id: 'x' } }).events).toEqual([])
+  })
+
+  it('hears acks and nacks with Relay error code and message', () => {
+    const feed = authenticated()
+    expect(feed.receive({ t: 'ack', id: 'c1' }).events).toEqual([{ kind: 'ack', id: 'c1' }])
+    expect(
+      feed.receive({
+        t: 'nack',
+        id: 'c2',
+        error: { code: 'agent_cannot_respond', message: 'session is gone' },
+      }).events,
+    ).toEqual([
+      { kind: 'nack', id: 'c2', code: 'agent_cannot_respond', message: 'session is gone' },
+    ])
+    expect(feed.receive({ t: 'nack', id: 'c3' }).events).toEqual([
+      { kind: 'nack', id: 'c3', code: 'internal', message: "Relay couldn't do that." },
+    ])
+  })
+
+  it("reads a hand-started session listed under its folder's name as not named yet", () => {
+    const s = (title: string, kind = 'manual') =>
+      parseSession(session('a', 'idle', { title, kind, projectPath: '/Users/i/Eva' }))?.title
+    expect(s('Eva')).toBe('')
+    expect(s('Relay desktop check')).toBe('Relay desktop check')
+    // A job's default title (`<job> · HH:MM`) and an assistant's are names.
+    expect(s('Eva', 'job')).toBe('Eva')
   })
 })

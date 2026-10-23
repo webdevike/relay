@@ -19,6 +19,8 @@ export const ProfileSchema = z.enum(['personal', 'work'])
 export const HarnessSchema = z.enum(['omp', 'claude'])
 const AbsPathSchema = z.string().min(1).startsWith('/')
 
+/** A chat omp runs outside this app, driven through Relay; `job` when Eva's job launcher started it. */
+export const AwaySchema = z.object({ job: z.boolean() }).strict()
 /** base64 of at most 20 MB is about 26.7M characters. */
 export const PromptImageSchema = z
   .object({
@@ -203,6 +205,8 @@ export const chatInvoke = {
       error: z.string().nullable(),
       dialog: DialogSchema.nullable().optional(),
       sessionFile: z.string().nullable().optional(),
+      away: AwaySchema.nullable().optional(),
+      title: z.string().optional(),
     }),
   },
   'chat.list': { input: z.object({}).strict(), output: ChatListSchema },
@@ -244,7 +248,7 @@ export const chatInvoke = {
   },
   'chat.rename': {
     input: z.object({ file: AbsPathSchema, name: z.string().trim().min(1).max(200) }).strict(),
-    output: z.object({ title: z.string(), via: z.enum(['rpc', 'resume']) }),
+    output: z.object({ title: z.string(), via: z.enum(['rpc', 'resume', 'relay']) }),
   },
   'chat.delete': {
     input: z.object({ file: AbsPathSchema }).strict(),
@@ -298,6 +302,8 @@ export const MetaPatchSchema = z
     thinking: z.string().nullable(),
     dialog: DialogSchema.nullable(),
     sessionFile: z.string().nullable(),
+    away: AwaySchema.nullable(),
+    title: z.string(),
   })
   .partial()
 

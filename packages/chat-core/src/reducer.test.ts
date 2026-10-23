@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { EOF_ERROR, LiveReducer } from './reducer'
+import { EOF_ERROR, LiveReducer, promptRow } from './reducer'
+import { makeMessage } from './message'
 
 const meta = { model: null, thinking: null, contextTokens: null }
 const asst = (content: unknown[]) => ({ role: 'assistant', content })
@@ -383,5 +384,49 @@ describe('LiveReducer', () => {
     expect(r.running).toBe(false)
     expect(r.messages().some((m) => m.text.startsWith('Error'))).toBe(false)
     expect(r.messages()[0]).toMatchObject({ role: 'assistant', text: 'partial text' })
+  })
+})
+
+describe('LiveReducer.replaceRows', () => {
+  const row = (id: string, t = id) => makeMessage(id, 'assistant', t)
+
+  it('reports new, changed and removed rows, and leaves equal rows alone', () => {
+    const r = new LiveReducer([row('a'), row('b'), row('c')], { ...meta })
+    const res = r.replaceRows([row('a'), row('b', 'B2'), row('d')])
+    expect(res).toEqual({ dirty: ['b', 'd'], removed: ['c'] })
+    expect(r.messages().map((m) => m.text)).toEqual(['a', 'B2', 'd'])
+  })
+
+  it('removes and re-inserts a row whose order changed, so in-place upserts keep the order', () => {
+    const r = new LiveReducer([row('a'), row('b'), row('c')], { ...meta })
+    const res = r.replaceRows([row('a'), row('c'), row('n'), row('b')])
+    // Replaying the ops the renderer gets (removes, then inserts at the final index) gives the list.
+    let list = ['a', 'b', 'c'].filter((id) => !res.removed.includes(id))
+    const order = ['a', 'c', 'n', 'b']
+    for (const id of order.filter((id) => res.dirty.includes(id))) {
+      if (list.includes(id)) continue
+      list.splice(order.indexOf(id), 0, id)
+    }
+    expect(list).toEqual(order)
+  })
+
+  it('takes model and thinking level and says only what changed', () => {
+    const r = new LiveReducer([], { ...meta })
+    expect(r.setMeta({ model: ['p', 'm'], thinking: 'high', contextTokens: null })).toEqual({
+      model: ['p', 'm'],
+      thinking: 'high',
+    })
+    expect(r.setMeta({ model: ['p', 'm'], thinking: 'high' })).toEqual({})
+    expect(r.meta()).toMatchObject({ model: ['p', 'm'], thinking: 'high' })
+  })
+
+  it('builds an unconfirmed prompt row with its images inline', () => {
+    expect(promptRow('sent-x', 'look', [{ mimeType: 'image/png', data: 'AAA' }])).toMatchObject({
+      id: 'sent-x',
+      role: 'user',
+      text: 'look',
+      unconfirmed: true,
+      images: [{ label: 'Image 1', src: 'data:image/png;base64,AAA', mimeType: 'image/png' }],
+    })
   })
 })

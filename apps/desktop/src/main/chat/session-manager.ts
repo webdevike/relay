@@ -2,15 +2,17 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { parseFrame } from '@evaos/chat-core/frames'
 import { cmd } from '@evaos/chat-core/frames'
-import { LiveReducer } from '@evaos/chat-core/reducer'
+import { LiveReducer, promptRow } from '@evaos/chat-core/reducer'
 import {
   answerSummary,
   dialogResponse,
   dialogStatus,
   type DialogAnswer,
 } from '@evaos/chat-core/dialogs'
-import { SeqBatcher, type Batch, type Snapshot } from '@evaos/chat-core/batcher'
-import type { ChatMessage, SessionMeta } from '@evaos/chat-core/message'
+import { SeqBatcher, type AwayView, type Batch, type Snapshot } from '@evaos/chat-core/batcher'
+import { makeMessage, type ChatMessage, type SessionMeta } from '@evaos/chat-core/message'
+import { parseSession, type ParsedSession } from '@evaos/chat-core/session'
+import { sessionId } from '@evaos/chat-core/session-id'
 import { tagged } from '@evaos/chat-core/tagged'
 import { isRecentlyActive } from '@evaos/chat-core/chat-groups'
 import type { ChatTransport, PromptImage, TransportExit } from '@evaos/chat-core/transport'
@@ -24,6 +26,19 @@ import {
   type Profile,
 } from '@evaos/chat-core/launch'
 import type { LaunchPatch, LaunchState } from '@evaos/contract'
+import type { RelayLink, RelaySessionEvent } from '../relay/client'
+import { configureCommand, relayImages, replyCommand, type RelayImage } from '../relay/commands'
+import type { RelaySession } from '../relay/feed'
+import {
+  answerFor,
+  blockerDialog,
+  dialogRowId,
+  promptCount,
+  remoteRows,
+  type Blocker,
+  type SentPrompt,
+  type Stream,
+} from './remote'
 
 export class CodedError extends Error {
   constructor(
@@ -45,6 +60,10 @@ export const STILL_CLOSING =
 
 export const BUSY_ACCESS = 'Wait for the reply to finish, then change access.'
 export const NOT_UNSENT = 'The account can only be chosen before the first message.'
+export const CANT_REACH =
+  'This chat is running outside this app and Relay cannot reach it. Sending from here starts a second omp on it and may interleave messages.'
+export const AWAY_SETTING =
+  'This chat runs outside this app. Change its access and fast mode where it runs.'
 
 /** What the user chose in the composer toolbar for one pane; applied live or at the next start. */
 interface PaneLaunch {
@@ -75,6 +94,44 @@ export interface SessionManagerDeps {
   harness?: () => Harness
   /** The already loaded model catalog, or null; never starts a process. */
   models?: () => readonly ModelInfo[] | null
+  /** Relay: the sessions omp runs outside this app, and the way to drive them. Absent: never up. */
+  relay?: RelayLink
+  /** Reads and parses a session file: an outside chat's transcript as its file grows. */
+  readSession?: (file: string) => ParsedSession | null
+  /**
+   * Starts omp for a new chat in herdr with these flags and returns the session file it will
+   * write. Absent when herdr is not available: a new chat starts a local omp child.
+   */
+  herdr?: (launch: { args: string[]; profile: Profile | null }) => Promise<string>
+  /** Where the reason a new chat did not start in herdr goes. */
+  log?: (line: string) => void
+}
+
+/** A new herdr chat's prompt, held until its omp joins Relay (native FirstPrompt). */
+interface FirstPrompt {
+  session: string
+  /** Surface-tagged. */
+  text: string
+  images: RelayImage[]
+  /** Its row in the pane that sent it, taken back if Relay refuses it. */
+  prompt: SentPrompt
+}
+
+/**
+ * A pane showing a session omp runs outside this app (native Activity::Away), or a new chat herdr
+ * is starting: the file's transcript plus what only Relay has said yet.
+ */
+interface Remote {
+  /** Relay's id for the session; null while herdr starts omp for a new chat. */
+  session: string | null
+  history: ChatMessage[]
+  prompts: SentPrompt[]
+  notes: ChatMessage[]
+  /** Relay lists it live and nothing here runs it: replies, stops and answers go through Relay. */
+  away: RelaySession | null
+  /** What the renderer was last told. */
+  view: AwayView | null
+  connected: boolean
 }
 
 /** What the chat list, writers and rename need to know about a file this app owns. */
@@ -103,6 +160,11 @@ interface Pane {
   draft: boolean
   /** A prompt has been sent from this pane. */
   prompted: boolean
+  remote: Remote | null
+  /** omp's name for the session as its file has it (the last `title` record), else null. */
+  named: string | null
+  /** The title the renderer was last given through a batch; null: the one it opened with. */
+  title: string | null
 }
 
 /**
@@ -130,6 +192,15 @@ export class SessionManager {
    * `Send anyway`, or 'external' when no pane here owned it. Dropped when the owner changes.
    */
   private remembered = new Map<string, string>()
+  // Relay's side of the sessions this app reads but does not run (native RelayFeed).
+  private subscribed = new Set<string>()
+  private streams = new Map<string, Stream>()
+  /** The question or approval each subscribed session is blocked on. */
+  private blockers = new Map<string, Blocker>()
+  /** Cards answered here whose answer Relay has not confirmed yet, with what their row says after. */
+  private answering = new Map<string, string>()
+  private firsts: FirstPrompt[] = []
+  private remoteSeq = 0
 
   constructor(private deps: SessionManagerDeps) {
     this.setIv = deps.setInterval ?? ((fn, ms) => setInterval(fn, ms))
@@ -143,9 +214,17 @@ export class SessionManager {
           return f
         }
       })
+    deps.relay?.onChange(() => this.onRelayChange())
+    deps.relay?.onEvent((e) => this.onRelayEvent(e))
   }
 
-  open(paneId: string, file: string, history: ChatMessage[], meta: SessionMeta): void {
+  open(
+    paneId: string,
+    file: string,
+    history: ChatMessage[],
+    meta: SessionMeta,
+    named: string | null = null,
+  ): void {
     const key = this.real(file)
     const existing = this.panes.get(paneId)
     if (existing?.transport) {
@@ -153,7 +232,8 @@ export class SessionManager {
       if (existing.key === key) return
       void this.release(existing)
     }
-    this.panes.set(paneId, {
+    if (existing) this.dropRemote(existing)
+    const pane: Pane = {
       paneId,
       file,
       key,
@@ -168,13 +248,22 @@ export class SessionManager {
       launch: { profile: null },
       draft: false,
       prompted: false,
-    })
+      remote: null,
+      named,
+      title: null,
+    }
+    this.panes.set(paneId, pane)
+    // A chat omp runs elsewhere shows through Relay from here on; its first batch goes out on the
+    // pane's flush timer, after `chat.open` has answered.
+    this.syncRemote(pane)
+    this.syncSubscriptions()
   }
 
   /** A new chat: no file yet. The first send starts omp without --resume and binds on get_state. */
   openDraft(paneId: string, meta: SessionMeta): void {
     const existing = this.panes.get(paneId)
     if (existing?.transport) void this.release(existing)
+    if (existing) this.dropRemote(existing)
     this.panes.set(paneId, {
       paneId,
       file: null,
@@ -190,7 +279,11 @@ export class SessionManager {
       launch: { profile: null },
       draft: true,
       prompted: false,
+      remote: null,
+      named: null,
+      title: null,
     })
+    this.syncSubscriptions()
   }
 
   /** The pane whose omp owns this session file, else null. */
@@ -294,7 +387,9 @@ export class SessionManager {
       }
       return owner
     }
-    if (!owner && !this.remembered.has(key)) {
+    // A file written in the last minutes may be open in an omp elsewhere; with Relay up, a session
+    // Relay does not list runs nowhere it can hear (native blocked()).
+    if (!owner && !this.remembered.has(key) && !this.relayUp()) {
       const mtime = this.statMtime(pane.file ?? key)
       const now = (this.deps.now ?? Date.now)()
       if (mtime !== null && isRecentlyActive(mtime, now)) {
@@ -313,6 +408,10 @@ export class SessionManager {
     opts: { images?: ReadonlyArray<{ mimeType: string; data: string }>; force?: boolean } = {},
   ): Promise<void> {
     const pane = this.pane(paneId)
+    const route = this.remoteRoute(pane, opts.force === true)
+    if (route === 'relay') return this.replyAway(pane, text, opts.images)
+    if (route === 'queue') return this.queueFirst(pane, text, opts.images)
+    if (route === 'herdr') return this.startInHerdr(pane, text, opts.images)
     const routed = this.writerFor(pane, opts.force === true)
     if (routed) {
       await this.deliver(routed.pane, routed.transport, text, opts.images)
@@ -344,6 +443,531 @@ export class SessionManager {
       throw e
     }
     await this.writePrompt(pane, transport, row.id, text, opts.images)
+  }
+
+  // Sessions omp runs outside this app, read from their files and driven through Relay.
+
+  private relayUp(): boolean {
+    return (this.deps.relay?.sessions() ?? null) !== null
+  }
+
+  /** Session `id` as Relay lists it, unless it ended. */
+  private liveSession(id: string): RelaySession | null {
+    const s = this.deps.relay?.sessions()?.get(id)
+    return s && s.status !== 'ended' ? s : null
+  }
+
+  /** The omp running this pane's file outside this app, as Relay hears it (native `away`). */
+  private awayOf(pane: Pane): RelaySession | null {
+    if (pane.file === null || pane.key === null || pane.transport || pane.starting) return null
+    if (this.owners.has(pane.key)) return null
+    return this.liveSession(sessionId(pane.file))
+  }
+
+  /** A new herdr chat still waiting to send a prompt. */
+  private firstPending(session: string | null): boolean {
+    return session !== null && this.firsts.some((f) => f.session === session)
+  }
+
+  /**
+   * Where a send from a pane with no omp of its own goes: into the session running elsewhere
+   * through Relay, behind a new herdr chat's first prompt, or into a new herdr chat. Null: a local
+   * omp (today's path), including the takeover when Relay can't reach the session and Isaac
+   * chose to continue anyway (native blocked() and force_continue).
+   */
+  private remoteRoute(pane: Pane, force: boolean): 'relay' | 'queue' | 'herdr' | null {
+    if (pane.transport || pane.starting) return null
+    const r = pane.remote
+    if (r?.away) {
+      if (r.away.canRespond) return 'relay'
+      if (!force) throw new CodedError('owned-elsewhere', CANT_REACH)
+      this.leaveRemote(pane)
+      return null
+    }
+    if (r) return 'queue'
+    if (pane.key !== null || !pane.draft || pane.prompted || this.harnessOf(pane) !== 'omp') {
+      return null
+    }
+    const why = !this.deps.herdr
+      ? "herdr isn't available"
+      : !this.relayUp()
+        ? "Relay isn't connected"
+        : null
+    if (why === null) return 'herdr'
+    this.deps.log?.(`New chat starts as a local omp: ${why}.`)
+    return null
+  }
+
+  /** Sends text and images into a session omp runs elsewhere (native reply_away). */
+  private async replyAway(
+    pane: Pane,
+    text: string,
+    images: ReadonlyArray<{ mimeType: string; data: string }> | undefined,
+  ): Promise<void> {
+    const session = pane.remote!.away!.id
+    const sending = relayImagesOrThrow(images)
+    const sent = this.addPrompt(pane, text, images)
+    try {
+      await this.deps.relay!.command(
+        replyCommand(session, tagged(text, this.deps.machineLabel), sending),
+      )
+    } catch (e) {
+      this.dropPrompt(pane, sent)
+      throw relayFailure(e)
+    }
+    pane.prompted = true
+  }
+
+  /** A send while herdr starts a new chat's omp waits behind its first prompt. */
+  private async queueFirst(
+    pane: Pane,
+    text: string,
+    images: ReadonlyArray<{ mimeType: string; data: string }> | undefined,
+  ): Promise<void> {
+    const r = pane.remote!
+    const queued = {
+      text: tagged(text, this.deps.machineLabel),
+      images: relayImagesOrThrow(images),
+    }
+    if (r.session === null) {
+      this.addPrompt(pane, text, images, queued)
+      return
+    }
+    const prompt = this.addPrompt(pane, text, images)
+    this.firsts.push({ session: r.session, prompt, ...queued })
+    await this.flushFirsts()
+  }
+
+  /**
+   * Starts a new chat in its own herdr workspace, then sends its prompt through Relay once its omp
+   * joins (native start_in_herdr). Meanwhile the pane shows the prompt and `Starting omp in herdr`.
+   */
+  private async startInHerdr(
+    pane: Pane,
+    text: string,
+    images: ReadonlyArray<{ mimeType: string; data: string }> | undefined,
+  ): Promise<void> {
+    const queued = {
+      text: tagged(text, this.deps.machineLabel),
+      images: relayImagesOrThrow(images),
+    }
+    const args = this.startArgs(pane, 'omp') ?? []
+    const r = this.enterRemote(pane, null)
+    this.addPrompt(pane, text, images, queued)
+    pane.prompted = true
+    let file: string
+    try {
+      file = await this.deps.herdr!({ args, profile: pane.launch.profile })
+      if (!path.isAbsolute(file) || !file.endsWith('.jsonl')) {
+        throw new Error(`herdr reported an unexpected session file: ${file}`)
+      }
+    } catch (e) {
+      // The prompt goes back to the composer, and the reason shows under it.
+      if (pane.remote === r) {
+        pane.prompted = false
+        this.leaveRemote(pane)
+      }
+      const said = e instanceof Error ? e.message : String(e)
+      throw new CodedError('herdr-failed', `Couldn't start omp in herdr: ${said}`)
+    }
+    const session = sessionId(file)
+    // Its prompts go out once omp joins Relay, even if Isaac moved on meanwhile.
+    for (const prompt of r.prompts) {
+      if (prompt.queued === undefined) continue
+      this.firsts.push({ session, prompt, ...prompt.queued })
+      delete prompt.queued
+    }
+    if (this.panes.get(pane.paneId) === pane && pane.remote === r) {
+      r.session = session
+      pane.file = file
+      pane.key = this.realNew(file)
+      pane.batcher.markMeta({ sessionFile: file })
+    }
+    this.onRelayChange()
+  }
+
+  /** Shows a prompt sent through Relay (or waiting to be) until the session file has it. */
+  private addPrompt(
+    pane: Pane,
+    text: string,
+    images: ReadonlyArray<{ mimeType: string; data: string }> | undefined,
+    queued?: SentPrompt['queued'],
+  ): SentPrompt {
+    const r = pane.remote!
+    this.remoteSeq += 1
+    const sent: SentPrompt = {
+      row: promptRow(`sent-relay-${this.remoteSeq}`, text, images),
+      baseline: promptCount(r.history, text),
+      ...(queued ? { queued } : {}),
+    }
+    r.prompts.push(sent)
+    if (pane.reducer.error !== null) {
+      pane.reducer.error = null
+      pane.batcher.markMeta({ error: null })
+    }
+    this.render(pane)
+    this.flush(pane)
+    return sent
+  }
+
+  /** Takes back a prompt Relay never took. */
+  private dropPrompt(pane: Pane, sent: SentPrompt): void {
+    if (!pane.remote) return
+    pane.remote.prompts = pane.remote.prompts.filter((p) => p !== sent)
+    this.render(pane)
+    this.flush(pane)
+  }
+
+  private enterRemote(pane: Pane, session: string | null): Remote {
+    const r: Remote = {
+      session,
+      history: pane.reducer.messages().slice(),
+      prompts: [],
+      notes: [],
+      away: null,
+      view: null,
+      connected: false,
+    }
+    pane.remote = r
+    if (pane.timer === null) {
+      pane.timer = this.setIv(() => this.flush(pane), this.deps.intervalMs ?? 16)
+    }
+    return r
+  }
+
+  /** The pane shows a saved session again: Relay's rows go, the file's stay. */
+  private leaveRemote(pane: Pane): void {
+    const r = pane.remote
+    if (!r) return
+    pane.remote = null
+    this.applyRows(pane, [...r.history, ...r.notes])
+    if (pane.reducer.working) {
+      pane.reducer.working = false
+      pane.batcher.markMeta({ running: false })
+    }
+    if (pane.reducer.dialog) {
+      pane.reducer.dialog = null
+      pane.batcher.markMeta({ dialog: null })
+    }
+    if (r.view !== null) pane.batcher.markMeta({ away: null })
+    if (r.connected) pane.batcher.markMeta({ connected: false })
+    this.flush(pane)
+    if (!pane.transport && pane.timer !== null) {
+      this.clearIv(pane.timer)
+      pane.timer = null
+    }
+  }
+
+  /** A pane being replaced: its flush timer stops and nothing more goes out under its seq. */
+  private dropRemote(pane: Pane): void {
+    if (!pane.remote) return
+    pane.remote = null
+    if (!pane.transport && pane.timer !== null) {
+      this.clearIv(pane.timer)
+      pane.timer = null
+    }
+  }
+
+  private applyRows(pane: Pane, rows: ChatMessage[]): void {
+    const res = pane.reducer.replaceRows(rows)
+    for (const id of res.removed) pane.batcher.markRemove(id)
+    if (res.dirty.length === 0) return
+    const at = new Map(rows.map((r, i) => [r.id, i]))
+    for (const id of res.dirty) {
+      const ix = at.get(id)!
+      pane.batcher.markUpsert(rows[ix]!, ix)
+    }
+  }
+
+  /** Shows the pane's outside session as its file and Relay have it now. */
+  private render(pane: Pane): void {
+    const r = pane.remote
+    if (!r) return
+    const live = r.away ? r.away.id : null
+    const blocker = live === null ? undefined : this.blockers.get(live)
+    const dialog = blocker ? blockerDialog(blocker) : null
+    const starting = r.session === null || this.firstPending(r.session)
+    this.applyRows(
+      pane,
+      remoteRows({
+        history: r.history,
+        notes: r.notes,
+        dialog,
+        prompts: r.prompts,
+        starting,
+        stream: live === null ? null : (this.streams.get(live) ?? null),
+      }),
+    )
+    const running = r.away?.status === 'working'
+    if (pane.reducer.working !== running) {
+      pane.reducer.working = running
+      pane.batcher.markMeta({ running })
+    }
+    if (pane.reducer.dialog?.id !== dialog?.id) {
+      pane.reducer.dialog = dialog
+      pane.batcher.markMeta({ dialog })
+    }
+    const view: AwayView | null = r.away
+      ? { job: r.away.kind === 'job' }
+      : starting
+        ? { job: false }
+        : null
+    if (view?.job !== r.view?.job || (view === null) !== (r.view === null)) {
+      r.view = view
+      pane.batcher.markMeta({ away: view })
+    }
+    // The session's name: omp's own in its file, else what Relay calls it (native look::title).
+    const title = pane.named ?? (r.away?.title || null)
+    if (title !== null && title !== pane.title) {
+      pane.title = title
+      pane.batcher.markMeta({ title })
+    }
+    const connected = r.away !== null
+    if (connected !== r.connected) {
+      r.connected = connected
+      pane.batcher.markMeta({ connected })
+    }
+  }
+
+  /** Puts the pane in or out of Relay's hands as Relay and this app's own processes change. */
+  private syncRemote(pane: Pane): void {
+    const away = this.awayOf(pane)
+    const r = pane.remote
+    if (!r) {
+      if (away === null) return
+      this.enterRemote(pane, away.id).away = away
+    } else {
+      if (away === null && r.session !== null && !this.firstPending(r.session)) {
+        this.leaveRemote(pane)
+        return
+      }
+      r.away = away
+    }
+    this.render(pane)
+  }
+
+  /** One subscription per session a pane shows through Relay (native sync_relay). */
+  private syncSubscriptions(): void {
+    const relay = this.deps.relay
+    if (!relay) return
+    const want = new Set<string>()
+    for (const p of this.panes.values()) if (p.remote?.away) want.add(p.remote.away.id)
+    for (const id of this.subscribed) {
+      if (want.has(id)) continue
+      relay.unsubscribe(id)
+      this.streams.delete(id)
+      this.blockers.delete(id)
+    }
+    for (const id of want) if (!this.subscribed.has(id)) relay.subscribe(id)
+    this.subscribed = want
+  }
+
+  private onRelayChange(): void {
+    if (!this.relayUp()) {
+      // Down: what Relay said about streams, questions and approvals no longer holds.
+      this.streams.clear()
+      this.blockers.clear()
+    }
+    for (const pane of this.panes.values()) this.syncRemote(pane)
+    this.syncSubscriptions()
+    void this.flushFirsts()
+  }
+
+  private onRelayEvent(e: RelaySessionEvent): void {
+    if (!this.subscribed.has(e.session)) return
+    switch (e.kind) {
+      case 'stream':
+        this.streams.set(e.session, { id: e.id, text: e.text, streaming: e.streaming })
+        break
+      case 'ask':
+        this.blockers.set(e.session, { kind: 'ask', ask: e.ask })
+        break
+      case 'approval':
+        this.blockers.set(e.session, { kind: 'approval', approval: e.approval })
+        break
+      case 'askResolved':
+        this.settle(e.session, `ask:${e.id}`)
+        break
+      case 'approvalResolved':
+        this.settle(e.session, `approval:${e.id}`)
+        break
+    }
+    this.renderSession(e.session)
+  }
+
+  /** Card `dialogId` closed, here or elsewhere; one answered here leaves its answer in the log. */
+  private settle(session: string, dialogId: string): void {
+    const b = this.blockers.get(session)
+    if (b && blockerDialog(b).id === dialogId) this.blockers.delete(session)
+    const summary = this.answering.get(dialogId)
+    if (summary === undefined) return
+    this.answering.delete(dialogId)
+    const note = makeMessage(dialogRowId(dialogId), 'notice', `Answered: ${summary}`)
+    for (const pane of this.panes.values()) {
+      const r = pane.remote
+      if (r?.session === session) r.notes = [...r.notes.filter((n) => n.id !== note.id), note]
+    }
+  }
+
+  private renderSession(session: string): void {
+    for (const pane of this.panes.values()) {
+      if (pane.remote?.session === session) this.render(pane)
+    }
+  }
+
+  /** Sends each herdr chat's queued prompts once its omp has joined Relay (native flush_firsts). */
+  private async flushFirsts(): Promise<void> {
+    const relay = this.deps.relay
+    const sessions = relay?.sessions()
+    if (!relay || !sessions) return
+    const ready = this.firsts.filter((f) => sessions.get(f.session)?.canRespond === true)
+    if (ready.length === 0) return
+    this.firsts = this.firsts.filter((f) => !ready.includes(f))
+    for (const f of ready) this.renderSession(f.session)
+    for (const f of ready) {
+      try {
+        await relay.command(replyCommand(f.session, f.text, f.images))
+      } catch (e) {
+        const error = relayFailure(e).message
+        for (const pane of this.panes.values()) {
+          const r = pane.remote
+          if (r?.session !== f.session) continue
+          r.prompts = r.prompts.filter((p) => p !== f.prompt)
+          pane.reducer.error = error
+          pane.batcher.markMeta({ error })
+          this.render(pane)
+        }
+      }
+    }
+  }
+
+  /** Re-reads the files outside chats show as they grow (native apply_changes). */
+  filesChanged(files: readonly string[]): void {
+    const changed = new Set(files.map((f) => this.real(f)))
+    for (const pane of this.panes.values()) {
+      const r = pane.remote
+      if (!r || pane.file === null || pane.key === null || !changed.has(pane.key)) continue
+      const parsed = (this.deps.readSession ?? readSessionFile)(pane.file)
+      if (parsed) this.reread(pane, r, parsed)
+    }
+  }
+
+  private reread(pane: Pane, r: Remote, parsed: ParsedSession): void {
+    // A rename only appends a title record: the name follows without a new message.
+    pane.named = parsed.named
+    if (JSON.stringify(parsed.messages) !== JSON.stringify(r.history)) {
+      r.history = parsed.messages
+      r.notes = []
+      // A prompt sent from here shows until the file has one more of it than when it was sent.
+      r.prompts = r.prompts.filter((p) => promptCount(r.history, p.row.text) <= p.baseline)
+      // The file has the streamed reply now (native drops a finished stream on reread).
+      if (r.session !== null && this.streams.get(r.session)?.streaming === false) {
+        this.streams.delete(r.session)
+      }
+    }
+    const meta = pane.reducer.setMeta({
+      model: parsed.meta.model,
+      thinking: parsed.meta.thinking,
+      contextTokens: parsed.meta.contextTokens,
+    })
+    if (Object.keys(meta).length > 0) pane.batcher.markMeta(meta)
+    // A model or thinking level sent through Relay shows until the file records it.
+    const m = pane.launch.model
+    if (m && parsed.meta.model?.[0] === m[0] && parsed.meta.model[1] === m[1]) {
+      delete pane.launch.model
+    }
+    if (pane.launch.thinking !== undefined && parsed.meta.thinking === pane.launch.thinking) {
+      delete pane.launch.thinking
+    }
+    this.render(pane)
+  }
+
+  /** Renames a session running outside this app through Relay; false when Relay can't reach it. */
+  async renameAway(file: string, name: string): Promise<boolean> {
+    const relay = this.deps.relay
+    if (!relay || this.owners.has(this.real(file))) return false
+    const s = this.liveSession(sessionId(file))
+    if (!s?.canRespond) return false
+    await relay.command(configureCommand(s.id, { title: name })).catch((e: unknown) => {
+      throw relayFailure(e)
+    })
+    return true
+  }
+
+  /** Switches a session running elsewhere; its file shows the change (native configure_away). */
+  private async configureAway(
+    pane: Pane,
+    session: string,
+    patch: LaunchPatch,
+  ): Promise<LaunchState> {
+    if (patch.profile !== undefined && patch.profile !== pane.launch.profile) {
+      throw new CodedError('not-unsent', NOT_UNSENT)
+    }
+    if (patch.approval !== undefined || patch.fast !== undefined) {
+      throw new CodedError('away-setting', AWAY_SETTING)
+    }
+    const model =
+      patch.model !== undefined ? ([patch.model.provider, patch.model.modelId] as const) : undefined
+    if (model !== undefined || patch.thinking !== undefined) {
+      await this.deps
+        .relay!.command(
+          configureCommand(session, {
+            ...(model !== undefined ? { model } : {}),
+            ...(patch.thinking !== undefined ? { thinking: patch.thinking } : {}),
+          }),
+        )
+        .catch((e: unknown) => {
+          throw relayFailure(e)
+        })
+      if (model !== undefined) pane.launch.model = model
+      if (patch.thinking !== undefined) pane.launch.thinking = patch.thinking
+    }
+    return this.launchState(pane.paneId)
+  }
+
+  /** Stops a session running elsewhere; a question or approval it waits on is cancelled first. */
+  private async abortAway(pane: Pane, session: string): Promise<boolean> {
+    const relay = this.deps.relay!
+    const b = this.blockers.get(session)
+    const cancel = b ? answerFor(session, b, { kind: 'cancel' }) : null
+    if (b && cancel) {
+      const cancelled = await relay.command(cancel.cmd).then(
+        () => true,
+        () => false,
+      )
+      if (cancelled) {
+        this.settle(session, blockerDialog(b).id)
+        this.renderSession(session)
+      }
+    }
+    try {
+      await relay.command({ kind: 'agent.abort', sessionId: session })
+    } catch (e) {
+      pane.reducer.error = relayFailure(e, 'stop it').message
+      pane.batcher.markMeta({ error: pane.reducer.error })
+      this.flush(pane)
+      return false
+    }
+    return true
+  }
+
+  /** Answers the card of a session running elsewhere through Relay. */
+  private async answerAway(session: string, id: string, answer: DialogAnswer): Promise<boolean> {
+    const b = this.blockers.get(session)
+    if (!b || blockerDialog(b).id !== id) return false
+    const plan = answerFor(session, b, answer)
+    if (!plan) return false
+    this.answering.set(id, plan.summary)
+    try {
+      await this.deps.relay!.command(plan.cmd)
+    } catch (e) {
+      this.answering.delete(id)
+      throw relayFailure(e)
+    }
+    // Carried out; Relay's resolved frame may still be on its way.
+    this.settle(session, id)
+    this.renderSession(session)
+    return true
   }
 
   /** Echoes the prompt row into `pane` and writes it to `transport`. */
@@ -507,6 +1131,8 @@ export class SessionManager {
 
   private harnessOf(pane: Pane): Harness {
     if (pane.transport) return pane.transport.kind === 'claude' ? 'claude' : 'omp'
+    // Relay and herdr only carry omp sessions.
+    if (pane.remote) return 'omp'
     return this.deps.harness?.() ?? 'omp'
   }
 
@@ -544,6 +1170,7 @@ export class SessionManager {
    */
   async setLaunch(paneId: string, patch: LaunchPatch): Promise<LaunchState> {
     const pane = this.pane(paneId)
+    if (pane.remote?.away) return this.configureAway(pane, pane.remote.away.id, patch)
     if (patch.profile !== undefined && patch.profile !== pane.launch.profile) {
       if (!(pane.draft && !pane.prompted) || this.harnessOf(pane) !== 'omp') {
         throw new CodedError('not-unsent', NOT_UNSENT)
@@ -755,6 +1382,7 @@ export class SessionManager {
   /** Returns whether an abort command was written (false for unknown panes or stopped sessions). */
   async abort(paneId: string): Promise<boolean> {
     const pane = this.panes.get(paneId)
+    if (pane?.remote?.away) return this.abortAway(pane, pane.remote.away.id)
     const t = pane?.transport
     if (!pane || !t) return false
     // omp must never stay blocked on a question the abort made moot: cancel it first.
@@ -785,6 +1413,7 @@ export class SessionManager {
    */
   async answerUi(paneId: string, id: string, answer: DialogAnswer): Promise<boolean> {
     const pane = this.panes.get(paneId)
+    if (pane?.remote?.away) return this.answerAway(pane.remote.away.id, id, answer)
     const t = pane?.transport
     const d = pane?.reducer.dialog
     if (!pane || !t || !d || d.id !== id) return false
@@ -802,9 +1431,11 @@ export class SessionManager {
       { ...p.reducer.meta() },
       {
         running: p.reducer.running,
-        connected: p.transport !== null,
+        connected: p.transport !== null || p.remote?.connected === true,
         error: p.reducer.error,
         dialog: p.reducer.dialog,
+        away: p.remote?.view ?? null,
+        ...(p.title !== null ? { title: p.title } : {}),
       },
     )
   }
@@ -824,5 +1455,28 @@ export class SessionManager {
     await Promise.allSettled(
       [...this.panes.values()].filter((p) => p.transport).map((p) => this.release(p, 10_000)),
     )
+  }
+}
+
+/** Why Relay didn't take a reply, a stop or an answer, as the banner says it. */
+function relayFailure(e: unknown, what = 'send that'): CodedError {
+  const said = e instanceof Error ? e.message : String(e)
+  return new CodedError('relay-failed', `Relay couldn't ${what}. ${said}`)
+}
+
+/** A prompt's images as Relay takes them; a refusal says why before anything is sent. */
+function relayImagesOrThrow(
+  images: ReadonlyArray<{ mimeType: string; data: string }> | undefined,
+): RelayImage[] {
+  const out = relayImages(images ?? [])
+  if (typeof out === 'string') throw new CodedError('relay-image', out)
+  return out
+}
+
+function readSessionFile(file: string): ParsedSession | null {
+  try {
+    return parseSession(fs.readFileSync(file, 'utf8'))
+  } catch {
+    return null
   }
 }

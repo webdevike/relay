@@ -5,6 +5,8 @@ export interface NamesState {
   workspaces: Record<string, string>
   meetings: Record<string, string>
   canvases: Record<string, string>
+  /** Chat titles by session file, as the chat pane last showed them. */
+  chats: Record<string, string>
   version: number
 }
 
@@ -12,6 +14,7 @@ export const namesStore = createStore<NamesState>(() => ({
   workspaces: {},
   meetings: {},
   canvases: {},
+  chats: {},
   version: 0,
 }))
 
@@ -25,6 +28,18 @@ export function setMeetingTitles(map: Record<string, string>): void {
 
 export function setCanvasTitles(map: Record<string, string>): void {
   namesStore.setState((s) => ({ canvases: { ...map }, version: s.version + 1 }))
+}
+
+/** The chat pane's title for `file`, so a tab on that chat names it. */
+export function setChatTitle(file: string, title: string): void {
+  if (namesStore.getState().chats[file] === title) return
+  namesStore.setState((s) => ({ chats: { ...s.chats, [file]: title }, version: s.version + 1 }))
+}
+
+export function chatTitle(file: string): string | null {
+  return Object.hasOwn(namesStore.getState().chats, file)
+    ? namesStore.getState().chats[file]!
+    : null
 }
 
 export function workspaceTitle(id: string): string | null {

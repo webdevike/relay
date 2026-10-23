@@ -21,7 +21,9 @@ export interface ChatHandles {
 const STATUS_COALESCE_MS = 30
 
 export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
-  const manager = createSessionManager(ctx)
+  // Before the manager: a chat omp runs elsewhere is driven through Relay.
+  const relay = startRelay(ctx)
+  const manager = createSessionManager(ctx, relay)
   // Resolved once at launch: every omp store's sessions dir for the Eva root (fixture dir when not live).
   const sessionsDirs = chatSessionsDirs(ctx.env)
   const extras = new ExtrasService({ manager, emit: (e) => emit(ctx, 'chat.extras', e) })
@@ -29,7 +31,7 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     ctx,
     sessionsDirs,
     (paneId, file, parsed) => {
-      manager.open(paneId, file, parsed.messages, parsed.meta)
+      manager.open(paneId, file, parsed.messages, parsed.meta, parsed.named)
       // The event reaches the renderer before this invoke resolves; the store carries it over.
       extras.reset(paneId)
       extras.refresh(paneId)
@@ -39,7 +41,6 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
   registerLiveIpc(ctx, manager)
   // Before the list loads its order: a fresh live config starts from the native app's history.
   if (ctx.env.live) importNativeChatState(ctx.config, nativeConfigDir())
-  const relay = startRelay(ctx)
   const list = new ChatListService({
     sessionsDirs,
     agentDir: ctx.env.agentDir,
@@ -61,6 +62,8 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
   })
   watch.onChange((files) => {
     for (const f of files) list.invalidate(f)
+    // An outside chat shows its file as omp writes it.
+    manager.filesChanged(files)
     emitList()
     extras.onFilesChanged(files)
   })

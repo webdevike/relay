@@ -89,7 +89,7 @@ export interface ChatOpsDeps {
   agentDir: string
   config: ConfigStore
   service: Pick<ChatListService, 'invalidate' | 'setTitle' | 'forget'>
-  manager: Pick<SessionManager, 'ownerOf' | 'renameOwned'>
+  manager: Pick<SessionManager, 'ownerOf' | 'renameOwned' | 'renameAway'>
   /** Short `omp --mode rpc --resume` rename of a file nothing runs. */
   resume: (file: string, name: string) => Promise<void>
   emitList: () => void
@@ -97,19 +97,25 @@ export interface ChatOpsDeps {
 }
 
 /**
- * Rename order (Rust apply_rename): owned chat through its own omp, a recently active unowned chat
- * is refused, otherwise a short resume. `file` is the list's path; `real` is its resolved path.
+ * Rename order (Rust apply_rename): owned chat through its own omp, a chat running outside this app
+ * through Relay (native rename_away), a recently active unowned chat is refused, otherwise a short
+ * resume. `file` is the list's path; `real` is its resolved path.
  */
 export async function renameChat(
   d: ChatOpsDeps,
   file: string,
   name: string,
-): Promise<{ title: string; via: 'rpc' | 'resume' }> {
+): Promise<{ title: string; via: 'rpc' | 'resume' | 'relay' }> {
   const real = resolveInsideSessionsDir(d.sessionsDirs, file)
   if (d.manager.ownerOf(real) !== null && (await d.manager.renameOwned(real, name))) {
     d.service.setTitle(file, name)
     d.emitList()
     return { title: name, via: 'rpc' }
+  }
+  if (await d.manager.renameAway(real, name)) {
+    d.service.setTitle(file, name)
+    d.emitList()
+    return { title: name, via: 'relay' }
   }
   const now = (d.now ?? Date.now)()
   if (isRecentlyActive(fs.statSync(real).mtimeMs, now)) {

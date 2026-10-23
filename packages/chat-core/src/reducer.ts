@@ -22,6 +22,21 @@ export interface ApplyResult {
   effect?: Json
 }
 
+/** A prompt shown before the session has it: unconfirmed, with its images inline. */
+export function promptRow(
+  id: string,
+  text: string,
+  images?: ReadonlyArray<{ mimeType: string; data: string }>,
+): ChatMessage {
+  return makeMessage(id, 'user', text, {
+    unconfirmed: true,
+    images: (images ?? []).map((img, i) => ({
+      label: `Image ${i + 1}`,
+      src: `data:${img.mimeType};base64,${img.data}`,
+      mimeType: img.mimeType,
+    })),
+  })
+}
 const unconfirmed = (m: ChatMessage): boolean => m.role === 'user' && m.id.startsWith(SENT)
 
 function assistantContextTokens(message: Json): number | null {
@@ -108,14 +123,7 @@ export class LiveReducer {
   ): ChatMessage {
     this.error = null
     this.sent += 1
-    const m = makeMessage(`${SENT}${this.sent}`, 'user', text, {
-      unconfirmed: true,
-      images: (images ?? []).map((img, i) => ({
-        label: `Image ${i + 1}`,
-        src: `data:${img.mimeType};base64,${img.data}`,
-        mimeType: img.mimeType,
-      })),
-    })
+    const m = promptRow(`${SENT}${this.sent}`, text, images)
     this.msgs.push(m)
     return m
   }
@@ -126,6 +134,53 @@ export class LiveReducer {
     if (ix < 0) return false
     this.msgs.splice(ix, 1)
     return true
+  }
+
+  /**
+   * Replaces every row with `rows`: a session this app reads but does not run, its file plus what
+   * only shows here. Rows keep their ids; a row whose order among the kept ones changed is removed
+   * and inserted again, since the renderer updates a known id in place.
+   */
+  replaceRows(rows: readonly ChatMessage[]): { dirty: string[]; removed: string[] } {
+    const before = new Map(this.msgs.map((m) => [m.id, m]))
+    const next = new Set(rows.map((r) => r.id))
+    const removed = this.msgs.filter((m) => !next.has(m.id)).map((m) => m.id)
+    const keptBefore = this.msgs.filter((m) => next.has(m.id)).map((m) => m.id)
+    const moved = new Set<string>()
+    let j = 0
+    for (const r of rows) {
+      if (!before.has(r.id)) continue
+      while (j < keptBefore.length && moved.has(keptBefore[j]!)) j++
+      if (keptBefore[j] === r.id) j++
+      else moved.add(r.id)
+    }
+    const dirty = rows
+      .filter((r) => {
+        const old = before.get(r.id)
+        return !old || moved.has(r.id) || JSON.stringify(old) !== JSON.stringify(r)
+      })
+      .map((r) => r.id)
+    this.msgs = [...rows]
+    return { dirty, removed: [...removed, ...moved] }
+  }
+
+  /** Takes what the session file or Relay says about the model and thinking level. */
+  setMeta(patch: Pick<Partial<SessionMeta>, 'model' | 'thinking' | 'contextTokens'>): MetaPatch {
+    const out: MetaPatch = {}
+    const m = this.metaState
+    if (patch.model !== undefined && JSON.stringify(patch.model) !== JSON.stringify(m.model)) {
+      m.model = patch.model
+      out.model = patch.model
+    }
+    if (patch.thinking !== undefined && patch.thinking !== m.thinking) {
+      m.thinking = patch.thinking
+      out.thinking = patch.thinking
+    }
+    if (patch.contextTokens !== undefined && patch.contextTokens !== m.contextTokens) {
+      m.contextTokens = patch.contextTokens
+      out.contextTokens = patch.contextTokens
+    }
+    return out
   }
 
   apply(frame: Json & { type?: unknown }): ApplyResult {

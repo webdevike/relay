@@ -1,12 +1,14 @@
 // Relay's agent feed, ported from the native app's relay.rs (the `Feed` half: the protocol state on
 // one connection, with no socket in sight). The local Relay host hears every interactive omp
-// session through its omp extension, whoever started it: a terminal, a job, the phone. This app
-// connects the way Isaac's phone does and keeps the session list: each session's status, the tool
-// it runs or waits on, and whether it is a job.
+// session through its omp extension, whoever started it: a terminal, a job, herdr, the phone. This
+// app connects the way Isaac's phone does and keeps the session list (each session's status, the
+// tool it runs or waits on, whether it is a job), and for the sessions it subscribes to, the reply
+// as it streams and the questions and approvals the session is blocked on. Commands (a reply, a
+// stop, an answer) go out as `cmd` frames, each answered by one `ack` or `nack` (commands.ts).
 //
-// Only the session list is ported. Streams, asks, approvals, boards and commands (replying into a
-// session, answering it) are not used by this app yet; their frames are ignored.
+// Boards, drops, calls and the inbox escalation are not used by this app; their frames are ignored.
 import { createHmac } from 'node:crypto'
+import * as path from 'node:path'
 import { z } from 'zod'
 
 /** How this app shows up in Relay's paired devices (native uses `evaos` / `EvaOS`). */
@@ -46,6 +48,7 @@ const SessionSchema = z.object({
   kind: optText,
   title: optText,
   assistant: optText,
+  projectPath: optText,
 })
 
 /** One session as Relay sends it, or null when it has no id or a status this app does not know. */
@@ -53,19 +56,120 @@ export function parseSession(value: unknown): RelaySession | null {
   const r = SessionSchema.safeParse(value)
   if (!r.success) return null
   const s = r.data
+  const kind = s.kind === 'job' || s.kind === 'assistant' ? s.kind : 'manual'
+  // omp's bridge lists an unnamed hand-started session under its folder's name: no title yet.
+  const unnamed =
+    kind === 'manual' && s.projectPath !== undefined && s.title === path.basename(s.projectPath)
   return {
     id: s.id,
     status: s.status,
     detail: s.statusDetail || null,
     canRespond: s.canRespond ?? false,
-    kind: s.kind === 'job' || s.kind === 'assistant' ? s.kind : 'manual',
-    title: s.title ?? '',
+    kind,
+    title: unnamed ? '' : (s.title ?? ''),
     assistant: s.assistant || null,
+  }
+}
+
+/** One option of a question omp's `ask` tool poses. */
+export interface RelayChoice {
+  label: string
+  description: string | null
+}
+
+export interface RelayQuestion {
+  id: string
+  question: string
+  header: string | null
+  options: RelayChoice[]
+  multi: boolean
+  /** The option omp recommends. */
+  recommended: number | null
+}
+
+/** Questions omp's `ask` tool is blocked on, answered from here or where the session runs. */
+export interface RelayAsk {
+  id: string
+  questions: RelayQuestion[]
+}
+
+/** A tool call omp is blocked on until it is approved or denied. */
+export interface RelayApproval {
+  /** omp's tool call id, the handle `agent.approve` and `agent.deny` take. */
+  id: string
+  tool: string
+  /** What omp's approval prompt shows, verbatim: the shell command for `bash`. */
+  command: string
+  reason: string | null
+  /** The destructive pattern Relay matched (force push, `rm -rf`, deploy, prod write). */
+  destructive: string | null
+}
+
+const filled = z
+  .string()
+  .optional()
+  .catch(undefined)
+  .transform((v) => (v ? v : null))
+const ChoiceSchema = z.object({ label: z.string().min(1), description: filled })
+const QuestionSchema = z.object({
+  id: z.string().min(1),
+  question: z.string().min(1),
+  header: filled,
+  // Options without a label are dropped (native Ask::parse); a question left with none is too.
+  options: z
+    .array(z.unknown())
+    .transform((list) => list.flatMap((o) => ChoiceSchema.safeParse(o).data ?? [])),
+  multi: z.boolean().optional().catch(undefined),
+  recommended: z.number().int().nonnegative().optional().catch(undefined),
+})
+const AskSchema = z.object({ id: z.string().min(1), questions: z.array(z.unknown()) })
+
+/** An `ask` as Relay and omp send it, or null without an id or a question that has options. */
+export function parseAsk(value: unknown): RelayAsk | null {
+  const r = AskSchema.safeParse(value)
+  if (!r.success) return null
+  const questions: RelayQuestion[] = []
+  for (const raw of r.data.questions) {
+    const q = QuestionSchema.safeParse(raw).data
+    if (!q || q.options.length === 0) continue
+    questions.push({
+      id: q.id,
+      question: q.question,
+      header: q.header,
+      options: q.options,
+      multi: q.multi ?? false,
+      recommended:
+        q.recommended !== undefined && q.recommended < q.options.length ? q.recommended : null,
+    })
+  }
+  return questions.length > 0 ? { id: r.data.id, questions } : null
+}
+
+const ApprovalSchema = z.object({
+  id: z.string().min(1),
+  toolName: z.string().min(1),
+  command: z.string().catch(''),
+  reason: filled,
+  destructive: filled,
+})
+
+/** An `approval` as Relay sends it, or null without an id or a tool. */
+export function parseApproval(value: unknown): RelayApproval | null {
+  const r = ApprovalSchema.safeParse(value)
+  if (!r.success) return null
+  const a = r.data
+  return {
+    id: a.id,
+    tool: a.toolName,
+    command: a.command,
+    reason: a.reason,
+    destructive: a.destructive,
   }
 }
 
 const rev = z.number().catch(0)
 const list = z.array(z.unknown()).catch([])
+const text = z.string().catch('')
 const FrameSchema = z.looseObject({ t: z.string().catch('') })
 const ChallengeSchema = z.object({ nonce: z.string().catch('') })
 const AgentsSchema = z.object({ rev, sessions: list })
@@ -74,11 +178,52 @@ const WelcomeSchema = z.object({
 })
 const DeltaSchema = z.object({ rev, upsert: list, remove: list })
 const ErrorSchema = z.object({ message: z.string().catch('unknown error') })
+const MessageSchema = z.object({
+  id: text,
+  role: text,
+  text,
+  streaming: z.boolean().catch(false),
+})
+const ConversationSchema = z.object({ sessionId: text, messages: list, append: list })
+const UpdateSchema = z.object({
+  sessionId: text,
+  id: text,
+  text,
+  streaming: z.boolean().catch(false),
+})
+const SessionFrameSchema = z.object({
+  sessionId: text,
+  ask: z.unknown().optional(),
+  approval: z.unknown().optional(),
+})
+const ResolvedSchema = z.object({ sessionId: text, id: text })
+const AckSchema = z.object({ id: text })
+const NackSchema = z.object({
+  id: text,
+  error: z
+    .object({ code: z.string().catch('internal'), message: z.string().catch('') })
+    .catch({ code: 'internal', message: '' }),
+})
 
 export type Frame = Record<string, unknown>
 
 /** What the app hears from one frame. */
-export type FeedEvent = { kind: 'sessions'; sessions: RelaySession[] }
+export type FeedEvent =
+  | { kind: 'sessions'; sessions: RelaySession[] }
+  /** The text so far of an assistant message in a subscribed session; final once `streaming` is false. */
+  | { kind: 'stream'; session: string; id: string; text: string; streaming: boolean }
+  /** A subscribed session is blocked on these questions. */
+  | { kind: 'ask'; session: string; ask: RelayAsk }
+  /** That ask was answered or cancelled, here or elsewhere. */
+  | { kind: 'askResolved'; session: string; id: string }
+  /** A subscribed session is blocked on a tool approval. */
+  | { kind: 'approval'; session: string; approval: RelayApproval }
+  /** That approval was approved or denied, here, on the phone or at the terminal. */
+  | { kind: 'approvalResolved'; session: string; id: string }
+  /** Relay carried out command `id`. */
+  | { kind: 'ack'; id: string }
+  /** Relay refused command `id`, and why. */
+  | { kind: 'nack'; id: string; code: string; message: string }
 
 /** What one frame asks to send back, and what the app should hear. */
 export interface FeedOutput {
@@ -146,6 +291,70 @@ export class Feed {
         }
         for (const id of d.remove) if (typeof id === 'string') this.sessions.delete(id)
         events.push(this.list())
+        break
+      }
+      // The conversation on subscribe and each append after it: only a reply still streaming is
+      // news here; the session file has the rest.
+      case 'agent.conversation':
+      case 'agent.messages': {
+        const c = ConversationSchema.parse(f)
+        for (const raw of f.t === 'agent.messages' ? c.append : c.messages) {
+          const m = MessageSchema.safeParse(raw).data
+          if (m?.role !== 'assistant' || !m.streaming) continue
+          events.push({
+            kind: 'stream',
+            session: c.sessionId,
+            id: m.id,
+            text: m.text,
+            streaming: true,
+          })
+        }
+        break
+      }
+      case 'agent.message.update': {
+        const u = UpdateSchema.parse(f)
+        events.push({
+          kind: 'stream',
+          session: u.sessionId,
+          id: u.id,
+          text: u.text,
+          streaming: u.streaming,
+        })
+        break
+      }
+      case 'agent.ask': {
+        const s = SessionFrameSchema.parse(f)
+        const ask = parseAsk(s.ask)
+        if (ask) events.push({ kind: 'ask', session: s.sessionId, ask })
+        break
+      }
+      case 'agent.ask.resolved': {
+        const r = ResolvedSchema.parse(f)
+        events.push({ kind: 'askResolved', session: r.sessionId, id: r.id })
+        break
+      }
+      case 'agent.approval': {
+        const s = SessionFrameSchema.parse(f)
+        const approval = parseApproval(s.approval)
+        if (approval) events.push({ kind: 'approval', session: s.sessionId, approval })
+        break
+      }
+      case 'agent.approval.resolved': {
+        const r = ResolvedSchema.parse(f)
+        events.push({ kind: 'approvalResolved', session: r.sessionId, id: r.id })
+        break
+      }
+      case 'ack':
+        events.push({ kind: 'ack', id: AckSchema.parse(f).id })
+        break
+      case 'nack': {
+        const n = NackSchema.parse(f)
+        events.push({
+          kind: 'nack',
+          id: n.id,
+          code: n.error.code,
+          message: n.error.message || "Relay couldn't do that.",
+        })
         break
       }
       case 'error':

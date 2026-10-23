@@ -1,6 +1,7 @@
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { relayConfigDir } from './relay/device'
 
 export interface Env {
   evaRoot: string
@@ -27,6 +28,18 @@ export interface Env {
   claudeBridgeBin: string
   /** EVAOS_CLAUDE_BIN: claude CLI. */
   claudeBin: string
+  /**
+   * EVAOS_HERDR_BIN: herdr, which new omp chats start in (like native EvaOS). Live default: herdr
+   * on PATH or in the usual install folders; null when there is none, and in dev and tests unless
+   * set, so a new chat starts a local omp child.
+   */
+  herdrBin: string | null
+  /**
+   * Relay's config folder (serve.json, devices.json) to connect to. EVAOS_RELAY_DIR wins (e2e
+   * points it at a fake host); live default `$XDG_CONFIG_HOME/relay` or `~/.config/relay`; null in
+   * dev and tests, where Relay is never connected.
+   */
+  relayDir: string | null
   /**
    * Chrome DevTools Protocol port on 127.0.0.1 so Eva can drive the running app with Playwright.
    * Live default 9339 (Arc 9222, eva-browser 9292, Slack 9333, Chrome 9444); EVAOS_CDP_PORT
@@ -63,19 +76,19 @@ function real(p: string): string {
   }
 }
 
-/** Mirrors the Rust `binary()` lookup: PATH, then the usual install locations. */
-function findOmp(env: NodeJS.ProcessEnv, homedir: string): string {
+/** Mirrors the Rust `binary()` lookup: PATH, then the usual install locations; null when absent. */
+function findBin(name: string, env: NodeJS.ProcessEnv, homedir: string): string | null {
   const dirs = (env.PATH ?? '').split(path.delimiter).filter(Boolean)
   dirs.push(path.join(homedir, '.local/bin'), path.join(homedir, '.bun/bin'), '/opt/homebrew/bin')
   for (const d of dirs) {
-    const candidate = path.join(d, 'omp')
+    const candidate = path.join(d, name)
     try {
       if (fs.statSync(candidate).isFile()) return candidate
     } catch {
       /* keep looking */
     }
   }
-  return 'omp'
+  return null
 }
 
 function findClaude(env: NodeJS.ProcessEnv, homedir: string): string {
@@ -122,8 +135,21 @@ export function resolveEnv(input: ResolveEnvInput): Env {
   const ompBin = env.EVAOS_OMP_BIN
     ? env.EVAOS_OMP_BIN
     : live
-      ? findOmp(env, homedir)
+      ? (findBin('omp', env, homedir) ?? 'omp')
       : path.join(repoRoot, 'fixtures/fake-omp/fake-omp.mjs')
+
+  const herdrBin = env.EVAOS_HERDR_BIN
+    ? env.EVAOS_HERDR_BIN
+    : live
+      ? findBin('herdr', env, homedir)
+      : null
+
+  const e2e = env.EVAOS_E2E === '1'
+  const relayDir = env.EVAOS_RELAY_DIR
+    ? env.EVAOS_RELAY_DIR
+    : live && !e2e
+      ? relayConfigDir(env, homedir)
+      : null
 
   const sessionsDir = env.EVAOS_SESSIONS_DIR
     ? env.EVAOS_SESSIONS_DIR
@@ -210,6 +236,8 @@ export function resolveEnv(input: ResolveEnvInput): Env {
     agentDir,
     claudeBridgeBin,
     claudeBin,
+    herdrBin,
+    relayDir,
     evaRoot,
     ompBin,
     configDir,
@@ -217,7 +245,7 @@ export function resolveEnv(input: ResolveEnvInput): Env {
     sessionsDir,
     arcExportCmd: parseArcCmd(env.EVAOS_ARC_EXPORT_CMD),
     live,
-    e2e: env.EVAOS_E2E === '1',
+    e2e,
     hiddenWindow: env.EVAOS_HIDDEN_WINDOW === '1',
     noMotion: env.EVAOS_NO_MOTION === '1',
     canvasDir,

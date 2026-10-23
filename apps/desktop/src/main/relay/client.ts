@@ -3,18 +3,34 @@
 // ws://127.0.0.1:<port>/relay, pair through devices.json, say hello, answer the challenge, then
 // keep the session list from `welcome`, `agents.snapshot` and `agents.delta`, pinging every 10 s
 // (Relay drops a peer that is quiet for a minute). Any failure drops the list and retries in 3 s.
-import { Feed, RelayRefused, hello, type FeedOutput, type RelaySession } from './feed'
+//
+// Subscriptions outlive a connection: each new one subscribes again (native `remember`). A command
+// cannot wait for one: sent while Relay is down it fails at once, and one in flight when the
+// connection drops fails with it.
+import {
+  Feed,
+  RelayRefused,
+  hello,
+  type FeedEvent,
+  type FeedOutput,
+  type RelaySession,
+} from './feed'
+import { cmdFrame, subscribeFrame, unsubscribeFrame, type RelayCommand } from './commands'
 import { deviceSecret, servePort } from './device'
 
 /** Between attempts while Relay is down. */
 export const RETRY_MS = 3000
 /** Relay drops a peer that's quiet for a minute. */
 export const PING_MS = 10_000
+/** How long a command may wait for its ack (the host gives omp 5 s, a configure a little more). */
+export const COMMAND_TIMEOUT_MS = 20_000
 const CONNECT_TIMEOUT_MS = 2000
 
 export const NOT_RUNNING = "Relay isn't running."
 export const CLOSED = 'Relay closed the connection.'
 export const LOST = 'Lost the connection to Relay.'
+export const NOT_CONNECTED = "Relay isn't connected."
+export const NO_ANSWER = "Relay didn't answer in time."
 
 export interface RelaySocket {
   send(text: string): void
@@ -36,6 +52,32 @@ export interface RelaySource {
   sessions(): ReadonlyMap<string, RelaySession> | null
   /** Called after every change of the connection or the session list. */
   onChange(cb: () => void): () => void
+}
+
+/** What a subscribed session says: its streamed reply, its questions and approvals. */
+export type RelaySessionEvent = Exclude<FeedEvent, { kind: 'sessions' | 'ack' | 'nack' }>
+
+/** Relay as the chat pane drives it: the session list, subscriptions and commands. */
+export interface RelayLink extends RelaySource {
+  /** Streams `sessionId`'s replies, asks and approvals, on this connection and every later one. */
+  subscribe(sessionId: string): void
+  unsubscribe(sessionId: string): void
+  /** Resolves once Relay carried the command out; rejects with a RelayCommandError. */
+  command(cmd: RelayCommand): Promise<void>
+  onEvent(cb: (e: RelaySessionEvent) => void): () => void
+}
+
+/**
+ * Relay didn't carry a command out. `code` is Relay's AckError code (`agent_cannot_respond`,
+ * `agent_not_found`, `biometric_required`, ...) or `not_connected` / `timeout` from here.
+ */
+export class RelayCommandError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(message)
+  }
 }
 
 /** Dials with the WebSocket built into Node and Electron's main process. */
@@ -74,15 +116,30 @@ export interface RelayClientOptions {
   secret?: (configDir: string) => Uint8Array
   retryMs?: number
   pingMs?: number
+  commandTimeoutMs?: number
+  now?: () => number
+}
+
+interface Pending {
+  resolve(): void
+  reject(e: RelayCommandError): void
+  timer: NodeJS.Timeout
 }
 
 /** Keeps a connection to Relay up while started; `sessions()` is null whenever it is down. */
-export class RelayClient implements RelaySource {
+export class RelayClient implements RelayLink {
   private readonly dial: Dial
   private readonly secret: (configDir: string) => Uint8Array
   private readonly retryMs: number
   private readonly pingMs: number
+  private readonly commandTimeoutMs: number
+  private readonly now: () => number
   private readonly listeners = new Set<() => void>()
+  private readonly eventListeners = new Set<(e: RelaySessionEvent) => void>()
+  private readonly subscriptions = new Set<string>()
+  /** Commands sent on this connection, by id, until Relay answers. */
+  private readonly pending = new Map<string, Pending>()
+  private commands = 0
   private list: ReadonlyMap<string, RelaySession> | null = null
   private reason: string | null = null
   private socket: RelaySocket | null = null
@@ -98,6 +155,8 @@ export class RelayClient implements RelaySource {
     this.secret = o.secret ?? ((dir) => deviceSecret(dir))
     this.retryMs = o.retryMs ?? RETRY_MS
     this.pingMs = o.pingMs ?? PING_MS
+    this.commandTimeoutMs = o.commandTimeoutMs ?? COMMAND_TIMEOUT_MS
+    this.now = o.now ?? Date.now
   }
 
   sessions(): ReadonlyMap<string, RelaySession> | null {
@@ -114,6 +173,38 @@ export class RelayClient implements RelaySource {
     return () => this.listeners.delete(cb)
   }
 
+  onEvent(cb: (e: RelaySessionEvent) => void): () => void {
+    this.eventListeners.add(cb)
+    return () => this.eventListeners.delete(cb)
+  }
+
+  subscribe(sessionId: string): void {
+    if (this.subscriptions.has(sessionId)) return
+    this.subscriptions.add(sessionId)
+    if (this.feed?.authenticated) this.send(subscribeFrame(sessionId))
+  }
+
+  unsubscribe(sessionId: string): void {
+    if (!this.subscriptions.delete(sessionId)) return
+    if (this.feed?.authenticated) this.send(unsubscribeFrame(sessionId))
+  }
+
+  command(cmd: RelayCommand): Promise<void> {
+    if (!this.feed?.authenticated) {
+      return Promise.reject(new RelayCommandError('not_connected', NOT_CONNECTED))
+    }
+    this.commands += 1
+    const id = `relay-desktop-${this.now()}-${this.commands}`
+    const { promise, resolve, reject } = Promise.withResolvers<void>()
+    const timer = setTimeout(() => {
+      this.pending.delete(id)
+      reject(new RelayCommandError('timeout', NO_ANSWER))
+    }, this.commandTimeoutMs)
+    this.pending.set(id, { resolve, reject, timer })
+    this.send(cmdFrame(id, cmd))
+    return promise
+  }
+
   start(): void {
     if (this.started) return
     this.started = true
@@ -124,7 +215,7 @@ export class RelayClient implements RelaySource {
     this.started = false
     clearTimeout(this.retryTimer)
     this.retryTimer = undefined
-    this.drop()
+    this.drop(NOT_CONNECTED)
     this.setList(null)
   }
 
@@ -178,10 +269,27 @@ export class RelayClient implements RelaySource {
     for (const reply of out.replies) this.send(reply)
     if (feed.authenticated && !this.pingTimer) {
       this.reason = null
-      this.pingTimer = setInterval(() => this.send({ t: 'ping', ts: Date.now() }), this.pingMs)
+      this.pingTimer = setInterval(() => this.send({ t: 'ping', ts: this.now() }), this.pingMs)
+      for (const id of this.subscriptions) this.send(subscribeFrame(id))
     }
     for (const event of out.events) {
-      this.setList(new Map(event.sessions.map((s) => [s.id, s])))
+      switch (event.kind) {
+        case 'sessions':
+          this.setList(new Map(event.sessions.map((s) => [s.id, s])))
+          break
+        case 'ack':
+        case 'nack': {
+          const p = this.pending.get(event.id)
+          if (!p) break
+          this.pending.delete(event.id)
+          clearTimeout(p.timer)
+          if (event.kind === 'ack') p.resolve()
+          else p.reject(new RelayCommandError(event.code, event.message))
+          break
+        }
+        default:
+          for (const cb of [...this.eventListeners]) cb(event)
+      }
     }
   }
 
@@ -195,7 +303,7 @@ export class RelayClient implements RelaySource {
 
   /** Ends the connection (if any), drops the list and retries after a pause. */
   private fail(reason: string): void {
-    this.drop()
+    this.drop(reason)
     this.reason = reason
     this.setList(null)
     if (this.started && !this.retryTimer) {
@@ -203,8 +311,8 @@ export class RelayClient implements RelaySource {
     }
   }
 
-  /** Closes the current socket; its callbacks are ignored from here on. */
-  private drop(): void {
+  /** Closes the current socket and fails its commands; its callbacks are ignored from here on. */
+  private drop(reason: string): void {
     this.attempt++
     clearInterval(this.pingTimer)
     this.pingTimer = undefined
@@ -212,6 +320,11 @@ export class RelayClient implements RelaySource {
     this.socket = null
     this.feed = null
     socket?.close()
+    for (const p of this.pending.values()) {
+      clearTimeout(p.timer)
+      p.reject(new RelayCommandError('not_connected', reason))
+    }
+    this.pending.clear()
   }
 
   private setList(list: ReadonlyMap<string, RelaySession> | null): void {
@@ -222,7 +335,7 @@ export class RelayClient implements RelaySource {
 }
 
 /** A Relay that is never connected: fixtures and e2e, unless a test sets sessions. */
-export class StaticRelay implements RelaySource {
+export class StaticRelay implements RelayLink {
   private list: ReadonlyMap<string, RelaySession> | null = null
   private readonly listeners = new Set<() => void>()
 
@@ -233,6 +346,19 @@ export class StaticRelay implements RelaySource {
   onChange(cb: () => void): () => void {
     this.listeners.add(cb)
     return () => this.listeners.delete(cb)
+  }
+
+  onEvent(): () => void {
+    return () => undefined
+  }
+
+  subscribe(): void {}
+
+  unsubscribe(): void {}
+
+  /** There is no socket to carry a command. */
+  command(): Promise<void> {
+    return Promise.reject(new RelayCommandError('not_connected', NOT_CONNECTED))
   }
 
   /** Connected with these sessions, or disconnected (null). */

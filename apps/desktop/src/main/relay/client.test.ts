@@ -4,10 +4,14 @@ import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   CLOSED,
+  NOT_CONNECTED,
   NOT_RUNNING,
+  NO_ANSWER,
   RelayClient,
+  RelayCommandError,
   StaticRelay,
   type Dial,
+  type RelaySessionEvent,
   type SocketHandlers,
 } from './client'
 import { deviceSecret, relayConfigDir, servePort } from './device'
@@ -184,6 +188,101 @@ describe('RelayClient', () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(client.down()).toBe("Couldn't add this app to Relay's devices: devices.json is not JSON")
     expect(relay.closes).toBe(1)
+    client.stop()
+  })
+
+  async function welcomed() {
+    const { client, relay, changes } = connected()
+    client.start()
+    await vi.advanceTimersByTimeAsync(0)
+    relay.say({
+      t: 'welcome',
+      state: { agents: { rev: 1, sessions: [relaySession('a', 'idle')] } },
+    })
+    return { client, relay, changes }
+  }
+
+  it('subscribes on every connection, and unsubscribes', async () => {
+    const { client, relay } = connected()
+    // Asked for before Relay is up: sent once it is.
+    client.subscribe('a')
+    client.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(relay.frames().filter((f) => f.t === 'agent.subscribe')).toEqual([])
+    relay.say({ t: 'welcome', state: { agents: { rev: 1, sessions: [] } } })
+    client.subscribe('b')
+    client.subscribe('b')
+    expect(relay.frames().filter((f) => f.t === 'agent.subscribe')).toEqual([
+      { t: 'agent.subscribe', sessionId: 'a' },
+      { t: 'agent.subscribe', sessionId: 'b' },
+    ])
+    client.unsubscribe('a')
+    expect(relay.frames().at(-1)).toEqual({ t: 'agent.unsubscribe', sessionId: 'a' })
+    relay.handlers.at(-1)!.closed(CLOSED)
+    await vi.advanceTimersByTimeAsync(3000)
+    relay.say({ t: 'welcome', state: { agents: { rev: 1, sessions: [] } } })
+    expect(relay.frames().filter((f) => f.t === 'agent.subscribe')).toEqual([
+      { t: 'agent.subscribe', sessionId: 'b' },
+    ])
+    client.stop()
+  })
+
+  it('a command resolves on its ack and rejects on its nack with Relay error', async () => {
+    const { client, relay } = await welcomed()
+    const ok = client.command({ kind: 'agent.abort', sessionId: 'a' })
+    const sent = relay.frames().at(-1)!
+    expect(sent).toMatchObject({ t: 'cmd', cmd: { kind: 'agent.abort', sessionId: 'a' } })
+    expect(String(sent.id)).toMatch(/^relay-desktop-\d+-1$/)
+    const refused = client.command({ kind: 'agent.abort', sessionId: 'gone' })
+    const second = relay.frames().at(-1)!
+    expect(second.id).not.toBe(sent.id)
+    relay.say({ t: 'ack', id: sent.id })
+    await expect(ok).resolves.toBeUndefined()
+    relay.say({
+      t: 'nack',
+      id: second.id,
+      error: { code: 'agent_not_found', message: 'no session gone' },
+    })
+    await expect(refused).rejects.toEqual(
+      new RelayCommandError('agent_not_found', 'no session gone'),
+    )
+    await expect(refused).rejects.toMatchObject({ code: 'agent_not_found' })
+    client.stop()
+  })
+
+  it('a command fails at once while Relay is down, when the connection drops, or unanswered', async () => {
+    const { client, relay } = connected()
+    await expect(client.command({ kind: 'agent.abort', sessionId: 'a' })).rejects.toMatchObject({
+      code: 'not_connected',
+      message: NOT_CONNECTED,
+    })
+    client.start()
+    await vi.advanceTimersByTimeAsync(0)
+    relay.say({ t: 'welcome', state: { agents: { rev: 1, sessions: [] } } })
+    const dropped = client.command({ kind: 'agent.abort', sessionId: 'a' })
+    relay.handlers.at(-1)!.closed(CLOSED)
+    await expect(dropped).rejects.toMatchObject({ code: 'not_connected', message: CLOSED })
+    await vi.advanceTimersByTimeAsync(3000)
+    relay.say({ t: 'welcome', state: { agents: { rev: 1, sessions: [] } } })
+    const silent = client.command({ kind: 'agent.abort', sessionId: 'a' })
+    const check = expect(silent).rejects.toMatchObject({ code: 'timeout', message: NO_ANSWER })
+    await vi.advanceTimersByTimeAsync(20_000)
+    await check
+    client.stop()
+  })
+
+  it("passes a subscribed session's stream, asks and approvals on", async () => {
+    const { client, relay } = await welcomed()
+    const events: RelaySessionEvent[] = []
+    client.onEvent((e) => events.push(e))
+    relay.say({ t: 'agent.message.update', sessionId: 'a', id: 'm', text: 'Hi', streaming: true })
+    relay.say({ t: 'agent.approval.resolved', sessionId: 'a', id: 'c' })
+    // Acks for commands it did not send are nobody's business.
+    relay.say({ t: 'ack', id: 'unknown' })
+    expect(events).toEqual([
+      { kind: 'stream', session: 'a', id: 'm', text: 'Hi', streaming: true },
+      { kind: 'approvalResolved', session: 'a', id: 'c' },
+    ])
     client.stop()
   })
 })

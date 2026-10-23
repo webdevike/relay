@@ -22,6 +22,7 @@ import {
 import { renameBrowserScope } from '../browser/browser-scope'
 import { openChatFile, openDraftPane, PANE_ID } from './open-chat'
 import { togglePanel, toggleSidebar, useLayout } from '../shell/layout-store'
+import { setChatTitle } from '../eva/names-store'
 
 declare global {
   interface Window {
@@ -36,7 +37,8 @@ export function ChatPane() {
   const pane = useChatStore((s) => s.panes[PANE_ID])
   const composer = useRef<ComposerHandle>(null)
   // A widget reply can go wherever the composer can send: a pane with a session. A stopped one
-  // resumes on send (session-manager starts omp), exactly like a typed prompt.
+  // resumes on send (session-manager starts omp) and one running outside this app gets it through
+  // Relay, exactly like a typed prompt.
   const canReply = pane !== undefined
   const widgetActions = useMemo<WidgetActionsValue>(
     () => ({ reply: (text) => composer.current?.sendReply(text), canReply }),
@@ -86,6 +88,13 @@ export function ChatPane() {
     replaceActivePlace(chat)
   }, [boundTo, placeChat])
 
+  // A tab on this chat names it as the header does, and follows a rename or omp's auto title.
+  const shownFile = pane?.file ?? ''
+  const shownTitle = pane?.title ?? ''
+  useEffect(() => {
+    if (shownFile !== '' && shownTitle !== '') setChatTitle(shownFile, shownTitle)
+  }, [shownFile, shownTitle])
+
   // One drain for the whole app: batches from main are applied once per animation frame.
   useEffect(() => {
     let e2e = false
@@ -134,8 +143,13 @@ export function ChatPane() {
             <h2 className="eva-heading eva-chat-title" title={pane.file || undefined}>
               {pane.title}
             </h2>
-            {pane.file && !pane.extras.running && !pane.owner ? (
+            {pane.file && !pane.extras.running && !pane.owner && !pane.away ? (
               <span className="eva-chat-saved">Saved session</span>
+            ) : null}
+            {pane.away?.job ? (
+              <span className="eva-chat-saved" data-testid="chat-job">
+                Running as a job
+              </span>
             ) : null}
             {pane.owner && pane.owner !== PANE_ID && !pane.extras.running ? (
               <span className="eva-label eva-dim eva-chat-owner" data-testid="chat-owner">

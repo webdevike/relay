@@ -1,5 +1,6 @@
 import { useStore } from 'zustand'
 import { createStore } from 'zustand/vanilla'
+import type { AwayView } from '@evaos/chat-core/batcher'
 import type { BgJob, ChatMessage, Dialog, SessionMeta, Subagent } from '@evaos/chat-core/message'
 import type { Extras, Op } from '@evaos/contract'
 
@@ -41,6 +42,8 @@ export interface PaneState {
   thinking: string | null
   /** Set when a draft got its session file from omp; the tab place follows it. */
   boundTo: string | null
+  /** omp runs this chat outside this app and the pane drives it through Relay. */
+  away: AwayView | null
   /** Subagents and background jobs main derives from the session files. */
   extras: PaneExtras
   /** The pane that owned this file when it was opened (null when none). */
@@ -80,6 +83,8 @@ export interface ChatState {
       error: string | null
       dialog?: Dialog | null
       sessionFile?: string | null
+      away?: AwayView | null
+      title?: string
     },
   ): void
   setPin(paneId: string, unpinned: boolean, newReply: boolean): void
@@ -120,6 +125,8 @@ export function applyOpsToPane(pane: PaneState, ops: Op[], seq: number): PaneSta
     thinking,
     file,
     boundTo,
+    away,
+    title,
   } = pane
   for (const op of ops) {
     if (op.op === 'upsert') {
@@ -152,6 +159,8 @@ export function applyOpsToPane(pane: PaneState, ops: Op[], seq: number): PaneSta
         file = p.sessionFile
         boundTo = p.sessionFile
       }
+      if (p.away !== undefined) away = p.away
+      if (p.title !== undefined) title = p.title
       if (p.model !== undefined || p.contextTokens !== undefined) {
         meta = {
           ...meta,
@@ -177,6 +186,8 @@ export function applyOpsToPane(pane: PaneState, ops: Op[], seq: number): PaneSta
     contextWindow,
     thinking,
     boundTo,
+    away,
+    title,
     lastSeq: seq,
   }
 }
@@ -220,6 +231,7 @@ export const chatStore = createStore<ChatState>((set) => ({
           contextWindow: null,
           thinking: data.meta.thinking ?? null,
           boundTo: null,
+          away: null,
           // Main emits extras for the new file before this resolves, so what the pane (or the
           // pending slot) already holds is for this file.
           extras:
@@ -256,6 +268,8 @@ export const chatStore = createStore<ChatState>((set) => ({
           deadDialog,
           thinking: snap.meta.thinking ?? p.thinking,
           contextWindow: snap.meta.contextWindow ?? p.contextWindow,
+          away: snap.away !== undefined ? snap.away : p.away,
+          title: snap.title ?? p.title,
           ...(typeof snap.sessionFile === 'string' && p.file === ''
             ? { file: snap.sessionFile, boundTo: snap.sessionFile }
             : {}),

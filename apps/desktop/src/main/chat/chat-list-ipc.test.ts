@@ -101,7 +101,7 @@ describe('chat actions', () => {
   }
   let sessions: string
   let agent: string
-  const mk = (owner: string | null = null): ChatOpsDeps => {
+  const mk = (owner: string | null = null, away = false): ChatOpsDeps => {
     for (const k of ['owned', 'resume', 'titles', 'invalidated', 'forgot'] as const) calls[k] = []
     calls.emitted = 0
     return {
@@ -119,6 +119,10 @@ describe('chat actions', () => {
         renameOwned: async (_f: string, n: string) => {
           calls.owned.push(n)
           return true
+        },
+        renameAway: async (_f: string, n: string) => {
+          if (away) calls.owned.push(`relay:${n}`)
+          return away
         },
       },
       resume: async (_f: string, n: string) => void calls.resume.push(n),
@@ -150,6 +154,17 @@ describe('chat actions', () => {
     const f = session('2026_bbb.jsonl', NOW / 1000 - 30)
     await expect(renameChat(mk(), f, 'x')).rejects.toMatchObject({ code: 'maybe-running' })
     expect(calls.resume).toEqual([])
+  })
+
+  it('renames a chat running outside this app through Relay, even when just active', async () => {
+    const f = session('2026_rrr.jsonl', NOW / 1000 - 30)
+    expect(await renameChat(mk(null, true), f, 'Outside')).toEqual({
+      title: 'Outside',
+      via: 'relay',
+    })
+    expect(calls.owned).toEqual(['relay:Outside'])
+    expect(calls.resume).toEqual([])
+    expect(calls.titles).toEqual([`${f}=Outside`])
   })
 
   it('short-resumes an idle chat', async () => {

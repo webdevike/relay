@@ -1,5 +1,5 @@
 import type { Place } from '@evaos/shell-core'
-import { canvasTitle, meetingTitle, workspaceTitle } from '../eva/names-store'
+import { canvasTitle, chatTitle, meetingTitle, workspaceTitle } from '../eva/names-store'
 
 const TITLES: Record<string, string> = {
   dashboard: 'Dashboard',
@@ -26,7 +26,10 @@ const ICONS: Record<string, string> = {
 
 /** Text only: callers render this as a React child, never as HTML (T-02-35). */
 export function tabTitle(place: Place): string {
-  if (place.page === 'chat') return 'New chat'
+  if (place.page === 'chat') {
+    // A chat the pane has shown goes by its title; a draft or one not shown yet is a new chat.
+    return (place.chat && place.chat !== 'draft' ? chatTitle(place.chat) : null) ?? 'New chat'
+  }
   if (place.page === 'settings') return `Settings: ${place.settingsSection}`
   if (place.page.startsWith('workspace:')) {
     const id = place.page.slice('workspace:'.length)

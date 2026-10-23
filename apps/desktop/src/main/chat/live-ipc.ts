@@ -14,6 +14,8 @@ import { SessionManager } from './session-manager'
 import { parseSession } from '@evaos/chat-core/session'
 import { machineLabel } from '@evaos/chat-core/tagged'
 import type { Batch } from '@evaos/contract'
+import type { RelayLink } from '../relay/client'
+import { herdrRunner, launchInHerdr } from './herdr'
 
 function readText(file: string): string | null {
   try {
@@ -84,10 +86,38 @@ export function catalogFor(ctx: MainContext): ModelCatalog {
   return c
 }
 
-export function createSessionManager(ctx: MainContext): SessionManager {
+export function createSessionManager(ctx: MainContext, relay: RelayLink): SessionManager {
   const dropNext = new Set<string>()
   let extraEnv: Record<string, string> = {}
+  const herdrBin = ctx.env.herdrBin
   const manager: SessionManager = new SessionManager({
+    relay,
+    log: (line) => console.info(`[chat] ${line}`),
+    // New omp chats start in herdr like native EvaOS (herdr.rs), when herdr is installed.
+    ...(herdrBin !== null
+      ? {
+          herdr: async ({ args, profile }) => {
+            const home = os.homedir()
+            const pathEnv = await childPathFor(ctx.env.live, home)
+            const runner = herdrRunner(
+              async (argv) =>
+                buildCommand(herdrBin, argv, {
+                  pathEnv,
+                  homedir: home,
+                  execPath: process.execPath,
+                  baseEnv: process.env,
+                }),
+              ctx.env.evaRoot,
+            )
+            return launchInHerdr(runner, {
+              root: ctx.env.evaRoot,
+              args,
+              profile,
+              agentDir: ctx.env.agentDir,
+            })
+          },
+        }
+      : {}),
     cwd: ctx.env.evaRoot,
     machineLabel: machineLabel(),
     createTransport: () =>
@@ -117,7 +147,7 @@ export function createSessionManager(ctx: MainContext): SessionManager {
       // Phase 6 brings real second panes; until then e2e drives one through these two.
       openInPane: (paneId: string, file: string) => {
         const parsed = parseSession(fs.readFileSync(file, 'utf8'))
-        manager.open(paneId, file, parsed.messages, parsed.meta)
+        manager.open(paneId, file, parsed.messages, parsed.meta, parsed.named)
       },
       sendFromPane: (paneId: string, text: string) => manager.send(paneId, text),
       stats: (paneId: string) => {

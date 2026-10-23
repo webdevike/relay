@@ -1,5 +1,8 @@
 import type { ChatMessage, Dialog, SessionMeta } from './message'
 
+/** A chat omp runs outside this app, driven through Relay; `job` when Eva's job launcher started it. */
+export type AwayView = { job: boolean }
+
 export type MetaPatch = {
   running?: boolean
   connected?: boolean
@@ -11,6 +14,9 @@ export type MetaPatch = {
   thinking?: string | null
   dialog?: Dialog | null
   sessionFile?: string | null
+  away?: AwayView | null
+  /** The session's name, once omp or Relay has one. */
+  title?: string
 }
 
 /** `at` is the row's index in the full list after the batch; used only when the id is new to the renderer. */
@@ -32,11 +38,13 @@ export interface Snapshot {
   error: string | null
   dialog?: Dialog | null
   sessionFile?: string | null
+  away?: AwayView | null
+  title?: string
 }
 
 export type SnapshotState = Pick<
   Snapshot,
-  'running' | 'connected' | 'error' | 'dialog' | 'sessionFile'
+  'running' | 'connected' | 'error' | 'dialog' | 'sessionFile' | 'away' | 'title'
 >
 
 /** Coalesces ops between flushes (last upsert per id wins) and stamps each non-empty batch with seq + 1. */

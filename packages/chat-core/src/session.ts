@@ -207,6 +207,8 @@ export interface ParsedSession {
   messages: ChatMessage[]
   meta: SessionMeta
   title: string
+  /** omp's name for the session: the last `title` record (a rename appends one), else null. */
+  named: string | null
 }
 
 /** Port of Rust `session()` for omp session files: the active branch only. */
@@ -267,9 +269,11 @@ export function parseSession(text: string): ParsedSession {
     }
   }
 
-  let title = ''
-  for (const r of records.slice(0, 4)) {
-    if (r.type === 'title' || r.type === 'session') {
+  // A rename appends a title record, so the last one is the session's name now.
+  const named = records.findLast((r) => r.type === 'title' && str(r.title))?.title
+  let title = typeof named === 'string' ? named : ''
+  for (const r of title === '' ? records.slice(0, 4) : []) {
+    if (r.type === 'session') {
       const t = str(r.title)
       if (t) {
         title = t
@@ -281,5 +285,5 @@ export function parseSession(text: string): ParsedSession {
     const first = messages.find((m) => m.role === 'user')
     if (first) title = Array.from(first.text.trim()).slice(0, 60).join('')
   }
-  return { messages, meta, title }
+  return { messages, meta, title, named: typeof named === 'string' ? named : null }
 }
