@@ -318,17 +318,32 @@ export class SessionManager {
       await this.deliver(routed.pane, routed.transport, text, opts.images)
       return
     }
-    if (pane.starting) await pane.starting
-    else if (!pane.transport) {
-      pane.starting = this.startTransport(pane).finally(() => {
-        pane.starting = null
-      })
-      await pane.starting
+    const live = pane.transport
+    if (live && !pane.starting) {
+      await this.deliver(pane, live, text, opts.images)
+      return
     }
-    // The pane may have been closed, replaced or lost its process while the start was awaited.
-    const transport = pane.transport
-    if (!transport) throw new CodedError('session-closed', 'The session is not running.')
-    await this.deliver(pane, transport, text, opts.images)
+    // omp is not up yet (a new chat, or a stopped one): show the prompt now, not after the spawn
+    // and handshake. No flush timer runs before the process does, so this batch goes out at once.
+    const row = this.echo(pane, text, opts.images)
+    this.flush(pane)
+    let transport: ChatTransport | null
+    try {
+      if (pane.starting) await pane.starting
+      else {
+        pane.starting = this.startTransport(pane).finally(() => {
+          pane.starting = null
+        })
+        await pane.starting
+      }
+      // The pane may have been closed, replaced or lost its process while the start was awaited.
+      transport = pane.transport
+      if (!transport) throw new CodedError('session-closed', 'The session is not running.')
+    } catch (e) {
+      this.takeBack(pane, row.id)
+      throw e
+    }
+    await this.writePrompt(pane, transport, row.id, text, opts.images)
   }
 
   /** Echoes the prompt row into `pane` and writes it to `transport`. */
@@ -338,7 +353,16 @@ export class SessionManager {
     text: string,
     images: ReadonlyArray<{ mimeType: string; data: string }> | undefined,
   ): Promise<void> {
-    pane.prompted = true
+    const row = this.echo(pane, text, images)
+    await this.writePrompt(pane, transport, row.id, text, images)
+  }
+
+  /** Shows the prompt as an unconfirmed row; omp's echo of it replaces the row in place. */
+  private echo(
+    pane: Pane,
+    text: string,
+    images: ReadonlyArray<{ mimeType: string; data: string }> | undefined,
+  ): ChatMessage {
     // sendPrompt() runs outside apply(), so its meta change (clearing an EOF error) is diffed here.
     const hadError = pane.reducer.error !== null
     const wasWorking = pane.reducer.running
@@ -346,6 +370,18 @@ export class SessionManager {
     if (pane.reducer.running !== wasWorking) this.notify(pane.key)
     if (hadError) pane.batcher.markMeta({ error: null })
     pane.batcher.markUpsert(row, pane.reducer.indexOf(row.id))
+    return row
+  }
+
+  /** Writes an echoed prompt to omp. */
+  private async writePrompt(
+    pane: Pane,
+    transport: ChatTransport,
+    rowId: string,
+    text: string,
+    images: ReadonlyArray<{ mimeType: string; data: string }> | undefined,
+  ): Promise<void> {
+    pane.prompted = true
     try {
       const promptImages: PromptImage[] | undefined =
         images && images.length > 0
@@ -353,12 +389,21 @@ export class SessionManager {
           : undefined
       await transport.send(tagged(text, this.deps.machineLabel), promptImages)
     } catch (e) {
-      // omp never received the prompt (EPIPE after exit, for example): take the row back out
-      // so it does not sit there unconfirmed forever.
-      pane.reducer.dropUnconfirmedRow(row.id)
-      pane.batcher.markRemove(row.id)
+      // omp never received the prompt (EPIPE after exit, for example).
+      this.takeBack(pane, rowId)
       throw e
     }
+  }
+
+  /**
+   * Takes back a prompt omp never received, so it does not sit there unconfirmed forever; the
+   * caller's rejection gives the text back to the composer with the error banner. Without a
+   * flush timer (the start failed, or omp already exited) the removal is sent at once. A pane
+   * replaced meanwhile stays inert: its seq is ahead of the new pane's.
+   */
+  private takeBack(pane: Pane, id: string): void {
+    if (pane.reducer.dropUnconfirmedRow(id)) pane.batcher.markRemove(id)
+    if (pane.timer === null && this.panes.get(pane.paneId) === pane) this.flush(pane)
   }
 
   /**

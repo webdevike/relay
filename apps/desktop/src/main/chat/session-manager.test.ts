@@ -302,7 +302,7 @@ describe('SessionManager', () => {
     vi.useRealTimers()
   })
 
-  it('a pane replaced while omp is spawning leaves no timer, no stray batch and one close', async () => {
+  it('a pane replaced while omp is spawning leaves no timer, no batch after the echo and one close', async () => {
     let release!: () => void
     const gate = new Promise<void>((r) => {
       release = r
@@ -319,14 +319,15 @@ describe('SessionManager', () => {
     await expect(pending).rejects.toMatchObject({ code: 'session-closed' })
     await vi.advanceTimersByTimeAsync(100)
     expect(vi.getTimerCount()).toBe(0)
-    expect(batches).toEqual([])
+    // Only the prompt echo sent before the switch; the replaced pane never speaks again.
+    expect(batches.map((b) => b.seq)).toEqual([1])
     expect(transports[0]!.written).toEqual([])
     expect(transports[0]!.sent).toEqual([])
     // The new pane starts clean at seq 1 on its own process.
     await mgr.send('pane-1', 'two')
     await vi.advanceTimersByTimeAsync(16)
     expect(transports).toHaveLength(2)
-    expect(batches.map((b) => b.seq)).toEqual([1])
+    expect(batches.map((b) => b.seq)).toEqual([1, 1, 2])
     vi.useRealTimers()
   })
 
@@ -349,9 +350,10 @@ describe('SessionManager', () => {
     expect(created()!.sent).toEqual([])
     expect(mgr.transportOf('pane-1')).toBeNull()
     expect(vi.getTimerCount()).toBe(0)
-    // The exit itself was reported once, as an unexpected end.
-    expect(batches).toHaveLength(1)
-    expect(batches[0]!.ops.find((o) => o.op === 'meta')).toMatchObject({
+    // The prompt echo, then the exit reported once, as an unexpected end that takes it back.
+    expect(batches).toHaveLength(2)
+    expect(batches[1]!.ops.filter((o) => o.op === 'remove').map((o) => o.id)).toEqual(['sent-1'])
+    expect(batches[1]!.ops.find((o) => o.op === 'meta')).toMatchObject({
       patch: { connected: false, running: false, error: EOF_ERROR },
     })
     vi.useRealTimers()
@@ -372,24 +374,25 @@ describe('SessionManager', () => {
     vi.useRealTimers()
   })
 
-  it('emits seq-stamped batches 1, 2, 3 per non-empty 16 ms flush', async () => {
+  it('emits seq-stamped batches 1, 2, 3, 4 per non-empty 16 ms flush after the prompt echo', async () => {
     const { mgr, transports, batches } = setup()
     mgr.open('pane-1', '/s/a.jsonl', [], meta)
     await mgr.send('pane-1', 'hi')
     const t = transports[0]!
-    await vi.advanceTimersByTimeAsync(16)
     expect(batches.map((b) => b.seq)).toEqual([1])
+    await vi.advanceTimersByTimeAsync(16)
+    expect(batches.map((b) => b.seq)).toEqual([1, 2])
     t.push({ type: 'agent_start' })
     await vi.advanceTimersByTimeAsync(16)
     t.push({ type: 'message_update', messageId: 'm1', message: asst('a') })
     t.push({ type: 'message_update', messageId: 'm1', message: asst('ab') })
     await vi.advanceTimersByTimeAsync(16)
     await vi.advanceTimersByTimeAsync(48)
-    expect(batches.map((b) => b.seq)).toEqual([1, 2, 3])
-    const last = batches[2]!.ops.filter((o) => o.op === 'upsert')
+    expect(batches.map((b) => b.seq)).toEqual([1, 2, 3, 4])
+    const last = batches[3]!.ops.filter((o) => o.op === 'upsert')
     expect(last).toHaveLength(1)
     expect(last[0]).toMatchObject({ message: { id: 'm1', text: 'ab' } })
-    expect(mgr.snapshot('pane-1').seq).toBe(3)
+    expect(mgr.snapshot('pane-1').seq).toBe(4)
     vi.useRealTimers()
   })
 
@@ -422,7 +425,7 @@ describe('SessionManager', () => {
     transports[0]!.push({ type: 'message_update', messageId: 'm1', message: asst('x') })
     const snap = mgr.snapshot('pane-1')
     expect(snap.messages.map((m) => m.id)).toEqual(['m1', 'sent-1'])
-    expect(snap.seq).toBe(0)
+    expect(snap.seq).toBe(1)
     expect(snap.connected).toBe(true)
     expect(snap.error).toBeNull()
     vi.useRealTimers()
@@ -464,7 +467,7 @@ describe('SessionManager', () => {
     expect(mgr.has('/s/a.jsonl')).toBe(false)
     expect(vi.getTimerCount()).toBe(0)
     const last = batches.at(-1)!
-    expect(last.seq).toBe(2)
+    expect(last.seq).toBe(3)
     expect(last.ops.filter((o) => o.op === 'remove').map((o) => o.id)).toEqual(['sent-1'])
     expect(last.ops.find((o) => o.op === 'meta')).toMatchObject({
       patch: { connected: false, running: false, error: EOF_ERROR },
@@ -473,19 +476,23 @@ describe('SessionManager', () => {
     expect(batches.at(-1)).toBe(last)
     // A resync after the lost `_eof` batch still learns that omp is gone and why.
     expect(mgr.snapshot('pane-1')).toMatchObject({
-      seq: 2,
+      seq: 3,
       messages: [],
       running: false,
       connected: false,
       error: EOF_ERROR,
     })
-    // The next send starts a fresh process and takes the EOF error down with it.
+    // The next send starts a fresh process; its echo takes the EOF error down at once.
     await mgr.send('pane-1', 'again')
     expect(transports).toHaveLength(2)
-    await vi.advanceTimersByTimeAsync(16)
-    expect(batches.at(-1)!.seq).toBe(3)
+    expect(batches.at(-1)!.seq).toBe(4)
     expect(batches.at(-1)!.ops.find((o) => o.op === 'meta')).toMatchObject({
-      patch: { connected: true, error: null },
+      patch: { error: null },
+    })
+    await vi.advanceTimersByTimeAsync(16)
+    expect(batches.at(-1)!.seq).toBe(5)
+    expect(batches.at(-1)!.ops.find((o) => o.op === 'meta')).toMatchObject({
+      patch: { connected: true },
     })
     vi.useRealTimers()
   })
@@ -495,12 +502,12 @@ describe('SessionManager', () => {
     mgr.open('pane-1', '/s/a.jsonl', [], meta)
     await mgr.send('pane-1', 'a')
     await vi.advanceTimersByTimeAsync(16)
-    expect(batches.map((b) => b.seq)).toEqual([1])
+    expect(batches.map((b) => b.seq)).toEqual([1, 2])
     mgr.open('pane-1', '/s/b.jsonl', [], meta)
     await vi.advanceTimersByTimeAsync(50)
     expect(transports[0]!.closeCalls).toBe(1)
-    // The old pane's `_eof` flush (seq 2) must not reach the renderer: it now sits at seq 0.
-    expect(batches.map((b) => b.seq)).toEqual([1])
+    // The old pane's `_eof` flush (seq 3) must not reach the renderer: it now sits at seq 0.
+    expect(batches.map((b) => b.seq)).toEqual([1, 2])
     expect(mgr.snapshot('pane-1').seq).toBe(0)
     expect(mgr.has('/s/a.jsonl')).toBe(false)
     await mgr.send('pane-1', 'b')
@@ -553,9 +560,9 @@ describe('SessionManager', () => {
     await pending
     expect(transports).toHaveLength(2)
     expect(transports[1]!.started[0]!.sessionFile).toBe('/s/a.jsonl')
-    // The replaced pane stayed inert; the fresh pane starts its own seq at 1.
+    // The replaced pane stayed inert; the fresh pane starts its own seq at 1 (its echo).
     await vi.advanceTimersByTimeAsync(16)
-    expect(batches.map((b) => b.seq)).toEqual([1, 1])
+    expect(batches.map((b) => b.seq)).toEqual([1, 2, 1, 2])
     vi.useRealTimers()
   })
 
@@ -661,6 +668,69 @@ describe('SessionManager new chats and status', () => {
       { sessionFile: null, cwd: '/eva', args: ['--approval-mode', 'omp-x'] },
     ])
     expect(mgr.liveFiles().size).toBe(0)
+    vi.useRealTimers()
+  })
+
+  /** The rows the renderer holds after applying every emitted batch in order. */
+  const shown = (batches: Batch[]) => {
+    let rows: Array<{ id: string; role: string; text: string; unconfirmed?: boolean }> = []
+    for (const op of batches.flatMap((b) => b.ops)) {
+      if (op.op === 'upsert') {
+        const ix = rows.findIndex((m) => m.id === op.message.id)
+        if (ix >= 0) rows[ix] = op.message
+        else rows.push(op.message)
+      } else if (op.op === 'remove') rows = rows.filter((m) => m.id !== op.id)
+    }
+    return rows
+  }
+
+  it("a new chat's first prompt shows before omp is up and once after omp echoes it", async () => {
+    let release!: () => void
+    const gate = new Promise<void>((r) => {
+      release = r
+    })
+    const { mgr, transports, batches } = setup({ firstStartGate: gate })
+    mgr.openDraft('pane-1', meta)
+    const pending = mgr.send('pane-1', 'hello')
+    // omp is still spawning: nothing written yet, but the bubble already reached the renderer.
+    expect(transports[0]!.sent).toEqual([])
+    expect(shown(batches).map((m) => [m.role, m.text, m.unconfirmed])).toEqual([
+      ['user', 'hello', true],
+    ])
+    release()
+    await pending
+    expect(transports[0]!.sent).toEqual([`${TAG}hello`])
+    transports[0]!.push({ type: 'agent_start' })
+    transports[0]!.push({
+      type: 'message_end',
+      messageId: 'u1',
+      message: { role: 'user', content: [{ type: 'text', text: `${TAG}hello` }] },
+    })
+    await vi.advanceTimersByTimeAsync(16)
+    expect(shown(batches).map((m) => [m.id, m.role, m.text, m.unconfirmed])).toEqual([
+      ['u1', 'user', 'hello', undefined],
+    ])
+    vi.useRealTimers()
+  })
+
+  it('a new chat whose omp fails to start takes the shown prompt back and rejects', async () => {
+    let fail!: (e: Error) => void
+    const gate = new Promise<void>((_, reject) => {
+      fail = reject
+    })
+    const { mgr, batches } = setup({ firstStartGate: gate })
+    mgr.openDraft('pane-1', meta)
+    const pending = mgr.send('pane-1', 'hello')
+    expect(shown(batches).map((m) => m.text)).toEqual(['hello'])
+    fail(new Error('ENOENT'))
+    // The rejection is what gives the text back to the composer with the error banner.
+    await expect(pending).rejects.toMatchObject({
+      code: 'spawn-failed',
+      message: 'Could not start omp: ENOENT',
+    })
+    expect(shown(batches)).toEqual([])
+    expect(mgr.snapshot('pane-1').messages).toEqual([])
+    expect(mgr.launchState('pane-1').unsent).toBe(true)
     vi.useRealTimers()
   })
 
