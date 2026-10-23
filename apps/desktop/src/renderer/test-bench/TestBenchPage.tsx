@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Button, MultiSelect, SegmentedControl, Select } from '@mantine/core'
+import { Button, MultiSelect, Select } from '@mantine/core'
 import type { Place } from '@evaos/shell-core'
 import {
   BENCH_LIMITS,
@@ -11,14 +11,7 @@ import {
 } from '@evaos/contract'
 import { invoke, on } from '../ipc'
 import { ScrollArea } from '../ui/ScrollArea'
-import { ChatGallery } from './ChatGallery'
 import './test-bench.css'
-
-type BenchView = 'models' | 'gallery'
-const VIEWS: Array<{ value: BenchView; label: string }> = [
-  { value: 'models', label: 'Model comparison' },
-  { value: 'gallery', label: 'Chat gallery' },
-]
 
 const identity = (m: BenchIdentity): string => `${m.provider}/${m.model} (${m.profile})`
 const key = (m: BenchIdentity): string => JSON.stringify([m.provider, m.model, m.profile])
@@ -284,12 +277,6 @@ function Results({ run }: { run: BenchRun }) {
         Inspect is scoped to this settings-form benchmark. It does not establish production safety
         or grant permissions.
       </p>
-      <div className="bench-ladder" aria-label="Capability ladder">
-        <span>Inspect: see configuration results</span>
-        <span>Repair: Unassessed</span>
-        <span>Build: Unassessed</span>
-        <span>Delegate: Unassessed</span>
-      </div>
       {run.configurations.map((c) => (
         <details key={c.id}>
           <summary>{identity(c)}: scorecards and configuration</summary>
@@ -339,7 +326,6 @@ export function TestBenchPage(_props: { place: Place }) {
   const [activeId, setActiveId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const mounted = useRef(false)
-  const [view, setView] = useState<BenchView>('models')
   const selectedRun = useRef<string | null>(null)
   const generation = useRef(0)
   async function loadModels() {
@@ -437,24 +423,14 @@ export function TestBenchPage(_props: { place: Place }) {
       if (mounted.current) setError(message(e))
     }
   }
-  // The comparison stays mounted while the gallery shows, so a running trial keeps its state.
   return (
     <ScrollArea scrollKey="page:test-bench" className="bench-scroll" data-testid="page-test-bench">
       <main className="bench-page">
         <header>
           <h1>Test Bench</h1>
-          <SegmentedControl
-            aria-label="Test Bench view"
-            data-testid="bench-view"
-            value={view}
-            onChange={(v) => setView(v as BenchView)}
-            data={VIEWS}
-          />
-          {view === 'models' ? (
-            <p className="bench-muted">UI/UX · settings-form · 24 cases</p>
-          ) : null}
+          <p className="bench-muted">UI/UX · settings-form · 24 cases</p>
         </header>
-        <div className="bench-view" hidden={view !== 'models'}>
+        <div className="bench-view">
           <details open={!run || !!activeId} className="bench-setup">
             <summary>Run a comparison</summary>
             <section className="bench-section" aria-label="Run comparison">
@@ -560,19 +536,9 @@ export function TestBenchPage(_props: { place: Place }) {
               />
             )}
           </section>
-          {run ? (
-            <Results run={run} key={run.id} />
-          ) : (
-            <div className="bench-ladder" aria-label="Capability ladder">
-              <span>Inspect: Not yet assessed</span>
-              <span>Repair: Unassessed</span>
-              <span>Build: Unassessed</span>
-              <span>Delegate: Unassessed</span>
-            </div>
-          )}
+          {run ? <Results run={run} key={run.id} /> : null}
         </div>
       </main>
-      {view === 'gallery' ? <ChatGallery /> : null}
     </ScrollArea>
   )
 }

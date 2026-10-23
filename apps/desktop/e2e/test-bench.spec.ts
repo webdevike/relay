@@ -44,7 +44,6 @@ test('Test Bench navigation, exact catalog selection and explicit provider failu
   await picker.press('Escape')
   await shell.getByRole('button', { name: 'Run comparison' }).click()
   await expect(shell.getByRole('alert')).toContainText('Test-only isolation rejection')
-  await expect(shell.getByText('Repair: Unassessed')).toBeVisible()
   await shell.getByTestId('nav-jobs').click()
   await shell.getByTestId('nav-test-bench').click()
   await expect(shell.getByTestId('page-test-bench')).toBeVisible()

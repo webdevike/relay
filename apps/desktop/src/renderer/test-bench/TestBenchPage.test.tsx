@@ -1,7 +1,7 @@
 /// <reference types="node" />
 import { MantineProvider } from '@mantine/core'
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import userEvent from '@testing-library/user-event'
 import {
   BENCH_LIMITS,
@@ -21,7 +21,6 @@ import {
   publicEnvelope,
 } from '../../main/test-bench/fixtures'
 import { scoreRun } from '../../main/test-bench/scoring'
-import { settingsStore } from '../settings/settings-store'
 import { TestBenchPage } from './TestBenchPage'
 const state = vi.hoisted(() => ({
   listener: null as ((p: BenchProgress) => void) | null,
@@ -164,9 +163,6 @@ describe('Test Bench behavior (test-only model doubles)', () => {
     mount()
     await screen.findByText(/Model discovery: Offline/)
     expect(await screen.findByRole('table', { name: 'Configuration comparison' })).toBeTruthy()
-    expect(screen.getByText('Repair: Unassessed')).toBeTruthy()
-    expect(screen.getByText('Build: Unassessed')).toBeTruthy()
-    expect(screen.getByText('Delegate: Unassessed')).toBeTruthy()
     fireEvent.click(screen.getByText('Inspect case evidence and verdicts'))
     expect(await screen.findByText(/cost: Unavailable/)).toBeTruthy()
     expect(screen.getByText(/alias unresolved/)).toBeTruthy()
@@ -261,34 +257,6 @@ describe('Test Bench behavior (test-only model doubles)', () => {
     expect(await screen.findByText('provider: Isolation refused')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Cancel run' })).toBeNull()
   })
-  it('switches to the chat gallery and back without losing the comparison', async () => {
-    // jsdom has no Element.scrollTo; the virtualized chat log scrolls to its end on open.
-    const proto = HTMLElement.prototype as { scrollTo?: unknown }
-    const hadScrollTo = 'scrollTo' in proto
-    if (!hadScrollTo) proto.scrollTo = () => undefined
-    onTestFinished(() => {
-      if (!hadScrollTo) delete proto.scrollTo
-    })
-    const user = userEvent.setup()
-    mount()
-    expect(await screen.findByRole('button', { name: 'Run comparison' })).toBeTruthy()
-    const before = settingsStore.getState().show_thinking
-    await user.click(screen.getByText('Chat gallery'))
-    const gallery = await screen.findByTestId('chat-gallery')
-    expect(within(gallery).getByText('Chat gallery: Relay invoice export')).toBeTruthy()
-    expect(within(gallery).getByText('Saved session')).toBeTruthy()
-    expect(within(gallery).getByText('1 background job running')).toBeTruthy()
-    expect(within(gallery).getByTestId('subagent-chip-ReviewCsvWriter')).toBeTruthy()
-    expect(within(gallery).getByTestId('composer-input')).toBeDisabled()
-    expect(screen.queryByRole('button', { name: 'Run comparison' })).toBeNull()
-    // The gallery shows thinking in memory only; leaving it puts the loaded setting back.
-    await waitFor(() => expect(settingsStore.getState().show_thinking).toBe(true))
-    expect(invoke.mock.calls.filter(([channel]) => channel === 'settings.save')).toEqual([])
-    await user.click(screen.getByText('Model comparison'))
-    expect(screen.queryByTestId('chat-gallery')).toBeNull()
-    expect(screen.getByRole('button', { name: 'Run comparison' })).toBeTruthy()
-    expect(settingsStore.getState().show_thinking).toBe(before)
-  })
   it('empty discovery and history remain explicit', async () => {
     invoke.mockImplementation(async () => ({ ok: true, value: [] }))
     mount()
@@ -297,8 +265,5 @@ describe('Test Bench behavior (test-only model doubles)', () => {
     ).toBeTruthy()
     expect(screen.getByText(/No saved comparisons/)).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Run comparison' })).toBeDisabled()
-    expect(
-      within(screen.getByLabelText('Capability ladder')).getByText('Inspect: Not yet assessed'),
-    ).toBeTruthy()
   })
 })

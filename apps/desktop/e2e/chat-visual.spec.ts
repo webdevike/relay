@@ -1,5 +1,5 @@
 // Chat visual bench: opens the gallery session (fixtures/agent-gallery) and screenshots every chat
-// row kind, card, strip and composer state into proof/chat-visual/, plus the Test Bench gallery.
+// row kind, card, strip and composer state into proof/chat-visual/.
 // Screenshots only: nothing here asserts how the UI should look.
 //
 //   source scripts/env.sh
@@ -31,7 +31,6 @@ const VIEWPORTS = [
 ] as const
 
 const CHAT_LOG = '[data-testid=chat-pane] [data-testid=chat-log]'
-const BENCH_LOG = '[data-testid=chat-gallery] [data-testid=chat-log]'
 
 interface Hooks {
   dropNextBatch(paneId: string): void
@@ -722,75 +721,4 @@ test.describe('Settings > Chat defaults', () => {
       }
     }
   })
-})
-
-test('Test Bench chat gallery (in-app, no omp)', async ({ app, shell }) => {
-  test.setTimeout(180_000)
-  await shell.emulateMedia({ reducedMotion: 'reduce' })
-  for (const s of SCHEMES) {
-    await resize(app, shell, 1280, 800)
-    await panel(shell, false)
-    await scheme(shell, s)
-    await shell.getByTestId('nav-test-bench').click()
-    await expect(shell.getByTestId('page-test-bench')).toBeVisible()
-    // Through Model comparison, so every pass mounts the gallery afresh.
-    await shell
-      .getByTestId('page-test-bench')
-      .getByText('Model comparison', { exact: true })
-      .click()
-    await expect(shell.getByTestId('chat-gallery')).toHaveCount(0)
-    await shell.getByTestId('page-test-bench').getByText('Chat gallery', { exact: true }).click()
-    const frame = shell.getByTestId('chat-gallery-frame')
-    await expect(shell.locator(BENCH_LOG)).toContainText(LAST_USER_LINE)
-    await expect(frame.locator('[data-testid=jobs-strip]')).toBeVisible()
-    await shot(
-      app,
-      shell,
-      `bench-gallery-${s}-page`,
-      `Test Bench > Chat gallery, top of the page with its controls, ${s}`,
-    )
-    await frame.evaluate((el) => el.scrollIntoView({ block: 'start' }))
-    for (const spot of SPOTS) {
-      await scrollLog(shell, BENCH_LOG, spot)
-      await shot(
-        app,
-        shell,
-        `bench-gallery-${s}-${spot}`,
-        `Test Bench > Chat gallery frame, transcript at the ${spot}, ${s}`,
-      )
-    }
-    const picker = shell.getByTestId('chat-gallery').getByLabel('Card above the composer')
-    for (const [label, name] of [
-      ['Ask, two questions', 'ask-multi'],
-      ['Editor', 'editor'],
-      ['Unanswerable question', 'dead'],
-    ] as const) {
-      await picker.click()
-      await shell.getByRole('option', { name: label, exact: true }).click()
-      await expect(frame.locator('[data-testid=pending-dialog]')).toBeVisible()
-      await blur(shell)
-      await frame.evaluate((el) => el.scrollIntoView({ block: 'start' }))
-      await shot(
-        app,
-        shell,
-        `bench-gallery-${s}-card-${name}`,
-        `Test Bench gallery with the ${label.toLowerCase()} card, ${s}`,
-      )
-    }
-    await picker.click()
-    await shell.getByRole('option', { name: 'No card', exact: true }).click()
-    await shell.getByRole('switch', { name: 'Show thinking' }).click()
-    await shell.getByRole('switch', { name: 'Show tool details' }).click()
-    await expect(shell.locator(`${BENCH_LOG} [data-role=thinking]`)).toHaveCount(0)
-    await frame.evaluate((el) => el.scrollIntoView({ block: 'start' }))
-    await scrollLog(shell, BENCH_LOG, 'middle')
-    await shot(
-      app,
-      shell,
-      `bench-gallery-${s}-toggles-off`,
-      `Test Bench gallery with its Show thinking and Show tool details switches off, ${s}`,
-    )
-    await shell.getByRole('switch', { name: 'Show thinking' }).click()
-    await shell.getByRole('switch', { name: 'Show tool details' }).click()
-  }
 })
