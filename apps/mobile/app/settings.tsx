@@ -15,6 +15,7 @@ import { browseHosts } from "@/connection";
 import { setNotificationsEnabled } from "@/notifications";
 import { warmVoz } from "@/dictation/actor";
 import { VozDictation } from "../modules/voz-dictation";
+import { PROFILE_TABS } from "@/lib/profile";
 
 const speeds: PointerSpeed[] = ["slow", "normal", "fast"];
 const recognizers: { value: Recognizer; label: string }[] = [
@@ -256,12 +257,6 @@ function AppearanceField() {
   );
 }
 
-const ompProfiles = [
-  { value: "", label: "Current" },
-  { value: "personal", label: "Personal" },
-  { value: "work", label: "Work" },
-] as const;
-
 function OmpProfileField() {
   const profile = useSettingsStore((state) => state.ompProfile);
   const set = useSettingsStore((state) => state.set);
@@ -269,19 +264,19 @@ function OmpProfileField() {
     <View style={{ paddingHorizontal: spacing.xl, paddingVertical: spacing.md, gap: spacing.md }}>
       <Text variant="title">omp account</Text>
       <View style={{ flexDirection: "row", gap: spacing.sm }}>
-        {ompProfiles.map((option) => (
+        {PROFILE_TABS.map((option) => (
           <Button
-            key={option.value}
+            key={option.key}
             label={option.label}
-            variant={profile === option.value ? "primary" : "secondary"}
+            variant={profile === option.key ? "primary" : "secondary"}
             onPress={() => {
-              set({ ompProfile: option.value });
+              set({ ompProfile: option.key });
             }}
           />
         ))}
       </View>
       <Text variant="caption" color="textMuted">
-        Named profiles keep ChatGPT auth, sessions, settings and caches separate. Log into each profile once on the host.
+        Same as the switch on Home: it scopes the inbox and is the account new sessions run on. Named profiles keep ChatGPT auth, sessions, settings and caches separate; log into each once on the host.
       </Text>
     </View>
   );

@@ -1,14 +1,13 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { fileStorage } from "./storage";
+import { normalizeProfile, type OmpProfile } from "@/lib/profile";
 
 export type PointerSpeed = "slow" | "normal" | "fast";
 /** `voz` is Desert Ant's on-device Parakeet model (no live partials, better on technical words); `apple` is iOS dictation. */
 export type Recognizer = "apple" | "voz";
 /** `system` follows the iOS appearance; `light`/`dark` pin the app regardless of it. */
 export type AppearanceChoice = "system" | "light" | "dark";
-/** Isolated omp account used for sessions started from the phone. */
-export type OmpProfile = "" | "personal" | "work";
 
 export interface SettingsState {
   deviceName: string;
@@ -25,7 +24,7 @@ export interface SettingsState {
   recognizer: Recognizer;
   /** Thinking level new phone-started sessions open with; empty leaves omp's own default. */
   defaultThinkingLevel: string;
-  /** Isolated omp profile new phone-started sessions use; empty keeps the host's current account. */
+  /** The omp account the app is scoped to (home's Work | Personal switch): it filters the inbox and is the account phone-started sessions run on. */
   ompProfile: OmpProfile;
   appearance: AppearanceChoice;
   /** Playback speed for audio widgets; the last choice carries to the next clip. */
@@ -45,7 +44,7 @@ export const useSettingsStore = create<SettingsState>()(
       notificationsEnabled: false,
       recognizer: "voz",
       defaultThinkingLevel: "",
-      ompProfile: "",
+      ompProfile: "work",
       appearance: "system",
       audioRate: 1,
       set: (partial) => {
@@ -55,6 +54,12 @@ export const useSettingsStore = create<SettingsState>()(
     {
       name: "relay-settings",
       storage: createJSONStorage(() => fileStorage),
+      // v1: `ompProfile` lost its "" (host's current account) choice; that and anything unknown is Work.
+      version: 1,
+      migrate: (persisted) => {
+        const state = persisted as Partial<SettingsState>;
+        return { ...state, ompProfile: normalizeProfile(state.ompProfile) };
+      },
     },
   ),
 );

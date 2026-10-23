@@ -4,12 +4,18 @@
  * before anything is tapped. Assistants leads with the newest reply of any agent (the list and
  * each thread live under it); Trackpad and Drops share the next row, Agent Inbox and the host
  * (which opens Settings) the one after. While the host's habit gate is locked its card leads.
+ * The Work | Personal switch on top scopes the app to one omp account (`lib/profile.ts`): the
+ * inbox count here and the inbox itself show that account's sessions, and new sessions run on it.
  */
 import { useRouter } from "expo-router";
 import { StyleSheet, View } from "react-native";
 import { Screen } from "@/ui/Screen";
 import { Pill } from "@/ui/Pill";
 import { Banner } from "@/ui/Banner";
+import { SegmentedTabs } from "@/ui/SegmentedTabs";
+import { useSettingsStore } from "@/state/settings";
+import { PROFILE_TABS, scopeOrder } from "@/lib/profile";
+import { tapHaptic } from "@/lib/haptics";
 import { Tile } from "@/home/Tile";
 import { useBoardsStore } from "@/state/boards";
 import { spacing } from "@/theme";
@@ -50,7 +56,10 @@ export default function Home() {
   const pairing = useConnectionStore((state) => state.pairing);
   const agentsAvailable = mac?.agentsAvailable === true;
   const sessions = useAgentsStore((state) => state.sessions);
-  const order = useAgentsStore((state) => state.order);
+  const profile = useSettingsStore((state) => state.ompProfile);
+  const setSettings = useSettingsStore((state) => state.set);
+  const allOrder = useAgentsStore((state) => state.order);
+  const order = scopeOrder(allOrder, sessions, profile);
   const needingCount = order.filter((id) => {
     const session = sessions[id];
     return session !== undefined && needsAttention(session);
@@ -64,6 +73,18 @@ export default function Home() {
 
   return (
     <Screen title={macName ?? "Relay"} headerRight={<Pill label={pill.label} tone={pill.tone} />} scroll={gateLocked}>
+      <View style={styles.profile}>
+        <SegmentedTabs
+          tabs={PROFILE_TABS}
+          value={profile}
+          size="large"
+          onChange={(next) => {
+            if (next === profile) return;
+            tapHaptic();
+            setSettings({ ompProfile: next });
+          }}
+        />
+      </View>
       {status === "offline" && (
         <View style={styles.banner}>
           <Banner tone="danger" message="Can't reach your host on this network." />
@@ -161,6 +182,7 @@ export default function Home() {
 }
 
 const styles = StyleSheet.create({
+  profile: { paddingHorizontal: spacing.xl, paddingBottom: spacing.lg },
   banner: { paddingBottom: spacing.lg },
   gate: { paddingHorizontal: spacing.xl, paddingBottom: spacing.lg },
   grid: { paddingHorizontal: spacing.xl, gap: spacing.md },

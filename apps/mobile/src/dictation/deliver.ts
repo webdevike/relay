@@ -7,6 +7,7 @@
  * launch listener so it can show the new session, words first, before the host has even opened it.
  */
 import type { Command } from "@relay/protocol";
+import type { OmpProfile } from "@/lib/profile";
 import type { DeliverInput } from "./machine";
 import { tagged } from "./surface";
 
@@ -16,7 +17,7 @@ const INSERT: DictationTarget = { kind: "insert" };
 let target: DictationTarget = INSERT;
 let onLaunch: ((prompt: string, delivery: Promise<void>) => void) | null = null;
 let launchThinkingLevel = "";
-let launchProfile: "personal" | "work" | "" = "";
+let launchProfile: OmpProfile | null = null;
 
 export function setDictationTarget(next: DictationTarget): void {
   target = next;
@@ -31,8 +32,8 @@ export function setLaunchThinkingLevel(level: string): void {
   launchThinkingLevel = level;
 }
 
-/** Isolated omp profile a launched session uses; empty keeps the host's current account. */
-export function setLaunchProfile(profile: "personal" | "work" | ""): void {
+/** The omp account a launched session runs on; null sends none (the host's default). The inbox mirrors the settings store here. */
+export function setLaunchProfile(profile: OmpProfile | null): void {
   launchProfile = profile;
 }
 
@@ -68,7 +69,7 @@ export function commandsFor(input: DeliverInput, to: DictationTarget): Command[]
         kind: "agent.start",
         ...(text.length > 0 ? { prompt: tagged(text) } : {}),
         ...(launchThinkingLevel.length > 0 ? { thinkingLevel: launchThinkingLevel } : {}),
-        ...(launchProfile === "" ? {} : { profile: launchProfile }),
+        ...(launchProfile === null ? {} : { profile: launchProfile }),
       },
     ];
   }
