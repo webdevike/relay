@@ -52,7 +52,7 @@ const COPIED_MS = 1800;
 export interface CodeBlockProps {
   code: string;
   lang: string | null;
-  /** A closed ```ui block that failed validation: the header says so instead of passing as code. */
+  /** A closed ```ui or ```openui block that failed validation: the header says so instead of passing as code. */
   invalid?: boolean;
 }
 

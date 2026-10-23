@@ -9,7 +9,7 @@
  * closed code block, so highlighting begins as soon as the fence line lands.
  */
 
-import { parseWidget, type WidgetSpec } from "./widget";
+import { parseOpenUI, parseWidget, type WidgetSpec } from "./widget";
 
 export type Align = "left" | "center" | "right" | null;
 
@@ -302,9 +302,12 @@ function parseLines(lines: string[]): Block[] {
       }
       const code = body.join("\n");
       const lang = name === "" ? null : name.toLowerCase();
-      const spec = lang === "ui" ? parseWidget(code) : null;
-      // A still-streaming ui block is just unfinished, not invalid.
-      const invalid = lang === "ui" && closed && !spec;
+      const widgetFence = lang === "ui" || lang === "openui";
+      // An unclosed openui fence is still streaming: render its best valid prefix live.
+      const spec =
+        lang === "openui" ? parseOpenUI(code, { partial: !closed }).node : lang === "ui" ? parseWidget(code) : null;
+      // A still-streaming widget block is just unfinished, not invalid.
+      const invalid = widgetFence && closed && !spec;
       blocks.push(spec ? { kind: "widget", spec } : { kind: "code", lang, code, invalid });
       continue;
     }

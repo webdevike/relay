@@ -3,6 +3,7 @@
 export {
   MAX_CHILDREN,
   MAX_DEPTH,
+  parseOpenUI,
   parseWidget,
   type AudioSpec,
   type AvatarSpec,
