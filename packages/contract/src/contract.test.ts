@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  CanvasBoardSchema,
   EVENT_CHANNELS,
   INVOKE_CHANNELS,
   GateStatusSchema,
@@ -308,6 +309,72 @@ describe('contract', () => {
     const history = Array.from({ length: 6000 }, (_, i) => ({ kind: 'habit', id: `h${i}` }))
     const tasks = Array.from({ length: 2500 }, (_, i) => ({ id: `t${i}`, name: 'x' }))
     expect(GateStatusSchema.safeParse({ history, tasks }).success).toBe(true)
+  })
+
+  describe('canvas channels', () => {
+    it('declares every channel and event', () => {
+      for (const ch of [
+        'canvas.list',
+        'canvas.load',
+        'canvas.save',
+        'canvas.create',
+        'canvas.rename',
+        'canvas.delete',
+        'canvas.pin',
+        'canvas.image',
+      ])
+        expect(INVOKE_CHANNELS).toContain(ch)
+      expect(EVENT_CHANNELS).toContain('canvas.changed')
+      const changed = eventContract['canvas.changed']
+      expect(changed.safeParse({ slug: null }).success).toBe(true)
+      expect(changed.safeParse({ slug: 'ui-moodboard' }).success).toBe(true)
+      expect(changed.safeParse({ slug: '../x' }).success).toBe(false)
+    })
+
+    it('slugs are plain file stems', () => {
+      const load = invokeContract['canvas.load'].input
+      for (const slug of ['ui-moodboard', 'a', '0-9', 'x'.repeat(80)])
+        expect(load.safeParse({ slug }).success).toBe(true)
+      for (const slug of ['', 'A', 'a b', 'a/b', '../a', 'a.json', 'x'.repeat(81)])
+        expect(load.safeParse({ slug }).success).toBe(false)
+    })
+
+    it('board parsing strips unknown keys without filling optional ones', () => {
+      const board = CanvasBoardSchema.parse({
+        extra: 1,
+        nodes: [{ id: 'a', type: 'note', data: { title: 't', foo: 1 }, z: 2 }],
+        edges: [{ id: 'e', source: 'a', target: 'a', bar: 1 }],
+      })
+      expect(board).toEqual({
+        version: 1,
+        title: '',
+        nodes: [{ id: 'a', type: 'note', data: { title: 't' } }],
+        edges: [{ id: 'e', source: 'a', target: 'a' }],
+      })
+      expect(CanvasBoardSchema.safeParse({ version: 2 }).success).toBe(false)
+      expect(CanvasBoardSchema.safeParse({ layout: 'radial' }).success).toBe(false)
+      expect(CanvasBoardSchema.safeParse({ nodes: [{ id: 'a', type: 'sticker' }] }).success).toBe(
+        false,
+      )
+    })
+
+    it('save, rename, pin and image inputs are strict', () => {
+      const c = invokeContract
+      expect(c['canvas.save'].input.safeParse({ slug: 'a', board: {} }).success).toBe(true)
+      expect(c['canvas.save'].input.safeParse({ slug: 'a', board: {}, x: 1 }).success).toBe(false)
+      expect(c['canvas.rename'].input.safeParse({ slug: 'a', title: '  ' }).success).toBe(false)
+      expect(c['canvas.pin'].input.safeParse({ slug: 'a', pinned: 'yes' }).success).toBe(false)
+      expect(c['canvas.image'].input.safeParse({ slug: 'a', src: '' }).success).toBe(false)
+      const img = c['canvas.image'].output
+      expect(
+        img.safeParse({ dataUrl: 'data:image/png;base64,AA', width: 1, height: null }),
+      ).toMatchObject({
+        success: true,
+      })
+      expect(img.safeParse({ dataUrl: 'data:text/html,x', width: 1, height: 1 }).success).toBe(
+        false,
+      )
+    })
   })
 
   describe('phase 4 chat channels', () => {

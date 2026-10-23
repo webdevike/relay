@@ -33,6 +33,15 @@ export interface Env {
    * overrides, 0 turns it off; null in tests.
    */
   cdpPort: number | null
+  /**
+   * Canvas boards: shared content, not app config. EVAOS_CANVAS_DIR wins; live uses the folder
+   * native EvaOS and the canvas skill use; otherwise `<configDir>/canvases`.
+   */
+  canvasDir: string
+  /** Non-live default only: fixture boards copied into canvasDir when it does not exist yet. */
+  canvasSeedDir: string | null
+  /** Live only: native EvaOS pins, read once when Relay has no canvas pins of its own. */
+  nativeCanvasPins: string | null
 }
 
 export interface ResolveEnvInput {
@@ -135,6 +144,23 @@ export function resolveEnv(input: ResolveEnvInput): Env {
 
   const cdpPort = parseCdpPort(env.EVAOS_CDP_PORT, live && env.EVAOS_E2E !== '1')
 
+  // Native EvaOS keeps boards under its config dir; the canvas skill writes them there.
+  const nativeDir = path.join(supportDir, 'EvaOS')
+  const nativeCanvasDir = path.join(nativeDir, 'canvases')
+  const canvasDir = env.EVAOS_CANVAS_DIR
+    ? env.EVAOS_CANVAS_DIR
+    : live
+      ? nativeCanvasDir
+      : path.join(configDir, 'canvases')
+  if (!live && real(canvasDir) === real(nativeCanvasDir)) {
+    throw new Error(
+      `Refusing to use the real canvas folder (${nativeCanvasDir}) in dev or test. Set EVAOS_LIVE=1 to opt in.`,
+    )
+  }
+  const canvasSeedDir =
+    !live && !env.EVAOS_CANVAS_DIR ? path.join(repoRoot, 'fixtures/canvases') : null
+  const nativeCanvasPins = live ? path.join(nativeDir, 'canvas.json') : null
+
   const habitGateBin = env.EVAOS_HABIT_GATE_BIN
     ? env.EVAOS_HABIT_GATE_BIN
     : live
@@ -194,6 +220,9 @@ export function resolveEnv(input: ResolveEnvInput): Env {
     e2e: env.EVAOS_E2E === '1',
     hiddenWindow: env.EVAOS_HIDDEN_WINDOW === '1',
     noMotion: env.EVAOS_NO_MOTION === '1',
+    canvasDir,
+    canvasSeedDir,
+    nativeCanvasPins,
     repoRoot,
     cdpPort,
   }

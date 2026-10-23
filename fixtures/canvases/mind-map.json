@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "title": "Q4 roadmap",
+  "layout": "tree",
+  "nodes": [
+    {
+      "id": "root",
+      "type": "topic",
+      "data": {
+        "title": "Q4 roadmap",
+        "body": "What ships before the freeze"
+      }
+    },
+    {
+      "id": "scope",
+      "type": "note",
+      "data": {
+        "title": "Scope",
+        "body": "Canvas, chat polish, meetings digest."
+      }
+    },
+    {
+      "id": "proof",
+      "type": "ticket",
+      "data": {
+        "title": "Design-system proof",
+        "key": "ENG-6180",
+        "status": "In review",
+        "pr": "#212 open",
+        "url": "https://linear.app/ecard/issue/ENG-6180",
+        "tone": "accent"
+      }
+    },
+    {
+      "id": "risk",
+      "type": "note",
+      "data": {
+        "title": "Risk",
+        "body": "Proof blocks the release branch.",
+        "tone": "danger"
+      }
+    },
+    {
+      "id": "docs",
+      "type": "link",
+      "data": {
+        "title": "React Flow docs",
+        "caption": "Sub flows and parent nodes",
+        "url": "https://reactflow.dev/learn/layouting/sub-flows"
+      }
+    },
+    {
+      "id": "qa",
+      "type": "suggestion",
+      "data": {
+        "title": "Eva suggests: QA checklist",
+        "body": "A short pass over every board type before release."
+      }
+    },
+    {
+      "id": "loose",
+      "type": "note",
+      "data": {
+        "title": "Parking lot",
+        "body": "Nothing links here yet.",
+        "tone": "muted"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "root-scope",
+      "source": "root",
+      "target": "scope",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "root-proof",
+      "source": "root",
+      "target": "proof",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "proof-risk",
+      "source": "proof",
+      "target": "risk",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "blocks"
+    },
+    {
+      "id": "root-docs",
+      "source": "root",
+      "target": "docs",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "root-qa",
+      "source": "root",
+      "target": "qa",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "tone": "proposed"
+    }
+  ]
+}

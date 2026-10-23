@@ -138,4 +138,29 @@ describe('resolveEnv', () => {
       expect([e.agentDir, e.claudeBridgeBin, e.claudeBin]).toEqual(['/ad', '/cb', '/cc'])
     }
   })
+
+  it('puts canvas boards in a seeded config subfolder outside live mode', () => {
+    const e = resolveEnv(base())
+    expect(e.canvasDir).toBe('/tmp/evaos-electron-dev-42/canvases')
+    expect(e.canvasSeedDir).toBe('/repo/fixtures/canvases')
+    expect(e.nativeCanvasPins).toBeNull()
+  })
+
+  it('shares the native EvaOS canvas folder and pins when live', () => {
+    const e = resolveEnv(base({ env: { EVAOS_LIVE: '1' } }))
+    expect(e.canvasDir).toBe('/home/u/Library/Application Support/EvaOS/canvases')
+    expect(e.canvasSeedDir).toBeNull()
+    expect(e.nativeCanvasPins).toBe('/home/u/Library/Application Support/EvaOS/canvas.json')
+  })
+
+  it('EVAOS_CANVAS_DIR wins without seeding, and the real folder needs EVAOS_LIVE', () => {
+    const e = resolveEnv(base({ env: { EVAOS_CANVAS_DIR: '/boards' } }))
+    expect(e.canvasDir).toBe('/boards')
+    expect(e.canvasSeedDir).toBeNull()
+    expect(() =>
+      resolveEnv(
+        base({ env: { EVAOS_CANVAS_DIR: '/home/u/Library/Application Support/EvaOS/canvases' } }),
+      ),
+    ).toThrow(/EVAOS_LIVE=1/)
+  })
 })

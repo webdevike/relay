@@ -8,7 +8,9 @@ import { meetingsInvoke } from './meetings'
 import { chatEvents, chatInvoke } from './chat'
 import { browserEvents, browserInvoke } from './browser'
 import { testBenchEvents, testBenchInvoke } from './test-bench'
+import { canvasEvents, canvasInvoke } from './canvas'
 export * from './test-bench'
+export * from './canvas'
 
 export * from './result'
 export { AppInfoSchema, type AppInfo } from './app'
@@ -32,6 +34,7 @@ export const invokeContract = {
   ...chatInvoke,
   ...browserInvoke,
   ...testBenchInvoke,
+  ...canvasInvoke,
 }
 export const eventContract = {
   ...appEvents,
@@ -39,6 +42,7 @@ export const eventContract = {
   ...browserEvents,
   ...evaEvents,
   ...testBenchEvents,
+  ...canvasEvents,
 }
 
 export type InvokeChannel = keyof typeof invokeContract

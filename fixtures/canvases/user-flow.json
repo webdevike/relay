@@ -1,0 +1,100 @@
+{
+  "version": 1,
+  "title": "Sign-in flow",
+  "layout": "flow",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "topic",
+      "x": 0.0,
+      "y": 40.0,
+      "data": {
+        "title": "How sign-in works"
+      }
+    },
+    {
+      "id": "login",
+      "type": "frame",
+      "x": 320.0,
+      "y": 0.0,
+      "w": 260.0,
+      "h": 180.0,
+      "data": {
+        "title": "Sign in",
+        "url": "https://example.com/login"
+      }
+    },
+    {
+      "id": "workspace",
+      "type": "note",
+      "x": 660.0,
+      "y": 20.0,
+      "data": {
+        "title": "1 · Pick a workspace",
+        "body": "The last one used is preselected."
+      }
+    },
+    {
+      "id": "home",
+      "type": "image",
+      "x": 960.0,
+      "y": 0.0,
+      "data": {
+        "title": "Home",
+        "src": "moodboard-cards.png",
+        "caption": "Lands on the dashboard"
+      }
+    },
+    {
+      "id": "error",
+      "type": "note",
+      "x": 660.0,
+      "y": 240.0,
+      "data": {
+        "title": "2 · Wrong password",
+        "body": "Inline error, field keeps focus.",
+        "tone": "danger"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "start-login",
+      "source": "start",
+      "target": "login",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "opens"
+    },
+    {
+      "id": "login-workspace",
+      "source": "login",
+      "target": "workspace",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "submits",
+      "tone": "accent"
+    },
+    {
+      "id": "login-error",
+      "source": "login",
+      "target": "error",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "fails"
+    },
+    {
+      "id": "workspace-home",
+      "source": "workspace",
+      "target": "home",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "chooses"
+    }
+  ],
+  "viewport": {
+    "x": 40.0,
+    "y": 60.0,
+    "zoom": 0.75
+  }
+}

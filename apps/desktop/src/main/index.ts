@@ -8,6 +8,7 @@ import { registerAppIpc } from './app-ipc'
 import { registerBrowser } from './browser'
 import { registerChat } from './chat'
 import { registerEvaIpc } from './eva-ipc'
+import { registerCanvasIpc } from './canvas/canvas-ipc'
 import { registerLayoutIpc } from './layout-ipc'
 import { installQuitGuard } from './quit-guard'
 import { registerSettingsIpc } from './settings-ipc'
@@ -117,6 +118,7 @@ function bootstrap(): void {
       registerTestBenchIpc(ctx)
       const evaWatch = startEvaWatch(ctx)
       ctx.onBeforeQuit(() => evaWatch.close())
+      registerCanvasIpc(ctx)
       registerBrowser(ctx)
       installTestHooks(ctx)
     } catch (e) {
