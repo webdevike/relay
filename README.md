@@ -1,7 +1,8 @@
 # Relay
 
 Turns an iPhone into a live extension of a Mac: trackpad, dictation into the focused Mac app,
-and a view of the coding-agent sessions running on the Mac.
+a live view of the whole desktop (noVNC over the host's authenticated bridge to macOS Screen
+Sharing; see apps/linux/README.md), and a view of the coding-agent sessions running on the Mac.
 
 ```
 apps/mobile      Expo + React Native + TypeScript (Expo Router, Gesture Handler, Reanimated, Zustand)

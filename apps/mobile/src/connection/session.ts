@@ -245,13 +245,11 @@ export class SessionMachine {
       case "call.flush":
       case "assistant.snapshot":
       case "assistant.agents":
-      case "screen.list":
-      case "screen.frame":
-      case "screen.ended":
-      case "screen.cursor":
+      case "vnc.ticket":
+      case "vnc.unavailable":
       case "ack":
       case "nack":
-        // Agent, drop, board, gate, assistant and screen frames are routed to their stores and ack/nack to CommandQueue by index.ts.
+        // Agent, drop, board, gate, assistant and vnc frames are routed to their stores and ack/nack to CommandQueue by index.ts.
         return [];
     }
   }

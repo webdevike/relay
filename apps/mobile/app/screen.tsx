@@ -1,243 +1,219 @@
 /**
- * Live view: pick a window on the host, then watch it (~10 fps JPEGs over the relay socket) and
- * drive it: a tap clicks there, a two-finger drag scrolls, the keyboard button types into it. The
- * watch lives as long as this screen: leaving it, or going back to the list, stops the capture on
- * the host. Frames replace each other in `useScreenStore`, so nothing queues on the phone.
+ * Live view: the Mac's whole desktop over VNC (macOS Screen Sharing), in noVNC (`ui/VncView`).
+ * The host never exposes the VNC port: this screen asks it for a single-use ticket over the relay
+ * socket (`requestVncAccess`) and opens the host's `/vnc` bridge with it, once per connection.
+ * Screen Sharing's own login (a Mac account, or its VNC password) is asked once and kept in
+ * Keychain per host; a refused login is forgotten and asked again. Tap clicks, two fingers scroll,
+ * pinch zooms, the keyboard button types.
  */
 import { useEffect, useRef, useState } from "react";
-import { FlatList, RefreshControl, StyleSheet, TextInput, View, type LayoutRectangle } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import { SymbolView } from "expo-symbols";
-import type { InputEvent, ScreenError, ScreenWindow } from "@relay/protocol";
+import { KeyboardAvoidingView, StyleSheet, TextInput, View } from "react-native";
 import { Screen } from "@/ui/Screen";
-import { LiveImage } from "@/ui/LiveImage";
 import { IconButton } from "@/ui/IconButton";
-import { Separator } from "@/ui/Separator";
 import { EmptyState } from "@/ui/EmptyState";
 import { Banner } from "@/ui/Banner";
-import { Row } from "@/ui/Row";
+import { Button } from "@/ui/Button";
+import { Card } from "@/ui/Card";
 import { Text } from "@/ui/Text";
+import { TextField } from "@/ui/TextField";
+import { VncView, type VncViewHandle } from "@/ui/VncView";
 import { spacing } from "@/theme";
-import { tapHaptic } from "@/lib/haptics";
 import { useConnectionStore } from "@/state/connection";
-import { useScreenStore } from "@/state/screen";
-import { requestScreenWindows, sendScreenClick, sendScreenKey, sendScreenMove, sendScreenScroll, sendScreenTap, stopScreenWatch, watchScreen } from "@/connection";
-import { TrackpadSurface } from "@/trackpad/TrackpadSurface";
+import { useVncStore } from "@/state/vnc";
+import { requestVncAccess } from "@/connection";
+import { forgetVncCredentials, loadVncCredentials, saveVncCredentials } from "@/vnc/credentials";
+import type { VncCredentials, VncEvent, VncKey } from "@/vnc/messages";
 
-/**
- * Trackpad events from the shared gesture model, as live-view commands. TrackpadSurface already
- * flushes once per animation frame, so each batch's moves go out as one summed relative move;
- * drag holds are not supported here and fall back to plain moves.
- */
-function sendTrackpad(events: InputEvent[]): void {
-  let dx = 0;
-  let dy = 0;
-  let at: number | null = null;
-  const flushMove = (): void => {
-    if (at !== null && (dx !== 0 || dy !== 0)) sendScreenMove(dx, dy, at);
-    dx = 0;
-    dy = 0;
-    at = null;
-  };
-  for (const event of events) {
-    if (event.k === "move") {
-      dx += event.dx;
-      dy += event.dy;
-      at = event.t;
-      continue;
-    }
-    flushMove();
-    if (event.k === "click") sendScreenClick(event.button);
-    else if (event.k === "scroll" && (event.dx !== 0 || event.dy !== 0)) sendScreenScroll(event.dx, event.dy);
-  }
-  flushMove();
-}
+/** Where the live connection stands once the host handed over a ticket. */
+type Phase = "connecting" | "live" | "login" | "dropped";
 
-const ERROR_TEXT: Record<ScreenError, string> = {
-  denied: "The host needs Screen Recording permission: System Settings > Privacy & Security > Screen & System Audio Recording > Relay Host.",
-  gone: "That window closed.",
-  unavailable: "This host can't share its screen.",
-  failed: "Capture stopped on the host.",
-};
+const DEFAULT_HOST = "default";
+const REFUSED = "Screen Sharing didn't accept that login.";
 
 export default function LiveView() {
   const connected = useConnectionStore((state) => state.status === "connected");
-  const windows = useScreenStore((state) => state.windows);
-  const listError = useScreenStore((state) => state.listError);
-  const [watching, setWatching] = useState<ScreenWindow | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
+  const hostId = useConnectionStore((state) => state.activeHostId) ?? DEFAULT_HOST;
+  const access = useVncStore((state) => state.access);
+  const [url, setUrl] = useState<string | null>(null);
+  const [phase, setPhase] = useState<Phase>("connecting");
+  /** Saved login for `hostId`; undefined until Keychain answers. */
+  const [credentials, setCredentials] = useState<VncCredentials | null | undefined>(undefined);
+  /** The login fields Screen Sharing asked for, while the form is up. */
+  const [wanted, setWanted] = useState<readonly string[]>([]);
+  /** Set while the open connection waits for the form; otherwise a submit reconnects. */
+  const awaitingLogin = useRef(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const vnc = useRef<VncViewHandle>(null);
   const keyboard = useRef<TextInput>(null);
 
   useEffect(() => {
-    if (connected) requestScreenWindows();
-  }, [connected]);
+    let current = true;
+    setCredentials(undefined);
+    loadVncCredentials(hostId).then(
+      (saved) => {
+        if (current) setCredentials(saved);
+      },
+      () => {
+        if (current) setCredentials(null);
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [hostId]);
+
+  const loaded = credentials !== undefined;
   useEffect(() => {
-    if (windows !== null || listError !== null) setRefreshing(false);
-  }, [windows, listError]);
-  // Leaving the screen stops the host capture.
-  useEffect(() => stopScreenWatch, []);
+    if (connected && loaded) requestVncAccess();
+  }, [connected, loaded, hostId]);
 
-  const watch = (window: ScreenWindow): void => {
-    setWatching(window);
-    watchScreen(window.id);
-  };
-  const back = (): void => {
-    keyboard.current?.blur();
-    stopScreenWatch();
-    setWatching(null);
-    requestScreenWindows();
-  };
-  const refresh = (): void => {
-    setRefreshing(true);
-    requestScreenWindows();
+  // A ticket opens one connection: take it out of the store as it becomes this screen's URL.
+  useEffect(() => {
+    if (access.kind !== "ready") return;
+    setUrl(access.url);
+    setPhase("connecting");
+    useVncStore.getState().setAccess({ kind: "idle" });
+  }, [access]);
+
+  useEffect(
+    () => () => {
+      useVncStore.getState().setAccess({ kind: "idle" });
+    },
+    [],
+  );
+
+  const reconnect = (): void => {
+    setPhase("connecting");
+    requestVncAccess();
   };
 
-  if (watching !== null) {
+  const onEvent = (event: VncEvent): void => {
+    switch (event.type) {
+      case "ready":
+        return;
+      case "connected":
+        setFailure(null);
+        setPhase("live");
+        return;
+      case "credentials":
+        awaitingLogin.current = true;
+        setWanted(event.types);
+        setPhase("login");
+        return;
+      case "securityfailure":
+        setFailure(event.reason ?? REFUSED);
+        setCredentials(null);
+        void forgetVncCredentials(hostId);
+        setWanted((current) => (current.length > 0 ? current : ["username", "password"]));
+        setPhase("login");
+        return;
+      case "disconnected":
+        awaitingLogin.current = false;
+        keyboard.current?.blur();
+        setPhase((current) => (current === "login" ? current : "dropped"));
+        return;
+    }
+  };
+
+  const submitLogin = (login: VncCredentials): void => {
+    setCredentials(login);
+    void saveVncCredentials(hostId, login);
+    if (awaitingLogin.current) {
+      awaitingLogin.current = false;
+      vnc.current?.send({ type: "credentials", credentials: login });
+      setPhase("connecting");
+    } else {
+      reconnect();
+    }
+  };
+
+  const sendKey = (key: VncKey): void => {
+    vnc.current?.send({ type: "key", key });
+  };
+
+  if (!connected) {
     return (
-      <Screen
-        title={watching.app}
-        headerRight={
-          <View style={styles.actions}>
-            <IconButton
-              symbol="keyboard"
-              onPress={() => {
-                if (keyboard.current?.isFocused() === true) keyboard.current.blur();
-                else keyboard.current?.focus();
-              }}
-            />
-            <IconButton symbol="square.grid.2x2" onPress={back} />
-          </View>
-        }
-      >
-        <View style={styles.live}>
-          <LiveFrame window={watching} connected={connected} />
-        </View>
-        <View style={styles.trackpad}>
-          <TrackpadSurface wheel={[]} onWheel={() => undefined} send={sendTrackpad} />
-        </View>
-        <HiddenKeyboard inputRef={keyboard} />
+      <Screen title="Live view">
+        <EmptyState symbol="wifi.slash" title="Not connected" body="Live view needs a connection to your Mac." />
+      </Screen>
+    );
+  }
+
+  if (access.kind === "off") {
+    return (
+      <Screen title="Live view">
+        <EmptyState
+          symbol="display"
+          title="Turn on Screen Sharing on the Mac"
+          body="System Settings > General > Sharing > Screen Sharing. Relay reaches it through your Mac's own connection, so it stays off the network."
+          actionLabel="Try again"
+          onAction={requestVncAccess}
+        />
       </Screen>
     );
   }
 
   return (
-    <Screen title="Live view" headerRight={<IconButton symbol="arrow.clockwise" onPress={refresh} disabled={!connected} />}>
-      {!connected ? (
-        <EmptyState symbol="wifi.slash" title="Not connected" body="Live view needs a connection to your host." />
-      ) : listError !== null ? (
-        <View style={styles.padded}>
-          <Banner tone="danger" message={ERROR_TEXT[listError]} actionLabel="Retry" onAction={refresh} />
-        </View>
-      ) : windows === null ? (
-        <EmptyState symbol="macwindow" title="Looking for windows" body="Asking the host what's on screen." />
-      ) : windows.length === 0 ? (
-        <EmptyState symbol="macwindow" title="No windows" body="Nothing on the host's screen can be shared right now." actionLabel="Refresh" onAction={refresh} />
-      ) : (
-        <FlatList
-          data={windows}
-          keyExtractor={(window) => String(window.id)}
-          ItemSeparatorComponent={Separator}
-          ListHeaderComponent={Separator}
-          ListFooterComponent={Separator}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
-          renderItem={({ item }) => (
-            <Row
-              title={item.app}
-              subtitle={item.title === "" ? `${Math.round(item.width)} x ${Math.round(item.height)}` : item.title}
-              onPress={() => {
-                watch(item);
-              }}
-            />
-          )}
+    <Screen
+      title="Live view"
+      headerRight={
+        <IconButton
+          symbol="keyboard"
+          accessibilityLabel="Keyboard"
+          disabled={phase !== "live"}
+          onPress={() => {
+            if (keyboard.current?.isFocused() === true) keyboard.current.blur();
+            else keyboard.current?.focus();
+          }}
         />
-      )}
+      }
+    >
+      <View style={styles.live}>
+        <VncView ref={vnc} url={url} credentials={credentials ?? null} onEvent={onEvent} />
+        {phase === "connecting" && (
+          <View pointerEvents="none" style={styles.overlay}>
+            <Banner tone="info" busy message="Connecting to your Mac…" />
+          </View>
+        )}
+        {phase === "dropped" && (
+          <View style={styles.overlay}>
+            <Banner tone="warn" message="Live view disconnected" actionLabel="Reconnect" onAction={reconnect} />
+          </View>
+        )}
+        {phase === "login" && (
+          <KeyboardAvoidingView behavior="padding" style={styles.overlay}>
+            <LoginCard wantsUsername={wanted.includes("username")} failure={failure} onSubmit={submitLogin} />
+          </KeyboardAvoidingView>
+        )}
+      </View>
+      <HiddenKeyboard inputRef={keyboard} onText={(text) => vnc.current?.send({ type: "text", text })} onKey={sendKey} />
     </Screen>
   );
 }
 
-/**
- * The frame fills the width at the window's aspect. Touches map to 0..1 over the image itself
- * (letterboxing from `contain` excluded), so a tap lands on the same spot of the host window.
- */
-function LiveFrame({ window, connected }: { window: ScreenWindow; connected: boolean }) {
-  const frame = useScreenStore((state) => state.frame);
-  const ended = useScreenStore((state) => state.ended);
-  const cursor = useScreenStore((state) => state.cursor);
-  const [box, setBox] = useState<LayoutRectangle | null>(null);
-  const aspect = frame === null ? window.width / window.height : frame.width / frame.height;
-
-  // The drawn image inside `box` under resizeMode="contain".
-  const image = (() => {
-    if (box === null) return null;
-    const width = Math.min(box.width, box.height * aspect);
-    const height = width / aspect;
-    return { left: (box.width - width) / 2, top: (box.height - height) / 2, width, height };
-  })();
-  const normalized = (x: number, y: number): { x: number; y: number } | null => {
-    if (image === null) return null;
-    const nx = (x - image.left) / image.width;
-    const ny = (y - image.top) / image.height;
-    return nx < 0 || nx > 1 || ny < 0 || ny > 1 ? null : { x: nx, y: ny };
+/** Screen Sharing's login: a Mac account name and password, or only the VNC password. */
+function LoginCard({ wantsUsername, failure, onSubmit }: { wantsUsername: boolean; failure: string | null; onSubmit: (login: VncCredentials) => void }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const ready = password !== "" && (!wantsUsername || username.trim() !== "");
+  const submit = (): void => {
+    if (ready) onSubmit({ username: wantsUsername ? username.trim() : "", password });
   };
-
-  const tap = Gesture.Tap()
-    .runOnJS(true)
-    .onEnd((event, success) => {
-      const point = success ? normalized(event.x, event.y) : null;
-      if (point === null) return;
-      tapHaptic();
-      sendScreenTap(point.x, point.y);
-    });
-  const scroll = Gesture.Pan()
-    .runOnJS(true)
-    .minPointers(2)
-    .onChange((event) => {
-      const point = normalized(event.x, event.y) ?? { x: 0.5, y: 0.5 };
-      // Phone points to host window points, so a drag moves the content as far as the fingers did.
-      const scale = image === null ? 1 : window.width / image.width;
-      sendScreenScroll(event.changeX * scale, event.changeY * scale, point);
-    });
-
   return (
-    <View style={styles.live}>
-      {ended !== null && (
-        <View style={styles.padded}>
-          <Banner tone={ended === "gone" ? "warn" : "danger"} message={ERROR_TEXT[ended]} />
-        </View>
-      )}
-      {!connected && (
-        <View style={styles.padded}>
-          <Banner tone="warn" message="Reconnecting to the host…" />
-        </View>
-      )}
-      <GestureDetector gesture={Gesture.Exclusive(scroll, tap)}>
-        <View
-          style={[styles.frame, { aspectRatio: aspect }]}
-          onLayout={(event) => {
-            setBox(event.nativeEvent.layout);
-          }}
-        >
-          {frame === null ? (
-            <Text variant="caption" color="textMuted">
-              Waiting for the first frame…
-            </Text>
-          ) : (
-            <LiveImage uri={frame.uri} />
-          )}
-          {cursor !== null && image !== null && cursor.x >= 0 && cursor.x <= 1 && cursor.y >= 0 && cursor.y <= 1 && (
-            // Frames are captured without the cursor; this one moves as soon as the host reports it.
-            <View pointerEvents="none" style={[styles.cursor, { left: image.left + cursor.x * image.width, top: image.top + cursor.y * image.height }]}>
-              <SymbolView name="cursorarrow" size={18} tintColor="#FFFFFF" />
-            </View>
-          )}
-        </View>
-      </GestureDetector>
-      {window.title !== "" && (
-        <Text variant="caption" color="textMuted" numberOfLines={1} style={styles.caption}>
-          {window.title}
+    <Card>
+      <View style={styles.form}>
+        <Text variant="title">Sign in to Screen Sharing</Text>
+        <Text variant="caption" color="textMuted">
+          {wantsUsername
+            ? "The name and password of an account on the Mac. Saved on this phone."
+            : "The VNC password set in the Mac's Screen Sharing settings. Saved on this phone."}
         </Text>
-      )}
-    </View>
+        {wantsUsername && <TextField value={username} onChangeText={setUsername} placeholder="Mac account name" credential="username" returnKeyType="next" />}
+        <TextField value={password} onChangeText={setPassword} placeholder="Password" credential="password" returnKeyType="go" onSubmit={submit} />
+        {failure !== null && <Banner tone="danger" message={failure} />}
+        <Button label="Connect" disabled={!ready} onPress={submit} />
+      </View>
+    </Card>
   );
 }
 
@@ -245,7 +221,7 @@ function LiveFrame({ window, connected }: { window: ScreenWindow; connected: boo
  * Off-screen field that only exists to raise the iOS keyboard. Every change is sent and the field
  * cleared, so it never holds text; backspace and return are forwarded as keys.
  */
-function HiddenKeyboard({ inputRef }: { inputRef: React.RefObject<TextInput | null> }) {
+function HiddenKeyboard({ inputRef, onText, onKey }: { inputRef: React.RefObject<TextInput | null>; onText: (text: string) => void; onKey: (key: VncKey) => void }) {
   return (
     <TextInput
       ref={inputRef}
@@ -256,27 +232,21 @@ function HiddenKeyboard({ inputRef }: { inputRef: React.RefObject<TextInput | nu
       spellCheck={false}
       submitBehavior="submit"
       onChangeText={(text) => {
-        if (text !== "") sendScreenKey({ text });
+        if (text !== "") onText(text);
       }}
       onKeyPress={(event) => {
-        if (event.nativeEvent.key === "Backspace") sendScreenKey({ key: "delete" });
+        if (event.nativeEvent.key === "Backspace") onKey("backspace");
       }}
       onSubmitEditing={() => {
-        sendScreenKey({ key: "return" });
+        onKey("return");
       }}
     />
   );
 }
 
 const styles = StyleSheet.create({
-  padded: { paddingHorizontal: spacing.xl, paddingBottom: spacing.lg },
-  actions: { flexDirection: "row", gap: spacing.sm },
-  live: { flex: 1 },
-  /** Frame above, trackpad below at ~35% of the screen. */
-  trackpad: { flex: 0.54 },
-  frame: { width: "100%", maxHeight: "100%", alignItems: "center", justifyContent: "center", backgroundColor: "#000" },
-  caption: { paddingHorizontal: spacing.xl, paddingTop: spacing.sm },
+  live: { flex: 1, backgroundColor: "#000000" },
+  overlay: { ...StyleSheet.absoluteFillObject, justifyContent: "center", padding: spacing.xl },
+  form: { gap: spacing.md },
   hidden: { position: "absolute", width: 1, height: 1, opacity: 0, left: -100 },
-  /** The arrow's tip sits at the symbol's top-left, a few points in from the box corner. */
-  cursor: { position: "absolute", marginLeft: -4, marginTop: -2, shadowColor: "#000", shadowOpacity: 0.6, shadowRadius: 1.5, shadowOffset: { width: 0, height: 0 } },
 });

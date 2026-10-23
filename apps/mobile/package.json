@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run --passWithNoTests",
     "build": "expo export --platform ios --output-dir dist",
-    "android": "expo run:android"
+    "android": "expo run:android",
+    "vnc:build": "bun vnc/build.mjs"
   },
   "dependencies": {
     "@gorhom/bottom-sheet": "^5.2.14",
@@ -63,6 +64,7 @@
     "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@novnc/novnc": "1.7.0",
     "@relay/eslint-config": "workspace:*",
     "@types/react": "~19.1.10",
     "typescript": "~5.9.2"

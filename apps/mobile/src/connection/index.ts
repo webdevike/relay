@@ -7,11 +7,11 @@
 import { useEffect } from "react";
 import { AppState, type AppStateStatus, type NativeEventSubscription } from "react-native";
 import { CryptoDigestAlgorithm, digest } from "expo-crypto";
-import { encode, parseServerMessage, WS_PATH, type ClientMessage, type Command, type InputEvent, type ScreenKey } from "@relay/protocol";
+import { encode, parseServerMessage, WS_PATH, type ClientMessage, type Command, type InputEvent } from "@relay/protocol";
 import { useConnectionStore } from "@/state/connection";
 import { useAgentsStore } from "@/state/agents";
 import { useDropsStore } from "@/state/drops";
-import { useScreenStore } from "@/state/screen";
+import { useVncStore } from "@/state/vnc";
 import { useBoardsStore } from "@/state/boards";
 import { useGateStore } from "@/state/gate";
 import { useAssistantStore } from "@/state/assistant";
@@ -23,7 +23,7 @@ import { setActions } from "@/state/actions";
 import { useSettingsStore } from "@/state/settings";
 import { createAgentFrameRouter } from "./agents";
 import { createDropFrameRouter } from "./drops";
-import { createScreenFrameRouter } from "./screen";
+import { createVncFrameRouter } from "./vnc";
 import { createBoardFrameRouter } from "./boards";
 import { createGateFrameRouter } from "./gate";
 import { createAssistantFrameRouter } from "./assistant";
@@ -52,11 +52,10 @@ let appStateSubscription: NativeEventSubscription | null = null;
 let retryTimer: number | undefined;
 /**
  * `host:port` the socket was last opened with (IPv6 bracketed), the origin for `/drops/...` blob
- * fetches. Only meaningful while `status === "connected"`; a later connect overwrites it.
+ * fetches and the `/vnc` bridge. Only meaningful while `status === "connected"`; a later connect
+ * overwrites it.
  */
 let hostAuthority: string | null = null;
-/** Window the live view is watching; re-sent on every welcome because the host drops watches with the socket. */
-let watchingWindow: number | null = null;
 /**
  * The assistant whose thread is on screen, if any. The host treats a socket as following an
  * agent's thread (live snapshots, no push to this phone for that agent) for five minutes after
@@ -78,7 +77,7 @@ function imageKey(sessionId: string, id: string): string {
 
 const routeAgentFrame = createAgentFrameRouter(useAgentsStore.getState(), (message) => socket.send(encode(message)));
 const routeDropFrame = createDropFrameRouter(useDropsStore.getState());
-const routeScreenFrame = createScreenFrameRouter(useScreenStore.getState(), () => watchingWindow);
+const routeVncFrame = createVncFrameRouter(useVncStore.getState(), () => hostAuthority);
 const routeBoardFrame = createBoardFrameRouter(useBoardsStore.getState());
 const routeGateFrame = createGateFrameRouter(useGateStore.getState());
 const routeAssistantFrame = createAssistantFrameRouter(useAssistantStore.getState());
@@ -137,7 +136,6 @@ socket.onMessage = (data) => {
     imagesInFlight.clear();
     // The host owns the drop history; the phone never trusts its copy across a (re)connection.
     socket.send(encode({ t: "drop.list" }));
-    if (watchingWindow !== null) socket.send(encode({ t: "screen.watch", windowId: watchingWindow }));
     // Dashboards stream live; the host forgets the subscription with the socket.
     socket.send(encode({ t: "board.subscribe" }));
     // The habit gate may have locked or unlocked while the phone was away.
@@ -156,7 +154,7 @@ socket.onMessage = (data) => {
   }
   routeAgentFrame(message);
   routeDropFrame(message);
-  routeScreenFrame(message);
+  routeVncFrame(message);
   routeBoardFrame(message);
   routeGateFrame(message);
   routeAssistantFrame(message);
@@ -297,9 +295,7 @@ async function retarget(id: string | null): Promise<void> {
   useDropsStore.getState().setAll([]);
   useBoardsStore.getState().setAll([]);
   useGateStore.getState().set(null);
-  useScreenStore.getState().setList([], null);
-  watchingWindow = null;
-  useScreenStore.getState().clearWatch();
+  useVncStore.getState().setAccess({ kind: "idle" });
   await resetSession();
 }
 
@@ -408,60 +404,15 @@ export function stopAssistant(agent: string): void {
   assistantFollowTimer = undefined;
 }
 
-/** Ephemeral; the answer lands in `useScreenStore().windows`. */
-export function requestScreenWindows(): void {
+/**
+ * Asks the host for a way into the live view: the answer lands in `useVncStore().access` as a
+ * bridge URL with a single-use ticket, or `off` when Screen Sharing is off on the Mac. Ephemeral;
+ * no-op unless connected.
+ */
+export function requestVncAccess(): void {
   if (useConnectionStore.getState().status !== "connected") return;
-  socket.send(encode({ t: "screen.list" }));
-}
-
-/**
- * Starts streaming `windowId` into `useScreenStore().frame`, replacing any earlier watch. Survives
- * reconnects (re-sent on welcome) until `stopScreenWatch`.
- */
-export function watchScreen(windowId: number): void {
-  watchingWindow = windowId;
-  useScreenStore.getState().clearWatch();
-  if (useConnectionStore.getState().status === "connected") socket.send(encode({ t: "screen.watch", windowId }));
-}
-
-export function stopScreenWatch(): void {
-  if (watchingWindow === null) return;
-  watchingWindow = null;
-  useScreenStore.getState().clearWatch();
-  if (useConnectionStore.getState().status === "connected") socket.send(encode({ t: "screen.stop" }));
-}
-
-/** Ephemeral, like `sendInput`: click the watched window at normalized `x`,`y` (0..1, top-left origin). */
-export function sendScreenTap(x: number, y: number): void {
-  if (watchingWindow === null || useConnectionStore.getState().status !== "connected") return;
-  socket.send(encode({ t: "screen.tap", windowId: watchingWindow, x, y }));
-}
-
-/**
- * Ephemeral: scroll the watched window by host points (positive `dy` moves content down), with the
- * pointer at `x`,`y` (normalized) or, without them, wherever the host cursor is (trackpad scroll).
- */
-export function sendScreenScroll(dx: number, dy: number, at?: { x: number; y: number }): void {
-  if (watchingWindow === null || useConnectionStore.getState().status !== "connected") return;
-  socket.send(encode({ t: "screen.scroll", windowId: watchingWindow, dx, dy, ...at }));
-}
-
-/** Ephemeral trackpad move: raw phone points at client time `at`; the host accelerates and clamps. */
-export function sendScreenMove(dx: number, dy: number, at: number): void {
-  if (watchingWindow === null || useConnectionStore.getState().status !== "connected") return;
-  socket.send(encode({ t: "screen.move", dx, dy, at }));
-}
-
-/** Ephemeral trackpad click at the host cursor. */
-export function sendScreenClick(button: "left" | "right"): void {
-  if (watchingWindow === null || useConnectionStore.getState().status !== "connected") return;
-  socket.send(encode({ t: "screen.click", button }));
-}
-
-/** Ephemeral: type `text`, or press a named key, into the watched window's app. */
-export function sendScreenKey(input: { text: string } | { key: ScreenKey }): void {
-  if (watchingWindow === null || useConnectionStore.getState().status !== "connected") return;
-  socket.send(encode({ t: "screen.key", ...input }));
+  useVncStore.getState().setAccess({ kind: "asking" });
+  socket.send(encode({ t: "vnc.open" }));
 }
 
 /**

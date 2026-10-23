@@ -91,11 +91,9 @@ export function createAgentFrameRouter(store: AgentsStoreActions, send: (message
       case "call.flush":
       case "assistant.snapshot":
       case "assistant.agents":
-      case "screen.list":
-      case "screen.frame":
-      case "screen.ended":
-      case "screen.cursor":
-        // Session, command, drop, board and screen traffic; owned by SessionMachine, CommandQueue and the other routers.
+      case "vnc.ticket":
+      case "vnc.unavailable":
+        // Session, command, drop, board and vnc traffic; owned by SessionMachine, CommandQueue and the other routers.
         return;
     }
   };
