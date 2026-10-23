@@ -237,7 +237,9 @@ export const chatInvoke = {
     output: z.object({ saved: z.literal(true) }),
   },
   'chat.snooze': {
-    input: z.object({ id: SessionIdSchema, untilMs: z.number().int().positive().nullable() }).strict(),
+    input: z
+      .object({ id: SessionIdSchema, untilMs: z.number().int().positive().nullable() })
+      .strict(),
     output: z.object({ saved: z.literal(true) }),
   },
   'chat.rename': {
