@@ -24,6 +24,8 @@ import { requestVncAccess } from "@/connection";
 import { forgetVncCredentials, loadVncCredentials, saveVncCredentials } from "@/vnc/credentials";
 import type { VncCredentials, VncEvent, VncKey } from "@/vnc/messages";
 import { useAnyOrientation } from "@/lib/useAnyOrientation";
+import { useRouter } from "expo-router";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 /** Where the live connection stands once the host handed over a ticket. */
 type Phase = "connecting" | "live" | "login" | "dropped";
@@ -33,6 +35,7 @@ const REFUSED = "Screen Sharing didn't accept that login.";
 
 export default function LiveView() {
   useAnyOrientation();
+  const router = useRouter();
   const connected = useConnectionStore((state) => state.status === "connected");
   const hostId = useConnectionStore((state) => state.activeHostId) ?? DEFAULT_HOST;
   const access = useVncStore((state) => state.access);
@@ -156,21 +159,8 @@ export default function LiveView() {
   }
 
   return (
-    <Screen
-      title="Live view"
-      headerRight={
-        <IconButton
-          symbol="keyboard"
-          accessibilityLabel="Keyboard"
-          disabled={phase !== "live"}
-          onPress={() => {
-            if (keyboard.current?.isFocused() === true) keyboard.current.blur();
-            else keyboard.current?.focus();
-          }}
-        />
-      }
-    >
-      <View style={styles.live}>
+    <View style={styles.live}>
+      <SafeAreaView style={styles.live} edges={["top", "bottom", "left", "right"]}>
         <VncView ref={vnc} url={url} credentials={credentials ?? null} onEvent={onEvent} />
         {phase === "connecting" && (
           <View pointerEvents="none" style={styles.overlay}>
@@ -187,9 +177,27 @@ export default function LiveView() {
             <LoginCard wantsUsername={wanted.includes("username")} failure={failure} onSubmit={submitLogin} />
           </KeyboardAvoidingView>
         )}
-      </View>
+      </SafeAreaView>
+      <SafeAreaView pointerEvents="box-none" style={styles.chrome} edges={["top", "bottom", "left", "right"]}>
+        <View pointerEvents="box-none" style={styles.chromeRow}>
+          <IconButton symbol="chevron.left" accessibilityLabel="Back" tintColor="#FFFFFF" backgroundColor="rgba(0,0,0,0.55)" onPress={() => router.back()} />
+        </View>
+        <View pointerEvents="box-none" style={[styles.chromeRow, styles.chromeEnd]}>
+          <IconButton
+            symbol="keyboard"
+            accessibilityLabel="Keyboard"
+            tintColor="#FFFFFF"
+            backgroundColor="rgba(0,0,0,0.55)"
+            disabled={phase !== "live"}
+            onPress={() => {
+              if (keyboard.current?.isFocused() === true) keyboard.current.blur();
+              else keyboard.current?.focus();
+            }}
+          />
+        </View>
+      </SafeAreaView>
       <HiddenKeyboard inputRef={keyboard} onText={(text) => vnc.current?.send({ type: "text", text })} onKey={sendKey} />
-    </Screen>
+    </View>
   );
 }
 
@@ -251,4 +259,7 @@ const styles = StyleSheet.create({
   overlay: { ...StyleSheet.absoluteFillObject, justifyContent: "center", padding: spacing.xl },
   form: { gap: spacing.md },
   hidden: { position: "absolute", width: 1, height: 1, opacity: 0, left: -100 },
+  chrome: { ...StyleSheet.absoluteFillObject, justifyContent: "space-between", padding: spacing.md },
+  chromeRow: { flexDirection: "row" },
+  chromeEnd: { justifyContent: "flex-end" },
 });
