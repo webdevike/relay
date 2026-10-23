@@ -4,7 +4,7 @@ import ReactMarkdown, { type Components, type ExtraProps } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { CodeBlock } from './CodeBlock'
 import { openLink } from '../../navigation/open-link'
-import { WidgetBlock } from '../widgets/Widget'
+import { OpenUIBlock, WidgetBlock } from '../widgets/Widget'
 
 type Element = NonNullable<ExtraProps['node']>
 type ElementContent = Element['children'][number]
@@ -55,7 +55,7 @@ function fenceOf(pre: Element | undefined): { lang: string; code: string } {
 
 /**
  * Whether a fenced block has its closing fence (rich.rs segments). An unclosed fence runs to the
- * end of the reply, so a ```ui block still streaming has none yet.
+ * end of the reply, so a ```ui or ```openui block still streaming has none yet.
  */
 export function fenceClosed(pre: Element | undefined, source: string): boolean {
   const start = pre?.position?.start.offset
@@ -87,6 +87,8 @@ function Pre({ node }: ExtraProps) {
       <CodeBlock lang="json" code={code} />
     )
   }
+  // OpenUI Lang parses as a stream prefix, so an unclosed openui block renders live.
+  if (lang === 'openui') return <OpenUIBlock code={code} closed={fenceClosed(node, source)} />
   return <CodeBlock lang={lang} code={code} />
 }
 

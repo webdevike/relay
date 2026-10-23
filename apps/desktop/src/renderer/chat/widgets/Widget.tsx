@@ -6,6 +6,7 @@ import {
   type WidgetKind,
   type WidgetSpec,
 } from '@evaos/chat-core/widget'
+import { parseOpenUI } from '@evaos/chat-core/openui'
 import { CodeBlock } from '../markdown/CodeBlock'
 import { ButtonBlock, InputBlock } from './blocks/actions'
 import {
@@ -159,29 +160,56 @@ function InvalidWidget({ json }: { json: string }) {
 }
 
 /** A spec that validated but threw while drawing degrades like one that failed to parse. */
-class WidgetBoundary extends Component<{ json: string; children: ReactNode }, { failed: boolean }> {
+class WidgetBoundary extends Component<
+  { source: string; fallback: ReactNode; children: ReactNode },
+  { failed: boolean }
+> {
   override state = { failed: false }
 
   static getDerivedStateFromError(): { failed: boolean } {
     return { failed: true }
   }
 
-  override componentDidUpdate(prev: { json: string }): void {
-    if (prev.json !== this.props.json && this.state.failed) this.setState({ failed: false })
+  override componentDidUpdate(prev: { source: string }): void {
+    if (prev.source !== this.props.source && this.state.failed) this.setState({ failed: false })
   }
 
   override render(): ReactNode {
-    return this.state.failed ? <InvalidWidget json={this.props.json} /> : this.props.children
+    return this.state.failed ? this.props.fallback : this.props.children
   }
 }
 
 /** A closed ```ui fence: the widget tree it describes, or its source under a warning header. */
 export function WidgetBlock({ json }: { json: string }) {
   const spec = useMemo(() => parseWidget(json), [json])
-  if (spec === null) return <InvalidWidget json={json} />
+  const fallback = <InvalidWidget json={json} />
+  if (spec === null) return fallback
   return (
     <div className="eva-widget" data-testid="widget" data-widget={spec.widget}>
-      <WidgetBoundary json={json}>
+      <WidgetBoundary source={json} fallback={fallback}>
+        <WidgetRoot spec={spec} />
+      </WidgetBoundary>
+    </div>
+  )
+}
+
+/**
+ * A ```openui fence: OpenUI Lang parsed into the same widget tree a ```ui block draws. While the
+ * fence still streams it renders the valid prefix live (plain source until a root renders); once
+ * closed, a root that doesn't render shows its source under the warning header.
+ */
+export function OpenUIBlock({ code, closed }: { code: string; closed: boolean }) {
+  const spec = useMemo(() => parseOpenUI(code, { partial: !closed }).node, [code, closed])
+  const fallback = <CodeBlock lang="openui" code={code} invalid />
+  if (spec === null) return closed ? fallback : <CodeBlock lang="openui" code={code} />
+  return (
+    <div
+      className="eva-widget"
+      data-testid="widget"
+      data-widget={spec.widget}
+      data-partial={!closed || undefined}
+    >
+      <WidgetBoundary source={code} fallback={fallback}>
         <WidgetRoot spec={spec} />
       </WidgetBoundary>
     </div>

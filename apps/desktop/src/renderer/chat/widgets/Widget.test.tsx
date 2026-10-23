@@ -69,6 +69,54 @@ describe('Markdown ```ui fences', () => {
   })
 })
 
+describe('Markdown ```openui fences', () => {
+  const program = [
+    'root = Card([stats, Text("Done")], "Brief")',
+    'stats = Stack([Stat("Open", "12"), Stat("Review", "1")], "horizontal")',
+  ].join('\n')
+
+  it('renders a closed block through the widget registry', () => {
+    show(<Markdown text={`Here:\n\n\`\`\`openui\n${program}\n\`\`\`\n`} />)
+    const root = screen.getByTestId('widget')
+    expect(root).toHaveAttribute('data-widget', 'card')
+    expect(root).not.toHaveAttribute('data-partial')
+    expect(within(root).getAllByTestId('widget-stat')).toHaveLength(2)
+    expect(within(root).getByText('Done')).toBeInTheDocument()
+    expect(screen.queryByTestId('code-block')).toBeNull()
+  })
+
+  it('renders a still-streaming block live, growing as statements arrive', () => {
+    const cut = program.indexOf('Stat("Review"')
+    const { rerender } = render(
+      <MantineProvider>
+        <Markdown text={`\`\`\`openui\n${program.slice(0, cut)}`} />
+      </MantineProvider>,
+    )
+    const root = screen.getByTestId('widget')
+    expect(root).toHaveAttribute('data-partial', 'true')
+    expect(within(root).getAllByTestId('widget-stat')).toHaveLength(1)
+    rerender(
+      <MantineProvider>
+        <Markdown text={`\`\`\`openui\n${program}`} />
+      </MantineProvider>,
+    )
+    expect(within(screen.getByTestId('widget')).getAllByTestId('widget-stat')).toHaveLength(2)
+  })
+
+  it('shows plain source while nothing renders yet, without the warning', () => {
+    show(<Markdown text={'```openui\nroot = Card(['} />)
+    expect(screen.queryByTestId('widget')).toBeNull()
+    expect(screen.getByTestId('code-block')).toHaveTextContent('openui')
+    expect(screen.queryByText("Widget couldn't render")).toBeNull()
+  })
+
+  it('shows a closed block whose root does not render as code under the warning header', () => {
+    show(<Markdown text={'```openui\nroot = Link("x", "not a url")\n```\n'} />)
+    expect(screen.getByText("Widget couldn't render")).toHaveAttribute('data-invalid', 'true')
+    expect(screen.getByTestId('code-block')).toHaveTextContent('root = Link("x", "not a url")')
+  })
+})
+
 describe('WidgetBlock', () => {
   it('frames a compact root once, and a root card is the frame itself', () => {
     show(

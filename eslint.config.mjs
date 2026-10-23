@@ -17,6 +17,8 @@ export default tseslint.config(
       'logs/**',
       'proof/**',
       '**/test-results/**',
+      // Vendored upstream (thesysdev/openui lang-core), kept diffable; see its LICENSE-openui.
+      'packages/chat-core/src/openui/lang/**',
     ],
   },
   js.configs.recommended,

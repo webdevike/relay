@@ -4,6 +4,7 @@
   "private": true,
   "exports": {
     ".": "./src/index.ts",
+    "./openui": "./src/openui/index.ts",
     "./*": "./src/*.ts"
   },
   "scripts": {

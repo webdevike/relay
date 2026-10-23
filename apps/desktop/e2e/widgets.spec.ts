@@ -1,7 +1,8 @@
-// ```ui widgets in chat replies: opens a session whose reply carries every widget kind from
-// native EvaOS's examples/showcase.md (plus diagram, model, pr and one deliberately bad block),
-// checks each renders with its media loaded, that reply buttons and fields send the next turn
-// through the composer path, and saves light and dark screenshots to proof/widgets/.
+// ```ui and ```openui widgets in chat replies: opens a session whose reply carries every widget
+// kind from native EvaOS's examples/showcase.md (plus diagram, model, pr and one deliberately bad
+// block), checks each renders with its media loaded, that reply buttons and fields send the next
+// turn through the composer path, and saves light and dark screenshots to proof/widgets/. A second
+// session writes Relay's OpenUI Lang prompt examples and checks they draw through the same widgets.
 //
 // Media never comes from the internet: a local server answers the http(s) srcs and stands in for
 // the Relay host (its port goes in <configDir>/relay/serve.json), so `/drops/...` srcs resolve
@@ -23,7 +24,7 @@ import { proofShot } from './helpers/proofShot'
 
 const OUT = path.join(REPO_ROOT, 'proof', 'widgets')
 const TEMPLATE = path.join(FIXTURES_DIR, 'agent-widgets')
-const STEM = '2026-10-23T09-00-00-000Z_chat-widgets'
+const OPENUI_TITLE = 'OpenUI showcase'
 const TITLE = 'Widget showcase'
 const LOG = '[data-testid=chat-pane] [data-testid=chat-log]'
 
@@ -88,14 +89,21 @@ function copyFixture(port: number): Copy {
   const agentDir = path.join(root, 'agent')
   fs.cpSync(TEMPLATE, agentDir, { recursive: true })
   const sessionsDir = path.join(agentDir, 'sessions', '-fixture')
-  const file = path.join(sessionsDir, `${STEM}.jsonl`)
-  const text = fs
-    .readFileSync(file, 'utf8')
-    .replaceAll('__MEDIA_PORT__', String(port))
-    .replaceAll('__MEDIA_DIR__', path.join(agentDir, 'media'))
-  fs.writeFileSync(file, text)
-  const when = new Date(Date.now() - 30 * 60_000)
-  fs.utimesSync(file, when, when)
+  const minutes = JSON.parse(fs.readFileSync(path.join(agentDir, 'mtimes.json'), 'utf8')) as Record<
+    string,
+    number
+  >
+  for (const name of fs.readdirSync(sessionsDir)) {
+    const file = path.join(sessionsDir, name)
+    const text = fs
+      .readFileSync(file, 'utf8')
+      .replaceAll('__MEDIA_PORT__', String(port))
+      .replaceAll('__MEDIA_DIR__', path.join(agentDir, 'media'))
+    fs.writeFileSync(file, text)
+    const id = name.slice(name.indexOf('_') + 1, -'.jsonl'.length)
+    const when = new Date(Date.now() - minutes[id]! * 60_000)
+    fs.utimesSync(file, when, when)
+  }
   const log = path.join(root, 'fake-omp.log')
   return {
     root,
@@ -160,13 +168,13 @@ const frames = (shell: Page): Promise<void> =>
     () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
   )
 
-async function openShowcase(shell: Page) {
+async function openShowcase(shell: Page, title = TITLE) {
   await shell.getByTestId('nav-chat').click()
   await shell
     .getByTestId('chat-tree')
-    .getByRole('link', { name: new RegExp(`^${TITLE}`) })
+    .getByRole('link', { name: new RegExp(`^${title}`) })
     .click()
-  await expect(shell.locator('[data-testid=chat-header]')).toContainText(TITLE)
+  await expect(shell.locator('[data-testid=chat-header]')).toContainText(title)
   await expect(shell.locator(LOG)).toContainText('Concise Read')
 }
 
@@ -189,9 +197,14 @@ async function scheme(shell: Page, s: 'light' | 'dark') {
   await expect(shell.locator('html')).toHaveAttribute('data-resolved', s)
 }
 
-/** Screenshots the reply page by page, top to bottom, into proof/widgets/. Pages overlap by the
- * composer's height, which floats over the bottom of the log. */
-async function shootReply(app: ElectronApplication, shell: Page, s: 'light' | 'dark') {
+/** Screenshots the reply page by page, top to bottom, into proof/widgets/<prefix>-<scheme>-NN.png.
+ * Pages overlap by the composer's height, which floats over the bottom of the log. */
+async function shootReply(
+  app: ElectronApplication,
+  shell: Page,
+  s: 'light' | 'dark',
+  prefix = 'widgets',
+) {
   const scroller = shell.locator(LOG).locator(':scope > *').first()
   for (let tries = 0; tries < 4; tries++) {
     await scroller.evaluate((el) => {
@@ -213,11 +226,25 @@ async function shootReply(app: ElectronApplication, shell: Page, s: 'light' | 'd
       await frames(shell)
     }
     await shell.waitForTimeout(150)
-    const name = `widgets-${s}-${String(i + 1).padStart(2, '0')}`
+    const name = `${prefix}-${s}-${String(i + 1).padStart(2, '0')}`
     const tmp = await proofShot(app, shell, name, { phase: 'widgets' })
     fs.copyFileSync(tmp, path.join(OUT, `${name}.png`))
     fs.rmSync(tmp, { force: true })
   }
+}
+
+/** Sizes the window's content so screenshots page the same way every run. */
+async function sizeWindow(app: ElectronApplication) {
+  await app.evaluate(
+    (_e, [w, h]) => {
+      // Main exposes its window to e2e runs as `__evaosTest.win`; it isn't typed on globalThis.
+      const hooks = globalThis as unknown as {
+        __evaosTest: { win: { setContentSize(w: number, h: number): void } }
+      }
+      hooks.__evaosTest.win.setContentSize(w, h)
+    },
+    [1280, 900] as const,
+  )
 }
 
 test('every widget kind renders inline, media loads, and replies send the next turn', async ({
@@ -226,15 +253,7 @@ test('every widget kind renders inline, media loads, and replies send the next t
   media,
 }) => {
   test.setTimeout(180_000)
-  await app.evaluate(
-    (_e, [w, h]) =>
-      (
-        globalThis as unknown as {
-          __evaosTest: { win: { setContentSize(w: number, h: number): void } }
-        }
-      ).__evaosTest.win.setContentSize(w, h),
-    [1280, 900] as const,
-  )
+  await sizeWindow(app)
   await openShowcase(shell)
   const log = shell.locator(LOG)
 
@@ -326,4 +345,60 @@ test('every widget kind renders inline, media loads, and replies send the next t
   await shell.locator(LOG).getByRole('button', { name: 'Rename', exact: true }).click()
   await expect(shell.locator(LOG).getByTestId('widget-input-sent')).toHaveText('Sent')
   await expect.poll(prompts, { timeout: 20_000 }).toContain('rename the project to Atlas')
+})
+
+test('OpenUI Lang blocks draw through the same widgets, and a bad one falls back', async ({
+  app,
+  shell,
+}) => {
+  test.setTimeout(120_000)
+  await sizeWindow(app)
+  await openShowcase(shell, OPENUI_TITLE)
+  const log = shell.locator(LOG)
+
+  // One widget root per good block, in reply order, none left partial once the fences closed.
+  const roots = log.locator('[data-testid=widget]')
+  await expect(roots).toHaveCount(4)
+  expect(await roots.evaluateAll((els) => els.map((el) => el.getAttribute('data-widget')))).toEqual(
+    ['card', 'tickets', 'card', 'chart'],
+  )
+  await expect(log.locator('[data-testid=widget][data-partial]')).toHaveCount(0)
+  await expect(log.locator('[data-testid=widget-frame][data-card]')).toHaveCount(2)
+  await expect(log.locator('[data-testid=widget-stat]')).toHaveCount(2)
+  for (const kind of [
+    'rows',
+    'badge',
+    'divider',
+    'tickets',
+    'callout',
+    'table',
+    'progress',
+    'button',
+    'chart',
+  ]) {
+    await expect(log.locator(`[data-testid=widget-${kind}]`).first(), kind).toBeAttached()
+  }
+  // Tickets is a carousel: the first ticket shows, with the args after a null in place.
+  await expect(log.getByText("Merged; waiting on Steve's QA on dev before closing.")).toBeVisible()
+  await expect(log.getByText('2d ago')).toBeVisible()
+  // Only the deliberately bad block falls back, showing its OpenUI source.
+  await expect(log.getByText("Widget couldn't render")).toHaveCount(1)
+  await expect(
+    log.locator('[data-testid=code-block]').filter({ hasText: 'root = Sparkle(' }),
+  ).toHaveCount(1)
+
+  const panel = shell.locator('[data-testid=panel-toggle]:visible').first()
+  if ((await panel.getAttribute('aria-pressed')) === 'true') await panel.click()
+  await expect(panel).toHaveAttribute('aria-pressed', 'false')
+  await scheme(shell, 'light')
+  await shootReply(app, shell, 'light', 'openui')
+  await scheme(shell, 'dark')
+  await shootReply(app, shell, 'dark', 'openui')
+
+  // An @ToAssistant button sends its text as Isaac's next turn.
+  const nudge = log.getByRole('button', { name: 'Nudge Noah' })
+  await nudge.scrollIntoViewIfNeeded()
+  await expect(nudge).toBeEnabled()
+  await nudge.click()
+  await expect.poll(prompts, { timeout: 20_000 }).toContain('nudge Noah on ENG-6211')
 })
