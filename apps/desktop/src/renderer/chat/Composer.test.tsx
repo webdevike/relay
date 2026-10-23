@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MantineProvider } from '@mantine/core'
+import { createRef } from 'react'
 
 // Only chat.send is scripted; the toolbar's launch and model reads get an empty value.
 const sendResults: unknown[] = []
@@ -15,7 +16,7 @@ vi.mock('../ipc', () => ({
   invoke: (...a: unknown[]) => (invoke as (...x: unknown[]) => unknown)(...a),
 }))
 
-import { Composer } from './Composer'
+import { Composer, type ComposerHandle } from './Composer'
 import { chatStore } from './chat-store'
 import { DISMISS_PRIORITY, dismissTop, useDismissable } from '../hotkeys/dismiss'
 
@@ -150,6 +151,51 @@ describe('Composer', () => {
     expect(
       screen.getByPlaceholderText('Session is not running. Resume it to send a message.'),
     ).toBeDisabled()
+  })
+
+  describe('widget replies', () => {
+    const withHandle = () => {
+      const handle = createRef<ComposerHandle>()
+      render(
+        <MantineProvider>
+          <Composer ref={handle} paneId="pane-1" disabled={false} />
+        </MantineProvider>,
+      )
+      return handle
+    }
+
+    it('sendReply sends the text through chat.send and leaves the draft alone', async () => {
+      invoke.mockClear()
+      const user = userEvent.setup()
+      const handle = withHandle()
+      const box = screen.getByTestId('composer-input')
+      await user.type(box, 'my draft')
+      act(() => handle.current!.sendReply('nudge Noah on ENG-6211'))
+      await waitFor(() =>
+        expect(sent()).toEqual([
+          ['chat.send', { paneId: 'pane-1', text: 'nudge Noah on ENG-6211' }],
+        ]),
+      )
+      expect(box).toHaveValue('my draft')
+    })
+
+    it('a reply owned elsewhere asks first, then resends that reply forced', async () => {
+      invoke.mockClear()
+      sendResults.push({
+        ok: false,
+        error: { code: 'owned-elsewhere', message: 'Another window is writing.' },
+      })
+      const handle = withHandle()
+      act(() => handle.current!.sendReply('ship it'))
+      fireEvent.click(await screen.findByTestId('writer-prompt-confirm'))
+      await waitFor(() =>
+        expect(sent()).toEqual([
+          ['chat.send', { paneId: 'pane-1', text: 'ship it' }],
+          ['chat.send', { paneId: 'pane-1', text: 'ship it', force: true }],
+        ]),
+      )
+      expect(screen.getByTestId('composer-input')).toHaveValue('')
+    })
   })
 
   describe('images', () => {

@@ -19,9 +19,21 @@ export function highlight(lang: string, code: string): string | null {
 
 /**
  * A fenced code block (rich.rs code_frame): a hairline frame with a header row holding the
- * language and a copy button, over the highlighted code on the message's own surface.
+ * language (or `title`) and a copy button, over the highlighted code on the message's own
+ * surface. `invalid` marks a closed ```ui block that failed validation: the header says so in the
+ * warning color instead of passing as ordinary code.
  */
-export function CodeBlock({ lang, code }: { lang: string; code: string }) {
+export function CodeBlock({
+  lang,
+  code,
+  title,
+  invalid = false,
+}: {
+  lang: string
+  code: string
+  title?: string | undefined
+  invalid?: boolean
+}) {
   const html = useMemo(() => highlight(lang, code), [lang, code])
   const [copied, setCopied] = useState(false)
   useEffect(() => {
@@ -32,7 +44,9 @@ export function CodeBlock({ lang, code }: { lang: string; code: string }) {
   return (
     <div className="eva-codeblock" data-testid="code-block">
       <div className="eva-codeblock-head">
-        <span className="eva-codeblock-lang">{lang || 'text'}</span>
+        <span className="eva-codeblock-lang" data-invalid={invalid || undefined}>
+          {invalid ? "Widget couldn't render" : title || lang || 'text'}
+        </span>
         <Tooltip label="Copy code" position="top">
           <button
             type="button"

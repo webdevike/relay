@@ -151,6 +151,9 @@
   font-size: var(--eva-fz-caption);
   color: var(--eva-text-dim);
 }
+.eva-codeblock-lang[data-invalid] {
+  color: var(--eva-c-warning);
+}
 .eva-codeblock-copy {
   display: inline-flex;
   align-items: center;

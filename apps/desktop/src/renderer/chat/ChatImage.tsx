@@ -7,6 +7,8 @@ export const THUMB_MAX = 240
 export const THUMB_PLACEHOLDER = 160
 
 const DATA_IMAGE = /^data:image\/(png|jpeg|gif|webp);base64,/
+/** Widget media served by main's privileged protocol (chat/widgets/media-url.ts). */
+const RELAY_MEDIA = /^relay-media:\/\//
 const BLOB_TOKEN = /^blob:sha256:[a-f0-9]{64}$/
 
 /** Decoded data URLs can be about 27 MB each, so only the most recent few stay in memory. */
@@ -49,7 +51,7 @@ export function clearBlobCache(): void {
 /** The `<img>` source for an image: a safe data URL now, or a blob read in flight (null until it lands). */
 export function useImageSrc(image: ChatImageData): string | null {
   const src = image.src
-  const direct = src !== undefined && DATA_IMAGE.test(src) ? src : null
+  const direct = src !== undefined && (DATA_IMAGE.test(src) || RELAY_MEDIA.test(src)) ? src : null
   const [blob, setBlob] = useState<string | null>(null)
   useEffect(() => {
     setBlob(null)

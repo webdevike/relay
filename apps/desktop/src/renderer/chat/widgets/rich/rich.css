@@ -1,0 +1,292 @@
+/* Rich widgets (widgets.rs): quiet frames on the theme surfaces, hairlines, no stripes. */
+
+.eva-w-title {
+  min-width: 0;
+}
+
+.eva-w-pager {
+  flex: none;
+}
+.eva-w-dots {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+}
+.eva-w-dot {
+  width: 6px;
+  height: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--eva-c-muted-foreground);
+  opacity: 0.35;
+  cursor: pointer;
+  transition: opacity var(--eva-dur-fast) ease;
+}
+.eva-w-dot:hover {
+  opacity: 0.6;
+}
+.eva-w-dot[data-active='true'] {
+  opacity: 1;
+}
+.eva-w-counter {
+  font-variant-numeric: tabular-nums;
+}
+
+/* A media frame: the muted surface is the loading placeholder. */
+.eva-w-frame {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  border-radius: var(--eva-radius);
+  background: var(--eva-c-muted-background);
+}
+.eva-w-frame-button {
+  display: block;
+  padding: 0;
+  border: 0;
+  cursor: zoom-in;
+}
+.eva-w-media {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.eva-w-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0;
+  transition: opacity var(--eva-dur-fast) ease;
+  user-select: none;
+}
+.eva-w-media[data-state='ready'] img {
+  opacity: 1;
+}
+.eva-w-tag {
+  position: absolute;
+  top: var(--mantine-spacing-xs);
+  pointer-events: none;
+}
+
+/* Compare: the before image clips over the after image at the divider. */
+.eva-w-compare {
+  touch-action: none;
+  cursor: ew-resize;
+  user-select: none;
+}
+.eva-w-compare-before {
+  clip-path: inset(0 calc(100% - var(--eva-w-pos)) 0 0);
+}
+.eva-w-compare-divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--eva-w-pos);
+  width: 2px;
+  transform: translateX(-1px);
+  background: var(--eva-c-background);
+  outline: none;
+}
+.eva-w-compare-handle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: var(--eva-c-background);
+  color: var(--eva-c-foreground);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.25);
+}
+.eva-w-compare-divider:focus-visible .eva-w-compare-handle {
+  outline: 2px solid var(--eva-c-ring);
+}
+
+/* Audio and video. */
+.eva-w-audio-seek {
+  flex: 1;
+  min-width: 0;
+}
+.eva-w-time {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.eva-w-video video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: #000;
+}
+
+/* Model: the canvas takes the frame; drags orbit instead of scrolling. */
+.eva-w-model {
+  touch-action: none;
+  cursor: grab;
+}
+.eva-w-model:active {
+  cursor: grabbing;
+}
+.eva-w-model canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Diff: one hairline frame, header over sideways-scrolling rows. */
+.eva-w-diff {
+  overflow: hidden;
+  border: 1px solid var(--eva-border);
+  border-radius: var(--eva-radius);
+  background: var(--eva-c-background);
+}
+.eva-w-diff-head {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 36px;
+  padding: 0 var(--mantine-spacing-sm);
+  gap: var(--mantine-spacing-xs);
+  color: var(--eva-c-foreground);
+  text-align: left;
+  transition: background var(--eva-dur-fast) ease;
+}
+.eva-w-diff-head:hover {
+  background: var(--eva-hover);
+}
+.eva-w-diff-head[data-open='true'] {
+  border-bottom: 1px solid var(--eva-border);
+}
+.eva-w-diff-chevron {
+  flex: none;
+  color: var(--eva-c-muted-foreground);
+  transition: transform var(--eva-dur-fast) ease;
+}
+.eva-w-diff-head[data-open='true'] .eva-w-diff-chevron {
+  transform: rotate(90deg);
+}
+.eva-w-diff-dir {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-w-diff-rows {
+  overflow-x: auto;
+  padding: calc(var(--mantine-spacing-xs) / 2) 0;
+  font-family: var(--eva-font-mono);
+  font-size: calc(var(--eva-font-size) * 12 / 14);
+  line-height: 20px;
+  scrollbar-width: thin;
+}
+.eva-w-diff-table {
+  min-width: 100%;
+  width: max-content;
+}
+.eva-w-diff-row {
+  display: flex;
+  min-height: 20px;
+}
+.eva-w-diff-row[data-kind='added'] {
+  background: color-mix(in srgb, var(--mantine-color-green-filled) 12%, transparent);
+}
+.eva-w-diff-row[data-kind='deleted'] {
+  background: color-mix(in srgb, var(--mantine-color-red-filled) 12%, transparent);
+}
+.eva-w-diff-row[data-kind='hunk'] {
+  background: var(--eva-c-muted-background);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-w-diff-bar {
+  flex: none;
+  width: 3px;
+}
+.eva-w-diff-bar[data-block='added'] {
+  background: var(--mantine-color-green-filled);
+}
+.eva-w-diff-bar[data-block='modified'] {
+  background: var(--mantine-color-yellow-filled);
+}
+.eva-w-diff-bar[data-block='deleted'] {
+  background: var(--mantine-color-red-filled);
+}
+.eva-w-diff-num {
+  flex: none;
+  width: 44px;
+  padding-right: var(--mantine-spacing-xs);
+  color: var(--eva-c-muted-foreground);
+  opacity: 0.7;
+  text-align: right;
+  user-select: none;
+}
+.eva-w-diff-code {
+  flex: none;
+  padding: 0 var(--mantine-spacing-md) 0 calc(var(--mantine-spacing-xs) / 2);
+  white-space: pre;
+}
+.eva-w-diff-row[data-kind='deleted'] .eva-w-diff-code {
+  opacity: 0.75;
+}
+.eva-w-diff-more {
+  display: flex;
+  justify-content: center;
+  padding: calc(var(--mantine-spacing-xs) / 2) 0;
+  border-top: 1px solid var(--eva-border);
+}
+
+/* Emails: flat rows on hairlines. */
+.eva-w-email {
+  display: block;
+  width: 100%;
+  padding: var(--mantine-spacing-xs) 0;
+  color: var(--eva-c-foreground);
+  text-align: left;
+  border-radius: 0;
+  transition: background var(--eva-dur-fast) ease;
+}
+.eva-w-email + .eva-w-email {
+  border-top: 1px solid var(--eva-border);
+}
+.eva-w-email:hover {
+  background: var(--eva-hover);
+}
+.eva-w-unread {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mantine-primary-color-filled);
+}
+
+/* Recipe. */
+.eva-w-recipe-done {
+  color: var(--eva-c-muted-foreground);
+  text-decoration: line-through;
+}
+.eva-w-recipe-steps {
+  margin: 0;
+  padding-left: var(--mantine-spacing-lg);
+}
+.eva-w-recipe-steps li + li {
+  margin-top: var(--mantine-spacing-xs);
+}
+
+/* PR. */
+.eva-w-pr-check + .eva-w-pr-check,
+.eva-w-pr-reviewers {
+  border-top: 1px solid var(--eva-border);
+}
+.eva-w-pr-check {
+  padding: var(--mantine-spacing-xs) 0;
+}
+.eva-w-pr-reviewers {
+  padding-top: var(--mantine-spacing-xs);
+}

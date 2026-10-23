@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react'
 import { ActionIcon, Textarea } from '@mantine/core'
 import { IconArrowUp, IconPlayerStopFilled, IconPlus } from '@tabler/icons-react'
 import { invoke } from '../ipc'
@@ -28,11 +28,25 @@ const NOTICE = {
 const hasFiles = (e: React.DragEvent): boolean =>
   Array.from(e.dataTransfer?.types ?? []).includes('Files')
 
+/** What the chat pane can ask of its composer: send a widget's reply as the next turn. */
+export interface ComposerHandle {
+  sendReply(text: string): void
+}
+
 /**
  * Composer: Enter sends (a send while a reply runs is a steer), Shift+Enter inserts a newline.
  * Stop and Escape abort the running turn. Images arrive by paste, drop or the attach button.
+ * Widget replies go through the same send (`ref.sendReply`) without touching the draft.
  */
-export function Composer({ paneId, disabled }: { paneId: string; disabled: boolean }) {
+export function Composer({
+  paneId,
+  disabled,
+  ref,
+}: {
+  paneId: string
+  disabled: boolean
+  ref?: Ref<ComposerHandle>
+}) {
   const [text, setText] = useState('')
   const [images, setImages] = useState<Attached[]>([])
   const [notice, setNotice] = useState<string | null>(null)
@@ -43,6 +57,8 @@ export function Composer({ paneId, disabled }: { paneId: string; disabled: boole
   const dragDepth = useRef(0)
   const nextId = useRef(0)
   const picker = useRef<HTMLInputElement>(null)
+  /** A widget reply main asked to confirm (owned elsewhere): resent as-is on confirm. */
+  const pendingReply = useRef<string | null>(null)
   const imagesRef = useRef(images)
   imagesRef.current = images
   const running = useChatStore((s) => s.panes[paneId]?.running ?? false)
@@ -103,12 +119,16 @@ export function Composer({ paneId, disabled }: { paneId: string; disabled: boole
 
   const canSend = !disabled && (text.trim() !== '' || images.length > 0)
 
-  const send = async (force = false): Promise<void> => {
-    const value = text.trim()
-    if ((value === '' && images.length === 0) || disabled) return
-    const sending = images
-    setText('')
-    setImages([])
+  /** Sends the draft, or with `reply` a widget's text, leaving the draft as it is. */
+  const send = async (force = false, reply?: string): Promise<void> => {
+    const draft = reply === undefined
+    const value = (draft ? text : reply).trim()
+    const sending = draft ? images : []
+    if ((value === '' && sending.length === 0) || disabled) return
+    if (draft) {
+      setText('')
+      setImages([])
+    }
     setNotice(null)
     const payload = {
       paneId,
@@ -124,13 +144,19 @@ export function Composer({ paneId, disabled }: { paneId: string; disabled: boole
       chatStore.getState().setError(paneId, null)
       for (const img of sending) URL.revokeObjectURL(img.previewUrl)
     } else {
-      // Give the prompt back unless something new was typed meanwhile.
-      setText((current) => (current === '' ? value : current))
-      setImages((current) => [...sending, ...current])
-      if (r.error.code === 'owned-elsewhere') setWriterPrompt(r.error.message)
-      else chatStore.getState().setError(paneId, r.error.message)
+      if (draft) {
+        // Give the prompt back unless something new was typed meanwhile.
+        setText((current) => (current === '' ? value : current))
+        setImages((current) => [...sending, ...current])
+      }
+      if (r.error.code === 'owned-elsewhere') {
+        pendingReply.current = draft ? null : value
+        setWriterPrompt(r.error.message)
+      } else chatStore.getState().setError(paneId, r.error.message)
     }
   }
+
+  useImperativeHandle(ref, () => ({ sendReply: (reply) => void send(false, reply) }))
 
   const edit = (value: string): void => {
     setText(value)
@@ -269,10 +295,13 @@ export function Composer({ paneId, disabled }: { paneId: string; disabled: boole
       <WriterPrompt
         opened={writerPrompt !== null}
         message={writerPrompt ?? ''}
-        onCancel={() => setWriterPrompt(null)}
+        onCancel={() => {
+          pendingReply.current = null
+          setWriterPrompt(null)
+        }}
         onConfirm={() => {
           setWriterPrompt(null)
-          void send(true)
+          void send(true, pendingReply.current ?? undefined)
         }}
       />
       {notice ? (

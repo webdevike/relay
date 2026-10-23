@@ -1,9 +1,10 @@
 import './chat.css'
 import { ActionIcon, Tooltip } from '@mantine/core'
 import { IconLayoutSidebar, IconLayoutSidebarRight } from '@tabler/icons-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChatLog } from './ChatLog'
-import { Composer } from './Composer'
+import { Composer, type ComposerHandle } from './Composer'
+import { WidgetActions, type WidgetActionsValue } from './widgets/actions'
 import { PendingDialog } from './cards/PendingDialog'
 import { JobsStrip } from './strips/JobsStrip'
 import { SubagentChips } from './strips/SubagentChips'
@@ -26,6 +27,14 @@ declare global {
 
 export function ChatPane() {
   const pane = useChatStore((s) => s.panes[PANE_ID])
+  const composer = useRef<ComposerHandle>(null)
+  // A widget reply can go wherever the composer can send: a pane with a session. A stopped one
+  // resumes on send (session-manager starts omp), exactly like a typed prompt.
+  const canReply = pane !== undefined
+  const widgetActions = useMemo<WidgetActionsValue>(
+    () => ({ reply: (text) => composer.current?.sendReply(text), canReply }),
+    [canReply],
+  )
   const [evaRoot, setEvaRoot] = useState<string | null>(null)
   const sidebarState = useLayout((s) => s.state)
   const panelOpen = useLayout((s) => s.panelOpen)
@@ -150,12 +159,14 @@ export function ChatPane() {
         </div>
       ) : null}
       {pane && !(pane.file === '' && pane.messages.length === 0) ? (
-        <ChatLog
-          paneId={PANE_ID}
-          messages={pane.messages}
-          // A draft keeps its log key when omp names the file, so binding never jumps the scroll.
-          file={pane.boundTo ? '' : pane.file}
-        />
+        <WidgetActions.Provider value={widgetActions}>
+          <ChatLog
+            paneId={PANE_ID}
+            messages={pane.messages}
+            // A draft keeps its log key when omp names the file, so binding never jumps the scroll.
+            file={pane.boundTo ? '' : pane.file}
+          />
+        </WidgetActions.Provider>
       ) : (
         <div className="eva-chat-empty">
           <div className="eva-chat-intro">
@@ -175,7 +186,7 @@ export function ChatPane() {
       ) : null}
       <PendingDialog paneId={PANE_ID} />
       {pane ? <JobsStrip running={pane.extras.running} jobs={pane.extras.jobs} /> : null}
-      <Composer paneId={PANE_ID} disabled={!pane} />
+      <Composer ref={composer} paneId={PANE_ID} disabled={!pane} />
     </main>
   )
 }
