@@ -24,6 +24,7 @@ import { childPathFor } from './eva/spawn'
 import { createTestBench } from './test-bench/engine'
 import { createBenchAdjudicator } from './test-bench/models'
 import { registerTestBenchIpc } from './test-bench/ipc'
+import { registerMediaScheme, registerWidgetMedia } from './chat/widget-media-protocol'
 
 function bootstrap(): void {
   let env
@@ -40,6 +41,7 @@ function bootstrap(): void {
   // Chromium profile, persist:browser and extension storage live under the config dir.
   app.setPath('userData', env.configDir)
   installWriteGuard(env)
+  registerMediaScheme()
 
   // macOS reports a window as occluded while the screen is locked, on another Space or under
   // a full-screen app. Chromium then backgrounds every WebContentsView in it and never
@@ -116,6 +118,7 @@ function bootstrap(): void {
       registerEvaIpc(ctx)
       registerChat(ctx, queue)
       registerTestBenchIpc(ctx)
+      registerWidgetMedia(ctx)
       const evaWatch = startEvaWatch(ctx)
       ctx.onBeforeQuit(() => evaWatch.close())
       registerCanvasIpc(ctx)

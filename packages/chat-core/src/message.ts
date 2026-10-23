@@ -8,7 +8,10 @@ export const ToolIoSchema = z.object({
   status: z.enum(['running', 'done', 'failed']),
 })
 
-/** `src` is a `data:image/...;base64,...` URL or a `blob:sha256:<64 hex>` token. */
+/**
+ * `src` is a `data:image/...;base64,...` URL or a `blob:sha256:<64 hex>` token (or, for widget
+ * images shown in the viewer, a `relay-media://` URL).
+ */
 export const ChatImageSchema = z.object({
   label: z.string(),
   src: z.string().optional(),
