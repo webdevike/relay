@@ -105,6 +105,7 @@ export class ChatListService {
   private blocked = new Set<string>()
   /** Relay was connected at the last list. */
   private relayWasUp = false
+  private readonly assistantIds = new Set<string>()
   private readonly now: () => number
   private readonly liveFiles: () => ReadonlySet<string>
   private readonly scanner: SessionScanner
@@ -234,6 +235,10 @@ export class ChatListService {
     const relay = this.deps.relay?.() ?? null
     const relayHeld = relay !== null && this.relayWasUp
     this.relayWasUp = relay !== null
+    // Assistant threads (Astra, Nova, ...) have their own place, like native's hide_assistant;
+    // ids seen while Relay is up stay hidden through a Relay outage.
+    if (relay !== null)
+      for (const [sid, s] of relay) if (s.kind === 'assistant') this.assistantIds.add(sid)
     const now = this.now()
     const work = this.ledgers.current()
     const place = new PlaceReader(work)
@@ -243,6 +248,7 @@ export class ChatListService {
     this.blocked.clear()
     this.updated.clear()
     for (const [id, { file, st }] of found) {
+      if (this.assistantIds.has(id)) continue
       seen.add(file)
       const f = this.scanner.facts(file, st)
       const owned = this.deps.liveStatus?.(file) ?? null

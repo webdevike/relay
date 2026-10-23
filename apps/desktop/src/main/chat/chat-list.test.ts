@@ -585,6 +585,20 @@ describe('ChatListService rows like native', () => {
       expect(svc.list().rows[0]).toMatchObject({ status: 'working', running: true, startedMs: NOW })
     })
 
+    it('hides assistant threads (Astra, Nova) from the list, even after Relay drops', () => {
+      const s = setup()
+      titled(s.sessionsDir, 'astra')
+      titled(s.sessionsDir, 'chat')
+      let relay: Map<string, RelaySession> | null = connected(
+        relaySession('astra', 'idle', { kind: 'assistant', assistant: 'astra' }),
+        relaySession('chat', 'working'),
+      )
+      const svc = new ChatListService({ ...s, now: () => NOW, relay: () => relay })
+      expect(svc.list().rows.map((r) => r.id)).toEqual(['chat'])
+      relay = null
+      expect(svc.list().rows.map((r) => r.id)).toEqual(['chat'])
+    })
+
     it('a chat Relay stops listing mid-run returns then, but not when Relay dropped', () => {
       const s = setup()
       const mtime = fs.statSync(titled(s.sessionsDir, 'a')).mtimeMs
