@@ -219,7 +219,7 @@ export function resolveEnv(input: ResolveEnvInput): Env {
   const agentDir = env.EVAOS_AGENT_DIR
     ? env.EVAOS_AGENT_DIR
     : live
-      ? env.PI_CODING_AGENT_DIR || path.join(homedir, '.omp/agent')
+      ? sharedAgentDir(env.PI_CODING_AGENT_DIR, homedir)
       : path.join(repoRoot, 'fixtures/agent')
 
   const fakeBridge = path.join(repoRoot, 'fixtures/fake-claude-bridge/fake-bridge.mjs')
@@ -266,6 +266,22 @@ export function resolveEnv(input: ResolveEnvInput): Env {
     repoRoot,
     cdpPort,
   }
+}
+
+/**
+ * omp's shared agent dir (`~/.omp/agent`): the app's config, integrations and pins. Relay is
+ * often launched from an omp shell that exported a named profile's dir
+ * (`~/.omp/profiles/<p>/agent`); that profile is the shell's, not the app's, so it maps back
+ * to the omp home's own agent dir.
+ */
+export function sharedAgentDir(fromEnv: string | undefined, homedir: string): string {
+  if (!fromEnv) return path.join(homedir, '.omp/agent')
+  const parent = path.dirname(fromEnv)
+  const profiles = path.dirname(parent)
+  if (path.basename(fromEnv) === 'agent' && path.basename(profiles) === 'profiles') {
+    return path.join(path.dirname(profiles), 'agent')
+  }
+  return fromEnv
 }
 
 function parseCdpPort(raw: string | undefined, liveDefault: boolean): number | null {

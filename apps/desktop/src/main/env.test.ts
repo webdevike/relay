@@ -136,6 +136,20 @@ describe('resolveEnv', () => {
     expect(p.agentDir).toBe('/a')
   })
 
+  it("launched from a profile's omp shell, keeps omp's shared agent dir", () => {
+    // The bug: herdr looked for the desktop integrations in the shell's profile and failed.
+    const e = resolveEnv(
+      base({
+        env: {
+          EVAOS_LIVE: '1',
+          EVAOS_EVA_ROOT: '/x',
+          PI_CODING_AGENT_DIR: '/home/u/.omp/profiles/personal/agent',
+        },
+      }),
+    )
+    expect(e.agentDir).toBe('/home/u/.omp/agent')
+  })
+
   it('explicit agent dir and Claude seams win in both modes', () => {
     const env = { EVAOS_AGENT_DIR: '/ad', EVAOS_CLAUDE_BRIDGE_BIN: '/cb', EVAOS_CLAUDE_BIN: '/cc' }
     for (const live of [{}, { EVAOS_LIVE: '1', EVAOS_EVA_ROOT: '/x' }]) {
