@@ -19,6 +19,11 @@ declare class VoiceCallNative extends NativeModule<VoiceCallEvents> {
   requestPermission(): Promise<boolean>;
   /** Opens the microphone and the player; audio events start flowing. */
   start(): Promise<void>;
+  /**
+   * Lets go of the microphone (also after a failed or never-made start): engine stopped, voice
+   * processing off, the audio session back to playback only and deactivated. Runs after any
+   * `start` already called, in order.
+   */
   stop(): void;
   setMuted(muted: boolean): void;
   /** Queues PCM16 LE mono 24 kHz (base64) after what is already playing. */

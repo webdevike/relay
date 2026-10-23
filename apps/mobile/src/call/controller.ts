@@ -1,8 +1,10 @@
 /**
  * Starts and ends the phone's side of a call: microphone permission, the native audio engine
  * (`modules/voice-call`), its frames out as `call.audio`, mute and hang-up. The host's answers come
- * back through `src/call/frames.ts`. Whatever ends the call (hang-up, the host, the socket, iOS
- * taking the audio session) stops the engine once.
+ * back through `src/call/frames.ts`. Whatever ends the call (hang-up, the assistant, the socket,
+ * iOS taking the audio session, its screen going away) stops the engine, which lets go of the
+ * microphone. A call that ends cleanly is forgotten at once, so its screen closes straight onto
+ * the thread; one that ends on an error stays, with the error, until its screen is closed.
  */
 import { randomUUID } from "expo-crypto";
 import type { EventSubscription } from "expo-modules-core";
@@ -54,7 +56,11 @@ export async function startCall(agent: string): Promise<void> {
     }),
   ];
   unsubscribeStore = useCallStore.subscribe((store) => {
-    if (store.call?.id !== id || store.call.state === "ended") teardown();
+    const current = store.call;
+    if (current?.id === id && current.state !== "ended") return;
+    teardown();
+    // Hung up, here or by the assistant: nothing to read, so the screen closes onto the thread.
+    if (current?.id === id && current.error === null) useCallStore.getState().clear();
   });
   try {
     await native.start();
@@ -62,12 +68,10 @@ export async function startCall(agent: string): Promise<void> {
     endCall(error instanceof Error && error.message !== "" ? error.message : "Couldn't open the microphone.");
     return;
   }
-  // Ended while the microphone was opening (hung up, socket gone): the store watcher already tore down.
+  // Ended while the microphone was opening (hung up, socket gone): the store watcher's stop, which
+  // the module runs after this start, has closed it again.
   const call = useCallStore.getState().call;
-  if (call?.id !== id || call.state === "ended") {
-    native.stop();
-    return;
-  }
+  if (call?.id !== id || call.state === "ended") return;
   sendCall({ t: "call.start", callId: id, agent });
   // A deaf call looks exactly like one where nobody answers; say so instead.
   setTimeout(() => {
@@ -101,11 +105,16 @@ export function setCallMuted(muted: boolean): void {
   useCallStore.getState().update(call.id, { muted, level: 0 });
 }
 
-/** Ends any call and forgets it, for leaving the call screen. */
+/** Ends any call and forgets it: the hang-up button, closing the call screen, a new call. */
 export function hangUp(): void {
   endCall();
   teardown();
   useCallStore.getState().clear();
+}
+
+/** Call `id`'s screen went away (its thread unmounted): a call nobody can see or hang up is ended. */
+export function leaveCall(id: string): void {
+  if (useCallStore.getState().call?.id === id) hangUp();
 }
 
 function teardown(): void {

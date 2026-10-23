@@ -1,8 +1,9 @@
 /**
  * The voice call on this phone, if any: one at a time, with one assistant. The host drives its
  * state with `call.state` frames (`src/call/frames.ts`); the phone sets `muted` and ends it
- * locally when the socket drops or iOS takes the audio session. An ended call stays here with
- * its `error` until the call screen closes and `clear`s it.
+ * locally when the socket drops or iOS takes the audio session. A call that ends cleanly is cleared
+ * at once (`src/call/controller.ts`); one that ends on an error stays here with it until the call
+ * screen closes and `clear`s it.
  */
 import { create } from "zustand";
 import type { CallState } from "@relay/protocol";

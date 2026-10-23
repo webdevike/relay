@@ -5,7 +5,13 @@
 //   - `play` schedules the host's 24 kHz mono PCM16 on a player node, in order; `flush` drops
 //     everything scheduled (barge-in).
 // `level` events (0..1, mic loudness) drive the call screen; `interrupted` fires when iOS takes the
-// audio session away (a phone call, Siri), and the call ends.
+// audio session away (a phone call, Siri), and the call ends. `stop` lets go of the microphone:
+// voice processing off, engine released, the session back to playback only and deactivated, so
+// iOS drops its microphone indicator.
+//
+// Every engine and session change (start, stop, playback, and the restarts that route and
+// configuration changes ask for) runs in order on one serial queue, so a late restart can never
+// reopen the microphone of a call that has stopped.
 
 import AVFoundation
 import ExpoModulesCore
@@ -26,6 +32,17 @@ public class VoiceCallModule: Module {
   private var buffersSinceLevel = 0
   /** Interruption, engine configuration change and route change observers of the running call. */
   private var observers: [NSObjectProtocol] = []
+  /** Whether this module switched the audio session to record and has not handed it back yet. */
+  private var sessionOwned = false
+  /** Owns `engine`, `player`, `observers` and `sessionOwned`; see the header. */
+  private let queue = DispatchQueue(label: "relay.voice-call", qos: .userInitiated)
+  /** Delivers the session and engine notifications on `queue`. */
+  private lazy var notifications: OperationQueue = {
+    let operations = OperationQueue()
+    operations.underlyingQueue = self.queue
+    operations.maxConcurrentOperationCount = 1
+    return operations
+  }()
   /** Guards `pending`, `muted` and `buffersSinceLevel`, touched from the audio thread and from JS. */
   private let lock = NSLock()
   private let playFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: playRate, channels: 1, interleaved: false)!
@@ -52,10 +69,10 @@ public class VoiceCallModule: Module {
 
     AsyncFunction("start") { () throws in
       try self.startEngine()
-    }
+    }.runOnQueue(queue)
 
     Function("stop") {
-      self.stopEngine()
+      self.queue.async { self.stopEngine() }
     }
 
     Function("setMuted") { (muted: Bool) in
@@ -66,29 +83,42 @@ public class VoiceCallModule: Module {
     }
 
     Function("play") { (pcm: String) in
-      self.schedule(pcm)
+      self.queue.async { self.schedule(pcm) }
     }
 
     Function("flush") {
-      guard let player = self.player else { return }
-      // Stopping a player node drops every buffer scheduled on it.
-      player.stop()
-      player.play()
+      self.queue.async {
+        guard let player = self.player else { return }
+        // Stopping a player node drops every buffer scheduled on it.
+        player.stop()
+        player.play()
+      }
     }
 
     /** One line describing the session, route, engine and tap, for a call that hears nothing. */
     Function("diagnostics") { () -> String in
-      self.diagnostics()
+      self.queue.sync { self.diagnostics() }
     }
 
     OnDestroy {
-      self.stopEngine()
+      self.queue.sync { self.stopEngine() }
     }
   }
 
+  /** Opens the call's audio; on any failure, closes whatever it had opened before rethrowing. */
   private func startEngine() throws {
     stopEngine()
+    do {
+      try openEngine()
+    } catch {
+      stopEngine()
+      throw error
+    }
+  }
+
+  private func openEngine() throws {
     let session = AVAudioSession.sharedInstance()
+    sessionOwned = true
     try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
     try session.setPreferredIOBufferDuration(0.02)
     try session.setActive(true)
@@ -105,7 +135,9 @@ public class VoiceCallModule: Module {
     let player = AVAudioPlayerNode()
     engine.attach(player)
     engine.connect(player, to: engine.mainMixerNode, format: playFormat)
-
+    // Held before it starts, so a failed start is torn down like any other.
+    self.engine = engine
+    self.player = player
     lock.lock()
     pending.removeAll()
     muted = false
@@ -125,11 +157,9 @@ public class VoiceCallModule: Module {
     engine.prepare()
     try engine.start()
     player.play()
-    self.engine = engine
-    self.player = player
     let center = NotificationCenter.default
     observers = [
-      center.addObserver(forName: AVAudioSession.interruptionNotification, object: session, queue: .main) { [weak self] note in
+      center.addObserver(forName: AVAudioSession.interruptionNotification, object: session, queue: notifications) { [weak self] note in
         let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
         if raw == AVAudioSession.InterruptionType.began.rawValue {
           self?.sendEvent("interrupted", [:])
@@ -138,18 +168,18 @@ public class VoiceCallModule: Module {
       // A route or format change (a Bluetooth headset switching to HFP, voice processing settling)
       // stops the engine; nothing restarts it unless we do. Seen on Isaac's phone: engine stopped,
       // route BluetoothHFP, zero taps.
-      center.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
+      center.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: notifications) { [weak self] _ in
         self?.restart("configuration change")
       },
-      center.addObserver(forName: AVAudioSession.routeChangeNotification, object: session, queue: .main) { [weak self] _ in
+      center.addObserver(forName: AVAudioSession.routeChangeNotification, object: session, queue: notifications) { [weak self] _ in
         guard let self, let engine = self.engine, !engine.isRunning else { return }
         self.restart("route change")
       },
     ]
     // The configuration change can land before the observer above existed.
     for delay in [0.5, 1.5] {
-      DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-        guard let self, let current = self.engine, current === engine, !current.isRunning else { return }
+      queue.asyncAfter(deadline: .now() + delay) { [weak self, weak engine] in
+        guard let self, let engine, let current = self.engine, current === engine, !current.isRunning else { return }
         self.restart("stopped \(delay)s after start")
       }
     }
@@ -166,7 +196,7 @@ public class VoiceCallModule: Module {
   }
 
   /**
-   * Rewires both directions for the current route and starts the engine again (main queue): the
+   * Rewires both directions for the current route and starts the engine again (on `queue`): the
    * tap with the input's current format, and the player -> mixer -> output chain, whose implicit
    * mixer -> output link was made for the old output format (a switch to Bluetooth HFP changes it).
    */
@@ -219,16 +249,28 @@ public class VoiceCallModule: Module {
     return line
   }
 
+  /**
+   * Ends the call's audio, whether it was running, half-open after a failed start, or never
+   * started: tap and engine stopped, voice processing off before the engine is released (its I/O
+   * unit is what holds the microphone), then the session switched to playback only and deactivated
+   * so no record category is left behind to keep the microphone indicator lit.
+   */
   private func stopEngine() {
     for observer in observers { NotificationCenter.default.removeObserver(observer) }
     observers = []
-    guard let engine else { return }
-    engine.inputNode.removeTap(onBus: 0)
-    player?.stop()
-    engine.stop()
-    self.engine = nil
-    self.player = nil
-    try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+    if let engine {
+      engine.inputNode.removeTap(onBus: 0)
+      player?.stop()
+      engine.stop()
+      try? engine.inputNode.setVoiceProcessingEnabled(false)
+    }
+    engine = nil
+    player = nil
+    guard sessionOwned else { return }
+    sessionOwned = false
+    let session = AVAudioSession.sharedInstance()
+    try? session.setCategory(.playback, mode: .default, options: [])
+    try? session.setActive(false, options: [.notifyOthersOnDeactivation])
   }
 
   /**

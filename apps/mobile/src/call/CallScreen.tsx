@@ -3,7 +3,9 @@
  * stays focused and keeps following, and the words land in it as the call goes). The agent's ring
  * breathes while she thinks or talks and swells with Isaac's voice while she listens; under it,
  * where the call stands, how long it has run, and what was just heard or is being said. Mute and
- * hang up at the bottom. An ended call closes itself, unless it ended on an error worth reading.
+ * hang up at the bottom. Hanging up, here or by the assistant, closes it straight onto the thread;
+ * a call that ended on an error stays to say why. Unmounted mid-call (its thread went away), it
+ * hangs up rather than leave the microphone open with nothing on screen to stop it.
  */
 import { useEffect, useState } from "react";
 import { Modal, StyleSheet, View } from "react-native";
@@ -18,7 +20,7 @@ import { Text } from "@/ui/Text";
 import { mediaClock } from "@/lib/format";
 import { spacing, useColors, useScheme } from "@/theme";
 import { useCallStore } from "@/state/call";
-import { endCall, hangUp, setCallMuted } from "./controller";
+import { hangUp, leaveCall, setCallMuted } from "./controller";
 
 const LABEL: Record<CallState, string> = {
   // Held until the host says its ears are warm (`call.state` listening); talking before that is lost.
@@ -30,8 +32,6 @@ const LABEL: Record<CallState, string> = {
   ended: "Call ended",
 };
 const RING = 132;
-/** How long a cleanly ended call stays on screen. */
-const CLOSE_AFTER_MS = 900;
 /** Dark mode is pure black, like the thread under it. */
 const BG_DARK = "#000000";
 
@@ -49,20 +49,21 @@ export function CallScreen({ title }: { title: string }) {
   }, [level, voice]);
   const halo = useAnimatedStyle(() => ({ transform: [{ scale: voice.value }] }));
 
+  const id = call?.id;
+  useEffect(() => {
+    if (id === undefined) return;
+    return () => {
+      leaveCall(id);
+    };
+  }, [id]);
+
   const ended = call?.state === "ended";
   const error = call?.error ?? null;
-  useEffect(() => {
-    if (!ended || error !== null) return;
-    const timer = setTimeout(hangUp, CLOSE_AFTER_MS);
-    return () => {
-      clearTimeout(timer);
-    };
-  }, [ended, error]);
 
   if (call === null) return null;
   const busy = call.state === "thinking" || call.state === "speaking";
   return (
-    <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={() => { endCall(); }}>
+    <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={hangUp}>
       <View style={[styles.root, { backgroundColor: dark ? BG_DARK : colors.bg, paddingTop: insets.top + spacing.xxxl, paddingBottom: insets.bottom + spacing.xxl }]}>
         <View style={styles.top}>
           <View style={styles.ring}>
@@ -104,7 +105,7 @@ export function CallScreen({ title }: { title: string }) {
               backgroundColor={colors.danger}
               tintColor="#FFFFFF"
               onPress={() => {
-                endCall();
+                hangUp();
               }}
               accessibilityLabel="Hang up"
             />
