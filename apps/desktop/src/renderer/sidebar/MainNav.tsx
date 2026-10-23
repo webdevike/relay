@@ -49,7 +49,10 @@ export function MainNav() {
 
   const go = (page: Place['page'], e: MouseEvent): void => {
     const newTab = e.metaKey
-    if (page === 'chat') {
+    if (page === 'assistants') {
+      openPlace(placeOf('assistants'), { newTab })
+      openSub('assistants')
+    } else if (page === 'chat') {
       // A plain click on Chat while already on a chat only drills in.
       if (!(here.page === 'chat' && !newTab)) openPlace(placeOf('chat'), { newTab })
       openSub('chats')
@@ -97,10 +100,17 @@ export function MainNav() {
               slug={n.slug}
               title={n.title}
               icon={n.icon}
-              active={here.page === n.page}
+              active={
+                here.page === n.page || (n.slug === 'assistants' && here.page.startsWith('agent:'))
+              }
               count={n.slug === 'jobs' && !error ? countLabel(jobs) : null}
               countTestid={n.slug === 'jobs' ? 'count-jobs' : undefined}
-              chevron={n.slug === 'chat' || n.slug === 'canvas' || n.slug === 'meetings'}
+              chevron={
+                n.slug === 'assistants' ||
+                n.slug === 'chat' ||
+                n.slug === 'canvas' ||
+                n.slug === 'meetings'
+              }
               onClick={(e) => go(n.page, e)}
             />
           ))}

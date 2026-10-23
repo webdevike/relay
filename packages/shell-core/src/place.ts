@@ -1,8 +1,17 @@
 /** Place model, ported from the Rust app's tabs.rs so layout.json stays interchangeable. */
 
 export type FixedPage =
-  'dashboard' | 'chat' | 'jobs' | 'test-bench' | 'habits' | 'meetings' | 'canvas' | 'settings'
-export type PageKey = FixedPage | `workspace:${string}`
+  | 'dashboard'
+  | 'assistants'
+  | 'chat'
+  | 'jobs'
+  | 'test-bench'
+  | 'habits'
+  | 'meetings'
+  | 'canvas'
+  | 'settings'
+/** `agent:<id>` is a registry agent's thread (native Page::Agent), saved like native tabs.rs. */
+export type PageKey = FixedPage | `workspace:${string}` | `agent:${string}`
 
 export const SETTINGS_SECTIONS = ['Theme', 'Chat'] as const
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
@@ -19,6 +28,7 @@ export interface Place {
 
 const FIXED_PAGES: readonly string[] = [
   'dashboard',
+  'assistants',
   'chat',
   'jobs',
   'test-bench',
@@ -34,6 +44,7 @@ export function pageKey(page: PageKey): string {
 
 export function pageFromKey(key: string): PageKey | null {
   if (key.startsWith('workspace:')) return key as PageKey
+  if (key.startsWith('agent:') && key.length > 'agent:'.length) return key as PageKey
   return FIXED_PAGES.includes(key) ? (key as PageKey) : null
 }
 

@@ -10,9 +10,11 @@ import { browserEvents, browserInvoke } from './browser'
 import { testBenchEvents, testBenchInvoke } from './test-bench'
 import { canvasEvents, canvasInvoke } from './canvas'
 import { usageEvents, usageInvoke } from './usage'
+import { assistantsEvents, assistantsInvoke } from './assistants'
 export * from './test-bench'
 export * from './canvas'
 export * from './usage'
+export * from './assistants'
 
 export * from './result'
 export { AppInfoSchema, type AppInfo } from './app'
@@ -38,6 +40,7 @@ export const invokeContract = {
   ...testBenchInvoke,
   ...canvasInvoke,
   ...usageInvoke,
+  ...assistantsInvoke,
 }
 export const eventContract = {
   ...appEvents,
@@ -47,6 +50,7 @@ export const eventContract = {
   ...testBenchEvents,
   ...canvasEvents,
   ...usageEvents,
+  ...assistantsEvents,
 }
 
 export type InvokeChannel = keyof typeof invokeContract

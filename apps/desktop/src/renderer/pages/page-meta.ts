@@ -1,5 +1,5 @@
 import type { PageKey, Place } from '@evaos/shell-core'
-import { meetingTitle, workspaceTitle } from '../eva/names-store'
+import { agentTitle, meetingTitle, workspaceTitle } from '../eva/names-store'
 
 export interface NavPage {
   slug: string
@@ -11,6 +11,15 @@ export interface NavPage {
 
 /** The single copy table for nav pages (D-09, UI-SPEC Copywriting). Sidebar and pages share it. */
 export const NAV_PAGES: readonly NavPage[] = [
+  // First, like native's sidebar.
+  {
+    slug: 'assistants',
+    page: 'assistants',
+    title: 'Assistants',
+    description:
+      'Always-on agents, each with its own thread. Open one to pick up where it left off.',
+    icon: 'IconRobot',
+  },
   {
     slug: 'dashboard',
     page: 'dashboard',
@@ -51,7 +60,7 @@ export const NAV_PAGES: readonly NavPage[] = [
   { slug: 'setting', page: 'settings', title: 'Setting', description: '', icon: 'IconSettings' },
 ]
 
-export type PageKind = 'page' | 'settings' | 'workspace' | 'meeting' | 'chat' | 'canvas'
+export type PageKind = 'page' | 'settings' | 'workspace' | 'meeting' | 'chat' | 'canvas' | 'agent'
 
 export interface PageMeta {
   kind: PageKind
@@ -71,6 +80,10 @@ export function pageMeta(place: Place): PageMeta {
       title: workspaceTitle(id) ?? id,
       description: 'Workspace activity, todos and journal.',
     }
+  }
+  if (page.startsWith('agent:')) {
+    const id = page.slice('agent:'.length)
+    return { kind: 'agent', slug: 'agent', title: agentTitle(id) ?? id, description: '' }
   }
   if (page === 'meetings' && place.meeting !== null) {
     return {

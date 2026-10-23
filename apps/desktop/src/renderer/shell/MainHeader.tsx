@@ -1,5 +1,7 @@
 import { ActionIcon, Kbd, Tooltip } from '@mantine/core'
 import { IconLayoutSidebar, IconLayoutSidebarRight } from '@tabler/icons-react'
+import { AgentCrumb } from '../assistants/AgentCrumb'
+import { agentIdOf } from '../assistants/assistants-store'
 import { useNamesVersion } from '../eva/names-store'
 import { FOLDED_LABEL } from '../tabs/TabBar'
 import { tabTitle } from '../tabs/tab-meta'
@@ -10,6 +12,7 @@ import { togglePanel, toggleSidebar, useLayout } from './layout-store'
 export function MainHeader() {
   useNamesVersion()
   const place = useTabs(activePlace)
+  const agent = agentIdOf(place)
   const state = useLayout((s) => s.state)
   const panelOpen = useLayout((s) => s.panelOpen)
   const sidebarLabel =
@@ -37,7 +40,13 @@ export function MainHeader() {
           <IconLayoutSidebar size={16} stroke={1.5} />
         </ActionIcon>
       </Tooltip>
-      <span className="eva-main-header-title">{tabTitle(place)}</span>
+      {agent !== null ? (
+        <span className="eva-main-header-title">
+          <AgentCrumb id={agent} />
+        </span>
+      ) : (
+        <span className="eva-main-header-title">{tabTitle(place)}</span>
+      )}
       <Tooltip
         label={
           <span className="eva-tip">

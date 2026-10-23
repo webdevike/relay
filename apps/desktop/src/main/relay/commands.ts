@@ -52,6 +52,8 @@ export type RelayCommand =
   | { kind: 'agent.ask.cancel'; sessionId: string; askId: string }
   | { kind: 'agent.approve'; sessionId: string; approvalId: string; confirmed: 'desktop' }
   | { kind: 'agent.deny'; sessionId: string; approvalId: string }
+  /** Isaac's words to registry agent `agent`'s thread; the host starts the thread if needed. */
+  | { kind: 'assistant.turn'; agent: string; text: string }
 
 /**
  * Relay's images for a reply, or why Relay would refuse them (native reply_away's GIF check, plus

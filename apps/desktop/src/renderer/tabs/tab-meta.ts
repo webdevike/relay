@@ -1,8 +1,15 @@
 import type { Place } from '@evaos/shell-core'
-import { canvasTitle, chatTitle, meetingTitle, workspaceTitle } from '../eva/names-store'
+import {
+  agentTitle,
+  canvasTitle,
+  chatTitle,
+  meetingTitle,
+  workspaceTitle,
+} from '../eva/names-store'
 
 const TITLES: Record<string, string> = {
   dashboard: 'Dashboard',
+  assistants: 'Assistants',
   chat: 'Chat',
   'test-bench': 'Test Bench',
   jobs: 'Jobs',
@@ -14,6 +21,7 @@ const TITLES: Record<string, string> = {
 
 const ICONS: Record<string, string> = {
   dashboard: 'IconLayoutDashboard',
+  assistants: 'IconRobot',
   chat: 'IconMessage',
   'test-bench': 'IconListCheck',
   jobs: 'IconCalendarTime',
@@ -35,6 +43,10 @@ export function tabTitle(place: Place): string {
     const id = place.page.slice('workspace:'.length)
     return workspaceTitle(id) ?? id
   }
+  if (place.page.startsWith('agent:')) {
+    const id = place.page.slice('agent:'.length)
+    return agentTitle(id) ?? id
+  }
   if (place.page === 'meetings' && place.meeting)
     return meetingTitle(place.meeting) ?? place.meeting
   if (place.page === 'canvas' && place.canvas) return canvasTitle(place.canvas) ?? place.canvas
@@ -43,5 +55,6 @@ export function tabTitle(place: Place): string {
 
 export function tabIconName(place: Place): string {
   if (place.page.startsWith('workspace:')) return 'IconFolder'
+  if (place.page.startsWith('agent:')) return 'IconMessage'
   return ICONS[place.page] ?? 'IconFile'
 }

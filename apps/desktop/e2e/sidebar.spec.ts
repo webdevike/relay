@@ -36,6 +36,7 @@ test('nav rows, counts and recent items come from the fixture root', async ({ sh
     els.map((e) => e.getAttribute('data-testid')),
   )
   expect(ids).toEqual([
+    'nav-assistants',
     'nav-dashboard',
     'nav-chat',
     'nav-canvas',

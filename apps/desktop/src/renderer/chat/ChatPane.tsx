@@ -23,6 +23,8 @@ import { renameBrowserScope } from '../browser/browser-scope'
 import { openChatFile, openDraftPane, PANE_ID } from './open-chat'
 import { togglePanel, toggleSidebar, useLayout } from '../shell/layout-store'
 import { setChatTitle } from '../eva/names-store'
+import { AgentCrumb } from '../assistants/AgentCrumb'
+import { agentFile, agentIdOf, useAssistants } from '../assistants/assistants-store'
 
 declare global {
   interface Window {
@@ -53,10 +55,11 @@ export function ChatPane() {
       : sidebarState === 'hidden'
         ? 'Show sidebar'
         : 'Sidebar hidden to fit the window. Widen the window or close the panel to bring it back.'
-  const placeChat = useTabs((s) => {
-    const p = activePlace(s)
-    return p.page === 'chat' ? p.chat : null
-  })
+  // An agent's page shows its thread here once omp wrote the file (native Page::Agent).
+  const place = useTabs(activePlace)
+  const thread = useAssistants((s) => agentFile(s, place))
+  const agent = agentIdOf(place)
+  const placeChat = place.page === 'chat' ? place.chat : thread
 
   const hiddenDone = useChatStore((s) => s.hiddenDone)
   const hiddenNames = useMemo(() => {
@@ -140,8 +143,9 @@ export function ChatPane() {
             {pane.running ? (
               <span className="eva-streaming-dot" role="img" aria-label="Eva is replying" />
             ) : null}
+            {/* An agent's thread names its way back: "< Assistants / Astra". */}
             <h2 className="eva-heading eva-chat-title" title={pane.file || undefined}>
-              {pane.title}
+              {agent !== null ? <AgentCrumb id={agent} /> : pane.title}
             </h2>
             {pane.file && !pane.extras.running && !pane.owner && !pane.away ? (
               <span className="eva-chat-saved">Saved session</span>

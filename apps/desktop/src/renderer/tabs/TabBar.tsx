@@ -18,6 +18,7 @@ import {
   IconMessage,
   IconPin,
   IconPlus,
+  IconRobot,
   IconSchema,
   IconSettings,
   IconUsers,
@@ -54,6 +55,7 @@ const ICONS: Record<string, Icon> = {
   IconSettings,
   IconHelp,
   IconSchema,
+  IconRobot,
 }
 
 export const FOLDED_LABEL =

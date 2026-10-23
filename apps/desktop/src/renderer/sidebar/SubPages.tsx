@@ -2,6 +2,7 @@ import { ActionIcon, Kbd, Tooltip } from '@mantine/core'
 import { IconChevronLeft, IconEdit, IconMessage, IconPalette, IconPlus } from '@tabler/icons-react'
 import { useState, type MouseEvent } from 'react'
 import { SETTINGS_SECTIONS, placeOf, type SettingsSection } from '@evaos/shell-core'
+import { AssistantsList } from '../assistants/AssistantsList'
 import { CanvasList } from '../canvas/CanvasList'
 import { newBoard } from '../canvas/canvas-store'
 import { openPlace } from '../navigation/navigate'
@@ -23,8 +24,8 @@ const COPY = {
 export function SubPage({ level }: { level: Exclude<NavLevel, 'root'> }) {
   const here = useTabs(activePlace)
   const [query, setQuery] = useState('')
-  const copy = level === 'settings' ? null : COPY[level]
-  const title = copy ? copy.title : 'Settings'
+  const copy = level === 'settings' || level === 'assistants' ? null : COPY[level]
+  const title = copy ? copy.title : level === 'assistants' ? 'Assistants' : 'Settings'
 
   const pick = (section: SettingsSection, e: MouseEvent): void => {
     openPlace(placeOf('settings', { settingsSection: section }), { newTab: e.metaKey })
@@ -57,7 +58,16 @@ export function SubPage({ level }: { level: Exclude<NavLevel, 'root'> }) {
           </button>
         </Tooltip>
         <div className="eva-sb-sub-title">
-          {level === 'meetings' ? (
+          {level === 'assistants' ? (
+            <button
+              type="button"
+              className="eva-sb-title-btn"
+              data-testid="assistants-home-link"
+              onClick={(e) => openPlace(placeOf('assistants'), { newTab: e.metaKey })}
+            >
+              {title}
+            </button>
+          ) : level === 'meetings' ? (
             <button
               type="button"
               className="eva-sb-title-btn"
@@ -105,7 +115,9 @@ export function SubPage({ level }: { level: Exclude<NavLevel, 'root'> }) {
       </div>
       <div className="eva-sb-scroll">
         <ScrollArea>
-          {level === 'meetings' ? (
+          {level === 'assistants' ? (
+            <AssistantsList />
+          ) : level === 'meetings' ? (
             <MeetingsList query={query} />
           ) : level === 'chats' ? (
             <ChatList query={query} />

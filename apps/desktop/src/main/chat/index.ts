@@ -1,5 +1,6 @@
 import * as os from 'node:os'
 import type { MainContext } from '../context'
+import { registerAssistantsIpc } from '../assistants/assistants-ipc'
 import { emit } from '../ipc/handle'
 import { startRelay } from '../relay'
 import { awaySignature } from '../relay/away'
@@ -55,6 +56,8 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
   })
   const emitList = (): void => emit(ctx, 'chat.listChanged', list.list())
   registerChatListIpc(ctx, queue, list, manager, sessionsDirs, emitList)
+  // Assistant threads: Relay says how each stands, their files hold the last reply.
+  const assistants = registerAssistantsIpc(ctx, relay, sessionsDirs)
 
   const watch = new ChatWatch({
     dirs: sessionsDirs,
@@ -66,6 +69,7 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     manager.filesChanged(files)
     emitList()
     extras.onFilesChanged(files)
+    assistants.refresh()
   })
   // The app's own sessions and Relay's change status without any file change.
   let statusTimer: NodeJS.Timeout | undefined
@@ -94,6 +98,7 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     offStatus()
     offRelay()
     clearTimeout(statusTimer)
+    assistants.close()
     await watch.close()
   })
   // Quit ends stdin on every omp this app started and waits; it never signals (D-17).

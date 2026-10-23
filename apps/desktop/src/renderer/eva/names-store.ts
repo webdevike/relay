@@ -7,6 +7,8 @@ export interface NamesState {
   canvases: Record<string, string>
   /** Chat titles by session file, as the chat pane last showed them. */
   chats: Record<string, string>
+  /** Registry agent titles by id (`.omp/assistant/agents.json`). */
+  agents: Record<string, string>
   version: number
 }
 
@@ -15,6 +17,7 @@ export const namesStore = createStore<NamesState>(() => ({
   meetings: {},
   canvases: {},
   chats: {},
+  agents: {},
   version: 0,
 }))
 
@@ -28,6 +31,14 @@ export function setMeetingTitles(map: Record<string, string>): void {
 
 export function setCanvasTitles(map: Record<string, string>): void {
   namesStore.setState((s) => ({ canvases: { ...map }, version: s.version + 1 }))
+}
+
+export function setAgentTitles(map: Record<string, string>): void {
+  namesStore.setState((s) => ({ agents: { ...map }, version: s.version + 1 }))
+}
+
+export function agentTitle(id: string): string | null {
+  return Object.hasOwn(namesStore.getState().agents, id) ? namesStore.getState().agents[id]! : null
 }
 
 /** The chat pane's title for `file`, so a tab on that chat names it. */
