@@ -14,6 +14,7 @@ src/mdns.ts          `_relay._tcp` via avahi-publish (TXT v=1, name=<host>)
 src/input/uinput.ts  Virtual mouse+keyboard on /dev/uinput (bun:ffi for ioctl only)
 src/input/trackpad.ts, pointer-model.ts   Port of TrackpadInputSink / PointerModel
 src/input/keyboard.ts  Named keys via uinput; text via wtype (Wayland) or a US-layout fallback
+src/vnc.ts           Live view: /vnc tickets and the WebSocket <-> 127.0.0.1:5900 VNC bridge
 ```
 
 ## Requirements
@@ -42,6 +43,19 @@ Existing Linux Ctrl shortcuts map to macOS Command, and text uses UTF-16 events.
 
 Bonjour goes through the system mDNSResponder (`dns-sd -R`), the agent socket is
 `/tmp/relay-agents.sock`, and the clipboard watcher remains off without `wl-paste`.
+
+### Live view (VNC)
+
+The phone's live view is a VNC client (noVNC) for the whole Mac desktop, served by macOS's own
+Screen Sharing. Turn it on in System Settings → General → Sharing → Screen Sharing; it listens on
+port 5900 (`serve --vnc-port N` for another local port). The host never exposes that port: an
+authenticated phone sends `vnc.open` over its relay socket, the host checks that
+`127.0.0.1:5900` accepts connections and answers with a single-use ticket valid for 30 seconds
+(`vnc.ticket`), or `vnc.unavailable` when Screen Sharing is off. The phone then opens
+`ws://<host>:<port>/vnc?ticket=<ticket>` (subprotocol `binary`), and the host pipes raw bytes
+between that WebSocket and the VNC port (websockify semantics). Requests without a live ticket
+get 401. Screen Sharing then asks for its own credential: a macOS account name and password, or
+the VNC password set under Screen Sharing → Computer Settings; the phone keeps it in Keychain.
 
 ### NixOS
 

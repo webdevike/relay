@@ -23,6 +23,15 @@ import { WidgetNode } from "./widget";
 export const PROTOCOL_VERSION = 1 as const;
 export const BONJOUR_SERVICE_TYPE = "_relay._tcp" as const;
 export const WS_PATH = "/relay" as const;
+/**
+ * The host's VNC bridge: a binary WebSocket (subprotocol `binary`, websockify semantics) piped to
+ * the Mac's own Screen Sharing server on 127.0.0.1:5900. Opened as `VNC_PATH?ticket=<ticket>` with
+ * a ticket from `vnc.open`; anything else is refused with 401.
+ */
+export const VNC_PATH = "/vnc" as const;
+export const VNC_SUBPROTOCOL = "binary" as const;
+/** A `vnc.ticket` opens one bridge within this long of being issued, and only once. */
+export const VNC_TICKET_TTL_MS = 30_000;
 
 // ---------------------------------------------------------------------------------------------
 // Shared value types
@@ -484,36 +493,10 @@ export const Snapshot = z.object({
 export type Snapshot = z.infer<typeof Snapshot>;
 
 // ---------------------------------------------------------------------------------------------
-// Live view: the phone watches one host window. `screen.list` asks for the capturable windows;
-// `screen.watch` starts a stream of `screen.frame` JPEGs (base64, scaled to about phone width,
-// only sent when the window changed) until `screen.stop`, another `screen.watch`, or the socket
-// closes. The host drops frames while the socket is backed up, so the phone always sees the latest.
+// Live view: the phone runs a VNC client (noVNC) against the Mac's built-in Screen Sharing,
+// through the host's authenticated bridge at VNC_PATH. `vnc.open` asks for a ticket; the host
+// answers `vnc.ticket` when Screen Sharing is reachable, `vnc.unavailable` when it is off.
 // ---------------------------------------------------------------------------------------------
-
-export const ScreenWindow = z.object({
-  /** CGWindowID; stable while the window lives. */
-  id: z.number().int().nonnegative(),
-  app: z.string(),
-  title: z.string(),
-  /** Size in points. */
-  width: z.number(),
-  height: z.number(),
-});
-export type ScreenWindow = z.infer<typeof ScreenWindow>;
-
-/**
- * Why a watch or list failed. `denied`: the host lacks Screen Recording permission;
- * `gone`: the window closed; `unavailable`: this host cannot capture (no helper, not a Mac);
- * `failed`: anything else.
- */
-export const ScreenError = z.enum(["denied", "gone", "unavailable", "failed"]);
-export type ScreenError = z.infer<typeof ScreenError>;
-
-/** Named keys the live view can press on the watched window's app. */
-export const ScreenKey = z.enum(["return", "delete", "tab", "escape", "left", "right", "up", "down"]);
-export type ScreenKey = z.infer<typeof ScreenKey>;
-
-const unit = z.number().min(0).max(1);
 
 // ---------------------------------------------------------------------------------------------
 // Calls: a live voice conversation with one assistant thread over this socket (not telephony).
@@ -869,39 +852,8 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("assistant.agents") }),
   /** Ask for the habit gate's current state; answered by `gate.status`. */
   z.object({ t: z.literal("gate.get") }),
-  /** Ask for the capturable host windows; answered by `screen.list`. */
-  z.object({ t: z.literal("screen.list") }),
-  /** Stream `windowId` as `screen.frame`s, replacing any watch already running on this socket. */
-  z.object({ t: z.literal("screen.watch"), windowId: z.number().int().nonnegative() }),
-  /** Stop the running watch, if any. */
-  z.object({ t: z.literal("screen.stop") }),
-  /**
-   * Click the watched window at `x`,`y`, normalized 0..1 over its frame (0,0 top-left). Ephemeral
-   * like `input`: ignored unless `windowId` is the window this socket is watching.
-   */
-  z.object({ t: z.literal("screen.tap"), windowId: z.number().int().nonnegative(), x: unit, y: unit }),
-  /**
-   * Scroll the watched window by `dx`,`dy` points of the host window (natural direction: positive
-   * `dy` moves content down), with the pointer at `x`,`y` (normalized; the window centre if omitted).
-   */
-  z.object({
-    t: z.literal("screen.scroll"),
-    windowId: z.number().int().nonnegative(),
-    dx: z.number(),
-    dy: z.number(),
-    x: unit.optional(),
-    y: unit.optional(),
-  }),
-  /** Type `text` or press `key` (exactly one) into the watched window's app. */
-  z.object({ t: z.literal("screen.key"), text: z.string().min(1).max(2000).optional(), key: ScreenKey.optional() }),
-  /**
-   * Trackpad: move the host cursor by raw phone `dx`,`dy` points at phone time `at`; the host
-   * accelerates them (PointerModel, like `input` moves) and clamps to the displays. Ephemeral;
-   * needs a running watch on this socket.
-   */
-  z.object({ t: z.literal("screen.move"), dx: z.number().finite(), dy: z.number().finite(), at: ms }),
-  /** Trackpad: click `button` wherever the host cursor is. */
-  z.object({ t: z.literal("screen.click"), button: z.enum(["left", "right"]) }),
+  /** Ask for a one-time ticket to open VNC_PATH; answered by `vnc.ticket` or `vnc.unavailable`. */
+  z.object({ t: z.literal("vnc.open") }),
   /**
    * Escalate `item` to the phone. Only the escalator (`ESCALATOR_DEVICE_ID`) may send it; the host
    * stores it, relays it to every other device and pushes a notification for a new id.
@@ -1014,24 +966,10 @@ export const ServerMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("board.delta"), rev: z.number().int(), board: Board.optional(), removed: BoardSlug.optional() }),
   /** The habit gate changed, or the answer to `gate.get`. `null`: no bridge reports a gate on this host. */
   z.object({ t: z.literal("gate.status"), gate: GateStatus.nullable() }),
-  /** Answer to `screen.list`: capturable windows, front to back. `error` set means none could be listed. */
-  z.object({ t: z.literal("screen.list"), windows: z.array(ScreenWindow), error: ScreenError.optional() }),
-  /** One captured frame of the watched window: base64 JPEG, `width` x `height` pixels. */
-  z.object({
-    t: z.literal("screen.frame"),
-    windowId: z.number().int().nonnegative(),
-    width: z.number().int().positive(),
-    height: z.number().int().positive(),
-    jpeg: nonEmpty,
-  }),
-  /**
-   * Where the host cursor is over the watched window, normalized (outside 0..1 when off it).
-   * Sent right after every trackpad move and before frames, so the phone draws the cursor itself
-   * (frames are captured without one) at input speed rather than frame speed.
-   */
-  z.object({ t: z.literal("screen.cursor"), windowId: z.number().int().nonnegative(), x: z.number(), y: z.number() }),
-  /** The watch ended without the phone asking (window closed, permission missing, capture died). */
-  z.object({ t: z.literal("screen.ended"), windowId: z.number().int().nonnegative(), error: ScreenError }),
+  /** Answer to `vnc.open`: open `VNC_PATH?ticket=<ticket>` within VNC_TICKET_TTL_MS. Single use. */
+  z.object({ t: z.literal("vnc.ticket"), ticket: nonEmpty }),
+  /** Answer to `vnc.open` when nothing listens on the Mac's VNC port: Screen Sharing is off. */
+  z.object({ t: z.literal("vnc.unavailable") }),
   /**
    * Where call `callId` with assistant `agent` stands. `text` is what was just heard (`thinking`)
    * or is being said (`speaking`); `error` comes with `ended` when the call failed.

@@ -3,7 +3,7 @@
 // mutation runs on it, so the session needs no locking. The session never sees the socket; it
 // only calls `FrameSink.send`, wired here to `ws.send`.
 
-import { ESCALATOR_DEVICE_ID, encode, MAX_DROP_BYTES, WS_PATH, type ServerMessage } from "@relay/protocol";
+import { ESCALATOR_DEVICE_ID, encode, MAX_DROP_BYTES, VNC_PATH, WS_PATH, type ServerMessage } from "@relay/protocol";
 import { basename } from "node:path";
 import type { Server, ServerWebSocket } from "bun";
 import { AgentsDeltaTracker } from "./agents/delta-tracker";
@@ -28,16 +28,18 @@ import type {
   InputSink,
   PairingUI,
   PushRegistry,
-  ScreenCapture,
   TextInjecting,
 } from "./seams";
 import { ClientSession } from "./session";
+import { authorizeVnc, VncBridge, VncTickets } from "./vnc";
 
 export interface ServerConfig {
   /** 0 picks an ephemeral port, like the Mac app. */
   readonly port: number;
   readonly hostName: string;
   readonly version: string;
+  /** The Mac's VNC server (Screen Sharing) on 127.0.0.1; the live view's `VNC_PATH` bridges to it. */
+  readonly vncPort: number;
 }
 
 export interface ServerDeps {
@@ -55,8 +57,6 @@ export interface ServerDeps {
   readonly drops: DropBox | null;
   /** Live dashboards; null disables `/boards` and leaves `board.subscribe` an empty snapshot. */
   readonly boards: FileBoardStore | null;
-  /** Live-view window capture; `NO_SCREEN` on hosts without one. */
-  readonly screen: ScreenCapture;
   /** The phone-escalation inbox EvaOS feeds; null disables `inbox.*` frames. */
   readonly inbox: InboxRelaying | null;
   /** The host's assistant threads; null disables `assistant.*` frames and `POST /assistant/say`. */
@@ -73,9 +73,11 @@ export interface ConnectedDevice {
   readonly connectedAt: number;
 }
 
+/** A relay socket carries a session; a `VNC_PATH` socket carries a bridge instead (`session` null). */
 interface SocketData {
   session: ClientSession | null;
   connectedAt: number;
+  vnc: { readonly deviceId: string; bridge: VncBridge | null } | null;
 }
 
 type Socket = ServerWebSocket<SocketData>;
@@ -90,9 +92,6 @@ class WebSocketFrameSink implements FrameSink {
     this.ws.send(encode(message));
   }
 
-  get buffered(): number {
-    return this.ws.getBufferedAmount();
-  }
   close(): void {
     if (this.closed) return;
     this.closed = true;
@@ -105,6 +104,8 @@ export class RelayServer {
   private readonly agentsTracker = new AgentsDeltaTracker();
   private readonly pairing: PairingCoordinator;
   private readonly sockets = new Set<Socket>();
+  private readonly vncSockets = new Set<Socket>();
+  private readonly vncTickets: VncTickets;
   private server: Server<SocketData> | null = null;
 
   constructor(
@@ -112,6 +113,7 @@ export class RelayServer {
     private readonly deps: ServerDeps,
   ) {
     this.pairing = new PairingCoordinator(deps.pairing);
+    this.vncTickets = new VncTickets(config.vncPort);
   }
 
   /** Returns the bound port. */
@@ -137,9 +139,18 @@ export class RelayServer {
       fetch: (request, srv) => {
         const path = new URL(request.url).pathname;
         if (path === WS_PATH) {
-          if (srv.upgrade(request, { data: { session: null, connectedAt: Date.now() } }))
+          if (srv.upgrade(request, { data: { session: null, connectedAt: Date.now(), vnc: null } }))
             return undefined;
           return new Response("websocket upgrade required", { status: 426 });
+        }
+        if (path === VNC_PATH) {
+          const grant = authorizeVnc(request, this.vncTickets);
+          if (grant instanceof Response) return grant;
+          const upgraded = srv.upgrade(request, {
+            data: { session: null, connectedAt: Date.now(), vnc: { deviceId: grant.deviceId, bridge: null } },
+            ...(grant.protocol === null ? {} : { headers: { "Sec-WebSocket-Protocol": grant.protocol } }),
+          });
+          return upgraded ? undefined : new Response("websocket upgrade required", { status: 426 });
         }
         const remote = srv.requestIP(request)?.address ?? "";
         if (path === "/drops" || path.startsWith("/drops/"))
@@ -153,9 +164,17 @@ export class RelayServer {
         // The phone pings every 5 s; anything quieter than a minute is a dead peer.
         idleTimeout: 60,
         open: (ws) => {
-          this.accept(ws);
+          if (ws.data.vnc !== null) this.openVnc(ws, ws.data.vnc);
+          else this.accept(ws);
         },
         message: (ws, raw) => {
+          const vnc = ws.data.vnc;
+          if (vnc !== null) {
+            // websockify `binary`: raw RFB bytes only.
+            if (typeof raw === "string") vnc.bridge?.close(1003, "binary frames only");
+            else vnc.bridge?.fromPeer(raw);
+            return;
+          }
           const session = ws.data.session;
           if (session === null) return;
           if (typeof raw !== "string") {
@@ -164,7 +183,15 @@ export class RelayServer {
           }
           session.receiveRaw(raw);
         },
+        drain: (ws) => {
+          ws.data.vnc?.bridge?.drain();
+        },
         close: (ws) => {
+          if (ws.data.vnc !== null) {
+            ws.data.vnc.bridge?.peerClosed();
+            this.vncSockets.delete(ws);
+            return;
+          }
           ws.data.session?.handleDisconnect();
           this.sockets.delete(ws);
         },
@@ -187,7 +214,9 @@ export class RelayServer {
 
   stop(): void {
     for (const ws of this.sockets) ws.close();
+    for (const ws of this.vncSockets) ws.close();
     this.sockets.clear();
+    this.vncSockets.clear();
     void this.server?.stop(true);
     this.server = null;
   }
@@ -363,6 +392,22 @@ export class RelayServer {
     return new Response("method not allowed", { status: 405 });
   }
 
+  /** A ticket-holding device opened `VNC_PATH`: connect it to the Mac's VNC server. */
+  private openVnc(ws: Socket, vnc: { readonly deviceId: string; bridge: VncBridge | null }): void {
+    vnc.bridge = new VncBridge(
+      {
+        send: (data) => ws.send(data),
+        close: (code, reason) => {
+          ws.close(code, reason);
+        },
+      },
+      this.vncTickets.port,
+      this.deps.log,
+    );
+    this.vncSockets.add(ws);
+    this.deps.log(`live view (vnc) for ${vnc.deviceId} from ${ws.remoteAddress}`);
+  }
+
   private accept(ws: Socket): void {
     const session = new ClientSession(
       new WebSocketFrameSink(ws),
@@ -382,7 +427,7 @@ export class RelayServer {
         pairing: this.pairing,
         remoteAddress: ws.remoteAddress,
         dedup: this.dedup,
-        screen: this.deps.screen,
+        vnc: this.vncTickets,
         inbox: this.deps.inbox,
         assistant: this.deps.assistant,
         calls: this.deps.calls,

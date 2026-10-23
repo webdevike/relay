@@ -34,14 +34,14 @@ import { ExpoPushSender } from "./push/expo";
 import { InboxService } from "./inbox/service";
 import { AttentionNotifier } from "./push/notifier";
 import { FilePushTokenStore } from "./push/token-store";
-import { findScreenHelper, HelperScreenCapture, NO_SCREEN } from "./screen/capture";
 import { RelayServer } from "./server";
+import { DEFAULT_VNC_PORT } from "./vnc";
 import { systemClock } from "./session";
 import { ClipboardWatcher, systemPaste, systemWatch } from "./drops/clipboard";
 
 const USAGE = `relay-linux <command>
 
-  serve [--port N] [--name NAME] [--agent-home DIR] [--no-clipboard] [--boards DIR]
+  serve [--port N] [--name NAME] [--agent-home DIR] [--no-clipboard] [--boards DIR] [--vnc-port N]
                                    run the host (default command); --agent-home is where a
                                    session started from the phone opens (default: $HOME);
                                    --no-clipboard stops desktop copies from becoming drops;
@@ -49,7 +49,9 @@ const USAGE = `relay-linux <command>
                                    there (default: boards disabled). Calls to the assistants use
                                    eva-realtime's speech workers ($RELAY_VOICE_ROOT, default
                                    <agent-home>/apps/eva-realtime) and pocket-tts on
-                                   $POCKET_PORT (8853) in voice $POCKET_VOICE (stuart_bell)
+                                   $POCKET_PORT (8853) in voice $POCKET_VOICE (stuart_bell).
+                                   The live view bridges paired phones to the Mac's Screen
+                                   Sharing (VNC) on 127.0.0.1, port --vnc-port (default ${String(DEFAULT_VNC_PORT)})
   devices                          list paired phones
   forget <deviceId>                remove a paired phone
   share <text | url | path> ...    add to the drop box of the running host: one existing file
@@ -100,6 +102,7 @@ function serve(
   agentHome: string | null,
   watchClipboard: boolean,
   boardsDir: string | null,
+  vncPort: number,
 ): void {
   let device: UinputDevice | MacInputDevice | null = null;
   try {
@@ -216,10 +219,9 @@ function serve(
             clipboard.expect(mimeType, bytes);
           },
   });
-  const screenHelper = findScreenHelper();
-  log(screenHelper === null ? "live view: no relay-screen helper; screen.* answers unavailable" : `live view: ${screenHelper}`);
+  log(`live view: VNC bridge to 127.0.0.1:${String(vncPort)} (macOS Screen Sharing)`);
   const server: RelayServer = new RelayServer(
-    { port, hostName: name, version: pkg.version },
+    { port, hostName: name, version: pkg.version, vncPort },
     {
       input: new TrackpadInputSink(poster),
       text: new KeyboardInjector(poster, typer),
@@ -230,7 +232,6 @@ function serve(
       push: pushTokens,
       drops,
       boards,
-      screen: screenHelper === null ? NO_SCREEN : new HelperScreenCapture(screenHelper, log),
       notifier,
       inbox,
       assistant,
@@ -425,6 +426,7 @@ async function main(argv: string[]): Promise<void> {
       "agent-home": { type: "string" },
       "no-clipboard": { type: "boolean", default: false },
       boards: { type: "string" },
+      "vnc-port": { type: "string", default: String(DEFAULT_VNC_PORT) },
       agent: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
     },
@@ -439,12 +441,16 @@ async function main(argv: string[]): Promise<void> {
       const port = Number.parseInt(values.port, 10);
       if (!Number.isInteger(port) || port < 0 || port > 65535)
         throw new Error(`invalid --port ${values.port}`);
+      const vncPort = Number.parseInt(values["vnc-port"], 10);
+      if (!Number.isInteger(vncPort) || vncPort < 1 || vncPort > 65535)
+        throw new Error(`invalid --vnc-port ${values["vnc-port"]}`);
       serve(
         port,
         values.name,
         values["agent-home"] ?? process.env["HOME"] ?? null,
         !values["no-clipboard"],
         values.boards ?? process.env["RELAY_BOARDS_DIR"] ?? null,
+        vncPort,
       );
       return;
     }

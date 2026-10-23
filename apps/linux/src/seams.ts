@@ -1,55 +1,21 @@
 // Seams between transport, input and storage. Mirrors apps/mac/Sources/RelayCore/Seams.swift:
 // the session only ever talks to these; input/ and the stores implement them; main.ts wires them.
 
-import type { AckError, AgentApproval, AgentAsk, AgentAskAnswer, AgentImage, AgentMessage, AgentOptions, AgentSession, ApprovalConfirmation, AssistantAgent, AssistantSnapshot, ClientMessage, Command, Drop, DropOrigin, GateStatus, InboxItem, InboxResolve, InputEvent, KeyName, ScreenError, ScreenKey, ScreenWindow, ServerMessage } from "@relay/protocol";
+import type { AckError, AgentApproval, AgentAsk, AgentAskAnswer, AgentImage, AgentMessage, AgentOptions, AgentSession, ApprovalConfirmation, AssistantAgent, AssistantSnapshot, ClientMessage, Command, Drop, DropOrigin, GateStatus, InboxItem, InboxResolve, InputEvent, KeyName, ServerMessage } from "@relay/protocol";
 
 /** Outbound side of one connection. `send` after `close` is a no-op. */
 export interface FrameSink {
   send(message: ServerMessage): void;
   close(): void;
-  /** Bytes queued on the socket and not yet written; live-view frames are skipped while it is high. */
-  readonly buffered: number;
 }
 
-/** One captured frame: JPEG bytes and their pixel size. */
-export interface ScreenFrame {
-  readonly jpeg: Uint8Array;
-  readonly width: number;
-  readonly height: number;
-}
-
-/** Phone input for the watched window; points are normalized 0..1 over the window. */
-export type ScreenInput =
-  | { readonly t: "tap"; readonly x: number; readonly y: number }
-  | { readonly t: "scroll"; readonly dx: number; readonly dy: number; readonly x?: number; readonly y?: number }
-  | { readonly t: "text"; readonly text: string }
-  | { readonly t: "key"; readonly key: ScreenKey }
-  /** Relative cursor move in host points; scroll without x/y acts at the cursor. */
-  | { readonly t: "move"; readonly dx: number; readonly dy: number }
-  | { readonly t: "click"; readonly button: "left" | "right" }
-  /** Smaller, lower-quality frames while the phone drives the trackpad. */
-  | { readonly t: "lite"; readonly on: boolean };
-
-/** A running capture; `stop` ends it without an `onEnd` call. */
-export interface ScreenWatch {
-  stop(): void;
-  /** Clicks, scrolls or types into the watched window; dropped once stopped. */
-  input(event: ScreenInput): void;
-}
-
-/** Window capture for the live view (ScreenCaptureKit through the `relay-screen` helper on macOS). */
-export interface ScreenCapture {
-  list(): Promise<{ windows: ScreenWindow[]; error?: ScreenError }>;
+/** The live view's VNC bridge (`VNC_PATH`), as the session sees it. */
+export interface VncAccess {
   /**
-   * Frames flow to `onFrame` and cursor positions (normalized over the window, outside 0..1 when
-   * off it) to `onCursor` until `stop`, or until capture ends on its own, reported once via `onEnd`.
+   * A one-time ticket that lets `deviceId` open the bridge, or null when nothing listens on the
+   * Mac's VNC port (Screen Sharing is off).
    */
-  watch(
-    windowId: number,
-    onFrame: (frame: ScreenFrame) => void,
-    onCursor: (x: number, y: number) => void,
-    onEnd: (error: ScreenError) => void,
-  ): ScreenWatch;
+  open(deviceId: string): Promise<string | null>;
 }
 
 /** Consumes ephemeral trackpad input. Must be cheap and never block; drop rather than queue. */
