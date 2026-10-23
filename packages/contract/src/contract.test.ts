@@ -545,4 +545,42 @@ describe('contract', () => {
       ).toBe(true)
     })
   })
+
+  describe('browser scopes', () => {
+    it('setScope, renameScope and pinTab validate bounded, strict inputs', () => {
+      const set = invokeContract['browser.setScope'].input
+      expect(set.safeParse({ scope: 'chat:/s/a.jsonl' }).success).toBe(true)
+      expect(set.safeParse({ scope: '' }).success).toBe(false)
+      expect(set.safeParse({ scope: 'x'.repeat(1025) }).success).toBe(false)
+      expect(set.safeParse({ scope: 'page:dashboard', extra: 1 }).success).toBe(false)
+      const rename = invokeContract['browser.renameScope'].input
+      expect(rename.safeParse({ from: 'draft:3', to: 'chat:/s/n.jsonl' }).success).toBe(true)
+      expect(rename.safeParse({ from: 'draft:3' }).success).toBe(false)
+      const pin = invokeContract['browser.pinTab'].input
+      expect(pin.safeParse({ tabId: 't1', pinned: true }).success).toBe(true)
+      expect(pin.safeParse({ tabId: '../t1', pinned: true }).success).toBe(false)
+      expect(pin.safeParse({ tabId: 't1' }).success).toBe(false)
+    })
+
+    it('snapshots carry the scope and each tab its pinned flag', () => {
+      const tab = {
+        id: 't1',
+        url: '',
+        title: '',
+        loading: false,
+        canGoBack: false,
+        canGoForward: false,
+        blank: true,
+        error: null,
+        favicon: null,
+      }
+      const out = invokeContract['browser.setScope'].output
+      const scope = 'page:dashboard'
+      expect(out.safeParse({ tabs: [tab], activeId: 't1', scope }).success).toBe(false)
+      expect(
+        out.safeParse({ tabs: [{ ...tab, pinned: true }], activeId: 't1', scope }).success,
+      ).toBe(true)
+      expect(out.safeParse({ tabs: [], activeId: '', scope: '' }).success).toBe(true)
+    })
+  })
 })

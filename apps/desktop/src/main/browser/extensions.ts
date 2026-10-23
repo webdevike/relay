@@ -70,8 +70,8 @@ export async function setupExtensions(ctx: MainContext, browser: BrowserHost): P
   })
   // Tabs that existed before the hooks were registered.
   for (const view of browser.views()) extensions.addTab(view.webContents, ctx.win)
-  const active = browser.activeTabId()
-  if (active) extensions.selectTab(browser.activeView().webContents)
+  const active = browser.activeView()
+  if (active) extensions.selectTab(active.webContents)
 
   const extensionsPath = path.join(ctx.env.configDir, 'extensions')
   await installChromeWebStore({

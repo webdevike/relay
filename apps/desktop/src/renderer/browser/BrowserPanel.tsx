@@ -3,6 +3,7 @@ import './browser.css'
 import { AddressRow } from './AddressRow'
 import { PageStateCard } from './PageStateCard'
 import { TabStrip } from './TabStrip'
+import { startBrowserScope } from './browser-scope'
 import { activeTab, startBrowserStore, useBrowserStore } from './browser-store'
 import { useBrowserHotkeys } from './useBrowserHotkeys'
 import { useSlotSync } from './useSlotSync'
@@ -12,17 +13,25 @@ export function BrowserPanel() {
   const tabs = useBrowserStore((s) => s.tabs)
   const activeId = useBrowserStore((s) => s.activeId)
   const tab = useBrowserStore(activeTab)
-  useEffect(() => startBrowserStore(), [])
+  useEffect(() => {
+    const offStore = startBrowserStore()
+    const offScope = startBrowserScope()
+    return () => {
+      offScope()
+      offStore()
+    }
+  }, [])
   useSlotSync(slot)
   useBrowserHotkeys()
 
-  const showCard = tab !== undefined && (tab.blank || tab.error !== null)
+  // A scope with no tabs shows the new-tab state; the address bar opens its first tab.
+  const showCard = tab === undefined || tab.blank || tab.error !== null
   return (
     <section className="eva-browser" data-testid="browser-panel">
       <AddressRow tab={tab} />
       <TabStrip tabs={tabs} activeId={activeId} />
       <div className="eva-browser-slot" data-testid="browser-slot" ref={slot}>
-        {showCard && tab ? <PageStateCard tab={tab} /> : null}
+        {showCard ? <PageStateCard tab={tab} /> : null}
       </div>
     </section>
   )

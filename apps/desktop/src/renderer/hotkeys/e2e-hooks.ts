@@ -3,7 +3,7 @@ import { setColorScheme, type ColorScheme } from '../theme/theme-config'
 import { pageFromKey, placeOf, type Place } from '@evaos/shell-core'
 import { navigateTo, tabsStore } from '../tabs/tabs-store'
 import { tabTitle } from '../tabs/tab-meta'
-import { togglePanel } from '../shell/layout-store'
+import { layoutStore, togglePanel } from '../shell/layout-store'
 
 export interface HotkeyLogEntry {
   chord: string
@@ -29,8 +29,10 @@ export interface EvaosShellHooks {
   }
   openPlace(page: string, newTab?: boolean, extra?: Partial<Omit<Place, 'page'>>): void
   openChat(): void
-  /** Opens or closes the right panel (it starts closed). */
+  /** Opens or closes the right panel for the browser scope in front, like Isaac's toggle. */
   setPanel(open: boolean): void
+  /** The browser scope in front ('' until the saved tabs are loaded). */
+  browserScope(): string
 }
 
 declare global {
@@ -87,6 +89,7 @@ export function initE2e(): Promise<boolean> {
         },
         openChat: () => navigateTo(placeOf('chat')),
         setPanel: (open) => togglePanel(open),
+        browserScope: () => layoutStore.getState().panelScope,
       }
     }
     return e2e

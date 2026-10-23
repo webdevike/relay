@@ -72,6 +72,9 @@ test('a checked-in MV3 extension runs its content script in persist:browser only
 })
 
 test('extension action button shows in the toolbar and opens its popup', async ({ app, shell }) => {
+  // Actions act on the active tab, so they show once the scope has one.
+  await nav(shell, server.url('/a.html'))
+  await expect(shell.locator('[data-testid^=browser-tab-t]').first()).toContainText('Page A')
   const action = shell.locator('[data-testid=extension-actions] browser-action-list')
   await expect(action).toBeAttached()
   const button = shell

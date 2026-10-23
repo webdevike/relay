@@ -12,9 +12,13 @@ vi.mock('@mantine/notifications', () => ({
 
 import {
   commitWidth,
+  enterPanelScope,
   layoutStore,
   loadLayout,
+  panelTabCreated,
   previewWidth,
+  renamePanelScope,
+  reportScopeTabs,
   resetLayoutStoreForTests,
   resetWidth,
   setWindowWidth,
@@ -176,5 +180,80 @@ describe('openPlace', () => {
     openPlace(placeOf('jobs'), { newTab: true })
     expect(fn).toHaveBeenCalledWith(placeOf('jobs'), { newTab: true })
     setNavigator(null)
+  })
+})
+
+describe('panel per browser scope', () => {
+  beforeEach(() => resetLayoutStoreForTests())
+  const open = (): boolean => g().panelOpen
+
+  it('a never-toggled scope is open iff it has its own tabs', () => {
+    enterPanelScope('chat:/a')
+    expect(open()).toBe(false)
+    reportScopeTabs('chat:/a', ['t1'])
+    expect(open()).toBe(true)
+    enterPanelScope('chat:/b')
+    expect(open()).toBe(false)
+    reportScopeTabs('chat:/b', [])
+    expect(open()).toBe(false)
+    enterPanelScope('chat:/a')
+    expect(open()).toBe(true)
+  })
+
+  it('pinned tabs alone never open it', () => {
+    enterPanelScope('page:dashboard')
+    // The browser store reports only unpinned ids as the scope's own tabs.
+    reportScopeTabs('page:dashboard', [])
+    expect(open()).toBe(false)
+  })
+
+  it("remembers Isaac's toggle per scope", () => {
+    enterPanelScope('A')
+    reportScopeTabs('A', ['t1'])
+    togglePanel(false)
+    enterPanelScope('B')
+    reportScopeTabs('B', [])
+    togglePanel(true)
+    enterPanelScope('A')
+    expect(open()).toBe(false)
+    enterPanelScope('B')
+    expect(open()).toBe(true)
+    enterPanelScope('C')
+    expect(open()).toBe(false)
+  })
+
+  it('a tab created in the scope in front opens it, closing the last one does not close it', () => {
+    enterPanelScope('A')
+    reportScopeTabs('A', [])
+    reportScopeTabs('A', ['t1'])
+    expect(open()).toBe(true)
+    reportScopeTabs('A', [])
+    expect(open()).toBe(true)
+    togglePanel(false)
+    panelTabCreated()
+    expect(open()).toBe(true)
+    enterPanelScope('B')
+    enterPanelScope('A')
+    expect(open()).toBe(true)
+  })
+
+  it('reports for another scope leave the panel alone', () => {
+    enterPanelScope('A')
+    reportScopeTabs('A', [])
+    reportScopeTabs('B', ['t9'])
+    expect(open()).toBe(false)
+    enterPanelScope('B')
+    expect(open()).toBe(true)
+  })
+
+  it('a renamed draft scope keeps its state', () => {
+    enterPanelScope('draft:2')
+    reportScopeTabs('draft:2', ['t1'])
+    togglePanel(false)
+    renamePanelScope('draft:2', 'chat:/n')
+    expect(g().panelScope).toBe('chat:/n')
+    enterPanelScope('page:dashboard')
+    enterPanelScope('chat:/n')
+    expect(open()).toBe(false)
   })
 })

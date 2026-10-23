@@ -71,7 +71,9 @@ export function AddressRow({ tab }: { tab: TabState | undefined }) {
   }
   const go = (value: string): void => {
     close()
+    // A scope with no tabs opens its first one from the address bar.
     if (tabId) void invoke('browser.navigate', { tabId, input: value })
+    else if (value.trim()) void invoke('browser.createTab', { url: value })
     input.current?.blur()
   }
   const runImport = async (): Promise<void> => {
@@ -143,7 +145,7 @@ export function AddressRow({ tab }: { tab: TabState | undefined }) {
           } else if (e.key === 'ArrowUp' && items.length) {
             e.preventDefault()
             setActive((a) => (a <= 0 ? items.length - 1 : a - 1))
-          } else if (e.key === 'Enter' && tabId) {
+          } else if (e.key === 'Enter') {
             go(active >= 0 && items[active] ? items[active].url : text)
           } else if (e.key === 'Escape') {
             if (items.length) close()
@@ -173,7 +175,8 @@ export function AddressRow({ tab }: { tab: TabState | undefined }) {
           {importing ? <Loader size={14} /> : <IconCookie size={16} />}
         </ActionIcon>
       </Tooltip>
-      <ExtensionActions />
+      {/* Extension actions act on the active tab; a scope with no tabs has none to offer. */}
+      {tab ? <ExtensionActions /> : null}
       <ImportArcModal
         opened={importOpen}
         onConfirm={() => void runImport()}

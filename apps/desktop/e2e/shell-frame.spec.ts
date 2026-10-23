@@ -6,7 +6,8 @@ import { test, expect, launchApp } from './fixtures'
 type G = {
   __evaosTest: {
     win: { setContentSize(w: number, h: number): void }
-    hooks: { browser: { host: { activeView(): { getVisible(): boolean } } } }
+    // A scope may have no tabs, and so no active view.
+    hooks: { browser: { host: { activeView(): { getVisible(): boolean } | undefined } } }
   }
 }
 type Hk = { __evaosHotkeys?: Array<{ action: string }> }
@@ -101,8 +102,10 @@ test('Cmd+B and Cmd+Shift+B go through the router', async ({ app, shell }) => {
   await expect(shell.locator('[data-testid=panel-card]')).toBeHidden()
   await expect
     .poll(() =>
-      app.evaluate(() =>
-        (globalThis as unknown as G).__evaosTest.hooks.browser.host.activeView().getVisible(),
+      app.evaluate(
+        () =>
+          (globalThis as unknown as G).__evaosTest.hooks.browser.host.activeView()?.getVisible() ??
+          false,
       ),
     )
     .toBe(false)
@@ -148,8 +151,10 @@ test('grips drag, reset, occlude and keep unknown keys', async ({ app, shell, co
   await shell.mouse.move(px - 80, py, { steps: 3 })
   await expect
     .poll(() =>
-      app.evaluate(() =>
-        (globalThis as unknown as G).__evaosTest.hooks.browser.host.activeView().getVisible(),
+      app.evaluate(
+        () =>
+          (globalThis as unknown as G).__evaosTest.hooks.browser.host.activeView()?.getVisible() ??
+          false,
       ),
     )
     .toBe(false)
@@ -177,8 +182,10 @@ test('widths survive a relaunch', async ({ app, shell, configDir }) => {
     await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(1280)
     await expect.poll(async () => (await box(page, 'sidebar')).width).toBe(300)
     // The panel starts closed; its saved width shows once it opens.
-    type Hooks = { __evaosShell?: { setPanel(open: boolean): void } }
-    await page.waitForFunction(() => Boolean((window as unknown as Hooks).__evaosShell))
+    type Hooks = { __evaosShell?: { browserScope(): string; setPanel(open: boolean): void } }
+    await page.waitForFunction(() =>
+      Boolean((window as unknown as Hooks).__evaosShell?.browserScope()),
+    )
     await page.evaluate(() => (window as unknown as Hooks).__evaosShell!.setPanel(true))
     await expect.poll(async () => Math.round((await box(page, 'panel-card')).width)).toBe(460)
   } finally {

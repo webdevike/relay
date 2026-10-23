@@ -40,8 +40,12 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.eva-tab-icon {
+.eva-tab-icon,
+.eva-tab-pin {
   flex: none;
+}
+.eva-tab-pin {
+  color: var(--eva-text-dim);
 }
 .eva-tab-new {
   flex: none;

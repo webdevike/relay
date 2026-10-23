@@ -12,10 +12,20 @@ export const TabStateSchema = z.object({
   blank: z.boolean(),
   error: z.object({ host: z.string(), code: z.number() }).nullable(),
   favicon: z.string().nullable(),
+  /** Pinned tabs belong to no session and show in every scope. */
+  pinned: z.boolean(),
 })
 export type TabState = z.output<typeof TabStateSchema>
 
-export const TabsSnapshotSchema = z.object({ tabs: z.array(TabStateSchema), activeId: z.string() })
+/** A browser scope: the session or page in front (`chat:…`, `draft:…`, `page:…`). */
+export const BrowserScopeSchema = z.string().min(1).max(1024)
+
+/** The tabs visible in the current scope: pinned tabs first, then the scope's own tabs. */
+export const TabsSnapshotSchema = z.object({
+  tabs: z.array(TabStateSchema),
+  activeId: z.string(),
+  scope: z.string().max(1024),
+})
 export type TabsSnapshot = z.output<typeof TabsSnapshotSchema>
 
 const tabOnly = z.object({ tabId: TabIdSchema }).strict()
@@ -77,6 +87,19 @@ export const browserInvoke = {
   'browser.importArc': {
     input: z.object({}).strict(),
     output: z.object({ count: z.number().int().min(0) }),
+  },
+  'browser.setScope': {
+    input: z.object({ scope: BrowserScopeSchema }).strict(),
+    output: TabsSnapshotSchema,
+  },
+  /** A draft chat that got its session file keeps its tabs under the new scope. */
+  'browser.renameScope': {
+    input: z.object({ from: BrowserScopeSchema, to: BrowserScopeSchema }).strict(),
+    output: okOut,
+  },
+  'browser.pinTab': {
+    input: z.object({ tabId: TabIdSchema, pinned: z.boolean() }).strict(),
+    output: TabsSnapshotSchema,
   },
 } as const
 

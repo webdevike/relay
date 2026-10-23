@@ -21,7 +21,10 @@ import {
 interface Fixtures {
   launchEnv: Record<string, string>
   startOnChat: boolean
-  /** Most specs exercise the browser panel; the app itself starts with it closed. */
+  /**
+   * Most specs exercise the browser panel: it opens for the start scope (chat or dashboard),
+   * as Isaac's toggle there. The app itself starts with it closed.
+   */
   panelOpen: boolean
   configDir: string
   app: ElectronApplication
@@ -99,19 +102,18 @@ export const test = base.extend<Fixtures>({
     await page.waitForFunction(() =>
       Boolean((window as unknown as { __evaosShell?: unknown }).__evaosShell),
     )
-    if (panelOpen) {
-      await page.evaluate(() =>
-        (
-          window as unknown as { __evaosShell: { setPanel(open: boolean): void } }
-        ).__evaosShell.setPanel(true),
-      )
-    }
     if (startOnChat) {
       await page.waitForSelector('[data-testid=tab-strip], [role=tablist]')
       await page.evaluate(() =>
         (window as unknown as { __evaosShell: { openChat(): void } }).__evaosShell.openChat(),
       )
       await page.waitForSelector('[data-testid=chat-pane]', { state: 'visible' })
+    }
+    if (panelOpen) {
+      // The panel is per browser scope: open it for the scope in front once that is known.
+      type Hooks = { __evaosShell: { browserScope(): string; setPanel(open: boolean): void } }
+      await page.waitForFunction(() => (window as unknown as Hooks).__evaosShell.browserScope())
+      await page.evaluate(() => (window as unknown as Hooks).__evaosShell.setPanel(true))
     }
     await use(page)
     // A spec that quits the app itself (quit lifecycle) leaves nothing to ask.

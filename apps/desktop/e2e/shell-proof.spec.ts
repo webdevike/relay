@@ -141,6 +141,9 @@ test('tabs-pinned-menu', async ({ app, shell }) => {
   await shell.locator(sel('tab-new')).click()
   await expect.poll(async () => (await tabs(shell)).list.length).toBe(3)
   const list = (await tabs(shell)).list
+  // The loaded page belongs to the first chat's browser scope; the new chats have none.
+  await shell.locator(sel(`tab-${list[0]!.id}`)).click()
+  await expect(shell.locator(sel('panel-card'))).toBeVisible()
   await shell.locator(sel(`tab-${list[0]!.id}`)).click({ button: 'right' })
   await shell.locator(sel('tab-menu-pin')).click()
   await expect(shell.locator(sel(`tab-pinned-${list[0]!.id}`))).toBeVisible()

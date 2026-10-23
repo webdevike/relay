@@ -38,6 +38,12 @@ export function registerBrowserIpc(ctx: MainContext, host: BrowserHost): void {
   })
   handle(ctx, 'browser.closeTab', ({ tabId }) => ({ activeId: host.closeTab(tabId) }))
   handle(ctx, 'browser.activateTab', ({ tabId }) => ({ activeId: host.activateTab(tabId) }))
+  handle(ctx, 'browser.setScope', ({ scope }) => host.setScope(scope))
+  handle(ctx, 'browser.renameScope', ({ from, to }) => {
+    host.renameScope(from, to)
+    return { ok: true as const }
+  })
+  handle(ctx, 'browser.pinTab', ({ tabId, pinned }) => host.pinTab(tabId, pinned))
   handle(ctx, 'browser.suggest', ({ text }) => ({ items: host.history.suggest(text) }))
   handle(ctx, 'browser.openDevTools', ({ tabId }) => {
     host.openDevTools(tabId)

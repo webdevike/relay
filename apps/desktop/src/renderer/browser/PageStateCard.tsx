@@ -4,8 +4,9 @@ import { BLOCKED_URL_CODE } from '@evaos/browser-core/address'
 import type { TabState } from '@evaos/contract'
 import { invoke } from '../ipc'
 
-export function PageStateCard({ tab }: { tab: TabState }) {
-  if (tab.error?.code === BLOCKED_URL_CODE) {
+/** The card over the slot: an error, or the new-tab state (a blank tab, or a scope with none). */
+export function PageStateCard({ tab }: { tab: TabState | undefined }) {
+  if (tab?.error?.code === BLOCKED_URL_CODE) {
     return (
       <div className="eva-page-card" data-testid="page-error">
         <h2 className="eva-heading">This address cannot be opened here</h2>
@@ -15,7 +16,7 @@ export function PageStateCard({ tab }: { tab: TabState }) {
       </div>
     )
   }
-  if (tab.error) {
+  if (tab?.error) {
     return (
       <div className="eva-page-card" data-testid="page-error">
         <h2 className="eva-heading">This page could not be loaded</h2>

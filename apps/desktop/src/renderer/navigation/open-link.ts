@@ -1,7 +1,7 @@
 import { invoke } from '../ipc'
-import { togglePanel } from '../shell/layout-store'
+import { panelTabCreated } from '../shell/layout-store'
 
-/** Web links open in a new tab of the panel's browser; other schemes go nowhere. */
+/** Web links open in a new tab of the current scope's browser; other schemes go nowhere. */
 export function openLink(href: string): void {
   let url: URL
   try {
@@ -10,6 +10,6 @@ export function openLink(href: string): void {
     return
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return
-  togglePanel(true)
+  panelTabCreated()
   void invoke('browser.createTab', { url: url.href })
 }

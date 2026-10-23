@@ -3,17 +3,27 @@ import { createStore } from 'zustand/vanilla'
 import { notifications } from '@mantine/notifications'
 import type { TabState, TabsSnapshot } from '@evaos/contract'
 import { invoke, on } from '../ipc'
+import { reportScopeTabs } from '../shell/layout-store'
 
 export interface BrowserState {
+  /** Pinned tabs first, then the current scope's own tabs. */
   tabs: TabState[]
   activeId: string
+  scope: string
   set(s: TabsSnapshot): void
 }
 
 export const browserStore = createStore<BrowserState>((set) => ({
   tabs: [],
   activeId: '',
-  set: (s) => set({ tabs: s.tabs, activeId: s.activeId }),
+  scope: '',
+  set: (s) => {
+    set({ tabs: s.tabs, activeId: s.activeId, scope: s.scope })
+    reportScopeTabs(
+      s.scope,
+      s.tabs.filter((t) => !t.pinned).map((t) => t.id),
+    )
+  },
 }))
 
 export function useBrowserStore<T>(sel: (s: BrowserState) => T): T {

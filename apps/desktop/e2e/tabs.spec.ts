@@ -99,6 +99,8 @@ test('context menu, pin, pinned rules', async ({ app, shell }) => {
   await open(shell, 'habits', true)
   await expect.poll(async () => (await tabs(shell)).list.length).toBe(2)
   const [first, second] = (await tabs(shell)).list
+  // The browser page belongs to Dashboard's scope; Habits has none, so go back to Dashboard.
+  await shell.locator(`[data-testid=tab-${first!.id}]`).click()
   await expect.poll(() => viewVisible(app)).toBe(true)
 
   await shell.locator(`[data-testid=tab-${second!.id}]`).click({ button: 'right' })

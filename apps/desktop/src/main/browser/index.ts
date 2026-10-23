@@ -11,7 +11,6 @@ export function registerBrowser(ctx: MainContext): BrowserHost {
   registerBrowserIpc(ctx, host)
   registerViewProvider(() => host.views())
   registerTestHook('browser', { host, pageControl: (id: string) => host.pageControl(id) })
-  host.createTab()
   // Navigation waits for the extension host so the first page already gets content scripts.
   host.ready = setupExtensions(ctx, host).catch((e: unknown) => {
     console.warn('[extensions] setup failed:', e instanceof Error ? e.message : e)

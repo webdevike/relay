@@ -7,6 +7,7 @@ type Hooks = {
   __evaosShell: {
     openPlace(p: string, n?: boolean): void
     openChat(): void
+    setPanel(open: boolean): void
   }
 }
 const open = (shell: Page, slug: string): Promise<void> =>
@@ -81,9 +82,15 @@ test('browser panel slot is unaffected by page changes', async ({ shell }) => {
       const r = el.getBoundingClientRect()
       return [r.x, r.y, r.width, r.height]
     })
-  await open(shell, 'dashboard')
+  // The panel is per page scope: open it on each page, and its slot stays put.
+  const openWithPanel = async (slug: string): Promise<void> => {
+    await open(shell, slug)
+    await shell.evaluate(() => (window as unknown as Hooks).__evaosShell.setPanel(true))
+    await expect(shell.locator('[data-testid=panel-card]')).toBeVisible()
+  }
+  await openWithPanel('dashboard')
   const a = await rect()
-  await open(shell, 'jobs')
-  await open(shell, 'habits')
-  expect(await rect()).toEqual(a)
+  await openWithPanel('jobs')
+  await openWithPanel('habits')
+  await expect.poll(rect).toEqual(a)
 })

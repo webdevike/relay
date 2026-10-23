@@ -1,7 +1,9 @@
+import { useState } from 'react'
 import { ActionIcon, Loader, Tooltip } from '@mantine/core'
-import { IconPlus, IconX } from '@tabler/icons-react'
+import { IconPin, IconPinnedOff, IconPlus, IconX } from '@tabler/icons-react'
 import type { TabState } from '@evaos/contract'
 import { invoke } from '../ipc'
+import { EvaMenu } from '../overlay'
 
 function label(t: TabState): string {
   if (t.title) return t.title
@@ -9,7 +11,10 @@ function label(t: TabState): string {
   return 'New tab'
 }
 
+/** Pinned tabs (shown in every scope) come first, then the current scope's own tabs. */
 export function TabStrip({ tabs, activeId }: { tabs: TabState[]; activeId: string }) {
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
+  const menuTab = menu ? tabs.find((t) => t.id === menu.id) : undefined
   return (
     <div className="eva-tab-strip" data-testid="tab-strip">
       {tabs.map((t) => (
@@ -17,6 +22,7 @@ export function TabStrip({ tabs, activeId }: { tabs: TabState[]; activeId: strin
           key={t.id}
           className={`eva-tab${t.id === activeId ? ' is-active' : ''}`}
           data-testid={`browser-tab-${t.id}`}
+          data-pinned={t.pinned ? 'true' : undefined}
           onClick={() => void invoke('browser.activateTab', { tabId: t.id })}
           onAuxClick={(e) => {
             if (e.button === 1) {
@@ -27,7 +33,20 @@ export function TabStrip({ tabs, activeId }: { tabs: TabState[]; activeId: strin
           onMouseDown={(e) => {
             if (e.button === 1) e.preventDefault()
           }}
+          onContextMenu={(e) => {
+            e.preventDefault()
+            setMenu({ id: t.id, x: e.clientX, y: e.clientY })
+          }}
         >
+          {t.pinned ? (
+            <IconPin
+              className="eva-tab-pin"
+              size={12}
+              stroke={1.5}
+              aria-label="Pinned"
+              data-testid={`browser-tab-pin-${t.id}`}
+            />
+          ) : null}
           {t.loading ? (
             <Loader size={12} />
           ) : t.favicon ? (
@@ -63,6 +82,42 @@ export function TabStrip({ tabs, activeId }: { tabs: TabState[]; activeId: strin
           <IconPlus size={16} />
         </ActionIcon>
       </Tooltip>
+      <EvaMenu
+        opened={menuTab !== undefined}
+        onChange={(o) => {
+          if (!o) setMenu(null)
+        }}
+        width={180}
+        position="bottom-start"
+        offset={0}
+      >
+        <EvaMenu.Target>
+          <span
+            className="eva-tab-menu-anchor"
+            style={{ left: menu?.x ?? 0, top: menu?.y ?? 0 }}
+            aria-hidden
+          />
+        </EvaMenu.Target>
+        <EvaMenu.Dropdown data-testid="browser-tab-menu">
+          {menuTab ? (
+            <EvaMenu.Item
+              data-testid="browser-tab-menu-pin"
+              leftSection={
+                menuTab.pinned ? (
+                  <IconPinnedOff size={16} stroke={1.5} />
+                ) : (
+                  <IconPin size={16} stroke={1.5} />
+                )
+              }
+              onClick={() =>
+                void invoke('browser.pinTab', { tabId: menuTab.id, pinned: !menuTab.pinned })
+              }
+            >
+              {menuTab.pinned ? 'Unpin tab' : 'Pin tab'}
+            </EvaMenu.Item>
+          ) : null}
+        </EvaMenu.Dropdown>
+      </EvaMenu>
     </div>
   )
 }

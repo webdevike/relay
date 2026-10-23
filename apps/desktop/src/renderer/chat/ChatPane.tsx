@@ -11,8 +11,15 @@ import { SubagentChips } from './strips/SubagentChips'
 import { chatStore, hiddenKey, useChatStore } from './chat-store'
 import { createStreamDrain } from './stream-drain'
 import { invoke, on } from '../ipc'
-import { placeOf } from '@evaos/shell-core'
-import { activePlace, replaceActivePlace, useTabs } from '../tabs/tabs-store'
+import { browserScope, placeOf } from '@evaos/shell-core'
+import {
+  activePlace,
+  activeTabId,
+  replaceActivePlace,
+  tabsStore,
+  useTabs,
+} from '../tabs/tabs-store'
+import { renameBrowserScope } from '../browser/browser-scope'
 import { openChatFile, openDraftPane, PANE_ID } from './open-chat'
 import { togglePanel, toggleSidebar, useLayout } from '../shell/layout-store'
 
@@ -69,10 +76,14 @@ export function ChatPane() {
   }, [placeChat, activeIx])
 
   // A new chat that omp gave a session file: the tab follows it in place, so Back never returns
-  // to a dead draft and the pane does not reopen.
+  // to a dead draft and the pane does not reopen. The draft's browser tabs carry over.
   const boundTo = pane?.boundTo ?? null
   useEffect(() => {
-    if (boundTo && placeChat === 'draft') replaceActivePlace(placeOf('chat', { chat: boundTo }))
+    if (!boundTo || placeChat !== 'draft') return
+    const appTab = activeTabId(tabsStore.getState())
+    const chat = placeOf('chat', { chat: boundTo })
+    renameBrowserScope(browserScope(placeOf('chat'), appTab), browserScope(chat, appTab))
+    replaceActivePlace(chat)
   }, [boundTo, placeChat])
 
   // One drain for the whole app: batches from main are applied once per animation frame.

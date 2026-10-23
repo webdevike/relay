@@ -22,7 +22,10 @@ export interface LayoutState {
   panelWidth: number
   /** Preferences, memory only (D-04). */
   sidebarWanted: boolean
+  /** Whether the panel shows in the current browser scope (rules in enterPanelScope). */
   panelOpen: boolean
+  /** The browser scope in front: the session or page the active app tab shows. */
+  panelScope: string
   loaded: boolean
   /** Derived through shell-core fit only (D-01). */
   sidebarPx: number
@@ -51,16 +54,23 @@ function initial(): LayoutState {
     sidebarWidth: SIDEBAR_DEFAULT,
     panelWidth: PANEL_DEFAULT,
     sidebarWanted: true,
-    // Closed until Isaac opens it (or a link opens in it); it never reopens on reload.
+    // Closed until the scope in front has tabs or Isaac opens it.
     panelOpen: false,
     loaded: false,
   }
-  return { ...base, ...derive(base) }
+  return { ...base, panelScope: '', ...derive(base) }
 }
 
 export const layoutStore = createStore<LayoutState>(initial)
 
-function patch(p: Partial<Base>): void {
+/** Isaac's explicit open or close per browser scope, remembered for the app run. */
+const panelChoice = new Map<string, boolean>()
+/** Each scope's own (unpinned) browser tab ids, as last reported by the host. */
+const ownTabs = new Map<string, readonly string[]>()
+/** The scope in front has neither a choice nor known tabs yet; its first report decides. */
+let panelPending = false
+
+function patch(p: Partial<Base> & { panelScope?: string }): void {
   layoutStore.setState((s) => {
     const base: Base = { ...s, ...p }
     return { ...p, ...derive(base) }
@@ -82,8 +92,61 @@ export function toggleSidebar(on?: boolean): void {
   patch({ sidebarWanted: on ?? !layoutStore.getState().sidebarWanted })
 }
 
+/** Isaac's toggle, remembered for the scope in front. */
 export function togglePanel(open?: boolean): void {
-  patch({ panelOpen: open ?? !layoutStore.getState().panelOpen })
+  const s = layoutStore.getState()
+  const next = open ?? !s.panelOpen
+  panelChoice.set(s.panelScope, next)
+  panelPending = false
+  patch({ panelOpen: next })
+}
+
+/**
+ * The browser scope in front changed. The panel follows Isaac's remembered choice there; a
+ * scope he never toggled is open iff it has its own tabs (pinned ones alone never open it).
+ * A scope this renderer has no report for yet stays closed until the host reports its tabs.
+ */
+export function enterPanelScope(scope: string): void {
+  if (scope === layoutStore.getState().panelScope) return
+  const choice = panelChoice.get(scope)
+  const own = ownTabs.get(scope)
+  panelPending = choice === undefined && own === undefined
+  patch({ panelScope: scope, panelOpen: choice ?? (own !== undefined && own.length > 0) })
+}
+
+/** A tab opened in the scope in front (a link, the + button, a page's window.open). */
+export function panelTabCreated(): void {
+  const scope = layoutStore.getState().panelScope
+  if (panelChoice.has(scope)) panelChoice.set(scope, true)
+  panelPending = false
+  patch({ panelOpen: true })
+}
+
+/**
+ * The host's tabs for `scope`. Resolves a pending scope, and opens the panel when a tab
+ * appeared in the scope in front. Losing tabs never closes it: the panel shows the empty state.
+ */
+export function reportScopeTabs(scope: string, own: readonly string[]): void {
+  const before = ownTabs.get(scope)
+  ownTabs.set(scope, own)
+  if (scope !== layoutStore.getState().panelScope) return
+  if (panelPending) {
+    panelPending = false
+    patch({ panelOpen: own.length > 0 })
+  } else if (before && own.some((id) => !before.includes(id))) {
+    panelTabCreated()
+  }
+}
+
+/** A draft chat got its session file: its panel state moves to the chat's scope. */
+export function renamePanelScope(from: string, to: string): void {
+  const choice = panelChoice.get(from)
+  const own = ownTabs.get(from)
+  panelChoice.delete(from)
+  ownTabs.delete(from)
+  if (choice !== undefined) panelChoice.set(to, choice)
+  if (own !== undefined) ownTabs.set(to, own)
+  if (layoutStore.getState().panelScope === from) patch({ panelScope: to })
 }
 
 /** In-memory only; never calls IPC (T-02-30). */
@@ -146,6 +209,9 @@ export async function loadLayout(): Promise<void> {
 /** Test seam. */
 export function resetLayoutStoreForTests(): void {
   resetToastShown = false
+  panelChoice.clear()
+  ownTabs.clear()
+  panelPending = false
   layoutStore.setState(initial(), true)
 }
 

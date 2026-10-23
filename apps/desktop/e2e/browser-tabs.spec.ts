@@ -74,6 +74,10 @@ test('tabs: create, switch, close, target=_blank, last tab, hotkeys from the gue
 }) => {
   const a = server.url('/a.html')
   const b = server.url('/b.html')
+  // A scope starts with no tabs.
+  await expect(shell.locator('[data-testid=page-blank]')).toBeVisible()
+  expect(await tabCount(shell)).toBe(0)
+  await shell.locator('[data-testid=browser-tab-new]').click()
   await shell.locator('[data-testid=browser-tab-new]').click()
   await shell.locator('[data-testid=browser-tab-new]').click()
   await expect.poll(() => tabCount(shell)).toBe(3)
@@ -118,16 +122,16 @@ test('tabs: create, switch, close, target=_blank, last tab, hotkeys from the gue
     })
     .toBe('Page B')
 
-  // Close everything; one blank tab remains.
-  for (let n = 0; n < 5; n++) {
-    const first = shell.locator('[data-testid^=browser-tab-close-]').first()
-    if ((await first.count()) === 0) break
+  // Close everything; the scope is left empty and shows the new-tab state.
+  for (let left = await tabCount(shell); left > 0; left--) {
     await shell.locator('[data-testid^=browser-tab-t]').first().hover()
-    await first.click({ force: true })
-    if ((await tabCount(shell)) === 1 && (await shell.getByText('New tab').count()) > 0) break
+    await shell.locator('[data-testid^=browser-tab-close-]').first().click({ force: true })
+    await expect.poll(() => tabCount(shell)).toBe(left - 1)
   }
-  await expect.poll(() => tabCount(shell)).toBe(1)
-  await expect(shell.locator('[data-testid^=browser-tab-t]').first()).toContainText('New tab')
+  await expect.poll(() => tabCount(shell)).toBe(0)
+  await expect(shell.locator('[data-testid=page-blank]')).toContainText('New tab')
+  await expect(shell.locator('[data-testid=browser-panel]')).toBeVisible()
+  expect((await states(app)).length).toBe(0)
 
   // Hotkeys pressed while the guest is focused go to the shell, not the page.
   await nav(shell, a)
@@ -136,6 +140,11 @@ test('tabs: create, switch, close, target=_blank, last tab, hotkeys from the gue
     app,
     'window.__kd = 0; document.addEventListener("keydown", () => { window.__kd++ }); 0',
   )
+  type AppTabs = { __evaosShell: { tabs(): { active: number; list: Array<{ id: number }> } } }
+  const firstAppTab = await shell.evaluate(() => {
+    const t = (window as unknown as AppTabs).__evaosShell.tabs()
+    return t.list[t.active]!.id
+  })
   // cmd+t is the global new-tab action now (02-06): it reaches the router from the guest.
   await sendKey(app, 't', ['meta'])
   await expect
@@ -148,6 +157,12 @@ test('tabs: create, switch, close, target=_blank, last tab, hotkeys from the gue
       ),
     )
     .toBe(true)
+  // The new chat is its own browser scope with no tabs: its panel stays closed. Back on the
+  // first chat, its Page A tab and open panel return.
+  await expect(shell.locator('[data-testid=panel-card]')).toBeHidden()
+  await shell.locator(`[data-testid=tab-${firstAppTab}]`).click()
+  await expect(shell.locator('[data-testid=panel-card]')).toBeVisible()
+  await expect(shell.locator('[data-testid^=browser-tab-t]').first()).toContainText('Page A')
   // Browser subtabs are added with the panel + button.
   await shell.locator('[data-testid=browser-tab-new]').click()
   await expect.poll(() => tabCount(shell)).toBe(2)
