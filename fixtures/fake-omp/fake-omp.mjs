@@ -15,6 +15,35 @@ const arg = (name) => {
 }
 const mode = arg('--mode')
 const resumeFile = arg('--resume') ?? null
+
+// ---- `usage --json` (the usage meter): the profile's fixture, timestamps moved to now.
+if (mode === undefined && argv.includes('usage')) {
+  const profile = arg('--profile') ?? 'default'
+  const dir = process.env.FAKE_OMP_USAGE_DIR || join(here, 'usage')
+  let text
+  try {
+    text = readFileSync(join(dir, `${profile}.json`), 'utf8')
+  } catch {
+    process.stderr.write(`fake-omp: no usage for profile ${profile}\n`)
+    process.exit(1)
+  }
+  let out = text
+  try {
+    const doc = JSON.parse(text)
+    const shift = Date.now() - doc.generatedAt
+    const move = (t) => (typeof t === 'number' ? t + shift : t)
+    doc.generatedAt = move(doc.generatedAt)
+    for (const r of doc.reports ?? []) {
+      r.fetchedAt = move(r.fetchedAt)
+      for (const l of r.limits ?? []) if (l.window) l.window.resetsAt = move(l.window.resetsAt)
+    }
+    out = JSON.stringify(doc, null, 2) + '\n'
+  } catch {
+    /* not JSON: printed as is, for parse-failure tests */
+  }
+  await new Promise((res) => process.stdout.write(out, res))
+  process.exit(0)
+}
 const CHUNK = process.env.FAKE_OMP_CHUNK ?? 'line'
 const DELAY = CHUNK === 'burst' ? 0 : CHUNK === 'slow' ? 150 : Number(process.env.FAKE_OMP_DELAY_MS ?? 15)
 const RECORDING = process.env.FAKE_OMP_RECORDING ?? 'turn'

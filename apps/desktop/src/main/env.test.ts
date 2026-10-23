@@ -16,6 +16,7 @@ describe('resolveEnv', () => {
     const e = resolveEnv(base())
     expect(e.evaRoot).toBe('/repo/fixtures/eva-root')
     expect(e.ompBin).toBe('/repo/fixtures/fake-omp/fake-omp.mjs')
+    expect(e.ompProfilesDir).toBe('/repo/fixtures/omp-profiles')
     expect(e.sessionsDir).toBe('/repo/fixtures/agent/sessions/-fixture')
     expect(e.configDir).toBe('/tmp/evaos-electron-dev-42')
     expect(e.live).toBe(false)
@@ -40,6 +41,10 @@ describe('resolveEnv', () => {
     expect(e.legacyConfigDir).toBe('/home/u/Library/Application Support/EvaOS Electron')
     expect(e.sessionsDir).toBe('/home/u/.omp/agent/sessions/-Eva')
     expect(typeof e.ompBin).toBe('string')
+    expect(e.ompProfilesDir).toBe('/home/u/.omp/profiles')
+    expect(
+      resolveEnv(base({ env: { EVAOS_LIVE: '1', EVAOS_OMP_PROFILES_DIR: '/p' } })).ompProfilesDir,
+    ).toBe('/p')
   })
 
   it('treats a packaged app as live, with overrides still winning', () => {

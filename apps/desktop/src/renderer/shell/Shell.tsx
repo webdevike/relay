@@ -3,6 +3,7 @@ import { useLayoutEffect, useState } from 'react'
 import { GAP } from '@evaos/shell-core'
 import { TestOverlay, useTestOverlayOpener } from '../overlay/TestOverlay'
 import { SidebarColumn } from '../sidebar/SidebarColumn'
+import { Footer } from './Footer'
 import { MainCard } from './MainCard'
 import { Grip } from './Grip'
 import { PanelCard } from './PanelCard'
@@ -71,6 +72,7 @@ export function Shell() {
         <MainCard />
         <PanelCard />
       </div>
+      <Footer />
       <TestOverlay opened={overlayOpen} onClose={() => setOverlayOpen(false)} />
     </div>
   )

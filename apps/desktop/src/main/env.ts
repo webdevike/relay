@@ -6,6 +6,11 @@ import { relayConfigDir } from './relay/device'
 export interface Env {
   evaRoot: string
   ompBin: string
+  /**
+   * EVAOS_OMP_PROFILES_DIR: omp profiles, one folder per profile (the usage meter's accounts).
+   * Live default `~/.omp/profiles`; otherwise the fixture profiles.
+   */
+  ompProfilesDir: string
   configDir: string
   /** Live default only: the pre-rename folder to move into configDir once. */
   legacyConfigDir: string | null
@@ -138,6 +143,12 @@ export function resolveEnv(input: ResolveEnvInput): Env {
       ? (findBin('omp', env, homedir) ?? 'omp')
       : path.join(repoRoot, 'fixtures/fake-omp/fake-omp.mjs')
 
+  const ompProfilesDir = env.EVAOS_OMP_PROFILES_DIR
+    ? env.EVAOS_OMP_PROFILES_DIR
+    : live
+      ? path.join(homedir, '.omp/profiles')
+      : path.join(repoRoot, 'fixtures/omp-profiles')
+
   const herdrBin = env.EVAOS_HERDR_BIN
     ? env.EVAOS_HERDR_BIN
     : live
@@ -240,6 +251,7 @@ export function resolveEnv(input: ResolveEnvInput): Env {
     relayDir,
     evaRoot,
     ompBin,
+    ompProfilesDir,
     configDir,
     legacyConfigDir,
     sessionsDir,

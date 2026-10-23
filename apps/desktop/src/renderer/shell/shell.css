@@ -21,6 +21,18 @@
   display: flex;
   box-sizing: border-box;
 }
+/* Native EvaOS footer: the shell background, no border; the cards end above it. */
+.eva-footer {
+  flex: none;
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0 var(--eva-gap);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  background: var(--eva-chrome);
+  -webkit-app-region: drag;
+}
 
 .eva-sidebar {
   flex: none;

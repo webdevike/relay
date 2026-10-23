@@ -25,6 +25,7 @@ import { createTestBench } from './test-bench/engine'
 import { createBenchAdjudicator } from './test-bench/models'
 import { registerTestBenchIpc } from './test-bench/ipc'
 import { registerMediaScheme, registerWidgetMedia } from './chat/widget-media-protocol'
+import { registerUsageIpc } from './usage/usage-ipc'
 
 function bootstrap(): void {
   let env
@@ -122,6 +123,7 @@ function bootstrap(): void {
       const evaWatch = startEvaWatch(ctx)
       ctx.onBeforeQuit(() => evaWatch.close())
       registerCanvasIpc(ctx)
+      registerUsageIpc(ctx)
       registerBrowser(ctx)
       installTestHooks(ctx)
     } catch (e) {

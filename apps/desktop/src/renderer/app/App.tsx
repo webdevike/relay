@@ -10,6 +10,7 @@ import { startReload } from '../reload/reload'
 import { NewTodoModal } from '../todo/NewTodoModal'
 import { startNewTodo } from '../todo/new-todo-store'
 import { GateOverlay } from '../habits/GateOverlay'
+import { startUsage } from '../usage/usage-store'
 import { Shell } from '../shell/Shell'
 
 export function App() {
@@ -24,6 +25,7 @@ export function App() {
     const stopReload = startReload()
     const stopNewTodo = startNewTodo()
     const stopHabits = startHabits()
+    const stopUsage = startUsage()
     return () => {
       stopRouter()
       stopQuit()
@@ -33,6 +35,7 @@ export function App() {
       stopReload()
       stopNewTodo()
       stopHabits()
+      stopUsage()
     }
   }, [])
   return (
