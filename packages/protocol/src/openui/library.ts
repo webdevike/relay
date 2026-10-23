@@ -9,7 +9,8 @@
 import { z } from "zod/v4";
 import type { WidgetSpec } from "../widget";
 import { createLibrary, defineComponent, tagSchemaId, type DefinedComponent } from "./lang/library";
-import { steps } from "./lang/parser/builtins";
+import { action } from "./lang/parser/builtins";
+import { markReactive } from "./lang/reactive";
 
 type WidgetKind = WidgetSpec["widget"];
 
@@ -20,6 +21,10 @@ const gap = z.enum(["xs", "sm", "md", "lg"]);
 const Child = z.lazy(() => z.union(WIDGETS.map((w) => w.ref)));
 tagSchemaId(Child, "Component");
 const children = z.array(Child);
+
+/** A prop taking a `$variable` for two-way binding (`$binding<string>` in the prompt). */
+const bound = z.string().optional();
+markReactive(bound);
 
 function sub(name: string, props: z.ZodObject, description: string): DefinedComponent {
   return defineComponent({ name, props, description, component: null });
@@ -248,12 +253,12 @@ const WIDGET_DEFS: Record<WidgetKind, [props: z.ZodObject, description: string]>
   button: [
     z.object({
       label: z.string(),
-      action: z.union([steps.ToAssistant.ref, steps.OpenUrl.ref]).optional(),
+      action: action().optional(),
       url: z.string().optional(),
       variant: z.enum(["primary", "secondary", "subtle"]).optional(),
       tone: tone.optional(),
     }),
-    'A tappable action. action: @ToAssistant("text") sends text as Isaac\'s next turn in this session; @OpenUrl("https://...") opens a link (url is the same as @OpenUrl). With neither, tapping sends the label. variant defaults to secondary. Put several in a horizontal Stack.',
+    'A tappable action. action: @ToAssistant("text") sends text as Isaac\'s next turn in this session; @OpenUrl("https://...") opens a link (url is the same as @OpenUrl); @Set/@Reset change $variables on the device, no turn sent. With no action, tapping sends the label. variant defaults to secondary. Put several in a horizontal Stack.',
   ],
   link: [
     z.object({ label: z.string(), url: z.string() }),
@@ -265,8 +270,9 @@ const WIDGET_DEFS: Record<WidgetKind, [props: z.ZodObject, description: string]>
       button: z.string().optional(),
       reply: z.string().optional(),
       multiline: z.boolean().optional(),
+      value: bound,
     }),
-    'A text field. Submitting sends reply with {value} replaced by the typed text (reply must contain "{value}", default "{value}"); button defaults to "Send".',
+    'A text field. Submitting sends reply with {value} replaced by the typed text (reply must contain "{value}", default "{value}"); button defaults to "Send". value: a $variable the typed text is kept in, for other widgets to read.',
   ],
   // Data
   stat: [

@@ -269,10 +269,16 @@ describe("parseOpenUI", () => {
     });
   });
 
-  it("rejects expressions", () => {
-    const result = parseOpenUI('root = Stack([Text("a" + "b"), Text("c")])');
-    expect(result.node).toEqual({ widget: "stack", children: [{ widget: "text", text: "c" }] });
-    expect(result.errors[0]?.code).toBe("unsupported-expression");
+  it("evaluates expressions against the declared defaults", () => {
+    const result = parseOpenUI('root = Stack([Text("a" + "b"), Text($n * 2), Text($n > 1 ? "big" : "small")])\n$n = 3');
+    expect(result.errors).toEqual([]);
+    expect(result.node).toMatchObject({ children: [{ text: "ab" }, { text: "6" }, { text: "big" }] });
+  });
+
+  it("rejects Query and Mutation", () => {
+    const result = parseOpenUI('root = Text("x")\nq = Query("tool", {}, {})');
+    expect(result.node).toEqual({ widget: "text", text: "x" });
+    expect(result.errors.map((e) => e.code)).toContain("unsupported-expression");
   });
 
   it("reports unresolved and orphaned statements unless partial", () => {

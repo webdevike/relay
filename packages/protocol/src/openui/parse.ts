@@ -1,13 +1,22 @@
 /**
- * OpenUI Lang text -> `WidgetSpec`: the vendored lang-core parser builds an ElementNode tree,
- * which is converted to widget JSON and validated by the existing zod `WidgetNode` schema. Invalid
- * children are dropped (each with an error) instead of rejecting the whole tree.
+ * OpenUI Lang text -> `WidgetSpec`: the vendored lang-core parser builds an ElementNode tree whose
+ * dynamic props stay AST; they are evaluated against the current `$variable` state, converted to
+ * widget JSON and validated by the existing zod `WidgetNode` schema. Invalid children are dropped
+ * (each with an error) instead of rejecting the whole tree. `parseOpenUI` evaluates against the
+ * declared defaults; `createOpenUIRuntime` (./runtime) keeps state and runs button actions.
  */
 import type { ZodError } from "zod";
 import { WidgetNode, type WidgetSpec } from "../widget";
-import { isASTNode, literalValue, type ASTNode } from "./lang/parser/ast";
+import { isASTNode, type ASTNode } from "./lang/parser/ast";
 import { createParser } from "./lang/parser/parser";
-import { isElementNode, type ElementNode, type ValidationErrorCode } from "./lang/parser/types";
+import {
+  isElementNode,
+  type ActionPlan,
+  type ElementNode,
+  type ParseResult,
+  type ValidationErrorCode,
+} from "./lang/parser/types";
+import { evaluate, isActionPlan } from "./lang/runtime/evaluator";
 import { relayLibrary, WIDGET_KIND_BY_NAME } from "./library";
 
 export type OpenUIErrorCode =
@@ -16,8 +25,10 @@ export type OpenUIErrorCode =
   | "invalid-widget"
   /** A sub-component (Row, Ticket, ...) or a non-component value sits where a widget belongs. */
   | "not-a-widget"
-  /** An expression, `$variable` or `@function` where Relay only takes literal values. */
+  /** Query, Mutation, @Run or another construct Relay widgets don't run. */
   | "unsupported-expression"
+  /** Evaluating the program against the current state threw; nothing rendered. */
+  | "runtime-error"
   /** A name is referenced but never defined. */
   | "unresolved"
   /** A statement is defined but not reachable from `root`. */
@@ -53,25 +64,49 @@ export interface ParseOpenUIResult {
   complete: boolean;
 }
 
+/** One parsed program: the lang-core result plus the errors found before evaluation. */
+export interface Program {
+  result: ParseResult | null;
+  errors: OpenUIError[];
+  complete: boolean;
+  partial: boolean;
+}
+
+/** One step of a button's action, evaluated when the tap reaches it: an @step call (or nested
+ * Action) as AST, or a plan already evaluated. */
+export type ActionStepSource = ASTNode | ActionPlan;
+
+/** What a tree built against the current state hands back to the runtime. */
+export interface Built extends ParseOpenUIResult {
+  /** Button `action` id -> its steps, in order. */
+  actions: Map<string, ActionStepSource[]>;
+  /** Input `bind` id -> the `$variable` it writes. */
+  bindings: Map<string, string>;
+}
+
 const parser = createParser(relayLibrary.toJSONSchema(), relayLibrary.root);
 
-/** Parses one ```openui block body. Never throws. */
+/** Parses one ```openui block body against its declared `$variable` defaults. Never throws. */
 export function parseOpenUI(text: string, opts: ParseOpenUIOptions = {}): ParseOpenUIResult {
-  const partial = opts.partial === true;
-  try {
-    return convert(text, partial);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { node: null, errors: [{ code: "parse-exception", message }], complete: false };
-  }
+  const program = compileProgram(text, opts.partial === true);
+  const defaults = program.result?.stateDeclarations ?? {};
+  const { node, errors, complete } = buildTree(program, (name) => defaults[name] ?? null);
+  return { node, errors, complete };
 }
 
 /** The end of a stream prefix cut inside a number: `3.`, `1e`, `1e-` (kept: the digits) or a lone
  * `-`, which would otherwise lex as an operator or a broken literal. */
 const UNFINISHED_NUMBER = /(\d)(?:\.|[eE][+-]?)$|(^|\W)-$/;
 
-function convert(text: string, partial: boolean): ParseOpenUIResult {
-  const result = parser.parse(partial ? text.replace(UNFINISHED_NUMBER, "$1$2") : text);
+/** Parses the text once; the program is then evaluated by `buildTree` per state. Never throws. */
+export function compileProgram(text: string, partial: boolean): Program {
+  let result: ParseResult;
+  try {
+    result = parser.parse(partial ? text.replace(UNFINISHED_NUMBER, "$1$2") : text);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { result: null, errors: [{ code: "parse-exception", message }], complete: false, partial };
+  }
   const errors: OpenUIError[] = result.meta.errors.map((e) =>
     withOptional({ code: e.code, message: e.message }, e),
   );
@@ -91,11 +126,40 @@ function convert(text: string, partial: boolean): ParseOpenUIResult {
         severity: "warning",
       });
   }
-  const complete = !incomplete && unresolved.length === 0;
-  if (!result.root) return { node: null, errors, complete };
+  for (const { statementId } of [...result.queryStatements, ...result.mutationStatements])
+    errors.push({ code: "unsupported-expression", message: "Relay widgets don't run Query or Mutation", statementId });
+  return { result, errors, complete: !incomplete && unresolved.length === 0, partial };
+}
 
-  const node = validWidget(result.root, { errors, partial }) ?? null;
-  return { node, errors, complete };
+/** Evaluates a program against `getState` into a validated tree. Never throws. */
+export function buildTree(program: Program, getState: (name: string) => unknown): Built {
+  const ctx: Ctx = {
+    errors: [...program.errors],
+    partial: program.partial,
+    evaluate: (node) => evaluate(node, { getState, resolveRef: () => null }),
+    getState,
+    actions: new Map(),
+    bindings: new Map(),
+  };
+  const built = (node: WidgetSpec | null): Built => ({
+    node,
+    errors: ctx.errors,
+    complete: program.complete,
+    actions: ctx.actions,
+    bindings: ctx.bindings,
+  });
+  const { result } = program;
+  if (!result) return built(null);
+  try {
+    const root = result.root ?? (result.rootExpression ? ctx.evaluate(result.rootExpression) : null);
+    if (!isElementNode(root)) return built(null);
+    return built(validWidget(root, ctx, "root") ?? null);
+  } catch (error) {
+    ctx.errors.push({ code: "runtime-error", message: error instanceof Error ? error.message : String(error) });
+    ctx.actions.clear();
+    ctx.bindings.clear();
+    return built(null);
+  }
 }
 
 /** Repairs tried on one node while streaming before it is dropped. */
@@ -104,8 +168,8 @@ const MAX_REPAIRS = 8;
 /** A widget element converted and validated, or undefined (with an error) when it is invalid.
  * While streaming, the unfinished tail of a node (an item whose fields are still arriving, a URL
  * cut short) is trimmed instead, so a tree that rendered keeps rendering as more text arrives. */
-function validWidget(el: ElementNode, ctx: Ctx): WidgetSpec | undefined {
-  const raw = widgetJSON(el, ctx);
+function validWidget(el: ElementNode, ctx: Ctx, path: string): WidgetSpec | undefined {
+  const raw = widgetJSON(el, ctx, path);
   if (raw === undefined) return undefined;
   let parsed = WidgetNode.safeParse(raw);
   for (let i = 0; !parsed.success && ctx.partial && i < MAX_REPAIRS && trimInvalid(raw, parsed.error); i++)
@@ -118,12 +182,30 @@ function validWidget(el: ElementNode, ctx: Ctx): WidgetSpec | undefined {
 interface Ctx {
   errors: OpenUIError[];
   partial: boolean;
+  evaluate: (node: ASTNode) => unknown;
+  getState: (name: string) => unknown;
+  actions: Map<string, ActionStepSource[]>;
+  bindings: Map<string, string>;
 }
 
 type Json = unknown;
 
-/** A widget element as raw widget JSON, or undefined (with an error) when it is not a widget. */
-function widgetJSON(el: ElementNode, ctx: Ctx): Record<string, Json> | undefined {
+/** Props typed string per component; an expression yielding a number there renders as its text. */
+const STRING_PROPS: ReadonlyMap<string, ReadonlySet<string>> = new Map(
+  Object.entries(relayLibrary.toJSONSchema().$defs ?? {}).map(([name, def]) => [
+    name,
+    new Set(
+      Object.entries(def.properties ?? {})
+        .filter(([, prop]) => typeof prop === "object" && prop !== null && "type" in prop && prop.type === "string")
+        .map(([key]) => key),
+    ),
+  ]),
+);
+
+/** A widget element as raw widget JSON, or undefined (with an error) when it is not a widget.
+ * `path` names the node for runtime ids; a statement's own name is preferred, being stable while
+ * the program streams. */
+function widgetJSON(el: ElementNode, ctx: Ctx, path: string): Record<string, Json> | undefined {
   const kind = WIDGET_KIND_BY_NAME.get(el.typeName);
   if (kind === undefined) {
     ctx.errors.push(
@@ -134,67 +216,67 @@ function widgetJSON(el: ElementNode, ctx: Ctx): Record<string, Json> | undefined
     );
     return undefined;
   }
-  const out: Record<string, Json> = { widget: kind, ...propsJSON(el, ctx) };
-  if (kind === "button") buttonAction(out, el, ctx);
+  const id = el.statementId ?? path;
+  const out: Record<string, Json> = { widget: kind, ...propsJSON(el, ctx, id) };
+  if (kind === "button") buttonAction(out, el, ctx, id);
+  if (kind === "input") inputBinding(out, el, ctx, id);
   if (kind === "table" && ctx.partial) dropUnfinishedRow(out);
   return out;
 }
 
 /** A component's props as JSON: nulls dropped, `children` validated child by child. */
-function propsJSON(el: ElementNode, ctx: Ctx): Record<string, Json> {
+function propsJSON(el: ElementNode, ctx: Ctx, path: string): Record<string, Json> {
   const out: Record<string, Json> = {};
-  for (const [key, value] of Object.entries(el.props)) {
+  for (const [key, raw] of Object.entries(el.props)) {
     if (key === "action") continue; // Button's action slot, mapped in `buttonAction`
-    const json = key === "children" ? childrenJSON(value, ctx) : valueJSON(value, el, ctx);
+    const value = isASTNode(raw) ? ctx.evaluate(raw) : raw;
+    const json =
+      key === "children"
+        ? childrenJSON(value, ctx, `${path}/${key}`)
+        : typeof value === "number" && Number.isFinite(value) && STRING_PROPS.get(el.typeName)?.has(key)
+          ? String(value)
+          : valueJSON(value, el, ctx, `${path}/${key}`);
     if (json !== undefined) out[key] = json;
   }
   return out;
 }
 
 /** A container's children: each one is validated on its own and dropped when invalid. */
-function childrenJSON(value: unknown, ctx: Ctx): Json[] | undefined {
+function childrenJSON(value: unknown, ctx: Ctx, path: string): Json[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const out: Json[] = [];
-  for (const child of value) {
+  value.forEach((item: unknown, i) => {
+    const child = isASTNode(item) ? ctx.evaluate(item) : item;
     // Unresolved references materialize as null; they are reported once, as `unresolved`.
-    if (child === null || child === undefined) continue;
+    // A conditional child (`$open ? Text("x") : null`) evaluates to null when hidden.
+    if (child === null || child === undefined) return;
     if (!isElementNode(child)) {
       ctx.errors.push({ code: "not-a-widget", message: `a container child must be a widget, got ${JSON.stringify(child)}` });
-      continue;
+      return;
     }
-    const widget = validWidget(child, ctx);
+    const widget = validWidget(child, ctx, `${path}/${String(i)}`);
     if (widget) out.push(widget);
-  }
+  });
   return out;
 }
 
-function valueJSON(value: unknown, owner: ElementNode, ctx: Ctx): Json {
-  if (value === null || value === undefined) return undefined;
+function valueJSON(raw: unknown, owner: ElementNode, ctx: Ctx, path: string): Json {
+  const value = isASTNode(raw) ? ctx.evaluate(raw) : raw;
+  if (value === null || value === undefined || isActionPlan(value)) return undefined;
   if (isElementNode(value))
-    return WIDGET_KIND_BY_NAME.has(value.typeName) ? widgetJSON(value, ctx) : propsJSON(value, ctx);
-  if (isASTNode(value)) {
-    const literal = literalValue(value);
-    if (literal) return valueJSON(literal.v, owner, ctx);
-    ctx.errors.push(
-      withOptional(
-        { code: "unsupported-expression", message: "Relay widgets take literal values only (no expressions, $variables or @functions)" },
-        { component: owner.typeName, statementId: owner.statementId },
-      ),
-    );
-    return undefined;
-  }
+    return WIDGET_KIND_BY_NAME.has(value.typeName) ? widgetJSON(value, ctx, path) : propsJSON(value, ctx, path);
   if (Array.isArray(value)) {
     const items: Json[] = [];
-    for (const item of value) {
-      const json = valueJSON(item, owner, ctx);
+    value.forEach((item: unknown, i) => {
+      const json = valueJSON(item, owner, ctx, `${path}/${String(i)}`);
       if (json !== undefined) items.push(json);
-    }
+    });
     return items;
   }
   if (typeof value === "object") {
     const out: Record<string, Json> = {};
     for (const [key, item] of Object.entries(value)) {
-      const json = valueJSON(item, owner, ctx);
+      const json = valueJSON(item, owner, ctx, `${path}/${key}`);
       if (json !== undefined) out[key] = json;
     }
     return out;
@@ -202,52 +284,59 @@ function valueJSON(value: unknown, owner: ElementNode, ctx: Ctx): Json {
   return value;
 }
 
-/** `@ToAssistant("text")` -> `reply`, `@OpenUrl("https://...")` -> `url` (the first of either in an
- * `Action([...])`). A button with neither sends its label, as the prompt promises. */
-function buttonAction(out: Record<string, Json>, el: ElementNode, ctx: Ctx): void {
-  const action = el.props["action"];
-  const step = isASTNode(action) ? firstStep(action) : undefined;
-  if (step) {
-    const arg = step.mappedProps?.[step.name === "OpenUrl" ? "url" : "message"] ?? step.args[0];
-    const literal = arg && literalValue(arg);
-    if (literal && typeof literal.v === "string") {
-      out[step.name === "OpenUrl" ? "url" : "reply"] = literal.v;
-    } else {
-      ctx.errors.push(
-        withOptional(
-          { code: "unsupported-expression", message: `@${step.name} takes one string literal`, component: "Button", path: "/action" },
-          { statementId: el.statementId },
-        ),
-      );
-    }
-  } else if (action !== undefined && action !== null) {
-    ctx.errors.push(
-      withOptional(
-        { code: "type-mismatch", message: 'Button action must be @ToAssistant("text") or @OpenUrl("https://...")', component: "Button", path: "/action" },
-        { statementId: el.statementId },
-      ),
-    );
+/** `id`, or `id#2`, `id#3`, ... when a repeated statement or loop already used it. */
+function uniqueId(id: string, taken: ReadonlyMap<string, unknown>): string {
+  let unique = id;
+  for (let n = 2; taken.has(unique); n++) unique = `${id}#${String(n)}`;
+  return unique;
+}
+
+/** A button's action, evaluated now. With a local step (@Set, @Reset) it becomes an `action` id the
+ * renderer dispatches to the runtime; otherwise its first @ToAssistant is `reply` and @OpenUrl
+ * `url`, as static widgets have. A button with no action sends its label, as the prompt promises. */
+function buttonAction(out: Record<string, Json>, el: ElementNode, ctx: Ctx, id: string): void {
+  const raw = el.props["action"];
+  if (raw === null || raw === undefined) {
+    labelReply(out);
+    return;
   }
+  const plan = isASTNode(raw) ? ctx.evaluate(raw) : raw;
+  const error = (code: OpenUIErrorCode, message: string) =>
+    ctx.errors.push(withOptional({ code, message, component: "Button", path: "/action" }, { statementId: el.statementId }));
+  if (!isActionPlan(plan)) {
+    error("type-mismatch", 'Button action must be an @step or Action([...]), e.g. @ToAssistant("text")');
+    labelReply(out);
+    return;
+  }
+  if (plan.steps.some((step) => step.type === "set" || step.type === "reset")) {
+    const actionId = uniqueId(id, ctx.actions);
+    // Kept per step, so a later step reads the state the earlier ones set.
+    const list = isASTNode(raw) && raw.k === "Comp" && raw.name === "Action" ? raw.args[0] : undefined;
+    ctx.actions.set(actionId, list?.k === "Arr" ? list.els : [plan]);
+    out["action"] = actionId;
+    return;
+  }
+  const step = plan.steps.find((s) => s.type === "continue_conversation" || s.type === "open_url");
+  if (step?.type === "open_url") out["url"] = step.url;
+  else if (step?.type === "continue_conversation") out["reply"] = step.message;
+  else error("unsupported-expression", "Relay buttons run @ToAssistant, @OpenUrl, @Set and @Reset only");
   labelReply(out);
 }
 
 function labelReply(button: Record<string, Json>): void {
-  if (button["reply"] === undefined && button["url"] === undefined) button["reply"] = button["label"];
+  if (button["reply"] === undefined && button["url"] === undefined && button["action"] === undefined)
+    button["reply"] = button["label"];
 }
 
-type CompNode = Extract<ASTNode, { k: "Comp" }>;
-
-function firstStep(node: ASTNode): CompNode | undefined {
-  if (node.k !== "Comp") return undefined;
-  if (node.name === "ToAssistant" || node.name === "OpenUrl") return node;
-  if (node.name !== "Action") return undefined;
-  const list = node.args[0];
-  if (list?.k !== "Arr") return undefined;
-  for (const item of list.els) {
-    const step = firstStep(item);
-    if (step) return step;
-  }
-  return undefined;
+/** `Input(..., $name)`: the field shows `$name` and typing writes it through the `bind` id. */
+function inputBinding(out: Record<string, Json>, el: ElementNode, ctx: Ctx, id: string): void {
+  const raw = el.props["value"];
+  if (!isASTNode(raw) || raw.k !== "StateRef") return;
+  const bindId = uniqueId(id, ctx.bindings);
+  ctx.bindings.set(bindId, raw.n);
+  out["bind"] = bindId;
+  const value = ctx.getState(raw.n);
+  out["value"] = typeof value === "string" ? value : typeof value === "number" || typeof value === "boolean" ? String(value) : "";
 }
 
 /** While streaming, the last table row may still be missing cells; hide it until it is whole. */

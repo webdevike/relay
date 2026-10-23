@@ -59,3 +59,17 @@ same validated tree (`parseOpenUI`, `toOpenUI`, `relayWidgetPrompt`), with the p
 thesysdev/openui lang-core in `src/openui/lang/` (upstream commit in its `LICENSE-openui`). Check a
 reply's blocks with `bun packages/protocol/src/openui/check.ts < reply.md`. A widget or field change
 in `widget.ts` also updates `src/openui/library.ts`.
+
+Interactive widgets: `$name = default` state, expressions and the `@Set`/`@Reset` steps run on the
+device through `createOpenUIRuntime(text, { partial })` (vendored lang-core evaluator and store in
+`src/openui/lang/runtime/`; no Node, DOM or code evaluation, so it runs under Hermes and in the
+Electron renderer). `snapshot()` returns the tree evaluated against the current state (the same
+object until something changes), `subscribe` reports changes, `update` re-parses streamed text
+while keeping the values the user changed, and two optional `WidgetSpec` fields connect the
+renderer to it. Only runtime trees carry them; `parseWidget` drops them from ```ui JSON:
+
+- Button `action?: string`: an opaque action id, set instead of `url`/`reply` when the button's
+  action has a local step. On tap call `runtime.dispatch(action)`; it runs the local steps and
+  returns `{ reply?, url? }` for the host to send or open, as it would for a static button.
+- Input `bind?: string` with `value?: string`: show `value` as the field's text and call
+  `runtime.setInput(bind, text)` on every edit.
