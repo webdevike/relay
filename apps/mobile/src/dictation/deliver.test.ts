@@ -25,7 +25,7 @@ function recorder(): { sent: Command[]; send: (cmd: Command) => Promise<void> } 
 
 afterEach(() => {
   resetDictationTarget();
-  setLaunchProfile("");
+  setLaunchProfile(null);
   setLaunchThinkingLevel("");
 });
 

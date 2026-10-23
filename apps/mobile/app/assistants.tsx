@@ -5,7 +5,7 @@
  * (`/eva?agent=<id>`). The host owns all of it (`useAssistantStore().agents`): the screen asks
  * again whenever it gains focus, and the host pushes a fresh list when a status or reply changes.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { FlatList, Pressable, StyleSheet, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import type { AssistantAgent, AssistantStatus } from "@relay/protocol";
@@ -19,6 +19,9 @@ import { previewText } from "@/agents/markdown";
 import { relativeTime } from "@/lib/format";
 import { tapHaptic } from "@/lib/haptics";
 import { STATUS_LABEL, useAssistantStore } from "@/state/assistant";
+import { useAgentsStore } from "@/state/agents";
+import { useSettingsStore } from "@/state/settings";
+import { orderAssistants } from "@/lib/profile";
 import { spacing, useColors, type ToneToken } from "@/theme";
 
 const AVATAR = 40;
@@ -34,7 +37,11 @@ const statusTone: Record<AssistantStatus, ToneToken> = {
 
 export default function Assistants() {
   const router = useRouter();
-  const agents = useAssistantStore((state) => state.agents);
+  const registry = useAssistantStore((state) => state.agents);
+  const sessions = useAgentsStore((state) => state.sessions);
+  const profile = useSettingsStore((state) => state.ompProfile);
+  // The active account's assistants lead (home's Work | Personal switch), read off the sessions they run in.
+  const agents = useMemo(() => (registry === null ? null : orderAssistants(registry, sessions, profile)), [registry, sessions, profile]);
   const [now, setNow] = useState(() => Date.now());
 
   useFocusEffect(

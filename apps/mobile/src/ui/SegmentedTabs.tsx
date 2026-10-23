@@ -6,11 +6,14 @@ export interface SegmentedTabsProps<K extends string> {
   tabs: readonly { key: K; label: string }[];
   value: K;
   onChange: (key: K) => void;
+  /** `large` makes each tab a full 44pt target with body text, for a screen-level switch; default is the compact in-card size. */
+  size?: "compact" | "large";
 }
 
 /** A row of equal-width tabs on a raised track; the selected one sits on the surface. */
-export function SegmentedTabs<K extends string>({ tabs, value, onChange }: SegmentedTabsProps<K>) {
+export function SegmentedTabs<K extends string>({ tabs, value, onChange, size = "compact" }: SegmentedTabsProps<K>) {
   const colors = useColors();
+  const large = size === "large";
   return (
     <View style={{ flexDirection: "row", backgroundColor: colors.surfaceRaised, borderRadius: radii.md, padding: 2 }}>
       {tabs.map((tab) => {
@@ -26,12 +29,13 @@ export function SegmentedTabs<K extends string>({ tabs, value, onChange }: Segme
             style={{
               flex: 1,
               alignItems: "center",
-              paddingVertical: spacing.xs + 2,
+              justifyContent: "center",
+              ...(large ? { minHeight: 40 } : { paddingVertical: spacing.xs + 2 }),
               borderRadius: radii.sm,
               backgroundColor: selected ? colors.surface : "transparent",
             }}
           >
-            <Text variant="caption" color={selected ? "text" : "textMuted"} numberOfLines={1}>
+            <Text variant={large ? "body" : "caption"} color={selected ? "text" : "textMuted"} numberOfLines={1}>
               {tab.label}
             </Text>
           </Pressable>
