@@ -180,7 +180,7 @@ export default function LiveView() {
       </SafeAreaView>
       <SafeAreaView pointerEvents="box-none" style={styles.chrome} edges={["top", "bottom", "left", "right"]}>
         <View pointerEvents="box-none" style={styles.chromeRow}>
-          <IconButton symbol="chevron.left" accessibilityLabel="Back" tintColor="#FFFFFF" backgroundColor="rgba(0,0,0,0.55)" onPress={() => router.back()} />
+          <IconButton symbol="chevron.left" accessibilityLabel="Back" tintColor="#FFFFFF" backgroundColor="rgba(0,0,0,0.55)" onPress={() => { router.back(); }} />
         </View>
         <View pointerEvents="box-none" style={[styles.chromeRow, styles.chromeEnd]}>
           <IconButton
