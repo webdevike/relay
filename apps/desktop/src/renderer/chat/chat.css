@@ -66,10 +66,6 @@
   min-height: 0;
   position: relative;
 }
-.eva-log > div {
-  scrollbar-width: thin;
-  scrollbar-color: var(--eva-border) transparent;
-}
 .eva-row {
   padding: var(--eva-space-sm) var(--eva-space-native-lg);
 }
@@ -174,7 +170,6 @@
   line-height: 1.5;
   white-space: pre;
   overflow-x: auto;
-  scrollbar-width: thin;
 }
 .eva-tool-output {
   color: var(--eva-text-dim);

@@ -185,7 +185,6 @@
   font-family: var(--eva-font-mono);
   font-size: calc(var(--eva-font-size) * 12 / 14);
   line-height: 20px;
-  scrollbar-width: thin;
 }
 .eva-w-diff-table {
   min-width: 100%;

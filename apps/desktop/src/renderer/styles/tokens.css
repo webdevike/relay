@@ -176,6 +176,44 @@ html[data-focus-ring='never'] :focus-visible {
   outline-offset: 2px;
 }
 
+/*
+ * One scrollbar everywhere: native scrollers (chat log, code, tables, lists, dropdowns) draw the
+ * thumb Mantine's ScrollArea draws (ui/ScrollArea.tsx, scrollbarSize 6): a rounded thumb inset
+ * by a fifth of the lane, 40% of the text color, 50% on hover, shown while the pointer is over
+ * the scroller. Components must not set the standard scrollbar width or color properties, since
+ * Chromium then ignores these rules for that element; hiding a bar with width none still works.
+ */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+  background: transparent;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  border: 1.2px solid transparent;
+  border-radius: 6px;
+  background-clip: padding-box;
+  /* Mantine's thumb never shrinks below 2.75rem, so long chats keep a grabbable thumb. */
+  min-height: 2.75rem;
+  min-width: 2.75rem;
+  background-color: transparent;
+}
+:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.4);
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 0, 0, 0.5);
+}
+[data-mantine-color-scheme='dark'] :hover::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.4);
+}
+[data-mantine-color-scheme='dark'] ::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.5);
+}
+
 .eva-label {
   font-size: var(--eva-fz-label);
   font-weight: var(--eva-fw-semibold);
