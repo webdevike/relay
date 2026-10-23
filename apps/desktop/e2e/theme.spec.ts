@@ -108,3 +108,26 @@ test('a preset applies live, is saved by name, and survives relaunch', async ({
     await second.close()
   }
 })
+
+test.describe('focus ring never', () => {
+  test.use({
+    configDir: async ({ configDir }, use) => {
+      fs.writeFileSync(
+        path.join(configDir, 'theme.json'),
+        JSON.stringify({ preset: 'default', colorScheme: 'light', config: { focusRing: 'never' } }),
+      )
+      await use(configDir)
+    },
+  })
+
+  test("removes the keyboard focus outline from the app's own controls too", async ({ shell }) => {
+    await shell.locator('[data-testid=nav-chat]').focus()
+    await shell.keyboard.press('Shift+Tab')
+    await shell.keyboard.press('Tab')
+    const focused = await shell.evaluate(() => {
+      const el = document.activeElement as HTMLElement
+      return { visible: el.matches(':focus-visible'), outline: getComputedStyle(el).outlineStyle }
+    })
+    expect(focused).toEqual({ visible: true, outline: 'none' })
+  })
+})

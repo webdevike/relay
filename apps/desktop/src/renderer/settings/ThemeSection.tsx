@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import {
   ActionIcon,
   Alert,
@@ -25,14 +25,19 @@ import {
   IconArrowBackUp,
   IconArrowForwardUp,
   IconChevronDown,
+  IconDots,
   IconInfoCircle,
   IconMoon,
   IconSun,
 } from '@tabler/icons-react'
 import { ScrollArea } from '../ui/ScrollArea'
-import { EvaMenu } from '../overlay/EvaMenu'
+import { EvaMenu, EvaModal } from '../overlay'
 import {
-  THEME_PRESETS,
+  deleteTheme,
+  isBuiltIn,
+  resetTheme,
+  saveTheme,
+  saveThemeAs,
   setColorScheme,
   useColorScheme,
   useThemeConfig,
@@ -54,23 +59,15 @@ const compactPillTabs = {
 
 export function ThemeSection() {
   const [tab, setTab] = useState<ThemeControlsTab>('colors')
-  const { applyPreset, canRedo, canUndo, config, preset, redo, undo } = useThemeConfig()
+  const { applyPreset, canRedo, canUndo, options, preset, redo, undo } = useThemeConfig()
   const scheme = useColorScheme()
-  const options = [
-    ...(preset === 'custom' ? [{ config, label: 'Custom', value: 'custom' }] : []),
-    ...THEME_PRESETS,
-  ]
 
   return (
     <div className="eva-theme-split" data-testid="theme-editor">
       <aside className="eva-theme-tools" aria-label="Theme properties">
         <Group className="eva-theme-picker-row" gap="xs" wrap="nowrap">
           <div className="eva-theme-picker">
-            <ThemePicker
-              onChange={(value) => value !== 'custom' && applyPreset(value)}
-              options={options}
-              value={preset}
-            />
+            <ThemePicker onChange={applyPreset} options={options} value={preset} />
           </div>
           <ActionIcon
             aria-label="Toggle color scheme"
@@ -88,6 +85,7 @@ export function ThemeSection() {
             <IconArrowForwardUp size={16} />
           </ActionIcon>
         </Group>
+        <ThemeSaveBar />
         <Tabs
           value={tab}
           onChange={(value) => value && setTab(value as ThemeControlsTab)}
@@ -113,6 +111,122 @@ export function ThemeSection() {
         <ThemePreview />
       </ScrollArea>
     </div>
+  )
+}
+
+/**
+ * Save state of the theme being edited: Save writes the edits into the theme they started from
+ * (a built-in becomes Isaac's version of it), Save as new makes a theme of his own.
+ */
+function ThemeSaveBar() {
+  const { dirty, options, preset, themes } = useThemeConfig()
+  const [naming, setNaming] = useState(false)
+  const [menu, setMenu] = useState(false)
+  const current = options.find((t) => t.value === preset)
+  const label = current?.label ?? 'this theme'
+  const builtIn = isBuiltIn(preset)
+  const edited = builtIn && themes.some((t) => t.value === preset)
+  return (
+    <Group className="eva-theme-save-row" gap="xs" wrap="nowrap" data-testid="theme-save-bar">
+      <Text size="xs" c="dimmed" className="eva-theme-save-state" data-testid="theme-save-state">
+        {dirty ? 'Unsaved changes' : edited ? 'Your version' : 'Saved'}
+      </Text>
+      <Button
+        size="xs"
+        variant="filled"
+        disabled={!dirty}
+        title={`Save to ${label}`}
+        data-testid="theme-save"
+        onClick={saveTheme}
+      >
+        Save
+      </Button>
+      <Button
+        size="xs"
+        variant="default"
+        data-testid="theme-save-as"
+        onClick={() => setNaming(true)}
+      >
+        Save as new
+      </Button>
+      {edited || !builtIn ? (
+        <EvaMenu opened={menu} onChange={setMenu} position="bottom-end" width={200}>
+          <EvaMenu.Target>
+            <ActionIcon variant="subtle" aria-label="Theme actions" data-testid="theme-actions">
+              <IconDots size={16} />
+            </ActionIcon>
+          </EvaMenu.Target>
+          <EvaMenu.Dropdown>
+            {edited ? (
+              <EvaMenu.Item data-testid="theme-reset" onClick={() => resetTheme(preset)}>
+                Reset {label} to original
+              </EvaMenu.Item>
+            ) : (
+              <EvaMenu.Item
+                color="red"
+                data-testid="theme-delete"
+                onClick={() => deleteTheme(preset)}
+              >
+                Delete {label}
+              </EvaMenu.Item>
+            )}
+          </EvaMenu.Dropdown>
+        </EvaMenu>
+      ) : null}
+      <SaveAsModal opened={naming} base={label} onClose={() => setNaming(false)} />
+    </Group>
+  )
+}
+
+function SaveAsModal({
+  opened,
+  base,
+  onClose,
+}: {
+  opened: boolean
+  base: string
+  onClose: () => void
+}) {
+  const [name, setName] = useState('')
+  useEffect(() => {
+    if (opened) setName(`${base} copy`)
+  }, [opened, base])
+  return (
+    <EvaModal
+      opened={opened}
+      onClose={onClose}
+      title="Save as new theme"
+      size={400}
+      testid="theme-save-as-modal"
+    >
+      <form
+        className="eva-theme-save-form"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (!name.trim()) return
+          saveThemeAs(name)
+          onClose()
+        }}
+      >
+        <TextInput
+          aria-label="Theme name"
+          data-testid="theme-save-as-name"
+          data-autofocus
+          value={name}
+          maxLength={80}
+          onChange={(e) => setName(e.currentTarget.value)}
+          onFocus={(e) => e.currentTarget.select()}
+        />
+        <Group justify="flex-end" gap="xs">
+          <Button variant="default" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={!name.trim()} data-testid="theme-save-as-ok">
+            Save
+          </Button>
+        </Group>
+      </form>
+    </EvaModal>
   )
 }
 

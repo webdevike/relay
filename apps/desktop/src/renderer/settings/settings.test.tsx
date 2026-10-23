@@ -18,6 +18,7 @@ import {
   persistTheme,
   seedTheme,
   themeStore,
+  updateConfig,
 } from '../theme/theme-config'
 import { pageRegistry } from '../pages/registry'
 
@@ -73,15 +74,17 @@ describe('SettingsPage', () => {
       expect(invoke).toHaveBeenCalledWith('theme.save', {
         config: forest.config,
         preset: 'forest',
+        themes: [],
         colorScheme: 'light',
       }),
     )
     expect(screen.getByTestId('theme-preset-picker')).toHaveTextContent('Forest')
   })
 
-  it('an edit turns the theme Custom, and undo and redo walk the history', async () => {
+  it('an edit stays on its theme as unsaved, and undo and redo walk the history', async () => {
     const user = userEvent.setup()
     page('Theme')
+    expect(screen.getByTestId('theme-save')).toBeDisabled()
     await user.click(screen.getByRole('tab', { name: 'Other' }))
     await user.click(screen.getByRole('button', { name: 'SPACING' }))
     // Radius and spacing both have an md row; spacing md starts at 1rem.
@@ -90,21 +93,70 @@ describe('SettingsPage', () => {
       .find((input) => (input as HTMLInputElement).value === '1rem')!
     fireEvent.change(md, { target: { value: '2rem' } })
     expect(themeStore.getState().present.spacing.md).toBe('2rem')
-    expect(screen.getByTestId('theme-preset-picker')).toHaveTextContent('Custom')
+    expect(screen.getByTestId('theme-preset-picker')).toHaveTextContent('Default')
+    expect(screen.getByTestId('theme-save-state')).toHaveTextContent('Unsaved changes')
+    expect(screen.getByTestId('theme-save')).toBeEnabled()
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith(
         'theme.save',
-        expect.objectContaining({ preset: 'custom' }),
+        expect.objectContaining({ preset: 'default', themes: [] }),
       ),
     )
     await user.click(screen.getByRole('button', { name: 'Undo theme' }))
     expect(themeStore.getState().present.spacing.md).toBe('1rem')
+    expect(screen.getByTestId('theme-save-state')).toHaveTextContent('Saved')
     await user.click(screen.getByRole('button', { name: 'Redo theme' }))
     expect(themeStore.getState().present.spacing.md).toBe('2rem')
     expect(screen.getByRole('button', { name: 'Redo theme' })).toBeDisabled()
   })
 
-  it('the scheme toggle and presets stay independent: no Custom, no reset to light', async () => {
+  it('Save keeps the edits as his version of the theme; reset brings the original back', async () => {
+    const user = userEvent.setup()
+    applyPreset('forest')
+    page('Theme')
+    updateConfig((c) => ({ ...c, focusRing: 'never' }))
+    await user.click(await screen.findByTestId('theme-save'))
+    expect(screen.getByTestId('theme-save-state')).toHaveTextContent('Your version')
+    expect(themeStore.getState().themes).toEqual([
+      expect.objectContaining({ value: 'forest', label: 'Forest' }),
+    ])
+    // Switching away and back returns his saved version, not the shipped one.
+    applyPreset('default')
+    applyPreset('forest')
+    expect(themeStore.getState().present.focusRing).toBe('never')
+    await user.click(screen.getByTestId('theme-actions'))
+    await user.click(await screen.findByTestId('theme-reset'))
+    expect(themeStore.getState().themes).toEqual([])
+    expect(themeStore.getState().present.focusRing).toBe('auto')
+  })
+
+  it('Save as new makes his own theme, picks it, and it can be deleted', async () => {
+    const user = userEvent.setup()
+    page('Theme')
+    updateConfig((c) => ({ ...c, primaryColor: 'teal' }))
+    await user.click(screen.getByTestId('theme-save-as'))
+    const name = await screen.findByTestId('theme-save-as-name')
+    await user.clear(name)
+    await user.type(name, 'Calm teal')
+    await user.click(screen.getByTestId('theme-save-as-ok'))
+    expect(themeStore.getState()).toMatchObject({ preset: 'user-calm-teal' })
+    expect(screen.getByTestId('theme-preset-picker')).toHaveTextContent('Calm teal')
+    expect(screen.getByTestId('theme-save-state')).toHaveTextContent('Saved')
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        'theme.save',
+        expect.objectContaining({
+          preset: 'user-calm-teal',
+          themes: [expect.objectContaining({ value: 'user-calm-teal', label: 'Calm teal' })],
+        }),
+      ),
+    )
+    await user.click(screen.getByTestId('theme-actions'))
+    await user.click(await screen.findByTestId('theme-delete'))
+    expect(themeStore.getState()).toMatchObject({ preset: 'default', themes: [] })
+  })
+
+  it('the scheme toggle and presets stay independent: no reset to light', async () => {
     const user = userEvent.setup()
     page('Theme')
     await user.click(screen.getByTestId('theme-color-scheme'))

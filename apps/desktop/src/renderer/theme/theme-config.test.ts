@@ -8,12 +8,29 @@ const defaults = THEME_PRESETS[0]!.config
 
 describe('parseSavedTheme', () => {
   it('merges a saved config over the Default preset, so keys added later still resolve', () => {
-    const saved = parseSavedTheme({ config: { primaryColor: 'teal' }, preset: 'custom' })
+    const saved = parseSavedTheme({ config: { primaryColor: 'teal' }, preset: 'ocean' })
     expect(saved).toEqual({
       config: { ...defaults, primaryColor: 'teal' },
-      preset: 'custom',
+      preset: 'ocean',
+      themes: [],
       colorScheme: 'light',
     })
+  })
+
+  it("reads saved themes and maps an older build's 'custom' to the theme it started from", () => {
+    const saved = parseSavedTheme({
+      config: { primaryColor: 'teal' },
+      preset: 'user-calm',
+      themes: [
+        { value: 'user-calm', label: 'Calm', config: { primaryColor: 'teal' } },
+        { value: 'forest', label: 'Forest', config: { focusRing: 'never' } },
+        { value: 'bad' },
+      ],
+    })!
+    expect(saved.preset).toBe('user-calm')
+    expect(saved.themes.map((t) => t.value)).toEqual(['user-calm', 'forest'])
+    expect(saved.themes[1]!.config).toEqual({ ...defaults, focusRing: 'never' })
+    expect(parseSavedTheme({ config: {}, preset: 'custom' })!.preset).toBe('default')
   })
 
   it('reads the scheme beside the config, and moves an older in-config scheme out', () => {

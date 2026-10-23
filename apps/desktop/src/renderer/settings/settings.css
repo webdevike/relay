@@ -109,6 +109,21 @@
   min-width: 0;
   height: 100%;
 }
+.eva-theme-save-row {
+  min-height: 30px;
+}
+.eva-theme-save-state {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-theme-save-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-md);
+}
 .eva-theme-content {
   min-width: 0;
   min-height: 0;

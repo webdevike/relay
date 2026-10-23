@@ -31,6 +31,17 @@ export type SavedTabs = z.infer<typeof SavedTabsSchema>
 export const SavedThemeSchema = z.object({
   config: z.record(z.string(), z.unknown()),
   preset: z.string().max(200),
+  /** Themes Isaac saved: his own, and his versions of built-in presets (same value). */
+  themes: z
+    .array(
+      z.object({
+        value: z.string().min(1).max(200),
+        label: z.string().min(1).max(80),
+        config: z.record(z.string(), z.unknown()),
+      }),
+    )
+    .max(200)
+    .optional(),
   colorScheme: z.enum(['light', 'dark']).optional(),
 })
 export type SavedTheme = z.infer<typeof SavedThemeSchema>

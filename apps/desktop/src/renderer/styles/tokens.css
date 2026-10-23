@@ -161,6 +161,21 @@ body {
   outline-offset: 2px;
 }
 
+/*
+ * Settings > Theme > Focus ring (theme-config sets data-focus-ring on <html>). Mantine applies it
+ * to its own components only; these extend it to the app's own controls. never removes every
+ * outline, so it has to beat component rules; always also shows the ring for mouse focus, at the
+ * lowest specificity so a control's own focus style still wins.
+ */
+html[data-focus-ring='never'] :focus,
+html[data-focus-ring='never'] :focus-visible {
+  outline: none !important;
+}
+:where(html[data-focus-ring='always']) :focus {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: 2px;
+}
+
 .eva-label {
   font-size: var(--eva-fz-label);
   font-weight: var(--eva-fw-semibold);
