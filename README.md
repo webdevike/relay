@@ -52,3 +52,10 @@ Plaintext WebSocket on the LAN. A physically paired iPhone can receive quick tru
 
 `packages/protocol/src/index.ts` is the spec. Change it and `apps/mac/Sources/RelayProtocol/Protocol.swift`
 together; `swift test` decodes every fixture in `packages/protocol/fixtures` and re-encodes it.
+
+Widgets: `src/widget.ts` is the widget schema (the JSON ```ui fence, kept for old transcripts).
+Agents now emit OpenUI Lang in a ```openui fence; `src/openui/` parses it (also mid-stream) into the
+same validated tree (`parseOpenUI`, `toOpenUI`, `relayWidgetPrompt`), with the parser vendored from
+thesysdev/openui lang-core in `src/openui/lang/` (upstream commit in its `LICENSE-openui`). Check a
+reply's blocks with `bun packages/protocol/src/openui/check.ts < reply.md`. A widget or field change
+in `widget.ts` also updates `src/openui/library.ts`.
