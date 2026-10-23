@@ -121,43 +121,6 @@
   line-height: var(--eva-lh-label);
   color: var(--eva-danger);
 }
-.eva-composer-toolbar .eva-toolbar-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  max-width: 100%;
-  height: var(--eva-kit-control-xs);
-  padding: 0 var(--eva-space-xs);
-  border: 0;
-  border-radius: var(--eva-radius);
-  background: transparent;
-  color: var(--eva-text-dim);
-  font-family: inherit;
-  font-size: var(--eva-fz-label);
-  font-weight: var(--eva-fw-regular);
-  line-height: var(--eva-lh-label);
-  cursor: pointer;
-}
-.eva-toolbar-btn:hover {
-  background: var(--eva-hover);
-  color: var(--eva-text);
-}
-.eva-toolbar-btn:active {
-  background: var(--eva-c-secondary-active-background);
-}
-.eva-toolbar-btn[aria-disabled='true'] {
-  opacity: 0.5;
-  cursor: default;
-  pointer-events: none;
-}
-.eva-toolbar-model {
-  display: inline-block;
-  max-width: min(160px, 100%);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .eva-context-ring {
   display: inline-flex;
   align-items: center;
@@ -165,65 +128,4 @@
   width: 20px;
   height: 20px;
   font-variant-numeric: tabular-nums;
-}
-.eva-picker-list {
-  display: flex;
-  flex-direction: column;
-  width: min(320px, calc(100vw - var(--eva-space-xl)));
-  min-width: 0;
-  max-height: 360px;
-  overflow-y: auto;
-}
-.eva-picker-item.eva-label {
-  display: flex;
-  align-items: center;
-  flex: none;
-  gap: var(--eva-space-native-sm);
-  min-height: 34px;
-  padding: 0 var(--eva-space-native-sm);
-  border: 0;
-  border-radius: var(--eva-radius);
-  background: transparent;
-  color: inherit;
-  font-family: inherit;
-  font-size: var(--eva-fz-body);
-  font-weight: var(--eva-fw-regular);
-  line-height: var(--eva-lh-body);
-  text-align: left;
-  cursor: pointer;
-}
-.eva-picker-item:hover {
-  background: var(--eva-hover);
-}
-.eva-picker-check {
-  display: inline-flex;
-  width: 14px;
-}
-.eva-picker-name {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.eva-picker-levels {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding: 8px 8px 0;
-  margin-top: 4px;
-  border-top: 1px solid var(--eva-border);
-}
-.eva-picker-level {
-  height: 24px;
-  padding: 0 8px;
-  border: 1px solid var(--eva-border);
-  border-radius: var(--eva-radius-sm);
-  background: transparent;
-  color: inherit;
-  font-family: inherit;
-  cursor: pointer;
-}
-.eva-picker-level[data-active='true'] {
-  border-color: var(--eva-c-primary-background);
-  color: var(--eva-c-primary-background);
 }

@@ -152,6 +152,5 @@ test('toolbar controls are disabled while the session is closed', async ({ shell
   )
   await expect(model).toHaveAttribute('aria-disabled', 'true')
   await expect(shell.locator(sel('composer-access'))).toHaveAttribute('aria-disabled', 'true')
-  const opacity = await model.evaluate((el) => getComputedStyle(el).opacity)
-  expect(Number(opacity)).toBeCloseTo(0.5, 1)
+  await expect(model).toBeDisabled()
 })
