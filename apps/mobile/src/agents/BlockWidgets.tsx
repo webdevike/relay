@@ -2,6 +2,7 @@
  * The design-system leaves of the ```ui catalogue (button, table, progress, list, code, quote,
  * avatar, timeline). Each wires its spec to primitives in `src/ui/`; layout only.
  */
+import { useContext } from "react";
 import { View } from "react-native";
 import { openExternal } from "@/lib/links";
 import { spacing } from "@/theme";
@@ -20,6 +21,7 @@ import { pressButton } from "./openui";
 import { useOpenUIRuntime } from "./OpenUIRuntime";
 import { toneColor } from "./tone";
 import { useWidgetActions } from "./WidgetActions";
+import { GRID_BUTTON_HEIGHT, GridCellContext } from "./widgetLayout";
 import type {
   AvatarSpec,
   ButtonSpec,
@@ -39,14 +41,17 @@ const buttonVariant: Record<ButtonSpec["variant"], ButtonVariant> = {
 
 /** A `url` opens externally; a `reply` goes to the session as its next turn, so with no session
  * to reply to the button is disabled. An `action` (```openui) runs on the fence's runtime first and
- * then opens or sends whatever its steps hand back. Subtle buttons default to a muted label. */
+ * then opens or sends whatever its steps hand back. Subtle buttons default to a muted label. In a
+ * grid cell the button is a touch-target-tall key that fills the cell. */
 export function ButtonWidget({ spec }: { spec: ButtonSpec }) {
   const actions = useWidgetActions();
   const runtime = useOpenUIRuntime();
+  const inGrid = useContext(GridCellContext);
   return (
     <Button
       label={spec.label}
       variant={buttonVariant[spec.variant]}
+      height={inGrid ? GRID_BUTTON_HEIGHT : undefined}
       tone={
         spec.tone !== undefined
           ? toneColor[spec.tone]

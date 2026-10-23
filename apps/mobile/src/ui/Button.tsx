@@ -13,6 +13,8 @@ export interface ButtonProps {
   loading?: boolean;
   /** Tints the primary fill, or the label of a secondary or ghost button. */
   tone?: ToneToken | undefined;
+  /** Overrides the default 36pt height (e.g. 44pt touch targets in a widget grid). */
+  height?: number | undefined;
 }
 
 function backgroundFor(variant: ButtonVariant, colors: Colors, tone: ToneToken | undefined): string {
@@ -41,6 +43,7 @@ export function Button({
   disabled = false,
   loading = false,
   tone,
+  height = 36,
 }: ButtonProps) {
   const colors = useColors();
   const textColor =
@@ -53,7 +56,7 @@ export function Button({
         onPress();
       }}
       style={({ pressed }) => ({
-        height: 36,
+        height,
         borderRadius: radii.md,
         paddingHorizontal: spacing.lg,
         alignItems: "center",

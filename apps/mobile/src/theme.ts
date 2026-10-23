@@ -100,6 +100,7 @@ export const type = {
   label: { fontSize: 13, lineHeight: 18, fontWeight: "500" },
   title: { fontSize: 17, lineHeight: 22, fontWeight: "600" },
   largeTitle: { fontSize: 28, lineHeight: 34, fontWeight: "700" },
+  display: { fontSize: 36, lineHeight: 44, fontWeight: "500" },
 } satisfies Record<string, TypeStyle>;
 
 export type TypeToken = keyof typeof type;

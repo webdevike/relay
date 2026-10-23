@@ -51,17 +51,11 @@ import type {
   TicketsSpec,
   WidgetSpec,
 } from "./widget";
+import { GridCellContext, gridColumns, isControls } from "./widgetLayout";
 
 const CHART_HEIGHT = 140;
-/** A grid drops columns rather than squeeze a cell narrower than this. */
-const MIN_GRID_CELL = 140;
 /** Narrowest a cell in a row of buttons, badges, or links gets before the row wraps. */
 const MIN_INLINE_CELL = 96;
-const INLINE_WIDGETS: Partial<Record<WidgetSpec["widget"], true>> = {
-  button: true,
-  badge: true,
-  link: true,
-};
 
 const seriesColor = (colors: Colors, index: number, color?: string): string =>
   color ?? [colors.accent, colors.ok, colors.warn, colors.danger][index % 4] ?? colors.accent;
@@ -174,7 +168,7 @@ function Node({ spec }: { spec: WidgetSpec }) {
 function Stack({ spec }: { spec: StackSpec }) {
   const [width, setWidth] = useState(0);
   const horizontal = spec.direction === "horizontal";
-  const inline = horizontal && spec.children.every((child) => INLINE_WIDGETS[child.widget] === true);
+  const inline = horizontal && isControls(spec.children);
   const row = inline || (horizontal && width >= 480);
   return (
     <View
@@ -215,30 +209,32 @@ function CardBody({ spec }: { spec: CardSpec }) {
   );
 }
 
-/** Rows of `columns` equal cells; a narrow container drops columns so no cell gets too thin. */
+/** Rows of `columns` equal cells; a narrow container drops columns so no cell gets too thin. A
+ * button fills its cell at touch-target height, so a keypad reads as one even block. */
 function Grid({ spec }: { spec: GridSpec }) {
   const [width, setWidth] = useState(0);
   const gap = spacing[spec.gap ?? "sm"];
-  const fit = Math.max(1, Math.floor((width + gap) / (MIN_GRID_CELL + gap)));
-  const columns = width === 0 ? spec.columns : Math.min(spec.columns, fit);
+  const columns = gridColumns(width, gap, spec.columns, spec.children);
   const rows = Array.from({ length: Math.ceil(spec.children.length / columns) }, (_, r) =>
     spec.children.slice(r * columns, (r + 1) * columns),
   );
   return (
-    <View onLayout={(event) => setWidth(event.nativeEvent.layout.width)} style={{ gap }}>
-      {rows.map((row, r) => (
-        <View key={r} style={{ flexDirection: "row", gap }}>
-          {Array.from({ length: columns }, (_, c) => {
-            const child = row[c];
-            return (
-              <View key={c} style={{ flex: 1, minWidth: 0 }}>
-                {child !== undefined && <Node spec={child} />}
-              </View>
-            );
-          })}
-        </View>
-      ))}
-    </View>
+    <GridCellContext.Provider value>
+      <View onLayout={(event) => setWidth(event.nativeEvent.layout.width)} style={{ gap }}>
+        {rows.map((row, r) => (
+          <View key={r} style={{ flexDirection: "row", gap }}>
+            {Array.from({ length: columns }, (_, c) => {
+              const child = row[c];
+              return (
+                <View key={c} style={{ flex: 1, minWidth: 0 }}>
+                  {child !== undefined && <Node spec={child} />}
+                </View>
+              );
+            })}
+          </View>
+        ))}
+      </View>
+    </GridCellContext.Provider>
   );
 }
 
@@ -267,12 +263,22 @@ const textStyle = {
   body: { variant: "body", color: "text" },
   caption: { variant: "caption", color: "textMuted" },
   muted: { variant: "body", color: "textMuted" },
+  display: { variant: "display", color: "text" },
 } as const;
 
+/** `display` is a calculator-style readout: large tabular numerals on one line, shrinking to fit. */
 function TextBlock({ spec }: { spec: TextSpec }) {
   const { variant, color } = textStyle[spec.style ?? "body"];
+  const display = spec.style === "display";
   return (
-    <Text variant={variant} color={color}>
+    <Text
+      variant={variant}
+      color={color}
+      tabular={display}
+      numberOfLines={display ? 1 : undefined}
+      adjustsFontSizeToFit={display}
+      style={{ textAlign: spec.align ?? "left" }}
+    >
       {spec.text}
     </Text>
   );
