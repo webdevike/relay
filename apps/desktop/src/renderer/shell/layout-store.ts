@@ -51,7 +51,8 @@ function initial(): LayoutState {
     sidebarWidth: SIDEBAR_DEFAULT,
     panelWidth: PANEL_DEFAULT,
     sidebarWanted: true,
-    panelOpen: true,
+    // Closed until Isaac opens it (or a link opens in it); it never reopens on reload.
+    panelOpen: false,
     loaded: false,
   }
   return { ...base, ...derive(base) }

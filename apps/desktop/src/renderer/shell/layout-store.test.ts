@@ -32,6 +32,15 @@ beforeEach(() => {
   show.mockReset()
   resetLayoutStoreForTests()
   setWindowWidth(1280)
+  // The fit and drag cases below measure a shell with the panel showing.
+  togglePanel(true)
+})
+
+it('the right panel starts closed', () => {
+  resetLayoutStoreForTests()
+  setWindowWidth(1280)
+  expect(g().panelOpen).toBe(false)
+  expect(g().panelPx).toBe(0)
 })
 
 describe('derived widths', () => {

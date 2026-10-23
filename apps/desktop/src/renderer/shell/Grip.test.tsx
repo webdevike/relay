@@ -9,7 +9,7 @@ vi.mock('../ipc', () => ({
 vi.mock('@mantine/notifications', () => ({ notifications: { show: vi.fn() } }))
 
 import { Grip } from './Grip'
-import { layoutStore, resetLayoutStoreForTests, setWindowWidth } from './layout-store'
+import { layoutStore, resetLayoutStoreForTests, setWindowWidth, togglePanel } from './layout-store'
 import { overlayStore } from '../overlay/overlay-store'
 
 const saves = (): unknown[][] => invoke.mock.calls.filter((c) => c[0] === 'layout.save')
@@ -19,6 +19,7 @@ beforeEach(() => {
   invoke.mockReset()
   invoke.mockResolvedValue({ ok: true, value: {} })
   resetLayoutStoreForTests()
+  togglePanel(true)
   setWindowWidth(1280)
 })
 

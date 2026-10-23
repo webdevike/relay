@@ -176,6 +176,10 @@ test('widths survive a relaunch', async ({ app, shell, configDir }) => {
     )
     await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(1280)
     await expect.poll(async () => (await box(page, 'sidebar')).width).toBe(300)
+    // The panel starts closed; its saved width shows once it opens.
+    type Hooks = { __evaosShell?: { setPanel(open: boolean): void } }
+    await page.waitForFunction(() => Boolean((window as unknown as Hooks).__evaosShell))
+    await page.evaluate(() => (window as unknown as Hooks).__evaosShell!.setPanel(true))
     await expect.poll(async () => Math.round((await box(page, 'panel-card')).width)).toBe(460)
   } finally {
     await app2.close()
@@ -191,4 +195,19 @@ test('malformed layout.json is reset with one toast', async ({ configDir }) => {
   } finally {
     await app2.close()
   }
+})
+
+test.describe('right panel default', () => {
+  test.use({ panelOpen: false })
+
+  test('starts closed and stays closed across page changes and a reload', async ({ shell }) => {
+    const panel = shell.locator('[data-testid=panel-card]')
+    await expect(panel).toBeHidden()
+    await shell.locator('[data-testid=nav-dashboard]').click()
+    await shell.locator('[data-testid=nav-chat]').click()
+    await expect(panel).toBeHidden()
+    await shell.reload()
+    await shell.waitForSelector('[data-testid=rail]')
+    await expect(panel).toBeHidden()
+  })
 })

@@ -21,6 +21,8 @@ import {
 interface Fixtures {
   launchEnv: Record<string, string>
   startOnChat: boolean
+  /** Most specs exercise the browser panel; the app itself starts with it closed. */
+  panelOpen: boolean
   configDir: string
   app: ElectronApplication
   shell: Page
@@ -73,6 +75,7 @@ export function launchApp(
 export const test = base.extend<Fixtures>({
   launchEnv: [{}, { option: true }],
   startOnChat: [true, { option: true }],
+  panelOpen: [true, { option: true }],
   configDir: async ({}, use) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evaos-e2e-'))
     await use(dir)
@@ -86,17 +89,24 @@ export const test = base.extend<Fixtures>({
   rendererErrors: async ({}, use) => {
     await use([])
   },
-  shell: async ({ app, rendererErrors, startOnChat }, use) => {
+  shell: async ({ app, rendererErrors, startOnChat, panelOpen }, use) => {
     const page = await app.firstWindow()
     page.on('pageerror', (e) => rendererErrors.push(`pageerror: ${e.message}`))
     page.on('console', (m) => {
       if (m.type() === 'error') rendererErrors.push(`console: ${m.text()}`)
     })
     await page.waitForSelector('[data-testid=rail]')
-    if (startOnChat) {
-      await page.waitForFunction(() =>
-        Boolean((window as unknown as { __evaosShell?: unknown }).__evaosShell),
+    await page.waitForFunction(() =>
+      Boolean((window as unknown as { __evaosShell?: unknown }).__evaosShell),
+    )
+    if (panelOpen) {
+      await page.evaluate(() =>
+        (
+          window as unknown as { __evaosShell: { setPanel(open: boolean): void } }
+        ).__evaosShell.setPanel(true),
       )
+    }
+    if (startOnChat) {
       await page.waitForSelector('[data-testid=tab-strip], [role=tablist]')
       await page.evaluate(() =>
         (window as unknown as { __evaosShell: { openChat(): void } }).__evaosShell.openChat(),

@@ -9,7 +9,12 @@ vi.mock('../ipc', () => ({
 }))
 
 import { createTabs, placeOf, type Tab } from '@evaos/shell-core'
-import { layoutStore, resetLayoutStoreForTests, setWindowWidth } from '../shell/layout-store'
+import {
+  layoutStore,
+  resetLayoutStoreForTests,
+  setWindowWidth,
+  togglePanel,
+} from '../shell/layout-store'
 import { overlayStore } from '../overlay/overlay-store'
 import { FOLDED_LABEL, TabBar } from './TabBar'
 import { MainHeader } from '../shell/MainHeader'
@@ -37,6 +42,7 @@ const ui = () =>
 beforeEach(() => {
   invoke.mockClear()
   resetLayoutStoreForTests()
+  togglePanel(true)
   setWindowWidth(1280)
 })
 

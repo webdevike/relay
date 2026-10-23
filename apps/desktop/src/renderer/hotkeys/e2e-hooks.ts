@@ -3,6 +3,7 @@ import { setColorScheme, type ColorScheme } from '../theme/theme-config'
 import { pageFromKey, placeOf, type Place } from '@evaos/shell-core'
 import { navigateTo, tabsStore } from '../tabs/tabs-store'
 import { tabTitle } from '../tabs/tab-meta'
+import { togglePanel } from '../shell/layout-store'
 
 export interface HotkeyLogEntry {
   chord: string
@@ -28,6 +29,8 @@ export interface EvaosShellHooks {
   }
   openPlace(page: string, newTab?: boolean, extra?: Partial<Omit<Place, 'page'>>): void
   openChat(): void
+  /** Opens or closes the right panel (it starts closed). */
+  setPanel(open: boolean): void
 }
 
 declare global {
@@ -83,6 +86,7 @@ export function initE2e(): Promise<boolean> {
           if (page) navigateTo(placeOf(page, extra), { newTab })
         },
         openChat: () => navigateTo(placeOf('chat')),
+        setPanel: (open) => togglePanel(open),
       }
     }
     return e2e
