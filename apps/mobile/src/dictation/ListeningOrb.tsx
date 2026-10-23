@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { SymbolView } from "expo-symbols";
 import Animated, {
@@ -19,28 +19,45 @@ import { useDictation } from "./useDictation";
 import { ORB_FADE_MS, ORB_FLIGHT_MS, type OrbState } from "./machine";
 
 const ORB = 140;
-const CANVAS = ORB * 1.6; // room for the glow
+/** iPhone display corner radius (pt), so the glow hugs the glass. */
+const SCREEN_RADIUS = 55;
 
 /**
- * Centered dictation orb. Renders the statechart's `orb` region: shown while listening (breathing
- * with the mic, rising with the finger), held lifted once the swipe has armed a submit, flying off
- * the top after release, or collapsing into the check after a plain send. Skia shader when the
- * native module is present; a layered-View fallback keeps older dev clients working.
+ * Dictation's listening glow, after Siri: a gradient light (orange, pink, violet, blue) wrapped
+ * around the screen's rounded edge, swirling slowly and swelling with the mic. Renders the
+ * statechart's `orb` region: shown while listening, brighter as the finger lifts and held bright
+ * once the swipe has armed a submit, sweeping away after release, or fading into the check after a
+ * plain send. Skia shader when the native module is present; a plain border keeps older dev
+ * clients working.
  */
 export function ListeningOrb() {
   const { orb } = useDictation();
   if (orb === "hidden" || orb === "gone") return null;
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-        <OrbBody orb={orb} />
-      </View>
+      <EdgeBody orb={orb} />
     </View>
   );
 }
 
-function OrbBody({ orb }: { orb: OrbState }) {
-  const { height } = useWindowDimensions();
+/**
+ * The whole window, wherever this overlay's parent sits (inside safe-area and keyboard insets),
+ * so the glow reaches the physical edge of the glass.
+ */
+function useWindowFrame(): { ref: RefObject<View | null>; onLayout: () => void; offset: { x: number; y: number } } {
+  const ref = useRef<View>(null);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const onLayout = () => {
+    ref.current?.measureInWindow((x, y) => {
+      setOffset((prev) => (prev.x === x && prev.y === y ? prev : { x, y }));
+    });
+  };
+  return { ref, onLayout, offset };
+}
+
+function EdgeBody({ orb }: { orb: OrbState }) {
+  const { width, height } = useWindowDimensions();
+  const frame = useWindowFrame();
 
   // Each shared value is a tween toward what the current orb state prescribes.
   const presence = useSharedValue(0);
@@ -81,37 +98,26 @@ function OrbBody({ orb }: { orb: OrbState }) {
     () => Math.max(tracksFinger ? sendLift.value : 0, held.value),
     [tracksFinger],
   );
-  const scale = useDerivedValue(() => {
-    const breathe = 1 + smoothed.value * 0.22;
-    return (
-      presence.value *
-      (0.6 + 0.4 * presence.value) *
-      breathe *
-      (1 - collapse.value * 0.55) *
-      (1 - lift.value * 0.12) *
-      (1 - flight.value * 0.5)
-    );
-  });
-  const glow = useDerivedValue(() => Math.max(smoothed.value, lift.value * 0.9));
-  const orbStyle = useAnimatedStyle(() => {
-    const travel = height * 0.5 + CANVAS;
-    return {
-      opacity: presence.value * (1 - collapse.value) * (1 - Math.max(0, flight.value - 0.6) / 0.4),
-      transform: [{ translateY: -lift.value * 56 - flight.value * travel }, { scale: scale.value }],
-    };
-  });
+  // Swelling with the voice, flaring as a submit arms, flaring once more as it sends.
+  const level = useDerivedValue(() => Math.min(1, Math.max(smoothed.value, lift.value * 0.9) + flight.value * 0.6));
+  const glowStyle = useAnimatedStyle(() => ({
+    opacity: presence.value * (1 - collapse.value) * (1 - flight.value),
+    // Breathes in from slightly outside the screen on appear.
+    transform: [{ scale: 1 + (1 - presence.value) * 0.04 }],
+  }));
 
   return (
-    <View style={{ width: CANVAS, height: CANVAS, alignItems: "center", justifyContent: "center" }}>
+    <View ref={frame.ref} onLayout={frame.onLayout} style={StyleSheet.absoluteFill}>
       <Animated.View
-        style={[
-          { width: CANVAS, height: CANVAS, alignItems: "center", justifyContent: "center" },
-          orbStyle,
-        ]}
+        style={[{ position: "absolute", left: -frame.offset.x, top: -frame.offset.y, width, height }, glowStyle]}
       >
-        <OrbSurface level={glow} />
+        <EdgeSurface width={width} height={height} level={level} />
       </Animated.View>
-      {orb === "collapsing" && <SentCheck />}
+      {orb === "collapsing" && (
+        <View style={[StyleSheet.absoluteFill, { alignItems: "center", justifyContent: "center" }]}>
+          <SentCheck />
+        </View>
+      )}
     </View>
   );
 }
@@ -120,109 +126,72 @@ function OrbBody({ orb }: { orb: OrbState }) {
 // Skia surface with a View fallback
 // ---------------------------------------------------------------------------------------------
 
-function OrbSurface({ level }: { level: SharedValue<number> }): ReactNode {
+function EdgeSurface({ width, height, level }: { width: number; height: number; level: SharedValue<number> }): ReactNode {
   const sk = loadSkia();
-  return sk === null ? <FallbackOrb /> : <SkiaOrb sk={sk} level={level} />;
+  return sk === null ? <FallbackEdge /> : <SkiaEdge sk={sk} width={width} height={height} level={level} />;
 }
 
-// Glass ball. The view ray refracts into a sphere and samples a liquid interior: three colored
-// lights drifting on slow orbits through a warped noise field, with parallax from the refraction
-// so the contents shift as you look across the limb. Fresnel rim, a sharp and a soft window
-// reflection, and slight chromatic dispersion at the edge sell the glass. `u_level` speeds the
-// interior and brightens it; `u_time` in seconds.
-const ORB_SHADER = `
+// Edge light. Distance in from the screen's rounded rectangle sets brightness: a bright thin core
+// against the glass and a wide soft haze falling off inward. Hue runs around the perimeter by
+// angle and drifts with time; the band's width ripples along the edge and grows with `u_level`.
+const EDGE_SHADER = `
 uniform float2 u_res;
 uniform float  u_time;
 uniform float  u_level;
+uniform float  u_radius;
 
-float hash(float2 p) { return fract(sin(dot(p, float2(127.1, 311.7))) * 43758.5453123); }
-float noise(float2 p) {
-  float2 i = floor(p); float2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(hash(i), hash(i + float2(1, 0)), f.x), mix(hash(i + float2(0, 1)), hash(i + float2(1, 1)), f.x), f.y);
-}
-float fbm(float2 p) {
-  float v = 0.0; float a = 0.5;
-  for (int i = 0; i < 3; i++) { v += a * noise(p); p = p * 1.9 + 11.7; a *= 0.45; }
-  return v;
+float sdRoundRect(float2 p, float2 b, float r) {
+  float2 q = abs(p) - b + r;
+  return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
 }
 
-// What lives inside the glass, sampled at refracted point p.
-half3 interior(float2 p, float t) {
-  float2 c1 = float2(sin(t * 0.70), cos(t * 0.90)) * 0.38;
-  float2 c2 = float2(cos(t * 0.50 + 1.7), sin(t * 0.80 + 0.4)) * 0.42;
-  float2 c3 = float2(sin(t * 1.10 + 3.1), cos(t * 0.60 + 2.0)) * 0.30;
-  float n = fbm(p * 1.7 + float2(t * 0.30, -t * 0.22));
-  float2 w = float2(n, fbm(p * 1.7 + float2(4.2, 1.1) - t * 0.25)) - 0.5;
-  float2 q = p + w * 0.55;
-  float b1 = exp(-dot(q - c1, q - c1) * 6.0);
-  float b2 = exp(-dot(q - c2, q - c2) * 5.0);
-  float b3 = exp(-dot(q - c3, q - c3) * 9.0);
-  half3 col = half3(0.05, 0.06, 0.14);                 // dark glass body
-  col += half3(0.36, 0.46, 1.00) * b1 * 0.95;          // periwinkle
-  col += half3(0.62, 0.40, 1.00) * b2 * 0.70;          // violet
-  col += half3(0.42, 0.88, 1.00) * b3 * 0.65;          // cyan
-  col += half3(0.45, 0.55, 1.00) * n * 0.14;           // faint haze
-  return col;
+float3 palette(float h) {
+  float3 orange = float3(1.00, 0.56, 0.22);
+  float3 pink   = float3(1.00, 0.30, 0.58);
+  float3 violet = float3(0.66, 0.36, 1.00);
+  float3 blue   = float3(0.30, 0.62, 1.00);
+  float x = fract(h) * 4.0;
+  if (x < 1.0) return mix(orange, pink, smoothstep(0.0, 1.0, x));
+  if (x < 2.0) return mix(pink, violet, smoothstep(0.0, 1.0, x - 1.0));
+  if (x < 3.0) return mix(violet, blue, smoothstep(0.0, 1.0, x - 2.0));
+  return mix(blue, orange, smoothstep(0.0, 1.0, x - 3.0));
 }
 
 half4 main(float2 xy) {
-  float2 uv = (xy - u_res * 0.5) / (u_res.y * 0.5);   // -1..1, orb radius ~0.62
-  uv -= float2(sin(u_time * 0.55), cos(u_time * 0.41)) * 0.035;   // the ball itself drifts lazily
-  float r = length(uv);
-  float radius = 0.62;
-  float2 s = uv / radius;                               // unit-sphere coords
-  float rr = length(s);
-  float z = sqrt(max(0.0, 1.0 - dot(s, s)));
-  float3 n = float3(s, z);
-  float3 I = float3(0.0, 0.0, -1.0);                    // view ray into the screen
+  float2 p = xy - u_res * 0.5;
+  float d = max(0.0, -sdRoundRect(p, u_res * 0.5, u_radius));   // points in from the edge
+  float a = atan(p.y, p.x) / 6.2831853;
+  float t = u_time * (1.0 + u_level * 1.2);
 
-  // Refract into the ball, march to a mid plane, sample the interior per channel (dispersion).
-  float depth = 0.85;
-  float t = u_time * (0.45 + u_level * 0.70);
-  float2 pR = s + refract(I, n, 1.0 / 1.42).xy * depth;
-  float2 pG = s + refract(I, n, 1.0 / 1.45).xy * depth;
-  float2 pB = s + refract(I, n, 1.0 / 1.49).xy * depth;
-  half3 inner = half3(interior(pR, t).r, interior(pG, t).g, interior(pB, t).b);
-  inner *= 1.0 + u_level * 0.7;
+  float ripple = 0.5 + 0.5 * sin(a * 18.85 + t * 1.7) * sin(a * 31.4 - t * 1.1);
+  float width = 10.0 + u_level * 34.0 + ripple * (6.0 + u_level * 18.0);
+  float core = exp(-d / (width * 0.28));
+  float haze = exp(-d / (width * 1.6)) * 0.55;
+  float glow = (core + haze) * (0.75 + u_level * 0.5);
 
-  // Glass surface: fresnel rim, thin bright edge, one sharp and one soft window reflection.
-  float fres = pow(1.0 - z, 3.0);
-  half3 rimCol = half3(0.74, 0.82, 1.00);
-  half3 col = inner + rimCol * fres * 0.55;
-  col += rimCol * smoothstep(0.90, 0.985, rr) * (1.0 - smoothstep(0.985, 1.0, rr)) * 0.28;
-  float3 V = float3(0.0, 0.0, 1.0);
-  float3 H1 = normalize(normalize(float3(-0.50, -0.62, 0.62)) + V);
-  float3 H2 = normalize(normalize(float3(0.55, 0.70, 0.40)) + V);
-  col += half3(1.0) * pow(max(dot(n, H1), 0.0), 140.0) * 0.95;
-  col += rimCol * pow(max(dot(n, H2), 0.0), 28.0) * 0.22;
-  col *= 0.86 + 0.14 * z;
-
-  float body = 1.0 - smoothstep(radius - 0.012, radius + 0.004, r);
-  float glowWidth = 0.22 + u_level * 0.22;
-  float glow = (1.0 - smoothstep(radius, radius + glowWidth, r)) * (0.24 + u_level * 0.36);
-  half3 glowCol = half3(0.50, 0.58, 1.00);
-
-  half3 outCol = col * body + glowCol * glow * (1.0 - body);
-  float alpha = max(body, glow * (1.0 - body));
-  return half4(outCol * alpha, alpha);
+  float3 col = palette(a + t * 0.06 + 0.06 * sin(t * 0.7 + a * 12.566));
+  col = mix(col, float3(1.0), core * 0.25);                       // whiter where it meets the glass
+  float alpha = clamp(glow, 0.0, 1.0);
+  return half4(half3(col * alpha), half(alpha));
 }
 `;
 
-function SkiaOrb({ sk, level }: { sk: SkiaModule; level: SharedValue<number> }) {
+function SkiaEdge({ sk, width, height, level }: { sk: SkiaModule; width: number; height: number; level: SharedValue<number> }) {
   const { Canvas, Fill, Shader, Skia } = sk;
-  const [effect] = useState(() => Skia.RuntimeEffect.Make(ORB_SHADER));
+  const [effect] = useState(() => Skia.RuntimeEffect.Make(EDGE_SHADER));
   const time = useSharedValue(0);
   useFrameCallback((frame) => {
     time.value += (frame.timeSincePreviousFrame ?? 16) / 1000;
   });
   const uniforms = useDerivedValue(() => ({
-    u_res: [CANVAS, CANVAS],
+    u_res: [width, height],
     u_time: time.value,
     u_level: level.value,
+    u_radius: SCREEN_RADIUS,
   }));
-  if (effect === null) return <FallbackOrb />;
+  if (effect === null) return <FallbackEdge />;
   return (
-    <Canvas style={{ width: CANVAS, height: CANVAS }}>
+    <Canvas style={{ width, height }}>
       <Fill>
         <Shader source={effect} uniforms={uniforms} />
       </Fill>
@@ -230,33 +199,16 @@ function SkiaOrb({ sk, level }: { sk: SkiaModule; level: SharedValue<number> }) 
   );
 }
 
-/** Layered translucent discs: no shader, but the same silhouette and breathing. */
-function FallbackOrb() {
+/** A plain accent border along the screen's edge: no shader, same placement. */
+function FallbackEdge() {
   const colors = useColors();
-  const layers = [
-    { size: ORB * 1.5, color: colors.accent, opacity: 0.1 },
-    { size: ORB * 1.2, color: colors.accent, opacity: 0.18 },
-    { size: ORB, color: colors.accent, opacity: 0.9 },
-    { size: ORB * 0.55, color: "#C7D6FF", opacity: 0.5 },
-  ];
   return (
-    <View style={{ width: CANVAS, height: CANVAS, alignItems: "center", justifyContent: "center" }}>
-      {layers.map((layer, index) => (
-        <View
-          key={index}
-          style={{
-            position: "absolute",
-            width: layer.size,
-            height: layer.size,
-            borderRadius: layer.size / 2,
-            backgroundColor: layer.color,
-            opacity: layer.opacity,
-            transform:
-              index === 3 ? [{ translateX: -ORB * 0.12 }, { translateY: -ORB * 0.14 }] : undefined,
-          }}
-        />
-      ))}
-    </View>
+    <View
+      style={[
+        StyleSheet.absoluteFill,
+        { borderWidth: 6, borderRadius: SCREEN_RADIUS, borderColor: colors.accent, opacity: 0.8 },
+      ]}
+    />
   );
 }
 
