@@ -1,6 +1,6 @@
 /** Transcript text rendered from Markdown: headings, emphasis, lists, tables, blockquotes,
  * links, images, inline code, and fenced blocks (CodeBlock). */
-import { Fragment, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Platform, Text as RNText, ScrollView, type TextStyle, View } from "react-native";
 import Animated, { FadeIn, ReduceMotion, useReducedMotion } from "react-native-reanimated";
 import { openExternal } from "@/lib/links";
@@ -10,6 +10,8 @@ import { ListItem } from "@/ui/ListItem";
 import { CodeBlock } from "./CodeBlock";
 import { MarkdownImages } from "./MarkdownImages";
 import { type Align, type Block, type Inline, type MessageImage, parseBlocks } from "./markdown";
+import { openUIView, syncOpenUIRuntime } from "./openui";
+import { OpenUIRuntimeContext } from "./OpenUIRuntime";
 import { Widget } from "./Widget";
 
 const mono = Platform.select({ ios: "Menlo", default: "monospace" });
@@ -114,9 +116,35 @@ function BlockView({ block, body, streaming = false }: { block: Block; body: Bod
       return <TableView block={block} />;
     case "widget":
       return <Widget spec={block.spec} />;
+    case "openui":
+      return <OpenUIBlock code={block.code} partial={block.partial} />;
     case "image":
       return <MarkdownImages images={[{ src: block.src, alt: block.alt }]} />;
   }
+}
+
+/**
+ * A ```openui fence drawn live. It owns the fence's runtime while mounted (blocks are keyed by
+ * position inside a message keyed by id), feeds it every streamed version of the text, and redraws
+ * the widget whenever its `$variable` state changes.
+ */
+function OpenUIBlock({ code, partial }: { code: string; partial: boolean }) {
+  const [{ runtime, subscribe, getSnapshot }] = useState(() => {
+    const created = syncOpenUIRuntime(null, code, partial);
+    return { runtime: created, subscribe: (cb: () => void) => created.subscribe(cb), getSnapshot: () => created.snapshot() };
+  });
+  // Before paint, so a streamed chunk never shows a frame of the previous text.
+  useLayoutEffect(() => {
+    syncOpenUIRuntime(runtime, code, partial);
+  }, [runtime, code, partial]);
+  const snapshot = useSyncExternalStore(subscribe, getSnapshot);
+  const view = openUIView(snapshot, partial);
+  if (view.kind === "code") return <CodeBlock code={code} lang="openui" invalid={view.invalid} />;
+  return (
+    <OpenUIRuntimeContext.Provider value={runtime}>
+      <Widget spec={view.spec} />
+    </OpenUIRuntimeContext.Provider>
+  );
 }
 
 function ListView({ block, body, streaming }: { block: Extract<Block, { kind: "list" }>; body: BodySize; streaming: boolean }) {

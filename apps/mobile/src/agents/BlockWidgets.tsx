@@ -16,6 +16,8 @@ import { Text } from "@/ui/Text";
 import { TimelineItem } from "@/ui/TimelineItem";
 import { CodeBlock } from "./CodeBlock";
 import { useDropSrc } from "./dropSrc";
+import { pressButton } from "./openui";
+import { useOpenUIRuntime } from "./OpenUIRuntime";
 import { toneColor } from "./tone";
 import { useWidgetActions } from "./WidgetActions";
 import type {
@@ -36,10 +38,11 @@ const buttonVariant: Record<ButtonSpec["variant"], ButtonVariant> = {
 };
 
 /** A `url` opens externally; a `reply` goes to the session as its next turn, so with no session
- * to reply to the button is disabled. Subtle buttons default to a muted label. */
+ * to reply to the button is disabled. An `action` (```openui) runs on the fence's runtime first and
+ * then opens or sends whatever its steps hand back. Subtle buttons default to a muted label. */
 export function ButtonWidget({ spec }: { spec: ButtonSpec }) {
   const actions = useWidgetActions();
-  const { url, reply } = spec;
+  const runtime = useOpenUIRuntime();
   return (
     <Button
       label={spec.label}
@@ -51,10 +54,11 @@ export function ButtonWidget({ spec }: { spec: ButtonSpec }) {
             ? "textMuted"
             : undefined
       }
-      disabled={url === undefined && actions === null}
+      disabled={spec.action !== undefined ? runtime === null : spec.url === undefined && actions === null}
       onPress={() => {
+        const { reply, url } = pressButton(spec, runtime);
+        if (reply !== undefined) actions?.reply(reply);
         if (url !== undefined) openExternal(url);
-        else if (reply !== undefined) actions?.reply(reply);
       }}
     />
   );

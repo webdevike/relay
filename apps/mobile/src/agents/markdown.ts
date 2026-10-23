@@ -9,7 +9,7 @@
  * closed code block, so highlighting begins as soon as the fence line lands.
  */
 
-import { parseOpenUI, parseWidget, type WidgetSpec } from "./widget";
+import { parseWidget, type WidgetSpec } from "./widget";
 
 export type Align = "left" | "center" | "right" | null;
 
@@ -40,6 +40,9 @@ export type Block =
   | { kind: "blockquote"; blocks: Block[] }
   | { kind: "table"; header: Inline[][]; align: Align[]; rows: Inline[][][] }
   | { kind: "widget"; spec: WidgetSpec }
+  /** A ```openui fence: rendered live by its own runtime (OpenUIBlock), so it keeps the source.
+   * `partial` while the fence is still open (the reply is streaming). */
+  | { kind: "openui"; code: string; partial: boolean }
   | ({ kind: "image" } & MessageImage)
   | { kind: "hr" };
 
@@ -302,12 +305,13 @@ function parseLines(lines: string[]): Block[] {
       }
       const code = body.join("\n");
       const lang = name === "" ? null : name.toLowerCase();
-      const widgetFence = lang === "ui" || lang === "openui";
-      // An unclosed openui fence is still streaming: render its best valid prefix live.
-      const spec =
-        lang === "openui" ? parseOpenUI(code, { partial: !closed }).node : lang === "ui" ? parseWidget(code) : null;
+      if (lang === "openui") {
+        blocks.push({ kind: "openui", code, partial: !closed });
+        continue;
+      }
+      const spec = lang === "ui" ? parseWidget(code) : null;
       // A still-streaming widget block is just unfinished, not invalid.
-      const invalid = widgetFence && closed && !spec;
+      const invalid = lang === "ui" && closed && !spec;
       blocks.push(spec ? { kind: "widget", spec } : { kind: "code", lang, code, invalid });
       continue;
     }
@@ -519,6 +523,7 @@ function blockPreview(block: Block): string {
     case "code":
       return "Code";
     case "widget":
+    case "openui":
     case "hr":
       return "";
   }
