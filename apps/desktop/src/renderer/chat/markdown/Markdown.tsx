@@ -87,8 +87,16 @@ function Pre({ node }: ExtraProps) {
       <CodeBlock lang="json" code={code} />
     )
   }
-  // OpenUI Lang parses as a stream prefix, so an unclosed openui block renders live.
-  if (lang === 'openui') return <OpenUIBlock code={code} closed={fenceClosed(node, source)} />
+  // OpenUI Lang parses as a stream prefix, so an unclosed openui block renders live. The fence's
+  // offset stays put while the reply streams, so it names the block's runtime within the message.
+  if (lang === 'openui')
+    return (
+      <OpenUIBlock
+        code={code}
+        closed={fenceClosed(node, source)}
+        at={node?.position?.start.offset}
+      />
+    )
   return <CodeBlock lang={lang} code={code} />
 }
 

@@ -1,9 +1,10 @@
-// Port of ~/Eva/work/relay/packages/protocol/test/openui.test.ts at commit bf13a06, against this
+// Port of ~/Eva/work/relay/packages/protocol/test/openui.test.ts at commit ac61677, against this
 // package's `WidgetNode`. The prompt and block-check tests stay in Relay with that code; the prompt
 // examples are copied here so the desktop schema is checked against exactly what Eva is taught.
 import { describe, expect, it } from 'vitest'
 import { WidgetNode, type WidgetSpec } from '../widget'
 import { parseOpenUI, toOpenUI } from '.'
+import { CALCULATOR } from './calculator.fixture'
 import { relayLibrary, WIDGET_KIND_BY_NAME } from './library'
 
 /** The examples of Relay's `relayWidgetPrompt()` (openui/prompt.ts OPENUI_EXAMPLES). */
@@ -32,6 +33,11 @@ actions = Stack([Button("Nudge Noah", @ToAssistant("nudge Noah on ENG-6211"), nu
   {
     title: 'One standalone widget as the root',
     program: `root = Chart("bar", [Series([40, 60, 55], "connected", "#A7F3D0"), Series([50, 70, 60], "voicemail", "#FDE68A")], ["W1", "W2", "W3"], "Calls by outcome", true)`,
+  },
+  {
+    title:
+      'An interactive calculator: $variables, @Set and @Reset, fully on the device (12+7*2= shows 38: each operator applies to the running total)',
+    program: CALCULATOR,
   },
 ]
 
@@ -551,10 +557,20 @@ describe('parseOpenUI', () => {
     })
   })
 
-  it('rejects expressions', () => {
-    const result = parseOpenUI('root = Stack([Text("a" + "b"), Text("c")])')
-    expect(result.node).toEqual({ widget: 'stack', children: [{ widget: 'text', text: 'c' }] })
-    expect(result.errors[0]?.code).toBe('unsupported-expression')
+  it('evaluates expressions against the declared defaults', () => {
+    const result = parseOpenUI(
+      'root = Stack([Text("a" + "b"), Text($n * 2), Text($n > 1 ? "big" : "small")])\n$n = 3',
+    )
+    expect(result.errors).toEqual([])
+    expect(result.node).toMatchObject({
+      children: [{ text: 'ab' }, { text: '6' }, { text: 'big' }],
+    })
+  })
+
+  it('rejects Query and Mutation', () => {
+    const result = parseOpenUI('root = Text("x")\nq = Query("tool", {}, {})')
+    expect(result.node).toEqual({ widget: 'text', text: 'x' })
+    expect(result.errors.map((e) => e.code)).toContain('unsupported-expression')
   })
 
   it('reports unresolved and orphaned statements unless partial', () => {

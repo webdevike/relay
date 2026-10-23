@@ -10,11 +10,16 @@ Relay changes, kept minimal so an upstream sync stays a plain diff:
   looser tsconfig; Relay's stricter flags would otherwise flag upstream style) and the source path.
 - Removed: telemetry (parser.ts parse wrapper, prompt.ts), OpenUI Cloud (prompt.ts cloud mode,
   parser/cloud-config.ts, parser/validate-library.ts), parser/merge.ts, parser/enrich-errors.ts,
-  the parser/index.ts barrel, the runtime/query/MCP evaluator (runtime/), message.ts, utils/,
-  postinstall and the ci-info dependency.
+  the parser/index.ts barrel, the runtime's query/mutation/MCP/tool-provider/state-field/
+  evaluate-tree/evaluate-prop modules, message.ts, utils/, postinstall and the ci-info dependency.
+- runtime/store.ts: verbatim. runtime/evaluator.ts: local state only. Library functions, custom
+  actions, @Run, reactive schemas and ReactiveAssign are removed; a catalog component inside an
+  expression evaluates to an ElementNode whose props stay AST (Relay's converter evaluates them);
+  non-AST values (materialized elements inside expressions) pass through unchanged.
 - prompt.ts: generateSystemPrompt keeps only the `{ library, promptOptions }` form.
 - extend.ts: a local `mergeDefs` replaces `z.util.mergeDefs`, which zod 3.25's `zod/v4/core` lacks.
-No file imports Node or DOM APIs and nothing touches the network.
+No file imports Node or DOM APIs, nothing touches the network, and nothing evaluates code
+(no `eval`, no `Function` constructor).
 
 The MIT License (MIT)
 

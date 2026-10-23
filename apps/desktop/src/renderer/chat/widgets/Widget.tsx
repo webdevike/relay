@@ -1,12 +1,22 @@
 import './widgets.css'
-import { Component, useMemo, type ComponentType, type ReactNode } from 'react'
+import {
+  Component,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useSyncExternalStore,
+  type ComponentType,
+  type ReactNode,
+} from 'react'
 import {
   parseWidget,
   type StatSpec,
   type WidgetKind,
   type WidgetSpec,
 } from '@evaos/chat-core/widget'
-import { parseOpenUI } from '@evaos/chat-core/openui'
+import { createOpenUIRuntime, type OpenUIRuntime } from '@evaos/chat-core/openui'
+import { OpenUIActions, WidgetScope } from './actions'
 import { CodeBlock } from '../markdown/CodeBlock'
 import { ButtonBlock, InputBlock } from './blocks/actions'
 import {
@@ -193,13 +203,38 @@ export function WidgetBlock({ json }: { json: string }) {
   )
 }
 
+/** Live OpenUI runtimes by message id and fence offset, so a block keeps the state the user gave it
+ * when its row remounts (the log unmounts rows scrolled out of view). Least recently used go first. */
+const runtimes = new Map<string, OpenUIRuntime>()
+const MAX_RUNTIMES = 200
+
+function scopedRuntime(key: string, code: string, partial: boolean): OpenUIRuntime {
+  let runtime = runtimes.get(key)
+  if (runtime) runtimes.delete(key)
+  else runtime = createOpenUIRuntime(code, { partial })
+  runtimes.set(key, runtime)
+  if (runtimes.size > MAX_RUNTIMES) runtimes.delete(runtimes.keys().next().value!)
+  return runtime
+}
+
 /**
- * A ```openui fence: OpenUI Lang parsed into the same widget tree a ```ui block draws. While the
- * fence still streams it renders the valid prefix live (plain source until a root renders); once
- * closed, a root that doesn't render shows its source under the warning header.
+ * A ```openui fence: OpenUI Lang evaluated into the same widget tree a ```ui block draws, by one
+ * runtime per block that keeps its `$variable` state while the text streams in and buttons run.
+ * While the fence still streams it renders the valid prefix live (plain source until a root
+ * renders); once closed, a root that doesn't render shows its source under the warning header.
+ * `at` is the fence's offset in the reply, naming the block within its message.
  */
-export function OpenUIBlock({ code, closed }: { code: string; closed: boolean }) {
-  const spec = useMemo(() => parseOpenUI(code, { partial: !closed }).node, [code, closed])
+export function OpenUIBlock({ code, closed, at }: { code: string; closed: boolean; at?: number }) {
+  const scope = useContext(WidgetScope)
+  const partial = !closed
+  const own = useRef<OpenUIRuntime | null>(null)
+  const runtime =
+    scope !== null && at !== undefined
+      ? scopedRuntime(`${scope}:${String(at)}`, code, partial)
+      : (own.current ??= createOpenUIRuntime(code, { partial }))
+  // Streamed text keeps the $variables the user changed; subscribers rerender before paint.
+  useLayoutEffect(() => runtime.update(code, { partial }), [runtime, code, partial])
+  const spec = useSyncExternalStore(runtime.subscribe, runtime.snapshot).node
   const fallback = <CodeBlock lang="openui" code={code} invalid />
   if (spec === null) return closed ? fallback : <CodeBlock lang="openui" code={code} />
   return (
@@ -210,7 +245,9 @@ export function OpenUIBlock({ code, closed }: { code: string; closed: boolean })
       data-partial={!closed || undefined}
     >
       <WidgetBoundary source={code} fallback={fallback}>
-        <WidgetRoot spec={spec} />
+        <OpenUIActions.Provider value={runtime}>
+          <WidgetRoot spec={spec} />
+        </OpenUIActions.Provider>
       </WidgetBoundary>
     </div>
   )

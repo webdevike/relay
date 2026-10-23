@@ -2,7 +2,7 @@
  * `WidgetSpec` -> OpenUI Lang text, through the vendored lang-core serializer. Container children
  * become named statements (`stat1 = Stat(...)`) so the program reads, and streams, top-down.
  *
- * Port of ~/Eva/work/relay/packages/protocol/src/openui/serialize.ts at commit bf13a06. A `diagram`
+ * Port of ~/Eva/work/relay/packages/protocol/src/openui/serialize.ts at commit ac61677. A `diagram`
  * node (EvaOS-only) has no OpenUI component, so it has no OpenUI form.
  */
 import type { WidgetSpec } from '../widget'

@@ -3,9 +3,10 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MantineProvider } from '@mantine/core'
 import type { ReactNode } from 'react'
+import { CALCULATOR } from '@evaos/chat-core/openui/calculator.fixture'
 import { openLink } from '../../navigation/open-link'
 import { Markdown } from '../markdown/Markdown'
-import { WidgetActions } from './actions'
+import { WidgetActions, WidgetScope } from './actions'
 import { WidgetBlock } from './Widget'
 
 vi.mock('../../navigation/open-link', () => ({ openLink: vi.fn() }))
@@ -114,6 +115,56 @@ describe('Markdown ```openui fences', () => {
     show(<Markdown text={'```openui\nroot = Link("x", "not a url")\n```\n'} />)
     expect(screen.getByText("Widget couldn't render")).toHaveAttribute('data-invalid', 'true')
     expect(screen.getByTestId('code-block')).toHaveTextContent('root = Link("x", "not a url")')
+  })
+
+  const openui = (program: string) => `Here:\n\n\`\`\`openui\n${program}\n\`\`\`\n`
+  const press = async (...keys: string[]) => {
+    for (const key of keys) await userEvent.click(screen.getByRole('button', { name: key }))
+  }
+
+  // The calculator's one Text is its display.
+  it('runs the calculator on the device: 1 2 + 7 = shows 19, sending nothing', async () => {
+    const reply = show(<Markdown text={openui(CALCULATOR)} />, vi.fn(), false)
+    expect(screen.getByTestId('widget-text')).toHaveTextContent(/^0$/)
+    await press('1', '2', '+', '7')
+    expect(screen.getByTestId('widget-text')).toHaveTextContent(/^7$/)
+    await press('=')
+    expect(screen.getByTestId('widget-text')).toHaveTextContent(/^19$/)
+    await press('Clear')
+    expect(screen.getByTestId('widget-text')).toHaveTextContent(/^0$/)
+    expect(reply).not.toHaveBeenCalled()
+  })
+
+  it("keeps a block's state when its message row remounts", async () => {
+    const row = (
+      <MantineProvider>
+        <WidgetScope.Provider value="msg-remount">
+          <Markdown text={openui(CALCULATOR)} />
+        </WidgetScope.Provider>
+      </MantineProvider>
+    )
+    const first = render(row)
+    await press('4', '×', '5', '=')
+    expect(screen.getByTestId('widget-text')).toHaveTextContent(/^20$/)
+    first.unmount()
+    render(row)
+    expect(screen.getByTestId('widget-text')).toHaveTextContent(/^20$/)
+  })
+
+  it('binds a field to a $variable and sends what an action hands back', async () => {
+    const program = [
+      'root = Stack([field, Text("Hi " + $name), ask])',
+      '$name = ""',
+      'field = Input("Name", null, null, null, $name)',
+      'ask = Button("Ask", Action([@Set($count, $count + 1), @ToAssistant("who is " + $name)]))',
+      '$count = 0',
+    ].join('\n')
+    const reply = show(<Markdown text={openui(program)} />)
+    await userEvent.type(screen.getByRole('textbox', { name: 'Name' }), 'Ada')
+    expect(screen.getByRole('textbox', { name: 'Name' })).toHaveValue('Ada')
+    expect(screen.getByText('Hi Ada')).toBeInTheDocument()
+    await press('Ask')
+    expect(reply).toHaveBeenCalledWith('who is Ada')
   })
 })
 

@@ -3,6 +3,7 @@ import type { ChatMessage } from '@evaos/chat-core/message'
 import { ChatImage } from './ChatImage'
 import { ImageViewer } from './ImageViewer'
 import { Markdown } from './markdown/Markdown'
+import { WidgetScope } from './widgets/actions'
 import { ToolBlock, ToolGroup } from './ToolRows'
 
 /** Thumbnails for a message's images; Enter or click opens the viewer on that image. */
@@ -56,7 +57,11 @@ function MessageRowImpl({ m }: { m: ChatMessage }) {
       </div>
     )
   } else if (m.role === 'assistant') {
-    body = <Markdown text={m.text} />
+    body = (
+      <WidgetScope.Provider value={m.id}>
+        <Markdown text={m.text} />
+      </WidgetScope.Provider>
+    )
   } else if (m.role === 'thinking') {
     body = <div className="eva-thinking">{m.text}</div>
   } else if (m.role === 'tool') {

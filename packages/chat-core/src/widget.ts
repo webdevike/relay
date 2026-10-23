@@ -4,7 +4,7 @@
  * malformed or hostile payload is rejected so the transcript falls back to showing it as code.
  *
  * Port of the Relay protocol schema, ~/Eva/work/relay/packages/protocol/src/widget.ts at commit
- * 1612514 (zod 3 there, zod 4 here), plus the EvaOS-only `diagram` node as
+ * ac61677 (zod 3 there, zod 4 here), plus the EvaOS-only `diagram` node as
  * ~/Eva/apps/evaos/src/rich/widgets.rs parses it. Keep the three in step.
  */
 import { z } from 'zod'
@@ -252,13 +252,16 @@ const Pr = z.object({
     .optional(),
 })
 
-/** A clickable action: `url` opens it, `reply` sends text as the session's next turn. Exactly
- * one of the two (enforced in `finish`); an unknown variant degrades to secondary. */
+/** A clickable action: `url` opens it, `reply` sends text as the session's next turn, and
+ * `action` (OpenUI runtime widgets only) is an opaque id the renderer passes to
+ * `OpenUIRuntime.dispatch` instead. Exactly one of the three (enforced in `finish`); an unknown
+ * variant degrades to secondary. */
 const Button = z.object({
   widget: z.literal('button'),
   label: NonEmpty,
   url: WebUrl.optional(),
   reply: NonEmpty.optional(),
+  action: NonEmpty.optional(),
   variant: z.enum(['primary', 'secondary', 'subtle']).catch('secondary'),
   tone: Tone,
 })
@@ -381,7 +384,9 @@ const Timeline = z.object({
   items: z.array(TimelineEntry).min(1).max(30),
 })
 
-/** A text field whose submit sends `reply` with `{value}` replaced by the typed text. */
+/** A text field whose submit sends `reply` with `{value}` replaced by the typed text. `bind`
+ * (OpenUI runtime widgets only) is an opaque id: the renderer shows `value` and reports each edit
+ * through `OpenUIRuntime.setInput(bind, text)`. */
 const Input = z.object({
   widget: z.literal('input'),
   placeholder: z.string().optional(),
@@ -391,6 +396,8 @@ const Input = z.object({
     .refine((s) => s.includes('{value}'))
     .default('{value}'),
   multiline: z.boolean().optional(),
+  bind: NonEmpty.optional(),
+  value: z.string().optional(),
 })
 
 /** Most children a container takes and deepest containers nest; past either, the whole spec
@@ -570,8 +577,11 @@ function finish(node: WidgetSpec, ctx: z.RefinementCtx): WidgetSpec {
     ctx.addIssue({ code: 'custom', message })
     return z.NEVER
   }
-  if (node.widget === 'button' && (node.url === undefined) === (node.reply === undefined))
-    return reject('a button needs exactly one of url or reply')
+  if (
+    node.widget === 'button' &&
+    [node.url, node.reply, node.action].filter((v) => v !== undefined).length !== 1
+  )
+    return reject('a button needs exactly one of url, reply or action')
   if (node.widget === 'table' && node.rows.some((row) => row.length !== node.columns.length))
     return reject('every table row needs one cell per column')
   if (node.widget === 'progress')
@@ -658,11 +668,17 @@ function childLists(node: unknown): unknown[] | null {
 }
 
 /** Parses and validates a ```ui payload. Returns null on any malformed field so the transcript
- * can fall back to rendering the block as literal code. */
+ * can fall back to rendering the block as literal code. Static JSON never carries the OpenUI
+ * runtime fields (button `action`, input `bind`/`value`): they are dropped before validation. */
 export function parseWidget(text: string): WidgetSpec | null {
   let raw: unknown
   try {
-    raw = JSON.parse(text)
+    // The reviver's `this` is the object or array holding `key`.
+    raw = JSON.parse(text, function (this: Record<string, unknown>, key: string, value: unknown) {
+      if (key === 'action' || key === 'bind') return undefined
+      const isInput = this['widget'] === 'input' || this['type'] === 'input'
+      return key === 'value' && isInput ? undefined : value
+    })
   } catch {
     return null
   }

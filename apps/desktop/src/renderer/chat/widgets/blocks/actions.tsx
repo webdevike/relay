@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useContext, useState } from 'react'
 import { Button, Group, Stack, Text, Textarea, TextInput } from '@mantine/core'
 import { IconCheck } from '@tabler/icons-react'
 import type { ButtonSpec, InputSpec } from '@evaos/chat-core/widget'
 import { openLink } from '../../../navigation/open-link'
-import { useWidgetActions } from '../actions'
+import { OpenUIActions, useWidgetActions } from '../actions'
 import { useToneColor } from '../rich/parts'
 import { useToneText } from './content'
 
@@ -13,13 +13,19 @@ const VARIANT: Record<ButtonSpec['variant'], string> = {
   subtle: 'subtle',
 }
 
-/** `url` opens the page in the side browser; `reply` sends its text as Isaac's next turn. */
+/** `url` opens the page in the side browser; `reply` sends its text as Isaac's next turn; `action`
+ * runs the OpenUI block's action, then sends or opens what it hands back. */
 export function ButtonBlock({ spec }: { spec: ButtonSpec }) {
   const { reply, canReply } = useWidgetActions()
+  const openui = useContext(OpenUIActions)
   const color = useToneColor()
   const toneText = useToneText()
   const replyText = spec.reply
   const variant = VARIANT[spec.variant]
+  const send = (text: string | undefined, url: string | undefined): void => {
+    if (text !== undefined && canReply) reply(text)
+    if (url !== undefined) openLink(url)
+  }
   return (
     <Button
       size="xs"
@@ -29,10 +35,13 @@ export function ButtonBlock({ spec }: { spec: ButtonSpec }) {
       c={variant === 'default' ? toneText(spec.tone) : undefined}
       className="eva-wb-button"
       data-testid="widget-button"
-      disabled={replyText !== undefined && !canReply}
+      disabled={(replyText !== undefined && !canReply) || (spec.action !== undefined && !openui)}
       onClick={() => {
-        if (replyText !== undefined) reply(replyText)
-        else if (spec.url !== undefined) openLink(spec.url)
+        if (spec.action === undefined) send(replyText, spec.url)
+        else if (openui) {
+          const out = openui.dispatch(spec.action)
+          send(out.reply, out.url)
+        }
       }}
     >
       {spec.label}
@@ -40,22 +49,32 @@ export function ButtonBlock({ spec }: { spec: ButtonSpec }) {
   )
 }
 
-/** A field whose submit sends `reply` with `{value}` replaced by the typed text, then says Sent. */
+/** A field whose submit sends `reply` with `{value}` replaced by the typed text, then says Sent.
+ * With a `bind` id (OpenUI) the field shows `value` and each edit writes the block's `$variable`,
+ * so it works without a session and keeps its text after sending. */
 export function InputBlock({ spec }: { spec: InputSpec }) {
   const { reply, canReply } = useWidgetActions()
-  const [value, setValue] = useState('')
+  const openui = useContext(OpenUIActions)
+  const [local, setLocal] = useState('')
   const [sent, setSent] = useState(false)
+  const { bind } = spec
+  const bound = bind !== undefined && openui !== null
+  const value = bound ? (spec.value ?? '') : local
+  const setValue = (text: string): void => {
+    if (bind !== undefined && openui !== null) openui.setInput(bind, text)
+    else setLocal(text)
+  }
   const typed = value.trim()
   const submit = (): void => {
     if (!canReply || typed === '') return
     reply(spec.reply.replaceAll('{value}', typed))
-    setValue('')
+    if (!bound) setLocal('')
     setSent(true)
   }
   const field = {
     value,
     placeholder: spec.placeholder,
-    disabled: !canReply,
+    disabled: !canReply && !bound,
     size: 'sm',
     className: 'eva-wb-input-field',
     'aria-label': spec.placeholder ?? 'Reply',

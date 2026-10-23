@@ -2,7 +2,9 @@
 // kind from native EvaOS's examples/showcase.md (plus diagram, model, pr and one deliberately bad
 // block), checks each renders with its media loaded, that reply buttons and fields send the next
 // turn through the composer path, and saves light and dark screenshots to proof/widgets/. A second
-// session writes Relay's OpenUI Lang prompt examples and checks they draw through the same widgets.
+// session writes Relay's OpenUI Lang prompt examples and checks they draw through the same widgets,
+// including the interactive calculator, whose keys run on the device (proof/widgets/
+// openui-calculator.png shows it after 1 2 + 7 =).
 //
 // Media never comes from the internet: a local server answers the http(s) srcs and stands in for
 // the Relay host (its port goes in <configDir>/relay/serve.json), so `/drops/...` srcs resolve
@@ -358,12 +360,12 @@ test('OpenUI Lang blocks draw through the same widgets, and a bad one falls back
 
   // One widget root per good block, in reply order, none left partial once the fences closed.
   const roots = log.locator('[data-testid=widget]')
-  await expect(roots).toHaveCount(4)
+  await expect(roots).toHaveCount(5)
   expect(await roots.evaluateAll((els) => els.map((el) => el.getAttribute('data-widget')))).toEqual(
-    ['card', 'tickets', 'card', 'chart'],
+    ['card', 'tickets', 'card', 'chart', 'card'],
   )
   await expect(log.locator('[data-testid=widget][data-partial]')).toHaveCount(0)
-  await expect(log.locator('[data-testid=widget-frame][data-card]')).toHaveCount(2)
+  await expect(log.locator('[data-testid=widget-frame][data-card]')).toHaveCount(3)
   await expect(log.locator('[data-testid=widget-stat]')).toHaveCount(2)
   for (const kind of [
     'rows',
@@ -386,6 +388,18 @@ test('OpenUI Lang blocks draw through the same widgets, and a bad one falls back
   await expect(
     log.locator('[data-testid=code-block]').filter({ hasText: 'root = Sparkle(' }),
   ).toHaveCount(1)
+
+  // The calculator's keys run on the device: 1 2 + 7 = shows 19 and sends no turn.
+  const calc = roots.nth(4)
+  const display = calc.getByTestId('widget-text')
+  await calc.scrollIntoViewIfNeeded()
+  await expect(display).toHaveText('0')
+  for (const key of ['1', '2', '+', '7', '='])
+    await calc.getByRole('button', { name: key, exact: true }).click()
+  await expect(display).toHaveText('19')
+  expect(prompts()).toEqual([])
+  fs.mkdirSync(OUT, { recursive: true })
+  await calc.screenshot({ path: path.join(OUT, 'openui-calculator.png') })
 
   const panel = shell.locator('[data-testid=panel-toggle]:visible').first()
   if ((await panel.getAttribute('aria-pressed')) === 'true') await panel.click()
