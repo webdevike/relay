@@ -87,7 +87,8 @@ describe("noteSent", () => {
     data = noteSent(data, "s", "/goal pause", 2);
     expect(data.sent["s"]?.name).toBe("/goal");
     expect(noteSent(data, "s", "never mind", 3).sent["s"]).toBeUndefined();
-    expect(noteSent(loaded(), "s", "hello", 3)).toEqual(loaded());
+    // Plain text has no command to note (its bubble is an echo, lib/userEcho.ts).
+    expect(noteSent(loaded(), "s", "hello", 3).sent).toEqual({});
     expect(applyDelta(data, 2, undefined, ["s"]).data.sent["s"]).toBeUndefined();
   });
 });

@@ -237,4 +237,26 @@ describe("deliverDictation", () => {
     );
     expect(sent).toEqual([{ kind: "agent.start", prompt: `${TAG}go`, profile: "personal" }]);
   });
+
+  it("the launch listener hears of a launch before anything is sent, and sees a refusal", async () => {
+    const order: string[] = [];
+    let heard: Promise<void> | null = null;
+    setLaunchListener((prompt, delivery) => {
+      order.push(`listener:${prompt}`);
+      heard = delivery;
+    });
+    const refused = new Error("busy");
+    const done = deliverDictation(
+      { text: "go", submit: false, skill: null, images: [], pasted: null, launch: true },
+      (cmd) => {
+        order.push(`send:${cmd.kind}`);
+        return Promise.reject(refused);
+      },
+    );
+    await expect(done).rejects.toBe(refused);
+    expect(order).toEqual(["listener:go", "send:agent.start"]);
+    expect(heard).not.toBeNull();
+    await expect(heard).rejects.toBe(refused);
+    setLaunchListener(null);
+  });
 });

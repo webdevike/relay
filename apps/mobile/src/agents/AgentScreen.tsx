@@ -11,7 +11,7 @@ import Animated, {
   withTiming,
   type EntryExitAnimationFunction,
 } from "react-native-reanimated";
-import type { AgentMessage, AgentSession } from "@relay/protocol";
+import type { AgentSession } from "@relay/protocol";
 import { Text } from "@/ui/Text";
 import { Banner } from "@/ui/Banner";
 import { EmptyState } from "@/ui/EmptyState";
@@ -19,7 +19,7 @@ import { Cutout, CUTOUT_GAP } from "@/ui/Cutout";
 import { NotchedSurface, type Notch } from "@/ui/NotchedSurface";
 import { IconButton } from "@/ui/IconButton";
 import { motion, spacing, useColors } from "@/theme";
-import { subagentsOf, useAgentsStore } from "@/state/agents";
+import { LAUNCH_ECHO, subagentsOf, useAgentsStore } from "@/state/agents";
 import { useConnectionStore } from "@/state/connection";
 import { useSettingsStore } from "@/state/settings";
 import { requestAgentOptions, sendCommand, subscribeAgent, unsubscribeAgent } from "@/connection";
@@ -82,8 +82,6 @@ const SUBAGENTS_NOTCH_SIZE = SUBAGENTS_SIZE + CUTOUT_GAP * 2;
 const SUBAGENTS_OFFSET = MIC_NOTCH_SIZE / 2 + spacing.xxl + SUBAGENTS_NOTCH_SIZE / 2;
 /** A launched omp normally registers within a few seconds; past this the spinner is a lie. */
 const LAUNCH_TIMEOUT_MS = 20_000;
-/** Id of the stand-in session shown while a dictated launch waits for the real one to register. */
-const PENDING_ID = "pending-launch";
 
 const slideIn =
   (direction: number): EntryExitAnimationFunction =>
@@ -177,42 +175,42 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
   const manualCount = jobsFrom === -1 ? order.length : jobsFrom;
 
   // Starting a session from a dictation: the new screen shows the words at once, as the first
-  // message of a stand-in session, until the real one registers and takes over.
+  // message of a stand-in session, until the real one registers and takes over; the words' bubble
+  // (the store's launch echo) moves to it and stays until its transcript carries the turn. A
+  // launch that fails keeps the stand-in, its bubble marked, until the next launch or a scrub.
   const [launchPrompt, setLaunchPrompt] = useState<string | null>(null);
   const launchedAt = useRef(0);
+  // Starting a session: ack means the terminal opened; the session itself arrives as a delta a
+  // few seconds later, and whichever id is new at that point becomes the focus. A launch with
+  // words shows them immediately; the host hands them to omp as its first turn.
+  const [launching, setLaunching] = useState(false);
   const pending = useMemo<AgentSession | undefined>(
     () =>
       launchPrompt === null
         ? undefined
         : {
-            id: PENDING_ID,
+            id: LAUNCH_ECHO,
             provider: "omp",
             title: "New session",
             projectPath: "",
-            status: "working",
-            statusDetail: "starting omp",
+            status: launching ? "working" : "ended",
+            statusDetail: launching ? "starting omp" : "didn't start",
             lastActivity: launchPrompt,
             lastActivityAt: launchedAt.current,
             canRespond: false,
           },
-    [launchPrompt],
-  );
-  const pendingMessages = useMemo<AgentMessage[] | undefined>(
-    () =>
-      launchPrompt === null
-        ? undefined
-        : launchPrompt.length === 0
-          ? []
-          : [{ id: `${PENDING_ID}-1`, role: "user", text: launchPrompt, at: launchedAt.current }],
-    [launchPrompt],
+    [launchPrompt, launching],
   );
   const session = pending ?? (selectedId === undefined ? undefined : sessions[selectedId]);
   const messages =
     pending !== undefined
-      ? pendingMessages
+      ? []
       : selectedId === undefined
         ? undefined
         : conversations[selectedId]?.messages;
+  // Words sent from this phone that the transcript does not carry yet.
+  const echoKey = pending !== undefined ? LAUNCH_ECHO : selectedId;
+  const echoes = useAgentsStore((state) => (echoKey === undefined ? undefined : state.echoes[echoKey]));
   // A slash command sent from here that the session has not answered yet.
   const sent = useSentCommand(pending === undefined ? selectedId : undefined);
   // The session's skills and commands: the typed reply's "/" menu always has them; the wheel only
@@ -276,15 +274,6 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
     }, [selectedId]),
   );
 
-  const onScrub = useCallback((next: number) => {
-    const id = useAgentsStore.getState().order[next];
-    if (id !== undefined) setPickedId(id);
-  }, []);
-
-  // Starting a session: ack means the terminal opened; the session itself arrives as a delta a
-  // few seconds later, and whichever id is new at that point becomes the focus. A launch with
-  // words shows them immediately; the host hands them to omp as its first turn.
-  const [launching, setLaunching] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
   const [launchProfile, setLaunchProfileChoice] = useState(useSettingsStore.getState().ompProfile);
   const knownIds = useRef(new Set(order));
@@ -292,28 +281,48 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
     const fresh = order.filter((id) => !knownIds.current.has(id));
     knownIds.current = new Set(order);
     if (launching && fresh[0] !== undefined) {
+      useAgentsStore.getState().adoptLaunch(fresh[0]);
       setPickedId(fresh[0]);
       setLaunching(false);
       setLaunchPrompt(null);
     }
   }, [order, launching]);
+  /** The launch failed: the error shows, and so does the stand-in while it holds words to mark. */
+  const failLaunch = useCallback((message: string): void => {
+    const agents = useAgentsStore.getState();
+    agents.failEcho(LAUNCH_ECHO, message);
+    if (agents.echoes[LAUNCH_ECHO] === undefined) setLaunchPrompt(null);
+    setLaunching(false);
+    setLaunchError(message);
+  }, []);
   useEffect(() => {
     if (!launching) return;
     const timer = setTimeout(() => {
-      setLaunching(false);
-      setLaunchPrompt(null);
-      setLaunchError("The new session never showed up.");
+      failLaunch("The new session never showed up.");
     }, LAUNCH_TIMEOUT_MS);
     return () => {
       clearTimeout(timer);
     };
-  }, [launching]);
+  }, [launching, failLaunch]);
   /** Marks a launch as in flight and shows it; `prompt` is the dictation the session starts with. */
   const beginLaunch = useCallback((prompt: string | null): void => {
     setLaunchError(null);
     launchedAt.current = Date.now();
+    useAgentsStore.getState().noteLaunch(prompt ?? "", launchedAt.current);
     setLaunchPrompt(prompt);
     setLaunching(true);
+  }, []);
+  // A failed launch's stand-in gives way to the session the scrubber picks.
+  const failedLaunch = useRef(false);
+  failedLaunch.current = launchPrompt !== null && !launching;
+  const onScrub = useCallback((next: number) => {
+    if (failedLaunch.current) {
+      useAgentsStore.getState().clearLaunch();
+      setLaunchPrompt(null);
+      setLaunchError(null);
+    }
+    const id = useAgentsStore.getState().order[next];
+    if (id !== undefined) setPickedId(id);
   }, []);
   const startSession = (): void => {
     beginLaunch(null);
@@ -324,23 +333,25 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
       ...(level.length > 0 ? { thinkingLevel: level } : {}),
       ...(profile === "" ? {} : { profile }),
     }).catch((error: unknown) => {
-      setLaunching(false);
-      setLaunchPrompt(null);
-      setLaunchError(error instanceof Error ? error.message : "Couldn't start a session.");
+      failLaunch(error instanceof Error ? error.message : "Couldn't start a session.");
     });
   };
-  // The dictation actor sends the `agent.start` itself; this only puts the words on screen first.
+  // The dictation actor sends the `agent.start` itself; this puts the words on screen first and
+  // marks them if the host refuses the launch.
   // A drill-in never starts sessions: the flick up stays a plain send there.
   useFocusEffect(
     useCallback(() => {
       if (pinned) return;
-      setLaunchListener((prompt) => {
+      setLaunchListener((prompt, delivery) => {
         beginLaunch(prompt);
+        delivery.catch((error: unknown) => {
+          failLaunch(error instanceof Error && error.message !== "" ? error.message : "Couldn't start a session.");
+        });
       });
       return () => {
         setLaunchListener(null);
       };
-    }, [beginLaunch, pinned]),
+    }, [beginLaunch, failLaunch, pinned]),
   );
 
   const defaultThinkingLevel = useSettingsStore((state) => state.defaultThinkingLevel);
@@ -593,13 +604,14 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
                   {/* Reply buttons and inputs in the transcript answer this session; none while it's still launching. */}
                   <SessionWidgetActions sessionId={pending === undefined ? selectedId : undefined}>
                     <AgentCard
-                      sessionId={selectedId}
+                      sessionId={pending === undefined ? selectedId : LAUNCH_ECHO}
                       messages={messages}
                       connected={connected}
                       status={session.status}
                       activity={session.statusDetail}
                       {...(pending === undefined ? {} : { activityLabel: "Starting omp" })}
                       sent={sent}
+                      echoes={echoes}
                     />
                   </SessionWidgetActions>
                   <SessionActivity

@@ -11,6 +11,7 @@ import { loadSkia } from "@/dictation/skia";
 import { untagged } from "@/dictation/surface";
 import { commandWord } from "@/lib/slash";
 import type { SentCommand } from "@/lib/sentCommand";
+import { echoRows, type UserEcho } from "@/lib/userEcho";
 import { ImageViewer } from "./ImageViewer";
 import { modelShortName, VendorLogo } from "./VendorLogo";
 import { MessageText } from "./MessageText";
@@ -101,9 +102,11 @@ interface MessageRowProps {
   sessionId: string;
   message: AgentMessage;
   onOpenImage: (uri: string) => void;
+  /** Why the host refused this (phone-side) message; shown under its bubble. */
+  error?: string | undefined;
 }
 
-function MessageRow({ sessionId, message, onOpenImage }: MessageRowProps) {
+function MessageRow({ sessionId, message, onOpenImage, error }: MessageRowProps) {
   const colors = useColors();
   const images =
     message.images === undefined || message.images.length === 0 ? null : <MessageImages sessionId={sessionId} refs={message.images} onOpen={onOpenImage} />;
@@ -114,14 +117,14 @@ function MessageRow({ sessionId, message, onOpenImage }: MessageRowProps) {
       const command = commandWord(text);
       const rest = command === undefined ? text : text.trimStart().slice(command.length).trim();
       return (
-        <View style={{ alignItems: "flex-end", paddingHorizontal: spacing.xl }}>
+        <View style={{ alignItems: "flex-end", paddingHorizontal: spacing.xl, gap: spacing.xs }}>
           <View
             style={{
               maxWidth: "85%",
               // The accent at 0.16 opacity.
               backgroundColor: `${colors.accent}29`,
               borderWidth: 1,
-              borderColor: colors.hairline,
+              borderColor: error === undefined ? colors.hairline : colors.danger,
               borderRadius: 24,
               paddingHorizontal: spacing.md,
               paddingVertical: spacing.sm,
@@ -132,6 +135,11 @@ function MessageRow({ sessionId, message, onOpenImage }: MessageRowProps) {
             {rest.length > 0 && <MessageText text={rest} large />}
             {images}
           </View>
+          {error !== undefined && (
+            <Text variant="caption" color="danger" style={{ maxWidth: "85%", textAlign: "right" }}>
+              {`Not sent: ${error}`}
+            </Text>
+          )}
         </View>
       );
     }
@@ -270,6 +278,11 @@ export interface AgentCardProps {
    * to the handoff banner.
    */
   sent?: SentCommand | undefined;
+  /**
+   * Words sent from this phone that the transcript does not carry yet (lib/userEcho.ts), drawn as
+   * the newest user bubbles, even before the conversation has loaded; a refused one is marked.
+   */
+  echoes?: readonly UserEcho[] | undefined;
 }
 
 /**
@@ -277,15 +290,31 @@ export interface AgentCardProps {
  * shows the end without a single scroll, a session comes back at the offset it was left at, and
  * a new message only pulls the view when the reader was already near the newest.
  */
-export function AgentCard({ sessionId, messages, connected, status, activity, activityLabel, sent }: AgentCardProps) {
+export function AgentCard({ sessionId, messages, connected, status, activity, activityLabel, sent, echoes }: AgentCardProps) {
   const [viewing, setViewing] = useState<string | null>(null);
   const viewingImages = useMemo(() => (viewing === null ? null : [{ uri: viewing }]), [viewing]);
+  const rows = useMemo(() => {
+    if (echoes === undefined || echoes.length === 0) return messages;
+    return [...(messages ?? []), ...echoRows(echoes)];
+  }, [messages, echoes]);
+  const refused = useMemo(() => {
+    const reasons: Record<string, string> = {};
+    for (const echo of echoes ?? []) if (echo.error !== undefined) reasons[echo.id] = echo.error;
+    return reasons;
+  }, [echoes]);
+  // The words last drawn as echoes: the transcript row that takes one over is already on screen,
+  // so it does not make its entrance again.
+  const echoTexts = useRef<ReadonlySet<string>>(new Set());
+  const retired = echoTexts.current;
+  useEffect(() => {
+    echoTexts.current = new Set(echoes?.map((echo) => echo.text));
+  }, [echoes]);
   const newestFirst = useMemo(() => {
-    if (messages === undefined) return undefined;
-    const rows = [...messages].reverse();
-    if (sent !== undefined) rows.unshift({ id: `sent-${String(sent.at)}`, role: "user", text: sent.text, at: sent.at });
-    return rows;
-  }, [messages, sent]);
+    if (rows === undefined) return undefined;
+    const reversed = [...rows].reverse();
+    if (sent !== undefined) reversed.unshift({ id: `sent-${String(sent.at)}`, role: "user", text: sent.text, at: sent.at });
+    return reversed;
+  }, [rows, sent]);
   const newest = messages === undefined ? undefined : messages[messages.length - 1];
   const running = sent !== undefined && !sent.handoff ? `Running ${sent.name}` : undefined;
   const showActivity = status === "working" || running !== undefined;
@@ -296,9 +325,9 @@ export function AgentCard({ sessionId, messages, connected, status, activity, ac
     initialOffset: initialOffset.current,
     onOffset: (offset) => { if (sessionId !== undefined) scrollMemory.set(sessionId, offset); },
   });
-  const enteringMessages = useMessageEntrances(messages, messages !== undefined);
+  const enteringMessages = useMessageEntrances(rows, rows !== undefined);
 
-  if (messages === undefined || sessionId === undefined) {
+  if (rows === undefined || sessionId === undefined) {
     return <CardPlaceholder text={connected ? "Loading conversation…" : "Connect to your host to load this conversation."} />;
   }
   if (newestFirst?.length === 0 && !showActivity) return <CardPlaceholder text="No messages yet." />;
@@ -311,8 +340,15 @@ export function AgentCard({ sessionId, messages, connected, status, activity, ac
         inverted
         keyExtractor={(message) => message.id}
         renderItem={({ item }) => (
-          <MessageAppearance animate={enteringMessages.has(item.id) && (item.role === "user" || item.role === "assistant")} user={item.role === "user"} gap={0}>
-            <MessageRow sessionId={sessionId} message={item} onOpenImage={setViewing} />
+          <MessageAppearance
+            animate={
+              enteringMessages.has(item.id) &&
+              (item.role === "assistant" || (item.role === "user" && !retired.has(untagged(item.text).trim())))
+            }
+            user={item.role === "user"}
+            gap={0}
+          >
+            <MessageRow sessionId={sessionId} message={item} onOpenImage={setViewing} error={refused[item.id]} />
           </MessageAppearance>
         )}
         contentContainerStyle={{ paddingVertical: spacing.lg, gap: spacing.sm }}

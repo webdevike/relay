@@ -509,9 +509,10 @@ export function requestAgentImage(sessionId: string, id: string): void {
 }
 
 /**
- * Reliable; resolves on ack, rejects with an `AckError`-shaped `Error` on nack. A reply that is a
- * slash command shows as running from this moment (`useAgentsStore().sent`), every path that sends
- * one alike (typed, dictated, the skill wheel, a widget button); a refused one stops showing.
+ * Reliable; resolves on ack, rejects with an `AckError`-shaped `Error` on nack. A reply shows from
+ * this moment (`useAgentsStore()`), every path that sends one alike (typed, dictated, the skill
+ * wheel, a widget button): a slash command as running (`sent`), other words as the user's bubble
+ * (`echoes`). A refused command stops showing; refused words keep their bubble, marked.
  */
 export function sendCommand(cmd: Command): Promise<void> {
   const promise = commandQueue.enqueue(cmd);
@@ -519,8 +520,10 @@ export function sendCommand(cmd: Command): Promise<void> {
   if (cmd.kind === "agent.reply") {
     const at = Date.now();
     useAgentsStore.getState().noteSent(cmd.sessionId, cmd.text, at);
-    promise.catch(() => {
-      useAgentsStore.getState().dropSent(cmd.sessionId, at);
+    promise.catch((error: unknown) => {
+      const agents = useAgentsStore.getState();
+      agents.dropSent(cmd.sessionId, at);
+      agents.failEcho(cmd.sessionId, error instanceof Error && error.message !== "" ? error.message : "Not sent.", at);
     });
   }
   return promise;

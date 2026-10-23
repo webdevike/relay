@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { AgentApproval, AgentAsk, AgentImage, AgentMessage, AgentOptions, AgentSession } from "@relay/protocol";
 import { sentCommand, settleOnMessages, settleOnSession, type SentCommand } from "@/lib/sentCommand";
+import { settleEchoes, userEcho, type UserEcho } from "@/lib/userEcho";
 
 export interface ConversationState {
   rev: number;
@@ -36,9 +37,18 @@ export interface AgentsData {
    * yet (see lib/sentCommand.ts). Settled by the session's own updates and transcript rows.
    */
   sent: Record<string, SentCommand>;
+  /**
+   * The words each session was sent from this phone that its transcript does not carry yet (see
+   * lib/userEcho.ts), drawn as the user's bubbles meanwhile. `LAUNCH_ECHO` holds a launch's first
+   * prompt until the session it started registers.
+   */
+  echoes: Record<string, readonly UserEcho[]>;
 }
 
-export const emptyAgentsData: AgentsData = { rev: 0, sessions: {}, order: [], conversations: {}, options: {}, images: {}, asks: {}, approvals: {}, sent: {} };
+/** Key of a launch's echo while the session it starts has no id yet. */
+export const LAUNCH_ECHO = "pending-launch";
+
+export const emptyAgentsData: AgentsData = { rev: 0, sessions: {}, order: [], conversations: {}, options: {}, images: {}, asks: {}, approvals: {}, sent: {}, echoes: {} };
 
 /** The sent commands once `sessions` arrived: settled ones go, and so do those of sessions that are gone. */
 function settleSent(sent: Record<string, SentCommand>, sessions: Record<string, AgentSession>): Record<string, SentCommand> {
@@ -53,6 +63,38 @@ function settleSent(sent: Record<string, SentCommand>, sessions: Record<string, 
     if (settled !== null) next[id] = settled;
   }
   return next;
+}
+
+/** `echoes` with the session's list replaced; an empty list removes the entry. */
+function withEchoes(
+  echoes: Record<string, readonly UserEcho[]>,
+  sessionId: string,
+  list: readonly UserEcho[],
+): Record<string, readonly UserEcho[]> {
+  if (list === echoes[sessionId]) return echoes;
+  if (list.length > 0) return { ...echoes, [sessionId]: list };
+  if (echoes[sessionId] === undefined) return echoes;
+  return Object.fromEntries(Object.entries(echoes).filter(([id]) => id !== sessionId));
+}
+
+/** The echoes once `sessions` arrived: those of sessions that are gone go; a launch's waits for its session. */
+function keepEchoes(
+  echoes: Record<string, readonly UserEcho[]>,
+  sessions: Record<string, AgentSession>,
+): Record<string, readonly UserEcho[]> {
+  const live = (id: string): boolean => id === LAUNCH_ECHO || sessions[id] !== undefined;
+  if (Object.keys(echoes).every(live)) return echoes;
+  return Object.fromEntries(Object.entries(echoes).filter(([id]) => live(id)));
+}
+
+/** The echoes once the session's transcript reads `messages`: the turns it carries stop showing. */
+function settledEchoes(
+  echoes: Record<string, readonly UserEcho[]>,
+  sessionId: string,
+  messages: readonly AgentMessage[],
+): Record<string, readonly UserEcho[]> {
+  const list = echoes[sessionId];
+  return list === undefined ? echoes : withEchoes(echoes, sessionId, settleEchoes(list, messages));
 }
 
 /** Sessions blocked on the user (a question or an approval prompt) sort ahead of everything else. */
@@ -94,7 +136,7 @@ export function applySnapshot(
 ): AgentsData {
   const byId: Record<string, AgentSession> = {};
   for (const session of sessions) byId[session.id] = session;
-  return { ...data, rev, sessions: byId, order: orderByAttention(byId), sent: settleSent(data.sent, byId) };
+  return { ...data, rev, sessions: byId, order: orderByAttention(byId), sent: settleSent(data.sent, byId), echoes: keepEchoes(data.echoes, byId) };
 }
 
 /**
@@ -122,7 +164,10 @@ export function applyDelta(
   const filtered = removed.size === 0 ? sessions : Object.fromEntries(
     Object.entries(sessions).filter(([id]) => !removed.has(id)),
   );
-  return { data: { ...data, rev, sessions: filtered, order: orderByAttention(filtered), sent: settleSent(data.sent, filtered) }, ok: true };
+  return {
+    data: { ...data, rev, sessions: filtered, order: orderByAttention(filtered), sent: settleSent(data.sent, filtered), echoes: keepEchoes(data.echoes, filtered) },
+    ok: true,
+  };
 }
 
 export function setConversation(
@@ -134,6 +179,7 @@ export function setConversation(
   return {
     ...data,
     conversations: { ...data.conversations, [sessionId]: { rev, messages } },
+    echoes: settledEchoes(data.echoes, sessionId, messages),
   };
 }
 
@@ -153,14 +199,16 @@ export function appendMessages(
   const pending = data.sent[sessionId];
   const settled = pending === undefined ? undefined : settleOnMessages(pending, append);
   const sent = settled === pending ? data.sent : withSent(data.sent, sessionId, settled ?? undefined);
+  const messages = [...existing.messages, ...append];
   return {
     data: {
       ...data,
       conversations: {
         ...data.conversations,
-        [sessionId]: { rev, messages: [...existing.messages, ...append] },
+        [sessionId]: { rev, messages },
       },
       sent,
+      echoes: settledEchoes(data.echoes, sessionId, messages),
     },
     ok: true,
   };
@@ -172,17 +220,60 @@ function withSent(sent: Record<string, SentCommand>, sessionId: string, command:
   return Object.fromEntries(Object.entries(sent).filter(([id]) => id !== sessionId));
 }
 
-/** Notes a reply the phone is sending: a slash command shows as running; any other text clears one. */
+/**
+ * Notes a reply the phone is sending: a slash command shows as running; any other text clears one
+ * and shows as the user's bubble until the transcript carries it. A refused send's bubble goes
+ * with the next send.
+ */
 export function noteSent(data: AgentsData, sessionId: string, text: string, now: number): AgentsData {
   const command = sentCommand(text, data.sessions[sessionId], now);
-  if (command === null && data.sent[sessionId] === undefined) return data;
-  return { ...data, sent: withSent(data.sent, sessionId, command ?? undefined) };
+  const current = data.echoes[sessionId] ?? [];
+  const waiting = current.some((echo) => echo.error !== undefined) ? current.filter((echo) => echo.error === undefined) : current;
+  const echo = command === null ? userEcho(text, data.conversations[sessionId]?.messages, waiting, now) : null;
+  const echoes = withEchoes(data.echoes, sessionId, echo === null ? waiting : [...waiting, echo]);
+  const sent = command === null && data.sent[sessionId] === undefined ? data.sent : withSent(data.sent, sessionId, command ?? undefined);
+  if (sent === data.sent && echoes === data.echoes) return data;
+  return { ...data, sent, echoes };
 }
 
 /** Drops the session's sent command (the host refused it, or it timed out), but only the one sent at `at`. */
 export function dropSent(data: AgentsData, sessionId: string, at: number): AgentsData {
   if (data.sent[sessionId]?.at !== at) return data;
   return { ...data, sent: withSent(data.sent, sessionId, undefined) };
+}
+
+/** Marks the echoes sent at `at` (any time, when omitted) as refused with `error`; their bubbles stay. */
+export function failEcho(data: AgentsData, sessionId: string, error: string, at?: number): AgentsData {
+  const list = data.echoes[sessionId];
+  const refused = (echo: UserEcho): boolean => echo.error === undefined && (at === undefined || echo.at === at);
+  if (!list?.some(refused)) return data;
+  const failed = list.map((echo) => (refused(echo) ? { ...echo, error } : echo));
+  return { ...data, echoes: withEchoes(data.echoes, sessionId, failed) };
+}
+
+/** A launch is going out with `prompt` as its first turn: its bubble shows now, replacing any earlier launch's. */
+export function noteLaunch(data: AgentsData, prompt: string, now: number): AgentsData {
+  const echo = userEcho(prompt, undefined, [], now);
+  return { ...data, echoes: withEchoes(data.echoes, LAUNCH_ECHO, echo === null ? [] : [echo]) };
+}
+
+/**
+ * The launched session registered as `sessionId`: the first prompt's bubble moves to it and stays
+ * until its transcript carries the turn (a fresh session holds no user rows, so the echo's
+ * counts already fit it).
+ */
+export function adoptLaunch(data: AgentsData, sessionId: string): AgentsData {
+  const launch = data.echoes[LAUNCH_ECHO];
+  if (launch === undefined) return data;
+  const moved = withEchoes(withEchoes(data.echoes, LAUNCH_ECHO, []), sessionId, [...(data.echoes[sessionId] ?? []), ...launch]);
+  const messages = data.conversations[sessionId]?.messages;
+  return { ...data, echoes: messages === undefined ? moved : settledEchoes(moved, sessionId, messages) };
+}
+
+/** The launch's bubble is dismissed (its failure was seen, or another launch replaced it). */
+export function clearLaunch(data: AgentsData): AgentsData {
+  const echoes = withEchoes(data.echoes, LAUNCH_ECHO, []);
+  return echoes === data.echoes ? data : { ...data, echoes };
 }
 
 /**
@@ -253,6 +344,10 @@ export interface AgentsStore extends AgentsData {
   clearApproval: (sessionId: string, id: string) => void;
   noteSent: (sessionId: string, text: string, now: number) => void;
   dropSent: (sessionId: string, at: number) => void;
+  failEcho: (sessionId: string, error: string, at?: number) => void;
+  noteLaunch: (prompt: string, now: number) => void;
+  adoptLaunch: (sessionId: string) => void;
+  clearLaunch: () => void;
 }
 
 export const useAgentsStore = create<AgentsStore>((set, get) => ({
@@ -302,5 +397,17 @@ export const useAgentsStore = create<AgentsStore>((set, get) => ({
   },
   dropSent: (sessionId, at) => {
     set(dropSent(get(), sessionId, at));
+  },
+  failEcho: (sessionId, error, at) => {
+    set(failEcho(get(), sessionId, error, at));
+  },
+  noteLaunch: (prompt, now) => {
+    set(noteLaunch(get(), prompt, now));
+  },
+  adoptLaunch: (sessionId) => {
+    set(adoptLaunch(get(), sessionId));
+  },
+  clearLaunch: () => {
+    set(clearLaunch(get()));
   },
 }));

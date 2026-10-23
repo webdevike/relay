@@ -14,7 +14,7 @@ export type DictationTarget = { kind: "insert" } | { kind: "agent"; sessionId: s
 
 const INSERT: DictationTarget = { kind: "insert" };
 let target: DictationTarget = INSERT;
-let onLaunch: ((prompt: string) => void) | null = null;
+let onLaunch: ((prompt: string, delivery: Promise<void>) => void) | null = null;
 let launchThinkingLevel = "";
 let launchProfile: "personal" | "work" | "" = "";
 
@@ -36,8 +36,11 @@ export function setLaunchProfile(profile: "personal" | "work" | ""): void {
   launchProfile = profile;
 }
 
-/** Called with the delivered text (possibly empty) the moment a launch dictation is sent. */
-export function setLaunchListener(listener: ((prompt: string) => void) | null): void {
+/**
+ * Called with the delivered text (possibly empty) the moment a launch dictation is sent, before
+ * any command goes out, with the delivery itself so a refused launch can show where it failed.
+ */
+export function setLaunchListener(listener: ((prompt: string, delivery: Promise<void>) => void) | null): void {
   onLaunch = listener;
 }
 
@@ -91,6 +94,13 @@ export async function deliverDictation(
   input: DeliverInput,
   send: (cmd: Command) => Promise<void>,
 ): Promise<void> {
-  if (input.launch) onLaunch?.(deliveredText(input));
-  for (const cmd of commandsFor(input, target)) await send(cmd);
+  const commands = commandsFor(input, target);
+  const run = async (): Promise<void> => {
+    for (const cmd of commands) await send(cmd);
+  };
+  if (!input.launch) return run();
+  // The listener hears of the launch before the first command leaves.
+  const delivery = Promise.resolve().then(run);
+  onLaunch?.(deliveredText(input), delivery);
+  return delivery;
 }
