@@ -9,6 +9,7 @@ import {
   IconLayoutDashboard,
   IconListCheck,
   IconMessage,
+  IconSchema,
   IconSettings,
   IconUsers,
   type Icon,
@@ -25,6 +26,7 @@ const ICONS: Record<string, Icon> = {
   IconLayoutDashboard,
   IconListCheck,
   IconMessage,
+  IconSchema,
   IconSettings,
   IconUsers,
 }

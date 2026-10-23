@@ -24,6 +24,11 @@ vi.mock('../meetings/MeetingPage', () => ({
 vi.mock('../dashboard/DashboardPage', () => ({
   DashboardPage: () => <div data-testid="page-dashboard">dash</div>,
 }))
+vi.mock('../canvas/CanvasPage', () => ({
+  CanvasPage: ({ place }: { place: { canvas: string | null } }) => (
+    <div data-testid="page-canvas">{place.canvas ?? 'newest'}</div>
+  ),
+}))
 const scrollAreaProps = vi.fn()
 vi.mock('../ui/ScrollArea', () => ({
   ScrollArea: (p: { children: React.ReactNode; scrollKey?: string; 'data-testid'?: string }) => {
@@ -79,6 +84,13 @@ describe('PageRouter', () => {
     go(placeOf('meetings', { meeting: 'standup' }))
     ui()
     expect(screen.getByTestId('page-meeting')).toHaveTextContent('meeting detail')
+  })
+
+  it('renders Canvas without the page scroll area, one board per place', () => {
+    go(placeOf('canvas', { canvas: 'ui-moodboard' }))
+    ui()
+    expect(screen.getByTestId('page-canvas')).toHaveTextContent('ui-moodboard')
+    expect(screen.queryByTestId('page-scroll')).toBeNull()
   })
 
   it('keeps the chat pane mounted and hidden off the chat place', () => {

@@ -1,13 +1,7 @@
 /** Place model, ported from the Rust app's tabs.rs so layout.json stays interchangeable. */
 
 export type FixedPage =
-  | 'dashboard'
-  | 'chat'
-  | 'jobs'
-  | 'test-bench'
-  | 'habits'
-  | 'meetings'
-  | 'settings'
+  'dashboard' | 'chat' | 'jobs' | 'test-bench' | 'habits' | 'meetings' | 'canvas' | 'settings'
 export type PageKey = FixedPage | `workspace:${string}`
 
 export const SETTINGS_SECTIONS = ['Theme', 'Chat'] as const
@@ -19,6 +13,8 @@ export interface Place {
   chat: string | null
   settingsSection: SettingsSection
   meeting: string | null
+  /** The board's slug on the Canvas page; null opens the newest. */
+  canvas: string | null
 }
 
 const FIXED_PAGES: readonly string[] = [
@@ -28,6 +24,7 @@ const FIXED_PAGES: readonly string[] = [
   'test-bench',
   'habits',
   'meetings',
+  'canvas',
   'settings',
 ]
 
@@ -46,6 +43,7 @@ export function placeOf(page: PageKey, extra: Partial<Omit<Place, 'page'>> = {})
     chat: page === 'chat' ? 'draft' : null,
     settingsSection: 'Theme',
     meeting: null,
+    canvas: null,
     ...extra,
   }
 }
@@ -59,6 +57,7 @@ export function samePlace(a: Place, b: Place): boolean {
   }
   if (a.page === 'settings') return a.settingsSection === b.settingsSection
   if (a.page === 'meetings') return a.meeting === b.meeting
+  if (a.page === 'canvas') return a.canvas === b.canvas
   return true
 }
 
@@ -68,7 +67,8 @@ export function placeEquals(a: Place, b: Place): boolean {
     a.page === b.page &&
     a.chat === b.chat &&
     a.settingsSection === b.settingsSection &&
-    a.meeting === b.meeting
+    a.meeting === b.meeting &&
+    a.canvas === b.canvas
   )
 }
 
@@ -80,6 +80,8 @@ export function placeKey(place: Place): string {
       return `settings:${place.settingsSection}`
     case 'meetings':
       return place.meeting === null ? 'page:meetings' : `meeting:${place.meeting}`
+    case 'canvas':
+      return place.canvas === null ? 'page:canvas' : `canvas:${place.canvas}`
     default:
       return place.page.includes(':') ? place.page : `page:${place.page}`
   }
@@ -90,6 +92,7 @@ export interface PlaceJson {
   chat: string | null
   settings_section: SettingsSection
   meeting: string | null
+  canvas: string | null
 }
 
 export function placeToJson(place: Place): PlaceJson {
@@ -98,6 +101,7 @@ export function placeToJson(place: Place): PlaceJson {
     chat: place.page === 'chat' ? (place.chat ?? 'draft') : null,
     settings_section: place.settingsSection,
     meeting: place.meeting,
+    canvas: place.page === 'canvas' ? place.canvas : null,
   }
 }
 
@@ -115,5 +119,6 @@ export function placeFromJson(value: unknown): Place | null {
     chat,
     settingsSection: section,
     meeting: typeof v.meeting === 'string' ? v.meeting : null,
+    canvas: page === 'canvas' && typeof v.canvas === 'string' ? v.canvas : null,
   }
 }

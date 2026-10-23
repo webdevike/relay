@@ -151,6 +151,7 @@ describe('tabs', () => {
       chat: null,
       settings_section: 'Theme',
       meeting: null,
+      canvas: null,
       ...extra,
     })
     const fixture = {

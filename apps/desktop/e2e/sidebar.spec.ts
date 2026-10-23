@@ -38,6 +38,7 @@ test('nav rows, counts and recent items come from the fixture root', async ({ sh
   expect(ids).toEqual([
     'nav-dashboard',
     'nav-chat',
+    'nav-canvas',
     'nav-test-bench',
     'nav-jobs',
     'nav-habits',

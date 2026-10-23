@@ -1,7 +1,9 @@
 import { ActionIcon, Kbd, Tooltip } from '@mantine/core'
-import { IconChevronLeft, IconEdit, IconMessage, IconPalette } from '@tabler/icons-react'
+import { IconChevronLeft, IconEdit, IconMessage, IconPalette, IconPlus } from '@tabler/icons-react'
 import { useState, type MouseEvent } from 'react'
 import { SETTINGS_SECTIONS, placeOf, type SettingsSection } from '@evaos/shell-core'
+import { CanvasList } from '../canvas/CanvasList'
+import { newBoard } from '../canvas/canvas-store'
 import { openPlace } from '../navigation/navigate'
 import { activePlace, newChatTab, useTabs } from '../tabs/tabs-store'
 import { ScrollArea } from '../ui/ScrollArea'
@@ -14,6 +16,7 @@ const SECTION_ICON = { Theme: IconPalette, Chat: IconMessage } as const
 
 const COPY = {
   chats: { title: 'Chats', search: 'Search chats' },
+  canvas: { title: 'Canvas', search: 'Search boards' },
   meetings: { title: 'Meetings', search: 'Search meetings' },
 } as const
 
@@ -78,6 +81,16 @@ export function SubPage({ level }: { level: Exclude<NavLevel, 'root'> }) {
             >
               <IconEdit size="calc(var(--eva-font-size) * .875)" stroke={1.5} />
             </ActionIcon>
+          ) : level === 'canvas' ? (
+            <ActionIcon
+              variant="subtle"
+              size="var(--eva-kit-control-sm)"
+              aria-label="New board"
+              data-testid="canvas-new"
+              onClick={(e) => void newBoard(e.metaKey)}
+            >
+              <IconPlus size="calc(var(--eva-font-size) * .875)" stroke={1.5} />
+            </ActionIcon>
           ) : null}
         </div>
         {copy ? (
@@ -96,6 +109,8 @@ export function SubPage({ level }: { level: Exclude<NavLevel, 'root'> }) {
             <MeetingsList query={query} />
           ) : level === 'chats' ? (
             <ChatList query={query} />
+          ) : level === 'canvas' ? (
+            <CanvasList query={query} />
           ) : (
             SETTINGS_SECTIONS.map((s) => {
               const Glyph = SECTION_ICON[s]

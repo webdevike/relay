@@ -26,5 +26,7 @@ describe('page-meta', () => {
     expect(pageMeta(placeOf('meetings', { meeting: 'stem' })).title).toBe('Daily standup')
     expect(pageMeta(placeOf('meetings')).kind).toBe('page')
     expect(pageMeta(placeOf('settings', { settingsSection: 'Chat' })).kind).toBe('settings')
+    expect(pageMeta(placeOf('canvas'))).toMatchObject({ kind: 'canvas', title: 'Canvas' })
+    expect(pageMeta(placeOf('canvas', { canvas: 'ui-moodboard' })).kind).toBe('canvas')
   })
 })

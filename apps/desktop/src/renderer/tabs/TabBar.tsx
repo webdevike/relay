@@ -18,6 +18,7 @@ import {
   IconMessage,
   IconPin,
   IconPlus,
+  IconSchema,
   IconSettings,
   IconUsers,
   IconX,
@@ -27,7 +28,16 @@ import { EvaMenu } from '../overlay'
 import { useNamesVersion } from '../eva/names-store'
 import { useLayout } from '../shell/layout-store'
 import { tabIconName, tabTitle } from './tab-meta'
-import { activate, close, closeOthersOf, goBack, goForward, newChatTab, togglePinOf, useTabs } from './tabs-store'
+import {
+  activate,
+  close,
+  closeOthersOf,
+  goBack,
+  goForward,
+  newChatTab,
+  togglePinOf,
+  useTabs,
+} from './tabs-store'
 
 const ICONS: Record<string, Icon> = {
   IconLayoutDashboard,
@@ -43,6 +53,7 @@ const ICONS: Record<string, Icon> = {
   IconFolder,
   IconSettings,
   IconHelp,
+  IconSchema,
 }
 
 export const FOLDED_LABEL =
@@ -72,7 +83,6 @@ export function TabBar() {
     const el = listRef.current?.querySelector<HTMLElement>('[role=tab][data-active=true]')
     el?.scrollIntoView?.({ inline: 'nearest', block: 'nearest', behavior: 'smooth' })
   }, [activeId])
-
 
   const onKey = (e: KeyboardEvent<HTMLElement>, id: number): void => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -106,12 +116,26 @@ export function TabBar() {
       data-lead-in={state !== 'open' ? 'true' : 'false'}
     >
       <Tooltip label={withKbd('Back', '⌘[')} position="bottom" openDelay={400}>
-        <ActionIcon variant="subtle" className="eva-tabbar-btn" data-testid="tab-back" aria-label="Back" disabled={!tabs.list[tabs.active]?.back.length} onClick={goBack}>
+        <ActionIcon
+          variant="subtle"
+          className="eva-tabbar-btn"
+          data-testid="tab-back"
+          aria-label="Back"
+          disabled={!tabs.list[tabs.active]?.back.length}
+          onClick={goBack}
+        >
           <IconArrowLeft size={16} stroke={1.5} />
         </ActionIcon>
       </Tooltip>
       <Tooltip label={withKbd('Forward', '⌘]')} position="bottom" openDelay={400}>
-        <ActionIcon variant="subtle" className="eva-tabbar-btn" data-testid="tab-forward" aria-label="Forward" disabled={!tabs.list[tabs.active]?.forward.length} onClick={goForward}>
+        <ActionIcon
+          variant="subtle"
+          className="eva-tabbar-btn"
+          data-testid="tab-forward"
+          aria-label="Forward"
+          disabled={!tabs.list[tabs.active]?.forward.length}
+          onClick={goForward}
+        >
           <IconArrowRight size={16} stroke={1.5} />
         </ActionIcon>
       </Tooltip>
@@ -186,7 +210,6 @@ export function TabBar() {
       </div>
 
       <div className="eva-tabbar-spacer" data-testid="tabbar-drag" />
-
 
       <EvaMenu
         opened={menu !== null}

@@ -3,8 +3,7 @@ import { memo, type MouseEvent } from 'react'
 import ReactMarkdown, { type Components, type ExtraProps } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { CodeBlock } from './CodeBlock'
-import { invoke } from '../../ipc'
-import { togglePanel } from '../../shell/layout-store'
+import { openLink } from '../../navigation/open-link'
 
 type Element = NonNullable<ExtraProps['node']>
 type ElementContent = Element['children'][number]
@@ -31,19 +30,6 @@ export function replyMarkdown(text: string): string {
     if (i < lines.length - 1) out += '\n'
   }
   return out
-}
-
-/** Web links open in a new tab of the panel's browser; other schemes go nowhere. */
-export function openLink(href: string): void {
-  let url: URL
-  try {
-    url = new URL(href)
-  } catch {
-    return
-  }
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') return
-  togglePanel(true)
-  void invoke('browser.createTab', { url: url.href })
 }
 
 function textOf(nodes: ElementContent[]): string {

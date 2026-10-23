@@ -19,6 +19,7 @@ export const NAV_PAGES: readonly NavPage[] = [
     icon: 'IconLayoutDashboard',
   },
   { slug: 'chat', page: 'chat', title: 'Chat', description: '', icon: 'IconMessage' },
+  { slug: 'canvas', page: 'canvas', title: 'Canvas', description: '', icon: 'IconSchema' },
   {
     slug: 'test-bench',
     page: 'test-bench',
@@ -50,7 +51,7 @@ export const NAV_PAGES: readonly NavPage[] = [
   { slug: 'setting', page: 'settings', title: 'Setting', description: '', icon: 'IconSettings' },
 ]
 
-export type PageKind = 'page' | 'settings' | 'workspace' | 'meeting' | 'chat'
+export type PageKind = 'page' | 'settings' | 'workspace' | 'meeting' | 'chat' | 'canvas'
 
 export interface PageMeta {
   kind: PageKind
@@ -84,7 +85,7 @@ export function pageMeta(place: Place): PageMeta {
   }
   const nav = NAV_PAGES.find((n) => n.page === page)
   return {
-    kind: page === 'chat' ? 'chat' : 'page',
+    kind: page === 'chat' ? 'chat' : page === 'canvas' ? 'canvas' : 'page',
     slug: nav?.slug ?? page,
     title: nav?.title ?? page,
     description: nav?.description ?? '',

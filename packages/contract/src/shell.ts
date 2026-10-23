@@ -6,6 +6,7 @@ export const SavedPlaceSchema = z
     chat: z.string().nullable().optional(),
     settings_section: z.string().optional(),
     meeting: z.string().nullable().optional(),
+    canvas: z.string().nullable().optional(),
   })
   .passthrough()
 

@@ -20,6 +20,7 @@ describe('pages', () => {
       'test-bench',
       'habits',
       'meetings',
+      'canvas',
       'settings',
     ]
     for (const p of pages) expect(pageFromKey(pageKey(p))).toBe(p)
@@ -31,8 +32,9 @@ describe('pages', () => {
       expect(pageFromKey(page)).toBeNull()
       expect(placeFromJson({ page })).toBeNull()
     }
-    expect(placeFromJson({ page: 'settings', settings_section: 'Notifications' })?.settingsSection)
-      .toBe('Theme')
+    expect(
+      placeFromJson({ page: 'settings', settings_section: 'Notifications' })?.settingsSection,
+    ).toBe('Theme')
   })
 })
 
@@ -44,6 +46,7 @@ describe('saved places', () => {
       chat: null,
       settingsSection: 'Theme',
       meeting: null,
+      canvas: null,
     })
     expect(placeFromJson({ page: 'chat' })?.chat).toBe('draft')
     expect(placeFromJson({ page: 'chat', chat: '/s/a.jsonl' })?.chat).toBe('/s/a.jsonl')
@@ -65,8 +68,12 @@ describe('saved places', () => {
       chat: '/s/a.jsonl',
       settings_section: 'Theme',
       meeting: null,
+      canvas: null,
     })
     expect(placeToJson(placeOf('jobs')).chat).toBeNull()
+    expect(placeToJson(placeOf('canvas', { canvas: 'ui-moodboard' })).canvas).toBe('ui-moodboard')
+    expect(placeFromJson({ page: 'canvas', canvas: 'ecs-roles' })?.canvas).toBe('ecs-roles')
+    expect(placeFromJson({ page: 'jobs', canvas: 'ecs-roles' })?.canvas).toBeNull()
   })
 })
 
@@ -84,6 +91,9 @@ describe('place matching', () => {
     const m = (meeting: string | null) => placeOf('meetings', { meeting })
     expect(samePlace(m(null), m(null))).toBe(true)
     expect(samePlace(m('a'), m('b'))).toBe(false)
+    const c = (canvas: string | null) => placeOf('canvas', { canvas })
+    expect(samePlace(c('a'), c('a'))).toBe(true)
+    expect(samePlace(c('a'), c('b'))).toBe(false)
   })
 
   it('placeKey formats', () => {
@@ -93,5 +103,7 @@ describe('place matching', () => {
     expect(placeKey(placeOf('chat', { chat: '/s/a.jsonl' }))).toBe('chat:/s/a.jsonl')
     expect(placeKey(placeOf('workspace:alpha'))).toBe('workspace:alpha')
     expect(placeKey(placeOf('meetings', { meeting: 'stem' }))).toBe('meeting:stem')
+    expect(placeKey(placeOf('canvas'))).toBe('page:canvas')
+    expect(placeKey(placeOf('canvas', { canvas: 'ui-moodboard' }))).toBe('canvas:ui-moodboard')
   })
 })

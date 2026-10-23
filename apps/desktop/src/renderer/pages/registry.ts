@@ -1,6 +1,7 @@
 import type { ComponentType } from 'react'
 import type { Place } from '@evaos/shell-core'
 import { createElement } from 'react'
+import { CanvasPage } from '../canvas/CanvasPage'
 import { DashboardPage } from '../dashboard/DashboardPage'
 import { pageMeta } from './page-meta'
 import { HabitsPage } from '../habits/HabitsPage'
@@ -11,7 +12,7 @@ import { WorkspacePage } from '../workspace/WorkspacePage'
 import { SettingsPage } from '../settings/SettingsPage'
 import { TestBenchPage } from '../test-bench/TestBenchPage'
 
-export type PageRegistryKind = 'page' | 'settings' | 'workspace' | 'meeting'
+export type PageRegistryKind = 'page' | 'settings' | 'workspace' | 'meeting' | 'canvas'
 
 const PAGE_BY_SLUG: Record<string, ComponentType<{ place: Place }>> = {
   dashboard: DashboardPage,
@@ -33,4 +34,5 @@ export const pageRegistry: Record<PageRegistryKind, ComponentType<{ place: Place
   settings: SettingsPage,
   workspace: WorkspacePage,
   meeting: MeetingPage,
+  canvas: CanvasPage,
 }

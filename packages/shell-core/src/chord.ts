@@ -97,13 +97,7 @@ export function actionFor(chord: string): ActionId | null {
 }
 
 /** Chords a focused terminal lets escape to the app; the rest belong to the shell program. */
-export const TERMINAL_PASS_THROUGH = [
-  'cmd+shift+b',
-  'cmd+b',
-  'cmd+t',
-  'cmd+w',
-  'cmd+q',
-] as const
+export const TERMINAL_PASS_THROUGH = ['cmd+shift+b', 'cmd+b', 'cmd+t', 'cmd+w', 'cmd+q'] as const
 
 /** Browser panel page scope. cmd+[ and cmd+] belong to main tab history (D-14). */
 export const PAGE_BROWSER_CHORDS = {

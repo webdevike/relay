@@ -2,6 +2,7 @@ import { useElementSize } from '@mantine/hooks'
 import { IconAsterisk } from '@tabler/icons-react'
 import { useEffect, useState, type MouseEvent } from 'react'
 import { placeOf, type Place } from '@evaos/shell-core'
+import { canvasNavPlace } from '../canvas/canvas-store'
 import { invoke } from '../ipc'
 import { openPlace } from '../navigation/navigate'
 import { NAV_PAGES } from '../pages/page-meta'
@@ -55,6 +56,10 @@ export function MainNav() {
     } else if (page === 'meetings') {
       openPlace(placeOf('meetings'), { newTab })
       openSub('meetings')
+    } else if (page === 'canvas') {
+      // A plain click while on a board only drills in.
+      if (!(here.page === 'canvas' && !newTab)) openPlace(canvasNavPlace(), { newTab })
+      openSub('canvas')
     } else if (page === 'settings') {
       openPlace(settingsPlace(), { newTab })
       openSub('settings')
@@ -95,7 +100,7 @@ export function MainNav() {
               active={here.page === n.page}
               count={n.slug === 'jobs' && !error ? countLabel(jobs) : null}
               countTestid={n.slug === 'jobs' ? 'count-jobs' : undefined}
-              chevron={n.slug === 'chat' || n.slug === 'meetings'}
+              chevron={n.slug === 'chat' || n.slug === 'canvas' || n.slug === 'meetings'}
               onClick={(e) => go(n.page, e)}
             />
           ))}

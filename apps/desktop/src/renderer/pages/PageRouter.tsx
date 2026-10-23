@@ -11,7 +11,9 @@ export function PageRouter() {
   const place = useTabs(activePlace)
   const meta = pageMeta(place)
   const isChat = meta.kind === 'chat'
-  const isTheme = meta.kind === 'settings' && place.settingsSection === 'Theme'
+  // The theme editor and Canvas own their scrolling (two panes; a pannable board).
+  const ownsScroll =
+    (meta.kind === 'settings' && place.settingsSection === 'Theme') || meta.kind === 'canvas'
   const key = placeKey(place)
   const Page = pageRegistry[meta.kind as PageRegistryKind]
   return (
@@ -25,7 +27,7 @@ export function PageRouter() {
       </div>
       {isChat ? null : (
         <div className="eva-page-area">
-          {isTheme ? (
+          {ownsScroll ? (
             <Page key={key} place={place} />
           ) : (
             <ScrollArea data-testid="page-scroll" scrollKey={key} className="eva-page-scroll">

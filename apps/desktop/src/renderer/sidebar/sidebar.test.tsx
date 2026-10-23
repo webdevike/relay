@@ -12,7 +12,17 @@ const invoke = vi.fn(async (...a: unknown[]) =>
           digest: { recentCount: 0, waiting: [], out: [], decisions: [] },
         },
       }
-    : { ok: true, value: { live: false } },
+    : a[0] === 'canvas.list'
+      ? {
+          ok: true,
+          value: {
+            entries: [
+              { slug: 'b', title: 'Beta', nodes: 1, modifiedMs: 2, pinned: false },
+              { slug: 'a', title: 'Alpha', nodes: 3, modifiedMs: 1, pinned: true },
+            ],
+          },
+        }
+      : { ok: true, value: { live: false } },
 )
 vi.mock('../ipc', () => ({
   invoke: (...a: unknown[]) => invoke(...a),
@@ -82,6 +92,10 @@ describe('MainNav', () => {
     backToRoot()
     fireEvent.click(screen.getByTestId('nav-meetings'))
     expect(navLevelStore.getState().level).toBe('meetings')
+    backToRoot()
+    fireEvent.click(screen.getByTestId('nav-canvas'))
+    expect(navLevelStore.getState().level).toBe('canvas')
+    expect(openPlace).toHaveBeenLastCalledWith(placeOf('canvas'), { newTab: false })
     backToRoot()
     fireEvent.click(screen.getByTestId('nav-setting'))
     expect(navLevelStore.getState().level).toBe('settings')
@@ -162,6 +176,29 @@ describe('sub-pages', () => {
     expect(screen.getByPlaceholderText('Search meetings')).toBeInTheDocument()
     expect(screen.getByTestId('sidebar-sub-empty')).toHaveTextContent('Loading meetings')
     expect(screen.getByTestId('meetings-home')).toHaveTextContent('Meetings')
+  })
+
+  it('lists boards under Pinned and Recent with counts, search and open', async () => {
+    seed('canvas', { canvas: 'b' })
+    wrap(<SubPage level="canvas" />)
+    expect(screen.getByPlaceholderText('Search boards')).toBeInTheDocument()
+    expect(screen.getByTestId('canvas-new')).toHaveAttribute('aria-label', 'New board')
+    expect(await screen.findByTestId('canvas-row-a')).toHaveTextContent('Alpha')
+    expect(screen.getAllByTestId('canvas-section').map((s) => s.textContent)).toEqual([
+      'Pinned',
+      'Recent',
+    ])
+    expect(screen.getByTestId('canvas-count-a')).toHaveTextContent('3')
+    expect(screen.getByTestId('canvas-row-b')).toHaveAttribute('data-active', 'true')
+    fireEvent.click(screen.getByTestId('canvas-row-a'))
+    expect(openPlace).toHaveBeenLastCalledWith(placeOf('canvas', { canvas: 'a' }), {
+      newTab: false,
+    })
+    fireEvent.change(screen.getByTestId('sidebar-sub-search'), { target: { value: 'bet' } })
+    expect(screen.queryByTestId('canvas-row-a')).toBeNull()
+    expect(screen.getByTestId('canvas-row-b')).toBeInTheDocument()
+    fireEvent.change(screen.getByTestId('sidebar-sub-search'), { target: { value: 'zzz' } })
+    expect(screen.getByTestId('sidebar-sub-empty')).toHaveTextContent('No boards match')
   })
 
   it('Esc ordering: clear, blur, then pop the level', () => {

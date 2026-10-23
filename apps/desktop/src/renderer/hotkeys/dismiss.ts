@@ -3,6 +3,8 @@ import { useEffect, useRef } from 'react'
 /** Esc ladder priority bands (D-12): higher runs first. */
 export const DISMISS_PRIORITY = {
   overlay: 100,
+  /** A canvas selection clears before the sidebar sub-page closes. */
+  selection: 50,
   subPageBack: 10,
 } as const
 
