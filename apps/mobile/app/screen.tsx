@@ -23,6 +23,7 @@ import { useVncStore } from "@/state/vnc";
 import { requestVncAccess } from "@/connection";
 import { forgetVncCredentials, loadVncCredentials, saveVncCredentials } from "@/vnc/credentials";
 import type { VncCredentials, VncEvent, VncKey } from "@/vnc/messages";
+import { useAnyOrientation } from "@/lib/useAnyOrientation";
 
 /** Where the live connection stands once the host handed over a ticket. */
 type Phase = "connecting" | "live" | "login" | "dropped";
@@ -31,6 +32,7 @@ const DEFAULT_HOST = "default";
 const REFUSED = "Screen Sharing didn't accept that login.";
 
 export default function LiveView() {
+  useAnyOrientation();
   const connected = useConnectionStore((state) => state.status === "connected");
   const hostId = useConnectionStore((state) => state.activeHostId) ?? DEFAULT_HOST;
   const access = useVncStore((state) => state.access);

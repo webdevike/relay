@@ -3,8 +3,7 @@ import { View } from "react-native";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useKeepAwake } from "expo-keep-awake";
-import { requireOptionalNativeModule } from "expo-modules-core";
-import type * as ScreenOrientationModule from "expo-screen-orientation";
+import { useAnyOrientation } from "@/lib/useAnyOrientation";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { IconButton } from "@/ui/IconButton";
 import { Cutout, CUTOUT_GAP } from "@/ui/Cutout";
@@ -87,19 +86,8 @@ export default function TrackpadScreen({
 }: TrackpadScreenProps) {
   const colors = useColors();
   useKeepAwake();
+  useAnyOrientation();
   const router = useRouter();
-
-  useEffect(() => {
-    // Follow the phone (any orientation) while the trackpad is up; the rest of the app is portrait.
-    // Guarded so a dev client built before expo-screen-orientation was added still loads.
-    if (requireOptionalNativeModule("ExpoScreenOrientation") === null) return;
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- deferred so the import above stays optional
-    const ScreenOrientation = require("expo-screen-orientation") as typeof ScreenOrientationModule;
-    void ScreenOrientation.unlockAsync();
-    return () => {
-      void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
-    };
-  }, []);
 
   const onWheel = useCallback((key: string) => {
     tapHaptic();
