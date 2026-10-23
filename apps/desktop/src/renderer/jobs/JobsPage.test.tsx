@@ -84,16 +84,18 @@ describe('JobsPage', () => {
 
   it('maps run states to badges', () => {
     const base = job('x') as never as Parameters<typeof runBadge>[0]
-    expect(runBadge({ ...base, runState: 'ok' }).text).toBe('ok')
+    expect(runBadge({ ...base, runState: 'ok' })?.text).toBe('ok')
     expect(runBadge({ ...base, runState: 'failed' })).toMatchObject({
       text: 'failed',
       tone: 'warning',
     })
-    expect(runBadge({ ...base, runState: 'running' }).text).toBe('running')
-    expect(runBadge({ ...base, runState: 'never' })).toMatchObject({
+    expect(runBadge({ ...base, runState: 'running' })?.text).toBe('running')
+    expect(runBadge({ ...base, runState: 'never', lastRunAt: null })).toMatchObject({
       text: 'never run',
       tone: 'dim',
     })
+    // A script job stamps last-run but writes no run record: it ran, so never "never run".
+    expect(runBadge({ ...base, runState: 'never', lastRunAt: NOW - 60_000 })).toBeNull()
     expect(runBadge({ ...base, runState: 'other', runStateRaw: 'paused' })).toMatchObject({
       text: 'paused',
       tone: 'dim',

@@ -71,7 +71,11 @@ export const GateStatusSchema = z.object({
     .passthrough()
     .optional(),
   canFinish: z.boolean().default(false),
-  remainingSeconds: z.number().default(0),
+  // The gate reports null while no habit is running.
+  remainingSeconds: z
+    .number()
+    .nullish()
+    .transform((v) => v ?? 0),
   blocked: z.boolean().default(false),
 })
 

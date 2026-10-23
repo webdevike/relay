@@ -29,7 +29,11 @@ interface Badge {
   spin?: boolean
 }
 
-export function runBadge(job: JobSummaryDto): Badge {
+/**
+ * How the last run ended; null when the job ran but left no run record (script jobs only stamp
+ * last-run), so the row shows just when, like native jobs_view.rs last_run_label.
+ */
+export function runBadge(job: JobSummaryDto): Badge | null {
   switch (job.runState) {
     case 'ok':
       return { Glyph: IconCheck, text: 'ok', tone: 'success' }
@@ -38,7 +42,7 @@ export function runBadge(job: JobSummaryDto): Badge {
     case 'running':
       return { Glyph: IconLoader2, text: 'running', tone: 'success', spin: true }
     case 'never':
-      return { Glyph: IconMinus, text: 'never run', tone: 'dim' }
+      return job.lastRunAt === null ? { Glyph: IconMinus, text: 'never run', tone: 'dim' } : null
     default:
       return { Glyph: IconMinus, text: job.runStateRaw ?? 'unknown', tone: 'dim' }
   }
@@ -70,14 +74,16 @@ function Row({ job, now }: { job: JobSummaryDto; now: number }) {
         {job.lastRunAt !== null ? (
           <span className="eva-jobs-dim">{agoLabel(job.lastRunAt, now)}</span>
         ) : null}
-        <span
-          className="eva-jobs-state"
-          data-tone={badge.tone}
-          data-testid={`job-state-${job.name}`}
-        >
-          <badge.Glyph size={14} className={badge.spin ? 'eva-jobs-spin' : undefined} />
-          {badge.text}
-        </span>
+        {badge ? (
+          <span
+            className="eva-jobs-state"
+            data-tone={badge.tone}
+            data-testid={`job-state-${job.name}`}
+          >
+            <badge.Glyph size={14} className={badge.spin ? 'eva-jobs-spin' : undefined} />
+            {badge.text}
+          </span>
+        ) : null}
       </span>
       <span
         className={due.tone === 'normal' ? undefined : `eva-jobs-${due.tone}`}

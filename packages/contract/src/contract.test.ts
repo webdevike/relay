@@ -234,6 +234,11 @@ describe('contract', () => {
       history: [{ kind: null, id: null, name: null, doneAt: 'x' }],
     })
     expect(n.history[0]).toMatchObject({ kind: '', id: '', name: '' })
+    // The live gate sends remainingSeconds: null when no habit is running.
+    expect(GateStatusSchema.parse({ active: null, remainingSeconds: null }).remainingSeconds).toBe(
+      0,
+    )
+    expect(empty.remainingSeconds).toBe(0)
   })
 
   it('habit.run actions', () => {
