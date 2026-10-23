@@ -5,6 +5,7 @@ import type { ButtonSpec, InputSpec } from '@evaos/chat-core/widget'
 import { openLink } from '../../../navigation/open-link'
 import { OpenUIActions, useWidgetActions } from '../actions'
 import { useToneColor } from '../rich/parts'
+import { WidgetCell } from './cell'
 import { useToneText } from './content'
 
 const VARIANT: Record<ButtonSpec['variant'], string> = {
@@ -14,10 +15,12 @@ const VARIANT: Record<ButtonSpec['variant'], string> = {
 }
 
 /** `url` opens the page in the side browser; `reply` sends its text as Isaac's next turn; `action`
- * runs the OpenUI block's action, then sends or opens what it hands back. */
+ * runs the OpenUI block's action, then sends or opens what it hands back. In a grid cell or a
+ * horizontal stack's column the button fills it; grid keys are taller, with a larger label. */
 export function ButtonBlock({ spec }: { spec: ButtonSpec }) {
   const { reply, canReply } = useWidgetActions()
   const openui = useContext(OpenUIActions)
+  const cell = useContext(WidgetCell)
   const color = useToneColor()
   const toneText = useToneText()
   const replyText = spec.reply
@@ -28,13 +31,16 @@ export function ButtonBlock({ spec }: { spec: ButtonSpec }) {
   }
   return (
     <Button
-      size="xs"
+      size={cell === 'grid' ? 'md' : 'xs'}
+      h={cell === 'grid' ? 40 : undefined}
+      fullWidth={cell !== null}
       variant={variant}
       color={spec.tone !== undefined ? color(spec.tone) : undefined}
       // The neutral variant ignores `color`; a tone tints its label instead.
       c={variant === 'default' ? toneText(spec.tone) : undefined}
       className="eva-wb-button"
       data-testid="widget-button"
+      data-cell={cell ?? undefined}
       disabled={(replyText !== undefined && !canReply) || (spec.action !== undefined && !openui)}
       onClick={() => {
         if (spec.action === undefined) send(replyText, spec.url)

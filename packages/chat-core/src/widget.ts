@@ -4,7 +4,7 @@
  * malformed or hostile payload is rejected so the transcript falls back to showing it as code.
  *
  * Port of the Relay protocol schema, ~/Eva/work/relay/packages/protocol/src/widget.ts at commit
- * ac61677 (zod 3 there, zod 4 here), plus the EvaOS-only `diagram` node as
+ * 48a708f (zod 3 there, zod 4 here), plus the EvaOS-only `diagram` node as
  * ~/Eva/apps/evaos/src/rich/widgets.rs parses it. Keep the three in step.
  */
 import { z } from 'zod'
@@ -157,11 +157,13 @@ const Recipe = z.object({
   source: HttpUrl,
 })
 
-/** A line of text. `style` picks the type scale; an unknown style degrades to body. */
+/** A line of text. `style` picks the type scale (`display` is the large, tabular-numeral readout of
+ * a calculator or counter); an unknown style degrades to body. `align` defaults to left. */
 const TextNode = z.object({
   widget: z.literal('text'),
   text: z.string().min(1),
-  style: z.enum(['heading', 'body', 'caption', 'muted']).optional().catch(undefined),
+  style: z.enum(['heading', 'body', 'caption', 'muted', 'display']).optional().catch(undefined),
+  align: z.enum(['left', 'center', 'right']).optional().catch(undefined),
 })
 
 /** Tones shared by badges and row values; an unknown tone degrades to neutral. */
@@ -447,10 +449,12 @@ export interface StackSpec {
   children: WidgetSpec[]
 }
 
-/** Groups children inside a hairline border, with an optional heading. */
+/** Groups children inside a hairline border, with an optional heading. A `compact` card (a keypad,
+ * a small form) caps its width on wide surfaces; `full` (the default) spans the column. */
 export interface CardSpec {
   widget: 'card'
   title?: string | undefined
+  width?: 'compact' | 'full' | undefined
   children: WidgetSpec[]
 }
 
@@ -496,6 +500,7 @@ const Stack = z.object({
 const Card = z.object({
   widget: z.literal('card'),
   title: z.string().optional(),
+  width: z.enum(['compact', 'full']).optional().catch(undefined),
   children: Children,
 })
 

@@ -203,6 +203,46 @@ describe('WidgetBlock', () => {
     expect(screen.queryByTestId('widget-frame')).toBeNull()
   })
 
+  it('fills cells with buttons, keeps a compact card narrow, and draws a display readout', () => {
+    show(
+      widget({
+        widget: 'card',
+        width: 'compact',
+        children: [
+          { widget: 'text', text: '42', style: 'display', align: 'right' },
+          {
+            widget: 'grid',
+            columns: 2,
+            children: [
+              { widget: 'button', label: '7', reply: '7', variant: 'secondary' },
+              { widget: 'button', label: '8', reply: '8', variant: 'secondary' },
+            ],
+          },
+          {
+            widget: 'stack',
+            direction: 'horizontal',
+            children: [{ widget: 'button', label: 'Go', reply: 'go', variant: 'primary' }],
+          },
+          { widget: 'button', label: 'Alone', reply: 'alone', variant: 'subtle' },
+        ],
+      }),
+    )
+    expect(screen.getByTestId('widget-frame')).toHaveAttribute('data-width', 'compact')
+    const text = screen.getByTestId('widget-text')
+    expect(text).toHaveAttribute('data-style', 'display')
+    expect(text).toHaveStyle({ textAlign: 'right' })
+    const key = (name: string) => screen.getByRole('button', { name })
+    for (const name of ['7', '8']) {
+      expect(key(name)).toHaveAttribute('data-cell', 'grid')
+      expect(key(name)).toHaveAttribute('data-block', 'true')
+      expect(key(name)).toHaveStyle({ height: 'calc(2.5rem * var(--mantine-scale))' })
+    }
+    expect(key('Go')).toHaveAttribute('data-cell', 'row')
+    expect(key('Go')).toHaveAttribute('data-block', 'true')
+    expect(key('Alone')).not.toHaveAttribute('data-cell')
+    expect(key('Alone')).not.toHaveAttribute('data-block')
+  })
+
   it('draws the content blocks', () => {
     show(
       widget({

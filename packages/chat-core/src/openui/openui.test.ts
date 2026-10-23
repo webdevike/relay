@@ -221,7 +221,11 @@ const EVERY_TYPE: Record<Exclude<WidgetSpec['widget'], 'diagram'>, unknown> = {
   card: {
     widget: 'card',
     title: 'Brief',
-    children: [{ widget: 'text', text: 'x' }, { widget: 'divider' }],
+    width: 'compact',
+    children: [
+      { widget: 'text', text: '0', style: 'display', align: 'right' },
+      { widget: 'divider' },
+    ],
   },
   grid: {
     widget: 'grid',
@@ -541,6 +545,28 @@ describe('parseOpenUI', () => {
     const result = parseOpenUI('root = Stack([Foo(1), Badge("a", "neon")])')
     expect(result.node).toEqual({ widget: 'stack', children: [{ widget: 'badge', label: 'a' }] })
     expect(result.errors.map((e) => e.code).sort()).toEqual(['type-mismatch', 'unknown-component'])
+  })
+
+  it('reads Card width and Text align/display positionally', () => {
+    const result = parseOpenUI(
+      'root = Card([Text("42", "display", "right"), Text("hi", null, "center")], "Calc", "compact")',
+    )
+    expect(result.errors).toEqual([])
+    expect(result.node).toEqual({
+      widget: 'card',
+      title: 'Calc',
+      width: 'compact',
+      children: [
+        { widget: 'text', text: '42', style: 'display', align: 'right' },
+        { widget: 'text', text: 'hi', align: 'center' },
+      ],
+    })
+    const loose = WidgetNode.parse({
+      widget: 'card',
+      width: 'huge',
+      children: [{ widget: 'text', text: 'x', align: 'middle' }],
+    })
+    expect(loose).toEqual({ widget: 'card', children: [{ widget: 'text', text: 'x' }] })
   })
 
   it('maps button actions', () => {

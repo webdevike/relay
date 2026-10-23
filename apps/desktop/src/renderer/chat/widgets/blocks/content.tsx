@@ -51,33 +51,27 @@ export function useToneText(): (tone: Tone | undefined) => string | undefined {
         : `var(--mantine-color-${color(tone)}-text)`
 }
 
+/** Type scale per text style; `display` is a calculator-style readout (large tabular numerals). */
+const TEXT_STYLE = {
+  heading: { size: 'md', fw: 600 },
+  body: { size: 'sm' },
+  caption: { size: 'xs', c: 'dimmed' },
+  muted: { size: 'sm', c: 'dimmed' },
+  display: { fz: 36, fw: 500, lh: 1.2 },
+} as const satisfies Record<NonNullable<TextSpec['style']>, object>
+
 export function TextBlock({ spec }: { spec: TextSpec }) {
-  switch (spec.style) {
-    case 'heading':
-      return (
-        <Text size="md" fw={600} className="eva-wb-text" data-testid="widget-text">
-          {spec.text}
-        </Text>
-      )
-    case 'caption':
-      return (
-        <Text size="xs" c="dimmed" className="eva-wb-text" data-testid="widget-text">
-          {spec.text}
-        </Text>
-      )
-    case 'muted':
-      return (
-        <Text size="sm" c="dimmed" className="eva-wb-text" data-testid="widget-text">
-          {spec.text}
-        </Text>
-      )
-    default:
-      return (
-        <Text size="sm" className="eva-wb-text" data-testid="widget-text">
-          {spec.text}
-        </Text>
-      )
-  }
+  return (
+    <Text
+      {...TEXT_STYLE[spec.style ?? 'body']}
+      ta={spec.align}
+      className="eva-wb-text"
+      data-testid="widget-text"
+      data-style={spec.style}
+    >
+      {spec.text}
+    </Text>
+  )
 }
 
 /** Label left, value right, a hairline between rows. */

@@ -398,8 +398,33 @@ test('OpenUI Lang blocks draw through the same widgets, and a bad one falls back
     await calc.getByRole('button', { name: key, exact: true }).click()
   await expect(display).toHaveText('19')
   expect(prompts()).toEqual([])
+  // Compact card: phone width at the left of the column; keys fill their cells at 40px; the
+  // display is the large right-aligned readout.
+  const frame = calc.getByTestId('widget-frame').first()
+  const box = (await frame.boundingBox())!
+  expect(box.width).toBeLessThanOrEqual(380)
+  const keys = calc.locator('.eva-wb-grid-cell')
+  const fill = await keys.evaluateAll((cells) =>
+    cells.map((cell) => {
+      const key = cell.querySelector('button')!.getBoundingClientRect()
+      return [Math.round(cell.getBoundingClientRect().width - key.width), Math.round(key.height)]
+    }),
+  )
+  expect(fill).toEqual(Array.from({ length: 16 }, () => [0, 40]))
+  expect(await display.evaluate((el) => getComputedStyle(el).textAlign)).toBe('right')
   fs.mkdirSync(OUT, { recursive: true })
   await calc.screenshot({ path: path.join(OUT, 'openui-calculator.png') })
+  // The same block in a phone's column (390pt screen less 16pt margins): the compact card spans
+  // it and the keys still fill their cells.
+  await calc.evaluate((el) => (el.style.width = '358px'))
+  expect((await frame.boundingBox())!.width).toBe(358)
+  expect(
+    await keys.evaluateAll((cells) =>
+      cells.map((c) => c.querySelector('button')!.offsetWidth === c.clientWidth),
+    ),
+  ).toEqual(Array(16).fill(true))
+  await calc.screenshot({ path: path.join(OUT, 'openui-calculator-390.png') })
+  await calc.evaluate((el) => (el.style.width = ''))
 
   const panel = shell.locator('[data-testid=panel-toggle]:visible').first()
   if ((await panel.getAttribute('aria-pressed')) === 'true') await panel.click()

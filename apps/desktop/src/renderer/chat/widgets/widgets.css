@@ -18,6 +18,10 @@
   border-color: var(--eva-border);
   border-radius: var(--eva-radius-lg);
 }
+/* A compact card (calculator, keypad, short form) keeps phone width at the left of the column. */
+.eva-wb-frame[data-width='compact'] {
+  max-width: 380px;
+}
 
 /* Root row of stats: hairlines above and below, one between cells. */
 .eva-wb-stats {
@@ -56,6 +60,10 @@
 .eva-wb-text {
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+.eva-wb-text[data-style='display'] {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
 }
 
 .eva-wb-rows-row {

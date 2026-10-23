@@ -1,16 +1,16 @@
 /**
  * Relay's calculator prompt example (`CALCULATOR` in
- * ~/Eva/work/relay/packages/protocol/src/openui/prompt.ts at commit ac61677), copied for tests: a
+ * ~/Eva/work/relay/packages/protocol/src/openui/prompt.ts at commit 48a708f), copied for tests: a
  * pocket calculator's immediate execution (each operator applies the pending one to the running
  * total), kept in $acc/$op/$cur with arithmetic per operator. Button action ids are the statement
  * names (k0-k9, kdot, kadd, ksub, kmul, kdiv, keq, clear).
  */
-export const CALCULATOR = `root = Card([screen, keys, clear], "Calculator")
+export const CALCULATOR = `root = Card([screen, keys, clear], "Calculator", "compact")
 $display = "0"
 $cur = ""
 $acc = 0
 $op = ""
-screen = Text($display, "heading")
+screen = Text($display, "display", "right")
 keys = Grid([k7, k8, k9, kdiv, k4, k5, k6, kmul, k1, k2, k3, ksub, k0, kdot, keq, kadd], 4, "xs")
 result = $cur == "" ? $acc : ($op == "+" ? $acc + $cur * 1 : ($op == "-" ? $acc - $cur : ($op == "*" ? $acc * $cur : ($op == "/" ? $acc / $cur : $cur * 1))))
 k7 = Button("7", Action([@Set($cur, $cur + "7"), @Set($display, $cur)]))

@@ -6,7 +6,7 @@
  * These zod v4 schemas only drive the parser's positional mapping and the generated prompt; the
  * converted tree is validated by the real `WidgetNode` schema.
  *
- * Port of ~/Eva/work/relay/packages/protocol/src/openui/library.ts at commit ac61677. The language
+ * Port of ~/Eva/work/relay/packages/protocol/src/openui/library.ts at commit 48a708f. The language
  * stays Relay's: the EvaOS-only `diagram` node has no component, so OpenUI programs parse the same
  * on the phone and here.
  */
@@ -175,8 +175,12 @@ const Tab = sub(
 const WIDGET_DEFS: Record<WidgetKind, [props: z.ZodObject, description: string]> = {
   // Layout
   card: [
-    z.object({ children, title: z.string().optional() }),
-    "Groups children inside a hairline border with an optional heading. A root Card is the widget's frame; don't nest cards for decoration.",
+    z.object({
+      children,
+      title: z.string().optional(),
+      width: z.enum(['compact', 'full']).optional(),
+    }),
+    'Groups children inside a hairline border with an optional heading. A root Card is the widget\'s frame; don\'t nest cards for decoration. width "compact" keeps a small tool (calculator, keypad, short form) phone-sized on wide screens; default "full".',
   ],
   stack: [
     z.object({
@@ -184,7 +188,7 @@ const WIDGET_DEFS: Record<WidgetKind, [props: z.ZodObject, description: string]>
       direction: z.enum(['vertical', 'horizontal']).optional(),
       gap: gap.optional(),
     }),
-    'Lays children out in a column (default) or, with "horizontal", a row of equal-width columns. gap defaults to "sm".',
+    'Lays children out in a column (default) or, with "horizontal", a row of equal-width columns; a Button fills its column. gap defaults to "sm".',
   ],
   grid: [
     z.object({
@@ -192,7 +196,7 @@ const WIDGET_DEFS: Record<WidgetKind, [props: z.ZodObject, description: string]>
       columns: z.union([z.literal(2), z.literal(3), z.literal(4)]).optional(),
       gap: gap.optional(),
     }),
-    'Wraps children into rows of `columns` equal cells (default 2). Phones may drop columns when cells get narrow.',
+    'Wraps children into rows of `columns` equal cells (default 2); a Button fills its cell at a comfortable tap height (keypads, choice grids). Phones may drop columns when cells get narrow.',
   ],
   tabs: [
     z.object({ tabs: z.array(Tab.ref) }),
@@ -206,9 +210,10 @@ const WIDGET_DEFS: Record<WidgetKind, [props: z.ZodObject, description: string]>
   text: [
     z.object({
       text: z.string(),
-      style: z.enum(['heading', 'body', 'caption', 'muted']).optional(),
+      style: z.enum(['heading', 'body', 'caption', 'muted', 'display']).optional(),
+      align: z.enum(['left', 'center', 'right']).optional(),
     }),
-    'A line of text; style picks the type scale (default body).',
+    'A line of text; style picks the type scale (default body); "display" is a large tabular readout (a calculator screen, a counter). align defaults to left.',
   ],
   rows: [
     z.object({ rows: z.array(Row.ref) }),

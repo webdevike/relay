@@ -12,16 +12,26 @@ import type {
 } from '@evaos/chat-core/widget'
 import { WidgetTitle } from '../rich/parts'
 import { WidgetNode } from '../Widget'
+import { WidgetCell } from './cell'
 
 /** widgets.rs gap_px: xs 6, sm 10 (the default), md 16, lg 24. */
 const GAP_PX: Record<Gap, number> = { xs: 6, sm: 10, md: 16, lg: 24 }
 
-/** In a row, these keep their own width; everything else shares the row equally. */
-const INLINE: Partial<Record<WidgetKind, true>> = { badge: true, button: true, link: true }
+/** In a row, these keep their own width; everything else (buttons included) shares the row
+ * equally and fills its column. */
+const INLINE: Partial<Record<WidgetKind, true>> = { badge: true, link: true }
 
 /** The one hairline surface a widget sits in: a root card, a nested card (`card`), or a compact
- * root. */
-export function Frame({ children, card = false }: { children: ReactNode; card?: boolean }) {
+ * root. A `compact` card keeps phone width (~380px) at the left of the chat column. */
+export function Frame({
+  children,
+  card = false,
+  width,
+}: {
+  children: ReactNode
+  card?: boolean
+  width?: CardSpec['width']
+}) {
   return (
     <Paper
       withBorder
@@ -29,8 +39,11 @@ export function Frame({ children, card = false }: { children: ReactNode; card?: 
       className="eva-wb-frame"
       data-testid="widget-frame"
       data-card={card || undefined}
+      data-width={width}
     >
-      <Stack gap={GAP_PX.sm}>{children}</Stack>
+      <WidgetCell.Provider value={null}>
+        <Stack gap={GAP_PX.sm}>{children}</Stack>
+      </WidgetCell.Provider>
     </Paper>
   )
 }
@@ -39,11 +52,13 @@ export function StackBlock({ spec }: { spec: StackSpec }) {
   const gap = GAP_PX[spec.gap ?? 'sm']
   if (spec.direction !== 'horizontal') {
     return (
-      <Stack gap={gap} className="eva-wb-stack" data-testid="widget-stack">
-        {spec.children.map((child, i) => (
-          <WidgetNode key={i} spec={child} />
-        ))}
-      </Stack>
+      <WidgetCell.Provider value={null}>
+        <Stack gap={gap} className="eva-wb-stack" data-testid="widget-stack">
+          {spec.children.map((child, i) => (
+            <WidgetNode key={i} spec={child} />
+          ))}
+        </Stack>
+      </WidgetCell.Provider>
     )
   }
   return (
@@ -53,7 +68,9 @@ export function StackBlock({ spec }: { spec: StackSpec }) {
           <WidgetNode key={i} spec={child} />
         ) : (
           <div key={i} className="eva-wb-row-cell">
-            <WidgetNode spec={child} />
+            <WidgetCell.Provider value="row">
+              <WidgetNode spec={child} />
+            </WidgetCell.Provider>
           </div>
         ),
       )}
@@ -65,7 +82,7 @@ export function StackBlock({ spec }: { spec: StackSpec }) {
  * own hairline border. */
 export function CardBlock({ spec }: { spec: CardSpec }) {
   return (
-    <Frame card>
+    <Frame card width={spec.width}>
       {spec.title !== undefined ? <WidgetTitle>{spec.title}</WidgetTitle> : null}
       {spec.children.map((child, i) => (
         <WidgetNode key={i} spec={child} />
@@ -84,7 +101,9 @@ export function GridBlock({ spec }: { spec: GridSpec }) {
     >
       {spec.children.map((child, i) => (
         <div key={i} className="eva-wb-grid-cell">
-          <WidgetNode spec={child} />
+          <WidgetCell.Provider value="grid">
+            <WidgetNode spec={child} />
+          </WidgetCell.Provider>
         </div>
       ))}
     </SimpleGrid>
