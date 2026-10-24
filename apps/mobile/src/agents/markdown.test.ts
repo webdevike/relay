@@ -203,6 +203,24 @@ describe("parseBlocks", () => {
     });
     expect(topLevelImages("- ![a](https://x.test/a.png)")).toEqual({ images: [], hasBody: true });
   });
+
+  it("keeps a closed ```html-widget fence as its HTML", () => {
+    const html = '<button onclick="relay.reply(\'go\')">Go</button>\n<p id="n">0</p>';
+    expect(parseBlocks(`Here:\n\n\`\`\`html-widget\n${html}\n\`\`\`\n\nAfter`)).toEqual<Block[]>([
+      { kind: "paragraph", inline: [{ text: "Here:" }] },
+      { kind: "html", html, partial: false },
+      { kind: "paragraph", inline: [{ text: "After" }] },
+    ]);
+  });
+
+  it("marks a still-streaming ```html-widget fence partial", () => {
+    expect(parseBlocks("```html-widget\n<div>\n  <button>Go")).toEqual<Block[]>([{ kind: "html", html: "<div>\n  <button>Go", partial: true }]);
+    expect(parseBlocks("```HTML-Widget\n")).toEqual<Block[]>([{ kind: "html", html: "", partial: true }]);
+  });
+
+  it("leaves a plain ```html fence as code", () => {
+    expect(parseBlocks("```html\n<b>x</b>\n```")).toEqual<Block[]>([{ kind: "code", lang: "html", code: "<b>x</b>", invalid: false }]);
+  });
 });
 
 describe("imageSrcKind", () => {

@@ -43,6 +43,9 @@ export type Block =
   /** A ```openui fence: rendered live by its own runtime (OpenUIBlock), so it keeps the source.
    * `partial` while the fence is still open (the reply is streaming). */
   | { kind: "openui"; code: string; partial: boolean }
+  /** A ```html-widget fence: agent-written HTML drawn in a sandboxed web view (HtmlWidget).
+   * `partial` while the fence is still open; it renders only once closed. */
+  | { kind: "html"; html: string; partial: boolean }
   | ({ kind: "image" } & MessageImage)
   | { kind: "hr" };
 
@@ -309,6 +312,10 @@ function parseLines(lines: string[]): Block[] {
         blocks.push({ kind: "openui", code, partial: !closed });
         continue;
       }
+      if (lang === "html-widget") {
+        blocks.push({ kind: "html", html: code, partial: !closed });
+        continue;
+      }
       const spec = lang === "ui" ? parseWidget(code) : null;
       // A still-streaming widget block is just unfinished, not invalid.
       const invalid = lang === "ui" && closed && !spec;
@@ -524,6 +531,7 @@ function blockPreview(block: Block): string {
       return "Code";
     case "widget":
     case "openui":
+    case "html":
     case "hr":
       return "";
   }

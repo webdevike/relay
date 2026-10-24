@@ -9,6 +9,7 @@ import { BlockQuote } from "@/ui/BlockQuote";
 import { ListItem } from "@/ui/ListItem";
 import { CodeBlock } from "./CodeBlock";
 import { MarkdownImages } from "./MarkdownImages";
+import { HtmlWidget } from "./HtmlWidget";
 import { type Align, type Block, type Inline, type MessageImage, parseBlocks } from "./markdown";
 import { openUIView, syncOpenUIRuntime } from "./openui";
 import { OpenUIRuntimeContext } from "./OpenUIRuntime";
@@ -118,6 +119,8 @@ function BlockView({ block, body, streaming = false }: { block: Block; body: Bod
       return <Widget spec={block.spec} />;
     case "openui":
       return <OpenUIBlock code={block.code} partial={block.partial} />;
+    case "html":
+      return <HtmlWidget html={block.html} partial={block.partial} fontSize={body.fontSize} lineHeight={body.lineHeight} />;
     case "image":
       return <MarkdownImages images={[{ src: block.src, alt: block.alt }]} />;
   }
