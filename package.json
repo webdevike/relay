@@ -12,7 +12,9 @@
     "build": "turbo run build",
     "check": "turbo run lint typecheck test build",
     "affected": "turbo run lint typecheck test build --filter=...[HEAD^1]",
-    "format": "prettier --write \"**/*.{ts,tsx,json,md,yaml}\""
+    "format": "prettier --write \"**/*.{ts,tsx,json,md,yaml}\"",
+    "ota:publish": "pnpm --filter @relay/ota-server ota:publish",
+    "ota:install": "pnpm --filter @relay/ota-server ota:install"
   },
   "devDependencies": {
     "@eslint/js": "^9.30.0",
