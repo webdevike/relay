@@ -17,6 +17,7 @@
   "dependencies": {
     "@gorhom/bottom-sheet": "^5.2.14",
     "@relay/protocol": "workspace:*",
+    "@relay/widget-runtime": "link:../../packages/widget-runtime",
     "@shopify/react-native-skia": "2.2.12",
     "@xstate/react": "^6.1.0",
     "expo": "~54.0.37",

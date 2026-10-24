@@ -120,7 +120,9 @@ function BlockView({ block, body, streaming = false }: { block: Block; body: Bod
     case "openui":
       return <OpenUIBlock code={block.code} partial={block.partial} />;
     case "html":
-      return <HtmlWidget html={block.html} partial={block.partial} fontSize={body.fontSize} lineHeight={body.lineHeight} />;
+      return <HtmlWidget code={block.html} runtime="html" partial={block.partial} fontSize={body.fontSize} lineHeight={body.lineHeight} />;
+    case "mantine":
+      return <HtmlWidget code={block.code} runtime="mantine" partial={block.partial} fontSize={body.fontSize} lineHeight={body.lineHeight} />;
     case "image":
       return <MarkdownImages images={[{ src: block.src, alt: block.alt }]} />;
   }

@@ -46,6 +46,9 @@ export type Block =
   /** A ```html-widget fence: agent-written HTML drawn in a sandboxed web view (HtmlWidget).
    * `partial` while the fence is still open; it renders only once closed. */
   | { kind: "html"; html: string; partial: boolean }
+  /** A ```mantine-widget fence: agent-written JSX drawn with Mantine in a sandboxed web view
+   * (MantineWidget). `partial` while the fence is still open; it renders only once closed. */
+  | { kind: "mantine"; code: string; partial: boolean }
   | ({ kind: "image" } & MessageImage)
   | { kind: "hr" };
 
@@ -316,6 +319,10 @@ function parseLines(lines: string[]): Block[] {
         blocks.push({ kind: "html", html: code, partial: !closed });
         continue;
       }
+      if (lang === "mantine-widget") {
+        blocks.push({ kind: "mantine", code, partial: !closed });
+        continue;
+      }
       const spec = lang === "ui" ? parseWidget(code) : null;
       // A still-streaming widget block is just unfinished, not invalid.
       const invalid = lang === "ui" && closed && !spec;
@@ -532,6 +539,7 @@ function blockPreview(block: Block): string {
     case "widget":
     case "openui":
     case "html":
+    case "mantine":
     case "hr":
       return "";
   }

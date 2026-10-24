@@ -218,6 +218,12 @@ describe("parseBlocks", () => {
     expect(parseBlocks("```HTML-Widget\n")).toEqual<Block[]>([{ kind: "html", html: "", partial: true }]);
   });
 
+  it("keeps a ```mantine-widget fence as its JSX, partial while streaming", () => {
+    const code = 'const [n, setN] = useState(0);\nreturn <Button onClick={() => setN(n + 1)}>{n}</Button>;';
+    expect(parseBlocks(`\`\`\`mantine-widget\n${code}\n\`\`\``)).toEqual<Block[]>([{ kind: "mantine", code, partial: false }]);
+    expect(parseBlocks("```Mantine-Widget\n<Card>")).toEqual<Block[]>([{ kind: "mantine", code: "<Card>", partial: true }]);
+  });
+
   it("leaves a plain ```html fence as code", () => {
     expect(parseBlocks("```html\n<b>x</b>\n```")).toEqual<Block[]>([{ kind: "code", lang: "html", code: "<b>x</b>", invalid: false }]);
   });

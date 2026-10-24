@@ -1,21 +1,25 @@
 /**
- * Base element for agent-made UI: an HTML fragment in a sandboxed web view that reads as part of
- * the page. It is transparent, sized to its content (no inner scroll until `maxHeight`), unzoomable
- * and without link previews or callouts; drags on it scroll the chat around it. The page gets the
- * app's palette as CSS variables plus `window.relay` (`lib/htmlFrame.ts`). Nothing loads from the
- * network, and the page cannot navigate: a tapped web link opens through `onOpenLink` instead.
- * `html` null (still streaming) shows the same spinner frame as a page that hasn't laid out yet.
+ * Base element for agent-made UI: a page in a sandboxed web view that reads as part of the chat.
+ * It is transparent, sized to its content (no inner scroll until `maxHeight`), unzoomable and
+ * without link previews or callouts; drags on it scroll the chat around it. The page gets the app's
+ * palette as CSS variables plus `window.relay` (`@relay/widget-runtime/frame`, shared with the
+ * desktop). `runtime` "html" shows the code as an HTML fragment; "mantine" runs it as JSX in the
+ * bundled Mantine runtime with the shared theme. Nothing loads from the network, and the page cannot
+ * navigate: a tapped web link opens through `onOpenLink` instead. `code` null (still streaming)
+ * shows the same spinner frame as a page that hasn't laid out yet.
  */
 import { useMemo, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import type { ShouldStartLoadRequest } from "react-native-webview/lib/WebViewTypes";
-import { htmlFrameDocument, parseHtmlFrameMessage, type HtmlFrameTheme } from "@/lib/htmlFrame";
+import { htmlFrameDocument, mantineFrameDocument, parseFrameMessage, type FrameTheme } from "@relay/widget-runtime/frame";
 import { radii, useColors, useScheme } from "@/theme";
 
 export interface HtmlFrameProps {
-  /** The agent's HTML fragment; null while it is still being written. */
-  html: string | null;
+  /** The agent's HTML fragment or Mantine JSX; null while it is still being written. */
+  code: string | null;
+  /** How the page runs `code`. */
+  runtime?: "html" | "mantine";
   /** Body text size of the surrounding transcript, so the page matches it. */
   fontSize: number;
   lineHeight: number;
@@ -38,16 +42,16 @@ const ORIGINS = ["*"];
 const SYSTEM_FONT = "-apple-system, system-ui, sans-serif";
 const MONO_FONT = "ui-monospace, Menlo, monospace";
 
-export function HtmlFrame({ html, fontSize, lineHeight, onReply, onOpenLink, maxHeight = MAX_HEIGHT }: HtmlFrameProps) {
+export function HtmlFrame({ code, runtime = "html", fontSize, lineHeight, onReply, onOpenLink, maxHeight = MAX_HEIGHT }: HtmlFrameProps) {
   const colors = useColors();
   const scheme = useScheme();
   const web = useRef<WebView>(null);
-  const [measured, setMeasured] = useState<{ html: string; height: number } | null>(null);
-  const height = measured !== null && measured.html === html ? measured.height : null;
+  const [measured, setMeasured] = useState<{ code: string; height: number } | null>(null);
+  const height = measured !== null && measured.code === code ? measured.height : null;
 
   const source = useMemo(() => {
-    if (html === null) return null;
-    const theme: HtmlFrameTheme = {
+    if (code === null) return null;
+    const theme: FrameTheme = {
       dark: scheme === "dark",
       colors: {
         fg: colors.text,
@@ -65,13 +69,13 @@ export function HtmlFrame({ html, fontSize, lineHeight, onReply, onOpenLink, max
       font: { family: SYSTEM_FONT, mono: MONO_FONT, size: fontSize, lineHeight },
       radius: { sm: radii.sm, md: radii.md, lg: radii.lg },
     };
-    return { html: htmlFrameDocument(html, theme) };
-  }, [html, colors, scheme, fontSize, lineHeight]);
+    return { html: runtime === "mantine" ? mantineFrameDocument(code, theme) : htmlFrameDocument(code, theme) };
+  }, [code, runtime, colors, scheme, fontSize, lineHeight]);
 
   const onMessage = (event: WebViewMessageEvent): void => {
-    const message = parseHtmlFrameMessage(event.nativeEvent.data);
-    if (message === null || html === null) return;
-    if (message.type === "height") setMeasured({ html, height: message.height });
+    const message = parseFrameMessage(event.nativeEvent.data);
+    if (message === null || code === null) return;
+    if (message.type === "height") setMeasured({ code, height: message.height });
     else onReply?.(message.text);
   };
 
