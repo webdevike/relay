@@ -16,6 +16,8 @@ import { setNotificationsEnabled } from "@/notifications";
 import { warmVoz } from "@/dictation/actor";
 import { VozDictation } from "../modules/voz-dictation";
 import { PROFILE_TABS } from "@/lib/profile";
+import { applyLatestUpdate, runningUpdate } from "@/lib/otaUpdates";
+import { useTransientMessage } from "@/lib/useTransientMessage";
 
 const speeds: PointerSpeed[] = ["slow", "normal", "fast"];
 const recognizers: { value: Recognizer; label: string }[] = [
@@ -156,6 +158,52 @@ function NotificationsRow() {
             void setNotificationsEnabled(value).then((ok) => {
               setRefused(value && !ok);
             });
+          }}
+        />
+      }
+    />
+  );
+}
+
+/** The JS bundle this launch runs (built-in or an OTA update id) and a manual check. */
+function AppUpdateRow() {
+  const colors = useColors();
+  const [checking, setChecking] = useState(false);
+  const { message, show } = useTransientMessage(3000);
+  const running = runningUpdate();
+  const created = running.createdAt?.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const details = [running.label, created, running.runtimeVersion && `runtime ${running.runtimeVersion}`]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <Row
+      title="App update"
+      subtitle={message ?? details}
+      leading={<SymbolView name="arrow.down.circle" size={22} tintColor={colors.textMuted} />}
+      trailing={
+        <Button
+          label="Check"
+          variant="secondary"
+          loading={checking}
+          disabled={checking}
+          onPress={() => {
+            setChecking(true);
+            applyLatestUpdate()
+              .then((outcome) => {
+                if (outcome === "up-to-date") show("Up to date");
+                if (outcome === "disabled") show("Updates are off in this build");
+              })
+              .catch(() => {
+                show("Couldn't reach the update server");
+              })
+              .finally(() => {
+                setChecking(false);
+              });
           }}
         />
       }
@@ -367,6 +415,8 @@ export default function Settings() {
       <AppearanceField />
       <Separator />
       <NotificationsRow />
+      <Separator />
+      <AppUpdateRow />
       <Separator />
       <RecognizerField />
       <Separator />

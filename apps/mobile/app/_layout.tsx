@@ -6,12 +6,14 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { useConnectionLifecycle } from "@/connection";
 import { usePushNotifications } from "@/notifications";
+import { useOtaUpdates } from "@/lib/otaUpdates";
 import { useSettingsStore } from "@/state/settings";
 import { useColors, useScheme } from "@/theme";
 
 export default function RootLayout() {
   useConnectionLifecycle();
   usePushNotifications();
+  useOtaUpdates();
   const appearance = useSettingsStore((state) => state.appearance);
   // Overrides the window's interface style, so useColorScheme, the keyboard, blur and native
   // chrome all follow the choice; null hands control back to iOS.
