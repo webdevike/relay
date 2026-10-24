@@ -3,6 +3,15 @@
     "name": "Relay",
     "slug": "relay",
     "version": "0.1.0",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://isaacs-mac-mini.tail80fdb0.ts.net:8447/api/manifest",
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    },
     "scheme": "relay",
     "orientation": "default",
     "icon": "./assets/icon.png",
