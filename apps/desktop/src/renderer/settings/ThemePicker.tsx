@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { Box, Combobox, ComboboxPopover, Group, InputBase, Text } from '@mantine/core'
 import { IconCheck } from '@tabler/icons-react'
 import { useOccludeBrowser } from '../overlay/overlay-store'
-import { useColorScheme, type ThemeConfig } from '../theme/theme-config'
+import type { ThemeConfig } from '@relay/widget-runtime/theme'
+import { useColorScheme } from '../theme/theme-config'
 
 // Texo's TexoThemePicker (packages/ui/src/texo-theme-picker.tsx).
 

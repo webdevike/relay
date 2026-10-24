@@ -12,8 +12,8 @@ vi.mock('@mantine/notifications', () => ({ notifications: { show: vi.fn() } }))
 
 import { SettingsPage } from './SettingsPage'
 import { resetSettingsForTest } from './settings-store'
+import { THEME_PRESETS } from '@relay/widget-runtime/theme'
 import {
-  THEME_PRESETS,
   applyPreset,
   persistTheme,
   seedTheme,

@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('../ipc', () => ({ invoke: vi.fn(() => Promise.resolve({ ok: true, value: {} })) }))
 
-import { THEME_PRESETS, cssVariablesFor, parseSavedTheme } from './theme-config'
+import { THEME_PRESETS, cssVariablesFor } from '@relay/widget-runtime/theme'
+import { parseSavedTheme } from './theme-config'
 
 const defaults = THEME_PRESETS[0]!.config
 

@@ -14,12 +14,12 @@ import {
   SIZE_KEYS,
   cssVariablesFor,
   themeOverrideFor,
-  useThemeConfig,
   type ColorScheme,
   type SemanticColors,
   type ThemeConfig,
   type ThemeSize,
-} from '../theme/theme-config'
+} from '@relay/widget-runtime/theme'
+import { useThemeConfig } from '../theme/theme-config'
 
 // Texo's theme inspector (src/app/theme-controls.tsx), on plain Mantine components.
 

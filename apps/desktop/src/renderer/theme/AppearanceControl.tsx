@@ -1,6 +1,7 @@
 import { SegmentedControl, Tooltip } from '@mantine/core'
 import { IconMoon, IconSun } from '@tabler/icons-react'
-import { setColorScheme, useColorScheme, type ColorScheme } from './theme-config'
+import type { ColorScheme } from '@relay/widget-runtime/theme'
+import { setColorScheme, useColorScheme } from './theme-config'
 import './appearance.css'
 
 const ITEMS: { value: ColorScheme; label: string; Icon: typeof IconSun }[] = [

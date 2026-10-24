@@ -1,5 +1,6 @@
 import { invoke } from '../ipc'
-import { setColorScheme, type ColorScheme } from '../theme/theme-config'
+import type { ColorScheme } from '@relay/widget-runtime/theme'
+import { setColorScheme } from '../theme/theme-config'
 import { pageFromKey, placeOf, type Place } from '@evaos/shell-core'
 import { navigateTo, tabsStore } from '../tabs/tabs-store'
 import { tabTitle } from '../tabs/tab-meta'
