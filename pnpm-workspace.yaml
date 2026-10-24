@@ -2,3 +2,5 @@ packages:
   - apps/*
   - packages/*
   - tooling/*
+  # Own isolated install (React 19.3 + Mantine): its deps must not hoist over the app's React 19.1.
+  - "!packages/widget-runtime"

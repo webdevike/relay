@@ -1,0 +1,26 @@
+/* Texo's theme-components.module.css: surface colors and effects Mantine has no variable for. */
+.eva-theme-card {
+  background: var(--eva-color-card);
+  box-shadow: var(--eva-card-shadow);
+}
+
+.eva-theme-input {
+  background: var(--eva-color-input);
+  border-color: var(--mantine-color-default-border);
+  box-shadow: var(--eva-control-shadow);
+}
+
+.eva-theme-checkbox-input {
+  background: var(--eva-color-input);
+  border-color: var(--mantine-color-default-border);
+  box-shadow: var(--eva-control-shadow);
+}
+
+.eva-theme-checkbox-input:checked {
+  background: var(--mantine-primary-color-filled);
+}
+
+.eva-theme-popover {
+  background: var(--eva-color-popover);
+  border-color: var(--mantine-color-default-border);
+}
