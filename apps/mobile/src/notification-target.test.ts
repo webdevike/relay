@@ -13,13 +13,13 @@ describe("notificationTarget", () => {
     expect(notificationTarget({ assistant: true, agent: 3 })).toBeNull();
   });
 
-  it("opens the drop box for a drop and the session for a session notification", () => {
-    expect(notificationTarget({ dropId: "d1" })).toEqual({ pathname: "/drops" });
+  it("opens the session for a session notification", () => {
     expect(notificationTarget({ sessionId: "s1" })).toEqual({ pathname: "/agents", params: { sessionId: "s1" } });
   });
 
   it("ignores anything else", () => {
     expect(notificationTarget({})).toBeNull();
+    expect(notificationTarget({ dropId: "d1" })).toBeNull();
     expect(notificationTarget({ assistant: "yes", agent: "nova" })).toBeNull();
   });
 });

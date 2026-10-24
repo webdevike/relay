@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { FileBoardStore } from "../src/boards/store";
 import { CommandDedupStore } from "../src/dedup";
 import { PairingCoordinator } from "../src/pairing";
+import type { UsageService } from "../src/usage/service";
 import { AckFailure, type AgentConfigChange, type AgentProvider, type AssistantRelaying, type AssistantThread, type CallClientMessage, type CallRelaying, type DeviceStore, type DropBox, type FrameSink, type GateCommand, type InboxRelaying, type InputSink, type PairedDevice, type PairingUI, type PushRegistry, type TextInjecting, type VncAccess } from "../src/seams";
 import { ASSISTANT_FOLLOW_MS, ClientSession, PAIRING_TIMEOUT_MS, type SessionClock, type SessionDeps } from "../src/session";
 
@@ -104,6 +105,7 @@ interface HarnessOptions {
   inbox?: InboxRelaying;
   assistant?: AssistantRelaying;
   calls?: CallRelaying;
+  usage?: UsageService;
 }
 
 function harness(options: HarnessOptions = {}): Harness {
@@ -149,6 +151,7 @@ function harness(options: HarnessOptions = {}): Harness {
     inbox: options.inbox ?? null,
     assistant: options.assistant ?? null,
     calls: options.calls ?? null,
+    usage: options.usage ?? null,
   };
   const sink = new RecordingSink();
   const clock = new FakeClock();
@@ -688,6 +691,28 @@ describe("phone escalation inbox", () => {
     ]);
     // k1 had no Face ID: refused, so its claim is given back.
     expect(inbox.released).toEqual(["approval:t1"]);
+  });
+});
+
+describe("usage", () => {
+  it("answers usage.get with the service's snapshot and refreshes it when old, or an empty one without a service", () => {
+    const snapshot = { accounts: [], updatedAt: 5, refreshing: false };
+    const calls: string[] = [];
+    const usage: UsageService = {
+      get: () => snapshot,
+      refresh: () => (calls.push("refresh"), Promise.resolve(snapshot)),
+      refreshIfOld: () => void calls.push("refreshIfOld"),
+    };
+    const h = harness({ usage });
+    pair(h);
+    h.session.receive({ t: "usage.get" });
+    expect(h.sink.last()).toEqual({ t: "usage.snapshot", usage: snapshot });
+    h.session.receive({ t: "usage.refresh" });
+    expect(calls).toEqual(["refreshIfOld", "refresh"]);
+    const bare = harness();
+    pair(bare);
+    bare.session.receive({ t: "usage.get" });
+    expect(bare.sink.last()).toEqual({ t: "usage.snapshot", usage: { accounts: [], updatedAt: null, refreshing: false } });
   });
 });
 

@@ -10,6 +10,7 @@ import { AgentsDeltaTracker } from "./agents/delta-tracker";
 import { handleAssistantSay } from "./assistant/http";
 import { handleBoardRequest, isLoopback } from "./boards/http";
 import type { FileBoardStore } from "./boards/store";
+import type { UsageService } from "./usage/service";
 import { CommandDedupStore } from "./dedup";
 import { PairingCoordinator } from "./pairing";
 import type { AttentionNotifier } from "./push/notifier";
@@ -63,6 +64,8 @@ export interface ServerDeps {
   readonly assistant: AssistantRelaying | null;
   /** Voice calls with the assistant threads; null disables `call.*` frames. */
   readonly calls: CallRelaying | null;
+  /** Plan usage of the host's omp accounts; null answers `usage.*` with an empty snapshot. */
+  readonly usage: UsageService | null;
   readonly pairing: PairingUI;
   readonly log: (line: string) => void;
 }
@@ -431,6 +434,7 @@ export class RelayServer {
         inbox: this.deps.inbox,
         assistant: this.deps.assistant,
         calls: this.deps.calls,
+        usage: this.deps.usage,
       },
       (closed) => {
         const reason = closed.closeReason;

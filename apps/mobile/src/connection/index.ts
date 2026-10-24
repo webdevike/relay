@@ -14,6 +14,7 @@ import { useDropsStore } from "@/state/drops";
 import { useVncStore } from "@/state/vnc";
 import { useBoardsStore } from "@/state/boards";
 import { useGateStore } from "@/state/gate";
+import { useUsageStore } from "@/state/usage";
 import { useAssistantStore } from "@/state/assistant";
 import { callIsLive, useCallStore } from "@/state/call";
 import { createCallFrameRouter } from "@/call/frames";
@@ -26,6 +27,7 @@ import { createDropFrameRouter } from "./drops";
 import { createVncFrameRouter } from "./vnc";
 import { createBoardFrameRouter } from "./boards";
 import { createGateFrameRouter } from "./gate";
+import { createUsageFrameRouter } from "./usage";
 import { createAssistantFrameRouter } from "./assistant";
 import * as identity from "./identity";
 import { Discovery, type DiscoveredService } from "./discovery";
@@ -80,6 +82,7 @@ const routeDropFrame = createDropFrameRouter(useDropsStore.getState());
 const routeVncFrame = createVncFrameRouter(useVncStore.getState(), () => hostAuthority);
 const routeBoardFrame = createBoardFrameRouter(useBoardsStore.getState());
 const routeGateFrame = createGateFrameRouter(useGateStore.getState());
+const routeUsageFrame = createUsageFrameRouter(useUsageStore.getState());
 const routeAssistantFrame = createAssistantFrameRouter(useAssistantStore.getState());
 const routeCallFrame = createCallFrameRouter(
   { update: useCallStore.getState().update, current: () => useCallStore.getState().call },
@@ -140,6 +143,8 @@ socket.onMessage = (data) => {
     socket.send(encode({ t: "board.subscribe" }));
     // The habit gate may have locked or unlocked while the phone was away.
     socket.send(encode({ t: "gate.get" }));
+    // Plan usage moves while the phone is away; the host refreshes it when its copy is over a minute old.
+    socket.send(encode({ t: "usage.get" }));
     // The Assistants list comes from the host's registry and live sessions, which may have changed while away.
     socket.send(encode({ t: "assistant.agents" }));
     // A thread is only fetched while its screen is showing; the screen asks again on focus.
@@ -157,6 +162,7 @@ socket.onMessage = (data) => {
   routeVncFrame(message);
   routeBoardFrame(message);
   routeGateFrame(message);
+  routeUsageFrame(message);
   routeAssistantFrame(message);
   routeCallFrame(message);
   void dispatch({ type: "server", message });
@@ -295,6 +301,7 @@ async function retarget(id: string | null): Promise<void> {
   useDropsStore.getState().setAll([]);
   useBoardsStore.getState().setAll([]);
   useGateStore.getState().set(null);
+  useUsageStore.getState().set(null);
   useVncStore.getState().setAccess({ kind: "idle" });
   await resetSession();
 }
@@ -375,6 +382,18 @@ export function requestDrops(): void {
 export function requestAssistantAgents(): void {
   if (useConnectionStore.getState().status !== "connected") return;
   socket.send(encode({ t: "assistant.agents" }));
+}
+
+/** Ephemeral; the answer lands in `useUsageStore().usage`. Also sent on every welcome; the host refreshes when its copy is over a minute old. */
+export function requestUsage(): void {
+  if (useConnectionStore.getState().status !== "connected") return;
+  socket.send(encode({ t: "usage.get" }));
+}
+
+/** Asks the host to refetch every account's usage now; `usage.snapshot` follows as the refresh starts and ends. */
+export function refreshUsage(): void {
+  if (useConnectionStore.getState().status !== "connected") return;
+  socket.send(encode({ t: "usage.refresh" }));
 }
 
 /**

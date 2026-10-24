@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
-import { ScrollView, StyleSheet, View } from "react-native";
+import type { ReactElement, ReactNode } from "react";
+import { ScrollView, StyleSheet, View, type RefreshControlProps } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Text } from "./Text";
 import { spacing, useColors } from "@/theme";
@@ -10,9 +10,13 @@ export interface ScreenProps {
   children: ReactNode;
   /** Body scrolls under a fixed header; for screens whose content can outgrow the viewport. */
   scroll?: boolean;
+  /** Pull-to-refresh for a scrolling body; ignored unless `scroll`. */
+  refreshControl?: ReactElement<RefreshControlProps>;
+  /** False holds a scrolling body still, e.g. while something inside it is being dragged. */
+  scrollEnabled?: boolean;
 }
 
-export function Screen({ title, headerRight, children, scroll = false }: ScreenProps) {
+export function Screen({ title, headerRight, children, scroll = false, refreshControl, scrollEnabled = true }: ScreenProps) {
   const colors = useColors();
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: colors.bg }]} edges={["top", "bottom"]}>
@@ -32,6 +36,8 @@ export function Screen({ title, headerRight, children, scroll = false }: ScreenP
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
           automaticallyAdjustKeyboardInsets
+          refreshControl={refreshControl}
+          scrollEnabled={scrollEnabled}
         >
           {children}
         </ScrollView>

@@ -588,6 +588,54 @@ export const GateStatus = z.object({
 export type GateStatus = z.infer<typeof GateStatus>;
 
 // ---------------------------------------------------------------------------------------------
+// Usage: plan limits of every omp account (profile x provider) on the host, from
+// `omp --profile <p> usage --json`. Same shape as Relay desktop's usage meter.
+// ---------------------------------------------------------------------------------------------
+
+/** Providers shown for every omp profile, in display order. */
+export const USAGE_PROVIDERS = ["anthropic", "openai-codex"] as const;
+export const UsageProvider = z.enum(USAGE_PROVIDERS);
+export type UsageProvider = z.infer<typeof UsageProvider>;
+
+export const UsageWindow = z.object({
+  /** omp's limit id, for example `anthropic:7d:fable`. */
+  id: z.string(),
+  /** Display label, for example `7 days (Fable)`. */
+  label: z.string(),
+  usedFraction: z.number().min(0),
+  /** Epoch ms; null when omp reports none. */
+  resetsAt: z.number().nullable(),
+  /** omp's status; anything but `ok` means the window is limited. */
+  status: z.string(),
+});
+export type UsageWindow = z.infer<typeof UsageWindow>;
+
+export const UsageAccount = z.object({
+  /** `<profile>:<provider>`. */
+  key: z.string(),
+  profile: z.string(),
+  profileLabel: z.string(),
+  provider: UsageProvider,
+  email: z.string().nullable(),
+  windows: z.array(UsageWindow),
+  /** When omp fetched these windows (epoch ms); null when there never was data. */
+  fetchedAt: z.number().nullable(),
+  /** The last fetch failed and `windows` are from an earlier one. */
+  stale: z.boolean(),
+  /** Why the last fetch gave no data for this account; null when it succeeded. */
+  error: z.string().nullable(),
+});
+export type UsageAccount = z.infer<typeof UsageAccount>;
+
+export const UsageSnapshot = z.object({
+  accounts: z.array(UsageAccount),
+  /** When the last refresh finished (epoch ms); null before the first one. */
+  updatedAt: z.number().nullable(),
+  refreshing: z.boolean(),
+});
+export type UsageSnapshot = z.infer<typeof UsageSnapshot>;
+
+// ---------------------------------------------------------------------------------------------
 // Boards: live dashboards. A board is a titled grid of widget tiles the host stores as JSON and
 // streams to subscribed clients. One global `rev` covers every board; each successful write bumps
 // it by one and sends the full changed board (or its removal) as a `board.delta`.
@@ -852,6 +900,10 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("assistant.agents") }),
   /** Ask for the habit gate's current state; answered by `gate.status`. */
   z.object({ t: z.literal("gate.get") }),
+  /** Ask for every omp account's plan usage; answered by `usage.snapshot` (refreshes when older than a minute). */
+  z.object({ t: z.literal("usage.get") }),
+  /** Refetch usage now; `usage.snapshot` follows (refreshing, then done). */
+  z.object({ t: z.literal("usage.refresh") }),
   /** Ask for a one-time ticket to open VNC_PATH; answered by `vnc.ticket` or `vnc.unavailable`. */
   z.object({ t: z.literal("vnc.open") }),
   /**
@@ -966,6 +1018,8 @@ export const ServerMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("board.delta"), rev: z.number().int(), board: Board.optional(), removed: BoardSlug.optional() }),
   /** The habit gate changed, or the answer to `gate.get`. `null`: no bridge reports a gate on this host. */
   z.object({ t: z.literal("gate.status"), gate: GateStatus.nullable() }),
+  /** Usage of every omp account; the answer to `usage.get`/`usage.refresh`, and pushed when a refresh ends. */
+  z.object({ t: z.literal("usage.snapshot"), usage: UsageSnapshot }),
   /** Answer to `vnc.open`: open `VNC_PATH?ticket=<ticket>` within VNC_TICKET_TTL_MS. Single use. */
   z.object({ t: z.literal("vnc.ticket"), ticket: nonEmpty }),
   /** Answer to `vnc.open` when nothing listens on the Mac's VNC port: Screen Sharing is off. */

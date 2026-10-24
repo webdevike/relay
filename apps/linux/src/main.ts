@@ -22,6 +22,7 @@ import { EvaRealtimeVoice } from "./call/voice";
 import { FileDeviceStore } from "./device-store";
 import { FileDropStore } from "./drops/store";
 import { FileBoardStore } from "./boards/store";
+import { createUsageService, ompUsageRunner } from "./usage/service";
 import { detectTextTyper, KeyboardInjector } from "./input/keyboard";
 import { MacInputDevice } from "./input/macos";
 import { ClipboardPaster, systemCopy } from "./input/paste";
@@ -129,6 +130,14 @@ function serve(
   const pushTokens = new FilePushTokenStore();
   const drops = new FileDropStore();
   const boards = boardsDir === null ? null : new FileBoardStore(boardsDir, log);
+  // Snapshots only flow once a phone asks (`usage.get`), long after `server` below is initialised.
+  const usage = createUsageService({
+    profilesDir: join(homedir(), ".omp", "profiles"),
+    run: ompUsageRunner(),
+    emit: (snapshot) => {
+      server.broadcastExcept({ t: "usage.snapshot", usage: snapshot }, null);
+    },
+  });
   // `isViewing` only runs once sessions change, long after `server` below is initialised.
   const notifier = new AttentionNotifier({
     tokens: pushTokens,
@@ -236,6 +245,7 @@ function serve(
       inbox,
       assistant,
       calls,
+      usage,
       pairing: new TerminalPairingUI(),
       log,
     },

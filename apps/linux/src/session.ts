@@ -26,6 +26,7 @@ import type { AgentsDeltaTracker } from "./agents/delta-tracker";
 import type { BoardDelta, FileBoardStore } from "./boards/store";
 import type { CommandDedupStore } from "./dedup";
 import type { PairingCoordinator } from "./pairing";
+import type { UsageService } from "./usage/service";
 import {
   AckFailure,
   type AgentProvider,
@@ -72,6 +73,8 @@ export interface SessionDeps {
   readonly assistant: AssistantRelaying | null;
   /** null when the host cannot take calls; `call.start` then ends at once with an error. */
   readonly calls: CallRelaying | null;
+  /** null when the host cannot read omp usage; `usage.*` then answers an empty snapshot. */
+  readonly usage: UsageService | null;
 }
 
 /** Clock and scheduling seams so tests drive time deterministically. */
@@ -484,6 +487,18 @@ export class ClientSession {
         break;
       case "gate.get":
         this.sink.send({ t: "gate.status", gate: this.deps.agents?.gate ?? null });
+        break;
+      case "usage.get":
+        this.sink.send({
+          t: "usage.snapshot",
+          usage: this.deps.usage?.get() ?? { accounts: [], updatedAt: null, refreshing: false },
+        });
+        this.deps.usage?.refreshIfOld();
+        break;
+      case "usage.refresh":
+        // The refreshing and finished snapshots arrive through the server's broadcast.
+        if (this.deps.usage === null) this.sink.send({ t: "usage.snapshot", usage: { accounts: [], updatedAt: null, refreshing: false } });
+        else void this.deps.usage.refresh();
         break;
       case "assistant.get": {
         // An unknown agent, or no agent from an old phone on a host without threads, follows nothing.

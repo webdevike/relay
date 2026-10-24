@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { fileStorage } from "./storage";
 import { normalizeProfile, type OmpProfile } from "@/lib/profile";
+import { DEFAULT_WIDGETS, normalizeWidgets, withAppsWidget, type HomeWidget } from "@/home/widgets/layout";
 
 export type PointerSpeed = "slow" | "normal" | "fast";
 /** `voz` is Desert Ant's on-device Parakeet model (no live partials, better on technical words); `apple` is iOS dictation. */
@@ -29,6 +30,8 @@ export interface SettingsState {
   appearance: AppearanceChoice;
   /** Playback speed for audio widgets; the last choice carries to the next clip. */
   audioRate: number;
+  /** Home's widgets in grid order, per device (not per profile). Empty when the user removed them all. */
+  homeWidgets: HomeWidget[];
   set: (partial: Partial<Omit<SettingsState, "set">>) => void;
 }
 
@@ -47,6 +50,7 @@ export const useSettingsStore = create<SettingsState>()(
       ompProfile: "work",
       appearance: "system",
       audioRate: 1,
+      homeWidgets: DEFAULT_WIDGETS.map((w) => ({ ...w })),
       set: (partial) => {
         set(partial);
       },
@@ -55,10 +59,17 @@ export const useSettingsStore = create<SettingsState>()(
       name: "relay-settings",
       storage: createJSONStorage(() => fileStorage),
       // v1: `ompProfile` lost its "" (host's current account) choice; that and anything unknown is Work.
-      version: 1,
-      migrate: (persisted) => {
+      // v2: Home widgets; a build without them gets the default layout.
+      // v3: Home's app list became the `apps` widget; a layout saved before then gets it once.
+      version: 3,
+      migrate: (persisted, version) => {
         const state = persisted as Partial<SettingsState>;
-        return { ...state, ompProfile: normalizeProfile(state.ompProfile) };
+        const widgets = normalizeWidgets(state.homeWidgets);
+        return {
+          ...state,
+          ompProfile: normalizeProfile(state.ompProfile),
+          homeWidgets: version < 3 ? withAppsWidget(widgets) : widgets,
+        };
       },
     },
   ),
