@@ -177,3 +177,18 @@
 .eva-wb-collapse-head[data-open='true'] .eva-wb-chevron {
   transform: rotate(90deg);
 }
+
+/* Agent-made pages (```html-widget, ```mantine-widget): borderless and transparent on the reply,
+   full column width; the page sets the height. The frame inherits the shell's color-scheme, which
+   matches the page's, so Chromium paints no opaque backdrop behind it. */
+.eva-widget-page {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+}
+.eva-widget-page-pending {
+  padding: var(--mantine-spacing-xs) 0;
+  color: var(--eva-c-muted-foreground);
+  font-size: var(--eva-fz-label);
+}

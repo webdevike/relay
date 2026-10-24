@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm'
 import { CodeBlock } from './CodeBlock'
 import { openLink } from '../../navigation/open-link'
 import { OpenUIBlock, WidgetBlock } from '../widgets/Widget'
+import { WidgetFrame, WidgetFramePending } from '../widgets/WidgetFrame'
 
 type Element = NonNullable<ExtraProps['node']>
 type ElementContent = Element['children'][number]
@@ -96,6 +97,13 @@ function Pre({ node }: ExtraProps) {
         closed={fenceClosed(node, source)}
         at={node?.position?.start.offset}
       />
+    )
+  // An agent-made page draws only once its fence closes: a half-written page is not the widget.
+  if (lang === 'html-widget' || lang === 'mantine-widget')
+    return fenceClosed(node, source) ? (
+      <WidgetFrame runtime={lang === 'mantine-widget' ? 'mantine' : 'html'} code={code} />
+    ) : (
+      <WidgetFramePending />
     )
   return <CodeBlock lang={lang} code={code} />
 }

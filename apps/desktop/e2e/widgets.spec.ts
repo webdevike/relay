@@ -4,7 +4,9 @@
 // turn through the composer path, and saves light and dark screenshots to proof/widgets/. A second
 // session writes Relay's OpenUI Lang prompt examples and checks they draw through the same widgets,
 // including the interactive calculator, whose keys run on the device (proof/widgets/
-// openui-calculator.png shows it after 1 2 + 7 =).
+// openui-calculator.png shows it after 1 2 + 7 =). A third session carries a ```mantine-widget
+// and an ```html-widget: both run in sandboxed relay-widget: frames, follow light and dark
+// (proof/mantine-widget/), and their relay.reply clicks send the next turn.
 //
 // Media never comes from the internet: a local server answers the http(s) srcs and stands in for
 // the Relay host (its port goes in <configDir>/relay/serve.json), so `/drops/...` srcs resolve
@@ -440,4 +442,104 @@ test('OpenUI Lang blocks draw through the same widgets, and a bad one falls back
   await expect(nudge).toBeEnabled()
   await nudge.click()
   await expect.poll(prompts, { timeout: 20_000 }).toContain('nudge Noah on ENG-6211')
+})
+
+test('agent-made pages: a mantine-widget and an html-widget run sandboxed and reply', async ({
+  app,
+  shell,
+}) => {
+  test.setTimeout(120_000)
+  await sizeWindow(app)
+  await shell.getByTestId('nav-chat').click()
+  await shell
+    .getByTestId('chat-tree')
+    .getByRole('link', { name: /^Widget pages/ })
+    .click()
+  await expect(shell.locator('[data-testid=chat-header]')).toContainText('Widget pages')
+  const log = shell.locator(LOG)
+  const mantinePage = log.locator('[data-testid=widget-page][data-runtime=mantine]')
+  const htmlPage = log.locator('[data-testid=widget-page][data-runtime=html]')
+  await expect(mantinePage).toHaveCount(1)
+  await expect(htmlPage).toHaveCount(1)
+  // The app keeps its own strict policy; pages come from their own scheme, sandboxed to scripts.
+  const csp = await shell
+    .locator('meta[http-equiv=Content-Security-Policy]')
+    .getAttribute('content')
+  expect(csp).toContain("script-src 'self';")
+  expect(csp).toContain("frame-src 'self' relay-widget:")
+  const frameEl = mantinePage.locator('iframe')
+  expect(await frameEl.getAttribute('sandbox')).toBe('allow-scripts')
+  expect(await frameEl.getAttribute('src')).toMatch(/^relay-widget:\/\/frame\/mantine\?/)
+
+  // Real Mantine inside the frame: Card, SegmentedControl, BarChart, TextInput and Button.
+  const mantine = frameEl.contentFrame()
+  await expect(mantine.getByText('Agent runs')).toBeVisible({ timeout: 20_000 })
+  await expect(mantine.locator('.mantine-Card-root')).toHaveCount(1)
+  await expect(mantine.locator('.mantine-SegmentedControl-root')).toBeVisible()
+  await expect(mantine.locator('.recharts-bar-rectangle')).toHaveCount(5)
+  await expect(mantine.getByLabel('Note')).toBeVisible()
+  await expect(mantine.getByRole('button', { name: 'Send summary' })).toBeVisible()
+  // The frame sized itself to its page: no placeholder, no inner scrollbar.
+  await expect(mantinePage.getByTestId('widget-page-pending')).toHaveCount(0)
+  const box = (await frameEl.boundingBox())!
+  expect(box.height).toBeGreaterThan(300)
+  expect(
+    await mantine.locator('html').evaluate((el) => el.scrollHeight <= el.clientHeight + 1),
+  ).toBe(true)
+  // State runs inside the page: Month swaps the data and the badge.
+  await mantine.getByText('Month', { exact: true }).click()
+  await expect(mantine.locator('.mantine-Badge-root')).toHaveText('Month')
+  await expect(mantine.locator('.recharts-bar-rectangle')).toHaveCount(4)
+  await mantine.getByText('Week', { exact: true }).click()
+  await expect(mantine.locator('.recharts-bar-rectangle')).toHaveCount(5)
+
+  // The html-widget draws its fragment with the host palette.
+  const html = htmlPage.locator('iframe').contentFrame()
+  await expect(html.getByText('Deploys this week')).toBeVisible({ timeout: 20_000 })
+  await expect(htmlPage.locator('iframe')).toHaveAttribute('sandbox', 'allow-scripts')
+
+  const panel = shell.locator('[data-testid=panel-toggle]:visible').first()
+  if ((await panel.getAttribute('aria-pressed')) === 'true') await panel.click()
+  await expect(panel).toHaveAttribute('aria-pressed', 'false')
+  const out = path.join(REPO_ROOT, 'proof', 'mantine-widget')
+  fs.rmSync(out, { recursive: true, force: true })
+  fs.mkdirSync(out, { recursive: true })
+  for (const s of ['light', 'dark'] as const) {
+    await scheme(shell, s)
+    // The page reloads in the new scheme with the same theme config.
+    await expect(mantine.locator('html')).toHaveAttribute('data-mantine-color-scheme', s)
+    await expect(mantine.locator('.recharts-bar-rectangle')).toHaveCount(5)
+    await expect(html.locator('.value')).toHaveCSS(
+      'color',
+      s === 'dark' ? 'rgb(193, 194, 197)' : 'rgb(33, 37, 41)',
+    )
+    await mantinePage.scrollIntoViewIfNeeded()
+    await shell.waitForTimeout(300)
+    await mantinePage.screenshot({ path: path.join(out, `mantine-widget-${s}.png`) })
+    await htmlPage.screenshot({ path: path.join(out, `html-widget-${s}.png`) })
+    const name = `reply-${s}`
+    const tmp = await proofShot(app, shell, name, { phase: 'mantine-widget' })
+    fs.copyFileSync(tmp, path.join(out, `${name}.png`))
+    fs.rmSync(tmp, { force: true })
+  }
+
+  // relay.reply from a click inside the page sends Isaac's next turn through the composer path.
+  await mantine.getByRole('button', { name: 'Send summary' }).click()
+  await expect.poll(prompts, { timeout: 20_000 }).toContain('Runs by week')
+  const bubble = log.locator('.eva-bubble', { hasText: 'Runs by week' })
+  await expect
+    .poll(async () => {
+      await log
+        .locator(':scope > *')
+        .first()
+        .evaluate((el) => {
+          el.scrollTop = el.scrollHeight
+        })
+      return bubble.count()
+    })
+    .toBeGreaterThan(0)
+  await expect(shell.getByTestId('composer-input')).toHaveValue('')
+  await htmlPage.scrollIntoViewIfNeeded()
+  await html.getByRole('button', { name: 'Show the rollbacks' }).click()
+  await expect.poll(prompts, { timeout: 20_000 }).toContain('Show the rollbacks')
 })
