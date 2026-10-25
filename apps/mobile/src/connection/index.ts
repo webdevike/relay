@@ -15,6 +15,7 @@ import { useVncStore } from "@/state/vnc";
 import { useBoardsStore } from "@/state/boards";
 import { useGateStore } from "@/state/gate";
 import { useUsageStore } from "@/state/usage";
+import { useCatchUpStore } from "@/state/catchup";
 import { useAssistantStore } from "@/state/assistant";
 import { callIsLive, useCallStore } from "@/state/call";
 import { createCallFrameRouter } from "@/call/frames";
@@ -28,6 +29,7 @@ import { createVncFrameRouter } from "./vnc";
 import { createBoardFrameRouter } from "./boards";
 import { createGateFrameRouter } from "./gate";
 import { createUsageFrameRouter } from "./usage";
+import { createCatchUpFrameRouter } from "./catchup";
 import { createAssistantFrameRouter } from "./assistant";
 import * as identity from "./identity";
 import { Discovery, type DiscoveredService } from "./discovery";
@@ -83,6 +85,7 @@ const routeVncFrame = createVncFrameRouter(useVncStore.getState(), () => hostAut
 const routeBoardFrame = createBoardFrameRouter(useBoardsStore.getState());
 const routeGateFrame = createGateFrameRouter(useGateStore.getState());
 const routeUsageFrame = createUsageFrameRouter(useUsageStore.getState());
+const routeCatchUpFrame = createCatchUpFrameRouter(useCatchUpStore.getState());
 const routeAssistantFrame = createAssistantFrameRouter(useAssistantStore.getState());
 const routeCallFrame = createCallFrameRouter(
   { update: useCallStore.getState().update, current: () => useCallStore.getState().call },
@@ -145,6 +148,8 @@ socket.onMessage = (data) => {
     socket.send(encode({ t: "gate.get" }));
     // Plan usage moves while the phone is away; the host refreshes it when its copy is over a minute old.
     socket.send(encode({ t: "usage.get" }));
+    // The Catch Up feed and its read state may have changed while away.
+    socket.send(encode({ t: "catchup.list" }));
     // The Assistants list comes from the host's registry and live sessions, which may have changed while away.
     socket.send(encode({ t: "assistant.agents" }));
     // A thread is only fetched while its screen is showing; the screen asks again on focus.
@@ -163,6 +168,7 @@ socket.onMessage = (data) => {
   routeBoardFrame(message);
   routeGateFrame(message);
   routeUsageFrame(message);
+  routeCatchUpFrame(message);
   routeAssistantFrame(message);
   routeCallFrame(message);
   void dispatch({ type: "server", message });
@@ -302,6 +308,7 @@ async function retarget(id: string | null): Promise<void> {
   useBoardsStore.getState().setAll([]);
   useGateStore.getState().set(null);
   useUsageStore.getState().set(null);
+  useCatchUpStore.getState().set(null);
   useVncStore.getState().setAccess({ kind: "idle" });
   await resetSession();
 }
@@ -394,6 +401,22 @@ export function requestUsage(): void {
 export function refreshUsage(): void {
   if (useConnectionStore.getState().status !== "connected") return;
   socket.send(encode({ t: "usage.refresh" }));
+}
+
+/** Ephemeral; the answer lands in `useCatchUpStore().items`. Also sent on every welcome. */
+export function requestCatchUp(): void {
+  if (useConnectionStore.getState().status !== "connected") return;
+  socket.send(encode({ t: "catchup.list" }));
+}
+
+/**
+ * Marks a Catch Up card read or unread: flipped locally at once, then the host's `catchup.snapshot`
+ * confirms it (or puts it right). Offline, only the local flip happens; the next welcome's list wins.
+ */
+export function markCatchUp(id: string, read: boolean): void {
+  useCatchUpStore.getState().markLocal(id, read);
+  if (useConnectionStore.getState().status !== "connected") return;
+  socket.send(encode({ t: "catchup.mark", id, read }));
 }
 
 /**

@@ -12,7 +12,7 @@ import {
   shiftWidget,
   slotAt,
   widgetBox,
-  withAppsWidget,
+  withWidgetOnce,
   type HomeWidget,
 } from "./layout";
 
@@ -25,8 +25,8 @@ describe("normalizeWidgets", () => {
   it("gives the default layout when nothing was stored", () => {
     expect(normalizeWidgets(undefined)).toEqual(DEFAULT_WIDGETS);
     expect(normalizeWidgets(null)).toEqual(DEFAULT_WIDGETS);
-    expect(ids(DEFAULT_WIDGETS)).toEqual(["usage-1", "assistants-1", "inbox-1", "apps-1"]);
-    expect(DEFAULT_WIDGETS.map((w) => w.size)).toEqual(["medium", "small", "small", "large"]);
+    expect(ids(DEFAULT_WIDGETS)).toEqual(["catchup-1", "usage-1", "assistants-1", "inbox-1", "apps-1"]);
+    expect(DEFAULT_WIDGETS.map((w) => w.size)).toEqual(["medium", "medium", "small", "small", "large"]);
   });
 
   it("keeps an emptied layout empty", () => {
@@ -57,15 +57,22 @@ describe("normalizeWidgets", () => {
   });
 });
 
-describe("withAppsWidget", () => {
-  it("appends a large apps widget to a layout without one", () => {
-    expect(withAppsWidget([s("a")])).toEqual([s("a"), { id: "apps-1", kind: "apps", size: "large" }]);
-    expect(withAppsWidget([])).toEqual([{ id: "apps-1", kind: "apps", size: "large" }]);
+describe("withWidgetOnce", () => {
+  it("adds the kind at the end or the start of a layout without one", () => {
+    expect(withWidgetOnce([s("a")], "apps", "large", "end")).toEqual([s("a"), { id: "apps-1", kind: "apps", size: "large" }]);
+    expect(withWidgetOnce([], "apps", "large", "end")).toEqual([{ id: "apps-1", kind: "apps", size: "large" }]);
+    expect(withWidgetOnce([s("a"), l("b")], "catchup", "medium", "start")).toEqual([
+      { id: "catchup-1", kind: "catchup", size: "medium" },
+      s("a"),
+      l("b"),
+    ]);
   });
 
   it("leaves a layout that has one as it is", () => {
     const widgets = [{ id: "apps-2", kind: "apps", size: "medium" } as const, s("a")];
-    expect(withAppsWidget(widgets)).toEqual(widgets);
+    expect(withWidgetOnce(widgets, "apps", "large", "end")).toEqual(widgets);
+    const small = [s("a"), { id: "catchup-3", kind: "catchup", size: "small" } as const];
+    expect(withWidgetOnce(small, "catchup", "medium", "start")).toEqual(small);
   });
 });
 

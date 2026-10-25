@@ -35,6 +35,8 @@ export default function RootLayout() {
         >
           <Stack.Screen name="trackpad" options={{ orientation: "all" }} />
           <Stack.Screen name="screen" options={{ orientation: "all" }} />
+          {/* Cards are thrown sideways; an edge swipe back would fight a throw that starts near the edge. */}
+          <Stack.Screen name="catch-up" options={{ gestureEnabled: false }} />
           <Stack.Screen
             name="eva-computer"
             options={{ gestureEnabled: false, contentStyle: { backgroundColor: "#000000" } }}

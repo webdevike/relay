@@ -3,6 +3,7 @@ import type { ComponentType } from "react";
 import type { SFSymbol } from "expo-symbols";
 import type { WidgetKind, WidgetSize } from "./layout";
 import type { WidgetBodyProps, WidgetColor } from "./WidgetParts";
+import { CatchUpWidget } from "./kinds/CatchUpWidget";
 import { UsageWidget } from "./kinds/UsageWidget";
 import { AssistantsWidget } from "./kinds/AssistantsWidget";
 import { InboxWidget } from "./kinds/InboxWidget";
@@ -18,6 +19,13 @@ export interface WidgetKindSpec {
 }
 
 export const WIDGET_REGISTRY: Record<WidgetKind, WidgetKindSpec> = {
+  catchup: {
+    title: "Catch Up",
+    description: "What needs you, one card at a time.",
+    symbol: "rectangle.stack.fill",
+    color: "indigo",
+    Body: CatchUpWidget,
+  },
   usage: {
     title: "Usage",
     description: "Plan limits of your Claude and Codex accounts.",

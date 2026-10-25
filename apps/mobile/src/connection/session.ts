@@ -241,6 +241,7 @@ export class SessionMachine {
       case "board.delta":
       case "gate.status":
       case "usage.snapshot":
+      case "catchup.snapshot":
       case "call.state":
       case "call.audio":
       case "call.flush":
@@ -250,7 +251,7 @@ export class SessionMachine {
       case "vnc.unavailable":
       case "ack":
       case "nack":
-        // Agent, drop, board, gate, usage, assistant and vnc frames are routed to their stores and ack/nack to CommandQueue by index.ts.
+        // Agent, drop, board, gate, usage, catch up, assistant and vnc frames are routed to their stores and ack/nack to CommandQueue by index.ts.
         return [];
     }
   }

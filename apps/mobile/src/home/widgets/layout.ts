@@ -9,7 +9,7 @@
  * its own, so a small widget right before it sits alone on the left.
  */
 
-export const WIDGET_KINDS = ["usage", "assistants", "inbox", "boards", "apps"] as const;
+export const WIDGET_KINDS = ["catchup", "usage", "assistants", "inbox", "boards", "apps"] as const;
 export type WidgetKind = (typeof WIDGET_KINDS)[number];
 
 export const WIDGET_SIZE_LIST = ["small", "medium", "large"] as const;
@@ -17,6 +17,7 @@ export type WidgetSize = (typeof WIDGET_SIZE_LIST)[number];
 
 /** The sizes each kind can be drawn at, smallest first. */
 export const WIDGET_SIZES: Record<WidgetKind, readonly WidgetSize[]> = {
+  catchup: ["small", "medium"],
   usage: ["small", "medium"],
   assistants: ["small", "medium"],
   inbox: ["small", "medium"],
@@ -33,6 +34,7 @@ export interface HomeWidget {
 
 /** What Home shows before the user has arranged anything. */
 export const DEFAULT_WIDGETS: readonly HomeWidget[] = [
+  { id: "catchup-1", kind: "catchup", size: "medium" },
   { id: "usage-1", kind: "usage", size: "medium" },
   { id: "assistants-1", kind: "assistants", size: "small" },
   { id: "inbox-1", kind: "inbox", size: "small" },
@@ -71,13 +73,19 @@ export function normalizeWidgets(value: unknown): HomeWidget[] {
 }
 
 /**
- * Home's app list became the `apps` widget (settings v3): a layout saved before then gets one at
- * the end, large, so the list stays on Home. Called once by the settings migration, so a user who
- * removes it later keeps it removed.
+ * A layout saved before `kind` existed gets one `size` widget, at the start or the end, so a new
+ * kind shows up on an arranged Home: the `apps` widget (settings v3, Home's app list moved into it)
+ * and `catchup` (v4). Called once by the settings migration, so a user who removes it keeps it removed.
  */
-export function withAppsWidget(widgets: readonly HomeWidget[]): HomeWidget[] {
-  if (widgets.some((w) => w.kind === "apps")) return [...widgets];
-  return [...widgets, { id: nextWidgetId(widgets, "apps"), kind: "apps", size: "large" }];
+export function withWidgetOnce(
+  widgets: readonly HomeWidget[],
+  kind: WidgetKind,
+  size: WidgetSize,
+  at: "start" | "end",
+): HomeWidget[] {
+  if (widgets.some((w) => w.kind === kind)) return [...widgets];
+  const added = { id: nextWidgetId(widgets, kind), kind, size };
+  return at === "start" ? [added, ...widgets] : [...widgets, added];
 }
 
 /** `<kind>-<n>` with the lowest n no widget in `widgets` uses. */

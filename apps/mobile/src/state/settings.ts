@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { fileStorage } from "./storage";
 import { normalizeProfile, type OmpProfile } from "@/lib/profile";
-import { DEFAULT_WIDGETS, normalizeWidgets, withAppsWidget, type HomeWidget } from "@/home/widgets/layout";
+import { DEFAULT_WIDGETS, normalizeWidgets, withWidgetOnce, type HomeWidget } from "@/home/widgets/layout";
 
 export type PointerSpeed = "slow" | "normal" | "fast";
 /** `voz` is Desert Ant's on-device Parakeet model (no live partials, better on technical words); `apple` is iOS dictation. */
@@ -61,14 +61,17 @@ export const useSettingsStore = create<SettingsState>()(
       // v1: `ompProfile` lost its "" (host's current account) choice; that and anything unknown is Work.
       // v2: Home widgets; a build without them gets the default layout.
       // v3: Home's app list became the `apps` widget; a layout saved before then gets it once.
-      version: 3,
+      // v4: Catch Up; a layout saved before then gets a medium one on top, once.
+      version: 4,
       migrate: (persisted, version) => {
         const state = persisted as Partial<SettingsState>;
-        const widgets = normalizeWidgets(state.homeWidgets);
+        let widgets = normalizeWidgets(state.homeWidgets);
+        if (version < 3) widgets = withWidgetOnce(widgets, "apps", "large", "end");
+        if (version < 4) widgets = withWidgetOnce(widgets, "catchup", "medium", "start");
         return {
           ...state,
           ompProfile: normalizeProfile(state.ompProfile),
-          homeWidgets: version < 3 ? withAppsWidget(widgets) : widgets,
+          homeWidgets: widgets,
         };
       },
     },
