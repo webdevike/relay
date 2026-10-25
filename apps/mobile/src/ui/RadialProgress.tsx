@@ -1,17 +1,16 @@
 /**
- * A ring that fills clockwise from 12 o'clock as a UI-thread value goes 0 -> 1, with anything
- * (a glyph) centred inside. Skia draws the arc straight from the shared value, so it follows a drag
- * frame by frame without React renders; a build without Skia shows the track and fades the
- * ring in with the value instead.
+ * A ring that fills clockwise from 12 o'clock as an Animated value goes 0 -> 1, with anything
+ * (a glyph) centred inside. Built from plain views: each half of the ring is a half-arc that rotates
+ * into a clipped half, so following a drag only changes two rotations, which the native Animated
+ * driver applies straight to the views. (A Skia canvas here cost a GPU flush and a Metal drawable
+ * on the main thread every frame, presented out of step with the card it sits on.)
  */
 import type { ReactNode } from "react";
-import { StyleSheet, View } from "react-native";
-import Animated, { useAnimatedStyle, useDerivedValue, type SharedValue } from "react-native-reanimated";
-import { loadSkia } from "@/dictation/skia";
+import { Animated, StyleSheet, View } from "react-native";
 
 export interface RadialProgressProps {
   /** 0..1; values outside are clamped. */
-  progress: SharedValue<number>;
+  progress: Animated.AnimatedInterpolation<number> | Animated.Value;
   size: number;
   stroke?: number;
   color: string;
@@ -20,37 +19,29 @@ export interface RadialProgressProps {
 }
 
 export function RadialProgress({ progress, size, stroke = 3, color, trackColor, children }: RadialProgressProps) {
-  const skia = loadSkia();
-  const end = useDerivedValue(() => Math.min(1, Math.max(0, progress.value)));
-  const fallbackStyle = useAnimatedStyle(() => ({ opacity: end.value }));
-  const inset = stroke / 2;
-  const rect = { x: inset, y: inset, width: size - stroke, height: size - stroke };
-  let ring: ReactNode;
-  if (skia === null) {
-    const circle = { borderRadius: size / 2, borderWidth: stroke };
-    ring = (
-      <>
-        <View style={[StyleSheet.absoluteFill, circle, { borderColor: trackColor }]} />
-        <Animated.View style={[StyleSheet.absoluteFill, circle, { borderColor: color }, fallbackStyle]} />
-      </>
-    );
-  } else {
-    const { Canvas, Path, Skia } = skia;
-    const track = Skia.Path.Make();
-    track.addOval(rect);
-    // Starting at -90 degrees puts the trim's zero at the top; `end` trims the full circle.
-    const arc = Skia.Path.Make();
-    arc.addArc(rect, -90, 359.999);
-    ring = (
-      <Canvas style={StyleSheet.absoluteFill}>
-        <Path path={track} style="stroke" strokeWidth={stroke} color={trackColor} />
-        <Path path={arc} style="stroke" strokeWidth={stroke} strokeCap="round" color={color} start={0} end={end} />
-      </Canvas>
-    );
-  }
+  const half = size / 2;
+  const ring = { width: size, height: size, borderRadius: half, borderWidth: stroke, borderColor: color };
+  // First half: the left half-arc turns clockwise into the right clip (12 -> 6 o'clock).
+  const first = progress.interpolate({ inputRange: [0, 0.5], outputRange: ["0deg", "180deg"], extrapolate: "clamp" });
+  // Second half: the right half-arc turns clockwise into the left clip (6 -> 12 o'clock).
+  const second = progress.interpolate({ inputRange: [0.5, 1], outputRange: ["0deg", "180deg"], extrapolate: "clamp" });
   return (
     <View style={[styles.root, { width: size, height: size }]}>
-      {ring}
+      <View style={[StyleSheet.absoluteFill, { borderRadius: half, borderWidth: stroke, borderColor: trackColor }]} />
+      <View style={[styles.clip, { left: half, width: half, height: size }]}>
+        <Animated.View style={[styles.spin, { left: -half, width: size, height: size, transform: [{ rotate: first }] }]}>
+          <View style={[styles.clip, { left: 0, width: half, height: size }]}>
+            <View style={ring} />
+          </View>
+        </Animated.View>
+      </View>
+      <View style={[styles.clip, { left: 0, width: half, height: size }]}>
+        <Animated.View style={[styles.spin, { left: 0, width: size, height: size, transform: [{ rotate: second }] }]}>
+          <View style={[styles.clip, { left: half, width: half, height: size }]}>
+            <View style={[ring, { marginLeft: -half }]} />
+          </View>
+        </Animated.View>
+      </View>
       {children}
     </View>
   );
@@ -58,4 +49,6 @@ export function RadialProgress({ progress, size, stroke = 3, color, trackColor, 
 
 const styles = StyleSheet.create({
   root: { alignItems: "center", justifyContent: "center" },
+  clip: { position: "absolute", top: 0, overflow: "hidden" },
+  spin: { position: "absolute", top: 0 },
 });

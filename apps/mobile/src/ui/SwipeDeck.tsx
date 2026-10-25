@@ -1,14 +1,31 @@
 /**
- * A stack of swipeable cards: the first item is a `SwipeCard` on top, the second waits underneath,
+ * A stack of swipeable cards: the first item is the `SwipeCard` on top, the second waits underneath,
  * a little smaller with its bottom edge peeking out, and grows into place as the top card is dragged
- * away. When the top card leaves, `onSwipe` reports it (the caller drops or reorders the item) and
- * the next settles in. `swipe(direction)` throws the top card, for buttons beside the deck.
+ * away. When the top card leaves, `onSwipe` reports it (the caller drops or reorders the item).
+ * `swipe(direction)` throws the top card, for buttons beside the deck.
+ *
+ * Each card keeps one mounted `SwipeCard` (keyed by item) for as long as it is in the first
+ * `SLOTS`, so its face is rendered and drawn once, while it waits; a throw only changes the cards'
+ * role values. (Remounting the next two cards on every throw rebuilt and redrew two long markdown
+ * bodies right as the next card should take the finger.) The card that joins at the back mounts
+ * `PRELOAD_DELAY_MS` later, after the deck has settled, so its first render never lands on a throw.
  */
-import { useEffect, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from "react";
-import { StyleSheet, View } from "react-native";
-import Animated, { useAnimatedStyle, useSharedValue, withTiming, type SharedValue } from "react-native-reanimated";
-import { motion } from "@/theme";
-import { SwipeCard, type SwipeCardHandle, type SwipeDirection } from "./SwipeCard";
+import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from "react";
+import { StyleSheet, View, useWindowDimensions } from "react-native";
+import {
+  SwipeCard,
+  createCardRoles,
+  createDeckMotion,
+  resetDeckMotion,
+  type CardRoles,
+  type DeckMotion,
+  type SwipeCardHandle,
+  type SwipeCardRole,
+  type SwipeDirection,
+  type SwipeProgress,
+} from "./SwipeCard";
+
+export { UNDER_DROP } from "./SwipeCard";
 
 export interface SwipeDeckHandle {
   swipe: (direction: SwipeDirection) => void;
@@ -17,65 +34,96 @@ export interface SwipeDeckHandle {
 export interface SwipeDeckProps<T> {
   items: readonly T[];
   keyOf: (item: T) => string;
+  /** Called again on every deck render for cards that are already mounted: memoize the face. */
   renderCard: (item: T) => ReactNode;
   /** Drawn over the top card with its signed drag progress (-1 left .. 1 right). */
-  renderOverlay?: (progress: SharedValue<number>) => ReactNode;
+  renderOverlay?: (progress: SwipeProgress) => ReactNode;
   onSwipe: (item: T, direction: SwipeDirection) => void;
   ref?: Ref<SwipeDeckHandle>;
 }
 
-/** The waiting card's scale before the top one moves; it shrinks toward its bottom edge. */
-const UNDER_SCALE = 0.94;
-/** How much of the waiting card peeks out below the top one; leave this much room under the deck. */
-export const UNDER_DROP = 12;
+/** Cards kept mounted: the top one, the one underneath, and the next, ready behind it. */
+const SLOTS = 3;
+const PRELOAD_DELAY_MS = 350;
+const ROLES: readonly SwipeCardRole[] = ["top", "under", "waiting"];
 
 export function SwipeDeck<T>({ items, keyOf, renderCard, renderOverlay, onSwipe, ref }: SwipeDeckProps<T>) {
-  const top = items[0];
-  const under = items[1];
-  // How far the top card has gone toward leaving (0..1); the waiting card follows it.
-  const stack = useSharedValue(0);
-  const card = useRef<SwipeCardHandle>(null);
-  // A card kept for later can come straight back on top (the last one left): a new key per throw
-  // remounts the top card, so it never reappears from where it was thrown.
-  const [throws, setThrows] = useState(0);
-  const topKey = top === undefined ? null : keyOf(top);
+  const { width } = useWindowDimensions();
+  const [motion, setMotion] = useState<DeckMotion>(() => createDeckMotion(width));
+  if (motion.width !== width) setMotion(createDeckMotion(width));
+  const roles = useRef(new Map<string, CardRoles>());
+  const top = useRef<SwipeCardHandle>(null);
+  // A card thrown and then put back (Keep Unread on the last cards) comes back fresh, under a new key.
+  const [generation, setGeneration] = useState<Record<string, number>>({});
+  const slots = items.slice(0, SLOTS);
+  const keys = slots.map((item) => `${keyOf(item)}:${String(generation[keyOf(item)] ?? 0)}`);
+  const back = slots.length === SLOTS ? keys[SLOTS - 1] : undefined;
+  const [preloaded, setPreloaded] = useState<string | undefined>(undefined);
 
   useEffect(() => {
-    stack.value = withTiming(0, { duration: motion.duration.base });
-  }, [topKey, throws, stack]);
+    if (back === undefined) return;
+    const timer = setTimeout(() => {
+      setPreloaded(back);
+    }, PRELOAD_DELAY_MS);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [back]);
 
-  useImperativeHandle(ref, () => ({ swipe: (direction) => card.current?.swipe(direction) }), []);
+  // A new top card starts from rest. Runs after the cards' own layout effects have set their roles,
+  // in the same frame, so the thrown card is gone and the next one is full size before this moves.
+  const topKey = keys[0];
+  useLayoutEffect(() => {
+    resetDeckMotion(motion);
+  }, [topKey, motion]);
 
-  const underStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: UNDER_DROP * (1 - stack.value) }, { scale: UNDER_SCALE + (1 - UNDER_SCALE) * stack.value }],
-  }));
+  const joined = keys.join("\n");
+  useEffect(() => {
+    const live = joined.split("\n");
+    for (const key of roles.current.keys()) if (!live.includes(key)) roles.current.delete(key);
+  }, [joined]);
+
+  useImperativeHandle(ref, () => ({ swipe: (direction) => top.current?.swipe(direction) }), []);
+
+  const rolesOf = (key: string, role: SwipeCardRole): CardRoles => {
+    const existing = roles.current.get(key);
+    if (existing !== undefined) return existing;
+    const created = createCardRoles(role);
+    roles.current.set(key, created);
+    return created;
+  };
+  const shown = slots.filter((_, index) => index < SLOTS - 1 || keys[index] === preloaded);
 
   return (
     <View style={styles.root}>
-      {under !== undefined && (
-        <Animated.View key={keyOf(under)} style={[StyleSheet.absoluteFill, styles.under, underStyle]} pointerEvents="none">
-          {renderCard(under)}
-        </Animated.View>
-      )}
-      {top !== undefined && (
-        <SwipeCard
-          key={`${keyOf(top)}:${String(throws)}`}
-          ref={card}
-          stack={stack}
-          overlay={renderOverlay}
-          onSwiped={(direction) => {
-            setThrows((n) => n + 1);
-            onSwipe(top, direction);
-          }}
-        >
-          {renderCard(top)}
-        </SwipeCard>
-      )}
+      {shown
+        .map((item, index) => {
+          const key = keys[index] ?? "";
+          const role = ROLES[index] ?? "waiting";
+          return (
+            <SwipeCard
+              key={key}
+              ref={index === 0 ? top : undefined}
+              motion={motion}
+              roles={rolesOf(key, role)}
+              role={role}
+              overlay={renderOverlay}
+              onSwiped={(direction) => {
+                const id = keyOf(item);
+                setGeneration((current) => ({ ...current, [id]: (current[id] ?? 0) + 1 }));
+                onSwipe(item, direction);
+              }}
+            >
+              {renderCard(item)}
+            </SwipeCard>
+          );
+        })
+        // The top card renders last, so it is on top.
+        .reverse()}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  under: { transformOrigin: "bottom" },
 });

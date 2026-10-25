@@ -2,6 +2,7 @@
  * One Catch Up card's face: where it came from (glyph + label), the title, the markdown body
  * (scrolls inside the card when long), and a footer with how long ago and an Open link.
  */
+import { memo } from "react";
 import { StyleSheet, View } from "react-native";
 import { ScrollView } from "react-native-gesture-handler";
 import { SymbolView } from "expo-symbols";
@@ -15,7 +16,15 @@ import { spacing, useColors, useScheme } from "@/theme";
 
 export const CATCHUP_CARD_RADIUS = 28;
 
-export function CatchUpCardView({ card }: { card: CatchUpCard }) {
+/** What the face shows; every host snapshot brings new objects for the same cards. */
+function sameFace(a: { card: CatchUpCard }, b: { card: CatchUpCard }): boolean {
+  const x = a.card;
+  const y = b.card;
+  return x.id === y.id && x.source === y.source && x.label === y.label && x.title === y.title && x.body === y.body && x.url === y.url && x.ts === y.ts;
+}
+
+/** Memoized: a deck re-renders on every snapshot, and a long markdown body is expensive to rebuild. */
+export const CatchUpCardView = memo(function CatchUpCardView({ card }: { card: CatchUpCard }) {
   const colors = useColors();
   const dark = useScheme() === "dark";
   const age = relativeTime(Date.parse(card.ts));
@@ -47,7 +56,7 @@ export function CatchUpCardView({ card }: { card: CatchUpCard }) {
       </View>
     </View>
   );
-}
+}, sameFace);
 
 const styles = StyleSheet.create({
   card: {
