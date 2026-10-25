@@ -258,7 +258,7 @@ The body is an HTML fragment (markup, `<style>`, inline `<script>`) placed in th
 <button onclick="relay.reply('Counter is ' + n.textContent)" style="background:var(--accent);color:#fff;border:0;padding:8px 16px;border-radius:var(--radius)">Send</button>
 ```
 
-Where they render: Relay phone (TestFlight build 11+, both fences; JS updates arrive over the air) and Relay desktop from the `eva/mantine-widget` branch of evaos-electron onward. EvaOS native shows them as code. Source: `~/Eva/work/relay/packages/widget-runtime` (`src/frame.ts` pages, `src/runtime/` Mantine runtime, `src/theme.ts` the one theme shared with the desktop app; rebuild the bundle with `pnpm -C packages/widget-runtime build`).
+Where they render: Relay phone (TestFlight build 11+, both fences; JS updates arrive over the air) and Relay desktop (evaos-electron main 402ba81+, installed in ~/Applications/Relay.app). EvaOS native shows them as code. Source: `~/Eva/work/relay/packages/widget-runtime` (`src/frame.ts` pages, `src/runtime/` Mantine runtime, `src/theme.ts` the one theme shared with the desktop app; rebuild the bundle with `pnpm -C packages/widget-runtime build`).
 
 ## Building a new widget (app side)
 
