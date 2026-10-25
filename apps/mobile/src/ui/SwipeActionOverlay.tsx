@@ -26,10 +26,10 @@ const INK = "#FFFFFF";
 
 export function SwipeActionOverlay({ side, progress, color, symbol, label, radius }: SwipeActionOverlayProps) {
   const amount = useDerivedValue(() => Math.max(0, side === "right" ? progress.value : -progress.value));
-  // The tint comes in quickly so the action reads early; the ring keeps counting to the threshold.
-  const tint = useAnimatedStyle(() => ({ opacity: Math.min(1, amount.value * 1.6) * 0.94 }));
+  // The tint comes in quickly and hides the card's text well before the threshold; the ring keeps counting to it.
+  const tint = useAnimatedStyle(() => ({ opacity: Math.min(1, amount.value * 1.5) }));
   const badge = useAnimatedStyle(() => ({ opacity: Math.min(1, amount.value * 3) }));
-  // A right throw leaves from the left edge: its badge sits top-left, a left throw's top-right.
+  // A right throw leaves from the left edge: its badge sits top-left with the label after the ring, a left throw's top-right.
   const corner = side === "right" ? styles.left : styles.right;
   return (
     <View style={[StyleSheet.absoluteFill, { borderRadius: radius, overflow: "hidden" }]} pointerEvents="none">
@@ -38,7 +38,7 @@ export function SwipeActionOverlay({ side, progress, color, symbol, label, radiu
         <RadialProgress progress={amount} size={RING} stroke={3} color={INK} trackColor={withAlpha(INK, 0.3)}>
           <SymbolView name={symbol} size={20} tintColor={INK} weight="semibold" />
         </RadialProgress>
-        <Text variant="label" style={styles.label}>
+        <Text variant="title" style={styles.label}>
           {label}
         </Text>
       </Animated.View>
@@ -47,8 +47,8 @@ export function SwipeActionOverlay({ side, progress, color, symbol, label, radiu
 }
 
 const styles = StyleSheet.create({
-  badge: { position: "absolute", top: spacing.xl, alignItems: "center", gap: spacing.sm },
+  badge: { position: "absolute", top: spacing.xl, flexDirection: "row", alignItems: "center", gap: spacing.md },
   left: { left: spacing.xl },
-  right: { right: spacing.xl },
-  label: { color: INK, fontWeight: "600" },
+  right: { right: spacing.xl, flexDirection: "row-reverse" },
+  label: { color: INK },
 });
