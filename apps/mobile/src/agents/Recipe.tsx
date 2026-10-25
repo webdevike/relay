@@ -3,16 +3,13 @@ import { View } from "react-native";
 import { spacing, useColors } from "@/theme";
 import { ChecklistRow } from "@/ui/ChecklistRow";
 import { LinkButton } from "@/ui/LinkButton";
-import { SegmentedTabs } from "@/ui/SegmentedTabs";
+import { TabPager } from "@/ui/TabPager";
 import { Text } from "@/ui/Text";
 import type { RecipeSpec } from "./widget";
 
-type Tab = "ingredients" | "details";
-
-/** Checkable shopping list and cooking details in separate tabs. */
+/** Checkable shopping list and cooking details in separate tabs; swipe or tap between them. */
 export function Recipe({ spec }: { spec: RecipeSpec }) {
   const colors = useColors();
-  const [tab, setTab] = useState<Tab>("ingredients");
   const [checked, setChecked] = useState<Set<number>>(() => new Set());
   let section: string | undefined;
 
@@ -35,15 +32,7 @@ export function Recipe({ spec }: { spec: RecipeSpec }) {
           </Text>
         )}
       </View>
-      <SegmentedTabs<Tab>
-        value={tab}
-        onChange={setTab}
-        tabs={[
-          { key: "ingredients", label: `Ingredients · ${checked.size}/${spec.ingredients.length}` },
-          { key: "details", label: "Details" },
-        ]}
-      />
-      {tab === "ingredients" ? (
+      <TabPager labels={[`Ingredients · ${checked.size}/${spec.ingredients.length}`, "Details"]}>
         <View>
           {spec.ingredients.map((ingredient, index) => {
             const showSection = ingredient.section !== undefined && ingredient.section !== section;
@@ -71,7 +60,6 @@ export function Recipe({ spec }: { spec: RecipeSpec }) {
             );
           })}
         </View>
-      ) : (
         <View style={{ gap: spacing.md }}>
           {spec.directions.map((direction, index) => (
             <View key={index} style={{ flexDirection: "row", gap: spacing.md }}>
@@ -85,7 +73,7 @@ export function Recipe({ spec }: { spec: RecipeSpec }) {
             <LinkButton label="View original recipe" url={spec.source} />
           )}
         </View>
-      )}
+      </TabPager>
     </View>
   );
 }

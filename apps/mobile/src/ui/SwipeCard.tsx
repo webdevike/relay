@@ -168,6 +168,16 @@ interface SwipeUpWiring {
 const SwipeUpContext = createContext<SwipeUpWiring | null>(null);
 
 /**
+ * The card's sideways pan and long press, for a horizontal scroller inside a card face (a `Pager`):
+ * it blocks the pan so a swipe between its pages never throws the card, and runs alongside the
+ * long press. Null outside a `SwipeCard`.
+ */
+export function useSwipeCardGestures(): { pan: RefObject<unknown>; hold: RefObject<unknown> } | null {
+  const wiring = useContext(SwipeUpContext);
+  return wiring === null ? null : { pan: wiring.pan, hold: wiring.hold };
+}
+
+/**
  * The scroll view for a card face's body: it waits for the card's sideways pan to fail (the finger
  * went vertical) before it scrolls, so a sideways drag that starts on the body moves the card.
  */

@@ -13,7 +13,7 @@ import { LinkButton } from "@/ui/LinkButton";
 import { PageDots, PageStepper } from "@/ui/PageControls";
 import { Pager, usePager } from "@/ui/Pager";
 import { Pill, type PillProps } from "@/ui/Pill";
-import { SegmentedTabs } from "@/ui/SegmentedTabs";
+import { TabPager } from "@/ui/TabPager";
 import { Text } from "@/ui/Text";
 import { AudioPlayer } from "./AudioPlayer";
 import {
@@ -238,23 +238,18 @@ function Grid({ spec }: { spec: GridSpec }) {
   );
 }
 
-/** A segmented bar over the selected tab's pane; the first tab shows first. */
+/** A segmented bar over swipeable panes; the first tab shows first. */
 function Tabs({ spec }: { spec: TabsSpec }) {
-  const [selected, setSelected] = useState("0");
-  const pane = spec.tabs[Number(selected)] ?? spec.tabs[0];
   return (
-    <View style={{ gap: spacing.md }}>
-      <SegmentedTabs
-        tabs={spec.tabs.map((tab, i) => ({ key: String(i), label: tab.label }))}
-        value={selected}
-        onChange={setSelected}
-      />
-      <View style={{ gap: spacing.sm }}>
-        {pane?.children.map((child, i) => (
-          <Node key={`${selected}-${i}`} spec={child} />
-        ))}
-      </View>
-    </View>
+    <TabPager labels={spec.tabs.map((tab) => tab.label)}>
+      {spec.tabs.map((tab, t) => (
+        <View key={t} style={{ gap: spacing.sm }}>
+          {tab.children.map((child, i) => (
+            <Node key={i} spec={child} />
+          ))}
+        </View>
+      ))}
+    </TabPager>
   );
 }
 

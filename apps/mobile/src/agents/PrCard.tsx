@@ -2,20 +2,18 @@
  * The ```ui "pr" widget, GitHub-mobile style: repo, number, state and title up top, branch and
  * author under it, then three tabs. Overview renders the description as full markdown (code blocks,
  * lists, links) plus reviewers; Checks lists the Actions runs; Files shows one Zed-style diff per
- * file. Composes MessageText, DiffView, Pill, Row, LinkButton and SegmentedTabs.
+ * file; swipe or tap between the tabs. Composes MessageText, DiffView, Pill, Row, LinkButton and TabPager.
  */
-import { useState } from "react";
 import { View } from "react-native";
 import { spacing, useColors } from "@/theme";
 import { LinkButton } from "@/ui/LinkButton";
 import { Pill, type PillProps } from "@/ui/Pill";
-import { SegmentedTabs } from "@/ui/SegmentedTabs";
+import { TabPager } from "@/ui/TabPager";
 import { Text } from "@/ui/Text";
 import { DiffView } from "./DiffView";
 import { MessageText } from "./MessageText";
 import type { PrSpec } from "./widget";
 
-type Tab = "overview" | "checks" | "files";
 type PillTone = NonNullable<PillProps["tone"]>;
 
 const STATE_TONE: Record<PrSpec["state"], PillTone> = { open: "ok", draft: "textMuted", merged: "accent", closed: "danger" };
@@ -29,7 +27,6 @@ const REVIEW_LABEL: Record<string, [string, PillTone]> = {
 
 export function PrCard({ spec }: { spec: PrSpec }) {
   const colors = useColors();
-  const [tab, setTab] = useState<Tab>("overview");
   const checks = spec.checks ?? [];
   const files = spec.files ?? [];
   const failed = checks.filter((c) => c.status === "failure").length;
@@ -53,17 +50,13 @@ export function PrCard({ spec }: { spec: PrSpec }) {
         )}
       </View>
 
-      <SegmentedTabs<Tab>
-        value={tab}
-        onChange={setTab}
-        tabs={[
-          { key: "overview", label: "Overview" },
-          { key: "checks", label: checks.length === 0 ? "Checks" : failed > 0 ? `Checks · ${failed} failed` : `Checks · ${passed}/${checks.length}` },
-          { key: "files", label: `Files · ${files.length}` },
+      <TabPager
+        labels={[
+          "Overview",
+          checks.length === 0 ? "Checks" : failed > 0 ? `Checks · ${failed} failed` : `Checks · ${passed}/${checks.length}`,
+          `Files · ${files.length}`,
         ]}
-      />
-
-      {tab === "overview" && (
+      >
         <View style={{ gap: spacing.md }}>
           {spec.body !== undefined && spec.body.trim() !== "" ? (
             <MessageText text={spec.body} />
@@ -85,9 +78,7 @@ export function PrCard({ spec }: { spec: PrSpec }) {
             </View>
           )}
         </View>
-      )}
 
-      {tab === "checks" && (
         <View>
           {checks.length === 0 && <Text color="textMuted">No checks reported.</Text>}
           {checks.map((c, i) => (
@@ -102,16 +93,14 @@ export function PrCard({ spec }: { spec: PrSpec }) {
             </View>
           ))}
         </View>
-      )}
 
-      {tab === "files" && (
         <View style={{ gap: spacing.sm }}>
           {files.length === 0 && <Text color="textMuted">No file diffs included.</Text>}
           {files.map((f) => (
             <DiffView key={f.file} spec={{ widget: "diff", file: f.file, patch: f.patch }} />
           ))}
         </View>
-      )}
+      </TabPager>
     </View>
   );
 }
