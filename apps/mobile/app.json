@@ -25,6 +25,7 @@
         "com.apple.developer.usernotifications.time-sensitive": true
       },
       "infoPlist": {
+        "CADisableMinimumFrameDurationOnPhone": true,
         "NSLocalNetworkUsageDescription": "Relay finds your Mac on the local network.",
         "NSBonjourServices": [
           "_relay._tcp"

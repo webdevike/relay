@@ -11,6 +11,7 @@ import { useImperativeHandle, useMemo, type ReactNode, type Ref } from "react";
 import { StyleSheet, useWindowDimensions } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
+  Easing,
   Extrapolation,
   interpolate,
   useAnimatedReaction,
@@ -46,7 +47,9 @@ const MAX_TILT_DEG = 12;
 /** A release this fast (pt/s) toward a side throws the card even short of the threshold. */
 const FLING_VELOCITY = 900;
 const FLING_MIN_TRAVEL = 30;
-const FLY_MS = 260;
+/** Floor speed (pt/s) for a throw, so a slow release still leaves briskly. */
+const MIN_FLY_SPEED = 1600;
+const MAX_FLY_MS = 320;
 const BUTTON_FLY_MS = 380;
 /** The card follows the finger's vertical travel at this share, so a throw reads as horizontal. */
 const VERTICAL_FOLLOW = 0.35;
@@ -59,6 +62,9 @@ export function SwipeCard({ children, onSwiped, overlay, stack, ref }: SwipeCard
   const y = useSharedValue(0);
   const armed = useSharedValue(false);
   const leaving = useSharedValue(false);
+  // Pan activates after ~10pt; subtracting that slop keeps the card from jumping on pickup.
+  const slopX = useSharedValue(0);
+  const slopY = useSharedValue(0);
   const progress = useDerivedValue(() => Math.max(-1, Math.min(1, x.value / threshold)));
 
   useAnimatedReaction(
@@ -75,7 +81,7 @@ export function SwipeCard({ children, onSwiped, overlay, stack, ref }: SwipeCard
         "worklet";
         leaving.value = true;
         const target = (direction === "right" ? 1 : -1) * width * 1.4;
-        x.value = withTiming(target, { duration }, (finished) => {
+        x.value = withTiming(target, { duration, easing: Easing.out(Easing.quad) }, (finished) => {
           if (finished === true) scheduleOnRN(onSwiped, direction);
         });
       },
@@ -99,11 +105,15 @@ export function SwipeCard({ children, onSwiped, overlay, stack, ref }: SwipeCard
         // Vertical drags belong to the card's scrolling body.
         .activeOffsetX([-10, 10])
         .failOffsetY([-14, 14])
+        .onStart((event) => {
+          slopX.value = event.translationX - x.value;
+          slopY.value = event.translationY * VERTICAL_FOLLOW - y.value;
+        })
         .onUpdate((event) => {
           if (leaving.value) return;
-          x.value = event.translationX;
-          y.value = event.translationY * VERTICAL_FOLLOW;
-          const past = Math.abs(event.translationX) >= threshold;
+          x.value = event.translationX - slopX.value;
+          y.value = event.translationY * VERTICAL_FOLLOW - slopY.value;
+          const past = Math.abs(x.value) >= threshold;
           if (past !== armed.value) {
             armed.value = past;
             if (past) scheduleOnRN(impactHaptic, "medium");
@@ -117,14 +127,19 @@ export function SwipeCard({ children, onSwiped, overlay, stack, ref }: SwipeCard
             Math.sign(event.velocityX) === Math.sign(x.value) &&
             Math.abs(x.value) >= FLING_MIN_TRAVEL;
           if (Math.abs(x.value) >= threshold || flung) {
-            fly(x.value > 0 ? "right" : "left", FLY_MS);
-            y.value = withTiming(y.value + event.velocityY * 0.05, { duration: FLY_MS });
+            const direction = x.value > 0 ? "right" : "left";
+            // Carry the release speed into the throw so the card never slows on let-go.
+            const remaining = width * 1.4 - Math.abs(x.value);
+            const speed = Math.max(MIN_FLY_SPEED, Math.abs(event.velocityX));
+            const duration = Math.min(MAX_FLY_MS, (remaining / speed) * 1000 * 1.6);
+            fly(direction, duration);
+            y.value = withTiming(y.value + event.velocityY * 0.05, { duration });
             return;
           }
-          x.value = withSpring(0, SPRING);
-          y.value = withSpring(0, SPRING);
+          x.value = withSpring(0, { ...SPRING, velocity: event.velocityX });
+          y.value = withSpring(0, { ...SPRING, velocity: event.velocityY * VERTICAL_FOLLOW });
         }),
-    [armed, fly, leaving, threshold, x, y],
+    [armed, fly, leaving, slopX, slopY, threshold, width, x, y],
   );
 
   const style = useAnimatedStyle(() => ({
