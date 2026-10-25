@@ -420,6 +420,19 @@ export function markCatchUp(id: string, read: boolean): void {
 }
 
 /**
+ * Hands a Catch Up card to assistant `agent` (with Isaac's optional `note`): the host sends it to that
+ * thread and marks it read. Shown read and handed at once; false (and nothing changed) while not
+ * connected, since only the host can deliver it.
+ */
+export function handoffCatchUp(id: string, agent: string, note?: string): boolean {
+  if (useConnectionStore.getState().status !== "connected") return false;
+  useCatchUpStore.getState().markLocal(id, true, agent);
+  const trimmed = note?.trim();
+  socket.send(encode({ t: "catchup.handoff", id, agent, ...(trimmed === undefined || trimmed === "" ? {} : { note: trimmed }) }));
+  return true;
+}
+
+/**
  * Ephemeral; the answer lands in `useAssistantStore().threads[agent]`. Also marks `agent`'s
  * thread as showing: the driver re-asks on every welcome and every `ASSISTANT_FOLLOW_MS` until
  * `stopAssistant`, keeping the host's follow window open. Sends nothing while not connected (the

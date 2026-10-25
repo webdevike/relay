@@ -239,6 +239,24 @@ describe("catch up", () => {
     expect(CatchUpItem.safeParse({ ...item, importance: 0 }).success).toBe(false);
     expect(CatchUpItem.safeParse({ ...item, url: "file:///Users/ike/notes.md" }).success).toBe(false);
   });
+
+  it("hands off to an assistant with an optional note, and takes a bounce with a reason", () => {
+    const client = (frame: object) => parseClientMessage(JSON.stringify(frame)).ok;
+    expect(client({ t: "catchup.handoff", id: "slack:abc123", agent: "astra" })).toBe(true);
+    expect(client({ t: "catchup.handoff", id: "slack:abc123", agent: "nova", note: "ask Todd first" })).toBe(true);
+    expect(client({ t: "catchup.handoff", id: "slack:abc123", agent: "Astra" })).toBe(false);
+    expect(client({ t: "catchup.handoff", id: "slack:abc123" })).toBe(false);
+    expect(client({ t: "catchup.handoff", id: "slack:abc123", agent: "astra", note: "x".repeat(2001) })).toBe(false);
+    expect(client({ t: "catchup.bounce", id: "slack:abc123", agent: "astra", reason: "personal, not eCard" })).toBe(true);
+    expect(client({ t: "catchup.bounce", id: "slack:abc123", agent: "astra", reason: "  " })).toBe(false);
+  });
+
+  it("cards carry the default assistant, who they were handed to and a bounce", () => {
+    expect(CatchUpItem.safeParse({ ...item, assistant: "astra" }).success).toBe(true);
+    const card = { ...item, assistant: "astra", read: false, bounce: { agent: "astra", reason: "needs your decision", at: "2026-10-25T12:00:00.000Z" } };
+    expect(parseServerMessage(JSON.stringify({ t: "catchup.snapshot", items: [card, { ...item, id: "b", read: true, handedTo: "nova" }], unreadCount: 1 })).ok).toBe(true);
+    expect(parseServerMessage(JSON.stringify({ t: "catchup.snapshot", items: [{ ...card, bounce: { agent: "astra", reason: "", at: "x" } }], unreadCount: 1 })).ok).toBe(false);
+  });
 });
 
 describe("tool approvals", () => {

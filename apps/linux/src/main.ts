@@ -139,7 +139,8 @@ function serve(
       server.broadcastExcept({ t: "usage.snapshot", usage: snapshot }, null);
     },
   });
-  // Snapshots go out on feed or read-state changes, long after `server` below is initialised.
+  // Snapshots go out on feed or state changes, and handoffs reach the assistant threads, long after
+  // `server` and `assistant` below are initialised.
   const catchupFeed = defaultCatchUpFeedPath(agentHome);
   const catchup =
     catchupFeed === null
@@ -150,6 +151,13 @@ function serve(
           emit: (snapshot) => {
             server.broadcastExcept({ t: "catchup.snapshot", ...snapshot }, null);
           },
+          // A handoff is Isaac's turn in that assistant's thread, as if he had typed it there.
+          deliver: async (agent, text) => {
+            const thread = assistant?.thread(agent);
+            if (thread === undefined) throw new Error(`no assistant thread ${agent}`);
+            await thread.turn(text);
+          },
+          knows: (agent) => assistant?.threads.some((thread) => thread.id === agent) ?? false,
           log,
         });
   // `isViewing` only runs once sessions change, long after `server` below is initialised.

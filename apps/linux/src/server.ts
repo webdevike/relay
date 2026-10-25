@@ -8,6 +8,7 @@ import { basename } from "node:path";
 import type { Server, ServerWebSocket } from "bun";
 import { AgentsDeltaTracker } from "./agents/delta-tracker";
 import { handleAssistantSay } from "./assistant/http";
+import { handleCatchUpBounce } from "./catchup/http";
 import { handleBoardRequest, isLoopback } from "./boards/http";
 import type { FileBoardStore } from "./boards/store";
 import type { UsageService } from "./usage/service";
@@ -164,6 +165,7 @@ export class RelayServer {
         if (path === "/boards" || path.startsWith("/boards/"))
           return handleBoardRequest(this.deps.boards, request, path, remote);
         if (path === "/assistant/say") return handleAssistantSay(this.deps.assistant, request, remote);
+        if (path === "/catchup/bounce") return handleCatchUpBounce(this.deps.catchup, request, remote);
         return new Response("not found", { status: 404 });
       },
       websocket: {

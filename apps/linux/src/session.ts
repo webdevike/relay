@@ -507,11 +507,19 @@ export class ClientSession {
         this.sink.send({ t: "catchup.snapshot", ...(this.deps.catchup?.snapshot() ?? EMPTY_CATCHUP) });
         break;
       case "catchup.mark":
+      case "catchup.handoff":
+      case "catchup.bounce": {
+        const deck = this.deps.catchup;
+        const changed =
+          message.t === "catchup.mark"
+            ? deck?.mark(message.id, message.read)
+            : message.t === "catchup.handoff"
+              ? deck?.handoff(message.id, message.agent, message.note)
+              : deck?.bounce(message.id, message.agent, message.reason);
         // A change reaches every phone through the server's broadcast; otherwise this phone's optimistic deck is put right.
-        if (this.deps.catchup?.mark(message.id, message.read) !== true) {
-          this.sink.send({ t: "catchup.snapshot", ...(this.deps.catchup?.snapshot() ?? EMPTY_CATCHUP) });
-        }
+        if (changed !== true) this.sink.send({ t: "catchup.snapshot", ...(deck?.snapshot() ?? EMPTY_CATCHUP) });
         break;
+      }
       case "assistant.get": {
         // An unknown agent, or no agent from an old phone on a host without threads, follows nothing.
         const thread = this.deps.assistant?.thread(message.agent);

@@ -639,7 +639,9 @@ export type UsageSnapshot = z.infer<typeof UsageSnapshot>;
 // Catch Up: a deck of things that need Isaac's attention (Slack, PR reviews, meeting action
 // items, work items whose move is his). The feed is written by `catchup-build` in the Eva hub
 // (`work/elysia/catchup.json`, `CatchUpFeed`); the host adds read state and pushes
-// `catchup.snapshot` to every phone whenever the feed or the read state changes.
+// `catchup.snapshot` to every phone whenever the feed or the read state changes. A card can be handed
+// to an assistant (`catchup.handoff`: the host messages that assistant's thread and marks it read);
+// the assistant can hand it back (`catchup.bounce`: unread again, first in the deck, with its reason).
 // ---------------------------------------------------------------------------------------------
 
 export const CATCHUP_SOURCES = ["slack", "github", "meeting", "work"] as const;
@@ -661,6 +663,8 @@ export const CatchUpItem = z.object({
   ts: z.string().datetime({ offset: true }),
   /** 3 = most important; the deck shows higher first, then newer first. */
   importance: z.number().int().min(1).max(3),
+  /** The assistant whose lane this is (`astra` for eCard work, `nova` for personal); the default handoff target. */
+  assistant: AssistantAgentId.optional(),
 });
 export type CatchUpItem = z.infer<typeof CatchUpItem>;
 
@@ -668,12 +672,30 @@ export type CatchUpItem = z.infer<typeof CatchUpItem>;
 export const CatchUpFeed = z.object({ items: z.array(CatchUpItem) });
 export type CatchUpFeed = z.infer<typeof CatchUpFeed>;
 
-/** A feed item with the host's read state. */
-export const CatchUpCard = CatchUpItem.extend({ read: z.boolean() });
+/** Longest handoff note or bounce reason the host takes. */
+export const MAX_CATCHUP_NOTE = 2000;
+
+/** An assistant handing a card back: it could not act on it, and says why in one line. */
+export const CatchUpBounce = z.object({
+  agent: AssistantAgentId,
+  reason: nonEmpty,
+  /** ISO 8601. */
+  at: z.string(),
+});
+export type CatchUpBounce = z.infer<typeof CatchUpBounce>;
+
+/** A feed item with the host's state: read, handed to an assistant, or bounced back by one. */
+export const CatchUpCard = CatchUpItem.extend({
+  read: z.boolean(),
+  /** The assistant it was handed to (it is read then), until it bounces. */
+  handedTo: AssistantAgentId.optional(),
+  /** Set while a bounced card waits for Isaac (unread, first in the deck). */
+  bounce: CatchUpBounce.optional(),
+});
 export type CatchUpCard = z.infer<typeof CatchUpCard>;
 
 export const CatchUpSnapshot = z.object({
-  /** Every feed item in deck order (importance, then newest first), read ones included. */
+  /** Every feed item in deck order (bounced first, then importance, then newest), read ones included. */
   items: z.array(CatchUpCard),
   unreadCount: z.number().int().min(0),
 });
@@ -952,6 +974,13 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("catchup.list") }),
   /** Mark a Catch Up item read or unread; every phone gets the new `catchup.snapshot`. Unknown ids are ignored. */
   z.object({ t: z.literal("catchup.mark"), id: nonEmpty, read: z.boolean() }),
+  /**
+   * Hand a Catch Up item to an assistant: the host sends it (with `note`) to that assistant's thread as
+   * Isaac's turn and marks it read with `handedTo`. Unknown ids or agents re-send the snapshot unchanged.
+   */
+  z.object({ t: z.literal("catchup.handoff"), id: nonEmpty, agent: AssistantAgentId, note: z.string().trim().max(MAX_CATCHUP_NOTE).optional() }),
+  /** An assistant hands an item back (also `POST /catchup/bounce` on loopback): unread again, first in the deck, `reason` shown on the card. */
+  z.object({ t: z.literal("catchup.bounce"), id: nonEmpty, agent: AssistantAgentId, reason: z.string().trim().min(1).max(MAX_CATCHUP_NOTE) }),
   /** Ask for a one-time ticket to open VNC_PATH; answered by `vnc.ticket` or `vnc.unavailable`. */
   z.object({ t: z.literal("vnc.open") }),
   /**

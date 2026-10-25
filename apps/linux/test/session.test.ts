@@ -720,12 +720,14 @@ describe("usage", () => {
 });
 
 describe("catch up", () => {
-  it("answers catchup.list with the deck, and catchup.mark marks or re-sends the deck when nothing changed", () => {
+  it("answers catchup.list with the deck; mark, handoff and bounce change it or re-send the deck when nothing changed", () => {
     const card = { id: "slack:1", source: "slack" as const, label: "#general", title: "t", body: "", ts: "2026-10-24T00:00:00.000Z", importance: 3, read: false };
     const marks: string[] = [];
     const catchup: CatchUpDeck = {
       snapshot: () => ({ items: [card], unreadCount: 1 }),
       mark: (id, read) => (marks.push(`${id}:${String(read)}`), id === "slack:1"),
+      handoff: (id, agent, note) => (marks.push(`handoff ${id} ${agent} ${note ?? "-"}`), agent === "astra"),
+      bounce: (id, agent, reason) => (marks.push(`bounce ${id} ${agent} ${reason}`), id === "slack:1"),
     };
     const h = harness({ catchup });
     pair(h);
@@ -736,7 +738,13 @@ describe("catch up", () => {
     expect(h.sink.sent.length).toBe(sent); // the change goes out through the server's broadcast
     h.session.receive({ t: "catchup.mark", id: "gone", read: true });
     expect(h.sink.last()).toEqual({ t: "catchup.snapshot", items: [card], unreadCount: 1 });
-    expect(marks).toEqual(["slack:1:true", "gone:true"]);
+    h.session.receive({ t: "catchup.handoff", id: "slack:1", agent: "astra", note: "ask Todd" });
+    expect(h.sink.sent.length).toBe(sent + 1);
+    h.session.receive({ t: "catchup.handoff", id: "slack:1", agent: "zed" });
+    expect(h.sink.sent.length).toBe(sent + 2);
+    h.session.receive({ t: "catchup.bounce", id: "slack:1", agent: "astra", reason: "personal" });
+    expect(h.sink.sent.length).toBe(sent + 2);
+    expect(marks).toEqual(["slack:1:true", "gone:true", "handoff slack:1 astra ask Todd", "handoff slack:1 zed -", "bounce slack:1 astra personal"]);
     const bare = harness();
     pair(bare);
     bare.session.receive({ t: "catchup.list" });

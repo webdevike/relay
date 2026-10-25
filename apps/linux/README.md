@@ -183,7 +183,7 @@ not quiet hours or a habit break, rate limited) and speaks to the host as the de
   the engine already applied the rules. Without EvaOS they behave as before.
 - `RELAY_EXPO_PUSH_URL` points the push sender somewhere else (a scratch host captures sends locally).
 
-## Catch Up (`catchup.list`, `catchup.mark`)
+## Catch Up (`catchup.list`, `catchup.mark`, `catchup.handoff`, `catchup.bounce`)
 
 The phone's Catch Up deck comes from a feed file written in the Eva hub by `.omp/tools/catchup-build.ts`
 (`<agent home>/work/elysia/catchup.json`, `CatchUpFeed` in the protocol; `RELAY_CATCHUP_FEED` overrides
@@ -193,6 +193,19 @@ the path). The host watches the feed's directory, keeps read state per item id i
 read state changes. `catchup.list` answers the asking phone; `catchup.mark { id, read }` changes the state
 (an unknown id or no change re-sends the snapshot to that phone only). "Keep Unread" is phone-only: the
 card stays unread and goes to the back of that app session's deck. Without an agent home the deck is empty.
+
+Handoff: `catchup.handoff { id, agent, note? }` (swipe up, the send button, or the long-press sheet) sends the
+card to that assistant's thread as Isaac's turn (`AssistantThread.turn`), with its label, title, body, link,
+the note, and the rules (`handoffMessage` in `src/catchup/service.ts`: normal permissions, anything posting as
+Isaac needs his approval, bounce instead of guessing when out of scope or blocked, do the part it can and ask
+one question otherwise). The card is marked read with `handedTo` at once; a failed delivery puts it back.
+The feed's `assistant` field (Astra for eCard sources, Nova for the rest) is the phone's default target.
+
+Bounce: an assistant runs `bun ~/Eva/.omp/tools/catchup.ts bounce <id> "<reason>"` (agent from
+`$RELAY_ASSISTANT`), which posts to `POST /catchup/bounce` on loopback (`{ id, agent, reason }`; the
+`catchup.bounce` frame does the same). The card is unread again, no longer handed, first in the deck with
+`bounce { agent, reason, at }`, until Isaac reads it. All of it persists in `catchup-state.json`
+(`read`, `handed`, `bounced`).
 
 ## Differences from the Mac app
 

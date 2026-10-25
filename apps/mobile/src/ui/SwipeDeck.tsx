@@ -22,7 +22,7 @@ import {
   type SwipeCardHandle,
   type SwipeCardRole,
   type SwipeDirection,
-  type SwipeProgress,
+  type SwipeSignals,
 } from "./SwipeCard";
 
 export { UNDER_DROP } from "./SwipeCard";
@@ -36,8 +36,12 @@ export interface SwipeDeckProps<T> {
   keyOf: (item: T) => string;
   /** Called again on every deck render for cards that are already mounted: memoize the face. */
   renderCard: (item: T) => ReactNode;
-  /** Drawn over the top card with its signed drag progress (-1 left .. 1 right). */
-  renderOverlay?: (progress: SwipeProgress) => ReactNode;
+  /** Drawn over the top card from its drag signals (sideways -1..1, up 0..1). */
+  renderOverlay?: (signals: SwipeSignals) => ReactNode;
+  /** Whether `item` can be thrown up; off by default. */
+  canSwipeUp?: (item: T) => boolean;
+  /** A finger held still on the top card. */
+  onLongPress?: (item: T) => void;
   onSwipe: (item: T, direction: SwipeDirection) => void;
   ref?: Ref<SwipeDeckHandle>;
 }
@@ -47,10 +51,10 @@ const SLOTS = 3;
 const PRELOAD_DELAY_MS = 350;
 const ROLES: readonly SwipeCardRole[] = ["top", "under", "waiting"];
 
-export function SwipeDeck<T>({ items, keyOf, renderCard, renderOverlay, onSwipe, ref }: SwipeDeckProps<T>) {
-  const { width } = useWindowDimensions();
-  const [motion, setMotion] = useState<DeckMotion>(() => createDeckMotion(width));
-  if (motion.width !== width) setMotion(createDeckMotion(width));
+export function SwipeDeck<T>({ items, keyOf, renderCard, renderOverlay, canSwipeUp, onLongPress, onSwipe, ref }: SwipeDeckProps<T>) {
+  const { width, height } = useWindowDimensions();
+  const [motion, setMotion] = useState<DeckMotion>(() => createDeckMotion(width, height));
+  if (motion.width !== width || motion.height !== height) setMotion(createDeckMotion(width, height));
   const roles = useRef(new Map<string, CardRoles>());
   const top = useRef<SwipeCardHandle>(null);
   // A card thrown and then put back (Keep Unread on the last cards) comes back fresh, under a new key.
@@ -107,6 +111,14 @@ export function SwipeDeck<T>({ items, keyOf, renderCard, renderOverlay, onSwipe,
               motion={motion}
               roles={rolesOf(key, role)}
               role={role}
+              upEnabled={canSwipeUp?.(item) ?? false}
+              onLongPress={
+                onLongPress === undefined
+                  ? undefined
+                  : () => {
+                      onLongPress(item);
+                    }
+              }
               overlay={renderOverlay}
               onSwiped={(direction) => {
                 const id = keyOf(item);
