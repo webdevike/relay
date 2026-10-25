@@ -636,6 +636,50 @@ export const UsageSnapshot = z.object({
 export type UsageSnapshot = z.infer<typeof UsageSnapshot>;
 
 // ---------------------------------------------------------------------------------------------
+// Catch Up: a deck of things that need Isaac's attention (Slack, PR reviews, meeting action
+// items, work items whose move is his). The feed is written by `catchup-build` in the Eva hub
+// (`work/elysia/catchup.json`, `CatchUpFeed`); the host adds read state and pushes
+// `catchup.snapshot` to every phone whenever the feed or the read state changes.
+// ---------------------------------------------------------------------------------------------
+
+export const CATCHUP_SOURCES = ["slack", "github", "meeting", "work"] as const;
+export const CatchUpSource = z.enum(CATCHUP_SOURCES);
+export type CatchUpSource = z.infer<typeof CatchUpSource>;
+
+export const CatchUpItem = z.object({
+  /** Stable hash of source + ref, so read state survives rebuilds of the feed. */
+  id: nonEmpty,
+  source: CatchUpSource,
+  /** Where it came from, shown above the title: `#release-management`, `PR #234`, `Meeting`. */
+  label: nonEmpty,
+  title: nonEmpty,
+  /** Markdown. */
+  body: z.string(),
+  /** Opened by the card's Open link; http(s) only (a phone cannot open the Mac's file:// notes). */
+  url: z.string().regex(/^https?:\/\//i).optional(),
+  /** ISO 8601. */
+  ts: z.string().datetime({ offset: true }),
+  /** 3 = most important; the deck shows higher first, then newer first. */
+  importance: z.number().int().min(1).max(3),
+});
+export type CatchUpItem = z.infer<typeof CatchUpItem>;
+
+/** The feed file as the builder writes it. */
+export const CatchUpFeed = z.object({ items: z.array(CatchUpItem) });
+export type CatchUpFeed = z.infer<typeof CatchUpFeed>;
+
+/** A feed item with the host's read state. */
+export const CatchUpCard = CatchUpItem.extend({ read: z.boolean() });
+export type CatchUpCard = z.infer<typeof CatchUpCard>;
+
+export const CatchUpSnapshot = z.object({
+  /** Every feed item in deck order (importance, then newest first), read ones included. */
+  items: z.array(CatchUpCard),
+  unreadCount: z.number().int().min(0),
+});
+export type CatchUpSnapshot = z.infer<typeof CatchUpSnapshot>;
+
+// ---------------------------------------------------------------------------------------------
 // Boards: live dashboards. A board is a titled grid of widget tiles the host stores as JSON and
 // streams to subscribed clients. One global `rev` covers every board; each successful write bumps
 // it by one and sends the full changed board (or its removal) as a `board.delta`.
@@ -904,6 +948,10 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("usage.get") }),
   /** Refetch usage now; `usage.snapshot` follows (refreshing, then done). */
   z.object({ t: z.literal("usage.refresh") }),
+  /** Ask for the Catch Up deck; answered by `catchup.snapshot`. */
+  z.object({ t: z.literal("catchup.list") }),
+  /** Mark a Catch Up item read or unread; every phone gets the new `catchup.snapshot`. Unknown ids are ignored. */
+  z.object({ t: z.literal("catchup.mark"), id: nonEmpty, read: z.boolean() }),
   /** Ask for a one-time ticket to open VNC_PATH; answered by `vnc.ticket` or `vnc.unavailable`. */
   z.object({ t: z.literal("vnc.open") }),
   /**
@@ -1020,6 +1068,8 @@ export const ServerMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("gate.status"), gate: GateStatus.nullable() }),
   /** Usage of every omp account; the answer to `usage.get`/`usage.refresh`, and pushed when a refresh ends. */
   z.object({ t: z.literal("usage.snapshot"), usage: UsageSnapshot }),
+  /** The Catch Up deck; the answer to `catchup.list`, and pushed when the feed or read state changes. */
+  CatchUpSnapshot.extend({ t: z.literal("catchup.snapshot") }),
   /** Answer to `vnc.open`: open `VNC_PATH?ticket=<ticket>` within VNC_TICKET_TTL_MS. Single use. */
   z.object({ t: z.literal("vnc.ticket"), ticket: nonEmpty }),
   /** Answer to `vnc.open` when nothing listens on the Mac's VNC port: Screen Sharing is off. */

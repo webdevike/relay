@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { webcrypto } from "node:crypto";
 import client from "../fixtures/client-messages.json";
 import server from "../fixtures/server-messages.json";
-import { MAX_CALL_AUDIO_BASE64, MAX_SIGNIN_FIELD, authProof, fromHex, hmacSha256, parseClientMessage, parseServerMessage, toHex } from "../src";
+import { CatchUpFeed, CatchUpItem, MAX_CALL_AUDIO_BASE64, MAX_SIGNIN_FIELD, authProof, fromHex, hmacSha256, parseClientMessage, parseServerMessage, toHex } from "../src";
 
 const sha256 = (d: Uint8Array) => webcrypto.subtle.digest("SHA-256", d);
 
@@ -206,6 +206,38 @@ describe("habit gate", () => {
     expect(parseClientMessage(cmd({ kind: "gate.override", reason: "   " })).ok).toBe(false);
     expect(parseClientMessage(cmd({ kind: "gate.start", id: "" })).ok).toBe(false);
     expect(parseClientMessage(JSON.stringify({ t: "gate.get" })).ok).toBe(true);
+  });
+});
+
+describe("catch up", () => {
+  const item = { id: "slack:abc123", source: "slack", label: "#release-management", title: "Todd asked about the release", body: "**Todd** · can you check?", url: "https://ecardplatform.slack.com/archives/C1/p1", ts: "2026-10-23T18:58:00Z", importance: 3 };
+
+  it("lists and marks", () => {
+    expect(parseClientMessage(JSON.stringify({ t: "catchup.list" })).ok).toBe(true);
+    expect(parseClientMessage(JSON.stringify({ t: "catchup.mark", id: "slack:abc123", read: true })).ok).toBe(true);
+    expect(parseClientMessage(JSON.stringify({ t: "catchup.mark", id: "slack:abc123", read: false })).ok).toBe(true);
+    expect(parseClientMessage(JSON.stringify({ t: "catchup.mark", id: "", read: true })).ok).toBe(false);
+    expect(parseClientMessage(JSON.stringify({ t: "catchup.mark", id: "x" })).ok).toBe(false);
+  });
+
+  it("snapshot carries cards with read state and the unread count", () => {
+    const frame = { t: "catchup.snapshot", items: [{ ...item, read: false }, { ...item, id: "work:ENG-1", source: "work", url: undefined, read: true }], unreadCount: 1 };
+    const parsed = parseServerMessage(JSON.stringify(frame));
+    expect(parsed.ok && parsed.value.t === "catchup.snapshot" ? parsed.value.unreadCount : null).toBe(1);
+    expect(parseServerMessage(JSON.stringify({ t: "catchup.snapshot", items: [], unreadCount: 0 })).ok).toBe(true);
+    expect(parseServerMessage(JSON.stringify({ ...frame, unreadCount: -1 })).ok).toBe(false);
+    expect(parseServerMessage(JSON.stringify({ ...frame, items: [item] })).ok).toBe(false); // read missing
+  });
+
+  it("feed items need a known source, ISO time, importance 1-3 and an http(s) url", () => {
+    expect(CatchUpFeed.safeParse({ items: [item] }).success).toBe(true);
+    expect(CatchUpItem.safeParse({ ...item, url: undefined }).success).toBe(true);
+    expect(CatchUpItem.safeParse({ ...item, ts: "2026-10-23T18:58:00.000-04:00" }).success).toBe(true);
+    expect(CatchUpItem.safeParse({ ...item, source: "gmail" }).success).toBe(false);
+    expect(CatchUpItem.safeParse({ ...item, ts: "yesterday" }).success).toBe(false);
+    expect(CatchUpItem.safeParse({ ...item, importance: 4 }).success).toBe(false);
+    expect(CatchUpItem.safeParse({ ...item, importance: 0 }).success).toBe(false);
+    expect(CatchUpItem.safeParse({ ...item, url: "file:///Users/ike/notes.md" }).success).toBe(false);
   });
 });
 
