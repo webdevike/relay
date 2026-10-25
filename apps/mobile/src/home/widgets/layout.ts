@@ -6,7 +6,8 @@
  * Sizes follow the iOS home screen: `small` is a square half the row wide (2x2), `medium` spans the
  * row at the same height (4x2), `large` spans the row at two smalls' height plus the gap (4x4).
  * Small widgets flow two to a row in list order; a medium or large widget always takes a row of
- * its own, so a small widget right before it sits alone on the left.
+ * its own, so a small widget right before it sits alone on the left. Rows then fill pages one
+ * screen tall (`paginateWidgets`), like the home screen's pages.
  */
 
 export const WIDGET_KINDS = ["catchup", "usage", "assistants", "inbox", "boards", "apps"] as const;
@@ -219,6 +220,58 @@ export function layoutSlots(
     y = height + metrics.gap;
   }
   return { slots, height };
+}
+
+/**
+ * Home's pages, as on the iPhone home screen: rows in order, a new page whenever the next row would
+ * run past `pageHeight`. Pages break between rows, so each page lays out on its own exactly as the
+ * rows did in the full list. A page always takes at least one row, even one taller than the page.
+ */
+export function paginateWidgets(
+  widgets: readonly HomeWidget[],
+  metrics: GridMetrics,
+  pageHeight: number,
+): HomeWidget[][] {
+  const pages: HomeWidget[][] = [];
+  let page: HomeWidget[] = [];
+  let used = 0;
+  for (const row of flowRows(widgets)) {
+    const rowHeight = Math.max(...row.map((w) => widgetBox(w.size, metrics).height));
+    const needed = page.length === 0 ? rowHeight : used + metrics.gap + rowHeight;
+    if (page.length > 0 && needed > pageHeight) {
+      pages.push(page);
+      page = [];
+      used = rowHeight;
+    } else {
+      used = needed;
+    }
+    page.push(...row);
+  }
+  if (page.length > 0) pages.push(page);
+  return pages;
+}
+
+/**
+ * Carries `id` onto the page before (`-1`, to that page's start) or after (`1`, to its end), the
+ * jiggle-mode drag to a screen edge. The neighbour's far end is where the flow keeps it off its
+ * old page. No such page, or an unknown id, changes nothing.
+ */
+export function moveToPage(
+  widgets: readonly HomeWidget[],
+  pages: readonly (readonly HomeWidget[])[],
+  id: string,
+  delta: -1 | 1,
+): HomeWidget[] {
+  const from = pages.findIndex((page) => page.some((w) => w.id === id));
+  const target = pages[from + delta];
+  if (from === -1 || target === undefined || target.length === 0) return [...widgets];
+  const anchor = delta < 0 ? target[0] : target[target.length - 1];
+  const without = widgets.filter((w) => w.id !== id);
+  const at = without.findIndex((w) => w.id === anchor?.id);
+  const moving = widgets.find((w) => w.id === id);
+  if (at === -1 || moving === undefined) return [...widgets];
+  without.splice(delta < 0 ? at : at + 1, 0, moving);
+  return without;
 }
 
 /** The slot under a point, other than `exclude` (the one being dragged); null over a gap. Runs on the UI thread. */

@@ -4,9 +4,11 @@ import {
   DEFAULT_WIDGETS,
   flowRows,
   layoutSlots,
+  moveToPage,
   moveWidget,
   nextWidgetId,
   normalizeWidgets,
+  paginateWidgets,
   removeWidget,
   resizeWidget,
   shiftWidget,
@@ -198,5 +200,51 @@ describe("flow and slots", () => {
     expect(slotAt(slots, 105, 50, "x")).toBeNull();
     // The gap between rows is not a widget.
     expect(slotAt(slots, 50, 105, "x")).toBeNull();
+  });
+});
+
+describe("pages", () => {
+  const metrics = { width: 210, gap: 10 };
+  const pageIds = (pages: HomeWidget[][]): string[][] => pages.map(ids);
+
+  it("fills a page with as many rows as fit, breaking between rows", () => {
+    // Rows 100 (m), 100 (a b), 210 (l), 100 (c): 100 + 10 + 100 = 210 fits 320, + 10 + 210 does not.
+    const widgets = [m("m"), s("a"), s("b"), l("l"), s("c")];
+    expect(pageIds(paginateWidgets(widgets, metrics, 320))).toEqual([["m", "a", "b"], ["l", "c"]]);
+    // Exactly the page height still fits.
+    expect(pageIds(paginateWidgets(widgets, metrics, 210))).toEqual([["m", "a", "b"], ["l"], ["c"]]);
+  });
+
+  it("keeps everything on one page when it fits, and no pages when empty", () => {
+    expect(pageIds(paginateWidgets([m("m"), s("a")], metrics, 1000))).toEqual([["m", "a"]]);
+    expect(paginateWidgets([], metrics, 500)).toEqual([]);
+  });
+
+  it("gives a row taller than the page a page of its own", () => {
+    expect(pageIds(paginateWidgets([l("l"), s("a")], metrics, 50))).toEqual([["l"], ["a"]]);
+  });
+
+  it("lays each page out as the rows were in the full list", () => {
+    const widgets = [s("a"), s("b"), s("c"), m("m")];
+    const pages = paginateWidgets(widgets, metrics, 100);
+    expect(pageIds(pages)).toEqual([["a", "b"], ["c"], ["m"]]);
+    expect(pages.flatMap((page) => flowRows(page).map(ids))).toEqual(flowRows(widgets).map(ids));
+  });
+
+  it("carries a widget to the start of the page before or the end of the page after", () => {
+    const widgets = [m("m"), s("a"), l("l"), s("b"), m("n")];
+    const pages = paginateWidgets(widgets, metrics, 210);
+    expect(pageIds(pages)).toEqual([["m", "a"], ["l"], ["b", "n"]]);
+    expect(ids(moveToPage(widgets, pages, "l", -1))).toEqual(["l", "m", "a", "b", "n"]);
+    expect(ids(moveToPage(widgets, pages, "l", 1))).toEqual(["m", "a", "b", "n", "l"]);
+    expect(ids(moveToPage(widgets, pages, "a", 1))).toEqual(["m", "l", "a", "b", "n"]);
+  });
+
+  it("changes nothing past the first or last page, or for an unknown id", () => {
+    const widgets = [m("m"), l("l")];
+    const pages = paginateWidgets(widgets, metrics, 100);
+    expect(ids(moveToPage(widgets, pages, "m", -1))).toEqual(["m", "l"]);
+    expect(ids(moveToPage(widgets, pages, "l", 1))).toEqual(["m", "l"]);
+    expect(ids(moveToPage(widgets, pages, "x", 1))).toEqual(["m", "l"]);
   });
 });

@@ -1,13 +1,17 @@
 /**
  * Home's widget grid, behaving like the iOS home screen.
  *
+ * Widgets fill pages one screen tall (`paginateWidgets`: as many rows as fit below whatever sits
+ * above the grid); more than one page swipes sideways on the shared `Pager`, with `PageDots` under it.
  * Long-press (400 ms, haptic) on a widget lifts it and opens the context menu (`WidgetMenu`): the
  * size row, Edit Home Screen and Remove Widget. Keep holding and move the finger instead, and the
  * menu gives way to jiggle mode with that widget in hand, as on iOS. In jiggle mode every widget
  * wiggles and shows a minus badge; a short hold (150 ms) picks one up to drag, and dropping it on
- * another widget's place takes that place (the order persists on drop). Done, or a tap on empty
- * grid space, ends jiggle mode, as does leaving Home (except for the Add Widget sheet, which
- * keeps it, as iOS does). "Add Widget" opens the gallery as a native sheet (`/add-widget`).
+ * another widget's place on the same page takes that place (the order persists on drop). Carrying
+ * it to the screen's edge moves it to the page beyond and turns to that page. Done (in Home's
+ * header, `WidgetEditBar`), or a tap on empty grid space, ends jiggle mode, as does leaving Home
+ * (except for the Add Widget sheet, which keeps it, as iOS does). "Add Widget" opens the gallery
+ * as a native sheet (`/add-widget`).
  * Dragging is not accessible, so each widget carries VoiceOver actions (resize, move up or down,
  * remove, edit) and the menu lists Move Up and Move Down while VoiceOver is on.
  */
@@ -38,12 +42,18 @@ import { Button } from "@/ui/Button";
 import { impactHaptic, tapHaptic } from "@/lib/haptics";
 import { useSettingsStore } from "@/state/settings";
 import { spacing, useColors } from "@/theme";
+import { IconButton } from "@/ui/IconButton";
+import { PageDots } from "@/ui/PageControls";
+import { Pager, usePager } from "@/ui/Pager";
 import {
   layoutSlots,
+  moveToPage,
   moveWidget,
+  paginateWidgets,
   slotAt,
   WIDGET_GAP,
   WIDGET_SIZES,
+  type GridMetrics,
   type HomeWidget,
   type WidgetSlot,
 } from "./layout";
@@ -61,18 +71,33 @@ const SPRING = { damping: 20, stiffness: 220, mass: 0.9 } as const;
 const WIGGLE_MS = 130;
 /** The wiggle's sideways travel at a widget's edge, in points; a wider widget turns less. */
 const WIGGLE_TRAVEL = 2.4;
+/** A held widget whose finger comes this close to the screen's side moves to the page beyond. */
+const EDGE_ZONE = 28;
+/** Room above each page's first row for a jiggling widget's minus badge and lift. */
+const PAGE_TOP = 10;
+/** Height of the page-dots strip under the pages. */
+const DOTS_ROW = 22;
+/** Space below the dots. */
+const GRID_BOTTOM = spacing.md;
 
 interface ItemProps {
   widget: HomeWidget;
   slot: WidgetSlot;
   index: number;
   count: number;
+  /** The page this widget is on; `slots` holds every page's slots in page-local coordinates. */
+  pageIndex: number;
+  hasPrev: boolean;
+  hasNext: boolean;
+  /** Width of the screen the pages slide across, for the edge that turns the page. */
+  screenWidth: number;
   editing: boolean;
   editingSV: SharedValue<boolean>;
-  slots: SharedValue<WidgetSlot[]>;
+  slots: SharedValue<WidgetSlot[][]>;
   open: (href: Href) => void;
   onHover: (dragId: string, targetId: string) => void;
   onDrop: () => void;
+  onCross: (dragId: string, delta: -1 | 1) => void;
 }
 
 function WidgetItem({
@@ -80,12 +105,17 @@ function WidgetItem({
   slot,
   index,
   count,
+  pageIndex,
+  hasPrev,
+  hasNext,
+  screenWidth,
   editing,
   editingSV,
   slots,
   open,
   onHover,
   onDrop,
+  onCross,
 }: ItemProps) {
   const colors = useColors();
   const reduceMotion = useReducedMotion();
@@ -110,6 +140,8 @@ function WidgetItem({
   const hovered = useSharedValue<string | null>(null);
   const lift = useSharedValue(1);
   const wiggle = useSharedValue(0);
+  // This drag already carried the widget to another page; one move per pick-up.
+  const crossed = useSharedValue(false);
 
   useEffect(() => {
     x.value = withSpring(slot.x, SPRING);
@@ -175,6 +207,7 @@ function WidgetItem({
           tx.value = 0;
           ty.value = 0;
           hovered.value = null;
+          crossed.value = false;
           if (editingSV.value) {
             dragging.value = true;
             lift.value = withSpring(LIFT, SPRING);
@@ -199,8 +232,17 @@ function WidgetItem({
           }
           tx.value = event.translationX - startX.value;
           ty.value = event.translationY - startY.value;
+          if (!crossed.value) {
+            const delta =
+              event.absoluteX < EDGE_ZONE ? -1 : event.absoluteX > screenWidth - EDGE_ZONE ? 1 : 0;
+            if ((delta === -1 && hasPrev) || (delta === 1 && hasNext)) {
+              crossed.value = true;
+              scheduleOnRN(onCross, id, delta);
+              return;
+            }
+          }
           const target = slotAt(
-            slots.value,
+            slots.value[pageIndex] ?? [],
             baseX.value + tx.value + w.value / 2,
             baseY.value + ty.value + h.value / 2,
             id,
@@ -215,7 +257,7 @@ function WidgetItem({
             dragging.value = false;
             x.value = baseX.value + tx.value;
             y.value = baseY.value + ty.value;
-            const home = slots.value.find((s) => s.id === id);
+            const home = slots.value[pageIndex]?.find((s) => s.id === id);
             if (home !== undefined) {
               x.value = withSpring(home.x, SPRING);
               y.value = withSpring(home.y, SPRING);
@@ -235,11 +277,17 @@ function WidgetItem({
       editingSV,
       slots,
       id,
+      pageIndex,
+      hasPrev,
+      hasNext,
+      screenWidth,
       hold,
       pickUp,
       release,
       onHover,
       onDrop,
+      onCross,
+      crossed,
       x,
       y,
       w,
@@ -347,28 +395,90 @@ function DonePill({ onPress }: { onPress: () => void }) {
   );
 }
 
-export function WidgetGrid() {
+function finishEditing() {
+  tapHaptic();
+  useWidgetUi.getState().set({ editing: false });
+}
+
+/** Jiggle mode's controls for Home's header, where iOS keeps them: Add Widget and Done. */
+export function WidgetEditBar() {
+  const router = useRouter();
+  const setUi = useWidgetUi((state) => state.set);
+  return (
+    <Animated.View
+      entering={FadeIn.duration(160)}
+      exiting={FadeOut.duration(120)}
+      style={styles.editBar}
+    >
+      <IconButton
+        symbol="plus"
+        size={30}
+        accessibilityLabel="Add Widget"
+        onPress={() => {
+          setUi({ adding: true });
+          router.push("/add-widget");
+        }}
+      />
+      <DonePill onPress={finishEditing} />
+    </Animated.View>
+  );
+}
+
+export interface WidgetGridProps {
+  /** Visible height of Home's scroll body; a page fills what is left of it below the grid's top. */
+  viewportHeight: number;
+}
+
+export function WidgetGrid({ viewportHeight }: WidgetGridProps) {
   const router = useRouter();
   const widgets = useSettingsStore((state) => state.homeWidgets);
   const editing = useWidgetUi((state) => state.editing);
+  const holding = useWidgetUi((state) => state.holding);
   const setUi = useWidgetUi((state) => state.set);
-  const [width, setWidth] = useState(0);
+  // Pages slide edge to edge, so the grid spans the screen; `top` is its offset in Home's scroll content.
+  const [frame, setFrame] = useState({ width: 0, top: 0 });
   // The order while a drag is in flight; committed to settings on drop.
   const [preview, setPreview] = useState<HomeWidget[] | null>(null);
   const draft = useRef<HomeWidget[] | null>(null);
   const shown = preview ?? widgets;
-  const { slots, height } = useMemo(
-    () => layoutSlots(shown, { width, gap: WIDGET_GAP }),
-    [shown, width],
+  const metrics: GridMetrics = useMemo(
+    () => ({ width: Math.max(0, frame.width - spacing.lg * 2), gap: WIDGET_GAP }),
+    [frame.width],
   );
-  const slotsSV = useSharedValue<WidgetSlot[]>(slots);
+  const pageHeight = viewportHeight - frame.top - PAGE_TOP * 2 - DOTS_ROW - GRID_BOTTOM;
+  const committed = useMemo(
+    () => paginateWidgets(widgets, metrics, pageHeight),
+    [widgets, metrics, pageHeight],
+  );
+  // A drag in flight only reorders its own page, so every page keeps its widgets until the drop.
+  const pages = useMemo(() => {
+    if (preview === null) return committed;
+    const pageOf = new Map(committed.flatMap((page, i) => page.map((w) => [w.id, i] as const)));
+    const grouped = committed.map((): HomeWidget[] => []);
+    for (const widget of preview) grouped[pageOf.get(widget.id) ?? 0]?.push(widget);
+    return grouped;
+  }, [preview, committed]);
+  const layouts = useMemo(() => pages.map((page) => layoutSlots(page, metrics)), [pages, metrics]);
+  const slotsSV = useSharedValue<WidgetSlot[][]>(layouts.map((layout) => layout.slots));
   const editingSV = useSharedValue(editing);
   useEffect(() => {
-    slotsSV.value = slots;
-  }, [slots, slotsSV]);
+    slotsSV.value = layouts.map((layout) => layout.slots);
+  }, [layouts, slotsSV]);
   useEffect(() => {
     editingSV.value = editing;
   }, [editing, editingSV]);
+
+  const { page, setPage } = usePager(pages.length);
+  const shownPage = Math.min(page, Math.max(0, pages.length - 1));
+  // Removing widgets can take away the page being shown.
+  useEffect(() => {
+    if (page !== shownPage) setPage(shownPage);
+  }, [page, shownPage, setPage]);
+  // What a drag carried to the screen's edge reads, without rebuilding every widget's gesture.
+  const latest = useRef({ pages, metrics, pageHeight, page: shownPage });
+  useEffect(() => {
+    latest.current = { pages, metrics, pageHeight, page: shownPage };
+  }, [pages, metrics, pageHeight, shownPage]);
 
   // Leaving Home ends jiggle mode and drops a menu left open.
   useFocusEffect(
@@ -407,56 +517,95 @@ export function WidgetGrid() {
     if (next !== null) editWidgets(() => next);
   }, []);
 
-  const finish = useCallback(() => {
-    tapHaptic();
-    setUi({ editing: false });
-  }, [setUi]);
+  // The held widget reached the screen's edge: it moves to the next page over and Home turns to it.
+  const cross = useCallback(
+    (dragId: string, delta: -1 | 1) => {
+      const current = latest.current;
+      const base = draft.current ?? useSettingsStore.getState().homeWidgets;
+      const next = moveToPage(base, current.pages, dragId, delta);
+      draft.current = null;
+      setPreview(null);
+      editWidgets(() => next);
+      const landing = paginateWidgets(next, current.metrics, current.pageHeight).findIndex((p) =>
+        p.some((w) => w.id === dragId),
+      );
+      if (landing === -1 || landing === current.page) return;
+      // On another page the widget is drawn anew, out of the finger's hold.
+      setUi({ holding: false });
+      tapHaptic();
+      setPage(landing);
+    },
+    [setUi, setPage],
+  );
 
-  const slotOf = new Map(slots.map((slot) => [slot.id, slot]));
+  const slotOf = new Map(layouts.flatMap((layout) => layout.slots.map((slot) => [slot.id, slot])));
+  const indexOf = new Map(shown.map((widget, index) => [widget.id, index]));
 
   return (
-    <View style={styles.wrap}>
-      {editing && <Pressable style={StyleSheet.absoluteFill} onPress={finish} accessible={false} />}
-      {editing && (
-        <Animated.View
-          entering={FadeIn.duration(160)}
-          exiting={FadeOut.duration(120)}
-          style={styles.editBar}
-        >
-          <DonePill onPress={finish} />
-        </Animated.View>
+    <View
+      style={styles.wrap}
+      onLayout={(event) => {
+        const { width, y } = event.nativeEvent.layout;
+        setFrame((current) =>
+          current.width === width && current.top === y ? current : { width, top: y },
+        );
+      }}
+    >
+      {frame.width > 0 && viewportHeight > 0 && pages.length > 0 && (
+        <>
+          <Pager
+            width={frame.width}
+            page={shownPage}
+            onPageChange={setPage}
+            scrollEnabled={!holding}
+          >
+            {pages.map((pageWidgets, p) => (
+              <View key={p} style={styles.page}>
+                {editing && (
+                  <Pressable
+                    style={StyleSheet.absoluteFill}
+                    onPress={finishEditing}
+                    accessible={false}
+                  />
+                )}
+                <View style={{ height: layouts[p]?.height ?? 0 }}>
+                  {pageWidgets.map((widget) => {
+                    const slot = slotOf.get(widget.id);
+                    if (slot === undefined) return null;
+                    return (
+                      <WidgetItem
+                        key={widget.id}
+                        widget={widget}
+                        slot={slot}
+                        index={indexOf.get(widget.id) ?? 0}
+                        count={shown.length}
+                        pageIndex={p}
+                        hasPrev={p > 0}
+                        hasNext={p < pages.length - 1}
+                        screenWidth={frame.width}
+                        editing={editing}
+                        editingSV={editingSV}
+                        slots={slotsSV}
+                        open={open}
+                        onHover={hover}
+                        onDrop={drop}
+                        onCross={cross}
+                      />
+                    );
+                  })}
+                </View>
+              </View>
+            ))}
+          </Pager>
+          <View style={styles.dots}>
+            <PageDots page={shownPage} count={pages.length} />
+          </View>
+        </>
       )}
-      <View
-        style={{ height }}
-        onLayout={(event) => {
-          setWidth(event.nativeEvent.layout.width);
-        }}
-      >
-        {width > 0 &&
-          shown.map((widget, index) => {
-            const slot = slotOf.get(widget.id);
-            if (slot === undefined) return null;
-            return (
-              <WidgetItem
-                key={widget.id}
-                widget={widget}
-                slot={slot}
-                index={index}
-                count={shown.length}
-                editing={editing}
-                editingSV={editingSV}
-                slots={slotsSV}
-                open={open}
-                onHover={hover}
-                onDrop={drop}
-              />
-            );
-          })}
-      </View>
-      {(editing || widgets.length === 0) && (
+      {widgets.length === 0 && (
         <View style={styles.add}>
           <Button
-            label={editing ? "Add Widget" : "Add Widgets"}
+            label="Add Widgets"
             variant="secondary"
             height={44}
             onPress={() => {
@@ -471,8 +620,11 @@ export function WidgetGrid() {
 }
 
 const styles = StyleSheet.create({
-  wrap: { marginHorizontal: spacing.lg, paddingBottom: spacing.lg },
-  editBar: { flexDirection: "row", justifyContent: "flex-end", paddingBottom: spacing.md },
+  wrap: { paddingBottom: GRID_BOTTOM },
+  editBar: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  // Room on every side for a jiggling widget's minus badge and lift, inside the pager's clip.
+  page: { flexGrow: 1, paddingHorizontal: spacing.lg, paddingVertical: PAGE_TOP },
+  dots: { height: DOTS_ROW, justifyContent: "center" },
   item: { position: "absolute", left: 0, top: 0 },
   fill: { flex: 1 },
   badgeWrap: { position: "absolute", left: -7, top: -7 },
@@ -491,5 +643,5 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   doneText: { fontWeight: "600" },
-  add: { paddingTop: spacing.md },
+  add: { paddingTop: spacing.md, paddingHorizontal: spacing.lg },
 });

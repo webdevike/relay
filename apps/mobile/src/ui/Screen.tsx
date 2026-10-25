@@ -1,5 +1,5 @@
 import type { ReactElement, ReactNode } from "react";
-import { ScrollView, StyleSheet, View, type RefreshControlProps } from "react-native";
+import { ScrollView, StyleSheet, View, type LayoutChangeEvent, type RefreshControlProps } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Text } from "./Text";
 import { spacing, useColors } from "@/theme";
@@ -14,10 +14,26 @@ export interface ScreenProps {
   refreshControl?: ReactElement<RefreshControlProps>;
   /** False holds a scrolling body still, e.g. while something inside it is being dragged. */
   scrollEnabled?: boolean;
+  /** The body's visible height (below the header), on every layout; Home fills its pages from it. */
+  onBodyHeight?: (height: number) => void;
 }
 
-export function Screen({ title, headerRight, children, scroll = false, refreshControl, scrollEnabled = true }: ScreenProps) {
+export function Screen({
+  title,
+  headerRight,
+  children,
+  scroll = false,
+  refreshControl,
+  scrollEnabled = true,
+  onBodyHeight,
+}: ScreenProps) {
   const colors = useColors();
+  const onLayout =
+    onBodyHeight === undefined
+      ? undefined
+      : (e: LayoutChangeEvent) => {
+          onBodyHeight(e.nativeEvent.layout.height);
+        };
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: colors.bg }]} edges={["top", "bottom"]}>
       {(title !== undefined || headerRight !== undefined) && (
@@ -38,11 +54,14 @@ export function Screen({ title, headerRight, children, scroll = false, refreshCo
           automaticallyAdjustKeyboardInsets
           refreshControl={refreshControl}
           scrollEnabled={scrollEnabled}
+          onLayout={onLayout}
         >
           {children}
         </ScrollView>
       ) : (
-        <View style={styles.body}>{children}</View>
+        <View style={styles.body} onLayout={onLayout}>
+          {children}
+        </View>
       )}
     </SafeAreaView>
   );

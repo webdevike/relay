@@ -1,10 +1,13 @@
 /**
  * Home: iPhone-style widgets (`home/widgets`: usage, assistants, inbox, boards, and apps, the iOS
  * Settings-style list of everything the phone can do with the host; long-press to resize, remove
- * or edit, drag in jiggle mode). While the host's habit gate is locked its card leads. The Work |
- * Personal switch on top scopes the app to one omp account (`lib/profile.ts`): the inbox counts
- * here and the inbox itself show that account's sessions, and new sessions run on it.
+ * or edit, drag in jiggle mode), in pages one screen tall that swipe sideways once they outgrow
+ * it. While the host's habit gate is locked its card leads. The Work | Personal switch on top
+ * scopes the app to one omp account (`lib/profile.ts`): the inbox counts here and the inbox itself
+ * show that account's sessions, and new sessions run on it. In jiggle mode the header holds Add
+ * Widget and Done in place of the connection pill.
  */
+import { useState } from "react";
 import { useRouter } from "expo-router";
 import { StyleSheet, View } from "react-native";
 import { Screen } from "@/ui/Screen";
@@ -19,7 +22,7 @@ import { useConnectionStore, type ConnectionStatus } from "@/state/connection";
 import { useGateStore } from "@/state/gate";
 import { HabitGate } from "@/gate/HabitGate";
 import { actions } from "@/state/actions";
-import { WidgetGrid } from "@/home/widgets/WidgetGrid";
+import { WidgetEditBar, WidgetGrid } from "@/home/widgets/WidgetGrid";
 import { WidgetMenu } from "@/home/widgets/WidgetMenu";
 import { useWidgetUi } from "@/home/widgets/ui";
 
@@ -48,14 +51,17 @@ export default function Home() {
   const gateLocked = useGateStore((state) => state.gate?.locked === true);
   // A held widget owns the finger; the page must not scroll under it.
   const holding = useWidgetUi((state) => state.holding);
+  const editing = useWidgetUi((state) => state.editing);
+  const [bodyHeight, setBodyHeight] = useState(0);
 
   return (
     <View style={styles.root}>
       <Screen
         title={macName ?? "Relay"}
-        headerRight={<Pill label={pill.label} tone={pill.tone} />}
+        headerRight={editing ? <WidgetEditBar /> : <Pill label={pill.label} tone={pill.tone} />}
         scroll
         scrollEnabled={!holding}
+        onBodyHeight={setBodyHeight}
       >
         <View style={styles.profile}>
           <SegmentedTabs
@@ -96,7 +102,7 @@ export default function Home() {
             <HabitGate />
           </View>
         )}
-        <WidgetGrid />
+        <WidgetGrid viewportHeight={bodyHeight} />
       </Screen>
       <WidgetMenu />
     </View>
