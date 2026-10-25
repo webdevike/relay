@@ -183,6 +183,17 @@ not quiet hours or a habit break, rate limited) and speaks to the host as the de
   the engine already applied the rules. Without EvaOS they behave as before.
 - `RELAY_EXPO_PUSH_URL` points the push sender somewhere else (a scratch host captures sends locally).
 
+## Catch Up (`catchup.list`, `catchup.mark`)
+
+The phone's Catch Up deck comes from a feed file written in the Eva hub by `.omp/tools/catchup-build.ts`
+(`<agent home>/work/elysia/catchup.json`, `CatchUpFeed` in the protocol; `RELAY_CATCHUP_FEED` overrides
+the path). The host watches the feed's directory, keeps read state per item id in
+`$XDG_CONFIG_HOME/relay/catchup-state.json` (0600; marks for ids gone from the feed are dropped after
+30 days), and sends every phone one `catchup.snapshot { items, unreadCount }` whenever the feed or the
+read state changes. `catchup.list` answers the asking phone; `catchup.mark { id, read }` changes the state
+(an unknown id or no change re-sends the snapshot to that phone only). "Keep Unread" is phone-only: the
+card stays unread and goes to the back of that app session's deck. Without an agent home the deck is empty.
+
 ## Differences from the Mac app
 
 - No tray/menu UI; the terminal is the UI.

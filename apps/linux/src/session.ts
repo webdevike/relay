@@ -24,6 +24,7 @@ import {
 } from "@relay/protocol";
 import type { AgentsDeltaTracker } from "./agents/delta-tracker";
 import type { BoardDelta, FileBoardStore } from "./boards/store";
+import { EMPTY_CATCHUP, type CatchUpDeck } from "./catchup/service";
 import type { CommandDedupStore } from "./dedup";
 import type { PairingCoordinator } from "./pairing";
 import type { UsageService } from "./usage/service";
@@ -75,6 +76,8 @@ export interface SessionDeps {
   readonly calls: CallRelaying | null;
   /** null when the host cannot read omp usage; `usage.*` then answers an empty snapshot. */
   readonly usage: UsageService | null;
+  /** null when the host has no Catch Up feed; `catchup.*` then answers an empty deck. */
+  readonly catchup: CatchUpDeck | null;
 }
 
 /** Clock and scheduling seams so tests drive time deterministically. */
@@ -499,6 +502,15 @@ export class ClientSession {
         // The refreshing and finished snapshots arrive through the server's broadcast.
         if (this.deps.usage === null) this.sink.send({ t: "usage.snapshot", usage: { accounts: [], updatedAt: null, refreshing: false } });
         else void this.deps.usage.refresh();
+        break;
+      case "catchup.list":
+        this.sink.send({ t: "catchup.snapshot", ...(this.deps.catchup?.snapshot() ?? EMPTY_CATCHUP) });
+        break;
+      case "catchup.mark":
+        // A change reaches every phone through the server's broadcast; otherwise this phone's optimistic deck is put right.
+        if (this.deps.catchup?.mark(message.id, message.read) !== true) {
+          this.sink.send({ t: "catchup.snapshot", ...(this.deps.catchup?.snapshot() ?? EMPTY_CATCHUP) });
+        }
         break;
       case "assistant.get": {
         // An unknown agent, or no agent from an old phone on a host without threads, follows nothing.

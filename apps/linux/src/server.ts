@@ -11,6 +11,7 @@ import { handleAssistantSay } from "./assistant/http";
 import { handleBoardRequest, isLoopback } from "./boards/http";
 import type { FileBoardStore } from "./boards/store";
 import type { UsageService } from "./usage/service";
+import type { CatchUpDeck } from "./catchup/service";
 import { CommandDedupStore } from "./dedup";
 import { PairingCoordinator } from "./pairing";
 import type { AttentionNotifier } from "./push/notifier";
@@ -66,6 +67,8 @@ export interface ServerDeps {
   readonly calls: CallRelaying | null;
   /** Plan usage of the host's omp accounts; null answers `usage.*` with an empty snapshot. */
   readonly usage: UsageService | null;
+  /** The Catch Up deck; null answers `catchup.*` with an empty deck. */
+  readonly catchup: CatchUpDeck | null;
   readonly pairing: PairingUI;
   readonly log: (line: string) => void;
 }
@@ -435,6 +438,7 @@ export class RelayServer {
         assistant: this.deps.assistant,
         calls: this.deps.calls,
         usage: this.deps.usage,
+        catchup: this.deps.catchup,
       },
       (closed) => {
         const reason = closed.closeReason;

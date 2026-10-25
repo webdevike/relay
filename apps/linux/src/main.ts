@@ -23,6 +23,7 @@ import { FileDeviceStore } from "./device-store";
 import { FileDropStore } from "./drops/store";
 import { FileBoardStore } from "./boards/store";
 import { createUsageService, ompUsageRunner } from "./usage/service";
+import { CatchUpService, defaultCatchUpFeedPath, defaultCatchUpStatePath } from "./catchup/service";
 import { detectTextTyper, KeyboardInjector } from "./input/keyboard";
 import { MacInputDevice } from "./input/macos";
 import { ClipboardPaster, systemCopy } from "./input/paste";
@@ -138,6 +139,19 @@ function serve(
       server.broadcastExcept({ t: "usage.snapshot", usage: snapshot }, null);
     },
   });
+  // Snapshots go out on feed or read-state changes, long after `server` below is initialised.
+  const catchupFeed = defaultCatchUpFeedPath(agentHome);
+  const catchup =
+    catchupFeed === null
+      ? null
+      : new CatchUpService({
+          feedPath: catchupFeed,
+          statePath: defaultCatchUpStatePath(),
+          emit: (snapshot) => {
+            server.broadcastExcept({ t: "catchup.snapshot", ...snapshot }, null);
+          },
+          log,
+        });
   // `isViewing` only runs once sessions change, long after `server` below is initialised.
   const notifier = new AttentionNotifier({
     tokens: pushTokens,
@@ -246,6 +260,7 @@ function serve(
       assistant,
       calls,
       usage,
+      catchup,
       pairing: new TerminalPairingUI(),
       log,
     },
@@ -271,6 +286,8 @@ function serve(
   log(`advertising _relay._tcp via ${advertiser.tool}`);
 
   clipboard?.start();
+  catchup?.start();
+  log(catchupFeed === null ? "catch up disabled (no --agent-home or $RELAY_CATCHUP_FEED)" : `catch up feed ${catchupFeed}`);
   log(
     clipboard === null
       ? watchClipboard
@@ -286,6 +303,7 @@ function serve(
     advertiser.stop();
     server.stop();
     voice?.stop();
+    catchup?.stop();
     device?.close();
     process.exit(0);
   };

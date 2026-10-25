@@ -9,6 +9,7 @@ import { FileBoardStore } from "../src/boards/store";
 import { CommandDedupStore } from "../src/dedup";
 import { PairingCoordinator } from "../src/pairing";
 import type { UsageService } from "../src/usage/service";
+import type { CatchUpDeck } from "../src/catchup/service";
 import { AckFailure, type AgentConfigChange, type AgentProvider, type AssistantRelaying, type AssistantThread, type CallClientMessage, type CallRelaying, type DeviceStore, type DropBox, type FrameSink, type GateCommand, type InboxRelaying, type InputSink, type PairedDevice, type PairingUI, type PushRegistry, type TextInjecting, type VncAccess } from "../src/seams";
 import { ASSISTANT_FOLLOW_MS, ClientSession, PAIRING_TIMEOUT_MS, type SessionClock, type SessionDeps } from "../src/session";
 
@@ -106,6 +107,7 @@ interface HarnessOptions {
   assistant?: AssistantRelaying;
   calls?: CallRelaying;
   usage?: UsageService;
+  catchup?: CatchUpDeck;
 }
 
 function harness(options: HarnessOptions = {}): Harness {
@@ -152,6 +154,7 @@ function harness(options: HarnessOptions = {}): Harness {
     assistant: options.assistant ?? null,
     calls: options.calls ?? null,
     usage: options.usage ?? null,
+    catchup: options.catchup ?? null,
   };
   const sink = new RecordingSink();
   const clock = new FakeClock();
@@ -713,6 +716,33 @@ describe("usage", () => {
     pair(bare);
     bare.session.receive({ t: "usage.get" });
     expect(bare.sink.last()).toEqual({ t: "usage.snapshot", usage: { accounts: [], updatedAt: null, refreshing: false } });
+  });
+});
+
+describe("catch up", () => {
+  it("answers catchup.list with the deck, and catchup.mark marks or re-sends the deck when nothing changed", () => {
+    const card = { id: "slack:1", source: "slack" as const, label: "#general", title: "t", body: "", ts: "2026-10-24T00:00:00.000Z", importance: 3, read: false };
+    const marks: string[] = [];
+    const catchup: CatchUpDeck = {
+      snapshot: () => ({ items: [card], unreadCount: 1 }),
+      mark: (id, read) => (marks.push(`${id}:${String(read)}`), id === "slack:1"),
+    };
+    const h = harness({ catchup });
+    pair(h);
+    h.session.receive({ t: "catchup.list" });
+    expect(h.sink.last()).toEqual({ t: "catchup.snapshot", items: [card], unreadCount: 1 });
+    const sent = h.sink.sent.length;
+    h.session.receive({ t: "catchup.mark", id: "slack:1", read: true });
+    expect(h.sink.sent.length).toBe(sent); // the change goes out through the server's broadcast
+    h.session.receive({ t: "catchup.mark", id: "gone", read: true });
+    expect(h.sink.last()).toEqual({ t: "catchup.snapshot", items: [card], unreadCount: 1 });
+    expect(marks).toEqual(["slack:1:true", "gone:true"]);
+    const bare = harness();
+    pair(bare);
+    bare.session.receive({ t: "catchup.list" });
+    expect(bare.sink.last()).toEqual({ t: "catchup.snapshot", items: [], unreadCount: 0 });
+    bare.session.receive({ t: "catchup.mark", id: "x", read: true });
+    expect(bare.sink.last()).toEqual({ t: "catchup.snapshot", items: [], unreadCount: 0 });
   });
 });
 
