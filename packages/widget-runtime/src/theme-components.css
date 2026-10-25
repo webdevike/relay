@@ -24,3 +24,15 @@
   background: var(--eva-color-popover);
   border-color: var(--mantine-color-default-border);
 }
+
+/* A popover-like card: no colored accent bar, so the start padding matches the end. */
+.eva-theme-notification {
+  padding-inline-start: var(--mantine-spacing-md);
+  padding-inline-end: var(--mantine-spacing-xs);
+  background: var(--eva-color-popover);
+  border: 1px solid var(--mantine-color-default-border);
+}
+
+.eva-theme-notification::before {
+  display: none;
+}

@@ -429,6 +429,7 @@ export function themeOverrideFor(config: ThemeConfig): MantineThemeOverride {
       InputBase: { classNames: { input: "eva-theme-input" } },
       // Menus render only through overlay/EvaMenu on the desktop.
       Menu: { classNames: { dropdown: "eva-theme-popover" } },
+      Notification: { classNames: { root: "eva-theme-notification" } },
       Select: { classNames: { input: "eva-theme-input" } },
       Textarea: { classNames: { input: "eva-theme-input" } },
       TextInput: { classNames: { input: "eva-theme-input" } },
