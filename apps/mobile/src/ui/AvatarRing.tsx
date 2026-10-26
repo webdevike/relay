@@ -11,6 +11,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { loadSkia } from "@/dictation/skia";
 import { motion, spacing, useScheme } from "@/theme";
+import { Portrait } from "./Portrait";
 import { Text } from "./Text";
 
 /** A full ring breath, out and back: the loop runs 1.0 to 1.06 in this long each way. */
@@ -24,6 +25,9 @@ export const NAME_PILL_GAP = spacing.sm - 2;
 /** Default outer diameter of the ring. */
 export const RING_SIZE = 65;
 
+/** Width of the band around a portrait. */
+const PORTRAIT_BAND = 3;
+
 // A ring: a pale translucent band around a transparent hole, so the blurred page shows through its centre.
 const RING = {
   dark: "rgba(188,193,211,0.85)",
@@ -35,13 +39,16 @@ export interface AvatarRingProps {
   size?: number;
   /** The ring breathes while true: the agent is working. */
   breathing?: boolean;
+  /** The agent's portrait seed (`lib/portrait`); with one the hole holds its portrait inside a thin band. */
+  seed?: string | undefined;
 }
 
 /**
- * An agent's mark: a translucent ring around a see-through hole, and the name on a blurred
- * translucent pill underneath. The ring is drawn with Skia when the build has it, like `IconButton`.
+ * An agent's mark: a translucent ring around a see-through hole (or, given a `seed`, a thin ring
+ * around its portrait), and the name on a blurred translucent pill underneath. The ring is drawn
+ * with Skia when the build has it, like `IconButton`.
  */
-export function AvatarRing({ name, size = RING_SIZE, breathing = false }: AvatarRingProps) {
+export function AvatarRing({ name, size = RING_SIZE, breathing = false, seed }: AvatarRingProps) {
   const scheme = useScheme();
   const color = RING[scheme];
   const scale = useSharedValue(1);
@@ -59,12 +66,17 @@ export function AvatarRing({ name, size = RING_SIZE, breathing = false }: Avatar
   }, [breathing, scale]);
 
   const ringStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
-  const inner = Math.round(size * INNER_RATIO);
+  const inner = seed === undefined ? Math.round(size * INNER_RATIO) : size - 2 * PORTRAIT_BAND;
 
   return (
     <View accessible accessibilityLabel={breathing ? `${name}, working` : name} style={styles.root}>
       <Animated.View style={[{ width: size, height: size }, ringStyle]}>
         <Ring size={size} inner={inner} color={color} />
+        {seed !== undefined && (
+          <View style={styles.portrait}>
+            <Portrait name={name} seed={seed} size={inner} />
+          </View>
+        )}
       </Animated.View>
       <BlurView intensity={40} tint={scheme} style={styles.chip}>
         <Text style={styles.name}>{name}</Text>
@@ -90,4 +102,5 @@ const styles = StyleSheet.create({
   root: { alignItems: "center", gap: NAME_PILL_GAP },
   chip: { height: NAME_PILL_HEIGHT, borderRadius: NAME_PILL_HEIGHT / 2, overflow: "hidden", paddingHorizontal: spacing.md + 2, alignItems: "center", justifyContent: "center" },
   name: { fontSize: 17, lineHeight: 22, fontWeight: "700" },
+  portrait: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
 });

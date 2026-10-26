@@ -1,5 +1,5 @@
 // The assistant threads the host runs, read once at start from the agent home's registry,
-// `<agentHome>/.omp/assistant/agents.json`: `{ "agents": [{ "id", "title", "scope"? }, ...] }`.
+// `<agentHome>/.omp/assistant/agents.json`: `{ "agents": [{ "id", "title", "scope"?, "avatar"?, ... }, ...] }`.
 // Each entry gets its own long-lived omp session, store file and prime. The first entry is the
 // default, used only for phone requests that name no agent (builds from before there were several).
 
@@ -24,6 +24,8 @@ export interface AssistantAgentConfig {
   readonly model?: string;
   /** The pocket-tts voice calls with the agent speak in (a catalog name such as "alba"); absent means the host's default. */
   readonly voice?: string;
+  /** Seed of the agent's DiceBear notionists portrait, shown on the phone and in Relay desktop; absent means the clients seed it with `id`. */
+  readonly avatar?: string;
 }
 
 const Registry = z
@@ -37,6 +39,7 @@ const Registry = z
           profile: z.enum(["personal", "work"]).optional(),
           model: z.string().trim().min(1).optional(),
           voice: z.string().trim().min(1).optional(),
+          avatar: z.string().trim().min(1).optional(),
         }),
       )
       .min(1),
@@ -62,7 +65,7 @@ export function loadRegistry(agentHome: string): readonly AssistantAgentConfig[]
   if (!parsed.success) {
     throw new Error(`invalid ${path}: ${parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`);
   }
-  return parsed.data.agents.map(({ id, title, scope, profile, model, voice }) => {
+  return parsed.data.agents.map(({ id, title, scope, profile, model, voice, avatar }) => {
     const trimmed = scope?.trim();
     return {
       id,
@@ -71,6 +74,7 @@ export function loadRegistry(agentHome: string): readonly AssistantAgentConfig[]
       ...(profile === undefined ? {} : { profile }),
       ...(model === undefined ? {} : { model }),
       ...(voice === undefined ? {} : { voice }),
+      ...(avatar === undefined ? {} : { avatar }),
     };
   });
 }

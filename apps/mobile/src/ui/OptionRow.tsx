@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Pressable, View } from "react-native";
 import { Text } from "./Text";
 import { radii, spacing, useColors } from "@/theme";
@@ -9,12 +10,33 @@ export interface OptionRowProps {
   selected: boolean;
   /** Short accent note on the right ("Recommended", "Photo"). */
   badge?: string | undefined;
+  /** Shown left of the label and description, e.g. an assistant's portrait. */
+  leading?: ReactNode;
   onPress: () => void;
 }
 
 /** One selectable choice in a list: bordered row, accent-tinted while selected. */
-export function OptionRow({ label, description, selected, badge, onPress }: OptionRowProps) {
+export function OptionRow({ label, description, selected, badge, leading, onPress }: OptionRowProps) {
   const colors = useColors();
+  const content = (
+    <>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+        <Text variant="body" color={selected ? "accent" : "text"} style={{ flex: 1 }}>
+          {label}
+        </Text>
+        {badge !== undefined && (
+          <Text variant="caption" color="accent">
+            {badge}
+          </Text>
+        )}
+      </View>
+      {description !== undefined && description.length > 0 && (
+        <Text variant="caption" color="textMuted" style={{ marginTop: spacing.xs }}>
+          {description}
+        </Text>
+      )}
+    </>
+  );
   return (
     <Pressable
       onPress={() => {
@@ -32,20 +54,13 @@ export function OptionRow({ label, description, selected, badge, onPress }: Opti
         opacity: pressed ? 0.85 : 1,
       })}
     >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
-        <Text variant="body" color={selected ? "accent" : "text"} style={{ flex: 1 }}>
-          {label}
-        </Text>
-        {badge !== undefined && (
-          <Text variant="caption" color="accent">
-            {badge}
-          </Text>
-        )}
-      </View>
-      {description !== undefined && description.length > 0 && (
-        <Text variant="caption" color="textMuted" style={{ marginTop: spacing.xs }}>
-          {description}
-        </Text>
+      {leading === undefined ? (
+        content
+      ) : (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
+          {leading}
+          <View style={{ flex: 1 }}>{content}</View>
+        </View>
       )}
     </Pressable>
   );

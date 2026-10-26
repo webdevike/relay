@@ -128,7 +128,7 @@ interface Shared {
 }
 
 interface HarnessOptions {
-  agent?: { id: string; title: string; scope?: string };
+  agent?: { id: string; title: string; scope?: string; avatar?: string };
   /** Run beside another harness's thread. */
   beside?: Shared;
   prime?: string;
@@ -408,8 +408,8 @@ describe("registry and store paths", () => {
     const write = (value: unknown): void => {
       writeFileSync(join(home, ".omp", "assistant", "agents.json"), JSON.stringify(value));
     };
-    write({ agents: [{ id: "astra", title: "Astra", scope: "eCard Systems work" }, { id: "nova", title: "Nova", scope: "Personal" }] });
-    expect(loadRegistry(home)).toEqual([{ ...ASTRA, scope: "eCard Systems work" }, { ...NOVA, scope: "Personal" }]);
+    write({ agents: [{ id: "astra", title: "Astra", scope: "eCard Systems work", avatar: "astra-2" }, { id: "nova", title: "Nova", scope: "Personal" }] });
+    expect(loadRegistry(home)).toEqual([{ ...ASTRA, scope: "eCard Systems work", avatar: "astra-2" }, { ...NOVA, scope: "Personal" }]);
     write({ agents: [{ id: "astra", title: "Astra", scope: "  " }, { id: "nova", title: "Nova" }] });
     expect(loadRegistry(home)).toEqual([ASTRA, NOVA]);
     for (const bad of [{ agents: [] }, { agents: [{ id: "Astra", title: "Astra" }] }, { agents: [ASTRA, { id: "astra", title: "Again" }] }, { agents: [{ id: "nova", title: " " }] }]) {
@@ -811,8 +811,8 @@ describe("lastReplyOf", () => {
 
 describe("AssistantService listing", () => {
   it("is not_started with its scope and no reply before the agent has ever run", async () => {
-    const h = harness({ agent: { ...ASTRA, scope: "eCard Systems work" } });
-    expect(await h.service.listing()).toEqual({ id: "astra", title: "Astra", scope: "eCard Systems work", status: "not_started" });
+    const h = harness({ agent: { ...ASTRA, scope: "eCard Systems work", avatar: "astra-2" } });
+    expect(await h.service.listing()).toEqual({ id: "astra", title: "Astra", scope: "eCard Systems work", avatar: "astra-2", status: "not_started" });
     expect(await harness().service.listing()).toEqual({ id: "astra", title: "Astra", status: "not_started" });
   });
 

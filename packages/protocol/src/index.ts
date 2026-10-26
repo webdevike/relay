@@ -435,6 +435,8 @@ export const AssistantAgent = z.object({
   title: nonEmpty,
   /** What the registry says the agent covers, e.g. "eCard Systems work". */
   scope: z.string().optional(),
+  /** Seed of the agent's DiceBear notionists portrait (the registry's `avatar`); absent means the phone seeds it with `id`. */
+  avatar: z.string().optional(),
   status: AssistantStatus.optional(),
   /** The newest reply of the agent worth showing (never the silence marker), one clipped line. */
   lastReply: z.object({ text: z.string(), at: ms }).optional(),

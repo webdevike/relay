@@ -12,11 +12,13 @@ import type { AssistantAgent, AssistantStatus } from "@relay/protocol";
 import { EmptyState } from "@/ui/EmptyState";
 import { Pill } from "@/ui/Pill";
 import { Screen } from "@/ui/Screen";
+import { Portrait } from "@/ui/Portrait";
 import { Separator } from "@/ui/Separator";
 import { Text } from "@/ui/Text";
 import { requestAssistantAgents } from "@/connection";
 import { previewText } from "@/agents/markdown";
 import { relativeTime } from "@/lib/format";
+import { portraitSeed } from "@/lib/portrait";
 import { tapHaptic } from "@/lib/haptics";
 import { STATUS_LABEL, useAssistantStore } from "@/state/assistant";
 import { useAgentsStore } from "@/state/agents";
@@ -109,11 +111,7 @@ function AssistantRow({ agent, now, onPress }: { agent: AssistantAgent; now: num
       style={({ pressed }) => ({ backgroundColor: pressed ? colors.surfaceRaised : "transparent" })}
     >
       <View style={styles.row}>
-        <View style={[styles.avatar, { backgroundColor: colors.surfaceRaised }]}>
-          <Text variant="title" color="textMuted">
-            {agent.title.slice(0, 1).toUpperCase()}
-          </Text>
-        </View>
+        <Portrait name={agent.title} seed={portraitSeed(agent)} size={AVATAR} />
         <View style={styles.body}>
           <View style={styles.line}>
             <Text variant="title" numberOfLines={1} style={styles.grow}>
@@ -153,7 +151,6 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     gap: spacing.md,
   },
-  avatar: { width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2, alignItems: "center", justifyContent: "center" },
   body: { flex: 1, gap: 2 },
   line: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   grow: { flex: 1 },

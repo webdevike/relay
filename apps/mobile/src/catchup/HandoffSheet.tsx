@@ -9,15 +9,21 @@ import { Modal, StyleSheet, View } from "react-native";
 import type { CatchUpCard } from "@relay/protocol";
 import { Button } from "@/ui/Button";
 import { OptionRow } from "@/ui/OptionRow";
+import { Portrait } from "@/ui/Portrait";
 import { Text } from "@/ui/Text";
 import { TextField } from "@/ui/TextField";
 import { defaultAssistant } from "@/lib/catchup";
+import { portraitSeed } from "@/lib/portrait";
 import { spacing, useColors } from "@/theme";
+
+const PORTRAIT = 32;
 
 export interface HandoffTarget {
   id: string;
   title: string;
   scope?: string | undefined;
+  /** The registry's portrait seed, when the host listed one. */
+  avatar?: string | undefined;
 }
 
 export interface HandoffSheetProps {
@@ -59,6 +65,7 @@ export function HandoffSheet({ card, targets, onClose, onSend }: HandoffSheetPro
                 label={target.title}
                 description={target.scope}
                 badge={target.id === defaultAssistant(card) ? "Usual" : undefined}
+                leading={<Portrait name={target.title} seed={portraitSeed(target)} size={PORTRAIT} />}
                 selected={chosen === target.id}
                 onPress={() => {
                   setAgent(target.id);

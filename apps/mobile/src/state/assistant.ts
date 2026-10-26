@@ -9,6 +9,7 @@
 import { create } from "zustand";
 import type { AssistantAgent, AssistantSnapshot, AssistantStatus } from "@relay/protocol";
 import { countOf } from "@/lib/format";
+import { portraitSeed } from "@/lib/portrait";
 import type { Photo } from "@/lib/photo";
 import { previewText } from "@/agents/markdown";
 
@@ -62,6 +63,11 @@ export function threadOf(store: Pick<AssistantStore, "threads">, agent: string):
 /** The registry title for `agent`, or the id itself before the host has listed its agents. */
 export function agentTitle(agents: AssistantAgent[] | null, agent: string): string {
   return agents?.find((entry) => entry.id === agent)?.title ?? agent;
+}
+
+/** The portrait seed for `agent`: its registry `avatar` once the host has listed it, else its id. */
+export function agentPortraitSeed(agents: AssistantAgent[] | null, agent: string): string {
+  return portraitSeed(agents?.find((entry) => entry.id === agent) ?? { id: agent });
 }
 
 /** The words a status pill shows. A host from before statuses sends none, and the row shows no pill. */

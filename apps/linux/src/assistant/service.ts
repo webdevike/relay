@@ -208,6 +208,7 @@ export class AssistantService implements AssistantThread {
       id: this.id,
       title: this.title,
       ...(this.deps.agent.scope === undefined ? {} : { scope: this.deps.agent.scope }),
+      ...(this.deps.agent.avatar === undefined ? {} : { avatar: this.deps.agent.avatar }),
       status: assistantStatus(session),
       ...(lastReply === null ? {} : { lastReply }),
     };

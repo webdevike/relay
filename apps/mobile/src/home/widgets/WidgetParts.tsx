@@ -128,20 +128,22 @@ export function WidgetLink({
   );
 }
 
-/** App glyph and title in the kind's colour, like the top of iOS's Sleep widget. */
+/** App glyph (or a `leading` element in its place, e.g. a portrait) and title in the kind's colour, like the top of iOS's Sleep widget. */
 export function WidgetHeader({
   symbol,
   title,
   color,
+  leading,
 }: {
   symbol: SFSymbol;
   title: string;
   color: WidgetColor;
+  leading?: ReactNode;
 }) {
   const tint = useWidgetTint(color);
   return (
     <View style={styles.header}>
-      <SymbolView name={symbol} size={15} tintColor={tint} weight="semibold" />
+      {leading ?? <SymbolView name={symbol} size={15} tintColor={tint} weight="semibold" />}
       <Text variant="label" numberOfLines={1} style={[styles.headerText, { color: tint }]}>
         {title}
       </Text>

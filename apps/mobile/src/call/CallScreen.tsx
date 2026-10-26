@@ -35,7 +35,7 @@ const RING = 132;
 /** Dark mode is pure black, like the thread under it. */
 const BG_DARK = "#000000";
 
-export function CallScreen({ title }: { title: string }) {
+export function CallScreen({ title, seed }: { title: string; seed: string }) {
   const colors = useColors();
   const dark = useScheme() === "dark";
   const insets = useSafeAreaInsets();
@@ -68,7 +68,7 @@ export function CallScreen({ title }: { title: string }) {
         <View style={styles.top}>
           <View style={styles.ring}>
             <Animated.View style={[styles.halo, { backgroundColor: colors.accent }, halo]} />
-            <AvatarRing name={title} size={RING} breathing={busy} />
+            <AvatarRing name={title} seed={seed} size={RING} breathing={busy} />
           </View>
           <Text variant="title" style={styles.center}>{LABEL[call.state]}</Text>
           <Text variant="label" color="textMuted" tabular style={styles.center}>

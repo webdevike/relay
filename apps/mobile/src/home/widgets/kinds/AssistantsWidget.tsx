@@ -5,9 +5,11 @@
  */
 import { StyleSheet, View } from "react-native";
 import type { AssistantAgent } from "@relay/protocol";
+import { Portrait } from "@/ui/Portrait";
 import { Text } from "@/ui/Text";
 import { previewText } from "@/agents/markdown";
 import { relativeTime } from "@/lib/format";
+import { portraitSeed } from "@/lib/portrait";
 import { latestReply, STATUS_LABEL, useAssistantStore } from "@/state/assistant";
 import { useConnectionStore } from "@/state/connection";
 import { spacing, useColors } from "@/theme";
@@ -23,6 +25,8 @@ import {
 
 const SYMBOL = "bubble.left.and.text.bubble.right.fill";
 const ROWS = 3;
+/** Portrait diameter beside an agent's name, about the header glyph's line height. */
+const PORTRAIT = 20;
 
 /** `just now` or `5m ago`. */
 function ago(at: number): string {
@@ -48,6 +52,7 @@ function AgentRow({ agent, open, first }: { agent: AssistantAgent; open: WidgetB
       style={[styles.row, !first && { borderTopColor: colors.hairline, borderTopWidth: StyleSheet.hairlineWidth }]}
     >
       <View style={styles.rowHead}>
+        <Portrait name={agent.title} seed={portraitSeed(agent)} size={PORTRAIT} />
         {dot !== null && <View style={[styles.dot, { backgroundColor: dot }]} />}
         <Text variant="label" numberOfLines={1} style={styles.name}>
           {agent.title}
@@ -115,7 +120,12 @@ export function AssistantsWidget({ size, open, a11y }: WidgetBodyProps) {
       open={open}
       a11y={a11y}
     >
-      <WidgetHeader symbol={SYMBOL} title={latest.agent.title} color="blue" />
+      <WidgetHeader
+        symbol={SYMBOL}
+        title={latest.agent.title}
+        color="blue"
+        leading={<Portrait name={latest.agent.title} seed={portraitSeed(latest.agent)} size={PORTRAIT} />}
+      />
       <Text variant="body" numberOfLines={4} style={styles.reply}>
         {line}
       </Text>

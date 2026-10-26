@@ -40,7 +40,7 @@ import { MessageImageStack } from "@/agents/MessageImageStack";
 import { topLevelImages } from "@/agents/markdown";
 import { MessageText } from "@/agents/MessageText";
 import { radii, spacing, useColors, useScheme } from "@/theme";
-import { agentTitle, threadOf, useAssistantStore } from "@/state/assistant";
+import { agentPortraitSeed, agentTitle, threadOf, useAssistantStore } from "@/state/assistant";
 import { useConnectionStore } from "@/state/connection";
 import { requestAssistant, sendCommand, stopAssistant } from "@/connection";
 import { notifyHaptic } from "@/lib/haptics";
@@ -82,6 +82,7 @@ function Thread({ agent }: { agent: string }) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const title = useAssistantStore((state) => agentTitle(state.agents, agent));
+  const seed = useAssistantStore((state) => agentPortraitSeed(state.agents, agent));
   const snapshot = useAssistantStore((state) => threadOf(state, agent).snapshot);
   const pending = useAssistantStore((state) => threadOf(state, agent).pending);
   const setPending = useAssistantStore((state) => state.setPending);
@@ -345,7 +346,7 @@ function Thread({ agent }: { agent: string }) {
               accessibilityLabel={`${title} menu`}
               onPress={openMenu}
             >
-              <AvatarRing name={title} breathing={busy} />
+              <AvatarRing name={title} seed={seed} breathing={busy} />
             </Pressable>
             <View style={styles.back}>
               <BackButton
@@ -426,7 +427,7 @@ function Thread({ agent }: { agent: string }) {
           setViewing(null);
         }}
       />
-      {onCall && <CallScreen title={title} />}
+      {onCall && <CallScreen title={title} seed={seed} />}
     </SafeAreaView>
   );
 }
