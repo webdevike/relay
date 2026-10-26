@@ -29,6 +29,8 @@ import { age, bright, lookStatus, modelName, needsYou, pill, runStart, workLabel
 import { ProjectBadge } from './ProjectBadge'
 import { SnoozeItems } from './RowMenu'
 import { STATUS_NAME, StatusIcon } from './StatusIcon'
+import { TicketCard, ticketOf } from './TicketCard'
+import { LinearMark } from '../widgets/blocks/table'
 
 /** Hover card delay, as native look_card. */
 const CARD_DELAY_MS = 400
@@ -268,6 +270,9 @@ function ChatRowImpl({
     attributes: { role: 'link' },
   })
   const [card, setCard] = useState(false)
+  /** Which card the hover opens: the chat's, or its Linear ticket's from the badge. */
+  const [ticketHover, setTicketHover] = useState(false)
+  const ticket = ticketOf(row)
   const [snoozing, setSnoozing] = useState(false)
   const cardTimer = useRef<number | undefined>(undefined)
   useEffect(() => () => window.clearTimeout(cardTimer.current), [])
@@ -315,6 +320,7 @@ function ChatRowImpl({
   const hideCard = (): void => {
     window.clearTimeout(cardTimer.current)
     setCard(false)
+    setTicketHover(false)
   }
 
   const title = (
@@ -418,6 +424,25 @@ function ChatRowImpl({
                     <span className="eva-cl-category">{category}</span>
                   </>
                 )}
+                {ticket !== null ? (
+                  <span
+                    className="eva-cl-ticket"
+                    data-testid="chat-row-ticket"
+                    aria-label={`Linear ticket ${ticket}`}
+                    onMouseEnter={() => {
+                      setCard(false)
+                      setTicketHover(true)
+                      showCard()
+                    }}
+                    onMouseLeave={() => {
+                      setCard(false)
+                      setTicketHover(false)
+                      showCard()
+                    }}
+                  >
+                    <LinearMark size={10} />
+                  </span>
+                ) : null}
                 {row.pinned ? (
                   <IconPin size={12} stroke={1.75} className="eva-cl-flag" aria-label="Pinned" />
                 ) : null}
@@ -450,7 +475,11 @@ function ChatRowImpl({
           />
         </EvaPopover.Target>
         <EvaPopover.Dropdown onMouseEnter={hideCard}>
-          <Card row={row} category={category} />
+          {ticketHover && ticket !== null ? (
+            <TicketCard ticket={ticket} />
+          ) : (
+            <Card row={row} category={category} />
+          )}
         </EvaPopover.Dropdown>
       </EvaPopover>
       {errorEl}

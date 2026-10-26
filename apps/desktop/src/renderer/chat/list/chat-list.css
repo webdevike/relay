@@ -353,6 +353,30 @@
 .eva-cl-flag {
   flex: none;
 }
+/* Linear ticket badge on line 1; hovering it swaps the hover card to the ticket's. */
+.eva-cl-ticket {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-right: 2px;
+  border-radius: 4px;
+  /* Linear's brand indigo, so it never reads as a status icon. */
+  color: #5e6ad2;
+  background: color-mix(in srgb, #5e6ad2 16%, transparent);
+}
+.eva-cl-ticket:hover {
+  background: color-mix(in srgb, #5e6ad2 28%, transparent);
+}
+.eva-cl-ticket-head {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-text-dim);
+}
 .eva-cl-when {
   flex: none;
   display: inline-flex;

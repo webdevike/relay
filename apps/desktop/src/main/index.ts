@@ -30,6 +30,7 @@ import {
   registerWidgetSchemes,
 } from './chat/widget-protocols'
 import { registerUsageIpc } from './usage/usage-ipc'
+import { registerLinearIpc } from './linear/linear-ipc'
 
 function bootstrap(): void {
   let env
@@ -129,6 +130,7 @@ function bootstrap(): void {
       ctx.onBeforeQuit(() => evaWatch.close())
       registerCanvasIpc(ctx)
       registerUsageIpc(ctx)
+      registerLinearIpc(ctx)
       registerBrowser(ctx)
       installTestHooks(ctx)
     } catch (e) {
