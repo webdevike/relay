@@ -1,6 +1,9 @@
-import { describe, expect, it } from 'vitest'
 import type { Frame } from '@evaos/chat-core/line-framer'
-import { messageText, presenceOf, toolArgs, toolDetail } from './runner'
+import * as fs from 'node:fs'
+import * as os from 'node:os'
+import * as path from 'node:path'
+import { afterAll, describe, expect, it } from 'vitest'
+import { OmpAgentRunner, messageText, presenceOf, privateCwd, toolArgs, toolDetail } from './runner'
 
 const assistant = (content: unknown[], ev?: Record<string, unknown>): Frame => ({
   type: ev ? 'message_update' : 'message_start',
@@ -106,12 +109,13 @@ describe('toolArgs and messageText', () => {
     expect(toolArgs('read-only')).toEqual([
       '--no-extensions',
       '--no-skills',
+      '--no-rules',
       '--tools',
       'read,grep,glob,web_search',
       '--approval-mode',
       'yolo',
     ])
-    expect(toolArgs('none')).toEqual(['--no-extensions', '--no-skills', '--no-tools'])
+    expect(toolArgs('none')).toEqual(['--no-extensions', '--no-skills', '--no-rules', '--no-tools'])
   })
 
   it('joins text blocks and ignores thinking and tool calls', () => {
@@ -128,5 +132,59 @@ describe('toolArgs and messageText', () => {
     ).toBe('ab')
     expect(messageText({ content: 'plain' })).toBe('plain')
     expect(messageText(null)).toBe('')
+  })
+})
+
+describe('seat cwd', () => {
+  // A stand-in omp that records its cwd and argv, then waits for stdin EOF like omp.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evaos-rooms-cwd-'))
+  const stub = path.join(dir, 'omp.sh')
+  const out = path.join(dir, 'runs')
+  fs.writeFileSync(
+    stub,
+    `#!/bin/sh\nprintf '%s\\t%s\\n' "$PWD" "$*" >> "${out}"\nwhile IFS= read -r line; do :; done\nexit 0\n`,
+    { mode: 0o755 },
+  )
+  const evaRoot = path.join(dir, 'eva')
+  const repo = path.join(evaRoot, 'work', 'evaos-electron')
+  fs.mkdirSync(path.join(evaRoot, '.omp', 'tools'), { recursive: true })
+  fs.mkdirSync(repo, { recursive: true })
+  afterAll(() => fs.rmSync(dir, { recursive: true, force: true }))
+
+  it('chat-only seats and the judge run in the private dir, read-only seats in the checkout', async () => {
+    const priv = privateCwd(dir)
+    expect(priv).toBe(path.join(dir, 'relay-rooms'))
+    expect(fs.existsSync(path.join(priv, '.omp'))).toBe(false)
+    expect(privateCwd(dir)).toBe(priv)
+    const runner = new OmpAgentRunner({ ompBin: stub, live: false, cwd: priv, toolsCwd: repo })
+    const none = await runner.start({
+      systemPrompt: 'p',
+      model: 'm',
+      tools: 'none',
+      thinking: 'medium',
+    })
+    const ro = await runner.start({
+      systemPrompt: 'p',
+      model: 'm',
+      tools: 'read-only',
+      thinking: 'high',
+    })
+    await none.stop()
+    await ro.stop()
+    const runs = fs
+      .readFileSync(out, 'utf8')
+      .trim()
+      .split('\n')
+      .map((l) => l.split('\t') as [string, string])
+    const real = (p: string): string => fs.realpathSync(p)
+    expect(runs.map(([cwd]) => real(cwd))).toEqual([real(priv), real(repo)])
+    expect(runs[0]![1]).toContain('--no-extensions --no-skills --no-rules --no-tools')
+    expect(runs[0]![1]).toContain('--thinking medium')
+    expect(runs[1]![1]).toContain(
+      '--no-extensions --no-skills --no-rules --tools read,grep,glob,web_search --approval-mode yolo',
+    )
+    expect(runs[1]![1]).toContain('--thinking high')
+    // Neither cwd is the Eva root, whose .omp/tools would become project tools.
+    for (const [cwd] of runs) expect(real(cwd)).not.toBe(real(evaRoot))
   })
 })

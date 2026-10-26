@@ -1,3 +1,5 @@
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 import type { Frame } from '@evaos/chat-core/line-framer'
 import type { RoomAgent, RoomPresence } from '@evaos/contract'
 import { OmpStdioTransport } from '../chat/omp-transport'
@@ -41,9 +43,13 @@ export interface AgentRunner {
 export interface OmpAgentRunnerOptions {
   ompBin: string
   live: boolean
-  /** Where tool-less processes run. */
+  /**
+   * Where chat-only seats and the judge run: a directory with no `.omp` inside. omp discovers
+   * project tools from `<cwd>/.omp/tools` regardless of --no-tools/--no-extensions, so the Eva
+   * root would hand them Eva's own tools (computer_state and friends).
+   */
   cwd: string
-  /** Where read-only seats run, so `read`/`grep`/`glob` see real code. */
+  /** Where read-only seats run, so `read`/`grep`/`glob` see real code; it has no `.omp` either. */
   toolsCwd: string
 }
 
@@ -52,14 +58,22 @@ export const READ_ONLY_TOOLS = ['read', 'grep', 'glob', 'web_search'] as const
 
 /**
  * The tool flags for a seat. `--no-tools` only covers omp's built-ins: extensions and skills
- * bring their own tools (computer_state and friends), so every seat loads neither; a read-only
- * seat then enables just the read set, auto-approved.
+ * bring their own tools, so every seat loads neither; rules are off too, so the Eva AGENTS.md
+ * does not turn a persona into Eva. A read-only seat then enables just the read set,
+ * auto-approved.
  */
 export function toolArgs(tools: RoomAgent['tools']): string[] {
-  const base = ['--no-extensions', '--no-skills']
+  const base = ['--no-extensions', '--no-skills', '--no-rules']
   return tools === 'read-only'
     ? [...base, '--tools', READ_ONLY_TOOLS.join(','), '--approval-mode', 'yolo']
     : [...base, '--no-tools']
+}
+
+/** `<tmp>/relay-rooms`: the empty home of chat-only seats, created once. */
+export function privateCwd(tmpDir: string): string {
+  const dir = path.join(tmpDir, 'relay-rooms')
+  fs.mkdirSync(dir, { recursive: true })
+  return dir
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> =>
@@ -165,9 +179,10 @@ function signalGroup(pid: number | null, signal: 'SIGTERM' | 'SIGKILL'): void {
 }
 
 /**
- * `omp --mode rpc-ui --no-session --no-extensions --no-skills --no-lsp --no-ui --model <id> --thinking <level> --system-prompt
- * <p>` plus `--no-tools`, or `--tools read,grep,glob,web_search --approval-mode yolo` for a
- * read-only seat (run in `toolsCwd`).
+ * `omp --mode rpc-ui --no-session --no-extensions --no-skills --no-rules --no-lsp --no-ui
+ * --model <id> --thinking <level> --system-prompt <p>` plus `--no-tools` (run in `cwd`), or
+ * `--tools read,grep,glob,web_search --approval-mode yolo` for a read-only seat (run in
+ * `toolsCwd`).
  */
 export class OmpAgentRunner implements AgentRunner {
   constructor(private o: OmpAgentRunnerOptions) {}

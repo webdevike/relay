@@ -8,7 +8,7 @@ import { buildCommand, childPathFor, runCapture } from '../eva/spawn'
 import { evaFsFor } from '../eva/runtime'
 import { emit, handle } from '../ipc/handle'
 import { RoomSession } from './orchestrator'
-import { OmpAgentRunner } from './runner'
+import { OmpAgentRunner, privateCwd } from './runner'
 import { saveRoom } from './save'
 
 /** Streaming replies change a room many times a second; the renderer gets one room per burst. */
@@ -25,10 +25,12 @@ class NotFound extends Error {
  */
 export function registerRoomsIpc(ctx: MainContext): void {
   const { evaRoot, ompBin, live } = ctx.env
-  // Read-only seats look at real code: the app's own checkout when the Eva root has it.
+  // Read-only seats look at real code: the app's own checkout (no .omp inside) when the Eva
+  // root has it. Chat-only seats and the judge get an empty private dir: the Eva root's
+  // .omp/tools would reach them as project tools no matter the flags.
   const repo = path.join(evaRoot, 'work', 'evaos-electron')
   const toolsCwd = fs.existsSync(repo) ? repo : evaRoot
-  const runner = new OmpAgentRunner({ ompBin, live, cwd: evaRoot, toolsCwd })
+  const runner = new OmpAgentRunner({ ompBin, live, cwd: privateCwd(os.tmpdir()), toolsCwd })
   const sessions = new Map<string, RoomSession>()
   const order: string[] = []
   const pending = new Map<string, NodeJS.Timeout>()
