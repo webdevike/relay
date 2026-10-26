@@ -14,6 +14,7 @@ import { Pills } from './Pills'
 import { pinReducer, type PinState } from './pin'
 import { chatStore, useChatStore } from './chat-store'
 import { startSettings, useSettings } from '../settings/settings-store'
+import { TypingDots } from '../ui/TypingDots'
 
 declare global {
   interface Window {
@@ -136,11 +137,7 @@ export function ChatLog({
             ) : item.kind === 'typing' ? (
               <div key="typing" className="eva-row" data-testid="chat-typing">
                 <div className="eva-row-inner">
-                  <span className="eva-typing" role="img" aria-label={`${item.who} is typing`}>
-                    <span />
-                    <span />
-                    <span />
-                  </span>
+                  <TypingDots label={`${item.who} is typing`} />
                 </div>
               </div>
             ) : (

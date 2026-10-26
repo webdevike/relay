@@ -17,6 +17,7 @@ const TITLES: Record<string, string> = {
   habits: 'Habits',
   meetings: 'Meetings',
   canvas: 'Canvas',
+  rooms: 'Rooms',
   settings: 'Settings',
 }
 
@@ -30,6 +31,7 @@ const ICONS: Record<string, string> = {
   habits: 'IconFlame',
   meetings: 'IconUsers',
   canvas: 'IconSchema',
+  rooms: 'IconUsersGroup',
   settings: 'IconSettings',
 }
 

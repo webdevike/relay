@@ -1,0 +1,420 @@
+/* Rooms: a fixed rail of rooms, then one room as a divided feed with a composer. */
+.eva-rooms {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+}
+.eva-rooms-dim {
+  margin: 0;
+  color: var(--eva-c-muted-foreground);
+}
+
+/* Rail */
+.eva-rooms-rail {
+  flex: none;
+  width: 240px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--eva-c-border);
+}
+.eva-rooms-rail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-sm) var(--mantine-spacing-xs)
+    var(--mantine-spacing-md);
+}
+.eva-rooms-rail-title {
+  font-size: var(--eva-fz-body);
+  font-weight: var(--eva-fw-semibold);
+}
+.eva-rooms-rail-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 0 var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+}
+.eva-rooms-rail-row {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  width: 100%;
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--eva-radius);
+  background: transparent;
+  color: var(--eva-c-foreground);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--eva-dur-fast) ease;
+}
+.eva-rooms-rail-row:hover {
+  background: var(--eva-hover);
+}
+.eva-rooms-rail-row[data-active='true'] {
+  background: var(--eva-nav-active-bg);
+  color: var(--eva-nav-active-fg);
+}
+.eva-rooms-rail-row-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--eva-fz-body);
+  font-weight: var(--eva-fw-medium);
+}
+.eva-rooms-rail-row-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+}
+
+.eva-rooms-pill {
+  flex: none;
+  padding: 0 var(--mantine-spacing-xs);
+  line-height: 1.6;
+  border-radius: var(--eva-radius-round);
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-medium);
+  white-space: nowrap;
+  background: var(--eva-c-muted-background);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-rooms-pill[data-status='live'] {
+  background: color-mix(in srgb, var(--eva-accent) 15%, transparent);
+  color: var(--eva-accent);
+}
+.eva-rooms-clock {
+  font-size: var(--eva-fz-label);
+  font-variant-numeric: tabular-nums;
+  color: var(--eva-c-muted-foreground);
+}
+
+/* Main column */
+.eva-rooms-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.eva-rooms-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-md);
+  min-height: var(--eva-chat-header-h);
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-lg);
+  border-bottom: 1px solid var(--eva-c-border);
+}
+.eva-rooms-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--eva-fz-heading);
+  font-weight: var(--eva-fw-semibold);
+  line-height: 1.3;
+}
+
+.eva-rooms-log {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+.eva-rooms-feed {
+  height: 100%;
+  overflow-y: auto;
+  padding: var(--mantine-spacing-md) 0 var(--mantine-spacing-sm);
+  box-sizing: border-box;
+}
+.eva-rooms-jump {
+  position: absolute;
+  left: 50%;
+  bottom: var(--mantine-spacing-md);
+  transform: translateX(-50%);
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  height: 28px;
+  padding: 0 var(--mantine-spacing-md);
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius-round);
+  background: var(--eva-surface);
+  color: var(--eva-c-foreground);
+  font: inherit;
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-medium);
+  cursor: pointer;
+  transition: background-color var(--eva-dur-fast);
+}
+.eva-rooms-jump:hover {
+  background: var(--eva-hover);
+}
+
+/* Pinned decision at the top of a resolved feed, and the summary row's card. */
+.eva-rooms-pinned,
+.eva-room-summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-card-radius);
+  background: var(--eva-surface);
+}
+.eva-rooms-pinned {
+  margin: 0 var(--mantine-spacing-lg) var(--mantine-spacing-md);
+}
+.eva-room-summary-head {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-medium);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-rooms-pinned-by {
+  font-weight: var(--eva-fw-regular);
+}
+
+/* Rows */
+.eva-room-row {
+  position: relative;
+  display: flex;
+  gap: var(--mantine-spacing-sm);
+  padding: calc(var(--mantine-spacing-xs) / 2) var(--mantine-spacing-lg);
+  margin-top: var(--mantine-spacing-sm);
+}
+.eva-room-row[data-continuation='true'] {
+  margin-top: 0;
+}
+.eva-room-row:hover,
+.eva-room-row[data-open='true'] {
+  background: var(--eva-hover);
+}
+.eva-room-row-gutter {
+  flex: none;
+  width: 38px;
+  display: flex;
+  justify-content: flex-end;
+}
+.eva-room-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+}
+.eva-room-row-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--mantine-spacing-xs);
+  min-width: 0;
+  line-height: 1.3;
+}
+.eva-room-row-name {
+  font-weight: var(--eva-fw-semibold);
+}
+.eva-room-row-title,
+.eva-room-row-time {
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+  white-space: nowrap;
+}
+.eva-room-row-role {
+  padding: 0 calc(var(--mantine-spacing-xs) / 1.25);
+  border-radius: var(--eva-radius-round);
+  background: var(--eva-c-muted-background);
+  color: var(--eva-c-muted-foreground);
+  font-size: var(--eva-fz-caption);
+  font-weight: var(--eva-fw-medium);
+  line-height: 1.6;
+  white-space: nowrap;
+}
+/* Portraits sit on Mantine's light tint of the person's color, ringed in the same hue. */
+.eva-room-avatar {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--avatar-color) 40%, transparent);
+}
+.eva-room-avatar img {
+  object-fit: cover;
+}
+.eva-room-row-time-hover {
+  padding-top: calc(var(--mantine-spacing-xs) / 2);
+  opacity: 0;
+}
+.eva-room-row:hover .eva-room-row-time-hover {
+  opacity: 1;
+}
+.eva-room-row-actions {
+  position: absolute;
+  top: calc(-1 * var(--mantine-spacing-xs));
+  right: var(--mantine-spacing-lg);
+  display: flex;
+  padding: calc(var(--mantine-spacing-xs) / 5);
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius);
+  background: var(--eva-surface);
+  opacity: 0;
+  transition: opacity var(--eva-dur-fast);
+}
+.eva-room-row:hover .eva-room-row-actions,
+.eva-room-row:focus-within .eva-room-row-actions,
+.eva-room-row[data-open='true'] .eva-room-row-actions {
+  opacity: 1;
+}
+
+/* Reactions */
+.eva-room-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  margin-top: calc(var(--mantine-spacing-xs) / 2);
+}
+.eva-room-reaction {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  height: 24px;
+  padding: 0 var(--mantine-spacing-xs);
+  border: 1px solid transparent;
+  border-radius: var(--eva-radius-round);
+  background: var(--eva-c-muted-background);
+  color: var(--eva-c-foreground);
+  font: inherit;
+  font-size: var(--eva-fz-label);
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color var(--eva-dur-fast);
+}
+.eva-room-reaction:hover {
+  border-color: var(--eva-c-border);
+}
+.eva-room-reaction[data-mine='true'] {
+  border-color: var(--eva-accent);
+  background: color-mix(in srgb, var(--eva-accent) 12%, transparent);
+}
+.eva-room-reaction-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-room-reaction[data-mine='true'] .eva-room-reaction-count {
+  color: var(--eva-accent);
+}
+.eva-room-emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 32px);
+  gap: calc(var(--mantine-spacing-xs) / 5);
+}
+.eva-room-emoji {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: var(--eva-radius);
+  background: transparent;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.eva-room-emoji:hover {
+  background: var(--eva-hover);
+}
+
+/* Typing line and composer */
+.eva-rooms-composer {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  padding: 0 var(--mantine-spacing-lg) var(--mantine-spacing-md);
+  background: var(--eva-bg);
+}
+.eva-rooms-typing {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  min-height: 20px;
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-rooms-composer-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-rooms-composer-field {
+  flex: 1;
+  min-width: 0;
+}
+
+/* New room form (the empty state) */
+.eva-rooms-new {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-lg);
+  width: 100%;
+  max-width: 560px;
+  box-sizing: border-box;
+  margin: 0 auto;
+  padding: var(--mantine-spacing-xl) var(--mantine-spacing-lg);
+}
+.eva-rooms-new-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-rooms-new-title {
+  margin: 0;
+  font-size: var(--eva-fz-display);
+  font-weight: var(--eva-fw-semibold);
+  line-height: 1.2;
+  color: var(--eva-c-foreground);
+}
+.eva-rooms-roster {
+  display: flex;
+  flex-direction: column;
+}
+.eva-rooms-roster-label {
+  margin-bottom: var(--mantine-spacing-xs);
+  font-size: var(--eva-fz-body);
+  font-weight: var(--eva-fw-medium);
+}
+.eva-rooms-roster-row {
+  padding: var(--mantine-spacing-xs) 0;
+}
+.eva-rooms-roster-row + .eva-rooms-roster-row {
+  border-top: 1px solid var(--eva-c-border);
+}
+.eva-rooms-roster-person {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+}
+.eva-rooms-roster-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.eva-rooms-roster-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-rooms-roster-name {
+  font-weight: var(--eva-fw-medium);
+}
+.eva-rooms-roster-text .eva-rooms-dim {
+  font-size: var(--eva-fz-label);
+}

@@ -16,9 +16,11 @@ export function PageRouter() {
   const thread = useAssistants((s) => agentFile(s, place))
   const meta = pageMeta(place)
   const isChat = meta.kind === 'chat' || thread !== null
-  // The theme editor and Canvas own their scrolling (two panes; a pannable board).
+  // The theme editor, Canvas and Rooms own their scrolling (two panes; a board; a chat feed).
   const ownsScroll =
-    (meta.kind === 'settings' && place.settingsSection === 'Theme') || meta.kind === 'canvas'
+    (meta.kind === 'settings' && place.settingsSection === 'Theme') ||
+    meta.kind === 'canvas' ||
+    meta.slug === 'rooms'
   const key = placeKey(place)
   const Page = pageRegistry[meta.kind as PageRegistryKind]
   return (

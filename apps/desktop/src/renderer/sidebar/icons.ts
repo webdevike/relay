@@ -13,6 +13,7 @@ import {
   IconSchema,
   IconSettings,
   IconUsers,
+  IconUsersGroup,
   type Icon,
 } from '@tabler/icons-react'
 
@@ -31,6 +32,7 @@ const ICONS: Record<string, Icon> = {
   IconSchema,
   IconSettings,
   IconUsers,
+  IconUsersGroup,
 }
 
 export const navIcon = (name: string): Icon => ICONS[name] ?? IconFile

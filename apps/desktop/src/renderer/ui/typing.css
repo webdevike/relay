@@ -1,0 +1,50 @@
+/* Three dots pulsing in turn, like iMessage. The default is a roomy pill (a chat thread's typing
+   bubble); the inline size sits in a line of text (a room's "X is typing" line). */
+.eva-typing {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2.5);
+  padding: var(--mantine-spacing-md);
+  background: var(--eva-c-muted-background);
+  border-radius: var(--eva-radius-round);
+}
+.eva-typing[data-size='inline'] {
+  padding: 0;
+  background: transparent;
+  vertical-align: middle;
+}
+.eva-typing > span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--eva-text-dim);
+  animation: eva-typing 1.2s ease-in-out infinite;
+}
+.eva-typing[data-size='inline'] > span {
+  width: 5px;
+  height: 5px;
+}
+.eva-typing > span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.eva-typing > span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes eva-typing {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .eva-typing > span {
+    animation: none;
+    opacity: 0.6;
+  }
+}

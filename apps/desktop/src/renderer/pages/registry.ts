@@ -11,6 +11,7 @@ import { HabitsPage } from '../habits/HabitsPage'
 import { MeetingPage } from '../meetings/MeetingPage'
 import { MeetingsHome } from '../meetings/MeetingsHome'
 import { JobsPage } from '../jobs/JobsPage'
+import { RoomsPage } from '../rooms/RoomsPage'
 import { WorkspacePage } from '../workspace/WorkspacePage'
 import { SettingsPage } from '../settings/SettingsPage'
 import { TestBenchPage } from '../test-bench/TestBenchPage'
@@ -31,6 +32,7 @@ const PAGE_BY_SLUG: Record<string, ComponentType<{ place: Place }>> = {
   'test-bench': TestBenchPage,
   habits: HabitsPage,
   meetings: MeetingsHome,
+  rooms: RoomsPage,
 }
 
 /** Dispatches the implemented top-level pages. */
