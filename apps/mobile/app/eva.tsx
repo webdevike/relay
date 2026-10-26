@@ -11,7 +11,7 @@
  * Look (after OpenAI's Dots chat): no title; the agent's avatar ring and name chip occupy a
  * dedicated header above the scrolling conversation (tapping them opens a menu); the user's
  * words are blue bubbles on the right with a delivery receipt, the agent's replies are dark grey bubbles
- * on the left with a typing bubble while she works. The rounded composer keeps multiline text
+ * on the left with three typing dots while she works before her reply text streams. The rounded composer keeps multiline text
  * above a persistent row of attachment, dictation and send controls. Dictation fills the draft.
  */
 import { useCallback, useMemo, useRef, useState } from "react";
@@ -30,7 +30,7 @@ import { IconButton } from "@/ui/IconButton";
 import { SignInCard } from "@/ui/SignInCard";
 import { Text } from "@/ui/Text";
 import { MessageAppearance } from "@/ui/MessageAppearance";
-import { TypingBubble } from "@/ui/TypingBubble";
+import { TypingDots } from "@/ui/TypingDots";
 import { ScrollToBottom } from "@/ui/ScrollToBottom";
 import { useInvertedChatScroll } from "@/ui/useInvertedChatScroll";
 import { useMessageEntrances } from "@/ui/useMessageEntrances";
@@ -230,6 +230,10 @@ function Thread({ agent }: { agent: string }) {
   const newestFirst = [...rows].reverse();
   const enteringMessages = useMessageEntrances(rows, snapshot !== null);
   const busy = snapshot?.busy === true;
+  // The dots stand in for a reply that has not started: while the host says the session is working
+  // and the newest row is not an assistant message already showing words. Once text streams, it is the indicator.
+  const newest = newestFirst[0];
+  const typing = busy && !(newest?.role === "assistant" && newest.text.trim() !== "");
 
   // Only the newest user message carries a receipt: Sending while its echo is pending, Seen once
   // the host's snapshot lists it.
@@ -326,7 +330,7 @@ function Thread({ agent }: { agent: string }) {
                 </MessageAppearance>
               )}
               // Inverted: the header sits at the visual bottom, below the newest row.
-              ListHeaderComponent={busy ? <TypingRow streaming={newestFirst[0]?.role === "assistant"} gap={newestFirst[0]?.role === "user" ? GAP_SENDER : GAP_RUN} /> : null}
+              ListHeaderComponent={typing ? <TypingRow title={title} gap={newest !== undefined && senderOf(newest) === "eva" ? GAP_RUN : GAP_SENDER} /> : null}
               // Inverted: reserve room at the visual bottom for the floating composer.
               contentContainerStyle={{ paddingTop: composerHeight + spacing.md }}
               {...scrollHandlers}
@@ -469,12 +473,14 @@ function senderOf(message: AssistantMessage): "user" | "status" | "eva" {
   return message.role === "user" ? "user" : message.role === "status" ? "status" : "eva";
 }
 
-/** Activity appears at the live edge of the inverted list, without a bouncing bubble. */
-function TypingRow({ gap, streaming }: { gap: number; streaming: boolean }) {
+/** The typing dots at the live edge of the inverted list, in the incoming bubble's fill. */
+function TypingRow({ title, gap }: { title: string; gap: number }) {
+  const colors = useColors();
+  const fill = useScheme() === "dark" ? BUBBLE_DARK : colors.surface;
   return (
     <Animated.View entering={FadeIn.duration(180).reduceMotion(ReduceMotion.System)} exiting={FadeOut.duration(150).reduceMotion(ReduceMotion.System)}
       style={[styles.evaRow, { marginTop: gap }]}>
-      <TypingBubble streaming={streaming} />
+      <TypingDots fill={fill} label={`${title} is typing`} />
     </Animated.View>
   );
 }

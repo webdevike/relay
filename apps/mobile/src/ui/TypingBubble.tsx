@@ -5,8 +5,8 @@ import Animated, { cancelAnimation, Easing, useAnimatedStyle, useReducedMotion, 
 import { spacing, useColors } from "@/theme";
 import { Text } from "./Text";
 
-/** Quiet activity, not a simulated reasoning transcript. Elapsed time is local to this turn. */
-export function TypingBubble({ streaming = false, label: suppliedLabel }: { streaming?: boolean; label?: string }) {
+/** Quiet activity for agent transcripts, not a simulated reasoning transcript: a pulsing sparkle, `label`, and the seconds elapsed (local to this turn). */
+export function TypingBubble({ label }: { label: string }) {
   const colors = useColors();
   const reducedMotion = useReducedMotion();
   const started = useRef(Date.now());
@@ -21,7 +21,6 @@ export function TypingBubble({ streaming = false, label: suppliedLabel }: { stre
     return () => { cancelAnimation(opacity); };
   }, [opacity, reducedMotion]);
   const pulse = useAnimatedStyle(() => ({ opacity: reducedMotion ? 1 : opacity.value }));
-  const label = suppliedLabel ?? (streaming ? "Responding" : "Working");
   return (
     <View accessible accessibilityLabel={label} style={styles.root}>
       <Animated.View style={pulse}><SymbolView name="sparkle" size={16} tintColor={colors.textMuted} /></Animated.View>
