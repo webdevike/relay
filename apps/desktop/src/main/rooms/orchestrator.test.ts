@@ -1,7 +1,7 @@
 import { setImmediate as tick } from 'node:timers/promises'
 import { describe, expect, it } from 'vitest'
 import { ROOM_PEOPLE, type Room } from '@evaos/contract'
-import { RoomSession, type RoomSessionDeps, type RoomTimer } from './orchestrator'
+import { RoomSession, type RoomSessionDeps } from './orchestrator'
 import { NUDGE_TEXT } from './prompts'
 import type { AgentHandle, AgentRunner } from './runner'
 
@@ -24,7 +24,7 @@ interface FakeAgent {
 interface PendingSend {
   id: string
   reply: string
-  onPartial?: (t: string) => void
+  hooks?: Parameters<AgentHandle['send']>[1]
   resolve: (t: string) => void
   reject: (e: Error) => void
 }
@@ -47,12 +47,21 @@ class FakeRunner implements AgentRunner {
   }
 
   /** Answers the pending sends (of `ids`, or all), streaming a first chunk then the whole reply. */
+  /**
+   * Answers the pending sends (of `ids`, or all): thinking, a first chunk while typing, then
+   * the whole reply and idle, like a real turn.
+   */
   flush(ids?: string[]): void {
     const now = this.pending.filter((p) => !ids || ids.includes(p.id))
     this.pending = this.pending.filter((p) => !now.includes(p))
     for (const p of now) {
-      if (p.reply.length > 4) p.onPartial?.(p.reply.slice(0, 4))
-      p.onPartial?.(p.reply)
+      p.hooks?.onPresence?.({ state: 'thinking' })
+      if (p.reply.length > 4) {
+        p.hooks?.onPresence?.({ state: 'typing' })
+        p.hooks?.onPartial?.(p.reply.slice(0, 4))
+      }
+      p.hooks?.onPartial?.(p.reply)
+      p.hooks?.onPresence?.(null)
       p.resolve(p.reply)
     }
   }
@@ -79,7 +88,7 @@ class FakeRunner implements AgentRunner {
       return typeof pick === 'function' ? pick(prompt, turn) : pick
     }
     return {
-      send: (text, onPartial) => {
+      send: (text, hooks) => {
         const { promise, resolve, reject } = Promise.withResolvers<string>()
         fake.prompts.push(text)
         this.pending.push({
@@ -87,7 +96,7 @@ class FakeRunner implements AgentRunner {
           reply: replyFor(text),
           resolve,
           reject,
-          ...(onPartial ? { onPartial } : {}),
+          ...(hooks ? { hooks } : {}),
         })
         return promise
       },
@@ -111,7 +120,6 @@ interface Harness {
   s: RoomSession
   runner: FakeRunner
   saved: Room[]
-  clock: { now: number; fire(): void; pending(): number }
   /** Runs the room to its end. */
   finish(): Promise<void>
 }
@@ -122,47 +130,25 @@ function harness(
 ): Harness {
   const runner = new FakeRunner(script, o.failStart ?? [])
   const saved: Room[] = []
-  const timers: { fn: () => void }[] = []
-  const clock = {
-    now: 1_000_000,
-    pending: () => timers.length,
-    fire: () => {
-      const t = timers.shift()
-      if (t) t.fn()
-    },
-  }
-  const timer: RoomTimer = {
-    set: (fn) => {
-      const t = { fn }
-      timers.push(t)
-      return t
-    },
-    clear: (h) => {
-      const i = timers.indexOf(h as { fn: () => void })
-      if (i >= 0) timers.splice(i, 1)
-    },
-  }
   const ids = o.agents ?? ['skeptic', 'builder', 'pm']
   const agents = ROOM_PEOPLE.filter((p) => ids.includes(p.id))
   const { agents: _a, failStart: _f, ...deps } = o
   const s = new RoomSession('Should Relay auto-archive idle chats?', agents, {
     runner,
-    judgeModel: 'anthropic/claude-haiku-4-5',
+    judgeModel: 'anthropic/claude-sonnet-5-5',
     save: async (room) => {
       saved.push(JSON.parse(JSON.stringify(room)))
       return '/eva/memory/rooms/2026-10-26-should-relay.md'
     },
     onChange: () => undefined,
     log: () => undefined,
-    now: () => clock.now,
-    timer,
+    now: () => 1_000_000,
     ...deps,
   })
   return {
     s,
     runner,
     saved,
-    clock,
     finish: async () => {
       await s.start()
       await runner.drain(() => !s.live)
@@ -220,11 +206,10 @@ describe('RoomSession', () => {
     expect(h.saved[0]!.phase).toBe('resolved')
     // No judge call after round 1 (replies, before round 2); one after round 2.
     expect(h.runner.byId('judge').prompts).toHaveLength(1)
-    expect(h.runner.byId('judge').prompts[0]).toContain('Soft limit passed: no')
+    expect(h.runner.byId('judge').prompts[0]).toContain('Rounds: 2')
     for (const a of h.runner.agents) expect(a.stopped).toBe(true)
     expect(h.runner.byId('pm').prompts[2]).toContain('Write the pinned summary')
-    expect(room.typing).toEqual([])
-    expect(h.clock.pending()).toBe(0)
+    expect(room.presence).toEqual({})
   })
 
   it('a silent round after continue gets one nudge from the PM, then resolves if still quiet', async () => {
@@ -244,7 +229,7 @@ describe('RoomSession', () => {
     // The nudge was the delta of round 3; Jonah posted it, so his own line is not sent back to him.
     expect(h.runner.byId('skeptic').prompts[2]).toContain(`Jonah: ${NUDGE_TEXT}`)
     expect(h.runner.byId('pm').prompts).toHaveLength(3)
-    expect(h.runner.byId('pm').prompts[2]).toContain('ran out of time')
+    expect(h.runner.byId('pm').prompts[2]).toContain('closed early')
   })
 
   it('parses react lines into reactions and ignores unknown ids', async () => {
@@ -263,9 +248,9 @@ describe('RoomSession', () => {
     expect(h.runner.byId('judge').prompts[0]).toContain('(👀 Mara)')
   })
 
-  it('trims a long reply at 400 characters on a sentence boundary', async () => {
-    const long = `${'Alpha beta gamma delta. '.repeat(14)}Then a very long tail that keeps going and going without any stop`
-    expect(long.length).toBeGreaterThan(400)
+  it('trims a long reply at 900 characters on a sentence boundary', async () => {
+    const long = `${'Alpha beta gamma delta. '.repeat(40)}Then a very long tail that keeps going and going without any stop`
+    expect(long.length).toBeGreaterThan(900)
     const h = harness({
       skeptic: [long, 'PASS'],
       builder: ['Ok.', 'PASS'],
@@ -274,54 +259,8 @@ describe('RoomSession', () => {
     })
     await h.finish()
     const m = h.s.room.messages[0]!
-    expect(m.text.length).toBeLessThanOrEqual(400)
+    expect(m.text.length).toBeLessThanOrEqual(900)
     expect(m.text.endsWith('delta.')).toBe(true)
-  })
-
-  it('hard clock forces the summary from what exists and ignores the late reply', async () => {
-    const h = harness({
-      skeptic: ['Slow thought.'],
-      builder: ['Quick.'],
-      pm: ['Also quick.', 'summary now'],
-      judge: CONTINUE,
-    })
-    await h.s.start()
-    h.runner.flush(['builder', 'pm'])
-    await tick()
-    expect(h.s.room.typing).toEqual(['skeptic'])
-    expect(h.clock.pending()).toBe(1)
-    h.clock.fire()
-    await h.runner.drain(() => !h.s.live)
-    await h.s.settled()
-    h.runner.flush()
-    await tick()
-    const room = h.s.room
-    expect(room.phase).toBe('resolved')
-    expect(room.typing).toEqual([])
-    expect(texts(room)).toEqual(['builder: Quick.', 'pm: Also quick.', 'pm: summary now'])
-    expect(h.runner.byId('pm').prompts[1]).toContain('ran out of time')
-    expect(h.saved).toHaveLength(1)
-    expect(h.clock.pending()).toBe(0)
-  })
-
-  it('soft clock turns the room to wrapping: agents and judge are told', async () => {
-    const h = harness(
-      {
-        skeptic: ['A.', 'Final: fold.'],
-        builder: ['B.', 'Final: fold.'],
-        pm: ['C.', 'Final: fold.', 'summary'],
-        judge: CONVERGED,
-      },
-      { softMs: 1000 },
-    )
-    await h.s.start()
-    h.runner.flush()
-    h.clock.now += 5000
-    await h.runner.drain(() => !h.s.live)
-    await h.s.settled()
-    expect(h.s.room.phase).toBe('resolved')
-    expect(h.runner.byId('skeptic').prompts[1]).toContain('(wrapping up')
-    expect(h.runner.byId('judge').prompts[0]).toContain('Soft limit passed: yes')
   })
 
   it("Isaac's post lands at once and is the next round's delta; his reaction toggles", async () => {
@@ -451,13 +390,13 @@ describe('RoomSession', () => {
     expect(dead.runner.byId('judge').stopped).toBe(true)
   })
 
-  it('stop resolves now; a reply streams into its message as it types', async () => {
+  it('Resolve now: wrapping, one final-position turn for everyone, then the summary', async () => {
     const partials: string[] = []
     const h = harness(
       {
-        skeptic: ['A long enough reply.', 'PASS'],
-        builder: ['B.', 'PASS'],
-        pm: ['C.', 'PASS', 'stopped summary'],
+        skeptic: ['A long enough reply.', 'PASS', 'Final: fold.'],
+        builder: ['B.', 'PASS', 'Final: fold.'],
+        pm: ['C.', 'PASS', 'Final: fold.', 'stopped summary'],
         judge: CONTINUE,
       },
       {
@@ -471,11 +410,55 @@ describe('RoomSession', () => {
     h.runner.flush()
     await tick()
     expect(partials).toEqual(['A lo', 'A long enough reply.'])
+    // Round 2 is in flight when Isaac resolves: that round finishes, round 3 is the final turn.
+    expect(h.s.room.rounds).toBe(2)
     const stopping = h.s.stop()
+    expect(h.s.room.phase).toBe('wrapping')
     await h.runner.drain(() => !h.s.live)
     await stopping
-    expect(h.s.room.phase).toBe('resolved')
-    expect(h.s.room.messages[h.s.room.messages.length - 1]!.text).toBe('stopped summary')
+    const room = h.s.room
+    expect(room.phase).toBe('resolved')
+    expect(room.rounds).toBe(3)
+    // Everyone got the wrap turn, even with nothing new to see; no judge call while wrapping.
+    for (const id of ['skeptic', 'builder', 'pm']) {
+      expect(h.runner.byId(id).prompts[2]).toContain('(wrapping up')
+    }
+    expect(h.runner.byId('judge').prompts).toHaveLength(0)
+    expect(texts(room).slice(-4)).toEqual([
+      'skeptic: Final: fold.',
+      'builder: Final: fold.',
+      'pm: Final: fold.',
+      'pm: stopped summary',
+    ])
+    expect(h.runner.byId('pm').prompts[3]).not.toContain('closed early')
     expect(h.saved).toHaveLength(1)
+  })
+
+  it('presence follows the turn: thinking on send, frames refine it, idle when the reply lands', async () => {
+    const seen: string[] = []
+    const h = harness(
+      {
+        skeptic: ['A long enough reply.', 'PASS'],
+        builder: ['B.', 'PASS'],
+        pm: ['C.', 'PASS', 'summary'],
+        judge: CONVERGED,
+      },
+      {
+        onChange: (room) => {
+          const p = room.presence.skeptic
+          const key = p ? `${p.state}${p.detail ? `:${p.detail}` : ''}` : 'idle'
+          if (seen[seen.length - 1] !== key) seen.push(key)
+        },
+      },
+    )
+    await h.s.start()
+    expect(h.s.room.presence.skeptic).toMatchObject({ state: 'thinking', since: 1_000_000 })
+    expect(Object.keys(h.s.room.presence).sort()).toEqual(['builder', 'pm', 'skeptic'])
+    h.runner.flush()
+    await tick()
+    // The first change seen is the round starting (Mara still idle), then her turn's arc.
+    expect(seen.slice(1, 4)).toEqual(['thinking', 'typing', 'idle'])
+    await h.finish()
+    expect(h.s.room.presence).toEqual({})
   })
 })

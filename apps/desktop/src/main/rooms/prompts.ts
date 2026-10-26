@@ -8,7 +8,7 @@ import {
 } from '@evaos/contract'
 
 /** Replies are Slack-short; anything longer is cut at a sentence boundary when one is near. */
-export const REPLY_MAX = 400
+export const REPLY_MAX = 900
 
 export const firstName = (name: string): string => name.split(' ')[0] ?? name
 
@@ -22,7 +22,7 @@ export function authorName(room: Room, id: string): string {
 }
 
 const ROOM_RULES = `Room rules:
-- This is a Slack thread, not an essay. Reply in 1 to 3 sentences, never more than ${REPLY_MAX} characters. Emoji and light markdown are fine.
+- This is a Slack thread, not an essay. Reply in 2 to 5 sentences; a short bullet list is fine when you are laying out options; never a wall of text, never more than ${REPLY_MAX} characters. Emoji and light markdown are fine.
 - Address people by first name. Disagree when you disagree; say why in one line.
 - Do not repeat what was already said. If you have nothing new to add, reply with the single word PASS and nothing else.
 - To react to a message, put lines of the form \`react: <msgId> <emoji>\` before your text (for example \`react: m12 👍\`). React only to messages you have actually seen.
@@ -30,6 +30,10 @@ const ROOM_RULES = `Room rules:
 - Isaac is the lead engineer and the person who asked; when he posts, treat it as the most important message in the delta.
 - Messages are shown to you as \`[m12] Mara: text\`. Never prefix your own reply with your name or an id.
 - Never use em dashes or en dashes; use commas or periods instead.`
+
+/** The extra rule for a seat that can look things up. */
+export const TOOLS_RULE =
+  '- You may read files, grep and search the web before answering, briefly; cite a path or number when you looked something up. Still 2 to 5 sentences.'
 
 /** The system prompt a persona process starts with. */
 export function personaPrompt(agent: RoomAgent, others: readonly RoomAgent[]): string {
@@ -44,13 +48,13 @@ ${agent.brief}
 You are in a room with Isaac (Lead Software Engineer, the person who asked the question) and:
 ${peers}
 
-${ROOM_RULES}`
+${ROOM_RULES}${agent.tools === 'read-only' ? `\n${TOOLS_RULE}` : ''}`
 }
 
 export const JUDGE_PROMPT = `You judge whether a short team discussion has converged on a decision.
-You will get the question, the transcript (messages as [m12] Name: text), reaction counts, elapsed time and whether the soft time limit has passed.
+You will get the question, the transcript (messages as [m12] Name: text), reaction counts, rounds and elapsed time.
 Converged means: the group has a clear answer to the question and no open objection is still being argued. Replies of PASS or AGREE and matching reactions are agreement signals.
-Once the soft limit has passed, push for closure: if the positions are known and only restating remains, call it converged.
+When the positions are known and only restating remains, call it converged; do not let a room circle.
 Answer with JSON only, on one line: {"verdict":"continue"|"converged","note":"one sentence on where the room stands"}`
 
 export const NUDGE_TEXT = 'Anyone want to push back or are we done?'
@@ -78,10 +82,12 @@ export function openingPrompt(room: Room): string {
 /** A later turn: only what this agent has not seen. */
 export function deltaPrompt(room: Room, delta: readonly RoomMessage[], wrapping: boolean): string {
   const head = wrapping ? '(wrapping up: state your final position in one line)\n\n' : ''
-  return `${head}New messages:\n${transcriptLines(room, delta)}\n\nYour reply (or PASS):`
+  const body =
+    delta.length > 0 ? `New messages:\n${transcriptLines(room, delta)}` : 'No new messages.'
+  return `${head}${body}\n\nYour reply (or PASS):`
 }
 
-export function judgePrompt(room: Room, elapsedMs: number, softPassed: boolean): string {
+export function judgePrompt(room: Room, elapsedMs: number): string {
   const reactions = room.messages.reduce(
     (n, m) => n + m.reactions.reduce((k, r) => k + r.by.length, 0),
     0,
@@ -94,14 +100,13 @@ ${transcriptLines(room, room.messages)}
 Reactions in total: ${reactions}
 Rounds: ${room.rounds}
 Elapsed: ${Math.round(elapsedMs / 1000)} s
-Soft limit passed: ${softPassed ? 'yes' : 'no'}
 
 JSON verdict:`
 }
 
 export function summaryPrompt(room: Room, forced: boolean): string {
   const why = forced
-    ? ' The room ran out of time, so summarize what exists; do not invent agreement.'
+    ? ' The room was closed early, so summarize what exists; do not invent agreement.'
     : ''
   return `Write the pinned summary that closes this room.${why} Use exactly this markdown shape, plain and fair, no preamble:
 

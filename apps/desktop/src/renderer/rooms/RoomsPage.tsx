@@ -1,11 +1,20 @@
 import { ActionIcon, Avatar, Button, Checkbox, Textarea, Tooltip } from '@mantine/core'
-import { IconPlayerStop, IconPlus, IconSend, IconUsersGroup } from '@tabler/icons-react'
+import {
+  IconBrain,
+  IconFileSearch,
+  IconPlayerStop,
+  IconPlus,
+  IconSend,
+  IconTool,
+  IconUsersGroup,
+} from '@tabler/icons-react'
 import { useEffect, useState, type KeyboardEvent } from 'react'
-import { roomIsLive } from '@evaos/contract'
+import { roomIsLive, type RoomPresence } from '@evaos/contract'
 import type { Place } from '@evaos/shell-core'
 import { pageMeta } from '../pages/page-meta'
 import { TypingDots } from '../ui/TypingDots'
-import { RoomFeed, typingLabel } from './RoomFeed'
+import { RoomFeed } from './RoomFeed'
+import { presenceGroups } from './presence'
 import { AuthorAvatar } from './RoomMessageRow'
 import { ROSTER } from './roster'
 import { postToRoom, setActive, startRoom, stopRoom, useRooms } from './rooms-store'
@@ -17,6 +26,12 @@ const PHASE_LABEL: Record<RoomPhase, string> = {
   wrapping: 'Wrapping up',
   resolved: 'Resolved',
   failed: 'Failed',
+}
+
+const PRESENCE_VERB: Record<RoomPresence['state'], string> = {
+  thinking: 'thinking',
+  reading: 'reading',
+  typing: 'typing',
 }
 
 /** "0:42", "12:05", "1:02:09". */
@@ -103,6 +118,17 @@ function NewRoomForm({ title, description }: { title: string; description: strin
                   <span className="eva-rooms-roster-line">
                     <span className="eva-rooms-roster-name">{a.name}</span>
                     <span className="eva-rooms-dim">{a.title}</span>
+                    {a.tools === 'read-only' ? (
+                      <Tooltip label="Can read code and the web" openDelay={300}>
+                        <IconTool
+                          size={14}
+                          stroke={1.5}
+                          className="eva-rooms-roster-tool"
+                          aria-label="Can read code and the web"
+                          data-testid={`rooms-tools-${a.id}`}
+                        />
+                      </Tooltip>
+                    ) : null}
                   </span>
                   <span className="eva-rooms-dim">
                     {a.role}, {a.model}
@@ -142,16 +168,22 @@ function Composer({ room }: { room: Room }) {
       send()
     }
   }
-  const label = typingLabel(room)
+  const groups = presenceGroups(room)
   return (
     <div className="eva-rooms-composer">
-      <div className="eva-rooms-typing" data-testid="room-typing" aria-live="polite">
-        {label ? (
-          <>
-            <TypingDots label={label} size="inline" />
-            <span>{label}</span>
-          </>
-        ) : null}
+      <div className="eva-rooms-typing" data-testid="room-presence" aria-live="polite">
+        {groups.map((g) => (
+          <span key={g.label} className="eva-rooms-presence" data-state={g.state}>
+            {g.state === 'typing' ? (
+              <TypingDots label={g.label} size="inline" />
+            ) : g.state === 'reading' ? (
+              <IconFileSearch size={14} stroke={1.5} aria-hidden />
+            ) : (
+              <IconBrain size={14} stroke={1.5} aria-hidden />
+            )}
+            <span>{g.label}</span>
+          </span>
+        ))}
       </div>
       <div className="eva-rooms-composer-row">
         <Textarea
@@ -195,13 +227,22 @@ function RoomView({ room }: { room: Room }) {
           {room.title}
         </h1>
         <Avatar.Group spacing="xs">
-          {room.agents.map((a) => (
-            <Tooltip key={a.id} label={`${a.name}, ${a.title} (${a.role})`} openDelay={300}>
-              <span>
-                <AuthorAvatar author={a} size="sm" />
-              </span>
-            </Tooltip>
-          ))}
+          {room.agents.map((a) => {
+            const p = room.presence[a.id]
+            const state = p ? `${PRESENCE_VERB[p.state]}${p.detail ? `: ${p.detail}` : ''}` : null
+            return (
+              <Tooltip
+                key={a.id}
+                label={`${a.name}, ${a.title} (${a.role})${state ? `, ${state}` : ''}`}
+                openDelay={300}
+              >
+                <span className="eva-rooms-head-avatar" data-testid={`room-avatar-${a.id}`}>
+                  <AuthorAvatar author={a} size="sm" />
+                  {p ? <span className="eva-rooms-presence-dot" data-state={p.state} /> : null}
+                </span>
+              </Tooltip>
+            )
+          })}
         </Avatar.Group>
         <StatusPill room={room} />
         <span className="eva-rooms-clock" data-testid="room-clock">

@@ -1,25 +1,54 @@
 import type { Frame } from '@evaos/chat-core/line-framer'
+import type { RoomAgent, RoomPresence } from '@evaos/contract'
 import { OmpStdioTransport } from '../chat/omp-transport'
+
+/** What a turn is doing right now, without the clock; null is idle. */
+export type Presence = Omit<RoomPresence, 'since'> | null
 
 /**
  * One throwaway omp process holding one persona's conversation. `send` is one turn: the prompt
- * in, the reply out, `onPartial` fed with the reply so far while it streams.
+ * in, the reply out, `onPartial` fed with the reply so far while it streams and `onPresence`
+ * with what the model is doing.
  */
 export interface AgentHandle {
-  send(text: string, onPartial?: (text: string) => void): Promise<string>
+  send(
+    text: string,
+    hooks?: { onPartial?: (text: string) => void; onPresence?: (p: Presence) => void },
+  ): Promise<string>
   /** Fires once if the process ends on its own (not through `stop`). */
   onExit(cb: (reason: string) => void): void
   stop(): Promise<void>
 }
 
+export interface AgentStart {
+  systemPrompt: string
+  model: string
+  tools: RoomAgent['tools']
+  /** omp `--thinking`: seats run high, the judge medium. */
+  thinking: 'medium' | 'high'
+}
+
 export interface AgentRunner {
-  start(opts: { systemPrompt: string; model: string }): Promise<AgentHandle>
+  start(opts: AgentStart): Promise<AgentHandle>
 }
 
 export interface OmpAgentRunnerOptions {
   ompBin: string
   live: boolean
+  /** Where tool-less processes run. */
   cwd: string
+  /** Where read-only seats run, so `read`/`grep`/`glob` see real code. */
+  toolsCwd: string
+}
+
+/** The omp tools a read-only seat gets (names from `omp --help` Available Tools). */
+export const READ_ONLY_TOOLS = ['read', 'grep', 'glob', 'web_search'] as const
+
+/** The tool flags for a seat: nothing, or the read-only set auto-approved. */
+export function toolArgs(tools: RoomAgent['tools']): string[] {
+  return tools === 'read-only'
+    ? ['--tools', READ_ONLY_TOOLS.join(','), '--approval-mode', 'yolo']
+    : ['--no-tools']
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> =>
@@ -38,13 +67,91 @@ export function messageText(message: unknown): string {
     .join('')
 }
 
+const DETAIL_MAX = 40
+
+/** `path` cut from the left so the file name survives; anything else cut from the right. */
+function shortArg(v: string, keepTail: boolean): string {
+  const chars = Array.from(v.replace(/\s+/g, ' ').trim())
+  if (chars.length <= DETAIL_MAX) return chars.join('')
+  return keepTail
+    ? `…${chars.slice(chars.length - DETAIL_MAX + 1).join('')}`
+    : `${chars.slice(0, DETAIL_MAX - 1).join('')}…`
+}
+
+/** "reading apps/desktop/src/main/index.ts", "grep SessionManager", "searching the web". */
+export function toolDetail(toolName: string, args: unknown): string {
+  const a = isObj(args) ? args : {}
+  const str = (k: string): string | null => (typeof a[k] === 'string' ? (a[k] as string) : null)
+  switch (toolName) {
+    case 'read': {
+      const p = str('path')
+      return p ? `reading ${shortArg(p, true)}` : 'reading a file'
+    }
+    case 'grep': {
+      const p = str('pattern')
+      return p ? `grep ${shortArg(p, false)}` : 'grep'
+    }
+    case 'glob': {
+      const p = str('pattern') ?? str('path')
+      return p ? `glob ${shortArg(p, false)}` : 'listing files'
+    }
+    case 'web_search': {
+      const q = str('query')
+      return q ? `searching the web: ${shortArg(q, false)}` : 'searching the web'
+    }
+    default: {
+      const p = str('path') ?? str('pattern') ?? str('query') ?? str('url')
+      return p ? `${toolName} ${shortArg(p, false)}` : toolName
+    }
+  }
+}
+
+/**
+ * Presence from one omp rpc-ui frame mid-turn, or undefined when the frame says nothing about
+ * it. `message_update` carries `assistantMessageEvent` (thinking_* / toolcall_* / text_*);
+ * `tool_execution_start` names the tool and its args; `agent_end` is idle.
+ */
+export function presenceOf(f: Frame): Presence | undefined {
+  switch (f.type) {
+    case 'message_start':
+    case 'message_update': {
+      const m = f.message
+      if (!isObj(m) || m.role !== 'assistant') return undefined
+      const ev = isObj(f.assistantMessageEvent) ? f.assistantMessageEvent.type : undefined
+      if (typeof ev === 'string') {
+        if (ev.startsWith('text_')) return { state: 'typing' }
+        if (ev.startsWith('thinking_') || ev.startsWith('toolcall_')) return { state: 'thinking' }
+        return undefined
+      }
+      // No event (message_start): the snapshot's blocks say which phase begins.
+      const blocks = Array.isArray(m.content) ? m.content.filter(isObj) : []
+      if (blocks.some((b) => b.type === 'text' && b.text !== '')) return { state: 'typing' }
+      return { state: 'thinking' }
+    }
+    case 'tool_execution_start': {
+      const name = typeof f.toolName === 'string' ? f.toolName : 'tool'
+      return { state: 'reading', detail: toolDetail(name, f.args) }
+    }
+    case 'tool_execution_end':
+      return { state: 'thinking' }
+    case 'agent_end':
+      return null
+    default:
+      return undefined
+  }
+}
+
 const STDERR_KEEP = 8
 
-/** `omp --mode rpc-ui --no-session --no-tools --no-lsp --no-ui --model <id> --system-prompt <p>`. */
+/**
+ * `omp --mode rpc-ui --no-session --no-lsp --no-ui --model <id> --thinking <level> --system-prompt
+ * <p>` plus `--no-tools`, or `--tools read,grep,glob,web_search --approval-mode yolo` for a
+ * read-only seat (run in `toolsCwd`).
+ */
 export class OmpAgentRunner implements AgentRunner {
   constructor(private o: OmpAgentRunnerOptions) {}
 
-  async start(opts: { systemPrompt: string; model: string }): Promise<AgentHandle> {
+  async start(opts: AgentStart): Promise<AgentHandle> {
     const t = new OmpStdioTransport({ ompBin: this.o.ompBin, live: this.o.live })
     const stderr: string[] = []
     let exited: string | null = null
@@ -55,7 +162,9 @@ export class OmpAgentRunner implements AgentRunner {
       resolve: (text: string) => void
       reject: (e: Error) => void
       onPartial?: (text: string) => void
+      onPresence?: (p: Presence) => void
       text: string
+      presence: string
     } | null = null
 
     const die = (reason: string): void => {
@@ -67,6 +176,16 @@ export class OmpAgentRunner implements AgentRunner {
     }
 
     t.onFrame((f: Frame) => {
+      if (turn) {
+        const p = presenceOf(f)
+        if (p !== undefined) {
+          const key = JSON.stringify(p)
+          if (key !== turn.presence) {
+            turn.presence = key
+            turn.onPresence?.(p)
+          }
+        }
+      }
       switch (f.type) {
         case '_stderr': {
           const line = String(f.line ?? '')
@@ -133,38 +252,39 @@ export class OmpAgentRunner implements AgentRunner {
 
     await t.start({
       sessionFile: null,
-      cwd: this.o.cwd,
+      cwd: opts.tools === 'read-only' ? this.o.toolsCwd : this.o.cwd,
       args: [
         '--no-session',
-        '--no-tools',
+        ...toolArgs(opts.tools),
         '--no-lsp',
         '--no-ui',
         '--model',
         opts.model,
         '--thinking',
-        'low',
+        opts.thinking,
         '--system-prompt',
         opts.systemPrompt,
       ],
     })
 
     return {
-      send: (text, onPartial) =>
-        new Promise<string>((resolve, reject) => {
-          if (exited !== null) {
-            reject(new Error(exited))
-            return
-          }
-          if (turn) {
-            reject(new Error('a turn is already running'))
-            return
-          }
-          turn = { resolve, reject, text: '', ...(onPartial ? { onPartial } : {}) }
-          t.send(text).catch((e: unknown) => {
-            turn = null
-            reject(e instanceof Error ? e : new Error(String(e)))
-          })
-        }),
+      send: (text, hooks) => {
+        const { promise, resolve, reject } = Promise.withResolvers<string>()
+        if (exited !== null) {
+          reject(new Error(exited))
+          return promise
+        }
+        if (turn) {
+          reject(new Error('a turn is already running'))
+          return promise
+        }
+        turn = { resolve, reject, text: '', presence: '', ...hooks }
+        t.send(text).catch((e: unknown) => {
+          turn = null
+          reject(e instanceof Error ? e : new Error(String(e)))
+        })
+        return promise
+      },
       onExit: (cb) => {
         onExit = cb
       },

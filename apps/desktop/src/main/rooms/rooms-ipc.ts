@@ -1,3 +1,4 @@
+import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { ROOM_JUDGE_MODEL, roomPerson, type Room, type RoomAgent } from '@evaos/contract'
@@ -24,7 +25,10 @@ class NotFound extends Error {
  */
 export function registerRoomsIpc(ctx: MainContext): void {
   const { evaRoot, ompBin, live } = ctx.env
-  const runner = new OmpAgentRunner({ ompBin, live, cwd: evaRoot })
+  // Read-only seats look at real code: the app's own checkout when the Eva root has it.
+  const repo = path.join(evaRoot, 'work', 'evaos-electron')
+  const toolsCwd = fs.existsSync(repo) ? repo : evaRoot
+  const runner = new OmpAgentRunner({ ompBin, live, cwd: evaRoot, toolsCwd })
   const sessions = new Map<string, RoomSession>()
   const order: string[] = []
   const pending = new Map<string, NodeJS.Timeout>()

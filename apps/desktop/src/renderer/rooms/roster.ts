@@ -15,7 +15,7 @@ export const withPortrait = (a: RoomAgentDto): RoomAgent => ({
 export const ROSTER: readonly RoomAgent[] = ROOM_PEOPLE.map(withPortrait)
 
 /** Isaac as a room author, the same shape as an agent so rows render alike. */
-export const ISAAC_PERSON: Omit<RoomAgent, 'model' | 'brief'> = {
+export const ISAAC_PERSON: Omit<RoomAgent, 'model' | 'brief' | 'tools'> = {
   id: 'isaac',
   name: 'Isaac',
   title: 'Lead Software Engineer',
@@ -25,7 +25,7 @@ export const ISAAC_PERSON: Omit<RoomAgent, 'model' | 'brief'> = {
 }
 
 /** The judge and the room itself post too: a verdict's summary, a dropped agent. */
-export const JUDGE_PERSON: Omit<RoomAgent, 'model' | 'brief'> = {
+export const JUDGE_PERSON: Omit<RoomAgent, 'model' | 'brief' | 'tools'> = {
   id: 'judge',
   name: 'Judge',
   title: 'Convergence judge',
@@ -34,7 +34,7 @@ export const JUDGE_PERSON: Omit<RoomAgent, 'model' | 'brief'> = {
   avatar: portrait('judge'),
 }
 
-export const SYSTEM_PERSON: Omit<RoomAgent, 'model' | 'brief'> = {
+export const SYSTEM_PERSON: Omit<RoomAgent, 'model' | 'brief' | 'tools'> = {
   id: 'system',
   name: 'Room',
   title: '',

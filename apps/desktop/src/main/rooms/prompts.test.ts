@@ -39,15 +39,15 @@ describe('parseReply', () => {
 describe('trimReply', () => {
   it('keeps short text, cuts long text at a sentence end past the halfway mark', () => {
     expect(trimReply('short')).toBe('short')
-    const sentences = `${'One two three four. '.repeat(30)}`
+    const sentences = `${'One two three four. '.repeat(60)}`
     const out = trimReply(sentences)
     expect(out.length).toBeLessThanOrEqual(REPLY_MAX)
     expect(out.endsWith('four.')).toBe(true)
-    const words = 'word '.repeat(200)
+    const words = 'word '.repeat(300)
     const w = trimReply(words)
     expect(w.length).toBeLessThanOrEqual(REPLY_MAX)
     expect(w.endsWith('…')).toBe(true)
-    const solid = 'x'.repeat(900)
+    const solid = 'x'.repeat(1200)
     expect(trimReply(solid)).toBe(`${'x'.repeat(REPLY_MAX)}…`)
   })
 })

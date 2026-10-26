@@ -347,11 +347,37 @@
 }
 .eva-rooms-typing {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--mantine-spacing-xs);
+  gap: var(--mantine-spacing-sm);
   min-height: 20px;
   font-size: var(--eva-fz-label);
   color: var(--eva-c-muted-foreground);
+}
+.eva-rooms-presence {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+}
+.eva-rooms-head-avatar {
+  position: relative;
+  display: inline-flex;
+}
+.eva-rooms-presence-dot {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 2px solid var(--eva-c-background);
+  background: var(--eva-c-muted-foreground);
+}
+.eva-rooms-presence-dot[data-state='reading'] {
+  background: var(--eva-accent);
+}
+.eva-rooms-presence-dot[data-state='typing'] {
+  background: var(--mantine-color-green-6);
 }
 .eva-rooms-composer-row {
   display: flex;
@@ -419,6 +445,10 @@
   display: flex;
   align-items: baseline;
   gap: var(--mantine-spacing-xs);
+}
+.eva-rooms-roster-tool {
+  align-self: center;
+  color: var(--eva-c-muted-foreground);
 }
 .eva-rooms-roster-name {
   font-weight: var(--eva-fw-medium);

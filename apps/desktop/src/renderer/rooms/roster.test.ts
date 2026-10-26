@@ -18,7 +18,7 @@ describe('roster', () => {
       // Exact omp ids, Claude or OpenAI only.
       expect(a.model).toMatch(/^(anthropic\/claude-|openai-codex\/gpt-)/)
     }
-    expect(ROOM_JUDGE_MODEL).toMatch(/^anthropic\/claude-haiku/)
+    expect(ROOM_JUDGE_MODEL).toBe('anthropic/claude-sonnet-5-5')
     expect(ISAAC_PERSON).toMatchObject({
       id: 'isaac',
       name: 'Isaac',

@@ -47,7 +47,7 @@ const room = (): Room => ({
       kind: 'summary',
     },
   ],
-  typing: [],
+  presence: {},
   phase: 'resolved',
   rounds: 3,
   judge: { verdict: 'converged', note: 'all agree', at: t0 + 100_000 },
@@ -71,7 +71,7 @@ describe('roomRecord', () => {
     expect(md).toContain('- Judge: converged: all agree')
     expect(md).toContain('## Summary\n\n**Decision**\nFold idle chats; never delete.')
     expect(md).toContain(
-      '- Theo Lindqvist, Senior Engineer (Builder, openai-codex/gpt-5.6-luna), dropped out',
+      '- Theo Lindqvist, Senior Engineer (Builder, openai-codex/gpt-6.1-sol), dropped out',
     )
     expect(md).toContain('- 14:05 **Mara**: What breaks?\n  👍 Isaac, Theo')
     expect(md).toContain('**Isaac**: Nothing, hopefully.')

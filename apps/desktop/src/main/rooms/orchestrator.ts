@@ -21,16 +21,10 @@ import {
   dedash,
   trimReply,
 } from './prompts'
-import type { AgentHandle, AgentRunner } from './runner'
+import type { AgentHandle, AgentRunner, Presence } from './runner'
 
-export const SOFT_LIMIT_MS = 5 * 60_000
-export const HARD_LIMIT_MS = 15 * 60_000
-export const MAX_ROUNDS = 12
-
-export interface RoomTimer {
-  set(fn: () => void, ms: number): unknown
-  clear(handle: unknown): void
-}
+/** A generous backstop; rooms normally end when the judge calls convergence or Isaac resolves. */
+export const MAX_ROUNDS = 30
 
 export interface RoomSessionDeps {
   runner: AgentRunner
@@ -40,15 +34,7 @@ export interface RoomSessionDeps {
   onChange: (room: Room) => void
   log: (line: string) => void
   now?: () => number
-  timer?: RoomTimer
-  softMs?: number
-  hardMs?: number
   maxRounds?: number
-}
-
-const realTimer: RoomTimer = {
-  set: (fn, ms) => setTimeout(fn, ms),
-  clear: (h) => clearTimeout(h as NodeJS.Timeout),
 }
 
 let roomSeq = 0
@@ -78,11 +64,9 @@ export class RoomSession {
   private resolving = false
   /** Every process start has settled; from here a last agent dying fails the room. */
   private started = false
-  private hardTimer: unknown = null
+  /** Isaac pressed Resolve now: the round it was (or will be) sent as the final-position turn. */
+  private wrapRound: number | null = null
   private readonly now: () => number
-  private readonly timer: RoomTimer
-  private readonly softMs: number
-  private readonly hardMs: number
   private readonly maxRounds: number
   private loop: Promise<void> | null = null
 
@@ -92,9 +76,6 @@ export class RoomSession {
     private readonly deps: RoomSessionDeps,
   ) {
     this.now = deps.now ?? Date.now
-    this.timer = deps.timer ?? realTimer
-    this.softMs = deps.softMs ?? SOFT_LIMIT_MS
-    this.hardMs = deps.hardMs ?? HARD_LIMIT_MS
     this.maxRounds = deps.maxRounds ?? MAX_ROUNDS
     const now = this.now()
     const text = prompt.trim()
@@ -104,7 +85,7 @@ export class RoomSession {
       prompt: text,
       agents: agents.map((a) => ({ ...a })),
       messages: [],
-      typing: [],
+      presence: {},
       phase: 'open',
       rounds: 0,
       startedAt: now,
@@ -139,6 +120,8 @@ export class RoomSession {
         const h = await this.deps.runner.start({
           systemPrompt: personaPrompt(a, this.room.agents),
           model: a.model,
+          tools: a.tools,
+          thinking: 'high',
         })
         h.onExit((reason) => this.markFailed(a.id, reason))
         this.handles.set(a.id, h)
@@ -151,6 +134,8 @@ export class RoomSession {
         this.judge = await this.deps.runner.start({
           systemPrompt: JUDGE_PROMPT,
           model: this.deps.judgeModel,
+          tools: 'none',
+          thinking: 'medium',
         })
         this.judge.onExit((reason) => {
           this.judge = null
@@ -166,7 +151,6 @@ export class RoomSession {
       if (roomIsLive(this.room.phase)) this.fail('No agent could start.')
       return
     }
-    this.hardTimer = this.timer.set(() => void this.resolve(true), this.hardMs)
     this.loop = this.run().catch((e) => this.fail(errText(e)))
   }
 
@@ -181,15 +165,22 @@ export class RoomSession {
     this.toggleReaction(messageId, emoji, ROOM_ISAAC)
   }
 
-  /** Resolve now: the summary from what exists. */
-  stop(): Promise<void> {
-    return this.resolve(true)
+  /**
+   * Resolve now: the room turns to wrapping, every agent gets one final-position turn, then the
+   * summary. Resolves once the room is resolved.
+   */
+  async stop(): Promise<void> {
+    if (!this.live) return
+    if (this.room.phase === 'open') {
+      this.room.phase = 'wrapping'
+      this.changed()
+    }
+    await this.settled()
   }
 
   /** The app is quitting: end every process; nothing is saved. */
   async destroy(): Promise<void> {
     this.resolving = true
-    if (this.hardTimer !== null) this.timer.clear(this.hardTimer)
     await this.stopAll()
   }
 
@@ -212,10 +203,16 @@ export class RoomSession {
     return msg
   }
 
-  private setTyping(id: string, on: boolean): void {
-    const has = this.room.typing.includes(id)
-    if (has === on) return
-    this.room.typing = on ? [...this.room.typing, id] : this.room.typing.filter((t) => t !== id)
+  /** What an agent is doing now; null clears it. Only a change is emitted. */
+  private setPresence(id: string, p: Presence): void {
+    const cur = this.room.presence[id]
+    if (p === null) {
+      if (!cur) return
+      delete this.room.presence[id]
+    } else {
+      if (cur && cur.state === p.state && cur.detail === p.detail) return
+      this.room.presence[id] = { ...p, since: this.now() }
+    }
     this.changed()
   }
 
@@ -242,7 +239,7 @@ export class RoomSession {
   private dropped(a: RoomAgent, reason: string): void {
     this.deps.log(`${this.room.id}: ${a.name} dropped: ${reason}`)
     if (!roomIsLive(this.room.phase)) return
-    this.room.typing = this.room.typing.filter((t) => t !== a.id)
+    delete this.room.presence[a.id]
     this.append(ROOM_SYSTEM, `${firstName(a.name)} dropped out of the room (${reason}).`)
     if (this.started && this.liveAgents().length === 0 && !this.resolving) {
       this.fail('Every agent dropped out.')
@@ -251,10 +248,9 @@ export class RoomSession {
 
   private fail(error: string): void {
     this.resolving = true
-    if (this.hardTimer !== null) this.timer.clear(this.hardTimer)
     this.room.phase = 'failed'
     this.room.error = error
-    this.room.typing = []
+    this.room.presence = {}
     this.changed()
     void this.stopAll()
   }
@@ -271,12 +267,12 @@ export class RoomSession {
     key: string,
     handle: AgentHandle,
     text: string,
-    onPartial?: (t: string) => void,
+    hooks?: Parameters<AgentHandle['send']>[1],
   ): Promise<string> {
     const prev = this.chains.get(key) ?? Promise.resolve()
     const next = prev.then(
-      () => handle.send(text, onPartial),
-      () => handle.send(text, onPartial),
+      () => handle.send(text, hooks),
+      () => handle.send(text, hooks),
     )
     this.chains.set(
       key,
@@ -292,17 +288,21 @@ export class RoomSession {
         await this.resolve(true)
         return
       }
-      const elapsed = this.now() - this.room.startedAt
-      if (elapsed >= this.softMs && this.room.phase === 'open') {
-        this.room.phase = 'wrapping'
-        this.changed()
-      }
       const before = this.msgSeq
       const anyNew = (): boolean => this.room.messages.some((m) => msgNum(m.id) > before)
       this.room.rounds += 1
+      const wrapping = this.room.phase === 'wrapping'
+      if (wrapping && this.wrapRound === null) this.wrapRound = this.room.rounds
       this.changed()
-      await this.round()
+      await this.round(wrapping)
       if (!this.live) return
+      // The final-position round is done: summarize. (A Resolve now that landed mid-round gets
+      // its final-position round next.)
+      if (this.wrapRound === this.room.rounds) {
+        await this.resolve(false)
+        return
+      }
+      if (this.room.phase === 'wrapping') continue
       // Isaac's post lands mid-round: the next round answers him before the judge may speak.
       const awaitingIsaac = this.isaacUnseen()
       if (!awaitingIsaac && (this.room.rounds >= 2 || !anyNew())) {
@@ -335,28 +335,34 @@ export class RoomSession {
     })
   }
 
-  private async round(): Promise<void> {
-    const wrapping = this.room.phase === 'wrapping'
+  /** Every live agent with something unseen gets it (everyone, when wrapping); replies land as they arrive. */
+  private async round(wrapping: boolean): Promise<void> {
     const sends = this.liveAgents().map(async (a) => {
       const handle = this.handles.get(a.id)
       if (!handle) return
       const first = !this.seen.has(a.id)
       const from = this.seen.get(a.id) ?? 0
       const delta = this.room.messages.filter((m) => msgNum(m.id) > from)
-      if (!first && !delta.some((m) => m.author !== a.id)) return
+      if (!first && !wrapping && !delta.some((m) => m.author !== a.id)) return
       // What others post during this turn has a higher number and is the next delta.
       this.seen.set(a.id, this.msgSeq)
       const prompt = first
         ? openingPrompt(this.room) +
           (wrapping ? '\n(wrapping up: state your final position in one line)' : '')
         : deltaPrompt(this.room, delta, wrapping)
-      this.setTyping(a.id, true)
+      // The model is thinking from the moment the prompt goes out; frames refine it from there.
+      this.setPresence(a.id, { state: 'thinking' })
       try {
-        const raw = await this.sendSerial(a.id, handle, prompt, (partial) => {
-          const p = parseReply(partial)
-          // A reply that starts like PASS stays hidden until the turn ends.
-          if (p.text === '' || /^\**\s*pass/i.test(p.text)) return
-          this.showDraft(a.id, trimReply(p.text))
+        const raw = await this.sendSerial(a.id, handle, prompt, {
+          onPartial: (partial) => {
+            const p = parseReply(partial)
+            // A reply that starts like PASS stays hidden until the turn ends.
+            if (p.text === '' || /^\**\s*pass/i.test(p.text)) return
+            this.showDraft(a.id, trimReply(p.text))
+          },
+          onPresence: (p) => {
+            if (this.live && this.handles.has(a.id)) this.setPresence(a.id, p)
+          },
         })
         if (!this.live) return
         const p = parseReply(raw)
@@ -368,7 +374,7 @@ export class RoomSession {
         this.deps.log(`${this.room.id}: ${a.name} turn failed: ${errText(e)}`)
       } finally {
         this.drafts.delete(a.id)
-        if (this.live) this.setTyping(a.id, false)
+        if (this.live) this.setPresence(a.id, null)
       }
     })
     await Promise.all(sends)
@@ -384,7 +390,6 @@ export class RoomSession {
       return
     }
     this.drafts.set(agentId, this.append(agentId, text))
-    this.setTyping(agentId, false)
   }
 
   private dropDraft(agentId: string): void {
@@ -399,11 +404,7 @@ export class RoomSession {
     if (!this.judge) return 'continue'
     const elapsed = this.now() - this.room.startedAt
     try {
-      const raw = await this.sendSerial(
-        ROOM_JUDGE,
-        this.judge,
-        judgePrompt(this.room, elapsed, elapsed >= this.softMs),
-      )
+      const raw = await this.sendSerial(ROOM_JUDGE, this.judge, judgePrompt(this.room, elapsed))
       const v = parseVerdict(raw)
       this.room.judge = { ...v, at: this.now() }
       this.changed()
@@ -418,8 +419,7 @@ export class RoomSession {
   private async resolve(forced: boolean): Promise<void> {
     if (this.resolving || !roomIsLive(this.room.phase)) return
     this.resolving = true
-    if (this.hardTimer !== null) this.timer.clear(this.hardTimer)
-    this.room.typing = []
+    this.room.presence = {}
     this.changed()
     const prompt = summaryPrompt(this.room, forced)
     const pm = this.pm()

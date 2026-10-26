@@ -19,6 +19,8 @@ export const RoomAgentSchema = z.object({
   brief: z.string(),
   /** The exact omp model id, `provider/model`. */
   model: z.string(),
+  /** `read-only` seats get read, grep, glob and web search in the Eva checkout; `none` has no tools. */
+  tools: z.enum(['none', 'read-only']),
   /** A Mantine theme color name, e.g. "orange". */
   color: z.string(),
   /** The process died or never started; the room goes on without them. */
@@ -46,6 +48,17 @@ export const RoomMessageSchema = z.object({
 export type RoomMessage = z.infer<typeof RoomMessageSchema>
 
 /**
+ * What an agent is doing mid-turn: thinking (model reasoning or preparing a tool call), reading
+ * (a tool runs; `detail` names it and its target), typing (reply text is streaming).
+ */
+export const RoomPresenceSchema = z.object({
+  state: z.enum(['thinking', 'reading', 'typing']),
+  detail: z.string().optional(),
+  since: z.number(),
+})
+export type RoomPresence = z.infer<typeof RoomPresenceSchema>
+
+/**
  * open: agents talk. wrapping: the soft clock passed, everyone is told to close. resolved: the
  * summary is pinned and saved. failed: nobody could talk (omp missing, every agent dead).
  */
@@ -65,8 +78,8 @@ export const RoomSchema = z.object({
   prompt: z.string(),
   agents: z.array(RoomAgentSchema),
   messages: z.array(RoomMessageSchema),
-  /** Agent ids typing right now. */
-  typing: z.array(z.string()),
+  /** What each agent is doing right now, by agent id; absent means idle. */
+  presence: z.record(z.string(), RoomPresenceSchema),
   phase: RoomPhaseSchema,
   /** Rounds started so far. */
   rounds: z.number(),
