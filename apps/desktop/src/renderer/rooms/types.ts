@@ -3,13 +3,18 @@ export const ISAAC = 'isaac'
 
 export interface RoomAgent {
   id: string
+  /** The person's full name, e.g. "Mara Voss". */
   name: string
-  /** One line on what the persona argues for, shown muted next to the name. */
+  /** Job title, e.g. "Principal Engineer". */
+  title: string
+  /** The persona behind the person: Skeptic, Builder, User advocate, PM, Ops. */
   role: string
   /** The model label, e.g. "claude-sonnet". */
   model: string
   /** A Mantine theme color name, e.g. "orange". */
   color: string
+  /** An SVG data URI portrait, generated offline. */
+  avatar: string
 }
 
 export interface RoomReaction {

@@ -224,11 +224,28 @@
 .eva-room-row-name {
   font-weight: var(--eva-fw-semibold);
 }
-.eva-room-row-role,
+.eva-room-row-title,
 .eva-room-row-time {
   font-size: var(--eva-fz-label);
   color: var(--eva-c-muted-foreground);
   white-space: nowrap;
+}
+.eva-room-row-role {
+  padding: 0 calc(var(--mantine-spacing-xs) / 1.25);
+  border-radius: var(--eva-radius-round);
+  background: var(--eva-c-muted-background);
+  color: var(--eva-c-muted-foreground);
+  font-size: var(--eva-fz-caption);
+  font-weight: var(--eva-fw-medium);
+  line-height: 1.6;
+  white-space: nowrap;
+}
+/* Portraits sit on Mantine's light tint of the person's color, ringed in the same hue. */
+.eva-room-avatar {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--avatar-color) 40%, transparent);
+}
+.eva-room-avatar img {
+  object-fit: cover;
 }
 .eva-room-row-time-hover {
   padding-top: calc(var(--mantine-spacing-xs) / 2);
@@ -380,7 +397,17 @@
 .eva-rooms-roster-row + .eva-rooms-roster-row {
   border-top: 1px solid var(--eva-c-border);
 }
+.eva-rooms-roster-person {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+}
 .eva-rooms-roster-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.eva-rooms-roster-line {
   display: flex;
   align-items: baseline;
   gap: var(--mantine-spacing-xs);

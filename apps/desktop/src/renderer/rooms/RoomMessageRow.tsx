@@ -3,30 +3,42 @@ import { IconMoodSmile, IconPin } from '@tabler/icons-react'
 import { useState } from 'react'
 import { Markdown } from '../chat/markdown/Markdown'
 import { EvaPopover } from '../overlay'
+import { ISAAC_PERSON } from './roster'
 import { toggleReaction } from './rooms-store'
 import { ISAAC, type RoomAgent, type RoomMessage } from './types'
 
 export const EMOJI = ['👍', '👀', '🔥', '💯', '😂', '🤔', '✅', '❌', '🎉', '🙏', '❤️', '🚀']
 
+/** Who a message is from: an agent, Isaac, or a placeholder for an id the room does not know. */
 export interface Author {
   name: string
-  role: string | null
+  title: string
+  /** The persona behind the person; empty for Isaac. */
+  role: string
   color: string
+  avatar: string
 }
-
-const ISAAC_AUTHOR: Author = { name: 'Isaac', role: null, color: 'gray' }
 
 export function authorOf(agents: readonly RoomAgent[], id: string): Author {
-  if (id === ISAAC) return ISAAC_AUTHOR
-  const a = agents.find((x) => x.id === id)
-  return a
-    ? { name: a.name, role: a.role, color: a.color }
-    : { name: id, role: null, color: 'gray' }
+  if (id === ISAAC) return ISAAC_PERSON
+  return (
+    agents.find((x) => x.id === id) ?? { name: id, title: '', role: '', color: 'gray', avatar: '' }
+  )
 }
+
+/** "Mara" of "Mara Voss"; what the room calls people in running text. */
+export const firstName = (author: Author): string => author.name.split(' ')[0] ?? author.name
 
 export function AuthorAvatar({ author, size }: { author: Author; size: 'sm' | 'md' }) {
   return (
-    <Avatar size={size} radius="xl" color={author.color} aria-hidden>
+    <Avatar
+      size={size}
+      radius="xl"
+      color={author.color}
+      src={author.avatar || null}
+      alt=""
+      className="eva-room-avatar"
+    >
       {(Array.from(author.name)[0] ?? '?').toUpperCase()}
     </Avatar>
   )
@@ -35,9 +47,9 @@ export function AuthorAvatar({ author, size }: { author: Author; size: 'sm' | 'm
 const timeLabel = (ts: number): string =>
   new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
-/** "Builder", "Builder and PM", "Builder, PM and you". */
+/** "Theo", "Theo and Jonah", "Theo, Jonah and you". */
 function namesLabel(agents: readonly RoomAgent[], by: readonly string[]): string {
-  const names = by.map((id) => (id === ISAAC ? 'you' : authorOf(agents, id).name))
+  const names = by.map((id) => (id === ISAAC ? 'you' : firstName(authorOf(agents, id))))
   if (names.length <= 1) return names[0] ?? ''
   return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
 }
@@ -77,6 +89,7 @@ export function RoomMessageRow({ roomId, msg, agents, continuation }: RoomMessag
         {continuation ? null : (
           <div className="eva-room-row-head">
             <span className="eva-room-row-name">{author.name}</span>
+            {author.title ? <span className="eva-room-row-title">{author.title}</span> : null}
             {author.role ? <span className="eva-room-row-role">{author.role}</span> : null}
             <span className="eva-room-row-time">{timeLabel(msg.ts)}</span>
           </div>

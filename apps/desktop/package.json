@@ -20,6 +20,8 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",
+    "@dicebear/core": "^9.4.3",
+    "@dicebear/notionists": "^9.4.2",
     "@dnd-kit/core": "6.3.1",
     "@evaos/browser-core": "workspace:*",
     "@evaos/chat-core": "workspace:*",

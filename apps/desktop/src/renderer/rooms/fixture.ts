@@ -92,7 +92,7 @@ export const BEATS: readonly Beat[] = [
     author: 'advocate',
     lead: 500,
     typing: 3000,
-    text: 'Agree with Skeptic on the feeling. The chats I care about most are the long-running ones I open once a month. Those are exactly the ones an idle rule hides first. 😬',
+    text: 'Agree with Mara on the feeling. The chats I care about most are the long-running ones I open once a month. Those are exactly the ones an idle rule hides first. 😬',
   },
   {
     key: 'm5',
@@ -114,7 +114,7 @@ export const BEATS: readonly Beat[] = [
     author: 'pm',
     lead: 600,
     typing: 2600,
-    text: 'Good split. Restating:\n- **Noise**: too many rows in Recent\n- **Cost**: watching every file forever\n\nSkeptic, which one are you objecting to?',
+    text: 'Good split. Restating:\n- **Noise**: too many rows in Recent\n- **Cost**: watching every file forever\n\nMara, which one are you objecting to?',
   },
   {
     key: 'm8',
@@ -258,7 +258,7 @@ export const BEATS: readonly Beat[] = [
     lead: 1300,
     typing: 4000,
     summary: true,
-    text: '**Decision**\nNo auto-archive. Chats idle 14+ days fold into a collapsed Older section at the bottom of Recent. Pinned chats never fold. Search stays global.\n\n**Dissent**\nOps still wants a true archive for disk and startup cost once sessions pass a few thousand. Parked until lazy-watch ships and we re-measure.\n\n**Next steps**\n- Builder: sort plus fold behind `IDLE_DAYS = 14`, one PR\n- Ops: lazy file watching for sessions older than 14 days\n- PM: re-measure cold start in two weeks',
+    text: '**Decision**\nNo auto-archive. Chats idle 14+ days fold into a collapsed Older section at the bottom of Recent. Pinned chats never fold. Search stays global.\n\n**Dissent**\nSam still wants a true archive for disk and startup cost once sessions pass a few thousand. Parked until lazy-watch ships and we re-measure.\n\n**Next steps**\n- Theo: sort plus fold behind `IDLE_DAYS = 14`, one PR\n- Sam: lazy file watching for sessions older than 14 days\n- Jonah: re-measure cold start in two weeks',
     reactions: [
       { emoji: '🎉', by: 'builder', after: 600 },
       { emoji: '🎉', by: 'advocate', after: 900 },

@@ -1,16 +1,16 @@
 import { IconArrowDown, IconPin } from '@tabler/icons-react'
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Markdown } from '../chat/markdown/Markdown'
-import { RoomMessageRow, authorOf } from './RoomMessageRow'
+import { RoomMessageRow, authorOf, firstName } from './RoomMessageRow'
 import { groupMessages } from './rooms-store'
 import type { Room } from './types'
 
 /** Within this many px of the bottom counts as following. */
 const FOLLOW_SLACK_PX = 24
 
-/** "Skeptic is typing", "Skeptic and PM are typing", "Skeptic, PM and Ops are typing". */
+/** "Mara is typing", "Mara and Priya are typing", "Mara, Priya and Sam are typing". */
 export function typingLabel(room: Room): string | null {
-  const names = room.typing.map((id) => authorOf(room.agents, id).name)
+  const names = room.typing.map((id) => firstName(authorOf(room.agents, id)))
   if (names.length === 0) return null
   if (names.length === 1) return `${names[0]} is typing`
   return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]} are typing`
@@ -22,12 +22,12 @@ export function RoomFeed({ room }: { room: Room }) {
   const groups = useMemo(() => groupMessages(room.messages), [room.messages])
   const summary =
     room.status === 'resolved' ? room.messages.find((m) => m.kind === 'summary') : null
-  const tail = `${room.messages.length}:${room.typing.length}`
 
   useLayoutEffect(() => {
     const el = viewport.current
     if (el && following) el.scrollTop = el.scrollHeight
-  }, [tail, following, room.id])
+    // room.messages is a new array on every post, reaction or resolve; typing adds a row too.
+  }, [room.messages, room.typing, following, room.id])
 
   const onScroll = (): void => {
     const el = viewport.current

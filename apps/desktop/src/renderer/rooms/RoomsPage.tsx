@@ -7,7 +7,7 @@ import { TypingDots } from '../ui/TypingDots'
 import { REPLIES_TO_ISAAC, SCRIPT, TOPIC } from './fixture'
 import { createPlayer, type Player } from './player'
 import { RoomFeed, typingLabel } from './RoomFeed'
-import { AuthorAvatar, authorOf } from './RoomMessageRow'
+import { AuthorAvatar } from './RoomMessageRow'
 import { ROSTER } from './roster'
 import { createRoom, nextId, post, setActive, useRooms } from './rooms-store'
 import { ISAAC, type Room, type RoomAgent, type RoomStatus } from './types'
@@ -88,10 +88,16 @@ function NewRoomForm({ title, description }: { title: string; description: strin
             }
             data-testid={`rooms-pick-${a.id}`}
             label={
-              <span className="eva-rooms-roster-text">
-                <span className="eva-rooms-roster-name">{a.name}</span>
-                <span className="eva-rooms-dim">
-                  {a.role}, {a.model}
+              <span className="eva-rooms-roster-person">
+                <AuthorAvatar author={a} size="md" />
+                <span className="eva-rooms-roster-text">
+                  <span className="eva-rooms-roster-line">
+                    <span className="eva-rooms-roster-name">{a.name}</span>
+                    <span className="eva-rooms-dim">{a.title}</span>
+                  </span>
+                  <span className="eva-rooms-dim">
+                    {a.role}, {a.model}
+                  </span>
                 </span>
               </span>
             }
@@ -183,9 +189,9 @@ function RoomView({ room }: { room: Room }) {
         </h1>
         <Avatar.Group spacing="xs">
           {room.agents.map((a) => (
-            <Tooltip key={a.id} label={`${a.name}, ${a.model}`} openDelay={300}>
+            <Tooltip key={a.id} label={`${a.name}, ${a.title} (${a.role})`} openDelay={300}>
               <span>
-                <AuthorAvatar author={authorOf(room.agents, a.id)} size="sm" />
+                <AuthorAvatar author={a} size="sm" />
               </span>
             </Tooltip>
           ))}
