@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Markdown } from '../chat/markdown/Markdown'
 import { EvaPopover } from '../overlay'
 import { ROOM_JUDGE, ROOM_SYSTEM } from '@evaos/contract'
+import { mentionMarkdown } from './mentions'
 import { ISAAC_PERSON, JUDGE_PERSON, SYSTEM_PERSON } from './roster'
 import { toggleReaction } from './rooms-store'
 import { ISAAC, type RoomAgent, type RoomMessage } from './types'
@@ -103,10 +104,10 @@ export function RoomMessageRow({ roomId, msg, agents, continuation }: RoomMessag
               <IconPin size={14} stroke={1.5} aria-hidden />
               Pinned decision
             </div>
-            <Markdown text={msg.text} />
+            <Markdown text={mentionMarkdown(msg.text, agents)} />
           </div>
         ) : (
-          <Markdown text={msg.text} />
+          <Markdown text={mentionMarkdown(msg.text, agents)} />
         )}
         {msg.reactions.length > 0 ? (
           <div className="eva-room-reactions">

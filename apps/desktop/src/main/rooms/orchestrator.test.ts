@@ -587,4 +587,66 @@ describe('RoomSession', () => {
     expect(texts(h.s.room)).toContain('system: Mara did not answer in time and was skipped.')
     expect(h.s.room.messages[h.s.room.messages.length - 1]!.text).toBe('summary')
   })
+
+  it('Isaac @names narrow the next round to those people; the others catch up after', async () => {
+    const h = harness({
+      skeptic: ['A.', 'PASS', 'PASS'],
+      builder: ['B.', 'PASS', (p) => (p.includes('Isaac: @Theo') ? 'Isaac: yes, fold.' : 'PASS')],
+      pm: ['C.', 'PASS', 'PASS', 'summary'],
+      judge: CONVERGED,
+    })
+    await h.s.start()
+    h.runner.flush()
+    await tick()
+    // Round 2 is in flight; Isaac asks Theo specifically.
+    h.s.post('@Theo what breaks if we fold?')
+    expect(h.s.room.messages.find((m) => m.author === 'isaac')!.mentions).toEqual(['builder'])
+    h.runner.flush()
+    await tick()
+    // Round 3 went to Theo alone.
+    expect(h.s.room.rounds).toBe(3)
+    expect(h.runner.pending.map((p) => p.id)).toEqual(['builder'])
+    expect(h.runner.byId('builder').prompts[2]).toContain(
+      '[m4] Isaac: @Theo what breaks if we fold?',
+    )
+    expect(h.runner.byId('skeptic').prompts).toHaveLength(2)
+    // His question was for Theo, so once Theo answers the judge may speak.
+    h.runner.flush()
+    await tick()
+    expect(h.runner.byId('judge').prompts).toHaveLength(1)
+    expect(h.runner.byId('judge').prompts[0]).toContain('Theo: Isaac: yes, fold.')
+    await h.runner.drain(() => !h.s.live)
+    await h.s.settled()
+    expect(h.s.room.phase).toBe('resolved')
+  })
+
+  it('an agent @mention forces a prompt with the mention line, even inside a narrowed round', async () => {
+    const h = harness({
+      skeptic: [
+        'A.',
+        (p) => (p.includes('(you were mentioned by Theo)') ? 'Theo, no.' : 'PASS'),
+        'PASS',
+      ],
+      builder: ['@Mara is this safe?', 'PASS', 'PASS'],
+      pm: ['C.', 'PASS', 'PASS', 'summary'],
+      judge: [CONTINUE, CONVERGED],
+    })
+    await h.s.start()
+    h.runner.flush(['builder', 'pm'])
+    await tick()
+    expect(h.s.room.messages[0]).toMatchObject({ author: 'builder', mentions: ['skeptic'] })
+    // Isaac narrows the next round to Jonah; Mara was mentioned by Theo so she is prompted too.
+    h.s.post('@Jonah summarize the options so far')
+    h.runner.flush()
+    await tick()
+    expect(h.s.room.rounds).toBe(2)
+    expect(h.runner.pending.map((p) => p.id).sort()).toEqual(['pm', 'skeptic'])
+    const mara = h.runner.byId('skeptic').prompts[1]!
+    expect(mara.startsWith('(you were mentioned by Theo)\nNew messages:')).toBe(true)
+    expect(mara).toContain('[m1] Theo: @Mara is this safe?')
+    expect(h.runner.byId('builder').prompts).toHaveLength(1)
+    await h.runner.drain(() => !h.s.live)
+    await h.s.settled()
+    expect(texts(h.s.room)).toContain('skeptic: Theo, no.')
+  })
 })

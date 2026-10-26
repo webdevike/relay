@@ -1,6 +1,7 @@
 import { IconArrowDown, IconPin } from '@tabler/icons-react'
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Markdown } from '../chat/markdown/Markdown'
+import { mentionMarkdown } from './mentions'
 import { RoomMessageRow, authorOf } from './RoomMessageRow'
 import { groupMessages } from './rooms-store'
 import type { Room } from './types'
@@ -41,7 +42,7 @@ export function RoomFeed({ room }: { room: Room }) {
                 by {authorOf(room.agents, summary.author).name}
               </span>
             </div>
-            <Markdown text={summary.text} />
+            <Markdown text={mentionMarkdown(summary.text, room.agents)} />
           </div>
         ) : null}
         {groups.map((g) =>

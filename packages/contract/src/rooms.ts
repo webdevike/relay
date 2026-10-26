@@ -44,6 +44,8 @@ export const RoomMessageSchema = z.object({
   reactions: z.array(RoomReactionSchema),
   /** A summary is the pinned decision that closes the room. */
   kind: z.enum(['message', 'summary']),
+  /** Agent ids the text mentions with @First, or `everyone`; routes the next round. */
+  mentions: z.array(z.string()),
 })
 export type RoomMessage = z.infer<typeof RoomMessageSchema>
 

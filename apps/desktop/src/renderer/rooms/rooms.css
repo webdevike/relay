@@ -465,3 +465,57 @@
   font-size: var(--eva-fz-label);
   color: var(--mantine-color-red-7);
 }
+
+/* @mentions: a quiet pill in the person's theme color (Markdown renders `mention:` links). */
+.eva-md-mention {
+  display: inline-block;
+  padding: 0 0.35em;
+  border-radius: var(--eva-radius-round);
+  font-weight: var(--eva-fw-medium);
+  --eva-mention: var(--eva-c-muted-foreground);
+  color: var(--eva-mention);
+  background: color-mix(in srgb, var(--eva-mention) 14%, transparent);
+}
+.eva-md-mention[data-color='orange'] {
+  --eva-mention: var(--mantine-color-orange-7);
+}
+.eva-md-mention[data-color='blue'] {
+  --eva-mention: var(--mantine-color-blue-7);
+}
+.eva-md-mention[data-color='teal'] {
+  --eva-mention: var(--mantine-color-teal-7);
+}
+.eva-md-mention[data-color='violet'] {
+  --eva-mention: var(--mantine-color-violet-7);
+}
+.eva-md-mention[data-color='green'] {
+  --eva-mention: var(--mantine-color-green-7);
+}
+
+/* The @ picker under the composer */
+.eva-rooms-mention-list {
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+  padding: calc(var(--mantine-spacing-xs) / 2);
+}
+.eva-rooms-mention-row {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  padding: calc(var(--mantine-spacing-xs) / 2) var(--mantine-spacing-xs);
+  border: 0;
+  border-radius: var(--eva-radius);
+  background: transparent;
+  color: var(--eva-c-foreground);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.eva-rooms-mention-row[data-active='true'],
+.eva-rooms-mention-row:hover {
+  background: var(--eva-hover);
+}
+.eva-rooms-mention-name {
+  font-weight: var(--eva-fw-medium);
+}

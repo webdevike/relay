@@ -29,7 +29,8 @@ const ROOM_RULES = `Room rules:
 - When the room is wrapping up, state your final position in one line. You may reply AGREE alone to signal you are done.
 - Isaac is the lead engineer and the person who asked; when he posts, treat it as the most important message in the delta.
 - Messages are shown to you as \`[m12] Mara: text\`. Never prefix your own reply with your name or an id.
-- Never use em dashes or en dashes; use commas or periods instead.`
+- Never use em dashes or en dashes; use commas or periods instead.
+- Address someone directly with @FirstName when you want them specifically to answer.`
 
 /** The extra rule for a seat that can look things up. */
 export const TOOLS_RULE =

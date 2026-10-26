@@ -171,19 +171,24 @@ describe('seat cwd', () => {
     })
     await none.stop()
     await ro.stop()
+    const real = (p: string): string => fs.realpathSync(p)
+    // The two stand-ins write their line as they come up, in either order.
     const runs = fs
       .readFileSync(out, 'utf8')
       .trim()
       .split('\n')
       .map((l) => l.split('\t') as [string, string])
-    const real = (p: string): string => fs.realpathSync(p)
-    expect(runs.map(([cwd]) => real(cwd))).toEqual([real(priv), real(repo)])
-    expect(runs[0]![1]).toContain('--no-extensions --no-skills --no-rules --no-tools')
-    expect(runs[0]![1]).toContain('--thinking medium')
-    expect(runs[1]![1]).toContain(
+    const noneRun = runs.find(([, argv]) => argv.includes('--no-tools'))!
+    const roRun = runs.find(([, argv]) => argv.includes('--tools read'))!
+    expect(runs).toHaveLength(2)
+    expect(real(noneRun[0])).toBe(real(priv))
+    expect(real(roRun[0])).toBe(real(repo))
+    expect(noneRun[1]).toContain('--no-extensions --no-skills --no-rules --no-tools')
+    expect(noneRun[1]).toContain('--thinking medium')
+    expect(roRun[1]).toContain(
       '--no-extensions --no-skills --no-rules --tools read,grep,glob,web_search --approval-mode yolo',
     )
-    expect(runs[1]![1]).toContain('--thinking high')
+    expect(roRun[1]).toContain('--thinking high')
     // Neither cwd is the Eva root, whose .omp/tools would become project tools.
     for (const [cwd] of runs) expect(real(cwd)).not.toBe(real(evaRoot))
   })

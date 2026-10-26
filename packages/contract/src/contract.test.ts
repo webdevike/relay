@@ -642,6 +642,7 @@ describe('contract', () => {
             text: 'hi',
             ts: 1,
             reactions: [{ emoji: '👍', by: ['isaac'] }],
+            mentions: ['skeptic'],
             kind: 'message',
           },
         ],

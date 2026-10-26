@@ -26,6 +26,7 @@ const msg = (id: string, author: string, ts: number, kind: RoomMessage['kind'] =
   text: id,
   ts,
   reactions: [],
+  mentions: [],
   kind,
 })
 

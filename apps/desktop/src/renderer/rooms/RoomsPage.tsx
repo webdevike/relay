@@ -8,14 +8,16 @@ import {
   IconTool,
   IconUsersGroup,
 } from '@tabler/icons-react'
-import { useEffect, useState, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { roomIsLive, type RoomPresence } from '@evaos/contract'
 import type { Place } from '@evaos/shell-core'
 import { pageMeta } from '../pages/page-meta'
 import { TypingDots } from '../ui/TypingDots'
 import { RoomFeed } from './RoomFeed'
 import { presenceGroups } from './presence'
-import { AuthorAvatar } from './RoomMessageRow'
+import { EvaPopover } from '../overlay'
+import { insertMention, insertRaw, mentionChoices, mentionQueryAt, mentionables } from './mentions'
+import { AuthorAvatar, authorOf, type Author } from './RoomMessageRow'
 import { ROSTER } from './roster'
 import { postToRoom, setActive, startRoom, stopRoom, useRooms } from './rooms-store'
 import type { Room, RoomPhase } from './types'
@@ -155,18 +157,66 @@ function NewRoomForm({ title, description }: { title: string; description: strin
 
 function Composer({ room }: { room: Room }) {
   const [text, setText] = useState('')
+  const [caret, setCaret] = useState(0)
+  const [pick, setPick] = useState(0)
+  const field = useRef<HTMLTextAreaElement>(null)
   const live = roomIsLive(room.phase)
+  const people = useMemo(() => mentionables(room.agents), [room.agents])
+  const query = mentionQueryAt(text, caret)
+  const choices = query ? mentionChoices(people, query.query) : []
+  const open = choices.length > 0
+  const avatarOf = (id: string): Author => authorOf(room.agents, id)
+
   const send = (): void => {
     const body = text.trim()
     if (body === '' || !live) return
     void postToRoom(room.id, body)
     setText('')
+    setCaret(0)
+  }
+  const choose = (name: string): void => {
+    if (!query) return
+    const next = insertMention(text, caret, query, name)
+    setText(next.text)
+    setCaret(next.caret)
+    setPick(0)
+    const el = field.current
+    if (el) {
+      el.focus()
+      requestAnimationFrame(() => el.setSelectionRange(next.caret, next.caret))
+    }
   }
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (open) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault()
+        const d = e.key === 'ArrowDown' ? 1 : -1
+        setPick((i) => (i + d + choices.length) % choices.length)
+        return
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault()
+        choose(choices[Math.min(pick, choices.length - 1)]!.name)
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        // Closing means leaving the @word: a trailing space ends the query.
+        const next = insertRaw(text, caret, ' ')
+        setText(next.text)
+        setCaret(next.caret)
+        return
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault()
       send()
     }
+  }
+  const track = (el: HTMLTextAreaElement): void => {
+    setText(el.value)
+    setCaret(el.selectionStart ?? el.value.length)
+    setPick(0)
   }
   const groups = presenceGroups(room)
   return (
@@ -186,19 +236,47 @@ function Composer({ room }: { room: Room }) {
         ))}
       </div>
       <div className="eva-rooms-composer-row">
-        <Textarea
-          autosize
-          minRows={1}
-          maxRows={6}
-          className="eva-rooms-composer-field"
-          placeholder={live ? 'Message the room' : 'The room is closed'}
-          aria-label="Message the room"
-          value={text}
-          disabled={!live}
-          onChange={(e) => setText(e.currentTarget.value)}
-          onKeyDown={onKeyDown}
-          data-testid="room-composer"
-        />
+        <EvaPopover opened={open} onChange={() => undefined} position="top-start" trapFocus={false}>
+          <EvaPopover.Target>
+            <Textarea
+              ref={field}
+              autosize
+              minRows={1}
+              maxRows={6}
+              className="eva-rooms-composer-field"
+              placeholder={live ? 'Message the room, @ to address someone' : 'The room is closed'}
+              aria-label="Message the room"
+              value={text}
+              disabled={!live}
+              onChange={(e) => track(e.currentTarget)}
+              onKeyUp={(e) => setCaret(e.currentTarget.selectionStart ?? caret)}
+              onClick={(e) => setCaret(e.currentTarget.selectionStart ?? caret)}
+              onKeyDown={onKeyDown}
+              data-testid="room-composer"
+            />
+          </EvaPopover.Target>
+          <EvaPopover.Dropdown p={0}>
+            <div className="eva-rooms-mention-list" role="listbox" data-testid="room-mentions">
+              {choices.map((c, i) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  role="option"
+                  aria-selected={i === pick}
+                  className="eva-rooms-mention-row"
+                  data-active={i === pick ? 'true' : undefined}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => choose(c.name)}
+                  data-testid={`room-mention-${c.id}`}
+                >
+                  <AuthorAvatar author={avatarOf(c.id)} size="sm" />
+                  <span className="eva-rooms-mention-name">{c.name.split(' ')[0]}</span>
+                  <span className="eva-rooms-dim">{avatarOf(c.id).title}</span>
+                </button>
+              ))}
+            </div>
+          </EvaPopover.Dropdown>
+        </EvaPopover>
         <Tooltip label="Send" openDelay={300}>
           <ActionIcon
             variant="filled"

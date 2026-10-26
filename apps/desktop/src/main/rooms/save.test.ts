@@ -20,6 +20,7 @@ const room = (): Room => ({
       text: 'What breaks?',
       ts: t0 + 1000,
       reactions: [{ emoji: '👍', by: ['isaac', 'builder'] }],
+      mentions: [],
       kind: 'message',
     },
     {
@@ -28,6 +29,7 @@ const room = (): Room => ({
       text: 'Nothing, hopefully.',
       ts: t0 + 2000,
       reactions: [],
+      mentions: [],
       kind: 'message',
     },
     {
@@ -36,6 +38,7 @@ const room = (): Room => ({
       text: 'Theo dropped out of the room (gone).',
       ts: t0 + 3000,
       reactions: [],
+      mentions: [],
       kind: 'message',
     },
     {
@@ -44,6 +47,7 @@ const room = (): Room => ({
       text: '**Decision**\nFold idle chats; never delete.\n\n**Dissent**\nNone\n\n**Next steps**\n- Theo: fold',
       ts: t0 + 120_000,
       reactions: [],
+      mentions: [],
       kind: 'summary',
     },
   ],

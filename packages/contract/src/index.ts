@@ -22,6 +22,7 @@ export * from './boards'
 export * from './linear'
 export * from './rooms'
 export * from './rooms-roster'
+export * from './rooms-mentions'
 
 export * from './result'
 export { AppInfoSchema, type AppInfo } from './app'

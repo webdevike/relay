@@ -1,7 +1,9 @@
 import {
+  MENTION_EVERYONE,
   ROOM_ISAAC,
   ROOM_JUDGE,
   ROOM_SYSTEM,
+  mentionsIn,
   roomIsLive,
   type Room,
   type RoomAgent,
@@ -10,6 +12,7 @@ import {
 import {
   JUDGE_PROMPT,
   NUDGE_TEXT,
+  authorName,
   deltaPrompt,
   firstName,
   judgePrompt,
@@ -83,6 +86,8 @@ export class RoomSession {
   private started = false
   /** Isaac pressed Resolve now: the round it was (or will be) sent as the final-position turn. */
   private wrapRound: number | null = null
+  /** The message number the previous round started at: what came since is this round's batch. */
+  private lastRoundSeq = 0
   /** destroy() ran: starts that land later end their process instead of registering it. */
   private destroyed = false
   /** Every process start of start(), settled; destroy() waits on it. */
@@ -241,10 +246,16 @@ export class RoomSession {
       ts: this.now(),
       reactions: [],
       kind,
+      mentions: mentionsIn(text, this.room.agents),
     }
     this.room.messages.push(msg)
     this.changed()
     return msg
+  }
+
+  /** Whether `m` singles out `agentId` (or everyone). */
+  private mentions(m: RoomMessage, agentId: string): boolean {
+    return m.mentions.includes(MENTION_EVERYONE) || m.mentions.includes(agentId)
   }
 
   /** What an agent is doing now; null clears it. Only a change is emitted. */
@@ -353,11 +364,25 @@ export class RoomSession {
       }
       const before = this.msgSeq
       const anyNew = (): boolean => this.room.messages.some((m) => msgNum(m.id) > before)
+      // Isaac's new posts with @names narrow this round to the people he asked.
+      const batch = this.room.messages.filter((m) => msgNum(m.id) > this.lastRoundSeq)
+      this.lastRoundSeq = this.msgSeq
+      const asked = new Set<string>()
+      let narrowed = false
+      for (const m of batch) {
+        if (m.author !== ROOM_ISAAC || m.mentions.length === 0) continue
+        if (m.mentions.includes(MENTION_EVERYONE)) {
+          narrowed = false
+          break
+        }
+        narrowed = true
+        for (const id of m.mentions) asked.add(id)
+      }
       this.room.rounds += 1
       const wrapping = this.room.phase === 'wrapping'
       if (wrapping && this.wrapRound === null) this.wrapRound = this.room.rounds
       this.changed()
-      await this.round(wrapping)
+      await this.round(wrapping, narrowed && !wrapping ? asked : null)
       if (!this.live) return
       // The final-position round is done: summarize. (A Resolve now that landed mid-round gets
       // its final-position round next.)
@@ -390,29 +415,51 @@ export class RoomSession {
     }
   }
 
-  /** Some live agent has not yet been shown a message from Isaac. */
+  /**
+   * Some live agent has not yet been shown a message from Isaac that was for them: everyone
+   * for a plain post, only the people he named when he used @names.
+   */
   private isaacUnseen(): boolean {
     return this.liveAgents().some((a) => {
       const seen = this.seen.get(a.id) ?? 0
-      return this.room.messages.some((m) => m.author === ROOM_ISAAC && msgNum(m.id) > seen)
+      return this.room.messages.some(
+        (m) =>
+          m.author === ROOM_ISAAC &&
+          msgNum(m.id) > seen &&
+          (m.mentions.length === 0 || this.mentions(m, a.id)),
+      )
     })
   }
 
-  /** Every live agent with something unseen gets it (everyone, when wrapping); replies land as they arrive. */
-  private async round(wrapping: boolean): Promise<void> {
+  /**
+   * Every live agent with something unseen gets it (everyone, when wrapping); replies land as
+   * they arrive. `only` (Isaac's @names) keeps the round to those people, except that an agent
+   * another agent mentioned is always prompted, told so.
+   */
+  private async round(wrapping: boolean, only: ReadonlySet<string> | null): Promise<void> {
     const sends = this.liveAgents().map(async (a) => {
       const handle = this.handles.get(a.id)
       if (!handle) return
       const first = !this.seen.has(a.id)
       const from = this.seen.get(a.id) ?? 0
       const delta = this.room.messages.filter((m) => msgNum(m.id) > from)
-      if (!first && !wrapping && !delta.some((m) => m.author !== a.id)) return
+      const mentionedBy = delta
+        .filter((m) => m.author !== a.id && m.author !== ROOM_ISAAC && this.mentions(m, a.id))
+        .map((m) => authorName(this.room, m.author))
+      if (mentionedBy.length === 0) {
+        if (only && !only.has(a.id)) return
+        if (!first && !wrapping && !delta.some((m) => m.author !== a.id)) return
+      }
       // What others post during this turn has a higher number and is the next delta.
       this.seen.set(a.id, this.msgSeq)
+      const mentionLine =
+        mentionedBy.length > 0
+          ? `(you were mentioned by ${[...new Set(mentionedBy)].join(', ')})\n`
+          : ''
       const prompt = first
         ? openingPrompt(this.room) +
           (wrapping ? '\n(wrapping up: state your final position in one line)' : '')
-        : deltaPrompt(this.room, delta, wrapping)
+        : mentionLine + deltaPrompt(this.room, delta, wrapping)
       // The model is thinking from the moment the prompt goes out; frames refine it from there.
       this.setPresence(a.id, { state: 'thinking' })
       try {
@@ -453,6 +500,7 @@ export class RoomSession {
     const draft = this.drafts.get(agentId)
     if (draft) {
       draft.text = text
+      draft.mentions = mentionsIn(text, this.room.agents)
       this.changed()
       return
     }

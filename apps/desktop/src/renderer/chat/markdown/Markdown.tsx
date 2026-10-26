@@ -109,20 +109,28 @@ function Pre({ node }: ExtraProps) {
   return <CodeBlock lang={lang} code={code} />
 }
 
+/** `[@Mara](mention:orange)`: a quiet pill in the person's color, never a link (Rooms). */
+export const MENTION_SCHEME = 'mention:'
+
 const components: Components = {
   pre: Pre,
-  a: ({ href, children }) => (
-    <a
-      href={href}
-      title={href}
-      onClick={(e: MouseEvent) => {
-        e.preventDefault()
-        if (href) openLink(href)
-      }}
-    >
-      {children}
-    </a>
-  ),
+  a: ({ href, children }) =>
+    href?.startsWith(MENTION_SCHEME) ? (
+      <span className="eva-md-mention" data-color={href.slice(MENTION_SCHEME.length)}>
+        {children}
+      </span>
+    ) : (
+      <a
+        href={href}
+        title={href}
+        onClick={(e: MouseEvent) => {
+          e.preventDefault()
+          if (href) openLink(href)
+        }}
+      >
+        {children}
+      </a>
+    ),
   table: ({ children }) => (
     <div className="eva-md-table">
       <table>{children}</table>
