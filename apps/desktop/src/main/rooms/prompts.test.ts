@@ -83,6 +83,11 @@ describe('personaPrompt', () => {
     expect(p).toContain('react: <msgId> <emoji>')
     expect(p).toContain('AGREE')
     expect(p).toContain('Never use em dashes or en dashes')
+    expect(p).not.toContain('read it before your first reply')
+    const theo = personaPrompt(ROOM_PEOPLE[1]!, ROOM_PEOPLE)
+    expect(theo).toContain(
+      'When the question names a file, flag, or path, read it before your first reply and cite what you found.',
+    )
   })
 })
 

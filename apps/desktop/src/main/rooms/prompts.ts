@@ -34,7 +34,7 @@ const ROOM_RULES = `Room rules:
 
 /** The extra rule for a seat that can look things up. */
 export const TOOLS_RULE =
-  '- You may read files, grep and search the web before answering, briefly; cite a path or number when you looked something up. Still 2 to 5 sentences.'
+  '- You may read files, grep and search the web before answering, briefly; cite a path or number when you looked something up. Still 2 to 5 sentences.\n- When the question names a file, flag, or path, read it before your first reply and cite what you found.'
 
 /** The system prompt a persona process starts with. */
 export function personaPrompt(agent: RoomAgent, others: readonly RoomAgent[]): string {
@@ -105,17 +105,31 @@ Elapsed: ${Math.round(elapsedMs / 1000)} s
 JSON verdict:`
 }
 
-export function summaryPrompt(room: Room, forced: boolean): string {
+/**
+ * The summary request. `finalLines` are the wrap round's replies, one per seat, so Dissent is
+ * judged on what people actually said last rather than on the PM's reading of the thread.
+ */
+export function summaryPrompt(
+  room: Room,
+  forced: boolean,
+  finalLines: readonly RoomMessage[] = [],
+): string {
   const why = forced
     ? ' The room was closed early, so summarize what exists; do not invent agreement.'
     : ''
+  const finals =
+    finalLines.length > 0
+      ? `\n\nFinal positions (the last thing each person said, verbatim):\n${finalLines
+          .map((m) => `- ${authorName(room, m.author)}: ${m.text}`)
+          .join('\n')}`
+      : ''
   return `Write the pinned summary that closes this room.${why} Use exactly this markdown shape, plain and fair, no preamble:
 
 **Decision**
 <one or two sentences>
 
 **Dissent**
-<who still disagrees and why, or "None">
+<one line per person whose final position is not full agreement, by name: "- Mara: still wants fsync before rename". Write "None" only if every final position is AGREE or an equivalent. A reservation, a condition or an "only if" is dissent; do not fold it into the decision.>
 
 **Next steps**
 - <owner>: <step>
@@ -123,7 +137,7 @@ export function summaryPrompt(room: Room, forced: boolean): string {
 Question: ${room.prompt}
 
 Transcript:
-${transcriptLines(room, room.messages)}`
+${transcriptLines(room, room.messages)}${finals}`
 }
 
 export interface ParsedReply {

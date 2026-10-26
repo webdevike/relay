@@ -27,7 +27,9 @@ import {
 import { convergenceState, gateState, type Jev } from './jev'
 import type { AgentHandle, AgentRunner, Presence } from './runner'
 
-/** A generous backstop; rooms normally end when the judge calls convergence or Isaac resolves. */
+/** The open phase ends here and the room wraps, whatever the judge says. */
+export const OPEN_ROUNDS = 8
+/** The absolute backstop on rounds of any phase. */
 export const MAX_ROUNDS = 30
 
 export interface RoomSessionDeps {
@@ -39,6 +41,7 @@ export interface RoomSessionDeps {
   log: (line: string) => void
   now?: () => number
   maxRounds?: number
+  openRounds?: number
   /** A seat's turn budget; past it the turn is aborted and counts as PASS. */
   turnMs?: number
   /** The judge's and the summary's turn budget. */
@@ -59,6 +62,10 @@ export const CONVERGED_THRESHOLD = 0.7
 export const CIRCLING_THRESHOLD = 0.7
 /** ...and this many such rounds in a row send the room to its final-position round. */
 export const CIRCLING_ROUNDS = 2
+/** Jev `converged` in [UNDECIDED_LOW, CONVERGED_THRESHOLD) is on the fence... */
+export const UNDECIDED_LOW = 0.4
+/** ...and this many fence rounds in a row hand the call to the model judge once. */
+export const UNDECIDED_ROUNDS = 3
 
 export const TURN_MS = 120_000
 export const JUDGE_MS = 60_000
@@ -105,8 +112,12 @@ export class RoomSession {
   /** Rounds in a row Jev called circling, and every circling score so far (for the note). */
   private circlingStreak = 0
   private readonly circlingSeen: number[] = []
+  /** Rounds in a row Jev's `converged` sat between UNDECIDED_LOW and the threshold. */
+  private undecidedStreak = 0
   /** What wrap() decided the summary should say: closed early (true) or settled (false). */
   private forcedSummary = false
+  /** The wrap round's replies, handed to the summary as everyone's final position. */
+  private finalLines: RoomMessage[] = []
   /** Jev errored once in this room; the model judge takes over for good. */
   private jevFailed = false
   /** destroy() ran: starts that land later end their process instead of registering it. */
@@ -115,6 +126,7 @@ export class RoomSession {
   private starting: Promise<void> = Promise.resolve()
   private readonly now: () => number
   private readonly maxRounds: number
+  private readonly openRounds: number
   private readonly turnMs: number
   private readonly judgeMs: number
   private readonly after: (ms: number) => Promise<void>
@@ -127,6 +139,7 @@ export class RoomSession {
   ) {
     this.now = deps.now ?? Date.now
     this.maxRounds = deps.maxRounds ?? MAX_ROUNDS
+    this.openRounds = deps.openRounds ?? OPEN_ROUNDS
     this.turnMs = deps.turnMs ?? TURN_MS
     this.judgeMs = deps.judgeMs ?? JUDGE_MS
     this.after = deps.after ?? realAfter
@@ -376,6 +389,15 @@ export class RoomSession {
   private async run(): Promise<void> {
     let nudged = false
     while (this.live) {
+      // The open phase ends after OPEN_ROUNDS whatever Jev says; MAX_ROUNDS is the backstop.
+      if (this.room.rounds >= this.openRounds && this.room.phase === 'open') {
+        this.room.judge = {
+          verdict: 'converged',
+          note: `${this.openRounds} open rounds -> wrap`,
+          at: this.now(),
+        }
+        this.wrap(true)
+      }
       if (this.room.rounds >= this.maxRounds && this.room.phase === 'open') this.wrap(true)
       const before = this.msgSeq
       const anyNew = (): boolean => this.room.messages.some((m) => msgNum(m.id) > before)
@@ -399,17 +421,20 @@ export class RoomSession {
       this.changed()
       const only = narrowed && !wrapping ? asked : null
       const mentionedInBatch = [...new Set(batch.flatMap((m) => m.mentions))]
-      // Round 1 and the wrap turn go to everyone; otherwise Jev picks who has something to add.
+      // Round 1 and the wrap turn go to everyone; a round Isaac narrowed goes to exactly the
+      // people he named; otherwise Jev picks who has something to add.
       const gated =
-        this.room.rounds > 1 && !wrapping ? await this.jevGate(only, mentionedInBatch) : null
+        this.room.rounds > 1 && !wrapping && !only ? await this.jevGate(mentionedInBatch) : null
       if (!this.live) return
       const roundStart = this.msgSeq
-      await this.round(wrapping, gated ?? only)
+      await this.round(wrapping, gated ?? only, only !== null)
       if (!this.live) return
       const lastRound = this.room.messages.filter((m) => msgNum(m.id) > roundStart)
       // The final-position round is done: summarize, as the trigger decided (Resolve now or a
       // convergence call -> plain; round cap or a quiet room -> from what exists).
       if (this.wrapRound === this.room.rounds) {
+        // PASS-less final lines only: a seat that passed or timed out has nothing verbatim.
+        this.finalLines = lastRound.filter((m) => this.room.agents.some((a) => a.id === m.author))
         await this.resolve(this.forcedSummary)
         return
       }
@@ -467,19 +492,26 @@ export class RoomSession {
 
   /**
    * Every live agent with something unseen gets it (everyone, when wrapping); replies land as
-   * they arrive. `only` (Isaac's @names) keeps the round to those people, except that an agent
-   * another agent mentioned is always prompted, told so.
+   * they arrive. `only` keeps the round to those people. When Isaac narrowed the round
+   * (`exact`) that set is final; otherwise an agent another agent mentioned is always prompted,
+   * told so.
    */
-  private async round(wrapping: boolean, only: ReadonlySet<string> | null): Promise<void> {
+  private async round(
+    wrapping: boolean,
+    only: ReadonlySet<string> | null,
+    exact = false,
+  ): Promise<void> {
     const sends = this.liveAgents().map(async (a) => {
       const handle = this.handles.get(a.id)
       if (!handle) return
       const first = !this.seen.has(a.id)
       const from = this.seen.get(a.id) ?? 0
       const delta = this.room.messages.filter((m) => msgNum(m.id) > from)
-      const mentionedBy = delta
-        .filter((m) => m.author !== a.id && m.author !== ROOM_ISAAC && this.mentions(m, a.id))
-        .map((m) => authorName(this.room, m.author))
+      const mentionedBy = exact
+        ? []
+        : delta
+            .filter((m) => m.author !== a.id && m.author !== ROOM_ISAAC && this.mentions(m, a.id))
+            .map((m) => authorName(this.room, m.author))
       if (mentionedBy.length === 0) {
         if (only && !only.has(a.id)) return
         if (!first && !wrapping && !delta.some((m) => m.author !== a.id)) return
@@ -550,22 +582,17 @@ export class RoomSession {
   }
 
   /**
-   * Jev's speaker gate: who gets this round. Everyone addressed (Isaac's @names, any mention
-   * in the batch) is in regardless; otherwise those Jev puts at or above 0.5, floored at the
-   * top two by score so a dissenter still gets to answer. Null when Jev is off or failed:
-   * everyone, as before.
+   * Jev's speaker gate for a round Isaac did not narrow: everyone an agent @mentioned in the
+   * batch is in regardless; otherwise those Jev puts at or above 0.5, floored at the top two by
+   * score so a dissenter still gets to answer. Null when Jev is off or failed: everyone.
    */
-  private async jevGate(
-    only: ReadonlySet<string> | null,
-    mentioned: readonly string[],
-  ): Promise<ReadonlySet<string> | null> {
+  private async jevGate(mentioned: readonly string[]): Promise<ReadonlySet<string> | null> {
     const jev = this.jev()
-    if (!jev) return only
+    if (!jev) return null
     const agents = this.liveAgents()
     try {
       const p = await jev.gate(gateState(this.room, agents, this.seen, mentioned), agents)
       const pick = new Set<string>()
-      for (const id of only ?? []) pick.add(id)
       if (mentioned.includes(MENTION_EVERYONE)) for (const a of agents) pick.add(a.id)
       for (const id of mentioned) if (agents.some((a) => a.id === id)) pick.add(id)
       for (const a of agents) if ((p[a.id] ?? 0) >= GATE_THRESHOLD) pick.add(a.id)
@@ -582,7 +609,7 @@ export class RoomSession {
       return pick
     } catch (e) {
       this.jevDown(e)
-      return only
+      return null
     }
   }
 
@@ -594,10 +621,12 @@ export class RoomSession {
       const { converged, circling } = await jev.convergence(convergenceState(this.room, lastRound))
       this.circlingStreak = circling >= CIRCLING_THRESHOLD ? this.circlingStreak + 1 : 0
       this.circlingSeen.push(circling)
+      const undecided = converged >= UNDECIDED_LOW && converged < CONVERGED_THRESHOLD
+      this.undecidedStreak = undecided ? this.undecidedStreak + 1 : 0
       const byConverged = converged >= CONVERGED_THRESHOLD
       const byCircling = this.circlingStreak >= CIRCLING_ROUNDS
       const scores = `jev converged ${converged.toFixed(2)} / circling ${circling.toFixed(2)}`
-      const note = byConverged
+      let note = byConverged
         ? `${scores} -> wrap`
         : byCircling
           ? `jev circling ${this.circlingSeen
@@ -605,13 +634,18 @@ export class RoomSession {
               .map((c) => c.toFixed(2))
               .join('/')} -> wrap`
           : scores
-      this.room.judge = {
-        verdict: byConverged || byCircling ? 'converged' : 'continue',
-        note,
-        at: this.now(),
+      let verdict: 'continue' | 'converged' = byConverged || byCircling ? 'converged' : 'continue'
+      // Jev sitting on the fence for three rounds: the model judge breaks the tie this once.
+      if (verdict === 'continue' && this.undecidedStreak >= UNDECIDED_ROUNDS) {
+        this.undecidedStreak = 0
+        const tie = await this.judgeRound()
+        if (!this.live) return 'continue'
+        verdict = tie
+        note = `${scores}, undecided ${UNDECIDED_ROUNDS} rounds -> model judge: ${tie}${this.room.judge ? ` (${this.room.judge.note})` : ''}`
       }
+      this.room.judge = { verdict, note, at: this.now() }
       this.changed()
-      return this.room.judge.verdict
+      return verdict
     } catch (e) {
       this.jevDown(e)
       return this.judgeRound()
@@ -657,7 +691,7 @@ export class RoomSession {
     this.resolving = true
     this.room.presence = {}
     this.changed()
-    const prompt = summaryPrompt(this.room, forced)
+    const prompt = summaryPrompt(this.room, forced, this.finalLines)
     const pm = this.pm()
     let author = ROOM_JUDGE
     let text: string | null = null
