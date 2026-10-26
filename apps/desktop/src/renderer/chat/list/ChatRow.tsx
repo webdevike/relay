@@ -323,10 +323,32 @@ function ChatRowImpl({
     setTicketHover(false)
   }
 
+  // Linear work: the ticket badge leads the title; hovering it swaps the card to the ticket's.
   const title = (
-    <span className="eva-cl-title" data-bright={bright(row) ? 'true' : undefined}>
-      {row.title}
-    </span>
+    <>
+      {ticket !== null ? (
+        <span
+          className="eva-cl-ticket"
+          data-testid="chat-row-ticket"
+          aria-label={`Linear ticket ${ticket}`}
+          onMouseEnter={() => {
+            setCard(false)
+            setTicketHover(true)
+            showCard()
+          }}
+          onMouseLeave={() => {
+            setCard(false)
+            setTicketHover(false)
+            showCard()
+          }}
+        >
+          <LinearMark size={10} />
+        </span>
+      ) : null}
+      <span className="eva-cl-title" data-bright={bright(row) ? 'true' : undefined}>
+        {row.title}
+      </span>
+    </>
   )
   const label = workLabel(row.work)
   const pr = row.work?.pr ?? null
@@ -424,25 +446,6 @@ function ChatRowImpl({
                     <span className="eva-cl-category">{category}</span>
                   </>
                 )}
-                {ticket !== null ? (
-                  <span
-                    className="eva-cl-ticket"
-                    data-testid="chat-row-ticket"
-                    aria-label={`Linear ticket ${ticket}`}
-                    onMouseEnter={() => {
-                      setCard(false)
-                      setTicketHover(true)
-                      showCard()
-                    }}
-                    onMouseLeave={() => {
-                      setCard(false)
-                      setTicketHover(false)
-                      showCard()
-                    }}
-                  >
-                    <LinearMark size={10} />
-                  </span>
-                ) : null}
                 {row.pinned ? (
                   <IconPin size={12} stroke={1.75} className="eva-cl-flag" aria-label="Pinned" />
                 ) : null}
