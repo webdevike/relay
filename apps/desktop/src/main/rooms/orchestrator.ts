@@ -24,6 +24,7 @@ import {
   dedash,
   trimReply,
 } from './prompts'
+import { convergenceState, gateState, type Jev } from './jev'
 import type { AgentHandle, AgentRunner, Presence } from './runner'
 
 /** A generous backstop; rooms normally end when the judge calls convergence or Isaac resolves. */
@@ -44,7 +45,18 @@ export interface RoomSessionDeps {
   judgeMs?: number
   /** Resolves after `ms` (test seam; the default is a real, unref'd timer). */
   after?: (ms: number) => Promise<void>
+  /** Jev for the speaker gate and convergence; absent or failing -> prompt everyone + model judge. */
+  jev?: Jev
 }
+
+/** Jev's speak probability at or above which an agent is prompted. */
+export const GATE_THRESHOLD = 0.5
+/** Jev's `converged` at or above which the room is done. */
+export const CONVERGED_THRESHOLD = 0.7
+/** Jev's `circling` at or above which a round counts as repetition... */
+export const CIRCLING_THRESHOLD = 0.7
+/** ...and this many such rounds in a row end the room. */
+export const CIRCLING_ROUNDS = 2
 
 export const TURN_MS = 120_000
 export const JUDGE_MS = 60_000
@@ -88,6 +100,10 @@ export class RoomSession {
   private wrapRound: number | null = null
   /** The message number the previous round started at: what came since is this round's batch. */
   private lastRoundSeq = 0
+  /** Rounds in a row Jev called circling. */
+  private circlingStreak = 0
+  /** Jev errored once in this room; the model judge takes over for good. */
+  private jevFailed = false
   /** destroy() ran: starts that land later end their process instead of registering it. */
   private destroyed = false
   /** Every process start of start(), settled; destroy() waits on it. */
@@ -382,8 +398,16 @@ export class RoomSession {
       const wrapping = this.room.phase === 'wrapping'
       if (wrapping && this.wrapRound === null) this.wrapRound = this.room.rounds
       this.changed()
-      await this.round(wrapping, narrowed && !wrapping ? asked : null)
+      const only = narrowed && !wrapping ? asked : null
+      const mentionedInBatch = [...new Set(batch.flatMap((m) => m.mentions))]
+      // Round 1 and the wrap turn go to everyone; otherwise Jev picks who has something to add.
+      const gated =
+        this.room.rounds > 1 && !wrapping ? await this.jevGate(only, mentionedInBatch) : null
       if (!this.live) return
+      const roundStart = this.msgSeq
+      await this.round(wrapping, gated ?? only)
+      if (!this.live) return
+      const lastRound = this.room.messages.filter((m) => msgNum(m.id) > roundStart)
       // The final-position round is done: summarize. (A Resolve now that landed mid-round gets
       // its final-position round next.)
       if (this.wrapRound === this.room.rounds) {
@@ -394,7 +418,7 @@ export class RoomSession {
       // Isaac's post lands mid-round: the next round answers him before the judge may speak.
       const awaitingIsaac = this.isaacUnseen()
       if (!awaitingIsaac && (this.room.rounds >= 2 || !anyNew())) {
-        const v = await this.judgeRound()
+        const v = await this.verdict(lastRound)
         if (!this.live) return
         if (v === 'converged' && this.room.rounds >= 2) {
           await this.resolve(false)
@@ -513,6 +537,73 @@ export class RoomSession {
     this.drafts.delete(agentId)
     this.room.messages = this.room.messages.filter((m) => m !== draft)
     this.changed()
+  }
+
+  /**
+   * Jev's speaker gate: who gets this round. Everyone addressed (Isaac's @names, any mention
+   * in the batch) is in regardless; otherwise those Jev puts at or above 0.5, or the single top
+   * one when nobody clears it. Null when Jev is off or failed: everyone, as before.
+   */
+  private async jevGate(
+    only: ReadonlySet<string> | null,
+    mentioned: readonly string[],
+  ): Promise<ReadonlySet<string> | null> {
+    const jev = this.jev()
+    if (!jev) return only
+    const agents = this.liveAgents()
+    try {
+      const p = await jev.gate(gateState(this.room, agents, this.seen, mentioned), agents)
+      const pick = new Set<string>()
+      for (const id of only ?? []) pick.add(id)
+      if (mentioned.includes(MENTION_EVERYONE)) for (const a of agents) pick.add(a.id)
+      for (const id of mentioned) if (agents.some((a) => a.id === id)) pick.add(id)
+      for (const a of agents) if ((p[a.id] ?? 0) >= GATE_THRESHOLD) pick.add(a.id)
+      if (pick.size === 0) {
+        const top = agents.reduce((b, a) => ((p[a.id] ?? 0) > (p[b.id] ?? 0) ? a : b))
+        pick.add(top.id)
+      }
+      this.deps.log(
+        `${this.room.id}: jev gate ${agents.map((a) => `${a.id}=${(p[a.id] ?? 0).toFixed(2)}`).join(' ')} -> ${[...pick].join(',')}`,
+      )
+      return pick
+    } catch (e) {
+      this.jevDown(e)
+      return only
+    }
+  }
+
+  /** Convergence by Jev when it is up, else the model judge. */
+  private async verdict(lastRound: readonly RoomMessage[]): Promise<'continue' | 'converged'> {
+    const jev = this.jev()
+    if (!jev) return this.judgeRound()
+    try {
+      const { converged, circling } = await jev.convergence(convergenceState(this.room, lastRound))
+      this.circlingStreak = circling >= CIRCLING_THRESHOLD ? this.circlingStreak + 1 : 0
+      const done = converged >= CONVERGED_THRESHOLD || this.circlingStreak >= CIRCLING_ROUNDS
+      this.room.judge = {
+        verdict: done ? 'converged' : 'continue',
+        note: `jev converged ${converged.toFixed(2)} / circling ${circling.toFixed(2)}`,
+        at: this.now(),
+      }
+      this.changed()
+      return done ? 'converged' : 'continue'
+    } catch (e) {
+      this.jevDown(e)
+      return this.judgeRound()
+    }
+  }
+
+  /** Jev, unless it is unavailable for this room. */
+  private jev(): Jev | null {
+    return this.jevFailed ? null : (this.deps.jev ?? null)
+  }
+
+  /** Jev failed once: this room stays on the model judge, and says so one time. */
+  private jevDown(e: unknown): void {
+    this.deps.log(`${this.room.id}: jev failed: ${errText(e)}`)
+    if (this.jevFailed) return
+    this.jevFailed = true
+    if (this.live) this.append(ROOM_SYSTEM, 'Jev unavailable, using the model judge.')
   }
 
   private async judgeRound(): Promise<'continue' | 'converged'> {

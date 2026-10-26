@@ -1,6 +1,7 @@
 import { setImmediate as tick } from 'node:timers/promises'
 import { describe, expect, it } from 'vitest'
 import { ROOM_PEOPLE, type Room } from '@evaos/contract'
+import type { ConvergenceState, GateState, Jev } from './jev'
 import { RoomSession, type RoomSessionDeps } from './orchestrator'
 import { NUDGE_TEXT } from './prompts'
 import type { AgentHandle, AgentRunner } from './runner'
@@ -648,5 +649,191 @@ describe('RoomSession', () => {
     await h.runner.drain(() => !h.s.live)
     await h.s.settled()
     expect(texts(h.s.room)).toContain('skeptic: Theo, no.')
+  })
+})
+
+/** A scripted Jev: gate answers per round (by call order), convergence answers per call. */
+class FakeJev implements Jev {
+  gates: GateState[] = []
+  convs: ConvergenceState[] = []
+  constructor(
+    private speak: (Record<string, number> | Error)[],
+    private verdicts: ({ converged: number; circling: number } | Error)[],
+  ) {}
+
+  async gate(state: GateState): Promise<Record<string, number>> {
+    this.gates.push(state)
+    const a = this.speak.shift() ?? this.speak[this.speak.length - 1] ?? {}
+    if (a instanceof Error) throw a
+    return a
+  }
+
+  async convergence(state: ConvergenceState): Promise<{ converged: number; circling: number }> {
+    this.convs.push(state)
+    const a = this.verdicts.shift() ?? { converged: 0, circling: 0 }
+    if (a instanceof Error) throw a
+    return a
+  }
+}
+
+const LOW = { converged: 0.1, circling: 0.1 }
+
+describe('RoomSession with Jev', () => {
+  it('round 1 prompts everyone; later rounds prompt those at or above 0.5 plus anyone addressed', async () => {
+    const jev = new FakeJev(
+      [
+        { skeptic: 0.8, builder: 0.2, pm: 0.5 },
+        { skeptic: 0.1, builder: 0.1, pm: 0.1 },
+      ],
+      [LOW, { converged: 0.9, circling: 0 }],
+    )
+    const h = harness(
+      {
+        skeptic: ['A.', 'A2.', 'PASS'],
+        builder: ['B.', 'B2 @Mara?', 'PASS'],
+        pm: ['C.', 'C2.', 'PASS', 'summary'],
+      },
+      { jev },
+    )
+    await h.s.start()
+    expect(jev.gates).toHaveLength(0)
+    h.runner.flush()
+    await tick()
+    // Round 2: Mara 0.8 and Jonah 0.5 clear the bar, Theo does not.
+    expect(h.s.room.rounds).toBe(2)
+    expect(h.runner.pending.map((p) => p.id).sort()).toEqual(['pm', 'skeptic'])
+    expect(jev.gates[0]).toMatchObject({
+      round: 2,
+      mentioned: [],
+      unseen: { skeptic: 3, builder: 3, pm: 3 },
+    })
+    expect(jev.gates[0]!.transcript.map((t) => t.author)).toEqual(['Mara', 'Theo', 'Jonah'])
+    // Isaac asks Theo mid-round 2: convergence waits for Theo's answer (Isaac gate), and
+    // round 3 goes to Theo alone (addressed) since nobody else clears 0.5.
+    h.s.post('@Theo your call')
+    h.runner.flush()
+    await tick()
+    expect(jev.convs).toHaveLength(0)
+    expect(h.s.room.rounds).toBe(3)
+    expect(h.runner.pending.map((p) => p.id)).toEqual(['builder'])
+    expect(jev.gates[1]!.mentioned).toEqual(['builder'])
+    h.runner.flush()
+    await tick()
+    expect(jev.convs).toHaveLength(1)
+    expect(jev.convs[0]!.lastRound.map((l) => l.text)).toEqual(['B2 @Mara?'])
+    expect(h.s.room.judge).toMatchObject({
+      verdict: 'continue',
+      note: 'jev converged 0.10 / circling 0.10',
+    })
+    // The judge process is never asked while Jev is up.
+    await h.runner.drain(() => !h.s.live)
+    await h.s.settled()
+    expect(h.s.room.phase).toBe('resolved')
+    expect(h.s.room.judge).toMatchObject({
+      verdict: 'converged',
+      note: 'jev converged 0.90 / circling 0.00',
+    })
+    expect(h.runner.byId('judge').prompts).toHaveLength(0)
+  })
+
+  it('an agent mention overrides the gate; when nobody clears 0.5 the top one speaks', async () => {
+    const jev = new FakeJev(
+      [
+        { skeptic: 0.3, builder: 0.2, pm: 0.4 },
+        { skeptic: 0.1, builder: 0.1, pm: 0.3 },
+      ],
+      [LOW, LOW, LOW],
+    )
+    const h = harness(
+      {
+        skeptic: ['A.', 'PASS', 'PASS'],
+        builder: ['@Jonah thoughts?', 'PASS', 'PASS'],
+        pm: ['C.', 'PASS', 'PASS', 'summary'],
+      },
+      { jev, maxRounds: 3 },
+    )
+    await h.s.start()
+    h.runner.flush()
+    await tick()
+    // Round 2: nobody clears 0.5; Jonah was mentioned by Theo and is prompted, told so; the
+    // top score (Jonah, 0.4) coincides, so he is the only one.
+    expect(h.runner.pending.map((p) => p.id)).toEqual(['pm'])
+    expect(h.runner.byId('pm').prompts[1]).toContain('(you were mentioned by Theo)')
+    h.runner.flush()
+    await tick()
+    // Round 3: still nobody clears; Jonah (0.3) is the top and speaks so the room never stalls.
+    expect(h.s.room.rounds).toBe(3)
+    expect(h.runner.pending.map((p) => p.id)).toEqual(['pm'])
+    await h.runner.drain(() => !h.s.live)
+    await h.s.settled()
+    expect(h.s.room.phase).toBe('resolved')
+  })
+
+  it('two circling rounds in a row end the room; one does not', async () => {
+    const jev = new FakeJev(
+      [{ skeptic: 0.9, builder: 0.9, pm: 0.9 }],
+      [
+        { converged: 0.2, circling: 0.8 },
+        { converged: 0.2, circling: 0.3 },
+        { converged: 0.2, circling: 0.75 },
+        { converged: 0.2, circling: 0.9 },
+      ],
+    )
+    const h = harness(
+      {
+        skeptic: (_p, t) => `Point ${t}.`,
+        builder: (_p, t) => `Counter ${t}.`,
+        pm: (p, t) => (p.includes('pinned summary') ? 'summary' : `Hmm ${t}.`),
+      },
+      { jev },
+    )
+    await h.finish()
+    expect(h.s.room.phase).toBe('resolved')
+    // Rounds 2 (0.8), 3 (reset), 4 (0.75), 5 (0.9): the streak reaches two after round 5.
+    expect(h.s.room.rounds).toBe(5)
+    expect(jev.convs).toHaveLength(4)
+    expect(h.s.room.judge).toMatchObject({
+      verdict: 'converged',
+      note: 'jev converged 0.20 / circling 0.90',
+    })
+  })
+
+  it('a Jev error falls back to the model judge and prompting everyone, with one notice', async () => {
+    const jev = new FakeJev([new Error('jev 503: down')], [])
+    const h = harness(
+      {
+        skeptic: ['A.', 'A2.', 'PASS'],
+        builder: ['B.', 'B2.', 'PASS'],
+        pm: ['C.', 'C2.', 'PASS', 'summary'],
+        judge: [CONTINUE, CONVERGED],
+      },
+      { jev },
+    )
+    await h.s.start()
+    h.runner.flush()
+    await tick()
+    expect(h.s.room.rounds).toBe(2)
+    expect(h.runner.pending.map((p) => p.id).sort()).toEqual(['builder', 'pm', 'skeptic'])
+    const notices = h.s.room.messages.filter((m) => m.author === 'system')
+    expect(notices.map((m) => m.text)).toEqual(['Jev unavailable, using the model judge.'])
+    await h.runner.drain(() => !h.s.live)
+    await h.s.settled()
+    expect(h.s.room.phase).toBe('resolved')
+    expect(jev.convs).toHaveLength(0)
+    expect(h.runner.byId('judge').prompts).toHaveLength(2)
+    expect(h.s.room.judge).toMatchObject({ verdict: 'converged', note: 'all agree on fold' })
+    expect(h.s.room.messages.filter((m) => m.author === 'system')).toHaveLength(1)
+  })
+
+  it('without Jev the room runs as before', async () => {
+    const h = harness({
+      skeptic: ['A.', 'PASS'],
+      builder: ['B.', 'PASS'],
+      pm: ['C.', 'PASS', 'summary'],
+      judge: CONVERGED,
+    })
+    await h.finish()
+    expect(h.s.room.phase).toBe('resolved')
+    expect(h.s.room.messages.some((m) => m.author === 'system')).toBe(false)
   })
 })

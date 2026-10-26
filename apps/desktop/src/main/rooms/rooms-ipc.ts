@@ -13,6 +13,7 @@ import type { MainContext } from '../context'
 import { buildCommand, childPathFor, runCapture } from '../eva/spawn'
 import { evaFsFor } from '../eva/runtime'
 import { emit, handle } from '../ipc/handle'
+import { JevClient, readJevKey } from './jev'
 import { RoomSession } from './orchestrator'
 import { OmpAgentRunner, privateCwd } from './runner'
 import { saveRoom } from './save'
@@ -101,13 +102,17 @@ export function registerRoomsIpc(ctx: MainContext): void {
       )
     }
     const agents = await agentsFor(agentIds)
+    // The key is read per room (secrets/jev.env may appear later) and lives only in the client.
+    const key = readJevKey(evaRoot)
     const s = new RoomSession(prompt, agents, {
       runner,
       judgeModel: ROOM_JUDGE_MODEL,
       save: (room) => saveRoom(room, { evaRoot, evaFs: evaFsFor(ctx), journal }),
       onChange,
       log: (line) => console.info(`[rooms] ${line}`),
+      ...(key ? { jev: new JevClient(key) } : {}),
     })
+    if (!key) console.info(`[rooms] ${s.room.id}: no TYPESAFE_API_KEY, model judge only`)
     sessions.set(s.room.id, s)
     order.unshift(s.room.id)
     onChange(s.room)
