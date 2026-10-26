@@ -31,6 +31,7 @@ import {
 } from './chat/widget-protocols'
 import { registerUsageIpc } from './usage/usage-ipc'
 import { registerLinearIpc } from './linear/linear-ipc'
+import { registerRoomsIpc } from './rooms/rooms-ipc'
 
 function bootstrap(): void {
   let env
@@ -131,6 +132,7 @@ function bootstrap(): void {
       registerCanvasIpc(ctx)
       registerUsageIpc(ctx)
       registerLinearIpc(ctx)
+      registerRoomsIpc(ctx)
       registerBrowser(ctx)
       installTestHooks(ctx)
     } catch (e) {

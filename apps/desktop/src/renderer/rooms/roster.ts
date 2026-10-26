@@ -1,61 +1,44 @@
+import { ROOM_PEOPLE, type RoomAgent as RoomAgentDto } from '@evaos/contract'
 import { portrait } from './avatars'
 import type { RoomAgent } from './types'
 
+/** `mara-voss`: the portrait seed, so a person looks the same in every room. */
+const seedOf = (name: string): string => name.toLowerCase().replace(/\s+/g, '-')
+
+/** Main's agent with its portrait. */
+export const withPortrait = (a: RoomAgentDto): RoomAgent => ({
+  ...a,
+  avatar: portrait(seedOf(a.name)),
+})
+
 /** The default people a room starts with; each a Mantine theme color so avatars stay distinct. */
-export const ROSTER: readonly RoomAgent[] = [
-  {
-    id: 'skeptic',
-    name: 'Mara Voss',
-    title: 'Principal Engineer',
-    role: 'Skeptic',
-    model: 'claude-sonnet',
-    color: 'orange',
-    avatar: portrait('mara-voss'),
-  },
-  {
-    id: 'builder',
-    name: 'Theo Lindqvist',
-    title: 'Senior Engineer',
-    role: 'Builder',
-    model: 'gpt-5-mini',
-    color: 'blue',
-    avatar: portrait('theo-lindqvist'),
-  },
-  {
-    id: 'advocate',
-    name: 'Priya Natarajan',
-    title: 'Product Designer',
-    role: 'User advocate',
-    model: 'claude-haiku',
-    color: 'teal',
-    avatar: portrait('priya-natarajan'),
-  },
-  {
-    id: 'pm',
-    name: 'Jonah Reyes',
-    title: 'Product Manager',
-    role: 'PM',
-    model: 'gpt-5',
-    color: 'violet',
-    avatar: portrait('jonah-reyes'),
-  },
-  {
-    id: 'ops',
-    name: 'Sam Okafor',
-    title: 'Site Reliability Engineer',
-    role: 'Ops',
-    model: 'gemini-flash',
-    color: 'green',
-    avatar: portrait('sam-okafor'),
-  },
-]
+export const ROSTER: readonly RoomAgent[] = ROOM_PEOPLE.map(withPortrait)
 
 /** Isaac as a room author, the same shape as an agent so rows render alike. */
-export const ISAAC_PERSON: Omit<RoomAgent, 'model'> = {
+export const ISAAC_PERSON: Omit<RoomAgent, 'model' | 'brief'> = {
   id: 'isaac',
   name: 'Isaac',
   title: 'Lead Software Engineer',
   role: '',
   color: 'gray',
   avatar: portrait('isaac'),
+}
+
+/** The judge and the room itself post too: a verdict's summary, a dropped agent. */
+export const JUDGE_PERSON: Omit<RoomAgent, 'model' | 'brief'> = {
+  id: 'judge',
+  name: 'Judge',
+  title: 'Convergence judge',
+  role: '',
+  color: 'gray',
+  avatar: portrait('judge'),
+}
+
+export const SYSTEM_PERSON: Omit<RoomAgent, 'model' | 'brief'> = {
+  id: 'system',
+  name: 'Room',
+  title: '',
+  role: '',
+  color: 'gray',
+  avatar: portrait('room'),
 }

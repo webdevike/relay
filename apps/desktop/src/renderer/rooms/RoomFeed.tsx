@@ -20,8 +20,7 @@ export function RoomFeed({ room }: { room: Room }) {
   const viewport = useRef<HTMLDivElement>(null)
   const [following, setFollowing] = useState(true)
   const groups = useMemo(() => groupMessages(room.messages), [room.messages])
-  const summary =
-    room.status === 'resolved' ? room.messages.find((m) => m.kind === 'summary') : null
+  const summary = room.phase === 'resolved' ? room.messages.find((m) => m.kind === 'summary') : null
 
   useLayoutEffect(() => {
     const el = viewport.current

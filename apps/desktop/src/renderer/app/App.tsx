@@ -13,6 +13,7 @@ import { GateOverlay } from '../habits/GateOverlay'
 import { startUsage } from '../usage/usage-store'
 import { startAssistants } from '../assistants/assistants-store'
 import { startBoards } from '../boards/boards-store'
+import { startRooms } from '../rooms/rooms-store'
 import { Shell } from '../shell/Shell'
 
 export function App() {
@@ -30,6 +31,7 @@ export function App() {
     const stopUsage = startUsage()
     const stopAssistants = startAssistants()
     const stopBoards = startBoards()
+    const stopRooms = startRooms()
     return () => {
       stopRouter()
       stopQuit()
@@ -42,6 +44,7 @@ export function App() {
       stopUsage()
       stopAssistants()
       stopBoards()
+      stopRooms()
     }
   }, [])
   return (

@@ -1,6 +1,9 @@
 import { useStore } from 'zustand'
 import { createStore } from 'zustand/vanilla'
-import type { Room, RoomAgent, RoomMessage, RoomReaction } from './types'
+import type { Room as RoomDto } from '@evaos/contract'
+import { invoke, on } from '../ipc'
+import { withPortrait } from './roster'
+import type { Room, RoomMessage, RoomReaction } from './types'
 
 export interface RoomsState {
   rooms: Record<string, Room>
@@ -8,18 +11,17 @@ export interface RoomsState {
   order: string[]
   /** null shows the new-room form. */
   activeRoomId: string | null
+  /** Why the last Start room failed, shown on the form. */
+  createError: string | null
 }
 
-const initial = (): RoomsState => ({ rooms: {}, order: [], activeRoomId: null })
+const initial = (): RoomsState => ({ rooms: {}, order: [], activeRoomId: null, createError: null })
 
 export const roomsStore = createStore<RoomsState>(initial)
 
 export function useRooms<T>(selector: (s: RoomsState) => T): T {
   return useStore(roomsStore, selector)
 }
-
-let seq = 0
-export const nextId = (prefix: string): string => `${prefix}-${Date.now().toString(36)}-${++seq}`
 
 /** Consecutive messages by one author within this window share one header. */
 export const GROUP_WINDOW_MS = 120_000
@@ -69,81 +71,78 @@ export function toggleReactionIn(
   return out
 }
 
-function patchRoom(s: RoomsState, roomId: string, f: (r: Room) => Room): RoomsState {
-  const room = s.rooms[roomId]
-  if (!room) return s
-  const next = f(room)
-  return next === room ? s : { ...s, rooms: { ...s.rooms, [roomId]: next } }
-}
-
 const set = (f: (s: RoomsState) => RoomsState): void => roomsStore.setState(f)
 
-export function createRoom(prompt: string, agents: RoomAgent[], now = Date.now()): Room {
-  const room: Room = {
-    id: nextId('room'),
-    title: prompt.trim().split('\n')[0] || 'Untitled room',
-    prompt: prompt.trim(),
-    agents,
-    messages: [],
-    typing: [],
-    status: 'live',
-    startedAt: now,
-  }
+/** Main's room, people given their portraits. */
+export const fromDto = (r: RoomDto): Room => ({ ...r, agents: r.agents.map(withPortrait) })
+
+/** One room from main replaces what the store holds for it; a new id goes to the top. */
+export function applyRoom(dto: RoomDto): void {
+  const room = fromDto(dto)
   set((s) => ({
+    ...s,
     rooms: { ...s.rooms, [room.id]: room },
-    order: [room.id, ...s.order],
-    activeRoomId: room.id,
+    order: s.order.includes(room.id) ? s.order : [room.id, ...s.order],
   }))
-  return room
 }
 
-export function post(roomId: string, msg: RoomMessage): void {
-  set((s) =>
-    patchRoom(s, roomId, (r) => ({
-      ...r,
-      messages: [...r.messages, msg],
-      typing: r.typing.filter((id) => id !== msg.author),
-    })),
-  )
+/** Main's full list (`rooms.list` is newest first). */
+export function applyRooms(dtos: readonly RoomDto[]): void {
+  set((s) => ({
+    ...s,
+    rooms: Object.fromEntries(dtos.map((d) => [d.id, fromDto(d)])),
+    order: dtos.map((d) => d.id),
+  }))
 }
 
-export function toggleReaction(roomId: string, msgId: string, emoji: string, by: string): void {
-  set((s) =>
-    patchRoom(s, roomId, (r) => {
-      const i = r.messages.findIndex((m) => m.id === msgId)
-      if (i === -1) return r
-      const m = r.messages[i]!
-      const messages = r.messages.slice()
-      messages[i] = { ...m, reactions: toggleReactionIn(m.reactions, emoji, by) }
-      return { ...r, messages }
-    }),
-  )
+/** Starts a room in main and opens it; a failure stays on the form. */
+export async function startRoom(prompt: string, agentIds: string[]): Promise<void> {
+  set((s) => ({ ...s, createError: null }))
+  const r = await invoke('rooms.create', { prompt, agentIds })
+  if (!r.ok) {
+    set((s) => ({ ...s, createError: r.error.message }))
+    return
+  }
+  set((s) => ({ ...s, activeRoomId: r.value.roomId }))
 }
 
-export function setTyping(roomId: string, agentId: string, on: boolean): void {
-  set((s) =>
-    patchRoom(s, roomId, (r) => {
-      const has = r.typing.includes(agentId)
-      if (has === on) return r
-      return { ...r, typing: on ? [...r.typing, agentId] : r.typing.filter((id) => id !== agentId) }
-    }),
-  )
+export async function postToRoom(roomId: string, text: string): Promise<void> {
+  await invoke('rooms.post', { roomId, text })
 }
 
-export function resolve(roomId: string, summary: RoomMessage): void {
-  set((s) =>
-    patchRoom(s, roomId, (r) => ({
-      ...r,
-      messages: [...r.messages, { ...summary, kind: 'summary' }],
-      typing: [],
-      status: 'resolved',
-      resolvedAt: summary.ts,
-    })),
-  )
+/**
+ * Isaac's reaction, toggled here first so the click lands at once; main's next `rooms.changed`
+ * carries the same state.
+ */
+export async function toggleReaction(roomId: string, msgId: string, emoji: string): Promise<void> {
+  set((s) => {
+    const room = s.rooms[roomId]
+    if (!room) return s
+    const i = room.messages.findIndex((m) => m.id === msgId)
+    if (i === -1) return s
+    const m = room.messages[i]!
+    const messages = room.messages.slice()
+    messages[i] = { ...m, reactions: toggleReactionIn(m.reactions, emoji, 'isaac') }
+    return { ...s, rooms: { ...s.rooms, [roomId]: { ...room, messages } } }
+  })
+  await invoke('rooms.react', { roomId, messageId: msgId, emoji })
+}
+
+export async function stopRoom(roomId: string): Promise<void> {
+  await invoke('rooms.stop', { roomId })
 }
 
 export function setActive(roomId: string | null): void {
   set((s) => (s.activeRoomId === roomId ? s : { ...s, activeRoomId: roomId }))
+}
+
+/** Mirrors main's rooms for the life of the window. */
+export function startRooms(): () => void {
+  const off = on('rooms.changed', ({ room }) => applyRoom(room))
+  void invoke('rooms.list', {}).then((r) => {
+    if (r.ok) applyRooms(r.value.rooms)
+  })
+  return off
 }
 
 export function resetRoomsForTests(): void {

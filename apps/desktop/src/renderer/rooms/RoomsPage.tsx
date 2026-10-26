@@ -1,22 +1,23 @@
 import { ActionIcon, Avatar, Button, Checkbox, Textarea, Tooltip } from '@mantine/core'
-import { IconPlus, IconSend, IconUsersGroup } from '@tabler/icons-react'
+import { IconPlayerStop, IconPlus, IconSend, IconUsersGroup } from '@tabler/icons-react'
 import { useEffect, useState, type KeyboardEvent } from 'react'
+import { roomIsLive } from '@evaos/contract'
 import type { Place } from '@evaos/shell-core'
 import { pageMeta } from '../pages/page-meta'
 import { TypingDots } from '../ui/TypingDots'
-import { REPLIES_TO_ISAAC, SCRIPT, TOPIC } from './fixture'
-import { createPlayer, type Player } from './player'
 import { RoomFeed, typingLabel } from './RoomFeed'
 import { AuthorAvatar } from './RoomMessageRow'
 import { ROSTER } from './roster'
-import { createRoom, nextId, post, setActive, useRooms } from './rooms-store'
-import { ISAAC, type Room, type RoomAgent, type RoomStatus } from './types'
+import { postToRoom, setActive, startRoom, stopRoom, useRooms } from './rooms-store'
+import type { Room, RoomPhase } from './types'
 import './rooms.css'
 
-/** Players outlive the page: a room keeps talking while Isaac is on another tab. */
-const players = new Map<string, Player>()
-
-const STATUS_LABEL: Record<RoomStatus, string> = { live: 'Live', resolved: 'Resolved' }
+const PHASE_LABEL: Record<RoomPhase, string> = {
+  open: 'Live',
+  wrapping: 'Wrapping up',
+  resolved: 'Resolved',
+  failed: 'Failed',
+}
 
 /** "0:42", "12:05", "1:02:09". */
 export function elapsedLabel(ms: number): string {
@@ -38,25 +39,33 @@ function useNow(tick: boolean): number {
   return now
 }
 
-function StatusPill({ status }: { status: RoomStatus }) {
-  return (
-    <span className="eva-rooms-pill" data-status={status}>
-      {STATUS_LABEL[status]}
+/** The phase, the judge's last word as its tooltip (or the failure). */
+function StatusPill({ room }: { room: Room }) {
+  const note = room.phase === 'failed' ? room.error : room.judge?.note
+  const pill = (
+    <span className="eva-rooms-pill" data-status={room.phase} data-testid="room-phase">
+      {PHASE_LABEL[room.phase]}
     </span>
+  )
+  return note ? (
+    <Tooltip label={note} openDelay={300} multiline maw={320}>
+      {pill}
+    </Tooltip>
+  ) : (
+    pill
   )
 }
 
 function NewRoomForm({ title, description }: { title: string; description: string }) {
-  const [prompt, setPrompt] = useState(TOPIC)
+  const [prompt, setPrompt] = useState('')
   const [picked, setPicked] = useState<string[]>(() => ROSTER.map((a) => a.id))
-  const canStart = prompt.trim() !== '' && picked.length > 0
+  const [starting, setStarting] = useState(false)
+  const error = useRooms((s) => s.createError)
+  const canStart = prompt.trim() !== '' && picked.length > 0 && !starting
   const start = (): void => {
     if (!canStart) return
-    const agents: RoomAgent[] = ROSTER.filter((a) => picked.includes(a.id))
-    const room = createRoom(prompt, agents)
-    const player = createPlayer(room.id, SCRIPT, REPLIES_TO_ISAAC)
-    players.set(room.id, player)
-    player.start()
+    setStarting(true)
+    void startRoom(prompt, picked).finally(() => setStarting(false))
   }
   return (
     <div className="eva-rooms-new" data-testid="rooms-new">
@@ -104,10 +113,15 @@ function NewRoomForm({ title, description }: { title: string; description: strin
           />
         ))}
       </div>
-      <div>
-        <Button onClick={start} disabled={!canStart} data-testid="rooms-start">
+      <div className="eva-rooms-new-actions">
+        <Button onClick={start} disabled={!canStart} loading={starting} data-testid="rooms-start">
           Start room
         </Button>
+        {error ? (
+          <span className="eva-rooms-error" role="alert" data-testid="rooms-error">
+            {error}
+          </span>
+        ) : null}
       </div>
     </div>
   )
@@ -115,20 +129,11 @@ function NewRoomForm({ title, description }: { title: string; description: strin
 
 function Composer({ room }: { room: Room }) {
   const [text, setText] = useState('')
+  const live = roomIsLive(room.phase)
   const send = (): void => {
     const body = text.trim()
-    if (body === '') return
-    const player = players.get(room.id)
-    if (player) player.isaacPosts(body)
-    else
-      post(room.id, {
-        id: nextId('msg'),
-        author: ISAAC,
-        text: body,
-        ts: Date.now(),
-        reactions: [],
-        kind: 'message',
-      })
+    if (body === '' || !live) return
+    void postToRoom(room.id, body)
     setText('')
   }
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -154,9 +159,10 @@ function Composer({ room }: { room: Room }) {
           minRows={1}
           maxRows={6}
           className="eva-rooms-composer-field"
-          placeholder="Message the room"
+          placeholder={live ? 'Message the room' : 'The room is closed'}
           aria-label="Message the room"
           value={text}
+          disabled={!live}
           onChange={(e) => setText(e.currentTarget.value)}
           onKeyDown={onKeyDown}
           data-testid="room-composer"
@@ -166,7 +172,7 @@ function Composer({ room }: { room: Room }) {
             variant="filled"
             size="lg"
             aria-label="Send"
-            disabled={text.trim() === ''}
+            disabled={text.trim() === '' || !live}
             onClick={send}
             data-testid="room-send"
           >
@@ -179,7 +185,8 @@ function Composer({ room }: { room: Room }) {
 }
 
 function RoomView({ room }: { room: Room }) {
-  const now = useNow(room.status === 'live')
+  const live = roomIsLive(room.phase)
+  const now = useNow(live)
   const elapsed = (room.resolvedAt ?? now) - room.startedAt
   return (
     <div className="eva-rooms-main" data-testid={`room-${room.id}`}>
@@ -196,10 +203,23 @@ function RoomView({ room }: { room: Room }) {
             </Tooltip>
           ))}
         </Avatar.Group>
-        <StatusPill status={room.status} />
+        <StatusPill room={room} />
         <span className="eva-rooms-clock" data-testid="room-clock">
           {elapsedLabel(elapsed)}
         </span>
+        {live ? (
+          <Tooltip label="Resolve now: pin the summary from what was said" openDelay={300}>
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              aria-label="Resolve now"
+              onClick={() => void stopRoom(room.id)}
+              data-testid="room-stop"
+            >
+              <IconPlayerStop size={16} stroke={1.5} />
+            </ActionIcon>
+          </Tooltip>
+        ) : null}
       </div>
       <RoomFeed room={room} />
       <Composer room={room} />
@@ -242,7 +262,7 @@ function Rail({ now }: { now: number }) {
             >
               <span className="eva-rooms-rail-row-title">{r.title}</span>
               <span className="eva-rooms-rail-row-meta">
-                <StatusPill status={r.status} />
+                <StatusPill room={r} />
                 <span className="eva-rooms-clock">
                   {elapsedLabel((r.resolvedAt ?? now) - r.startedAt)}
                 </span>
@@ -259,7 +279,7 @@ export function RoomsPage({ place }: { place: Place }) {
   const meta = pageMeta(place)
   const room = useRooms((s) => (s.activeRoomId ? (s.rooms[s.activeRoomId] ?? null) : null))
   const any = useRooms((s) => s.order.length > 0)
-  const live = useRooms((s) => s.order.some((id) => s.rooms[id]?.status === 'live'))
+  const live = useRooms((s) => s.order.some((id) => roomIsLive(s.rooms[id]?.phase ?? 'resolved')))
   const now = useNow(any && live)
   return (
     <div className="eva-rooms" data-testid="rooms-page">

@@ -13,12 +13,15 @@ import { usageEvents, usageInvoke } from './usage'
 import { assistantsEvents, assistantsInvoke } from './assistants'
 import { boardsEvents, boardsInvoke } from './boards'
 import { linearInvoke } from './linear'
+import { roomsEvents, roomsInvoke } from './rooms'
 export * from './test-bench'
 export * from './canvas'
 export * from './usage'
 export * from './assistants'
 export * from './boards'
 export * from './linear'
+export * from './rooms'
+export * from './rooms-roster'
 
 export * from './result'
 export { AppInfoSchema, type AppInfo } from './app'
@@ -47,6 +50,7 @@ export const invokeContract = {
   ...usageInvoke,
   ...assistantsInvoke,
   ...boardsInvoke,
+  ...roomsInvoke,
 }
 export const eventContract = {
   ...appEvents,
@@ -58,6 +62,7 @@ export const eventContract = {
   ...usageEvents,
   ...assistantsEvents,
   ...boardsEvents,
+  ...roomsEvents,
 }
 
 export type InvokeChannel = keyof typeof invokeContract

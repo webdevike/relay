@@ -3,7 +3,8 @@ import { IconMoodSmile, IconPin } from '@tabler/icons-react'
 import { useState } from 'react'
 import { Markdown } from '../chat/markdown/Markdown'
 import { EvaPopover } from '../overlay'
-import { ISAAC_PERSON } from './roster'
+import { ROOM_JUDGE, ROOM_SYSTEM } from '@evaos/contract'
+import { ISAAC_PERSON, JUDGE_PERSON, SYSTEM_PERSON } from './roster'
 import { toggleReaction } from './rooms-store'
 import { ISAAC, type RoomAgent, type RoomMessage } from './types'
 
@@ -21,6 +22,8 @@ export interface Author {
 
 export function authorOf(agents: readonly RoomAgent[], id: string): Author {
   if (id === ISAAC) return ISAAC_PERSON
+  if (id === ROOM_JUDGE) return JUDGE_PERSON
+  if (id === ROOM_SYSTEM) return SYSTEM_PERSON
   return (
     agents.find((x) => x.id === id) ?? { name: id, title: '', role: '', color: 'gray', avatar: '' }
   )
@@ -67,7 +70,7 @@ export function RoomMessageRow({ roomId, msg, agents, continuation }: RoomMessag
   const [picker, setPicker] = useState(false)
   const summary = msg.kind === 'summary'
   const react = (emoji: string): void => {
-    toggleReaction(roomId, msg.id, emoji, ISAAC)
+    void toggleReaction(roomId, msg.id, emoji)
     setPicker(false)
   }
   return (

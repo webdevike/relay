@@ -597,4 +597,64 @@ describe('contract', () => {
       expect(out.safeParse({ tabs: [], activeId: '', scope: '' }).success).toBe(true)
     })
   })
+
+  describe('rooms channels', () => {
+    it('lists the rooms channels and validates strict, bounded inputs', () => {
+      for (const c of ['rooms.create', 'rooms.post', 'rooms.react', 'rooms.stop', 'rooms.list']) {
+        expect(INVOKE_CHANNELS).toContain(c)
+      }
+      expect(EVENT_CHANNELS).toContain('rooms.changed')
+      const create = invokeContract['rooms.create'].input
+      expect(create.safeParse({ prompt: 'Should we?', agentIds: ['pm'] }).success).toBe(true)
+      expect(create.safeParse({ prompt: '', agentIds: ['pm'] }).success).toBe(false)
+      expect(create.safeParse({ prompt: 'x', agentIds: [] }).success).toBe(false)
+      expect(create.safeParse({ prompt: 'x', agentIds: ['pm'], extra: 1 }).success).toBe(false)
+      expect(invokeContract['rooms.post'].input.safeParse({ roomId: 'r', text: '' }).success).toBe(
+        false,
+      )
+      expect(
+        invokeContract['rooms.react'].input.safeParse({ roomId: 'r', messageId: 'm1', emoji: '👍' })
+          .success,
+      ).toBe(true)
+    })
+
+    it('a room carries phase, rounds, judge and the people without portraits', () => {
+      const room = {
+        id: 'r1',
+        title: 't',
+        prompt: 't',
+        agents: [
+          {
+            id: 'pm',
+            name: 'Jonah Reyes',
+            title: 'PM',
+            role: 'PM',
+            brief: 'b',
+            model: 'openai-codex/gpt-5.6-sol',
+            color: 'violet',
+          },
+        ],
+        messages: [
+          {
+            id: 'm1',
+            author: 'pm',
+            text: 'hi',
+            ts: 1,
+            reactions: [{ emoji: '👍', by: ['isaac'] }],
+            kind: 'message',
+          },
+        ],
+        typing: ['pm'],
+        phase: 'wrapping',
+        rounds: 3,
+        judge: { verdict: 'continue', note: 'n', at: 2 },
+        startedAt: 0,
+      }
+      expect(eventContract['rooms.changed'].safeParse({ room }).success).toBe(true)
+      expect(
+        eventContract['rooms.changed'].safeParse({ room: { ...room, phase: 'live' } }).success,
+      ).toBe(false)
+      expect(invokeContract['rooms.list'].output.safeParse({ rooms: [room] }).success).toBe(true)
+    })
+  })
 })

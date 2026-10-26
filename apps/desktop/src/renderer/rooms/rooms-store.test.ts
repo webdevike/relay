@@ -1,18 +1,24 @@
-import { beforeEach, describe, expect, it } from 'vitest'
-import { ROSTER } from './roster'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { Room as RoomDto } from '@evaos/contract'
 import {
-  createRoom,
+  applyRoom,
+  applyRooms,
   groupMessages,
-  post,
   resetRoomsForTests,
-  resolve,
   roomsStore,
   setActive,
-  setTyping,
+  startRoom,
   toggleReaction,
   toggleReactionIn,
 } from './rooms-store'
 import type { RoomMessage } from './types'
+
+const invoke = vi.fn<(channel: string, input: unknown) => Promise<unknown>>()
+const on = vi.fn(() => () => undefined)
+vi.mock('../ipc', () => ({
+  invoke: (channel: string, input: unknown) => invoke(channel, input),
+  on: () => on(),
+}))
 
 const msg = (id: string, author: string, ts: number, kind: RoomMessage['kind'] = 'message') => ({
   id,
@@ -21,6 +27,29 @@ const msg = (id: string, author: string, ts: number, kind: RoomMessage['kind'] =
   ts,
   reactions: [],
   kind,
+})
+
+const dto = (id: string, extra: Partial<RoomDto> = {}): RoomDto => ({
+  id,
+  title: `Room ${id}`,
+  prompt: `Room ${id}`,
+  agents: [
+    {
+      id: 'pm',
+      name: 'Jonah Reyes',
+      title: 'Product Manager',
+      role: 'PM',
+      brief: 'b',
+      model: 'openai-codex/gpt-5.6-sol',
+      color: 'violet',
+    },
+  ],
+  messages: [],
+  typing: [],
+  phase: 'open',
+  rounds: 0,
+  startedAt: 1000,
+  ...extra,
 })
 
 describe('toggleReactionIn', () => {
@@ -42,69 +71,77 @@ describe('toggleReactionIn', () => {
 describe('groupMessages', () => {
   it('collapses consecutive same-author messages within 120 s', () => {
     const groups = groupMessages([
-      msg('1', 'pm', 0),
-      msg('2', 'pm', 60_000),
-      msg('3', 'pm', 180_001),
-      msg('4', 'ops', 180_002),
-      msg('5', 'pm', 180_003),
+      msg('a', 'pm', 0),
+      msg('b', 'pm', 60_000),
+      msg('c', 'pm', 200_000),
+      msg('d', 'ops', 200_500),
+      msg('e', 'pm', 201_000),
     ])
     expect(groups.map((g) => [g.author, g.messages.map((m) => m.id)])).toEqual([
-      ['pm', ['1', '2']],
-      ['pm', ['3']],
-      ['ops', ['4']],
-      ['pm', ['5']],
+      ['pm', ['a', 'b']],
+      ['pm', ['c']],
+      ['ops', ['d']],
+      ['pm', ['e']],
     ])
   })
 
   it('never groups a summary', () => {
     const groups = groupMessages([
-      msg('1', 'pm', 0),
-      msg('2', 'pm', 1000, 'summary'),
-      msg('3', 'pm', 2000),
+      msg('a', 'pm', 0),
+      msg('s', 'pm', 1000, 'summary'),
+      msg('b', 'pm', 2000),
     ])
-    expect(groups.map((g) => g.messages.map((m) => m.id))).toEqual([['1'], ['2'], ['3']])
+    expect(groups.map((g) => g.messages.map((m) => m.id))).toEqual([['a'], ['s'], ['b']])
   })
 })
 
 describe('rooms store', () => {
-  beforeEach(() => resetRoomsForTests())
+  beforeEach(() => {
+    resetRoomsForTests()
+    invoke.mockReset()
+  })
 
-  it('creates, posts, types, reacts and resolves', () => {
-    const room = createRoom('Should we?\nmore', ROSTER.slice(0, 2), 1000)
-    expect(room.title).toBe('Should we?')
-    expect(roomsStore.getState().activeRoomId).toBe(room.id)
-    expect(roomsStore.getState().order).toEqual([room.id])
+  it('mirrors rooms from main with portraits, newest first, and keeps order on updates', () => {
+    applyRoom(dto('r1'))
+    applyRoom(dto('r2'))
+    const s = roomsStore.getState()
+    expect(s.order).toEqual(['r2', 'r1'])
+    expect(s.rooms.r1!.agents[0]!.avatar.startsWith('data:image/svg+xml')).toBe(true)
+    applyRoom(dto('r1', { phase: 'resolved', resolvedAt: 5000, messages: [msg('m1', 'pm', 2000)] }))
+    expect(roomsStore.getState().order).toEqual(['r2', 'r1'])
+    expect(roomsStore.getState().rooms.r1).toMatchObject({ phase: 'resolved', resolvedAt: 5000 })
+    applyRooms([dto('r3'), dto('r1')])
+    expect(roomsStore.getState().order).toEqual(['r3', 'r1'])
+    expect(roomsStore.getState().rooms.r2).toBeUndefined()
+  })
 
-    setTyping(room.id, 'pm', true)
-    setTyping(room.id, 'ops', true)
-    setTyping(room.id, 'pm', true)
-    expect(roomsStore.getState().rooms[room.id]!.typing).toEqual(['pm', 'ops'])
-
-    post(room.id, msg('m1', 'pm', 2000))
-    const after = roomsStore.getState().rooms[room.id]!
-    expect(after.typing).toEqual(['ops'])
-    expect(after.messages.map((m) => m.id)).toEqual(['m1'])
-
-    toggleReaction(room.id, 'm1', '👍', 'isaac')
-    expect(roomsStore.getState().rooms[room.id]!.messages[0]!.reactions).toEqual([
-      { emoji: '👍', by: ['isaac'] },
-    ])
-    toggleReaction(room.id, 'nope', '👍', 'isaac')
-
-    resolve(room.id, msg('s', 'pm', 3000))
-    const done = roomsStore.getState().rooms[room.id]!
-    expect(done.status).toBe('resolved')
-    expect(done.resolvedAt).toBe(3000)
-    expect(done.typing).toEqual([])
-    expect(done.messages[1]).toMatchObject({ id: 's', kind: 'summary' })
-
+  it('startRoom opens the new room, or keeps the error on the form', async () => {
+    invoke.mockResolvedValueOnce({ ok: true, value: { roomId: 'r9' } })
+    await startRoom('Should we?', ['pm'])
+    expect(invoke).toHaveBeenCalledWith('rooms.create', { prompt: 'Should we?', agentIds: ['pm'] })
+    expect(roomsStore.getState().activeRoomId).toBe('r9')
+    invoke.mockResolvedValueOnce({ ok: false, error: { code: 'internal', message: 'omp missing' } })
+    await startRoom('x', ['pm'])
+    expect(roomsStore.getState().createError).toBe('omp missing')
     setActive(null)
     expect(roomsStore.getState().activeRoomId).toBeNull()
   })
 
-  it('lists the newest room first', () => {
-    const a = createRoom('a', ROSTER.slice())
-    const b = createRoom('b', ROSTER.slice())
-    expect(roomsStore.getState().order).toEqual([b.id, a.id])
+  it("toggles Isaac's reaction locally and tells main", async () => {
+    applyRoom(dto('r1', { messages: [msg('m1', 'pm', 2000)] }))
+    invoke.mockResolvedValue({ ok: true, value: { reacted: true } })
+    await toggleReaction('r1', 'm1', '👍')
+    expect(roomsStore.getState().rooms.r1!.messages[0]!.reactions).toEqual([
+      { emoji: '👍', by: ['isaac'] },
+    ])
+    expect(invoke).toHaveBeenCalledWith('rooms.react', {
+      roomId: 'r1',
+      messageId: 'm1',
+      emoji: '👍',
+    })
+    await toggleReaction('r1', 'nope', '👍')
+    expect(roomsStore.getState().rooms.r1!.messages[0]!.reactions).toEqual([
+      { emoji: '👍', by: ['isaac'] },
+    ])
   })
 })

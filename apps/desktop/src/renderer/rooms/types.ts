@@ -1,50 +1,24 @@
-/** Isaac's author id in a room; every other author is a RoomAgent id. */
-export const ISAAC = 'isaac'
+import type {
+  Room as RoomDto,
+  RoomAgent as RoomAgentDto,
+  RoomMessage,
+  RoomPhase,
+  RoomReaction,
+} from '@evaos/contract'
+import { ROOM_ISAAC } from '@evaos/contract'
 
-export interface RoomAgent {
-  id: string
-  /** The person's full name, e.g. "Mara Voss". */
-  name: string
-  /** Job title, e.g. "Principal Engineer". */
-  title: string
-  /** The persona behind the person: Skeptic, Builder, User advocate, PM, Ops. */
-  role: string
-  /** The model label, e.g. "claude-sonnet". */
-  model: string
-  /** A Mantine theme color name, e.g. "orange". */
-  color: string
+/** Isaac's author id in a room; every other author is a RoomAgent id, `judge` or `system`. */
+export const ISAAC = ROOM_ISAAC
+
+/** Main's agent plus the portrait the renderer draws for it. */
+export interface RoomAgent extends RoomAgentDto {
   /** An SVG data URI portrait, generated offline. */
   avatar: string
 }
 
-export interface RoomReaction {
-  emoji: string
-  /** Author ids, `isaac` included, in the order they reacted. */
-  by: string[]
-}
+export type { RoomMessage, RoomPhase, RoomReaction }
 
-export interface RoomMessage {
-  id: string
-  /** `isaac` or an agent id. */
-  author: string
-  text: string
-  ts: number
-  reactions: RoomReaction[]
-  /** A summary is the pinned decision that closes the room. */
-  kind: 'message' | 'summary'
-}
-
-export type RoomStatus = 'live' | 'resolved'
-
-export interface Room {
-  id: string
-  title: string
-  prompt: string
+/** Main's room with portraits on its people. */
+export interface Room extends Omit<RoomDto, 'agents'> {
   agents: RoomAgent[]
-  messages: RoomMessage[]
-  /** Agent ids typing right now. */
-  typing: string[]
-  status: RoomStatus
-  startedAt: number
-  resolvedAt?: number
 }

@@ -1,0 +1,441 @@
+import { setImmediate as tick } from 'node:timers/promises'
+import { describe, expect, it } from 'vitest'
+import { ROOM_PEOPLE, type Room } from '@evaos/contract'
+import { RoomSession, type RoomSessionDeps, type RoomTimer } from './orchestrator'
+import { NUDGE_TEXT } from './prompts'
+import type { AgentHandle, AgentRunner } from './runner'
+
+/** Which persona a process is, from its system prompt. */
+const whoIs = (systemPrompt: string): string => {
+  if (systemPrompt.startsWith('You judge')) return 'judge'
+  const a = ROOM_PEOPLE.find((p) => systemPrompt.startsWith(`You are ${p.name}`))
+  return a?.id ?? '?'
+}
+
+type Reply = string | ((prompt: string, turn: number) => string)
+
+interface FakeAgent {
+  id: string
+  prompts: string[]
+  stopped: boolean
+  exit: ((reason: string) => void) | null
+}
+
+interface PendingSend {
+  id: string
+  reply: string
+  onPartial?: (t: string) => void
+  resolve: (t: string) => void
+  reject: (e: Error) => void
+}
+
+/**
+ * Agents answer from a script by id and turn. A send waits in `pending` until the test answers
+ * it (`flush`), so the test decides who has replied when; `drain` answers everything until the
+ * room settles.
+ */
+class FakeRunner implements AgentRunner {
+  agents: FakeAgent[] = []
+  pending: PendingSend[] = []
+  constructor(
+    private script: Record<string, Reply[] | Reply>,
+    private failStart: string[] = [],
+  ) {}
+
+  byId(id: string): FakeAgent {
+    return this.agents.find((a) => a.id === id)!
+  }
+
+  /** Answers the pending sends (of `ids`, or all), streaming a first chunk then the whole reply. */
+  flush(ids?: string[]): void {
+    const now = this.pending.filter((p) => !ids || ids.includes(p.id))
+    this.pending = this.pending.filter((p) => !now.includes(p))
+    for (const p of now) {
+      if (p.reply.length > 4) p.onPartial?.(p.reply.slice(0, 4))
+      p.onPartial?.(p.reply)
+      p.resolve(p.reply)
+    }
+  }
+
+  /** Flushes until nothing is pending and `done` holds (or 200 ticks pass). */
+  async drain(done: () => boolean): Promise<void> {
+    for (let i = 0; i < 200; i++) {
+      this.flush()
+      await tick()
+      if (this.pending.length === 0 && done()) return
+    }
+    throw new Error('room did not settle')
+  }
+
+  async start(o: { systemPrompt: string; model: string }): Promise<AgentHandle> {
+    const id = whoIs(o.systemPrompt)
+    if (this.failStart.includes(id)) throw new Error(`no ${id}`)
+    const fake: FakeAgent = { id, prompts: [], stopped: false, exit: null }
+    this.agents.push(fake)
+    const replyFor = (prompt: string): string => {
+      const turn = fake.prompts.length
+      const r = this.script[id]
+      const pick = Array.isArray(r) ? (r[turn - 1] ?? r[r.length - 1] ?? 'PASS') : (r ?? 'PASS')
+      return typeof pick === 'function' ? pick(prompt, turn) : pick
+    }
+    return {
+      send: (text, onPartial) => {
+        const { promise, resolve, reject } = Promise.withResolvers<string>()
+        fake.prompts.push(text)
+        this.pending.push({
+          id,
+          reply: replyFor(text),
+          resolve,
+          reject,
+          ...(onPartial ? { onPartial } : {}),
+        })
+        return promise
+      },
+      onExit: (cb) => {
+        // Like the real runner: a dead process fails its in-flight turn.
+        fake.exit = (reason) => {
+          const mine = this.pending.filter((p) => p.id === id)
+          this.pending = this.pending.filter((p) => p.id !== id)
+          for (const p of mine) p.reject(new Error(reason))
+          cb(reason)
+        }
+      },
+      stop: async () => {
+        fake.stopped = true
+      },
+    }
+  }
+}
+
+interface Harness {
+  s: RoomSession
+  runner: FakeRunner
+  saved: Room[]
+  clock: { now: number; fire(): void; pending(): number }
+  /** Runs the room to its end. */
+  finish(): Promise<void>
+}
+
+function harness(
+  script: Record<string, Reply[] | Reply>,
+  o: Partial<RoomSessionDeps> & { agents?: string[]; failStart?: string[] } = {},
+): Harness {
+  const runner = new FakeRunner(script, o.failStart ?? [])
+  const saved: Room[] = []
+  const timers: { fn: () => void }[] = []
+  const clock = {
+    now: 1_000_000,
+    pending: () => timers.length,
+    fire: () => {
+      const t = timers.shift()
+      if (t) t.fn()
+    },
+  }
+  const timer: RoomTimer = {
+    set: (fn) => {
+      const t = { fn }
+      timers.push(t)
+      return t
+    },
+    clear: (h) => {
+      const i = timers.indexOf(h as { fn: () => void })
+      if (i >= 0) timers.splice(i, 1)
+    },
+  }
+  const ids = o.agents ?? ['skeptic', 'builder', 'pm']
+  const agents = ROOM_PEOPLE.filter((p) => ids.includes(p.id))
+  const { agents: _a, failStart: _f, ...deps } = o
+  const s = new RoomSession('Should Relay auto-archive idle chats?', agents, {
+    runner,
+    judgeModel: 'anthropic/claude-haiku-4-5',
+    save: async (room) => {
+      saved.push(JSON.parse(JSON.stringify(room)))
+      return '/eva/memory/rooms/2026-10-26-should-relay.md'
+    },
+    onChange: () => undefined,
+    log: () => undefined,
+    now: () => clock.now,
+    timer,
+    ...deps,
+  })
+  return {
+    s,
+    runner,
+    saved,
+    clock,
+    finish: async () => {
+      await s.start()
+      await runner.drain(() => !s.live)
+      await s.settled()
+    },
+  }
+}
+
+const CONTINUE = '{"verdict":"continue","note":"still arguing"}'
+const CONVERGED = '{"verdict":"converged","note":"all agree on fold"}'
+
+const texts = (room: Room): string[] => room.messages.map((m) => `${m.author}: ${m.text}`)
+
+describe('RoomSession', () => {
+  it('fans out round 1 to everyone, later rounds only the delta, then the judge resolves it', async () => {
+    const h = harness({
+      skeptic: ['What breaks? 🤔', 'PASS'],
+      builder: ['Fold, not delete.', 'Fine by me.'],
+      pm: [
+        'Sounds like fold.',
+        'AGREE',
+        '**Decision**\nFold.\n\n**Dissent**\nNone\n\n**Next steps**\n- Theo: fold',
+      ],
+      judge: [CONVERGED],
+    })
+    await h.finish()
+    const room = h.s.room
+    expect(room.phase).toBe('resolved')
+    expect(room.rounds).toBe(2)
+    expect(room.judge).toMatchObject({ verdict: 'converged', note: 'all agree on fold' })
+    const skeptic = h.runner.byId('skeptic')
+    expect(skeptic.prompts[0]).toContain(
+      'Isaac asked the room:\nShould Relay auto-archive idle chats?',
+    )
+    // Round 2: only the other two replies are new to Mara; her own line is not a reason to send.
+    expect(skeptic.prompts[1]).toContain('New messages:')
+    expect(skeptic.prompts[1]).toContain('[m2] Theo: Fold, not delete.')
+    expect(skeptic.prompts[1]).toContain('[m3] Jonah: Sounds like fold.')
+    expect(skeptic.prompts[1]).not.toContain('Isaac asked')
+    // PASS adds nothing; AGREE is posted.
+    expect(texts(room)).toEqual([
+      'skeptic: What breaks? 🤔',
+      'builder: Fold, not delete.',
+      'pm: Sounds like fold.',
+      'builder: Fine by me.',
+      'pm: AGREE',
+      'pm: **Decision**\nFold.\n\n**Dissent**\nNone\n\n**Next steps**\n- Theo: fold',
+    ])
+    const summary = room.messages[room.messages.length - 1]!
+    expect(summary.kind).toBe('summary')
+    expect(summary.author).toBe('pm')
+    expect(room.resolvedAt).toBe(summary.ts)
+    expect(room.file).toBe('/eva/memory/rooms/2026-10-26-should-relay.md')
+    expect(h.saved).toHaveLength(1)
+    expect(h.saved[0]!.phase).toBe('resolved')
+    // No judge call after round 1 (replies, before round 2); one after round 2.
+    expect(h.runner.byId('judge').prompts).toHaveLength(1)
+    expect(h.runner.byId('judge').prompts[0]).toContain('Soft limit passed: no')
+    for (const a of h.runner.agents) expect(a.stopped).toBe(true)
+    expect(h.runner.byId('pm').prompts[2]).toContain('Write the pinned summary')
+    expect(room.typing).toEqual([])
+    expect(h.clock.pending()).toBe(0)
+  })
+
+  it('a silent round after continue gets one nudge from the PM, then resolves if still quiet', async () => {
+    const h = harness({
+      skeptic: ['A.', 'PASS', 'PASS'],
+      builder: ['B.', 'PASS', 'PASS'],
+      pm: ['C.', 'PASS', 'PASS', 'summary text'],
+      judge: CONTINUE,
+    })
+    await h.finish()
+    const room = h.s.room
+    const nudge = room.messages.find((m) => m.text === NUDGE_TEXT)
+    expect(nudge?.author).toBe('pm')
+    expect(room.rounds).toBe(3)
+    expect(room.phase).toBe('resolved')
+    expect(h.runner.byId('judge').prompts).toHaveLength(2)
+    // The nudge was the delta of round 3; Jonah posted it, so his own line is not sent back to him.
+    expect(h.runner.byId('skeptic').prompts[2]).toContain(`Jonah: ${NUDGE_TEXT}`)
+    expect(h.runner.byId('pm').prompts).toHaveLength(3)
+    expect(h.runner.byId('pm').prompts[2]).toContain('ran out of time')
+  })
+
+  it('parses react lines into reactions and ignores unknown ids', async () => {
+    const h = harness({
+      skeptic: ['First.', 'react: m1 👀\nreact: m2 🔥\nreact: m99 👍\nAgreed with Theo.'],
+      builder: ['Second.', 'PASS'],
+      pm: ['Third.', 'PASS', 'summary'],
+      judge: CONVERGED,
+    })
+    await h.finish()
+    const room = h.s.room
+    expect(room.messages[0]!.reactions).toEqual([{ emoji: '👀', by: ['skeptic'] }])
+    expect(room.messages[1]!.reactions).toEqual([{ emoji: '🔥', by: ['skeptic'] }])
+    expect(room.messages.find((m) => m.text === 'Agreed with Theo.')).toBeTruthy()
+    expect(room.messages.some((m) => m.text.includes('react:'))).toBe(false)
+    expect(h.runner.byId('judge').prompts[0]).toContain('(👀 Mara)')
+  })
+
+  it('trims a long reply at 400 characters on a sentence boundary', async () => {
+    const long = `${'Alpha beta gamma delta. '.repeat(14)}Then a very long tail that keeps going and going without any stop`
+    expect(long.length).toBeGreaterThan(400)
+    const h = harness({
+      skeptic: [long, 'PASS'],
+      builder: ['Ok.', 'PASS'],
+      pm: ['Ok.', 'PASS', 'summary'],
+      judge: CONVERGED,
+    })
+    await h.finish()
+    const m = h.s.room.messages[0]!
+    expect(m.text.length).toBeLessThanOrEqual(400)
+    expect(m.text.endsWith('delta.')).toBe(true)
+  })
+
+  it('hard clock forces the summary from what exists and ignores the late reply', async () => {
+    const h = harness({
+      skeptic: ['Slow thought.'],
+      builder: ['Quick.'],
+      pm: ['Also quick.', 'summary now'],
+      judge: CONTINUE,
+    })
+    await h.s.start()
+    h.runner.flush(['builder', 'pm'])
+    await tick()
+    expect(h.s.room.typing).toEqual(['skeptic'])
+    expect(h.clock.pending()).toBe(1)
+    h.clock.fire()
+    await h.runner.drain(() => !h.s.live)
+    await h.s.settled()
+    h.runner.flush()
+    await tick()
+    const room = h.s.room
+    expect(room.phase).toBe('resolved')
+    expect(room.typing).toEqual([])
+    expect(texts(room)).toEqual(['builder: Quick.', 'pm: Also quick.', 'pm: summary now'])
+    expect(h.runner.byId('pm').prompts[1]).toContain('ran out of time')
+    expect(h.saved).toHaveLength(1)
+    expect(h.clock.pending()).toBe(0)
+  })
+
+  it('soft clock turns the room to wrapping: agents and judge are told', async () => {
+    const h = harness(
+      {
+        skeptic: ['A.', 'Final: fold.'],
+        builder: ['B.', 'Final: fold.'],
+        pm: ['C.', 'Final: fold.', 'summary'],
+        judge: CONVERGED,
+      },
+      { softMs: 1000 },
+    )
+    await h.s.start()
+    h.runner.flush()
+    h.clock.now += 5000
+    await h.runner.drain(() => !h.s.live)
+    await h.s.settled()
+    expect(h.s.room.phase).toBe('resolved')
+    expect(h.runner.byId('skeptic').prompts[1]).toContain('(wrapping up')
+    expect(h.runner.byId('judge').prompts[0]).toContain('Soft limit passed: yes')
+  })
+
+  it("Isaac's post lands at once and is the next round's delta; his reaction toggles", async () => {
+    const h = harness({
+      skeptic: ['A.', (p) => (p.includes('Isaac: Ship it') ? 'On it, Isaac.' : 'PASS'), 'PASS'],
+      builder: ['B.', 'PASS', 'PASS'],
+      pm: ['C.', 'PASS', 'PASS', 'summary'],
+      judge: [CONTINUE, CONVERGED],
+    })
+    await h.s.start()
+    h.runner.flush(['skeptic', 'builder'])
+    h.s.post('Ship it')
+    expect(texts(h.s.room)).toEqual(['skeptic: A.', 'builder: B.', 'isaac: Ship it'])
+    await h.runner.drain(() => !h.s.live)
+    await h.s.settled()
+    const room = h.s.room
+    expect(texts(room)).toContain('skeptic: On it, Isaac.')
+    expect(h.runner.byId('skeptic').prompts[1]).toContain('[m3] Isaac: Ship it')
+    h.s.react('m1', '👍')
+    expect(room.messages[0]!.reactions).toEqual([{ emoji: '👍', by: ['isaac'] }])
+    h.s.react('m1', '👍')
+    expect(room.messages[0]!.reactions).toEqual([])
+    h.s.react('nope', '👍')
+    expect(() => h.s.post('late')).toThrow()
+  })
+
+  it('round cap resolves the room', async () => {
+    const h = harness(
+      {
+        skeptic: (_p, t) => `Point ${t}.`,
+        builder: (_p, t) => `Counter ${t}.`,
+        pm: (p, t) => (p.includes('pinned summary') ? 'cap summary' : `Hmm ${t}.`),
+        judge: CONTINUE,
+      },
+      { maxRounds: 4 },
+    )
+    await h.finish()
+    expect(h.s.room.rounds).toBe(4)
+    expect(h.s.room.phase).toBe('resolved')
+    expect(h.s.room.messages[h.s.room.messages.length - 1]!.text).toBe('cap summary')
+  })
+
+  it('a dead process drops that agent; no PM means the judge summarizes', async () => {
+    const h = harness(
+      {
+        skeptic: ['Here.', 'Still here.'],
+        builder: ['Me too.'],
+        judge: [CONVERGED, '**Decision**\njudge wrote it'],
+      },
+      { agents: ['skeptic', 'builder'] },
+    )
+    await h.s.start()
+    h.runner.flush()
+    await tick()
+    h.runner.byId('builder').exit!('exit 1')
+    await h.runner.drain(() => !h.s.live)
+    await h.s.settled()
+    const room = h.s.room
+    expect(room.agents.find((a) => a.id === 'builder')?.failed).toBe(true)
+    expect(
+      room.messages.some((m) => m.author === 'system' && m.text.includes('Theo dropped out')),
+    ).toBe(true)
+    expect(room.phase).toBe('resolved')
+    const summary = room.messages[room.messages.length - 1]!
+    expect(summary).toMatchObject({
+      kind: 'summary',
+      author: 'judge',
+      text: '**Decision**\njudge wrote it',
+    })
+    // Theo's round-2 turn died with him; the drop notice is part of the transcript the judge saw.
+    expect(h.runner.byId('builder').prompts).toHaveLength(2)
+    expect(h.runner.byId('judge').prompts[0]).toContain(
+      'Room: Theo dropped out of the room (exit 1).',
+    )
+  })
+
+  it('every agent dead fails the room', async () => {
+    const dead = harness(
+      { skeptic: 'x', builder: 'y', judge: CONTINUE },
+      { agents: ['skeptic', 'builder'], failStart: ['skeptic', 'builder'] },
+    )
+    await dead.s.start()
+    expect(dead.s.room.phase).toBe('failed')
+    expect(dead.s.room.error).toBe('No agent could start.')
+    expect(dead.s.room.messages.filter((m) => m.author === 'system')).toHaveLength(2)
+    expect(dead.saved).toHaveLength(0)
+    expect(dead.runner.byId('judge').stopped).toBe(true)
+  })
+
+  it('stop resolves now; a reply streams into its message as it types', async () => {
+    const partials: string[] = []
+    const h = harness(
+      {
+        skeptic: ['A long enough reply.', 'PASS'],
+        builder: ['B.', 'PASS'],
+        pm: ['C.', 'PASS', 'stopped summary'],
+        judge: CONTINUE,
+      },
+      {
+        onChange: (room) => {
+          const m = room.messages.find((x) => x.author === 'skeptic')
+          if (m && partials[partials.length - 1] !== m.text) partials.push(m.text)
+        },
+      },
+    )
+    await h.s.start()
+    h.runner.flush()
+    await tick()
+    expect(partials).toEqual(['A lo', 'A long enough reply.'])
+    const stopping = h.s.stop()
+    await h.runner.drain(() => !h.s.live)
+    await stopping
+    expect(h.s.room.phase).toBe('resolved')
+    expect(h.s.room.messages[h.s.room.messages.length - 1]!.text).toBe('stopped summary')
+    expect(h.saved).toHaveLength(1)
+  })
+})

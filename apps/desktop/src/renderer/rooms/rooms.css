@@ -85,9 +85,17 @@
   background: var(--eva-c-muted-background);
   color: var(--eva-c-muted-foreground);
 }
-.eva-rooms-pill[data-status='live'] {
+.eva-rooms-pill[data-status='open'] {
   background: color-mix(in srgb, var(--eva-accent) 15%, transparent);
   color: var(--eva-accent);
+}
+.eva-rooms-pill[data-status='wrapping'] {
+  background: color-mix(in srgb, var(--mantine-color-yellow-6) 18%, transparent);
+  color: var(--mantine-color-yellow-8);
+}
+.eva-rooms-pill[data-status='failed'] {
+  background: color-mix(in srgb, var(--mantine-color-red-6) 15%, transparent);
+  color: var(--mantine-color-red-7);
 }
 .eva-rooms-clock {
   font-size: var(--eva-fz-label);
@@ -417,4 +425,13 @@
 }
 .eva-rooms-roster-text .eva-rooms-dim {
   font-size: var(--eva-fz-label);
+}
+.eva-rooms-new-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+}
+.eva-rooms-error {
+  font-size: var(--eva-fz-label);
+  color: var(--mantine-color-red-7);
 }
