@@ -44,11 +44,16 @@ export interface OmpAgentRunnerOptions {
 /** The omp tools a read-only seat gets (names from `omp --help` Available Tools). */
 export const READ_ONLY_TOOLS = ['read', 'grep', 'glob', 'web_search'] as const
 
-/** The tool flags for a seat: nothing, or the read-only set auto-approved. */
+/**
+ * The tool flags for a seat. `--no-tools` only covers omp's built-ins: extensions and skills
+ * bring their own tools (computer_state and friends), so every seat loads neither; a read-only
+ * seat then enables just the read set, auto-approved.
+ */
 export function toolArgs(tools: RoomAgent['tools']): string[] {
+  const base = ['--no-extensions', '--no-skills']
   return tools === 'read-only'
-    ? ['--tools', READ_ONLY_TOOLS.join(','), '--approval-mode', 'yolo']
-    : ['--no-tools']
+    ? [...base, '--tools', READ_ONLY_TOOLS.join(','), '--approval-mode', 'yolo']
+    : [...base, '--no-tools']
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> =>
@@ -101,7 +106,7 @@ export function toolDetail(toolName: string, args: unknown): string {
     }
     default: {
       const p = str('path') ?? str('pattern') ?? str('query') ?? str('url')
-      return p ? `${toolName} ${shortArg(p, false)}` : toolName
+      return p ? `using ${toolName} ${shortArg(p, false)}` : `using ${toolName}`
     }
   }
 }
@@ -144,7 +149,7 @@ export function presenceOf(f: Frame): Presence | undefined {
 const STDERR_KEEP = 8
 
 /**
- * `omp --mode rpc-ui --no-session --no-lsp --no-ui --model <id> --thinking <level> --system-prompt
+ * `omp --mode rpc-ui --no-session --no-extensions --no-skills --no-lsp --no-ui --model <id> --thinking <level> --system-prompt
  * <p>` plus `--no-tools`, or `--tools read,grep,glob,web_search --approval-mode yolo` for a
  * read-only seat (run in `toolsCwd`).
  */

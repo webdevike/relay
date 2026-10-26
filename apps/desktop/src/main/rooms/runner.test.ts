@@ -96,19 +96,22 @@ describe('toolDetail', () => {
     )
     expect(toolDetail('web_search', {})).toBe('searching the web')
     expect(toolDetail('read', null)).toBe('reading a file')
-    expect(toolDetail('bash', { command: 'ls' })).toBe('bash')
+    expect(toolDetail('bash', { command: 'ls' })).toBe('using bash')
+    expect(toolDetail('computer_state', { query: 'Save' })).toBe('using computer_state Save')
   })
 })
 
 describe('toolArgs and messageText', () => {
-  it('read-only seats get the four read tools auto-approved; none gets --no-tools', () => {
+  it('no seat loads extensions or skills; read-only adds the four read tools auto-approved', () => {
     expect(toolArgs('read-only')).toEqual([
+      '--no-extensions',
+      '--no-skills',
       '--tools',
       'read,grep,glob,web_search',
       '--approval-mode',
       'yolo',
     ])
-    expect(toolArgs('none')).toEqual(['--no-tools'])
+    expect(toolArgs('none')).toEqual(['--no-extensions', '--no-skills', '--no-tools'])
   })
 
   it('joins text blocks and ignores thinking and tool calls', () => {
