@@ -498,7 +498,7 @@ describe('RoomSession', () => {
     expect(h.s.room.presence).toEqual({})
   })
 
-  it('destroy() during start: the late process is stopped, never registered, nothing runs', async () => {
+  it('destroy() during start waits for the in-flight start and ends every process', async () => {
     const h = harness(
       { skeptic: 'A.', builder: 'B.', judge: CONTINUE },
       { agents: ['skeptic', 'builder'], holdStart: ['builder'] },
@@ -507,11 +507,22 @@ describe('RoomSession', () => {
     await tick()
     // Mara is up, Theo's process is still spawning when the app quits.
     expect(h.runner.agents.map((a) => a.id)).toEqual(['skeptic', 'judge'])
-    await h.s.destroy()
-    expect(h.runner.byId('skeptic').stopped).toBe(true)
+    let destroyed = false
+    const destroying = h.s.destroy().then(() => {
+      destroyed = true
+    })
+    await tick()
+    // before-quit must not be told "done" while Theo's spawn is still pending.
+    expect(destroyed).toBe(false)
     h.runner.releaseStarts()
+    await destroying
+    // At this point, with destroy() alone awaited, every process is dead.
+    expect(h.runner.agents.map((a) => [a.id, a.stopped])).toEqual([
+      ['skeptic', true],
+      ['judge', true],
+      ['builder', true],
+    ])
     await starting
-    expect(h.runner.byId('builder').stopped).toBe(true)
     expect(h.runner.pending).toEqual([])
     expect(h.s.room.rounds).toBe(0)
     for (const a of h.runner.agents) expect(a.prompts).toEqual([])

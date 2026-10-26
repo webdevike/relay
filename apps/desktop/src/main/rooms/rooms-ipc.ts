@@ -1,7 +1,13 @@
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { ROOM_JUDGE_MODEL, roomPerson, type Room, type RoomAgent } from '@evaos/contract'
+import {
+  ROOM_JUDGE_MODEL,
+  roomIsLive,
+  roomPerson,
+  type Room,
+  type RoomAgent,
+} from '@evaos/contract'
 import { catalogFor } from '../chat/live-ipc'
 import type { MainContext } from '../context'
 import { buildCommand, childPathFor, runCapture } from '../eva/spawn'
@@ -14,9 +20,15 @@ import { saveRoom } from './save'
 /** Streaming replies change a room many times a second; the renderer gets one room per burst. */
 const EMIT_MS = 50
 const JOURNAL_TIMEOUT_MS = 15_000
+/** Each live room is up to six omp processes; more than this and the machine is the room. */
+export const MAX_LIVE_ROOMS = 3
 
 class NotFound extends Error {
   code = 'not-found'
+}
+
+class TooManyRooms extends Error {
+  code = 'too-many-rooms'
 }
 
 /**
@@ -82,6 +94,12 @@ export function registerRoomsIpc(ctx: MainContext): void {
   }
 
   handle(ctx, 'rooms.create', async ({ prompt, agentIds }) => {
+    const live = [...sessions.values()].filter((s) => roomIsLive(s.room.phase)).length
+    if (live >= MAX_LIVE_ROOMS) {
+      throw new TooManyRooms(
+        `${MAX_LIVE_ROOMS} rooms are already live. Resolve one before starting another.`,
+      )
+    }
     const agents = await agentsFor(agentIds)
     const s = new RoomSession(prompt, agents, {
       runner,

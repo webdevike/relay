@@ -85,6 +85,8 @@ export class RoomSession {
   private wrapRound: number | null = null
   /** destroy() ran: starts that land later end their process instead of registering it. */
   private destroyed = false
+  /** Every process start of start(), settled; destroy() waits on it. */
+  private starting: Promise<void> = Promise.resolve()
   private readonly now: () => number
   private readonly maxRounds: number
   private readonly turnMs: number
@@ -180,7 +182,8 @@ export class RoomSession {
         this.deps.log(`${this.room.id}: judge failed to start: ${errText(e)}`)
       }
     })()
-    await Promise.all([...starts, judge])
+    this.starting = Promise.all([...starts, judge]).then(() => undefined)
+    await this.starting
     if (this.destroyed) return
     this.started = true
     if (this.liveAgents().length === 0) {
@@ -215,13 +218,14 @@ export class RoomSession {
   }
 
   /**
-   * The app is quitting: end every process and resolve once each has exited; nothing is saved.
-   * A process whose start lands after this is stopped by `start()` itself.
+   * The app is quitting: end every process and resolve once each has exited, including those
+   * whose start is still in flight (start() stops a late handle itself; this waits for it).
+   * Nothing is saved.
    */
   async destroy(): Promise<void> {
     this.destroyed = true
     this.resolving = true
-    await this.stopAll()
+    await Promise.all([this.stopAll(), this.starting])
   }
 
   /** The round loop settles once the room is resolved or failed. */
