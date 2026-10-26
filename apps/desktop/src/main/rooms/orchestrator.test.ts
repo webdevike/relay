@@ -200,12 +200,13 @@ const CONVERGED = '{"verdict":"converged","note":"all agree on fold"}'
 const texts = (room: Room): string[] => room.messages.map((m) => `${m.author}: ${m.text}`)
 
 describe('RoomSession', () => {
-  it('fans out round 1 to everyone, later rounds only the delta, then the judge resolves it', async () => {
+  it('fans out round 1 to everyone, later rounds only the delta, then the judge calls it and a final-position round precedes the summary', async () => {
     const h = harness({
-      skeptic: ['What breaks? 🤔', 'PASS'],
-      builder: ['Fold, not delete.', 'Fine by me.'],
+      skeptic: ['What breaks? 🤔', 'PASS', 'Final: fold.'],
+      builder: ['Fold, not delete.', 'Fine by me.', 'AGREE'],
       pm: [
         'Sounds like fold.',
+        'AGREE',
         'AGREE',
         '**Decision**\nFold.\n\n**Dissent**\nNone\n\n**Next steps**\n- Theo: fold',
       ],
@@ -214,7 +215,7 @@ describe('RoomSession', () => {
     await h.finish()
     const room = h.s.room
     expect(room.phase).toBe('resolved')
-    expect(room.rounds).toBe(2)
+    expect(room.rounds).toBe(3)
     expect(room.judge).toMatchObject({ verdict: 'converged', note: 'all agree on fold' })
     const skeptic = h.runner.byId('skeptic')
     expect(skeptic.prompts[0]).toContain(
@@ -225,12 +226,19 @@ describe('RoomSession', () => {
     expect(skeptic.prompts[1]).toContain('[m2] Theo: Fold, not delete.')
     expect(skeptic.prompts[1]).toContain('[m3] Jonah: Sounds like fold.')
     expect(skeptic.prompts[1]).not.toContain('Isaac asked')
+    // Round 3 is everyone's final-position turn, then the summary (not marked closed early).
+    for (const id of ['skeptic', 'builder', 'pm']) {
+      expect(h.runner.byId(id).prompts[2]).toContain('(wrapping up')
+    }
     // PASS adds nothing; AGREE is posted.
     expect(texts(room)).toEqual([
       'skeptic: What breaks? 🤔',
       'builder: Fold, not delete.',
       'pm: Sounds like fold.',
       'builder: Fine by me.',
+      'pm: AGREE',
+      'skeptic: Final: fold.',
+      'builder: AGREE',
       'pm: AGREE',
       'pm: **Decision**\nFold.\n\n**Dissent**\nNone\n\n**Next steps**\n- Theo: fold',
     ])
@@ -241,39 +249,43 @@ describe('RoomSession', () => {
     expect(room.file).toBe('/eva/memory/rooms/2026-10-26-should-relay.md')
     expect(h.saved).toHaveLength(1)
     expect(h.saved[0]!.phase).toBe('resolved')
-    // No judge call after round 1 (replies, before round 2); one after round 2.
+    // No judge call after round 1 (replies, before round 2); one after round 2; none while wrapping.
     expect(h.runner.byId('judge').prompts).toHaveLength(1)
     expect(h.runner.byId('judge').prompts[0]).toContain('Rounds: 2')
     for (const a of h.runner.agents) expect(a.stopped).toBe(true)
-    expect(h.runner.byId('pm').prompts[2]).toContain('Write the pinned summary')
+    expect(h.runner.byId('pm').prompts[3]).toContain('Write the pinned summary')
+    expect(h.runner.byId('pm').prompts[3]).not.toContain('closed early')
     expect(room.presence).toEqual({})
   })
 
-  it('a silent round after continue gets one nudge from the PM, then resolves if still quiet', async () => {
+  it('a silent round after continue gets one nudge from the PM, then wraps if still quiet', async () => {
     const h = harness({
-      skeptic: ['A.', 'PASS', 'PASS'],
-      builder: ['B.', 'PASS', 'PASS'],
-      pm: ['C.', 'PASS', 'PASS', 'summary text'],
+      skeptic: ['A.', 'PASS', 'PASS', 'PASS'],
+      builder: ['B.', 'PASS', 'PASS', 'PASS'],
+      pm: ['C.', 'PASS', 'PASS', 'PASS', 'summary text'],
       judge: CONTINUE,
     })
     await h.finish()
     const room = h.s.room
     const nudge = room.messages.find((m) => m.text === NUDGE_TEXT)
     expect(nudge?.author).toBe('pm')
-    expect(room.rounds).toBe(3)
+    // Rounds: 1 replies, 2 quiet -> nudge, 3 quiet -> wrap, 4 final positions, summary.
+    expect(room.rounds).toBe(4)
     expect(room.phase).toBe('resolved')
     expect(h.runner.byId('judge').prompts).toHaveLength(2)
     // The nudge was the delta of round 3; Jonah posted it, so his own line is not sent back to him.
     expect(h.runner.byId('skeptic').prompts[2]).toContain(`Jonah: ${NUDGE_TEXT}`)
-    expect(h.runner.byId('pm').prompts).toHaveLength(3)
-    expect(h.runner.byId('pm').prompts[2]).toContain('closed early')
+    expect(h.runner.byId('skeptic').prompts[3]).toContain('(wrapping up')
+    expect(h.runner.byId('pm').prompts).toHaveLength(4)
+    expect(h.runner.byId('pm').prompts[2]).toContain('(wrapping up')
+    expect(h.runner.byId('pm').prompts[3]).toContain('closed early')
   })
 
   it('parses react lines into reactions and ignores unknown ids', async () => {
     const h = harness({
-      skeptic: ['First.', 'react: m1 👀\nreact: m2 🔥\nreact: m99 👍\nAgreed with Theo.'],
-      builder: ['Second.', 'PASS'],
-      pm: ['Third.', 'PASS', 'summary'],
+      skeptic: ['First.', 'react: m1 👀\nreact: m2 🔥\nreact: m99 👍\nAgreed with Theo.', 'PASS'],
+      builder: ['Second.', 'PASS', 'PASS'],
+      pm: ['Third.', 'PASS', 'PASS', 'summary'],
       judge: CONVERGED,
     })
     await h.finish()
@@ -364,7 +376,7 @@ describe('RoomSession', () => {
     }
   })
 
-  it('round cap resolves the room', async () => {
+  it('round cap wraps the room: one final-position round, then the summary from what exists', async () => {
     const h = harness(
       {
         skeptic: (_p, t) => `Point ${t}.`,
@@ -375,8 +387,11 @@ describe('RoomSession', () => {
       { maxRounds: 4 },
     )
     await h.finish()
-    expect(h.s.room.rounds).toBe(4)
+    // Rounds 1-4 run; the cap turns the room to wrapping and round 5 is the final-position turn.
+    expect(h.s.room.rounds).toBe(5)
     expect(h.s.room.phase).toBe('resolved')
+    expect(h.runner.byId('skeptic').prompts[4]).toContain('(wrapping up')
+    expect(h.runner.byId('pm').prompts[5]).toContain('closed early')
     expect(h.s.room.messages[h.s.room.messages.length - 1]!.text).toBe('cap summary')
   })
 
@@ -495,7 +510,8 @@ describe('RoomSession', () => {
     await tick()
     // The first change seen is the round starting (Mara still idle), then her turn's arc.
     expect(seen.slice(1, 4)).toEqual(['thinking', 'typing', 'idle'])
-    await h.finish()
+    await h.runner.drain(() => !h.s.live)
+    await h.s.settled()
     expect(h.s.room.presence).toEqual({})
   })
 
@@ -663,7 +679,8 @@ class FakeJev implements Jev {
 
   async gate(state: GateState): Promise<Record<string, number>> {
     this.gates.push(state)
-    const a = this.speak.shift() ?? this.speak[this.speak.length - 1] ?? {}
+    // The last scripted answer repeats, like the last reply of an agent script.
+    const a = this.speak.length > 1 ? this.speak.shift()! : (this.speak[0] ?? {})
     if (a instanceof Error) throw a
     return a
   }
@@ -683,15 +700,16 @@ describe('RoomSession with Jev', () => {
     const jev = new FakeJev(
       [
         { skeptic: 0.8, builder: 0.2, pm: 0.5 },
-        { skeptic: 0.1, builder: 0.1, pm: 0.1 },
+        { skeptic: 0.1, builder: 0.1, pm: 0.3 },
       ],
       [LOW, { converged: 0.9, circling: 0 }],
     )
     const h = harness(
       {
-        skeptic: ['A.', 'A2.', 'PASS'],
-        builder: ['B.', 'B2 @Mara?', 'PASS'],
-        pm: ['C.', 'C2.', 'PASS', 'summary'],
+        // Prompted: Mara rounds 1,2,4,5; Theo 1,3,5; Jonah 1,2,3,4,5 then the summary.
+        skeptic: ['A.', 'A2.', 'PASS', 'Final.'],
+        builder: ['B.', 'B2 @Mara?', 'Final.'],
+        pm: ['C.', 'C2.', 'PASS', 'PASS', 'Final.', 'summary'],
       },
       { jev },
     )
@@ -709,13 +727,13 @@ describe('RoomSession with Jev', () => {
     })
     expect(jev.gates[0]!.transcript.map((t) => t.author)).toEqual(['Mara', 'Theo', 'Jonah'])
     // Isaac asks Theo mid-round 2: convergence waits for Theo's answer (Isaac gate), and
-    // round 3 goes to Theo alone (addressed) since nobody else clears 0.5.
+    // round 3 goes to Theo (addressed) plus the top other score (Jonah 0.3): the floor of two.
     h.s.post('@Theo your call')
     h.runner.flush()
     await tick()
     expect(jev.convs).toHaveLength(0)
     expect(h.s.room.rounds).toBe(3)
-    expect(h.runner.pending.map((p) => p.id)).toEqual(['builder'])
+    expect(h.runner.pending.map((p) => p.id).sort()).toEqual(['builder', 'pm'])
     expect(jev.gates[1]!.mentioned).toEqual(['builder'])
     h.runner.flush()
     await tick()
@@ -725,18 +743,38 @@ describe('RoomSession with Jev', () => {
       verdict: 'continue',
       note: 'jev converged 0.10 / circling 0.10',
     })
-    // The judge process is never asked while Jev is up.
+    // The judge process is never asked while Jev is up. Converged -> one final-position round
+    // for everyone (no gate), then the summary.
     await h.runner.drain(() => !h.s.live)
     await h.s.settled()
     expect(h.s.room.phase).toBe('resolved')
     expect(h.s.room.judge).toMatchObject({
       verdict: 'converged',
-      note: 'jev converged 0.90 / circling 0.00',
+      note: 'jev converged 0.90 / circling 0.00 -> wrap',
     })
+    // Gate calls for rounds 2, 3 and 4 (converged after 4); the wrap round 5 has no gate.
+    expect(jev.gates).toHaveLength(3)
+    expect(h.s.room.rounds).toBe(5)
+    const wrapPrompt = (id: string): string =>
+      h.runner
+        .byId(id)
+        .prompts.filter((p) => !p.includes('pinned summary'))
+        .at(-1)!
+    for (const id of ['skeptic', 'builder', 'pm']) expect(wrapPrompt(id)).toContain('(wrapping up')
+    // Everyone answered the wrap turn (scripts fall through to their last reply), then the summary.
+    const tail = texts(h.s.room).slice(-4)
+    expect(
+      tail
+        .slice(0, 3)
+        .map((t) => t.split(':')[0])
+        .sort(),
+    ).toEqual(['builder', 'pm', 'skeptic'])
+    expect(tail.slice(0, 3).every((t) => t.endsWith(': Final.'))).toBe(true)
+    expect(tail[3]).toBe('pm: summary')
     expect(h.runner.byId('judge').prompts).toHaveLength(0)
   })
 
-  it('an agent mention overrides the gate; when nobody clears 0.5 the top one speaks', async () => {
+  it('an agent mention overrides the gate; fewer than two clearing 0.5 fills up to two by score', async () => {
     const jev = new FakeJev(
       [
         { skeptic: 0.3, builder: 0.2, pm: 0.4 },
@@ -750,26 +788,28 @@ describe('RoomSession with Jev', () => {
         builder: ['@Jonah thoughts?', 'PASS', 'PASS'],
         pm: ['C.', 'PASS', 'PASS', 'summary'],
       },
-      { jev, maxRounds: 3 },
+      { jev, maxRounds: 4 },
     )
     await h.s.start()
     h.runner.flush()
     await tick()
-    // Round 2: nobody clears 0.5; Jonah was mentioned by Theo and is prompted, told so; the
-    // top score (Jonah, 0.4) coincides, so he is the only one.
-    expect(h.runner.pending.map((p) => p.id)).toEqual(['pm'])
+    // Round 2: nobody clears 0.5; Jonah was mentioned by Theo and is prompted, told so, and
+    // the floor of two adds the next best score (Mara 0.3 over Theo 0.2).
+    expect(h.runner.pending.map((p) => p.id).sort()).toEqual(['pm', 'skeptic'])
     expect(h.runner.byId('pm').prompts[1]).toContain('(you were mentioned by Theo)')
     h.runner.flush()
     await tick()
-    // Round 3: still nobody clears; Jonah (0.3) is the top and speaks so the room never stalls.
+    // Round 2 was all PASS, so Jonah nudged. Round 3: still nobody clears; the floor picks
+    // Jonah (0.3) and Mara (0.1, roster order), but the nudge is Jonah's own line, so only Mara
+    // is actually sent.
     expect(h.s.room.rounds).toBe(3)
-    expect(h.runner.pending.map((p) => p.id)).toEqual(['pm'])
+    expect(h.runner.pending.map((p) => p.id)).toEqual(['skeptic'])
     await h.runner.drain(() => !h.s.live)
     await h.s.settled()
     expect(h.s.room.phase).toBe('resolved')
   })
 
-  it('two circling rounds in a row end the room; one does not', async () => {
+  it('two circling rounds in a row send the room to its final-position round; one does not', async () => {
     const jev = new FakeJev(
       [{ skeptic: 0.9, builder: 0.9, pm: 0.9 }],
       [
@@ -789,13 +829,23 @@ describe('RoomSession with Jev', () => {
     )
     await h.finish()
     expect(h.s.room.phase).toBe('resolved')
-    // Rounds 2 (0.8), 3 (reset), 4 (0.75), 5 (0.9): the streak reaches two after round 5.
-    expect(h.s.room.rounds).toBe(5)
+    // Rounds 2 (0.8), 3 (reset), 4 (0.75), 5 (0.9): the streak reaches two after round 5, which
+    // triggers round 6, everyone's final position; the summary follows whatever is said there.
+    expect(h.s.room.rounds).toBe(6)
     expect(jev.convs).toHaveLength(4)
     expect(h.s.room.judge).toMatchObject({
       verdict: 'converged',
-      note: 'jev converged 0.20 / circling 0.90',
+      note: 'jev circling 0.75/0.90 -> wrap',
     })
+    for (const id of ['skeptic', 'builder', 'pm']) {
+      expect(h.runner.byId(id).prompts[5]).toContain('(wrapping up')
+    }
+    expect(texts(h.s.room).slice(-4, -1)).toEqual([
+      'skeptic: Point 6.',
+      'builder: Counter 6.',
+      'pm: Hmm 6.',
+    ])
+    expect(h.runner.byId('pm').prompts[6]).not.toContain('closed early')
   })
 
   it('a Jev error falls back to the model judge and prompting everyone, with one notice', async () => {

@@ -51,11 +51,13 @@ export interface RoomSessionDeps {
 
 /** Jev's speak probability at or above which an agent is prompted. */
 export const GATE_THRESHOLD = 0.5
+/** At least this many seats speak each gated round, so a dissenter can answer a rebuttal. */
+export const GATE_FLOOR = 2
 /** Jev's `converged` at or above which the room is done. */
 export const CONVERGED_THRESHOLD = 0.7
 /** Jev's `circling` at or above which a round counts as repetition... */
 export const CIRCLING_THRESHOLD = 0.7
-/** ...and this many such rounds in a row end the room. */
+/** ...and this many such rounds in a row send the room to its final-position round. */
 export const CIRCLING_ROUNDS = 2
 
 export const TURN_MS = 120_000
@@ -100,8 +102,11 @@ export class RoomSession {
   private wrapRound: number | null = null
   /** The message number the previous round started at: what came since is this round's batch. */
   private lastRoundSeq = 0
-  /** Rounds in a row Jev called circling. */
+  /** Rounds in a row Jev called circling, and every circling score so far (for the note). */
   private circlingStreak = 0
+  private readonly circlingSeen: number[] = []
+  /** What wrap() decided the summary should say: closed early (true) or settled (false). */
+  private forcedSummary = false
   /** Jev errored once in this room; the model judge takes over for good. */
   private jevFailed = false
   /** destroy() ran: starts that land later end their process instead of registering it. */
@@ -231,10 +236,7 @@ export class RoomSession {
    */
   async stop(): Promise<void> {
     if (!this.live) return
-    if (this.room.phase === 'open') {
-      this.room.phase = 'wrapping'
-      this.changed()
-    }
+    this.wrap(false)
     await this.settled()
   }
 
@@ -374,10 +376,7 @@ export class RoomSession {
   private async run(): Promise<void> {
     let nudged = false
     while (this.live) {
-      if (this.room.rounds >= this.maxRounds) {
-        await this.resolve(true)
-        return
-      }
+      if (this.room.rounds >= this.maxRounds && this.room.phase === 'open') this.wrap(true)
       const before = this.msgSeq
       const anyNew = (): boolean => this.room.messages.some((m) => msgNum(m.id) > before)
       // Isaac's new posts with @names narrow this round to the people he asked.
@@ -408,10 +407,10 @@ export class RoomSession {
       await this.round(wrapping, gated ?? only)
       if (!this.live) return
       const lastRound = this.room.messages.filter((m) => msgNum(m.id) > roundStart)
-      // The final-position round is done: summarize. (A Resolve now that landed mid-round gets
-      // its final-position round next.)
+      // The final-position round is done: summarize, as the trigger decided (Resolve now or a
+      // convergence call -> plain; round cap or a quiet room -> from what exists).
       if (this.wrapRound === this.room.rounds) {
-        await this.resolve(false)
+        await this.resolve(this.forcedSummary)
         return
       }
       if (this.room.phase === 'wrapping') continue
@@ -421,8 +420,8 @@ export class RoomSession {
         const v = await this.verdict(lastRound)
         if (!this.live) return
         if (v === 'converged' && this.room.rounds >= 2) {
-          await this.resolve(false)
-          return
+          this.wrap(false)
+          continue
         }
       }
       // A reply or an Isaac post since the round began is the next delta; silence gets one nudge.
@@ -431,12 +430,23 @@ export class RoomSession {
         continue
       }
       if (nudged) {
-        await this.resolve(true)
-        return
+        this.wrap(true)
+        continue
       }
       nudged = true
       this.append(this.pm()?.id ?? ROOM_JUDGE, NUDGE_TEXT)
     }
+  }
+
+  /**
+   * Turns the room to wrapping: the next round is everyone's final-position turn, then the
+   * summary. Every end of a room but a failure passes through here, Resolve now included.
+   */
+  private wrap(forced: boolean): void {
+    if (this.room.phase !== 'open') return
+    this.forcedSummary = forced
+    this.room.phase = 'wrapping'
+    this.changed()
   }
 
   /**
@@ -541,8 +551,9 @@ export class RoomSession {
 
   /**
    * Jev's speaker gate: who gets this round. Everyone addressed (Isaac's @names, any mention
-   * in the batch) is in regardless; otherwise those Jev puts at or above 0.5, or the single top
-   * one when nobody clears it. Null when Jev is off or failed: everyone, as before.
+   * in the batch) is in regardless; otherwise those Jev puts at or above 0.5, floored at the
+   * top two by score so a dissenter still gets to answer. Null when Jev is off or failed:
+   * everyone, as before.
    */
   private async jevGate(
     only: ReadonlySet<string> | null,
@@ -558,9 +569,12 @@ export class RoomSession {
       if (mentioned.includes(MENTION_EVERYONE)) for (const a of agents) pick.add(a.id)
       for (const id of mentioned) if (agents.some((a) => a.id === id)) pick.add(id)
       for (const a of agents) if ((p[a.id] ?? 0) >= GATE_THRESHOLD) pick.add(a.id)
-      if (pick.size === 0) {
-        const top = agents.reduce((b, a) => ((p[a.id] ?? 0) > (p[b.id] ?? 0) ? a : b))
-        pick.add(top.id)
+      if (pick.size < GATE_FLOOR) {
+        const byScore = [...agents].sort((a, b) => (p[b.id] ?? 0) - (p[a.id] ?? 0))
+        for (const a of byScore) {
+          if (pick.size >= GATE_FLOOR) break
+          pick.add(a.id)
+        }
       }
       this.deps.log(
         `${this.room.id}: jev gate ${agents.map((a) => `${a.id}=${(p[a.id] ?? 0).toFixed(2)}`).join(' ')} -> ${[...pick].join(',')}`,
@@ -579,14 +593,25 @@ export class RoomSession {
     try {
       const { converged, circling } = await jev.convergence(convergenceState(this.room, lastRound))
       this.circlingStreak = circling >= CIRCLING_THRESHOLD ? this.circlingStreak + 1 : 0
-      const done = converged >= CONVERGED_THRESHOLD || this.circlingStreak >= CIRCLING_ROUNDS
+      this.circlingSeen.push(circling)
+      const byConverged = converged >= CONVERGED_THRESHOLD
+      const byCircling = this.circlingStreak >= CIRCLING_ROUNDS
+      const scores = `jev converged ${converged.toFixed(2)} / circling ${circling.toFixed(2)}`
+      const note = byConverged
+        ? `${scores} -> wrap`
+        : byCircling
+          ? `jev circling ${this.circlingSeen
+              .slice(-CIRCLING_ROUNDS)
+              .map((c) => c.toFixed(2))
+              .join('/')} -> wrap`
+          : scores
       this.room.judge = {
-        verdict: done ? 'converged' : 'continue',
-        note: `jev converged ${converged.toFixed(2)} / circling ${circling.toFixed(2)}`,
+        verdict: byConverged || byCircling ? 'converged' : 'continue',
+        note,
         at: this.now(),
       }
       this.changed()
-      return done ? 'converged' : 'continue'
+      return this.room.judge.verdict
     } catch (e) {
       this.jevDown(e)
       return this.judgeRound()
