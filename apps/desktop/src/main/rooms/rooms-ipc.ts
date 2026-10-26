@@ -110,7 +110,12 @@ export function registerRoomsIpc(ctx: MainContext): void {
     rooms: order.map((id) => sessions.get(id)!.room),
   }))
 
-  // Rooms die with the app: stdin closed on every process, nothing saved mid-flight.
+  // Rooms die with the app. What is guaranteed: on a normal quit this hook ends every process
+  // (stdin EOF, then SIGTERM, then SIGKILL to its process group, so omp's tool children go too)
+  // and waits for the exits (bounded, inside the 12 s quit cap). What is not: if main is hard
+  // killed or crashes, no hook runs; the children's stdin pipe closes and omp exits on EOF when
+  // idle (observed), but an omp mid-tool, or a tool child that outlives it, can linger until it
+  // finishes. omp has no parent-death flag to pass, and pids are not persisted across launches.
   ctx.onBeforeQuit(async () => {
     for (const t of pending.values()) clearTimeout(t)
     await Promise.allSettled([...sessions.values()].map((s) => s.destroy()))

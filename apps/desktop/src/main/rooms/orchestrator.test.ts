@@ -19,6 +19,7 @@ interface FakeAgent {
   prompts: string[]
   stopped: boolean
   exit: ((reason: string) => void) | null
+  aborts: string[]
 }
 
 interface PendingSend {
@@ -37,10 +38,29 @@ interface PendingSend {
 class FakeRunner implements AgentRunner {
   agents: FakeAgent[] = []
   pending: PendingSend[] = []
+  /** Starts waiting on the test (ids in `holdStart`); release with `releaseStarts`. */
+  heldStarts: (() => void)[] = []
+  /** Turn budgets handed to `after`, oldest first; `fireClock` resolves the oldest. */
+  clocks: { ms: number; fire: () => void }[] = []
   constructor(
     private script: Record<string, Reply[] | Reply>,
     private failStart: string[] = [],
+    private holdStart: string[] = [],
   ) {}
+
+  after(ms: number): Promise<void> {
+    const { promise, resolve } = Promise.withResolvers<void>()
+    this.clocks.push({ ms, fire: resolve })
+    return promise
+  }
+
+  fireClock(): void {
+    this.clocks.shift()?.fire()
+  }
+
+  releaseStarts(): void {
+    for (const r of this.heldStarts.splice(0)) r()
+  }
 
   byId(id: string): FakeAgent {
     return this.agents.find((a) => a.id === id)!
@@ -79,7 +99,12 @@ class FakeRunner implements AgentRunner {
   async start(o: { systemPrompt: string; model: string }): Promise<AgentHandle> {
     const id = whoIs(o.systemPrompt)
     if (this.failStart.includes(id)) throw new Error(`no ${id}`)
-    const fake: FakeAgent = { id, prompts: [], stopped: false, exit: null }
+    if (this.holdStart.includes(id)) {
+      const { promise, resolve } = Promise.withResolvers<void>()
+      this.heldStarts.push(resolve)
+      await promise
+    }
+    const fake: FakeAgent = { id, prompts: [], stopped: false, exit: null, aborts: [] }
     this.agents.push(fake)
     const replyFor = (prompt: string): string => {
       const turn = fake.prompts.length
@@ -99,6 +124,12 @@ class FakeRunner implements AgentRunner {
           ...(hooks ? { hooks } : {}),
         })
         return promise
+      },
+      abort: async (reason) => {
+        const mine = this.pending.filter((p) => p.id === id)
+        this.pending = this.pending.filter((p) => p.id !== id)
+        for (const p of mine) p.reject(new Error(reason))
+        fake.aborts.push(reason)
       },
       onExit: (cb) => {
         // Like the real runner: a dead process fails its in-flight turn.
@@ -126,13 +157,17 @@ interface Harness {
 
 function harness(
   script: Record<string, Reply[] | Reply>,
-  o: Partial<RoomSessionDeps> & { agents?: string[]; failStart?: string[] } = {},
+  o: Partial<RoomSessionDeps> & {
+    agents?: string[]
+    failStart?: string[]
+    holdStart?: string[]
+  } = {},
 ): Harness {
-  const runner = new FakeRunner(script, o.failStart ?? [])
+  const runner = new FakeRunner(script, o.failStart ?? [], o.holdStart ?? [])
   const saved: Room[] = []
   const ids = o.agents ?? ['skeptic', 'builder', 'pm']
   const agents = ROOM_PEOPLE.filter((p) => ids.includes(p.id))
-  const { agents: _a, failStart: _f, ...deps } = o
+  const { agents: _a, failStart: _f, holdStart: _h, ...deps } = o
   const s = new RoomSession('Should Relay auto-archive idle chats?', agents, {
     runner,
     judgeModel: 'anthropic/claude-sonnet-5-5',
@@ -143,6 +178,7 @@ function harness(
     onChange: () => undefined,
     log: () => undefined,
     now: () => 1_000_000,
+    after: (ms) => runner.after(ms),
     ...deps,
   })
   return {
@@ -460,5 +496,84 @@ describe('RoomSession', () => {
     expect(seen.slice(1, 4)).toEqual(['thinking', 'typing', 'idle'])
     await h.finish()
     expect(h.s.room.presence).toEqual({})
+  })
+
+  it('destroy() during start: the late process is stopped, never registered, nothing runs', async () => {
+    const h = harness(
+      { skeptic: 'A.', builder: 'B.', judge: CONTINUE },
+      { agents: ['skeptic', 'builder'], holdStart: ['builder'] },
+    )
+    const starting = h.s.start()
+    await tick()
+    // Mara is up, Theo's process is still spawning when the app quits.
+    expect(h.runner.agents.map((a) => a.id)).toEqual(['skeptic', 'judge'])
+    await h.s.destroy()
+    expect(h.runner.byId('skeptic').stopped).toBe(true)
+    h.runner.releaseStarts()
+    await starting
+    expect(h.runner.byId('builder').stopped).toBe(true)
+    expect(h.runner.pending).toEqual([])
+    expect(h.s.room.rounds).toBe(0)
+    for (const a of h.runner.agents) expect(a.prompts).toEqual([])
+  })
+
+  it('a seat past its turn budget is aborted, counts as PASS and the room says so', async () => {
+    const h = harness(
+      {
+        skeptic: ['Never answers.'],
+        builder: ['B.', 'PASS'],
+        pm: ['C.', 'PASS', 'summary'],
+        judge: CONVERGED,
+      },
+      { turnMs: 120_000, judgeMs: 60_000 },
+    )
+    await h.s.start()
+    h.runner.flush(['builder', 'pm'])
+    await tick()
+    expect(h.s.room.presence.skeptic).toMatchObject({ state: 'thinking' })
+    // Round 1 handed each seat a 120 s clock; Mara's is the first.
+    expect(h.runner.clocks.map((c) => c.ms)).toEqual([120_000, 120_000, 120_000])
+    h.runner.fireClock()
+    await tick()
+    expect(h.runner.byId('skeptic').aborts).toEqual(['no answer within 120 s'])
+    expect(texts(h.s.room)).toContain('system: Mara did not answer in time and was skipped.')
+    await h.runner.drain(() => !h.s.live)
+    await h.s.settled()
+    expect(h.s.room.phase).toBe('resolved')
+    expect(h.runner.clocks.some((c) => c.ms === 60_000)).toBe(true)
+  })
+
+  it('Resolve now cannot hang: a stalled wrapping turn is skipped and the summary still lands', async () => {
+    const h = harness({
+      skeptic: ['A.', 'PASS', 'stalls'],
+      builder: ['B.', 'PASS', 'Final: ship.'],
+      pm: ['C.', 'PASS', 'Final: ship.', 'summary'],
+      judge: CONTINUE,
+    })
+    await h.s.start()
+    h.runner.flush()
+    await tick()
+    const stopping = h.s.stop()
+    // Round 2 (in flight) settles, round 3 is the wrap turn; Mara never answers it.
+    h.runner.flush()
+    await tick()
+    h.runner.flush(['builder', 'pm'])
+    await tick()
+    expect(h.s.room.rounds).toBe(3)
+    expect(h.s.room.phase).toBe('wrapping')
+    // Clocks of settled turns are stale no-ops; keep firing until Mara's wrap turn is aborted.
+    while (h.runner.byId('skeptic').aborts.length === 0) {
+      expect(h.runner.clocks.length).toBeGreaterThan(0)
+      h.runner.fireClock()
+      await tick()
+    }
+    // Stale clocks aborted nobody else.
+    expect(h.runner.byId('builder').aborts).toEqual([])
+    expect(h.runner.byId('pm').aborts).toEqual([])
+    await h.runner.drain(() => !h.s.live)
+    await stopping
+    expect(h.s.room.phase).toBe('resolved')
+    expect(texts(h.s.room)).toContain('system: Mara did not answer in time and was skipped.')
+    expect(h.s.room.messages[h.s.room.messages.length - 1]!.text).toBe('summary')
   })
 })

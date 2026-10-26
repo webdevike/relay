@@ -16,6 +16,11 @@ export interface OmpTransportOptions {
   takeExtraEnv?: () => Record<string, string>
   /** Transport label; the Claude bridge reuses this process and framing code as 'claude'. */
   kind?: string
+  /**
+   * Spawn the child as the leader of its own process group so an owner that signals `-pid` also
+   * reaches the tools it runs. Rooms set this; chat sessions never signal their omp (D-17).
+   */
+  processGroup?: boolean
   /** Replaces the default omp argv and spawn command (the Claude bridge). */
   command?: (a: {
     spawnPath: string
@@ -43,7 +48,8 @@ function nodeOnPath(spawnPath: string): boolean {
 
 /**
  * omp `--mode rpc-ui` over stdio (protocol v1). One JSON object per line in each direction.
- * Never signals the child: closing stdin is the only way this transport ends it (D-17).
+ * Never signals the child: closing stdin is the only way this transport ends it (D-17). An
+ * owner of a throwaway process (Rooms) may signal `pid` itself after opting into `processGroup`.
  */
 export class OmpStdioTransport implements ChatTransport {
   readonly kind: string
@@ -118,7 +124,12 @@ export class OmpStdioTransport implements ChatTransport {
       this.spawnArgs = args
     }
     this.spawnCwd = opts.cwd
-    const child = spawn(bin, argv, { cwd: opts.cwd, env, stdio: ['pipe', 'pipe', 'pipe'] })
+    const child = spawn(bin, argv, {
+      cwd: opts.cwd,
+      env,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      ...(this.opts.processGroup ? { detached: true } : {}),
+    })
     this.child = child
 
     const framer = new LineFramer(

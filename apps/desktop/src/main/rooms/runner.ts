@@ -15,10 +15,16 @@ export interface AgentHandle {
     text: string,
     hooks?: { onPartial?: (text: string) => void; onPresence?: (p: Presence) => void },
   ): Promise<string>
+  /** Ends the running turn now (it rejects with `reason`); the process stays usable. */
+  abort(reason: string): Promise<void>
   /** Fires once if the process ends on its own (not through `stop`). */
   onExit(cb: (reason: string) => void): void
+  /** Ends the process and resolves only once it has exited: stdin EOF, then SIGTERM, then SIGKILL. */
   stop(): Promise<void>
 }
+
+/** How long each step of `stop()` waits before escalating. */
+export const STOP_STEP_MS = 3000
 
 export interface AgentStart {
   systemPrompt: string
@@ -148,6 +154,16 @@ export function presenceOf(f: Frame): Presence | undefined {
 
 const STDERR_KEEP = 8
 
+/** Signals a process group (the child was spawned as its leader); a gone group is fine. */
+function signalGroup(pid: number | null, signal: 'SIGTERM' | 'SIGKILL'): void {
+  if (pid === null) return
+  try {
+    process.kill(-pid, signal)
+  } catch {
+    /* already exited */
+  }
+}
+
 /**
  * `omp --mode rpc-ui --no-session --no-extensions --no-skills --no-lsp --no-ui --model <id> --thinking <level> --system-prompt
  * <p>` plus `--no-tools`, or `--tools read,grep,glob,web_search --approval-mode yolo` for a
@@ -157,7 +173,11 @@ export class OmpAgentRunner implements AgentRunner {
   constructor(private o: OmpAgentRunnerOptions) {}
 
   async start(opts: AgentStart): Promise<AgentHandle> {
-    const t = new OmpStdioTransport({ ompBin: this.o.ompBin, live: this.o.live })
+    const t = new OmpStdioTransport({
+      ompBin: this.o.ompBin,
+      live: this.o.live,
+      processGroup: true,
+    })
     const stderr: string[] = []
     let exited: string | null = null
     let onExit: ((reason: string) => void) | null = null
@@ -290,12 +310,25 @@ export class OmpAgentRunner implements AgentRunner {
         })
         return promise
       },
+      abort: async (reason) => {
+        const done = turn
+        turn = null
+        done?.reject(new Error(reason))
+        if (done && exited === null) await t.abort().catch(() => undefined)
+      },
       onExit: (cb) => {
         onExit = cb
       },
       stop: async () => {
         stopping = true
-        await t.close({ timeoutMs: 3000 })
+        // omp exits on stdin EOF when idle; a process stuck in a tool gets its group signalled.
+        // The transport itself never signals (D-17); this owner does, and close() re-waits exit.
+        let r = await t.close({ timeoutMs: STOP_STEP_MS })
+        for (const signal of ['SIGTERM', 'SIGKILL'] as const) {
+          if (!r.timedOut) break
+          signalGroup(t.pid, signal)
+          r = await t.close({ timeoutMs: STOP_STEP_MS })
+        }
       },
     }
   }

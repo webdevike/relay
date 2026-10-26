@@ -35,7 +35,24 @@ export interface RoomSessionDeps {
   log: (line: string) => void
   now?: () => number
   maxRounds?: number
+  /** A seat's turn budget; past it the turn is aborted and counts as PASS. */
+  turnMs?: number
+  /** The judge's and the summary's turn budget. */
+  judgeMs?: number
+  /** Resolves after `ms` (test seam; the default is a real, unref'd timer). */
+  after?: (ms: number) => Promise<void>
 }
+
+export const TURN_MS = 120_000
+export const JUDGE_MS = 60_000
+
+const realAfter = (ms: number): Promise<void> => {
+  const { promise, resolve } = Promise.withResolvers<void>()
+  setTimeout(resolve, ms).unref()
+  return promise
+}
+
+export class TurnTimeout extends Error {}
 
 let roomSeq = 0
 export const newRoomId = (now: number): string => `room-${now.toString(36)}-${++roomSeq}`
@@ -66,8 +83,13 @@ export class RoomSession {
   private started = false
   /** Isaac pressed Resolve now: the round it was (or will be) sent as the final-position turn. */
   private wrapRound: number | null = null
+  /** destroy() ran: starts that land later end their process instead of registering it. */
+  private destroyed = false
   private readonly now: () => number
   private readonly maxRounds: number
+  private readonly turnMs: number
+  private readonly judgeMs: number
+  private readonly after: (ms: number) => Promise<void>
   private loop: Promise<void> | null = null
 
   constructor(
@@ -77,6 +99,9 @@ export class RoomSession {
   ) {
     this.now = deps.now ?? Date.now
     this.maxRounds = deps.maxRounds ?? MAX_ROUNDS
+    this.turnMs = deps.turnMs ?? TURN_MS
+    this.judgeMs = deps.judgeMs ?? JUDGE_MS
+    this.after = deps.after ?? realAfter
     const now = this.now()
     const text = prompt.trim()
     this.room = {
@@ -123,6 +148,11 @@ export class RoomSession {
           tools: a.tools,
           thinking: 'high',
         })
+        // The room was torn down while this process was starting: it is nobody's, end it now.
+        if (this.destroyed) {
+          await h.stop().catch(() => undefined)
+          return
+        }
         h.onExit((reason) => this.markFailed(a.id, reason))
         this.handles.set(a.id, h)
       } catch (e) {
@@ -131,13 +161,18 @@ export class RoomSession {
     })
     const judge = (async () => {
       try {
-        this.judge = await this.deps.runner.start({
+        const h = await this.deps.runner.start({
           systemPrompt: JUDGE_PROMPT,
           model: this.deps.judgeModel,
           tools: 'none',
           thinking: 'medium',
         })
-        this.judge.onExit((reason) => {
+        if (this.destroyed) {
+          await h.stop().catch(() => undefined)
+          return
+        }
+        this.judge = h
+        h.onExit((reason) => {
           this.judge = null
           this.deps.log(`${this.room.id}: judge died: ${reason}`)
         })
@@ -146,6 +181,7 @@ export class RoomSession {
       }
     })()
     await Promise.all([...starts, judge])
+    if (this.destroyed) return
     this.started = true
     if (this.liveAgents().length === 0) {
       if (roomIsLive(this.room.phase)) this.fail('No agent could start.')
@@ -178,8 +214,12 @@ export class RoomSession {
     await this.settled()
   }
 
-  /** The app is quitting: end every process; nothing is saved. */
+  /**
+   * The app is quitting: end every process and resolve once each has exited; nothing is saved.
+   * A process whose start lands after this is stopped by `start()` itself.
+   */
   async destroy(): Promise<void> {
+    this.destroyed = true
     this.resolving = true
     await this.stopAll()
   }
@@ -262,18 +302,37 @@ export class RoomSession {
     await Promise.allSettled(all.map((h) => h.stop()))
   }
 
-  /** One turn on one process, after whatever turn is already queued on it. */
+  /**
+   * One turn on one process, after whatever turn is already queued on it, within `budgetMs`:
+   * past that the turn is aborted and the send rejects with TurnTimeout.
+   */
   private sendSerial(
     key: string,
     handle: AgentHandle,
     text: string,
+    budgetMs: number,
     hooks?: Parameters<AgentHandle['send']>[1],
   ): Promise<string> {
     const prev = this.chains.get(key) ?? Promise.resolve()
-    const next = prev.then(
-      () => handle.send(text, hooks),
-      () => handle.send(text, hooks),
-    )
+    const turn = async (): Promise<string> => {
+      let timedOut = false
+      let settled = false
+      // A clock that fires after the turn settled is stale: it must not abort a later turn.
+      const clock = this.after(budgetMs).then(() => {
+        if (settled) return
+        timedOut = true
+        return handle.abort(`no answer within ${Math.round(budgetMs / 1000)} s`)
+      })
+      try {
+        return await handle.send(text, hooks)
+      } catch (e) {
+        throw timedOut ? new TurnTimeout(errText(e)) : e
+      } finally {
+        settled = true
+        void clock.catch(() => undefined)
+      }
+    }
+    const next = prev.then(turn, turn)
     this.chains.set(
       key,
       next.catch(() => undefined),
@@ -353,7 +412,7 @@ export class RoomSession {
       // The model is thinking from the moment the prompt goes out; frames refine it from there.
       this.setPresence(a.id, { state: 'thinking' })
       try {
-        const raw = await this.sendSerial(a.id, handle, prompt, {
+        const raw = await this.sendSerial(a.id, handle, prompt, this.turnMs, {
           onPartial: (partial) => {
             const p = parseReply(partial)
             // A reply that starts like PASS stays hidden until the turn ends.
@@ -372,6 +431,10 @@ export class RoomSession {
       } catch (e) {
         this.dropDraft(a.id)
         this.deps.log(`${this.room.id}: ${a.name} turn failed: ${errText(e)}`)
+        // A stalled seat counts as PASS; the room says so rather than waiting on it.
+        if (e instanceof TurnTimeout && this.live) {
+          this.append(ROOM_SYSTEM, `${firstName(a.name)} did not answer in time and was skipped.`)
+        }
       } finally {
         this.drafts.delete(a.id)
         if (this.live) this.setPresence(a.id, null)
@@ -404,7 +467,12 @@ export class RoomSession {
     if (!this.judge) return 'continue'
     const elapsed = this.now() - this.room.startedAt
     try {
-      const raw = await this.sendSerial(ROOM_JUDGE, this.judge, judgePrompt(this.room, elapsed))
+      const raw = await this.sendSerial(
+        ROOM_JUDGE,
+        this.judge,
+        judgePrompt(this.room, elapsed),
+        this.judgeMs,
+      )
       const v = parseVerdict(raw)
       this.room.judge = { ...v, at: this.now() }
       this.changed()
@@ -428,7 +496,7 @@ export class RoomSession {
     const pmHandle = pm ? this.handles.get(pm.id) : undefined
     if (pm && pmHandle) {
       try {
-        text = dedash((await this.sendSerial(pm.id, pmHandle, prompt)).trim())
+        text = dedash((await this.sendSerial(pm.id, pmHandle, prompt, this.judgeMs)).trim())
         author = pm.id
       } catch (e) {
         this.deps.log(`${this.room.id}: PM summary failed: ${errText(e)}`)
@@ -436,7 +504,7 @@ export class RoomSession {
     }
     if (text === null && this.judge) {
       try {
-        text = dedash((await this.sendSerial(ROOM_JUDGE, this.judge, prompt)).trim())
+        text = dedash((await this.sendSerial(ROOM_JUDGE, this.judge, prompt, this.judgeMs)).trim())
       } catch (e) {
         this.deps.log(`${this.room.id}: judge summary failed: ${errText(e)}`)
       }
