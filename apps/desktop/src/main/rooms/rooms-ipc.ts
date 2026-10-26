@@ -4,6 +4,7 @@ import { ROOM_JUDGE_MODEL, roomPerson, type Room, type RoomAgent } from '@evaos/
 import { catalogFor } from '../chat/live-ipc'
 import type { MainContext } from '../context'
 import { buildCommand, childPathFor, runCapture } from '../eva/spawn'
+import { evaFsFor } from '../eva/runtime'
 import { emit, handle } from '../ipc/handle'
 import { RoomSession } from './orchestrator'
 import { OmpAgentRunner } from './runner'
@@ -79,7 +80,7 @@ export function registerRoomsIpc(ctx: MainContext): void {
     const s = new RoomSession(prompt, agents, {
       runner,
       judgeModel: ROOM_JUDGE_MODEL,
-      save: (room) => saveRoom(room, { evaRoot, journal }),
+      save: (room) => saveRoom(room, { evaRoot, evaFs: evaFsFor(ctx), journal }),
       onChange,
       log: (line) => console.info(`[rooms] ${line}`),
     })

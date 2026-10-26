@@ -348,6 +348,46 @@ describe('RoomSession', () => {
     expect(() => h.s.post('late')).toThrow()
   })
 
+  it('the judge waits until every agent has answered a mid-round Isaac post', async () => {
+    const h = harness({
+      skeptic: [
+        'A.',
+        'B.',
+        (p) => (p.includes('Isaac: Only 1 or 2 rooms') ? 'Then no, Isaac.' : 'PASS'),
+        'PASS',
+      ],
+      builder: ['A2.', 'PASS', 'PASS', 'PASS'],
+      pm: ['A3.', 'PASS', 'PASS', 'PASS', 'summary'],
+      judge: CONVERGED,
+    })
+    await h.s.start()
+    h.runner.flush()
+    await tick()
+    // Round 2 is in flight; Theo and Jonah have passed, Mara is still typing when Isaac posts.
+    h.runner.flush(['builder', 'pm'])
+    await tick()
+    expect(h.s.room.rounds).toBe(2)
+    h.s.post('Only 1 or 2 rooms open at a time. Does that change anything?')
+    h.runner.flush(['skeptic'])
+    await tick()
+    // Round 2 settled with the judge ready to converge, but Isaac is unanswered: no judge call yet.
+    expect(h.runner.byId('judge').prompts).toHaveLength(0)
+    expect(h.s.room.rounds).toBe(3)
+    await h.runner.drain(() => !h.s.live)
+    await h.s.settled()
+    const room = h.s.room
+    expect(texts(room)).toContain('skeptic: Then no, Isaac.')
+    expect(h.runner.byId('judge').prompts).toHaveLength(1)
+    expect(h.runner.byId('judge').prompts[0]).toContain('Mara: Then no, Isaac.')
+    expect(room.phase).toBe('resolved')
+    // Everyone was shown Isaac's line before the judge spoke.
+    for (const id of ['skeptic', 'builder', 'pm']) {
+      expect(h.runner.byId(id).prompts.some((p) => p.includes('Isaac: Only 1 or 2 rooms'))).toBe(
+        true,
+      )
+    }
+  })
+
   it('round cap resolves the room', async () => {
     const h = harness(
       {

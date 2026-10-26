@@ -1,5 +1,6 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import type { EvaFs } from '@evaos/eva-core'
 import type { Room } from '@evaos/contract'
 import { authorName, slugOf } from './prompts'
 
@@ -56,13 +57,12 @@ ${thread}
 `
 }
 
-/** `<evaRoot>/memory/rooms/<date>-<slug>.md`, never clobbering an earlier room of the same name. */
-export function roomRecordPath(evaRoot: string, room: Room): string {
-  const dir = path.join(evaRoot, 'memory', 'rooms')
+/** `memory/rooms/<date>-<slug>.md`, relative to the Eva root, never clobbering an earlier room. */
+export function roomRecordRel(evaRoot: string, room: Room): string {
   const base = `${dateStamp(room.startedAt)}-${slugOf(room.title)}`
-  let file = path.join(dir, `${base}.md`)
-  for (let n = 2; fs.existsSync(file); n++) file = path.join(dir, `${base}-${n}.md`)
-  return file
+  let rel = `memory/rooms/${base}.md`
+  for (let n = 2; fs.existsSync(path.join(evaRoot, rel)); n++) rel = `memory/rooms/${base}-${n}.md`
+  return rel
 }
 
 /** The journal heading and bullets a resolved room adds. */
@@ -78,15 +78,20 @@ export function journalEntry(room: Room, file: string): { heading: string; bulle
 
 export interface SaveRoomOptions {
   evaRoot: string
-  /** Runs `journal-add.ts` with the heading and bullets; rejects when it fails. */
+  /** The sanctioned writer for the Eva checkout (the write trap blocks anything else). */
+  evaFs: Pick<EvaFs, 'write'>
+  /**
+   * Runs `journal-add.ts` with the heading and bullets; rejects when it fails. A child process
+   * is outside this process's write trap, so the script writes memory/journal.md itself.
+   */
   journal: (heading: string, bullets: string[]) => Promise<void>
 }
 
-/** Writes the record and the journal line; returns the record's path. */
+/** Writes the record and the journal line; returns the record's absolute path. */
 export async function saveRoom(room: Room, o: SaveRoomOptions): Promise<string> {
-  const file = roomRecordPath(o.evaRoot, room)
-  fs.mkdirSync(path.dirname(file), { recursive: true })
-  fs.writeFileSync(file, roomRecord(room))
+  const rel = roomRecordRel(o.evaRoot, room)
+  await o.evaFs.write('room-record', rel, roomRecord(room))
+  const file = path.join(o.evaRoot, rel)
   const entry = journalEntry(room, file)
   await o.journal(entry.heading, entry.bullets)
   return file

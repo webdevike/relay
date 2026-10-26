@@ -28,7 +28,8 @@ const ROOM_RULES = `Room rules:
 - To react to a message, put lines of the form \`react: <msgId> <emoji>\` before your text (for example \`react: m12 👍\`). React only to messages you have actually seen.
 - When the room is wrapping up, state your final position in one line. You may reply AGREE alone to signal you are done.
 - Isaac is the lead engineer and the person who asked; when he posts, treat it as the most important message in the delta.
-- Messages are shown to you as \`[m12] Mara: text\`. Never prefix your own reply with your name or an id.`
+- Messages are shown to you as \`[m12] Mara: text\`. Never prefix your own reply with your name or an id.
+- Never use em dashes or en dashes; use commas or periods instead.`
 
 /** The system prompt a persona process starts with. */
 export function personaPrompt(agent: RoomAgent, others: readonly RoomAgent[]): string {
@@ -142,9 +143,14 @@ export function parseReply(raw: string): ParsedReply {
       rest.push(line)
     }
   }
-  const text = trimReply(rest.join('\n').trim())
+  const text = trimReply(dedash(rest.join('\n').trim()))
   const pass = /^\**\s*pass\s*\**[.!]?$/i.test(text)
   return { pass, reactions, text: pass ? '' : text }
+}
+
+/** Em and en dashes become a comma: the house style, enforced after the model too. */
+export function dedash(text: string): string {
+  return text.replace(/\s*[\u2014\u2013]\s*/g, ', ')
 }
 
 /** Cuts at REPLY_MAX, at the last sentence end past the halfway mark when there is one. */

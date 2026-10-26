@@ -1,8 +1,10 @@
+import { execFile } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ROOM_PEOPLE, type Room } from '@evaos/contract'
+import { createEvaFs, installWriteTrap, type EvaFs } from '@evaos/eva-core'
 import { dateStamp, journalEntry, roomRecord, saveRoom } from './save'
 
 const t0 = new Date(2026, 9, 26, 14, 5).getTime()
@@ -54,7 +56,9 @@ const room = (): Room => ({
 })
 
 const dirs: string[] = []
+const traps: (() => void)[] = []
 afterEach(() => {
+  for (const off of traps.splice(0)) off()
   for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true })
 })
 
@@ -87,33 +91,72 @@ describe('journalEntry', () => {
 })
 
 describe('saveRoom', () => {
-  it('writes memory/rooms/<date>-<slug>.md, never clobbers, then journals', async () => {
-    const evaRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rooms-'))
+  /** A protected Eva root: unmarked writes under it throw, exactly as in the app. */
+  const trapped = (): { evaRoot: string; evaFs: EvaFs; hits: string[] } => {
+    const evaRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'rooms-')))
     dirs.push(evaRoot)
+    const hits: string[] = []
+    const off = installWriteTrap({
+      protectedRoots: [evaRoot],
+      allowRoots: [],
+      onBlock: (p) => hits.push(p),
+    })
+    traps.push(off)
+    return { evaRoot, evaFs: createEvaFs({ root: evaRoot }), hits }
+  }
+
+  it('writes memory/rooms/<date>-<slug>.md through EvaFs under the trap, never clobbers, then journals', async () => {
+    const { evaRoot, evaFs, hits } = trapped()
+    expect(() => fs.writeFileSync(path.join(evaRoot, 'memory/x.md'), 'x')).toThrow('write trap')
     const calls: [string, string[]][] = []
     const journal = async (h: string, b: string[]): Promise<void> => {
       calls.push([h, b])
     }
-    const a = await saveRoom(room(), { evaRoot, journal })
+    const a = await saveRoom(room(), { evaRoot, evaFs, journal })
     expect(a).toBe(
       path.join(evaRoot, 'memory/rooms/2026-10-26-should-relay-auto-archive-idle-chats.md'),
     )
     expect(fs.readFileSync(a, 'utf8')).toContain('## Thread')
-    const b = await saveRoom(room(), { evaRoot, journal })
+    const b = await saveRoom(room(), { evaRoot, evaFs, journal })
     expect(b).toBe(
       path.join(evaRoot, 'memory/rooms/2026-10-26-should-relay-auto-archive-idle-chats-2.md'),
     )
     expect(calls).toHaveLength(2)
     expect(calls[0]![1][1]).toBe(`Record: ${a}`)
+    expect(hits).toEqual([path.join(evaRoot, 'memory/x.md')])
     expect(dateStamp(t0)).toBe('2026-10-26')
   })
 
+  it('the journal child process is outside the trap', async () => {
+    const { evaRoot, evaFs, hits } = trapped()
+    const journalFile = path.join(evaRoot, 'memory/journal.md')
+    // Stands in for `bun journal-add.ts`: another process appending to memory/journal.md.
+    const journal = (h: string, b: string[]): Promise<void> => {
+      const { promise, resolve, reject } = Promise.withResolvers<void>()
+      execFile(
+        process.execPath,
+        [
+          '-e',
+          'require("fs").appendFileSync(process.argv[1], process.argv.slice(2).join("\\n") + "\\n")',
+          journalFile,
+          h,
+          ...b,
+        ],
+        (e) => (e ? reject(e) : resolve()),
+      )
+      return promise
+    }
+    await saveRoom(room(), { evaRoot, evaFs, journal })
+    expect(fs.readFileSync(journalFile, 'utf8')).toContain('[eva-interface] Room:')
+    expect(hits).toEqual([])
+  })
+
   it('reports a failed journal after the file is written', async () => {
-    const evaRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rooms-'))
-    dirs.push(evaRoot)
+    const { evaRoot, evaFs } = trapped()
     await expect(
       saveRoom(room(), {
         evaRoot,
+        evaFs,
         journal: async () => {
           throw new Error('journal-add exited 1')
         },

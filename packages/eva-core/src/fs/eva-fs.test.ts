@@ -2,7 +2,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { matchWrite } from './allowlist'
+import { WRITE_KINDS, matchWrite } from './allowlist'
 import { createEvaFs, EvaFsDenied } from './eva-fs'
 import { createPathQueue } from './path-queue'
 import { installWriteTrap } from './write-trap'
@@ -43,6 +43,12 @@ describe('allowlist per kind', () => {
     expect(matchWrite('meeting-status', root, 'work/meetings/x.md').ok).toBe(false)
     expect(matchWrite('meeting-status', root, 'work/other/x.json').ok).toBe(false)
   })
+  it('room-record accepts memory/rooms/<stem>.md only', () => {
+    expect(matchWrite('room-record', root, 'memory/rooms/2026-10-26-auto-archive.md').ok).toBe(true)
+    expect(matchWrite('room-record', root, 'memory/rooms/x.json').ok).toBe(false)
+    expect(matchWrite('room-record', root, 'memory/x.md').ok).toBe(false)
+    expect(matchWrite('room-record', root, 'memory/rooms/.hidden.md').ok).toBe(false)
+  })
   it('file-save accepts files inside the root', () => {
     expect(matchWrite('file-save', root, 'notes/a.txt').ok).toBe(true)
   })
@@ -56,7 +62,7 @@ describe('allowlist per kind', () => {
 
 describe('traversal and symlink escape', () => {
   it('rejects absolute paths and .. segments for every kind', () => {
-    for (const kind of ['todo-append', 'file-save', 'job-md', 'job-delete', 'meeting-status']) {
+    for (const kind of WRITE_KINDS) {
       expect(matchWrite(kind, root, '/etc/passwd').ok, kind).toBe(false)
       expect(matchWrite(kind, root, '../x').ok, kind).toBe(false)
       expect(matchWrite(kind, root, 'memory/../../x').ok, kind).toBe(false)

@@ -18,6 +18,7 @@ import {
   parseVerdict,
   personaPrompt,
   summaryPrompt,
+  dedash,
   trimReply,
 } from './prompts'
 import type { AgentHandle, AgentRunner } from './runner'
@@ -302,7 +303,9 @@ export class RoomSession {
       this.changed()
       await this.round()
       if (!this.live) return
-      if (this.room.rounds >= 2 || !anyNew()) {
+      // Isaac's post lands mid-round: the next round answers him before the judge may speak.
+      const awaitingIsaac = this.isaacUnseen()
+      if (!awaitingIsaac && (this.room.rounds >= 2 || !anyNew())) {
         const v = await this.judgeRound()
         if (!this.live) return
         if (v === 'converged' && this.room.rounds >= 2) {
@@ -322,6 +325,14 @@ export class RoomSession {
       nudged = true
       this.append(this.pm()?.id ?? ROOM_JUDGE, NUDGE_TEXT)
     }
+  }
+
+  /** Some live agent has not yet been shown a message from Isaac. */
+  private isaacUnseen(): boolean {
+    return this.liveAgents().some((a) => {
+      const seen = this.seen.get(a.id) ?? 0
+      return this.room.messages.some((m) => m.author === ROOM_ISAAC && msgNum(m.id) > seen)
+    })
   }
 
   private async round(): Promise<void> {
@@ -417,7 +428,7 @@ export class RoomSession {
     const pmHandle = pm ? this.handles.get(pm.id) : undefined
     if (pm && pmHandle) {
       try {
-        text = (await this.sendSerial(pm.id, pmHandle, prompt)).trim()
+        text = dedash((await this.sendSerial(pm.id, pmHandle, prompt)).trim())
         author = pm.id
       } catch (e) {
         this.deps.log(`${this.room.id}: PM summary failed: ${errText(e)}`)
@@ -425,7 +436,7 @@ export class RoomSession {
     }
     if (text === null && this.judge) {
       try {
-        text = (await this.sendSerial(ROOM_JUDGE, this.judge, prompt)).trim()
+        text = dedash((await this.sendSerial(ROOM_JUDGE, this.judge, prompt)).trim())
       } catch (e) {
         this.deps.log(`${this.room.id}: judge summary failed: ${errText(e)}`)
       }

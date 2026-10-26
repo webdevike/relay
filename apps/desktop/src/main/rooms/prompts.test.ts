@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { ROOM_PEOPLE } from '@evaos/contract'
-import { REPLY_MAX, parseReply, parseVerdict, personaPrompt, slugOf, trimReply } from './prompts'
+import {
+  REPLY_MAX,
+  dedash,
+  parseReply,
+  parseVerdict,
+  personaPrompt,
+  slugOf,
+  trimReply,
+} from './prompts'
 
 describe('parseReply', () => {
   it('splits react lines from the text and spots PASS', () => {
@@ -18,6 +26,13 @@ describe('parseReply', () => {
     // A react line after text is text.
     expect(parseReply('Sure.\nreact: m1 👍').text).toBe('Sure.\nreact: m1 👍')
     expect(parseReply('AGREE')).toMatchObject({ pass: false, text: 'AGREE' })
+  })
+
+  it('turns em and en dashes into commas', () => {
+    expect(dedash("Mara's right—130 items is a lot – but fine")).toBe(
+      "Mara's right, 130 items is a lot, but fine",
+    )
+    expect(parseReply('react: m1 👍\nShip it — today.').text).toBe('Ship it, today.')
   })
 })
 
@@ -67,6 +82,7 @@ describe('personaPrompt', () => {
     expect(p).toContain('single word PASS')
     expect(p).toContain('react: <msgId> <emoji>')
     expect(p).toContain('AGREE')
+    expect(p).toContain('Never use em dashes or en dashes')
   })
 })
 

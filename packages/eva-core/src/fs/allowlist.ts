@@ -1,13 +1,17 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
-/** The closed set of writes the Rust EvaOS performs inside the Eva checkout. */
+/**
+ * The closed set of writes EvaOS performs inside the Eva checkout: the Rust set plus
+ * `room-record`, the Rooms tab's saved thread.
+ */
 export const WRITE_KINDS = [
   'todo-append',
   'file-save',
   'job-md',
   'job-delete',
   'meeting-status',
+  'room-record',
 ] as const
 export type WriteKind = (typeof WRITE_KINDS)[number]
 
@@ -91,6 +95,16 @@ export function matchWrite(kind: string, root: string, rel: string): MatchResult
         STEM_RE.test(file.slice(0, -5))
         ? contained
         : { ok: false, reason: 'meeting-status only targets work/meetings/<stem>.json' }
+    }
+    case 'room-record': {
+      const file = parts[2] ?? ''
+      return parts.length === 3 &&
+        parts[0] === 'memory' &&
+        parts[1] === 'rooms' &&
+        file.endsWith('.md') &&
+        STEM_RE.test(file.slice(0, -3))
+        ? contained
+        : { ok: false, reason: 'room-record only targets memory/rooms/<stem>.md' }
     }
     case 'file-save': {
       try {
