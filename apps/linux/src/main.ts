@@ -23,7 +23,7 @@ import { FileDeviceStore } from "./device-store";
 import { FileDropStore } from "./drops/store";
 import { FileBoardStore } from "./boards/store";
 import { createUsageService, ompUsageRunner } from "./usage/service";
-import { CatchUpService, defaultCatchUpFeedPath, defaultCatchUpStatePath } from "./catchup/service";
+import { CatchUpService, defaultCatchUpFeedPath, defaultCatchUpNotesPath, defaultCatchUpStatePath } from "./catchup/service";
 import { detectTextTyper, KeyboardInjector } from "./input/keyboard";
 import { MacInputDevice } from "./input/macos";
 import { ClipboardPaster, systemCopy } from "./input/paste";
@@ -148,6 +148,7 @@ function serve(
       : new CatchUpService({
           feedPath: catchupFeed,
           statePath: defaultCatchUpStatePath(),
+          notesPath: defaultCatchUpNotesPath(agentHome),
           emit: (snapshot) => {
             server.broadcastExcept({ t: "catchup.snapshot", ...snapshot }, null);
           },

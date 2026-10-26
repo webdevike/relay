@@ -6,8 +6,8 @@ import type { SFSymbol } from "expo-symbols";
 export const FALLBACK_ASSISTANT = "nova";
 
 /**
- * The cards still to go through: unread ones in the host's order (bounced first, then importance,
- * then newest), with the ones kept unread this session moved to the back in the order they were kept.
+ * The cards still to go through: unread ones in the host's order (bounced first, then the feed's order),
+ * with the ones kept unread this session moved to the back in the order they were kept.
  */
 export function deckCards(items: readonly CatchUpCard[], deferred: readonly string[]): CatchUpCard[] {
   const unread = items.filter((item) => !item.read);

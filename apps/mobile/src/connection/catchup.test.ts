@@ -9,7 +9,7 @@ const card = (id: string, read = false): CatchUpCard => ({ id, source: "slack", 
 let route: CatchUpFrameRouter;
 
 beforeEach(() => {
-  useCatchUpStore.setState({ items: null, unreadCount: 0, deferred: [] });
+  useCatchUpStore.setState({ items: null, unreadCount: 0, deferred: [], noteAnswer: null });
   route = createCatchUpFrameRouter(useCatchUpStore.getState());
 });
 
@@ -35,6 +35,18 @@ describe("local marks", () => {
     useCatchUpStore.getState().markLocal("a", true);
     expect(useCatchUpStore.getState().unreadCount).toBe(1);
     expect(useCatchUpStore.getState().items?.[0]?.read).toBe(true);
+  });
+});
+
+describe("catchup.noted", () => {
+  it("records each answer as a new object, even for the same card", () => {
+    route({ t: "catchup.noted", id: "a", ok: true });
+    const first = useCatchUpStore.getState().noteAnswer;
+    expect(first).toEqual({ id: "a", ok: true });
+    route({ t: "catchup.noted", id: "a", ok: true });
+    expect(useCatchUpStore.getState().noteAnswer).not.toBe(first);
+    route({ t: "catchup.noted", id: "a", ok: false });
+    expect(useCatchUpStore.getState().noteAnswer).toEqual({ id: "a", ok: false });
   });
 });
 

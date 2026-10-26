@@ -14,10 +14,13 @@ export interface CatchUpStore {
   deferred: string[];
   /** Bounce time per bounced card already shown, so a new bounce brings a kept card back to the front. */
   seenBounces: Record<string, string>;
+  /** The host's last answer to a note; a new object for every answer, even for the same card. */
+  noteAnswer: { id: string; ok: boolean } | null;
   set: (snapshot: CatchUpSnapshot | null) => void;
   /** Optimistic read state (and handoff), until the host's snapshot confirms it. */
   markLocal: (id: string, read: boolean, handedTo?: string) => void;
   defer: (id: string) => void;
+  noted: (id: string, ok: boolean) => void;
 }
 
 export const useCatchUpStore = create<CatchUpStore>((set) => ({
@@ -25,6 +28,7 @@ export const useCatchUpStore = create<CatchUpStore>((set) => ({
   unreadCount: 0,
   deferred: [],
   seenBounces: {},
+  noteAnswer: null,
   set: (snapshot) => {
     set((state) =>
       snapshot === null
@@ -37,5 +41,8 @@ export const useCatchUpStore = create<CatchUpStore>((set) => ({
   },
   defer: (id) => {
     set((state) => ({ deferred: [...state.deferred.filter((d) => d !== id), id] }));
+  },
+  noted: (id, ok) => {
+    set({ noteAnswer: { id, ok } });
   },
 }));

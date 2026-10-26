@@ -183,7 +183,7 @@ not quiet hours or a habit break, rate limited) and speaks to the host as the de
   the engine already applied the rules. Without EvaOS they behave as before.
 - `RELAY_EXPO_PUSH_URL` points the push sender somewhere else (a scratch host captures sends locally).
 
-## Catch Up (`catchup.list`, `catchup.mark`, `catchup.handoff`, `catchup.bounce`)
+## Catch Up (`catchup.list`, `catchup.mark`, `catchup.handoff`, `catchup.bounce`, `catchup.note`)
 
 The phone's Catch Up deck comes from a feed file written in the Eva hub by `.omp/tools/catchup-build.ts`
 (`<agent home>/work/elysia/catchup.json`, `CatchUpFeed` in the protocol; `RELAY_CATCHUP_FEED` overrides
@@ -206,6 +206,16 @@ Bounce: an assistant runs `bun ~/Eva/.omp/tools/catchup.ts bounce <id> "<reason>
 `catchup.bounce` frame does the same). The card is unread again, no longer handed, first in the deck with
 `bounce { agent, reason, at }`, until Isaac reads it. All of it persists in `catchup-state.json`
 (`read`, `handed`, `bounced`).
+
+Note: `catchup.note { id, signal?, text }` (the card's note button) is Isaac saying why a card does or does
+not need him: `signal` is a chip (`needs-me`, `not-actionable`, `fyi`), `text` is free text, at least one is
+set. The host appends one JSON line `{ at, cardId, source, label, title, kind?, workspace?, assistant?,
+signal?, text }` to `<agent home>/work/eva/agents/nova/catchup-notes.jsonl` (`RELAY_CATCHUP_NOTES`
+overrides the path) and answers the phone `catchup.noted { id, ok }` (`ok` false for an id gone from the
+feed, an empty note or no agent home). The card's state does not change. The Eva heartbeat brings each new
+line to Nova, who keeps `catchup-rules.json` (applied by `catchup-build.ts`) and `catchup-taste.md` (read
+by Elysia) next to it. The deck keeps the feed's order after bounced cards, so the builder's ordering
+(pinned first, downranked last) is what the phone shows.
 
 ## Differences from the Mac app
 

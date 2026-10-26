@@ -7,7 +7,7 @@
 import { useEffect } from "react";
 import { AppState, type AppStateStatus, type NativeEventSubscription } from "react-native";
 import { CryptoDigestAlgorithm, digest } from "expo-crypto";
-import { encode, parseServerMessage, WS_PATH, type ClientMessage, type Command, type InputEvent } from "@relay/protocol";
+import { encode, parseServerMessage, WS_PATH, type CatchUpSignal, type ClientMessage, type Command, type InputEvent } from "@relay/protocol";
 import { useConnectionStore } from "@/state/connection";
 import { useAgentsStore } from "@/state/agents";
 import { useDropsStore } from "@/state/drops";
@@ -429,6 +429,17 @@ export function handoffCatchUp(id: string, agent: string, note?: string): boolea
   useCatchUpStore.getState().markLocal(id, true, agent);
   const trimmed = note?.trim();
   socket.send(encode({ t: "catchup.handoff", id, agent, ...(trimmed === undefined || trimmed === "" ? {} : { note: trimmed }) }));
+  return true;
+}
+
+/**
+ * Sends Isaac's note on why a Catch Up card does or does not need him (a `signal` chip, free `text`,
+ * or both) for Nova to learn from; the card stays in the deck. The host's `catchup.noted` lands in
+ * `useCatchUpStore().noteAnswer`. False (nothing sent) while not connected.
+ */
+export function noteCatchUp(id: string, signal: CatchUpSignal | undefined, text: string): boolean {
+  if (useConnectionStore.getState().status !== "connected") return false;
+  socket.send(encode({ t: "catchup.note", id, text: text.trim(), ...(signal === undefined ? {} : { signal }) }));
   return true;
 }
 

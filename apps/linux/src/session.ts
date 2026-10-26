@@ -520,6 +520,9 @@ export class ClientSession {
         if (changed !== true) this.sink.send({ t: "catchup.snapshot", ...(deck?.snapshot() ?? EMPTY_CATCHUP) });
         break;
       }
+      case "catchup.note":
+        this.sink.send({ t: "catchup.noted", id: message.id, ok: this.deps.catchup?.note(message.id, message.text, message.signal) === true });
+        break;
       case "assistant.get": {
         // An unknown agent, or no agent from an old phone on a host without threads, follows nothing.
         const thread = this.deps.assistant?.thread(message.agent);

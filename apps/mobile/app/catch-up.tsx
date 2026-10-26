@@ -4,17 +4,20 @@
  * and it stays unread but goes to the back of this session's deck. Throw it up (from its header,
  * or anywhere on a short card), or tap the purple send button, and it goes to its assistant (Astra
  * for eCard work, Nova for the rest); a long press opens a sheet to pick the assistant and add a
- * note. A card an assistant bounced comes back first, with its reason. The host owns the cards and
+ * note. A card an assistant bounced comes back first, with its reason. The note button on a card opens
+ * a sheet where Isaac says why it does or doesn't need him (chips and/or text); the note goes to Nova,
+ * who teaches the feed what is worth a card, and the card stays in the deck. The host owns the cards and
  * their state (`useCatchUpStore`); the screen asks again on focus.
  */
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import type { CatchUpCard } from "@relay/protocol";
 import { CATCHUP_CARD_RADIUS, CatchUpCardView } from "@/catchup/CatchUpCardView";
 import { HandoffSheet, type HandoffTarget } from "@/catchup/HandoffSheet";
-import { handoffCatchUp, markCatchUp, requestCatchUp } from "@/connection";
+import { NoteSheet } from "@/catchup/NoteSheet";
+import { handoffCatchUp, markCatchUp, noteCatchUp, requestCatchUp } from "@/connection";
 import { deckCards, defaultAssistant } from "@/lib/catchup";
 import { useTransientMessage } from "@/lib/useTransientMessage";
 import { agentTitle, useAssistantStore } from "@/state/assistant";
@@ -53,7 +56,9 @@ export default function CatchUp() {
   const chosen = useRef<{ id: string; agent: string; note: string } | null>(null);
   const [choice, setChoice] = useState<{ id: string; agent: string } | null>(null);
   const [sheetCard, setSheetCard] = useState<CatchUpCard | null>(null);
+  const [noteCard, setNoteCard] = useState<CatchUpCard | null>(null);
   const toast = useTransientMessage();
+  const showToast = toast.show;
   const targets: readonly HandoffTarget[] =
     agents === null || agents.length === 0 ? FALLBACK_TARGETS : agents.map((agent) => ({ id: agent.id, title: agent.title, scope: agent.scope }));
   const titleOf = (agent: string): string => agentTitle(agents, agent).replace(/^./, (letter) => letter.toUpperCase());
@@ -68,6 +73,19 @@ export default function CatchUp() {
   const openSheet = useCallback((card: CatchUpCard) => {
     setSheetCard(card);
   }, []);
+
+  const openNote = useCallback((card: CatchUpCard) => {
+    setNoteCard(card);
+  }, []);
+
+  // Each host answer to a note while the screen is up (not one left from an earlier visit).
+  useEffect(
+    () =>
+      useCatchUpStore.subscribe((state, previous) => {
+        if (state.noteAnswer !== null && state.noteAnswer !== previous.noteAnswer) showToast(state.noteAnswer.ok ? "Noted for Nova" : "Note not saved");
+      }),
+    [showToast],
+  );
 
   const onSwipe = (card: CatchUpCard, direction: SwipeDirection) => {
     if (direction === "right") markCatchUp(card.id, true);
@@ -122,7 +140,7 @@ export default function CatchUp() {
               keyOf={(card) => card.id}
               canSwipeUp={() => true}
               onLongPress={openSheet}
-              renderCard={(card) => <CatchUpCardView card={card} />}
+              renderCard={(card) => <CatchUpCardView card={card} onNote={openNote} />}
               renderOverlay={(signals) => (
                 <>
                   <SwipeActionOverlay side="right" signals={signals} color={colors.ok} symbol="checkmark" label="Mark as Read" radius={CATCHUP_CARD_RADIUS} />
@@ -194,6 +212,16 @@ export default function CatchUp() {
           // The sheet opens on the top card, so throwing the top card sends this one.
           if (top?.id === card.id) deck.current?.swipe("up");
           else onSwipe(card, "up");
+        }}
+      />
+      <NoteSheet
+        card={noteCard}
+        onClose={() => {
+          setNoteCard(null);
+        }}
+        onSave={(card, signal, text) => {
+          setNoteCard(null);
+          if (!noteCatchUp(card.id, signal, text)) toast.show("Not connected: note not sent");
         }}
       />
     </SafeAreaView>

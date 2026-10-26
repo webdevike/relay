@@ -8,11 +8,14 @@
 // instructions in `handoffMessage`, and is marked read and handed at once (a failed delivery puts it
 // back). Bounce (`catchup.bounce`, or `POST /catchup/bounce` from `.omp/tools/catchup.ts`): the
 // assistant hands it back, so it is unread again, no longer handed, and first in the deck with its reason.
+// Note (`catchup.note`): Isaac says why a card does or does not need him; the note and the card's
+// fields are appended as one JSON line to Nova's `catchup-notes.jsonl` (the heartbeat brings each new
+// line to Nova, who turns it into the feed's rules). The card's state does not change.
 
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, watch, writeFileSync, type FSWatcher } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, renameSync, watch, writeFileSync, type FSWatcher } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { CatchUpFeed, type CatchUpCard, type CatchUpItem, type CatchUpSnapshot } from "@relay/protocol";
+import { CatchUpFeed, type CatchUpCard, type CatchUpItem, type CatchUpSignal, type CatchUpSnapshot } from "@relay/protocol";
 import { z } from "zod";
 
 /** Marks for ids that left the feed are dropped after this long. */
@@ -46,6 +49,27 @@ export function defaultCatchUpFeedPath(agentHome: string | null): string | null 
   return agentHome === null ? null : join(agentHome, "work", "elysia", "catchup.json");
 }
 
+/** Isaac's notes for Nova: `RELAY_CATCHUP_NOTES`, else `<agentHome>/work/eva/agents/nova/catchup-notes.jsonl`. */
+export function defaultCatchUpNotesPath(agentHome: string | null): string | null {
+  const override = process.env["RELAY_CATCHUP_NOTES"];
+  if (override !== undefined && override !== "") return override;
+  return agentHome === null ? null : join(agentHome, "work", "eva", "agents", "nova", "catchup-notes.jsonl");
+}
+
+/** One line of `catchup-notes.jsonl`: Isaac's note and the card it is about. */
+export interface CatchUpNote {
+  at: string;
+  cardId: string;
+  source: CatchUpItem["source"];
+  label: string;
+  title: string;
+  kind?: string;
+  workspace?: string;
+  assistant?: string;
+  signal?: CatchUpSignal;
+  text: string;
+}
+
 /** What an assistant receives for a handed card: the card, Isaac's note, and how to act or bounce. */
 export function handoffMessage(item: CatchUpItem, note: string | undefined): string {
   return [
@@ -66,6 +90,8 @@ export function handoffMessage(item: CatchUpItem, note: string | undefined): str
 export interface CatchUpServiceDeps {
   feedPath: string;
   statePath: string;
+  /** Where `note` appends; absent, notes are refused. */
+  notesPath?: string | null;
   /** Called with the new snapshot whenever the feed or state changes. */
   emit: (snapshot: CatchUpSnapshot) => void;
   /** Sends `text` to assistant `agent`'s thread as Isaac's turn; rejects when it cannot. Absent: handoffs are refused. */
@@ -85,6 +111,8 @@ export interface CatchUpDeck {
   handoff(id: string, agent: string, note?: string): boolean;
   /** `agent` hands `id` back; false for an unknown id. */
   bounce(id: string, agent: string, reason: string): boolean;
+  /** Appends Isaac's note on `id` for Nova; false (nothing written) for an unknown id, an empty note or no notes file. */
+  note(id: string, text: string, signal?: CatchUpSignal): boolean;
 }
 
 export class CatchUpService implements CatchUpDeck {
@@ -100,7 +128,10 @@ export class CatchUpService implements CatchUpDeck {
     this.loadFeed();
   }
 
-  /** Every feed item in deck order (bounced first, newest bounce first; then importance, then newest) with its state. */
+  /**
+   * Every feed item in deck order with its state: bounced first (newest bounce first), then the feed's own
+   * order, which the builder sets (pinned by Isaac's rules, then importance, then newest, then downranked).
+   */
   snapshot(): CatchUpSnapshot {
     const { read, handed, bounced } = this.state;
     const cards: CatchUpCard[] = this.items.map((item) => {
@@ -114,9 +145,8 @@ export class CatchUpService implements CatchUpDeck {
       };
     });
     const bounceAt = (card: CatchUpCard): number => (card.bounce === undefined || card.read ? 0 : Date.parse(card.bounce.at) || 1);
-    const items = cards.sort(
-      (a, b) => bounceAt(b) - bounceAt(a) || b.importance - a.importance || Date.parse(b.ts) - Date.parse(a.ts) || a.id.localeCompare(b.id),
-    );
+    // A stable sort: everything not bounced keeps its place in the feed.
+    const items = cards.sort((a, b) => bounceAt(b) - bounceAt(a));
     return { items, unreadCount: items.filter((item) => !item.read).length };
   }
 
@@ -152,6 +182,34 @@ export class CatchUpService implements CatchUpDeck {
     if (!this.has(id) || reason.trim() === "") return false;
     this.update(id, { read: null, handed: null, bounced: { agent, reason: reason.trim(), at: this.stamp() } });
     this.deps.log(`catchup: ${agent} bounced ${id}: ${reason.trim()}`);
+    return true;
+  }
+
+  note(id: string, text: string, signal?: CatchUpSignal): boolean {
+    const item = this.items.find((candidate) => candidate.id === id);
+    const path = this.deps.notesPath;
+    const trimmed = text.trim();
+    if (item === undefined || path === undefined || path === null || (trimmed === "" && signal === undefined)) return false;
+    const line: CatchUpNote = {
+      at: this.stamp(),
+      cardId: id,
+      source: item.source,
+      label: item.label,
+      title: item.title,
+      ...(item.kind === undefined ? {} : { kind: item.kind }),
+      ...(item.workspace === undefined ? {} : { workspace: item.workspace }),
+      ...(item.assistant === undefined ? {} : { assistant: item.assistant }),
+      ...(signal === undefined ? {} : { signal }),
+      text: trimmed,
+    };
+    try {
+      mkdirSync(dirname(path), { recursive: true });
+      appendFileSync(path, `${JSON.stringify(line)}\n`);
+    } catch (error) {
+      this.deps.log(`catchup: cannot write note to ${path}: ${error instanceof Error ? error.message : String(error)}`);
+      return false;
+    }
+    this.deps.log(`catchup: note on ${id}${signal === undefined ? "" : ` (${signal})`}`);
     return true;
   }
 

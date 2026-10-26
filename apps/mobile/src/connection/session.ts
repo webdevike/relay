@@ -242,6 +242,7 @@ export class SessionMachine {
       case "gate.status":
       case "usage.snapshot":
       case "catchup.snapshot":
+      case "catchup.noted":
       case "call.state":
       case "call.audio":
       case "call.flush":

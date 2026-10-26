@@ -642,6 +642,9 @@ export type UsageSnapshot = z.infer<typeof UsageSnapshot>;
 // `catchup.snapshot` to every phone whenever the feed or the read state changes. A card can be handed
 // to an assistant (`catchup.handoff`: the host messages that assistant's thread and marks it read);
 // the assistant can hand it back (`catchup.bounce`: unread again, first in the deck, with its reason).
+// Isaac can also say why a card does or does not need him (`catchup.note`: a signal chip and/or free
+// text); the host appends it to Nova's `catchup-notes.jsonl`, and Nova turns notes into the feed's rules
+// and taste guide so the deck learns what is actionable for him. The card stays in the deck.
 // ---------------------------------------------------------------------------------------------
 
 export const CATCHUP_SOURCES = ["slack", "github", "meeting", "work"] as const;
@@ -661,10 +664,16 @@ export const CatchUpItem = z.object({
   url: z.string().regex(/^https?:\/\//i).optional(),
   /** ISO 8601. */
   ts: z.string().datetime({ offset: true }),
-  /** 3 = most important; the deck shows higher first, then newer first. */
+  /** 3 = most important; the builder orders the feed by it (after Isaac's pinned cards), then newer first. */
   importance: z.number().int().min(1).max(3),
   /** The assistant whose lane this is (`astra` for eCard work, `nova` for personal); the default handoff target. */
   assistant: AssistantAgentId.optional(),
+  /** One line under the title: why this needs Isaac, or the move that is his. */
+  why: z.string().optional(),
+  /** Finer than `source`, for Isaac's notes and the feed's rules: `dm`, `group-dm`, `channel`, `review`, `action-item`, `move`, `stale`. */
+  kind: z.string().optional(),
+  /** Where it lives: the Slack workspace, GitHub org or work-item workspace. */
+  workspace: z.string().optional(),
 });
 export type CatchUpItem = z.infer<typeof CatchUpItem>;
 
@@ -674,6 +683,11 @@ export type CatchUpFeed = z.infer<typeof CatchUpFeed>;
 
 /** Longest handoff note or bounce reason the host takes. */
 export const MAX_CATCHUP_NOTE = 2000;
+
+/** Isaac's quick verdict on a card in the note sheet. */
+export const CATCHUP_SIGNALS = ["needs-me", "not-actionable", "fyi"] as const;
+export const CatchUpSignal = z.enum(CATCHUP_SIGNALS);
+export type CatchUpSignal = z.infer<typeof CatchUpSignal>;
 
 /** An assistant handing a card back: it could not act on it, and says why in one line. */
 export const CatchUpBounce = z.object({
@@ -695,7 +709,7 @@ export const CatchUpCard = CatchUpItem.extend({
 export type CatchUpCard = z.infer<typeof CatchUpCard>;
 
 export const CatchUpSnapshot = z.object({
-  /** Every feed item in deck order (bounced first, then importance, then newest), read ones included. */
+  /** Every feed item in deck order (bounced first, then the feed's order), read ones included. */
   items: z.array(CatchUpCard),
   unreadCount: z.number().int().min(0),
 });
@@ -981,6 +995,12 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("catchup.handoff"), id: nonEmpty, agent: AssistantAgentId, note: z.string().trim().max(MAX_CATCHUP_NOTE).optional() }),
   /** An assistant hands an item back (also `POST /catchup/bounce` on loopback): unread again, first in the deck, `reason` shown on the card. */
   z.object({ t: z.literal("catchup.bounce"), id: nonEmpty, agent: AssistantAgentId, reason: z.string().trim().min(1).max(MAX_CATCHUP_NOTE) }),
+  /**
+   * Isaac's note on why a card does or does not need him (`signal`, `text` or both; neither is answered
+   * `ok: false`): the host appends it with the card's fields to Nova's notes and answers `catchup.noted`.
+   * The card's state does not change.
+   */
+  z.object({ t: z.literal("catchup.note"), id: nonEmpty, signal: CatchUpSignal.optional(), text: z.string().trim().max(MAX_CATCHUP_NOTE).default("") }),
   /** Ask for a one-time ticket to open VNC_PATH; answered by `vnc.ticket` or `vnc.unavailable`. */
   z.object({ t: z.literal("vnc.open") }),
   /**
@@ -1099,6 +1119,8 @@ export const ServerMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("usage.snapshot"), usage: UsageSnapshot }),
   /** The Catch Up deck; the answer to `catchup.list`, and pushed when the feed or read state changes. */
   CatchUpSnapshot.extend({ t: z.literal("catchup.snapshot") }),
+  /** Answer to `catchup.note`: `ok` false when the host has no notes file or the card left the feed. */
+  z.object({ t: z.literal("catchup.noted"), id: nonEmpty, ok: z.boolean() }),
   /** Answer to `vnc.open`: open `VNC_PATH?ticket=<ticket>` within VNC_TICKET_TTL_MS. Single use. */
   z.object({ t: z.literal("vnc.ticket"), ticket: nonEmpty }),
   /** Answer to `vnc.open` when nothing listens on the Mac's VNC port: Screen Sharing is off. */

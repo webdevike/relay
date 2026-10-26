@@ -12,6 +12,7 @@ const item = (id: string, importance: 1 | 2 | 3, ts: string): CatchUpItem => ({ 
 let dir: string;
 let feedPath: string;
 let statePath: string;
+let notesPath: string | null;
 let emitted: CatchUpSnapshot[];
 let onEmit: ((snapshot: CatchUpSnapshot) => void) | null;
 let logged: string[];
@@ -31,6 +32,7 @@ function service(): CatchUpService {
   return new CatchUpService({
     feedPath,
     statePath,
+    notesPath,
     emit: (snapshot) => {
       emitted.push(snapshot);
       onEmit?.(snapshot);
@@ -53,6 +55,7 @@ beforeEach(() => {
   mkdirSync(join(dir, "elysia"));
   feedPath = join(dir, "elysia", "catchup.json");
   statePath = join(dir, "config", "catchup-state.json");
+  notesPath = join(dir, "eva", "agents", "nova", "catchup-notes.jsonl");
   emitted = [];
   onEmit = null;
   logged = [];
@@ -66,10 +69,10 @@ afterEach(() => {
 });
 
 describe("CatchUpService", () => {
-  it("orders by importance then newest, and counts unread", () => {
+  it("keeps the feed's order (the builder's), and counts unread", () => {
     writeFeed([item("a", 1, "2026-10-24T10:00:00Z"), item("b", 3, "2026-10-20T10:00:00Z"), item("c", 3, "2026-10-23T10:00:00Z")]);
     const snapshot = service().snapshot();
-    expect(snapshot.items.map((card) => card.id)).toEqual(["c", "b", "a"]);
+    expect(snapshot.items.map((card) => card.id)).toEqual(["a", "b", "c"]);
     expect(snapshot.items.every((card) => !card.read)).toBe(true);
     expect(snapshot.unreadCount).toBe(3);
   });
@@ -130,7 +133,7 @@ describe("CatchUpService", () => {
     onEmit = resolve;
     deck.start();
     try {
-      writeFeed([item("a", 2, "2026-10-24T10:00:00Z"), item("b", 3, "2026-10-24T11:00:00Z")]);
+      writeFeed([item("b", 3, "2026-10-24T11:00:00Z"), item("a", 2, "2026-10-24T10:00:00Z")]);
       const snapshot = await promise;
       expect(snapshot.items.map((card) => card.id)).toEqual(["b", "a"]);
     } finally {
@@ -188,6 +191,28 @@ describe("CatchUpService", () => {
     expect(again.mark("b", true)).toBe(true);
     expect(again.snapshot().items.map((card) => card.id)).toEqual(["a", "b"]);
     expect(again.snapshot().items[1]?.bounce).toBeUndefined();
+  });
+
+  it("appends Isaac's note with the card's fields as one JSON line, and leaves the card in the deck", () => {
+    writeFeed([
+      { ...item("a", 2, "2026-10-24T10:00:00Z"), kind: "move", workspace: "ecardsystems", assistant: "astra" },
+      item("b", 1, "2026-10-20T10:00:00Z"),
+    ]);
+    const deck = service();
+    expect(deck.note("a", "  stale eCard moves are noise  ", "not-actionable")).toBe(true);
+    now += 60_000;
+    expect(deck.note("b", "", "needs-me")).toBe(true);
+    expect(deck.note("missing", "x")).toBe(false);
+    expect(deck.note("a", "   ")).toBe(false);
+    const lines = readFileSync(notesPath ?? "", "utf8").trimEnd().split("\n").map((line) => JSON.parse(line) as unknown);
+    expect(lines).toEqual([
+      { at: "2026-10-24T12:00:00.000Z", cardId: "a", source: "work", label: "a", title: "title a", kind: "move", workspace: "ecardsystems", assistant: "astra", signal: "not-actionable", text: "stale eCard moves are noise" },
+      { at: "2026-10-24T12:01:00.000Z", cardId: "b", source: "work", label: "b", title: "title b", signal: "needs-me", text: "" },
+    ]);
+    expect(emitted).toEqual([]);
+    expect(deck.snapshot().unreadCount).toBe(2);
+    notesPath = null;
+    expect(service().note("a", "x")).toBe(false);
   });
 });
 

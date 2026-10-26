@@ -1,7 +1,7 @@
 /**
- * One Catch Up card's face: where it came from (glyph + label), the title, why an assistant handed it
- * back (if one did), the markdown body (scrolls inside the card when long), and a footer with how
- * long ago and an Open link.
+ * One Catch Up card's face: where it came from (glyph + label), the title, why it needs Isaac (the
+ * feed's `why`, when it has one), why an assistant handed it back (if one did), the markdown body
+ * (scrolls inside the card when long), and a footer with how long ago, the note button and an Open link.
  *
  * Swiping up starts from the parts that do not scroll: the header and footer always, the body only
  * when it is short enough not to scroll, so reading a long card never sends it away.
@@ -12,6 +12,7 @@ import { SymbolView } from "expo-symbols";
 import type { CatchUpCard } from "@relay/protocol";
 import { MessageText } from "@/agents/MessageText";
 import { Callout } from "@/ui/Callout";
+import { IconButton } from "@/ui/IconButton";
 import { LinkButton } from "@/ui/LinkButton";
 import { SwipeCardScrollView, SwipeUpHandle } from "@/ui/SwipeCard";
 import { Text } from "@/ui/Text";
@@ -24,6 +25,8 @@ export const CATCHUP_CARD_RADIUS = 28;
 
 export interface CatchUpCardViewProps {
   card: CatchUpCard;
+  /** Opens the note sheet for this card; stable across renders (the face is memoized). */
+  onNote: (card: CatchUpCard) => void;
 }
 
 /** What the face shows; every host snapshot brings new objects for the same cards. */
@@ -35,15 +38,17 @@ function sameFace(a: CatchUpCardViewProps, b: CatchUpCardViewProps): boolean {
     x.source === y.source &&
     x.label === y.label &&
     x.title === y.title &&
+    x.why === y.why &&
     x.body === y.body &&
     x.url === y.url &&
     x.ts === y.ts &&
-    x.bounce?.at === y.bounce?.at
+    x.bounce?.at === y.bounce?.at &&
+    a.onNote === b.onNote
   );
 }
 
 /** Memoized: a deck re-renders on every snapshot, and a long markdown body is expensive to rebuild. */
-export const CatchUpCardView = memo(function CatchUpCardView({ card }: CatchUpCardViewProps) {
+export const CatchUpCardView = memo(function CatchUpCardView({ card, onNote }: CatchUpCardViewProps) {
   const colors = useColors();
   const dark = useScheme() === "dark";
   const agents = useAssistantStore((state) => state.agents);
@@ -88,6 +93,11 @@ export const CatchUpCardView = memo(function CatchUpCardView({ card }: CatchUpCa
           <Text variant="largeTitle" style={styles.title}>
             {card.title}
           </Text>
+          {card.why !== undefined && card.why !== "" && (
+            <Text variant="label" color="textMuted">
+              {card.why}
+            </Text>
+          )}
           {card.bounce !== undefined && bouncer !== null && (
             <Callout tone="warn" title={`${bouncer} couldn't act`} text={card.bounce.reason} />
           )}
@@ -114,6 +124,17 @@ export const CatchUpCardView = memo(function CatchUpCardView({ card }: CatchUpCa
           <Text variant="caption" color="textFaint" style={styles.flex}>
             {age === "now" ? "Just now" : `${age} ago`}
           </Text>
+          <IconButton
+            symbol="square.and.pencil"
+            size={32}
+            glyphSize={15}
+            backgroundColor="transparent"
+            tintColor={colors.textMuted}
+            accessibilityLabel="Note why this does or doesn't need you"
+            onPress={() => {
+              onNote(card);
+            }}
+          />
           {card.url !== undefined && <LinkButton url={card.url} label="Open" />}
         </View>
       </SwipeUpHandle>

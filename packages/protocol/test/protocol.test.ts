@@ -257,6 +257,20 @@ describe("catch up", () => {
     expect(parseServerMessage(JSON.stringify({ t: "catchup.snapshot", items: [card, { ...item, id: "b", read: true, handedTo: "nova" }], unreadCount: 1 })).ok).toBe(true);
     expect(parseServerMessage(JSON.stringify({ t: "catchup.snapshot", items: [{ ...card, bounce: { agent: "astra", reason: "", at: "x" } }], unreadCount: 1 })).ok).toBe(false);
   });
+
+  it("takes a note with a signal, text or both, and answers whether it was saved", () => {
+    const client = (frame: object) => parseClientMessage(JSON.stringify(frame));
+    expect(client({ t: "catchup.note", id: "slack:abc123", signal: "not-actionable" }).ok).toBe(true);
+    expect(client({ t: "catchup.note", id: "slack:abc123", text: "always show Todd's release asks" }).ok).toBe(true);
+    expect(client({ t: "catchup.note", id: "slack:abc123", signal: "needs-me", text: "I sign off releases" }).ok).toBe(true);
+    const bare = client({ t: "catchup.note", id: "slack:abc123", signal: "fyi" });
+    expect(bare.ok && bare.value.t === "catchup.note" ? bare.value.text : null).toBe("");
+    expect(client({ t: "catchup.note", id: "slack:abc123", signal: "noise" }).ok).toBe(false);
+    expect(client({ t: "catchup.note", id: "", text: "x" }).ok).toBe(false);
+    expect(client({ t: "catchup.note", id: "slack:abc123", text: "x".repeat(2001) }).ok).toBe(false);
+    expect(parseServerMessage(JSON.stringify({ t: "catchup.noted", id: "slack:abc123", ok: true })).ok).toBe(true);
+    expect(CatchUpItem.safeParse({ ...item, why: "Todd asked you directly", kind: "dm", workspace: "ecardplatform" }).success).toBe(true);
+  });
 });
 
 describe("tool approvals", () => {
