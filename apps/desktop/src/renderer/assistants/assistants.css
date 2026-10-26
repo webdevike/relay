@@ -220,6 +220,13 @@
 .eva-as-crumb-sep {
   color: var(--eva-c-muted-foreground);
 }
+.eva-as-crumb-portrait {
+  flex: none;
+  width: var(--eva-control-xs);
+  height: var(--eva-control-xs);
+  border-radius: 50%;
+  background: var(--eva-c-muted-background);
+}
 .eva-as-crumb-here {
   min-width: 0;
   overflow: hidden;

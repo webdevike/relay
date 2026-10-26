@@ -13,6 +13,8 @@ export const AssistantSchema = z.object({
   title: z.string(),
   /** What the agent covers; empty when the registry gives none. */
   scope: z.string(),
+  /** Its portrait's seed (DiceBear notionists, as Rooms draws people); the id when none is set. */
+  avatar: z.string(),
   status: AssistantStatusSchema,
   /** Its thread's session file once omp wrote it, else null (the page is the start card). */
   file: z.string().nullable(),

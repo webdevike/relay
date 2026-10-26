@@ -24,12 +24,15 @@ export interface Agent {
   title: string
   /** Empty when the registry gives none. */
   scope: string
+  /** The portrait seed; the id when the registry gives none. */
+  avatar: string
 }
 
 const AgentSchema = z.object({
   id: z.string().min(1),
   title: z.string(),
   scope: z.string().optional().catch(undefined),
+  avatar: z.string().optional().catch(undefined),
 })
 
 /** The registry's agents in file order; empty when it is missing or unreadable (native load_agents). */
@@ -45,7 +48,9 @@ export function parseRegistry(text: string): Agent[] {
   const out: Agent[] = []
   for (const a of agents) {
     const r = AgentSchema.safeParse(a)
-    if (r.success) out.push({ id: r.data.id, title: r.data.title, scope: r.data.scope ?? '' })
+    if (!r.success) continue
+    const { id, title, scope, avatar } = r.data
+    out.push({ id, title, scope: scope ?? '', avatar: avatar?.trim() || id })
   }
   return out
 }
@@ -207,6 +212,7 @@ export class AssistantsService {
         id: agent.id,
         title: agent.title,
         scope: agent.scope,
+        avatar: agent.avatar,
         status: statusOf(session),
         file,
         reply: file ? this.replyOf(file) : null,

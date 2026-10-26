@@ -1,5 +1,5 @@
 import { ROOM_PEOPLE, type RoomAgent as RoomAgentDto } from '@evaos/contract'
-import { portrait } from './avatars'
+import { portrait } from '../ui/portrait'
 import type { RoomAgent } from './types'
 
 /** `mara-voss`: the portrait seed, so a person looks the same in every room. */

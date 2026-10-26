@@ -35,7 +35,7 @@ function thread(id: string, agent: string, status: RelayStatus): RelaySession {
 /** An Eva root with the registry and a sessions dir; Relay reads `relay.sessions`. */
 function setup(
   agents: unknown[] = [
-    { id: 'astra', title: 'Astra', scope: 'eCard Systems work' },
+    { id: 'astra', title: 'Astra', scope: 'eCard Systems work', avatar: 'astra-2' },
     { id: 'nova', title: 'Nova' },
   ],
 ) {
@@ -101,11 +101,20 @@ describe('assistant status like native', () => {
           id: 'astra',
           title: 'Astra',
           scope: 'eCard Systems work',
+          avatar: 'astra-2',
           status: 'not-started',
           file: null,
           reply: null,
         },
-        { id: 'nova', title: 'Nova', scope: '', status: 'not-started', file: null, reply: null },
+        {
+          id: 'nova',
+          title: 'Nova',
+          scope: '',
+          avatar: 'nova',
+          status: 'not-started',
+          file: null,
+          reply: null,
+        },
       ],
     })
   })
@@ -220,8 +229,28 @@ describe('registry', () => {
         }),
       ),
     ).toEqual([
-      { id: 'astra', title: 'Astra', scope: 'Work' },
-      { id: 'nova', title: 'Nova', scope: '' },
+      { id: 'astra', title: 'Astra', scope: 'Work', avatar: 'astra' },
+      { id: 'nova', title: 'Nova', scope: '', avatar: 'nova' },
+    ])
+  })
+
+  it("takes an agent's portrait seed, falling back to its id when absent, blank or not text", () => {
+    expect(
+      parseRegistry(
+        JSON.stringify({
+          agents: [
+            { id: 'astra', title: 'Astra', avatar: 'astra-2' },
+            { id: 'nova', title: 'Nova', avatar: '  ' },
+            { id: 'polaris', title: 'Polaris', avatar: 11 },
+            { id: 'vega', title: 'Vega' },
+          ],
+        }),
+      ).map((a) => [a.id, a.avatar]),
+    ).toEqual([
+      ['astra', 'astra-2'],
+      ['nova', 'nova'],
+      ['polaris', 'polaris'],
+      ['vega', 'vega'],
     ])
   })
 

@@ -60,9 +60,9 @@ export function tabTitle(place: Place): string {
   return TITLES[place.page] ?? place.page
 }
 
+/** The glyph a tab shows; an agent's tab shows its portrait instead (TabBar). */
 export function tabIconName(place: Place): string {
   if (place.page.startsWith('workspace:')) return 'IconFolder'
-  if (place.page.startsWith('agent:')) return 'IconMessage'
   if (place.page.startsWith('board:')) return 'IconLayoutDashboard'
   return ICONS[place.page] ?? 'IconFile'
 }

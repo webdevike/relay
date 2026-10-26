@@ -2,9 +2,13 @@ import { IconChevronLeft } from '@tabler/icons-react'
 import { placeOf } from '@evaos/shell-core'
 import { useNamesVersion, agentTitle } from '../eva/names-store'
 import { openPlace } from '../navigation/navigate'
+import { AgentPortrait } from './AgentPortrait'
 import './assistants.css'
 
-/** An agent's page names its way back, like native: "< Assistants / Astra"; the pill goes home. */
+/**
+ * An agent's page names its way back, like native: "< Assistants / Astra", the agent with its
+ * portrait; the pill goes home.
+ */
 export function AgentCrumb({ id }: { id: string }) {
   useNamesVersion()
   return (
@@ -21,6 +25,7 @@ export function AgentCrumb({ id }: { id: string }) {
       <span className="eva-as-crumb-sep" aria-hidden>
         /
       </span>
+      <AgentPortrait id={id} className="eva-as-crumb-portrait" />
       <span className="eva-as-crumb-here">{agentTitle(id) ?? id}</span>
     </span>
   )

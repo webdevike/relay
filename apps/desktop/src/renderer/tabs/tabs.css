@@ -31,10 +31,14 @@
 }
 .eva-tabbar-btn svg,
 .eva-tab > svg,
+.eva-tab > .eva-tab-portrait,
 .eva-tab-close svg {
   flex: none;
   width: var(--eva-fz-label);
   height: var(--eva-fz-label);
+}
+.eva-tab > .eva-tab-portrait {
+  border-radius: 50%;
 }
 .eva-tabbar-btn:hover {
   background: var(--eva-hover);

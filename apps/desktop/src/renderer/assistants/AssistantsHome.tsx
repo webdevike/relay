@@ -5,6 +5,7 @@ import { agoLabel } from '@evaos/eva-core/model/jobs'
 import { placeOf, type Place } from '@evaos/shell-core'
 import { openPlace } from '../navigation/navigate'
 import { pageMeta } from '../pages/page-meta'
+import { portrait } from '../ui/portrait'
 import { useAssistants } from './assistants-store'
 import './assistants.css'
 
@@ -17,7 +18,7 @@ const STATUS_LABEL: Record<AssistantStatus, string> = {
 
 /**
  * The Assistants home (native assistants_view::render): the heading with its subtext, then one
- * divided row per registry agent: its initial, title, scope, last reply with its age and status.
+ * divided row per registry agent: its portrait, title, scope, last reply with its age and status.
  */
 export function AssistantsHome({ place }: { place: Place }) {
   const data = useAssistants((s) => s.data)
@@ -48,9 +49,15 @@ export function AssistantsHome({ place }: { place: Place }) {
               data-status={a.status}
               onClick={(e) => openPlace(placeOf(`agent:${a.id}`), { newTab: e.metaKey })}
             >
-              <Avatar className="eva-as-avatar" size="md" radius="xl" aria-hidden>
-                {(Array.from(a.title)[0] ?? '').toUpperCase()}
-              </Avatar>
+              <Avatar
+                className="eva-as-avatar"
+                size="md"
+                radius="xl"
+                src={portrait(a.avatar)}
+                alt=""
+                aria-hidden
+                data-testid={`agent-portrait-${a.id}`}
+              />
               <span className="eva-as-row-text">
                 <span className="eva-as-row-line">
                   <span className="eva-as-row-title">{a.title}</span>

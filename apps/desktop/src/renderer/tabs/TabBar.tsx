@@ -26,6 +26,8 @@ import {
   IconX,
   type Icon,
 } from '@tabler/icons-react'
+import { AgentPortrait } from '../assistants/AgentPortrait'
+import { agentIdOf } from '../assistants/assistants-store'
 import { EvaMenu } from '../overlay'
 import { useNamesVersion } from '../eva/names-store'
 import { useLayout } from '../shell/layout-store'
@@ -146,6 +148,8 @@ export function TabBar() {
 
       <div className="eva-tabs-scroll" ref={listRef} role="tablist" aria-label="Open pages">
         {tabs.list.map((tab, ix) => {
+          // An agent's tab wears its portrait where other pages show their glyph.
+          const agent = agentIdOf(tab.here)
           const Glyph = ICONS[tabIconName(tab.here)] ?? IconAsterisk
           const title = tabTitle(tab.here)
           const isActive = ix === tabs.active
@@ -171,7 +175,11 @@ export function TabBar() {
                   className="eva-tab eva-tab-pinned"
                   data-testid={`tab-pinned-${tab.id}`}
                 >
-                  <Glyph size={16} stroke={1.5} />
+                  {agent !== null ? (
+                    <AgentPortrait id={agent} className="eva-tab-portrait" />
+                  ) : (
+                    <Glyph size={16} stroke={1.5} />
+                  )}
                 </div>
               </Tooltip>
             )
@@ -179,7 +187,11 @@ export function TabBar() {
           return (
             <Tooltip key={tab.id} label={title} position="bottom" openDelay={600}>
               <div {...common} className="eva-tab" data-testid={`tab-${tab.id}`}>
-                <Glyph size={14} stroke={1.5} />
+                {agent !== null ? (
+                  <AgentPortrait id={agent} className="eva-tab-portrait" />
+                ) : (
+                  <Glyph size={14} stroke={1.5} />
+                )}
                 <span className="eva-label eva-tab-title">{title}</span>
                 <button
                   type="button"

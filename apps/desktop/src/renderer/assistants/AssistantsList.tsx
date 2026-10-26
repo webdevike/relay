@@ -1,12 +1,15 @@
+import { Avatar } from '@mantine/core'
 import { placeOf } from '@evaos/shell-core'
 import { openPlace } from '../navigation/navigate'
 import { activePlace, useTabs } from '../tabs/tabs-store'
+import { portrait } from '../ui/portrait'
 import { agentIdOf, useAssistants } from './assistants-store'
 import './assistants.css'
 
 /**
  * The sidebar's Assistants page (native assistants_view::sidebar_list): one row per agent, its
- * title over its scope, with a dot while Relay hears it working. The open agent is highlighted.
+ * portrait beside its title over its scope, with a dot while Relay hears it working. The open
+ * agent is highlighted.
  */
 export function AssistantsList() {
   const agents = useAssistants((s) => s.data?.agents ?? null)
@@ -24,6 +27,14 @@ export function AssistantsList() {
           aria-current={open === a.id ? 'page' : undefined}
           onClick={(e) => openPlace(placeOf(`agent:${a.id}`), { newTab: e.metaKey })}
         >
+          <Avatar
+            className="eva-as-avatar"
+            size="sm"
+            radius="xl"
+            src={portrait(a.avatar)}
+            alt=""
+            aria-hidden
+          />
           <span className="eva-as-side-text">
             <span className="eva-as-side-title">{a.title}</span>
             {a.scope ? <span className="eva-as-side-scope">{a.scope}</span> : null}

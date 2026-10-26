@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ROOM_JUDGE_MODEL } from '@evaos/contract'
-import { portrait } from './avatars'
+import { portrait } from '../ui/portrait'
 import { ISAAC_PERSON, JUDGE_PERSON, ROSTER, SYSTEM_PERSON } from './roster'
 
 describe('roster', () => {
