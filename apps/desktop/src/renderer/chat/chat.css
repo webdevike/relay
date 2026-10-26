@@ -216,17 +216,18 @@
   border-radius: 50%;
   background: var(--eva-accent);
 }
-/* An assistant thread's "typing" bubble: three dots pulsing in turn, like a text thread. */
+/* An assistant thread's "typing" bubble: a roomy pill of three dots pulsing in turn, like iMessage. */
 .eva-typing {
   display: inline-flex;
+  align-items: center;
   gap: 4px;
-  padding: var(--eva-space-sm) var(--eva-space-md);
+  padding: 16px 15px;
   background: var(--eva-c-muted-background);
-  border-radius: var(--eva-radius-lg);
+  border-radius: 999px;
 }
 .eva-typing > span {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--eva-text-dim);
   animation: eva-typing 1.2s ease-in-out infinite;
