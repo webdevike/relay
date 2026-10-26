@@ -22,6 +22,7 @@ import {
   IconSchema,
   IconSettings,
   IconUsers,
+  IconUsersGroup,
   IconX,
   type Icon,
 } from '@tabler/icons-react'
@@ -56,6 +57,7 @@ const ICONS: Record<string, Icon> = {
   IconHelp,
   IconSchema,
   IconRobot,
+  IconUsersGroup,
 }
 
 export const FOLDED_LABEL =

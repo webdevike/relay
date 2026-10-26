@@ -9,6 +9,7 @@ export type FixedPage =
   | 'habits'
   | 'meetings'
   | 'canvas'
+  | 'rooms'
   | 'settings'
 /** `agent:<id>` is a registry agent's thread (native Page::Agent), saved like native tabs.rs. */
 export type PageKey = FixedPage | `workspace:${string}` | `agent:${string}`
@@ -35,6 +36,7 @@ const FIXED_PAGES: readonly string[] = [
   'habits',
   'meetings',
   'canvas',
+  'rooms',
   'settings',
 ]
 
