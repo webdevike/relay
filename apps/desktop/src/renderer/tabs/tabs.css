@@ -39,6 +39,7 @@
 }
 .eva-tab > .eva-tab-portrait {
   border-radius: 50%;
+  background: var(--mantine-color-gray-1);
 }
 .eva-tabbar-btn:hover {
   background: var(--eva-hover);

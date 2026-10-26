@@ -97,11 +97,10 @@
 .eva-as-row:hover {
   background: var(--eva-hover);
 }
+/* Portraits are black line art: they sit on light paper in both schemes, like on the phone. */
 .eva-as-avatar {
   flex: none;
-  --avatar-bg: var(--eva-c-muted-background);
-  --avatar-color: var(--eva-c-foreground);
-  font-weight: var(--eva-fw-medium);
+  background: var(--mantine-color-gray-1);
 }
 .eva-as-row-text {
   flex: 1;
@@ -225,7 +224,7 @@
   width: var(--eva-control-xs);
   height: var(--eva-control-xs);
   border-radius: 50%;
-  background: var(--eva-c-muted-background);
+  background: var(--mantine-color-gray-1);
 }
 .eva-as-crumb-here {
   min-width: 0;
