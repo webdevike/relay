@@ -56,7 +56,7 @@ const subFolder = (): string =>
 const chip = (shell: Page, name: string) => shell.locator(`[data-testid="subagent-chip-${name}"]`)
 const strip = (shell: Page) => shell.locator(sel('jobs-strip'))
 
-test('subagent chips: running and done, popover, Clear done, live update', async ({
+test('subagent chips: running and done, transcript panel, Clear done, live update', async ({
   app,
   shell,
 }) => {
@@ -72,22 +72,25 @@ test('subagent chips: running and done, popover, Clear done, live update', async
   })
   expect(gap).toBeLessThanOrEqual(2)
 
+  // A chip opens its transcript in the side panel, read only.
   await chip(shell, 'b').click()
-  await expect(shell.locator(sel('subagent-popover'))).toContainText('Reading the fixtures now.')
+  await expect(shell.locator(sel('panel-subagent-title'))).toContainText('b')
+  await expect(shell.locator(sel('subagent-transcript'))).toContainText('Reading the fixtures now.')
+  await expect(chip(shell, 'b')).toHaveAttribute('aria-pressed', 'true')
   await proofShot(app, shell, 'subagent-chips', { phase: 'phase-4' })
-  await shell.keyboard.press('Escape')
-  await expect(shell.locator(sel('subagent-popover'))).toHaveCount(0)
+  await shell.locator(sel('panel-close')).click()
+  await expect(shell.locator(sel('subagent-transcript'))).toHaveCount(0)
 
-  // Clear done hides only the finished chip, then goes away itself.
+  // Clear done hides only the finished chip and stays, disabled, while nothing else is done.
   await shell.getByRole('button', { name: 'Clear done' }).click()
   await expect(chip(shell, 'a')).toHaveCount(0)
-  await expect(shell.getByRole('button', { name: 'Clear done' })).toHaveCount(0)
+  await expect(shell.getByRole('button', { name: 'Clear done' })).toBeDisabled()
   await expect(chip(shell, 'b')).toBeVisible()
 
   // omp writes b.md: b becomes finished within 500 ms of the file change.
   fs.writeFileSync(path.join(subFolder(), 'b.md'), 'Subagent b finished.\n')
   await expect(chip(shell, 'b')).toHaveAttribute('data-state', 'done', { timeout: 1500 })
-  await expect(shell.getByRole('button', { name: 'Clear done' })).toBeVisible()
+  await expect(shell.getByRole('button', { name: 'Clear done' })).toBeEnabled()
 })
 
 test('jobs strip: only while omp runs and a job is unfinished', async ({ app, shell }) => {

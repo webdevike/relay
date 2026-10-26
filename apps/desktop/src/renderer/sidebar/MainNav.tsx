@@ -2,6 +2,7 @@ import { useElementSize } from '@mantine/hooks'
 import { IconAsterisk } from '@tabler/icons-react'
 import { useEffect, useState, type MouseEvent } from 'react'
 import { placeOf, type Place } from '@evaos/shell-core'
+import { useBoards } from '../boards/boards-store'
 import { canvasNavPlace } from '../canvas/canvas-store'
 import { invoke } from '../ipc'
 import { openPlace } from '../navigation/navigate'
@@ -11,12 +12,12 @@ import { AppearanceControl } from '../theme/AppearanceControl'
 import { ScrollArea } from '../ui/ScrollArea'
 import { AccountMenu } from './AccountMenu'
 import { NavRow } from './NavRow'
-import { RecentList } from './RecentList'
-import { SearchBox } from './SearchBox'
-import { openSub, useNavLevel } from './nav-level'
+import { openSub } from './nav-level'
 import { countLabel, useSidebarData } from './sidebar-store'
 
-const MAIN = NAV_PAGES.filter((n) => n.slug !== 'setting')
+// The built-in Dashboard sits first under Dashboards as Overview (native sidebar::dashboards).
+const MAIN = NAV_PAGES.filter((n) => n.slug !== 'setting' && n.slug !== 'dashboard')
+const OVERVIEW = NAV_PAGES.find((n) => n.slug === 'dashboard')!
 const SETTING = NAV_PAGES.find((n) => n.slug === 'setting')!
 
 function EnvBadge() {
@@ -41,10 +42,9 @@ const settingsPlace = (): Place => placeOf('settings', { settingsSection: 'Theme
 
 export function MainNav() {
   const here = useTabs(activePlace)
-  const level = useNavLevel()
   const jobs = useSidebarData((s) => s.scheduledJobs)
   const error = useSidebarData((s) => s.error)
-  const [query, setQuery] = useState('')
+  const boards = useBoards((s) => s.data?.boards ?? null)
   const { ref, width } = useElementSize<HTMLDivElement>()
 
   const go = (page: Place['page'], e: MouseEvent): void => {
@@ -83,13 +83,6 @@ export function MainNav() {
             <span className="eva-sb-brand-sub eva-dim">Work OS</span>
           </span>
         </div>
-        <SearchBox
-          value={query}
-          onChange={setQuery}
-          placeholder="Search"
-          testid="sidebar-search"
-          active={level === 'root'}
-        />
       </div>
       <div className="eva-sb-scroll">
         <ScrollArea data-testid="sidebar-scroll">
@@ -114,14 +107,32 @@ export function MainNav() {
               onClick={(e) => go(n.page, e)}
             />
           ))}
-          <div className="eva-sb-divider" />
-          <RecentList query={query} />
+          <div className="eva-sb-section eva-sb-section-group" data-testid="sidebar-dashboards">
+            Dashboards
+          </div>
+          <NavRow
+            slug={OVERVIEW.slug}
+            title="Overview"
+            icon={OVERVIEW.icon}
+            active={here.page === OVERVIEW.page}
+            onClick={(e) => go(OVERVIEW.page, e)}
+          />
+          {boards?.map((b) => (
+            <NavRow
+              key={b.slug}
+              slug={`board-${b.slug}`}
+              title={b.title}
+              icon={b.icon ?? 'IconLayoutDashboard'}
+              active={here.page === `board:${b.slug}`}
+              onClick={(e) => go(`board:${b.slug}`, e)}
+            />
+          ))}
         </ScrollArea>
       </div>
       <div className="eva-sb-footer" data-testid="sidebar-footer">
         {error ? (
           <div className="eva-sb-error eva-dim" data-testid="sidebar-error">
-            Could not read counts or recent items. Press the refresh shortcut to try again.
+            Could not read counts. Press the refresh shortcut to try again.
           </div>
         ) : null}
         <NavRow

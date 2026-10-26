@@ -9,6 +9,8 @@ export interface NamesState {
   chats: Record<string, string>
   /** Registry agent titles by id (`.omp/assistant/agents.json`). */
   agents: Record<string, string>
+  /** Relay host dashboard titles by slug. */
+  boards: Record<string, string>
   version: number
 }
 
@@ -18,6 +20,7 @@ export const namesStore = createStore<NamesState>(() => ({
   canvases: {},
   chats: {},
   agents: {},
+  boards: {},
   version: 0,
 }))
 
@@ -39,6 +42,16 @@ export function setAgentTitles(map: Record<string, string>): void {
 
 export function agentTitle(id: string): string | null {
   return Object.hasOwn(namesStore.getState().agents, id) ? namesStore.getState().agents[id]! : null
+}
+
+export function setBoardTitles(map: Record<string, string>): void {
+  namesStore.setState((s) => ({ boards: { ...map }, version: s.version + 1 }))
+}
+
+export function boardTitle(slug: string): string | null {
+  return Object.hasOwn(namesStore.getState().boards, slug)
+    ? namesStore.getState().boards[slug]!
+    : null
 }
 
 /** The chat pane's title for `file`, so a tab on that chat names it. */

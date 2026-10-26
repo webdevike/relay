@@ -1,7 +1,8 @@
 import { attachResult, messagesFrom, oneLine } from './session'
-import { makeMessage, type ChatMessage, type SessionMeta } from './message'
+import { makeMessage, type ChatMessage, type Goal, type SessionMeta } from './message'
 import type { MetaPatch } from './batcher'
 import { parseDialog, UNREADABLE_ASK_NOTICE, type Dialog } from './dialogs'
+import { goalCommand, isHandoff } from './launch'
 
 type Json = Record<string, unknown>
 const isObj = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -55,6 +56,14 @@ function windowOf(v: unknown): number | null {
   return typeof v === 'number' && v > 0 ? v : null
 }
 
+/** omp's goal while active or paused; null once completed, dropped or absent. */
+function goalOf(v: unknown): Goal | null {
+  if (!isObj(v) || typeof v.objective !== 'string') return null
+  if (v.status !== 'active' && v.status !== 'paused') return null
+  const tokensUsed = typeof v.tokensUsed === 'number' ? v.tokensUsed : 0
+  return { objective: v.objective, paused: v.status === 'paused', tokensUsed }
+}
+
 function resultText(frame: Json): string | null {
   const r = frame.result
   if (typeof r === 'string') return r
@@ -90,6 +99,10 @@ export class LiveReducer {
   error: string | null = null
   /** The blocking question omp waits on, if any. Held until answered, cancelled or omp exits. */
   dialog: Dialog | null = null
+  /** omp's goal while active or paused, for the strip over the composer. */
+  goal: Goal | null = null
+  /** A `/handoff` is generating; omp sends no progress frames, only its final output. */
+  handingOff = false
 
   constructor(history: ChatMessage[], meta: SessionMeta) {
     this.msgs = [...history]
@@ -122,6 +135,7 @@ export class LiveReducer {
     images?: ReadonlyArray<{ mimeType: string; data: string }>,
   ): ChatMessage {
     this.error = null
+    if (isHandoff(text)) this.handingOff = true
     this.sent += 1
     const m = promptRow(`${SENT}${this.sent}`, text, images)
     this.msgs.push(m)
@@ -203,6 +217,8 @@ export class LiveReducer {
       running: this.working,
       error: this.error,
       dialog: this.dialog,
+      goal: this.goal,
+      handingOff: this.handingOff,
       model: this.metaState.model,
       contextTokens: this.metaState.contextTokens,
       contextWindow: this.metaState.contextWindow ?? null,
@@ -215,6 +231,8 @@ export class LiveReducer {
     if (b.running !== this.working) p.running = this.working
     if (b.error !== this.error) p.error = this.error
     if (b.dialog !== this.dialog) p.dialog = this.dialog
+    if (JSON.stringify(b.goal) !== JSON.stringify(this.goal)) p.goal = this.goal
+    if (b.handingOff !== this.handingOff) p.handingOff = this.handingOff
     if (b.model !== this.metaState.model) p.model = this.metaState.model
     if (b.contextTokens !== this.metaState.contextTokens)
       p.contextTokens = this.metaState.contextTokens
@@ -271,6 +289,16 @@ export class LiveReducer {
         if (method === undefined || !DIALOG_METHODS.has(method)) return
         return this.dialogRequest(frame, dirty)
       }
+      case 'goal_updated':
+        this.goal = goalOf(frame.goal)
+        return
+      case 'command_output': {
+        // `/handoff` reports here once it finishes or fails.
+        this.handingOff = false
+        const text = str(frame.text)
+        if (text) this.notice(oneLine(text, 400), dirty)
+        return
+      }
       case 'notice': {
         const text = str(frame.message)
         if (text) this.notice(text, dirty)
@@ -286,6 +314,7 @@ export class LiveReducer {
       }
       case '_eof':
         this.working = false
+        this.handingOff = false
         this.killDialog(dirty)
         this.dropUnconfirmed(removed)
         if (frame.expected !== true) this.error = EOF_ERROR
@@ -297,13 +326,18 @@ export class LiveReducer {
 
   private response(frame: Json, dirty: Set<string>, removed: Set<string>): Json | undefined {
     if (frame.success === false) {
-      if (frame.command === 'prompt') this.dropUnconfirmed(removed)
+      if (frame.command === 'prompt') {
+        this.dropUnconfirmed(removed)
+        this.handingOff = false
+      }
+      if (frame.command === 'goal') this.dropGoalRows(removed)
       this.notice(`Error: ${oneLine(str(frame.error) ?? 'command failed', 240)}`, dirty)
       return
     }
     const data = isObj(frame.data) ? frame.data : {}
     switch (str(frame.command)) {
       case 'get_state': {
+        if ('goal' in data) this.goal = isObj(data.goal) ? goalOf(data.goal.goal) : null
         const model = data.model
         if (isObj(model) && str(model.provider) && str(model.id)) {
           const next: [string, string] = [model.provider as string, model.id as string]
@@ -324,6 +358,19 @@ export class LiveReducer {
       case 'set_thinking_level':
       case 'set_fast_mode':
         return { type: 'get_state' }
+      // A builtin slash command (e.g. `/handoff`) that ran without an agent turn: its prompt
+      // never echoes back, so the copy shown on send goes.
+      case 'prompt':
+        if (data.agentInvoked === false) {
+          this.dropUnconfirmed(removed)
+          this.handingOff = false
+        }
+        return
+      case 'goal':
+        this.dropGoalRows(removed)
+        this.goal = goalOf(data.goal)
+        if (this.goal === null) this.notice('No goal.', dirty)
+        return
       default:
         return
     }
@@ -392,6 +439,13 @@ export class LiveReducer {
   private dropUnconfirmed(removed: Set<string>): void {
     for (const m of this.msgs) if (unconfirmed(m)) removed.add(m.id)
     this.msgs = this.msgs.filter((m) => !unconfirmed(m))
+  }
+
+  /** `/goal` prompts shown on send: omp answers them with a `goal` response, never an echo. */
+  private dropGoalRows(removed: Set<string>): void {
+    const goalRow = (m: ChatMessage): boolean => unconfirmed(m) && goalCommand(m.text) !== null
+    for (const m of this.msgs) if (goalRow(m)) removed.add(m.id)
+    this.msgs = this.msgs.filter((m) => !goalRow(m))
   }
 
   /** Adds rows before any prompts still waiting for omp, which stay last. */

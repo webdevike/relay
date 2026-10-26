@@ -2,7 +2,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { readBlobImage } from './media'
+import { blobAgentDirs, readBlobImage } from './media'
 
 const PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAHnOcQAAAAABJRU5ErkJggg==',
@@ -35,21 +35,30 @@ describe('readBlobImage', () => {
     fs.writeFileSync(path.join(dir, 'blobs', `${H1}.png`), PNG)
     fs.writeFileSync(path.join(dir, 'blobs', H2), PNG)
     for (const h of [H1, H2]) {
-      const r = readBlobImage(dir, tok(h))
+      const r = readBlobImage([dir], tok(h))
       expect(r.dataUrl).toBe(`data:image/png;base64,${PNG.toString('base64')}`)
       expect([r.width, r.height]).toEqual([1, 1])
     }
   })
 
+  it('finds a blob in a later omp profile store', () => {
+    const profile = path.join(dir, 'profiles', 'personal', 'agent')
+    fs.mkdirSync(path.join(profile, 'blobs'), { recursive: true })
+    fs.writeFileSync(path.join(profile, 'blobs', `${H1}.png`), PNG)
+    const stores = blobAgentDirs(dir, [path.join(profile, 'sessions', '-Eva')])
+    expect(stores).toEqual([dir, profile])
+    expect(readBlobImage(stores, tok(H1)).width).toBe(1)
+  })
+
   it('missing blob is image-not-found', () => {
-    expect(code(() => readBlobImage(dir, tok(H3)))).toBe('image-not-found')
+    expect(code(() => readBlobImage([dir], tok(H3)))).toBe('image-not-found')
   })
 
   it('over 20 MB is image-too-large', () => {
     const f = path.join(dir, 'blobs', `${H3}.png`)
     fs.writeFileSync(f, PNG)
     fs.truncateSync(f, 21 * 1024 * 1024)
-    expect(code(() => readBlobImage(dir, tok(H3)))).toBe('image-too-large')
+    expect(code(() => readBlobImage([dir], tok(H3)))).toBe('image-too-large')
   })
 
   it('non-image bytes are not-an-image', () => {
@@ -57,7 +66,7 @@ describe('readBlobImage', () => {
       path.join(dir, 'blobs', `${H4}.png`),
       '<svg xmlns="http://www.w3.org/2000/svg"/>',
     )
-    expect(code(() => readBlobImage(dir, tok(H4)))).toBe('not-an-image')
+    expect(code(() => readBlobImage([dir], tok(H4)))).toBe('not-an-image')
   })
 
   it('bad tokens never reach the file system', () => {
@@ -68,13 +77,13 @@ describe('readBlobImage', () => {
       '/etc/passwd',
       `${tok(H1)}/..`,
     ]) {
-      expect(code(() => readBlobImage(dir, bad))).toBe('image-not-found')
+      expect(code(() => readBlobImage([dir], bad))).toBe('image-not-found')
     }
   })
 
   it('a symlink escaping the blobs directory is refused', () => {
     fs.writeFileSync(path.join(dir, 'outside.png'), PNG)
     fs.symlinkSync(path.join(dir, 'outside.png'), path.join(dir, 'blobs', `${H1}.png`))
-    expect(code(() => readBlobImage(dir, tok(H1)))).toBe('image-not-found')
+    expect(code(() => readBlobImage([dir], tok(H1)))).toBe('image-not-found')
   })
 })

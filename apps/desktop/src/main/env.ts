@@ -60,6 +60,8 @@ export interface Env {
   canvasSeedDir: string | null
   /** Live only: native EvaOS pins, read once when Relay has no canvas pins of its own. */
   nativeCanvasPins: string | null
+  /** Live only: native EvaOS's chat.json, read once to seed starred models Relay lacks. */
+  nativeChatSettings: string | null
 }
 
 export interface ResolveEnvInput {
@@ -197,6 +199,7 @@ export function resolveEnv(input: ResolveEnvInput): Env {
   const canvasSeedDir =
     !live && !env.EVAOS_CANVAS_DIR ? path.join(repoRoot, 'fixtures/canvases') : null
   const nativeCanvasPins = live ? path.join(nativeDir, 'canvas.json') : null
+  const nativeChatSettings = live ? path.join(nativeDir, 'chat.json') : null
 
   const habitGateBin = env.EVAOS_HABIT_GATE_BIN
     ? env.EVAOS_HABIT_GATE_BIN
@@ -263,6 +266,7 @@ export function resolveEnv(input: ResolveEnvInput): Env {
     canvasDir,
     canvasSeedDir,
     nativeCanvasPins,
+    nativeChatSettings,
     repoRoot,
     cdpPort,
   }

@@ -3,6 +3,7 @@ import {
   BgJobSchema,
   ChatMessageSchema,
   DialogSchema,
+  GoalSchema,
   ModelInfoSchema,
   SessionMetaSchema,
   SubagentSchema,
@@ -102,6 +103,22 @@ export const DialogResponseSchema = z.discriminatedUnion('kind', [
 /** Launch strings end up in omp's argv: no leading `-`, so they can never read as another flag. */
 const LaunchTokenSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$/)
 
+/** One `/` menu entry from omp's `get_available_commands`. */
+export interface SlashCommandShape {
+  name: string
+  description: string
+  hint: string | null
+  subcommands: SlashCommandShape[]
+}
+export const SlashCommandSchema: z.ZodType<SlashCommandShape> = z.lazy(() =>
+  z.object({
+    name: z.string().max(200),
+    description: z.string().max(400),
+    hint: z.string().max(400).nullable(),
+    subcommands: z.array(SlashCommandSchema),
+  }),
+)
+
 export const LaunchPatchSchema = z
   .object({
     model: z.object({
@@ -163,6 +180,11 @@ export const chatInvoke = {
       owner: PaneIdSchema.nullable().optional(),
     }),
   },
+  /** A subagent transcript inside a session's folder, read only (no pane, no process). */
+  'chat.readSubagent': {
+    input: z.object({ file: AbsPathSchema.endsWith('.jsonl') }).strict(),
+    output: z.object({ title: z.string(), messages: z.array(ChatMessageSchema) }),
+  },
   'chat.send': {
     input: z
       .object({
@@ -204,6 +226,8 @@ export const chatInvoke = {
       connected: z.boolean(),
       error: z.string().nullable(),
       dialog: DialogSchema.nullable().optional(),
+      goal: GoalSchema.nullable().optional(),
+      handingOff: z.boolean().optional(),
       sessionFile: z.string().nullable().optional(),
       away: AwaySchema.nullable().optional(),
       title: z.string().optional(),
@@ -264,9 +288,19 @@ export const chatInvoke = {
       .strict(),
     output: z.object({ sent: z.boolean() }),
   },
+  /** The goal strip's buttons: omp's RPC `goal` command; `sent` is false without a local omp. */
+  'chat.goal': {
+    input: z.object({ paneId: PaneIdSchema, op: z.enum(['pause', 'resume', 'drop']) }).strict(),
+    output: z.object({ sent: z.boolean() }),
+  },
   'chat.models': {
     input: z.object({}).strict(),
-    output: z.object({ models: z.array(ModelInfoSchema) }),
+    /** omp's `defaultThinkingLevel` (what a new chat gets), or null when unset. */
+    output: z.object({ models: z.array(ModelInfoSchema), thinking: z.string().nullable() }),
+  },
+  'chat.commands': {
+    input: z.object({}).strict(),
+    output: z.object({ commands: z.array(SlashCommandSchema) }),
   },
   'chat.launchState': {
     input: z.object({ paneId: PaneIdSchema }).strict(),
@@ -301,6 +335,8 @@ export const MetaPatchSchema = z
     contextWindow: z.number().nullable(),
     thinking: z.string().nullable(),
     dialog: DialogSchema.nullable(),
+    goal: GoalSchema.nullable(),
+    handingOff: z.boolean(),
     sessionFile: z.string().nullable(),
     away: AwaySchema.nullable(),
     title: z.string(),
@@ -328,4 +364,6 @@ export const chatEvents = {
   'chat.batch': BatchSchema,
   'chat.listChanged': ChatListSchema,
   'chat.extras': ExtrasSchema,
+  /** A desktop notification was clicked: show this chat. */
+  'chat.openRequested': z.object({ file: z.string() }),
 } as const

@@ -6,8 +6,17 @@
   width: calc(100% - var(--eva-space-native-lg) * 2);
   max-width: var(--eva-chat-column-w);
   margin: var(--eva-space-native-xs) auto 0;
-  overflow-x: auto;
   flex: none;
+}
+/* Chips scroll sideways under edge fades; Clear done sits after it, never scrolled away. */
+.eva-chips-scroller {
+  flex: 1;
+  min-width: 0;
+}
+.eva-chips-content {
+  gap: var(--eva-space-native-xs);
+  /* Room for the focus ring inside the scroller's clip. */
+  padding: 3px;
 }
 .eva-chip {
   display: inline-flex;
@@ -31,6 +40,10 @@
 .eva-chip[data-state='failed'] {
   color: var(--eva-danger);
 }
+.eva-chip[data-active='true'] {
+  border-color: var(--eva-text-dim);
+  background: var(--eva-hover);
+}
 .eva-chip:focus-visible,
 .eva-chips-clear:focus-visible,
 .eva-jobs-head:focus-visible {
@@ -38,19 +51,20 @@
   outline-offset: 1px;
 }
 .eva-chips-clear {
+  flex: none;
   background: none;
   border: 0;
   color: var(--eva-text-dim);
   cursor: pointer;
   padding: 0 var(--eva-space-xs);
+  white-space: nowrap;
 }
-.eva-chips-clear:hover {
+.eva-chips-clear:hover:not(:disabled) {
   color: var(--eva-text);
 }
-.eva-chip-popover {
-  max-width: 320px;
-  padding: var(--eva-space-sm) var(--eva-space-md);
-  overflow-wrap: anywhere;
+.eva-chips-clear:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 .eva-spinner {
   width: 12px;
@@ -116,4 +130,38 @@
 .eva-jobs-elapsed {
   flex: none;
   font-variant-numeric: tabular-nums;
+}
+
+/*
+ * The goal and handoff tab sits on the composer: inset past the frame's rounded corners, open at
+ * the bottom, and flush with the frame's top border (the composer drops its top padding for it).
+ */
+.eva-status-strip.eva-status-strip {
+  flex: none;
+  box-sizing: border-box;
+  width: calc(100% - var(--eva-space-native-lg) * 2 - var(--eva-radius-xl) * 2);
+  max-width: calc(var(--eva-chat-column-w) - var(--eva-radius-xl) * 2);
+  margin: var(--eva-space-native-xs) auto -1px;
+  border: 1px solid var(--eva-border);
+  border-bottom: none;
+  border-radius: var(--eva-radius-xl) var(--eva-radius-xl) 0 0;
+  background: var(--eva-surface);
+}
+.eva-status-strip + .eva-composer {
+  padding-top: 0;
+}
+.eva-status-strip-icon {
+  flex: none;
+  color: var(--eva-text-dim);
+}
+.eva-status-strip-title {
+  flex: none;
+  color: var(--eva-text);
+}
+.eva-status-strip-detail {
+  flex: 1;
+  min-width: 0;
+}
+.eva-status-strip-actions {
+  flex: none;
 }

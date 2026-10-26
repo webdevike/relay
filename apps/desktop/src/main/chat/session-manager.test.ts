@@ -262,6 +262,40 @@ describe('SessionManager', () => {
     vi.useRealTimers()
   })
 
+  it('a /goal send is the RPC goal command, not a prompt; the strip buttons write it too', async () => {
+    const { mgr, transports } = setup()
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    await mgr.send('pane-1', '/goal ship it')
+    const t = transports[0]!
+    expect(t.sent).toEqual([])
+    expect(t.written.at(-1)).toEqual({ type: 'goal', op: 'create', objective: 'ship it' })
+    t.push({ type: 'goal_updated', goal: { objective: 'ship it', status: 'active' } } as never)
+    t.push({
+      type: 'response',
+      command: 'goal',
+      success: true,
+      data: { goal: { objective: 'ship it', status: 'active' } },
+    } as Frame)
+    const snap = mgr.snapshot('pane-1')
+    expect(snap.goal).toEqual({ objective: 'ship it', paused: false, tokensUsed: 0 })
+    expect(snap.messages).toEqual([])
+    expect(await mgr.goal('pane-1', 'pause')).toBe(true)
+    expect(t.written.at(-1)).toEqual({ type: 'goal', op: 'pause' })
+    expect(await mgr.goal('pane-9', 'drop')).toBe(false)
+    vi.useRealTimers()
+  })
+
+  it('/handoff shows as generating until command_output', async () => {
+    const { mgr, transports } = setup()
+    mgr.open('pane-1', '/s/a.jsonl', [], meta)
+    await mgr.send('pane-1', '/handoff')
+    expect(transports[0]!.sent).toEqual(['/handoff'])
+    expect(mgr.snapshot('pane-1').handingOff).toBe(true)
+    transports[0]!.push({ type: 'command_output', text: 'Handoff saved' } as never)
+    expect(mgr.snapshot('pane-1').handingOff).toBe(false)
+    vi.useRealTimers()
+  })
+
   it('a second send during spawn waits for the same start and keeps prompt order', async () => {
     let release!: () => void
     const gate = new Promise<void>((r) => {

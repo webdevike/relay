@@ -25,7 +25,7 @@ beforeEach(() => {
   invoke.mockReset()
   handlers.length = 0
   unsub.mockReset()
-  invoke.mockResolvedValue({ ok: true, value: { openTodos: 1, scheduledJobs: 0, recent: [] } })
+  invoke.mockResolvedValue({ ok: true, value: { openTodos: 1, scheduledJobs: 0 } })
   resetSidebarForTests()
   resetReloadForTests()
 })

@@ -14,6 +14,7 @@ import {
   windowLevel,
   windowReset,
 } from './usage-look'
+import { ProviderIcon } from '../brand/ProviderIcon'
 import { refreshUsage, useUsage } from './usage-store'
 import './usage.css'
 
@@ -189,7 +190,9 @@ export function UsageMeter() {
             if (accounts.length === 0) return null
             return (
               <div key={provider} className="eva-usage-group">
-                <span className="eva-usage-provider">{PROVIDER_NAME[provider]}</span>
+                <span className="eva-usage-provider">
+                  <ProviderIcon provider={provider} />
+                </span>
                 {accounts.map((a) => (
                   <AccountItem
                     key={a.key}

@@ -1,12 +1,14 @@
 // The connection to Relay, kept up in the background and retried while Relay is down, ported from
 // relay.rs (keep_connected, run_connection). One connection: read the port from serve.json, open
 // ws://127.0.0.1:<port>/relay, pair through devices.json, say hello, answer the challenge, then
-// keep the session list from `welcome`, `agents.snapshot` and `agents.delta`, pinging every 10 s
-// (Relay drops a peer that is quiet for a minute). Any failure drops the list and retries in 3 s.
+// keep the session list from `welcome`, `agents.snapshot` and `agents.delta` and the boards from
+// `board.snapshot` and `board.delta`, pinging every 10 s (Relay drops a peer that is quiet for a
+// minute). Any failure drops both lists and retries in 3 s.
 //
 // Subscriptions outlive a connection: each new one subscribes again (native `remember`). A command
 // cannot wait for one: sent while Relay is down it fails at once, and one in flight when the
 // connection drops fails with it.
+import type { Board } from '@evaos/contract'
 import {
   Feed,
   RelayRefused,
@@ -55,7 +57,7 @@ export interface RelaySource {
 }
 
 /** What a subscribed session says: its streamed reply, its questions and approvals. */
-export type RelaySessionEvent = Exclude<FeedEvent, { kind: 'sessions' | 'ack' | 'nack' }>
+export type RelaySessionEvent = Exclude<FeedEvent, { kind: 'sessions' | 'ack' | 'nack' | 'boards' }>
 
 /** Relay as the chat pane drives it: the session list, subscriptions and commands. */
 export interface RelayLink extends RelaySource {
@@ -65,6 +67,10 @@ export interface RelayLink extends RelaySource {
   /** Resolves once Relay carried the command out; rejects with a RelayCommandError. */
   command(cmd: RelayCommand): Promise<void>
   onEvent(cb: (e: RelaySessionEvent) => void): () => void
+  /** The host's dashboards by title while connected; null until Relay sends them and while down. */
+  boards(): readonly Board[] | null
+  /** Called after every change of the boards, including Relay going down. */
+  onBoardsChange(cb: () => void): () => void
 }
 
 /**
@@ -135,12 +141,14 @@ export class RelayClient implements RelayLink {
   private readonly commandTimeoutMs: number
   private readonly now: () => number
   private readonly listeners = new Set<() => void>()
+  private readonly boardListeners = new Set<() => void>()
   private readonly eventListeners = new Set<(e: RelaySessionEvent) => void>()
   private readonly subscriptions = new Set<string>()
   /** Commands sent on this connection, by id, until Relay answers. */
   private readonly pending = new Map<string, Pending>()
   private commands = 0
   private list: ReadonlyMap<string, RelaySession> | null = null
+  private boardList: readonly Board[] | null = null
   private reason: string | null = null
   private socket: RelaySocket | null = null
   private feed: Feed | null = null
@@ -161,6 +169,15 @@ export class RelayClient implements RelayLink {
 
   sessions(): ReadonlyMap<string, RelaySession> | null {
     return this.list
+  }
+
+  boards(): readonly Board[] | null {
+    return this.boardList
+  }
+
+  onBoardsChange(cb: () => void): () => void {
+    this.boardListeners.add(cb)
+    return () => this.boardListeners.delete(cb)
   }
 
   /** Why Relay is down, while it is (null before the first attempt ends and while connected). */
@@ -217,6 +234,7 @@ export class RelayClient implements RelayLink {
     this.retryTimer = undefined
     this.drop(NOT_CONNECTED)
     this.setList(null)
+    this.setBoards(null)
   }
 
   private async connect(): Promise<void> {
@@ -277,6 +295,9 @@ export class RelayClient implements RelayLink {
         case 'sessions':
           this.setList(new Map(event.sessions.map((s) => [s.id, s])))
           break
+        case 'boards':
+          this.setBoards(event.boards)
+          break
         case 'ack':
         case 'nack': {
           const p = this.pending.get(event.id)
@@ -306,6 +327,7 @@ export class RelayClient implements RelayLink {
     this.drop(reason)
     this.reason = reason
     this.setList(null)
+    this.setBoards(null)
     if (this.started && !this.retryTimer) {
       this.retryTimer = setTimeout(() => void this.connect(), this.retryMs)
     }
@@ -332,6 +354,12 @@ export class RelayClient implements RelayLink {
     this.list = list
     for (const cb of this.listeners) cb()
   }
+
+  private setBoards(boards: readonly Board[] | null): void {
+    if (boards === null && this.boardList === null) return
+    this.boardList = boards
+    for (const cb of this.boardListeners) cb()
+  }
 }
 
 /** A Relay that is never connected: fixtures and e2e, unless a test sets sessions. */
@@ -349,6 +377,15 @@ export class StaticRelay implements RelayLink {
   }
 
   onEvent(): () => void {
+    return () => undefined
+  }
+
+  /** Never connected, so never any boards. */
+  boards(): readonly Board[] | null {
+    return null
+  }
+
+  onBoardsChange(): () => void {
     return () => undefined
   }
 

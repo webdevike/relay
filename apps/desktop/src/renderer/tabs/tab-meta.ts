@@ -1,6 +1,7 @@
 import type { Place } from '@evaos/shell-core'
 import {
   agentTitle,
+  boardTitle,
   canvasTitle,
   chatTitle,
   meetingTitle,
@@ -47,6 +48,10 @@ export function tabTitle(place: Place): string {
     const id = place.page.slice('agent:'.length)
     return agentTitle(id) ?? id
   }
+  if (place.page.startsWith('board:')) {
+    const slug = place.page.slice('board:'.length)
+    return boardTitle(slug) ?? slug
+  }
   if (place.page === 'meetings' && place.meeting)
     return meetingTitle(place.meeting) ?? place.meeting
   if (place.page === 'canvas' && place.canvas) return canvasTitle(place.canvas) ?? place.canvas
@@ -56,5 +61,6 @@ export function tabTitle(place: Place): string {
 export function tabIconName(place: Place): string {
   if (place.page.startsWith('workspace:')) return 'IconFolder'
   if (place.page.startsWith('agent:')) return 'IconMessage'
+  if (place.page.startsWith('board:')) return 'IconLayoutDashboard'
   return ICONS[place.page] ?? 'IconFile'
 }

@@ -391,10 +391,12 @@ describe('contract', () => {
         'delete',
         'openDraft',
         'answerUi',
+        'goal',
         'models',
         'launchState',
         'setLaunch',
         'readImage',
+        'readSubagent',
         'harnessStatus',
       ]) {
         expect(INVOKE_CHANNELS).toContain(`chat.${c}`)
@@ -417,6 +419,11 @@ describe('contract', () => {
         }).success,
       ).toBe(false)
       expect(send.safeParse({ paneId: 'p', text: 'x', force: true }).success).toBe(true)
+    })
+    it('chat.goal takes only the strip ops', () => {
+      const g = invokeContract['chat.goal'].input
+      expect(g.safeParse({ paneId: 'p', op: 'pause' }).success).toBe(true)
+      expect(g.safeParse({ paneId: 'p', op: 'create' }).success).toBe(false)
     })
     it('chat.rename validates and trims', () => {
       const r = invokeContract['chat.rename'].input
@@ -504,6 +511,13 @@ describe('contract', () => {
       expect(r.safeParse({ token: 'blob:sha256:XYZ' }).success).toBe(false)
       expect(r.safeParse({ token: '../../etc/passwd' }).success).toBe(false)
       expect(r.safeParse({ token: 'blob:sha256:' + 'a0'.repeat(32) }).success).toBe(true)
+    })
+    it('chat.readSubagent only takes absolute .jsonl paths', () => {
+      const r = invokeContract['chat.readSubagent'].input
+      expect(r.safeParse({ file: '/s/a/sub.jsonl' }).success).toBe(true)
+      expect(r.safeParse({ file: 'a/sub.jsonl' }).success).toBe(false)
+      expect(r.safeParse({ file: '/s/a/sub.txt' }).success).toBe(false)
+      expect(r.safeParse({ file: '/s/a/sub.jsonl', paneId: 'p' }).success).toBe(false)
     })
     it('chat.answerUi accepts each response kind and rejects unknown', () => {
       const a = invokeContract['chat.answerUi'].input

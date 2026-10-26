@@ -14,6 +14,8 @@ export interface ChatSettings {
   show_thinking: boolean
   show_tools: boolean
   harness: 'omp' | 'claude'
+  /** Starred models as `provider/id`, in star order; shared with native EvaOS. */
+  favorite_models: string[]
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
@@ -38,10 +40,12 @@ export function loadSettings(config: ConfigStore): ChatSettings {
       break
     }
   }
+  const favorites = files.map((f) => f['favorite_models']).find(Array.isArray) ?? []
   return {
     show_thinking: pickBool('show_thinking', files, false),
     show_tools: pickBool('show_tools', files, false),
     harness,
+    favorite_models: favorites.filter((s): s is string => typeof s === 'string'),
   }
 }
 
@@ -50,6 +54,25 @@ export function saveSettings(config: ConfigStore, patch: Partial<ChatSettings>):
   const existing = config.readForMerge(CHAT_FILE)
   config.writeJson(CHAT_FILE, { ...existing, ...patch })
   return loadSettings(config)
+}
+
+/**
+ * Once: when chat.json has no `favorite_models` key, copies native EvaOS's starred models from its
+ * chat.json (`nativeFile`, read only). An existing key, even an empty list, is left alone.
+ */
+export function seedFavorites(config: ConfigStore, nativeFile: string | null): void {
+  if (!nativeFile || 'favorite_models' in config.readForMerge(CHAT_FILE)) return
+  let native: unknown
+  try {
+    native = JSON.parse(fs.readFileSync(nativeFile, 'utf8'))
+  } catch {
+    return
+  }
+  const list = isRecord(native) ? native['favorite_models'] : undefined
+  if (!Array.isArray(list)) return
+  saveSettings(config, {
+    favorite_models: list.filter((s): s is string => typeof s === 'string'),
+  })
 }
 
 function exists(p: string): boolean {
@@ -61,6 +84,12 @@ function exists(p: string): boolean {
 }
 
 export function registerSettingsIpc(ctx: MainContext, queue: WriteQueue): void {
+  // Before any load or save is served, so the first load already sees the seed.
+  try {
+    seedFavorites(ctx.config, ctx.env.nativeChatSettings)
+  } catch (e) {
+    console.warn('[settings] could not seed starred models', e)
+  }
   handle(ctx, 'settings.load', () => loadSettings(ctx.config))
   handle(ctx, 'settings.save', (patch) => queue.enqueue(() => saveSettings(ctx.config, patch)))
   handle(ctx, 'chat.harnessStatus', () => ({

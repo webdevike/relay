@@ -44,6 +44,12 @@ class FakeLink implements RelayLink {
     this.listeners.add(cb)
     return () => this.listeners.delete(cb)
   }
+  boards() {
+    return null
+  }
+  onBoardsChange() {
+    return () => undefined
+  }
   subscribe(id: string) {
     this.subs.add(id)
     this.log.push(`subscribe ${id}`)

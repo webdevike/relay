@@ -50,6 +50,7 @@ export const ChatSettingsSchema = z.object({
   show_thinking: z.boolean(),
   show_tools: z.boolean(),
   harness: z.enum(['omp', 'claude']),
+  favorite_models: z.array(z.string().min(1).max(400)).max(500),
 })
 export type ChatSettings = z.infer<typeof ChatSettingsSchema>
 

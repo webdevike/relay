@@ -163,6 +163,7 @@ describe('resolveEnv', () => {
     expect(e.canvasDir).toBe('/tmp/evaos-electron-dev-42/canvases')
     expect(e.canvasSeedDir).toBe('/repo/fixtures/canvases')
     expect(e.nativeCanvasPins).toBeNull()
+    expect(e.nativeChatSettings).toBeNull()
   })
 
   it('shares the native EvaOS canvas folder and pins when live', () => {
@@ -170,6 +171,7 @@ describe('resolveEnv', () => {
     expect(e.canvasDir).toBe('/home/u/Library/Application Support/EvaOS/canvases')
     expect(e.canvasSeedDir).toBeNull()
     expect(e.nativeCanvasPins).toBe('/home/u/Library/Application Support/EvaOS/canvas.json')
+    expect(e.nativeChatSettings).toBe('/home/u/Library/Application Support/EvaOS/chat.json')
   })
 
   it('EVAOS_CANVAS_DIR wins without seeding, and the real folder needs EVAOS_LIVE', () => {

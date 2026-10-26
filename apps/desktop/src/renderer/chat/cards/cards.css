@@ -4,6 +4,9 @@
   width: calc(100% - var(--eva-space-native-lg) * 2);
   max-width: var(--eva-chat-column-w);
   margin: var(--eva-space-native-xs) auto 0;
+  max-height: 60vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .eva-question {
   display: flex;
@@ -17,53 +20,10 @@
 .eva-question[data-dead='true'] {
   opacity: 0.6;
 }
-.eva-question-block {
-  display: flex;
-  flex-direction: column;
-  gap: var(--eva-space-sm);
-}
-.eva-question-header {
-  margin: 0;
-}
 .eva-question-text {
   color: var(--eva-text);
   overflow-wrap: anywhere;
   white-space: pre-wrap;
-}
-.eva-question-options {
-  display: flex;
-  flex-direction: column;
-  gap: var(--eva-space-native-sm);
-}
-.eva-question-option {
-  display: flex;
-  align-items: center;
-  gap: var(--eva-space-native-sm);
-  min-height: var(--eva-control-sm);
-  padding: var(--eva-space-native-sm) var(--eva-space-md);
-  background: var(--eva-bg);
-  color: var(--eva-text);
-  border: 1px solid var(--eva-border);
-  border-radius: var(--eva-radius);
-  font-family: var(--eva-font-ui);
-  font-size: var(--eva-fz-body);
-  line-height: var(--eva-lh-body);
-  text-align: left;
-  cursor: pointer;
-}
-.eva-question-option:hover:not(:disabled) {
-  background: var(--eva-surface-2);
-}
-.eva-question-option:disabled {
-  cursor: default;
-}
-.eva-question-option[data-selected='true'],
-.eva-question-option:focus-visible {
-  outline: 2px solid var(--eva-c-ring);
-  outline-offset: -1px;
-}
-.eva-question-label {
-  overflow-wrap: anywhere;
 }
 .eva-question-desc {
   margin-left: auto;
@@ -85,6 +45,23 @@
 .eva-question-actions {
   display: flex;
   gap: var(--eva-space-sm);
+}
+/* QuestionCard option rows (Mantine UnstyledButton). */
+.eva-question-option {
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+}
+.eva-question-option:hover:not(:disabled) {
+  background: var(--mantine-color-default-hover);
+}
+.eva-question-option[data-selected='true'] {
+  border-color: var(--mantine-primary-color-filled);
+  background: var(--mantine-primary-color-light);
+}
+.eva-question-option:focus-visible {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: -1px;
 }
 .eva-card-button {
   min-height: var(--eva-kit-control-md);

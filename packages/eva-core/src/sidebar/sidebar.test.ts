@@ -3,7 +3,6 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { countOpenTodos } from './todos'
 import { jobScheduled, parseDurationMs } from './jobs'
-import { recentJournal } from './journal'
 import { readSidebar } from './read'
 
 const root = join(__dirname, '../../../../fixtures/eva-root')
@@ -45,35 +44,16 @@ describe('jobScheduled', () => {
   })
 })
 
-describe('recentJournal', () => {
-  it('returns newest first without digest', () => {
-    const r = recentJournal(readFileSync(join(root, 'memory/journal.md'), 'utf8'))
-    expect(r.map((e) => e.date)).toEqual(['2026-10-03', '2026-10-02', '2026-10-01'])
-    expect(r[0]).toEqual({ date: '2026-10-03', tag: 'alpha', title: 'third fixture entry' })
-  })
-  it('caps at 8 and allows missing tag', () => {
-    const t = Array.from(
-      { length: 10 },
-      (_, i) => `## 2026-10-${String(i + 1).padStart(2, '0')} t${i}`,
-    ).join('\n')
-    const r = recentJournal(t)
-    expect(r).toHaveLength(8)
-    expect(r[0]!.tag).toBeNull()
-  })
-})
-
 describe('readSidebar', () => {
   it('reads the fixture', () => {
     const s = readSidebar(root)
     expect(s.openTodos).toBe(2)
     expect(s.scheduledJobs).toBe(1)
-    expect(s.recent).toHaveLength(3)
   })
   it('tolerates a missing root', () => {
     expect(readSidebar('/nonexistent-eva-root')).toEqual({
       openTodos: 0,
       scheduledJobs: 0,
-      recent: [],
     })
   })
 })

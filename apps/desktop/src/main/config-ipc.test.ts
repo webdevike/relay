@@ -13,7 +13,7 @@ vi.mock('electron', () => ({
 import { createConfigStore, type ConfigStore } from './config-store'
 import { loadLayout, saveLayout } from './layout-ipc'
 import { loadTheme, readLastBackground, saveLastBackground, saveTheme } from './theme-ipc'
-import { loadSettings, saveSettings } from './settings-ipc'
+import { loadSettings, saveSettings, seedFavorites } from './settings-ipc'
 import { createWriteQueue } from './write-queue'
 
 let dir: string
@@ -99,12 +99,21 @@ describe('settings', () => {
       show_thinking: false,
       show_tools: false,
       harness: 'omp',
+      favorite_models: [],
     })
   })
   it('chat.json wins, settings.json fills missing keys', () => {
-    fs.writeFileSync(path.join(dir, 'chat.json'), '{"show_thinking":true,"chat_categories":["X"]}')
+    fs.writeFileSync(
+      path.join(dir, 'chat.json'),
+      '{"show_thinking":true,"chat_categories":["X"],"favorite_models":["a/b",3]}',
+    )
     fs.writeFileSync(path.join(dir, 'settings.json'), '{"show_tools":false,"show_thinking":false}')
-    expect(loadSettings(config)).toEqual({ show_thinking: true, show_tools: false, harness: 'omp' })
+    expect(loadSettings(config)).toEqual({
+      show_thinking: true,
+      show_tools: false,
+      harness: 'omp',
+      favorite_models: ['a/b'],
+    })
   })
   it('save writes chat.json, keeps unknown keys, never touches settings.json', () => {
     fs.writeFileSync(path.join(dir, 'chat.json'), '{"chat_categories":["X"],"zoom":2}')
@@ -114,6 +123,7 @@ describe('settings', () => {
       show_thinking: false,
       show_tools: false,
       harness: 'claude',
+      favorite_models: [],
     })
     expect(read('chat.json')).toEqual({ chat_categories: ['X'], zoom: 2, harness: 'claude' })
     expect(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8')).toBe(legacy)
@@ -125,7 +135,33 @@ describe('settings', () => {
       show_thinking: true,
       show_tools: false,
       harness: 'omp',
+      favorite_models: [],
     })
+  })
+  it('seeds starred models once from native EvaOS when chat.json has no key', () => {
+    const native = path.join(dir, 'native.json')
+    const nativeText = '{"favorite_models":["anthropic/claude-opus-5-5","x/y"],"zoom":3}'
+    fs.writeFileSync(native, nativeText)
+    fs.writeFileSync(path.join(dir, 'chat.json'), '{"harness":"claude"}')
+    seedFavorites(config, native)
+    expect(read('chat.json')).toEqual({
+      harness: 'claude',
+      favorite_models: ['anthropic/claude-opus-5-5', 'x/y'],
+    })
+    // The native file is only read.
+    expect(fs.readFileSync(native, 'utf8')).toBe(nativeText)
+  })
+  it('leaves an existing favorite_models key alone, even an empty one', () => {
+    const native = path.join(dir, 'native.json')
+    fs.writeFileSync(native, '{"favorite_models":["a/b"]}')
+    fs.writeFileSync(path.join(dir, 'chat.json'), '{"favorite_models":[]}')
+    seedFavorites(config, native)
+    expect(read('chat.json')).toEqual({ favorite_models: [] })
+    // No native file (dev, tests) or an unreadable one: nothing is written.
+    fs.rmSync(path.join(dir, 'chat.json'))
+    seedFavorites(config, null)
+    seedFavorites(config, path.join(dir, 'missing.json'))
+    expect(fs.existsSync(path.join(dir, 'chat.json'))).toBe(false)
   })
   it('a corrupt chat.json is backed up and the save still succeeds', () => {
     fs.writeFileSync(path.join(dir, 'chat.json'), '{broken')

@@ -31,27 +31,24 @@ const viewVisible = (app: ElectronApplication): Promise<boolean> =>
 const level = (shell: Page): Promise<string | null> =>
   shell.locator(sel('sidebar')).getAttribute('data-sidebar-level')
 
-test('nav rows, counts and recent items come from the fixture root', async ({ shell }) => {
+test('nav rows and counts come from the fixture root', async ({ shell }) => {
   const ids = await shell.$$eval('[data-testid=sidebar-main] [data-testid^="nav-"]', (els) =>
     els.map((e) => e.getAttribute('data-testid')),
   )
+  // Fixture runs have no Relay, so Dashboards holds only the built-in Overview.
   expect(ids).toEqual([
     'nav-assistants',
-    'nav-dashboard',
     'nav-chat',
     'nav-canvas',
     'nav-test-bench',
     'nav-jobs',
     'nav-habits',
     'nav-meetings',
+    'nav-dashboard',
     'nav-setting',
   ])
   await expect(shell.locator(sel('nav-dashboard'))).toHaveAttribute('data-active', 'true')
   await expect(shell.locator(sel('count-jobs'))).toHaveText('1')
-  await expect(shell.locator(sel('recent-item'))).toHaveCount(3)
-  for (const t of await shell.$$eval(sel('recent-item'), (els) => els.map((e) => e.textContent))) {
-    expect((t ?? '').length).toBeGreaterThan(0)
-  }
 })
 
 test('plain click replaces, cmd-click opens a tab, pinned opens another', async ({ shell }) => {
@@ -126,25 +123,15 @@ test('settings sub-page opens a settings section', async ({ shell }) => {
   await expect(shell.locator(sel('settings-item-chat'))).toHaveAttribute('data-active', 'true')
 })
 
-test('search focus, filter, hide and show with Cmd+F, reload action', async ({ shell }) => {
-  await shell.locator(sel('sidebar-main')).click({ position: { x: 10, y: 5 } })
-  await shell.keyboard.press('Meta+f')
-  await expect(shell.locator(sel('sidebar-search'))).toBeFocused()
-  await shell.keyboard.type('second')
-  await expect(shell.locator(sel('recent-item'))).toHaveCount(1)
-  await shell.locator(sel('sidebar-search')).fill('zzzzqq')
-  await expect(shell.getByText('No recent items match your search')).toBeVisible()
-  await shell.keyboard.press('Escape')
-  await expect(shell.locator(sel('sidebar-search'))).toHaveValue('')
-  await shell.keyboard.press('Escape')
-  await expect(shell.locator(sel('sidebar-search'))).not.toBeFocused()
-  await expect(shell.locator(sel('recent-item'))).toHaveCount(3)
+test('hide and show with Cmd+F, reload action', async ({ shell }) => {
+  await shell.locator(sel('nav-chat')).click()
+  await expect.poll(() => level(shell)).toBe('chats')
 
   await shell.keyboard.press('Meta+b')
   await expect(shell.locator(sel('shell'))).toHaveAttribute('data-sidebar-state', 'hidden')
   await shell.keyboard.press('Meta+f')
   await expect(shell.locator(sel('shell'))).toHaveAttribute('data-sidebar-state', 'open')
-  await expect(shell.locator(sel('sidebar-search'))).toBeFocused()
+  await expect(shell.locator(sel('sidebar-sub-search'))).toBeFocused()
 
   await shell.keyboard.press('Meta+r')
   await expect

@@ -176,7 +176,7 @@ describe('tabs', () => {
         { here: { page: 'inbox' } },
         {
           here: { page: 'jobs' },
-          back: [{ page: 'dashboard' }, { page: 'tasks' }, { page: 'board:ops' }],
+          back: [{ page: 'dashboard' }, { page: 'tasks' }, { page: 'calendar' }],
           forward: [{ page: 'help' }, { page: 'habits' }],
         },
         { here: { page: 'meetings' } },
@@ -186,7 +186,7 @@ describe('tabs', () => {
     expect(activeTab(tabs).here.page).toBe('jobs')
     expect(activeTab(tabs).back.map((place) => place.page)).toEqual(['dashboard'])
     expect(activeTab(tabs).forward.map((place) => place.page)).toEqual(['habits'])
-    expect(heres(loadTabs({ list: [{ here: { page: 'board:ops' } }] }))).toEqual(['dashboard'])
+    expect(heres(loadTabs({ list: [{ here: { page: 'memory' } }] }))).toEqual(['dashboard'])
   })
 
   it('load never throws and falls back to Dashboard', () => {

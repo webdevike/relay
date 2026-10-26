@@ -6,6 +6,7 @@ import { CodeBlock } from './CodeBlock'
 import { openLink } from '../../navigation/open-link'
 import { OpenUIBlock, WidgetBlock } from '../widgets/Widget'
 import { WidgetFrame, WidgetFramePending } from '../widgets/WidgetFrame'
+import { mediaUrl } from '../widgets/media-url'
 
 type Element = NonNullable<ExtraProps['node']>
 type ElementContent = Element['children'][number]
@@ -127,6 +128,11 @@ const components: Components = {
       <table>{children}</table>
     </div>
   ),
+  // Drops, http(s) URLs and local files all load through main's relay-media protocol, like widgets.
+  img: ({ src, alt }) =>
+    typeof src === 'string' && src !== '' ? (
+      <img src={mediaUrl(src)} alt={alt ?? ''} draggable={false} />
+    ) : null,
 }
 
 const PLUGINS = [remarkGfm]

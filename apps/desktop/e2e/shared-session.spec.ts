@@ -212,6 +212,7 @@ test('an outside session streams live and takes replies, stop, answers, model an
   // 9. The model picker switches it through Relay.
   host.upsert({ id: 'p4-ecard', status: 'idle' })
   await shell.locator(sel('composer-model')).click()
+  await shell.locator(sel('model-tab-fake')).click()
   await shell.locator(sel('model-option-fake-text-only')).click()
   await expect
     .poll(() => host.commands.find((c) => c.cmd.kind === 'agent.configure')?.cmd)

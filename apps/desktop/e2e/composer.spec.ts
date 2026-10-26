@@ -69,7 +69,10 @@ test('toolbar: model, context ring, access restart, images flag', async ({ app, 
   // 1. Model picker: pick another model, set_model reaches omp and the label follows get_state.
   const model = shell.locator(sel('composer-model'))
   await model.click()
+  // Each provider has a tab; nothing is starred in a fresh config.
+  await shell.locator(sel('model-tab-fake')).click()
   await expect(shell.locator(sel('model-option-fake-text-only'))).toBeVisible()
+  await shell.locator(sel('model-tab-anthropic')).click()
   await expect(shell.locator(sel('model-option-anthropic-claude-opus-5-5'))).toBeVisible()
   await proofShot(app, shell, 'composer-model-picker', { phase: 'phase-4' })
   await shell.locator(sel('model-option-anthropic-claude-opus-5-5')).click()
@@ -106,6 +109,7 @@ test('toolbar: model, context ring, access restart, images flag', async ({ app, 
 
   // 5. A model without image support disables attaching.
   await model.click()
+  await shell.locator(sel('model-tab-fake')).click()
   await shell.locator(sel('model-option-fake-text-only')).click()
   await expect(shell.getByRole('button', { name: 'Attach image' })).toHaveAttribute(
     'aria-disabled',

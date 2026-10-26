@@ -8,7 +8,6 @@ import { startReload } from '../reload/reload'
 import { layoutStore, resetLayoutStoreForTests } from '../shell/layout-store'
 import {
   countLabel,
-  filterRecent,
   refreshSidebar,
   resetSidebarForTests,
   sidebarStore,
@@ -28,7 +27,6 @@ const ok = {
   value: {
     openTodos: 2,
     scheduledJobs: 1,
-    recent: [{ date: '2026-01-01', tag: 'x', title: 'Alpha' }],
   },
 }
 
@@ -46,7 +44,6 @@ describe('sidebar store', () => {
     await refreshSidebar()
     expect(invoke).toHaveBeenCalledTimes(1)
     expect(sidebarStore.getState().openTodos).toBe(2)
-    expect(sidebarStore.getState().recent).toHaveLength(1)
     window.dispatchEvent(new Event('focus'))
     await refreshSidebar()
     expect(invoke).toHaveBeenCalledTimes(2)
@@ -58,7 +55,7 @@ describe('sidebar store', () => {
   it('error hides counts and clears on a later success', async () => {
     invoke.mockResolvedValueOnce({ ok: false, error: 'x' })
     await refreshSidebar()
-    expect(sidebarStore.getState()).toMatchObject({ error: true, openTodos: 0, recent: [] })
+    expect(sidebarStore.getState()).toMatchObject({ error: true, openTodos: 0 })
     await refreshSidebar()
     expect(sidebarStore.getState().error).toBe(false)
   })
@@ -82,16 +79,6 @@ describe('sidebar store', () => {
     await refreshSidebar()
     expect(invoke).toHaveBeenCalledTimes(1)
     stop()
-  })
-
-  it('filterRecent is case-insensitive over title and tag and keeps order', () => {
-    const r = [
-      { date: 'a', tag: 'Ops', title: 'One' },
-      { date: 'b', tag: null, title: 'two OPS' },
-      { date: 'c', tag: null, title: 'three' },
-    ]
-    expect(filterRecent(r, '')).toHaveLength(3)
-    expect(filterRecent(r, 'ops').map((x) => x.date)).toEqual(['a', 'b'])
   })
 
   it('countLabel formats', () => {

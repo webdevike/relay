@@ -1,7 +1,14 @@
 import { useStore } from 'zustand'
 import { createStore } from 'zustand/vanilla'
 import type { AwayView } from '@evaos/chat-core/batcher'
-import type { BgJob, ChatMessage, Dialog, SessionMeta, Subagent } from '@evaos/chat-core/message'
+import type {
+  BgJob,
+  ChatMessage,
+  Dialog,
+  Goal,
+  SessionMeta,
+  Subagent,
+} from '@evaos/chat-core/message'
 import type { Extras, Op } from '@evaos/contract'
 
 export interface PaneExtras {
@@ -38,6 +45,10 @@ export interface PaneState {
   dialog: Dialog | null
   /** A question that was open when omp exited unanswered: shown dimmed until a new one or a restart. */
   deadDialog: Dialog | null
+  /** omp's goal while active or paused, shown in the strip over the composer. */
+  goal: Goal | null
+  /** A `/handoff` is generating. */
+  handingOff: boolean
   contextWindow: number | null
   thinking: string | null
   /** Set when a draft got its session file from omp; the tab place follows it. */
@@ -82,6 +93,8 @@ export interface ChatState {
       connected: boolean
       error: string | null
       dialog?: Dialog | null
+      goal?: Goal | null
+      handingOff?: boolean
       sessionFile?: string | null
       away?: AwayView | null
       title?: string
@@ -121,6 +134,8 @@ export function applyOpsToPane(pane: PaneState, ops: Op[], seq: number): PaneSta
     dismissedError,
     dialog,
     deadDialog,
+    goal,
+    handingOff,
     contextWindow,
     thinking,
     file,
@@ -153,6 +168,8 @@ export function applyOpsToPane(pane: PaneState, ops: Op[], seq: number): PaneSta
       }
       if (p.dialog !== undefined) dialog = p.dialog
       if (dialog !== null) deadDialog = null
+      if (p.goal !== undefined) goal = p.goal
+      if (p.handingOff !== undefined) handingOff = p.handingOff
       if (p.contextWindow !== undefined) contextWindow = p.contextWindow
       if (p.thinking !== undefined) thinking = p.thinking
       if (typeof p.sessionFile === 'string' && file === '') {
@@ -183,6 +200,8 @@ export function applyOpsToPane(pane: PaneState, ops: Op[], seq: number): PaneSta
     dismissedError,
     dialog,
     deadDialog,
+    goal,
+    handingOff,
     contextWindow,
     thinking,
     boundTo,
@@ -228,6 +247,8 @@ export const chatStore = createStore<ChatState>((set) => ({
           dismissedError: null,
           dialog: null,
           deadDialog: null,
+          goal: null,
+          handingOff: false,
           contextWindow: null,
           thinking: data.meta.thinking ?? null,
           boundTo: null,
@@ -266,6 +287,8 @@ export const chatStore = createStore<ChatState>((set) => ({
           dismissedError: dismissed ? p.dismissedError : null,
           dialog,
           deadDialog,
+          goal: snap.goal !== undefined ? snap.goal : p.goal,
+          handingOff: snap.handingOff ?? p.handingOff,
           thinking: snap.meta.thinking ?? p.thinking,
           contextWindow: snap.meta.contextWindow ?? p.contextWindow,
           away: snap.away !== undefined ? snap.away : p.away,

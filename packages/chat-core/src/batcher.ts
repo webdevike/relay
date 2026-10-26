@@ -1,4 +1,4 @@
-import type { ChatMessage, Dialog, SessionMeta } from './message'
+import type { ChatMessage, Dialog, Goal, SessionMeta } from './message'
 
 /** A chat omp runs outside this app, driven through Relay; `job` when Eva's job launcher started it. */
 export type AwayView = { job: boolean }
@@ -13,6 +13,10 @@ export type MetaPatch = {
   contextWindow?: number | null
   thinking?: string | null
   dialog?: Dialog | null
+  /** omp's goal while active or paused. */
+  goal?: Goal | null
+  /** A `/handoff` is generating; omp sends no progress, only its final `command_output`. */
+  handingOff?: boolean
   sessionFile?: string | null
   away?: AwayView | null
   /** The session's name, once omp or Relay has one. */
@@ -37,6 +41,8 @@ export interface Snapshot {
   connected: boolean
   error: string | null
   dialog?: Dialog | null
+  goal?: Goal | null
+  handingOff?: boolean
   sessionFile?: string | null
   away?: AwayView | null
   title?: string
@@ -44,7 +50,15 @@ export interface Snapshot {
 
 export type SnapshotState = Pick<
   Snapshot,
-  'running' | 'connected' | 'error' | 'dialog' | 'sessionFile' | 'away' | 'title'
+  | 'running'
+  | 'connected'
+  | 'error'
+  | 'dialog'
+  | 'goal'
+  | 'handingOff'
+  | 'sessionFile'
+  | 'away'
+  | 'title'
 >
 
 /** Coalesces ops between flushes (last upsert per id wins) and stamps each non-empty batch with seq + 1. */

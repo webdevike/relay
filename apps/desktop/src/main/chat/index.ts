@@ -1,9 +1,12 @@
 import * as os from 'node:os'
+import { Notification } from 'electron'
 import type { MainContext } from '../context'
+import { ChatAlertTracker, type ChatAlert } from './chat-alerts'
 import { registerAssistantsIpc } from '../assistants/assistants-ipc'
 import { emit } from '../ipc/handle'
 import { startRelay } from '../relay'
 import { awaySignature } from '../relay/away'
+import { registerBoardsIpc } from '../relay/boards-ipc'
 import type { WriteQueue } from '../write-queue'
 import { AUTO_SETTLE_DAYS } from './chat-order'
 import { ChatListService, chatSessionsDirs } from './chat-list'
@@ -54,10 +57,35 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     liveStatus: (file) => manager.liveStatus(file),
     relay: () => relay.sessions(),
   })
-  const emitList = (): void => emit(ctx, 'chat.listChanged', list.list())
+  const alerts = new ChatAlertTracker()
+  // Held until closed or clicked: a collected Notification loses its click handler on macOS.
+  const shown = new Set<Notification>()
+  const notify = (a: ChatAlert): void => {
+    const n = new Notification({ title: a.title, body: a.body, silent: a.kind === 'finished' })
+    shown.add(n)
+    n.on('click', () => {
+      shown.delete(n)
+      if (ctx.win.isMinimized()) ctx.win.restore()
+      ctx.win.show()
+      ctx.win.focus()
+      emit(ctx, 'chat.openRequested', { file: a.file })
+    })
+    n.on('close', () => shown.delete(n))
+    n.show()
+  }
+  const emitList = (): void => {
+    const l = list.list()
+    emit(ctx, 'chat.listChanged', l)
+    const due = alerts.update(l)
+    // Fixture sessions (dev, e2e) never notify; a focused window already shows the change.
+    if (!ctx.env.live || ctx.win.isFocused() || !Notification.isSupported()) return
+    for (const a of due) notify(a)
+  }
   registerChatListIpc(ctx, queue, list, manager, sessionsDirs, emitList)
   // Assistant threads: Relay says how each stands, their files hold the last reply.
   const assistants = registerAssistantsIpc(ctx, relay, sessionsDirs)
+  // The host's dashboards, as Relay streams them.
+  const offBoards = registerBoardsIpc(ctx, relay)
 
   const watch = new ChatWatch({
     dirs: sessionsDirs,
@@ -97,6 +125,7 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
   ctx.onBeforeQuit(async () => {
     offStatus()
     offRelay()
+    offBoards()
     clearTimeout(statusTimer)
     assistants.close()
     await watch.close()

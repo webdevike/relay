@@ -6,6 +6,8 @@ export interface SettingsState {
   show_thinking: boolean
   show_tools: boolean
   harness: Harness
+  /** Starred models as `provider/id`, in star order (chat.json `favorite_models`). */
+  favorite_models: string[]
   loaded: boolean
 }
 
@@ -20,6 +22,7 @@ export const settingsStore = createStore<SettingsState>(() => ({
   show_thinking: false,
   show_tools: false,
   harness: 'omp',
+  favorite_models: [],
   loaded: false,
 }))
 
@@ -35,6 +38,8 @@ export function startSettings(): Promise<void> {
           show_thinking: r.value.show_thinking,
           show_tools: r.value.show_tools,
           harness: r.value.harness,
+          // Older mains (and test mocks) may omit the key.
+          favorite_models: Array.isArray(r.value.favorite_models) ? r.value.favorite_models : [],
           loaded: true,
         })
         return
@@ -47,10 +52,11 @@ export function startSettings(): Promise<void> {
   return started
 }
 
-const chains: Record<SettingKey | 'harness', Promise<void>> = {
+const chains: Record<SettingKey | 'harness' | 'favorite_models', Promise<void>> = {
   show_thinking: Promise.resolve(),
   show_tools: Promise.resolve(),
   harness: Promise.resolve(),
+  favorite_models: Promise.resolve(),
 }
 
 function fail(): void {
@@ -67,7 +73,19 @@ export function setHarness(value: Harness): Promise<void> {
   return save('harness', value)
 }
 
-function save<K extends SettingKey | 'harness'>(key: K, value: SettingsState[K]): Promise<void> {
+/** Stars or unstars a `provider/id` model spec; a new star goes last. Same optimistic save. */
+export function toggleFavorite(spec: string): Promise<void> {
+  const list = settingsStore.getState().favorite_models
+  return save(
+    'favorite_models',
+    list.includes(spec) ? list.filter((s) => s !== spec) : [...list, spec],
+  )
+}
+
+function save<K extends SettingKey | 'harness' | 'favorite_models'>(
+  key: K,
+  value: SettingsState[K],
+): Promise<void> {
   const previous = settingsStore.getState()[key]
   settingsStore.setState({ [key]: value } as Pick<SettingsState, K>)
   const run = async (): Promise<void> => {
@@ -97,10 +115,12 @@ export function resetSettingsForTest(): void {
   chains.show_thinking = Promise.resolve()
   chains.show_tools = Promise.resolve()
   chains.harness = Promise.resolve()
+  chains.favorite_models = Promise.resolve()
   settingsStore.setState({
     show_thinking: false,
     show_tools: false,
     harness: 'omp',
+    favorite_models: [],
     loaded: false,
   })
 }

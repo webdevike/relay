@@ -12,6 +12,7 @@ import { startNewTodo } from '../todo/new-todo-store'
 import { GateOverlay } from '../habits/GateOverlay'
 import { startUsage } from '../usage/usage-store'
 import { startAssistants } from '../assistants/assistants-store'
+import { startBoards } from '../boards/boards-store'
 import { Shell } from '../shell/Shell'
 
 export function App() {
@@ -28,6 +29,7 @@ export function App() {
     const stopHabits = startHabits()
     const stopUsage = startUsage()
     const stopAssistants = startAssistants()
+    const stopBoards = startBoards()
     return () => {
       stopRouter()
       stopQuit()
@@ -39,6 +41,7 @@ export function App() {
       stopHabits()
       stopUsage()
       stopAssistants()
+      stopBoards()
     }
   }, [])
   return (

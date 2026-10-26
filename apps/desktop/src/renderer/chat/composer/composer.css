@@ -129,3 +129,29 @@
   height: 20px;
   font-variant-numeric: tabular-nums;
 }
+/* The `/` menu floats just above the composer frame. */
+.eva-slash-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + var(--mantine-spacing-xs));
+  z-index: 20;
+  overflow: hidden;
+}
+.eva-slash-row {
+  display: block;
+  width: 100%;
+  padding: 6px var(--mantine-spacing-sm);
+  border: 1px solid transparent;
+  border-radius: var(--mantine-radius-sm);
+}
+.eva-slash-row:hover {
+  border-color: var(--mantine-color-default-border);
+}
+.eva-slash-row[aria-selected='true'] {
+  border-color: var(--mantine-color-default-border);
+  background: var(--mantine-color-default-hover);
+}
+.eva-slash-footer {
+  border-top: 1px solid var(--mantine-color-default-border);
+}

@@ -15,6 +15,7 @@ import {
   enterPanelScope,
   layoutStore,
   loadLayout,
+  openSubagentPanel,
   panelTabCreated,
   previewWidth,
   renamePanelScope,
@@ -22,6 +23,7 @@ import {
   resetLayoutStoreForTests,
   resetWidth,
   setWindowWidth,
+  showBrowserPanel,
   toggleSidebar,
   togglePanel,
 } from './layout-store'
@@ -255,5 +257,33 @@ describe('panel per browser scope', () => {
     enterPanelScope('page:dashboard')
     enterPanelScope('chat:/n')
     expect(open()).toBe(false)
+  })
+})
+
+describe('panel view', () => {
+  const view = { session: '/s/a.jsonl', file: '/s/a/0-Scout.jsonl', name: '0-Scout' }
+
+  it('a subagent opens the panel on its transcript without changing the browser choice', () => {
+    enterPanelScope('chat:/s/a')
+    togglePanel(false)
+    openSubagentPanel(view)
+    expect(g().panelOpen).toBe(true)
+    expect(g().panelView).toEqual({ kind: 'subagent', ...view })
+    enterPanelScope('chat:/s/b')
+    enterPanelScope('chat:/s/a')
+    expect(g().panelOpen).toBe(false)
+  })
+
+  it('a scope change, a new tab or showBrowserPanel goes back to the browser', () => {
+    enterPanelScope('chat:/s/a')
+    openSubagentPanel(view)
+    enterPanelScope('chat:/s/b')
+    expect(g().panelView).toEqual({ kind: 'browser' })
+    openSubagentPanel(view)
+    panelTabCreated()
+    expect(g().panelView).toEqual({ kind: 'browser' })
+    openSubagentPanel(view)
+    showBrowserPanel()
+    expect(g().panelView).toEqual({ kind: 'browser' })
   })
 })

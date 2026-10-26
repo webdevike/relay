@@ -9,6 +9,10 @@ import type {
 } from '@evaos/contract'
 
 declare global {
+  const __RELAY_BUILD__: string
+}
+
+declare global {
   interface Window {
     eva: {
       invoke<K extends InvokeChannel>(

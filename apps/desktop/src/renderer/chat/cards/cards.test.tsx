@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render as rtlRender, screen } from '@testing-library/react'
+import { MantineProvider } from '@mantine/core'
+import type { ReactElement } from 'react'
 import userEvent from '@testing-library/user-event'
 import type { Dialog } from '@evaos/chat-core/message'
 
@@ -14,6 +16,8 @@ import { chatStore } from '../chat-store'
 import { ExtensionUiCard } from './ExtensionUiCard'
 import { PendingDialog } from './PendingDialog'
 import { QuestionCard } from './QuestionCard'
+
+const render = (ui: ReactElement) => rtlRender(ui, { wrapper: MantineProvider })
 
 const meta = { model: null, thinking: null, contextTokens: null }
 const ask: Dialog = {
@@ -131,7 +135,7 @@ describe('QuestionCard', () => {
     expect(onAnswer).not.toHaveBeenCalled()
   })
 
-  it('multi-question and multi-select send one frame from Send answer', async () => {
+  it('pages through questions and sends one frame from Send answer', async () => {
     const onAnswer = vi.fn()
     const d: Dialog = {
       kind: 'ask',
@@ -147,13 +151,20 @@ describe('QuestionCard', () => {
       ],
     }
     render(<QuestionCard dialog={d} onAnswer={onAnswer} />)
+    expect(screen.getByText('1 of 2')).toBeTruthy()
+    expect(screen.queryByRole('checkbox')).toBeNull()
+    expect((screen.getByRole('button', { name: 'Next' }) as HTMLButtonElement).disabled).toBe(true)
+    await userEvent.click(screen.getByRole('radio', { name: /SQLite/ }))
+    expect(screen.getByText('2 of 2')).toBeTruthy()
     const send = screen.getByRole('button', { name: 'Send answer' })
     expect((send as HTMLButtonElement).disabled).toBe(true)
-    await userEvent.click(screen.getByRole('radio', { name: /SQLite/ }))
     await userEvent.click(screen.getByRole('checkbox', { name: /Auth/ }))
     await userEvent.click(screen.getByRole('checkbox', { name: /Search/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(screen.getByRole('radio', { name: /SQLite/ }).getAttribute('aria-checked')).toBe('true')
+    await userEvent.click(screen.getByRole('button', { name: 'Next' }))
     expect(onAnswer).not.toHaveBeenCalled()
-    await userEvent.click(send)
+    await userEvent.click(screen.getByRole('button', { name: 'Send answer' }))
     expect(onAnswer).toHaveBeenCalledTimes(1)
     expect(onAnswer).toHaveBeenCalledWith({
       kind: 'ask',
@@ -162,6 +173,19 @@ describe('QuestionCard', () => {
         { id: 'f', picked: ['Auth', 'Search'] },
       ],
     })
+  })
+
+  it('a typed answer replaces the options for that question', async () => {
+    const onAnswer = vi.fn()
+    render(<QuestionCard dialog={ask} onAnswer={onAnswer} />)
+    expect(screen.queryByRole('button', { name: 'Send answer' })).toBeNull()
+    await userEvent.type(screen.getByRole('textbox', { name: 'Your own answer' }), 'Turso{Enter}')
+    expect(onAnswer).toHaveBeenCalledWith({ kind: 'ask', answers: [{ id: 'q1', typed: 'Turso' }] })
+  })
+
+  it('select dialogs have no free-form box', () => {
+    render(<QuestionCard dialog={select} onAnswer={() => undefined} />)
+    expect(screen.queryByRole('textbox')).toBeNull()
   })
 
   it('arrow keys move focus between options', async () => {
@@ -250,7 +274,7 @@ describe('PendingDialog and the store', () => {
   it('renders nothing without a dialog and answers through chat.answerUi', async () => {
     open()
     const { container } = render(<PendingDialog paneId="pane-1" />)
-    expect(container.firstChild).toBeNull()
+    expect(container.querySelector('[data-testid="pending-dialog-slot"]')).toBeNull()
     act(() => {
       chatStore.getState().applyOps('pane-1', [{ op: 'meta', patch: { dialog: select } }], 1)
     })

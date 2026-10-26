@@ -6,10 +6,13 @@
 // as it streams and the questions and approvals the session is blocked on. Commands (a reply, a
 // stop, an answer) go out as `cmd` frames, each answered by one `ack` or `nack` (commands.ts).
 //
-// Boards, drops, calls and the inbox escalation are not used by this app; their frames are ignored.
+// Boards (the host's dashboards) stream after `board.subscribe`: `board.snapshot` sets them all,
+// `board.delta` swaps in or removes one. Drops, calls and the inbox escalation are not used by this
+// app; their frames are ignored.
 import { createHmac } from 'node:crypto'
 import * as path from 'node:path'
 import { z } from 'zod'
+import { BOARD_COLUMNS, type Board } from '@evaos/contract'
 
 /** How this app shows up in Relay's paired devices (native uses `evaos` / `EvaOS`). */
 export const DEVICE_ID = 'relay-desktop'
@@ -167,6 +170,45 @@ export function parseApproval(value: unknown): RelayApproval | null {
   }
 }
 
+const BoardWidgetSchema = z.object({
+  id: z.string().min(1),
+  span: z.number().catch(BOARD_COLUMNS).default(BOARD_COLUMNS),
+  spec: z.looseObject({}),
+})
+const BoardSchema = z.object({
+  slug: z.string().min(1),
+  title: z.string().min(1),
+  workspace: optText,
+  icon: optText,
+  widgets: z.array(z.unknown()).catch([]),
+  updatedAt: z.string().catch(''),
+})
+
+/**
+ * A board as Relay sends it, or null without a slug or a title. A tile without an id or a spec is
+ * dropped; a span outside the grid is clamped to it (native BoardWidget::columns).
+ */
+export function parseBoard(value: unknown): Board | null {
+  const r = BoardSchema.safeParse(value)
+  if (!r.success) return null
+  const b = r.data
+  const widgets: Board['widgets'] = []
+  for (const raw of b.widgets) {
+    const w = BoardWidgetSchema.safeParse(raw).data
+    if (!w) continue
+    const span = Math.min(BOARD_COLUMNS, Math.max(1, Math.round(w.span)))
+    widgets.push({ id: w.id, span, spec: w.spec })
+  }
+  return {
+    slug: b.slug,
+    title: b.title,
+    workspace: b.workspace || null,
+    icon: b.icon || null,
+    widgets,
+    updatedAt: b.updatedAt,
+  }
+}
+
 const rev = z.number().catch(0)
 const list = z.array(z.unknown()).catch([])
 const text = z.string().catch('')
@@ -204,6 +246,8 @@ const NackSchema = z.object({
     .object({ code: z.string().catch('internal'), message: z.string().catch('') })
     .catch({ code: 'internal', message: '' }),
 })
+const BoardSnapshotSchema = z.object({ rev, boards: list })
+const BoardDeltaSchema = z.object({ rev, board: z.unknown().optional(), removed: optText })
 
 export type Frame = Record<string, unknown>
 
@@ -224,6 +268,8 @@ export type FeedEvent =
   | { kind: 'ack'; id: string }
   /** Relay refused command `id`, and why. */
   | { kind: 'nack'; id: string; code: string; message: string }
+  /** Every board Relay holds, by title, after any change. */
+  | { kind: 'boards'; boards: Board[] }
 
 /** What one frame asks to send back, and what the app should hear. */
 export interface FeedOutput {
@@ -244,11 +290,16 @@ export function hello(): Frame {
   return { t: 'hello', v: 1, deviceId: DEVICE_ID, deviceName: DEVICE_NAME, platform: 'ios' }
 }
 
-/** The protocol's state on one connection: the handshake, then the session list kept by `rev`. */
+/**
+ * The protocol's state on one connection: the handshake, then the session list kept by `rev` and
+ * the boards kept by their own `rev`.
+ */
 export class Feed {
   authenticated = false
   private rev = 0
   private sessions = new Map<string, RelaySession>()
+  private boardRev = 0
+  private boards = new Map<string, Board>()
 
   constructor(private readonly secret: Uint8Array) {}
 
@@ -272,7 +323,34 @@ export class Feed {
         this.authenticated = true
         this.reset(WelcomeSchema.parse(f).state.agents)
         events.push(this.list())
+        // Boards stream on this connection from here; the snapshot answers.
+        replies.push({ t: 'board.subscribe' })
         break
+      case 'board.snapshot': {
+        const s = BoardSnapshotSchema.parse(f)
+        this.boardRev = s.rev
+        this.boards = new Map()
+        for (const raw of s.boards) {
+          const b = parseBoard(raw)
+          if (b) this.boards.set(b.slug, b)
+        }
+        events.push(this.boardList())
+        break
+      }
+      case 'board.delta': {
+        const d = BoardDeltaSchema.parse(f)
+        if (d.rev !== this.boardRev + 1) {
+          // Missed one: start over from every board.
+          replies.push({ t: 'board.get' })
+          break
+        }
+        this.boardRev = d.rev
+        const b = parseBoard(d.board)
+        if (b) this.boards.set(b.slug, b)
+        if (d.removed) this.boards.delete(d.removed)
+        events.push(this.boardList())
+        break
+      }
       case 'agents.snapshot':
         this.reset(f)
         events.push(this.list())
@@ -380,6 +458,15 @@ export class Feed {
       kind: 'sessions',
       sessions: [...this.sessions.values()].sort((a, b) =>
         a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+      ),
+    }
+  }
+
+  private boardList(): FeedEvent {
+    return {
+      kind: 'boards',
+      boards: [...this.boards.values()].sort(
+        (a, b) => a.title.localeCompare(b.title) || a.slug.localeCompare(b.slug),
       ),
     }
   }

@@ -4,5 +4,4 @@ export { WRITE_KINDS, matchWrite, realpathLoose, type WriteKind } from './fs/all
 export { installWriteTrap, withEvaFsWrite } from './fs/write-trap'
 export { countOpenTodos } from './sidebar/todos'
 export { parseDurationMs, jobFrontmatter, jobScheduled } from './sidebar/jobs'
-export { recentJournal, type RecentEntry } from './sidebar/journal'
 export { readSidebar, type SidebarData } from './sidebar/read'

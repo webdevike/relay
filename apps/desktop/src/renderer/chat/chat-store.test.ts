@@ -45,6 +45,18 @@ describe('chat store drafts and meta', () => {
     expect(pane().dialog).toBeNull()
   })
 
+  it('goal and handingOff follow meta patches and snapshots', () => {
+    open('/s/a.jsonl')
+    expect(pane()).toMatchObject({ goal: null, handingOff: false })
+    const goal = { objective: 'ship it', paused: false, tokensUsed: 0 }
+    chatStore.getState().applyOps('p', [{ op: 'meta', patch: { goal, handingOff: true } }], 1)
+    expect(pane()).toMatchObject({ goal, handingOff: true })
+    chatStore.getState().applySnapshot('p', snap({ handingOff: false }))
+    expect(pane()).toMatchObject({ goal, handingOff: false })
+    chatStore.getState().applySnapshot('p', snap({ goal: null }))
+    expect(pane().goal).toBeNull()
+  })
+
   it('a sessionFile patch binds a draft', () => {
     open('')
     chatStore.getState().applyOps('p', [{ op: 'meta', patch: { sessionFile: '/s/n.jsonl' } }], 1)

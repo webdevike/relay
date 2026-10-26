@@ -4,13 +4,81 @@ import {
   claudeArgs,
   contextPercent,
   foldModels,
+  goalCommand,
   IMAGE_MIME,
+  isHandoff,
   MAX_IMAGE_BYTES,
   ompArgs,
+  parseCommands,
   parseModels,
   readApproval,
+  readThinking,
   renameArgs,
+  slashMatches,
 } from './launch'
+
+describe('slash commands', () => {
+  const cmd = (name: string, source?: string) => ({ name, description: name, source })
+  const commands = parseCommands({
+    commands: [
+      cmd('skill:adhd', 'skill'),
+      cmd('model', 'builtin'),
+      cmd('review', 'file'),
+      cmd('goal', 'builtin'),
+      cmd('handoff', 'builtin'),
+      cmd('skill:blender'),
+      cmd('compact', 'builtin'),
+    ],
+  })
+
+  it('orders goal, then builtins, then other commands, then skills, keeping omp order', () => {
+    expect(commands.map((c) => c.name)).toEqual([
+      'goal',
+      'model',
+      'handoff',
+      'compact',
+      'review',
+      'skill:adhd',
+      'skill:blender',
+    ])
+  })
+
+  it('offers the goal subcommands after `/goal `', () => {
+    expect(slashMatches(commands, '/').hits[0]!.name).toBe('goal')
+    expect(slashMatches(commands, '/goal ')).toMatchObject({ prefix: '/goal ' })
+    expect(slashMatches(commands, '/goal ').hits.map((c) => c.name)).toEqual([
+      'set',
+      'status',
+      'pause',
+      'resume',
+      'drop',
+    ])
+  })
+
+  it('maps /goal text onto the RPC goal command', () => {
+    const g = (op: string, objective?: string) =>
+      objective === undefined ? { type: 'goal', op } : { type: 'goal', op, objective }
+    expect(goalCommand('/goal')).toEqual(g('get'))
+    expect(goalCommand('  /goal status ')).toEqual(g('get'))
+    expect(goalCommand('/goal get')).toEqual(g('get'))
+    expect(goalCommand('/goal pause')).toEqual(g('pause'))
+    expect(goalCommand('/goal resume')).toEqual(g('resume'))
+    expect(goalCommand('/goal drop')).toEqual(g('drop'))
+    expect(goalCommand('/goal clear')).toEqual(g('drop'))
+    expect(goalCommand('/goal set  ship it ')).toEqual(g('create', 'ship it'))
+    expect(goalCommand('/goal create x')).toEqual(g('create', 'x'))
+    expect(goalCommand('/goal ship it')).toEqual(g('create', 'ship it'))
+    expect(goalCommand('/goal pause now')).toEqual(g('create', 'pause now'))
+    expect(goalCommand('/goals')).toBeNull()
+    expect(goalCommand('hi /goal')).toBeNull()
+  })
+
+  it('knows a /handoff prompt', () => {
+    expect(isHandoff('/handoff')).toBe(true)
+    expect(isHandoff(' /handoff keep the API notes')).toBe(true)
+    expect(isHandoff('/handoffs')).toBe(false)
+  })
+})
 
 describe('argv', () => {
   it('passes only approval by default', () => {
@@ -127,6 +195,15 @@ describe('approval and constants', () => {
     expect(readApproval(null, 'approvalMode: always-ask')).toBe('always-ask')
     expect(readApproval('approvalMode: bogus', 'approvalMode: write')).toBe('write')
     expect(readApproval(null, null)).toBe('yolo')
+  })
+  it('reads the top-level default thinking level, project then global', () => {
+    expect(readThinking('defaultThinkingLevel: "high" # x\n', 'defaultThinkingLevel: low')).toBe(
+      'high',
+    )
+    expect(readThinking('foo:\n  defaultThinkingLevel: high\n', 'defaultThinkingLevel: low')).toBe(
+      'low',
+    )
+    expect(readThinking(null, null)).toBeNull()
   })
   it('exposes labels and limits', () => {
     expect(APPROVAL_LABEL.yolo).toBe('Full access')

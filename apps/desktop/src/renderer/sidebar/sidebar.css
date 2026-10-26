@@ -15,9 +15,7 @@
   transition: transform var(--eva-dur-slide) var(--eva-ease-slide);
   -webkit-app-region: no-drag;
 }
-.eva-sb-track[data-level='chats'],
-.eva-sb-track[data-level='settings'],
-.eva-sb-track[data-level='meetings'] {
+.eva-sb-track:not([data-level='root']) {
   transform: translateX(calc(var(--eva-sidebar-inner-w, 264px) * -1));
 }
 html[data-eva-motion='off'] .eva-sb-track {
@@ -130,6 +128,10 @@ html[data-eva-motion='off'] .eva-sb-track {
 .eva-sb-section-main {
   padding: var(--eva-space-native-xs) var(--eva-space-xs) var(--eva-space-xs);
 }
+/* A later group: more space above it than between its rows. */
+.eva-sb-section-group {
+  padding: var(--eva-space-md) var(--eva-space-xs) var(--eva-space-xs);
+}
 .eva-sb-row {
   display: flex;
   align-items: center;
@@ -181,48 +183,6 @@ html[data-eva-motion='off'] .eva-sb-track {
 .eva-sb-chev {
   color: var(--eva-text-dim);
 }
-.eva-sb-divider {
-  height: 1px;
-  margin: var(--eva-space-native-xs) 0;
-  background: var(--eva-chrome-border);
-}
-.eva-sb-recent-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  height: var(--eva-control-sm);
-  padding: 0 var(--eva-space-xs);
-  box-sizing: border-box;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  font: inherit;
-  font-size: var(--eva-fz-body);
-  font-weight: var(--eva-fw-medium);
-}
-.eva-sb-recent-chev {
-  transition: transform var(--eva-dur-fast) var(--eva-ease);
-  color: var(--eva-text-dim);
-}
-.eva-sb-recent-body {
-  margin-left: var(--eva-space-native-sm);
-  padding-left: var(--eva-space-native-sm);
-  border-left: 1px solid var(--eva-chrome-border);
-}
-.eva-sb-recent-item {
-  min-height: calc(var(--eva-fz-label) * var(--eva-lh-label));
-  padding: var(--eva-space-xs) var(--eva-space-native-xs);
-  border-radius: var(--eva-radius-sm);
-  line-height: var(--eva-lh-label);
-  font-size: var(--eva-fz-label);
-  font-weight: var(--eva-fw-regular);
-  font-variant-numeric: tabular-nums;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .eva-sb-empty {
   padding: var(--eva-space-sm) 12px;
   font-size: var(--eva-fz-label);
@@ -234,6 +194,19 @@ html[data-eva-motion='off'] .eva-sb-track {
   gap: var(--eva-space-xs);
   padding: var(--eva-space-native-xs) var(--eva-space-native-sm) var(--eva-space-native-sm);
   border-top: 1px solid var(--eva-chrome-border);
+}
+/* Pinned below a sub-page's scrolling list (the chats Settled fold); opens upward, scrolls itself. */
+.eva-sb-subfooter {
+  flex: none;
+  max-height: 45%;
+  overflow-y: auto;
+  padding: var(--eva-space-native-xs) var(--eva-space-native-sm);
+}
+.eva-sb-subfooter.eva-cl:empty {
+  display: none;
+}
+.eva-sb-subfooter .eva-cl-fold {
+  margin-top: 0;
 }
 .eva-sb-error {
   font-size: var(--eva-fz-label);

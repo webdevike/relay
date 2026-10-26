@@ -39,11 +39,11 @@ import { dismissTop } from '../hotkeys/dismiss'
 import { tabsStore } from '../tabs/tabs-store'
 import { SidebarColumn } from './SidebarColumn'
 import { MainNav } from './MainNav'
-import { RecentList } from './RecentList'
 import { AccountMenu } from './AccountMenu'
 import { SubPage } from './SubPages'
 import { backToRoot, openSub, navLevelStore } from './nav-level'
 import { resetSidebarForTests, sidebarStore } from './sidebar-store'
+import { boardsStore } from '../boards/boards-store'
 
 const tab = (page: string, extra = {}): Tab => ({
   id: 0,
@@ -56,13 +56,6 @@ const seed = (page: string, extra = {}): void =>
   tabsStore.setState({ tabs: createTabs([tab(page, extra)], 0), loaded: true }, true)
 
 const wrap = (ui: React.ReactNode) => render(<MantineProvider>{ui}</MantineProvider>)
-
-const recent = (n: number) =>
-  Array.from({ length: n }, (_, i) => ({
-    date: `2026-01-0${i + 1}`,
-    tag: null,
-    title: `Entry ${i}`,
-  }))
 
 beforeEach(() => {
   invoke.mockClear()
@@ -115,7 +108,7 @@ describe('MainNav', () => {
     act(() => sidebarStore.setState({ error: true }))
     expect(
       screen.getByText(
-        'Could not read counts or recent items. Press the refresh shortcut to try again.',
+        'Could not read counts. Press the refresh shortcut to try again.',
       ),
     ).toBeInTheDocument()
   })
@@ -125,25 +118,34 @@ describe('MainNav', () => {
     wrap(<MainNav />)
     expect(screen.queryByTestId('count-jobs')).toBeNull()
   })
-})
 
-describe('RecentList and search', () => {
-  it('caps at 8, filters live, shows empty copy and collapses', () => {
-    sidebarStore.setState({ recent: recent(8), loaded: true })
+  it('lists Overview, then each Relay board, under Dashboards', () => {
+    const board = (slug: string, title: string) => ({
+      slug,
+      title,
+      workspace: null,
+      icon: null,
+      widgets: [],
+      updatedAt: '',
+    })
+    boardsStore.setState({
+      data: { boards: [board('eva-today', 'Eva today'), board('goodops', 'GoodOps live')], relayUp: true },
+    })
+    seed('board:goodops')
     wrap(<MainNav />)
-    expect(screen.getAllByTestId('recent-item')).toHaveLength(8)
-    expect(screen.getAllByTestId('recent-item')[0]).toHaveAttribute('title', 'Entry 0')
-    fireEvent.change(screen.getByTestId('sidebar-search'), { target: { value: 'entry 3' } })
-    expect(screen.getAllByTestId('recent-item')).toHaveLength(1)
-    fireEvent.change(screen.getByTestId('sidebar-search'), { target: { value: 'zzz' } })
-    expect(screen.getByText('No recent items match your search')).toBeInTheDocument()
-    fireEvent.click(screen.getByTestId('recent-toggle'))
-    expect(screen.queryByText('No recent items match your search')).toBeNull()
-  })
-
-  it('shows Nothing recent yet', () => {
-    wrap(<RecentList query="" />)
-    expect(screen.getByText('Nothing recent yet')).toBeInTheDocument()
+    const group = screen.getByTestId('sidebar-dashboards')
+    const rows = screen
+      .getAllByTestId(/^nav-/)
+      .filter((el) => group.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .map((el) => el.textContent)
+    expect(rows.slice(0, 3)).toEqual(['Overview', 'Eva today', 'GoodOps live'])
+    expect(screen.getByTestId('nav-board-goodops')).toHaveAttribute('data-active', 'true')
+    expect(screen.getByTestId('nav-dashboard')).not.toHaveAttribute('data-active')
+    fireEvent.click(screen.getByTestId('nav-board-eva-today'))
+    expect(openPlace).toHaveBeenLastCalledWith(placeOf('board:eva-today'), { newTab: false })
+    fireEvent.click(screen.getByTestId('nav-dashboard'))
+    expect(openPlace).toHaveBeenLastCalledWith(placeOf('dashboard'), { newTab: false })
+    boardsStore.setState({ data: null })
   })
 })
 

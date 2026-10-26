@@ -22,13 +22,15 @@ describe('pages', () => {
       'meetings',
       'canvas',
       'settings',
+      'board:ops',
     ]
     for (const p of pages) expect(pageFromKey(pageKey(p))).toBe(p)
     expect(pageFromKey('nope')).toBeNull()
+    expect(pageFromKey('board:')).toBeNull()
   })
 
   it('rejects removed destinations when restoring navigation', () => {
-    for (const page of ['inbox', 'calendar', 'tasks', 'memory', 'files', 'help', 'board:ops']) {
+    for (const page of ['inbox', 'calendar', 'tasks', 'memory', 'files', 'help']) {
       expect(pageFromKey(page)).toBeNull()
       expect(placeFromJson({ page })).toBeNull()
     }

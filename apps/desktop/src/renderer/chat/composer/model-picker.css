@@ -1,0 +1,188 @@
+/* Composer model picker, after chat_view.rs::model_picker. */
+.eva-model-trigger-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-model-trigger-level {
+  flex: none;
+  margin-left: calc(var(--mantine-spacing-xs) / 2);
+  color: var(--eva-text-dim);
+}
+.eva-model-picker.eva-popover-dropdown {
+  overflow: hidden;
+  border-radius: 14px;
+}
+.eva-brand-anthropic {
+  color: var(--mantine-color-orange-6);
+}
+
+/* Tabs: starred, then one per provider; the open one in full color over an accent rule. */
+.eva-model-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  height: 40px;
+  padding: 0 var(--mantine-spacing-xs);
+}
+.eva-model-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  height: 100%;
+  padding: 0 calc(var(--mantine-spacing-xs) / 2);
+  color: var(--eva-text-dim);
+  border-bottom: 2px solid transparent;
+}
+.eva-model-tab:not([data-active]) .eva-brand-anthropic {
+  color: inherit;
+}
+.eva-model-tab:hover,
+.eva-model-tab[data-active] {
+  color: var(--eva-text);
+}
+.eva-model-tab[data-active] {
+  border-bottom-color: var(--eva-accent);
+}
+.eva-model-tab[data-active] .tabler-icon-star-filled {
+  color: var(--mantine-color-yellow-filled);
+}
+.eva-model-tab-text {
+  font-size: var(--eva-fz-caption);
+  white-space: nowrap;
+}
+
+.eva-model-search {
+  padding: 0 calc(var(--mantine-spacing-xs) / 2);
+  border-top: 1px solid var(--eva-border);
+  border-bottom: 1px solid var(--eva-border);
+}
+/* The theme boxes every TextInput; the search sits flush between the two hairlines. */
+.eva-model-search .eva-model-search-input {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* Fixed height so the popover keeps its size across tabs and searches; only the list scrolls. */
+.eva-model-list {
+  height: 320px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: calc(var(--mantine-spacing-xs) / 2);
+}
+.eva-model-empty {
+  padding: var(--mantine-spacing-md) var(--mantine-spacing-xs);
+}
+.eva-model-row {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  height: 34px;
+  padding: 0 calc(var(--mantine-spacing-xs) / 2) 0 var(--mantine-spacing-xs);
+  border-radius: 8px;
+  font-size: var(--eva-fz-body);
+  cursor: pointer;
+}
+.eva-model-row[data-hovered] {
+  background: color-mix(in srgb, var(--eva-text) 5%, transparent);
+}
+.eva-model-row[data-current] {
+  background: color-mix(in srgb, var(--eva-text) 8%, transparent);
+}
+.eva-model-row-logo {
+  display: inline-flex;
+  flex: none;
+  justify-content: center;
+  width: 16px;
+  color: var(--eva-text);
+}
+.eva-model-row-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-model-row-level {
+  flex: none;
+  color: var(--eva-text-dim);
+}
+.eva-model-row-fill {
+  flex: 1;
+}
+.eva-model-kbd {
+  flex: none;
+  padding: calc(var(--mantine-spacing-xs) / 4) calc(var(--mantine-spacing-xs) * 0.7);
+  border-radius: var(--eva-radius-round);
+  background: color-mix(in srgb, var(--eva-text) 8%, transparent);
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-caption);
+  line-height: 1.4;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.eva-model-star {
+  color: var(--eva-text-dim);
+}
+.eva-model-star[data-starred] {
+  color: var(--mantine-color-yellow-filled);
+}
+
+/* Thinking: the level centered with a reset, then a pill rail with a dot per level. */
+.eva-model-thinking {
+  padding: 0 var(--mantine-spacing-xs) var(--mantine-spacing-xs);
+  border-top: 1px solid var(--eva-border);
+}
+.eva-model-thinking-head {
+  display: flex;
+  align-items: center;
+  height: var(--eva-control-sm);
+}
+.eva-model-thinking-side {
+  display: inline-flex;
+  justify-content: flex-end;
+  width: 28px;
+  color: var(--eva-text-dim);
+}
+.eva-model-thinking-label {
+  flex: 1;
+  text-align: center;
+  font-size: var(--eva-fz-body);
+  font-weight: var(--eva-fw-medium);
+  color: var(--eva-text);
+}
+/* Mantine's track reaches --slider-size past each end and is --slider-size tall; the rail here
+   is 32px: 16px past the end dots (about the knob's radius), with the track itself 32px tall. */
+.eva-model-picker .eva-model-thinking .eva-model-slider {
+  --slider-size-md: 16px;
+  --slider-radius: var(--eva-radius-round);
+  --slider-track-bg: color-mix(in srgb, var(--eva-text) 7%, transparent);
+  --slider-color: color-mix(in srgb, var(--eva-text) 9%, transparent);
+  margin-top: calc(var(--mantine-spacing-xs) / 4);
+}
+.eva-model-slider .eva-model-slider-track {
+  height: 32px;
+}
+.eva-model-slider .eva-model-slider-mark {
+  width: 6px;
+  height: 6px;
+  border: 0;
+  background: color-mix(in srgb, var(--eva-text) 30%, transparent);
+  /* The 16px-wide, top-aligned wrapper: center the dot on its level and on the 32px rail. */
+  transform: translate(5px, 13px);
+}
+.eva-model-slider .eva-model-slider-thumb {
+  border: 1px solid color-mix(in srgb, var(--mantine-color-black) 8%, transparent);
+  background: var(--mantine-color-white);
+  color: transparent;
+  box-shadow: var(--mantine-shadow-sm);
+}
+.eva-model-thinking .eva-model-reset {
+  color: var(--eva-text-dim);
+}
+.eva-model-thinking .eva-model-reset:disabled {
+  background: transparent;
+  opacity: 0.4;
+}

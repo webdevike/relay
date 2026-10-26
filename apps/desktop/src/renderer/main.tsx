@@ -16,7 +16,7 @@ async function start(): Promise<void> {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <ThemeProvider>
-        <Notifications position="bottom-right" />
+        <Notifications position="top-right" layout="stacked" />
         <App />
       </ThemeProvider>
     </StrictMode>,

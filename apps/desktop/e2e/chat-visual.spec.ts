@@ -513,15 +513,15 @@ for (const s of SCHEMES) {
     await expect(pane.locator('[data-testid=jobs-row]')).toHaveCount(1)
     await shot(app, shell, `live-${s}-jobs-strip-open`, `Jobs strip expanded while omp runs, ${s}`)
     await pane.locator('[data-testid=subagent-chip-ReviewCsvWriter]').click()
-    await expect(shell.locator('[data-testid=subagent-popover]')).toBeVisible()
+    await expect(shell.locator('[data-testid=subagent-transcript]')).toBeVisible()
     await shot(
       app,
       shell,
-      `live-${s}-subagent-popover`,
-      `Running subagent chip popover with its last line, ${s}`,
+      `live-${s}-subagent-panel`,
+      `Running subagent transcript in the side panel, ${s}`,
     )
-    await shell.keyboard.press('Escape')
-    await expect(shell.locator('[data-testid=subagent-popover]')).toHaveCount(0)
+    await shell.locator('[data-testid=panel-close]').click()
+    await expect(shell.locator('[data-testid=subagent-transcript]')).toHaveCount(0)
     await settled(shell)
     await shot(
       app,

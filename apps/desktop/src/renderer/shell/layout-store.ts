@@ -14,6 +14,19 @@ import { registerAction } from '../hotkeys/router'
 
 export type SidebarState = 'open' | 'hidden' | 'folded'
 export type Edge = 'sidebar' | 'panel'
+/** What the panel shows: the browser, or one subagent's transcript of the open chat. */
+export type PanelView =
+  | { kind: 'browser' }
+  | {
+      kind: 'subagent'
+      /** The chat session file the subagent belongs to. */
+      session: string
+      /** Absolute path of the subagent `.jsonl` transcript. */
+      file: string
+      name: string
+    }
+export type SubagentView = Extract<PanelView, { kind: 'subagent' }>
+const BROWSER_VIEW: PanelView = { kind: 'browser' }
 
 export interface LayoutState {
   windowWidth: number
@@ -26,6 +39,7 @@ export interface LayoutState {
   panelOpen: boolean
   /** The browser scope in front: the session or page the active app tab shows. */
   panelScope: string
+  panelView: PanelView
   loaded: boolean
   /** Derived through shell-core fit only (D-01). */
   sidebarPx: number
@@ -58,7 +72,7 @@ function initial(): LayoutState {
     panelOpen: false,
     loaded: false,
   }
-  return { ...base, panelScope: '', ...derive(base) }
+  return { ...base, panelScope: '', panelView: BROWSER_VIEW, ...derive(base) }
 }
 
 export const layoutStore = createStore<LayoutState>(initial)
@@ -70,7 +84,7 @@ const ownTabs = new Map<string, readonly string[]>()
 /** The scope in front has neither a choice nor known tabs yet; its first report decides. */
 let panelPending = false
 
-function patch(p: Partial<Base> & { panelScope?: string }): void {
+function patch(p: Partial<Base> & { panelScope?: string; panelView?: PanelView }): void {
   layoutStore.setState((s) => {
     const base: Base = { ...s, ...p }
     return { ...p, ...derive(base) }
@@ -101,6 +115,17 @@ export function togglePanel(open?: boolean): void {
   patch({ panelOpen: next })
 }
 
+/** Opens the panel on a subagent's transcript; the browser choice for the scope is untouched. */
+export function openSubagentPanel(view: Omit<SubagentView, 'kind'>): void {
+  panelPending = false
+  patch({ panelOpen: true, panelView: { kind: 'subagent', ...view } })
+}
+
+/** Back to the browser, e.g. once a closed panel finished sliding out. */
+export function showBrowserPanel(): void {
+  if (layoutStore.getState().panelView.kind !== 'browser') patch({ panelView: BROWSER_VIEW })
+}
+
 /**
  * The browser scope in front changed. The panel follows Isaac's remembered choice there; a
  * scope he never toggled is open iff it has its own tabs (pinned ones alone never open it).
@@ -111,7 +136,11 @@ export function enterPanelScope(scope: string): void {
   const choice = panelChoice.get(scope)
   const own = ownTabs.get(scope)
   panelPending = choice === undefined && own === undefined
-  patch({ panelScope: scope, panelOpen: choice ?? (own !== undefined && own.length > 0) })
+  patch({
+    panelScope: scope,
+    panelOpen: choice ?? (own !== undefined && own.length > 0),
+    panelView: BROWSER_VIEW,
+  })
 }
 
 /** A tab opened in the scope in front (a link, the + button, a page's window.open). */
@@ -119,7 +148,7 @@ export function panelTabCreated(): void {
   const scope = layoutStore.getState().panelScope
   if (panelChoice.has(scope)) panelChoice.set(scope, true)
   panelPending = false
-  patch({ panelOpen: true })
+  patch({ panelOpen: true, panelView: BROWSER_VIEW })
 }
 
 /**

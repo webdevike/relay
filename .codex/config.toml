@@ -1,0 +1,6 @@
+[shell_environment_policy]
+inherit = "core"
+
+[shell_environment_policy.set]
+PATH = "/Users/ike/Eva/work/evaos-electron/node_modules/.bin:/Users/ike/.local/bin:/Users/ike/.local/state/fnm_multishells/6875_1792030272610/bin:/Users/ike/.bun/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Library/Apple/usr/bin:/Users/ike/.cargo/bin:/Users/ike/Documents/kafka_2.13-4.2.0/bin"
+EVA_GATE_OFF = "1"

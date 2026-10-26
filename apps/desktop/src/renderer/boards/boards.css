@@ -1,0 +1,55 @@
+.eva-board-col {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: var(--eva-space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--eva-space-lg);
+}
+.eva-board-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--eva-space-xs);
+}
+.eva-board-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--eva-c-foreground);
+}
+.eva-board-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--eva-space-sm);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-board-dim {
+  margin: 0;
+  color: var(--eva-c-muted-foreground);
+}
+/* 12 columns; tiles fill left to right and wrap when the next span doesn't fit (no dense packing). */
+.eva-board-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: var(--eva-space-md);
+  align-items: start;
+}
+.eva-board-tile {
+  min-width: 0;
+}
+.eva-board-empty {
+  padding: var(--eva-space-xl) 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--eva-space-xs);
+  text-align: center;
+}
+.eva-board-empty-title {
+  margin: 0;
+  font-size: var(--eva-fz-body);
+  font-weight: 600;
+  color: var(--eva-c-foreground);
+}

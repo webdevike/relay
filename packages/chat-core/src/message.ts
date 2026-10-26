@@ -86,6 +86,14 @@ export type DialogOption = z.infer<typeof DialogOptionSchema>
 export type AskQuestion = z.infer<typeof AskQuestionSchema>
 export type Dialog = z.infer<typeof DialogSchema>
 
+/** omp's goal for the session while active or paused (native chat.rs GoalInfo). */
+export const GoalSchema = z.object({
+  objective: z.string(),
+  paused: z.boolean(),
+  tokensUsed: z.number(),
+})
+export type Goal = z.infer<typeof GoalSchema>
+
 export const SubagentSchema = z.object({
   name: z.string(),
   file: z.string(),

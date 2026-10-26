@@ -387,6 +387,87 @@ describe('LiveReducer', () => {
   })
 })
 
+describe('LiveReducer goal and handoff', () => {
+  const goal = (status: string, tokensUsed = 4200) => ({
+    objective: 'ship it',
+    status,
+    tokensUsed,
+  })
+
+  it('goal_updated sets, pauses and clears the goal', () => {
+    const r = mk()
+    expect(r.apply({ type: 'goal_updated', goal: goal('active') }).meta?.goal).toEqual({
+      objective: 'ship it',
+      paused: false,
+      tokensUsed: 4200,
+    })
+    r.apply({ type: 'goal_updated', goal: goal('paused') })
+    expect(r.goal?.paused).toBe(true)
+    // An unchanged goal says nothing.
+    expect(r.apply({ type: 'goal_updated', goal: goal('paused') }).meta).toBeUndefined()
+    expect(r.apply({ type: 'goal_updated', goal: goal('dropped') }).meta).toEqual({ goal: null })
+  })
+
+  it('get_state reads the goal', () => {
+    const r = mk()
+    r.apply({
+      type: 'response',
+      command: 'get_state',
+      success: true,
+      data: { goal: { enabled: true, mode: 'active', goal: goal('active', 0) } },
+    })
+    expect(r.goal).toEqual({ objective: 'ship it', paused: false, tokensUsed: 0 })
+  })
+
+  it('a goal response takes back the /goal row and says when there is none', () => {
+    const r = mk()
+    r.sendPrompt('first')
+    r.sendPrompt('/goal ship it')
+    const res = r.apply({
+      type: 'response',
+      command: 'goal',
+      success: true,
+      data: { goal: goal('active') },
+    })
+    expect(res.removed).toEqual(['sent-2'])
+    expect(r.messages().map((m) => m.text)).toEqual(['first'])
+    expect(r.goal?.objective).toBe('ship it')
+    r.apply({ type: 'response', command: 'goal', success: true, data: { goal: null } })
+    expect(r.goal).toBeNull()
+    expect(r.messages().map((m) => m.text)).toEqual(['No goal.', 'first'])
+  })
+
+  it('/handoff generates until command_output, whose text shows as a notice', () => {
+    const r = mk()
+    r.sendPrompt('/handoff keep the API notes')
+    expect(r.handingOff).toBe(true)
+    const res = r.apply({ type: 'command_output', text: 'Handoff done' })
+    expect(res.meta).toEqual({ handingOff: false })
+    expect(r.messages().map((m) => [m.role, m.text])).toContainEqual(['notice', 'Handoff done'])
+    r.sendPrompt('/handoffs')
+    expect(r.handingOff).toBe(false)
+  })
+
+  it('a builtin that ran without a turn drops its row and ends the handoff', () => {
+    const r = mk()
+    r.sendPrompt('/handoff')
+    const res = r.apply({
+      type: 'response',
+      command: 'prompt',
+      success: true,
+      data: { agentInvoked: false },
+    })
+    expect(res.removed).toEqual(['sent-1'])
+    expect(res.meta).toEqual({ handingOff: false })
+    r.sendPrompt('/handoff')
+    r.apply({ type: 'response', command: 'prompt', success: false, error: 'nope' })
+    expect(r.handingOff).toBe(false)
+    r.sendPrompt('/handoff')
+    r.apply({ type: '_eof', expected: true })
+    expect(r.handingOff).toBe(false)
+  })
+})
+
 describe('LiveReducer.replaceRows', () => {
   const row = (id: string, t = id) => makeMessage(id, 'assistant', t)
 

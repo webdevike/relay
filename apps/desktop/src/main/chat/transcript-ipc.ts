@@ -4,7 +4,7 @@ import { parseSession, type ParsedSession } from '@evaos/chat-core/session'
 import { listSessionFiles } from '@evaos/chat-core/sessions-dir'
 import type { MainContext } from '../context'
 import { handle } from '../ipc/handle'
-import { readBlobImage } from './media'
+import { blobAgentDirs, readBlobImage } from './media'
 
 class CodedError extends Error {
   constructor(
@@ -15,11 +15,11 @@ class CodedError extends Error {
   }
 }
 
-/**
- * Resolves `file` and refuses anything that is not a top-level `.jsonl` session directly inside
- * one of the sessions directories the chat list spans (T-01-12).
- */
-export function resolveInsideSessionsDir(sessionsDirs: readonly string[], file: string): string {
+/** The real path of `file` and of each existing sessions directory; refuses anything outside them. */
+function resolveInside(
+  sessionsDirs: readonly string[],
+  file: string,
+): { real: string; bases: string[] } {
   const bases: string[] = []
   for (const dir of sessionsDirs) {
     try {
@@ -40,6 +40,15 @@ export function resolveInsideSessionsDir(sessionsDirs: readonly string[], file: 
   if (!bases.some((base) => real.startsWith(base + path.sep))) {
     throw new CodedError('outside-sessions-dir', 'Session file is outside the sessions directory')
   }
+  return { real, bases }
+}
+
+/**
+ * Resolves `file` and refuses anything that is not a top-level `.jsonl` session directly inside
+ * one of the sessions directories the chat list spans (T-01-12).
+ */
+export function resolveInsideSessionsDir(sessionsDirs: readonly string[], file: string): string {
+  const { real, bases } = resolveInside(sessionsDirs, file)
   // Only top-level `.jsonl` regular files are sessions; subagent transcripts, folders and other files are not.
   if (
     !bases.includes(path.dirname(real)) ||
@@ -47,6 +56,22 @@ export function resolveInsideSessionsDir(sessionsDirs: readonly string[], file: 
     !fs.statSync(real).isFile()
   ) {
     throw new CodedError('outside-sessions-dir', 'Not a session file')
+  }
+  return real
+}
+
+/**
+ * Resolves a subagent transcript: a `.jsonl` regular file inside a session's folder, below the
+ * top level of one of the sessions directories. Read only; it never becomes a pane.
+ */
+export function resolveSubagentTranscript(sessionsDirs: readonly string[], file: string): string {
+  const { real, bases } = resolveInside(sessionsDirs, file)
+  if (
+    bases.includes(path.dirname(real)) ||
+    !real.endsWith('.jsonl') ||
+    !fs.statSync(real).isFile()
+  ) {
+    throw new CodedError('outside-sessions-dir', 'Not a subagent transcript')
   }
   return real
 }
@@ -64,5 +89,11 @@ export function registerTranscriptIpc(
     onOpened?.(paneId, real, parsed)
     return { ...parsed, owner: ownerOf?.(real) ?? null }
   })
-  handle(ctx, 'chat.readImage', ({ token }) => readBlobImage(ctx.env.agentDir, token))
+  const agentDirs = blobAgentDirs(ctx.env.agentDir, sessionsDirs)
+  handle(ctx, 'chat.readImage', ({ token }) => readBlobImage(agentDirs, token))
+  handle(ctx, 'chat.readSubagent', ({ file }) => {
+    const real = resolveSubagentTranscript(sessionsDirs, file)
+    const { title, messages } = parseSession(fs.readFileSync(real, 'utf8'))
+    return { title, messages }
+  })
 }

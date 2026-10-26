@@ -24,6 +24,8 @@ const COPY = {
 export function SubPage({ level }: { level: Exclude<NavLevel, 'root'> }) {
   const here = useTabs(activePlace)
   const [query, setQuery] = useState('')
+  // The chats page pins its Settled fold here, below the scrolling list.
+  const [footer, setFooter] = useState<HTMLDivElement | null>(null)
   const copy = level === 'settings' || level === 'assistants' ? null : COPY[level]
   const title = copy ? copy.title : level === 'assistants' ? 'Assistants' : 'Settings'
 
@@ -120,7 +122,7 @@ export function SubPage({ level }: { level: Exclude<NavLevel, 'root'> }) {
           ) : level === 'meetings' ? (
             <MeetingsList query={query} />
           ) : level === 'chats' ? (
-            <ChatList query={query} />
+            <ChatList query={query} footer={footer} />
           ) : level === 'canvas' ? (
             <CanvasList query={query} />
           ) : (
@@ -144,6 +146,13 @@ export function SubPage({ level }: { level: Exclude<NavLevel, 'root'> }) {
           )}
         </ScrollArea>
       </div>
+      {level === 'chats' ? (
+        <div
+          className="eva-sb-subfooter eva-cl-root eva-cl"
+          ref={setFooter}
+          data-testid="sidebar-sub-footer"
+        />
+      ) : null}
     </div>
   )
 }

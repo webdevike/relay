@@ -10,8 +10,15 @@ export type FixedPage =
   | 'meetings'
   | 'canvas'
   | 'settings'
-/** `agent:<id>` is a registry agent's thread (native Page::Agent), saved like native tabs.rs. */
-export type PageKey = FixedPage | `workspace:${string}` | `agent:${string}`
+/**
+ * `agent:<id>` is a registry agent's thread (native Page::Agent), `board:<slug>` a Relay host
+ * dashboard (native Page::Board); both saved like native tabs.rs.
+ */
+export type PageKey =
+  | FixedPage
+  | `workspace:${string}`
+  | `agent:${string}`
+  | `board:${string}`
 
 export const SETTINGS_SECTIONS = ['Theme', 'Chat'] as const
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
@@ -45,6 +52,7 @@ export function pageKey(page: PageKey): string {
 export function pageFromKey(key: string): PageKey | null {
   if (key.startsWith('workspace:')) return key as PageKey
   if (key.startsWith('agent:') && key.length > 'agent:'.length) return key as PageKey
+  if (key.startsWith('board:') && key.length > 'board:'.length) return key as PageKey
   return FIXED_PAGES.includes(key) ? (key as PageKey) : null
 }
 

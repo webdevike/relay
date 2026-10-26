@@ -8,7 +8,8 @@ import { activeTab, startBrowserStore, useBrowserStore } from './browser-store'
 import { useBrowserHotkeys } from './useBrowserHotkeys'
 import { useSlotSync } from './useSlotSync'
 
-export function BrowserPanel() {
+/** `hidden` keeps the browser mounted but out of layout, so its slot (and native view) sizes to 0. */
+export function BrowserPanel({ hidden = false }: { hidden?: boolean }) {
   const slot = useRef<HTMLDivElement>(null)
   const tabs = useBrowserStore((s) => s.tabs)
   const activeId = useBrowserStore((s) => s.activeId)
@@ -27,7 +28,11 @@ export function BrowserPanel() {
   // A scope with no tabs shows the new-tab state; the address bar opens its first tab.
   const showCard = tab === undefined || tab.blank || tab.error !== null
   return (
-    <section className="eva-browser" data-testid="browser-panel">
+    <section
+      className="eva-browser"
+      data-testid="browser-panel"
+      style={hidden ? { display: 'none' } : undefined}
+    >
       <AddressRow tab={tab} />
       <TabStrip tabs={tabs} activeId={activeId} />
       <div className="eva-browser-slot" data-testid="browser-slot" ref={slot}>

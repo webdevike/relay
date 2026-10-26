@@ -24,11 +24,19 @@ export function Toolbar({
   children: ReactNode
 }) {
   const tokens = useChatStore((s) => s.panes[paneId]?.meta.contextTokens ?? null)
-  const window = useChatStore((s) => s.panes[paneId]?.contextWindow ?? null)
+  const reported = useChatStore((s) => s.panes[paneId]?.contextWindow ?? null)
   // Closed (omp exited or was closed) or starting a new process: nothing to switch yet.
   const stopped = useChatStore((s) => s.panes[paneId]?.stopped ?? false)
   const off = disabled || stopped || launch.busy
   const { state } = launch
+  // omp only reports the window on some turns; until it does, use the model catalog's.
+  const current = state?.model ?? null
+  const window =
+    reported ??
+    (current
+      ? (launch.models.find((m) => m.provider === current[0] && m.id === current[1])
+          ?.contextWindow ?? null)
+      : null)
   return (
     <>
       <div className="eva-composer-toolbar">
@@ -43,6 +51,7 @@ export function Toolbar({
           <ContextRing tokens={tokens} window={window} />
           <ModelPicker
             state={state}
+            defaultThinking={launch.defaultThinking}
             models={launch.models}
             disabled={off}
             onChange={(p) => void launch.apply(p)}

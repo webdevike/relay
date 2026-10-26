@@ -13,6 +13,7 @@ import {
 } from '@dnd-kit/core'
 import { Accordion, ActionIcon, SegmentedControl, UnstyledButton } from '@mantine/core'
 import { IconChevronRight, IconPlus } from '@tabler/icons-react'
+import { createPortal } from 'react-dom'
 import {
   useCallback,
   useEffect,
@@ -36,6 +37,7 @@ import { GroupMenu } from './GroupMenu'
 import { GroupHeader } from './GroupHeader'
 import { registerReloader } from '../../reload/reload'
 import { listStore, subscribeListChanges, useListStore } from './list-store'
+import { on } from '../../ipc'
 import { folderShown, folders, isRead, isSettled, isWorking, split, type Folder } from './look'
 
 const DEBOUNCE_MS = 100
@@ -109,7 +111,14 @@ function useNow(ticking: boolean): number {
   return now
 }
 
-export function ChatList({ query: rawQuery }: { query: string }) {
+/** `footer`, when given, holds the Settled fold pinned below the scrolling list; else it trails inline. */
+export function ChatList({
+  query: rawQuery,
+  footer = null,
+}: {
+  query: string
+  footer?: HTMLElement | null
+}) {
   const query = useDebounced(rawQuery).trim().toLowerCase()
   const searching = query !== ''
   const list = useListStore((s) => s.list)
@@ -126,10 +135,15 @@ export function ChatList({ query: rawQuery }: { query: string }) {
   useEffect(() => {
     void listStore.getState().load()
     const off = subscribeListChanges()
+    // A clicked desktop notification opens its chat.
+    const offOpen = on('chat.openRequested', ({ file }) =>
+      openPlace(placeOf('chat', { chat: file })),
+    )
     // Belt: window focus (and the reload action) rescans, as the Rust app does.
     const offReload = registerReloader('chat-list', () => listStore.getState().load(), [])
     return () => {
       off()
+      offOpen()
       offReload()
     }
   }, [])
@@ -476,7 +490,11 @@ export function ChatList({ query: rawQuery }: { query: string }) {
             </div>
           ) : null}
           {lists.snoozed.length > 0 ? fold('snoozed', 'Snoozed', lists.snoozed, false) : null}
-          {lists.settled.length > 0 ? fold('settled', 'Settled', lists.settled, true) : null}
+          {lists.settled.length > 0
+            ? footer
+              ? createPortal(fold('settled', 'Settled', lists.settled, true), footer)
+              : fold('settled', 'Settled', lists.settled, true)
+            : null}
         </Accordion>
         {overlays}
       </DndContext>

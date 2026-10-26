@@ -13,6 +13,8 @@ const isLaunchState = (v: unknown): v is LaunchState =>
 export interface LaunchControls {
   state: LaunchState | null
   models: readonly ModelInfo[]
+  /** omp's configured default thinking level (the picker's reset target), or null. */
+  defaultThinking: string | null
   /** A change is in flight (an access restart takes a moment). */
   busy: boolean
   /** Main's message for the last refused change, shown under the toolbar. */
@@ -28,6 +30,7 @@ export interface LaunchControls {
 export function useLaunchState(paneId: string, enabled: boolean): LaunchControls {
   const [state, setState] = useState<LaunchState | null>(null)
   const [models, setModels] = useState<readonly ModelInfo[]>([])
+  const [defaultThinking, setDefaultThinking] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const alive = useRef(true)
@@ -64,6 +67,7 @@ export function useLaunchState(paneId: string, enabled: boolean): LaunchControls
     void invoke('chat.models', {}).then((r) => {
       if (!stale && alive.current && r.ok && Array.isArray(r.value?.models)) {
         setModels(r.value.models)
+        setDefaultThinking(typeof r.value.thinking === 'string' ? r.value.thinking : null)
       }
     })
     return () => {
@@ -84,5 +88,13 @@ export function useLaunchState(paneId: string, enabled: boolean): LaunchControls
     [paneId],
   )
 
-  return { state, models, busy, error, apply, clearError: () => setError(null) }
+  return {
+    state,
+    models,
+    defaultThinking,
+    busy,
+    error,
+    apply,
+    clearError: () => setError(null),
+  }
 }

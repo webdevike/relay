@@ -5,16 +5,9 @@ import { registerAction } from '../hotkeys/router'
 import { layoutStore, toggleSidebar } from '../shell/layout-store'
 import { focusSearch } from './nav-level'
 
-export interface RecentItem {
-  date: string
-  tag: string | null
-  title: string
-}
-
 export interface SidebarData {
   openTodos: number
   scheduledJobs: number
-  recent: RecentItem[]
   error: boolean
   loaded: boolean
 }
@@ -22,7 +15,6 @@ export interface SidebarData {
 const initial = (): SidebarData => ({
   openTodos: 0,
   scheduledJobs: 0,
-  recent: [],
   error: false,
   loaded: false,
 })
@@ -45,7 +37,6 @@ export function refreshSidebar(): Promise<void> {
         sidebarStore.setState({
           openTodos: r.value.openTodos,
           scheduledJobs: r.value.scheduledJobs,
-          recent: r.value.recent,
           error: false,
           loaded: true,
         })
@@ -59,14 +50,6 @@ export function refreshSidebar(): Promise<void> {
     }
   })()
   return inflight
-}
-
-export function filterRecent(recent: readonly RecentItem[], query: string): RecentItem[] {
-  const q = query.trim().toLowerCase()
-  if (!q) return [...recent]
-  return recent.filter(
-    (r) => r.title.toLowerCase().includes(q) || (r.tag?.toLowerCase().includes(q) ?? false),
-  )
 }
 
 export function countLabel(n: number): string | null {

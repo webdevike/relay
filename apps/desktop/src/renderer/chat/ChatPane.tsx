@@ -7,6 +7,7 @@ import { Composer, type ComposerHandle } from './Composer'
 import { WidgetActions, type WidgetActionsValue } from './widgets/actions'
 import { PendingDialog } from './cards/PendingDialog'
 import { JobsStrip } from './strips/JobsStrip'
+import { StatusStrip } from './strips/StatusStrip'
 import { SubagentChips } from './strips/SubagentChips'
 import { chatStore, hiddenKey, useChatStore } from './chat-store'
 import { createStreamDrain } from './stream-drain'
@@ -21,7 +22,7 @@ import {
 } from '../tabs/tabs-store'
 import { renameBrowserScope } from '../browser/browser-scope'
 import { openChatFile, openDraftPane, PANE_ID } from './open-chat'
-import { togglePanel, toggleSidebar, useLayout } from '../shell/layout-store'
+import { openSubagentPanel, togglePanel, toggleSidebar, useLayout } from '../shell/layout-store'
 import { setChatTitle } from '../eva/names-store'
 import { AgentCrumb } from '../assistants/AgentCrumb'
 import { agentFile, agentIdOf, agentOf, useAssistants } from '../assistants/assistants-store'
@@ -49,6 +50,12 @@ export function ChatPane() {
   const [evaRoot, setEvaRoot] = useState<string | null>(null)
   const sidebarState = useLayout((s) => s.state)
   const panelOpen = useLayout((s) => s.panelOpen)
+  // The subagent the side panel shows, when it is one of this chat's.
+  const viewedSubagent = useLayout((s) =>
+    s.panelOpen && s.panelView.kind === 'subagent' && s.panelView.session === pane?.file
+      ? s.panelView.name
+      : null,
+  )
   const sidebarLabel =
     sidebarState === 'open'
       ? 'Hide sidebar'
@@ -216,11 +223,21 @@ export function ChatPane() {
         <SubagentChips
           subagents={pane.extras.subagents}
           hidden={hiddenNames}
+          active={viewedSubagent}
+          onOpen={(s) =>
+            openSubagentPanel({
+              session: pane.file,
+              // A subagent's transcript lives in the session's folder, named like the session.
+              file: `${pane.file.replace(/\.jsonl$/, '')}/${s.file}`,
+              name: s.name,
+            })
+          }
           onClearDone={() => chatStore.getState().clearDone(PANE_ID)}
         />
       ) : null}
       <PendingDialog paneId={PANE_ID} />
       {pane ? <JobsStrip running={pane.extras.running} jobs={pane.extras.jobs} /> : null}
+      <StatusStrip paneId={PANE_ID} />
       <Composer ref={composer} paneId={PANE_ID} disabled={!pane} />
     </main>
   )

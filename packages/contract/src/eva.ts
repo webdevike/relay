@@ -80,9 +80,6 @@ export const evaInvoke = {
     output: z.object({
       openTodos: z.number().int().min(0),
       scheduledJobs: z.number().int().min(0),
-      recent: z
-        .array(z.object({ date: z.string(), tag: z.string().nullable(), title: z.string() }))
-        .max(8),
     }),
   },
   'eva.dashboard': {

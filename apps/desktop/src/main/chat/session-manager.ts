@@ -18,8 +18,11 @@ import { isRecentlyActive } from '@evaos/chat-core/chat-groups'
 import type { ChatTransport, PromptImage, TransportExit } from '@evaos/chat-core/transport'
 import {
   claudeArgs,
+  goalCommand,
+  isHandoff,
   ompArgs,
   type Approval,
+  type GoalOp,
   type Harness,
   type Launch,
   type ModelInfo,
@@ -408,7 +411,8 @@ export class SessionManager {
     opts: { images?: ReadonlyArray<{ mimeType: string; data: string }>; force?: boolean } = {},
   ): Promise<void> {
     const pane = this.pane(paneId)
-    const route = this.remoteRoute(pane, opts.force === true)
+    const goal = !opts.images?.length && goalCommand(text) !== null
+    const route = this.remoteRoute(pane, opts.force === true, goal)
     if (route === 'relay') return this.replyAway(pane, text, opts.images)
     if (route === 'queue') return this.queueFirst(pane, text, opts.images)
     if (route === 'herdr') return this.startInHerdr(pane, text, opts.images)
@@ -473,9 +477,14 @@ export class SessionManager {
    * Where a send from a pane with no omp of its own goes: into the session running elsewhere
    * through Relay, behind a new herdr chat's first prompt, or into a new herdr chat. Null: a local
    * omp (today's path), including the takeover when Relay can't reach the session and Isaac
-   * chose to continue anyway (native blocked() and force_continue).
+   * chose to continue anyway (native blocked() and force_continue). A new chat opened with
+   * `/goal` starts locally: only omp's RPC can set a goal, and a herdr chat is reached by prompt.
    */
-  private remoteRoute(pane: Pane, force: boolean): 'relay' | 'queue' | 'herdr' | null {
+  private remoteRoute(
+    pane: Pane,
+    force: boolean,
+    goal: boolean,
+  ): 'relay' | 'queue' | 'herdr' | null {
     if (pane.transport || pane.starting) return null
     const r = pane.remote
     if (r?.away) {
@@ -485,9 +494,9 @@ export class SessionManager {
       return null
     }
     if (r) return 'queue'
-    if (pane.key !== null || !pane.draft || pane.prompted || this.harnessOf(pane) !== 'omp') {
-      return null
-    }
+    const local =
+      pane.key !== null || !pane.draft || pane.prompted || goal || this.harnessOf(pane) !== 'omp'
+    if (local) return null
     const why = !this.deps.herdr
       ? "herdr isn't available"
       : !this.relayUp()
@@ -987,17 +996,24 @@ export class SessionManager {
     text: string,
     images: ReadonlyArray<{ mimeType: string; data: string }> | undefined,
   ): ChatMessage {
-    // sendPrompt() runs outside apply(), so its meta change (clearing an EOF error) is diffed here.
+    // sendPrompt() runs outside apply(), so its meta changes (clearing an EOF error, a `/handoff`
+    // starting) are diffed here.
     const hadError = pane.reducer.error !== null
     const wasWorking = pane.reducer.running
+    const wasHandingOff = pane.reducer.handingOff
     const row = pane.reducer.sendPrompt(text, images)
     if (pane.reducer.running !== wasWorking) this.notify(pane.key)
     if (hadError) pane.batcher.markMeta({ error: null })
+    if (pane.reducer.handingOff !== wasHandingOff) pane.batcher.markMeta({ handingOff: true })
     pane.batcher.markUpsert(row, pane.reducer.indexOf(row.id))
     return row
   }
 
-  /** Writes an echoed prompt to omp. */
+  /**
+   * Writes an echoed prompt to omp. omp's RPC `prompt` does not run `/goal`, so a `/goal` without
+   * images goes as the RPC `goal` command instead (native chat.rs goal_command); omp's response
+   * takes the row back.
+   */
   private async writePrompt(
     pane: Pane,
     transport: ChatTransport,
@@ -1007,6 +1023,11 @@ export class SessionManager {
   ): Promise<void> {
     pane.prompted = true
     try {
+      const goal = transport.kind !== 'claude' && !images?.length ? goalCommand(text) : null
+      if (goal) {
+        await transport.write(goal)
+        return
+      }
       const promptImages: PromptImage[] | undefined =
         images && images.length > 0
           ? images.map((i) => ({ type: 'image', data: i.data, mimeType: i.mimeType }))
@@ -1026,7 +1047,14 @@ export class SessionManager {
    * replaced meanwhile stays inert: its seq is ahead of the new pane's.
    */
   private takeBack(pane: Pane, id: string): void {
-    if (pane.reducer.dropUnconfirmedRow(id)) pane.batcher.markRemove(id)
+    const row = pane.reducer.messages()[pane.reducer.indexOf(id)]
+    if (pane.reducer.dropUnconfirmedRow(id)) {
+      pane.batcher.markRemove(id)
+      if (pane.reducer.handingOff && row && isHandoff(row.text)) {
+        pane.reducer.handingOff = false
+        pane.batcher.markMeta({ handingOff: false })
+      }
+    }
     if (pane.timer === null && this.panes.get(pane.paneId) === pane) this.flush(pane)
   }
 
@@ -1424,6 +1452,14 @@ export class SessionManager {
     return true
   }
 
+  /** The goal strip's Pause, Resume and Drop: the RPC `goal` command. False without a local omp. */
+  async goal(paneId: string, op: Extract<GoalOp, 'pause' | 'resume' | 'drop'>): Promise<boolean> {
+    const t = this.panes.get(paneId)?.transport
+    if (!t || t.kind === 'claude') return false
+    await t.write({ type: 'goal', op })
+    return true
+  }
+
   snapshot(paneId: string): Snapshot {
     const p = this.pane(paneId)
     return p.batcher.snapshot(
@@ -1434,6 +1470,8 @@ export class SessionManager {
         connected: p.transport !== null || p.remote?.connected === true,
         error: p.reducer.error,
         dialog: p.reducer.dialog,
+        goal: p.reducer.goal,
+        handingOff: p.reducer.handingOff,
         away: p.remote?.view ?? null,
         ...(p.title !== null ? { title: p.title } : {}),
       },

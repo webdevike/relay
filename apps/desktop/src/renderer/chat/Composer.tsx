@@ -1,4 +1,5 @@
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react'
+import { slashMatches, type SlashCommand } from '@evaos/chat-core/launch'
 import { ActionIcon, Textarea } from '@mantine/core'
 import { IconArrowUp, IconPlayerStopFilled, IconPlus } from '@tabler/icons-react'
 import { invoke } from '../ipc'
@@ -7,6 +8,7 @@ import { WriterPrompt } from './WriterPrompt'
 import { ImageChips } from './composer/ImageChips'
 import { Toolbar } from './composer/Toolbar'
 import { useLaunchState } from './composer/useLaunchState'
+import { SlashMenu } from './composer/SlashMenu'
 import {
   ACCEPTED_IMAGE_TYPES,
   MAX_PROMPT_IMAGES,
@@ -66,6 +68,41 @@ export function Composer({
   const launch = useLaunchState(paneId, !disabled)
   const imagesBlocked = launch.state !== null && !launch.state.imagesAllowed
   const hasError = useChatStore((s) => (s.panes[paneId]?.error ?? null) !== null)
+  /** omp's `/` commands, fetched the first time a draft starts with `/`. Claude chats get none. */
+  const [commands, setCommands] = useState<SlashCommand[] | null>(null)
+  const [slashIx, setSlashIx] = useState(0)
+  /** Esc closes the menu until the text changes again. */
+  const [slashHidden, setSlashHidden] = useState(false)
+  const ompChat = launch.state?.harness !== 'claude'
+  const wantsCommands = ompChat && commands === null && text.startsWith('/')
+  useEffect(() => {
+    if (!wantsCommands) return
+    let stale = false
+    void invoke('chat.commands', {}).then((r) => {
+      if (!stale && r.ok) setCommands(r.value.commands)
+    })
+    return () => {
+      stale = true
+    }
+  }, [wantsCommands])
+  const slash =
+    ompChat && !slashHidden && commands && !disabled
+      ? slashMatches(commands, text)
+      : { prefix: '', hits: [] }
+  const slashSelected = Math.min(slashIx, Math.max(slash.hits.length - 1, 0))
+
+  /**
+   * Fills the draft with the highlighted command and a space for what follows. False when the
+   * menu is closed or (`enter`) the choice is already typed out in full, so Enter sends it.
+   */
+  const completeSlash = (enter: boolean, index = slashSelected): boolean => {
+    const name = slash.hits[index]?.name
+    if (name === undefined) return false
+    if (enter && text.trim() === `${slash.prefix}${name}`) return false
+    setText(`${slash.prefix}${name} `)
+    setSlashIx(0)
+    return true
+  }
 
   // Object URLs still held on unmount are released (T-04-30).
   useEffect(
@@ -82,6 +119,12 @@ export function Composer({
   // The window router handles Escape in capture phase. Claim it ahead of sidebar Back
   // only while this composer has focus; modal/popover dismissers keep their priority.
   useDismissable(DISMISS_PRIORITY.subPageBack + 1, () => void abort(), running && focused)
+  // An open `/` menu takes Escape ahead of the abort above.
+  useDismissable(
+    DISMISS_PRIORITY.subPageBack + 2,
+    () => setSlashHidden(true),
+    focused && slash.hits.length > 0,
+  )
 
   const attach = async (files: File[]): Promise<void> => {
     if (disabled || files.length === 0) return
@@ -160,6 +203,8 @@ export function Composer({
 
   const edit = (value: string): void => {
     setText(value)
+    setSlashIx(0)
+    setSlashHidden(false)
     // Dismissed, not cleared: main keeps its error until the next prompt, and a resync in
     // between must not bring the banner back.
     if (hasError) chatStore.getState().dismissError(paneId)
@@ -202,6 +247,14 @@ export function Composer({
     >
       <div className="eva-composer-frame">
         {dragging ? <div className="eva-composer-drop">Drop images to attach</div> : null}
+        {slash.hits.length > 0 ? (
+          <SlashMenu
+            prefix={slash.prefix}
+            hits={slash.hits}
+            selected={slashSelected}
+            onPick={(i) => completeSlash(false, i)}
+          />
+        ) : null}
         <ImageChips chips={images} onRemove={remove} />
         <Textarea
           autosize
@@ -223,6 +276,34 @@ export function Composer({
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           onKeyDown={(e) => {
+            if (slash.hits.length > 0) {
+              const n = slash.hits.length
+              if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault()
+                setSlashIx((slashSelected + (e.key === 'ArrowDown' ? 1 : -1) + n) % n)
+                return
+              }
+              if (e.key === 'Tab' && !e.shiftKey) {
+                e.preventDefault()
+                completeSlash(false)
+                return
+              }
+              if (e.key === 'Escape') {
+                e.preventDefault()
+                e.stopPropagation()
+                setSlashHidden(true)
+                return
+              }
+              if (
+                e.key === 'Enter' &&
+                !e.shiftKey &&
+                !e.nativeEvent.isComposing &&
+                completeSlash(true)
+              ) {
+                e.preventDefault()
+                return
+              }
+            }
             if (e.key === 'Escape' && running) {
               e.preventDefault()
               void abort()

@@ -160,6 +160,27 @@ describe('RelayClient', () => {
     client.stop()
   })
 
+  it('keeps the boards Relay streams and drops them with the connection', async () => {
+    const { client, relay } = connected()
+    const boardChanges = vi.fn()
+    client.onBoardsChange(boardChanges)
+    client.start()
+    await vi.advanceTimersByTimeAsync(0)
+    relay.say({ t: 'welcome', state: { agents: { rev: 0, sessions: [] } } })
+    expect(relay.frames().filter((f) => f.t === 'board.subscribe')).toHaveLength(1)
+    expect(client.boards()).toBeNull()
+    const board = { slug: 'ops', title: 'Ops', widgets: [], updatedAt: '' }
+    relay.say({ t: 'board.snapshot', rev: 1, boards: [board] })
+    expect(client.boards()?.map((b) => b.slug)).toEqual(['ops'])
+    relay.say({ t: 'board.delta', rev: 2, board: { ...board, title: 'Ops live' } })
+    expect(client.boards()?.map((b) => b.title)).toEqual(['Ops live'])
+    expect(boardChanges).toHaveBeenCalledTimes(2)
+    relay.handlers.at(-1)!.closed(CLOSED)
+    expect(client.boards()).toBeNull()
+    expect(boardChanges).toHaveBeenCalledTimes(3)
+    client.stop()
+  })
+
   it('a refusal closes the socket, says why and retries', async () => {
     const { client, relay } = connected()
     client.start()

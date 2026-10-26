@@ -13,7 +13,8 @@ export function resolveSpawnPath(live: boolean): Promise<string> {
     execFile(
       process.env.SHELL || '/bin/zsh',
       ['-ilc', 'echo -n "$PATH"'],
-      { timeout: 3000 },
+      // An interactive zsh ignores SIGTERM; without SIGKILL a slow rc file hangs app launch forever.
+      { timeout: 3000, killSignal: 'SIGKILL' },
       (error, stdout) => {
         resolve(!error && stdout.trim() !== '' ? stdout.trim() : fallback)
       },

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MantineProvider } from '@mantine/core'
 import type { LaunchState } from '@evaos/contract'
@@ -33,11 +33,26 @@ const models = [
     levels: [],
   },
 ]
-const invoke = vi.fn((channel: string, input?: { patch?: Record<string, unknown> }) => {
-  if (channel === 'chat.models') return Promise.resolve({ ok: true, value: { models } })
+let favorites: string[] = []
+const invoke = vi.fn((channel: string, input?: Record<string, unknown>) => {
+  const patch = input?.patch as Record<string, unknown> | undefined
+  if (channel === 'chat.models')
+    return Promise.resolve({ ok: true, value: { models, thinking: 'low' } })
   if (channel === 'chat.launchState') return Promise.resolve({ ok: true, value: current })
+  if (channel === 'settings.load' || channel === 'settings.save') {
+    if (Array.isArray(input?.favorite_models)) favorites = input.favorite_models as string[]
+    return Promise.resolve({
+      ok: true,
+      value: {
+        show_thinking: false,
+        show_tools: false,
+        harness: 'omp',
+        favorite_models: favorites,
+      },
+    })
+  }
   if (channel === 'chat.setLaunch') {
-    if (input?.patch?.approval === 'write' && current.harness === 'omp' && !current.unsent) {
+    if (patch?.approval === 'write' && current.harness === 'omp' && !current.unsent) {
       return Promise.resolve({
         ok: false,
         error: { code: 'busy', message: 'Wait for the reply to finish, then change access.' },
@@ -54,6 +69,8 @@ vi.mock('../../ipc', () => ({
 import { Composer } from '../Composer'
 import { ContextRing, contextLabel } from './ContextRing'
 import { chatStore } from '../chat-store'
+import { resetSettingsForTest } from '../../settings/settings-store'
+import { dispatchChord } from '../../hotkeys/router'
 
 const open = (tokens: number | null, window: number | null) => {
   chatStore.setState({ panes: {} })
@@ -76,6 +93,8 @@ const wrap = (disabled = false) =>
 
 beforeEach(() => {
   invoke.mockClear()
+  favorites = []
+  resetSettingsForTest()
   current = baseState
 })
 
@@ -124,10 +143,60 @@ describe('Composer toolbar', () => {
     const user = userEvent.setup()
     await waitFor(() => expect(screen.getByTestId('composer-model')).toHaveTextContent('Opus 5.5'))
     await user.click(screen.getByTestId('composer-model'))
+    // Nothing starred: the picker opens on the first provider's tab.
+    expect(await screen.findByTestId('model-option-anthropic-claude-opus-5-5')).toBeInTheDocument()
+    expect(screen.queryByTestId('model-option-fake-text-only')).toBeNull()
+    expect(screen.getByPlaceholderText('Search Anthropic...')).toBeInTheDocument()
+    await user.click(screen.getByTestId('model-tab-fake'))
     await user.click(await screen.findByTestId('model-option-fake-text-only'))
     expect(invoke).toHaveBeenCalledWith('chat.setLaunch', {
       paneId: 'pane-1',
       patch: { model: { provider: 'fake', modelId: 'text-only' } },
+    })
+  })
+
+  it('a star saves favorite_models and the starred tab numbers ⌘1-⌘9', async () => {
+    open(1, 100)
+    wrap()
+    const user = userEvent.setup()
+    await waitFor(() => expect(screen.getByTestId('composer-model')).toHaveTextContent('Opus 5.5'))
+    await user.click(screen.getByTestId('composer-model'))
+    await user.click(await screen.findByTestId('model-tab-fake'))
+    await user.click(screen.getByTestId('model-star-fake-text-only'))
+    expect(invoke).toHaveBeenCalledWith('settings.save', { favorite_models: ['fake/text-only'] })
+    // The star is not a pick.
+    expect(invoke).not.toHaveBeenCalledWith('chat.setLaunch', expect.anything())
+    await user.click(screen.getByTestId('model-tab-starred'))
+    expect(screen.getByPlaceholderText('Search starred...')).toBeInTheDocument()
+    expect(screen.getByTestId('model-option-fake-text-only')).toHaveTextContent('⌘ 1')
+    expect(dispatchChord('cmd+1', { fromGuest: false })).toBe(true)
+    expect(invoke).toHaveBeenCalledWith('chat.setLaunch', {
+      paneId: 'pane-1',
+      patch: { model: { provider: 'fake', modelId: 'text-only' } },
+    })
+    // Nothing at ⌘2: the chord passes through.
+    expect(dispatchChord('cmd+2', { fromGuest: false })).toBe(false)
+  })
+
+  it('the thinking level shows on the trigger and resets to omp’s default', async () => {
+    open(1, 100)
+    wrap()
+    const user = userEvent.setup()
+    await waitFor(() => expect(screen.getByTestId('composer-model')).toHaveTextContent('Off'))
+    await user.click(screen.getByTestId('composer-model'))
+    expect(await screen.findByTestId('thinking-level')).toHaveTextContent('Off')
+    // The popover is still mid-transition for jsdom's accessibility tree.
+    const slider = screen.getByRole('slider', { name: 'Thinking level', hidden: true })
+    fireEvent.keyDown(slider, { key: 'ArrowRight' })
+    expect(invoke).toHaveBeenCalledWith('chat.setLaunch', {
+      paneId: 'pane-1',
+      patch: { thinking: 'low' },
+    })
+    invoke.mockClear()
+    await user.click(screen.getByTestId('thinking-reset'))
+    expect(invoke).toHaveBeenCalledWith('chat.setLaunch', {
+      paneId: 'pane-1',
+      patch: { thinking: 'low' },
     })
   })
 

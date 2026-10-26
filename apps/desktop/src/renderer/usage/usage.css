@@ -14,7 +14,10 @@
   gap: 2px;
 }
 .eva-usage-provider {
+  display: inline-flex;
+  align-items: center;
   margin-right: var(--eva-space-xs);
+  color: var(--mantine-color-dimmed);
 }
 .eva-usage-item {
   display: inline-flex;

@@ -4,9 +4,15 @@ import { registerTestHook } from '../test-hooks'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { claudeArgs, ompArgs, readApproval, type Approval } from '@evaos/chat-core/launch'
+import {
+  claudeArgs,
+  ompArgs,
+  readApproval,
+  readThinking,
+  type Approval,
+} from '@evaos/chat-core/launch'
 import { buildCommand, childPathFor } from '../eva/spawn'
-import { ModelCatalog } from './models'
+import { CommandCatalog, ModelCatalog } from './models'
 import type { OmpStdioTransport } from './omp-transport'
 import { loadSettings } from '../settings-ipc'
 import { createChatTransport } from './transport-factory'
@@ -64,24 +70,37 @@ export function defaultLaunchArgs(ctx: MainContext, harness: 'omp' | 'claude'): 
     : ompArgs({ approval, profile: null })
 }
 
+const ompRpcOptions = (ctx: MainContext) => ({
+  cwd: ctx.env.evaRoot,
+  cmd: async () => {
+    const home = os.homedir()
+    return buildCommand(ctx.env.ompBin, ['--mode', 'rpc', '--no-session'], {
+      pathEnv: await childPathFor(ctx.env.live, home),
+      homedir: home,
+      execPath: process.execPath,
+      baseEnv: process.env,
+    })
+  },
+})
+
 /** One catalog per app: omp's model list from a throwaway `--mode rpc --no-session` process. */
 const catalogs = new WeakMap<MainContext, ModelCatalog>()
 export function catalogFor(ctx: MainContext): ModelCatalog {
   let c = catalogs.get(ctx)
   if (!c) {
-    c = new ModelCatalog({
-      cwd: ctx.env.evaRoot,
-      cmd: async () => {
-        const home = os.homedir()
-        return buildCommand(ctx.env.ompBin, ['--mode', 'rpc', '--no-session'], {
-          pathEnv: await childPathFor(ctx.env.live, home),
-          homedir: home,
-          execPath: process.execPath,
-          baseEnv: process.env,
-        })
-      },
-    })
+    c = new ModelCatalog(ompRpcOptions(ctx))
     catalogs.set(ctx, c)
+  }
+  return c
+}
+
+/** One `/` command list per app, from the same kind of throwaway process. */
+const commandCatalogs = new WeakMap<MainContext, CommandCatalog>()
+function commandsFor(ctx: MainContext): CommandCatalog {
+  let c = commandCatalogs.get(ctx)
+  if (!c) {
+    c = new CommandCatalog(ompRpcOptions(ctx))
+    commandCatalogs.set(ctx, c)
   }
   return c
 }
@@ -176,13 +195,21 @@ export function registerLiveIpc(ctx: MainContext, manager: SessionManager): void
   handle(ctx, 'chat.answerUi', async ({ paneId, id, response }) => ({
     sent: await manager.answerUi(paneId, id, response),
   }))
+  handle(ctx, 'chat.goal', async ({ paneId, op }) => ({ sent: await manager.goal(paneId, op) }))
   handle(ctx, 'chat.close', async ({ paneId }) => ({ exit: await manager.close(paneId) }))
   handle(ctx, 'chat.openDraft', ({ paneId }) => {
     const meta = { model: null, thinking: null, contextTokens: null }
     manager.openDraft(paneId, meta)
     return { meta, harness: loadSettings(ctx.config).harness }
   })
-  handle(ctx, 'chat.models', async () => ({ models: await catalogFor(ctx).list() }))
+  handle(ctx, 'chat.models', async () => ({
+    models: await catalogFor(ctx).list(),
+    thinking: readThinking(
+      readText(path.join(ctx.env.evaRoot, '.omp/config.yml')),
+      readText(path.join(ctx.env.agentDir, 'config.yml')),
+    ),
+  }))
+  handle(ctx, 'chat.commands', async () => ({ commands: await commandsFor(ctx).list() }))
   handle(ctx, 'chat.launchState', async ({ paneId }) => {
     // Warm the catalog so imagesAllowed reflects the current model; a failure only means unknown.
     await catalogFor(ctx)

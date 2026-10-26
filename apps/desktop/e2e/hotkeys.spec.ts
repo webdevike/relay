@@ -101,8 +101,6 @@ test('implemented chords have real effects', async ({ shell }) => {
   await shell.keyboard.press('Meta+]')
   await expect.poll(async () => (await tabs(shell)).list[0]!.title).toBe('Habits')
 
-  await shell.keyboard.press('Meta+f')
-  await expect(shell.locator(sel('sidebar-search'))).toBeFocused()
   await clearLog(shell)
   await shell.keyboard.press('Meta+r')
   await expect.poll(() => actions(shell)).toContain('reload')
@@ -110,8 +108,9 @@ test('implemented chords have real effects', async ({ shell }) => {
 
 test('native edit chords and plain typing are untouched', async ({ shell }) => {
   await focusShell(shell)
+  await shell.locator(sel('nav-chat')).click()
   await shell.keyboard.press('Meta+f')
-  const search = shell.locator(sel('sidebar-search'))
+  const search = shell.locator(sel('sidebar-sub-search'))
   await expect(search).toBeFocused()
   await clearLog(shell)
   await shell.keyboard.type('abc')

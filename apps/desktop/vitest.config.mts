@@ -24,6 +24,7 @@ export default defineConfig({
       },
       {
         plugins: [react()],
+        define: { __RELAY_BUILD__: JSON.stringify('test-build') },
         test: {
           name: 'renderer',
           // Style tests read tokens.css and motion.css through ?raw; do not blank CSS.

@@ -6,6 +6,7 @@ import {
   hello,
   parseApproval,
   parseAsk,
+  parseBoard,
   parseSession,
   proof,
 } from './feed'
@@ -115,13 +116,76 @@ describe('Relay feed', () => {
     const feed = authenticated()
     for (const frame of [
       { t: 'pong', ts: 1, serverTs: 2 },
-      { t: 'board.snapshot', rev: 1, boards: [] },
       { t: 'agent.messages', sessionId: 'a', append: [] },
       'not an object',
       null,
     ]) {
       expect(feed.receive(frame)).toEqual({ replies: [], events: [] })
     }
+  })
+
+  it('subscribes to boards on welcome, keeps them by title and asks again after a gap', () => {
+    const feed = new Feed(Buffer.alloc(32))
+    expect(
+      feed.receive({ t: 'welcome', state: { agents: { rev: 0, sessions: [] } } }).replies,
+    ).toEqual([{ t: 'board.subscribe' }])
+    const board = (slug: string, title: string, widgets: unknown[] = []) => ({
+      slug,
+      title,
+      widgets,
+      updatedAt: '2026-10-23T10:00:00.000Z',
+    })
+    const titles = (frame: unknown) =>
+      feed
+        .receive(frame)
+        .events.flatMap((e) => (e.kind === 'boards' ? e.boards : []))
+        .map((b) => b.title)
+    expect(
+      titles({ t: 'board.snapshot', rev: 2, boards: [board('z', 'Office'), board('a', 'Today')] }),
+    ).toEqual(['Office', 'Today'])
+    expect(titles({ t: 'board.delta', rev: 3, board: board('m', 'GoodOps') })).toEqual([
+      'GoodOps',
+      'Office',
+      'Today',
+    ])
+    expect(titles({ t: 'board.delta', rev: 4, removed: 'z' })).toEqual(['GoodOps', 'Today'])
+    expect(feed.receive({ t: 'board.delta', rev: 6, removed: 'a' })).toEqual({
+      replies: [{ t: 'board.get' }],
+      events: [],
+    })
+    expect(titles({ t: 'board.snapshot', rev: 6, boards: [board('a', 'Today')] })).toEqual([
+      'Today',
+    ])
+  })
+
+  it('reads a board leniently: clamps spans, drops tiles without an id or a spec', () => {
+    expect(
+      parseBoard({
+        slug: 'ops',
+        title: 'Ops',
+        workspace: 'Relay',
+        updatedAt: 'x',
+        widgets: [
+          { id: 'a', span: 4, spec: { widget: 'stat', label: 'Up', value: '1' } },
+          { id: 'b', spec: { widget: 'divider' } },
+          { id: 'c', span: 40, spec: { widget: 'divider' } },
+          { span: 3, spec: { widget: 'divider' } },
+          { id: 'd', span: 3 },
+        ],
+      }),
+    ).toEqual({
+      slug: 'ops',
+      title: 'Ops',
+      workspace: 'Relay',
+      icon: null,
+      updatedAt: 'x',
+      widgets: [
+        { id: 'a', span: 4, spec: { widget: 'stat', label: 'Up', value: '1' } },
+        { id: 'b', span: 12, spec: { widget: 'divider' } },
+        { id: 'c', span: 12, spec: { widget: 'divider' } },
+      ],
+    })
+    expect(parseBoard({ slug: 'ops', widgets: [] })).toBeNull()
   })
 
   it('hears a subscribed reply as it streams: the conversation, appends and updates', () => {
