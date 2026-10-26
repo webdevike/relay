@@ -6,6 +6,7 @@ import * as path from 'node:path'
 import { z } from 'zod'
 import type { Assistant, AssistantStatus, Assistants } from '@evaos/contract'
 import { oneLine } from '@evaos/chat-core/session'
+import { isNothingToReport } from '@evaos/chat-core/quiet'
 import { sessionId } from '@evaos/chat-core/session-id'
 import type { RelaySession } from '../relay/feed'
 
@@ -86,7 +87,8 @@ export interface Reply {
 
 /**
  * The newest assistant message in `tail` that has text, newest last in the file. Turns that only
- * called tools have none and are skipped (native assistants_view::last_reply).
+ * called tools have none and are skipped (native assistants_view::last_reply), and so are
+ * background turns answered "(nothing to report)".
  */
 export function lastReply(tail: string): Reply | null {
   const lines = tail.split('\n')
@@ -117,7 +119,7 @@ export function lastReply(tail: string): Reply | null {
         .join(' ')
     else continue
     const one = oneLine(text, PREVIEW_CHARS)
-    if (one === '') continue
+    if (one === '' || isNothingToReport(one)) continue
     const ms = typeof record.timestamp === 'string' ? Date.parse(record.timestamp) : NaN
     return { text: one, at: Number.isNaN(ms) ? null : ms }
   }

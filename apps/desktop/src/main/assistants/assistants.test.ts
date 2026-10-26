@@ -165,6 +165,15 @@ describe('last reply', () => {
     })
   })
 
+  it('skips background replies of (nothing to report)', () => {
+    const tail = [
+      reply([{ type: 'text', text: 'ENG-6409 needs review.' }]),
+      user("[From Astra's background jobs] Heartbeat"),
+      reply([{ type: 'text', text: '(nothing to report)' }], '2026-10-24T10:00:00.000Z'),
+    ].join('\n')
+    expect(lastReply(tail)?.text).toBe('ENG-6409 needs review.')
+  })
+
   it('joins text blocks on one line, clips long ones and keeps no time when none is readable', () => {
     const long = 'word '.repeat(100)
     const r = lastReply(

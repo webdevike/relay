@@ -24,7 +24,7 @@ import { openChatFile, openDraftPane, PANE_ID } from './open-chat'
 import { togglePanel, toggleSidebar, useLayout } from '../shell/layout-store'
 import { setChatTitle } from '../eva/names-store'
 import { AgentCrumb } from '../assistants/AgentCrumb'
-import { agentFile, agentIdOf, useAssistants } from '../assistants/assistants-store'
+import { agentFile, agentIdOf, agentOf, useAssistants } from '../assistants/assistants-store'
 
 declare global {
   interface Window {
@@ -59,6 +59,11 @@ export function ChatPane() {
   const place = useTabs(activePlace)
   const thread = useAssistants((s) => agentFile(s, place))
   const agent = agentIdOf(place)
+  // An assistant thread shows the agent "typing" while Relay hears it working.
+  const typing = useAssistants((s) => {
+    const a = agent === null ? null : agentOf(s, agent)
+    return a?.status === 'working' ? a.title : null
+  })
   const placeChat = place.page === 'chat' ? place.chat : thread
 
   const hiddenDone = useChatStore((s) => s.hiddenDone)
@@ -194,6 +199,7 @@ export function ChatPane() {
             messages={pane.messages}
             // A draft keeps its log key when omp names the file, so binding never jumps the scroll.
             file={pane.boundTo ? '' : pane.file}
+            typing={typing}
           />
         </WidgetActions.Provider>
       ) : (

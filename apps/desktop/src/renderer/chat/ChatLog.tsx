@@ -8,6 +8,7 @@ import {
 } from 'react'
 import { VList, type VListHandle } from 'virtua'
 import type { ChatMessage } from '@evaos/chat-core/message'
+import { dropQuietTurns } from '@evaos/chat-core/quiet'
 import { MessageRow, ToolRunRow } from './MessageRow'
 import { Pills } from './Pills'
 import { pinReducer, type PinState } from './pin'
@@ -24,8 +25,10 @@ declare global {
 const onRender: ProfilerOnRenderCallback = (_id, _phase, actualDuration) => {
   window.__evaosChatProfile?.push(actualDuration)
 }
-
-type LogItem = { kind: 'message'; m: ChatMessage } | { kind: 'tools'; tools: ChatMessage[] }
+type LogItem =
+  | { kind: 'message'; m: ChatMessage }
+  | { kind: 'tools'; tools: ChatMessage[] }
+  | { kind: 'typing'; who: string }
 
 /** Rows for the log: each message, or with `fold` each run of tool calls as one group. */
 function logItems(list: ChatMessage[], fold: boolean): LogItem[] {
@@ -55,10 +58,13 @@ export function ChatLog({
   paneId,
   messages: all,
   file,
+  typing = null,
 }: {
   paneId: string
   messages: ChatMessage[]
   file: string
+  /** An assistant thread's agent while it works: its three dots end the log until text streams. */
+  typing?: string | null
 }) {
   const showThinking = useSettings((s) => s.show_thinking)
   const showTools = useSettings((s) => s.show_tools)
@@ -67,10 +73,16 @@ export function ChatLog({
   }, [])
   // Settings > Chat > Show thinking applies live: thinking rows are dropped, not collapsed.
   // Show tool details off folds each run of tool calls into one line (the Rust tool group).
+  // Background turns answered "(nothing to report)" never show.
   const items = useMemo(() => {
-    const base = showThinking ? all : all.filter((m) => m.role !== 'thinking')
-    return logItems(base, !showTools)
-  }, [all, showThinking, showTools])
+    const shown = dropQuietTurns(all)
+    const base = showThinking ? shown : shown.filter((m) => m.role !== 'thinking')
+    const out = logItems(base, !showTools)
+    const last = shown.at(-1)
+    const streaming = last?.role === 'assistant' && last.streaming === true && last.text !== ''
+    if (typing !== null && !streaming) out.push({ kind: 'typing', who: typing })
+    return out
+  }, [all, showThinking, showTools, typing])
   const ref = useRef<VListHandle>(null)
   const pin = useRef<PinState>({ pinned: true, newReply: false })
   const first = useRef(true)
@@ -121,6 +133,16 @@ export function ChatLog({
           {(item) =>
             item.kind === 'tools' ? (
               <ToolRunRow key={`${item.tools[0]!.id}-tools`} tools={item.tools} />
+            ) : item.kind === 'typing' ? (
+              <div key="typing" className="eva-row" data-testid="chat-typing">
+                <div className="eva-row-inner">
+                  <span className="eva-typing" role="img" aria-label={`${item.who} is typing`}>
+                    <span />
+                    <span />
+                    <span />
+                  </span>
+                </div>
+              </div>
             ) : (
               <MessageRow key={item.m.id} m={item.m} />
             )
