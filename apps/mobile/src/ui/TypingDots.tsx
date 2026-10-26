@@ -13,7 +13,7 @@ import Animated, {
 import { spacing, useColors } from "@/theme";
 
 const LOOP_MS = 1200;
-const DOT = 7;
+const DOT = 9;
 const DOTS = 3;
 /** Opacity of a resting dot, and of every dot when Reduce Motion holds them still. */
 const REST = 0.35;
@@ -57,15 +57,15 @@ function Dot({ index, phase, still, color }: { index: number; phase: SharedValue
 }
 
 const styles = StyleSheet.create({
-  // Sized like a one-line incoming bubble (22 radius, 17pt text's 45pt height).
+  // A roomy pill like iMessage's: about two dots of padding above and below, a little less beside.
   bubble: {
     alignSelf: "flex-start",
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
-    height: 45,
-    borderRadius: 22,
-    paddingHorizontal: spacing.lg,
+    gap: 4,
+    height: 50,
+    borderRadius: 25,
+    paddingHorizontal: 16,
   },
   dot: { width: DOT, height: DOT, borderRadius: DOT / 2 },
 });
