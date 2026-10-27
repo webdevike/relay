@@ -332,6 +332,9 @@ export function AgentCard({ sessionId, messages, connected, status, activity, ac
           listed.push(message);
         }
         run.push(message);
+      } else if (message.role === "assistant" && message.text.trim().length === 0 && (message.images === undefined || message.images.length === 0)) {
+        // An empty assistant turn between calls draws nothing; it must not split the run.
+        if (run === null) listed.push(message);
       } else {
         run = null;
         listed.push(message);
