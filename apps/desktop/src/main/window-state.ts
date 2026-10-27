@@ -1,4 +1,4 @@
-import type { BaseWindow, Rectangle } from 'electron'
+import { app, type BaseWindow, type Rectangle } from 'electron'
 import type { ConfigStore } from './config-store'
 
 export const WINDOW_STATE_FILE = 'window.json'
@@ -76,4 +76,6 @@ export function trackWindowState(win: BaseWindow, config: ConfigStore): void {
   win.on('enter-full-screen', later)
   win.on('leave-full-screen', later)
   win.on('close', save)
+  // A quit by signal (the supervisor's SIGTERM) may never close the window first.
+  app.on('before-quit', save)
 }
