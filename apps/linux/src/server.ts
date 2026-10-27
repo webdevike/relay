@@ -14,6 +14,8 @@ import type { FileBoardStore } from "./boards/store";
 import type { UsageService } from "./usage/service";
 import type { CatchUpDeck } from "./catchup/service";
 import { CommandDedupStore } from "./dedup";
+import { serveBlob } from "./drops/serve";
+import { isVideoMime, videoMimeOf, VideoTooLarge } from "./drops/video";
 import { PairingCoordinator } from "./pairing";
 import type { AttentionNotifier } from "./push/notifier";
 import type {
@@ -351,10 +353,12 @@ export class RelayServer {
   }
 
   /**
-   * `GET /drops/<id>/<token>` serves a blob to anyone holding the token (it only ever travels to
-   * authenticated phones). `POST /drops` adds a drop and is loopback-only: it is how `relay share`
-   * on this machine reaches the running daemon. Text body with `content-type: text/plain` makes a
-   * text/link drop; any other body is a blob named by `x-drop-name`.
+   * `GET`/`HEAD /drops/<id>/<token>` serves a blob, with byte ranges, to anyone holding the token
+   * (it only ever travels to authenticated phones); `/drops/<id>/<token>/poster` is a video drop's
+   * poster JPEG. `POST /drops` adds a drop and is loopback-only: it is how `relay share` on this
+   * machine reaches the running daemon. Text body with `content-type: text/plain` makes a
+   * text/link drop; any other body is a blob named by `x-drop-name` (a video by type or extension,
+   * probed for its poster; 413 over the video cap).
    */
   private async handleDropRequest(
     request: Request,
@@ -363,19 +367,14 @@ export class RelayServer {
   ): Promise<Response> {
     const drops = this.deps.drops;
     if (drops === null) return new Response("drops disabled", { status: 404 });
-    if (request.method === "GET") {
-      const [, , id, token] = path.split("/");
-      if (id === undefined || token === undefined || token === "")
+    if (request.method === "GET" || request.method === "HEAD") {
+      const [, , id, token, part, ...rest] = path.split("/");
+      if (id === undefined || token === undefined || token === "" || rest.length > 0)
         return new Response("not found", { status: 404 });
-      const blob = drops.open(id, token);
+      const blob =
+        part === undefined ? drops.open(id, token) : part === "poster" ? drops.openPoster(id, token) : null;
       if (blob === null) return new Response("not found", { status: 404 });
-      return new Response(Bun.file(blob.path), {
-        headers: {
-          "content-type": blob.mimeType,
-          "content-length": String(blob.size),
-          "content-disposition": `attachment; filename="${encodeURIComponent(blob.name)}"`,
-        },
-      });
+      return serveBlob(request, blob);
     }
     if (request.method === "POST" && path === "/drops") {
       if (!isLoopback(remote)) return new Response("loopback only", { status: 403 });
@@ -387,13 +386,16 @@ export class RelayServer {
           return Response.json(drops.putText("host", text));
         }
         const name = basename(request.headers.get("x-drop-name") ?? "") || "file";
+        const mimeType = videoMimeOf(name, type.split(";")[0] ?? type);
         const bytes = new Uint8Array(await request.arrayBuffer());
         return Response.json(
-          drops.putBlob("host", { name, mimeType: type.split(";")[0] ?? type, bytes }),
+          isVideoMime(mimeType)
+            ? await drops.putVideo("host", { name, mimeType, bytes })
+            : drops.putBlob("host", { name, mimeType, bytes }),
         );
       } catch (error) {
         return new Response(error instanceof Error ? error.message : String(error), {
-          status: 400,
+          status: error instanceof VideoTooLarge ? 413 : 400,
         });
       }
     }

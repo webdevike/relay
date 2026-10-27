@@ -373,8 +373,13 @@ export const DropFile = z.object({
    * credential the fetch needs. Prefix it with `http://<host>:<port>` of the live connection.
    */
   path: nonEmpty,
+  /** Display size: image pixels, or a video's frame with its rotation applied. */
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional(),
+  /** Video drops (`video/*` mimeType, kind `file`): length in ms, when the host could read it. */
+  durationMs: z.number().int().nonnegative().optional(),
+  /** Video drops: `<path>/poster`, a JPEG frame to show before playing (absent without ffmpeg). */
+  poster: nonEmpty.optional(),
 });
 export type DropFile = z.infer<typeof DropFile>;
 

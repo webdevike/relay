@@ -2,19 +2,23 @@
  * Markdown images (`![alt](src)`) of one message as a stack of left-aligned tiles, the way a chat
  * app shows pictures: `TILE_WIDTH` wide, shaped by the picture (via `Image.getSize`) between
  * `MIN_HEIGHT` and `MAX_HEIGHT`, cropped to fill (cover), `GAP` apart. A tap opens `ImageViewer`
- * with every loadable image of the stack, starting at the tapped one.
+ * with every loadable image of the stack, starting at the tapped one. A src that is a video (a
+ * `video/*` drop or an https `.mp4`, see `videoEmbed.ts`) plays inline as an `InlineVideo` instead.
  *
  * `src` is an http(s) URL, or a host drop path from `relay-linux share` (resolved by `useDropSrc`).
  * A path on the Mac can't be fetched, so it shows a muted caption naming the file, not a broken tile.
  */
 import { useEffect, useState } from "react";
 import { Image, View } from "react-native";
+import { useDropsStore } from "@/state/drops";
 import { useColors } from "@/theme";
 import { ImageFrame } from "@/ui/ImageFrame";
 import { MediaPlaceholder } from "@/ui/MediaPlaceholder";
 import { useDropSrc } from "./dropSrc";
 import { ImageViewer, type ViewerImage } from "./ImageViewer";
+import { InlineVideo } from "./InlineVideo";
 import { type ImageSrcKind, imageBasename, imageSrcKind, type MessageImage } from "./markdown";
+import { videoEmbedOf } from "./videoEmbed";
 
 const TILE_WIDTH = 188;
 const MIN_HEIGHT = 110;
@@ -24,32 +28,39 @@ const GAP = 4;
 
 export function MarkdownImages({ images }: { images: MessageImage[] }) {
   const [viewing, setViewing] = useState<number | null>(null);
+  const drops = useDropsStore((s) => s.drops);
   const resolved = useDropSrc(images.map((image) => image.src));
   const items = images.map((image, i) => {
     const kind = imageSrcKind(image.src);
-    return { ...image, kind, uri: kind === "local" ? null : (resolved[i] ?? null) };
+    return { ...image, kind, uri: kind === "local" ? null : (resolved[i] ?? null), video: videoEmbedOf(image.src, drops) };
   });
 
-  // The viewer pages through the tiles that have a picture; `pages[i]` is tile i's page (-1: none).
+  // The viewer pages through the picture tiles that loaded; `pages[i]` is tile i's page (-1: none).
   const loadable: ViewerImage[] = [];
   const pages = items.map((item) =>
-    item.uri === null ? -1 : loadable.push({ uri: item.uri, caption: item.alt === "" ? undefined : item.alt }) - 1,
+    item.uri === null || item.video !== null
+      ? -1
+      : loadable.push({ uri: item.uri, caption: item.alt === "" ? undefined : item.alt }) - 1,
   );
 
   return (
     <View style={{ gap: GAP, alignItems: "flex-start" }}>
-      {items.map((item, i) => (
-        <Tile
-          key={`${String(i)}:${item.src}`}
-          src={item.src}
-          alt={item.alt}
-          kind={item.kind}
-          uri={item.uri}
-          onPress={() => {
-            setViewing(pages[i] ?? 0);
-          }}
-        />
-      ))}
+      {items.map((item, i) =>
+        item.video !== null ? (
+          <InlineVideo key={`${String(i)}:${item.src}`} video={item.video} alt={item.alt} />
+        ) : (
+          <Tile
+            key={`${String(i)}:${item.src}`}
+            src={item.src}
+            alt={item.alt}
+            kind={item.kind}
+            uri={item.uri}
+            onPress={() => {
+              setViewing(pages[i] ?? 0);
+            }}
+          />
+        ),
+      )}
       <ImageViewer
         images={viewing === null ? null : loadable}
         start={viewing ?? 0}

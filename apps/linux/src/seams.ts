@@ -145,12 +145,16 @@ export interface DropBox {
   list(): readonly Drop[];
   /** Text becomes a `link` drop when it is a single URL. */
   putText(origin: DropOrigin, text: string): Drop;
-  /** `bytes` larger than `MAX_DROP_BYTES` throw. Images (by `mimeType`) become `image` drops. */
+  /** `bytes` larger than `MAX_DROP_BYTES` throw, `video/*` ones larger than the video cap throw `VideoTooLarge`. Images (by `mimeType`) become `image` drops. */
   putBlob(origin: DropOrigin, blob: { readonly name: string; readonly mimeType: string; readonly bytes: Uint8Array }): Drop;
+  /** A `video/*` blob (kind `file`) with its duration, display size and poster filled in where the host can read them. */
+  putVideo(origin: DropOrigin, blob: { readonly name: string; readonly mimeType: string; readonly bytes: Uint8Array }): Promise<Drop>;
   /** False when no such drop. */
   remove(id: string): boolean;
   /** The blob for `id` iff `token` matches its `DropFile.path`; null otherwise (also for text drops). */
   open(id: string, token: string): DropBlob | null;
+  /** A video drop's poster JPEG under the same token check; null when it has none. */
+  openPoster(id: string, token: string): DropBlob | null;
 }
 
 /** Shows / hides the pairing PIN. Exactly one `endPairing` per `beginPairing`. */

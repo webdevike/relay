@@ -21,6 +21,7 @@ import { CallService } from "./call/service";
 import { EvaRealtimeVoice } from "./call/voice";
 import { FileDeviceStore } from "./device-store";
 import { FileDropStore } from "./drops/store";
+import { ffmpegProbe, isVideoMime, maxVideoBytesFromEnv, videoMimeOf, VideoTooLarge } from "./drops/video";
 import { FileBoardStore } from "./boards/store";
 import { createUsageService, ompUsageRunner } from "./usage/service";
 import { CatchUpService, defaultCatchUpFeedPath, defaultCatchUpNotesPath, defaultCatchUpStatePath } from "./catchup/service";
@@ -58,7 +59,9 @@ const USAGE = `relay-linux <command>
   forget <deviceId>                remove a paired phone
   share <text | url | path> ...    add to the drop box of the running host: one existing file
                                    goes as a file, anything else as text; \`share -\` or no
-                                   arguments reads stdin
+                                   arguments reads stdin. A video (mp4/webm/mov) is capped at
+                                   25 MB ($RELAY_MAX_VIDEO_MB on the host) and gets a poster;
+                                   blobs also print a ready-to-paste markdown embed
   board list                       list the running host's dashboards
   board get <slug>                 print one dashboard
   board put <slug> [< json]        create/replace from {title, workspace?, icon?, widgets?}
@@ -129,7 +132,7 @@ function serve(
 
   const agents = new OmpBridgeProvider(defaultSocketPath(), log, agentHome);
   const pushTokens = new FilePushTokenStore();
-  const drops = new FileDropStore();
+  const drops = new FileDropStore(undefined, { maxVideoBytes: maxVideoBytesFromEnv(), probe: ffmpegProbe(log) });
   const boards = boardsDir === null ? null : new FileBoardStore(boardsDir, log);
   // Snapshots only flow once a phone asks (`usage.get`), long after `server` below is initialised.
   const usage = createUsageService({
@@ -364,9 +367,17 @@ async function share(positionals: string[]): Promise<void> {
     const file = Bun.file(single);
     // A text/plain type would make the server store the body as a text drop; files always go as blobs.
     const type = file.type.startsWith("text/plain") ? "application/octet-stream" : file.type;
+    // The host would refuse these anyway (413, or a dropped connection past its body limit); say
+    // why without uploading. The host's own $RELAY_MAX_VIDEO_MB still decides what it accepts.
+    const name = basename(single);
+    const maxVideo = maxVideoBytesFromEnv();
+    if (isVideoMime(videoMimeOf(name, type)) && file.size > maxVideo) {
+      console.error(new VideoTooLarge(name, file.size, maxVideo).message);
+      process.exit(1);
+    }
     response = await fetch(url, {
       method: "POST",
-      headers: { "content-type": type, "x-drop-name": basename(single) },
+      headers: { "content-type": type, "x-drop-name": name },
       body: await file.bytes(),
     });
   } else {
@@ -383,8 +394,26 @@ async function share(positionals: string[]): Promise<void> {
     process.exit(1);
   }
   const drop = Drop.parse(await response.json());
-  // Blob drops also print their fetch path so an agent can reference it (e.g. a ```ui compare widget).
-  console.log(drop.file ? `shared ${drop.kind} ${drop.id} ${drop.file.path}` : `shared ${drop.kind} ${drop.id}`);
+  if (drop.file === undefined) {
+    console.log(`shared ${drop.kind} ${drop.id}`);
+    return;
+  }
+  // Blob drops also print their fetch path so an agent can reference it (e.g. a ```ui compare
+  // widget), then the markdown that shows it inline: the phone plays a video embedded this way.
+  const video = isVideoMime(drop.file.mimeType);
+  console.log(`shared ${video ? "video" : drop.kind} ${drop.id} ${drop.file.path}`);
+  const { durationMs, width, height, poster } = drop.file;
+  if (video) {
+    const facts = [
+      durationMs === undefined ? null : `${(durationMs / 1000).toFixed(1)}s`,
+      width === undefined || height === undefined ? null : `${String(width)}x${String(height)}`,
+      `${(drop.file.size / (1024 * 1024)).toFixed(1)} MB`,
+      poster === undefined ? "no poster (ffmpeg missing on the host)" : `poster ${poster}`,
+    ];
+    console.log(`video ${facts.filter((fact) => fact !== null).join(" · ")}`);
+  }
+  const caption = drop.file.name.replace(/\.[^.]+$/, "").replace(/[[\]]/g, "");
+  console.log(`embed ![${caption}](${drop.file.path})`);
 }
 
 /** `assistant say --agent <id> <text>`: the running host hands the text to agent `id` as a turn from the host's jobs. */

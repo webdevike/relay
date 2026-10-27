@@ -24,10 +24,16 @@ class RecordingDrops implements DropBox {
     this.blobs.push({ name: blob.name, mimeType: blob.mimeType, size: blob.bytes.length });
     return { id: "b", kind: "file", origin: "host", createdAt: 0, title: blob.name };
   }
+  putVideo(origin: DropOrigin, blob: { readonly name: string; readonly mimeType: string; readonly bytes: Uint8Array }): Promise<Drop> {
+    return Promise.resolve(this.putBlob(origin, blob));
+  }
   remove(): boolean {
     return false;
   }
   open(): DropBlob | null {
+    return null;
+  }
+  openPoster(): DropBlob | null {
     return null;
   }
 }

@@ -1,16 +1,18 @@
 // The drop box on disk: `$XDG_CONFIG_HOME/relay/drops/` (dir 0700) holds `index.json`, the
 // history newest first, plus one extensionless blob file per image/file drop named by the drop
-// id. The blob token lives only in the index and in the `DropFile.path` handed to phones, so a
-// leaked directory listing is not enough to fetch bytes over HTTP. The index is read once at
-// construction and rewritten (tmp + rename) after every mutation, like the other file stores.
+// id (and `<id>.poster`, a JPEG, for a video drop the host could read). The blob token lives only
+// in the index and in the `DropFile.path` handed to phones, so a leaked directory listing is not
+// enough to fetch bytes over HTTP. The index is read once at construction and rewritten (tmp +
+// rename) after every mutation, like the other file stores.
 
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { Drop, MAX_DROP_BYTES, MAX_DROP_TEXT, MAX_DROPS, untagged, type DropOrigin } from "@relay/protocol";
+import { Drop, MAX_DROP_BYTES, MAX_DROP_TEXT, MAX_DROPS, untagged, type DropFile, type DropOrigin } from "@relay/protocol";
 import { z } from "zod";
 import type { DropBlob, DropBox, DropChange } from "../seams";
+import { DEFAULT_MAX_VIDEO_BYTES, ffmpegProbe, isVideoMime, VideoTooLarge, type VideoProbe } from "./video";
 
 /** Longest `Drop.title`; the phone shows one line. */
 const MAX_TITLE = 120;
@@ -22,6 +24,8 @@ const DropRecord = z.object({
   token: z.string().regex(/^[0-9a-f]{64}$/).optional(),
   /** Blob file name inside the drops dir. */
   file: z.string().min(1).optional(),
+  /** Poster JPEG file name inside the drops dir; only for a video drop with a poster. */
+  poster: z.string().min(1).optional(),
 });
 type DropRecord = z.infer<typeof DropRecord>;
 const IndexFile = z.array(DropRecord).max(MAX_DROPS);
@@ -31,12 +35,28 @@ export function defaultDropsDir(): string {
   return join(base, "relay", "drops");
 }
 
+export interface FileDropStoreOptions {
+  /** Largest `video/*` blob; `VideoTooLarge` above it. */
+  readonly maxVideoBytes?: number;
+  /** Reads a stored video's duration, size and poster. */
+  readonly probe?: VideoProbe;
+}
+
 export class FileDropStore implements DropBox {
   onChange: ((change: DropChange) => void) | null = null;
   private records: DropRecord[];
+  private readonly maxVideoBytes: number;
+  private readonly probe: VideoProbe;
 
-  constructor(private readonly dir: string = defaultDropsDir()) {
+  constructor(
+    private readonly dir: string = defaultDropsDir(),
+    options: FileDropStoreOptions = {},
+  ) {
     this.records = this.load();
+    this.maxVideoBytes = options.maxVideoBytes ?? DEFAULT_MAX_VIDEO_BYTES;
+    this.probe = options.probe ?? ffmpegProbe((line) => {
+      console.error(line);
+    });
   }
 
   list(): readonly Drop[] {
@@ -62,23 +82,26 @@ export class FileDropStore implements DropBox {
   }
 
   putBlob(origin: DropOrigin, blob: { readonly name: string; readonly mimeType: string; readonly bytes: Uint8Array }): Drop {
-    if (blob.bytes.length === 0) throw new Error("empty blob");
-    if (blob.bytes.length > MAX_DROP_BYTES) throw new Error(`blob exceeds ${MAX_DROP_BYTES} bytes`);
-    const id = randomUUID();
-    const token = randomBytes(32).toString("hex");
-    const drop: Drop = {
-      id,
-      kind: blob.mimeType.startsWith("image/") ? "image" : "file",
-      origin,
-      createdAt: Date.now(),
-      title: blob.name.slice(0, MAX_TITLE),
-      file: { name: blob.name, mimeType: blob.mimeType, size: blob.bytes.length, path: `/drops/${id}/${token}` },
-    };
-    mkdirSync(this.dir, { recursive: true, mode: 0o700 });
-    const file = join(this.dir, id);
-    writeFileSync(file, blob.bytes, { mode: 0o600 });
-    chmodSync(file, 0o600);
-    this.add({ drop, token, file: id });
+    const { id, token, file } = this.writeBlob(blob);
+    const drop = this.blobDrop(origin, blob, id, token);
+    this.add({ drop, token, file });
+    return drop;
+  }
+
+  /** A `video/*` blob: like `putBlob`, plus the probed duration, display size and poster. */
+  async putVideo(origin: DropOrigin, blob: { readonly name: string; readonly mimeType: string; readonly bytes: Uint8Array }): Promise<Drop> {
+    const { id, token, file } = this.writeBlob(blob);
+    const { poster: jpeg, ...shape } = await this.probe(join(this.dir, file));
+    if (jpeg === undefined) {
+      const drop = this.blobDrop(origin, blob, id, token, shape);
+      this.add({ drop, token, file });
+      return drop;
+    }
+    const poster = `${id}.poster`;
+    writeFileSync(join(this.dir, poster), jpeg, { mode: 0o600 });
+    chmodSync(join(this.dir, poster), 0o600);
+    const drop = this.blobDrop(origin, blob, id, token, { ...shape, poster: `/drops/${id}/${token}/poster` });
+    this.add({ drop, token, file, poster });
     return drop;
   }
 
@@ -93,13 +116,60 @@ export class FileDropStore implements DropBox {
   }
 
   open(id: string, token: string): DropBlob | null {
+    const record = this.authorized(id, token);
+    if (record?.file === undefined || record.drop.file === undefined) return null;
+    const { name, mimeType, size } = record.drop.file;
+    return { path: join(this.dir, record.file), name, mimeType, size };
+  }
+
+  openPoster(id: string, token: string): DropBlob | null {
+    const record = this.authorized(id, token);
+    if (record?.poster === undefined || record.drop.file === undefined) return null;
+    const path = join(this.dir, record.poster);
+    if (!existsSync(path)) return null;
+    return { path, name: `${record.drop.file.name}.jpg`, mimeType: "image/jpeg", size: statSync(path).size };
+  }
+
+  /** The record for `id` iff it holds a blob and `token` is its token (compared in constant time). */
+  private authorized(id: string, token: string): DropRecord | null {
     const record = this.records.find((candidate) => candidate.drop.id === id);
-    if (record?.token === undefined || record.file === undefined || record.drop.file === undefined) return null;
+    if (record?.token === undefined) return null;
     const expected = Buffer.from(record.token, "utf8");
     const given = Buffer.from(token, "utf8");
     if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
-    const { name, mimeType, size } = record.drop.file;
-    return { path: join(this.dir, record.file), name, mimeType, size };
+    return record;
+  }
+
+  /** Checks `blob` against the size caps and writes it (0600) under a fresh id and token. */
+  private writeBlob(blob: { readonly name: string; readonly mimeType: string; readonly bytes: Uint8Array }): { id: string; token: string; file: string } {
+    if (blob.bytes.length === 0) throw new Error("empty blob");
+    if (blob.bytes.length > MAX_DROP_BYTES) throw new Error(`blob exceeds ${MAX_DROP_BYTES} bytes`);
+    if (isVideoMime(blob.mimeType) && blob.bytes.length > this.maxVideoBytes)
+      throw new VideoTooLarge(blob.name, blob.bytes.length, this.maxVideoBytes);
+    const id = randomUUID();
+    const token = randomBytes(32).toString("hex");
+    mkdirSync(this.dir, { recursive: true, mode: 0o700 });
+    const file = join(this.dir, id);
+    writeFileSync(file, blob.bytes, { mode: 0o600 });
+    chmodSync(file, 0o600);
+    return { id, token, file: id };
+  }
+
+  private blobDrop(
+    origin: DropOrigin,
+    blob: { readonly name: string; readonly mimeType: string; readonly bytes: Uint8Array },
+    id: string,
+    token: string,
+    video: Pick<DropFile, "width" | "height" | "durationMs" | "poster"> = {},
+  ): Drop {
+    return {
+      id,
+      kind: blob.mimeType.startsWith("image/") ? "image" : "file",
+      origin,
+      createdAt: Date.now(),
+      title: blob.name.slice(0, MAX_TITLE),
+      file: { name: blob.name, mimeType: blob.mimeType, size: blob.bytes.length, path: `/drops/${id}/${token}`, ...video },
+    };
   }
 
   /** Prepends `record`, evicts past `MAX_DROPS`, persists, then reports evictions and the add. */
@@ -114,6 +184,7 @@ export class FileDropStore implements DropBox {
 
   private unlink(record: DropRecord): void {
     if (record.file !== undefined) rmSync(join(this.dir, record.file), { force: true });
+    if (record.poster !== undefined) rmSync(join(this.dir, record.poster), { force: true });
   }
 
   private load(): DropRecord[] {
