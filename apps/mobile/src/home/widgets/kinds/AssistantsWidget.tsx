@@ -15,6 +15,7 @@ import { portraitSeed } from "@/lib/portrait";
 import { STATUS_LABEL, useAssistantStore } from "@/state/assistant";
 import { useConnectionStore } from "@/state/connection";
 import { spacing, useColors } from "@/theme";
+import { useWidgetUi } from "../ui";
 import {
   useWidgetTint,
   WidgetHeader,
@@ -140,9 +141,16 @@ function AssistantStack({ agents, open, a11y }: { agents: readonly AssistantAgen
       a11y={a11y}
       style={styles.stackSurface}
     >
-      <View style={styles.fill} onLayout={(event) => { setHeight(event.nativeEvent.layout.height); }}>
+      <View
+        style={styles.fill}
+        onLayout={(event) => { setHeight(event.nativeEvent.layout.height); }}
+        // The finger belongs to the stack: Home's scroll holds still so an up/down swipe pages assistants.
+        onTouchStart={() => { if (agents.length > 1) useWidgetUi.getState().set({ stackTouched: true }); }}
+        onTouchEnd={() => { useWidgetUi.getState().set({ stackTouched: false }); }}
+        onTouchCancel={() => { useWidgetUi.getState().set({ stackTouched: false }); }}
+      >
         {height > 0 && (
-          <ScrollView pagingEnabled nestedScrollEnabled showsVerticalScrollIndicator={false} onMomentumScrollEnd={settle} style={styles.fill}>
+          <ScrollView pagingEnabled nestedScrollEnabled bounces={false} showsVerticalScrollIndicator={false} onMomentumScrollEnd={settle} style={styles.fill}>
             {agents.map((agent) => (
               <View key={agent.id} style={[styles.page, { height }]}>
                 <Portrait name={agent.title} seed={portraitSeed(agent)} size={Math.round(height * 0.42)} />
