@@ -8,6 +8,7 @@ import { emit } from '../ipc/handle'
 import { GUEST_PARTITION } from './guest-session'
 import { HistoryStore } from './history-store'
 import { PageControl } from './page-control'
+import { SavedTabsStore, type SavedBrowserTabs } from './saved-tabs'
 
 export interface SlotRect {
   x: number
@@ -76,11 +77,63 @@ export class BrowserHost {
   private closed: TabListener[] = []
 
   readonly history: HistoryStore
+  private readonly saved: SavedTabsStore
   /** Resolves when the extension host is ready; navigation from IPC waits on it. */
   ready: Promise<void> = Promise.resolve()
 
   constructor(private readonly ctx: MainContext) {
     this.history = new HistoryStore(ctx.config)
+    this.saved = new SavedTabsStore(ctx.config, () => this.toSaved())
+    this.restore(this.saved.load())
+  }
+
+  /**
+   * Brings back the last run's tabs as dormant tabs (no view, no load) in their scopes and
+   * order. A scope's active tab revives when the scope is shown, the others when first
+   * activated, so a launch loads one page and never moves focus.
+   */
+  private restore(saved: SavedBrowserTabs): void {
+    for (const s of saved.tabs) {
+      const pinned = s.scope === PINNED_SCOPE
+      this.tabs.set(s.id, {
+        view: null,
+        scope: s.scope,
+        ...(s.fromExtension ? { fromExtension: true } : {}),
+        state: {
+          id: s.id,
+          url: s.url,
+          title: s.title,
+          loading: false,
+          canGoBack: false,
+          canGoForward: false,
+          blank: false,
+          error: null,
+          favicon: s.favicon,
+          pinned,
+        },
+      })
+      this.nextId = Math.max(this.nextId, Number(s.id.slice(1)) + 1)
+    }
+    for (const [scope, id] of Object.entries(saved.active)) this.lastActive.set(scope, id)
+  }
+
+  /** Every non-blank tab in creation order, and each scope's active tab (the front one's live). */
+  private toSaved(): SavedBrowserTabs {
+    const tabs: SavedBrowserTabs['tabs'] = []
+    for (const [id, t] of this.tabs) {
+      if (t.state.blank || !t.state.url) continue
+      tabs.push({
+        id,
+        scope: t.scope,
+        url: t.state.url,
+        title: t.state.title,
+        favicon: t.state.favicon,
+        ...(t.fromExtension ? { fromExtension: true as const } : {}),
+      })
+    }
+    const active = Object.fromEntries(this.lastActive)
+    if (this.scope && this.activeId) active[this.scope] = this.activeId
+    return { tabs, active }
   }
 
   pageControl(tabId: string): PageControl {
@@ -539,9 +592,12 @@ export class BrowserHost {
   private changed(): void {
     this.applyBounds()
     emit(this.ctx, 'browser.tabs', this.snapshot())
+    this.saved.dirty()
   }
 
+  /** Safe to call twice (window closed, then quit): only the first saves the tabs. */
   dispose(): void {
+    this.saved.close()
     this.history.flush()
     for (const t of this.tabs.values()) {
       if (!t.view) continue

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { FakeView, views } = vi.hoisted(() => {
   let wcSeq = 0
@@ -64,11 +64,21 @@ import { setImmediate as nextTick } from 'node:timers/promises'
 import type { TabsSnapshot } from '@evaos/contract'
 import type { MainContext } from '../context'
 import { BrowserHost, LIVE_SCOPES, MAX_TABS } from './browser-host'
+import { parseSavedTabs } from './saved-tabs'
 
 const sent: Array<[string, unknown]> = []
 const children = new Set<unknown>()
 
-function makeHost(): BrowserHost {
+/** A config dir in memory: what one host writes, the next one reads (an app restart). */
+function memoryConfig(files = new Map<string, unknown>()) {
+  return {
+    files,
+    readJson: <T>(f: string, d: T): T => (files.has(f) ? (structuredClone(files.get(f)) as T) : d),
+    writeJson: vi.fn((f: string, v: unknown) => files.set(f, structuredClone(v))),
+  }
+}
+
+function makeHost(config = memoryConfig()): BrowserHost {
   const ctx = {
     win: {
       isDestroyed: () => false,
@@ -84,7 +94,7 @@ function makeHost(): BrowserHost {
         focus: () => {},
       },
     },
-    config: { readJson: <T>(_f: string, d: T) => d, writeJson: vi.fn() },
+    config,
   } as unknown as MainContext
   return new BrowserHost(ctx)
 }
@@ -268,5 +278,95 @@ describe('BrowserHost memory', () => {
     while (host.views().length < MAX_TABS) host.createTab(undefined, true)
     expect(host.createTab(undefined, true)).toBeNull()
     expect(sent.at(-1)?.[0]).toBe('browser.notice')
+  })
+})
+
+describe('BrowserHost restart', () => {
+  const files = new Map<string, unknown>()
+  beforeEach(() => {
+    vi.useFakeTimers()
+    files.clear()
+  })
+  afterEach(() => vi.useRealTimers())
+
+  /** Navigates a tab the way Chromium reports it: did-navigate, then the title. */
+  const load = (h: BrowserHost, id: string, url: string, title: string): void => {
+    const wc = viewOf(h, id)!.webContents
+    wc.fire('did-navigate', {}, url)
+    wc.fire('page-title-updated', {}, title)
+  }
+
+  it('saves tabs per scope with order, titles, pins and active tab shortly after a change', () => {
+    const config = memoryConfig(files)
+    const h = makeHost(config)
+    h.setScope('chat:/a')
+    const a1 = h.createTab('https://a1.test/', true)!
+    const a2 = h.createTab('https://a2.test/', true)!
+    load(h, a1.id, 'https://a1.test/x', 'A one')
+    load(h, a2.id, 'https://a2.test/', 'A two')
+    h.activateTab(a1.id)
+    h.createTab(undefined, true) // blank: nothing to restore
+    h.setScope('page:dashboard')
+    const pin = h.createTab('https://pin.test/', true)!
+    h.pinTab(pin.id, true)
+    const d = h.createTab('https://d.test/', true)!
+    expect(config.writeJson).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1000)
+    expect(files.get('browser-tabs.json')).toEqual({
+      tabs: [
+        { id: a1.id, scope: 'chat:/a', url: 'https://a1.test/x', title: 'A one', favicon: null },
+        { id: a2.id, scope: 'chat:/a', url: 'https://a2.test/', title: 'A two', favicon: null },
+        { id: pin.id, scope: '*', url: 'https://pin.test/', title: '', favicon: null },
+        { id: d.id, scope: 'page:dashboard', url: 'https://d.test/', title: '', favicon: null },
+      ],
+      active: { 'chat:/a': expect.any(String), 'page:dashboard': d.id },
+    })
+  })
+
+  it('a relaunch restores every scope dormant; showing a scope loads only its active tab', () => {
+    const first = makeHost(memoryConfig(files))
+    first.setScope('chat:/a')
+    const a1 = first.createTab('https://a1.test/', true)!
+    const a2 = first.createTab('https://a2.test/', true)!
+    load(first, a1.id, 'https://a1.test/', 'A one')
+    load(first, a2.id, 'https://a2.test/', 'A two')
+    first.activateTab(a1.id)
+    first.setScope('chat:/b')
+    const b1 = first.createTab('https://b1.test/', true)!
+    const pin = first.createTab('https://pin.test/', true)!
+    first.pinTab(pin.id, true)
+    first.dispose()
+
+    views.length = 0
+    const next = makeHost(memoryConfig(files))
+    expect(next.views()).toHaveLength(0)
+    const a = next.setScope('chat:/a')
+    expect(a.tabs.map((t) => [t.id, t.url, t.title, t.pinned])).toEqual([
+      [pin.id, 'https://pin.test/', '', true],
+      [a1.id, 'https://a1.test/', 'A one', false],
+      [a2.id, 'https://a2.test/', 'A two', false],
+    ])
+    expect(a.activeId).toBe(a1.id)
+    expect(next.views()).toHaveLength(1)
+    expect(viewOf(next, a1.id)!.webContents.loadURL).toHaveBeenCalledWith('https://a1.test/')
+    expect(viewOf(next, a1.id)!.visible).toBe(false)
+    next.activateTab(a2.id)
+    expect(viewOf(next, a2.id)!.webContents.loadURL).toHaveBeenCalledWith('https://a2.test/')
+    const b = next.setScope('chat:/b')
+    expect(ids(b)).toEqual([pin.id, b1.id])
+    expect(b.activeId).toBe(pin.id)
+    // New tabs never reuse a restored id.
+    const fresh = next.createTab('https://new.test/', true)!
+    expect([pin.id, a1.id, a2.id, b1.id]).not.toContain(fresh.id)
+  })
+
+  it('a second dispose (window closed, then quit) does not save the emptied host', () => {
+    const h = makeHost(memoryConfig(files))
+    h.setScope('A')
+    h.createTab('https://keep.test/', true)
+    h.dispose()
+    h.dispose()
+    vi.advanceTimersByTime(1000)
+    expect(parseSavedTabs(files.get('browser-tabs.json')).tabs).toHaveLength(1)
   })
 })

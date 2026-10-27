@@ -40,7 +40,11 @@ export function registerBrowserIpc(ctx: MainContext, host: BrowserHost): void {
   })
   handle(ctx, 'browser.closeTab', ({ tabId }) => ({ activeId: host.closeTab(tabId) }))
   handle(ctx, 'browser.activateTab', ({ tabId }) => ({ activeId: host.activateTab(tabId) }))
-  handle(ctx, 'browser.setScope', ({ scope }) => host.setScope(scope))
+  // The first scope revives the restored active tab: let content scripts be ready for it.
+  handle(ctx, 'browser.setScope', async ({ scope }) => {
+    await host.ready
+    return host.setScope(scope)
+  })
   handle(ctx, 'browser.renameScope', ({ from, to }) => {
     host.renameScope(from, to)
     return { ok: true as const }
