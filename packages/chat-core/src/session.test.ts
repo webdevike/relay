@@ -78,6 +78,7 @@ describe('parseSession', () => {
 
   it('strips a leading surface tag and hides agent-attributed prompts', () => {
     expect(untagged('<surface>iPhone - Relay</surface>\nhi')).toBe('hi')
+    expect(untagged('<surface>Mac Mini - Relay Desktop</surface>\nhi')).toBe('hi')
     expect(untagged('no tag here')).toBe('no tag here')
     const text = [
       msg('a', null, {
@@ -86,8 +87,16 @@ describe('parseSession', () => {
         attribution: 'user',
       }),
       msg('b', 'a', { role: 'user', content: 'auto', attribution: 'agent' }),
+      msg('c', 'b', {
+        role: 'user',
+        content: '<surface>machine - Relay Desktop</surface>\nand the panel',
+        attribution: 'user',
+      }),
     ].join('\n')
-    expect(parseSession(text).messages.map((m) => m.text)).toEqual(['fix the dock'])
+    expect(parseSession(text).messages.map((m) => m.text)).toEqual([
+      'fix the dock',
+      'and the panel',
+    ])
   })
 
   it('developer messages, unknown records and malformed lines produce no rows', () => {

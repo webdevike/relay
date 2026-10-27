@@ -113,7 +113,7 @@ describe('LiveReducer', () => {
     const res = r.apply({
       type: 'message_end',
       messageId: 'u1',
-      message: user('<surface>Mac - EvaOS</surface>\nhello'),
+      message: user('<surface>Mac - Relay Desktop</surface>\nhello'),
     })
     expect(res.removed).toEqual(['sent-1'])
     expect(r.messages().map((m) => [m.id, m.text])).toEqual([

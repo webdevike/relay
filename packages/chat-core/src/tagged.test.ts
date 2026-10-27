@@ -3,15 +3,16 @@ import { machineLabel, tagged, untagged } from './tagged'
 
 describe('tagged', () => {
   it('tags plain text on its own first line', () => {
-    expect(tagged('hi', 'Mac Mini')).toBe('<surface>Mac Mini - EvaOS</surface>\nhi')
+    expect(tagged('hi', 'Mac Mini')).toBe('<surface>Mac Mini - Relay Desktop</surface>\nhi')
   })
   it('leaves slash commands and blank text untouched', () => {
     expect(tagged('/model x', 'Mac')).toBe('/model x')
     expect(tagged('  /model x', 'Mac')).toBe('  /model x')
     expect(tagged('  ', 'Mac')).toBe('  ')
   })
-  it('untagged strips the tag', () => {
+  it('untagged strips the tag, and older history tagged EvaOS', () => {
     expect(untagged(tagged('hi', 'Mac'))).toBe('hi')
+    expect(untagged('<surface>Mac Mini - EvaOS</surface>\nold')).toBe('old')
   })
 })
 

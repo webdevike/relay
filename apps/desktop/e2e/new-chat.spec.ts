@@ -102,7 +102,7 @@ test.describe('new chat on omp', () => {
 
     const first = prompts()[0]!
     expect(first.startsWith('<surface>')).toBe(true)
-    expect(first).toContain(' - EvaOS</surface>')
+    expect(first).toContain(' - Relay Desktop</surface>')
     expect(first).toContain('hello new chat')
     await proofShot(app, shell, 'new-chat', { phase: 'phase-4' })
   })
@@ -115,7 +115,7 @@ test.describe('new chat on omp', () => {
     await expect.poll(() => prompts().length).toBe(2)
     for (const p of prompts()) {
       expect(p.split('<surface>').length - 1).toBe(1)
-      expect(p.split(' - EvaOS</surface>').length - 1).toBe(1)
+      expect(p.split(' - Relay Desktop</surface>').length - 1).toBe(1)
     }
   })
 })

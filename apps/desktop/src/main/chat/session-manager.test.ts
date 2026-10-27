@@ -123,8 +123,8 @@ describe('SessionManager', () => {
       await mgr.send('pane-1', 'second', { force: true })
       expect(transports).toHaveLength(1)
       expect(transports[0]!.sent).toEqual([
-        '<surface>Mac - EvaOS</surface>\nfirst',
-        '<surface>Mac - EvaOS</surface>\nsecond',
+        '<surface>Mac - Relay Desktop</surface>\nfirst',
+        '<surface>Mac - Relay Desktop</surface>\nsecond',
       ])
       expect(mgr.transportOf('pane-1')).toBeNull()
       expect(mgr.snapshot('pane-2').messages.some((m) => m.text === 'second')).toBe(true)
@@ -201,7 +201,7 @@ describe('SessionManager', () => {
     mgr.open('pane-1', '/s/a.jsonl', [], meta)
     await mgr.send('pane-1', 'look', { images: [{ mimeType: 'image/png', data: 'AAA' }] })
     const t = transports[0]!
-    expect(t.sent).toEqual(['<surface>Mac - EvaOS</surface>\nlook'])
+    expect(t.sent).toEqual(['<surface>Mac - Relay Desktop</surface>\nlook'])
     expect(t.sentImages[0]).toEqual([{ type: 'image', data: 'AAA', mimeType: 'image/png' }])
     const row = mgr.snapshot('pane-1').messages.at(-1)!
     expect(row.images).toEqual([
@@ -256,8 +256,8 @@ describe('SessionManager', () => {
     expect(t.started).toEqual([{ sessionFile: '/s/a.jsonl', cwd: '/eva' }])
     expect(t.written.map((c) => c.type)).toEqual(['set_ask_dialog', 'get_state'])
     expect(t.sent).toEqual([
-      '<surface>Mac - EvaOS</surface>\nhello',
-      '<surface>Mac - EvaOS</surface>\nsteer me',
+      '<surface>Mac - Relay Desktop</surface>\nhello',
+      '<surface>Mac - Relay Desktop</surface>\nsteer me',
     ])
     vi.useRealTimers()
   })
@@ -313,8 +313,8 @@ describe('SessionManager', () => {
     expect(transports).toHaveLength(1)
     expect(transports[0]!.written.map((c) => c.type)).toEqual(['set_ask_dialog', 'get_state'])
     expect(transports[0]!.sent).toEqual([
-      '<surface>Mac - EvaOS</surface>\none',
-      '<surface>Mac - EvaOS</surface>\ntwo',
+      '<surface>Mac - Relay Desktop</surface>\none',
+      '<surface>Mac - Relay Desktop</surface>\ntwo',
     ])
     vi.useRealTimers()
   })
@@ -332,7 +332,7 @@ describe('SessionManager', () => {
     expect(mgr.has('/s/a.jsonl')).toBe(false)
     await mgr.send('pane-1', 'three')
     expect(transports).toHaveLength(2)
-    expect(transports[1]!.sent).toEqual(['<surface>Mac - EvaOS</surface>\nthree'])
+    expect(transports[1]!.sent).toEqual(['<surface>Mac - Relay Desktop</surface>\nthree'])
     vi.useRealTimers()
   })
 
@@ -570,7 +570,7 @@ describe('SessionManager', () => {
     await closing
     await pending
     expect(transports).toHaveLength(2)
-    expect(transports[1]!.sent).toEqual(['<surface>Mac - EvaOS</surface>\nb'])
+    expect(transports[1]!.sent).toEqual(['<surface>Mac - Relay Desktop</surface>\nb'])
     expect(mgr.has('/s/a.jsonl')).toBe(true)
     vi.useRealTimers()
   })
@@ -626,7 +626,7 @@ describe('SessionManager', () => {
     expect(await second).toMatchObject({ code: 'already-owned', message: ALREADY_OWNED })
     expect(transports).toHaveLength(2)
     expect(transports[1]!.started).toEqual([{ sessionFile: '/s/a.jsonl', cwd: '/eva' }])
-    expect(transports[1]!.sent).toEqual(['<surface>Mac - EvaOS</surface>\nb'])
+    expect(transports[1]!.sent).toEqual(['<surface>Mac - Relay Desktop</surface>\nb'])
     expect(mgr.transportOf('pane-1')).toBe(transports[1])
     expect(mgr.transportOf('pane-2')).toBeNull()
     expect(mgr.has('/s/a.jsonl')).toBe(true)
@@ -690,7 +690,7 @@ const stateFrame = (file: string | null) =>
     id: 'evaos-state',
     data: { sessionFile: file },
   }) as unknown as Frame
-const TAG = '<surface>Mac - EvaOS</surface>\n'
+const TAG = '<surface>Mac - Relay Desktop</surface>\n'
 
 describe('SessionManager new chats and status', () => {
   it('a draft starts omp without a file and with the default launch args', async () => {

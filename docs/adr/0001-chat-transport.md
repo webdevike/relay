@@ -9,7 +9,7 @@ EvaOS Electron must start new chats and keep live ones streaming. The Rust app l
 ## Decision
 
 - A new chat starts through a direct `omp --mode rpc-ui` child, owned by `SessionManager` behind the `ChatTransport` interface. No `--resume` is passed. The first `get_state` response reports the session file omp created; the pane binds to it, the owner is registered, and the tab place moves from `draft` to that file.
-- Every prompt carries the `<surface><machine> - EvaOS</surface>` tag, applied once in `SessionManager.send`.
+- Every prompt carries the `<surface><machine> - Relay Desktop</surface>` tag (`- EvaOS` before 2026-10-27; both are stripped for display), applied once in `SessionManager.send`.
 - The Claude Code harness is a second `ChatTransport` (`bun .claude/bridge/session.ts --rpc`), chosen from `chat.json` at the moment a chat starts. It speaks the same frames, so the reducer, batcher and renderer are shared.
 - Closing a chat ends stdin and waits; the app never signals a child (single writer, no destructive use of live sessions).
 - Renaming a chat this app does not own uses the short resume (`--mode rpc --resume <file>` with the extras off), as the Rust app does.

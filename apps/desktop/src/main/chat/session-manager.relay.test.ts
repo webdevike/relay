@@ -17,7 +17,7 @@ import {
 } from './session-manager'
 import { STARTING_TEXT, STREAM_ROW } from './remote'
 
-const TAG = '<surface>Mac - EvaOS</surface>\n'
+const TAG = '<surface>Mac - Relay Desktop</surface>\n'
 const FILE = '/s/2026_out.jsonl'
 const meta: SessionMeta = { model: null, thinking: null, contextTokens: null }
 

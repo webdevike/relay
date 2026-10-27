@@ -102,7 +102,7 @@ const answer = (id: string, parentId: string, text: string) =>
       stopReason: 'stop',
     },
   })
-const TAGGED = /^<surface>.+ - EvaOS<\/surface>\n/
+const TAGGED = /^<surface>.+ - Relay Desktop<\/surface>\n/
 
 test('an outside session streams live and takes replies, stop, answers, model and rename through Relay', async ({
   app,
