@@ -63,9 +63,10 @@
   cursor: pointer;
 }
 .eva-bench-run {
-  grid-template-columns: minmax(0, 1fr) auto 160px;
+  grid-template-columns: minmax(120px, 1fr) minmax(0, auto) minmax(96px, auto) 140px;
 }
-.eva-bench-run > :nth-child(2) {
+.eva-bench-run > :nth-child(2),
+.eva-bench-run > :nth-child(3) {
   justify-self: end;
 }
 .eva-bench-run:hover,
@@ -97,12 +98,38 @@
   gap: var(--mantine-spacing-xs);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+}
+/* Arm labels can be whole sentences: capped, and they shrink (ellipsis) before the rates ever clip. */
+.eva-bench-headline > span {
+  flex-shrink: 0;
+}
+.eva-bench-headline > span:has(> .eva-bench-headline-label) {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3em;
+  min-width: 0;
+  flex-shrink: 1;
+}
+.eva-bench-headline-label {
+  max-width: 18ch;
+  min-width: 3ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .eva-bench-run-status {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: var(--mantine-spacing-xs);
+}
+.eva-bench-run-cost {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* Status: a quiet pill, color paired with an icon. */
@@ -197,8 +224,13 @@ html[data-eva-motion='off'] .eva-bench-spin {
   overflow-x: auto;
 }
 .eva-bench-arm {
-  min-width: 600px;
-  grid-template-columns: minmax(150px, 1.6fr) minmax(110px, 1fr) repeat(4, minmax(56px, 0.6fr));
+  min-width: 680px;
+  grid-template-columns: minmax(150px, 1.6fr) minmax(110px, 1fr) repeat(5, minmax(64px, 0.6fr));
+}
+/* Quality/$ adds a column when the run has a primary metric. */
+.eva-bench-table[data-quality-per-dollar='true'] .eva-bench-arm {
+  min-width: 750px;
+  grid-template-columns: minmax(150px, 1.6fr) minmax(110px, 1fr) repeat(6, minmax(64px, 0.6fr));
 }
 .eva-bench-arm > span:not(:first-child) {
   text-align: right;

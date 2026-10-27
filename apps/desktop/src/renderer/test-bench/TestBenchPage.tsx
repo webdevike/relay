@@ -12,11 +12,17 @@ import {
   type Icon,
 } from '@tabler/icons-react'
 import type { Place } from '@evaos/shell-core'
-import type { ArmSummary, ExperimentDetail, ExperimentRow, ExperimentStatus } from '@evaos/contract'
+import {
+  isLegacyCost,
+  type ArmSummary,
+  type ExperimentDetail,
+  type ExperimentRow,
+  type ExperimentStatus,
+} from '@evaos/contract'
 import { invoke, on } from '../ipc'
 import { Markdown } from '../chat/markdown/Markdown'
 import { openExperimentArmPanel, useLayout } from '../shell/layout-store'
-import { STATUS_LABEL, duration, money, pct, primaryRate } from './experiment-format'
+import { STATUS_LABEL, duration, pct, primaryRate, tokenCount, usd } from './experiment-format'
 import './test-bench.css'
 
 const STATUS_ICON: Record<ExperimentStatus, Icon> = {
@@ -56,20 +62,85 @@ function Headline({ row }: { row: ExperimentRow }) {
     <span className="eva-bench-headline" data-testid="experiment-headline">
       {h.control ? (
         <span>
-          <span className="eva-bench-dim">{h.control.label} </span>
+          <span className="eva-bench-dim eva-bench-headline-label" title={h.control.label}>
+            {h.control.label}
+          </span>{' '}
           {pct(h.control.metric.p)}
         </span>
       ) : null}
       {h.control && h.best ? <span className="eva-bench-dim">vs</span> : null}
       {h.best ? (
         <span>
-          <span className="eva-bench-dim">{h.best.label} </span>
+          <span className="eva-bench-dim eva-bench-headline-label" title={h.best.label}>
+            {h.best.label}
+          </span>{' '}
           <strong>{pct(h.best.metric.p)}</strong>
         </span>
       ) : null}
       <span className="eva-bench-faint">{(h.best ?? h.control)!.metric.metric}</span>
     </span>
   )
+}
+
+/** `$1.24 list · 3.4M tok`, with billed $ when nothing is priced and an unpriced-arms hint. */
+function RowCost({ cost }: { cost: ExperimentRow['cost'] }) {
+  const parts = [
+    cost?.listUsd != null ? `${usd(cost.listUsd)} list` : null,
+    cost?.billedUsd != null && cost.listUsd == null ? `${usd(cost.billedUsd)} billed` : null,
+    cost?.tokens != null ? `${tokenCount(cost.tokens)} tok` : null,
+  ].filter(Boolean)
+  if (!cost || parts.length === 0) return <span className="eva-bench-dim">No cost</span>
+  return (
+    <span className="eva-bench-run-cost" data-testid="experiment-cost">
+      <span>{parts.join(' · ')}</span>
+      {cost.unpricedArms > 0 ? (
+        <span className="eva-bench-faint">
+          {cost.unpricedArms} {cost.unpricedArms === 1 ? 'arm' : 'arms'} unpriced
+        </span>
+      ) : null}
+    </span>
+  )
+}
+
+function TokensCell({ cost }: { cost: ArmSummary['cost'] }) {
+  if (cost && isLegacyCost(cost))
+    return cost.unit === 'tokens' ? (
+      <>{tokenCount(cost.perTest)}</>
+    ) : (
+      <span className="eva-bench-dim">n/a</span>
+    )
+  const m = cost?.tokens?.perTestMedian
+  if (!m) return <span className="eva-bench-dim">n/a</span>
+  return (
+    <span title={`Median per test: in ${m.in} · out ${m.out} · cached ${m.cached}`}>
+      {tokenCount(m.total)}
+    </span>
+  )
+}
+
+function ListUsdCell({ cost }: { cost: ArmSummary['cost'] }) {
+  if (!cost) return <span className="eva-bench-dim">n/a</span>
+  if (isLegacyCost(cost))
+    return cost.unit === 'usd' ? (
+      <span className="eva-bench-dim">{usd(cost.perTest)} billed</span>
+    ) : (
+      <span className="eva-bench-dim" title="Logged before list prices">
+        unpriced
+      </span>
+    )
+  if (cost.listUsd) return <>{usd(cost.listUsd.perTest)}</>
+  return (
+    <span className="eva-bench-dim" title={cost.unpricedReason}>
+      unpriced
+    </span>
+  )
+}
+
+/** Primary rate per list dollar per test; null when either side is missing. */
+function qualityPerDollar(arm: ArmSummary, primary: string): number | null {
+  const rate = primaryRate(arm, primary)
+  const cost = arm.cost && !isLegacyCost(arm.cost) ? arm.cost.listUsd : null
+  return rate && cost && cost.perTest > 0 ? rate.p / cost.perTest : null
 }
 
 /** Activates on click, Enter or Space, like the Jobs rows. */
@@ -108,6 +179,7 @@ function RunsList({ rows, onOpen }: { rows: ExperimentRow[]; onOpen: (id: string
               <span className="eva-bench-dim">{meta.join(' · ')}</span>
             </span>
             <Headline row={row} />
+            <RowCost cost={row.cost} />
             <span className="eva-bench-run-status">
               <StatusPill status={row.status} progress={row.progress} />
               {row.progress?.planned ? (
@@ -136,19 +208,34 @@ function ArmsTable({ detail }: { detail: ExperimentDetail }) {
   const open = (arm: ArmSummary) =>
     openExperimentArmPanel({ experiment: detail.id, arm: arm.id, label: arm.label })
   return (
-    <div className="eva-bench-table" role="table" aria-label="Tests" data-testid="arms-table">
+    <div
+      className="eva-bench-table"
+      role="table"
+      aria-label="Tests"
+      data-testid="arms-table"
+      data-quality-per-dollar={detail.primary !== null ? 'true' : undefined}
+    >
       <div className="eva-bench-arm eva-bench-thead" role="row">
         <span role="columnheader">Test</span>
         <span role="columnheader" className="eva-bench-cap">
           {detail.primary ?? 'Quality'}
         </span>
         <span role="columnheader">s/test</span>
-        <span role="columnheader">Cost/test</span>
+        <span role="columnheader">Tokens/test</span>
+        <span role="columnheader" title="List-price USD per test (mean), at published API prices">
+          List $/test
+        </span>
+        {detail.primary !== null ? (
+          <span role="columnheader" title="Primary rate per list dollar per test">
+            Quality/$
+          </span>
+        ) : null}
         <span role="columnheader">Failures</span>
         <span role="columnheader">Coverage</span>
       </div>
       {arms.map((arm) => {
         const rate = primaryRate(arm, detail.primary)
+        const perDollar = detail.primary !== null ? qualityPerDollar(arm, detail.primary) : null
         return (
           <div
             key={arm.id}
@@ -187,12 +274,20 @@ function ArmsTable({ detail }: { detail: ExperimentDetail }) {
               )}
             </span>
             <span role="cell">
-              {arm.cost ? (
-                money(arm.cost.perTest, arm.cost.unit)
-              ) : (
-                <span className="eva-bench-dim">n/a</span>
-              )}
+              <TokensCell cost={arm.cost} />
             </span>
+            <span role="cell">
+              <ListUsdCell cost={arm.cost} />
+            </span>
+            {detail.primary !== null ? (
+              <span role="cell">
+                {perDollar !== null ? (
+                  perDollar.toFixed(perDollar < 10 ? 2 : perDollar < 100 ? 1 : 0)
+                ) : (
+                  <span className="eva-bench-dim">n/a</span>
+                )}
+              </span>
+            ) : null}
             <span role="cell">{pct(arm.failures.rate)}</span>
             <span role="cell">
               {arm.coverage ? (

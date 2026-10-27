@@ -3,7 +3,9 @@ import { z } from 'zod'
 /**
  * Eva's experiments (`$EVA/work/experiments/<yyyy-mm-dd>-<slug>/`), written by `.omp/tools/exp.ts`
  * (types `Summary`, `SummaryArm`, `LiveStatus` in `.omp/tools/lib/exp.ts`) and read here without
- * ever writing. Older experiments have no summary.json; the page then shows results.md.
+ * ever writing. Older experiments have no summary.json; the page then shows results.md. An arm's
+ * cost is the token/list-price shape (`ArmCost`) or, in summaries written before it, the legacy
+ * `{ perTest, total, unit }` shape; both parse.
  */
 
 /** A folder name under work/experiments; never a path. */
@@ -44,6 +46,60 @@ export type QualityMetric = z.infer<typeof QualityMetricSchema>
 const RateSchema = z.object({ k: num, n: num, p: fraction })
 export type SummaryRate = z.infer<typeof RateSchema>
 
+const usd = z.number().finite().nonnegative()
+const TokensSchema = z.object({ in: num, out: num, cached: num, total: num })
+export type CostTokens = z.infer<typeof TokensSchema>
+
+/** One model's share of an arm's tokens; `model` null = run lines that logged no model id. */
+export const ModelCostSchema = z.object({
+  model: z.string().nullable(),
+  calls: count,
+  tokensIn: num,
+  tokensOut: num,
+  tokensCached: num,
+  /** Null when this model's tokens have no published price. */
+  listUsd: usd.nullable(),
+  unpricedReason: reason,
+  /** USD per 1M tokens; `source` = provider pricing page URL, `checked` = yyyy-mm-dd. */
+  price: z
+    .object({
+      pattern: z.string(),
+      input: usd.nullable(),
+      output: usd.nullable(),
+      cachedInput: usd.nullable(),
+      source: z.string(),
+      checked: z.string(),
+    })
+    .nullable(),
+})
+export type ModelCost = z.infer<typeof ModelCostSchema>
+
+/** Tokens and what they would cost at published API prices ("list"), plus billed USD if logged. */
+export const ArmCostSchema = z.object({
+  /** Tests that logged tokens or usd. */
+  tests: count,
+  tokens: TokensSchema.extend({ perTestMedian: TokensSchema }).nullable(),
+  /** perTest = mean; null when any token in the arm is unpriced (never a partial sum). */
+  listUsd: z.object({ perTest: usd, perTestMedian: usd, total: usd }).nullable(),
+  unpriced: TokensSchema.optional(),
+  unpricedReason: reason,
+  billedUsd: z.object({ perTest: usd, total: usd, tests: count }).optional(),
+  byModel: z.array(ModelCostSchema),
+})
+export type ArmCost = z.infer<typeof ArmCostSchema>
+
+/** Summaries before ArmCost: unit `tokens` = in+out combined, unit `usd` = billed USD. */
+export const LegacyArmCostSchema = z.object({
+  perTest: num,
+  total: num,
+  unit: z.enum(['usd', 'tokens']),
+})
+export type LegacyArmCost = z.infer<typeof LegacyArmCostSchema>
+
+export function isLegacyCost(c: ArmCost | LegacyArmCost): c is LegacyArmCost {
+  return 'unit' in c
+}
+
 /**
  * One arm of `summary.json`. A measurement that does not apply is null, with `<name>Reason`
  * holding why (record.md's N/A line or the check that failed).
@@ -56,7 +112,7 @@ export const ArmSummarySchema = z.object({
   qualityReason: reason,
   seconds: z.object({ median: num, p90: num, total: num }).nullable(),
   secondsReason: reason,
-  cost: z.object({ perTest: num, total: num, unit: z.enum(['usd', 'tokens']) }).nullable(),
+  cost: z.union([ArmCostSchema, LegacyArmCostSchema]).nullable(),
   costReason: reason,
   gap: z
     .object({
@@ -137,6 +193,18 @@ export const ExperimentRowSchema = z.object({
   /** Control against the best other arm on the primary metric; null without summary.json. */
   headline: z
     .object({ control: HeadlineSideSchema.nullable(), best: HeadlineSideSchema.nullable() })
+    .nullable(),
+  /**
+   * Totals over the arms: list USD sums priced arms only (`unpricedArms` counts arms with tokens
+   * but no list price); a field is null when no arm contributed. Null without summary.json.
+   */
+  cost: z
+    .object({
+      tokens: num.nullable(),
+      listUsd: num.nullable(),
+      unpricedArms: count,
+      billedUsd: num.nullable(),
+    })
     .nullable(),
   hasSummary: z.boolean(),
   /** Newest modification of any file the viewer reads (epoch ms). */

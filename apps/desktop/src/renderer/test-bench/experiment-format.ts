@@ -18,10 +18,16 @@ export function duration(s: number): string {
   return `${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m`
 }
 
-export function money(value: number, unit: 'usd' | 'tokens'): string {
-  if (unit === 'tokens')
-    return value >= 1000 ? `${(value / 1000).toFixed(1)}k tokens` : `${Math.round(value)} tokens`
+/** USD with precision for sub-cent amounts: `$0.0042`, `$0.124`, `$1.24`. */
+export function usd(value: number): string {
   return `$${value.toFixed(value < 0.01 ? 4 : value < 1 ? 3 : 2)}`
+}
+
+/** A token count compacted: `950`, `12.3k`, `3.4M`. */
+export function tokenCount(n: number): string {
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`
+  return String(Math.round(n))
 }
 
 export const STATUS_LABEL: Record<ExperimentStatus, string> = {

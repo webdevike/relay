@@ -4,6 +4,7 @@ import * as path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { ArmSummary } from '@evaos/contract'
 import {
+  costTotals,
   createExperimentsService,
   headline,
   overallStatus,
@@ -259,6 +260,14 @@ describe('experiments service', () => {
       progress: null,
     })
     expect(precision!.headline?.best?.arm).toBe('treatment')
+    // Every SUMMARY arm logs the legacy billed shape: 3 x $0.40.
+    expect(precision!.cost).toEqual({
+      tokens: null,
+      listUsd: null,
+      unpricedArms: 0,
+      billedUsd: expect.closeTo(1.2, 6),
+    })
+    expect(bench!.cost).toBeNull()
     expect(bench).toMatchObject({
       date: '2026-10-26',
       title: 'ui-check-bench',
@@ -267,6 +276,49 @@ describe('experiments service', () => {
       arms: 3,
       headline: null,
       hasSummary: false,
+    })
+  })
+
+  it('totals list $, tokens and billed $ over new and legacy arms', async () => {
+    const tok = (n: number) => ({ in: n, out: n, cached: n, total: 3 * n })
+    const priced = {
+      tests: 10,
+      tokens: { ...tok(1000), perTestMedian: tok(100) },
+      listUsd: { perTest: 0.1, perTestMedian: 0.09, total: 1 },
+      billedUsd: { perTest: 0.05, total: 0.5, tests: 10 },
+      byModel: [],
+    }
+    const unpriced = {
+      tests: 10,
+      tokens: { ...tok(500), perTestMedian: tok(50) },
+      listUsd: null,
+      unpriced: tok(500),
+      unpricedReason: 'no price for local-model',
+      byModel: [],
+    }
+    const root = tmpRoot()
+    put(root, '2026-10-27-mixed/summary.json', {
+      ...SUMMARY,
+      arms: [
+        arm('control', 'control', 10, { cost: priced }),
+        arm('treatment', 'treatment', 18, { cost: unpriced }),
+        arm('alt', 'treatment', 14, { cost: { perTest: 20, total: 800, unit: 'tokens' } }),
+        arm('old', 'treatment', 12, { cost: { perTest: 0.01, total: 0.4, unit: 'usd' } }),
+        arm('none', 'treatment', 11, { cost: null, costReason: 'not logged' }),
+      ],
+    })
+    const [row] = await createExperimentsService(root).list()
+    expect(row!.cost).toEqual({
+      tokens: 3000 + 1500 + 800,
+      listUsd: 1,
+      unpricedArms: 2,
+      billedUsd: expect.closeTo(0.9, 6),
+    })
+    expect(costTotals([])).toEqual({
+      tokens: null,
+      listUsd: null,
+      unpricedArms: 0,
+      billedUsd: null,
     })
   })
 

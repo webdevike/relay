@@ -5,6 +5,7 @@ import {
   ExperimentIdSchema,
   ExperimentStatusFileSchema,
   ExperimentSummaryFileSchema,
+  isLegacyCost,
   type ArmSummary,
   type ExperimentCase,
   type ExperimentCases,
@@ -134,6 +135,29 @@ export function headline(arms: readonly ArmSummary[]): NonNullable<ExperimentRow
   return { control: control ? side(control) : null, best }
 }
 
+/** The list row's cost totals over every arm (see `ExperimentRow['cost']`). */
+export function costTotals(arms: readonly ArmSummary[]): NonNullable<ExperimentRow['cost']> {
+  let tokens: number | null = null
+  let listUsd: number | null = null
+  let billedUsd: number | null = null
+  let unpricedArms = 0
+  for (const { cost } of arms) {
+    if (!cost) continue
+    if (isLegacyCost(cost)) {
+      if (cost.unit === 'tokens') {
+        tokens = (tokens ?? 0) + cost.total
+        unpricedArms++
+      } else billedUsd = (billedUsd ?? 0) + cost.total
+      continue
+    }
+    if (cost.tokens) tokens = (tokens ?? 0) + cost.tokens.total
+    if (cost.listUsd) listUsd = (listUsd ?? 0) + cost.listUsd.total
+    else if (cost.tokens) unpricedArms++
+    if (cost.billedUsd) billedUsd = (billedUsd ?? 0) + cost.billedUsd.total
+  }
+  return { tokens, listUsd, unpricedArms, billedUsd }
+}
+
 interface Loaded {
   id: string
   dir: string
@@ -215,6 +239,7 @@ export function createExperimentsService(root: string): ExperimentsService {
       round: round !== undefined ? String(round) : (l.rounds.at(-1) ?? null),
       arms: l.summary?.arms.length ?? l.record.arms,
       headline: l.summary ? headline(l.summary.arms) : null,
+      cost: l.summary ? costTotals(l.summary.arms) : null,
       hasSummary: l.summary !== null,
       updatedAt: l.updatedAt,
     }

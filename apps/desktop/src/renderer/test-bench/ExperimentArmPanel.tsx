@@ -1,10 +1,19 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { IconCheck, IconX } from '@tabler/icons-react'
-import type { ArmSummary, ExperimentCases, SummaryRate } from '@evaos/contract'
+import {
+  isLegacyCost,
+  type ArmCost,
+  type ArmSummary,
+  type CostTokens,
+  type ExperimentCases,
+  type LegacyArmCost,
+  type SummaryRate,
+} from '@evaos/contract'
 import { invoke, on } from '../ipc'
+import { openLink } from '../navigation/open-link'
 import type { ExperimentArmView } from '../shell/layout-store'
 import { ScrollArea } from '../ui/ScrollArea'
-import { duration, money, pct, rateWithInterval } from './experiment-format'
+import { duration, pct, rateWithInterval, tokenCount, usd } from './experiment-format'
 
 /** A measurement that does not apply: the harness's reason, or a plain fallback. */
 function Missing({ reason }: { reason: string | undefined }) {
@@ -35,6 +44,118 @@ function Facts({ rows }: { rows: Array<[string, ReactNode]> }) {
 }
 
 const rate = (r: SummaryRate): string => `${r.k}/${r.n} = ${pct(r.p)}`
+
+const split = (t: CostTokens): string =>
+  `${tokenCount(t.in)} in / ${tokenCount(t.out)} out / ${tokenCount(t.cached)} cached`
+
+function LegacyCost({ cost }: { cost: LegacyArmCost }) {
+  const fmt = (v: number) => (cost.unit === 'tokens' ? `${tokenCount(v)} tokens` : usd(v))
+  return (
+    <Facts
+      rows={[
+        ['Per test', fmt(cost.perTest)],
+        ['Total', fmt(cost.total)],
+      ]}
+    />
+  )
+}
+
+/** Tokens, list-price USD (published API prices) and billed USD, then the per-model split. */
+function ArmCostDetail({ cost }: { cost: ArmCost }) {
+  const rows: Array<[string, ReactNode]> = [['Tests costed', cost.tests]]
+  if (cost.tokens) {
+    rows.push(['Tokens per test (median)', split(cost.tokens.perTestMedian)])
+    rows.push(['Tokens total', split(cost.tokens)])
+  }
+  if (cost.listUsd) {
+    rows.push(['List $ per test (mean)', usd(cost.listUsd.perTest)])
+    rows.push(['List $ per test (median)', usd(cost.listUsd.perTestMedian)])
+    rows.push(['List $ total', usd(cost.listUsd.total)])
+  } else {
+    rows.push(['List $', <span key="list" className="eva-bench-dim">unpriced</span>])
+    if (cost.unpriced) rows.push(['Unpriced tokens', split(cost.unpriced)])
+  }
+  if (cost.billedUsd) {
+    rows.push(['Billed $ per test', usd(cost.billedUsd.perTest)])
+    rows.push(['Billed $ total', `${usd(cost.billedUsd.total)} (${cost.billedUsd.tests} tests)`])
+  }
+  const priced = cost.byModel.filter((m) => m.price)
+  const perM = (v: number | null) => (v === null ? '—' : `$${v}`)
+  return (
+    <>
+      <Facts rows={rows} />
+      {!cost.listUsd && cost.unpricedReason ? (
+        <p className="eva-bench-faint" data-testid="cost-unpriced-reason">
+          {cost.unpricedReason}
+        </p>
+      ) : null}
+      {cost.byModel.length > 0 ? (
+        <table className="eva-bench-mini" aria-label="Cost by model">
+          <thead>
+            <tr>
+              <th>Model</th>
+              <th>Calls</th>
+              <th>In</th>
+              <th>Out</th>
+              <th>Cached</th>
+              <th>List $</th>
+            </tr>
+          </thead>
+          <tbody>
+            {cost.byModel.map((m) => (
+              <tr key={m.model ?? ''}>
+                <td>{m.model ?? <span className="eva-bench-dim">(no model id)</span>}</td>
+                <td>{m.calls}</td>
+                <td>{tokenCount(m.tokensIn)}</td>
+                <td>{tokenCount(m.tokensOut)}</td>
+                <td>{tokenCount(m.tokensCached)}</td>
+                <td>
+                  {m.listUsd !== null ? (
+                    usd(m.listUsd)
+                  ) : (
+                    <span className="eva-bench-dim" title={m.unpricedReason}>
+                      unpriced
+                    </span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
+      {priced.map(({ model, price }) => {
+        const p = price!
+        let host = p.source
+        try {
+          host = new URL(p.source).host
+        } catch {
+          /* not a URL: show it as written */
+        }
+        return (
+          <p key={model ?? ''} className="eva-bench-faint" data-testid="cost-price-source">
+            {model ?? '(no model id)'}: {perM(p.input)} / {perM(p.output)} / {perM(p.cachedInput)}{' '}
+            per Mtok —{' '}
+            {/^https?:\/\//.test(p.source) ? (
+              <a
+                href={p.source}
+                title={p.source}
+                onClick={(e) => {
+                  e.preventDefault()
+                  openLink(p.source)
+                }}
+              >
+                {host}
+              </a>
+            ) : (
+              host
+            )}{' '}
+            (checked {p.checked})
+          </p>
+        )
+      })}
+    </>
+  )
+}
 
 function Measurements({ arm }: { arm: ArmSummary }) {
   return (
@@ -93,15 +214,12 @@ function Measurements({ arm }: { arm: ArmSummary }) {
         )}
       </Section>
       <Section title="Cost">
-        {arm.cost ? (
-          <Facts
-            rows={[
-              ['Per test', money(arm.cost.perTest, arm.cost.unit)],
-              ['Total', money(arm.cost.total, arm.cost.unit)],
-            ]}
-          />
-        ) : (
+        {!arm.cost ? (
           <Missing reason={arm.costReason} />
+        ) : isLegacyCost(arm.cost) ? (
+          <LegacyCost cost={arm.cost} />
+        ) : (
+          <ArmCostDetail cost={arm.cost} />
         )}
       </Section>
       <Section title="Reliability">
