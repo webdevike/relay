@@ -1,7 +1,9 @@
 import { normalize } from '@evaos/browser-core/address'
+import { isAppSwitchUrl } from '@evaos/browser-core/app-switch'
 import type { MainContext } from '../context'
 import { handle } from '../ipc/handle'
 import { session } from 'electron'
+import { listSwitchApps, selectSwitchApp, type SessionFetch } from './app-switch'
 import { importArcLogins } from './arc-import'
 import { GUEST_PARTITION } from './guest-session'
 import { listExtensions } from './extensions'
@@ -53,6 +55,16 @@ export function registerBrowserIpc(ctx: MainContext, host: BrowserHost): void {
   handle(ctx, 'browser.importArc', () =>
     importArcLogins(ctx.env, session.fromPartition(GUEST_PARTITION), host),
   )
+  // The guest session's fetch carries the tab's cookies both ways, so a switch lands in the page's jar.
+  const guestFetch: SessionFetch = (url, init) =>
+    session.fromPartition(GUEST_PARTITION).fetch(url, init)
+  handle(ctx, 'browser.switchApps', async () => ({ apps: await listSwitchApps(guestFetch) }))
+  handle(ctx, 'browser.switchApp', async ({ tabId, id }) => {
+    const active = await selectSwitchApp(guestFetch, id)
+    const page = host.tabById(tabId)
+    if (page && isAppSwitchUrl(page.getURL())) host.reload(tabId)
+    return { active }
+  })
   handle(ctx, 'browser.setSlot', (rect) => {
     host.setSlot(rect)
     return { ok: true as const }

@@ -31,6 +31,25 @@ export type TabsSnapshot = z.output<typeof TabsSnapshotSchema>
 const tabOnly = z.object({ tabId: TabIdSchema }).strict()
 const okOut = z.object({ ok: z.literal(true) })
 
+/** A registered app of the local eCard app switch (`GET /__apps` on https://localhost:3001). */
+export const SwitchAppIdSchema = z.string().regex(/^[\w-]{1,64}$/)
+export const SwitchAppSchema = z.object({
+  id: SwitchAppIdSchema,
+  /** `ENG-6476`, when the worktree or branch names one. */
+  ticket: z.string().nullable(),
+  /** The ticket's ledger title, else the id. */
+  title: z.string(),
+  branch: z.string().nullable(),
+  port: z.number().int().min(1).max(65535),
+  /** Relative to the Eva root. */
+  worktree: z.string(),
+  api: z.string(),
+  running: z.boolean(),
+  /** The app the browser's `ecard_app` cookie picks. */
+  active: z.boolean(),
+})
+export type SwitchApp = z.output<typeof SwitchAppSchema>
+
 // Browser channels. Plans 01-08 and 01-09 extend these maps.
 export const browserInvoke = {
   'browser.state': { input: z.object({}).strict(), output: TabsSnapshotSchema },
@@ -100,6 +119,16 @@ export const browserInvoke = {
   'browser.pinTab': {
     input: z.object({ tabId: TabIdSchema, pinned: z.boolean() }).strict(),
     output: TabsSnapshotSchema,
+  },
+  /** The local eCard app switch's apps, as the browser session's cookie sees them. */
+  'browser.switchApps': {
+    input: z.object({}).strict(),
+    output: z.object({ apps: z.array(SwitchAppSchema) }),
+  },
+  /** Points the switch at another app (its cookie, in the browser session) and reloads the tab. */
+  'browser.switchApp': {
+    input: z.object({ tabId: TabIdSchema, id: SwitchAppIdSchema }).strict(),
+    output: z.object({ active: SwitchAppIdSchema }),
   },
 } as const
 

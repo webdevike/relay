@@ -36,7 +36,13 @@ export {
   SavedThemeSchema,
   ChatSettingsSchema,
 } from './shell'
-export { type TabState, type TabsSnapshot } from './browser'
+export {
+  type TabState,
+  type TabsSnapshot,
+  type SwitchApp,
+  SwitchAppSchema,
+  SwitchAppIdSchema,
+} from './browser'
 
 export const invokeContract = {
   ...linearInvoke,

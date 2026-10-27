@@ -74,6 +74,67 @@
   right: 0;
   bottom: 0;
 }
+/* The local eCard app switch: a quiet chip naming the app the tab shows, and its menu rows. */
+.eva-app-switch {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  height: var(--eva-kit-control-md);
+  padding: 0 var(--mantine-spacing-xs);
+  border: 1px solid var(--eva-border);
+  border-radius: var(--eva-radius);
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-medium);
+  color: var(--eva-text);
+  white-space: nowrap;
+}
+.eva-app-switch:hover,
+.eva-app-switch[aria-expanded='true'] {
+  border-color: var(--eva-c-input-border);
+}
+.eva-app-switch svg {
+  color: var(--eva-text-dim);
+}
+.eva-app-switch-note {
+  padding: var(--mantine-spacing-xs);
+  max-width: 360px;
+  font-size: var(--eva-fz-label);
+  color: var(--eva-text-dim);
+}
+.eva-app-switch-item .mantine-Menu-itemLabel {
+  min-width: 0;
+}
+.eva-app-switch-head,
+.eva-app-switch-meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--mantine-spacing-xs);
+  min-width: 0;
+}
+.eva-app-switch-key {
+  flex: none;
+  font-weight: var(--eva-fw-semibold);
+}
+.eva-app-switch-title,
+.eva-app-switch-branch {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-app-switch-meta {
+  font-size: var(--eva-fz-caption);
+  color: var(--eva-text-dim);
+}
+.eva-app-switch-meta > :last-child {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.eva-app-switch-states {
+  display: inline-flex;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+}
 .eva-browser-slot {
   position: relative;
   display: flex;
