@@ -114,8 +114,7 @@ export function AppSwitcher({ tab }: { tab: TabState }) {
                 key={a.id}
                 data-testid={`app-switch-item-${a.id}`}
                 aria-current={a.active ? 'true' : undefined}
-                data-active={a.active || undefined}
-                className="eva-app-switch-item"
+                classNames={{ itemLabel: 'eva-app-switch-item-label' }}
                 onClick={() => void select(a)}
                 rightSection={
                   <span className="eva-app-switch-states">

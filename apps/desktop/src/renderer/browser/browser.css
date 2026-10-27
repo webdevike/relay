@@ -74,13 +74,26 @@
   right: 0;
   bottom: 0;
 }
+/* Tab row: the scrolling tab strip, then the local eCard app chip when the tab is on the switch. */
+.eva-browser-tabs {
+  display: flex;
+  align-items: center;
+  flex: none;
+  min-width: 0;
+  padding-right: var(--mantine-spacing-xs);
+  background: var(--eva-surface);
+}
+.eva-browser-tabs > .eva-tab-strip {
+  flex: 1;
+  min-width: 0;
+}
 /* The local eCard app switch: a quiet chip naming the app the tab shows, and its menu rows. */
 .eva-app-switch {
   flex: none;
   display: inline-flex;
   align-items: center;
   gap: calc(var(--mantine-spacing-xs) / 2);
-  height: var(--eva-kit-control-md);
+  height: var(--eva-control-xs);
   padding: 0 var(--mantine-spacing-xs);
   border: 1px solid var(--eva-border);
   border-radius: var(--eva-radius);
@@ -102,7 +115,7 @@
   font-size: var(--eva-fz-label);
   color: var(--eva-text-dim);
 }
-.eva-app-switch-item .mantine-Menu-itemLabel {
+.eva-app-switch-item-label {
   min-width: 0;
 }
 .eva-app-switch-head,

@@ -11,12 +11,10 @@ import {
   IconX,
 } from '@tabler/icons-react'
 import type { TabState } from '@evaos/contract'
-import { isAppSwitchUrl } from '@evaos/browser-core/app-switch'
 import { invoke } from '../ipc'
 import { ImportArcModal } from './ImportArcModal'
 import { ExtensionActions } from './ExtensionActions'
 import { Suggestions, type SuggestionItem } from './Suggestions'
-import { AppSwitcher } from './AppSwitcher'
 
 function Btn(props: {
   label: string
@@ -158,7 +156,6 @@ export function AddressRow({ tab }: { tab: TabState | undefined }) {
           }
         }}
       />
-      {tab && isAppSwitchUrl(tab.url) ? <AppSwitcher tab={tab} /> : null}
       <Btn label="Copy link" testId="btn-copy-link" onClick={act('copyLink')}>
         <IconCopy size={16} />
       </Btn>
