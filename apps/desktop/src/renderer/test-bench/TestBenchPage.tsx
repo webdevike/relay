@@ -1,544 +1,352 @@
-import { useEffect, useRef, useState } from 'react'
-import { Button, MultiSelect, Select } from '@mantine/core'
-import type { Place } from '@evaos/shell-core'
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { ActionIcon, Button, Progress, Tooltip } from '@mantine/core'
 import {
-  BENCH_LIMITS,
-  type BenchIdentity,
-  type BenchModel,
-  type BenchProgress,
-  type BenchRun,
-  type BenchScore,
-} from '@evaos/contract'
+  IconArrowLeft,
+  IconCheck,
+  IconClock,
+  IconFlask,
+  IconHelpCircle,
+  IconLoader2,
+  IconRefresh,
+  IconX,
+  type Icon,
+} from '@tabler/icons-react'
+import type { Place } from '@evaos/shell-core'
+import type { ArmSummary, ExperimentDetail, ExperimentRow, ExperimentStatus } from '@evaos/contract'
 import { invoke, on } from '../ipc'
-import { ScrollArea } from '../ui/ScrollArea'
+import { Markdown } from '../chat/markdown/Markdown'
+import { openExperimentArmPanel, useLayout } from '../shell/layout-store'
+import { STATUS_LABEL, duration, money, pct, primaryRate } from './experiment-format'
 import './test-bench.css'
 
-const identity = (m: BenchIdentity): string => `${m.provider}/${m.model} (${m.profile})`
-const key = (m: BenchIdentity): string => JSON.stringify([m.provider, m.model, m.profile])
-const rate = (r: BenchScore['coverage']): string =>
-  `${r.numerator}/${r.denominator}${r.value === null ? ' · unavailable' : ''}`
-const message = (error: unknown): string =>
-  error instanceof Error ? error.message : 'Test Bench request failed'
+const STATUS_ICON: Record<ExperimentStatus, Icon> = {
+  planned: IconClock,
+  running: IconLoader2,
+  pass: IconCheck,
+  fail: IconX,
+  inconclusive: IconHelpCircle,
+}
 
-function ScoreDetails({ score }: { score: BenchScore }) {
+export function StatusPill({
+  status,
+  progress,
+}: {
+  status: ExperimentStatus
+  progress?: ExperimentRow['progress']
+}) {
+  const Glyph = STATUS_ICON[status]
   return (
-    <div className="bench-score-details">
-      <p>
-        Attempted {score.attempted}/{score.planned}; valid {score.evaluable}/{score.planned};
-        completed {score.completed}/{score.planned}. Collector failures: {score.collectorFailures}.
-      </p>
-      <dl className="bench-metrics">
-        <div>
-          <dt>False passes / defective</dt>
-          <dd>{rate(score.falsePasses)}</dd>
-        </div>
-        <div>
-          <dt>Detected / defective</dt>
-          <dd>{rate(score.detection)}</dd>
-        </div>
-        <div>
-          <dt>False alarms / clean</dt>
-          <dd>{rate(score.falseAlarms)}</dd>
-        </div>
-        <div>
-          <dt>Abstentions / valid</dt>
-          <dd>{rate(score.abstentions)}</dd>
-        </div>
-        <div>
-          <dt>Coverage / attempted</dt>
-          <dd>{rate(score.coverage)}</dd>
-        </div>
-        <div>
-          <dt>Infrastructure / attempted</dt>
-          <dd>{rate(score.infrastructure)}</dd>
-        </div>
-        <div>
-          <dt>Mismatches / valid</dt>
-          <dd>{rate(score.mismatches)}</dd>
-        </div>
-      </dl>
-      <div className="bench-table-wrap">
-        <table>
-          <caption>Category denominators ({score.split})</caption>
-          <thead>
-            <tr>
-              <th>Category</th>
-              <th>Planned</th>
-              <th>Valid</th>
-              <th>Errors</th>
-              <th>Unattempted</th>
-              <th>Mismatches / valid</th>
-            </tr>
-          </thead>
-          <tbody>
-            {score.categories.map((c) => (
-              <tr key={c.category}>
-                <th>{c.category}</th>
-                <td>{c.planned}</td>
-                <td>{c.valid}</td>
-                <td>{c.infrastructure}</td>
-                <td>{c.unattempted}</td>
-                <td>{rate(c.mismatches)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <span className="eva-bench-status" data-status={status} data-testid="experiment-status">
+      <Glyph size={14} className={status === 'running' ? 'eva-bench-spin' : undefined} />
+      {STATUS_LABEL[status]}
+      {progress ? (
+        <span className="eva-bench-progress-text">
+          {progress.done}/{progress.planned ?? '?'}
+        </span>
+      ) : null}
+    </span>
+  )
+}
+
+function Headline({ row }: { row: ExperimentRow }) {
+  const h = row.headline
+  if (!h || (!h.control && !h.best))
+    return <span className="eva-bench-dim">{row.hasSummary ? 'No quality yet' : 'No summary'}</span>
+  return (
+    <span className="eva-bench-headline" data-testid="experiment-headline">
+      {h.control ? (
+        <span>
+          <span className="eva-bench-dim">{h.control.label} </span>
+          {pct(h.control.metric.p)}
+        </span>
+      ) : null}
+      {h.control && h.best ? <span className="eva-bench-dim">vs</span> : null}
+      {h.best ? (
+        <span>
+          <span className="eva-bench-dim">{h.best.label} </span>
+          <strong>{pct(h.best.metric.p)}</strong>
+        </span>
+      ) : null}
+      <span className="eva-bench-faint">{(h.best ?? h.control)!.metric.metric}</span>
+    </span>
+  )
+}
+
+/** Activates on click, Enter or Space, like the Jobs rows. */
+function rowProps(onOpen: () => void) {
+  return {
+    role: 'button',
+    tabIndex: 0,
+    onClick: onOpen,
+    onKeyDown: (e: KeyboardEvent) => {
+      if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+        e.preventDefault()
+        onOpen()
+      }
+    },
+  } as const
+}
+
+function RunsList({ rows, onOpen }: { rows: ExperimentRow[]; onOpen: (id: string) => void }) {
+  return (
+    <div className="eva-bench-list" data-testid="experiments-list">
+      {rows.map((row) => {
+        const meta = [
+          row.date,
+          row.round !== null ? `round ${row.round}` : null,
+          row.arms !== null ? `${row.arms} ${row.arms === 1 ? 'test' : 'tests'}` : null,
+        ].filter(Boolean)
+        return (
+          <div
+            key={row.id}
+            className="eva-bench-run"
+            data-testid={`experiment-row-${row.id}`}
+            {...rowProps(() => onOpen(row.id))}
+          >
+            <span className="eva-bench-run-main">
+              <span className="eva-bench-run-title">{row.title}</span>
+              <span className="eva-bench-dim">{meta.join(' · ')}</span>
+            </span>
+            <Headline row={row} />
+            <span className="eva-bench-run-status">
+              <StatusPill status={row.status} progress={row.progress} />
+              {row.progress?.planned ? (
+                <Progress
+                  size="xs"
+                  w={96}
+                  value={(100 * row.progress.done) / row.progress.planned}
+                  aria-label="Cases done"
+                />
+              ) : null}
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function ArmsTable({ detail }: { detail: ExperimentDetail }) {
+  const arms = detail.armSummaries ?? []
+  const selected = useLayout((s) =>
+    s.panelOpen && s.panelView.kind === 'experiment-arm' && s.panelView.experiment === detail.id
+      ? s.panelView.arm
+      : null,
+  )
+  const open = (arm: ArmSummary) =>
+    openExperimentArmPanel({ experiment: detail.id, arm: arm.id, label: arm.label })
+  return (
+    <div className="eva-bench-table" role="table" aria-label="Tests" data-testid="arms-table">
+      <div className="eva-bench-arm eva-bench-thead" role="row">
+        <span role="columnheader">Test</span>
+        <span role="columnheader">{detail.primary ?? 'Quality'}</span>
+        <span role="columnheader">s/test</span>
+        <span role="columnheader">Cost/test</span>
+        <span role="columnheader">Failures</span>
+        <span role="columnheader">Coverage</span>
       </div>
-      {score.criticalFalsePasses.length > 0 && (
-        <p role="alert">
-          Critical false passes veto Inspect qualification: {score.criticalFalsePasses.join(', ')}
+      {arms.map((arm) => {
+        const rate = primaryRate(arm, detail.primary)
+        return (
+          <div
+            key={arm.id}
+            className="eva-bench-arm"
+            data-selected={selected === arm.id ? 'true' : undefined}
+            data-testid={`arm-row-${arm.id}`}
+            {...rowProps(() => open(arm))}
+            role="row"
+          >
+            <span className="eva-bench-arm-name" role="cell">
+              <span className="eva-bench-run-title">{arm.label}</span>
+              <span className="eva-bench-dim">
+                {arm.role}
+                {arm.label !== arm.id ? ` · ${arm.id}` : ''}
+              </span>
+            </span>
+            <span role="cell">
+              {rate ? (
+                <Tooltip label={`${rate.k}/${rate.n} on ${rate.split}`} openDelay={300}>
+                  <span>
+                    {pct(rate.p)}{' '}
+                    <span className="eva-bench-dim">
+                      ({Math.round(rate.lo * 100)}-{Math.round(rate.hi * 100)})
+                    </span>
+                  </span>
+                </Tooltip>
+              ) : (
+                <span className="eva-bench-dim">n/a</span>
+              )}
+            </span>
+            <span role="cell">
+              {arm.seconds ? (
+                duration(arm.seconds.median)
+              ) : (
+                <span className="eva-bench-dim">n/a</span>
+              )}
+            </span>
+            <span role="cell">
+              {arm.cost ? (
+                money(arm.cost.perTest, arm.cost.unit)
+              ) : (
+                <span className="eva-bench-dim">n/a</span>
+              )}
+            </span>
+            <span role="cell">{pct(arm.failures.rate)}</span>
+            <span role="cell">
+              {arm.coverage ? (
+                `${arm.coverage.run}/${arm.coverage.planned}`
+              ) : (
+                <span className="eva-bench-dim">n/a</span>
+              )}
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function RunDetail({ detail, onBack }: { detail: ExperimentDetail; onBack: () => void }) {
+  const meta = [
+    detail.date,
+    detail.round !== null ? `round ${detail.round}` : null,
+    detail.arms !== null ? `${detail.arms} ${detail.arms === 1 ? 'test' : 'tests'}` : null,
+    detail.id,
+  ].filter(Boolean)
+  return (
+    <div className="eva-bench-detail" data-testid="experiment-detail">
+      <div>
+        <Button
+          variant="subtle"
+          size="compact-sm"
+          leftSection={<IconArrowLeft size={14} />}
+          onClick={onBack}
+          data-testid="experiment-back"
+        >
+          Experiments
+        </Button>
+      </div>
+      <header className="eva-bench-detail-head">
+        <div className="eva-bench-title-line">
+          <h1 className="eva-bench-title">{detail.title}</h1>
+          <StatusPill status={detail.status} progress={detail.progress} />
+        </div>
+        <span className="eva-bench-dim">{meta.join(' · ')}</span>
+      </header>
+      {detail.question ? <p className="eva-bench-question">{detail.question}</p> : null}
+      {detail.verdict ? (
+        <div className="eva-bench-verdict" data-testid="experiment-verdict">
+          <span className="eva-bench-label">Verdict</span>
+          <p>{detail.verdict}</p>
+        </div>
+      ) : null}
+      {detail.summaryError ? (
+        <p className="eva-bench-warning" role="alert">
+          summary.json could not be read ({detail.summaryError}). Showing results.md instead.
         </p>
+      ) : null}
+      {detail.armSummaries ? (
+        <ArmsTable detail={detail} />
+      ) : detail.resultsMarkdown ? (
+        <div className="eva-bench-results" data-testid="experiment-results-md">
+          <Markdown text={detail.resultsMarkdown} />
+        </div>
+      ) : (
+        <p className="eva-bench-dim">No summary.json or results.md yet.</p>
       )}
     </div>
   )
 }
 
-function Evidence({ run }: { run: BenchRun }) {
-  const [caseId, setCaseId] = useState(run.cases[0]?.id ?? '')
-  const [configId, setConfigId] = useState(run.configurations[0]?.id ?? '')
-  const [images, setImages] = useState<string[]>([])
-  const [error, setError] = useState('')
-  const item = run.cases.find((c) => c.id === caseId)
-  const evidence = item?.evidence
-  const judgment = item?.judgments.find((j) => j.configId === configId)
-  useEffect(() => {
-    let live = true
-    setImages([])
-    setError('')
-    if (evidence)
-      void Promise.all(
-        [evidence.beforeId, evidence.afterId].map(async (evidenceId) => {
-          const result = await invoke('testBench.evidence', { runId: run.id, evidenceId })
-          if (!result.ok) throw new Error(result.error.message)
-          return result.value.dataUrl
-        }),
-      )
-        .then((value) => {
-          if (live) setImages(value)
-        })
-        .catch((e) => {
-          if (live) setError(message(e))
-        })
-    return () => {
-      live = false
-    }
-  }, [run.id, evidence?.beforeId, evidence?.afterId])
-  return (
-    <section aria-label="Case evidence" className="bench-section">
-      <h3>Case evidence</h3>
-      <div className="bench-controls">
-        <Select
-          label="Case"
-          value={caseId}
-          onChange={(v) => v && setCaseId(v)}
-          data={run.cases.map((c, i) => ({
-            value: c.id,
-            label: `${i + 1}. ${c.category} · ${c.split} · ${c.id}`,
-          }))}
-          searchable
-        />
-        <Select
-          label="Evidence configuration"
-          value={configId}
-          onChange={(v) => v && setConfigId(v)}
-          data={run.configurations.map((c) => ({ value: c.id, label: identity(c) }))}
-        />
-      </div>
-      <p>
-        Expected: {item?.expected}. Severity: {item?.severity}. Judgment:{' '}
-        {judgment?.status ?? 'unattempted'}.
-      </p>
-      {item?.error && (
-        <p role="alert">
-          Collection {item.error.code}: {item.error.message}
-        </p>
-      )}
-      {judgment?.error && (
-        <p role="alert">
-          {judgment.error.code}: {judgment.error.message}
-        </p>
-      )}
-      {!evidence ? (
-        <p>Evidence unavailable. This case was not collected successfully.</p>
-      ) : (
-        <>
-          <h4>{evidence.envelope.criterion}</h4>
-          <p>
-            Missing evidence: {evidence.envelope.missing.join(', ') || 'None reported'}. Captured{' '}
-            {evidence.collectedAt}, {evidence.durationMs} ms.
-          </p>
-          <details>
-            <summary>Deterministic observations and evidence digest</summary>
-            <pre>{JSON.stringify(evidence.envelope.observations, null, 2)}</pre>
-            <code>{evidence.digest}</code>
-          </details>
-          <p className="bench-muted">
-            Captured proof only. Models receive identical text observations, not these images.
-          </p>
-          {error && <p role="alert">{error}</p>}
-          {!error && images.length === 0 && <p role="status">Loading captured proof…</p>}
-          <div className="bench-images">
-            {images.map((src, i) => (
-              <figure key={i === 0 ? evidence.beforeId : evidence.afterId}>
-                <figcaption>{i === 0 ? 'Before' : 'After'}: captured PNG</figcaption>
-                <img src={src} alt={`${i === 0 ? 'Before' : 'After'} captured settings form`} />
-              </figure>
-            ))}
-          </div>
-        </>
-      )}
-      {judgment?.answer && (
-        <div className="bench-section">
-          <h4>Validated verdict: {judgment.answer.decision}</h4>
-          <p>{judgment.answer.rationale}</p>
-          <p>
-            Requested: {identity(judgment.answer.requested)}
-            <br />
-            Returned:{' '}
-            {judgment.answer.returned ? identity(judgment.answer.returned) : 'Unavailable'}
-            <br />
-            Resolved version: {judgment.answer.resolvedVersion ?? 'Unavailable (alias unresolved)'}
-          </p>
-          <p>
-            Started: {judgment.startedAt ?? 'Unavailable'}; duration:{' '}
-            {judgment.durationMs ?? 'Unavailable'} ms. Input tokens:{' '}
-            {judgment.answer.usage?.inputTokens ?? 'Unavailable'}; output tokens:{' '}
-            {judgment.answer.usage?.outputTokens ?? 'Unavailable'}; cost:{' '}
-            {judgment.answer.cost ?? 'Unavailable'}.
-          </p>
-          <details>
-            <summary>Raw verdict (bounded)</summary>
-            <pre>{judgment.answer.raw}</pre>
-          </details>
-        </div>
-      )}
-    </section>
-  )
-}
-
-function Results({ run }: { run: BenchRun }) {
-  const incomplete = run.status !== 'completed'
-  return (
-    <section aria-label="Comparison results" className="bench-section" data-testid="bench-results">
-      <div>
-        <h2>Comparison results</h2>
-        <p className="bench-muted">
-          {run.status}
-          {incomplete ? ' · incomplete' : ''} · {new Date(run.createdAt).toLocaleString()}
-        </p>
-      </div>
-      <details>
-        <summary>Run details</summary>
-        <p>{run.id}</p>
-        <p>
-          Started {run.createdAt}. Finished {run.finishedAt ?? 'Not finished'}.
-        </p>
-      </details>
-      {run.errors.map((e, i) => (
-        <p role="alert" key={i}>
-          {e.code}: {e.message}
-          {e.caseId ? ` (case ${e.caseId})` : ''}
-        </p>
-      ))}
-      <div className="bench-table-wrap">
-        <table aria-label="Configuration comparison">
-          <thead>
-            <tr>
-              <th>Configuration</th>
-              <th>Critical false passes</th>
-              <th>Detection / defective</th>
-              <th>Valid / planned</th>
-              <th>Inspect</th>
-            </tr>
-          </thead>
-          <tbody>
-            {run.configurations.map((c) => {
-              const score = run.scores.find((s) => s.configId === c.id && s.split === 'all')
-              return (
-                <tr key={c.id}>
-                  <th>{identity(c)}</th>
-                  <td>{score?.criticalFalsePasses.length ?? 'Unavailable'}</td>
-                  <td>{score ? rate(score.detection) : 'Unavailable'}</td>
-                  <td>{score ? `${score.evaluable}/${score.planned}` : 'Unavailable'}</td>
-                  <td>
-                    {score?.inspect === 'qualified'
-                      ? 'Benchmark qualified'
-                      : incomplete
-                        ? 'Incomplete'
-                        : 'Not qualified'}
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-      <p className="bench-muted">
-        Inspect is scoped to this settings-form benchmark. It does not establish production safety
-        or grant permissions.
-      </p>
-      {run.configurations.map((c) => (
-        <details key={c.id}>
-          <summary>{identity(c)}: scorecards and configuration</summary>
-          <p>
-            Configuration: <code>{c.id}</code>
-          </p>
-          <p>
-            Track: {c.track}. Rubric: {c.rubric.version} (<code>{c.rubric.hash}</code>). Skill:{' '}
-            {c.skill.version} (<code>{c.skill.hash}</code>).
-          </p>
-          <p>
-            Fixture: {run.fixtureVersion} (<code>{run.fixtureHash}</code>).
-          </p>
-          <details>
-            <summary>Bounded rubric, skill and limits</summary>
-            <pre>
-              {JSON.stringify({ rubric: c.rubric, skill: c.skill, limits: c.limits }, null, 2)}
-            </pre>
-          </details>
-          {run.scores
-            .filter((s) => s.configId === c.id)
-            .map((s) => (
-              <section key={s.split}>
-                <h4>{s.split}</h4>
-                <ScoreDetails score={s} />
-              </section>
-            ))}
-        </details>
-      ))}
-      <details>
-        <summary>Inspect case evidence and verdicts</summary>
-        <Evidence run={run} />
-      </details>
-    </section>
-  )
-}
-
+/**
+ * Test Bench: every experiment Eva runs through `.omp/tools/exp.ts`, read from
+ * `work/experiments`. Runs list, then one run's tests; a test's details open in the side panel.
+ */
 export function TestBenchPage(_props: { place: Place }) {
-  const [models, setModels] = useState<BenchModel[] | null>(null)
-  const [selected, setSelected] = useState<string[]>([])
-  const [catalogError, setCatalogError] = useState('')
-  const [history, setHistory] = useState<BenchRun[] | null>(null)
-  const [historyError, setHistoryError] = useState('')
-  const [error, setError] = useState('')
-  const [run, setRun] = useState<BenchRun | null>(null)
-  const [progress, setProgress] = useState<BenchProgress | null>(null)
-  const [activeId, setActiveId] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const mounted = useRef(false)
-  const selectedRun = useRef<string | null>(null)
-  const generation = useRef(0)
-  async function loadModels() {
-    setCatalogError('')
-    setModels(null)
-    try {
-      const result = await invoke('testBench.models', {})
-      if (!mounted.current) return
-      if (!result.ok) throw new Error(result.error.message)
-      setModels(result.value)
-      setSelected((old) => old.filter((k) => result.value.some((m) => key(m) === k)))
-    } catch (e) {
-      if (mounted.current) setCatalogError(message(e))
-    }
-  }
-  async function loadHistory() {
-    const request = ++generation.current
-    try {
-      const result = await invoke('testBench.list', {})
-      if (!mounted.current || request !== generation.current) return
-      if (!result.ok) throw new Error(result.error.message)
-      setHistory(result.value)
-      setHistoryError('')
-      const active = result.value.find((r) => r.status === 'running')
-      setActiveId(active?.id ?? null)
-      const next =
-        result.value.find((r) => r.id === selectedRun.current) ?? active ?? result.value[0]
-      if (next) {
-        selectedRun.current = next.id
-        setRun(next)
-      }
-    } catch (e) {
-      if (mounted.current) setHistoryError(message(e))
-    }
-  }
-  useEffect(() => {
-    mounted.current = true
-    const unsubscribe = on('testBench.progress', (value) => {
-      if (!mounted.current) return
-      setProgress(value)
-      setActiveId(value.status === 'running' ? value.runId : null)
-      void loadHistory()
-    })
-    void loadModels()
-    void loadHistory()
-    return () => {
-      mounted.current = false
-      unsubscribe()
-    }
+  const [rows, setRows] = useState<ExperimentRow[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [selected, setSelected] = useState<string | null>(null)
+  const [detail, setDetail] = useState<ExperimentDetail | null>(null)
+  const selectedRef = useRef(selected)
+  selectedRef.current = selected
+
+  const loadList = useCallback(async () => {
+    const r = await invoke('experiments.list', {})
+    if (r.ok) {
+      setRows(r.value)
+      setError(null)
+    } else setError(r.error.message)
   }, [])
-  async function start() {
-    setBusy(true)
-    setError('')
-    try {
-      const configurations = (models ?? [])
-        .filter((m) => selected.includes(key(m)))
-        .map(({ provider, model, profile }) => ({ provider, model, profile }))
-      const result = await invoke('testBench.start', { configurations })
-      if (!result.ok) throw new Error(result.error.message)
-      selectedRun.current = result.value.runId
-      if (mounted.current) {
-        setActiveId(result.value.runId)
-        await loadHistory()
-      }
-    } catch (e) {
-      if (mounted.current) setError(message(e))
-    } finally {
-      if (mounted.current) setBusy(false)
-    }
+
+  const loadDetail = useCallback(async (id: string) => {
+    const r = await invoke('experiments.get', { id })
+    if (selectedRef.current !== id) return
+    if (r.ok) setDetail(r.value)
+    else setError(r.error.message)
+  }, [])
+
+  useEffect(() => {
+    void loadList()
+    return on('experiments.changed', ({ ids }) => {
+      void loadList()
+      const current = selectedRef.current
+      if (current && ids.includes(current)) void loadDetail(current)
+    })
+  }, [loadList, loadDetail])
+
+  useEffect(() => {
+    setDetail(null)
+    if (selected) void loadDetail(selected)
+  }, [selected, loadDetail])
+
+  let body
+  if (selected) {
+    body = detail ? (
+      <RunDetail detail={detail} onBack={() => setSelected(null)} />
+    ) : (
+      <p className="eva-bench-dim">Loading experiment</p>
+    )
+  } else if (rows === null) {
+    body = error ? (
+      <p className="eva-bench-warning" role="alert">
+        Could not read work/experiments ({error}).
+      </p>
+    ) : (
+      <p className="eva-bench-dim">Loading experiments</p>
+    )
+  } else if (rows.length === 0) {
+    body = (
+      <div className="eva-bench-empty" data-testid="experiments-empty">
+        <IconFlask size={24} />
+        <h2>No experiments yet</h2>
+        <p className="eva-bench-dim">
+          Experiments started with bun .omp/tools/exp.ts init show up here as they run.
+        </p>
+      </div>
+    )
+  } else {
+    body = <RunsList rows={rows} onOpen={setSelected} />
   }
-  async function cancel() {
-    if (!activeId) return
-    setBusy(true)
-    setError('')
-    try {
-      const result = await invoke('testBench.cancel', { runId: activeId })
-      if (!result.ok) throw new Error(result.error.message)
-      await loadHistory()
-    } catch (e) {
-      if (mounted.current) setError(message(e))
-    } finally {
-      if (mounted.current) setBusy(false)
-    }
-  }
-  async function openRun(id: string | null) {
-    if (!id) return
-    selectedRun.current = id
-    setError('')
-    try {
-      const result = await invoke('testBench.get', { runId: id })
-      if (!mounted.current || selectedRun.current !== id) return
-      if (!result.ok) throw new Error(result.error.message)
-      setRun(result.value)
-    } catch (e) {
-      if (mounted.current) setError(message(e))
-    }
-  }
+
   return (
-    <ScrollArea scrollKey="page:test-bench" className="bench-scroll" data-testid="page-test-bench">
-      <main className="bench-page">
-        <header>
-          <h1>Test Bench</h1>
-          <p className="bench-muted">UI/UX · settings-form · 24 cases</p>
-        </header>
-        <div className="bench-view">
-          <details open={!run || !!activeId} className="bench-setup">
-            <summary>Run a comparison</summary>
-            <section className="bench-section" aria-label="Run comparison">
-              <p className="bench-muted">
-                Choose 2 to 4 models. Each receives the same browser observations.
-              </p>
-              <MultiSelect
-                label="Model configurations"
-                placeholder={
-                  catalogError
-                    ? 'Model discovery unavailable'
-                    : models === null
-                      ? 'Discovering models…'
-                      : 'Select exact models and accounts'
-                }
-                searchable
-                value={selected}
-                onChange={setSelected}
-                maxValues={4}
-                disabled={!!activeId || busy || !models?.length}
-                data={(models ?? []).map((m) => ({ value: key(m), label: identity(m) }))}
-              />
-              {catalogError && (
-                <p role="alert">
-                  Model discovery: {catalogError}. Saved comparisons remain available.
-                </p>
-              )}
-              {models?.length === 0 && <p>No models available through existing credentials.</p>}
-              <div className="bench-actions">
-                <Button
-                  onClick={() => void start()}
-                  disabled={
-                    busy || !!activeId || selected.length < 2 || selected.length > 4 || !models
-                  }
-                >
-                  Run comparison
-                </Button>
-                <Button
-                  variant="subtle"
-                  onClick={() => void loadModels()}
-                  disabled={!!activeId || busy}
-                >
-                  Refresh models
-                </Button>
-                {activeId && (
-                  <Button variant="outline" onClick={() => void cancel()} disabled={busy}>
-                    Cancel run
-                  </Button>
-                )}
-              </div>
-              <details>
-                <summary>Trial and execution limits</summary>
-                <p>
-                  16 development and 8 holdout cases. Versioned rubric and skill hashes are saved
-                  with each configuration.
-                </p>
-                <p>
-                  Capture {BENCH_LIMITS.captureMs / 1000}s; judgment{' '}
-                  {BENCH_LIMITS.judgmentMs / 1000}
-                  s; total {BENCH_LIMITS.totalMs / 60000} minutes. Input{' '}
-                  {BENCH_LIMITS.envelopeBytes} bytes; raw verdict {BENCH_LIMITS.rawBytes} bytes; PNG{' '}
-                  {BENCH_LIMITS.pngBytes} bytes.
-                </p>
-              </details>
-            </section>
-          </details>
-          {error && <p role="alert">{error}</p>}
-          {activeId && (
-            <p role="status">
-              Running comparison {activeId}.{' '}
-              {progress?.runId === activeId
-                ? `${progress.completed}/${progress.planned} judgments complete. Case ${progress.caseId ?? 'preparing'}, configuration ${progress.configId ?? 'preparing'}.`
-                : 'Preparing evidence.'}
-            </p>
-          )}
-          {progress && progress.status !== 'running' && (
-            <p role="status">
-              Latest run: {progress.status}, {progress.completed}/{progress.planned} judgments
-              complete.
-            </p>
-          )}
-          <section className="bench-section" aria-label="Saved comparisons">
-            <div className="bench-actions">
-              <Button variant="subtle" onClick={() => void loadHistory()}>
-                Refresh history
-              </Button>
-            </div>
-            {historyError && <p role="alert">History: {historyError}</p>}
-            {!history && !historyError && <p role="status">Loading saved comparisons…</p>}
-            {history?.length === 0 && (
-              <p>No saved comparisons. Select two configurations to run the trial.</p>
-            )}
-            {!!history?.length && (
-              <Select
-                label="Saved comparison"
-                value={run?.id ?? null}
-                onChange={(id) => void openRun(id)}
-                searchable
-                data={history.map((r) => ({
-                  value: r.id,
-                  label: `${new Date(r.createdAt).toLocaleString()} · ${r.status}`,
-                }))}
-              />
-            )}
-          </section>
-          {run ? <Results run={run} key={run.id} /> : null}
+    <div className="eva-bench-col" data-testid="page-test-bench">
+      {selected ? null : (
+        <div className="eva-bench-head">
+          <h1 className="eva-bench-title">Test Bench</h1>
+          <span className="eva-bench-dim">Eva's experiments, newest first</span>
+          <span className="eva-bench-spacer" />
+          <Tooltip label="Refresh" openDelay={300}>
+            <ActionIcon
+              variant="default"
+              aria-label="Refresh experiments"
+              onClick={() => void loadList()}
+            >
+              <IconRefresh size={16} />
+            </ActionIcon>
+          </Tooltip>
         </div>
-      </main>
-    </ScrollArea>
+      )}
+      {body}
+    </div>
   )
 }

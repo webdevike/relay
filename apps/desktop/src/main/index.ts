@@ -19,11 +19,7 @@ import { installWriteGuard } from './eva/write-guard'
 import { startEvaWatch } from './eva/watch'
 import { installTestHooks } from './test-hooks'
 import { createMainWindow } from './window'
-import { homedir } from 'node:os'
-import { childPathFor } from './eva/spawn'
-import { createTestBench } from './test-bench/engine'
-import { createBenchAdjudicator } from './test-bench/models'
-import { registerTestBenchIpc } from './test-bench/ipc'
+import { registerExperimentsIpc } from './experiments/experiments-ipc'
 import {
   registerWidgetFrames,
   registerWidgetMedia,
@@ -77,30 +73,13 @@ function bootstrap(): void {
         lastLaunch: new Date().toISOString(),
       })
 
-      // Resolve the login environment before loading a renderer that immediately invokes IPC.
-      const pathEnv = await childPathFor(env.live, homedir())
       const { win, shell } = createMainWindow(env, readLastBackground(config))
       const quitHooks: Array<() => Promise<void>> = []
-      const bench = createTestBench({
-        configDir: env.configDir,
-        adjudicator: createBenchAdjudicator({
-          evaRoot: env.evaRoot,
-          ompBin: env.ompBin,
-          profiles: ['current', 'personal', 'work'],
-          build: {
-            pathEnv,
-            homedir: homedir(),
-            execPath: process.execPath,
-            baseEnv: process.env,
-          },
-        }),
-      })
       const ctx: MainContext = {
         env,
         win,
         shell,
         config,
-        bench,
         onBeforeQuit: (fn) => {
           quitHooks.push(fn)
         },
@@ -124,7 +103,7 @@ function bootstrap(): void {
       registerSettingsIpc(ctx, queue)
       registerEvaIpc(ctx)
       registerChat(ctx, queue)
-      registerTestBenchIpc(ctx)
+      registerExperimentsIpc(ctx)
       registerWidgetMedia(ctx)
       registerWidgetFrames()
       const evaWatch = startEvaWatch(ctx)

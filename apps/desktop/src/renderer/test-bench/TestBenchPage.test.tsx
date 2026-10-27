@@ -1,269 +1,231 @@
-/// <reference types="node" />
 import { MantineProvider } from '@mantine/core'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import userEvent from '@testing-library/user-event'
-import {
-  BENCH_LIMITS,
-  testBenchInvoke,
-  type BenchModel,
-  type BenchProgress,
-  type BenchRun,
-} from '@evaos/contract'
-import { placeOf } from '@evaos/shell-core'
-import {
-  FIXTURES,
-  FIXTURE_HASH,
-  FIXTURE_VERSION,
-  RUBRIC,
-  SKILL,
-  hash,
-  publicEnvelope,
-} from '../../main/test-bench/fixtures'
-import { scoreRun } from '../../main/test-bench/scoring'
-import { TestBenchPage } from './TestBenchPage'
-const state = vi.hoisted(() => ({
-  listener: null as ((p: BenchProgress) => void) | null,
-  unsubscribe: vi.fn(),
-}))
-const invoke = vi.fn<(channel: string, input: unknown) => Promise<unknown>>()
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ArmSummary, ExperimentDetail, ExperimentRow } from '@evaos/contract'
+
+const invoke = vi.fn()
+const listeners = new Map<string, (payload: unknown) => void>()
 vi.mock('../ipc', () => ({
-  invoke: (channel: string, input: unknown) => invoke(channel, input),
-  on: (_channel: string, listener: (p: BenchProgress) => void) => {
-    state.listener = listener
-    return state.unsubscribe
+  invoke: (...a: unknown[]) => invoke(...a),
+  on: (channel: string, cb: (payload: unknown) => void) => {
+    listeners.set(channel, cb)
+    return () => listeners.delete(channel)
   },
 }))
-const models: BenchModel[] = [
-  { provider: 'jev', model: 'jev-latest', profile: 'current', label: 'Jev', resolvedVersion: null },
-  { provider: 'omp', model: 'exact-model', profile: 'work', label: 'Model', resolvedVersion: null },
+
+import { placeOf } from '@evaos/shell-core'
+import { layoutStore } from '../shell/layout-store'
+import { ExperimentArmPanel } from './ExperimentArmPanel'
+import { TestBenchPage } from './TestBenchPage'
+
+const metric = (k: number, n: number) => ({
+  metric: 'recall',
+  split: 'holdout' as const,
+  k,
+  n,
+  p: k / n,
+  lo: 0.4,
+  hi: 0.95,
+})
+
+const row = (id: string, over: Partial<ExperimentRow> = {}): ExperimentRow => ({
+  id,
+  date: id.slice(0, 10),
+  title: id.slice(11),
+  status: 'fail',
+  progress: null,
+  round: '5',
+  arms: 3,
+  headline: null,
+  hasSummary: false,
+  updatedAt: 0,
+  ...over,
+})
+
+const arm = (id: string, role: ArmSummary['role'], k: number): ArmSummary => ({
+  id,
+  label: `${id} arm`,
+  role,
+  quality: [metric(k, 20), { ...metric(k + 1, 20), split: 'dev' }],
+  seconds: { median: 1.5, p90: 3.2, total: 75 },
+  cost: null,
+  costReason: 'deterministic tool',
+  gap: { metric: 'recall', dev: (k + 1) / 20, holdout: k / 20, diff: 0.05 },
+  repeatAgreement: { k: 18, n: 20, p: 0.9 },
+  failures: { errors: 1, timeouts: 1, retries: 2, rate: 0.05 },
+  judgeAudit: null,
+  judgeAuditReason: 'no judge',
+  calibration: {
+    ece: 0.08,
+    bins: [{ lo: 0.8, hi: 0.9, n: 10, acc: 0.7, conf: 0.85 }],
+  },
+  coverage: { run: 39, planned: 40, skipped: [{ case: null, reason: 'fixture broken' }] },
+  casesFile: `runs/2/${id}.jsonl`,
+})
+
+const ROWS = [
+  row('2026-10-28-live', {
+    status: 'running',
+    progress: { done: 12, planned: 40 },
+    round: '3',
+    hasSummary: true,
+    headline: {
+      control: { arm: 'control', label: 'control arm', metric: metric(10, 20) },
+      best: { arm: 'treatment', label: 'treatment arm', metric: metric(18, 20) },
+    },
+  }),
+  row('2026-10-26-ui-check-bench'),
 ]
-const id = '11111111-1111-4111-8111-111111111111'
-const beforeId = '22222222-2222-4222-8222-222222222222'
-const afterId = '33333333-3333-4333-8333-333333333333'
-function saved(status: BenchRun['status'] = 'completed'): BenchRun {
-  const configurations = models.map((m, i) => ({
-    provider: m.provider,
-    model: m.model,
-    profile: m.profile,
-    id: String(i + 1).repeat(64),
-    track: 'text-observation' as const,
-    rubric: { ...RUBRIC, hash: hash(RUBRIC.text) },
-    skill: { ...SKILL, hash: hash(SKILL.text) },
-    limits: BENCH_LIMITS,
-  }))
-  const run: BenchRun = {
-    version: 1,
-    id,
-    status,
-    createdAt: '2026-10-20T00:00:00.000Z',
-    finishedAt: status === 'running' ? null : '2026-10-20T00:01:00.000Z',
-    fixtureVersion: FIXTURE_VERSION,
-    fixtureHash: FIXTURE_HASH,
-    configurations,
-    errors: [],
-    scores: [],
-    cases: FIXTURES.map((f) => ({
-      id: f.id,
-      category: f.category,
-      split: f.split,
-      expected: f.expected,
-      severity: f.severity,
-      error: null,
-      evidence: null,
-      judgments: configurations.map((c) => ({
-        configId: c.id,
-        status: status === 'completed' ? 'valid' : 'unattempted',
-        startedAt: null,
-        durationMs: status === 'completed' ? 10 : null,
-        error: null,
-        answer:
-          status === 'completed'
-            ? {
-                raw: '{"decision":"pass"}',
-                decision: 'pass',
-                rationale: 'Test-only verdict',
-                requested: { provider: c.provider, model: c.model, profile: c.profile },
-                returned: null,
-                resolvedVersion: null,
-                usage: null,
-                cost: null,
-              }
-            : null,
-      })),
-    })),
-  }
-  const envelope = publicEnvelope(FIXTURES[0]!, {
-    viewport: { width: 800, height: 600 },
-    label: null,
-    clipping: null,
-    keyboard: null,
-    persistence: null,
-    pageText: '',
-  })
-  run.cases[0]!.evidence = {
-    id: '44444444-4444-4444-8444-444444444444',
-    envelope,
-    digest: 'a'.repeat(64),
-    beforeId,
-    afterId,
-    beforeDigest: 'b'.repeat(64),
-    afterDigest: 'c'.repeat(64),
-    collectedAt: run.createdAt,
-    durationMs: 20,
-  }
-  run.scores = scoreRun(run)
-  return run
+
+const SUMMARIZED: ExperimentDetail = {
+  ...ROWS[0]!,
+  question: 'Can precision reach 90%?',
+  verdict: null,
+  primary: 'recall',
+  armSummaries: [arm('control', 'control', 10), arm('treatment', 'treatment', 18)],
+  resultsMarkdown: null,
+  summaryError: null,
 }
-let runs: BenchRun[]
-let catalogFailure: boolean
-function mount() {
-  return render(
-    <MantineProvider env="test">
-      <TestBenchPage place={placeOf('test-bench')} />
-    </MantineProvider>,
-  )
+const FALLBACK: ExperimentDetail = {
+  ...ROWS[1]!,
+  question: 'Does the checker find seeded bugs?',
+  verdict: 'FAIL; hypothesis rejected.',
+  primary: null,
+  armSummaries: null,
+  resultsMarkdown:
+    '# ui-check bench: results\n\n| Metric | Control |\n|:--|:--|\n| recall T1 | 8/8 |\n',
+  summaryError: null,
 }
+
+function mount(ui: React.ReactNode) {
+  return render(<MantineProvider env="test">{ui}</MantineProvider>)
+}
+
 beforeEach(() => {
-  runs = []
-  catalogFailure = false
-  state.unsubscribe.mockClear()
   invoke.mockReset()
-  invoke.mockImplementation(async (channel, input) => {
-    if (channel === 'testBench.models')
-      return catalogFailure
-        ? { ok: false, error: { code: 'provider', message: 'Offline' } }
-        : { ok: true, value: models }
-    if (channel === 'testBench.list') return { ok: true, value: structuredClone(runs) }
-    if (channel === 'testBench.get')
+  listeners.clear()
+  invoke.mockImplementation(async (channel: string, input: { id?: string; arm?: string }) => {
+    if (channel === 'experiments.list') return { ok: true, value: ROWS }
+    if (channel === 'experiments.get')
+      return { ok: true, value: input.id === SUMMARIZED.id ? SUMMARIZED : FALLBACK }
+    if (channel === 'experiments.cases')
       return {
         ok: true,
-        value: structuredClone(
-          runs.find((r) => r.id === testBenchInvoke['testBench.get'].input.parse(input).runId),
-        ),
+        value: {
+          file: `runs/2/${input.arm}.jsonl`,
+          invalid: 0,
+          truncated: false,
+          reason: null,
+          cases: [
+            {
+              case: 'shop-t1',
+              split: 'holdout',
+              repeat: 1,
+              outcome: 'pass',
+              passed: true,
+              seconds: 1.2,
+              error: null,
+              skipped: null,
+            },
+            {
+              case: 'feed-t4',
+              split: 'dev',
+              repeat: 1,
+              outcome: null,
+              passed: null,
+              seconds: 30,
+              error: 'timeout',
+              skipped: null,
+            },
+          ],
+        },
       }
-    if (channel === 'testBench.start') {
-      runs = [saved('running')]
-      return { ok: true, value: { runId: id } }
-    }
-    if (channel === 'testBench.cancel') {
-      runs[0]!.status = 'cancelled'
-      return { ok: true, value: { cancelled: true } }
-    }
-    if (channel === 'testBench.evidence')
-      return { ok: true, value: { dataUrl: 'data:image/png;base64,iVBORw0KGgo=' } }
-    throw new Error(`Unexpected test request ${channel}`)
+    throw new Error(`unexpected ${channel}`)
   })
 })
-afterEach(cleanup)
-describe('Test Bench behavior (test-only model doubles)', () => {
-  it('keeps saved comparisons usable when discovery fails and never invents safety or cost', async () => {
-    runs = [saved()]
-    catalogFailure = true
-    mount()
-    await screen.findByText(/Model discovery: Offline/)
-    expect(await screen.findByRole('table', { name: 'Configuration comparison' })).toBeTruthy()
-    fireEvent.click(screen.getByText('Inspect case evidence and verdicts'))
-    expect(await screen.findByText(/cost: Unavailable/)).toBeTruthy()
-    expect(screen.getByText(/alias unresolved/)).toBeTruthy()
-    expect(
-      screen.getByText(/Models receive identical text observations, not these images/),
-    ).toBeTruthy()
-    await waitFor(() =>
-      expect(invoke).toHaveBeenCalledWith('testBench.evidence', {
-        runId: id,
-        evidenceId: beforeId,
-      }),
-    )
-    expect(invoke).toHaveBeenCalledWith('testBench.evidence', { runId: id, evidenceId: afterId })
-    fireEvent.click(screen.getByText('Raw verdict (bounded)'))
-    expect(screen.getByText('{"decision":"pass"}')).toBeTruthy()
+
+describe('TestBenchPage', () => {
+  it('lists runs newest first with status, progress and headline', async () => {
+    mount(<TestBenchPage place={placeOf('test-bench')} />)
+    const live = await screen.findByTestId('experiment-row-2026-10-28-live')
+    expect(within(live).getByTestId('experiment-status').textContent).toBe('Running12/40')
+    expect(within(live).getByTestId('experiment-headline').textContent).toContain('90%')
+    expect(live.textContent).toContain('round 3')
+    const old = screen.getByTestId('experiment-row-2026-10-26-ui-check-bench')
+    expect(old.textContent).toContain('No summary')
+    expect(within(old).getByTestId('experiment-status').textContent).toBe('Fail')
   })
-  it('shows critical vetoes and split/category denominators rather than hiding failures in an average', async () => {
-    runs = [saved()]
-    mount()
-    await screen.findByTestId('bench-results')
-    fireEvent.click(screen.getByText('jev/jev-latest (current): scorecards and configuration'))
-    expect(
-      screen.getAllByText(/Critical false passes veto Inspect qualification/).length,
-    ).toBeGreaterThan(0)
-    expect(screen.getAllByText('Not qualified').length).toBe(2)
-    expect(screen.getAllByText('Category denominators (development)').length).toBe(2)
-    expect(screen.getAllByText('Category denominators (holdout)').length).toBe(2)
-    expect(screen.getAllByText('Unattempted').length).toBe(6)
-  })
-  it('renders incomplete interrupted work and zero-denominator rates as unavailable', async () => {
-    runs = [saved('interrupted')]
-    mount()
-    await screen.findByTestId('bench-results')
-    expect(screen.getByText(/interrupted · incomplete/)).toBeTruthy()
-    expect(screen.getAllByText('0/0 · unavailable').length).toBeGreaterThan(0)
-    expect(screen.queryByText('Benchmark qualified')).toBeNull()
-  })
-  it('selects exact configurations, prevents duplicate start, receives progress and cancels only its run', async () => {
-    mount()
-    const user = userEvent.setup()
-    const picker = await screen.findByRole('combobox', { name: 'Model configurations' })
-    await waitFor(() => expect(picker).not.toBeDisabled())
-    await user.click(picker)
-    await user.click(await screen.findByRole('option', { name: 'jev/jev-latest (current)' }))
-    await user.click(picker)
-    await user.click(await screen.findByRole('option', { name: 'omp/exact-model (work)' }))
-    await user.keyboard('{Escape}')
-    fireEvent.click(screen.getByRole('button', { name: 'Run comparison' }))
-    await screen.findByRole('button', { name: 'Cancel run' })
-    expect(invoke).toHaveBeenCalledWith('testBench.start', {
-      configurations: models.map(({ provider, model, profile }) => ({ provider, model, profile })),
+
+  it('shows tests control first and opens one in the side panel', async () => {
+    mount(<TestBenchPage place={placeOf('test-bench')} />)
+    fireEvent.click(await screen.findByTestId('experiment-row-2026-10-28-live'))
+    await screen.findByTestId('arms-table')
+    expect(screen.getByText('Can precision reach 90%?')).toBeTruthy()
+    const rows = screen.getAllByTestId(/^arm-row-/)
+    expect(rows.map((r) => r.dataset.testid)).toEqual(['arm-row-control', 'arm-row-treatment'])
+    expect(rows[0]!.textContent).toContain('50%')
+    expect(rows[0]!.textContent).toContain('1.5s')
+    expect(rows[0]!.textContent).toContain('39/40')
+    fireEvent.click(rows[1]!)
+    expect(layoutStore.getState().panelOpen).toBe(true)
+    expect(layoutStore.getState().panelView).toEqual({
+      kind: 'experiment-arm',
+      experiment: '2026-10-28-live',
+      arm: 'treatment',
+      label: 'treatment arm',
     })
-    expect(screen.getByRole('button', { name: 'Run comparison' })).toBeDisabled()
-    await act(async () =>
-      state.listener?.({
-        runId: id,
-        status: 'running',
-        planned: 48,
-        completed: 3,
-        caseId: runs[0]!.cases[0]!.id,
-        configId: runs[0]!.configurations[0]!.id,
-      }),
-    )
-    expect(screen.getByText(/3\/48 judgments complete/)).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel run' }))
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith('testBench.cancel', { runId: id }))
-    await screen.findByText(/cancelled · incomplete/)
   })
-  it('navigation unsubscribes without cancellation and returning reconciles active state', async () => {
-    runs = [saved('running')]
-    const first = mount()
-    await screen.findByRole('button', { name: 'Cancel run' })
-    first.unmount()
-    expect(state.unsubscribe).toHaveBeenCalledOnce()
-    expect(invoke.mock.calls.some(([channel]) => channel === 'testBench.cancel')).toBe(false)
-    mount()
-    await screen.findByRole('button', { name: 'Cancel run' })
-    runs[0]!.status = 'error'
-    runs[0]!.errors = [
-      { code: 'provider', message: 'Isolation refused', caseId: null, configId: null },
-    ]
-    await act(async () =>
-      state.listener?.({
-        runId: id,
-        status: 'error',
-        planned: 48,
-        completed: 0,
-        caseId: null,
-        configId: null,
-      }),
+
+  it('renders results.md and the record verdict for an experiment without summary.json', async () => {
+    mount(<TestBenchPage place={placeOf('test-bench')} />)
+    fireEvent.click(await screen.findByTestId('experiment-row-2026-10-26-ui-check-bench'))
+    const md = await screen.findByTestId('experiment-results-md')
+    expect(within(md).getByRole('table')).toBeTruthy()
+    expect(screen.getByTestId('experiment-verdict').textContent).toContain(
+      'FAIL; hypothesis rejected.',
     )
-    expect(await screen.findByText('provider: Isolation refused')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Cancel run' })).toBeNull()
+    fireEvent.click(screen.getByTestId('experiment-back'))
+    await screen.findByTestId('experiments-list')
   })
-  it('empty discovery and history remain explicit', async () => {
-    invoke.mockImplementation(async () => ({ ok: true, value: [] }))
-    mount()
-    expect(
-      await screen.findByText('No models available through existing credentials.'),
-    ).toBeTruthy()
-    expect(screen.getByText(/No saved comparisons/)).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Run comparison' })).toBeDisabled()
+
+  it('reloads when the harness changes the open experiment', async () => {
+    mount(<TestBenchPage place={placeOf('test-bench')} />)
+    fireEvent.click(await screen.findByTestId('experiment-row-2026-10-28-live'))
+    await screen.findByTestId('arms-table')
+    const gets = () => invoke.mock.calls.filter(([c]) => c === 'experiments.get').length
+    const before = gets()
+    await act(async () => listeners.get('experiments.changed')!({ ids: ['2026-10-28-live'] }))
+    expect(gets()).toBe(before + 1)
+  })
+})
+
+describe('ExperimentArmPanel', () => {
+  it('shows every measurement, the reason for each missing one, and the case list', async () => {
+    mount(
+      <ExperimentArmPanel
+        view={{
+          kind: 'experiment-arm',
+          experiment: '2026-10-28-live',
+          arm: 'control',
+          label: 'control arm',
+        }}
+      />,
+    )
+    const panel = await screen.findByTestId('experiment-arm-panel')
+    await within(panel).findByRole('table', { name: 'Cases' })
+    const text = panel.textContent ?? ''
+    for (const expected of [
+      '10/20',
+      'deterministic tool',
+      'no judge',
+      '18/20 = 90%',
+      'fixture broken',
+      '85%',
+      '1m 15s',
+      'shop-t1',
+      'timeout',
+    ])
+      expect(text).toContain(expected)
+    expect(within(panel).getByRole('table', { name: 'Calibration bins' })).toBeTruthy()
   })
 })

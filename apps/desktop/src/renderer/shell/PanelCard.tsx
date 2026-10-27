@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { ActionIcon, Tooltip } from '@mantine/core'
-import { IconGlobe, IconLayoutSidebarRight } from '@tabler/icons-react'
+import { IconFlask, IconGlobe, IconLayoutSidebarRight } from '@tabler/icons-react'
 import { BrowserPanel } from '../browser/BrowserPanel'
 import { useChatStore } from '../chat/chat-store'
 import { PANE_ID } from '../chat/open-chat'
 import { SubagentTranscript } from '../chat/SubagentTranscript'
 import { SubagentStateIcon, subagentState } from '../chat/strips/SubagentChips'
 import { setPanelFocused } from '../hotkeys/panel-focus'
+import { ExperimentArmPanel } from '../test-bench/ExperimentArmPanel'
 import { Grip } from './Grip'
 import { showBrowserPanel, togglePanel, useLayout, type SubagentView } from './layout-store'
 
@@ -32,8 +33,9 @@ function useViewedSubagent(view: SubagentView | null) {
  * The panel stays mounted when closed; display none sizes the browser slot to 0 so the native
  * view hides. A close keeps it shown for one slide so the width can animate to 0. The card keeps
  * its width while the wrap narrows, so the page slides out past the window edge unclipped.
- * A subagent's transcript replaces the browser, which stays mounted but hidden (its slot sizes
- * to 0 the same way); once a close finished sliding, the panel is the browser again.
+ * A subagent's transcript or an experiment arm's details replace the browser, which stays mounted
+ * but hidden (its slot sizes to 0 the same way); once a close finished sliding, the panel is the
+ * browser again.
  */
 export function PanelCard() {
   const open = useLayout((s) => s.panelPx > 0)
@@ -83,6 +85,11 @@ export function PanelCard() {
                 {subagent ? <SubagentStateIcon state={subagentState(subagent)} /> : null}
                 <span className="eva-panel-tool-name">{subagentView.name}</span>
               </span>
+            ) : view.kind === 'experiment-arm' ? (
+              <span className="eva-panel-tool" data-testid="panel-experiment-title">
+                <IconFlask size={16} stroke={1.5} />
+                <span className="eva-panel-tool-name">{view.label}</span>
+              </span>
             ) : (
               <span className="eva-panel-tool">
                 <IconGlobe size={16} stroke={1.5} />
@@ -101,9 +108,12 @@ export function PanelCard() {
               </ActionIcon>
             </Tooltip>
           </header>
-          <BrowserPanel hidden={subagentView !== null} />
+          <BrowserPanel hidden={view.kind !== 'browser'} />
           {subagentView ? (
             <SubagentTranscript file={subagentView.file} version={subagent?.mtimeMs ?? null} />
+          ) : null}
+          {view.kind === 'experiment-arm' ? (
+            <ExperimentArmPanel key={`${view.experiment}/${view.arm}`} view={view} />
           ) : null}
         </section>
       </div>

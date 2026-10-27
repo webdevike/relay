@@ -40,7 +40,7 @@ export const NAV_PAGES: readonly NavPage[] = [
     slug: 'test-bench',
     page: 'test-bench',
     title: 'Test Bench',
-    description: 'Compare UI/UX verification against captured evidence.',
+    description: "Eva's experiments: every run, its tests and their measurements.",
     icon: 'IconListCheck',
   },
   {

@@ -14,7 +14,7 @@ import { registerAction } from '../hotkeys/router'
 
 export type SidebarState = 'open' | 'hidden' | 'folded'
 export type Edge = 'sidebar' | 'panel'
-/** What the panel shows: the browser, or one subagent's transcript of the open chat. */
+/** What the panel shows: the browser, one subagent's transcript, or one experiment arm's details. */
 export type PanelView =
   | { kind: 'browser' }
   | {
@@ -25,7 +25,15 @@ export type PanelView =
       file: string
       name: string
     }
+  | {
+      kind: 'experiment-arm'
+      /** Folder name under work/experiments. */
+      experiment: string
+      arm: string
+      label: string
+    }
 export type SubagentView = Extract<PanelView, { kind: 'subagent' }>
+export type ExperimentArmView = Extract<PanelView, { kind: 'experiment-arm' }>
 const BROWSER_VIEW: PanelView = { kind: 'browser' }
 
 export interface LayoutState {
@@ -119,6 +127,12 @@ export function togglePanel(open?: boolean): void {
 export function openSubagentPanel(view: Omit<SubagentView, 'kind'>): void {
   panelPending = false
   patch({ panelOpen: true, panelView: { kind: 'subagent', ...view } })
+}
+
+/** Opens the panel on one experiment arm's measurements and cases (Test Bench). */
+export function openExperimentArmPanel(view: Omit<ExperimentArmView, 'kind'>): void {
+  panelPending = false
+  patch({ panelOpen: true, panelView: { kind: 'experiment-arm', ...view } })
 }
 
 /** Back to the browser, e.g. once a closed panel finished sliding out. */

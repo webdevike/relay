@@ -7,14 +7,14 @@ import { habitsInvoke } from './habits'
 import { meetingsInvoke } from './meetings'
 import { chatEvents, chatInvoke } from './chat'
 import { browserEvents, browserInvoke } from './browser'
-import { testBenchEvents, testBenchInvoke } from './test-bench'
+import { experimentsEvents, experimentsInvoke } from './experiments'
 import { canvasEvents, canvasInvoke } from './canvas'
 import { usageEvents, usageInvoke } from './usage'
 import { assistantsEvents, assistantsInvoke } from './assistants'
 import { boardsEvents, boardsInvoke } from './boards'
 import { linearInvoke } from './linear'
 import { roomsEvents, roomsInvoke } from './rooms'
-export * from './test-bench'
+export * from './experiments'
 export * from './canvas'
 export * from './usage'
 export * from './assistants'
@@ -46,7 +46,7 @@ export const invokeContract = {
   ...meetingsInvoke,
   ...chatInvoke,
   ...browserInvoke,
-  ...testBenchInvoke,
+  ...experimentsInvoke,
   ...canvasInvoke,
   ...usageInvoke,
   ...assistantsInvoke,
@@ -58,7 +58,7 @@ export const eventContract = {
   ...chatEvents,
   ...browserEvents,
   ...evaEvents,
-  ...testBenchEvents,
+  ...experimentsEvents,
   ...canvasEvents,
   ...usageEvents,
   ...assistantsEvents,
