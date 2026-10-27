@@ -21,6 +21,7 @@ import { MessageAppearance } from "@/ui/MessageAppearance";
 import { ScrollToBottom } from "@/ui/ScrollToBottom";
 import { useInvertedChatScroll } from "@/ui/useInvertedChatScroll";
 import { useMessageEntrances } from "@/ui/useMessageEntrances";
+import { GrowIn } from "@/ui/GrowIn";
 /**
  * Where each session's transcript was left, as the inverted list's offset (0 = the newest message
  * in view). A card mounts straight at that offset, so switching sessions never scrolls.
@@ -317,7 +318,14 @@ export function AgentCard({ sessionId, messages, connected, status, activity, ac
   }, [rows, sent]);
   const newest = messages === undefined ? undefined : messages[messages.length - 1];
   const running = sent !== undefined && !sent.handoff ? `Running ${sent.name}` : undefined;
-  const showActivity = status === "working" || running !== undefined;
+  const working = status === "working" || running !== undefined;
+  // Hold the activity row through the brief idle gaps between tool calls, so it does not blink out and back.
+  const [showActivity, setShowActivity] = useState(working);
+  useEffect(() => {
+    if (working) { setShowActivity(true); return; }
+    const timer = setTimeout(() => { setShowActivity(false); }, 600);
+    return () => { clearTimeout(timer); };
+  }, [working]);
   const streamingText = newest?.streaming === true && newest.text.length > 0;
   // Read once per mount: returning to a session preserves both its position and follow mode.
   const initialOffset = useRef(sessionId === undefined ? 0 : (scrollMemory.get(sessionId) ?? 0));
@@ -340,19 +348,21 @@ export function AgentCard({ sessionId, messages, connected, status, activity, ac
         inverted
         keyExtractor={(message) => message.id}
         renderItem={({ item }) => (
-          <MessageAppearance
-            animate={
-              enteringMessages.has(item.id) &&
-              (item.role === "assistant" || (item.role === "user" && !retired.has(untagged(item.text).trim())))
-            }
-            user={item.role === "user"}
-            gap={0}
-          >
-            <MessageRow sessionId={sessionId} message={item} onOpenImage={setViewing} error={refused[item.id]} />
-          </MessageAppearance>
+          <GrowIn enabled={enteringMessages.has(item.id) && item.role !== "user"}>
+            <MessageAppearance
+              animate={
+                enteringMessages.has(item.id) &&
+                item.role === "user" && !retired.has(untagged(item.text).trim())
+              }
+              user={item.role === "user"}
+              gap={0}
+            >
+              <MessageRow sessionId={sessionId} message={item} onOpenImage={setViewing} error={refused[item.id]} />
+            </MessageAppearance>
+          </GrowIn>
         )}
         contentContainerStyle={{ paddingVertical: spacing.lg, gap: spacing.sm }}
-        ListHeaderComponent={showActivity ? <ActivityRow label={activityLabel ?? running ?? (streamingText ? "Responding" : activity === undefined ? "Working" : `Running ${activity}`)} /> : null}
+        ListHeaderComponent={showActivity ? <GrowIn enabled><ActivityRow label={activityLabel ?? running ?? (streamingText ? "Responding" : activity === undefined ? "Working" : `Running ${activity}`)} /></GrowIn> : null}
         contentOffset={{ x: 0, y: initialOffset.current }}
         maintainVisibleContentPosition={{ minIndexForVisible: 1 }}
         {...scrollHandlers}
