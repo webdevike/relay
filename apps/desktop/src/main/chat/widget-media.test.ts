@@ -13,6 +13,8 @@ import {
 } from './widget-media'
 
 const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex')
+const CLIP = Buffer.from('....ftypisom0123456789abcdef')
+const POSTER = Buffer.from('ffd8ffe000104a464946', 'hex')
 const hits: string[] = []
 let server: http.Server
 let port = 0
@@ -28,6 +30,12 @@ beforeAll(async () => {
     } else if (req.url === '/drops/d1/t1') {
       res.writeHead(200, { 'Content-Type': 'audio/wav' })
       res.end(Buffer.from('RIFFxxxxWAVE'))
+    } else if (req.url === '/drops/vid1/tok1') {
+      res.writeHead(200, { 'Content-Type': 'video/mp4' })
+      res.end(CLIP)
+    } else if (req.url === '/drops/vid1/tok1/poster') {
+      res.writeHead(200, { 'Content-Type': 'image/jpeg' })
+      res.end(POSTER)
     } else if (req.url === '/big.bin') {
       res.writeHead(200)
       res.end(Buffer.alloc(64))
@@ -91,7 +99,7 @@ describe('resolveMedia', () => {
 
   it('fails and keeps nothing for a missing or oversized download', async () => {
     await expect(resolveMedia(`http://127.0.0.1:${port}/nope.png`, deps)).rejects.toMatchObject({
-      status: 502,
+      status: 404,
     })
     await expect(
       resolveMedia(`http://127.0.0.1:${port}/big.bin`, { ...deps, maxBytes: 16 }),
@@ -154,5 +162,44 @@ describe('handleMediaRequest', () => {
     expect((await request('~/missing.png')).status).toBe(404)
     expect((await request('~/notes.txt')).status).toBe(403)
     expect((await handleMediaRequest(new Request('relay-media://media/'), deps)).status).toBe(400)
+  })
+})
+
+describe('video drops', () => {
+  it('serves a cached video drop as video/mp4 and seeks with Range → 206', async () => {
+    const whole = await request('/drops/vid1/tok1')
+    expect(whole.status).toBe(200)
+    expect(whole.headers.get('content-type')).toBe('video/mp4')
+    expect(whole.headers.get('accept-ranges')).toBe('bytes')
+    expect(Buffer.from(await whole.arrayBuffer())).toEqual(CLIP)
+    const slice = await request('/drops/vid1/tok1', { Range: 'bytes=12-' })
+    expect(slice.status).toBe(206)
+    expect(slice.headers.get('content-type')).toBe('video/mp4')
+    expect(slice.headers.get('content-range')).toBe(`bytes 12-${CLIP.length - 1}/${CLIP.length}`)
+    expect(await slice.text()).toBe(CLIP.subarray(12).toString())
+    // Downloaded once; every range after comes from the cache.
+    expect(hits).toEqual(['/drops/vid1/tok1'])
+  })
+
+  it('answers HEAD with the type and length only, so chat can tell a video drop', async () => {
+    const res = await handleMediaRequest(
+      new Request(`relay-media://media/?src=${encodeURIComponent('/drops/vid1/tok1')}`, {
+        method: 'HEAD',
+      }),
+      deps,
+    )
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe('video/mp4')
+    expect(res.headers.get('content-length')).toBe(String(CLIP.length))
+    expect(res.body).toBeNull()
+  })
+
+  it("serves a video drop's poster frame, and 404s when the host made none", async () => {
+    const poster = await request('/drops/vid1/tok1/poster')
+    expect(poster.status).toBe(200)
+    expect(poster.headers.get('content-type')).toBe('image/jpeg')
+    expect(Buffer.from(await poster.arrayBuffer())).toEqual(POSTER)
+    expect((await request('/drops/d1/t1/poster')).status).toBe(404)
+    expect((await request('/drops/d1/t1/other')).status).toBe(403)
   })
 })

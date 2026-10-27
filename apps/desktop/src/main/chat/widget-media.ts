@@ -1,7 +1,8 @@
 // Files a chat widget shows (images, audio, video, 3D models), served to the renderer over the
 // `relay-media:` scheme. Port of EvaOS media.rs resolve(): a `src` is an http(s) URL (downloaded
-// once into the cache), a Relay drop (`/drops/<id>/<token>`, fetched from the local Relay host and
-// cached the same way), or a local file (`~/` or absolute) of a media type.
+// once into the cache), a Relay drop (`/drops/<id>/<token>`, or a video drop's
+// `/drops/<id>/<token>/poster` frame, fetched from the local Relay host and cached the same way),
+// or a local file (`~/` or absolute) of a media type.
 import { createHash } from 'node:crypto'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
@@ -96,6 +97,7 @@ async function fetchInto(url: string, hash: string, deps: MediaDeps): Promise<st
   } catch {
     throw new MediaError(502, `Couldn't download ${url}`)
   }
+  if (res.status === 404) throw new MediaError(404, `Not found: ${url}`)
   if (!res.ok || !res.body) throw new MediaError(502, `Couldn't download ${url} (${res.status})`)
   if (Number(res.headers.get('content-length') ?? 0) > max)
     throw new MediaError(413, `${url} is over ${max} bytes`)
@@ -129,7 +131,7 @@ async function fetchInto(url: string, hash: string, deps: MediaDeps): Promise<st
 /** A local file for `src`, downloading it first when it is remote. */
 export async function resolveMedia(src: string, deps: MediaDeps): Promise<string> {
   if (/^https?:\/\//.test(src)) return download(src, deps)
-  if (/^\/drops\/[^/]+\/[^/]+$/.test(src)) {
+  if (/^\/drops\/[^/]+\/[^/]+(\/poster)?$/.test(src)) {
     const port = deps.servePort()
     if (port === null) throw new MediaError(503, "Relay isn't running, so its drop can't load")
     return download(`http://127.0.0.1:${port}${src}`, deps)
@@ -162,7 +164,10 @@ export function parseRange(header: string, size: number): { start: number; end: 
   return start <= end && start < size ? { start, end } : null
 }
 
-/** Answers one `relay-media://media/?src=<src>` request, with byte ranges for seeking. */
+/**
+ * Answers one `relay-media://media/?src=<src>` request, with byte ranges for seeking. A HEAD gets
+ * the headers only: chat markdown asks it whether a drop is a video (its Content-Type).
+ */
 export async function handleMediaRequest(request: Request, deps: MediaDeps): Promise<Response> {
   const src = new URL(request.url).searchParams.get('src')
   if (!src) return new Response('Missing src', { status: 400 })
@@ -188,7 +193,7 @@ export async function handleMediaRequest(request: Request, deps: MediaDeps): Pro
   if (range) headers['Content-Range'] = `bytes ${start}-${end}/${size}`
   headers['Content-Length'] = String(end - start + 1)
   const stream =
-    size === 0
+    size === 0 || request.method === 'HEAD'
       ? null
       : (Readable.toWeb(fs.createReadStream(file, { start, end })) as ReadableStream)
   return new Response(stream, { status: range ? 206 : 200, headers })

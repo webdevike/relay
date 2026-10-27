@@ -98,6 +98,26 @@
   max-width: 100%;
   border-radius: var(--eva-radius);
 }
+/* An inline video sizes like an image: its own aspect, never wider than the column. */
+.eva-md-video {
+  display: block;
+  max-width: 100%;
+}
+.eva-md-video video {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--eva-radius);
+  background: #000;
+}
+.eva-md-video-caption,
+.eva-md-video-error {
+  display: block;
+  margin-top: calc(var(--mantine-spacing-xs) / 2);
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
+}
 
 /* Tables fit their columns while the column is wide enough, then scroll sideways in place. */
 .eva-md-table {
