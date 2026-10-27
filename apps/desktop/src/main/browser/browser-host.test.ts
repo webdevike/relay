@@ -190,6 +190,29 @@ describe('BrowserHost scopes', () => {
     expect(host.activateTab(a.id)).toBe(b.id)
   })
 
+  it('a tab opened for a scope not in front waits there as its active tab; the front is untouched', () => {
+    host.setScope('page:agent:nova')
+    const own = host.createTab(undefined, true)!
+    host.setScope('page:dashboard')
+    const front = host.createTab(undefined, true)!
+    const before = host.snapshot()
+
+    const t = host.createTab('https://nova.test/', true, { scope: 'page:agent:nova' })!
+    expect(host.snapshot()).toEqual(before)
+    expect(host.activeTabId()).toBe(front.id)
+    expect(host.snapshot('page:agent:nova')).toMatchObject({
+      activeId: t.id,
+      scope: 'page:agent:nova',
+      tabs: [{ id: own.id }, { id: t.id }],
+    })
+
+    // Activating for that scope picks what it shows next, again without touching the front.
+    expect(host.activateTab(own.id, 'page:agent:nova')).toBe(own.id)
+    expect(host.activeTabId()).toBe(front.id)
+    expect(host.activateTab(front.id, 'page:agent:nova')).toBe(own.id)
+    expect(host.setScope('page:agent:nova').activeId).toBe(own.id)
+  })
+
   it("window.open from the active tab opens in its opener's scope", async () => {
     host.setScope('A')
     const a = host.createTab('https://a.test/', true)!

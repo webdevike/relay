@@ -216,21 +216,22 @@ export class BrowserHost {
     return this.scope
   }
 
-  private visibleIds(): string[] {
+  private visibleIds(scope = this.scope): string[] {
     const pinned: string[] = []
     const own: string[] = []
     for (const [id, t] of this.tabs) {
       if (t.scope === PINNED_SCOPE) pinned.push(id)
-      else if (t.scope === this.scope) own.push(id)
+      else if (t.scope === scope) own.push(id)
     }
     return [...pinned, ...own]
   }
 
-  snapshot(): TabsSnapshot {
+  /** The tabs `scope` shows (the scope in front by default) and its active tab. */
+  snapshot(scope = this.scope): TabsSnapshot {
     return {
-      tabs: this.visibleIds().map((id) => ({ ...this.tabs.get(id)!.state })),
-      activeId: this.activeId,
-      scope: this.scope,
+      tabs: this.visibleIds(scope).map((id) => ({ ...this.tabs.get(id)!.state })),
+      activeId: scope === this.scope ? this.activeId : this.restoredActive(scope),
+      scope,
     }
   }
 
@@ -270,7 +271,9 @@ export class BrowserHost {
       pinned: false,
     }
     const scope = opts.scope ?? this.scope
-    const switchApp = opts.switchApp ?? this.tabs.get(this.activeId)?.switchApp
+    // A new tab follows the eCard app of the tab its own scope shows.
+    const front = scope === this.scope ? this.activeId : this.restoredActive(scope)
+    const switchApp = opts.switchApp ?? this.tabs.get(front)?.switchApp
     const tab: Tab = { view: null, state, scope, ...(switchApp ? { switchApp } : {}) }
     this.tabs.set(id, tab)
     this.spawnView(tab)
@@ -517,9 +520,18 @@ export class BrowserHost {
     return this.activeId
   }
 
-  /** Only a tab of the current scope (or a pinned one) can become active. */
-  activateTab(id: string): string {
+  /**
+   * Only a tab of the scope (or a pinned one) can become active. For a scope not in front it
+   * becomes the tab that scope shows next; the tabs in front stay as they are.
+   */
+  activateTab(id: string, scope = this.scope): string {
     this.tab(id)
+    if (scope !== this.scope) {
+      if (!this.visibleIds(scope).includes(id)) return this.restoredActive(scope)
+      this.lastActive.set(scope, id)
+      this.saved.dirty()
+      return id
+    }
     if (!this.visibleIds().includes(id)) return this.activeId
     this.select(id)
     this.changed()
@@ -553,11 +565,11 @@ export class BrowserHost {
     return this.snapshot()
   }
 
-  private restoredActive(): string {
-    const visible = this.visibleIds()
-    const remembered = this.lastActive.get(this.scope)
+  private restoredActive(scope = this.scope): string {
+    const visible = this.visibleIds(scope)
+    const remembered = this.lastActive.get(scope)
     if (remembered && visible.includes(remembered)) return remembered
-    const own = visible.filter((id) => this.tabs.get(id)!.scope === this.scope)
+    const own = visible.filter((id) => this.tabs.get(id)!.scope === scope)
     return own.at(-1) ?? visible[0] ?? ''
   }
 

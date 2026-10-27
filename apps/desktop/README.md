@@ -96,8 +96,15 @@ on quit). Every request needs a loopback peer, a loopback `Host` and `Authorizat
 <token>`.
 
 - `GET /actions`: the catalog, params as JSON Schema. `POST /actions/:id` with
-  `{params, confirm?}`. `GET /state`, `GET /screenshot` (PNG via `capturePage`, browser view
+  `{params, confirm?, scope?}`. `GET /state`, `GET /screenshot` (PNG via `capturePage`, browser view
   composited in).
+- **Scope**: panel actions (and `testbench.open` with `arm`) take `scope`, the page or chat whose
+  side panel they act on: a page key (`agent:nova`, `test-bench`), a chat session id or file, or a
+  browser scope (`page:…`, `chat:…`). The body's `scope` (the caller's own) fills in for panel
+  actions whose params name none. A scope not in front gets the change without a page switch
+  (browser tabs open in its scope; Files, panel views and arms show when Isaac opens it), never
+  queues, and its app tab gets a dot ("Nova opened a tab"; a short toast when no tab shows it).
+  Results echo `scope` and `background` (`renderer/agent/scope.ts`).
 - **Focus**: nothing calls `show`/`focus` on the window. While Isaac types in a text field an
   action would replace (anywhere for `main` actions, inside the panel for `panel` ones), it queues
   (HTTP 202, a toast with Run now) and runs once the field loses focus or the window blurs. Every

@@ -103,6 +103,20 @@
   padding: 0;
   justify-content: center;
 }
+/* An agent acted in this page's panel while Isaac was elsewhere (agent/scope.ts). */
+.eva-tab:has(.eva-tab-badge) {
+  position: relative;
+}
+.eva-tab-badge {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--eva-accent);
+  pointer-events: none;
+}
 .eva-tab .eva-tab-title {
   flex: 1;
   font-weight: var(--eva-fw-regular);

@@ -17,7 +17,8 @@ export interface RunDeps {
 /**
  * One request through the registry: known id, params valid for its schema, and for destructive
  * actions both the agent's `confirm: true` and Isaac's approval. Default is deny: without
- * `confirm` the toast never shows, and an unanswered toast is a no.
+ * `confirm` the toast never shows, and an unanswered toast is a no. The request's `scope` (the
+ * caller's own page or chat) goes to panel actions whose params name none.
  */
 export async function runAgentRequest(
   id: string,
@@ -32,7 +33,7 @@ export async function runAgentRequest(
     }
   }
   const spec: AgentActionSpec = agentActions[id]
-  const parsed = spec.params.safeParse(body.params ?? {})
+  const parsed = spec.params.safeParse(withScope(spec, body.params ?? {}, body.scope))
   if (!parsed.success) {
     return { ok: false, code: 'invalid-params', message: parsed.error.message }
   }
@@ -58,4 +59,15 @@ export async function runAgentRequest(
       message: e instanceof Error ? e.message : String(e),
     }
   }
+}
+
+/** Panel actions act in the caller's scope unless their params name one. */
+export function withScope(
+  spec: AgentActionSpec,
+  params: unknown,
+  scope: string | undefined,
+): unknown {
+  if (scope === undefined || spec.focus !== 'panel') return params
+  if (typeof params !== 'object' || params === null || Array.isArray(params)) return params
+  return 'scope' in params ? params : { ...params, scope }
 }

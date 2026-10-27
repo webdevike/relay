@@ -52,7 +52,11 @@ export type SwitchApp = z.output<typeof SwitchAppSchema>
 
 // Browser channels. Plans 01-08 and 01-09 extend these maps.
 export const browserInvoke = {
-  'browser.state': { input: z.object({}).strict(), output: TabsSnapshotSchema },
+  /** The tabs in front; with `scope`, what that scope shows when it is next in front. */
+  'browser.state': {
+    input: z.object({ scope: BrowserScopeSchema.optional() }).strict(),
+    output: TabsSnapshotSchema,
+  },
   'browser.navigate': {
     input: z.object({ tabId: TabIdSchema, input: z.string().max(2048) }).strict(),
     output: z.object({ url: z.string().nullable() }),
@@ -78,16 +82,20 @@ export const browserInvoke = {
     input: z.object({ occluded: z.boolean() }).strict(),
     output: z.object({ visible: z.boolean() }),
   },
+  /** A new tab, active in `scope` (the scope in front when omitted) without switching scopes. */
   'browser.createTab': {
-    input: z.object({ url: z.string().max(2048).optional() }).strict(),
+    input: z
+      .object({ url: z.string().max(2048).optional(), scope: BrowserScopeSchema.optional() })
+      .strict(),
     output: TabStateSchema,
   },
   'browser.closeTab': {
     input: tabOnly,
     output: z.object({ activeId: z.string() }),
   },
+  /** With `scope` (not in front), the tab that scope shows next; the tabs in front stay. */
   'browser.activateTab': {
-    input: tabOnly,
+    input: z.object({ tabId: TabIdSchema, scope: BrowserScopeSchema.optional() }).strict(),
     output: z.object({ activeId: z.string() }),
   },
   'browser.suggest': {

@@ -149,6 +149,16 @@ export function togglePanel(open?: boolean): void {
   saveLayoutPatch({ panelChoices: { [s.panelScope]: next } })
 }
 
+/** Opens or closes the panel of a scope not in front, for when Isaac next shows it. */
+export function setScopePanel(scope: string, open: boolean): void {
+  if (scope === layoutStore.getState().panelScope) {
+    togglePanel(open)
+    return
+  }
+  setChoice(scope, open)
+  saveLayoutPatch({ panelChoices: { [scope]: open } })
+}
+
 /** Opens the panel on a subagent's transcript; the browser choice for the scope is untouched. */
 export function openSubagentPanel(view: Omit<SubagentView, 'kind'>): void {
   panelPending = false

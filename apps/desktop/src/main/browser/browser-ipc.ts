@@ -9,7 +9,7 @@ import { listExtensions } from './extensions'
 import type { BrowserHost } from './browser-host'
 
 export function registerBrowserIpc(ctx: MainContext, host: BrowserHost): void {
-  handle(ctx, 'browser.state', () => host.snapshot())
+  handle(ctx, 'browser.state', ({ scope }) => host.snapshot(scope))
   handle(ctx, 'browser.navigate', async ({ tabId, input }) => {
     await host.ready
     const url = normalize(input)
@@ -31,14 +31,16 @@ export function registerBrowserIpc(ctx: MainContext, host: BrowserHost): void {
       return { ok: true as const }
     })
   }
-  handle(ctx, 'browser.createTab', async ({ url }) => {
+  handle(ctx, 'browser.createTab', async ({ url, scope }) => {
     await host.ready
-    const tab = host.createTab(url ? (normalize(url) ?? undefined) : undefined, true)
+    const tab = host.createTab(url ? (normalize(url) ?? undefined) : undefined, true, { scope })
     if (!tab) throw Object.assign(new Error('Tab limit reached'), { code: 'tab-limit' })
     return tab
   })
   handle(ctx, 'browser.closeTab', ({ tabId }) => ({ activeId: host.closeTab(tabId) }))
-  handle(ctx, 'browser.activateTab', ({ tabId }) => ({ activeId: host.activateTab(tabId) }))
+  handle(ctx, 'browser.activateTab', ({ tabId, scope }) => ({
+    activeId: host.activateTab(tabId, scope),
+  }))
   // The first scope revives the restored active tab: let content scripts be ready for it.
   handle(ctx, 'browser.setScope', async ({ scope }) => {
     await host.ready

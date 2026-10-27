@@ -9,6 +9,7 @@ import {
 import { invoke, on } from '../ipc'
 import { readState, rendererActions } from './actions'
 import { decide, isTyping, snapshotFocus, withFocusHold } from './focus-safety'
+import { isAway, startScopeWatch } from './scope'
 
 interface Queued {
   action: AgentActionId
@@ -97,7 +98,12 @@ export async function dispatch(action: string, params: unknown): Promise<AgentRe
   if (!isAgentActionId(action)) {
     return { ok: false, code: 'unknown-action', message: `No action ${action}` }
   }
-  if (decide(agentActions[action].focus, snapshotFocus()) === 'queue') {
+  // A panel action for a page not in front changes nothing on screen, so it never waits.
+  const spec = agentActions[action]
+  const scope =
+    typeof params === 'object' && params !== null && 'scope' in params ? params.scope : undefined
+  const away = spec.focus === 'panel' && (await isAway(scope))
+  if (!away && decide(spec.focus, snapshotFocus()) === 'queue') {
     enqueue(action, params)
     return { ok: true, value: { reason: 'Isaac is typing' }, queued: true }
   }
@@ -157,6 +163,7 @@ export function startAgentControl(): () => void {
   const offConfirm = on('agent.confirm', ({ id, title, detail, timeoutMs }) =>
     askIsaac(id, title, detail, timeoutMs),
   )
+  const offScopes = startScopeWatch()
   // focusout fires before the next element takes focus; check once it has.
   const later = (): void => void setTimeout(drain, 0)
   document.addEventListener('focusout', later, true)
@@ -164,6 +171,7 @@ export function startAgentControl(): () => void {
   return () => {
     offRun()
     offConfirm()
+    offScopes()
     document.removeEventListener('focusout', later, true)
     window.removeEventListener('blur', later)
   }

@@ -13,6 +13,11 @@ import { ContextScopeSchema, PinIdSchema, PinRefSchema } from './context'
  * Isaac types in a text field the action would replace (anywhere for `main`, inside the panel for
  * `panel`), it waits in a queue instead of running.
  * `destructive` actions need `confirm: true` from the agent and Isaac's approval in the app.
+ *
+ * Panel actions (and testbench.open) take an optional `scope`: the page or chat whose side panel
+ * they act on (AgentScopeSchema). A scope that is not in front gets the change in its own panel
+ * without switching pages or taking focus; Isaac sees a badge on that page's tab. A request's
+ * `scope` (relay-ctl sends the caller's own) fills in for panel actions that name none.
  */
 export type AgentSide = 'main' | 'renderer'
 export type AgentFocus = 'none' | 'panel' | 'main'
@@ -55,6 +60,13 @@ export const AGENT_SHORTCUTS = [
 
 const Empty = z.object({}).strict()
 const TabNumber = z.number().int().min(0)
+
+/**
+ * Where a panel action lands: a page key (`agent:nova`, `test-bench`, `workspace:<slug>`), a chat
+ * session id or session file, or a browser scope (`page:…`, `chat:…`). Omitted: the page in front.
+ */
+export const AgentScopeSchema = z.string().min(1).max(4096)
+const scope = AgentScopeSchema.optional()
 
 export const agentActions = {
   'state.read': {
@@ -169,6 +181,7 @@ export const agentActions = {
         path: z.string().min(1).max(4096),
         line: z.number().int().min(1).optional(),
         column: z.number().int().min(1).optional(),
+        scope,
       })
       .strict(),
     side: 'renderer',
@@ -179,7 +192,7 @@ export const agentActions = {
     title: 'Open a browser tab',
     description:
       "Opens a URL (or a bare local port like `3000`) in a new tab of the side panel's browser.",
-    params: z.object({ url: z.string().min(1).max(2048) }).strict(),
+    params: z.object({ url: z.string().min(1).max(2048), scope }).strict(),
     side: 'renderer',
     focus: 'panel',
     destructive: false,
@@ -187,7 +200,7 @@ export const agentActions = {
   'browser.focusTab': {
     title: 'Focus a browser tab',
     description: 'Shows a browser tab by id (state.read lists them) in the side panel.',
-    params: z.object({ tabId: TabIdSchema }).strict(),
+    params: z.object({ tabId: TabIdSchema, scope }).strict(),
     side: 'renderer',
     focus: 'panel',
     destructive: false,
@@ -195,7 +208,7 @@ export const agentActions = {
   'browser.closeTab': {
     title: 'Close a browser tab',
     description: 'Closes a browser tab by id.',
-    params: z.object({ tabId: TabIdSchema }).strict(),
+    params: z.object({ tabId: TabIdSchema, scope }).strict(),
     side: 'renderer',
     focus: 'panel',
     destructive: false,
@@ -204,7 +217,7 @@ export const agentActions = {
     title: 'Switch the eCard app',
     description:
       "Lists the local eCard app switch's apps (active = the browser tab in front's app); with `id`, points only that tab at the app and reloads it. Other tabs keep their own apps.",
-    params: z.object({ id: SwitchAppIdSchema.optional() }).strict(),
+    params: z.object({ id: SwitchAppIdSchema.optional(), scope }).strict(),
     side: 'renderer',
     focus: 'panel',
     destructive: false,
@@ -212,7 +225,7 @@ export const agentActions = {
   'panel.show': {
     title: 'Show a panel tool',
     description: 'Opens the side panel on the Browser or Files tab.',
-    params: z.object({ tool: z.enum(['browser', 'files']) }).strict(),
+    params: z.object({ tool: z.enum(['browser', 'files']), scope }).strict(),
     side: 'renderer',
     focus: 'panel',
     destructive: false,
@@ -226,6 +239,7 @@ export const agentActions = {
         session: z.string().min(1).max(4096),
         file: z.string().min(1).max(4096),
         name: z.string().min(1).max(200),
+        scope,
       })
       .strict(),
     side: 'renderer',
@@ -234,8 +248,8 @@ export const agentActions = {
   },
   'panel.close': {
     title: 'Close the side panel',
-    description: 'Closes the side panel for the scope in front.',
-    params: Empty,
+    description: 'Closes the side panel (of `scope`, else of the page in front).',
+    params: z.object({ scope }).strict(),
     side: 'renderer',
     focus: 'panel',
     destructive: false,
@@ -243,15 +257,19 @@ export const agentActions = {
   'testbench.open': {
     title: 'Open Test Bench',
     description:
-      'Opens the Test Bench page; with `experiment` (folder under work/experiments) opens that run, and with `arm` also the arm details in the side panel.',
+      "Opens the Test Bench page; with `experiment` (folder under work/experiments) opens that run, and with `arm` also the arm details in the side panel. With `scope` (needs `arm`) it stays on the current page and shows only the arm details, in that scope's panel.",
     params: z
       .object({
         experiment: z.string().min(1).max(200).optional(),
         arm: z.string().min(1).max(200).optional(),
+        scope,
       })
       .strict()
       .refine((v) => v.arm === undefined || v.experiment !== undefined, {
         message: 'arm needs experiment',
+      })
+      .refine((v) => v.scope === undefined || v.arm !== undefined, {
+        message: 'scope needs arm',
       }),
     side: 'renderer',
     focus: 'main',

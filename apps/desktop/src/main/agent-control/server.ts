@@ -2,7 +2,7 @@ import * as http from 'node:http'
 import { timingSafeEqual } from 'node:crypto'
 import type { AddressInfo } from 'node:net'
 import { z } from 'zod'
-import type { AgentResult } from '@evaos/contract'
+import { AgentScopeSchema, type AgentResult } from '@evaos/contract'
 
 /**
  * The agent control API: plain HTTP on 127.0.0.1 with a bearer token, free of electron so tests
@@ -10,7 +10,8 @@ import type { AgentResult } from '@evaos/contract'
  * carry the token; anything else gets 403/401 before a route runs.
  *
  *   GET  /actions        the action catalog (params as JSON Schema)
- *   POST /actions/:id    { params?, confirm? } runs one action
+ *   POST /actions/:id    { params?, confirm?, scope? } runs one action (`scope`: the caller's own,
+ *                        used by panel actions whose params name none)
  *   GET  /state          same as POST /actions/state.read
  *   GET  /screenshot     image/png of the window
  */
@@ -22,7 +23,11 @@ export interface ControlServerDeps {
 }
 
 export const RunBodySchema = z
-  .object({ params: z.unknown().optional(), confirm: z.boolean().optional() })
+  .object({
+    params: z.unknown().optional(),
+    confirm: z.boolean().optional(),
+    scope: AgentScopeSchema.optional(),
+  })
   .strict()
 export type RunBody = z.output<typeof RunBodySchema>
 

@@ -75,6 +75,35 @@ describe('runAgentRequest', () => {
       message: 'outside',
     })
   })
+
+  it("gives panel actions the caller's scope unless their params name one", async () => {
+    const d = deps(true)
+    await runAgentRequest('browser.open', { params: { url: 'x.test' }, scope: 'agent:nova' }, d)
+    expect(d.run).toHaveBeenLastCalledWith('browser.open', expect.anything(), {
+      url: 'x.test',
+      scope: 'agent:nova',
+    })
+    await runAgentRequest(
+      'panel.show',
+      { params: { tool: 'files', scope: 'test-bench' }, scope: 'agent:nova' },
+      d,
+    )
+    expect(d.run).toHaveBeenLastCalledWith('panel.show', expect.anything(), {
+      tool: 'files',
+      scope: 'test-bench',
+    })
+    // Page changes and the rest go where they always went.
+    await runAgentRequest('page.open', { params: { page: 'jobs' }, scope: 'agent:nova' }, d)
+    expect(d.run).toHaveBeenLastCalledWith('page.open', expect.anything(), { page: 'jobs' })
+    await runAgentRequest(
+      'testbench.open',
+      { params: { experiment: 'e1' }, scope: 'agent:nova' },
+      d,
+    )
+    expect(d.run).toHaveBeenLastCalledWith('testbench.open', expect.anything(), {
+      experiment: 'e1',
+    })
+  })
 })
 
 describe('blit', () => {

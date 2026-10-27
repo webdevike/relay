@@ -10,13 +10,14 @@ import {
   openExperimentArmPanel,
   openSubagentPanel,
   panelTabCreated,
+  setScopePanel,
   showPanelTool,
   togglePanel,
 } from '../shell/layout-store'
 import { chatStore } from '../chat/chat-store'
 import { PANE_ID } from '../chat/open-chat'
 import { listStore } from '../chat/list/list-store'
-import { currentSpace, filesStore, showPath } from '../files/files-store'
+import { currentSpace, filesStore, locatePath, showPath } from '../files/files-store'
 import { requestExperiment } from '../test-bench/bench-request'
 import {
   contextStore,
@@ -26,6 +27,7 @@ import {
   unpinContext,
 } from '../context/context-store'
 import { snapshotFocus } from './focus-safety'
+import { announce, forgetShown, inFront, targetOf, whenShown, type ScopeTarget } from './scope'
 
 /** A failure with a stable code; main reports it as `{ ok: false, code, message }`. */
 function fail(code: string, message: string): never {
@@ -139,6 +141,52 @@ function composerText(): string | null {
   return box instanceof HTMLTextAreaElement ? box.value : null
 }
 
+/**
+ * Runs a panel action where it belongs: `front` in the panel on screen (no scope, or the named
+ * scope is the one in front), else `away` in that scope's own panel, which shows it when Isaac
+ * opens the page. A named scope comes back in the result, with whether it was in the background.
+ */
+async function inScope(
+  scope: string | undefined,
+  front: () => object | Promise<object>,
+  away: (t: ScopeTarget) => object | Promise<object>,
+): Promise<object> {
+  if (scope === undefined) return front()
+  const t = await targetOf(scope)
+  const background = !inFront(t)
+  const result = await (background ? away(t) : front())
+  return { ...result, scope: t.scope, background }
+}
+
+/** Opens a background scope's panel on `show` for when Isaac opens it, and badges its tab. */
+function showAway(t: ScopeTarget, what: string, show: () => unknown): void {
+  setScopePanel(t.scope, true)
+  whenShown(t.scope, show)
+  announce(t, what)
+}
+
+/** Fails unless browser tab `tabId` shows in `t`'s panel (its own tabs or a pinned one). */
+async function tabIn(t: ScopeTarget, tabId: string): Promise<void> {
+  const { tabs } = value(await invoke('browser.state', { scope: t.scope }))
+  if (!tabs.some((x) => x.id === tabId)) fail('not-found', `No tab ${tabId} in ${t.title}`)
+}
+
+/**
+ * Lists the eCard app switch's apps with the active tab's marked (of `scope`, else in front);
+ * with `id`, points only that tab at the app. Each tab has its own app.
+ */
+async function switchEcardApp(id: string | undefined, scope: string | undefined) {
+  const { activeId } = value(await invoke('browser.state', scope ? { scope } : {}))
+  const tabId = activeId || undefined
+  const { apps } = value(await invoke('browser.switchApps', { tabId }))
+  if (!id) return { apps }
+  if (!apps.some((a) => a.id === id)) {
+    fail('not-found', `No app ${id}; apps: ${apps.map((a) => a.id).join(', ')}`)
+  }
+  if (!tabId) fail('no-tab', 'Open a browser tab on the eCard app first')
+  return value(await invoke('browser.switchApp', { tabId, id }))
+}
+
 export const rendererActions: AgentRunners<'renderer'> = {
   'page.open': ({ page, newTab, settingsSection, canvas, meeting }) => {
     const key = pageFromKey(page)
@@ -179,45 +227,111 @@ export const rendererActions: AgentRunners<'renderer'> = {
     value(await invoke('chat.send', { paneId: PANE_ID, text: prompt }))
     return { sent: true }
   },
-  'files.open': async ({ path, line, column }) => {
-    showPanelTool('files')
-    return showPath(path, chatStore.getState().panes[PANE_ID]?.file || null, { line, column })
-  },
-  'browser.open': async ({ url }) => {
-    showPanelTool('browser')
-    panelTabCreated()
-    return value(await invoke('browser.createTab', { url }))
-  },
-  'browser.focusTab': async ({ tabId }) => {
-    showPanelTool('browser')
-    return value(await invoke('browser.activateTab', { tabId }))
-  },
-  'browser.closeTab': async ({ tabId }) => value(await invoke('browser.closeTab', { tabId })),
-  'ecard.switch': async ({ id }) => {
-    // Each tab has its own app: the list marks the front tab's, and a switch moves only that tab.
-    const { activeId } = value(await invoke('browser.state', {}))
-    const tabId = activeId || undefined
-    const { apps } = value(await invoke('browser.switchApps', { tabId }))
-    if (!id) return { apps }
-    if (!apps.some((a) => a.id === id)) {
-      fail('not-found', `No app ${id}; apps: ${apps.map((a) => a.id).join(', ')}`)
-    }
-    if (!tabId) fail('no-tab', 'Open a browser tab on the eCard app first')
-    return value(await invoke('browser.switchApp', { tabId, id }))
-  },
-  'panel.show': ({ tool }) => {
-    showPanelTool(tool)
-    return { view: tool }
-  },
-  'panel.subagent': (view) => {
-    openSubagentPanel(view)
-    return { view: 'subagent' }
-  },
-  'panel.close': () => {
-    togglePanel(false)
-    return { open: false }
-  },
-  'testbench.open': async ({ experiment, arm }) => {
+  'files.open': ({ path, line, column, scope }) =>
+    inScope(
+      scope,
+      () => {
+        showPanelTool('files')
+        return showPath(path, chatStore.getState().panes[PANE_ID]?.file || null, { line, column })
+      },
+      async (t) => {
+        const shown = await locatePath(path, t.chatFile)
+        showAway(t, `opened ${shown.path.split('/').pop() || 'a folder'}`, () => {
+          showPanelTool('files')
+          return showPath(path, t.chatFile, { line, column })
+        })
+        return shown
+      },
+    ),
+  'browser.open': ({ url, scope }) =>
+    inScope(
+      scope,
+      async () => {
+        showPanelTool('browser')
+        panelTabCreated()
+        return value(await invoke('browser.createTab', { url }))
+      },
+      async (t) => {
+        const tab = value(await invoke('browser.createTab', { url, scope: t.scope }))
+        showAway(t, 'opened a tab', () => showPanelTool('browser'))
+        return tab
+      },
+    ),
+  'browser.focusTab': ({ tabId, scope }) =>
+    inScope(
+      scope,
+      async () => {
+        showPanelTool('browser')
+        return value(await invoke('browser.activateTab', { tabId }))
+      },
+      async (t) => {
+        await tabIn(t, tabId)
+        const r = value(await invoke('browser.activateTab', { tabId, scope: t.scope }))
+        showAway(t, 'showed a tab', () => showPanelTool('browser'))
+        return r
+      },
+    ),
+  'browser.closeTab': ({ tabId, scope }) =>
+    inScope(
+      scope,
+      async () => value(await invoke('browser.closeTab', { tabId })),
+      async (t) => {
+        await tabIn(t, tabId)
+        const r = value(await invoke('browser.closeTab', { tabId }))
+        announce(t, 'closed a tab')
+        return r
+      },
+    ),
+  'ecard.switch': ({ id, scope }) =>
+    inScope(
+      scope,
+      () => switchEcardApp(id, undefined),
+      async (t) => {
+        const r = await switchEcardApp(id, t.scope)
+        if (id) announce(t, `switched a tab to ${id}`)
+        return r
+      },
+    ),
+  'panel.show': ({ tool, scope }) =>
+    inScope(
+      scope,
+      () => {
+        showPanelTool(tool)
+        return { view: tool }
+      },
+      (t) => {
+        showAway(t, tool === 'files' ? 'opened Files' : 'opened the browser', () =>
+          showPanelTool(tool),
+        )
+        return { view: tool }
+      },
+    ),
+  'panel.subagent': ({ scope, ...view }) =>
+    inScope(
+      scope,
+      () => {
+        openSubagentPanel(view)
+        return { view: 'subagent' }
+      },
+      (t) => {
+        showAway(t, `showed ${view.name}`, () => openSubagentPanel(view))
+        return { view: 'subagent' }
+      },
+    ),
+  'panel.close': ({ scope }) =>
+    inScope(
+      scope,
+      () => {
+        togglePanel(false)
+        return { open: false }
+      },
+      (t) => {
+        setScopePanel(t.scope, false)
+        forgetShown(t.scope)
+        return { open: false }
+      },
+    ),
+  'testbench.open': async ({ experiment, arm, scope }) => {
     if (!experiment) {
       navigateTo(placeOf('test-bench'))
       return { page: 'test-bench' }
@@ -232,10 +346,25 @@ export const rendererActions: AgentRunners<'renderer'> = {
       }
       label = found.label
     }
-    requestExperiment(experiment)
-    navigateTo(placeOf('test-bench'))
-    if (arm && label !== null) openExperimentArmPanel({ experiment, arm, label })
-    return { page: 'test-bench', experiment, arm: arm ?? null }
+    if (scope === undefined) {
+      requestExperiment(experiment)
+      navigateTo(placeOf('test-bench'))
+      if (arm && label !== null) openExperimentArmPanel({ experiment, arm, label })
+      return { page: 'test-bench', experiment, arm: arm ?? null }
+    }
+    // The params schema only takes `scope` with `arm`: the arm details go to that page's panel.
+    const view = { experiment, arm: arm!, label: label! }
+    return inScope(
+      scope,
+      () => {
+        openExperimentArmPanel(view)
+        return { experiment, arm: view.arm }
+      },
+      (t) => {
+        showAway(t, `showed ${view.label}`, () => openExperimentArmPanel(view))
+        return { experiment, arm: view.arm }
+      },
+    )
   },
   'context.open': async ({ scope }) => {
     contextStore.setState({ scope: scope ?? 'here', open: true })

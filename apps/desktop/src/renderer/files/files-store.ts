@@ -186,15 +186,19 @@ export interface ShownPath {
 }
 
 /**
- * Shows `target` (absolute, or relative to the Eva root) in the panel: a folder expands and is
- * selected in the tree, a file opens pinned in the editor (at `line`). A path outside the chat's
- * worktree switches this chat's panel to the Eva root; paths outside Eva fail `outside-eva`.
+ * Where `target` (absolute, or relative to the Eva root) would show for `chatFile`'s panel, and
+ * whether it is a file or folder; changes nothing. Inside the chat's worktree it shows there,
+ * else under the Eva root; paths outside Eva fail `outside-eva`.
  */
-export async function showPath(
+export async function locatePath(target: string, chatFile: string | null): Promise<ShownPath> {
+  const { root, path, kind } = await locate(target, chatFile)
+  return { root, path, kind }
+}
+
+async function locate(
   target: string,
   chatFile: string | null,
-  opts: { line?: number; column?: number } = {},
-): Promise<ShownPath> {
+): Promise<ShownPath & { evaRoot: string }> {
   const eva = await invoke('files.root', { file: null })
   if (!eva.ok) throw Object.assign(new Error(eva.error.message), { code: eva.error.code })
   const evaRoot = eva.value.root
@@ -214,17 +218,30 @@ export async function showPath(
       code: 'outside-eva',
     })
   }
-  evaRootFor = root === evaRoot && chatFile !== null ? chatFile : undefined
-  await followChat(chatFile)
-  // The tree's autoReveal effect runs for the new root first; reveal after it. (The renderer's
-  // lib is ES2023, without Promise.withResolvers.)
-  await new Promise<void>((r) => setTimeout(r, 50))
   const rel = abs.slice(root.length + 1)
   const listed = await invoke('files.list', { root, dir: rel })
   if (!listed.ok && listed.error.code !== 'not-a-folder') {
     throw Object.assign(new Error(listed.error.message), { code: listed.error.code })
   }
-  const kind = listed.ok ? 'dir' : 'file'
+  return { root, path: rel, kind: listed.ok ? 'dir' : 'file', evaRoot }
+}
+
+/**
+ * Shows `target` in the panel (see locatePath): a folder expands and is selected in the tree, a
+ * file opens pinned in the editor (at `line`). A path outside the chat's worktree switches this
+ * chat's panel to the Eva root.
+ */
+export async function showPath(
+  target: string,
+  chatFile: string | null,
+  opts: { line?: number; column?: number } = {},
+): Promise<ShownPath> {
+  const { root, path: rel, kind, evaRoot } = await locate(target, chatFile)
+  evaRootFor = root === evaRoot && chatFile !== null ? chatFile : undefined
+  await followChat(chatFile)
+  // The tree's autoReveal effect runs for the new root first; reveal after it. (The renderer's
+  // lib is ES2023, without Promise.withResolvers.)
+  await new Promise<void>((r) => setTimeout(r, 50))
   filesStore.setState({ side: 'explorer', sideOpen: true })
   if (kind === 'dir') {
     if (rel !== '') {

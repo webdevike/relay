@@ -26,6 +26,8 @@ import {
   IconX,
   type Icon,
 } from '@tabler/icons-react'
+import { browserScope } from '@evaos/shell-core'
+import { useScopeBadges } from '../agent/scope'
 import { AgentPortrait } from '../assistants/AgentPortrait'
 import { agentIdOf } from '../assistants/assistants-store'
 import { EvaMenu } from '../overlay'
@@ -81,6 +83,7 @@ export function TabBar() {
   useNamesVersion()
   const tabs = useTabs((s) => s.tabs)
   const state = useLayout((s) => s.state)
+  const badges = useScopeBadges()
   const [menu, setMenu] = useState<{ id: number; x: number; y: number } | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const activeId = tabs.list[tabs.active]?.id
@@ -153,10 +156,16 @@ export function TabBar() {
           const Glyph = ICONS[tabIconName(tab.here)] ?? IconAsterisk
           const title = tabTitle(tab.here)
           const isActive = ix === tabs.active
+          // What an agent did in this page's panel while Isaac was elsewhere (agent/scope.ts).
+          const badge = badges[browserScope(tab.here, tab.id)] ?? null
+          const label = badge ? `${title} · ${badge}` : title
+          const dot = badge ? (
+            <span className="eva-tab-badge" data-testid={`tab-badge-${tab.id}`} aria-hidden />
+          ) : null
           const common = {
             role: 'tab',
             'aria-selected': isActive,
-            'aria-label': title,
+            'aria-label': label,
             'data-active': isActive,
             tabIndex: isActive ? 0 : -1,
             onClick: () => activate(tab.id),
@@ -169,7 +178,7 @@ export function TabBar() {
           }
           if (tab.pinned) {
             return (
-              <Tooltip key={tab.id} label={title} position="bottom" openDelay={400}>
+              <Tooltip key={tab.id} label={label} position="bottom" openDelay={400}>
                 <div
                   {...common}
                   className="eva-tab eva-tab-pinned"
@@ -180,12 +189,13 @@ export function TabBar() {
                   ) : (
                     <Glyph size={16} stroke={1.5} />
                   )}
+                  {dot}
                 </div>
               </Tooltip>
             )
           }
           return (
-            <Tooltip key={tab.id} label={title} position="bottom" openDelay={600}>
+            <Tooltip key={tab.id} label={label} position="bottom" openDelay={600}>
               <div {...common} className="eva-tab" data-testid={`tab-${tab.id}`}>
                 {agent !== null ? (
                   <AgentPortrait id={agent} className="eva-tab-portrait" />
@@ -207,6 +217,7 @@ export function TabBar() {
                 >
                   <IconX size={14} stroke={1.5} />
                 </button>
+                {dot}
               </div>
             </Tooltip>
           )

@@ -63,6 +63,22 @@ describe('dispatch', () => {
     await vi.waitFor(() => expect(filesOpen).toHaveBeenCalledOnce())
   })
 
+  it('runs a panel action for a page not in front at once: nothing Isaac types in changes', async () => {
+    const panel = document.createElement('section')
+    panel.dataset.testid = 'panel-card'
+    const address = document.createElement('input')
+    panel.append(address)
+    document.body.append(panel)
+    address.focus()
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true)
+
+    const r = await dispatch('files.open', { path: 'a.ts', scope: 'agent:nova' })
+    expect(r).toMatchObject({ ok: true })
+    expect(r).not.toHaveProperty('queued')
+    expect(filesOpen).toHaveBeenCalledWith({ path: 'a.ts', scope: 'agent:nova' })
+    expect(document.activeElement).toBe(address)
+  })
+
   it('runs at once when the window is in the background', async () => {
     const composer = document.createElement('textarea')
     document.body.append(composer)
