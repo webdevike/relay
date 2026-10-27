@@ -85,7 +85,7 @@ export const agentActions = {
   'update.offer': {
     title: 'Offer an update',
     description:
-      'Tells the app a new build is ready: Isaac sees "Update ready" with Restart now and Later, and the app restarts into it on its own when he is idle at night (exit code 75; the supervisor relaunches it). Offering again replaces the pending update.',
+      'Tells the app a new build is ready: Isaac sees "Update ready" with Restart now and Later, and the app restarts into it on its own once he has been idle 2 minutes with no chat running (exit code 75; the supervisor relaunches it). Offering again replaces the pending update.',
     params: z
       .object({ summary: z.string().min(1).max(200), build: z.string().min(1).max(64) })
       .strict(),

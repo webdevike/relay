@@ -2,8 +2,8 @@ import { z } from 'zod'
 
 /**
  * A new stable build waiting for a restart (agent action `update.offer`). The stable app
- * restarts into it when Isaac clicks Restart, or on its own when idle at night; the restart
- * exits with code 75 so the supervisor relaunches it.
+ * restarts into it when Isaac clicks Restart, or on its own after 2 minutes idle with no chat
+ * running; the restart exits with code 75 so the supervisor relaunches it.
  */
 export const UpdateStateSchema = z.object({
   pending: z.boolean(),

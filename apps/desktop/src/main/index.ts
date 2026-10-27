@@ -108,7 +108,7 @@ function bootstrap(): void {
       }
 
       const guard = installQuitGuard(ctx)
-      // 75 once Isaac (or the night-time auto-restart) restarts into a pending update; the
+      // 75 once Isaac (or the idle auto-restart) restarts into a pending update; the
       // supervisor relaunches the stable app on 75 only. Every other quit exits 0.
       let exitCode = 0
       let quitting = false

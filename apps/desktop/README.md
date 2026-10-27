@@ -37,11 +37,15 @@ The stable app is updated only by `bun .omp/tools/relay-desktop-deploy.ts` (Eva 
 builds the stable checkout and runs the agent action `update.offer {summary, build}`; the app
 shows a persistent "Update ready" toast (Restart now / Later; after Later a footer chip offers the
 restart). Restart runs the normal quit path (unsaved edits still ask) and exits with code **75**,
-which is the only exit the supervisor relaunches. While an update is pending, the app restarts on
-its own once a minute check finds Isaac idle 15+ minutes between 23:00 and 07:59 with no chat it
-runs mid-reply (`src/main/update/policy.ts`). `EVAOS_SHOW_INACTIVE=1` (set by the supervisor)
-shows the relaunched window without taking focus. `state.read` reports `instance`, `build` and
-`update {pending, build, summary}`.
+which is the only exit the supervisor relaunches. Restarts happen when Isaac clicks Restart now
+(or the chip), or on their own after 2 minutes without keyboard or mouse input while no chat the
+app runs is mid-reply (checked every 15 s, `src/main/update/policy.ts`); while he is active the
+toast just stays. Nothing is lost: tabs, the side panel, page tabs, window bounds and composer
+drafts come back. Drafts (unsent text, not attached images) are saved per chat in `drafts.json`
+in the config dir, keyed by session file or, for a new chat, its tab's `draft:<tab id>` scope
+(tab ids persist in `layout.json`); a sent message clears its draft. `EVAOS_SHOW_INACTIVE=1` (set
+by the supervisor) shows the relaunched window without taking focus. `state.read` reports
+`instance`, `build`, `update {pending, build, summary}` and the open chat's `draft`.
 
 ## Right panel
 
