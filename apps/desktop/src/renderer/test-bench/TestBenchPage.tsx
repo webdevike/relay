@@ -139,7 +139,9 @@ function ArmsTable({ detail }: { detail: ExperimentDetail }) {
     <div className="eva-bench-table" role="table" aria-label="Tests" data-testid="arms-table">
       <div className="eva-bench-arm eva-bench-thead" role="row">
         <span role="columnheader">Test</span>
-        <span role="columnheader">{detail.primary ?? 'Quality'}</span>
+        <span role="columnheader" className="eva-bench-cap">
+          {detail.primary ?? 'Quality'}
+        </span>
         <span role="columnheader">s/test</span>
         <span role="columnheader">Cost/test</span>
         <span role="columnheader">Failures</span>
@@ -160,7 +162,7 @@ function ArmsTable({ detail }: { detail: ExperimentDetail }) {
               <span className="eva-bench-run-title">{arm.label}</span>
               <span className="eva-bench-dim">
                 {arm.role}
-                {arm.label !== arm.id ? ` · ${arm.id}` : ''}
+                {arm.id !== arm.role && arm.id !== arm.label ? ` · ${arm.id}` : ''}
               </span>
             </span>
             <span role="cell">

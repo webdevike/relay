@@ -207,11 +207,13 @@ function Cases({ data }: { data: ExperimentCases | null }) {
         <tbody>
           {data.cases.map((c, i) => (
             <tr key={i} data-failed={c.error ? 'true' : undefined}>
-              <td className="eva-bench-mono" title={c.case}>
-                {c.case}
-                {c.repeat !== null && c.repeat > 1 ? (
-                  <span className="eva-bench-dim"> #{c.repeat}</span>
-                ) : null}
+              <td className="eva-bench-mono">
+                <span title={c.case}>
+                  {c.case}
+                  {c.repeat !== null && c.repeat > 1 ? (
+                    <span className="eva-bench-dim"> #{c.repeat}</span>
+                  ) : null}
+                </span>
                 {c.error ? <div className="eva-bench-error">{c.error}</div> : null}
               </td>
               <td>{c.split}</td>
