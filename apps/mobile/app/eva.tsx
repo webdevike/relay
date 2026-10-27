@@ -45,6 +45,7 @@ import { useConnectionStore } from "@/state/connection";
 import { requestAssistant, sendCommand, stopAssistant } from "@/connection";
 import { notifyHaptic } from "@/lib/haptics";
 import { clipboardHasImage, readClipboardPhoto } from "@/lib/clipboard";
+import { PasteImageChip } from "@/ui/PasteImageChip";
 import { CallScreen } from "@/call/CallScreen";
 import { startCall } from "@/call/controller";
 import { useCallStore } from "@/state/call";
@@ -182,6 +183,7 @@ function Thread({ agent }: { agent: string }) {
   const text = draft.trim();
   const canSend = connected && !listening && (text !== "" || photos.length > 0);
   const full = photos.length >= MAX_REPLY_IMAGES;
+  const [composing, setComposing] = useState(false);
 
   const attach = (source: "camera" | "library" | "clipboard"): void => {
     setFailure(null);
@@ -393,10 +395,12 @@ function Thread({ agent }: { agent: string }) {
                   />
                 </View>
               )}
+              {!full && <PasteImageChip active={composing && connected && !listening} onPaste={() => { attach("clipboard"); }} style={styles.tray} />}
               <TextInput
                 value={draft}
                 onChangeText={setDraft}
-                onFocus={followContent}
+                onFocus={() => { setComposing(true); followContent(); }}
+                onBlur={() => { setComposing(false); }}
                 placeholder={listening ? "Listening…" : connected ? `Message ${title}` : "Not connected"}
                 editable={connected && !listening}
                 multiline

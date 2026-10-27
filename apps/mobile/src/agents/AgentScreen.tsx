@@ -793,6 +793,12 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
               canSend={phase === "idle"}
               onSend={sendTyped}
               skills={commands}
+              onPasteImage={() => {
+                readClipboardImage().then(
+                  (image) => { if (image !== null) dictationActor.send({ type: "attach", image }); },
+                  (error: unknown) => { warn("agents", "paste image failed", error); },
+                );
+              }}
             />
           </NotchedSurface>
         )}

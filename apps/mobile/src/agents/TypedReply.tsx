@@ -5,10 +5,11 @@
  * the transcript costs nothing. A draft that starts with "/" opens the session's commands above
  * the field; picking one completes the draft, and sending goes out as typed.
  */
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, TextInput, View } from "react-native";
 import type { AgentSkill } from "@relay/protocol";
 import { IconButton } from "@/ui/IconButton";
+import { PasteImageChip } from "@/ui/PasteImageChip";
 import { SuggestionList } from "@/ui/SuggestionList";
 import { completeSlash, slashMatches } from "@/lib/slash";
 import { spacing, type, useColors, useScheme } from "@/theme";
@@ -28,12 +29,15 @@ export interface TypedReplyProps {
   onSend: () => void;
   /** The session's commands, for the "/" menu; none until the host has answered `agent.options`. */
   skills?: readonly AgentSkill[] | undefined;
+  /** Attach the clipboard's image to the next send (iOS fields drop a pasted image). */
+  onPasteImage: () => void;
 }
 
-export function TypedReply({ draft, onDraft, canSend, onSend, skills }: TypedReplyProps) {
+export function TypedReply({ draft, onDraft, canSend, onSend, onPasteImage, skills }: TypedReplyProps) {
   const colors = useColors();
   const scheme = useScheme();
   const field = useRef<TextInput>(null);
+  const [focused, setFocused] = useState(false);
   // Mounting is entering typing mode: bring the keyboard up with the panel.
   useEffect(() => {
     field.current?.focus();
@@ -58,11 +62,14 @@ export function TypedReply({ draft, onDraft, canSend, onSend, skills }: TypedRep
           />
         </View>
       )}
+      <PasteImageChip active={focused} onPaste={onPasteImage} style={styles.paste} />
       <TextInput
         ref={field}
         style={[styles.field, { backgroundColor: colors.bg, color: colors.text }]}
         value={draft}
         onChangeText={onDraft}
+        onFocus={() => { setFocused(true); }}
+        onBlur={() => { setFocused(false); }}
         multiline
         placeholder="Type a reply"
         placeholderTextColor={colors.textFaint}
@@ -100,4 +107,5 @@ const styles = StyleSheet.create({
   },
   /** Pinned to the bottom-right corner, so it stays put as the draft grows. */
   send: { position: "absolute", right: INSET, bottom: INSET },
+  paste: { marginBottom: spacing.sm },
 });
