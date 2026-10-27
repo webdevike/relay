@@ -38,6 +38,10 @@
   border-radius: 0;
   box-shadow: none;
 }
+/* A press on the image stage focuses the surface itself; it is a container, not a control. */
+.eva-modal-content[data-fullscreen='true']:focus {
+  outline: none;
+}
 .eva-modal-content[data-fullscreen='true'] .eva-modal-header {
   gap: calc(var(--mantine-spacing-md) * 0.375);
 }
