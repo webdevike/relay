@@ -17,7 +17,7 @@ import { modelShortName, VendorLogo } from "./VendorLogo";
 import { MessageText } from "./MessageText";
 import { ActivityRow } from "./ActivityRow";
 import { ToolRow } from "./ToolRow";
-import { ToolStack } from "./ToolStack";
+import { ToolStack, ToolTimelineSheet } from "./ToolStack";
 import { MessageAppearance } from "@/ui/MessageAppearance";
 import { ScrollToBottom } from "@/ui/ScrollToBottom";
 import { useInvertedChatScroll } from "@/ui/useInvertedChatScroll";
@@ -295,6 +295,7 @@ export interface AgentCardProps {
 export function AgentCard({ sessionId, messages, connected, status, activity, activityLabel, sent, echoes }: AgentCardProps) {
   const [viewing, setViewing] = useState<string | null>(null);
   const viewingImages = useMemo(() => (viewing === null ? null : [{ uri: viewing }]), [viewing]);
+  const [timeline, setTimeline] = useState<string | null>(null);
   const rows = useMemo(() => {
     if (echoes === undefined || echoes.length === 0) return messages;
     return [...(messages ?? []), ...echoRows(echoes)];
@@ -381,7 +382,7 @@ export function AgentCard({ sessionId, messages, connected, status, activity, ac
               gap={0}
             >
               {grouped?.runs.has(item.id) === true ? (
-                <ToolStack calls={grouped.runs.get(item.id) ?? []} />
+                <ToolStack calls={grouped.runs.get(item.id) ?? []} onOpen={() => { setTimeline(item.id); }} />
               ) : (
                 <MessageRow sessionId={sessionId} message={item} onOpenImage={setViewing} error={refused[item.id]} />
               )}
@@ -403,6 +404,7 @@ export function AgentCard({ sessionId, messages, connected, status, activity, ac
           setViewing(null);
         }}
       />
+      <ToolTimelineSheet calls={timeline === null ? null : (grouped?.runs.get(timeline) ?? null)} onClose={() => { setTimeline(null); }} />
     </View>
   );
 }

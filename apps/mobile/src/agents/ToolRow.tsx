@@ -30,9 +30,13 @@ const glyphFor: Record<string, SFSymbol> = {
 const DEFAULT_GLYPH: SFSymbol = "wrench.and.screwdriver";
 
 /** MCP tools arrive as `server__tool`; the tool's own name is what reads. */
-function displayName(name: string): string {
+export function toolLabel(name: string): string {
   const parts = name.split("__");
   return parts[parts.length - 1] ?? name;
+}
+
+export function toolGlyph(name: string | undefined): SFSymbol {
+  return (name === undefined ? undefined : glyphFor[toolLabel(name)]) ?? DEFAULT_GLYPH;
 }
 
 export interface ToolRowProps {
@@ -44,7 +48,7 @@ export interface ToolRowProps {
 
 export function ToolRow({ name, summary, flush = false }: ToolRowProps) {
   const colors = useColors();
-  const label = displayName(name);
+  const label = toolLabel(name);
   const inset = flush ? 0 : spacing.xl;
   if (summary.length === 0) {
     return (
