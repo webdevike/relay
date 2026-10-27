@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { FlatList, NativeScrollEvent, NativeSyntheticEvent } from "react-native";
 import { useReducedMotion } from "react-native-reanimated";
 
-const BOTTOM_THRESHOLD = 80;
+const BOTTOM_THRESHOLD = 24;
 type ScrollEvent = NativeSyntheticEvent<NativeScrollEvent>;
 
 /** Inverted transcripts share one rule: only a reader gesture can suspend following. */

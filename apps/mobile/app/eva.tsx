@@ -334,6 +334,8 @@ function Thread({ agent }: { agent: string }) {
               ListHeaderComponent={typing ? <TypingRow title={title} gap={newest !== undefined && senderOf(newest) === "eva" ? GAP_RUN : GAP_SENDER} /> : null}
               // Inverted: reserve room at the visual bottom for the floating composer.
               contentContainerStyle={{ paddingTop: composerHeight + spacing.md }}
+              // Anchor on the row above the streaming one, so growth never moves a reader who scrolled up.
+              maintainVisibleContentPosition={{ minIndexForVisible: 1 }}
               {...scrollHandlers}
               keyboardDismissMode="interactive"
               keyboardShouldPersistTaps="handled"

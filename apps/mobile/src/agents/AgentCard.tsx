@@ -354,7 +354,7 @@ export function AgentCard({ sessionId, messages, connected, status, activity, ac
         contentContainerStyle={{ paddingVertical: spacing.lg, gap: spacing.sm }}
         ListHeaderComponent={showActivity ? <ActivityRow label={activityLabel ?? running ?? (streamingText ? "Responding" : activity === undefined ? "Working" : `Running ${activity}`)} /> : null}
         contentOffset={{ x: 0, y: initialOffset.current }}
-        maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+        maintainVisibleContentPosition={{ minIndexForVisible: 1 }}
         {...scrollHandlers}
         keyboardDismissMode="interactive"
         keyboardShouldPersistTaps="handled"
