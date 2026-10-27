@@ -1184,3 +1184,4 @@ export function encode(message: ClientMessage | ServerMessage): string {
 export * from "./hmac";
 export * from "./widget";
 export * from "./openui";
+export * from "./surface";

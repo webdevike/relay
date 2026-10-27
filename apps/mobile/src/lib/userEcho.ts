@@ -12,8 +12,7 @@
  * keeps its bubble with the reason; the next send to that session clears it.
  * Pure, no React Native imports.
  */
-import type { AgentMessage } from "@relay/protocol";
-import { untagged } from "@/dictation/surface";
+import { untagged, type AgentMessage } from "@relay/protocol";
 
 export interface UserEcho {
   /** Row id of the stand-in message. */

@@ -1,15 +1,14 @@
 import { useMemo, useEffect, useRef, useState } from "react";
 import { FlatList, Image, Pressable, View } from "react-native";
 import { SymbolView } from "expo-symbols";
-import { accountLabel, type AgentImageRef, type AgentMessage, type AgentSession, type AgentStatus } from "@relay/protocol";
+import { accountLabel, untagged, type AgentImageRef, type AgentMessage, type AgentSession, type AgentStatus } from "@relay/protocol";
 import { Text } from "@/ui/Text";
 import { Pill, type PillProps } from "@/ui/Pill";
 import { spacing, useColors, type Colors } from "@/theme";
 import { useAgentsStore } from "@/state/agents";
 import { requestAgentImage } from "@/connection";
 import { loadSkia } from "@/dictation/skia";
-import { untagged } from "@/dictation/surface";
-import { commandWord } from "@/lib/slash";
+import { userBubble } from "@/lib/slash";
 import type { SentCommand } from "@/lib/sentCommand";
 import { echoRows, type UserEcho } from "@/lib/userEcho";
 import { ImageViewer } from "./ImageViewer";
@@ -114,10 +113,8 @@ function MessageRow({ sessionId, message, onOpenImage, error }: MessageRowProps)
     message.images === undefined || message.images.length === 0 ? null : <MessageImages sessionId={sessionId} refs={message.images} onOpen={onOpenImage} />;
   switch (message.role) {
     case "user": {
-      const text = untagged(message.text);
       // A slash command reads as one: the command in a chip, whatever followed it under.
-      const command = commandWord(text);
-      const rest = command === undefined ? text : text.trimStart().slice(command.length).trim();
+      const { command, rest } = userBubble(message.text);
       return (
         <View style={{ alignItems: "flex-end", paddingHorizontal: spacing.xl, gap: spacing.xs }}>
           <View

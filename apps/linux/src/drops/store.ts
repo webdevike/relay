@@ -8,7 +8,7 @@ import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { Drop, MAX_DROP_BYTES, MAX_DROP_TEXT, MAX_DROPS, type DropOrigin } from "@relay/protocol";
+import { Drop, MAX_DROP_BYTES, MAX_DROP_TEXT, MAX_DROPS, untagged, type DropOrigin } from "@relay/protocol";
 import { z } from "zod";
 import type { DropBlob, DropBox, DropChange } from "../seams";
 
@@ -53,7 +53,8 @@ export class FileDropStore implements DropBox {
       kind: link ? "link" : "text",
       origin,
       createdAt: Date.now(),
-      title: link ? trimmed : firstLine(trimmed),
+      // The one-line preview never shows a surface tag (a copied prompt); the text stays as copied.
+      title: link ? trimmed : firstLine(untagged(trimmed).trim() || trimmed),
       text,
     };
     this.add({ drop });

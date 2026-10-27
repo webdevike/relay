@@ -7,7 +7,7 @@
  * until a snapshot carries it.
  */
 import { create } from "zustand";
-import type { AssistantAgent, AssistantSnapshot, AssistantStatus } from "@relay/protocol";
+import { untagged, type AssistantAgent, type AssistantSnapshot, type AssistantStatus } from "@relay/protocol";
 import { countOf } from "@/lib/format";
 import { portraitSeed } from "@/lib/portrait";
 import type { Photo } from "@/lib/photo";
@@ -53,6 +53,17 @@ export function settlePending(snapshot: AssistantSnapshot, pending: PendingTurn 
   if (snapshot.rev > pending.sinceRev) return null;
   if (pending.text === "") return pending;
   return snapshot.messages.some((message) => message.role === "user" && message.text === pending.text) ? null : pending;
+}
+
+/**
+ * The thread as the phone shows it: Isaac's turns without the surface tag a client put on them (a
+ * turn typed on the desktop carries `<surface>Mac Mini - Relay Desktop</surface>`; hosts from before
+ * the host stripped it send it as is). The same snapshot when no turn carries one.
+ */
+export function shownSnapshot(snapshot: AssistantSnapshot): AssistantSnapshot {
+  const tagged = (message: AssistantSnapshot["messages"][number]): boolean => message.role === "user" && untagged(message.text) !== message.text;
+  if (!snapshot.messages.some(tagged)) return snapshot;
+  return { ...snapshot, messages: snapshot.messages.map((message) => (tagged(message) ? { ...message, text: untagged(message.text) } : message)) };
 }
 
 /** The thread for `agent`, empty when the phone has heard nothing about it. */
@@ -107,7 +118,8 @@ export const useAssistantStore = create<AssistantStore>((set, get) => {
     setAgents: (agents) => {
       set({ agents });
     },
-    set: (agent, snapshot) => {
+    set: (agent, received) => {
+      const snapshot = shownSnapshot(received);
       update(agent, (thread) => ({ snapshot, pending: settlePending(snapshot, thread.pending) }));
     },
     setPending: (agent, turn) => {

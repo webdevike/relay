@@ -15,7 +15,7 @@
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, renameSync, watch, writeFileSync, type FSWatcher } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { CatchUpFeed, type CatchUpCard, type CatchUpItem, type CatchUpSignal, type CatchUpSnapshot } from "@relay/protocol";
+import { CatchUpFeed, untagged, type CatchUpCard, type CatchUpItem, type CatchUpSignal, type CatchUpSnapshot } from "@relay/protocol";
 import { z } from "zod";
 
 /** Marks for ids that left the feed are dropped after this long. */
@@ -131,6 +131,7 @@ export class CatchUpService implements CatchUpDeck {
   /**
    * Every feed item in deck order with its state: bounced first (newest bounce first), then the feed's own
    * order, which the builder sets (pinned by Isaac's rules, then importance, then newest, then downranked).
+   * A card quoting one of Isaac's prompts shows it without the client's surface tag.
    */
   snapshot(): CatchUpSnapshot {
     const { read, handed, bounced } = this.state;
@@ -139,6 +140,9 @@ export class CatchUpService implements CatchUpDeck {
       const to = handed[item.id]?.agent;
       return {
         ...item,
+        title: untagged(item.title) || item.label,
+        body: untagged(item.body),
+        ...(item.why === undefined ? {} : { why: untagged(item.why) }),
         read: item.id in read,
         ...(to === undefined ? {} : { handedTo: to }),
         ...(bounce === undefined ? {} : { bounce: { agent: bounce.agent, reason: bounce.reason, at: bounce.at } }),

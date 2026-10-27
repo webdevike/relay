@@ -102,6 +102,13 @@ describe("InboxService items", () => {
     await Promise.resolve();
     expect(h.tokens.size).toBe(0);
   });
+
+  it("pushes an item quoting Isaac's prompt without its surface tag", () => {
+    const h = harness();
+    h.service.item("evaos", { id: "alert:1", kind: "alert", title: "Relay is waiting", body: "<surface>Mac Mini - Relay Desktop</surface>\nfix the dock", at: 1 });
+    h.service.item("evaos", { id: "alert:2", kind: "alert", title: "Nova is waiting", body: "<surface>iPhone - Relay</surface>\nbook the table", at: 2 });
+    expect(h.pushes.map((push) => push.body)).toEqual(["fix the dock", "book the table"]);
+  });
 });
 
 describe("InboxService digests", () => {

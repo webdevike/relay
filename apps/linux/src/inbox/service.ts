@@ -14,6 +14,7 @@ import {
   type InboxItem,
   type InboxResolve,
   type ServerMessage,
+  untagged,
 } from "@relay/protocol";
 import type { InboxRelaying } from "../seams";
 import type { PushMessage, PushSender } from "../push/notifier";
@@ -78,7 +79,8 @@ export function pushMessageOf(token: string, item: InboxItem): PushMessage {
   return {
     to: token,
     title,
-    body: item.body,
+    // Display: an item quoting Isaac's prompt shows it without a client's surface tag.
+    body: untagged(item.body),
     data: { ...pushDataOf(item), ...(item.sessionId === undefined ? {} : { sessionId: item.sessionId }) },
     // A digest is a nudge, never a break through Focus, and makes no sound.
     interruptionLevel: item.passive === true ? "passive" : "time-sensitive",

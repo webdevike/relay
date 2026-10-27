@@ -17,7 +17,7 @@
 
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
-import type { AgentImage, AgentMessage, AgentSession, AssistantAgent, AssistantMessage, AssistantSnapshot, AssistantStatus, ServerMessage } from "@relay/protocol";
+import { untagged, type AgentImage, type AgentMessage, type AgentSession, type AssistantAgent, type AssistantMessage, type AssistantSnapshot, type AssistantStatus, type ServerMessage } from "@relay/protocol";
 import type { LaunchOptions } from "../agents/herdr";
 import { parseSessionRows } from "../agents/transcript";
 import type { PushSender } from "../push/notifier";
@@ -84,8 +84,9 @@ export interface AssistantServiceDeps {
  * omp's synthetic system rows, the host's job lines (`prefix` and the legacy prefixes), the persona
  * prime (including the pre-registry Eva and Astra primes), a reply with nothing to show (still empty
  * while streaming, or a prime turn that only ran tools) and the silence marker, whole or still
- * streaming in. A turn said on a call shows its words without the voice note, marked `voice`; a
- * reply's details marker becomes a paragraph break.
+ * streaming in. Isaac's turns show without the surface tag the sending client put on them. A turn
+ * said on a call shows its words without the voice note, marked `voice`; a reply's details marker
+ * becomes a paragraph break.
  */
 export function toAssistantMessages(messages: readonly AgentMessage[], prime: string | null, prefix: string): AssistantMessage[] {
   const out: AssistantMessage[] = [];
@@ -93,14 +94,15 @@ export function toAssistantMessages(messages: readonly AgentMessage[], prime: st
   for (const message of messages) {
     const images = message.images === undefined || message.images.length === 0 ? {} : { images: message.images };
     if (message.role === "user") {
+      const said = untagged(message.text);
       // Earlier contexts may predate edits of prime.md or the move to per-agent primes.
       const isPrime =
         firstUser &&
-        ((prime !== null && (message.text.trim() === prime || message.text.startsWith(prime.split("\n", 1)[0] ?? prime))) ||
-          LEGACY_PRIME_STARTS.some((start) => message.text.startsWith(start)));
+        ((prime !== null && (said.trim() === prime || said.startsWith(prime.split("\n", 1)[0] ?? prime))) ||
+          LEGACY_PRIME_STARTS.some((start) => said.startsWith(start)));
       firstUser = false;
-      if (isPrime || message.text.startsWith(prefix) || LEGACY_STATUS_PREFIXES.some((legacy) => message.text.startsWith(legacy))) continue;
-      const { text, voice } = splitVoiceTurn(message.text);
+      if (isPrime || said.startsWith(prefix) || LEGACY_STATUS_PREFIXES.some((legacy) => said.startsWith(legacy))) continue;
+      const { text, voice } = splitVoiceTurn(said);
       out.push({ id: message.id, role: "user", text, at: message.at, ...images, ...(voice ? { voice } : {}) });
     } else if (message.role === "assistant" && (message.text.length > 0 || "images" in images)) {
       const trimmed = message.text.trim();
@@ -131,14 +133,15 @@ export function assistantStatus(session: AgentSession | undefined): AssistantSta
 /**
  * The newest reply worth previewing in `messages` (already the phone's view of the thread, so job
  * lines, the prime, empty rows and the silence marker are gone): the text of the last assistant
- * row, clipped to `MAX_LAST_REPLY`, or `Sign in to <host>` for a sign-in request with no words.
+ * row without a surface tag, clipped to `MAX_LAST_REPLY`, or `Sign in to <host>` for a sign-in request with no words.
  * A row with only pictures has no text and is passed over. Null when the agent never said anything.
  */
 export function lastReplyOf(messages: readonly AssistantMessage[]): { text: string; at: number } | null {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (message?.role !== "assistant") continue;
-    const text = message.text.trim() === "" && message.signin !== undefined ? `Sign in to ${message.signin.host}` : message.text.trim();
+    const said = untagged(message.text).trim();
+    const text = said === "" && message.signin !== undefined ? `Sign in to ${message.signin.host}` : said;
     if (text === "") continue;
     const head = text.slice(0, MAX_LAST_REPLY - 1);
     const clipped = text.length <= MAX_LAST_REPLY ? text : `${/[\uD800-\uDBFF]$/.test(head) ? head.slice(0, -1) : head.trimEnd()}…`;
@@ -423,8 +426,10 @@ export class AssistantService implements AssistantThread {
   }
 
   /** A settled reply goes to every phone that is not already looking at it. */
-  private push(raw: string): void {
-    if (isSilent(raw)) return;
+  private push(reply: string): void {
+    if (isSilent(reply)) return;
+    // A push is display: no client's surface tag, even one an agent echoed back.
+    const raw = untagged(reply);
     const { text: shown, signin } = splitSignin(raw, false);
     const text = signin === undefined ? raw : shown.trim().length > 0 ? shown.trim() : `Sign in to ${signin.host}`;
     const recipients: { deviceId: string; token: string }[] = [];

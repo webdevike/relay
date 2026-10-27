@@ -3,7 +3,7 @@
 // is still waiting. A phone looking at that session right now is skipped; it has the live card.
 // Delivery goes through Expo's push service, which holds the APNs key. Drops never push.
 
-import type { AgentSession, AgentStatus } from "@relay/protocol";
+import { untagged, type AgentSession, type AgentStatus } from "@relay/protocol";
 import type { SessionClock } from "../session";
 import type { PushTokenSource } from "./token-store";
 
@@ -110,7 +110,8 @@ export class AttentionNotifier {
     });
 
     const title = reminder ? `${session.title} is still waiting` : session.title;
-    const body = session.status === "needs_permission" ? `Needs permission${session.statusDetail === undefined ? "" : `: ${session.statusDetail}`}` : session.lastActivity;
+    // The body is display: a session's activity line never shows a client's surface tag.
+    const body = session.status === "needs_permission" ? `Needs permission${session.statusDetail === undefined ? "" : `: ${session.statusDetail}`}` : untagged(session.lastActivity);
     this.send(title, body, { sessionId: session.id }, (deviceId) => this.deps.isViewing(deviceId, session.id));
   }
 

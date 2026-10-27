@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentSkill } from "@relay/protocol";
-import { MAX_SLASH_MATCHES, completeSlash, slashMatches } from "./slash";
+import { MAX_SLASH_MATCHES, completeSlash, slashMatches, userBubble } from "./slash";
 
 const handoff: AgentSkill = { name: "handoff", description: "Hand off and compact", command: "/handoff", takesText: true, hint: "[focus instructions]" };
 const goal: AgentSkill = {
@@ -22,6 +22,19 @@ const skills: AgentSkill[] = [
 ];
 
 const names = (draft: string) => slashMatches(draft, skills).map((entry) => entry.command);
+
+describe("userBubble", () => {
+  it("shows a desktop-tagged or phone-tagged prompt without its surface tag", () => {
+    expect(userBubble("<surface>Mac Mini - Relay Desktop</surface>\nfix the dock")).toEqual({ command: undefined, rest: "fix the dock" });
+    expect(userBubble("<surface>iPhone - Relay</surface>\nship it")).toEqual({ command: undefined, rest: "ship it" });
+    expect(userBubble("<surface>Mac Mini - EvaOS</surface>\nold history")).toEqual({ command: undefined, rest: "old history" });
+  });
+
+  it("splits a slash command off as the chip", () => {
+    expect(userBubble("/handoff focus on tests")).toEqual({ command: "/handoff", rest: "focus on tests" });
+    expect(userBubble("plain words")).toEqual({ command: undefined, rest: "plain words" });
+  });
+});
 
 describe("slashMatches", () => {
   it("lists every command for a bare slash and nothing for plain text", () => {

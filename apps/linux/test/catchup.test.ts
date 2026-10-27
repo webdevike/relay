@@ -77,6 +77,17 @@ describe("CatchUpService", () => {
     expect(snapshot.unreadCount).toBe(3);
   });
 
+  it("shows a card quoting Isaac's prompt without its surface tag", () => {
+    writeFeed([
+      { ...item("a", 2, "2026-10-24T10:00:00Z"), title: "<surface>Mac Mini - Relay Desktop</surface>\nfix the dock", body: "<surface>Mac Mini - Relay Desktop</surface>\nfix the dock please", why: "<surface>iPhone - Relay</surface>\nyou asked" },
+      { ...item("b", 2, "2026-10-24T09:00:00Z"), title: "<surface>iPhone - Relay</surface>", body: "<surface>iPhone - Relay</surface>\nship it" },
+    ]);
+    const [a, b] = service().snapshot().items;
+    expect([a?.title, a?.body, a?.why]).toEqual(["fix the dock", "fix the dock please", "you asked"]);
+    // A title that was only a tag falls back to the label.
+    expect([b?.title, b?.body]).toEqual(["b", "ship it"]);
+  });
+
   it("marks read and unread, persists 0600, and emits only on change", () => {
     writeFeed([item("a", 2, "2026-10-24T10:00:00Z"), item("b", 2, "2026-10-23T10:00:00Z")]);
     const deck = service();

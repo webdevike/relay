@@ -5,7 +5,7 @@
  * text; after `/name ` it filters that command's subcommands. A picked entry completes the draft;
  * sending stays the composer's own send.
  */
-import type { AgentSkill } from "@relay/protocol";
+import { untagged, type AgentSkill } from "@relay/protocol";
 
 /** Rows the menu shows at most; the rest are a few more letters away. */
 export const MAX_SLASH_MATCHES = 8;
@@ -17,6 +17,16 @@ export const MAX_SLASH_MATCHES = 8;
  */
 export function commandWord(text: string): string | undefined {
   return /^\/(?:skill:[\w:./-]+|[A-Za-z][\w:.-]*)(?=\s|$)/.exec(text.trimStart())?.[0];
+}
+
+/**
+ * What a user row in an agent session shows: its words without the surface tag the sending client
+ * put on them, and a slash command split off as a chip with whatever followed it under.
+ */
+export function userBubble(text: string): { command: string | undefined; rest: string } {
+  const shown = untagged(text);
+  const command = commandWord(shown);
+  return { command, rest: command === undefined ? shown : shown.trimStart().slice(command.length).trim() };
 }
 
 /**

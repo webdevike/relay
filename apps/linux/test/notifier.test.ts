@@ -86,6 +86,13 @@ describe("AttentionNotifier", () => {
     expect(h.sent[0]?.[0]?.body).toBe("Needs permission: bash: rm -rf dist");
   });
 
+  it("shows a session's activity line without a surface tag", () => {
+    const h = harness();
+    h.notifier.observe([session("a", "waiting", { lastActivity: "<surface>Mac Mini - Relay Desktop</surface>\nfix the dock" })]);
+    h.notifier.observe([session("b", "waiting", { lastActivity: "<surface>iPhone - Relay</surface>\nship it" })]);
+    expect(h.sent.map((batch) => batch[0]?.body)).toEqual(["fix the dock", "ship it"]);
+  });
+
   it("stays quiet while the escalation engine is connected: it decides what reaches the phone", () => {
     const h = harness();
     h.suppressed.value = true;

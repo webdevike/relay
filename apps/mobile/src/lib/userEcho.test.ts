@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AgentMessage, AgentSession } from "@relay/protocol";
+import { untagged, type AgentMessage, type AgentSession } from "@relay/protocol";
 import {
   LAUNCH_ECHO,
   adoptLaunch,
@@ -24,7 +24,7 @@ const assistant = (id: string, text: string): AgentMessage => ({ id, role: "assi
 /** The user bubbles the agent card draws for `key`: the transcript's, then the echoes after them. */
 function bubbles(data: AgentsData, key: string): string[] {
   const rows = [...(data.conversations[key]?.messages ?? []), ...echoRows(data.echoes[key] ?? [])];
-  return rows.filter((row) => row.role === "user").map((row) => row.text.replace(/^<surface>[^<]*<\/surface>\n/, ""));
+  return rows.filter((row) => row.role === "user").map((row) => untagged(row.text));
 }
 
 describe("a new session's first message", () => {
@@ -120,6 +120,14 @@ describe("reply echoes", () => {
   it("an older identical row never settles a new echo", () => {
     const data = noteSent(loaded([user("u0", "continue")]), "s", tagged("continue"), 10);
     expect(bubbles(data, "s")).toEqual(["continue", "continue"]);
+  });
+
+  it("a row the desktop tagged counts as the same words as the phone's echo", () => {
+    let data = noteSent(loaded(), "s", tagged("ship it"), 10);
+    const desktop: AgentMessage = { id: "u1", role: "user", text: "<surface>Mac Mini - Relay Desktop</surface>\nship it", at: 12 };
+    data = appendMessages(data, "s", 2, [desktop]).data;
+    expect(data.echoes["s"]).toBeUndefined();
+    expect(bubbles(data, "s")).toEqual(["ship it"]);
   });
 
   it("a session that goes away takes its echoes with it", () => {

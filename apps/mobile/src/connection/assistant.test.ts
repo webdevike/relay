@@ -121,6 +121,20 @@ describe("assistant.snapshot", () => {
     expect(thread("nova").signedIn).toEqual({});
   });
 
+  it("shows Isaac's turns without the desktop's or the phone's surface tag, and settles the echo by the shown words", () => {
+    route({
+      t: "assistant.snapshot",
+      agent: "nova",
+      snapshot: snapshot(1, ["<surface>Mac Mini - Relay Desktop</surface>\nbook the table", "done", "<surface>iPhone - Relay</surface>\nthanks", "np"]),
+    });
+    expect(thread("nova").snapshot?.messages.map((m) => m.text)).toEqual(["book the table", "done", "thanks", "np"]);
+    // Older history: the desktop's tag from before it was Relay Desktop.
+    useAssistantStore.getState().setPending("nova", { text: "and wine", images: [] });
+    route({ t: "assistant.snapshot", agent: "nova", snapshot: snapshot(1, ["<surface>Mac Mini - EvaOS</surface>\nand wine"]) });
+    expect(thread("nova").snapshot?.messages[0]?.text).toBe("and wine");
+    expect(thread("nova").pending).toBeNull();
+  });
+
   it("accepts a lower rev again after a welcome (the host restarted)", () => {
     route({ t: "assistant.snapshot", agent: "astra", snapshot: snapshot(9, ["hi", "hello"]) });
     route({ t: "welcome", state: { mac: { name: "Host", version: "1.0.0", accessibilityGranted: true, agentsAvailable: true }, agents: { rev: 0, sessions: [] } } });

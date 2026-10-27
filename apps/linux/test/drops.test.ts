@@ -42,6 +42,14 @@ describe("FileDropStore", () => {
     expect(drop.text).toBe(`\n\n  ${long}\nsecond line`);
   });
 
+  it("titles a copied prompt without its surface tag, keeping the text as copied", () => {
+    const store = new FileDropStore(freshDir());
+    const desktop = store.putText("host", "<surface>Mac Mini - Relay Desktop</surface>\nfix the dock");
+    expect(desktop.title).toBe("fix the dock");
+    expect(desktop.text).toBe("<surface>Mac Mini - Relay Desktop</surface>\nfix the dock");
+    expect(store.putText("phone", "<surface>iPhone - Relay</surface>\nship it").title).toBe("ship it");
+  });
+
   it("round-trips a blob through open with the right token only", () => {
     const store = new FileDropStore(freshDir());
     const drop = store.putBlob("host", { name: "shot.png", mimeType: "image/png", bytes: PNG });

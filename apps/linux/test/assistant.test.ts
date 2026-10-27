@@ -264,6 +264,23 @@ describe("toAssistantMessages", () => {
       { id: "u2", role: "user", text: "typed one", at: 3 },
     ]);
   });
+
+  it("shows Isaac's turns without the surface tag the desktop or the phone put on them, and still hides a tagged job line", () => {
+    const rows: AgentMessage[] = [
+      { id: "p", role: "user", text: "<surface>Mac Mini - Relay Desktop</surface>\nYou are Nova.", at: 1 },
+      { id: "u1", role: "user", text: "<surface>Mac Mini - Relay Desktop</surface>\nbook the table", at: 2 },
+      { id: "u2", role: "user", text: "<surface>iPhone - Relay</surface>\nfor four", at: 3 },
+      { id: "u3", role: "user", text: "<surface>Mac Mini - EvaOS</surface>\nolder history", at: 4 },
+      { id: "j", role: "user", text: "<surface>Mac Mini - Relay Desktop</surface>\n[From Nova's background jobs] Gmail: 2 new", at: 5 },
+      { id: "u4", role: "user", text: `<surface>iPhone - Relay</surface>\n${voiceTurn("what time is it")}`, at: 6 },
+    ];
+    expect(toAssistantMessages(rows, "You are Nova.", statusPrefix("Nova"))).toEqual([
+      { id: "u1", role: "user", text: "book the table", at: 2 },
+      { id: "u2", role: "user", text: "for four", at: 3 },
+      { id: "u3", role: "user", text: "older history", at: 4 },
+      { id: "u4", role: "user", text: "what time is it", at: 6, voice: true },
+    ]);
+  });
 });
 
 describe("AssistantService snapshot", () => {
@@ -594,6 +611,16 @@ describe("AssistantService changes", () => {
     await flush();
     expect(h.pushes).toEqual([]);
   });
+
+  it("never pushes a surface tag an agent echoed back", async () => {
+    const h = harness();
+    h.register("working");
+    h.viewing.add("phone-2");
+    h.service.observe({ kind: "conversation", sessionId: "eva-1", appended: [{ id: "a1", role: "assistant", text: "<surface>Mac Mini - Relay Desktop</surface>\nBooked for four.", at: 1 }] });
+    h.service.observe({ kind: "conversation", sessionId: "eva-1", appended: [{ id: "a2", role: "assistant", text: "<surface>iPhone - Relay</surface>\nDone.", at: 2 }] });
+    await flush();
+    expect(h.pushes.map((push) => push.body)).toEqual(["Booked for four.", "Done."]);
+  });
 });
 
 describe("AssistantService earlier contexts", () => {
@@ -795,6 +822,11 @@ describe("lastReplyOf", () => {
     const signin = { url: "https://example.com/login", host: "example.com" };
     expect(lastReplyOf([row("a", "assistant", "real", 1), row("b", "assistant", "  ", 2), row("c", "assistant", "", 3, { images: [{ id: "i", mimeType: "image/png" }] })])).toEqual({ text: "real", at: 1 });
     expect(lastReplyOf([row("a", "assistant", "", 4, { signin })])).toEqual({ text: "Sign in to example.com", at: 4 });
+  });
+
+  it("previews a reply without a surface tag an agent echoed back", () => {
+    expect(lastReplyOf([row("a", "assistant", "<surface>Mac Mini - Relay Desktop</surface>\nBooked.", 1)])).toEqual({ text: "Booked.", at: 1 });
+    expect(lastReplyOf([row("a", "assistant", "<surface>iPhone - Relay</surface>\nDone.", 2)])).toEqual({ text: "Done.", at: 2 });
   });
 
   it("clips a long reply to the preview length with an ellipsis, and leaves a short one whole", () => {
