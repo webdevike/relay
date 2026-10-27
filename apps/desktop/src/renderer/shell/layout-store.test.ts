@@ -23,7 +23,8 @@ import {
   resetLayoutStoreForTests,
   resetWidth,
   setWindowWidth,
-  showBrowserPanel,
+  settlePanelView,
+  showPanelTool,
   toggleSidebar,
   togglePanel,
 } from './layout-store'
@@ -274,7 +275,7 @@ describe('panel view', () => {
     expect(g().panelOpen).toBe(false)
   })
 
-  it('a scope change, a new tab or showBrowserPanel goes back to the browser', () => {
+  it('a scope change, a new tab or settlePanelView goes back to the browser', () => {
     enterPanelScope('chat:/s/a')
     openSubagentPanel(view)
     enterPanelScope('chat:/s/b')
@@ -283,7 +284,22 @@ describe('panel view', () => {
     panelTabCreated()
     expect(g().panelView).toEqual({ kind: 'browser' })
     openSubagentPanel(view)
-    showBrowserPanel()
+    settlePanelView()
+    expect(g().panelView).toEqual({ kind: 'browser' })
+  })
+
+  it('the files tool opens the panel and stays across scopes until a browser tab opens', () => {
+    enterPanelScope('chat:/s/a')
+    togglePanel(false)
+    showPanelTool('files')
+    expect(g().panelOpen).toBe(true)
+    expect(g().panelView).toEqual({ kind: 'files' })
+    openSubagentPanel(view)
+    settlePanelView()
+    expect(g().panelView).toEqual({ kind: 'files' })
+    enterPanelScope('chat:/s/b')
+    expect(g().panelView).toEqual({ kind: 'files' })
+    panelTabCreated()
     expect(g().panelView).toEqual({ kind: 'browser' })
   })
 })

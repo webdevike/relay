@@ -14,9 +14,13 @@ import { registerAction } from '../hotkeys/router'
 
 export type SidebarState = 'open' | 'hidden' | 'folded'
 export type Edge = 'sidebar' | 'panel'
-/** What the panel shows: the browser, one subagent's transcript, or one experiment arm's details. */
+/**
+ * What the panel shows: one of its tools (the browser, the files editor), or a transient view
+ * over it (one subagent's transcript, one experiment arm's details).
+ */
 export type PanelView =
   | { kind: 'browser' }
+  | { kind: 'files' }
   | {
       kind: 'subagent'
       /** The chat session file the subagent belongs to. */
@@ -34,7 +38,9 @@ export type PanelView =
     }
 export type SubagentView = Extract<PanelView, { kind: 'subagent' }>
 export type ExperimentArmView = Extract<PanelView, { kind: 'experiment-arm' }>
+export type PanelTool = 'browser' | 'files'
 const BROWSER_VIEW: PanelView = { kind: 'browser' }
+const FILES_VIEW: PanelView = { kind: 'files' }
 
 export interface LayoutState {
   windowWidth: number
@@ -91,6 +97,9 @@ const panelChoice = new Map<string, boolean>()
 const ownTabs = new Map<string, readonly string[]>()
 /** The scope in front has neither a choice nor known tabs yet; its first report decides. */
 let panelPending = false
+/** The tool Isaac picked last; scope changes and closed slides come back to it. */
+let tool: PanelTool = 'browser'
+const toolView = (): PanelView => (tool === 'files' ? FILES_VIEW : BROWSER_VIEW)
 
 function patch(p: Partial<Base> & { panelScope?: string; panelView?: PanelView }): void {
   layoutStore.setState((s) => {
@@ -135,9 +144,19 @@ export function openExperimentArmPanel(view: Omit<ExperimentArmView, 'kind'>): v
   patch({ panelOpen: true, panelView: { kind: 'experiment-arm', ...view } })
 }
 
-/** Back to the browser, e.g. once a closed panel finished sliding out. */
-export function showBrowserPanel(): void {
-  if (layoutStore.getState().panelView.kind !== 'browser') patch({ panelView: BROWSER_VIEW })
+/** Shows a panel tool (the Browser / Files tabs, Cmd+P), opening the panel in this scope. */
+export function showPanelTool(next: PanelTool): void {
+  tool = next
+  const s = layoutStore.getState()
+  panelChoice.set(s.panelScope, true)
+  panelPending = false
+  patch({ panelOpen: true, panelView: toolView() })
+}
+
+/** Back to the panel's tool from a transient view, e.g. once a closed panel finished sliding out. */
+export function settlePanelView(): void {
+  const kind = layoutStore.getState().panelView.kind
+  if (kind !== 'browser' && kind !== 'files') patch({ panelView: toolView() })
 }
 
 /**
@@ -153,7 +172,7 @@ export function enterPanelScope(scope: string): void {
   patch({
     panelScope: scope,
     panelOpen: choice ?? (own !== undefined && own.length > 0),
-    panelView: BROWSER_VIEW,
+    panelView: toolView(),
   })
 }
 
@@ -162,6 +181,7 @@ export function panelTabCreated(): void {
   const scope = layoutStore.getState().panelScope
   if (panelChoice.has(scope)) panelChoice.set(scope, true)
   panelPending = false
+  tool = 'browser'
   patch({ panelOpen: true, panelView: BROWSER_VIEW })
 }
 
@@ -255,6 +275,7 @@ export function resetLayoutStoreForTests(): void {
   panelChoice.clear()
   ownTabs.clear()
   panelPending = false
+  tool = 'browser'
   layoutStore.setState(initial(), true)
 }
 

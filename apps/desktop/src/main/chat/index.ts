@@ -15,11 +15,17 @@ import { ChatWatch } from './chat-watch'
 import { ExtrasService } from './extras'
 import { registerChatListIpc } from './chat-list-ipc'
 import { createSessionManager, registerLiveIpc } from './live-ipc'
-import { registerTranscriptIpc } from './transcript-ipc'
+import { registerTranscriptIpc, resolveInsideSessionsDir } from './transcript-ipc'
+import type { Place } from '@evaos/chat-core/work'
 
 export interface ChatHandles {
   /** Subscribe to debounced batches of changed session paths; do not start a second watcher. */
   onSessionsChanged(cb: (files: string[]) => void): () => void
+  /**
+   * Where a chat session works (folder, active worktree). Throws `outside-sessions-dir` for a
+   * file that is not a session the list spans; null when it cannot be read.
+   */
+  placeOf(file: string): Place | null
 }
 
 const STATUS_COALESCE_MS = 30
@@ -132,5 +138,8 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
   })
   // Quit ends stdin on every omp this app started and waits; it never signals (D-17).
   ctx.onBeforeQuit(() => manager.closeAll())
-  return { onSessionsChanged: (cb) => watch.onChange(cb) }
+  return {
+    onSessionsChanged: (cb) => watch.onChange(cb),
+    placeOf: (file) => list.placeOf(resolveInsideSessionsDir(sessionsDirs, file)),
+  }
 }

@@ -28,6 +28,7 @@ import {
 import { registerUsageIpc } from './usage/usage-ipc'
 import { registerLinearIpc } from './linear/linear-ipc'
 import { registerRoomsIpc } from './rooms/rooms-ipc'
+import { registerFilesIpc } from './files/files-ipc'
 
 function bootstrap(): void {
   let env
@@ -102,7 +103,7 @@ function bootstrap(): void {
       registerThemeIpc(ctx, queue)
       registerSettingsIpc(ctx, queue)
       registerEvaIpc(ctx)
-      registerChat(ctx, queue)
+      const chat = registerChat(ctx, queue)
       registerExperimentsIpc(ctx)
       registerWidgetMedia(ctx)
       registerWidgetFrames()
@@ -112,6 +113,7 @@ function bootstrap(): void {
       registerUsageIpc(ctx)
       registerLinearIpc(ctx)
       registerRoomsIpc(ctx)
+      registerFilesIpc(ctx, chat)
       registerBrowser(ctx)
       installTestHooks(ctx)
     } catch (e) {

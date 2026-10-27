@@ -159,6 +159,18 @@ export class ChatListService {
     this.order.forget(id)
   }
 
+  /** Where session `file` works (its folder and active worktree), or null when it cannot be read. */
+  placeOf(file: string): Place | null {
+    let st: fs.Stats
+    try {
+      st = fs.statSync(file)
+    } catch {
+      return null
+    }
+    if (!st.isFile()) return null
+    return new PlaceReader(this.ledgers.current()).of(this.scanner.facts(file, st))
+  }
+
   private prefs(): { prefs: ChatPrefs; archived: Set<string> } {
     const raw = this.deps.config.readJson<unknown>(CHAT_FILE, {})
     const src = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : {}

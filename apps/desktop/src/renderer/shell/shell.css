@@ -231,6 +231,45 @@ body.eva-resizing .eva-grip-sidebar {
 .eva-panel-header {
   padding-left: 16px;
 }
+/* Browser | Files: quiet text tabs, the one in front in the foreground color on a soft fill. */
+.eva-panel-tools {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  margin-left: calc(-1 * var(--mantine-spacing-xs));
+}
+.eva-panel-tool-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  height: 28px;
+  padding: 0 var(--mantine-spacing-xs);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  font-weight: var(--eva-fw-medium);
+  color: var(--eva-c-muted-foreground);
+  cursor: pointer;
+  transition:
+    color var(--eva-dur-fast) ease,
+    background-color var(--eva-dur-fast) ease;
+  -webkit-app-region: no-drag;
+}
+.eva-panel-tool-tab:hover {
+  color: var(--eva-c-foreground);
+}
+.eva-panel-tool-tab[data-active] {
+  color: var(--eva-c-foreground);
+  background: var(--eva-c-accent-background);
+}
+.eva-panel-tool-tab:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: -2px;
+}
 .eva-panel-tool {
   flex: 1;
   min-width: 0;

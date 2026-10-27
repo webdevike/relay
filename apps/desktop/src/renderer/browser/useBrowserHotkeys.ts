@@ -2,7 +2,11 @@ import { useEffect } from 'react'
 import { invoke } from '../ipc'
 import { isPanelFocused } from '../hotkeys/panel-focus'
 import { isDispatchFromGuest, registerPageChord } from '../hotkeys/router'
+import { layoutStore } from '../shell/layout-store'
 import { browserStore } from './browser-store'
+
+/** Another panel view (Files, a transcript) sits over the browser. */
+const browserHidden = (): boolean => layoutStore.getState().panelView.kind !== 'browser'
 
 function focusAddress(): void {
   const el = document.querySelector<HTMLInputElement>('[data-testid=address-input]')
@@ -18,10 +22,12 @@ export function useBrowserHotkeys(): void {
         const { tabs, activeId } = browserStore.getState()
         if (!activeId || tabs.length === 0) return false
         if (!isPanelFocused() && !isDispatchFromGuest()) return false
+        if (browserHidden() && !isDispatchFromGuest()) return false
         void invoke('browser.closeTab', { tabId: activeId })
         return 'consumed'
       }),
       registerPageChord('cmd+l', () => {
+        if (browserHidden()) return false
         focusAddress()
         return 'consumed'
       }),
