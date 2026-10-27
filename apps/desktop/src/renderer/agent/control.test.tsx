@@ -48,6 +48,21 @@ describe('dispatch', () => {
     await vi.waitFor(() => expect(pageOpen).toHaveBeenCalledOnce())
   })
 
+  it("queues a panel action while Isaac types in the panel's address field", async () => {
+    const panel = document.createElement('section')
+    panel.dataset.testid = 'panel-card'
+    const address = document.createElement('input')
+    panel.append(address)
+    document.body.append(panel)
+    address.focus()
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true)
+
+    expect(await dispatch('files.open', { path: 'a.ts' })).toMatchObject({ queued: true })
+    expect(filesOpen).not.toHaveBeenCalled()
+    address.blur()
+    await vi.waitFor(() => expect(filesOpen).toHaveBeenCalledOnce())
+  })
+
   it('runs at once when the window is in the background', async () => {
     const composer = document.createElement('textarea')
     document.body.append(composer)

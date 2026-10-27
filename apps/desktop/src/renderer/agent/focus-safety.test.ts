@@ -40,13 +40,21 @@ describe('isEditable', () => {
 })
 
 describe('decide', () => {
-  const typing = { windowFocused: true, editable: true }
-  it('queues main-column actions only while Isaac is typing in the focused window', () => {
-    expect(isTyping(typing)).toBe(true)
-    expect(decide('main', typing)).toBe('queue')
-    expect(decide('none', typing)).toBe('run')
-    expect(decide('main', { windowFocused: false, editable: true })).toBe('run')
-    expect(decide('main', { windowFocused: true, editable: false })).toBe('run')
+  const composer = { windowFocused: true, editable: true, inPanel: false }
+  const address = { windowFocused: true, editable: true, inPanel: true }
+  it('queues main-column actions while Isaac types anywhere in the focused window', () => {
+    expect(isTyping(composer)).toBe(true)
+    expect(decide('main', composer)).toBe('queue')
+    expect(decide('main', address)).toBe('queue')
+    expect(decide('main', { ...composer, windowFocused: false })).toBe('run')
+    expect(decide('main', { ...composer, editable: false })).toBe('run')
+  })
+
+  it('queues panel actions only while he types inside the panel', () => {
+    expect(decide('panel', composer)).toBe('run')
+    expect(decide('panel', address)).toBe('queue')
+    expect(decide('panel', { ...address, windowFocused: false })).toBe('run')
+    expect(decide('none', address)).toBe('run')
   })
 })
 

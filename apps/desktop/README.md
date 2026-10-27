@@ -53,7 +53,7 @@ replace across files, a language server.
 
 Agents drive the running app through one typed action registry, `agentActions` in
 `packages/contract/src/agent.ts`: each entry has a title, a zod params schema, its side (`main` or
-`renderer`), whether it replaces the main column (`focus: 'main'`) and whether it is destructive.
+`renderer`), what it replaces (`focus`: `main`, `panel` or `none`) and whether it is destructive.
 Typecheck fails until the side implements a new entry (`src/main/agent-control/index.ts`,
 `src/renderer/agent/actions.ts`), so adding a UI action there makes it agent-callable.
 
@@ -65,10 +65,11 @@ on quit). Every request needs a loopback peer, a loopback `Host` and `Authorizat
 - `GET /actions`: the catalog, params as JSON Schema. `POST /actions/:id` with
   `{params, confirm?}`. `GET /state`, `GET /screenshot` (PNG via `capturePage`, browser view
   composited in).
-- **Focus**: nothing calls `show`/`focus` on the window. While Isaac types in the focused window,
-  `focus: 'main'` actions queue (HTTP 202, a toast with Run now) and run once the field loses
-  focus or the window blurs. Every action runs under a focus hold (`renderer/agent/focus-safety.ts`):
-  the Files editor skips its own `focus()`, and a text field that lost focus gets it back.
+- **Focus**: nothing calls `show`/`focus` on the window. While Isaac types in a text field an
+  action would replace (anywhere for `main` actions, inside the panel for `panel` ones), it queues
+  (HTTP 202, a toast with Run now) and runs once the field loses focus or the window blurs. Every
+  action runs under a focus hold (`renderer/agent/focus-safety.ts`): the Files editor skips its
+  own `focus()`, and a text field that lost focus gets it back.
 - **Destructive** (`app.quit`, `chat.start`): 403 `confirm-required` without `confirm: true`;
   with it, an Allow / Deny toast; no answer in 60 s is `denied`.
 

@@ -32,12 +32,15 @@ describe('agent action registry', () => {
     expect(destructive.sort()).toEqual(['app.quit', 'chat.start'])
   })
 
-  it('queues every action that replaces the main column while Isaac types', () => {
+  it('says what each action replaces, so it can wait while Isaac types there', () => {
     const main = AGENT_ACTION_IDS.filter((id) => agentActions[id].focus === 'main')
     expect(main).toEqual(
       expect.arrayContaining(['page.open', 'chat.open', 'chat.new', 'testbench.open', 'tab.focus']),
     )
-    for (const id of ['files.open', 'browser.open', 'state.read', 'window.screenshot'] as const) {
+    for (const id of ['files.open', 'browser.open', 'panel.show', 'panel.close'] as const) {
+      expect(agentActions[id].focus).toBe('panel')
+    }
+    for (const id of ['state.read', 'window.screenshot', 'toast.show'] as const) {
       expect(agentActions[id].focus).toBe('none')
     }
   })

@@ -2,8 +2,9 @@ import type { AgentFocus } from '@evaos/contract'
 
 /**
  * Agent actions must never take the keyboard from Isaac. Two rules:
- * - While he is typing in the app (the window has focus and a text field holds it), actions that
- *   replace the main column wait in a queue (`decide`).
+ * - While he is typing in a text field an action would replace, the action waits in a queue
+ *   (`decide`): `main` actions (page, chat, tab) replace both columns, `panel` actions only the
+ *   side panel, so opening a file while he types in the composer runs at once.
  * - Every action runs with a focus hold: components that focus something on their own (the
  *   Files editor) skip it while `focusHeld()`, and a field that lost focus anyway gets it back.
  */
@@ -24,19 +25,27 @@ export interface FocusSnapshot {
   windowFocused: boolean
   /** The focused element takes text. */
   editable: boolean
+  /** The focused element sits in the side panel card. */
+  inPanel: boolean
 }
 
 export function snapshotFocus(doc: Document = document): FocusSnapshot {
-  return { windowFocused: doc.hasFocus(), editable: isEditable(doc.activeElement) }
+  const el = doc.activeElement
+  return {
+    windowFocused: doc.hasFocus(),
+    editable: isEditable(el),
+    inPanel: el?.closest('[data-testid=panel-card]') != null,
+  }
 }
 
 export function isTyping(s: FocusSnapshot): boolean {
   return s.windowFocused && s.editable
 }
 
-/** Run now, or queue until Isaac stops typing. */
+/** Run now, or queue until Isaac stops typing where the action lands. */
 export function decide(focus: AgentFocus, s: FocusSnapshot): 'run' | 'queue' {
-  return focus === 'main' && isTyping(s) ? 'queue' : 'run'
+  if (!isTyping(s) || focus === 'none') return 'run'
+  return focus === 'main' || s.inPanel ? 'queue' : 'run'
 }
 
 /**

@@ -7,12 +7,14 @@ import { SwitchAppIdSchema, TabIdSchema } from './browser'
  * (main/agent-control) and runs `side: 'main'` entries itself; `side: 'renderer'` entries run in
  * the shell page (renderer/agent). A new entry here fails typecheck until its side implements it.
  *
- * `focus: 'main'` marks actions that replace what the main column shows (and with it a focused
- * composer). While Isaac is typing in the app those wait in a queue instead of running.
+ * `focus` names what an action replaces: `main` the main column (page, chat, tab; the panel
+ * follows the page's scope), `panel` the side panel's content, `none` nothing on screen. While
+ * Isaac types in a text field the action would replace (anywhere for `main`, inside the panel for
+ * `panel`), it waits in a queue instead of running.
  * `destructive` actions need `confirm: true` from the agent and Isaac's approval in the app.
  */
 export type AgentSide = 'main' | 'renderer'
-export type AgentFocus = 'none' | 'main'
+export type AgentFocus = 'none' | 'panel' | 'main'
 
 export interface AgentActionSpec {
   title: string
@@ -158,7 +160,7 @@ export const agentActions = {
       })
       .strict(),
     side: 'renderer',
-    focus: 'none',
+    focus: 'panel',
     destructive: false,
   },
   'browser.open': {
@@ -167,7 +169,7 @@ export const agentActions = {
       "Opens a URL (or a bare local port like `3000`) in a new tab of the side panel's browser.",
     params: z.object({ url: z.string().min(1).max(2048) }).strict(),
     side: 'renderer',
-    focus: 'none',
+    focus: 'panel',
     destructive: false,
   },
   'browser.focusTab': {
@@ -175,7 +177,7 @@ export const agentActions = {
     description: 'Shows a browser tab by id (state.read lists them) in the side panel.',
     params: z.object({ tabId: TabIdSchema }).strict(),
     side: 'renderer',
-    focus: 'none',
+    focus: 'panel',
     destructive: false,
   },
   'browser.closeTab': {
@@ -183,7 +185,7 @@ export const agentActions = {
     description: 'Closes a browser tab by id.',
     params: z.object({ tabId: TabIdSchema }).strict(),
     side: 'renderer',
-    focus: 'none',
+    focus: 'panel',
     destructive: false,
   },
   'ecard.switch': {
@@ -192,7 +194,7 @@ export const agentActions = {
       "Lists the local eCard app switch's apps; with `id`, points the switch at that app and reloads the browser tab in front.",
     params: z.object({ id: SwitchAppIdSchema.optional() }).strict(),
     side: 'renderer',
-    focus: 'none',
+    focus: 'panel',
     destructive: false,
   },
   'panel.show': {
@@ -200,7 +202,7 @@ export const agentActions = {
     description: 'Opens the side panel on the Browser or Files tab.',
     params: z.object({ tool: z.enum(['browser', 'files']) }).strict(),
     side: 'renderer',
-    focus: 'none',
+    focus: 'panel',
     destructive: false,
   },
   'panel.subagent': {
@@ -215,7 +217,7 @@ export const agentActions = {
       })
       .strict(),
     side: 'renderer',
-    focus: 'none',
+    focus: 'panel',
     destructive: false,
   },
   'panel.close': {
@@ -223,7 +225,7 @@ export const agentActions = {
     description: 'Closes the side panel for the scope in front.',
     params: Empty,
     side: 'renderer',
-    focus: 'none',
+    focus: 'panel',
     destructive: false,
   },
   'testbench.open': {
