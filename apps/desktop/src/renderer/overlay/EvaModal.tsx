@@ -11,10 +11,23 @@ export interface EvaModalProps {
   title?: ReactNode
   size?: number | string
   testid?: string
+  /** Fills the window edge to edge (a lightbox); the body takes the height left by the header. */
+  fullScreen?: boolean
+  /** Controls in the header, before the close button. */
+  actions?: ReactNode
   children?: ReactNode
 }
 
-export function EvaModal({ opened, onClose, title, size = 400, testid, children }: EvaModalProps) {
+export function EvaModal({
+  opened,
+  onClose,
+  title,
+  size = 400,
+  testid,
+  fullScreen,
+  actions,
+  children,
+}: EvaModalProps) {
   useOccludeBrowser(opened)
   useDismissable(DISMISS_PRIORITY.overlay, onClose, opened)
   return (
@@ -23,6 +36,7 @@ export function EvaModal({ opened, onClose, title, size = 400, testid, children 
       onClose={onClose}
       size={size}
       centered
+      fullScreen={fullScreen}
       withinPortal
       zIndex={300}
       closeOnEscape={false}
@@ -31,9 +45,10 @@ export function EvaModal({ opened, onClose, title, size = 400, testid, children 
       data-testid={testid}
     >
       <Modal.Overlay className="eva-modal-backdrop" />
-      <Modal.Content className="eva-modal-content">
+      <Modal.Content className="eva-modal-content" data-fullscreen={fullScreen ? 'true' : undefined}>
         <Modal.Header className="eva-modal-header">
           <Modal.Title className="eva-modal-title">{title}</Modal.Title>
+          {actions}
           <CloseButton size={28} aria-label="Close" onClick={onClose} />
         </Modal.Header>
         <Modal.Body className="eva-modal-body">{children}</Modal.Body>

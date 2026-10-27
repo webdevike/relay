@@ -2,11 +2,13 @@
  * How each node type draws, from its board-file spec (native canvas_view/cards.rs). Sizes are flow
  * units (pixels at zoom 1); colors are theme roles, so light and dark both follow the theme.
  */
+import { ActionIcon, Tooltip } from '@mantine/core'
 import {
   IconExternalLink,
   IconFrame,
   IconGitPullRequest,
   IconLayoutKanban,
+  IconMaximize,
   IconLink,
   IconNote,
   IconPhoto,
@@ -64,20 +66,43 @@ function LinkRow({ id, url }: { id: string; url: string }) {
   )
 }
 
-function Picture({ spec, inner }: { spec: CanvasNode; inner: number }) {
-  const { slug } = useBoardActions()
+/**
+ * An image card's picture: the original file (never a thumbnail) so the board stays sharp when
+ * zoomed in, with an "Open full size" button on hover.
+ */
+function Picture({ id, spec, inner }: { id: string; spec: CanvasNode; inner: number }) {
+  const { slug, openImage } = useBoardActions()
   const src = spec.data?.src
   const image = useCanvasImage(slug, src)
   const fallback = inner * 0.75
   if (image?.state === 'ready') {
     return (
-      <img
-        className="eva-cv-picture"
-        src={image.dataUrl}
-        alt={spec.data?.title ?? ''}
-        draggable={false}
-        style={{ height: image.ratio ? inner * image.ratio : fallback }}
-      />
+      <div className="eva-cv-picture-wrap">
+        <img
+          className="eva-cv-picture"
+          src={image.dataUrl}
+          alt={spec.data?.title ?? ''}
+          draggable={false}
+          style={{ height: image.ratio ? inner * image.ratio : fallback }}
+        />
+        <Tooltip label="Open full size" openDelay={400}>
+          <ActionIcon
+            variant="default"
+            size={24}
+            className="eva-cv-picture-open nodrag nopan"
+            aria-label="Open full size"
+            data-testid={`canvas-image-open-${id}`}
+            onPointerDown={stop}
+            onDoubleClick={stop}
+            onClick={(e) => {
+              e.stopPropagation()
+              openImage(id)
+            }}
+          >
+            <IconMaximize size={14} stroke={1.75} />
+          </ActionIcon>
+        </Tooltip>
+      </div>
     )
   }
   const text = !src ? 'No src' : image?.state === 'failed' ? image.message : 'Loading'
@@ -214,7 +239,7 @@ function Body({ id, spec, hasChildren }: { id: string; spec: CanvasNode; hasChil
     case 'image':
       return (
         <>
-          <Picture spec={spec} inner={(spec.w ?? 240) - 20} />
+          <Picture id={id} spec={spec} inner={(spec.w ?? 240) - 20} />
           {title !== '' ? <div className="eva-cv-heading eva-cv-pad">{title}</div> : null}
           {d.caption !== undefined ? (
             <div className="eva-cv-small eva-cv-pad">{d.caption}</div>

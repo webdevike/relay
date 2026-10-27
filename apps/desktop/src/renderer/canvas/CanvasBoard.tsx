@@ -3,7 +3,7 @@
  * position, autosaves edits a second after they settle, reloads outside edits (never during a
  * drag) and keeps undo history. Pointer and keys: drag empty space or scroll to pan, ⌘-scroll or
  * pinch zooms, ⇧-drag box-selects, ⌘A selects all, Escape clears, Backspace/Delete removes,
- * ⌘Z / ⌘⇧Z undo and redo.
+ * ⌘Z / ⌘⇧Z undo and redo. Double-clicking an image opens it full window.
  */
 import '@xyflow/react/dist/base.css'
 import {
@@ -45,6 +45,8 @@ import { CanvasEdge } from './CanvasEdge'
 import { BoardContext, type BoardActions } from './context'
 import { BoardControls, NodeActions, ToolBar, type Tool } from './chrome'
 import { CanvasCard } from './cards/CanvasCard'
+import { Lightbox } from './Lightbox'
+import { boardImages } from './lightbox-model'
 import {
   absolutePositions,
   toBoard,
@@ -137,6 +139,8 @@ function Board({ slug }: { slug: string }) {
   const [tool, setTool] = useState<Tool>('select')
   const [locked, setLocked] = useState(false)
   const [history, setHistory] = useState<History<BoardDoc>>(emptyHistory)
+  /** The image shown full window, if any. */
+  const [lightboxId, setLightboxId] = useState<string | null>(null)
 
   const wrapRef = useRef<HTMLDivElement>(null)
   const docRef = useRef<BoardDoc>({ title: '', layout: undefined, nodes: [], edges: [] })
@@ -618,6 +622,7 @@ function Board({ slug }: { slug: string }) {
     () => ({
       slug,
       removeNode: (id) => removeNodes(new Set([id])),
+      openImage: setLightboxId,
       acceptSuggestion: (id) => {
         const doc = docRef.current
         const node = doc.nodes.find((n) => n.id === id)
@@ -708,6 +713,7 @@ function Board({ slug }: { slug: string }) {
   const selectedNodes = nodes.filter((n) => n.selected)
   const single = selectedNodes.length === 1 ? selectedNodes[0]! : null
   const specs = useMemo(() => nodes.map((n) => n.data.spec), [nodes])
+  const images = useMemo(() => boardImages(specsOf(nodes)), [nodes])
   const shownLayout = effectiveLayout(layout, specs, edges.length > 0)
   const hand = tool === 'hand'
 
@@ -774,6 +780,9 @@ function Board({ slug }: { slug: string }) {
             onConnect={onConnect}
             onNodeDragStart={dragStart}
             onNodeDragStop={dragStop}
+            onNodeDoubleClick={(_e, node) => {
+              if (node.data.spec.type === 'image' && node.data.spec.data?.src) setLightboxId(node.id)
+            }}
             onSelectionDragStart={dragStart}
             onSelectionDragStop={dragStop}
             onMoveEnd={(_e, vp) => {
@@ -796,7 +805,7 @@ function Board({ slug }: { slug: string }) {
             nodesConnectable={!hand && !locked}
             elementsSelectable={!hand && !locked}
             minZoom={0.1}
-            maxZoom={3}
+            maxZoom={8}
             proOptions={{ hideAttribution: true }}
           >
             <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} />
@@ -837,6 +846,12 @@ function Board({ slug }: { slug: string }) {
             ) : null}
           </ReactFlow>
         </div>
+        <Lightbox
+          slug={slug}
+          images={images}
+          openId={lightboxId}
+          onClose={() => setLightboxId(null)}
+        />
       </div>
     </BoardContext.Provider>
   )

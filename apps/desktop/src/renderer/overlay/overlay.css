@@ -31,6 +31,25 @@
   font-size: var(--eva-fz-body);
   line-height: var(--eva-lh-body);
 }
+.eva-modal-content[data-fullscreen='true'] {
+  display: flex;
+  flex-direction: column;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.eva-modal-content[data-fullscreen='true'] .eva-modal-header {
+  gap: calc(var(--mantine-spacing-md) * 0.375);
+}
+.eva-modal-content[data-fullscreen='true'] .eva-modal-title {
+  flex: 1;
+  min-width: 0;
+}
+.eva-modal-content[data-fullscreen='true'] .eva-modal-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
 .eva-menu-dropdown {
   padding: var(--eva-space-native-xs);
   max-height: min(460px, calc(100vh - var(--eva-space-xl)));

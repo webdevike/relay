@@ -7,6 +7,8 @@ export interface BoardActions {
   acceptSuggestion: (id: string) => void
   /** Removes one node and its edges, as one undo step. */
   removeNode: (id: string) => void
+  /** Opens an image node full window, stepping through the board's other images. */
+  openImage: (id: string) => void
 }
 
 export const BoardContext = createContext<BoardActions | null>(null)
