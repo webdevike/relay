@@ -31,6 +31,8 @@ describe('layout', () => {
       sidebarWidth: 272,
       panelWidth: 420,
       tabs: null,
+      panelChoices: {},
+      panelTool: 'browser',
       reset: false,
     })
     fs.writeFileSync(path.join(dir, 'layout.json'), '{not json')
@@ -51,6 +53,14 @@ describe('layout', () => {
       panel_width: 500,
       zoom: 2,
       tabs,
+    })
+  })
+  it('round-trips panel choices and tool across saves', () => {
+    saveLayout(config, { panelChoices: { 'chat:/a': true, 'draft:1': false }, panelTool: 'files' })
+    saveLayout(config, { panelChoices: { 'draft:1': null, 'chat:/b': false } })
+    expect(loadLayout(config)).toMatchObject({
+      panelChoices: { 'chat:/a': true, 'chat:/b': false },
+      panelTool: 'files',
     })
   })
   it('queue survives a rejected task', async () => {

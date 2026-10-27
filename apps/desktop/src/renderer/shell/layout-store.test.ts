@@ -41,6 +41,7 @@ beforeEach(() => {
   setWindowWidth(1280)
   // The fit and drag cases below measure a shell with the panel showing.
   togglePanel(true)
+  invoke.mockClear()
 })
 
 it('the right panel starts closed', () => {
@@ -157,7 +158,14 @@ describe('loadLayout', () => {
   it('applies clamped widths and toasts the reset once', async () => {
     invoke.mockResolvedValue({
       ok: true,
-      value: { sidebarWidth: 9999, panelWidth: 10, tabs: null, reset: true },
+      value: {
+        sidebarWidth: 9999,
+        panelWidth: 10,
+        tabs: null,
+        panelChoices: {},
+        panelTool: 'browser',
+        reset: true,
+      },
     })
     await loadLayout()
     await loadLayout()
@@ -172,6 +180,60 @@ describe('loadLayout', () => {
     await loadLayout()
     expect(g().sidebarWidth).toBe(272)
     expect(show).not.toHaveBeenCalled()
+  })
+
+  const loaded = (panelChoices: Record<string, boolean>, panelTool: 'browser' | 'files') =>
+    invoke.mockImplementation((ch: string) =>
+      Promise.resolve(
+        ch === 'layout.load'
+          ? {
+              ok: true,
+              value: {
+                sidebarWidth: 272,
+                panelWidth: 420,
+                tabs: null,
+                panelChoices,
+                panelTool,
+                reset: false,
+              },
+            }
+          : { ok: true, value: {} },
+      ),
+    )
+
+  it('restores the saved per-scope choice and tool after a restart', async () => {
+    resetLayoutStoreForTests()
+    loaded({ 'chat:/a': true, 'chat:/b': false }, 'files')
+    await loadLayout()
+    enterPanelScope('chat:/a')
+    expect(g()).toMatchObject({ panelOpen: true, panelView: { kind: 'files' } })
+    reportScopeTabs('chat:/b', ['t1'])
+    enterPanelScope('chat:/b')
+    expect(g().panelOpen).toBe(false)
+  })
+
+  it('applies the saved choice to a scope entered before the load resolved', async () => {
+    resetLayoutStoreForTests()
+    enterPanelScope('chat:/a')
+    expect(g().panelOpen).toBe(false)
+    loaded({ 'chat:/a': true }, 'files')
+    await loadLayout()
+    expect(g()).toMatchObject({ panelOpen: true, panelView: { kind: 'files' } })
+    // The saved choice decides, so the scope's first (empty) tab report no longer closes it.
+    reportScopeTabs('chat:/a', [])
+    expect(g().panelOpen).toBe(true)
+  })
+
+  it('a choice or tool picked before the load resolved wins over the saved one', async () => {
+    resetLayoutStoreForTests()
+    enterPanelScope('chat:/a')
+    showPanelTool('browser')
+    togglePanel(false)
+    loaded({ 'chat:/a': true, 'chat:/z': true }, 'files')
+    await loadLayout()
+    expect(g()).toMatchObject({ panelOpen: false, panelView: { kind: 'browser' } })
+    enterPanelScope('chat:/z')
+    expect(g().panelOpen).toBe(true)
   })
 })
 
@@ -189,6 +251,41 @@ describe('openPlace', () => {
 describe('panel per browser scope', () => {
   beforeEach(() => resetLayoutStoreForTests())
   const open = (): boolean => g().panelOpen
+  const saves = () => invoke.mock.calls.filter((c) => c[0] === 'layout.save').map((c) => c[1])
+
+  it('saves each choice and tool change to layout.json', () => {
+    invoke.mockClear()
+    enterPanelScope('A')
+    togglePanel(false)
+    showPanelTool('files')
+    panelTabCreated()
+    togglePanel(false)
+    panelTabCreated()
+    renamePanelScope('A', 'B')
+    expect(saves()).toEqual([
+      { panelChoices: { A: false } },
+      { panelChoices: { A: true }, panelTool: 'files' },
+      { panelTool: 'browser' },
+      { panelChoices: { A: false } },
+      { panelChoices: { A: true } },
+      { panelChoices: { A: null, B: true } },
+    ])
+  })
+
+  it('keeps only the most recent 200 choices', () => {
+    for (let i = 0; i < 205; i++) {
+      enterPanelScope(`s${i}`)
+      togglePanel(true)
+    }
+    enterPanelScope('s0')
+    togglePanel(false)
+    enterPanelScope('s5')
+    expect(open()).toBe(false)
+    enterPanelScope('s6')
+    expect(open()).toBe(true)
+    enterPanelScope('s0')
+    expect(open()).toBe(false)
+  })
 
   it('a never-toggled scope is open iff it has its own tabs', () => {
     enterPanelScope('chat:/a')

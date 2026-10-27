@@ -20,6 +20,7 @@ beforeEach(() => {
   invoke.mockResolvedValue({ ok: true, value: {} })
   resetLayoutStoreForTests()
   togglePanel(true)
+  invoke.mockClear()
   setWindowWidth(1280)
 })
 

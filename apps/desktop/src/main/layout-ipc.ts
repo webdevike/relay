@@ -1,4 +1,9 @@
-import { mergeLayout, readLayoutText, type LayoutPatch } from '@evaos/shell-core'
+import {
+  mergeLayout,
+  readLayoutText,
+  type LayoutPatch,
+  type PanelToolName,
+} from '@evaos/shell-core'
 import type { ConfigStore } from './config-store'
 import type { MainContext } from './context'
 import { handle } from './ipc/handle'
@@ -10,6 +15,8 @@ export function loadLayout(config: ConfigStore): {
   sidebarWidth: number
   panelWidth: number
   tabs: unknown
+  panelChoices: Record<string, boolean>
+  panelTool: PanelToolName
   reset: boolean
 } {
   const r = readLayoutText(config.readText(FILE))
@@ -17,6 +24,8 @@ export function loadLayout(config: ConfigStore): {
     sidebarWidth: r.sidebarWidth,
     panelWidth: r.panelWidth,
     tabs: r.tabs,
+    panelChoices: r.panelChoices,
+    panelTool: r.panelTool,
     reset: r.malformed,
   }
 }

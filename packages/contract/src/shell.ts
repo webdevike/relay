@@ -55,6 +55,7 @@ export const ChatSettingsSchema = z.object({
 export type ChatSettings = z.infer<typeof ChatSettingsSchema>
 
 const Empty = z.object({})
+const PanelToolSchema = z.enum(['browser', 'files'])
 
 export const shellInvoke = {
   'layout.load': {
@@ -63,6 +64,9 @@ export const shellInvoke = {
       sidebarWidth: z.number(),
       panelWidth: z.number(),
       tabs: z.unknown().nullable(),
+      /** Isaac's explicit panel open/close per browser scope, oldest first. */
+      panelChoices: z.record(z.string(), z.boolean()),
+      panelTool: PanelToolSchema,
       reset: z.boolean(),
     }),
   },
@@ -72,6 +76,12 @@ export const shellInvoke = {
         sidebarWidth: z.number().finite().optional(),
         panelWidth: z.number().finite().optional(),
         tabs: SavedTabsSchema.optional(),
+        /** Upserts per scope; null forgets the scope (a draft chat renamed to its session). */
+        panelChoices: z
+          .record(z.string().max(4096), z.boolean().nullable())
+          .refine((o) => Object.keys(o).length <= 200, 'too many scopes')
+          .optional(),
+        panelTool: PanelToolSchema.optional(),
       })
       .strict(),
     output: Empty,

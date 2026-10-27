@@ -2,6 +2,7 @@ import { notifications } from '@mantine/notifications'
 import { useStore } from 'zustand'
 import { createStore } from 'zustand/vanilla'
 import {
+  PANEL_CHOICES_MAX,
   PANEL_DEFAULT,
   PANEL_MIN,
   SIDEBAR_DEFAULT,
@@ -9,6 +10,7 @@ import {
   SIDEBAR_MIN,
   fit,
 } from '@evaos/shell-core'
+import type { InvokeInput } from '@evaos/contract'
 import { invoke } from '../ipc'
 import { registerAction } from '../hotkeys/router'
 
@@ -91,15 +93,29 @@ function initial(): LayoutState {
 
 export const layoutStore = createStore<LayoutState>(initial)
 
-/** Isaac's explicit open or close per browser scope, remembered for the app run. */
+/**
+ * Isaac's explicit open or close per browser scope, persisted to layout.json (panel_choices).
+ * Insertion order is recency: setting a scope moves it to the end; the oldest fall off the cap.
+ */
 const panelChoice = new Map<string, boolean>()
 /** Each scope's own (unpinned) browser tab ids, as last reported by the host. */
 const ownTabs = new Map<string, readonly string[]>()
 /** The scope in front has neither a choice nor known tabs yet; its first report decides. */
 let panelPending = false
-/** The tool Isaac picked last; scope changes and closed slides come back to it. */
+/** The tool Isaac picked last (persisted as panel_tool); scope changes and closed slides come back to it. */
 let tool: PanelTool = 'browser'
+/** Isaac picked a tool this run, so the one loaded from layout.json no longer applies. */
+let toolPicked = false
 const toolView = (): PanelView => (tool === 'files' ? FILES_VIEW : BROWSER_VIEW)
+
+function setChoice(scope: string, open: boolean): void {
+  panelChoice.delete(scope)
+  panelChoice.set(scope, open)
+  for (const old of panelChoice.keys()) {
+    if (panelChoice.size <= PANEL_CHOICES_MAX) break
+    panelChoice.delete(old)
+  }
+}
 
 function patch(p: Partial<Base> & { panelScope?: string; panelView?: PanelView }): void {
   layoutStore.setState((s) => {
@@ -127,9 +143,10 @@ export function toggleSidebar(on?: boolean): void {
 export function togglePanel(open?: boolean): void {
   const s = layoutStore.getState()
   const next = open ?? !s.panelOpen
-  panelChoice.set(s.panelScope, next)
+  setChoice(s.panelScope, next)
   panelPending = false
   patch({ panelOpen: next })
+  saveLayoutPatch({ panelChoices: { [s.panelScope]: next } })
 }
 
 /** Opens the panel on a subagent's transcript; the browser choice for the scope is untouched. */
@@ -147,10 +164,12 @@ export function openExperimentArmPanel(view: Omit<ExperimentArmView, 'kind'>): v
 /** Shows a panel tool (the Browser / Files tabs, Cmd+P), opening the panel in this scope. */
 export function showPanelTool(next: PanelTool): void {
   tool = next
+  toolPicked = true
   const s = layoutStore.getState()
-  panelChoice.set(s.panelScope, true)
+  setChoice(s.panelScope, true)
   panelPending = false
   patch({ panelOpen: true, panelView: toolView() })
+  saveLayoutPatch({ panelChoices: { [s.panelScope]: true }, panelTool: next })
 }
 
 /** Back to the panel's tool from a transient view, e.g. once a closed panel finished sliding out. */
@@ -179,10 +198,19 @@ export function enterPanelScope(scope: string): void {
 /** A tab opened in the scope in front (a link, the + button, a page's window.open). */
 export function panelTabCreated(): void {
   const scope = layoutStore.getState().panelScope
-  if (panelChoice.has(scope)) panelChoice.set(scope, true)
+  const reopened = panelChoice.get(scope) === false
+  if (reopened) setChoice(scope, true)
+  const toolChanged = tool !== 'browser'
   panelPending = false
   tool = 'browser'
+  toolPicked = true
   patch({ panelOpen: true, panelView: BROWSER_VIEW })
+  if (reopened || toolChanged) {
+    saveLayoutPatch({
+      ...(reopened ? { panelChoices: { [scope]: true } } : {}),
+      ...(toolChanged ? { panelTool: 'browser' as const } : {}),
+    })
+  }
 }
 
 /**
@@ -207,7 +235,10 @@ export function renamePanelScope(from: string, to: string): void {
   const own = ownTabs.get(from)
   panelChoice.delete(from)
   ownTabs.delete(from)
-  if (choice !== undefined) panelChoice.set(to, choice)
+  if (choice !== undefined) {
+    setChoice(to, choice)
+    saveLayoutPatch({ panelChoices: { [from]: null, [to]: choice } })
+  }
   if (own !== undefined) ownTabs.set(to, own)
   if (layoutStore.getState().panelScope === from) patch({ panelScope: to })
 }
@@ -225,7 +256,7 @@ export function previewWidth(edge: Edge, px: number): void {
   }
 }
 
-function saveLayoutPatch(p: { sidebarWidth: number } | { panelWidth: number }): void {
+function saveLayoutPatch(p: InvokeInput<'layout.save'>): void {
   void invoke('layout.save', p).then((r) => {
     if (!r.ok) console.warn('layout.save failed', r.error)
   })
@@ -255,6 +286,7 @@ export async function loadLayout(): Promise<void> {
   try {
     const r = await invoke('layout.load', {})
     if (!r.ok) return
+    applyPanelState(r.value.panelChoices, r.value.panelTool)
     patch({
       sidebarWidth: clampSidebar(r.value.sidebarWidth),
       panelWidth: Math.max(r.value.panelWidth, PANEL_MIN),
@@ -269,6 +301,24 @@ export async function loadLayout(): Promise<void> {
   }
 }
 
+/**
+ * Seeds the saved panel choices and tool. Scopes may have been entered (and toggled) before
+ * layout.json arrived: choices made this run win, and the scope in front follows its saved choice
+ * unless a transient view (a subagent, an experiment arm) is showing.
+ */
+function applyPanelState(saved: Record<string, boolean>, savedTool: PanelTool): void {
+  const thisRun = [...panelChoice]
+  panelChoice.clear()
+  for (const [scope, open] of Object.entries(saved)) setChoice(scope, open)
+  for (const [scope, open] of thisRun) setChoice(scope, open)
+  if (!toolPicked) tool = savedTool
+  const s = layoutStore.getState()
+  if (s.panelView.kind !== 'browser' && s.panelView.kind !== 'files') return
+  const choice = panelChoice.get(s.panelScope)
+  if (choice !== undefined) panelPending = false
+  patch({ panelOpen: choice ?? s.panelOpen, panelView: toolView() })
+}
+
 /** Test seam. */
 export function resetLayoutStoreForTests(): void {
   resetToastShown = false
@@ -276,6 +326,7 @@ export function resetLayoutStoreForTests(): void {
   ownTabs.clear()
   panelPending = false
   tool = 'browser'
+  toolPicked = false
   layoutStore.setState(initial(), true)
 }
 
