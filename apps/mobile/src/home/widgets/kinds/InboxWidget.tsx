@@ -1,6 +1,6 @@
 /**
- * Inbox widget, scoped like Home's Work | Personal switch. Small: how many sessions need the user
- * (red when any do) out of all of them. Medium: that count beside the top three sessions in inbox
+ * Inbox widget, scoped like Home's Work | Personal switch. Small: how many agent sessions there
+ * are, with how many need the user under it (red when any do). Medium: that count beside the top three sessions in inbox
  * order (needing the user first, then most recent), each with its status; a row opens that session.
  * Elsewhere a tap opens /agents.
  */
@@ -46,7 +46,6 @@ function SessionRow({ session, open, first }: { session: AgentSession; open: Wid
 }
 
 export function InboxWidget({ size, open, a11y }: WidgetBodyProps) {
-  const colors = useColors();
   const sessions = useAgentsStore((state) => state.sessions);
   const allOrder = useAgentsStore((state) => state.order);
   const profile = useSettingsStore((state) => state.ompProfile);
@@ -71,12 +70,12 @@ export function InboxWidget({ size, open, a11y }: WidgetBodyProps) {
       <WidgetNote text={note} />
     ) : (
       <View>
-        <WidgetFigure value={String(needing)} color={needing > 0 ? colors.danger : undefined} />
+        <WidgetFigure value={String(listed.length)} />
         <Text variant="caption" color="textMuted" numberOfLines={1}>
-          {needLine}
+          {listed.length === 1 ? "agent" : "agents"}
         </Text>
-        <Text variant="caption" color="textFaint" numberOfLines={1}>
-          of {countOf(listed.length, "session")}
+        <Text variant="caption" color={needing > 0 ? "danger" : "textFaint"} numberOfLines={1}>
+          {needing} {needLine}
         </Text>
       </View>
     );
