@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { randomBytes } from 'node:crypto'
 import { agentCatalog, type AgentResult, type AgentRunners } from '@evaos/contract'
 import type { MainContext } from '../context'
+import type { UpdateHandle } from '../update'
 import { emit, handle } from '../ipc/handle'
 import { createReplyRegistry } from '../quit-guard'
 import { removeControlFile, writeControlFile } from './control-file'
@@ -16,7 +17,7 @@ const CONFIRM_TIMEOUT_MS = 60_000
  * The agent control API (see server.ts): agents drive the app through the action registry in
  * @evaos/contract instead of CDP. Nothing here shows, raises or focuses the window.
  */
-export function registerAgentControl(ctx: MainContext): void {
+export function registerAgentControl(ctx: MainContext, update: UpdateHandle): void {
   const runs = createReplyRegistry()
   const confirms = createReplyRegistry()
   handle(ctx, 'agent.reply', ({ id, result }) => {
@@ -59,6 +60,9 @@ export function registerAgentControl(ctx: MainContext): void {
           bounds: b,
         },
         ...(r.value as object),
+        instance: ctx.env.instance,
+        build: ctx.env.build,
+        update: update.state(),
       }
     },
     'window.screenshot': async () => {
@@ -69,6 +73,7 @@ export function registerAgentControl(ctx: MainContext): void {
       setImmediate(() => app.quit())
       return { quitting: true }
     },
+    'update.offer': (params) => update.offer(params),
   }
 
   const token = randomBytes(32).toString('hex')

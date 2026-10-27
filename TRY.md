@@ -23,7 +23,7 @@ ditto "apps/desktop/release/mac-arm64/Relay.app" ~/"Applications/Relay.app"
 rm -rf ~/"Applications/EvaOS Electron.app"  # once, after the rename
 ```
 
-Dev mode, against fixtures and fake omp (safe): `pnpm dev`. Dev mode against real Eva and real omp: `pnpm dev:live`.
+Dev mode, against fixtures and fake omp (safe): `pnpm dev`. Dev mode against real Eva and real omp: `pnpm dev:live`. Both run as **Relay Dev** (own config dir, CDP 9340 for `dev:live`, `DEV` pill in the footer); the stable app Isaac uses runs from `work/evaos-electron-live` and is updated only by `bun .omp/tools/relay-desktop-deploy.ts` (see `apps/desktop/README.md`).
 
 Headless and test launches set `EVAOS_E2E=1` (background accessory app) and `EVAOS_HIDDEN_WINDOW=1` (transparent, click-through window) so nothing covers the screen.
 

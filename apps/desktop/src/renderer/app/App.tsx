@@ -16,6 +16,7 @@ import { startBoards } from '../boards/boards-store'
 import { startRooms } from '../rooms/rooms-store'
 import { Shell } from '../shell/Shell'
 import { startAgentControl } from '../agent/control'
+import { startUpdate } from '../update/update-store'
 
 export function App() {
   useEffect(() => {
@@ -34,6 +35,7 @@ export function App() {
     const stopBoards = startBoards()
     const stopRooms = startRooms()
     const stopAgent = startAgentControl()
+    const stopUpdate = startUpdate()
     return () => {
       stopRouter()
       stopQuit()
@@ -48,6 +50,7 @@ export function App() {
       stopBoards()
       stopRooms()
       stopAgent()
+      stopUpdate()
     }
   }, [])
   return (

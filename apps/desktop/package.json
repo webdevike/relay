@@ -5,7 +5,7 @@
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
-    "dev:live": "node -e \"console.warn('EVAOS LIVE MODE: real Eva root and real omp')\" && EVAOS_LIVE=1 EVAOS_EVA_ROOT=$HOME/Eva EVAOS_OMP_BIN=omp electron-vite dev",
+    "dev:live": "node -e \"console.warn('RELAY DEV (live data): real Eva root and real omp, config ~/Library/Application Support/Relay Dev, CDP 9340. The stable app is never touched.')\" && EVAOS_LIVE=1 EVAOS_EVA_ROOT=$HOME/Eva EVAOS_OMP_BIN=omp electron-vite dev",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "e2e": "electron-vite build && playwright test",

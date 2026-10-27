@@ -6,13 +6,42 @@ zod schema in `packages/contract`; main validates inputs, the renderer calls
 `invoke(channel, input)` and subscribes with `on(channel, cb)`.
 
 ```
-pnpm dev        # fixtures and fake omp (safe)
-pnpm dev:live   # real ~/Eva and real omp; CDP on 9339, agent control on
+pnpm dev        # Relay Dev: fixtures and fake omp (safe), temp config dir
+pnpm dev:live   # Relay Dev with real ~/Eva and real omp; CDP 9340, agent control on
 pnpm typecheck
 pnpm exec vitest run --project main|preload|renderer
 ```
 
 How to install a packaged copy is in `TRY.md` at the repo root.
+
+## Stable app and Relay Dev
+
+Exactly one copy is the **stable** app Isaac uses: `EVAOS_STABLE=1` (or a packaged build), run by
+a supervisor from the separate stable checkout `work/evaos-electron-live`. Every other copy
+(agent testing, `pnpm dev`, `pnpm dev:live`, e2e) is **Relay Dev**: app name and window title
+`Relay Dev`, a `DEV` pill in the footer (hover shows its config dir), its own config dir and CDP
+port. `src/main/env.ts` refuses to start Relay Dev on the stable config dir or port.
+
+|                  | stable                                        | Relay Dev (`EVAOS_LIVE=1`)                | Relay Dev (default)                |
+| ---------------- | --------------------------------------------- | ----------------------------------------- | ---------------------------------- |
+| config dir       | `~/Library/Application Support/Relay Desktop` | `~/Library/Application Support/Relay Dev` | `$TMPDIR/evaos-electron-dev-<pid>` |
+| CDP port         | 9339                                          | 9340                                      | off                                |
+| Relay phone link | `~/.config/relay`                             | only with `EVAOS_RELAY_DIR`               | off                                |
+| footer           | `stable · <EVAOS_BUILD>`                      | `DEV` pill                                | `DEV` pill                         |
+
+Agents test only in Relay Dev (`EVAOS_CONFIG_DIR` in `/tmp`, a CDP port other than 9339,
+`EVAOS_HIDDEN_WINDOW=1`), never against the stable app or port 9339. Hidden instances print
+fatal errors to stderr instead of opening a dialog.
+
+The stable app is updated only by `bun .omp/tools/relay-desktop-deploy.ts` (Eva repo). The deploy
+builds the stable checkout and runs the agent action `update.offer {summary, build}`; the app
+shows a persistent "Update ready" toast (Restart now / Later; after Later a footer chip offers the
+restart). Restart runs the normal quit path (unsaved edits still ask) and exits with code **75**,
+which is the only exit the supervisor relaunches. While an update is pending, the app restarts on
+its own once a minute check finds Isaac idle 15+ minutes between 23:00 and 07:59 with no chat it
+runs mid-reply (`src/main/update/policy.ts`). `EVAOS_SHOW_INACTIVE=1` (set by the supervisor)
+shows the relaunched window without taking focus. `state.read` reports `instance`, `build` and
+`update {pending, build, summary}`.
 
 ## Right panel
 

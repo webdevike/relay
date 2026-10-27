@@ -128,8 +128,39 @@ describe('contract', () => {
       e2e: true,
       launchCount: 1,
       version: '1',
+      instance: 'dev',
+      build: null,
     })
     expect(out.noMotion).toBe(false)
+  })
+
+  it('app.info says which instance this is and its build', () => {
+    const out = invokeContract['app.info'].output
+    const base = {
+      evaRoot: '/e',
+      configDir: '/c',
+      ompBin: 'omp',
+      sessionsDir: '/s',
+      live: true,
+      e2e: false,
+      launchCount: 1,
+      version: '1',
+    }
+    expect(out.safeParse({ ...base, instance: 'stable', build: 'abc1234' }).success).toBe(true)
+    expect(out.safeParse({ ...base, instance: 'live', build: null }).success).toBe(false)
+    expect(out.safeParse(base).success).toBe(false)
+  })
+
+  it('carries the pending update over update.state and update.changed', () => {
+    expect(INVOKE_CHANNELS).toEqual(expect.arrayContaining(['update.state', 'update.restart']))
+    expect(EVENT_CHANNELS).toContain('update.changed')
+    const s = eventContract['update.changed']
+    expect(s.safeParse({ pending: true, build: 'abc', summary: 'Faster chat list' }).success).toBe(
+      true,
+    )
+    expect(s.safeParse({ pending: false, build: null, summary: null }).success).toBe(true)
+    expect(s.safeParse({ pending: true, build: 'x'.repeat(65), summary: null }).success).toBe(false)
+    expect(invokeContract['update.restart'].input.safeParse({ now: true }).success).toBe(false)
   })
 
   it('eva and jobs inputs are strict and reject path-like ids', () => {

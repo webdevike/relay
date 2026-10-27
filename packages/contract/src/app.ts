@@ -10,6 +10,10 @@ export const AppInfoSchema = z.object({
   launchCount: z.number().int(),
   version: z.string(),
   noMotion: z.boolean().default(false),
+  /** `stable`: the copy Isaac uses (supervised, updated by deploys); `dev`: Relay Dev. */
+  instance: z.enum(['stable', 'dev']),
+  /** EVAOS_BUILD: the build id (short sha) of a deployed stable build; null when unset. */
+  build: z.string().max(64).nullable(),
 })
 export type AppInfo = z.infer<typeof AppInfoSchema>
 

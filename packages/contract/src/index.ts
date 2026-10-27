@@ -16,6 +16,7 @@ import { linearInvoke } from './linear'
 import { roomsEvents, roomsInvoke } from './rooms'
 import { filesEvents, filesInvoke } from './files'
 import { agentEvents, agentInvoke } from './agent'
+import { updateEvents, updateInvoke } from './update'
 export * from './experiments'
 export * from './canvas'
 export * from './usage'
@@ -27,6 +28,7 @@ export * from './rooms-roster'
 export * from './rooms-mentions'
 export * from './files'
 export * from './agent'
+export * from './update'
 
 export * from './result'
 export { AppInfoSchema, type AppInfo } from './app'
@@ -64,6 +66,7 @@ export const invokeContract = {
   ...roomsInvoke,
   ...filesInvoke,
   ...agentInvoke,
+  ...updateInvoke,
 }
 export const eventContract = {
   ...appEvents,
@@ -78,6 +81,7 @@ export const eventContract = {
   ...roomsEvents,
   ...filesEvents,
   ...agentEvents,
+  ...updateEvents,
 }
 
 export type InvokeChannel = keyof typeof invokeContract

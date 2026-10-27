@@ -17,7 +17,18 @@ export interface Env {
   sessionsDir: string
   arcExportCmd: string[] | null
   live: boolean
+  /**
+   * The one copy Isaac uses day to day: packaged, or EVAOS_STABLE=1 (the supervisor runs it from
+   * the stable checkout). Everything else is "Relay Dev" and can never touch the stable app's
+   * config folder or CDP port.
+   */
+  stable: boolean
+  instance: 'stable' | 'dev'
+  /** EVAOS_BUILD: the build id (short sha) shown in the footer and state.read; null when unset. */
+  build: string | null
   e2e: boolean
+  /** EVAOS_SHOW_INACTIVE=1: the window shows without taking focus (supervisor restarts). */
+  showInactive: boolean
   /** EVAOS_HIDDEN_WINDOW=1: transparent, click-through, never-active window (all test launches). */
   hiddenWindow: boolean
   noMotion: boolean
@@ -41,14 +52,16 @@ export interface Env {
   herdrBin: string | null
   /**
    * Relay's config folder (serve.json, devices.json) to connect to. EVAOS_RELAY_DIR wins (e2e
-   * points it at a fake host); live default `$XDG_CONFIG_HOME/relay` or `~/.config/relay`; null in
-   * dev and tests, where Relay is never connected.
+   * points it at a fake host); stable live default `$XDG_CONFIG_HOME/relay` or `~/.config/relay`
+   * (the phone-link identity belongs to the stable app); null in Relay Dev and tests, where
+   * Relay is never connected.
    */
   relayDir: string | null
   /**
    * Chrome DevTools Protocol port on 127.0.0.1 so Eva can drive the running app with Playwright.
-   * Live default 9339 (Arc 9222, eva-browser 9292, Slack 9333, Chrome 9444); EVAOS_CDP_PORT
-   * overrides, 0 turns it off; null in tests.
+   * Live default 9339 for the stable app and 9340 for Relay Dev (Arc 9222, eva-browser 9292,
+   * Slack 9333, Chrome 9444); EVAOS_CDP_PORT overrides, 0 turns it off; null in tests. Relay Dev
+   * may never take 9339.
    */
   cdpPort: number | null
   /**
@@ -128,9 +141,17 @@ function parseArcCmd(raw: string | undefined): string[] | null {
   throw new Error('EVAOS_ARC_EXPORT_CMD must be a JSON array of strings')
 }
 
+/** The stable app's config folder name under Application Support, and Relay Dev's. */
+export const STABLE_CONFIG_NAME = 'Relay Desktop'
+export const DEV_CONFIG_NAME = 'Relay Dev'
+export const STABLE_CDP_PORT = 9339
+export const DEV_CDP_PORT = 9340
+
 export function resolveEnv(input: ResolveEnvInput): Env {
   const { env, isPackaged, repoRoot, homedir, tmpdir, pid } = input
-  const live = isPackaged || env.EVAOS_LIVE === '1'
+  const stable = isPackaged || env.EVAOS_STABLE === '1'
+  // The stable app is always the live app; Relay Dev may opt into live data with EVAOS_LIVE=1.
+  const live = stable || env.EVAOS_LIVE === '1'
   const realRoot = path.join(homedir, 'Eva')
 
   const evaRoot = env.EVAOS_EVA_ROOT
@@ -165,7 +186,7 @@ export function resolveEnv(input: ResolveEnvInput): Env {
   const e2e = env.EVAOS_E2E === '1'
   const relayDir = env.EVAOS_RELAY_DIR
     ? env.EVAOS_RELAY_DIR
-    : live && !e2e
+    : live && stable && !e2e
       ? relayConfigDir(env, homedir)
       : null
 
@@ -177,16 +198,32 @@ export function resolveEnv(input: ResolveEnvInput): Env {
 
   // The app is "Relay"; its folder is "Relay Desktop" because Relay Host already owns "Relay".
   const supportDir = path.join(homedir, 'Library/Application Support')
+  const stableConfigDir = path.join(supportDir, STABLE_CONFIG_NAME)
   const configDir = env.EVAOS_CONFIG_DIR
     ? env.EVAOS_CONFIG_DIR
-    : live
-      ? path.join(supportDir, 'Relay Desktop')
-      : path.join(tmpdir, `evaos-electron-dev-${pid}`)
+    : stable
+      ? stableConfigDir
+      : live
+        ? path.join(supportDir, DEV_CONFIG_NAME)
+        : path.join(tmpdir, `evaos-electron-dev-${pid}`)
+  if (!stable && real(configDir) === real(stableConfigDir)) {
+    throw new Error(
+      `Refusing to use the stable app's config folder (${stableConfigDir}) from Relay Dev. Only the stable app (EVAOS_STABLE=1) runs there.`,
+    )
+  }
   // Builds named "EvaOS Electron" kept their state here; moved once into configDir at launch.
   const legacyConfigDir =
-    live && !env.EVAOS_CONFIG_DIR ? path.join(supportDir, 'EvaOS Electron') : null
+    stable && !env.EVAOS_CONFIG_DIR ? path.join(supportDir, 'EvaOS Electron') : null
 
-  const cdpPort = parseCdpPort(env.EVAOS_CDP_PORT, live && env.EVAOS_E2E !== '1')
+  const cdpPort = parseCdpPort(
+    env.EVAOS_CDP_PORT,
+    live && !e2e ? (stable ? STABLE_CDP_PORT : DEV_CDP_PORT) : null,
+  )
+  if (!stable && cdpPort === STABLE_CDP_PORT) {
+    throw new Error(
+      `Refusing CDP port ${STABLE_CDP_PORT} in Relay Dev: it belongs to the stable app. Use ${DEV_CDP_PORT} or another port.`,
+    )
+  }
 
   // Native EvaOS keeps boards under its config dir; the canvas skill writes them there.
   const nativeDir = path.join(supportDir, 'EvaOS')
@@ -265,7 +302,11 @@ export function resolveEnv(input: ResolveEnvInput): Env {
     sessionsDir,
     arcExportCmd: parseArcCmd(env.EVAOS_ARC_EXPORT_CMD),
     live,
+    stable,
+    instance: stable ? 'stable' : 'dev',
+    build: env.EVAOS_BUILD ? env.EVAOS_BUILD : null,
     e2e,
+    showInactive: env.EVAOS_SHOW_INACTIVE === '1',
     hiddenWindow: env.EVAOS_HIDDEN_WINDOW === '1',
     noMotion: env.EVAOS_NO_MOTION === '1',
     canvasDir,
@@ -294,8 +335,8 @@ export function sharedAgentDir(fromEnv: string | undefined, homedir: string): st
   return fromEnv
 }
 
-function parseCdpPort(raw: string | undefined, liveDefault: boolean): number | null {
-  if (raw === undefined || raw === '') return liveDefault ? 9339 : null
+function parseCdpPort(raw: string | undefined, fallback: number | null): number | null {
+  if (raw === undefined || raw === '') return fallback
   const port = Number(raw)
   if (!Number.isInteger(port) || port < 0 || port > 65535) {
     throw new Error(`EVAOS_CDP_PORT must be a port number, got ${raw}`)

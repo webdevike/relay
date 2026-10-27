@@ -67,6 +67,21 @@ describe('agent action registry', () => {
     )
   })
 
+  it('update.offer runs in main without confirm or focus and validates summary and build', () => {
+    const spec = agentActions['update.offer']
+    expect(spec.side).toBe('main')
+    expect(spec.focus).toBe('none')
+    expect(spec.destructive).toBe(false)
+    const p = spec.params
+    expect(p.safeParse({ summary: 'Faster list', build: 'abc1234' }).success).toBe(true)
+    expect(p.safeParse({ summary: '', build: 'abc' }).success).toBe(false)
+    expect(p.safeParse({ summary: 'x'.repeat(201), build: 'abc' }).success).toBe(false)
+    expect(p.safeParse({ summary: 'ok', build: '' }).success).toBe(false)
+    expect(p.safeParse({ summary: 'ok', build: 'x'.repeat(65) }).success).toBe(false)
+    expect(p.safeParse({ summary: 'ok', build: 'abc', extra: 1 }).success).toBe(false)
+    expect(agentCatalog().find((c) => c.id === 'update.offer')).toMatchObject({ side: 'main' })
+  })
+
   it('recognizes ids without trusting prototype keys', () => {
     expect(isAgentActionId('files.open')).toBe(true)
     expect(isAgentActionId('toString')).toBe(false)

@@ -33,23 +33,71 @@ describe('resolveEnv', () => {
     )
   })
 
-  it('uses the real root and profile dir when EVAOS_LIVE=1', () => {
+  it('uses the real root and the Relay Dev folder when EVAOS_LIVE=1 without EVAOS_STABLE', () => {
     const e = resolveEnv(base({ env: { EVAOS_LIVE: '1' } }))
     expect(e.live).toBe(true)
+    expect(e.stable).toBe(false)
+    expect(e.instance).toBe('dev')
     expect(e.evaRoot).toBe('/home/u/Eva')
-    expect(e.configDir).toBe('/home/u/Library/Application Support/Relay Desktop')
-    expect(e.legacyConfigDir).toBe('/home/u/Library/Application Support/EvaOS Electron')
+    expect(e.configDir).toBe('/home/u/Library/Application Support/Relay Dev')
+    expect(e.legacyConfigDir).toBeNull()
+    expect(e.relayDir).toBeNull()
     expect(e.sessionsDir).toBe('/home/u/.omp/agent/sessions/-Eva')
     expect(typeof e.ompBin).toBe('string')
     expect(e.ompProfilesDir).toBe('/home/u/.omp/profiles')
     expect(
       resolveEnv(base({ env: { EVAOS_LIVE: '1', EVAOS_OMP_PROFILES_DIR: '/p' } })).ompProfilesDir,
     ).toBe('/p')
+    expect(resolveEnv(base({ env: { EVAOS_LIVE: '1', EVAOS_RELAY_DIR: '/r' } })).relayDir).toBe(
+      '/r',
+    )
   })
 
-  it('treats a packaged app as live, with overrides still winning', () => {
+  it('EVAOS_STABLE=1 is the stable live app in the Relay Desktop folder', () => {
+    const e = resolveEnv(base({ env: { EVAOS_STABLE: '1' } }))
+    expect(e.live).toBe(true)
+    expect(e.stable).toBe(true)
+    expect(e.instance).toBe('stable')
+    expect(e.evaRoot).toBe('/home/u/Eva')
+    expect(e.configDir).toBe('/home/u/Library/Application Support/Relay Desktop')
+    expect(e.legacyConfigDir).toBe('/home/u/Library/Application Support/EvaOS Electron')
+    expect(e.relayDir).not.toBeNull()
+    expect(e.cdpPort).toBe(9339)
+  })
+
+  it('Relay Dev refuses the stable config folder and CDP port', () => {
+    const stableDir = '/home/u/Library/Application Support/Relay Desktop'
+    expect(() =>
+      resolveEnv(base({ env: { EVAOS_LIVE: '1', EVAOS_CONFIG_DIR: stableDir } })),
+    ).toThrow(/stable app's config folder/)
+    expect(() => resolveEnv(base({ env: { EVAOS_CONFIG_DIR: `${stableDir}/` } }))).toThrow(
+      /stable app's config folder/,
+    )
+    expect(() => resolveEnv(base({ env: { EVAOS_LIVE: '1', EVAOS_CDP_PORT: '9339' } }))).toThrow(
+      /9339/,
+    )
+    expect(() => resolveEnv(base({ env: { EVAOS_CDP_PORT: '9339' } }))).toThrow(/9339/)
+    const s = resolveEnv(
+      base({ env: { EVAOS_STABLE: '1', EVAOS_CONFIG_DIR: stableDir, EVAOS_CDP_PORT: '9339' } }),
+    )
+    expect(s.configDir).toBe(stableDir)
+    expect(s.cdpPort).toBe(9339)
+  })
+
+  it('reads the build id and show-inactive flag', () => {
+    const e = resolveEnv(base({ env: { EVAOS_BUILD: 'abc1234', EVAOS_SHOW_INACTIVE: '1' } }))
+    expect(e.build).toBe('abc1234')
+    expect(e.showInactive).toBe(true)
+    const d = resolveEnv(base())
+    expect(d.build).toBeNull()
+    expect(d.showInactive).toBe(false)
+    expect(d.instance).toBe('dev')
+  })
+
+  it('treats a packaged app as stable and live, with overrides still winning', () => {
     const e = resolveEnv(base({ isPackaged: true, env: { EVAOS_CONFIG_DIR: '/cfg' } }))
     expect(e.live).toBe(true)
+    expect(e.instance).toBe('stable')
     expect(e.evaRoot).toBe('/home/u/Eva')
     expect(e.configDir).toBe('/cfg')
     expect(e.legacyConfigDir).toBeNull()
@@ -109,8 +157,9 @@ describe('resolveEnv', () => {
     expect(resolveEnv(base()).noMotion).toBe(false)
   })
 
-  it('opens CDP on 9339 only for the live app, never in tests, and honors EVAOS_CDP_PORT', () => {
-    expect(resolveEnv(base({ env: { EVAOS_LIVE: '1' } })).cdpPort).toBe(9339)
+  it('opens CDP on 9339 for the stable app and 9340 for live Relay Dev, never in tests, and honors EVAOS_CDP_PORT', () => {
+    expect(resolveEnv(base({ env: { EVAOS_STABLE: '1' } })).cdpPort).toBe(9339)
+    expect(resolveEnv(base({ env: { EVAOS_LIVE: '1' } })).cdpPort).toBe(9340)
     expect(resolveEnv(base()).cdpPort).toBeNull()
     expect(resolveEnv(base({ env: { EVAOS_LIVE: '1', EVAOS_E2E: '1' } })).cdpPort).toBeNull()
     expect(resolveEnv(base({ env: { EVAOS_LIVE: '1', EVAOS_CDP_PORT: '0' } })).cdpPort).toBeNull()

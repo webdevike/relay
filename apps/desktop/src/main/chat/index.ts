@@ -26,6 +26,8 @@ export interface ChatHandles {
    * file that is not a session the list spans; null when it cannot be read.
    */
   placeOf(file: string): Place | null
+  /** A chat this app runs is mid-reply (a pending update's auto-restart waits for it). */
+  anyWorking(): boolean
 }
 
 const STATUS_COALESCE_MS = 30
@@ -141,5 +143,6 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
   return {
     onSessionsChanged: (cb) => watch.onChange(cb),
     placeOf: (file) => list.placeOf(resolveInsideSessionsDir(sessionsDirs, file)),
+    anyWorking: () => manager.anyWorking(),
   }
 }

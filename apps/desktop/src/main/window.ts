@@ -1,7 +1,8 @@
-import { BaseWindow, WebContentsView, dialog } from 'electron'
+import { BaseWindow, WebContentsView } from 'electron'
 import * as path from 'node:path'
 import type { Env } from './env'
-import { APP_NAME } from './app-name'
+import { appName } from './app-name'
+import { reportFatal } from './fatal'
 import { isAppUrl } from './app-url'
 import type { WindowState } from './window-state'
 
@@ -25,6 +26,9 @@ export function createMainWindow(
     show: false,
     backgroundColor,
   })
+  // titleBarStyle hides it, but Mission Control, the Window menu and screenshots show it.
+  const name = appName(env.instance)
+  win.setTitle(name)
   // maximize() would show the window before its page loads; both wait for the first show.
   win.once('show', () => {
     if (saved?.maximized) win.maximize()
@@ -63,14 +67,15 @@ export function createMainWindow(
     win.setIgnoreMouseEvents(true)
   }
   const show = (): void => {
-    if (env.hiddenWindow) win.showInactive()
+    // Hidden test runs and supervisor restarts never take focus from what Isaac is doing.
+    if (env.hiddenWindow || env.showInactive) win.showInactive()
     else win.show()
   }
   // Never leave an invisible process: a failed load shows the window and an error, and a
   // fallback timer shows it even if neither load event arrives.
   const reportLoadFailure = (detail: string): void => {
     if (!win.isDestroyed()) show()
-    dialog.showErrorBox(APP_NAME, `The interface failed to load.\n\n${detail}`)
+    reportFatal(env.hiddenWindow, name, `The interface failed to load.\n\n${detail}`)
   }
   shell.webContents.on('did-fail-load', (_e, code, description, _url, isMainFrame) => {
     if (!isMainFrame || code === -3) return // -3 is ERR_ABORTED (a superseded navigation)

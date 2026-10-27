@@ -15,6 +15,8 @@ export function registerAppIpc(ctx: MainContext): void {
       launchCount: state.launchCount ?? 0,
       version: app.getVersion(),
       noMotion: ctx.env.noMotion,
+      instance: ctx.env.instance,
+      build: ctx.env.build,
     }
   })
 }

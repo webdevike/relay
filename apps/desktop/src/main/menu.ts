@@ -1,11 +1,10 @@
 import { Menu, type MenuItemConstructorOptions } from 'electron'
-import { APP_NAME } from './app-name'
 
 /** App menu with no `close` role or Cmd+W accelerator: Cmd+W closes a browser tab instead. */
-export function installAppMenu(): void {
+export function installAppMenu(name: string): void {
   const template: MenuItemConstructorOptions[] = [
     {
-      label: APP_NAME,
+      label: name,
       submenu: [
         { role: 'about' },
         { type: 'separator' },

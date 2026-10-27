@@ -1,6 +1,7 @@
-import { app, dialog, screen } from 'electron'
+import { app, screen } from 'electron'
 import { join } from 'node:path'
-import { APP_NAME, moveLegacyConfig } from './app-name'
+import { UPDATE_RESTART_EXIT_CODE } from '@evaos/contract'
+import { APP_NAME, appName, moveLegacyConfig } from './app-name'
 import { createConfigStore } from './config-store'
 import type { MainContext } from './context'
 import { loadEnv } from './env'
@@ -31,18 +32,29 @@ import { registerLinearIpc } from './linear/linear-ipc'
 import { registerRoomsIpc } from './rooms/rooms-ipc'
 import { registerFilesIpc } from './files/files-ipc'
 import { registerAgentControl } from './agent-control'
+import { reportFatal } from './fatal'
+import { registerUpdate } from './update'
 
 function bootstrap(): void {
   let env
   try {
     env = loadEnv(app)
   } catch (e) {
-    dialog.showErrorBox(APP_NAME, e instanceof Error ? e.message : String(e))
+    // No env yet: read the hidden flag straight from the environment.
+    reportFatal(
+      process.env.EVAOS_HIDDEN_WINDOW === '1',
+      APP_NAME,
+      e instanceof Error ? e.message : String(e),
+    )
     app.exit(2)
     return
   }
 
-  app.setName(APP_NAME)
+  const name = appName(env.instance)
+  app.setName(name)
+  if (env.instance === 'dev') {
+    console.warn(`Relay Dev: config ${env.configDir}, CDP ${env.cdpPort ?? 'off'}`)
+  }
   moveLegacyConfig(env.legacyConfigDir, env.configDir)
   // Chromium profile, persist:browser and extension storage live under the config dir.
   app.setPath('userData', env.configDir)
@@ -68,7 +80,7 @@ function bootstrap(): void {
       if (process.platform === 'darwin' && !env.hiddenWindow) {
         app.dock?.setIcon(join(app.getAppPath(), 'resources/icon.png'))
       }
-      installAppMenu()
+      installAppMenu(name)
       const config = createConfigStore(env.configDir)
       const prev = config.readJson<{ launchCount?: number }>('app-state.json', {})
       config.writeJson('app-state.json', {
@@ -95,6 +107,9 @@ function bootstrap(): void {
       }
 
       const guard = installQuitGuard(ctx)
+      // 75 once Isaac (or the night-time auto-restart) restarts into a pending update; the
+      // supervisor relaunches the stable app on 75 only. Every other quit exits 0.
+      let exitCode = 0
       let quitting = false
       app.on('before-quit', (event) => {
         if (quitting || quitHooks.length === 0 || !guard.approved()) return
@@ -102,8 +117,26 @@ function bootstrap(): void {
         event.preventDefault()
         const all = Promise.allSettled(quitHooks.map((h) => h()))
         const cap = new Promise((r) => setTimeout(r, 12_000))
-        void Promise.race([all, cap]).finally(() => app.exit(0))
+        void Promise.race([all, cap]).finally(() => app.exit(exitCode))
       })
+      // A quit with no hooks ends without app.exit; carry the restart code through it too.
+      app.on('will-quit', (event) => {
+        if (exitCode === 0) return
+        event.preventDefault()
+        app.exit(exitCode)
+      })
+      let restarting = false
+      const restartForUpdate = (): void => {
+        if (restarting || quitting) return
+        restarting = true
+        // Unsaved edits ask first; Cancel keeps the app open and the update pending.
+        void guard.guardedClose().then((ok) => {
+          restarting = false
+          if (!ok) return
+          exitCode = UPDATE_RESTART_EXIT_CODE
+          app.quit()
+        })
+      }
 
       const queue = createWriteQueue()
       registerAppIpc(ctx)
@@ -123,11 +156,15 @@ function bootstrap(): void {
       registerRoomsIpc(ctx)
       registerFilesIpc(ctx, chat)
       registerBrowser(ctx)
-      registerAgentControl(ctx)
+      const update = registerUpdate(ctx, {
+        chatWorking: () => chat.anyWorking(),
+        restart: restartForUpdate,
+      })
+      registerAgentControl(ctx, update)
       installTestHooks(ctx)
     } catch (e) {
       // A half-started app (no window, no IPC) is worse than a clear failure.
-      dialog.showErrorBox(APP_NAME, e instanceof Error ? e.message : String(e))
+      reportFatal(env.hiddenWindow, name, e instanceof Error ? e.message : String(e))
       app.exit(2)
     }
   })

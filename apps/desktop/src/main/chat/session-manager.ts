@@ -308,6 +308,12 @@ export class SessionManager {
     return out
   }
 
+  /** Whether a pane with an omp process this app holds is mid-reply. */
+  anyWorking(): boolean {
+    for (const p of this.panes.values()) if (p.transport !== null && p.reducer.running) return true
+    return false
+  }
+
   liveStatus(file: string): LiveStatus | null {
     const owner = this.owners.get(this.real(file))
     if (!owner) return null
