@@ -407,7 +407,10 @@ export function AgentCard({ sessionId, messages, connected, status, activity, ac
           setViewing(null);
         }}
       />
-      <ToolTimelineSheet calls={timeline === null ? null : (grouped?.runs.get(timeline) ?? null)} onClose={() => { setTimeline(null); }} />
+      {timeline !== null && (
+        // Mounted on open with visible set, the pattern every working Sheet in the app uses.
+        <ToolTimelineSheet calls={grouped?.runs.get(timeline) ?? []} onClose={() => { setTimeline(null); }} />
+      )}
     </View>
   );
 }
