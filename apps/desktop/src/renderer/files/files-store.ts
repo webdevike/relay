@@ -129,11 +129,13 @@ export function setEditorBridge(b: EditorBridge | null): void {
 // Root resolution -------------------------------------------------------------------------
 
 let rootSeq = 0
+/** The chat whose Files panel shows the Eva root instead of its worktree (`showPath`). */
+let evaRootFor: string | null | undefined
 
 /** Points the panel at the chat's root (its worktree), or the Eva root without a chat. */
 export async function followChat(file: string | null): Promise<void> {
   const seq = ++rootSeq
-  const r = await invoke('files.root', { file })
+  const r = await invoke('files.root', { file: file === evaRootFor ? null : file })
   if (seq !== rootSeq || !r.ok) return
   const { root, name } = r.value
   if (!space(root)) {
@@ -172,6 +174,68 @@ export async function followChat(file: string | null): Promise<void> {
   if (space(root)?.children[''] === undefined) void loadDir(root, '')
   void refreshGit(root)
   syncWatch(root)
+}
+
+const within = (root: string, abs: string): boolean => abs === root || abs.startsWith(`${root}/`)
+
+export interface ShownPath {
+  root: string
+  /** Root-relative; '' is the root itself. */
+  path: string
+  kind: 'file' | 'dir'
+}
+
+/**
+ * Shows `target` (absolute, or relative to the Eva root) in the panel: a folder expands and is
+ * selected in the tree, a file opens pinned in the editor (at `line`). A path outside the chat's
+ * worktree switches this chat's panel to the Eva root; paths outside Eva fail `outside-eva`.
+ */
+export async function showPath(
+  target: string,
+  chatFile: string | null,
+  opts: { line?: number; column?: number } = {},
+): Promise<ShownPath> {
+  const eva = await invoke('files.root', { file: null })
+  if (!eva.ok) throw Object.assign(new Error(eva.error.message), { code: eva.error.code })
+  const evaRoot = eva.value.root
+  const abs = (target.startsWith('/') ? target : `${evaRoot}/${target}`)
+    .replace(/\/+$/, '')
+    .replace(/\/\.(?=\/|$)/g, '')
+  if (abs.split('/').includes('..')) {
+    throw Object.assign(new Error('Use a path without ..'), { code: 'invalid-path' })
+  }
+  let root = evaRoot
+  if (chatFile !== null) {
+    const chat = await invoke('files.root', { file: chatFile })
+    if (chat.ok && within(chat.value.root, abs)) root = chat.value.root
+  }
+  if (!within(root, abs)) {
+    throw Object.assign(new Error(`${abs} is outside the Eva root ${evaRoot}`), {
+      code: 'outside-eva',
+    })
+  }
+  evaRootFor = root === evaRoot && chatFile !== null ? chatFile : undefined
+  await followChat(chatFile)
+  // The tree's autoReveal effect runs for the new root first; reveal after it. (The renderer's
+  // lib is ES2023, without Promise.withResolvers.)
+  await new Promise<void>((r) => setTimeout(r, 50))
+  const rel = abs.slice(root.length + 1)
+  const listed = await invoke('files.list', { root, dir: rel })
+  if (!listed.ok && listed.error.code !== 'not-a-folder') {
+    throw Object.assign(new Error(listed.error.message), { code: listed.error.code })
+  }
+  const kind = listed.ok ? 'dir' : 'file'
+  filesStore.setState({ side: 'explorer', sideOpen: true })
+  if (kind === 'dir') {
+    if (rel !== '') {
+      revealInTree(root, rel)
+      setExpanded(root, rel, true)
+    }
+  } else {
+    openFile(root, rel, { pin: true, line: opts.line, column: opts.column })
+    revealInTree(root, rel)
+  }
+  return { root, path: rel, kind }
 }
 
 // Tree ------------------------------------------------------------------------------------
@@ -555,6 +619,7 @@ export function resetFilesStoreForTests(): void {
   for (const off of dirtyOff.values()) off()
   dirtyOff.clear()
   loadingDirs.clear()
+  evaRootFor = undefined
   filesStore.setState({
     root: null,
     spaces: {},

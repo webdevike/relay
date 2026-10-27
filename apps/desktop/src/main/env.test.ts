@@ -118,6 +118,15 @@ describe('resolveEnv', () => {
     expect(() => resolveEnv(base({ env: { EVAOS_CDP_PORT: 'x' } }))).toThrow(/EVAOS_CDP_PORT/)
   })
 
+  it('starts agent control for the live app only, unless EVAOS_AGENT_CONTROL says otherwise', () => {
+    expect(resolveEnv(base({ env: { EVAOS_LIVE: '1' } })).agentControl).toBe(true)
+    expect(resolveEnv(base()).agentControl).toBe(false)
+    expect(resolveEnv(base({ env: { EVAOS_AGENT_CONTROL: '1' } })).agentControl).toBe(true)
+    expect(
+      resolveEnv(base({ env: { EVAOS_LIVE: '1', EVAOS_AGENT_CONTROL: '0' } })).agentControl,
+    ).toBe(false)
+  })
+
   it('defaults agent dir and the Claude bridge to fixtures outside live mode', () => {
     const e = resolveEnv(base())
     expect(e.agentDir).toBe('/repo/fixtures/agent')

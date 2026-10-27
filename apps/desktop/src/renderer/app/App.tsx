@@ -15,6 +15,7 @@ import { startAssistants } from '../assistants/assistants-store'
 import { startBoards } from '../boards/boards-store'
 import { startRooms } from '../rooms/rooms-store'
 import { Shell } from '../shell/Shell'
+import { startAgentControl } from '../agent/control'
 
 export function App() {
   useEffect(() => {
@@ -32,6 +33,7 @@ export function App() {
     const stopAssistants = startAssistants()
     const stopBoards = startBoards()
     const stopRooms = startRooms()
+    const stopAgent = startAgentControl()
     return () => {
       stopRouter()
       stopQuit()
@@ -45,6 +47,7 @@ export function App() {
       stopAssistants()
       stopBoards()
       stopRooms()
+      stopAgent()
     }
   }, [])
   return (

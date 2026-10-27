@@ -52,6 +52,11 @@ export interface Env {
    */
   cdpPort: number | null
   /**
+   * The agent control API (main/agent-control) on a random 127.0.0.1 port, announced in
+   * `<configDir>/agent-control.json`. On for the live app; EVAOS_AGENT_CONTROL=1/0 overrides.
+   */
+  agentControl: boolean
+  /**
    * Canvas boards: shared content, not app config. EVAOS_CANVAS_DIR wins; live uses the folder
    * native EvaOS and the canvas skill use; otherwise `<configDir>/canvases`.
    */
@@ -269,6 +274,7 @@ export function resolveEnv(input: ResolveEnvInput): Env {
     nativeChatSettings,
     repoRoot,
     cdpPort,
+    agentControl: env.EVAOS_AGENT_CONTROL ? env.EVAOS_AGENT_CONTROL === '1' : live,
   }
 }
 

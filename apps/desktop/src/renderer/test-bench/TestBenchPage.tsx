@@ -23,6 +23,7 @@ import { invoke, on } from '../ipc'
 import { Markdown } from '../chat/markdown/Markdown'
 import { openExperimentArmPanel, useLayout } from '../shell/layout-store'
 import { STATUS_LABEL, duration, pct, primaryRate, tokenCount, usd } from './experiment-format'
+import { onExperimentRequest, takeExperimentRequest } from './bench-request'
 import './test-bench.css'
 
 const STATUS_ICON: Record<ExperimentStatus, Icon> = {
@@ -395,6 +396,12 @@ export function TestBenchPage(_props: { place: Place }) {
     setDetail(null)
     if (selected) void loadDetail(selected)
   }, [selected, loadDetail])
+
+  useEffect(() => {
+    const asked = takeExperimentRequest()
+    if (asked) setSelected(asked)
+    return onExperimentRequest(setSelected)
+  }, [])
 
   let body
   if (selected) {

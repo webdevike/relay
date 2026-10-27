@@ -12,6 +12,7 @@ import {
 } from './files-store'
 import { nameOf } from './tree-model'
 import { applyEvaTheme, languageFor, monaco } from './monaco-setup'
+import { focusHeld } from '../agent/focus-safety'
 
 type Model = monaco.editor.ITextModel
 
@@ -83,7 +84,7 @@ function applyReveal(editor: monaco.editor.IStandaloneCodeEditor, r: Reveal): vo
   )
   editor.setSelection(range)
   editor.revealRangeInCenterIfOutsideViewport(range, monaco.editor.ScrollType.Immediate)
-  editor.focus()
+  if (!focusHeld()) editor.focus()
 }
 
 export interface CodeEditorProps {
@@ -195,7 +196,7 @@ export function CodeEditor({ root, tab }: CodeEditorProps) {
       editor.setModel(model)
       const view = viewStates.get(key)
       if (view) editor.restoreViewState(view)
-      if (!quickOpen) editor.focus()
+      if (!quickOpen && !focusHeld()) editor.focus()
     }
   }, [root, tab.path, tab.loadId, tab.content.text, quickOpen])
 

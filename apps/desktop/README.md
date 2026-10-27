@@ -7,7 +7,7 @@ zod schema in `packages/contract`; main validates inputs, the renderer calls
 
 ```
 pnpm dev        # fixtures and fake omp (safe)
-pnpm dev:live   # real ~/Eva and real omp; CDP on 9339
+pnpm dev:live   # real ~/Eva and real omp; CDP on 9339, agent control on
 pnpm typecheck
 pnpm exec vitest run --project main|preload|renderer
 ```
@@ -48,3 +48,28 @@ A slim editor over one folder: the open chat's active worktree, else its cwd, el
 
 Not included on purpose: extensions, debugger, terminal, settings UI, file create/rename/delete,
 replace across files, a language server.
+
+## Agent control
+
+Agents drive the running app through one typed action registry, `agentActions` in
+`packages/contract/src/agent.ts`: each entry has a title, a zod params schema, its side (`main` or
+`renderer`), whether it replaces the main column (`focus: 'main'`) and whether it is destructive.
+Typecheck fails until the side implements a new entry (`src/main/agent-control/index.ts`,
+`src/renderer/agent/actions.ts`), so adding a UI action there makes it agent-callable.
+
+Main serves it over HTTP on 127.0.0.1 (random port; live default on, `EVAOS_AGENT_CONTROL=1|0`
+overrides) and writes `{port, token, url, pid}` to `<configDir>/agent-control.json` (0600; removed
+on quit). Every request needs a loopback peer, a loopback `Host` and `Authorization: Bearer
+<token>`.
+
+- `GET /actions`: the catalog, params as JSON Schema. `POST /actions/:id` with
+  `{params, confirm?}`. `GET /state`, `GET /screenshot` (PNG via `capturePage`, browser view
+  composited in).
+- **Focus**: nothing calls `show`/`focus` on the window. While Isaac types in the focused window,
+  `focus: 'main'` actions queue (HTTP 202, a toast with Run now) and run once the field loses
+  focus or the window blurs. Every action runs under a focus hold (`renderer/agent/focus-safety.ts`):
+  the Files editor skips its own `focus()`, and a text field that lost focus gets it back.
+- **Destructive** (`app.quit`, `chat.start`): 403 `confirm-required` without `confirm: true`;
+  with it, an Allow / Deny toast; no answer in 60 s is `denied`.
+
+Eva's client is `bun .omp/tools/relay-ctl.ts` in the Eva repo (`skill://relay-control`).

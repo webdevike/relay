@@ -29,6 +29,7 @@ import { registerUsageIpc } from './usage/usage-ipc'
 import { registerLinearIpc } from './linear/linear-ipc'
 import { registerRoomsIpc } from './rooms/rooms-ipc'
 import { registerFilesIpc } from './files/files-ipc'
+import { registerAgentControl } from './agent-control'
 
 function bootstrap(): void {
   let env
@@ -115,6 +116,7 @@ function bootstrap(): void {
       registerRoomsIpc(ctx)
       registerFilesIpc(ctx, chat)
       registerBrowser(ctx)
+      registerAgentControl(ctx)
       installTestHooks(ctx)
     } catch (e) {
       // A half-started app (no window, no IPC) is worse than a clear failure.
