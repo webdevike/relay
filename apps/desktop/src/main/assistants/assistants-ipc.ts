@@ -15,7 +15,7 @@ export function registerAssistantsIpc(
   ctx: MainContext,
   relay: RelayLink,
   sessionsDirs: readonly string[],
-): { refresh(): void; close(): void } {
+): { list(): Assistants; refresh(): void; close(): void } {
   const service = new AssistantsService({
     evaRoot: ctx.env.evaRoot,
     sessionsDirs,
@@ -50,6 +50,7 @@ export function registerAssistantsIpc(
   }
   const offRelay = relay.onChange(refresh)
   return {
+    list: () => service.list(),
     refresh,
     close: () => {
       offRelay()

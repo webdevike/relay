@@ -2,7 +2,7 @@ import * as path from 'node:path'
 import { watch } from 'chokidar'
 import type { MainContext } from '../context'
 import { emit, handle } from '../ipc/handle'
-import { createExperimentsService } from './experiments-service'
+import { createExperimentsService, type ExperimentsService } from './experiments-service'
 
 /** Files the viewer reads, relative to one experiment folder. */
 const WATCHED: Record<string, true> = {
@@ -74,8 +74,8 @@ export function startExperimentsWatch(
   }
 }
 
-/** Read-only view of `$EVA/work/experiments` for the Test Bench page. */
-export function registerExperimentsIpc(ctx: MainContext): void {
+/** Read-only view of `$EVA/work/experiments` for the Test Bench page; the service for other readers. */
+export function registerExperimentsIpc(ctx: MainContext): ExperimentsService {
   const root = path.join(ctx.env.evaRoot, 'work', 'experiments')
   const service = createExperimentsService(root)
   handle(ctx, 'experiments.list', () => service.list())
@@ -83,4 +83,5 @@ export function registerExperimentsIpc(ctx: MainContext): void {
   handle(ctx, 'experiments.cases', ({ id, arm }) => service.cases(id, arm))
   const watcher = startExperimentsWatch(root, (ids) => emit(ctx, 'experiments.changed', { ids }))
   ctx.onBeforeQuit(() => watcher.close())
+  return service
 }

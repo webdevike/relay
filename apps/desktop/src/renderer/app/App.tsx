@@ -17,6 +17,7 @@ import { startRooms } from '../rooms/rooms-store'
 import { Shell } from '../shell/Shell'
 import { startAgentControl } from '../agent/control'
 import { startUpdate } from '../update/update-store'
+import { startContext } from '../context/context-store'
 
 export function App() {
   useEffect(() => {
@@ -36,6 +37,7 @@ export function App() {
     const stopRooms = startRooms()
     const stopAgent = startAgentControl()
     const stopUpdate = startUpdate()
+    const stopContext = startContext()
     return () => {
       stopRouter()
       stopQuit()
@@ -51,6 +53,7 @@ export function App() {
       stopRooms()
       stopAgent()
       stopUpdate()
+      stopContext()
     }
   }, [])
   return (

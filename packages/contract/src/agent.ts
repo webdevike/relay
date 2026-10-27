@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { SwitchAppIdSchema, TabIdSchema } from './browser'
+import { ContextScopeSchema, PinIdSchema, PinRefSchema } from './context'
 
 /**
  * Agent control: every user-reachable action an agent (Eva, Nova, any omp session) may run in the
@@ -254,6 +255,42 @@ export const agentActions = {
       }),
     side: 'renderer',
     focus: 'main',
+    destructive: false,
+  },
+  'context.open': {
+    title: 'Open the context popover',
+    description:
+      'Opens the header popover left of the panel toggle: pins on top, then what is live in the chat or assistant thread in front (`scope: here`, the default) or everywhere (running jobs, Test Bench runs, every assistant). Returns what it shows.',
+    params: z.object({ scope: ContextScopeSchema.optional() }).strict(),
+    side: 'renderer',
+    focus: 'none',
+    destructive: false,
+  },
+  'context.read': {
+    title: 'Read the context popover',
+    description:
+      'What the context popover shows for the chat or thread in front, without opening it: its button label and dot, pins, sections and rows (each with its `pin` ref), quick actions and the jobs and Test Bench footer.',
+    params: z.object({ scope: ContextScopeSchema.optional() }).strict(),
+    side: 'renderer',
+    focus: 'none',
+    destructive: false,
+  },
+  'context.pin': {
+    title: 'Pin to the context popover',
+    description:
+      'Pins a PR (`{kind:"pr", repo:"owner/name", number}`), work item (`{kind:"item", key}`), Test Bench experiment (`{kind:"experiment", id}`), job (`{kind:"job", name}`) or chat or subagent transcript (`{kind:"session", file, title}`) to the top of the context popover in every chat. Pins persist across restarts.',
+    params: z.object({ ref: PinRefSchema }).strict(),
+    side: 'renderer',
+    focus: 'none',
+    destructive: false,
+  },
+  'context.unpin': {
+    title: 'Unpin from the context popover',
+    description:
+      'Removes a pin by id: `pr:<owner/name>#<number>`, `item:<key>`, `experiment:<id>`, `job:<name>` or `session:<file>`.',
+    params: z.object({ id: PinIdSchema }).strict(),
+    side: 'renderer',
+    focus: 'none',
     destructive: false,
   },
   'toast.show': {

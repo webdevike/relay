@@ -1,0 +1,354 @@
+/* Context popover: a labelled header button and flat rows with hairline dividers between groups. */
+.eva-ctx-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  position: relative;
+}
+.eva-ctx-btn[data-labelled='true'] {
+  width: auto;
+  padding: 0 9px 0 7px;
+}
+.eva-ctx-btn:hover,
+.eva-ctx-btn[data-open='true'] {
+  background: var(--eva-c-accent-background);
+}
+.eva-ctx-btn[data-open='true'] {
+  color: var(--eva-c-foreground);
+}
+.eva-ctx-btn-label {
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-medium);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.eva-ctx-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--eva-radius-round);
+}
+/* Icon-only: the dot rides the icon's corner, ringed in the header's color. */
+.eva-ctx-btn:not([data-labelled]) .eva-ctx-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 7px;
+  height: 7px;
+  box-shadow: 0 0 0 1.5px var(--eva-c-background);
+}
+.eva-ctx-dot[data-dot='needs'] {
+  background: var(--mantine-color-yellow-5);
+}
+.eva-ctx-dot[data-dot='failing'] {
+  background: var(--mantine-color-red-6);
+}
+.eva-ctx-dot[data-dot='running'] {
+  background: var(--mantine-color-blue-5);
+}
+
+.eva-ctx-pop {
+  display: flex;
+  flex-direction: column;
+  font-size: var(--eva-fz-body);
+  line-height: var(--eva-lh-label);
+  max-height: min(640px, calc(100vh - 120px));
+  overflow-y: auto;
+}
+.eva-ctx-scope {
+  margin-bottom: var(--eva-space-xs);
+}
+/* A hairline between groups, edge to edge of the dropdown. */
+.eva-ctx-section + .eva-ctx-section,
+.eva-ctx-section + .eva-ctx-actions,
+.eva-ctx-section + .eva-ctx-foot,
+.eva-ctx-empty + .eva-ctx-foot,
+.eva-ctx-empty + .eva-ctx-actions {
+  border-top: 1px solid var(--eva-c-border);
+  margin-left: calc(-1 * var(--eva-space-native-xs));
+  margin-right: calc(-1 * var(--eva-space-native-xs));
+  padding-left: var(--eva-space-native-xs);
+  padding-right: var(--eva-space-native-xs);
+}
+.eva-ctx-section + .eva-ctx-section {
+  margin-top: var(--eva-space-xs);
+  padding-top: var(--eva-space-xs);
+}
+.eva-ctx-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--eva-space-sm);
+  margin: 0;
+  padding: var(--eva-space-sm) var(--eva-space-sm) var(--eva-space-xs);
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-medium);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-ctx-head-meta {
+  font-weight: var(--eva-fw-regular);
+  font-variant-numeric: tabular-nums;
+}
+
+.eva-ctx-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-radius: var(--eva-radius-sm);
+}
+.eva-ctx-row:hover,
+.eva-ctx-row:focus-within {
+  background: var(--eva-c-accent-background);
+}
+.eva-ctx-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+  padding: 6px var(--eva-space-sm);
+  border-radius: var(--eva-radius-sm);
+  color: var(--eva-c-foreground);
+}
+.eva-ctx-row[data-two-line='true'] .eva-ctx-main {
+  align-items: flex-start;
+}
+.eva-ctx-main:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: -2px;
+}
+.eva-ctx-icon {
+  flex: none;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-ctx-icon[data-tone='success'] {
+  color: var(--eva-c-success);
+}
+.eva-ctx-icon[data-tone='danger'] {
+  color: var(--eva-c-danger);
+}
+.eva-ctx-icon[data-tone='warning'] {
+  color: var(--eva-c-warning);
+}
+.eva-ctx-icon[data-tone='info'] {
+  color: var(--mantine-color-blue-text);
+}
+.eva-ctx-icon[data-spin='true'] {
+  animation: eva-ctx-spin 1.2s linear infinite;
+}
+@keyframes eva-ctx-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .eva-ctx-icon[data-spin='true'] {
+    animation: none;
+  }
+}
+html[data-eva-motion='off'] .eva-ctx-icon[data-spin='true'] {
+  animation: none;
+}
+.eva-ctx-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.eva-ctx-title,
+.eva-ctx-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-ctx-row[data-two-line='true'] .eva-ctx-title {
+  font-weight: var(--eva-fw-medium);
+}
+.eva-ctx-title[data-mono='true'] {
+  font-family: var(--eva-font-code);
+  font-size: var(--eva-fz-label);
+}
+.eva-ctx-sub {
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-ctx-progress {
+  margin-top: var(--eva-space-xs);
+  max-width: 220px;
+}
+.eva-ctx-right {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 50%;
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+  white-space: nowrap;
+}
+.eva-ctx-num {
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.eva-ctx-diff {
+  display: inline-flex;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.eva-ctx-add {
+  color: var(--eva-c-success);
+}
+.eva-ctx-del {
+  color: var(--eva-c-danger);
+}
+.eva-ctx-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--eva-space-sm);
+  border-radius: var(--eva-radius-round);
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-medium);
+  line-height: 18px;
+  color: var(--eva-c-muted-foreground);
+  background: var(--eva-c-muted-background);
+}
+.eva-ctx-pill[data-tone='warning'] {
+  color: var(--eva-c-warning);
+  background: color-mix(in srgb, var(--mantine-color-yellow-filled) 14%, transparent);
+}
+.eva-ctx-pill[data-tone='success'] {
+  color: var(--eva-c-success);
+  background: color-mix(in srgb, var(--mantine-color-green-filled) 14%, transparent);
+}
+.eva-ctx-pill[data-tone='danger'] {
+  color: var(--eva-c-danger);
+  background: color-mix(in srgb, var(--mantine-color-red-filled) 14%, transparent);
+}
+.eva-ctx-pill[data-tone='info'] {
+  color: var(--mantine-color-blue-text);
+  background: color-mix(in srgb, var(--mantine-color-blue-filled) 14%, transparent);
+}
+
+/* Pin: hidden until the row is hovered or the pin itself has focus; it covers the right side. */
+.eva-ctx-pin {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0;
+  color: var(--eva-c-muted-foreground);
+  background: var(--eva-c-accent-background);
+}
+.eva-ctx-row[data-two-line='true'] .eva-ctx-pin {
+  top: 6px;
+  transform: none;
+}
+.eva-ctx-row:hover .eva-ctx-pin,
+.eva-ctx-pin:focus-visible,
+.eva-ctx-pin[data-loading='true'] {
+  opacity: 1;
+}
+.eva-ctx-row[data-pinnable='true']:hover .eva-ctx-right,
+.eva-ctx-row[data-pinnable='true']:focus-within .eva-ctx-right {
+  visibility: hidden;
+}
+.eva-ctx-pin:hover {
+  color: var(--eva-c-foreground);
+}
+
+.eva-ctx-empty {
+  margin: 0;
+  padding: var(--eva-space-sm);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+}
+
+.eva-ctx-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: var(--eva-space-sm);
+  padding-bottom: 2px;
+}
+.eva-ctx-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius-sm);
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-medium);
+  color: var(--eva-c-foreground);
+}
+.eva-ctx-action:hover {
+  border-color: var(--mantine-color-default-border-hover, var(--eva-c-muted-foreground));
+}
+.eva-ctx-action:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: 1px;
+}
+
+.eva-ctx-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--eva-space-md);
+  padding-top: var(--eva-space-xs);
+}
+.eva-ctx-foot-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 var(--eva-space-xs);
+  border-radius: var(--eva-radius-sm);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-ctx-foot-link:hover {
+  color: var(--eva-c-foreground);
+}
+.eva-ctx-foot-link:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: -2px;
+}
+
+/* In the chat header the button sits at the right edge, just left of the panel toggle. */
+.eva-chat-header .eva-ctx-btn {
+  margin-left: auto;
+}
+.eva-chat-header .eva-ctx-btn + .eva-chat-panel-toggle {
+  margin-left: 0;
+}
+
+/* UnstyledButton resets to the browser's 16px; rows use the app's body size. */
+.eva-ctx-main,
+.eva-ctx-foot-link,
+.eva-ctx-action {
+  font-family: var(--eva-font-ui);
+}
+.eva-ctx-main {
+  font-size: var(--eva-fz-body);
+  line-height: var(--eva-lh-label);
+}
+
+/* A long list scrolls under the scope switch, which stays put. */
+.eva-ctx-scope {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  box-shadow: 0 0 0 var(--eva-space-native-xs) var(--eva-c-popover-background);
+}
+
+/* In the scrolling column nothing shrinks: the list scrolls instead of squashing the switch. */
+.eva-ctx-pop > * {
+  flex-shrink: 0;
+}

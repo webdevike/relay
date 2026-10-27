@@ -35,6 +35,7 @@ import { registerFilesIpc } from './files/files-ipc'
 import { registerAgentControl } from './agent-control'
 import { reportFatal } from './fatal'
 import { registerUpdate } from './update'
+import { registerContext } from './context-popover'
 
 function bootstrap(): void {
   let env
@@ -147,7 +148,8 @@ function bootstrap(): void {
       registerSettingsIpc(ctx, queue)
       registerEvaIpc(ctx)
       const chat = registerChat(ctx, queue)
-      registerExperimentsIpc(ctx)
+      const experiments = registerExperimentsIpc(ctx)
+      registerContext(ctx, queue, chat, experiments)
       registerWidgetMedia(ctx)
       registerWidgetFrames()
       const evaWatch = startEvaWatch(ctx)

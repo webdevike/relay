@@ -1,6 +1,7 @@
 import './chat.css'
 import { ActionIcon, Tooltip } from '@mantine/core'
 import { IconLayoutSidebar, IconLayoutSidebarRight } from '@tabler/icons-react'
+import { ContextButton } from '../context/ContextButton'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChatLog } from './ChatLog'
 import { Composer, type ComposerHandle } from './Composer'
@@ -185,6 +186,8 @@ export function ChatPane() {
         ) : (
           <h2 className="eva-heading eva-chat-title">New chat</h2>
         )}
+        {/* An assistant's page has the main header, which carries the button already. */}
+        {agent === null ? <ContextButton /> : null}
         <Tooltip label={panelOpen ? 'Close panel' : 'Open panel'} position="bottom">
           <ActionIcon
             variant="subtle"

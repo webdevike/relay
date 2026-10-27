@@ -3,6 +3,7 @@ import { IconLayoutSidebar, IconLayoutSidebarRight } from '@tabler/icons-react'
 import { AgentCrumb } from '../assistants/AgentCrumb'
 import { agentIdOf } from '../assistants/assistants-store'
 import { useNamesVersion } from '../eva/names-store'
+import { ContextButton } from '../context/ContextButton'
 import { FOLDED_LABEL } from '../tabs/TabBar'
 import { tabTitle } from '../tabs/tab-meta'
 import { activePlace, useTabs } from '../tabs/tabs-store'
@@ -47,6 +48,7 @@ export function MainHeader() {
       ) : (
         <span className="eva-main-header-title">{tabTitle(place)}</span>
       )}
+      <ContextButton />
       <Tooltip
         label={
           <span className="eva-tip">

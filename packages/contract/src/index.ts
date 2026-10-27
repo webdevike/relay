@@ -18,6 +18,7 @@ import { roomsEvents, roomsInvoke } from './rooms'
 import { filesEvents, filesInvoke } from './files'
 import { agentEvents, agentInvoke } from './agent'
 import { updateEvents, updateInvoke } from './update'
+import { contextEvents, contextInvoke } from './context'
 export * from './experiments'
 export * from './canvas'
 export * from './usage'
@@ -31,6 +32,7 @@ export * from './rooms-mentions'
 export * from './files'
 export * from './agent'
 export * from './update'
+export * from './context'
 
 export * from './result'
 export { AppInfoSchema, type AppInfo } from './app'
@@ -70,6 +72,7 @@ export const invokeContract = {
   ...filesInvoke,
   ...agentInvoke,
   ...updateInvoke,
+  ...contextInvoke,
 }
 export const eventContract = {
   ...appEvents,
@@ -85,6 +88,7 @@ export const eventContract = {
   ...filesEvents,
   ...agentEvents,
   ...updateEvents,
+  ...contextEvents,
 }
 
 export type InvokeChannel = keyof typeof invokeContract

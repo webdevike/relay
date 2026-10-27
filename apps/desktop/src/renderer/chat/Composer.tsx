@@ -5,6 +5,7 @@ import { IconArrowUp, IconPlayerStopFilled, IconPlus } from '@tabler/icons-react
 import { invoke } from '../ipc'
 import { chatStore, useChatStore } from './chat-store'
 import { draftText, saveDraft, useDraftsLoaded } from './drafts'
+import { composerFillStore, takeComposerFill } from './composer-fill'
 import { WriterPrompt } from './WriterPrompt'
 import { ImageChips } from './composer/ImageChips'
 import { Toolbar } from './composer/Toolbar'
@@ -97,6 +98,7 @@ export function Composer({
   const dragDepth = useRef(0)
   const nextId = useRef(0)
   const picker = useRef<HTMLInputElement>(null)
+  const input = useRef<HTMLTextAreaElement>(null)
   /** A widget reply main asked to confirm (owned elsewhere): resent as-is on confirm. */
   const pendingReply = useRef<string | null>(null)
   const imagesRef = useRef(images)
@@ -149,6 +151,18 @@ export function Composer({
     },
     [],
   )
+
+  // Text another surface queued for this pane (Commit & push): appended for Isaac to send.
+  useEffect(() => {
+    const take = (): void => {
+      const fill = takeComposerFill(paneId)
+      if (fill === null) return
+      setText((cur) => (cur.trim() === '' ? fill : `${cur.trimEnd()}\n\n${fill}`))
+      input.current?.focus()
+    }
+    take()
+    return composerFillStore.subscribe(take)
+  }, [paneId])
 
   const abort = async (): Promise<void> => {
     await invoke('chat.abort', { paneId })
@@ -300,6 +314,7 @@ export function Composer({
         <ImageChips chips={images} onRemove={remove} />
         <Textarea
           autosize
+          ref={input}
           minRows={2}
           maxRows={8}
           className="eva-composer-field"

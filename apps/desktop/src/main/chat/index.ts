@@ -17,6 +17,8 @@ import { registerChatListIpc } from './chat-list-ipc'
 import { createSessionManager, registerLiveIpc } from './live-ipc'
 import { registerTranscriptIpc, resolveInsideSessionsDir } from './transcript-ipc'
 import type { Place } from '@evaos/chat-core/work'
+import type { Assistants } from '@evaos/contract'
+import type { RelaySession } from '../relay/feed'
 
 export interface ChatHandles {
   /** Subscribe to debounced batches of changed session paths; do not start a second watcher. */
@@ -28,6 +30,10 @@ export interface ChatHandles {
   placeOf(file: string): Place | null
   /** A chat this app runs is mid-reply (a pending update's auto-restart waits for it). */
   anyWorking(): boolean
+  /** The registry's assistants with their threads, as `assistants.list` gives them. */
+  assistants(): Assistants
+  /** Relay's sessions by id while connected, else null. */
+  relaySessions(): ReadonlyMap<string, RelaySession> | null
 }
 
 const STATUS_COALESCE_MS = 30
@@ -144,5 +150,7 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     onSessionsChanged: (cb) => watch.onChange(cb),
     placeOf: (file) => list.placeOf(resolveInsideSessionsDir(sessionsDirs, file)),
     anyWorking: () => manager.anyWorking(),
+    assistants: () => assistants.list(),
+    relaySessions: () => relay.sessions(),
   }
 }

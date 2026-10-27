@@ -1,5 +1,5 @@
 import { notifications } from '@mantine/notifications'
-import type { AgentRunners, ChatRow, Result } from '@evaos/contract'
+import { pinId, type AgentRunners, type ChatRow, type Result } from '@evaos/contract'
 import { pageFromKey, placeOf } from '@evaos/shell-core'
 import { invoke } from '../ipc'
 import { runAction } from '../hotkeys/router'
@@ -18,6 +18,13 @@ import { PANE_ID } from '../chat/open-chat'
 import { listStore } from '../chat/list/list-store'
 import { currentSpace, filesStore, showPath } from '../files/files-store'
 import { requestExperiment } from '../test-bench/bench-request'
+import {
+  contextStore,
+  pinContext,
+  queryFor,
+  refreshContext,
+  unpinContext,
+} from '../context/context-store'
 import { snapshotFocus } from './focus-safety'
 
 /** A failure with a stable code; main reports it as `{ ok: false, code, message }`. */
@@ -229,6 +236,25 @@ export const rendererActions: AgentRunners<'renderer'> = {
     navigateTo(placeOf('test-bench'))
     if (arm && label !== null) openExperimentArmPanel({ experiment, arm, label })
     return { page: 'test-bench', experiment, arm: arm ?? null }
+  },
+  'context.open': async ({ scope }) => {
+    contextStore.setState({ scope: scope ?? 'here', open: true })
+    const snap = await refreshContext()
+    if (!snap) fail('not-ready', 'The context popover could not load')
+    return snap
+  },
+  'context.read': async ({ scope }) => {
+    const s = contextStore.getState()
+    const here = activePlace(tabsStore.getState())
+    return value(await invoke('context.get', queryFor(here, scope ?? s.scope, s.open)))
+  },
+  'context.pin': async ({ ref }) => {
+    await pinContext(ref)
+    return { pinned: pinId(ref) }
+  },
+  'context.unpin': async ({ id }) => {
+    await unpinContext(id)
+    return { unpinned: id }
   },
   'toast.show': ({ message, title, color }) => {
     notifications.show({ title: title ?? 'Eva', message, color: color ?? 'blue' })
