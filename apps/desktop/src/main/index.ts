@@ -1,4 +1,4 @@
-import { app, dialog } from 'electron'
+import { app, dialog, screen } from 'electron'
 import { join } from 'node:path'
 import { APP_NAME, moveLegacyConfig } from './app-name'
 import { createConfigStore } from './config-store'
@@ -18,7 +18,8 @@ import { installAppMenu } from './menu'
 import { installWriteGuard } from './eva/write-guard'
 import { startEvaWatch } from './eva/watch'
 import { installTestHooks } from './test-hooks'
-import { createMainWindow } from './window'
+import { WINDOW_MIN, createMainWindow } from './window'
+import { WINDOW_STATE_FILE, restorableWindow, trackWindowState } from './window-state'
 import { registerExperimentsIpc } from './experiments/experiments-ipc'
 import {
   registerWidgetFrames,
@@ -75,7 +76,13 @@ function bootstrap(): void {
         lastLaunch: new Date().toISOString(),
       })
 
-      const { win, shell } = createMainWindow(env, readLastBackground(config))
+      const savedWindow = restorableWindow(
+        config.readJson<unknown>(WINDOW_STATE_FILE, null),
+        screen.getAllDisplays().map((d) => d.workArea),
+        WINDOW_MIN,
+      )
+      const { win, shell } = createMainWindow(env, readLastBackground(config), savedWindow)
+      trackWindowState(win, config)
       const quitHooks: Array<() => Promise<void>> = []
       const ctx: MainContext = {
         env,

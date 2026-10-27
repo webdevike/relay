@@ -3,23 +3,32 @@ import * as path from 'node:path'
 import type { Env } from './env'
 import { APP_NAME } from './app-name'
 import { isAppUrl } from './app-url'
+import type { WindowState } from './window-state'
 
 export { isAppUrl }
 
 const rendererDir = path.join(__dirname, '../renderer')
 
+export const WINDOW_MIN = { width: 760, height: 720 }
+
+/** `saved` is the last run's window (window-state.ts), already checked against the displays. */
 export function createMainWindow(
   env: Env,
   backgroundColor = '#181817',
+  saved: WindowState | null = null,
 ): { win: BaseWindow; shell: WebContentsView } {
   const win = new BaseWindow({
-    width: 1280,
-    height: 800,
-    minWidth: 760,
-    minHeight: 720,
+    ...(saved ? saved.bounds : { width: 1280, height: 800 }),
+    minWidth: WINDOW_MIN.width,
+    minHeight: WINDOW_MIN.height,
     titleBarStyle: 'hiddenInset',
     show: false,
     backgroundColor,
+  })
+  // maximize() would show the window before its page loads; both wait for the first show.
+  win.once('show', () => {
+    if (saved?.maximized) win.maximize()
+    if (saved?.fullScreen) win.setFullScreen(true)
   })
 
   const shell = new WebContentsView({
