@@ -12,6 +12,8 @@ export const SavedPlaceSchema = z
 
 export const SavedTabSchema = z
   .object({
+    /** Kept across restarts so per-tab state (`draft:<id>` scopes, composer drafts) finds its tab. */
+    id: z.number().int().min(0).optional(),
     here: SavedPlaceSchema,
     back: z.array(SavedPlaceSchema).max(50),
     forward: z.array(SavedPlaceSchema).max(50),
@@ -22,6 +24,8 @@ export const SavedTabSchema = z
 export const SavedTabsSchema = z.object({
   active: z.number().int().min(0),
   list: z.array(SavedTabSchema).max(100),
+  /** The next new tab's id, so a closed tab's id is never reused after a restart. */
+  nextId: z.number().int().min(0).optional(),
 })
 export type SavedTabs = z.infer<typeof SavedTabsSchema>
 

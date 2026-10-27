@@ -11,6 +11,7 @@ import { registerChat } from './chat'
 import { registerEvaIpc } from './eva-ipc'
 import { registerCanvasIpc } from './canvas/canvas-ipc'
 import { registerLayoutIpc } from './layout-ipc'
+import { registerDraftsIpc } from './drafts-ipc'
 import { installQuitGuard } from './quit-guard'
 import { registerSettingsIpc } from './settings-ipc'
 import { readLastBackground, registerThemeIpc } from './theme-ipc'
@@ -141,6 +142,7 @@ function bootstrap(): void {
       const queue = createWriteQueue()
       registerAppIpc(ctx)
       registerLayoutIpc(ctx, queue)
+      registerDraftsIpc(ctx)
       registerThemeIpc(ctx, queue)
       registerSettingsIpc(ctx, queue)
       registerEvaIpc(ctx)

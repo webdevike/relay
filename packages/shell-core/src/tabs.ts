@@ -35,11 +35,18 @@ export interface Tabs {
 
 export interface SavedTabs {
   active: number
-  list: Array<{ here: PlaceJson; back: PlaceJson[]; forward: PlaceJson[]; pinned: boolean }>
+  list: Array<{
+    id: number
+    here: PlaceJson
+    back: PlaceJson[]
+    forward: PlaceJson[]
+    pinned: boolean
+  }>
+  nextId: number
 }
 
-export function createTabs(list: Tab[], active: number): Tabs {
-  const nextId = list.reduce((max, tab) => Math.max(max, tab.id + 1), 0)
+export function createTabs(list: Tab[], active: number, minNextId = 0): Tabs {
+  const nextId = list.reduce((max, tab) => Math.max(max, tab.id + 1), minNextId)
   const clamped = Math.max(0, Math.min(active, list.length - 1))
   const activeId = list[clamped]?.id
   // Stable sort: pinned tabs first, whatever order they were saved in.
@@ -86,32 +93,48 @@ function placesFrom(value: unknown): Place[] {
   return out.length > HISTORY ? out.slice(out.length - HISTORY) : out
 }
 
-/** Never throws, whatever the saved value is. */
+const isId = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0
+
+/**
+ * Never throws, whatever the saved value is. Saved tab ids are kept when every tab has a distinct
+ * one (older files have none: tabs are then numbered by position).
+ */
 export function loadTabs(saved: unknown): Tabs {
   const root = typeof saved === 'object' && saved !== null ? (saved as Record<string, unknown>) : {}
-  const list: Tab[] = []
+  const kept: Array<{ tab: Tab; savedIx: number; savedId: unknown }> = []
   if (Array.isArray(root.list)) {
     root.list.forEach((raw, ix) => {
       if (typeof raw !== 'object' || raw === null) return
       const entry = raw as Record<string, unknown>
       const here = placeFromJson(entry.here)
       if (!here) return
-      list.push({
-        id: ix,
-        here,
-        back: placesFrom(entry.back),
-        forward: placesFrom(entry.forward),
-        pinned: entry.pinned === true,
+      kept.push({
+        tab: {
+          id: ix,
+          here,
+          back: placesFrom(entry.back),
+          forward: placesFrom(entry.forward),
+          pinned: entry.pinned === true,
+        },
+        savedIx: ix,
+        savedId: entry.id,
       })
     })
   }
-  if (list.length === 0) return defaultTabs()
+  if (kept.length === 0) return defaultTabs()
+  const ids = kept.map((k) => k.savedId)
+  const ownIds = ids.every(isId) && new Set(ids).size === ids.length
+  const list = kept.map((k) => (ownIds ? { ...k.tab, id: k.savedId as number } : k.tab))
   const active =
     typeof root.active === 'number' && Number.isFinite(root.active) && root.active >= 0
       ? Math.floor(root.active)
       : 0
-  const activeIndex = list.findIndex((tab) => tab.id === active)
-  return createTabs(list, activeIndex < 0 ? Math.min(active, list.length - 1) : activeIndex)
+  const activeIndex = kept.findIndex((k) => k.savedIx === active)
+  return createTabs(
+    list,
+    activeIndex < 0 ? Math.min(active, list.length - 1) : activeIndex,
+    ownIds && isId(root.nextId) ? root.nextId : 0,
+  )
 }
 
 /** Bounds mirror the contract's SavedTabsSchema so a save is never rejected for size. */
@@ -123,11 +146,13 @@ export function saveTabs(tabs: Tabs): SavedTabs {
   return {
     active: Math.max(0, Math.min(tabs.active, list.length - 1)),
     list: list.map((t) => ({
+      id: t.id,
       here: placeToJson(t.here),
       back: t.back.slice(-MAX_SAVED_HISTORY).map(placeToJson),
       forward: t.forward.slice(0, MAX_SAVED_HISTORY).map(placeToJson),
       pinned: t.pinned,
     })),
+    nextId: tabs.nextId,
   }
 }
 

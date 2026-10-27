@@ -59,7 +59,7 @@ export const agentActions = {
   'state.read': {
     title: 'Read state',
     description:
-      'What is on screen: the window (focused or not), the page and app tabs, the open chat, the side panel and its view, browser tabs, the Files panel, and a text summary of the main column and panel.',
+      'What is on screen: the window (focused or not), the page and app tabs, the open chat (with its unsent composer draft), the side panel and its view, browser tabs, the Files panel, and a text summary of the main column and panel.',
     params: Empty,
     side: 'main',
     focus: 'none',

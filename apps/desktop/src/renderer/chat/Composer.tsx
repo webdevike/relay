@@ -4,6 +4,7 @@ import { ActionIcon, Textarea } from '@mantine/core'
 import { IconArrowUp, IconPlayerStopFilled, IconPlus } from '@tabler/icons-react'
 import { invoke } from '../ipc'
 import { chatStore, useChatStore } from './chat-store'
+import { draftText, saveDraft, useDraftsLoaded } from './drafts'
 import { WriterPrompt } from './WriterPrompt'
 import { ImageChips } from './composer/ImageChips'
 import { Toolbar } from './composer/Toolbar'
@@ -35,21 +36,58 @@ export interface ComposerHandle {
   sendReply(text: string): void
 }
 
+/** The text box's content and the draft key it belongs to (undefined until drafts load). */
+interface Box {
+  key: string | null | undefined
+  text: string
+  /** A new chat's draft key the text moved from when omp named its session file. */
+  movedFrom?: string
+}
+
 /**
  * Composer: Enter sends (a send while a reply runs is a steer), Shift+Enter inserts a newline.
  * Stop and Escape abort the running turn. Images arrive by paste, drop or the attach button.
  * Widget replies go through the same send (`ref.sendReply`) without touching the draft.
+ * The unsent text is saved per `draftKey` (drafts.ts) and comes back when that chat shows again,
+ * after a restart too, without moving focus. Attached images are not saved.
  */
 export function Composer({
   paneId,
   disabled,
+  draftKey = null,
   ref,
 }: {
   paneId: string
   disabled: boolean
+  /** Where the unsent text is saved (draftKeyFor); null keeps it unsaved. */
+  draftKey?: string | null
   ref?: Ref<ComposerHandle>
 }) {
-  const [text, setText] = useState('')
+  const loaded = useDraftsLoaded()
+  const key = loaded ? draftKey : undefined
+  const boundTo = useChatStore((s) => s.panes[paneId]?.boundTo ?? null)
+  const [box, setBox] = useState<Box>(() => ({ key, text: key ? draftText(key) : '' }))
+  if (box.key !== key) {
+    // Another chat shows: its saved draft replaces the text. Text typed before drafts loaded
+    // stays, and so does a new chat's text when omp gives it a session file.
+    const keep =
+      (box.key === undefined && box.text !== '') ||
+      (typeof box.key === 'string' && box.key.startsWith('draft:') && key === boundTo)
+    setBox(
+      keep
+        ? { key, text: box.text, ...(box.key ? { movedFrom: box.key } : {}) }
+        : { key, text: key ? draftText(key) : '' },
+    )
+  }
+  useEffect(() => {
+    if (box.movedFrom) saveDraft(box.movedFrom, '')
+    if (box.key) saveDraft(box.key, box.text)
+  }, [box])
+  const boxRef = useRef(box)
+  boxRef.current = box
+  const text = box.text
+  const setText = (next: string | ((cur: string) => string)): void =>
+    setBox((b) => ({ key: b.key, text: typeof next === 'function' ? next(b.text) : next }))
   const [images, setImages] = useState<Attached[]>([])
   const [notice, setNotice] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
@@ -168,7 +206,9 @@ export function Composer({
     const value = (draft ? text : reply).trim()
     const sending = draft ? images : []
     if ((value === '' && sending.length === 0) || disabled) return
+    const sentKey = box.key
     if (draft) {
+      // Clears the saved draft too (the save effect sees the empty text).
       setText('')
       setImages([])
     }
@@ -188,8 +228,10 @@ export function Composer({
       for (const img of sending) URL.revokeObjectURL(img.previewUrl)
     } else {
       if (draft) {
-        // Give the prompt back unless something new was typed meanwhile.
-        setText((current) => (current === '' ? value : current))
+        // Give the prompt back unless something new was typed meanwhile. Another chat showing
+        // by now gets nothing: the prompt goes back to its own chat's saved draft.
+        if (boxRef.current.key === sentKey) setText((current) => (current === '' ? value : current))
+        else if (sentKey && draftText(sentKey) === '') saveDraft(sentKey, value)
         setImages((current) => [...sending, ...current])
       }
       if (r.error.code === 'owned-elsewhere') {

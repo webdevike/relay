@@ -12,6 +12,7 @@ import { canvasEvents, canvasInvoke } from './canvas'
 import { usageEvents, usageInvoke } from './usage'
 import { assistantsEvents, assistantsInvoke } from './assistants'
 import { boardsEvents, boardsInvoke } from './boards'
+import { draftsInvoke } from './drafts'
 import { linearInvoke } from './linear'
 import { roomsEvents, roomsInvoke } from './rooms'
 import { filesEvents, filesInvoke } from './files'
@@ -22,6 +23,7 @@ export * from './canvas'
 export * from './usage'
 export * from './assistants'
 export * from './boards'
+export * from './drafts'
 export * from './linear'
 export * from './rooms'
 export * from './rooms-roster'
@@ -63,6 +65,7 @@ export const invokeContract = {
   ...usageInvoke,
   ...assistantsInvoke,
   ...boardsInvoke,
+  ...draftsInvoke,
   ...roomsInvoke,
   ...filesInvoke,
   ...agentInvoke,

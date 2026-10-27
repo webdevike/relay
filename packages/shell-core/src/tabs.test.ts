@@ -166,7 +166,38 @@ describe('tabs', () => {
         { here: place('chat', { chat: 'draft' }), back: [], forward: [], pinned: false },
       ],
     }
-    expect(saveTabs(loadTabs(fixture))).toEqual(fixture)
+    // A file without ids numbers the tabs by position; the save then carries them.
+    const saved = saveTabs(loadTabs(fixture))
+    expect(saved).toEqual({
+      ...fixture,
+      list: fixture.list.map((t, id) => ({ id, ...t })),
+      nextId: 2,
+    })
+    expect(saveTabs(loadTabs(saved))).toEqual(saved)
+  })
+
+  it('keeps tab ids and the next id across a save and load', () => {
+    let tabs = openNewChat(openNewChat(openNewChat(defaultTabs())))
+    tabs = closeTab(tabs, tabs.list[1].id)
+    tabs = closeTab(tabs, tabs.list[tabs.list.length - 1].id)
+    const before = tabs.list.map((t) => t.id)
+    expect(before).toEqual([0, 2])
+    const again = loadTabs(saveTabs(tabs))
+    expect(again.list.map((t) => t.id)).toEqual(before)
+    expect(again.active).toBe(tabs.active)
+    // A closed tab's id (3) is never handed out again.
+    expect(activeTab(openNewChat(again)).id).toBe(4)
+  })
+
+  it('numbers tabs by position when saved ids repeat or are missing', () => {
+    const here = { page: 'jobs' }
+    const dup = loadTabs({ active: 1, list: [{ id: 5, here }, { id: 5, here }], nextId: 9 })
+    expect(dup.list.map((t) => t.id)).toEqual([0, 1])
+    expect(dup.nextId).toBe(2)
+    expect(dup.active).toBe(1)
+    expect(loadTabs({ active: 0, list: [{ id: 7, here }, { here }] }).list.map((t) => t.id)).toEqual(
+      [0, 1],
+    )
   })
 
   it('drops removed pages from tabs and history while preserving the active supported tab', () => {

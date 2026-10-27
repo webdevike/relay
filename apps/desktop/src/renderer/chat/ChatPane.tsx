@@ -22,6 +22,7 @@ import {
 } from '../tabs/tabs-store'
 import { renameBrowserScope } from '../browser/browser-scope'
 import { openChatFile, openDraftPane, PANE_ID } from './open-chat'
+import { draftKeyFor, loadDrafts } from './drafts'
 import { openSubagentPanel, togglePanel, toggleSidebar, useLayout } from '../shell/layout-store'
 import { setChatTitle } from '../eva/names-store'
 import { AgentCrumb } from '../assistants/AgentCrumb'
@@ -72,6 +73,9 @@ export function ChatPane() {
     return a?.status === 'working' ? a.title : null
   })
   const placeChat = place.page === 'chat' ? place.chat : thread
+  const appTab = useTabs(activeTabId)
+  const draftKey = draftKeyFor(pane, placeChat, browserScope(placeOf('chat'), appTab))
+  useEffect(() => void loadDrafts(), [])
 
   const hiddenDone = useChatStore((s) => s.hiddenDone)
   const hiddenNames = useMemo(() => {
@@ -238,7 +242,7 @@ export function ChatPane() {
       <PendingDialog paneId={PANE_ID} />
       {pane ? <JobsStrip running={pane.extras.running} jobs={pane.extras.jobs} /> : null}
       <StatusStrip paneId={PANE_ID} />
-      <Composer ref={composer} paneId={PANE_ID} disabled={!pane} />
+      <Composer ref={composer} paneId={PANE_ID} disabled={!pane} draftKey={draftKey} />
     </main>
   )
 }

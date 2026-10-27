@@ -86,14 +86,21 @@ export async function readState(): Promise<Record<string, unknown>> {
       canvas: here.canvas,
       meeting: here.meeting,
     },
-    tabs: tabs.list.map((t) => ({
+    tabs: tabs.list.map((t, i) => ({
       id: t.id,
       page: t.here.page,
       title: tabTitle(t.here),
       pinned: t.pinned,
-      active: t.id === tabs.active,
+      active: i === tabs.active,
     })),
-    chat: pane ? { file: pane.file || null, title: pane.title, running: pane.running } : null,
+    chat: pane
+      ? {
+          file: pane.file || null,
+          title: pane.title,
+          running: pane.running,
+          draft: composerText(),
+        }
+      : null,
     panel: { open: layout.panelOpen, view: layout.panelView, scope: layout.panelScope },
     browser: browser.ok ? browser.value : null,
     files: space
@@ -117,6 +124,12 @@ function describe(el: Element | null): string | null {
   if (!el || el === document.body) return null
   const id = el.getAttribute('data-testid') ?? el.getAttribute('aria-label') ?? el.className
   return `${el.tagName.toLowerCase()}${id ? ` ${String(id).slice(0, 80)}` : ''}`
+}
+
+/** The chat composer's unsent text as shown, or null when no composer is on screen. */
+function composerText(): string | null {
+  const box = document.querySelector('[data-testid=composer-input]')
+  return box instanceof HTMLTextAreaElement ? box.value : null
 }
 
 export const rendererActions: AgentRunners<'renderer'> = {
