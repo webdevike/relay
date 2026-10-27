@@ -36,7 +36,7 @@ Requirements for the parity milestone. Each maps to roadmap phases. The source o
 - [x] **BROW-03**: User can open multiple browser subtabs with + and close them; each is its own WebContentsView
 - [x] **BROW-04**: The browser view's bounds track the React layout slot through drags and resizes, and it hides whenever a full-window overlay (global search, dialogs, gate overlay) is shown, through one shared overlay mechanism
 - [x] **BROW-05**: User can open DevTools for the page, and the app can drive the page through the Chrome DevTools Protocol (navigate, read text, click) via a `PageControl` module
-- [x] **BROW-06**: Guest pages run in a sandboxed partition with no preload, `window.open` and permission requests denied by default, and app hotkeys forwarded from the guest
+- [x] **BROW-06**: Guest pages run in a sandboxed partition with no preload, `window.open` and permission requests denied by default, and app hotkeys forwarded from the guest. Exception (ADR 0002): `clipboard-sanitized-write` is allowed everywhere so copy buttons work; `clipboard-read` only on trusted origins right after a user gesture
 - [x] **BROW-07**: Typing in the address bar suggests up to six pages from in-app history, ranked as the README describes (Arc history import deferred)
 - [x] **BROW-08**: Browser panel session loads real Chrome extensions through `electron-chrome-extensions` and `electron-chrome-web-store`, and the Bitwarden extension installed from the Chrome Web Store autofills credentials in guest pages
 - [x] **BROW-09**: User can import Arc logins (cookies for the README's site list) into the browser panel session so already signed-in sites stay signed in

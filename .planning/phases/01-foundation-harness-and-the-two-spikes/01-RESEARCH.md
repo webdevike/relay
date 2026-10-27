@@ -562,7 +562,7 @@ expect(view).toEqual({ x: Math.round(slot!.x), y: Math.round(slot!.y), width: Ma
 | A3 | Real omp has no session-file lock, so the single-writer guard is app-level only | P6 | Double writers if another process resumes the same file; mitigated by the guard plus fake omp in tests |
 | A4 | `-webkit-app-region: drag` on the chat header works for a `WebContentsView` inside a `BaseWindow` (UI-SPEC assumes it) | UI note | No window dragging; fallback: add a thin native drag strip via a transparent `View` or `titleBarStyle:'hiddenInset'` with a titlebar overlay; not tested |
 | A5 | pngjs 7.0.0 is safe to add (slopcheck unavailable; 14 yrs, 71M weekly, no install scripts) | Package audit | Supply-chain risk is low; alternative is guest-Page screenshots |
-| A6 | Allow-list of guest permissions can be deny-all for Phase 1 (README lists no browser permission grants) | BROW-06 | A site needing clipboard-write or fullscreen fails; allow `clipboard-sanitized-write` and `fullscreen` if needed |
+| A6 | Allow-list of guest permissions can be deny-all for Phase 1 (README lists no browser permission grants) | BROW-06 | A site needing clipboard-write or fullscreen fails; allow `clipboard-sanitized-write` and `fullscreen` if needed. Resolved 2026-10-27 by ADR 0002: copy buttons failed, so `clipboard-sanitized-write` is allowed and `clipboard-read` is allowed on trusted origins after a gesture |
 | A7 | omp v2 `rpc_chunk` and `negotiate_protocol` behave as the embedded source suggests (not run live) | Pattern 1 | Only relevant if v2 is adopted later |
 | A8 | `webContents.canGoBack()` is deprecated in Electron 44 in favour of `navigationHistory` | State of the Art | Minor; use `navigationHistory` either way |
 
