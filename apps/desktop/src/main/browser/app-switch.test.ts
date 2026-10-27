@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { listSwitchApps, selectSwitchApp, type SessionFetch } from './app-switch'
+import { listSwitchApps, type SessionFetch } from './app-switch'
 
 const app = {
   id: 'rbac',
@@ -12,6 +12,7 @@ const app = {
   running: true,
   active: true,
 }
+const two = [app, { ...app, id: 'assets', ticket: 'ENG-6406', active: false }]
 
 const answering = (status: number, body: string) =>
   vi.fn<SessionFetch>(async () => new Response(body, { status }))
@@ -33,21 +34,39 @@ describe('listSwitchApps', () => {
     )
   })
 
+  it("marks the tab's own app active instead of the partition cookie's", async () => {
+    const apps = await listSwitchApps(answering(200, JSON.stringify(two)), 'assets')
+    expect(apps.map((a) => [a.id, a.active])).toEqual([
+      ['rbac', false],
+      ['assets', true],
+    ])
+  })
+
+  it("keeps the switch's answer when the tab has no app or one the switch dropped", async () => {
+    for (const tabApp of [undefined, 'gone']) {
+      const apps = await listSwitchApps(answering(200, JSON.stringify(two)), tabApp)
+      expect(apps.map((a) => a.active)).toEqual([true, false])
+    }
+  })
+
   it('rejects a body that is not an app list, as from a switch without /__apps', async () => {
+    for (const body of [
+      '<!doctype html><html></html>',
+      JSON.stringify([{ ...app, port: 'x' }]),
+      JSON.stringify([{ ...app, id: '../x' }]),
+    ]) {
+      await expect(listSwitchApps(answering(200, body))).rejects.toMatchObject({
+        code: 'app-switch-outdated',
+      })
+    }
+  })
+
+  it("surfaces the switch's own error", async () => {
     await expect(
-      listSwitchApps(answering(200, '<!doctype html><html></html>')),
+      listSwitchApps(answering(500, JSON.stringify({ error: 'registry unreadable' }))),
     ).rejects.toMatchObject({
-      code: 'app-switch-outdated',
-    })
-    await expect(
-      listSwitchApps(answering(200, JSON.stringify([{ ...app, port: 'x' }]))),
-    ).rejects.toMatchObject({
-      code: 'app-switch-outdated',
-    })
-    await expect(
-      listSwitchApps(answering(200, JSON.stringify([{ ...app, id: '../x' }]))),
-    ).rejects.toMatchObject({
-      code: 'app-switch-outdated',
+      code: 'app-switch-error',
+      message: 'The app switch refused: registry unreadable.',
     })
   })
 
@@ -58,25 +77,6 @@ describe('listSwitchApps', () => {
     await expect(listSwitchApps(fetch)).rejects.toMatchObject({
       code: 'app-switch-down',
       message: expect.stringContaining('ERR_CONNECTION_REFUSED'),
-    })
-  })
-})
-
-describe('selectSwitchApp', () => {
-  it('posts the id and resolves with the app the switch now serves', async () => {
-    const fetch = answering(200, JSON.stringify({ active: 'rbac' }))
-    await expect(selectSwitchApp(fetch, 'rbac')).resolves.toBe('rbac')
-    const [url, init] = fetch.mock.calls[0]!
-    expect(url).toBe('https://localhost:3001/__switch')
-    expect(init.method).toBe('POST')
-    expect(JSON.parse(String(init.body))).toEqual({ id: 'rbac' })
-  })
-
-  it("surfaces the switch's refusal for an unknown app", async () => {
-    const fetch = answering(404, JSON.stringify({ error: 'no app "gone"; registered: rbac' }))
-    await expect(selectSwitchApp(fetch, 'gone')).rejects.toMatchObject({
-      code: 'unknown-app',
-      message: 'The app switch refused: no app "gone"; registered: rbac.',
     })
   })
 })

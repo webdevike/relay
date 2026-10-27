@@ -1,5 +1,6 @@
 import { WebContentsView, clipboard, shell } from 'electron'
 import { BLOCKED_URL_CODE, loadableUrl } from '@evaos/browser-core/address'
+import { isAppSwitchUrl } from '@evaos/browser-core/app-switch'
 import { matchesAppChord } from '@evaos/browser-core/hotkeys'
 import { FORWARD_FROM_GUEST, PINNED_SCOPE, chordOfInput } from '@evaos/shell-core'
 import type { TabState, TabsSnapshot } from '@evaos/contract'
@@ -28,6 +29,12 @@ interface Tab {
   fromExtension?: boolean
   /** The saved URL a revived view is reloading; its did-navigate is not a new visit. */
   restoring?: string
+  /**
+   * The local eCard app this tab shows through the app switch: its requests to the switch carry
+   * `ecard_app=<switchApp>` instead of the partition's cookie (tab-app-cookies.ts). Unset follows
+   * the partition cookie.
+   */
+  switchApp?: string
 }
 
 export interface NavigateOptions {
@@ -38,6 +45,8 @@ export interface NavigateOptions {
 export interface CreateTabOptions extends NavigateOptions {
   /** The owning scope; the host's current scope when omitted. */
   scope?: string
+  /** The tab's eCard app; the active tab's when omitted, so a new tab keeps the app it came from. */
+  switchApp?: string
 }
 
 /** Upper bound on live tab views; each one is a full renderer process a guest page could spawn. */
@@ -99,6 +108,7 @@ export class BrowserHost {
         view: null,
         scope: s.scope,
         ...(s.fromExtension ? { fromExtension: true } : {}),
+        ...(s.switchApp ? { switchApp: s.switchApp } : {}),
         state: {
           id: s.id,
           url: s.url,
@@ -129,6 +139,7 @@ export class BrowserHost {
         title: t.state.title,
         favicon: t.state.favicon,
         ...(t.fromExtension ? { fromExtension: true as const } : {}),
+        ...(t.switchApp ? { switchApp: t.switchApp } : {}),
       })
     }
     const active = Object.fromEntries(this.lastActive)
@@ -169,6 +180,32 @@ export class BrowserHost {
 
   tabById(id: string): WebContentsView['webContents'] | undefined {
     return this.tabs.get(id)?.view?.webContents
+  }
+
+  /** The eCard app tab `id` shows through the app switch; undefined follows the partition cookie. */
+  switchAppOf(id: string): string | undefined {
+    return this.tabs.get(id)?.switchApp
+  }
+
+  /** The eCard app of the tab whose page made a request (webRequest's webContentsId). */
+  switchAppOfWebContents(wcId: number): string | undefined {
+    const hit = this.tabByWebContents(wcId)
+    return hit ? this.tabs.get(hit.id)?.switchApp : undefined
+  }
+
+  /**
+   * Points one tab at another eCard app and reloads it when it is on the switch; other tabs keep
+   * theirs. `reload` is off when the page is already following a redirect to the new app.
+   */
+  setSwitchApp(id: string, app: string, reload = true): void {
+    const t = this.tab(id)
+    if (t.switchApp === app) return
+    t.switchApp = app
+    this.saved.dirty()
+    if (!reload || !isAppSwitchUrl(t.state.url)) return
+    // A first load still in flight has no entry to reload: start it again with the new app.
+    if (t.view && !t.view.webContents.getURL()) this.navigate(id, t.state.url)
+    else this.reload(id)
   }
 
   activeTabId(): string {
@@ -233,7 +270,8 @@ export class BrowserHost {
       pinned: false,
     }
     const scope = opts.scope ?? this.scope
-    const tab: Tab = { view: null, state, scope }
+    const switchApp = opts.switchApp ?? this.tabs.get(this.activeId)?.switchApp
+    const tab: Tab = { view: null, state, scope, ...(switchApp ? { switchApp } : {}) }
     this.tabs.set(id, tab)
     this.spawnView(tab)
     if (scope === this.scope) {
@@ -316,7 +354,7 @@ export class BrowserHost {
             setImmediate(() => {
               if (this.ctx.win.isDestroyed()) return
               const scope = tab.scope === PINNED_SCOPE ? front : tab.scope
-              this.createTab(details.url, fg, { scope })
+              this.createTab(details.url, fg, { scope, switchApp: tab.switchApp })
             })
           }
         } catch {

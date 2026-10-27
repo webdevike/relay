@@ -202,7 +202,7 @@ export const agentActions = {
   'ecard.switch': {
     title: 'Switch the eCard app',
     description:
-      "Lists the local eCard app switch's apps; with `id`, points the switch at that app and reloads the browser tab in front.",
+      "Lists the local eCard app switch's apps (active = the browser tab in front's app); with `id`, points only that tab at the app and reloads it. Other tabs keep their own apps.",
     params: z.object({ id: SwitchAppIdSchema.optional() }).strict(),
     side: 'renderer',
     focus: 'panel',

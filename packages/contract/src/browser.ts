@@ -45,7 +45,7 @@ export const SwitchAppSchema = z.object({
   worktree: z.string(),
   api: z.string(),
   running: z.boolean(),
-  /** The app the browser's `ecard_app` cookie picks. */
+  /** The app the asking tab shows (its own app, else the partition's `ecard_app` cookie). */
   active: z.boolean(),
 })
 export type SwitchApp = z.output<typeof SwitchAppSchema>
@@ -120,12 +120,12 @@ export const browserInvoke = {
     input: z.object({ tabId: TabIdSchema, pinned: z.boolean() }).strict(),
     output: TabsSnapshotSchema,
   },
-  /** The local eCard app switch's apps, as the browser session's cookie sees them. */
+  /** The local eCard app switch's apps, with the app tab `tabId` shows (if given) marked active. */
   'browser.switchApps': {
-    input: z.object({}).strict(),
+    input: z.object({ tabId: TabIdSchema.optional() }).strict(),
     output: z.object({ apps: z.array(SwitchAppSchema) }),
   },
-  /** Points the switch at another app (its cookie, in the browser session) and reloads the tab. */
+  /** Points one tab at another app (other tabs keep theirs) and reloads it. */
   'browser.switchApp': {
     input: z.object({ tabId: TabIdSchema, id: SwitchAppIdSchema }).strict(),
     output: z.object({ active: SwitchAppIdSchema }),

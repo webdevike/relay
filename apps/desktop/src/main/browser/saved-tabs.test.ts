@@ -41,6 +41,24 @@ describe('parseSavedTabs', () => {
     })
   })
 
+  it("keeps a tab's eCard app and drops a malformed one without dropping the tab", () => {
+    const raw = {
+      tabs: [
+        { ...tab('t1'), switchApp: 'rbac' },
+        { ...tab('t2'), switchApp: '../x' },
+        { ...tab('t3'), switchApp: 7 },
+        { ...tab('t4'), switchApp: '' },
+      ],
+      active: {},
+    }
+    expect(parseSavedTabs(raw).tabs).toEqual([
+      { ...tab('t1'), switchApp: 'rbac' },
+      tab('t2'),
+      tab('t3'),
+      tab('t4'),
+    ])
+  })
+
   it('keeps the newest MAX_SAVED_TABS', () => {
     const tabs = Array.from({ length: MAX_SAVED_TABS + 5 }, (_, i) => tab(`t${i + 1}`))
     const out = parseSavedTabs({ tabs, active: { 'chat:/a': 't1' } })

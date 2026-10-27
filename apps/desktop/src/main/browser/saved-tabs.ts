@@ -1,4 +1,5 @@
 import { loadableUrl } from '@evaos/browser-core/address'
+import { SwitchAppIdSchema } from '@evaos/contract'
 import type { ConfigStore } from '../config-store'
 
 /**
@@ -22,6 +23,8 @@ export interface SavedTab {
   favicon: string | null
   /** Opened by the extension host: its `chrome-extension:` page may reload. */
   fromExtension?: true
+  /** The local eCard app this tab shows through the app switch (its own `ecard_app`). */
+  switchApp?: string
 }
 
 export interface SavedBrowserTabs {
@@ -44,6 +47,7 @@ export function parseSavedTabs(raw: unknown): SavedBrowserTabs {
     if (typeof id !== 'string' || !/^t\d+$/.test(id) || seen.has(id)) continue
     if (typeof scope !== 'string' || scope === '' || scope.length > 1024) continue
     const fromExtension = r.fromExtension === true
+    const switchApp = SwitchAppIdSchema.safeParse(r.switchApp).data
     if (typeof url !== 'string' || !loadableUrl(url, { fromExtension })) continue
     seen.add(id)
     out.tabs.push({
@@ -53,6 +57,7 @@ export function parseSavedTabs(raw: unknown): SavedBrowserTabs {
       title: typeof r.title === 'string' ? r.title : '',
       favicon: typeof r.favicon === 'string' ? r.favicon : null,
       ...(fromExtension ? { fromExtension: true as const } : {}),
+      ...(switchApp ? { switchApp } : {}),
     })
   }
   out.tabs = out.tabs.slice(-MAX_SAVED_TABS)

@@ -113,7 +113,7 @@ describe('AppSwitcher', () => {
         <AppSwitcher tab={tab({ loading: false })} />
       </MantineProvider>,
     )
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith('browser.switchApps', {}))
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('browser.switchApps', { tabId: 't1' }))
   })
 
   it('explains a switch that is not answering', async () => {

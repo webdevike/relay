@@ -10,23 +10,25 @@ type Loaded =
   { state: 'loading' } | { state: 'ok'; apps: SwitchApp[] } | { state: 'error'; message: string }
 
 /**
- * The local eCard app switch (https://localhost:3001) as a toolbar menu: which worktree the tab is
- * showing, and every registered app to switch to. Switching sets the switch's cookie and reloads.
+ * The local eCard app switch (https://localhost:3001) as a toolbar menu: which worktree this tab
+ * shows, and every registered app to switch it to. Each tab has its own app; switching reloads
+ * only this tab. Mount it keyed by tab id, so another tab never shows this one's list.
  */
 export function AppSwitcher({ tab }: { tab: TabState }) {
   const [loaded, setLoaded] = useState<Loaded>({ state: 'loading' })
   const [opened, setOpened] = useState(false)
   const [switching, setSwitching] = useState(false)
   const seq = useRef(0)
+  const tabId = tab.id
   const load = useCallback(() => {
     const n = ++seq.current
-    void invoke('browser.switchApps', {}).then((r) => {
+    void invoke('browser.switchApps', { tabId }).then((r) => {
       if (n !== seq.current) return
       setLoaded(
         r.ok ? { state: 'ok', apps: r.value.apps } : { state: 'error', message: r.error.message },
       )
     })
-  }, [])
+  }, [tabId])
   // Each finished page load rereads the list: a switch reloads the tab, and apps start and stop.
   const pageLoading = tab.loading
   useEffect(() => {

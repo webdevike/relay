@@ -225,6 +225,68 @@ describe('BrowserHost scopes', () => {
   })
 })
 
+describe('BrowserHost eCard apps per tab', () => {
+  const SWITCH = 'https://localhost:3001/reports'
+  /** The tab committed a page on the switch, as Chromium reports it. */
+  const onSwitch = (id: string): void => {
+    const wc = viewOf(host, id)!.webContents
+    wc.getURL = () => SWITCH
+    wc.fire('did-navigate', {}, SWITCH)
+  }
+
+  it('each tab keeps its own app; switching one reloads only that one', () => {
+    host.setScope('A')
+    const a = host.createTab(SWITCH, true)!
+    const b = host.createTab(SWITCH, true, { switchApp: 'assets' })!
+    onSwitch(a.id)
+    onSwitch(b.id)
+    host.setSwitchApp(a.id, 'eng6528')
+    expect(host.switchAppOf(a.id)).toBe('eng6528')
+    expect(host.switchAppOf(b.id)).toBe('assets')
+    expect(viewOf(host, a.id)!.webContents.reload).toHaveBeenCalledTimes(1)
+    expect(viewOf(host, b.id)!.webContents.reload).not.toHaveBeenCalled()
+    const wcB = viewOf(host, b.id)!.webContents.id
+    expect(host.switchAppOfWebContents(wcB)).toBe('assets')
+    expect(host.switchAppOfWebContents(-1)).toBeUndefined()
+  })
+
+  it('no reload off the switch, for the same app, or when a redirect already carries it', () => {
+    host.setScope('A')
+    const a = host.createTab('https://other.test/', true)!
+    host.setSwitchApp(a.id, 'rbac')
+    host.setSwitchApp(a.id, 'rbac')
+    onSwitch(a.id)
+    host.setSwitchApp(a.id, 'assets', false)
+    expect(host.switchAppOf(a.id)).toBe('assets')
+    expect(viewOf(host, a.id)!.webContents.reload).not.toHaveBeenCalled()
+  })
+
+  it('a switch during the first load starts that load again instead of reloading nothing', () => {
+    host.setScope('A')
+    const a = host.createTab(SWITCH, true)!
+    const wc = viewOf(host, a.id)!.webContents
+    host.setSwitchApp(a.id, 'rbac')
+    expect(wc.reload).not.toHaveBeenCalled()
+    expect(wc.loadURL).toHaveBeenCalledTimes(2)
+    expect(wc.loadURL).toHaveBeenLastCalledWith(SWITCH)
+  })
+
+  it('a new tab keeps the app of the tab it came from', async () => {
+    host.setScope('A')
+    const a = host.createTab(SWITCH, true, { switchApp: 'rbac' })!
+    const plus = host.createTab(undefined, true)!
+    expect(host.switchAppOf(plus.id)).toBe('rbac')
+    host.activateTab(a.id)
+    viewOf(host, a.id)!.webContents.openHandler!({ url: SWITCH, disposition: 'foreground-tab' })
+    await nextTick()
+    const opened = host.snapshot().activeId
+    expect(opened).not.toBe(a.id)
+    expect(host.switchAppOf(opened)).toBe('rbac')
+    host.setScope('B')
+    expect(host.switchAppOf(host.createTab(SWITCH, true)!.id)).toBeUndefined()
+  })
+})
+
 describe('BrowserHost memory', () => {
   it('keeps views for pinned tabs and the most recent scopes; older ones go dormant', () => {
     const made: string[] = []
@@ -368,5 +430,26 @@ describe('BrowserHost restart', () => {
     h.dispose()
     vi.advanceTimersByTime(1000)
     expect(parseSavedTabs(files.get('browser-tabs.json')).tabs).toHaveLength(1)
+  })
+
+  it("each tab's eCard app survives a relaunch", () => {
+    const first = makeHost(memoryConfig(files))
+    first.setScope('chat:/a')
+    const a = first.createTab('https://localhost:3001/', true, { switchApp: 'rbac' })!
+    const b = first.createTab('https://localhost:3001/', true, { switchApp: 'assets' })!
+    const c = first.createTab('https://c.test/', true)!
+    first.setSwitchApp(c.id, 'eng6528')
+    first.dispose()
+    expect(parseSavedTabs(files.get('browser-tabs.json')).tabs.map((t) => t.switchApp)).toEqual([
+      'rbac',
+      'assets',
+      'eng6528',
+    ])
+    const next = makeHost(memoryConfig(files))
+    expect([a.id, b.id, c.id].map((id) => next.switchAppOf(id))).toEqual([
+      'rbac',
+      'assets',
+      'eng6528',
+    ])
   })
 })

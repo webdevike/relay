@@ -1,9 +1,8 @@
 import { normalize } from '@evaos/browser-core/address'
-import { isAppSwitchUrl } from '@evaos/browser-core/app-switch'
 import type { MainContext } from '../context'
 import { handle } from '../ipc/handle'
 import { session } from 'electron'
-import { listSwitchApps, selectSwitchApp, type SessionFetch } from './app-switch'
+import { listSwitchApps, type SessionFetch } from './app-switch'
 import { importArcLogins } from './arc-import'
 import { GUEST_PARTITION } from './guest-session'
 import { listExtensions } from './extensions'
@@ -59,15 +58,26 @@ export function registerBrowserIpc(ctx: MainContext, host: BrowserHost): void {
   handle(ctx, 'browser.importArc', () =>
     importArcLogins(ctx.env, session.fromPartition(GUEST_PARTITION), host),
   )
-  // The guest session's fetch carries the tab's cookies both ways, so a switch lands in the page's jar.
+  // Main's own fetch belongs to no tab: the switch answers for the partition cookie, and
+  // listSwitchApps marks the tab's own app active instead (tab-app-cookies.ts).
   const guestFetch: SessionFetch = (url, init) =>
     session.fromPartition(GUEST_PARTITION).fetch(url, init)
-  handle(ctx, 'browser.switchApps', async () => ({ apps: await listSwitchApps(guestFetch) }))
+  handle(ctx, 'browser.switchApps', async ({ tabId }) => ({
+    apps: await listSwitchApps(
+      guestFetch,
+      tabId === undefined ? undefined : host.switchAppOf(tabId),
+    ),
+  }))
   handle(ctx, 'browser.switchApp', async ({ tabId, id }) => {
-    const active = await selectSwitchApp(guestFetch, id)
-    const page = host.tabById(tabId)
-    if (page && isAppSwitchUrl(page.getURL())) host.reload(tabId)
-    return { active }
+    const apps = await listSwitchApps(guestFetch)
+    if (!apps.some((a) => a.id === id)) {
+      const known = apps.map((a) => a.id).join(', ') || 'none'
+      throw Object.assign(new Error(`The app switch has no app "${id}" (registered: ${known}).`), {
+        code: 'unknown-app',
+      })
+    }
+    host.setSwitchApp(tabId, id)
+    return { active: id }
   })
   handle(ctx, 'browser.setSlot', (rect) => {
     host.setSlot(rect)

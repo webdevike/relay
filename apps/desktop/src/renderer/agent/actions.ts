@@ -174,14 +174,16 @@ export const rendererActions: AgentRunners<'renderer'> = {
   },
   'browser.closeTab': async ({ tabId }) => value(await invoke('browser.closeTab', { tabId })),
   'ecard.switch': async ({ id }) => {
-    const { apps } = value(await invoke('browser.switchApps', {}))
+    // Each tab has its own app: the list marks the front tab's, and a switch moves only that tab.
+    const { activeId } = value(await invoke('browser.state', {}))
+    const tabId = activeId || undefined
+    const { apps } = value(await invoke('browser.switchApps', { tabId }))
     if (!id) return { apps }
     if (!apps.some((a) => a.id === id)) {
       fail('not-found', `No app ${id}; apps: ${apps.map((a) => a.id).join(', ')}`)
     }
-    const { activeId } = value(await invoke('browser.state', {}))
-    if (!activeId) fail('no-tab', 'Open a browser tab on the eCard app first')
-    return value(await invoke('browser.switchApp', { tabId: activeId, id }))
+    if (!tabId) fail('no-tab', 'Open a browser tab on the eCard app first')
+    return value(await invoke('browser.switchApp', { tabId, id }))
   },
   'panel.show': ({ tool }) => {
     showPanelTool(tool)

@@ -39,7 +39,7 @@ export function BrowserPanel({ hidden = false }: { hidden?: boolean }) {
       {/* The tab row has room the address row lacks in a narrow panel; the app chip ends it. */}
       <div className="eva-browser-tabs">
         <TabStrip tabs={tabs} activeId={activeId} />
-        {tab && isAppSwitchUrl(tab.url) ? <AppSwitcher tab={tab} /> : null}
+        {tab && isAppSwitchUrl(tab.url) ? <AppSwitcher key={tab.id} tab={tab} /> : null}
       </div>
       <div className="eva-browser-slot" data-testid="browser-slot" ref={slot}>
         {showCard ? <PageStateCard tab={tab} /> : null}
