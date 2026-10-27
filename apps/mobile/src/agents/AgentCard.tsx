@@ -17,6 +17,7 @@ import { modelShortName, VendorLogo } from "./VendorLogo";
 import { MessageText } from "./MessageText";
 import { ActivityRow } from "./ActivityRow";
 import { ToolRow } from "./ToolRow";
+import { ToolStack } from "./ToolStack";
 import { MessageAppearance } from "@/ui/MessageAppearance";
 import { ScrollToBottom } from "@/ui/ScrollToBottom";
 import { useInvertedChatScroll } from "@/ui/useInvertedChatScroll";
@@ -316,6 +317,27 @@ export function AgentCard({ sessionId, messages, connected, status, activity, ac
     if (sent !== undefined) reversed.unshift({ id: `sent-${String(sent.at)}`, role: "user", text: sent.text, at: sent.at });
     return reversed;
   }, [rows, sent]);
+  // Consecutive tool calls collapse into one row, keyed by the run's first call so it never remounts.
+  const grouped = useMemo(() => {
+    if (newestFirst === undefined) return undefined;
+    const runs = new Map<string, AgentMessage[]>();
+    const listed: AgentMessage[] = [];
+    let run: AgentMessage[] | null = null;
+    for (const message of [...newestFirst].reverse()) {
+      if (message.role === "tool" && (message.images === undefined || message.images.length === 0)) {
+        if (run === null) {
+          run = [];
+          runs.set(message.id, run);
+          listed.push(message);
+        }
+        run.push(message);
+      } else {
+        run = null;
+        listed.push(message);
+      }
+    }
+    return { listed: listed.reverse(), runs };
+  }, [newestFirst]);
   const newest = messages === undefined ? undefined : messages[messages.length - 1];
   const running = sent !== undefined && !sent.handoff ? `Running ${sent.name}` : undefined;
   const working = status === "working" || running !== undefined;
@@ -344,7 +366,8 @@ export function AgentCard({ sessionId, messages, connected, status, activity, ac
       <FlatList
         ref={listRef}
         style={{ flex: 1 }}
-        data={newestFirst}
+        data={grouped?.listed}
+        extraData={grouped?.runs}
         inverted
         keyExtractor={(message) => message.id}
         renderItem={({ item }) => (
@@ -357,7 +380,11 @@ export function AgentCard({ sessionId, messages, connected, status, activity, ac
               user={item.role === "user"}
               gap={0}
             >
-              <MessageRow sessionId={sessionId} message={item} onOpenImage={setViewing} error={refused[item.id]} />
+              {grouped?.runs.has(item.id) === true ? (
+                <ToolStack calls={grouped.runs.get(item.id) ?? []} />
+              ) : (
+                <MessageRow sessionId={sessionId} message={item} onOpenImage={setViewing} error={refused[item.id]} />
+              )}
             </MessageAppearance>
           </GrowIn>
         )}

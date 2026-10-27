@@ -38,14 +38,17 @@ function displayName(name: string): string {
 export interface ToolRowProps {
   name: string;
   summary: string;
+  /** Drop the transcript's side inset (the timeline sheet supplies its own). */
+  flush?: boolean | undefined;
 }
 
-export function ToolRow({ name, summary }: ToolRowProps) {
+export function ToolRow({ name, summary, flush = false }: ToolRowProps) {
   const colors = useColors();
   const label = displayName(name);
+  const inset = flush ? 0 : spacing.xl;
   if (summary.length === 0) {
     return (
-      <View style={[styles.subtitle, { paddingHorizontal: spacing.xl }]}>
+      <View style={[styles.subtitle, { paddingHorizontal: inset }]}>
         <SymbolView name={glyphFor[label] ?? DEFAULT_GLYPH} size={GLYPH} tintColor={colors.textFaint} weight="medium" />
         <Text variant="caption" color="textFaint" numberOfLines={1}>
           {label}
@@ -54,7 +57,7 @@ export function ToolRow({ name, summary }: ToolRowProps) {
     );
   }
   return (
-    <View style={{ paddingHorizontal: spacing.xl, gap: 2 }}>
+    <View style={{ paddingHorizontal: inset, gap: 2 }}>
       <Text variant="caption" color="textMuted" numberOfLines={1}>
         {summary}
       </Text>
