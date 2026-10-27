@@ -3,6 +3,13 @@ import type { FlatList, NativeScrollEvent, NativeSyntheticEvent } from "react-na
 import { useReducedMotion } from "react-native-reanimated";
 
 const BOTTOM_THRESHOLD = 24;
+/**
+ * Native anchoring keeps a reader's rows still while the transcript grows under them. A follower
+ * needs none: at offset 0 the inverted list already grows upward from the newest row. Anchoring a
+ * follower moved the offset off 0 on every new or growing row (the newest rows and the activity row
+ * dropped below the fold) until the next frame scrolled back, so it is on only while away.
+ */
+const ANCHOR = { minIndexForVisible: 1 } as const;
 type ScrollEvent = NativeSyntheticEvent<NativeScrollEvent>;
 
 /** Inverted transcripts share one rule: only a reader gesture can suspend following. */
@@ -65,6 +72,7 @@ export function useInvertedChatScroll<T>({ initialOffset = 0, onOffset }: { init
         followContent();
       },
       scrollEventThrottle: 16,
+      maintainVisibleContentPosition: awayFromBottom ? ANCHOR : null,
     },
   };
 }

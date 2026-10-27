@@ -268,9 +268,9 @@ export interface AgentCardProps {
   sessionId: string | undefined;
   messages: AgentMessage[] | undefined;
   connected: boolean;
-  /** The session's live status; `working` shows the activity row unless text is streaming in. */
+  /** The session's live status; `working` shows the activity row (held briefly after it stops). */
   status?: AgentStatus | undefined;
-  /** The tool the host says is running, for the activity row. */
+  /** The tool the host says is running, for the activity row when the newest row does not say more. */
   activity?: string | undefined;
   /** Replaces the activity row's text outright (e.g. "Starting omp" for a session not yet open). */
   activityLabel?: string | undefined;
@@ -333,8 +333,9 @@ export function AgentCard({ sessionId, messages, connected, status, activity, ac
         }
         run.push(message);
       } else if (message.role === "assistant" && message.text.trim().length === 0 && (message.images === undefined || message.images.length === 0)) {
-        // An empty assistant turn between calls draws nothing; it must not split the run.
-        if (run === null) listed.push(message);
+        // An empty assistant turn (a tool-only step, or a reply whose words have not come yet) draws
+        // nothing, so it is no row: an empty row still took the list's spacing. Nor does it split the run.
+        continue;
       } else {
         run = null;
         listed.push(message);
@@ -352,14 +353,31 @@ export function AgentCard({ sessionId, messages, connected, status, activity, ac
     const timer = setTimeout(() => { setShowActivity(false); }, 600);
     return () => { clearTimeout(timer); };
   }, [working]);
-  const streamingText = newest?.streaming === true && newest.text.length > 0;
+  // Mounted from when it shows until its collapse ends, so it closes as smoothly as it opened.
+  const [activityMounted, setActivityMounted] = useState(working);
+  useEffect(() => {
+    if (showActivity) setActivityMounted(true);
+  }, [showActivity]);
+  // The newest row says what is going on before the session's status catches up (the host sends a
+  // call's row, then its status): the agent's words, streaming or just finished, are "Responding"
+  // until a call or the next turn follows them, and a call is running from the moment its row lands.
+  const responding = newest?.role === "assistant" && newest.text.length > 0;
+  const tool = (newest?.role === "tool" ? newest.tool?.name : undefined) ?? activity;
+  const liveLabel = activityLabel ?? running ?? (responding ? "Responding" : tool === undefined ? "Working" : `Running ${tool}`);
+  // Through the hold after work stops, the row keeps its last words instead of falling back to "Working".
+  const [heldLabel, setHeldLabel] = useState(liveLabel);
+  useEffect(() => {
+    if (working) setHeldLabel(liveLabel);
+  }, [working, liveLabel]);
+  const label = working ? liveLabel : heldLabel;
   // Read once per mount: returning to a session preserves both its position and follow mode.
   const initialOffset = useRef(sessionId === undefined ? 0 : (scrollMemory.get(sessionId) ?? 0));
   const { listRef, awayFromBottom, scrollToBottom, scrollHandlers } = useInvertedChatScroll<AgentMessage>({
     initialOffset: initialOffset.current,
     onOffset: (offset) => { if (sessionId !== undefined) scrollMemory.set(sessionId, offset); },
   });
-  const enteringMessages = useMessageEntrances(rows, rows !== undefined);
+  // Rows, not messages: an empty reply that gains its first words becomes a row then, and enters then.
+  const enteringMessages = useMessageEntrances(grouped?.listed, grouped !== undefined);
 
   if (rows === undefined || sessionId === undefined) {
     return <CardPlaceholder text={connected ? "Loading conversation…" : "Connect to your host to load this conversation."} />;
@@ -382,7 +400,7 @@ export function AgentCard({ sessionId, messages, connected, status, activity, ac
                 item.role === "user" && !retired.has(untagged(item.text).trim())
               }
               user={item.role === "user"}
-              gap={0}
+              gap={spacing.sm}
             >
               {grouped?.runs.has(item.id) === true ? (
                 <ToolStack calls={grouped.runs.get(item.id) ?? []} onOpen={() => { setTimeline(item.id); }} />
@@ -392,10 +410,17 @@ export function AgentCard({ sessionId, messages, connected, status, activity, ac
             </MessageAppearance>
           </GrowIn>
         )}
-        contentContainerStyle={{ paddingVertical: spacing.lg, gap: spacing.sm }}
-        ListHeaderComponent={showActivity ? <GrowIn enabled><ActivityRow label={activityLabel ?? running ?? (streamingText ? "Responding" : activity === undefined ? "Working" : `Running ${activity}`)} /></GrowIn> : null}
+        // Inverted: paddingTop is the visual bottom. Each row carries the space above it (its `gap`, the
+        // activity row's own padding), so that space opens with the row instead of appearing at once.
+        contentContainerStyle={{ paddingTop: spacing.lg, paddingBottom: spacing.lg - spacing.sm }}
+        ListHeaderComponent={
+          activityMounted ? (
+            <GrowIn enabled open={showActivity} onClosed={() => { setActivityMounted(false); }}>
+              <ActivityRow label={label} />
+            </GrowIn>
+          ) : null
+        }
         contentOffset={{ x: 0, y: initialOffset.current }}
-        maintainVisibleContentPosition={{ minIndexForVisible: 1 }}
         {...scrollHandlers}
         keyboardDismissMode="interactive"
         keyboardShouldPersistTaps="handled"
