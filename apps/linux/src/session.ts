@@ -486,9 +486,10 @@ export class ClientSession {
         this.sink.send({ t: "sessions.list", files: this.deps.sessionFiles?.list() ?? [] });
         break;
       case "session.read": {
-        const { dir, name, offset } = message;
-        const chunk = this.deps.sessionFiles?.read(dir, name, offset, message.limit) ?? null;
-        this.sink.send({ t: "session.chunk", dir, name, offset, data: chunk?.data ?? null, size: chunk?.size ?? 0 });
+        const { profile, dir, name, offset } = message;
+        const chunk = this.deps.sessionFiles?.read(profile, dir, name, offset, message.limit) ?? null;
+        const store = profile === undefined ? {} : { profile };
+        this.sink.send({ t: "session.chunk", ...store, dir, name, offset, data: chunk?.data ?? null, size: chunk?.size ?? 0 });
         break;
       }
       case "blob.read": {
@@ -662,7 +663,7 @@ export class ClientSession {
 
   private async execute(id: string, cmd: Command, deviceId: string): Promise<ServerMessage> {
     try {
-      await this.run(cmd, deviceId);
+      await this.run(id, cmd, deviceId);
       return { t: "ack", id };
     } catch (error) {
       return error instanceof AckFailure
@@ -698,7 +699,7 @@ export class ClientSession {
     }
   }
 
-  private run(cmd: Command, deviceId: string): Promise<void> {
+  private run(id: string, cmd: Command, deviceId: string): Promise<void> {
     switch (cmd.kind) {
       case "text.insert":
         return this.deps.access.granted
@@ -734,7 +735,7 @@ export class ClientSession {
         return this.agents().reply(cmd.sessionId, cmd.text, cmd.submit, cmd.images);
       }
       case "agent.start":
-        return this.agents().launch(cmd.prompt, cmd.thinkingLevel, cmd.profile);
+        return this.startAgent(id, cmd);
       case "agent.configure":
         return this.agents().configure({
           sessionId: cmd.sessionId,
@@ -818,6 +819,32 @@ export class ClientSession {
     const thread = assistant.thread(agent);
     if (thread === undefined) throw new AckFailure({ code: "agent_not_found", message: `no assistant ${agent ?? "(default)"} on this host` });
     return thread;
+  }
+
+  /**
+   * Launches (or, with `resume`, relaunches in its own profile) an omp session; resolves once it is
+   * launched, and sends `agent.started` for request `id` when it joins. An unknown `resume` is refused.
+   */
+  private async startAgent(id: string, cmd: Extract<Command, { kind: "agent.start" }>): Promise<void> {
+    let profile = cmd.profile;
+    let file: string | undefined;
+    if (cmd.resume !== undefined) {
+      const found = this.deps.sessionFiles?.fileForSessionId(cmd.resume) ?? null;
+      if (found === null) throw new AckFailure({ code: "agent_not_found", message: `no omp session ${cmd.resume} on this host` });
+      if (found.profile !== undefined && found.profile !== "personal" && found.profile !== "work") {
+        throw new AckFailure({ code: "agent_launch_failed", message: `cannot resume sessions of omp profile ${found.profile}` });
+      }
+      profile = found.profile;
+      file = found.path;
+    }
+    const { joined } = await this.agents().launch(cmd.prompt, cmd.thinkingLevel, profile, file);
+    void joined.then(
+      (sessionId) => {
+        if (!this.closed) this.sink.send({ t: "agent.started", id, sessionId });
+      },
+      // The launch was acked; a session that never joins has nothing to report.
+      () => undefined,
+    );
   }
 
   private agents(): AgentProvider {

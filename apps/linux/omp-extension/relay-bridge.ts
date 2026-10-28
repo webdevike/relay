@@ -336,7 +336,7 @@ function listModelOptions(models: readonly Model[]): ModelOption[] {
 }
 
 type Outbound =
-  | ({ t: "hello" } & SessionInfo)
+  | ({ t: "hello"; launchId?: string } & SessionInfo)
   | ({ t: "status"; status: Status; statusDetail?: string; lastActivity: string; lastActivityAt: number; canRespond?: boolean } & Settings & Activity)
   | { t: "messages"; append: InboxMessage[] }
   | { t: "message.update"; id: string; text: string; streaming: boolean }
@@ -527,6 +527,8 @@ const ASSISTANT: { readonly id: string; readonly title: string } | null = (() =>
   const title = process.env["RELAY_ASSISTANT_TITLE"];
   return { id, title: title === undefined || title.length === 0 ? id : title };
 })();
+/** Set by the relay host on a session it launches (apps/linux/src/agents/bridge.ts); echoed in `hello` so the host learns which session that launch became. */
+const LAUNCH_ID = process.env["RELAY_LAUNCH_ID"] || undefined;
 /** Local wall-clock start, "HH:MM": the job's default title carries it so runs of one job tell apart. */
 const JOB_START = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
 
@@ -1356,7 +1358,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
     buffer = "";
     next.setNoDelay(true);
     next.on("connect", () => {
-      send({ t: "hello", ...current, status, lastActivity, lastActivityAt });
+      send({ t: "hello", ...current, status, lastActivity, lastActivityAt, ...(LAUNCH_ID === undefined ? {} : { launchId: LAUNCH_ID }) });
       // A host that restarted while a tool waits for approval learns of it again.
       for (const pending of pendingApprovals.values()) send(pending.frame);
       // ctx.model is still unresolved during session_start; report the settings once it is.

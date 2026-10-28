@@ -1014,8 +1014,10 @@ export const Command = z.discriminatedUnion("kind", [
     images: z.array(AgentImage).min(1).max(MAX_REPLY_IMAGES).optional(),
   }),
   /**
-   * Open a fresh agent session on the host (it shows up in `agents.*` once it registers). With
-   * `prompt`, the host hands that text to the new session as its first turn the moment it is ready.
+   * Open a fresh agent session on the host (it shows up in `agents.*` once it registers), or with
+   * `resume` (an omp session id) reopen that past session in its own profile. With `prompt`, the
+   * host hands that text to the session as its first turn the moment it is ready. After the ack,
+   * the host answers `agent.started` with the session id once omp joins.
    */
   z.object({
     kind: z.literal("agent.start"),
@@ -1024,6 +1026,7 @@ export const Command = z.discriminatedUnion("kind", [
     thinkingLevel: nonEmpty.optional(),
     /** Isolated omp auth/session profile. Omitted keeps the host's current account. */
     profile: z.enum(["personal", "work"]).optional(),
+    resume: nonEmpty.optional(),
   }),
   /** Change one or more session settings; omitted fields are left alone. */
   z.object({
@@ -1131,6 +1134,8 @@ export const ClientHello = z.object({
 
 /** A top-level omp transcript on the host: `sessions/<dir>/<name>`, `mtime` in ms. */
 export const SessionFile = z.object({
+  /** The named omp profile whose store holds the transcript; absent for the default `~/.omp/agent`. */
+  profile: nonEmpty.optional(),
   dir: nonEmpty,
   name: nonEmpty,
   size: z.number().int().nonnegative(),
@@ -1158,6 +1163,7 @@ export const ClientMessage = z.discriminatedUnion("t", [
   /** Raw transcript bytes from `offset` (capped per frame); answered by `session.chunk`. */
   z.object({
     t: z.literal("session.read"),
+    profile: nonEmpty.optional(),
     dir: nonEmpty,
     name: nonEmpty,
     offset: z.number().int().nonnegative(),
@@ -1329,12 +1335,18 @@ export const ServerMessage = z.discriminatedUnion("t", [
   /** `data` is base64 of the bytes at `offset`; null when the file is missing or not an allowed transcript. `size` is the whole file's. */
   z.object({
     t: z.literal("session.chunk"),
+    profile: nonEmpty.optional(),
     dir: nonEmpty,
     name: nonEmpty,
     offset: z.number().int().nonnegative(),
     data: z.string().nullable(),
     size: z.number().int().nonnegative(),
   }),
+  /**
+   * Sent after the ack of `agent.start` (request `id`) once the launched omp has joined: the
+   * session it became (the resumed one's own id for `resume`).
+   */
+  z.object({ t: z.literal("agent.started"), id: nonEmpty, sessionId: nonEmpty }),
   /** `data` is base64; `mime` and `data` are null when there is no such blob. */
   z.object({ t: z.literal("blob.data"), hash: nonEmpty, mime: z.string().nullable(), data: z.string().nullable() }),
   /** Full durable thread of assistant `agent`, sent on request and after each completed turn. */

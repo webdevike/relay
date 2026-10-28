@@ -392,10 +392,14 @@ class FakeProvider implements AgentProvider {
   image(sessionId: string, id: string): Promise<AgentImage | null> {
     return Promise.resolve(sessionId === "s1" && id === "img1" ? { mimeType: "image/png", data: "iVBOR" } : null);
   }
-  readonly launched: [string | undefined, string | undefined, "personal" | "work" | undefined][] = [];
-  launch(prompt?: string, thinkingLevel?: string, profile?: "personal" | "work"): Promise<void> {
-    this.launched.push([prompt, thinkingLevel, profile]);
-    return Promise.resolve();
+  readonly launched: [string | undefined, string | undefined, "personal" | "work" | undefined, string | undefined][] = [];
+  /** Settles the latest launch's `joined`, as the launched omp's bridge registering would. */
+  join: (sessionId: string) => void = () => undefined;
+  launch(prompt?: string, thinkingLevel?: string, profile?: "personal" | "work", resume?: string): Promise<{ readonly joined: Promise<string> }> {
+    this.launched.push([prompt, thinkingLevel, profile, resume]);
+    const { promise, resolve } = Promise.withResolvers<string>();
+    this.join = resolve;
+    return Promise.resolve({ joined: promise });
   }
   options(sessionId: string): Promise<AgentOptions | null> {
     return Promise.resolve(
@@ -537,8 +541,11 @@ describe("agent topics", () => {
     pair(h);
     h.session.receive({ t: "cmd", id: "start-profile", cmd: { kind: "agent.start", prompt: "hello", thinkingLevel: "high", profile: "work" } });
     await h.sink.sentCount(5);
-    expect(agents.launched).toEqual([["hello", "high", "work"]]);
+    expect(agents.launched).toEqual([["hello", "high", "work", undefined]]);
     expect(h.sink.last()).toEqual({ t: "ack", id: "start-profile" });
+    agents.join("s-new");
+    await h.sink.sentCount(6);
+    expect(h.sink.last()).toEqual({ t: "agent.started", id: "start-profile", sessionId: "s-new" });
   });
 
   it("answers agent.image with the provider's bytes and null for an unknown id", async () => {
@@ -1297,22 +1304,50 @@ describe("live canvas frames", () => {
 
 describe("session files", () => {
   const sessionFiles = {
-    list: () => [{ dir: "-Eva", name: "a_1.jsonl", size: 3, mtime: 5 }],
-    read: (dir: string, name: string, offset: number) => (dir === "-Eva" && name === "a_1.jsonl" ? { data: "YWI=", size: 3 + offset } : null),
+    list: () => [{ dir: "-Eva", name: "a_1.jsonl", size: 3, mtime: 5 }, { profile: "work", dir: "-Eva", name: "b_2.jsonl", size: 1, mtime: 4 }],
+    read: (profile: string | undefined, dir: string, name: string, offset: number) =>
+      dir === "-Eva" && name === (profile === "work" ? "b_2.jsonl" : "a_1.jsonl") ? { data: "YWI=", size: 3 + offset } : null,
     blob: (hash: string) => (hash === "h" ? { mime: "image/png", data: "eA==" } : null),
+    fileForSessionId: (id: string) =>
+      ({ "1": { path: "/omp/agent/sessions/-Eva/a_1.jsonl" }, "2": { profile: "work", path: "/omp/profiles/work/agent/sessions/-Eva/b_2.jsonl" } })[id] ?? null,
   } as unknown as SessionFiles;
 
   it("answers list, read and blob requests for an authenticated device", () => {
     const h = harness({ sessionFiles });
     pair(h);
     h.session.receive({ t: "sessions.list" });
-    expect(h.sink.last()).toEqual({ t: "sessions.list", files: [{ dir: "-Eva", name: "a_1.jsonl", size: 3, mtime: 5 }] });
+    expect(h.sink.last()).toMatchObject({ t: "sessions.list", files: [{ dir: "-Eva", name: "a_1.jsonl" }, { profile: "work", name: "b_2.jsonl" }] });
     h.session.receive({ t: "session.read", dir: "-Eva", name: "a_1.jsonl", offset: 1 });
     expect(h.sink.last()).toEqual({ t: "session.chunk", dir: "-Eva", name: "a_1.jsonl", offset: 1, data: "YWI=", size: 4 });
+    h.session.receive({ t: "session.read", profile: "work", dir: "-Eva", name: "b_2.jsonl", offset: 0 });
+    expect(h.sink.last()).toEqual({ t: "session.chunk", profile: "work", dir: "-Eva", name: "b_2.jsonl", offset: 0, data: "YWI=", size: 3 });
     h.session.receive({ t: "session.read", dir: "..", name: "x.jsonl", offset: 0 });
     expect(h.sink.last()).toEqual({ t: "session.chunk", dir: "..", name: "x.jsonl", offset: 0, data: null, size: 0 });
     h.session.receive({ t: "blob.read", hash: "h" });
     expect(h.sink.last()).toEqual({ t: "blob.data", hash: "h", mime: "image/png", data: "eA==" });
+  });
+
+  it("resumes agent.start {resume} from the session's file in its own profile, and refuses an unknown id", async () => {
+    const agents = new FakeProvider();
+    const h = harness({ agents, sessionFiles });
+    pair(h);
+    h.session.receive({ t: "cmd", id: "r1", cmd: { kind: "agent.start", resume: "1", profile: "work" } });
+    await h.sink.sentCount(5);
+    expect(h.sink.last()).toEqual({ t: "ack", id: "r1" });
+    agents.join("1");
+    await h.sink.sentCount(6);
+    expect(h.sink.last()).toEqual({ t: "agent.started", id: "r1", sessionId: "1" });
+    h.session.receive({ t: "cmd", id: "r2", cmd: { kind: "agent.start", resume: "2" } });
+    h.session.receive({ t: "cmd", id: "r3", cmd: { kind: "agent.start", resume: "nope" } });
+    await h.sink.sentCount(8);
+    expect(agents.launched).toEqual([
+      [undefined, undefined, undefined, "/omp/agent/sessions/-Eva/a_1.jsonl"],
+      [undefined, undefined, "work", "/omp/profiles/work/agent/sessions/-Eva/b_2.jsonl"],
+    ]);
+    expect(h.sink.sent.slice(-2)).toEqual(expect.arrayContaining([
+      { t: "ack", id: "r2" },
+      { t: "nack", id: "r3", error: expect.objectContaining({ code: "agent_not_found" }) },
+    ]));
   });
 
   it("refuses them before authentication", () => {

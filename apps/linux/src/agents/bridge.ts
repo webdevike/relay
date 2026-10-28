@@ -46,7 +46,7 @@ const StatusFrame = z.object({
 });
 
 const Inbound = z.discriminatedUnion("t", [
-  z.object({ t: z.literal("hello") }).merge(AgentSession.omit({ id: true })).extend({ sessionId: z.string().min(1), sessionFile: z.string().min(1).optional() }),
+  z.object({ t: z.literal("hello") }).merge(AgentSession.omit({ id: true })).extend({ sessionId: z.string().min(1), sessionFile: z.string().min(1).optional(), launchId: z.string().min(1).optional() }),
   StatusFrame,
   z.object({ t: z.literal("messages"), append: z.array(AgentMessage).min(1) }),
   z.object({ t: z.literal("message.update"), id: z.string().min(1), text: z.string(), streaming: z.boolean() }),
@@ -82,6 +82,8 @@ const failureCode: Record<RequestKind, AckFailure["error"]["code"]> = {
 const REQUEST_TIMEOUT_MS = 5000;
 /** The gate CLI is a fresh bun process per command, and `done` copies a photo; give it longer. */
 const GATE_TIMEOUT_MS = 15_000;
+/** How long a launched omp has to register before its `joined` gives up (herdr has already started it). */
+const LAUNCH_JOIN_TIMEOUT_MS = 60_000;
 /** A session that answered with something unparseable offers nothing rather than failing the request. */
 const NO_OPTIONS: AgentOptionsT = { models: [], skills: [] };
 
@@ -123,6 +125,8 @@ export class OmpBridgeProvider implements AgentProvider {
   private readonly pendingAsks = new Map<string, AgentAsk>();
   /** The tool approval each session is currently blocked on, by omp session id; replayed like asks. */
   private readonly pendingApprovals = new Map<string, AgentApproval>();
+  /** Sessions launched but not yet registered, by the `RELAY_LAUNCH_ID` their pane carries. */
+  private readonly launches = new Map<string, (sessionId: string) => void>();
   private gateState: GateStatusT | null = null;
   /** `gateState` minus the ticking countdown: a change here is what phones are told about. */
   private gateKey = "null";
@@ -284,13 +288,30 @@ export class OmpBridgeProvider implements AgentProvider {
    * Opens a new omp session in its own herdr workspace in `home`. Herdr owns the process, so a
    * host restart never takes the session with it; it registers itself over the socket like any
    * other. `prompt` rides in the pane's env and the session's bridge submits it once omp is up.
+   * The pane's `RELAY_LAUNCH_ID`, echoed in its bridge's `hello`, settles `joined`.
    */
-  launch(prompt?: string, thinkingLevel?: string, profile?: "personal" | "work"): Promise<void> {
-    return this.launchWith({
-      ...(prompt === undefined ? {} : { prompt }),
-      ...(thinkingLevel === undefined ? {} : { thinkingLevel }),
-      ...(profile === undefined ? {} : { profile }),
-    });
+  async launch(prompt?: string, thinkingLevel?: string, profile?: "personal" | "work", resume?: string): Promise<{ readonly joined: Promise<string> }> {
+    const launchId = crypto.randomUUID();
+    const { promise, resolve, reject } = Promise.withResolvers<string>();
+    this.launches.set(launchId, resolve);
+    const timer = setTimeout(() => {
+      this.launches.delete(launchId);
+      reject(new AckFailure({ code: "agent_launch_failed", message: "the launched omp session never registered" }));
+    }, LAUNCH_JOIN_TIMEOUT_MS);
+    try {
+      await this.launchWith({
+        env: { RELAY_LAUNCH_ID: launchId },
+        ...(prompt === undefined ? {} : { prompt }),
+        ...(thinkingLevel === undefined ? {} : { thinkingLevel }),
+        ...(profile === undefined ? {} : { profile }),
+        ...(resume === undefined ? {} : { resume }),
+      });
+    } catch (error) {
+      clearTimeout(timer);
+      this.launches.delete(launchId);
+      throw error;
+    }
+    return { joined: promise.finally(() => { clearTimeout(timer); }) };
   }
 
   /** `launch` with the full option set: extra pane env and a transcript to resume (the assistant thread). */
@@ -391,6 +412,10 @@ export class OmpBridgeProvider implements AgentProvider {
         // A reconnect from the same session replaces any older connection carrying that id.
         for (const other of this.connections) {
           if (other !== connection && other.session?.id === frame.sessionId) this.drop(other);
+        }
+        if (frame.launchId !== undefined) {
+          this.launches.get(frame.launchId)?.(frame.sessionId);
+          this.launches.delete(frame.launchId);
         }
         connection.session = {
           id: frame.sessionId,

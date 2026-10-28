@@ -225,8 +225,12 @@ export interface AgentProvider {
    * rejects with `AckFailure` (`agent_not_found`) for an unknown session.
    */
   note(sessionId: string, text: string): Promise<boolean>;
-  /** Open a new session on the host. Rejects with `AckFailure` (`agent_launch_failed`). */
-  launch(prompt?: string, thinkingLevel?: string, profile?: "personal" | "work"): Promise<void>;
+  /**
+   * Open a new session on the host, or reopen transcript file `resume`. Resolves once omp is
+   * launched; `joined` then settles with the session id it registers under. Rejects with
+   * `AckFailure` (`agent_launch_failed`).
+   */
+  launch(prompt?: string, thinkingLevel?: string, profile?: "personal" | "work", resume?: string): Promise<{ readonly joined: Promise<string> }>;
   /** Models and skills the session offers; null when the session is unknown. */
   options(sessionId: string): Promise<AgentOptions | null>;
   /** Bytes behind an `AgentImageRef`; null when the session or the image is unknown. */
