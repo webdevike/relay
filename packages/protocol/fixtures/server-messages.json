@@ -190,5 +190,11 @@
     "t": "pong",
     "ts": 123456.7,
     "serverTs": 1788900003000.25
-  }
+  },
+  {"t":"canvas.rooms","rev":2,"rooms":[{"id":"r-1","slug":"artifacts","board":"Artifacts","live":true,"agent":{"name":"Nova","color":"#8b5cf6","avatar":"/canvas/avatar/nova"},"chat":{"sessionId":"s-1","assistant":"nova","title":"Nova"},"humans":["Isaac"],"startedAt":1788900000000},{"id":"r-0","slug":"artifacts","board":"Artifacts","live":false,"agent":{"name":"Nova","color":"#8b5cf6","avatar":"/canvas/avatar/nova"},"chat":{"sessionId":"s-2"},"humans":[],"startedAt":1788899000000,"endedAt":1788900100000}]},
+  {"t":"canvas.rooms","rev":0,"rooms":[]},
+  {"t":"canvas.access","slug":"artifacts","path":"/canvas/artifacts/?token=tok-1","token":"tok-1","expiresAt":1788943200000},
+  {"t":"canvas.unavailable","slug":"artifacts","reason":"The canvas session on Artifacts has ended."},
+  {"t":"agent.messages","sessionId":"s-1","rev":5,"append":[{"id":"m-5","role":"system","text":"Nova started a live canvas on Artifacts. Join from Relay.","at":1788900003000,"canvas":{"kind":"start","roomId":"r-1","slug":"artifacts","board":"Artifacts","agent":{"name":"Nova","color":"#8b5cf6","avatar":"/canvas/avatar/nova"},"text":"Decide the artifacts panel layout"}},{"id":"m-6","role":"system","text":"Isaac: tighten the key\nNova: Tightened the key.","at":1788900004000,"canvas":{"kind":"turn","roomId":"r-1","slug":"artifacts","board":"Artifacts","agent":{"name":"Nova","color":"#8b5cf6"},"human":{"name":"Isaac","text":"tighten the key"},"text":"Tightened the key."}}]},
+  {"t":"assistant.snapshot","agent":"nova","snapshot":{"rev":4,"busy":false,"sessionId":"s-1","messages":[{"id":"c-1","role":"card","text":"Nova started a live canvas on Artifacts.","at":1788900003000,"canvas":{"kind":"start","roomId":"r-1","slug":"artifacts","board":"Artifacts","agent":{"name":"Nova","color":"#8b5cf6","avatar":"/canvas/avatar/nova"},"text":"Decide the artifacts panel layout"}},{"id":"c-2","role":"card","text":"Canvas wrap-up: We settled the tab order.","at":1788900005000,"canvas":{"kind":"end","roomId":"r-1","slug":"artifacts","board":"Artifacts","agent":{"name":"Eva","color":"#8b5cf6"},"text":"We settled the tab order; overflow is still open."}}]}}
 ]

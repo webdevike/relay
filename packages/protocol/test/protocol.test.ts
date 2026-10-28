@@ -460,3 +460,29 @@ describe("call frames", () => {
     expect(r.ok && r.value.t === "assistant.snapshot" ? r.value.snapshot.messages[0]?.voice : undefined).toBe(true);
   });
 });
+
+describe("live canvas", () => {
+  const agent = { name: "Nova", color: "#8b5cf6", avatar: "/canvas/avatar/nova" };
+  const entry = { kind: "turn", roomId: "r-1", slug: "artifacts", board: "Artifacts", agent, human: { name: "Isaac", text: "tighten it" }, text: "Done." };
+
+  it("asks for rooms and access, and refuses a malformed slug", () => {
+    expect(parseClientMessage(JSON.stringify({ t: "canvas.get" })).ok).toBe(true);
+    expect(parseClientMessage(JSON.stringify({ t: "canvas.open", slug: "artifacts" })).ok).toBe(true);
+    for (const slug of ["Artifacts", "", "a/b", "x".repeat(81)]) expect(parseClientMessage(JSON.stringify({ t: "canvas.open", slug })).ok, slug).toBe(false);
+    expect(parseServerMessage(JSON.stringify({ t: "canvas.open", slug: "artifacts" })).ok).toBe(false);
+  });
+
+  it("carries a canvas row on agent and assistant messages, and drops one it cannot read rather than the row", () => {
+    const r = parseServerMessage(JSON.stringify({ t: "agent.messages", sessionId: "s", rev: 1, append: [{ id: "m", role: "system", text: "Isaac: tighten it", at: 1, canvas: entry }] }));
+    expect(r.ok && r.value.t === "agent.messages" ? r.value.append[0]?.canvas : undefined).toEqual(entry);
+    const bad = parseServerMessage(JSON.stringify({ t: "assistant.snapshot", agent: "nova", snapshot: { rev: 1, busy: false, sessionId: "s", messages: [{ id: "m", role: "card", text: "x", at: 1, canvas: { ...entry, kind: "party" } }] } }));
+    expect(bad.ok && bad.value.t === "assistant.snapshot" ? bad.value.snapshot.messages[0] : undefined).toEqual({ id: "m", role: "card", text: "x", at: 1 });
+  });
+
+  it("rejects an agent color that is not #rrggbb and a room without its agent", () => {
+    const room = { id: "r", slug: "a", board: "A", live: true, agent, chat: {}, humans: [], startedAt: 1 };
+    expect(parseServerMessage(JSON.stringify({ t: "canvas.rooms", rev: 1, rooms: [room] })).ok).toBe(true);
+    expect(parseServerMessage(JSON.stringify({ t: "canvas.rooms", rev: 1, rooms: [{ ...room, agent: { ...agent, color: "violet" } }] })).ok).toBe(false);
+    expect(parseServerMessage(JSON.stringify({ t: "canvas.rooms", rev: 1, rooms: [{ ...room, agent: undefined }] })).ok).toBe(false);
+  });
+});

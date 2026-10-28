@@ -163,5 +163,7 @@
       "username": "isaac",
       "password": "hunter2"
     }
-  }
+  },
+  {"t":"canvas.get"},
+  {"t":"canvas.open","slug":"artifacts"}
 ]

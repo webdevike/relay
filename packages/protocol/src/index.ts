@@ -414,6 +414,59 @@ export type AgentImageRef = z.infer<typeof AgentImageRef>;
 export const AgentMessageRole = z.enum(["user", "assistant", "tool", "system"]);
 export type AgentMessageRole = z.infer<typeof AgentMessageRole>;
 
+// ---------------------------------------------------------------------------------------------
+// Live canvas: an omp session (any kind) takes the chat into a shared board room on the host.
+// The room is a Yjs doc served at `/canvas/<slug>/ws?token=…`; the board JSON stays the record.
+// The chat gets `CanvasEntry` rows: `start` (the Join card), one `turn` per exchange, `end`
+// (the wrap-up summary). They live in the session file as `relay-canvas` custom messages.
+// ---------------------------------------------------------------------------------------------
+
+/** A board's file stem (EvaOS `board::valid_slug`). */
+export const CanvasSlug = z.string().regex(/^[a-z0-9-]{1,80}$/);
+export type CanvasSlug = z.infer<typeof CanvasSlug>;
+
+/** The agent in a canvas room: the session's own name and color; `avatar` is a host path (`/canvas/avatar/<key>`). */
+export const CanvasAgent = z.object({
+  name: nonEmpty,
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  avatar: z.string().max(300).optional(),
+});
+export type CanvasAgent = z.infer<typeof CanvasAgent>;
+
+/** One canvas row in a chat: `start` = Join card, `turn` = a note and the agent's answer, `end` = wrap-up summary. */
+export const CanvasEntry = z.object({
+  kind: z.enum(["start", "turn", "end"]),
+  roomId: nonEmpty,
+  slug: CanvasSlug,
+  /** The board's title. */
+  board: z.string().max(400),
+  agent: CanvasAgent,
+  /** `turn`: what the human said at the canvas. */
+  human: z.object({ name: nonEmpty, text: z.string().max(20_000) }).optional(),
+  /** `turn`: the agent's reply; `end`: the summary; `start`: the one-line purpose. */
+  text: z.string().max(20_000).optional(),
+});
+export type CanvasEntry = z.infer<typeof CanvasEntry>;
+
+/** A canvas room the host holds (live, or ended and still listed for its cards). */
+export const CanvasRoomInfo = z.object({
+  id: nonEmpty,
+  slug: CanvasSlug,
+  board: z.string().max(400),
+  live: z.boolean(),
+  agent: CanvasAgent,
+  /** The chat the session came from: an omp session id and, for assistant threads, the assistant id. */
+  chat: z.object({ sessionId: z.string().optional(), assistant: z.string().optional(), title: z.string().max(400).optional() }),
+  /** Names of the humans in the room now. */
+  humans: z.array(z.string().max(100)).max(50),
+  startedAt: ms,
+  endedAt: ms.optional(),
+});
+export type CanvasRoomInfo = z.infer<typeof CanvasRoomInfo>;
+
+/** A canvas room's web client is opened with a token from `canvas.open`; it stays valid this long (reloads and reconnects reuse it). */
+export const CANVAS_TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
+
 export const AgentMessage = z.object({
   id: nonEmpty,
   role: AgentMessageRole,
@@ -425,6 +478,8 @@ export const AgentMessage = z.object({
   images: z.array(AgentImageRef).optional(),
   /** True while the assistant is still producing `text`; `agent.message.update` frames carry the growth. */
   streaming: z.boolean().optional(),
+  /** A live canvas row (role "system"): Join card, canvas turn or wrap-up; builds without canvas show `text`. */
+  canvas: CanvasEntry.optional().catch(undefined),
 });
 export type AgentMessage = z.infer<typeof AgentMessage>;
 
@@ -491,6 +546,8 @@ export const AssistantMessage = z.object({
   signin: z.object({ url: nonEmpty, host: nonEmpty, submitted: z.boolean().optional() }).optional(),
   /** A user row Isaac said on a call rather than typed (the host strips the voice-turn note from its text). */
   voice: z.boolean().optional(),
+  /** A live canvas row (role "card"): Join card, canvas turn or wrap-up; builds without canvas show `text`. */
+  canvas: CanvasEntry.optional().catch(undefined),
 });
 export type AssistantMessage = z.infer<typeof AssistantMessage>;
 
@@ -1146,6 +1203,10 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("artifacts.act"), thread: ArtifactThread, rid: z.string().min(1).max(64), by: ArtifactActor, action: ArtifactAction }),
   /** Ask for a one-time ticket to open VNC_PATH; answered by `vnc.ticket` or `vnc.unavailable`. */
   z.object({ t: z.literal("vnc.open") }),
+  /** List the canvas rooms the host holds; answered by `canvas.rooms` (also pushed on every change). */
+  z.object({ t: z.literal("canvas.get") }),
+  /** Ask to enter the canvas room on `slug`; answered by `canvas.access`, or `canvas.unavailable` when no room is live there. */
+  z.object({ t: z.literal("canvas.open"), slug: CanvasSlug }),
   /**
    * Escalate `item` to the phone. Only the escalator (`ESCALATOR_DEVICE_ID`) may send it; the host
    * stores it, relays it to every other device and pushes a notification for a new id.
@@ -1274,6 +1335,15 @@ export const ServerMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("vnc.ticket"), ticket: nonEmpty }),
   /** Answer to `vnc.open` when nothing listens on the Mac's VNC port: Screen Sharing is off. */
   z.object({ t: z.literal("vnc.unavailable") }),
+  /** Every canvas room the host holds at `rev`: the answer to `canvas.get`, and pushed to every socket on any change. */
+  z.object({ t: z.literal("canvas.rooms"), rev: z.number().int().nonnegative(), rooms: z.array(CanvasRoomInfo).max(200) }),
+  /**
+   * Answer to `canvas.open`: load `path` (host-relative, e.g. `/canvas/<slug>/?token=…`) from the
+   * host's http origin. The token opens the page, its websocket and its images until `expiresAt`.
+   */
+  z.object({ t: z.literal("canvas.access"), slug: CanvasSlug, path: z.string().min(1).max(500), token: nonEmpty, expiresAt: ms }),
+  /** Answer to `canvas.open` when no live room is on `slug` (the session ended): `reason` is one line for the UI. */
+  z.object({ t: z.literal("canvas.unavailable"), slug: CanvasSlug, reason: z.string().max(400) }),
   /**
    * Where call `callId` with assistant `agent` stands. `text` is what was just heard (`thinking`)
    * or is being said (`speaking`); `error` comes with `ended` when the call failed.
