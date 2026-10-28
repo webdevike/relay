@@ -333,9 +333,10 @@ class Painter {
       this.group(canvas, lens.o, () => {
         canvas.save();
         canvas.translate(lens.x, lens.y);
-        this.stroke.setStrokeWidth(g.lensStroke);
+        this.stroke.setStrokeWidth(g.lensStroke * 1.6);
         this.stroke.setStrokeCap(this.sk.StrokeCap.Round);
         canvas.drawPath(handle, this.paint(this.stroke, accent));
+        this.stroke.setStrokeWidth(g.lensStroke);
         canvas.drawCircle(0, 0, g.lensR, this.paint(this.fill, BUBBLE, 0.6));
         canvas.drawCircle(0, 0, g.lensR, this.paint(this.stroke, accent));
         this.stroke.setStrokeCap(this.sk.StrokeCap.Butt);
