@@ -9,6 +9,7 @@ import {
   apply,
   bbox,
   buildRig,
+  extension,
   micahCredit,
   chain,
   frame,
@@ -24,6 +25,7 @@ import {
   toolKind,
   type Portrait,
 } from "../src/index";
+import { eyeBoxes, polylines } from "../src/extend";
 
 const NOVA: Portrait = {
   style: "micah",
@@ -267,5 +269,65 @@ describe("micahCredit", () => {
         { title: "Polaris", style: "micah" },
       ]),
     ).toBe("Nova and Polaris avatars: Micah by Micah Lanier, CC BY 4.0, modified");
+  });
+});
+
+describe("Extended mode", () => {
+  it("flattens relative curves and arcs", () => {
+    const [ring] = polylines("M10 10c0 10 20 10 20 0a10 10 0 0 0-20 0z");
+    expect(ring?.closed).toBe(true);
+    const ys = (ring?.pts ?? []).filter((_, i) => i % 2 === 1);
+    expect(Math.max(...ys)).toBeGreaterThan(14);
+    expect(Math.min(...ys)).toBeLessThan(6);
+  });
+
+  it("finds one box per eye", () => {
+    for (const p of [NOVA, ASTRA, POLARIS]) {
+      const rig = buildRig(p);
+      expect(eyeBoxes(rig.inner[`eyes:${rig.expr.eyes["rest"] ?? ""}`] ?? ""), p.seed).toHaveLength(
+        2,
+      );
+    }
+  });
+
+  it.each([
+    ["Nova", NOVA],
+    ["Astra", ASTRA],
+  ])("morphs %s's mouth into the next instead of swapping it", (_name, p) => {
+    const rig = buildRig(p);
+    const ext = extension();
+    const t = new Timeline("idle", 0);
+    frame(rig, t.clip(1000), 84, ext);
+    t.set("researching", 1000);
+    const mouth = (ms: number) =>
+      frame(rig, t.clip(ms), 84, ext).layers.find((l) => l.part.startsWith("mouth:"));
+    const mid = mouth(1100);
+    expect(mid?.part).toBe(`mouth:${rig.expr.mouth["focus"] as string}`);
+    expect(mid?.morph?.length).toBeGreaterThan(0);
+    expect(mid?.morph?.every((d) => d.d.startsWith("M") && !d.d.includes("NaN"))).toBe(true);
+    expect(mouth(1400)?.morph).toBeUndefined();
+  });
+
+  it("closes eyelids over the eyes and rotates the brows", () => {
+    for (const p of [NOVA, ASTRA]) {
+      const rig = buildRig(p);
+      const shut = frame(rig, new Timeline("snoozing", 0).clip(3000), 84, extension());
+      const eyes = shut.layers.find((l) => l.part.startsWith("eyes:"));
+      expect(eyes?.clip).toHaveLength(2);
+      expect(eyes?.clip?.every((b) => b.y1 - b.y0 < 1)).toBe(true);
+      expect(eyes?.lids?.[0]?.opacity).toBe(1);
+      const open = frame(rig, new Timeline("idle", 0).clip(0), 84, extension()).layers.find((l) =>
+        l.part.startsWith("eyes:"),
+      );
+      expect(open?.clip).toBeUndefined();
+      const near = (ext: boolean) =>
+        frame(
+          rig,
+          new Timeline("working", 0).clip(1500),
+          84,
+          ext ? extension() : undefined,
+        ).layers.find((l) => l.part.startsWith("near:"))?.m;
+      expect(near(true)).not.toEqual(near(false));
+    }
   });
 });

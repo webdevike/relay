@@ -23,6 +23,7 @@ export interface Portrait {
 }
 
 export type Role = "body" | "head" | "mouth" | "eyes" | "brows" | "restGesture" | "gesture";
+export type Feature = "face" | "nose";
 
 /** One paint-order layer: what moves it (`role`), its own SVG transform, and its fixed art if any. */
 export interface RigLayer {
@@ -31,6 +32,8 @@ export interface RigLayer {
   t: Affine;
   /** Key in `Rig.parts` of the art this layer always draws (body, head, resting gesture). */
   part?: string;
+  /** Moves with the face when Extended mode turns the head (the nose a little further). */
+  feature?: Feature;
 }
 
 type Variants = Record<string, string | readonly string[]>;
@@ -65,6 +68,8 @@ export interface Rig {
   eyeC: [number, number];
   /** Per mouth variant, the vertical centre a flipped mouth turns about (in its layer's space). */
   mouthY: Record<string, number>;
+  /** Mouth, eyes and brow art without its layer transform, by part key (Extended mode measures it). */
+  inner: Record<string, string>;
 }
 
 const STYLES: Record<PortraitStyle, Style<object>> = { notionists, micah };
@@ -173,7 +178,7 @@ interface Spec {
   root: string;
   k: Rig["k"];
   pivots: Rig["pivots"];
-  layers: { role: Role; transform: string; inner?: string }[];
+  layers: { role: Role; transform: string; inner?: string; feature?: Feature }[];
   mouth: Record<string, string>;
   brows: Record<string, { near: string; far: string }>;
   eyes: Record<string, string>;
@@ -263,10 +268,10 @@ function notionistsSpec(seed: string, options: Options): Spec {
       { role: "body", ...at("body") },
       { role: "head", ...at("hair") },
       { role: "mouth", transform: at("lips").transform },
-      { role: "head", ...at("beard") },
-      { role: "head", ...at("nose") },
+      { role: "head", feature: "face", ...at("beard") },
+      { role: "head", feature: "nose", ...at("nose") },
       { role: "eyes", transform: at("eyes").transform },
-      { role: "head", ...at("glasses") },
+      { role: "head", feature: "face", ...at("glasses") },
       { role: "brows", transform: at("brows").transform },
       // A resting gesture (a designed pick) sinks while a state's own gesture is up.
       ...(chosen["gesture"] !== undefined
@@ -355,8 +360,8 @@ function micahSpec(seed: string, options: Options): Spec {
       { role: "brows", transform: at("eyebrows").transform },
       { role: "head", ...at("hair") },
       { role: "eyes", transform: at("eyes").transform },
-      { role: "head", transform: at("eyes").transform, inner: glasses },
-      { role: "head", ...at("nose") },
+      { role: "head", feature: "face", transform: at("eyes").transform, inner: glasses },
+      { role: "head", feature: "nose", ...at("nose") },
       { role: "head", ...at("ears") },
       { role: "body", ...at("shirt") },
     ],
@@ -386,26 +391,40 @@ function rigOf(spec: Spec): Rig {
     if ((l.inner ?? "") === "") continue;
     const markup = wrap(l.transform, l.inner ?? "");
     const last = layers.at(-1);
-    if (last?.part !== undefined && last.role === l.role) {
+    if (last?.part !== undefined && last.role === l.role && last.feature === l.feature) {
       parts[last.part] = (parts[last.part] ?? "") + markup;
       continue;
     }
     const key = `${l.role}:${layers.length}`;
     parts[key] = markup;
-    layers.push({ role: l.role, t: parseTransform(l.transform), part: key });
+    layers.push({
+      role: l.role,
+      t: parseTransform(l.transform),
+      part: key,
+      ...(l.feature === undefined ? {} : { feature: l.feature }),
+    });
   }
   const mouthT = layerOf("mouth").transform;
   const mouthY: Record<string, number> = {};
+  const art: Record<string, string> = {};
   for (const [v, inner] of Object.entries(spec.mouth)) {
     parts[`mouth:${v}`] = wrap(mouthT, inner);
+    art[`mouth:${v}`] = inner;
     mouthY[v] = centre(inner)[1];
   }
   const eyesT = layerOf("eyes").transform;
-  for (const [v, inner] of Object.entries(spec.eyes)) parts[`eyes:${v}`] = wrap(eyesT, inner);
+  for (const [v, inner] of Object.entries(spec.eyes)) {
+    parts[`eyes:${v}`] = wrap(eyesT, inner);
+    art[`eyes:${v}`] = inner;
+  }
   const browsT = layerOf("brows").transform;
   for (const [v, b] of Object.entries(spec.brows)) {
     parts[`near:${v}`] = wrap(browsT, b.near);
-    if (b.far !== "") parts[`far:${v}`] = wrap(browsT, b.far);
+    art[`near:${v}`] = b.near;
+    if (b.far !== "") {
+      parts[`far:${v}`] = wrap(browsT, b.far);
+      art[`far:${v}`] = b.far;
+    }
   }
   const gestT = layerOf("gesture").transform;
   for (const [v, inner] of Object.entries(spec.gesture)) parts[`gesture:${v}`] = wrap(gestT, inner);
@@ -424,6 +443,7 @@ function rigOf(spec: Spec): Rig {
     expr: spec.expr,
     eyeC: [et[0] * cx + et[2] * cy + et[4], et[1] * cx + et[3] * cy + et[5]],
     mouthY,
+    inner: art,
   };
 }
 

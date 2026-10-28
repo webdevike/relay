@@ -6,8 +6,10 @@
  * overlays (dot ring, sound waves, z z z, "?" bubble, sweat drop, confetti) in pixels. Renderers
  * only draw what a frame says.
  */
-import { chain, invert, rotate, scaleAbout, translate, type Affine } from "./affine";
-import type { Rig } from "./rig";
+import { apply, chain, invert, rotate, scaleAbout, translate, type Affine } from "./affine";
+import { centre, type Box } from "./bbox";
+import { curve, eyeBoxes, morph, shapeOf, type Shape, type Track } from "./extend";
+import type { Feature, Rig } from "./rig";
 
 export const STATE_IDS = [
   "hello",
@@ -171,7 +173,8 @@ const voice = (lt: number): number =>
 // Channels (notionists units; each rig scales them, k.fig for body motion, k.face for eyes/brows):
 // tilt° hx hy (head) · ex ey (eye glance) · eyeS (0 open → 1 shut) eyeO (eyes widen) happy (smiling eyes) ·
 // by (brows) bFar bNear (one brow) · breathe breatheP · figY figS (figure bob/stretch) · gy grot (gesture) ·
-// ring spinP (accent dot ring) · waves zzz quiz conf drop lens (accent overlays)
+// ring spinP (accent dot ring) · waves zzz quiz conf drop lens (accent overlays) ·
+// Extended mode only: bRotN bRotF (near / far brow rotation, degrees, + = inner end up) · turn (head turn)
 const REST = {
   tilt: 0,
   hx: 0,
@@ -184,6 +187,9 @@ const REST = {
   by: 0,
   bFar: 0,
   bNear: 0,
+  bRotN: 0,
+  bRotF: 0,
+  turn: 0,
   breathe: 1,
   breatheP: 3.4,
   figY: 0,
@@ -234,6 +240,8 @@ const STATES: Record<MotionState, StateDef> = {
       tilt: 2.5 + 0.8 * Math.sin((TAU * lt) / 1.8),
       hy: -6 * pulse(lt, 0.5, 0.5) - 6 * pulse(lt, 1.6, 0.5),
       by: -10 * smooth(lt / 0.4),
+      bRotN: 5,
+      bRotF: 5,
       gy: rise(lt, 0.05, 0.55),
       grot:
         (-4 + 8 * Math.sin(TAU * (lt - 0.35) * 2.1)) *
@@ -270,6 +278,9 @@ const STATES: Record<MotionState, StateDef> = {
         7 * pulse(lt % 3.6, 2.9, 0.35),
       ex: -5,
       by: -8,
+      bRotN: 8,
+      bRotF: 8,
+      turn: -2,
       waves: smooth(lt / 0.5),
     }),
     parts: () => ({ mouth: "listen", brows: "listen" }),
@@ -304,6 +315,8 @@ const STATES: Record<MotionState, StateDef> = {
         tilt: -0.17 * ex + 0.3 * Math.sin((TAU * gt) / 5.3),
         hx: 0.35 * ex,
         by: -4,
+        bRotN: -6 * smooth((lt - 0.1) / 0.3),
+        bRotF: 12 * smooth((lt - 0.1) / 0.3),
         gy: rise(lt) - 8 * Math.sin(TAU * lt * 0.7),
         ring: smooth(lt / 0.5),
         spinP: 1.6,
@@ -327,6 +340,9 @@ const STATES: Record<MotionState, StateDef> = {
         tilt: 2.2 * Math.sin((TAU * lt) / 2.4 + 0.4) + 0.5,
         hy: -3 * Math.sin((TAU * gt) / 3.4 - 0.6) - 9 * s.open,
         by: -14 * smooth(s.stress),
+        bRotN: 9 * smooth(s.stress),
+        bRotF: 9 * smooth(s.stress),
+        turn: 1.6 * Math.sin((TAU * lt) / 3.1),
       };
     },
     parts: (lt) => ({ mouth: speech(lt).mouth }),
@@ -344,6 +360,8 @@ const STATES: Record<MotionState, StateDef> = {
       ex: 10,
       ey: 14,
       by: 6,
+      bRotN: -14,
+      bRotF: -14,
       blinkOn: 0.6,
       gy: rise(lt) - 6 * Math.abs(Math.sin(TAU * lt * 3.2)),
       ring: smooth(lt / 0.4),
@@ -381,6 +399,8 @@ const STATES: Record<MotionState, StateDef> = {
         tilt: -2 * lean + 0.3 * Math.sin((TAU * gt) / 5.3),
         hx: 0.2 * ex + 3 * lean,
         hy: 7 * lean,
+        bRotN: -6 * lean,
+        bRotF: -6 * lean,
         figY: -3 * lean,
         figS: 0.01 * lean,
         by: 4,
@@ -411,6 +431,8 @@ const STATES: Record<MotionState, StateDef> = {
       ey: -6,
       bFar: -10 * smooth((lt - 0.15) / 0.4),
       bNear: -34 * backOut((lt - 0.15) / 0.45) + 8 * pulse(lt, 2.2, 0.4),
+      bRotN: 10 * smooth((lt - 0.15) / 0.4),
+      bRotF: -16 * smooth((lt - 0.15) / 0.4),
       quiz: smooth((lt - 0.35) / 0.25),
     }),
     parts: () => ({ mouth: "hmm", brows: "confused" }),
@@ -431,6 +453,8 @@ const STATES: Record<MotionState, StateDef> = {
         ey: 9 * s,
         ex: -4 * s,
         by: 4 * s,
+        bRotN: 18 * s,
+        bRotF: 18 * s,
         breathe: 0.6,
         breatheP: 4.2,
         drop: smooth((lt - 0.7) / 0.3),
@@ -448,6 +472,8 @@ const STATES: Record<MotionState, StateDef> = {
       tilt: 1.5 * Math.sin(TAU * lt * 1.1),
       hy: -4,
       by: -22,
+      bRotN: 6,
+      bRotF: 6,
       happy: 1,
       figY: -34 * Math.abs(Math.sin(TAU * lt * 1.15)) * (1 - smooth((lt - 2.6) / 0.6)),
       gy: rise(lt, 0.05, 0.45) + 18 * Math.sin(TAU * lt * 2.3),
@@ -470,6 +496,8 @@ const STATES: Record<MotionState, StateDef> = {
         eyeS: 0.9 * s,
         ey: 5 * s,
         by: 10 * s,
+        bRotN: -4 * s,
+        bRotF: -4 * s,
         breathe: 2.2,
         breatheP: 4.2,
         blinkOn: 0,
@@ -599,10 +627,30 @@ export function resolve(clip: Clip): { pose: Pose; parts: Parts } {
 
 // ---------- frames ----------
 
-/** One layer to paint: the rig part (`Rig.parts` key) under matrix `m`, both in rig units. */
+/** A shape drawn this frame only (a mouth between two others, an eyelid), in rig part space. */
+export interface DrawPath {
+  d: string;
+  fill: string | null;
+  stroke: string | null;
+  /** Stroke width; strokes have round caps and joins. */
+  width: number;
+  opacity: number;
+  /** Fill with the even-odd rule (a mouth's teeth cut out of it). */
+  evenOdd: boolean;
+}
+
+/**
+ * One layer to paint: the rig part (`Rig.parts` key) under matrix `m`, both in rig units. Extended
+ * mode adds shapes made for this frame, in the part's space under the same matrix:
+ * - `morph`: a mouth between two others, drawn instead of the part (which names the mouth it is becoming);
+ * - `clip` and `lids`: the part clipped to `clip` (closing eyelids), then the lids' edges over it.
+ */
 export interface FrameLayer {
   part: string;
   m: Affine;
+  morph?: DrawPath[];
+  clip?: Box[];
+  lids?: DrawPath[];
 }
 
 export interface Confetto {
@@ -743,13 +791,129 @@ function concrete(
   };
 }
 
-/** One moment of `rig` on `clip`, for a disc `size` px across. */
-export function frame(rig: Rig, clip: Clip, size: number): Frame {
+/**
+ * Extended mode's memory for one drawn portrait: the mouth it shows and the morph into it. Make one
+ * per portrait instance (`extension()`) and pass it to every `frame` of that instance.
+ */
+export interface Extension {
+  mouth: string | null;
+  start: number;
+  tracks: Track[] | null;
+}
+
+/** A fresh Extended-mode memory for one portrait instance. */
+export const extension = (): Extension => ({ mouth: null, start: 0, tracks: null });
+
+/** Seconds a mouth takes to morph into the next. */
+const MORPH = 0.22;
+
+interface Measures {
+  shapes: Map<string, Shape>;
+  eyes: Map<string, Box[]>;
+  centres: Map<string, [number, number] | null>;
+}
+const measured = new WeakMap<Rig, Measures>();
+
+function measuresOf(rig: Rig): Measures {
+  let m = measured.get(rig);
+  if (m === undefined) {
+    m = { shapes: new Map(), eyes: new Map(), centres: new Map() };
+    measured.set(rig, m);
+  }
+  return m;
+}
+
+function shapeFor(rig: Rig, key: string): Shape {
+  const m = measuresOf(rig);
+  let shape = m.shapes.get(key);
+  if (shape === undefined) {
+    shape = shapeOf(rig.inner[key] ?? "");
+    m.shapes.set(key, shape);
+  }
+  return shape;
+}
+
+function eyesFor(rig: Rig, key: string): Box[] {
+  const m = measuresOf(rig);
+  let boxes = m.eyes.get(key);
+  if (boxes === undefined) {
+    boxes = eyeBoxes(rig.inner[key] ?? "");
+    m.eyes.set(key, boxes);
+  }
+  return boxes;
+}
+
+function centreFor(rig: Rig, key: string): [number, number] | null {
+  const m = measuresOf(rig);
+  let c = m.centres.get(key);
+  if (c === undefined) {
+    const art = rig.inner[key];
+    c = art === undefined || art === "" ? null : centre(art);
+    m.centres.set(key, c);
+  }
+  return c;
+}
+
+/** The in-between of a mouth morph at weight `w`, fills of one colour merged so teeth cut out. */
+function morphPaths(tracks: Track[], w: number, t: Affine): DrawPath[] {
+  const fills = new Map<string, DrawPath>();
+  const out: DrawPath[] = [];
+  for (const tr of tracks) {
+    const buf = new Float64Array(tr.a.length);
+    for (let i = 0; i < buf.length; i += 2) {
+      const [x, y] = apply(
+        t,
+        (tr.a[i] ?? 0) + ((tr.b[i] ?? 0) - (tr.a[i] ?? 0)) * w,
+        (tr.a[i + 1] ?? 0) + ((tr.b[i + 1] ?? 0) - (tr.a[i + 1] ?? 0)) * w,
+      );
+      buf[i] = x;
+      buf[i + 1] = y;
+    }
+    const d = curve(buf, tr.closed);
+    if (tr.fill !== null) {
+      const same = fills.get(tr.fill);
+      if (same !== undefined) same.d += d;
+      else {
+        const p: DrawPath = { d, fill: tr.fill, stroke: null, width: 0, opacity: 1, evenOdd: true };
+        fills.set(tr.fill, p);
+        out.push(p);
+      }
+    } else
+      out.push({
+        d,
+        fill: null,
+        stroke: tr.stroke,
+        width: tr.width,
+        opacity: tr.fade === 0 ? 1 : tr.fade < 0 ? 1 - w : w,
+        evenOdd: false,
+      });
+  }
+  return out;
+}
+
+/** Map a box through `t` (a translate / scale, as DiceBear's layer transforms are). */
+function mapBox(t: Affine, b: Box): Box {
+  const [x0, y0] = apply(t, b.x0, b.y0);
+  const [x1, y1] = apply(t, b.x1, b.y1);
+  return { x0: Math.min(x0, x1), y0: Math.min(y0, y1), x1: Math.max(x0, x1), y1: Math.max(y0, y1) };
+}
+
+/**
+ * One moment of `rig` on `clip`, for a disc `size` px across. With `ext` (Extended mode, the
+ * playground's): mouths morph into each other, eyelids close over the eyes instead of squashing
+ * them, each brow rotates about its own centre, and the face turns a little with the gaze.
+ */
+export function frame(rig: Rig, clip: Clip, size: number, ext?: Extension): Frame {
   const { pose: p, parts } = resolve(clip);
   const { gt } = clip;
   const kf = rig.k.fig;
   const kc = rig.k.face;
   const d = concrete(rig, parts, p);
+  if (ext !== undefined) {
+    // Brows keep their own shape and rotate instead of swapping; no mouth is flipped.
+    d.brows = rig.expr.brows["rest"] ?? d.brows;
+    d.flip = false;
+  }
   const [bx, by0] = rig.pivots.base;
   const [nx, ny] = rig.pivots.neck;
   const breath = Math.sin((TAU * gt) / p.breatheP) * p.breathe;
@@ -757,15 +921,39 @@ export function frame(rig: Rig, clip: Clip, size: number): Frame {
   const fig = chain(translate(0, (-5 * breath + p.figY) * kf), scaleAbout(s, s + p.figS, bx, by0));
   const head = chain(fig, translate(p.hx * kf, p.hy * kf), rotate(p.tilt, nx, ny));
   const shut = clamp(Math.max(p.eyeS, p.happy * rig.expr.happySquash));
-  const sy = (1 - 0.92 * shut) * (1 + 0.35 * p.eyeO);
-  const sx = 1 + 0.08 * shut + 0.1 * p.eyeO;
   const [ecx, ecy] = rig.eyeC;
-  const eyes = chain(
-    head,
-    translate(p.ex * kc, (p.ey + 3 * shut) * kc),
-    scaleAbout(sx, sy, ecx, ecy),
+  // Head turn (Extended): face features slide sideways, the nose a little further, and narrow slightly.
+  const turn = ext === undefined ? 0 : p.turn + 0.22 * p.ex;
+  const feat = (f: Feature | undefined): Affine =>
+    f === undefined || turn === 0
+      ? head
+      : chain(
+          head,
+          translate(turn * 5 * kc * (f === "nose" ? 1.5 : 1), 0),
+          scaleAbout(1 - 0.012 * Math.abs(turn), 1, ecx, 0),
+        );
+  const face = feat("face");
+  const eyes =
+    ext === undefined
+      ? chain(
+          face,
+          translate(p.ex * kc, (p.ey + 3 * shut) * kc),
+          scaleAbout(
+            1 + 0.08 * shut + 0.1 * p.eyeO,
+            (1 - 0.92 * shut) * (1 + 0.35 * p.eyeO),
+            ecx,
+            ecy,
+          ),
+        )
+      : chain(
+          face,
+          translate(p.ex * kc, p.ey * kc),
+          scaleAbout(1 + 0.1 * p.eyeO, 1 + 0.35 * p.eyeO, ecx, ecy),
+        );
+  const brows = chain(
+    face,
+    translate(p.ex * 0.35 * kc, (p.by + (ext === undefined ? 20 : 6) * shut + p.ey * 0.4) * kc),
   );
-  const brows = chain(head, translate(p.ex * 0.35 * kc, (p.by + 20 * shut + p.ey * 0.4) * kc));
   const [wx, wy] = rig.pivots.wave;
   const gest = chain(fig, translate(0, p.gy), rotate(p.grot, wx, wy));
   // The resting gesture sinks exactly as far as a state's gesture has risen, and comes back as it sinks.
@@ -778,35 +966,96 @@ export function frame(rig: Rig, clip: Clip, size: number): Frame {
         if (l.part !== undefined) layers.push({ part: l.part, m: fig });
         break;
       case "head":
-        if (l.part !== undefined) layers.push({ part: l.part, m: head });
+        if (l.part !== undefined) layers.push({ part: l.part, m: feat(l.feature) });
         break;
       case "restGesture":
         if (l.part !== undefined) layers.push({ part: l.part, m: restGest });
         break;
       case "mouth": {
-        let m = head;
+        const key = `mouth:${d.mouth}`;
+        if (ext !== undefined) {
+          if (ext.mouth !== key) {
+            ext.tracks =
+              ext.mouth === null ? null : morph(shapeFor(rig, ext.mouth), shapeFor(rig, key));
+            ext.mouth = key;
+            ext.start = gt;
+          }
+          if (gt < ext.start) ext.start = gt - MORPH; // the clock went back: show the target
+          const w = smooth((gt - ext.start) / MORPH);
+          if (ext.tracks !== null && w < 1) {
+            layers.push({ part: key, m: face, morph: morphPaths(ext.tracks, w, l.t) });
+            break;
+          }
+        }
+        let m = face;
         if (d.flip) {
           // Turned upside down about its own centre, inside the layer's transform.
           const cy = rig.mouthY[d.mouth] ?? 0;
           const flip = chain(translate(0, cy + 6 * kc), [1, 0, 0, -1, 0, 0], translate(0, -cy));
-          m = chain(head, l.t, flip, invert(l.t));
+          m = chain(face, l.t, flip, invert(l.t));
         }
-        layers.push({ part: `mouth:${d.mouth}`, m });
+        layers.push({ part: key, m });
         break;
       }
-      case "eyes":
-        layers.push({ part: `eyes:${d.eyes}`, m: eyes });
+      case "eyes": {
+        const key = `eyes:${d.eyes}`;
+        const c = clamp(shut / 0.9);
+        if (ext === undefined || c <= 0) {
+          layers.push({ part: key, m: eyes });
+          break;
+        }
+        // Eyelids: per eye, a clip closing from the top (and a little from the bottom) onto a line
+        // 62% down the eye, and the lid's edge as a curve that bows down as it closes.
+        const lw = rig.style === "micah" ? 4 : 12;
+        const clipBoxes: Box[] = [];
+        const lids: DrawPath[] = [];
+        for (const b of eyesFor(rig, key)) {
+          const h = b.y1 - b.y0;
+          const meet = b.y0 + h * 0.62;
+          const up = lerp(b.y0 - lw, meet, c);
+          const lo = Math.max(up, lerp(b.y1 + lw, meet, c));
+          clipBoxes.push(mapBox(l.t, { x0: b.x0 - lw, y0: up, x1: b.x1 + lw, y1: lo }));
+          const y = lerp(b.y0, meet, c);
+          const bow = h * 0.3 * c + lw * 0.3 * c;
+          const [ax, ay] = apply(l.t, b.x0 - lw * 0.3, y);
+          const [qx, qy] = apply(l.t, (b.x0 + b.x1) / 2, y + 2 * bow);
+          const [zx, zy] = apply(l.t, b.x1 + lw * 0.3, y);
+          lids.push({
+            d: `M${f2(ax)} ${f2(ay)}Q${f2(qx)} ${f2(qy)} ${f2(zx)} ${f2(zy)}`,
+            fill: null,
+            stroke: "#000",
+            width: lw,
+            opacity: clamp(c * 4),
+            evenOdd: false,
+          });
+        }
+        layers.push({ part: key, m: eyes, clip: clipBoxes, lids });
         break;
+      }
       case "brows": {
         const inv = invert(l.t);
+        const near = `near:${d.brows}`;
+        const far = `far:${d.brows}`;
+        const hasFar = rig.parts[far] !== undefined;
+        const rot = (key: string, deg: number): Affine => {
+          const c = ext === undefined || deg === 0 ? null : centreFor(rig, key);
+          return c === null ? [1, 0, 0, 1, 0, 0] : rotate(deg, c[0], c[1]);
+        };
+        // + raises a brow's inner end: the near brow's right, the far brow's left.
         layers.push({
-          part: `near:${d.brows}`,
-          m: chain(brows, l.t, translate(0, p.bNear * kc), inv),
+          part: near,
+          m: chain(
+            brows,
+            l.t,
+            translate(0, p.bNear * kc),
+            rot(near, -(hasFar ? p.bRotN : p.bRotN * 0.3)),
+            inv,
+          ),
         });
-        if (rig.parts[`far:${d.brows}`] !== undefined)
+        if (hasFar)
           layers.push({
-            part: `far:${d.brows}`,
-            m: chain(brows, l.t, translate(0, -p.bFar * kc), inv),
+            part: far,
+            m: chain(brows, l.t, translate(0, -p.bFar * kc), rot(far, p.bRotF), inv),
           });
         break;
       }
@@ -817,6 +1066,8 @@ export function frame(rig: Rig, clip: Clip, size: number): Frame {
   }
   return { state: clip.state, layers, fx: overlays(p, clip, size) };
 }
+
+const f2 = (v: number): string => (Math.round(v * 100) / 100).toString();
 
 function overlays(p: Pose, clip: Clip, size: number): Overlays {
   const { gt, lt } = clip;
