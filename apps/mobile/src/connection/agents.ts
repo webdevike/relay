@@ -93,7 +93,10 @@ export function createAgentFrameRouter(store: AgentsStoreActions, send: (message
       case "assistant.agents":
       case "vnc.ticket":
       case "vnc.unavailable":
-        // Session, command, drop, board and vnc traffic; owned by SessionMachine, CommandQueue and the other routers.
+      case "canvas.rooms":
+      case "canvas.access":
+      case "canvas.unavailable":
+        // Session, command, drop, board, vnc and canvas traffic; owned by SessionMachine, CommandQueue and the other routers.
         return;
     }
   };

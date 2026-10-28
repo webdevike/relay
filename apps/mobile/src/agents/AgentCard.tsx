@@ -24,6 +24,7 @@ import { ScrollToBottom } from "@/ui/ScrollToBottom";
 import { useInvertedChatScroll } from "@/ui/useInvertedChatScroll";
 import { useMessageEntrances } from "@/ui/useMessageEntrances";
 import { GrowIn } from "@/ui/GrowIn";
+import { CanvasEntryRow } from "@/canvas/CanvasEntryRow";
 /**
  * Where each session's transcript was left, as the inverted list's offset (0 = the newest message
  * in view). A card mounts straight at that offset, so switching sessions never scrolls.
@@ -121,6 +122,14 @@ function MessageRow({ sessionId, message, onOpenImage, error, pending }: Message
   const reactionKey = bubbleReactionKey(message, pending);
   const images =
     message.images === undefined || message.images.length === 0 ? null : <MessageImages sessionId={sessionId} refs={message.images} onOpen={onOpenImage} />;
+  // A live canvas row (the host sends it as a system row) is a card, whatever its role.
+  if (message.canvas !== undefined) {
+    return (
+      <View style={{ paddingHorizontal: spacing.lg }}>
+        <CanvasEntryRow entry={message.canvas} origin={`/agents?sessionId=${encodeURIComponent(sessionId)}`} />
+      </View>
+    );
+  }
   switch (message.role) {
     case "user": {
       // A slash command reads as one: the command in a chip, whatever followed it under.

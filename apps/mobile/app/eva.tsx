@@ -56,6 +56,8 @@ import { useCallStore } from "@/state/call";
 import "@/dictation/session";
 import { choosePhoto, chooseLibraryPhotos, type Photo } from "@/lib/photo";
 import { ArtifactsButton } from "@/artifacts/ArtifactsButton";
+import { CanvasEntryRow } from "@/canvas/CanvasEntryRow";
+import { draftKey, useThreadDraft } from "@/state/drafts";
 import { ArtifactsSheet } from "@/artifacts/ArtifactsSheet";
 
 /** Id of the row echoing a sent turn before the host's snapshot lists it. */
@@ -79,6 +81,11 @@ const GAP_RUN = 4;
 const USER_MAX_WIDTH = "80%";
 const USER_RADIUS = 24;
 const EVA_RADIUS = 22;
+/**
+ * Where each agent's thread was left, as the inverted list's offset (0 = the newest message in
+ * view), as AgentCard keeps it per session: a thread that remounts opens where Isaac was.
+ */
+const scrollMemory = new Map<string, number>();
 
 /** Keyed by agent, so moving to another agent's thread (a notification tap) starts with a fresh composer. */
 export default function Eva() {
@@ -96,7 +103,7 @@ function Thread({ agent }: { agent: string }) {
   const pending = useAssistantStore((state) => threadOf(state, agent).pending);
   const setPending = useAssistantStore((state) => state.setPending);
   const connected = useConnectionStore((state) => state.status === "connected");
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useThreadDraft(draftKey("assistant", agent));
   const composer = useRef<TextInput>(null);
   // Where the composer's cursor is, for Reply to quote above it.
   const cursor = useRef(0);
@@ -116,7 +123,14 @@ function Thread({ agent }: { agent: string }) {
   const [photos, setPhotos] = useState<Photo[]>([]);
   // The images of the tapped bubble, open in the full-screen viewer.
   const [viewing, setViewing] = useState<{ uris: string[]; start: number } | null>(null);
-  const { listRef, awayFromBottom, scrollToBottom, followContent, scrollHandlers } = useInvertedChatScroll<AssistantMessage>();
+  // Read once per mount: coming back to the thread restores its position and follow mode.
+  const initialOffset = useRef(scrollMemory.get(agent) ?? 0);
+  const { listRef, awayFromBottom, scrollToBottom, followContent, scrollHandlers } = useInvertedChatScroll<AssistantMessage>({
+    initialOffset: initialOffset.current,
+    onOffset: (offset) => {
+      scrollMemory.set(agent, offset);
+    },
+  });
   const viewerImages = useMemo(() => (viewing === null ? null : viewing.uris.map((uri) => ({ uri }))), [viewing]);
   const artifactsThread = assistantReactionThread(agent);
   const [artifactsOpen, setArtifactsOpen] = useState(false);
@@ -367,6 +381,7 @@ function Thread({ agent }: { agent: string }) {
               ListHeaderComponent={typing ? <TypingRow title={title} gap={newest !== undefined && senderOf(newest) === "eva" ? GAP_RUN : GAP_SENDER} /> : null}
               // Inverted: reserve room at the visual bottom for the floating composer.
               contentContainerStyle={{ paddingTop: composerHeight + spacing.md }}
+              contentOffset={{ x: 0, y: initialOffset.current }}
               {...scrollHandlers}
               keyboardDismissMode="interactive"
               keyboardShouldPersistTaps="handled"
@@ -658,10 +673,14 @@ function Row({ agent, message, receipt, streaming, sessionId, local, onOpenImage
     case "card":
       return (
         <View style={styles.evaRow}>
-          <View style={[styles.card, { borderColor: colors.hairline }]}>
-            {message.title !== undefined && message.title !== "" && <Text variant="label">{message.title}</Text>}
-            <MessageText text={message.text} />
-          </View>
+          {message.canvas !== undefined ? (
+            <CanvasEntryRow entry={message.canvas} origin={`/eva?agent=${encodeURIComponent(agent)}`} />
+          ) : (
+            <View style={[styles.card, { borderColor: colors.hairline }]}>
+              {message.title !== undefined && message.title !== "" && <Text variant="label">{message.title}</Text>}
+              <MessageText text={message.text} />
+            </View>
+          )}
         </View>
       );
     case "error":

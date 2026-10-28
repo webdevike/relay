@@ -15,6 +15,9 @@ export interface ButtonProps {
   tone?: ToneToken | undefined;
   /** Overrides the default 36pt height (e.g. 44pt touch targets in a widget grid). */
   height?: number | undefined;
+  /** VoiceOver label when it should say more than `label`. */
+  accessibilityLabel?: string | undefined;
+  testID?: string | undefined;
 }
 
 function backgroundFor(variant: ButtonVariant, colors: Colors, tone: ToneToken | undefined): string {
@@ -44,12 +47,16 @@ export function Button({
   loading = false,
   tone,
   height = 36,
+  accessibilityLabel,
+  testID,
 }: ButtonProps) {
   const colors = useColors();
   const textColor =
     tone === undefined || variant === "primary" || variant === "danger" ? textColorFor[variant] : tone;
   return (
     <Pressable
+      accessibilityLabel={accessibilityLabel}
+      testID={testID}
       disabled={disabled || loading}
       onPress={() => {
         tapHaptic();

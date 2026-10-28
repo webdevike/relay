@@ -22,6 +22,7 @@ import { motion, spacing, useColors } from "@/theme";
 import { LAUNCH_ECHO, subagentsOf, useAgentsStore } from "@/state/agents";
 import { useConnectionStore } from "@/state/connection";
 import { useSettingsStore } from "@/state/settings";
+import { draftKey, useThreadDraft } from "@/state/drafts";
 import { accountProfile, scopeOrder } from "@/lib/profile";
 import { requestAgentOptions, sendCommand, subscribeAgent, unsubscribeAgent } from "@/connection";
 import { DictationButton } from "@/dictation/DictationButton";
@@ -377,9 +378,9 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
 
   // Typing instead of speaking: the header folds away so the chat keeps its room above the
   // keyboard, the seam loses its action, and the panel becomes the field. The draft outlives the
-  // mode; only a send clears it.
+  // mode, the screen and the app (kept per session in the drafts store); only a send clears it.
   const [typing, setTyping] = useState(false);
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useThreadDraft(draftKey("session", selectedId ?? "new"));
   // The seam carousel: the mic first, a swipe left brings the keyboard, and around again. The
   // position outlives typing mode so the keyboard is one tap away the next time.
   const [action, setAction] = useState(0);
@@ -446,7 +447,7 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
   const replyWith = useCallback((quoted: string) => {
     setDraft((current) => quoteIntoDraft(current, current.length, quoted).draft);
     setTyping(true);
-  }, []);
+  }, [setDraft]);
 
   const [settingsFor, setSettingsFor] = useState<string | null>(null);
   const onHold = useCallback((slot: number) => {

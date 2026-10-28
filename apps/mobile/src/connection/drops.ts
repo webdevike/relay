@@ -53,10 +53,13 @@ export function createDropFrameRouter(store: DropsStoreActions): DropFrameRouter
       case "assistant.agents":
       case "vnc.ticket":
       case "vnc.unavailable":
+      case "canvas.rooms":
+      case "canvas.access":
+      case "canvas.unavailable":
       case "ack":
       case "nack":
       case "pong":
-        // Session, command, agent, board and vnc traffic; owned by SessionMachine, CommandQueue
+        // Session, command, agent, board, vnc and canvas traffic; owned by SessionMachine, CommandQueue
         // and the other routers.
         return;
     }

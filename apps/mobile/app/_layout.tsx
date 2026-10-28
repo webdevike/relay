@@ -41,6 +41,8 @@ export default function RootLayout() {
             name="eva-computer"
             options={{ gestureEnabled: false, contentStyle: { backgroundColor: "#000000" } }}
           />
+          {/* The board pans under the finger; an edge swipe back would leave the room mid-drag. Back to chat is the way out. */}
+          <Stack.Screen name="canvas" options={{ gestureEnabled: false }} />
           <Stack.Screen
             name="eva-signin"
             options={{ presentation: "modal", contentStyle: { backgroundColor: colors.surface } }}

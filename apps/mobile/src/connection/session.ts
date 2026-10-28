@@ -253,9 +253,12 @@ export class SessionMachine {
       case "assistant.agents":
       case "vnc.ticket":
       case "vnc.unavailable":
+      case "canvas.rooms":
+      case "canvas.access":
+      case "canvas.unavailable":
       case "ack":
       case "nack":
-        // Agent, drop, board, gate, usage, catch up, reaction, assistant and vnc frames are routed to their stores and ack/nack to CommandQueue by index.ts.
+        // Agent, drop, board, gate, usage, catch up, reaction, assistant, vnc and canvas frames are routed to their stores and ack/nack to CommandQueue by index.ts.
         return [];
     }
   }

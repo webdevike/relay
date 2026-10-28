@@ -19,6 +19,7 @@ import { useCatchUpStore } from "@/state/catchup";
 import { useAssistantStore } from "@/state/assistant";
 import { useReactionsStore } from "@/state/reactions";
 import { useArtifactsStore } from "@/state/artifacts";
+import { useCanvasStore } from "@/state/canvas";
 import { callIsLive, useCallStore } from "@/state/call";
 import { createCallFrameRouter } from "@/call/frames";
 import { callStats } from "@/call/stats";
@@ -35,6 +36,8 @@ import { createCatchUpFrameRouter } from "./catchup";
 import { createAssistantFrameRouter } from "./assistant";
 import { createReactionFrameRouter } from "./reactions";
 import { createArtifactFrameRouter, PendingActs, type ActResult } from "./artifacts";
+import { beginCanvasAccess, canvasWelcomeFrames, createCanvasFrameRouter } from "./canvas";
+import { allowedTarget, mayDiscover, parseOnlyHost } from "./only-host";
 import * as identity from "./identity";
 import { Discovery, type DiscoveredService } from "./discovery";
 import { NO_HOSTS, removeHost, upsertHost, type PairedHosts } from "./hosts";
@@ -44,6 +47,9 @@ import { SessionMachine, type Effect } from "./session";
 import { CommandQueue } from "./commands";
 import { debug, warn } from "./log";
 import { withdrawNotification } from "@/inbox/withdraw";
+
+/** `EXPO_PUBLIC_RELAY_ONLY_HOST` pins a test bundle to one host; unset (every real build) changes nothing. */
+const ONLY_HOST = parseOnlyHost(process.env.EXPO_PUBLIC_RELAY_ONLY_HOST);
 
 let started = false;
 let deviceId = "";
@@ -101,6 +107,7 @@ const routeCatchUpFrame = createCatchUpFrameRouter(useCatchUpStore.getState());
 const routeAssistantFrame = createAssistantFrameRouter(useAssistantStore.getState());
 const routeReactionFrame = createReactionFrameRouter(useReactionsStore.getState());
 const routeArtifactFrame = createArtifactFrameRouter(useArtifactsStore.getState(), pendingActs);
+const routeCanvasFrame = createCanvasFrameRouter(useCanvasStore.getState(), () => hostAuthority);
 const routeCallFrame = createCallFrameRouter(
   { update: useCallStore.getState().update, current: () => useCallStore.getState().call },
   {
@@ -171,6 +178,10 @@ socket.onMessage = (data) => {
     // Reactions may have changed on another device while this one was away.
     for (const thread of reactionThreads.keys()) socket.send(encode({ t: "reactions.get", thread }));
     for (const thread of artifactThreads.keys()) socket.send(encode({ t: "artifacts.get", thread }));
+    // Live canvas rooms come and go while away, and a restarted host counts revs from zero again and
+    // forgot its tokens; an open the socket dropped before its answer asks again.
+    useCanvasStore.getState().reconnected();
+    for (const frame of canvasWelcomeFrames(useCanvasStore.getState().access)) socket.send(encode(frame));
   }
   if (message.t === "agent.image") imagesInFlight.delete(imageKey(message.sessionId, message.id));
   // Answered on the Mac, in the chat or on another device: take its notification off the lock screen.
@@ -188,6 +199,7 @@ socket.onMessage = (data) => {
   routeCatchUpFrame(message);
   routeReactionFrame(message);
   routeArtifactFrame(message);
+  routeCanvasFrame(message);
   routeAssistantFrame(message);
   routeCallFrame(message);
   void dispatch({ type: "server", message });
@@ -214,7 +226,9 @@ async function applyEffects(effects: Effect[]): Promise<void> {
         // A typed `host:port` target skips Bonjour entirely: hand the machine a synthetic resolved service.
         const manual = target === null ? null : parseManualHost(target);
         if (manual === null) {
-          discovery.start(target);
+          // A pinned bundle never browses: a bad pin connects nowhere instead of to whatever answers.
+          if (mayDiscover(ONLY_HOST)) discovery.start(target);
+          else if (ONLY_HOST.kind === "invalid") useConnectionStore.getState().set({ lastError: `EXPO_PUBLIC_RELAY_ONLY_HOST is not host:port: ${ONLY_HOST.raw}` });
         } else {
           discovery.stop();
           currentCandidate = manual;
@@ -285,7 +299,7 @@ async function boot(): Promise<void> {
   deviceId = await identity.getDeviceId();
   await identity.importProvisionedHost(deviceId);
   hosts = await identity.loadPairedHosts();
-  target = hosts.activeId;
+  target = allowedTarget(ONLY_HOST, hosts.activeId);
   publishHosts();
   wasActive = AppState.currentState === "active";
   appStateSubscription = AppState.addEventListener("change", onAppStateChange);
@@ -319,7 +333,7 @@ async function resetSession(): Promise<void> {
  * with it, and commands still waiting for its ack are cancelled rather than replayed on the new one.
  */
 async function retarget(id: string | null): Promise<void> {
-  target = id;
+  target = allowedTarget(ONLY_HOST, id);
   publishHosts();
   commandQueue.cancelAll();
   useAgentsStore.getState().applyWelcome(0, []);
@@ -330,6 +344,7 @@ async function retarget(id: string | null): Promise<void> {
   useCatchUpStore.getState().set(null);
   useReactionsStore.getState().clear();
   useArtifactsStore.getState().clear();
+  useCanvasStore.getState().clear();
   pendingActs.cancelAll();
   useVncStore.getState().setAccess({ kind: "idle" });
   await resetSession();
@@ -337,6 +352,7 @@ async function retarget(id: string | null): Promise<void> {
 
 /** A saved host connects with its secret; any other id starts pairing with it straight away. */
 async function switchHost(id: string): Promise<void> {
+  if (allowedTarget(ONLY_HOST, id) !== id) return;
   if (id === target && useConnectionStore.getState().status === "connected") return;
   const saved = hosts.hosts.some((host) => host.id === id);
   if (saved) await persistHosts({ ...hosts, activeId: id });
@@ -573,6 +589,23 @@ export function requestVncAccess(): void {
 }
 
 /**
+ * Asks for a way into the live canvas room on board `slug`: the answer lands in
+ * `useCanvasStore().access[slug]` as the host web client's URL with a token, or `unavailable`
+ * when the session there ended. A token still good for a while is reused, so stepping back into
+ * the room never reloads it. Ephemeral; while not connected the request waits as `asking` and the
+ * next welcome sends it.
+ */
+export function requestCanvasAccess(slug: string): void {
+  beginCanvasAccess(useCanvasStore.getState(), slug, {
+    now: Date.now(),
+    connected: useConnectionStore.getState().status === "connected",
+    send: (message) => {
+      socket.send(encode(message));
+    },
+  });
+}
+
+/**
  * `http://<host>:<port>` of the live connection, the prefix for `Drop.file.path` blob fetches.
  * `null` when not connected: there is no host to fetch from and no drop list to fetch for.
  */
@@ -680,7 +713,7 @@ export const connection = {
 
 /** Keeps Bonjour browsing (and `useConnectionStore().discovered` fresh) while a host picker is open. */
 export function browseHosts(on: boolean): void {
-  discovery.browse(on);
+  if (mayDiscover(ONLY_HOST)) discovery.browse(on);
 }
 
 /** Mounts the connection lifecycle to the app's root component tree. */
