@@ -188,6 +188,17 @@ describe("assistant thread", () => {
     expect(frame({ signin: { url: "https://github.com/login", host: "github.com", submitted: true } }).ok).toBe(true);
     expect(frame({ signin: { url: "https://github.com/login" } }).ok).toBe(false);
   });
+  it("a message may carry two to four short replies", () => {
+    const frame = (replies: unknown) => parseServerMessage(JSON.stringify({ t: "assistant.snapshot", agent: "nova", snapshot: { rev: 1, busy: false, sessionId: "s", messages: [{ id: "m", role: "assistant", text: "Push it?", at: 1, replies }] } }));
+    const parsed = frame(["Yes, push it", "Not yet"]);
+    expect(parsed.ok && parsed.value.t === "assistant.snapshot" ? parsed.value.snapshot.messages[0]?.replies : null).toEqual(["Yes, push it", "Not yet"]);
+    expect(frame(["a", "b", "c", "d"]).ok).toBe(true);
+    expect(frame(["x".repeat(24), "b"]).ok).toBe(true);
+    expect(frame(["only one"]).ok).toBe(false);
+    expect(frame(["a", "b", "c", "d", "e"]).ok).toBe(false);
+    expect(frame(["x".repeat(25), "b"]).ok).toBe(false);
+    expect(frame(["", "b"]).ok).toBe(false);
+  });
 });
 
 describe("hmac", () => {

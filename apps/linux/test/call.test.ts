@@ -188,6 +188,11 @@ describe("speech from replies", () => {
     expect(speakable("Sign in please [[sign", true)).toBe("Sign in please");
   });
 
+  it("never says a replies token, whole or half-written", () => {
+    expect(speakable("Want me to push it?\n[[replies: Yes, push it | Not yet]]", false)).toBe("Want me to push it?");
+    expect(speakable("Want me to push it?\n[[replies: Yes, pu", true)).toBe("Want me to push it?");
+  });
+
   it("spells clock times the way the voice says them right", () => {
     expect(speakable("It's 2:12 PM. Standup at 9:05, lunch at 12:00 and the call at 3:00 pm.", false)).toBe(
       "It's 2 12 PM. Standup at 9 oh 5, lunch at 12 o'clock and the call at 3 pm.",

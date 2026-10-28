@@ -1,18 +1,19 @@
 // Turning an assistant's reply (markdown, streamed in) into sentences a call can say. Only the part
-// before the details marker is spoken; code, images, tables, sign-in tokens and markup are dropped
-// and links become their text, so nothing reads out as symbols.
+// before the details marker is spoken; code, images, tables, sign-in and replies tokens and markup are
+// dropped and links become their text, so nothing reads out as symbols.
 
 import { spokenPart } from "../assistant/voice";
 import { SILENCE_MARKER } from "../assistant/service";
+import { splitReplies } from "../assistant/replies";
 import { splitSignin } from "../assistant/signin";
 
 /**
  * `markdown` as plain speech for any voice. Lines become sentences (a finished line without end
  * punctuation gets a period), so list items are said one by one. While `streaming`, an unclosed
- * code fence hides everything after it and a half-written sign-in token is held back.
+ * code fence hides everything after it and a half-written sign-in or replies token is held back.
  */
 export function plainSpeech(markdown: string, streaming: boolean): string {
-  const lines = splitSignin(spokenPart(markdown), streaming)
+  const lines = splitSignin(splitReplies(spokenPart(markdown), streaming).text, streaming)
     .text.replace(/```[\s\S]*?(?:```|$)/g, "\n")
     .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")

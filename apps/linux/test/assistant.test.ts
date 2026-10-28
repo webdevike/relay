@@ -7,6 +7,7 @@ import type { LaunchOptions } from "../src/agents/herdr";
 import { liveVoiceFor, loadRegistry } from "../src/assistant/registry";
 import { handleAssistantSay } from "../src/assistant/http";
 import { assistantStatus, AssistantService, AssistantThreads, lastReplyOf, MAX_LAST_REPLY, REGISTER_TIMEOUT_MS, SNAPSHOT_DEBOUNCE_MS, statusPrefix, toAssistantMessages } from "../src/assistant/service";
+import { MAX_REPLIES, MAX_REPLY_CHARS, splitReplies } from "../src/assistant/replies";
 import { type FillSpawn, splitSignin } from "../src/assistant/signin";
 import { defaultAssistantPath, FileAssistantStore, type AssistantRecord } from "../src/assistant/store";
 import { voiceTurn } from "../src/assistant/voice";
@@ -763,6 +764,67 @@ describe("sign-in token", () => {
     h.service.observe({ kind: "conversation", sessionId: "eva-1", appended: [{ id: "a1", role: "assistant", text: "Sign in please.\n[[signin:https://github.com/login]]", at: 1 }] });
     await flush();
     expect(h.pushes.map((push) => push.body)).toEqual(["Sign in please.", "Sign in please."]);
+  });
+});
+
+describe("replies token", () => {
+  it("strips the token from a reply and carries its answers", () => {
+    expect(splitReplies("Push it now?\n[[replies: Yes, push it | Not yet | Show me the diff]]", false)).toEqual({
+      text: "Push it now?",
+      replies: ["Yes, push it", "Not yet", "Show me the diff"],
+    });
+    expect(splitReplies("Today or tomorrow?  [[replies:Today|Tomorrow]] \n", false)).toEqual({ text: "Today or tomorrow?", replies: ["Today", "Tomorrow"] });
+  });
+
+  it("trims, collapses spaces, drops empty and long answers, dedupes ignoring case and keeps four", () => {
+    expect(MAX_REPLIES).toBe(4);
+    expect(MAX_REPLY_CHARS).toBe(24);
+    const long = "x".repeat(MAX_REPLY_CHARS + 1);
+    expect(splitReplies(`Which?\n[[replies:  Yes,   push   it | | ${long} | yes, PUSH it | ${"y".repeat(MAX_REPLY_CHARS)} ]]`, false)).toEqual({
+      text: "Which?",
+      replies: ["Yes, push it", "y".repeat(MAX_REPLY_CHARS)],
+    });
+    expect(splitReplies("Pick one?\n[[replies: A | B | C | D | E | F]]", false).replies).toEqual(["A", "B", "C", "D"]);
+  });
+
+  it("cuts a token with fewer than two answers without replies, and leaves a token in mid-text alone", () => {
+    expect(splitReplies("Ok?\n[[replies: Yes]]", false)).toEqual({ text: "Ok?" });
+    expect(splitReplies("Ok?\n[[replies: Yes | yes | ]]", false)).toEqual({ text: "Ok?" });
+    expect(splitReplies("Ok?\n[[replies:]]", false)).toEqual({ text: "Ok?" });
+    expect(splitReplies("[[replies: Yes | No]] then more", false)).toEqual({ text: "[[replies: Yes | No]] then more" });
+    expect(splitReplies("Ok?\n[[replies: Yes\n| No]]", false)).toEqual({ text: "Ok?\n[[replies: Yes\n| No]]" });
+  });
+
+  it("hides a token that is still streaming in, but not other text", () => {
+    for (const partial of ["Ready?\n[", "Ready?\n[[", "Ready?\n[[rep", "Ready?\n[[replies:", "Ready?\n[[replies: Yes, ship | No", "Ready?\n[[replies: Yes | No]"]) {
+      expect(splitReplies(partial, true)).toEqual({ text: "Ready?" });
+      expect(splitReplies(partial, false)).toEqual({ text: partial });
+    }
+    expect(splitReplies("array[[0]] is", true)).toEqual({ text: "array[[0]] is" });
+    expect(splitReplies("Ready?\n[[replies: a\nb", true)).toEqual({ text: "Ready?\n[[replies: a\nb" });
+    expect(splitReplies("Ready?\n[[replies: Yes | No]]", true)).toEqual({ text: "Ready?", replies: ["Yes", "No"] });
+  });
+
+  it("carries replies on the assistant row, before the sign-in token is cut, and drops a reply that is only the token", () => {
+    const rows: AgentMessage[] = [
+      { id: "a1", role: "assistant", text: "Deploy to prod?\n[[replies: Yes, deploy it | Not yet]]", at: 1 },
+      { id: "a2", role: "assistant", text: "Sign in first?\n[[signin:https://github.com/login]]\n[[replies: Done | Skip it]]", at: 2 },
+      { id: "a3", role: "assistant", text: "[[replies: Yes | No]]", at: 3 },
+      { id: "a4", role: "assistant", text: "Which one?\n[[replies: Th", at: 4, streaming: true },
+    ];
+    expect(toAssistantMessages(rows, null, STATUS_PREFIX)).toEqual([
+      { id: "a1", role: "assistant", text: "Deploy to prod?", at: 1, replies: ["Yes, deploy it", "Not yet"] },
+      { id: "a2", role: "assistant", text: "Sign in first?", at: 2, signin: { url: "https://github.com/login", host: "github.com" }, replies: ["Done", "Skip it"] },
+      { id: "a4", role: "assistant", text: "Which one?", at: 4 },
+    ]);
+  });
+
+  it("pushes a reply without the token", async () => {
+    const h = harness();
+    h.register("working");
+    h.service.observe({ kind: "conversation", sessionId: "eva-1", appended: [{ id: "a1", role: "assistant", text: "Push it now?\n[[replies: Yes, push it | Not yet]]", at: 1 }] });
+    await flush();
+    expect(h.pushes.map((push) => push.body)).toEqual(["Push it now?", "Push it now?"]);
   });
 });
 

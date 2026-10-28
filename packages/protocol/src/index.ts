@@ -544,6 +544,8 @@ export const AssistantMessage = z.object({
   images: z.array(AgentImageRef).optional(),
   /** Eva asked Isaac to sign in to a site in her browser: the page and its host. `submitted` once the host typed credentials into the login page. */
   signin: z.object({ url: nonEmpty, host: nonEmpty, submitted: z.boolean().optional() }).optional(),
+  /** Short answers to the question an assistant row ends on (its `[[replies: a | b]]` token): the newest row shows them as buttons, and a tap sends one as Isaac's message. */
+  replies: z.array(z.string().min(1).max(24)).min(2).max(4).optional(),
   /** A user row Isaac said on a call rather than typed (the host strips the voice-turn note from its text). */
   voice: z.boolean().optional(),
   /** A live canvas row (role "card"): Join card, canvas turn or wrap-up; builds without canvas show `text`. */

@@ -260,6 +260,21 @@ The body is an HTML fragment (markup, `<style>`, inline `<script>`) placed in th
 
 Where they render: Relay phone (TestFlight build 11+, both fences; JS updates arrive over the air) and Relay desktop (evaos-electron main 402ba81+, installed in ~/Applications/Relay.app). EvaOS native shows them as code. Source: `~/Eva/work/relay/packages/widget-runtime` (`src/frame.ts` pages, `src/runtime/` Mantine runtime, `src/theme.ts` the one theme shared with the desktop app; rebuild the bundle with `pnpm -C packages/widget-runtime build`).
 
+## Tap-to-answer replies: `[[replies: ...]]`
+
+When a message ends on a question Isaac can answer in a few words from a small set of clear answers (yes or no, which of the options just named, a time or day), add one last line:
+
+```
+[[replies: Yes, push it | Not yet | Show me the diff]]
+```
+
+- Two to four answers in his words, split on `|`, each at most 24 characters. Longer ones and repeats are dropped; fewer than two left shows nothing.
+- Relay shows them as tap-to-reply buttons under the newest bubble and sends the one he taps as his message. Nothing is sent without a tap.
+- Write each the way he would say it; on a yes to anything hard to undo, name the action ("Yes, deploy it", not "Yes"). Keep the question in words.
+- It must be the very last line (a token in mid-text shows as text). After a `[[signin:<url>]]` token is fine.
+- Skip it for open questions (what should it say, what do you think, anything else?), when there is no question, and on voice-call turns.
+- The Relay Host strips it for the phone (`AssistantMessage.replies`), pushes and calls; Relay desktop strips it in its chat renderer. Parser: `apps/linux/src/assistant/replies.ts`.
+
 ## Building a new widget (app side)
 
 Isaac's rule (2026-10-06): never build a widget's UI in isolation. Break it into reusable base elements in `apps/mobile/src/ui/` (image frame, pager, page controls, link button, overlay tag, caption, placeholder, ...) and have the widget only compose them. Reuse what exists first; add a missing piece as a primitive. The current list lives in `apps/mobile/AGENTS.md`.

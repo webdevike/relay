@@ -25,6 +25,7 @@ import type { PushTokenSource } from "../push/token-store";
 import { AckFailure, type AgentProvider, type AgentProviderChange, type AssistantRelaying, type AssistantThread } from "../seams";
 import type { SessionClock } from "../session";
 import type { AssistantAgentConfig } from "./registry";
+import { splitReplies } from "./replies";
 import { type FillSpawn, runFill, signinHost, splitSignin } from "./signin";
 import type { AssistantStore } from "./store";
 import { splitVoiceTurn, withoutDetailsMarker } from "./voice";
@@ -86,7 +87,7 @@ export interface AssistantServiceDeps {
  * while streaming, or a prime turn that only ran tools) and the silence marker, whole or still
  * streaming in. Isaac's turns show without the surface tag the sending client put on them. A turn
  * said on a call shows its words without the voice note, marked `voice`; a reply's details marker
- * becomes a paragraph break.
+ * becomes a paragraph break, and its answers token becomes the row's `replies`.
  */
 export function toAssistantMessages(messages: readonly AgentMessage[], prime: string | null, prefix: string): AssistantMessage[] {
   const out: AssistantMessage[] = [];
@@ -112,9 +113,19 @@ export function toAssistantMessages(messages: readonly AgentMessage[], prime: st
     } else if (message.role === "assistant" && (message.text.length > 0 || "images" in images)) {
       const trimmed = message.text.trim();
       if (trimmed === SILENCE_MARKER || (message.streaming === true && trimmed.length > 0 && SILENCE_MARKER.startsWith(trimmed))) continue;
-      const { text, signin } = splitSignin(message.text, message.streaming === true);
+      const streaming = message.streaming === true;
+      const answered = splitReplies(message.text, streaming);
+      const { text, signin } = splitSignin(answered.text, streaming);
       if (text.length === 0 && signin === undefined && !("images" in images)) continue;
-      out.push({ id: message.id, role: "assistant", text: withoutDetailsMarker(text), at: message.at, ...images, ...(signin === undefined ? {} : { signin }) });
+      out.push({
+        id: message.id,
+        role: "assistant",
+        text: withoutDetailsMarker(text),
+        at: message.at,
+        ...images,
+        ...(signin === undefined ? {} : { signin }),
+        ...(answered.replies === undefined ? {} : { replies: answered.replies }),
+      });
     }
   }
   return out;
@@ -438,7 +449,7 @@ export class AssistantService implements AssistantThread {
   private push(reply: string): void {
     if (isSilent(reply)) return;
     // A push is display: no client's surface tag, even one an agent echoed back.
-    const raw = untagged(reply);
+    const raw = splitReplies(untagged(reply), false).text;
     const { text: shown, signin } = splitSignin(raw, false);
     const text = signin === undefined ? raw : shown.trim().length > 0 ? shown.trim() : `Sign in to ${signin.host}`;
     const recipients: { deviceId: string; token: string }[] = [];

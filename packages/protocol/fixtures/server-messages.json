@@ -100,8 +100,9 @@
         {
           "id": "a-2",
           "role": "assistant",
-          "text": "The furry-drop run just finished; 12 files went up.",
-          "at": 1788900001000
+          "text": "The furry-drop run just finished; 12 files went up. Want the log?",
+          "at": 1788900001000,
+          "replies": ["Yes, send it", "Not now"]
         },
         {
           "id": "a-3",
