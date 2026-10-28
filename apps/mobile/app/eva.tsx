@@ -14,7 +14,7 @@
  * on the left with three typing dots while she works before her reply text streams. The rounded composer keeps multiline text
  * above a persistent row of attachment, dictation and send controls. Dictation fills the draft.
  */
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActionSheetIOS, AppState, FlatList, Keyboard, KeyboardAvoidingView, Pressable, StyleSheet, TextInput, View, type LayoutChangeEvent } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
@@ -46,7 +46,7 @@ import { radii, spacing, useColors, useScheme } from "@/theme";
 import { agentPortrait, agentTitle, threadOf, useAssistantStore } from "@/state/assistant";
 import { useMotionSignals } from "@/state/motion";
 import { useConnectionStore } from "@/state/connection";
-import { requestAssistant, sendCommand, stopAssistant } from "@/connection";
+import { requestAssistant, sendCommand, stopAssistant, watchArtifacts } from "@/connection";
 import { notifyHaptic } from "@/lib/haptics";
 import { clipboardHasImage, readClipboardPhoto } from "@/lib/clipboard";
 import { PasteImageChip } from "@/ui/PasteImageChip";
@@ -55,6 +55,8 @@ import { startCall } from "@/call/controller";
 import { useCallStore } from "@/state/call";
 import "@/dictation/session";
 import { choosePhoto, chooseLibraryPhotos, type Photo } from "@/lib/photo";
+import { ArtifactsButton } from "@/artifacts/ArtifactsButton";
+import { ArtifactsSheet } from "@/artifacts/ArtifactsSheet";
 
 /** Id of the row echoing a sent turn before the host's snapshot lists it. */
 const PENDING_ID = "pending-turn";
@@ -116,6 +118,10 @@ function Thread({ agent }: { agent: string }) {
   const [viewing, setViewing] = useState<{ uris: string[]; start: number } | null>(null);
   const { listRef, awayFromBottom, scrollToBottom, followContent, scrollHandlers } = useInvertedChatScroll<AssistantMessage>();
   const viewerImages = useMemo(() => (viewing === null ? null : viewing.uris.map((uri) => ({ uri }))), [viewing]);
+  const artifactsThread = assistantReactionThread(agent);
+  const [artifactsOpen, setArtifactsOpen] = useState(false);
+  // Follow the thread's artifacts while it shows, so the header button's dot is live.
+  useEffect(() => watchArtifacts(artifactsThread), [artifactsThread]);
 
   useSpeechRecognitionEvent("result", (event) => {
     if (!recording.current) return;
@@ -384,6 +390,16 @@ function Thread({ agent }: { agent: string }) {
                 }}
               />
             </View>
+            <View style={styles.artifacts}>
+              <ArtifactsButton
+                thread={artifactsThread}
+                tone={dark ? "overlay" : "default"}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setArtifactsOpen(true);
+                }}
+              />
+            </View>
             <View style={styles.call}>
               <IconButton
                 symbol="phone.fill"
@@ -465,7 +481,16 @@ function Thread({ agent }: { agent: string }) {
   );
   return (
     <BubbleMenuProvider thread={assistantReactionThread(agent)} onReply={replyWith}>
-      {screen}
+      <View style={styles.fill}>
+        {screen}
+        <ArtifactsSheet
+          thread={artifactsThread}
+          open={artifactsOpen}
+          onClose={() => {
+            setArtifactsOpen(false);
+          }}
+        />
+      </View>
     </BubbleMenuProvider>
   );
 }
@@ -654,6 +679,8 @@ const styles = StyleSheet.create({
   header: { position: "absolute", left: 0, right: 0, alignItems: "center" },
   back: { position: "absolute", top: spacing.xs, left: spacing.lg },
   call: { position: "absolute", top: spacing.xs, right: spacing.lg },
+  /** Left of the call button: its width (IconButton's 40) and a small gap further in. */
+  artifacts: { position: "absolute", top: spacing.xs, right: spacing.lg + 40 + spacing.sm },
   userRow: { paddingHorizontal: spacing.lg, alignItems: "flex-end" },
   userBubbleFrame: { maxWidth: USER_MAX_WIDTH },
   userBubble: { borderRadius: USER_RADIUS, paddingVertical: 11, paddingHorizontal: 17 },

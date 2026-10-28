@@ -7,7 +7,7 @@
 import { useEffect } from "react";
 import { AppState, type AppStateStatus, type NativeEventSubscription } from "react-native";
 import { CryptoDigestAlgorithm, digest } from "expo-crypto";
-import { encode, parseServerMessage, reactionExcerpt, WS_PATH, type CatchUpSignal, type ClientMessage, type Command, type InputEvent } from "@relay/protocol";
+import { encode, parseServerMessage, reactionExcerpt, WS_PATH, type ArtifactAction, type CatchUpSignal, type ClientMessage, type Command, type InputEvent } from "@relay/protocol";
 import { useConnectionStore } from "@/state/connection";
 import { useAgentsStore } from "@/state/agents";
 import { useDropsStore } from "@/state/drops";
@@ -18,6 +18,7 @@ import { useUsageStore } from "@/state/usage";
 import { useCatchUpStore } from "@/state/catchup";
 import { useAssistantStore } from "@/state/assistant";
 import { useReactionsStore } from "@/state/reactions";
+import { useArtifactsStore } from "@/state/artifacts";
 import { callIsLive, useCallStore } from "@/state/call";
 import { createCallFrameRouter } from "@/call/frames";
 import { callStats } from "@/call/stats";
@@ -33,6 +34,7 @@ import { createUsageFrameRouter } from "./usage";
 import { createCatchUpFrameRouter } from "./catchup";
 import { createAssistantFrameRouter } from "./assistant";
 import { createReactionFrameRouter } from "./reactions";
+import { createArtifactFrameRouter, PendingActs, type ActResult } from "./artifacts";
 import * as identity from "./identity";
 import { Discovery, type DiscoveredService } from "./discovery";
 import { NO_HOSTS, removeHost, upsertHost, type PairedHosts } from "./hosts";
@@ -76,6 +78,9 @@ const ASSISTANT_FOLLOW_MS = 4 * 60_000;
  * reactions again on every welcome, since the host pushes snapshots only to connected devices.
  */
 const reactionThreads = new Map<string, number>();
+/** Artifact threads with a screen or sheet open on them, counted like `reactionThreads`. */
+const artifactThreads = new Map<string, number>();
+const pendingActs = new PendingActs();
 
 const commandQueue = new CommandQueue();
 const socket = new RelaySocket();
@@ -95,6 +100,7 @@ const routeUsageFrame = createUsageFrameRouter(useUsageStore.getState());
 const routeCatchUpFrame = createCatchUpFrameRouter(useCatchUpStore.getState());
 const routeAssistantFrame = createAssistantFrameRouter(useAssistantStore.getState());
 const routeReactionFrame = createReactionFrameRouter(useReactionsStore.getState());
+const routeArtifactFrame = createArtifactFrameRouter(useArtifactsStore.getState(), pendingActs);
 const routeCallFrame = createCallFrameRouter(
   { update: useCallStore.getState().update, current: () => useCallStore.getState().call },
   {
@@ -164,6 +170,7 @@ socket.onMessage = (data) => {
     if (watchedAssistant !== null) socket.send(encode({ t: "assistant.get", agent: watchedAssistant }));
     // Reactions may have changed on another device while this one was away.
     for (const thread of reactionThreads.keys()) socket.send(encode({ t: "reactions.get", thread }));
+    for (const thread of artifactThreads.keys()) socket.send(encode({ t: "artifacts.get", thread }));
   }
   if (message.t === "agent.image") imagesInFlight.delete(imageKey(message.sessionId, message.id));
   // Answered on the Mac, in the chat or on another device: take its notification off the lock screen.
@@ -180,6 +187,7 @@ socket.onMessage = (data) => {
   routeUsageFrame(message);
   routeCatchUpFrame(message);
   routeReactionFrame(message);
+  routeArtifactFrame(message);
   routeAssistantFrame(message);
   routeCallFrame(message);
   void dispatch({ type: "server", message });
@@ -321,6 +329,8 @@ async function retarget(id: string | null): Promise<void> {
   useUsageStore.getState().set(null);
   useCatchUpStore.getState().set(null);
   useReactionsStore.getState().clear();
+  useArtifactsStore.getState().clear();
+  pendingActs.cancelAll();
   useVncStore.getState().setAccess({ kind: "idle" });
   await resetSession();
 }
@@ -500,6 +510,39 @@ export function watchReactions(thread: string): () => void {
     if (count > 0) reactionThreads.set(thread, count);
     else reactionThreads.delete(thread);
   };
+}
+
+/**
+ * A screen showing `thread` opened: asks for its artifacts now and after every reconnect until the
+ * returned function is called. The host pushes each later change on its own.
+ */
+export function watchArtifacts(thread: string): () => void {
+  artifactThreads.set(thread, (artifactThreads.get(thread) ?? 0) + 1);
+  if (useConnectionStore.getState().status === "connected") socket.send(encode({ t: "artifacts.get", thread }));
+  return () => {
+    const count = (artifactThreads.get(thread) ?? 1) - 1;
+    if (count > 0) artifactThreads.set(thread, count);
+    else artifactThreads.delete(thread);
+  };
+}
+
+/**
+ * Changes `thread`'s artifacts or tabs as Isaac. Pins, renames, hide/show and clearing a tab's
+ * blue dot show at once; the host's next snapshot confirms them (or puts them right). Resolves with
+ * the host's `artifacts.acted`; fails at once while not connected.
+ */
+export function actArtifacts(thread: string, action: ArtifactAction): Promise<ActResult> {
+  if (useConnectionStore.getState().status !== "connected") return Promise.resolve({ ok: false, error: "Not connected to your Mac." });
+  const store = useArtifactsStore.getState();
+  if (action.op === "pin") store.pin(thread, action.id, action.pinned ? { by: "isaac", at: Date.now() } : undefined);
+  if (action.op === "tab.update") {
+    const { title, hidden, fresh } = action;
+    store.patchTab(thread, action.tab, { ...(title === undefined ? {} : { title }), ...(hidden === undefined ? {} : { hidden }), ...(fresh === undefined ? {} : { fresh }) });
+  }
+  const rid = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  const answer = pendingActs.add(rid);
+  socket.send(encode({ t: "artifacts.act", thread, rid, by: "isaac", action }));
+  return answer;
 }
 
 /**
