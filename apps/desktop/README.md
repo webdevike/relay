@@ -69,12 +69,18 @@ needing Isaac and failing never change the face.
   CSS only: breathing, the turning accent ring while thinking, researching or working, and the
   dot.
 - **The start card** (`PortraitCard`, 84 px) draws every engine frame as inline SVG at most 24
-  fps (`portrait-painter.ts`), with the engine's overlays (the ring, Researching's magnifier).
+  fps (`portrait-painter.ts`) in the engine's Extended mode (one `extension()` per card): brows
+  turn and the head turns (matrices), the mouth morphs between shapes (a layer's `morph` paths drawn
+  instead of its part) and eyelids close (the eyes clipped to the layer's `clip` rects through a
+  per-card `clipPath`, the lids' edges drawn over them). It also draws the engine's overlays (the
+  ring, Researching's magnifier). Markup changes only when a frame's part, morph, clip or lids do.
 - Motion off (`html[data-eva-motion='off']`: e2e, `EVAOS_NO_MOTION`, or the system's reduced
-  motion) holds every portrait still, the ring included; a hidden page or window (main's
-  `app.windowShown`) runs no frames and pauses the CSS (`motion-gate.ts`).
+  motion) holds every portrait still (the card's plain resting face), the ring included; a hidden
+  page or window (main's `app.windowShown`) runs no frames and pauses the CSS (`motion-gate.ts`).
   `e2e/assistant-motion.spec.ts` drives a thread through every face and dot;
-  `EVAOS_MOTION_PROOF=<dir>` turns motion on and records the card through Researching plus CPU
+  `EVAOS_MOTION_PROOF=<dir>` runs only its proof instead: motion on, Nova's and Astra's cards
+  through Idle, Thinking, Researching and Snoozing (laid over their signals with the e2e hook
+  `__evaosShell.portraitSignals`, since a start card has no quiet thread), recorded, plus CPU
   samples.
 
 ## Right panel

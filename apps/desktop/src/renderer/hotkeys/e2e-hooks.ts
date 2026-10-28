@@ -5,6 +5,8 @@ import { pageFromKey, placeOf, type Place } from '@evaos/shell-core'
 import { navigateTo, tabsStore } from '../tabs/tabs-store'
 import { tabTitle } from '../tabs/tab-meta'
 import { layoutStore, togglePanel } from '../shell/layout-store'
+import type { MotionSignals } from '@relay/portrait-motion'
+import { overrideSignals } from '../assistants/motion-store'
 
 export interface HotkeyLogEntry {
   chord: string
@@ -34,6 +36,8 @@ export interface EvaosShellHooks {
   setPanel(open: boolean): void
   /** The browser scope in front ('' until the saved tabs are loaded). */
   browserScope(): string
+  /** Lays signals over an agent portrait's real ones (null drops them), to reach Snoozing. */
+  portraitSignals(id: string, patch: Partial<MotionSignals> | null): void
 }
 
 declare global {
@@ -91,6 +95,7 @@ export function initE2e(): Promise<boolean> {
         openChat: () => navigateTo(placeOf('chat')),
         setPanel: (open) => togglePanel(open),
         browserScope: () => layoutStore.getState().panelScope,
+        portraitSignals: (id, patch) => overrideSignals(id, patch),
       }
     }
     return e2e

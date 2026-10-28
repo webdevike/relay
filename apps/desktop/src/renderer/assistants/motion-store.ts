@@ -31,9 +31,21 @@ export function dotLabel(view: PortraitView): string {
   return STATE_META[view.state].status
 }
 
+/** Signals laid over agents' real ones: a test seam (e2e's `portraitSignals` hook) only. */
+const overrides = new Map<string, Partial<MotionSignals>>()
+
+/** Lays `patch` over agent `id`'s signals until called again with null (e2e only). */
+export function overrideSignals(id: string, patch: Partial<MotionSignals> | null): void {
+  if (patch === null) overrides.delete(id)
+  else overrides.set(id, patch)
+  tick()
+}
+
 /** Agent `id`'s signals now, from the Assistants list and main's chat pane. */
 export function agentSignals(id: string): MotionSignals {
-  return motionSignals(assistantsStore.getState(), id, chatStore.getState().panes[PANE_ID])
+  const real = motionSignals(assistantsStore.getState(), id, chatStore.getState().panes[PANE_ID])
+  const patch = overrides.get(id)
+  return patch === undefined ? real : { ...real, ...patch }
 }
 
 /** The director's view for `signals` at `now`: the same object while nothing changed. */

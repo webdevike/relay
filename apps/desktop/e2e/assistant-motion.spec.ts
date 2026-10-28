@@ -13,8 +13,9 @@ import { EVA_FIXTURE_ROOT } from './helpers/paths'
 // status dot (orange, red) on a resting face. A fake Relay host on a real WebSocket lists the
 // thread and streams its reply; the thread file is written like omp writes it. Tests run with
 // motion off, so states are asserted from `data-state` and `data-dot`. EVAOS_MOTION_PROOF=<dir>
-// turns motion on, records the start card through Researching as JPEG screencast frames in
-// <dir>/frames and samples the app's CPU into <dir>/cpu.json.
+// runs only the proof instead: motion on, Nova's and Astra's start cards (Extended mode) through
+// Idle, Thinking, Researching and Snoozing recorded as JPEG screencast frames in <dir>/frames, and
+// the app's CPU sampled into <dir>/cpu.json.
 const PROOF = process.env.EVAOS_MOTION_PROOF ?? ''
 
 const NOVA = {
@@ -70,8 +71,9 @@ test.use({ startOnChat: false, panelOpen: false })
 
 const sel = (id: string): string => `[data-testid="${id}"]`
 const line = (entry: unknown): string => JSON.stringify(entry)
-const hold = (shell: Page, ms: number): Promise<void> =>
-  PROOF ? shell.waitForTimeout(ms) : Promise.resolve()
+
+/** The proof's beats last this long, so a video shows each face move. */
+const BEAT_MS = 4_000
 
 /** Nova's thread as Relay lists it. */
 const NOVA_THREAD: HostSession = {
@@ -83,23 +85,17 @@ const NOVA_THREAD: HostSession = {
 }
 
 test("an assistant's portrait thinks, researches and works with its thread; asks and failures are its dot", async ({
-  app,
   shell,
 }) => {
-  test.setTimeout(PROOF ? 240_000 : 60_000)
+  test.skip(PROOF !== '', 'EVAOS_MOTION_PROOF runs the proof only')
   await shell.locator(sel('nav-assistants')).click()
 
-  const cpu = PROOF ? await cpuSampler(app, shell) : null
-  if (cpu) await measureCard(app, shell, cpu)
-
-  const stopRecording = PROOF ? await record(shell) : null
   // 1. The start card rests at Idle, no dot.
   await shell.locator(sel('sidebar-agent-nova')).click()
   const card = shell.locator(`${sel('agent-start-nova')} ${sel('agent-portrait-nova')}`)
   const side = shell.locator(sel('sidebar-portrait-nova'))
   await expect(card).toHaveAttribute('data-state', 'idle')
   await expect(card).not.toHaveAttribute('data-dot')
-  await hold(shell, 1_500)
 
   // 2. Start goes through Relay and Relay lists the thread working: Thinking, the ring turning.
   await shell.locator(sel('start-nova')).click()
@@ -108,20 +104,16 @@ test("an assistant's portrait thinks, researches and works with its thread; asks
   await expect(card).toHaveAttribute('data-state', 'thinking')
   await expect(card).toHaveAttribute('data-dot', 'accent')
   await expect(side).toHaveAttribute('data-ring', 'true')
-  await hold(shell, 2_000)
 
   // 3. Relay hears a web search: Researching, the magnifier on the card, the ring on the rest.
   host.upsert({ ...NOVA_THREAD, statusDetail: 'web_search' })
   await expect(card).toHaveAttribute('data-state', 'researching')
   await expect(side).toHaveAttribute('data-state', 'researching')
   await expect(side).toHaveAttribute('data-ring', 'true')
-  await hold(shell, 6_000)
 
   // 4. Then a command: Working.
   host.upsert({ ...NOVA_THREAD, statusDetail: 'bash' })
   await expect(card).toHaveAttribute('data-state', 'working')
-  await hold(shell, 2_500)
-  await stopRecording?.()
 
   // 5. omp writes the thread: the page is the conversation, its tool returned, Nova thinks.
   const file = path.join(fx.sessionsDir, '2026-10-27T20-00-00-000Z_nova-1.jsonl')
@@ -237,13 +229,51 @@ test("an assistant's portrait thinks, researches and works with its thread; asks
   await expect(crumb).toHaveAttribute('data-dot', 'red')
   await expect(crumb).toHaveAttribute('data-state', 'idle')
   await expect(side).toHaveAttribute('data-dot', 'red')
-  if (cpu) {
-    // Small portraits only: Nova's crumb, tab and sidebar row breathing, Astra's sidebar ring turning.
-    host.upsert({ id: 'astra-1', status: 'working', kind: 'assistant', assistant: 'astra' })
-    await expect(shell.locator(sel('sidebar-portrait-astra'))).toHaveAttribute('data-ring', 'true')
-    await cpu.sample('chat page, small portraits + a sidebar ring, motion on')
-    cpu.write()
+})
+
+test("proof: the start cards' Extended faces (Idle blinks, Thinking, Researching, Snoozing) and CPU", async ({
+  app,
+  shell,
+}) => {
+  test.skip(PROOF === '', 'set EVAOS_MOTION_PROOF=<dir> to record')
+  test.setTimeout(300_000)
+  await shell.locator(sel('nav-assistants')).click()
+  const cpu = await cpuSampler(app, shell)
+  await measureCard(app, shell, cpu)
+  const stopRecording = await record(shell)
+  for (const id of ['nova', 'astra']) {
+    const thread: HostSession = {
+      id: `${id}-1`,
+      status: 'working',
+      kind: 'assistant',
+      assistant: id,
+    }
+    await shell.locator(sel(`sidebar-agent-${id}`)).click()
+    const card = shell.locator(`${sel(`agent-start-${id}`)} ${sel(`agent-portrait-${id}`)}`)
+    await expect(card).toHaveAttribute('data-state', 'idle')
+    await shell.waitForTimeout(BEAT_MS + 1_000)
+    host.upsert(thread)
+    await expect(card).toHaveAttribute('data-state', 'thinking')
+    await shell.waitForTimeout(BEAT_MS)
+    host.upsert({ ...thread, statusDetail: 'web_search' })
+    await expect(card).toHaveAttribute('data-state', 'researching')
+    await shell.waitForTimeout(BEAT_MS)
+    // The start card has no thread to go quiet for half an hour: lay that over its signals.
+    host.upsert({ ...thread, status: 'idle', statusDetail: '' })
+    await shell.evaluate(
+      (a) =>
+        (
+          window as unknown as {
+            __evaosShell: { portraitSignals(id: string, p: object | null): void }
+          }
+        ).__evaosShell.portraitSignals(a, { activityAt: Date.now() - 31 * 60_000 }),
+      id,
+    )
+    await expect(card).toHaveAttribute('data-state', 'snoozing')
+    await shell.waitForTimeout(BEAT_MS + 1_000)
   }
+  await stopRecording()
+  cpu.write()
 })
 
 /** Screencast frames (CDP) into `<PROOF>/frames`, named by their timestamps; resolves a stopper. */

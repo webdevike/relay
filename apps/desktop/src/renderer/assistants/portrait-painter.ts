@@ -2,10 +2,15 @@ import {
   FX_REACH,
   STATE_META,
   Timeline,
+  extension,
   frame,
   geometry,
+  type Box,
   type Director,
+  type DrawPath,
+  type Extension,
   type Frame,
+  type FrameLayer,
   type MotionSignals,
   type Rig,
 } from '@relay/portrait-motion'
@@ -31,21 +36,69 @@ export interface PainterOptions {
 }
 
 const n2 = (v: number): string => v.toFixed(2)
+const SVG_NS = 'http://www.w3.org/2000/svg'
+let painters = 0
 
 /**
- * Draws a portrait-motion rig into `host` as inline SVG: the figure's part groups on the disc,
- * the accent overlays (ring dots, sound waves, z z z, "?" bubble, sweat drop, confetti, the
- * researching magnifier) in a second SVG reaching `FX_REACH` past it. Each frame only sets
- * `transform` and `opacity` attributes; a part group's markup is swapped only when its part key
- * changes. Animates at `PORTRAIT_FPS` while `motionLive()`; with motion off it holds the resting
- * face (and the ring, still, in a ring state); while the page is hidden it does nothing at all.
+ * One pooled figure layer: `<g transform=matrix>` around the art (the part, or a mouth mid-morph)
+ * with its optional eyelid clip, then the lids' edges. The `*Key` fields say what it last drew, so
+ * a frame only touches what changed.
+ */
+interface Slot {
+  g: SVGGElement
+  art: SVGGElement
+  lids: SVGGElement
+  clipPath: SVGClipPathElement
+  clipId: string
+  /** `part:<key>`, or the morph's markup while one draws. */
+  artKey: string
+  mKey: string
+  clipKey: string
+  lidsKey: string
+}
+
+/** Extended mode's shapes as SVG paths; strokes round, even-odd fills where asked. */
+function pathsMarkup(paths: readonly DrawPath[]): string {
+  return paths
+    .map(
+      (p) =>
+        `<path d="${p.d}" fill="${p.fill ?? 'none'}" stroke="${p.stroke ?? 'none'}"` +
+        ` stroke-width="${p.width}" stroke-linecap="round" stroke-linejoin="round"` +
+        `${p.opacity < 1 ? ` opacity="${p.opacity.toFixed(3)}"` : ''}` +
+        `${p.evenOdd ? ' fill-rule="evenodd"' : ''}/>`,
+    )
+    .join('')
+}
+
+/** Clip rects in the part's space; a zero height is a shut eye. */
+function clipMarkup(boxes: readonly Box[]): string {
+  return boxes
+    .map(
+      (b) =>
+        `<rect x="${n2(b.x0)}" y="${n2(b.y0)}" width="${n2(Math.max(0, b.x1 - b.x0))}" height="${n2(Math.max(0, b.y1 - b.y0))}"/>`,
+    )
+    .join('')
+}
+
+/**
+ * Draws a portrait-motion rig into `host` as inline SVG in Extended mode (the engine's brow turns,
+ * head turns, mouth morphs and eyelids): the figure's part groups on the disc, the accent overlays
+ * (ring dots, sound waves, z z z, "?" bubble, sweat drop, confetti, the researching magnifier) in a
+ * second SVG reaching `FX_REACH` past it. Each frame sets `transform` and `opacity` attributes;
+ * markup (a part, a morphing mouth, eyelid clips and edges) is swapped only when it changes.
+ * Animates at `PORTRAIT_FPS` while `motionLive()`; with motion off it holds the plain resting face
+ * (and the ring, still, in a ring state); while the page is hidden it does nothing at all.
  */
 export class PortraitPainter {
   private readonly timeline: Timeline
   private readonly figure: SVGSVGElement
-  private readonly groups: SVGGElement[] = []
-  /** Part key and transform each pooled group shows, so unchanged ones are left alone. */
-  private readonly drawn: { part: string; m: string }[] = []
+  private readonly defs: SVGDefsElement
+  /** Pooled layer slots, each drawing what it last drew until a frame says otherwise. */
+  private readonly slots: Slot[] = []
+  /** Extended mode's memory (mouth morphs, blinks) for this one portrait. */
+  private readonly ext: Extension = extension()
+  /** Makes this painter's clip ids unique in the document. */
+  private readonly uid = ++painters
   private readonly dots: SVGCircleElement[]
   private readonly waves: SVGCircleElement[]
   private readonly zs: SVGTextElement[]
@@ -88,6 +141,8 @@ export class PortraitPainter {
       `</svg>`
     const all = <T extends Element>(sel: string): T[] => [...host.querySelectorAll<T>(sel)]
     this.figure = host.querySelector<SVGSVGElement>('.eva-pmc-disc svg')!
+    this.defs = document.createElementNS(SVG_NS, 'defs')
+    this.figure.append(this.defs)
     this.waves = all('.eva-pmc-waves circle')
     this.dots = all('.eva-pmc-ring circle')
     this.zs = all('.eva-pmc-zzz text')
@@ -137,7 +192,8 @@ export class PortraitPainter {
   /** One frame, then the next one 1/PORTRAIT_FPS s later, on the next animation frame after that. */
   private readonly step = (): void => {
     const started = performance.now()
-    this.paint(frame(this.o.rig, this.timeline.clip(this.advance()), this.o.size))
+    const now = this.advance()
+    this.paint(frame(this.o.rig, this.timeline.clip(now), this.o.size, this.ext))
     const wait = Math.max(0, 1000 / PORTRAIT_FPS - (performance.now() - started) - 4)
     // One wait at a time, however the frame was reached.
     clearTimeout(this.timer)
@@ -158,7 +214,7 @@ export class PortraitPainter {
     return now
   }
 
-  /** Motion off: the resting face, and the ring held still in a ring state. */
+  /** Motion off: the resting face (plain, no Extended mode), and the ring held still in a ring state. */
   private still(): void {
     this.advance()
     const f = frame(
@@ -178,29 +234,8 @@ export class PortraitPainter {
   }
 
   private paint({ layers, fx }: Frame): void {
-    const { rig } = this.o
-    while (this.groups.length < layers.length) {
-      const g = document.createElementNS('http://www.w3.org/2000/svg', 'g')
-      this.figure.append(g)
-      this.groups.push(g)
-      this.drawn.push({ part: '', m: '' })
-    }
-    for (let i = 0; i < this.groups.length; i++) {
-      const g = this.groups[i]!
-      const was = this.drawn[i]!
-      const l = layers[i]
-      const part = l?.part ?? ''
-      if (was.part !== part) {
-        g.innerHTML = l === undefined ? '' : (rig.parts[part] ?? '')
-        was.part = part
-      }
-      if (l === undefined) continue
-      const m = `matrix(${l.m.map((v) => v.toFixed(3)).join(' ')})`
-      if (was.m !== m) {
-        g.setAttribute('transform', m)
-        was.m = m
-      }
-    }
+    while (this.slots.length < layers.length) this.slots.push(this.slot(this.slots.length))
+    for (let i = 0; i < this.slots.length; i++) this.layer(this.slots[i]!, layers[i])
     const over = this.over
     const X = (v: number): string => n2(v + over)
     fx.dots.forEach((o, i) => set(this.dots[i], 'opacity', o.toFixed(3)))
@@ -238,6 +273,52 @@ export class PortraitPainter {
       set(r, 'height', n2(k.h))
       set(r, 'transform', `translate(${X(k.x)} ${X(k.y)}) rotate(${k.rot.toFixed(1)})`)
     })
+  }
+
+  private slot(i: number): Slot {
+    const g = document.createElementNS(SVG_NS, 'g')
+    const art = document.createElementNS(SVG_NS, 'g')
+    const lids = document.createElementNS(SVG_NS, 'g')
+    const clipPath = document.createElementNS(SVG_NS, 'clipPath')
+    const clipId = `eva-pmc-${this.uid}-${i}`
+    clipPath.id = clipId
+    clipPath.setAttribute('clipPathUnits', 'userSpaceOnUse')
+    this.defs.append(clipPath)
+    g.append(art, lids)
+    this.figure.append(g)
+    return { g, art, lids, clipPath, clipId, artKey: '', mKey: '', clipKey: '', lidsKey: '' }
+  }
+
+  /** Draws layer `l` (or nothing) into slot `s`, touching only what changed. */
+  private layer(s: Slot, l: FrameLayer | undefined): void {
+    // A morph draws instead of the part; its markup is its key (it changes every morph frame).
+    const morph = l?.morph === undefined ? null : pathsMarkup(l.morph)
+    const artKey = l === undefined ? '' : (morph ?? `part:${l.part}`)
+    if (s.artKey !== artKey) {
+      s.art.innerHTML = l === undefined ? '' : (morph ?? this.o.rig.parts[l.part] ?? '')
+      s.artKey = artKey
+    }
+    if (l !== undefined) {
+      const m = `matrix(${l.m.map((v) => v.toFixed(3)).join(' ')})`
+      if (s.mKey !== m) {
+        s.g.setAttribute('transform', m)
+        s.mKey = m
+      }
+    }
+    const clip = l?.clip === undefined ? '' : clipMarkup(l.clip)
+    if (s.clipKey !== clip) {
+      if (clip === '') s.art.removeAttribute('clip-path')
+      else {
+        s.clipPath.innerHTML = clip
+        if (s.clipKey === '') s.art.setAttribute('clip-path', `url(#${s.clipId})`)
+      }
+      s.clipKey = clip
+    }
+    const lids = l?.lids === undefined ? '' : pathsMarkup(l.lids)
+    if (s.lidsKey !== lids) {
+      s.lids.innerHTML = lids
+      s.lidsKey = lids
+    }
   }
 }
 

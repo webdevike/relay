@@ -18,6 +18,7 @@ import css from './portrait-motion.css?raw'
 import { AgentPortrait } from './AgentPortrait'
 import { PortraitCard } from './PortraitCard'
 import { assistantsStore } from './assistants-store'
+import { overrideSignals } from './motion-store'
 
 const NOVA = {
   style: 'micah',
@@ -169,6 +170,60 @@ describe('the animated start card', () => {
     act(() => windowShown(true))
     expect(document.documentElement.dataset['evaPageHidden']).toBe('false')
     expect(raf).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe("the card's Extended mode", () => {
+  /** Runs the card's frames at 24 fps from now for `seconds`, collecting `probe` after each. */
+  function run<T>(seconds: number, probe: () => T): T[] {
+    const t0 = Date.now()
+    let now = t0
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    const out: T[] = []
+    for (; now < t0 + seconds * 1000; now += 1000 / 24) {
+      act(() => raf.mock.calls.at(-1)![0](0))
+      out.push(probe())
+    }
+    return out
+  }
+  const disc = () => screen.getByTestId('card').querySelector('.eva-pmc-disc svg')!
+
+  it('snoozes behind shut eyelids: the eyes clipped to nothing, the lids drawn over them', () => {
+    card()
+    overrideSignals('nova', { activityAt: Date.now() - 31 * 60_000 })
+    const shut = run(4, () => ({
+      state: screen.getByTestId('card').getAttribute('data-state'),
+      clipped: disc().querySelector('g[clip-path]') !== null,
+      heights: [...disc().querySelectorAll('clipPath rect')].map((r) => r.getAttribute('height')),
+      lids: disc().querySelectorAll('g > g:last-child > path').length,
+    })).at(-1)!
+    overrideSignals('nova', null)
+    expect(shut.state).toBe('snoozing')
+    expect(shut.clipped).toBe(true)
+    expect(shut.heights.length).toBeGreaterThan(0)
+    expect(new Set(shut.heights)).toEqual(new Set(['0.00']))
+    expect(shut.lids).toBeGreaterThan(0)
+  })
+
+  it('morphs the mouth between shapes while it thinks, then draws the parts again', () => {
+    card()
+    act(() => list('working'))
+    const morphing = run(8, () =>
+      [...disc().querySelectorAll('g > g:first-child')].some((g) =>
+        g.innerHTML.includes('stroke-linecap="round" stroke-linejoin="round"'),
+      ),
+    )
+    expect(morphing.some(Boolean)).toBe(true)
+    // Morphs are short: most frames draw the rig's own mouth.
+    expect(morphing.filter(Boolean).length).toBeLessThan(morphing.length / 2)
+  })
+
+  it('holds the plain resting face, no lids or morphs, with motion off', () => {
+    document.documentElement.dataset['evaMotion'] = 'off'
+    card()
+    overrideSignals('nova', { activityAt: Date.now() - 31 * 60_000 })
+    expect(disc().querySelector('g[clip-path]')).toBeNull()
+    overrideSignals('nova', null)
   })
 })
 
