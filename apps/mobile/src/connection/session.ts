@@ -249,6 +249,8 @@ export class SessionMachine {
       case "call.state":
       case "call.audio":
       case "call.flush":
+      case "live.answer":
+      case "live.state":
       case "assistant.snapshot":
       case "assistant.agents":
       case "vnc.ticket":
@@ -258,7 +260,7 @@ export class SessionMachine {
       case "canvas.unavailable":
       case "ack":
       case "nack":
-        // Agent, drop, board, gate, usage, catch up, reaction, assistant, vnc and canvas frames are routed to their stores and ack/nack to CommandQueue by index.ts.
+        // Agent, drop, board, gate, usage, catch up, reaction, assistant, vnc and canvas frames are routed to their stores and ack/nack to CommandQueue by index.ts. Live calls run on the native module's own socket.
         return [];
     }
   }
