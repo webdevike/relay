@@ -41,6 +41,7 @@ import {
   mediaTiles,
   metaLine,
   moveIndex,
+  repoName,
   rowKey,
   ruleChips,
   searchArtifacts,
@@ -430,7 +431,7 @@ function Row({
   const key = rowKey(item);
   const pills = statusPills(item);
   const pinnedBy = item.pinned === undefined ? null : `pinned by ${item.pinned.by === "isaac" ? "you" : nameOf(item.pinned.by)}`;
-  const second = [linkedLine(item, items) ?? metaLine(item, now), pinnedBy].filter((part) => part !== null).join(" · ");
+  const second = [repoName(item), linkedLine(item, items) ?? metaLine(item, now), pinnedBy].filter((part) => part !== null).join(" · ");
   const tone = pills[0];
   const glyphTint = tone === undefined || tone.tone === "textMuted" ? colors.textFaint : colors[tone.tone];
   const canOpen = item.url !== undefined;
@@ -469,7 +470,7 @@ function Row({
         <SymbolView name={isVideo(item) ? "play.rectangle" : KIND_SYMBOL[item.kind]} size={16} tintColor={glyphTint} style={styles.rowGlyph} />
         <View style={styles.rowText}>
           <Text numberOfLines={1}>
-            {key !== null && <Text color="textMuted">{`${key} `}</Text>}
+            {key !== null && key !== item.title && <Text color="textMuted">{`${key} `}</Text>}
             {item.title}
           </Text>
           <Text variant="caption" color="textMuted" numberOfLines={1}>

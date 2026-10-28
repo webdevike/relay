@@ -11,6 +11,7 @@ import {
   mediaTiles,
   metaLine,
   moveIndex,
+  repoName,
   rowKey,
   ruleChips,
   searchArtifacts,
@@ -39,7 +40,9 @@ describe("meta and keys", () => {
 
   it("names a row by its key", () => {
     expect(rowKey(item({ id: "linear:ENG-6528", kind: "linear" }))).toBe("ENG-6528");
-    expect(rowKey(item({ id: "gh-pr:eCardSystems/reports-app#238", kind: "gh-pr" }))).toBe("reports-app#238");
+    expect(rowKey(item({ id: "gh-pr:eCardSystems/reports-app#238", kind: "gh-pr" }))).toBe("#238");
+    expect(repoName(item({ id: "gh-pr:eCardSystems/reports-app#238", kind: "gh-pr" }))).toBe("reports-app");
+    expect(repoName(item({ id: "url:x", kind: "url" }))).toBeNull();
     expect(rowKey(item({ id: "url:https://x.com", kind: "url" }))).toBeNull();
   });
 

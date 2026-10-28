@@ -32,16 +32,20 @@ export function metaLine(item: Artifact, now: number): string {
   return item.mentions > 1 ? `${String(item.mentions)}x, ${last}` : last;
 }
 
-/** The key in front of a row's title: "ENG-6523" for a ticket, "reports-app#241" for a PR or issue. */
+/** The key in front of a row's title: "ENG-6523" for a ticket, "#241" for a PR or issue (its repo leads the second line, `repoName`). */
 export function rowKey(item: Artifact): string | null {
   if (item.kind === "linear") return item.id.slice("linear:".length);
   if (item.kind === "gh-pr" || item.kind === "gh-issue") {
     const hash = item.id.lastIndexOf("#");
-    if (hash < 0) return null;
-    const repo = item.id.slice(item.id.indexOf(":") + 1, hash);
-    return `${repo.slice(repo.lastIndexOf("/") + 1)}${item.id.slice(hash)}`;
+    return hash < 0 ? null : item.id.slice(hash);
   }
   return null;
+}
+
+/** A PR, issue or branch's repo without its owner ("react-client-reports-app"), or null. */
+export function repoName(item: Artifact): string | null {
+  const repo = item.repo ?? (item.kind === "gh-pr" || item.kind === "gh-issue" ? item.id.slice(item.id.indexOf(":") + 1, item.id.lastIndexOf("#")) : "");
+  return repo === "" ? null : repo.slice(repo.lastIndexOf("/") + 1);
 }
 
 const ACRONYMS: Record<string, true> = { qa: true, pr: true, ui: true, ux: true, api: true };
