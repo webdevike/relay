@@ -58,6 +58,10 @@ export interface RelaySession {
   title: string
   /** The registry agent's id when `kind` is `assistant`. */
   assistant: string | null
+  /** What it did last, as omp words it; while `waiting`, the question it asked. */
+  activity: string | null
+  /** When `activity` happened (epoch ms), or null. */
+  activityAt: number | null
 }
 
 // Lenient like native Session::parse: only `id` and a known `status` are required; any other field
@@ -72,6 +76,8 @@ const SessionSchema = z.object({
   title: optText,
   assistant: optText,
   projectPath: optText,
+  lastActivity: optText,
+  lastActivityAt: z.number().finite().optional().catch(undefined),
 })
 
 /** One session as Relay sends it, or null when it has no id or a status this app does not know. */
@@ -91,6 +97,8 @@ export function parseSession(value: unknown): RelaySession | null {
     kind,
     title: unnamed ? '' : (s.title ?? ''),
     assistant: s.assistant || null,
+    activity: s.lastActivity?.trim() || null,
+    activityAt: s.lastActivityAt || null,
   }
 }
 

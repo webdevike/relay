@@ -3,9 +3,11 @@ import { ActionIcon, Progress, SegmentedControl, Tooltip, UnstyledButton } from 
 import {
   IconActivity,
   IconCalendarTime,
+  IconChevronRight,
   IconCircleCheck,
   IconCircleX,
   IconClipboardList,
+  IconEye,
   IconFileDiff,
   IconFlask,
   IconFolder,
@@ -45,7 +47,7 @@ import {
   unpinContext,
   useContextStore,
 } from './context-store'
-import { clockLabel, elapsedLabel } from './format'
+import { clockLabel, dayLabel, elapsedLabel } from './format'
 import './context.css'
 
 const ICONS: Record<ContextRow['icon'], typeof IconActivity> = {
@@ -65,6 +67,7 @@ const ICONS: Record<ContextRow['icon'], typeof IconActivity> = {
   job: IconCalendarTime,
   item: IconClipboardList,
   chat: IconMessage,
+  ready: IconEye,
 }
 
 const BUTTON_ICONS: Record<ContextSnapshot['button']['icon'], typeof IconActivity> = {
@@ -138,7 +141,9 @@ function Right({ row, now }: { row: ContextRow; now: number }) {
       <span key="time" className="eva-ctx-num">
         {row.time.style === 'elapsed'
           ? elapsedLabel(row.time.at, now)
-          : clockLabel(row.time.at, now)}
+          : row.time.style === 'day'
+            ? dayLabel(row.time.at, now)
+            : clockLabel(row.time.at, now)}
       </span>,
     )
   }
@@ -267,6 +272,14 @@ const ACTION_TIPS: Record<ContextAction['id'], string> = {
 
 function Popover({ snap, now }: { snap: ContextSnapshot; now: number }) {
   const pinnedIds = new Set(snap.pinned.flatMap((r) => (r.pin ? [pinId(r.pin)] : [])))
+  // Folded sections (Resolved) Isaac opened while the popover shows.
+  const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(() => new Set())
+  const toggle = (id: string): void =>
+    setUnfolded((prev) => {
+      const next = new Set(prev)
+      if (!next.delete(id)) next.add(id)
+      return next
+    })
   const close = (): void => setContextOpen(false)
   const open = (row: ContextRow): void => {
     if (!row.open) return
@@ -305,23 +318,51 @@ function Popover({ snap, now }: { snap: ContextSnapshot; now: number }) {
           ))}
         </section>
       ) : null}
-      {snap.sections.map((s) => (
-        <section key={s.id} className="eva-ctx-section" data-testid={`context-section-${s.id}`}>
-          <h3 className="eva-ctx-head">
-            <span>{s.title}</span>
-            {s.meta ? <span className="eva-ctx-head-meta">{s.meta}</span> : null}
-          </h3>
-          {s.rows.map((r) => (
-            <Row
-              key={r.id}
-              row={r}
-              pinned={r.pin !== null && pinnedIds.has(pinId(r.pin))}
-              now={now}
-              onOpen={() => open(r)}
-            />
-          ))}
-        </section>
-      ))}
+      {snap.sections.map((s) => {
+        const shown = !s.fold || unfolded.has(s.id)
+        return (
+          <section key={s.id} className="eva-ctx-section" data-testid={`context-section-${s.id}`}>
+            <h3 className="eva-ctx-head">
+              {s.fold ? (
+                <UnstyledButton
+                  className="eva-ctx-fold"
+                  aria-expanded={shown}
+                  data-testid={`context-fold-${s.id}`}
+                  onClick={() => toggle(s.id)}
+                >
+                  <span>{s.title}</span>
+                  <span className="eva-ctx-fold-end">
+                    {s.meta ? <span className="eva-ctx-head-meta">{s.meta}</span> : null}
+                    <IconChevronRight
+                      size={14}
+                      stroke={1.5}
+                      className="eva-ctx-chevron"
+                      data-open={shown ? 'true' : undefined}
+                      aria-hidden
+                    />
+                  </span>
+                </UnstyledButton>
+              ) : (
+                <>
+                  <span>{s.title}</span>
+                  {s.meta ? <span className="eva-ctx-head-meta">{s.meta}</span> : null}
+                </>
+              )}
+            </h3>
+            {shown
+              ? s.rows.map((r) => (
+                  <Row
+                    key={r.id}
+                    row={r}
+                    pinned={r.pin !== null && pinnedIds.has(pinId(r.pin))}
+                    now={now}
+                    onOpen={() => open(r)}
+                  />
+                ))
+              : null}
+          </section>
+        )
+      })}
       {empty ? (
         <p className="eva-ctx-empty" data-testid="context-empty">
           {snap.scope === 'here'

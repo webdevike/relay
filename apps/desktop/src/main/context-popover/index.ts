@@ -28,7 +28,10 @@ const CHANGED_DEBOUNCE_MS = 400
 export function registerContext(
   ctx: MainContext,
   queue: WriteQueue,
-  chat: Pick<ChatHandles, 'placeOf' | 'onSessionsChanged' | 'assistants' | 'relaySessions'>,
+  chat: Pick<
+    ChatHandles,
+    'placeOf' | 'onSessionsChanged' | 'assistants' | 'relaySessions' | 'sessionFile'
+  >,
   experiments: ExperimentsService,
   run: ToolRun,
   prs: PrSource,
@@ -84,6 +87,7 @@ export function registerContext(
                 : { ...a, file: hostThreadFile(hostDir, a.id) },
             ),
         relaySessions: () => chat.relaySessions(),
+        sessionFile: (id) => chat.sessionFile(id),
         pr: (repo, number, hot) => prs.get(repo, number, hot),
         git: (dir, base, hot) =>
           gits.get(`${dir}\n${base ?? ''}`, hot, () =>

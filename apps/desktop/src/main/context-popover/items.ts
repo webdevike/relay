@@ -23,9 +23,17 @@ export interface Item {
 /** Stages after which nothing waits on anyone (the dev cycle's last stage, and shipped). */
 const FINISHED = /^(11\b|after merge|ship(ped)?\b|done\b|closed\b|merged\b)/i
 
-/** Whether the item's work is over: nothing to show it under Needs you for. */
+/** Whether the item's work is over: nothing waits on Isaac (no Needs input, no Ready for review). */
 export function itemFinished(item: Pick<Item, 'stage'>): boolean {
   return FINISHED.test(item.stage?.trim() ?? '')
+}
+
+/** Stages where the work is built and Isaac's move is to look at it: verify, PR, review. */
+const REVIEW = /^((7|8|9|10)\b|verify|pr\b|review)/i
+
+/** Whether Isaac's move on the item is reviewing what was built (Ready for review), not answering. */
+export function itemReady(item: Pick<Item, 'stage'>): boolean {
+  return REVIEW.test(item.stage?.trim() ?? '')
 }
 
 export function parseItem(stem: string, text: string, root: string, mtimeMs: number): Item {

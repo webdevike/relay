@@ -286,6 +286,8 @@ describe('artifacts agent actions', () => {
           kind: 'manual',
           title: 'Fix the header',
           assistant: null,
+          activity: null,
+          activityAt: null,
         },
       ],
     ])

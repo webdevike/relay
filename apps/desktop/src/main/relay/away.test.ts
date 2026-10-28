@@ -10,6 +10,8 @@ const s = (status: RelayStatus, extra: Partial<RelaySession> = {}): RelaySession
   kind: 'manual',
   title: '',
   assistant: null,
+  activity: null,
+  activityAt: null,
   ...extra,
 })
 

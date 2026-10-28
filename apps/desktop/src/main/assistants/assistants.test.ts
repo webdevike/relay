@@ -29,6 +29,8 @@ function thread(id: string, agent: string, status: RelayStatus): RelaySession {
     kind: 'assistant',
     title: '',
     assistant: agent,
+    activity: null,
+    activityAt: null,
   }
 }
 

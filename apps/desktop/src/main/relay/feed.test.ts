@@ -86,7 +86,7 @@ describe('Relay feed', () => {
     expect(ids(feed, { t: 'agents.delta', rev: 8, remove: ['c'] })).toEqual([])
   })
 
-  it('reads kind, detail and assistant leniently', () => {
+  it('reads kind, detail, assistant and the last activity leniently', () => {
     expect(parseSession(session('j', 'working', { kind: 'job', statusDetail: 'bash' }))).toEqual({
       id: 'j',
       status: 'working',
@@ -95,7 +95,14 @@ describe('Relay feed', () => {
       kind: 'job',
       title: 'A session',
       assistant: null,
+      activity: null,
+      activityAt: null,
     })
+    // While waiting, the last activity is the question omp asked.
+    const asking = parseSession(
+      session('q', 'waiting', { lastActivity: ' Ship it today? ', lastActivityAt: 5 }),
+    )
+    expect([asking?.activity, asking?.activityAt]).toEqual(['Ship it today?', 5])
     const astra = parseSession(session('s', 'idle', { kind: 'assistant', assistant: 'astra' }))
     expect([astra?.kind, astra?.assistant]).toEqual(['assistant', 'astra'])
     // A field of the wrong type reads as absent; an empty detail is none.

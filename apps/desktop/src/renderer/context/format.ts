@@ -16,3 +16,13 @@ export function clockLabel(at: number, now: number): string {
   }
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
+
+/** A day, for a ledger's `updated:` date: `Today`, `Yesterday`, `Oct 26`. */
+export function dayLabel(at: number, now: number): string {
+  const d = new Date(at).toDateString()
+  if (d === new Date(now).toDateString()) return 'Today'
+  const y = new Date(now)
+  y.setDate(y.getDate() - 1)
+  if (d === y.toDateString()) return 'Yesterday'
+  return new Date(at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}

@@ -1,4 +1,7 @@
+import * as fs from 'node:fs'
 import * as os from 'node:os'
+import * as path from 'node:path'
+import { sessionId } from '@evaos/chat-core/session-id'
 import { Notification } from 'electron'
 import type { MainContext } from '../context'
 import { ChatAlertTracker, type ChatAlert } from './chat-alerts'
@@ -40,6 +43,8 @@ export interface ChatHandles {
   assistants(): Assistants
   /** Relay's sessions by id while connected, else null. */
   relaySessions(): ReadonlyMap<string, RelaySession> | null
+  /** The session file of omp session `id` in the list's dirs, or null when none is there. */
+  sessionFile(id: string): string | null
   /** Relay's artifacts of every thread (the panel, the status reader, agent actions). */
   artifacts: RelaySource & RelayArtifacts
   /** Relay's live canvas rooms and the host's origin (canvas.live). */
@@ -181,6 +186,19 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     anyWorking: () => manager.anyWorking(),
     assistants: () => assistants.list(),
     relaySessions: () => relay.sessions(),
+    sessionFile: (id) => {
+      for (const dir of sessionsDirs) {
+        let names: string[]
+        try {
+          names = fs.readdirSync(dir)
+        } catch {
+          continue
+        }
+        const name = names.find((n) => n.endsWith('.jsonl') && sessionId(n) === id)
+        if (name !== undefined) return path.join(dir, name)
+      }
+      return null
+    },
     artifacts: relay,
     canvas: relay,
     mini,

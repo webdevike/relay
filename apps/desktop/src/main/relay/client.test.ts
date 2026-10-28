@@ -446,6 +446,8 @@ describe('StaticRelay', () => {
         kind: 'manual',
         title: '',
         assistant: null,
+        activity: null,
+        activityAt: null,
       },
     ])
     expect([...relay.sessions()!.keys()]).toEqual(['a'])
@@ -563,7 +565,10 @@ describe('RelayClient with a remote host', () => {
     const secret = Buffer.alloc(32, 5)
     relay.say({ t: 'pair.ok', secret: secret.toString('hex') })
     expect(Buffer.from(host.stored!)).toEqual(secret)
-    relay.say({ t: 'welcome', state: { agents: { rev: 1, sessions: [relaySession('a', 'idle')] } } })
+    relay.say({
+      t: 'welcome',
+      state: { agents: { rev: 1, sessions: [relaySession('a', 'idle')] } },
+    })
     expect([...client.sessions()!.keys()]).toEqual(['a'])
 
     // Sleep, restart or a host restart: the next connection answers the challenge, no PIN.
@@ -610,7 +615,10 @@ describe('remote pairing config', () => {
 
   it('parses host:port like the phone, and refuses anything else', () => {
     expect(parseRelayRemote(undefined)).toBeNull()
-    expect(parseRelayRemote(' 100.85.157.127:7817 ')).toEqual({ host: '100.85.157.127', port: 7817 })
+    expect(parseRelayRemote(' 100.85.157.127:7817 ')).toEqual({
+      host: '100.85.157.127',
+      port: 7817,
+    })
     expect(parseRelayRemote('[fd7a::1]:7817')).toEqual({ host: 'fd7a::1', port: 7817 })
     for (const bad of ['mini', 'mini:0', 'mini:70000', 7817]) {
       expect(() => parseRelayRemote(bad)).toThrow()
