@@ -10,6 +10,9 @@ import { AgentsDeltaTracker } from "./agents/delta-tracker";
 import { handleAssistantSay } from "./assistant/http";
 import { handleCatchUpBounce } from "./catchup/http";
 import { handleBoardRequest, isLoopback } from "./boards/http";
+import { authorizeCanvasSocket, handleCanvasRequest } from "./canvas/http";
+import type { CanvasPeer } from "./canvas/room";
+import type { CanvasRoom, CanvasService } from "./canvas/service";
 import type { FileBoardStore } from "./boards/store";
 import type { UsageService } from "./usage/service";
 import type { CatchUpDeck } from "./catchup/service";
@@ -79,6 +82,10 @@ export interface ServerDeps {
   readonly reactions: ReactionRelaying | null;
   /** Per-thread artifacts; null answers `artifacts.get` with empty default tabs and refuses acts. */
   readonly artifacts: ArtifactRelaying | null;
+  /** Live canvas rooms; null disables `/canvas` and answers `canvas.*` empty. */
+  readonly canvas: CanvasService | null;
+  /** The canvas web client's HTML, served at `/canvas/<slug>/`. */
+  readonly canvasPage: () => string;
   readonly pairing: PairingUI;
   readonly log: (line: string) => void;
 }
@@ -89,11 +96,15 @@ export interface ConnectedDevice {
   readonly connectedAt: number;
 }
 
-/** A relay socket carries a session; a `VNC_PATH` socket carries a bridge instead (`session` null). */
+/**
+ * A relay socket carries a session; a `VNC_PATH` socket carries a bridge instead, and a
+ * `/canvas/<slug>/ws` socket a canvas room's peer (`session` null for both).
+ */
 interface SocketData {
   session: ClientSession | null;
   connectedAt: number;
   vnc: { readonly deviceId: string; bridge: VncBridge | null } | null;
+  canvas: { readonly room: CanvasRoom; peer: CanvasPeer | null } | null;
 }
 
 type Socket = ServerWebSocket<SocketData>;
@@ -121,6 +132,7 @@ export class RelayServer {
   private readonly pairing: PairingCoordinator;
   private readonly sockets = new Set<Socket>();
   private readonly vncSockets = new Set<Socket>();
+  private readonly canvasSockets = new Set<Socket>();
   private readonly vncTickets: VncTickets;
   private server: Server<SocketData> | null = null;
 
@@ -141,6 +153,13 @@ export class RelayServer {
         this.handleDropChange(change);
       };
     }
+    const canvas = this.deps.canvas;
+    if (canvas !== null) {
+      canvas.onChange = () => {
+        const message = canvas.snapshot();
+        for (const ws of this.sockets) ws.data.session?.broadcast(message);
+      };
+    }
     const boards = this.deps.boards;
     if (boards !== null) {
       boards.onChange = (delta) => {
@@ -155,7 +174,7 @@ export class RelayServer {
       fetch: (request, srv) => {
         const path = new URL(request.url).pathname;
         if (path === WS_PATH) {
-          if (srv.upgrade(request, { data: { session: null, connectedAt: Date.now(), vnc: null } }))
+          if (srv.upgrade(request, { data: { session: null, connectedAt: Date.now(), vnc: null, canvas: null } }))
             return undefined;
           return new Response("websocket upgrade required", { status: 426 });
         }
@@ -163,9 +182,15 @@ export class RelayServer {
           const grant = authorizeVnc(request, this.vncTickets);
           if (grant instanceof Response) return grant;
           const upgraded = srv.upgrade(request, {
-            data: { session: null, connectedAt: Date.now(), vnc: { deviceId: grant.deviceId, bridge: null } },
+            data: { session: null, connectedAt: Date.now(), vnc: { deviceId: grant.deviceId, bridge: null }, canvas: null },
             ...(grant.protocol === null ? {} : { headers: { "Sec-WebSocket-Protocol": grant.protocol } }),
           });
+          return upgraded ? undefined : new Response("websocket upgrade required", { status: 426 });
+        }
+        const canvasRoom = authorizeCanvasSocket(this.deps.canvas, request, path);
+        if (canvasRoom instanceof Response) return canvasRoom;
+        if (canvasRoom !== null) {
+          const upgraded = srv.upgrade(request, { data: { session: null, connectedAt: Date.now(), vnc: null, canvas: { room: canvasRoom, peer: null } } });
           return upgraded ? undefined : new Response("websocket upgrade required", { status: 426 });
         }
         const remote = srv.requestIP(request)?.address ?? "";
@@ -179,6 +204,8 @@ export class RelayServer {
         }
         if (path === "/boards" || path.startsWith("/boards/"))
           return handleBoardRequest(this.deps.boards, request, path, remote);
+        if (path === "/canvas" || path.startsWith("/canvas/"))
+          return handleCanvasRequest(this.deps.canvas, this.deps.canvasPage, request, path, remote);
         if (path === "/assistant/say") return handleAssistantSay(this.deps.assistant, request, remote);
         if (path === "/catchup/bounce") return handleCatchUpBounce(this.deps.catchup, request, remote);
         if (path === "/reactions/agent") return handleAgentReaction(this.deps.reactions, this.deps.assistant, request, remote);
@@ -189,9 +216,16 @@ export class RelayServer {
         idleTimeout: 60,
         open: (ws) => {
           if (ws.data.vnc !== null) this.openVnc(ws, ws.data.vnc);
+          else if (ws.data.canvas !== null) this.openCanvas(ws, ws.data.canvas);
           else this.accept(ws);
         },
         message: (ws, raw) => {
+          const canvas = ws.data.canvas;
+          if (canvas !== null) {
+            // y-websocket: binary frames only.
+            if (canvas.peer !== null && typeof raw !== "string") canvas.room.sync.receive(canvas.peer, new Uint8Array(raw));
+            return;
+          }
           const vnc = ws.data.vnc;
           if (vnc !== null) {
             // websockify `binary`: raw RFB bytes only.
@@ -211,6 +245,12 @@ export class RelayServer {
           ws.data.vnc?.bridge?.drain();
         },
         close: (ws) => {
+          const canvas = ws.data.canvas;
+          if (canvas !== null) {
+            if (canvas.peer !== null) this.deps.canvas?.disconnect(canvas.room, canvas.peer);
+            this.canvasSockets.delete(ws);
+            return;
+          }
           if (ws.data.vnc !== null) {
             ws.data.vnc.bridge?.peerClosed();
             this.vncSockets.delete(ws);
@@ -239,8 +279,10 @@ export class RelayServer {
   stop(): void {
     for (const ws of this.sockets) ws.close();
     for (const ws of this.vncSockets) ws.close();
+    for (const ws of this.canvasSockets) ws.close();
     this.sockets.clear();
     this.vncSockets.clear();
+    this.canvasSockets.clear();
     void this.server?.stop(true);
     this.server = null;
   }
@@ -418,6 +460,21 @@ export class RelayServer {
     return new Response("method not allowed", { status: 405 });
   }
 
+  /** A token holder opened a canvas room's websocket: it becomes a peer of the room's doc. */
+  private openCanvas(ws: Socket, canvas: { readonly room: CanvasRoom; peer: CanvasPeer | null }): void {
+    const peer: CanvasPeer = {
+      send: (data) => {
+        ws.sendBinary(data);
+      },
+      close: (code, reason) => {
+        ws.close(code, reason);
+      },
+    };
+    canvas.peer = peer;
+    this.canvasSockets.add(ws);
+    this.deps.canvas?.connect(canvas.room, peer);
+  }
+
   /** A ticket-holding device opened `VNC_PATH`: connect it to the Mac's VNC server. */
   private openVnc(ws: Socket, vnc: { readonly deviceId: string; bridge: VncBridge | null }): void {
     vnc.bridge = new VncBridge(
@@ -461,6 +518,7 @@ export class RelayServer {
         catchup: this.deps.catchup,
         reactions: this.deps.reactions,
         artifacts: this.deps.artifacts,
+        canvas: this.deps.canvas,
       },
       (closed) => {
         const reason = closed.closeReason;

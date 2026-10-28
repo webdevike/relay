@@ -7,14 +7,15 @@
 //                       approval.request { id, toolName, command, reason? } | approval.resolved { id }
 //   host -> extension   conversation { id } | reply { id, text, submit, images? } | note { id, text } |
 //                       options { id } | image { id, imageId } | configure { id, ...change } | abort { id } |
-//                       end { id } | gate { id, action, target?, reason?, photo? } | approval { id, approvalId, allow }
+//                       end { id } | gate { id, action, target?, reason?, photo? } | approval { id, approvalId, allow } |
+//                       canvas { id, content, details } (a live canvas row: `relay-canvas` custom message)
 //
 // Sessions are validated with zod at this boundary: a misbehaving extension version can only
 // produce a logged parse error, never a malformed frame on the phone's WebSocket.
 
 import { existsSync, unlinkSync } from "node:fs";
 import type { Socket, SocketHandler } from "bun";
-import { AgentAccount, AgentAskQuestion, AgentBackgroundJob, AgentGoal, type AgentApproval, type ApprovalConfirmation, AgentImage, AgentMessage, AgentOptions, AgentSession, AgentStatus, GateStatus, type AgentAsk, type AgentAskAnswer, type AgentImage as AgentImageT, type AgentSession as AgentSessionT, type AgentMessage as AgentMessageT, type AgentOptions as AgentOptionsT, type GateStatus as GateStatusT } from "@relay/protocol";
+import { AgentAccount, AgentAskQuestion, AgentBackgroundJob, AgentGoal, type AgentApproval, type ApprovalConfirmation, AgentImage, AgentMessage, AgentOptions, AgentSession, AgentStatus, GateStatus, type AgentAsk, type AgentAskAnswer, type AgentImage as AgentImageT, type AgentSession as AgentSessionT, type CanvasEntry as CanvasEntryT, type AgentMessage as AgentMessageT, type AgentOptions as AgentOptionsT, type GateStatus as GateStatusT } from "@relay/protocol";
 import { z } from "zod";
 import { AckFailure, type AgentConfigChange, type AgentProvider, type AgentProviderChange, type GateCommand } from "../seams";
 import { destructivePattern } from "./destructive";
@@ -60,7 +61,7 @@ const Inbound = z.discriminatedUnion("t", [
 ]);
 type Inbound = z.infer<typeof Inbound>;
 
-type RequestKind = "conversation" | "reply" | "note" | "options" | "image" | "configure" | "abort" | "end" | "ask" | "approval" | "gate";
+type RequestKind = "conversation" | "reply" | "note" | "options" | "image" | "configure" | "abort" | "end" | "ask" | "approval" | "gate" | "canvas";
 
 /** The error code a rejected request maps to; the extension's message is passed through. */
 const failureCode: Record<RequestKind, AckFailure["error"]["code"]> = {
@@ -75,6 +76,7 @@ const failureCode: Record<RequestKind, AckFailure["error"]["code"]> = {
   ask: "agent_cannot_respond",
   approval: "agent_cannot_respond",
   gate: "gate_failed",
+  canvas: "agent_cannot_respond",
 };
 
 const REQUEST_TIMEOUT_MS = 5000;
@@ -180,6 +182,25 @@ export class OmpBridgeProvider implements AgentProvider {
   /** True only from an extension that knows notes; older ones answer every unknown request with an empty ok. */
   async note(sessionId: string, text: string): Promise<boolean> {
     return (await this.request(this.require(sessionId), "note", { text })) === true;
+  }
+
+  /**
+   * Posts a live canvas row into the session's chat as a `relay-canvas` custom message: shown,
+   * written to the session file, and pushed to the phone as an `AgentMessage` with `canvas`. Never
+   * starts a model turn: a `start` row goes in as an aside to a turn already running (the one that
+   * ran `canvas start`), later rows wait for the next turn when one is running. Resolves false when
+   * the session's bridge predates canvas rows.
+   */
+  async canvas(sessionId: string, content: string, details: CanvasEntryT): Promise<boolean> {
+    return (await this.request(this.require(sessionId), "canvas", { content, details })) === true;
+  }
+
+  /** The live session whose transcript is `file` (top-level sessions report theirs); null when none is. */
+  sessionForFile(file: string): AgentSessionT | null {
+    for (const connection of this.connections) {
+      if (connection.session !== null && connection.sessionFile === file) return connection.session;
+    }
+    return null;
   }
 
   async options(sessionId: string): Promise<AgentOptionsT | null> {

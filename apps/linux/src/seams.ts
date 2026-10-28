@@ -111,6 +111,14 @@ export interface AssistantRelaying {
   observe(change: AgentProviderChange): void;
 }
 
+/** What the session needs of the host's live canvas rooms (`canvas/service.ts`). */
+export interface CanvasRelaying {
+  /** `canvas.rooms`: every room the host holds, at its current rev. */
+  snapshot(): Extract<ServerMessage, { t: "canvas.rooms" }>;
+  /** `canvas.open` from `deviceId`: a token for the live room on `slug`, or why there is none. */
+  open(slug: string, deviceId: string): Extract<ServerMessage, { t: "canvas.access" | "canvas.unavailable" }>;
+}
+
 /** The phone's `call.*` frames. */
 export type CallClientMessage = Extract<ClientMessage, { t: `call.${string}` }>;
 

@@ -93,6 +93,11 @@ export function toAssistantMessages(messages: readonly AgentMessage[], prime: st
   let firstUser = true;
   for (const message of messages) {
     const images = message.images === undefined || message.images.length === 0 ? {} : { images: message.images };
+    if (message.canvas !== undefined) {
+      // A live canvas row (Join card, canvas turn, wrap-up): a card, whatever role the transcript gave it.
+      out.push({ id: message.id, role: "card", text: message.text, at: message.at, canvas: message.canvas });
+      continue;
+    }
     if (message.role === "user") {
       const said = untagged(message.text);
       // Earlier contexts may predate edits of prime.md or the move to per-agent primes.

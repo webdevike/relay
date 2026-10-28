@@ -22,6 +22,17 @@ export interface ImageRef {
   height?: number;
 }
 
+/** A live canvas row (protocol `CanvasEntry`): the Join card, one canvas turn, or the wrap-up. */
+export interface CanvasRow {
+  kind: "start" | "turn" | "end";
+  roomId: string;
+  slug: string;
+  board: string;
+  agent: { name: string; color: string; avatar?: string };
+  human?: { name: string; text: string };
+  text?: string;
+}
+
 export interface InboxMessage {
   id: string;
   role: Role;
@@ -30,6 +41,32 @@ export interface InboxMessage {
   tool?: { name: string; summary: string };
   images?: ImageRef[];
   streaming?: boolean;
+  canvas?: CanvasRow;
+}
+
+/** omp custom message type the host's live canvas posts into a chat (relay-bridge `canvas` request). */
+export const CANVAS_MESSAGE_TYPE = "relay-canvas";
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
+
+/**
+ * The canvas row of a `relay-canvas` custom message (its `details`), or null for any other custom
+ * message or details this build cannot read. The host validates the row again before it reaches a client.
+ */
+export function canvasRowOf(message: { customType?: unknown; details?: unknown }): CanvasRow | null {
+  if (message.customType !== CANVAS_MESSAGE_TYPE || !isRecord(message.details)) return null;
+  const d = message.details;
+  const agent = d["agent"];
+  const kind = d["kind"];
+  if (kind !== "start" && kind !== "turn" && kind !== "end") return null;
+  if (typeof d["roomId"] !== "string" || typeof d["slug"] !== "string" || typeof d["board"] !== "string") return null;
+  if (!isRecord(agent) || typeof agent["name"] !== "string" || typeof agent["color"] !== "string") return null;
+  const row: CanvasRow = { kind, roomId: d["roomId"], slug: d["slug"], board: d["board"], agent: { name: agent["name"], color: agent["color"] } };
+  if (typeof agent["avatar"] === "string") row.agent.avatar = agent["avatar"];
+  const human = d["human"];
+  if (isRecord(human) && typeof human["name"] === "string" && typeof human["text"] === "string") row.human = { name: human["name"], text: human["text"] };
+  if (typeof d["text"] === "string") row.text = d["text"];
+  return row;
 }
 
 export const MAX_SUMMARY = 120;
@@ -235,11 +272,12 @@ interface SessionEntryLine {
   customType?: unknown;
   attribution?: unknown;
   details?: unknown;
+  content?: unknown;
 }
 
 /**
  * The rows one session-file entry contributes: a `message` entry's rows, the command row of a
- * skill the user invoked (a `custom_message`), or the notice a `compaction` entry (a `/handoff`,
+ * skill the user invoked or a live canvas row (`custom_message`s), or the notice a `compaction` entry (a `/handoff`,
  * `/compact`, or omp compacting on its own) leaves.
  */
 function entryRows(entry: SessionEntryLine, images: Map<string, Image> | null, nextId: () => string): InboxMessage[] {
@@ -247,6 +285,8 @@ function entryRows(entry: SessionEntryLine, images: Map<string, Image> | null, n
   const at = Number.isFinite(stamp) ? stamp : Date.now();
   if (entry.type === "compaction") return [{ id: nextId(), role: "system", text: COMPACTION_NOTICE, at }];
   if (entry.type === "custom_message") {
+    const canvas = canvasRowOf(entry);
+    if (canvas !== null) return [{ id: nextId(), role: "system", text: typeof entry.content === "string" ? entry.content : "", at, canvas }];
     const command = skillCommandOf(entry);
     return command === null ? [] : [{ id: nextId(), role: "user", text: command, at }];
   }
@@ -256,7 +296,7 @@ function entryRows(entry: SessionEntryLine, images: Map<string, Image> | null, n
 
 /**
  * Every row of a session file's text, in order. The file holds one JSON entry per line; only
- * `message`, user-invoked skill `custom_message` and `compaction` entries are rows, and a line
+ * `message`, user-invoked skill and live canvas `custom_message` and `compaction` entries are rows, and a line
  * that does not parse is skipped (a half-written tail).
  */
 export function parseSessionRows(raw: string, images: Map<string, Image> | null, nextId: () => string): InboxMessage[] {

@@ -6,6 +6,9 @@ VERSION=${1:?version}
 cd "$(dirname "$0")"
 APP="build/Relay Host.app"
 rm -rf "$APP" && mkdir -p "$APP/Contents/MacOS"
+# The live canvas web client, embedded in relay-host as one HTML file (text import in canvas/page.ts).
+# Its own isolated install (React 19.3, not hoisted over the phone's React).
+(cd ../../packages/canvas-web && { [ -d node_modules ] || bun install --frozen-lockfile; } && bun run build)
 (cd ../linux && bun build --compile --target=bun-darwin-arm64 src/main.ts --outfile "../mac-host/$APP/Contents/MacOS/relay-host")
 swiftc -O -target arm64-apple-macos13 RelayHost.swift -o "$APP/Contents/MacOS/RelayHost"
 clang -O2 -Wall -Wextra -Werror -dynamiclib -framework ApplicationServices -mmacosx-version-min=13.0 RelayInput.c -o "$APP/Contents/MacOS/relay-input.dylib"

@@ -37,6 +37,7 @@ import {
   type AssistantRelaying,
   type AssistantThread,
   type CallRelaying,
+  type CanvasRelaying,
   type DeviceStore,
   type DropBox,
   type FrameSink,
@@ -85,6 +86,8 @@ export interface SessionDeps {
   readonly reactions: ReactionRelaying | null;
   /** null when the host keeps no artifacts; `artifacts.get` then answers the default tabs with no items and every act is refused. */
   readonly artifacts: ArtifactRelaying | null;
+  /** null when the host runs no live canvas; `canvas.get` then answers no rooms and `canvas.open` is unavailable. */
+  readonly canvas: CanvasRelaying | null;
 }
 
 /** Clock and scheduling seams so tests drive time deterministically. */
@@ -584,6 +587,12 @@ export class ClientSession {
         });
         break;
       }
+      case "canvas.get":
+        this.sink.send(this.deps.canvas?.snapshot() ?? { t: "canvas.rooms", rev: 0, rooms: [] });
+        break;
+      case "canvas.open":
+        this.sink.send(this.deps.canvas?.open(message.slug, deviceId) ?? { t: "canvas.unavailable", slug: message.slug, reason: "This host runs no live canvas." });
+        break;
       case "vnc.open":
         void this.deps.vnc.open(deviceId).then(
           (ticket) => {

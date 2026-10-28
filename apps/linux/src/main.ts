@@ -27,6 +27,10 @@ import { createUsageService, ompUsageRunner } from "./usage/service";
 import { CatchUpService, defaultCatchUpFeedPath, defaultCatchUpNotesPath, defaultCatchUpStatePath } from "./catchup/service";
 import { defaultReactionsPath, reactionFeedbackPath, ReactionService } from "./reactions/service";
 import { ArtifactService, defaultArtifactsRoot } from "./artifacts/service";
+import { brainConfigOverlay, ompBrains, resolveOmp } from "./canvas/brain";
+import { detectCaller, systemCallerDeps } from "./canvas/caller";
+import { CANVAS_PAGE } from "./canvas/page";
+import { CanvasService } from "./canvas/service";
 import { detectTextTyper, KeyboardInjector } from "./input/keyboard";
 import { MacInputDevice } from "./input/macos";
 import { ClipboardPaster, systemCopy } from "./input/paste";
@@ -47,6 +51,7 @@ import { ClipboardWatcher, systemPaste, systemWatch } from "./drops/clipboard";
 const USAGE = `relay-linux <command>
 
   serve [--port N] [--name NAME] [--agent-home DIR] [--no-clipboard] [--boards DIR] [--vnc-port N]
+        [--canvases DIR]
                                    run the host (default command); --agent-home is where a
                                    session started from the phone opens (default: $HOME);
                                    --no-clipboard stops desktop copies from becoming drops;
@@ -56,7 +61,10 @@ const USAGE = `relay-linux <command>
                                    <agent-home>/apps/eva-realtime) and pocket-tts on
                                    $POCKET_PORT (8853) in voice $POCKET_VOICE (stuart_bell).
                                    The live view bridges paired phones to the Mac's Screen
-                                   Sharing (VNC) on 127.0.0.1, port --vnc-port (default ${String(DEFAULT_VNC_PORT)})
+                                   Sharing (VNC) on 127.0.0.1, port --vnc-port (default ${String(DEFAULT_VNC_PORT)}).
+                                   Live canvas rooms run on the EvaOS boards in --canvases
+                                   (default on macOS: ~/Library/Application Support/EvaOS/canvases;
+                                   elsewhere off) with omp from PATH or $RELAY_CANVAS_OMP
   devices                          list paired phones
   forget <deviceId>                remove a paired phone
   share <text | url | path> ...    add to the drop box of the running host: one existing file
@@ -73,6 +81,13 @@ const USAGE = `relay-linux <command>
                                    hand assistant thread <id> (from <agent-home>/${REGISTRY_FILE})
                                    of the running host a message from a background job; it
                                    relays it to Isaac. \`say -\` or no text reads stdin
+  canvas start [<slug>] [--title "New board"] [--prompt "what this session is for"]
+                                   from an omp session: start a live canvas on board <slug> (an
+                                   EvaOS board; a new one when it does not exist or no slug is
+                                   given). Isaac gets a Join card in this chat; the canvas agent
+                                   is this session and posts each turn and the wrap-up here
+  canvas list                      list the running host's canvas rooms
+  canvas end [<slug>]              wrap up the live session on <slug> (default: this chat's)
   react <emoji> [--agent <id>] [--message latest|<key>]
   react --clear [--agent <id>] [--message latest|<key>]
                                    from an assistant's session: react to (or take back the
@@ -116,6 +131,7 @@ function serve(
   watchClipboard: boolean,
   boardsDir: string | null,
   vncPort: number,
+  canvasDir: string | null,
 ): void {
   let device: UinputDevice | MacInputDevice | null = null;
   try {
@@ -315,6 +331,7 @@ function serve(
             clipboard.expect(mimeType, bytes);
           },
   });
+  const canvas = liveCanvas(canvasDir, agentHome, agents);
   log(`live view: VNC bridge to 127.0.0.1:${String(vncPort)} (macOS Screen Sharing)`);
   const server: RelayServer = new RelayServer(
     { port, hostName: name, version: pkg.version, vncPort },
@@ -336,6 +353,8 @@ function serve(
       catchup,
       reactions,
       artifacts,
+      canvas,
+      canvasPage: () => CANVAS_PAGE,
       pairing: new TerminalPairingUI(),
       log,
     },
@@ -376,6 +395,7 @@ function serve(
     clipboard?.stop();
     rmSync(infoPath, { force: true });
     advertiser.stop();
+    canvas?.stop();
     server.stop();
     voice?.stop();
     catchup?.stop();
@@ -384,6 +404,38 @@ function serve(
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
+}
+
+/**
+ * Live canvas rooms on the boards in `canvasDir`, their agents' brains a warm omp each; null (and
+ * logged) without a canvases dir or an omp binary.
+ */
+function liveCanvas(canvasDir: string | null, agentHome: string | null, agents: OmpBridgeProvider): CanvasService | null {
+  if (canvasDir === null) {
+    log("live canvas disabled (no --canvases)");
+    return null;
+  }
+  const omp = resolveOmp();
+  if (omp === null) {
+    log("live canvas disabled: omp not found (set $RELAY_CANVAS_OMP)");
+    return null;
+  }
+  let registry: readonly AssistantAgentConfig[] = [];
+  try {
+    if (agentHome !== null) registry = loadRegistry(agentHome);
+  } catch {
+    // Without a registry every chat's agent is Eva.
+  }
+  const configDir = join(process.env["XDG_CONFIG_HOME"] ?? join(homedir(), ".config"), "relay");
+  log(`live canvas on boards in ${canvasDir} (brains: ${omp})`);
+  return new CanvasService({
+    canvasDir,
+    chats: agents,
+    registry,
+    avatarsDir: agentHome === null ? null : join(agentHome, "work", "assistant-avatars"),
+    brains: ompBrains({ omp, profile: "personal", configs: [brainConfigOverlay(configDir)], log }),
+    log,
+  });
 }
 
 /**
@@ -495,6 +547,73 @@ async function assistantSay(agent: string | undefined, positionals: string[]): P
   console.log(`told ${agent}`);
 }
 
+/** The host's JSON answer, or exit 1 with its `{error}` (or body). */
+async function hostJson(response: Response, what: string): Promise<unknown> {
+  const text = await response.text();
+  if (!response.ok) {
+    let message = text;
+    try {
+      message = z.object({ error: z.string() }).parse(JSON.parse(text)).error;
+    } catch {
+      // not a JSON error body; print it as is
+    }
+    console.error(`${what}: ${message}`);
+    process.exit(1);
+  }
+  return JSON.parse(text);
+}
+
+const CanvasRoomsReply = z.object({ rooms: z.array(z.object({ id: z.string(), slug: z.string(), board: z.string(), live: z.boolean(), agent: z.object({ name: z.string() }), chat: z.object({ sessionId: z.string().optional(), title: z.string().optional() }), humans: z.array(z.string()) })) });
+const CanvasStartReply = z.object({ roomId: z.string(), slug: z.string(), board: z.string(), agent: z.object({ name: z.string() }), joinPath: z.string(), created: z.boolean() });
+
+/** `canvas start|list|end`: talks to the running host's loopback `/canvas/sessions`. */
+async function canvasCommand(positionals: string[], title: string | undefined, prompt: string | undefined): Promise<void> {
+  const [verb, slug] = positionals;
+  const base = `${hostUrl()}/canvas/sessions`;
+  const post = (url: string, body: unknown): Promise<Response> => fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  switch (verb ?? "") {
+    case "start": {
+      const caller = detectCaller(systemCallerDeps);
+      const assistant = process.env["RELAY_ASSISTANT"]?.trim();
+      if (caller === null && (assistant === undefined || assistant === "")) throw new Error("canvas start: run this from an omp session (no omp session file found among this command's ancestors)");
+      const body = {
+        ...(slug === undefined ? {} : { slug }),
+        ...(title === undefined ? {} : { title }),
+        ...(prompt === undefined ? {} : { prompt }),
+        caller: caller === null ? { assistant } : { sessionFile: caller.sessionFile, chatFile: caller.chatFile, ...(caller.assistant === undefined ? {} : { assistant: caller.assistant }) },
+      };
+      const room = CanvasStartReply.parse(await hostJson(await post(base, body), "canvas start"));
+      console.log(`${room.created ? "Started" : "Rejoined"} a live canvas on "${room.board}" (board ${room.slug}, room ${room.roomId}) as ${room.agent.name}.`);
+      console.log(`Isaac got a Join card in this chat. Your canvas self (${room.agent.name}, with this chat as context) runs the room on its own; each canvas turn and the wrap-up summary come back to this chat as canvas rows, nothing for you to do until then. End it early with: relay-linux canvas end ${room.slug}`);
+      return;
+    }
+    case "list": {
+      const { rooms } = CanvasRoomsReply.parse(await hostJson(await fetch(base), "canvas list"));
+      if (rooms.length === 0) console.log("no canvas rooms");
+      for (const room of rooms) console.log(`${room.slug}  ${room.live ? "live" : "ended"}  "${room.board}"  ${room.agent.name}  chat ${room.chat.title ?? room.chat.sessionId ?? "-"}${room.humans.length > 0 ? `  here: ${room.humans.join(", ")}` : ""}`);
+      return;
+    }
+    case "end": {
+      const { rooms } = CanvasRoomsReply.parse(await hostJson(await fetch(base), "canvas end"));
+      const live = rooms.filter((room) => room.live);
+      let room = slug === undefined ? undefined : live.find((candidate) => candidate.slug === slug);
+      if (slug === undefined) {
+        // This chat's room: omp names a transcript `<time>_<session id>.jsonl`; else the only live room.
+        const chatFile = detectCaller(systemCallerDeps)?.chatFile;
+        const sessionId = chatFile === undefined ? undefined : basename(chatFile, ".jsonl").split("_").at(-1);
+        room = live.find((candidate) => sessionId !== undefined && candidate.chat.sessionId === sessionId) ?? (live.length === 1 ? live[0] : undefined);
+        if (room === undefined) throw new Error(live.length === 0 ? "canvas end: no live canvas session" : `canvas end: several live sessions, name one: ${live.map((r) => r.slug).join(", ")}`);
+      }
+      if (room === undefined) throw new Error(`canvas end: no live canvas session on ${slug ?? ""}`);
+      const { summary } = z.object({ summary: z.string() }).parse(await hostJson(await post(`${base}/${encodeURIComponent(room.id)}/end`, {}), "canvas end"));
+      console.log(`Wrapped up "${room.board}". Summary (also posted to the chat): ${summary}`);
+      return;
+    }
+    default:
+      throw new Error(`canvas: expected start, list or end\n\n${USAGE}`);
+  }
+}
+
 /** `react <emoji> | --clear`: the running host puts assistant `agent`'s reaction on one of Isaac's bubbles in its thread. */
 async function react(agent: string | undefined, positionals: string[], message: string | undefined, clear: boolean): Promise<void> {
   const id = agent ?? process.env["RELAY_ASSISTANT"];
@@ -578,6 +697,9 @@ async function main(argv: string[]): Promise<void> {
       agent: { type: "string" },
       message: { type: "string" },
       clear: { type: "boolean", default: false },
+      canvases: { type: "string" },
+      title: { type: "string" },
+      prompt: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -601,6 +723,7 @@ async function main(argv: string[]): Promise<void> {
         !values["no-clipboard"],
         values.boards ?? process.env["RELAY_BOARDS_DIR"] ?? null,
         vncPort,
+        values.canvases ?? (process.platform === "darwin" ? join(homedir(), "Library", "Application Support", "EvaOS", "canvases") : null),
       );
       return;
     }
@@ -637,6 +760,9 @@ async function main(argv: string[]): Promise<void> {
       await assistantSay(values.agent, positionals.slice(2));
       return;
     }
+    case "canvas":
+      await canvasCommand(positionals.slice(1), values.title, values.prompt);
+      return;
     case "react":
       await react(values.agent, positionals.slice(1), values.message, values.clear);
       return;

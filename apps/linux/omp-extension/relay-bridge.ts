@@ -41,6 +41,8 @@ import {
   imageRefsOf,
   parseSessionRows,
   skillCommandOf,
+  CANVAS_MESSAGE_TYPE,
+  type CanvasRow,
   summarizeArguments,
   textOf,
   type Image,
@@ -365,7 +367,9 @@ type Inbound =
   // A device approved (allow: true) or denied the pending tool approval (approvalId is the approval.request id).
   | { t: "approval"; id: string; approvalId: string; allow: boolean }
   // A phone's habit gate command: start or finish a habit/task (`target`), or override with a reason.
-  | { t: "gate"; id: string; action: "start" | "done" | "override"; target?: string; reason?: string; photo?: Image };
+  | { t: "gate"; id: string; action: "start" | "done" | "override"; target?: string; reason?: string; photo?: Image }
+  // A live canvas row for this chat (Join card, canvas turn, wrap-up): `content` is the line the model reads.
+  | { t: "canvas"; id: string; content: string; details: CanvasRow };
 
 /** Thinking selectors a model accepts; "off" applies to any model, the rest come from its catalog entry. */
 function thinkingLevelsFor(model: Model): ThinkingLevel[] {
@@ -1124,6 +1128,20 @@ export default function relayBridge(pi: ExtensionAPI): void {
         // unknown requests with an empty ok).
         pi.sendMessage({ customType: "relay-reactions", content: frame.text, display: false }, { deliverAs: "nextTurn" });
         return true;
+      case "canvas": {
+        // Shown in the chat and written to the session file, never a turn of its own. Idle, omp appends
+        // it at once. Mid-turn, the Join card goes in as an aside to the running turn (the one that ran
+        // `canvas start`): it lands as soon as that tool call returns, without interrupting the call the
+        // way a steer does (a steer backgrounds a running bash). Turn and wrap-up rows wait for the next
+        // turn rather than prolong this one. The phone gets the row now either way.
+        const message = { customType: CANVAS_MESSAGE_TYPE, content: frame.content, display: true, details: frame.details };
+        if (ctx.isIdle()) pi.sendMessage(message);
+        else pi.sendMessage(message, { deliverAs: frame.details.kind === "start" ? "aside" : "nextTurn" });
+        const row: InboxMessage = { id: nextId(), role: "system", text: frame.content, at: Date.now(), canvas: frame.details };
+        record(row);
+        send({ t: "messages", append: [row] });
+        return true;
+      }
       case "image":
         return images.get(frame.imageId) ?? null;
       case "options":

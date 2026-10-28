@@ -264,6 +264,26 @@ Linear; the answer is `artifacts.acted { rid, ok, error?, id? }`. Agents may not
 default tab or one Isaac hid, and change or remove only tabs they made. Images pasted into a thread are
 stored once in `artifacts/media/<sha>` and served at `GET /artifacts/media/<sha>/<token>`.
 
+## Live canvas (`canvas.get`, `canvas.open`, `canvas.rooms`, `canvas.access`)
+
+Any omp session takes its chat onto an EvaOS board with `relay-linux canvas start <slug> [--prompt ...]`
+(`--title "New board"` makes one; `canvas list`, `canvas end [<slug>]`). The CLI finds its session file from the
+ancestor omp process (a subagent's rows go to its top-level chat) and posts loopback `POST /canvas/sessions`.
+The host (`src/canvas/`) opens a room per board: a Y.Doc seeded from `--canvases/<slug>.json` (default on macOS
+`~/Library/Application Support/EvaOS/canvases`), y-websocket sync and awareness at `/canvas/<slug>/ws`, a
+debounced export back to the same file in EvaOS' exact format, and a watcher that merges outside writes. The
+session's agent (its name, color and avatar; its transcript as context) runs on a warm
+`omp --mode rpc --no-tools --thinking off` brain that streams board actions as a line DSL, typed into the doc as
+CRDT ops while tokens arrive; the opener is precomputed so it plays the moment Isaac joins.
+
+Chat rows travel through the bridge's `canvas` request: the extension posts a `relay-canvas` custom message
+(`details`: `CanvasEntry` start = Join card, turn = one exchange, end = wrap-up) that lands in the session file
+without starting a turn, and phones see it as `AgentMessage.canvas` / `AssistantMessage.canvas`. Devices list
+rooms with `canvas.get` (`canvas.rooms` is pushed on every change) and enter with `canvas.open` → `canvas.access
+{path, token}`: the token (12 h, multi-use) opens the web client at `/canvas/<slug>/` (built from
+`packages/canvas-web`, embedded in the binary), its websocket, `/me`, `/img` and `/end`. Brains need omp on
+PATH, in `~/.local/bin`, or `$RELAY_CANVAS_OMP`.
+
 ## Differences from the Mac app
 
 - No tray/menu UI; the terminal is the UI.

@@ -12,7 +12,7 @@ import type { UsageService } from "../src/usage/service";
 import type { CatchUpDeck } from "../src/catchup/service";
 import type { ReactionRelaying } from "../src/reactions/service";
 import type { ArtifactRelaying } from "../src/artifacts/service";
-import { AckFailure, type AgentConfigChange, type AgentProvider, type AssistantRelaying, type AssistantThread, type CallClientMessage, type CallRelaying, type DeviceStore, type DropBox, type FrameSink, type GateCommand, type InboxRelaying, type InputSink, type PairedDevice, type PairingUI, type PushRegistry, type TextInjecting, type VncAccess } from "../src/seams";
+import { AckFailure, type AgentConfigChange, type AgentProvider, type AssistantRelaying, type AssistantThread, type CallClientMessage, type CallRelaying, type CanvasRelaying, type DeviceStore, type DropBox, type FrameSink, type GateCommand, type InboxRelaying, type InputSink, type PairedDevice, type PairingUI, type PushRegistry, type TextInjecting, type VncAccess } from "../src/seams";
 import { ASSISTANT_FOLLOW_MS, ClientSession, PAIRING_TIMEOUT_MS, type SessionClock, type SessionDeps } from "../src/session";
 
 class RecordingSink implements FrameSink {
@@ -112,6 +112,7 @@ interface HarnessOptions {
   catchup?: CatchUpDeck;
   reactions?: ReactionRelaying;
   artifacts?: ArtifactRelaying;
+  canvas?: CanvasRelaying;
 }
 
 function harness(options: HarnessOptions = {}): Harness {
@@ -161,6 +162,7 @@ function harness(options: HarnessOptions = {}): Harness {
     catchup: options.catchup ?? null,
     reactions: options.reactions ?? null,
     artifacts: options.artifacts ?? null,
+    canvas: options.canvas ?? null,
   };
   const sink = new RecordingSink();
   const clock = new FakeClock();
@@ -1256,5 +1258,36 @@ describe("calls", () => {
     h.session.receive({ t: "call.start", callId: "c1", agent: "astra" });
     expect(calls.received).toEqual([]);
     expect(h.sink.last()).toMatchObject({ t: "error", code: "protocol" });
+  });
+});
+
+describe("live canvas frames", () => {
+  it("answers canvas.get with the host's rooms and canvas.open with a token or why not", () => {
+    const opened: string[] = [];
+    const canvas: CanvasRelaying = {
+      snapshot: () => ({ t: "canvas.rooms", rev: 3, rooms: [] }),
+      open: (slug, deviceId) => {
+        opened.push(`${slug} ${deviceId}`);
+        return slug === "live" ? { t: "canvas.access", slug, path: `/canvas/${slug}/?token=tok`, token: "tok", expiresAt: 5 } : { t: "canvas.unavailable", slug, reason: "The canvas session on Old has ended." };
+      },
+    };
+    const h = harness({ canvas });
+    pair(h);
+    h.session.receive({ t: "canvas.get" });
+    expect(h.sink.last()).toEqual({ t: "canvas.rooms", rev: 3, rooms: [] });
+    h.session.receive({ t: "canvas.open", slug: "live" });
+    expect(h.sink.last()).toEqual({ t: "canvas.access", slug: "live", path: "/canvas/live/?token=tok", token: "tok", expiresAt: 5 });
+    h.session.receive({ t: "canvas.open", slug: "old" });
+    expect(h.sink.last()).toEqual({ t: "canvas.unavailable", slug: "old", reason: "The canvas session on Old has ended." });
+    expect(opened).toEqual(["live phone-1", "old phone-1"]);
+  });
+
+  it("answers no rooms and unavailable on a host without live canvas", () => {
+    const h = harness();
+    pair(h);
+    h.session.receive({ t: "canvas.get" });
+    expect(h.sink.last()).toEqual({ t: "canvas.rooms", rev: 0, rooms: [] });
+    h.session.receive({ t: "canvas.open", slug: "x" });
+    expect(h.sink.last()).toMatchObject({ t: "canvas.unavailable", slug: "x" });
   });
 });
