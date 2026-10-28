@@ -93,6 +93,36 @@
   font-weight: var(--eva-fw-regular);
   font-variant-numeric: tabular-nums;
 }
+/* A folded section's heading (Resolved) is its toggle: the same words, a chevron at the end. */
+.eva-ctx-fold {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--eva-space-sm);
+  font: inherit;
+  color: inherit;
+  border-radius: var(--eva-radius-sm);
+}
+.eva-ctx-fold:hover {
+  color: var(--eva-c-foreground);
+}
+.eva-ctx-fold:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: 1px;
+}
+.eva-ctx-fold-end {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--eva-space-xs);
+}
+.eva-ctx-chevron {
+  align-self: center;
+  transition: transform 120ms ease;
+}
+.eva-ctx-chevron[data-open='true'] {
+  transform: rotate(90deg);
+}
 
 .eva-ctx-row {
   position: relative;

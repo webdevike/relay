@@ -85,6 +85,8 @@ class FakeLink implements RelayLink {
                 kind: 'manual',
                 title: '',
                 assistant: null,
+                activity: null,
+                activityAt: null,
                 ...s,
               } satisfies RelaySession,
             ]),
@@ -660,7 +662,9 @@ describe('SessionManager in remote mode: every chat runs on the Mini', () => {
     expect(shown()).toEqual(['user:hello mini', 'assistant:Hi!'])
     vi.advanceTimersByTime(16)
     expect(
-      batches.flatMap((b) => b.ops).some((o) => o.op === 'meta' && o.patch.sessionFile === miniFile),
+      batches
+        .flatMap((b) => b.ops)
+        .some((o) => o.op === 'meta' && o.patch.sessionFile === miniFile),
     ).toBe(true)
     expect(herdr).not.toHaveBeenCalled()
     expect(transports).toEqual([])
@@ -709,8 +713,6 @@ describe('SessionManager in remote mode: every chat runs on the Mini', () => {
     ).rejects.toThrow(APPROVE_ON_PHONE)
     approval('c2', null)
     await mgr.answerUi('pane-1', 'approval:c2', { kind: 'confirm', confirmed: true })
-    expect(relay.commands).toEqual([
-      { kind: 'agent.approve', sessionId: 'out', approvalId: 'c2' },
-    ])
+    expect(relay.commands).toEqual([{ kind: 'agent.approve', sessionId: 'out', approvalId: 'c2' }])
   })
 })

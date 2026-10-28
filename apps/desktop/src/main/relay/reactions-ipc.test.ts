@@ -28,6 +28,8 @@ const relaySession = (id: string, extra: Partial<RelaySession> = {}): RelaySessi
   kind: 'manual',
   title: '',
   assistant: null,
+  activity: null,
+  activityAt: null,
   ...extra,
 })
 const FILE = '/s/-fixture/2026-10-05T10-00-00-000Z_s1.jsonl'

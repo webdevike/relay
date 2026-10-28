@@ -1,12 +1,13 @@
 // The context popover's snapshot: pins on top, then what is live here (a code chat's branch, PR,
-// checks, reviews, diff and ledger stage; an assistant's running work, what waits on Isaac, what
-// just finished) or everywhere (jobs, Test Bench, every assistant). Pure over its deps: every
-// slow source (gh, git) comes from a background cache and is never awaited here.
+// checks, reviews, diff and ledger stage) and the tasks here or everywhere, grouped like OpenDuet's
+// Tasks by what each needs from Isaac: Needs input, Ready for review, Working, Resolved (folded).
+// Pure over its deps: every slow source (gh, git) comes from a background cache, never awaited here.
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import type {
   Assistant,
   ContextAction,
+  ContextOpen,
   ContextQuery,
   ContextRow,
   ContextSection,
@@ -21,7 +22,7 @@ import { sessionId } from '@evaos/chat-core/session-id'
 import type { RelaySession } from '../relay/feed'
 import type { PrFacts } from './gh'
 import { canCommitPush, type GitFacts } from './git'
-import { itemFinished, type Item } from './items'
+import { itemFinished, itemReady, type Item } from './items'
 import {
   ACTIVE_MS,
   assistantNotes,
@@ -46,6 +47,8 @@ export interface SnapshotDeps {
   placeOf: (file: string) => Place | null
   assistants: () => Assistant[]
   relaySessions: () => ReadonlyMap<string, RelaySession> | null
+  /** The session file of omp session `id` in the chat list's dirs, or null. */
+  sessionFile: (id: string) => string | null
   /** Cached facts, refreshed in the background (hot: sooner). */
   pr: (repo: string, number: number, hot: boolean) => PrFacts | null
   git: (dir: string, base: string | null, hot: boolean) => GitFacts | null
@@ -150,7 +153,7 @@ function workerRow(w: Worker, owner: string | null): ContextRow {
     id: `worker:${w.file}`,
     icon: 'done',
     tone: 'success',
-    title: `${w.name} finished`,
+    title: w.name,
     sub: [owner, w.line].filter(Boolean).join(': ') || null,
     time: { at: w.at, style: 'clock' },
     pin,
@@ -158,17 +161,51 @@ function workerRow(w: Worker, owner: string | null): ContextRow {
   })
 }
 
+/**
+ * A work item whose move is Isaac's: built work to look at (Ready for review: its PR opens, else
+ * its ledger), or a question for him (Needs input: its ledger opens). Anyone else's move: its ledger.
+ */
 function itemRow(item: Item, id = `item:${item.key}`): ContextRow {
+  const mine = item.move === 'isaac'
+  const ready = mine && itemReady(item)
+  // A ticket key is short and scannable; a slug key would only crowd the line.
+  const key = item.title && /^[A-Z]+-\d+$/.test(item.key) ? item.key : null
   return row({
     id,
-    icon: item.move === 'isaac' ? 'needs' : 'item',
-    tone: item.move === 'isaac' ? 'warning' : 'default',
+    icon: ready ? 'ready' : mine ? 'needs' : 'item',
+    tone: ready ? 'success' : mine ? 'warning' : 'default',
     title: item.title ?? item.key,
-    sub: item.next,
-    // A ticket key is short and scannable; a slug key would only crowd the title.
-    meta: item.title && /^[A-Z]+-\d+$/.test(item.key) ? item.key : null,
+    sub: [key, item.next].filter(Boolean).join(': ') || null,
+    time: { at: item.updatedMs, style: 'day' },
     pin: { kind: 'item', key: item.key },
-    open: { kind: 'files', path: item.file },
+    open: ready && item.pr ? { kind: 'url', url: item.pr.url } : { kind: 'files', path: item.file },
+  })
+}
+
+/** Relay's sessions blocked on Isaac (a question it asked, a tool waiting for approval), by id. */
+function blockedSessions(
+  relay: ReadonlyMap<string, RelaySession> | null,
+): Map<string, RelaySession> {
+  return new Map(
+    [...(relay?.values() ?? [])]
+      .filter((s) => s.status === 'waiting' || s.status === 'needs_permission')
+      .map((s) => [s.id, s]),
+  )
+}
+
+/** A session blocked on Isaac: who, then what it waits on (its question, or the tool to approve). */
+function waitingRow(s: RelaySession, title: string, open: ContextOpen | null): ContextRow {
+  return row({
+    id: `waiting:${s.id}`,
+    icon: 'needs',
+    tone: 'warning',
+    title,
+    sub:
+      s.status === 'needs_permission'
+        ? `Approve ${s.detail ?? 'a tool call'}`
+        : (s.activity ?? 'Asked you something'),
+    time: s.activityAt === null ? null : { at: s.activityAt, style: 'elapsed' },
+    open,
   })
 }
 
@@ -184,7 +221,7 @@ function jobRow(j: JobSummary, now: number): ContextRow {
         : j.runState === 'ok'
           ? 'success'
           : 'default',
-    title: running ? j.name : `${j.name} ${j.runState === 'failed' ? 'failed' : 'ran'}`,
+    title: j.runState === 'failed' ? `${j.name} failed` : j.name,
     sub: j.runNote ?? j.description,
     time:
       j.lastRunAt === null
@@ -234,9 +271,10 @@ function section(
   rows: ContextRow[],
   meta: string | null,
   limit = SECTION_ROWS,
+  fold = false,
 ): ContextSection | null {
   if (rows.length === 0) return null
-  return { id, title, meta, rows: rows.slice(0, limit) }
+  return { id, title, meta, fold, rows: rows.slice(0, limit) }
 }
 
 /** A count for a section header: `3`, or `5 of 23` when the section shows only the first rows. */
@@ -245,6 +283,48 @@ function countOf(rows: readonly ContextRow[]): string {
 }
 
 const nonNull = <T>(v: T | null): v is T => v !== null
+
+/**
+ * Everything delegated, by what it needs from Isaac (OpenDuet's Tasks): blocked on his answer,
+ * built and waiting for his look, still running, and finished (folded away).
+ */
+interface Tasks {
+  needs: ContextRow[]
+  review: ContextRow[]
+  working: ContextRow[]
+  resolved: ContextRow[]
+}
+
+/** The task groups, top to bottom; Resolved starts folded and only a failure keeps its color. */
+function taskSections(t: Tasks): ContextSection[] {
+  const resolved = t.resolved.map((r) =>
+    r.tone === 'danger' ? r : { ...r, tone: 'default' as const },
+  )
+  return [
+    section('needs', 'Needs input', t.needs, countOf(t.needs)),
+    section('review', 'Ready for review', t.review, countOf(t.review)),
+    section('working', 'Working', t.working, countOf(t.working)),
+    section('resolved', 'Resolved', resolved, countOf(resolved), SECTION_ROWS, true),
+  ].filter(nonNull)
+}
+
+/** `2 working, 1 needs input, 3 ready for review`, without the empty groups. */
+function taskSummary(t: Tasks): string[] {
+  const n = t.needs.length
+  return [
+    t.working.length > 0 ? `${t.working.length} working` : null,
+    n > 0 ? `${n} ${n === 1 ? 'needs' : 'need'} input` : null,
+    t.review.length > 0 ? `${t.review.length} ready for review` : null,
+  ].filter(nonNull)
+}
+
+/** Isaac's open asks split by what he owes: a look at built work, or an answer. */
+function askGroups(open: readonly Item[]): { review: ContextRow[]; needs: ContextRow[] } {
+  return {
+    review: open.filter((i) => itemReady(i)).map((i) => itemRow(i)),
+    needs: open.filter((i) => !itemReady(i)).map((i) => itemRow(i)),
+  }
+}
 
 /** A pinned chat or subagent: running until its `.md` appears (subagents) or it goes quiet (chats). */
 function sessionRow(
@@ -317,7 +397,7 @@ function pinRow(c: Ctx, ref: PinRef): ContextRow {
           sub: 'Ledger not found',
           pin: ref,
         })
-      return { ...itemRow(item, `pin:item:${ref.key}`), meta: item.stage }
+      return { ...itemRow(item, `pin:item:${ref.key}`), meta: item.stage, time: null }
     }
     case 'experiment': {
       const e = c.experiments.find((x) => x.id === ref.id)
@@ -389,32 +469,33 @@ function chatHere(c: Ctx, file: string): Here {
       : null)
   const workers = subagentsOf(file, c.now, c.d.lines)
   const running = workers.filter((w) => w.running)
-  const done = workers.filter((w) => !w.running && c.now - w.at < DAY_MS)
   const relay = [...(c.d.relaySessions()?.values() ?? [])].find((s) => s.id === sessionId(file))
   const waiting = relay?.status === 'waiting' || relay?.status === 'needs_permission'
   const working = relay?.status === 'working'
-  const runningRows = running.map((w) => workerRow(w, null))
-  const liveSections = [
-    section('running', 'Running', runningRows, countOf(runningRows)),
-    section(
-      'done',
-      'Recently done',
-      done.map((w) => workerRow(w, null)),
-      null,
-    ),
-  ].filter(nonNull)
+  // A code chat's work item is already its stage row under This chat, so it is not a task too.
+  const plain = worktree === null && item === null
+  const tasks: Tasks = {
+    needs: relay && waiting ? [waitingRow(relay, sessionTitle(file) ?? 'This chat', null)] : [],
+    review: [],
+    working: running.map((w) => workerRow(w, null)),
+    resolved: workers
+      .filter((w) => !w.running && c.now - w.at < DAY_MS)
+      .map((w) => workerRow(w, null)),
+  }
 
-  if (worktree === null && item === null) {
+  if (plain) {
     const n = running.length
+    const parts = taskSummary(tasks)
     return {
       kind: 'chat',
       button: {
         icon: 'activity',
         label: n > 0 ? `${n} running` : null,
         dot: waiting ? 'needs' : n > 0 || working ? 'running' : null,
-        summary: n > 0 ? `${n} running in this chat` : 'Nothing running in this chat',
+        summary:
+          parts.length > 0 ? `This chat: ${parts.join(', ')}` : 'Nothing running in this chat',
       },
-      sections: liveSections,
+      sections: taskSections(tasks),
       actions: [],
     }
   }
@@ -547,7 +628,7 @@ function chatHere(c: Ctx, file: string): Here {
     },
     sections: [
       section('here', 'This chat', rows, item?.key ?? null, rows.length),
-      ...liveSections,
+      ...taskSections(tasks),
     ].filter(nonNull),
     actions,
   }
@@ -579,23 +660,57 @@ function asks(items: readonly Item[], now: number, maxAgeMs: number): Item[] {
     .sort((a, b) => b.updatedMs - a.updatedMs)
 }
 
+/** An assistant's own thread blocked on Isaac: Relay's word, else the registry's (Relay down). */
 function threadWaitingRow(
   a: Assistant,
-  relay: ReadonlyMap<string, RelaySession> | null,
+  blocked: ReadonlyMap<string, RelaySession>,
 ): ContextRow | null {
+  const open: ContextOpen | null = a.file ? { kind: 'chat', file: a.file } : null
+  const s = [...blocked.values()].find((x) => x.kind === 'assistant' && x.assistant === a.id)
+  if (s) return waitingRow(s, a.title, open)
   if (a.status !== 'needs-you') return null
-  const s = [...(relay?.values() ?? [])].find((x) => x.kind === 'assistant' && x.assistant === a.id)
   return row({
     id: `waiting:${a.id}`,
     icon: 'needs',
     tone: 'warning',
-    title:
-      s?.status === 'needs_permission'
-        ? `Approve ${s.detail ?? 'a tool call'}`
-        : `${a.title} asked you something`,
-    sub: s?.detail && s.status !== 'needs_permission' ? s.detail : a.title,
-    open: a.file ? { kind: 'chat', file: a.file } : null,
+    title: a.title,
+    sub: 'Asked you something',
+    open,
   })
+}
+
+/**
+ * Workers split by whether their own session is blocked on Isaac (Needs input) or still runs
+ * (Working). Subagents never ask Isaac; only a session of its own can block.
+ */
+function splitWorkers<T extends { w: Worker; owner: string | null }>(
+  running: readonly T[],
+  blocked: ReadonlyMap<string, RelaySession>,
+): { needs: ContextRow[]; working: ContextRow[] } {
+  const needs: ContextRow[] = []
+  const working: ContextRow[] = []
+  for (const { w, owner } of running) {
+    const s = w.session === w.file ? blocked.get(sessionId(w.file)) : undefined
+    if (s) needs.push(waitingRow(s, w.name, { kind: 'chat', file: w.file }))
+    else working.push(workerRow(w, owner))
+  }
+  return { needs, working }
+}
+
+/** The button: what runs, else what blocks, else what waits for a look; the dot only for blocked or running. */
+function tasksButton(t: Tasks): Pick<ContextSnapshot['button'], 'label' | 'dot'> {
+  const n = t.needs.length
+  return {
+    label:
+      t.working.length > 0
+        ? `${t.working.length} running`
+        : n > 0
+          ? `${n} ${n === 1 ? 'needs' : 'need'} you`
+          : t.review.length > 0
+            ? `${t.review.length} to review`
+            : null,
+    dot: n > 0 ? 'needs' : t.working.length > 0 ? 'running' : null,
+  }
 }
 
 function assistantWorkers(c: Ctx, a: Assistant): Worker[] {
@@ -621,10 +736,8 @@ function assistantHere(c: Ctx, agentId: string): Here {
     }
   }
   const workers = assistantWorkers(c, a)
+  const blocked = blockedSessions(c.d.relaySessions())
   const running = workers.filter((w) => w.running).sort((x, y) => y.at - x.at)
-  const done = workers
-    .filter((w) => !w.running && c.now - w.at < DAY_MS)
-    .sort((x, y) => y.at - x.at)
   const notesOf = new Map(agents.map((x) => [x.id, assistantNotes(c.d.evaRoot, x.id)]))
   const owners = itemOwners(
     c.items,
@@ -637,54 +750,53 @@ function assistantHere(c: Ctx, agentId: string): Here {
       e.status === 'running' &&
       (notes.includes(e.id) || notes.includes(e.id.replace(/^\d{4}-\d{2}-\d{2}-/, ''))),
   )
-  const waiting = threadWaitingRow(a, c.d.relaySessions())
-  const mine = asks(c.items, c.now, 7 * DAY_MS).filter((i) => owners.get(i.key) === a.id)
-  const runningRows = [...running.map((w) => workerRow(w, null)), ...experiments.map(experimentRow)]
-  const needRows = [...(waiting ? [waiting] : []), ...mine.map((i) => itemRow(i))]
-  const parts = [
-    runningRows.length > 0 ? `${runningRows.length} running` : null,
-    needRows.length > 0
-      ? `${needRows.length} ${needRows.length === 1 ? 'needs' : 'need'} you`
-      : null,
-  ].filter(nonNull)
+  const thread = threadWaitingRow(a, blocked)
+  const live = splitWorkers(
+    running.map((w) => ({ w, owner: null })),
+    blocked,
+  )
+  const mine = askGroups(asks(c.items, c.now, 7 * DAY_MS).filter((i) => owners.get(i.key) === a.id))
+  const tasks: Tasks = {
+    needs: [...(thread ? [thread] : []), ...live.needs, ...mine.needs],
+    review: mine.review,
+    working: [...live.working, ...experiments.map(experimentRow)],
+    resolved: workers
+      .filter((w) => !w.running && c.now - w.at < DAY_MS)
+      .sort((x, y) => y.at - x.at)
+      .map((w) => workerRow(w, null)),
+  }
+  const parts = taskSummary(tasks)
   return {
     kind: 'assistant',
     button: {
       icon: 'activity',
-      label: parts[0] ?? null,
-      dot: needRows.length > 0 ? 'needs' : runningRows.length > 0 ? 'running' : null,
+      ...tasksButton(tasks),
       summary: `${title}: ${parts.join(', ') || 'nothing running'}`,
     },
-    sections: [
-      section('running', 'Running', runningRows, countOf(runningRows)),
-      section('needs', 'Needs you', needRows, countOf(needRows)),
-      section(
-        'done',
-        'Recently done',
-        done.map((w) => workerRow(w, null)),
-        null,
-      ),
-    ].filter(nonNull),
+    sections: taskSections(tasks),
     actions: [],
   }
 }
 
 function everywhere(c: Ctx): Here {
   const agents = c.d.assistants()
-  const relay = c.d.relaySessions()
-  const workers = agents.flatMap((a) => assistantWorkers(c, a).map((w) => ({ w, owner: a.title })))
-  const runningRows = [
-    ...c.jobs.filter((j) => j.runState === 'running').map((j) => jobRow(j, c.now)),
-    ...c.experiments.filter((e) => e.status === 'running').map(experimentRow),
-    ...workers
-      .filter((x) => x.w.running)
-      .sort((a, b) => b.w.at - a.w.at)
-      .map((x) => workerRow(x.w, x.owner)),
-  ]
-  const needRows = [
-    ...agents.map((a) => threadWaitingRow(a, relay)).filter(nonNull),
-    ...asks(c.items, c.now, 7 * DAY_MS).map((i) => itemRow(i)),
-  ]
+  const blocked = blockedSessions(c.d.relaySessions())
+  const workers = agents.flatMap((a) =>
+    assistantWorkers(c, a).map((w) => ({ w, owner: a.title as string | null })),
+  )
+  const live = splitWorkers(
+    workers.filter((x) => x.w.running).sort((a, b) => b.w.at - a.w.at),
+    blocked,
+  )
+  // Blocked chats and job runs no assistant started; an assistant's own are listed above.
+  const listed = new Set(workers.map((x) => sessionId(x.w.file)))
+  const loose = [...blocked.values()]
+    .filter((s) => s.kind !== 'assistant' && !listed.has(s.id))
+    .map((s) => {
+      const file = c.d.sessionFile(s.id)
+      return waitingRow(s, s.title || 'Untitled chat', file ? { kind: 'chat', file } : null)
+    })
+  const open = askGroups(asks(c.items, c.now, 7 * DAY_MS))
   const recent: Array<{ at: number; row: ContextRow }> = [
     ...c.jobs
       .filter(
@@ -705,30 +817,30 @@ function everywhere(c: Ctx): Here {
       .map((x) => ({ at: x.w.at, row: workerRow(x.w, x.owner) })),
   ]
   recent.sort((a, b) => b.at - a.at)
-  const parts = [
-    runningRows.length > 0 ? `${runningRows.length} running` : null,
-    needRows.length > 0
-      ? `${needRows.length} ${needRows.length === 1 ? 'needs' : 'need'} you`
-      : null,
-  ].filter(nonNull)
+  const tasks: Tasks = {
+    needs: [
+      ...agents.map((a) => threadWaitingRow(a, blocked)).filter(nonNull),
+      ...live.needs,
+      ...loose,
+      ...open.needs,
+    ],
+    review: open.review,
+    working: [
+      ...c.jobs.filter((j) => j.runState === 'running').map((j) => jobRow(j, c.now)),
+      ...c.experiments.filter((e) => e.status === 'running').map(experimentRow),
+      ...live.working,
+    ],
+    resolved: recent.map((r) => r.row),
+  }
+  const parts = taskSummary(tasks)
   return {
     kind: 'none',
     button: {
       icon: 'activity',
-      label: parts[0] ?? null,
-      dot: needRows.length > 0 ? 'needs' : runningRows.length > 0 ? 'running' : null,
+      ...tasksButton(tasks),
       summary: parts.length > 0 ? `Everywhere: ${parts.join(', ')}` : 'Nothing running',
     },
-    sections: [
-      section('running', 'Running', runningRows, countOf(runningRows)),
-      section('needs', 'Needs you', needRows, countOf(needRows)),
-      section(
-        'done',
-        'Recently done',
-        recent.map((r) => r.row),
-        null,
-      ),
-    ].filter(nonNull),
+    sections: taskSections(tasks),
     actions: [],
   }
 }

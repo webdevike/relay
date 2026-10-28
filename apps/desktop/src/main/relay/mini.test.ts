@@ -36,6 +36,8 @@ const live = new Map<string, RelaySession>([
       kind: 'manual',
       title: '',
       assistant: null,
+      activity: null,
+      activityAt: null,
     },
   ],
 ])
@@ -47,7 +49,11 @@ describe('createMini', () => {
       { t: 'agent.started', id: 'other', sessionId: 'wrong' },
       { t: 'agent.started', id: f.id, sessionId: 'abc' },
     ])
-    const mini = createMini(h, () => live, () => 7)
+    const mini = createMini(
+      h,
+      () => live,
+      () => 7,
+    )
     await expect(mini.start({ resume: 'abc', profile: 'work', thinking: 'high' })).resolves.toBe(
       'abc',
     )
@@ -77,7 +83,13 @@ describe('createMini', () => {
               t: 'agent.options',
               sessionId: 'out',
               models: [
-                { provider: 'anthropic', id: 'fable', name: 'Fable', vendor: 'anthropic', thinkingLevels: ['high'] },
+                {
+                  provider: 'anthropic',
+                  id: 'fable',
+                  name: 'Fable',
+                  vendor: 'anthropic',
+                  thinkingLevels: ['high'],
+                },
               ],
               skills: [
                 { name: 'Goal', description: '', command: '/goal', takesText: true },
@@ -87,7 +99,14 @@ describe('createMini', () => {
                   command: '/security',
                   takesText: true,
                   hint: '[path]',
-                  choices: [{ name: 'Scan', description: 'Run', command: '/security scan', takesText: false }],
+                  choices: [
+                    {
+                      name: 'Scan',
+                      description: 'Run',
+                      command: '/security scan',
+                      takesText: false,
+                    },
+                  ],
                 },
               ],
             },
@@ -98,7 +117,14 @@ describe('createMini', () => {
     const options = await mini.options()
     expect(h.sent[0]).toEqual({ t: 'agent.options', sessionId: 'out' })
     expect(options.models).toEqual([
-      { provider: 'anthropic', id: 'fable', name: 'Fable', contextWindow: null, images: true, levels: ['high'] },
+      {
+        provider: 'anthropic',
+        id: 'fable',
+        name: 'Fable',
+        contextWindow: null,
+        images: true,
+        levels: ['high'],
+      },
     ])
     expect(options.commands).toEqual([
       {

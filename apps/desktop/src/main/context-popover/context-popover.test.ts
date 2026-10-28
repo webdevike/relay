@@ -7,9 +7,12 @@ import { createWriteQueue } from '../write-queue'
 import { BackgroundCache } from './bg-cache'
 import { parsePr } from './gh'
 import { canCommitPush, parseShortstat, parseStatus, type GitFacts } from './git'
-import { itemFinished, parseItem } from './items'
+import type { JobSummary } from '@evaos/eva-core/model/jobs-read'
+import type { RelaySession } from '../relay/feed'
+import { itemFinished, itemReady, parseItem } from './items'
 import { PinStore } from './pins'
-import { itemAt, itemOwners, prPill, shortLogin } from './snapshot'
+import { LineCache } from './sessions'
+import { buildSnapshot, itemAt, itemOwners, prPill, shortLogin } from './snapshot'
 
 const PR = JSON.stringify({
   number: 236,
@@ -136,6 +139,161 @@ describe('work items', () => {
     )
     expect(owners.get('ENG-1')).toBe('astra')
     expect(owners.get('relay-rooms')).toBe('polaris')
+  })
+})
+
+describe('tasks', () => {
+  const NOW = Date.parse('2026-10-28T17:00:00')
+  const item = (stem: string, fm: string) =>
+    parseItem(stem, `---\n${fm}\n---\n`, '/eva', NOW - 3_600_000)
+  const job = (name: string, runState: JobSummary['runState'], lastRunAt: number): JobSummary => ({
+    name,
+    description: `${name} job`,
+    every: null,
+    enabled: true,
+    scheduled: false,
+    maxRun: null,
+    keep: null,
+    lastRunAt,
+    runState,
+    runStateRaw: null,
+    runNote: null,
+    sessionFile: null,
+    nextDueAt: null,
+    hasScript: true,
+  })
+  const relay = (id: string, extra: Partial<RelaySession>): RelaySession => ({
+    id,
+    status: 'idle',
+    detail: null,
+    canRespond: true,
+    kind: 'manual',
+    title: '',
+    assistant: null,
+    activity: null,
+    activityAt: null,
+    ...extra,
+  })
+  const snapshot = (sessions: RelaySession[]) =>
+    buildSnapshot(
+      {
+        evaRoot: '/nonexistent-eva',
+        now: () => NOW,
+        items: () => [
+          item(
+            'ENG-1',
+            'title: Row borders\nstage: 9 PR (draft)\nmove: isaac\nnext: Review draft #12\npr: https://github.com/o/r/pull/12\nupdated: 2026-10-28',
+          ),
+          item(
+            'relay-rooms',
+            'title: Rooms\nstage: 3 Plan\nmove: Isaac\nnext: Say which gate stays\nupdated: 2026-10-27',
+          ),
+          item('ENG-2', 'title: Sort icon\nstage: 10 Review\nmove: noah\nupdated: 2026-10-28'),
+          item('ENG-3', 'title: Shipped\nstage: 11 After merge\nmove: isaac\nupdated: 2026-10-28'),
+        ],
+        lines: new LineCache(),
+        pins: () => [],
+        placeOf: () => null,
+        assistants: () => [],
+        relaySessions: () => new Map(sessions.map((s) => [s.id, s])),
+        sessionFile: (id) => `/s/2026-10-28T10-00-00-000Z_${id}.jsonl`,
+        pr: () => null,
+        git: () => null,
+        jobs: () => [
+          job('furry-drop', 'running', NOW - 120_000),
+          job('sweep', 'ok', NOW - 3_600_000),
+          job('backup', 'failed', NOW - 7_200_000),
+        ],
+        experiments: async () => [],
+      },
+      { file: null, agent: null, scope: 'everywhere', open: true },
+    )
+
+  it('tells a review stage from a question', () => {
+    expect(
+      ['9 PR (draft)', '7 Verify', 'verify', '10 Review'].map((stage) => itemReady({ stage })),
+    ).toEqual([true, true, true, true])
+    expect(['3 Plan', 'discover', null].map((stage) => itemReady({ stage }))).toEqual([
+      false,
+      false,
+      false,
+    ])
+  })
+
+  it('groups everything by what it needs from Isaac, Resolved folded', async () => {
+    const snap = await snapshot([
+      relay('q1', {
+        status: 'waiting',
+        title: 'Fix login',
+        activity: 'Ship it today?',
+        activityAt: NOW - 60_000,
+      }),
+      relay('p1', { status: 'needs_permission', kind: 'job', title: 'furry-drop', detail: 'bash' }),
+      relay('w1', { status: 'working', title: 'Busy chat' }),
+    ])
+    expect(snap.sections.map((s) => [s.id, s.title, s.fold])).toEqual([
+      ['needs', 'Needs input', false],
+      ['review', 'Ready for review', false],
+      ['working', 'Working', false],
+      ['resolved', 'Resolved', true],
+    ])
+    const [needs, review, working, resolved] = snap.sections
+    expect(needs!.rows.map((r) => [r.title, r.sub])).toEqual([
+      ['Fix login', 'Ship it today?'],
+      ['furry-drop', 'Approve bash'],
+      ['Rooms', 'Say which gate stays'],
+    ])
+    expect(needs!.rows[0]!.open).toEqual({
+      kind: 'chat',
+      file: '/s/2026-10-28T10-00-00-000Z_q1.jsonl',
+    })
+    expect(needs!.rows[0]!.time).toEqual({ at: NOW - 60_000, style: 'elapsed' })
+    // Built work opens its PR; someone else's move and finished stages are not Isaac's tasks.
+    expect(review!.rows.map((r) => [r.title, r.sub, r.icon, r.open])).toEqual([
+      [
+        'Row borders',
+        'ENG-1: Review draft #12',
+        'ready',
+        { kind: 'url', url: 'https://github.com/o/r/pull/12' },
+      ],
+    ])
+    expect(review!.rows[0]!.time?.style).toBe('day')
+    expect(working!.rows.map((r) => r.title)).toEqual(['furry-drop'])
+    // Finished work is quiet; only a failure keeps its color.
+    expect(resolved!.rows.map((r) => [r.title, r.tone])).toEqual([
+      ['sweep', 'default'],
+      ['backup failed', 'danger'],
+    ])
+    expect(snap.button).toMatchObject({
+      label: '1 running',
+      dot: 'needs',
+      summary: 'Everywhere: 1 working, 3 need input, 1 ready for review',
+    })
+  })
+
+  it('names what waits for a look on the button when nothing runs or blocks', async () => {
+    const snap = await buildSnapshot(
+      {
+        evaRoot: '/nonexistent-eva',
+        now: () => NOW,
+        items: () => [
+          item('ENG-1', 'title: Row borders\nstage: verify\nmove: isaac\nupdated: 2026-10-28'),
+        ],
+        lines: new LineCache(),
+        pins: () => [],
+        placeOf: () => null,
+        assistants: () => [],
+        relaySessions: () => null,
+        sessionFile: () => null,
+        pr: () => null,
+        git: () => null,
+        jobs: () => [],
+        experiments: async () => [],
+      },
+      { file: null, agent: null, scope: 'everywhere', open: false },
+    )
+    expect(snap.sections.map((s) => s.id)).toEqual(['review'])
+    expect(snap.button).toMatchObject({ label: '1 to review', dot: null })
   })
 })
 

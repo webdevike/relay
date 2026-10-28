@@ -85,6 +85,8 @@ export const CONTEXT_ICONS = [
   'job',
   'item',
   'chat',
+  /** Built work waiting for Isaac to look at it (Ready for review). */
+  'ready',
 ] as const
 export const ContextToneSchema = z.enum(['default', 'success', 'danger', 'warning', 'info'])
 export type ContextTone = z.infer<typeof ContextToneSchema>
@@ -101,8 +103,11 @@ export const ContextRowSchema = z.object({
   sub: z.string().nullable(),
   /** Right-hand text: "2 of 2 passed", "develop", "Day 5". */
   meta: z.string().nullable(),
-  /** Right-hand time: elapsed ("6m") while running, a clock time ("4:29 PM") when done. */
-  time: z.object({ at: z.number(), style: z.enum(['elapsed', 'clock']) }).nullable(),
+  /**
+   * Right-hand time: elapsed ("6m") while running or waiting, a clock time ("4:29 PM") when done,
+   * a day ("Today", "Oct 26") for a ledger's `updated:` date.
+   */
+  time: z.object({ at: z.number(), style: z.enum(['elapsed', 'clock', 'day']) }).nullable(),
   pill: z.object({ label: z.string(), tone: ContextToneSchema }).nullable(),
   diff: z
     .object({ add: z.number().int().nonnegative(), del: z.number().int().nonnegative() })
@@ -120,6 +125,8 @@ export const ContextSectionSchema = z.object({
   id: z.string(),
   title: z.string(),
   meta: z.string().nullable(),
+  /** Starts folded: only its heading shows, and pressing it shows the rows (Resolved). */
+  fold: z.boolean(),
   rows: z.array(ContextRowSchema),
 })
 export type ContextSection = z.infer<typeof ContextSectionSchema>

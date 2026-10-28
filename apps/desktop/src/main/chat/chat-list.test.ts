@@ -523,6 +523,8 @@ describe('ChatListService rows like native', () => {
       kind: 'manual',
       title: id,
       assistant: null,
+      activity: null,
+      activityAt: null,
       ...extra,
     })
     const connected = (...list: RelaySession[]) => new Map(list.map((x) => [x.id, x]))
