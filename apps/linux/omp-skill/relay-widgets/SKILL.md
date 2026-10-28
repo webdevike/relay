@@ -262,17 +262,18 @@ Where they render: Relay phone (TestFlight build 11+, both fences; JS updates ar
 
 ## Tap-to-answer replies: `[[replies: ...]]`
 
-When a message ends on a question Isaac can answer in a few words from a small set of clear answers (yes or no, which of the options just named, a time or day), add one last line:
+When a message ends on a question to Isaac that he can answer in a few words from a small set of clear answers (yes or no, which of the options just named, a time or day), add one last line:
 
 ```
 [[replies: Yes, push it | Not yet | Show me the diff]]
 ```
 
-- Two to four answers in his words, split on `|`, each at most 24 characters. Longer ones and repeats are dropped; fewer than two left shows nothing.
+- Two to four answers in his words, split on `|`, each at most 24 characters (about four words). Longer ones and repeats are dropped; fewer than two left shows nothing.
 - Relay shows them as tap-to-reply buttons under the newest bubble and sends the one he taps as his message. Nothing is sent without a tap.
-- Write each the way he would say it; on a yes to anything hard to undo, name the action ("Yes, deploy it", not "Yes"). Keep the question in words.
+- Write each the way he would say it; on a yes to anything hard to undo, name the action ("Yes, deploy it", not "Yes"); for a choice, the answer is the option itself ("Keep Workspace", not "Yes, keep it"). Offer only answers the message already gives. Keep the question in words.
 - It must be the very last line (a token in mid-text shows as text). After a `[[signin:<url>]]` token is fine.
-- Skip it for open questions (what should it say, what do you think, anything else?), when there is no question, and on voice-call turns.
+- Skip it for open questions (what should it say, what do you think, anything else, or something else?), when he would pick several things at once, when the question is for someone else (inside a draft or a quote), when there is no question, and on voice-call turns.
+- The same rule is in each assistant's prime (`~/Eva/.omp/assistant/agents/<id>/prime.md`); the eval behind its wording is `evals/reply-chips/`.
 - The Relay Host strips it for the phone (`AssistantMessage.replies`), pushes and calls; Relay desktop strips it in its chat renderer. Parser: `apps/linux/src/assistant/replies.ts`.
 
 ## Building a new widget (app side)
