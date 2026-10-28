@@ -51,8 +51,9 @@ import { notifyHaptic } from "@/lib/haptics";
 import { clipboardHasImage, readClipboardPhoto } from "@/lib/clipboard";
 import { PasteImageChip } from "@/ui/PasteImageChip";
 import { CallScreen } from "@/call/CallScreen";
-import { startCall } from "@/call/controller";
+import { startVoiceCall } from "@/call/live";
 import { useCallStore } from "@/state/call";
+import { useLiveCallStore } from "@/state/liveCall";
 import "@/dictation/session";
 import { choosePhoto, chooseLibraryPhotos, type Photo } from "@/lib/photo";
 import { ArtifactsButton } from "@/artifacts/ArtifactsButton";
@@ -113,6 +114,9 @@ function Thread({ agent }: { agent: string }) {
   const dictationFinal = useRef("");
   const [inputHeight, setInputHeight] = useState(40);
   const [failure, setFailure] = useState<string | null>(null);
+  // A legacy call that a live call's fallback (Action Button, Call) could not start.
+  const callFailure = useLiveCallStore((state) => (state.failure?.agent === agent ? state.failure.message : null));
+  const banner = failure ?? callFailure;
   // The last turn sent from here was refused or timed out: the portrait shows Error until the next one.
   const [turnFailed, setTurnFailed] = useState(false);
   const signals = useMotionSignals(agent, turnFailed);
@@ -424,7 +428,7 @@ function Thread({ agent }: { agent: string }) {
                 onPress={() => {
                   Keyboard.dismiss();
                   setFailure(null);
-                  startCall(agent).catch((error: unknown) => {
+                  startVoiceCall(agent).catch((error: unknown) => {
                     setFailure(error instanceof Error && error.message !== "" ? error.message : `Couldn't call ${title}.`);
                   });
                 }}
@@ -434,9 +438,9 @@ function Thread({ agent }: { agent: string }) {
         </View>
         {/* Pulled over the list by its own height, so the list runs under it. */}
         <View onLayout={onComposerLayout} style={[styles.composer, { marginTop: -composerHeight }]}>
-          {failure !== null && (
+          {banner !== null && (
             <View style={[styles.banner, { backgroundColor: bg }]}>
-              <Banner tone="danger" message={failure} />
+              <Banner tone="danger" message={banner} />
             </View>
           )}
           <View style={styles.pillRow}>

@@ -24,6 +24,7 @@ import { callIsLive, useCallStore } from "@/state/call";
 import { createCallFrameRouter } from "@/call/frames";
 import { callStats } from "@/call/stats";
 import { VoiceCall } from "../../modules/voice-call";
+import { configureLiveCall } from "@/call/liveConfig";
 import { setActions } from "@/state/actions";
 import { useSettingsStore } from "@/state/settings";
 import { createAgentFrameRouter } from "./agents";
@@ -267,6 +268,7 @@ async function applyEffects(effects: Effect[]): Promise<void> {
         if (saved !== undefined && mac !== undefined && mac !== null && (mac.name !== saved.name || (hostAuthority ?? "") !== saved.address)) {
           await persistHosts(upsertHost(hosts, { ...saved, name: mac.name, address: hostAuthority ?? "" }));
         }
+        if (effect.partial.status === "connected") syncLiveCallHosts();
         break;
       }
     }
@@ -286,6 +288,19 @@ async function persistHosts(next: PairedHosts): Promise<void> {
   hosts = next;
   publishHosts();
   await identity.savePairedHosts(next);
+  syncLiveCallHosts();
+}
+
+/** The live call engine keeps its own copy of the paired hosts, for calls started with no JS (the Action Button). */
+function syncLiveCallHosts(): void {
+  const connected = useConnectionStore.getState().status === "connected";
+  configureLiveCall({
+    authority: connected ? hostAuthority : null,
+    activeId: target,
+    hosts: hosts.hosts,
+    deviceId,
+    deviceName: useSettingsStore.getState().deviceName,
+  });
 }
 
 function publishHosts(): void {

@@ -9,6 +9,8 @@ import { usePushNotifications } from "@/notifications";
 import { useOtaUpdates } from "@/lib/otaUpdates";
 import { useSettingsStore } from "@/state/settings";
 import { useColors, useScheme } from "@/theme";
+import { followLiveCalls } from "@/call/live";
+import { LiveCallScreen } from "@/call/LiveCallScreen";
 
 export default function RootLayout() {
   useConnectionLifecycle();
@@ -20,6 +22,10 @@ export default function RootLayout() {
   useEffect(() => {
     Appearance.setColorScheme(appearance === "system" ? null : appearance);
   }, [appearance]);
+  // Live calls run natively (the Action Button starts them with no JS); follow them once mounted.
+  useEffect(() => {
+    followLiveCalls();
+  }, []);
   const colors = useColors();
   const scheme = useScheme();
   return (
@@ -53,6 +59,7 @@ export default function RootLayout() {
           />
         </Stack>
       </BottomSheetModalProvider>
+      <LiveCallScreen />
     </GestureHandlerRootView>
   );
 }

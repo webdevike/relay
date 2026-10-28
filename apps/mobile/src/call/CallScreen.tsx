@@ -8,7 +8,7 @@
  * stays to say why. Unmounted mid-call (its thread went away), it hangs up rather than leave the
  * microphone open with nothing on screen to stop it.
  */
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Modal, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
@@ -19,6 +19,7 @@ import { Button } from "@/ui/Button";
 import { IconButton } from "@/ui/IconButton";
 import { Text } from "@/ui/Text";
 import { mediaClock } from "@/lib/format";
+import { useSecondClock } from "@/lib/useSecondClock";
 import { spacing, useColors, useScheme } from "@/theme";
 import { useCallStore } from "@/state/call";
 import { useMotionSignals } from "@/state/motion";
@@ -116,21 +117,6 @@ export function CallScreen({ agent, title, portrait }: { agent: string; title: s
       </View>
     </Modal>
   );
-}
-
-/** `Date.now()`, refreshed every second while `running`. */
-function useSecondClock(running: boolean): number {
-  const [now, setNow] = useState(Date.now);
-  useEffect(() => {
-    if (!running) return;
-    const timer = setInterval(() => {
-      setNow(Date.now());
-    }, 1000);
-    return () => {
-      clearInterval(timer);
-    };
-  }, [running]);
-  return now;
 }
 
 const styles = StyleSheet.create({
