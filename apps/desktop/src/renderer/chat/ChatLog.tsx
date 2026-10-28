@@ -32,7 +32,7 @@ declare global {
 const onRender: ProfilerOnRenderCallback = (_id, _phase, actualDuration) => {
   window.__evaosChatProfile?.push(actualDuration)
 }
-type LogItem =
+export type LogItem =
   | { kind: 'message'; m: ChatMessage }
   | { kind: 'tools'; tools: ChatMessage[] }
   | { kind: 'typing'; who: string }
@@ -56,6 +56,18 @@ function logItems(list: ChatMessage[], fold: boolean): LogItem[] {
   return out
 }
 
+/**
+ * The row tap-to-answer replies may show under: the log's last row when it is a reply done
+ * streaming (no typing dots, tool call or prompt, sent or still unconfirmed, after it), while the
+ * chat is not `busy` with a turn. Null otherwise.
+ */
+export function liveRowId(items: LogItem[], busy: boolean): string | null {
+  if (busy) return null
+  const last = items.at(-1)
+  if (last?.kind !== 'message') return null
+  return last.m.role === 'assistant' && !last.m.streaming ? last.m.id : null
+}
+
 /** Frames a restore keeps putting the log back while the list measures its rows. */
 const RESTORE_FRAMES = 20
 
@@ -72,6 +84,7 @@ export function ChatLog({
   scrollFile = file,
   shown = true,
   typing = null,
+  busy = false,
 }: {
   paneId: string
   messages: ChatMessage[]
@@ -83,6 +96,8 @@ export function ChatLog({
   shown?: boolean
   /** An assistant thread's agent while it works: its three dots end the log until text streams. */
   typing?: string | null
+  /** The chat is in a turn: no tap-to-answer replies show. */
+  busy?: boolean
 }) {
   const showThinking = useSettings((s) => s.show_thinking)
   const showTools = useSettings((s) => s.show_tools)
@@ -101,6 +116,7 @@ export function ChatLog({
     if (typing !== null && !streaming) out.push({ kind: 'typing', who: typing })
     return out
   }, [all, showThinking, showTools, typing])
+  const liveId = liveRowId(items, busy)
   const ref = useRef<VListHandle>(null)
   const pin = useRef<PinState>({ pinned: true, newReply: false })
   const first = useRef(true)
@@ -174,6 +190,12 @@ export function ChatLog({
     else dispatch({ type: 'output' })
   }, [items])
 
+  // Replies appear under the last row once the turn is over (often after its last text): a pinned
+  // log keeps them in view.
+  useLayoutEffect(() => {
+    if (liveId !== null && pin.current.pinned) toEnd()
+  }, [liveId])
+
   return (
     <div className="eva-log" data-testid="chat-log" role="log" aria-live="off">
       <Profiler id="chat-log" onRender={onRender}>
@@ -199,7 +221,7 @@ export function ChatLog({
                 </div>
               </div>
             ) : (
-              <MessageRow key={item.m.id} m={item.m} />
+              <MessageRow key={item.m.id} m={item.m} live={item.m.id === liveId} />
             )
           }
         </VList>

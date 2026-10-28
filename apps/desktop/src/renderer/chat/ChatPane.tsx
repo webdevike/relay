@@ -232,6 +232,7 @@ export function ChatPane() {
               scrollFile={pane.file}
               shown={place.page === 'chat' || thread !== null}
               typing={typing}
+              busy={pane.running}
             />
           </ReactionScope.Provider>
         </WidgetActions.Provider>
