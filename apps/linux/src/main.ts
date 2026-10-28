@@ -13,6 +13,7 @@ import { Drop, sessionReactionThread } from "@relay/protocol";
 import { z } from "zod";
 import pkg from "../package.json";
 import { defaultSocketPath, OmpBridgeProvider } from "./agents/bridge";
+import { SessionFiles } from "./agents/session-files";
 import { type AssistantAgentConfig, loadRegistry, REGISTRY_FILE } from "./assistant/registry";
 import { AssistantService, AssistantThreads, type AssistantThreadsDeps } from "./assistant/service";
 import { spawnFill } from "./assistant/signin";
@@ -354,6 +355,7 @@ function serve(
       reactions,
       artifacts,
       canvas,
+      sessionFiles: new SessionFiles(),
       canvasPage: () => CANVAS_PAGE,
       pairing: new TerminalPairingUI(),
       log,

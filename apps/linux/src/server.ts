@@ -7,6 +7,7 @@ import { ESCALATOR_DEVICE_ID, encode, MAX_DROP_BYTES, VNC_PATH, WS_PATH, type Se
 import { basename } from "node:path";
 import type { Server, ServerWebSocket } from "bun";
 import { AgentsDeltaTracker } from "./agents/delta-tracker";
+import type { SessionFiles } from "./agents/session-files";
 import { handleAssistantSay } from "./assistant/http";
 import { handleCatchUpBounce } from "./catchup/http";
 import { handleBoardRequest, isLoopback } from "./boards/http";
@@ -84,6 +85,8 @@ export interface ServerDeps {
   readonly artifacts: ArtifactRelaying | null;
   /** Live canvas rooms; null disables `/canvas` and answers `canvas.*` empty. */
   readonly canvas: CanvasService | null;
+  /** omp transcripts and blobs for `sessions.list`/`session.read`/`blob.read`; null answers them empty. */
+  readonly sessionFiles: SessionFiles | null;
   /** The canvas web client's HTML, served at `/canvas/<slug>/`. */
   readonly canvasPage: () => string;
   readonly pairing: PairingUI;
@@ -519,6 +522,7 @@ export class RelayServer {
         reactions: this.deps.reactions,
         artifacts: this.deps.artifacts,
         canvas: this.deps.canvas,
+        sessionFiles: this.deps.sessionFiles,
       },
       (closed) => {
         const reason = closed.closeReason;

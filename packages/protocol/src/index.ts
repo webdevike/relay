@@ -1129,6 +1129,14 @@ export const ClientHello = z.object({
   platform: z.literal("ios"),
 });
 
+/** A top-level omp transcript on the host: `sessions/<dir>/<name>`, `mtime` in ms. */
+export const SessionFile = z.object({
+  dir: nonEmpty,
+  name: nonEmpty,
+  size: z.number().int().nonnegative(),
+  mtime: z.number(),
+});
+export type SessionFile = z.infer<typeof SessionFile>;
 export const ClientMessage = z.discriminatedUnion("t", [
   ClientHello,
   /** proof = hex(HMAC-SHA256(secret, nonce)) */
@@ -1145,6 +1153,18 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("agent.options"), sessionId: nonEmpty }),
   /** Fetch the bytes behind an `AgentImageRef`; answered by `agent.image`. */
   z.object({ t: z.literal("agent.image"), sessionId: nonEmpty, id: nonEmpty }),
+  /** List the host's omp transcripts, past and live; answered by `sessions.list`. */
+  z.object({ t: z.literal("sessions.list") }),
+  /** Raw transcript bytes from `offset` (capped per frame); answered by `session.chunk`. */
+  z.object({
+    t: z.literal("session.read"),
+    dir: nonEmpty,
+    name: nonEmpty,
+    offset: z.number().int().nonnegative(),
+    limit: z.number().int().positive().optional(),
+  }),
+  /** An omp image blob by sha256; answered by `blob.data`. */
+  z.object({ t: z.literal("blob.read"), hash: nonEmpty }),
   /**
    * Have the host push a notification to this device when a session starts waiting on the user.
    * `token` is an Expo push token; the host keeps it per paired device until `push.unregister`.
@@ -1304,6 +1324,19 @@ export const ServerMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("inbox.resolve"), ...InboxResolveFields }),
   /** `image` is null when the session no longer has that image. */
   z.object({ t: z.literal("agent.image"), sessionId: nonEmpty, id: nonEmpty, image: AgentImage.nullable() }),
+  /** Answer to `sessions.list`: top-level transcripts, newest first. */
+  z.object({ t: z.literal("sessions.list"), files: z.array(SessionFile) }),
+  /** `data` is base64 of the bytes at `offset`; null when the file is missing or not an allowed transcript. `size` is the whole file's. */
+  z.object({
+    t: z.literal("session.chunk"),
+    dir: nonEmpty,
+    name: nonEmpty,
+    offset: z.number().int().nonnegative(),
+    data: z.string().nullable(),
+    size: z.number().int().nonnegative(),
+  }),
+  /** `data` is base64; `mime` and `data` are null when there is no such blob. */
+  z.object({ t: z.literal("blob.data"), hash: nonEmpty, mime: z.string().nullable(), data: z.string().nullable() }),
   /** Full durable thread of assistant `agent`, sent on request and after each completed turn. */
   z.object({ t: z.literal("assistant.snapshot"), agent: AssistantAgentId, snapshot: AssistantSnapshot }),
   /** Answer to `assistant.agents`: the host's assistant threads in registry order (the first is the default). */

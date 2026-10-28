@@ -24,6 +24,7 @@ import {
   type Snapshot,
 } from "@relay/protocol";
 import type { AgentsDeltaTracker } from "./agents/delta-tracker";
+import type { SessionFiles } from "./agents/session-files";
 import type { BoardDelta, FileBoardStore } from "./boards/store";
 import { EMPTY_CATCHUP, type CatchUpDeck } from "./catchup/service";
 import type { ReactionRelaying } from "./reactions/service";
@@ -88,6 +89,8 @@ export interface SessionDeps {
   readonly artifacts: ArtifactRelaying | null;
   /** null when the host runs no live canvas; `canvas.get` then answers no rooms and `canvas.open` is unavailable. */
   readonly canvas: CanvasRelaying | null;
+  /** null when the host has no omp agent dir; `sessions.list` then answers empty and reads answer null. */
+  readonly sessionFiles: SessionFiles | null;
 }
 
 /** Clock and scheduling seams so tests drive time deterministically. */
@@ -477,6 +480,20 @@ export class ClientSession {
             if (!this.closed) this.sink.send({ t: "agent.image", sessionId, id, image: null });
           },
         );
+        break;
+      }
+      case "sessions.list":
+        this.sink.send({ t: "sessions.list", files: this.deps.sessionFiles?.list() ?? [] });
+        break;
+      case "session.read": {
+        const { dir, name, offset } = message;
+        const chunk = this.deps.sessionFiles?.read(dir, name, offset, message.limit) ?? null;
+        this.sink.send({ t: "session.chunk", dir, name, offset, data: chunk?.data ?? null, size: chunk?.size ?? 0 });
+        break;
+      }
+      case "blob.read": {
+        const blob = this.deps.sessionFiles?.blob(message.hash) ?? null;
+        this.sink.send({ t: "blob.data", hash: message.hash, mime: blob?.mime ?? null, data: blob?.data ?? null });
         break;
       }
       case "push.register":

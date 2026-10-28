@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { defaultTabs, type AgentApproval, type AgentAsk, type AgentAskAnswer, type AgentImage, type AgentMessage, type AgentOptions, type AgentSession, type ApprovalConfirmation, type AssistantAgent, type AssistantSnapshot, type ClientMessage, type GateStatus, type InboxItem, type InputEvent, type KeyName, type ServerMessage } from "@relay/protocol";
 import { AgentsDeltaTracker } from "../src/agents/delta-tracker";
+import type { SessionFiles } from "../src/agents/session-files";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -113,6 +114,7 @@ interface HarnessOptions {
   reactions?: ReactionRelaying;
   artifacts?: ArtifactRelaying;
   canvas?: CanvasRelaying;
+  sessionFiles?: SessionFiles;
 }
 
 function harness(options: HarnessOptions = {}): Harness {
@@ -163,6 +165,7 @@ function harness(options: HarnessOptions = {}): Harness {
     reactions: options.reactions ?? null,
     artifacts: options.artifacts ?? null,
     canvas: options.canvas ?? null,
+    sessionFiles: options.sessionFiles ?? null,
   };
   const sink = new RecordingSink();
   const clock = new FakeClock();
@@ -1289,5 +1292,34 @@ describe("live canvas frames", () => {
     expect(h.sink.last()).toEqual({ t: "canvas.rooms", rev: 0, rooms: [] });
     h.session.receive({ t: "canvas.open", slug: "x" });
     expect(h.sink.last()).toMatchObject({ t: "canvas.unavailable", slug: "x" });
+  });
+});
+
+describe("session files", () => {
+  const sessionFiles = {
+    list: () => [{ dir: "-Eva", name: "a_1.jsonl", size: 3, mtime: 5 }],
+    read: (dir: string, name: string, offset: number) => (dir === "-Eva" && name === "a_1.jsonl" ? { data: "YWI=", size: 3 + offset } : null),
+    blob: (hash: string) => (hash === "h" ? { mime: "image/png", data: "eA==" } : null),
+  } as unknown as SessionFiles;
+
+  it("answers list, read and blob requests for an authenticated device", () => {
+    const h = harness({ sessionFiles });
+    pair(h);
+    h.session.receive({ t: "sessions.list" });
+    expect(h.sink.last()).toEqual({ t: "sessions.list", files: [{ dir: "-Eva", name: "a_1.jsonl", size: 3, mtime: 5 }] });
+    h.session.receive({ t: "session.read", dir: "-Eva", name: "a_1.jsonl", offset: 1 });
+    expect(h.sink.last()).toEqual({ t: "session.chunk", dir: "-Eva", name: "a_1.jsonl", offset: 1, data: "YWI=", size: 4 });
+    h.session.receive({ t: "session.read", dir: "..", name: "x.jsonl", offset: 0 });
+    expect(h.sink.last()).toEqual({ t: "session.chunk", dir: "..", name: "x.jsonl", offset: 0, data: null, size: 0 });
+    h.session.receive({ t: "blob.read", hash: "h" });
+    expect(h.sink.last()).toEqual({ t: "blob.data", hash: "h", mime: "image/png", data: "eA==" });
+  });
+
+  it("refuses them before authentication", () => {
+    const h = harness({ sessionFiles });
+    h.session.receive({ t: "sessions.list" });
+    expect(h.sink.sent.some((m) => m.t === "sessions.list")).toBe(false);
+    expect(h.sink.last()).toMatchObject({ t: "error", code: "protocol" });
+    expect(h.sink.closed).toBe(true);
   });
 });
