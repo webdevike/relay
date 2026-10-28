@@ -23,7 +23,6 @@ import { LAUNCH_ECHO, subagentsOf, useAgentsStore } from "@/state/agents";
 import { useConnectionStore } from "@/state/connection";
 import { useSettingsStore } from "@/state/settings";
 import { draftKey, useThreadDraft } from "@/state/drafts";
-import { accountProfile, scopeOrder } from "@/lib/profile";
 import { requestAgentOptions, sendCommand, subscribeAgent, unsubscribeAgent } from "@/connection";
 import { DictationButton } from "@/dictation/DictationButton";
 import { ActionCarousel, type CarouselAction } from "@/agents/ActionCarousel";
@@ -33,7 +32,6 @@ import {
   resetDictationTarget,
   setDictationTarget,
   setLaunchListener,
-  setLaunchProfile,
   setLaunchThinkingLevel,
 } from "@/dictation/deliver";
 import { dictationActor } from "@/dictation/actor";
@@ -134,11 +132,8 @@ export interface AgentScreenProps {
 export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
   const colors = useColors();
   const router = useRouter();
-  const allOrder = useAgentsStore((state) => state.order);
+  const order = useAgentsStore((state) => state.order);
   const sessions = useAgentsStore((state) => state.sessions);
-  // The inbox shows the active account's sessions (and any without an account); see `lib/profile.ts`.
-  const profile = useSettingsStore((state) => state.ompProfile);
-  const order = useMemo(() => scopeOrder(allOrder, sessions, profile), [allOrder, sessions, profile]);
   const orderRef = useRef(order);
   orderRef.current = order;
   const conversations = useAgentsStore((state) => state.conversations);
@@ -150,11 +145,6 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
   useEffect(() => {
     if (linkedId !== undefined) setPickedId(linkedId);
   }, [linkedId]);
-  // A notification for the other account's session switches the app to that account, so it shows.
-  const linkedProfile = useAgentsStore((state) => (linkedId === undefined ? null : accountProfile(state.sessions[linkedId]?.account)));
-  useEffect(() => {
-    if (linkedProfile !== null) useSettingsStore.getState().set({ ompProfile: linkedProfile });
-  }, [linkedId, linkedProfile]);
   const selectedId = pinned
     ? pinnedId
     : pickedId !== null && order.includes(pickedId)
@@ -343,7 +333,6 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
     sendCommand({
       kind: "agent.start",
       ...(level.length > 0 ? { thinkingLevel: level } : {}),
-      profile: useSettingsStore.getState().ompProfile,
     }).catch((error: unknown) => {
       failLaunch(error instanceof Error ? error.message : "Couldn't start a session.");
     });
@@ -370,9 +359,6 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
   useEffect(() => {
     setLaunchThinkingLevel(defaultThinkingLevel);
   }, [defaultThinkingLevel]);
-  useEffect(() => {
-    setLaunchProfile(profile);
-  }, [profile]);
 
   const canRespond = session?.canRespond === true;
 

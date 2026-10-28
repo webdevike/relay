@@ -1,8 +1,7 @@
 /**
  * Home's apps: one entry per thing the phone can do with the host, each with its live fact, drawn
  * by the `apps` widget like iOS Settings rows. A red badge marks what needs the user (inbox
- * sessions waiting on them, a plan limit near, host input unavailable). The inbox count follows
- * Home's Work | Personal switch.
+ * sessions waiting on them, a plan limit near, host input unavailable).
  */
 import type { SFSymbol } from "expo-symbols";
 import type { Href } from "expo-router";
@@ -11,9 +10,7 @@ import { useBoardsStore } from "@/state/boards";
 import { useConnectionStore } from "@/state/connection";
 import { needsAttention, useAgentsStore } from "@/state/agents";
 import { assistantsCaption, useAssistantStore } from "@/state/assistant";
-import { useSettingsStore } from "@/state/settings";
 import { useUsageStore } from "@/state/usage";
-import { scopeOrder } from "@/lib/profile";
 import { countOf } from "@/lib/format";
 import { USAGE_WARN, usageHint, usagePeak } from "@/lib/usage";
 
@@ -45,9 +42,7 @@ export function useHomeApps(): HomeApp[] {
   const macName = useConnectionStore((state) => state.macName);
   const agentsAvailable = mac?.agentsAvailable === true;
   const sessions = useAgentsStore((state) => state.sessions);
-  const allOrder = useAgentsStore((state) => state.order);
-  const profile = useSettingsStore((state) => state.ompProfile);
-  const order = scopeOrder(allOrder, sessions, profile);
+  const order = useAgentsStore((state) => state.order);
   const needingCount = order.filter((id) => {
     const session = sessions[id];
     return session !== undefined && needsAttention(session);

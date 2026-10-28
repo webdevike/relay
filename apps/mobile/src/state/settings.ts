@@ -1,7 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { fileStorage } from "./storage";
-import { normalizeProfile, type OmpProfile } from "@/lib/profile";
 import { DEFAULT_WIDGETS, normalizeWidgets, withWidgetOnce, type HomeWidget } from "@/home/widgets/layout";
 
 export type PointerSpeed = "slow" | "normal" | "fast";
@@ -25,12 +24,10 @@ export interface SettingsState {
   recognizer: Recognizer;
   /** Thinking level new phone-started sessions open with; empty leaves omp's own default. */
   defaultThinkingLevel: string;
-  /** The omp account the app is scoped to (home's Work | Personal switch): it filters the inbox and is the account phone-started sessions run on. */
-  ompProfile: OmpProfile;
   appearance: AppearanceChoice;
   /** Playback speed for audio widgets; the last choice carries to the next clip. */
   audioRate: number;
-  /** Home's widgets in grid order, per device (not per profile). Empty when the user removed them all. */
+  /** Home's widgets in grid order, per device. Empty when the user removed them all. */
   homeWidgets: HomeWidget[];
   set: (partial: Partial<Omit<SettingsState, "set">>) => void;
 }
@@ -47,7 +44,6 @@ export const useSettingsStore = create<SettingsState>()(
       notificationsEnabled: false,
       recognizer: "voz",
       defaultThinkingLevel: "",
-      ompProfile: "work",
       appearance: "system",
       audioRate: 1,
       homeWidgets: DEFAULT_WIDGETS.map((w) => ({ ...w })),
@@ -58,21 +54,19 @@ export const useSettingsStore = create<SettingsState>()(
     {
       name: "relay-settings",
       storage: createJSONStorage(() => fileStorage),
-      // v1: `ompProfile` lost its "" (host's current account) choice; that and anything unknown is Work.
+      // v1: `ompProfile` lost its "" (host's current account) choice.
       // v2: Home widgets; a build without them gets the default layout.
       // v3: Home's app list became the `apps` widget; a layout saved before then gets it once.
       // v4: Catch Up; a layout saved before then gets a medium one on top, once.
-      version: 4,
+      // v5: Home's Work | Personal switch is gone; a saved `ompProfile` is dropped so nothing filters by it.
+      version: 5,
       migrate: (persisted, version) => {
-        const state = persisted as Partial<SettingsState>;
+        const state: Partial<SettingsState> & { ompProfile?: unknown } = { ...(persisted as Partial<SettingsState>) };
+        delete state.ompProfile;
         let widgets = normalizeWidgets(state.homeWidgets);
         if (version < 3) widgets = withWidgetOnce(widgets, "apps", "large", "end");
         if (version < 4) widgets = withWidgetOnce(widgets, "catchup", "medium", "start");
-        return {
-          ...state,
-          ompProfile: normalizeProfile(state.ompProfile),
-          homeWidgets: widgets,
-        };
+        return { ...state, homeWidgets: widgets };
       },
     },
   ),

@@ -63,7 +63,7 @@ export interface ProfileGroup {
   accounts: UsageAccount[];
 }
 
-/** Accounts grouped by profile (Work first, like the Home switch), accounts in snapshot order within each. */
+/** Accounts grouped by profile (Work first, then Personal, then any other), accounts in snapshot order within each. */
 export function groupByProfile(accounts: readonly UsageAccount[]): ProfileGroup[] {
   const groups: ProfileGroup[] = [];
   for (const account of accounts) {
@@ -92,6 +92,17 @@ export function usagePeak(snapshot: UsageSnapshot | null): UsagePeak | null {
     }
   }
   return peak;
+}
+
+/** Per provider, in first-seen order, the account whose most used window is fullest (the first on a tie). */
+export function busiestByProvider(accounts: readonly UsageAccount[]): UsageAccount[] {
+  const most = (account: UsageAccount): number => Math.max(-1, ...account.windows.map((w) => w.usedFraction));
+  const busiest = new Map<UsageProvider, UsageAccount>();
+  for (const account of accounts) {
+    const held = busiest.get(account.provider);
+    if (held === undefined || most(account) > most(held)) busiest.set(account.provider, account);
+  }
+  return [...busiest.values()];
 }
 
 /** Home's one-line fact: `Claude 78% of 7 days · Work`. */

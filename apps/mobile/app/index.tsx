@@ -2,9 +2,7 @@
  * Home: iPhone-style widgets (`home/widgets`: usage, assistants, inbox, boards, and apps, the iOS
  * Settings-style list of everything the phone can do with the host; long-press to resize, remove
  * or edit, drag in jiggle mode), in pages one screen tall that swipe sideways once they outgrow
- * it. While the host's habit gate is locked its card leads. The Work | Personal switch on top
- * scopes the app to one omp account (`lib/profile.ts`): the inbox counts here and the inbox itself
- * show that account's sessions, and new sessions run on it. In jiggle mode the header holds Add
+ * it. While the host's habit gate is locked its card leads. In jiggle mode the header holds Add
  * Widget and Done in place of the connection pill.
  */
 import { useState } from "react";
@@ -13,10 +11,6 @@ import { StyleSheet, View } from "react-native";
 import { Screen } from "@/ui/Screen";
 import { Pill } from "@/ui/Pill";
 import { Banner } from "@/ui/Banner";
-import { SegmentedTabs } from "@/ui/SegmentedTabs";
-import { useSettingsStore } from "@/state/settings";
-import { PROFILE_TABS } from "@/lib/profile";
-import { tapHaptic } from "@/lib/haptics";
 import { spacing } from "@/theme";
 import { useConnectionStore, type ConnectionStatus } from "@/state/connection";
 import { useGateStore } from "@/state/gate";
@@ -45,8 +39,6 @@ export default function Home() {
   const status = useConnectionStore((state) => state.status);
   const macName = useConnectionStore((state) => state.macName);
   const pairing = useConnectionStore((state) => state.pairing);
-  const profile = useSettingsStore((state) => state.ompProfile);
-  const setSettings = useSettingsStore((state) => state.set);
   const pill = pillFor[status];
   const gateLocked = useGateStore((state) => state.gate?.locked === true);
   // A held widget owns the finger; the page must not scroll under it.
@@ -63,18 +55,6 @@ export default function Home() {
         scrollEnabled={!holding}
         onBodyHeight={setBodyHeight}
       >
-        <View style={styles.profile}>
-          <SegmentedTabs
-            tabs={PROFILE_TABS}
-            value={profile}
-            size="large"
-            onChange={(next) => {
-              if (next === profile) return;
-              tapHaptic();
-              setSettings({ ompProfile: next });
-            }}
-          />
-        </View>
         {status === "offline" && (
           <View style={styles.banner}>
             <Banner tone="danger" message="Can't reach your host on this network." />
@@ -111,7 +91,6 @@ export default function Home() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  profile: { paddingHorizontal: spacing.xl, paddingBottom: spacing.lg },
   banner: { paddingBottom: spacing.lg },
   gate: { paddingHorizontal: spacing.xl, paddingBottom: spacing.lg },
 });

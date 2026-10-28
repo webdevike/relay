@@ -14,10 +14,6 @@ import { VendorLogo } from "@/agents/VendorLogo";
 import { Rings } from "@/usage/Rings";
 import { Screen } from "@/ui/Screen";
 import { Text } from "@/ui/Text";
-import { SegmentedTabs } from "@/ui/SegmentedTabs";
-import { PROFILE_TABS } from "@/lib/profile";
-import { tapHaptic } from "@/lib/haptics";
-import { useSettingsStore } from "@/state/settings";
 import { refreshUsage, requestUsage } from "@/connection";
 import { relativeTime } from "@/lib/format";
 import {
@@ -178,10 +174,6 @@ export default function Usage() {
 
   const refreshing = pulled || usage?.refreshing === true;
   const groups = usage === null ? [] : groupByProfile(usage.accounts);
-  // Opens on the account Home is scoped to; switching here only changes what this page shows.
-  const homeProfile = useSettingsStore((state) => state.ompProfile);
-  const [profile, setProfile] = useState(homeProfile);
-  const group = groups.find((g) => g.profile === profile);
 
   return (
     <Screen
@@ -213,28 +205,18 @@ export default function Usage() {
         />
       ) : (
         <View style={styles.page}>
-          <View style={styles.tabs}>
-            <SegmentedTabs
-              tabs={PROFILE_TABS}
-              value={profile}
-              size="large"
-              onChange={(next) => {
-                tapHaptic();
-                setProfile(next);
-              }}
-            />
-          </View>
-          {group === undefined ? (
-            <Text variant="caption" color="textMuted" style={styles.footer}>
-              No accounts in this profile
-            </Text>
-          ) : (
-            <View style={styles.cards}>
-              {group.accounts.map((account) => (
-                <AccountCard key={account.key} account={account} now={now} />
-              ))}
+          {groups.map((group) => (
+            <View key={group.profile} style={styles.section}>
+              <Text variant="label" color="textMuted" style={styles.sectionLabel}>
+                {group.label}
+              </Text>
+              <View style={styles.cards}>
+                {group.accounts.map((account) => (
+                  <AccountCard key={account.key} account={account} now={now} />
+                ))}
+              </View>
             </View>
-          )}
+          ))}
           {usage.updatedAt !== null && (
             <Text variant="caption" color="textFaint" style={styles.footer}>
               {usage.refreshing ? "Refreshing…" : `Updated ${ago(usage.updatedAt, now)}`}
@@ -248,7 +230,8 @@ export default function Usage() {
 
 const styles = StyleSheet.create({
   page: { paddingBottom: spacing.xxxl, gap: spacing.xl },
-  tabs: { paddingHorizontal: spacing.xl },
+  section: { gap: spacing.sm },
+  sectionLabel: { paddingHorizontal: spacing.xl },
   cards: { marginHorizontal: spacing.lg, gap: spacing.md },
   card: {
     borderRadius: 26,

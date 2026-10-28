@@ -15,7 +15,6 @@ import { browseHosts } from "@/connection";
 import { setNotificationsEnabled } from "@/notifications";
 import { warmVoz } from "@/dictation/actor";
 import { VozDictation } from "../modules/voz-dictation";
-import { PROFILE_TABS } from "@/lib/profile";
 import { applyLatestUpdate, runningUpdate } from "@/lib/otaUpdates";
 import { useTransientMessage } from "@/lib/useTransientMessage";
 import { openExternal } from "@/lib/links";
@@ -309,31 +308,6 @@ function AppearanceField() {
   );
 }
 
-function OmpProfileField() {
-  const profile = useSettingsStore((state) => state.ompProfile);
-  const set = useSettingsStore((state) => state.set);
-  return (
-    <View style={{ paddingHorizontal: spacing.xl, paddingVertical: spacing.md, gap: spacing.md }}>
-      <Text variant="title">omp account</Text>
-      <View style={{ flexDirection: "row", gap: spacing.sm }}>
-        {PROFILE_TABS.map((option) => (
-          <Button
-            key={option.key}
-            label={option.label}
-            variant={profile === option.key ? "primary" : "secondary"}
-            onPress={() => {
-              set({ ompProfile: option.key });
-            }}
-          />
-        ))}
-      </View>
-      <Text variant="caption" color="textMuted">
-        Same as the switch on Home: it scopes the inbox and is the account new sessions run on. Named profiles keep ChatGPT auth, sessions, settings and caches separate; log into each once on the host.
-      </Text>
-    </View>
-  );
-}
-
 /** omp's thinking selectors; a model that lacks one keeps its own default (the bridge validates). */
 const thinkingLevels = ["", "off", "low", "medium", "high", "xhigh"] as const;
 
@@ -457,7 +431,6 @@ export default function Settings() {
       <RecognizerField />
       <Separator />
       <ThinkingField />
-      <OmpProfileField />
       <Separator />
       <View style={{ paddingHorizontal: spacing.xl, paddingVertical: spacing.md, gap: spacing.md }}>
         <Text variant="title">Pointer speed</Text>

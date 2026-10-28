@@ -1,7 +1,7 @@
 /**
- * Inbox widget, scoped like Home's Work | Personal switch. Small: how many agent sessions there
- * are, with how many need the user under it (red when any do). Medium: that count beside the top three sessions in inbox
- * order (needing the user first, then most recent), each with its status; a row opens that session.
+ * Inbox widget. Small: how many agent sessions there are, with how many need the user under it
+ * (red when any do). Medium: that count beside the top three sessions in inbox order (needing the
+ * user first, then most recent), each with its status; a row opens that session.
  * Elsewhere a tap opens /agents.
  */
 import { StyleSheet, View } from "react-native";
@@ -9,10 +9,8 @@ import type { AgentSession } from "@relay/protocol";
 import { Text } from "@/ui/Text";
 import { StatusDot } from "@/ui/StatusDot";
 import { countOf } from "@/lib/format";
-import { scopeOrder } from "@/lib/profile";
 import { needsAttention, useAgentsStore } from "@/state/agents";
 import { useConnectionStore } from "@/state/connection";
-import { useSettingsStore } from "@/state/settings";
 import { spacing, useColors } from "@/theme";
 import { WidgetFigure, WidgetHeader, WidgetLink, WidgetNote, WidgetSpacer, WidgetSurface, type WidgetBodyProps } from "../WidgetParts";
 
@@ -47,10 +45,8 @@ function SessionRow({ session, open, first }: { session: AgentSession; open: Wid
 
 export function InboxWidget({ size, open, a11y }: WidgetBodyProps) {
   const sessions = useAgentsStore((state) => state.sessions);
-  const allOrder = useAgentsStore((state) => state.order);
-  const profile = useSettingsStore((state) => state.ompProfile);
+  const order = useAgentsStore((state) => state.order);
   const mac = useConnectionStore((state) => state.mac);
-  const order = scopeOrder(allOrder, sessions, profile);
   const listed = order.flatMap((id) => {
     const session = sessions[id];
     return session === undefined ? [] : [session];

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { UsageAccount, UsageSnapshot, UsageWindow } from "@relay/protocol";
-import { groupByProfile, resetCaption, usageHint, usagePeak, windowTone } from "./usage";
+import { busiestByProvider, groupByProfile, resetCaption, usageHint, usagePeak, windowTone } from "./usage";
 
 function window(id: string, usedFraction: number, status = "ok"): UsageWindow {
   return { id, label: id, usedFraction, resetsAt: null, status };
@@ -63,6 +63,18 @@ describe("groupByProfile", () => {
     const groups = groupByProfile(snapshot.accounts);
     expect(groups.map((g) => g.label)).toEqual(["Work", "Personal"]);
     expect(groups[0]?.accounts.map((a) => a.provider)).toEqual(["anthropic", "openai-codex"]);
+  });
+});
+
+describe("busiestByProvider", () => {
+  it("keeps one account per provider, the one with the fullest window, whatever its profile", () => {
+    expect(busiestByProvider(snapshot.accounts).map((a) => a.key)).toEqual(["work:anthropic", "work:openai-codex"]);
+    const personalBusier = [account("work", "anthropic", [window("5 hours", 0.2)]), account("personal", "anthropic", [window("5 hours", 0.9)])];
+    expect(busiestByProvider(personalBusier).map((a) => a.key)).toEqual(["personal:anthropic"]);
+  });
+
+  it("keeps an account without windows when it is the only one for its provider", () => {
+    expect(busiestByProvider([account("personal", "openai-codex", [])]).map((a) => a.key)).toEqual(["personal:openai-codex"]);
   });
 });
 

@@ -1,7 +1,7 @@
 /**
  * Usage widget. Small: the most used window across every account as one ring, its share and whose
- * it is. Medium: the Home profile's accounts (Claude, Codex) side by side, each with its windows as
- * concentric rings and a legend; every account when that profile has none. Opens /usage.
+ * it is. Medium: per provider (Claude, Codex) side by side, the account closest to its limits, its
+ * windows as concentric rings and a legend, labelled with its profile. Opens /usage.
  */
 import { StyleSheet, View } from "react-native";
 import type { UsageAccount, UsageSnapshot } from "@relay/protocol";
@@ -9,6 +9,7 @@ import { Rings } from "@/usage/Rings";
 import { VendorLogo } from "@/agents/VendorLogo";
 import { Text } from "@/ui/Text";
 import {
+  busiestByProvider,
   percent,
   PROVIDER_LABEL,
   PROVIDER_VENDOR,
@@ -20,7 +21,6 @@ import {
 } from "@/lib/usage";
 import { useUsageStore } from "@/state/usage";
 import { useConnectionStore } from "@/state/connection";
-import { useSettingsStore } from "@/state/settings";
 import { spacing, useColors } from "@/theme";
 import { WidgetFigure, WidgetHeader, WidgetNote, WidgetSpacer, WidgetSurface, type WidgetBodyProps } from "../WidgetParts";
 
@@ -65,7 +65,7 @@ function SmallUsage({ peak }: { peak: UsagePeak }) {
   );
 }
 
-function AccountColumn({ account, showProfile }: { account: UsageAccount; showProfile: boolean }) {
+function AccountColumn({ account }: { account: UsageAccount }) {
   const colors = useColors();
   const windows = account.windows.slice(0, RING_COLORS[account.provider].length);
   return (
@@ -73,8 +73,7 @@ function AccountColumn({ account, showProfile }: { account: UsageAccount; showPr
       <View style={styles.columnHead}>
         <VendorLogo vendor={PROVIDER_VENDOR[account.provider]} size={14} />
         <Text variant="caption" numberOfLines={1} style={[styles.columnTitle, { color: ringColor(account, 0) }]}>
-          {PROVIDER_LABEL[account.provider].toUpperCase()}
-          {showProfile ? ` · ${account.profileLabel.toUpperCase()}` : ""}
+          {PROVIDER_LABEL[account.provider].toUpperCase()} · {account.profileLabel.toUpperCase()}
         </Text>
       </View>
       {windows.length === 0 ? (
@@ -115,18 +114,15 @@ function AccountColumn({ account, showProfile }: { account: UsageAccount; showPr
 export function UsageWidget({ size, open, a11y }: WidgetBodyProps) {
   const usage = useUsageStore((state) => state.usage);
   const connected = useConnectionStore((state) => state.status === "connected");
-  const profile = useSettingsStore((state) => state.ompProfile);
   const peak = usagePeak(usage);
-  const all = usage?.accounts ?? [];
-  const mine = all.filter((account) => account.profile === profile);
-  const shown = (mine.length > 0 ? mine : all).slice(0, 2);
+  const shown = busiestByProvider(usage?.accounts ?? []).slice(0, 2);
   const label =
     peak === null
       ? `Usage. ${emptyNote(usage, connected)}`
       : size === "small"
         ? `Usage. ${PROVIDER_LABEL[peak.account.provider]} ${peak.account.profileLabel}, ${percent(peak.window.usedFraction)} of ${peak.window.label}`
         : `Usage. ${shown
-            .map((a) => `${PROVIDER_LABEL[a.provider]}: ${a.windows.map((w) => `${w.label} ${percent(w.usedFraction)}`).join(", ") || "no limits"}`)
+            .map((a) => `${PROVIDER_LABEL[a.provider]} ${a.profileLabel}: ${a.windows.map((w) => `${w.label} ${percent(w.usedFraction)}`).join(", ") || "no limits"}`)
             .join(". ")}`;
   return (
     <WidgetSurface label={label} href={HREF} open={open} a11y={a11y}>
@@ -141,7 +137,7 @@ export function UsageWidget({ size, open, a11y }: WidgetBodyProps) {
       ) : (
         <View style={styles.columns}>
           {shown.map((account) => (
-            <AccountColumn key={account.key} account={account} showProfile={mine.length === 0} />
+            <AccountColumn key={account.key} account={account} />
           ))}
         </View>
       )}

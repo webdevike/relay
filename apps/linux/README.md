@@ -117,9 +117,10 @@ its typed `/` menu: authored skills (`/skill:<name>`), prompt and extension comm
 built-in commands that take text (`/handoff`, `/rename`, ...); a built-in with subcommands offers the
 ones that take text (`/goal set`, `/compact <mode>`), each entry carrying the exact token to prefix
 and, for built-ins, omp's argument `hint` (`[focus instructions]`, `<objective>`). `agent.start`
-(the plus on the phone's scrubber) creates a Herdr workspace and starts omp there. It passes the
-phone's optional `personal` or `work` profile after Herdr's argument separator, so omp reads that
-profile's isolated authentication and state. `<dir>` is `serve --agent-home DIR` (default `$HOME`).
+(the plus on the phone's scrubber, Relay desktop's chats on a remote host) creates a Herdr workspace
+and starts omp there. The phone sends no profile, so omp runs on its default account; a client's
+optional `personal` or `work` profile (Relay desktop's) goes after Herdr's argument separator, so omp
+reads that profile's isolated authentication and state. `<dir>` is `serve --agent-home DIR` (default `$HOME`).
 `agent.end` (End session in the phone's session sheet) submits `/exit` in the TUI once the ack has
 gone out, so omp tears down exactly as it would from the keyboard and its terminal closes.
 
