@@ -27,8 +27,8 @@ import { Button } from "@/ui/Button";
 import { EmptyState } from "@/ui/EmptyState";
 import { IconButton } from "@/ui/IconButton";
 import { SwipeActionOverlay } from "@/ui/SwipeActionOverlay";
-import type { SwipeDirection } from "@/ui/SwipeCard";
-import { SwipeDeck, UNDER_DROP, type SwipeDeckHandle } from "@/ui/SwipeDeck";
+import { SwipeDeck, type SwipeDeckHandle } from "@/ui/SwipeDeck";
+import { STACK_DROP, type SwipeDirection } from "@/ui/swipeDeckModel";
 import { Text } from "@/ui/Text";
 import { Toast } from "@/ui/Toast";
 import { spacing, useColors } from "@/theme";
@@ -243,7 +243,7 @@ const styles = StyleSheet.create({
     flex: 1,
     marginHorizontal: spacing.lg,
     marginTop: spacing.sm,
-    marginBottom: UNDER_DROP + spacing.lg,
+    marginBottom: STACK_DROP + spacing.lg,
   },
   toast: { position: "absolute", left: 0, right: 0, bottom: spacing.xl },
   actions: {

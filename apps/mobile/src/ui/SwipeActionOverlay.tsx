@@ -8,7 +8,8 @@ import { Animated, StyleSheet, View } from "react-native";
 import { SymbolView, type SFSymbol } from "expo-symbols";
 import { Text } from "./Text";
 import { RadialProgress } from "./RadialProgress";
-import type { SwipeDirection, SwipeSignals } from "./SwipeCard";
+import type { SwipeSignals } from "./SwipeCard";
+import type { SwipeDirection } from "./swipeDeckModel";
 import { spacing, withAlpha } from "@/theme";
 
 export interface SwipeActionOverlayProps {

@@ -5,22 +5,29 @@
  * it rises without tilting, and a release past `UP_THRESHOLD_FRACTION` of the screen height, or a
  * fling, sends it off the top. Anything less springs back. Crossing a threshold ticks a haptic.
  * `swipe(direction)` (the deck's buttons) throws it the same way; `onSwiped` fires once it is off screen.
+ * A throw is a spring that starts at the release speed, tilting a little further and fading as it
+ * leaves, while the cards underneath each move up a level (bigger and higher). With Reduce Motion
+ * the stack sits flat and a throw fades the card where it is instead.
  *
  * Every moving frame runs on React Native's native Animated driver: the pans' translations feed
  * `Animated.event(..., { useNativeDriver: true })` and the throws and spring-backs are native
- * timings, so a frame only sets transforms and opacities on the cards' own views. Reanimated would
+ * animations, so a frame only sets transforms and opacities on the cards' own views. Reanimated would
  * commit each frame through the React shadow tree instead, and on iOS (Reanimated 4.1) that commit
  * re-rounds the whole tree's layout and makes every mounted ScrollView re-walk its subviews, so a
  * long markdown card made every frame of the drag slower.
  *
  * Only the top card moves, so a deck has one `DeckMotion` and every card is wired to it once,
- * weighted by its role (`CardRoles`, three 0/1 values): the top card follows the drag, the one
- * underneath grows as the drag grows, the rest wait. A throw changes those weights with `setValue`,
- * never the animated graph, so nothing is detached mid-flight and no view keeps a stale transform.
+ * weighted by its role (`CardRoles`: three 0/1 values and a presence): the top card follows the
+ * drag, the ones underneath move up as it goes, and the action overlay shows on whichever card is
+ * top natively. A throw changes those weights with `setValue`, never the animated graph, so nothing
+ * is detached mid-flight and no view keeps a stale transform. The thrown card's presence drops to 0
+ * on the native queue before the deck resets the motion for the next card, so whichever of that
+ * reset and the React commit that unmounts it iOS shows first, it never comes back on screen
+ * (`swipeDeckModel.ts` checks every frame of that hand-over).
  * The face is rasterized while it moves or waits underneath, so iOS composites one bitmap per card
  * instead of every text layer of a long body; it renders live only while it sits still on top.
  */
-import { createContext, useContext, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref, type RefObject } from "react";
+import { createContext, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref, type RefObject } from "react";
 import { Animated, Easing, StyleSheet, type StyleProp, type ViewStyle } from "react-native";
 import {
   LongPressGestureHandler,
@@ -33,8 +40,24 @@ import {
   type PanGestureHandlerStateChangeEvent,
 } from "react-native-gesture-handler";
 import { impactHaptic } from "@/lib/haptics";
-
-export type SwipeDirection = "left" | "right" | "up";
+import {
+  FLY_UP,
+  FLY_X,
+  THRESHOLD_FRACTION,
+  UP_THRESHOLD_FRACTION,
+  fadeUpRange,
+  fadeXRange,
+  growUpRange,
+  growXRange,
+  horizontalRange,
+  levelDropRange,
+  levelScaleRange,
+  tiltRange,
+  upRange,
+  type Range,
+  type SwipeCardRole,
+  type SwipeDirection,
+} from "./swipeDeckModel";
 
 /** A drag signal on the native driver: -1..1 sideways (left..right threshold), 0..1 up. */
 export type SwipeProgress = Animated.AnimatedInterpolation<number>;
@@ -63,39 +86,42 @@ export interface DeckMotion {
   x: Animated.AnimatedAddition<number>;
   y: Animated.AnimatedAddition<number>;
   signals: SwipeSignals;
-  /** How far the top card has gone toward leaving, either way, 0..1. */
-  magnitude: SwipeProgress;
+  /** How far the cards underneath have moved up a level as the top card goes, 0..1. */
+  grow: SwipeProgress;
+  /** How far the top card has faded on its way out, 0..1. */
+  fade: SwipeProgress;
   /** Where the offsets left the card: a JS copy of what the native driver shows, added to the next pan. */
   rest: { x: number; y: number; lift: number };
 }
 
-export type SwipeCardRole = "top" | "under" | "waiting";
+/** One card's role as native values (1 for its role, 0 otherwise), and its presence (0 hides it whole). */
+export interface CardRoles {
+  top: Animated.Value;
+  under: Animated.Value;
+  waiting: Animated.Value;
+  presence: Animated.Value;
+  /** Joined the deck below the top after it was first drawn: it fades in from presence 0. */
+  entering: boolean;
+}
 
-/** One card's role as native values (1 for its role, 0 otherwise). */
-export type CardRoles = Record<SwipeCardRole, Animated.Value>;
-
-/** Share of the screen width a sideways drag must pass for a release to count. */
-export const THRESHOLD_FRACTION = 0.35;
-/** Share of the screen height an upward drag must pass for a release to count. */
-export const UP_THRESHOLD_FRACTION = 0.14;
-/** The waiting card's scale; it shrinks toward its bottom edge. */
-const UNDER_SCALE = 0.94;
-/** How much of the waiting card peeks out below the top one; leave this much room under the deck. */
-export const UNDER_DROP = 12;
-const MAX_TILT_DEG = 12;
 /** A pan activates after this much travel; the card starts from there, so it never jumps. */
 const ACTIVE_OFFSET = 10;
 /** A release this fast (pt/s) toward a side throws the card even short of the threshold. */
 const FLING_VELOCITY = 900;
 const FLING_MIN_TRAVEL = 30;
-/** Floor speed (pt/s) for a throw, so a slow release still leaves briskly. */
+/** Floor speed (pt/s) a throw starts at, so a slow release still leaves briskly; a button throw starts at `BUTTON_FLY_SPEED`. */
 const MIN_FLY_SPEED = 1600;
-const MAX_FLY_MS = 320;
-const BUTTON_FLY_MS = 380;
+const BUTTON_FLY_SPEED = 600;
+/** Loose, so the throw keeps the release's momentum and gathers speed; clamped at the target, so it ends there (~0.2-0.27 s). */
+const FLY_SPRING = { stiffness: 70, damping: 8, mass: 1, overshootClamping: true } as const;
+/** Reduce Motion: a throw fades the card out where it is; a card joining the back fades in. */
+const FADE_MS = 220;
+const APPEAR_MS = 220;
 /** The card follows the finger's vertical travel at this share during a sideways drag. */
 const VERTICAL_FOLLOW = 0.35;
 const SPRING = { damping: 18, stiffness: 220, mass: 0.8 } as const;
 const LONG_PRESS_MS = 450;
+const UNIT: Range = { inputRange: [0, 1], outputRange: [0, 1], extrapolate: "clamp" };
 
 /** A pan translation with the activation slop taken off, so the card starts at 0. */
 function slopped(translation: number): number {
@@ -118,8 +144,6 @@ export function createDeckMotion(width: number, height: number): DeckMotion {
   const offsetY = new Animated.Value(0);
   const liftDrag = new Animated.Value(0);
   const liftOffset = new Animated.Value(0);
-  const threshold = width * THRESHOLD_FRACTION;
-  const upThreshold = height * UP_THRESHOLD_FRACTION;
   const x = Animated.add(sloppedNode(dragX), offsetX);
   // Upward only: a downward pull on the handle does not move the card.
   const lift = Animated.add(
@@ -127,15 +151,12 @@ export function createDeckMotion(width: number, height: number): DeckMotion {
     liftOffset,
   );
   const y = Animated.add(Animated.add(Animated.multiply(dragY, VERTICAL_FOLLOW), offsetY), lift);
-  const horizontal = x.interpolate({ inputRange: [-threshold, threshold], outputRange: [-1, 1], extrapolate: "clamp" });
-  const up = lift.interpolate({ inputRange: [-upThreshold, 0], outputRange: [1, 0], extrapolate: "clamp" });
-  // Only one of the two moves at a time, so their sum is how far the card has gone.
-  const magnitude = Animated.add(horizontal.interpolate({ inputRange: [-1, 0, 1], outputRange: [1, 0, 1] }), up).interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 1],
-    extrapolate: "clamp",
-  });
-  return { width, height, dragX, dragY, offsetX, offsetY, liftDrag, liftOffset, x, y, signals: { horizontal, up }, magnitude, rest: { x: 0, y: 0, lift: 0 } };
+  const horizontal = x.interpolate(horizontalRange(width));
+  const up = lift.interpolate(upRange(height));
+  // Only one of the two moves at a time, so each sum is how far the card has gone.
+  const grow = Animated.add(x.interpolate(growXRange(width)), lift.interpolate(growUpRange(height))).interpolate(UNIT);
+  const fade = Animated.add(x.interpolate(fadeXRange(width)), lift.interpolate(fadeUpRange(height))).interpolate(UNIT);
+  return { width, height, dragX, dragY, offsetX, offsetY, liftDrag, liftOffset, x, y, signals: { horizontal, up }, grow, fade, rest: { x: 0, y: 0, lift: 0 } };
 }
 
 /** Puts the deck's motion back at rest for the next top card. */
@@ -147,11 +168,13 @@ export function resetDeckMotion(motion: DeckMotion): void {
   motion.rest = { x: 0, y: 0, lift: 0 };
 }
 
-export function createCardRoles(role: SwipeCardRole): CardRoles {
+export function createCardRoles(role: SwipeCardRole, entering: boolean): CardRoles {
   return {
     top: new Animated.Value(role === "top" ? 1 : 0),
     under: new Animated.Value(role === "under" ? 1 : 0),
     waiting: new Animated.Value(role === "waiting" ? 1 : 0),
+    presence: new Animated.Value(entering ? 0 : 1),
+    entering,
   };
 }
 
@@ -224,10 +247,12 @@ export interface SwipeCardProps {
   onLongPress?: (() => void) | undefined;
   onSwiped: (direction: SwipeDirection) => void;
   overlay?: ((signals: SwipeSignals) => ReactNode) | undefined;
+  /** A flat stack, no tilt, and throws that fade in place. */
+  reduceMotion?: boolean | undefined;
   ref?: Ref<SwipeCardHandle> | undefined;
 }
 
-export function SwipeCard({ children, motion, roles, role, upEnabled = false, onLongPress, onSwiped, overlay, ref }: SwipeCardProps) {
+export function SwipeCard({ children, motion, roles, role, upEnabled = false, onLongPress, onSwiped, overlay, reduceMotion = false, ref }: SwipeCardProps) {
   const { width, height, dragX, dragY, offsetX, offsetY, liftDrag, liftOffset } = motion;
   const threshold = width * THRESHOLD_FRACTION;
   const upThreshold = height * UP_THRESHOLD_FRACTION;
@@ -247,50 +272,67 @@ export function SwipeCard({ children, motion, roles, role, upEnabled = false, on
     roles.waiting.setValue(role === "waiting" ? 1 : 0);
   }, [role, roles]);
 
-  // Built once per card: the drag weighted by "top", the growth by "under", the rest by "waiting".
+  // A card that joins below the top fades in where it sits.
+  useEffect(() => {
+    if (roles.entering) Animated.timing(roles.presence, { toValue: 1, duration: APPEAR_MS, easing: Easing.out(Easing.quad), useNativeDriver: true }).start();
+  }, [roles]);
+
+  // Built once per card: the drag, tilt and fade weighted by "top", the stack level by "under"
+  // (one level down) and "waiting" (two), each moving up a level as the top card goes.
   const animated = useMemo(() => {
     const ownX = Animated.multiply(motion.x, roles.top);
-    const depth = Animated.add(Animated.multiply(roles.under, Animated.subtract(1, motion.magnitude)), roles.waiting);
+    const level = Animated.add(
+      Animated.multiply(roles.under, Animated.subtract(1, motion.grow)),
+      Animated.multiply(roles.waiting, Animated.subtract(2, motion.grow)),
+    );
+    const tilt = tiltRange(motion.width, reduceMotion);
     return {
       place: {
-        transform: [
-          { translateY: depth.interpolate({ inputRange: [0, 1], outputRange: [0, UNDER_DROP] }) },
-          { scale: depth.interpolate({ inputRange: [0, 1], outputRange: [1, UNDER_SCALE] }) },
-        ],
+        opacity: Animated.multiply(roles.presence, Animated.subtract(1, Animated.multiply(roles.top, motion.fade))),
+        transform: [{ translateY: level.interpolate(levelDropRange(reduceMotion)) }, { scale: level.interpolate(levelScaleRange(reduceMotion)) }],
       },
       drag: {
         transform: [
           { translateX: ownX },
           { translateY: Animated.multiply(motion.y, roles.top) },
-          {
-            rotate: ownX.interpolate({
-              inputRange: [-motion.width / 2, 0, motion.width / 2],
-              outputRange: [`-${String(MAX_TILT_DEG)}deg`, "0deg", `${String(MAX_TILT_DEG)}deg`],
-              extrapolate: "clamp",
-            }),
-          },
+          { rotate: ownX.interpolate({ ...tilt, outputRange: tilt.outputRange.map((deg) => `${String(deg)}deg`) }) },
         ],
       },
+      // On every card that may become top, so the commit that promotes a card never has to draw it.
+      overlay: { opacity: roles.top },
     };
-  }, [motion, roles]);
+  }, [motion, roles, reduceMotion]);
 
-  const fly = (direction: SwipeDirection, duration: number, toY?: number): void => {
+  /** Throws the card off `direction` at `speed` (pt/s toward that side), drifting to `drift` (with its own speed) when given. */
+  const fly = (direction: SwipeDirection, speed: number, drift?: { to: number; velocity: number }): void => {
     leaving.current = true;
     setMoving(true);
-    const timings =
+    const done = ({ finished }: { finished: boolean }): void => {
+      if (!finished) return;
+      // Hidden on the native queue ahead of the deck's reset, so neither the reset nor the commit
+      // that unmounts it can draw it back where it started.
+      roles.presence.setValue(0);
+      onSwiped(direction);
+    };
+    if (reduceMotion) {
+      Animated.timing(roles.presence, { toValue: 0, duration: FADE_MS, easing: Easing.out(Easing.quad), useNativeDriver: true }).start(done);
+      return;
+    }
+    const sign = direction === "left" ? -1 : 1;
+    const start = Math.max(MIN_FLY_SPEED, speed) * sign;
+    const throwOut =
       direction === "up"
-        ? [Animated.timing(liftOffset, { toValue: -height * 1.3, duration, easing: Easing.out(Easing.quad), useNativeDriver: true })]
-        : [Animated.timing(offsetX, { toValue: (direction === "right" ? 1 : -1) * width * 1.4, duration, easing: Easing.out(Easing.quad), useNativeDriver: true })];
-    if (toY !== undefined) timings.push(Animated.timing(offsetY, { toValue: toY, duration, useNativeDriver: true }));
-    Animated.parallel(timings).start(({ finished }) => {
-      if (finished) onSwiped(direction);
-    });
+        ? Animated.spring(liftOffset, { toValue: -height * FLY_UP, velocity: -start, ...FLY_SPRING, useNativeDriver: true })
+        : Animated.spring(offsetX, { toValue: sign * width * FLY_X, velocity: start, ...FLY_SPRING, useNativeDriver: true });
+    // Only the throw decides when the card is gone; the drift settles on its own (the deck's reset stops it).
+    if (drift !== undefined) Animated.spring(offsetY, { toValue: drift.to, velocity: drift.velocity, ...SPRING, useNativeDriver: true }).start();
+    throwOut.start(done);
   };
 
   useImperativeHandle(ref, () => ({
     swipe: (direction) => {
       if (leaving.current || dragging.current || role !== "top" || (direction === "up" && !upEnabled)) return;
-      fly(direction, BUTTON_FLY_MS);
+      fly(direction, BUTTON_FLY_SPEED);
     },
   }));
 
@@ -362,11 +404,9 @@ export function SwipeCard({ children, motion, roles, role, upEnabled = false, on
     const flung =
       Math.abs(velocityX) >= FLING_VELOCITY && Math.sign(velocityX) === Math.sign(currentX) && Math.abs(currentX) >= FLING_MIN_TRAVEL;
     if (state === State.END && (Math.abs(currentX) >= threshold || flung)) {
-      // Carry the release speed into the throw so the card never slows on let-go.
-      const remaining = width * 1.4 - Math.abs(currentX);
-      const speed = Math.max(MIN_FLY_SPEED, Math.abs(velocityX));
-      const duration = Math.min(MAX_FLY_MS, (remaining / speed) * 1000 * 1.6);
-      fly(currentX > 0 ? "right" : "left", duration, currentY + velocityY * 0.05);
+      // The throw starts at the release speed toward that side, so the card never slows on let-go.
+      const side = currentX > 0 ? 1 : -1;
+      fly(side > 0 ? "right" : "left", velocityX * side, { to: currentY + velocityY * 0.05, velocity: velocityY * VERTICAL_FOLLOW });
       return;
     }
     settle({ x: velocityX, y: velocityY * VERTICAL_FOLLOW, lift: 0 });
@@ -394,9 +434,7 @@ export function SwipeCard({ children, motion, roles, role, upEnabled = false, on
       liftDrag.setValue(0);
       const flung = velocityY <= -FLING_VELOCITY && current <= -FLING_MIN_TRAVEL;
       if (state === State.END && (-current >= upThreshold || flung)) {
-        const remaining = height * 1.3 + current;
-        const duration = Math.min(MAX_FLY_MS, (remaining / Math.max(MIN_FLY_SPEED, -velocityY)) * 1000 * 1.6);
-        fly("up", duration);
+        fly("up", -velocityY);
         return;
       }
       settle({ x: 0, y: 0, lift: velocityY });
@@ -408,8 +446,8 @@ export function SwipeCard({ children, motion, roles, role, upEnabled = false, on
       pan,
       hold,
     };
-    // The handlers only read refs and the motion; they are rebuilt when the role or permission changes.
-  }, [role, upEnabled, motion, upThreshold, height]);
+    // The handlers only read refs and the motion; they are rebuilt when the role, permission or motion setting changes.
+  }, [role, upEnabled, motion, upThreshold, reduceMotion]);
 
   return (
     <Animated.View style={[StyleSheet.absoluteFill, layout.place, animated.place]} pointerEvents={role === "top" ? "auto" : "none"}>
@@ -442,7 +480,11 @@ export function SwipeCard({ children, motion, roles, role, upEnabled = false, on
               </Animated.View>
             </LongPressGestureHandler>
           </Animated.View>
-          {role === "top" && overlay?.(motion.signals)}
+          {role !== "waiting" && overlay !== undefined && (
+            <Animated.View style={[StyleSheet.absoluteFill, animated.overlay]} pointerEvents="none">
+              {overlay(motion.signals)}
+            </Animated.View>
+          )}
         </Animated.View>
       </PanGestureHandler>
     </Animated.View>
