@@ -29,7 +29,9 @@ import {
   registerWidgetSchemes,
 } from './chat/widget-protocols'
 import { registerUsageIpc } from './usage/usage-ipc'
-import { registerLinearIpc } from './linear/linear-ipc'
+import { linearReader, registerLinearIpc } from './linear/linear-ipc'
+import { createPrSource, toolRunner } from './context-popover/pr-source'
+import { startStatusReader } from './relay/artifacts-status'
 import { registerRoomsIpc } from './rooms/rooms-ipc'
 import { registerFilesIpc } from './files/files-ipc'
 import { registerAgentControl } from './agent-control'
@@ -149,14 +151,25 @@ function bootstrap(): void {
       registerEvaIpc(ctx)
       const chat = registerChat(ctx, queue)
       const experiments = registerExperimentsIpc(ctx)
-      registerContext(ctx, queue, chat, experiments)
+      const run = toolRunner(ctx)
+      // One gh PR cache for the context popover and the Artifacts status reader.
+      const prs = createPrSource(ctx, run)
+      const linear = linearReader(ctx.env.evaRoot)
+      registerContext(ctx, queue, chat, experiments, run, prs)
+      const stopStatuses = startStatusReader({
+        relay: chat.artifacts,
+        pr: (repo, number) => prs.get(repo, number, false),
+        onPrChange: (cb) => prs.onChange(cb),
+        linear: prs.allowed ? linear : null,
+      })
+      ctx.onBeforeQuit(async () => stopStatuses())
       registerWidgetMedia(ctx)
       registerWidgetFrames()
       const evaWatch = startEvaWatch(ctx)
       ctx.onBeforeQuit(() => evaWatch.close())
       registerCanvasIpc(ctx)
       registerUsageIpc(ctx)
-      registerLinearIpc(ctx)
+      registerLinearIpc(ctx, linear)
       registerRoomsIpc(ctx)
       registerFilesIpc(ctx, chat)
       registerBrowser(ctx)
@@ -164,7 +177,7 @@ function bootstrap(): void {
         chatWorking: () => chat.anyWorking(),
         restart: restartForUpdate,
       })
-      registerAgentControl(ctx, update)
+      registerAgentControl(ctx, update, chat.artifacts)
       installTestHooks(ctx)
     } catch (e) {
       // A half-started app (no window, no IPC) is worse than a clear failure.

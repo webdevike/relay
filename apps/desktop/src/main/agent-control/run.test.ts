@@ -103,6 +103,11 @@ describe('runAgentRequest', () => {
     expect(d.run).toHaveBeenLastCalledWith('testbench.open', expect.anything(), {
       experiment: 'e1',
     })
+    // Artifacts actions act on the caller's own thread.
+    await runAgentRequest('artifacts.list', { params: {}, scope: 'agent:nova' }, d)
+    expect(d.run).toHaveBeenLastCalledWith('artifacts.list', expect.anything(), {
+      scope: 'agent:nova',
+    })
   })
 })
 

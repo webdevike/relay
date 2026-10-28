@@ -28,6 +28,7 @@ import {
   toggleSidebar,
   togglePanel,
 } from './layout-store'
+import type { PanelTool } from './layout-store'
 import { openPlace, setNavigator } from '../navigation/navigate'
 import { placeOf } from '@evaos/shell-core'
 
@@ -182,7 +183,7 @@ describe('loadLayout', () => {
     expect(show).not.toHaveBeenCalled()
   })
 
-  const loaded = (panelChoices: Record<string, boolean>, panelTool: 'browser' | 'files') =>
+  const loaded = (panelChoices: Record<string, boolean>, panelTool: PanelTool) =>
     invoke.mockImplementation((ch: string) =>
       Promise.resolve(
         ch === 'layout.load'
@@ -396,6 +397,19 @@ describe('panel view', () => {
     expect(g().panelView).toEqual({ kind: 'files' })
     enterPanelScope('chat:/s/b')
     expect(g().panelView).toEqual({ kind: 'files' })
+    panelTabCreated()
+    expect(g().panelView).toEqual({ kind: 'browser' })
+  })
+
+  it('the artifacts tool settles back from a subagent view and follows scope changes', () => {
+    enterPanelScope('chat:/s/a')
+    showPanelTool('artifacts')
+    expect(g()).toMatchObject({ panelOpen: true, panelView: { kind: 'artifacts' } })
+    openSubagentPanel(view)
+    settlePanelView()
+    expect(g().panelView).toEqual({ kind: 'artifacts' })
+    enterPanelScope('chat:/s/b')
+    expect(g().panelView).toEqual({ kind: 'artifacts' })
     panelTabCreated()
     expect(g().panelView).toEqual({ kind: 'browser' })
   })

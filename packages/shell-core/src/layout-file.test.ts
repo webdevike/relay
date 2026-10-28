@@ -40,6 +40,7 @@ describe('readLayoutText', () => {
     expect(r.panelChoices).toEqual({ a: true, c: false })
     expect(r.panelTool).toBe('files')
     expect(readLayoutText('{"panel_choices":[true],"panel_tool":"terminal"}')).toEqual(defaults)
+    expect(readLayoutText('{"panel_tool":"artifacts"}').panelTool).toBe('artifacts')
   })
   it('keeps the most recent 200 stored choices', () => {
     const r = readLayoutText(JSON.stringify({ panel_choices: scopes(205) }))

@@ -5,13 +5,14 @@ import {
   agentActions,
   agentCatalog,
   isAgentActionId,
+  type AgentActionSpec,
 } from './agent'
 import { EVENT_CHANNELS, INVOKE_CHANNELS } from './index'
 
 describe('agent action registry', () => {
-  it('names every action <area>.<verb> with a title, description and side', () => {
+  it('names every action <area>[.<part>].<verb> with a title, description and side', () => {
     for (const id of AGENT_ACTION_IDS) {
-      expect(id).toMatch(/^[a-z]+\.[a-zA-Z]+$/)
+      expect(id).toMatch(/^[a-z]+(?:\.[a-z]+)?\.[a-zA-Z]+$/)
       const a = agentActions[id]
       expect(a.title.length).toBeGreaterThan(0)
       expect(a.description.length).toBeGreaterThan(0)
@@ -95,5 +96,45 @@ describe('agent action registry', () => {
     )
     expect(INVOKE_CHANNELS).toEqual(expect.arrayContaining(['agent.reply', 'agent.confirm.reply']))
     expect(EVENT_CHANNELS).toEqual(expect.arrayContaining(['agent.run', 'agent.confirm']))
+  })
+})
+
+describe('artifacts actions', () => {
+  it('take the caller scope, run in main, and check their params', () => {
+    const ids = AGENT_ACTION_IDS.filter((id) => id.startsWith('artifacts.'))
+    expect(ids).toEqual([
+      'artifacts.list',
+      'artifacts.add',
+      'artifacts.pin',
+      'artifacts.unpin',
+      'artifacts.tab.add',
+      'artifacts.tab.update',
+      'artifacts.tab.remove',
+    ])
+    for (const id of ids) {
+      const spec: AgentActionSpec = agentActions[id]
+      expect(spec.side).toBe('main')
+      expect(spec.scoped).toBe(true)
+      expect(spec.description).not.toMatch(/\u2014/)
+    }
+    expect(agentActions['artifacts.tab.add'].description).toMatch(/default tabs first/)
+    const add = agentActions['artifacts.tab.add'].params
+    expect(
+      add.safeParse({
+        title: 'Open PRs',
+        icon: 'git-pull-request',
+        rule: { kind: ['gh-pr'], state: ['open'] },
+      }).success,
+    ).toBe(true)
+    expect(add.safeParse({ title: 'x', rule: { kind: ['nope'] } }).success).toBe(false)
+    expect(
+      agentActions['artifacts.pin'].params.safeParse({ id: 'linear:ENG-1', scope: 'agent:astra' })
+        .success,
+    ).toBe(true)
+    expect(
+      agentActions['artifacts.tab.update'].params.safeParse({ id: 'open-prs', hidden: true })
+        .success,
+    ).toBe(false)
+    expect(agentActions['panel.show'].params.safeParse({ tool: 'artifacts' }).success).toBe(true)
   })
 })

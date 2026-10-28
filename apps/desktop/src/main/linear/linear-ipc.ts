@@ -64,13 +64,16 @@ async function fetchIssue(key: string, token: string): Promise<LinearIssue | nul
   return body.data?.issue ? toIssue(body.data.issue) : null
 }
 
-/** The chat list's ticket badge card: one issue by key, fetched on hover and cached briefly. */
-export function registerLinearIpc(ctx: MainContext): void {
+/** One issue by key, cached briefly; throws `no-linear-key` without an API key. */
+export type LinearRead = (key: string) => Promise<LinearIssue | null>
+
+/** Reads issues for the ticket badge card and the Artifacts status reader, through one cache. */
+export function linearReader(evaRoot: string): LinearRead {
   const cache = new Map<string, { at: number; issue: Promise<LinearIssue | null> }>()
-  handle(ctx, 'linear.issue', async ({ key }) => {
+  return async (key) => {
     const hit = cache.get(key)
     if (hit && Date.now() - hit.at < TTL_MS) return hit.issue
-    const token = await apiKey(ctx.env.evaRoot)
+    const token = await apiKey(evaRoot)
     if (!token) {
       throw Object.assign(new Error('No Linear API key (LINEAR_API_KEY or secrets/linear.env)'), {
         code: 'no-linear-key',
@@ -78,8 +81,13 @@ export function registerLinearIpc(ctx: MainContext): void {
     }
     const issue = fetchIssue(key, token)
     cache.set(key, { at: Date.now(), issue })
-    // A failure is not cached: the next hover retries.
+    // A failure is not cached: the next read retries.
     issue.catch(() => cache.delete(key))
     return issue
-  })
+  }
+}
+
+/** The chat list's ticket badge card: one issue by key, fetched on hover. */
+export function registerLinearIpc(ctx: MainContext, read: LinearRead): void {
+  handle(ctx, 'linear.issue', ({ key }) => read(key))
 }

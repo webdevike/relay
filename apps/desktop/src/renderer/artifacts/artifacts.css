@@ -1,0 +1,469 @@
+/* Artifacts panel: a tab bar, then flat rows on hairline dividers. Status lives in quiet pills. */
+.eva-art {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  border-top: 1px solid var(--eva-c-border);
+  font-size: var(--eva-fz-body);
+}
+.eva-art[hidden] {
+  display: none;
+}
+
+/* Tab bar: scrolls sideways under edge fades; the all-tabs menu stays at the end. */
+.eva-art-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--eva-c-border);
+  padding-right: var(--eva-space-xs);
+}
+.eva-art-tabs {
+  flex: 1;
+  min-width: 0;
+}
+.eva-art-tabs-content {
+  padding: 0 var(--eva-space-sm);
+}
+.eva-art-tablist {
+  display: flex;
+  gap: var(--eva-space-xs);
+}
+.eva-art-tab {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 var(--eva-space-sm);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--eva-text-dim);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.eva-art-tab:hover {
+  color: var(--eva-text);
+}
+.eva-art-tab[data-active] {
+  color: var(--eva-text);
+  border-bottom-color: var(--eva-text);
+}
+.eva-art-tab:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: -2px;
+}
+.eva-art-tab-portrait {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border-radius: var(--eva-radius-round);
+  overflow: hidden;
+}
+.eva-art-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--eva-radius-round);
+  background: var(--mantine-color-blue-filled);
+}
+.eva-art-all {
+  flex: none;
+}
+
+.eva-art-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.eva-art-toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--eva-space-sm);
+  padding: var(--eva-space-sm) var(--eva-space-md);
+}
+.eva-art-search {
+  flex: 1;
+  min-width: 0;
+}
+.eva-art-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: var(--eva-space-md);
+}
+.eva-art-group + .eva-art-group {
+  margin-top: var(--eva-space-sm);
+}
+.eva-art-group-label {
+  display: flex;
+  justify-content: space-between;
+  margin: 0;
+  padding: var(--eva-space-sm) var(--eva-space-md) var(--eva-space-xs);
+  font-size: var(--eva-fz-label);
+  font-weight: 400;
+  color: var(--eva-text-dim);
+}
+.eva-art-group-note {
+  font-weight: 400;
+}
+.eva-art-count {
+  padding: var(--eva-space-xs) var(--eva-space-md);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-text-dim);
+}
+
+/* Rows */
+.eva-art-row {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--eva-space-sm);
+  padding: var(--eva-space-sm) var(--eva-space-md);
+  border-bottom: 1px solid var(--eva-c-border);
+  cursor: pointer;
+}
+.eva-art-row:hover {
+  background: var(--eva-hover);
+}
+.eva-art-row:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: -2px;
+}
+.eva-art-row-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 20px;
+  color: var(--eva-text-dim);
+}
+.eva-art-row-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.eva-art-row-title {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.eva-art-key {
+  flex: none;
+  color: var(--eva-text-dim);
+}
+.eva-art-title-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.eva-art-row-meta {
+  font-size: var(--eva-fz-label);
+  color: var(--eva-text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.eva-art-row-when {
+  flex: none;
+  font-size: var(--eva-fz-label);
+  color: var(--eva-text-dim);
+  padding-top: 2px;
+}
+.eva-art-pills {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.eva-art-pill {
+  font-weight: 400;
+}
+.eva-art-row-actions {
+  position: absolute;
+  right: var(--eva-space-md);
+  top: 50%;
+  transform: translateY(-50%);
+  display: none;
+  gap: 2px;
+  padding-left: var(--eva-space-sm);
+  background: var(--eva-c-background);
+}
+.eva-art-row:hover .eva-art-row-actions,
+.eva-art-row:focus-within .eva-art-row-actions {
+  display: flex;
+}
+.eva-art-sub[data-state='done'] .eva-art-title-text,
+.eva-art-sub[data-state='failed'] .eva-art-title-text {
+  color: var(--eva-text);
+}
+.eva-art svg[data-tone='green'] {
+  color: var(--mantine-color-green-text);
+}
+.eva-art svg[data-tone='yellow'] {
+  color: var(--mantine-color-yellow-text);
+}
+.eva-art svg[data-tone='violet'] {
+  color: var(--mantine-color-violet-text);
+}
+.eva-art svg[data-tone='red'] {
+  color: var(--mantine-color-red-text);
+}
+
+/* Agent tab header: the rule, readable, and who made it. */
+.eva-art-rule {
+  flex: none;
+  margin: var(--eva-space-sm) var(--eva-space-md) 0;
+  padding: var(--eva-space-sm);
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius);
+  display: flex;
+  flex-direction: column;
+  gap: var(--eva-space-xs);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-text-dim);
+}
+.eva-art-rule-line,
+.eva-art-rule-by {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.eva-art-rule-chipwrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.eva-art-rule-chip {
+  padding: 1px 6px;
+  border-radius: var(--eva-radius-sm);
+  background: var(--eva-hover);
+  color: var(--eva-text);
+}
+.eva-art-rule-line .eva-art-link {
+  margin-left: auto;
+}
+.eva-art-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--eva-c-link);
+  cursor: pointer;
+}
+.eva-art-link:hover {
+  text-decoration: underline;
+}
+.eva-art-link-quiet {
+  color: var(--eva-text-dim);
+}
+
+/* Media grid */
+.eva-art-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--eva-space-md) var(--eva-space-sm);
+  padding: var(--eva-space-xs) var(--eva-space-md);
+}
+.eva-art-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.eva-art-tile-frame {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius);
+  overflow: hidden;
+  background: var(--eva-surface);
+  margin-bottom: var(--eva-space-xs);
+}
+.eva-art-tile:hover .eva-art-tile-frame {
+  border-color: var(--eva-text-dim);
+}
+.eva-art-tile:focus-visible .eva-art-tile-frame {
+  outline: 2px solid var(--eva-c-ring);
+}
+.eva-art-tile-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.eva-art-tile-missing {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--eva-text-dim);
+}
+.eva-art-tile-badge {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: var(--eva-radius-sm);
+  background: rgb(0 0 0 / 0.7);
+  color: #fff;
+  font-size: var(--eva-fz-label);
+}
+.eva-art-tile-pin {
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  display: inline-flex;
+  padding: 3px;
+  border-radius: var(--eva-radius-sm);
+  background: rgb(0 0 0 / 0.7);
+  color: #fff;
+}
+.eva-art-tile-caption {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.eva-art-tile-time {
+  font-size: var(--eva-fz-label);
+  color: var(--eva-text-dim);
+}
+
+/* Lightbox */
+.eva-art-lb-title {
+  display: inline-flex;
+  gap: var(--eva-space-sm);
+  align-items: baseline;
+}
+.eva-art-lb-count {
+  font-size: var(--eva-fz-label);
+  color: var(--eva-text-dim);
+}
+.eva-art-lb-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.eva-art-lb-media {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+/* One-time notice when an agent adds a tab. */
+.eva-art-notice {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--eva-space-sm);
+  margin: 0 var(--eva-space-md) var(--eva-space-md);
+  padding: var(--eva-space-sm);
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius);
+}
+.eva-art-notice-text {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Empty states */
+.eva-art-empty {
+  margin: auto;
+  max-width: 300px;
+  padding: var(--eva-space-xl) var(--eva-space-md);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--eva-space-xs);
+  text-align: center;
+}
+.eva-art-empty-icon {
+  display: inline-flex;
+  padding: var(--eva-space-sm);
+  margin-bottom: var(--eva-space-xs);
+  border-radius: var(--eva-radius-round);
+  background: var(--eva-hover);
+  color: var(--eva-text-dim);
+}
+.eva-art-empty-title {
+  font-weight: 600;
+}
+.eva-art-empty-text {
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+}
+
+/* Menus and dialogs */
+.eva-art-menu-anchor {
+  position: fixed;
+  width: 0;
+  height: 0;
+}
+.eva-art-menu-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--eva-fz-label);
+  color: var(--eva-text-dim);
+}
+.eva-art-menu-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--eva-space-xs) var(--eva-space-sm);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-text-dim);
+}
+.eva-art-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--eva-space-md);
+}
+.eva-art-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--eva-space-sm);
+}
+.eva-art-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--eva-space-xs);
+}
+.eva-art-field-row {
+  display: flex;
+  gap: var(--eva-space-md);
+}
+.eva-art-field-label {
+  font-size: var(--eva-fz-label);
+  font-weight: 500;
+}
+.eva-art-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--eva-space-xs);
+}

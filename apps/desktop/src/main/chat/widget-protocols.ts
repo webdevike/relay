@@ -31,13 +31,14 @@ export function registerWidgetSchemes(): void {
 }
 
 /**
- * Serves widget media (`relay-media://media/?src=<src>`). Live: the cache and Relay's port live
- * in Relay's config dir. Fixtures and e2e use `<configDir>/relay` so a test never touches it.
+ * Serves widget media (`relay-media://media/?src=<src>`). The cache and the port live in the config
+ * dir of the Relay this app connects to (EVAOS_RELAY_DIR, live: Relay's own). Fixtures and e2e
+ * without one use `<configDir>/relay` so a test never touches it.
  */
 export function registerWidgetMedia(ctx: MainContext): void {
-  const relayDir = ctx.env.live
-    ? relayConfigDir(process.env, os.homedir())
-    : path.join(ctx.env.configDir, 'relay')
+  const relayDir =
+    ctx.env.relayDir ??
+    (ctx.env.live ? relayConfigDir(process.env, os.homedir()) : path.join(ctx.env.configDir, 'relay'))
   const deps = {
     cacheDir: path.join(relayDir, 'widget-media'),
     servePort: () => servePort(relayDir),

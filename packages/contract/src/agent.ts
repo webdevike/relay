@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { SwitchAppIdSchema, TabIdSchema } from './browser'
 import { ContextScopeSchema, PinIdSchema, PinRefSchema } from './context'
+import { ArtifactKind, ArtifactTabIcon, TabRule } from '@evaos/chat-core/artifacts'
 
 /**
  * Agent control: every user-reachable action an agent (Eva, Nova, any omp session) may run in the
@@ -17,7 +18,8 @@ import { ContextScopeSchema, PinIdSchema, PinRefSchema } from './context'
  * Panel actions (and testbench.open) take an optional `scope`: the page or chat whose side panel
  * they act on (AgentScopeSchema). A scope that is not in front gets the change in its own panel
  * without switching pages or taking focus; Isaac sees a badge on that page's tab. A request's
- * `scope` (relay-ctl sends the caller's own) fills in for panel actions that name none.
+ * `scope` (relay-ctl sends the caller's own) fills in for panel actions that name none, and for
+ * `scoped` actions (artifacts.*), which act on the caller's own thread.
  */
 export type AgentSide = 'main' | 'renderer'
 export type AgentFocus = 'none' | 'panel' | 'main'
@@ -29,6 +31,8 @@ export interface AgentActionSpec {
   side: AgentSide
   focus: AgentFocus
   destructive: boolean
+  /** Takes the request's `scope` like a panel action, without touching the panel. */
+  scoped?: boolean
 }
 
 /** Top-level pages (shell-core FixedPage); `workspace:`, `agent:` and `board:` keys open details. */
@@ -67,6 +71,11 @@ const TabNumber = z.number().int().min(0)
  */
 export const AgentScopeSchema = z.string().min(1).max(4096)
 const scope = AgentScopeSchema.optional()
+
+const ArtifactItemId = z.string().min(1).max(2100)
+const ArtifactTabId = z.string().min(1).max(48)
+const ARTIFACTS_SCOPE =
+  "Acts on the calling session's thread (an assistant's whole thread, else the chat's)."
 
 export const agentActions = {
   'state.read': {
@@ -224,8 +233,9 @@ export const agentActions = {
   },
   'panel.show': {
     title: 'Show a panel tool',
-    description: 'Opens the side panel on the Browser or Files tab.',
-    params: z.object({ tool: z.enum(['browser', 'files']), scope }).strict(),
+    description:
+      'Opens the side panel on the Browser, Files or Artifacts tab (Artifacts: what the thread holds, tickets, PRs, links, media, subagents).',
+    params: z.object({ tool: z.enum(['browser', 'files', 'artifacts']), scope }).strict(),
     side: 'renderer',
     focus: 'panel',
     destructive: false,
@@ -332,6 +342,97 @@ export const agentActions = {
     side: 'renderer',
     focus: 'main',
     destructive: false,
+  },
+  'artifacts.list': {
+    title: "List the thread's artifacts",
+    description: `${ARTIFACTS_SCOPE} Without \`tab\`: every tab (id, title, rule or items, who made it, hidden) and the Everything tab's items. With \`tab\`: that tab's items (id, kind, title, url or path, state, pinned). Check the default tabs (links, media, subagents, everything) here before adding a tab.`,
+    params: z.object({ tab: ArtifactTabId.optional(), scope }).strict(),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'artifacts.add': {
+    title: 'Add an artifact',
+    description: `${ARTIFACTS_SCOPE} Adds something no message holds (a link, file, ticket); \`tab\` also files it under that item tab. Answers its id.`,
+    params: z
+      .object({
+        kind: ArtifactKind,
+        title: z.string().trim().min(1).max(300),
+        url: z.string().min(1).max(2048).optional(),
+        path: z.string().min(1).max(1024).optional(),
+        caption: z.string().max(300).optional(),
+        tab: ArtifactTabId.optional(),
+        scope,
+      })
+      .strict(),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'artifacts.pin': {
+    title: 'Pin an artifact',
+    description: `${ARTIFACTS_SCOPE} Pins item \`id\` (from artifacts.list) to the top of its tabs; pinned items never fade.`,
+    params: z.object({ id: ArtifactItemId, scope }).strict(),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'artifacts.unpin': {
+    title: 'Unpin an artifact',
+    description: `${ARTIFACTS_SCOPE} Unpins item \`id\`.`,
+    params: z.object({ id: ArtifactItemId, scope }).strict(),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'artifacts.tab.add': {
+    title: 'Add an artifacts tab',
+    description: `${ARTIFACTS_SCOPE} Adds a tab after the defaults. Reuse the default tabs first (filter Links or Everything with artifacts.list); add a tab only for a view that lasts, and prefer a \`rule\` (kept up to date by the host, e.g. {"kind":["gh-pr"],"state":["open"]}) over a hand-kept \`items\` list. Refused when it repeats a default, a tab Isaac hid, or a visible tab; the refusal says why. Answers the tab id.`,
+    params: z
+      .object({
+        title: z.string().trim().min(1).max(40),
+        icon: ArtifactTabIcon.optional(),
+        rule: TabRule.optional(),
+        items: z.array(ArtifactItemId).max(500).optional(),
+        scope,
+      })
+      .strict(),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'artifacts.tab.update': {
+    title: 'Change an artifacts tab',
+    description: `${ARTIFACTS_SCOPE} Renames, re-rules, refiles or moves (\`index\` in the full bar) a tab you made.`,
+    params: z
+      .object({
+        id: ArtifactTabId,
+        title: z.string().trim().min(1).max(40).optional(),
+        icon: ArtifactTabIcon.optional(),
+        rule: TabRule.optional(),
+        items: z.array(ArtifactItemId).max(500).optional(),
+        index: z.number().int().nonnegative().optional(),
+        scope,
+      })
+      .strict(),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'artifacts.tab.remove': {
+    title: 'Remove an artifacts tab',
+    description: `${ARTIFACTS_SCOPE} Removes a tab you made. Defaults are never removed.`,
+    params: z.object({ id: ArtifactTabId, scope }).strict(),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
   },
 } as const satisfies Record<string, AgentActionSpec>
 

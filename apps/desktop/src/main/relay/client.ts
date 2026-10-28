@@ -9,6 +9,7 @@
 // again for the reactions of every thread a chat shows. A command cannot wait for one: sent while
 // Relay is down it fails at once, and one in flight when the connection drops fails with it.
 import type { ThreadReactions } from '@evaos/chat-core/reactions'
+import type { Artifact, ArtifactAction, ArtifactTab } from '@evaos/chat-core/artifacts'
 import type { Board } from '@evaos/contract'
 import {
   Feed,
@@ -21,6 +22,8 @@ import {
 import {
   cmdFrame,
   reactionFrame,
+  artifactsActFrame,
+  artifactsGetFrame,
   reactionsGetFrame,
   subscribeFrame,
   unsubscribeFrame,
@@ -67,7 +70,7 @@ export interface RelaySource {
 /** What a subscribed session says: its streamed reply, its questions and approvals. */
 export type RelaySessionEvent = Exclude<
   FeedEvent,
-  { kind: 'sessions' | 'ack' | 'nack' | 'boards' | 'reactions' }
+  { kind: 'sessions' | 'ack' | 'nack' | 'boards' | 'reactions' | 'artifacts' | 'acted' }
 >
 
 /** Relay as the chat pane drives it: the session list, subscriptions and commands. */
@@ -100,6 +103,39 @@ export interface RelayReactions {
   react(thread: string, message: string, emoji: string | null, excerpt: string): boolean
   /** Called with the thread after each of its snapshots. */
   onReactions(cb: (thread: string) => void): () => void
+}
+
+/** A thread's artifacts and tab bar, as the host's latest `artifacts.snapshot` has them. */
+export interface ArtifactsSnapshot {
+  items: Artifact[]
+  tabs: ArtifactTab[]
+}
+
+/** The host's answer to one `artifacts.act`; `id` is the new item's or tab's. */
+export interface ArtifactsActed {
+  ok: boolean
+  error?: string
+  id?: string
+}
+
+/**
+ * What threads hold (tickets, PRs, links, media, subagents) and their tab bars. The host pushes
+ * every thread's snapshot after each change, so every snapshot heard is kept, watched or not.
+ */
+export interface RelayArtifacts {
+  /** Connected and authenticated, so an action can go out now. */
+  artifactsUp(): boolean
+  /** `thread`'s artifacts as the host last sent them; null before its first snapshot. */
+  artifacts(thread: string): ArtifactsSnapshot | null
+  /** Every thread heard from, with its last snapshot. */
+  artifactThreads(): ReadonlyMap<string, ArtifactsSnapshot>
+  /** Asks for `thread`'s artifacts now (when connected) and after every reconnect. */
+  watchArtifacts(thread: string): void
+  unwatchArtifacts(thread: string): void
+  /** Does `action` on `thread` as `by`; resolves with the host's answer, never rejects. */
+  actArtifacts(thread: string, by: string, action: ArtifactAction): Promise<ArtifactsActed>
+  /** Called with the thread after each snapshot of any thread. */
+  onArtifacts(cb: (thread: string) => void): () => void
 }
 
 /**
@@ -153,6 +189,8 @@ export interface RelayClientOptions {
   pingMs?: number
   commandTimeoutMs?: number
   now?: () => number
+  /** How long an `artifacts.act` may wait for its `artifacts.acted`. */
+  actTimeoutMs?: number
 }
 
 interface Pending {
@@ -162,7 +200,7 @@ interface Pending {
 }
 
 /** Keeps a connection to Relay up while started; `sessions()` is null whenever it is down. */
-export class RelayClient implements RelayLink, RelayReactions {
+export class RelayClient implements RelayLink, RelayReactions, RelayArtifacts {
   private readonly dial: Dial
   private readonly secret: (configDir: string) => Uint8Array
   private readonly retryMs: number
@@ -178,6 +216,16 @@ export class RelayClient implements RelayLink, RelayReactions {
   private readonly reactionThreads = new Set<string>()
   /** The last snapshot of each thread; kept while Relay is down so badges stay. */
   private readonly reactionMap = new Map<string, ThreadReactions>()
+  private readonly artifactListeners = new Set<(thread: string) => void>()
+  /** Threads a panel shows; asked for again on every connection. */
+  private readonly artifactWatch = new Set<string>()
+  /** The last snapshot of every thread heard from; kept while Relay is down. */
+  private readonly artifactMap = new Map<string, ArtifactsSnapshot>()
+  /** Artifact actions sent on this connection, by rid, until Relay answers. */
+  private readonly acts = new Map<
+    string,
+    { resolve(r: ArtifactsActed): void; timer: NodeJS.Timeout }
+  >()
   /** Commands sent on this connection, by id, until Relay answers. */
   private readonly pending = new Map<string, Pending>()
   private commands = 0
@@ -269,6 +317,46 @@ export class RelayClient implements RelayLink, RelayReactions {
     return () => this.reactionListeners.delete(cb)
   }
 
+  artifactsUp(): boolean {
+    return this.feed?.authenticated === true
+  }
+
+  artifacts(thread: string): ArtifactsSnapshot | null {
+    return this.artifactMap.get(thread) ?? null
+  }
+
+  artifactThreads(): ReadonlyMap<string, ArtifactsSnapshot> {
+    return this.artifactMap
+  }
+
+  watchArtifacts(thread: string): void {
+    this.artifactWatch.add(thread)
+    if (this.feed?.authenticated) this.send(artifactsGetFrame(thread))
+  }
+
+  unwatchArtifacts(thread: string): void {
+    this.artifactWatch.delete(thread)
+  }
+
+  actArtifacts(thread: string, by: string, action: ArtifactAction): Promise<ArtifactsActed> {
+    if (!this.feed?.authenticated) return Promise.resolve({ ok: false, error: NOT_CONNECTED })
+    this.commands += 1
+    const rid = `relay-desktop-act-${this.now()}-${this.commands}`
+    const { promise, resolve } = Promise.withResolvers<ArtifactsActed>()
+    const timer = setTimeout(() => {
+      this.acts.delete(rid)
+      resolve({ ok: false, error: NO_ANSWER })
+    }, this.o.actTimeoutMs ?? this.commandTimeoutMs)
+    this.acts.set(rid, { resolve, timer })
+    this.send(artifactsActFrame(thread, rid, by, action))
+    return promise
+  }
+
+  onArtifacts(cb: (thread: string) => void): () => void {
+    this.artifactListeners.add(cb)
+    return () => this.artifactListeners.delete(cb)
+  }
+
   command(cmd: RelayCommand): Promise<void> {
     if (!this.feed?.authenticated) {
       return Promise.reject(new RelayCommandError('not_connected', NOT_CONNECTED))
@@ -353,6 +441,7 @@ export class RelayClient implements RelayLink, RelayReactions {
       this.pingTimer = setInterval(() => this.send({ t: 'ping', ts: this.now() }), this.pingMs)
       for (const id of this.subscriptions) this.send(subscribeFrame(id))
       for (const thread of this.reactionThreads) this.send(reactionsGetFrame(thread))
+      for (const thread of this.artifactWatch) this.send(artifactsGetFrame(thread))
     }
     for (const event of out.events) {
       switch (event.kind) {
@@ -368,6 +457,22 @@ export class RelayClient implements RelayLink, RelayReactions {
           this.reactionMap.set(event.thread, event.reactions)
           for (const cb of [...this.reactionListeners]) cb(event.thread)
           break
+        case 'artifacts':
+          this.artifactMap.set(event.thread, { items: event.items, tabs: event.tabs })
+          for (const cb of [...this.artifactListeners]) cb(event.thread)
+          break
+        case 'acted': {
+          const a = this.acts.get(event.rid)
+          if (!a) break
+          this.acts.delete(event.rid)
+          clearTimeout(a.timer)
+          a.resolve({
+            ok: event.ok,
+            ...(event.error === undefined ? {} : { error: event.error }),
+            ...(event.id === undefined ? {} : { id: event.id }),
+          })
+          break
+        }
         case 'ack':
         case 'nack': {
           const p = this.pending.get(event.id)
@@ -417,6 +522,11 @@ export class RelayClient implements RelayLink, RelayReactions {
       p.reject(new RelayCommandError('not_connected', reason))
     }
     this.pending.clear()
+    for (const a of this.acts.values()) {
+      clearTimeout(a.timer)
+      a.resolve({ ok: false, error: reason })
+    }
+    this.acts.clear()
   }
 
   private setList(list: ReadonlyMap<string, RelaySession> | null): void {
@@ -433,9 +543,11 @@ export class RelayClient implements RelayLink, RelayReactions {
 }
 
 /** A Relay that is never connected: fixtures and e2e, unless a test sets sessions. */
-export class StaticRelay implements RelayLink, RelayReactions {
+export class StaticRelay implements RelayLink, RelayReactions, RelayArtifacts {
   private list: ReadonlyMap<string, RelaySession> | null = null
   private readonly listeners = new Set<() => void>()
+  private readonly artifactMap = new Map<string, ArtifactsSnapshot>()
+  private readonly artifactListeners = new Set<(thread: string) => void>()
 
   sessions(): ReadonlyMap<string, RelaySession> | null {
     return this.list
@@ -482,6 +594,38 @@ export class StaticRelay implements RelayLink, RelayReactions {
 
   onReactions(): () => void {
     return () => undefined
+  }
+
+  /** Never connected, so actions fail; snapshots only come from `setArtifacts` (tests, fixtures). */
+  artifactsUp(): boolean {
+    return false
+  }
+
+  artifacts(thread: string): ArtifactsSnapshot | null {
+    return this.artifactMap.get(thread) ?? null
+  }
+
+  artifactThreads(): ReadonlyMap<string, ArtifactsSnapshot> {
+    return this.artifactMap
+  }
+
+  watchArtifacts(): void {}
+
+  unwatchArtifacts(): void {}
+
+  actArtifacts(): Promise<ArtifactsActed> {
+    return Promise.resolve({ ok: false, error: NOT_CONNECTED })
+  }
+
+  onArtifacts(cb: (thread: string) => void): () => void {
+    this.artifactListeners.add(cb)
+    return () => this.artifactListeners.delete(cb)
+  }
+
+  /** As if the host sent `thread`'s snapshot. */
+  setArtifacts(thread: string, snapshot: ArtifactsSnapshot): void {
+    this.artifactMap.set(thread, snapshot)
+    for (const cb of [...this.artifactListeners]) cb(thread)
   }
 
   /** There is no socket to carry a command. */

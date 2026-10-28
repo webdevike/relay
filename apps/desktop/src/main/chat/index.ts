@@ -8,6 +8,8 @@ import { startRelay } from '../relay'
 import { awaySignature } from '../relay/away'
 import { registerBoardsIpc } from '../relay/boards-ipc'
 import { registerReactionsIpc } from '../relay/reactions-ipc'
+import { registerArtifactsIpc } from '../relay/artifacts-ipc'
+import type { RelayArtifacts, RelaySource } from '../relay/client'
 import type { WriteQueue } from '../write-queue'
 import { AUTO_SETTLE_DAYS } from './chat-order'
 import { ChatListService, chatSessionsDirs } from './chat-list'
@@ -35,6 +37,8 @@ export interface ChatHandles {
   assistants(): Assistants
   /** Relay's sessions by id while connected, else null. */
   relaySessions(): ReadonlyMap<string, RelaySession> | null
+  /** Relay's artifacts of every thread (the panel, the status reader, agent actions). */
+  artifacts: RelaySource & RelayArtifacts
 }
 
 const STATUS_COALESCE_MS = 30
@@ -103,6 +107,8 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
   const offBoards = registerBoardsIpc(ctx, relay)
   // Tapbacks on the bubbles of the chats shown, as Relay keeps them for every device.
   const offReactions = registerReactionsIpc(ctx, relay)
+  // What each thread holds (tickets, PRs, media, subagents), for the Artifacts panel.
+  const offArtifacts = registerArtifactsIpc(ctx, relay)
 
   const watch = new ChatWatch({
     dirs: sessionsDirs,
@@ -144,6 +150,7 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     offRelay()
     offBoards()
     offReactions()
+    offArtifacts()
     clearTimeout(statusTimer)
     assistants.close()
     await watch.close()
@@ -156,5 +163,6 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     anyWorking: () => manager.anyWorking(),
     assistants: () => assistants.list(),
     relaySessions: () => relay.sessions(),
+    artifacts: relay,
   }
 }

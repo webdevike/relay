@@ -300,9 +300,12 @@ export const rendererActions: AgentRunners<'renderer'> = {
         return { view: tool }
       },
       (t) => {
-        showAway(t, tool === 'files' ? 'opened Files' : 'opened the browser', () =>
-          showPanelTool(tool),
-        )
+        const what = {
+          browser: 'opened the browser',
+          files: 'opened Files',
+          artifacts: 'opened Artifacts',
+        }[tool]
+        showAway(t, what, () => showPanelTool(tool))
         return { view: tool }
       },
     ),

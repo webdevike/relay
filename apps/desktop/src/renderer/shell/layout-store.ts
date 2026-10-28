@@ -23,6 +23,7 @@ export type Edge = 'sidebar' | 'panel'
 export type PanelView =
   | { kind: 'browser' }
   | { kind: 'files' }
+  | { kind: 'artifacts' }
   | {
       kind: 'subagent'
       /** The chat session file the subagent belongs to. */
@@ -40,9 +41,16 @@ export type PanelView =
     }
 export type SubagentView = Extract<PanelView, { kind: 'subagent' }>
 export type ExperimentArmView = Extract<PanelView, { kind: 'experiment-arm' }>
-export type PanelTool = 'browser' | 'files'
-const BROWSER_VIEW: PanelView = { kind: 'browser' }
-const FILES_VIEW: PanelView = { kind: 'files' }
+export type PanelTool = 'browser' | 'files' | 'artifacts'
+/** A view that is one of the tools (the tab strip shows), not a subagent or arm detail. */
+export const isToolView = (view: PanelView): view is Extract<PanelView, { kind: PanelTool }> =>
+  view.kind === 'browser' || view.kind === 'files' || view.kind === 'artifacts'
+const TOOL_VIEWS: Readonly<Record<PanelTool, PanelView>> = {
+  browser: { kind: 'browser' },
+  files: { kind: 'files' },
+  artifacts: { kind: 'artifacts' },
+}
+const BROWSER_VIEW = TOOL_VIEWS.browser
 
 export interface LayoutState {
   windowWidth: number
@@ -106,7 +114,7 @@ let panelPending = false
 let tool: PanelTool = 'browser'
 /** Isaac picked a tool this run, so the one loaded from layout.json no longer applies. */
 let toolPicked = false
-const toolView = (): PanelView => (tool === 'files' ? FILES_VIEW : BROWSER_VIEW)
+const toolView = (): PanelView => TOOL_VIEWS[tool]
 
 function setChoice(scope: string, open: boolean): void {
   panelChoice.delete(scope)
@@ -184,8 +192,7 @@ export function showPanelTool(next: PanelTool): void {
 
 /** Back to the panel's tool from a transient view, e.g. once a closed panel finished sliding out. */
 export function settlePanelView(): void {
-  const kind = layoutStore.getState().panelView.kind
-  if (kind !== 'browser' && kind !== 'files') patch({ panelView: toolView() })
+  if (!isToolView(layoutStore.getState().panelView)) patch({ panelView: toolView() })
 }
 
 /**
@@ -323,7 +330,7 @@ function applyPanelState(saved: Record<string, boolean>, savedTool: PanelTool): 
   for (const [scope, open] of thisRun) setChoice(scope, open)
   if (!toolPicked) tool = savedTool
   const s = layoutStore.getState()
-  if (s.panelView.kind !== 'browser' && s.panelView.kind !== 'files') return
+  if (!isToolView(s.panelView)) return
   const choice = panelChoice.get(s.panelScope)
   if (choice !== undefined) panelPending = false
   patch({ panelOpen: choice ?? s.panelOpen, panelView: toolView() })

@@ -3,22 +3,19 @@ import type { Assistant, ExperimentRow } from '@evaos/contract'
 import { listJobs } from '@evaos/eva-core/model/jobs-read'
 import type { ChatHandles } from '../chat'
 import type { MainContext } from '../context'
-import { buildCommand, childPathFor, runCapture } from '../eva/spawn'
+import type { PrSource, ToolRun } from './pr-source'
 import { clockFor } from '../eva/runtime'
 import { relayConfigDir } from '../relay/device'
 import type { ExperimentsService } from '../experiments/experiments-service'
 import { emit, handle } from '../ipc/handle'
 import type { WriteQueue } from '../write-queue'
 import { BackgroundCache } from './bg-cache'
-import { fetchPr, type PrFacts } from './gh'
 import { readGit, type GitFacts } from './git'
 import { ItemReader } from './items'
 import { PinStore } from './pins'
 import { hostThreadFile, LineCache } from './sessions'
 import { buildSnapshot } from './snapshot'
 
-/** gh and git never run longer than this. */
-const RUN_TIMEOUT_MS = 20_000
 /** Test Bench folders are listed at most this often. */
 const EXPERIMENTS_TTL_MS = 5_000
 /** File-change bursts become one `context.changed`. */
@@ -33,6 +30,8 @@ export function registerContext(
   queue: WriteQueue,
   chat: Pick<ChatHandles, 'placeOf' | 'onSessionsChanged' | 'assistants' | 'relaySessions'>,
   experiments: ExperimentsService,
+  run: ToolRun,
+  prs: PrSource,
 ): void {
   const home = os.homedir()
   const clock = clockFor(ctx)
@@ -45,26 +44,10 @@ export function registerContext(
     }, CHANGED_DEBOUNCE_MS)
   }
 
-  let pathEnv: Promise<string> | null = null
-  const run = async (bin: string, args: string[], cwd: string) => {
-    pathEnv ??= childPathFor(ctx.env.live, home)
-    const cmd = buildCommand(bin, args, {
-      pathEnv: await pathEnv,
-      homedir: home,
-      execPath: process.execPath,
-      baseEnv: { ...process.env, GH_PROMPT_DISABLED: '1', GIT_OPTIONAL_LOCKS: '0' },
-    })
-    return runCapture(cmd, cwd, RUN_TIMEOUT_MS)
-  }
+  const offPrs = prs.onChange(changed)
   // Fixture data (dev, e2e) names real PRs and threads; only live data reaches GitHub and the host.
-  const ghAllowed = ctx.env.live && !ctx.env.e2e
+  const ghAllowed = prs.allowed
   const hostDir = ghAllowed ? (ctx.env.relayDir ?? relayConfigDir(process.env, home)) : null
-  const prs = new BackgroundCache<PrFacts>({
-    onChange: changed,
-    hotMs: 30_000,
-    coldMs: 5 * 60_000,
-    backoffMs: 2 * 60_000,
-  })
   const gits = new BackgroundCache<GitFacts>({
     onChange: changed,
     hotMs: 5_000,
@@ -101,12 +84,7 @@ export function registerContext(
                 : { ...a, file: hostThreadFile(hostDir, a.id) },
             ),
         relaySessions: () => chat.relaySessions(),
-        pr: (repo, number, hot) =>
-          ghAllowed
-            ? prs.get(`${repo}#${number}`, hot, () =>
-                fetchPr((args) => run('gh', args, ctx.env.evaRoot), repo, number),
-              )
-            : null,
+        pr: (repo, number, hot) => prs.get(repo, number, hot),
         git: (dir, base, hot) =>
           gits.get(`${dir}\n${base ?? ''}`, hot, () =>
             readGit((args, cwd) => run('git', args, cwd), dir, base),
@@ -137,6 +115,7 @@ export function registerContext(
   const offSessions = chat.onSessionsChanged(changed)
   ctx.onBeforeQuit(async () => {
     offSessions()
+    offPrs()
     clearTimeout(timer)
   })
 }

@@ -1,6 +1,6 @@
 import { PANEL_DEFAULT, PANEL_MIN, SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN } from './fit'
 
-export type PanelToolName = 'browser' | 'files'
+export type PanelToolName = 'browser' | 'files' | 'artifacts'
 
 /** layout.json keeps the panel choice of this many scopes, most recently set last. */
 export const PANEL_CHOICES_MAX = 200
@@ -32,7 +32,8 @@ const clamp = (n: number, min: number, max: number) => Math.min(Math.max(n, min)
 const sidebarClamp = (n: number) => clamp(n, SIDEBAR_MIN, SIDEBAR_MAX)
 const panelClamp = (n: number) => Math.max(n, PANEL_MIN)
 
-const isTool = (v: unknown): v is PanelToolName => v === 'browser' || v === 'files'
+const isTool = (v: unknown): v is PanelToolName =>
+  v === 'browser' || v === 'files' || v === 'artifacts'
 
 /** The boolean entries of a stored choices object, capped to the most recent ones. */
 function readChoices(v: unknown): Record<string, boolean> {

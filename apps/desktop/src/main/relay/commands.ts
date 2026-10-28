@@ -1,7 +1,8 @@
 // The commands this app sends Relay for a session it reads through Relay, ported from relay.rs
 // (`Feed::request`). Each goes out as `{ t: 'cmd', id, cmd }` and Relay answers it with exactly one
 // `ack` or `nack` (relay/packages/protocol/src/index.ts, `Command` and `AckError`). Subscriptions
-// and reactions are plain frames with no answer.
+// and reactions are plain frames with no answer; `artifacts.act` is answered by `artifacts.acted`.
+import type { ArtifactAction } from '@evaos/chat-core/artifacts'
 
 /** Relay's image limits for one reply (protocol `AgentImage`, `MAX_REPLY_IMAGES`). */
 export const RELAY_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const
@@ -162,4 +163,19 @@ export function reactionFrame(
   return emoji === null
     ? { t: 'reaction.clear', thread, message }
     : { t: 'reaction.set', thread, message, emoji, excerpt }
+}
+
+/** Asks for `thread`'s artifacts; Relay answers with its `artifacts.snapshot` (to every device). */
+export function artifactsGetFrame(thread: string): Record<string, unknown> {
+  return { t: 'artifacts.get', thread }
+}
+
+/** Asks Relay to do `action` on `thread`'s artifacts as `by`; answered by `artifacts.acted {rid}`. */
+export function artifactsActFrame(
+  thread: string,
+  rid: string,
+  by: string,
+  action: ArtifactAction,
+): Record<string, unknown> {
+  return { t: 'artifacts.act', thread, rid, by, action }
 }

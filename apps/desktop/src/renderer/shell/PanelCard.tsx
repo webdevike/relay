@@ -1,6 +1,12 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { ActionIcon, Tooltip } from '@mantine/core'
-import { IconFiles, IconFlask, IconGlobe, IconLayoutSidebarRight } from '@tabler/icons-react'
+import {
+  IconFiles,
+  IconFlask,
+  IconGlobe,
+  IconLayoutSidebarRight,
+  IconStack2,
+} from '@tabler/icons-react'
 import { BrowserPanel } from '../browser/BrowserPanel'
 import { useChatStore } from '../chat/chat-store'
 import { PANE_ID } from '../chat/open-chat'
@@ -23,10 +29,15 @@ import {
 const FilesPanel = lazy(() =>
   import('../files/FilesPanel').then((m) => ({ default: m.FilesPanel })),
 )
+// The Artifacts panel loads the first time it opens.
+const ArtifactsPanel = lazy(() =>
+  import('../artifacts/ArtifactsPanel').then((m) => ({ default: m.ArtifactsPanel })),
+)
 
 const TOOLS: Array<{ tool: PanelTool; label: string; Icon: typeof IconGlobe }> = [
   { tool: 'browser', label: 'Browser', Icon: IconGlobe },
   { tool: 'files', label: 'Files', Icon: IconFiles },
+  { tool: 'artifacts', label: 'Artifacts', Icon: IconStack2 },
 ]
 
 /** The current panel slide duration in ms; 0 when motion is off. */
@@ -63,6 +74,8 @@ export function PanelCard() {
   const [shown, setShown] = useState(open)
   const [filesMounted, setFilesMounted] = useState(false)
   if (view.kind === 'files' && !filesMounted) setFilesMounted(true)
+  const [artifactsMounted, setArtifactsMounted] = useState(false)
+  if (view.kind === 'artifacts' && !artifactsMounted) setArtifactsMounted(true)
   useFilesHotkeys()
   const previous = useRef(open)
 
@@ -149,6 +162,11 @@ export function PanelCard() {
           {filesMounted ? (
             <Suspense fallback={null}>
               <FilesPanel hidden={view.kind !== 'files'} />
+            </Suspense>
+          ) : null}
+          {artifactsMounted ? (
+            <Suspense fallback={null}>
+              <ArtifactsPanel hidden={view.kind !== 'artifacts'} />
             </Suspense>
           ) : null}
           {view.kind === 'experiment-arm' ? (

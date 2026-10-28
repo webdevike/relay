@@ -61,13 +61,13 @@ export async function runAgentRequest(
   }
 }
 
-/** Panel actions act in the caller's scope unless their params name one. */
+/** Panel and scoped actions act in the caller's scope unless their params name one. */
 export function withScope(
   spec: AgentActionSpec,
   params: unknown,
   scope: string | undefined,
 ): unknown {
-  if (scope === undefined || spec.focus !== 'panel') return params
+  if (scope === undefined || (spec.focus !== 'panel' && spec.scoped !== true)) return params
   if (typeof params !== 'object' || params === null || Array.isArray(params)) return params
   return 'scope' in params ? params : { ...params, scope }
 }

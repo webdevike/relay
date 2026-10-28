@@ -9,6 +9,8 @@ import { removeControlFile, writeControlFile } from './control-file'
 import { runAgentRequest } from './run'
 import { captureWindow } from './screenshot'
 import { startControlServer } from './server'
+import { artifactsRunners } from '../relay/artifacts-agent'
+import type { RelayArtifacts, RelaySource } from '../relay/client'
 
 const RENDERER_TIMEOUT_MS = 15_000
 const CONFIRM_TIMEOUT_MS = 60_000
@@ -17,7 +19,11 @@ const CONFIRM_TIMEOUT_MS = 60_000
  * The agent control API (see server.ts): agents drive the app through the action registry in
  * @evaos/contract instead of CDP. Nothing here shows, raises or focuses the window.
  */
-export function registerAgentControl(ctx: MainContext, update: UpdateHandle): void {
+export function registerAgentControl(
+  ctx: MainContext,
+  update: UpdateHandle,
+  artifacts: RelaySource & RelayArtifacts,
+): void {
   const runs = createReplyRegistry()
   const confirms = createReplyRegistry()
   handle(ctx, 'agent.reply', ({ id, result }) => {
@@ -74,6 +80,7 @@ export function registerAgentControl(ctx: MainContext, update: UpdateHandle): vo
       return { quitting: true }
     },
     'update.offer': (params) => update.offer(params),
+    ...artifactsRunners(artifacts),
   }
 
   const token = randomBytes(32).toString('hex')

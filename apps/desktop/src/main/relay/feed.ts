@@ -8,7 +8,9 @@
 //
 // Boards (the host's dashboards) stream after `board.subscribe`: `board.snapshot` sets them all,
 // `board.delta` swaps in or removes one. A thread's reactions come as `reactions.snapshot`, the
-// answer to `reactions.get` and pushed after every change. Drops, calls and the inbox escalation
+// answer to `reactions.get` and pushed after every change. A thread's artifacts come as
+// `artifacts.snapshot` (pushed for every thread after each change, whoever asked) and each
+// `artifacts.act` is answered by one `artifacts.acted`. Drops, calls and the inbox escalation
 // are not used by this app; their frames are ignored.
 import { createHmac } from 'node:crypto'
 import * as path from 'node:path'
@@ -18,8 +20,17 @@ import {
   ReactionKeySchema,
   ReactionSchema,
   ReactionThreadSchema,
+  ReactorSchema,
+  type BubbleReactions,
   type ThreadReactions,
 } from '@evaos/chat-core/reactions'
+import {
+  Artifact,
+  ArtifactTab,
+  ArtifactThread,
+  type Artifact as ArtifactItem,
+  type ArtifactTab as ArtifactTabItem,
+} from '@evaos/chat-core/artifacts'
 
 /** How this app shows up in Relay's paired devices (native uses `evaos` / `EvaOS`). */
 export const DEVICE_ID = 'relay-desktop'
@@ -260,14 +271,43 @@ const ReactionsSnapshotSchema = z.object({
   reactions: z.record(z.string(), z.unknown()).catch({}),
 })
 
-/** A thread's reactions as Relay sends them; an entry with a bad key or reaction is dropped. */
+/**
+ * A thread's reactions as Relay sends them (by reaction key, then reactor); a bad key, reactor or
+ * reaction is dropped, and a bubble left with none.
+ */
 export function parseReactions(value: Record<string, unknown>): ThreadReactions {
   const out: ThreadReactions = {}
   for (const [key, raw] of Object.entries(value)) {
-    const r = ReactionSchema.safeParse(raw)
-    if (r.success && ReactionKeySchema.safeParse(key).success) out[key] = r.data
+    if (!ReactionKeySchema.safeParse(key).success) continue
+    const byReactor = z.record(z.string(), z.unknown()).safeParse(raw)
+    if (!byReactor.success) continue
+    const bubble: BubbleReactions = {}
+    for (const [reactor, reaction] of Object.entries(byReactor.data)) {
+      const r = ReactionSchema.safeParse(reaction)
+      if (r.success && ReactorSchema.safeParse(reactor).success) bubble[reactor] = r.data
+    }
+    if (Object.keys(bubble).length > 0) out[key] = bubble
   }
   return out
+}
+
+const ArtifactsSnapshotSchema = z.object({ thread: ArtifactThread, items: list, tabs: list })
+const ActedSchema = z.object({
+  rid: z.string().min(1),
+  ok: z.boolean(),
+  error: z.string().optional().catch(undefined),
+  id: z.string().optional().catch(undefined),
+})
+
+/** A thread's artifacts as Relay sends them; an item or tab that does not parse is dropped. */
+export function parseArtifacts(
+  items: readonly unknown[],
+  tabs: readonly unknown[],
+): { items: ArtifactItem[]; tabs: ArtifactTabItem[] } {
+  return {
+    items: items.flatMap((raw) => Artifact.safeParse(raw).data ?? []),
+    tabs: tabs.flatMap((raw) => ArtifactTab.safeParse(raw).data ?? []),
+  }
 }
 
 export type Frame = Record<string, unknown>
@@ -293,6 +333,10 @@ export type FeedEvent =
   | { kind: 'boards'; boards: Board[] }
   /** Thread `thread`'s reactions now, by reaction key (a `reactions.snapshot`). */
   | { kind: 'reactions'; thread: string; reactions: ThreadReactions }
+  /** Thread `thread`'s artifacts and tab bar now (an `artifacts.snapshot`, any thread). */
+  | { kind: 'artifacts'; thread: string; items: ArtifactItem[]; tabs: ArtifactTabItem[] }
+  /** The host's answer to `artifacts.act` request `rid`; `id` is a new item's or tab's. */
+  | { kind: 'acted'; rid: string; ok: boolean; error?: string; id?: string }
 
 /** What one frame asks to send back, and what the app should hear. */
 export interface FeedOutput {
@@ -450,6 +494,30 @@ export class Feed {
         if (s.success) {
           const reactions = parseReactions(s.data.reactions)
           events.push({ kind: 'reactions', thread: s.data.thread, reactions })
+        }
+        break
+      }
+      case 'artifacts.snapshot': {
+        const s = ArtifactsSnapshotSchema.safeParse(f)
+        if (s.success)
+          events.push({
+            kind: 'artifacts',
+            thread: s.data.thread,
+            ...parseArtifacts(s.data.items, s.data.tabs),
+          })
+        break
+      }
+      case 'artifacts.acted': {
+        const a = ActedSchema.safeParse(f)
+        if (a.success) {
+          const { rid, ok, error, id } = a.data
+          events.push({
+            kind: 'acted',
+            rid,
+            ok,
+            ...(error === undefined ? {} : { error }),
+            ...(id === undefined ? {} : { id }),
+          })
         }
         break
       }
