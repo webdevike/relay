@@ -1,7 +1,8 @@
 /**
  * Wraps one chat bubble so it takes a reaction: holding it still opens the reaction overlay (a
- * medium haptic, then `onOpen` with where the bubble sits on screen), its reaction shows as a
- * `ReactionBadge` on its outer top corner (tapping that opens the overlay too), and it hides while
+ * medium haptic, then `onOpen` with where the bubble sits on screen), its reactions show as
+ * `ReactionBadges` on its bottom-right corner (tapping one opens the overlay too; a reacted bubble
+ * keeps a little room below it for them), and it hides while
  * the overlay draws its lifted copy. The hold is a gesture-handler long press that fails as soon
  * as the finger moves, so scrolling, swipes and taps on links, images and widgets inside the
  * bubble go on as before; once it fires it cancels them, so a held link does not also open.
@@ -19,20 +20,18 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useReducedMotion } from "react-native-reanimated";
 import type { Rect } from "@/lib/bubbleMenu";
 import { impactHaptic } from "@/lib/haptics";
-import { REACTION_BADGE_OVERHANG, ReactionBadge } from "@/ui/ReactionBadge";
+import { ReactionBadges, reactionRoom, type BadgeReaction } from "@/ui/ReactionBadge";
 
 /** Holding still this long (ms) opens the overlay; under the chat's action wheel hold, so on a bubble the overlay wins. */
 export const BUBBLE_HOLD_MS = 300;
-/** Room a reacted bubble keeps above it, so its badge does not sit on the bubble before. */
-const BADGE_ROOM = REACTION_BADGE_OVERHANG - 4;
 
 export interface ReactableBubbleProps {
   children: ReactNode;
   style?: StyleProp<ViewStyle>;
-  /** The edge the bubble hugs: the agent's bubbles on the left (badge top-right), Isaac's on the right (badge top-left). */
-  side: "left" | "right";
-  /** The bubble's reaction, or null. */
-  reaction: string | null;
+  /** Everyone's reactions on the bubble, left to right; empty for none. */
+  reactions: readonly BadgeReaction[];
+  /** No bubble of its own (a plain-text reply): the badges sit just under it rather than on its corner. */
+  bare: boolean;
   /** False for a bubble that takes no reaction (a pending echo): it renders as a plain view. */
   enabled: boolean;
   /** The overlay is showing this bubble's lifted copy: the original steps aside. */
@@ -44,7 +43,7 @@ export interface ReactableBubbleProps {
   onOpen: (bubble: Rect) => void;
 }
 
-export function ReactableBubble({ children, style, side, reaction, enabled, lifted, ring, accessibilityLabel, onOpen }: ReactableBubbleProps) {
+export function ReactableBubble({ children, style, reactions, bare, enabled, lifted, ring, accessibilityLabel, onOpen }: ReactableBubbleProps) {
   const ref = useRef<View>(null);
   const reducedMotion = useReducedMotion();
   const onOpenRef = useRef(onOpen);
@@ -67,16 +66,18 @@ export function ReactableBubble({ children, style, side, reaction, enabled, lift
     [enabled, open],
   );
   const grouped = enabled && accessibilityLabel !== undefined;
+  const reacted = enabled && reactions.length > 0;
+  const spoken = reactions.map(({ emoji, title }) => (title === null ? `Your reaction, ${emoji}` : `${title} reacted ${emoji}`));
   return (
     <GestureDetector gesture={hold}>
       <View
         ref={ref}
         collapsable={false}
-        style={[style, enabled && reaction !== null && { marginTop: BADGE_ROOM }, lifted && styles.lifted]}
+        style={[style, reacted && { marginBottom: reactionRoom(bare) }, lifted && styles.lifted]}
         {...(grouped
           ? {
               accessible: true,
-              accessibilityLabel: reaction === null ? accessibilityLabel : `${accessibilityLabel}. Your reaction, ${reaction}`,
+              accessibilityLabel: [accessibilityLabel, ...spoken].join(". "),
               accessibilityActions: [{ name: "react", label: "React" }],
               onAccessibilityAction: (event: AccessibilityActionEvent) => {
                 if (event.nativeEvent.actionName === "react") open();
@@ -85,9 +86,7 @@ export function ReactableBubble({ children, style, side, reaction, enabled, lift
           : {})}
       >
         {children}
-        {enabled && reaction !== null && (
-          <ReactionBadge emoji={reaction} corner={side === "left" ? "right" : "left"} ring={ring} onPress={open} reducedMotion={reducedMotion} />
-        )}
+        {reacted && <ReactionBadges reactions={reactions} bare={bare} ring={ring} onPress={open} reducedMotion={reducedMotion} />}
         {enabled && !grouped && (
           <Pressable accessibilityRole="button" accessibilityLabel="React to this message" onPress={open} style={styles.voiceOverOnly} />
         )}

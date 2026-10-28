@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { QUICK_REACTIONS, ReactionEmoji } from "@relay/protocol";
-import { bubbleReactionKey, MORE_REACTIONS, reactableRole, withReaction } from "./reactions";
+import { bubbleReactionKey, bubbleReactions, MORE_REACTIONS, reactableRole, withReaction } from "./reactions";
 
 describe("MORE_REACTIONS", () => {
   const all = MORE_REACTIONS.flatMap((section) => section.emoji);
@@ -37,17 +37,38 @@ describe("bubbleReactionKey", () => {
 });
 
 describe("withReaction", () => {
-  const base = { "user@1": { emoji: "❤️", excerpt: "hi", at: 1 } };
+  const heart = { emoji: "❤️", excerpt: "hi", at: 1 };
+  const base = { "user@1": { isaac: heart } };
 
-  it("sets, replaces and clears without touching the input", () => {
-    expect(withReaction(base, "assistant@2", "👍", "ok", 5)).toEqual({ ...base, "assistant@2": { emoji: "👍", excerpt: "ok", at: 5 } });
-    expect(withReaction(base, "user@1", "😂", "hi", 6)).toEqual({ "user@1": { emoji: "😂", excerpt: "hi", at: 6 } });
-    expect(withReaction(base, "user@1", null, "hi", 7)).toEqual({});
-    expect(base).toEqual({ "user@1": { emoji: "❤️", excerpt: "hi", at: 1 } });
+  it("sets, replaces and clears Isaac's slot without touching the input", () => {
+    expect(withReaction(base, "assistant@2", "isaac", "👍", "ok", 5)).toEqual({ ...base, "assistant@2": { isaac: { emoji: "👍", excerpt: "ok", at: 5 } } });
+    expect(withReaction(base, "user@1", "isaac", "😂", "hi", 6)).toEqual({ "user@1": { isaac: { emoji: "😂", excerpt: "hi", at: 6 } } });
+    expect(withReaction(base, "user@1", "isaac", null, "hi", 7)).toEqual({});
+    expect(base).toEqual({ "user@1": { isaac: heart } });
+  });
+
+  it("keeps an assistant's reaction on the bubble when Isaac's comes and goes", () => {
+    const both = withReaction({ "user@1": { nova: { emoji: "👍", excerpt: "hi", at: 2 } } }, "user@1", "isaac", "❤️", "hi", 3);
+    expect(both).toEqual({ "user@1": { nova: { emoji: "👍", excerpt: "hi", at: 2 }, isaac: { emoji: "❤️", excerpt: "hi", at: 3 } } });
+    expect(withReaction(both, "user@1", "isaac", null, "hi", 4)).toEqual({ "user@1": { nova: { emoji: "👍", excerpt: "hi", at: 2 } } });
   });
 
   it("returns the same object when nothing changes", () => {
-    expect(withReaction(base, "user@1", "❤️", "hi", 9)).toBe(base);
-    expect(withReaction(base, "user@3", null, "", 9)).toBe(base);
+    expect(withReaction(base, "user@1", "isaac", "❤️", "hi", 9)).toBe(base);
+    expect(withReaction(base, "user@3", "isaac", null, "", 9)).toBe(base);
+    expect(withReaction(base, "user@1", "nova", null, "", 9)).toBe(base);
+  });
+});
+
+describe("bubbleReactions", () => {
+  it("puts the assistants' first by when they reacted and Isaac's last, outermost", () => {
+    const at = (emoji: string, when: number) => ({ emoji, excerpt: "", at: when });
+    expect(bubbleReactions({ isaac: at("❤️", 1), nova: at("👍", 9), astra: at("😂", 5) })).toEqual([
+      { reactor: "astra", emoji: "😂" },
+      { reactor: "nova", emoji: "👍" },
+      { reactor: "isaac", emoji: "❤️" },
+    ]);
+    expect(bubbleReactions({ nova: at("👍", 1) })).toEqual([{ reactor: "nova", emoji: "👍" }]);
+    expect(bubbleReactions(undefined)).toEqual([]);
   });
 });

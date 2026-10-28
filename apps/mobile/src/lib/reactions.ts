@@ -4,7 +4,7 @@
  * only once the host has them: a phone-side echo or pending turn carries the phone's clock, not
  * omp's timestamp, so its key would match nothing on the host or on Relay desktop.
  */
-import { reactionKey, type Reaction } from "@relay/protocol";
+import { ISAAC_REACTOR, reactionKey, type Reaction, type ThreadReactions } from "@relay/protocol";
 
 export type ReactableRole = "user" | "assistant";
 
@@ -43,21 +43,51 @@ export function bubbleReactionKey(message: { readonly role: string; readonly at:
   return role === null ? null : reactionKey(role, message.at);
 }
 
-/** `reactions` with `key` set to `emoji` (or cleared for null), as a new object; the same object when nothing changes. */
+/**
+ * `reactions` with `reactor`'s reaction on bubble `key` set to `emoji` (or cleared for null, and
+ * the bubble dropped once nobody's reaction is left), as a new object; the same object when
+ * nothing changes.
+ */
 export function withReaction(
-  reactions: Readonly<Record<string, Reaction>>,
+  reactions: Readonly<ThreadReactions>,
   key: string,
+  reactor: string,
   emoji: string | null,
   excerpt: string,
   at: number,
-): Record<string, Reaction> {
+): ThreadReactions {
+  const bubble = reactions[key];
   if (emoji === null) {
-    if (!(key in reactions)) return reactions;
+    if (bubble === undefined || !(reactor in bubble)) return reactions;
+    const left = { ...bubble };
+    // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- a record keyed by reactor
+    delete left[reactor];
+    if (Object.keys(left).length > 0) return { ...reactions, [key]: left };
     const next = { ...reactions };
     // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- a record keyed by reaction key
     delete next[key];
     return next;
   }
-  if (reactions[key]?.emoji === emoji) return reactions;
-  return { ...reactions, [key]: { emoji, excerpt, at } };
+  if (bubble?.[reactor]?.emoji === emoji) return reactions;
+  return { ...reactions, [key]: { ...bubble, [reactor]: { emoji, excerpt, at } } };
+}
+
+/** One badge on a bubble: who reacted and with what. */
+export interface BubbleReaction {
+  reactor: string;
+  emoji: string;
+}
+
+/**
+ * A bubble's badges in the order they sit, left to right: the assistants' by when they reacted,
+ * then Isaac's last, so his is outermost on the bubble's corner.
+ */
+export function bubbleReactions(byReactor: Readonly<Record<string, Reaction>> | undefined): BubbleReaction[] {
+  if (byReactor === undefined) return [];
+  const agents = Object.entries(byReactor)
+    .filter(([reactor]) => reactor !== ISAAC_REACTOR)
+    .sort(([a, first], [b, second]) => first.at - second.at || a.localeCompare(b))
+    .map(([reactor, reaction]) => ({ reactor, emoji: reaction.emoji }));
+  const isaac = byReactor[ISAAC_REACTOR];
+  return isaac === undefined ? agents : [...agents, { reactor: ISAAC_REACTOR, emoji: isaac.emoji }];
 }

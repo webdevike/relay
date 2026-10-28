@@ -3,7 +3,8 @@
  * and a regular session alike). `BubbleMenuProvider` wraps the screen: it follows the thread's
  * reactions while mounted (`watchReactions`), and draws the `BubbleContextOverlay` over everything
  * plus the "more" emoji sheet and the Select Text sheet. Each user or assistant bubble renders
- * inside a `ChatBubble`, which makes it a `ReactableBubble` with its badge.
+ * inside a `ChatBubble`, which makes it a `ReactableBubble` with its badges: Isaac's and any
+ * assistant's that reacted (named and drawn from the assistants registry).
  *
  * Tapping an emoji toggles it (`toggleReaction`: the same one takes it back) with a selection
  * haptic and sends it (`react`); offline nothing changes and a warning haptic says so. Reply hands
@@ -13,17 +14,21 @@
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Keyboard, Share, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
-import { toggleReaction, untagged } from "@relay/protocol";
+import { ISAAC_REACTOR, toggleReaction, untagged } from "@relay/protocol";
 import { react, watchReactions } from "@/connection";
-import { useBubbleReaction, useReactionsStore } from "@/state/reactions";
+import { useAssistantStore } from "@/state/assistant";
+import { useBubbleReaction, useBubbleReactions, useReactionsStore } from "@/state/reactions";
 import type { Rect } from "@/lib/bubbleMenu";
 import { copyText } from "@/lib/clipboard";
 import { notifyHaptic, selectHaptic, tapHaptic } from "@/lib/haptics";
+import { portraitOf } from "@/lib/portrait";
+import { bubbleReactions } from "@/lib/reactions";
 import { warn } from "@/connection/log";
 import { BubbleContextOverlay } from "@/ui/BubbleContextOverlay";
 import { EmojiPickerSheet } from "@/ui/EmojiPickerSheet";
 import type { MessageMenuAction } from "@/ui/MessageMenu";
 import { ReactableBubble } from "@/ui/ReactableBubble";
+import type { BadgeReaction } from "@/ui/ReactionBadge";
 import { SelectTextSheet } from "@/ui/SelectTextSheet";
 
 /** A card drawn behind a lifted reply that has no bubble of its own. */
@@ -70,7 +75,7 @@ export function BubbleMenuProvider({ thread, onReply, children }: BubbleMenuProv
   const choose = useCallback(
     (key: string, text: string, emoji: string) => {
       if (thread === null) return;
-      const had = useReactionsStore.getState().threads[thread]?.[key]?.emoji ?? null;
+      const had = useReactionsStore.getState().threads[thread]?.[key]?.[ISAAC_REACTOR]?.emoji ?? null;
       if (react(thread, key, toggleReaction(had, emoji), text)) selectHaptic();
       else notifyHaptic("warning");
     },
@@ -193,11 +198,11 @@ export interface ChatBubbleProps {
   text: string;
   /** The bubble's layout (alignSelf, maxWidth); its look stays on the child. */
   style?: StyleProp<ViewStyle>;
-  /** The bubble's corner radius. */
+  /** The bubble's corner radius; 0 for a reply without a bubble of its own, whose badges sit just under it. */
   radius: number;
   /** A card behind the lifted copy, for a reply without a bubble of its own. */
   card?: LiftCard | undefined;
-  /** The page colour around the bubble (the badge's ring). */
+  /** The page colour around the bubble (the badges' ring). */
   ring: string;
   /** One VoiceOver element with this label; omit when the bubble holds links or controls. */
   accessibilityLabel?: string | undefined;
@@ -208,13 +213,23 @@ export interface ChatBubbleProps {
 export function ChatBubble({ messageKey, side, text, style, radius, card, ring, accessibilityLabel, children }: ChatBubbleProps) {
   const context = useContext(BubbleMenuContext);
   const thread = context?.thread ?? null;
-  const reaction = useBubbleReaction(thread, messageKey);
+  const byReactor = useBubbleReactions(thread, messageKey);
+  const agents = useAssistantStore((state) => state.agents);
+  const reactions = useMemo<BadgeReaction[]>(
+    () =>
+      bubbleReactions(byReactor).map(({ reactor, emoji }) => {
+        if (reactor === ISAAC_REACTOR) return { reactor, emoji, title: null, portrait: null };
+        const entry = agents?.find((agent) => agent.id === reactor);
+        return { reactor, emoji, title: entry?.title ?? reactor, portrait: entry === undefined ? null : portraitOf(entry) };
+      }),
+    [byReactor, agents],
+  );
   const enabled = context !== null && thread !== null && messageKey !== null;
   return (
     <ReactableBubble
       style={style}
-      side={side}
-      reaction={reaction}
+      reactions={reactions}
+      bare={radius === 0}
       enabled={enabled}
       lifted={enabled && context.openKey === messageKey}
       ring={ring}
