@@ -186,8 +186,9 @@ export function ChatPane() {
         ) : (
           <h2 className="eva-heading eva-chat-title">New chat</h2>
         )}
-        {/* An assistant's page has the main header, which carries the button already. */}
-        {agent === null ? <ContextButton /> : null}
+        {/* This header is the page's whenever the pane shows (a chat, an agent's thread; MainCard
+            drops MainHeader then); otherwise the pane is hidden and MainHeader has the button. */}
+        {place.page === 'chat' || thread !== null ? <ContextButton /> : null}
         <Tooltip label={panelOpen ? 'Close panel' : 'Open panel'} position="bottom">
           <ActionIcon
             variant="subtle"

@@ -40,15 +40,25 @@ export function queryFor(place: Place, scope: ContextScope, open: boolean): Cont
   return { file, agent, scope, open }
 }
 
-let seq = 0
+/** The newest ask; an older one answers with its result, since the place may have moved on. */
+let latest: Promise<ContextSnapshot | null> = Promise.resolve(null)
+
+/** Asks main for a snapshot of what is in front now; null only when the newest ask failed. */
 export async function refreshContext(): Promise<ContextSnapshot | null> {
-  const mine = ++seq
   const { scope, open } = contextStore.getState()
-  const r = await invoke('context.get', queryFor(activePlace(tabsStore.getState()), scope, open))
-  // A newer ask (the place moved on) wins over this answer.
-  if (mine !== seq || !r.ok) return null
-  contextStore.setState({ snapshot: r.value })
-  return r.value
+  const ask = invoke('context.get', queryFor(activePlace(tabsStore.getState()), scope, open)).then(
+    (r) => {
+      if (ask !== latest) return null
+      if (r.ok) contextStore.setState({ snapshot: r.value })
+      return r.ok ? r.value : null
+    },
+  )
+  latest = ask
+  // A newer ask started while this one ran: wait for it, its answer is the one that counts.
+  for (let waiting: Promise<ContextSnapshot | null> = ask; ; waiting = latest) {
+    const value = await waiting
+    if (waiting === latest) return value
+  }
 }
 
 export function setContextOpen(open: boolean): void {

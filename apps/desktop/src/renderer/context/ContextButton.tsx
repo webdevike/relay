@@ -191,11 +191,7 @@ function Row({
       />
       <span className="eva-ctx-text">
         {/* Long values truncate; the full text is one hover away. */}
-        <span
-          className="eva-ctx-title"
-          data-mono={row.mono ? 'true' : undefined}
-          title={row.title}
-        >
+        <span className="eva-ctx-title" data-mono={row.mono ? 'true' : undefined} title={row.title}>
           {row.title}
         </span>
         {row.sub ? (
