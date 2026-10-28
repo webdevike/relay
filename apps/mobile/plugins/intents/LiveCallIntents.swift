@@ -2,15 +2,16 @@
 // starts a live call with that assistant, from the lock screen too; pressing again ends it.
 // Copied into the app target by plugins/withLiveCallIntents.js (source of truth: plugins/intents/).
 //
-// AudioRecordingIntent lets them run in the background and keep the microphone, as long as the
-// call shows a Live Activity, which LiveCallEngine starts before anything else. When the live call
-// cannot go live (no GPT-Live on the host, host unreachable) the engine leaves a pending fallback
-// and the intent asks to continue in Relay, whose JS then starts the regular call.
+// AudioRecordingIntent lets them keep the microphone in the background as long as the call shows a
+// Live Activity, which LiveCallEngine starts before anything else; LiveActivityIntent is what lets
+// that Live Activity start while Relay is not in the foreground (Shortcuts, Spotlight, Siri).
+// When the live call cannot go live (no GPT-Live on the host, host unreachable) the engine leaves
+// a pending fallback and the intent asks to continue in Relay, whose JS then starts the regular call.
 
 import AppIntents
 import LiveCall
 
-struct TalkToNovaIntent: AudioRecordingIntent, ForegroundContinuableIntent {
+struct TalkToNovaIntent: AudioRecordingIntent, LiveActivityIntent, ForegroundContinuableIntent {
   static let title: LocalizedStringResource = "Talk to Nova"
   static let description = IntentDescription("Starts a live voice conversation with Nova, or ends the one running.")
 
@@ -21,7 +22,7 @@ struct TalkToNovaIntent: AudioRecordingIntent, ForegroundContinuableIntent {
   }
 }
 
-struct TalkToAstraIntent: AudioRecordingIntent, ForegroundContinuableIntent {
+struct TalkToAstraIntent: AudioRecordingIntent, LiveActivityIntent, ForegroundContinuableIntent {
   static let title: LocalizedStringResource = "Talk to Astra"
   static let description = IntentDescription("Starts a live voice conversation with Astra, or ends the one running.")
 
@@ -62,9 +63,15 @@ private func talk(to agent: String, from intent: some ForegroundContinuableInten
   case .live, .ended:
     return
   case .fallback:
-    // The pending fallback is stored; Relay starts the regular call once it is open.
+    // The pending fallback is stored; Relay starts the regular call once it is open. Declined,
+    // it must not start one the next time Relay happens to open.
     let name = LiveCallEngine.displayName(of: agent)
-    throw intent.needsToContinueInForegroundError(IntentDialog("Live calls aren't available right now. Open Relay to call \(name)?"))
+    do {
+      try await intent.requestToContinueInForeground(IntentDialog("Live calls aren't available right now. Open Relay to call \(name)?")) {}
+    } catch {
+      LiveCallEngine.shared.discardPendingFallback()
+      throw error
+    }
   case .failed(let message):
     throw LiveCallIntentError(message: message)
   }

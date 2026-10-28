@@ -157,6 +157,11 @@ public final class LiveCallEngine {
     LiveCallHostStore.save(hosts)
   }
 
+  /// Drops the pending fallback (the person declined to open Relay for the legacy call).
+  public func discardPendingFallback() {
+    LiveCallPendingFallback.clear()
+  }
+
   /// Whether a call is running (with `agent`, when given) and not already ending.
   public func isActive(agent: String? = nil) -> Bool {
     guard let run, !run.ending else { return false }

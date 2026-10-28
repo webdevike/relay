@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { Appearance } from "react-native";
-import { Stack } from "expo-router";
+import { Stack, useNavigationContainerRef } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
@@ -22,10 +22,16 @@ export default function RootLayout() {
   useEffect(() => {
     Appearance.setColorScheme(appearance === "system" ? null : appearance);
   }, [appearance]);
-  // Live calls run natively (the Action Button starts them with no JS); follow them once mounted.
+  // Live calls run natively (the Action Button starts them with no JS). Followed once navigation is
+  // ready: a pending fallback opens the assistant's thread, and expo-router refuses to navigate earlier.
+  const navigation = useNavigationContainerRef();
   useEffect(() => {
-    followLiveCalls();
-  }, []);
+    if (navigation.isReady()) {
+      followLiveCalls();
+      return;
+    }
+    return navigation.addListener("ready", followLiveCalls);
+  }, [navigation]);
   const colors = useColors();
   const scheme = useScheme();
   return (
