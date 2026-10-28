@@ -7,12 +7,14 @@ import { makeChatFixture, type ChatFixture } from './helpers/chat-fixture'
 import { FakeRelayHost, type HostSession } from './helpers/fake-relay-host'
 import { EVA_FIXTURE_ROOT } from './helpers/paths'
 
-// An assistant's portrait moves with its thread (@relay/portrait-motion): the start card greets,
-// thinks once Start is on its way, and the crumb, tab and sidebar portraits work, talk, finish,
-// ask and fail as the thread does. A fake Relay host on a real WebSocket lists the thread and
-// streams its reply; the thread file is written like omp writes it. Tests run with motion off, so
-// the states are asserted from `data-state`. EVAOS_MOTION_PROOF=<dir> turns motion on, records the
-// run as JPEG screencast frames in <dir>/frames and samples the app's CPU into <dir>/cpu.json.
+// An assistant's portrait moves calmly with its thread (@relay/portrait-motion): the start card
+// rests at Idle, thinks once its turn runs, researches while Relay hears a search and works while a
+// command runs; a streaming reply is still Thinking, and needing Isaac or failing is only the
+// status dot (orange, red) on a resting face. A fake Relay host on a real WebSocket lists the
+// thread and streams its reply; the thread file is written like omp writes it. Tests run with
+// motion off, so states are asserted from `data-state` and `data-dot`. EVAOS_MOTION_PROOF=<dir>
+// turns motion on, records the start card through Researching as JPEG screencast frames in
+// <dir>/frames and samples the app's CPU into <dir>/cpu.json.
 const PROOF = process.env.EVAOS_MOTION_PROOF ?? ''
 
 const NOVA = {
@@ -80,7 +82,7 @@ const NOVA_THREAD: HostSession = {
   title: 'Nova',
 }
 
-test("an assistant's portrait greets, thinks, works, talks, finishes, asks and fails with its thread", async ({
+test("an assistant's portrait thinks, researches and works with its thread; asks and failures are its dot", async ({
   app,
   shell,
 }) => {
@@ -91,23 +93,37 @@ test("an assistant's portrait greets, thinks, works, talks, finishes, asks and f
   if (cpu) await measureCard(app, shell, cpu)
 
   const stopRecording = PROOF ? await record(shell) : null
-  // 1. The start card greets as the page opens, then rests.
+  // 1. The start card rests at Idle, no dot.
   await shell.locator(sel('sidebar-agent-nova')).click()
   const card = shell.locator(`${sel('agent-start-nova')} ${sel('agent-portrait-nova')}`)
   const side = shell.locator(sel('sidebar-portrait-nova'))
-  await expect(card).toHaveAttribute('data-state', 'hello')
-  await expect(card).toHaveAttribute('data-state', 'idle', { timeout: 8_000 })
-  await hold(shell, 1_000)
+  await expect(card).toHaveAttribute('data-state', 'idle')
+  await expect(card).not.toHaveAttribute('data-dot')
+  await hold(shell, 1_500)
 
   // 2. Start goes through Relay and Relay lists the thread working: Thinking, the ring turning.
   await shell.locator(sel('start-nova')).click()
   await expect.poll(() => host.kinds()).toContain('assistant.turn')
   host.upsert(NOVA_THREAD)
   await expect(card).toHaveAttribute('data-state', 'thinking')
+  await expect(card).toHaveAttribute('data-dot', 'accent')
   await expect(side).toHaveAttribute('data-ring', 'true')
-  await hold(shell, 3_000)
+  await hold(shell, 2_000)
 
-  // 3. omp writes the thread and runs a tool: the page is the conversation, and Nova works.
+  // 3. Relay hears a web search: Researching, the magnifier on the card, the ring on the rest.
+  host.upsert({ ...NOVA_THREAD, statusDetail: 'web_search' })
+  await expect(card).toHaveAttribute('data-state', 'researching')
+  await expect(side).toHaveAttribute('data-state', 'researching')
+  await expect(side).toHaveAttribute('data-ring', 'true')
+  await hold(shell, 6_000)
+
+  // 4. Then a command: Working.
+  host.upsert({ ...NOVA_THREAD, statusDetail: 'bash' })
+  await expect(card).toHaveAttribute('data-state', 'working')
+  await hold(shell, 2_500)
+  await stopRecording?.()
+
+  // 5. omp writes the thread: the page is the conversation, its tool returned, Nova thinks.
   const file = path.join(fx.sessionsDir, '2026-10-27T20-00-00-000Z_nova-1.jsonl')
   fs.writeFileSync(
     file,
@@ -135,47 +151,38 @@ test("an assistant's portrait greets, thinks, works, talks, finishes, asks and f
             {
               type: 'toolCall',
               id: 'call-1',
-              name: 'read',
-              arguments: { path: 'memory/todos.md' },
+              name: 'web_search',
+              arguments: { query: 'dentist hours' },
             },
           ],
         },
       }),
+      line({
+        type: 'message',
+        id: 'r1',
+        parentId: 'c1',
+        message: {
+          role: 'toolResult',
+          toolCallId: 'call-1',
+          toolName: 'web_search',
+          content: [{ type: 'text', text: 'Open until 5' }],
+        },
+      }),
     ].join('\n') + '\n',
   )
-  host.upsert(NOVA_THREAD)
+  host.upsert({ ...NOVA_THREAD, statusDetail: '' })
   const crumb = shell.locator(`${sel('agent-crumb')} ${sel('agent-portrait-nova')}`)
-  await expect(crumb).toHaveAttribute('data-state', 'working', { timeout: 10_000 })
-  await expect(crumb).toHaveAttribute('data-ring', 'true')
-  await hold(shell, 3_000)
+  await expect(shell.locator(sel('chat-log'))).toContainText('Hi Nova', { timeout: 10_000 })
+  await expect(crumb).toHaveAttribute('data-state', 'thinking')
 
-  // 4. The tool returns and the reply streams in: Talking.
-  await fx.append(
-    'nova-1',
-    line({
-      type: 'message',
-      id: 'r1',
-      parentId: 'c1',
-      message: {
-        role: 'toolResult',
-        toolCallId: 'call-1',
-        toolName: 'read',
-        content: [{ type: 'text', text: '3 open' }],
-      },
-    }),
-  )
+  // 6. The reply streams in: still Thinking.
   await expect.poll(() => host.subscribed('nova-1')).toBe(true)
-  const words =
-    'Hi Isaac! You have three open todos today, and the first one is due at noon.'.split(' ')
-  for (let i = 1; i <= words.length; i++) {
-    host.stream('nova-1', 'm1', words.slice(0, i).join(' '), true)
-    if (i === 2) await expect(crumb).toHaveAttribute('data-state', 'talking')
-    await hold(shell, 220)
-  }
-  await expect(crumb).toHaveAttribute('data-state', 'talking')
+  const answer = 'Hi Isaac! The dentist is open until 5 today.'
+  host.stream('nova-1', 'm1', 'Hi Isaac!', true)
+  await expect(shell.locator(sel('msg-relay-stream'))).toContainText('Hi Isaac!')
+  await expect(crumb).toHaveAttribute('data-state', 'thinking')
 
-  // 5. The turn ends well: Done for a moment, then Idle.
-  const answer = words.join(' ')
+  // 7. The turn ends: Idle, no dot.
   host.stream('nova-1', 'm1', answer, false)
   await fx.append(
     'nova-1',
@@ -188,11 +195,10 @@ test("an assistant's portrait greets, thinks, works, talks, finishes, asks and f
     }),
   )
   host.upsert({ ...NOVA_THREAD, status: 'idle' })
-  await expect(crumb).toHaveAttribute('data-state', 'done')
-  await expect(crumb).toHaveAttribute('data-state', 'idle', { timeout: 5_000 })
-  await hold(shell, 1_500)
+  await expect(crumb).toHaveAttribute('data-state', 'idle')
+  await expect(crumb).not.toHaveAttribute('data-dot')
 
-  // 6. omp's ask tool waits on Isaac (Relay still says working): Confused, an orange dot.
+  // 8. omp's ask tool waits on Isaac (Relay still says working): a resting face, an orange dot.
   host.upsert({ ...NOVA_THREAD, statusDetail: 'ask' })
   host.ask('nova-1', {
     id: 'k1',
@@ -204,16 +210,15 @@ test("an assistant's portrait greets, thinks, works, talks, finishes, asks and f
       },
     ],
   })
-  await expect(crumb).toHaveAttribute('data-state', 'confused')
   await expect(side).toHaveAttribute('data-dot', 'orange')
-  await hold(shell, 3_500)
+  await expect(side).toHaveAttribute('data-state', 'idle')
+  await expect(crumb).toHaveAttribute('data-dot', 'orange')
   await shell.locator(sel('pending-dialog')).getByRole('radio', { name: /Yes/ }).click()
   await expect(shell.locator(sel('pending-dialog'))).toHaveCount(0)
 
-  // 7. The next turn fails: Error, a red dot.
+  // 9. The next turn runs a command and fails: Working, then a resting face with a red dot.
   host.upsert({ ...NOVA_THREAD, statusDetail: 'bash' })
-  await expect(crumb).toHaveAttribute('data-state', 'thinking')
-  await hold(shell, 1_500)
+  await expect(crumb).toHaveAttribute('data-state', 'working')
   await fx.append(
     'nova-1',
     line({
@@ -229,17 +234,11 @@ test("an assistant's portrait greets, thinks, works, talks, finishes, asks and f
     }),
   )
   host.upsert({ ...NOVA_THREAD, status: 'idle' })
-  await expect(crumb).toHaveAttribute('data-state', 'error')
+  await expect(crumb).toHaveAttribute('data-dot', 'red')
+  await expect(crumb).toHaveAttribute('data-state', 'idle')
   await expect(side).toHaveAttribute('data-dot', 'red')
-  await hold(shell, 3_500)
-  await stopRecording?.()
   if (cpu) {
-    // Small portraits only: Nova's crumb, tab and sidebar row (Error: breathing, red dot), then
-    // Astra's sidebar ring turning too.
-    await cpu.motion(false)
-    await cpu.sample('chat page, small portraits, motion off')
-    await cpu.motion(true)
-    await cpu.sample('chat page, small portraits breathing, motion on')
+    // Small portraits only: Nova's crumb, tab and sidebar row breathing, Astra's sidebar ring turning.
     host.upsert({ id: 'astra-1', status: 'working', kind: 'assistant', assistant: 'astra' })
     await expect(shell.locator(sel('sidebar-portrait-astra'))).toHaveAttribute('data-ring', 'true')
     await cpu.sample('chat page, small portraits + a sidebar ring, motion on')
@@ -351,7 +350,7 @@ async function cpuSampler(app: ElectronApplication, shell: Page): Promise<CpuSam
   }
 }
 
-/** Astra's start card at rest with motion off and on, thinking (ring), and with the window hidden. */
+/** Astra's start card at rest with motion off and on, researching (ring, magnifier), and hidden. */
 async function measureCard(app: ElectronApplication, shell: Page, cpu: CpuSampler): Promise<void> {
   await shell.locator(sel('sidebar-agent-astra')).click()
   const card = shell.locator(`${sel('agent-start-astra')} ${sel('agent-portrait-astra')}`)
@@ -360,11 +359,17 @@ async function measureCard(app: ElectronApplication, shell: Page, cpu: CpuSample
   await cpu.sample('astra card idle, motion off')
   await cpu.motion(true)
   await cpu.sample('astra card idle, motion on')
-  host.upsert({ id: 'astra-1', status: 'working', kind: 'assistant', assistant: 'astra' })
-  await expect(card).toHaveAttribute('data-state', 'thinking')
-  await cpu.sample('astra card thinking (ring), motion on')
+  const astra: HostSession = {
+    id: 'astra-1',
+    status: 'working',
+    kind: 'assistant',
+    assistant: 'astra',
+  }
+  host.upsert({ ...astra, statusDetail: 'web_search' })
+  await expect(card).toHaveAttribute('data-state', 'researching')
+  await cpu.sample('astra card researching (ring + magnifier), motion on')
   await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.hide())
-  await cpu.sample('astra card thinking, window hidden')
+  await cpu.sample('astra card researching, window hidden')
   await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.showInactive())
-  host.upsert({ id: 'astra-1', status: 'idle', kind: 'assistant', assistant: 'astra' })
+  host.upsert({ ...astra, status: 'idle', statusDetail: '' })
 }
