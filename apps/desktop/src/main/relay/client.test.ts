@@ -601,6 +601,8 @@ describe('remote pairing config', () => {
       paired: { id: '100.85.157.127:7817', secretHex: '03'.repeat(32) },
     })
     expect(Buffer.from(store.secret()!)).toEqual(Buffer.alloc(32, 3))
+    // The file holds the secret: owner read/write only.
+    expect(fs.statSync(path.join(config.dir, REMOTE_FILE)).mode & 0o777).toBe(0o600)
     // Another host is not paired by this one's secret.
     expect(remoteSecretStore(config, { host: 'mini', port: 7817 }).secret()).toBeNull()
     expect(remoteDeviceId('laptop')).toBe('relay-desktop-laptop')

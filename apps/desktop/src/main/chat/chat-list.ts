@@ -13,6 +13,7 @@ import { awayOf } from '../relay/away'
 import type { RelaySession } from '../relay/feed'
 import { ChatOrder, DAY_MS, type Look, type Phase } from './chat-order'
 import { SessionScanner, type ReadFrom, type SessionFacts } from './session-scan'
+import { remoteSessionsDir } from './remote-sessions'
 import { WorkLedgers, gitBranch, keepsWorktree } from './work-line'
 
 export const LIST_ERROR =
@@ -21,12 +22,14 @@ export const LIST_ERROR =
 const CHAT_FILE = 'chat.json'
 
 /**
- * The sessions dirs the chat list spans. Live: the app's own dir first, then every omp store's
- * dir for the Eva root (native sessions_dirs), each once. Fixtures and e2e: the fixture dir only.
+ * The sessions dirs the chat list spans. With a remote Relay Host: the mirror of the host's
+ * sessions only. Live: the app's own dir first, then every omp store's dir for the Eva root
+ * (native sessions_dirs), each once. Fixtures and e2e: the fixture dir only.
  */
 export function chatSessionsDirs(
-  env: Pick<Env, 'live' | 'sessionsDir' | 'evaRoot' | 'agentDir'>,
+  env: Pick<Env, 'live' | 'sessionsDir' | 'evaRoot' | 'agentDir' | 'relayRemote' | 'configDir'>,
 ): string[] {
+  if (env.relayRemote) return [remoteSessionsDir(env.configDir)]
   if (!env.live) return [env.sessionsDir]
   const real = (p: string): string => {
     try {

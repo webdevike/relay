@@ -105,6 +105,13 @@ export interface RelayLink extends RelaySource {
   onBoardsChange(cb: () => void): () => void
 }
 
+/** Raw frames of an authenticated connection (the remote session mirror's requests and answers). */
+export interface RelayFrames {
+  onFrame(cb: (frame: Record<string, unknown>) => void): () => void
+  /** Sends `frame` on an authenticated connection; false while there is none. */
+  sendFrame(frame: Record<string, unknown>): boolean
+}
+
 /**
  * Tapbacks on chat bubbles: the threads the app shows, as the host's snapshots have them. Sending
  * is fire and forget; the host pushes the thread's new snapshot to every device, this one too.
@@ -249,7 +256,9 @@ interface Pending {
 }
 
 /** Keeps a connection to Relay up while started; `sessions()` is null whenever it is down. */
-export class RelayClient implements RelayLink, RelayReactions, RelayArtifacts, RelayCanvas {
+export class RelayClient
+  implements RelayLink, RelayReactions, RelayArtifacts, RelayCanvas, RelayFrames
+{
   private readonly dial: Dial
   private readonly secret: (configDir: string) => Uint8Array
   private readonly retryMs: number
@@ -257,6 +266,7 @@ export class RelayClient implements RelayLink, RelayReactions, RelayArtifacts, R
   private readonly commandTimeoutMs: number
   private readonly now: () => number
   private readonly listeners = new Set<() => void>()
+  private readonly frameListeners = new Set<(frame: Record<string, unknown>) => void>()
   private readonly boardListeners = new Set<() => void>()
   private readonly eventListeners = new Set<(e: RelaySessionEvent) => void>()
   private readonly subscriptions = new Set<string>()
@@ -330,6 +340,17 @@ export class RelayClient implements RelayLink, RelayReactions, RelayArtifacts, R
   onChange(cb: () => void): () => void {
     this.listeners.add(cb)
     return () => this.listeners.delete(cb)
+  }
+
+  onFrame(cb: (frame: Record<string, unknown>) => void): () => void {
+    this.frameListeners.add(cb)
+    return () => this.frameListeners.delete(cb)
+  }
+
+  sendFrame(frame: Record<string, unknown>): boolean {
+    if (!this.feed?.authenticated) return false
+    this.send(frame)
+    return true
   }
 
   onEvent(cb: (e: RelaySessionEvent) => void): () => void {
@@ -559,6 +580,9 @@ export class RelayClient implements RelayLink, RelayReactions, RelayArtifacts, R
       for (const thread of this.reactionThreads) this.send(reactionsGetFrame(thread))
       for (const thread of this.artifactWatch) this.send(artifactsGetFrame(thread))
     }
+    if (feed.authenticated && typeof frame === 'object' && frame !== null) {
+      for (const cb of this.frameListeners) cb(frame as Record<string, unknown>)
+    }
     for (const event of out.events) {
       switch (event.kind) {
         case 'sessions':
@@ -707,7 +731,9 @@ export class RelayClient implements RelayLink, RelayReactions, RelayArtifacts, R
 }
 
 /** A Relay that is never connected: fixtures and e2e, unless a test sets sessions. */
-export class StaticRelay implements RelayLink, RelayReactions, RelayArtifacts, RelayCanvas {
+export class StaticRelay
+  implements RelayLink, RelayReactions, RelayArtifacts, RelayCanvas, RelayFrames
+{
   private list: ReadonlyMap<string, RelaySession> | null = null
   private readonly listeners = new Set<() => void>()
   private readonly artifactMap = new Map<string, ArtifactsSnapshot>()
@@ -724,6 +750,15 @@ export class StaticRelay implements RelayLink, RelayReactions, RelayArtifacts, R
 
   onEvent(): () => void {
     return () => undefined
+  }
+
+  /** Never connected: no frames are heard nor sent. */
+  onFrame(): () => void {
+    return () => undefined
+  }
+
+  sendFrame(): boolean {
+    return false
   }
 
   /** Never connected, so never any boards. */

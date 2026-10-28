@@ -6,7 +6,8 @@ export interface ConfigStore {
   readJson<T>(name: string, fallback: T): T
   /** File text, or null only when the file does not exist. */
   readText(name: string): string | null
-  writeJson(name: string, value: unknown): void
+  /** `mode` (e.g. 0o600 for a secret) applies to the written file; default is the umask's. */
+  writeJson(name: string, value: unknown, mode?: number): void
   /**
    * Existing object to merge into before a write. Missing file gives {}. Unreadable (EACCES, EIO)
    * throws so the writer aborts. Unparseable or non-object content is copied to `<name>.bad`
@@ -62,10 +63,11 @@ export function createConfigStore(configDir: string): ConfigStore {
       fs.writeFileSync(`${file}.bad`, text)
       return {}
     },
-    writeJson(name: string, value: unknown): void {
+    writeJson(name: string, value: unknown, mode?: number): void {
       checkName(name)
       const tmp = path.join(configDir, `.${name}.${process.pid}.tmp`)
       fs.writeFileSync(tmp, JSON.stringify(value, null, 2))
+      if (mode !== undefined) fs.chmodSync(tmp, mode)
       fs.renameSync(tmp, path.join(configDir, name))
     },
   }

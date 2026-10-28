@@ -8,6 +8,7 @@ import {
   StaticRelay,
   type RelayArtifacts,
   type RelayCanvas,
+  type RelayFrames,
   type RelayLink,
   type RelayReactions,
   type RemoteHost,
@@ -27,7 +28,7 @@ const PIN_WAIT_MS = 120_000
  */
 export function startRelay(
   ctx: MainContext,
-): RelayLink & RelayReactions & RelayArtifacts & RelayCanvas {
+): RelayLink & RelayReactions & RelayArtifacts & RelayCanvas & RelayFrames {
   const remote = ctx.env.relayRemote
   if (remote !== null || ctx.env.relayDir !== null) {
     const client = new RelayClient({

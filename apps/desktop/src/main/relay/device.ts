@@ -93,7 +93,8 @@ export function remoteSecretStore(config: ConfigStore, remote: RelayRemote) {
     },
     save(secret: Uint8Array): void {
       const paired = { id, secretHex: Buffer.from(secret).toString('hex') }
-      config.writeJson(REMOTE_FILE, { ...config.readForMerge(REMOTE_FILE), paired })
+      // The file holds the pairing secret: owner-only, like Relay's own devices.json.
+      config.writeJson(REMOTE_FILE, { ...config.readForMerge(REMOTE_FILE), paired }, 0o600)
     },
   }
 }

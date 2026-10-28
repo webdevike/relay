@@ -14,6 +14,7 @@ import type { RelayArtifacts, RelayCanvas, RelaySource } from '../relay/client'
 import type { WriteQueue } from '../write-queue'
 import { AUTO_SETTLE_DAYS } from './chat-order'
 import { ChatListService, chatSessionsDirs } from './chat-list'
+import { RemoteSessions } from './remote-sessions'
 import { importNativeChatState, nativeConfigDir } from './native-import'
 import { ChatWatch } from './chat-watch'
 import { ExtrasService } from './extras'
@@ -50,8 +51,13 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
   // Before the manager: a chat omp runs elsewhere is driven through Relay.
   const relay = startRelay(ctx)
   const manager = createSessionManager(ctx, relay)
-  // Resolved once at launch: every omp store's sessions dir for the Eva root (fixture dir when not live).
+  // Resolved once at launch: every omp store's sessions dir for the Eva root (fixture dir when not
+  // live), or the mirror of a remote host's sessions.
   const sessionsDirs = chatSessionsDirs(ctx.env)
+  // A remote host's chats are mirrored as files (re-listed and tailed on every connection).
+  const remote = ctx.env.relayRemote ? new RemoteSessions(relay, sessionsDirs[0] as string) : null
+  remote?.start()
+  ctx.onBeforeQuit(async () => remote?.stop())
   const extras = new ExtrasService({ manager, emit: (e) => emit(ctx, 'chat.extras', e) })
   registerTranscriptIpc(
     ctx,
@@ -63,6 +69,7 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
       extras.refresh(paneId)
     },
     (file) => manager.ownerOf(file),
+    remote,
   )
   registerLiveIpc(ctx, manager)
   // Before the list loads its order: a fresh live config starts from the native app's history.

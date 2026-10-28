@@ -4,7 +4,8 @@ import { parseSession, type ParsedSession } from '@evaos/chat-core/session'
 import { listSessionFiles } from '@evaos/chat-core/sessions-dir'
 import type { MainContext } from '../context'
 import { handle } from '../ipc/handle'
-import { blobAgentDirs, readBlobImage } from './media'
+import { blobAgentDirs, MediaError, readBlobImage } from './media'
+import type { RemoteSessions } from './remote-sessions'
 
 class CodedError extends Error {
   constructor(
@@ -81,16 +82,27 @@ export function registerTranscriptIpc(
   sessionsDirs: readonly string[],
   onOpened?: (paneId: string, file: string, parsed: ParsedSession) => void,
   ownerOf?: (file: string) => string | null,
+  /** The remote host's mirror: a chat is fetched in full on open, a missing image on read. */
+  remote?: RemoteSessions | null,
 ): void {
   handle(ctx, 'chat.listSessions', () => ({ sessions: listSessionFiles(ctx.env.sessionsDir) }))
-  handle(ctx, 'chat.open', ({ paneId, file }) => {
+  handle(ctx, 'chat.open', async ({ paneId, file }) => {
+    await remote?.open(file)
     const real = resolveInsideSessionsDir(sessionsDirs, file)
     const parsed = parseSession(fs.readFileSync(real, 'utf8'))
     onOpened?.(paneId, real, parsed)
     return { ...parsed, owner: ownerOf?.(real) ?? null }
   })
   const agentDirs = blobAgentDirs(ctx.env.agentDir, sessionsDirs)
-  handle(ctx, 'chat.readImage', ({ token }) => readBlobImage(agentDirs, token))
+  handle(ctx, 'chat.readImage', async ({ token }) => {
+    try {
+      return readBlobImage(agentDirs, token)
+    } catch (e) {
+      if (!remote || !(e instanceof MediaError) || e.code !== 'image-not-found') throw e
+    }
+    await remote.blob(token.slice('blob:sha256:'.length))
+    return readBlobImage(agentDirs, token)
+  })
   handle(ctx, 'chat.readSubagent', ({ file }) => {
     const real = resolveSubagentTranscript(sessionsDirs, file)
     const { title, messages } = parseSession(fs.readFileSync(real, 'utf8'))
