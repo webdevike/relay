@@ -20,6 +20,8 @@ import {
   ReactionKeySchema,
   ReactionSchema,
   ReactionThreadSchema,
+  ReactorSchema,
+  type BubbleReactions,
   type ThreadReactions,
 } from '@evaos/chat-core/reactions'
 import {
@@ -269,12 +271,22 @@ const ReactionsSnapshotSchema = z.object({
   reactions: z.record(z.string(), z.unknown()).catch({}),
 })
 
-/** A thread's reactions as Relay sends them; an entry with a bad key or reaction is dropped. */
+/**
+ * A thread's reactions as Relay sends them (by reaction key, then reactor); a bad key, reactor or
+ * reaction is dropped, and a bubble left with none.
+ */
 export function parseReactions(value: Record<string, unknown>): ThreadReactions {
   const out: ThreadReactions = {}
   for (const [key, raw] of Object.entries(value)) {
-    const r = ReactionSchema.safeParse(raw)
-    if (r.success && ReactionKeySchema.safeParse(key).success) out[key] = r.data
+    if (!ReactionKeySchema.safeParse(key).success) continue
+    const byReactor = z.record(z.string(), z.unknown()).safeParse(raw)
+    if (!byReactor.success) continue
+    const bubble: BubbleReactions = {}
+    for (const [reactor, reaction] of Object.entries(byReactor.data)) {
+      const r = ReactionSchema.safeParse(reaction)
+      if (r.success && ReactorSchema.safeParse(reactor).success) bubble[reactor] = r.data
+    }
+    if (Object.keys(bubble).length > 0) out[key] = bubble
   }
   return out
 }
