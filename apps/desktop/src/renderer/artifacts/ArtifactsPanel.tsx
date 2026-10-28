@@ -300,7 +300,8 @@ function MediaView({
   now,
   onOpenMedia,
   placeholder,
-}: ViewProps & { placeholder: string }) {
+  ruled = false,
+}: ViewProps & { placeholder: string; ruled?: boolean }) {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<MediaFilter>('all')
   const pool =
@@ -327,6 +328,13 @@ function MediaView({
           query.trim() !== '' || filter !== 'all' ? (
             <Empty icon={<IconSearch size={20} stroke={1.5} />} title="Nothing matches">
               Try other words, or show all media.
+            </Empty>
+          ) : ruled ? (
+            <Empty
+              icon={<IconFilter size={20} stroke={1.5} />}
+              title="Nothing matches this rule yet"
+            >
+              It fills by itself as the thread brings in matching media.
             </Empty>
           ) : (
             <Empty icon={<IconPhoto size={20} stroke={1.5} />} title="No media yet">
@@ -485,7 +493,11 @@ function ListView(props: ViewProps) {
     return (
       <>
         {own ? <RuleHeader tab={tab} now={now} onEditRule={() => onEditRule(tab)} /> : null}
-        <MediaView {...props} placeholder={`Search ${tab.title.toLowerCase()}`} />
+        <MediaView
+          {...props}
+          ruled={own}
+          placeholder={`Search ${isDefaultTab(tab.id) ? tab.title.toLowerCase() : tab.title}`}
+        />
       </>
     )
   }
@@ -496,7 +508,7 @@ function ListView(props: ViewProps) {
       <SearchBar
         value={query}
         onChange={setQuery}
-        placeholder={`Search ${tab.title.toLowerCase()}`}
+        placeholder={`Search ${isDefaultTab(tab.id) ? tab.title.toLowerCase() : tab.title}`}
       />
       <div className="eva-art-scroll">
         {shown.length === 0 ? (
@@ -507,7 +519,7 @@ function ListView(props: ViewProps) {
           ) : own ? (
             <Empty
               icon={<IconFilter size={20} stroke={1.5} />}
-              title="Nothing matches this rule right now"
+              title="Nothing matches this rule yet"
             >
               It fills by itself as the thread brings in matching items.
             </Empty>
