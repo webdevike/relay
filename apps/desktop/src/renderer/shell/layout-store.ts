@@ -212,6 +212,27 @@ export function enterPanelScope(scope: string): void {
   })
 }
 
+/** What the panel showed, for putting it back exactly (Back to chat). */
+export interface PanelSnapshot {
+  open: boolean
+  view: PanelView
+}
+
+export function panelSnapshot(): PanelSnapshot {
+  const s = layoutStore.getState()
+  return { open: s.panelOpen, view: s.panelView }
+}
+
+/**
+ * Puts the panel back as `snap` saw it when `scope` is the one in front (a subagent's transcript
+ * included). Isaac's remembered choice for the scope is left as it was.
+ */
+export function restorePanel(scope: string, snap: PanelSnapshot): void {
+  if (layoutStore.getState().panelScope !== scope) return
+  panelPending = false
+  patch({ panelOpen: snap.open, panelView: snap.view })
+}
+
 /** A tab opened in the scope in front (a link, the + button, a page's window.open). */
 export function panelTabCreated(): void {
   const scope = layoutStore.getState().panelScope

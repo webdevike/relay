@@ -1,19 +1,32 @@
 import { Button } from '@mantine/core'
 import { IconPlus } from '@tabler/icons-react'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { placeOf, type Place } from '@evaos/shell-core'
 import { replaceActivePlace } from '../tabs/tabs-store'
 import { CanvasBoardView } from './CanvasBoard'
 import { canvasStore, newBoard, useCanvasList, useCanvasListSurface } from './canvas-store'
+import { LiveCanvasView } from './live/LiveCanvasView'
+import { liveRoomOn, useLiveRooms } from './live/live-store'
 import './canvas.css'
 
-/** The Canvas page: the tab's board, else the newest; an empty folder offers a new board. */
+/**
+ * The Canvas page: the tab's board, else the newest; an empty folder offers a new board. A board a
+ * live room holds shows the room instead, and keeps showing it (ended) until Isaac moves on.
+ */
 export function CanvasPage({ place }: { place: Place }) {
   useCanvasListSurface()
   const entries = useCanvasList((s) => s.entries)
   const error = useCanvasList((s) => s.error)
   const slug = place.canvas
   const newest = entries?.[0]?.slug ?? null
+  const liveId = useLiveRooms((s) =>
+    slug === null ? null : (liveRoomOn(s.data, slug)?.id ?? null),
+  )
+  // The room shown here: it stays after it ends, so the page can say so.
+  const [roomId, setRoomId] = useState<string | null>(liveId)
+  useEffect(() => {
+    if (liveId !== null) setRoomId(liveId)
+  }, [liveId])
 
   useEffect(() => {
     if (slug === null && newest !== null) replaceActivePlace(placeOf('canvas', { canvas: newest }))
@@ -23,6 +36,10 @@ export function CanvasPage({ place }: { place: Place }) {
     if (slug !== null) canvasStore.setState({ shown: slug })
   }, [slug])
 
+  const shownRoom = liveId ?? roomId
+  if (slug !== null && shownRoom !== null) {
+    return <LiveCanvasView slug={slug} roomId={shownRoom} onBoard={() => setRoomId(null)} />
+  }
   if (slug !== null) return <CanvasBoardView slug={slug} />
   if (entries === null) {
     return (

@@ -13,6 +13,12 @@ import { MessageRow, ToolRunRow } from './MessageRow'
 import { Pills } from './Pills'
 import { pinReducer, type PinState } from './pin'
 import { chatStore, useChatStore } from './chat-store'
+import {
+  chatScrollOf,
+  rememberChatScroll,
+  takeChatScrollRequest,
+  type ChatScroll,
+} from './chat-scroll'
 import { startSettings, useSettings } from '../settings/settings-store'
 import { TypingDots } from '../ui/TypingDots'
 
@@ -50,20 +56,31 @@ function logItems(list: ChatMessage[], fold: boolean): LogItem[] {
   return out
 }
 
+/** Frames a restore keeps putting the log back while the list measures its rows. */
+const RESTORE_FRAMES = 20
+
 /**
  * Virtualized transcript. Follows the stream while pinned (within 24 px of the bottom), releases
  * on scroll-up without ever moving the scroll position, and re-pins on the pill or by scrolling
- * back down (CHAT-05, D-18). Scrolling is instant, never smooth.
+ * back down (CHAT-05, D-18). Scrolling is instant, never smooth. A chat opens at the end; one
+ * shown again after another page (or brought back by Back to chat) is where Isaac left it.
  */
 export function ChatLog({
   paneId,
   messages: all,
   file,
+  scrollFile = file,
+  shown = true,
   typing = null,
 }: {
   paneId: string
   messages: ChatMessage[]
+  /** The log's key: a new one opens at the end. */
   file: string
+  /** The session file the scroll position is remembered under. */
+  scrollFile?: string
+  /** The pane is on screen (it stays mounted, hidden, while another page shows). */
+  shown?: boolean
   /** An assistant thread's agent while it works: its three dots end the log until text streams. */
   typing?: string | null
 }) {
@@ -76,10 +93,10 @@ export function ChatLog({
   // Show tool details off folds each run of tool calls into one line (the Rust tool group).
   // Background turns answered "(nothing to report)" never show.
   const items = useMemo(() => {
-    const shown = dropQuietTurns(all)
-    const base = showThinking ? shown : shown.filter((m) => m.role !== 'thinking')
+    const kept = dropQuietTurns(all)
+    const base = showThinking ? kept : kept.filter((m) => m.role !== 'thinking')
     const out = logItems(base, !showTools)
-    const last = shown.at(-1)
+    const last = kept.at(-1)
     const streaming = last?.role === 'assistant' && last.streaming === true && last.text !== ''
     if (typing !== null && !streaming) out.push({ kind: 'typing', who: typing })
     return out
@@ -87,6 +104,9 @@ export function ChatLog({
   const ref = useRef<VListHandle>(null)
   const pin = useRef<PinState>({ pinned: true, newReply: false })
   const first = useRef(true)
+  /** The file and visibility the last layout pass handled. */
+  const seen = useRef<{ file: string | null; shown: boolean }>({ file: null, shown })
+  const restoring = useRef(0)
   const unpinned = useChatStore((s) => s.panes[paneId]?.unpinned ?? false)
   const newReply = useChatStore((s) => s.panes[paneId]?.newReply ?? false)
 
@@ -97,16 +117,52 @@ export function ChatLog({
     chatStore.getState().setPin(paneId, !next.pinned, next.newReply)
   }
   const toEnd = (): void => {
+    restoring.current += 1
     const last = items.length - 1
     if (last >= 0) ref.current?.scrollToIndex(last, { align: 'end' })
   }
+  /** The end when `s` followed it, else its offset, put back each frame until the rows measured. */
+  const applyScroll = (s: ChatScroll): void => {
+    if (s.pinned) {
+      dispatch({ type: 'jump' })
+      toEnd()
+      return
+    }
+    pin.current = { ...pin.current, pinned: false }
+    chatStore.getState().setPin(paneId, true, pin.current.newReply)
+    const token = ++restoring.current
+    let frames = 0
+    const step = (): void => {
+      const h = ref.current
+      if (token !== restoring.current || !h) return
+      h.scrollTo(s.offset)
+      frames += 1
+      if (Math.abs(h.scrollOffset - s.offset) > 1 && frames < RESTORE_FRAMES)
+        requestAnimationFrame(step)
+    }
+    step()
+  }
 
-  // Open at the end, once per opened file.
+  // A newly opened file starts at the end (or where a return asked); a pane shown again after
+  // another page goes back where it was.
   useLayoutEffect(() => {
-    dispatch({ type: 'jump' })
-    toEnd()
-    first.current = true
-  }, [file])
+    const prev = seen.current
+    seen.current = { file, shown }
+    if (prev.file !== file) {
+      const asked = takeChatScrollRequest(scrollFile)
+      if (asked) applyScroll(asked)
+      else {
+        dispatch({ type: 'jump' })
+        toEnd()
+      }
+      first.current = true
+      return
+    }
+    if (!shown || prev.shown) return
+    const back = takeChatScrollRequest(scrollFile) ?? chatScrollOf(scrollFile)
+    if (back) applyScroll(back)
+    else if (pin.current.pinned) toEnd()
+  }, [file, shown])
 
   // Follow the stream while pinned; while released only flag new output and never touch scroll.
   useLayoutEffect(() => {
@@ -127,8 +183,10 @@ export function ChatLog({
           style={{ height: '100%' }}
           onScroll={() => {
             const h = ref.current
-            if (!h) return
+            // Hidden, the list has no size: what it reports is not where Isaac left it.
+            if (!h || !seen.current.shown || h.viewportSize === 0) return
             dispatch({ type: 'scroll', gapPx: h.scrollSize - h.scrollOffset - h.viewportSize })
+            rememberChatScroll(scrollFile, { offset: h.scrollOffset, pinned: pin.current.pinned })
           }}
         >
           {(item) =>

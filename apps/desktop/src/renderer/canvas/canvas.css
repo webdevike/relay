@@ -54,6 +54,35 @@
   color: var(--eva-c-muted-foreground);
 }
 
+/* A board while a live room holds it: the Relay host's room page fills the page. */
+.eva-cv-live-frame {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  display: block;
+}
+.eva-cv-live-who {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  min-width: 0;
+}
+.eva-cv-live-with {
+  font-weight: var(--eva-fw-semibold);
+  white-space: nowrap;
+}
+.eva-cv-live-here {
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+  white-space: nowrap;
+}
+.eva-cv-live-actions {
+  display: flex;
+  gap: var(--mantine-spacing-sm);
+}
+
 /* React Flow chrome follows the theme in light and dark. */
 .eva-cv-flow {
   flex: 1;

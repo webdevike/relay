@@ -228,6 +228,8 @@ export function ChatPane() {
               messages={pane.messages}
               // A draft keeps its log key when omp names the file, so binding never jumps the scroll.
               file={pane.boundTo ? '' : pane.file}
+              scrollFile={pane.file}
+              shown={place.page === 'chat' || thread !== null}
               typing={typing}
             />
           </ReactionScope.Provider>

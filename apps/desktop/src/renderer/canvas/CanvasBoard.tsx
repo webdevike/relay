@@ -41,6 +41,7 @@ import {
   titleOf,
 } from './board-model'
 import { onBoardOp } from './canvas-store'
+import { liveRoomOn, liveStore } from './live/live-store'
 import { CanvasEdge } from './CanvasEdge'
 import { BoardContext, type BoardActions } from './context'
 import { BoardControls, NodeActions, ToolBar, type Tool } from './chrome'
@@ -186,6 +187,8 @@ function Board({ slug }: { slug: string }) {
   const saveNow = useCallback(async () => {
     timerRef.current = undefined
     if (goneRef.current || !syncedRef.current) return
+    // A live room on this board writes the file itself; the room's edits come back as a reload.
+    if (liveRoomOn(liveStore.getState().data, slug)) return
     const settling = autoRef.current !== null && !autoRef.current.quiet
     if (draggingRef.current || settling) {
       if (!unmountedRef.current)
@@ -781,7 +784,8 @@ function Board({ slug }: { slug: string }) {
             onNodeDragStart={dragStart}
             onNodeDragStop={dragStop}
             onNodeDoubleClick={(_e, node) => {
-              if (node.data.spec.type === 'image' && node.data.spec.data?.src) setLightboxId(node.id)
+              if (node.data.spec.type === 'image' && node.data.spec.data?.src)
+                setLightboxId(node.id)
             }}
             onSelectionDragStart={dragStart}
             onSelectionDragStop={dragStop}

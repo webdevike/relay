@@ -6,6 +6,7 @@ import { Markdown } from './markdown/Markdown'
 import { WidgetScope } from './widgets/actions'
 import { ToolBlock, ToolGroup } from './ToolRows'
 import { BubbleActions } from './reactions/BubbleActions'
+import { CanvasRow } from './CanvasRow'
 
 /** Thumbnails for a message's images; Enter or click opens the viewer on that image. */
 function Images({ images }: { images: ChatMessage['images'] }) {
@@ -73,6 +74,8 @@ function MessageRowImpl({ m }: { m: ChatMessage }) {
     body = <div className="eva-thinking">{m.text}</div>
   } else if (m.role === 'tool') {
     body = <ToolBlock m={m} images={imagesOf(m)} />
+  } else if (m.role === 'canvas' && m.canvas) {
+    body = <CanvasRow entry={m.canvas} />
   } else {
     body = <div className="eva-notice">{m.text}</div>
   }
