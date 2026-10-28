@@ -234,6 +234,11 @@ const list = z.array(z.unknown()).catch([])
 const text = z.string().catch('')
 const FrameSchema = z.looseObject({ t: z.string().catch('') })
 const ChallengeSchema = z.object({ nonce: z.string().catch('') })
+const PairFailedSchema = z.object({ reason: z.string().catch('unknown') })
+const PairOkSchema = z.object({ secret: z.string().regex(/^[0-9a-fA-F]{64}$/) })
+/** A remote host still lists this app, but its secret here is gone (config reset or moved). */
+export const LOST_SECRET =
+  'Relay Host knows this app but its pairing secret is missing here. Remove this device on the Relay Host to pair again.'
 const AgentsSchema = z.object({ rev, sessions: list })
 const WelcomeSchema = z.object({
   state: z.object({ agents: z.unknown() }).catch({ agents: undefined }),
@@ -325,6 +330,10 @@ export type Frame = Record<string, unknown>
 /** What the app hears from one frame. */
 export type FeedEvent =
   | { kind: 'sessions'; sessions: RelaySession[] }
+  /** A remote Relay Host asks for the PIN in its log (`retry` after a wrong one). */
+  | { kind: 'pin'; retry: boolean }
+  /** A remote Relay Host paired this app: keep `secret` for every later connection. */
+  | { kind: 'paired'; secret: Uint8Array }
   /** The text so far of an assistant message in a subscribed session; final once `streaming` is false. */
   | { kind: 'stream'; session: string; id: string; text: string; streaming: boolean }
   /** A subscribed session is blocked on these questions. */
@@ -369,8 +378,8 @@ export function proof(secret: Uint8Array, nonce: string): string {
 }
 
 /** The handshake's first frame. Relay's handshake only knows phones. */
-export function hello(): Frame {
-  return { t: 'hello', v: 1, deviceId: DEVICE_ID, deviceName: DEVICE_NAME, platform: 'ios' }
+export function hello(deviceId = DEVICE_ID): Frame {
+  return { t: 'hello', v: 1, deviceId, deviceName: DEVICE_NAME, platform: 'ios' }
 }
 
 /**
@@ -384,7 +393,14 @@ export class Feed {
   private boardRev = 0
   private boards = new Map<string, Board>()
 
-  constructor(private readonly secret: Uint8Array) {}
+  /**
+   * `secret` is null for a remote host not paired yet; `pairs` (remote only) answers `unpaired`
+   * with a PIN pairing instead of giving up.
+   */
+  constructor(
+    private secret: Uint8Array | null,
+    private readonly pairs = false,
+  ) {}
 
   /**
    * Takes one frame from Relay: what to send back, and what the app should hear. Throws
@@ -398,10 +414,28 @@ export class Feed {
     const f = parsed.data
     switch (f.t) {
       case 'challenge':
+        if (!this.secret) throw new RelayRefused(LOST_SECRET)
         replies.push({ t: 'auth', proof: proof(this.secret, ChallengeSchema.parse(f).nonce) })
         break
       case 'unpaired':
-        throw new RelayRefused("Relay doesn't list this app as a paired device.")
+        if (!this.pairs) throw new RelayRefused("Relay doesn't list this app as a paired device.")
+        replies.push({ t: 'pair.request' })
+        break
+      case 'pair.pending':
+        events.push({ kind: 'pin', retry: false })
+        break
+      case 'pair.failed': {
+        const reason = PairFailedSchema.parse(f).reason
+        if (reason !== 'wrong_pin') throw new RelayRefused(`Relay pairing failed: ${reason}.`)
+        events.push({ kind: 'pin', retry: true })
+        break
+      }
+      case 'pair.ok': {
+        // The host authenticates this connection right after; `welcome` follows.
+        this.secret = Buffer.from(PairOkSchema.parse(f).secret, 'hex')
+        events.push({ kind: 'paired', secret: this.secret })
+        break
+      }
       case 'welcome':
         this.authenticated = true
         this.reset(WelcomeSchema.parse(f).state.agents)

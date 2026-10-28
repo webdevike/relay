@@ -14,7 +14,16 @@ import {
   type RelaySessionEvent,
   type SocketHandlers,
 } from './client'
-import { deviceSecret, relayConfigDir, servePort } from './device'
+import { createConfigStore } from '../config-store'
+import { parseRelayRemote } from '../env'
+import {
+  REMOTE_FILE,
+  deviceSecret,
+  relayConfigDir,
+  remoteDeviceId,
+  remoteSecretStore,
+  servePort,
+} from './device'
 import { DEVICE_ID, proof } from './feed'
 
 const dirs: string[] = []
@@ -493,5 +502,116 @@ describe('Relay device files', () => {
     fs.writeFileSync(path.join(bad, 'devices.json'), 'not json')
     expect(() => deviceSecret(bad)).toThrow()
     expect(fs.readFileSync(path.join(bad, 'devices.json'), 'utf8')).toBe('not json')
+  })
+})
+
+describe('RelayClient with a remote host', () => {
+  beforeEach(() => vi.useFakeTimers())
+
+  function remote(stored: Uint8Array | null = null, pins: (string | null)[] = []) {
+    const host = {
+      host: '100.85.157.127',
+      port: 7817,
+      deviceId: 'relay-desktop-laptop',
+      stored,
+      asked: [] as boolean[],
+      secret: () => host.stored,
+      save: (s: Uint8Array) => void (host.stored = s),
+      askPin: async (retry: boolean) => {
+        host.asked.push(retry)
+        return pins.shift() ?? null
+      },
+    }
+    const relay = new FakeRelay()
+    // No Relay folder: the local host's serve.json and devices.json are never read.
+    const client = new RelayClient({
+      configDir: null,
+      remote: host,
+      dial: relay.dial,
+      secret: () => {
+        throw new Error('local devices.json touched')
+      },
+      retryMs: 10,
+    })
+    return { client, relay, host }
+  }
+
+  it('dials the remote host and serves its canvas origin', async () => {
+    const { client, relay } = remote()
+    expect(client.canvasOrigin()).toBe('http://100.85.157.127:7817')
+    client.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(relay.urls).toEqual(['ws://100.85.157.127:7817/relay'])
+    expect(relay.frames()[0]).toMatchObject({ t: 'hello', deviceId: 'relay-desktop-laptop' })
+    expect(client.canvasOrigin()).toBe('http://100.85.157.127:7817')
+    client.stop()
+  })
+
+  it('pairs with the PIN, keeps the secret, and authenticates without pairing next time', async () => {
+    const { client, relay, host } = remote(null, ['111111', '123456'])
+    client.start()
+    await vi.advanceTimersByTimeAsync(0)
+    relay.say({ t: 'unpaired' })
+    expect(relay.frames().at(-1)).toEqual({ t: 'pair.request' })
+    relay.say({ t: 'pair.pending' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(relay.frames().at(-1)).toEqual({ t: 'pair.confirm', pin: '111111' })
+    relay.say({ t: 'pair.failed', reason: 'wrong_pin' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(host.asked).toEqual([false, true])
+    expect(relay.frames().at(-1)).toEqual({ t: 'pair.confirm', pin: '123456' })
+    const secret = Buffer.alloc(32, 5)
+    relay.say({ t: 'pair.ok', secret: secret.toString('hex') })
+    expect(Buffer.from(host.stored!)).toEqual(secret)
+    relay.say({ t: 'welcome', state: { agents: { rev: 1, sessions: [relaySession('a', 'idle')] } } })
+    expect([...client.sessions()!.keys()]).toEqual(['a'])
+
+    // Sleep, restart or a host restart: the next connection answers the challenge, no PIN.
+    relay.handlers.at(-1)!.closed(CLOSED)
+    await vi.advanceTimersByTimeAsync(10)
+    expect(relay.urls).toHaveLength(2)
+    relay.say({ t: 'challenge', nonce: 'n2' })
+    expect(relay.frames().at(-1)).toEqual({ t: 'auth', proof: proof(secret, 'n2') })
+    expect(host.asked).toEqual([false, true])
+    client.stop()
+  })
+
+  it('a cancelled PIN drops the connection and tries again', async () => {
+    const { client, relay } = remote(null, [null])
+    client.start()
+    await vi.advanceTimersByTimeAsync(0)
+    relay.say({ t: 'unpaired' })
+    relay.say({ t: 'pair.pending' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(client.down()).toBe('Pairing with Relay Host was cancelled.')
+    expect(relay.closes).toBe(1)
+    client.stop()
+  })
+})
+
+describe('remote pairing config', () => {
+  it('keeps the secret per host:port in app config, keeping the host setting', () => {
+    const config = createConfigStore(configDir(null))
+    config.writeJson(REMOTE_FILE, { host: '100.85.157.127:7817' })
+    const store = remoteSecretStore(config, { host: '100.85.157.127', port: 7817 })
+    expect(store.secret()).toBeNull()
+    store.save(Buffer.alloc(32, 3))
+    expect(config.readJson(REMOTE_FILE, {})).toEqual({
+      host: '100.85.157.127:7817',
+      paired: { id: '100.85.157.127:7817', secretHex: '03'.repeat(32) },
+    })
+    expect(Buffer.from(store.secret()!)).toEqual(Buffer.alloc(32, 3))
+    // Another host is not paired by this one's secret.
+    expect(remoteSecretStore(config, { host: 'mini', port: 7817 }).secret()).toBeNull()
+    expect(remoteDeviceId('laptop')).toBe('relay-desktop-laptop')
+  })
+
+  it('parses host:port like the phone, and refuses anything else', () => {
+    expect(parseRelayRemote(undefined)).toBeNull()
+    expect(parseRelayRemote(' 100.85.157.127:7817 ')).toEqual({ host: '100.85.157.127', port: 7817 })
+    expect(parseRelayRemote('[fd7a::1]:7817')).toEqual({ host: 'fd7a::1', port: 7817 })
+    for (const bad of ['mini', 'mini:0', 'mini:70000', 7817]) {
+      expect(() => parseRelayRemote(bad)).toThrow()
+    }
   })
 })

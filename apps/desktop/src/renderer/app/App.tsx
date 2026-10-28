@@ -20,6 +20,7 @@ import { startCanvasLive } from '../canvas/live/live-store'
 import { startReactions } from '../chat/reactions/reactions-store'
 import { startRooms } from '../rooms/rooms-store'
 import { Shell } from '../shell/Shell'
+import { RelayPinModal } from '../settings/RelayPinModal'
 import { startAgentControl } from '../agent/control'
 import { startUpdate } from '../update/update-store'
 import { startContext } from '../context/context-store'
@@ -76,6 +77,7 @@ export function App() {
       <Shell />
       <NewTodoModal />
       <GateOverlay />
+      <RelayPinModal />
     </>
   )
 }

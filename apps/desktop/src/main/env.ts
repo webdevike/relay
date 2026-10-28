@@ -1,7 +1,7 @@
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { relayConfigDir } from './relay/device'
+import { REMOTE_FILE, relayConfigDir, type RelayRemote } from './relay/device'
 
 export interface Env {
   evaRoot: string
@@ -57,6 +57,11 @@ export interface Env {
    * Relay is never connected.
    */
   relayDir: string | null
+  /**
+   * A Relay Host on another Mac to connect to instead, paired with a PIN: EVAOS_RELAY_REMOTE
+   * (`host:port`) wins over `host` in `<configDir>/relay-remote.json`; null for the local host.
+   */
+  relayRemote: RelayRemote | null
   /**
    * Chrome DevTools Protocol port on 127.0.0.1 so Eva can drive the running app with Playwright.
    * Live default 9339 for the stable app and 9340 for Relay Dev (Arc 9222, eva-browser 9292,
@@ -294,6 +299,10 @@ export function resolveEnv(input: ResolveEnvInput): Env {
     claudeBin,
     herdrBin,
     relayDir,
+    relayRemote: parseRelayRemote(
+      env.EVAOS_RELAY_REMOTE ||
+        readJsonFile<{ host?: unknown }>(path.join(configDir, REMOTE_FILE))?.host,
+    ),
     evaRoot,
     ompBin,
     ompProfilesDir,
@@ -333,6 +342,27 @@ export function sharedAgentDir(fromEnv: string | undefined, homedir: string): st
     return path.join(path.dirname(profiles), 'agent')
   }
   return fromEnv
+}
+
+/** `host:port` as mobile's `parseManualHost` takes it (IPv6 bracketed); throws when unusable. */
+export function parseRelayRemote(raw: unknown): RelayRemote | null {
+  if (raw === undefined || raw === '') return null
+  const match =
+    typeof raw === 'string' ? /^\s*(\[[0-9a-f:]+\]|[^\s:[\]]+):(\d{1,5})\s*$/i.exec(raw) : null
+  const port = Number(match?.[2])
+  if (!match || port < 1 || port > 65535) {
+    throw new Error(`The Relay remote host must be host:port, got ${String(raw)}`)
+  }
+  const host = match[1]!
+  return { host: host.startsWith('[') ? host.slice(1, -1) : host, port }
+}
+
+function readJsonFile<T>(file: string): T | null {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8')) as T
+  } catch {
+    return null
+  }
 }
 
 function parseCdpPort(raw: string | undefined, fallback: number | null): number | null {

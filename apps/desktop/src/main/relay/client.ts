@@ -9,6 +9,8 @@
 // Subscriptions outlive a connection: each new one subscribes again (native `remember`), and asks
 // again for the reactions of every thread a chat shows. A command cannot wait for one: sent while
 // Relay is down it fails at once, and one in flight when the connection drops fails with it.
+//
+// With a remote host (another Mac over Tailscale) it dials that instead and pairs with a PIN.
 import type { ThreadReactions } from '@evaos/chat-core/reactions'
 import type { Artifact, ArtifactAction, ArtifactTab } from '@evaos/chat-core/artifacts'
 import type { Board, CanvasRoom } from '@evaos/contract'
@@ -31,7 +33,7 @@ import {
   unsubscribeFrame,
   type RelayCommand,
 } from './commands'
-import { deviceSecret, servePort } from './device'
+import { deviceSecret, remoteAuthority, servePort, type RelayRemote } from './device'
 
 /** Between attempts while Relay is down. */
 export const RETRY_MS = 3000
@@ -75,6 +77,8 @@ export type RelaySessionEvent = Exclude<
   {
     kind:
       | 'sessions'
+      | 'pin'
+      | 'paired'
       | 'ack'
       | 'nack'
       | 'boards'
@@ -213,8 +217,10 @@ export const dialWebSocket: Dial = (url, on) => {
 }
 
 export interface RelayClientOptions {
-  /** Relay's config folder (`relayConfigDir`). */
-  configDir: string
+  /** Relay's config folder (`relayConfigDir`); unused with `remote`. */
+  configDir: string | null
+  /** A Relay Host on another Mac, dialed instead of the local one. */
+  remote?: RemoteHost
   dial?: Dial
   /** Test seam: this app's paired secret. */
   secret?: (configDir: string) => Uint8Array
@@ -224,6 +230,16 @@ export interface RelayClientOptions {
   now?: () => number
   /** How long an `artifacts.act` may wait for its `artifacts.acted`. */
   actTimeoutMs?: number
+}
+
+/** A Relay Host on another Mac: paired with a PIN, never through its `devices.json`. */
+export interface RemoteHost extends RelayRemote {
+  deviceId: string
+  /** The secret a pairing gave this app for this host, null before the first. */
+  secret(): Uint8Array | null
+  save(secret: Uint8Array): void
+  /** The PIN Isaac reads in the Relay Host log; null when he cancels. */
+  askPin(retry: boolean): Promise<string | null>
 }
 
 interface Pending {
@@ -270,8 +286,8 @@ export class RelayClient implements RelayLink, RelayReactions, RelayArtifacts, R
   /** The last access to each slug's room on this connection, reused until near its expiry. */
   private readonly canvasAccess = new Map<string, { path: string; expiresAt: number }>()
   private canvasList: readonly CanvasRoom[] | null = null
-  /** The port of the host this connection reached. */
-  private port: number | null = null
+  /** The http origin of the host this connection reached. */
+  private origin: string | null = null
   private commands = 0
   private list: ReadonlyMap<string, RelaySession> | null = null
   private boardList: readonly Board[] | null = null
@@ -411,8 +427,16 @@ export class RelayClient implements RelayLink, RelayReactions, RelayArtifacts, R
   }
 
   canvasOrigin(): string | null {
-    const port = this.port ?? servePort(this.o.configDir)
-    return port === null ? null : `http://127.0.0.1:${port}`
+    if (this.origin !== null) return this.origin
+    const target = this.target()
+    return target === null ? null : `http://${target}`
+  }
+
+  /** `host:port` to dial: the remote host, else the local one's port from `serve.json`. */
+  private target(): string | null {
+    if (this.o.remote) return remoteAuthority(this.o.remote)
+    const port = this.o.configDir === null ? null : servePort(this.o.configDir)
+    return port === null ? null : `127.0.0.1:${port}`
   }
 
   openCanvas(slug: string): Promise<CanvasAccess> {
@@ -480,11 +504,11 @@ export class RelayClient implements RelayLink, RelayReactions, RelayArtifacts, R
   private async connect(): Promise<void> {
     this.retryTimer = undefined
     const attempt = ++this.attempt
-    const port = servePort(this.o.configDir)
-    if (port === null) return this.fail(NOT_RUNNING)
+    const target = this.target()
+    if (target === null) return this.fail(NOT_RUNNING)
     let socket: RelaySocket
     try {
-      socket = await this.dial(`ws://127.0.0.1:${port}/relay`, {
+      socket = await this.dial(`ws://${target}/relay`, {
         message: (text) => {
           if (attempt === this.attempt) this.receive(text)
         },
@@ -497,17 +521,19 @@ export class RelayClient implements RelayLink, RelayReactions, RelayArtifacts, R
       return
     }
     if (attempt !== this.attempt || !this.started) return socket.close()
-    let secret: Uint8Array
+    const remote = this.o.remote
+    let secret: Uint8Array | null
     try {
-      secret = this.secret(this.o.configDir)
+      // A remote host's devices are its own; this app keeps the secret its pairing gave.
+      secret = remote ? remote.secret() : this.secret(this.o.configDir!)
     } catch (e) {
       socket.close()
       return this.fail(`Couldn't add this app to Relay's devices: ${(e as Error).message}`)
     }
     this.socket = socket
-    this.port = port
-    this.feed = new Feed(secret)
-    this.send(hello())
+    this.origin = `http://${target}`
+    this.feed = new Feed(secret, remote !== undefined)
+    this.send(hello(remote?.deviceId))
   }
 
   private receive(text: string): void {
@@ -594,10 +620,25 @@ export class RelayClient implements RelayLink, RelayReactions, RelayArtifacts, R
           else p.reject(new RelayCommandError(event.code, event.message))
           break
         }
+        case 'pin':
+          void this.askPin(event.retry)
+          break
+        case 'paired':
+          this.o.remote?.save(event.secret)
+          break
         default:
           for (const cb of [...this.eventListeners]) cb(event)
       }
     }
+  }
+
+  /** Asks Isaac for the remote host's PIN and confirms it on the connection that asked. */
+  private async askPin(retry: boolean): Promise<void> {
+    const attempt = this.attempt
+    const pin = await this.o.remote!.askPin(retry)
+    if (attempt !== this.attempt) return
+    if (pin === null) return this.fail('Pairing with Relay Host was cancelled.')
+    this.send({ t: 'pair.confirm', pin })
   }
 
   private send(frame: Record<string, unknown>): void {
@@ -643,7 +684,7 @@ export class RelayClient implements RelayLink, RelayReactions, RelayArtifacts, R
       this.answerCanvas(slug, { ok: false, error: reason })
     // A new connection may reach another host, whose tokens these are not.
     this.canvasAccess.clear()
-    this.port = null
+    this.origin = null
   }
 
   private setList(list: ReadonlyMap<string, RelaySession> | null): void {

@@ -7,6 +7,7 @@ import { randomBytes } from 'node:crypto'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { z } from 'zod'
+import type { ConfigStore } from '../config-store'
 import { DEVICE_ID, DEVICE_NAME } from './feed'
 
 /** Relay's config folder: `$XDG_CONFIG_HOME/relay`, else `~/.config/relay`. */
@@ -56,4 +57,43 @@ export function deviceSecret(configDir: string, now: () => number = Date.now): B
   fs.chmodSync(tmp, 0o600)
   fs.renameSync(tmp, file)
   return secret
+}
+
+/** A Relay Host on another Mac (over Tailscale), from `relay-remote.json` or EVAOS_RELAY_REMOTE. */
+export interface RelayRemote {
+  host: string
+  port: number
+}
+
+/** The app config file naming the remote host and holding its pairing. */
+export const REMOTE_FILE = 'relay-remote.json'
+
+/** `host:port` as a URL authority (IPv6 bracketed); also the paired host's id, like mobile's. */
+export function remoteAuthority(r: RelayRemote): string {
+  return r.host.includes(':') ? `[${r.host}]:${r.port}` : `${r.host}:${r.port}`
+}
+
+/** This Mac's id on a remote host: unlike the local one, several Macs may pair with one host. */
+export function remoteDeviceId(hostname: string): string {
+  return `${DEVICE_ID}-${hostname}`
+}
+
+const PairedSchema = z.object({ id: z.string(), secretHex: DeviceSchema.shape.secretHex })
+
+/**
+ * The secret a PIN pairing gave this app for `remote`, kept in app config as mobile's `PairedHost`
+ * (`{id: 'host:port', secretHex}`). The host's own `devices.json` is never touched.
+ */
+export function remoteSecretStore(config: ConfigStore, remote: RelayRemote) {
+  const id = remoteAuthority(remote)
+  return {
+    secret(): Uint8Array | null {
+      const p = PairedSchema.safeParse(config.readJson<{ paired?: unknown }>(REMOTE_FILE, {}).paired)
+      return p.success && p.data.id === id ? Buffer.from(p.data.secretHex, 'hex') : null
+    },
+    save(secret: Uint8Array): void {
+      const paired = { id, secretHex: Buffer.from(secret).toString('hex') }
+      config.writeJson(REMOTE_FILE, { ...config.readForMerge(REMOTE_FILE), paired })
+    },
+  }
 }
