@@ -1,15 +1,36 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { FlatList, NativeScrollEvent, NativeSyntheticEvent } from "react-native";
+import { createElement, useCallback, useEffect, useRef, useState, type Ref } from "react";
+import { ScrollView, StyleSheet, View, type FlatList, type NativeScrollEvent, type NativeSyntheticEvent, type ScrollViewProps } from "react-native";
 import { useReducedMotion } from "react-native-reanimated";
 
 const BOTTOM_THRESHOLD = 24;
 /**
  * Native anchoring keeps a reader's rows still while the transcript grows under them. A follower
  * needs none: at offset 0 the inverted list already grows upward from the newest row. Anchoring a
- * follower moved the offset off 0 on every new or growing row (the newest rows and the activity row
- * dropped below the fold) until the next frame scrolled back, so it is on only while away.
+ * follower to a row moved the offset off 0 on every new or growing row (the newest rows and the
+ * activity row dropped below the fold) until the next frame scrolled back, so rows anchor only
+ * while away.
  */
 const ANCHOR = { minIndexForVisible: 1 } as const;
+/**
+ * The follower anchors to a pin instead of turning anchoring off: iOS picks its anchor only while
+ * anchoring is on, so switching it back on measured against the row picked when it went off, and
+ * the list jumped by everything that had arrived since (the release jump after a small drag up).
+ * The pin is the content view's first subview, spans it from offset 0 and never moves, so
+ * anchoring to it changes nothing.
+ */
+const FOLLOW = { minIndexForVisible: 0 } as const;
+const pin = createElement(View, { collapsable: false, pointerEvents: "none", style: StyleSheet.absoluteFill });
+
+function PinnedScrollView({ maintainVisibleContentPosition: anchor, stickyHeaderIndices, children, ...props }: ScrollViewProps & { ref?: Ref<ScrollView> }) {
+  return createElement(ScrollView, {
+    ...props,
+    // The pin shifts every child index the list computed by one.
+    maintainVisibleContentPosition: anchor ? { ...anchor, minIndexForVisible: anchor.minIndexForVisible + 1 } : FOLLOW,
+    stickyHeaderIndices: stickyHeaderIndices?.map((index) => index + 1),
+  }, pin, children);
+}
+
+const renderScrollComponent = (props: ScrollViewProps) => createElement(PinnedScrollView, props);
 type ScrollEvent = NativeSyntheticEvent<NativeScrollEvent>;
 
 /** Inverted transcripts share one rule: only a reader gesture can suspend following. */
@@ -73,6 +94,7 @@ export function useInvertedChatScroll<T>({ initialOffset = 0, onOffset }: { init
       },
       scrollEventThrottle: 16,
       maintainVisibleContentPosition: awayFromBottom ? ANCHOR : null,
+      renderScrollComponent,
     },
   };
 }
