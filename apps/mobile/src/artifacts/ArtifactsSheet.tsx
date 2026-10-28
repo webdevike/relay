@@ -37,7 +37,6 @@ import {
   isVideo,
   linkedLine,
   makerLine,
-  MEDIA_FILTERS,
   mediaTiles,
   metaLine,
   moveIndex,
@@ -49,7 +48,6 @@ import {
   subagentLine,
   subagentRows,
   videoLength,
-  type MediaFilter,
   type Pill,
 } from "./format";
 
@@ -68,7 +66,7 @@ const KIND_SYMBOL: Record<ArtifactKind, SFSymbol> = {
   experiment: "flask",
   canvas: "rectangle.3.group",
   branch: "arrow.triangle.branch",
-  subagent: "cpu",
+  subagent: "list.bullet.indent",
 };
 
 const EMPTY_COPY: Record<string, string> = {
@@ -103,7 +101,6 @@ export function ArtifactsSheet({ thread, open, onClose }: ArtifactsSheetProps) {
   const [now, setNow] = useState(() => Date.now());
   const [selected, setSelected] = useState<string | null>(null);
   const [query, setQuery] = useState<string | null>(null);
-  const [filter, setFilter] = useState<MediaFilter>("all");
   const [viewer, setViewer] = useState<{ images: ViewerImage[]; start: number } | null>(null);
   const [video, setVideo] = useState<string | null>(null);
 
@@ -143,7 +140,6 @@ export function ArtifactsSheet({ thread, open, onClose }: ArtifactsSheetProps) {
   const choose = (next: ArtifactTab): void => {
     tapHaptic();
     setSelected(next.id);
-    setFilter("all");
     if (next.fresh === true) act({ op: "tab.update", tab: next.id, fresh: false });
   };
 
@@ -226,17 +222,8 @@ export function ArtifactsSheet({ thread, open, onClose }: ArtifactsSheetProps) {
   } else if (tab.id === "subagents") {
     body = rows.length === 0 ? <Empty text={EMPTY_COPY["subagents"] ?? ""} /> : subagentRows(rows).map(({ item, depth }) => <SubagentRow key={item.id} item={item} depth={depth} now={now} />);
   } else if (tab.id === "media") {
-    const tiles = mediaTiles(rows, filter);
-    body = (
-      <>
-        <View style={styles.filters}>
-          {MEDIA_FILTERS.map((entry) => (
-            <FilterChip key={entry.id} label={entry.label} selected={entry.id === filter} onPress={() => { setFilter(entry.id); }} />
-          ))}
-        </View>
-        {tiles.length === 0 ? <Empty text={rows.length === 0 ? (EMPTY_COPY["media"] ?? "") : "Nothing here with this filter."} /> : <MediaGrid tiles={tiles} base={base} now={now} onOpen={(item) => { openItem(item, tiles); }} />}
-      </>
-    );
+    const tiles = mediaTiles(rows);
+    body = tiles.length === 0 ? <Empty text={EMPTY_COPY["media"] ?? ""} /> : <MediaGrid tiles={tiles} base={base} now={now} onOpen={(item) => { openItem(item, tiles); }} />;
   } else {
     const groups = groupRows(tab, rows);
     body = (
@@ -379,22 +366,6 @@ function TabButton({
         {tab.title}
       </Text>
       {tab.fresh === true && <View style={[styles.tabDot, { backgroundColor: colors.accent }]} />}
-    </Pressable>
-  );
-}
-
-function FilterChip({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) {
-  const colors = useColors();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-      onPress={onPress}
-      style={[styles.filter, { backgroundColor: selected ? colors.text : colors.surfaceRaised }]}
-    >
-      <Text variant="label" style={{ color: selected ? colors.surface : colors.text }}>
-        {label}
-      </Text>
     </Pressable>
   );
 }
@@ -618,8 +589,6 @@ const styles = StyleSheet.create({
   action: { width: 72, alignItems: "center", justifyContent: "center", gap: 2 },
   actionText: { color: "#FFFFFF" },
   empty: { paddingHorizontal: spacing.xl, paddingVertical: spacing.xxl, textAlign: "center" },
-  filters: { flexDirection: "row", gap: spacing.sm, paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.sm },
-  filter: { borderRadius: 999, paddingHorizontal: spacing.md, paddingVertical: spacing.xs + 2 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md, paddingHorizontal: spacing.xl, paddingTop: spacing.sm },
   tile: { borderRadius: radii.md, overflow: "hidden" },
   tileCaption: { marginTop: spacing.xs },

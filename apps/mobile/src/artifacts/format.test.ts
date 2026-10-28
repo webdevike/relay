@@ -115,11 +115,8 @@ describe("groups", () => {
 describe("media", () => {
   const video = item({ id: "drop:v", kind: "drop", firstSeen: 3, media: { mimeType: "video/mp4", durationMs: 11_400 }, from: "user" });
   const image = item({ id: "image:i", kind: "image", firstSeen: 5, media: { mimeType: "image/png" } });
-  it("filters and sorts newest first", () => {
-    expect(mediaTiles([video, image], "all").map((tile) => tile.id)).toEqual(["image:i", "drop:v"]);
-    expect(mediaTiles([video, image], "images").map((tile) => tile.id)).toEqual(["image:i"]);
-    expect(mediaTiles([video, image], "videos").map((tile) => tile.id)).toEqual(["drop:v"]);
-    expect(mediaTiles([video, image], "mine").map((tile) => tile.id)).toEqual(["drop:v"]);
+  it("sorts newest first", () => {
+    expect(mediaTiles([video, image]).map((tile) => tile.id)).toEqual(["image:i", "drop:v"]);
   });
   it("shows a video's length", () => {
     expect(videoLength(video)).toBe("0:11");

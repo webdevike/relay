@@ -1,6 +1,6 @@
 /**
  * Pure pieces of the Artifacts sheet: row titles, meta lines, status pills, groups, the subagent
- * tree, media filters, rule chips and the header's blue dot. Which items a tab shows comes from
+ * tree, media tiles, rule chips and the header's blue dot. Which items a tab shows comes from
  * the protocol's `tabItems`, so the phone and the desktop agree; this only decides how they look.
  */
 import type { Artifact, ArtifactKind, ArtifactTab, TabRule } from "@relay/protocol";
@@ -179,29 +179,13 @@ export function anySubagentRunning(items: readonly Artifact[]): boolean {
   return items.some((item) => item.subagent?.state === "running");
 }
 
-export type MediaFilter = "all" | "images" | "videos" | "mine";
-
-export const MEDIA_FILTERS: readonly { id: MediaFilter; label: string }[] = [
-  { id: "all", label: "All" },
-  { id: "images", label: "Images" },
-  { id: "videos", label: "Videos" },
-  { id: "mine", label: "From you" },
-];
-
 export function isVideo(item: Artifact): boolean {
   return item.media?.mimeType.startsWith("video/") === true;
 }
 
-/** Media tiles newest first, narrowed by the filter chip. */
-export function mediaTiles(rows: readonly Artifact[], filter: MediaFilter): Artifact[] {
-  return rows
-    .filter((item) => {
-      if (filter === "images") return item.media !== undefined && !isVideo(item);
-      if (filter === "videos") return isVideo(item);
-      if (filter === "mine") return item.from === "user";
-      return true;
-    })
-    .sort((a, b) => b.firstSeen - a.firstSeen);
+/** Media tiles newest first. */
+export function mediaTiles(rows: readonly Artifact[]): Artifact[] {
+  return [...rows].sort((a, b) => b.firstSeen - a.firstSeen);
 }
 
 /** A video's length as m:ss, or null. */
