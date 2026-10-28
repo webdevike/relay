@@ -6,6 +6,7 @@ import {
   CatchUpFeed,
   CatchUpItem,
   MAX_CALL_AUDIO_BASE64,
+  MAX_LIVE_SDP,
   MAX_SIGNIN_FIELD,
   QUICK_REACTIONS,
   ReactionEmoji,
@@ -458,6 +459,32 @@ describe("call frames", () => {
   it("assistant rows may say they were spoken on a call", () => {
     const r = parseServerMessage(JSON.stringify({ t: "assistant.snapshot", agent: "astra", snapshot: { rev: 1, busy: false, sessionId: "s", messages: [{ id: "m", role: "user", text: "what time is it", at: 1, voice: true }] } }));
     expect(r.ok && r.value.t === "assistant.snapshot" ? r.value.snapshot.messages[0]?.voice : undefined).toBe(true);
+  });
+});
+
+describe("live call frames", () => {
+  const roundTrip = (parse: typeof parseClientMessage | typeof parseServerMessage, frame: object) => {
+    const r = parse(JSON.stringify(frame));
+    expect(r.ok, JSON.stringify(frame)).toBe(true);
+    if (r.ok) expect(r.value).toEqual(frame);
+  };
+
+  it("phone start with its SDP offer and end round-trip; the host answers with OpenAI's SDP and states", () => {
+    roundTrip(parseClientMessage, { t: "live.start", callId: "l-1", agent: "nova", sdp: "v=0\r\n" });
+    roundTrip(parseClientMessage, { t: "live.end", callId: "l-1" });
+    roundTrip(parseClientMessage, { t: "live.end", callId: "l-1", reason: "ICE failed" });
+    roundTrip(parseServerMessage, { t: "live.answer", callId: "l-1", agent: "nova", sessionId: "live_u1_x", sdp: "v=0\r\n" });
+    for (const state of ["connecting", "listening", "thinking", "ended"]) roundTrip(parseServerMessage, { t: "live.state", callId: "l-1", agent: "nova", state });
+    roundTrip(parseServerMessage, { t: "live.state", callId: "l-1", agent: "nova", state: "thinking", text: "what's on my calendar" });
+    roundTrip(parseServerMessage, { t: "live.state", callId: "l-1", agent: "nova", state: "ended", error: "No OpenAI key on this host", fallback: true });
+  });
+
+  it("rejects an empty or oversized SDP, an unknown state and wrong-direction frames", () => {
+    expect(parseClientMessage(JSON.stringify({ t: "live.start", callId: "l-1", agent: "nova", sdp: "" })).ok).toBe(false);
+    expect(parseClientMessage(JSON.stringify({ t: "live.start", callId: "l-1", agent: "nova", sdp: "v".repeat(MAX_LIVE_SDP + 1) })).ok).toBe(false);
+    expect(parseServerMessage(JSON.stringify({ t: "live.state", callId: "l-1", agent: "nova", state: "speaking" })).ok).toBe(false);
+    expect(parseServerMessage(JSON.stringify({ t: "live.start", callId: "l-1", agent: "nova", sdp: "v=0" })).ok).toBe(false);
+    expect(parseClientMessage(JSON.stringify({ t: "live.answer", callId: "l-1", agent: "nova", sessionId: "s", sdp: "v=0" })).ok).toBe(false);
   });
 });
 

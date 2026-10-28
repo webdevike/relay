@@ -7,7 +7,7 @@
  *
  * Three traffic classes, never mixed:
  *  - handshake   hello / challenge / auth / pair.* / welcome. Ordered, one in flight.
- *  - ephemeral   `input` batches and `call.*` frames. Fire-and-forget. Dropped when not
+ *  - ephemeral   `input` batches, `call.*` and `live.*` frames. Fire-and-forget. Dropped when not
  *                connected, never queued.
  *  - reliable    `cmd` with a client-generated id, answered by exactly one `ack`. The phone
  *                retries un-acked cmds on reconnect; the Mac dedups by id.
@@ -615,6 +615,34 @@ export const CallState = z.enum(["connecting", "listening", "hearing", "thinking
 export type CallState = z.infer<typeof CallState>;
 
 const CallAudio = z.string().min(1).max(MAX_CALL_AUDIO_BASE64);
+
+// ---------------------------------------------------------------------------------------------
+// Live calls: a GPT-Live voice conversation with one assistant thread. Audio does not cross this
+// socket: the phone sends its WebRTC SDP offer (`live.start`), the host creates the GPT-Live
+// session with it (the OpenAI key never leaves the host) and answers with OpenAI's SDP
+// (`live.answer`); microphone and voice then flow phone <-> OpenAI over WebRTC. The host attaches
+// to the session's sideband and answers every delegation by giving Isaac's words to the
+// assistant's normal thread as a voice turn, handing the reply back for the voice to say. The
+// phone ends the call with `session.close` on its data channel and `live.end` here; a session the
+// phone abandons is closed by the host after MAX_LIVE_CALL_MS.
+// ---------------------------------------------------------------------------------------------
+
+/** Longest SDP offer or answer a live frame carries. */
+export const MAX_LIVE_SDP = 64 * 1024;
+/** A live call the phone never ends is closed by the host after this long. */
+export const MAX_LIVE_CALL_MS = 30 * 60_000;
+
+/**
+ * Where a live call stands, as the host sees it. `connecting`: creating the GPT-Live session;
+ * `listening`: the voice is talking with Isaac; `thinking`: the assistant is working on what he
+ * asked (`text`: his words); `ended`: over, `error` says why if it failed. `fallback` on `ended`:
+ * GPT-Live is unavailable (no key, OpenAI refused), so the phone should start a `call.*` call.
+ */
+export const LiveState = z.enum(["connecting", "listening", "thinking", "ended"]);
+export type LiveState = z.infer<typeof LiveState>;
+
+const LiveSdp = z.string().min(1).max(MAX_LIVE_SDP);
+
 
 
 // ---------------------------------------------------------------------------------------------
@@ -1253,6 +1281,10 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("call.mute"), callId: CallId, muted: z.boolean() }),
   /** Hang up. `reason`: why the phone ended it (a failure, with diagnostics); the host logs it. Answered with `call.state` `ended`. */
   z.object({ t: z.literal("call.end"), callId: CallId, reason: z.string().max(2000).optional() }),
+  /** Start a GPT-Live call with assistant `agent` from this WebRTC SDP offer. Answered by `live.answer`, or `live.state` `ended`. */
+  z.object({ t: z.literal("live.start"), callId: CallId, agent: AssistantAgentId, sdp: LiveSdp }),
+  /** Hang up live call `callId` (the phone also sends `session.close` on its data channel). `reason`: why, when it failed. */
+  z.object({ t: z.literal("live.end"), callId: CallId, reason: z.string().max(2000).optional() }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 
@@ -1405,6 +1437,18 @@ export const ServerMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("call.audio"), callId: CallId, gen: z.number().int().nonnegative(), pcm: CallAudio }),
   /** Barge-in: stop playback now and drop queued or late audio of generations below `gen`. */
   z.object({ t: z.literal("call.flush"), callId: CallId, gen: z.number().int().nonnegative() }),
+  /** OpenAI's SDP answer for the offer in `live.start`; `sessionId` is the GPT-Live session. */
+  z.object({ t: z.literal("live.answer"), callId: CallId, agent: AssistantAgentId, sessionId: nonEmpty, sdp: LiveSdp }),
+  /** Where live call `callId` stands (see LiveState); `text`: the words the assistant is working on (`thinking`). */
+  z.object({
+    t: z.literal("live.state"),
+    callId: CallId,
+    agent: AssistantAgentId,
+    state: LiveState,
+    text: z.string().optional(),
+    error: z.string().optional(),
+    fallback: z.boolean().optional(),
+  }),
   z.object({ t: z.literal("ack"), id: nonEmpty }),
   z.object({ t: z.literal("nack"), id: nonEmpty, error: AckError }),
   z.object({ t: z.literal("pong"), ts: ms, serverTs: ms }),
