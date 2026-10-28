@@ -1,0 +1,12 @@
+{
+  "opus:rc10-nova-choice": "Right intent, lost to length: 'Yes, switch to Cloudflare' is 25 characters, the parser drops it, one chip is left, so nothing shows. Either/or answers should be the option itself, without 'Yes,'.",
+  "opus:rc25-astra-open": "Clarifying question ending 'or something else?'. 'No, something else' sends a non-answer and forces another turn. Should be skipped as open.",
+  "opus:rc26-astra-open": "Multi-pick across three categories ('Which ones?'). The chips are partial combos, none covers Liability; a tap would answer only part of the question. Misleading.",
+  "opus:rc29-astra-statement": "Gold is debatable. The only question ('Okay to add it?') sits one sentence before a closing reminder, and both chips would be correct taps. Gold follows the rule's literal 'ends on a question'; in practice this is a useful show.",
+  "opus:rc01-nova-yesno": "Fine in practice: both chips are correct taps and the yes names the action. Gold's 'Show me first' is optional; I would score this 2, the judge's 1 is harsh.",
+  "haiku:rc01-nova-yesno": "Lost to length: 'Yes, upload and replace it' is 26 characters, the parser drops it, one chip is left, so nothing shows. Correct intent.",
+  "haiku:rc26-astra-open": "Multi-pick across three categories. Each chip names one icon for one category, so a tap answers a third of the question. Misleading.",
+  "haiku:rc28-astra-nottoisaac": "Answered the question inside a draft comment for Steve ('It was collapsed'). Isaac cannot know that, and a tap sends nonsense. Wrong: the question is not addressed to him.",
+  "haiku:rc23-nova-open": "Open 'Where do you want it kept?': Haiku invented three folder options. All three are over 24 characters, so the parser dropped them and it scored as a correct no-show by luck.",
+  "haiku:rc07-astra-yesno": "Added 'Just the blocking bugs', an option the message never offered; tapping it would set a scope the assistant did not propose."
+}

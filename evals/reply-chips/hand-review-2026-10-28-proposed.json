@@ -1,0 +1,12 @@
+{
+  "opus:rc04-nova-yesno": "Same chips scored 2 in the spec run; judge noise. 'Yes, ship it' names the action; I would score 2.",
+  "opus:rc09-astra-yesno": "Fine: both are correct taps and the yes names the send. Judge 1 is harsh; I would score 2.",
+  "opus:rc01-nova-yesno": "Fine: both are correct taps and the yes names the action and the PR. Gold's 'Show me first' is optional; I would score 2.",
+  "opus:rc02-nova-yesno": "Identical to gold. Listed only because Opus had no worse rows.",
+  "opus:rc03-nova-yesno": "Correct. Listed only because Opus had no worse rows.",
+  "haiku:rc10-nova-choice": "Lost to length again: 'Keep Workspace, forward from Gmail' is 34 characters, dropped, one chip left, nothing shows. Haiku ignores the limit even when the rule says a longer one is dropped.",
+  "haiku:rc05-nova-yesno": "Skipped a plain yes/no ('Is East Greenwich close to you?'). It showed chips here in the spec run, so this flips between samples.",
+  "haiku:rc27-nova-voice": "Chips on a voice-call turn; the rule says skip. Haiku got this right in the spec run, so it flips between samples.",
+  "haiku:rc29-astra-statement": "Same debatable case as Opus in the spec run: the question sits one sentence before a closing reminder. Correct taps, but gold is a no-show.",
+  "haiku:rc01-nova-yesno": "Usable: 'Yes, upload and replace' now fits (23 characters). Misses the optional 'Show me first'."
+}
