@@ -3,7 +3,7 @@
  * signals (`state/motion` `useMotionSignals`) and poses its DiceBear rig per frame; this draws
  * those frames with Skia. Each tick (24 fps, on the JS thread) records one `SkPicture` (the paper
  * disc, the rig's parts as `ImageSVG`s under the frame's matrices, then the accent overlays: dot
- * ring, sound waves, z z z, "?" bubble, sweat drop, confetti) into a shared value that the canvas
+ * ring, magnifier, z z z, and the engine's other overlays) into a shared value that the canvas
  * draws on the UI thread, so React renders nothing per frame. The canvas is larger than the disc
  * by `FX_REACH` each side, laid over it and deaf to touches.
  *
@@ -51,8 +51,6 @@ export interface AnimatedPortraitProps {
   size: number;
   /** What the thread is doing (`useMotionSignals`). */
   signals: MotionSignals;
-  /** The thread just opened: it waves hello first. */
-  hello?: boolean;
   /** Hold still: it is covered (the call screen over the thread). */
   paused?: boolean;
   /** The state it moved to, for a status line or an accessibility label. */
@@ -82,7 +80,7 @@ function loadRig(sk: SkiaModule, portrait: AssistantPortrait): LoadedRig {
   return { rig, svgs };
 }
 
-export function AnimatedPortrait({ name, portrait, size, signals, hello = false, paused = false, onState }: AnimatedPortraitProps) {
+export function AnimatedPortrait({ name, portrait, size, signals, paused = false, onState }: AnimatedPortraitProps) {
   const sk = loadSkia();
   const colors = useColors();
   const reduced = useReducedMotion();
@@ -105,7 +103,7 @@ export function AnimatedPortrait({ name, portrait, size, signals, hello = false,
     return (
       <View style={{ width: size, height: size }}>
         <Portrait name={name} portrait={portrait} size={size} />
-        {signals.running && signals.working && <WorkingRing size={size} color={accent} spinning={false} />}
+        {signals.running && <WorkingRing size={size} color={accent} spinning={false} />}
       </View>
     );
   }
@@ -118,7 +116,6 @@ export function AnimatedPortrait({ name, portrait, size, signals, hello = false,
       accent={accent}
       size={size}
       signals={signals}
-      hello={hello}
       active={active}
       onState={onState}
     />
@@ -133,22 +130,20 @@ interface MotionCanvasProps {
   accent: string;
   size: number;
   signals: MotionSignals;
-  hello: boolean;
   active: boolean;
   onState: ((state: MotionState) => void) | undefined;
 }
 
-function MotionCanvas({ sk, loaded, name, paper, accent, size, signals, hello, active, onState }: MotionCanvasProps) {
+function MotionCanvas({ sk, loaded, name, paper, accent, size, signals, active, onState }: MotionCanvasProps) {
   const reach = Math.ceil(size * FX_REACH);
   const box = size + 2 * reach;
   const signalsRef = useRef(signals);
   signalsRef.current = signals;
   const onStateRef = useRef(onState);
   onStateRef.current = onState;
-  // The director starts with the canvas: its Hello plays from the first frame anyone sees.
   const [clock] = useState(() => {
     const now = Date.now();
-    const director = new Director(now, { hello });
+    const director = new Director();
     return { director, timeline: new Timeline(director.next(signals, now), now) };
   });
   const [painter] = useState(() => new Painter(sk, loaded, size, reach));
@@ -203,6 +198,7 @@ class Painter {
   private readonly font: SkFont;
   private readonly tail: SkPath | null;
   private readonly drop: SkPath | null;
+  private readonly handle: SkPath | null;
   private paper = PAPER;
   private tones: [string, string, string] = ["#000000", "#000000", "#000000"];
 
@@ -224,6 +220,7 @@ class Painter {
     this.font = sk.matchFont({ fontFamily: "Helvetica Neue", fontSize: 100, fontWeight: "600" });
     this.tail = sk.Skia.Path.MakeFromSVGString(g.quizTail);
     this.drop = sk.Skia.Path.MakeFromSVGString(g.drop);
+    this.handle = sk.Skia.Path.MakeFromSVGString(g.lensHandle);
   }
 
   setColors(paper: string, accent: string): void {
@@ -326,6 +323,22 @@ class Painter {
         canvas.drawPath(path, this.paint(this.fill, soft));
         this.stroke.setStrokeWidth(g.dropStroke);
         canvas.drawPath(path, this.paint(this.stroke, accent));
+        canvas.restore();
+      });
+    }
+    // Researching: a magnifier following the gaze, a light lens in an accent rim with its handle.
+    const { lens } = fx;
+    if (lens.o > 0.01 && this.handle !== null) {
+      const handle = this.handle;
+      this.group(canvas, lens.o, () => {
+        canvas.save();
+        canvas.translate(lens.x, lens.y);
+        this.stroke.setStrokeWidth(g.lensStroke);
+        this.stroke.setStrokeCap(this.sk.StrokeCap.Round);
+        canvas.drawPath(handle, this.paint(this.stroke, accent));
+        canvas.drawCircle(0, 0, g.lensR, this.paint(this.fill, BUBBLE, 0.6));
+        canvas.drawCircle(0, 0, g.lensR, this.paint(this.stroke, accent));
+        this.stroke.setStrokeCap(this.sk.StrokeCap.Butt);
         canvas.restore();
       });
     }

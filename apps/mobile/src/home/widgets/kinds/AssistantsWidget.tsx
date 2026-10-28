@@ -12,6 +12,7 @@ import type { AssistantAgent } from "@relay/protocol";
 import { NestedPager } from "@/ui/NestedPager";
 import { PageDots } from "@/ui/PageControls";
 import { BreathingPortrait } from "@/ui/BreathingPortrait";
+import { listingDot } from "@/state/motion";
 import { Text } from "@/ui/Text";
 import { previewText } from "@/agents/markdown";
 import { relativeTime } from "@/lib/format";
@@ -161,7 +162,7 @@ function AssistantStack({ agents, open, a11y }: { agents: readonly AssistantAgen
         >
           {agents.map((agent) => (
             <View key={agent.id} style={styles.page}>
-              <BreathingPortrait name={agent.title} portrait={portraitOf(agent)} size={Math.round(frame.height * 0.36)} working={agent.status === "working"} />
+              <BreathingPortrait name={agent.title} portrait={portraitOf(agent)} size={Math.round(frame.height * 0.36)} working={agent.status === "working"} dot={listingDot(agent.status)} />
               <Text variant="label" numberOfLines={1} style={styles.stackName}>
                 {agent.title}
               </Text>

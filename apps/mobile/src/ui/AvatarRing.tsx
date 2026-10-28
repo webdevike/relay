@@ -9,12 +9,13 @@ import Animated, {
   withRepeat,
   withTiming,
 } from "react-native-reanimated";
-import { STATE_META, type MotionSignals, type MotionState } from "@relay/portrait-motion";
+import { STATE_META, statusDot, type MotionSignals, type MotionState } from "@relay/portrait-motion";
 import type { AssistantPortrait } from "@relay/protocol";
 import { loadSkia } from "@/dictation/skia";
-import { motion, spacing, useScheme } from "@/theme";
+import { motion, spacing, useColors, useScheme } from "@/theme";
 import { AnimatedPortrait } from "./AnimatedPortrait";
 import { Portrait } from "./Portrait";
+import { PortraitDot } from "./PortraitDot";
 import { Text } from "./Text";
 
 /** A full ring breath, out and back: the loop runs 1.0 to 1.06 in this long each way. */
@@ -40,8 +41,6 @@ const RING = {
 /** The portrait comes alive (`ui/AnimatedPortrait`) with what its thread is doing. */
 export interface PortraitMotion {
   signals: MotionSignals;
-  /** The thread just opened: it waves hello first. */
-  hello?: boolean;
   /** Covered (the call screen over the thread): it holds still. */
   paused?: boolean;
 }
@@ -85,7 +84,9 @@ export function AvatarRing({ name, size = RING_SIZE, breathing: breathingProp = 
   const ringStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
   const inner = portrait === undefined ? Math.round(size * INNER_RATIO) : size - 2 * PORTRAIT_BAND;
 
-  const label = animated && state !== null ? `${name}, ${STATE_META[state].status}` : breathing ? `${name}, working` : name;
+  const bg = useColors().bg;
+  const words = live === undefined ? null : live.signals.waiting ? "needs you" : live.signals.failed ? "the last turn failed" : null;
+  const label = animated && state !== null ? [name, STATE_META[state].status, words].filter((part) => part !== null).join(", ") : breathing ? `${name}, working` : name;
   return (
     <View accessible accessibilityLabel={label} style={styles.root}>
       <Animated.View style={[{ width: size, height: size }, ringStyle]}>
@@ -100,12 +101,14 @@ export function AvatarRing({ name, size = RING_SIZE, breathing: breathingProp = 
                 portrait={portrait}
                 size={inner}
                 signals={live.signals}
-                hello={live.hello ?? false}
                 paused={live.paused ?? false}
                 onState={setState}
               />
             )}
           </View>
+        )}
+        {live !== undefined && (
+          <PortraitDot tone={statusDot(live.signals)} size={Math.max(10, Math.round(size * 0.2))} edge={bg} style={styles.dot} />
         )}
       </Animated.View>
       <BlurView intensity={40} tint={scheme} style={styles.chip}>
@@ -133,4 +136,6 @@ const styles = StyleSheet.create({
   chip: { height: NAME_PILL_HEIGHT, borderRadius: NAME_PILL_HEIGHT / 2, overflow: "hidden", paddingHorizontal: spacing.md + 2, alignItems: "center", justifyContent: "center" },
   name: { fontSize: 17, lineHeight: 22, fontWeight: "700" },
   portrait: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
+  // On the ring's lower right, like a contact's presence dot.
+  dot: { position: "absolute", right: 1, bottom: 1 },
 });

@@ -354,7 +354,7 @@ function Thread({ agent }: { agent: string }) {
               accessibilityLabel={`${title} menu`}
               onPress={openMenu}
             >
-              <AvatarRing name={title} portrait={portrait} motion={{ signals, hello: true, paused: onCall }} />
+              <AvatarRing name={title} portrait={portrait} motion={{ signals, paused: onCall }} />
             </Pressable>
             <View style={styles.back}>
               <BackButton

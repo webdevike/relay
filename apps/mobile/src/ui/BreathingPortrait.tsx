@@ -1,9 +1,11 @@
 import { useEffect, useRef } from "react";
 import { Animated, Easing, View } from "react-native";
 import { useReducedMotion } from "react-native-reanimated";
+import type { DotTone } from "@relay/portrait-motion";
 import type { AssistantPortrait } from "@relay/protocol";
 import { useColors } from "@/theme";
 import { Portrait } from "./Portrait";
+import { PortraitDot } from "./PortraitDot";
 import { WorkingRing } from "./WorkingRing";
 import { useAnimationActive } from "./useAnimationActive";
 
@@ -17,6 +19,8 @@ export interface BreathingPortraitProps {
   size: number;
   /** The agent is working: the accent dot ring goes round it. */
   working: boolean;
+  /** Its status dot (`state/motion` `listingDot`); leave it out where the row already shows the status. */
+  dot?: DotTone;
 }
 
 /**
@@ -27,7 +31,7 @@ export interface BreathingPortraitProps {
  * Motion (the ring then shows, unmoving). For lists and widgets; the thread and call use
  * `AnimatedPortrait`.
  */
-export function BreathingPortrait({ name, portrait, size, working }: BreathingPortraitProps) {
+export function BreathingPortrait({ name, portrait, size, working, dot = null }: BreathingPortraitProps) {
   const colors = useColors();
   const reduced = useReducedMotion();
   const active = useAnimationActive() && !reduced;
@@ -54,6 +58,7 @@ export function BreathingPortrait({ name, portrait, size, working }: BreathingPo
         <Portrait name={name} portrait={portrait} size={size} />
       </Animated.View>
       {working && <WorkingRing size={size} color={portrait.colors?.accent ?? colors.accent} spinning={active} />}
+      <PortraitDot tone={dot} size={Math.max(8, Math.round(size * 0.24))} edge={colors.surface} style={{ position: "absolute", right: 0, bottom: 0 }} />
     </View>
   );
 }

@@ -1,8 +1,8 @@
 /**
  * The call with an assistant, full screen over its thread (an RN `Modal`, so the thread below
  * stays focused and keeps following, and the words land in it as the call goes). The agent's
- * portrait is alive (`AvatarRing` `motion`): it listens while Isaac speaks, thinks, and talks while
- * her voice plays, and a halo swells with Isaac's voice; under it, where the call stands, how long
+ * portrait is alive (`AvatarRing` `motion`): calm while Isaac speaks and while her voice plays,
+ * thinking while she works out a reply, and a halo swells with Isaac's voice; under it, where the call stands, how long
  * it has run, and what was just heard or is being said. Mute and hang up at the bottom. Hanging
  * up, here or by the assistant, closes it straight onto the thread; a call that ended on an error
  * stays to say why. Unmounted mid-call (its thread went away), it hangs up rather than leave the

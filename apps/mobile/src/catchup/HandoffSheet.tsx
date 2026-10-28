@@ -10,6 +10,7 @@ import type { AssistantPortrait, AssistantStatus, CatchUpCard } from "@relay/pro
 import { Button } from "@/ui/Button";
 import { OptionRow } from "@/ui/OptionRow";
 import { BreathingPortrait } from "@/ui/BreathingPortrait";
+import { listingDot } from "@/state/motion";
 import { Text } from "@/ui/Text";
 import { TextField } from "@/ui/TextField";
 import { defaultAssistant } from "@/lib/catchup";
@@ -68,7 +69,7 @@ export function HandoffSheet({ card, targets, onClose, onSend }: HandoffSheetPro
                 label={target.title}
                 description={target.scope}
                 badge={target.id === defaultAssistant(card) ? "Usual" : undefined}
-                leading={<BreathingPortrait name={target.title} portrait={portraitOf(target)} size={PORTRAIT} working={target.status === "working"} />}
+                leading={<BreathingPortrait name={target.title} portrait={portraitOf(target)} size={PORTRAIT} working={target.status === "working"} dot={listingDot(target.status)} />}
                 selected={chosen === target.id}
                 onPress={() => {
                   setAgent(target.id);
