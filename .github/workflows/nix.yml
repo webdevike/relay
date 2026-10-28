@@ -2,9 +2,9 @@ name: nix
 
 on:
   push:
-    paths: ["flake.*", "nix/**", "apps/linux/**", "packages/protocol/**", ".github/workflows/nix.yml"]
+    paths: ["flake.*", "nix/**", "apps/linux/**", "packages/protocol/**", "packages/canvas-live/**", "packages/canvas-web/generated/**", ".github/workflows/nix.yml"]
   pull_request:
-    paths: ["flake.*", "nix/**", "apps/linux/**", "packages/protocol/**", ".github/workflows/nix.yml"]
+    paths: ["flake.*", "nix/**", "apps/linux/**", "packages/protocol/**", "packages/canvas-live/**", "packages/canvas-web/generated/**", ".github/workflows/nix.yml"]
 
 jobs:
   build:
