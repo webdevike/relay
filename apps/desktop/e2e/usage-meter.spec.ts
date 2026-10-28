@@ -26,7 +26,7 @@ const test = base.extend<{ usageDir: string; dropWork: boolean }>({
   },
 })
 
-test.use({ startOnChat: false, panelOpen: false })
+test.use({ startOnChat: false, toolPanes: false })
 
 async function size(app: ElectronApplication, shell: Page, w: number, h: number): Promise<void> {
   await app.evaluate(

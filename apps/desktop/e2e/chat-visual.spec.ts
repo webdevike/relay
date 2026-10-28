@@ -151,7 +151,7 @@ test.afterAll(() => {
     '```',
     '',
     'Unless a name says otherwise: Settings > Chat has Show thinking and Show tool details on,',
-    'the side panel is closed, and motion is off.',
+    'the tool panes are hidden, and motion is off.',
     '',
     '| File | State |',
     '| --- | --- |',
@@ -333,7 +333,7 @@ test('gallery transcript: light and dark, three window sizes, top, middle and bo
           app,
           shell,
           `gallery-${s}-${v.name}-${spot}`,
-          `Gallery chat, ${s}, ${v.width}x${v.height}${v.panel ? ' with the browser panel open' : ''}, transcript scrolled to the ${spot}${spot === 'bottom' ? ' (header shows Saved session)' : ' (Jump to latest pill)'}`,
+          `Gallery chat, ${s}, ${v.width}x${v.height}${v.panel ? ' with the tool panes shown' : ''}, transcript scrolled to the ${spot}${spot === 'bottom' ? ' (header shows Saved session)' : ' (Jump to latest pill)'}`,
         )
       }
     }
@@ -518,10 +518,12 @@ for (const s of SCHEMES) {
       app,
       shell,
       `live-${s}-subagent-panel`,
-      `Running subagent transcript in the side panel, ${s}`,
+      `Running subagent transcript in a tool pane tab, ${s}`,
     )
-    await shell.locator('[data-testid=panel-close]').click()
+    // Closing its tab drops the transcript; the tool panes hide again for the next shots.
+    await shell.locator('[data-testid^="pane-tab-close-subagent:"]').click()
     await expect(shell.locator('[data-testid=subagent-transcript]')).toHaveCount(0)
+    await panel(shell, false)
     await settled(shell)
     await shot(
       app,

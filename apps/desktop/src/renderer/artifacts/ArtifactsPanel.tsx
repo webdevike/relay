@@ -56,7 +56,7 @@ import { invoke } from '../ipc'
 import { openLink } from '../navigation/open-link'
 import { openPlace } from '../navigation/navigate'
 import { EvaMenu } from '../overlay'
-import { openSubagentPanel, showPanelTool, useLayout } from '../shell/layout-store'
+import { openSubagentTab, revealTool, useTiling } from '../tiling/tiling-store'
 import { requestExperiment } from '../test-bench/bench-request'
 import { ArtifactRow, RowButton, type RowActions } from './ArtifactRow'
 import { MediaGrid, MediaLightbox } from './ArtifactsMedia'
@@ -656,7 +656,7 @@ function ItemMenu({
             <EvaMenu.Item
               leftSection={<IconFolder {...ICON} />}
               onClick={() => {
-                showPanelTool('files')
+                revealTool('files')
                 void showPath(path, chatStore.getState().panes[PANE_ID]?.file || null)
               }}
             >
@@ -684,7 +684,7 @@ function ItemMenu({
 export function ArtifactsPanel({ hidden }: { hidden: boolean }) {
   useEffect(() => startArtifacts(), [])
   useNamesVersion()
-  const scope = useLayout((s) => s.panelScope)
+  const scope = useTiling((s) => s.scope)
   const target = useMemo(() => watchTarget(scope), [scope])
   const thread = useArtifactsThread(target, !hidden)
   const view = useArtifacts((s) => (thread ? s.threads[thread] : undefined))
@@ -740,7 +740,7 @@ export function ArtifactsPanel({ hidden }: { hidden: boolean }) {
           openLink(to.url)
           return
         case 'files':
-          showPanelTool('files')
+          revealTool('files')
           void showPath(to.path, chatStore.getState().panes[PANE_ID]?.file || null)
           return
         case 'testbench':
@@ -751,7 +751,7 @@ export function ArtifactsPanel({ hidden }: { hidden: boolean }) {
           openPlace(placeOf('canvas', { canvas: to.slug }))
           return
         case 'subagent':
-          openSubagentPanel({
+          openSubagentTab({
             session: chatStore.getState().panes[PANE_ID]?.file || '',
             file: to.file,
             name: to.name,

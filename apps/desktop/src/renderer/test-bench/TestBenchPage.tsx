@@ -21,7 +21,8 @@ import {
 } from '@evaos/contract'
 import { invoke, on } from '../ipc'
 import { Markdown } from '../chat/markdown/Markdown'
-import { openExperimentArmPanel, useLayout } from '../shell/layout-store'
+import { frontTabs } from '@evaos/shell-core'
+import { openArmTab, useTiling } from '../tiling/tiling-store'
 import { STATUS_LABEL, duration, pct, primaryRate, tokenCount, usd } from './experiment-format'
 import { onExperimentRequest, takeExperimentRequest } from './bench-request'
 import './test-bench.css'
@@ -201,13 +202,14 @@ function RunsList({ rows, onOpen }: { rows: ExperimentRow[]; onOpen: (id: string
 
 function ArmsTable({ detail }: { detail: ExperimentDetail }) {
   const arms = detail.armSummaries ?? []
-  const selected = useLayout((s) =>
-    s.panelOpen && s.panelView.kind === 'experiment-arm' && s.panelView.experiment === detail.id
-      ? s.panelView.arm
-      : null,
-  )
+  const selected = useTiling((s) => {
+    const tab = frontTabs(s.tiling).find(
+      (t) => t.kind === 'experiment-arm' && t.experiment === detail.id,
+    )
+    return tab?.kind === 'experiment-arm' ? tab.arm : null
+  })
   const open = (arm: ArmSummary) =>
-    openExperimentArmPanel({ experiment: detail.id, arm: arm.id, label: arm.label })
+    openArmTab({ experiment: detail.id, arm: arm.id, label: arm.label })
   return (
     <div
       className="eva-bench-table"
@@ -358,7 +360,7 @@ function RunDetail({ detail, onBack }: { detail: ExperimentDetail; onBack: () =>
 
 /**
  * Test Bench: every experiment Eva runs through `.omp/tools/exp.ts`, read from
- * `work/experiments`. Runs list, then one run's tests; a test's details open in the side panel.
+ * `work/experiments`. Runs list, then one run's tests; a test's details open in a tool tab.
  */
 export function TestBenchPage(_props: { place: Place }) {
   const [rows, setRows] = useState<ExperimentRow[] | null>(null)

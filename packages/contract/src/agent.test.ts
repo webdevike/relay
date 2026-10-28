@@ -38,12 +38,58 @@ describe('agent action registry', () => {
     expect(main).toEqual(
       expect.arrayContaining(['page.open', 'chat.open', 'chat.new', 'testbench.open', 'tab.focus']),
     )
-    for (const id of ['files.open', 'browser.open', 'panel.show', 'panel.close'] as const) {
+    for (const id of [
+      'files.open',
+      'browser.open',
+      'tab.open',
+      'pane.split',
+      'pane.close',
+    ] as const) {
       expect(agentActions[id].focus).toBe('panel')
     }
-    for (const id of ['state.read', 'window.screenshot', 'toast.show'] as const) {
+    for (const id of ['state.read', 'layout.read', 'window.screenshot', 'toast.show'] as const) {
       expect(agentActions[id].focus).toBe('none')
     }
+  })
+
+  it('lays out panes without the caller scope, and checks tab specs', () => {
+    const layout = AGENT_ACTION_IDS.filter((id) => id.startsWith('pane.'))
+    expect(layout.sort()).toEqual([
+      'pane.close',
+      'pane.focus',
+      'pane.move',
+      'pane.resize',
+      'pane.split',
+      'pane.zoom',
+    ])
+    for (const id of layout) {
+      const spec: AgentActionSpec = agentActions[id]
+      expect(spec.unscoped).toBe(true)
+    }
+    const openSpec: AgentActionSpec = agentActions['tab.open']
+    expect(openSpec.unscoped).toBeUndefined()
+    const open = agentActions['tab.open'].params
+    expect(open.safeParse({ kind: 'files', args: { path: 'a.ts', line: 3 } }).success).toBe(true)
+    expect(open.safeParse({ kind: 'browser', pane: 'p2', scope: 'agent:nova' }).success).toBe(true)
+    expect(open.safeParse({ kind: 'page', args: { page: 'test-bench' } }).success).toBe(true)
+    expect(open.safeParse({ kind: 'page', args: { page: 'chat' } }).success).toBe(false)
+    expect(open.safeParse({ kind: 'terminal' }).success).toBe(false)
+    expect(open.safeParse({ kind: 'subagent', args: { name: 'x' } }).success).toBe(false)
+    const split = agentActions['pane.split'].params
+    expect(split.safeParse({ dir: 'down', tab: 'browser' }).success).toBe(true)
+    expect(split.safeParse({ dir: 'down', tab: { kind: 'artifacts' }, size: 0.3 }).success).toBe(
+      true,
+    )
+    expect(split.safeParse({ dir: 'down', size: 1 }).success).toBe(false)
+    expect(split.safeParse({ dir: 'down', scope: 'x' }).success).toBe(false)
+    const resize = agentActions['pane.resize'].params
+    expect(resize.safeParse({ pane: 'p2', size: 0.4 }).success).toBe(true)
+    expect(resize.safeParse({ pane: 'p2', px: 400 }).success).toBe(true)
+    expect(resize.safeParse({ pane: 'p2' }).success).toBe(false)
+    expect(resize.safeParse({ pane: 'p2', size: 0.4, px: 400 }).success).toBe(false)
+    expect(agentActions['pane.focus'].params.safeParse({ dir: 'left' }).success).toBe(true)
+    expect(agentActions['tab.close'].params.safeParse({ id: 3 }).success).toBe(true)
+    expect(agentActions['tab.close'].params.safeParse({ id: 'files' }).success).toBe(true)
   })
 
   it('validates params', () => {
@@ -135,6 +181,6 @@ describe('artifacts actions', () => {
       agentActions['artifacts.tab.update'].params.safeParse({ id: 'open-prs', hidden: true })
         .success,
     ).toBe(false)
-    expect(agentActions['panel.show'].params.safeParse({ tool: 'artifacts' }).success).toBe(true)
+    expect(agentActions['tab.open'].params.safeParse({ kind: 'artifacts' }).success).toBe(true)
   })
 })

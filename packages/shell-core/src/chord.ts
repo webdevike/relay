@@ -30,6 +30,7 @@ function keyPart(key: string, code: string | undefined): string {
     if (digit) return digit[1]!
     if (code === 'BracketLeft') return '['
     if (code === 'BracketRight') return ']'
+    if (code === 'Backslash') return '\\'
     const letter = /^Key([A-Z])$/.exec(code)
     if (letter) return letter[1]!.toLowerCase()
   }
@@ -76,6 +77,14 @@ export type ActionId =
   | 'history-back'
   | 'history-forward'
   | 'dismiss'
+  | 'split-right'
+  | 'split-down'
+  | 'focus-pane-left'
+  | 'focus-pane-right'
+  | 'focus-pane-up'
+  | 'focus-pane-down'
+  | 'close-pane'
+  | 'zoom-pane'
 
 export const GLOBAL_CHORDS: ReadonlyArray<{ chord: string; action: ActionId }> = [
   { chord: 'cmd+n', action: 'new-todo' },
@@ -88,6 +97,15 @@ export const GLOBAL_CHORDS: ReadonlyArray<{ chord: string; action: ActionId }> =
   { chord: 'cmd+[', action: 'history-back' },
   { chord: 'cmd+]', action: 'history-forward' },
   { chord: 'escape', action: 'dismiss' },
+  // Panes (tiling): split the focused pane, move between panes, close or maximize it.
+  { chord: 'cmd+\\', action: 'split-right' },
+  { chord: 'cmd+shift+\\', action: 'split-down' },
+  { chord: 'cmd+alt+arrowleft', action: 'focus-pane-left' },
+  { chord: 'cmd+alt+arrowright', action: 'focus-pane-right' },
+  { chord: 'cmd+alt+arrowup', action: 'focus-pane-up' },
+  { chord: 'cmd+alt+arrowdown', action: 'focus-pane-down' },
+  { chord: 'cmd+alt+w', action: 'close-pane' },
+  { chord: 'cmd+alt+enter', action: 'zoom-pane' },
 ]
 
 const BY_CHORD = new Map(GLOBAL_CHORDS.map((c) => [c.chord, c.action]))

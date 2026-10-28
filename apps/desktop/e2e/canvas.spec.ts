@@ -266,7 +266,7 @@ test('the minimap is a small card and hides on a narrow board', async ({ app, sh
   const box = (await minimap.boundingBox())!
   expect(box.width).toBeLessThanOrEqual(162)
   expect(box.height).toBeLessThanOrEqual(112)
-  // The side panel open in a smaller window leaves the board under 640px wide.
+  // The tool panes shown in a smaller window leave the board under 640px wide.
   await size(app, shell, 1100, 800)
   await panelToggle.click()
   await expect

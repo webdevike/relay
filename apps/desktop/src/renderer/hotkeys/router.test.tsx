@@ -17,7 +17,8 @@ vi.mock('../ipc', () => ({
 import { browserStore } from '../browser/browser-store'
 import { useBrowserHotkeys } from '../browser/useBrowserHotkeys'
 import { useDismissable } from './dismiss'
-import { setPanelFocused } from './panel-focus'
+import { setFocusedPane } from './pane-focus'
+import { activateTab, resetTilingForTests } from '../tiling/tiling-store'
 import {
   registerAction,
   registerOverlayChord,
@@ -42,7 +43,8 @@ beforeEach(() => {
 })
 afterEach(() => {
   stop()
-  setPanelFocused(false)
+  setFocusedPane(null)
+  resetTilingForTests()
 })
 
 describe('chord lock', () => {
@@ -143,16 +145,29 @@ describe('hotkey router', () => {
     window.__evaosHotkeys = []
     for (const { chord } of GLOBAL_CHORDS) {
       if (chord === 'escape') continue
-      const m = /^cmd\+(shift\+)?(.)$/.exec(chord)!
-      const k = m[2]!
-      const code = /\d/.test(k)
-        ? `Digit${k}`
-        : /[a-z]/.test(k)
-          ? `Key${k.toUpperCase()}`
-          : k === '['
-            ? 'BracketLeft'
-            : 'BracketRight'
-      key({ key: k, code, metaKey: true, shiftKey: !!m[1] })
+      const m = /^cmd\+(alt\+)?(shift\+)?(.+)$/.exec(chord)!
+      const k = m[3]!
+      const arrow = /^arrow(left|right|up|down)$/.exec(k)
+      const key_ = arrow
+        ? `Arrow${arrow[1]![0]!.toUpperCase()}${arrow[1]!.slice(1)}`
+        : k === 'enter'
+          ? 'Enter'
+          : k
+      const code = arrow
+        ? key_
+        : k === 'enter'
+          ? 'Enter'
+          : /^\d$/.test(k)
+            ? `Digit${k}`
+            : /^[a-z]$/.test(k)
+              ? `Key${k.toUpperCase()}`
+              : (
+                  { '[': 'BracketLeft', ']': 'BracketRight', '\\': 'Backslash' } as Record<
+                    string,
+                    string
+                  >
+                )[k]!
+      key({ key: key_, code, metaKey: true, altKey: !!m[1], shiftKey: !!m[2] })
     }
     const logged = window.__evaosHotkeys.map((x) => x.chord)
     for (const { chord } of GLOBAL_CHORDS) if (chord !== 'escape') expect(logged).toContain(chord)
@@ -164,7 +179,7 @@ describe('hotkey router', () => {
     })
   })
 
-  it('cmd+w closes the browser tab for guest keys and for panel focus, else falls through', () => {
+  it("cmd+w closes the browser tab for guest keys and in the browser's pane, else falls through", () => {
     browserStore.setState({ tabs: [{ id: 't1' }] as never, activeId: 't1' })
     const close = vi.fn()
     const off = registerAction('close-tab', close)
@@ -176,7 +191,12 @@ describe('hotkey router', () => {
     hotkeyCb!({ chord: 'cmd+w', fromGuest: false })
     expect(invoke).not.toHaveBeenCalled()
     expect(close).toHaveBeenCalledTimes(1)
-    setPanelFocused(true)
+    // The default tool pane (p2) has the keyboard, with Files in front: not the browser's yet.
+    setFocusedPane('p2')
+    activateTab('files')
+    hotkeyCb!({ chord: 'cmd+w', fromGuest: false })
+    expect(invoke).not.toHaveBeenCalled()
+    activateTab('browser')
     hotkeyCb!({ chord: 'cmd+w', fromGuest: false })
     expect(invoke).toHaveBeenCalledWith('browser.closeTab', { tabId: 't1' })
     unmount()

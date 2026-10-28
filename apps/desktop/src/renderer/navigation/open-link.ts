@@ -1,5 +1,5 @@
 import { invoke } from '../ipc'
-import { panelTabCreated } from '../shell/layout-store'
+import { revealTool } from '../tiling/tiling-store'
 
 /** Web links open in a new tab of the current scope's browser; other schemes go nowhere. */
 export function openLink(href: string): void {
@@ -10,6 +10,6 @@ export function openLink(href: string): void {
     return
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return
-  panelTabCreated()
+  revealTool('browser')
   void invoke('browser.createTab', { url: url.href })
 }

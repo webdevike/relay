@@ -59,18 +59,18 @@ export const ChatSettingsSchema = z.object({
 export type ChatSettings = z.infer<typeof ChatSettingsSchema>
 
 const Empty = z.object({})
-const PanelToolSchema = z.enum(['browser', 'files', 'artifacts'])
+const ToolKindSchema = z.enum(['browser', 'files', 'artifacts'])
 
 export const shellInvoke = {
   'layout.load': {
     input: z.object({}).strict(),
     output: z.object({
       sidebarWidth: z.number(),
-      panelWidth: z.number(),
       tabs: z.unknown().nullable(),
-      /** Isaac's explicit panel open/close per browser scope, oldest first. */
-      panelChoices: z.record(z.string(), z.boolean()),
-      panelTool: PanelToolSchema,
+      /** The saved pane tree in its layout.json form (shell-core tilingFromJson reads it). */
+      tiling: z.unknown().nullable(),
+      /** The side panel before tiling, while no tiling is saved: seeds the first tree. */
+      legacyPanel: z.object({ width: z.number(), tool: ToolKindSchema }).nullable(),
       reset: z.boolean(),
     }),
   },
@@ -78,14 +78,9 @@ export const shellInvoke = {
     input: z
       .object({
         sidebarWidth: z.number().finite().optional(),
-        panelWidth: z.number().finite().optional(),
         tabs: SavedTabsSchema.optional(),
-        /** Upserts per scope; null forgets the scope (a draft chat renamed to its session). */
-        panelChoices: z
-          .record(z.string().max(4096), z.boolean().nullable())
-          .refine((o) => Object.keys(o).length <= 200, 'too many scopes')
-          .optional(),
-        panelTool: PanelToolSchema.optional(),
+        /** The pane tree in its layout.json form (shell-core tilingToJson); main validates it. */
+        tiling: z.record(z.string(), z.unknown()).optional(),
       })
       .strict(),
     output: Empty,

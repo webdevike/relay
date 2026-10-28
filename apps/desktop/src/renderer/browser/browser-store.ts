@@ -3,7 +3,7 @@ import { createStore } from 'zustand/vanilla'
 import { notifications } from '@mantine/notifications'
 import type { TabState, TabsSnapshot } from '@evaos/contract'
 import { invoke, on } from '../ipc'
-import { reportScopeTabs } from '../shell/layout-store'
+import { reportScopeTabs } from '../tiling/tiling-store'
 
 export interface BrowserState {
   /** Pinned tabs first, then the current scope's own tabs. */

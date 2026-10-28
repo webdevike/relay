@@ -1,12 +1,12 @@
 // Join a live canvas from a chat, and come back to exactly where the chat was: the same tab's
-// history (Back pops the canvas), the transcript's scroll offset, the unsent draft (the composer
-// stays mounted, and drafts.ts keeps it by session file) and the side panel.
-import { activeTab, browserScope, placeEquals, placeOf, type Place } from '@evaos/shell-core'
-import { activeTabId, goBack, navigateTo, tabsStore } from '../../tabs/tabs-store'
+// history (Back pops the canvas), the transcript's scroll offset and the unsent draft (the
+// composer stays mounted, and drafts.ts keeps it by session file). The panes stay as they are:
+// the tiling is the window's, not the page's.
+import { activeTab, placeEquals, placeOf, type Place } from '@evaos/shell-core'
+import { goBack, navigateTo, tabsStore } from '../../tabs/tabs-store'
 import { chatStore } from '../../chat/chat-store'
 import { PANE_ID } from '../../chat/open-chat'
 import { chatScrollOf, requestChatScroll, type ChatScroll } from '../../chat/chat-scroll'
-import { panelSnapshot, restorePanel, type PanelSnapshot } from '../../shell/layout-store'
 
 /** Where Isaac was when he joined a board's room. */
 export interface ReturnPoint {
@@ -15,7 +15,6 @@ export interface ReturnPoint {
   /** The session file the chat pane showed ('' for a new chat). */
   file: string
   scroll: ChatScroll | null
-  panel: PanelSnapshot
 }
 
 /** By board slug: the latest join of each board wins. */
@@ -33,7 +32,6 @@ export function joinCanvas(slug: string): void {
     place,
     file,
     scroll: file === '' ? null : chatScrollOf(file),
-    panel: panelSnapshot(),
   })
   navigateTo(placeOf('canvas', { canvas: slug }))
 }
@@ -45,7 +43,7 @@ export function openBoard(slug: string): void {
 
 /**
  * Back to the chat the room on `slug` was joined from: Back when it is the tab's previous page,
- * else a visit to it. The transcript goes back to its offset and the panel to how it was. With
+ * else a visit to it. The transcript goes back to its offset. With
  * no return point (the board was opened another way), `origin` is the room's own chat.
  */
 export function backToChat(slug: string, origin: Place | null): void {
@@ -57,7 +55,6 @@ export function backToChat(slug: string, origin: Place | null): void {
   const prev = activeTab(tabsStore.getState().tabs).back.at(-1)
   if (prev && placeEquals(prev, target)) goBack()
   else navigateTo(target)
-  if (point) restorePanel(browserScope(target, activeTabId(tabsStore.getState())), point.panel)
 }
 
 export function resetReturnPointsForTests(): void {

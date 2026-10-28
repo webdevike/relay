@@ -133,7 +133,7 @@ const test = base.extend<{ host: Host }>({
   },
 })
 
-test.use({ panelOpen: false })
+test.use({ toolPanes: false })
 
 test('a video drop in a reply plays inline with its poster, and seeks', async ({
   app,

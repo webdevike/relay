@@ -1,18 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../ipc', () => ({
   invoke: vi.fn(() => Promise.resolve({ ok: false, error: { code: 'test', message: 'test' } })),
   on: vi.fn(() => () => {}),
 }))
 
-import { activeTab, browserScope, placeOf } from '@evaos/shell-core'
-import {
-  activePlace,
-  activeTabId,
-  navigateTo,
-  resetTabsForTests,
-  tabsStore,
-} from '../../tabs/tabs-store'
+import { activeTab, placeOf } from '@evaos/shell-core'
+import { navigateTo, resetTabsForTests, tabsStore } from '../../tabs/tabs-store'
 import { chatStore } from '../../chat/chat-store'
 import { PANE_ID } from '../../chat/open-chat'
 import {
@@ -20,12 +14,7 @@ import {
   resetChatScrollForTests,
   takeChatScrollRequest,
 } from '../../chat/chat-scroll'
-import {
-  enterPanelScope,
-  layoutStore,
-  openSubagentPanel,
-  resetLayoutStoreForTests,
-} from '../../shell/layout-store'
+import { openSubagentTab, resetTilingForTests, tilingStore } from '../../tiling/tiling-store'
 import { backToChat, joinCanvas, resetReturnPointsForTests, returnPointOf } from './return-point'
 
 const FILE = '/s/-fixture/2026-10-28T10-00-00-000Z_s1.jsonl'
@@ -33,28 +22,22 @@ const CHAT = placeOf('chat', { chat: FILE })
 const BOARD = placeOf('canvas', { canvas: 'mind-map' })
 const meta = { model: null, thinking: null, contextTokens: null }
 
-let stopScope: () => void
 beforeEach(() => {
   resetTabsForTests()
-  resetLayoutStoreForTests()
+  resetTilingForTests()
   resetChatScrollForTests()
   resetReturnPointsForTests()
-  // The panel follows the scope in front, as browser-scope.ts keeps it.
-  stopScope = tabsStore.subscribe((s) =>
-    enterPanelScope(browserScope(activePlace(s), activeTabId(s))),
-  )
   navigateTo(CHAT)
   chatStore.getState().openPane(PANE_ID, { file: FILE, title: 'Plan', messages: [], meta })
 })
-afterEach(() => stopScope())
 
 const here = () => activeTab(tabsStore.getState().tabs)
 
 describe('join and back to chat', () => {
-  it('joins in the same tab and comes back by Back, to the same offset and panel', () => {
+  it('joins in the same tab and comes back by Back, to the same offset, panes untouched', () => {
     rememberChatScroll(FILE, { offset: 420, pinned: false })
-    openSubagentPanel({ session: FILE, file: '/s/sub.jsonl', name: 'Scout' })
-    const panel = { open: layoutStore.getState().panelOpen, view: layoutStore.getState().panelView }
+    openSubagentTab({ session: FILE, file: '/s/sub.jsonl', name: 'Scout' })
+    const panes = tilingStore.getState().tiling
     const tabs = tabsStore.getState().tabs.list.length
 
     joinCanvas('mind-map')
@@ -62,8 +45,6 @@ describe('join and back to chat', () => {
     expect(here().back.at(-1)).toEqual(CHAT)
     expect(tabsStore.getState().tabs.list).toHaveLength(tabs)
     expect(returnPointOf('mind-map')).toMatchObject({ place: CHAT, file: FILE })
-    // The board's own scope has its own panel.
-    expect(layoutStore.getState().panelScope).toBe('page:canvas:mind-map')
 
     backToChat('mind-map', null)
     expect(here().here).toEqual(CHAT)
@@ -71,10 +52,7 @@ describe('join and back to chat', () => {
     expect(here().forward.at(-1)).toEqual(BOARD)
     expect(takeChatScrollRequest(FILE)).toEqual({ offset: 420, pinned: false })
     expect(takeChatScrollRequest(FILE)).toBeNull()
-    expect({
-      open: layoutStore.getState().panelOpen,
-      view: layoutStore.getState().panelView,
-    }).toEqual(panel)
+    expect(tilingStore.getState().tiling).toBe(panes)
     expect(returnPointOf('mind-map')).toBeNull()
   })
 

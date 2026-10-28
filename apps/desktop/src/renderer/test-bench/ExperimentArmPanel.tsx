@@ -11,7 +11,7 @@ import {
 } from '@evaos/contract'
 import { invoke, on } from '../ipc'
 import { openLink } from '../navigation/open-link'
-import type { ExperimentArmView } from '../shell/layout-store'
+import type { ExperimentArmTab } from '@evaos/shell-core'
 import { ScrollArea } from '../ui/ScrollArea'
 import { duration, pct, rateWithInterval, tokenCount, usd } from './experiment-format'
 
@@ -72,7 +72,12 @@ function ArmCostDetail({ cost }: { cost: ArmCost }) {
     rows.push(['List $ per test (median)', usd(cost.listUsd.perTestMedian)])
     rows.push(['List $ total', usd(cost.listUsd.total)])
   } else {
-    rows.push(['List $', <span key="list" className="eva-bench-dim">unpriced</span>])
+    rows.push([
+      'List $',
+      <span key="list" className="eva-bench-dim">
+        unpriced
+      </span>,
+    ])
     if (cost.unpriced) rows.push(['Unpriced tokens', split(cost.unpriced)])
   }
   if (cost.billedUsd) {
@@ -356,8 +361,8 @@ function Cases({ data }: { data: ExperimentCases | null }) {
   )
 }
 
-/** Side panel body for one experiment arm: every measurement, then its case list. */
-export function ExperimentArmPanel({ view }: { view: ExperimentArmView }) {
+/** A tool tab for one experiment arm: every measurement, then its case list. */
+export function ExperimentArmPanel({ view }: { view: ExperimentArmTab }) {
   const [arm, setArm] = useState<ArmSummary | null>(null)
   const [cases, setCases] = useState<ExperimentCases | null>(null)
   const [error, setError] = useState<string | null>(null)

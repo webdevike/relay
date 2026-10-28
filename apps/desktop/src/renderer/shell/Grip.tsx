@@ -1,14 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
-import { PANEL_MIN, SIDEBAR_MAX, SIDEBAR_MIN } from '@evaos/shell-core'
+import { SIDEBAR_MAX, SIDEBAR_MIN } from '@evaos/shell-core'
 import { useOccludeBrowser } from '../overlay/overlay-store'
-import { commitWidth, previewWidth, resetWidth, useLayout, type Edge } from './layout-store'
+import {
+  commitSidebarWidth,
+  previewSidebarWidth,
+  resetSidebarWidth,
+  useLayout,
+} from './layout-store'
 
 const STEP = 16
 const BIG_STEP = 48
 
-/** Edge resize handle (D-05). The panel grows leftward, so its dx is negated. */
-export function Grip({ edge }: { edge: Edge }) {
-  const width = useLayout((s) => (edge === 'sidebar' ? s.sidebarPx : s.panelPx))
+/** The sidebar's resize handle (D-05). Panes resize on their own dividers (tiling/Divider). */
+export function Grip() {
+  const width = useLayout((s) => s.sidebarPx)
   const widthRef = useRef(width)
   widthRef.current = width
   const [dragging, setDragging] = useState(false)
@@ -17,17 +22,16 @@ export function Grip({ edge }: { edge: Edge }) {
 
   useEffect(() => () => finishDrag.current?.(false), [])
 
-  const label = edge === 'sidebar' ? 'Resize sidebar' : 'Resize panel'
   return (
     <div
-      className={`eva-grip eva-grip-${edge}${dragging ? ' is-dragging' : ''}`}
-      data-testid={`grip-${edge}`}
+      className={`eva-grip eva-grip-sidebar${dragging ? ' is-dragging' : ''}`}
+      data-testid="grip-sidebar"
       role="separator"
       aria-orientation="vertical"
-      aria-label={label}
+      aria-label="Resize sidebar"
       aria-valuenow={width}
-      aria-valuemin={edge === 'sidebar' ? SIDEBAR_MIN : PANEL_MIN}
-      aria-valuemax={edge === 'sidebar' ? SIDEBAR_MAX : undefined}
+      aria-valuemin={SIDEBAR_MIN}
+      aria-valuemax={SIDEBAR_MAX}
       tabIndex={0}
       onPointerDown={(e) => {
         if (e.button !== 0 || finishDrag.current) return
@@ -37,7 +41,6 @@ export function Grip({ edge }: { edge: Edge }) {
         const pointerId = e.pointerId
         const startX = e.clientX
         const startWidth = widthRef.current
-        const sign = edge === 'sidebar' ? 1 : -1
         const previousUserSelect = document.body.style.userSelect
         let frame = 0
         let pending: number | null = null
@@ -47,10 +50,10 @@ export function Grip({ edge }: { edge: Edge }) {
           if (pending === null) return
           const px = pending
           pending = null
-          previewWidth(edge, px)
+          previewSidebarWidth(px)
         }
         const track = (event: PointerEvent): void => {
-          pending = startWidth + sign * (event.clientX - startX)
+          pending = startWidth + event.clientX - startX
         }
         const finish = (updateState = true): void => {
           if (!finishDrag.current) return
@@ -64,7 +67,7 @@ export function Grip({ edge }: { edge: Edge }) {
           if (target.hasPointerCapture?.(pointerId)) target.releasePointerCapture(pointerId)
           document.body.style.userSelect = previousUserSelect
           document.body.classList.remove('eva-resizing')
-          commitWidth(edge)
+          commitSidebarWidth()
           if (updateState) setDragging(false)
         }
         const move = (event: PointerEvent): void => {
@@ -97,19 +100,19 @@ export function Grip({ edge }: { edge: Edge }) {
         document.body.classList.add('eva-resizing')
         setDragging(true)
       }}
-      onDoubleClick={() => resetWidth(edge)}
+      onDoubleClick={resetSidebarWidth}
       onKeyDown={(e) => {
         if (e.key === 'Home') {
           e.preventDefault()
-          resetWidth(edge)
+          resetSidebarWidth()
           return
         }
         if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
         e.preventDefault()
         const step = e.shiftKey ? BIG_STEP : STEP
         const dx = e.key === 'ArrowRight' ? step : -step
-        previewWidth(edge, widthRef.current + (edge === 'sidebar' ? dx : -dx))
-        commitWidth(edge)
+        previewSidebarWidth(widthRef.current + dx)
+        commitSidebarWidth()
       }}
     >
       <span className="eva-grip-bar" />

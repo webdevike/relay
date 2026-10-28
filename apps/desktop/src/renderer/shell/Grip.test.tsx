@@ -9,7 +9,7 @@ vi.mock('../ipc', () => ({
 vi.mock('@mantine/notifications', () => ({ notifications: { show: vi.fn() } }))
 
 import { Grip } from './Grip'
-import { layoutStore, resetLayoutStoreForTests, setWindowWidth, togglePanel } from './layout-store'
+import { layoutStore, resetLayoutStoreForTests, setWindowWidth } from './layout-store'
 import { overlayStore } from '../overlay/overlay-store'
 
 const saves = (): unknown[][] => invoke.mock.calls.filter((c) => c[0] === 'layout.save')
@@ -19,14 +19,13 @@ beforeEach(() => {
   invoke.mockReset()
   invoke.mockResolvedValue({ ok: true, value: {} })
   resetLayoutStoreForTests()
-  togglePanel(true)
   invoke.mockClear()
   setWindowWidth(1280)
 })
 
 describe('Grip', () => {
   it('previews during a drag, commits once on pointerup and restores user-select', async () => {
-    render(<Grip edge="sidebar" />)
+    render(<Grip />)
     const grip = screen.getByTestId('grip-sidebar')
     fireEvent.pointerDown(grip, { clientX: 272, button: 0 })
     expect(document.body.style.userSelect).toBe('none')
@@ -46,7 +45,7 @@ describe('Grip', () => {
   })
 
   it('unmounting mid-drag commits the pending position and restores drag state', () => {
-    const { unmount } = render(<Grip edge="sidebar" />)
+    const { unmount } = render(<Grip />)
     fireEvent.pointerDown(screen.getByTestId('grip-sidebar'), { clientX: 272, button: 0 })
     expect(document.body.classList.contains('eva-resizing')).toBe(true)
     fireEvent.pointerMove(window, { clientX: 350, buttons: 1 })
@@ -57,18 +56,9 @@ describe('Grip', () => {
     expect(saves()).toEqual([['layout.save', { sidebarWidth: 350 }]])
     expect(overlayStore.getState().ids.size).toBe(0)
   })
-  it('negates dx for the panel', async () => {
-    render(<Grip edge="panel" />)
-    fireEvent.pointerDown(screen.getByTestId('grip-panel'), { clientX: 800, button: 0 })
-    await act(async () => {
-      fireEvent.pointerMove(window, { clientX: 740, buttons: 1 })
-      fireEvent.pointerUp(window, { clientX: 740 })
-    })
-    expect(layoutStore.getState().panelPx).toBe(480)
-  })
 
   it('tracks successive frames from the original grab without accumulating deltas', async () => {
-    render(<Grip edge="sidebar" />)
+    render(<Grip />)
     fireEvent.pointerDown(screen.getByTestId('grip-sidebar'), { clientX: 272, button: 0 })
     for (const clientX of [302, 332, 362]) {
       await act(async () => {
@@ -82,7 +72,7 @@ describe('Grip', () => {
   })
 
   it('uses the release coordinate even before the next frame or any move event', () => {
-    render(<Grip edge="sidebar" />)
+    render(<Grip />)
     const grip = screen.getByTestId('grip-sidebar')
     fireEvent.pointerDown(grip, { clientX: 272, button: 0 })
     fireEvent.pointerMove(window, { clientX: 300, buttons: 1 })
@@ -99,7 +89,7 @@ describe('Grip', () => {
     '%s flushes the pending frame, restores selection and commits only once',
     (event) => {
       document.body.style.userSelect = 'text'
-      render(<Grip edge="sidebar" />)
+      render(<Grip />)
       const grip = screen.getByTestId('grip-sidebar')
       fireEvent.pointerDown(grip, { clientX: 272, button: 0 })
       fireEvent.pointerMove(window, { clientX: 330, buttons: 1 })
@@ -119,7 +109,7 @@ describe('Grip', () => {
   )
 
   it('ends a drag when pointer movement reports the button was released outside the window', () => {
-    render(<Grip edge="sidebar" />)
+    render(<Grip />)
     fireEvent.pointerDown(screen.getByTestId('grip-sidebar'), { clientX: 272, button: 0 })
     fireEvent.pointerMove(window, { clientX: 310, buttons: 1 })
     fireEvent.pointerMove(window, { clientX: 400, buttons: 0 })
@@ -129,7 +119,7 @@ describe('Grip', () => {
   })
 
   it('ignores another pointer moving or releasing while the grabbed pointer is active', () => {
-    render(<Grip edge="sidebar" />)
+    render(<Grip />)
     const grip = screen.getByTestId('grip-sidebar')
     const pointer = (
       type: 'pointerDown' | 'pointerMove' | 'pointerUp',
@@ -153,7 +143,7 @@ describe('Grip', () => {
   })
 
   it('double-click resets once; keyboard steps and aria', () => {
-    render(<Grip edge="sidebar" />)
+    render(<Grip />)
     const grip = screen.getByRole('separator', { name: 'Resize sidebar' })
     expect(grip).toHaveAttribute('aria-orientation', 'vertical')
     expect(grip).toHaveAttribute('aria-valuenow', '272')

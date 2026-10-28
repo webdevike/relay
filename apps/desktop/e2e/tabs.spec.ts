@@ -55,9 +55,12 @@ async function focusShell(shell: Page): Promise<void> {
   await shell.locator('[data-testid=tabbar-drag]').click()
 }
 
+// Tool panes have tabs too: the app's tabs are the ones in the tab bar.
+const APP_TAB = '[data-testid=tabbar] [role=tab]'
+
 test('fresh launch has one active Dashboard tab', async ({ shell }) => {
-  await expect(shell.locator('[role=tab]')).toHaveCount(1)
-  await expect(shell.locator('[role=tab]').first()).toHaveAttribute('data-active', 'true')
+  await expect(shell.locator(APP_TAB)).toHaveCount(1)
+  await expect(shell.locator(APP_TAB).first()).toHaveAttribute('data-active', 'true')
   expect(await titles(shell)).toEqual(['Dashboard'])
 })
 
@@ -148,17 +151,18 @@ test('tabs persist across a relaunch', async ({ app, shell, configDir }) => {
     .toBe(true)
   await expect.poll(() => layoutTabs(configDir).list?.length).toBe(3)
   const entry = layoutTabs(configDir).list![0]!
-  expect(Object.keys(entry).sort()).toEqual(['back', 'forward', 'here', 'pinned'].sort())
+  // The id is saved too, so per-tab state (composer drafts) finds its tab after a restart.
+  expect(Object.keys(entry).sort()).toEqual(['back', 'forward', 'here', 'id', 'pinned'].sort())
   await app.close()
 
   const app2 = await launchApp(configDir)
   try {
     const page = await app2.firstWindow()
     await page.waitForSelector('[data-testid=rail]', { state: 'attached' })
-    await expect(page.locator('[role=tab]')).toHaveCount(3)
+    await expect(page.locator(APP_TAB)).toHaveCount(3)
     const after = await tabs(page)
-    expect(after.list.map((t) => [t.title, t.pinned])).toEqual(
-      before.list.map((t) => [t.title, t.pinned]),
+    expect(after.list.map((t) => [t.id, t.title, t.pinned])).toEqual(
+      before.list.map((t) => [t.id, t.title, t.pinned]),
     )
     expect(after.active).toBe(before.active)
   } finally {
@@ -181,7 +185,7 @@ test('sidebar toggle keeps clear of the traffic lights and folds', async ({ app,
   await expect.poll(() => shell.evaluate(() => window.innerWidth)).toBe(760)
   await expect(toggle).toHaveAttribute(
     'aria-label',
-    'Sidebar hidden to fit the window. Widen the window or close the panel to bring it back.',
+    'Sidebar hidden to fit the window. Widen the window or close a pane to bring it back.',
   )
 })
 

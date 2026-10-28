@@ -47,7 +47,7 @@ async function size(app: ElectronApplication, shell: Page, w: number, h: number)
   await expect
     .poll(
       async () => {
-        const now = JSON.stringify([await box(shell, 'main-card'), await box(shell, 'panel-card')])
+        const now = JSON.stringify([await box(shell, 'main-card'), await box(shell, 'pane-p2')])
         const same = now === last
         last = now
         return same
@@ -96,7 +96,10 @@ test('shell-dark-1280x800', async ({ app, shell }) => {
   await resolved(shell).toHaveAttribute('data-resolved', 'dark')
   await expect(shell.locator(sel('shell'))).toHaveAttribute('data-sidebar-state', 'open')
   expect((await box(shell, 'sidebar')).width).toBe(272)
-  expect(Math.abs((await box(shell, 'panel-card')).width - 420)).toBeLessThanOrEqual(1)
+  // The default tool pane takes about a third of the room right of the sidebar.
+  const tool = await box(shell, 'pane-p2')
+  const main = await box(shell, 'main-card')
+  expect(Math.abs(tool.width / (tool.width + main.width) - 0.34)).toBeLessThan(0.01)
   await finish(app, shell, 'shell-dark-1280x800')
 })
 
@@ -112,11 +115,13 @@ for (const mode of ['dark', 'light'] as const) {
     await resolved(shell).toHaveAttribute('data-resolved', mode)
     await size(app, shell, 760, 720)
     await expect(shell.locator(sel('shell'))).toHaveAttribute('data-sidebar-state', 'folded')
-    const panel = await box(shell, 'panel-card')
+    const tool = await box(shell, 'pane-p2')
     const main = await box(shell, 'main-card')
-    expect(Math.round(panel.width)).toBe(320)
-    expect(panel.x + panel.width).toBeLessThanOrEqual(760)
-    expect(main.x + main.width).toBeLessThanOrEqual(panel.x)
+    // Both panes keep their smallest widths (chat 480, tool pane 240) inside the window.
+    expect(tool.width).toBeGreaterThanOrEqual(240)
+    expect(main.width).toBeGreaterThanOrEqual(480)
+    expect(Math.round(tool.x + tool.width)).toBe(760 - 8)
+    expect(main.x + main.width).toBeLessThanOrEqual(tool.x)
     await finish(app, shell, `shell-folded-${mode}-760x720`)
   })
 
@@ -126,11 +131,11 @@ for (const mode of ['dark', 'light'] as const) {
     await size(app, shell, 1440, 900)
     await expect(shell.locator(sel('shell'))).toHaveAttribute('data-sidebar-state', 'open')
     expect((await box(shell, 'sidebar')).width).toBe(272)
-    const panel = await box(shell, 'panel-card')
+    const tool = await box(shell, 'pane-p2')
     const main = await box(shell, 'main-card')
-    expect(Math.abs(panel.width - 420)).toBeLessThanOrEqual(1)
-    expect(main.width).toBeGreaterThan(1440 - 272 - 420 - 40)
-    expect(Math.round(main.x + main.width + 8)).toBe(Math.round(panel.x))
+    expect(Math.abs(tool.width / (tool.width + main.width) - 0.34)).toBeLessThan(0.01)
+    expect(Math.round(main.x + main.width + 8)).toBe(Math.round(tool.x))
+    expect(Math.round(tool.x + tool.width)).toBe(1440 - 8)
     await finish(app, shell, `shell-wide-${mode}-1440x900`)
   })
 }
@@ -143,7 +148,8 @@ test('tabs-pinned-menu', async ({ app, shell }) => {
   const list = (await tabs(shell)).list
   // The loaded page belongs to the first chat's browser scope; the new chats have none.
   await shell.locator(sel(`tab-${list[0]!.id}`)).click()
-  await expect(shell.locator(sel('panel-card'))).toBeVisible()
+  await expect(shell.locator(sel('pane-p2'))).toBeVisible()
+  await expect(shell.locator('[data-testid^=browser-tab-t]').first()).toContainText('Page A')
   await shell.locator(sel(`tab-${list[0]!.id}`)).click({ button: 'right' })
   await shell.locator(sel('tab-menu-pin')).click()
   await expect(shell.locator(sel(`tab-pinned-${list[0]!.id}`))).toBeVisible()

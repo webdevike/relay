@@ -85,9 +85,9 @@ test('implemented chords have real effects', async ({ shell }) => {
   await expect(panelToggle).toHaveAttribute('aria-pressed', 'true')
   await shell.keyboard.press('Meta+Shift+b')
   await expect(panelToggle).toHaveAttribute('aria-pressed', 'false')
-  await expect(shell.locator(sel('panel-card'))).toBeHidden()
+  await expect(shell.locator('[data-pane-kind=tool]')).toBeHidden()
   await shell.keyboard.press('Meta+Shift+b')
-  await expect(shell.locator(sel('panel-card'))).toBeVisible()
+  await expect(shell.locator('[data-pane-kind=tool]')).toBeVisible()
 
   await shell.keyboard.press('Meta+t')
   await expect.poll(async () => (await tabs(shell)).list.length).toBe(2)

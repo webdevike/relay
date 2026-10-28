@@ -20,10 +20,10 @@ function deps(approve: boolean): MockDeps {
 describe('runAgentRequest', () => {
   it('runs a safe action without asking', async () => {
     const d = deps(false)
-    const r = await runAgentRequest('panel.show', { params: { tool: 'files' } }, d)
+    const r = await runAgentRequest('tab.open', { params: { kind: 'files' } }, d)
     expect(r).toEqual({ ok: true, value: 'done' })
     expect(d.ask).not.toHaveBeenCalled()
-    expect(d.run).toHaveBeenCalledWith('panel.show', expect.anything(), { tool: 'files' })
+    expect(d.run).toHaveBeenCalledWith('tab.open', expect.anything(), { kind: 'files' })
   })
 
   it('needs confirm: true for a destructive action and never shows the toast without it', async () => {
@@ -84,14 +84,17 @@ describe('runAgentRequest', () => {
       scope: 'agent:nova',
     })
     await runAgentRequest(
-      'panel.show',
-      { params: { tool: 'files', scope: 'test-bench' }, scope: 'agent:nova' },
+      'tab.open',
+      { params: { kind: 'files', scope: 'test-bench' }, scope: 'agent:nova' },
       d,
     )
-    expect(d.run).toHaveBeenLastCalledWith('panel.show', expect.anything(), {
-      tool: 'files',
+    expect(d.run).toHaveBeenLastCalledWith('tab.open', expect.anything(), {
+      kind: 'files',
       scope: 'test-bench',
     })
+    // Pane layout acts on the whole window: the caller's scope stays out.
+    await runAgentRequest('pane.close', { params: { pane: 'p2' }, scope: 'agent:nova' }, d)
+    expect(d.run).toHaveBeenLastCalledWith('pane.close', expect.anything(), { pane: 'p2' })
     // Page changes and the rest go where they always went.
     await runAgentRequest('page.open', { params: { page: 'jobs' }, scope: 'agent:nova' }, d)
     expect(d.run).toHaveBeenLastCalledWith('page.open', expect.anything(), { page: 'jobs' })

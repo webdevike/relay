@@ -7,7 +7,9 @@ import { ContextButton } from '../context/ContextButton'
 import { FOLDED_LABEL } from '../tabs/TabBar'
 import { tabTitle } from '../tabs/tab-meta'
 import { activePlace, useTabs } from '../tabs/tabs-store'
-import { togglePanel, toggleSidebar, useLayout } from './layout-store'
+import { toolsShown } from '@evaos/shell-core'
+import { toggleToolPanes, useTiling } from '../tiling/tiling-store'
+import { toggleSidebar, useLayout } from './layout-store'
 
 /** Page controls belong inside main's card; the tab strip only navigates tabs. */
 export function MainHeader() {
@@ -15,10 +17,10 @@ export function MainHeader() {
   const place = useTabs(activePlace)
   const agent = agentIdOf(place)
   const state = useLayout((s) => s.state)
-  const panelOpen = useLayout((s) => s.panelOpen)
+  const panelOpen = useTiling((s) => toolsShown(s.tiling))
   const sidebarLabel =
     state === 'open' ? 'Hide sidebar' : state === 'hidden' ? 'Show sidebar' : FOLDED_LABEL
-  const panelLabel = panelOpen ? 'Close panel' : 'Open panel'
+  const panelLabel = panelOpen ? 'Hide tool panes' : 'Show tool panes'
   return (
     <header className="eva-main-header" data-testid="main-header">
       <Tooltip
@@ -64,7 +66,7 @@ export function MainHeader() {
           data-testid="panel-toggle"
           aria-label={panelLabel}
           aria-pressed={panelOpen}
-          onClick={() => togglePanel()}
+          onClick={() => toggleToolPanes()}
         >
           <IconLayoutSidebarRight size={16} stroke={1.5} />
         </ActionIcon>

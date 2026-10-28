@@ -13,7 +13,8 @@ import { SubagentChips } from './strips/SubagentChips'
 import { chatStore, hiddenKey, useChatStore } from './chat-store'
 import { createStreamDrain } from './stream-drain'
 import { invoke, on } from '../ipc'
-import { browserScope, placeOf } from '@evaos/shell-core'
+import { browserScope, frontTabs, placeOf, toolsShown } from '@evaos/shell-core'
+import { FOLDED_LABEL } from '../tabs/TabBar'
 import {
   activePlace,
   activeTabId,
@@ -24,7 +25,8 @@ import {
 import { renameBrowserScope } from '../browser/browser-scope'
 import { openChatFile, openDraftPane, PANE_ID } from './open-chat'
 import { draftKeyFor, loadDrafts } from './drafts'
-import { openSubagentPanel, togglePanel, toggleSidebar, useLayout } from '../shell/layout-store'
+import { toggleSidebar, useLayout } from '../shell/layout-store'
+import { openSubagentTab, toggleToolPanes, useTiling } from '../tiling/tiling-store'
 import { setChatTitle } from '../eva/names-store'
 import { AgentCrumb } from '../assistants/AgentCrumb'
 import { agentFile, agentIdOf, agentOf, useAssistants } from '../assistants/assistants-store'
@@ -57,19 +59,18 @@ export function ChatPane() {
   )
   const [evaRoot, setEvaRoot] = useState<string | null>(null)
   const sidebarState = useLayout((s) => s.state)
-  const panelOpen = useLayout((s) => s.panelOpen)
-  // The subagent the side panel shows, when it is one of this chat's.
-  const viewedSubagent = useLayout((s) =>
-    s.panelOpen && s.panelView.kind === 'subagent' && s.panelView.session === pane?.file
-      ? s.panelView.name
-      : null,
-  )
+  const panelOpen = useTiling((s) => toolsShown(s.tiling))
+  // The subagent a pane shows in front, when it is one of this chat's.
+  const viewedSubagent = useTiling((s) => {
+    const tab = frontTabs(s.tiling).find((t) => t.kind === 'subagent' && t.session === pane?.file)
+    return tab?.kind === 'subagent' ? tab.name : null
+  })
   const sidebarLabel =
     sidebarState === 'open'
       ? 'Hide sidebar'
       : sidebarState === 'hidden'
         ? 'Show sidebar'
-        : 'Sidebar hidden to fit the window. Widen the window or close the panel to bring it back.'
+        : FOLDED_LABEL
   // An agent's page shows its thread here once omp wrote the file (native Page::Agent).
   const place = useTabs(activePlace)
   const thread = useAssistants((s) => agentFile(s, place))
@@ -202,14 +203,14 @@ export function ChatPane() {
         {/* This header is the page's whenever the pane shows (a chat, an agent's thread; MainCard
             drops MainHeader then); otherwise the pane is hidden and MainHeader has the button. */}
         {place.page === 'chat' || thread !== null ? <ContextButton /> : null}
-        <Tooltip label={panelOpen ? 'Close panel' : 'Open panel'} position="bottom">
+        <Tooltip label={panelOpen ? 'Hide tool panes' : 'Show tool panes'} position="bottom">
           <ActionIcon
             variant="subtle"
             className="eva-header-btn eva-chat-panel-toggle"
             data-testid="panel-toggle"
-            aria-label={panelOpen ? 'Close panel' : 'Open panel'}
+            aria-label={panelOpen ? 'Hide tool panes' : 'Show tool panes'}
             aria-pressed={panelOpen}
-            onClick={() => togglePanel()}
+            onClick={() => toggleToolPanes()}
           >
             <IconLayoutSidebarRight size={16} stroke={1.5} />
           </ActionIcon>
@@ -250,7 +251,7 @@ export function ChatPane() {
           hidden={hiddenNames}
           active={viewedSubagent}
           onOpen={(s) =>
-            openSubagentPanel({
+            openSubagentTab({
               session: pane.file,
               // A subagent's transcript lives in the session's folder, named like the session.
               file: `${pane.file.replace(/\.jsonl$/, '')}/${s.file}`,

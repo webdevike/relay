@@ -72,13 +72,17 @@ test('subagent chips: running and done, transcript panel, Clear done, live updat
   })
   expect(gap).toBeLessThanOrEqual(2)
 
-  // A chip opens its transcript in the side panel, read only.
+  // A chip opens its transcript in a tool pane tab, read only.
   await chip(shell, 'b').click()
-  await expect(shell.locator(sel('panel-subagent-title'))).toContainText('b')
+  const tab = shell.locator('[data-testid^="pane-tab-subagent:"]')
+  await expect(tab).toHaveCount(1)
+  await expect(tab).toContainText('b')
+  await expect(tab).toHaveAttribute('data-active', 'true')
   await expect(shell.locator(sel('subagent-transcript'))).toContainText('Reading the fixtures now.')
   await expect(chip(shell, 'b')).toHaveAttribute('aria-pressed', 'true')
   await proofShot(app, shell, 'subagent-chips', { phase: 'phase-4' })
-  await shell.locator(sel('panel-close')).click()
+  await shell.locator('[data-testid^="pane-tab-close-subagent:"]').click()
+  await expect(tab).toHaveCount(0)
   await expect(shell.locator(sel('subagent-transcript'))).toHaveCount(0)
 
   // Clear done hides only the finished chip and stays, disabled, while nothing else is done.

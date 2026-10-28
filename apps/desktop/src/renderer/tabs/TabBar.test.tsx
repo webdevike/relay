@@ -9,12 +9,9 @@ vi.mock('../ipc', () => ({
 }))
 
 import { createTabs, placeOf, type Tab } from '@evaos/shell-core'
-import {
-  layoutStore,
-  resetLayoutStoreForTests,
-  setWindowWidth,
-  togglePanel,
-} from '../shell/layout-store'
+import { toolsShown } from '@evaos/shell-core'
+import { resetLayoutStoreForTests, setWindowWidth } from '../shell/layout-store'
+import { resetTilingForTests, tilingStore } from '../tiling/tiling-store'
 import { overlayStore } from '../overlay/overlay-store'
 import { FOLDED_LABEL, TabBar } from './TabBar'
 import { MainHeader } from '../shell/MainHeader'
@@ -41,8 +38,8 @@ const ui = () =>
 
 beforeEach(() => {
   invoke.mockClear()
+  resetTilingForTests()
   resetLayoutStoreForTests()
-  togglePanel(true)
   setWindowWidth(1280)
 })
 
@@ -151,11 +148,11 @@ describe('TabBar', () => {
     expect(sb).toHaveAttribute('aria-label', FOLDED_LABEL)
     const pt = screen.getByTestId('panel-toggle')
     expect(pt).toHaveAttribute('aria-pressed', 'true')
-    expect(pt).toHaveAttribute('aria-label', 'Close panel')
+    expect(pt).toHaveAttribute('aria-label', 'Hide tool panes')
     fireEvent.click(pt)
-    expect(layoutStore.getState().panelOpen).toBe(false)
+    expect(toolsShown(tilingStore.getState().tiling)).toBe(false)
     expect(pt).toHaveAttribute('aria-pressed', 'false')
-    expect(pt).toHaveAttribute('aria-label', 'Open panel')
+    expect(pt).toHaveAttribute('aria-label', 'Show tool panes')
   })
 
   it('navigates the active tab history and disables unavailable directions', () => {
