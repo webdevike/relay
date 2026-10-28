@@ -39,6 +39,7 @@ import {
   type AssistantThread,
   type CallRelaying,
   type CanvasRelaying,
+  type LiveRelaying,
   type DeviceStore,
   type DropBox,
   type FrameSink,
@@ -79,6 +80,8 @@ export interface SessionDeps {
   readonly assistant: AssistantRelaying | null;
   /** null when the host cannot take calls; `call.start` then ends at once with an error. */
   readonly calls: CallRelaying | null;
+  /** null when the host cannot take GPT-Live calls; `live.start` then ends at once with `fallback`. */
+  readonly live: LiveRelaying | null;
   /** null when the host cannot read omp usage; `usage.*` then answers an empty snapshot. */
   readonly usage: UsageService | null;
   /** null when the host has no Catch Up feed; `catchup.*` then answers an empty deck. */
@@ -293,6 +296,7 @@ export class ClientSession {
     this.endPairingIfPending();
     this.stopPairingTimeout();
     this.deps.calls?.drop(this.sink);
+    this.deps.live?.drop(this.sink);
     this.closed = true;
     this.onClose(this);
   }
@@ -634,6 +638,11 @@ export class ClientSession {
         if (this.deps.calls !== null) this.deps.calls.receive(this.sink, message);
         else if (message.t === "call.start") this.sink.send({ t: "call.state", callId: message.callId, agent: message.agent, state: "ended", error: "This host cannot take calls" });
         break;
+      case "live.start":
+      case "live.end":
+        if (this.deps.live !== null) this.deps.live.receive(this.sink, message);
+        else if (message.t === "live.start") this.sink.send({ t: "live.state", callId: message.callId, agent: message.agent, state: "ended", error: "This host cannot take live calls", fallback: true });
+        break;
       case "hello":
       case "auth":
       case "pair.request":
@@ -910,6 +919,7 @@ export class ClientSession {
     this.endPairingIfPending();
     this.stopPairingTimeout();
     this.deps.calls?.drop(this.sink);
+    this.deps.live?.drop(this.sink);
     this.closed = true;
     this.failure = `${code}: ${message}`;
     this.sink.send({ t: "error", code, message });

@@ -20,6 +20,8 @@ import { spawnFill } from "./assistant/signin";
 import { defaultAssistantPath, FileAssistantStore } from "./assistant/store";
 import { CallService } from "./call/service";
 import { EvaRealtimeVoice } from "./call/voice";
+import { openAiKey, OpenAiLive } from "./live/openai";
+import { LiveService } from "./live/service";
 import { FileDeviceStore } from "./device-store";
 import { FileDropStore } from "./drops/store";
 import { ffmpegProbe, isVideoMime, maxVideoBytesFromEnv, videoMimeOf, VideoTooLarge } from "./drops/video";
@@ -61,6 +63,10 @@ const USAGE = `relay-linux <command>
                                    eva-realtime's speech workers ($RELAY_VOICE_ROOT, default
                                    <agent-home>/apps/eva-realtime) and pocket-tts on
                                    $POCKET_PORT (8853) in voice $POCKET_VOICE (stuart_bell).
+                                   GPT-Live calls (phone WebRTC <-> OpenAI, the assistant as
+                                   the brain) use $OPENAI_API_KEY or <agent-home>/secrets/
+                                   openai.env, in voice $RELAY_LIVE_VOICE (marin); without a
+                                   key the phone falls back to the local call.
                                    The live view bridges paired phones to the Mac's Screen
                                    Sharing (VNC) on 127.0.0.1, port --vnc-port (default ${String(DEFAULT_VNC_PORT)}).
                                    Live canvas rooms run on the EvaOS boards in --canvases
@@ -259,6 +265,27 @@ function serve(
           clock: systemClock,
           log,
         });
+  const liveKey = assistant === null ? null : openAiKey(agentHome);
+  const live =
+    assistant === null
+      ? null
+      : new LiveService({
+          thread: (id) => {
+            const thread = assistant.threads.find((candidate) => candidate.id === id);
+            if (thread === undefined) return undefined;
+            return {
+              id: thread.id,
+              title: thread.title,
+              session: () => thread.current(),
+              turn: (text) => thread.turn(text),
+              rows: async () => (await thread.snapshot()).messages,
+            };
+          },
+          api: liveKey === null ? null : new OpenAiLive(liveKey),
+          voice: () => process.env["RELAY_LIVE_VOICE"] ?? "marin",
+          clock: systemClock,
+          log,
+        });
   // Reaches the devices and the threads' sessions long after `server` and `assistant` are initialised.
   const reactions = new ReactionService({
     path: defaultReactionsPath(),
@@ -350,6 +377,7 @@ function serve(
       inbox,
       assistant,
       calls,
+      live,
       usage,
       catchup,
       reactions,

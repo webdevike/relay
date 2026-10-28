@@ -32,6 +32,11 @@ export function spokenPart(text: string): string {
   return match === null ? text : text.slice(0, match.index);
 }
 
+/** Whether a reply still streaming in has reached its details marker, so its spoken part is final. */
+export function spokenPartComplete(text: string): boolean {
+  return DETAILS_LINE.test(text);
+}
+
 /** A reply as the chat shows it: the details marker line becomes a paragraph break. Text without it is returned as is. */
 export function withoutDetailsMarker(text: string): string {
   const match = DETAILS_LINE.exec(text);

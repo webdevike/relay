@@ -30,6 +30,7 @@ import type {
   AgentProviderChange,
   AssistantRelaying,
   CallRelaying,
+  LiveRelaying,
   DeviceStore,
   DropBox,
   DropChange,
@@ -75,6 +76,8 @@ export interface ServerDeps {
   readonly assistant: AssistantRelaying | null;
   /** Voice calls with the assistant threads; null disables `call.*` frames. */
   readonly calls: CallRelaying | null;
+  /** GPT-Live calls with the assistant threads; null answers `live.start` with `fallback`. */
+  readonly live: LiveRelaying | null;
   /** Plan usage of the host's omp accounts; null answers `usage.*` with an empty snapshot. */
   readonly usage: UsageService | null;
   /** The Catch Up deck; null answers `catchup.*` with an empty deck. */
@@ -364,6 +367,7 @@ export class RelayServer {
   private handleProviderChange(change: AgentProviderChange): void {
     this.deps.assistant?.observe(change);
     this.deps.calls?.observe(change);
+    this.deps.live?.observe(change);
     this.deps.reactions?.observe(change);
     this.deps.artifacts?.observe(change);
     if (change.kind === "sessions") {
@@ -517,6 +521,7 @@ export class RelayServer {
         inbox: this.deps.inbox,
         assistant: this.deps.assistant,
         calls: this.deps.calls,
+        live: this.deps.live,
         usage: this.deps.usage,
         catchup: this.deps.catchup,
         reactions: this.deps.reactions,

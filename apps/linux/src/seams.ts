@@ -134,6 +134,19 @@ export interface CallRelaying {
   warm(): void;
 }
 
+/** The phone's `live.*` frames. */
+export type LiveClientMessage = Extract<ClientMessage, { t: `live.${string}` }>;
+
+/** What the session and server need of the host's GPT-Live calls (`live/service.ts`): one call per socket, named by its sink. */
+export interface LiveRelaying {
+  /** A `live.*` frame from the phone on `sink`; replies go back through it. */
+  receive(sink: FrameSink, message: LiveClientMessage): void;
+  /** The socket closed; its call keeps running without it. */
+  drop(sink: FrameSink): void;
+  /** Every provider change; each call picks out its agent's session. */
+  observe(change: AgentProviderChange): void;
+}
+
 export type DropChange = { readonly kind: "added"; readonly drop: Drop } | { readonly kind: "removed"; readonly id: string };
 
 /** Bytes behind an `image` or `file` drop, resolved for an HTTP response. */

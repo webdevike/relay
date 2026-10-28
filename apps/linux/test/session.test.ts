@@ -13,7 +13,7 @@ import type { UsageService } from "../src/usage/service";
 import type { CatchUpDeck } from "../src/catchup/service";
 import type { ReactionRelaying } from "../src/reactions/service";
 import type { ArtifactRelaying } from "../src/artifacts/service";
-import { AckFailure, type AgentConfigChange, type AgentProvider, type AssistantRelaying, type AssistantThread, type CallClientMessage, type CallRelaying, type CanvasRelaying, type DeviceStore, type DropBox, type FrameSink, type GateCommand, type InboxRelaying, type InputSink, type PairedDevice, type PairingUI, type PushRegistry, type TextInjecting, type VncAccess } from "../src/seams";
+import { AckFailure, type AgentConfigChange, type AgentProvider, type AssistantRelaying, type AssistantThread, type CallClientMessage, type CallRelaying, type CanvasRelaying, type DeviceStore, type DropBox, type FrameSink, type GateCommand, type InboxRelaying, type InputSink, type LiveClientMessage, type LiveRelaying, type PairedDevice, type PairingUI, type PushRegistry, type TextInjecting, type VncAccess } from "../src/seams";
 import { ASSISTANT_FOLLOW_MS, ClientSession, PAIRING_TIMEOUT_MS, type SessionClock, type SessionDeps } from "../src/session";
 
 class RecordingSink implements FrameSink {
@@ -109,6 +109,7 @@ interface HarnessOptions {
   inbox?: InboxRelaying;
   assistant?: AssistantRelaying;
   calls?: CallRelaying;
+  live?: LiveRelaying;
   usage?: UsageService;
   catchup?: CatchUpDeck;
   reactions?: ReactionRelaying;
@@ -160,6 +161,7 @@ function harness(options: HarnessOptions = {}): Harness {
     inbox: options.inbox ?? null,
     assistant: options.assistant ?? null,
     calls: options.calls ?? null,
+    live: options.live ?? null,
     usage: options.usage ?? null,
     catchup: options.catchup ?? null,
     reactions: options.reactions ?? null,
@@ -1268,6 +1270,36 @@ describe("calls", () => {
     h.session.receive({ t: "call.start", callId: "c1", agent: "astra" });
     expect(calls.received).toEqual([]);
     expect(h.sink.last()).toMatchObject({ t: "error", code: "protocol" });
+  });
+});
+
+describe("live calls", () => {
+  it("hands live frames to the live calls with this socket's sink, and tells them when the socket goes", () => {
+    const received: { sink: FrameSink; message: LiveClientMessage }[] = [];
+    const dropped: FrameSink[] = [];
+    const live: LiveRelaying = {
+      receive: (sink, message) => received.push({ sink, message }),
+      drop: (sink) => dropped.push(sink),
+      observe: () => undefined,
+    };
+    const h = harness({ live });
+    pair(h);
+    const frames: LiveClientMessage[] = [
+      { t: "live.start", callId: "l1", agent: "nova", sdp: "v=0" },
+      { t: "live.end", callId: "l1" },
+    ];
+    for (const frame of frames) h.session.receive(frame);
+    expect(received.map((entry) => entry.message)).toEqual(frames);
+    expect(received.every((entry) => entry.sink === h.sink)).toBe(true);
+    h.session.handleDisconnect();
+    expect(dropped).toEqual([h.sink]);
+  });
+
+  it("sends the phone to the local call on a host without live calls", () => {
+    const h = harness();
+    pair(h);
+    h.session.receive({ t: "live.start", callId: "l1", agent: "nova", sdp: "v=0" });
+    expect(h.sink.last()).toEqual({ t: "live.state", callId: "l1", agent: "nova", state: "ended", error: "This host cannot take live calls", fallback: true });
   });
 });
 

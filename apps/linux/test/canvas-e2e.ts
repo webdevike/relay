@@ -86,6 +86,7 @@ function host(): void {
       inbox: null,
       assistant: null,
       calls: null,
+      live: null,
       usage: null,
       catchup: null,
       reactions: null,

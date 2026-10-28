@@ -292,6 +292,28 @@ growing) by one elected client, the lowest awareness id among humans whose prese
 clients never fight over a card. Pushed cards keep a 24 px gap and the moves are ordinary doc edits, so they
 export to the board file like a drag.
 
+## Live calls (`live.start`, `live.answer`, `live.state`, `live.end`)
+
+"Talk to Nova" (the iPhone Action Button, or Call in a thread) is a GPT-Live call: OpenAI's full-duplex
+`gpt-live-1` is the voice, the assistant's own omp session is the brain. The phone sends its WebRTC SDP offer
+(`live.start`); the host (`src/live/`) creates the session with `POST /v1/live/sessions` (client delegation,
+the end of the thread and the time as startup input) and answers with OpenAI's SDP (`live.answer`), so the
+key stays on the host and audio runs phone <-> OpenAI. The host attaches to the session's sideband
+(`/v1/live/sessions/{id}/attach`); on each `session.delegation.created` it hands Isaac's transcript since the
+last delegation to the thread as a normal voice turn (`[Voice call` note, so it shows in the chat and memory),
+and returns each settled reply's spoken part (before `[[details]]`) as `session.commentary.append`. The voice
+answers greetings, small talk and the time itself (the host appends the time every minute); everything else
+is delegated. While the thread works the host sends quiet progress (`session.thinking.append`). `live.state`
+tells the phone `connecting` / `listening` / `thinking` (with the words) / `ended`. The call outlives its
+socket; the phone ends it (`session.close` on its data channel + `live.end`), OpenAI drops it, or it is closed
+after 30 minutes.
+
+The key is `$OPENAI_API_KEY`, else `OPENAI_API_KEY=` in `<agent-home>/secrets/openai.env`; the voice is
+`$RELAY_LIVE_VOICE` (default `marin`). Without a key, or when OpenAI refuses the session, `live.state` `ended`
+carries `fallback: true` and the phone starts the local `call.*` call instead. Prove it end to end from the
+Mac, against the running host's real thread and without a phone: `bun test/live-smoke.ts --agent nova --ask
+"What's on my calendar tomorrow?"` (needs a uv venv with aiortc + numpy, see the file's header).
+
 ## Differences from the Mac app
 
 - No tray/menu UI; the terminal is the UI.
