@@ -2,6 +2,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import type { Page } from '@playwright/test'
+import { PNG } from 'pngjs'
 import { z } from 'zod'
 import { test as base, expect } from './fixtures'
 import { makeChatFixture, type ChatFixture } from './helpers/chat-fixture'
@@ -46,13 +47,29 @@ const herdrCalls = (): string[][] => readLines(HERDR_LOG, HerdrCallSchema).map((
 
 let fx: ChatFixture
 let host: FakeRelayHost
-const test = base.extend({
-  launchEnv: async ({}, use) => {
+const test = base.extend<{ assistants: boolean }>({
+  /** An Eva root whose registry lists Astra, so her reactions show her portrait. */
+  assistants: [false, { option: true }],
+  launchEnv: async ({ assistants }, use) => {
     fx = makeChatFixture()
     const relayDir = path.join(fx.root, 'relay')
     host = await FakeRelayHost.start(relayDir)
+    let evaRoot: Record<string, string> = {}
+    if (assistants) {
+      const root = path.join(fx.root, 'eva-root')
+      fs.cpSync(EVA_FIXTURE_ROOT, root, { recursive: true })
+      fs.mkdirSync(path.join(root, '.omp/assistant'), { recursive: true })
+      fs.writeFileSync(
+        path.join(root, '.omp/assistant/agents.json'),
+        JSON.stringify({
+          agents: [{ id: 'astra', title: 'Astra', scope: 'eCard Systems work', avatar: 'astra-2' }],
+        }),
+      )
+      evaRoot = { EVAOS_EVA_ROOT: root }
+    }
     await use({
       ...fx.launchEnv,
+      ...evaRoot,
       FAKE_OMP_DELAY_MS: '5',
       FAKE_OMP_LOG: LOG,
       EVAOS_RELAY_DIR: relayDir,
@@ -65,6 +82,7 @@ const test = base.extend({
     fx.cleanup()
   },
 })
+const withAssistants = test.extend({ assistants: true })
 test.beforeEach(() => {
   fs.rmSync(LOG, { force: true })
   fs.rmSync(HERDR_LOG, { force: true })
@@ -333,100 +351,166 @@ test('a new chat starts omp in herdr and sends its first prompt once the session
   await proofShot(app, shell, 'shared-session-herdr', { phase: 'shared-session' })
 })
 
-test("reacts to a bubble through Relay and follows the host's snapshots", async ({
-  app,
-  shell,
-}) => {
-  // omp stamps every message; a bubble's reaction key is its role and that timestamp.
-  const PROMPT_AT = 1792486874000
-  const REPLY_AT = 1792486880000
-  const stamped = (entry: string, at: number): string => {
-    const e = z.looseObject({ message: z.looseObject({}) }).parse(JSON.parse(entry))
-    return line({ ...e, message: { ...e.message, timestamp: at } })
-  }
-  await fx.append(
-    'p4-ecard',
-    stamped(prompt('u2', 'a1', 'Can you tidy the report header?'), PROMPT_AT),
-  )
-  await fx.append(
-    'p4-ecard',
-    stamped(answer('a2', 'u2', 'Tidied it: the header now fits on one line.'), REPLY_AT),
-  )
-  host.upsert({ id: 'p4-ecard', status: 'idle' })
-  await shell.locator(sel('nav-chat')).click()
-  await shell.waitForSelector(sel('chat-tree'))
-  await rowOf(shell, 'p4-ecard').click()
-  await expect(shell.locator(sel('msg-a2'))).toBeVisible()
-  const thread = 'session:p4-ecard'
-  // The chat asks Relay for its thread's reactions when it opens.
-  await expect
-    .poll(() => host.reactionFrames.some((f) => f.t === 'reactions.get' && f.thread === thread))
-    .toBe(true)
-  // Unstamped fixture rows (u1, a1) carry no reaction key: no react button.
-  await expect(shell.locator(sel('react-btn-a1'))).toHaveCount(0)
+withAssistants(
+  "reacts to a bubble through Relay and follows the host's snapshots",
+  async ({ app, shell }) => {
+    // omp stamps every message; a bubble's reaction key is its role and that timestamp.
+    const PROMPT_AT = 1792486874000
+    const REPLY_AT = 1792486880000
+    const IMAGE_AT = 1792486890000
+    const stamped = (entry: string, at: number): string => {
+      const e = z.looseObject({ message: z.looseObject({}) }).parse(JSON.parse(entry))
+      return line({ ...e, message: { ...e.message, timestamp: at } })
+    }
+    await fx.append(
+      'p4-ecard',
+      stamped(prompt('u2', 'a1', 'Can you tidy the report header?'), PROMPT_AT),
+    )
+    await fx.append(
+      'p4-ecard',
+      stamped(answer('a2', 'u2', 'Tidied it: the header now fits on one line.'), REPLY_AT),
+    )
+    // An image-only prompt, and a reply after it: the rows under the reacted ones.
+    const picture = new PNG({ width: 240, height: 160 })
+    for (let i = 0; i < picture.data.length; i += 4) {
+      const x = (i / 4) % 240
+      picture.data.set([60 + x / 2, 120, 200 - x / 3, 255], i)
+    }
+    await fx.append(
+      'p4-ecard',
+      line({
+        type: 'message',
+        id: 'u3',
+        parentId: 'a2',
+        message: {
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              data: PNG.sync.write(picture).toString('base64'),
+              mimeType: 'image/png',
+            },
+          ],
+          attribution: 'user',
+          timestamp: IMAGE_AT,
+        },
+      }),
+    )
+    await fx.append('p4-ecard', answer('a3', 'u3', 'That chart reads well.'))
+    host.upsert({ id: 'p4-ecard', status: 'idle' })
+    await shell.locator(sel('nav-chat')).click()
+    await shell.waitForSelector(sel('chat-tree'))
+    await rowOf(shell, 'p4-ecard').click()
+    await expect(shell.locator(sel('msg-a2'))).toBeVisible()
+    const thread = 'session:p4-ecard'
+    // The chat asks Relay for its thread's reactions when it opens.
+    await expect
+      .poll(() => host.reactionFrames.some((f) => f.t === 'reactions.get' && f.thread === thread))
+      .toBe(true)
+    // Unstamped fixture rows (u1, a1) carry no reaction key: no react button.
+    await expect(shell.locator(sel('react-btn-a1'))).toHaveCount(0)
 
-  // 1. Hover shows the react button on the reply's top corner.
-  const reply = shell.locator(sel('bubble-a2'))
-  await reply.hover()
-  const button = shell.locator(sel('react-btn-a2'))
-  await expect(button).toHaveCSS('opacity', '1')
-  await expect(button).toBeEnabled()
-  await proofShot(app, shell, 'reactions-hover', { phase: 'reactions' })
+    // 1. Hover shows the react button on the reply's top corner.
+    const reply = shell.locator(sel('bubble-a2'))
+    await reply.hover()
+    const button = shell.locator(sel('react-btn-a2'))
+    await expect(button).toHaveCSS('opacity', '1')
+    await expect(button).toBeEnabled()
+    await proofShot(app, shell, 'reactions-hover', { phase: 'reactions' })
 
-  // 2. It opens the bar; a pick goes to Relay as a plain frame and shows at once.
-  await button.click()
-  const bar = shell.locator(sel('reaction-bar'))
-  await expect(bar).toBeVisible()
-  await bar.locator(sel('reaction-pick-👍')).click()
-  const badge = shell.locator(sel('reaction-badge-a2'))
-  await expect(badge).toHaveText('👍')
-  await expect(bar).toHaveCount(0)
-  await expect
-    .poll(() => host.reactionFrames.filter((f) => f.t !== 'reactions.get'))
-    .toEqual([
-      {
-        t: 'reaction.set',
-        thread,
-        message: `assistant@${REPLY_AT}`,
-        emoji: '👍',
-        excerpt: 'Tidied it: the header now fits on one line.',
+    // 2. It opens the bar; a pick goes to Relay as a plain frame and shows at once.
+    await button.click()
+    const bar = shell.locator(sel('reaction-bar'))
+    await expect(bar).toBeVisible()
+    await bar.locator(sel('reaction-pick-👍')).click()
+    const badge = shell.locator(sel('reaction-badge-a2'))
+    await expect(badge).toHaveText('👍')
+    await expect(bar).toHaveCount(0)
+    await expect
+      .poll(() => host.reactionFrames.filter((f) => f.t !== 'reactions.get'))
+      .toEqual([
+        {
+          t: 'reaction.set',
+          thread,
+          message: `assistant@${REPLY_AT}`,
+          emoji: '👍',
+          excerpt: 'Tidied it: the header now fits on one line.',
+        },
+      ])
+    expect(host.kinds()).toEqual([])
+
+    // 3. The phone and an assistant change them: the host's snapshot is what shows, each reactor's
+    // badge side by side on the bubble's bottom-right corner, Isaac's outermost.
+    const at = Date.now()
+    host.setReactions(thread, {
+      [`assistant@${REPLY_AT}`]: { isaac: { emoji: '‼️', excerpt: 'Tidied it', at } },
+      [`user@${PROMPT_AT}`]: {
+        isaac: { emoji: '❤️', excerpt: 'Can you tidy', at },
+        astra: { emoji: '🔥', excerpt: 'Can you tidy', at },
       },
-    ])
-  expect(host.kinds()).toEqual([])
+      [`user@${IMAGE_AT}`]: { astra: { emoji: '👀', excerpt: '', at } },
+    })
+    await expect(badge).toHaveText('‼️')
+    await expect(shell.locator(sel('reaction-badge-u2'))).toHaveText('❤️')
+    const astra = shell.locator(sel('reaction-badge-u2-astra'))
+    await expect(astra).toHaveText('🔥')
+    await expect(astra).toHaveAttribute('aria-label', 'Astra reacted 🔥')
+    await expect(astra.locator(sel('agent-portrait-astra')).locator('img')).toBeVisible()
+    await expect(shell.locator(sel('reaction-badge-u3-astra'))).toHaveAttribute(
+      'aria-label',
+      'Astra reacted 👀',
+    )
+    await shell.mouse.move(0, 0)
+    // Each sits over its bubble's bottom edge at the right, inside the room the row keeps for it:
+    // clear of the next row, and of the picture of an image-only prompt but for its corner.
+    const boxOf = async (id: string) => (await shell.locator(sel(id)).boundingBox())!
+    for (const [b, bubble, next] of [
+      ['reaction-badge-u2', 'bubble-u2', 'msg-a2'],
+      ['reaction-badge-a2', 'bubble-a2', 'msg-u3'],
+      ['reaction-badge-u3-astra', 'bubble-u3', 'msg-a3'],
+    ] as const) {
+      const r = await boxOf(b)
+      const w = await boxOf(bubble)
+      expect(r.y, b).toBeLessThan(w.y + w.height)
+      expect(r.y + r.height, b).toBeGreaterThan(w.y + w.height)
+      expect(r.x + r.width, b).toBeGreaterThan(w.x + w.width)
+      expect(r.x + r.width / 2, b).toBeGreaterThan(w.x + w.width / 2)
+      expect(r.y + r.height, b).toBeLessThanOrEqual((await boxOf(next)).y)
+    }
+    const image = await shell.locator(sel('bubble-u3')).locator(sel('chat-images')).boundingBox()
+    const eyes = await boxOf('reaction-badge-u3-astra')
+    expect(image!.y + image!.height - eyes.y).toBeLessThanOrEqual(14)
+    // Astra's to the left of Isaac's, in line with it.
+    const mine = await boxOf('reaction-badge-u2')
+    const hers = await boxOf('reaction-badge-u2-astra')
+    expect(hers.x + hers.width).toBeLessThanOrEqual(mine.x + 1)
+    expect(Math.abs(hers.y - mine.y)).toBeLessThan(1)
+    await proofShot(app, shell, 'reactions-badge', { phase: 'reactions' })
 
-  // 3. The phone changes them: the host's snapshot is what shows.
-  const at = Date.now()
-  host.setReactions(thread, {
-    [`assistant@${REPLY_AT}`]: { emoji: '‼️', excerpt: 'Tidied it', at },
-    [`user@${PROMPT_AT}`]: { emoji: '❤️', excerpt: 'Can you tidy', at },
-  })
-  await expect(badge).toHaveText('‼️')
-  await expect(shell.locator(sel('reaction-badge-u2'))).toHaveText('❤️')
-  await shell.mouse.move(0, 0)
-  await proofShot(app, shell, 'reactions-badge', { phase: 'reactions' })
+    // 4. Right-click: the bar above the bubble, the menu at the pointer; the current one is lit.
+    await shell.locator(sel('bubble-u2')).click({ button: 'right' })
+    await expect(bar).toBeVisible()
+    await expect(bar.locator(sel('reaction-pick-❤️'))).toHaveAttribute('aria-pressed', 'true')
+    const menu = shell.locator(sel('bubble-menu'))
+    await expect(menu).toBeVisible()
+    await proofShot(app, shell, 'reactions-bar-menu', { phase: 'reactions' })
 
-  // 4. Right-click: the bar above the bubble, the menu at the pointer; the current one is lit.
-  await shell.locator(sel('bubble-u2')).click({ button: 'right' })
-  await expect(bar).toBeVisible()
-  await expect(bar.locator(sel('reaction-pick-❤️'))).toHaveAttribute('aria-pressed', 'true')
-  const menu = shell.locator(sel('bubble-menu'))
-  await expect(menu).toBeVisible()
-  await proofShot(app, shell, 'reactions-bar-menu', { phase: 'reactions' })
+    // 5. Reply quotes the bubble into the composer.
+    await menu.locator(sel('bubble-menu-reply')).click()
+    await expect(menu).toHaveCount(0)
+    await expect(bar).toHaveCount(0)
+    const box = shell.locator(sel('composer-input'))
+    await expect(box).toHaveValue('> Can you tidy the report header?\n\n')
+    await expect(box).toBeFocused()
 
-  // 5. Reply quotes the bubble into the composer.
-  await menu.locator(sel('bubble-menu-reply')).click()
-  await expect(menu).toHaveCount(0)
-  await expect(bar).toHaveCount(0)
-  const box = shell.locator(sel('composer-input'))
-  await expect(box).toHaveValue('> Can you tidy the report header?\n\n')
-  await expect(box).toBeFocused()
-
-  // 6. Picking the current one again takes it off.
-  await shell.locator(sel('reaction-badge-u2')).click()
-  await bar.locator(sel('reaction-pick-❤️')).click()
-  await expect(shell.locator(sel('reaction-badge-u2'))).toHaveCount(0)
-  await expect
-    .poll(() => host.reactionFrames.at(-1))
-    .toEqual({ t: 'reaction.clear', thread, message: `user@${PROMPT_AT}` })
-  expect(localChats()).toEqual([])
-})
+    // 6. Picking the current one again takes Isaac's off; Astra's stays.
+    await shell.locator(sel('reaction-badge-u2')).click()
+    await bar.locator(sel('reaction-pick-❤️')).click()
+    await expect(shell.locator(sel('reaction-badge-u2'))).toHaveCount(0)
+    await expect
+      .poll(() => host.reactionFrames.at(-1))
+      .toEqual({ t: 'reaction.clear', thread, message: `user@${PROMPT_AT}` })
+    await expect(astra).toHaveText('🔥')
+    expect(localChats()).toEqual([])
+  },
+)

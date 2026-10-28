@@ -1,8 +1,10 @@
 // iMessage-style reactions (tapbacks) on chat bubbles, mirrored from Relay's protocol
 // (relay packages/protocol/src/index.ts, "Reactions"): this app does not depend on @relay/protocol,
 // so the keys, the thread names and the toggle rule live here and must stay identical to it.
-// One reaction per bubble; the same emoji again clears it, another replaces it. The host keeps
-// them per thread and pushes a thread's `reactions.snapshot` to every device on each change.
+// One reaction per bubble per reactor: Isaac (`ISAAC_REACTOR`, the only one this app sets) and any
+// assistant that reacted to his bubble, by its agent id. For Isaac the same emoji again clears his,
+// another replaces it. The host keeps them per thread and pushes a thread's `reactions.snapshot`
+// to every device on each change.
 import { z } from 'zod'
 import type { ChatMessage } from './message'
 
@@ -62,14 +64,46 @@ export const ReactionSchema = z.object({
   emoji: ReactionEmojiSchema,
   /** The start of the bubble's text. */
   excerpt: z.string().max(MAX_REACTION_EXCERPT),
-  /** When Isaac reacted (epoch ms). */
+  /** When it was reacted (epoch ms). */
   at: z.number(),
 })
 export type Reaction = z.infer<typeof ReactionSchema>
 
-/** One thread's reactions by reaction key. */
-export const ThreadReactionsSchema = z.record(ReactionKeySchema, ReactionSchema)
+/** Who reacted: Isaac, or an assistant by its agent id. */
+export const ISAAC_REACTOR = 'isaac'
+export const ReactorSchema = z.string().regex(/^[a-z][a-z0-9-]*$/)
+
+/** One bubble's reactions by reactor. */
+export const BubbleReactionsSchema = z.record(ReactorSchema, ReactionSchema)
+export type BubbleReactions = z.infer<typeof BubbleReactionsSchema>
+
+/** One thread's reactions by reaction key, then by reactor. */
+export const ThreadReactionsSchema = z.record(ReactionKeySchema, BubbleReactionsSchema)
 export type ThreadReactions = z.infer<typeof ThreadReactionsSchema>
+
+/**
+ * A bubble's assistant reactions in the order they show, oldest first (ties by agent id); Isaac's
+ * is apart, outermost.
+ */
+export function agentReactions(
+  bubble: BubbleReactions | undefined,
+): Array<{ agent: string; reaction: Reaction }> {
+  if (bubble === undefined) return []
+  return Object.entries(bubble)
+    .filter(([agent]) => agent !== ISAAC_REACTOR)
+    .map(([agent, reaction]) => ({ agent, reaction }))
+    .sort((a, b) => a.reaction.at - b.reaction.at || (a.agent < b.agent ? -1 : 1))
+}
+
+/** `bubble` with Isaac's reaction set (or taken off: null); undefined once none is left. */
+export function withIsaacReaction(
+  bubble: BubbleReactions | undefined,
+  reaction: Reaction | null,
+): BubbleReactions | undefined {
+  const { [ISAAC_REACTOR]: _old, ...others } = bubble ?? {}
+  const next = reaction === null ? others : { ...others, [ISAAC_REACTOR]: reaction }
+  return Object.keys(next).length === 0 ? undefined : next
+}
 
 /** The reaction thread of assistant `agent`. */
 export function assistantReactionThread(agent: string): string {

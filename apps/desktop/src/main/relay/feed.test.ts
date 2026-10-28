@@ -317,25 +317,33 @@ describe('Relay feed', () => {
     ])
   })
 
-  it("hears a thread's reactions, dropping entries with a bad key or reaction", () => {
+  it("hears a thread's reactions by reactor, dropping a bad key, reactor or reaction", () => {
     const feed = authenticated()
     const heart = { emoji: '❤️', excerpt: 'Fixed it.', at: 1700 }
+    const eyes = { emoji: '👀', excerpt: 'Look at this', at: 1800 }
     expect(
       feed.receive({
         t: 'reactions.snapshot',
         thread: 'assistant:astra',
         reactions: {
-          'assistant@1792486874000': heart,
-          'tool@1': heart,
-          'user@2': { emoji: 'ok', excerpt: '', at: 1 },
-          'user@3': { emoji: '👍', excerpt: 'x'.repeat(201), at: 1 },
+          'assistant@1792486874000': { isaac: heart },
+          'user@1792486870000': { isaac: heart, astra: eyes, Astra: eyes, 'x y': eyes },
+          'tool@1': { isaac: heart },
+          'user@2': { isaac: { emoji: 'ok', excerpt: '', at: 1 } },
+          'user@3': { isaac: { emoji: '👍', excerpt: 'x'.repeat(201), at: 1 } },
+          // The old flat shape: a reaction where a reactor's record goes.
+          'user@4': heart,
+          'user@5': 'x',
         },
       }).events,
     ).toEqual([
       {
         kind: 'reactions',
         thread: 'assistant:astra',
-        reactions: { 'assistant@1792486874000': heart },
+        reactions: {
+          'assistant@1792486874000': { isaac: heart },
+          'user@1792486870000': { isaac: heart, astra: eyes },
+        },
       },
     ])
     // A thread name the protocol does not allow, or no record at all.

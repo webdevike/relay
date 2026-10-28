@@ -7,6 +7,7 @@ import { QUICK_REACTIONS } from '@evaos/chat-core/reactions'
 const invoke = vi.hoisted(() => vi.fn())
 vi.mock('../../ipc', () => ({ invoke, on: () => () => {} }))
 
+import { assistantsStore } from '../../assistants/assistants-store'
 import { dismissTop } from '../../hotkeys/dismiss'
 import { MessageRow } from '../MessageRow'
 import { RELAY_DOWN, quoteOf } from './BubbleActions'
@@ -37,6 +38,7 @@ beforeEach(() => {
   invoke.mockResolvedValue({ ok: true, value: { sent: true } })
   writeText.mockClear()
   reactionsStore.setState({ up: true, threads: {} })
+  assistantsStore.setState({ data: null })
 })
 
 describe('quoteOf', () => {
@@ -72,7 +74,9 @@ describe('reaction bar and badge', () => {
 
   it('highlights the current reaction; picking it again takes it off', async () => {
     reactionsStore.setState({
-      threads: { [THREAD]: { 'assistant@200': { emoji: '❤️', excerpt: 'Fixed', at: 1 } } },
+      threads: {
+        [THREAD]: { 'assistant@200': { isaac: { emoji: '❤️', excerpt: 'Fixed', at: 1 } } },
+      },
     })
     show(reply)
     const badge = screen.getByTestId('reaction-badge-a1')
@@ -94,7 +98,7 @@ describe('reaction bar and badge', () => {
 
   it('replaces the reaction with one from the more grid', async () => {
     reactionsStore.setState({
-      threads: { [THREAD]: { 'user@100': { emoji: '👍', excerpt: '', at: 1 } } },
+      threads: { [THREAD]: { 'user@100': { isaac: { emoji: '👍', excerpt: '', at: 1 } } } },
     })
     show(user)
     fireEvent.click(screen.getByTestId('reaction-badge-u1'))
@@ -116,7 +120,7 @@ describe('reaction bar and badge', () => {
     await waitFor(() => expect(screen.queryByTestId('reaction-badge-u1')).toBeNull())
     act(() =>
       reactionsStore.setState({
-        threads: { [THREAD]: { 'user@100': { emoji: '‼️', excerpt: '', at: 1 } } },
+        threads: { [THREAD]: { 'user@100': { isaac: { emoji: '‼️', excerpt: '', at: 1 } } } },
       }),
     )
     expect(screen.getByTestId('reaction-badge-u1')).toHaveTextContent('‼️')
@@ -152,7 +156,7 @@ describe('reaction bar and badge', () => {
     expect(invoke).not.toHaveBeenCalledWith('reactions.react', expect.anything())
     act(() =>
       reactionsStore.setState({
-        threads: { [THREAD]: { 'user@100': { emoji: '👍', excerpt: '', at: 1 } } },
+        threads: { [THREAD]: { 'user@100': { isaac: { emoji: '👍', excerpt: '', at: 1 } } } },
       }),
     )
     expect(screen.getByTestId('reaction-badge-u1').tagName).toBe('SPAN')
@@ -164,6 +168,74 @@ describe('reaction bar and badge', () => {
     expect(screen.queryByTestId('react-btn-sent-1')).toBeNull()
     expect(screen.queryByTestId('react-btn-u2')).toBeNull()
     expect(screen.getByTestId('bubble-sent-1')).toBeInTheDocument()
+  })
+
+  it("shows assistants' reactions beside Isaac's, his outermost, and keeps them when he reacts", async () => {
+    assistantsStore.setState({
+      data: {
+        agents: [
+          {
+            id: 'astra',
+            title: 'Astra',
+            scope: '',
+            avatar: { style: 'micah', seed: 'astra-2' },
+            status: 'idle',
+            tool: null,
+            file: null,
+            reply: null,
+          },
+        ],
+        relayUp: true,
+      },
+    })
+    reactionsStore.setState({
+      threads: {
+        [THREAD]: {
+          'user@100': {
+            ghost: { emoji: '👀', excerpt: '', at: 3 },
+            astra: { emoji: '🔥', excerpt: '', at: 2 },
+          },
+        },
+      },
+    })
+    show(user)
+    const row = screen.getByTestId('reactions-u1')
+    expect(screen.getByTestId('bubble-u1')).toHaveAttribute('data-reacted', 'true')
+    // No reaction of Isaac's: the hover button still offers one.
+    expect(screen.queryByTestId('reaction-badge-u1')).toBeNull()
+    expect(screen.getByTestId('react-btn-u1')).toBeInTheDocument()
+    const astra = screen.getByTestId('reaction-badge-u1-astra')
+    expect(astra).toHaveAccessibleName('Astra reacted 🔥')
+    expect(astra.querySelector('[data-testid="agent-portrait-astra"] img')).not.toBeNull()
+    // An agent the registry does not list: its id, and the emoji alone.
+    const ghost = screen.getByTestId('reaction-badge-u1-ghost')
+    expect(ghost).toHaveAccessibleName('ghost reacted 👀')
+    expect(ghost.querySelector('img')).toBeNull()
+
+    fireEvent.click(screen.getByTestId('react-btn-u1'))
+    fireEvent.click(await screen.findByTestId('reaction-pick-❤️'))
+    expect(invoke).toHaveBeenCalledWith(
+      'reactions.react',
+      expect.objectContaining({ message: 'user@100', emoji: '❤️' }),
+    )
+    // Oldest assistant first, Isaac's last (rightmost); the bar highlights only his.
+    expect([...row.children].map((b) => b.getAttribute('data-testid'))).toEqual([
+      'reaction-badge-u1-astra',
+      'reaction-badge-u1-ghost',
+      'reaction-badge-u1',
+    ])
+    expect(screen.queryByTestId('react-btn-u1')).toBeNull()
+    fireEvent.click(screen.getByTestId('reaction-badge-u1'))
+    expect(await screen.findByTestId('reaction-pick-❤️')).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(screen.getByTestId('reaction-more'))
+    // Astra's 🔥 is hers, not his.
+    expect(await screen.findByTestId('reaction-pick-🔥')).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('a bubble no one reacted to keeps no room for reactions', () => {
+    show(user)
+    expect(screen.getByTestId('bubble-u1')).not.toHaveAttribute('data-reacted')
+    expect(screen.queryByTestId('reactions-u1')).toBeNull()
   })
 
   it('tool, thinking and notice rows are never bubbles', () => {

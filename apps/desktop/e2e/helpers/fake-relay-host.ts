@@ -156,7 +156,10 @@ export class FakeRelayHost {
     return this.commands.map((c) => String(c.cmd.kind))
   }
 
-  /** Sets a thread's reactions (as the phone would) and pushes its snapshot to every device. */
+  /**
+   * Sets a thread's reactions, by reaction key then reactor (`isaac` or an assistant's id), as the
+   * phone or an assistant would, and pushes its snapshot to every device.
+   */
   setReactions(thread: string, reactions: Record<string, Json>): void {
     this.reactionsOf.set(thread, reactions)
     this.broadcast(this.snapshotOf(thread))
@@ -285,17 +288,20 @@ export class FakeRelayHost {
         return peer.send(this.snapshotOf(String(f.thread)))
       case 'reaction.set':
       case 'reaction.clear': {
+        // A client's frames are always Isaac's; an assistant's reactions stay.
         this.reactionFrames.push(f)
         const thread = String(f.thread)
-        const { [String(f.message)]: _old, ...rest } = this.reactionsOf.get(thread) ?? {}
-        const next =
+        const message = String(f.message)
+        const { [message]: bubble, ...rest } = this.reactionsOf.get(thread) ?? {}
+        const { isaac: _old, ...others } = bubble ?? {}
+        const mine =
           f.t === 'reaction.set'
-            ? {
-                ...rest,
-                [String(f.message)]: { emoji: f.emoji, excerpt: f.excerpt, at: Date.now() },
-              }
-            : rest
-        return this.setReactions(thread, next)
+            ? { ...others, isaac: { emoji: f.emoji, excerpt: f.excerpt, at: Date.now() } }
+            : others
+        return this.setReactions(
+          thread,
+          Object.keys(mine).length > 0 ? { ...rest, [message]: mine } : rest,
+        )
       }
       case 'agent.subscribe': {
         const id = String(f.sessionId)

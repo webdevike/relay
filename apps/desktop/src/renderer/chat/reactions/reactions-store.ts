@@ -1,14 +1,14 @@
 import { createContext, useEffect, useState } from 'react'
 import { useStore } from 'zustand'
 import { createStore } from 'zustand/vanilla'
-import type { ThreadReactions } from '@evaos/chat-core/reactions'
+import { withIsaacReaction, type ThreadReactions } from '@evaos/chat-core/reactions'
 import type { ReactionsView } from '@evaos/contract'
 import { invoke, on } from '../../ipc'
 
 /**
- * Tapbacks on chat bubbles, as main last heard them from Relay, by thread. A tap applies at once
- * (optimistic); the host's next snapshot of the thread replaces it, and one that could not be
- * sent is taken back.
+ * Tapbacks on chat bubbles, as main last heard them from Relay, by thread, bubble and reactor
+ * (Isaac, or an assistant on his bubble). His tap applies at once (optimistic); the host's next
+ * snapshot of the thread replaces it, and one that could not be sent is taken back.
  */
 export interface ReactionsState {
   /** Relay is connected, so a reaction can be sent. */
@@ -71,8 +71,8 @@ export function useReactionThread(file: string, agent: string | null): string | 
 }
 
 /**
- * Puts `emoji` on bubble `key` of `thread`, or takes its reaction off (null). Shown at once; taken
- * back when Relay could not be told.
+ * Puts Isaac's `emoji` on bubble `key` of `thread`, or takes his reaction off (null); the
+ * assistants' stay. Shown at once; taken back when Relay could not be told.
  */
 export async function react(
   thread: string,
@@ -81,9 +81,10 @@ export async function react(
   excerpt: string,
 ): Promise<void> {
   const before = reactionsStore.getState().threads[thread] ?? {}
-  const { [key]: _old, ...rest } = before
-  const next: ThreadReactions =
-    emoji === null ? rest : { ...rest, [key]: { emoji, excerpt, at: Date.now() } }
+  const { [key]: bubble, ...rest } = before
+  const mine = emoji === null ? null : { emoji, excerpt, at: Date.now() }
+  const after = withIsaacReaction(bubble, mine)
+  const next: ThreadReactions = after === undefined ? rest : { ...rest, [key]: after }
   reactionsStore.setState((s) => ({ threads: { ...s.threads, [thread]: next } }))
   const r = await invoke('reactions.react', { thread, message: key, emoji, excerpt })
   if (r.ok && r.value.sent) return

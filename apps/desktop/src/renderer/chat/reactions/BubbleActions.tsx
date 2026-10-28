@@ -3,10 +3,16 @@ import { useContext, useEffect, useRef, useState, type MouseEvent, type ReactNod
 import { ActionIcon, Tooltip } from '@mantine/core'
 import { IconMoodSmile } from '@tabler/icons-react'
 import type { ChatMessage } from '@evaos/chat-core/message'
-import { reactionExcerpt, reactionKeyOf, toggleReaction } from '@evaos/chat-core/reactions'
+import {
+  ISAAC_REACTOR,
+  agentReactions,
+  reactionExcerpt,
+  reactionKeyOf,
+  toggleReaction,
+} from '@evaos/chat-core/reactions'
 import { EvaPopover } from '../../overlay'
 import { BubbleMenu } from './BubbleMenu'
-import { ReactionBadge } from './ReactionBadge'
+import { AgentReactionBadge, ReactionBadge } from './ReactionBadge'
 import { ReactionBar } from './ReactionBar'
 import { ReactionScope, react, useReactions, type ReactionScopeValue } from './reactions-store'
 
@@ -23,9 +29,10 @@ export function quoteOf(text: string): string {
 
 /**
  * Tapbacks and the context menu for one user or assistant bubble. Hovering shows a react button on
- * the bubble's top `corner`; it (or the reaction badge there) opens the bar above the bubble.
- * Right-click opens the bar and a menu at the pointer. Escape or a click elsewhere closes both.
- * Outside a ReactionScope the bubble renders as is.
+ * the bubble's top `corner`; it (or Isaac's reaction badge) opens the bar above the bubble. The
+ * reactions sit on the bubble's bottom-right corner, side by side: each assistant's, then Isaac's
+ * outermost. Right-click opens the bar and a menu at the pointer. Escape or a click elsewhere
+ * closes both. Outside a ReactionScope the bubble renders as is.
  */
 export function BubbleActions(props: {
   m: ChatMessage
@@ -55,13 +62,16 @@ function Actions({
   const thread = scope.thread
   const reactable = thread !== null && key !== null
   const up = useReactions((s) => s.up)
-  const current = useReactions((s) =>
-    thread !== null && key !== null ? (s.threads[thread]?.[key]?.emoji ?? null) : null,
+  const bubble = useReactions((s) =>
+    thread !== null && key !== null ? s.threads[thread]?.[key] : undefined,
   )
+  const current = bubble?.[ISAAC_REACTOR]?.emoji ?? null
+  const agents = agentReactions(bubble)
   const [open, setOpen] = useState<Open | null>(null)
   const content = useRef<HTMLDivElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
   const cornerRef = useRef<HTMLDivElement>(null)
+  const reactionsRef = useRef<HTMLDivElement>(null)
   const barRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const canBar = reactable && up
@@ -80,7 +90,7 @@ function Actions({
     const down = (e: PointerEvent): void => {
       const t = e.target
       if (!(t instanceof Node)) return
-      for (const el of [cornerRef.current, barRef.current, menuRef.current])
+      for (const el of [cornerRef.current, reactionsRef.current, barRef.current, menuRef.current])
         if (el?.contains(t)) return
       setOpen(null)
     }
@@ -124,22 +134,15 @@ function Actions({
           className="eva-bubble-wrap"
           data-corner={corner}
           data-open={open !== null ? 'true' : undefined}
+          data-reacted={bubble !== undefined ? 'true' : undefined}
           data-testid={`bubble-${m.id}`}
           onContextMenu={onContextMenu}
         >
           <div ref={content} className="eva-bubble-content">
             {children}
           </div>
-          <div ref={cornerRef} className="eva-react-corner" data-corner={corner}>
-            {current !== null ? (
-              <ReactionBadge
-                ref={trigger}
-                emoji={current}
-                testId={`reaction-badge-${m.id}`}
-                expanded={barOpen}
-                onOpen={canBar ? toggleBar : undefined}
-              />
-            ) : reactable ? (
+          {current === null && reactable ? (
+            <div ref={cornerRef} className="eva-react-corner" data-corner={corner}>
               <Tooltip label={up ? 'React' : RELAY_DOWN} openDelay={300} disabled={barOpen}>
                 <ActionIcon
                   ref={trigger}
@@ -161,8 +164,34 @@ function Actions({
                   <IconMoodSmile size={15} stroke={1.5} />
                 </ActionIcon>
               </Tooltip>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
+          {bubble !== undefined ? (
+            <div
+              ref={reactionsRef}
+              className="eva-reactions"
+              data-corner={corner}
+              data-testid={`reactions-${m.id}`}
+            >
+              {agents.map(({ agent, reaction }) => (
+                <AgentReactionBadge
+                  key={agent}
+                  agent={agent}
+                  emoji={reaction.emoji}
+                  testId={`reaction-badge-${m.id}-${agent}`}
+                />
+              ))}
+              {current !== null ? (
+                <ReactionBadge
+                  ref={trigger}
+                  emoji={current}
+                  testId={`reaction-badge-${m.id}`}
+                  expanded={barOpen}
+                  onOpen={canBar ? toggleBar : undefined}
+                />
+              ) : null}
+            </div>
+          ) : null}
           <BubbleMenu
             at={open?.menu ?? null}
             onClose={close}

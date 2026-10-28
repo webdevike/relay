@@ -343,7 +343,7 @@ describe('RelayClient', () => {
       message: 'assistant@5',
     })
 
-    const reaction = { emoji: '❤️', excerpt: 'Done.', at: 9 }
+    const reaction = { isaac: { emoji: '❤️', excerpt: 'Done.', at: 9 } }
     relay.say({
       t: 'reactions.snapshot',
       thread: 'session:a',

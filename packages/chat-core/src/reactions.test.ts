@@ -8,12 +8,14 @@ import {
   ReactionKeySchema,
   ReactionThreadSchema,
   ThreadReactionsSchema,
+  agentReactions,
   assistantReactionThread,
   reactionExcerpt,
   reactionKey,
   reactionKeyOf,
   sessionReactionThread,
   toggleReaction,
+  withIsaacReaction,
 } from './reactions'
 
 describe('reaction helpers (mirror of relay protocol "Reactions")', () => {
@@ -75,9 +77,35 @@ describe('reaction helpers (mirror of relay protocol "Reactions")', () => {
     expect(long).toHaveLength(MAX_REACTION_EXCERPT)
   })
 
-  it('parses a snapshot record by reaction key', () => {
-    const ok = { 'user@1': { emoji: '👍', excerpt: 'hi', at: 2 } }
+  it('parses a snapshot record by reaction key, then reactor', () => {
+    const ok = { 'user@1': { isaac: { emoji: '👍', excerpt: 'hi', at: 2 } } }
     expect(ThreadReactionsSchema.parse(ok)).toEqual(ok)
     expect(ThreadReactionsSchema.safeParse({ 'tool@1': ok['user@1'] }).success).toBe(false)
+    expect(
+      ThreadReactionsSchema.safeParse({ 'user@1': { Isaac: ok['user@1'].isaac } }).success,
+    ).toBe(false)
+    // The old flat shape is not a reactor record.
+    expect(ThreadReactionsSchema.safeParse({ 'user@1': ok['user@1'].isaac }).success).toBe(false)
+  })
+
+  it("lists a bubble's assistant reactions oldest first, Isaac's apart", () => {
+    const r = (emoji: string, at: number) => ({ emoji, excerpt: '', at })
+    expect(agentReactions(undefined)).toEqual([])
+    expect(
+      agentReactions({ isaac: r('❤️', 1), nova: r('👀', 5), astra: r('🔥', 5), bolt: r('👍', 2) }),
+    ).toEqual([
+      { agent: 'bolt', reaction: r('👍', 2) },
+      { agent: 'astra', reaction: r('🔥', 5) },
+      { agent: 'nova', reaction: r('👀', 5) },
+    ])
+  })
+
+  it("sets and clears Isaac's reaction, keeping the assistants'", () => {
+    const heart = { emoji: '❤️', excerpt: 'hi', at: 1 }
+    const eyes = { emoji: '👀', excerpt: 'hi', at: 2 }
+    expect(withIsaacReaction(undefined, heart)).toEqual({ isaac: heart })
+    expect(withIsaacReaction({ astra: eyes }, heart)).toEqual({ astra: eyes, isaac: heart })
+    expect(withIsaacReaction({ astra: eyes, isaac: heart }, null)).toEqual({ astra: eyes })
+    expect(withIsaacReaction({ isaac: heart }, null)).toBeUndefined()
   })
 })

@@ -102,7 +102,7 @@ describe('reactions IPC', () => {
   it('watches a chat, pushes its snapshots and the connection, and sends reactions', async () => {
     const relay = new FakeRelay()
     const off = registerReactionsIpc(ctx, relay)
-    const heart = { emoji: '❤️', excerpt: 'Done.', at: 3 }
+    const heart = { isaac: { emoji: '❤️', excerpt: 'Done.', at: 3 } }
     relay.snapshots.set('session:s1', { 'assistant@2': heart })
     expect(await call('reactions.watch', { file: FILE, agent: null })).toEqual({
       ok: true,

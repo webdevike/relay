@@ -1,4 +1,4 @@
-/* Tapbacks on chat bubbles: the corner button and badge, the floating bar, the context menu anchor. */
+/* Tapbacks on chat bubbles: the corner button, the reactions, the floating bar, the context menu anchor. */
 .eva-bubble-wrap {
   position: relative;
 }
@@ -31,7 +31,7 @@
   max-width: 100%;
 }
 
-/* The bubble's outer top corner, overlapping its edge: a prompt's left, a reply's right. */
+/* The react button: the bubble's outer top corner, overlapping its edge: a prompt's left, a reply's right. */
 .eva-react-corner {
   position: absolute;
   top: -12px;
@@ -45,6 +45,31 @@
 .eva-react-corner[data-corner='end'] {
   top: -18px;
   right: -24px;
+}
+
+/*
+ * The reactions: side by side on the bubble's bottom-right corner, overlapping it a little
+ * (iMessage's tapback), Isaac's outermost. A bubble with any keeps room under it, so they clear
+ * the next row.
+ */
+.eva-reactions {
+  position: absolute;
+  right: -8px;
+  bottom: -14px;
+  z-index: 1;
+  display: flex;
+  gap: calc(var(--mantine-spacing-xs) / 5);
+}
+.eva-bubble-wrap[data-reacted='true'] {
+  margin-bottom: var(--mantine-spacing-sm);
+}
+/* A reply has no bubble: its reactions hang under its last line (or picture) rather than on it. */
+.eva-reactions[data-corner='end'] {
+  right: -4px;
+  bottom: -22px;
+}
+.eva-bubble-wrap[data-corner='end'][data-reacted='true'] {
+  margin-bottom: var(--mantine-spacing-lg);
 }
 
 .eva-react-btn {
@@ -73,6 +98,16 @@
   font-size: 14px;
   line-height: 1;
   animation: eva-reaction-pop 180ms ease-out;
+}
+/* An assistant's: its tiny portrait, then the emoji. */
+.eva-reaction-badge[data-agent] {
+  gap: calc(var(--mantine-spacing-xs) * 0.3);
+  padding-left: calc(var(--mantine-spacing-xs) * 0.3);
+}
+.eva-reaction-portrait {
+  width: 16px;
+  height: 16px;
+  overflow: hidden;
 }
 button.eva-reaction-badge {
   cursor: pointer;
