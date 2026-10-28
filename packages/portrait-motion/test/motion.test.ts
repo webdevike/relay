@@ -21,7 +21,6 @@ import {
   rotate,
   translate,
   type MotionSignals,
-  statusDot,
   statusText,
   toolKind,
   type Portrait,
@@ -157,8 +156,6 @@ describe("frame", () => {
     frame(rig, new Timeline(state, 0).clip(ms), 84);
 
   it("shows each state's overlays", () => {
-    expect(Math.max(...at("thinking", 1500).fx.dots)).toBeGreaterThan(0.5);
-    expect(Math.max(...at("idle", 1500).fx.dots)).toBe(0);
     expect(Math.max(...at("listening", 1500).fx.waves.map((w) => w.o))).toBeGreaterThan(0);
     expect(at("confused", 1500).fx.quiz.o).toBe(1);
     expect(at("error", 1500).fx.drop.o).toBeGreaterThan(0);
@@ -166,7 +163,7 @@ describe("frame", () => {
     expect(at("researching", 1500).fx.lens.o).toBe(1);
     expect(at("idle", 1500).fx.lens.o).toBe(0);
     expect(Math.max(...at("snoozing", 2000).fx.zs.map((z) => z.o))).toBeGreaterThan(0);
-    expect(geometry(84).dots).toHaveLength(14);
+    expect(geometry(84).lensR).toBeCloseTo(6.3);
   });
 
   it("raises a gesture and swaps mouths", () => {
@@ -233,16 +230,12 @@ describe("Director", () => {
     expect(d.next(sig({ activityAt: 5000 }), 5000)).toBe("idle");
   });
 
-  it("keeps needing Isaac and failing out of the face: idle with an orange or red dot", () => {
+  it("keeps needing Isaac and failing out of the face: idle (statusText words them)", () => {
     const d = new Director();
     const waiting = sig({ running: true, waiting: true });
     expect(d.next(waiting, 0)).toBe("idle");
-    expect(statusDot(waiting)).toBe("orange");
     const failed = sig({ failed: true });
     expect(d.next(failed, 100)).toBe("idle");
-    expect(statusDot(failed)).toBe("red");
-    expect(statusDot(sig({ running: true }))).toBe("accent");
-    expect(statusDot(sig())).toBeNull();
   });
 
   it("words the status line: needs you and a snag win over the face, idle and waking say nothing", () => {

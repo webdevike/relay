@@ -3,7 +3,7 @@
  * eleven states, each a pose (continuous channels) and parts (abstract mouth / brows / eyes /
  * gesture picks) as functions of time; blending across a state change; and `frame`, which resolves
  * one moment of a rig into paint-order layers (a part key and a matrix each) plus the accent
- * overlays (dot ring, sound waves, z z z, "?" bubble, sweat drop, confetti) in pixels. Renderers
+ * overlays (sound waves, z z z, "?" bubble, sweat drop, confetti) in pixels. Renderers
  * only draw what a frame says.
  */
 import { apply, chain, invert, rotate, scaleAbout, translate, type Affine } from "./affine";
@@ -27,18 +27,12 @@ export const STATE_IDS = [
 ] as const;
 export type MotionState = (typeof STATE_IDS)[number];
 
-/** What a state's small status dot shows: the accent, orange (needs Isaac), red (failed), or none. */
-export type DotTone = "accent" | "orange" | "red" | null;
-
 export interface StateMeta {
   label: string;
   /** Plain words for a status line or an accessibility label. */
   status: string;
-  dot: DotTone;
   /** Seconds one pass of the state's choreography takes (it loops or holds after). */
   dur: number;
-  /** The working ring (accent dots) runs in this state. */
-  ring: boolean;
 }
 
 export const BLEND = 0.4; // seconds of pose blending at a state change
@@ -173,7 +167,7 @@ const voice = (lt: number): number =>
 // Channels (notionists units; each rig scales them, k.fig for body motion, k.face for eyes/brows):
 // tilt° hx hy (head) · ex ey (eye glance) · eyeS (0 open → 1 shut) eyeO (eyes widen) happy (smiling eyes) ·
 // by (brows) bFar bNear (one brow) · breathe breatheP · figY figS (figure bob/stretch) · gy grot (gesture) ·
-// ring spinP (accent dot ring) · waves zzz quiz conf drop lens (accent overlays) ·
+// waves zzz quiz conf drop lens (accent overlays) ·
 // Extended mode only: bRotN bRotF (near / far brow rotation, degrees, + = inner end up) · turn (head turn)
 const REST = {
   tilt: 0,
@@ -196,8 +190,6 @@ const REST = {
   figS: 0,
   gy: GHIDE,
   grot: 0,
-  ring: 0,
-  spinP: 1.6,
   waves: 0,
   zzz: 0,
   quiz: 0,
@@ -209,7 +201,7 @@ const REST = {
 export type Pose = typeof REST;
 type Channel = keyof Pose;
 const CHANNELS = Object.keys(REST) as Channel[];
-const NOBLEND: Partial<Record<Channel, true>> = { spinP: true, breatheP: true };
+const NOBLEND: Partial<Record<Channel, true>> = { breatheP: true };
 
 type MouthPick = string | SpeechFrame;
 interface Parts {
@@ -232,9 +224,7 @@ const STATES: Record<MotionState, StateDef> = {
   hello: {
     label: "Hello",
     status: "Online",
-    dot: "accent",
     dur: 3.6,
-    ring: false,
     pose: (lt, gt) => ({
       ...idleSway(gt),
       tilt: 2.5 + 0.8 * Math.sin((TAU * lt) / 1.8),
@@ -257,18 +247,14 @@ const STATES: Record<MotionState, StateDef> = {
   idle: {
     label: "Idle",
     status: "Idle",
-    dot: null,
     dur: 3.6,
-    ring: false,
     pose: (_lt, gt) => idleSway(gt),
     parts: () => ({}),
   },
   listening: {
     label: "Listening",
     status: "Listening",
-    dot: "accent",
     dur: 3.6,
-    ring: false,
     pose: (lt, gt) => ({
       tilt: -5 + 0.5 * Math.sin((TAU * gt) / 4.1),
       hx: -6,
@@ -288,9 +274,7 @@ const STATES: Record<MotionState, StateDef> = {
   thinking: {
     label: "Thinking",
     status: "Thinking",
-    dot: "accent",
     dur: 3.6,
-    ring: true,
     pose: (lt, gt) => {
       const u = lt % 3.6; // the glance repeats while a state is held
       const ex = keys(u, [
@@ -318,8 +302,6 @@ const STATES: Record<MotionState, StateDef> = {
         bRotN: -6 * smooth((lt - 0.1) / 0.3),
         bRotF: 12 * smooth((lt - 0.1) / 0.3),
         gy: rise(lt) - 8 * Math.sin(TAU * lt * 0.7),
-        ring: smooth(lt / 0.5),
-        spinP: 1.6,
       };
     },
     parts: (lt) => ({
@@ -331,9 +313,7 @@ const STATES: Record<MotionState, StateDef> = {
   talking: {
     label: "Talking",
     status: "Replying",
-    dot: "accent",
     dur: 3.6,
-    ring: false,
     pose: (lt, gt) => {
       const s = speech(lt);
       return {
@@ -350,9 +330,7 @@ const STATES: Record<MotionState, StateDef> = {
   working: {
     label: "Working",
     status: "Working",
-    dot: "accent",
     dur: 3.6,
-    ring: true,
     pose: (lt) => ({
       tilt: 2.5,
       hx: 4,
@@ -364,17 +342,13 @@ const STATES: Record<MotionState, StateDef> = {
       bRotF: -14,
       blinkOn: 0.6,
       gy: rise(lt) - 6 * Math.abs(Math.sin(TAU * lt * 3.2)),
-      ring: smooth(lt / 0.4),
-      spinP: 0.9,
     }),
     parts: () => ({ mouth: "focus", brows: "focus", gesture: "phone" }),
   },
   researching: {
     label: "Researching",
     status: "Researching",
-    dot: "accent",
     dur: 2.4,
-    ring: true,
     // Reading: the eyes sweep a line left to right and flick back, leaning in over a page, a small
     // magnifier following the gaze.
     pose: (lt, gt) => {
@@ -405,8 +379,6 @@ const STATES: Record<MotionState, StateDef> = {
         figS: 0.01 * lean,
         by: 4,
         blinkOn: 0.7,
-        ring: smooth(lt / 0.5),
-        spinP: 2.4,
         lens: lean,
       };
     },
@@ -415,9 +387,7 @@ const STATES: Record<MotionState, StateDef> = {
   confused: {
     label: "Confused",
     status: "Needs you",
-    dot: "orange",
     dur: 3.6,
-    ring: false,
     pose: (lt, gt) => ({
       tilt: -4 + 0.6 * Math.sin((TAU * gt) / 3),
       hx: -4,
@@ -440,9 +410,7 @@ const STATES: Record<MotionState, StateDef> = {
   error: {
     label: "Error",
     status: "Something went wrong",
-    dot: "red",
     dur: 3.6,
-    ring: false,
     pose: (lt) => {
       const s = smooth(lt / 0.6);
       return {
@@ -465,9 +433,7 @@ const STATES: Record<MotionState, StateDef> = {
   done: {
     label: "Done",
     status: "Done",
-    dot: "accent",
     dur: 3.6,
-    ring: false,
     pose: (lt) => ({
       tilt: 1.5 * Math.sin(TAU * lt * 1.1),
       hy: -4,
@@ -484,9 +450,7 @@ const STATES: Record<MotionState, StateDef> = {
   snoozing: {
     label: "Snoozing",
     status: "Away",
-    dot: null,
     dur: 4.2,
-    ring: false,
     pose: (lt) => {
       const s = smooth(lt / 0.8);
       return {
@@ -509,9 +473,7 @@ const STATES: Record<MotionState, StateDef> = {
   waking: {
     label: "Waking",
     status: "Waking up",
-    dot: "accent",
     dur: 4.2,
-    ring: false,
     pose: (lt, gt) => {
       const stretch = keys(lt, [
         [0.3, 0],
@@ -572,11 +534,11 @@ const STATES: Record<MotionState, StateDef> = {
   },
 };
 
-/** Each state's label, status words, dot, choreography length and whether the working ring runs. */
+/** Each state's label, status words and choreography length. */
 export const STATE_META: Record<MotionState, StateMeta> = Object.fromEntries(
   STATE_IDS.map((id) => {
-    const { label, status, dot, dur, ring } = STATES[id];
-    return [id, { label, status, dot, dur, ring }];
+    const { label, status, dur } = STATES[id];
+    return [id, { label, status, dur }];
   }),
 ) as Record<MotionState, StateMeta>;
 
@@ -667,8 +629,6 @@ export interface Confetto {
 
 /** Accent overlays in pixels from the disc's top-left (overlays reach past the disc: see `FX_REACH`). */
 export interface Overlays {
-  /** Opacity of each working-ring dot (`geometry(size).dots`). */
-  dots: number[];
   /** Sound-wave rings: radius from the disc centre and opacity. */
   waves: { r: number; o: number }[];
   zs: { x: number; y: number; size: number; o: number }[];
@@ -689,9 +649,6 @@ export interface Frame {
 export const FX_REACH = 0.35;
 
 export interface Geometry {
-  /** Working-ring dots: centres in px from the disc's top-left, and their radius. */
-  dots: [number, number][];
-  dotR: number;
   stroke: number;
   quizR: number;
   quizFont: number;
@@ -714,16 +671,8 @@ const geometries = new Map<number, Geometry>();
 export function geometry(size: number): Geometry {
   let g = geometries.get(size);
   if (g !== undefined) return g;
-  const pad = Math.max(6, Math.round(size * 0.07));
-  const n = size < 64 ? 10 : size < 128 ? 14 : 20;
-  const R = size / 2 + pad * 0.5;
   const s = (k: number): string => (size * k).toFixed(2);
   g = {
-    dots: Array.from({ length: n }, (_, i) => {
-      const a = (i / n) * TAU - Math.PI / 2;
-      return [size / 2 + R * Math.cos(a), size / 2 + R * Math.sin(a)];
-    }),
-    dotR: Math.max(1.5, size * 0.014),
     stroke: Math.max(1.2, size * 0.012),
     quizR: size * 0.13,
     quizFont: size * 0.18,
@@ -757,14 +706,6 @@ const CONFETTI = ((): {
     w: 0.035 + r() * 0.02,
   }));
 })();
-
-/** Working-ring dot opacities for a ring `on` (0–1) at spin phase `spin` radians; `sharp` narrows the bright arc. */
-export function ringOpacities(n: number, on: number, spin: number, sharp: number): number[] {
-  return Array.from({ length: n }, (_, i) => {
-    const w = Math.pow(Math.max(0, Math.cos((i / n) * TAU - spin)), sharp);
-    return on * (sharp > 3 ? 0.15 + 0.85 * w : 0.3 + 0.7 * w);
-  });
-}
 
 /** Concrete rig parts for abstract picks. */
 function concrete(
@@ -1072,8 +1013,6 @@ const f2 = (v: number): string => (Math.round(v * 100) / 100).toString();
 function overlays(p: Pose, clip: Clip, size: number): Overlays {
   const { gt, lt } = clip;
   const c = size / 2;
-  const sharp = p.spinP < 1.2 ? 8 : 3;
-  const dots = ringOpacities(geometry(size).dots.length, p.ring, (gt * TAU) / p.spinP, sharp);
   const loud = clip.state === "listening" ? voice(lt) : 0.6;
   const waves = [0, 1, 2].map((i) => {
     const f = frac(gt / 1.5 + i / 3);
@@ -1108,7 +1047,6 @@ function overlays(p: Pose, clip: Clip, size: number): Overlays {
       });
     }
   return {
-    dots,
     waves,
     zs,
     quiz: {

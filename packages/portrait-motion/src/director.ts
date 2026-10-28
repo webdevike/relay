@@ -4,9 +4,9 @@
  * turn runs or its reply is being written, Researching while it reads (search, fetch, files),
  * Working while other tools run, Idle otherwise (breathing and blinks), Snoozing after 30 quiet
  * minutes and Waking when the thread stirs again. Needing Isaac and failing are not faces: they are
- * words (`statusText`, which also words the face) and the status dot (`statusDot`). The other engine states stay for the playground.
+ * words (`statusText`, which also words the face). The other engine states stay for the playground.
  */
-import type { Clip, DotTone, MotionState } from "./engine";
+import type { Clip, MotionState } from "./engine";
 import { STATE_META } from "./engine";
 
 /** What the tools a turn is running now are doing. */
@@ -42,13 +42,6 @@ const RESEARCH =
 export function toolKind(name: string): ToolKind {
   // WebFetch → Web_Fetch, so camel-case names split into words too.
   return RESEARCH.test(name.trim().replace(/([a-z])([A-Z])/g, "$1_$2")) ? "research" : "work";
-}
-
-/** The status dot: orange while it needs Isaac, red after a failed turn, the accent while it runs. */
-export function statusDot(s: MotionSignals): DotTone {
-  if (s.waiting) return "orange";
-  if (s.failed) return "red";
-  return s.running ? "accent" : null;
 }
 
 const STATUS_TEXT: Partial<Record<MotionState, string>> = {
