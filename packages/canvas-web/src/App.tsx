@@ -1,4 +1,4 @@
-import { IconCornerDownRight, IconEye, IconMessageCircle } from "@tabler/icons-react";
+import { IconCornerDownRight, IconEye, IconLayoutDistributeHorizontal, IconMessageCircle } from "@tabler/icons-react";
 import {
 	Background,
 	BackgroundVariant,
@@ -24,7 +24,8 @@ import { postEmbed } from "./embed";
 import { useAgent, useConnection, useSession } from "./hooks";
 import { SideLog } from "./log";
 import { type CardNode, type LinkEdge, absolutePositions, snapEdges, snapNodes, toFlowEdges, toFlowNodes } from "./model";
-import { awareness, doc, env, presenceStates, provider, self, setPresence, subscribePresence, yChat, yEdges, yMeta, yMetrics, yNodes } from "./room";
+import { awareness, doc, env, presenceStates, provider, self, setPresence, subscribePresence, yChat, yEdges, yMeta, yMetrics, yNodes, ySettings } from "./room";
+import { useTidy, useTidySetting } from "./useTidy";
 
 const NODE_TYPES = { card: CanvasCard };
 const EDGE_TYPES = { link: CanvasEdge };
@@ -102,6 +103,8 @@ function Board({ logOpen }: { logOpen: boolean }) {
 	const ended = session?.open === false;
 	/** Absolute positions as last drawn, to write drags back as file coordinates. */
 	const absRef = useRef(new Map<string, { x: number; y: number }>());
+	const tidy = useTidy();
+	const tidyOn = useTidySetting();
 
 	/** Doc to React Flow; drawn sizes from the previous pass feed placement and frame growth. */
 	const readDoc = useCallback(() => {
@@ -146,6 +149,7 @@ function Board({ logOpen }: { logOpen: boolean }) {
 
 	const onNodesChange = useCallback((changes: NodeChange<CardNode>[]) => {
 		setNodes((nds) => applyNodeChanges(changes, nds));
+		tidy.sizesChanged(changes);
 		doc.transact(() => {
 			for (const c of changes) {
 				if (c.type === "position" && c.dragging && c.position) {
@@ -181,7 +185,7 @@ function Board({ logOpen }: { logOpen: boolean }) {
 				}
 			}
 		});
-	}, [store]);
+	}, [store, tidy]);
 
 	const onConnect = useCallback((c: Connection) => {
 		if (!c.source || !c.target || c.source === c.target) return;
@@ -379,6 +383,8 @@ function Board({ logOpen }: { logOpen: boolean }) {
 				onNodesChange={onNodesChange}
 				onConnect={onConnect}
 				onSelectionChange={onSelectionChange}
+				onNodeDragStart={tidy.onNodeDragStart}
+				onNodeDragStop={tidy.onNodeDragStop}
 				connectionMode={ConnectionMode.Loose}
 				nodesConnectable={!TOUCH}
 				minZoom={0.1}
@@ -412,7 +418,7 @@ function Board({ logOpen }: { logOpen: boolean }) {
 				{ended ? null : (
 					<button
 						type="button"
-						className={`cv-follow${following ? " on" : ""}`}
+						className={`cv-toggle${following ? " on" : ""}`}
 						aria-pressed={following}
 						title={`Keep ${agent.name}'s cursor in view while ${agent.name} works`}
 						onClick={() => {
@@ -423,6 +429,15 @@ function Board({ logOpen }: { logOpen: boolean }) {
 						<IconEye size={16} /> Follow {agent.name}
 					</button>
 				)}
+				<button
+					type="button"
+					className={`cv-toggle${tidyOn ? " on" : ""}`}
+					aria-pressed={tidyOn}
+					title="Push overlapping cards apart and route links around cards, for everyone on this board"
+					onClick={() => ySettings.set("tidy", !tidyOn)}
+				>
+					<IconLayoutDistributeHorizontal size={16} /> Tidy
+				</button>
 			</div>
 			{ended ? (
 				<div className="cv-ended" role="status">

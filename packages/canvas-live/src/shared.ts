@@ -7,7 +7,7 @@
 //   edges:    Y.Map<id, Y.Map>  { source, target, sourceHandle?, targetHandle?, label?, tone? }
 //   meta:     Y.Map             { title, layout?, viewport?, session: SessionInfo }
 //   chat:     Y.Array<ChatMsg>  cursor-chat log (humans' notes, agent replies, session events)
-//   settings: Y.Map             { model: ModelKey }
+//   settings: Y.Map             { model: ModelKey, tidy?: boolean (false: cards may overlap and links draw as curves through them) }
 //   metrics:  Y.Map             "s:<msgId>" → ServerMetrics, "c:<msgId>" → ClientMetrics
 
 export const NODE_KINDS = ["topic", "note", "ticket", "image", "link", "frame", "suggestion", "palette", "typography"] as const;
@@ -51,6 +51,8 @@ export interface Presence {
 	typing?: { nodeId: string; field: TextField; index: number; selectAll?: boolean } | null;
 	/** Agent is dragging an edge out of this node. */
 	connecting?: { source: string } | null;
+	/** This client tidies (pushes overlapping cards apart); the lowest such human id tidies changes no client owns. */
+	tidy?: boolean;
 }
 
 export interface ChatMsg {

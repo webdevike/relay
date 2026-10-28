@@ -71,7 +71,7 @@ export async function loadIdentity(): Promise<"ok" | "expired"> {
 		}
 		self.name = uniqueName(self.name, names);
 		self.color = freeColor(self.color, colors);
-		awareness.setLocalState({ user: { ...self }, cursor: null, selected: [] } satisfies Presence);
+		awareness.setLocalState({ user: { ...self }, cursor: null, selected: [], tidy: true } satisfies Presence);
 	};
 	if (provider.synced) join();
 	else provider.once("sync", join);

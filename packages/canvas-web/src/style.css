@@ -870,7 +870,7 @@ mark {
 	display: flex;
 	gap: 8px;
 }
-.cv-follow {
+.cv-toggle {
 	display: flex;
 	align-items: center;
 	gap: 6px;
@@ -882,15 +882,15 @@ mark {
 	padding: 6px 12px;
 	cursor: pointer;
 }
-.cv-follow:hover {
+.cv-toggle:hover {
 	border-color: var(--c-border-strong);
 }
-.cv-follow.on {
+.cv-toggle.on {
 	color: var(--c-bg);
 	background: var(--c-fg);
 	border-color: var(--c-fg);
 }
-.is-touch .cv-follow,
+.is-touch .cv-toggle,
 .is-touch ~ .cv-log-toggle {
 	min-height: 44px;
 	padding: 10px 16px;

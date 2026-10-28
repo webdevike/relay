@@ -284,6 +284,13 @@ rooms with `canvas.get` (`canvas.rooms` is pushed on every change) and enter wit
 `packages/canvas-web`, embedded in the binary), its websocket, `/me`, `/img` and `/end`. Brains need omp on
 PATH, in `~/.local/bin`, or `$RELAY_CANVAS_OMP`.
 
+The web client keeps the board tidy unless the room's `settings.tidy` is `false` (the Tidy toggle in its top bar):
+cards never overlap and links run orthogonally around cards (`packages/canvas-web/src/route.ts`). A drop is
+resolved by the client that dropped it; everything no client owns (the agent's edits, images loading, text
+growing) by one elected client, the lowest awareness id among humans whose presence says `tidy: true`, so
+clients never fight over a card. Pushed cards keep a 24 px gap and the moves are ordinary doc edits, so they
+export to the board file like a drag.
+
 ## Differences from the Mac app
 
 - No tray/menu UI; the terminal is the UI.
