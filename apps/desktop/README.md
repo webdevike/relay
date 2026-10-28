@@ -68,7 +68,7 @@ change the face; the agent's crumb says them.
   director per agent (`motion-store.ts`, ticked on store changes and once a second) and only
   breathe, in CSS (slower while snoozing).
 - **The crumb** ("< Assistants / Nova") follows the name with muted words (`CrumbStatus`, the
-  mapping of the package's `statusText`): "is thinking", "is researching", "is working", "is
+  package's `statusText`): "is thinking", "is researching", "is working", "is
   away", "needs you" while it waits, "hit a snag" after a failure, nothing at rest. A change
   crossfades in 180 ms in one grid cell (no layout jump), at once with motion off; long words end
   in an ellipsis.

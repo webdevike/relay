@@ -1,5 +1,5 @@
 import { useCallback, useSyncExternalStore } from 'react'
-import { Director, type MotionSignals, type MotionState } from '@relay/portrait-motion'
+import { Director, statusText, type MotionSignals, type MotionState } from '@relay/portrait-motion'
 import { chatStore } from '../chat/chat-store'
 import { PANE_ID } from '../chat/open-chat'
 import { assistantsStore } from './assistants-store'
@@ -24,22 +24,6 @@ export function agentSignals(id: string): MotionSignals {
   const real = motionSignals(assistantsStore.getState(), id, chatStore.getState().panes[PANE_ID])
   const patch = overrides.get(id)
   return patch === undefined ? real : { ...real, ...patch }
-}
-
-// Mirrors @relay/portrait-motion's `statusText` (the phone's header line) until the package
-// exports it; swap this for the import then.
-const STATUS_TEXT: Partial<Record<MotionState, string>> = {
-  thinking: 'is thinking',
-  researching: 'is researching',
-  working: 'is working',
-  snoozing: 'is away',
-}
-
-/** The short words after an agent's name: needing Isaac and failing first, else its face's. */
-export function statusText(state: MotionState, s: MotionSignals): string | null {
-  if (s.waiting) return 'needs you'
-  if (s.failed) return 'hit a snag'
-  return STATUS_TEXT[state] ?? null
 }
 
 interface Entry {
