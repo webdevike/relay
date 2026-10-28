@@ -16,6 +16,7 @@ export const STATE_IDS = [
   "thinking",
   "talking",
   "working",
+  "researching",
   "confused",
   "error",
   "done",
@@ -170,7 +171,7 @@ const voice = (lt: number): number =>
 // Channels (notionists units; each rig scales them, k.fig for body motion, k.face for eyes/brows):
 // tilt° hx hy (head) · ex ey (eye glance) · eyeS (0 open → 1 shut) eyeO (eyes widen) happy (smiling eyes) ·
 // by (brows) bFar bNear (one brow) · breathe breatheP · figY figS (figure bob/stretch) · gy grot (gesture) ·
-// ring spinP (accent dot ring) · waves zzz quiz conf drop (accent overlays)
+// ring spinP (accent dot ring) · waves zzz quiz conf drop lens (accent overlays)
 const REST = {
   tilt: 0,
   hx: 0,
@@ -196,6 +197,7 @@ const REST = {
   quiz: 0,
   conf: 0,
   drop: 0,
+  lens: 0,
   blinkOn: 1,
 };
 export type Pose = typeof REST;
@@ -348,6 +350,47 @@ const STATES: Record<MotionState, StateDef> = {
       spinP: 0.9,
     }),
     parts: () => ({ mouth: "focus", brows: "focus", gesture: "phone" }),
+  },
+  researching: {
+    label: "Researching",
+    status: "Researching",
+    dot: "accent",
+    dur: 2.4,
+    ring: true,
+    // Reading: the eyes sweep a line left to right and flick back, leaning in over a page, a small
+    // magnifier following the gaze.
+    pose: (lt, gt) => {
+      const u = lt % 2.4;
+      const ex = keys(u, [
+        [0, -14],
+        [1.7, 14],
+        [1.95, -14],
+        [2.4, -14],
+      ]);
+      const lean = smooth(lt / 0.5);
+      return {
+        ex,
+        ey:
+          9 +
+          2 *
+            keys(u, [
+              [0, 0],
+              [1.7, 1],
+              [1.95, 0],
+            ]),
+        tilt: -2 * lean + 0.3 * Math.sin((TAU * gt) / 5.3),
+        hx: 0.2 * ex + 3 * lean,
+        hy: 7 * lean,
+        figY: -3 * lean,
+        figS: 0.01 * lean,
+        by: 4,
+        blinkOn: 0.7,
+        ring: smooth(lt / 0.5),
+        spinP: 2.4,
+        lens: lean,
+      };
+    },
+    parts: () => ({ mouth: "focus", brows: "focus" }),
   },
   confused: {
     label: "Confused",
@@ -583,6 +626,8 @@ export interface Overlays {
   zs: { x: number; y: number; size: number; o: number }[];
   quiz: { o: number; x: number; y: number; scale: number; rot: number };
   drop: { o: number; x: number; y: number };
+  /** The researching magnifier's centre. */
+  lens: { o: number; x: number; y: number };
   confetti: Confetto[];
 }
 
@@ -609,6 +654,10 @@ export interface Geometry {
   /** The sweat drop, in its own space. */
   drop: string;
   dropStroke: number;
+  lensR: number;
+  lensStroke: number;
+  /** The magnifier's handle, in its own space (the lens centre at 0 0). */
+  lensHandle: string;
 }
 
 const geometries = new Map<number, Geometry>();
@@ -634,6 +683,9 @@ export function geometry(size: number): Geometry {
     quizPatch: { x: -size * 0.06, y: size * 0.085, w: size * 0.06, h: size * 0.04 },
     drop: `M 0 ${s(-0.035)} C ${s(0.02)} ${s(-0.005)} ${s(0.026)} ${s(0.008)} ${s(0.026)} ${s(0.02)} A ${s(0.026)} ${s(0.026)} 0 0 1 ${s(-0.026)} ${s(0.02)} C ${s(-0.026)} ${s(0.008)} ${s(-0.02)} ${s(-0.005)} 0 ${s(-0.035)} Z`,
     dropStroke: Math.max(0.8, size * 0.006),
+    lensR: size * 0.075,
+    lensStroke: Math.max(1.2, size * 0.016),
+    lensHandle: `M ${s(0.053)} ${s(0.053)} L ${s(0.11)} ${s(0.11)}`,
   };
   geometries.set(size, g);
   return g;
@@ -820,6 +872,7 @@ function overlays(p: Pose, clip: Clip, size: number): Overlays {
       x: size * 0.3,
       y: size * (0.27 + 0.09 * df),
     },
+    lens: { o: p.lens, x: size * (0.8 + (0.05 * p.ex) / 14), y: size * 0.8 },
     confetti,
   };
 }

@@ -32,10 +32,12 @@ export {
   type StateMeta,
 } from "./engine";
 export {
-  DONE_MS,
   Director,
   IDLE_SIGNALS,
   SNOOZE_MS,
   Timeline,
+  statusDot,
+  toolKind,
   type MotionSignals,
+  type ToolKind,
 } from "./director";

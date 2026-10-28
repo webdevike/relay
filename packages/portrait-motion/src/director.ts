@@ -1,20 +1,22 @@
 /**
- * Which state a portrait shows, from what the app knows about its thread (`MotionSignals`), and the
- * timeline that blends one state into the next. Apps feed signals each tick; the director turns
- * edges into the short states: Hello when a thread opens, Done for a moment when a turn ends well,
- * Waking when a message arrives while it snoozes.
+ * Which face a portrait shows, from what the app knows about its thread (`MotionSignals`), and the
+ * timeline that blends one state into the next. The mapping is deliberately calm: Thinking while a
+ * turn runs or its reply is being written, Researching while it reads (search, fetch, files),
+ * Working while other tools run, Idle otherwise (breathing and blinks), Snoozing after 30 quiet
+ * minutes and Waking when the thread stirs again. Needing Isaac and failing are not faces: they are
+ * the status dot (`statusDot`). The other engine states stay for the playground.
  */
-import { STATE_META, type Clip, type MotionState } from "./engine";
+import type { Clip, DotTone, MotionState } from "./engine";
+import { STATE_META } from "./engine";
+
+/** What the tools a turn is running now are doing. */
+export type ToolKind = "research" | "work";
 
 export interface MotionSignals {
-  /** A turn is running: Thinking, or Working when `working` too. */
+  /** A turn is running, its reply streaming in included. */
   running: boolean;
-  /** Tools, subagents or background jobs are running inside the turn. */
-  working: boolean;
-  /** The reply streams in, or the assistant's voice plays on a call. */
-  talking: boolean;
-  /** Isaac is speaking on a call. */
-  listening: boolean;
+  /** What the turn's running tools (its own or its subagents') are doing, null when none run. */
+  tool: ToolKind | null;
   /** Waiting on Isaac: an ask dialog, a permission, needs-you. */
   waiting: boolean;
   /** The last turn failed (until the next one starts). */
@@ -25,62 +27,58 @@ export interface MotionSignals {
 
 export const IDLE_SIGNALS: MotionSignals = {
   running: false,
-  working: false,
-  talking: false,
-  listening: false,
+  tool: null,
   waiting: false,
   failed: false,
   activityAt: null,
 };
 
-/** How long Done shows after a turn ends well. */
-export const DONE_MS = 2000;
+// Tools that read rather than change: web search and fetches, browsing, file reads and searches,
+// memory recall. Matched on the tool name a session reports (omp's, MCP's `server__tool`, Claude Code's).
+const RESEARCH =
+  /(^|[_\W])(web_?search|search|read|browse|fetch|grep|glob|find|ls|lookup|recall|reflect|crawl|scrape|scout)([_\W]|$)/i;
+
+/** Whether tool `name` researches (reads, searches, fetches) or works (edits, runs commands, anything else). */
+export function toolKind(name: string): ToolKind {
+  // WebFetch → Web_Fetch, so camel-case names split into words too.
+  return RESEARCH.test(name.trim().replace(/([a-z])([A-Z])/g, "$1_$2")) ? "research" : "work";
+}
+
+/** The status dot: orange while it needs Isaac, red after a failed turn, the accent while it runs. */
+export function statusDot(s: MotionSignals): DotTone {
+  if (s.waiting) return "orange";
+  if (s.failed) return "red";
+  return s.running ? "accent" : null;
+}
+
 /** Quiet this long and the portrait snoozes. */
 export const SNOOZE_MS = 30 * 60 * 1000;
-const HELLO_MS = STATE_META.hello.dur * 1000;
 const WAKE_MS = STATE_META.waking.dur * 1000;
 
 export class Director {
-  private helloUntil: number;
-  private doneUntil = 0;
   private wakeUntil = 0;
-  private wasActive = false;
   private activityAt: number | null = null;
   private last: MotionState = "idle";
 
-  /** `hello`: the thread just opened, so it greets first. */
-  constructor(now: number, { hello = false }: { hello?: boolean } = {}) {
-    this.helloUntil = hello ? now + HELLO_MS : 0;
-  }
-
   /** The state for `signals` at epoch ms `now`. */
   next(s: MotionSignals, now: number): MotionState {
-    const active = s.running || s.talking || s.listening;
     const stirred =
       s.activityAt !== null && this.activityAt !== null && s.activityAt > this.activityAt;
-    if (this.last === "snoozing" && (stirred || active || s.waiting))
+    if (this.last === "snoozing" && (stirred || s.running || s.waiting))
       this.wakeUntil = now + WAKE_MS;
-    if (this.wasActive && !active && !s.failed && !s.waiting) this.doneUntil = now + DONE_MS;
-    if (active) {
-      this.doneUntil = 0;
-      this.helloUntil = 0;
-    }
-    this.wasActive = active;
     this.activityAt = s.activityAt;
     this.last = this.pick(s, now);
     return this.last;
   }
 
   private pick(s: MotionSignals, now: number): MotionState {
-    if (s.listening) return "listening";
     if (now < this.wakeUntil) return "waking";
-    if (s.talking) return "talking";
-    if (s.waiting) return "confused";
-    if (s.running) return s.working ? "working" : "thinking";
-    if (s.failed) return "error";
-    if (now < this.helloUntil) return "hello";
-    if (now < this.doneUntil) return "done";
-    if (s.activityAt !== null && now - s.activityAt >= SNOOZE_MS) return "snoozing";
+    if (s.running && !s.waiting) {
+      if (s.tool === "research") return "researching";
+      return s.tool === "work" ? "working" : "thinking";
+    }
+    if (!s.running && !s.waiting && s.activityAt !== null && now - s.activityAt >= SNOOZE_MS)
+      return "snoozing";
     return "idle";
   }
 }

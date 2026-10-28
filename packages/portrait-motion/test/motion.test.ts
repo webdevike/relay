@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  DONE_MS,
   Director,
   IDLE_SIGNALS,
   SNOOZE_MS,
@@ -20,6 +19,8 @@ import {
   rotate,
   translate,
   type MotionSignals,
+  statusDot,
+  toolKind,
   type Portrait,
 } from "../src/index";
 
@@ -158,6 +159,8 @@ describe("frame", () => {
     expect(at("confused", 1500).fx.quiz.o).toBe(1);
     expect(at("error", 1500).fx.drop.o).toBeGreaterThan(0);
     expect(at("done", 600).fx.confetti.length).toBeGreaterThan(0);
+    expect(at("researching", 1500).fx.lens.o).toBe(1);
+    expect(at("idle", 1500).fx.lens.o).toBe(0);
     expect(Math.max(...at("snoozing", 2000).fx.zs.map((z) => z.o))).toBeGreaterThan(0);
     expect(geometry(84).dots).toHaveLength(14);
   });
@@ -187,6 +190,26 @@ describe("frame", () => {
   });
 });
 
+describe("toolKind", () => {
+  it("calls reading, searching and fetching research, everything else work", () => {
+    for (const t of [
+      "web_search",
+      "read",
+      "browse",
+      "fetch",
+      "grep",
+      "glob",
+      "find",
+      "mcp__exa__search",
+      "WebFetch",
+      "Grep",
+    ])
+      expect(toolKind(t), t).toBe("research");
+    for (const t of ["bash", "edit", "write", "task", "Bash", "ask"])
+      expect(toolKind(t), t).toBe("work");
+  });
+});
+
 describe("Director", () => {
   const sig = (s: Partial<MotionSignals> = {}): MotionSignals => ({
     ...IDLE_SIGNALS,
@@ -194,32 +217,32 @@ describe("Director", () => {
     ...s,
   });
 
-  it("plays a scripted turn: hello, thinking, working, talking, done, idle", () => {
-    const d = new Director(0, { hello: true });
-    expect(d.next(sig(), 0)).toBe("hello");
-    expect(d.next(sig(), 3000)).toBe("hello");
-    expect(d.next(sig(), 3700)).toBe("idle");
+  it("plays a scripted turn calmly: idle, thinking, researching, working, thinking while writing, idle", () => {
+    const d = new Director();
+    expect(d.next(sig(), 0)).toBe("idle");
+    expect(d.next(sig({ running: true, activityAt: 1000 }), 1000)).toBe("thinking");
+    expect(d.next(sig({ running: true, tool: "research", activityAt: 1000 }), 2000)).toBe(
+      "researching",
+    );
+    expect(d.next(sig({ running: true, tool: "work", activityAt: 1000 }), 3000)).toBe("working");
     expect(d.next(sig({ running: true, activityAt: 4000 }), 4000)).toBe("thinking");
-    expect(d.next(sig({ running: true, working: true, activityAt: 4000 }), 5000)).toBe("working");
-    expect(d.next(sig({ running: true, talking: true, activityAt: 6000 }), 6000)).toBe("talking");
-    expect(d.next(sig({ activityAt: 7000 }), 7000)).toBe("done");
-    expect(d.next(sig({ activityAt: 7000 }), 7000 + DONE_MS - 1)).toBe("done");
-    expect(d.next(sig({ activityAt: 7000 }), 7000 + DONE_MS)).toBe("idle");
+    expect(d.next(sig({ activityAt: 5000 }), 5000)).toBe("idle");
   });
 
-  it("is confused while waiting on Isaac, sad after a failure, never done after either", () => {
-    const d = new Director(0);
-    d.next(sig({ running: true }), 0);
-    expect(d.next(sig({ running: true, waiting: true }), 100)).toBe("confused");
-    expect(d.next(sig({ waiting: true }), 200)).toBe("confused");
-    expect(d.next(sig({ running: true }), 300)).toBe("thinking");
-    expect(d.next(sig({ failed: true }), 400)).toBe("error");
-    expect(d.next(sig({ failed: true }), 60_000)).toBe("error");
-    expect(d.next(sig({ running: true }), 61_000)).toBe("thinking");
+  it("keeps needing Isaac and failing out of the face: idle with an orange or red dot", () => {
+    const d = new Director();
+    const waiting = sig({ running: true, waiting: true });
+    expect(d.next(waiting, 0)).toBe("idle");
+    expect(statusDot(waiting)).toBe("orange");
+    const failed = sig({ failed: true });
+    expect(d.next(failed, 100)).toBe("idle");
+    expect(statusDot(failed)).toBe("red");
+    expect(statusDot(sig({ running: true }))).toBe("accent");
+    expect(statusDot(sig())).toBeNull();
   });
 
   it("snoozes after 30 quiet minutes and wakes on the next message", () => {
-    const d = new Director(0);
+    const d = new Director();
     expect(d.next(sig(), SNOOZE_MS - 1)).toBe("idle");
     expect(d.next(sig(), SNOOZE_MS)).toBe("snoozing");
     const now = SNOOZE_MS + 60_000;
@@ -227,12 +250,5 @@ describe("Director", () => {
     expect(
       d.next(sig({ running: true, activityAt: now }), now + STATE_META.waking.dur * 1000),
     ).toBe("thinking");
-  });
-
-  it("listens and talks on a call", () => {
-    const d = new Director(0);
-    expect(d.next(sig({ listening: true }), 0)).toBe("listening");
-    expect(d.next(sig({ running: true }), 100)).toBe("thinking");
-    expect(d.next(sig({ running: true, talking: true }), 200)).toBe("talking");
   });
 });
