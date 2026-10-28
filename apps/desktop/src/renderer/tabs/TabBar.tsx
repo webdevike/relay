@@ -1,38 +1,31 @@
 import './tabs.css'
-import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent,
+  type PointerEvent,
+} from 'react'
 import { ActionIcon, Kbd, Tooltip } from '@mantine/core'
 import {
   IconArrowLeft,
   IconArrowRight,
   IconAsterisk,
-  IconBrain,
-  IconCalendar,
-  IconCalendarTime,
-  IconFile,
-  IconFlame,
-  IconFolder,
-  IconHelp,
-  IconInbox,
-  IconLayoutDashboard,
-  IconListCheck,
-  IconMessage,
   IconPin,
   IconPlus,
-  IconRobot,
-  IconSchema,
-  IconSettings,
-  IconUsers,
-  IconUsersGroup,
   IconX,
-  type Icon,
 } from '@tabler/icons-react'
-import { browserScope } from '@evaos/shell-core'
+import { browserScope, pageTabAllowed } from '@evaos/shell-core'
 import { useScopeBadges } from '../agent/scope'
 import { AgentPortrait } from '../assistants/AgentPortrait'
 import { agentIdOf } from '../assistants/assistants-store'
 import { EvaMenu } from '../overlay'
 import { useNamesVersion } from '../eva/names-store'
 import { useLayout } from '../shell/layout-store'
+import { startTabDrag } from '../tiling/tab-drag'
+import { useTiling } from '../tiling/tiling-store'
+import { PAGE_ICONS } from './tab-icons'
 import { tabIconName, tabTitle } from './tab-meta'
 import {
   activate,
@@ -45,27 +38,8 @@ import {
   useTabs,
 } from './tabs-store'
 
-const ICONS: Record<string, Icon> = {
-  IconLayoutDashboard,
-  IconInbox,
-  IconMessage,
-  IconCalendarTime,
-  IconFlame,
-  IconUsers,
-  IconCalendar,
-  IconListCheck,
-  IconBrain,
-  IconFile,
-  IconFolder,
-  IconSettings,
-  IconHelp,
-  IconSchema,
-  IconRobot,
-  IconUsersGroup,
-}
-
 export const FOLDED_LABEL =
-  'Sidebar hidden to fit the window. Widen the window or close the panel to bring it back.'
+  'Sidebar hidden to fit the window. Widen the window or close a pane to bring it back.'
 
 function Chord({ children }: { children: string }) {
   return <Kbd size="xs">{children}</Kbd>
@@ -83,6 +57,11 @@ export function TabBar() {
   useNamesVersion()
   const tabs = useTabs((s) => s.tabs)
   const state = useLayout((s) => s.state)
+  // The window's traffic lights sit over the top-left pane when the sidebar is away.
+  const topLeft = useTiling((s) => {
+    const r = s.rects['chat']
+    return r === undefined || (r.x === 0 && r.y === 0)
+  })
   const badges = useScopeBadges()
   const [menu, setMenu] = useState<{ id: number; x: number; y: number } | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
@@ -122,7 +101,7 @@ export function TabBar() {
     <div
       className="eva-tabbar"
       data-testid="tabbar"
-      data-lead-in={state !== 'open' ? 'true' : 'false'}
+      data-lead-in={state !== 'open' && topLeft ? 'true' : 'false'}
     >
       <Tooltip label={withKbd('Back', '⌘[')} position="bottom" openDelay={400}>
         <ActionIcon
@@ -153,7 +132,7 @@ export function TabBar() {
         {tabs.list.map((tab, ix) => {
           // An agent's tab wears its portrait where other pages show their glyph.
           const agent = agentIdOf(tab.here)
-          const Glyph = ICONS[tabIconName(tab.here)] ?? IconAsterisk
+          const Glyph = PAGE_ICONS[tabIconName(tab.here)] ?? IconAsterisk
           const title = tabTitle(tab.here)
           const isActive = ix === tabs.active
           // What an agent did in this page's panel while Isaac was elsewhere (agent/scope.ts).
@@ -169,6 +148,15 @@ export function TabBar() {
             'data-active': isActive,
             tabIndex: isActive ? 0 : -1,
             onClick: () => activate(tab.id),
+            // A page (not a chat) drags out into a pane: onto an edge to split, a tool pane to join.
+            onPointerDown: (e: PointerEvent<HTMLElement>) => {
+              if (!pageTabAllowed(tab.here)) return
+              startTabDrag(e, {
+                tab: { kind: 'page', place: tab.here },
+                title,
+                fromAppTab: tab.id,
+              })
+            },
             onKeyDown: (e: KeyboardEvent<HTMLElement>) => onKey(e, tab.id),
             onAuxClick: (e: MouseEvent) => onAux(e, tab.id, tab.pinned),
             onContextMenu: (e: MouseEvent) => {

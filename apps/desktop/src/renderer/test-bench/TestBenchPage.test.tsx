@@ -14,7 +14,8 @@ vi.mock('../ipc', () => ({
 }))
 
 import { placeOf } from '@evaos/shell-core'
-import { layoutStore } from '../shell/layout-store'
+import { findTab } from '@evaos/shell-core'
+import { tilingStore } from '../tiling/tiling-store'
 import { ExperimentArmPanel } from './ExperimentArmPanel'
 import { TestBenchPage } from './TestBenchPage'
 
@@ -228,7 +229,7 @@ describe('TestBenchPage', () => {
     expect(cost.textContent).toContain('1 arm unpriced')
   })
 
-  it('shows tests control first and opens one in the side panel', async () => {
+  it('shows tests control first and opens one in a tool tab', async () => {
     mount(<TestBenchPage place={placeOf('test-bench')} />)
     fireEvent.click(await screen.findByTestId('experiment-row-2026-10-28-live'))
     await screen.findByTestId('arms-table')
@@ -243,11 +244,12 @@ describe('TestBenchPage', () => {
     expect(rows[0]!.textContent).toContain('1.5s')
     expect(rows[0]!.textContent).toContain('39/40')
     const headers = screen.getAllByRole('columnheader').map((h) => h.textContent)
-    expect(headers).toEqual(
-      expect.arrayContaining(['Tokens/test', 'List $/test', 'Quality/$']),
-    )
+    expect(headers).toEqual(expect.arrayContaining(['Tokens/test', 'List $/test', 'Quality/$']))
     expect(headers).not.toContain('Cost/test')
-    const cells = (r: HTMLElement) => within(r).getAllByRole('cell').map((c) => c.textContent)
+    const cells = (r: HTMLElement) =>
+      within(r)
+        .getAllByRole('cell')
+        .map((c) => c.textContent)
     // Median 35k tokens per test, $0.25 list per test, 50% recall / $0.25 = 2.00.
     expect(cells(rows[0]!)).toEqual(expect.arrayContaining(['35.0k', '$0.250', '2.00']))
     expect(within(rows[0]!).getByTitle(/in 10000 · out 5000 · cached 20000/)).toBeTruthy()
@@ -257,13 +259,14 @@ describe('TestBenchPage', () => {
     )
     expect(rows[2]!.textContent).toContain('$0.010 billed')
     fireEvent.click(rows[1]!)
-    expect(layoutStore.getState().panelOpen).toBe(true)
-    expect(layoutStore.getState().panelView).toEqual({
+    const tiling = tilingStore.getState().tiling
+    expect(findTab(tiling, 'arm:2026-10-28-live/treatment')?.tab).toEqual({
       kind: 'experiment-arm',
       experiment: '2026-10-28-live',
       arm: 'treatment',
       label: 'treatment arm',
     })
+    expect(tiling.focus).toBe(findTab(tiling, 'arm:2026-10-28-live/treatment')?.pane.id)
   })
 
   it('renders results.md and the record verdict for an experiment without summary.json', async () => {

@@ -1,19 +1,43 @@
 import { notifications } from '@mantine/notifications'
-import { pinId, type AgentRunners, type ChatRow, type Result } from '@evaos/contract'
-import { pageFromKey, placeOf } from '@evaos/shell-core'
+import {
+  PaneTabSpecSchema,
+  pinId,
+  type AgentRunners,
+  type ChatRow,
+  type PaneTabSpec,
+  type Result,
+} from '@evaos/contract'
+import {
+  allPanes,
+  findTab,
+  isChatPane,
+  pageFromKey,
+  placeOf,
+  tabId,
+  visiblePaneIds,
+  type PaneTab,
+  type TileNode,
+} from '@evaos/shell-core'
 import { invoke } from '../ipc'
 import { runAction } from '../hotkeys/router'
 import { activate, activePlace, close, navigateTo, newChatTab, tabsStore } from '../tabs/tabs-store'
 import { tabTitle } from '../tabs/tab-meta'
 import {
-  layoutStore,
-  openExperimentArmPanel,
-  openSubagentPanel,
-  panelTabCreated,
-  setScopePanel,
-  showPanelTool,
-  togglePanel,
-} from '../shell/layout-store'
+  activateTab,
+  closePaneById,
+  closeTab,
+  focusNeighbor,
+  focusPaneById,
+  moveTab,
+  openArmTab,
+  openTab,
+  resizeNode,
+  revealTool,
+  splitAt,
+  tilingStore,
+  zoomPane,
+} from '../tiling/tiling-store'
+import { paneTabTitle } from '../tiling/pane-tab-meta'
 import { chatStore } from '../chat/chat-store'
 import { PANE_ID } from '../chat/open-chat'
 import { listStore } from '../chat/list/list-store'
@@ -27,7 +51,7 @@ import {
   unpinContext,
 } from '../context/context-store'
 import { snapshotFocus } from './focus-safety'
-import { announce, forgetShown, inFront, targetOf, whenShown, type ScopeTarget } from './scope'
+import { announce, inFront, targetOf, whenShown, type ScopeTarget } from './scope'
 
 /** A failure with a stable code; main reports it as `{ ok: false, code, message }`. */
 function fail(code: string, message: string): never {
@@ -82,7 +106,7 @@ async function waitFor(check: () => boolean, ms: number): Promise<boolean> {
 export async function readState(): Promise<Record<string, unknown>> {
   const tabs = tabsStore.getState().tabs
   const here = activePlace(tabsStore.getState())
-  const layout = layoutStore.getState()
+  const { tiling } = tilingStore.getState()
   const pane = chatStore.getState().panes[PANE_ID]
   const space = currentSpace(filesStore.getState())
   const browser = await invoke('browser.state', {})
@@ -110,7 +134,7 @@ export async function readState(): Promise<Record<string, unknown>> {
           draft: composerText(),
         }
       : null,
-    panel: { open: layout.panelOpen, view: layout.panelView, scope: layout.panelScope },
+    layout: layoutSnapshot(),
     browser: browser.ok ? browser.value : null,
     files: space
       ? {
@@ -124,7 +148,11 @@ export async function readState(): Promise<Record<string, unknown>> {
     focus: { ...snapshotFocus(), activeElement: describe(document.activeElement) },
     text: {
       main: textOf('[data-testid=main-card]'),
-      panel: layout.panelOpen ? textOf('[data-testid=panel-card]') : '',
+      panes: Object.fromEntries(
+        visiblePaneIds(tiling)
+          .filter((id) => !isChatPane(id))
+          .map((id) => [id, textOf(`[data-testid="pane-${id}"]`)]),
+      ),
     },
   }
 }
@@ -141,10 +169,125 @@ function composerText(): string | null {
   return box instanceof HTMLTextAreaElement ? box.value : null
 }
 
+/** What layout.read shows of a tool tab beyond its kind: what it needs to show it again. */
+function tabArgs(tab: PaneTab): Record<string, unknown> | undefined {
+  switch (tab.kind) {
+    case 'subagent':
+      return { session: tab.session, file: tab.file, name: tab.name }
+    case 'experiment-arm':
+      return { experiment: tab.experiment, arm: tab.arm, label: tab.label }
+    case 'page': {
+      const p = tab.place
+      return {
+        page: p.page,
+        ...(p.page === 'canvas' && p.canvas ? { canvas: p.canvas } : {}),
+        ...(p.page === 'meetings' && p.meeting ? { meeting: p.meeting } : {}),
+        ...(p.page === 'settings' ? { settingsSection: p.settingsSection } : {}),
+      }
+    }
+    default:
+      return undefined
+  }
+}
+
+/** The pane tree as agents read it (layout.read, state.read `layout`). */
+export function layoutSnapshot(): Record<string, unknown> {
+  const { tiling, rects } = tilingStore.getState()
+  const shown = visiblePaneIds(tiling)
+  const appTabs = tabsStore.getState().tabs
+  const node = (n: TileNode): Record<string, unknown> => {
+    if (n.type === 'split') {
+      return {
+        split: n.id,
+        dir: n.dir,
+        sizes: n.sizes.map((x) => Math.round(x * 1000) / 1000),
+        children: n.children.map(node),
+      }
+    }
+    const common = { pane: n.id, rect: rects[n.id] ?? null, visible: shown.includes(n.id) }
+    if (isChatPane(n.id)) {
+      return {
+        ...common,
+        kind: 'chat',
+        tabs: appTabs.list.map((t, i) => ({
+          id: t.id,
+          page: t.here.page,
+          title: tabTitle(t.here),
+          active: i === appTabs.active,
+        })),
+      }
+    }
+    return {
+      ...common,
+      kind: 'tool',
+      active: n.active,
+      tabs: n.tabs.map((t) => ({
+        id: tabId(t),
+        kind: t.kind,
+        title: paneTabTitle(t),
+        ...(tabArgs(t) ? { args: tabArgs(t) } : {}),
+      })),
+    }
+  }
+  return {
+    root: node(tiling.root),
+    focus: tiling.focus,
+    zoom: tiling.zoom,
+    panes: allPanes(tiling.root).map((p) => p.id),
+  }
+}
+
+/** A tab spec's tool tab; an experiment arm's label comes from its run. */
+async function paneTabOf(spec: PaneTabSpec): Promise<PaneTab> {
+  switch (spec.kind) {
+    case 'browser':
+    case 'files':
+    case 'artifacts':
+      return { kind: spec.kind }
+    case 'subagent':
+      return { kind: 'subagent', ...spec.args }
+    case 'experiment-arm': {
+      const { experiment, arm } = spec.args
+      const detail = value(await invoke('experiments.get', { id: experiment }))
+      const found = detail.armSummaries?.find((a) => a.id === arm)
+      if (!found) fail('not-found', `No arm ${arm} in ${experiment}`)
+      return { kind: 'experiment-arm', experiment, arm, label: found.label }
+    }
+    case 'page': {
+      const { page, ...extra } = spec.args
+      const key = pageFromKey(page)
+      if (!key) fail('invalid-params', `Unknown page ${page}`)
+      return { kind: 'page', place: placeOf(key, extra) }
+    }
+  }
+}
+
+/** What a spec's args ask of the tab's content once it shows (a URL, a file). */
+async function showArgs(spec: PaneTabSpec, chatFile: string | null): Promise<object> {
+  if (spec.kind === 'browser' && spec.args?.url) {
+    return value(await invoke('browser.createTab', { url: spec.args.url }))
+  }
+  if (spec.kind === 'files' && spec.args?.path) {
+    const { path, line, column } = spec.args
+    return showPath(path, chatFile, { line, column })
+  }
+  return {}
+}
+
+/** A pane action's tab: an open tab's id, or a spec (opened there, then shown). */
+async function tabFor(tab: string | PaneTabSpec): Promise<PaneTab> {
+  if (typeof tab !== 'string') return paneTabOf(tab)
+  const hit = findTab(tilingStore.getState().tiling, tab)
+  if (!hit) fail('not-found', `No tab ${tab}; layout.read lists them`)
+  return hit.tab
+}
+
+const shownChatFile = (): string | null => chatStore.getState().panes[PANE_ID]?.file || null
+
 /**
- * Runs a panel action where it belongs: `front` in the panel on screen (no scope, or the named
- * scope is the one in front), else `away` in that scope's own panel, which shows it when Isaac
- * opens the page. A named scope comes back in the result, with whether it was in the background.
+ * Runs a content action where it belongs: `front` in the tool tabs on screen (no scope, or the
+ * named scope is the one in front), else `away` for that scope, shown when Isaac opens the page.
+ * A named scope comes back in the result, with whether it was in the background.
  */
 async function inScope(
   scope: string | undefined,
@@ -158,14 +301,13 @@ async function inScope(
   return { ...result, scope: t.scope, background }
 }
 
-/** Opens a background scope's panel on `show` for when Isaac opens it, and badges its tab. */
+/** Runs `show` for when Isaac opens a background scope, and badges its tab. */
 function showAway(t: ScopeTarget, what: string, show: () => unknown): void {
-  setScopePanel(t.scope, true)
   whenShown(t.scope, show)
   announce(t, what)
 }
 
-/** Fails unless browser tab `tabId` shows in `t`'s panel (its own tabs or a pinned one). */
+/** Fails unless browser tab `tabId` shows in `t`'s browser (its own tabs or a pinned one). */
 async function tabIn(t: ScopeTarget, tabId: string): Promise<void> {
   const { tabs } = value(await invoke('browser.state', { scope: t.scope }))
   if (!tabs.some((x) => x.id === tabId)) fail('not-found', `No tab ${tabId} in ${t.title}`)
@@ -201,15 +343,85 @@ export const rendererActions: AgentRunners<'renderer'> = {
     )
     return { page: key }
   },
+  'layout.read': () => layoutSnapshot(),
   'tab.focus': ({ id }) => {
+    if (typeof id === 'string') {
+      activateTab(id)
+      return { active: id, pane: tilingStore.getState().tiling.focus }
+    }
     if (!tabsStore.getState().tabs.list.some((t) => t.id === id)) fail('not-found', `No tab ${id}`)
     activate(id)
     return { active: id }
   },
   'tab.close': ({ id }) => {
+    if (typeof id === 'string') {
+      closeTab(id)
+      return { closed: id }
+    }
     if (!tabsStore.getState().tabs.list.some((t) => t.id === id)) fail('not-found', `No tab ${id}`)
     close(id)
     return { closed: id }
+  },
+  'tab.open': ({ kind, args, pane, scope }) => {
+    const spec = PaneTabSpecSchema.parse(args === undefined ? { kind } : { kind, args })
+    return inScope(
+      scope,
+      async () => {
+        const tab = await paneTabOf(spec)
+        const at = openTab(tab, pane)
+        return { pane: at, tab: tabId(tab), ...(await showArgs(spec, shownChatFile())) }
+      },
+      async (t) => {
+        const tab = await paneTabOf(spec)
+        // The content goes to that scope now; the tab comes forward when Isaac opens it.
+        let shown: object = {}
+        if (spec.kind === 'browser' && spec.args?.url) {
+          shown = value(await invoke('browser.createTab', { url: spec.args.url, scope: t.scope }))
+        } else if (spec.kind === 'files' && spec.args?.path) {
+          shown = await locatePath(spec.args.path, t.chatFile)
+        }
+        showAway(t, `opened ${paneTabTitle(tab)}`, async () => {
+          openTab(tab, pane)
+          if (spec.kind === 'files' && spec.args?.path) {
+            const { path, line, column } = spec.args
+            await showPath(path, t.chatFile, { line, column })
+          }
+        })
+        return { tab: tabId(tab), ...shown }
+      },
+    )
+  },
+  'pane.split': async ({ pane, dir, tab, size }) => {
+    const at = pane ?? tilingStore.getState().tiling.focus
+    const what = tab === undefined ? undefined : await tabFor(tab)
+    const made = splitAt(at, dir, what, size)
+    if (made === null)
+      fail('nothing-to-split', `Pane ${at} has one tab and every tool is open; name a tab`)
+    if (tab !== undefined && typeof tab !== 'string') await showArgs(tab, shownChatFile())
+    return { pane: made, layout: layoutSnapshot() }
+  },
+  'pane.close': ({ pane }) => {
+    closePaneById(pane)
+    return { closed: pane, focus: tilingStore.getState().tiling.focus }
+  },
+  'pane.move': ({ tab, toPane, index }) => {
+    moveTab(tab, toPane, index)
+    return { tab, pane: toPane }
+  },
+  'pane.resize': ({ pane, size, px }) => {
+    resizeNode(pane, size !== undefined ? { share: size } : { px: px ?? 0 })
+    return { pane, layout: layoutSnapshot() }
+  },
+  'pane.focus': ({ pane, dir }) => {
+    if (pane !== undefined) focusPaneById(pane)
+    else if (dir !== undefined && focusNeighbor(dir) === null) {
+      fail('not-found', `No pane ${dir} of ${tilingStore.getState().tiling.focus}`)
+    }
+    return { focus: tilingStore.getState().tiling.focus }
+  },
+  'pane.zoom': ({ pane, on }) => {
+    zoomPane(pane ?? tilingStore.getState().tiling.focus, on)
+    return { zoom: tilingStore.getState().tiling.zoom }
   },
   'chat.open': async ({ query, newTab }) => {
     const row = findChat(await chatRows(), query)
@@ -231,13 +443,13 @@ export const rendererActions: AgentRunners<'renderer'> = {
     inScope(
       scope,
       () => {
-        showPanelTool('files')
-        return showPath(path, chatStore.getState().panes[PANE_ID]?.file || null, { line, column })
+        revealTool('files')
+        return showPath(path, shownChatFile(), { line, column })
       },
       async (t) => {
         const shown = await locatePath(path, t.chatFile)
         showAway(t, `opened ${shown.path.split('/').pop() || 'a folder'}`, () => {
-          showPanelTool('files')
+          revealTool('files')
           return showPath(path, t.chatFile, { line, column })
         })
         return shown
@@ -247,13 +459,12 @@ export const rendererActions: AgentRunners<'renderer'> = {
     inScope(
       scope,
       async () => {
-        showPanelTool('browser')
-        panelTabCreated()
+        revealTool('browser')
         return value(await invoke('browser.createTab', { url }))
       },
       async (t) => {
         const tab = value(await invoke('browser.createTab', { url, scope: t.scope }))
-        showAway(t, 'opened a tab', () => showPanelTool('browser'))
+        showAway(t, 'opened a tab', () => revealTool('browser'))
         return tab
       },
     ),
@@ -261,13 +472,13 @@ export const rendererActions: AgentRunners<'renderer'> = {
     inScope(
       scope,
       async () => {
-        showPanelTool('browser')
+        revealTool('browser')
         return value(await invoke('browser.activateTab', { tabId }))
       },
       async (t) => {
         await tabIn(t, tabId)
         const r = value(await invoke('browser.activateTab', { tabId, scope: t.scope }))
-        showAway(t, 'showed a tab', () => showPanelTool('browser'))
+        showAway(t, 'showed a tab', () => revealTool('browser'))
         return r
       },
     ),
@@ -292,48 +503,6 @@ export const rendererActions: AgentRunners<'renderer'> = {
         return r
       },
     ),
-  'panel.show': ({ tool, scope }) =>
-    inScope(
-      scope,
-      () => {
-        showPanelTool(tool)
-        return { view: tool }
-      },
-      (t) => {
-        const what = {
-          browser: 'opened the browser',
-          files: 'opened Files',
-          artifacts: 'opened Artifacts',
-        }[tool]
-        showAway(t, what, () => showPanelTool(tool))
-        return { view: tool }
-      },
-    ),
-  'panel.subagent': ({ scope, ...view }) =>
-    inScope(
-      scope,
-      () => {
-        openSubagentPanel(view)
-        return { view: 'subagent' }
-      },
-      (t) => {
-        showAway(t, `showed ${view.name}`, () => openSubagentPanel(view))
-        return { view: 'subagent' }
-      },
-    ),
-  'panel.close': ({ scope }) =>
-    inScope(
-      scope,
-      () => {
-        togglePanel(false)
-        return { open: false }
-      },
-      (t) => {
-        setScopePanel(t.scope, false)
-        forgetShown(t.scope)
-        return { open: false }
-      },
-    ),
   'testbench.open': async ({ experiment, arm, scope }) => {
     if (!experiment) {
       navigateTo(placeOf('test-bench'))
@@ -352,19 +521,19 @@ export const rendererActions: AgentRunners<'renderer'> = {
     if (scope === undefined) {
       requestExperiment(experiment)
       navigateTo(placeOf('test-bench'))
-      if (arm && label !== null) openExperimentArmPanel({ experiment, arm, label })
+      if (arm && label !== null) openArmTab({ experiment, arm, label })
       return { page: 'test-bench', experiment, arm: arm ?? null }
     }
-    // The params schema only takes `scope` with `arm`: the arm details go to that page's panel.
+    // The params schema only takes `scope` with `arm`: the arm details wait for that page.
     const view = { experiment, arm: arm!, label: label! }
     return inScope(
       scope,
       () => {
-        openExperimentArmPanel(view)
+        openArmTab(view)
         return { experiment, arm: view.arm }
       },
       (t) => {
-        showAway(t, `showed ${view.label}`, () => openExperimentArmPanel(view))
+        showAway(t, `showed ${view.label}`, () => openArmTab(view))
         return { experiment, arm: view.arm }
       },
     )

@@ -1,9 +1,12 @@
 import {
   mergeLayout,
   readLayoutText,
+  tilingFromJson,
+  tilingToJson,
   type LayoutPatch,
-  type PanelToolName,
+  type LegacyPanel,
 } from '@evaos/shell-core'
+import type { InvokeInput } from '@evaos/contract'
 import type { ConfigStore } from './config-store'
 import type { MainContext } from './context'
 import { handle } from './ipc/handle'
@@ -13,19 +16,17 @@ const FILE = 'layout.json'
 
 export function loadLayout(config: ConfigStore): {
   sidebarWidth: number
-  panelWidth: number
   tabs: unknown
-  panelChoices: Record<string, boolean>
-  panelTool: PanelToolName
+  tiling: Record<string, unknown> | null
+  legacyPanel: LegacyPanel | null
   reset: boolean
 } {
   const r = readLayoutText(config.readText(FILE))
   return {
     sidebarWidth: r.sidebarWidth,
-    panelWidth: r.panelWidth,
     tabs: r.tabs,
-    panelChoices: r.panelChoices,
-    panelTool: r.panelTool,
+    tiling: r.tiling ? tilingToJson(r.tiling) : null,
+    legacyPanel: r.legacyPanel,
     reset: r.malformed,
   }
 }
@@ -41,9 +42,19 @@ export function saveLayout(config: ConfigStore, patch: LayoutPatch): void {
   config.writeJson(FILE, mergeLayout(existing, patch))
 }
 
+/** The IPC patch with its tiling validated; a tree that does not read back is refused. */
+function toPatch(input: InvokeInput<'layout.save'>): LayoutPatch {
+  const { tiling, ...rest } = input
+  if (tiling === undefined) return rest
+  const parsed = tilingFromJson(tiling)
+  if (!parsed) throw Object.assign(new Error('Not a pane tree'), { code: 'invalid-tiling' })
+  return { ...rest, tiling: parsed }
+}
+
 export function registerLayoutIpc(ctx: MainContext, queue: WriteQueue): void {
   handle(ctx, 'layout.load', () => loadLayout(ctx.config))
-  handle(ctx, 'layout.save', async (patch) => {
+  handle(ctx, 'layout.save', async (input) => {
+    const patch = toPatch(input)
     await queue.enqueue(() => saveLayout(ctx.config, patch))
     return {}
   })

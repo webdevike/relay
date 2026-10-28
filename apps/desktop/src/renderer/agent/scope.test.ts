@@ -14,12 +14,14 @@ import type { ChatRow } from '@evaos/contract'
 import { listStore, type ListState } from '../chat/list/list-store'
 import { setAgentTitles } from '../eva/names-store'
 import { filesStore } from '../files/files-store'
+import { isTabVisible } from '@evaos/shell-core'
 import {
-  enterPanelScope,
-  layoutStore,
-  resetLayoutStoreForTests,
-  showPanelTool,
-} from '../shell/layout-store'
+  activateTab,
+  enterScope,
+  resetTilingForTests,
+  revealTool,
+  tilingStore,
+} from '../tiling/tiling-store'
 import { rendererActions } from './actions'
 import { badgeStore, resetScopesForTests, resolveScope, startScopeWatch } from './scope'
 
@@ -40,7 +42,7 @@ const tab = (id: string) => ({
 
 let stopWatch: () => void
 beforeEach(() => {
-  resetLayoutStoreForTests()
+  resetTilingForTests()
   resetScopesForTests()
   setAgentTitles({ nova: 'Nova' })
   listStore.setState({ list: { rows: [row] } as unknown as ListState['list'] })
@@ -56,9 +58,9 @@ beforeEach(() => {
   })
   show.mockReset()
   stopWatch = startScopeWatch()
-  // Isaac is on the Dashboard with its panel on Files.
-  enterPanelScope('page:dashboard')
-  showPanelTool('files')
+  // Isaac is on the Dashboard with Files in front of the tool pane.
+  enterScope('page:dashboard')
+  revealTool('files')
 })
 afterEach(() => stopWatch())
 
@@ -96,9 +98,11 @@ describe('resolveScope', () => {
   })
 })
 
-describe('scoped panel actions', () => {
-  it("browser.open for a page not in front opens in that page's panel and leaves the front alone", async () => {
-    const before = layoutStore.getState()
+const visible = (id: string) => isTabVisible(tilingStore.getState().tiling, id)
+
+describe('scoped content actions', () => {
+  it("browser.open for a page not in front opens in that page's browser and leaves the front alone", async () => {
+    const before = tilingStore.getState().tiling
     const r = await rendererActions['browser.open']({ url: 'https://x.test/', scope: 'agent:nova' })
 
     expect(r).toMatchObject({ id: 't9', scope: 'page:agent:nova', background: true })
@@ -106,20 +110,17 @@ describe('scoped panel actions', () => {
       url: 'https://x.test/',
       scope: 'page:agent:nova',
     })
-    const after = layoutStore.getState()
-    expect(after.panelScope).toBe('page:dashboard')
-    expect(after.panelView).toBe(before.panelView)
-    expect(after.panelOpen).toBe(true)
+    expect(tilingStore.getState().scope).toBe('page:dashboard')
+    expect(tilingStore.getState().tiling).toBe(before)
     // No app tab shows Nova's page: a toast says what happened, and the badge waits for a tab.
     expect(badgeStore.getState().badges).toEqual({ 'page:agent:nova': 'Nova opened a tab' })
     expect(show).toHaveBeenCalledWith(
       expect.objectContaining({ message: 'Nova opened a tab in Nova' }),
     )
 
-    // Isaac opens Nova's page: its panel is open on the browser and the badge is gone.
-    enterPanelScope('page:agent:nova')
-    await vi.waitFor(() => expect(layoutStore.getState().panelView).toEqual({ kind: 'browser' }))
-    expect(layoutStore.getState().panelOpen).toBe(true)
+    // Isaac opens Nova's page: the browser comes forward and the badge is gone.
+    enterScope('page:agent:nova')
+    await vi.waitFor(() => expect(visible('browser')).toBe(true))
     expect(badgeStore.getState().badges).toEqual({})
   })
 
@@ -133,7 +134,7 @@ describe('scoped panel actions', () => {
       background: true,
     })
     expect(filesStore.getState().root).toBeNull()
-    expect(layoutStore.getState().panelScope).toBe('page:dashboard')
+    expect(tilingStore.getState().scope).toBe('page:dashboard')
     expect(badgeStore.getState().badges[`chat:${FILE}`]).toBe('Eva opened skills')
   })
 
@@ -150,19 +151,19 @@ describe('scoped panel actions', () => {
     })
   })
 
-  it('panel.close for a page not in front closes only that page, and drops what it would show', async () => {
-    await rendererActions['panel.show']({ tool: 'browser', scope: 'agent:nova' })
-    await rendererActions['panel.close']({ scope: 'agent:nova' })
-    expect(layoutStore.getState().panelOpen).toBe(true)
-    enterPanelScope('page:agent:nova')
-    await Promise.resolve()
-    expect(layoutStore.getState().panelOpen).toBe(false)
+  it('tab.open for a page not in front waits for it, then brings the tab forward', async () => {
+    activateTab('browser')
+    const r = await rendererActions['tab.open']({ kind: 'artifacts', scope: 'agent:nova' })
+    expect(r).toMatchObject({ tab: 'artifacts', scope: 'page:agent:nova', background: true })
+    expect(visible('artifacts')).toBe(false)
+    enterScope('page:agent:nova')
+    await vi.waitFor(() => expect(visible('artifacts')).toBe(true))
   })
 
   it('the scope in front runs as before', async () => {
-    const r = await rendererActions['panel.show']({ tool: 'browser', scope: 'dashboard' })
-    expect(r).toEqual({ view: 'browser', scope: 'page:dashboard', background: false })
-    expect(layoutStore.getState().panelView).toEqual({ kind: 'browser' })
+    const r = await rendererActions['tab.open']({ kind: 'browser', scope: 'dashboard' })
+    expect(r).toEqual({ pane: 'p2', tab: 'browser', scope: 'page:dashboard', background: false })
+    expect(visible('browser')).toBe(true)
     expect(badgeStore.getState().badges).toEqual({})
   })
 })

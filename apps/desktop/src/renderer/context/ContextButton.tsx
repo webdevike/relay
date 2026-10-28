@@ -32,7 +32,7 @@ import {
 import { EvaPopover } from '../overlay'
 import { navigateTo } from '../tabs/tabs-store'
 import { openLink } from '../navigation/open-link'
-import { openSubagentPanel, showPanelTool } from '../shell/layout-store'
+import { openSubagentTab, revealTool } from '../tiling/tiling-store'
 import { showPath } from '../files/files-store'
 import { chatStore } from '../chat/chat-store'
 import { PANE_ID } from '../chat/open-chat'
@@ -97,14 +97,14 @@ function openTarget(open: ContextOpen): void {
       openLink(open.url)
       break
     case 'files':
-      showPanelTool('files')
+      revealTool('files')
       void showPath(open.path, chatStore.getState().panes[PANE_ID]?.file || null)
       break
     case 'chat':
       navigateTo(placeOf('chat', { chat: open.file }))
       break
     case 'subagent':
-      openSubagentPanel({ session: open.session, file: open.file, name: open.name })
+      openSubagentTab({ session: open.session, file: open.file, name: open.name })
       break
     case 'experiment':
       requestExperiment(open.id)
@@ -254,7 +254,7 @@ const ACTION_LOOK: Record<ContextAction['id'], { label: string; Icon: typeof Ico
 function runAction(a: ContextAction): void {
   if (a.id === 'open-pr') openLink(a.url)
   else if (a.id === 'open-files') {
-    showPanelTool('files')
+    revealTool('files')
     void showPath(a.path, chatStore.getState().panes[PANE_ID]?.file || null)
   } else fillComposer(PANE_ID, a.prompt)
 }

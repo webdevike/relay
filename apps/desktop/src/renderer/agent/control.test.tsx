@@ -48,9 +48,9 @@ describe('dispatch', () => {
     await vi.waitFor(() => expect(pageOpen).toHaveBeenCalledOnce())
   })
 
-  it("queues a panel action while Isaac types in the panel's address field", async () => {
+  it("queues a panel action while Isaac types in a tool pane's address field", async () => {
     const panel = document.createElement('section')
-    panel.dataset.testid = 'panel-card'
+    panel.dataset.paneKind = 'tool'
     const address = document.createElement('input')
     panel.append(address)
     document.body.append(panel)
@@ -65,7 +65,7 @@ describe('dispatch', () => {
 
   it('runs a panel action for a page not in front at once: nothing Isaac types in changes', async () => {
     const panel = document.createElement('section')
-    panel.dataset.testid = 'panel-card'
+    panel.dataset.paneKind = 'tool'
     const address = document.createElement('input')
     panel.append(address)
     document.body.append(panel)

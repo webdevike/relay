@@ -11,6 +11,7 @@ vi.mock('electron', () => ({
 }))
 
 import { createConfigStore, type ConfigStore } from './config-store'
+import { defaultTiling, tilingToJson } from '@evaos/shell-core'
 import { loadLayout, saveLayout } from './layout-ipc'
 import { loadTheme, readLastBackground, saveLastBackground, saveTheme } from './theme-ipc'
 import { loadSettings, saveSettings, seedFavorites } from './settings-ipc'
@@ -29,14 +30,13 @@ describe('layout', () => {
   it('defaults when missing, reset when malformed, clamps', () => {
     expect(loadLayout(config)).toEqual({
       sidebarWidth: 272,
-      panelWidth: 420,
       tabs: null,
-      panelChoices: {},
-      panelTool: 'browser',
+      tiling: null,
+      legacyPanel: null,
       reset: false,
     })
     fs.writeFileSync(path.join(dir, 'layout.json'), '{not json')
-    expect(loadLayout(config)).toMatchObject({ sidebarWidth: 272, panelWidth: 420, reset: true })
+    expect(loadLayout(config)).toMatchObject({ sidebarWidth: 272, reset: true })
     fs.writeFileSync(path.join(dir, 'layout.json'), '{"sidebar_width": 9999}')
     expect(loadLayout(config).sidebarWidth).toBe(420)
   })
@@ -44,24 +44,31 @@ describe('layout', () => {
     fs.writeFileSync(path.join(dir, 'layout.json'), '{"zoom": 2}')
     const q = createWriteQueue()
     const tabs = { active: 0, list: [] }
+    const tiling = defaultTiling()
     await Promise.all([
       q.enqueue(() => saveLayout(config, { sidebarWidth: 300.4, tabs })),
-      q.enqueue(() => saveLayout(config, { panelWidth: 500 })),
+      q.enqueue(() => saveLayout(config, { tiling })),
     ])
     expect(read('layout.json')).toMatchObject({
       sidebar_width: 300,
-      panel_width: 500,
+      tiling: tilingToJson(tiling),
       zoom: 2,
       tabs,
     })
   })
-  it('round-trips panel choices and tool across saves', () => {
-    saveLayout(config, { panelChoices: { 'chat:/a': true, 'draft:1': false }, panelTool: 'files' })
-    saveLayout(config, { panelChoices: { 'draft:1': null, 'chat:/b': false } })
+  it('seeds from the old panel until a tiling is saved, then drops its choices', () => {
+    fs.writeFileSync(
+      path.join(dir, 'layout.json'),
+      '{"panel_width": 500, "panel_tool": "files", "panel_choices": {"chat:/a": true}}',
+    )
     expect(loadLayout(config)).toMatchObject({
-      panelChoices: { 'chat:/a': true, 'chat:/b': false },
-      panelTool: 'files',
+      tiling: null,
+      legacyPanel: { width: 500, tool: 'files' },
     })
+    const tiling = defaultTiling(0.4, 'files')
+    saveLayout(config, { tiling })
+    expect(loadLayout(config)).toMatchObject({ tiling: tilingToJson(tiling), legacyPanel: null })
+    expect(read('layout.json')).not.toHaveProperty('panel_choices')
   })
   it('queue survives a rejected task', async () => {
     const q = createWriteQueue()

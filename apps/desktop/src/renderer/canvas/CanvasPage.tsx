@@ -2,7 +2,7 @@ import { Button } from '@mantine/core'
 import { IconPlus } from '@tabler/icons-react'
 import { useEffect, useState } from 'react'
 import { placeOf, type Place } from '@evaos/shell-core'
-import { replaceActivePlace } from '../tabs/tabs-store'
+import { useReplacePlace } from '../pages/place-host'
 import { CanvasBoardView } from './CanvasBoard'
 import { canvasStore, newBoard, useCanvasList, useCanvasListSurface } from './canvas-store'
 import { LiveCanvasView } from './live/LiveCanvasView'
@@ -18,6 +18,7 @@ export function CanvasPage({ place }: { place: Place }) {
   const entries = useCanvasList((s) => s.entries)
   const error = useCanvasList((s) => s.error)
   const slug = place.canvas
+  const replacePlace = useReplacePlace()
   const newest = entries?.[0]?.slug ?? null
   const liveId = useLiveRooms((s) =>
     slug === null ? null : (liveRoomOn(s.data, slug)?.id ?? null),
@@ -29,8 +30,8 @@ export function CanvasPage({ place }: { place: Place }) {
   }, [liveId])
 
   useEffect(() => {
-    if (slug === null && newest !== null) replaceActivePlace(placeOf('canvas', { canvas: newest }))
-  }, [slug, newest])
+    if (slug === null && newest !== null) replacePlace(placeOf('canvas', { canvas: newest }))
+  }, [slug, newest, replacePlace])
 
   useEffect(() => {
     if (slug !== null) canvasStore.setState({ shown: slug })

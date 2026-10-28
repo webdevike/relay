@@ -106,15 +106,10 @@ describe('contract', () => {
     expect(i.safeParse({ extra: 1 }).success).toBe(false)
     expect(i.safeParse({ tabs: { active: 0, list: [tab(51)] } }).success).toBe(false)
     expect(i.safeParse({ tabs: { active: 0, list: [tab(50)] } }).success).toBe(true)
-    const choices = (n: number) =>
-      Object.fromEntries(Array.from({ length: n }, (_, k) => [`s${k}`, true]))
-    expect(i.safeParse({ panelChoices: { a: true, b: null }, panelTool: 'files' }).success).toBe(
-      true,
-    )
-    expect(i.safeParse({ panelChoices: choices(200) }).success).toBe(true)
-    expect(i.safeParse({ panelChoices: choices(201) }).success).toBe(false)
-    expect(i.safeParse({ panelChoices: { a: 'yes' } }).success).toBe(false)
-    expect(i.safeParse({ panelTool: 'terminal' }).success).toBe(false)
+    expect(i.safeParse({ tiling: { version: 1, root: {} } }).success).toBe(true)
+    expect(i.safeParse({ tiling: [] }).success).toBe(false)
+    expect(i.safeParse({ panelChoices: { a: true } }).success).toBe(false)
+    expect(i.safeParse({ panelTool: 'files' }).success).toBe(false)
   })
 
   it('settings.save accepts partials', () => {

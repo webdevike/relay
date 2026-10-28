@@ -5,15 +5,16 @@ import type { ChatRow } from '@evaos/contract'
 import { browserScope, pageFromKey, placeOf, type Place } from '@evaos/shell-core'
 import { agentTitle } from '../eva/names-store'
 import { listStore } from '../chat/list/list-store'
-import { layoutStore } from '../shell/layout-store'
+import { tilingStore } from '../tiling/tiling-store'
 import { tabTitle } from '../tabs/tab-meta'
 import { tabsStore } from '../tabs/tabs-store'
 import { withFocusHold } from './focus-safety'
 
 /**
- * Where an agent's panel action lands. Agents act in their own page (an assistant's page, the
- * chat they run in) even when Isaac is looking at another one: the change goes to that page's
- * panel without switching pages, and its tab shows a badge until he opens it.
+ * Where an agent's content action lands. Agents act in their own page (an assistant's page, the
+ * chat they run in) even when Isaac is looking at another one: the change waits for that page
+ * (tool tabs show the page in front) without switching pages, and its tab shows a badge until he
+ * opens it.
  */
 export interface ScopeTarget {
   /** The browser scope (`page:agent:nova`, `chat:<file>`), as browserScope names it. */
@@ -80,7 +81,7 @@ export function resolveScope(input: string, rows: readonly ChatRow[]): ScopeTarg
 
 /** The scope is the one in front, so the action runs as it always has. */
 export function inFront(t: ScopeTarget): boolean {
-  return t.scope === layoutStore.getState().panelScope
+  return t.scope === tilingStore.getState().scope
 }
 
 /** Resolves a scope against the chat list (loaded on first use). */
@@ -99,7 +100,7 @@ export async function isAway(scope: unknown): Promise<boolean> {
   }
 }
 
-// Deferred panel views -----------------------------------------------------------------------
+// Deferred tool tab views -----------------------------------------------------------------------
 
 /** What a scope not in front shows once Isaac opens it, in the order agents asked. */
 const deferred = new Map<string, Array<() => unknown>>()
@@ -109,11 +110,6 @@ export function whenShown(scope: string, show: () => unknown): void {
   const list = deferred.get(scope) ?? []
   list.push(show)
   deferred.set(scope, list)
-}
-
-/** Drops what `scope` would have shown (its panel was closed). */
-export function forgetShown(scope: string): void {
-  deferred.delete(scope)
 }
 
 // Badges ------------------------------------------------------------------------------------
@@ -155,9 +151,9 @@ export function announce(t: ScopeTarget, what: string): void {
  * hold like any agent action. Returns the unsubscribe.
  */
 export function startScopeWatch(): () => void {
-  return layoutStore.subscribe((s, prev) => {
-    if (s.panelScope === prev.panelScope) return
-    const scope = s.panelScope
+  return tilingStore.subscribe((s, prev) => {
+    if (s.scope === prev.scope) return
+    const scope = s.scope
     if (Object.hasOwn(badgeStore.getState().badges, scope)) {
       badgeStore.setState((b) => {
         const badges = { ...b.badges }

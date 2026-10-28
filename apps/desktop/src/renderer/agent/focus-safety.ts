@@ -3,8 +3,9 @@ import type { AgentFocus } from '@evaos/contract'
 /**
  * Agent actions must never take the keyboard from Isaac. Two rules:
  * - While he is typing in a text field an action would replace, the action waits in a queue
- *   (`decide`): `main` actions (page, chat, tab) replace both columns, `panel` actions only the
- *   side panel, so opening a file while he types in the composer runs at once.
+ *   (`decide`): `main` actions (page, chat, tab) replace the chat pane and what follows it,
+ *   `panel` actions only the tool panes, so opening a file while he types in the composer runs
+ *   at once.
  * - Every action runs with a focus hold: components that focus something on their own (the
  *   Files editor) skip it while `focusHeld()`, and a field that lost focus anyway gets it back.
  */
@@ -25,7 +26,7 @@ export interface FocusSnapshot {
   windowFocused: boolean
   /** The focused element takes text. */
   editable: boolean
-  /** The focused element sits in the side panel card. */
+  /** The focused element sits in a tool pane. */
   inPanel: boolean
 }
 
@@ -34,7 +35,7 @@ export function snapshotFocus(doc: Document = document): FocusSnapshot {
   return {
     windowFocused: doc.hasFocus(),
     editable: isEditable(el),
-    inPanel: el?.closest('[data-testid=panel-card]') != null,
+    inPanel: el?.closest('[data-pane-kind=tool]') != null,
   }
 }
 

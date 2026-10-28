@@ -156,9 +156,8 @@
     "padding: var(--eva-space-lg)": 1
   },
   "apps/desktop/src/renderer/shell/shell.css": {
-    "gap: var(--eva-space-sm)": 2,
+    "gap: var(--eva-space-sm)": 1,
     "margin-left: var(--eva-main-left)": 1,
-    "padding-left: 16px": 1,
     "padding-top: var(--eva-tab-strip-h)": 1,
     "padding: 0 var(--eva-space-sm) 0 10px": 1
   },

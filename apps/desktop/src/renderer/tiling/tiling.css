@@ -1,0 +1,178 @@
+/* Panes beside the sidebar: absolutely placed frames from the split tree, gaps between them are
+   the dividers. Cards keep the shell's look (border only); the focused pane's border is a shade
+   stronger while more than one pane shows. */
+.eva-tiling {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.eva-pane {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  outline: none;
+}
+.eva-pane-card {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  -webkit-app-region: no-drag;
+  transition: border-color var(--eva-dur-fast) ease;
+}
+.eva-pane[data-focused] > .eva-pane-card,
+.eva-pane[data-focused] .eva-main-card {
+  border-color: color-mix(in srgb, var(--eva-c-foreground) 28%, var(--eva-c-border));
+}
+.eva-pane-header {
+  padding-left: var(--mantine-spacing-sm);
+}
+.eva-pane-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.eva-tab-content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.eva-tab-park {
+  display: none;
+}
+
+/* Tool tabs: quiet text tabs, the one in front in the foreground color on a soft fill. */
+.eva-pane-tabs {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.eva-pane-tab {
+  flex: none;
+  min-width: 0;
+  max-width: 200px;
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  height: 28px;
+  padding: 0 calc(var(--mantine-spacing-xs) / 2) 0 var(--mantine-spacing-xs);
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: var(--eva-fw-medium);
+  color: var(--eva-c-muted-foreground);
+  cursor: pointer;
+  user-select: none;
+  transition:
+    color var(--eva-dur-fast) ease,
+    background-color var(--eva-dur-fast) ease;
+  -webkit-app-region: no-drag;
+}
+.eva-pane-tab > svg {
+  flex: none;
+}
+.eva-pane-tab:hover {
+  color: var(--eva-c-foreground);
+}
+.eva-pane-tab[data-active] {
+  color: var(--eva-c-foreground);
+  background: var(--eva-c-accent-background);
+}
+.eva-pane-tab:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: -2px;
+}
+.eva-pane-tab-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-pane-tab-close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+/* Close shows on the tab in front and on hover, so short tool names never truncate. */
+.eva-pane-tab:not([data-active]):not(:hover) .eva-pane-tab-close {
+  display: none;
+}
+.eva-pane-tab:not([data-active]):not(:hover) {
+  padding-right: var(--mantine-spacing-xs);
+}
+.eva-pane-tab-close:hover {
+  background: var(--eva-c-accent-background);
+}
+/* Split and maximize show while the pointer is on the pane's header (or the pane is zoomed). */
+.eva-pane-header:not(:hover):not(:focus-within) .eva-pane-extra:not([aria-pressed='true']) {
+  display: none;
+}
+
+/* Dividers reuse the sidebar grip: the gap is the grab area, a pill shows on hover and drag. */
+.eva-divider {
+  position: absolute;
+  bottom: auto;
+}
+.eva-divider-column {
+  cursor: row-resize;
+}
+.eva-divider-column .eva-grip-bar {
+  width: 32px;
+  height: 3px;
+}
+
+/* Tab drag: the drop zone the tab would fill, and its title under the pointer. */
+.eva-drop-zone {
+  position: absolute;
+  z-index: 5;
+  box-sizing: border-box;
+  border-radius: var(--eva-card-radius);
+  border: 1px solid var(--eva-c-ring);
+  background: color-mix(in srgb, var(--eva-c-ring) 12%, transparent);
+  pointer-events: none;
+  transition:
+    left var(--eva-dur-fast) ease,
+    top var(--eva-dur-fast) ease,
+    width var(--eva-dur-fast) ease,
+    height var(--eva-dur-fast) ease;
+}
+.eva-drag-ghost {
+  position: absolute;
+  z-index: 6;
+  max-width: 220px;
+  padding: calc(var(--mantine-spacing-xs) / 4) var(--mantine-spacing-xs);
+  border-radius: 6px;
+  background: var(--eva-c-popover-background);
+  color: var(--eva-c-popover-foreground);
+  border: 1px solid var(--eva-c-border);
+  font-size: var(--eva-fz-label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+body.eva-tab-dragging,
+body.eva-tab-dragging * {
+  cursor: grabbing !important;
+  user-select: none;
+}

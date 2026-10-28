@@ -1,5 +1,6 @@
 import { useEffect, type RefObject } from 'react'
 import { invoke } from '../ipc'
+import { LAYOUT_EVENT } from '../tiling/layout-event'
 
 export interface Rect {
   x: number
@@ -32,6 +33,8 @@ export function createSlotSync(el: HTMLElement, send: (r: Rect) => void): () => 
   const ro = new ResizeObserver(schedule)
   ro.observe(el)
   window.addEventListener('resize', schedule)
+  // Panes move without resizing (a split beside them, a tab moved to another pane).
+  window.addEventListener(LAYOUT_EVENT, schedule)
   // A shell slide moves the slot without resizing it, which ResizeObserver never reports:
   // follow the rect every frame while a shell column is transitioning.
   // Capped, in case a column is hidden mid-slide and its transitionend never arrives.
@@ -44,8 +47,7 @@ export function createSlotSync(el: HTMLElement, send: (r: Rect) => void): () => 
     follow = moving > 0 ? requestAnimationFrame(track) : 0
   }
   const isShellColumn = (e: Event): boolean =>
-    e.target instanceof Element &&
-    e.target.matches('.eva-panel-wrap, .eva-sidebar, .eva-main-column')
+    e.target instanceof Element && e.target.matches('.eva-sidebar, .eva-tiling')
   const onRun = (e: Event): void => {
     if (!isShellColumn(e)) return
     moving += 1
@@ -64,6 +66,7 @@ export function createSlotSync(el: HTMLElement, send: (r: Rect) => void): () => 
   return () => {
     ro.disconnect()
     window.removeEventListener('resize', schedule)
+    window.removeEventListener(LAYOUT_EVENT, schedule)
     document.removeEventListener('transitionrun', onRun)
     document.removeEventListener('transitionend', onEnd)
     document.removeEventListener('transitioncancel', onEnd)

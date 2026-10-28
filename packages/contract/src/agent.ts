@@ -10,16 +10,21 @@ import { CanvasLiveSlugSchema } from '@evaos/chat-core/canvas-live'
  * (main/agent-control) and runs `side: 'main'` entries itself; `side: 'renderer'` entries run in
  * the shell page (renderer/agent). A new entry here fails typecheck until its side implements it.
  *
- * `focus` names what an action replaces: `main` the main column (page, chat, tab; the panel
- * follows the page's scope), `panel` the side panel's content, `none` nothing on screen. While
- * Isaac types in a text field the action would replace (anywhere for `main`, inside the panel for
- * `panel`), it waits in a queue instead of running.
+ * `focus` names what an action replaces: `main` the chat pane (page, chat, app tab; tool tabs
+ * follow the page's scope), `panel` what the tool panes show or how they are laid out, `none`
+ * nothing on screen. While Isaac types in a text field the action would replace (anywhere for
+ * `main`, inside a tool pane for `panel`), it waits in a queue instead of running.
  * `destructive` actions need `confirm: true` from the agent and Isaac's approval in the app.
  *
- * Panel actions (and testbench.open) take an optional `scope`: the page or chat whose side panel
- * they act on (AgentScopeSchema). A scope that is not in front gets the change in its own panel
- * without switching pages or taking focus; Isaac sees a badge on that page's tab. A request's
- * `scope` (relay-ctl sends the caller's own) fills in for panel actions that name none, and for
+ * The window is a tiling of panes (shell-core tiling.ts): the chat pane holds the app tabs, tool
+ * panes hold tool tabs (browser, files, artifacts, transcripts, arm details, pages).
+ * `layout.read` shows the tree; `pane.*` and `tab.*` change it.
+ *
+ * Content actions (files.open, browser.*, tab.open, testbench.open with an arm) take an optional
+ * `scope`: the page or chat whose tool tabs they act on (AgentScopeSchema). A scope that is not in
+ * front gets the change for when Isaac opens it, without switching pages or taking focus; he sees
+ * a badge on that page's tab. A request's `scope` (relay-ctl sends the caller's own) fills in for
+ * `panel` actions that name none (not `unscoped` ones, which lay out the whole window), and for
  * `scoped` actions (artifacts.*), which act on the caller's own thread.
  */
 export type AgentSide = 'main' | 'renderer'
@@ -34,6 +39,8 @@ export interface AgentActionSpec {
   destructive: boolean
   /** Takes the request's `scope` like a panel action, without touching the panel. */
   scoped?: boolean
+  /** A `panel` action that lays out the whole window: the request's scope does not apply. */
+  unscoped?: boolean
 }
 
 /** Top-level pages (shell-core FixedPage); `workspace:`, `agent:` and `board:` keys open details. */
@@ -73,6 +80,82 @@ const TabNumber = z.number().int().min(0)
 export const AgentScopeSchema = z.string().min(1).max(4096)
 const scope = AgentScopeSchema.optional()
 
+/** A pane id from layout.read (`chat` is the chat pane). */
+const PaneId = z.string().min(1).max(64)
+/** A tool tab's id from layout.read (`browser`, `files`, `subagent:<file>`, `page:test-bench`...). */
+const PaneTabId = z.string().min(1).max(4200)
+const Side = z.enum(['right', 'left', 'down', 'up'])
+const Share = z.number().gt(0).lt(1)
+
+const PageTabArgs = z
+  .object({
+    page: z.union([
+      z.enum(AGENT_FIXED_PAGES).exclude(['chat']),
+      z
+        .string()
+        .max(300)
+        .regex(/^(workspace|board):.+$/),
+    ]),
+    settingsSection: z.enum(['Theme', 'Chat', 'About']).optional(),
+    canvas: z.string().max(200).optional(),
+    meeting: z.string().max(500).optional(),
+  })
+  .strict()
+
+/** What a tool tab shows, with what it needs to show it. */
+export const PaneTabSpecSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('browser'),
+      args: z
+        .object({ url: z.string().min(1).max(2048).optional() })
+        .strict()
+        .optional(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('files'),
+      args: z
+        .object({
+          path: z.string().min(1).max(4096).optional(),
+          line: z.number().int().min(1).optional(),
+          column: z.number().int().min(1).optional(),
+        })
+        .strict()
+        .optional(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('artifacts'),
+      args: z.object({}).strict().optional(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('subagent'),
+      args: z
+        .object({
+          session: z.string().min(1).max(4096),
+          file: z.string().min(1).max(4096),
+          name: z.string().min(1).max(200),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('experiment-arm'),
+      args: z
+        .object({ experiment: z.string().min(1).max(200), arm: z.string().min(1).max(200) })
+        .strict(),
+    })
+    .strict(),
+  z.object({ kind: z.literal('page'), args: PageTabArgs }).strict(),
+])
+export type PaneTabSpec = z.output<typeof PaneTabSpecSchema>
+
 const ArtifactItemId = z.string().min(1).max(2100)
 const ArtifactTabId = z.string().min(1).max(48)
 const ARTIFACTS_SCOPE =
@@ -82,9 +165,18 @@ export const agentActions = {
   'state.read': {
     title: 'Read state',
     description:
-      'What is on screen: the window (focused or not), the page and app tabs, the open chat (with its unsent composer draft), the side panel and its view, browser tabs, the Files panel, and a text summary of the main column and panel.',
+      'What is on screen: the window (focused or not), the page and app tabs, the open chat (with its unsent composer draft), the pane layout (as layout.read), browser tabs, the Files tab, and a text summary of the chat pane and each tool pane on screen.',
     params: Empty,
     side: 'main',
+    focus: 'none',
+    destructive: false,
+  },
+  'layout.read': {
+    title: 'Read the pane layout',
+    description:
+      "The window's split tree: each split (row = side by side, column = stacked) with its children's shares, each pane with its id, tabs (id, kind, title, args), the tab in front, its px rect and whether it is on screen; the focused pane and the zoomed one. Pane `chat` holds the app tabs (chats and pages); tool panes hold the rest.",
+    params: Empty,
+    side: 'renderer',
     focus: 'none',
     destructive: false,
   },
@@ -140,20 +232,125 @@ export const agentActions = {
     destructive: false,
   },
   'tab.focus': {
-    title: 'Focus an app tab',
-    description: 'Switches to an app tab by its id (state.read lists them).',
-    params: z.object({ id: TabNumber }).strict(),
+    title: 'Focus a tab',
+    description:
+      'Brings a tab to the front: an app tab by its number (state.read lists them; switches the page), or a tool tab by its id (layout.read lists them; shows it in its pane and focuses the pane).',
+    params: z.object({ id: z.union([TabNumber, PaneTabId]) }).strict(),
     side: 'renderer',
     focus: 'main',
     destructive: false,
   },
   'tab.close': {
-    title: 'Close an app tab',
-    description: 'Closes an app tab by its id. Chats stay in the chat list.',
-    params: z.object({ id: TabNumber }).strict(),
+    title: 'Close a tab',
+    description:
+      'Closes an app tab by its number (chats stay in the chat list) or a tool tab by its id (a pane left empty closes; the browser keeps its pages and Files its open files).',
+    params: z.object({ id: z.union([TabNumber, PaneTabId]) }).strict(),
     side: 'renderer',
     focus: 'main',
     destructive: false,
+  },
+  'tab.open': {
+    title: 'Open a tool tab',
+    description:
+      'Shows a tool tab: `browser` (args.url also opens that page), `files` (args.path shows a file or folder, at args.line), `artifacts`, `subagent` (args: session file, subagent .jsonl, name), `experiment-arm` (args: experiment, arm) or `page` (args.page: test-bench, canvas with args.canvas, jobs, a workspace:<slug>...; not chats). Already open: it comes to the front (moved to `pane` when one is named). Else it opens in `pane`, the focused or last tool pane, or a new pane right of the chat. Answers the pane and tab ids.',
+    params: z
+      .object({
+        kind: z.enum(['browser', 'files', 'artifacts', 'subagent', 'experiment-arm', 'page']),
+        args: z.record(z.string(), z.unknown()).optional(),
+        pane: PaneId.optional(),
+        scope,
+      })
+      .strict()
+      .superRefine((v, ctx) => {
+        const spec = PaneTabSpecSchema.safeParse(
+          v.args === undefined ? { kind: v.kind } : { kind: v.kind, args: v.args },
+        )
+        for (const issue of spec.success ? [] : spec.error.issues) {
+          ctx.addIssue({ code: 'custom', message: issue.message, path: issue.path })
+        }
+      }),
+    side: 'renderer',
+    focus: 'panel',
+    destructive: false,
+  },
+  'pane.split': {
+    title: 'Split a pane',
+    description:
+      "Splits `pane` (default: the focused one; a split id from layout.read puts the new pane beside that whole group) toward `dir` with a new pane showing `tab`: a tool tab id (moved there) or `{kind, args}` as tab.open takes it. Without `tab`, the pane's tab in front moves over when it has others, else the first tool not open yet. `size` is the new pane's share (0 to 1, default half). Answers the new pane id and the layout.",
+    params: z
+      .object({
+        pane: PaneId.optional(),
+        dir: Side,
+        tab: z.union([PaneTabId, PaneTabSpecSchema]).optional(),
+        size: Share.optional(),
+      })
+      .strict(),
+    side: 'renderer',
+    focus: 'panel',
+    destructive: false,
+    unscoped: true,
+  },
+  'pane.close': {
+    title: 'Close a pane',
+    description:
+      'Closes a tool pane and its tabs (the browser keeps its pages, Files its open files). The chat pane never closes; to hide every tool pane, pane.zoom the chat pane.',
+    params: z.object({ pane: PaneId }).strict(),
+    side: 'renderer',
+    focus: 'panel',
+    destructive: false,
+    unscoped: true,
+  },
+  'pane.move': {
+    title: 'Move a tab to a pane',
+    description:
+      'Moves tool tab `tab` (its id) into tool pane `toPane` at `index` (default after the tab in front). A pane left empty closes.',
+    params: z
+      .object({ tab: PaneTabId, toPane: PaneId, index: z.number().int().min(0).optional() })
+      .strict(),
+    side: 'renderer',
+    focus: 'panel',
+    destructive: false,
+    unscoped: true,
+  },
+  'pane.resize': {
+    title: 'Resize a pane',
+    description:
+      "Sets a pane's (or split's) size within its parent split: `size` as a share (0 to 1) or `px` along the split's direction. Its siblings keep their proportions; the chat pane keeps at least 480px wide and a tool pane 240px.",
+    params: z
+      .object({ pane: PaneId, size: Share.optional(), px: z.number().int().min(1).optional() })
+      .strict()
+      .refine((v) => (v.size === undefined) !== (v.px === undefined), {
+        message: 'give size or px',
+      }),
+    side: 'renderer',
+    focus: 'panel',
+    destructive: false,
+    unscoped: true,
+  },
+  'pane.focus': {
+    title: 'Focus a pane',
+    description:
+      "Makes `pane`, or the pane next to the focused one toward `dir`, the focused pane: new tabs and pane shortcuts go there. Never moves Isaac's keyboard focus.",
+    params: z
+      .object({ pane: PaneId.optional(), dir: Side.optional() })
+      .strict()
+      .refine((v) => (v.pane === undefined) !== (v.dir === undefined), {
+        message: 'give pane or dir',
+      }),
+    side: 'renderer',
+    focus: 'panel',
+    destructive: false,
+    unscoped: true,
+  },
+  'pane.zoom': {
+    title: 'Maximize a pane',
+    description:
+      'Maximizes `pane` (default: the focused one) over the others, or with `on: false` shows every pane again; without `on` it toggles. Zooming the chat pane hides the tool panes (the panel toggle, Cmd+Shift+B).',
+    params: z.object({ pane: PaneId.optional(), on: z.boolean().optional() }).strict(),
+    side: 'renderer',
+    focus: 'panel',
+    destructive: false,
+    unscoped: true,
   },
   'chat.open': {
     title: 'Open a chat',
@@ -185,7 +382,7 @@ export const agentActions = {
   'files.open': {
     title: 'Open in Files',
     description:
-      "Shows a file or folder in the side panel's Files tab. A folder expands, scrolls into view and is selected in the tree; a file opens in the editor (at `line`). Paths are absolute or Eva-relative; outside the open chat's worktree the panel switches to the Eva root.",
+      "Shows a file or folder in the Files tab (opened in a tool pane when it is not on screen). A folder expands, scrolls into view and is selected in the tree; a file opens in the editor (at `line`). Paths are absolute or Eva-relative; outside the open chat's worktree Files switches to the Eva root.",
     params: z
       .object({
         path: z.string().min(1).max(4096),
@@ -201,7 +398,7 @@ export const agentActions = {
   'browser.open': {
     title: 'Open a browser tab',
     description:
-      "Opens a URL (or a bare local port like `3000`) in a new tab of the side panel's browser.",
+      'Opens a URL (or a bare local port like `3000`) in a new tab of the browser, bringing the Browser tool tab to the front.',
     params: z.object({ url: z.string().min(1).max(2048), scope }).strict(),
     side: 'renderer',
     focus: 'panel',
@@ -209,7 +406,7 @@ export const agentActions = {
   },
   'browser.focusTab': {
     title: 'Focus a browser tab',
-    description: 'Shows a browser tab by id (state.read lists them) in the side panel.',
+    description: 'Shows a browser tab by id (state.read lists them) in the Browser tool tab.',
     params: z.object({ tabId: TabIdSchema, scope }).strict(),
     side: 'renderer',
     focus: 'panel',
@@ -232,43 +429,10 @@ export const agentActions = {
     focus: 'panel',
     destructive: false,
   },
-  'panel.show': {
-    title: 'Show a panel tool',
-    description:
-      'Opens the side panel on the Browser, Files or Artifacts tab (Artifacts: what the thread holds, tickets, PRs, links, media, subagents).',
-    params: z.object({ tool: z.enum(['browser', 'files', 'artifacts']), scope }).strict(),
-    side: 'renderer',
-    focus: 'panel',
-    destructive: false,
-  },
-  'panel.subagent': {
-    title: "Show a subagent's transcript",
-    description:
-      'Opens the side panel on a subagent transcript: the chat session file and the subagent `.jsonl` (absolute paths).',
-    params: z
-      .object({
-        session: z.string().min(1).max(4096),
-        file: z.string().min(1).max(4096),
-        name: z.string().min(1).max(200),
-        scope,
-      })
-      .strict(),
-    side: 'renderer',
-    focus: 'panel',
-    destructive: false,
-  },
-  'panel.close': {
-    title: 'Close the side panel',
-    description: 'Closes the side panel (of `scope`, else of the page in front).',
-    params: z.object({ scope }).strict(),
-    side: 'renderer',
-    focus: 'panel',
-    destructive: false,
-  },
   'testbench.open': {
     title: 'Open Test Bench',
     description:
-      "Opens the Test Bench page; with `experiment` (folder under work/experiments) opens that run, and with `arm` also the arm details in the side panel. With `scope` (needs `arm`) it stays on the current page and shows only the arm details, in that scope's panel.",
+      "Opens the Test Bench page; with `experiment` (folder under work/experiments) opens that run, and with `arm` also the arm details in a tool tab. With `scope` (needs `arm`) it stays on the current page and shows only the arm details, in that scope's tool tabs.",
     params: z
       .object({
         experiment: z.string().min(1).max(200).optional(),
