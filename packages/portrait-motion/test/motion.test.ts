@@ -9,6 +9,7 @@ import {
   apply,
   bbox,
   buildRig,
+  micahCredit,
   chain,
   frame,
   geometry,
@@ -250,5 +251,21 @@ describe("Director", () => {
     expect(
       d.next(sig({ running: true, activityAt: now }), now + STATE_META.waking.dur * 1000),
     ).toBe("thinking");
+  });
+});
+
+describe("micahCredit", () => {
+  it("names every assistant drawn with Micah", () => {
+    expect(micahCredit([{ title: "Astra", style: "notionists" }])).toBeNull();
+    expect(micahCredit([{ title: "Nova", style: "micah" }])).toBe(
+      "Nova avatar: Micah by Micah Lanier, CC BY 4.0, modified",
+    );
+    expect(
+      micahCredit([
+        { title: "Astra", style: "notionists" },
+        { title: "Nova", style: "micah" },
+        { title: "Polaris", style: "micah" },
+      ]),
+    ).toBe("Nova and Polaris avatars: Micah by Micah Lanier, CC BY 4.0, modified");
   });
 });

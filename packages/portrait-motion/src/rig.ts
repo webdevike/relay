@@ -458,3 +458,17 @@ export function restingSvg(portrait: Portrait): string {
     backgroundColor: ["transparent"],
   }).toString();
 }
+
+/**
+ * The credit Micah's CC BY 4.0 license asks for, naming the assistants drawn with it ("Nova and
+ * Polaris avatars: …"); null when none is.
+ */
+export function micahCredit(
+  agents: readonly { title: string; style: PortraitStyle }[],
+): string | null {
+  const names = agents.filter((a) => a.style === "micah").map((a) => a.title);
+  if (names.length === 0) return null;
+  const list =
+    names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1) ?? ""}`;
+  return `${list ?? ""} ${names.length === 1 ? "avatar" : "avatars"}: Micah by Micah Lanier, CC BY 4.0, modified`;
+}

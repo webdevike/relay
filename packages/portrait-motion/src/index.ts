@@ -2,6 +2,7 @@ export * from "./affine";
 export { bbox, centre, type Box } from "./bbox";
 export {
   buildRig,
+  micahCredit,
   partSvg,
   restingSvg,
   type Expressions,

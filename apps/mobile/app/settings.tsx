@@ -19,6 +19,9 @@ import { PROFILE_TABS } from "@/lib/profile";
 import { applyLatestUpdate, runningUpdate } from "@/lib/otaUpdates";
 import { useTransientMessage } from "@/lib/useTransientMessage";
 import { openExternal } from "@/lib/links";
+import { micahCredit } from "@relay/portrait-motion";
+import { portraitOf } from "@/lib/portrait";
+import { useAssistantStore } from "@/state/assistant";
 
 const speeds: PointerSpeed[] = ["slow", "normal", "fast"];
 const recognizers: { value: Recognizer; label: string }[] = [
@@ -359,8 +362,11 @@ function ThinkingField() {
   );
 }
 
-/** Third-party art the app ships, with the credit its license asks for. */
+/** Third-party art the app shows, with the credit its license asks for: every assistant drawn with Micah, none when no assistant is. */
 function CreditsSection() {
+  const micah = useAssistantStore((state) =>
+    micahCredit((state.agents ?? []).map((agent) => ({ title: agent.title, style: portraitOf(agent).style }))),
+  );
   const link = (label: string, url: string) => (
     <Text
       variant="caption"
@@ -373,11 +379,12 @@ function CreditsSection() {
       {label}
     </Text>
   );
+  if (micah === null) return null;
   return (
     <View style={{ paddingHorizontal: spacing.xl, paddingVertical: spacing.md, gap: spacing.xs }}>
       <Text variant="title">Credits</Text>
       <Text variant="caption" color="textMuted">
-        Nova avatar: Micah by Micah Lanier, CC BY 4.0, modified
+        {micah}
       </Text>
       <View style={{ flexDirection: "row", gap: spacing.lg }}>
         {link("dicebear.com/styles/micah", "https://www.dicebear.com/styles/micah/")}
