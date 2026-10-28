@@ -2,7 +2,26 @@ import { describe, expect, it } from "vitest";
 import { webcrypto } from "node:crypto";
 import client from "../fixtures/client-messages.json";
 import server from "../fixtures/server-messages.json";
-import { CatchUpFeed, CatchUpItem, MAX_CALL_AUDIO_BASE64, MAX_SIGNIN_FIELD, authProof, fromHex, hmacSha256, parseClientMessage, parseServerMessage, toHex } from "../src";
+import {
+  CatchUpFeed,
+  CatchUpItem,
+  MAX_CALL_AUDIO_BASE64,
+  MAX_SIGNIN_FIELD,
+  QUICK_REACTIONS,
+  ReactionEmoji,
+  assistantReactionThread,
+  authProof,
+  fromHex,
+  hmacSha256,
+  parseClientMessage,
+  parseServerMessage,
+  reactionExcerpt,
+  reactionKey,
+  reactionRole,
+  sessionReactionThread,
+  toHex,
+  toggleReaction,
+} from "../src";
 
 const sha256 = (d: Uint8Array) => webcrypto.subtle.digest("SHA-256", d);
 
@@ -280,6 +299,51 @@ describe("catch up", () => {
     expect(client({ t: "catchup.note", id: "slack:abc123", text: "x".repeat(2001) }).ok).toBe(false);
     expect(parseServerMessage(JSON.stringify({ t: "catchup.noted", id: "slack:abc123", ok: true })).ok).toBe(true);
     expect(CatchUpItem.safeParse({ ...item, why: "Todd asked you directly", kind: "dm", workspace: "ecardplatform" }).success).toBe(true);
+  });
+});
+
+describe("reactions", () => {
+  const client = (frame: object) => parseClientMessage(JSON.stringify(frame)).ok;
+
+  it("keys a bubble by role and omp timestamp, threads by assistant or session", () => {
+    expect(reactionKey("assistant", 1761580800123.7)).toBe("assistant@1761580800123");
+    expect(reactionRole("assistant@1")).toBe("assistant");
+    expect(reactionRole("user@1")).toBe("user");
+    expect(assistantReactionThread("astra")).toBe("assistant:astra");
+    expect(sessionReactionThread({ id: "s1" })).toBe("session:s1");
+    expect(sessionReactionThread({ id: "s1", kind: "assistant", assistant: "nova" })).toBe("assistant:nova");
+    expect(sessionReactionThread({ id: "s1", kind: "manual" })).toBe("session:s1");
+  });
+
+  it("toggles: the same emoji clears, another replaces", () => {
+    expect(toggleReaction(null, "👍")).toBe("👍");
+    expect(toggleReaction("👍", "👍")).toBeNull();
+    expect(toggleReaction("👍", "❤️")).toBe("❤️");
+  });
+
+  it("takes every quick pick and other single emoji, not text", () => {
+    for (const emoji of [...QUICK_REACTIONS, "🔥", "👍🏽", "👨‍👩‍👧", "🇺🇸", "1️⃣", "🙏"]) expect(ReactionEmoji.safeParse(emoji).success, emoji).toBe(true);
+    for (const bad of ["", "ok", "a👍", "👍 ", "#", "️"]) expect(ReactionEmoji.safeParse(bad).success, bad).toBe(false);
+  });
+
+  it("cuts the excerpt to one untagged line", () => {
+    expect(reactionExcerpt("<surface>phone - Relay</surface>\nhello\n\n  world  ")).toBe("hello world");
+    expect(reactionExcerpt("x".repeat(300))).toHaveLength(200);
+  });
+
+  it("parses get, set, clear and the snapshot", () => {
+    expect(client({ t: "reactions.get", thread: "assistant:astra" })).toBe(true);
+    expect(client({ t: "reactions.get", thread: "session:2026-10-27_abc" })).toBe(true);
+    expect(client({ t: "reactions.get", thread: "astra" })).toBe(false);
+    expect(client({ t: "reactions.get", thread: "assistant:Astra" })).toBe(false);
+    expect(client({ t: "reaction.set", thread: "assistant:astra", message: "assistant@1761580800123", emoji: "👍", excerpt: "Done." })).toBe(true);
+    expect(client({ t: "reaction.set", thread: "assistant:astra", message: "tool@1", emoji: "👍", excerpt: "" })).toBe(false);
+    expect(client({ t: "reaction.set", thread: "assistant:astra", message: "user@1", emoji: "yes", excerpt: "" })).toBe(false);
+    expect(client({ t: "reaction.set", thread: "assistant:astra", message: "user@1", emoji: "👍", excerpt: "x".repeat(201) })).toBe(false);
+    expect(client({ t: "reaction.clear", thread: "session:s1", message: "user@1" })).toBe(true);
+    const snapshot = { t: "reactions.snapshot", thread: "assistant:astra", reactions: { "assistant@1": { emoji: "❓", excerpt: "Why?", at: 2 } } };
+    expect(parseServerMessage(JSON.stringify(snapshot)).ok).toBe(true);
+    expect(parseServerMessage(JSON.stringify({ ...snapshot, reactions: { "x@1": { emoji: "❓", excerpt: "", at: 2 } } })).ok).toBe(false);
   });
 });
 

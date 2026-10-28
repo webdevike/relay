@@ -25,6 +25,7 @@ import { ffmpegProbe, isVideoMime, maxVideoBytesFromEnv, videoMimeOf, VideoTooLa
 import { FileBoardStore } from "./boards/store";
 import { createUsageService, ompUsageRunner } from "./usage/service";
 import { CatchUpService, defaultCatchUpFeedPath, defaultCatchUpNotesPath, defaultCatchUpStatePath } from "./catchup/service";
+import { defaultReactionsPath, reactionFeedbackPath, ReactionService } from "./reactions/service";
 import { detectTextTyper, KeyboardInjector } from "./input/keyboard";
 import { MacInputDevice } from "./input/macos";
 import { ClipboardPaster, systemCopy } from "./input/paste";
@@ -234,6 +235,22 @@ function serve(
           clock: systemClock,
           log,
         });
+  // Reaches the devices and the threads' sessions long after `server` and `assistant` are initialised.
+  const reactions = new ReactionService({
+    path: defaultReactionsPath(),
+    feedbackPath: (agent) => reactionFeedbackPath(agentHome, agent),
+    broadcast: (message): void => {
+      server.broadcastExcept(message, null);
+    },
+    session: (thread) => {
+      if (thread.startsWith("assistant:")) return assistant?.thread(thread.slice("assistant:".length))?.current()?.id ?? null;
+      const id = thread.slice("session:".length);
+      return agents.sessions.some((session) => session.id === id && session.status !== "ended") ? id : null;
+    },
+    note: (sessionId, text) => agents.note(sessionId, text),
+    clock: systemClock,
+    log,
+  });
   const clipboard =
     watchClipboard && Bun.which("wl-paste") !== null
       ? new ClipboardWatcher({
@@ -273,6 +290,7 @@ function serve(
       calls,
       usage,
       catchup,
+      reactions,
       pairing: new TerminalPairingUI(),
       log,
     },

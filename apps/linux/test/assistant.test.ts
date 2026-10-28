@@ -68,6 +68,7 @@ function fakeProvider(): FakeProvider {
       this.replyImages.push(images);
       return Promise.resolve();
     },
+    note: unsupported,
     launch: unsupported,
     options: unsupported,
     image: unsupported,

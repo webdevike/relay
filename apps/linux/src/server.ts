@@ -13,6 +13,7 @@ import { handleBoardRequest, isLoopback } from "./boards/http";
 import type { FileBoardStore } from "./boards/store";
 import type { UsageService } from "./usage/service";
 import type { CatchUpDeck } from "./catchup/service";
+import type { ReactionRelaying } from "./reactions/service";
 import { CommandDedupStore } from "./dedup";
 import { serveBlob } from "./drops/serve";
 import { isVideoMime, videoMimeOf, VideoTooLarge } from "./drops/video";
@@ -72,6 +73,8 @@ export interface ServerDeps {
   readonly usage: UsageService | null;
   /** The Catch Up deck; null answers `catchup.*` with an empty deck. */
   readonly catchup: CatchUpDeck | null;
+  /** Reactions on chat bubbles; null answers `reactions.get` empty and drops set/clear. */
+  readonly reactions: ReactionRelaying | null;
   readonly pairing: PairingUI;
   readonly log: (line: string) => void;
 }
@@ -305,6 +308,7 @@ export class RelayServer {
   private handleProviderChange(change: AgentProviderChange): void {
     this.deps.assistant?.observe(change);
     this.deps.calls?.observe(change);
+    this.deps.reactions?.observe(change);
     if (change.kind === "sessions") {
       const sessions = this.deps.agents?.sessions ?? [];
       const delta = this.agentsTracker.apply(sessions);
@@ -443,6 +447,7 @@ export class RelayServer {
         calls: this.deps.calls,
         usage: this.deps.usage,
         catchup: this.deps.catchup,
+        reactions: this.deps.reactions,
       },
       (closed) => {
         const reason = closed.closeReason;

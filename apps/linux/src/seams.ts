@@ -211,6 +211,12 @@ export interface AgentProvider {
    * input. The session enforces the protocol's rule that images require `submit`. Rejects with `AckFailure`.
    */
   reply(sessionId: string, text: string, submit: boolean, images?: readonly AgentImage[]): Promise<void>;
+  /**
+   * Hand `text` to the session as a quiet note: in the model's context from its next turn on, never
+   * shown and never a turn of its own. Resolves false when the session's bridge predates notes;
+   * rejects with `AckFailure` (`agent_not_found`) for an unknown session.
+   */
+  note(sessionId: string, text: string): Promise<boolean>;
   /** Open a new session on the host. Rejects with `AckFailure` (`agent_launch_failed`). */
   launch(prompt?: string, thinkingLevel?: string, profile?: "personal" | "work"): Promise<void>;
   /** Models and skills the session offers; null when the session is unknown. */

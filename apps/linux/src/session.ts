@@ -25,6 +25,7 @@ import {
 import type { AgentsDeltaTracker } from "./agents/delta-tracker";
 import type { BoardDelta, FileBoardStore } from "./boards/store";
 import { EMPTY_CATCHUP, type CatchUpDeck } from "./catchup/service";
+import type { ReactionRelaying } from "./reactions/service";
 import type { CommandDedupStore } from "./dedup";
 import type { PairingCoordinator } from "./pairing";
 import type { UsageService } from "./usage/service";
@@ -78,6 +79,8 @@ export interface SessionDeps {
   readonly usage: UsageService | null;
   /** null when the host has no Catch Up feed; `catchup.*` then answers an empty deck. */
   readonly catchup: CatchUpDeck | null;
+  /** null when the host keeps no reactions; `reactions.get` then answers empty and set/clear are dropped. */
+  readonly reactions: ReactionRelaying | null;
 }
 
 /** Clock and scheduling seams so tests drive time deterministically. */
@@ -523,6 +526,19 @@ export class ClientSession {
       case "catchup.note":
         this.sink.send({ t: "catchup.noted", id: message.id, ok: this.deps.catchup?.note(message.id, message.text, message.signal) === true });
         break;
+      case "reactions.get":
+        this.sink.send({ t: "reactions.snapshot", thread: message.thread, reactions: this.deps.reactions?.snapshot(message.thread) ?? {} });
+        break;
+      case "reaction.set":
+      case "reaction.clear": {
+        const reactions = this.deps.reactions;
+        const changed =
+          reactions !== null &&
+          (message.t === "reaction.set" ? reactions.set(message.thread, message.message, message.emoji, message.excerpt) : reactions.clear(message.thread, message.message));
+        // A change reaches every device (this one included) through the service; no change still answers this one, so its optimistic state settles.
+        if (!changed) this.sink.send({ t: "reactions.snapshot", thread: message.thread, reactions: reactions?.snapshot(message.thread) ?? {} });
+        break;
+      }
       case "assistant.get": {
         // An unknown agent, or no agent from an old phone on a host without threads, follows nothing.
         const thread = this.deps.assistant?.thread(message.agent);

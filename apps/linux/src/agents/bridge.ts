@@ -5,9 +5,9 @@
 //   extension -> host   hello (full session info) | status | messages { append } |
 //                       result { id, ok, error?, value? } | gate.status { gate } |
 //                       approval.request { id, toolName, command, reason? } | approval.resolved { id }
-//   host -> extension   conversation { id } | reply { id, text, submit, images? } | options { id } |
-//                       image { id, imageId } | configure { id, ...change } | abort { id } | end { id } |
-//                       gate { id, action, target?, reason?, photo? } | approval { id, approvalId, allow }
+//   host -> extension   conversation { id } | reply { id, text, submit, images? } | note { id, text } |
+//                       options { id } | image { id, imageId } | configure { id, ...change } | abort { id } |
+//                       end { id } | gate { id, action, target?, reason?, photo? } | approval { id, approvalId, allow }
 //
 // Sessions are validated with zod at this boundary: a misbehaving extension version can only
 // produce a logged parse error, never a malformed frame on the phone's WebSocket.
@@ -60,12 +60,13 @@ const Inbound = z.discriminatedUnion("t", [
 ]);
 type Inbound = z.infer<typeof Inbound>;
 
-type RequestKind = "conversation" | "reply" | "options" | "image" | "configure" | "abort" | "end" | "ask" | "approval" | "gate";
+type RequestKind = "conversation" | "reply" | "note" | "options" | "image" | "configure" | "abort" | "end" | "ask" | "approval" | "gate";
 
 /** The error code a rejected request maps to; the extension's message is passed through. */
 const failureCode: Record<RequestKind, AckFailure["error"]["code"]> = {
   conversation: "internal",
   reply: "agent_cannot_respond",
+  note: "agent_cannot_respond",
   options: "internal",
   image: "internal",
   configure: "agent_configure_failed",
@@ -174,6 +175,11 @@ export class OmpBridgeProvider implements AgentProvider {
 
   async reply(sessionId: string, text: string, submit: boolean, images?: readonly AgentImageT[]): Promise<void> {
     await this.request(this.require(sessionId), "reply", { text, submit, ...(images === undefined ? {} : { images }) });
+  }
+
+  /** True only from an extension that knows notes; older ones answer every unknown request with an empty ok. */
+  async note(sessionId: string, text: string): Promise<boolean> {
+    return (await this.request(this.require(sessionId), "note", { text })) === true;
   }
 
   async options(sessionId: string): Promise<AgentOptionsT | null> {

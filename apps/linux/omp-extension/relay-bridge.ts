@@ -353,6 +353,8 @@ type Outbound =
 type Inbound =
   | { t: "conversation"; id: string }
   | { t: "reply"; id: string; text: string; submit: boolean; images?: Image[] }
+  // A quiet note from the host (Isaac's reactions): context for the next turn, never shown, never a turn.
+  | { t: "note"; id: string; text: string }
   | { t: "options"; id: string }
   | { t: "image"; id: string; imageId: string }
   | { t: "configure"; id: string; title?: string; model?: { provider: string; id: string }; thinkingLevel?: string }
@@ -1116,6 +1118,12 @@ export default function relayBridge(pi: ExtensionAPI): void {
         }
         return undefined;
       }
+      case "note":
+        // `nextTurn` without `triggerTurn`: idle, it joins the context without starting a turn; mid-turn,
+        // it waits for the next one. `true` tells the host this bridge knows notes (older ones answer
+        // unknown requests with an empty ok).
+        pi.sendMessage({ customType: "relay-reactions", content: frame.text, display: false }, { deliverAs: "nextTurn" });
+        return true;
       case "image":
         return images.get(frame.imageId) ?? null;
       case "options":

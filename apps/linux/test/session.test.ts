@@ -10,6 +10,7 @@ import { CommandDedupStore } from "../src/dedup";
 import { PairingCoordinator } from "../src/pairing";
 import type { UsageService } from "../src/usage/service";
 import type { CatchUpDeck } from "../src/catchup/service";
+import type { ReactionRelaying } from "../src/reactions/service";
 import { AckFailure, type AgentConfigChange, type AgentProvider, type AssistantRelaying, type AssistantThread, type CallClientMessage, type CallRelaying, type DeviceStore, type DropBox, type FrameSink, type GateCommand, type InboxRelaying, type InputSink, type PairedDevice, type PairingUI, type PushRegistry, type TextInjecting, type VncAccess } from "../src/seams";
 import { ASSISTANT_FOLLOW_MS, ClientSession, PAIRING_TIMEOUT_MS, type SessionClock, type SessionDeps } from "../src/session";
 
@@ -108,6 +109,7 @@ interface HarnessOptions {
   calls?: CallRelaying;
   usage?: UsageService;
   catchup?: CatchUpDeck;
+  reactions?: ReactionRelaying;
 }
 
 function harness(options: HarnessOptions = {}): Harness {
@@ -155,6 +157,7 @@ function harness(options: HarnessOptions = {}): Harness {
     calls: options.calls ?? null,
     usage: options.usage ?? null,
     catchup: options.catchup ?? null,
+    reactions: options.reactions ?? null,
   };
   const sink = new RecordingSink();
   const clock = new FakeClock();
@@ -372,6 +375,11 @@ class FakeProvider implements AgentProvider {
     if (sessionId !== "s1") return Promise.reject(new AckFailure({ code: "agent_not_found", message: "gone" }));
     this.replies.push([sessionId, text, submit, images]);
     return Promise.resolve();
+  }
+  readonly notes: [string, string][] = [];
+  note(sessionId: string, text: string): Promise<boolean> {
+    this.notes.push([sessionId, text]);
+    return Promise.resolve(sessionId === "s1");
   }
   image(sessionId: string, id: string): Promise<AgentImage | null> {
     return Promise.resolve(sessionId === "s1" && id === "img1" ? { mimeType: "image/png", data: "iVBOR" } : null);
@@ -766,6 +774,41 @@ describe("catch up", () => {
     expect(bare.sink.last()).toEqual({ t: "catchup.snapshot", items: [], unreadCount: 0 });
     bare.session.receive({ t: "catchup.note", id: "x", signal: "needs-me", text: "" });
     expect(bare.sink.last()).toEqual({ t: "catchup.noted", id: "x", ok: false });
+  });
+});
+
+describe("reactions", () => {
+  it("answers reactions.get with the thread's reactions; set and clear go to the service, and a no-op re-sends the thread to this device", () => {
+    const thread = { "assistant@5": { emoji: "👍", excerpt: "Done.", at: 9 } };
+    const calls: string[] = [];
+    const reactions: ReactionRelaying = {
+      snapshot: (id) => (id === "assistant:astra" ? thread : {}),
+      set: (id, key, emoji, excerpt) => (calls.push(`set ${id} ${key} ${emoji} ${excerpt}`), emoji !== "👍"),
+      clear: (id, key) => (calls.push(`clear ${id} ${key}`), key === "assistant@5"),
+      observe: () => undefined,
+    };
+    const h = harness({ reactions });
+    pair(h);
+    h.session.receive({ t: "reactions.get", thread: "assistant:astra" });
+    expect(h.sink.last()).toEqual({ t: "reactions.snapshot", thread: "assistant:astra", reactions: thread });
+    const sent = h.sink.sent.length;
+    h.session.receive({ t: "reaction.set", thread: "assistant:astra", message: "assistant@5", emoji: "❤️", excerpt: "Done." });
+    h.session.receive({ t: "reaction.clear", thread: "assistant:astra", message: "assistant@5" });
+    expect(h.sink.sent.length).toBe(sent); // changes go out through the service's broadcast
+    h.session.receive({ t: "reaction.set", thread: "assistant:astra", message: "assistant@5", emoji: "👍", excerpt: "Done." });
+    expect(h.sink.last()).toEqual({ t: "reactions.snapshot", thread: "assistant:astra", reactions: thread });
+    h.session.receive({ t: "reaction.clear", thread: "session:s1", message: "user@1" });
+    expect(h.sink.last()).toEqual({ t: "reactions.snapshot", thread: "session:s1", reactions: {} });
+    expect(calls).toEqual([
+      "set assistant:astra assistant@5 ❤️ Done.",
+      "clear assistant:astra assistant@5",
+      "set assistant:astra assistant@5 👍 Done.",
+      "clear session:s1 user@1",
+    ]);
+    const bare = harness();
+    pair(bare);
+    bare.session.receive({ t: "reaction.set", thread: "session:s1", message: "user@1", emoji: "👍", excerpt: "" });
+    expect(bare.sink.last()).toEqual({ t: "reactions.snapshot", thread: "session:s1", reactions: {} });
   });
 });
 

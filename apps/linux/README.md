@@ -217,6 +217,25 @@ line to Nova, who keeps `catchup-rules.json` (applied by `catchup-build.ts`) and
 by Elysia) next to it. The deck keeps the feed's order after bounced cards, so the builder's ordering
 (pinned first, downranked last) is what the phone shows.
 
+## Reactions (`reactions.get`, `reaction.set`, `reaction.clear`)
+
+Isaac reacts to chat bubbles (his own or the agent's) on the phone and in Relay desktop, iMessage style: one
+emoji per bubble, a new one replaces it, the same one again takes it back. A reaction belongs to a thread
+(`assistant:<agent id>` for an assistant's thread across its sessions, `session:<omp session id>` for any
+other) and a bubble (`<user|assistant>@<omp timestamp ms>`, the same on every client; row ids are not).
+`src/reactions/service.ts` keeps them in `$XDG_CONFIG_HOME/relay/reactions.json` (0600) and sends every
+device the thread's `reactions.snapshot { thread, reactions }` on each change; `reactions.get { thread }`
+answers the asking device.
+
+Reactions never start a turn. Three seconds after the last change in a thread, the session running it
+(the assistant's live session, or the session itself) gets a quiet note through the bridge (`note { text }`,
+which the extension hands to `pi.sendMessage` with `deliverAs: "nextTurn"`: in context from the next turn
+on, never displayed): one line per changed bubble, e.g. `[Isaac reacted 👍 to your message: "<first 80
+chars>"]`, or `[Isaac removed his 👍 reaction from ...]`. With no live session, or an omp whose bridge
+predates notes (it answers without `true`), the changes wait for the next session that takes them. A 👎 or
+❓ on an assistant's reply in its own thread is also appended as `{ at, agent, reaction, signal, message:
+{ at, excerpt } }` to `<agent home>/work/eva/agents/<id>/reactions.jsonl`.
+
 ## Differences from the Mac app
 
 - No tray/menu UI; the terminal is the UI.

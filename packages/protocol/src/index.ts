@@ -18,6 +18,7 @@
  * packages/protocol/fixtures. Change both or neither.
  */
 import { z } from "zod";
+import { untagged } from "./surface";
 import { WidgetNode } from "./widget";
 
 export const PROTOCOL_VERSION = 1 as const;
@@ -748,6 +749,90 @@ export const CatchUpSnapshot = z.object({
 export type CatchUpSnapshot = z.infer<typeof CatchUpSnapshot>;
 
 // ---------------------------------------------------------------------------------------------
+// Reactions: iMessage-style tapbacks Isaac puts on a chat bubble (his own or the agent's), in an
+// assistant thread or a regular session. One reaction per bubble: a new emoji replaces the old,
+// the same one again clears it (`toggleReaction`). The host stores them per thread and message
+// (`reaction.set` / `reaction.clear`), persists them, and pushes the thread's `reactions.snapshot`
+// to every device, so the phone and Relay desktop agree. Reactions never start a turn: the host
+// hands the agent a quiet note (a line per change) that it sees on its next turn, and logs a 👎
+// or ❓ on an assistant's reply to that assistant's `reactions.jsonl` so it can learn.
+// ---------------------------------------------------------------------------------------------
+
+/** The bar's quick picks, in order: heart, thumbs up, thumbs down, haha, emphasis, question. Any other single emoji comes from "more". */
+export const QUICK_REACTIONS = ["❤️", "👍", "👎", "😂", "‼️", "❓"] as const;
+/** Reactions on an assistant's reply that are also logged as feedback for it. */
+export const FEEDBACK_REACTIONS: readonly string[] = ["👎", "❓"];
+/** Longest message excerpt a reaction carries (the agent's note quotes its first 80 characters). */
+export const MAX_REACTION_EXCERPT = 200;
+
+/** One emoji (a grapheme of pictographs, joiners, selectors, keycaps or flags), at most 32 UTF-16 units. */
+export const ReactionEmoji = z
+  .string()
+  .min(1)
+  .max(32)
+  // Emoji_Component covers the joiner, the variation selector, keycaps, skin tones and tag characters.
+  .regex(/^(?:\p{Extended_Pictographic}|\p{Emoji_Component})+$/u)
+  .refine((value) => /\p{Extended_Pictographic}|\p{Regional_Indicator}|\u20e3/u.test(value), "not an emoji");
+
+/**
+ * The conversation a reaction belongs to: `assistant:<agent id>` for an assistant's thread (it
+ * spans the thread's sessions), `session:<omp session id>` for any other session.
+ */
+export const ReactionThread = z.string().regex(/^(?:assistant:[a-z][a-z0-9-]*|session:\S+)$/);
+export type ReactionThread = z.infer<typeof ReactionThread>;
+
+/** The reaction thread of assistant `agent`. */
+export function assistantReactionThread(agent: string): string {
+  return `assistant:${agent}`;
+}
+
+/** The reaction thread of a session: its assistant's thread when it runs one, else its own. */
+export function sessionReactionThread(session: { readonly id: string; readonly kind?: string | undefined; readonly assistant?: string | undefined }): string {
+  return session.kind === "assistant" && session.assistant !== undefined ? assistantReactionThread(session.assistant) : `session:${session.id}`;
+}
+
+/**
+ * A bubble's reaction key, the same on every client: its role and omp timestamp (ms). Row ids are
+ * not: the host's are minted per omp process and Relay desktop reads omp's entry ids.
+ */
+export const ReactionKey = z.string().regex(/^(?:user|assistant)@\d+$/);
+export type ReactionKey = z.infer<typeof ReactionKey>;
+
+/** The reaction key of a `user` or `assistant` bubble sent at `at` (epoch ms). */
+export function reactionKey(role: "user" | "assistant", at: number): string {
+  return `${role}@${Math.trunc(at)}`;
+}
+
+/** The role a reaction key names. */
+export function reactionRole(key: string): "user" | "assistant" {
+  return key.startsWith("assistant@") ? "assistant" : "user";
+}
+
+/** What tapping `emoji` does to a bubble reacted `current` (null: none): the same one clears it, any other replaces it. */
+export function toggleReaction(current: string | null, emoji: string): string | null {
+  return current === emoji ? null : emoji;
+}
+
+export const Reaction = z.object({
+  emoji: ReactionEmoji,
+  /** The start of the bubble's text, so the agent's note and the feedback log can quote it. */
+  excerpt: z.string().max(MAX_REACTION_EXCERPT),
+  /** When Isaac reacted (epoch ms). */
+  at: ms,
+});
+export type Reaction = z.infer<typeof Reaction>;
+
+/** One thread's reactions by `ReactionKey`. */
+export const ThreadReactions = z.record(ReactionKey, Reaction);
+export type ThreadReactions = z.infer<typeof ThreadReactions>;
+
+/** The excerpt a client sends with a reaction: the bubble's text on one line, cut to MAX_REACTION_EXCERPT. */
+export function reactionExcerpt(text: string): string {
+  const line = untagged(text).replace(/\s+/g, " ").trim();
+  return line.length > MAX_REACTION_EXCERPT ? line.slice(0, MAX_REACTION_EXCERPT) : line;
+}
+
+// ---------------------------------------------------------------------------------------------
 // Boards: live dashboards. A board is a titled grid of widget tiles the host stores as JSON and
 // streams to subscribed clients. One global `rev` covers every board; each successful write bumps
 // it by one and sends the full changed board (or its removal) as a `board.delta`.
@@ -1033,6 +1118,16 @@ export const ClientMessage = z.discriminatedUnion("t", [
    * The card's state does not change.
    */
   z.object({ t: z.literal("catchup.note"), id: nonEmpty, signal: CatchUpSignal.optional(), text: z.string().trim().max(MAX_CATCHUP_NOTE).default("") }),
+  /** Ask for a thread's reactions; answered by `reactions.snapshot`. */
+  z.object({ t: z.literal("reactions.get"), thread: ReactionThread }),
+  /**
+   * React `emoji` to bubble `message` (its `reactionKey`) of `thread`, replacing any reaction it had.
+   * `excerpt` is `reactionExcerpt` of its text. Every device gets the thread's new `reactions.snapshot`;
+   * the agent hears it quietly on its next turn.
+   */
+  z.object({ t: z.literal("reaction.set"), thread: ReactionThread, message: ReactionKey, emoji: ReactionEmoji, excerpt: z.string().max(MAX_REACTION_EXCERPT) }),
+  /** Take back the reaction on bubble `message` of `thread`; unknown ones re-send the snapshot unchanged. */
+  z.object({ t: z.literal("reaction.clear"), thread: ReactionThread, message: ReactionKey }),
   /** Ask for a one-time ticket to open VNC_PATH; answered by `vnc.ticket` or `vnc.unavailable`. */
   z.object({ t: z.literal("vnc.open") }),
   /**
@@ -1153,6 +1248,8 @@ export const ServerMessage = z.discriminatedUnion("t", [
   CatchUpSnapshot.extend({ t: z.literal("catchup.snapshot") }),
   /** Answer to `catchup.note`: `ok` false when the host has no notes file or the card left the feed. */
   z.object({ t: z.literal("catchup.noted"), id: nonEmpty, ok: z.boolean() }),
+  /** A thread's reactions: the answer to `reactions.get`, and pushed to every device when they change. */
+  z.object({ t: z.literal("reactions.snapshot"), thread: ReactionThread, reactions: ThreadReactions }),
   /** Answer to `vnc.open`: open `VNC_PATH?ticket=<ticket>` within VNC_TICKET_TTL_MS. Single use. */
   z.object({ t: z.literal("vnc.ticket"), ticket: nonEmpty }),
   /** Answer to `vnc.open` when nothing listens on the Mac's VNC port: Screen Sharing is off. */
