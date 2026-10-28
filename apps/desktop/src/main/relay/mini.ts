@@ -39,10 +39,7 @@ function ask<T>(
       if (err) reject(err)
       else resolve(value as T)
     }
-    const timer = setTimeout(
-      () => done(new RelayCommandError('timeout', NO_ANSWER)),
-      timeoutMs,
-    )
+    const timer = setTimeout(() => done(new RelayCommandError('timeout', NO_ANSWER)), timeoutMs)
     const off = frames.onFrame((f) => {
       try {
         const v = answer(f)
@@ -84,23 +81,15 @@ export function createMini(
     start: ({ resume, profile, thinking }) => {
       seq += 1
       const id = `relay-desktop-start-${now()}-${seq}`
-      const cmd = {
-        kind: 'agent.start' as const,
-        ...(resume !== undefined ? { resume } : {}),
-        ...(profile !== null ? { profile } : {}),
-        ...(thinking !== undefined ? { thinkingLevel: thinking } : {}),
-      }
+      const cmd = { kind: 'agent.start' as const, resume, thinkingLevel: thinking }
       return ask(
         frames,
-        cmdFrame(id, cmd),
+        cmdFrame(id, profile !== null ? { ...cmd, profile } : cmd),
         (f) => {
           if (f.id !== id) return undefined
           if (f.t === 'nack') {
             const e = (f.error ?? {}) as Frame
-            throw new RelayCommandError(
-              str(e.code) ?? 'internal',
-              str(e.message) || "Relay couldn't do that.",
-            )
+            throw new RelayCommandError(str(e.code) ?? 'internal', str(e.message) || 'Refused.')
           }
           return f.t === 'agent.started' ? (str(f.sessionId) ?? undefined) : undefined
         },
