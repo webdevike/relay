@@ -801,6 +801,9 @@ describe("replies token", () => {
       expect(splitReplies(partial, false)).toEqual({ text: partial });
     }
     expect(splitReplies("array[[0]] is", true)).toEqual({ text: "array[[0]] is" });
+    expect(splitReplies("a [[x]] b [", true)).toEqual({ text: "a [[x]] b" });
+    expect(splitReplies("see [[x]] [[re", true)).toEqual({ text: "see [[x]]" });
+    expect(splitReplies("see [[x]] [[replies: Yes | N", true)).toEqual({ text: "see [[x]]" });
     expect(splitReplies("Ready?\n[[replies: a\nb", true)).toEqual({ text: "Ready?\n[[replies: a\nb" });
     expect(splitReplies("Ready?\n[[replies: Yes | No]]", true)).toEqual({ text: "Ready?", replies: ["Yes", "No"] });
   });

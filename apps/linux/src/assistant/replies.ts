@@ -42,10 +42,13 @@ export function splitReplies(text: string, streaming: boolean): { text: string; 
     return replies.length < 2 ? { text: stripped } : { text: stripped, replies };
   }
   if (!streaming) return { text };
-  let start = text.lastIndexOf("[[");
-  if (start < 0 && text.endsWith("[")) start = text.length - 1;
+  // The longest end of the text that starts the opener (`[`, `[[`, `[[rep`, ...).
+  for (let length = Math.min(OPENER.length, text.length); length > 0; length -= 1) {
+    if (text.endsWith(OPENER.slice(0, length))) return { text: text.slice(0, text.length - length).trimEnd() };
+  }
+  // An opener whose answers are still arriving: no closing `]]` and no newline after it yet.
+  const start = text.lastIndexOf(OPENER);
   if (start < 0) return { text };
-  const tail = text.slice(start);
-  const partial = !tail.includes("]]") && (OPENER.startsWith(tail) || (tail.startsWith(OPENER) && !tail.includes("\n")));
-  return partial ? { text: text.slice(0, start).trimEnd() } : { text };
+  const rest = text.slice(start + OPENER.length);
+  return rest.includes("]]") || rest.includes("\n") ? { text } : { text: text.slice(0, start).trimEnd() };
 }
