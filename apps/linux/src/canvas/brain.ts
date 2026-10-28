@@ -100,7 +100,10 @@ export class OmpBrain implements CanvasBrain {
         "--model", modelId,
         "--system-prompt", systemPrompt,
       ],
-      { stdin: "pipe", stdout: "pipe", stderr: "pipe", cwd: homedir() },
+      // launchd starts the host with no locale; without one omp reads the non-ASCII in its
+      // arguments (the system prompt's "1 \u00b7 " numbering, the chat) as Latin-1, and the model then
+      // writes mojibake ("\u00c2\u00b7") onto the board.
+      { stdin: "pipe", stdout: "pipe", stderr: "pipe", cwd: homedir(), env: { ...process.env, LANG: process.env["LANG"] ?? "en_US.UTF-8", LC_CTYPE: process.env["LC_CTYPE"] ?? "en_US.UTF-8" } },
     );
     const started = performance.now();
     const ready = Promise.withResolvers<undefined>();
