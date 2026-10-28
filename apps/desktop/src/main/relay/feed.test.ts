@@ -317,6 +317,36 @@ describe('Relay feed', () => {
     ])
   })
 
+  it("hears a thread's reactions, dropping entries with a bad key or reaction", () => {
+    const feed = authenticated()
+    const heart = { emoji: '❤️', excerpt: 'Fixed it.', at: 1700 }
+    expect(
+      feed.receive({
+        t: 'reactions.snapshot',
+        thread: 'assistant:astra',
+        reactions: {
+          'assistant@1792486874000': heart,
+          'tool@1': heart,
+          'user@2': { emoji: 'ok', excerpt: '', at: 1 },
+          'user@3': { emoji: '👍', excerpt: 'x'.repeat(201), at: 1 },
+        },
+      }).events,
+    ).toEqual([
+      {
+        kind: 'reactions',
+        thread: 'assistant:astra',
+        reactions: { 'assistant@1792486874000': heart },
+      },
+    ])
+    // A thread name the protocol does not allow, or no record at all.
+    expect(
+      feed.receive({ t: 'reactions.snapshot', thread: 'room:x', reactions: {} }).events,
+    ).toEqual([])
+    expect(feed.receive({ t: 'reactions.snapshot', thread: 'session:s1' }).events).toEqual([
+      { kind: 'reactions', thread: 'session:s1', reactions: {} },
+    ])
+  })
+
   it("reads a hand-started session listed under its folder's name as not named yet", () => {
     const s = (title: string, kind = 'manual') =>
       parseSession(session('a', 'idle', { title, kind, projectPath: '/Users/i/Eva' }))?.title

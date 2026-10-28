@@ -267,3 +267,34 @@ describe('images in transcripts', () => {
     expect(tool?.images[0]?.width).toBe(1)
   })
 })
+
+describe('omp timestamps (reaction keys)', () => {
+  it('stamps user and assistant rows with their message timestamp, ids unchanged', () => {
+    const text = [
+      msg('u', null, { role: 'user', content: 'hi', attribution: 'user', timestamp: 1700 }),
+      msg('a', 'u', {
+        role: 'assistant',
+        timestamp: 1800.9,
+        content: [
+          { type: 'thinking', thinking: 'hmm' },
+          { type: 'text', text: 'hello' },
+          { type: 'toolCall', id: 't1', name: 'read', arguments: {} },
+        ],
+      }),
+    ].join('\n')
+    expect(parseSession(text).messages.map((m) => [m.id, m.role, m.at])).toEqual([
+      ['u', 'user', 1700],
+      ['a-thinking', 'thinking', undefined],
+      ['a', 'assistant', 1800.9],
+      ['a-tool0', 'tool', undefined],
+    ])
+  })
+
+  it('leaves `at` off a message without a numeric timestamp', () => {
+    const text = [
+      msg('u', null, { role: 'user', content: 'hi', attribution: 'user' }),
+      msg('a', 'u', { role: 'assistant', content: 'x', timestamp: '2026-10-20T09:00:00Z' }),
+    ].join('\n')
+    for (const m of parseSession(text).messages) expect('at' in m).toBe(false)
+  })
+})

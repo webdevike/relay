@@ -13,6 +13,7 @@ import { GateOverlay } from '../habits/GateOverlay'
 import { startUsage } from '../usage/usage-store'
 import { startAssistants } from '../assistants/assistants-store'
 import { startBoards } from '../boards/boards-store'
+import { startReactions } from '../chat/reactions/reactions-store'
 import { startRooms } from '../rooms/rooms-store'
 import { Shell } from '../shell/Shell'
 import { startAgentControl } from '../agent/control'
@@ -34,6 +35,7 @@ export function App() {
     const stopUsage = startUsage()
     const stopAssistants = startAssistants()
     const stopBoards = startBoards()
+    const stopReactions = startReactions()
     const stopRooms = startRooms()
     const stopAgent = startAgentControl()
     const stopUpdate = startUpdate()
@@ -50,6 +52,7 @@ export function App() {
       stopUsage()
       stopAssistants()
       stopBoards()
+      stopReactions()
       stopRooms()
       stopAgent()
       stopUpdate()

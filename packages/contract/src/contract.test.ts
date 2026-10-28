@@ -705,3 +705,27 @@ describe('contract', () => {
     })
   })
 })
+
+describe('reactions channels', () => {
+  it('watches by file and agent, and takes only valid threads, keys and emoji', () => {
+    for (const c of ['reactions.watch', 'reactions.unwatch', 'reactions.react'])
+      expect(INVOKE_CHANNELS).toContain(c)
+    expect(EVENT_CHANNELS).toEqual(
+      expect.arrayContaining(['reactions.changed', 'reactions.status']),
+    )
+    const react = invokeContract['reactions.react'].input
+    const ok = { thread: 'session:s1', message: 'assistant@12', emoji: '👍', excerpt: 'x' }
+    expect(react.safeParse(ok).success).toBe(true)
+    expect(react.safeParse({ ...ok, emoji: null }).success).toBe(true)
+    expect(react.safeParse({ ...ok, emoji: 'ok' }).success).toBe(false)
+    expect(react.safeParse({ ...ok, message: 'tool@12' }).success).toBe(false)
+    expect(react.safeParse({ ...ok, thread: 'room:x' }).success).toBe(false)
+    expect(react.safeParse({ ...ok, excerpt: 'x'.repeat(201) }).success).toBe(false)
+    const changed = eventContract['reactions.changed']
+    expect(changed.safeParse({ thread: null, up: true, reactions: {} }).success).toBe(false)
+    expect(
+      invokeContract['reactions.watch'].output.safeParse({ thread: null, up: false, reactions: {} })
+        .success,
+    ).toBe(true)
+  })
+})

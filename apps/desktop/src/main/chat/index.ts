@@ -7,6 +7,7 @@ import { emit } from '../ipc/handle'
 import { startRelay } from '../relay'
 import { awaySignature } from '../relay/away'
 import { registerBoardsIpc } from '../relay/boards-ipc'
+import { registerReactionsIpc } from '../relay/reactions-ipc'
 import type { WriteQueue } from '../write-queue'
 import { AUTO_SETTLE_DAYS } from './chat-order'
 import { ChatListService, chatSessionsDirs } from './chat-list'
@@ -100,6 +101,8 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
   const assistants = registerAssistantsIpc(ctx, relay, sessionsDirs)
   // The host's dashboards, as Relay streams them.
   const offBoards = registerBoardsIpc(ctx, relay)
+  // Tapbacks on the bubbles of the chats shown, as Relay keeps them for every device.
+  const offReactions = registerReactionsIpc(ctx, relay)
 
   const watch = new ChatWatch({
     dirs: sessionsDirs,
@@ -140,6 +143,7 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     offStatus()
     offRelay()
     offBoards()
+    offReactions()
     clearTimeout(statusTimer)
     assistants.close()
     await watch.close()

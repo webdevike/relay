@@ -482,7 +482,7 @@ describe('LiveReducer.replaceRows', () => {
     const r = new LiveReducer([row('a'), row('b'), row('c')], { ...meta })
     const res = r.replaceRows([row('a'), row('c'), row('n'), row('b')])
     // Replaying the ops the renderer gets (removes, then inserts at the final index) gives the list.
-    let list = ['a', 'b', 'c'].filter((id) => !res.removed.includes(id))
+    const list = ['a', 'b', 'c'].filter((id) => !res.removed.includes(id))
     const order = ['a', 'c', 'n', 'b']
     for (const id of order.filter((id) => res.dirty.includes(id))) {
       if (list.includes(id)) continue
@@ -509,5 +509,22 @@ describe('LiveReducer.replaceRows', () => {
       unconfirmed: true,
       images: [{ label: 'Image 1', src: 'data:image/png;base64,AAA', mimeType: 'image/png' }],
     })
+  })
+})
+
+describe('LiveReducer timestamps', () => {
+  it('stamps the streamed reply and the echoed prompt that replaces the unconfirmed row', () => {
+    const r = new LiveReducer([promptRow('sent-1', 'hi')], { ...meta })
+    expect(r.messages()[0]!.at).toBeUndefined()
+    r.apply({ type: 'message_end', messageId: 'u1', message: { ...user('hi'), timestamp: 100 } })
+    r.apply({
+      type: 'message_update',
+      messageId: 'm1',
+      message: { ...asst([text('Hel')]), timestamp: 200 },
+    })
+    expect(r.messages().map((m) => [m.id, m.at, m.unconfirmed])).toEqual([
+      ['u1', 100, undefined],
+      ['m1', 200, undefined],
+    ])
   })
 })

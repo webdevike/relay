@@ -1,7 +1,7 @@
 // The commands this app sends Relay for a session it reads through Relay, ported from relay.rs
 // (`Feed::request`). Each goes out as `{ t: 'cmd', id, cmd }` and Relay answers it with exactly one
 // `ack` or `nack` (relay/packages/protocol/src/index.ts, `Command` and `AckError`). Subscriptions
-// are plain frames with no answer.
+// and reactions are plain frames with no answer.
 
 /** Relay's image limits for one reply (protocol `AgentImage`, `MAX_REPLY_IMAGES`). */
 export const RELAY_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const
@@ -142,4 +142,24 @@ export function subscribeFrame(sessionId: string): Record<string, unknown> {
 
 export function unsubscribeFrame(sessionId: string): Record<string, unknown> {
   return { t: 'agent.unsubscribe', sessionId }
+}
+
+/** Asks for `thread`'s reactions; Relay answers with its `reactions.snapshot`. */
+export function reactionsGetFrame(thread: string): Record<string, unknown> {
+  return { t: 'reactions.get', thread }
+}
+
+/**
+ * Reacts `emoji` to bubble `message` (its reaction key) of `thread`, or takes the reaction back
+ * (null). Every device gets the thread's new snapshot, this one too.
+ */
+export function reactionFrame(
+  thread: string,
+  message: string,
+  emoji: string | null,
+  excerpt: string,
+): Record<string, unknown> {
+  return emoji === null
+    ? { t: 'reaction.clear', thread, message }
+    : { t: 'reaction.set', thread, message, emoji, excerpt }
 }

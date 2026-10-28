@@ -5,9 +5,10 @@
 // `board.snapshot` and `board.delta`, pinging every 10 s (Relay drops a peer that is quiet for a
 // minute). Any failure drops both lists and retries in 3 s.
 //
-// Subscriptions outlive a connection: each new one subscribes again (native `remember`). A command
-// cannot wait for one: sent while Relay is down it fails at once, and one in flight when the
-// connection drops fails with it.
+// Subscriptions outlive a connection: each new one subscribes again (native `remember`), and asks
+// again for the reactions of every thread a chat shows. A command cannot wait for one: sent while
+// Relay is down it fails at once, and one in flight when the connection drops fails with it.
+import type { ThreadReactions } from '@evaos/chat-core/reactions'
 import type { Board } from '@evaos/contract'
 import {
   Feed,
@@ -17,7 +18,14 @@ import {
   type FeedOutput,
   type RelaySession,
 } from './feed'
-import { cmdFrame, subscribeFrame, unsubscribeFrame, type RelayCommand } from './commands'
+import {
+  cmdFrame,
+  reactionFrame,
+  reactionsGetFrame,
+  subscribeFrame,
+  unsubscribeFrame,
+  type RelayCommand,
+} from './commands'
 import { deviceSecret, servePort } from './device'
 
 /** Between attempts while Relay is down. */
@@ -57,7 +65,10 @@ export interface RelaySource {
 }
 
 /** What a subscribed session says: its streamed reply, its questions and approvals. */
-export type RelaySessionEvent = Exclude<FeedEvent, { kind: 'sessions' | 'ack' | 'nack' | 'boards' }>
+export type RelaySessionEvent = Exclude<
+  FeedEvent,
+  { kind: 'sessions' | 'ack' | 'nack' | 'boards' | 'reactions' }
+>
 
 /** Relay as the chat pane drives it: the session list, subscriptions and commands. */
 export interface RelayLink extends RelaySource {
@@ -71,6 +82,24 @@ export interface RelayLink extends RelaySource {
   boards(): readonly Board[] | null
   /** Called after every change of the boards, including Relay going down. */
   onBoardsChange(cb: () => void): () => void
+}
+
+/**
+ * Tapbacks on chat bubbles: the threads the app shows, as the host's snapshots have them. Sending
+ * is fire and forget; the host pushes the thread's new snapshot to every device, this one too.
+ */
+export interface RelayReactions {
+  /** Connected and authenticated, so a reaction can go out now. */
+  reactionsUp(): boolean
+  /** `thread`'s reactions as the host last sent them; empty before its first snapshot. */
+  reactions(thread: string): ThreadReactions
+  /** Asks for `thread`'s reactions now (when connected) and after every reconnect. */
+  watchReactions(thread: string): void
+  unwatchReactions(thread: string): void
+  /** Sets (`emoji`) or clears (null) a bubble's reaction; false when nothing could be sent. */
+  react(thread: string, message: string, emoji: string | null, excerpt: string): boolean
+  /** Called with the thread after each of its snapshots. */
+  onReactions(cb: (thread: string) => void): () => void
 }
 
 /**
@@ -133,7 +162,7 @@ interface Pending {
 }
 
 /** Keeps a connection to Relay up while started; `sessions()` is null whenever it is down. */
-export class RelayClient implements RelayLink {
+export class RelayClient implements RelayLink, RelayReactions {
   private readonly dial: Dial
   private readonly secret: (configDir: string) => Uint8Array
   private readonly retryMs: number
@@ -144,6 +173,11 @@ export class RelayClient implements RelayLink {
   private readonly boardListeners = new Set<() => void>()
   private readonly eventListeners = new Set<(e: RelaySessionEvent) => void>()
   private readonly subscriptions = new Set<string>()
+  private readonly reactionListeners = new Set<(thread: string) => void>()
+  /** Threads a chat shows; asked for again on every connection. */
+  private readonly reactionThreads = new Set<string>()
+  /** The last snapshot of each thread; kept while Relay is down so badges stay. */
+  private readonly reactionMap = new Map<string, ThreadReactions>()
   /** Commands sent on this connection, by id, until Relay answers. */
   private readonly pending = new Map<string, Pending>()
   private commands = 0
@@ -204,6 +238,35 @@ export class RelayClient implements RelayLink {
   unsubscribe(sessionId: string): void {
     if (!this.subscriptions.delete(sessionId)) return
     if (this.feed?.authenticated) this.send(unsubscribeFrame(sessionId))
+  }
+
+  reactionsUp(): boolean {
+    return this.feed?.authenticated === true
+  }
+
+  reactions(thread: string): ThreadReactions {
+    return this.reactionMap.get(thread) ?? {}
+  }
+
+  watchReactions(thread: string): void {
+    this.reactionThreads.add(thread)
+    if (this.feed?.authenticated) this.send(reactionsGetFrame(thread))
+  }
+
+  unwatchReactions(thread: string): void {
+    this.reactionThreads.delete(thread)
+    this.reactionMap.delete(thread)
+  }
+
+  react(thread: string, message: string, emoji: string | null, excerpt: string): boolean {
+    if (!this.feed?.authenticated) return false
+    this.send(reactionFrame(thread, message, emoji, excerpt))
+    return true
+  }
+
+  onReactions(cb: (thread: string) => void): () => void {
+    this.reactionListeners.add(cb)
+    return () => this.reactionListeners.delete(cb)
   }
 
   command(cmd: RelayCommand): Promise<void> {
@@ -289,6 +352,7 @@ export class RelayClient implements RelayLink {
       this.reason = null
       this.pingTimer = setInterval(() => this.send({ t: 'ping', ts: this.now() }), this.pingMs)
       for (const id of this.subscriptions) this.send(subscribeFrame(id))
+      for (const thread of this.reactionThreads) this.send(reactionsGetFrame(thread))
     }
     for (const event of out.events) {
       switch (event.kind) {
@@ -297,6 +361,12 @@ export class RelayClient implements RelayLink {
           break
         case 'boards':
           this.setBoards(event.boards)
+          break
+        case 'reactions':
+          // Only threads a chat shows are kept; a push for another is someone else's.
+          if (!this.reactionThreads.has(event.thread)) break
+          this.reactionMap.set(event.thread, event.reactions)
+          for (const cb of [...this.reactionListeners]) cb(event.thread)
           break
         case 'ack':
         case 'nack': {
@@ -363,7 +433,7 @@ export class RelayClient implements RelayLink {
 }
 
 /** A Relay that is never connected: fixtures and e2e, unless a test sets sessions. */
-export class StaticRelay implements RelayLink {
+export class StaticRelay implements RelayLink, RelayReactions {
   private list: ReadonlyMap<string, RelaySession> | null = null
   private readonly listeners = new Set<() => void>()
 
@@ -392,6 +462,27 @@ export class StaticRelay implements RelayLink {
   subscribe(): void {}
 
   unsubscribe(): void {}
+
+  /** Never connected: reactions are never sent nor heard. */
+  reactionsUp(): boolean {
+    return false
+  }
+
+  reactions(): ThreadReactions {
+    return {}
+  }
+
+  watchReactions(): void {}
+
+  unwatchReactions(): void {}
+
+  react(): boolean {
+    return false
+  }
+
+  onReactions(): () => void {
+    return () => undefined
+  }
 
   /** There is no socket to carry a command. */
   command(): Promise<void> {

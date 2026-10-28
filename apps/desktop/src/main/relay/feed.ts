@@ -7,12 +7,19 @@
 // stop, an answer) go out as `cmd` frames, each answered by one `ack` or `nack` (commands.ts).
 //
 // Boards (the host's dashboards) stream after `board.subscribe`: `board.snapshot` sets them all,
-// `board.delta` swaps in or removes one. Drops, calls and the inbox escalation are not used by this
-// app; their frames are ignored.
+// `board.delta` swaps in or removes one. A thread's reactions come as `reactions.snapshot`, the
+// answer to `reactions.get` and pushed after every change. Drops, calls and the inbox escalation
+// are not used by this app; their frames are ignored.
 import { createHmac } from 'node:crypto'
 import * as path from 'node:path'
 import { z } from 'zod'
 import { BOARD_COLUMNS, type Board } from '@evaos/contract'
+import {
+  ReactionKeySchema,
+  ReactionSchema,
+  ReactionThreadSchema,
+  type ThreadReactions,
+} from '@evaos/chat-core/reactions'
 
 /** How this app shows up in Relay's paired devices (native uses `evaos` / `EvaOS`). */
 export const DEVICE_ID = 'relay-desktop'
@@ -248,6 +255,20 @@ const NackSchema = z.object({
 })
 const BoardSnapshotSchema = z.object({ rev, boards: list })
 const BoardDeltaSchema = z.object({ rev, board: z.unknown().optional(), removed: optText })
+const ReactionsSnapshotSchema = z.object({
+  thread: ReactionThreadSchema,
+  reactions: z.record(z.string(), z.unknown()).catch({}),
+})
+
+/** A thread's reactions as Relay sends them; an entry with a bad key or reaction is dropped. */
+export function parseReactions(value: Record<string, unknown>): ThreadReactions {
+  const out: ThreadReactions = {}
+  for (const [key, raw] of Object.entries(value)) {
+    const r = ReactionSchema.safeParse(raw)
+    if (r.success && ReactionKeySchema.safeParse(key).success) out[key] = r.data
+  }
+  return out
+}
 
 export type Frame = Record<string, unknown>
 
@@ -270,6 +291,8 @@ export type FeedEvent =
   | { kind: 'nack'; id: string; code: string; message: string }
   /** Every board Relay holds, by title, after any change. */
   | { kind: 'boards'; boards: Board[] }
+  /** Thread `thread`'s reactions now, by reaction key (a `reactions.snapshot`). */
+  | { kind: 'reactions'; thread: string; reactions: ThreadReactions }
 
 /** What one frame asks to send back, and what the app should hear. */
 export interface FeedOutput {
@@ -420,6 +443,14 @@ export class Feed {
       case 'agent.approval.resolved': {
         const r = ResolvedSchema.parse(f)
         events.push({ kind: 'approvalResolved', session: r.sessionId, id: r.id })
+        break
+      }
+      case 'reactions.snapshot': {
+        const s = ReactionsSnapshotSchema.safeParse(f)
+        if (s.success) {
+          const reactions = parseReactions(s.data.reactions)
+          events.push({ kind: 'reactions', thread: s.data.thread, reactions })
+        }
         break
       }
       case 'ack':

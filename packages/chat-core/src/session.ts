@@ -134,11 +134,17 @@ function textOf(content: unknown): string {
   return pieces.join('\n\n')
 }
 
+/** omp's timestamp of a message (epoch ms), when it has one. */
+function stampOf(message: Json): { at?: number } {
+  const at = message.timestamp
+  return typeof at === 'number' && Number.isFinite(at) ? { at } : {}
+}
+
 export function messagesFrom(message: Json, id: string): ChatMessage[] {
   if (message.role === 'user') {
     const prompt = promptParts(message)
     if (!prompt) return []
-    return [makeMessage(id, 'user', prompt.text, { images: prompt.images })]
+    return [makeMessage(id, 'user', prompt.text, { images: prompt.images, ...stampOf(message) })]
   }
   if (message.role !== 'assistant') return []
   const out: ChatMessage[] = []
@@ -150,7 +156,7 @@ export function messagesFrom(message: Json, id: string): ChatMessage[] {
   if (thinking.length > 0)
     out.push(makeMessage(`${id}-thinking`, 'thinking', thinking.join('\n\n')))
   const text = textOf(message.content)
-  if (text.trim() !== '') out.push(makeMessage(id, 'assistant', text))
+  if (text.trim() !== '') out.push(makeMessage(id, 'assistant', text, stampOf(message)))
   parts
     .filter((p) => p.type === 'toolCall')
     .forEach((call, n) => {

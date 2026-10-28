@@ -5,6 +5,7 @@ import { ImageViewer } from './ImageViewer'
 import { Markdown } from './markdown/Markdown'
 import { WidgetScope } from './widgets/actions'
 import { ToolBlock, ToolGroup } from './ToolRows'
+import { BubbleActions } from './reactions/BubbleActions'
 
 /** Thumbnails for a message's images; Enter or click opens the viewer on that image. */
 function Images({ images }: { images: ChatMessage['images'] }) {
@@ -50,17 +51,23 @@ function Row({ id, role, children }: { id: string; role: string; children: React
 function MessageRowImpl({ m }: { m: ChatMessage }) {
   let body
   if (m.role === 'user') {
+    const text = m.text.trim() !== ''
+    // Tapbacks go on the text bubble, or on the images of an image-only prompt.
     body = (
       <div className="eva-turn-user">
-        <Images images={m.images} />
-        {m.text.trim() !== '' ? <div className="eva-bubble">{m.text}</div> : null}
+        {text ? <Images images={m.images} /> : null}
+        <BubbleActions m={m} corner="start">
+          {text ? <div className="eva-bubble">{m.text}</div> : <Images images={m.images} />}
+        </BubbleActions>
       </div>
     )
   } else if (m.role === 'assistant') {
     body = (
-      <WidgetScope.Provider value={m.id}>
-        <Markdown text={m.text} />
-      </WidgetScope.Provider>
+      <BubbleActions m={m} corner="end">
+        <WidgetScope.Provider value={m.id}>
+          <Markdown text={m.text} />
+        </WidgetScope.Provider>
+      </BubbleActions>
     )
   } else if (m.role === 'thinking') {
     body = <div className="eva-thinking">{m.text}</div>

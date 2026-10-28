@@ -306,6 +306,67 @@ describe('RelayClient', () => {
     ])
     client.stop()
   })
+
+  it('asks for watched threads on every connection, keeps their snapshots and sends reactions', async () => {
+    const { client, relay, changes } = connected()
+    const heard = vi.fn()
+    client.onReactions(heard)
+    // Watched before Relay is up: nothing goes out, nothing can be sent.
+    client.watchReactions('session:a')
+    expect(client.reactionsUp()).toBe(false)
+    expect(client.react('session:a', 'user@1', '👍', 'hi')).toBe(false)
+    client.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(relay.frames().filter((f) => f.t === 'reactions.get')).toEqual([])
+    relay.say({ t: 'welcome', state: { agents: { rev: 1, sessions: [] } } })
+    expect(client.reactionsUp()).toBe(true)
+    expect(changes).toHaveBeenCalledTimes(1)
+    client.watchReactions('assistant:astra')
+    expect(relay.frames().filter((f) => f.t === 'reactions.get')).toEqual([
+      { t: 'reactions.get', thread: 'session:a' },
+      { t: 'reactions.get', thread: 'assistant:astra' },
+    ])
+
+    // Plain frames, no cmd and no ack.
+    expect(client.react('session:a', 'assistant@5', '❤️', 'Done.')).toBe(true)
+    expect(relay.frames().at(-1)).toEqual({
+      t: 'reaction.set',
+      thread: 'session:a',
+      message: 'assistant@5',
+      emoji: '❤️',
+      excerpt: 'Done.',
+    })
+    client.react('session:a', 'assistant@5', null, 'Done.')
+    expect(relay.frames().at(-1)).toEqual({
+      t: 'reaction.clear',
+      thread: 'session:a',
+      message: 'assistant@5',
+    })
+
+    const reaction = { emoji: '❤️', excerpt: 'Done.', at: 9 }
+    relay.say({
+      t: 'reactions.snapshot',
+      thread: 'session:a',
+      reactions: { 'assistant@5': reaction },
+    })
+    // A thread no chat shows is not kept.
+    relay.say({ t: 'reactions.snapshot', thread: 'session:zz', reactions: {} })
+    expect(heard.mock.calls).toEqual([['session:a']])
+    expect(client.reactions('session:a')).toEqual({ 'assistant@5': reaction })
+    expect(client.reactions('session:zz')).toEqual({})
+
+    // Down: the last snapshot stays, sending does not. Back up: asked again.
+    relay.handlers.at(-1)!.closed(CLOSED)
+    expect(client.reactionsUp()).toBe(false)
+    expect(client.reactions('session:a')).toEqual({ 'assistant@5': reaction })
+    client.unwatchReactions('assistant:astra')
+    await vi.advanceTimersByTimeAsync(3000)
+    relay.say({ t: 'welcome', state: { agents: { rev: 1, sessions: [] } } })
+    expect(relay.frames().filter((f) => f.t === 'reactions.get')).toEqual([
+      { t: 'reactions.get', thread: 'session:a' },
+    ])
+    client.stop()
+  })
 })
 
 describe('StaticRelay', () => {
@@ -329,6 +390,15 @@ describe('StaticRelay', () => {
     relay.set(null)
     expect(relay.sessions()).toBeNull()
     expect(changes).toHaveBeenCalledTimes(2)
+  })
+
+  it('never sends or hears reactions', () => {
+    const relay = new StaticRelay()
+    relay.set([])
+    relay.watchReactions()
+    expect(relay.reactionsUp()).toBe(false)
+    expect(relay.react()).toBe(false)
+    expect(relay.reactions()).toEqual({})
   })
 })
 

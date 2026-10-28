@@ -1,6 +1,6 @@
 import type { MainContext } from '../context'
 import { registerTestHook } from '../test-hooks'
-import { RelayClient, StaticRelay, type RelayLink } from './client'
+import { RelayClient, StaticRelay, type RelayLink, type RelayReactions } from './client'
 import { parseSession, type RelaySession } from './feed'
 
 /**
@@ -9,7 +9,7 @@ import { parseSession, type RelaySession } from './feed'
  * connected, unless an e2e test sets sessions through the `relay` test hook (`set(sessions | null)`,
  * sessions in Relay's wire shape).
  */
-export function startRelay(ctx: MainContext): RelayLink {
+export function startRelay(ctx: MainContext): RelayLink & RelayReactions {
   if (ctx.env.relayDir !== null) {
     const client = new RelayClient({ configDir: ctx.env.relayDir })
     client.start()

@@ -28,6 +28,12 @@ import { openSubagentPanel, togglePanel, toggleSidebar, useLayout } from '../she
 import { setChatTitle } from '../eva/names-store'
 import { AgentCrumb } from '../assistants/AgentCrumb'
 import { agentFile, agentIdOf, agentOf, useAssistants } from '../assistants/assistants-store'
+import { fillComposer } from './composer-fill'
+import {
+  ReactionScope,
+  useReactionThread,
+  type ReactionScopeValue,
+} from './reactions/reactions-store'
 
 declare global {
   interface Window {
@@ -73,6 +79,13 @@ export function ChatPane() {
     const a = agent === null ? null : agentOf(s, agent)
     return a?.status === 'working' ? a.title : null
   })
+  // Tapbacks: the thread this chat's bubbles react in, as Relay keeps it for every device; Reply
+  // quotes a bubble into this pane's composer.
+  const reactionThread = useReactionThread(pane?.file ?? '', agent)
+  const reactionScope = useMemo<ReactionScopeValue>(
+    () => ({ thread: reactionThread, reply: (text) => fillComposer(PANE_ID, text) }),
+    [reactionThread],
+  )
   const placeChat = place.page === 'chat' ? place.chat : thread
   const appTab = useTabs(activeTabId)
   const draftKey = draftKeyFor(pane, placeChat, browserScope(placeOf('chat'), appTab))
@@ -209,13 +222,15 @@ export function ChatPane() {
       ) : null}
       {pane && !(pane.file === '' && pane.messages.length === 0) ? (
         <WidgetActions.Provider value={widgetActions}>
-          <ChatLog
-            paneId={PANE_ID}
-            messages={pane.messages}
-            // A draft keeps its log key when omp names the file, so binding never jumps the scroll.
-            file={pane.boundTo ? '' : pane.file}
-            typing={typing}
-          />
+          <ReactionScope.Provider value={reactionScope}>
+            <ChatLog
+              paneId={PANE_ID}
+              messages={pane.messages}
+              // A draft keeps its log key when omp names the file, so binding never jumps the scroll.
+              file={pane.boundTo ? '' : pane.file}
+              typing={typing}
+            />
+          </ReactionScope.Provider>
         </WidgetActions.Provider>
       ) : (
         <div className="eva-chat-empty">

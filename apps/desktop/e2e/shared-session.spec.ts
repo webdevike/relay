@@ -332,3 +332,101 @@ test('a new chat starts omp in herdr and sends its first prompt once the session
   expect(localChats()).toEqual([])
   await proofShot(app, shell, 'shared-session-herdr', { phase: 'shared-session' })
 })
+
+test("reacts to a bubble through Relay and follows the host's snapshots", async ({
+  app,
+  shell,
+}) => {
+  // omp stamps every message; a bubble's reaction key is its role and that timestamp.
+  const PROMPT_AT = 1792486874000
+  const REPLY_AT = 1792486880000
+  const stamped = (entry: string, at: number): string => {
+    const e = z.looseObject({ message: z.looseObject({}) }).parse(JSON.parse(entry))
+    return line({ ...e, message: { ...e.message, timestamp: at } })
+  }
+  await fx.append(
+    'p4-ecard',
+    stamped(prompt('u2', 'a1', 'Can you tidy the report header?'), PROMPT_AT),
+  )
+  await fx.append(
+    'p4-ecard',
+    stamped(answer('a2', 'u2', 'Tidied it: the header now fits on one line.'), REPLY_AT),
+  )
+  host.upsert({ id: 'p4-ecard', status: 'idle' })
+  await shell.locator(sel('nav-chat')).click()
+  await shell.waitForSelector(sel('chat-tree'))
+  await rowOf(shell, 'p4-ecard').click()
+  await expect(shell.locator(sel('msg-a2'))).toBeVisible()
+  const thread = 'session:p4-ecard'
+  // The chat asks Relay for its thread's reactions when it opens.
+  await expect
+    .poll(() => host.reactionFrames.some((f) => f.t === 'reactions.get' && f.thread === thread))
+    .toBe(true)
+  // Unstamped fixture rows (u1, a1) carry no reaction key: no react button.
+  await expect(shell.locator(sel('react-btn-a1'))).toHaveCount(0)
+
+  // 1. Hover shows the react button on the reply's top corner.
+  const reply = shell.locator(sel('bubble-a2'))
+  await reply.hover()
+  const button = shell.locator(sel('react-btn-a2'))
+  await expect(button).toHaveCSS('opacity', '1')
+  await expect(button).toBeEnabled()
+  await proofShot(app, shell, 'reactions-hover', { phase: 'reactions' })
+
+  // 2. It opens the bar; a pick goes to Relay as a plain frame and shows at once.
+  await button.click()
+  const bar = shell.locator(sel('reaction-bar'))
+  await expect(bar).toBeVisible()
+  await bar.locator(sel('reaction-pick-👍')).click()
+  const badge = shell.locator(sel('reaction-badge-a2'))
+  await expect(badge).toHaveText('👍')
+  await expect(bar).toHaveCount(0)
+  await expect
+    .poll(() => host.reactionFrames.filter((f) => f.t !== 'reactions.get'))
+    .toEqual([
+      {
+        t: 'reaction.set',
+        thread,
+        message: `assistant@${REPLY_AT}`,
+        emoji: '👍',
+        excerpt: 'Tidied it: the header now fits on one line.',
+      },
+    ])
+  expect(host.kinds()).toEqual([])
+
+  // 3. The phone changes them: the host's snapshot is what shows.
+  const at = Date.now()
+  host.setReactions(thread, {
+    [`assistant@${REPLY_AT}`]: { emoji: '‼️', excerpt: 'Tidied it', at },
+    [`user@${PROMPT_AT}`]: { emoji: '❤️', excerpt: 'Can you tidy', at },
+  })
+  await expect(badge).toHaveText('‼️')
+  await expect(shell.locator(sel('reaction-badge-u2'))).toHaveText('❤️')
+  await shell.mouse.move(0, 0)
+  await proofShot(app, shell, 'reactions-badge', { phase: 'reactions' })
+
+  // 4. Right-click: the bar above the bubble, the menu at the pointer; the current one is lit.
+  await shell.locator(sel('bubble-u2')).click({ button: 'right' })
+  await expect(bar).toBeVisible()
+  await expect(bar.locator(sel('reaction-pick-❤️'))).toHaveAttribute('aria-pressed', 'true')
+  const menu = shell.locator(sel('bubble-menu'))
+  await expect(menu).toBeVisible()
+  await proofShot(app, shell, 'reactions-bar-menu', { phase: 'reactions' })
+
+  // 5. Reply quotes the bubble into the composer.
+  await menu.locator(sel('bubble-menu-reply')).click()
+  await expect(menu).toHaveCount(0)
+  await expect(bar).toHaveCount(0)
+  const box = shell.locator(sel('composer-input'))
+  await expect(box).toHaveValue('> Can you tidy the report header?\n\n')
+  await expect(box).toBeFocused()
+
+  // 6. Picking the current one again takes it off.
+  await shell.locator(sel('reaction-badge-u2')).click()
+  await bar.locator(sel('reaction-pick-❤️')).click()
+  await expect(shell.locator(sel('reaction-badge-u2'))).toHaveCount(0)
+  await expect
+    .poll(() => host.reactionFrames.at(-1))
+    .toEqual({ t: 'reaction.clear', thread, message: `user@${PROMPT_AT}` })
+  expect(localChats()).toEqual([])
+})

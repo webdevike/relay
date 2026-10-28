@@ -72,6 +72,10 @@ export class FakeRelayHost {
   private readonly sessions = new Map<string, HostSession>()
   private readonly asks = new Map<string, Json>()
   private readonly approvals = new Map<string, Json>()
+  /** Each thread's reactions by reaction key, as the host keeps them. */
+  private readonly reactionsOf = new Map<string, Record<string, Json>>()
+  /** Every `reactions.get`, `reaction.set` and `reaction.clear` the app sent, in order. */
+  readonly reactionFrames: Json[] = []
   private rev = 0
 
   private constructor(
@@ -150,6 +154,16 @@ export class FakeRelayHost {
 
   kinds(): string[] {
     return this.commands.map((c) => String(c.cmd.kind))
+  }
+
+  /** Sets a thread's reactions (as the phone would) and pushes its snapshot to every device. */
+  setReactions(thread: string, reactions: Record<string, Json>): void {
+    this.reactionsOf.set(thread, reactions)
+    this.broadcast(this.snapshotOf(thread))
+  }
+
+  private snapshotOf(thread: string): Json {
+    return { t: 'reactions.snapshot', thread, reactions: this.reactionsOf.get(thread) ?? {} }
   }
 
   private wire(id: string): Json {
@@ -266,6 +280,23 @@ export class FakeRelayHost {
           rev: this.rev,
           sessions: [...this.sessions.keys()].map((s) => this.wire(s)),
         })
+      case 'reactions.get':
+        this.reactionFrames.push(f)
+        return peer.send(this.snapshotOf(String(f.thread)))
+      case 'reaction.set':
+      case 'reaction.clear': {
+        this.reactionFrames.push(f)
+        const thread = String(f.thread)
+        const { [String(f.message)]: _old, ...rest } = this.reactionsOf.get(thread) ?? {}
+        const next =
+          f.t === 'reaction.set'
+            ? {
+                ...rest,
+                [String(f.message)]: { emoji: f.emoji, excerpt: f.excerpt, at: Date.now() },
+              }
+            : rest
+        return this.setReactions(thread, next)
+      }
       case 'agent.subscribe': {
         const id = String(f.sessionId)
         peer.subs.add(id)

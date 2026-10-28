@@ -467,6 +467,7 @@ export class LiveReducer {
       a.detail === b.detail &&
       a.streaming === b.streaming &&
       a.role === b.role &&
+      a.at === b.at &&
       JSON.stringify(a.tool) === JSON.stringify(b.tool)
     )
   }

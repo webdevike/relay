@@ -30,6 +30,11 @@ export const ChatMessageSchema = z.object({
   images: z.array(ChatImageSchema),
   tool: ToolIoSchema.optional(),
   unconfirmed: z.boolean().optional(),
+  /**
+   * omp's timestamp of a `user` or `assistant` row's message (epoch ms), its reaction key with the
+   * role. Absent on a prompt omp has not echoed yet and on Relay's streaming row.
+   */
+  at: z.number().optional(),
 })
 export type ChatMessage = z.infer<typeof ChatMessageSchema>
 export type ToolIo = z.infer<typeof ToolIoSchema>
