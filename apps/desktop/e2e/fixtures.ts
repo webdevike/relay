@@ -22,10 +22,10 @@ interface Fixtures {
   launchEnv: Record<string, string>
   startOnChat: boolean
   /**
-   * Most specs exercise the browser panel: it opens for the start scope (chat or dashboard),
-   * as Isaac's toggle there. The app itself starts with it closed.
+   * The tool panes (Browser, Files, Artifacts right of the chat) show on a fresh config, as in
+   * the app. false hides them once the tree is loaded, as Isaac's toggle does.
    */
-  panelOpen: boolean
+  toolPanes: boolean
   configDir: string
   app: ElectronApplication
   shell: Page
@@ -78,7 +78,7 @@ export function launchApp(
 export const test = base.extend<Fixtures>({
   launchEnv: [{}, { option: true }],
   startOnChat: [true, { option: true }],
-  panelOpen: [true, { option: true }],
+  toolPanes: [true, { option: true }],
   configDir: async ({}, use) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evaos-e2e-'))
     await use(dir)
@@ -92,7 +92,7 @@ export const test = base.extend<Fixtures>({
   rendererErrors: async ({}, use) => {
     await use([])
   },
-  shell: async ({ app, rendererErrors, startOnChat, panelOpen }, use) => {
+  shell: async ({ app, rendererErrors, startOnChat, toolPanes }, use) => {
     const page = await app.firstWindow()
     page.on('pageerror', (e) => rendererErrors.push(`pageerror: ${e.message}`))
     page.on('console', (m) => {
@@ -109,11 +109,11 @@ export const test = base.extend<Fixtures>({
       )
       await page.waitForSelector('[data-testid=chat-pane]', { state: 'visible' })
     }
-    if (panelOpen) {
-      // The panel is per browser scope: open it for the scope in front once that is known.
-      type Hooks = { __evaosShell: { browserScope(): string; setPanel(open: boolean): void } }
-      await page.waitForFunction(() => (window as unknown as Hooks).__evaosShell.browserScope())
-      await page.evaluate(() => (window as unknown as Hooks).__evaosShell.setPanel(true))
+    if (!toolPanes) {
+      type Hooks = { __evaosShell: { setPanel(open: boolean): void } }
+      await page.waitForSelector('[data-pane-id=chat]', { state: 'attached' })
+      await page.evaluate(() => (window as unknown as Hooks).__evaosShell.setPanel(false))
+      await page.waitForSelector('[data-pane-kind=tool]', { state: 'hidden' })
     }
     await use(page)
     // A spec that quits the app itself (quit lifecycle) leaves nothing to ask.

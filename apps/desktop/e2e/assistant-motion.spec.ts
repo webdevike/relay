@@ -68,7 +68,7 @@ const test = base.extend({
     fx.cleanup()
   },
 })
-test.use({ startOnChat: false, panelOpen: false })
+test.use({ startOnChat: false, toolPanes: false })
 
 const sel = (id: string): string => `[data-testid="${id}"]`
 const line = (entry: unknown): string => JSON.stringify(entry)

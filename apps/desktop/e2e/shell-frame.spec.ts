@@ -53,32 +53,50 @@ async function drag(shell: Page, id: string, dx: number): Promise<void> {
 const state = (shell: Page) =>
   shell.locator('[data-testid=shell]').getAttribute('data-sidebar-state')
 
+/** The tool pane's share of its row in the saved tree (the root split's last child). */
+const savedToolShare = (dir: string): number | undefined => {
+  const t = layoutFile(dir)['tiling'] as { root?: { sizes?: number[] } } | undefined
+  return t?.root?.sizes?.[1]
+}
+
 test('widths at 1280 and the fold vectors', async ({ app, shell }) => {
   await size(app, shell, 1280)
   expect((await box(shell, 'sidebar')).width).toBe(272)
-  const panel = await box(shell, 'panel-card')
-  expect(Math.abs(panel.width - 420)).toBeLessThanOrEqual(1)
+  // The chat and the default tool pane share the room right of the sidebar, 8px apart, with
+  // 8px to the window edge; the tool pane's card starts level with the chat's card.
   const main = await box(shell, 'main-card')
+  const tool = await box(shell, 'pane-p2')
   expect(main.x).toBe(272)
-  expect(Math.round(panel.x - (main.x + main.width))).toBe(8)
+  expect(Math.round(tool.x - (main.x + main.width))).toBe(8)
+  expect(Math.round(tool.x + tool.width)).toBe(1280 - 8)
+  expect(tool.y).toBe(main.y)
+  expect(Math.abs(tool.width / (tool.width + main.width) - 0.34)).toBeLessThan(0.01)
   expect((await box(shell, 'footer')).height).toBe(32)
 
-  await size(app, shell, 1016)
+  // The sidebar folds only when it cannot keep 200px beside the panes' smallest width
+  // (chat 480 + gap 8 + tool pane 240).
+  await size(app, shell, 936)
   await expect.poll(() => state(shell)).toBe('open')
   await expect.poll(async () => (await box(shell, 'sidebar')).width).toBe(200)
 
-  await size(app, shell, 1015)
+  await size(app, shell, 935)
   await expect.poll(() => state(shell)).toBe('folded')
   await expect.poll(async () => (await box(shell, 'sidebar')).width).toBe(0)
   await expect.poll(async () => (await box(shell, 'main-card')).x).toBe(8)
 
   for (const w of [800, 760]) {
     await size(app, shell, w)
-    await expect.poll(async () => Math.round((await box(shell, 'panel-card')).width)).toBe(320)
-    const p = await box(shell, 'panel-card')
+    await expect
+      .poll(async () => {
+        const p = await box(shell, 'pane-p2')
+        return Math.round(p.x + p.width)
+      })
+      .toBe(w - 8)
+    const p = await box(shell, 'pane-p2')
     const m = await box(shell, 'main-card')
-    expect(p.x + p.width).toBeLessThanOrEqual(w)
     expect(m.x + m.width).toBeLessThanOrEqual(p.x)
+    expect(m.width).toBeGreaterThanOrEqual(480)
+    expect(p.width).toBeGreaterThanOrEqual(240)
   }
 })
 
@@ -99,7 +117,7 @@ test('Cmd+B and Cmd+Shift+B go through the router', async ({ app, shell }) => {
 
   await size(app, shell, 1280)
   await shell.keyboard.press('Meta+Shift+b')
-  await expect(shell.locator('[data-testid=panel-card]')).toBeHidden()
+  await expect(shell.locator('[data-testid=pane-p2]')).toBeHidden()
   await expect
     .poll(() =>
       app.evaluate(
@@ -110,7 +128,7 @@ test('Cmd+B and Cmd+Shift+B go through the router', async ({ app, shell }) => {
     )
     .toBe(false)
   await shell.keyboard.press('Meta+Shift+b')
-  await expect(shell.locator('[data-testid=panel-card]')).toBeVisible()
+  await expect(shell.locator('[data-testid=pane-p2]')).toBeVisible()
   const actions = await shell.evaluate(() =>
     ((window as unknown as Hk).__evaosHotkeys ?? []).map((e) => e.action),
   )
@@ -118,7 +136,11 @@ test('Cmd+B and Cmd+Shift+B go through the router', async ({ app, shell }) => {
   expect(actions).toContain('toggle-panel')
 })
 
-test('grips drag, reset, occlude and keep unknown keys', async ({ app, shell, configDir }) => {
+test('grips and dividers drag, reset, occlude and keep unknown keys', async ({
+  app,
+  shell,
+  configDir,
+}) => {
   await size(app, shell, 1280)
   // Let the app write its first layout, then add an unknown key.
   const file = path.join(configDir, 'layout.json')
@@ -142,7 +164,9 @@ test('grips drag, reset, occlude and keep unknown keys', async ({ app, shell, co
   await expect.poll(() => layoutFile(configDir)['sidebar_width']).toBe(272)
   expect((await box(shell, 'sidebar')).width).toBe(272)
 
-  const p = await box(shell, 'grip-panel')
+  // The divider between the chat and the tool pane: the browser view hides while it moves.
+  const before = await box(shell, 'pane-p2')
+  const p = await box(shell, 'divider-s1-0')
   const px = p.x + p.width / 2
   const py = p.y + p.height / 2
   await shell.mouse.move(px, py)
@@ -159,17 +183,28 @@ test('grips drag, reset, occlude and keep unknown keys', async ({ app, shell, co
     )
     .toBe(false)
   await shell.mouse.up()
-  await expect.poll(async () => Math.round((await box(shell, 'panel-card')).width)).toBe(500)
-  await expect.poll(() => layoutFile(configDir)['panel_width']).toBe(500)
+  const want = Math.round(before.width + 80)
+  await expect.poll(async () => Math.round((await box(shell, 'pane-p2')).width)).toBe(want)
+  // The share is of the row's room without its gap.
+  const room = (await box(shell, 'tiling')).width - 8
+  await expect
+    .poll(() => Math.abs((savedToolShare(configDir) ?? 0) - want / room))
+    .toBeLessThan(0.002)
+  expect(layoutFile(configDir)['zoom']).toBe(2)
+  // Double-click shares the two evenly.
+  await shell.locator('[data-testid=divider-s1-0]').dblclick()
+  await expect.poll(() => savedToolShare(configDir)).toBe(0.5)
   expect(layoutFile(configDir)['zoom']).toBe(2)
 })
 
 test('widths survive a relaunch', async ({ app, shell, configDir }) => {
   await size(app, shell, 1280)
   await drag(shell, 'grip-sidebar', 28)
-  await drag(shell, 'grip-panel', -40)
+  await drag(shell, 'divider-s1-0', -40)
   await expect.poll(() => layoutFile(configDir)['sidebar_width']).toBe(300)
-  await expect.poll(() => layoutFile(configDir)['panel_width']).toBe(460)
+  const tool = Math.round((await box(shell, 'pane-p2')).width)
+  // The divider drag is saved before the app quits.
+  await expect.poll(() => savedToolShare(configDir)).not.toBeCloseTo(0.34, 2)
   await app.close()
 
   const app2 = await launchApp(configDir)
@@ -181,13 +216,35 @@ test('widths survive a relaunch', async ({ app, shell, configDir }) => {
     )
     await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(1280)
     await expect.poll(async () => (await box(page, 'sidebar')).width).toBe(300)
-    // The panel starts closed; its saved width shows once it opens.
-    type Hooks = { __evaosShell?: { browserScope(): string; setPanel(open: boolean): void } }
-    await page.waitForFunction(() =>
-      Boolean((window as unknown as Hooks).__evaosShell?.browserScope()),
+    await expect.poll(async () => Math.round((await box(page, 'pane-p2')).width)).toBe(tool)
+  } finally {
+    await app2.close()
+  }
+})
+
+test('an old side panel seeds the first tree once', async ({ configDir }) => {
+  fs.writeFileSync(
+    path.join(configDir, 'layout.json'),
+    JSON.stringify({
+      sidebar_width: 272,
+      panel_width: 420,
+      panel_tool: 'files',
+      panel_choices: { 'page:dashboard': false },
+    }),
+  )
+  const app2 = await launchApp(configDir)
+  try {
+    const page = await app2.firstWindow()
+    await page.waitForSelector('[data-testid=pane-p2]')
+    await expect(page.locator('[data-testid="pane-tab-files"]')).toHaveAttribute(
+      'data-active',
+      'true',
     )
-    await page.evaluate(() => (window as unknown as Hooks).__evaosShell!.setPanel(true))
-    await expect.poll(async () => Math.round((await box(page, 'panel-card')).width)).toBe(460)
+    // Its width becomes the tool pane's share, so the pane opens about as wide as the panel was.
+    expect(Math.abs((await box(page, 'pane-p2')).width - 420)).toBeLessThanOrEqual(8)
+    await expect.poll(() => layoutFile(configDir)['tiling']).toBeTruthy()
+    expect(layoutFile(configDir)).not.toHaveProperty('panel_choices')
+    expect(layoutFile(configDir)).not.toHaveProperty('panel_tool')
   } finally {
     await app2.close()
   }
@@ -204,17 +261,24 @@ test('malformed layout.json is reset with one toast', async ({ configDir }) => {
   }
 })
 
-test.describe('right panel default', () => {
-  test.use({ panelOpen: false })
+test.describe('tool panes hidden', () => {
+  test.use({ toolPanes: false })
 
-  test('starts closed and stays closed across page changes and a reload', async ({ shell }) => {
-    const panel = shell.locator('[data-testid=panel-card]')
-    await expect(panel).toBeHidden()
+  test('stay hidden across page changes and a reload', async ({ shell }) => {
+    const tools = shell.locator('[data-testid=pane-p2]')
+    const toggle = shell.locator('[data-testid=panel-toggle]:visible').first()
+    await expect(tools).toBeHidden()
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false')
     await shell.locator('[data-testid=nav-dashboard]').click()
     await shell.locator('[data-testid=nav-chat]').click()
-    await expect(panel).toBeHidden()
+    await expect(tools).toBeHidden()
     await shell.reload()
     await shell.waitForSelector('[data-testid=rail]')
-    await expect(panel).toBeHidden()
+    await shell.waitForSelector('[data-pane-id=chat]', { state: 'attached' })
+    await expect(tools).toBeHidden()
+    await expect(shell.locator('[data-testid=panel-toggle]:visible').first()).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
   })
 })

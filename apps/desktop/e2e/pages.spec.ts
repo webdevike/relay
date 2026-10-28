@@ -7,32 +7,33 @@ type Hooks = {
   __evaosShell: {
     openPlace(p: string, n?: boolean): void
     openChat(): void
-    setPanel(open: boolean): void
   }
 }
 const open = (shell: Page, slug: string): Promise<void> =>
   shell.evaluate((s) => (window as unknown as Hooks).__evaosShell.openPlace(s), slug)
+// Tool panes have tabs too: the app tab in front is the tab bar's.
+const ACTIVE_APP_TAB = '[data-testid=tabbar] [role=tab][data-active=true]'
 
 test('dashboard renders its data and tab title', async ({ shell }) => {
   await open(shell, 'jobs')
   await open(shell, 'dashboard')
   await expect(shell.locator('[data-testid=page-dashboard]')).toBeVisible()
   await expect(shell.locator('[data-testid=dash-hero]')).toBeVisible()
-  await expect(shell.locator('[role=tab][data-active=true]')).toContainText('Dashboard')
+  await expect(shell.locator(ACTIVE_APP_TAB)).toContainText('Dashboard')
 })
 
 test('jobs renders its table and tab title', async ({ shell }) => {
   await open(shell, 'jobs')
   await expect(shell.locator('[data-testid=page-jobs]')).toBeVisible()
   await expect(shell.locator('[data-testid=jobs-table]')).toBeVisible()
-  await expect(shell.locator('[role=tab][data-active=true]')).toContainText('Jobs')
+  await expect(shell.locator(ACTIVE_APP_TAB)).toContainText('Jobs')
 })
 
 test('habits renders its gate and tab title', async ({ shell }) => {
   await open(shell, 'habits')
   await expect(shell.locator('[data-testid=page-habits]')).toBeVisible()
   await expect(shell.locator('[data-testid=habit-gate-strip]')).toBeVisible()
-  await expect(shell.locator('[role=tab][data-active=true]')).toContainText('Habits')
+  await expect(shell.locator(ACTIVE_APP_TAB)).toContainText('Habits')
 })
 
 test('scroll memory per page', async ({ shell }) => {
@@ -76,21 +77,24 @@ test('chat pane survives tab switches', async ({ shell }) => {
   expect(box?.height ?? 0).toBeGreaterThan(50)
 })
 
-test('browser panel slot is unaffected by page changes', async ({ shell }) => {
+test('browser slot is unaffected by page changes', async ({ shell }) => {
   const rect = () =>
     shell.locator('[data-testid=browser-slot]').evaluate((el) => {
       const r = el.getBoundingClientRect()
       return [r.x, r.y, r.width, r.height]
     })
-  // The panel is per page scope: open it on each page, and its slot stays put.
-  const openWithPanel = async (slug: string): Promise<void> => {
+  // The tool panes are global: the browser stays in its pane while the page in front changes.
+  const openPage = async (slug: string): Promise<void> => {
     await open(shell, slug)
-    await shell.evaluate(() => (window as unknown as Hooks).__evaosShell.setPanel(true))
-    await expect(shell.locator('[data-testid=panel-card]')).toBeVisible()
+    await expect(shell.locator(`[data-testid=page-${slug}]`)).toBeVisible()
+    await expect(
+      shell.locator('[data-testid=pane-body-p2] [data-testid=browser-panel]'),
+    ).toBeVisible()
   }
-  await openWithPanel('dashboard')
+  await openPage('dashboard')
   const a = await rect()
-  await openWithPanel('jobs')
-  await openWithPanel('habits')
+  await openPage('jobs')
+  await expect.poll(rect).toEqual(a)
+  await openPage('habits')
   await expect.poll(rect).toEqual(a)
 })

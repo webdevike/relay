@@ -131,11 +131,12 @@ test('browser panel: navigate, history, bounds, overlay, hardening, errors', asy
     .poll(() => app.evaluate(() => (globalThis as unknown as { __opened: string[] }).__opened[0]))
     .toBe(url)
 
-  // Window resize and divider drag keep the view glued to the slot.
+  // Window resize and a drag of the divider between the chat and the tool pane keep the view
+  // glued to the slot.
   await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.setSize(1100, 760))
   await frames(shell)
   maxDelta = Math.max(maxDelta, await expectBoundsEqualSlot(app, shell))
-  const div = await shell.locator('[data-testid=grip-panel]').boundingBox()
+  const div = await shell.locator('[data-testid=divider-s1-0]').boundingBox()
   if (!div) throw new Error('no divider')
   const cx = div.x + div.width / 2
   const cy = div.y + div.height / 2

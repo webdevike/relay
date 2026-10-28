@@ -58,7 +58,7 @@ async function visitAll(app: ElectronApplication, shell: Page, suffix: string): 
   if (await shell.locator(sel('nav-meetings')).isVisible()) {
     await shell.locator(sel('nav-meetings')).click()
   }
-  // At compact widths the sidebar folds so the side panel keeps its room; close the panel to show it.
+  // At compact widths the sidebar folds so the tool panes keep their room; hide them to show it.
   if ((await shell.locator(sel('shell')).getAttribute('data-sidebar-state')) === 'folded') {
     await shell.locator(`${sel('panel-toggle')}:visible`).click()
     await expect(shell.locator(sel('shell'))).toHaveAttribute('data-sidebar-state', 'open')

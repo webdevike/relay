@@ -157,13 +157,15 @@ test('tabs: create, switch, close, target=_blank, last tab, hotkeys from the gue
       ),
     )
     .toBe(true)
-  // The new chat is its own browser scope with no tabs: its panel stays closed. Back on the
-  // first chat, its Page A tab and open panel return.
-  await expect(shell.locator('[data-testid=panel-card]')).toBeHidden()
+  // The new chat is its own browser scope with no tabs: the tool pane stays (the tree is global)
+  // and its browser shows an empty strip. Back on the first chat, its Page A tab returns.
+  await expect(shell.locator('[data-testid=pane-p2]')).toBeVisible()
+  await expect.poll(() => tabCount(shell)).toBe(0)
+  await expect(shell.locator('[data-testid=page-blank]')).toBeVisible()
   await shell.locator(`[data-testid=tab-${firstAppTab}]`).click()
-  await expect(shell.locator('[data-testid=panel-card]')).toBeVisible()
+  await expect(shell.locator('[data-testid=pane-p2]')).toBeVisible()
   await expect(shell.locator('[data-testid^=browser-tab-t]').first()).toContainText('Page A')
-  // Browser subtabs are added with the panel + button.
+  // Browser subtabs are added with the browser's + button.
   await shell.locator('[data-testid=browser-tab-new]').click()
   await expect.poll(() => tabCount(shell)).toBe(2)
   await shell.locator('[data-testid^=browser-tab-t]').first().click()
