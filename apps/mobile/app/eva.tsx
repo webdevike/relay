@@ -6,7 +6,9 @@
  * screen renders it as a chat, sends a turn with `assistant.turn`, and
  * echoes the sent words and pictures until the host's next snapshot carries them. The pill's "+"
  * opens a sheet to pick library photos or paste a clipboard image; queued images show as
- * thumbnails above the field. Bubbles stack their images above the text, tap to open.
+ * thumbnails above the field. Bubbles stack their images above the text, tap to open. The newest
+ * settled reply may carry tap-to-answer reply chips (`lib/replyChips.ts`); a tap sends that label as
+ * a turn, as the composer does, and leaves the draft alone.
  *
  * Look (after OpenAI's Dots chat): no title; the agent's avatar ring and name chip occupy a
  * dedicated header above the scrolling conversation (tapping them opens a menu); the user's
@@ -30,6 +32,7 @@ import { IconButton } from "@/ui/IconButton";
 import { SignInCard } from "@/ui/SignInCard";
 import { Text } from "@/ui/Text";
 import { MessageAppearance } from "@/ui/MessageAppearance";
+import { ReplyChips } from "@/ui/ReplyChips";
 import { TypingDots } from "@/ui/TypingDots";
 import { ScrollToBottom } from "@/ui/ScrollToBottom";
 import { useInvertedChatScroll } from "@/ui/useInvertedChatScroll";
@@ -48,6 +51,7 @@ import { useMotionSignals } from "@/state/motion";
 import { useConnectionStore } from "@/state/connection";
 import { requestAssistant, sendCommand, stopAssistant, watchArtifacts } from "@/connection";
 import { notifyHaptic } from "@/lib/haptics";
+import { liveReplies } from "@/lib/replyChips";
 import { clipboardHasImage, readClipboardPhoto } from "@/lib/clipboard";
 import { PasteImageChip } from "@/ui/PasteImageChip";
 import { CallScreen } from "@/call/CallScreen";
@@ -240,25 +244,37 @@ function Thread({ agent }: { agent: string }) {
     );
   };
 
-  const send = (): void => {
-    if (!canSend) return;
-    const sent = photos;
+  /**
+   * Sends a turn: the composer's words and photos, or a tapped reply chip's label. Either shows the
+   * pending echo at once; a refusal clears it and says why. Only a composer send empties the draft
+   * and photos, and gets them back on failure; a chip leaves the draft alone and shows again.
+   */
+  const sendTurn = (words: string, sent: Photo[], fromComposer: boolean): void => {
     setFailure(null);
     setTurnFailed(false);
-    setPending(agent, { text, images: sent });
-    setDraft("");
-    setPhotos([]);
-    sendCommand({ kind: "assistant.turn", agent, text, ...(sent.length > 0 ? { images: sent.map((photo) => photo.image) } : {}) }).catch(
+    setPending(agent, { text: words, images: sent });
+    if (fromComposer) {
+      setDraft("");
+      setPhotos([]);
+    }
+    sendCommand({ kind: "assistant.turn", agent, text: words, ...(sent.length > 0 ? { images: sent.map((photo) => photo.image) } : {}) }).catch(
       (error: unknown) => {
         notifyHaptic("error");
         setTurnFailed(true);
-        // The words and pictures come back to the composer, so a lost connection never eats a message.
         setPending(agent, null);
-        setDraft((current) => (current === "" ? text : current));
-        setPhotos((current) => (current.length === 0 ? sent : current));
+        // The words and pictures come back to the composer, so a lost connection never eats a message.
+        if (fromComposer) {
+          setDraft((current) => (current === "" ? words : current));
+          setPhotos((current) => (current.length === 0 ? sent : current));
+        }
         setFailure(error instanceof Error && error.message !== "" ? error.message : `Couldn't reach ${title}.`);
       },
     );
+  };
+
+  const send = (): void => {
+    if (!canSend) return;
+    sendTurn(text, photos, true);
   };
 
   // Image bytes are fetched against the omp session the thread runs in; empty while the agent is not running.
@@ -275,6 +291,8 @@ function Thread({ agent }: { agent: string }) {
   // and the newest row is not an assistant message already showing words. Once text streams, it is the indicator.
   const newest = newestFirst[0];
   const typing = busy && !(newest?.role === "assistant" && newest.text.trim() !== "");
+  // Tap-to-answer replies under the newest reply once it has settled; hidden while offline, where a tap could not send.
+  const replies = connected ? liveReplies(snapshot, pending) : null;
 
   // Only the newest user message carries a receipt: Sending while its echo is pending, Seen once
   // the host's snapshot lists it.
@@ -374,6 +392,10 @@ function Thread({ agent }: { agent: string }) {
                     streaming={busy && index === 0 && item.role === "assistant"}
                     sessionId={sessionId}
                     local={item.id === PENDING_ID ? pending?.images : undefined}
+                    replies={index === 0 ? replies : null}
+                    onReply={(reply) => {
+                      sendTurn(reply, [], false);
+                    }}
                     onOpenImages={(uris, start) => {
                       setViewing({ uris, start });
                     }}
@@ -581,9 +603,13 @@ interface RowProps {
   onOpenImages: (uris: string[], start: number) => void;
   /** The sign-in card was tapped. */
   onSignIn: (messageId: string, signin: NonNullable<AssistantMessage["signin"]>) => void;
+  /** Tap-to-answer replies to show under the bubble: only the newest settled reply gets them. */
+  replies: readonly string[] | null;
+  /** A reply chip was tapped: send its words as Isaac's turn. */
+  onReply: (reply: string) => void;
 }
 
-function Row({ agent, message, receipt, streaming, sessionId, local, onOpenImages, onSignIn }: RowProps) {
+function Row({ agent, message, receipt, streaming, sessionId, local, onOpenImages, onSignIn, replies, onReply }: RowProps) {
   const signedIn = useAssistantStore((state) => threadOf(state, agent).signedIn[message.id] === true);
   const colors = useColors();
   const dark = useScheme() === "dark";
@@ -665,6 +691,11 @@ function Row({ agent, message, receipt, streaming, sessionId, local, onOpenImage
               </View>
             </ChatBubble>
           )}
+          {replies !== null && (
+            <View style={styles.replies}>
+              <ReplyChips replies={replies} onPick={onReply} />
+            </View>
+          )}
         </View>
       );
     }
@@ -727,5 +758,7 @@ const styles = StyleSheet.create({
   menuRows: { marginHorizontal: -spacing.xl },
   imagesAbove: { marginBottom: spacing.xs },
   signinAbove: { marginBottom: spacing.sm },
+  /** Clear of the reaction badges that overlap the bubble's bottom corner. */
+  replies: { marginTop: spacing.sm },
   tray: { paddingTop: spacing.md },
 });

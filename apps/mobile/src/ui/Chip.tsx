@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Pressable } from "react-native";
+import { Pressable, type Insets } from "react-native";
 import { Text } from "./Text";
 import { spacing, toneFill, useColors } from "@/theme";
 import { tapHaptic } from "@/lib/haptics";
@@ -16,16 +16,19 @@ export interface ChipProps {
   selected?: boolean;
   onPress: () => void;
   accessibilityLabel?: string;
+  /** Extra touch area around the capsule, e.g. to reach a 44pt target in a chat. */
+  hitSlop?: Insets;
 }
 
 /** A small tappable capsule in a row of chips: optional leading glyph, one-line label. */
-export function Chip({ label, leading, selected = false, onPress, accessibilityLabel }: ChipProps) {
+export function Chip({ label, leading, selected = false, onPress, accessibilityLabel, hitSlop }: ChipProps) {
   const colors = useColors();
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityState={{ selected }}
       accessibilityLabel={accessibilityLabel ?? label}
+      hitSlop={hitSlop}
       onPress={() => {
         tapHaptic();
         onPress();
