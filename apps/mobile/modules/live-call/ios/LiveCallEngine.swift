@@ -525,10 +525,15 @@ public final class LiveCallEngine {
     run.disconnectTimer?.cancel()
     run.audioObservers.forEach(NotificationCenter.default.removeObserver)
     run.audioObservers = []
+    // Hung up is hung up: the microphone goes quiet and the Live Activity says so now, not after
+    // GPT-Live confirms the close (up to 3 s).
+    run.track?.isEnabled = false
+    activity.end(line: error ?? "Call ended", startedAt: run.startedAt)
 
     if run.channel?.readyState == .open && !run.closed.isSettled {
       sendEvent(["type": "session.close"], on: run)
-      try? await run.closed.wait(seconds: 3, timeoutError: LiveCallFailure.cancelled)
+      let confirmed = (try? await run.closed.wait(seconds: 3, timeoutError: LiveCallFailure.cancelled)) != nil
+      NSLog("[LiveCall] session.close \(confirmed ? "confirmed" : "not confirmed within 3 s")")
     }
     if !hostEnded && run.link.host != nil {
       var frame: [String: Any] = ["t": "live.end", "callId": run.id]
@@ -548,7 +553,6 @@ public final class LiveCallEngine {
       self.run = nil
       snapshot = nil
     }
-    activity.end(line: error ?? "Call ended", startedAt: run.startedAt)
     if var final = ending {
       final.state = "ended"
       final.error = error
