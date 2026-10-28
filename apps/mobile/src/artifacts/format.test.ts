@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultTabs, type Artifact, type ArtifactTab } from "@relay/protocol";
+import { defaultTabs, type AgentSession, type Artifact, type ArtifactTab } from "@relay/protocol";
 import {
   countLabel,
   groupRows,
@@ -19,7 +19,10 @@ import {
   statusPills,
   subagentLine,
   subagentRows,
+  taskGroups,
+  taskTime,
   videoLength,
+  type TaskInputs,
 } from "./format";
 
 const NOW = new Date(2026, 9, 27, 22, 53).getTime();
@@ -173,5 +176,107 @@ describe("blue dot", () => {
   it("lights for an agent's unopened tab, unless hidden", () => {
     expect(hasNewArtifacts([], [agentTab], 200)).toBe(true);
     expect(hasNewArtifacts([], [{ ...agentTab, hidden: true }], 200)).toBe(false);
+  });
+});
+
+describe("task groups", () => {
+  const sub = (name: string, state: "running" | "done" | "failed", over: Partial<Artifact> = {}): Artifact =>
+    item({ id: `subagent:/s/thread/${name}.jsonl`, kind: "subagent", title: name, path: `/s/thread/${name}.jsonl`, subagent: { state, startedAt: at(22, 40), ...(state === "running" ? {} : { endedAt: at(21, 0) }) }, ...over });
+  const session = (id: string, over: Partial<AgentSession> = {}): AgentSession => ({
+    id,
+    provider: "omp",
+    title: id,
+    projectPath: "/p",
+    status: "working",
+    lastActivity: "",
+    lastActivityAt: at(22, 50),
+    canRespond: true,
+    ...over,
+  });
+  const input = (over: Partial<TaskInputs>): TaskInputs => ({ items: [], now: NOW, threadSession: "S", sessions: {}, ask: undefined, approval: undefined, agent: undefined, agentTitle: "Nova", ...over });
+  const pr = (n: number, status: Partial<NonNullable<Artifact["status"]>>) =>
+    item({ id: `gh-pr:ike/relay#${String(n)}`, kind: "gh-pr", title: `PR ${String(n)}`, url: `https://github.com/ike/relay/pull/${String(n)}`, status: { state: "open", fetchedAt: 0, ...status } });
+
+  it("draws no group without rows", () => {
+    expect(taskGroups(input({}))).toEqual([]);
+  });
+
+  it("orders Needs input, Ready for review, Working, Resolved", () => {
+    const groups = taskGroups(
+      input({
+        items: [sub("a", "running"), sub("b", "done"), pr(1, {})],
+        ask: { id: "q", questions: [{ id: "1", question: "Ship it?", options: [{ label: "Yes" }] }] },
+      }),
+    );
+    expect(groups.map((group) => [group.id, group.title, group.rows.length])).toEqual([
+      ["needs", "Needs input", 1],
+      ["review", "Ready for review", 1],
+      ["working", "Working", 1],
+      ["resolved", "Resolved", 1],
+    ]);
+  });
+
+  it("asks first, then approvals, then a waiting session, then the registry", () => {
+    const ask = { id: "q", questions: [{ id: "1", question: "Which branch?", options: [{ label: "main" }] }] };
+    const approval = { id: "t", toolName: "bash", command: "git push", requiresBiometric: false };
+    const needs = (over: Partial<TaskInputs>) => taskGroups(input(over))[0]?.rows[0];
+    expect(needs({ ask, approval })).toMatchObject({ state: "ask", title: "Nova asked you", line: "Which branch?", open: { kind: "close" } });
+    expect(needs({ approval })).toMatchObject({ state: "approval", title: "Approve bash", line: "git push" });
+    expect(needs({ sessions: { S: session("S", { status: "needs_permission", statusDetail: "edit", lastActivity: "Editing" }) } })).toMatchObject({ state: "waiting", line: "edit", at: at(22, 50), timeStyle: "clock" });
+    expect(needs({ sessions: { S: session("S", { status: "waiting", lastActivity: "Asked about tests" }) } })).toMatchObject({ line: "Asked about tests" });
+    expect(needs({ agent: { id: "nova", title: "Nova", status: "needs_you", lastReply: { text: "Pick one", at: at(22, 1) } } })).toMatchObject({ title: "Nova needs you", line: "Pick one" });
+    expect(needs({ agent: { id: "nova", title: "Nova", status: "idle" } })).toBeUndefined();
+  });
+
+  it("lists open PRs, drafts too, with their review and checks", () => {
+    const rows = taskGroups(
+      input({
+        items: [
+          pr(1, { draft: true, checks: "pending" }),
+          pr(2, { review: "required", checks: "pass" }),
+          pr(3, { review: "changes", checks: "fail" }),
+          pr(4, { review: "approved" }),
+          pr(5, {}),
+          pr(6, { state: "merged" }),
+          item({ id: "gh-pr:ike/relay#7", kind: "gh-pr", status: { state: "open", fetchedAt: 0 }, lastSeen: at(9, 0) - 8 * 24 * 3600 * 1000 }),
+        ],
+      }),
+    )[0]?.rows;
+    expect(rows?.map((row) => row.line)).toEqual([
+      "Draft · Checks running · relay #1",
+      "Review requested · Checks pass · relay #2",
+      "Changes requested · Checks failing · relay #3",
+      "Approved · relay #4",
+      "Open · relay #5",
+    ]);
+    expect(rows?.map((row) => row.tone)).toEqual(["textMuted", "accent", "danger", "accent", "accent"]);
+    expect(rows?.[0]?.open).toEqual({ kind: "url", url: "https://github.com/ike/relay/pull/1" });
+  });
+
+  it("nests running subagents and reads the live mirror's status", () => {
+    const parent = sub("Lead", "running", { subagent: { state: "running", startedAt: at(22, 40), line: "Planning" } });
+    const child = sub("Lead.Scout", "running", { title: "Scout", subagent: { state: "running", parent: parent.id, startedAt: at(22, 45) } });
+    const sessions = { "S:Lead": session("S:Lead", { parentId: "S", statusDetail: "Reading format.ts" }), "X:Lead.Scout": session("X:Lead.Scout", { parentId: "X" }) };
+    const rows = taskGroups(input({ items: [child, parent], sessions }))[0]?.rows;
+    expect(rows?.map((row) => [row.title, row.depth, row.line, row.timeStyle])).toEqual([
+      ["Lead", 0, "Reading format.ts", "elapsed"],
+      ["Scout", 1, "started 10:45 PM", "elapsed"],
+    ]);
+    expect(rows?.[0]?.open).toEqual({ kind: "session", sessionId: "S:Lead" });
+    expect(rows?.[1]?.open).toBeNull();
+    expect(rows?.[0] === undefined ? null : taskTime(rows[0], NOW)).toBe("13m 0s");
+  });
+
+  it("folds finished subagents newest first, failures led by Failed", () => {
+    const done = sub("Old", "done", { subagent: { state: "done", startedAt: at(20, 0), endedAt: at(20, 30) } });
+    const failed = sub("New", "failed", { subagent: { state: "failed", startedAt: at(21, 0), endedAt: at(21, 30) } });
+    const yesterday = sub("Gone", "done", { subagent: { state: "done", startedAt: 0, endedAt: at(9, 0) - 24 * 3600 * 1000 } });
+    const sessions = { "S:New": session("S:New", { parentId: "S", status: "ended", lastActivity: "Tests broke" }) };
+    const rows = taskGroups(input({ items: [done, failed, yesterday], sessions }))[0]?.rows;
+    expect(rows?.map((row) => [row.title, row.state, row.line, row.tone])).toEqual([
+      ["New", "failed", "Failed · Tests broke", "danger"],
+      ["Old", "done", "Done", "ok"],
+    ]);
+    expect(rows?.[1] === undefined ? null : taskTime(rows[1], NOW)).toBe("8:30 PM");
   });
 });

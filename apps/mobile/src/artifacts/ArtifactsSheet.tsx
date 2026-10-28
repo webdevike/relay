@@ -4,9 +4,12 @@
  * sheet laid over the screen that owns it: the modal kind never presented on the assistant screen.
  *
  * Tabs scroll sideways in bar order; an agent's tab carries its maker's face and a blue dot until
- * opened; Subagents spins while any runs. Long-press a tab to rename, move or hide it; the trailing
- * menu brings hidden tabs back. Rows: pinned first with who pinned it, quiet status pills, a short
- * "48x, last 10:50 PM"; swipe left for Open and Pin. Media is a two-column grid.
+ * opened; Subagents spins while any runs and carries a warn glyph while the thread needs Isaac.
+ * Long-press a tab to rename, move or hide it; the trailing menu brings hidden tabs back. Rows:
+ * pinned first with who pinned it, quiet status pills, a short "48x, last 10:50 PM"; swipe left for
+ * Open and Pin. Media is a two-column grid. Subagents shows the thread's tasks by state (Needs
+ * input, Ready for review, Working, then Resolved folded), the phone's twin of the desktop's
+ * running popover.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ActionSheetIOS, ActivityIndicator, Alert, Image, Modal, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
@@ -14,6 +17,7 @@ import { ScrollView } from "react-native-gesture-handler";
 import ReanimatedSwipeable, { type SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 import BottomSheet, { BottomSheetBackdrop, BottomSheetScrollView, BottomSheetTextInput, type BottomSheetBackdropProps } from "@gorhom/bottom-sheet";
 import { SymbolView, type SFSymbol } from "expo-symbols";
+import { useRouter } from "expo-router";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { isDefaultTab, tabItems, visibleTabs, type Artifact, type ArtifactAction, type AssistantAgent, type AssistantPortrait, type ArtifactKind, type ArtifactTab } from "@relay/protocol";
@@ -22,9 +26,11 @@ import { ImageViewer, type ViewerImage } from "@/agents/ImageViewer";
 import { openExternal } from "@/lib/links";
 import { tapHaptic } from "@/lib/haptics";
 import { agentPortrait, agentTitle, useAssistantStore } from "@/state/assistant";
+import { useAgentsStore } from "@/state/agents";
 import { useArtifactsStore } from "@/state/artifacts";
 import { useArtifactsSeenStore } from "@/state/artifactsSeen";
 import { useConnectionStore } from "@/state/connection";
+import { Collapse } from "@/ui/Collapse";
 import { IconButton } from "@/ui/IconButton";
 import { Portrait } from "@/ui/Portrait";
 import { Text } from "@/ui/Text";
@@ -45,10 +51,12 @@ import {
   ruleChips,
   searchArtifacts,
   statusPills,
-  subagentLine,
-  subagentRows,
+  taskGroups,
+  taskTime,
   videoLength,
   type Pill,
+  type TaskRow,
+  type TaskState,
 } from "./format";
 
 const SNAP_POINTS = ["50%", "92%"];
@@ -76,8 +84,22 @@ const EMPTY_COPY: Record<string, string> = {
   everything: "Nothing in this thread yet.",
 };
 
+/** The glyph of a task row by its state; a running one shows a spinner instead. */
+const TASK_SYMBOL: Record<Exclude<TaskState, "running">, SFSymbol> = {
+  ask: "questionmark.bubble",
+  approval: "hand.raised",
+  waiting: "exclamationmark.bubble",
+  review: "arrow.triangle.pull",
+  done: "checkmark.circle",
+  failed: "xmark.circle",
+};
+
 export interface ArtifactsSheetProps {
   thread: string;
+  /** The registry id of the assistant the thread belongs to, for its name and needs-you status. */
+  agent: string;
+  /** The omp session the thread runs in, or null while it is not running. */
+  session: string | null;
   open: boolean;
   onClose: () => void;
 }
@@ -87,14 +109,18 @@ function Backdrop(props: BottomSheetBackdropProps) {
 }
 
 /** Render last inside a full-screen container so it lays over the whole screen. */
-export function ArtifactsSheet({ thread, open, onClose }: ArtifactsSheetProps) {
+export function ArtifactsSheet({ thread, agent, session, open, onClose }: ArtifactsSheetProps) {
   const colors = useColors();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const ref = useRef<BottomSheet>(null);
   const snapshot = useArtifactsStore((state) => state.threads[thread]);
   const items = snapshot?.items ?? NO_ITEMS;
   const tabs = snapshot?.tabs ?? NO_TABS;
   const agents = useAssistantStore((state) => state.agents);
+  const sessions = useAgentsStore((state) => state.sessions);
+  const ask = useAgentsStore((state) => (session === null ? undefined : state.asks[session]));
+  const approval = useAgentsStore((state) => (session === null ? undefined : state.approvals[session]));
   const markSeen = useArtifactsSeenStore((state) => state.markSeen);
   useConnectionStore((state) => state.status);
   const base = hostBaseUrl();
@@ -126,7 +152,23 @@ export function ArtifactsSheet({ thread, open, onClose }: ArtifactsSheetProps) {
   const current = initialTab(visible, counts, selected);
   const tab = visible.find((entry) => entry.id === current) ?? null;
   const running = items.some((item) => item.subagent?.state === "running");
-  const nameOf = useCallback((agent: string) => agentTitle(agents, agent), [agents]);
+  const nameOf = useCallback((agentId: string) => agentTitle(agents, agentId), [agents]);
+  const tasks = useMemo(
+    () => taskGroups({ items, now, threadSession: session, sessions, ask, approval, agent: agents?.find((entry) => entry.id === agent), agentTitle: agentTitle(agents, agent) }),
+    [items, now, session, sessions, ask, approval, agents, agent],
+  );
+  const needsYou = tasks.some((group) => group.id === "needs");
+
+  // Working rows count up their elapsed time while the sheet shows them.
+  useEffect(() => {
+    if (!open || !running) return;
+    const timer = setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [open, running]);
 
   const act = (action: ArtifactAction): void => {
     actArtifacts(thread, action).then(
@@ -203,6 +245,19 @@ export function ArtifactsSheet({ thread, open, onClose }: ArtifactsSheetProps) {
     act({ op: "pin", id: item.id, pinned: item.pinned === undefined });
   };
 
+  const openTask = (row: TaskRow): void => {
+    const target = row.open;
+    if (target === null) return;
+    tapHaptic();
+    if (target.kind === "url") {
+      openExternal(target.url);
+      return;
+    }
+    // An ask or approval is answered in the chat under the sheet; a subagent opens its own screen.
+    ref.current?.close();
+    if (target.kind === "session") router.push({ pathname: "/agents/[sessionId]", params: { sessionId: target.sessionId } });
+  };
+
   const rows = tab === null ? NO_ITEMS : (rowsByTab[tab.id] ?? NO_ITEMS);
   const searching = query !== null;
   const results = searching ? searchArtifacts(items, query) : NO_ITEMS;
@@ -220,7 +275,34 @@ export function ArtifactsSheet({ thread, open, onClose }: ArtifactsSheetProps) {
   } else if (tab === null) {
     body = <Empty text="Every tab is hidden. Use the menu at the end of the bar to show one." />;
   } else if (tab.id === "subagents") {
-    body = rows.length === 0 ? <Empty text={EMPTY_COPY["subagents"] ?? ""} /> : subagentRows(rows).map(({ item, depth }) => <SubagentRow key={item.id} item={item} depth={depth} now={now} />);
+    body =
+      tasks.length === 0 ? (
+        <Empty text={EMPTY_COPY["subagents"] ?? ""} />
+      ) : (
+        tasks.map((group) =>
+          group.id === "resolved" ? (
+            <View key={group.id} style={styles.taskGroup}>
+              <Collapse title={group.title} count={group.rows.length} gap={0} headerStyle={styles.taskHeading}>
+                {group.rows.map((row) => (
+                  <TaskRowView key={row.key} row={row} now={now} onOpen={() => { openTask(row); }} />
+                ))}
+              </Collapse>
+            </View>
+          ) : (
+            <View key={group.id} style={styles.taskGroup}>
+              <View style={styles.taskHeading} accessibilityRole="header">
+                <Text variant="label">
+                  {group.title}
+                  <Text variant="label" color="textMuted">{`  ${String(group.rows.length)}`}</Text>
+                </Text>
+              </View>
+              {group.rows.map((row) => (
+                <TaskRowView key={row.key} row={row} now={now} onOpen={() => { openTask(row); }} />
+              ))}
+            </View>
+          ),
+        )
+      );
   } else if (tab.id === "media") {
     const tiles = mediaTiles(rows);
     body = tiles.length === 0 ? <Empty text={EMPTY_COPY["media"] ?? ""} /> : <MediaGrid tiles={tiles} base={base} now={now} onOpen={(item) => { openItem(item, tiles); }} />;
@@ -302,6 +384,7 @@ export function ArtifactsSheet({ thread, open, onClose }: ArtifactsSheetProps) {
                   tab={entry}
                   active={entry.id === current}
                   spinning={entry.id === "subagents" && running}
+                  needsYou={entry.id === "subagents" && needsYou}
                   portrait={entry.createdBy !== "default" && entry.createdBy !== "isaac" ? agentPortrait(agents, entry.createdBy) : undefined}
                   maker={nameOf(entry.createdBy)}
                   onPress={() => { choose(entry); }}
@@ -336,6 +419,7 @@ function TabButton({
   tab,
   active,
   spinning,
+  needsYou,
   portrait,
   maker,
   onPress,
@@ -344,6 +428,7 @@ function TabButton({
   tab: ArtifactTab;
   active: boolean;
   spinning: boolean;
+  needsYou: boolean;
   portrait: AssistantPortrait | undefined;
   maker: string;
   onPress: () => void;
@@ -354,7 +439,7 @@ function TabButton({
     <Pressable
       accessibilityRole="tab"
       accessibilityState={{ selected: active }}
-      accessibilityLabel={`${tab.title}${tab.fresh === true ? ", new" : ""}`}
+      accessibilityLabel={`${tab.title}${needsYou ? ", needs you" : ""}${tab.fresh === true ? ", new" : ""}`}
       accessibilityHint="Long-press to rename, move or hide"
       onPress={onPress}
       onLongPress={onLongPress}
@@ -365,6 +450,7 @@ function TabButton({
       <Text variant="body" color={active ? "text" : "textMuted"} style={active ? styles.tabActive : undefined}>
         {tab.title}
       </Text>
+      {needsYou && <SymbolView name="exclamationmark.circle.fill" size={13} tintColor={colors.warn} />}
       {tab.fresh === true && <View style={[styles.tabDot, { backgroundColor: colors.accent }]} />}
     </Pressable>
   );
@@ -460,28 +546,38 @@ function Row({
   );
 }
 
-function SubagentRow({ item, depth, now }: { item: Artifact; depth: number; now: number }) {
+function TaskRowView({ row, now, onOpen }: { row: TaskRow; now: number; onOpen: () => void }) {
   const colors = useColors();
-  const state = item.subagent?.state;
+  const time = taskTime(row, now);
+  const tint = row.tone === "textMuted" ? colors.textFaint : colors[row.tone];
   return (
-    <View style={[styles.row, { paddingLeft: spacing.xl + depth * spacing.xl, borderBottomColor: colors.hairline }]}>
-      {state === "running" ? (
-        <ActivityIndicator size="small" color={colors.working} style={styles.rowGlyph} />
+    <Pressable
+      accessibilityRole={row.open === null ? undefined : "button"}
+      accessibilityLabel={`${row.title}, ${row.line}${time === null ? "" : `, ${time}`}`}
+      disabled={row.open === null}
+      onPress={onOpen}
+      style={({ pressed }) => [
+        styles.row,
+        { paddingLeft: spacing.xl + row.depth * spacing.xl, backgroundColor: pressed ? colors.surfaceRaised : colors.surface, borderBottomColor: colors.hairline },
+      ]}
+    >
+      {row.state === "running" ? (
+        <ActivityIndicator size="small" color={tint} style={styles.rowGlyph} />
       ) : (
-        <SymbolView
-          name={state === "failed" ? "xmark.circle" : "checkmark.circle"}
-          size={16}
-          tintColor={state === "failed" ? colors.danger : colors.ok}
-          style={styles.rowGlyph}
-        />
+        <SymbolView name={TASK_SYMBOL[row.state]} size={16} tintColor={tint} style={styles.rowGlyph} />
       )}
       <View style={styles.rowText}>
-        <Text numberOfLines={1}>{item.title}</Text>
+        <Text numberOfLines={1}>{row.title}</Text>
         <Text variant="caption" color="textMuted" numberOfLines={1}>
-          {subagentLine(item, now)}
+          {row.line}
         </Text>
       </View>
-    </View>
+      {time !== null && (
+        <Text variant="caption" color="textMuted" tabular>
+          {time}
+        </Text>
+      )}
+    </Pressable>
   );
 }
 
@@ -580,6 +676,8 @@ const styles = StyleSheet.create({
   spinner: { transform: [{ scale: 0.75 }] },
   more: { paddingVertical: spacing.sm, paddingHorizontal: spacing.xs },
   groupTitle: { paddingHorizontal: spacing.xl, paddingTop: spacing.lg, paddingBottom: spacing.xs },
+  taskGroup: { paddingTop: spacing.lg },
+  taskHeading: { minHeight: 32, justifyContent: "center", paddingHorizontal: spacing.xl },
   row: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingHorizontal: spacing.xl, paddingVertical: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth },
   rowGlyph: { width: 18, height: 18 },
   rowText: { flex: 1, gap: 2 },
