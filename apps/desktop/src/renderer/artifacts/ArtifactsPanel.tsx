@@ -865,7 +865,12 @@ export function ArtifactsPanel({ hidden }: { hidden: boolean }) {
           </Scroller>
           <EvaMenu opened={allOpen} onChange={setAllOpen} width={240} position="bottom-end">
             <EvaMenu.Target>
-              <Tooltip label="All tabs, hidden ones too" openDelay={400} position="bottom-end">
+              <Tooltip
+                label="All tabs, hidden ones too"
+                openDelay={400}
+                position="bottom-end"
+                disabled={allOpen}
+              >
                 <ActionIcon
                   variant="subtle"
                   color="gray"
