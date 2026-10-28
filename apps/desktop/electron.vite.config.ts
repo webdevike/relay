@@ -34,9 +34,12 @@ const staleSignal = {
   },
 }
 
-// @relay/widget-runtime is linked from the Relay checkout, outside this workspace: the dev server
-// may serve its files (theme, theme-components.css) only when allowed by real path.
+// @relay/widget-runtime and @relay/portrait-motion are linked from the Relay checkout, outside this
+// workspace: the dev server may serve their files (theme, theme-components.css, the motion source
+// and the DiceBear styles it imports from Relay's node_modules) only when allowed by real path.
 const widgetRuntime = realpathSync(resolve(__dirname, 'node_modules/@relay/widget-runtime'))
+const portraitMotion = realpathSync(resolve(__dirname, 'node_modules/@relay/portrait-motion'))
+const relayModules = resolve(portraitMotion, '../../node_modules')
 
 // The built app keeps the strict CSP from index.html; only the dev server relaxes it for HMR.
 const devCsp = {
@@ -69,7 +72,13 @@ export default defineConfig({
     root: 'src/renderer',
     define: { __RELAY_BUILD__: JSON.stringify(buildStamp) },
     plugins: [react(), devCsp, staleSignal],
-    server: { fs: { allow: [searchForWorkspaceRoot(__dirname), widgetRuntime] } },
+    server: {
+      fs: {
+        allow: [searchForWorkspaceRoot(__dirname), widgetRuntime, portraitMotion, relayModules],
+      },
+    },
+    // One copy of DiceBear: the still portraits (ui/portrait.ts) and the motion rigs share it.
+    resolve: { dedupe: ['@dicebear/core', '@dicebear/micah', '@dicebear/notionists'] },
     build: { rollupOptions: { input: resolve(__dirname, 'src/renderer/index.html') } },
   },
 })

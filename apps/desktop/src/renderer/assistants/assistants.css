@@ -22,12 +22,9 @@
   font-size: var(--eva-fz-label);
   color: var(--eva-text-dim);
 }
-.eva-as-dot {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--eva-accent);
+/* The portrait's state dot is cut out of the sidebar's own background. */
+.eva-as-side-row .eva-pm {
+  --eva-pm-edge: var(--eva-c-sidebar-background);
 }
 
 /* Home */

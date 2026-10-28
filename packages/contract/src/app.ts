@@ -60,4 +60,9 @@ export const appEvents = {
   'app.hotkey': z.object({ chord: z.string().max(40), fromGuest: z.boolean() }),
   'app.unsavedEdits.request': z.object({ id: z.string() }),
   'app.saveDirty.request': z.object({ id: z.string() }),
+  /**
+   * The window was shown or restored (`shown`), or hidden or minimized. The shell keeps background
+   * throttling off, so its page never reads as hidden; this says when none of it can be seen.
+   */
+  'app.windowShown': z.object({ shown: z.boolean() }),
 } as const

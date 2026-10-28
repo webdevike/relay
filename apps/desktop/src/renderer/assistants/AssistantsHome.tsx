@@ -7,6 +7,7 @@ import { openPlace } from '../navigation/navigate'
 import { pageMeta } from '../pages/page-meta'
 import { portrait } from '../ui/portrait'
 import { useAssistants } from './assistants-store'
+import { PortraitMotion } from './PortraitMotion'
 import './assistants.css'
 
 const STATUS_LABEL: Record<AssistantStatus, string> = {
@@ -18,7 +19,8 @@ const STATUS_LABEL: Record<AssistantStatus, string> = {
 
 /**
  * The Assistants home (native assistants_view::render): the heading with its subtext, then one
- * divided row per registry agent: its portrait, title, scope, last reply with its age and status.
+ * divided row per registry agent: its portrait (with its mood, PortraitMotion), title, scope, last
+ * reply with its age and status.
  */
 export function AssistantsHome({ place }: { place: Place }) {
   const data = useAssistants((s) => s.data)
@@ -49,15 +51,16 @@ export function AssistantsHome({ place }: { place: Place }) {
               data-status={a.status}
               onClick={(e) => openPlace(placeOf(`agent:${a.id}`), { newTab: e.metaKey })}
             >
-              <Avatar
-                className="eva-as-avatar"
-                size="md"
-                radius="xl"
-                src={portrait(a.avatar)}
-                alt=""
-                aria-hidden
-                data-testid={`agent-portrait-${a.id}`}
-              />
+              <PortraitMotion id={a.id} testId={`agent-portrait-${a.id}`}>
+                <Avatar
+                  className="eva-as-avatar"
+                  size="md"
+                  radius="xl"
+                  src={portrait(a.avatar)}
+                  alt=""
+                  aria-hidden
+                />
+              </PortraitMotion>
               <span className="eva-as-row-text">
                 <span className="eva-as-row-line">
                   <span className="eva-as-row-title">{a.title}</span>

@@ -47,6 +47,29 @@ in the config dir, keyed by session file or, for a new chat, its tab's `draft:<t
 by the supervisor) shows the relaunched window without taking focus. `state.read` reports
 `instance`, `build`, `update {pending, build, summary}` and the open chat's `draft`.
 
+## Assistant portraits
+
+An agent's portrait moves with its thread through `@relay/portrait-motion` (linked from the Relay
+checkout like `@relay/widget-runtime`; its DiceBear styles are deduped with ours in
+`electron.vite.config.ts`). `renderer/assistants/motion-signals.ts` derives the engine's signals
+per agent: Relay's status (`working` runs, `needs-you` waits; main reads omp's open `ask` as
+`needs-you`), Start on its way (runs) or refused (fails), the last reply's time, and, only while
+main's chat pane shows the agent's thread file, its stream (Talking, ChatLog's rule), running tool
+rows, subagents and jobs (Working), question card (Confused) and error banner or `Error:` notice
+(Error). No call reaches the desktop, so Listening never shows. The engine's `Director` turns
+those into Hello, Idle, Thinking, Working, Talking, Done, Confused, Error, Snoozing and Waking.
+
+- **Small portraits** (tab, crumb, Assistants home and sidebar rows: `PortraitMotion`) share one
+  director per agent (`motion-store.ts`, ticked on store changes and once a second) and animate in
+  CSS only: breathing, the turning accent ring while thinking or working, and a dot in the state's
+  tone (accent, orange needs you, red failed).
+- **The start card** (`PortraitCard`, 84 px) draws every engine frame as inline SVG at most 24
+  fps (`portrait-painter.ts`), greeting with Hello each time the page opens.
+- Motion off (`html[data-eva-motion='off']`: e2e, `EVAOS_NO_MOTION`, or the system's reduced
+  motion) holds every portrait still, the ring included; a hidden page runs no frames and pauses
+  the CSS (`motion-gate.ts`). `e2e/assistant-motion.spec.ts` drives a thread through every state;
+  `EVAOS_MOTION_PROOF=<dir>` turns motion on and records it plus CPU samples.
+
 ## Right panel
 
 The panel card holds two tools, picked by the Browser / Files tabs in its header, plus transient

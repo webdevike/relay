@@ -4,12 +4,13 @@ import { openPlace } from '../navigation/navigate'
 import { activePlace, useTabs } from '../tabs/tabs-store'
 import { portrait } from '../ui/portrait'
 import { agentIdOf, useAssistants } from './assistants-store'
+import { PortraitMotion } from './PortraitMotion'
 import './assistants.css'
 
 /**
  * The sidebar's Assistants page (native assistants_view::sidebar_list): one row per agent, its
- * portrait beside its title over its scope, with a dot while Relay hears it working. The open
- * agent is highlighted.
+ * portrait beside its title over its scope. The portrait carries the agent's mood (PortraitMotion):
+ * the ring while it works, a dot in the state's tone. The open agent is highlighted.
  */
 export function AssistantsList() {
   const agents = useAssistants((s) => s.data?.agents ?? null)
@@ -27,26 +28,20 @@ export function AssistantsList() {
           aria-current={open === a.id ? 'page' : undefined}
           onClick={(e) => openPlace(placeOf(`agent:${a.id}`), { newTab: e.metaKey })}
         >
-          <Avatar
-            className="eva-as-avatar"
-            size="sm"
-            radius="xl"
-            src={portrait(a.avatar)}
-            alt=""
-            aria-hidden
-          />
+          <PortraitMotion id={a.id} testId={`sidebar-portrait-${a.id}`}>
+            <Avatar
+              className="eva-as-avatar"
+              size="sm"
+              radius="xl"
+              src={portrait(a.avatar)}
+              alt=""
+              aria-hidden
+            />
+          </PortraitMotion>
           <span className="eva-as-side-text">
             <span className="eva-as-side-title">{a.title}</span>
             {a.scope ? <span className="eva-as-side-scope">{a.scope}</span> : null}
           </span>
-          {a.status === 'working' ? (
-            <span
-              className="eva-as-dot"
-              role="img"
-              aria-label="Working"
-              data-testid={`agent-working-${a.id}`}
-            />
-          ) : null}
         </button>
       ))}
     </div>

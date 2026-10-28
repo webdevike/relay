@@ -1,12 +1,17 @@
-import { Avatar, Button } from '@mantine/core'
+import { Button } from '@mantine/core'
 import type { Place } from '@evaos/shell-core'
-import { portrait } from '../ui/portrait'
 import { agentIdOf, agentOf, startAgent, useAssistants } from './assistants-store'
+import { PortraitCard } from './PortraitCard'
 import './assistants.css'
+
+/** The start card's portrait, Mantine's `xl` avatar. */
+const CARD_PX = 84
 
 /**
  * An agent's page before the host has started its thread (native chat_view::assistant_placeholder):
- * its portrait over a note that says so, and Start sends "Hi <Title>" through Relay. Once Relay
+ * its portrait over a note that says so, and Start sends "Hi <Title>" through Relay. The portrait
+ * moves with the agent (PortraitCard): it greets when the page opens, thinks once Start is on its
+ * way, and shows Relay's word on the thread until the page becomes its conversation. Once Relay
  * lists the thread, the page is its conversation in main's chat pane (PageRouter). A tab kept from
  * a registry that has since dropped the agent still shows its id (and the id's portrait), and Start
  * reaches the host's own answer.
@@ -22,14 +27,11 @@ export function AgentPage({ place }: { place: Place }) {
   const title = agent?.title ?? id
   return (
     <div className="eva-as-start" data-testid={`agent-start-${id}`}>
-      <Avatar
-        className="eva-as-avatar"
-        size="xl"
-        radius="xl"
-        src={portrait(agent?.avatar ?? id)}
-        alt=""
-        aria-hidden
-        data-testid={`agent-portrait-${id}`}
+      <PortraitCard
+        id={id}
+        portrait={agent?.avatar ?? { style: 'notionists', seed: id }}
+        size={CARD_PX}
+        testId={`agent-portrait-${id}`}
       />
       <h2 className="eva-as-start-title">{title} has not started yet.</h2>
       <p className="eva-as-dim eva-as-center">

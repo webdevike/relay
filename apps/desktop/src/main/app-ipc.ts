@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import type { MainContext } from './context'
-import { handle } from './ipc/handle'
+import { emit, handle } from './ipc/handle'
 
 export function registerAppIpc(ctx: MainContext): void {
   handle(ctx, 'app.info', () => {
@@ -19,4 +19,12 @@ export function registerAppIpc(ctx: MainContext): void {
       build: ctx.env.build,
     }
   })
+  // The page stays "visible" while the window is hidden (background throttling is off), so what
+  // only animates (assistant portraits) hears from here when nothing of the window shows.
+  const shown = (): void =>
+    emit(ctx, 'app.windowShown', { shown: ctx.win.isVisible() && !ctx.win.isMinimized() })
+  ctx.win.on('show', shown)
+  ctx.win.on('hide', shown)
+  ctx.win.on('minimize', shown)
+  ctx.win.on('restore', shown)
 }

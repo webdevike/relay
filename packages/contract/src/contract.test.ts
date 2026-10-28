@@ -62,7 +62,12 @@ describe('contract', () => {
       'app.saveDirty.reply',
     ])
       expect(INVOKE_CHANNELS).toContain(c)
-    for (const c of ['app.hotkey', 'app.unsavedEdits.request', 'app.saveDirty.request'])
+    for (const c of [
+      'app.hotkey',
+      'app.unsavedEdits.request',
+      'app.saveDirty.request',
+      'app.windowShown',
+    ])
       expect(EVENT_CHANNELS).toContain(c)
   })
 

@@ -1,0 +1,163 @@
+/*
+ * Animated assistant portraits (@relay/portrait-motion). Small portraits (.eva-pm: crumb, tabs,
+ * Assistants rows) breathe, ring and dot in CSS; the start card (.eva-pmc) is drawn per frame by
+ * portrait-painter.ts. Motion off (the app setting or the system's reduced motion) holds them
+ * still, ring included; a hidden page pauses them.
+ */
+.eva-pm,
+.eva-pmc {
+  /* The portrait's accent, else the app's primary; soft and deep tones for confetti. */
+  --eva-pm-c: var(--eva-pm-accent, var(--mantine-primary-color-filled));
+  --eva-pm-soft: color-mix(in srgb, var(--eva-pm-c) 55%, white);
+  --eva-pm-deep: color-mix(in srgb, var(--eva-pm-c) 75%, black);
+  position: relative;
+  flex: none;
+}
+
+/* Small portraits */
+.eva-pm {
+  display: inline-flex;
+  border-radius: 50%;
+}
+.eva-pm > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+}
+/* The animations sit at zero specificity (:where) so the motion-off and hidden rules below win. */
+:where(.eva-pm > :first-child) {
+  transform-origin: 50% 70%;
+  animation: eva-pm-breathe 3.6s ease-in-out infinite;
+}
+:where(.eva-pm[data-state='snoozing'] > :first-child) {
+  animation-duration: 6s;
+}
+.eva-pm-ring {
+  display: none;
+  position: absolute;
+  inset: calc(-1 * var(--eva-pm-gap, 3px));
+  border-radius: 50%;
+  pointer-events: none;
+  background: conic-gradient(from 0turn, transparent 0 30%, var(--eva-pm-c));
+  mask: radial-gradient(
+    farthest-side,
+    transparent calc(100% - var(--eva-pm-stroke, 1.5px)),
+    #000 calc(100% - var(--eva-pm-stroke, 1.5px))
+  );
+}
+.eva-pm[data-ring='true'] > .eva-pm-ring {
+  display: block;
+}
+:where(.eva-pm-ring) {
+  animation: eva-pm-spin 1.1s linear infinite;
+}
+.eva-pm-dot,
+.eva-pmc-dot {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: max(5px, 28%);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--eva-pm-c);
+  box-shadow: 0 0 0 1.5px var(--eva-pm-edge, var(--eva-c-background));
+  pointer-events: none;
+}
+.eva-pmc-dot {
+  width: 14px;
+  right: 4px;
+  bottom: 4px;
+  box-shadow: 0 0 0 2px var(--eva-pm-edge, var(--eva-c-background));
+}
+[data-dot='orange'] > .eva-pm-dot,
+[data-dot='orange'] > .eva-pmc-dot {
+  background: var(--mantine-color-orange-filled);
+}
+[data-dot='red'] > .eva-pm-dot,
+[data-dot='red'] > .eva-pmc-dot {
+  background: var(--mantine-color-red-filled);
+}
+
+@keyframes eva-pm-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.04);
+  }
+}
+@keyframes eva-pm-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+html[data-eva-motion='off'] .eva-pm > * {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .eva-pm > * {
+    animation: none;
+  }
+}
+html[data-eva-page-hidden='true'] .eva-pm > * {
+  animation-play-state: paused;
+}
+
+/* The start card */
+.eva-pmc-art {
+  position: absolute;
+  inset: 0;
+}
+.eva-pmc-disc {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--eva-pm-paper, var(--mantine-color-gray-1));
+}
+.eva-pmc-disc > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.eva-pmc-fx {
+  position: absolute;
+  overflow: visible;
+  pointer-events: none;
+}
+.eva-pmc-waves circle {
+  fill: none;
+  stroke: var(--eva-pm-c);
+}
+.eva-pmc-ring circle,
+.eva-pmc-zzz text,
+.eva-pmc-quiz text,
+.eva-pmc-conf .eva-pmc-t0 {
+  fill: var(--eva-pm-c);
+}
+.eva-pmc-conf .eva-pmc-t1 {
+  fill: var(--eva-pm-soft);
+}
+.eva-pmc-conf .eva-pmc-t2 {
+  fill: var(--eva-pm-deep);
+}
+.eva-pmc-zzz text,
+.eva-pmc-quiz text {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Rounded', 'Helvetica Neue', sans-serif;
+  font-weight: 800;
+}
+.eva-pmc-quiz path,
+.eva-pmc-quiz circle {
+  fill: var(--eva-pm-bubble, #fff);
+  stroke: var(--eva-pm-c);
+}
+.eva-pmc-quiz rect {
+  fill: var(--eva-pm-bubble, #fff);
+}
+.eva-pmc-drop path {
+  fill: var(--eva-pm-soft);
+  stroke: var(--eva-pm-c);
+}

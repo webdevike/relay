@@ -23,7 +23,9 @@ export interface HostSession {
   status: 'working' | 'waiting' | 'needs_permission' | 'idle' | 'ended'
   statusDetail?: string
   canRespond?: boolean
-  kind?: 'manual' | 'job'
+  kind?: 'manual' | 'job' | 'assistant'
+  /** The registry agent an `assistant` thread belongs to. */
+  assistant?: string
   title?: string
 }
 
@@ -164,6 +166,7 @@ export class FakeRelayHost {
       lastActivityAt: Date.now(),
       canRespond: s.canRespond ?? true,
       kind: s.kind ?? 'manual',
+      ...(s.assistant ? { assistant: s.assistant } : {}),
     }
   }
 
