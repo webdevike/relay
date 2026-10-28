@@ -294,6 +294,45 @@
   }
 }
 
+/*
+ * Tap-to-answer replies under the newest reply: quiet capsules like the jump pill, left-aligned
+ * with the reply and wrapping. The top margin clears reaction badges hanging off the last line.
+ */
+.eva-reply-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mantine-spacing-xs);
+  margin-top: var(--mantine-spacing-sm);
+}
+.eva-reply-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 var(--mantine-spacing-md);
+  border: 1px solid var(--eva-border);
+  border-radius: var(--eva-radius-round);
+  background: var(--eva-surface);
+  color: var(--eva-text);
+  font-family: var(--eva-font-ui);
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-medium);
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color var(--eva-dur-fast);
+}
+.eva-reply-chip:hover:not(:disabled) {
+  border-color: var(--mantine-color-default-border-hover, var(--eva-c-muted-foreground));
+}
+.eva-reply-chip:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: 2px;
+}
+.eva-reply-chip:disabled {
+  color: var(--eva-text-dim);
+  cursor: default;
+}
+
 .eva-writer-prompt-body {
   margin: 0 0 var(--eva-space-md, 12px);
 }

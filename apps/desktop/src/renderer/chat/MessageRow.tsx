@@ -1,5 +1,6 @@
-import { memo, useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import type { ChatMessage } from '@evaos/chat-core/message'
+import { splitReplies } from '@evaos/chat-core/replies'
 import { ChatImage } from './ChatImage'
 import { ImageViewer } from './ImageViewer'
 import { Markdown } from './markdown/Markdown'
@@ -7,6 +8,7 @@ import { WidgetScope } from './widgets/actions'
 import { ToolBlock, ToolGroup } from './ToolRows'
 import { BubbleActions } from './reactions/BubbleActions'
 import { CanvasRow } from './CanvasRow'
+import { ReplyChips } from './ReplyChips'
 
 /** Thumbnails for a message's images; Enter or click opens the viewer on that image. */
 function Images({ images }: { images: ChatMessage['images'] }) {
@@ -49,7 +51,30 @@ function Row({ id, role, children }: { id: string; role: string; children: React
   )
 }
 
-function MessageRowImpl({ m }: { m: ChatMessage }) {
+/**
+ * A reply without its `[[replies: ...]]` line (cut while it streams in, too), so it never shows,
+ * copies or quotes; the newest reply (`live`) shows the answers as buttons under it.
+ */
+function AssistantBody({ m, live }: { m: ChatMessage; live: boolean }) {
+  const split = useMemo(() => splitReplies(m.text, m.streaming), [m.text, m.streaming])
+  const shown = useMemo(
+    () => (split.text === m.text ? m : { ...m, text: split.text }),
+    [m, split.text],
+  )
+  return (
+    <>
+      <BubbleActions m={shown} corner="end">
+        <WidgetScope.Provider value={m.id}>
+          <Markdown text={split.text} />
+        </WidgetScope.Provider>
+      </BubbleActions>
+      {live && !m.streaming && split.replies ? <ReplyChips replies={split.replies} /> : null}
+    </>
+  )
+}
+
+/** `live`: the newest row of an idle chat, the one tap-to-answer replies show under. */
+function MessageRowImpl({ m, live = false }: { m: ChatMessage; live?: boolean }) {
   let body
   if (m.role === 'user') {
     const text = m.text.trim() !== ''
@@ -63,13 +88,7 @@ function MessageRowImpl({ m }: { m: ChatMessage }) {
       </div>
     )
   } else if (m.role === 'assistant') {
-    body = (
-      <BubbleActions m={m} corner="end">
-        <WidgetScope.Provider value={m.id}>
-          <Markdown text={m.text} />
-        </WidgetScope.Provider>
-      </BubbleActions>
-    )
+    body = <AssistantBody m={m} live={live} />
   } else if (m.role === 'thinking') {
     body = <div className="eva-thinking">{m.text}</div>
   } else if (m.role === 'tool') {

@@ -319,6 +319,23 @@ describe('bubble context menu', () => {
     expect(writeText.mock.calls[1]![0]).not.toContain('**')
   })
 
+  it("Copy, Copy as Markdown and Reply leave out a reply's tap-to-answer line", async () => {
+    const { replyTo } = show(
+      makeMessage('a2', 'assistant', 'Push **it**?\n\n[[replies: Yes, push it | Not yet]]', {
+        at: 300,
+      }),
+    )
+    fireEvent.contextMenu(screen.getByTestId('bubble-a2'), { clientX: 1, clientY: 1 })
+    fireEvent.click(await screen.findByTestId('bubble-menu-markdown'))
+    expect(writeText).toHaveBeenLastCalledWith('Push **it**?')
+    fireEvent.contextMenu(screen.getByTestId('bubble-a2'), { clientX: 1, clientY: 1 })
+    fireEvent.click(await screen.findByTestId('bubble-menu-copy'))
+    expect(writeText.mock.calls[1]![0]).not.toContain('replies')
+    fireEvent.contextMenu(screen.getByTestId('bubble-a2'), { clientX: 1, clientY: 1 })
+    fireEvent.click(await screen.findByTestId('bubble-menu-reply'))
+    expect(replyTo).toHaveBeenCalledWith('> Push **it**?\n\n')
+  })
+
   it('Select text selects the bubble', async () => {
     show(user)
     fireEvent.contextMenu(screen.getByTestId('bubble-u1'), { clientX: 1, clientY: 1 })
