@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AgentSession, AssistantMessage, AssistantSnapshot } from "@relay/protocol";
-import { motionSignals, threadTool, type MotionInputs } from "./motion";
+import { SNOOZE_MS } from "@relay/portrait-motion";
+import { listingWords, motionSignals, threadTool, type MotionInputs } from "./motion";
 
 function snapshot(messages: AssistantMessage[], busy = false, sessionId = "s1"): AssistantSnapshot {
   return { rev: 1, messages, busy, sessionId };
@@ -93,5 +94,23 @@ describe("threadTool", () => {
   it("is null without a session", () => {
     expect(threadTool({ s1: session("s1", { status: "working", statusDetail: "bash" }) }, null)).toBeNull();
     expect(threadTool({}, "")).toBeNull();
+  });
+});
+
+describe("listingWords", () => {
+  const nova = { id: "nova", title: "Nova" } as const;
+  const own = (change: Partial<AgentSession> = {}) => ({ s1: session("s1", { kind: "assistant", assistant: "nova", ...change }) });
+
+  it("words a working assistant by the tool its session runs", () => {
+    expect(listingWords({ ...nova, status: "working" }, own({ status: "working", statusDetail: "web_search" }), 0)).toBe("is researching");
+    expect(listingWords({ ...nova, status: "working" }, own({ status: "working", statusDetail: "bash" }), 0)).toBe("is working");
+    expect(listingWords({ ...nova, status: "working" }, {}, 0)).toBe("is thinking");
+  });
+
+  it("says needs you, is away after 30 quiet minutes, and nothing at rest", () => {
+    expect(listingWords({ ...nova, status: "needs_you" }, own(), 0)).toBe("needs you");
+    expect(listingWords({ ...nova, status: "idle", lastReply: { text: "hi", at: 0 } }, own(), SNOOZE_MS)).toBe("is away");
+    expect(listingWords({ ...nova, status: "idle", lastReply: { text: "hi", at: 0 } }, own(), 1000)).toBeNull();
+    expect(listingWords({ ...nova }, {}, 0)).toBeNull();
   });
 });

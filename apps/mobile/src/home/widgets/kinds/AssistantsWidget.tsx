@@ -12,11 +12,13 @@ import type { AssistantAgent } from "@relay/protocol";
 import { NestedPager } from "@/ui/NestedPager";
 import { PageDots } from "@/ui/PageControls";
 import { BreathingPortrait } from "@/ui/BreathingPortrait";
+import { StatusWords } from "@/ui/StatusWords";
 import { Text } from "@/ui/Text";
 import { previewText } from "@/agents/markdown";
 import { relativeTime } from "@/lib/format";
 import { portraitOf } from "@/lib/portrait";
 import { STATUS_LABEL, useAssistantStore } from "@/state/assistant";
+import { useListingWords } from "@/state/motion";
 import { useConnectionStore } from "@/state/connection";
 import { spacing, useColors } from "@/theme";
 import {
@@ -51,6 +53,7 @@ function agentLine(agent: AssistantAgent): string {
 
 function AgentRow({ agent, open, first }: { agent: AssistantAgent; open: WidgetBodyProps["open"]; first: boolean }) {
   const colors = useColors();
+  const words = useListingWords(agent);
   return (
     <WidgetLink
       href={{ pathname: "/eva", params: { agent: agent.id } }}
@@ -62,6 +65,8 @@ function AgentRow({ agent, open, first }: { agent: AssistantAgent; open: WidgetB
         <Text variant="label" numberOfLines={1} style={styles.name}>
           {agent.title}
         </Text>
+        <StatusWords words={words} />
+        <View style={styles.grow} />
         {agent.lastReply !== undefined && (
           <Text variant="caption" color="textFaint">
             {relativeTime(agent.lastReply.at)}
@@ -119,6 +124,11 @@ export function AssistantsWidget({ size, open, a11y }: WidgetBodyProps) {
   return <AssistantStack agents={stack} open={open} a11y={a11y} />;
 }
 
+/** A stack page's status words after the name (a hook per page, so pages render alike). */
+function StackWords({ agent }: { agent: AssistantAgent }) {
+  return <StatusWords words={useListingWords(agent)} />;
+}
+
 /**
  * The small widget as an iOS Smart Stack turned sideways: one assistant per page, its portrait the
  * main image, `PageDots` under them. Its `NestedPager` hands a swipe past either end to Home's pages.
@@ -160,9 +170,12 @@ function AssistantStack({ agents, open, a11y }: { agents: readonly AssistantAgen
           {agents.map((agent) => (
             <View key={agent.id} style={styles.page}>
               <BreathingPortrait name={agent.title} portrait={portraitOf(agent)} size={Math.round(frame.height * 0.36)} working={agent.status === "working"} />
-              <Text variant="label" numberOfLines={1} style={styles.stackName}>
-                {agent.title}
-              </Text>
+              <View style={styles.stackHead}>
+                <Text variant="label" numberOfLines={1} style={styles.stackName}>
+                  {agent.title}
+                </Text>
+                <StackWords agent={agent} />
+              </View>
               <Text variant="caption" color="textMuted" numberOfLines={2}>
                 {agentLine(agent)}
               </Text>
@@ -190,10 +203,12 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   stackSurface: { padding: 0 },
   page: { flex: 1, padding: WIDGET_PADDING, paddingBottom: DOTS_ROW },
-  stackName: { marginTop: spacing.sm, fontWeight: "600" },
+  stackHead: { marginTop: spacing.sm, flexDirection: "row", alignItems: "baseline", gap: 4 },
+  stackName: { flexShrink: 0, maxWidth: "70%", fontWeight: "600" },
   dots: { position: "absolute", left: 0, right: 0, bottom: 0, height: DOTS_ROW, justifyContent: "center" },
   rows: { flex: 1, justifyContent: "space-between" },
   row: { flex: 1, justifyContent: "center", gap: 1 },
   rowHead: { flexDirection: "row", alignItems: "center", gap: 6 },
-  name: { flex: 1, fontWeight: "600" },
+  name: { flexShrink: 1, fontWeight: "600" },
+  grow: { flex: 1 },
 });

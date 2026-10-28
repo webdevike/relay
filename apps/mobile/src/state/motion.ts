@@ -8,8 +8,8 @@
  * `useMotionSignals` wires it to the stores and only changes identity when a signal does.
  */
 import { useMemo } from "react";
-import type { AgentSession, AssistantSnapshot, AssistantStatus, CallState } from "@relay/protocol";
-import { toolKind, type MotionSignals, type ToolKind } from "@relay/portrait-motion";
+import type { AgentSession, AssistantAgent, AssistantSnapshot, AssistantStatus, CallState } from "@relay/protocol";
+import { Director, statusText, toolKind, type MotionSignals, type ToolKind } from "@relay/portrait-motion";
 import { subagentsOf, useAgentsStore } from "./agents";
 import { threadOf, useAssistantStore } from "./assistant";
 import { useCallStore } from "./call";
@@ -92,4 +92,27 @@ export function useMotionSignals(agent: string, turnFailed: boolean): MotionSign
     (): MotionSignals => ({ running: s.running, tool: s.tool, waiting: s.waiting, failed: s.failed, activityAt: s.activityAt }),
     [s.running, s.tool, s.waiting, s.failed, s.activityAt],
   );
+}
+
+/**
+ * The status words a list row shows for `agent` (`statusText`: "is thinking", "is researching",
+ * "needs you", ...; null at rest), from what every phone hears without following the thread: its
+ * registry status and last reply, and the tool its omp session (`kind` "assistant") runs now.
+ */
+export function listingWords(agent: AssistantAgent, sessions: Record<string, AgentSession>, now: number): string | null {
+  const own = Object.values(sessions).filter((session) => session.kind === "assistant" && session.assistant === agent.id);
+  const session = own.find((entry) => entry.status === "working") ?? own[0];
+  const signals: MotionSignals = {
+    running: agent.status === "working",
+    tool: agent.status === "working" ? threadTool(sessions, session?.id ?? null) : null,
+    waiting: agent.status === "needs_you",
+    failed: false,
+    activityAt: agent.lastReply?.at ?? null,
+  };
+  return statusText(new Director().next(signals, now), signals);
+}
+
+/** `listingWords` for `agent`, from the stores. */
+export function useListingWords(agent: AssistantAgent): string | null {
+  return useAgentsStore((state) => listingWords(agent, state.sessions, Date.now()));
 }
