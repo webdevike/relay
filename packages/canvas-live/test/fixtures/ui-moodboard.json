@@ -1,0 +1,320 @@
+{
+  "version": 1,
+  "title": "EvaOS UI moodboard",
+  "layout": "grid",
+  "nodes": [
+    {
+      "id": "title",
+      "type": "topic",
+      "x": 0.0,
+      "y": 0.0,
+      "data": {
+        "title": "EvaOS UI",
+        "body": "Calm, inky, dense where it counts"
+      }
+    },
+    {
+      "id": "palette",
+      "type": "palette",
+      "x": 0.0,
+      "y": 115.0,
+      "data": {
+        "title": "Flexoki dark (EvaOS theme)",
+        "colors": [
+          {
+            "hex": "#100F0F",
+            "name": "Surface"
+          },
+          {
+            "hex": "#1C1B1A",
+            "name": "Muted"
+          },
+          {
+            "hex": "#232221",
+            "name": "Raised"
+          },
+          {
+            "hex": "#282726",
+            "name": "Border"
+          },
+          {
+            "hex": "#CECDC3",
+            "name": "Text"
+          },
+          {
+            "hex": "#878580",
+            "name": "Quiet"
+          },
+          {
+            "hex": "#24837B",
+            "name": "Accent"
+          },
+          {
+            "hex": "#D0A215",
+            "name": "Warn"
+          }
+        ]
+      }
+    },
+    {
+      "id": "type-ui",
+      "type": "typography",
+      "x": 0.0,
+      "y": 460.0,
+      "data": {
+        "title": "Interface",
+        "font": "Inter",
+        "sample": "Ship the eCard proof on dev"
+      }
+    },
+    {
+      "id": "type-mono",
+      "type": "typography",
+      "x": 0.0,
+      "y": 706.0,
+      "data": {
+        "title": "Code and keys",
+        "font": "IBM Plex Mono",
+        "sample": "ENG-6180 · #212 merged"
+      }
+    },
+    {
+      "id": "principles",
+      "type": "note",
+      "x": 0.0,
+      "y": 953.0,
+      "data": {
+        "title": "Principles",
+        "body": "One accent, used for state. Borders over shadows. Text sizes from the Mantine scale."
+      }
+    },
+    {
+      "id": "dark",
+      "type": "frame",
+      "x": 308.0,
+      "y": 0.0,
+      "w": 529.0,
+      "h": 640.0,
+      "data": {
+        "title": "Calm dark workspaces"
+      }
+    },
+    {
+      "id": "dark-zed",
+      "type": "image",
+      "x": 324.0,
+      "y": 36.0,
+      "parent": "dark",
+      "data": {
+        "title": "Zed",
+        "src": "https://zed.dev/img/home/og.webp",
+        "caption": "Editor chrome that disappears; thin rules, muted tabs",
+        "url": "https://zed.dev"
+      }
+    },
+    {
+      "id": "dark-raycast",
+      "type": "image",
+      "x": 580.0,
+      "y": 36.0,
+      "parent": "dark",
+      "data": {
+        "title": "Raycast",
+        "src": "https://www.raycast.com/opengraph-image-pwu6ef.png?opengraph-image.1f-98etzkaz5s.png",
+        "caption": "Command list with a preview pane",
+        "url": "https://www.raycast.com"
+      }
+    },
+    {
+      "id": "dark-presets",
+      "type": "image",
+      "x": 580.0,
+      "y": 262.0,
+      "parent": "dark",
+      "data": {
+        "title": "Raycast AI presets",
+        "src": "https://i.ytimg.com/vi/4Hi21ZpdrOc/maxresdefault.jpg",
+        "caption": "Picker rows with icons and a details column",
+        "url": "https://www.youtube.com/watch?v=4Hi21ZpdrOc"
+      }
+    },
+    {
+      "id": "dark-ghostty",
+      "type": "image",
+      "x": 324.0,
+      "y": 277.0,
+      "parent": "dark",
+      "data": {
+        "title": "Ghostty",
+        "src": "https://ghostty.org/social-share-card.jpg",
+        "caption": "Terminal-native texture, monochrome",
+        "url": "https://ghostty.org"
+      }
+    },
+    {
+      "id": "dark-note",
+      "type": "note",
+      "x": 580.0,
+      "y": 511.0,
+      "parent": "dark",
+      "data": {
+        "title": "Borrow",
+        "body": "Near-black surfaces with one lifted panel; selection is a tint, not a border."
+      }
+    },
+    {
+      "id": "boards",
+      "type": "frame",
+      "x": 884.0,
+      "y": 0.0,
+      "w": 529.0,
+      "h": 627.0,
+      "data": {
+        "title": "Boards and canvases"
+      }
+    },
+    {
+      "id": "boards-flow",
+      "type": "image",
+      "x": 900.0,
+      "y": 36.0,
+      "parent": "boards",
+      "data": {
+        "title": "tldraw: node flow",
+        "src": "https://cdn.sanity.io/images/ij3ytvrl/production/1e80b548c4d480bc5e2a11a395682e41c0a5a8fb-1804x976.png?w=1200&fit=max",
+        "caption": "Cards joined by soft curves",
+        "url": "https://tldraw.dev"
+      }
+    },
+    {
+      "id": "boards-whiteboard",
+      "type": "image",
+      "x": 1157.0,
+      "y": 36.0,
+      "parent": "boards",
+      "data": {
+        "title": "tldraw: whiteboard",
+        "src": "https://cdn.sanity.io/images/ij3ytvrl/production/4dd9767bfd9548f4e38d45bdb96bc3611d3624bf-1361x820.png?w=1200&fit=max",
+        "caption": "Floating tool bar at the bottom edge",
+        "url": "https://tldraw.dev"
+      }
+    },
+    {
+      "id": "boards-annotate",
+      "type": "image",
+      "x": 900.0,
+      "y": 265.0,
+      "parent": "boards",
+      "data": {
+        "title": "tldraw: annotations",
+        "src": "https://cdn.sanity.io/images/ij3ytvrl/production/d64a6fbeb14fb2b8d836233cd2153ccf889a32f3-1294x726.png?w=1200&fit=max",
+        "caption": "Sticky labels over screenshots",
+        "url": "https://tldraw.dev"
+      }
+    },
+    {
+      "id": "boards-media",
+      "type": "image",
+      "x": 1157.0,
+      "y": 278.0,
+      "parent": "boards",
+      "data": {
+        "title": "tldraw: media canvas",
+        "src": "https://cdn.sanity.io/images/ij3ytvrl/production/e2989c631a79689dd4d4cc679f8963161ce9b4f5-1279x716.png?w=1200&fit=max",
+        "caption": "Image grid with a side panel",
+        "url": "https://tldraw.dev"
+      }
+    },
+    {
+      "id": "boards-note",
+      "type": "note",
+      "x": 900.0,
+      "y": 498.0,
+      "parent": "boards",
+      "data": {
+        "title": "Borrow",
+        "body": "Tools float, content fills the edges; frames group without heavy chrome."
+      }
+    },
+    {
+      "id": "quiet",
+      "type": "frame",
+      "x": 1461.0,
+      "y": 0.0,
+      "w": 528.0,
+      "h": 639.0,
+      "data": {
+        "title": "Quiet structure"
+      }
+    },
+    {
+      "id": "quiet-things",
+      "type": "image",
+      "x": 1477.0,
+      "y": 36.0,
+      "parent": "quiet",
+      "data": {
+        "title": "Things",
+        "src": "https://culturedcode.com/things/2024-01-20/images/meettheallnewthings2-io75.jpg",
+        "caption": "Sidebar sections with small colored icons",
+        "url": "https://culturedcode.com/things/"
+      }
+    },
+    {
+      "id": "quiet-flexoki",
+      "type": "image",
+      "x": 1733.0,
+      "y": 36.0,
+      "parent": "quiet",
+      "data": {
+        "title": "Flexoki",
+        "src": "https://stephango.com/assets/flexoki-dark.png",
+        "caption": "The inky palette EvaOS runs on",
+        "url": "https://stephango.com/flexoki"
+      }
+    },
+    {
+      "id": "quiet-geist",
+      "type": "image",
+      "x": 1733.0,
+      "y": 264.0,
+      "parent": "quiet",
+      "data": {
+        "title": "Geist",
+        "src": "https://k2mkucxia43oc7fa.public.blob.vercel-storage.com/front/design/geist-og.jpg",
+        "caption": "Inputs, chips and code in one quiet system",
+        "url": "https://vercel.com/geist/introduction"
+      }
+    },
+    {
+      "id": "quiet-warp",
+      "type": "image",
+      "x": 1477.0,
+      "y": 286.0,
+      "parent": "quiet",
+      "data": {
+        "title": "Warp",
+        "src": "https://www.warp.dev/og/default.png",
+        "caption": "A scatter of tiles: moodboards should feel like this",
+        "url": "https://www.warp.dev"
+      }
+    },
+    {
+      "id": "quiet-note",
+      "type": "note",
+      "x": 1733.0,
+      "y": 509.0,
+      "parent": "quiet",
+      "data": {
+        "title": "Borrow",
+        "body": "Warm neutrals, generous line height, color only where it means something."
+      }
+    }
+  ],
+  "edges": [],
+  "viewport": {
+    "x": 208.0,
+    "y": 114.0,
+    "zoom": 0.32
+  }
+}

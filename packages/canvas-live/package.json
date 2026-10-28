@@ -1,0 +1,26 @@
+{
+  "name": "@relay/canvas-live",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Live canvas rooms: the Y.Doc layout shared by the Relay host and the web client, and the EvaOS board JSON <-> Y.Doc mapping.",
+  "exports": {
+    "./shared": "./src/shared.ts",
+    "./board": "./src/board.ts",
+    "./layout": "./src/layout.ts"
+  },
+  "scripts": {
+    "lint": "eslint src test",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "lib0": "^0.2.119",
+    "y-protocols": "^1.0.7",
+    "yjs": "^13.6.33"
+  },
+  "devDependencies": {
+    "@relay/eslint-config": "workspace:*",
+    "@types/node": "^20.0.0"
+  }
+}

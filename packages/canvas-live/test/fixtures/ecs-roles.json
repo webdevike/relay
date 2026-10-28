@@ -1,0 +1,560 @@
+{
+  "version": 1,
+  "title": "ECS roles → functionality",
+  "layout": "flow",
+  "nodes": [
+    {
+      "id": "root",
+      "type": "topic",
+      "x": -310.0,
+      "y": 779.0,
+      "data": {
+        "title": "ECS roles → what they unlock",
+        "body": "Per HelpJuice roles guide (2026-09-23). Code can differ: verify on the live build."
+      }
+    },
+    {
+      "id": "ecs-admin",
+      "type": "ticket",
+      "x": 324.0,
+      "y": -34.0,
+      "data": {
+        "title": "eCards Admin",
+        "key": "ECS_ADMIN",
+        "status": "Staff · live",
+        "tone": "accent"
+      }
+    },
+    {
+      "id": "ecs-support",
+      "type": "ticket",
+      "x": 335.0,
+      "y": 131.0,
+      "data": {
+        "title": "eCards Support",
+        "key": "ECS_SUPPORT",
+        "status": "Staff · live",
+        "tone": "accent"
+      }
+    },
+    {
+      "id": "ecs-ops",
+      "type": "ticket",
+      "x": 335.0,
+      "y": 263.0,
+      "data": {
+        "title": "eCards Operations",
+        "key": "ECS_OPERATIONS",
+        "status": "Staff · live",
+        "tone": "accent"
+      }
+    },
+    {
+      "id": "m-admin",
+      "type": "ticket",
+      "x": 335.0,
+      "y": 394.0,
+      "data": {
+        "title": "Merchant Administrator",
+        "key": "ADMIN",
+        "status": "Merchant · live",
+        "tone": "success"
+      }
+    },
+    {
+      "id": "m-finance",
+      "type": "ticket",
+      "x": 335.0,
+      "y": 526.0,
+      "data": {
+        "title": "Finance User",
+        "key": "FINANCE_USER",
+        "status": "Merchant · live",
+        "tone": "success"
+      }
+    },
+    {
+      "id": "m-it",
+      "type": "ticket",
+      "x": 335.0,
+      "y": 657.0,
+      "data": {
+        "title": "IT User",
+        "key": "IT_USER",
+        "status": "Merchant · docs conflict",
+        "tone": "warn"
+      }
+    },
+    {
+      "id": "m-fran",
+      "type": "ticket",
+      "x": 335.0,
+      "y": 789.0,
+      "data": {
+        "title": "Franchisee",
+        "key": "FRANCHISEE",
+        "status": "Merchant · in progress",
+        "tone": "warn"
+      }
+    },
+    {
+      "id": "base",
+      "type": "ticket",
+      "x": 335.0,
+      "y": 920.0,
+      "data": {
+        "title": "Base user",
+        "key": "USER",
+        "status": "Base · live",
+        "tone": "muted"
+      }
+    },
+    {
+      "id": "f-all",
+      "type": "note",
+      "x": 1445.0,
+      "y": 821.0,
+      "data": {
+        "title": "Everyone",
+        "body": "Home dashboard · My Orders · Support · Account",
+        "tone": "muted"
+      }
+    },
+    {
+      "id": "f-rep",
+      "type": "note",
+      "x": 2103.0,
+      "y": 161.0,
+      "data": {
+        "title": "Reporting",
+        "body": "Reports (left nav once a merchant is assigned). Franchisee: own locations only.",
+        "tone": "accent"
+      }
+    },
+    {
+      "id": "f-mops",
+      "type": "note",
+      "x": 1846.0,
+      "y": 504.0,
+      "data": {
+        "title": "Merchant operations",
+        "body": "Virtual Terminal · Locations · Time zone · Users CRUD",
+        "tone": "accent"
+      }
+    },
+    {
+      "id": "f-staff",
+      "type": "note",
+      "x": 1489.0,
+      "y": -171.0,
+      "data": {
+        "title": "Staff tools",
+        "body": "CS Customers · Print Card Jobs · Switch to ANY merchant · Partner Int. App / Entitlement",
+        "tone": "warn"
+      }
+    },
+    {
+      "id": "f-admin",
+      "type": "note",
+      "x": 785.0,
+      "y": -320.0,
+      "data": {
+        "title": "Administration",
+        "body": "Platform config. ECS_ADMIN only.",
+        "tone": "danger"
+      }
+    },
+    {
+      "id": "s1",
+      "type": "note",
+      "x": 335.0,
+      "y": 1052.0,
+      "data": {
+        "title": "1 · Sign in",
+        "body": "Auth0 token proves who you are; it only carries a coarse admin/user flag.",
+        "tone": "muted"
+      }
+    },
+    {
+      "id": "s2",
+      "type": "note",
+      "x": 847.0,
+      "y": 1171.0,
+      "data": {
+        "title": "2 · Load the real role",
+        "body": "API looks up your user + merchant associations + role in PlatformDB (cached 1h).",
+        "tone": "muted"
+      }
+    },
+    {
+      "id": "s3",
+      "type": "note",
+      "x": 1303.0,
+      "y": 1174.0,
+      "data": {
+        "title": "3 · Pick the merchant",
+        "body": "Session merchant header must be one of yours. ECS_ADMIN/SUPPORT may pick any.",
+        "tone": "muted"
+      }
+    },
+    {
+      "id": "s4",
+      "type": "note",
+      "x": 1803.0,
+      "y": 1192.0,
+      "data": {
+        "title": "4 · Capability (OPA)",
+        "body": "role_permissions + additive overrides: can this role list/read/create/update/delete/export the type? Also drives nav visibility.",
+        "tone": "muted"
+      }
+    },
+    {
+      "id": "s5",
+      "type": "note",
+      "x": 2284.0,
+      "y": 1171.0,
+      "data": {
+        "title": "5 · Scope (OPA)",
+        "body": "grants: which locations at this merchant (all or listed). Needed for instance-level checks.",
+        "tone": "muted"
+      }
+    },
+    {
+      "id": "s6",
+      "type": "note",
+      "x": 2808.0,
+      "y": 1150.0,
+      "data": {
+        "title": "Answer",
+        "body": "Allowed = membership + capability (+ scope for one record). OPA down = 503, never allow.",
+        "tone": "accent"
+      }
+    },
+    {
+      "id": "caveat",
+      "type": "note",
+      "x": 335.0,
+      "y": 1215.0,
+      "data": {
+        "title": "Docs vs code",
+        "body": "IT_USER is 'Future' in definitions but active in the matrix; nav table and matrix disagree on My Orders, Print Jobs, Locations. M = depends on your role at that merchant.",
+        "tone": "warn"
+      }
+    },
+    {
+      "id": "src",
+      "type": "link",
+      "x": 921.0,
+      "y": 1490.0,
+      "data": {
+        "title": "Roles & permissions guide (HelpJuice)",
+        "caption": "Source for the matrix",
+        "url": "https://ecs.helpjuice.com/architecture/platform-roles-permissions-guide"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "root-ecs-admin",
+      "source": "root",
+      "target": "ecs-admin",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "root-ecs-support",
+      "source": "root",
+      "target": "ecs-support",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "root-ecs-ops",
+      "source": "root",
+      "target": "ecs-ops",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "root-m-admin",
+      "source": "root",
+      "target": "m-admin",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "root-m-finance",
+      "source": "root",
+      "target": "m-finance",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "root-m-it",
+      "source": "root",
+      "target": "m-it",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "root-m-fran",
+      "source": "root",
+      "target": "m-fran",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "root-base",
+      "source": "root",
+      "target": "base",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "ecs-admin-f-all",
+      "source": "ecs-admin",
+      "target": "f-all",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "ecs-admin-f-rep",
+      "source": "ecs-admin",
+      "target": "f-rep",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "ecs-admin-f-mops",
+      "source": "ecs-admin",
+      "target": "f-mops",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "ecs-admin-f-staff",
+      "source": "ecs-admin",
+      "target": "f-staff",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "ecs-admin-f-admin",
+      "source": "ecs-admin",
+      "target": "f-admin",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "tone": "accent"
+    },
+    {
+      "id": "ecs-support-f-all",
+      "source": "ecs-support",
+      "target": "f-all",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "ecs-support-f-rep",
+      "source": "ecs-support",
+      "target": "f-rep",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "ecs-support-f-mops",
+      "source": "ecs-support",
+      "target": "f-mops",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "ecs-support-f-staff",
+      "source": "ecs-support",
+      "target": "f-staff",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "no Print Jobs"
+    },
+    {
+      "id": "ecs-ops-f-all",
+      "source": "ecs-ops",
+      "target": "f-all",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "ecs-ops-f-rep",
+      "source": "ecs-ops",
+      "target": "f-rep",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "M"
+    },
+    {
+      "id": "ecs-ops-f-mops",
+      "source": "ecs-ops",
+      "target": "f-mops",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "M"
+    },
+    {
+      "id": "ecs-ops-f-staff",
+      "source": "ecs-ops",
+      "target": "f-staff",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "no Switch"
+    },
+    {
+      "id": "m-admin-f-all",
+      "source": "m-admin",
+      "target": "f-all",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "m-admin-f-rep",
+      "source": "m-admin",
+      "target": "f-rep",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "m-admin-f-mops",
+      "source": "m-admin",
+      "target": "f-mops",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "m-finance-f-all",
+      "source": "m-finance",
+      "target": "f-all",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "m-finance-f-rep",
+      "source": "m-finance",
+      "target": "f-rep",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "m-finance-f-mops",
+      "source": "m-finance",
+      "target": "f-mops",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "read: TZ, Users"
+    },
+    {
+      "id": "m-it-f-all",
+      "source": "m-it",
+      "target": "f-all",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "m-it-f-rep",
+      "source": "m-it",
+      "target": "f-rep",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "m-it-f-mops",
+      "source": "m-it",
+      "target": "f-mops",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "read: TZ, Users"
+    },
+    {
+      "id": "m-fran-f-all",
+      "source": "m-fran",
+      "target": "f-all",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "m-fran-f-rep",
+      "source": "m-fran",
+      "target": "f-rep",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "own locations"
+    },
+    {
+      "id": "base-f-all",
+      "source": "base",
+      "target": "f-all",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "s1-s2",
+      "source": "s1",
+      "target": "s2",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "s2-s3",
+      "source": "s2",
+      "target": "s3",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "s3-s4",
+      "source": "s3",
+      "target": "s4",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "s4-s5",
+      "source": "s4",
+      "target": "s5",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "s5-s6",
+      "source": "s5",
+      "target": "s6",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "root-s1",
+      "source": "root",
+      "target": "s1",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "how a check runs",
+      "tone": "proposed"
+    },
+    {
+      "id": "root-caveat",
+      "source": "root",
+      "target": "caveat",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    },
+    {
+      "id": "caveat-src",
+      "source": "caveat",
+      "target": "src",
+      "sourceHandle": "right",
+      "targetHandle": "left"
+    }
+  ],
+  "viewport": {
+    "x": 244.0,
+    "y": 84.0,
+    "zoom": 0.31
+  }
+}

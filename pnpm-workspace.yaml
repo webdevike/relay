@@ -4,3 +4,5 @@ packages:
   - tooling/*
   # Own isolated install (React 19.3 + Mantine): its deps must not hoist over the app's React 19.1.
   - "!packages/widget-runtime"
+  # Own isolated install (React 19.3 + React Flow + Yjs): builds generated/canvas.html for the host.
+  - "!packages/canvas-web"

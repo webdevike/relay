@@ -1,0 +1,476 @@
+{
+  "version": 1,
+  "title": "Artifacts tabs",
+  "layout": "grid",
+  "nodes": [
+    {
+      "id": "how",
+      "type": "note",
+      "x": 0.0,
+      "y": 0.0,
+      "w": 520.0,
+      "data": {
+        "title": "How to read this board",
+        "body": "Left column: one scene per row, mocked with real content from Astra's and Nova's threads (live Linear and GitHub states as of Oct 27, 11 PM).\nBlue numbered callouts match the key note to the right of each image.\nRight column: Eva's pick, the counts behind it, the data model, agent actions and extraction rules.",
+        "tone": "accent"
+      }
+    },
+    {
+      "id": "brief",
+      "type": "topic",
+      "x": 560.0,
+      "y": 0.0,
+      "w": 1140.0,
+      "data": {
+        "title": "Artifacts tabs for Relay threads",
+        "body": "A tabbed surface per thread that collects what matters: Linear tickets and GitHub PRs with live status, links, drops and videos, files, Test Bench runs, canvases and subagents. Default tabs come first (Subagents, Links, Media, Everything). Any agent can add, rename, reorder or remove tabs through the agent action registry; Isaac can hide any tab. Desktop: a third panel tool beside Browser and Files. Phone: a sheet from the thread header."
+      }
+    },
+    {
+      "id": "row-d1",
+      "type": "topic",
+      "x": 0.0,
+      "y": 200.0,
+      "w": 1700.0,
+      "data": {
+        "title": "Links tab, Astra thread",
+        "body": "Every ticket, PR and URL from the thread, one row each, with live state."
+      }
+    },
+    {
+      "id": "img-d1",
+      "type": "image",
+      "x": 0.0,
+      "y": 310.0,
+      "w": 1180.0,
+      "data": {
+        "title": "Links tab, Astra thread",
+        "src": "/Users/ike/Library/Application Support/EvaOS/canvases/artifacts/d1-links-astra.png",
+        "caption": "Callouts 1 to 7 match the key"
+      }
+    },
+    {
+      "id": "key-d1",
+      "type": "note",
+      "x": 1240.0,
+      "y": 310.0,
+      "w": 460.0,
+      "data": {
+        "title": "Links tab \u00b7 Key",
+        "body": "1 \u00b7 Artifacts joins Browser and Files as a third panel tool\n2 \u00b7 Tab bar: the four defaults first, agent tabs after, each with its maker's avatar\n3 \u00b7 Search plus a kind filter (All, Linear, GitHub, Web)\n4 \u00b7 Pinned group stays on top; pins come from Isaac or an agent\n5 \u00b7 Live status: Linear state from the API, PR checks and review from gh\n6 \u00b7 Hover actions: open in the browser panel, open in Linear or GitHub, pin, more\n7 \u00b7 Dedupe: ENG-6528 shows once, mentioned 82x, last 9:47 PM\n\nClick a row: Linear and GitHub open in the browser panel, files in Files, experiments in Test Bench, canvases on Canvas."
+      }
+    },
+    {
+      "id": "row-d2",
+      "type": "topic",
+      "x": 0.0,
+      "y": 1128.0,
+      "w": 1700.0,
+      "data": {
+        "title": "Open PRs, a tab Astra made",
+        "body": "Agent tab defined by a rule: kind is GitHub PR and state is open."
+      }
+    },
+    {
+      "id": "img-d2",
+      "type": "image",
+      "x": 0.0,
+      "y": 1238.0,
+      "w": 1180.0,
+      "data": {
+        "title": "Open PRs, a tab Astra made",
+        "src": "/Users/ike/Library/Application Support/EvaOS/canvases/artifacts/d2-open-prs-rule-tab.png",
+        "caption": "Callouts 1 to 7 match the key"
+      }
+    },
+    {
+      "id": "key-d2",
+      "type": "note",
+      "x": 1240.0,
+      "y": 1238.0,
+      "w": 460.0,
+      "data": {
+        "title": "Open PRs \u00b7 Key",
+        "body": "1 \u00b7 Astra's tab carries her avatar so it reads as hers\n2 \u00b7 The rule shows as chips; Edit rule opens the same chips to change\n3 \u00b7 Maker and time, and the promise: it updates as PRs open and merge\n4 \u00b7 Checks and review decision, refreshed from gh\n5 \u00b7 Hover: Open PR in the browser panel, open the worktree in Files, pin\n6 \u00b7 The linked Linear ticket's state rides along on the PR row\n7 \u00b7 Red appears only for a failing check (#233); drafts stay gray\n\nAll seven rows are real open PRs in react-client-reports-app and react-client-micro-apps."
+      }
+    },
+    {
+      "id": "row-d3",
+      "type": "topic",
+      "x": 0.0,
+      "y": 2056.0,
+      "w": 1700.0,
+      "data": {
+        "title": "An agent adds a tab",
+        "body": "Before, the ask, after: artifacts.tab.add in the chat, the tab in the panel."
+      }
+    },
+    {
+      "id": "img-d3",
+      "type": "image",
+      "x": 0.0,
+      "y": 2166.0,
+      "w": 1180.0,
+      "data": {
+        "title": "An agent adds a tab",
+        "src": "/Users/ike/Library/Application Support/EvaOS/canvases/artifacts/d3-agent-adds-tab.png",
+        "caption": "Callouts 1 to 5 match the key"
+      }
+    },
+    {
+      "id": "key-d3",
+      "type": "note",
+      "x": 1240.0,
+      "y": 2166.0,
+      "w": 460.0,
+      "data": {
+        "title": "An agent adds a tab \u00b7 Key",
+        "body": "1 \u00b7 Before: only Subagents, Links, Media, Everything\n2 \u00b7 Astra answers, then calls artifacts.tab.add with a rule; Relay shows it as a tool line\n3 \u00b7 The new tab lands after the defaults with a blue dot until opened\n4 \u00b7 A rule fills it, so the tab stays right without Astra listing items\n5 \u00b7 One-time notice with Undo and Hide tab\n\nAgents reuse defaults first: a rule that matches a default tab is refused and the agent is told to filter instead."
+      }
+    },
+    {
+      "id": "row-d4",
+      "type": "topic",
+      "x": 0.0,
+      "y": 2776.0,
+      "w": 1700.0,
+      "data": {
+        "title": "Many tabs: overflow and tab menu",
+        "body": "Mantine Scroller tab bar, right-click menu, all-tabs menu."
+      }
+    },
+    {
+      "id": "img-d4",
+      "type": "image",
+      "x": 0.0,
+      "y": 2886.0,
+      "w": 1180.0,
+      "data": {
+        "title": "Many tabs: overflow and tab menu",
+        "src": "/Users/ike/Library/Application Support/EvaOS/canvases/artifacts/d4-overflow-tab-menu.png",
+        "caption": "Callouts 1 to 6 match the key"
+      }
+    },
+    {
+      "id": "key-d4",
+      "type": "note",
+      "x": 1240.0,
+      "y": 2886.0,
+      "w": 460.0,
+      "data": {
+        "title": "Many tabs \u00b7 Key",
+        "body": "1 \u00b7 Mantine 9.7.2 Scroller (already used by SubagentChips): edge fades plus chevrons, drag or wheel to scroll\n2 \u00b7 Right-click a tab: Rename, Edit rule, Move left or right, Pin tab first\n3 \u00b7 Hide is sticky: agents can't re-add a tab Isaac hid\n4 \u00b7 The menu footer says who made the tab, when, and its rule\n5 \u00b7 The chevron at the end lists every tab, hidden ones too, to restore\n6 \u00b7 A pinned proof keeps past auto-fade\n\nProofs is a rule tab: images or videos whose caption has before/after."
+      }
+    },
+    {
+      "id": "row-d5",
+      "type": "topic",
+      "x": 0.0,
+      "y": 3704.0,
+      "w": 1700.0,
+      "data": {
+        "title": "Subagents tab, Nova thread",
+        "body": "Running first with what each waits on, then today's finished."
+      }
+    },
+    {
+      "id": "img-d5",
+      "type": "image",
+      "x": 0.0,
+      "y": 3814.0,
+      "w": 1180.0,
+      "data": {
+        "title": "Subagents tab, Nova thread",
+        "src": "/Users/ike/Library/Application Support/EvaOS/canvases/artifacts/d5-subagents-nova.png",
+        "caption": "Callouts 1 to 6 match the key"
+      }
+    },
+    {
+      "id": "key-d5",
+      "type": "note",
+      "x": 1240.0,
+      "y": 3814.0,
+      "w": 460.0,
+      "data": {
+        "title": "Subagents tab \u00b7 Key",
+        "body": "1 \u00b7 The tab spins while any subagent runs\n2 \u00b7 Each row shows its last status line from the agent\n3 \u00b7 A progress bar only when the agent reports counts (66% here is illustrative)\n4 \u00b7 Child subagents nest under their parent (AvatarMotionApps)\n5 \u00b7 Transcript opens in the panel, the same view as panel.subagent\n6 \u00b7 Finished rows stay for the day, then fade out of the tab\n\nNames and times are Nova's real subagents from Oct 27."
+      }
+    },
+    {
+      "id": "row-d6",
+      "type": "topic",
+      "x": 0.0,
+      "y": 4632.0,
+      "w": 1700.0,
+      "data": {
+        "title": "Media tab, Nova thread",
+        "body": "Drops and pasted images as a grid, newest first."
+      }
+    },
+    {
+      "id": "img-d6",
+      "type": "image",
+      "x": 0.0,
+      "y": 4742.0,
+      "w": 1180.0,
+      "data": {
+        "title": "Media tab, Nova thread",
+        "src": "/Users/ike/Library/Application Support/EvaOS/canvases/artifacts/d6-media-nova.png",
+        "caption": "Callouts 1 to 5 match the key"
+      }
+    },
+    {
+      "id": "key-d6",
+      "type": "note",
+      "x": 1240.0,
+      "y": 4742.0,
+      "w": 460.0,
+      "data": {
+        "title": "Media tab \u00b7 Key",
+        "body": "1 \u00b7 Every drop (/drops/<id>) and image Isaac pasted\n2 \u00b7 Filter: All, Images, Videos, From you\n3 \u00b7 Pinned tile, kept past auto-fade\n4 \u00b7 Videos show length from the file and play in the lightbox\n5 \u00b7 Caption is the alt text from the message embed\n\nNova's thread has 51 drops in two days, so a grid beats a list."
+      }
+    },
+    {
+      "id": "row-p1",
+      "type": "topic",
+      "x": 0.0,
+      "y": 5561.0,
+      "w": 1700.0,
+      "data": {
+        "title": "Phone: header button and sheet",
+        "body": "Astra thread on iPhone, sheet at half height."
+      }
+    },
+    {
+      "id": "img-p1",
+      "type": "image",
+      "x": 0.0,
+      "y": 5671.0,
+      "w": 1180.0,
+      "data": {
+        "title": "Phone: header button and sheet",
+        "src": "/Users/ike/Library/Application Support/EvaOS/canvases/artifacts/p1-phone-sheet.png",
+        "caption": "Callouts 1 to 5 match the key"
+      }
+    },
+    {
+      "id": "key-p1",
+      "type": "note",
+      "x": 1240.0,
+      "y": 5671.0,
+      "w": 460.0,
+      "data": {
+        "title": "Phone \u00b7 Key",
+        "body": "1 \u00b7 New header button (stack icon) left of call; a blue dot means new items\n2 \u00b7 Sheet opens at half height; drag up for full\n3 \u00b7 Same tabs and order as desktop (one tabs.json); swipe the bar sideways\n4 \u00b7 Pinned on top, with who pinned it\n5 \u00b7 Rows shorten to mentions and last time\n\nLinks open in the in-app browser; PRs and tickets open their apps."
+      }
+    },
+    {
+      "id": "row-p2",
+      "type": "topic",
+      "x": 0.0,
+      "y": 6806.0,
+      "w": 1700.0,
+      "data": {
+        "title": "Phone: agent tab and Media",
+        "body": "Open PRs scrolled to Astra's tabs; Media in Nova."
+      }
+    },
+    {
+      "id": "img-p2",
+      "type": "image",
+      "x": 0.0,
+      "y": 6916.0,
+      "w": 1180.0,
+      "data": {
+        "title": "Phone: agent tab and Media",
+        "src": "/Users/ike/Library/Application Support/EvaOS/canvases/artifacts/p2-phone-tabs.png",
+        "caption": "Callouts 1 to 5 match the key"
+      }
+    },
+    {
+      "id": "key-p2",
+      "type": "note",
+      "x": 1240.0,
+      "y": 6916.0,
+      "w": 460.0,
+      "data": {
+        "title": "Phone \u00b7 Key",
+        "body": "1 \u00b7 Tabs scroll sideways; Astra's tabs carry her face\n2 \u00b7 Rule and maker, same card as desktop\n3 \u00b7 Swipe a row left: Open or Pin\n4 \u00b7 Media in two columns; tap for the lightbox, videos play inline\n5 \u00b7 Status pills stay, in the light palette\n\nLong-press a tab for Rename, Move, Hide."
+      }
+    },
+    {
+      "id": "pick",
+      "type": "suggestion",
+      "x": 1780.0,
+      "y": 0.0,
+      "w": 640.0,
+      "data": {
+        "title": "Eva suggests: a third panel tool, Artifacts",
+        "body": "Put Artifacts beside Browser and Files so links open in the same panel, with the four default tabs in a Mantine Scroller (the SubagentChips pattern). Agents get artifacts.tab.add with rules, not hand-kept lists, and Isaac's Hide always wins. The phone gets the same tabs in a header sheet. Build order: extractor and artifacts.json, Links and Media, Subagents, then agent tabs."
+      }
+    },
+    {
+      "id": "counts",
+      "type": "note",
+      "x": 1780.0,
+      "y": 260.0,
+      "w": 640.0,
+      "data": {
+        "title": "What real threads hold",
+        "body": "Mined from message text (prompts excluded), deduped by key.\nAstra, Oct 27 (603 msgs): 25 Linear tickets (354 mentions, ENG-6528 alone 82), 10 PRs (314 mentions), 80 drops + 12 pasted images, 14 files, 29 subagents, 1 web link.\nNova, Oct 26 to 27 (598 msgs): 51 drops + 4 pasted images, 17 web links, 5 tickets, 3 PRs, 5 files, 44 subagents, 4 Test Bench runs and 1 canvas (in tool calls).\nCode chat 'Build Platform Assets page from prototype', Oct 22 (88 msgs): 9 tickets (43), 10 PRs (49), 2 branches, 2 localhost URLs, 5 drops, 4 subagents.\nTakeaway: media and tickets dominate, and dedupe matters more than capture.",
+        "tone": "muted"
+      }
+    },
+    {
+      "id": "compare",
+      "type": "note",
+      "x": 1780.0,
+      "y": 640.0,
+      "w": 640.0,
+      "data": {
+        "title": "Why tabs in the panel",
+        "body": "Placement / room / visible with chat / phone / cost\nPanel tool (pick) / full height, scrolls / yes, beside the chat / maps to a sheet / medium: new PanelTool 'artifacts'\nContext popover section / about 330 px / only while open / no popover on phone / low, but crowds pins and live work\nStrip above composer / one row of chips / always / eats phone height / low, but no room for status",
+        "tone": "muted"
+      }
+    },
+    {
+      "id": "model",
+      "type": "note",
+      "x": 1780.0,
+      "y": 910.0,
+      "w": 640.0,
+      "data": {
+        "title": "Data model, per thread",
+        "body": "Host-owned, one writer, synced to desktop and phone: ~/.config/relay/artifacts/<sessionId>/\nartifacts.json: {version, items[]}; item = {id ('linear:ENG-6523', 'gh-pr:eCardSystems/react-client-reports-app#238', 'drop:<uuid>', 'url:<normalized>', 'file:<path>', 'experiment:<id>', 'canvas:<slug>', 'branch:<repo>@<name>', 'subagent:<file>'), kind, url | path, title, sources: [messageId], mentions, firstSeen, lastSeen, pinned, pinnedBy ('isaac' | agent id), addedBy ('extractor' | agent id), status: {state, checks, review, fetchedAt}}\ntabs.json: {version, tabs[]}; tab = {id, title, icon, createdBy ('default' | agent id), createdAt, rule | items[], order, hidden}\nrule = {kind[], state[], caption?, repo?, since?}; items[] = artifact ids.",
+        "tone": "accent"
+      }
+    },
+    {
+      "id": "actions",
+      "type": "note",
+      "x": 1780.0,
+      "y": 1370.0,
+      "w": 640.0,
+      "data": {
+        "title": "Agent actions (registry, like context.pin)",
+        "body": "artifacts.list {tab?} \u00b7 what the thread holds, with ids\nartifacts.add {kind, url | path, title, tab?} \u00b7 for things not in a message\nartifacts.pin / artifacts.unpin {id} \u00b7 records pinnedBy\nartifacts.tab.add {title, icon?, rule | items} \u00b7 refused when it duplicates a default or a hidden tab\nartifacts.tab.update {id, title?, rule?, items?, order?} \u00b7 rename, reorder, refile\nartifacts.tab.remove {id} \u00b7 agents remove only tabs they made; Isaac's Hide sets hidden: true and sticks\nScope: the calling session's thread. Each call shows as a tool line in chat.",
+        "tone": "accent"
+      }
+    },
+    {
+      "id": "rules",
+      "type": "note",
+      "x": 1780.0,
+      "y": 1740.0,
+      "w": 640.0,
+      "data": {
+        "title": "Extraction rules",
+        "body": "Linear: linear.app/<org>/issue/(ENG-\\d+) and bare ENG-\\d{3,5}, keyed by issue key; state and assignee from the Linear API, cached 5 min.\nGitHub PR: github.com/<owner>/<repo>/pull/<n>; bare #236 resolves only against the chat's repo (worktree remote or the work item's pr:); gh pr view gives state, draft, review, checks.\nGitHub issue: /issues/<n>; other github.com and web URLs land in Links.\nDrops: /drops/<uuid>/<token> embeds (alt text = caption) and pasted images; videos get length and poster.\nFiles: absolute or Eva-relative paths with an extension; images and videos go to Media.\nTest Bench: work/experiments/<id>. Canvas: canvases/<slug>.json or page.open canvas.\nBranches and worktrees: the chat's worktree and names like fix/ENG-6524-*.\nSubagents: task calls and their transcripts.\nSkip: the session prompt, w3.org namespaces, localhost unless opened, plain reads in tool calls.\nDedupe: strip trailing punctuation, #comment fragments and tracking params; one row per key.",
+        "tone": "muted"
+      }
+    },
+    {
+      "id": "fade",
+      "type": "note",
+      "x": 1780.0,
+      "y": 2300.0,
+      "w": 640.0,
+      "data": {
+        "title": "Pins and auto-fade",
+        "body": "Unpinned items not mentioned for 7 days leave Links and Everything (search still finds them). Merged PRs and Done tickets fade after 2 days. Finished subagents stay for the day. Pinned items never fade; pinnedBy shows who pinned them.",
+        "tone": "muted"
+      }
+    },
+    {
+      "id": "phone",
+      "type": "note",
+      "x": 1780.0,
+      "y": 2510.0,
+      "w": 640.0,
+      "data": {
+        "title": "Phone placement",
+        "body": "Header button (IconStack2) left of the call button; blue dot when items arrive since last open. Sheet at half height, drag to full. Same tabs.json order; tabs swipe sideways. Rows swipe left for Open and Pin. Long-press a tab for Rename, Move, Hide. Links open in the in-app browser, drops in the lightbox.",
+        "tone": "accent"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-d1",
+      "source": "img-d1",
+      "target": "key-d1",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "1 to 7",
+      "tone": "accent"
+    },
+    {
+      "id": "e-d2",
+      "source": "img-d2",
+      "target": "key-d2",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "1 to 7",
+      "tone": "accent"
+    },
+    {
+      "id": "e-d3",
+      "source": "img-d3",
+      "target": "key-d3",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "1 to 5",
+      "tone": "accent"
+    },
+    {
+      "id": "e-d4",
+      "source": "img-d4",
+      "target": "key-d4",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "1 to 6",
+      "tone": "accent"
+    },
+    {
+      "id": "e-d5",
+      "source": "img-d5",
+      "target": "key-d5",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "1 to 6",
+      "tone": "accent"
+    },
+    {
+      "id": "e-d6",
+      "source": "img-d6",
+      "target": "key-d6",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "1 to 5",
+      "tone": "accent"
+    },
+    {
+      "id": "e-p1",
+      "source": "img-p1",
+      "target": "key-p1",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "1 to 5",
+      "tone": "accent"
+    },
+    {
+      "id": "e-p2",
+      "source": "img-p2",
+      "target": "key-p2",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "1 to 5",
+      "tone": "accent"
+    }
+  ],
+  "viewport": {
+    "x": 100.0,
+    "y": 40.0,
+    "zoom": 0.85
+  }
+}

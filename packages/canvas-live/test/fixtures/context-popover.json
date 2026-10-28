@@ -1,0 +1,376 @@
+{
+  "version": 1,
+  "title": "Context popover directions",
+  "layout": "grid",
+  "nodes": [
+    {
+      "id": "how",
+      "type": "note",
+      "x": 0.0,
+      "y": 0.0,
+      "w": 520.0,
+      "data": {
+        "title": "How to read this board",
+        "body": "Each row below is one direction. Left: the popover in a code chat (ENG-6524, PR #236). Right: the same button in an assistant thread.\nBlue numbered callouts in both images match the key between them, which ends with pros and cons.\nStart with the comparison and Eva's pick up here.",
+        "tone": "accent"
+      }
+    },
+    {
+      "id": "brief",
+      "type": "topic",
+      "x": 560.0,
+      "y": 0.0,
+      "w": 940.0,
+      "data": {
+        "title": "Context popover for Relay",
+        "body": "A new button left of the panel toggle opens a small popover that changes with what is open. In a code chat: worktree, branch, PR checks and reviews, ledger stage, diff, quick actions. In an assistant thread: what Nova or Astra is doing now, what waits on Isaac, PRs it babysits, experiments. Plus global jobs and Test Bench runs."
+      }
+    },
+    {
+      "id": "pick",
+      "type": "suggestion",
+      "x": 1560.0,
+      "y": 0.0,
+      "w": 820.0,
+      "data": {
+        "title": "Eva suggests: D, with B's sections",
+        "body": "Pins on top follow Isaac into every chat. Below them, use B's Running, Needs you and Recently done in threads, and A's compact rows in code chats. The labelled button (#236, 3 running) shows the top state without opening the popover."
+      }
+    },
+    {
+      "id": "compare",
+      "type": "note",
+      "x": 0.0,
+      "y": 200.0,
+      "w": 1500.0,
+      "data": {
+        "title": "Compare the four",
+        "body": "Direction: shows PRs / shows assistant work / build effort / best for\nA Context menu: one status row per fact / one-line rows / low / quick facts and actions\nB Now: footer only / running, needs you, done, with progress / medium / threads and global status\nC PR card: full card with reviews, checks, ledger / PR list plus today's activity / medium-high / the PR review loop\nD Pinned + live: pinned and live rows / live rows plus pins / high (pin store) / a glance across contexts",
+        "tone": "muted"
+      }
+    },
+    {
+      "id": "note-placement",
+      "type": "note",
+      "x": 1560.0,
+      "y": 200.0,
+      "w": 400.0,
+      "data": {
+        "title": "Button and placement",
+        "body": "28px ghost ActionIcon (eva-header-btn) in MainHeader, just left of panel-toggle. Icon follows context: IconGitBranch or IconGitPullRequest in code chats, IconActivity in threads. A 6px dot carries the top state: yellow needs you, blue running, red failing checks, none when idle. Mantine Popover bottom-end, 330 to 380px wide, tooltip on the button.",
+        "tone": "accent"
+      }
+    },
+    {
+      "id": "note-sources",
+      "type": "note",
+      "x": 1980.0,
+      "y": 200.0,
+      "w": 400.0,
+      "data": {
+        "title": "Where each context reads from",
+        "body": "Code chat: the chat's worktree (git branch, upstream, dirty, diff --shortstat vs base), work/items/<KEY>.md (stage, move, next, pr), gh pr view (reviews, checks, comments), astra-auto-work job.log (phase). Thread: the session's subagent .jsonl/.md, items with move: isaac, auto-work PRs, work/experiments/*/status.json. Global: jobs/.runs/*.lock and scheduler.log, running Test Bench status.json.",
+        "tone": "muted"
+      }
+    },
+    {
+      "id": "col-code",
+      "type": "note",
+      "x": 0.0,
+      "y": 520.0,
+      "w": 820.0,
+      "data": {
+        "title": "In a code chat",
+        "body": "ENG-6524 chat, PR #236 with changes requested",
+        "tone": "muted"
+      }
+    },
+    {
+      "id": "col-key",
+      "type": "note",
+      "x": 960.0,
+      "y": 520.0,
+      "w": 460.0,
+      "data": {
+        "title": "Key",
+        "body": "Numbers match the callouts on both sides",
+        "tone": "muted"
+      }
+    },
+    {
+      "id": "col-thread",
+      "type": "note",
+      "x": 1560.0,
+      "y": 520.0,
+      "w": 820.0,
+      "data": {
+        "title": "In an assistant thread",
+        "body": "Astra (A, C) or Nova (B, D), same button",
+        "tone": "muted"
+      }
+    },
+    {
+      "id": "row-a",
+      "type": "topic",
+      "x": 0.0,
+      "y": 650.0,
+      "w": 2380.0,
+      "data": {
+        "title": "A · Context menu",
+        "body": "Compact one-line rows like the reference; the skeleton stays, the rows swap per context."
+      }
+    },
+    {
+      "id": "a-code",
+      "type": "image",
+      "x": 18.0,
+      "y": 765.0,
+      "w": 820.0,
+      "data": {
+        "title": "Code chat: ENG-6524, PR #236",
+        "src": "/Users/ike/Library/Application Support/EvaOS/canvases/context-popover/a-code-callouts.png",
+        "caption": "Callouts 1 to 5 match the key"
+      }
+    },
+    {
+      "id": "note-a",
+      "type": "note",
+      "x": 960.0,
+      "y": 775.0,
+      "w": 460.0,
+      "data": {
+        "title": "A · Key",
+        "body": "1 · New button: icon follows context, the dot shows the top state\n2 · Where you are: machine, worktree, Zed, branch (thread: assistant and model)\n3 · In flight: PR review, checks, comments, ledger (thread: running subagent, watched PRs)\n4 · Next step: Commit & push and the diff (thread: what waits on you)\n5 · Global status: running jobs and the Test Bench run, same everywhere\n\nPros\nFastest to scan, closest to the reference.\nCheapest to build: one Mantine Menu with sections.\n\nCons\nNo room for progress or reasons.\nLong lists hide behind chevrons."
+      }
+    },
+    {
+      "id": "a-astra",
+      "type": "image",
+      "x": 1560.0,
+      "y": 775.0,
+      "w": 820.0,
+      "data": {
+        "title": "Astra thread",
+        "src": "/Users/ike/Library/Application Support/EvaOS/canvases/context-popover/a-astra-callouts.png",
+        "caption": "Same button, callouts 1 to 5"
+      }
+    },
+    {
+      "id": "row-b",
+      "type": "topic",
+      "x": 0.0,
+      "y": 1486.0,
+      "w": 2380.0,
+      "data": {
+        "title": "B · Now",
+        "body": "Sections for Running, Needs you and Recently done, with progress and a This chat / Everywhere switch."
+      }
+    },
+    {
+      "id": "b-code",
+      "type": "image",
+      "x": 0.0,
+      "y": 1611.0,
+      "w": 820.0,
+      "data": {
+        "title": "Code chat: ENG-6524, PR #236",
+        "src": "/Users/ike/Library/Application Support/EvaOS/canvases/context-popover/b-code-callouts.png",
+        "caption": "Callouts 1 to 6 match the key"
+      }
+    },
+    {
+      "id": "note-b",
+      "type": "note",
+      "x": 960.0,
+      "y": 1611.0,
+      "w": 460.0,
+      "data": {
+        "title": "B · Key",
+        "body": "1 · New button: the dot turns blue while something runs\n2 · Scope switch: this chat or thread, or Everywhere (global status)\n3 · Running, with progress from subagents and experiments\n4 · Needs you, with the action inline (Read draft, Review)\n5 · Recently done, with times\n6 · Footer: branch, PR, diff (thread: jobs and Test Bench)\n\nPros\nAnswers what is happening and what needs me at a glance.\nEverywhere doubles as the global status view.\n\nCons\nCode facts (branch, Zed, commit) shrink to a footer.\nAgents must report progress counts (6 of 10 is illustrative)."
+      }
+    },
+    {
+      "id": "b-nova",
+      "type": "image",
+      "x": 1560.0,
+      "y": 1611.0,
+      "w": 820.0,
+      "data": {
+        "title": "Nova thread",
+        "src": "/Users/ike/Library/Application Support/EvaOS/canvases/context-popover/b-nova-callouts.png",
+        "caption": "Same button, callouts 1 to 6"
+      }
+    },
+    {
+      "id": "row-c",
+      "type": "topic",
+      "x": 0.0,
+      "y": 2384.0,
+      "w": 2380.0,
+      "data": {
+        "title": "C · PR card",
+        "body": "A rich PR card in code chats; assistant threads fall back to their PR list and today's activity."
+      }
+    },
+    {
+      "id": "c-code",
+      "type": "image",
+      "x": 0.0,
+      "y": 2509.0,
+      "w": 820.0,
+      "data": {
+        "title": "Code chat: ENG-6524, PR #236",
+        "src": "/Users/ike/Library/Application Support/EvaOS/canvases/context-popover/c-code-callouts.png",
+        "caption": "Callouts 1 to 5 match the key"
+      }
+    },
+    {
+      "id": "note-c",
+      "type": "note",
+      "x": 960.0,
+      "y": 2509.0,
+      "w": 460.0,
+      "data": {
+        "title": "C · Key",
+        "body": "1 · New button: PR icon in code chats, activity icon in threads\n2 · Header: PR title, branch into base, review and ready state (thread: summary and running subagent)\n3 · Reviews and checks, per person and per check (thread: PRs it watches)\n4 · Ledger stage from the work item (thread: today's auto-work activity)\n5 · Diff and actions: Open PR, comments, Open in Zed (thread: Agent Inbox, Jobs)\n\nPros\nRichest view of the PR loop; one click to the PR.\nReads like a PR status page without leaving the chat.\n\nCons\nTallest of the four and overlaps GitHub.\nChats without a PR need a third layout."
+      }
+    },
+    {
+      "id": "c-astra",
+      "type": "image",
+      "x": 1560.0,
+      "y": 2509.0,
+      "w": 820.0,
+      "data": {
+        "title": "Astra thread",
+        "src": "/Users/ike/Library/Application Support/EvaOS/canvases/context-popover/c-astra-callouts.png",
+        "caption": "Same button, callouts 1 to 5"
+      }
+    },
+    {
+      "id": "row-d",
+      "type": "topic",
+      "x": 11.0,
+      "y": 3251.0,
+      "w": 2380.0,
+      "data": {
+        "title": "D · Pinned + live",
+        "body": "Pins Isaac chooses stay on top everywhere; the live context sits below. The button shows a label."
+      }
+    },
+    {
+      "id": "d-code",
+      "type": "image",
+      "x": 0.0,
+      "y": 3392.0,
+      "w": 820.0,
+      "data": {
+        "title": "Code chat: ENG-6524, PR #236",
+        "src": "/Users/ike/Library/Application Support/EvaOS/canvases/context-popover/d-code-callouts.png",
+        "caption": "Callouts 1 to 5 match the key"
+      }
+    },
+    {
+      "id": "note-d",
+      "type": "note",
+      "x": 960.0,
+      "y": 3392.0,
+      "w": 460.0,
+      "data": {
+        "title": "D · Key",
+        "body": "1 · Labelled button: the headline (#236, 3 running) plus the state dot\n2 · Pinned: Isaac's picks, the same list in every context\n3 · Live: this chat's facts (thread: the assistant's running work and asks)\n4 · Hover any live row to pin it\n5 · Quick actions (thread: global footer)\n\nPros\nOne glance across contexts at what Isaac cares about.\nThe live part still adapts to the chat or thread.\n\nCons\nPins need upkeep and go stale (#233 is days old).\nThe labelled button takes header width."
+      }
+    },
+    {
+      "id": "d-nova",
+      "type": "image",
+      "x": 1560.0,
+      "y": 3392.0,
+      "w": 820.0,
+      "data": {
+        "title": "Nova thread",
+        "src": "/Users/ike/Library/Application Support/EvaOS/canvases/context-popover/d-nova-callouts.png",
+        "caption": "Same button, callouts 1 to 5"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-a-code",
+      "source": "a-code",
+      "target": "note-a",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "1 to 5",
+      "tone": "accent"
+    },
+    {
+      "id": "e-a-astra",
+      "source": "note-a",
+      "target": "a-astra",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "1 to 5",
+      "tone": "accent"
+    },
+    {
+      "id": "e-b-code",
+      "source": "b-code",
+      "target": "note-b",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "1 to 6",
+      "tone": "accent"
+    },
+    {
+      "id": "e-b-nova",
+      "source": "note-b",
+      "target": "b-nova",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "1 to 6",
+      "tone": "accent"
+    },
+    {
+      "id": "e-c-code",
+      "source": "c-code",
+      "target": "note-c",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "1 to 5",
+      "tone": "accent"
+    },
+    {
+      "id": "e-c-astra",
+      "source": "note-c",
+      "target": "c-astra",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "1 to 5",
+      "tone": "accent"
+    },
+    {
+      "id": "e-d-code",
+      "source": "d-code",
+      "target": "note-d",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "1 to 5",
+      "tone": "accent"
+    },
+    {
+      "id": "e-d-nova",
+      "source": "note-d",
+      "target": "d-nova",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "1 to 5",
+      "tone": "accent"
+    }
+  ],
+  "viewport": {
+    "x": 655.0,
+    "y": -3607.0,
+    "zoom": 1.09
+  }
+}

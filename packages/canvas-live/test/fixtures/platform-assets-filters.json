@@ -1,0 +1,333 @@
+{
+  "version": 1,
+  "title": "Platform Assets filters",
+  "layout": "grid",
+  "nodes": [
+    {
+      "id": "title",
+      "type": "topic",
+      "x": -91.0,
+      "y": -37.0,
+      "data": {
+        "title": "Platform Assets filters",
+        "body": "ENG-6344 directions. Read-only + download, no previews, versions in detail, live by Nov 1."
+      }
+    },
+    {
+      "id": "lab",
+      "type": "frame",
+      "x": 189.0,
+      "y": -14.0,
+      "w": 529.0,
+      "h": 1076.0,
+      "data": {
+        "title": "Table lab (current)"
+      }
+    },
+    {
+      "id": "lab-0",
+      "type": "image",
+      "x": 205.0,
+      "y": 22.0,
+      "parent": "lab",
+      "data": {
+        "title": "Default",
+        "src": "/Users/ike/Eva/work/items/ENG-6344.assets/tablelab/01-default.png",
+        "caption": "Pinned partners, Active tab"
+      }
+    },
+    {
+      "id": "lab-1",
+      "type": "image",
+      "x": 462.0,
+      "y": 22.0,
+      "parent": "lab",
+      "data": {
+        "title": "Pinned owner filtered",
+        "src": "/Users/ike/Eva/work/items/ENG-6344.assets/tablelab/02-pinned-owner-filtered.png",
+        "caption": "Chips + count"
+      }
+    },
+    {
+      "id": "lab-2",
+      "type": "image",
+      "x": 205.0,
+      "y": 264.0,
+      "parent": "lab",
+      "data": {
+        "title": "Fuzzy \"Amazn\"",
+        "src": "/Users/ike/Eva/work/items/ENG-6344.assets/tablelab/03-fuzzy-amazn.png",
+        "caption": "Typo finds Amazon"
+      }
+    },
+    {
+      "id": "lab-3",
+      "type": "image",
+      "x": 462.0,
+      "y": 264.0,
+      "parent": "lab",
+      "data": {
+        "title": "Record panel",
+        "src": "/Users/ike/Eva/work/items/ENG-6344.assets/tablelab/04-detail.png",
+        "caption": "Download + versions"
+      }
+    },
+    {
+      "id": "lab-4",
+      "type": "image",
+      "x": 205.0,
+      "y": 505.0,
+      "parent": "lab",
+      "data": {
+        "title": "Narrow",
+        "src": "/Users/ike/Eva/work/items/ENG-6344.assets/tablelab/06-narrow.png",
+        "caption": "Phone width"
+      }
+    },
+    {
+      "id": "lab-note",
+      "type": "note",
+      "x": 462.0,
+      "y": 505.0,
+      "parent": "lab",
+      "data": {
+        "title": "Takeaway",
+        "body": "Your eCard table layout; filters inline under toolbar."
+      }
+    },
+    {
+      "id": "v1",
+      "type": "frame",
+      "x": 885.0,
+      "y": 27.0,
+      "w": 529.0,
+      "h": 835.0,
+      "data": {
+        "title": "First mockup (filter bar)"
+      }
+    },
+    {
+      "id": "v1-0",
+      "type": "image",
+      "x": 901.0,
+      "y": 63.0,
+      "parent": "v1",
+      "data": {
+        "title": "Filters applied",
+        "src": "/Users/ike/Eva/work/items/ENG-6344.assets/screenshots/02-filters-applied.png",
+        "caption": "Two-row filter bar + chips"
+      }
+    },
+    {
+      "id": "v1-1",
+      "type": "image",
+      "x": 1157.0,
+      "y": 63.0,
+      "parent": "v1",
+      "data": {
+        "title": "Partner fuzzy",
+        "src": "/Users/ike/Eva/work/items/ENG-6344.assets/screenshots/03-partner-fuzzy-open.png",
+        "caption": "Combobox suggestions"
+      }
+    },
+    {
+      "id": "v1-2",
+      "type": "image",
+      "x": 901.0,
+      "y": 305.0,
+      "parent": "v1",
+      "data": {
+        "title": "Mobile filters drawer",
+        "src": "/Users/ike/Eva/work/items/ENG-6344.assets/screenshots/07-narrow-420-filters-drawer.png",
+        "caption": "Bottom drawer"
+      }
+    },
+    {
+      "id": "v1-note",
+      "type": "note",
+      "x": 1157.0,
+      "y": 305.0,
+      "parent": "v1",
+      "data": {
+        "title": "Takeaway",
+        "body": "Card list, Find-to-apply; superseded by table lab."
+      }
+    },
+    {
+      "id": "r1",
+      "type": "frame",
+      "x": 1412.0,
+      "y": 20.0,
+      "w": 529.0,
+      "h": 655.0,
+      "data": {
+        "title": "Inspiration round 1"
+      }
+    },
+    {
+      "id": "r1-0",
+      "type": "image",
+      "x": 1428.0,
+      "y": 56.0,
+      "parent": "r1",
+      "data": {
+        "title": "Media Library",
+        "src": "https://cdn.dribbble.com/userupload/38055209/file/original-4d47136515a6baa714d2a1964f675b46.png",
+        "caption": "Folders above a grid"
+      }
+    },
+    {
+      "id": "r1-1",
+      "type": "image",
+      "x": 1685.0,
+      "y": 56.0,
+      "parent": "r1",
+      "data": {
+        "title": "Files and assets",
+        "src": "https://cdn.dribbble.com/userupload/5210284/file/original-68bb5a6ee9859eabad8503407823b9ff.jpg",
+        "caption": "Filter chips + table"
+      }
+    },
+    {
+      "id": "r1-2",
+      "type": "image",
+      "x": 1428.0,
+      "y": 309.0,
+      "parent": "r1",
+      "data": {
+        "title": "Files + recent sidebar",
+        "src": "https://cdn.dribbble.com/userupload/29502392/file/original-8c676b32fea523f94ed939571e022ea8.png",
+        "caption": "Light table"
+      }
+    },
+    {
+      "id": "r1-3",
+      "type": "image",
+      "x": 1685.0,
+      "y": 309.0,
+      "parent": "r1",
+      "data": {
+        "title": "Cloud storage dashboard",
+        "src": "https://cdn.dribbble.com/userupload/25133300/file/original-3cf965b2e24d54a82186e445ed4982e8.jpg",
+        "caption": "Overview page"
+      }
+    },
+    {
+      "id": "r1-note",
+      "type": "note",
+      "x": 1428.0,
+      "y": 562.0,
+      "parent": "r1",
+      "data": {
+        "title": "Takeaway",
+        "body": "Drive/Dropbox feel; thumbnails don't fit (no previews)."
+      }
+    },
+    {
+      "id": "r2",
+      "type": "frame",
+      "x": -396.0,
+      "y": 829.0,
+      "w": 529.0,
+      "h": 952.0,
+      "data": {
+        "title": "Inspiration round 2"
+      }
+    },
+    {
+      "id": "r2-0",
+      "type": "image",
+      "x": -380.0,
+      "y": 865.0,
+      "parent": "r2",
+      "data": {
+        "title": "Quick Access + Pinned",
+        "src": "https://cdn.dribbble.com/userupload/35884911/file/original-715468ee7e109b1fc48ec24a18c19a28.png",
+        "caption": "Pinned folders, recent table",
+        "url": "https://dribbble.com/shots/17687562"
+      }
+    },
+    {
+      "id": "r2-1",
+      "type": "image",
+      "x": -124.0,
+      "y": 865.0,
+      "parent": "r2",
+      "data": {
+        "title": "Folder tree + panel",
+        "src": "https://cdn.dribbble.com/userupload/19124423/file/original-d92af46071c66fd8209b4aa1964b3f14.jpg",
+        "caption": "SMB-like tree",
+        "url": "https://dribbble.com/shots/25528880"
+      }
+    },
+    {
+      "id": "r2-2",
+      "type": "image",
+      "x": -380.0,
+      "y": 1138.0,
+      "parent": "r2",
+      "data": {
+        "title": "Recently used + All files",
+        "src": "https://cdn.dribbble.com/userupload/14572958/file/original-9e269ebb13904c481e5b3cb193dc20e5.png",
+        "caption": "Simple table",
+        "url": "https://dribbble.com/shots/24170545"
+      }
+    },
+    {
+      "id": "r2-3",
+      "type": "image",
+      "x": -124.0,
+      "y": 1138.0,
+      "parent": "r2",
+      "data": {
+        "title": "Dropbox Monochrome",
+        "src": "https://cdn.dribbble.com/userupload/30322363/file/original-25485c77c165a4652919e106a121547b.png",
+        "caption": "Right info panel",
+        "url": "https://dribbble.com/shots/14961092"
+      }
+    },
+    {
+      "id": "r2-4",
+      "type": "image",
+      "x": -380.0,
+      "y": 1412.0,
+      "parent": "r2",
+      "data": {
+        "title": "Construction File Repository",
+        "src": "https://cdn.dribbble.com/userupload/48052183/file/cf61a1fdddb06c458b1ab9317022c734.jpg",
+        "caption": "Dense table, status pills",
+        "url": "https://dribbble.com/shots/27467986"
+      }
+    },
+    {
+      "id": "r2-5",
+      "type": "image",
+      "x": -124.0,
+      "y": 1412.0,
+      "parent": "r2",
+      "data": {
+        "title": "Breadcrumb search results",
+        "src": "https://cdn.dribbble.com/userupload/17527564/file/original-e58377d6ac781ac23576ba75653a50e6.jpg",
+        "caption": "Path on every hit",
+        "url": "https://dribbble.com/shots/25175845"
+      }
+    },
+    {
+      "id": "r2-note",
+      "type": "note",
+      "x": -124.0,
+      "y": 1653.0,
+      "parent": "r2",
+      "data": {
+        "title": "Takeaway",
+        "body": "Best mix: pinned partners + dense status table + versions panel."
+      }
+    }
+  ],
+  "edges": [],
+  "viewport": {
+    "x": 341.0,
+    "y": 199.0,
+    "zoom": 0.21
+  }
+}
