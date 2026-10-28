@@ -21,6 +21,7 @@ import {
   updateConfig,
 } from '../theme/theme-config'
 import { pageRegistry } from '../pages/registry'
+import { assistantsStore } from '../assistants/assistants-store'
 
 function page(section: 'Theme' | 'Chat' | 'About') {
   return render(
@@ -239,10 +240,28 @@ describe('SettingsPage', () => {
     expect(screen.queryByText(MISSING)).toBeNull()
   })
 
-  it('About credits the Micah avatar with its license, links opening in the browser panel', () => {
+  it('About credits every Micah assistant with its license, links opening in the browser panel', () => {
+    const agent = (id: string, style: 'micah' | 'notionists') => ({
+      id,
+      title: id[0]!.toUpperCase() + id.slice(1),
+      scope: '',
+      avatar: { style, seed: id },
+      status: 'idle' as const,
+      tool: null,
+      file: null,
+      reply: null,
+    })
+    assistantsStore.setState({
+      data: {
+        agents: [agent('astra', 'notionists'), agent('nova', 'micah'), agent('polaris', 'micah')],
+        relayUp: true,
+      },
+    })
     page('About')
     const credits = screen.getByTestId('settings-credits')
-    expect(credits).toHaveTextContent('Nova avatar: Micah by Micah Lanier, CC BY 4.0, modified')
+    expect(credits).toHaveTextContent(
+      'Nova and Polaris avatars: Micah by Micah Lanier, CC BY 4.0, modified',
+    )
     fireEvent.click(within(credits).getByText('dicebear.com/styles/micah'))
     expect(invoke).toHaveBeenCalledWith('browser.createTab', {
       url: 'https://www.dicebear.com/styles/micah/',
