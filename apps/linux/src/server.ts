@@ -14,6 +14,7 @@ import type { FileBoardStore } from "./boards/store";
 import type { UsageService } from "./usage/service";
 import type { CatchUpDeck } from "./catchup/service";
 import type { ReactionRelaying } from "./reactions/service";
+import type { ArtifactRelaying } from "./artifacts/service";
 import { CommandDedupStore } from "./dedup";
 import { serveBlob } from "./drops/serve";
 import { isVideoMime, videoMimeOf, VideoTooLarge } from "./drops/video";
@@ -75,6 +76,8 @@ export interface ServerDeps {
   readonly catchup: CatchUpDeck | null;
   /** Reactions on chat bubbles; null answers `reactions.get` empty and drops set/clear. */
   readonly reactions: ReactionRelaying | null;
+  /** Per-thread artifacts; null answers `artifacts.get` with empty default tabs and refuses acts. */
+  readonly artifacts: ArtifactRelaying | null;
   readonly pairing: PairingUI;
   readonly log: (line: string) => void;
 }
@@ -167,6 +170,12 @@ export class RelayServer {
         const remote = srv.requestIP(request)?.address ?? "";
         if (path === "/drops" || path.startsWith("/drops/"))
           return this.handleDropRequest(request, path, remote);
+        if (path.startsWith("/artifacts/media/") && (request.method === "GET" || request.method === "HEAD")) {
+          // `/artifacts/media/<sha>/<token>`: an image Isaac pasted into a thread, for anyone holding its token.
+          const [, , , sha, token, ...rest] = path.split("/");
+          const blob = sha === undefined || token === undefined || rest.length > 0 ? null : (this.deps.artifacts?.openMedia(sha, token) ?? null);
+          return blob === null ? new Response("not found", { status: 404 }) : serveBlob(request, blob);
+        }
         if (path === "/boards" || path.startsWith("/boards/"))
           return handleBoardRequest(this.deps.boards, request, path, remote);
         if (path === "/assistant/say") return handleAssistantSay(this.deps.assistant, request, remote);
@@ -309,6 +318,7 @@ export class RelayServer {
     this.deps.assistant?.observe(change);
     this.deps.calls?.observe(change);
     this.deps.reactions?.observe(change);
+    this.deps.artifacts?.observe(change);
     if (change.kind === "sessions") {
       const sessions = this.deps.agents?.sessions ?? [];
       const delta = this.agentsTracker.apply(sessions);
@@ -448,6 +458,7 @@ export class RelayServer {
         usage: this.deps.usage,
         catchup: this.deps.catchup,
         reactions: this.deps.reactions,
+        artifacts: this.deps.artifacts,
       },
       (closed) => {
         const reason = closed.closeReason;

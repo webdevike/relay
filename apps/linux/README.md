@@ -236,6 +236,27 @@ predates notes (it answers without `true`), the changes wait for the next sessio
 ❓ on an assistant's reply in its own thread is also appended as `{ at, agent, reaction, signal, message:
 { at, excerpt } }` to `<agent home>/work/eva/agents/<id>/reactions.jsonl`.
 
+## Artifacts (`artifacts.get`, `artifacts.act`)
+
+What a thread holds, one row per thing however often it comes up: Linear tickets, GitHub PRs and issues,
+web links, drops and pasted images, files, Test Bench runs, canvases, branches and subagents. Threads use the
+reactions' keys (`assistant:<id>`, `session:<omp session id>`). `src/artifacts/extract.ts` mines a thread's
+omp transcripts (Isaac's turns, the agent's replies and a few tool calls; never tool results, custom
+messages or the persona prime), and `src/artifacts/service.ts` keeps the result per thread in
+`$XDG_CONFIG_HOME/relay/artifacts/<thread>/artifacts.json` (items, mention counts, how far each transcript
+was read) and `tabs.json` (the tab bar: Subagents, Links, Media, Everything, then agent tabs). A thread loads on
+its first `artifacts.get` or when its session appends messages (read 1.5 s after the last append); its
+first read skips transcripts untouched for a week. Running subagents are looked at every 15 s: the last tool
+intent in `<session>/<name>.jsonl` is their status line, `<name>.md` ends them, `<name>/<name>.<child>.jsonl`
+nests their own subagents.
+
+Every change goes to every device as `artifacts.snapshot { thread, items, tabs }` (`artifacts.get` also
+pushes it to every device, so Relay desktop can refresh stale ticket and PR states). `artifacts.act { thread,
+rid, by, action }` pins, adds items and tabs, and takes the live states Relay desktop reads from gh and
+Linear; the answer is `artifacts.acted { rid, ok, error?, id? }`. Agents may not add a tab that repeats a
+default tab or one Isaac hid, and change or remove only tabs they made. Images pasted into a thread are
+stored once in `artifacts/media/<sha>` and served at `GET /artifacts/media/<sha>/<token>`.
+
 ## Differences from the Mac app
 
 - No tray/menu UI; the terminal is the UI.

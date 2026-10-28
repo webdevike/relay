@@ -9,7 +9,7 @@ import { chmodSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } f
 import { homedir, hostname } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { parseArgs } from "node:util";
-import { Drop } from "@relay/protocol";
+import { Drop, sessionReactionThread } from "@relay/protocol";
 import { z } from "zod";
 import pkg from "../package.json";
 import { defaultSocketPath, OmpBridgeProvider } from "./agents/bridge";
@@ -26,6 +26,7 @@ import { FileBoardStore } from "./boards/store";
 import { createUsageService, ompUsageRunner } from "./usage/service";
 import { CatchUpService, defaultCatchUpFeedPath, defaultCatchUpNotesPath, defaultCatchUpStatePath } from "./catchup/service";
 import { defaultReactionsPath, reactionFeedbackPath, ReactionService } from "./reactions/service";
+import { ArtifactService, defaultArtifactsRoot } from "./artifacts/service";
 import { detectTextTyper, KeyboardInjector } from "./input/keyboard";
 import { MacInputDevice } from "./input/macos";
 import { ClipboardPaster, systemCopy } from "./input/paste";
@@ -251,6 +252,43 @@ function serve(
     clock: systemClock,
     log,
   });
+  const repos = new Map<string, string | null>();
+  const artifacts = new ArtifactService({
+    root: defaultArtifactsRoot(),
+    evaRoot: agentHome,
+    broadcast: (message): void => {
+      server.broadcastExcept(message, null);
+    },
+    threadFiles: (thread) => {
+      if (thread.startsWith("session:")) {
+        const file = agents.sessionFile(thread.slice("session:".length));
+        return file === null ? [] : [file];
+      }
+      const agent = thread.slice("assistant:".length);
+      const record = assistant?.threads.some((candidate) => candidate.id === agent) === true ? new FileAssistantStore(defaultAssistantPath(agent)).load() : null;
+      const live = assistant?.thread(agent)?.current();
+      const liveFile = live === undefined ? null : agents.sessionFile(live.id);
+      const files = [...(record?.history ?? []), ...(record?.sessionFile === undefined ? [] : [record.sessionFile]), ...(liveFile === null ? [] : [liveFile])];
+      return [...new Set(files)];
+    },
+    threadOf: (sessionId) => {
+      const session = agents.sessions.find((candidate) => candidate.id === sessionId);
+      return session === undefined ? null : sessionReactionThread(session);
+    },
+    drop: (id) => drops.list().find((drop) => drop.id === id),
+    repoOf: (cwd) => {
+      const known = repos.get(cwd);
+      if (known !== undefined) return known;
+      const out = Bun.spawnSync(["git", "-C", cwd, "remote", "get-url", "origin"], { stdout: "pipe", stderr: "ignore" });
+      const match = /github\.com[:/]([\w.-]+\/[\w.-]+?)(?:\.git)?$/.exec(out.stdout.toString().trim());
+      const repo = out.exitCode === 0 ? (match?.[1] ?? null) : null;
+      repos.set(cwd, repo);
+      return repo;
+    },
+    clock: systemClock,
+    log,
+  });
+  artifacts.loadAll();
   const clipboard =
     watchClipboard && Bun.which("wl-paste") !== null
       ? new ClipboardWatcher({
@@ -291,6 +329,7 @@ function serve(
       usage,
       catchup,
       reactions,
+      artifacts,
       pairing: new TerminalPairingUI(),
       log,
     },

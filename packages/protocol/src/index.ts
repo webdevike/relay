@@ -20,6 +20,7 @@
 import { z } from "zod";
 import { untagged } from "./surface";
 import { WidgetNode } from "./widget";
+import { Artifact, ArtifactAction, ArtifactActor, ArtifactTab, ArtifactThread, MAX_ARTIFACTS, MAX_ARTIFACT_TABS } from "./artifacts";
 
 export const PROTOCOL_VERSION = 1 as const;
 export const BONJOUR_SERVICE_TYPE = "_relay._tcp" as const;
@@ -1128,6 +1129,13 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("reaction.set"), thread: ReactionThread, message: ReactionKey, emoji: ReactionEmoji, excerpt: z.string().max(MAX_REACTION_EXCERPT) }),
   /** Take back the reaction on bubble `message` of `thread`; unknown ones re-send the snapshot unchanged. */
   z.object({ t: z.literal("reaction.clear"), thread: ReactionThread, message: ReactionKey }),
+  /** Ask for a thread's artifacts; every device gets its `artifacts.snapshot` (Relay desktop refreshes stale states from it). */
+  z.object({ t: z.literal("artifacts.get"), thread: ArtifactThread }),
+  /**
+   * Change a thread's artifacts or tabs as `by` (`isaac` from the UI, else the agent). Answered by
+   * `artifacts.acted` with the same `rid`; a change also pushes the thread's snapshot to every device.
+   */
+  z.object({ t: z.literal("artifacts.act"), thread: ArtifactThread, rid: z.string().min(1).max(64), by: ArtifactActor, action: ArtifactAction }),
   /** Ask for a one-time ticket to open VNC_PATH; answered by `vnc.ticket` or `vnc.unavailable`. */
   z.object({ t: z.literal("vnc.open") }),
   /**
@@ -1250,6 +1258,10 @@ export const ServerMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("catchup.noted"), id: nonEmpty, ok: z.boolean() }),
   /** A thread's reactions: the answer to `reactions.get`, and pushed to every device when they change. */
   z.object({ t: z.literal("reactions.snapshot"), thread: ReactionThread, reactions: ThreadReactions }),
+  /** A thread's artifacts and tab bar: the answer to `artifacts.get`, and pushed to every device when they change. */
+  z.object({ t: z.literal("artifacts.snapshot"), thread: ArtifactThread, items: z.array(Artifact).max(MAX_ARTIFACTS), tabs: z.array(ArtifactTab).max(MAX_ARTIFACT_TABS) }),
+  /** Answer to `artifacts.act`: `error` says why it was refused (shown to the agent as is); `id` names what `add` / `tab.add` made. */
+  z.object({ t: z.literal("artifacts.acted"), rid: z.string().min(1).max(64), ok: z.boolean(), error: z.string().max(400).optional(), id: z.string().max(2100).optional() }),
   /** Answer to `vnc.open`: open `VNC_PATH?ticket=<ticket>` within VNC_TICKET_TTL_MS. Single use. */
   z.object({ t: z.literal("vnc.ticket"), ticket: nonEmpty }),
   /** Answer to `vnc.open` when nothing listens on the Mac's VNC port: Screen Sharing is off. */
@@ -1312,3 +1324,4 @@ export * from "./hmac";
 export * from "./widget";
 export * from "./openui";
 export * from "./surface";
+export * from "./artifacts";

@@ -9,6 +9,7 @@ import { createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto
 import {
   ESCALATOR_DEVICE_ID,
   PROTOCOL_VERSION,
+  defaultTabs,
   parseClientMessage,
   toHex,
   type AgentApproval,
@@ -26,6 +27,7 @@ import type { AgentsDeltaTracker } from "./agents/delta-tracker";
 import type { BoardDelta, FileBoardStore } from "./boards/store";
 import { EMPTY_CATCHUP, type CatchUpDeck } from "./catchup/service";
 import type { ReactionRelaying } from "./reactions/service";
+import type { ArtifactRelaying } from "./artifacts/service";
 import type { CommandDedupStore } from "./dedup";
 import type { PairingCoordinator } from "./pairing";
 import type { UsageService } from "./usage/service";
@@ -81,6 +83,8 @@ export interface SessionDeps {
   readonly catchup: CatchUpDeck | null;
   /** null when the host keeps no reactions; `reactions.get` then answers empty and set/clear are dropped. */
   readonly reactions: ReactionRelaying | null;
+  /** null when the host keeps no artifacts; `artifacts.get` then answers the default tabs with no items and every act is refused. */
+  readonly artifacts: ArtifactRelaying | null;
 }
 
 /** Clock and scheduling seams so tests drive time deterministically. */
@@ -537,6 +541,16 @@ export class ClientSession {
           (message.t === "reaction.set" ? reactions.set(message.thread, message.message, message.emoji, message.excerpt) : reactions.clear(message.thread, message.message));
         // A change reaches every device (this one included) through the service; no change still answers this one, so its optimistic state settles.
         if (!changed) this.sink.send({ t: "reactions.snapshot", thread: message.thread, reactions: reactions?.snapshot(message.thread) ?? {} });
+        break;
+      }
+      case "artifacts.get":
+        // The service pushes the snapshot to every device, this one included.
+        if (this.deps.artifacts === null) this.sink.send({ t: "artifacts.snapshot", thread: message.thread, items: [], tabs: defaultTabs() });
+        else this.deps.artifacts.get(message.thread);
+        break;
+      case "artifacts.act": {
+        const result = this.deps.artifacts?.act(message.thread, message.by, message.action) ?? { ok: false, error: "This host keeps no artifacts." };
+        this.sink.send({ t: "artifacts.acted", rid: message.rid, ...result });
         break;
       }
       case "assistant.get": {

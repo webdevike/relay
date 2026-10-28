@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { type AgentApproval, type AgentAsk, type AgentAskAnswer, type AgentImage, type AgentMessage, type AgentOptions, type AgentSession, type ApprovalConfirmation, type AssistantAgent, type AssistantSnapshot, type ClientMessage, type GateStatus, type InboxItem, type InputEvent, type KeyName, type ServerMessage } from "@relay/protocol";
+import { defaultTabs, type AgentApproval, type AgentAsk, type AgentAskAnswer, type AgentImage, type AgentMessage, type AgentOptions, type AgentSession, type ApprovalConfirmation, type AssistantAgent, type AssistantSnapshot, type ClientMessage, type GateStatus, type InboxItem, type InputEvent, type KeyName, type ServerMessage } from "@relay/protocol";
 import { AgentsDeltaTracker } from "../src/agents/delta-tracker";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -11,6 +11,7 @@ import { PairingCoordinator } from "../src/pairing";
 import type { UsageService } from "../src/usage/service";
 import type { CatchUpDeck } from "../src/catchup/service";
 import type { ReactionRelaying } from "../src/reactions/service";
+import type { ArtifactRelaying } from "../src/artifacts/service";
 import { AckFailure, type AgentConfigChange, type AgentProvider, type AssistantRelaying, type AssistantThread, type CallClientMessage, type CallRelaying, type DeviceStore, type DropBox, type FrameSink, type GateCommand, type InboxRelaying, type InputSink, type PairedDevice, type PairingUI, type PushRegistry, type TextInjecting, type VncAccess } from "../src/seams";
 import { ASSISTANT_FOLLOW_MS, ClientSession, PAIRING_TIMEOUT_MS, type SessionClock, type SessionDeps } from "../src/session";
 
@@ -110,6 +111,7 @@ interface HarnessOptions {
   usage?: UsageService;
   catchup?: CatchUpDeck;
   reactions?: ReactionRelaying;
+  artifacts?: ArtifactRelaying;
 }
 
 function harness(options: HarnessOptions = {}): Harness {
@@ -158,6 +160,7 @@ function harness(options: HarnessOptions = {}): Harness {
     usage: options.usage ?? null,
     catchup: options.catchup ?? null,
     reactions: options.reactions ?? null,
+    artifacts: options.artifacts ?? null,
   };
   const sink = new RecordingSink();
   const clock = new FakeClock();
@@ -809,6 +812,34 @@ describe("reactions", () => {
     pair(bare);
     bare.session.receive({ t: "reaction.set", thread: "session:s1", message: "user@1", emoji: "👍", excerpt: "" });
     expect(bare.sink.last()).toEqual({ t: "reactions.snapshot", thread: "session:s1", reactions: {} });
+  });
+});
+
+describe("artifacts", () => {
+  it("hands artifacts.get to the service (which broadcasts), answers artifacts.act with artifacts.acted, and serves defaults without a service", () => {
+    const calls: string[] = [];
+    const artifacts: ArtifactRelaying = {
+      get: (thread) => void calls.push(`get ${thread}`),
+      act: (thread, by, action) => (calls.push(`act ${thread} ${by} ${action.op}`), action.op === "pin" ? { ok: true } : { ok: false, error: "nope" }),
+      openMedia: () => null,
+      observe: () => undefined,
+    };
+    const h = harness({ artifacts });
+    pair(h);
+    const sent = h.sink.sent.length;
+    h.session.receive({ t: "artifacts.get", thread: "assistant:astra" });
+    expect(h.sink.sent.length).toBe(sent);
+    h.session.receive({ t: "artifacts.act", thread: "assistant:astra", rid: "r1", by: "isaac", action: { op: "pin", id: "linear:ENG-1", pinned: true } });
+    expect(h.sink.last()).toEqual({ t: "artifacts.acted", rid: "r1", ok: true });
+    h.session.receive({ t: "artifacts.act", thread: "session:s1", rid: "r2", by: "nova", action: { op: "tab.remove", tab: "links" } });
+    expect(h.sink.last()).toEqual({ t: "artifacts.acted", rid: "r2", ok: false, error: "nope" });
+    expect(calls).toEqual(["get assistant:astra", "act assistant:astra isaac pin", "act session:s1 nova tab.remove"]);
+    const bare = harness();
+    pair(bare);
+    bare.session.receive({ t: "artifacts.get", thread: "session:s1" });
+    expect(bare.sink.last()).toEqual({ t: "artifacts.snapshot", thread: "session:s1", items: [], tabs: defaultTabs() });
+    bare.session.receive({ t: "artifacts.act", thread: "session:s1", rid: "r3", by: "isaac", action: { op: "pin", id: "x", pinned: true } });
+    expect(bare.sink.last()).toMatchObject({ t: "artifacts.acted", rid: "r3", ok: false });
   });
 });
 
