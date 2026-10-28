@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { BlurView } from "expo-blur";
 import Animated, {
@@ -9,9 +9,11 @@ import Animated, {
   withRepeat,
   withTiming,
 } from "react-native-reanimated";
+import { STATE_META, type MotionSignals, type MotionState } from "@relay/portrait-motion";
 import type { AssistantPortrait } from "@relay/protocol";
 import { loadSkia } from "@/dictation/skia";
 import { motion, spacing, useScheme } from "@/theme";
+import { AnimatedPortrait } from "./AnimatedPortrait";
 import { Portrait } from "./Portrait";
 import { Text } from "./Text";
 
@@ -35,21 +37,35 @@ const RING = {
   light: "rgba(70,80,110,0.55)",
 } as const;
 
+/** The portrait comes alive (`ui/AnimatedPortrait`) with what its thread is doing. */
+export interface PortraitMotion {
+  signals: MotionSignals;
+  /** The thread just opened: it waves hello first. */
+  hello?: boolean;
+  /** Covered (the call screen over the thread): it holds still. */
+  paused?: boolean;
+}
+
 export interface AvatarRingProps {
   name: string;
   size?: number;
-  /** The ring breathes while true: the agent is working. */
+  /** The ring breathes while true: the agent is working. Ignored with `motion`, whose portrait shows it. */
   breathing?: boolean;
   /** The agent's portrait (`lib/portrait`); with one the hole holds it inside a thin band. */
   portrait?: AssistantPortrait | undefined;
+  /** Animate the portrait from these signals instead of breathing the ring. */
+  motion?: PortraitMotion | undefined;
 }
 
 /**
  * An agent's mark: a translucent ring around a see-through hole (or, given a `portrait`, a thin
- * ring around it), and the name on a blurred translucent pill underneath. The ring is drawn with
- * Skia when the build has it, like `IconButton`.
+ * ring around it, animated with `motion`), and the name on a blurred translucent pill underneath.
+ * The ring is drawn with Skia when the build has it, like `IconButton`.
  */
-export function AvatarRing({ name, size = RING_SIZE, breathing = false, portrait }: AvatarRingProps) {
+export function AvatarRing({ name, size = RING_SIZE, breathing: breathingProp = false, portrait, motion: live }: AvatarRingProps) {
+  const animated = portrait !== undefined && live !== undefined;
+  const breathing = breathingProp && !animated;
+  const [state, setState] = useState<MotionState | null>(null);
   const scheme = useScheme();
   const color = RING[scheme];
   const scale = useSharedValue(1);
@@ -69,13 +85,26 @@ export function AvatarRing({ name, size = RING_SIZE, breathing = false, portrait
   const ringStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
   const inner = portrait === undefined ? Math.round(size * INNER_RATIO) : size - 2 * PORTRAIT_BAND;
 
+  const label = animated && state !== null ? `${name}, ${STATE_META[state].status}` : breathing ? `${name}, working` : name;
   return (
-    <View accessible accessibilityLabel={breathing ? `${name}, working` : name} style={styles.root}>
+    <View accessible accessibilityLabel={label} style={styles.root}>
       <Animated.View style={[{ width: size, height: size }, ringStyle]}>
         <Ring size={size} inner={inner} color={color} />
         {portrait !== undefined && (
           <View style={styles.portrait}>
-            <Portrait name={name} portrait={portrait} size={inner} />
+            {live === undefined ? (
+              <Portrait name={name} portrait={portrait} size={inner} />
+            ) : (
+              <AnimatedPortrait
+                name={name}
+                portrait={portrait}
+                size={inner}
+                signals={live.signals}
+                hello={live.hello ?? false}
+                paused={live.paused ?? false}
+                onState={setState}
+              />
+            )}
           </View>
         )}
       </Animated.View>

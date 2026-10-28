@@ -37,6 +37,17 @@ export function withAlpha(hex: string, alpha: number): string {
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
 }
 
+/** `#RRGGBB` `a` moved toward `b` by `w` (0 = a, 1 = b). */
+export function mixHex(a: string, b: string, w: number): string {
+  const x = parseInt(a.slice(1), 16);
+  const y = parseInt(b.slice(1), 16);
+  const channel = (shift: number): string =>
+    Math.round(((x >> shift) & 255) * (1 - w) + ((y >> shift) & 255) * w)
+      .toString(16)
+      .padStart(2, "0");
+  return `#${channel(16)}${channel(8)}${channel(0)}`;
+}
+
 /** The low-alpha fill behind toned content; the muted tone sits on the raised surface instead. */
 export function toneFill(colors: Colors, tone: ToneToken, alpha = 0.16): string {
   return tone === "textMuted" ? colors.surfaceRaised : withAlpha(colors[tone], alpha);

@@ -19,6 +19,7 @@
     "@dicebear/micah": "^9.4.3",
     "@dicebear/notionists": "^9.4.2",
     "@gorhom/bottom-sheet": "^5.2.14",
+    "@relay/portrait-motion": "workspace:*",
     "@relay/protocol": "workspace:*",
     "@relay/widget-runtime": "link:../../packages/widget-runtime",
     "@shopify/react-native-skia": "2.2.12",

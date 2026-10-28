@@ -12,7 +12,7 @@ import type { AssistantAgent, AssistantStatus } from "@relay/protocol";
 import { EmptyState } from "@/ui/EmptyState";
 import { Pill } from "@/ui/Pill";
 import { Screen } from "@/ui/Screen";
-import { Portrait } from "@/ui/Portrait";
+import { BreathingPortrait } from "@/ui/BreathingPortrait";
 import { Separator } from "@/ui/Separator";
 import { Text } from "@/ui/Text";
 import { requestAssistantAgents } from "@/connection";
@@ -111,7 +111,7 @@ function AssistantRow({ agent, now, onPress }: { agent: AssistantAgent; now: num
       style={({ pressed }) => ({ backgroundColor: pressed ? colors.surfaceRaised : "transparent" })}
     >
       <View style={styles.row}>
-        <Portrait name={agent.title} portrait={portraitOf(agent)} size={AVATAR} />
+        <BreathingPortrait name={agent.title} portrait={portraitOf(agent)} size={AVATAR} working={status === "working"} />
         <View style={styles.body}>
           <View style={styles.line}>
             <Text variant="title" numberOfLines={1} style={styles.grow}>

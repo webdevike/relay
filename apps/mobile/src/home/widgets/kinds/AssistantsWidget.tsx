@@ -11,7 +11,7 @@ import { selectHaptic } from "@/lib/haptics";
 import type { AssistantAgent } from "@relay/protocol";
 import { NestedPager } from "@/ui/NestedPager";
 import { PageDots } from "@/ui/PageControls";
-import { Portrait } from "@/ui/Portrait";
+import { BreathingPortrait } from "@/ui/BreathingPortrait";
 import { Text } from "@/ui/Text";
 import { previewText } from "@/agents/markdown";
 import { relativeTime } from "@/lib/format";
@@ -59,7 +59,7 @@ function AgentRow({ agent, open, first }: { agent: AssistantAgent; open: WidgetB
       style={[styles.row, !first && { borderTopColor: colors.hairline, borderTopWidth: StyleSheet.hairlineWidth }]}
     >
       <View style={styles.rowHead}>
-        <Portrait name={agent.title} portrait={portraitOf(agent)} size={PORTRAIT} />
+        <BreathingPortrait name={agent.title} portrait={portraitOf(agent)} size={PORTRAIT} working={agent.status === "working"} />
         {dot !== null && <View style={[styles.dot, { backgroundColor: dot }]} />}
         <Text variant="label" numberOfLines={1} style={styles.name}>
           {agent.title}
@@ -161,7 +161,7 @@ function AssistantStack({ agents, open, a11y }: { agents: readonly AssistantAgen
         >
           {agents.map((agent) => (
             <View key={agent.id} style={styles.page}>
-              <Portrait name={agent.title} portrait={portraitOf(agent)} size={Math.round(frame.height * 0.36)} />
+              <BreathingPortrait name={agent.title} portrait={portraitOf(agent)} size={Math.round(frame.height * 0.36)} working={agent.status === "working"} />
               <Text variant="label" numberOfLines={1} style={styles.stackName}>
                 {agent.title}
               </Text>

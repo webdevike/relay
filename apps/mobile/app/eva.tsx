@@ -41,6 +41,7 @@ import { topLevelImages } from "@/agents/markdown";
 import { MessageText } from "@/agents/MessageText";
 import { radii, spacing, useColors, useScheme } from "@/theme";
 import { agentPortrait, agentTitle, threadOf, useAssistantStore } from "@/state/assistant";
+import { useMotionSignals } from "@/state/motion";
 import { useConnectionStore } from "@/state/connection";
 import { requestAssistant, sendCommand, stopAssistant } from "@/connection";
 import { notifyHaptic } from "@/lib/haptics";
@@ -95,6 +96,9 @@ function Thread({ agent }: { agent: string }) {
   const dictationFinal = useRef("");
   const [inputHeight, setInputHeight] = useState(40);
   const [failure, setFailure] = useState<string | null>(null);
+  // The last turn sent from here was refused or timed out: the portrait shows Error until the next one.
+  const [turnFailed, setTurnFailed] = useState(false);
+  const signals = useMotionSignals(agent, turnFailed);
   const onCall = useCallStore((state) => state.call?.agent === agent);
   // The composer floats over the list, so the list pads itself by however tall the composer is.
   const [composerHeight, setComposerHeight] = useState(108 + COMPOSER_BOTTOM);
@@ -208,12 +212,14 @@ function Thread({ agent }: { agent: string }) {
     if (!canSend) return;
     const sent = photos;
     setFailure(null);
+    setTurnFailed(false);
     setPending(agent, { text, images: sent });
     setDraft("");
     setPhotos([]);
     sendCommand({ kind: "assistant.turn", agent, text, ...(sent.length > 0 ? { images: sent.map((photo) => photo.image) } : {}) }).catch(
       (error: unknown) => {
         notifyHaptic("error");
+        setTurnFailed(true);
         // The words and pictures come back to the composer, so a lost connection never eats a message.
         setPending(agent, null);
         setDraft((current) => (current === "" ? text : current));
@@ -348,7 +354,7 @@ function Thread({ agent }: { agent: string }) {
               accessibilityLabel={`${title} menu`}
               onPress={openMenu}
             >
-              <AvatarRing name={title} portrait={portrait} breathing={busy} />
+              <AvatarRing name={title} portrait={portrait} motion={{ signals, hello: true, paused: onCall }} />
             </Pressable>
             <View style={styles.back}>
               <BackButton
@@ -431,7 +437,7 @@ function Thread({ agent }: { agent: string }) {
           setViewing(null);
         }}
       />
-      {onCall && <CallScreen title={title} portrait={portrait} />}
+      {onCall && <CallScreen agent={agent} title={title} portrait={portrait} />}
     </SafeAreaView>
   );
 }

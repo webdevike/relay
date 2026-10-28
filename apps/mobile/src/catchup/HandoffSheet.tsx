@@ -6,10 +6,10 @@
  */
 import { useEffect, useState } from "react";
 import { Modal, StyleSheet, View } from "react-native";
-import type { AssistantPortrait, CatchUpCard } from "@relay/protocol";
+import type { AssistantPortrait, AssistantStatus, CatchUpCard } from "@relay/protocol";
 import { Button } from "@/ui/Button";
 import { OptionRow } from "@/ui/OptionRow";
-import { Portrait } from "@/ui/Portrait";
+import { BreathingPortrait } from "@/ui/BreathingPortrait";
 import { Text } from "@/ui/Text";
 import { TextField } from "@/ui/TextField";
 import { defaultAssistant } from "@/lib/catchup";
@@ -25,6 +25,8 @@ export interface HandoffTarget {
   /** The registry's portrait seed and designed portrait, when the host listed them. */
   avatar?: string | undefined;
   portrait?: AssistantPortrait | undefined;
+  /** Where its thread stands; working turns the portrait's dot ring. */
+  status?: AssistantStatus | undefined;
 }
 
 export interface HandoffSheetProps {
@@ -66,7 +68,7 @@ export function HandoffSheet({ card, targets, onClose, onSend }: HandoffSheetPro
                 label={target.title}
                 description={target.scope}
                 badge={target.id === defaultAssistant(card) ? "Usual" : undefined}
-                leading={<Portrait name={target.title} portrait={portraitOf(target)} size={PORTRAIT} />}
+                leading={<BreathingPortrait name={target.title} portrait={portraitOf(target)} size={PORTRAIT} working={target.status === "working"} />}
                 selected={chosen === target.id}
                 onPress={() => {
                   setAgent(target.id);
