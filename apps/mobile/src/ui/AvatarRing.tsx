@@ -58,7 +58,7 @@ export interface AvatarRingProps {
 
 /**
  * An agent's mark: a translucent ring around a see-through hole (or, given a `portrait`, a thin
- * ring around it, animated with `motion`), and the name on a blurred translucent pill underneath.
+ * ring around it; animated with `motion`, no band, so only the portrait's own dot ring shows), and the name on a blurred translucent pill underneath.
  * The ring is drawn with Skia when the build has it, like `IconButton`.
  */
 export function AvatarRing({ name, size = RING_SIZE, breathing: breathingProp = false, portrait, motion: live }: AvatarRingProps) {
@@ -90,7 +90,8 @@ export function AvatarRing({ name, size = RING_SIZE, breathing: breathingProp = 
   return (
     <View accessible accessibilityLabel={label} style={styles.root}>
       <Animated.View style={[{ width: size, height: size }, ringStyle]}>
-        <Ring size={size} inner={inner} color={color} />
+        {/* An animated portrait's dot ring runs exactly where the band would be: the band would cover it. */}
+        {!animated && <Ring size={size} inner={inner} color={color} />}
         {portrait !== undefined && (
           <View style={styles.portrait}>
             {live === undefined ? (
@@ -136,6 +137,6 @@ const styles = StyleSheet.create({
   chip: { height: NAME_PILL_HEIGHT, borderRadius: NAME_PILL_HEIGHT / 2, overflow: "hidden", paddingHorizontal: spacing.md + 2, alignItems: "center", justifyContent: "center" },
   name: { fontSize: 17, lineHeight: 22, fontWeight: "700" },
   portrait: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
-  // On the ring's lower right, like a contact's presence dot.
-  dot: { position: "absolute", right: 1, bottom: 1 },
+  // On the ring's lower left: the Researching magnifier works the lower right.
+  dot: { position: "absolute", left: 1, bottom: 1 },
 });
