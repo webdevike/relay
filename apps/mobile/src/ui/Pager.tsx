@@ -1,8 +1,11 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ScrollView, View, type ScrollViewProps } from "react-native";
-import { ScrollView as GestureScrollView } from "react-native-gesture-handler";
+import { Gesture, GestureDetector, ScrollView as GestureScrollView, type NativeGesture } from "react-native-gesture-handler";
 import { tapHaptic } from "@/lib/haptics";
 import { useSwipeCardGestures } from "@/ui/SwipeCard";
+
+/** The scroll gesture of the `Pager` with `nests` around a `NestedPager`, which it waits on. */
+export const OuterPagerContext = createContext<NativeGesture | null>(null);
 
 /** Page state for a `Pager`: `go` clamps to the valid range, skips no-op moves, and plays a tap haptic. */
 export function usePager(
@@ -27,6 +30,10 @@ export interface PagerProps {
   /** Size the pager to the current page's own height instead of the tallest page's (tab panes of
    * different lengths); the height follows once a swipe or tap settles. */
   fitPage?: boolean | undefined;
+  /** Its pages hold `NestedPager`s (Home's widget stacks): a sideways swipe that starts on one waits
+   * for that pager to decide, and only the ones it hands back (past its first or last page) turn
+   * this pager. */
+  nests?: boolean | undefined;
   children: ReactNode[];
 }
 
@@ -34,10 +41,11 @@ export interface PagerProps {
  * a width change (rotation) re-aligns instantly, and swipes report back through `onPageChange`
  * without triggering a redundant scroll. Inside a Catch Up `SwipeCard` it blocks the card's
  * sideways pan, so swiping between pages never throws the card; vertical drags still fall through
- * to the scroll around it. */
-export function Pager({ width, page, onPageChange, scrollEnabled, fitPage, children }: PagerProps) {
+ * to the scroll around it. With `nests`, a `NestedPager` inside gets first say over sideways swipes. */
+export function Pager({ width, page, onPageChange, scrollEnabled, fitPage, nests, children }: PagerProps) {
   const scroller = useRef<ScrollView>(null);
   const card = useSwipeCardGestures();
+  const native = useMemo(() => Gesture.Native(), []);
   // The page and width the scroll view is currently resting at, so effects only scroll on real drift.
   const settledPage = useRef(page);
   const settledWidth = useRef(width);
@@ -92,13 +100,27 @@ export function Pager({ width, page, onPageChange, scrollEnabled, fitPage, child
     </View>
   ));
 
-  return card === null ? (
+  if (card !== null) {
+    return (
+      <GestureScrollView ref={scroller} blocksHandlers={card.pan} simultaneousHandlers={card.hold} {...props}>
+        {pages}
+      </GestureScrollView>
+    );
+  }
+  if (nests === true) {
+    return (
+      <OuterPagerContext.Provider value={native}>
+        <GestureDetector gesture={native}>
+          <ScrollView ref={scroller} {...props}>
+            {pages}
+          </ScrollView>
+        </GestureDetector>
+      </OuterPagerContext.Provider>
+    );
+  }
+  return (
     <ScrollView ref={scroller} {...props}>
       {pages}
     </ScrollView>
-  ) : (
-    <GestureScrollView ref={scroller} blocksHandlers={card.pan} simultaneousHandlers={card.hold} {...props}>
-      {pages}
-    </GestureScrollView>
   );
 }

@@ -1,12 +1,16 @@
 /**
  * Assistants widget. Small: a Smart Stack of the host's assistants, newest reply first, one per
- * page with its portrait; swipe up or down between them, a tap opens the one showing. Medium: the three agents that spoke last, each with its last line and
- * status; a row opens its thread. Elsewhere a tap opens /assistants.
+ * page with its portrait; swipe left or right between them (page dots under it), and a swipe past
+ * the last or first one turns Home's page instead; a tap opens the one showing. Medium: the three
+ * agents that spoke last, each with its last line and status; a row opens its thread. Elsewhere a
+ * tap opens /assistants.
  */
 import { useState } from "react";
-import { ScrollView, StyleSheet, View, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { selectHaptic } from "@/lib/haptics";
 import type { AssistantAgent } from "@relay/protocol";
+import { NestedPager } from "@/ui/NestedPager";
+import { PageDots } from "@/ui/PageControls";
 import { Portrait } from "@/ui/Portrait";
 import { Text } from "@/ui/Text";
 import { previewText } from "@/agents/markdown";
@@ -15,9 +19,9 @@ import { portraitOf } from "@/lib/portrait";
 import { STATUS_LABEL, useAssistantStore } from "@/state/assistant";
 import { useConnectionStore } from "@/state/connection";
 import { spacing, useColors } from "@/theme";
-import { useWidgetUi } from "../ui";
 import {
   useWidgetTint,
+  WIDGET_PADDING,
   WidgetHeader,
   WidgetLink,
   WidgetNote,
@@ -118,78 +122,78 @@ export function AssistantsWidget({ size, open, a11y }: WidgetBodyProps) {
 }
 
 /**
- * The small widget as an iOS Smart Stack: one assistant per page, its portrait the main image;
- * swipe up or down to the next. Vertical, so it never fights Home's sideways page swipe.
+ * The small widget as an iOS Smart Stack turned sideways: one assistant per page, its portrait the
+ * main image, `PageDots` under them. Its `NestedPager` hands a swipe past either end to Home's pages.
  */
 function AssistantStack({ agents, open, a11y }: { agents: readonly AssistantAgent[]; open: WidgetBodyProps["open"]; a11y: WidgetBodyProps["a11y"] }) {
-  const colors = useColors();
   const tint = useWidgetTint("blue");
-  const [height, setHeight] = useState(0);
+  const [frame, setFrame] = useState({ width: 0, height: 0 });
   const [page, setPage] = useState(0);
-  const current = agents[Math.min(page, agents.length - 1)] ?? agents[0];
+  const shown = Math.min(page, agents.length - 1);
+  const current = agents[shown] ?? agents[0];
   if (current === undefined) return null;
-  const settle = (event: NativeSyntheticEvent<NativeScrollEvent>): void => {
-    if (height <= 0) return;
-    const next = Math.round(event.nativeEvent.contentOffset.y / height);
-    if (next !== page) { selectHaptic(); setPage(next); }
-  };
   return (
     <WidgetSurface
-      label={`${current.title}: ${agentLine(current)}. ${String(page + 1)} of ${String(agents.length)} assistants, swipe up or down for the next.`}
+      label={`${current.title}: ${agentLine(current)}. ${String(shown + 1)} of ${String(agents.length)} assistants, swipe left or right for the next.`}
       href={{ pathname: "/eva", params: { agent: current.id } }}
       open={open}
       a11y={a11y}
+      // The pages span the whole rect, so a swipe anywhere on the widget turns them, edge to edge.
       style={styles.stackSurface}
     >
       <View
         style={styles.fill}
-        onLayout={(event) => { setHeight(event.nativeEvent.layout.height); }}
-        // The finger belongs to the stack: Home's scroll holds still so an up/down swipe pages assistants.
-        onTouchStart={() => { if (agents.length > 1) useWidgetUi.getState().set({ stackTouched: true }); }}
-        onTouchEnd={() => { useWidgetUi.getState().set({ stackTouched: false }); }}
-        onTouchCancel={() => { useWidgetUi.getState().set({ stackTouched: false }); }}
+        onLayout={(event) => {
+          const { width, height } = event.nativeEvent.layout;
+          setFrame((was) => (was.width === width && was.height === height ? was : { width, height }));
+        }}
       >
-        {height > 0 && (
-          <ScrollView pagingEnabled nestedScrollEnabled bounces={false} showsVerticalScrollIndicator={false} onMomentumScrollEnd={settle} style={styles.fill}>
-            {agents.map((agent) => (
-              <View key={agent.id} style={[styles.page, { height }]}>
-                <Portrait name={agent.title} portrait={portraitOf(agent)} size={Math.round(height * 0.42)} />
-                <Text variant="label" numberOfLines={1} style={styles.stackName}>
-                  {agent.title}
+        <NestedPager
+          width={frame.width}
+          page={shown}
+          onPageChange={(next) => {
+            selectHaptic();
+            setPage(next);
+          }}
+          // Jiggle mode: the widget is for dragging, and a swipe on it turns Home.
+          enabled={open !== null}
+          style={styles.fill}
+        >
+          {agents.map((agent) => (
+            <View key={agent.id} style={styles.page}>
+              <Portrait name={agent.title} portrait={portraitOf(agent)} size={Math.round(frame.height * 0.36)} />
+              <Text variant="label" numberOfLines={1} style={styles.stackName}>
+                {agent.title}
+              </Text>
+              <Text variant="caption" color="textMuted" numberOfLines={2}>
+                {agentLine(agent)}
+              </Text>
+              <WidgetSpacer />
+              {agent.lastReply !== undefined && (
+                <Text variant="caption" numberOfLines={1} style={{ color: tint }}>
+                  {ago(agent.lastReply.at)}
                 </Text>
-                <Text variant="caption" color="textMuted" numberOfLines={2}>
-                  {agentLine(agent)}
-                </Text>
-                <WidgetSpacer />
-                {agent.lastReply !== undefined && (
-                  <Text variant="caption" numberOfLines={1} style={{ color: tint }}>
-                    {ago(agent.lastReply.at)}
-                  </Text>
-                )}
-              </View>
-            ))}
-          </ScrollView>
-        )}
-        {agents.length > 1 && (
-          <View pointerEvents="none" style={styles.dots}>
-            {agents.map((agent, index) => (
-              <View key={agent.id} style={[styles.stackDot, { backgroundColor: index === page ? colors.text : colors.hairline }]} />
-            ))}
-          </View>
-        )}
+              )}
+            </View>
+          ))}
+        </NestedPager>
+        <View pointerEvents="none" style={styles.dots}>
+          <PageDots page={shown} count={agents.length} />
+        </View>
       </View>
     </WidgetSurface>
   );
 }
 
+/** Height of the page-dots strip along the stack's bottom edge. */
+const DOTS_ROW = 18;
+
 const styles = StyleSheet.create({
-  reply: { marginTop: spacing.sm, fontWeight: "500" },
   fill: { flex: 1 },
-  stackSurface: { paddingRight: spacing.lg },
-  page: { paddingRight: spacing.sm },
+  stackSurface: { padding: 0 },
+  page: { flex: 1, padding: WIDGET_PADDING, paddingBottom: DOTS_ROW },
   stackName: { marginTop: spacing.sm, fontWeight: "600" },
-  dots: { position: "absolute", right: -spacing.sm, top: 0, bottom: 0, justifyContent: "center", gap: 4 },
-  stackDot: { width: 5, height: 5, borderRadius: 2.5 },
+  dots: { position: "absolute", left: 0, right: 0, bottom: 0, height: DOTS_ROW, justifyContent: "center" },
   rows: { flex: 1, justifyContent: "space-between" },
   row: { flex: 1, justifyContent: "center", gap: 1 },
   rowHead: { flexDirection: "row", alignItems: "center", gap: 6 },

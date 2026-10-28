@@ -50,7 +50,7 @@ export default function Home() {
   const pill = pillFor[status];
   const gateLocked = useGateStore((state) => state.gate?.locked === true);
   // A held widget owns the finger; the page must not scroll under it.
-  const holding = useWidgetUi((state) => state.holding || state.stackTouched);
+  const holding = useWidgetUi((state) => state.holding);
   const editing = useWidgetUi((state) => state.editing);
   const [bodyHeight, setBodyHeight] = useState(0);
 

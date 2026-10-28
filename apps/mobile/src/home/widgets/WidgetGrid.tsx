@@ -3,6 +3,8 @@
  *
  * Widgets fill pages one screen tall (`paginateWidgets`: as many rows as fit below whatever sits
  * above the grid); more than one page swipes sideways on the shared `Pager`, with `PageDots` under it.
+ * A widget with pages of its own (the Assistants stack, a `NestedPager`) takes a sideways swipe that
+ * starts on it first, and hands the swipe past its last or first page back to the pages here.
  * Long-press (400 ms, haptic) on a widget lifts it and opens the context menu (`WidgetMenu`): the
  * size row, Edit Home Screen and Remove Widget. Keep holding and move the finger instead, and the
  * menu gives way to jiggle mode with that widget in hand, as on iOS. In jiggle mode every widget
@@ -558,6 +560,7 @@ export function WidgetGrid({ viewportHeight }: WidgetGridProps) {
             page={shownPage}
             onPageChange={setPage}
             scrollEnabled={!holding}
+            nests
           >
             {pages.map((pageWidgets, p) => (
               <View key={p} style={styles.page}>

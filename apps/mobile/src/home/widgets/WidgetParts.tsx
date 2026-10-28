@@ -36,6 +36,8 @@ export interface WidgetBodyProps {
 }
 
 export const WIDGET_RADIUS = 22;
+/** Inset of a widget's content from its rect. */
+export const WIDGET_PADDING = 14;
 
 /** The kind's colour as text and glyph tint: the light end of its icon gradient on dark, the deep end on light. */
 export function useWidgetTint(color: WidgetColor): string {
@@ -192,7 +194,7 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: WIDGET_RADIUS,
     borderCurve: "continuous",
-    padding: 14,
+    padding: WIDGET_PADDING,
     overflow: "hidden",
   },
   lightShadow: {

@@ -29,8 +29,6 @@ export interface WidgetUiStore {
   menu: WidgetMenuTarget | null;
   /** A widget is held past the long-press delay; Home's scroll view stays still until release. */
   holding: boolean;
-  /** A finger is on a widget's own vertical stack; Home's scroll view stays still so the swipe pages the stack. */
-  stackTouched: boolean;
   /** The Add Widget sheet is over Home; leaving Home for it keeps jiggle mode. */
   adding: boolean;
   set: (partial: Partial<Omit<WidgetUiStore, "set">>) => void;
@@ -40,7 +38,6 @@ export const useWidgetUi = create<WidgetUiStore>((set) => ({
   editing: false,
   menu: null,
   holding: false,
-  stackTouched: false,
   adding: false,
   set: (partial) => {
     set(partial);
