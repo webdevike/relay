@@ -504,6 +504,8 @@ function Thread({ agent }: { agent: string }) {
         {screen}
         <ArtifactsSheet
           thread={artifactsThread}
+          agent={agent}
+          session={sessionId}
           open={artifactsOpen}
           onClose={() => {
             setArtifactsOpen(false);

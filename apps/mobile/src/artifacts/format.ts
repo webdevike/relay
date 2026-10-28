@@ -1,10 +1,11 @@
 /**
  * Pure pieces of the Artifacts sheet: row titles, meta lines, status pills, groups, the subagent
- * tree, media tiles, rule chips and the header's blue dot. Which items a tab shows comes from
- * the protocol's `tabItems`, so the phone and the desktop agree; this only decides how they look.
+ * tree, the Subagents tab's task groups, media tiles, rule chips and the header's blue dot. Which
+ * items a tab shows comes from the protocol's `tabItems`, so the phone and the desktop agree; this
+ * only decides how they look.
  */
-import type { Artifact, ArtifactKind, ArtifactTab, TabRule } from "@relay/protocol";
-import { mediaClock } from "@/lib/format";
+import { artifactFaded, compareArtifacts, type AgentApproval, type AgentAsk, type AgentSession, type Artifact, type ArtifactKind, type ArtifactTab, type AssistantAgent, type TabRule } from "@relay/protocol";
+import { elapsed, mediaClock } from "@/lib/format";
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -252,6 +253,173 @@ export function subagentLine(item: Artifact, now: number): string {
   if (sub.state === "running") return `started ${artifactTime(sub.startedAt, now)}`;
   const end = artifactTime(sub.endedAt ?? item.lastSeen, now);
   return sub.state === "failed" ? `failed ${end}` : `done ${end}`;
+}
+
+/** Where a task row stands; the sheet draws its glyph and tone from this. */
+export type TaskState = "ask" | "approval" | "waiting" | "review" | "running" | "done" | "failed";
+
+/** What tapping a task row does: close the sheet (answer in the chat), open a URL, or push a subagent's session; null when it has nowhere to go. */
+export type TaskOpen = { kind: "close" } | { kind: "url"; url: string } | { kind: "session"; sessionId: string } | null;
+
+export interface TaskRow {
+  key: string;
+  state: TaskState;
+  title: string;
+  line: string;
+  /** Epoch ms the time column counts from (`elapsed`) or shows (`clock`); null for no time. */
+  at: number | null;
+  timeStyle: "elapsed" | "clock";
+  tone: PillTone | "working";
+  /** Nesting under a parent subagent in the Working group. */
+  depth: number;
+  open: TaskOpen;
+}
+
+export type TaskGroupId = "needs" | "review" | "working" | "resolved";
+
+export interface TaskGroup {
+  id: TaskGroupId;
+  title: string;
+  rows: TaskRow[];
+}
+
+export interface TaskInputs {
+  /** The thread's artifacts, faded ones included (they are dropped here). */
+  items: readonly Artifact[];
+  now: number;
+  /** The omp session the thread runs in, or null while it is not running. */
+  threadSession: string | null;
+  sessions: Readonly<Record<string, AgentSession>>;
+  ask: AgentAsk | undefined;
+  approval: AgentApproval | undefined;
+  /** The thread's assistant as the registry lists it. */
+  agent: AssistantAgent | undefined;
+  agentTitle: string;
+}
+
+const TASK_TITLES: Record<TaskGroupId, string> = {
+  needs: "Needs input",
+  review: "Ready for review",
+  working: "Working",
+  resolved: "Resolved",
+};
+
+function present(text: string | undefined): string | null {
+  const trimmed = text?.trim();
+  return trimmed === undefined || trimmed === "" ? null : trimmed;
+}
+
+/** The one row for a thread blocked on Isaac: its pending ask, else its approval, else a waiting session, else the registry's needs-you. */
+function needsRow({ threadSession, sessions, ask, approval, agent, agentTitle }: TaskInputs): TaskRow | null {
+  const session = threadSession === null ? undefined : sessions[threadSession];
+  const base = { key: `needs:${threadSession ?? agent?.id ?? ""}`, at: session?.lastActivityAt ?? agent?.lastReply?.at ?? null, timeStyle: "clock" as const, tone: "warn" as const, depth: 0, open: { kind: "close" as const } };
+  if (ask !== undefined) return { ...base, state: "ask", title: `${agentTitle} asked you`, line: ask.questions[0]?.question ?? "" };
+  if (approval !== undefined) return { ...base, state: "approval", title: `Approve ${approval.toolName}`, line: present(approval.command) ?? present(approval.reason) ?? approval.toolName };
+  if (session !== undefined && (session.status === "waiting" || session.status === "needs_permission")) {
+    return { ...base, state: "waiting", title: `${agentTitle} needs you`, line: present(session.statusDetail) ?? present(session.lastActivity) ?? "Waiting on you" };
+  }
+  if (agent?.status === "needs_you") return { ...base, state: "waiting", title: `${agentTitle} needs you`, line: present(agent.lastReply?.text) ?? "Waiting on you" };
+  return null;
+}
+
+/** An open PR's review state and checks as one line: "Review requested · Checks pass · relay #241". */
+export function reviewLine(item: Artifact): string {
+  const pills = statusPills(item).map((pill) => (pill.label === "Review required" ? "Review requested" : pill.label));
+  // "Open" says nothing in a group of open PRs; keep it only when nothing else describes the PR.
+  const said = pills.filter((label) => label !== "Open");
+  const key = rowKey(item);
+  const where = [repoName(item), key].filter((part) => part !== null).join(" ");
+  return [...(said.length > 0 ? said : ["Open"]), ...(where === "" ? [] : [where])].join(" · ");
+}
+
+function reviewTone(item: Artifact): PillTone {
+  const status = item.status;
+  if (status?.checks === "fail") return "danger";
+  if (status?.review === "changes") return "warn";
+  if (status?.draft === true) return "textMuted";
+  return "accent";
+}
+
+/** The mirrored session of a subagent item (`<thread session>:<name>`, relay-bridge `mirrorSubagent`), if the host still lists it. */
+export function subagentSession(item: Artifact, threadSession: string | null, sessions: Readonly<Record<string, AgentSession>>): AgentSession | undefined {
+  if (threadSession === null) return undefined;
+  const file = item.path ?? item.id.slice("subagent:".length);
+  const name = file.slice(file.lastIndexOf("/") + 1).replace(/\.jsonl$/, "");
+  const session = sessions[`${threadSession}:${name}`];
+  return session?.parentId === threadSession ? session : undefined;
+}
+
+function resolvedLine(item: Artifact, session: AgentSession | undefined): string {
+  const failed = item.subagent?.state === "failed";
+  const summary = present(session?.lastActivity);
+  if (summary === null) return failed ? "Failed" : "Done";
+  return failed ? `Failed · ${summary}` : summary;
+}
+
+/**
+ * The Subagents tab as task states, in order: Needs input (the thread blocked on Isaac), Ready for
+ * review (its open PRs), Working (running subagents, children under their parent) and Resolved
+ * (subagents that finished today, newest first). Groups with no rows are left out.
+ */
+export function taskGroups(input: TaskInputs): TaskGroup[] {
+  const { items, now, threadSession, sessions } = input;
+  const shown = items.filter((item) => !artifactFaded(item, now)).sort(compareArtifacts);
+  const needs = needsRow(input);
+  const review: TaskRow[] = shown
+    .filter((item) => item.kind === "gh-pr" && item.status?.state === "open")
+    .map((item) => ({
+      key: item.id,
+      state: "review",
+      title: item.title,
+      line: reviewLine(item),
+      at: item.status?.changedAt ?? item.lastSeen,
+      timeStyle: "clock",
+      tone: reviewTone(item),
+      depth: 0,
+      open: item.url !== undefined && /^https?:/.test(item.url) ? { kind: "url", url: item.url } : null,
+    }));
+  const subagents = shown.filter((item) => item.kind === "subagent" && item.subagent !== undefined);
+  const working: TaskRow[] = subagentRows(subagents.filter((item) => item.subagent?.state === "running")).map(({ item, depth }) => {
+    const session = subagentSession(item, threadSession, sessions);
+    return {
+      key: item.id,
+      state: "running",
+      title: item.title,
+      line: present(session?.statusDetail) ?? present(session?.lastActivity) ?? subagentLine(item, now),
+      at: item.subagent?.startedAt ?? item.firstSeen,
+      timeStyle: "elapsed",
+      tone: "working",
+      depth,
+      open: session === undefined ? null : { kind: "session", sessionId: session.id },
+    };
+  });
+  const ended = (item: Artifact): number => item.subagent?.endedAt ?? item.lastSeen;
+  const resolved: TaskRow[] = subagents
+    .filter((item) => item.subagent?.state !== "running")
+    .sort((a, b) => ended(b) - ended(a))
+    .map((item) => {
+      const session = subagentSession(item, threadSession, sessions);
+      const failed = item.subagent?.state === "failed";
+      return {
+        key: item.id,
+        state: failed ? "failed" : "done",
+        title: item.title,
+        line: resolvedLine(item, session),
+        at: ended(item),
+        timeStyle: "clock",
+        tone: failed ? "danger" : "ok",
+        depth: 0,
+        open: session === undefined ? null : { kind: "session", sessionId: session.id },
+      };
+    });
+  const groups: Record<TaskGroupId, TaskRow[]> = { needs: needs === null ? [] : [needs], review, working, resolved };
+  return (Object.keys(TASK_TITLES) as TaskGroupId[]).filter((id) => groups[id].length > 0).map((id) => ({ id, title: TASK_TITLES[id], rows: groups[id] }));
+}
+
+/** A task row's time: how long it has run while working, else the clock time it happened. */
+export function taskTime(row: TaskRow, now: number): string | null {
+  if (row.at === null) return null;
+  return row.timeStyle === "elapsed" ? elapsed(now - row.at) : artifactTime(row.at, now);
 }
 
 /**
