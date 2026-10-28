@@ -68,6 +68,8 @@ describe('assistant status like native', () => {
       { id: 'd', title: 'D' },
       { id: 'e', title: 'E' },
       { id: 'f', title: 'F' },
+      { id: 'g', title: 'G' },
+      { id: 'h', title: 'H' },
     ])
     s.relay.sessions = new Map(
       [
@@ -78,6 +80,9 @@ describe('assistant status like native', () => {
         thread('s-e', 'e', 'ended'),
         // A hand-started chat that happens to name an agent is not its thread.
         { ...thread('s-f', 'f', 'working'), kind: 'manual' as const },
+        // omp's ask tool blocks while Relay still says working: it waits on Isaac.
+        { ...thread('s-g', 'g', 'working'), detail: 'ask' },
+        { ...thread('s-h', 'h', 'working'), detail: 'bash' },
       ].map((t) => [t.id, t]),
     )
     expect(s.svc.list().agents.map((a) => [a.id, a.status])).toEqual([
@@ -87,6 +92,8 @@ describe('assistant status like native', () => {
       ['d', 'idle'],
       ['e', 'idle'],
       ['f', 'not-started'],
+      ['g', 'needs-you'],
+      ['h', 'working'],
     ])
   })
 

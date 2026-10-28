@@ -15,6 +15,7 @@ import { oneLine } from '@evaos/chat-core/session'
 import { isNothingToReport } from '@evaos/chat-core/quiet'
 import { sessionId } from '@evaos/chat-core/session-id'
 import type { RelaySession } from '../relay/feed'
+import { ASK_TOOL } from '../relay/away'
 
 /** The registry, relative to the Eva root. */
 export const REGISTRY_FILE = '.omp/assistant/agents.json'
@@ -80,14 +81,15 @@ export function assistantSession(
 
 /**
  * Where a thread stands: no session is Not started, working is Working, a question or an
- * approval is Needs you, anything else Idle (native assistants_view::Status::of).
+ * approval is Needs you, anything else Idle (native assistants_view::Status::of). omp's `ask` tool
+ * blocks while Relay still says `working` (its detail `ask`): that thread waits on Isaac too.
  */
 export function statusOf(session: RelaySession | undefined): AssistantStatus {
   switch (session?.status) {
     case undefined:
       return 'not-started'
     case 'working':
-      return 'working'
+      return session.detail === ASK_TOOL ? 'needs-you' : 'working'
     case 'waiting':
     case 'needs_permission':
       return 'needs-you'
