@@ -7,6 +7,7 @@ import { answerCommand, decideCommand, type RelayCommand, type RelayImage } from
 import type { RelayApproval, RelayAsk } from '../relay/feed'
 
 export const STARTING_TEXT = 'Starting omp in herdr'
+export const MINI_STARTING_TEXT = 'Starting omp on the Mini'
 export const STARTING_ROW = 'herdr-starting'
 export const STREAM_ROW = 'relay-stream'
 
@@ -36,8 +37,8 @@ export interface RemoteView {
   notes: ChatMessage[]
   dialog: Dialog | null
   prompts: readonly SentPrompt[]
-  /** herdr is starting omp, or its first prompt waits for omp to join Relay. */
-  starting: boolean
+  /** The row's text while herdr or the Mini starts omp, or its first prompt waits for omp to join Relay. */
+  starting: string | null
   stream: Stream | null
 }
 
@@ -63,7 +64,7 @@ export function remoteRows(v: RemoteView): ChatMessage[] {
   const rows = [...v.history, ...v.notes]
   if (v.dialog) rows.push(makeMessage(dialogRowId(v.dialog.id), 'notice', dialogTitle(v.dialog)))
   for (const p of v.prompts) rows.push(p.row)
-  if (v.starting) rows.push(makeMessage(STARTING_ROW, 'notice', STARTING_TEXT))
+  if (v.starting !== null) rows.push(makeMessage(STARTING_ROW, 'notice', v.starting))
   if (v.stream && streamShown(v.stream, v.history)) {
     rows.push(
       makeMessage(STREAM_ROW, 'assistant', v.stream.text, { streaming: v.stream.streaming }),

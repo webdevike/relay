@@ -168,7 +168,7 @@ function bootstrap(): void {
       const evaWatch = startEvaWatch(ctx)
       ctx.onBeforeQuit(() => evaWatch.close())
       registerCanvasIpc(ctx)
-      registerUsageIpc(ctx)
+      registerUsageIpc(ctx, chat.mini)
       registerLinearIpc(ctx, linear)
       registerRoomsIpc(ctx)
       registerFilesIpc(ctx, chat)

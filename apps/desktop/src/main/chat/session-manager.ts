@@ -41,7 +41,10 @@ import {
   type Blocker,
   type SentPrompt,
   type Stream,
+  MINI_STARTING_TEXT,
+  STARTING_TEXT,
 } from './remote'
+import type { Mini } from '../relay/mini'
 
 export class CodedError extends Error {
   constructor(
@@ -67,6 +70,12 @@ export const CANT_REACH =
   'This chat is running outside this app and Relay cannot reach it. Sending from here starts a second omp on it and may interleave messages.'
 export const AWAY_SETTING =
   'This chat runs outside this app. Change its access and fast mode where it runs.'
+export const MINI_CANT_REACH =
+  "This chat runs on the Mini and Relay can't reach it. Reply to it where it runs."
+export const MINI_DOWN = "Relay isn't connected to the Mini. Wait for it to reconnect, then send again."
+export const MINI_GOAL = 'Start a /goal chat on the Mini: this laptop does not run omp itself.'
+export const APPROVE_ON_PHONE =
+  'This is a destructive command. Approve it on your phone or on the Mini.'
 
 /** What the user chose in the composer toolbar for one pane; applied live or at the next start. */
 interface PaneLaunch {
@@ -108,6 +117,11 @@ export interface SessionManagerDeps {
   herdr?: (launch: { args: string[]; profile: Profile | null }) => Promise<string>
   /** Where the reason a new chat did not start in herdr goes. */
   log?: (line: string) => void
+  /**
+   * Remote mode: omp runs only on the Mini. Every send goes through Relay; a new or past chat is
+   * started there, and nothing here starts omp or herdr.
+   */
+  mini?: Pick<Mini, 'start'>
 }
 
 /** A new herdr chat's prompt, held until its omp joins Relay (native FirstPrompt). */
@@ -422,6 +436,8 @@ export class SessionManager {
     if (route === 'relay') return this.replyAway(pane, text, opts.images)
     if (route === 'queue') return this.queueFirst(pane, text, opts.images)
     if (route === 'herdr') return this.startInHerdr(pane, text, opts.images)
+    if (route === 'mini') return this.startOnMini(pane, text, opts.images, null)
+    if (route === 'resume') return this.startOnMini(pane, text, opts.images, sessionId(pane.file!))
     const routed = this.writerFor(pane, opts.force === true)
     if (routed) {
       await this.deliver(routed.pane, routed.transport, text, opts.images)
@@ -469,9 +485,11 @@ export class SessionManager {
 
   /** The omp running this pane's file outside this app, as Relay hears it (native `away`). */
   private awayOf(pane: Pane): RelaySession | null {
-    if (pane.file === null || pane.key === null || pane.transport || pane.starting) return null
-    if (this.owners.has(pane.key)) return null
-    return this.liveSession(sessionId(pane.file))
+    // A new Mini chat is known by its session id until its mirrored file shows up.
+    const id = pane.file !== null ? sessionId(pane.file) : pane.remote?.session
+    if (!id || pane.transport || pane.starting) return null
+    if (pane.key !== null && this.owners.has(pane.key)) return null
+    return this.liveSession(id)
   }
 
   /** A new herdr chat still waiting to send a prompt. */
@@ -490,9 +508,20 @@ export class SessionManager {
     pane: Pane,
     force: boolean,
     goal: boolean,
-  ): 'relay' | 'queue' | 'herdr' | null {
+  ): 'relay' | 'queue' | 'herdr' | 'mini' | 'resume' | null {
     if (pane.transport || pane.starting) return null
     const r = pane.remote
+    // Remote mode never falls back to a local omp: a past chat is resumed on the Mini.
+    if (this.deps.mini) {
+      if (r?.away) {
+        if (r.away.canRespond) return 'relay'
+        throw new CodedError('owned-elsewhere', MINI_CANT_REACH)
+      }
+      if (r) return 'queue'
+      if (pane.key === null && goal) throw new CodedError('mini-goal', MINI_GOAL)
+      if (!this.relayUp()) throw new CodedError('relay-failed', MINI_DOWN)
+      return pane.key === null ? 'mini' : 'resume'
+    }
     if (r?.away) {
       if (r.away.canRespond) return 'relay'
       if (!force) throw new CodedError('owned-elsewhere', CANT_REACH)
@@ -601,6 +630,48 @@ export class SessionManager {
     this.onRelayChange()
   }
 
+  /**
+   * Starts omp on the Mini for a new chat, or with `resume` reopens that past chat there, then
+   * sends the prompt through Relay once it joins. A new chat's file arrives through the mirror.
+   */
+  private async startOnMini(
+    pane: Pane,
+    text: string,
+    images: ReadonlyArray<{ mimeType: string; data: string }> | undefined,
+    resume: string | null,
+  ): Promise<void> {
+    const queued = {
+      text: tagged(text, this.deps.machineLabel),
+      images: relayImagesOrThrow(images),
+    }
+    const prompted = pane.prompted
+    const r = this.enterRemote(pane, null)
+    this.addPrompt(pane, text, images, queued)
+    pane.prompted = true
+    let session: string
+    try {
+      session = await this.deps.mini!.start({
+        ...(resume !== null ? { resume } : {}),
+        profile: pane.launch.profile,
+        ...(pane.launch.thinking !== undefined ? { thinking: pane.launch.thinking } : {}),
+      })
+    } catch (e) {
+      if (pane.remote === r) {
+        pane.prompted = prompted
+        this.leaveRemote(pane)
+      }
+      const said = e instanceof Error ? e.message : String(e)
+      throw new CodedError('mini-failed', `Couldn't start omp on the Mini: ${said}`)
+    }
+    for (const prompt of r.prompts) {
+      if (prompt.queued === undefined) continue
+      this.firsts.push({ session, prompt, ...prompt.queued })
+      delete prompt.queued
+    }
+    if (this.panes.get(pane.paneId) === pane && pane.remote === r) r.session = session
+    this.onRelayChange()
+  }
+
   /** Shows a prompt sent through Relay (or waiting to be) until the session file has it. */
   private addPrompt(
     pane: Pane,
@@ -701,7 +772,12 @@ export class SessionManager {
     const live = r.away ? r.away.id : null
     const blocker = live === null ? undefined : this.blockers.get(live)
     const dialog = blocker ? blockerDialog(blocker) : null
-    const starting = r.session === null || this.firstPending(r.session)
+    const starting =
+      r.session === null || this.firstPending(r.session)
+        ? this.deps.mini
+          ? MINI_STARTING_TEXT
+          : STARTING_TEXT
+        : null
     this.applyRows(
       pane,
       remoteRows({
@@ -861,7 +937,15 @@ export class SessionManager {
     const changed = new Set(files.map((f) => this.real(f)))
     for (const pane of this.panes.values()) {
       const r = pane.remote
-      if (!r || pane.file === null || pane.key === null || !changed.has(pane.key)) continue
+      if (!r) continue
+      // A new Mini chat binds to its file once the mirror has it.
+      const bound = pane.file === null ? files.find((f) => sessionId(f) === r.session) : undefined
+      if (bound !== undefined && r.session !== null) {
+        pane.file = bound
+        pane.key = this.real(bound)
+        pane.batcher.markMeta({ sessionFile: bound })
+      }
+      if (pane.file === null || pane.key === null || !changed.has(pane.key)) continue
       const parsed = (this.deps.readSession ?? readSessionFile)(pane.file)
       if (parsed) this.reread(pane, r, parsed)
     }
@@ -972,6 +1056,13 @@ export class SessionManager {
     if (!b || blockerDialog(b).id !== id) return false
     const plan = answerFor(session, b, answer)
     if (!plan) return false
+    // Q6: the laptop never vouches for a destructive call; the phone or the Mini approves it.
+    if (this.deps.mini && plan.cmd.kind === 'agent.approve') {
+      if (b.kind === 'approval' && b.approval.destructive !== null) {
+        throw new CodedError('approve-on-phone', APPROVE_ON_PHONE)
+      }
+      delete plan.cmd.confirmed
+    }
     this.answering.set(id, plan.summary)
     try {
       await this.deps.relay!.command(plan.cmd)

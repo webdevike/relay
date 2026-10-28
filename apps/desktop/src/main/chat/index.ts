@@ -11,6 +11,7 @@ import { registerReactionsIpc } from '../relay/reactions-ipc'
 import { registerArtifactsIpc } from '../relay/artifacts-ipc'
 import { registerCanvasLiveIpc } from '../relay/canvas-live-ipc'
 import type { RelayArtifacts, RelayCanvas, RelaySource } from '../relay/client'
+import { createMini, type Mini } from '../relay/mini'
 import type { WriteQueue } from '../write-queue'
 import { AUTO_SETTLE_DAYS } from './chat-order'
 import { ChatListService, chatSessionsDirs } from './chat-list'
@@ -43,6 +44,8 @@ export interface ChatHandles {
   artifacts: RelaySource & RelayArtifacts
   /** Relay's live canvas rooms and the host's origin (canvas.live). */
   canvas: RelayCanvas
+  /** The Mini's omp in remote mode (`relayRemote`), else null. */
+  mini: Mini | null
 }
 
 const STATUS_COALESCE_MS = 30
@@ -50,7 +53,9 @@ const STATUS_COALESCE_MS = 30
 export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
   // Before the manager: a chat omp runs elsewhere is driven through Relay.
   const relay = startRelay(ctx)
-  const manager = createSessionManager(ctx, relay)
+  // Remote mode: omp runs only on the Mini, asked through Relay.
+  const mini = ctx.env.relayRemote ? createMini(relay, () => relay.sessions()) : null
+  const manager = createSessionManager(ctx, relay, mini)
   // Resolved once at launch: every omp store's sessions dir for the Eva root (fixture dir when not
   // live), or the mirror of a remote host's sessions.
   const sessionsDirs = chatSessionsDirs(ctx.env)
@@ -71,7 +76,7 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     (file) => manager.ownerOf(file),
     remote,
   )
-  registerLiveIpc(ctx, manager)
+  registerLiveIpc(ctx, manager, mini)
   // Before the list loads its order: a fresh live config starts from the native app's history.
   if (ctx.env.live) importNativeChatState(ctx.config, nativeConfigDir())
   const list = new ChatListService({
@@ -178,5 +183,6 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     relaySessions: () => relay.sessions(),
     artifacts: relay,
     canvas: relay,
+    mini,
   }
 }

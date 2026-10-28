@@ -21,6 +21,7 @@ import { parseSession } from '@evaos/chat-core/session'
 import { machineLabel } from '@evaos/chat-core/tagged'
 import type { Batch } from '@evaos/contract'
 import type { RelayLink } from '../relay/client'
+import type { Mini } from '../relay/mini'
 import { herdrRunner, launchInHerdr } from './herdr'
 
 function readText(file: string): string | null {
@@ -105,15 +106,22 @@ function commandsFor(ctx: MainContext): CommandCatalog {
   return c
 }
 
-export function createSessionManager(ctx: MainContext, relay: RelayLink): SessionManager {
+export function createSessionManager(
+  ctx: MainContext,
+  relay: RelayLink,
+  mini: Mini | null,
+): SessionManager {
   const dropNext = new Set<string>()
   let extraEnv: Record<string, string> = {}
   const herdrBin = ctx.env.herdrBin
   const manager: SessionManager = new SessionManager({
     relay,
     log: (line) => console.info(`[chat] ${line}`),
-    // New omp chats start in herdr like native EvaOS (herdr.rs), when herdr is installed.
-    ...(herdrBin !== null
+    // New omp chats start in herdr like native EvaOS (herdr.rs), when herdr is installed; in
+    // remote mode every chat runs on the Mini instead.
+    ...(mini !== null
+      ? { mini }
+      : herdrBin !== null
       ? {
           herdr: async ({ args, profile }) => {
             const home = os.homedir()
@@ -148,7 +156,7 @@ export function createSessionManager(ctx: MainContext, relay: RelayLink): Sessio
     launchArgs: (harness) => defaultLaunchArgs(ctx, harness),
     defaultApproval: (harness) => defaultApproval(ctx, harness),
     harness: () => loadSettings(ctx.config).harness,
-    models: () => catalogFor(ctx).peek(),
+    models: () => (mini ? mini.peekModels() : catalogFor(ctx).peek()),
     emit: (batch: Batch) => {
       // Test hook: the batch consumed a seq but never reaches the renderer (gap recovery e2e).
       if (dropNext.delete(batch.paneId)) return
@@ -183,7 +191,7 @@ export function createSessionManager(ctx: MainContext, relay: RelayLink): Sessio
   return manager
 }
 
-export function registerLiveIpc(ctx: MainContext, manager: SessionManager): void {
+export function registerLiveIpc(ctx: MainContext, manager: SessionManager, mini: Mini | null): void {
   handle(ctx, 'chat.send', async ({ paneId, text, images, force }) => {
     await manager.send(paneId, text, {
       ...(images ? { images } : {}),
@@ -202,19 +210,21 @@ export function registerLiveIpc(ctx: MainContext, manager: SessionManager): void
     manager.openDraft(paneId, meta)
     return { meta, harness: loadSettings(ctx.config).harness }
   })
+  // In remote mode the lists come from a chat on the Mini; no omp runs here.
   handle(ctx, 'chat.models', async () => ({
-    models: await catalogFor(ctx).list(),
+    models: mini ? (await mini.options()).models : await catalogFor(ctx).list(),
     thinking: readThinking(
       readText(path.join(ctx.env.evaRoot, '.omp/config.yml')),
       readText(path.join(ctx.env.agentDir, 'config.yml')),
     ),
   }))
-  handle(ctx, 'chat.commands', async () => ({ commands: await commandsFor(ctx).list() }))
+  handle(ctx, 'chat.commands', async () => ({
+    commands: mini ? (await mini.options()).commands : await commandsFor(ctx).list(),
+  }))
   handle(ctx, 'chat.launchState', async ({ paneId }) => {
     // Warm the catalog so imagesAllowed reflects the current model; a failure only means unknown.
-    await catalogFor(ctx)
-      .list()
-      .catch(() => undefined)
+    if (!mini) await catalogFor(ctx).list().catch(() => undefined)
+    else if (!mini.peekModels()) await mini.options().catch(() => undefined)
     return manager.launchState(paneId)
   })
   handle(ctx, 'chat.setLaunch', ({ paneId, patch }) => manager.setLaunch(paneId, patch))

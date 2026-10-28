@@ -1,11 +1,33 @@
 import * as os from 'node:os'
+import type { UsageSnapshot } from '@evaos/contract'
 import type { MainContext } from '../context'
 import { buildCommand, childPathFor, runCapture } from '../eva/spawn'
 import { emit, handle } from '../ipc/handle'
+import type { Mini } from '../relay/mini'
 import { createUsageService, USAGE_POLL_MS } from './usage-service'
 
-/** Plan usage for every omp profile: polled every 5 minutes, on window focus and on demand. */
-export function registerUsageIpc(ctx: MainContext): void {
+/**
+ * Plan usage for every omp profile: polled every 5 minutes, on window focus and on demand. In
+ * remote mode it is the Mini's (`usage.get`); no omp runs here.
+ */
+export function registerUsageIpc(ctx: MainContext, mini: Mini | null): void {
+  if (mini) {
+    let last: UsageSnapshot = { accounts: [], updatedAt: null, refreshing: false }
+    const fetch = (): Promise<UsageSnapshot> =>
+      mini.usage().then(
+        (s) => {
+          last = s
+          emit(ctx, 'usage.changed', s)
+          return s
+        },
+        () => last,
+      )
+    handle(ctx, 'usage.get', fetch)
+    handle(ctx, 'usage.refresh', fetch)
+    ctx.win.on('focus', () => void fetch())
+    setInterval(() => void fetch(), USAGE_POLL_MS).unref()
+    return
+  }
   const home = os.homedir()
   const service = createUsageService({
     profilesDir: ctx.env.ompProfilesDir,

@@ -3,6 +3,7 @@
 // `ack` or `nack` (relay/packages/protocol/src/index.ts, `Command` and `AckError`). Subscriptions
 // and reactions are plain frames with no answer; `artifacts.act` is answered by `artifacts.acted`.
 import type { ArtifactAction } from '@evaos/chat-core/artifacts'
+import type { Profile } from '@evaos/chat-core/launch'
 
 /** Relay's image limits for one reply (protocol `AgentImage`, `MAX_REPLY_IMAGES`). */
 export const RELAY_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const
@@ -51,8 +52,11 @@ export type RelayCommand =
       results: Array<{ id: string; selectedOptions: string[]; customInput?: string }>
     }
   | { kind: 'agent.ask.cancel'; sessionId: string; askId: string }
-  | { kind: 'agent.approve'; sessionId: string; approvalId: string; confirmed: 'desktop' }
+  /** `confirmed` is left out from a remote desktop, which may not approve a destructive call. */
+  | { kind: 'agent.approve'; sessionId: string; approvalId: string; confirmed?: 'desktop' }
   | { kind: 'agent.deny'; sessionId: string; approvalId: string }
+  /** Starts omp on the host, or with `resume` reopens that past session; see `agent.started`. */
+  | { kind: 'agent.start'; resume?: string; profile?: Profile; thinkingLevel?: string }
   /** Isaac's words to registry agent `agent`'s thread; the host starts the thread if needed. */
   | { kind: 'assistant.turn'; agent: string; text: string }
 

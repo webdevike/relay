@@ -9,13 +9,17 @@ import { RelayCommandError, type RelayLink, type RelaySessionEvent } from '../re
 import type { RelayCommand } from '../relay/commands'
 import type { RelaySession } from '../relay/feed'
 import {
+  APPROVE_ON_PHONE,
   AWAY_SETTING,
   CANT_REACH,
   MAYBE_RUNNING_ELSEWHERE,
+  MINI_CANT_REACH,
+  MINI_DOWN,
+  MINI_GOAL,
   SessionManager,
   type SessionManagerDeps,
 } from './session-manager'
-import { STARTING_TEXT, STREAM_ROW } from './remote'
+import { MINI_STARTING_TEXT, STARTING_TEXT, STREAM_ROW } from './remote'
 
 const TAG = '<surface>Mac - Relay Desktop</surface>\n'
 const FILE = '/s/2026_out.jsonl'
@@ -628,5 +632,85 @@ describe('SessionManager with Relay: new chats in herdr', () => {
     expect(mgr.snapshot('pane-1').away).toBeNull()
     expect(mgr.launchState('pane-1').unsent).toBe(true)
     expect(transports).toEqual([])
+  })
+})
+
+describe('SessionManager in remote mode: every chat runs on the Mini', () => {
+  const miniFile = '/m/2026_new.jsonl'
+  it('starts a new chat on the Mini, sends its prompt once omp joins and binds to its file', async () => {
+    const { promise, resolve } = Promise.withResolvers<string>()
+    const start = vi.fn(() => promise)
+    const herdr = vi.fn(async () => '/s/x.jsonl')
+    const { mgr, relay, write, shown, transports, batches } = setup({ mini: { start }, herdr })
+    relay.set([])
+    mgr.openDraft('pane-1', meta)
+    const sending = mgr.send('pane-1', 'hello mini')
+    expect(shown()).toEqual(['user:hello mini?', `notice:${MINI_STARTING_TEXT}`])
+    resolve('new')
+    await sending
+    expect(start).toHaveBeenCalledWith({ profile: null })
+    expect(relay.commands).toEqual([])
+    relay.set([{ id: 'new', status: 'idle' }])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(relay.commands).toEqual([
+      { kind: 'agent.reply', sessionId: 'new', text: `${TAG}hello mini`, submit: true },
+    ])
+    // The mirror writes the Mini's file: the pane binds to it and shows it.
+    write(miniFile, [user('u1', 'hello mini'), reply('a1', 'Hi!')])
+    expect(shown()).toEqual(['user:hello mini', 'assistant:Hi!'])
+    vi.advanceTimersByTime(16)
+    expect(
+      batches.flatMap((b) => b.ops).some((o) => o.op === 'meta' && o.patch.sessionFile === miniFile),
+    ).toBe(true)
+    expect(herdr).not.toHaveBeenCalled()
+    expect(transports).toEqual([])
+  })
+  it('resumes a past chat on the Mini, then sends the reply', async () => {
+    const start = vi.fn(async () => 'out')
+    const { mgr, relay, shown, transports } = setup({ mini: { start } })
+    relay.set([])
+    mgr.open('pane-1', FILE, [user('u1', 'hi')], meta)
+    await mgr.send('pane-1', 'again')
+    expect(start).toHaveBeenCalledWith({ resume: 'out', profile: null })
+    expect(shown()).toEqual(['user:hi', 'user:again?', `notice:${MINI_STARTING_TEXT}`])
+    relay.set([{ id: 'out', status: 'idle' }])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(relay.commands).toEqual([
+      { kind: 'agent.reply', sessionId: 'out', text: `${TAG}again`, submit: true },
+    ])
+    expect(transports).toEqual([])
+  })
+  it('refuses what would need a local omp: an unreachable chat, a /goal chat, Relay down', async () => {
+    const start = vi.fn(async () => 'x')
+    const { mgr, relay, transports } = setup({ mini: { start } })
+    relay.set([{ id: 'out', canRespond: false }])
+    mgr.open('pane-1', FILE, [], meta)
+    await expect(mgr.send('pane-1', 'hi', { force: true })).rejects.toThrow(MINI_CANT_REACH)
+    mgr.openDraft('pane-2', meta)
+    await expect(mgr.send('pane-2', '/goal ship it')).rejects.toThrow(MINI_GOAL)
+    relay.set(null)
+    await expect(mgr.send('pane-2', 'hi')).rejects.toThrow(MINI_DOWN)
+    expect(start).not.toHaveBeenCalled()
+    expect(transports).toEqual([])
+  })
+  it('refuses a destructive approval and approves others without vouching for them (Q6)', async () => {
+    const { mgr, relay } = setup({ mini: { start: vi.fn() } })
+    relay.set([{ id: 'out', status: 'needs_permission', detail: 'bash' }])
+    mgr.open('pane-1', FILE, [], meta)
+    const approval = (id: string, destructive: string | null) =>
+      relay.emit({
+        kind: 'approval',
+        session: 'out',
+        approval: { id, tool: 'bash', command: 'ls', reason: null, destructive },
+      })
+    approval('c1', 'rm -rf')
+    await expect(
+      mgr.answerUi('pane-1', 'approval:c1', { kind: 'confirm', confirmed: true }),
+    ).rejects.toThrow(APPROVE_ON_PHONE)
+    approval('c2', null)
+    await mgr.answerUi('pane-1', 'approval:c2', { kind: 'confirm', confirmed: true })
+    expect(relay.commands).toEqual([
+      { kind: 'agent.approve', sessionId: 'out', approvalId: 'c2' },
+    ])
   })
 })
