@@ -1,9 +1,11 @@
 /**
  * An assistant's portrait, alive: `@relay/portrait-motion` picks its state from the thread's
- * signals (`state/motion` `useMotionSignals`) and poses its DiceBear rig per frame; this draws
- * those frames with Skia. Each tick (24 fps, on the JS thread) records one `SkPicture` (the paper
- * disc, the rig's parts as `ImageSVG`s under the frame's matrices, then the accent overlays: dot
- * ring, magnifier, z z z, and the engine's other overlays) into a shared value that the canvas
+ * signals (`state/motion` `useMotionSignals`) and poses its DiceBear rig per frame in the engine's
+ * Extended mode (mouths morph, eyelids close over the eyes, brows rotate, the face turns a little);
+ * this draws those frames with Skia. Each tick (24 fps, on the JS thread) records one `SkPicture`
+ * (the paper disc, the rig's parts as `ImageSVG`s under the frame's matrices, a morphing mouth or
+ * eyelids as paths made for that frame only, then the accent overlays: dot ring, magnifier, z z z,
+ * and the engine's other overlays) into a shared value that the canvas
  * draws on the UI thread, so React renders nothing per frame. The canvas is larger than the disc
  * by `FX_REACH` each side, laid over it and deaf to touches.
  *
@@ -21,9 +23,11 @@ import {
   FX_REACH,
   Timeline,
   buildRig,
+  extension,
   frame,
   geometry,
   partSvg,
+  type DrawPath,
   type Frame,
   type MotionSignals,
   type MotionState,
@@ -144,7 +148,8 @@ function MotionCanvas({ sk, loaded, name, paper, accent, size, signals, active, 
   const [clock] = useState(() => {
     const now = Date.now();
     const director = new Director();
-    return { director, timeline: new Timeline(director.next(signals, now), now) };
+    // Extended mode's memory (the mouth shown, the morph into it) belongs to this rig: a new rig starts afresh.
+    return { director, timeline: new Timeline(director.next(signals, now), now), rig: loaded.rig, ext: extension() };
   });
   const [painter] = useState(() => new Painter(sk, loaded, size, reach));
   painter.setColors(paper, accent);
@@ -155,7 +160,11 @@ function MotionCanvas({ sk, loaded, name, paper, accent, size, signals, active, 
       clock.timeline.set(state, now);
       onStateRef.current?.(state);
     }
-    return painter.picture(frame(loaded.rig, clock.timeline.clip(now), size), box);
+    if (clock.rig !== loaded.rig) {
+      clock.rig = loaded.rig;
+      clock.ext = extension();
+    }
+    return painter.picture(frame(loaded.rig, clock.timeline.clip(now), size, clock.ext), box);
   };
   // The loop below outlives renders; it always runs the newest `draw`.
   const drawRef = useRef(draw);
@@ -195,6 +204,8 @@ class Painter {
   private readonly fill: SkPaint;
   private readonly stroke: SkPaint;
   private readonly layer: SkPaint;
+  /** The frame's own shapes (a morphing mouth, eyelids): strokes with round caps and joins. */
+  private readonly line: SkPaint;
   private readonly font: SkFont;
   private readonly tail: SkPath | null;
   private readonly drop: SkPath | null;
@@ -216,6 +227,11 @@ class Painter {
     this.stroke.setStyle(sk.PaintStyle.Stroke);
     this.stroke.setStrokeJoin(sk.StrokeJoin.Round);
     this.layer = sk.Skia.Paint();
+    this.line = sk.Skia.Paint();
+    this.line.setAntiAlias(true);
+    this.line.setStyle(sk.PaintStyle.Stroke);
+    this.line.setStrokeCap(sk.StrokeCap.Round);
+    this.line.setStrokeJoin(sk.StrokeJoin.Round);
     // One font at 100 px, scaled per glyph: the z z z grow as they rise.
     this.font = sk.matchFont({ fontFamily: "Helvetica Neue", fontSize: 100, fontWeight: "600" });
     this.tail = sk.Skia.Path.MakeFromSVGString(g.quizTail);
@@ -251,15 +267,42 @@ class Painter {
     canvas.drawRect(sk.Skia.XYWHRect(0, 0, size, size), this.paint(this.fill, this.paper));
     const k = size / rig.size;
     canvas.scale(k, k);
-    for (const { part, m } of f.layers) {
+    for (const { part, m, morph, clip, lids } of f.layers) {
       const svg = svgs.get(part);
-      if (svg === undefined) continue;
+      if (svg === undefined && morph === undefined) continue;
       canvas.save();
       canvas.concat(sk.Skia.Matrix([m[0], m[2], m[4], m[1], m[3], m[5], 0, 0, 1]));
-      canvas.drawSvg(svg, rig.size, rig.size);
+      if (morph !== undefined) this.shapes(canvas, morph);
+      else if (svg !== undefined && clip !== undefined) {
+        // Closing eyelids: the eyes show only inside the clip's rects (a shut eye's rect is empty).
+        const open = sk.Skia.Path.Make();
+        for (const b of clip) open.addRect(sk.Skia.XYWHRect(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0));
+        canvas.save();
+        canvas.clipPath(open, sk.ClipOp.Intersect, true);
+        canvas.drawSvg(svg, rig.size, rig.size);
+        canvas.restore();
+      } else if (svg !== undefined) canvas.drawSvg(svg, rig.size, rig.size);
+      if (lids !== undefined) this.shapes(canvas, lids);
       canvas.restore();
     }
     canvas.restore();
+  }
+
+  /** Shapes made for this frame, parsed as they come: only during a mouth morph or a blink. */
+  private shapes(canvas: SkCanvas, paths: DrawPath[]): void {
+    const { sk } = this;
+    for (const p of paths) {
+      const path = sk.Skia.Path.MakeFromSVGString(p.d);
+      if (path === null) continue;
+      if (p.fill !== null) {
+        if (p.evenOdd) path.setFillType(sk.FillType.EvenOdd);
+        canvas.drawPath(path, this.paint(this.fill, p.fill, p.opacity));
+      }
+      if (p.stroke !== null) {
+        this.line.setStrokeWidth(p.width);
+        canvas.drawPath(path, this.paint(this.line, p.stroke, p.opacity));
+      }
+    }
   }
 
   private text(canvas: SkCanvas, glyph: string, x: number, y: number, px: number, color: string, alpha: number): void {
