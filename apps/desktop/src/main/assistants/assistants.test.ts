@@ -101,7 +101,7 @@ describe('assistant status like native', () => {
           id: 'astra',
           title: 'Astra',
           scope: 'eCard Systems work',
-          avatar: 'astra-2',
+          avatar: { style: 'notionists', seed: 'astra-2' },
           status: 'not-started',
           file: null,
           reply: null,
@@ -110,7 +110,7 @@ describe('assistant status like native', () => {
           id: 'nova',
           title: 'Nova',
           scope: '',
-          avatar: 'nova',
+          avatar: { style: 'notionists', seed: 'nova' },
           status: 'not-started',
           file: null,
           reply: null,
@@ -229,28 +229,43 @@ describe('registry', () => {
         }),
       ),
     ).toEqual([
-      { id: 'astra', title: 'Astra', scope: 'Work', avatar: 'astra' },
-      { id: 'nova', title: 'Nova', scope: '', avatar: 'nova' },
+      {
+        id: 'astra',
+        title: 'Astra',
+        scope: 'Work',
+        avatar: { style: 'notionists', seed: 'astra' },
+      },
+      { id: 'nova', title: 'Nova', scope: '', avatar: { style: 'notionists', seed: 'nova' } },
     ])
   })
 
-  it("takes an agent's portrait seed, falling back to its id when absent, blank or not text", () => {
+  it("takes an agent's portrait: designed, else a seed, else its id when absent, blank or unreadable", () => {
+    const nova = {
+      style: 'micah',
+      seed: 'nova-17',
+      options: { glasses: ['round'], glassesProbability: 100 },
+      colors: { paper: '#e7f5ff', accent: '#f76707' },
+    }
     expect(
       parseRegistry(
         JSON.stringify({
           agents: [
             { id: 'astra', title: 'Astra', avatar: 'astra-2' },
-            { id: 'nova', title: 'Nova', avatar: '  ' },
+            { id: 'nova', title: 'Nova', avatar: nova },
+            { id: 'blank', title: 'Blank', avatar: '  ' },
             { id: 'polaris', title: 'Polaris', avatar: 11 },
+            { id: 'pixel', title: 'Pixel', avatar: { style: 'pixel-art', seed: 'x' } },
             { id: 'vega', title: 'Vega' },
           ],
         }),
       ).map((a) => [a.id, a.avatar]),
     ).toEqual([
-      ['astra', 'astra-2'],
-      ['nova', 'nova'],
-      ['polaris', 'polaris'],
-      ['vega', 'vega'],
+      ['astra', { style: 'notionists', seed: 'astra-2' }],
+      ['nova', nova],
+      ['blank', { style: 'notionists', seed: 'blank' }],
+      ['polaris', { style: 'notionists', seed: 'polaris' }],
+      ['pixel', { style: 'notionists', seed: 'pixel' }],
+      ['vega', { style: 'notionists', seed: 'vega' }],
     ])
   })
 

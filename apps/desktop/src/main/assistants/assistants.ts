@@ -4,7 +4,13 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { z } from 'zod'
-import type { Assistant, AssistantStatus, Assistants } from '@evaos/contract'
+import {
+  AssistantPortraitSchema,
+  type Assistant,
+  type AssistantPortrait,
+  type AssistantStatus,
+  type Assistants,
+} from '@evaos/contract'
 import { oneLine } from '@evaos/chat-core/session'
 import { isNothingToReport } from '@evaos/chat-core/quiet'
 import { sessionId } from '@evaos/chat-core/session-id'
@@ -24,15 +30,16 @@ export interface Agent {
   title: string
   /** Empty when the registry gives none. */
   scope: string
-  /** The portrait seed; the id when the registry gives none. */
-  avatar: string
+  /** The portrait: the registry's designed one, else notionists from its seed, else from the id. */
+  avatar: AssistantPortrait
 }
 
 const AgentSchema = z.object({
   id: z.string().min(1),
   title: z.string(),
   scope: z.string().optional().catch(undefined),
-  avatar: z.string().optional().catch(undefined),
+  /** A notionists seed, or a designed portrait; anything else draws the id's notionists face. */
+  avatar: z.union([z.string(), AssistantPortraitSchema]).optional().catch(undefined),
 })
 
 /** The registry's agents in file order; empty when it is missing or unreadable (native load_agents). */
@@ -50,7 +57,13 @@ export function parseRegistry(text: string): Agent[] {
     const r = AgentSchema.safeParse(a)
     if (!r.success) continue
     const { id, title, scope, avatar } = r.data
-    out.push({ id, title, scope: scope ?? '', avatar: avatar?.trim() || id })
+    const seed = typeof avatar === 'string' ? avatar.trim() || id : id
+    out.push({
+      id,
+      title,
+      scope: scope ?? '',
+      avatar: typeof avatar === 'object' ? avatar : { style: 'notionists', seed },
+    })
   }
   return out
 }

@@ -120,7 +120,7 @@ export const agentActions = {
             .regex(/^(workspace|agent|board):.+$/),
         ]),
         newTab: z.boolean().optional(),
-        settingsSection: z.enum(['Theme', 'Chat']).optional(),
+        settingsSection: z.enum(['Theme', 'Chat', 'About']).optional(),
         canvas: z.string().max(200).optional(),
         meeting: z.string().max(500).optional(),
       })

@@ -21,7 +21,7 @@ export type PageKey =
   | `agent:${string}`
   | `board:${string}`
 
-export const SETTINGS_SECTIONS = ['Theme', 'Chat'] as const
+export const SETTINGS_SECTIONS = ['Theme', 'Chat', 'About'] as const
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
 
 export interface Place {

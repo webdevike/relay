@@ -1,5 +1,12 @@
 import { ActionIcon, Kbd, Tooltip } from '@mantine/core'
-import { IconChevronLeft, IconEdit, IconMessage, IconPalette, IconPlus } from '@tabler/icons-react'
+import {
+  IconChevronLeft,
+  IconEdit,
+  IconInfoCircle,
+  IconMessage,
+  IconPalette,
+  IconPlus,
+} from '@tabler/icons-react'
 import { useState, type MouseEvent } from 'react'
 import { SETTINGS_SECTIONS, placeOf, type SettingsSection } from '@evaos/shell-core'
 import { AssistantsList } from '../assistants/AssistantsList'
@@ -13,7 +20,7 @@ import { ChatList } from '../chat/list/ChatList'
 import { SearchBox } from './SearchBox'
 import { backToRoot, type NavLevel } from './nav-level'
 
-const SECTION_ICON = { Theme: IconPalette, Chat: IconMessage } as const
+const SECTION_ICON = { Theme: IconPalette, Chat: IconMessage, About: IconInfoCircle } as const
 
 const COPY = {
   chats: { title: 'Chats', search: 'Search chats' },

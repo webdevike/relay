@@ -7,14 +7,38 @@ import { z } from 'zod'
 export const AssistantStatusSchema = z.enum(['working', 'needs-you', 'idle', 'not-started'])
 export type AssistantStatus = z.infer<typeof AssistantStatusSchema>
 
+/**
+ * How an agent's portrait is drawn: a DiceBear `style` from `seed`, the registry's explicit part
+ * `options` (e.g. micah's `glasses: ["round"]`) and its colors (`paper` fills the disc behind it,
+ * `accent` tints its animations). A registry seed alone draws notionists.
+ */
+export const AssistantPortraitSchema = z.object({
+  style: z.enum(['notionists', 'micah']),
+  seed: z.string().min(1),
+  options: z.record(z.string(), z.union([z.array(z.string()), z.number(), z.boolean()])).optional(),
+  colors: z
+    .object({
+      paper: z
+        .string()
+        .regex(/^#[0-9a-fA-F]{6}$/)
+        .optional(),
+      accent: z
+        .string()
+        .regex(/^#[0-9a-fA-F]{6}$/)
+        .optional(),
+    })
+    .optional(),
+})
+export type AssistantPortrait = z.infer<typeof AssistantPortraitSchema>
+
 export const AssistantSchema = z.object({
   /** The registry id (`.omp/assistant/agents.json`), e.g. `astra`. */
   id: z.string(),
   title: z.string(),
   /** What the agent covers; empty when the registry gives none. */
   scope: z.string(),
-  /** Its portrait's seed (DiceBear notionists, as Rooms draws people); the id when none is set. */
-  avatar: z.string(),
+  /** Its portrait: the registry's designed one, else notionists from its seed, else from the id. */
+  avatar: AssistantPortraitSchema,
   status: AssistantStatusSchema,
   /** Its thread's session file once omp wrote it, else null (the page is the start card). */
   file: z.string().nullable(),

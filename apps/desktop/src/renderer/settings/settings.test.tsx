@@ -22,7 +22,7 @@ import {
 } from '../theme/theme-config'
 import { pageRegistry } from '../pages/registry'
 
-function page(section: 'Theme' | 'Chat') {
+function page(section: 'Theme' | 'Chat' | 'About') {
   return render(
     <MantineProvider env="test">
       <SettingsPage place={placeOf('settings', { settingsSection: section })} />
@@ -237,6 +237,20 @@ describe('SettingsPage', () => {
       expect(invoke.mock.calls.filter((c) => c[0] === 'settings.save')).toHaveLength(1),
     )
     expect(screen.queryByText(MISSING)).toBeNull()
+  })
+
+  it('About credits the Micah avatar with its license, links opening in the browser panel', () => {
+    page('About')
+    const credits = screen.getByTestId('settings-credits')
+    expect(credits).toHaveTextContent('Nova avatar: Micah by Micah Lanier, CC BY 4.0, modified')
+    fireEvent.click(within(credits).getByText('dicebear.com/styles/micah'))
+    expect(invoke).toHaveBeenCalledWith('browser.createTab', {
+      url: 'https://www.dicebear.com/styles/micah/',
+    })
+    expect(within(credits).getByText('creativecommons.org/licenses/by/4.0')).toHaveAttribute(
+      'href',
+      'https://creativecommons.org/licenses/by/4.0/',
+    )
   })
 
   it('registry maps settings to SettingsPage and has no em dash', () => {
