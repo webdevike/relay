@@ -7,9 +7,9 @@
  * until a snapshot carries it.
  */
 import { create } from "zustand";
-import { untagged, type AssistantAgent, type AssistantSnapshot, type AssistantStatus } from "@relay/protocol";
+import { untagged, type AssistantAgent, type AssistantPortrait, type AssistantSnapshot, type AssistantStatus } from "@relay/protocol";
 import { countOf } from "@/lib/format";
-import { portraitSeed } from "@/lib/portrait";
+import { portraitOf } from "@/lib/portrait";
 import type { Photo } from "@/lib/photo";
 import { previewText } from "@/agents/markdown";
 
@@ -76,9 +76,9 @@ export function agentTitle(agents: AssistantAgent[] | null, agent: string): stri
   return agents?.find((entry) => entry.id === agent)?.title ?? agent;
 }
 
-/** The portrait seed for `agent`: its registry `avatar` once the host has listed it, else its id. */
-export function agentPortraitSeed(agents: AssistantAgent[] | null, agent: string): string {
-  return portraitSeed(agents?.find((entry) => entry.id === agent) ?? { id: agent });
+/** The portrait `agent` is drawn with (`lib/portrait` `portraitOf`) once the host has listed it, else from its id. */
+export function agentPortrait(agents: AssistantAgent[] | null, agent: string): AssistantPortrait {
+  return portraitOf(agents?.find((entry) => entry.id === agent) ?? { id: agent });
 }
 
 /** The words a status pill shows. A host from before statuses sends none, and the row shows no pill. */

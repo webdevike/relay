@@ -18,7 +18,7 @@ import { Text } from "@/ui/Text";
 import { requestAssistantAgents } from "@/connection";
 import { previewText } from "@/agents/markdown";
 import { relativeTime } from "@/lib/format";
-import { portraitSeed } from "@/lib/portrait";
+import { portraitOf } from "@/lib/portrait";
 import { tapHaptic } from "@/lib/haptics";
 import { STATUS_LABEL, useAssistantStore } from "@/state/assistant";
 import { useAgentsStore } from "@/state/agents";
@@ -111,7 +111,7 @@ function AssistantRow({ agent, now, onPress }: { agent: AssistantAgent; now: num
       style={({ pressed }) => ({ backgroundColor: pressed ? colors.surfaceRaised : "transparent" })}
     >
       <View style={styles.row}>
-        <Portrait name={agent.title} seed={portraitSeed(agent)} size={AVATAR} />
+        <Portrait name={agent.title} portrait={portraitOf(agent)} size={AVATAR} />
         <View style={styles.body}>
           <View style={styles.line}>
             <Text variant="title" numberOfLines={1} style={styles.grow}>

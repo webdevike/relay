@@ -9,6 +9,7 @@ import Animated, {
   withRepeat,
   withTiming,
 } from "react-native-reanimated";
+import type { AssistantPortrait } from "@relay/protocol";
 import { loadSkia } from "@/dictation/skia";
 import { motion, spacing, useScheme } from "@/theme";
 import { Portrait } from "./Portrait";
@@ -39,16 +40,16 @@ export interface AvatarRingProps {
   size?: number;
   /** The ring breathes while true: the agent is working. */
   breathing?: boolean;
-  /** The agent's portrait seed (`lib/portrait`); with one the hole holds its portrait inside a thin band. */
-  seed?: string | undefined;
+  /** The agent's portrait (`lib/portrait`); with one the hole holds it inside a thin band. */
+  portrait?: AssistantPortrait | undefined;
 }
 
 /**
- * An agent's mark: a translucent ring around a see-through hole (or, given a `seed`, a thin ring
- * around its portrait), and the name on a blurred translucent pill underneath. The ring is drawn
- * with Skia when the build has it, like `IconButton`.
+ * An agent's mark: a translucent ring around a see-through hole (or, given a `portrait`, a thin
+ * ring around it), and the name on a blurred translucent pill underneath. The ring is drawn with
+ * Skia when the build has it, like `IconButton`.
  */
-export function AvatarRing({ name, size = RING_SIZE, breathing = false, seed }: AvatarRingProps) {
+export function AvatarRing({ name, size = RING_SIZE, breathing = false, portrait }: AvatarRingProps) {
   const scheme = useScheme();
   const color = RING[scheme];
   const scale = useSharedValue(1);
@@ -66,15 +67,15 @@ export function AvatarRing({ name, size = RING_SIZE, breathing = false, seed }: 
   }, [breathing, scale]);
 
   const ringStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
-  const inner = seed === undefined ? Math.round(size * INNER_RATIO) : size - 2 * PORTRAIT_BAND;
+  const inner = portrait === undefined ? Math.round(size * INNER_RATIO) : size - 2 * PORTRAIT_BAND;
 
   return (
     <View accessible accessibilityLabel={breathing ? `${name}, working` : name} style={styles.root}>
       <Animated.View style={[{ width: size, height: size }, ringStyle]}>
         <Ring size={size} inner={inner} color={color} />
-        {seed !== undefined && (
+        {portrait !== undefined && (
           <View style={styles.portrait}>
-            <Portrait name={name} seed={seed} size={inner} />
+            <Portrait name={name} portrait={portrait} size={inner} />
           </View>
         )}
       </Animated.View>

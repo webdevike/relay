@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { AgentImage, AgentMessage, AgentSession, AssistantMessage, ServerMessage } from "@relay/protocol";
+import type { AgentImage, AgentMessage, AgentSession, AssistantMessage, AssistantPortrait, ServerMessage } from "@relay/protocol";
 import type { LaunchOptions } from "../src/agents/herdr";
 import { loadRegistry } from "../src/assistant/registry";
 import { handleAssistantSay } from "../src/assistant/http";
@@ -128,7 +128,7 @@ interface Shared {
 }
 
 interface HarnessOptions {
-  agent?: { id: string; title: string; scope?: string; avatar?: string };
+  agent?: { id: string; title: string; scope?: string; avatar?: string; portrait?: AssistantPortrait };
   /** Run beside another harness's thread. */
   beside?: Shared;
   prime?: string;
@@ -429,7 +429,17 @@ describe("registry and store paths", () => {
     expect(loadRegistry(home)).toEqual([{ ...ASTRA, scope: "eCard Systems work", avatar: "astra-2" }, { ...NOVA, scope: "Personal" }]);
     write({ agents: [{ id: "astra", title: "Astra", scope: "  " }, { id: "nova", title: "Nova" }] });
     expect(loadRegistry(home)).toEqual([ASTRA, NOVA]);
-    for (const bad of [{ agents: [] }, { agents: [{ id: "Astra", title: "Astra" }] }, { agents: [ASTRA, { id: "astra", title: "Again" }] }, { agents: [{ id: "nova", title: " " }] }]) {
+    const portrait = { style: "micah", seed: "nova-17", options: { glasses: ["round"], glassesProbability: 100 }, colors: { paper: "#e7f5ff", accent: "#f76707" } };
+    write({ agents: [{ id: "astra", title: "Astra", avatar: "astra-2" }, { id: "nova", title: "Nova", avatar: portrait }] });
+    expect(loadRegistry(home)).toEqual([{ ...ASTRA, avatar: "astra-2" }, { ...NOVA, avatar: "nova-17", portrait }]);
+    for (const bad of [
+      { agents: [] },
+      { agents: [{ id: "Astra", title: "Astra" }] },
+      { agents: [ASTRA, { id: "astra", title: "Again" }] },
+      { agents: [{ id: "nova", title: " " }] },
+      { agents: [{ id: "nova", title: "Nova", avatar: { style: "pixel", seed: "nova" } }] },
+      { agents: [{ id: "nova", title: "Nova", avatar: { style: "micah", seed: "nova", colors: { paper: "blue" } } }] },
+    ]) {
       write(bad);
       expect(() => loadRegistry(home)).toThrow(/invalid/);
     }
@@ -846,6 +856,9 @@ describe("AssistantService listing", () => {
     const h = harness({ agent: { ...ASTRA, scope: "eCard Systems work", avatar: "astra-2" } });
     expect(await h.service.listing()).toEqual({ id: "astra", title: "Astra", scope: "eCard Systems work", avatar: "astra-2", status: "not_started" });
     expect(await harness().service.listing()).toEqual({ id: "astra", title: "Astra", status: "not_started" });
+    const portrait: AssistantPortrait = { style: "micah", seed: "nova-17", options: { hair: ["full"] }, colors: { paper: "#e7f5ff" } };
+    // The seed rides along for phones from before designed portraits.
+    expect(await harness({ agent: { ...ASTRA, avatar: "nova-17", portrait } }).service.listing()).toEqual({ id: "astra", title: "Astra", avatar: "nova-17", portrait, status: "not_started" });
   });
 
   it("is the newest settled reply of the live session with the session's status, hiding job lines, the silence marker and a reply still streaming", async () => {

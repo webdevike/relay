@@ -1,11 +1,12 @@
 // The assistant threads the host runs, read once at start from the agent home's registry,
 // `<agentHome>/.omp/assistant/agents.json`: `{ "agents": [{ "id", "title", "scope"?, "avatar"?, ... }, ...] }`.
+// `avatar` is a notionists seed, or a designed portrait `{ style, seed, options?, colors? }`.
 // Each entry gets its own long-lived omp session, store file and prime. The first entry is the
 // default, used only for phone requests that name no agent (builds from before there were several).
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { AssistantAgentId } from "@relay/protocol";
+import { AssistantAgentId, AssistantPortrait } from "@relay/protocol";
 import { z } from "zod";
 
 /** The registry, under the agent home. */
@@ -24,8 +25,10 @@ export interface AssistantAgentConfig {
   readonly model?: string;
   /** The pocket-tts voice calls with the agent speak in (a catalog name such as "alba"); absent means the host's default. */
   readonly voice?: string;
-  /** Seed of the agent's DiceBear notionists portrait, shown on the phone and in Relay desktop; absent means the clients seed it with `id`. */
+  /** Seed of the agent's DiceBear portrait (the designed portrait's seed when there is one); absent means the clients seed it with `id`. */
   readonly avatar?: string;
+  /** The registry's designed portrait (an object `avatar`), drawn instead of the notionists `avatar` by clients that know it. */
+  readonly portrait?: AssistantPortrait;
 }
 
 const Registry = z
@@ -39,7 +42,7 @@ const Registry = z
           profile: z.enum(["personal", "work"]).optional(),
           model: z.string().trim().min(1).optional(),
           voice: z.string().trim().min(1).optional(),
-          avatar: z.string().trim().min(1).optional(),
+          avatar: z.union([z.string().trim().min(1), AssistantPortrait]).optional(),
         }),
       )
       .min(1),
@@ -74,7 +77,7 @@ export function loadRegistry(agentHome: string): readonly AssistantAgentConfig[]
       ...(profile === undefined ? {} : { profile }),
       ...(model === undefined ? {} : { model }),
       ...(voice === undefined ? {} : { voice }),
-      ...(avatar === undefined ? {} : { avatar }),
+      ...(avatar === undefined ? {} : typeof avatar === "string" ? { avatar } : { avatar: avatar.seed, portrait: avatar }),
     };
   });
 }

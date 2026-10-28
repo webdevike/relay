@@ -125,6 +125,16 @@ describe("assistant agents", () => {
     expect(parse({ status: "busy" }).ok).toBe(false);
     expect(parse({ lastReply: { text: "x" } }).ok).toBe(false);
   });
+
+  it("carries a designed portrait beside the seed, and drops one it cannot read rather than the agent", () => {
+    const first = (agent: object) => {
+      const list = parseServerMessage(JSON.stringify({ t: "assistant.agents", agents: [{ id: "nova", title: "Nova", avatar: "nova-17", ...agent }] }));
+      return list.ok && list.value.t === "assistant.agents" ? list.value.agents[0] : undefined;
+    };
+    const portrait = { style: "micah", seed: "nova-17", options: { glasses: ["round"], glassesProbability: 100 }, colors: { paper: "#e7f5ff", accent: "#f76707" } };
+    expect(first({ portrait })).toEqual({ id: "nova", title: "Nova", avatar: "nova-17", portrait });
+    expect(first({ portrait: { style: "pixel-art", seed: "nova-17" } })).toEqual({ id: "nova", title: "Nova", avatar: "nova-17" });
+  });
 });
 
 describe("assistant thread", () => {

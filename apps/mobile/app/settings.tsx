@@ -18,6 +18,7 @@ import { VozDictation } from "../modules/voz-dictation";
 import { PROFILE_TABS } from "@/lib/profile";
 import { applyLatestUpdate, runningUpdate } from "@/lib/otaUpdates";
 import { useTransientMessage } from "@/lib/useTransientMessage";
+import { openExternal } from "@/lib/links";
 
 const speeds: PointerSpeed[] = ["slow", "normal", "fast"];
 const recognizers: { value: Recognizer; label: string }[] = [
@@ -358,6 +359,34 @@ function ThinkingField() {
   );
 }
 
+/** Third-party art the app ships, with the credit its license asks for. */
+function CreditsSection() {
+  const link = (label: string, url: string) => (
+    <Text
+      variant="caption"
+      color="accent"
+      accessibilityRole="link"
+      onPress={() => {
+        openExternal(url);
+      }}
+    >
+      {label}
+    </Text>
+  );
+  return (
+    <View style={{ paddingHorizontal: spacing.xl, paddingVertical: spacing.md, gap: spacing.xs }}>
+      <Text variant="title">Credits</Text>
+      <Text variant="caption" color="textMuted">
+        Nova avatar: Micah by Micah Lanier, CC BY 4.0, modified
+      </Text>
+      <View style={{ flexDirection: "row", gap: spacing.lg }}>
+        {link("dicebear.com/styles/micah", "https://www.dicebear.com/styles/micah/")}
+        {link("CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/")}
+      </View>
+    </View>
+  );
+}
+
 export default function Settings() {
   const colors = useColors();
   const settings = useSettingsStore();
@@ -438,6 +467,8 @@ export default function Settings() {
           ))}
         </View>
       </View>
+      <Separator />
+      <CreditsSection />
       <Separator />
     </Screen>
   );

@@ -11,7 +11,7 @@ import { Portrait } from "@/ui/Portrait";
 import { Text } from "@/ui/Text";
 import { previewText } from "@/agents/markdown";
 import { relativeTime } from "@/lib/format";
-import { portraitSeed } from "@/lib/portrait";
+import { portraitOf } from "@/lib/portrait";
 import { STATUS_LABEL, useAssistantStore } from "@/state/assistant";
 import { useConnectionStore } from "@/state/connection";
 import { spacing, useColors } from "@/theme";
@@ -55,7 +55,7 @@ function AgentRow({ agent, open, first }: { agent: AssistantAgent; open: WidgetB
       style={[styles.row, !first && { borderTopColor: colors.hairline, borderTopWidth: StyleSheet.hairlineWidth }]}
     >
       <View style={styles.rowHead}>
-        <Portrait name={agent.title} seed={portraitSeed(agent)} size={PORTRAIT} />
+        <Portrait name={agent.title} portrait={portraitOf(agent)} size={PORTRAIT} />
         {dot !== null && <View style={[styles.dot, { backgroundColor: dot }]} />}
         <Text variant="label" numberOfLines={1} style={styles.name}>
           {agent.title}
@@ -153,7 +153,7 @@ function AssistantStack({ agents, open, a11y }: { agents: readonly AssistantAgen
           <ScrollView pagingEnabled nestedScrollEnabled bounces={false} showsVerticalScrollIndicator={false} onMomentumScrollEnd={settle} style={styles.fill}>
             {agents.map((agent) => (
               <View key={agent.id} style={[styles.page, { height }]}>
-                <Portrait name={agent.title} seed={portraitSeed(agent)} size={Math.round(height * 0.42)} />
+                <Portrait name={agent.title} portrait={portraitOf(agent)} size={Math.round(height * 0.42)} />
                 <Text variant="label" numberOfLines={1} style={styles.stackName}>
                   {agent.title}
                 </Text>

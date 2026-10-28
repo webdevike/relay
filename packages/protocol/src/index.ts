@@ -430,6 +430,25 @@ export type AgentMessage = z.infer<typeof AgentMessage>;
 export const AssistantStatus = z.enum(["working", "needs_you", "idle", "not_started"]);
 export type AssistantStatus = z.infer<typeof AssistantStatus>;
 
+/** A DiceBear generator an assistant's portrait can be drawn with. */
+export const PortraitStyle = z.enum(["notionists", "micah"]);
+export type PortraitStyle = z.infer<typeof PortraitStyle>;
+
+const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/);
+
+/**
+ * An assistant's designed portrait (the registry's object `avatar`): a DiceBear `style`, its
+ * `seed`, the explicit DiceBear `options` that pin its parts (e.g. micah's `glasses: ["round"]`),
+ * and its colors: `paper` fills the disc behind it, `accent` tints its animations.
+ */
+export const AssistantPortrait = z.object({
+  style: PortraitStyle,
+  seed: nonEmpty,
+  options: z.record(z.string(), z.union([z.array(z.string()), z.number(), z.boolean()])).optional(),
+  colors: z.object({ paper: hexColor.optional(), accent: hexColor.optional() }).optional(),
+});
+export type AssistantPortrait = z.infer<typeof AssistantPortrait>;
+
 /**
  * One assistant thread the host runs, as listed by `assistant.agents`. Everything beyond `id` and
  * `title` is optional so builds from before the Assistants screen keep parsing, and hosts from
@@ -440,8 +459,14 @@ export const AssistantAgent = z.object({
   title: nonEmpty,
   /** What the registry says the agent covers, e.g. "eCard Systems work". */
   scope: z.string().optional(),
-  /** Seed of the agent's DiceBear notionists portrait (the registry's `avatar`); absent means the phone seeds it with `id`. */
+  /**
+   * Seed of the agent's DiceBear notionists portrait (the registry's `avatar`, or its `seed` when
+   * the registry designs one); absent means the phone seeds it with `id`. Builds from before
+   * `portrait` draw this.
+   */
   avatar: z.string().optional(),
+  /** The agent's designed portrait, drawn instead of `avatar`; one this build cannot read is dropped, leaving `avatar`. */
+  portrait: AssistantPortrait.optional().catch(undefined),
   status: AssistantStatus.optional(),
   /** The newest reply of the agent worth showing (never the silence marker), one clipped line. */
   lastReply: z.object({ text: z.string(), at: ms }).optional(),

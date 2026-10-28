@@ -62,7 +62,7 @@ export default function CatchUp() {
   const targets: readonly HandoffTarget[] =
     agents === null || agents.length === 0
       ? FALLBACK_TARGETS
-      : agents.map((agent) => ({ id: agent.id, title: agent.title, scope: agent.scope, avatar: agent.avatar }));
+      : agents.map((agent) => ({ id: agent.id, title: agent.title, scope: agent.scope, avatar: agent.avatar, portrait: agent.portrait }));
   const titleOf = (agent: string): string => agentTitle(agents, agent).replace(/^./, (letter) => letter.toUpperCase());
   const upAgent = top === undefined ? null : choice?.id === top.id ? choice.agent : defaultAssistant(top);
 

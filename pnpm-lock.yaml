@@ -56,6 +56,9 @@ importers:
       '@dicebear/core':
         specifier: ^9.4.3
         version: 9.4.3
+      '@dicebear/micah':
+        specifier: ^9.4.3
+        version: 9.4.3(@dicebear/core@9.4.3)
       '@dicebear/notionists':
         specifier: ^9.4.2
         version: 9.4.2(@dicebear/core@9.4.3)
@@ -770,6 +773,12 @@ packages:
   '@dicebear/core@9.4.3':
     resolution: {integrity: sha512-9ITrQI57k3p5hKuU8HZJ1d0kPdrmTKEJDOdlKQ8CpaChbtmnD1R+dtWmNz5IesYThXM8F64pJ0ZvJ2rsY8Hciw==}
     engines: {node: '>=18.0.0'}
+
+  '@dicebear/micah@9.4.3':
+    resolution: {integrity: sha512-+76eH3Scu8jfiSbhGjK3OBWeTK+qiuKxrlZFimevaIUzNe6UjqEeaiBUg9R7LPAx3CNIXJOLhuzkHPEkOSnXtg==}
+    engines: {node: '>=18.0.0'}
+    peerDependencies:
+      '@dicebear/core': ^9.0.0
 
   '@dicebear/notionists@9.4.2':
     resolution: {integrity: sha512-ZCySq+nxcD/x4xyYgytcj2N9uY3gxrL+qpnmOdp2BdA221KacVrxlsUPpIgEMqxS2rMmBQXfxg129Pzn4ycIpA==}
@@ -5271,6 +5280,10 @@ snapshots:
   '@dicebear/core@9.4.3':
     dependencies:
       '@types/json-schema': 7.0.15
+
+  '@dicebear/micah@9.4.3(@dicebear/core@9.4.3)':
+    dependencies:
+      '@dicebear/core': 9.4.3
 
   '@dicebear/notionists@9.4.2(@dicebear/core@9.4.3)':
     dependencies:

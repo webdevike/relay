@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@dicebear/core": "^9.4.3",
+    "@dicebear/micah": "^9.4.3",
     "@dicebear/notionists": "^9.4.2",
     "@gorhom/bottom-sheet": "^5.2.14",
     "@relay/protocol": "workspace:*",

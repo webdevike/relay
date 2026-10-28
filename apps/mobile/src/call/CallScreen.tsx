@@ -11,7 +11,7 @@ import { useEffect, useState } from "react";
 import { Modal, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
-import type { CallState } from "@relay/protocol";
+import type { AssistantPortrait, CallState } from "@relay/protocol";
 import { AvatarRing } from "@/ui/AvatarRing";
 import { Banner } from "@/ui/Banner";
 import { Button } from "@/ui/Button";
@@ -35,7 +35,7 @@ const RING = 132;
 /** Dark mode is pure black, like the thread under it. */
 const BG_DARK = "#000000";
 
-export function CallScreen({ title, seed }: { title: string; seed: string }) {
+export function CallScreen({ title, portrait }: { title: string; portrait: AssistantPortrait }) {
   const colors = useColors();
   const dark = useScheme() === "dark";
   const insets = useSafeAreaInsets();
@@ -68,7 +68,7 @@ export function CallScreen({ title, seed }: { title: string; seed: string }) {
         <View style={styles.top}>
           <View style={styles.ring}>
             <Animated.View style={[styles.halo, { backgroundColor: colors.accent }, halo]} />
-            <AvatarRing name={title} seed={seed} size={RING} breathing={busy} />
+            <AvatarRing name={title} portrait={portrait} size={RING} breathing={busy} />
           </View>
           <Text variant="title" style={styles.center}>{LABEL[call.state]}</Text>
           <Text variant="label" color="textMuted" tabular style={styles.center}>
