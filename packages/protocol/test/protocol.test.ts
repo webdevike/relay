@@ -341,9 +341,15 @@ describe("reactions", () => {
     expect(client({ t: "reaction.set", thread: "assistant:astra", message: "user@1", emoji: "yes", excerpt: "" })).toBe(false);
     expect(client({ t: "reaction.set", thread: "assistant:astra", message: "user@1", emoji: "👍", excerpt: "x".repeat(201) })).toBe(false);
     expect(client({ t: "reaction.clear", thread: "session:s1", message: "user@1" })).toBe(true);
-    const snapshot = { t: "reactions.snapshot", thread: "assistant:astra", reactions: { "assistant@1": { emoji: "❓", excerpt: "Why?", at: 2 } } };
+    const snapshot = {
+      t: "reactions.snapshot",
+      thread: "assistant:astra",
+      reactions: { "assistant@1": { isaac: { emoji: "❓", excerpt: "Why?", at: 2 } }, "user@1": { isaac: { emoji: "👍", excerpt: "ok", at: 3 }, astra: { emoji: "❤️", excerpt: "ok", at: 4 } } },
+    };
     expect(parseServerMessage(JSON.stringify(snapshot)).ok).toBe(true);
-    expect(parseServerMessage(JSON.stringify({ ...snapshot, reactions: { "x@1": { emoji: "❓", excerpt: "", at: 2 } } })).ok).toBe(false);
+    expect(parseServerMessage(JSON.stringify({ ...snapshot, reactions: { "x@1": { isaac: { emoji: "❓", excerpt: "", at: 2 } } } })).ok).toBe(false);
+    expect(parseServerMessage(JSON.stringify({ ...snapshot, reactions: { "user@1": { Isaac: { emoji: "❓", excerpt: "", at: 2 } } } })).ok).toBe(false);
+    expect(parseServerMessage(JSON.stringify({ ...snapshot, reactions: { "user@1": { emoji: "❓", excerpt: "", at: 2 } } })).ok).toBe(false);
   });
 });
 

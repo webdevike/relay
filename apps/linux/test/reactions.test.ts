@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -84,13 +84,13 @@ describe("ReactionService", () => {
     expect(service.set("assistant:astra", "assistant@5", "👍", "Done.")).toBe(true);
     expect(service.set("assistant:astra", "assistant@5", "👍", "Done.")).toBe(false);
     expect(service.set("assistant:astra", "assistant@5", "❤️", "Done.")).toBe(true);
-    expect(service.snapshot("assistant:astra")).toEqual({ "assistant@5": { emoji: "❤️", excerpt: "Done.", at: 1_000 } });
+    expect(service.snapshot("assistant:astra")).toEqual({ "assistant@5": { isaac: { emoji: "❤️", excerpt: "Done.", at: 1_000 } } });
     expect(service.clear("assistant:astra", "assistant@5")).toBe(true);
     expect(service.clear("assistant:astra", "assistant@5")).toBe(false);
     expect(service.snapshot("assistant:astra")).toEqual({});
     expect(sent).toEqual([
-      { t: "reactions.snapshot", thread: "assistant:astra", reactions: { "assistant@5": { emoji: "👍", excerpt: "Done.", at: 1_000 } } },
-      { t: "reactions.snapshot", thread: "assistant:astra", reactions: { "assistant@5": { emoji: "❤️", excerpt: "Done.", at: 1_000 } } },
+      { t: "reactions.snapshot", thread: "assistant:astra", reactions: { "assistant@5": { isaac: { emoji: "👍", excerpt: "Done.", at: 1_000 } } } },
+      { t: "reactions.snapshot", thread: "assistant:astra", reactions: { "assistant@5": { isaac: { emoji: "❤️", excerpt: "Done.", at: 1_000 } } } },
       { t: "reactions.snapshot", thread: "assistant:astra", reactions: {} },
     ]);
   });
@@ -100,7 +100,7 @@ describe("ReactionService", () => {
     service.set("session:s1", "user@7", "‼️", "ship it");
     const file = join(dir, "relay", "reactions.json");
     expect(statSync(file).mode & 0o777).toBe(0o600);
-    expect(make().snapshot("session:s1")).toEqual({ "user@7": { emoji: "‼️", excerpt: "ship it", at: 1_000 } });
+    expect(make().snapshot("session:s1")).toEqual({ "user@7": { isaac: { emoji: "‼️", excerpt: "ship it", at: 1_000 } } });
   });
 
   it("logs a 👎 or ❓ on an assistant's reply in its thread as feedback, nothing else", () => {
@@ -173,5 +173,32 @@ describe("ReactionService", () => {
     service.observe({ kind: "sessions" });
     await flush();
     expect(notes).toHaveLength(2);
+  });
+  it("keeps an assistant's reaction beside Isaac's on the same bubble, quietly: no note, no feedback", async () => {
+    const { service, clock, notes, dir } = setup({ sessions: { "assistant:astra": "astra-1" } });
+    service.set("assistant:astra", "user@7", "👍", "ship it");
+    expect(service.set("assistant:astra", "user@7", "❤️", "ship it", "astra")).toBe(true);
+    expect(service.set("assistant:astra", "user@7", "❤️", "ship it", "astra")).toBe(false);
+    service.set("assistant:astra", "assistant@9", "👎", "reply", "astra");
+    expect(service.snapshot("assistant:astra")).toEqual({
+      "user@7": { isaac: { emoji: "👍", excerpt: "ship it", at: 1_000 }, astra: { emoji: "❤️", excerpt: "ship it", at: 1_000 } },
+      "assistant@9": { astra: { emoji: "👎", excerpt: "reply", at: 1_000 } },
+    });
+    expect(existsSync(join(dir, "agents", "astra", "reactions.jsonl"))).toBe(false);
+    clock.advance(REACTION_NOTE_DELAY_MS);
+    await flush();
+    expect(notes).toEqual([["astra-1", '[Isaac reacted 👍 to his own message: "ship it"]\n(Reactions are quiet feedback from Isaac: take them into account, no need to answer them.)']]);
+    expect(service.clear("assistant:astra", "user@7", "astra")).toBe(true);
+    expect(service.snapshot("assistant:astra")["user@7"]).toEqual({ isaac: { emoji: "👍", excerpt: "ship it", at: 1_000 } });
+    clock.advance(REACTION_NOTE_DELAY_MS);
+    await flush();
+    expect(notes).toHaveLength(1);
+  });
+
+  it("reads a file from before reactors as Isaac's reactions", () => {
+    const { dir, make } = setup();
+    mkdirSync(join(dir, "relay"), { recursive: true });
+    writeFileSync(join(dir, "relay", "reactions.json"), JSON.stringify({ threads: { "session:s1": { "user@1": { emoji: "👍", excerpt: "a", at: 5 } } }, told: {} }));
+    expect(make().snapshot("session:s1")).toEqual({ "user@1": { isaac: { emoji: "👍", excerpt: "a", at: 5 } } });
   });
 });

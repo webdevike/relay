@@ -14,6 +14,7 @@ import type { FileBoardStore } from "./boards/store";
 import type { UsageService } from "./usage/service";
 import type { CatchUpDeck } from "./catchup/service";
 import type { ReactionRelaying } from "./reactions/service";
+import { handleAgentReaction } from "./reactions/http";
 import type { ArtifactRelaying } from "./artifacts/service";
 import { CommandDedupStore } from "./dedup";
 import { serveBlob } from "./drops/serve";
@@ -180,6 +181,7 @@ export class RelayServer {
           return handleBoardRequest(this.deps.boards, request, path, remote);
         if (path === "/assistant/say") return handleAssistantSay(this.deps.assistant, request, remote);
         if (path === "/catchup/bounce") return handleCatchUpBounce(this.deps.catchup, request, remote);
+        if (path === "/reactions/agent") return handleAgentReaction(this.deps.reactions, this.deps.assistant, request, remote);
         return new Response("not found", { status: 404 });
       },
       websocket: {

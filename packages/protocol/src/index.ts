@@ -756,7 +756,10 @@ export type CatchUpSnapshot = z.infer<typeof CatchUpSnapshot>;
 // (`reaction.set` / `reaction.clear`), persists them, and pushes the thread's `reactions.snapshot`
 // to every device, so the phone and Relay desktop agree. Reactions never start a turn: the host
 // hands the agent a quiet note (a line per change) that it sees on its next turn, and logs a 👎
-// or ❓ on an assistant's reply to that assistant's `reactions.jsonl` so it can learn.
+// or ❓ on an assistant's reply to that assistant's `reactions.jsonl` so it can learn. Assistants react
+// too, to Isaac's bubbles (the host's `react` CLI from their session, `POST /reactions/agent` on
+// loopback): quietly, never a turn or a push. So a bubble holds one reaction per reactor: Isaac
+// (`ISAAC_REACTOR`, the only one the client frames set) and any assistant by its agent id.
 // ---------------------------------------------------------------------------------------------
 
 /** The bar's quick picks, in order: heart, thumbs up, thumbs down, haha, emphasis, question. Any other single emoji comes from "more". */
@@ -823,8 +826,13 @@ export const Reaction = z.object({
 });
 export type Reaction = z.infer<typeof Reaction>;
 
-/** One thread's reactions by `ReactionKey`. */
-export const ThreadReactions = z.record(ReactionKey, Reaction);
+/** Who reacted: Isaac, or an assistant by its agent id. */
+export const ISAAC_REACTOR = "isaac";
+export const Reactor = AssistantAgentId;
+export type Reactor = z.infer<typeof Reactor>;
+
+/** One thread's reactions by `ReactionKey`, then by `Reactor`. */
+export const ThreadReactions = z.record(ReactionKey, z.record(Reactor, Reaction));
 export type ThreadReactions = z.infer<typeof ThreadReactions>;
 
 /** The excerpt a client sends with a reaction: the bubble's text on one line, cut to MAX_REACTION_EXCERPT. */

@@ -236,6 +236,13 @@ predates notes (it answers without `true`), the changes wait for the next sessio
 ❓ on an assistant's reply in its own thread is also appended as `{ at, agent, reaction, signal, message:
 { at, excerpt } }` to `<agent home>/work/eva/agents/<id>/reactions.jsonl`.
 
+Assistants react to Isaac's bubbles in their own thread with `relay-linux react <emoji> [--agent <id>]
+[--message latest|<key>]` or `react --clear` (agent from `$RELAY_ASSISTANT`, `latest` = Isaac's newest
+message), which posts `{ agent, emoji?, message?, clear? }` to `POST /reactions/agent` on loopback. A
+bubble keeps one reaction per reactor (`isaac` or an agent id), so the snapshot is `reactions[key][reactor]`;
+files from before reactors read as Isaac's. An assistant's reaction is only shown: no note, no feedback
+line, no turn, no push.
+
 ## Artifacts (`artifacts.get`, `artifacts.act`)
 
 What a thread holds, one row per thing however often it comes up: Linear tickets, GitHub PRs and issues,

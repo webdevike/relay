@@ -73,6 +73,12 @@ const USAGE = `relay-linux <command>
                                    hand assistant thread <id> (from <agent-home>/${REGISTRY_FILE})
                                    of the running host a message from a background job; it
                                    relays it to Isaac. \`say -\` or no text reads stdin
+  react <emoji> [--agent <id>] [--message latest|<key>]
+  react --clear [--agent <id>] [--message latest|<key>]
+                                   from an assistant's session: react to (or take back the
+                                   reaction on) Isaac's newest message in its thread, or bubble
+                                   <key> (\`user@<ms>\`); --agent defaults to $RELAY_ASSISTANT.
+                                   Shown on his devices; never a turn or a push
 
 Input goes through /dev/uinput: your user needs read/write on it (e.g. membership in the
 \`input\` group, then log out and back in).`;
@@ -489,6 +495,25 @@ async function assistantSay(agent: string | undefined, positionals: string[]): P
   console.log(`told ${agent}`);
 }
 
+/** `react <emoji> | --clear`: the running host puts assistant `agent`'s reaction on one of Isaac's bubbles in its thread. */
+async function react(agent: string | undefined, positionals: string[], message: string | undefined, clear: boolean): Promise<void> {
+  const id = agent ?? process.env["RELAY_ASSISTANT"];
+  if (id === undefined || id === "") throw new Error("react: missing --agent <id> (or $RELAY_ASSISTANT)");
+  const emoji = positionals[0];
+  if (!clear && emoji === undefined) throw new Error("react: missing <emoji> (or --clear)");
+  const response = await fetch(`${hostUrl()}/reactions/agent`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ agent: id, ...(clear ? { clear } : { emoji }), ...(message === undefined ? {} : { message }) }),
+  });
+  if (!response.ok) {
+    console.error(await response.text());
+    process.exit(1);
+  }
+  const answer = (await response.json()) as { message: string; emoji: string | null };
+  console.log(answer.emoji === null ? `cleared ${id}'s reaction on ${answer.message}` : `${id} reacted ${answer.emoji} to ${answer.message}`);
+}
+
 function isFile(path: string): boolean {
   try {
     return statSync(path).isFile();
@@ -551,6 +576,8 @@ async function main(argv: string[]): Promise<void> {
       boards: { type: "string" },
       "vnc-port": { type: "string", default: String(DEFAULT_VNC_PORT) },
       agent: { type: "string" },
+      message: { type: "string" },
+      clear: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -610,6 +637,9 @@ async function main(argv: string[]): Promise<void> {
       await assistantSay(values.agent, positionals.slice(2));
       return;
     }
+    case "react":
+      await react(values.agent, positionals.slice(1), values.message, values.clear);
+      return;
     default:
       throw new Error(`unknown command ${command}\n\n${USAGE}`);
   }

@@ -1,8 +1,10 @@
-// Reactions (iMessage-style tapbacks) Isaac puts on chat bubbles, from the phone or Relay desktop.
-// The host owns them: one reaction per bubble, kept per thread (`assistant:<id>` or
-// `session:<omp session id>`) and bubble (`<role>@<omp timestamp>`) in
+// Reactions (iMessage-style tapbacks) on chat bubbles: Isaac's, from the phone or Relay desktop, and
+// assistants' on Isaac's bubbles (the `react` CLI from their session, `POST /reactions/agent`).
+// The host owns them: one reaction per bubble and reactor (`isaac` or an agent id), kept per thread
+// (`assistant:<id>` or `session:<omp session id>`) and bubble (`<role>@<omp timestamp>`) in
 // `$XDG_CONFIG_HOME/relay/reactions.json` (dir 0700, file 0600, written atomically), and every change
-// goes out to every device as the thread's `reactions.snapshot`.
+// goes out to every device as the thread's `reactions.snapshot`. An assistant's reaction is only
+// shown: no note, no feedback, no push.
 //
 // Reactions never start a turn. A few seconds after the last change in a thread, the agent running
 // it gets a quiet note through the omp bridge (`pi.sendMessage` with `deliverAs: "nextTurn"`: in its
@@ -17,7 +19,7 @@ import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, renameS
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { z } from "zod";
-import { FEEDBACK_REACTIONS, Reaction, ReactionKey, reactionRole, type ServerMessage, type ThreadReactions } from "@relay/protocol";
+import { FEEDBACK_REACTIONS, ISAAC_REACTOR, Reaction, ReactionKey, Reactor, reactionRole, type ServerMessage, type ThreadReactions } from "@relay/protocol";
 import type { AgentProviderChange } from "../seams";
 import type { SessionClock } from "../session";
 
@@ -30,8 +32,8 @@ const Told = z.object({ emoji: z.string(), excerpt: z.string() });
 type Told = z.infer<typeof Told>;
 
 const ReactionState = z.object({
-  /** Every thread's reactions. */
-  threads: z.record(z.string(), z.record(ReactionKey, Reaction)).default({}),
+  /** Every thread's reactions by bubble, then reactor; files from before reactors held Isaac's reaction directly. */
+  threads: z.record(z.string(), z.record(ReactionKey, z.union([Reaction.transform((reaction) => ({ [ISAAC_REACTOR]: reaction })), z.record(Reactor, Reaction)]))).default({}),
   /** What each thread's agent last heard, by bubble: the reactions its last note left it with. */
   told: z.record(z.string(), z.record(ReactionKey, Told)).default({}),
 });
@@ -62,7 +64,7 @@ export function reactionFeedbackPath(agentHome: string | null, agent: string): s
  * The note for an agent whose thread's reactions moved from `told` to `now`: one line per changed
  * bubble, oldest bubble first, then one line saying no reply is needed. Empty when nothing changed.
  */
-export function reactionNote(told: Readonly<Record<string, Told>>, now: Readonly<ThreadReactions>): string {
+export function reactionNote(told: Readonly<Record<string, Told>>, now: Readonly<Record<string, Reaction>>): string {
   const keys = [...new Set([...Object.keys(told), ...Object.keys(now)])].sort((a, b) => stampOf(a) - stampOf(b));
   const lines: string[] = [];
   for (const key of keys) {
@@ -102,13 +104,13 @@ export interface ReactionServiceDeps {
   readonly log: (line: string) => void;
 }
 
-/** What a phone session and the server need of the reactions. */
+/** What a phone session, the server and the agent endpoint need of the reactions. */
 export interface ReactionRelaying {
   snapshot(thread: string): ThreadReactions;
-  /** Reacts `emoji` to bubble `key` of `thread` (replacing its reaction); false when that is already its reaction. */
-  set(thread: string, key: string, emoji: string, excerpt: string): boolean;
-  /** Takes back bubble `key`'s reaction; false when it had none. */
-  clear(thread: string, key: string): boolean;
+  /** `by` (default Isaac) reacts `emoji` to bubble `key` of `thread`, replacing its own reaction there; false when that is already it. */
+  set(thread: string, key: string, emoji: string, excerpt: string, by?: string): boolean;
+  /** Takes back `by`'s (default Isaac's) reaction on bubble `key`; false when it had none. */
+  clear(thread: string, key: string, by?: string): boolean;
   /** Takes a provider change: a session that may run a thread with changes it has not heard yet gets them. */
   observe(change: AgentProviderChange): void;
 }
@@ -130,29 +132,30 @@ export class ReactionService implements ReactionRelaying {
     return this.state.threads[thread] ?? {};
   }
 
-  set(thread: string, key: string, emoji: string, excerpt: string): boolean {
+  set(thread: string, key: string, emoji: string, excerpt: string, by: string = ISAAC_REACTOR): boolean {
     const reactions = this.snapshot(thread);
-    const before = reactions[key];
-    if (before?.emoji === emoji) return false;
-    this.state.threads[thread] = { ...reactions, [key]: { emoji, excerpt, at: this.deps.clock.now() } };
-    this.changed(thread);
-    this.deps.log(`reactions: ${emoji} on ${thread} ${key}`);
-    if (FEEDBACK_REACTIONS.includes(emoji) && reactionRole(key) === "assistant" && thread.startsWith("assistant:")) {
+    if (reactions[key]?.[by]?.emoji === emoji) return false;
+    this.state.threads = { ...this.state.threads, [thread]: { ...reactions, [key]: { ...reactions[key], [by]: { emoji, excerpt, at: this.deps.clock.now() } } } };
+    this.changed(thread, by === ISAAC_REACTOR);
+    this.deps.log(`reactions: ${by} ${emoji} on ${thread} ${key}`);
+    if (by === ISAAC_REACTOR && FEEDBACK_REACTIONS.includes(emoji) && reactionRole(key) === "assistant" && thread.startsWith("assistant:")) {
       this.feedback(thread.slice("assistant:".length), key, emoji, excerpt);
     }
     return true;
   }
 
-  clear(thread: string, key: string): boolean {
+  clear(thread: string, key: string, by: string = ISAAC_REACTOR): boolean {
     const reactions = this.snapshot(thread);
-    if (reactions[key] === undefined) return false;
-    const rest = Object.fromEntries(Object.entries(reactions).filter(([other]) => other !== key));
+    const bubble = reactions[key];
+    if (bubble?.[by] === undefined) return false;
+    const left = Object.fromEntries(Object.entries(bubble).filter(([reactor]) => reactor !== by));
+    const rest = Object.keys(left).length === 0 ? Object.fromEntries(Object.entries(reactions).filter(([other]) => other !== key)) : { ...reactions, [key]: left };
     this.state.threads =
       Object.keys(rest).length === 0
         ? Object.fromEntries(Object.entries(this.state.threads).filter(([other]) => other !== thread))
         : { ...this.state.threads, [thread]: rest };
-    this.changed(thread);
-    this.deps.log(`reactions: cleared ${thread} ${key}`);
+    this.changed(thread, by === ISAAC_REACTOR);
+    this.deps.log(`reactions: ${by} cleared ${thread} ${key}`);
     return true;
   }
 
@@ -165,9 +168,21 @@ export class ReactionService implements ReactionRelaying {
     }
   }
 
-  private changed(thread: string): void {
+  /** Isaac's reactions in `thread` by bubble: what the agent's notes are about. */
+  private isaacs(thread: string): Record<string, Reaction> {
+    const out: Record<string, Reaction> = {};
+    for (const [key, bubble] of Object.entries(this.snapshot(thread))) {
+      const reaction = bubble[ISAAC_REACTOR];
+      if (reaction !== undefined) out[key] = reaction;
+    }
+    return out;
+  }
+
+  /** Saves and broadcasts `thread`; Isaac's changes (`noted`) also go to its agent once they settle. */
+  private changed(thread: string, noted: boolean): void {
     this.save();
     this.deps.broadcast({ t: "reactions.snapshot", thread, reactions: this.snapshot(thread) });
+    if (!noted) return;
     this.refused.delete(thread);
     this.timers.get(thread)?.();
     this.timers.set(
@@ -182,12 +197,12 @@ export class ReactionService implements ReactionRelaying {
   /** Threads whose reactions changed since their agent's last note. */
   private unheard(): string[] {
     const threads = new Set([...Object.keys(this.state.threads), ...Object.keys(this.state.told)]);
-    return [...threads].filter((thread) => reactionNote(this.state.told[thread] ?? {}, this.snapshot(thread)) !== "");
+    return [...threads].filter((thread) => reactionNote(this.state.told[thread] ?? {}, this.isaacs(thread)) !== "");
   }
 
   private deliver(thread: string): void {
     if (this.sending.has(thread)) return;
-    const now = this.snapshot(thread);
+    const now = this.isaacs(thread);
     const text = reactionNote(this.state.told[thread] ?? {}, now);
     if (text === "") return;
     const session = this.deps.session(thread);

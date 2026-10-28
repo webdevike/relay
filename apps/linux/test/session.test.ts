@@ -782,7 +782,7 @@ describe("catch up", () => {
 
 describe("reactions", () => {
   it("answers reactions.get with the thread's reactions; set and clear go to the service, and a no-op re-sends the thread to this device", () => {
-    const thread = { "assistant@5": { emoji: "👍", excerpt: "Done.", at: 9 } };
+    const thread = { "assistant@5": { isaac: { emoji: "👍", excerpt: "Done.", at: 9 } } };
     const calls: string[] = [];
     const reactions: ReactionRelaying = {
       snapshot: (id) => (id === "assistant:astra" ? thread : {}),
