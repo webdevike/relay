@@ -20,11 +20,13 @@
     "newArchEnabled": true,
     "ios": {
       "bundleIdentifier": "com.ike.relay",
+      "appleTeamId": "CH63V3XD76",
       "supportsTablet": false,
       "entitlements": {
         "com.apple.developer.usernotifications.time-sensitive": true
       },
       "infoPlist": {
+        "NSSupportsLiveActivities": true,
         "CADisableMinimumFrameDurationOnPhone": true,
         "NSLocalNetworkUsageDescription": "Relay finds your Mac on the local network.",
         "NSBonjourServices": [
@@ -82,6 +84,8 @@
         }
       ],
       "./plugins/withPodDeploymentFloor",
+      "./plugins/withLiveCallIntents",
+      "@bacons/apple-targets",
       [
         "expo-build-properties",
         {
