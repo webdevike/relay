@@ -4,7 +4,7 @@ vi.mock('../ipc', () => ({ invoke: vi.fn(), on: () => () => {} }))
 
 import type { Assistant } from '@evaos/contract'
 import { makeMessage, type ChatMessage, type Subagent } from '@evaos/chat-core/message'
-import { Director, statusDot, type MotionSignals } from '@relay/portrait-motion'
+import { Director, type MotionSignals } from '@relay/portrait-motion'
 import { chatStore, type PaneState } from '../chat/chat-store'
 import type { AssistantsState } from './assistants-store'
 import { motionSignals, toolOf, turnFailed } from './motion-signals'
@@ -166,10 +166,8 @@ describe('motion signals', () => {
     expect(at(3_000, { running: true, tool: 'work' })).toBe('working')
     expect(at(4_000, { running: true })).toBe('thinking')
     expect(at(5_000, {})).toBe('idle')
-    // Needing Isaac and failing are the dot alone.
+    // Needing Isaac and failing never change the face.
     expect(at(6_000, { running: true, waiting: true })).toBe('idle')
-    expect(statusDot({ ...IDLE, running: true, waiting: true })).toBe('orange')
     expect(at(7_000, { failed: true })).toBe('idle')
-    expect(statusDot({ ...IDLE, failed: true })).toBe('red')
   })
 })

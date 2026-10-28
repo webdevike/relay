@@ -1,6 +1,5 @@
 import {
   FX_REACH,
-  STATE_META,
   Timeline,
   extension,
   frame,
@@ -12,10 +11,10 @@ import {
   type Frame,
   type FrameLayer,
   type MotionSignals,
+  type MotionState,
   type Rig,
 } from '@relay/portrait-motion'
 import { motionLive, onMotionGate, pageHidden } from './motion-gate'
-import { IDLE_VIEW, nextView, type PortraitView } from './motion-store'
 
 /** The card animates at most this many frames a second. */
 export const PORTRAIT_FPS = 24
@@ -31,8 +30,8 @@ export interface PainterOptions {
   director: Director
   /** The agent's signals now; read once per frame (or tick while still). */
   signals: () => MotionSignals
-  /** Hears each change of face or status dot. */
-  onView: (view: PortraitView) => void
+  /** Hears each change of face. */
+  onState: (state: MotionState) => void
 }
 
 const n2 = (v: number): string => v.toFixed(2)
@@ -83,11 +82,12 @@ function clipMarkup(boxes: readonly Box[]): string {
 /**
  * Draws a portrait-motion rig into `host` as inline SVG in Extended mode (the engine's brow turns,
  * head turns, mouth morphs and eyelids): the figure's part groups on the disc, the accent overlays
- * (ring dots, sound waves, z z z, "?" bubble, sweat drop, confetti, the researching magnifier) in a
- * second SVG reaching `FX_REACH` past it. Each frame sets `transform` and `opacity` attributes;
- * markup (a part, a morphing mouth, eyelid clips and edges) is swapped only when it changes.
- * Animates at `PORTRAIT_FPS` while `motionLive()`; with motion off it holds the plain resting face
- * (and the ring, still, in a ring state); while the page is hidden it does nothing at all.
+ * (sound waves, z z z, "?" bubble, sweat drop, confetti, the researching magnifier) in a second SVG
+ * reaching `FX_REACH` past it. The engine's working ring (`fx.dots`) is not drawn: the face alone
+ * shows state. Each frame sets `transform` and `opacity` attributes; markup (a part, a morphing
+ * mouth, eyelid clips and edges) is swapped only when it changes. Animates at `PORTRAIT_FPS` while
+ * `motionLive()`; with motion off it holds the plain resting face; while the page is hidden it
+ * does nothing at all.
  */
 export class PortraitPainter {
   private readonly timeline: Timeline
@@ -99,7 +99,6 @@ export class PortraitPainter {
   private readonly ext: Extension = extension()
   /** Makes this painter's clip ids unique in the document. */
   private readonly uid = ++painters
-  private readonly dots: SVGCircleElement[]
   private readonly waves: SVGCircleElement[]
   private readonly zs: SVGTextElement[]
   private readonly quiz: SVGGElement
@@ -107,7 +106,7 @@ export class PortraitPainter {
   private readonly lens: SVGGElement
   private readonly confetti: SVGRectElement[]
   private readonly over: number
-  private view: PortraitView = IDLE_VIEW
+  private state: MotionState = 'idle'
   private raf = 0
   private timer: number | undefined
   private readonly offGate: () => void
@@ -125,7 +124,6 @@ export class PortraitPainter {
       `<div class="eva-pmc-disc"><svg viewBox="0 0 ${rig.size} ${rig.size}" fill="none"></svg></div>` +
       `<svg class="eva-pmc-fx" width="${box}" height="${box}" viewBox="0 0 ${box} ${box}" style="left:${-over}px;top:${-over}px" aria-hidden="true">` +
       `<g class="eva-pmc-waves">${`<circle cx="${c}" cy="${c}" r="0" stroke-width="${n2(g.stroke)}" opacity="0"/>`.repeat(3)}</g>` +
-      `<g class="eva-pmc-ring">${g.dots.map(([x, y]) => `<circle cx="${n2(x + over)}" cy="${n2(y + over)}" r="${n2(g.dotR)}" opacity="0"/>`).join('')}</g>` +
       `<g class="eva-pmc-zzz">${'<text text-anchor="middle" opacity="0">z</text>'.repeat(3)}</g>` +
       `<g class="eva-pmc-quiz" opacity="0"><g>` +
       `<path d="${g.quizTail}" stroke-width="${n2(g.stroke)}" stroke-linejoin="round"/>` +
@@ -144,16 +142,15 @@ export class PortraitPainter {
     this.defs = document.createElementNS(SVG_NS, 'defs')
     this.figure.append(this.defs)
     this.waves = all('.eva-pmc-waves circle')
-    this.dots = all('.eva-pmc-ring circle')
     this.zs = all('.eva-pmc-zzz text')
     this.quiz = host.querySelector<SVGGElement>('.eva-pmc-quiz')!
     this.drop = host.querySelector<SVGGElement>('.eva-pmc-drop')!
     this.lens = host.querySelector<SVGGElement>('.eva-pmc-lens')!
     this.confetti = all('.eva-pmc-conf rect')
     const now = Date.now()
-    this.view = nextView(o.director, o.signals(), now, IDLE_VIEW)
-    this.timeline = new Timeline(this.view.state, now)
-    o.onView(this.view)
+    this.state = o.director.next(o.signals(), now)
+    this.timeline = new Timeline(this.state, now)
+    o.onState(this.state)
     this.offGate = onMotionGate(() => this.run())
     this.run()
   }
@@ -205,16 +202,16 @@ export class PortraitPainter {
   /** The director's face now, moved into the timeline; returns the time used. */
   private advance(): number {
     const now = Date.now()
-    const view = nextView(this.o.director, this.o.signals(), now, this.view)
-    this.timeline.set(view.state, now)
-    if (view !== this.view) {
-      this.view = view
-      this.o.onView(view)
+    const state = this.o.director.next(this.o.signals(), now)
+    this.timeline.set(state, now)
+    if (state !== this.state) {
+      this.state = state
+      this.o.onState(state)
     }
     return now
   }
 
-  /** Motion off: the resting face (plain, no Extended mode), and the ring held still in a ring state. */
+  /** Motion off: the resting face (plain, no Extended mode), no overlays. */
   private still(): void {
     this.advance()
     const f = frame(
@@ -222,8 +219,6 @@ export class PortraitPainter {
       { state: 'idle', lt: 0, gt: 0, prev: null, prevDur: 0 },
       this.o.size,
     )
-    const ring = STATE_META[this.view.state].ring ? 0.8 : 0
-    f.fx.dots = f.fx.dots.map(() => ring)
     f.fx.waves = f.fx.waves.map((w) => ({ ...w, o: 0 }))
     f.fx.zs = f.fx.zs.map((z) => ({ ...z, o: 0 }))
     f.fx.quiz = { ...f.fx.quiz, o: 0 }
@@ -238,7 +233,6 @@ export class PortraitPainter {
     for (let i = 0; i < this.slots.length; i++) this.layer(this.slots[i]!, layers[i])
     const over = this.over
     const X = (v: number): string => n2(v + over)
-    fx.dots.forEach((o, i) => set(this.dots[i], 'opacity', o.toFixed(3)))
     fx.waves.forEach((w, i) => {
       set(this.waves[i], 'r', n2(w.r))
       set(this.waves[i], 'opacity', w.o.toFixed(3))

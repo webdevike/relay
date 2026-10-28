@@ -1,5 +1,5 @@
 import { MantineProvider } from '@mantine/core'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const handlers = vi.hoisted(() => new Map<string, (payload: never) => void>())
@@ -15,8 +15,10 @@ const windowShown = (shown: boolean): void =>
 
 import type { Assistant, AssistantStatus } from '@evaos/contract'
 import css from './portrait-motion.css?raw'
+import assistantsCss from './assistants.css?raw'
 import { AgentPortrait } from './AgentPortrait'
 import { PortraitCard } from './PortraitCard'
+import { AgentCrumb } from './AgentCrumb'
 import { assistantsStore } from './assistants-store'
 import { overrideSignals } from './motion-store'
 
@@ -85,16 +87,13 @@ const card = () =>
     </MantineProvider>,
   )
 const figure = () => screen.getByTestId('card').querySelectorAll('.eva-pmc-disc g')
-const ringOpacity = () =>
-  [...screen.getByTestId('card').querySelectorAll('.eva-pmc-ring circle')].map((c) =>
-    c.getAttribute('opacity'),
-  )
 
 describe('the animated start card', () => {
   it('rests at Idle and animates by animation frame while motion is on', () => {
     card()
     expect(screen.getByTestId('card')).toHaveAttribute('data-state', 'idle')
-    expect(screen.getByTestId('card').querySelector('.eva-pmc-dot')).toBeNull()
+    // The face alone shows state: no status dot, no working ring.
+    expect(screen.getByTestId('card').querySelector('.eva-pmc-dot, .eva-pmc-ring')).toBeNull()
     expect(raf).toHaveBeenCalledTimes(1)
     act(() => raf.mock.calls[0]![0](0))
     expect(figure().length).toBeGreaterThan(3)
@@ -109,31 +108,28 @@ describe('the animated start card', () => {
     act(() => list('working', 'web_search'))
     act(() => raf.mock.calls[0]![0](0))
     expect(screen.getByTestId('card')).toHaveAttribute('data-state', 'researching')
-    expect(screen.getByRole('img', { name: 'Researching' })).toBeInTheDocument()
     now = t0 + 2_000
     act(() => raf.mock.calls[0]![0](0))
     const lens = screen.getByTestId('card').querySelector('.eva-pmc-lens')!
     expect(Number(lens.getAttribute('opacity'))).toBeGreaterThan(0.5)
     expect(lens.getAttribute('transform')).toMatch(/^translate\(/)
-    // The command after it works; the question that follows is the dot alone.
+    // The command after it works; the question that follows keeps a resting face.
     act(() => list('working', 'bash'))
     act(() => raf.mock.calls[0]![0](0))
     expect(screen.getByTestId('card')).toHaveAttribute('data-state', 'working')
     act(() => list('needs-you'))
     act(() => raf.mock.calls[0]![0](0))
     expect(screen.getByTestId('card')).toHaveAttribute('data-state', 'idle')
-    expect(screen.getByTestId('card')).toHaveAttribute('data-dot', 'orange')
+    expect(screen.getByTestId('card').querySelector('.eva-pmc-ring')).toBeNull()
   })
 
-  it('holds a still face with motion off, the ring still while the agent thinks', () => {
+  it('holds the resting face with motion off, while the agent thinks too', () => {
     document.documentElement.dataset['evaMotion'] = 'off'
     card()
     expect(raf).not.toHaveBeenCalled()
     expect(figure().length).toBeGreaterThan(3)
-    expect(new Set(ringOpacity())).toEqual(new Set(['0.000']))
     act(() => list('working'))
     expect(screen.getByTestId('card')).toHaveAttribute('data-state', 'thinking')
-    expect(new Set(ringOpacity())).toEqual(new Set(['0.800']))
     expect(raf).not.toHaveBeenCalled()
   })
 
@@ -227,38 +223,78 @@ describe("the card's Extended mode", () => {
   })
 })
 
-describe('small portraits', () => {
-  it('ring while thinking, researching or working, the dot in its tone', () => {
-    render(<AgentPortrait id="nova" className="x" />)
-    const el = screen.getByTestId('agent-portrait-nova')
-    expect(el).toHaveAttribute('data-state', 'idle')
-    expect(el).toHaveAttribute('data-ring', 'false')
-    expect(el.querySelector('.eva-pm-dot')).toBeNull()
-    expect(el.style.getPropertyValue('--eva-pm-accent')).toBe('#f76707')
+describe("the crumb's status words", () => {
+  const words = () =>
+    [...screen.getByTestId('agent-crumb-status').querySelectorAll('span')]
+      .filter((s) => s.dataset['leaving'] !== 'true')
+      .map((s) => s.textContent)
+
+  it('say what the agent is doing, nothing at rest; needing Isaac and failing first', () => {
+    render(<AgentCrumb id="nova" />)
+    expect(words()).toEqual([])
     act(() => list('working'))
-    expect(el).toHaveAttribute('data-state', 'thinking')
-    expect(el).toHaveAttribute('data-ring', 'true')
-    expect(el).toHaveAttribute('data-dot', 'accent')
-    expect(screen.getByRole('img', { name: 'Thinking' })).toBeInTheDocument()
-    act(() => list('working', 'read'))
-    expect(el).toHaveAttribute('data-state', 'researching')
-    expect(el).toHaveAttribute('data-ring', 'true')
-    // Needing Isaac keeps a calm face; the dot says it.
+    expect(words()).toEqual(['is thinking'])
+    act(() => list('working', 'web_search'))
+    expect(words()).toEqual(['is researching'])
+    act(() => list('working', 'bash'))
+    expect(words()).toEqual(['is working'])
     act(() => list('needs-you'))
-    expect(el).toHaveAttribute('data-state', 'idle')
-    expect(el).toHaveAttribute('data-ring', 'false')
-    expect(el).toHaveAttribute('data-dot', 'orange')
-    expect(screen.getByRole('img', { name: 'Needs you' })).toBeInTheDocument()
+    expect(words()).toEqual(['needs you'])
     act(() => assistantsStore.setState({ failed: { nova: 'Relay is down' } }))
     act(() => list('idle'))
-    expect(el).toHaveAttribute('data-dot', 'red')
-    expect(screen.getByRole('img', { name: 'Something went wrong' })).toBeInTheDocument()
+    expect(words()).toEqual(['hit a snag'])
+    act(() => assistantsStore.setState({ failed: {} }))
+    act(() => overrideSignals('nova', { activityAt: Date.now() - 31 * 60_000 }))
+    expect(words()).toEqual(['is away'])
+    act(() => overrideSignals('nova', null))
+  })
+
+  it('crossfade: the old words fade out in place while motion is on, gone at once when off', () => {
+    render(<AgentCrumb id="nova" />)
+    act(() => list('working'))
+    act(() => list('working', 'read'))
+    const status = screen.getByTestId('agent-crumb-status')
+    const out = status.querySelector('[data-leaving="true"]')!
+    expect(out.textContent).toBe('is thinking')
+    // jsdom has no AnimationEvent, so React listens for the prefixed name there.
+    fireEvent(out, new Event('webkitAnimationEnd', { bubbles: true }))
+    expect(status.querySelector('[data-leaving="true"]')).toBeNull()
+    document.documentElement.dataset['evaMotion'] = 'off'
+    act(() => list('working', 'bash'))
+    expect(status.querySelector('[data-leaving="true"]')).toBeNull()
+    expect(assistantsCss).toContain('animation: eva-as-status-in 180ms')
+  })
+})
+
+describe('small portraits', () => {
+  it('carry the face state for their breathing, with no ring or dot', () => {
+    render(<AgentPortrait id="nova" className="x" />)
+    const el = screen.getByTestId('agent-portrait-nova')
+    const plain = (): void => {
+      expect(el.querySelector('.eva-pm-ring, .eva-pm-dot')).toBeNull()
+      expect(el).not.toHaveAttribute('data-ring')
+      expect(el).not.toHaveAttribute('data-dot')
+    }
+    expect(el).toHaveAttribute('data-state', 'idle')
+    plain()
+    act(() => list('working'))
+    expect(el).toHaveAttribute('data-state', 'thinking')
+    plain()
+    act(() => list('working', 'read'))
+    expect(el).toHaveAttribute('data-state', 'researching')
+    // Needing Isaac or failing keeps a calm face.
+    act(() => list('needs-you'))
+    expect(el).toHaveAttribute('data-state', 'idle')
+    act(() => assistantsStore.setState({ failed: { nova: 'Relay is down' } }))
+    act(() => list('idle'))
+    expect(el).toHaveAttribute('data-state', 'idle')
+    plain()
   })
 
   it('stop their CSS animation with motion off or reduced, and pause on a hidden page', () => {
-    // The animations sit at zero specificity, so the switches below override the ring's too.
+    // The animation sits at zero specificity, so the switches below override it.
     expect(css).toContain(':where(.eva-pm > :first-child) {')
-    expect(css).toContain(':where(.eva-pm-ring) {\n  animation: eva-pm-spin')
+    expect(css).not.toContain('eva-pm-ring')
     expect(css).toContain("html[data-eva-motion='off'] .eva-pm > * {\n  animation: none;")
     expect(css).toMatch(
       /@media \(prefers-reduced-motion: reduce\) \{\s+\.eva-pm > \* \{\s+animation: none;/,

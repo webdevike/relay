@@ -1,12 +1,5 @@
 import { useCallback, useSyncExternalStore } from 'react'
-import {
-  Director,
-  STATE_META,
-  statusDot,
-  type DotTone,
-  type MotionSignals,
-  type MotionState,
-} from '@relay/portrait-motion'
+import { Director, type MotionSignals, type MotionState } from '@relay/portrait-motion'
 import { chatStore } from '../chat/chat-store'
 import { PANE_ID } from '../chat/open-chat'
 import { assistantsStore } from './assistants-store'
@@ -15,21 +8,6 @@ import { motionSignals } from './motion-signals'
 
 /** Edges that come with time alone (Waking ending, Snoozing) show within this long. */
 const TICK_MS = 1000
-
-/** What a portrait shows: its face and its status dot. */
-export interface PortraitView {
-  state: MotionState
-  dot: DotTone
-}
-
-export const IDLE_VIEW: PortraitView = { state: 'idle', dot: null }
-
-/** The dot's words: needing Isaac and failing are said by the dot alone, else the face's status. */
-export function dotLabel(view: PortraitView): string {
-  if (view.dot === 'orange') return 'Needs you'
-  if (view.dot === 'red') return 'Something went wrong'
-  return STATE_META[view.state].status
-}
 
 /** Signals laid over agents' real ones: a test seam (e2e's `portraitSignals` hook) only. */
 const overrides = new Map<string, Partial<MotionSignals>>()
@@ -48,39 +26,48 @@ export function agentSignals(id: string): MotionSignals {
   return patch === undefined ? real : { ...real, ...patch }
 }
 
-/** The director's view for `signals` at `now`: the same object while nothing changed. */
-export function nextView(
-  director: Director,
-  signals: MotionSignals,
-  now: number,
-  was: PortraitView,
-): PortraitView {
-  const state = director.next(signals, now)
-  const dot = statusDot(signals)
-  return state === was.state && dot === was.dot ? was : { state, dot }
+// Mirrors @relay/portrait-motion's `statusText` (the phone's header line) until the package
+// exports it; swap this for the import then.
+const STATUS_TEXT: Partial<Record<MotionState, string>> = {
+  thinking: 'is thinking',
+  researching: 'is researching',
+  working: 'is working',
+  snoozing: 'is away',
+}
+
+/** The short words after an agent's name: needing Isaac and failing first, else its face's. */
+export function statusText(state: MotionState, s: MotionSignals): string | null {
+  if (s.waiting) return 'needs you'
+  if (s.failed) return 'hit a snag'
+  return STATUS_TEXT[state] ?? null
 }
 
 interface Entry {
   director: Director
-  view: PortraitView
+  state: MotionState
+  /** `statusText` for the state and the signals it came from. */
+  text: string | null
   listeners: Set<() => void>
 }
 
-/** One director per agent a small portrait shows (crumb, tab, Assistants rows), shared by all of them. */
+/** One director per agent a small portrait or crumb shows, shared by all of them. */
 const entries = new Map<string, Entry>()
 let stop: (() => void) | null = null
 
 /**
  * Moves every shown agent's director on. Runs when the stores change and once a second, never
- * while the page is hidden; listeners hear only view changes, so a portrait re-renders on edges.
+ * while the page is hidden; listeners hear only face or text changes, so they re-render on edges.
  */
 function tick(): void {
   if (pageHidden()) return
   const now = Date.now()
   for (const [id, e] of entries) {
-    const next = nextView(e.director, agentSignals(id), now, e.view)
-    if (next === e.view) continue
-    e.view = next
+    const s = agentSignals(id)
+    const state = e.director.next(s, now)
+    const text = statusText(state, s)
+    if (state === e.state && text === e.text) continue
+    e.state = state
+    e.text = text
     for (const l of e.listeners) l()
   }
 }
@@ -112,11 +99,9 @@ function subscribe(id: string, cb: () => void): () => void {
   let e = entries.get(id)
   if (e === undefined) {
     const director = new Director()
-    e = {
-      director,
-      view: nextView(director, agentSignals(id), Date.now(), IDLE_VIEW),
-      listeners: new Set(),
-    }
+    const s = agentSignals(id)
+    const state = director.next(s, Date.now())
+    e = { director, state, text: statusText(state, s), listeners: new Set() }
     entries.set(id, e)
   }
   e.listeners.add(cb)
@@ -131,8 +116,14 @@ function subscribe(id: string, cb: () => void): () => void {
   }
 }
 
-/** The face and dot agent `id`'s small portraits show; re-renders only when either changes. */
-export function useAgentMotion(id: string): PortraitView {
+/** The face agent `id`'s small portraits show; re-renders only when it changes. */
+export function useAgentMotion(id: string): MotionState {
   const sub = useCallback((cb: () => void) => subscribe(id, cb), [id])
-  return useSyncExternalStore(sub, () => entries.get(id)?.view ?? IDLE_VIEW)
+  return useSyncExternalStore(sub, () => entries.get(id)?.state ?? 'idle')
+}
+
+/** The words after agent `id`'s name in its crumb (`statusText`), null when it has none. */
+export function useAgentStatus(id: string): string | null {
+  const sub = useCallback((cb: () => void) => subscribe(id, cb), [id])
+  return useSyncExternalStore(sub, () => entries.get(id)?.text ?? null)
 }

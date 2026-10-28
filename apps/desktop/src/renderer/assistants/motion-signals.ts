@@ -5,7 +5,7 @@ import { agentOf, type AssistantsState } from './assistants-store'
 
 /**
  * Where an agent's portrait gets its mood: the `MotionSignals` the portrait-motion `Director`
- * turns into a face (Thinking, Researching, Working, Idle) and `statusDot` into a dot. Relay's
+ * turns into a face (Thinking, Researching, Working, Idle). Relay's
  * status and running tool and the Start button are known for every agent; the open thread's
  * detail (its tool rows, subagents, jobs, question, failure) only for the agent whose thread main's
  * chat pane shows. A reply streaming in is just its turn running.

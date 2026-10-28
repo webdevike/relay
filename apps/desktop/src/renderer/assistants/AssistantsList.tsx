@@ -9,8 +9,8 @@ import './assistants.css'
 
 /**
  * The sidebar's Assistants page (native assistants_view::sidebar_list): one row per agent, its
- * portrait beside its title over its scope. The portrait carries the agent's mood (PortraitMotion):
- * the ring while it works, a dot in the state's tone. The open agent is highlighted.
+ * portrait beside its title over its scope. The portrait breathes with the agent's mood
+ * (PortraitMotion). The open agent is highlighted.
  */
 export function AssistantsList() {
   const agents = useAssistants((s) => s.data?.agents ?? null)

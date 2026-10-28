@@ -60,28 +60,33 @@ running tool row, else background jobs (work); `waiting` from `needs-you` (main 
 `ask` that way) or the pane's question card; `failed` from a refused Start, the pane's error
 banner or an `Error:` notice in the last turn; `activityAt` from the last reply. The engine's
 `Director` turns those into one of five faces: Thinking, Researching (search, fetch, reads),
-Working (anything else), Idle, Snoozing after 30 quiet minutes (Waking when it stirs).
-`statusDot` gives the dot: accent while it runs, orange when it needs Isaac, red after a failure;
-needing Isaac and failing never change the face.
+Working (anything else), Idle, Snoozing after 30 quiet minutes (Waking when it stirs). The face
+alone shows state on an avatar: no working ring, no status dot. Needing Isaac and failing never
+change the face; the agent's crumb says them.
 
 - **Small portraits** (tab, crumb, Assistants home and sidebar rows: `PortraitMotion`) share one
-  director per agent (`motion-store.ts`, ticked on store changes and once a second) and animate in
-  CSS only: breathing, the turning accent ring while thinking, researching or working, and the
-  dot.
+  director per agent (`motion-store.ts`, ticked on store changes and once a second) and only
+  breathe, in CSS (slower while snoozing).
+- **The crumb** ("< Assistants / Nova") follows the name with muted words (`CrumbStatus`, the
+  mapping of the package's `statusText`): "is thinking", "is researching", "is working", "is
+  away", "needs you" while it waits, "hit a snag" after a failure, nothing at rest. A change
+  crossfades in 180 ms in one grid cell (no layout jump), at once with motion off; long words end
+  in an ellipsis.
 - **The start card** (`PortraitCard`, 84 px) draws every engine frame as inline SVG at most 24
   fps (`portrait-painter.ts`) in the engine's Extended mode (one `extension()` per card): brows
   turn and the head turns (matrices), the mouth morphs between shapes (a layer's `morph` paths drawn
   instead of its part) and eyelids close (the eyes clipped to the layer's `clip` rects through a
-  per-card `clipPath`, the lids' edges drawn over them). It also draws the engine's overlays (the
-  ring, Researching's magnifier). Markup changes only when a frame's part, morph, clip or lids do.
+  per-card `clipPath`, the lids' edges drawn over them). It also draws the engine's overlays
+  (Researching's magnifier, z z z) but not its dot ring (`fx.dots`). Markup changes only when a
+  frame's part, morph, clip or lids do.
 - Motion off (`html[data-eva-motion='off']`: e2e, `EVAOS_NO_MOTION`, or the system's reduced
-  motion) holds every portrait still (the card's plain resting face), the ring included; a hidden
-  page or window (main's `app.windowShown`) runs no frames and pauses the CSS (`motion-gate.ts`).
-  `e2e/assistant-motion.spec.ts` drives a thread through every face and dot;
+  motion) holds every portrait still (the card's plain resting face); a hidden page or window
+  (main's `app.windowShown`) runs no frames and pauses the CSS (`motion-gate.ts`).
+  `e2e/assistant-motion.spec.ts` drives a thread through every face and crumb word;
   `EVAOS_MOTION_PROOF=<dir>` runs only its proof instead: motion on, Nova's and Astra's cards
-  through Idle, Thinking, Researching and Snoozing (laid over their signals with the e2e hook
-  `__evaosShell.portraitSignals`, since a start card has no quiet thread), recorded, plus CPU
-  samples.
+  through Idle, Thinking, Researching, Working (with screenshots) and Snoozing (laid over their
+  signals with the e2e hook `__evaosShell.portraitSignals`, since a start card has no quiet
+  thread), recorded, plus CPU samples.
 
 ## Right panel
 

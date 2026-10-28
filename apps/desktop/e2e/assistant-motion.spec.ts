@@ -9,10 +9,11 @@ import { EVA_FIXTURE_ROOT } from './helpers/paths'
 
 // An assistant's portrait moves calmly with its thread (@relay/portrait-motion): the start card
 // rests at Idle, thinks once its turn runs, researches while Relay hears a search and works while a
-// command runs; a streaming reply is still Thinking, and needing Isaac or failing is only the
-// status dot (orange, red) on a resting face. A fake Relay host on a real WebSocket lists the
+// command runs; a streaming reply is still Thinking, and needing Isaac or failing keeps a resting
+// face. The face alone shows state on the avatar (no ring, no dot); the crumb's muted words say it
+// too ("is researching", "needs you", "hit a snag"). A fake Relay host on a real WebSocket lists the
 // thread and streams its reply; the thread file is written like omp writes it. Tests run with
-// motion off, so states are asserted from `data-state` and `data-dot`. EVAOS_MOTION_PROOF=<dir>
+// motion off, so states are asserted from `data-state` and the words. EVAOS_MOTION_PROOF=<dir>
 // runs only the proof instead: motion on, Nova's and Astra's start cards (Extended mode) through
 // Idle, Thinking, Researching and Snoozing recorded as JPEG screencast frames in <dir>/frames, and
 // the app's CPU sampled into <dir>/cpu.json.
@@ -84,36 +85,42 @@ const NOVA_THREAD: HostSession = {
   title: 'Nova',
 }
 
-test("an assistant's portrait thinks, researches and works with its thread; asks and failures are its dot", async ({
+test("an assistant's portrait thinks, researches and works with its thread; its crumb says so", async ({
   shell,
 }) => {
   test.skip(PROOF !== '', 'EVAOS_MOTION_PROOF runs the proof only')
   await shell.locator(sel('nav-assistants')).click()
 
-  // 1. The start card rests at Idle, no dot.
+  // 1. The start card rests at Idle; the crumb says nothing more than the name.
   await shell.locator(sel('sidebar-agent-nova')).click()
   const card = shell.locator(`${sel('agent-start-nova')} ${sel('agent-portrait-nova')}`)
   const side = shell.locator(sel('sidebar-portrait-nova'))
+  const words = shell.locator(`${sel('agent-crumb-status')} > span:not([data-leaving])`)
   await expect(card).toHaveAttribute('data-state', 'idle')
-  await expect(card).not.toHaveAttribute('data-dot')
+  await expect(words).toHaveCount(0)
+  // No ring or status dot on any avatar.
+  await expect(shell.locator('.eva-pm-ring, .eva-pm-dot, .eva-pmc-dot, .eva-pmc-ring')).toHaveCount(
+    0,
+  )
 
-  // 2. Start goes through Relay and Relay lists the thread working: Thinking, the ring turning.
+  // 2. Start goes through Relay and Relay lists the thread working: Thinking.
   await shell.locator(sel('start-nova')).click()
   await expect.poll(() => host.kinds()).toContain('assistant.turn')
   host.upsert(NOVA_THREAD)
   await expect(card).toHaveAttribute('data-state', 'thinking')
-  await expect(card).toHaveAttribute('data-dot', 'accent')
-  await expect(side).toHaveAttribute('data-ring', 'true')
+  await expect(side).toHaveAttribute('data-state', 'thinking')
+  await expect(words).toHaveText('is thinking')
 
-  // 3. Relay hears a web search: Researching, the magnifier on the card, the ring on the rest.
+  // 3. Relay hears a web search: Researching, the magnifier on the card.
   host.upsert({ ...NOVA_THREAD, statusDetail: 'web_search' })
   await expect(card).toHaveAttribute('data-state', 'researching')
   await expect(side).toHaveAttribute('data-state', 'researching')
-  await expect(side).toHaveAttribute('data-ring', 'true')
+  await expect(words).toHaveText('is researching')
 
   // 4. Then a command: Working.
   host.upsert({ ...NOVA_THREAD, statusDetail: 'bash' })
   await expect(card).toHaveAttribute('data-state', 'working')
+  await expect(words).toHaveText('is working')
 
   // 5. omp writes the thread: the page is the conversation, its tool returned, Nova thinks.
   const file = path.join(fx.sessionsDir, '2026-10-27T20-00-00-000Z_nova-1.jsonl')
@@ -174,7 +181,7 @@ test("an assistant's portrait thinks, researches and works with its thread; asks
   await expect(shell.locator(sel('msg-relay-stream'))).toContainText('Hi Isaac!')
   await expect(crumb).toHaveAttribute('data-state', 'thinking')
 
-  // 7. The turn ends: Idle, no dot.
+  // 7. The turn ends: Idle, no words.
   host.stream('nova-1', 'm1', answer, false)
   await fx.append(
     'nova-1',
@@ -188,9 +195,9 @@ test("an assistant's portrait thinks, researches and works with its thread; asks
   )
   host.upsert({ ...NOVA_THREAD, status: 'idle' })
   await expect(crumb).toHaveAttribute('data-state', 'idle')
-  await expect(crumb).not.toHaveAttribute('data-dot')
+  await expect(words).toHaveCount(0)
 
-  // 8. omp's ask tool waits on Isaac (Relay still says working): a resting face, an orange dot.
+  // 8. omp's ask tool waits on Isaac (Relay still says working): a resting face, "needs you".
   host.upsert({ ...NOVA_THREAD, statusDetail: 'ask' })
   host.ask('nova-1', {
     id: 'k1',
@@ -202,13 +209,13 @@ test("an assistant's portrait thinks, researches and works with its thread; asks
       },
     ],
   })
-  await expect(side).toHaveAttribute('data-dot', 'orange')
   await expect(side).toHaveAttribute('data-state', 'idle')
-  await expect(crumb).toHaveAttribute('data-dot', 'orange')
+  await expect(crumb).toHaveAttribute('data-state', 'idle')
+  await expect(words).toHaveText('needs you')
   await shell.locator(sel('pending-dialog')).getByRole('radio', { name: /Yes/ }).click()
   await expect(shell.locator(sel('pending-dialog'))).toHaveCount(0)
 
-  // 9. The next turn runs a command and fails: Working, then a resting face with a red dot.
+  // 9. The next turn runs a command and fails: Working, then a resting face that "hit a snag".
   host.upsert({ ...NOVA_THREAD, statusDetail: 'bash' })
   await expect(crumb).toHaveAttribute('data-state', 'working')
   await fx.append(
@@ -226,9 +233,9 @@ test("an assistant's portrait thinks, researches and works with its thread; asks
     }),
   )
   host.upsert({ ...NOVA_THREAD, status: 'idle' })
-  await expect(crumb).toHaveAttribute('data-dot', 'red')
   await expect(crumb).toHaveAttribute('data-state', 'idle')
-  await expect(side).toHaveAttribute('data-dot', 'red')
+  await expect(side).toHaveAttribute('data-state', 'idle')
+  await expect(words).toHaveText('hit a snag')
 })
 
 test("proof: the start cards' Extended faces (Idle blinks, Thinking, Researching, Snoozing) and CPU", async ({
@@ -258,6 +265,11 @@ test("proof: the start cards' Extended faces (Idle blinks, Thinking, Researching
     host.upsert({ ...thread, statusDetail: 'web_search' })
     await expect(card).toHaveAttribute('data-state', 'researching')
     await shell.waitForTimeout(BEAT_MS)
+    await shell.screenshot({ path: path.join(PROOF, `${id}-researching.png`) })
+    host.upsert({ ...thread, statusDetail: 'bash' })
+    await expect(card).toHaveAttribute('data-state', 'working')
+    await shell.waitForTimeout(BEAT_MS)
+    await shell.screenshot({ path: path.join(PROOF, `${id}-working.png`) })
     // The start card has no thread to go quiet for half an hour: lay that over its signals.
     host.upsert({ ...thread, status: 'idle', statusDetail: '' })
     await shell.evaluate(
@@ -380,7 +392,7 @@ async function cpuSampler(app: ElectronApplication, shell: Page): Promise<CpuSam
   }
 }
 
-/** Astra's start card at rest with motion off and on, researching (ring, magnifier), and hidden. */
+/** Astra's start card at rest with motion off and on, researching (magnifier), and hidden. */
 async function measureCard(app: ElectronApplication, shell: Page, cpu: CpuSampler): Promise<void> {
   await shell.locator(sel('sidebar-agent-astra')).click()
   const card = shell.locator(`${sel('agent-start-astra')} ${sel('agent-portrait-astra')}`)
@@ -397,7 +409,7 @@ async function measureCard(app: ElectronApplication, shell: Page, cpu: CpuSample
   }
   host.upsert({ ...astra, statusDetail: 'web_search' })
   await expect(card).toHaveAttribute('data-state', 'researching')
-  await cpu.sample('astra card researching (ring + magnifier), motion on')
+  await cpu.sample('astra card researching (magnifier), motion on')
   await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.hide())
   await cpu.sample('astra card researching, window hidden')
   await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.showInactive())

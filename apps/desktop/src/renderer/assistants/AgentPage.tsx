@@ -10,9 +10,8 @@ const CARD_PX = 84
 /**
  * An agent's page before the host has started its thread (native chat_view::assistant_placeholder):
  * its portrait over a note that says so, and Start sends "Hi <Title>" through Relay. The portrait
- * moves with the agent (PortraitCard): it thinks once Start is on its way, researches or works as
- * Relay hears its tools, and its dot turns orange or red when it needs Isaac or fails, until the
- * page becomes its conversation. Once Relay
+ * moves with the agent (PortraitCard): it thinks once Start is on its way and researches or works
+ * as Relay hears its tools, until the page becomes its conversation. Once Relay
  * lists the thread, the page is its conversation in main's chat pane (PageRouter). A tab kept from
  * a registry that has since dropped the agent still shows its id (and the id's portrait), and Start
  * reaches the host's own answer.

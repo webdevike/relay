@@ -22,10 +22,6 @@
   font-size: var(--eva-fz-label);
   color: var(--eva-text-dim);
 }
-/* The portrait's state dot is cut out of the sidebar's own background. */
-.eva-as-side-row .eva-pm {
-  --eva-pm-edge: var(--eva-c-sidebar-background);
-}
 
 /* Home */
 .eva-as-col {
@@ -229,4 +225,48 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: var(--eva-fw-medium);
+}
+/* What the agent is doing, muted after its name: old and new words share one grid cell and crossfade. */
+.eva-as-crumb-status {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: grid;
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-regular);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-as-crumb-status-text {
+  grid-area: 1 / 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  animation: eva-as-status-in 180ms ease both;
+}
+.eva-as-crumb-status-text[data-leaving='true'] {
+  animation-name: eva-as-status-out;
+}
+@keyframes eva-as-status-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes eva-as-status-out {
+  to {
+    opacity: 0;
+  }
+}
+html[data-eva-motion='off'] .eva-as-crumb-status-text {
+  animation: none;
+}
+html[data-eva-motion='off'] .eva-as-crumb-status-text[data-leaving='true'] {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .eva-as-crumb-status-text {
+    animation: none;
+  }
+  .eva-as-crumb-status-text[data-leaving='true'] {
+    display: none;
+  }
 }
