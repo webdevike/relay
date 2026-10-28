@@ -10,7 +10,7 @@ import {
   sameRule,
   tabItems,
   type Artifact,
-  type ArtifactTab,
+  ArtifactTab,
 } from "../src";
 
 const NOW = new Date(2026, 9, 27, 21, 47).getTime();
@@ -61,18 +61,27 @@ describe("fading and tab contents", () => {
   });
 
   it("draws the default tabs, pinned first and running subagents ahead of the rest", () => {
-    const [subagents, links, media, everything] = defaultTabs();
+    const [subagents, links, media, everything] = defaultTabs() as [ArtifactTab, ArtifactTab, ArtifactTab, ArtifactTab];
     expect(defaultTabs().map((tab) => tab.title)).toEqual(["Subagents", "Links", "Media", "Everything"]);
-    expect(tabItems(subagents as ArtifactTab, items, NOW).map((found) => found.id)).toEqual(["subagent:/a.jsonl"]);
-    expect(tabItems(links as ArtifactTab, items, NOW).map((found) => found.id)).toEqual(["url:https://b.dev", "gh-pr:o/r#1", "linear:ENG-1"]);
-    expect(tabItems(media as ArtifactTab, items, NOW).map((found) => found.id)).toEqual(["drop:1"]);
-    expect(tabItems(everything as ArtifactTab, items, NOW)[0]?.id).toBe("url:https://b.dev");
-    expect(tabItems(everything as ArtifactTab, items, NOW)[1]?.id).toBe("subagent:/a.jsonl");
+    expect(tabItems(subagents, items, NOW).map((found) => found.id)).toEqual(["subagent:/a.jsonl"]);
+    expect(tabItems(links, items, NOW).map((found) => found.id)).toEqual(["url:https://b.dev", "gh-pr:o/r#1", "linear:ENG-1"]);
+    expect(tabItems(media, items, NOW).map((found) => found.id)).toEqual(["drop:1"]);
+    expect(tabItems(everything, items, NOW)[0]?.id).toBe("url:https://b.dev");
+    expect(tabItems(everything, items, NOW)[1]?.id).toBe("subagent:/a.jsonl");
   });
 
   it("shows an item tab's picks in order (they never fade), pinned first, skipping unknown ids", () => {
     const tab: ArtifactTab = { id: "picks", title: "Picks", createdBy: "astra", createdAt: NOW, items: ["url:https://a.dev", "nope", "url:https://b.dev"], hidden: false };
     expect(tabItems(tab, items, NOW).map((found) => found.id)).toEqual(["url:https://b.dev", "url:https://a.dev"]);
+  });
+});
+
+describe("tab icons", () => {
+  it("reads the old robot icon as subtask, in stored tabs and in agents' actions", () => {
+    expect(defaultTabs()[0]?.icon).toBe("subtask");
+    expect(ArtifactTab.parse({ id: "subagents", title: "Subagents", icon: "robot", createdBy: "default", createdAt: 0, rule: { kind: ["subagent"] }, hidden: false }).icon).toBe("subtask");
+    const act = parseClientMessage(JSON.stringify({ t: "artifacts.act", thread: "assistant:nova", rid: "r", by: "nova", action: { op: "tab.add", title: "Helpers", icon: "robot", rule: { kind: ["subagent"], state: ["running"] } } }));
+    expect(act.ok && act.value.t === "artifacts.act" && act.value.action.op === "tab.add" ? act.value.action.icon : null).toBe("subtask");
   });
 });
 
