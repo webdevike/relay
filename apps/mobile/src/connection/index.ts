@@ -7,7 +7,7 @@
 import { useEffect } from "react";
 import { AppState, type AppStateStatus, type NativeEventSubscription } from "react-native";
 import { CryptoDigestAlgorithm, digest } from "expo-crypto";
-import { encode, parseServerMessage, WS_PATH, type CatchUpSignal, type ClientMessage, type Command, type InputEvent } from "@relay/protocol";
+import { encode, parseServerMessage, reactionExcerpt, WS_PATH, type CatchUpSignal, type ClientMessage, type Command, type InputEvent } from "@relay/protocol";
 import { useConnectionStore } from "@/state/connection";
 import { useAgentsStore } from "@/state/agents";
 import { useDropsStore } from "@/state/drops";
@@ -17,6 +17,7 @@ import { useGateStore } from "@/state/gate";
 import { useUsageStore } from "@/state/usage";
 import { useCatchUpStore } from "@/state/catchup";
 import { useAssistantStore } from "@/state/assistant";
+import { useReactionsStore } from "@/state/reactions";
 import { callIsLive, useCallStore } from "@/state/call";
 import { createCallFrameRouter } from "@/call/frames";
 import { callStats } from "@/call/stats";
@@ -31,6 +32,7 @@ import { createGateFrameRouter } from "./gate";
 import { createUsageFrameRouter } from "./usage";
 import { createCatchUpFrameRouter } from "./catchup";
 import { createAssistantFrameRouter } from "./assistant";
+import { createReactionFrameRouter } from "./reactions";
 import * as identity from "./identity";
 import { Discovery, type DiscoveredService } from "./discovery";
 import { NO_HOSTS, removeHost, upsertHost, type PairedHosts } from "./hosts";
@@ -69,6 +71,11 @@ let hostAuthority: string | null = null;
 let watchedAssistant: string | null = null;
 let assistantFollowTimer: number | undefined;
 const ASSISTANT_FOLLOW_MS = 4 * 60_000;
+/**
+ * Reaction threads with a screen open on them, counted per screen: the driver asks for each one's
+ * reactions again on every welcome, since the host pushes snapshots only to connected devices.
+ */
+const reactionThreads = new Map<string, number>();
 
 const commandQueue = new CommandQueue();
 const socket = new RelaySocket();
@@ -87,6 +94,7 @@ const routeGateFrame = createGateFrameRouter(useGateStore.getState());
 const routeUsageFrame = createUsageFrameRouter(useUsageStore.getState());
 const routeCatchUpFrame = createCatchUpFrameRouter(useCatchUpStore.getState());
 const routeAssistantFrame = createAssistantFrameRouter(useAssistantStore.getState());
+const routeReactionFrame = createReactionFrameRouter(useReactionsStore.getState());
 const routeCallFrame = createCallFrameRouter(
   { update: useCallStore.getState().update, current: () => useCallStore.getState().call },
   {
@@ -154,6 +162,8 @@ socket.onMessage = (data) => {
     socket.send(encode({ t: "assistant.agents" }));
     // A thread is only fetched while its screen is showing; the screen asks again on focus.
     if (watchedAssistant !== null) socket.send(encode({ t: "assistant.get", agent: watchedAssistant }));
+    // Reactions may have changed on another device while this one was away.
+    for (const thread of reactionThreads.keys()) socket.send(encode({ t: "reactions.get", thread }));
   }
   if (message.t === "agent.image") imagesInFlight.delete(imageKey(message.sessionId, message.id));
   // Answered on the Mac, in the chat or on another device: take its notification off the lock screen.
@@ -169,6 +179,7 @@ socket.onMessage = (data) => {
   routeGateFrame(message);
   routeUsageFrame(message);
   routeCatchUpFrame(message);
+  routeReactionFrame(message);
   routeAssistantFrame(message);
   routeCallFrame(message);
   void dispatch({ type: "server", message });
@@ -309,6 +320,7 @@ async function retarget(id: string | null): Promise<void> {
   useGateStore.getState().set(null);
   useUsageStore.getState().set(null);
   useCatchUpStore.getState().set(null);
+  useReactionsStore.getState().clear();
   useVncStore.getState().setAccess({ kind: "idle" });
   await resetSession();
 }
@@ -468,6 +480,42 @@ export function stopAssistant(agent: string): void {
   watchedAssistant = null;
   clearInterval(assistantFollowTimer);
   assistantFollowTimer = undefined;
+}
+
+/** Ephemeral; the answer (and every later change) lands in `useReactionsStore().threads[thread]`. */
+export function getReactions(thread: string): void {
+  if (useConnectionStore.getState().status !== "connected") return;
+  socket.send(encode({ t: "reactions.get", thread }));
+}
+
+/**
+ * A screen showing `thread` opened: asks for its reactions now and after every reconnect until the
+ * returned function is called (the screen closed).
+ */
+export function watchReactions(thread: string): () => void {
+  reactionThreads.set(thread, (reactionThreads.get(thread) ?? 0) + 1);
+  getReactions(thread);
+  return () => {
+    const count = (reactionThreads.get(thread) ?? 1) - 1;
+    if (count > 0) reactionThreads.set(thread, count);
+    else reactionThreads.delete(thread);
+  };
+}
+
+/**
+ * Reacts `emoji` to bubble `key` (its `reactionKey`) of `thread`, or takes the reaction back for
+ * null; `text` is the bubble's text, sent as the excerpt the agent's note quotes. Shown at once,
+ * then the host's `reactions.snapshot` confirms it (or puts it right). False, and nothing changed,
+ * while not connected: only the host keeps reactions.
+ */
+export function react(thread: string, key: string, emoji: string | null, text: string): boolean {
+  if (useConnectionStore.getState().status !== "connected") return false;
+  const excerpt = reactionExcerpt(text);
+  useReactionsStore.getState().setLocal(thread, key, emoji, excerpt, Date.now());
+  socket.send(
+    encode(emoji === null ? { t: "reaction.clear", thread, message: key } : { t: "reaction.set", thread, message: key, emoji, excerpt }),
+  );
+  return true;
 }
 
 /**

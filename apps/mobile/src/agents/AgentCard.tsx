@@ -14,6 +14,8 @@ import { echoRows, type UserEcho } from "@/lib/userEcho";
 import { ImageViewer } from "./ImageViewer";
 import { modelShortName, VendorLogo } from "./VendorLogo";
 import { MessageText } from "./MessageText";
+import { ChatBubble } from "./BubbleMenu";
+import { bubbleReactionKey } from "@/lib/reactions";
 import { ActivityRow } from "./ActivityRow";
 import { ToolRow } from "./ToolRow";
 import { ToolStack, ToolTimelineSheet } from "./ToolStack";
@@ -105,10 +107,18 @@ interface MessageRowProps {
   onOpenImage: (uri: string) => void;
   /** Why the host refused this (phone-side) message; shown under its bubble. */
   error?: string | undefined;
+  /** The phone's own stand-in for words the transcript does not list yet: it takes no reaction. */
+  pending: boolean;
 }
 
-function MessageRow({ sessionId, message, onOpenImage, error }: MessageRowProps) {
+const USER_RADIUS = 24;
+/** The card a lifted reply (plain text, no bubble) sits on in the reaction overlay. */
+const REPLY_LIFT_RADIUS = 18;
+const REPLY_LIFT_INSET = 10;
+
+function MessageRow({ sessionId, message, onOpenImage, error, pending }: MessageRowProps) {
   const colors = useColors();
+  const reactionKey = bubbleReactionKey(message, pending);
   const images =
     message.images === undefined || message.images.length === 0 ? null : <MessageImages sessionId={sessionId} refs={message.images} onOpen={onOpenImage} />;
   switch (message.role) {
@@ -117,23 +127,33 @@ function MessageRow({ sessionId, message, onOpenImage, error }: MessageRowProps)
       const { command, rest } = userBubble(message.text);
       return (
         <View style={{ alignItems: "flex-end", paddingHorizontal: spacing.xl, gap: spacing.xs }}>
-          <View
-            style={{
-              maxWidth: "85%",
-              // The accent at 0.16 opacity.
-              backgroundColor: `${colors.accent}29`,
-              borderWidth: 1,
-              borderColor: error === undefined ? colors.hairline : colors.danger,
-              borderRadius: 24,
-              paddingHorizontal: spacing.md,
-              paddingVertical: spacing.sm,
-              gap: spacing.sm,
-            }}
+          <ChatBubble
+            messageKey={reactionKey}
+            side="right"
+            text={message.text}
+            style={{ maxWidth: "85%" }}
+            radius={USER_RADIUS}
+            // The bubble's tint is see-through: lifted over the blur it keeps the chat's surface under it.
+            card={{ fill: colors.surface, radius: USER_RADIUS, inset: 0 }}
+            ring={colors.surface}
           >
-            {command !== undefined && <Pill label={command} tone="accent" />}
-            {rest.length > 0 && <MessageText text={rest} large />}
-            {images}
-          </View>
+            <View
+              style={{
+                // The accent at 0.16 opacity.
+                backgroundColor: `${colors.accent}29`,
+                borderWidth: 1,
+                borderColor: error === undefined ? colors.hairline : colors.danger,
+                borderRadius: USER_RADIUS,
+                paddingHorizontal: spacing.md,
+                paddingVertical: spacing.sm,
+                gap: spacing.sm,
+              }}
+            >
+              {command !== undefined && <Pill label={command} tone="accent" />}
+              {rest.length > 0 && <MessageText text={rest} large />}
+              {images}
+            </View>
+          </ChatBubble>
           {error !== undefined && (
             <Text variant="caption" color="danger" style={{ maxWidth: "85%", textAlign: "right" }}>
               {`Not sent: ${error}`}
@@ -144,9 +164,20 @@ function MessageRow({ sessionId, message, onOpenImage, error }: MessageRowProps)
     }
     case "assistant":
       return (
-        <View style={{ paddingHorizontal: spacing.lg, gap: spacing.sm }}>
-          {message.text.length > 0 && <MessageText text={message.text} large streaming={message.streaming === true} />}
-          {images}
+        <View style={{ paddingHorizontal: spacing.lg }}>
+          <ChatBubble
+            messageKey={reactionKey}
+            side="left"
+            text={message.text}
+            radius={0}
+            card={{ fill: colors.surface, radius: REPLY_LIFT_RADIUS, inset: REPLY_LIFT_INSET }}
+            ring={colors.surface}
+          >
+            <View style={{ gap: spacing.sm }}>
+              {message.text.length > 0 && <MessageText text={message.text} large streaming={message.streaming === true} />}
+              {images}
+            </View>
+          </ChatBubble>
         </View>
       );
     case "tool":
@@ -302,6 +333,7 @@ export function AgentCard({ sessionId, messages, connected, status, activity, ac
     for (const echo of echoes ?? []) if (echo.error !== undefined) reasons[echo.id] = echo.error;
     return reasons;
   }, [echoes]);
+  const echoIds = useMemo(() => new Set(echoes?.map((echo) => echo.id)), [echoes]);
   // The words last drawn as echoes: the transcript row that takes one over is already on screen,
   // so it does not make its entrance again.
   const echoTexts = useRef<ReadonlySet<string>>(new Set());
@@ -402,7 +434,13 @@ export function AgentCard({ sessionId, messages, connected, status, activity, ac
               {grouped?.runs.has(item.id) === true ? (
                 <ToolStack calls={grouped.runs.get(item.id) ?? []} onOpen={() => { setTimeline(item.id); }} />
               ) : (
-                <MessageRow sessionId={sessionId} message={item} onOpenImage={setViewing} error={refused[item.id]} />
+                <MessageRow
+                  sessionId={sessionId}
+                  message={item}
+                  onOpenImage={setViewing}
+                  error={refused[item.id]}
+                  pending={echoIds.has(item.id) || (sent !== undefined && item.id === `sent-${String(sent.at)}`)}
+                />
               )}
             </MessageAppearance>
           </GrowIn>

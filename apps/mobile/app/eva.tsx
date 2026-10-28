@@ -20,7 +20,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from "expo-speech-recognition";
 import Animated, { FadeIn, FadeOut, ReduceMotion } from "react-native-reanimated";
-import { MAX_REPLY_IMAGES, type AssistantMessage } from "@relay/protocol";
+import { assistantReactionThread, MAX_REPLY_IMAGES, type AssistantMessage } from "@relay/protocol";
 import { AttachmentTray } from "@/ui/AttachmentTray";
 import { AvatarRing, NAME_PILL_GAP, NAME_PILL_HEIGHT, RING_SIZE } from "@/ui/AvatarRing";
 import { Banner } from "@/ui/Banner";
@@ -39,6 +39,9 @@ import { MarkdownImages } from "@/agents/MarkdownImages";
 import { MessageImageStack } from "@/agents/MessageImageStack";
 import { topLevelImages } from "@/agents/markdown";
 import { MessageText } from "@/agents/MessageText";
+import { BubbleMenuProvider, ChatBubble } from "@/agents/BubbleMenu";
+import { quoteIntoDraft } from "@/lib/bubbleMenu";
+import { bubbleReactionKey } from "@/lib/reactions";
 import { radii, spacing, useColors, useScheme } from "@/theme";
 import { agentPortrait, agentTitle, threadOf, useAssistantStore } from "@/state/assistant";
 import { useMotionSignals } from "@/state/motion";
@@ -72,6 +75,8 @@ const GAP_SENDER = 16;
 const GAP_RUN = 4;
 /** Proportion of the width a bubble may take. */
 const USER_MAX_WIDTH = "80%";
+const USER_RADIUS = 24;
+const EVA_RADIUS = 22;
 
 /** Keyed by agent, so moving to another agent's thread (a notification tap) starts with a fresh composer. */
 export default function Eva() {
@@ -90,6 +95,9 @@ function Thread({ agent }: { agent: string }) {
   const setPending = useAssistantStore((state) => state.setPending);
   const connected = useConnectionStore((state) => state.status === "connected");
   const [draft, setDraft] = useState("");
+  const composer = useRef<TextInput>(null);
+  // Where the composer's cursor is, for Reply to quote above it.
+  const cursor = useRef(0);
   const [listening, setListening] = useState(false);
   const recording = useRef(false);
   const dictationBase = useRef("");
@@ -301,7 +309,18 @@ function Thread({ agent }: { agent: string }) {
     router.push({ pathname: "/eva-signin", params: { agent, messageId, url: signin.url, host: signin.host } });
   };
 
-  return (
+  /** Reply from a bubble's menu: its text quoted above the cursor's line, then the composer focused there. */
+  const replyWith = (quoted: string): void => {
+    const next = quoteIntoDraft(draft, cursor.current, quoted);
+    setDraft(next.draft);
+    cursor.current = next.cursor;
+    requestAnimationFrame(() => {
+      composer.current?.focus();
+      composer.current?.setSelection(next.cursor, next.cursor);
+    });
+  };
+
+  const screen = (
     <SafeAreaView style={[styles.root, { backgroundColor: bg }]} edges={["bottom"]}>
       <KeyboardAvoidingView style={styles.fill} behavior="padding">
         <View style={styles.fill}>
@@ -403,8 +422,12 @@ function Thread({ agent }: { agent: string }) {
               )}
               {!full && <PasteImageChip active={composing && connected && !listening} onPaste={() => { attach("clipboard"); }} style={styles.tray} />}
               <TextInput
+                ref={composer}
                 value={draft}
                 onChangeText={setDraft}
+                onSelectionChange={(event) => {
+                  cursor.current = event.nativeEvent.selection.start;
+                }}
                 onFocus={() => { setComposing(true); followContent(); }}
                 onBlur={() => { setComposing(false); }}
                 placeholder={listening ? "Listening…" : connected ? `Message ${title}` : "Not connected"}
@@ -439,6 +462,11 @@ function Thread({ agent }: { agent: string }) {
       />
       {onCall && <CallScreen agent={agent} title={title} portrait={portrait} />}
     </SafeAreaView>
+  );
+  return (
+    <BubbleMenuProvider thread={assistantReactionThread(agent)} onReply={replyWith}>
+      {screen}
+    </BubbleMenuProvider>
   );
 }
 
@@ -514,7 +542,11 @@ interface RowProps {
 function Row({ agent, message, receipt, streaming, sessionId, local, onOpenImages, onSignIn }: RowProps) {
   const signedIn = useAssistantStore((state) => threadOf(state, agent).signedIn[message.id] === true);
   const colors = useColors();
-  const bubbleFill = useScheme() === "dark" ? BUBBLE_DARK : colors.surface;
+  const dark = useScheme() === "dark";
+  const bubbleFill = dark ? BUBBLE_DARK : colors.surface;
+  const page = dark ? BG_DARK : colors.bg;
+  // The echo of a turn still being sent has the phone's clock, not the host's: no reaction yet.
+  const reactionKey = bubbleReactionKey(message, message.id === PENDING_ID);
   const hasText = message.text !== "";
   const imageCount = local !== undefined ? local.length : (message.images?.length ?? 0);
   // Images stack above the text, left or right with the bubble.
@@ -536,9 +568,19 @@ function Row({ agent, message, receipt, streaming, sessionId, local, onOpenImage
         <View style={styles.userRow}>
           {images("flex-end")}
           {(hasText || imageCount === 0) && (
-            <View style={[styles.userBubble, { backgroundColor: colors.bubbleUser }]}>
-              <Text style={styles.userText}>{message.text}</Text>
-            </View>
+            <ChatBubble
+              messageKey={reactionKey}
+              side="right"
+              text={message.text}
+              style={styles.userBubbleFrame}
+              radius={USER_RADIUS}
+              ring={page}
+              accessibilityLabel={message.text}
+            >
+              <View style={[styles.userBubble, { backgroundColor: colors.bubbleUser }]}>
+                <Text style={styles.userText}>{message.text}</Text>
+              </View>
+            </ChatBubble>
           )}
           {receipt !== null && (
             <Text variant="label" color="textMuted" style={styles.receipt}>
@@ -573,9 +615,11 @@ function Row({ agent, message, receipt, streaming, sessionId, local, onOpenImage
             </View>
           )}
           {showBubble && (
-            <View style={[styles.evaBubble, { backgroundColor: bubbleFill }]}>
-              <MessageText text={message.text} large skipImages streaming={streaming} />
-            </View>
+            <ChatBubble messageKey={reactionKey} side="left" text={message.text} style={styles.evaBubbleFrame} radius={EVA_RADIUS} ring={page}>
+              <View style={[styles.evaBubble, { backgroundColor: bubbleFill }]}>
+                <MessageText text={message.text} large skipImages streaming={streaming} />
+              </View>
+            </ChatBubble>
           )}
         </View>
       );
@@ -611,13 +655,15 @@ const styles = StyleSheet.create({
   back: { position: "absolute", top: spacing.xs, left: spacing.lg },
   call: { position: "absolute", top: spacing.xs, right: spacing.lg },
   userRow: { paddingHorizontal: spacing.lg, alignItems: "flex-end" },
-  userBubble: { maxWidth: USER_MAX_WIDTH, borderRadius: 24, paddingVertical: 11, paddingHorizontal: 17 },
+  userBubbleFrame: { maxWidth: USER_MAX_WIDTH },
+  userBubble: { borderRadius: USER_RADIUS, paddingVertical: 11, paddingHorizontal: 17 },
   userText: { fontSize: 17, lineHeight: 23, color: "#FFFFFF" },
   receipt: { marginTop: spacing.xs, marginRight: spacing.lg, fontSize: 13, lineHeight: 18, fontWeight: "400" },
   evaRow: { paddingHorizontal: spacing.lg },
   tiles: { alignItems: "flex-start" },
   tilesAboveCaption: { marginBottom: GAP_RUN },
-  evaBubble: { alignSelf: "flex-start", maxWidth: "88%", borderRadius: 22, paddingVertical: 11, paddingHorizontal: 17 },
+  evaBubbleFrame: { alignSelf: "flex-start", maxWidth: "88%" },
+  evaBubble: { borderRadius: EVA_RADIUS, paddingVertical: 11, paddingHorizontal: 17 },
   card: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.lg, padding: spacing.md, gap: spacing.sm },
   status: { textAlign: "center", paddingHorizontal: spacing.xxxl, fontWeight: "400" },
   composer: { paddingBottom: COMPOSER_BOTTOM },

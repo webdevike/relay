@@ -11,7 +11,7 @@ import Animated, {
   withTiming,
   type EntryExitAnimationFunction,
 } from "react-native-reanimated";
-import type { AgentSession } from "@relay/protocol";
+import { sessionReactionThread, type AgentSession } from "@relay/protocol";
 import { Text } from "@/ui/Text";
 import { Banner } from "@/ui/Banner";
 import { EmptyState } from "@/ui/EmptyState";
@@ -51,6 +51,8 @@ import { useActionWheel } from "@/agents/useActionWheel";
 import { SubagentsSheet } from "@/agents/SubagentsSheet";
 import { SessionActivity } from "@/agents/SessionActivity";
 import { useSentCommand } from "@/agents/useSentCommand";
+import { BubbleMenuProvider } from "@/agents/BubbleMenu";
+import { quoteIntoDraft } from "@/lib/bubbleMenu";
 import { tapHaptic } from "@/lib/haptics";
 import { copyText, readClipboardImage, readClipboardText } from "@/lib/clipboard";
 import { warn } from "@/connection/log";
@@ -416,13 +418,19 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
   useEffect(() => {
     if (!canRespond) setTyping(false);
   }, [canRespond]);
-  // Swiping the keyboard away is leaving typing mode, same as the mic button.
+  // Swiping the keyboard away is leaving typing mode, same as the mic button. Only a keyboard that
+  // showed counts: a hide with none shown (a hardware keyboard, the bubble menu's dismiss) is no swipe.
   useEffect(() => {
     if (!typing) return;
+    let shown = false;
+    const show = Keyboard.addListener("keyboardDidShow", () => {
+      shown = true;
+    });
     const hide = Keyboard.addListener("keyboardWillHide", () => {
-      setTyping(false);
+      if (shown) setTyping(false);
     });
     return () => {
+      show.remove();
       hide.remove();
     };
   }, [typing]);
@@ -434,6 +442,11 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
     dictationActor.send({ type: "typed", text: draft });
     setDraft("");
   };
+  /** Reply from a bubble's menu: its text quoted into the typed reply, which opens focused. */
+  const replyWith = useCallback((quoted: string) => {
+    setDraft((current) => quoteIntoDraft(current, current.length, quoted).draft);
+    setTyping(true);
+  }, []);
 
   const [settingsFor, setSettingsFor] = useState<string | null>(null);
   const onHold = useCallback((slot: number) => {
@@ -543,7 +556,7 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
     [seamShown, seamNotches],
   );
 
-  return (
+  const screen = (
     <SafeAreaView style={[styles.root, { backgroundColor: colors.bg }]} edges={["top", "bottom"]}>
       <KeyboardAvoidingView style={[styles.root, { backgroundColor: colors.bg }]} behavior="padding">
         <View style={styles.stack}>
@@ -931,6 +944,12 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
         }}
       />
     </SafeAreaView>
+  );
+  return (
+    // Reactions belong to the session on screen (its assistant's thread when it runs one); none while one is launching.
+    <BubbleMenuProvider thread={session === undefined || pending !== undefined ? null : sessionReactionThread(session)} onReply={replyWith}>
+      {screen}
+    </BubbleMenuProvider>
   );
 }
 
