@@ -17,7 +17,7 @@
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, normalize } from "node:path";
-import type { ArtifactKind, ArtifactMedia } from "@relay/protocol";
+import { untagged, type ArtifactKind, type ArtifactMedia } from "@relay/protocol";
 
 export interface Found {
   readonly id: string;
@@ -347,7 +347,8 @@ export function scanTranscript(raw: string, ctx: ScanContext): ScanResult & { re
       const first = fresh;
       fresh = false;
       if (first && texts.some((text) => PRIME.test(text))) continue;
-      const caption = texts.join(" ").replace(/\s+/g, " ").trim().slice(0, 120);
+      // Isaac's turns open with the surface tag of the client he typed in; the caption is what he said.
+      const caption = untagged(texts.join(" ")).replace(/\s+/g, " ").trim().slice(0, 120);
       for (const image of imageParts(message["content"])) {
         // omp keeps attachments in its blob store and writes `blob:sha256:<hex>` in their place.
         const blob = /^blob:sha256:([0-9a-f]{64})$/.exec(image.data)?.[1];

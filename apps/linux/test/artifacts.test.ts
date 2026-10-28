@@ -79,7 +79,7 @@ describe("scanTranscript", () => {
     const raw = [
       line({ type: "session", cwd: "/repo" }),
       user(T0, [{ type: "text", text: "You are Astra, Isaac's assistant. ENG-1111" }]),
-      user(T0 + 1, [{ type: "text", text: "Look at ENG-6528 and ENG-6528 again" }, { type: "image", data: Buffer.from("png").toString("base64"), mimeType: "image/png" }]),
+      user(T0 + 1, [{ type: "text", text: "<surface>Relay Desktop</surface>\nLook at ENG-6528 and ENG-6528 again" }, { type: "image", data: Buffer.from("png").toString("base64"), mimeType: "image/png" }]),
       assistant(T0 + 2, [
         { type: "text", text: "On it: https://linear.app/ecard-systems/issue/ENG-6528" },
         { type: "toolCall", name: "task", arguments: { tasks: [{ name: "Fix6528", task: "ENG-9999" }] } },
