@@ -60,8 +60,9 @@
   scrollbar-width: none;
 }
 .eva-pane-tab {
-  flex: none;
-  min-width: 0;
+  /* Tabs share a narrow strip, titles truncating; the icon and close always stay. */
+  flex: 0 1 auto;
+  min-width: 44px;
   max-width: 200px;
   display: inline-flex;
   align-items: center;
@@ -123,11 +124,6 @@
 .eva-pane-tab-close:hover {
   background: var(--eva-c-accent-background);
 }
-/* Split and maximize show while the pointer is on the pane's header (or the pane is zoomed). */
-.eva-pane-header:not(:hover):not(:focus-within) .eva-pane-extra:not([aria-pressed='true']) {
-  display: none;
-}
-
 /* Dividers reuse the sidebar grip: the gap is the grab area, a pill shows on hover and drag. */
 .eva-divider {
   position: absolute;

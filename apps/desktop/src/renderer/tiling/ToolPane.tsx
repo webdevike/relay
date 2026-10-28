@@ -6,6 +6,7 @@ import {
   IconFiles,
   IconGlobe,
   IconLayoutColumns,
+  IconLayoutRows,
   IconListCheck,
   IconPlus,
   IconSchema,
@@ -150,11 +151,16 @@ export const ToolPane = memo(function ToolPane({ id }: { id: string }) {
         </div>
         <EvaMenu opened={menu} onChange={setMenu} position="bottom-end" width={200}>
           <EvaMenu.Target>
-            <Tooltip label={tip('Add a tab')} position="bottom" openDelay={400} disabled={menu}>
+            <Tooltip
+              label={tip('Add a tab or split')}
+              position="bottom"
+              openDelay={400}
+              disabled={menu}
+            >
               <ActionIcon
                 variant="subtle"
                 className="eva-header-btn"
-                aria-label="Add a tab"
+                aria-label="Add a tab or split"
                 data-testid={`pane-add-${id}`}
               >
                 <IconPlus size={16} stroke={1.5} />
@@ -171,39 +177,49 @@ export const ToolPane = memo(function ToolPane({ id }: { id: string }) {
                 {label}
               </EvaMenu.Item>
             ))}
+            <EvaMenu.Divider />
+            <EvaMenu.Item
+              data-testid={`pane-split-${id}`}
+              leftSection={<IconLayoutColumns size={16} stroke={1.5} />}
+              rightSection={<Kbd size="xs">⌘\\</Kbd>}
+              onClick={() => splitAt(id, 'right')}
+            >
+              Split right
+            </EvaMenu.Item>
+            <EvaMenu.Item
+              data-testid={`pane-split-down-${id}`}
+              leftSection={<IconLayoutRows size={16} stroke={1.5} />}
+              rightSection={<Kbd size="xs">⇧⌘\\</Kbd>}
+              onClick={() => splitAt(id, 'down')}
+            >
+              Split down
+            </EvaMenu.Item>
+            {zoomed ? null : (
+              <EvaMenu.Item
+                data-testid={`pane-zoom-${id}`}
+                leftSection={<IconArrowsMaximize size={16} stroke={1.5} />}
+                rightSection={<Kbd size="xs">⌥⌘↩</Kbd>}
+                onClick={() => zoomPane(id, true)}
+              >
+                Maximize
+              </EvaMenu.Item>
+            )}
           </EvaMenu.Dropdown>
         </EvaMenu>
-        <Tooltip label={tip('Split right', '⌘\\')} position="bottom" openDelay={400}>
-          <ActionIcon
-            variant="subtle"
-            className="eva-header-btn eva-pane-extra"
-            aria-label="Split right"
-            data-testid={`pane-split-${id}`}
-            onClick={() => splitAt(id, 'right')}
-          >
-            <IconLayoutColumns size={16} stroke={1.5} />
-          </ActionIcon>
-        </Tooltip>
-        <Tooltip
-          label={tip(zoomed ? 'Restore panes' : 'Maximize', '⌥⌘↩')}
-          position="bottom"
-          openDelay={400}
-        >
-          <ActionIcon
-            variant="subtle"
-            className="eva-header-btn eva-pane-extra"
-            aria-label={zoomed ? 'Restore panes' : 'Maximize pane'}
-            aria-pressed={zoomed}
-            data-testid={`pane-zoom-${id}`}
-            onClick={() => zoomPane(id)}
-          >
-            {zoomed ? (
+        {zoomed ? (
+          <Tooltip label={tip('Restore panes', '⌥⌘↩')} position="bottom" openDelay={400}>
+            <ActionIcon
+              variant="subtle"
+              className="eva-header-btn"
+              aria-label="Restore panes"
+              aria-pressed
+              data-testid={`pane-zoom-${id}`}
+              onClick={() => zoomPane(id, false)}
+            >
               <IconArrowsMinimize size={16} stroke={1.5} />
-            ) : (
-              <IconArrowsMaximize size={16} stroke={1.5} />
-            )}
-          </ActionIcon>
-        </Tooltip>
+            </ActionIcon>
+          </Tooltip>
+        ) : null}
         <Tooltip label={tip('Close pane', '⌥⌘W')} position="bottom-end" openDelay={400}>
           <ActionIcon
             variant="subtle"
