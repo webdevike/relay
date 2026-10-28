@@ -14,7 +14,7 @@ import { z } from "zod";
 import pkg from "../package.json";
 import { defaultSocketPath, OmpBridgeProvider } from "./agents/bridge";
 import { SessionFiles } from "./agents/session-files";
-import { type AssistantAgentConfig, loadRegistry, REGISTRY_FILE } from "./assistant/registry";
+import { type AssistantAgentConfig, liveVoiceFor, loadRegistry, REGISTRY_FILE } from "./assistant/registry";
 import { AssistantService, AssistantThreads, type AssistantThreadsDeps } from "./assistant/service";
 import { spawnFill } from "./assistant/signin";
 import { defaultAssistantPath, FileAssistantStore } from "./assistant/store";
@@ -65,7 +65,7 @@ const USAGE = `relay-linux <command>
                                    $POCKET_PORT (8853) in voice $POCKET_VOICE (stuart_bell).
                                    GPT-Live calls (phone WebRTC <-> OpenAI, the assistant as
                                    the brain) use $OPENAI_API_KEY or <agent-home>/secrets/
-                                   openai.env, in voice $RELAY_LIVE_VOICE (marin); without a
+                                   openai.env, in the agent's registry liveVoice, else $RELAY_LIVE_VOICE (marin); without a
                                    key the phone falls back to the local call.
                                    The live view bridges paired phones to the Mac's Screen
                                    Sharing (VNC) on 127.0.0.1, port --vnc-port (default ${String(DEFAULT_VNC_PORT)}).
@@ -282,7 +282,7 @@ function serve(
             };
           },
           api: liveKey === null ? null : new OpenAiLive(liveKey),
-          voice: () => process.env["RELAY_LIVE_VOICE"] ?? "marin",
+          voice: (agent) => liveVoiceFor(assistant.threads, agent, process.env["RELAY_LIVE_VOICE"]),
           clock: systemClock,
           log,
         });

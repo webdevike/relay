@@ -166,6 +166,8 @@ export class AssistantService implements AssistantThread {
   readonly title: string;
   /** The pocket-tts voice calls with this agent speak in; undefined for the host's default. */
   readonly voice: string | undefined;
+  /** The registry's GPT-Live voice for this agent; undefined for the host's default. */
+  readonly liveVoice: string | undefined;
   /** This agent's job-line prefix (`statusPrefix(title)`). */
   private readonly prefix: string;
   private rev = 0;
@@ -185,6 +187,7 @@ export class AssistantService implements AssistantThread {
     this.id = deps.agent.id;
     this.title = deps.agent.title;
     this.voice = deps.agent.voice;
+    this.liveVoice = deps.agent.liveVoice;
     this.prefix = statusPrefix(deps.agent.title);
   }
 

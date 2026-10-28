@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentImage, AgentMessage, AgentSession, AssistantMessage, AssistantPortrait, ServerMessage } from "@relay/protocol";
 import type { LaunchOptions } from "../src/agents/herdr";
-import { loadRegistry } from "../src/assistant/registry";
+import { liveVoiceFor, loadRegistry } from "../src/assistant/registry";
 import { handleAssistantSay } from "../src/assistant/http";
 import { assistantStatus, AssistantService, AssistantThreads, lastReplyOf, MAX_LAST_REPLY, REGISTER_TIMEOUT_MS, SNAPSHOT_DEBOUNCE_MS, statusPrefix, toAssistantMessages } from "../src/assistant/service";
 import { type FillSpawn, splitSignin } from "../src/assistant/signin";
@@ -444,6 +444,19 @@ describe("registry and store paths", () => {
       write(bad);
       expect(() => loadRegistry(home)).toThrow(/invalid/);
     }
+  });
+
+  it("takes the live voice from the registry, then $RELAY_LIVE_VOICE, then marin", () => {
+    const home = mkdtempSync(join(tmpdir(), "relay-registry-"));
+    dirs.push(home);
+    mkdirSync(join(home, ".omp", "assistant"), { recursive: true });
+    writeFileSync(join(home, ".omp", "assistant", "agents.json"), JSON.stringify({ agents: [{ id: "astra", title: "Astra", liveVoice: "coral" }, { id: "nova", title: "Nova" }] }));
+    const agents = loadRegistry(home);
+    expect(agents[0]).toEqual({ ...ASTRA, liveVoice: "coral" });
+    expect(liveVoiceFor(agents, "astra", "cedar")).toBe("coral");
+    expect(liveVoiceFor(agents, "nova", "cedar")).toBe("cedar");
+    expect(liveVoiceFor(agents, "nova", undefined)).toBe("marin");
+    expect(liveVoiceFor(agents, "ghost", undefined)).toBe("marin");
   });
 
   it("keeps one store file per agent under relay/assistants", () => {
