@@ -41,6 +41,7 @@ export {
   SNOOZE_MS,
   Timeline,
   statusDot,
+  statusText,
   toolKind,
   type MotionSignals,
   type ToolKind,

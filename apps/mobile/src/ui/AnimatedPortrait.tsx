@@ -4,14 +4,14 @@
  * Extended mode (mouths morph, eyelids close over the eyes, brows rotate, the face turns a little);
  * this draws those frames with Skia. Each tick (24 fps, on the JS thread) records one `SkPicture`
  * (the paper disc, the rig's parts as `ImageSVG`s under the frame's matrices, a morphing mouth or
- * eyelids as paths made for that frame only, then the accent overlays: dot ring, magnifier, z z z,
- * and the engine's other overlays) into a shared value that the canvas
+ * eyelids as paths made for that frame only, then the accent overlays: magnifier, z z z, and the
+ * engine's other overlays, but not its working dot ring: the face alone shows the state) into a shared value that the canvas
  * draws on the UI thread, so React renders nothing per frame. The canvas is larger than the disc
  * by `FX_REACH` each side, laid over it and deaf to touches.
  *
  * It ticks only while seen (`useAnimationActive`: screen focused, app in the foreground, not
- * `paused`). With Reduce Motion it is the still portrait, plus a still dot ring while the agent
- * works. The rig is built after the first paint (the still portrait shows until then), and builds
+ * `paused`). With Reduce Motion it is the still portrait. The rig is built after the first paint
+ * (the still portrait shows until then), and builds
  * without Skia keep the still one.
  */
 import { useEffect, useRef, useState } from "react";
@@ -37,7 +37,6 @@ import type { AssistantPortrait } from "@relay/protocol";
 import { loadSkia, type SkiaModule } from "@/dictation/skia";
 import { mixHex, palettes, useColors } from "@/theme";
 import { Portrait } from "./Portrait";
-import { WorkingRing } from "./WorkingRing";
 import { useAnimationActive } from "./useAnimationActive";
 
 /** Frames per second while animating: smooth enough for these motions, half the JS work of 48. */
@@ -104,12 +103,7 @@ export function AnimatedPortrait({ name, portrait, size, signals, paused = false
   }, [sk, portrait, reduced]);
 
   if (sk === null || reduced || loaded === null) {
-    return (
-      <View style={{ width: size, height: size }}>
-        <Portrait name={name} portrait={portrait} size={size} />
-        {signals.running && <WorkingRing size={size} color={accent} spinning={false} />}
-      </View>
-    );
+    return <Portrait name={name} portrait={portrait} size={size} />;
   }
   return (
     <MotionCanvas
@@ -331,10 +325,6 @@ class Painter {
     for (const wave of fx.waves) {
       if (wave.o > 0.01) canvas.drawCircle(size / 2, size / 2, wave.r, this.paint(this.stroke, accent, wave.o));
     }
-    fx.dots.forEach((o, i) => {
-      const dot = g.dots[i];
-      if (o > 0.01 && dot !== undefined) canvas.drawCircle(dot[0], dot[1], g.dotR, this.paint(this.fill, accent, o));
-    });
     for (const z of fx.zs) {
       if (z.o > 0.01) this.text(canvas, "z", z.x, z.y, z.size, accent, z.o);
     }

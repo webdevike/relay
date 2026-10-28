@@ -70,7 +70,7 @@ export function CallScreen({ agent, title, portrait }: { agent: string; title: s
         <View style={styles.top}>
           <View style={styles.ring}>
             <Animated.View style={[styles.halo, { backgroundColor: colors.accent }, halo]} />
-            <AvatarRing name={title} portrait={portrait} size={RING} motion={{ signals }} />
+            <AvatarRing name={title} portrait={portrait} size={RING} motion={{ signals, except: call.state === "thinking" ? "is thinking" : null }} />
           </View>
           <Text variant="title" style={styles.center}>{LABEL[call.state]}</Text>
           <Text variant="label" color="textMuted" tabular style={styles.center}>

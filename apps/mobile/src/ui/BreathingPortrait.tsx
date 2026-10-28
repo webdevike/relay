@@ -1,12 +1,8 @@
 import { useEffect, useRef } from "react";
 import { Animated, Easing, View } from "react-native";
 import { useReducedMotion } from "react-native-reanimated";
-import type { DotTone } from "@relay/portrait-motion";
 import type { AssistantPortrait } from "@relay/protocol";
-import { useColors } from "@/theme";
 import { Portrait } from "./Portrait";
-import { PortraitDot } from "./PortraitDot";
-import { WorkingRing } from "./WorkingRing";
 import { useAnimationActive } from "./useAnimationActive";
 
 /** Half a breath (in or out), as the animated portrait's idle breath of 3.4 s. */
@@ -17,22 +13,18 @@ export interface BreathingPortraitProps {
   name: string;
   portrait: AssistantPortrait;
   size: number;
-  /** The agent is working: the accent dot ring goes round it. */
+  /** The agent is working: only its VoiceOver label says so; the breath stays the same. */
   working: boolean;
-  /** Its status dot (`state/motion` `listingDot`); leave it out where the row already shows the status. */
-  dot?: DotTone;
 }
 
 /**
- * A small assistant portrait that is alive without the full animation: it breathes, and while the
- * agent works its accent dot ring turns. Both run on React Native's native Animated driver: a
- * Reanimated loop commits through the shadow tree every frame, which cost a simulator core ~14%
- * for one breathing widget. It holds still off its screen, in the background, and with Reduce
- * Motion (the ring then shows, unmoving). For lists and widgets; the thread and call use
- * `AnimatedPortrait`.
+ * A small assistant portrait that is alive without the full animation: it breathes, on React
+ * Native's native Animated driver (a Reanimated loop commits through the shadow tree every frame,
+ * which cost a simulator core ~14% for one breathing widget). It holds still off its screen, in
+ * the background, and with Reduce Motion. No status dot or ring: the face alone stands for the
+ * agent. For lists and widgets; the thread and call use `AnimatedPortrait`.
  */
-export function BreathingPortrait({ name, portrait, size, working, dot = null }: BreathingPortraitProps) {
-  const colors = useColors();
+export function BreathingPortrait({ name, portrait, size, working }: BreathingPortraitProps) {
   const reduced = useReducedMotion();
   const active = useAnimationActive() && !reduced;
   const breath = useRef(new Animated.Value(0)).current;
@@ -57,8 +49,6 @@ export function BreathingPortrait({ name, portrait, size, working, dot = null }:
       <Animated.View style={{ transform: [{ scale }] }}>
         <Portrait name={name} portrait={portrait} size={size} />
       </Animated.View>
-      {working && <WorkingRing size={size} color={portrait.colors?.accent ?? colors.accent} spinning={active} />}
-      <PortraitDot tone={dot} size={Math.max(8, Math.round(size * 0.24))} edge={colors.surface} style={{ position: "absolute", right: 0, bottom: 0 }} />
     </View>
   );
 }

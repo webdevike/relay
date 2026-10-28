@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentSession, AssistantMessage, AssistantSnapshot } from "@relay/protocol";
-import { listingDot, motionSignals, threadTool, type MotionInputs } from "./motion";
+import { motionSignals, threadTool, type MotionInputs } from "./motion";
 
 function snapshot(messages: AssistantMessage[], busy = false, sessionId = "s1"): AssistantSnapshot {
   return { rev: 1, messages, busy, sessionId };
@@ -93,14 +93,5 @@ describe("threadTool", () => {
   it("is null without a session", () => {
     expect(threadTool({ s1: session("s1", { status: "working", statusDetail: "bash" }) }, null)).toBeNull();
     expect(threadTool({}, "")).toBeNull();
-  });
-});
-
-describe("listingDot", () => {
-  it("is the accent while working, orange while it needs Isaac, none otherwise", () => {
-    expect(listingDot("working")).toBe("accent");
-    expect(listingDot("needs_you")).toBe("orange");
-    expect(listingDot("idle")).toBeNull();
-    expect(listingDot(undefined)).toBeNull();
   });
 });

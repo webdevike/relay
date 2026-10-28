@@ -9,7 +9,7 @@
  */
 import { useMemo } from "react";
 import type { AgentSession, AssistantSnapshot, AssistantStatus, CallState } from "@relay/protocol";
-import { IDLE_SIGNALS, statusDot, toolKind, type DotTone, type MotionSignals, type ToolKind } from "@relay/portrait-motion";
+import { toolKind, type MotionSignals, type ToolKind } from "@relay/portrait-motion";
 import { subagentsOf, useAgentsStore } from "./agents";
 import { threadOf, useAssistantStore } from "./assistant";
 import { useCallStore } from "./call";
@@ -67,11 +67,6 @@ export function motionSignals(input: MotionInputs): MotionSignals {
     failed: input.turnFailed || (call !== null && call.error !== null) || newest?.role === "error",
     activityAt: newest?.at ?? input.lastReplyAt ?? null,
   };
-}
-
-/** The status dot of an agent known only by its registry status (lists and widgets). */
-export function listingDot(status: AssistantStatus | undefined): DotTone {
-  return statusDot({ ...IDLE_SIGNALS, running: status === "working", waiting: status === "needs_you" });
 }
 
 /** `motionSignals` for `agent` from the stores; a new object only when a signal changes. */

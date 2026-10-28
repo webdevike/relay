@@ -4,7 +4,7 @@
  * turn runs or its reply is being written, Researching while it reads (search, fetch, files),
  * Working while other tools run, Idle otherwise (breathing and blinks), Snoozing after 30 quiet
  * minutes and Waking when the thread stirs again. Needing Isaac and failing are not faces: they are
- * the status dot (`statusDot`). The other engine states stay for the playground.
+ * words (`statusText`, which also words the face) and the status dot (`statusDot`). The other engine states stay for the playground.
  */
 import type { Clip, DotTone, MotionState } from "./engine";
 import { STATE_META } from "./engine";
@@ -49,6 +49,24 @@ export function statusDot(s: MotionSignals): DotTone {
   if (s.waiting) return "orange";
   if (s.failed) return "red";
   return s.running ? "accent" : null;
+}
+
+const STATUS_TEXT: Partial<Record<MotionState, string>> = {
+  thinking: "is thinking",
+  researching: "is researching",
+  working: "is working",
+  snoozing: "is away",
+};
+
+/**
+ * The short status line under an assistant's name (the thread header's pill, the call screen), the
+ * same words on every client: needing Isaac and a failed turn win over the face, then the face's
+ * own words; idle and waking say nothing.
+ */
+export function statusText(state: MotionState, s: MotionSignals): string | null {
+  if (s.waiting) return "needs you";
+  if (s.failed) return "hit a snag";
+  return STATUS_TEXT[state] ?? null;
 }
 
 /** Quiet this long and the portrait snoozes. */

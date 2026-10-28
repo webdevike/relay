@@ -10,7 +10,6 @@ import type { AssistantPortrait, AssistantStatus, CatchUpCard } from "@relay/pro
 import { Button } from "@/ui/Button";
 import { OptionRow } from "@/ui/OptionRow";
 import { BreathingPortrait } from "@/ui/BreathingPortrait";
-import { listingDot } from "@/state/motion";
 import { Text } from "@/ui/Text";
 import { TextField } from "@/ui/TextField";
 import { defaultAssistant } from "@/lib/catchup";
@@ -26,7 +25,7 @@ export interface HandoffTarget {
   /** The registry's portrait seed and designed portrait, when the host listed them. */
   avatar?: string | undefined;
   portrait?: AssistantPortrait | undefined;
-  /** Where its thread stands; working turns the portrait's dot ring. */
+  /** Where its thread stands (the portrait's VoiceOver label says when it works). */
   status?: AssistantStatus | undefined;
 }
 
@@ -69,7 +68,7 @@ export function HandoffSheet({ card, targets, onClose, onSend }: HandoffSheetPro
                 label={target.title}
                 description={target.scope}
                 badge={target.id === defaultAssistant(card) ? "Usual" : undefined}
-                leading={<BreathingPortrait name={target.title} portrait={portraitOf(target)} size={PORTRAIT} working={target.status === "working"} dot={listingDot(target.status)} />}
+                leading={<BreathingPortrait name={target.title} portrait={portraitOf(target)} size={PORTRAIT} working={target.status === "working"} />}
                 selected={chosen === target.id}
                 onPress={() => {
                   setAgent(target.id);

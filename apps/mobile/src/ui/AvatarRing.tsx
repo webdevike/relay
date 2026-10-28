@@ -4,26 +4,28 @@ import { BlurView } from "expo-blur";
 import Animated, {
   cancelAnimation,
   Easing,
+  FadeIn,
+  FadeOut,
+  ReduceMotion,
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
   withTiming,
 } from "react-native-reanimated";
-import { STATE_META, statusDot, type MotionSignals, type MotionState } from "@relay/portrait-motion";
+import { STATE_META, statusText, type MotionSignals, type MotionState } from "@relay/portrait-motion";
 import type { AssistantPortrait } from "@relay/protocol";
 import { loadSkia } from "@/dictation/skia";
 import { motion, spacing, useColors, useScheme } from "@/theme";
 import { AnimatedPortrait } from "./AnimatedPortrait";
 import { Portrait } from "./Portrait";
-import { PortraitDot } from "./PortraitDot";
 import { Text } from "./Text";
 
 /** A full ring breath, out and back: the loop runs 1.0 to 1.06 in this long each way. */
 const BREATH_MS = 1200;
 const BREATH_SCALE = 1.06;
 const INNER_RATIO = 27 / 65;
-/** Height of the name pill under the ring. */
-export const NAME_PILL_HEIGHT = 34;
+/** Height of the name pill under the ring: the name, and under it a status line whose height is always kept. */
+export const NAME_PILL_HEIGHT = 42;
 /** Gap between the ring and the name pill. */
 export const NAME_PILL_GAP = spacing.sm - 2;
 /** Default outer diameter of the ring. */
@@ -31,6 +33,10 @@ export const RING_SIZE = 65;
 
 /** Width of the band around a portrait. */
 const PORTRAIT_BAND = 3;
+/** The status line's height; the name sits this much lower, centred, while the line is empty. */
+const STATUS_LINE = 15;
+/** The status text crossfades over this long, and the name glides with it. */
+const STATUS_FADE_MS = 180;
 
 // A ring: a pale translucent band around a transparent hole, so the blurred page shows through its centre.
 const RING = {
@@ -43,6 +49,8 @@ export interface PortraitMotion {
   signals: MotionSignals;
   /** Covered (the call screen over the thread): it holds still. */
   paused?: boolean;
+  /** Status words this screen already shows (the call's own "Thinking"): the pill leaves them out. */
+  except?: string | null;
 }
 
 export interface AvatarRingProps {
@@ -58,7 +66,8 @@ export interface AvatarRingProps {
 
 /**
  * An agent's mark: a translucent ring around a see-through hole (or, given a `portrait`, a thin
- * ring around it; animated with `motion`, no band, so only the portrait's own dot ring shows), and the name on a blurred translucent pill underneath.
+ * ring around it; animated with `motion`, no band and no status dot: the face alone shows its state), and the name on a blurred translucent pill underneath,
+ * with the face's status words under the name (`statusText`: "is thinking", "needs you", ...).
  * The ring is drawn with Skia when the build has it, like `IconButton`.
  */
 export function AvatarRing({ name, size = RING_SIZE, breathing: breathingProp = false, portrait, motion: live }: AvatarRingProps) {
@@ -84,13 +93,14 @@ export function AvatarRing({ name, size = RING_SIZE, breathing: breathingProp = 
   const ringStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
   const inner = portrait === undefined ? Math.round(size * INNER_RATIO) : size - 2 * PORTRAIT_BAND;
 
-  const bg = useColors().bg;
   const words = live === undefined ? null : live.signals.waiting ? "needs you" : live.signals.failed ? "the last turn failed" : null;
   const label = animated && state !== null ? [name, STATE_META[state].status, words].filter((part) => part !== null).join(", ") : breathing ? `${name}, working` : name;
+  const text = live === undefined || state === null ? null : statusText(state, live.signals);
+  const status = text === (live?.except ?? null) ? null : text;
   return (
     <View accessible accessibilityLabel={label} style={styles.root}>
       <Animated.View style={[{ width: size, height: size }, ringStyle]}>
-        {/* An animated portrait's dot ring runs exactly where the band would be: the band would cover it. */}
+        {/* An animated portrait's overlays (the magnifier, z z z) reach past the disc: the band would cover them. */}
         {!animated && <Ring size={size} inner={inner} color={color} />}
         {portrait !== undefined && (
           <View style={styles.portrait}>
@@ -108,14 +118,45 @@ export function AvatarRing({ name, size = RING_SIZE, breathing: breathingProp = 
             )}
           </View>
         )}
-        {live !== undefined && (
-          <PortraitDot tone={statusDot(live.signals)} size={Math.max(10, Math.round(size * 0.2))} edge={bg} style={styles.dot} />
-        )}
       </Animated.View>
       <BlurView intensity={40} tint={scheme} style={styles.chip}>
-        <Text style={styles.name}>{name}</Text>
+        <PillText name={name} status={status} />
       </BlurView>
     </View>
+  );
+}
+
+/** The name, and under it the status crossfading as it changes; with none, the name glides to the middle. */
+function PillText({ name, status }: { name: string; status: string | null }) {
+  const colors = useColors();
+  const drop = useSharedValue(status === null ? STATUS_LINE / 2 : 0);
+  useEffect(() => {
+    drop.value = withTiming(status === null ? STATUS_LINE / 2 : 0, { duration: STATUS_FADE_MS, reduceMotion: ReduceMotion.System });
+  }, [status, drop]);
+  const nameStyle = useAnimatedStyle(() => ({ transform: [{ translateY: drop.value }] }));
+  return (
+    <>
+      <Animated.Text numberOfLines={1} style={[styles.name, { color: colors.text }, nameStyle]}>
+        {name}
+      </Animated.Text>
+      <View>
+        {/* Sizes the line (the pill grows to fit the words); the shown words crossfade over it. */}
+        <Text numberOfLines={1} style={[styles.status, styles.hidden]}>
+          {status ?? " "}
+        </Text>
+        {status !== null && (
+          <Animated.Text
+            key={status}
+            numberOfLines={1}
+            entering={FadeIn.duration(STATUS_FADE_MS).reduceMotion(ReduceMotion.System)}
+            exiting={FadeOut.duration(STATUS_FADE_MS).reduceMotion(ReduceMotion.System)}
+            style={[styles.status, styles.shown, { color: colors.textMuted }]}
+          >
+            {status}
+          </Animated.Text>
+        )}
+      </View>
+    </>
   );
 }
 
@@ -134,9 +175,10 @@ function Ring({ size, inner, color }: { size: number; inner: number; color: stri
 
 const styles = StyleSheet.create({
   root: { alignItems: "center", gap: NAME_PILL_GAP },
-  chip: { height: NAME_PILL_HEIGHT, borderRadius: NAME_PILL_HEIGHT / 2, overflow: "hidden", paddingHorizontal: spacing.md + 2, alignItems: "center", justifyContent: "center" },
-  name: { fontSize: 17, lineHeight: 22, fontWeight: "700" },
+  chip: { height: NAME_PILL_HEIGHT, maxWidth: 240, borderRadius: NAME_PILL_HEIGHT / 2, overflow: "hidden", paddingHorizontal: spacing.md + 2, alignItems: "center", justifyContent: "center" },
+  name: { fontSize: 17, lineHeight: 20, fontWeight: "700" },
+  status: { fontSize: 12, lineHeight: STATUS_LINE, fontWeight: "500", textAlign: "center" },
+  hidden: { opacity: 0 },
+  shown: { ...StyleSheet.absoluteFillObject },
   portrait: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
-  // On the ring's lower left: the Researching magnifier works the lower right.
-  dot: { position: "absolute", left: 1, bottom: 1 },
 });

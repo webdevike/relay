@@ -12,7 +12,6 @@ import type { AssistantAgent } from "@relay/protocol";
 import { NestedPager } from "@/ui/NestedPager";
 import { PageDots } from "@/ui/PageControls";
 import { BreathingPortrait } from "@/ui/BreathingPortrait";
-import { listingDot } from "@/state/motion";
 import { Text } from "@/ui/Text";
 import { previewText } from "@/agents/markdown";
 import { relativeTime } from "@/lib/format";
@@ -52,7 +51,6 @@ function agentLine(agent: AssistantAgent): string {
 
 function AgentRow({ agent, open, first }: { agent: AssistantAgent; open: WidgetBodyProps["open"]; first: boolean }) {
   const colors = useColors();
-  const dot = agent.status === "needs_you" ? colors.warn : agent.status === "working" ? colors.working : null;
   return (
     <WidgetLink
       href={{ pathname: "/eva", params: { agent: agent.id } }}
@@ -61,7 +59,6 @@ function AgentRow({ agent, open, first }: { agent: AssistantAgent; open: WidgetB
     >
       <View style={styles.rowHead}>
         <BreathingPortrait name={agent.title} portrait={portraitOf(agent)} size={PORTRAIT} working={agent.status === "working"} />
-        {dot !== null && <View style={[styles.dot, { backgroundColor: dot }]} />}
         <Text variant="label" numberOfLines={1} style={styles.name}>
           {agent.title}
         </Text>
@@ -162,7 +159,7 @@ function AssistantStack({ agents, open, a11y }: { agents: readonly AssistantAgen
         >
           {agents.map((agent) => (
             <View key={agent.id} style={styles.page}>
-              <BreathingPortrait name={agent.title} portrait={portraitOf(agent)} size={Math.round(frame.height * 0.36)} working={agent.status === "working"} dot={listingDot(agent.status)} />
+              <BreathingPortrait name={agent.title} portrait={portraitOf(agent)} size={Math.round(frame.height * 0.36)} working={agent.status === "working"} />
               <Text variant="label" numberOfLines={1} style={styles.stackName}>
                 {agent.title}
               </Text>
@@ -198,6 +195,5 @@ const styles = StyleSheet.create({
   rows: { flex: 1, justifyContent: "space-between" },
   row: { flex: 1, justifyContent: "center", gap: 1 },
   rowHead: { flexDirection: "row", alignItems: "center", gap: 6 },
-  dot: { width: 7, height: 7, borderRadius: 3.5 },
   name: { flex: 1, fontWeight: "600" },
 });

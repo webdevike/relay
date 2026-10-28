@@ -22,6 +22,7 @@ import {
   translate,
   type MotionSignals,
   statusDot,
+  statusText,
   toolKind,
   type Portrait,
 } from "../src/index";
@@ -242,6 +243,17 @@ describe("Director", () => {
     expect(statusDot(failed)).toBe("red");
     expect(statusDot(sig({ running: true }))).toBe("accent");
     expect(statusDot(sig())).toBeNull();
+  });
+
+  it("words the status line: needs you and a snag win over the face, idle and waking say nothing", () => {
+    expect(statusText("thinking", sig({ running: true }))).toBe("is thinking");
+    expect(statusText("researching", sig({ running: true }))).toBe("is researching");
+    expect(statusText("working", sig({ running: true }))).toBe("is working");
+    expect(statusText("snoozing", sig())).toBe("is away");
+    expect(statusText("idle", sig())).toBeNull();
+    expect(statusText("waking", sig())).toBeNull();
+    expect(statusText("thinking", sig({ running: true, waiting: true }))).toBe("needs you");
+    expect(statusText("idle", sig({ failed: true }))).toBe("hit a snag");
   });
 
   it("snoozes after 30 quiet minutes and wakes on the next message", () => {
