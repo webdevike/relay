@@ -19,7 +19,7 @@ import {
   IconPin,
   IconPinnedOff,
   IconProgress,
-  IconRobot,
+  IconSubtask,
   IconTicket,
   IconWorld,
 } from '@tabler/icons-react'
@@ -67,7 +67,7 @@ export function KindIcon({ item }: { item: Artifact }) {
     case 'canvas':
       return <IconLayoutBoard {...ICON} />
     case 'subagent':
-      return <IconRobot {...ICON} />
+      return <IconSubtask {...ICON} />
     default:
       return <IconPhoto {...ICON} />
   }

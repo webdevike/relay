@@ -162,16 +162,15 @@ describe('artifacts model', () => {
     expect(tree.finished.map((r) => r.item.title)).toEqual(['b'])
   })
 
-  it('filters media and formats lengths and ages', () => {
+  it('orders media tiles and formats lengths and ages', () => {
     const img = item('drop:i', {
       media: { mimeType: 'image/png' },
       from: 'user',
       lastSeen: NOW - 5,
     })
     const vid = item('drop:v', { media: { mimeType: 'video/mp4', durationMs: 11_000 } })
-    expect(mediaTiles([img, vid], 'all').map((t) => t.id)).toEqual(['drop:v', 'drop:i'])
-    expect(mediaTiles([img, vid], 'videos').map((t) => t.id)).toEqual(['drop:v'])
-    expect(mediaTiles([img, vid], 'mine').map((t) => t.id)).toEqual(['drop:i'])
+    const pin = item('drop:p', { media: { mimeType: 'image/png' }, pinned: { by: 'isaac', at: NOW } })
+    expect(mediaTiles([img, vid, pin]).map((t) => t.id)).toEqual(['drop:p', 'drop:v', 'drop:i'])
     expect(durationText(11_000)).toBe('0:11')
     expect(durationText(3_723_000)).toBe('1:02:03')
     expect(ageText(NOW - 70 * 60_000, NOW)).toBe('1h 10m')

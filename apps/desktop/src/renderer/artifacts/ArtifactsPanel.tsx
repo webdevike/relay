@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { ActionIcon, Scroller, SegmentedControl, TextInput, Tooltip } from '@mantine/core'
+import { ActionIcon, Scroller, TextInput, Tooltip } from '@mantine/core'
 import {
   IconAlertCircle,
   IconArrowBarToLeft,
@@ -26,7 +26,7 @@ import {
   IconPhoto,
   IconPin,
   IconPinnedOff,
-  IconRobot,
+  IconSubtask,
   IconRocket,
   IconSearch,
   IconStack2,
@@ -66,7 +66,6 @@ import {
   anyRunning,
   externalUrl,
   linkGroups,
-  linkKind,
   mediaTiles,
   movedIndex,
   openTarget,
@@ -76,8 +75,6 @@ import {
   tabOrigin,
   watchTarget,
   whenText,
-  type LinkFilter,
-  type MediaFilter,
   type TreeRow,
 } from './artifacts-model'
 import {
@@ -94,7 +91,7 @@ import './artifacts.css'
 const ICON = { size: 16, stroke: 1.5 } as const
 
 const TAB_ICONS: Readonly<Record<ArtifactTabIcon, typeof IconLink>> = {
-  robot: IconRobot,
+  subtask: IconSubtask,
   link: IconLink,
   photo: IconPhoto,
   stack: IconStack2,
@@ -155,12 +152,10 @@ function SearchBar({
   value,
   onChange,
   placeholder,
-  children,
 }: {
   value: string
   onChange: (v: string) => void
   placeholder: string
-  children?: ReactNode
 }) {
   return (
     <div className="eva-art-toolbar">
@@ -187,7 +182,6 @@ function SearchBar({
         }
         data-testid="artifacts-search"
       />
-      {children}
     </div>
   )
 }
@@ -227,16 +221,8 @@ function Rows({
   )
 }
 
-const LINK_FILTERS = [
-  { label: 'All', value: 'all' },
-  { label: 'Linear', value: 'linear' },
-  { label: 'GitHub', value: 'github' },
-  { label: 'Web', value: 'web' },
-]
-
 function LinksView({ tab, items, rows, byId, now, actions }: ViewProps) {
   const [query, setQuery] = useState('')
-  const [filter, setFilter] = useState<LinkFilter>('all')
   // Search reaches faded links too: every item the Links rule takes.
   const pool =
     query.trim() === ''
@@ -245,24 +231,15 @@ function LinksView({ tab, items, rows, byId, now, actions }: ViewProps) {
           items.filter((i) => ruleMatches(tab.rule ?? {}, i)),
           query,
         )
-  const shown = filter === 'all' ? pool : pool.filter((i) => linkKind(i) === filter)
-  const groups = linkGroups(shown)
+  const groups = linkGroups(pool)
   return (
     <>
-      <SearchBar value={query} onChange={setQuery} placeholder="Search links">
-        <SegmentedControl
-          size="xs"
-          data={LINK_FILTERS}
-          value={filter}
-          onChange={(v) => setFilter(v as LinkFilter)}
-          data-testid="artifacts-link-filter"
-        />
-      </SearchBar>
+      <SearchBar value={query} onChange={setQuery} placeholder="Search links" />
       <div className="eva-art-scroll">
         {groups.length === 0 ? (
-          query.trim() !== '' || filter !== 'all' ? (
+          query.trim() !== '' ? (
             <Empty icon={<IconSearch size={20} stroke={1.5} />} title="Nothing matches">
-              Try other words, or show all kinds.
+              Try other words.
             </Empty>
           ) : (
             <Empty icon={<IconLink size={20} stroke={1.5} />} title="No links yet">
@@ -287,13 +264,6 @@ function LinksView({ tab, items, rows, byId, now, actions }: ViewProps) {
   )
 }
 
-const MEDIA_FILTERS = [
-  { label: 'All', value: 'all' },
-  { label: 'Images', value: 'images' },
-  { label: 'Videos', value: 'videos' },
-  { label: 'From you', value: 'mine' },
-]
-
 function MediaView({
   items,
   rows,
@@ -303,7 +273,6 @@ function MediaView({
   ruled = false,
 }: ViewProps & { placeholder: string; ruled?: boolean }) {
   const [query, setQuery] = useState('')
-  const [filter, setFilter] = useState<MediaFilter>('all')
   const pool =
     query.trim() === ''
       ? rows
@@ -311,23 +280,15 @@ function MediaView({
           items.filter((i) => i.media !== undefined),
           query,
         )
-  const tiles = mediaTiles(pool, filter)
+  const tiles = mediaTiles(pool)
   return (
     <>
-      <SearchBar value={query} onChange={setQuery} placeholder={placeholder}>
-        <SegmentedControl
-          size="xs"
-          data={MEDIA_FILTERS}
-          value={filter}
-          onChange={(v) => setFilter(v as MediaFilter)}
-          data-testid="artifacts-media-filter"
-        />
-      </SearchBar>
+      <SearchBar value={query} onChange={setQuery} placeholder={placeholder} />
       <div className="eva-art-scroll">
         {tiles.length === 0 ? (
-          query.trim() !== '' || filter !== 'all' ? (
+          query.trim() !== '' ? (
             <Empty icon={<IconSearch size={20} stroke={1.5} />} title="Nothing matches">
-              Try other words, or show all media.
+              Try other words.
             </Empty>
           ) : ruled ? (
             <Empty
@@ -408,7 +369,7 @@ function SubagentsView({ rows, now, actions }: ViewProps) {
   return (
     <div className="eva-art-scroll">
       {running.length + finished.length === 0 ? (
-        <Empty icon={<IconRobot size={20} stroke={1.5} />} title="No subagents today">
+        <Empty icon={<IconSubtask size={20} stroke={1.5} />} title="No subagents today">
           Subagents this thread starts show here while they run and for the rest of the day.
         </Empty>
       ) : null}

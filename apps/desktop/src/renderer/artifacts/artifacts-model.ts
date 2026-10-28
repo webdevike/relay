@@ -1,5 +1,5 @@
 // What the Artifacts panel draws, as pure functions over the host's items and tabs: which thread a
-// panel scope shows, row text and status pills, link groups, the subagent tree, media filters,
+// panel scope shows, row text and status pills, link groups, the subagent tree, media tiles,
 // rule chips and where a click goes. The tabs' contents come from chat-core's `tabItems`, the
 // same rule the phone uses.
 import {
@@ -58,10 +58,10 @@ export function itemTitle(item: Artifact): string {
   return key !== null && t.endsWith(key) && t.length - key.length < 120 && !/\s/.test(t) ? '' : t
 }
 
-export type LinkFilter = 'all' | 'linear' | 'github' | 'web'
+type LinkKind = 'linear' | 'github' | 'web'
 
-/** Which Links filter an item falls under. */
-export function linkKind(item: Artifact): Exclude<LinkFilter, 'all'> {
+/** Which Links group an item falls under. */
+function linkKind(item: Artifact): LinkKind {
   if (item.kind === 'linear') return 'linear'
   if (item.kind === 'gh-pr' || item.kind === 'gh-issue' || item.kind === 'branch') return 'github'
   return 'web'
@@ -84,7 +84,7 @@ export interface RowGroup {
   rows: Artifact[]
 }
 
-const LINK_GROUPS: ReadonlyArray<{ key: Exclude<LinkFilter, 'all'>; label: string }> = [
+const LINK_GROUPS: ReadonlyArray<{ key: LinkKind; label: string }> = [
   { key: 'linear', label: 'Linear' },
   { key: 'github', label: 'GitHub' },
   { key: 'web', label: 'Web' },
@@ -271,23 +271,12 @@ export function subagentTree(rows: readonly Artifact[]): {
 export const anyRunning = (items: readonly Artifact[]): boolean =>
   items.some((i) => i.kind === 'subagent' && i.subagent?.state === 'running')
 
-export type MediaFilter = 'all' | 'images' | 'videos' | 'mine'
-
 export const isVideo = (item: Artifact): boolean =>
   item.media?.mimeType.startsWith('video/') === true
 
-/** The Media tab's tiles for a filter, newest first. */
-export function mediaTiles(rows: readonly Artifact[], filter: MediaFilter): Artifact[] {
-  const shown = rows.filter((r) =>
-    filter === 'images'
-      ? !isVideo(r)
-      : filter === 'videos'
-        ? isVideo(r)
-        : filter === 'mine'
-          ? r.from === 'user'
-          : true,
-  )
-  return shown.sort((a, b) => {
+/** The Media tab's tiles, pinned first, then newest first. */
+export function mediaTiles(rows: readonly Artifact[]): Artifact[] {
+  return [...rows].sort((a, b) => {
     const pa = a.pinned !== undefined
     if (pa !== (b.pinned !== undefined)) return pa ? -1 : 1
     return b.lastSeen - a.lastSeen

@@ -35,7 +35,7 @@ export const ArtifactActor = z.string().min(1).max(64)
 
 /** Icons a tab may carry; each client maps them to its own icon set. */
 export const ARTIFACT_TAB_ICONS = [
-  'robot',
+  'subtask',
   'link',
   'photo',
   'stack',
@@ -50,8 +50,12 @@ export const ARTIFACT_TAB_ICONS = [
   'bug',
   'rocket',
 ] as const
-export const ArtifactTabIcon = z.enum(ARTIFACT_TAB_ICONS)
-export type ArtifactTabIcon = z.infer<typeof ArtifactTabIcon>
+/** `robot` was the Subagents icon before `subtask`; tabs.json files and agents that still say it get `subtask`. */
+export const ArtifactTabIcon = z.preprocess(
+  (value: (typeof ARTIFACT_TAB_ICONS)[number] | 'robot') => (value === 'robot' ? 'subtask' : value),
+  z.enum(ARTIFACT_TAB_ICONS),
+)
+export type ArtifactTabIcon = (typeof ARTIFACT_TAB_ICONS)[number]
 
 /**
  * Live state of a ticket or PR, written by Relay desktop (gh and the Linear API) through
@@ -191,7 +195,7 @@ export const DEFAULT_TAB_RULES: Readonly<Record<DefaultTabId, TabRule>> = {
 }
 
 const DEFAULT_TAB_LOOK: Readonly<Record<DefaultTabId, { title: string; icon: ArtifactTabIcon }>> = {
-  subagents: { title: 'Subagents', icon: 'robot' },
+  subagents: { title: 'Subagents', icon: 'subtask' },
   links: { title: 'Links', icon: 'link' },
   media: { title: 'Media', icon: 'photo' },
   everything: { title: 'Everything', icon: 'stack' },

@@ -103,6 +103,8 @@ export type InvokeChannel = keyof typeof invokeContract
 export type EventChannel = keyof typeof eventContract
 
 export type InvokeInput<K extends InvokeChannel> = z.input<(typeof invokeContract)[K]['input']>
+/** What a main-process handler gets: the input after the contract parsed it (defaults and transforms applied). */
+export type InvokeParsed<K extends InvokeChannel> = z.output<(typeof invokeContract)[K]['input']>
 export type InvokeOutput<K extends InvokeChannel> = z.output<(typeof invokeContract)[K]['output']>
 export type EventPayload<K extends EventChannel> = z.output<(typeof eventContract)[K]>
 

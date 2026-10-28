@@ -6,7 +6,7 @@ import {
   type EventChannel,
   type EventPayload,
   type InvokeChannel,
-  type InvokeInput,
+  type InvokeParsed,
   type InvokeOutput,
   type Result,
 } from '@evaos/contract'
@@ -17,7 +17,7 @@ export function handle<K extends InvokeChannel>(
   _ctx: MainContext,
   channel: K,
   fn: (
-    input: InvokeInput<K>,
+    input: InvokeParsed<K>,
     event: IpcMainInvokeEvent,
   ) => Promise<InvokeOutput<K>> | InvokeOutput<K>,
 ): void {
@@ -31,7 +31,7 @@ export function handle<K extends InvokeChannel>(
       return err('invalid-input', parsed.error.message) as Result<InvokeOutput<K>>
     }
     try {
-      const value = await fn(parsed.data as InvokeInput<K>, event)
+      const value = await fn(parsed.data as InvokeParsed<K>, event)
       const out = app.isPackaged ? value : (entry.output.parse(value) as InvokeOutput<K>)
       return { ok: true, value: out }
     } catch (e) {

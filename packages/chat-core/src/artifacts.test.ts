@@ -4,6 +4,7 @@ import {
   ARTIFACT_STALE_MS,
   Artifact,
   ArtifactAction,
+  ArtifactTabIcon,
   DAY_MS,
   TabRule,
   artifactFaded,
@@ -29,6 +30,15 @@ const item = (id: string, extra: Partial<Artifact> = {}): Artifact => ({
   sources: [],
   addedBy: 'extractor',
   ...extra,
+})
+
+describe('tab icons', () => {
+  it('reads the old robot icon as subtask and gives Subagents the subtask icon', () => {
+    expect(ArtifactTabIcon.parse('robot')).toBe('subtask')
+    expect(ArtifactTabIcon.parse('subtask')).toBe('subtask')
+    expect(ArtifactTabIcon.safeParse('owl').success).toBe(false)
+    expect(defaultTabs().find((t) => t.id === 'subagents')?.icon).toBe('subtask')
+  })
 })
 
 describe('artifacts mirror', () => {
