@@ -235,6 +235,25 @@ importers:
         specifier: ^20.0.0
         version: 20.19.43
 
+  packages/portrait-motion:
+    dependencies:
+      '@dicebear/core':
+        specifier: ^9.4.3
+        version: 9.4.3
+      '@dicebear/micah':
+        specifier: ^9.4.3
+        version: 9.4.3(@dicebear/core@9.4.3)
+      '@dicebear/notionists':
+        specifier: ^9.4.2
+        version: 9.4.2(@dicebear/core@9.4.3)
+    devDependencies:
+      '@relay/eslint-config':
+        specifier: workspace:*
+        version: link:../../tooling/eslint-config
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.43
+
   packages/protocol:
     dependencies:
       zod:

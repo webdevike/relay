@@ -1,0 +1,26 @@
+{
+  "name": "@relay/portrait-motion",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Animated assistant portraits for Relay phone and desktop: DiceBear rigs, the state engine that poses them per frame, and the director that picks a state from app events. Pure TS; each app draws the frames.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "lint": "eslint src test",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@dicebear/core": "^9.4.3",
+    "@dicebear/micah": "^9.4.3",
+    "@dicebear/notionists": "^9.4.2"
+  },
+  "devDependencies": {
+    "@relay/eslint-config": "workspace:*",
+    "@types/node": "^20.0.0"
+  }
+}
