@@ -110,6 +110,50 @@ describe('Relay feed', () => {
     expect(parseSession({ status: 'idle' })).toBeNull()
   })
 
+  it('reads canvas rooms, accesses and refusals, dropping rooms that do not parse', () => {
+    const feed = new Feed(Buffer.alloc(32))
+    const room = {
+      id: 'r1',
+      slug: 'mind-map',
+      board: 'Mind map',
+      live: true,
+      agent: { name: 'Nova', color: '#7c5cff', avatar: '/canvas/avatar/nova' },
+      chat: { assistant: 'nova' },
+      humans: ['Isaac'],
+      startedAt: 1,
+    }
+    expect(
+      feed.receive({
+        t: 'canvas.rooms',
+        rev: 3,
+        rooms: [room, { ...room, id: 'r2', slug: 'Bad!' }],
+      }).events,
+    ).toEqual([{ kind: 'canvasRooms', rooms: [room] }])
+    expect(
+      feed.receive({
+        t: 'canvas.access',
+        slug: 'mind-map',
+        path: '/canvas/mind-map/?token=t',
+        token: 't',
+        expiresAt: 9,
+      }).events,
+    ).toEqual([
+      {
+        kind: 'canvasAccess',
+        slug: 'mind-map',
+        path: '/canvas/mind-map/?token=t',
+        token: 't',
+        expiresAt: 9,
+      },
+    ])
+    expect(
+      feed.receive({ t: 'canvas.unavailable', slug: 'mind-map', reason: 'The session ended.' })
+        .events,
+    ).toEqual([{ kind: 'canvasUnavailable', slug: 'mind-map', reason: 'The session ended.' }])
+    // An access without a path is not one.
+    expect(feed.receive({ t: 'canvas.access', slug: 'mind-map', token: 't' }).events).toEqual([])
+  })
+
   it('ends the connection on unpaired and error, and ignores frames it does not use', () => {
     expect(() => new Feed(Buffer.alloc(32)).receive({ t: 'unpaired' })).toThrow(RelayRefused)
     expect(() => authenticated().receive({ t: 'error', message: 'bad' })).toThrow('Relay: bad')
@@ -128,7 +172,7 @@ describe('Relay feed', () => {
     const feed = new Feed(Buffer.alloc(32))
     expect(
       feed.receive({ t: 'welcome', state: { agents: { rev: 0, sessions: [] } } }).replies,
-    ).toEqual([{ t: 'board.subscribe' }])
+    ).toEqual([{ t: 'board.subscribe' }, { t: 'canvas.get' }])
     const board = (slug: string, title: string, widgets: unknown[] = []) => ({
       slug,
       title,

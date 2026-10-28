@@ -179,3 +179,8 @@ export function artifactsActFrame(
 ): Record<string, unknown> {
   return { t: 'artifacts.act', thread, rid, by, action }
 }
+
+/** Asks to enter the live room on `slug`; answered by `canvas.access` or `canvas.unavailable`. */
+export function canvasOpenFrame(slug: string): Record<string, unknown> {
+  return { t: 'canvas.open', slug }
+}

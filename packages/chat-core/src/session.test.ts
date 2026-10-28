@@ -186,6 +186,48 @@ describe('parseSession', () => {
       ['a-tool1', 'tool'],
     ])
   })
+
+  it('shows relay-canvas custom messages as canvas rows and skips other custom messages', () => {
+    const agent = { name: 'Nova', color: '#7c5cff', avatar: '/canvas/avatar/nova' }
+    const entry = (id: string, parentId: string, details: unknown, customType = 'relay-canvas') =>
+      j({
+        type: 'custom_message',
+        customType,
+        content: `canvas ${id}`,
+        display: true,
+        details,
+        id,
+        parentId,
+        timestamp: '2026-10-28T10:00:00.000Z',
+      })
+    const base = { roomId: 'r1', slug: 'mind-map', board: 'Mind map', agent }
+    const text = [
+      msg('u', null, { role: 'user', content: 'plan it', attribution: 'user' }),
+      entry('s', 'u', { ...base, kind: 'start', text: 'Sketch the flow' }),
+      entry('e', 's', { note: 1 }, 'eren'),
+      entry('t', 'e', {
+        ...base,
+        kind: 'turn',
+        human: { name: 'Isaac', text: 'add login' },
+        text: 'Added.',
+      }),
+      // A broken entry (no room) is not a row.
+      entry('x', 't', { ...base, roomId: '', kind: 'end' }),
+      entry('n', 'x', { ...base, kind: 'end', text: 'We picked the flow.' }),
+    ].join('\n')
+    const rows = parseSession(text).messages
+    expect(rows.map((m) => [m.id, m.role, m.canvas?.kind ?? null])).toEqual([
+      ['u', 'user', null],
+      ['s', 'canvas', 'start'],
+      ['t', 'canvas', 'turn'],
+      ['n', 'canvas', 'end'],
+    ])
+    expect(rows[1]).toMatchObject({
+      text: 'canvas s',
+      canvas: { ...base, text: 'Sketch the flow' },
+    })
+    expect(rows[2]?.canvas?.human).toEqual({ name: 'Isaac', text: 'add login' })
+  })
 })
 
 describe('images in transcripts', () => {

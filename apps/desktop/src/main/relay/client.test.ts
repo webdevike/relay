@@ -181,6 +181,59 @@ describe('RelayClient', () => {
     client.stop()
   })
 
+  it('keeps the canvas rooms, opens a room once per slug and reuses its access', async () => {
+    const { client, relay } = connected()
+    const roomChanges = vi.fn()
+    client.onCanvasRoomsChange(roomChanges)
+    expect(await client.openCanvas('mind-map')).toEqual({ ok: false, error: NOT_CONNECTED })
+    client.start()
+    await vi.advanceTimersByTimeAsync(0)
+    relay.say({ t: 'welcome', state: { agents: { rev: 0, sessions: [] } } })
+    expect(relay.frames().filter((f) => f.t === 'canvas.get')).toHaveLength(1)
+    expect(client.canvasOrigin()).toBe('http://127.0.0.1:7817')
+    const room = {
+      id: 'r1',
+      slug: 'mind-map',
+      board: 'Mind map',
+      live: true,
+      agent: { name: 'Nova', color: '#7c5cff' },
+      chat: {},
+      humans: [],
+      startedAt: 1,
+    }
+    relay.say({ t: 'canvas.rooms', rev: 1, rooms: [room] })
+    expect(client.canvasRooms()?.map((r) => r.id)).toEqual(['r1'])
+    // Two opens while the first is out ask once and get the same answer.
+    const a = client.openCanvas('mind-map')
+    const b = client.openCanvas('mind-map')
+    expect(relay.frames().filter((f) => f.t === 'canvas.open')).toEqual([
+      { t: 'canvas.open', slug: 'mind-map' },
+    ])
+    const access = { path: '/canvas/mind-map/?token=t', expiresAt: Date.now() + 3_600_000 }
+    relay.say({ t: 'canvas.access', slug: 'mind-map', token: 't', ...access })
+    expect(await a).toEqual({ ok: true, ...access })
+    expect(await b).toEqual({ ok: true, ...access })
+    // Still good: no new request.
+    expect(await client.openCanvas('mind-map')).toEqual({ ok: true, ...access })
+    expect(relay.frames().filter((f) => f.t === 'canvas.open')).toHaveLength(1)
+    // The room ended: its access goes, and the host says why.
+    relay.say({ t: 'canvas.rooms', rev: 2, rooms: [{ ...room, live: false, endedAt: 2 }] })
+    const c = client.openCanvas('mind-map')
+    relay.say({ t: 'canvas.unavailable', slug: 'mind-map', reason: 'The canvas session ended.' })
+    expect(await c).toEqual({ ok: false, error: 'The canvas session ended.' })
+    // Unanswered: it gives up.
+    const d = client.openCanvas('other')
+    await vi.advanceTimersByTimeAsync(20_000)
+    expect(await d).toEqual({ ok: false, error: NO_ANSWER })
+    // Dropped with the connection, and an open in flight fails with it.
+    const e = client.openCanvas('mind-map')
+    relay.handlers.at(-1)!.closed(CLOSED)
+    expect(await e).toEqual({ ok: false, error: CLOSED })
+    expect(client.canvasRooms()).toBeNull()
+    expect(roomChanges).toHaveBeenCalledTimes(3)
+    client.stop()
+  })
+
   it('a refusal closes the socket, says why and retries', async () => {
     const { client, relay } = connected()
     client.start()

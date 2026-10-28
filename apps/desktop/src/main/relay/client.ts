@@ -1,16 +1,17 @@
 // The connection to Relay, kept up in the background and retried while Relay is down, ported from
 // relay.rs (keep_connected, run_connection). One connection: read the port from serve.json, open
 // ws://127.0.0.1:<port>/relay, pair through devices.json, say hello, answer the challenge, then
-// keep the session list from `welcome`, `agents.snapshot` and `agents.delta` and the boards from
-// `board.snapshot` and `board.delta`, pinging every 10 s (Relay drops a peer that is quiet for a
-// minute). Any failure drops both lists and retries in 3 s.
+// keep the session list from `welcome`, `agents.snapshot` and `agents.delta`, the boards from
+// `board.snapshot` and `board.delta` and the live canvas rooms from `canvas.rooms`, pinging
+// every 10 s (Relay drops a peer that is quiet for a minute). Any failure drops the lists and
+// retries in 3 s.
 //
 // Subscriptions outlive a connection: each new one subscribes again (native `remember`), and asks
 // again for the reactions of every thread a chat shows. A command cannot wait for one: sent while
 // Relay is down it fails at once, and one in flight when the connection drops fails with it.
 import type { ThreadReactions } from '@evaos/chat-core/reactions'
 import type { Artifact, ArtifactAction, ArtifactTab } from '@evaos/chat-core/artifacts'
-import type { Board } from '@evaos/contract'
+import type { Board, CanvasRoom } from '@evaos/contract'
 import {
   Feed,
   RelayRefused,
@@ -20,6 +21,7 @@ import {
   type RelaySession,
 } from './feed'
 import {
+  canvasOpenFrame,
   cmdFrame,
   reactionFrame,
   artifactsActFrame,
@@ -70,7 +72,19 @@ export interface RelaySource {
 /** What a subscribed session says: its streamed reply, its questions and approvals. */
 export type RelaySessionEvent = Exclude<
   FeedEvent,
-  { kind: 'sessions' | 'ack' | 'nack' | 'boards' | 'reactions' | 'artifacts' | 'acted' }
+  {
+    kind:
+      | 'sessions'
+      | 'ack'
+      | 'nack'
+      | 'boards'
+      | 'reactions'
+      | 'artifacts'
+      | 'acted'
+      | 'canvasRooms'
+      | 'canvasAccess'
+      | 'canvasUnavailable'
+  }
 >
 
 /** Relay as the chat pane drives it: the session list, subscriptions and commands. */
@@ -138,6 +152,25 @@ export interface RelayArtifacts {
   onArtifacts(cb: (thread: string) => void): () => void
 }
 
+/** The host's answer to `canvas.open`: the room page's host-relative path, or why there is none. */
+export type CanvasAccess =
+  { ok: true; path: string; expiresAt: number } | { ok: false; error: string }
+
+/** An access is reused while it has this long left (the host's tokens last 12 hours). */
+const ACCESS_MARGIN_MS = 60_000
+
+/** The live canvas rooms the host holds, and the way into one. */
+export interface RelayCanvas {
+  /** Every room the host holds while connected; null until Relay sends them and while down. */
+  canvasRooms(): readonly CanvasRoom[] | null
+  /** Called after every change of the rooms, including Relay going down. */
+  onCanvasRoomsChange(cb: () => void): () => void
+  /** The host's http origin (`http://127.0.0.1:<port>`), null when no host is running. */
+  canvasOrigin(): string | null
+  /** Asks the host into the live room on `slug`; resolves with its page or why not, never rejects. */
+  openCanvas(slug: string): Promise<CanvasAccess>
+}
+
 /**
  * Relay didn't carry a command out. `code` is Relay's AckError code (`agent_cannot_respond`,
  * `agent_not_found`, `biometric_required`, ...) or `not_connected` / `timeout` from here.
@@ -200,7 +233,7 @@ interface Pending {
 }
 
 /** Keeps a connection to Relay up while started; `sessions()` is null whenever it is down. */
-export class RelayClient implements RelayLink, RelayReactions, RelayArtifacts {
+export class RelayClient implements RelayLink, RelayReactions, RelayArtifacts, RelayCanvas {
   private readonly dial: Dial
   private readonly secret: (configDir: string) => Uint8Array
   private readonly retryMs: number
@@ -228,6 +261,17 @@ export class RelayClient implements RelayLink, RelayReactions, RelayArtifacts {
   >()
   /** Commands sent on this connection, by id, until Relay answers. */
   private readonly pending = new Map<string, Pending>()
+  private readonly canvasListeners = new Set<() => void>()
+  /** `canvas.open` requests sent on this connection, by slug, until Relay answers. */
+  private readonly canvasOpens = new Map<
+    string,
+    { waiters: Array<(a: CanvasAccess) => void>; timer: NodeJS.Timeout }
+  >()
+  /** The last access to each slug's room on this connection, reused until near its expiry. */
+  private readonly canvasAccess = new Map<string, { path: string; expiresAt: number }>()
+  private canvasList: readonly CanvasRoom[] | null = null
+  /** The port of the host this connection reached. */
+  private port: number | null = null
   private commands = 0
   private list: ReadonlyMap<string, RelaySession> | null = null
   private boardList: readonly Board[] | null = null
@@ -357,6 +401,50 @@ export class RelayClient implements RelayLink, RelayReactions, RelayArtifacts {
     return () => this.artifactListeners.delete(cb)
   }
 
+  canvasRooms(): readonly CanvasRoom[] | null {
+    return this.canvasList
+  }
+
+  onCanvasRoomsChange(cb: () => void): () => void {
+    this.canvasListeners.add(cb)
+    return () => this.canvasListeners.delete(cb)
+  }
+
+  canvasOrigin(): string | null {
+    const port = this.port ?? servePort(this.o.configDir)
+    return port === null ? null : `http://127.0.0.1:${port}`
+  }
+
+  openCanvas(slug: string): Promise<CanvasAccess> {
+    if (!this.feed?.authenticated) return Promise.resolve({ ok: false, error: NOT_CONNECTED })
+    const known = this.canvasAccess.get(slug)
+    if (known && known.expiresAt - this.now() > ACCESS_MARGIN_MS) {
+      return Promise.resolve({ ok: true, ...known })
+    }
+    const { promise, resolve } = Promise.withResolvers<CanvasAccess>()
+    const asked = this.canvasOpens.get(slug)
+    if (asked) {
+      asked.waiters.push(resolve)
+      return promise
+    }
+    const timer = setTimeout(
+      () => this.answerCanvas(slug, { ok: false, error: NO_ANSWER }),
+      this.commandTimeoutMs,
+    )
+    this.canvasOpens.set(slug, { waiters: [resolve], timer })
+    this.send(canvasOpenFrame(slug))
+    return promise
+  }
+
+  /** Settles every `openCanvas` waiting on `slug`. */
+  private answerCanvas(slug: string, access: CanvasAccess): void {
+    const asked = this.canvasOpens.get(slug)
+    if (!asked) return
+    this.canvasOpens.delete(slug)
+    clearTimeout(asked.timer)
+    for (const resolve of asked.waiters) resolve(access)
+  }
+
   command(cmd: RelayCommand): Promise<void> {
     if (!this.feed?.authenticated) {
       return Promise.reject(new RelayCommandError('not_connected', NOT_CONNECTED))
@@ -386,6 +474,7 @@ export class RelayClient implements RelayLink, RelayReactions, RelayArtifacts {
     this.drop(NOT_CONNECTED)
     this.setList(null)
     this.setBoards(null)
+    this.setCanvasRooms(null)
   }
 
   private async connect(): Promise<void> {
@@ -416,6 +505,7 @@ export class RelayClient implements RelayLink, RelayReactions, RelayArtifacts {
       return this.fail(`Couldn't add this app to Relay's devices: ${(e as Error).message}`)
     }
     this.socket = socket
+    this.port = port
     this.feed = new Feed(secret)
     this.send(hello())
   }
@@ -473,6 +563,27 @@ export class RelayClient implements RelayLink, RelayReactions, RelayArtifacts {
           })
           break
         }
+        case 'canvasRooms': {
+          // An ended room's access is no good any more.
+          const live = new Set(event.rooms.filter((r) => r.live).map((r) => r.slug))
+          for (const slug of [...this.canvasAccess.keys()])
+            if (!live.has(slug)) this.canvasAccess.delete(slug)
+          this.setCanvasRooms(event.rooms)
+          break
+        }
+        case 'canvasAccess': {
+          const access = { path: event.path, expiresAt: event.expiresAt }
+          this.canvasAccess.set(event.slug, access)
+          this.answerCanvas(event.slug, { ok: true, ...access })
+          break
+        }
+        case 'canvasUnavailable':
+          this.canvasAccess.delete(event.slug)
+          this.answerCanvas(event.slug, {
+            ok: false,
+            error: event.reason || 'This canvas session has ended.',
+          })
+          break
         case 'ack':
         case 'nack': {
           const p = this.pending.get(event.id)
@@ -503,6 +614,7 @@ export class RelayClient implements RelayLink, RelayReactions, RelayArtifacts {
     this.reason = reason
     this.setList(null)
     this.setBoards(null)
+    this.setCanvasRooms(null)
     if (this.started && !this.retryTimer) {
       this.retryTimer = setTimeout(() => void this.connect(), this.retryMs)
     }
@@ -527,6 +639,11 @@ export class RelayClient implements RelayLink, RelayReactions, RelayArtifacts {
       a.resolve({ ok: false, error: reason })
     }
     this.acts.clear()
+    for (const slug of [...this.canvasOpens.keys()])
+      this.answerCanvas(slug, { ok: false, error: reason })
+    // A new connection may reach another host, whose tokens these are not.
+    this.canvasAccess.clear()
+    this.port = null
   }
 
   private setList(list: ReadonlyMap<string, RelaySession> | null): void {
@@ -540,10 +657,16 @@ export class RelayClient implements RelayLink, RelayReactions, RelayArtifacts {
     this.boardList = boards
     for (const cb of this.boardListeners) cb()
   }
+
+  private setCanvasRooms(rooms: readonly CanvasRoom[] | null): void {
+    if (rooms === null && this.canvasList === null) return
+    this.canvasList = rooms
+    for (const cb of this.canvasListeners) cb()
+  }
 }
 
 /** A Relay that is never connected: fixtures and e2e, unless a test sets sessions. */
-export class StaticRelay implements RelayLink, RelayReactions, RelayArtifacts {
+export class StaticRelay implements RelayLink, RelayReactions, RelayArtifacts, RelayCanvas {
   private list: ReadonlyMap<string, RelaySession> | null = null
   private readonly listeners = new Set<() => void>()
   private readonly artifactMap = new Map<string, ArtifactsSnapshot>()
@@ -569,6 +692,23 @@ export class StaticRelay implements RelayLink, RelayReactions, RelayArtifacts {
 
   onBoardsChange(): () => void {
     return () => undefined
+  }
+
+  /** Never connected, so never any canvas rooms nor a way into one. */
+  canvasRooms(): readonly CanvasRoom[] | null {
+    return null
+  }
+
+  onCanvasRoomsChange(): () => void {
+    return () => undefined
+  }
+
+  canvasOrigin(): string | null {
+    return null
+  }
+
+  openCanvas(): Promise<CanvasAccess> {
+    return Promise.resolve({ ok: false, error: NOT_CONNECTED })
   }
 
   subscribe(): void {}

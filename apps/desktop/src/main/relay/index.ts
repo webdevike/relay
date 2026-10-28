@@ -4,6 +4,7 @@ import {
   RelayClient,
   StaticRelay,
   type RelayArtifacts,
+  type RelayCanvas,
   type RelayLink,
   type RelayReactions,
 } from './client'
@@ -15,7 +16,9 @@ import { parseArtifacts, parseSession, type RelaySession } from './feed'
  * connected, unless an e2e test sets sessions through the `relay` test hook (`set(sessions | null)`,
  * sessions in Relay's wire shape).
  */
-export function startRelay(ctx: MainContext): RelayLink & RelayReactions & RelayArtifacts {
+export function startRelay(
+  ctx: MainContext,
+): RelayLink & RelayReactions & RelayArtifacts & RelayCanvas {
   if (ctx.env.relayDir !== null) {
     const client = new RelayClient({ configDir: ctx.env.relayDir })
     client.start()

@@ -1,4 +1,5 @@
 import { imageSize } from './image-size'
+import { canvasEntryOf } from './canvas-live'
 import { makeMessage, type ChatImage, type ChatMessage, type SessionMeta } from './message'
 
 type Json = Record<string, unknown>
@@ -141,6 +142,15 @@ function stampOf(message: Json): { at?: number } {
 }
 
 export function messagesFrom(message: Json, id: string): ChatMessage[] {
+  // A custom message the session shows: only the Relay bridge's live canvas rows have a row.
+  if (message.role === 'custom') {
+    const canvas = canvasEntryOf(message.customType, message.details)
+    if (!canvas) return []
+    // A live frame may come without an id; the room, kind and time tell its rows apart.
+    const at = typeof message.timestamp === 'number' ? message.timestamp : ''
+    const rowId = id !== '' ? id : `canvas-${canvas.roomId}-${canvas.kind}-${at}`
+    return [makeMessage(rowId, 'canvas', textOf(message.content), { canvas })]
+  }
   if (message.role === 'user') {
     const prompt = promptParts(message)
     if (!prompt) return []
@@ -269,6 +279,11 @@ export function parseSession(text: string): ParsedSession {
 
   const messages: ChatMessage[] = []
   for (const entry of branch) {
+    // omp keeps custom messages (extension rows) as their own entry type.
+    if (entry.type === 'custom_message') {
+      messages.push(...messagesFrom({ ...entry, role: 'custom' }, str(entry.id) ?? ''))
+      continue
+    }
     if (entry.type !== 'message' || !isObj(entry.message)) continue
     if (!attachResult(messages, entry.message)) {
       messages.push(...messagesFrom(entry.message, str(entry.id) ?? ''))

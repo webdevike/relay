@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { SwitchAppIdSchema, TabIdSchema } from './browser'
 import { ContextScopeSchema, PinIdSchema, PinRefSchema } from './context'
 import { ArtifactKind, ArtifactTabIcon, TabRule } from '@evaos/chat-core/artifacts'
+import { CanvasLiveSlugSchema } from '@evaos/chat-core/canvas-live'
 
 /**
  * Agent control: every user-reachable action an agent (Eva, Nova, any omp session) may run in the
@@ -429,6 +430,23 @@ export const agentActions = {
     title: 'Remove an artifacts tab',
     description: `${ARTIFACTS_SCOPE} Removes a tab you made. Defaults are never removed.`,
     params: z.object({ id: ArtifactTabId, scope }).strict(),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'canvas.live': {
+    title: 'Start a live canvas with Isaac',
+    description:
+      "Takes the calling session onto a board with Isaac (the request's scope: an assistant's thread, else the chat's session file). The Relay host opens a live room on board `slug`, or on a new board titled `title` (neither: the host picks), with this session as the agent at the board: same name and look, this chat as context. Isaac gets a Join card in this chat; each canvas turn and the wrap-up come back here. `prompt` is what the canvas session is for (the card shows it). Answers the host's {roomId, slug, board, agent, joinPath}.",
+    params: z
+      .object({
+        slug: CanvasLiveSlugSchema.optional(),
+        title: z.string().trim().min(1).max(200).optional(),
+        prompt: z.string().trim().min(1).max(4000).optional(),
+        scope,
+      })
+      .strict(),
     side: 'main',
     focus: 'none',
     destructive: false,

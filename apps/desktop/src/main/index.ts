@@ -177,7 +177,7 @@ function bootstrap(): void {
         chatWorking: () => chat.anyWorking(),
         restart: restartForUpdate,
       })
-      registerAgentControl(ctx, update, chat.artifacts)
+      registerAgentControl(ctx, update, chat.artifacts, chat.canvas)
       installTestHooks(ctx)
     } catch (e) {
       // A half-started app (no window, no IPC) is worse than a clear failure.

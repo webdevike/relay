@@ -10,12 +10,14 @@
 // `board.delta` swaps in or removes one. A thread's reactions come as `reactions.snapshot`, the
 // answer to `reactions.get` and pushed after every change. A thread's artifacts come as
 // `artifacts.snapshot` (pushed for every thread after each change, whoever asked) and each
-// `artifacts.act` is answered by one `artifacts.acted`. Drops, calls and the inbox escalation
-// are not used by this app; their frames are ignored.
+// `artifacts.act` is answered by one `artifacts.acted`. Live canvas rooms come as `canvas.rooms`
+// (asked for on welcome, pushed after every change); `canvas.open` is answered by `canvas.access`
+// or `canvas.unavailable`. Drops, calls and the inbox escalation are not used by this app; their
+// frames are ignored.
 import { createHmac } from 'node:crypto'
 import * as path from 'node:path'
 import { z } from 'zod'
-import { BOARD_COLUMNS, type Board } from '@evaos/contract'
+import { BOARD_COLUMNS, CanvasRoomSchema, type Board, type CanvasRoom } from '@evaos/contract'
 import {
   ReactionKeySchema,
   ReactionSchema,
@@ -298,6 +300,14 @@ const ActedSchema = z.object({
   error: z.string().optional().catch(undefined),
   id: z.string().optional().catch(undefined),
 })
+const CanvasRoomsFrameSchema = z.object({ rev, rooms: list })
+const CanvasAccessSchema = z.object({
+  slug: z.string().min(1),
+  path: z.string().startsWith('/'),
+  token: z.string().min(1),
+  expiresAt: z.number(),
+})
+const CanvasUnavailableSchema = z.object({ slug: z.string().min(1), reason: text })
 
 /** A thread's artifacts as Relay sends them; an item or tab that does not parse is dropped. */
 export function parseArtifacts(
@@ -337,6 +347,12 @@ export type FeedEvent =
   | { kind: 'artifacts'; thread: string; items: ArtifactItem[]; tabs: ArtifactTabItem[] }
   /** The host's answer to `artifacts.act` request `rid`; `id` is a new item's or tab's. */
   | { kind: 'acted'; rid: string; ok: boolean; error?: string; id?: string }
+  /** Every canvas room the host holds now (a `canvas.rooms`, answer or push); bad rooms dropped. */
+  | { kind: 'canvasRooms'; rooms: CanvasRoom[] }
+  /** The answer to `canvas.open`: load `path` from the host's http origin. */
+  | { kind: 'canvasAccess'; slug: string; path: string; token: string; expiresAt: number }
+  /** The answer to `canvas.open` when no room is live on `slug`. */
+  | { kind: 'canvasUnavailable'; slug: string; reason: string }
 
 /** What one frame asks to send back, and what the app should hear. */
 export interface FeedOutput {
@@ -390,8 +406,10 @@ export class Feed {
         this.authenticated = true
         this.reset(WelcomeSchema.parse(f).state.agents)
         events.push(this.list())
-        // Boards stream on this connection from here; the snapshot answers.
+        // Boards stream on this connection from here; the snapshot answers. The canvas rooms
+        // come once now and are pushed after every change.
         replies.push({ t: 'board.subscribe' })
+        replies.push({ t: 'canvas.get' })
         break
       case 'board.snapshot': {
         const s = BoardSnapshotSchema.parse(f)
@@ -519,6 +537,27 @@ export class Feed {
             ...(id === undefined ? {} : { id }),
           })
         }
+        break
+      }
+      case 'canvas.rooms': {
+        const s = CanvasRoomsFrameSchema.safeParse(f)
+        if (s.success) {
+          const rooms = s.data.rooms.flatMap((raw) => {
+            const r = CanvasRoomSchema.safeParse(raw)
+            return r.success ? [r.data] : []
+          })
+          events.push({ kind: 'canvasRooms', rooms })
+        }
+        break
+      }
+      case 'canvas.access': {
+        const a = CanvasAccessSchema.safeParse(f)
+        if (a.success) events.push({ kind: 'canvasAccess', ...a.data })
+        break
+      }
+      case 'canvas.unavailable': {
+        const u = CanvasUnavailableSchema.safeParse(f)
+        if (u.success) events.push({ kind: 'canvasUnavailable', ...u.data })
         break
       }
       case 'ack':

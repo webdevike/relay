@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { CanvasChatEntrySchema } from './canvas-live'
 
 export const ToolIoSchema = z.object({
   call: z.string(),
@@ -23,7 +24,8 @@ export type ChatImage = z.infer<typeof ChatImageSchema>
 
 export const ChatMessageSchema = z.object({
   id: z.string(),
-  role: z.enum(['user', 'assistant', 'tool', 'thinking', 'notice']),
+  /** `canvas`: a live canvas row (a `relay-canvas` custom message); `canvas` holds its entry. */
+  role: z.enum(['user', 'assistant', 'tool', 'thinking', 'notice', 'canvas']),
   text: z.string(),
   detail: z.string(),
   streaming: z.boolean(),
@@ -35,6 +37,7 @@ export const ChatMessageSchema = z.object({
    * role. Absent on a prompt omp has not echoed yet and on Relay's streaming row.
    */
   at: z.number().optional(),
+  canvas: CanvasChatEntrySchema.optional(),
 })
 export type ChatMessage = z.infer<typeof ChatMessageSchema>
 export type ToolIo = z.infer<typeof ToolIoSchema>

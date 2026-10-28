@@ -84,6 +84,38 @@ describe('LiveReducer', () => {
     expect(r.messages()[0]!.tool).toMatchObject({ result: 'file body', status: 'done' })
   })
 
+  it('a relay-canvas custom message_end is a canvas row, with or without an id', () => {
+    const r = mk()
+    const entry = (kind: string, text: string) => ({
+      kind,
+      roomId: 'r1',
+      slug: 'mind-map',
+      board: 'Mind map',
+      agent: { name: 'Nova', color: '#7c5cff' },
+      text,
+    })
+    const custom = (kind: string, text: string, timestamp: number) => ({
+      role: 'custom',
+      customType: 'relay-canvas',
+      content: text,
+      display: true,
+      details: entry(kind, text),
+      timestamp,
+    })
+    r.apply({ type: 'message_end', messageId: 'c1', message: custom('start', 'Sketch it', 1) })
+    r.apply({ type: 'message_end', message: custom('turn', 'Added.', 2) })
+    r.apply({ type: 'message_end', message: custom('end', 'Done.', 3) })
+    r.apply({
+      type: 'message_end',
+      message: { role: 'custom', customType: 'eren', content: 'rounds', display: true },
+    })
+    expect(r.messages().map((m) => [m.id, m.role, m.canvas?.kind])).toEqual([
+      ['c1', 'canvas', 'start'],
+      ['canvas-r1-turn-2', 'canvas', 'turn'],
+      ['canvas-r1-end-3', 'canvas', 'end'],
+    ])
+  })
+
   it('sendPrompt with images labels them and keeps them when omp echoes the prompt', () => {
     const r = mk()
     const sent = r.sendPrompt('look', [{ mimeType: 'image/png', data: 'AAA' }])

@@ -9,7 +9,8 @@ import { awaySignature } from '../relay/away'
 import { registerBoardsIpc } from '../relay/boards-ipc'
 import { registerReactionsIpc } from '../relay/reactions-ipc'
 import { registerArtifactsIpc } from '../relay/artifacts-ipc'
-import type { RelayArtifacts, RelaySource } from '../relay/client'
+import { registerCanvasLiveIpc } from '../relay/canvas-live-ipc'
+import type { RelayArtifacts, RelayCanvas, RelaySource } from '../relay/client'
 import type { WriteQueue } from '../write-queue'
 import { AUTO_SETTLE_DAYS } from './chat-order'
 import { ChatListService, chatSessionsDirs } from './chat-list'
@@ -39,6 +40,8 @@ export interface ChatHandles {
   relaySessions(): ReadonlyMap<string, RelaySession> | null
   /** Relay's artifacts of every thread (the panel, the status reader, agent actions). */
   artifacts: RelaySource & RelayArtifacts
+  /** Relay's live canvas rooms and the host's origin (canvas.live). */
+  canvas: RelayCanvas
 }
 
 const STATUS_COALESCE_MS = 30
@@ -109,6 +112,8 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
   const offReactions = registerReactionsIpc(ctx, relay)
   // What each thread holds (tickets, PRs, media, subagents), for the Artifacts panel.
   const offArtifacts = registerArtifactsIpc(ctx, relay)
+  // Live canvas rooms on the host, and the way into one (the Canvas page's frame).
+  const offCanvasLive = registerCanvasLiveIpc(ctx, relay)
 
   const watch = new ChatWatch({
     dirs: sessionsDirs,
@@ -151,6 +156,7 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     offBoards()
     offReactions()
     offArtifacts()
+    offCanvasLive()
     clearTimeout(statusTimer)
     assistants.close()
     await watch.close()
@@ -164,5 +170,6 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     assistants: () => assistants.list(),
     relaySessions: () => relay.sessions(),
     artifacts: relay,
+    canvas: relay,
   }
 }

@@ -9,6 +9,7 @@ import { chatEvents, chatInvoke } from './chat'
 import { browserEvents, browserInvoke } from './browser'
 import { experimentsEvents, experimentsInvoke } from './experiments'
 import { canvasEvents, canvasInvoke } from './canvas'
+import { canvasLiveEvents, canvasLiveInvoke } from './canvas-live'
 import { usageEvents, usageInvoke } from './usage'
 import { assistantsEvents, assistantsInvoke } from './assistants'
 import { boardsEvents, boardsInvoke } from './boards'
@@ -23,6 +24,7 @@ import { updateEvents, updateInvoke } from './update'
 import { contextEvents, contextInvoke } from './context'
 export * from './experiments'
 export * from './canvas'
+export * from './canvas-live'
 export * from './usage'
 export * from './assistants'
 export * from './boards'
@@ -68,6 +70,7 @@ export const invokeContract = {
   ...browserInvoke,
   ...experimentsInvoke,
   ...canvasInvoke,
+  ...canvasLiveInvoke,
   ...usageInvoke,
   ...assistantsInvoke,
   ...boardsInvoke,
@@ -87,6 +90,7 @@ export const eventContract = {
   ...evaEvents,
   ...experimentsEvents,
   ...canvasEvents,
+  ...canvasLiveEvents,
   ...usageEvents,
   ...assistantsEvents,
   ...boardsEvents,

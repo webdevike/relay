@@ -2,8 +2,9 @@
 // drives the app's actual Relay client: serve.json gives the port, devices.json the paired secret
 // (the app adds its own), the handshake checks the HMAC proof, and the agent frames follow
 // relay packages/protocol/src/index.ts. Tests list sessions, stream replies, raise asks and
-// approvals, and read every command the app sent. No WebSocket library: the few frame types Relay
-// uses are framed here (RFC 6455, text, ping, close).
+// approvals, hold live canvas rooms (with a tiny room page on the same port, as the host serves
+// its web client), and read every command the app sent. No WebSocket library: the few frame
+// types Relay uses are framed here (RFC 6455, text, ping, close).
 import { createHash, createHmac, randomBytes } from 'node:crypto'
 import * as fs from 'node:fs'
 import * as http from 'node:http'
@@ -76,6 +77,12 @@ export class FakeRelayHost {
   private readonly reactionsOf = new Map<string, Record<string, Json>>()
   /** Every `reactions.get`, `reaction.set` and `reaction.clear` the app sent, in order. */
   readonly reactionFrames: Json[] = []
+  /** The host's canvas rooms (CanvasRoomInfo), sent on `canvas.get` and pushed on change. */
+  private canvasRooms: Json[] = []
+  /** Every `canvas.open` slug the app sent, in order. */
+  readonly canvasOpens: string[] = []
+  /** Every room page the app loaded (path and query), in order. */
+  readonly roomPages: string[] = []
   private rev = 0
 
   private constructor(
@@ -86,7 +93,7 @@ export class FakeRelayHost {
   /** Listens on a free port and writes `<dir>/serve.json` like the real host. */
   static async start(dir: string): Promise<FakeRelayHost> {
     fs.mkdirSync(dir, { recursive: true })
-    const server = http.createServer((_req, res) => res.writeHead(404).end())
+    const server = http.createServer((req, res) => host.http(req, res))
     const host = new FakeRelayHost(dir, server)
     server.on('upgrade', (req, socket) => host.upgrade(req, socket))
     const { promise, resolve } = Promise.withResolvers<void>()
@@ -104,6 +111,28 @@ export class FakeRelayHost {
     const { promise, resolve } = Promise.withResolvers<void>()
     this.server.close(() => resolve())
     await promise
+  }
+
+  /** Sets the canvas rooms and pushes them to every device, as the host does on any change. */
+  setCanvasRooms(rooms: Json[]): void {
+    this.canvasRooms = rooms
+    this.broadcast({ t: 'canvas.rooms', rev: Date.now(), rooms })
+  }
+
+  /** A room page, like the host's web client in miniature: it names its board and says it is ready. */
+  private http(req: http.IncomingMessage, res: http.ServerResponse): void {
+    const url = new URL(req.url ?? '/', 'http://127.0.0.1')
+    const slug = /^\/canvas\/([a-z0-9-]+)\/$/.exec(url.pathname)?.[1]
+    if (req.method !== 'GET' || !slug || url.searchParams.get('token') !== `fake-${slug}`) {
+      res.writeHead(404).end()
+      return
+    }
+    this.roomPages.push(`${url.pathname}${url.search}`)
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+    res.end(
+      `<!doctype html><html><body><h1 data-testid="fake-room">Room ${slug}</h1>` +
+        `<script>window.parent.postMessage({ type: 'canvas.ready' }, '*')</script></body></html>`,
+    )
   }
 
   /** Lists (or updates) sessions, as an `agents.delta`. */
@@ -286,6 +315,24 @@ export class FakeRelayHost {
       case 'reactions.get':
         this.reactionFrames.push(f)
         return peer.send(this.snapshotOf(String(f.thread)))
+      case 'canvas.get':
+        return peer.send({ t: 'canvas.rooms', rev: 1, rooms: this.canvasRooms })
+      case 'canvas.open': {
+        const slug = String(f.slug)
+        this.canvasOpens.push(slug)
+        const live = this.canvasRooms.some((r) => r.slug === slug && r.live === true)
+        return peer.send(
+          live
+            ? {
+                t: 'canvas.access',
+                slug,
+                path: `/canvas/${slug}/?token=fake-${slug}`,
+                token: `fake-${slug}`,
+                expiresAt: Date.now() + 3_600_000,
+              }
+            : { t: 'canvas.unavailable', slug, reason: 'The canvas session ended.' },
+        )
+      }
       case 'reaction.set':
       case 'reaction.clear': {
         // A client's frames are always Isaac's; an assistant's reactions stay.
