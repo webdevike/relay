@@ -4,9 +4,8 @@
 // `live.start`) creates a real GPT-Live session and answers its delegations, while
 //   - the phone is `live_phone.py` (aiortc): a WebRTC peer with a microphone track and the
 //     `oai-events` data channel, speaking WAVs and recording what it hears;
-//   - the assistant thread is the RUNNING host's, reached as a throwaway paired device (written
-//     straight into this machine's device store, forgotten at the end) with `assistant.turn`
-//     and `assistant.snapshot`, so the turns land in the real thread and its memory.
+//   - the assistant thread is the RUNNING host's (`live-remote.ts`: a throwaway paired device),
+//     so the turns land in the real thread and its memory.
 // Prints a JSON report: latencies per question, transcripts, the thread rows, billed seconds.
 //
 //   uv venv /tmp/live-e2e-venv && VIRTUAL_ENV=/tmp/live-e2e-venv uv pip install aiortc numpy
@@ -14,18 +13,16 @@
 //       [--python /tmp/live-e2e-venv/bin/python] [--host ws://127.0.0.1:7817/relay] [--out dir]
 //
 // Questions are spoken with macOS `say`. "Speech end" is when the phone finished playing the WAV.
-// Differences from the iPhone: the thread's replies come from snapshots (the details marker is
-// already folded into a paragraph break there, so a reply with details is said whole).
+// Differences from the iPhone: see live-remote.ts (replies come from snapshots).
 
-import { createHmac, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { encode, parseServerMessage, type AgentSession, type AssistantSnapshot, type ClientMessage, type ServerMessage } from "@relay/protocol";
-import { FileDeviceStore } from "../src/device-store";
-import { LiveCall, type LiveThread } from "../src/live/call";
+import { LiveCall } from "../src/live/call";
 import { openAiKey, OpenAiLive } from "../src/live/openai";
 import { systemClock } from "../src/session";
+import { connectRemoteThread } from "./live-remote";
 
 const { values } = parseArgs({
   args: Bun.argv.slice(2),
@@ -64,83 +61,16 @@ const mark = (what: string, at = Date.now()): void => {
   events.push({ at: rel(at), what });
 };
 
-// --- The running host, as a throwaway paired phone --------------------------------------------
-const deviceId = `live-smoke-${randomBytes(4).toString("hex")}`;
-const secret = randomBytes(32);
-const devices = new FileDeviceStore();
-devices.save(secret, deviceId, "Live smoke");
-const socket = new WebSocket(values.host);
-const sendHost = (message: ClientMessage): void => {
-  socket.send(encode(message));
+// --- The running host's thread ------------------------------------------------------------------
+const remote = await connectRemoteThread(values.host, values.agent, "Live smoke");
+const thread = remote.thread;
+remote.onTurn = (at) => {
+  mark("turn acked by the host", at);
 };
-let snapshot: AssistantSnapshot | null = null;
-const acks = new Map<string, { resolve: () => void; reject: (error: Error) => void }>();
-const { promise: welcomed, resolve: welcome } = Promise.withResolvers<undefined>();
-const { promise: firstSnapshot, resolve: gotSnapshot } = Promise.withResolvers<undefined>();
 let call: LiveCall | null = null;
-/** Assistant rows in the thread before the call: never said. */
-const before = new Set<string>();
-
-function session(): AgentSession | undefined {
-  if (snapshot === null || snapshot.sessionId === "") return undefined;
-  return { id: snapshot.sessionId, provider: "omp", title: values.agent, projectPath: "", status: snapshot.busy ? "working" : "idle", lastActivity: "", lastActivityAt: 0, canRespond: true, kind: "assistant", assistant: values.agent };
-}
-
-function onHost(message: ServerMessage): void {
-  if (message.t === "challenge") sendHost({ t: "auth", proof: createHmac("sha256", secret).update(message.nonce, "utf8").digest("hex") });
-  else if (message.t === "welcome") welcome(undefined);
-  else if (message.t === "ack") acks.get(message.id)?.resolve();
-  else if (message.t === "nack") acks.get(message.id)?.reject(new Error(`${message.error.code}: ${message.error.message}`));
-  else if (message.t === "assistant.snapshot" && message.agent === values.agent) {
-    const first = snapshot === null;
-    snapshot = message.snapshot;
-    if (first) {
-      for (const row of snapshot.messages) before.add(row.id);
-      gotSnapshot(undefined);
-      return;
-    }
-    if (call === null) return;
-    call.observe({ kind: "sessions" });
-    const rows = snapshot.messages;
-    rows.forEach((row, index) => {
-      if (row.role !== "assistant" || before.has(row.id) || snapshot === null) return;
-      call?.observe({ kind: "message", sessionId: snapshot.sessionId, id: row.id, text: row.text, streaming: snapshot.busy && index === rows.length - 1 });
-    });
-  }
-}
-socket.onopen = () => {
-  sendHost({ t: "hello", v: 1, deviceId, deviceName: "Live smoke", platform: "ios" });
+remote.onChange = (change) => {
+  call?.observe(change);
 };
-socket.onmessage = (event: MessageEvent<string>) => {
-  const parsed = parseServerMessage(event.data);
-  if (parsed.ok) onHost(parsed.value);
-};
-
-const thread: LiveThread = {
-  id: values.agent,
-  title: values.agent.charAt(0).toUpperCase() + values.agent.slice(1),
-  session,
-  turn: (text) => {
-    const id = randomBytes(6).toString("hex");
-    const { promise, resolve, reject } = Promise.withResolvers<undefined>();
-    acks.set(id, {
-      resolve: () => {
-        resolve(undefined);
-      },
-      reject,
-    });
-    mark("turn sent to the thread");
-    sendHost({ t: "cmd", id, cmd: { kind: "assistant.turn", agent: values.agent, text } });
-    return promise.then(() => {
-      mark("turn acked by the host");
-    });
-  },
-  rows: () => Promise.resolve(snapshot?.messages ?? []),
-};
-
-await welcomed;
-sendHost({ t: "assistant.get", agent: values.agent });
-await firstSnapshot;
 
 // --- The phone ----------------------------------------------------------------------------------
 const phone = Bun.spawn([values.python, join(import.meta.dir, "live_phone.py"), "--out", join(values.out, "heard.wav")], { stdin: "pipe", stdout: "pipe", stderr: "inherit" });
@@ -321,10 +251,8 @@ tellPhone({ t: "close" });
 await Promise.race([phoneClosed, Bun.sleep(8_000)]);
 phone.kill();
 await Bun.sleep(1_500);
-const thread_ = snapshot as AssistantSnapshot | null;
-const rows = (thread_?.messages ?? []).filter((row) => !before.has(row.id)).map((row) => ({ role: row.role, voice: row.voice === true, text: row.text }));
-socket.close();
-devices.forget(deviceId);
+const rows = remote.newRows();
+remote.close();
 const report = {
   agent: values.agent,
   ms: {
