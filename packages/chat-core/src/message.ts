@@ -101,6 +101,8 @@ export const SubagentSchema = z.object({
   failed: z.boolean(),
   mtimeMs: z.number(),
   lastLine: z.string(),
+  /** The tool it is running now (its newest call still without a result), else null. */
+  tool: z.string().nullable(),
 })
 export type Subagent = z.infer<typeof SubagentSchema>
 

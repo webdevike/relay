@@ -40,6 +40,8 @@ export const AssistantSchema = z.object({
   /** Its portrait: the registry's designed one, else notionists from its seed, else from the id. */
   avatar: AssistantPortraitSchema,
   status: AssistantStatusSchema,
+  /** The tool Relay hears its thread running now (`working` only, e.g. `web_search`), else null. */
+  tool: z.string().nullable(),
   /** Its thread's session file once omp wrote it, else null (the page is the start card). */
   file: z.string().nullable(),
   /** The newest assistant reply with text, on one line, and when omp wrote it (epoch ms). */

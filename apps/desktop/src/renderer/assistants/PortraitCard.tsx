@@ -1,16 +1,17 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
-import { Director, STATE_META, buildRig, type MotionState } from '@relay/portrait-motion'
+import { Director, buildRig } from '@relay/portrait-motion'
 import type { AssistantPortrait } from '@evaos/contract'
 import { chatStore } from '../chat/chat-store'
 import { assistantsStore } from './assistants-store'
-import { agentSignals } from './motion-store'
+import { IDLE_VIEW, agentSignals, dotLabel, type PortraitView } from './motion-store'
 import { PortraitPainter } from './portrait-painter'
 import './portrait-motion.css'
 
 /**
- * Agent `id`'s portrait in full motion (the start card): every state the portrait-motion engine
- * draws, from the agent's real signals, greeting first (Hello) each time the page opens. Accent
- * overlays use the portrait's accent, else the app's primary color; the disc is its paper.
+ * Agent `id`'s portrait in full motion (the start card): the face the portrait-motion engine
+ * draws for the agent's real signals (Idle, Thinking, Researching with its magnifier, Working)
+ * and the status dot. Accent overlays use the portrait's accent, else the app's primary color;
+ * the disc is its paper.
  */
 export function PortraitCard({
   id,
@@ -24,17 +25,16 @@ export function PortraitCard({
   testId?: string
 }) {
   const host = useRef<HTMLDivElement>(null)
-  const [state, setState] = useState<MotionState>('hello')
+  const [view, setView] = useState<PortraitView>(IDLE_VIEW)
   // The list is replaced on every change; rebuild only when the face itself does.
   const face = JSON.stringify(portrait)
   useEffect(() => {
-    const now = Date.now()
     const painter = new PortraitPainter(host.current!, {
       rig: buildRig(JSON.parse(face) as AssistantPortrait),
       size,
-      director: new Director(now, { hello: true }),
+      director: new Director(),
       signals: () => agentSignals(id),
-      onState: setState,
+      onView: setView,
     })
     const poke = (): void => painter.poke()
     const offAssistants = assistantsStore.subscribe(poke)
@@ -45,7 +45,6 @@ export function PortraitCard({
       painter.destroy()
     }
   }, [id, face, size])
-  const meta = STATE_META[state]
   const style = {
     width: size,
     height: size,
@@ -55,14 +54,14 @@ export function PortraitCard({
   return (
     <div
       className="eva-pmc"
-      data-state={state}
-      data-dot={meta.dot ?? undefined}
+      data-state={view.state}
+      data-dot={view.dot ?? undefined}
       style={style}
       data-testid={testId}
     >
       <div ref={host} className="eva-pmc-art" aria-hidden />
-      {meta.dot === null ? null : (
-        <span className="eva-pmc-dot" role="img" aria-label={meta.status} />
+      {view.dot === null ? null : (
+        <span className="eva-pmc-dot" role="img" aria-label={dotLabel(view)} />
       )}
     </div>
   )

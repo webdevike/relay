@@ -29,6 +29,7 @@ const agent = (id: string, avatar: AssistantPortrait): Assistant => ({
   scope: '',
   avatar,
   status: 'idle',
+  tool: null,
   file: null,
   reply: null,
 })

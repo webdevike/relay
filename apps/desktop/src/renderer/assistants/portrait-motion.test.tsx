@@ -26,11 +26,20 @@ const NOVA = {
   colors: { paper: '#e7f5ff', accent: '#f76707' },
 } as const satisfies Assistant['avatar']
 
-function list(status: AssistantStatus): void {
+function list(status: AssistantStatus, tool: string | null = null): void {
   assistantsStore.setState({
     data: {
       agents: [
-        { id: 'nova', title: 'Nova', scope: '', avatar: NOVA, status, file: null, reply: null },
+        {
+          id: 'nova',
+          title: 'Nova',
+          scope: '',
+          avatar: NOVA,
+          status,
+          tool,
+          file: null,
+          reply: null,
+        },
       ],
       relayUp: true,
     },
@@ -81,13 +90,38 @@ const ringOpacity = () =>
   )
 
 describe('the animated start card', () => {
-  it('greets and animates by animation frame while motion is on', () => {
+  it('rests at Idle and animates by animation frame while motion is on', () => {
     card()
-    expect(screen.getByTestId('card')).toHaveAttribute('data-state', 'hello')
+    expect(screen.getByTestId('card')).toHaveAttribute('data-state', 'idle')
+    expect(screen.getByTestId('card').querySelector('.eva-pmc-dot')).toBeNull()
     expect(raf).toHaveBeenCalledTimes(1)
     act(() => raf.mock.calls[0]![0](0))
     expect(figure().length).toBeGreaterThan(3)
     expect(figure()[0]!.getAttribute('transform')).toMatch(/^matrix\(/)
+  })
+
+  it('researches with its magnifier while Relay hears a search running', () => {
+    const t0 = Date.now()
+    let now = t0
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    card()
+    act(() => list('working', 'web_search'))
+    act(() => raf.mock.calls[0]![0](0))
+    expect(screen.getByTestId('card')).toHaveAttribute('data-state', 'researching')
+    expect(screen.getByRole('img', { name: 'Researching' })).toBeInTheDocument()
+    now = t0 + 2_000
+    act(() => raf.mock.calls[0]![0](0))
+    const lens = screen.getByTestId('card').querySelector('.eva-pmc-lens')!
+    expect(Number(lens.getAttribute('opacity'))).toBeGreaterThan(0.5)
+    expect(lens.getAttribute('transform')).toMatch(/^translate\(/)
+    // The command after it works; the question that follows is the dot alone.
+    act(() => list('working', 'bash'))
+    act(() => raf.mock.calls[0]![0](0))
+    expect(screen.getByTestId('card')).toHaveAttribute('data-state', 'working')
+    act(() => list('needs-you'))
+    act(() => raf.mock.calls[0]![0](0))
+    expect(screen.getByTestId('card')).toHaveAttribute('data-state', 'idle')
+    expect(screen.getByTestId('card')).toHaveAttribute('data-dot', 'orange')
   })
 
   it('holds a still face with motion off, the ring still while the agent thinks', () => {
@@ -139,7 +173,7 @@ describe('the animated start card', () => {
 })
 
 describe('small portraits', () => {
-  it('ring and dot in the state the agent is in', () => {
+  it('ring while thinking, researching or working, the dot in its tone', () => {
     render(<AgentPortrait id="nova" className="x" />)
     const el = screen.getByTestId('agent-portrait-nova')
     expect(el).toHaveAttribute('data-state', 'idle')
@@ -149,10 +183,21 @@ describe('small portraits', () => {
     act(() => list('working'))
     expect(el).toHaveAttribute('data-state', 'thinking')
     expect(el).toHaveAttribute('data-ring', 'true')
+    expect(el).toHaveAttribute('data-dot', 'accent')
     expect(screen.getByRole('img', { name: 'Thinking' })).toBeInTheDocument()
+    act(() => list('working', 'read'))
+    expect(el).toHaveAttribute('data-state', 'researching')
+    expect(el).toHaveAttribute('data-ring', 'true')
+    // Needing Isaac keeps a calm face; the dot says it.
     act(() => list('needs-you'))
+    expect(el).toHaveAttribute('data-state', 'idle')
+    expect(el).toHaveAttribute('data-ring', 'false')
     expect(el).toHaveAttribute('data-dot', 'orange')
     expect(screen.getByRole('img', { name: 'Needs you' })).toBeInTheDocument()
+    act(() => assistantsStore.setState({ failed: { nova: 'Relay is down' } }))
+    act(() => list('idle'))
+    expect(el).toHaveAttribute('data-dot', 'red')
+    expect(screen.getByRole('img', { name: 'Something went wrong' })).toBeInTheDocument()
   })
 
   it('stop their CSS animation with motion off or reduced, and pause on a hidden page', () => {

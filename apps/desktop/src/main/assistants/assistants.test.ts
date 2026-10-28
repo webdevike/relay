@@ -85,15 +85,16 @@ describe('assistant status like native', () => {
         { ...thread('s-h', 'h', 'working'), detail: 'bash' },
       ].map((t) => [t.id, t]),
     )
-    expect(s.svc.list().agents.map((a) => [a.id, a.status])).toEqual([
-      ['a', 'working'],
-      ['b', 'needs-you'],
-      ['c', 'needs-you'],
-      ['d', 'idle'],
-      ['e', 'idle'],
-      ['f', 'not-started'],
-      ['g', 'needs-you'],
-      ['h', 'working'],
+    expect(s.svc.list().agents.map((a) => [a.id, a.status, a.tool])).toEqual([
+      ['a', 'working', null],
+      ['b', 'needs-you', null],
+      ['c', 'needs-you', null],
+      ['d', 'idle', null],
+      ['e', 'idle', null],
+      ['f', 'not-started', null],
+      ['g', 'needs-you', null],
+      // While it works, Relay's detail names the running tool.
+      ['h', 'working', 'bash'],
     ])
   })
 
@@ -110,6 +111,7 @@ describe('assistant status like native', () => {
           scope: 'eCard Systems work',
           avatar: { style: 'notionists', seed: 'astra-2' },
           status: 'not-started',
+          tool: null,
           file: null,
           reply: null,
         },
@@ -119,6 +121,7 @@ describe('assistant status like native', () => {
           scope: '',
           avatar: { style: 'notionists', seed: 'nova' },
           status: 'not-started',
+          tool: null,
           file: null,
           reply: null,
         },

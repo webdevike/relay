@@ -7,14 +7,14 @@ import {
   type Director,
   type Frame,
   type MotionSignals,
-  type MotionState,
   type Rig,
 } from '@relay/portrait-motion'
 import { motionLive, onMotionGate, pageHidden } from './motion-gate'
+import { IDLE_VIEW, nextView, type PortraitView } from './motion-store'
 
 /** The card animates at most this many frames a second. */
 export const PORTRAIT_FPS = 24
-/** While it cannot animate, time-only edges (Hello and Done ending, Snoozing) show within this long. */
+/** While it cannot animate, time-only edges (Waking ending, Snoozing) show within this long. */
 const STILL_TICK_MS = 1000
 /** Confetti pieces a frame can hold (the engine's burst). */
 const CONFETTI = 16
@@ -26,19 +26,19 @@ export interface PainterOptions {
   director: Director
   /** The agent's signals now; read once per frame (or tick while still). */
   signals: () => MotionSignals
-  /** Hears each state change (the card's state dot). */
-  onState: (state: MotionState) => void
+  /** Hears each change of face or status dot. */
+  onView: (view: PortraitView) => void
 }
 
 const n2 = (v: number): string => v.toFixed(2)
 
 /**
  * Draws a portrait-motion rig into `host` as inline SVG: the figure's part groups on the disc,
- * the accent overlays (ring dots, sound waves, z z z, "?" bubble, sweat drop, confetti) in a
- * second SVG reaching `FX_REACH` past it. Each frame only sets `transform` and `opacity`
- * attributes; a part group's markup is swapped only when its part key changes. Animates at
- * `PORTRAIT_FPS` while `motionLive()`; with motion off it holds the resting face (and the ring,
- * still, in a ring state); while the page is hidden it does nothing at all.
+ * the accent overlays (ring dots, sound waves, z z z, "?" bubble, sweat drop, confetti, the
+ * researching magnifier) in a second SVG reaching `FX_REACH` past it. Each frame only sets
+ * `transform` and `opacity` attributes; a part group's markup is swapped only when its part key
+ * changes. Animates at `PORTRAIT_FPS` while `motionLive()`; with motion off it holds the resting
+ * face (and the ring, still, in a ring state); while the page is hidden it does nothing at all.
  */
 export class PortraitPainter {
   private readonly timeline: Timeline
@@ -51,9 +51,10 @@ export class PortraitPainter {
   private readonly zs: SVGTextElement[]
   private readonly quiz: SVGGElement
   private readonly drop: SVGGElement
+  private readonly lens: SVGGElement
   private readonly confetti: SVGRectElement[]
   private readonly over: number
-  private state: MotionState
+  private view: PortraitView = IDLE_VIEW
   private raf = 0
   private timer: number | undefined
   private readonly offGate: () => void
@@ -80,6 +81,9 @@ export class PortraitPainter {
       `<text y="${n2(size * 0.065)}" font-size="${n2(g.quizFont)}" text-anchor="middle">?</text>` +
       `</g></g>` +
       `<g class="eva-pmc-drop" opacity="0"><path d="${g.drop}" stroke-width="${n2(g.dropStroke)}"/></g>` +
+      `<g class="eva-pmc-lens" opacity="0" stroke-linecap="round">` +
+      `<path d="${g.lensHandle}" stroke-width="${n2(g.lensStroke * 1.6)}"/>` +
+      `<circle r="${n2(g.lensR)}" stroke-width="${n2(g.lensStroke)}"/></g>` +
       `<g class="eva-pmc-conf">${`<rect rx="${n2(size * 0.006)}" opacity="0"/>`.repeat(CONFETTI)}</g>` +
       `</svg>`
     const all = <T extends Element>(sel: string): T[] => [...host.querySelectorAll<T>(sel)]
@@ -89,11 +93,12 @@ export class PortraitPainter {
     this.zs = all('.eva-pmc-zzz text')
     this.quiz = host.querySelector<SVGGElement>('.eva-pmc-quiz')!
     this.drop = host.querySelector<SVGGElement>('.eva-pmc-drop')!
+    this.lens = host.querySelector<SVGGElement>('.eva-pmc-lens')!
     this.confetti = all('.eva-pmc-conf rect')
     const now = Date.now()
-    this.state = o.director.next(o.signals(), now)
-    this.timeline = new Timeline(this.state, now)
-    o.onState(this.state)
+    this.view = nextView(o.director, o.signals(), now, IDLE_VIEW)
+    this.timeline = new Timeline(this.view.state, now)
+    o.onView(this.view)
     this.offGate = onMotionGate(() => this.run())
     this.run()
   }
@@ -134,19 +139,21 @@ export class PortraitPainter {
     const started = performance.now()
     this.paint(frame(this.o.rig, this.timeline.clip(this.advance()), this.o.size))
     const wait = Math.max(0, 1000 / PORTRAIT_FPS - (performance.now() - started) - 4)
+    // One wait at a time, however the frame was reached.
+    clearTimeout(this.timer)
     this.timer = window.setTimeout(() => {
       this.raf = requestAnimationFrame(this.step)
     }, wait)
   }
 
-  /** The director's state now, moved into the timeline; returns the time used. */
+  /** The director's face now, moved into the timeline; returns the time used. */
   private advance(): number {
     const now = Date.now()
-    const state = this.o.director.next(this.o.signals(), now)
-    this.timeline.set(state, now)
-    if (state !== this.state) {
-      this.state = state
-      this.o.onState(state)
+    const view = nextView(this.o.director, this.o.signals(), now, this.view)
+    this.timeline.set(view.state, now)
+    if (view !== this.view) {
+      this.view = view
+      this.o.onView(view)
     }
     return now
   }
@@ -159,12 +166,13 @@ export class PortraitPainter {
       { state: 'idle', lt: 0, gt: 0, prev: null, prevDur: 0 },
       this.o.size,
     )
-    const ring = STATE_META[this.state].ring ? 0.8 : 0
+    const ring = STATE_META[this.view.state].ring ? 0.8 : 0
     f.fx.dots = f.fx.dots.map(() => ring)
     f.fx.waves = f.fx.waves.map((w) => ({ ...w, o: 0 }))
     f.fx.zs = f.fx.zs.map((z) => ({ ...z, o: 0 }))
     f.fx.quiz = { ...f.fx.quiz, o: 0 }
     f.fx.drop = { ...f.fx.drop, o: 0 }
+    f.fx.lens = { ...f.fx.lens, o: 0 }
     f.fx.confetti = []
     this.paint(f)
   }
@@ -217,6 +225,8 @@ export class PortraitPainter {
       )
     set(this.drop, 'opacity', fx.drop.o.toFixed(3))
     if (fx.drop.o > 0) set(this.drop, 'transform', `translate(${X(fx.drop.x)} ${X(fx.drop.y)})`)
+    set(this.lens, 'opacity', fx.lens.o.toFixed(3))
+    if (fx.lens.o > 0) set(this.lens, 'transform', `translate(${X(fx.lens.x)} ${X(fx.lens.y)})`)
     this.confetti.forEach((r, i) => {
       const k = fx.confetti[i]
       set(r, 'opacity', k === undefined ? '0' : k.o.toFixed(3))

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Extras } from '@evaos/contract'
-import { ExtrasService, lastAssistantLine } from './extras'
+import { ExtrasService, lastAssistantLine, runningTool } from './extras'
 
 const asst = (t: string): string =>
   JSON.stringify({
@@ -17,6 +17,13 @@ const started = (id: string): string =>
       details: { async: { state: 'running', jobId: id, type: 'bash' } },
     },
   })
+const call = (id: string, name: string): string =>
+  JSON.stringify({
+    type: 'message',
+    message: { role: 'assistant', content: [{ type: 'toolCall', id, name, arguments: {} }] },
+  })
+const result = (id: string): string =>
+  JSON.stringify({ type: 'message', message: { role: 'toolResult', toolCallId: id, content: [] } })
 
 function setup(panes: Array<{ paneId: string; file: string; live: boolean }>) {
   const texts: Record<string, string> = {}
@@ -46,14 +53,14 @@ describe('ExtrasService', () => {
       { name: 'a.md', mtimeMs: 2 },
       { name: 'b.jsonl', mtimeMs: 5 },
     ]
-    texts['/s/x/b.jsonl'] = [user, asst('Working   on it')].join('\n')
+    texts['/s/x/b.jsonl'] = [user, asst('Working   on it'), call('k1', 'web_search')].join('\n')
     texts['/s/x.jsonl'] = started('bg_1')
     svc.refresh()
     expect(out).toHaveLength(1)
     expect(out[0]).toMatchObject({ paneId: 'pane-1', running: false, jobs: [] })
-    expect(out[0]!.subagents.map((s) => [s.name, s.done, s.lastLine, s.failed])).toEqual([
-      ['b', false, 'Working on it', false],
-      ['a', true, '', false],
+    expect(out[0]!.subagents.map((s) => [s.name, s.done, s.lastLine, s.failed, s.tool])).toEqual([
+      ['b', false, 'Working on it', false, 'web_search'],
+      ['a', true, '', false, null],
     ])
   })
 
@@ -116,5 +123,17 @@ describe('ExtrasService', () => {
     const long = lastAssistantLine(asst('x'.repeat(400)))
     expect(Array.from(long)).toHaveLength(160)
     expect(lastAssistantLine([asst('older'), user].join('\n'))).toBe('older')
+  })
+
+  it('runningTool is the newest call still without a result, until it returns or a prompt comes', () => {
+    expect(runningTool('')).toBeNull()
+    expect(runningTool([user, call('k1', 'read')].join('\n'))).toBe('read')
+    expect(runningTool([user, call('k1', 'read'), result('k1')].join('\n'))).toBeNull()
+    expect(runningTool([call('k1', 'read'), result('k1'), call('k2', 'bash')].join('\n'))).toBe(
+      'bash',
+    )
+    expect(runningTool([call('k1', 'read'), user].join('\n'))).toBeNull()
+    // Text after the call does not end it.
+    expect(runningTool([call('k1', 'grep'), asst('looking')].join('\n'))).toBe('grep')
   })
 })

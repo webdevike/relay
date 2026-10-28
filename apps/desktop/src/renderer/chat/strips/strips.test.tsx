@@ -29,6 +29,7 @@ const sub = (name: string, done: boolean, lastLine = ''): Subagent => ({
   failed: false,
   mtimeMs: 1,
   lastLine,
+  tool: null,
 })
 const job = (id: string): BgJob => ({ id, label: `cmd ${id}`, kind: 'bash', startedAt: 1000 })
 const wrap = (ui: React.ReactElement) => render(<MantineProvider>{ui}</MantineProvider>)

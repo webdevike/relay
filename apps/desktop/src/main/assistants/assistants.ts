@@ -223,12 +223,15 @@ export class AssistantsService {
     const agents: Assistant[] = this.agents().map((agent) => {
       const session = assistantSession(sessions, agent.id)
       const file = session ? this.fileOf(session.id) : null
+      const status = statusOf(session)
       return {
         id: agent.id,
         title: agent.title,
         scope: agent.scope,
         avatar: agent.avatar,
-        status: statusOf(session),
+        status,
+        // Relay's detail is the running tool while it works (an open `ask` already reads Needs you).
+        tool: status === 'working' ? (session?.detail ?? null) : null,
         file,
         reply: file ? this.replyOf(file) : null,
       }

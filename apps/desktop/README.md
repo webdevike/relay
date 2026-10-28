@@ -49,26 +49,33 @@ by the supervisor) shows the relaunched window without taking focus. `state.read
 
 ## Assistant portraits
 
-An agent's portrait moves with its thread through `@relay/portrait-motion` (linked from the Relay
-checkout like `@relay/widget-runtime`; its DiceBear styles are deduped with ours in
+An agent's portrait moves calmly with its thread through `@relay/portrait-motion` (linked from the
+Relay checkout like `@relay/widget-runtime`; its DiceBear styles are deduped with ours in
 `electron.vite.config.ts`). `renderer/assistants/motion-signals.ts` derives the engine's signals
-per agent: Relay's status (`working` runs, `needs-you` waits; main reads omp's open `ask` as
-`needs-you`), Start on its way (runs) or refused (fails), the last reply's time, and, only while
-main's chat pane shows the agent's thread file, its stream (Talking, ChatLog's rule), running tool
-rows, subagents and jobs (Working), question card (Confused) and error banner or `Error:` notice
-(Error). No call reaches the desktop, so Listening never shows. The engine's `Director` turns
-those into Hello, Idle, Thinking, Working, Talking, Done, Confused, Error, Snoozing and Waking.
+per agent: `running` from Relay's status (`working`), Start on its way, or the open pane running
+(a streaming reply is just running); `tool` from what its running tools do (`toolKind`): running
+subagents first (`Subagent.tool`, the call main sees still open in each transcript), else the
+tool Relay hears (`Assistant.tool`, Relay's status detail while working), else the open pane's
+running tool row, else background jobs (work); `waiting` from `needs-you` (main reads omp's open
+`ask` that way) or the pane's question card; `failed` from a refused Start, the pane's error
+banner or an `Error:` notice in the last turn; `activityAt` from the last reply. The engine's
+`Director` turns those into one of five faces: Thinking, Researching (search, fetch, reads),
+Working (anything else), Idle, Snoozing after 30 quiet minutes (Waking when it stirs).
+`statusDot` gives the dot: accent while it runs, orange when it needs Isaac, red after a failure;
+needing Isaac and failing never change the face.
 
 - **Small portraits** (tab, crumb, Assistants home and sidebar rows: `PortraitMotion`) share one
   director per agent (`motion-store.ts`, ticked on store changes and once a second) and animate in
-  CSS only: breathing, the turning accent ring while thinking or working, and a dot in the state's
-  tone (accent, orange needs you, red failed).
+  CSS only: breathing, the turning accent ring while thinking, researching or working, and the
+  dot.
 - **The start card** (`PortraitCard`, 84 px) draws every engine frame as inline SVG at most 24
-  fps (`portrait-painter.ts`), greeting with Hello each time the page opens.
+  fps (`portrait-painter.ts`), with the engine's overlays (the ring, Researching's magnifier).
 - Motion off (`html[data-eva-motion='off']`: e2e, `EVAOS_NO_MOTION`, or the system's reduced
-  motion) holds every portrait still, the ring included; a hidden page runs no frames and pauses
-  the CSS (`motion-gate.ts`). `e2e/assistant-motion.spec.ts` drives a thread through every state;
-  `EVAOS_MOTION_PROOF=<dir>` turns motion on and records it plus CPU samples.
+  motion) holds every portrait still, the ring included; a hidden page or window (main's
+  `app.windowShown`) runs no frames and pauses the CSS (`motion-gate.ts`).
+  `e2e/assistant-motion.spec.ts` drives a thread through every face and dot;
+  `EVAOS_MOTION_PROOF=<dir>` turns motion on and records the card through Researching plus CPU
+  samples.
 
 ## Right panel
 

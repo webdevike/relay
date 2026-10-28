@@ -64,10 +64,12 @@
   box-shadow: 0 0 0 1.5px var(--eva-pm-edge, var(--eva-c-background));
   pointer-events: none;
 }
+/* The card's dot sits top right: Researching's magnifier takes the bottom right. */
 .eva-pmc-dot {
   width: 14px;
+  top: 4px;
   right: 4px;
-  bottom: 4px;
+  bottom: auto;
   box-shadow: 0 0 0 2px var(--eva-pm-edge, var(--eva-c-background));
 }
 [data-dot='orange'] > .eva-pm-dot,
@@ -160,4 +162,15 @@ html[data-eva-page-hidden='true'] .eva-pm > * {
 .eva-pmc-drop path {
   fill: var(--eva-pm-soft);
   stroke: var(--eva-pm-c);
+}
+/* Researching: a magnifier (the playground's): white lens at 60%, accent rim and a heavier handle. */
+.eva-pmc-lens {
+  stroke: var(--eva-pm-c);
+}
+.eva-pmc-lens circle {
+  fill: #fff;
+  fill-opacity: 0.6;
+}
+.eva-pmc-lens path {
+  fill: none;
 }

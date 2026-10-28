@@ -5,6 +5,7 @@ import * as path from 'node:path'
 import { backgroundJobs, subagentsFromListing } from '@evaos/chat-core/jobs'
 import { oneLine } from '@evaos/chat-core/session'
 import type { Subagent } from '@evaos/chat-core/message'
+import { z } from 'zod'
 import type { Extras } from '@evaos/contract'
 import type { SessionManager } from './session-manager'
 
@@ -58,6 +59,51 @@ export function lastAssistantLine(text: string): string {
     if (one !== '') return one
   }
   return ''
+}
+
+// What `runningTool` reads of a transcript record; anything else in it is ignored.
+const ToolCallSchema = z.object({ type: z.literal('toolCall'), id: z.string(), name: z.string() })
+const RecordSchema = z.object({
+  message: z.object({
+    role: z.string(),
+    toolCallId: z.string().optional().catch(undefined),
+    content: z.array(z.unknown()).optional().catch(undefined),
+  }),
+})
+
+/**
+ * The tool a transcript is running now: its newest assistant message's last call still without a
+ * result, read from the end; null when that message's calls all returned or a prompt came after.
+ */
+export function runningTool(text: string): string | null {
+  const lines = text.split('\n')
+  const answered = new Set<string>()
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i] as string
+    if (!line.includes('"message"')) continue
+    let raw: unknown
+    try {
+      raw = JSON.parse(line)
+    } catch {
+      continue
+    }
+    const r = RecordSchema.safeParse(raw)
+    if (!r.success) continue
+    const msg = r.data.message
+    if (msg.role === 'user') return null
+    if (msg.role === 'toolResult' && msg.toolCallId !== undefined) {
+      answered.add(msg.toolCallId)
+      continue
+    }
+    if (msg.role !== 'assistant') continue
+    const calls = (msg.content ?? []).flatMap((p) => {
+      const c = ToolCallSchema.safeParse(p)
+      return c.success ? [c.data] : []
+    })
+    if (calls.length === 0) continue
+    return calls.findLast((c) => !answered.has(c.id))?.name ?? null
+  }
+  return null
 }
 
 export class ExtrasService {
@@ -122,11 +168,11 @@ export class ExtrasService {
       return []
     }
     return subagentsFromListing(entries).map((s) => {
-      let lastLine = ''
+      let text = ''
       try {
-        lastLine = lastAssistantLine(this.readText(path.join(dir, s.file)))
+        text = this.readText(path.join(dir, s.file))
       } catch {
-        lastLine = ''
+        text = ''
       }
       return {
         name: s.name,
@@ -134,7 +180,8 @@ export class ExtrasService {
         done: s.done,
         failed: false,
         mtimeMs: s.mtimeMs,
-        lastLine,
+        lastLine: lastAssistantLine(text),
+        tool: s.done ? null : runningTool(text),
       }
     })
   }
