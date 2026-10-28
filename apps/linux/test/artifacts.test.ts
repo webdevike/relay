@@ -242,6 +242,32 @@ describe("ArtifactService", () => {
     expect(fresh.service.openMedia(sha, token)).not.toBeNull();
   });
 
+  it("reads pasted images from omp's blob store and drops images an older host stored broken", () => {
+    const h = harness();
+    const base = mkdtempSync(join(tmpdir(), "omp-"));
+    mkdirSync(join(base, "agent", "sessions", "-Eva"), { recursive: true });
+    mkdirSync(join(base, "agent", "blobs"));
+    const hex = "9".repeat(64);
+    const webp = Buffer.concat([Buffer.from("RIFF\x00\x00\x00\x00WEBP", "latin1"), Buffer.from("rest")]);
+    writeFileSync(join(base, "agent", "blobs", hex), webp);
+    const file = join(base, "agent", "sessions", "-Eva", "2026-10-27_b.jsonl");
+    writeFileSync(file, user(T0, [{ type: "text", text: "ENG-1000 look" }, { type: "image", data: `blob:sha256:${hex}`, mimeType: "image/webp" }]));
+    h.files.push(file);
+    // What 0.2.30 left behind: the ref's text decoded as base64, under the old id.
+    mkdirSync(join(h.root, "media"), { recursive: true });
+    writeFileSync(join(h.root, "media", "b".repeat(32)), Buffer.from("blob:sha256", "base64"));
+    mkdirSync(join(h.root, "assistant-astra"), { recursive: true });
+    const stale: Artifact = { id: `image:${"b".repeat(32)}`, kind: "image", title: "Pasted image", mentions: 1, firstSeen: T0, lastSeen: T0, sources: [`user@${T0}`], addedBy: "extractor" };
+    const ticket: Artifact = { id: "linear:ENG-1000", kind: "linear", title: "ENG-1000", mentions: 1, firstSeen: T0, lastSeen: T0, sources: [`user@${T0}`], addedBy: "extractor" };
+    writeFileSync(join(h.root, "assistant-astra", "artifacts.json"), JSON.stringify({ version: 1, items: [stale, ticket], scans: { [file]: { offset: 99999, fresh: false } } }));
+    h.service.get("assistant:astra");
+    const items = h.snapshot().items;
+    expect(items.map((found) => found.id).sort()).toEqual([`image:${hex.slice(0, 32)}`, "linear:ENG-1000"]);
+    expect(items.find((found) => found.id === "linear:ENG-1000")?.mentions).toBe(1);
+    const [, , , sha = "", token = ""] = (items.find((found) => found.kind === "image")?.url ?? "").split("/");
+    expect(readFileSync(h.service.openMedia(sha, token)?.path ?? "")).toEqual(webp);
+  });
+
   it("follows subagents: status line from the transcript, done by the result file, children nested", () => {
     const h = harness();
     const file = transcript(h);

@@ -16,7 +16,7 @@
 
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
-import { basename, isAbsolute, join, normalize } from "node:path";
+import { basename, dirname, isAbsolute, join, normalize } from "node:path";
 import type { ArtifactKind, ArtifactMedia } from "@relay/protocol";
 
 export interface Found {
@@ -30,8 +30,8 @@ export interface Found {
   readonly media?: ArtifactMedia;
   /** Drop id for `drop` items, so the service can fill in its file facts. */
   readonly drop?: string;
-  /** A pasted image's bytes (base64) and type, for the service to store and serve. */
-  readonly image?: { readonly sha: string; readonly data: string; readonly mimeType: string };
+  /** A pasted image, for the service to store and serve: its bytes (base64), or omp's blob file holding them. */
+  readonly image?: { readonly sha: string; readonly mimeType: string } & ({ readonly data: string } | { readonly blob: string });
 }
 
 export interface ScannedMessage {
@@ -349,13 +349,15 @@ export function scanTranscript(raw: string, ctx: ScanContext): ScanResult & { re
       if (first && texts.some((text) => PRIME.test(text))) continue;
       const caption = texts.join(" ").replace(/\s+/g, " ").trim().slice(0, 120);
       for (const image of imageParts(message["content"])) {
-        const sha = createHash("sha256").update(image.data).digest("hex").slice(0, 32);
+        // omp keeps attachments in its blob store and writes `blob:sha256:<hex>` in their place.
+        const blob = /^blob:sha256:([0-9a-f]{64})$/.exec(image.data)?.[1];
+        const sha = blob?.slice(0, 32) ?? createHash("sha256").update(image.data).digest("hex").slice(0, 32);
         found.push({
           id: `image:${sha}`,
           kind: "image",
           title: "Pasted image",
           media: { mimeType: image.mimeType },
-          image: { sha, data: image.data, mimeType: image.mimeType },
+          image: blob === undefined ? { sha, data: image.data, mimeType: image.mimeType } : { sha, blob: join(dirname(dirname(dirname(ctx.file))), "blobs", blob), mimeType: image.mimeType },
           ...(caption === "" ? {} : { caption }),
         });
       }

@@ -380,6 +380,14 @@ export class ArtifactService implements ArtifactRelaying {
       repo: items.repo,
       media: items.media,
     };
+    // Hosts before omp blob refs were read stored the ref's text as the image: drop those and count the thread again.
+    const broken = [...state.items.values()].filter((item) => item.kind === "image" && !isImageFile(join(this.deps.root, "media", item.id.slice("image:".length))));
+    if (broken.length > 0) {
+      for (const item of broken) state.items.delete(item.id);
+      for (const item of state.items.values()) if (item.addedBy === "extractor") state.items.set(item.id, { ...item, mentions: 0, sources: [] });
+      state.scans = {};
+      this.deps.log(`artifacts: ${thread} had ${broken.length} unreadable pasted images; reading its transcripts again`);
+    }
     this.threads.set(thread, state);
     return state;
   }
@@ -490,7 +498,7 @@ export class ArtifactService implements ArtifactRelaying {
       }
     }
     if (found.image !== undefined) {
-      const token = this.storeImage(state, found.image.sha, found.image.data, found.image.mimeType);
+      const token = this.storeImage(state, found.image);
       if (token === null) return false;
       url = `/artifacts/media/${found.image.sha}/${token}`;
     }
@@ -529,18 +537,24 @@ export class ArtifactService implements ArtifactRelaying {
     return true;
   }
 
-  /** Stores a pasted image once; its serving token, or null when it is too big or unreadable. */
-  private storeImage(state: ThreadState, sha: string, data: string, mimeType: string): string | null {
+  /** Stores a pasted image once; its serving token, or null when it is too big or not an image. */
+  private storeImage(state: ThreadState, image: NonNullable<Found["image"]>): string | null {
+    const { sha } = image;
     const known = state.media[sha] ?? [...this.threads.values()].map((other) => other.media[sha]).find((token) => token !== undefined);
     const path = join(this.deps.root, "media", sha);
-    if (known !== undefined && existsSync(path)) {
+    if (known !== undefined && isImageFile(path)) {
       state.media[sha] = known;
       return known;
     }
-    const bytes = Buffer.from(data, "base64");
-    if (bytes.length === 0 || bytes.length > MAX_IMAGE_BYTES) return null;
+    let bytes: Buffer;
+    try {
+      bytes = "blob" in image ? readFileSync(image.blob) : Buffer.from(image.data, "base64");
+    } catch {
+      return null;
+    }
+    if (bytes.length > MAX_IMAGE_BYTES || !isImage(bytes)) return null;
     writeAtomic(path, bytes);
-    writeAtomic(`${path}.type`, mimeType);
+    writeAtomic(`${path}.type`, image.mimeType);
     const token = known ?? randomBytes(32).toString("hex");
     state.media[sha] = token;
     return token;
@@ -655,4 +669,22 @@ function lastIntent(path: string, size: number): string | null {
   } catch {
     return null;
   }
+}
+
+/** PNG, JPEG, GIF or WebP by their first bytes. */
+function isImage(bytes: Uint8Array): boolean {
+  const ascii = Buffer.from(bytes.subarray(0, 12)).toString("latin1");
+  return ascii.startsWith("\x89PNG") || ascii.startsWith("\xff\xd8\xff") || ascii.startsWith("GIF8") || (ascii.startsWith("RIFF") && ascii.slice(8, 12) === "WEBP");
+}
+
+function isImageFile(path: string): boolean {
+  if (!existsSync(path)) return false;
+  const head = Buffer.alloc(12);
+  const fd = openSync(path, "r");
+  try {
+    readSync(fd, head, 0, 12, 0);
+  } finally {
+    closeSync(fd);
+  }
+  return isImage(head);
 }
