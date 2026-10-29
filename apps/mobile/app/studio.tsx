@@ -163,7 +163,7 @@ export default function Studio() {
 
         <BottomBar>
           {hint.length > 0 && (
-            <Text variant="caption" color={problem === undefined ? "textMuted" : "warn"} numberOfLines={2} style={styles.hint}>
+            <Text variant="caption" color="textMuted" numberOfLines={2} style={styles.hint}>
               {hint}
             </Text>
           )}

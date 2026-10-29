@@ -42,12 +42,21 @@ function Backdrop(props: BottomSheetBackdropProps) {
 export function Sheet({ visible, onClose, children }: SheetProps) {
   const colors = useColors();
   const ref = useRef<BottomSheetModal>(null);
+  const presented = useRef(false);
   const { height } = useWindowDimensions();
+  // Dismissing a modal that was never presented (a sheet mounted hidden) leaves gorhom refusing
+  // the next present(), so only dismiss what this sheet presented.
   useEffect(() => {
-    if (visible) ref.current?.present();
-    else ref.current?.dismiss();
+    if (visible) {
+      ref.current?.present();
+      presented.current = true;
+    } else if (presented.current) {
+      ref.current?.dismiss();
+      presented.current = false;
+    }
   }, [visible]);
   const dismissed = useCallback(() => {
+    presented.current = false;
     if (visible) onClose();
   }, [visible, onClose]);
 
