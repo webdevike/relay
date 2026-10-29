@@ -43,6 +43,7 @@ import { PANE_ID } from '../chat/open-chat'
 import { listStore } from '../chat/list/list-store'
 import { currentSpace, filesStore, locatePath, showPath } from '../files/files-store'
 import { requestExperiment } from '../test-bench/bench-request'
+import { requestStudioOpen, studioStore } from '../studio/studio-store'
 import {
   contextStore,
   pinContext,
@@ -564,5 +565,33 @@ export const rendererActions: AgentRunners<'renderer'> = {
   'shortcut.run': ({ action }) => {
     runAction(action)
     return { ran: action }
+  },
+  'studio.open': ({ job, draft, scope }) => {
+    const { view } = studioStore.getState()
+    if (job !== undefined && view.loaded && !view.jobs.some((j) => j.id === job)) {
+      fail('not-found', `No Studio job ${job}; studio.list lists them`)
+    }
+    const tab: PaneTab = { kind: 'page', place: placeOf('studio') }
+    const show = (): void => {
+      openTab(tab)
+      if (job !== undefined) requestStudioOpen({ job })
+      else if (draft !== undefined) requestStudioOpen({ draft })
+    }
+    const result = {
+      tab: tabId(tab),
+      ...(job === undefined ? {} : { job }),
+      draft: draft !== undefined,
+    }
+    return inScope(
+      scope,
+      () => {
+        show()
+        return result
+      },
+      (t) => {
+        showAway(t, job === undefined ? 'opened Studio' : 'opened a Studio job', show)
+        return result
+      },
+    )
   },
 }

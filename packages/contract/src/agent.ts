@@ -3,6 +3,15 @@ import { SwitchAppIdSchema, TabIdSchema } from './browser'
 import { ContextScopeSchema, PinIdSchema, PinRefSchema } from './context'
 import { ArtifactKind, ArtifactTabIcon, TabRule } from '@evaos/chat-core/artifacts'
 import { CanvasLiveSlugSchema } from '@evaos/chat-core/canvas-live'
+import {
+  MAX_STUDIO_PROMPT,
+  MAX_STUDIO_REFS,
+  StudioAspectSchema,
+  StudioBackendIdSchema,
+  StudioDraftSchema,
+  StudioJobStateSchema,
+  StudioModeSchema,
+} from './studio'
 
 /**
  * Agent control: every user-reachable action an agent (Eva, Nova, any omp session) may run in the
@@ -54,6 +63,7 @@ export const AGENT_FIXED_PAGES = [
   'meetings',
   'canvas',
   'rooms',
+  'studio',
   'settings',
 ] as const
 
@@ -252,7 +262,7 @@ export const agentActions = {
   'tab.open': {
     title: 'Open a tool tab',
     description:
-      'Shows a tool tab: `browser` (args.url also opens that page), `files` (args.path shows a file or folder, at args.line), `artifacts`, `subagent` (args: session file, subagent .jsonl, name), `experiment-arm` (args: experiment, arm) or `page` (args.page: test-bench, canvas with args.canvas, jobs, a workspace:<slug>...; not chats). Already open: it comes to the front (moved to `pane` when one is named). Else it opens in `pane`, the focused or last tool pane, or a new pane right of the chat. Answers the pane and tab ids.',
+      'Shows a tool tab: `browser` (args.url also opens that page), `files` (args.path shows a file or folder, at args.line), `artifacts`, `subagent` (args: session file, subagent .jsonl, name), `experiment-arm` (args: experiment, arm) or `page` (args.page: test-bench, canvas with args.canvas, studio, jobs, a workspace:<slug>...; not chats). Already open: it comes to the front (moved to `pane` when one is named). Else it opens in `pane`, the focused or last tool pane, or a new pane right of the chat. Answers the pane and tab ids.',
     params: z
       .object({
         kind: z.enum(['browser', 'files', 'artifacts', 'subagent', 'experiment-arm', 'page']),
@@ -615,6 +625,70 @@ export const agentActions = {
     focus: 'none',
     destructive: false,
     scoped: true,
+  },
+  'studio.generate': {
+    title: 'Generate an image or video in Studio',
+    description:
+      "Queues one free Studio job on the Relay host as the agent (origin `agent`) and answers `{job}` (id, state, prompt, backend, progress, eta, outputs). `mode` defaults to the backend's, else image. `backend` defaults to `ltx` (local video) for video, `codex-image` for image, `codex-edit` when `refs` are given. `aspect` defaults to 16:9 for video and 1:1 for image; `resolution` (an id studio.list shows per backend) to the first the backend offers for that aspect; `seconds` (video) to its first allowed length. `frames` ({start, mid, end}) and `refs` take asset ids from studio.list outputs. A paid backend (higgsfield) is refused: open it as a draft with studio.open so Isaac sees the cost and confirms it himself. `open: true` also shows the job in the Studio tool tab of the calling scope (never takes focus). Poll studio.list for progress.",
+    params: z
+      .object({
+        prompt: z.string().trim().min(1).max(MAX_STUDIO_PROMPT),
+        mode: StudioModeSchema.optional(),
+        backend: StudioBackendIdSchema.optional(),
+        aspect: StudioAspectSchema.optional(),
+        resolution: z.string().min(1).max(40).optional(),
+        seconds: z.number().min(1).max(20).optional(),
+        seed: z.number().int().min(0).max(2_147_483_647).optional(),
+        frames: z
+          .object({
+            start: z.string().min(1).max(100).optional(),
+            mid: z.string().min(1).max(100).optional(),
+            end: z.string().min(1).max(100).optional(),
+          })
+          .strict()
+          .optional(),
+        refs: z.array(z.string().min(1).max(100)).max(MAX_STUDIO_REFS).optional(),
+        model: z.string().min(1).max(100).optional(),
+        open: z.boolean().optional(),
+        scope,
+      })
+      .strict(),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'studio.list': {
+    title: 'List Studio jobs',
+    description:
+      "Studio on the Relay host: its backends (id, label, mode, paid, available with the reason when not, resolutions, seconds, frames, refs, models, balance) and its jobs newest first (id, state, prompt, mode, backend, model, progress 0 to 1, eta, note, error, outputs). Each output has an `id` (usable in studio.generate `frames`/`refs`), `url` and `thumb` on the host's http origin (`http://127.0.0.1:<port>/studio/...`, no auth needed), kind, mimeType, width, height, durationMs and size in bytes. `state` keeps only jobs in that state; `limit` caps the jobs (default 20, at most 100).",
+    params: z
+      .object({
+        state: StudioJobStateSchema.optional(),
+        limit: z.number().int().min(1).max(100).optional(),
+      })
+      .strict(),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+  },
+  'studio.open': {
+    title: 'Open Studio',
+    description:
+      "Shows the Studio page as a tool tab in the calling scope's tool panes (a background scope gets it when Isaac opens that page; never takes focus). With `job` (an id from studio.list) it opens that job's output in the viewer. With `draft` (any part of a spec: prompt, mode, backend, aspect, resolution, seconds, seed, frames, refs, model) it fills the composer and sends nothing: Isaac reviews it and presses Generate himself (for a paid backend he confirms the cost there). Use this for anything paid.",
+    params: z
+      .object({
+        job: z.string().min(1).max(100).optional(),
+        draft: StudioDraftSchema.optional(),
+        scope,
+      })
+      .strict()
+      .refine((v) => v.job === undefined || v.draft === undefined, {
+        message: 'give job or draft, not both',
+      }),
+    side: 'renderer',
+    focus: 'panel',
+    destructive: false,
   },
 } as const satisfies Record<string, AgentActionSpec>
 

@@ -28,5 +28,10 @@ describe('page-meta', () => {
     expect(pageMeta(placeOf('settings', { settingsSection: 'Chat' })).kind).toBe('settings')
     expect(pageMeta(placeOf('canvas'))).toMatchObject({ kind: 'canvas', title: 'Canvas' })
     expect(pageMeta(placeOf('canvas', { canvas: 'ui-moodboard' })).kind).toBe('canvas')
+    expect(pageMeta(placeOf('studio'))).toMatchObject({
+      kind: 'page',
+      slug: 'studio',
+      title: 'Studio',
+    })
   })
 })

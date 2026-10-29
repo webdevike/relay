@@ -1,9 +1,11 @@
 // The commands this app sends Relay for a session it reads through Relay, ported from relay.rs
 // (`Feed::request`). Each goes out as `{ t: 'cmd', id, cmd }` and Relay answers it with exactly one
 // `ack` or `nack` (relay/packages/protocol/src/index.ts, `Command` and `AckError`). Subscriptions
-// and reactions are plain frames with no answer; `artifacts.act` is answered by `artifacts.acted`.
+// and reactions are plain frames with no answer; `artifacts.act` is answered by `artifacts.acted`,
+// `studio.req` by `studio.res` (both by rid).
 import type { ArtifactAction } from '@evaos/chat-core/artifacts'
 import type { Profile } from '@evaos/chat-core/launch'
+import type { StudioOp } from '@evaos/contract'
 
 /** Relay's image limits for one reply (protocol `AgentImage`, `MAX_REPLY_IMAGES`). */
 export const RELAY_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const
@@ -187,4 +189,12 @@ export function artifactsActFrame(
 /** Asks to enter the live room on `slug`; answered by `canvas.access` or `canvas.unavailable`. */
 export function canvasOpenFrame(slug: string): Record<string, unknown> {
   return { t: 'canvas.open', slug }
+}
+
+/** Asks for Studio's jobs, uploads and backends; answered by `studio.state`. */
+export const STUDIO_LIST_FRAME: Readonly<Record<string, unknown>> = { t: 'studio.list' }
+
+/** One Studio op (create, quote, cancel, delete, upload, frame, refresh); answered by `studio.res {rid}`. */
+export function studioReqFrame(rid: string, op: StudioOp): Record<string, unknown> {
+  return { t: 'studio.req', rid, op }
 }

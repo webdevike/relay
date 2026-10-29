@@ -3,8 +3,10 @@
 // (the app adds its own), the handshake checks the HMAC proof, and the agent frames follow
 // relay packages/protocol/src/index.ts. Tests list sessions, stream replies, raise asks and
 // approvals, hold live canvas rooms (with a tiny room page on the same port, as the host serves
-// its web client), and read every command the app sent. No WebSocket library: the few frame
-// types Relay uses are framed here (RFC 6455, text, ping, close).
+// its web client), run Studio (four backends, a paid one with models and a balance, jobs that
+// finish when a test says so, assets served at `/studio/<id>/<token>` from fixture files), and
+// read every command the app sent. No WebSocket library: the few frame types Relay uses are
+// framed here (RFC 6455, text, ping, close).
 import { createHash, createHmac, randomBytes } from 'node:crypto'
 import * as fs from 'node:fs'
 import * as http from 'node:http'
@@ -12,12 +14,103 @@ import type { AddressInfo } from 'node:net'
 import * as path from 'node:path'
 import type { Duplex } from 'node:stream'
 import { z } from 'zod'
+import { FIXTURES_DIR } from './paths'
 
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 
 type Json = Record<string, unknown>
 const JsonSchema = z.record(z.string(), z.unknown())
 const DevicesSchema = z.record(z.string(), z.object({ secretHex: z.string() }).partial())
+
+const MEDIA = path.join(FIXTURES_DIR, 'agent-widgets/media')
+
+const resolutions = (sizes: Record<string, string>): Json[] =>
+  Object.entries(sizes).map(([aspect, id]) => ({ id, label: id, aspect }))
+
+/** Studio's backends as the host lists them: local video, two Codex image ones, paid Higgsfield. */
+export const STUDIO_BACKENDS: Json[] = [
+  {
+    id: 'ltx',
+    label: 'Local video (LTX, free)',
+    mode: 'video',
+    paid: false,
+    available: true,
+    resolutions: resolutions({ '16:9': '768x432', '9:16': '432x768', '1:1': '512x512' }),
+    seconds: [3, 5, 8],
+    frames: ['start', 'mid', 'end'],
+    refs: 0,
+    seed: true,
+    serial: true,
+  },
+  {
+    id: 'codex-image',
+    label: 'Image (Codex, free)',
+    mode: 'image',
+    paid: false,
+    available: true,
+    resolutions: resolutions({ '16:9': '1536x1024', '9:16': '1024x1536', '1:1': '1024x1024' }),
+    seconds: [],
+    frames: [],
+    refs: 0,
+    seed: false,
+    serial: false,
+  },
+  {
+    id: 'codex-edit',
+    label: 'Image edit (Codex, free)',
+    mode: 'image',
+    paid: false,
+    available: true,
+    resolutions: resolutions({ '16:9': '1536x1024', '9:16': '1024x1536', '1:1': '1024x1024' }),
+    seconds: [],
+    frames: [],
+    refs: 4,
+    seed: false,
+    serial: false,
+  },
+  {
+    id: 'higgsfield',
+    label: 'Higgsfield (paid)',
+    mode: 'video',
+    paid: true,
+    available: true,
+    resolutions: [],
+    seconds: [],
+    frames: [],
+    refs: 0,
+    seed: true,
+    serial: false,
+    balance: 500,
+    models: [
+      {
+        id: 'kling-2-5',
+        name: 'Kling 2.5',
+        mode: 'video',
+        resolutions: [
+          { id: '720p', label: '720p', aspect: '16:9' },
+          { id: '1080p', label: '1080p', aspect: '16:9' },
+          { id: '720p', label: '720p', aspect: '9:16' },
+        ],
+        seconds: [5, 10],
+        frames: ['start', 'end'],
+      },
+      {
+        id: 'hailuo-02',
+        name: 'Hailuo 02',
+        mode: 'video',
+        resolutions: [
+          { id: '768p', label: '768p', aspect: '16:9' },
+          { id: '768p', label: '768p', aspect: '9:16' },
+        ],
+        seconds: [6],
+        frames: ['start'],
+      },
+    ],
+  },
+]
+
+/** Credits per 5 s of each Higgsfield model at its base resolution. */
+const STUDIO_PRICE: Record<string, number> = { 'kling-2-5': 40, 'hailuo-02': 25 }
 
 export interface HostSession {
   id: string
@@ -84,6 +177,19 @@ export class FakeRelayHost {
   /** Every room page the app loaded (path and query), in order. */
   readonly roomPages: string[] = []
   private rev = 0
+  /** Studio's jobs and uploads (newest first) and its backends. */
+  readonly studio: { jobs: Json[]; uploads: Json[]; backends: Json[] } = {
+    jobs: [],
+    uploads: [],
+    backends: structuredClone(STUDIO_BACKENDS),
+  }
+  /** Every `studio.req` op the app sent, in order. */
+  readonly studioOps: Json[] = []
+  /** How many `studio.list` frames arrived. */
+  studioLists = 0
+  /** What each asset path serves. */
+  private readonly studioFiles = new Map<string, { body: Buffer; type: string }>()
+  private studioN = 0
 
   private constructor(
     readonly dir: string,
@@ -119,9 +225,216 @@ export class FakeRelayHost {
     this.broadcast({ t: 'canvas.rooms', rev: Date.now(), rooms })
   }
 
-  /** A room page, like the host's web client in miniature: it names its board and says it is ready. */
+  /** A new asset served from `body`, as the host keeps outputs and uploads. */
+  private studioAsset(
+    kind: 'image' | 'video',
+    origin: 'output' | 'upload',
+    body: Buffer,
+    type: string,
+  ): Json {
+    this.studioN += 1
+    const id = `asset-${this.studioN}`
+    const assetPath = `/studio/${id}/token-${this.studioN}`
+    this.studioFiles.set(assetPath, { body, type })
+    this.studioFiles.set(`${assetPath}/thumb`, {
+      body: fs.readFileSync(path.join(MEDIA, kind === 'video' ? 'gallery-2.jpg' : 'gallery-1.jpg')),
+      type: 'image/jpeg',
+    })
+    return {
+      id,
+      kind,
+      mimeType: type,
+      width: 1536,
+      height: 1024,
+      ...(kind === 'video' ? { durationMs: 5000 } : {}),
+      size: body.length,
+      path: assetPath,
+      thumb: `${assetPath}/thumb`,
+      origin,
+      createdAt: Date.now(),
+    }
+  }
+
+  private studioOutput(kind: 'image' | 'video'): Json {
+    return kind === 'video'
+      ? this.studioAsset(
+          'video',
+          'output',
+          fs.readFileSync(path.join(MEDIA, 'clip.webm')),
+          'video/webm',
+        )
+      : this.studioAsset(
+          'image',
+          'output',
+          fs.readFileSync(path.join(MEDIA, `gallery-${(this.studioN % 3) + 1}.jpg`)),
+          'image/jpeg',
+        )
+  }
+
+  /** A finished job with one output, as if it ran earlier (the gallery before the test). */
+  addStudioJob(spec: Json, origin = 'desktop'): Json {
+    this.studioN += 1
+    const job = {
+      id: `job-${this.studioN}`,
+      spec,
+      state: 'done',
+      origin,
+      createdAt: Date.now() - 60_000 + this.studioN,
+      finishedAt: Date.now(),
+      progress: 1,
+      seed: 4242,
+      outputs: [this.studioOutput(spec.mode === 'video' ? 'video' : 'image')],
+    }
+    this.studio.jobs.unshift(job)
+    this.broadcast({ t: 'studio.job', job })
+    return job
+  }
+
+  /** Finishes a running job (`id`, else the oldest still going) with one output. */
+  finishStudio(id?: string): Json {
+    const job = id
+      ? this.studio.jobs.find((j) => j.id === id)
+      : this.studio.jobs.findLast((j) => j.state === 'queued' || j.state === 'running')
+    if (!job) throw new Error(`No Studio job to finish${id ? `: ${id}` : ''}`)
+    const spec = JsonSchema.parse(job.spec)
+    Object.assign(job, {
+      state: 'done',
+      progress: 1,
+      etaMs: undefined,
+      note: undefined,
+      finishedAt: Date.now(),
+      seed: 4242,
+      outputs: [this.studioOutput(spec.mode === 'video' ? 'video' : 'image')],
+    })
+    this.broadcast({ t: 'studio.job', job })
+    return job
+  }
+
+  private studioPrice(spec: Json): number {
+    const base = STUDIO_PRICE[String(spec.model)] ?? 50
+    const seconds = typeof spec.seconds === 'number' ? spec.seconds : 5
+    return Math.round((base * seconds * (spec.resolution === '1080p' ? 1.5 : 1)) / 5)
+  }
+
+  private studioState(): Json {
+    return { t: 'studio.state', ...this.studio }
+  }
+
+  private studioReq(peer: Peer, rid: string, op: Json): void {
+    this.studioOps.push(op)
+    const answer = (a: Json): void => peer.send({ t: 'studio.res', rid, ...a })
+    const higgsfield = this.studio.backends.find((b) => b.id === 'higgsfield')!
+    switch (op.kind) {
+      case 'quote': {
+        const spec = JsonSchema.parse(op.spec)
+        return answer({ ok: true, credits: this.studioPrice(spec), balance: higgsfield.balance })
+      }
+      case 'create': {
+        const spec = JsonSchema.parse(op.spec)
+        const backend = this.studio.backends.find((b) => b.id === spec.backend)
+        if (!backend) return answer({ ok: false, error: `No backend ${String(spec.backend)}` })
+        if (backend.paid) {
+          if (op.origin === 'agent') {
+            return answer({ ok: false, error: 'Paid jobs need Isaac to confirm them in Studio.' })
+          }
+          const price = this.studioPrice(spec)
+          if (typeof spec.confirmCredits !== 'number' || spec.confirmCredits < price) {
+            return answer({
+              ok: false,
+              error: `This job costs ${price} credits; confirm it first.`,
+            })
+          }
+          higgsfield.balance = Number(higgsfield.balance) - price
+        }
+        this.studioN += 1
+        const job: Json = {
+          id: `job-${this.studioN}`,
+          spec,
+          state: 'queued',
+          origin: op.origin,
+          createdAt: Date.now(),
+          progress: 0,
+          etaMs: 30_000,
+          note: 'Waiting for its turn',
+          ...(backend.paid ? { credits: spec.confirmCredits } : {}),
+          outputs: [],
+        }
+        this.studio.jobs.unshift(job)
+        answer({ ok: true, job })
+        this.broadcast({ t: 'studio.job', job })
+        setTimeout(() => {
+          if (job.state !== 'queued') return
+          Object.assign(job, {
+            state: 'running',
+            startedAt: Date.now(),
+            progress: 0.35,
+            etaMs: 20_000,
+            note: 'Rendering',
+          })
+          this.broadcast({ t: 'studio.job', job })
+        }, 150)
+        return
+      }
+      case 'cancel': {
+        const job = this.studio.jobs.find((j) => j.id === op.id)
+        if (!job) return answer({ ok: false, error: 'No such job.' })
+        Object.assign(job, { state: 'cancelled', etaMs: undefined })
+        answer({ ok: true, job })
+        return this.broadcast({ t: 'studio.job', job })
+      }
+      case 'delete': {
+        const before = this.studio.jobs.length + this.studio.uploads.length
+        this.studio.jobs = this.studio.jobs.filter((j) => j.id !== op.id)
+        this.studio.uploads = this.studio.uploads.filter((u) => u.id !== op.id)
+        if (before === this.studio.jobs.length + this.studio.uploads.length) {
+          return answer({ ok: false, error: 'Nothing to delete.' })
+        }
+        answer({ ok: true })
+        return this.broadcast({ t: 'studio.removed', id: op.id })
+      }
+      case 'upload': {
+        const image = z.object({ mimeType: z.string(), data: z.string() }).parse(op.image)
+        const asset = this.studioAsset(
+          'image',
+          'upload',
+          Buffer.from(image.data, 'base64'),
+          image.mimeType,
+        )
+        this.studio.uploads.unshift(asset)
+        answer({ ok: true, asset })
+        return this.broadcast(this.studioState())
+      }
+      case 'frame': {
+        const asset = this.studioAsset(
+          'image',
+          'upload',
+          fs.readFileSync(path.join(MEDIA, 'gallery-3.jpg')),
+          'image/jpeg',
+        )
+        this.studio.uploads.unshift(asset)
+        answer({ ok: true, asset })
+        return this.broadcast(this.studioState())
+      }
+      case 'refresh':
+        answer({ ok: true })
+        return this.broadcast(this.studioState())
+      default:
+        return answer({ ok: false, error: `Unknown op ${String(op.kind)}` })
+    }
+  }
+
+  /**
+   * Studio's assets at their `/studio/...` paths, and a room page like the host's web client in
+   * miniature: it names its board and says it is ready.
+   */
   private http(req: http.IncomingMessage, res: http.ServerResponse): void {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1')
+    const asset = req.method === 'GET' ? this.studioFiles.get(url.pathname) : undefined
+    if (asset) {
+      res.writeHead(200, { 'content-type': asset.type, 'content-length': asset.body.length })
+      res.end(asset.body)
+      return
+    }
     const slug = /^\/canvas\/([a-z0-9-]+)\/$/.exec(url.pathname)?.[1]
     if (req.method !== 'GET' || !slug || url.searchParams.get('token') !== `fake-${slug}`) {
       res.writeHead(404).end()
@@ -364,6 +677,11 @@ export class FakeRelayHost {
       case 'agent.unsubscribe':
         peer.subs.delete(String(f.sessionId))
         return
+      case 'studio.list':
+        this.studioLists += 1
+        return peer.send(this.studioState())
+      case 'studio.req':
+        return this.studioReq(peer, String(f.rid), JsonSchema.parse(f.op))
       case 'cmd':
         return this.command(peer, String(f.id), JsonSchema.parse(f.cmd))
       default:

@@ -1,0 +1,354 @@
+/* Studio: a composer beside the queue and gallery when the pane is wide, one column when not. */
+.eva-studio {
+  container-type: inline-size;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.eva-studio-layout {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.eva-studio-side,
+.eva-studio-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-md);
+  padding: var(--mantine-spacing-lg);
+}
+.eva-studio-side {
+  border-bottom: 1px solid var(--eva-c-border);
+}
+@container (min-width: 760px) {
+  .eva-studio-layout {
+    flex-direction: row;
+    overflow: hidden;
+  }
+  .eva-studio-side {
+    flex: none;
+    width: 360px;
+    overflow-y: auto;
+    border-bottom: 0;
+    border-right: 1px solid var(--eva-c-border);
+  }
+  .eva-studio-main {
+    flex: 1;
+    min-width: 0;
+    overflow-y: auto;
+  }
+}
+
+.eva-studio-head {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-studio-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--eva-c-foreground);
+}
+.eva-studio-spacer {
+  flex: 1;
+}
+.eva-studio-notice {
+  margin: 0;
+  color: var(--eva-c-warning);
+  font-size: var(--eva-fz-label);
+}
+.eva-studio-faint {
+  color: var(--eva-c-muted-foreground);
+  font-size: var(--eva-fz-label);
+}
+.eva-studio-error {
+  color: var(--eva-c-danger);
+  font-size: var(--eva-fz-label);
+}
+.eva-studio-empty {
+  margin: 0;
+  padding: var(--mantine-spacing-lg) 0;
+  color: var(--eva-c-muted-foreground);
+}
+
+/* Composer */
+.eva-studio-composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-md);
+}
+.eva-studio-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-studio-label {
+  font-size: var(--eva-fz-label);
+  font-weight: 500;
+  color: var(--eva-c-foreground);
+}
+.eva-studio-grow {
+  flex: 1;
+}
+.eva-studio-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--mantine-spacing-xs);
+  border: 1px solid var(--eva-c-border);
+  border-radius: 999px;
+  color: var(--eva-c-muted-foreground);
+  font-size: var(--eva-fz-caption);
+  line-height: 18px;
+  white-space: nowrap;
+}
+.eva-studio-pill[data-state='running'] {
+  color: var(--eva-c-foreground);
+}
+.eva-studio-pill[data-state='failed'] {
+  border-color: var(--eva-c-danger);
+  color: var(--eva-c-danger);
+}
+.eva-studio-option {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+.eva-studio-option[data-disabled] {
+  opacity: 0.6;
+}
+.eva-studio-option-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-sm);
+  width: 100%;
+}
+.eva-studio-option-note {
+  color: var(--eva-c-muted-foreground);
+  font-size: var(--eva-fz-caption);
+}
+.eva-studio-go {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+
+/* Keyframe and reference slots */
+.eva-studio-slots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mantine-spacing-sm);
+}
+.eva-studio-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  width: 72px;
+}
+.eva-studio-slot-add,
+.eva-studio-slot-filled {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  border: 1px dashed var(--eva-c-border);
+  border-radius: var(--eva-radius, 6px);
+  overflow: hidden;
+}
+.eva-studio-slot-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-studio-slot-add:hover,
+.eva-studio-slot[data-over] .eva-studio-slot-add {
+  border-color: var(--eva-c-muted-foreground);
+}
+.eva-studio-slot-filled {
+  border-style: solid;
+}
+.eva-studio-slot-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.eva-studio-slot-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+}
+.eva-studio-slot-label {
+  font-size: var(--eva-fz-caption);
+  color: var(--eva-c-muted-foreground);
+}
+
+/* Queue: flat rows under hairlines */
+.eva-studio-queue {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--eva-c-border);
+}
+.eva-studio-row {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+  padding: var(--mantine-spacing-sm) 0;
+  border-bottom: 1px solid var(--eva-c-border);
+}
+.eva-studio-row-thumb {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--eva-radius-sm, 4px);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--eva-c-muted-background);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-studio-row-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.eva-studio-row-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-studio-row-top {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+}
+.eva-studio-row-prompt {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--eva-c-foreground);
+}
+.eva-studio-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--mantine-spacing-sm);
+  white-space: nowrap;
+  color: var(--eva-c-muted-foreground);
+  font-size: var(--eva-fz-label);
+}
+.eva-studio-row-error {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+  color: var(--eva-c-danger);
+  font-size: var(--eva-fz-label);
+}
+
+/* Gallery */
+.eva-studio-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--mantine-spacing-sm);
+}
+.eva-studio-grid-pick {
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+}
+.eva-studio-tile {
+  position: relative;
+  aspect-ratio: 1;
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius, 6px);
+  overflow: hidden;
+  background: var(--eva-c-muted-background);
+}
+.eva-studio-tile:hover {
+  border-color: var(--eva-c-muted-foreground);
+}
+.eva-studio-tile:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: -2px;
+}
+.eva-studio-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.eva-studio-tile-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-studio-tile-tag {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  padding: 0 calc(var(--mantine-spacing-xs) / 2);
+  border-radius: var(--eva-radius-sm, 4px);
+  background: rgb(0 0 0 / 0.7);
+  color: #fff;
+  font-size: var(--eva-fz-caption);
+  line-height: 18px;
+}
+
+/* Viewer */
+.eva-studio-viewer-title {
+  display: block;
+  max-width: 60ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-studio-stage {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.eva-studio-stage-media {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+/* Paid confirm */
+.eva-studio-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-md);
+}
+.eva-studio-ledger {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  row-gap: var(--mantine-spacing-xs);
+  margin: 0;
+}
+.eva-studio-ledger dt {
+  color: var(--eva-c-muted-foreground);
+}
+.eva-studio-ledger dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--eva-c-foreground);
+}

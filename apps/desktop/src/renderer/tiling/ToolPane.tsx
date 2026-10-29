@@ -8,6 +8,7 @@ import {
   IconLayoutColumns,
   IconLayoutRows,
   IconListCheck,
+  IconPhotoSpark,
   IconPlus,
   IconSchema,
   IconStack2,
@@ -48,6 +49,7 @@ const ADDABLE: Array<{ label: string; Icon: typeof IconGlobe; tab: PaneTab }> = 
   { label: 'Artifacts', Icon: IconStack2, tab: { kind: 'artifacts' } },
   { label: 'Test Bench', Icon: IconListCheck, tab: { kind: 'page', place: placeOf('test-bench') } },
   { label: 'Canvas', Icon: IconSchema, tab: { kind: 'page', place: placeOf('canvas') } },
+  { label: 'Studio', Icon: IconPhotoSpark, tab: { kind: 'page', place: placeOf('studio') } },
 ]
 
 /** A running subagent's tab spins like its chip while the chat in front is its own. */

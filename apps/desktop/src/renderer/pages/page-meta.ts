@@ -37,6 +37,13 @@ export const NAV_PAGES: readonly NavPage[] = [
     icon: 'IconUsersGroup',
   },
   {
+    slug: 'studio',
+    page: 'studio',
+    title: 'Studio',
+    description: 'Make images and videos on the Relay host, then remix them.',
+    icon: 'IconPhotoSpark',
+  },
+  {
     slug: 'test-bench',
     page: 'test-bench',
     title: 'Test Bench',
@@ -68,14 +75,7 @@ export const NAV_PAGES: readonly NavPage[] = [
 ]
 
 export type PageKind =
-  | 'page'
-  | 'settings'
-  | 'workspace'
-  | 'meeting'
-  | 'chat'
-  | 'canvas'
-  | 'agent'
-  | 'board'
+  'page' | 'settings' | 'workspace' | 'meeting' | 'chat' | 'canvas' | 'agent' | 'board'
 
 export interface PageMeta {
   kind: PageKind
