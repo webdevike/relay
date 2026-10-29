@@ -21,6 +21,7 @@ import { z } from "zod";
 import { untagged } from "./surface";
 import { WidgetNode } from "./widget";
 import { Artifact, ArtifactAction, ArtifactActor, ArtifactTab, ArtifactThread, MAX_ARTIFACTS, MAX_ARTIFACT_TABS } from "./artifacts";
+import { StudioJob, StudioOp, StudioResult, StudioRid, StudioState } from "./studio";
 
 export const PROTOCOL_VERSION = 1 as const;
 export const BONJOUR_SERVICE_TYPE = "_relay._tcp" as const;
@@ -1287,6 +1288,10 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("live.start"), callId: CallId, agent: AssistantAgentId, sdp: LiveSdp }),
   /** Hang up live call `callId` (the phone also sends `session.close` on its data channel). `reason`: why, when it failed. */
   z.object({ t: z.literal("live.end"), callId: CallId, reason: z.string().max(2000).optional() }),
+  /** Ask for Studio's jobs, uploads and backends; answered by `studio.state`. */
+  z.object({ t: z.literal("studio.list") }),
+  /** Create, quote, cancel, delete, upload, grab a frame or refresh in Studio; answered by `studio.res` with the same `rid`. */
+  z.object({ t: z.literal("studio.req"), rid: StudioRid, op: StudioOp }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 
@@ -1451,6 +1456,14 @@ export const ServerMessage = z.discriminatedUnion("t", [
     error: z.string().optional(),
     fallback: z.boolean().optional(),
   }),
+  /** Studio's jobs, uploads and backends: the answer to `studio.list`, and pushed when uploads or backends change. */
+  StudioState.extend({ t: z.literal("studio.state") }),
+  /** One Studio job changed (created, progressed, finished); pushed to every device. */
+  z.object({ t: z.literal("studio.job"), job: StudioJob }),
+  /** A Studio job or upload was deleted. */
+  z.object({ t: z.literal("studio.removed"), id: nonEmpty }),
+  /** Answer to `studio.req`. */
+  StudioResult.extend({ t: z.literal("studio.res") }),
   z.object({ t: z.literal("ack"), id: nonEmpty }),
   z.object({ t: z.literal("nack"), id: nonEmpty, error: AckError }),
   z.object({ t: z.literal("pong"), ts: ms, serverTs: ms }),
@@ -1494,3 +1507,4 @@ export * from "./widget";
 export * from "./openui";
 export * from "./surface";
 export * from "./artifacts";
+export * from "./studio";
