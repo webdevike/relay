@@ -20,6 +20,7 @@ import { NotchedSurface, type Notch } from "@/ui/NotchedSurface";
 import { IconButton } from "@/ui/IconButton";
 import { motion, spacing, useColors } from "@/theme";
 import { LAUNCH_ECHO, subagentsOf, useAgentsStore } from "@/state/agents";
+import { agentTitle, useAssistantStore } from "@/state/assistant";
 import { useConnectionStore } from "@/state/connection";
 import { useSettingsStore } from "@/state/settings";
 import { draftKey, useThreadDraft } from "@/state/drafts";
@@ -170,6 +171,10 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
     [],
   );
   const parent = pinned ? sessions[sessions[pinnedId]?.parentId ?? ""] : undefined;
+  // A session an assistant started (auto-work) leads back to that assistant's thread, where it is listed.
+  const owner = pinned && parent === undefined ? sessions[pinnedId]?.owner : undefined;
+  const ownerTitle = useAssistantStore((state) => (owner === undefined ? null : agentTitle(state.agents, owner)));
+  const backTitle = parent?.title ?? ownerTitle ?? "Parent session";
   const index = selectedId === undefined ? -1 : order.indexOf(selectedId);
   const lastIndex = useRef(index);
   const direction = index >= lastIndex.current ? 1 : -1;
@@ -856,16 +861,18 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
             {pinned ? (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={`Back to ${parent?.title ?? "parent session"}`}
+                accessibilityLabel={`Back to ${backTitle}`}
                 onPress={() => {
                   tapHaptic();
-                  router.back();
+                  // Opened from somewhere else (an artifact, a cold start): still back to the owner's thread.
+                  if (owner !== undefined && !router.canGoBack()) router.replace({ pathname: "/eva", params: { agent: owner } });
+                  else router.back();
                 }}
                 style={({ pressed }) => [styles.backRow, pressed && { opacity: 0.7 }]}
               >
                 <SymbolView name="chevron.left" size={14} tintColor={colors.textMuted} />
                 <Text variant="label" color="textMuted" numberOfLines={1} style={{ flexShrink: 1 }}>
-                  {parent?.title ?? "Parent session"}
+                  {backTitle}
                 </Text>
               </Pressable>
             ) : (

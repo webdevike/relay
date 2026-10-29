@@ -141,6 +141,12 @@ export const AgentSession = z.object({
   /** The scheduled job this session is a run of; present exactly when `kind` is "job". */
   job: z.object({ name: nonEmpty, runId: nonEmpty }).optional(),
   /**
+   * The registry id of the assistant that started this session for its own work (Astra's
+   * `<KEY> auto-work`, launched with `RELAY_OWNER=<id>`). Phones list it under that assistant's
+   * thread, not in the inbox. Absent on Isaac's own sessions and from older hosts.
+   */
+  owner: AssistantAgentId.optional(),
+  /**
    * Set on a subagent: the id of the session that spawned it. Phones list subagents under their
    * parent rather than in the inbox. Absent on top-level sessions and from older hosts.
    */

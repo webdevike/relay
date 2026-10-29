@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyDelta, applySnapshot, applyWelcome, appendMessages, clearApproval, clearAsk, emptyAgentsData, setApproval, setAsk, setConversation, setImage, subagentsOf } from "./agents";
+import { applyDelta, applySnapshot, applyWelcome, appendMessages, clearApproval, clearAsk, emptyAgentsData, ownedBy, setApproval, setAsk, setConversation, setImage, subagentsOf } from "./agents";
 import type { AgentMessage, AgentSession } from "@relay/protocol";
 
 function session(id: string, lastActivityAt: number, status: AgentSession["status"] = "idle"): AgentSession {
@@ -74,6 +74,17 @@ describe("applySnapshot", () => {
     ]);
     expect(data.order).toEqual(["manual", "run"]);
     expect(data.sessions["astra"]?.title).toBe("Astra");
+  });
+
+  it("lists an assistant's own sessions under it, not in the inbox", () => {
+    const data = applySnapshot(emptyAgentsData, 1, [
+      { ...session("eng-1", 300), title: "ENG-1 auto-work", owner: "astra" },
+      { ...session("eng-2", 900, "working"), title: "ENG-2 auto-work", owner: "astra" },
+      session("manual", 100),
+    ]);
+    expect(data.order).toEqual(["manual"]);
+    expect(ownedBy(data.sessions, "astra").map((s) => s.id)).toEqual(["eng-2", "eng-1"]);
+    expect(ownedBy(data.sessions, "nova")).toEqual([]);
   });
 });
 

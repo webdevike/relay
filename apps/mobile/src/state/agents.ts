@@ -107,11 +107,13 @@ export function needsAttention(session: AgentSession): boolean {
  * run newest first, so the scrubber shows them as two sections and a job never displaces a
  * hand-started session from slot one. Subagents (`parentId` set) are left out; they are reached
  * from their parent's chips. So is the personal assistant (`kind` "assistant"): Eva has her own
- * screen. Hosts predating jobs send no `kind`; those sessions are all manual.
+ * screen, and so are sessions an assistant started for its own work (`owner`, e.g. Astra's
+ * auto-work): they sit under that assistant's thread (`ownedBy`). Hosts predating jobs send no
+ * `kind`; those sessions are all manual.
  */
 function orderByAttention(sessions: Record<string, AgentSession>): string[] {
   return Object.values(sessions)
-    .filter((session) => session.parentId === undefined && session.kind !== "assistant")
+    .filter((session) => session.parentId === undefined && session.kind !== "assistant" && session.owner === undefined)
     .sort((a, b) => {
       const section = Number(a.kind === "job") - Number(b.kind === "job");
       if (section !== 0) return section;
@@ -126,6 +128,13 @@ export function subagentsOf(sessions: Record<string, AgentSession>, parentId: st
   return Object.values(sessions)
     .filter((session) => session.parentId === parentId)
     .sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/** The sessions assistant `agent` started for its own work, newest activity first: its thread lists them. */
+export function ownedBy(sessions: Record<string, AgentSession>, agent: string): AgentSession[] {
+  return Object.values(sessions)
+    .filter((session) => session.owner === agent && session.parentId === undefined)
+    .sort((a, b) => b.lastActivityAt - a.lastActivityAt);
 }
 
 /** Replaces the whole session set with a fresh snapshot. Always accepted (snapshots have no gap). */

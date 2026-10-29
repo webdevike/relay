@@ -72,6 +72,8 @@ interface Settings {
   kind: "manual" | "job" | "assistant";
   /** The registry id of the assistant thread this session runs; set exactly when `kind` is "assistant". */
   assistant?: string;
+  /** The assistant that started this session for its own work (`RELAY_OWNER`); the phone lists it under that assistant. */
+  owner?: string;
   job?: JobRef;
   /** The transcript on disk, once omp has one; the host keeps the assistant's to resume it after a restart. */
   sessionFile?: string;
@@ -529,6 +531,8 @@ const ASSISTANT: { readonly id: string; readonly title: string } | null = (() =>
 })();
 /** Set by the relay host on a session it launches (apps/linux/src/agents/bridge.ts); echoed in `hello` so the host learns which session that launch became. */
 const LAUNCH_ID = process.env["RELAY_LAUNCH_ID"] || undefined;
+/** Set by an assistant's job on a session it starts for its own work (jobs/astra-auto-work: `RELAY_OWNER=astra`). Read once, like the others. */
+const OWNER = process.env["RELAY_OWNER"] || undefined;
 /** Local wall-clock start, "HH:MM": the job's default title carries it so runs of one job tell apart. */
 const JOB_START = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
 
@@ -928,6 +932,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
         ? { title: ASSISTANT.title, kind: "assistant", assistant: ASSISTANT.id }
         : { title: pi.getSessionName() ?? fallbackTitle, kind: JOB === undefined ? "manual" : "job" };
     if (ASSISTANT === null && JOB !== undefined) base.job = JOB;
+    if (ASSISTANT === null && OWNER !== undefined) base.owner = OWNER;
     // Like the name subscription below: the read-only context type hides the file getter the real manager has.
     const sessionFile = ctx === null ? undefined : (ctx.sessionManager as SessionManager).getSessionFile();
     if (typeof sessionFile === "string" && sessionFile.length > 0) base.sessionFile = sessionFile;

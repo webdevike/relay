@@ -64,6 +64,7 @@ import { ArtifactsButton } from "@/artifacts/ArtifactsButton";
 import { CanvasEntryRow } from "@/canvas/CanvasEntryRow";
 import { draftKey, useThreadDraft } from "@/state/drafts";
 import { ArtifactsSheet } from "@/artifacts/ArtifactsSheet";
+import { OWNED_ROW_HEIGHT, OwnedSessions, useOwnedSessionIds } from "@/agents/OwnedSessions";
 
 /** Id of the row echoing a sent turn before the host's snapshot lists it. */
 const PENDING_ID = "pending-turn";
@@ -106,6 +107,7 @@ function Thread({ agent }: { agent: string }) {
   const portrait = useAssistantStore((state) => agentPortrait(state.agents, agent));
   const snapshot = useAssistantStore((state) => threadOf(state, agent).snapshot);
   const pending = useAssistantStore((state) => threadOf(state, agent).pending);
+  const ownedIds = useOwnedSessionIds(agent);
   const setPending = useAssistantStore((state) => state.setPending);
   const connected = useConnectionStore((state) => state.status === "connected");
   const [draft, setDraft] = useThreadDraft(draftKey("assistant", agent));
@@ -301,7 +303,7 @@ function Thread({ agent }: { agent: string }) {
 
   const dark = useScheme() === "dark";
   const bg = dark ? BG_DARK : colors.bg;
-  const listTop = insets.top + HEADER_HEIGHT + HEADER_GAP;
+  const listTop = insets.top + HEADER_HEIGHT + HEADER_GAP + (ownedIds === "" ? 0 : OWNED_ROW_HEIGHT);
 
   const onComposerLayout = (event: LayoutChangeEvent): void => {
     setComposerHeight(event.nativeEvent.layout.height);
@@ -422,6 +424,8 @@ function Thread({ agent }: { agent: string }) {
             >
               <AvatarRing name={title} portrait={portrait} motion={{ signals, paused: onCall }} />
             </Pressable>
+            {/* Sessions this assistant started (auto-work): reached from here, out of the Agent Inbox. */}
+            <OwnedSessions agent={agent} sessionIds={ownedIds === "" ? [] : ownedIds.split(" ")} />
             <View style={styles.back}>
               <BackButton
                 onPress={() => {
