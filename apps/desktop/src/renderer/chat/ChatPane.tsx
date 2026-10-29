@@ -10,7 +10,6 @@ import { PendingDialog } from './cards/PendingDialog'
 import { JobsStrip } from './strips/JobsStrip'
 import { StatusStrip } from './strips/StatusStrip'
 import { SubagentChips } from './strips/SubagentChips'
-import { OwnedSessions } from './strips/OwnedSessions'
 import { listStore, useListStore } from './list/list-store'
 import { sessionId } from '@evaos/chat-core/session-id'
 import { chatStore, hiddenKey, useChatStore } from './chat-store'
@@ -239,7 +238,6 @@ export function ChatPane() {
           {pane.error}
         </div>
       ) : null}
-      {agent !== null && thread !== null ? <OwnedSessions agent={agent} /> : null}
       {pane && !(pane.file === '' && pane.messages.length === 0) ? (
         <WidgetActions.Provider value={widgetActions}>
           <ReactionScope.Provider value={reactionScope}>

@@ -151,8 +151,9 @@ function workerRow(w: Worker, owner: string | null): ContextRow {
   }
   return row({
     id: `worker:${w.file}`,
-    icon: 'done',
-    tone: 'success',
+    // An assistant's session still open (auto-work waiting on review): a chat to read, not a result.
+    icon: w.closed === false ? 'chat' : 'done',
+    tone: w.closed === false ? 'default' : 'success',
     title: w.name,
     sub: [owner, w.line].filter(Boolean).join(': ') || null,
     time: { at: w.at, style: 'clock' },
@@ -286,12 +287,14 @@ const nonNull = <T>(v: T | null): v is T => v !== null
 
 /**
  * Everything delegated, by what it needs from Isaac (OpenDuet's Tasks): blocked on his answer,
- * built and waiting for his look, still running, and finished (folded away).
+ * built and waiting for his look, still running, open but idle (sessions an assistant started that
+ * its job still needs), and finished (folded away).
  */
 interface Tasks {
   needs: ContextRow[]
   review: ContextRow[]
   working: ContextRow[]
+  open: ContextRow[]
   resolved: ContextRow[]
 }
 
@@ -304,6 +307,7 @@ function taskSections(t: Tasks): ContextSection[] {
     section('needs', 'Needs input', t.needs, countOf(t.needs)),
     section('review', 'Ready for review', t.review, countOf(t.review)),
     section('working', 'Working', t.working, countOf(t.working)),
+    section('open', 'Open', t.open, countOf(t.open)),
     section('resolved', 'Resolved', resolved, countOf(resolved), SECTION_ROWS, true),
   ].filter(nonNull)
 }
@@ -478,6 +482,7 @@ function chatHere(c: Ctx, file: string): Here {
     needs: relay && waiting ? [waitingRow(relay, sessionTitle(file) ?? 'This chat', null)] : [],
     review: [],
     working: running.map((w) => workerRow(w, null)),
+    open: [],
     resolved: workers
       .filter((w) => !w.running && c.now - w.at < DAY_MS)
       .map((w) => workerRow(w, null)),
@@ -760,8 +765,13 @@ function assistantHere(c: Ctx, agentId: string): Here {
     needs: [...(thread ? [thread] : []), ...live.needs, ...mine.needs],
     review: mine.review,
     working: [...live.working, ...experiments.map(experimentRow)],
+    open: workers
+      .filter((w) => !w.running && w.closed === false)
+      .sort((x, y) => y.at - x.at)
+      .map((w) => workerRow(w, null)),
+    // Its subagents for a day; the sessions it started once its job closed them.
     resolved: workers
-      .filter((w) => !w.running && c.now - w.at < DAY_MS)
+      .filter((w) => !w.running && (w.closed === true || (w.closed === undefined && c.now - w.at < DAY_MS)))
       .sort((x, y) => y.at - x.at)
       .map((w) => workerRow(w, null)),
   }
@@ -813,7 +823,11 @@ function everywhere(c: Ctx): Here {
         row: { ...experimentRow(e), time: { at: e.updatedAt, style: 'clock' as const } },
       })),
     ...workers
-      .filter((x) => !x.w.running && c.now - x.w.at < DAY_MS)
+      .filter(
+        (x) =>
+          !x.w.running &&
+          (x.w.closed === true || (x.w.closed === undefined && c.now - x.w.at < DAY_MS)),
+      )
       .map((x) => ({ at: x.w.at, row: workerRow(x.w, x.owner) })),
   ]
   recent.sort((a, b) => b.at - a.at)
@@ -830,6 +844,10 @@ function everywhere(c: Ctx): Here {
       ...c.experiments.filter((e) => e.status === 'running').map(experimentRow),
       ...live.working,
     ],
+    open: workers
+      .filter((x) => !x.w.running && x.w.closed === false)
+      .sort((a, b) => b.w.at - a.w.at)
+      .map((x) => workerRow(x.w, x.owner)),
     resolved: recent.map((r) => r.row),
   }
   const parts = taskSummary(tasks)

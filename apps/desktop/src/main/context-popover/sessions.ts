@@ -24,6 +24,11 @@ export interface Worker {
   at: number
   /** Its last words, one line ('' when none). */
   line: string
+  /**
+   * A session an assistant started (its sessions.json): true once its job closed it (`closedAt`),
+   * false while open. Absent on subagents.
+   */
+  closed?: boolean
 }
 
 const TAIL = 64 * 1024
@@ -97,6 +102,7 @@ const SessionsJson = z.array(
     sessionFile: z.string().startsWith('/'),
     title: z.string().optional(),
     startedAt: z.string().optional(),
+    closedAt: z.string().nullish(),
   }),
 )
 const AutoWorkJson = z.object({
@@ -123,7 +129,7 @@ function readJson(file: string): unknown {
 /**
  * The sessions assistant `agent` started (its sessions.json), as workers: running while the file
  * was written in the last ACTIVE_MS (or auto-work.json says running), else done at its last write.
- * Only the newest `limit` entries are looked at.
+ * Every open one is listed; of the ones its job closed, only the newest `limit`.
  */
 export function assistantSessions(
   evaRoot: string,
@@ -144,9 +150,12 @@ export function assistantSessions(
   }
   const out: Worker[] = []
   const seen = new Set<string>()
-  for (const s of list.data.slice(-limit).reverse()) {
+  let closedLeft = limit
+  for (const s of list.data.slice().reverse()) {
     if (seen.has(s.sessionFile)) continue
     seen.add(s.sessionFile)
+    const closed = Boolean(s.closedAt)
+    if (closed && closedLeft-- <= 0) continue
     const st = stat(s.sessionFile)
     if (!st) continue
     const a = autoState.get(s.sessionFile)
@@ -160,6 +169,7 @@ export function assistantSessions(
       running,
       at: running ? (Number.isNaN(started) ? st.birthtimeMs : started) : st.mtimeMs,
       line: a?.phase && running ? a.phase : lines.line(s.sessionFile, st),
+      closed,
     })
   }
   return out
