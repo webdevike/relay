@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useState } from 'react'
+import { ImageViewer } from '../ImageViewer'
 import { mediaUrl } from '../widgets/media-url'
 
 /**
@@ -126,10 +127,39 @@ function MarkdownVideo({
   )
 }
 
+/** True inside a markdown link: a linked image follows its link instead of opening the viewer. */
+export const InLink = createContext(false)
+
+/** An image in a reply: a click (or Enter) opens it full size in the image viewer, like a widget's. */
+function MarkdownImage({ src, alt }: { src: string; alt: string }) {
+  const [viewing, setViewing] = useState(false)
+  const url = mediaUrl(src)
+  if (useContext(InLink)) return <img src={url} alt={alt} draggable={false} />
+  return (
+    <>
+      <button
+        type="button"
+        className="eva-md-image"
+        aria-label={`Open ${alt || 'image'}`}
+        data-testid="md-image"
+        onClick={() => setViewing(true)}
+      >
+        <img src={url} alt={alt} draggable={false} />
+      </button>
+      <ImageViewer
+        images={[{ label: alt, src: url }]}
+        start={0}
+        opened={viewing}
+        onClose={() => setViewing(false)}
+      />
+    </>
+  )
+}
+
 /** Drops, http(s) URLs and local files all load through main's relay-media protocol, like widgets. */
 export function MarkdownMedia({ src, alt }: { src: string; alt: string }) {
   const kind = useMediaKind(src)
   if (kind === null) return <span className="eva-md-media-pending" data-testid="md-media-pending" />
   if (kind.kind === 'video') return <MarkdownVideo src={src} poster={kind.poster} caption={alt} />
-  return <img src={mediaUrl(src)} alt={alt} draggable={false} />
+  return <MarkdownImage src={src} alt={alt} />
 }

@@ -98,6 +98,24 @@
   max-width: 100%;
   border-radius: var(--eva-radius);
 }
+/* A reply's image is a button that opens the viewer; it draws exactly like the bare image. */
+.eva-md-image {
+  display: inline-block;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: var(--eva-radius);
+  background: none;
+  vertical-align: top;
+  cursor: zoom-in;
+}
+.eva-md-image img {
+  display: block;
+}
+.eva-md-image:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: 2px;
+}
 /* An inline video sizes like an image: its own aspect, never wider than the column. */
 .eva-md-video {
   display: block;

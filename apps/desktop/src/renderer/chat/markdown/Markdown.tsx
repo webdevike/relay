@@ -6,7 +6,7 @@ import { CodeBlock } from './CodeBlock'
 import { openLink } from '../../navigation/open-link'
 import { OpenUIBlock, WidgetBlock } from '../widgets/Widget'
 import { WidgetFrame, WidgetFramePending } from '../widgets/WidgetFrame'
-import { MarkdownMedia } from './MarkdownMedia'
+import { InLink, MarkdownMedia } from './MarkdownMedia'
 
 type Element = NonNullable<ExtraProps['node']>
 type ElementContent = Element['children'][number]
@@ -128,7 +128,7 @@ const components: Components = {
           if (href) openLink(href)
         }}
       >
-        {children}
+        <InLink.Provider value={true}>{children}</InLink.Provider>
       </a>
     ),
   table: ({ children }) => (
@@ -136,7 +136,7 @@ const components: Components = {
       <table>{children}</table>
     </div>
   ),
-  // An image, or an inline video when the src is one (MarkdownMedia).
+  // An image (a click opens it full size), or an inline video when the src is one (MarkdownMedia).
   img: ({ src, alt }) =>
     typeof src === 'string' && src !== '' ? <MarkdownMedia src={src} alt={alt ?? ''} /> : null,
 }

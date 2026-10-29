@@ -225,6 +225,11 @@ export class FakeRelayHost {
     this.broadcast({ t: 'canvas.rooms', rev: Date.now(), rooms })
   }
 
+  /** Serves `body` at `pathname` (a drop, `/drops/<id>/<token>`), as the host serves shared files. */
+  serveFile(pathname: string, body: Buffer, type: string): void {
+    this.studioFiles.set(pathname, { body, type })
+  }
+
   /** A new asset served from `body`, as the host keeps outputs and uploads. */
   private studioAsset(
     kind: 'image' | 'video',
