@@ -2,9 +2,9 @@
 // relay.rs (keep_connected, run_connection). One connection: read the port from serve.json, open
 // ws://127.0.0.1:<port>/relay, pair through devices.json, say hello, answer the challenge, then
 // keep the session list from `welcome`, `agents.snapshot` and `agents.delta`, the boards from
-// `board.snapshot` and `board.delta` and the live canvas rooms from `canvas.rooms`, pinging
-// every 10 s (Relay drops a peer that is quiet for a minute). Any failure drops the lists and
-// retries in 3 s.
+// `board.snapshot` and `board.delta`, the live canvas rooms from `canvas.rooms` and, once Studio
+// is asked for, Studio's jobs from `studio.state` and `studio.job`, pinging every 10 s (Relay
+// drops a peer that is quiet for a minute). Any failure drops the lists and retries in 3 s.
 //
 // Subscriptions outlive a connection: each new one subscribes again (native `remember`), and asks
 // again for the reactions of every thread a chat shows. A command cannot wait for one: sent while
@@ -13,7 +13,16 @@
 // With a remote host (another Mac over Tailscale) it dials that instead and pairs with a PIN.
 import type { ThreadReactions } from '@evaos/chat-core/reactions'
 import type { Artifact, ArtifactAction, ArtifactTab } from '@evaos/chat-core/artifacts'
-import type { Board, CanvasRoom } from '@evaos/contract'
+import {
+  studioWithJob,
+  studioWithout,
+  type Board,
+  type CanvasRoom,
+  type StudioAnswer,
+  type StudioChange,
+  type StudioOp,
+  type StudioState,
+} from '@evaos/contract'
 import {
   Feed,
   RelayRefused,
@@ -30,6 +39,8 @@ import {
   artifactsGetFrame,
   reactionsGetFrame,
   subscribeFrame,
+  studioReqFrame,
+  STUDIO_LIST_FRAME,
   unsubscribeFrame,
   type RelayCommand,
 } from './commands'
@@ -88,6 +99,10 @@ export type RelaySessionEvent = Exclude<
       | 'canvasRooms'
       | 'canvasAccess'
       | 'canvasUnavailable'
+      | 'studioState'
+      | 'studioJob'
+      | 'studioRemoved'
+      | 'studioRes'
   }
 >
 
@@ -183,6 +198,26 @@ export interface RelayCanvas {
 }
 
 /**
+ * Studio on the host (image and video jobs, a queue, a gallery). Nothing is asked until the first
+ * `studioList`; from then on every connection asks again, and every change is kept and passed on.
+ */
+export interface RelayStudio {
+  /** Connected and authenticated, so an op can go out now. */
+  studioUp(): boolean
+  /** Studio as the host last sent it (kept while Relay is down); null before its first state. */
+  studio(): StudioState | null
+  /**
+   * Asks the host for Studio now (when connected) and after every reconnect; resolves with the
+   * state once it answers, or with what is known when it cannot (down, no answer in time).
+   */
+  studioList(): Promise<StudioState | null>
+  /** Sends one op; resolves with the host's answer, never rejects. */
+  studioRequest(op: StudioOp): Promise<StudioAnswer>
+  /** Called after each change heard (a whole state, one job, a deletion). */
+  onStudio(cb: (change: StudioChange) => void): () => void
+}
+
+/**
  * Relay didn't carry a command out. `code` is Relay's AckError code (`agent_cannot_respond`,
  * `agent_not_found`, `biometric_required`, ...) or `not_connected` / `timeout` from here.
  */
@@ -257,7 +292,7 @@ interface Pending {
 
 /** Keeps a connection to Relay up while started; `sessions()` is null whenever it is down. */
 export class RelayClient
-  implements RelayLink, RelayReactions, RelayArtifacts, RelayCanvas, RelayFrames
+  implements RelayLink, RelayReactions, RelayArtifacts, RelayCanvas, RelayFrames, RelayStudio
 {
   private readonly dial: Dial
   private readonly secret: (configDir: string) => Uint8Array
@@ -296,6 +331,18 @@ export class RelayClient
   /** The last access to each slug's room on this connection, reused until near its expiry. */
   private readonly canvasAccess = new Map<string, { path: string; expiresAt: number }>()
   private canvasList: readonly CanvasRoom[] | null = null
+  private readonly studioListeners = new Set<(change: StudioChange) => void>()
+  /** Asked for once, so every new connection asks again. */
+  private studioWatched = false
+  private studioSnap: StudioState | null = null
+  /** `studioList` calls waiting for the host's next `studio.state`. */
+  private studioWaiters: Array<(state: StudioState | null) => void> = []
+  private studioWaitTimer: NodeJS.Timeout | undefined
+  /** Studio ops sent on this connection, by rid, until Relay answers. */
+  private readonly studioReqs = new Map<
+    string,
+    { resolve(r: StudioAnswer): void; timer: NodeJS.Timeout }
+  >()
   /** The http origin of the host this connection reached. */
   private origin: string | null = null
   private commands = 0
@@ -490,6 +537,62 @@ export class RelayClient
     for (const resolve of asked.waiters) resolve(access)
   }
 
+  studioUp(): boolean {
+    return this.feed?.authenticated === true
+  }
+
+  studio(): StudioState | null {
+    return this.studioSnap
+  }
+
+  studioList(): Promise<StudioState | null> {
+    this.studioWatched = true
+    if (!this.feed?.authenticated) return Promise.resolve(this.studioSnap)
+    const { promise, resolve } = Promise.withResolvers<StudioState | null>()
+    this.studioWaiters.push(resolve)
+    if (this.studioWaiters.length === 1) {
+      this.studioWaitTimer = setTimeout(() => this.answerStudioList(), this.commandTimeoutMs)
+      this.send(STUDIO_LIST_FRAME)
+    }
+    return promise
+  }
+
+  /** Settles every `studioList` waiting, with Studio as known now. */
+  private answerStudioList(): void {
+    clearTimeout(this.studioWaitTimer)
+    this.studioWaitTimer = undefined
+    for (const resolve of this.studioWaiters.splice(0)) resolve(this.studioSnap)
+  }
+
+  studioRequest(op: StudioOp): Promise<StudioAnswer> {
+    if (!this.feed?.authenticated) return Promise.resolve({ ok: false, error: NOT_CONNECTED })
+    this.commands += 1
+    const rid = `relay-desktop-studio-${this.now()}-${this.commands}`
+    const { promise, resolve } = Promise.withResolvers<StudioAnswer>()
+    const timer = setTimeout(() => {
+      this.studioReqs.delete(rid)
+      resolve({ ok: false, error: NO_ANSWER })
+    }, this.commandTimeoutMs)
+    this.studioReqs.set(rid, { resolve, timer })
+    this.send(studioReqFrame(rid, op))
+    return promise
+  }
+
+  onStudio(cb: (change: StudioChange) => void): () => void {
+    this.studioListeners.add(cb)
+    return () => this.studioListeners.delete(cb)
+  }
+
+  /** Keeps `change` in the snapshot and passes it on. */
+  private changeStudio(change: StudioChange): void {
+    if (change.kind === 'state') this.studioSnap = change.state
+    else if (change.kind === 'job' && this.studioSnap)
+      this.studioSnap = studioWithJob(this.studioSnap, change.job)
+    else if (change.kind === 'removed' && this.studioSnap)
+      this.studioSnap = studioWithout(this.studioSnap, change.id)
+    for (const cb of [...this.studioListeners]) cb(change)
+  }
+
   command(cmd: RelayCommand): Promise<void> {
     if (!this.feed?.authenticated) {
       return Promise.reject(new RelayCommandError('not_connected', NOT_CONNECTED))
@@ -579,6 +682,7 @@ export class RelayClient
       for (const id of this.subscriptions) this.send(subscribeFrame(id))
       for (const thread of this.reactionThreads) this.send(reactionsGetFrame(thread))
       for (const thread of this.artifactWatch) this.send(artifactsGetFrame(thread))
+      if (this.studioWatched) this.send(STUDIO_LIST_FRAME)
     }
     if (feed.authenticated && typeof frame === 'object' && frame !== null) {
       for (const cb of this.frameListeners) cb(frame as Record<string, unknown>)
@@ -634,6 +738,24 @@ export class RelayClient
             error: event.reason || 'This canvas session has ended.',
           })
           break
+        case 'studioState':
+          this.changeStudio({ kind: 'state', state: event.state })
+          this.answerStudioList()
+          break
+        case 'studioJob':
+          this.changeStudio({ kind: 'job', job: event.job })
+          break
+        case 'studioRemoved':
+          this.changeStudio({ kind: 'removed', id: event.id })
+          break
+        case 'studioRes': {
+          const s = this.studioReqs.get(event.rid)
+          if (!s) break
+          this.studioReqs.delete(event.rid)
+          clearTimeout(s.timer)
+          s.resolve(event.answer)
+          break
+        }
         case 'ack':
         case 'nack': {
           const p = this.pending.get(event.id)
@@ -704,6 +826,12 @@ export class RelayClient
       a.resolve({ ok: false, error: reason })
     }
     this.acts.clear()
+    for (const s of this.studioReqs.values()) {
+      clearTimeout(s.timer)
+      s.resolve({ ok: false, error: reason })
+    }
+    this.studioReqs.clear()
+    this.answerStudioList()
     for (const slug of [...this.canvasOpens.keys()])
       this.answerCanvas(slug, { ok: false, error: reason })
     // A new connection may reach another host, whose tokens these are not.
@@ -732,7 +860,7 @@ export class RelayClient
 
 /** A Relay that is never connected: fixtures and e2e, unless a test sets sessions. */
 export class StaticRelay
-  implements RelayLink, RelayReactions, RelayArtifacts, RelayCanvas, RelayFrames
+  implements RelayLink, RelayReactions, RelayArtifacts, RelayCanvas, RelayFrames, RelayStudio
 {
   private list: ReadonlyMap<string, RelaySession> | null = null
   private readonly listeners = new Set<() => void>()
@@ -746,6 +874,27 @@ export class StaticRelay
   onChange(cb: () => void): () => void {
     this.listeners.add(cb)
     return () => this.listeners.delete(cb)
+  }
+
+  /** Never connected, so never any Studio and every op fails. */
+  studioUp(): boolean {
+    return false
+  }
+
+  studio(): StudioState | null {
+    return null
+  }
+
+  studioList(): Promise<StudioState | null> {
+    return Promise.resolve(null)
+  }
+
+  studioRequest(): Promise<StudioAnswer> {
+    return Promise.resolve({ ok: false, error: NOT_CONNECTED })
+  }
+
+  onStudio(): () => void {
+    return () => undefined
   }
 
   onEvent(): () => void {

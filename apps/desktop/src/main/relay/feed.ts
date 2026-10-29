@@ -12,12 +12,25 @@
 // `artifacts.snapshot` (pushed for every thread after each change, whoever asked) and each
 // `artifacts.act` is answered by one `artifacts.acted`. Live canvas rooms come as `canvas.rooms`
 // (asked for on welcome, pushed after every change); `canvas.open` is answered by `canvas.access`
-// or `canvas.unavailable`. Drops, calls and the inbox escalation are not used by this app; their
-// frames are ignored.
+// or `canvas.unavailable`. Studio sends `studio.state` (the answer to `studio.list`, pushed when
+// uploads or backends change), `studio.job` for every change to a job, `studio.removed`, and one
+// `studio.res` per `studio.req`. Drops, calls and the inbox escalation are not used by this app;
+// their frames are ignored.
 import { createHmac } from 'node:crypto'
 import * as path from 'node:path'
 import { z } from 'zod'
-import { BOARD_COLUMNS, CanvasRoomSchema, type Board, type CanvasRoom } from '@evaos/contract'
+import {
+  BOARD_COLUMNS,
+  CanvasRoomSchema,
+  StudioAssetSchema,
+  StudioBackendSchema,
+  StudioJobSchema,
+  type Board,
+  type CanvasRoom,
+  type StudioAnswer,
+  type StudioJob,
+  type StudioState,
+} from '@evaos/contract'
 import {
   ReactionKeySchema,
   ReactionSchema,
@@ -321,6 +334,31 @@ const CanvasAccessSchema = z.object({
   expiresAt: z.number(),
 })
 const CanvasUnavailableSchema = z.object({ slug: z.string().min(1), reason: text })
+const StudioStateFrameSchema = z.object({ jobs: list, uploads: list, backends: list })
+const StudioJobFrameSchema = z.object({ job: StudioJobSchema })
+const StudioRemovedSchema = z.object({ id: z.string().min(1) })
+const StudioResSchema = z.object({
+  rid: z.string().min(1),
+  ok: z.boolean(),
+  error: z.string().optional().catch(undefined),
+  job: StudioJobSchema.optional().catch(undefined),
+  asset: StudioAssetSchema.optional().catch(undefined),
+  credits: z.number().nonnegative().optional().catch(undefined),
+  balance: z.number().optional().catch(undefined),
+})
+
+/** Studio's state as the host sends it; a job, upload or backend that does not parse is dropped. */
+export function parseStudioState(value: {
+  jobs: readonly unknown[]
+  uploads: readonly unknown[]
+  backends: readonly unknown[]
+}): StudioState {
+  return {
+    jobs: value.jobs.flatMap((raw) => StudioJobSchema.safeParse(raw).data ?? []),
+    uploads: value.uploads.flatMap((raw) => StudioAssetSchema.safeParse(raw).data ?? []),
+    backends: value.backends.flatMap((raw) => StudioBackendSchema.safeParse(raw).data ?? []),
+  }
+}
 
 /** A thread's artifacts as Relay sends them; an item or tab that does not parse is dropped. */
 export function parseArtifacts(
@@ -370,6 +408,14 @@ export type FeedEvent =
   | { kind: 'canvasAccess'; slug: string; path: string; token: string; expiresAt: number }
   /** The answer to `canvas.open` when no room is live on `slug`. */
   | { kind: 'canvasUnavailable'; slug: string; reason: string }
+  /** Studio's jobs, uploads and backends now (a `studio.state`); bad entries dropped. */
+  | { kind: 'studioState'; state: StudioState }
+  /** One Studio job changed (created, progressed, finished). */
+  | { kind: 'studioJob'; job: StudioJob }
+  /** A Studio job or upload was deleted. */
+  | { kind: 'studioRemoved'; id: string }
+  /** The host's answer to `studio.req` request `rid`. */
+  | { kind: 'studioRes'; rid: string; answer: StudioAnswer }
 
 /** What one frame asks to send back, and what the app should hear. */
 export interface FeedOutput {
@@ -600,6 +646,29 @@ export class Feed {
       case 'canvas.unavailable': {
         const u = CanvasUnavailableSchema.safeParse(f)
         if (u.success) events.push({ kind: 'canvasUnavailable', ...u.data })
+        break
+      }
+      case 'studio.state': {
+        const s = StudioStateFrameSchema.safeParse(f)
+        if (s.success) events.push({ kind: 'studioState', state: parseStudioState(s.data) })
+        break
+      }
+      case 'studio.job': {
+        const j = StudioJobFrameSchema.safeParse(f)
+        if (j.success) events.push({ kind: 'studioJob', job: j.data.job })
+        break
+      }
+      case 'studio.removed': {
+        const r = StudioRemovedSchema.safeParse(f)
+        if (r.success) events.push({ kind: 'studioRemoved', id: r.data.id })
+        break
+      }
+      case 'studio.res': {
+        const r = StudioResSchema.safeParse(f)
+        if (r.success) {
+          const { rid, ...answer } = r.data
+          events.push({ kind: 'studioRes', rid, answer })
+        }
         break
       }
       case 'ack':

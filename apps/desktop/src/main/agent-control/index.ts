@@ -11,7 +11,8 @@ import { captureWindow } from './screenshot'
 import { startControlServer } from './server'
 import { artifactsRunners } from '../relay/artifacts-agent'
 import { canvasLiveRunners } from '../relay/canvas-live-agent'
-import type { RelayArtifacts, RelayCanvas, RelaySource } from '../relay/client'
+import { studioRunners } from '../relay/studio-agent'
+import type { RelayArtifacts, RelayCanvas, RelaySource, RelayStudio } from '../relay/client'
 
 const RENDERER_TIMEOUT_MS = 15_000
 const CONFIRM_TIMEOUT_MS = 60_000
@@ -25,6 +26,7 @@ export function registerAgentControl(
   update: UpdateHandle,
   artifacts: RelaySource & RelayArtifacts,
   canvas: RelayCanvas,
+  studio: RelayStudio & Pick<RelayCanvas, 'canvasOrigin'>,
 ): void {
   const runs = createReplyRegistry()
   const confirms = createReplyRegistry()
@@ -84,6 +86,7 @@ export function registerAgentControl(
     'update.offer': (params) => update.offer(params),
     ...artifactsRunners(artifacts),
     ...canvasLiveRunners(canvas),
+    ...studioRunners(studio, (p) => renderer('studio.open', p)),
   }
 
   const token = randomBytes(32).toString('hex')

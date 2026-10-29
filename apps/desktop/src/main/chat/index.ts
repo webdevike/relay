@@ -13,7 +13,8 @@ import { registerBoardsIpc } from '../relay/boards-ipc'
 import { registerReactionsIpc } from '../relay/reactions-ipc'
 import { registerArtifactsIpc } from '../relay/artifacts-ipc'
 import { registerCanvasLiveIpc } from '../relay/canvas-live-ipc'
-import type { RelayArtifacts, RelayCanvas, RelaySource } from '../relay/client'
+import { registerStudioIpc } from '../relay/studio-ipc'
+import type { RelayArtifacts, RelayCanvas, RelaySource, RelayStudio } from '../relay/client'
 import { createMini, type Mini } from '../relay/mini'
 import type { WriteQueue } from '../write-queue'
 import { AUTO_SETTLE_DAYS } from './chat-order'
@@ -49,6 +50,8 @@ export interface ChatHandles {
   artifacts: RelaySource & RelayArtifacts
   /** Relay's live canvas rooms and the host's origin (canvas.live). */
   canvas: RelayCanvas
+  /** Studio on the host (the Studio page, studio.* agent actions). */
+  studio: RelaySource & RelayStudio & Pick<RelayCanvas, 'canvasOrigin'>
   /** The Mini's omp in remote mode (`relayRemote`), else null. */
   mini: Mini | null
 }
@@ -131,6 +134,8 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
   const offArtifacts = registerArtifactsIpc(ctx, relay)
   // Live canvas rooms on the host, and the way into one (the Canvas page's frame).
   const offCanvasLive = registerCanvasLiveIpc(ctx, relay)
+  // Image and video jobs on the host, for the Studio page.
+  const offStudio = registerStudioIpc(ctx, relay)
 
   const watch = new ChatWatch({
     dirs: sessionsDirs,
@@ -174,6 +179,7 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     offReactions()
     offArtifacts()
     offCanvasLive()
+    offStudio()
     clearTimeout(statusTimer)
     assistants.close()
     await watch.close()
@@ -201,6 +207,7 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     },
     artifacts: relay,
     canvas: relay,
+    studio: relay,
     mini,
   }
 }

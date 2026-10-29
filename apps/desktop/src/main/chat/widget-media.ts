@@ -2,8 +2,9 @@
 // `relay-media:` scheme. Port of EvaOS media.rs resolve(): a `src` is an http(s) URL (downloaded
 // once into the cache), a Relay drop (`/drops/<id>/<token>`, or a video drop's
 // `/drops/<id>/<token>/poster` frame, or an image pasted into a thread, `/artifacts/media/<sha>/<token>`,
-// fetched from the local Relay host and cached the same way), or a local file (`~/` or absolute)
-// of a media type.
+// or a Studio output or upload, `/studio/<id>/<token>` and its `/thumb`; all immutable, fetched
+// from the local Relay host and cached the same way), or a local file (`~/` or absolute) of a
+// media type.
 import { createHash } from 'node:crypto'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
@@ -132,8 +133,13 @@ async function fetchInto(url: string, hash: string, deps: MediaDeps): Promise<st
 /** A local file for `src`, downloading it first when it is remote. */
 export async function resolveMedia(src: string, deps: MediaDeps): Promise<string> {
   if (/^https?:\/\//.test(src)) return download(src, deps)
-  // Drops, and images pasted into a thread (`/artifacts/media/<sha>/<token>`, the Artifacts panel).
-  if (/^\/(?:drops\/[^/]+\/[^/]+(\/poster)?|artifacts\/media\/[^/]+\/[^/]+)$/.test(src)) {
+  // Drops, images pasted into a thread (`/artifacts/media/<sha>/<token>`, the Artifacts panel) and
+  // Studio's outputs and uploads (`/studio/<id>/<token>`, `/thumb` a JPEG preview).
+  if (
+    /^\/(?:drops\/[^/]+\/[^/]+(\/poster)?|artifacts\/media\/[^/]+\/[^/]+|studio\/[^/]+\/[^/]+(\/thumb)?)$/.test(
+      src,
+    )
+  ) {
     const port = deps.servePort()
     if (port === null) throw new MediaError(503, "Relay isn't running, so its drop can't load")
     return download(`http://127.0.0.1:${port}${src}`, deps)

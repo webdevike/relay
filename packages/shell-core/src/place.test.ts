@@ -21,6 +21,8 @@ describe('pages', () => {
       'habits',
       'meetings',
       'canvas',
+      'rooms',
+      'studio',
       'settings',
       'board:ops',
     ]

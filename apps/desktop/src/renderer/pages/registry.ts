@@ -14,16 +14,11 @@ import { JobsPage } from '../jobs/JobsPage'
 import { RoomsPage } from '../rooms/RoomsPage'
 import { WorkspacePage } from '../workspace/WorkspacePage'
 import { SettingsPage } from '../settings/SettingsPage'
+import { StudioPage } from '../studio/StudioPage'
 import { TestBenchPage } from '../test-bench/TestBenchPage'
 
 export type PageRegistryKind =
-  | 'page'
-  | 'settings'
-  | 'workspace'
-  | 'meeting'
-  | 'canvas'
-  | 'agent'
-  | 'board'
+  'page' | 'settings' | 'workspace' | 'meeting' | 'canvas' | 'agent' | 'board'
 
 const PAGE_BY_SLUG: Record<string, ComponentType<{ place: Place }>> = {
   assistants: AssistantsHome,
@@ -33,6 +28,7 @@ const PAGE_BY_SLUG: Record<string, ComponentType<{ place: Place }>> = {
   habits: HabitsPage,
   meetings: MeetingsHome,
   rooms: RoomsPage,
+  studio: StudioPage,
 }
 
 /** Dispatches the implemented top-level pages. */

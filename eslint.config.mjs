@@ -8,6 +8,7 @@ export default tseslint.config(
       '**/out/**',
       'release/**',
       '.claude/**',
+      '.codex/**',
       '.planning/**',
       'fixtures/**',
       'apps/desktop/e2e/fixtures/test-extension/**',

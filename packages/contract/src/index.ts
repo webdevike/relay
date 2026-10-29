@@ -15,6 +15,7 @@ import { assistantsEvents, assistantsInvoke } from './assistants'
 import { boardsEvents, boardsInvoke } from './boards'
 import { reactionsEvents, reactionsInvoke } from './reactions'
 import { artifactsEvents, artifactsInvoke } from './artifacts'
+import { studioEvents, studioInvoke } from './studio'
 import { draftsInvoke } from './drafts'
 import { linearInvoke } from './linear'
 import { roomsEvents, roomsInvoke } from './rooms'
@@ -30,6 +31,7 @@ export * from './assistants'
 export * from './boards'
 export * from './reactions'
 export * from './artifacts'
+export * from './studio'
 export * from './drafts'
 export * from './linear'
 export * from './rooms'
@@ -76,6 +78,7 @@ export const invokeContract = {
   ...boardsInvoke,
   ...reactionsInvoke,
   ...artifactsInvoke,
+  ...studioInvoke,
   ...draftsInvoke,
   ...roomsInvoke,
   ...filesInvoke,
@@ -96,6 +99,7 @@ export const eventContract = {
   ...boardsEvents,
   ...reactionsEvents,
   ...artifactsEvents,
+  ...studioEvents,
   ...roomsEvents,
   ...filesEvents,
   ...agentEvents,

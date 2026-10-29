@@ -15,6 +15,7 @@ import {
   IconSchema,
   IconRobot,
   IconUsersGroup,
+  IconPhotoSpark,
   type Icon,
 } from '@tabler/icons-react'
 
@@ -36,4 +37,5 @@ export const PAGE_ICONS: Record<string, Icon> = {
   IconSchema,
   IconRobot,
   IconUsersGroup,
+  IconPhotoSpark,
 }

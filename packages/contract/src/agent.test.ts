@@ -184,3 +184,43 @@ describe('artifacts actions', () => {
     expect(agentActions['tab.open'].params.safeParse({ kind: 'artifacts' }).success).toBe(true)
   })
 })
+
+describe('studio actions', () => {
+  it('generate and list run in main without focus; open shows a tool tab in the caller scope', () => {
+    const ids = AGENT_ACTION_IDS.filter((id) => id.startsWith('studio.'))
+    expect(ids).toEqual(['studio.generate', 'studio.list', 'studio.open'])
+    const generate: AgentActionSpec = agentActions['studio.generate']
+    expect([generate.side, generate.focus, generate.scoped]).toEqual(['main', 'none', true])
+    expect(agentActions['studio.list'].side).toBe('main')
+    const open: AgentActionSpec = agentActions['studio.open']
+    expect([open.side, open.focus, open.destructive]).toEqual(['renderer', 'panel', false])
+    for (const id of ids) expect(agentActions[id].description).not.toMatch(/\u2014/)
+    expect(generate.description).toMatch(/studio\.open/)
+  })
+
+  it('check their params', () => {
+    const generate = agentActions['studio.generate'].params
+    expect(
+      generate.safeParse({ prompt: 'A kite', mode: 'video', seconds: 5, open: true }).success,
+    ).toBe(true)
+    expect(generate.safeParse({ prompt: '  ' }).success).toBe(false)
+    expect(generate.safeParse({ prompt: 'x', backend: 'midjourney' }).success).toBe(false)
+    expect(generate.safeParse({ prompt: 'x', confirmCredits: 40 }).success).toBe(false)
+    expect(generate.safeParse({ prompt: 'x', refs: ['a', 'b', 'c', 'd', 'e'] }).success).toBe(false)
+    const list = agentActions['studio.list'].params
+    expect(list.safeParse({ state: 'running', limit: 5 }).success).toBe(true)
+    expect(list.safeParse({ limit: 500 }).success).toBe(false)
+    const open = agentActions['studio.open'].params
+    expect(open.safeParse({}).success).toBe(true)
+    expect(open.safeParse({ job: 'j1', scope: 'agent:nova' }).success).toBe(true)
+    expect(
+      open.safeParse({ draft: { prompt: 'x', backend: 'higgsfield', model: 'kling' } }).success,
+    ).toBe(true)
+    expect(open.safeParse({ draft: { confirmCredits: 40 } }).success).toBe(false)
+    expect(open.safeParse({ job: 'j1', draft: { prompt: 'x' } }).success).toBe(false)
+    expect(agentActions['page.open'].params.safeParse({ page: 'studio' }).success).toBe(true)
+    expect(
+      agentActions['tab.open'].params.safeParse({ kind: 'page', args: { page: 'studio' } }).success,
+    ).toBe(true)
+  })
+})

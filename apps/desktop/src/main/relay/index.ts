@@ -11,6 +11,7 @@ import {
   type RelayFrames,
   type RelayLink,
   type RelayReactions,
+  type RelayStudio,
   type RemoteHost,
 } from './client'
 import { remoteDeviceId, remoteSecretStore, type RelayRemote } from './device'
@@ -28,7 +29,7 @@ const PIN_WAIT_MS = 120_000
  */
 export function startRelay(
   ctx: MainContext,
-): RelayLink & RelayReactions & RelayArtifacts & RelayCanvas & RelayFrames {
+): RelayLink & RelayReactions & RelayArtifacts & RelayCanvas & RelayFrames & RelayStudio {
   const remote = ctx.env.relayRemote
   if (remote !== null || ctx.env.relayDir !== null) {
     const client = new RelayClient({
