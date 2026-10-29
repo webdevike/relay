@@ -549,6 +549,17 @@ describe("AssistantService turns", () => {
     expect(h.remembered()).toEqual({ sessionFile: "/sessions/eva.jsonl", history: [] });
   });
 
+  it("primes a new thread with prime.md as it is at the start, not as the host first read it", async () => {
+    const h = harness({ prime: "You are Eva." });
+    await h.service.listing(); // the agent list reads the prime at host start, long before a rollover
+    writeFileSync(join(h.home, ".omp", "assistant", "agents", ASTRA.id, "prime.md"), "You are Eva.\n- End a question with [[replies: Yes | No]].\n");
+    const turn = h.service.turn("hi");
+    await flush();
+    expect(h.launches).toEqual([{ ...ASTRA_ENV, prompt: "You are Eva.\n- End a question with [[replies: Yes | No]]." }]);
+    h.register("working", "/sessions/eva.jsonl");
+    await turn;
+  });
+
   it("resumes the remembered transcript when its file still exists, with no prime, as soon as Eva registers", async () => {
     const sessions = mkdtempSync(join(tmpdir(), "eva-sessions-"));
     dirs.push(sessions);

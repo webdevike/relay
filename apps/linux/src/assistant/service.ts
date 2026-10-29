@@ -404,7 +404,7 @@ export class AssistantService implements AssistantThread {
     if (home === null) throw new AckFailure({ code: "agent_launch_failed", message: "host was started without --agent-home" });
     const remembered = this.deps.store.load()?.sessionFile ?? null;
     const resume = remembered !== null && existsSync(remembered) ? remembered : null;
-    const prime = resume === null ? this.prime() : null;
+    const prime = resume === null ? this.prime(true) : null;
     const { promise, resolve, reject } = Promise.withResolvers<AgentSession>();
     const cancel = this.deps.clock.after(REGISTER_TIMEOUT_MS, () => {
       this.waiter = null;
@@ -429,9 +429,12 @@ export class AssistantService implements AssistantThread {
     return promise.finally(cancel);
   }
 
-  /** The persona prompt for a new thread; null when there is none. Read once. */
-  private prime(): string | null {
-    if (this.primeCache !== undefined) return this.primeCache;
+  /**
+   * The persona prompt for a new thread; null when there is none. A start reads the file afresh
+   * (`fresh`), since the host outlives edits of prime.md; the transcript filter reuses that read.
+   */
+  private prime(fresh = false): string | null {
+    if (!fresh && this.primeCache !== undefined) return this.primeCache;
     const home = this.deps.agentHome;
     let text: string | null = null;
     if (home !== null) {
