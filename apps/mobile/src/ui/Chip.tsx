@@ -15,7 +15,7 @@ export interface ChipProps {
   /** Accent outline and fill: the chip whose details are showing. */
   selected?: boolean;
   onPress: () => void;
-  accessibilityLabel?: string;
+  accessibilityLabel?: string | undefined;
   /** Extra touch area around the capsule, e.g. to reach a 44pt target in a chat. */
   hitSlop?: Insets;
 }

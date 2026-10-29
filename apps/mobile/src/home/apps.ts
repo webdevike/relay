@@ -7,6 +7,8 @@ import type { SFSymbol } from "expo-symbols";
 import type { Href } from "expo-router";
 import type { ICON_COLORS } from "@/home/AppRow";
 import { useBoardsStore } from "@/state/boards";
+import { studioJobActive } from "@relay/protocol";
+import { useStudioStore } from "@/state/studio";
 import { useConnectionStore } from "@/state/connection";
 import { needsAttention, useAgentsStore } from "@/state/agents";
 import { assistantsCaption, useAssistantStore } from "@/state/assistant";
@@ -51,6 +53,8 @@ export function useHomeApps(): HomeApp[] {
   const assistantsLine = useAssistantStore((state) => assistantsCaption(state.agents));
   // Asked on every welcome; the highest window across every account is the line worth a glance.
   const usage = useUsageStore((state) => state.usage);
+  // Jobs the host is still making; pushed live while connected.
+  const studioActive = useStudioStore((state) => state.jobs.filter(studioJobActive).length);
   const usageTop = usagePeak(usage);
   const hostLine =
     mac === null
@@ -113,6 +117,15 @@ export function useHomeApps(): HomeApp[] {
           : boards.map((b) => b.title).join(", "),
       ...(boards.length > 0 ? { value: boards.length } : {}),
       href: "/boards",
+    },
+    {
+      key: "studio",
+      symbol: "wand.and.stars",
+      label: "Studio",
+      color: "pink",
+      hint: studioActive === 0 ? "Make images and video" : `${studioActive} running`,
+      ...(studioActive > 0 ? { value: studioActive } : {}),
+      href: "/studio",
     },
     {
       key: "settings",

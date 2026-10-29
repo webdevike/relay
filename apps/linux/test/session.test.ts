@@ -13,8 +13,9 @@ import type { UsageService } from "../src/usage/service";
 import type { CatchUpDeck } from "../src/catchup/service";
 import type { ReactionRelaying } from "../src/reactions/service";
 import type { ArtifactRelaying } from "../src/artifacts/service";
-import { AckFailure, type AgentConfigChange, type AgentProvider, type AssistantRelaying, type AssistantThread, type CallClientMessage, type CallRelaying, type CanvasRelaying, type DeviceStore, type DropBox, type FrameSink, type GateCommand, type InboxRelaying, type InputSink, type LiveClientMessage, type LiveRelaying, type PairedDevice, type PairingUI, type PushRegistry, type TextInjecting, type VncAccess } from "../src/seams";
+import { AckFailure, type AgentConfigChange, type AgentProvider, type AssistantRelaying, type AssistantThread, type CallClientMessage, type CallRelaying, type CanvasRelaying, type DeviceStore, type DropBox, type FrameSink, type GateCommand, type InboxRelaying, type InputSink, type LiveClientMessage, type LiveRelaying, type PairedDevice, type PairingUI, type PushRegistry, type StudioRelaying, type TextInjecting, type VncAccess } from "../src/seams";
 import { ASSISTANT_FOLLOW_MS, ClientSession, PAIRING_TIMEOUT_MS, type SessionClock, type SessionDeps } from "../src/session";
+import { ltxSpec, studioHarness } from "./studio-fakes";
 
 class RecordingSink implements FrameSink {
   readonly sent: ServerMessage[] = [];
@@ -116,6 +117,7 @@ interface HarnessOptions {
   artifacts?: ArtifactRelaying;
   canvas?: CanvasRelaying;
   sessionFiles?: SessionFiles;
+  studio?: StudioRelaying;
 }
 
 function harness(options: HarnessOptions = {}): Harness {
@@ -168,6 +170,7 @@ function harness(options: HarnessOptions = {}): Harness {
     artifacts: options.artifacts ?? null,
     canvas: options.canvas ?? null,
     sessionFiles: options.sessionFiles ?? null,
+    studio: options.studio ?? null,
   };
   const sink = new RecordingSink();
   const clock = new FakeClock();
@@ -1376,10 +1379,9 @@ describe("session files", () => {
       [undefined, undefined, undefined, "/omp/agent/sessions/-Eva/a_1.jsonl"],
       [undefined, undefined, "work", "/omp/profiles/work/agent/sessions/-Eva/b_2.jsonl"],
     ]);
-    expect(h.sink.sent.slice(-2)).toEqual(expect.arrayContaining([
-      { t: "ack", id: "r2" },
-      { t: "nack", id: "r3", error: expect.objectContaining({ code: "agent_not_found" }) },
-    ]));
+    const answers = h.sink.sent.slice(-2);
+    expect(answers).toContainEqual({ t: "ack", id: "r2" });
+    expect(answers.find((m) => m.t === "nack")).toMatchObject({ id: "r3", error: { code: "agent_not_found" } });
   });
 
   it("refuses them before authentication", () => {
@@ -1388,5 +1390,45 @@ describe("session files", () => {
     expect(h.sink.sent.some((m) => m.t === "sessions.list")).toBe(false);
     expect(h.sink.last()).toMatchObject({ t: "error", code: "protocol" });
     expect(h.sink.closed).toBe(true);
+  });
+});
+
+describe("studio", () => {
+  it("answers studio.list with the state and studio.req with studio.res under the same rid, round-tripping a job", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "relay-session-studio-"));
+    try {
+      const studio = studioHarness(dir);
+      const h = harness({ studio: studio.service });
+      pair(h);
+      await studio.service.handle({ kind: "refresh" });
+      h.session.receive({ t: "studio.list" });
+      expect(h.sink.last()).toEqual({ t: "studio.state", ...studio.service.state() });
+      expect(studio.service.state().backends.map((backend) => backend.id)).toEqual(["ltx", "codex-image", "codex-edit", "higgsfield"]);
+
+      const sent = h.sink.sent.length;
+      h.session.receive({ t: "studio.req", rid: "r1", op: { kind: "create", spec: ltxSpec(), origin: "phone" } });
+      await h.sink.sentCount(sent + 1);
+      const answer = h.sink.last();
+      if (answer.t !== "studio.res") throw new Error(`expected studio.res, got ${answer.t}`);
+      expect(answer).toMatchObject({ rid: "r1", ok: true, job: { state: "running", spec: { prompt: "a fox in snow" } } });
+      // The job's own frames go to every device through the service's broadcast.
+      expect(studio.sent).toContainEqual({ t: "studio.job", job: answer.job });
+
+      h.session.receive({ t: "studio.req", rid: "r2", op: { kind: "delete", id: answer.job?.id ?? "" } });
+      await h.sink.sentCount(sent + 2);
+      expect(h.sink.last()).toEqual({ t: "studio.res", rid: "r2", ok: false, error: "Cancel the job before deleting it" });
+      studio.service.stop();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("answers empty and refuses requests on a host without Studio", () => {
+    const h = harness();
+    pair(h);
+    h.session.receive({ t: "studio.list" });
+    expect(h.sink.last()).toEqual({ t: "studio.state", jobs: [], uploads: [], backends: [] });
+    h.session.receive({ t: "studio.req", rid: "r9", op: { kind: "refresh" } });
+    expect(h.sink.last()).toEqual({ t: "studio.res", rid: "r9", ok: false, error: "This host runs no Studio." });
   });
 });

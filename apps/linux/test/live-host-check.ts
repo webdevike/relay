@@ -68,7 +68,9 @@ socket.onmessage = (event: MessageEvent<string>) => {
   } else if (message.t === "live.state" && message.callId === callId) {
     say(`live.state ${message.state}${message.text === undefined ? "" : ` "${message.text}"`}${message.error === undefined ? "" : ` error: ${message.error}`}`);
     if (message.state === "thinking") seen.thinking = true;
-    if (message.state === "listening" && seen.thinking) setTimeout(() => finish(true), 8_000);
+    if (message.state === "listening" && seen.thinking) setTimeout(() => {
+      finish(true);
+    }, 8_000);
     if (message.state === "ended") finish(false);
   }
 };
@@ -92,7 +94,9 @@ void (async () => {
     }
   }
 })();
-const timer = setTimeout(() => finish(false), 120_000);
+const timer = setTimeout(() => {
+  finish(false);
+}, 120_000);
 const ok = await done;
 clearTimeout(timer);
 send({ t: "live.end", callId });

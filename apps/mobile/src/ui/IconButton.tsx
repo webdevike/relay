@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View, type Insets } from "react-native";
 import { SymbolView, type SFSymbol } from "expo-symbols";
 import { useColors } from "@/theme";
 import { tapHaptic } from "@/lib/haptics";
@@ -18,6 +18,8 @@ export interface IconButtonProps {
   glyphSize?: number;
   /** Opacity while disabled; defaults to 0.4. */
   disabledOpacity?: number;
+  /** Extra touch area, so a small disc still makes a 44pt target. */
+  hitSlop?: Insets;
 }
 
 const OVERLAY = { tint: "#FFFFFF", background: "rgba(255,255,255,0.12)" } as const;
@@ -38,6 +40,7 @@ export function IconButton({
   accessibilityLabel,
   glyphSize,
   disabledOpacity = 0.4,
+  hitSlop,
 }: IconButtonProps) {
   const colors = useColors();
   const overlay = tone === "overlay";
@@ -48,6 +51,7 @@ export function IconButton({
   return (
     <Pressable
       disabled={disabled}
+      hitSlop={hitSlop}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       accessibilityState={{ disabled }}

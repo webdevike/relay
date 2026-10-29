@@ -228,6 +228,10 @@ export class SessionMachine {
       case "agent.message.update":
       case "agent.options":
       case "agent.image":
+      case "sessions.list":
+      case "session.chunk":
+      case "agent.started":
+      case "blob.data":
       case "agent.ask":
       case "agent.ask.resolved":
       case "agent.approval":
@@ -258,9 +262,13 @@ export class SessionMachine {
       case "canvas.rooms":
       case "canvas.access":
       case "canvas.unavailable":
+      case "studio.state":
+      case "studio.job":
+      case "studio.removed":
+      case "studio.res":
       case "ack":
       case "nack":
-        // Agent, drop, board, gate, usage, catch up, reaction, assistant, vnc and canvas frames are routed to their stores and ack/nack to CommandQueue by index.ts. Live calls run on the native module's own socket.
+        // Agent, drop, board, gate, usage, catch up, reaction, assistant, vnc, canvas and studio frames are routed to their stores and ack/nack to CommandQueue by index.ts. Live calls run on the native module's own socket.
         return [];
     }
   }

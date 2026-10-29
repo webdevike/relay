@@ -96,7 +96,23 @@ export function createAgentFrameRouter(store: AgentsStoreActions, send: (message
       case "canvas.rooms":
       case "canvas.access":
       case "canvas.unavailable":
-        // Session, command, drop, board, vnc and canvas traffic; owned by SessionMachine, CommandQueue and the other routers.
+      case "sessions.list":
+      case "session.chunk":
+      case "agent.started":
+      case "blob.data":
+      case "usage.snapshot":
+      case "catchup.snapshot":
+      case "catchup.noted":
+      case "reactions.snapshot":
+      case "artifacts.snapshot":
+      case "artifacts.acted":
+      case "live.answer":
+      case "live.state":
+      case "studio.state":
+      case "studio.job":
+      case "studio.removed":
+      case "studio.res":
+        // Session, command, drop, board, vnc, canvas and studio traffic; owned by SessionMachine, CommandQueue and the other routers.
         return;
     }
   };
