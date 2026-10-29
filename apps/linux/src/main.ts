@@ -8,6 +8,7 @@
 import { chmodSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { parseArgs } from "node:util";
 import { Drop, sessionReactionThread } from "@relay/protocol";
 import { z } from "zod";
@@ -50,6 +51,12 @@ import { RelayServer } from "./server";
 import { DEFAULT_VNC_PORT } from "./vnc";
 import { systemClock } from "./session";
 import { ClipboardWatcher, systemPaste, systemWatch } from "./drops/clipboard";
+import { CodexRunner, ompCodexToken } from "./studio/codex";
+import { HiggsfieldRunner, ompHiggsfieldCredentials } from "./studio/higgsfield";
+import { LtxRunner } from "./studio/ltx";
+import { ffmpegMedia } from "./studio/media";
+import { StudioService, type StudioMessage } from "./studio/service";
+import { defaultStudioDir } from "./studio/store";
 
 const USAGE = `relay-linux <command>
 
@@ -71,7 +78,11 @@ const USAGE = `relay-linux <command>
                                    Sharing (VNC) on 127.0.0.1, port --vnc-port (default ${String(DEFAULT_VNC_PORT)}).
                                    Live canvas rooms run on the EvaOS boards in --canvases
                                    (default on macOS: ~/Library/Application Support/EvaOS/canvases;
-                                   elsewhere off) with omp from PATH or $RELAY_CANVAS_OMP
+                                   elsewhere off) with omp from PATH or $RELAY_CANVAS_OMP.
+                                   Studio keeps jobs in $XDG_CONFIG_HOME/relay/studio; local
+                                   video runs <agent-home>/work/local-video/draft.py
+                                   ($RELAY_STUDIO_LTX_DIR), Codex images and Higgsfield use
+                                   omp's personal sign-ins
   devices                          list paired phones
   forget <deviceId>                remove a paired phone
   share <text | url | path> ...    add to the drop box of the running host: one existing file
@@ -360,6 +371,10 @@ function serve(
           },
   });
   const canvas = liveCanvas(canvasDir, agentHome, agents);
+  // Jobs and state go out long after `server` below is initialised.
+  const studio = studioService(agentHome, (message) => {
+    server.broadcastExcept(message, null);
+  });
   log(`live view: VNC bridge to 127.0.0.1:${String(vncPort)} (macOS Screen Sharing)`);
   const server: RelayServer = new RelayServer(
     { port, hostName: name, version: pkg.version, vncPort },
@@ -384,6 +399,7 @@ function serve(
       artifacts,
       canvas,
       sessionFiles: new SessionFiles(),
+      studio,
       canvasPage: () => CANVAS_PAGE,
       pairing: new TerminalPairingUI(),
       log,
@@ -411,6 +427,7 @@ function serve(
 
   clipboard?.start();
   catchup?.start();
+  studio?.start();
   log(catchupFeed === null ? "catch up disabled (no --agent-home or $RELAY_CATCHUP_FEED)" : `catch up feed ${catchupFeed}`);
   log(
     clipboard === null
@@ -426,6 +443,7 @@ function serve(
     rmSync(infoPath, { force: true });
     advertiser.stop();
     canvas?.stop();
+    studio?.stop();
     server.stop();
     voice?.stop();
     catchup?.stop();
@@ -466,6 +484,42 @@ function liveCanvas(canvasDir: string | null, agentHome: string | null, agents: 
     brains: ompBrains({ omp, profile: "personal", configs: [brainConfigOverlay(configDir)], log }),
     log,
   });
+}
+
+/**
+ * Studio in `$XDG_CONFIG_HOME/relay/studio`: local LTX video from `<agent-home>/work/local-video`
+ * (`$RELAY_STUDIO_LTX_DIR`), Codex images on omp's personal ChatGPT sign-in, Higgsfield on omp's
+ * personal Higgsfield sign-in. Null (and logged) when its index can't be read.
+ */
+function studioService(agentHome: string | null, emit: (message: StudioMessage) => void): StudioService | null {
+  const media = ffmpegMedia(log);
+  const token = ompCodexToken(resolveOmp());
+  const ltxDir = process.env["RELAY_STUDIO_LTX_DIR"] ?? join(agentHome ?? join(homedir(), "Eva"), "work", "local-video");
+  try {
+    const studio = new StudioService({
+      dir: defaultStudioDir(),
+      runners: {
+        ltx: new LtxRunner(ltxDir),
+        "codex-image": new CodexRunner({ backend: "codex-image", token, fetch, jpeg: media.jpeg }),
+        "codex-edit": new CodexRunner({ backend: "codex-edit", token, fetch, jpeg: media.jpeg }),
+        higgsfield: new HiggsfieldRunner({
+          credentials: ompHiggsfieldCredentials(join(homedir(), ".omp", "profiles", "personal", "agent", "agent.db")),
+          fetch,
+          now: Date.now,
+          sleep: (ms, signal) => delay(ms, undefined, { signal }),
+        }),
+      },
+      media,
+      emit,
+      clock: systemClock,
+      log,
+    });
+    log(`studio in ${defaultStudioDir()}, local video from ${ltxDir}`);
+    return studio;
+  } catch (error) {
+    log(`studio disabled: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
 }
 
 /**

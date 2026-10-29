@@ -24,6 +24,7 @@ import { CommandDedupStore } from "./dedup";
 import { serveBlob } from "./drops/serve";
 import { isVideoMime, videoMimeOf, VideoTooLarge } from "./drops/video";
 import { PairingCoordinator } from "./pairing";
+import { handleStudioRequest } from "./studio/http";
 import type { AttentionNotifier } from "./push/notifier";
 import type {
   AgentProvider,
@@ -41,6 +42,7 @@ import type {
   InputSink,
   PairingUI,
   PushRegistry,
+  StudioRelaying,
   TextInjecting,
 } from "./seams";
 import { ClientSession } from "./session";
@@ -90,6 +92,8 @@ export interface ServerDeps {
   readonly canvas: CanvasService | null;
   /** omp transcripts and blobs for `sessions.list`/`session.read`/`blob.read`; null answers them empty. */
   readonly sessionFiles: SessionFiles | null;
+  /** Studio's queue and files; null disables `/studio` and answers `studio.*` empty. */
+  readonly studio: StudioRelaying | null;
   /** The canvas web client's HTML, served at `/canvas/<slug>/`. */
   readonly canvasPage: () => string;
   readonly pairing: PairingUI;
@@ -208,6 +212,7 @@ export class RelayServer {
           const blob = sha === undefined || token === undefined || rest.length > 0 ? null : (this.deps.artifacts?.openMedia(sha, token) ?? null);
           return blob === null ? new Response("not found", { status: 404 }) : serveBlob(request, blob);
         }
+        if (path.startsWith("/studio/")) return handleStudioRequest(this.deps.studio, request, path);
         if (path === "/boards" || path.startsWith("/boards/"))
           return handleBoardRequest(this.deps.boards, request, path, remote);
         if (path === "/canvas" || path.startsWith("/canvas/"))
@@ -528,6 +533,7 @@ export class RelayServer {
         artifacts: this.deps.artifacts,
         canvas: this.deps.canvas,
         sessionFiles: this.deps.sessionFiles,
+        studio: this.deps.studio,
       },
       (closed) => {
         const reason = closed.closeReason;

@@ -94,7 +94,8 @@ export function ffmpegProbe(log: (line: string) => void): VideoProbe {
 // Homebrew's dirs: launchd starts the Mac host with a PATH that lacks them.
 const EXTRA_DIRS = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"];
 
-function findTool(name: string): string | null {
+/** `name` on PATH or in Homebrew's dirs; null when none is executable. */
+export function findTool(name: string): string | null {
   const dirs = [...(process.env["PATH"] ?? "").split(delimiter), ...EXTRA_DIRS].filter((dir) => dir !== "");
   for (const dir of dirs) {
     try {
@@ -108,7 +109,7 @@ function findTool(name: string): string | null {
 }
 
 /** Node's child_process rather than Bun.spawn so the vitest suite (on Node) runs the real tools. */
-function run(cmd: readonly [string, ...string[]]): Promise<Uint8Array> {
+export function runTool(cmd: readonly [string, ...string[]]): Promise<Uint8Array> {
   const [file, ...args] = cmd;
   const { promise, resolve, reject } = Promise.withResolvers<Uint8Array>();
   execFile(file, args, { encoding: "buffer", maxBuffer: 16 * 1024 * 1024, timeout: 30_000 }, (error, stdout, stderr) => {
@@ -130,7 +131,7 @@ interface ProbeJson {
 
 /** Duration and display size; exported for tests that run the real ffprobe. */
 export async function probeShape(ffprobe: string, path: string): Promise<Omit<VideoMeta, "poster">> {
-  const out = await run([
+  const out = await runTool([
     ffprobe,
     "-v", "error",
     "-select_streams", "v:0",
@@ -152,7 +153,7 @@ export async function probeShape(ffprobe: string, path: string): Promise<Omit<Vi
 }
 
 async function grabPoster(ffmpeg: string, path: string, atSeconds: number): Promise<Uint8Array | undefined> {
-  const jpeg = await run([
+  const jpeg = await runTool([
     ffmpeg,
     "-v", "error",
     "-ss", String(atSeconds),

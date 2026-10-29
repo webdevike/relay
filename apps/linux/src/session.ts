@@ -48,6 +48,7 @@ import {
   type InputAccess,
   type InputSink,
   type PushRegistry,
+  type StudioRelaying,
   type TextInjecting,
   type VncAccess,
 } from "./seams";
@@ -94,6 +95,8 @@ export interface SessionDeps {
   readonly canvas: CanvasRelaying | null;
   /** null when the host has no omp agent dir; `sessions.list` then answers empty and reads answer null. */
   readonly sessionFiles: SessionFiles | null;
+  /** null when the host runs no Studio; `studio.list` then answers empty and every `studio.req` is refused. */
+  readonly studio: StudioRelaying | null;
 }
 
 /** Clock and scheduling seams so tests drive time deterministically. */
@@ -643,6 +646,21 @@ export class ClientSession {
         if (this.deps.live !== null) this.deps.live.receive(this.sink, message);
         else if (message.t === "live.start") this.sink.send({ t: "live.state", callId: message.callId, agent: message.agent, state: "ended", error: "This host cannot take live calls", fallback: true });
         break;
+      case "studio.list":
+        this.sink.send({ t: "studio.state", ...(this.deps.studio?.state() ?? { jobs: [], uploads: [], backends: [] }) });
+        break;
+      case "studio.req": {
+        // Changes reach every device (this one included) through the service's broadcast; this is the answer.
+        const studio = this.deps.studio;
+        if (studio === null) {
+          this.sink.send({ t: "studio.res", rid: message.rid, ok: false, error: "This host runs no Studio." });
+          break;
+        }
+        void studio.handle(message.op).then((result) => {
+          if (!this.closed) this.sink.send({ t: "studio.res", rid: message.rid, ...result });
+        });
+        break;
+      }
       case "hello":
       case "auth":
       case "pair.request":

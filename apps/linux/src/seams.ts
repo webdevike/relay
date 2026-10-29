@@ -1,7 +1,7 @@
 // Seams between transport, input and storage. Mirrors apps/mac/Sources/RelayCore/Seams.swift:
 // the session only ever talks to these; input/ and the stores implement them; main.ts wires them.
 
-import type { AckError, AgentApproval, AgentAsk, AgentAskAnswer, AgentImage, AgentMessage, AgentOptions, AgentSession, ApprovalConfirmation, AssistantAgent, AssistantSnapshot, ClientMessage, Command, Drop, DropOrigin, GateStatus, InboxItem, InboxResolve, InputEvent, KeyName, ServerMessage } from "@relay/protocol";
+import type { AckError, AgentApproval, AgentAsk, AgentAskAnswer, AgentImage, AgentMessage, AgentOptions, AgentSession, ApprovalConfirmation, AssistantAgent, AssistantSnapshot, ClientMessage, Command, Drop, DropOrigin, GateStatus, InboxItem, InboxResolve, InputEvent, KeyName, ServerMessage, StudioOp, StudioResult, StudioState } from "@relay/protocol";
 
 /** Outbound side of one connection. `send` after `close` is a no-op. */
 export interface FrameSink {
@@ -176,6 +176,21 @@ export interface DropBox {
   open(id: string, token: string): DropBlob | null;
   /** A video drop's poster JPEG under the same token check; null when it has none. */
   openPoster(id: string, token: string): DropBlob | null;
+}
+
+/**
+ * What the session and server need of Studio (`studio/service.ts`): the state a `studio.list`
+ * answers, one `studio.req` op at a time, and the asset files behind `/studio/<id>/<token>`.
+ * Changes reach every device through the service's own broadcast.
+ */
+export interface StudioRelaying {
+  state(): StudioState;
+  /** Never rejects: a refusal is `{ ok: false, error }`. A `create` carries its own origin. */
+  handle(op: StudioOp): Promise<Omit<StudioResult, "rid">>;
+  /** An output's or upload's file iff `token` is its token; null otherwise. */
+  open(id: string, token: string): DropBlob | null;
+  /** Its JPEG preview (an image without one serves itself) under the same token check. */
+  openThumb(id: string, token: string): DropBlob | null;
 }
 
 /** Shows / hides the pairing PIN. Exactly one `endPairing` per `beginPairing`. */

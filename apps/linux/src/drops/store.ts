@@ -5,13 +5,14 @@
 // enough to fetch bytes over HTTP. The index is read once at construction and rewritten (tmp +
 // rename) after every mutation, like the other file stores.
 
-import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Drop, MAX_DROP_BYTES, MAX_DROP_TEXT, MAX_DROPS, untagged, type DropFile, type DropOrigin } from "@relay/protocol";
 import { z } from "zod";
 import type { DropBlob, DropBox, DropChange } from "../seams";
+import { sameToken } from "./serve";
 import { DEFAULT_MAX_VIDEO_BYTES, ffmpegProbe, isVideoMime, VideoTooLarge, type VideoProbe } from "./video";
 
 /** Longest `Drop.title`; the phone shows one line. */
@@ -133,10 +134,7 @@ export class FileDropStore implements DropBox {
   /** The record for `id` iff it holds a blob and `token` is its token (compared in constant time). */
   private authorized(id: string, token: string): DropRecord | null {
     const record = this.records.find((candidate) => candidate.drop.id === id);
-    if (record?.token === undefined) return null;
-    const expected = Buffer.from(record.token, "utf8");
-    const given = Buffer.from(token, "utf8");
-    if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
+    if (record?.token === undefined || !sameToken(record.token, token)) return null;
     return record;
   }
 

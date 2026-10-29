@@ -2,9 +2,17 @@
 // plays a URL whose server answers its `Range: bytes=0-1` probe with a 206, and seeking or
 // resuming a video asks for arbitrary ranges; HEAD answers the same headers without a body.
 
+import { timingSafeEqual } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
 import type { DropBlob } from "../seams";
+
+/** Whether `given` is the blob token `expected`, compared in constant time. */
+export function sameToken(expected: string, given: string): boolean {
+  const a = Buffer.from(expected, "utf8");
+  const b = Buffer.from(given, "utf8");
+  return a.length === b.length && timingSafeEqual(a, b);
+}
 
 /** A blob's GET/HEAD response: 200 whole, 206 for a satisfiable single range, 416 past the end. */
 export function serveBlob(request: Request, blob: DropBlob): Response {

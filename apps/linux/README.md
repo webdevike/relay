@@ -314,6 +314,45 @@ carries `fallback: true` and the phone starts the local `call.*` call instead. P
 Mac, against the running host's real thread and without a phone: `bun test/live-smoke.ts --agent nova --ask
 "What's on my calendar tomorrow?"` (needs a uv venv with aiortc + numpy, see the file's header).
 
+## Studio (`studio.list`, `studio.req`, `studio.state`, `studio.job`, `studio.removed`, `studio.res`)
+
+An image and video playground for Relay mobile and Relay desktop: the host runs every job, the clients are a
+composer, a queue and a gallery (`packages/protocol/src/studio.ts` is the wire spec). A device asks `studio.list`
+and gets `studio.state { jobs, uploads, backends }`; after that every job change (created, every 2 s while it
+runs, finished) goes to every device as `studio.job { job }`, a deleted job or upload as `studio.removed { id }`,
+and a fresh `studio.state` when uploads or backends change. Everything else is `studio.req { rid, op }`, answered
+by `studio.res { rid, ok, error?, job?, asset?, credits?, balance? }`: `create { spec, origin }`, `quote { spec }`,
+`cancel { id }`, `delete { id }` (a finished job with its files, or an upload), `upload { image }` (base64, kept as
+a reference frame), `frame { asset, at: first|last }` (a video's frame as a new upload) and `refresh`.
+
+Backends (`src/studio/`), each a runner behind one seam so the tests use fakes:
+
+- `ltx` (free, video): `<agent-home>/work/local-video/draft.py` in its `.venv` (`$RELAY_STUDIO_LTX_DIR` overrides
+  the dir) with `--prompt --seconds --res --seed --out` and `--start/--end` (both or neither) plus `--mid PATH@0.5`.
+  Homebrew's dirs go first on its PATH (it calls ffmpeg). One job at a time on the GPU, first in first out; queued
+  ones say "Waiting for the GPU" with an ETA through the jobs ahead. It runs in its own process group, so a cancel
+  SIGTERMs draft.py and ltx-2-mlx together (SIGKILL 5 s later); a failure keeps the last stderr lines.
+- `codex-image`, `codex-edit` (free, images, three at once): Codex's image endpoints
+  (`chatgpt.com/backend-api/codex/images/generations` and `/edits`, references as JPEG data URLs) on the token
+  `omp --profile personal token openai-codex` prints (never logged; omp from PATH or `$RELAY_CANVAS_OMP`). No seeds.
+- `higgsfield` (paid, video, two at once): Higgsfield's MCP server with the token omp keeps for its Higgsfield tools
+  (`~/.omp/profiles/personal/agent/agent.db`, opened read-only and never refreshed; an expired one makes the backend
+  unavailable until an omp session renews it). A curated set of models with their own sizes, lengths and keyframe
+  slots; audio off; frames go up through `media_upload`, the job is polled with `job_status`, the mp4 downloaded.
+
+Paid rule: a `create` on a paid backend needs `spec.confirmCredits`, the quote Isaac confirmed with a tap; the host
+re-quotes and refuses when the price rose ("The price changed to N credits; confirm again"), refuses `origin:
+"agent"` outright, records the charge in `job.credits` and reads the balance again after every paid job.
+
+Files live in `$XDG_CONFIG_HOME/relay/studio/` (dir 0700, files 0600): `index.json` (jobs and uploads newest first,
+each asset's files and token, the ETA calibration per backend), `<id>.<ext>` per asset and `<id>.thumb.jpg` (ffmpeg,
+at most 640 px; a video's first frame). They are served like drops at `GET|HEAD /studio/<id>/<token>` (byte ranges)
+and `/studio/<id>/<token>/thumb`, the token checked in constant time. Up to 300 jobs (the oldest finished ones go,
+with their files) and 100 uploads. A job's ETA is its backend's estimate (LTX: 45 s plus a per-frame-pixel cost on
+draft.py's generation grid, about 210 s for 5 s at 480x848; Codex 25 s, edits 45 s; Higgsfield 120 s) scaled by how
+long jobs really took (a moving average). After a restart running jobs read "Stopped when the host restarted" and
+queued ones run again.
+
 ## Differences from the Mac app
 
 - No tray/menu UI; the terminal is the UI.
