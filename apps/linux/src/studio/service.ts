@@ -35,6 +35,8 @@ export const STUDIO_TICK_MS = 2000;
 /** Progress never claims done before the output is in. */
 const MAX_PROGRESS = 0.97;
 export const GPU_NOTE = "Waiting for the GPU";
+/** A running LTX job whose draft.py waits for the machine-wide GPU lock (another LTX user holds it). */
+export const GPU_BUSY_NOTE = "Waiting for the GPU (another job is using it)";
 const SLOT_NOTE = "Waiting for a free slot";
 
 export type StudioMessage = Extract<ServerMessage, { t: "studio.state" | "studio.job" | "studio.removed" }>;
@@ -57,8 +59,11 @@ export interface StudioServiceDeps {
 interface Running {
   readonly backend: StudioBackendId;
   readonly controller: AbortController;
-  readonly startedAt: number;
+  /** When its own work began: the start, or the moment it got the GPU lock after waiting. */
+  startedAt: number;
   readonly estimateMs: number;
+  /** Waiting for the machine-wide GPU lock: no progress, no ETA. */
+  blocked: boolean;
 }
 
 export class StudioService implements StudioRelaying {
@@ -262,7 +267,7 @@ export class StudioService implements StudioRelaying {
 
   private begin(job: StudioJob): void {
     const now = this.deps.clock.now();
-    const slot: Running = { backend: job.spec.backend, controller: new AbortController(), startedAt: now, estimateMs: this.estimateMs(job.spec) };
+    const slot: Running = { backend: job.spec.backend, controller: new AbortController(), startedAt: now, estimateMs: this.estimateMs(job.spec), blocked: false };
     this.running.set(job.id, slot);
     const started: StudioJob = { ...settledJob(job), state: "running", startedAt: now, progress: 0, etaMs: slot.estimateMs };
     this.save(started);
@@ -283,6 +288,20 @@ export class StudioService implements StudioRelaying {
         note: (text) => {
           const current = this.store.job(job.id);
           if (current?.state === "running" && current.note !== text) this.touch({ ...current, note: text });
+        },
+        blocked: (waiting) => {
+          const current = this.store.job(job.id);
+          if (current?.state !== "running" || slot.blocked === waiting) return;
+          slot.blocked = waiting;
+          const rest: StudioJob = { ...current };
+          delete rest.note;
+          delete rest.etaMs;
+          if (waiting) {
+            this.touch({ ...rest, progress: 0, note: GPU_BUSY_NOTE });
+          } else {
+            slot.startedAt = this.deps.clock.now();
+            this.touch({ ...rest, progress: 0, etaMs: slot.estimateMs });
+          }
         },
       };
       const output = await this.deps.runners[spec.backend].run(input);
@@ -339,7 +358,7 @@ export class StudioService implements StudioRelaying {
     const now = this.deps.clock.now();
     for (const [id, slot] of this.running) {
       const job = this.store.job(id);
-      if (job?.state !== "running") continue;
+      if (job?.state !== "running" || slot.blocked) continue;
       const elapsed = now - slot.startedAt;
       this.touch({ ...job, progress: Math.min(MAX_PROGRESS, elapsed / slot.estimateMs), etaMs: Math.max(0, slot.estimateMs - elapsed) });
     }

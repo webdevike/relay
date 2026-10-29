@@ -35,8 +35,9 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-function runInput(spec: StudioSpec, over: Partial<StudioRunInput> = {}): StudioRunInput & { notes: string[] } {
+function runInput(spec: StudioSpec, over: Partial<StudioRunInput> = {}): StudioRunInput & { notes: string[]; waits: boolean[] } {
   const notes: string[] = [];
+  const waits: boolean[] = [];
   return {
     spec,
     frames: {},
@@ -44,7 +45,9 @@ function runInput(spec: StudioSpec, over: Partial<StudioRunInput> = {}): StudioR
     workDir: freshDir(),
     signal: new AbortController().signal,
     note: (text) => notes.push(text),
+    blocked: (waiting) => waits.push(waiting),
     notes,
+    waits,
     ...over,
   };
 }
@@ -125,6 +128,22 @@ describe("LTX runner", () => {
     expect(output).toEqual({ path: join(input.workDir, "out.mp4"), mimeType: "video/mp4" });
     expect(readFileSync(join(dir, "argv"), "utf8").split("\n")).toContain("--seed");
     expect(readFileSync(join(dir, "path"), "utf8")).toMatch(/^\/opt\/homebrew\/bin:\/usr\/local\/bin:/);
+  });
+
+  it("reports draft.py's GPU lock wait and acquisition, even when stderr arrives in pieces", async () => {
+    const dir = freshDir();
+    mkdirSync(join(dir, ".venv", "bin"), { recursive: true });
+    writeFileSync(join(dir, "draft.py"), "");
+    // Stand-in python: the lock lines draft.py prints, split mid-line, then the --out file.
+    const python = join(dir, ".venv", "bin", "python");
+    writeFileSync(
+      python,
+      `#!/bin/sh\nprintf '[draft] waiting for GPU: another job holds /x (pid 1)\\n[draft] GPU lo' >&2\nsleep 0.1\nprintf 'ck acquired after 3s\\rprogress 10%%\\r' >&2\nwhile [ $# -gt 0 ]; do\n  if [ "$1" = "--out" ]; then echo clip > "$2"; fi\n  shift\ndone\n`,
+    );
+    chmodSync(python, 0o755);
+    const input = runInput(ltxSpec());
+    await new LtxRunner(dir).run(input);
+    expect(input.waits).toEqual([true, false]);
   });
 
   it("fails with the last lines of stderr", async () => {

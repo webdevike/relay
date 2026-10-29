@@ -5,7 +5,7 @@ import { MAX_STUDIO_JOBS, MAX_STUDIO_UPLOADS, type StudioAsset, type StudioJob, 
 import { afterEach, describe, expect, it } from "vitest";
 import { BACKEND_BASE, baseEstimateMs, ltxFrames, ltxGenerationSize, validateSpec } from "../src/studio/backends";
 import { handleStudioRequest } from "../src/studio/http";
-import { GPU_NOTE, STUDIO_TICK_MS, type StudioService } from "../src/studio/service";
+import { GPU_BUSY_NOTE, GPU_NOTE, STUDIO_TICK_MS, type StudioService } from "../src/studio/service";
 import { RESTART_ERROR, StudioStore, type StudioStoreOptions } from "../src/studio/store";
 import { fakeMedia, flush, imageSpec, ltxSpec, paidSpec, PNG, studioHarness, type StudioHarness } from "./studio-fakes";
 
@@ -120,6 +120,24 @@ describe("studio queue", () => {
     // Took twice the estimate: the next one is expected to take 1 + 0.3 * (2 - 1) times as long.
     const next = await create(h.service, spec);
     expect(next.etaMs).toBeCloseTo(1.3 * estimate, 0);
+  });
+
+  it("holds progress and ETA while another LTX user has the GPU lock, then times the job from when it got the GPU", async () => {
+    const h = harness();
+    const spec = ltxSpec();
+    const estimate = baseEstimateMs(spec);
+    const job = await create(h.service, spec);
+    const run = h.runners.ltx.runs[0];
+    run?.input.blocked(true);
+    expect(lastJobFrame(h, job.id)).toMatchObject({ state: "running", progress: 0, note: GPU_BUSY_NOTE });
+    expect(lastJobFrame(h, job.id)?.etaMs).toBeUndefined();
+    h.clock.advance(10 * STUDIO_TICK_MS);
+    expect(lastJobFrame(h, job.id)).toMatchObject({ progress: 0, note: GPU_BUSY_NOTE });
+    run?.input.blocked(false);
+    expect(lastJobFrame(h, job.id)?.note).toBeUndefined();
+    expect(lastJobFrame(h, job.id)?.etaMs).toBe(estimate);
+    h.clock.advance(STUDIO_TICK_MS);
+    expect(lastJobFrame(h, job.id)).toMatchObject({ progress: STUDIO_TICK_MS / estimate, etaMs: estimate - STUDIO_TICK_MS });
   });
 
   it("cancels a queued job at once and a running one through its runner's signal; the GPU frees when the runner stops", async () => {

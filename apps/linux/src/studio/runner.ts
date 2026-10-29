@@ -17,6 +17,12 @@ export interface StudioRunInput {
   readonly signal: AbortSignal;
   /** Shows a short status line on the job ("Uploading frames"). */
   readonly note: (text: string) => void;
+  /**
+   * LTX: another process holds the machine-wide GPU lock (`~/.cache/eva-gpu.lock`, taken by
+   * draft.py) and this job waits for it (true), or it just got the lock (false). The job shows
+   * "Waiting for the GPU (another job is using it)" and its ETA restarts once the GPU is free.
+   */
+  readonly blocked: (waiting: boolean) => void;
 }
 
 export interface StudioRunOutput {

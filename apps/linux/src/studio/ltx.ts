@@ -38,6 +38,8 @@ export interface GroupRunOptions {
   readonly signal: AbortSignal;
   /** SIGTERM to SIGKILL on abort. */
   readonly graceMs: number;
+  /** Each complete stderr line (split on `\n` and progress bars' `\r`), as it arrives. */
+  readonly onLine?: (line: string) => void;
 }
 
 /**
@@ -54,9 +56,14 @@ export function runProcessGroup(argv: readonly [string, ...string[]], options: G
   const [file, ...args] = argv;
   const child = spawn(file, args, { cwd: options.cwd, env: options.env, detached: true, stdio: ["ignore", "ignore", "pipe"] });
   let tail = "";
+  let partial = "";
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk: string) => {
     tail = (tail + chunk).slice(-8192);
+    if (options.onLine === undefined) return;
+    const lines = (partial + chunk).split(/\r\n|[\r\n]/);
+    partial = (lines.pop() ?? "").slice(-8192);
+    for (const line of lines) options.onLine(line);
   });
   const signalGroup = (signal: NodeJS.Signals | 0): boolean => {
     if (child.pid === undefined) return false;
@@ -132,6 +139,11 @@ export class LtxRunner implements StudioRunner {
       env: { ...process.env, PATH: `${PATH_PREFIX}:${process.env["PATH"] ?? "/usr/bin:/bin"}` },
       signal: input.signal,
       graceMs: this.graceMs,
+      // draft.py's machine-wide GPU lock: it says when it has to wait and when it got the GPU.
+      onLine: (line) => {
+        if (line.startsWith("[draft] waiting for GPU")) input.blocked(true);
+        else if (line.startsWith("[draft] GPU lock acquired")) input.blocked(false);
+      },
     });
     if (!existsSync(out)) throw new Error("LTX finished without writing a video");
     return { path: out, mimeType: "video/mp4" };
