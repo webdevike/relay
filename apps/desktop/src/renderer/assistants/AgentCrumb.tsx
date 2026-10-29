@@ -32,3 +32,29 @@ export function AgentCrumb({ id }: { id: string }) {
     </span>
   )
 }
+
+/**
+ * A chat an assistant started (auto-work) names its way back to that assistant's thread, where
+ * it is listed: "< Astra / ENG-6545 auto-work".
+ */
+export function OwnedCrumb({ agent, title }: { agent: string; title: string }) {
+  useNamesVersion()
+  return (
+    <span className="eva-as-crumb" data-testid="owned-crumb">
+      <button
+        type="button"
+        className="eva-as-crumb-back"
+        data-testid="owned-crumb-back"
+        onClick={(e) => openPlace(placeOf(`agent:${agent}`), { newTab: e.metaKey })}
+      >
+        <IconChevronLeft size={12} stroke={2} aria-hidden />
+        <AgentPortrait id={agent} className="eva-as-crumb-portrait" />
+        {agentTitle(agent) ?? agent}
+      </button>
+      <span className="eva-as-crumb-sep" aria-hidden>
+        /
+      </span>
+      <span className="eva-as-crumb-here">{title}</span>
+    </span>
+  )
+}

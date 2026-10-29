@@ -12,6 +12,7 @@ import type { Env } from '../env'
 import { awayOf } from '../relay/away'
 import type { RelaySession } from '../relay/feed'
 import { ChatOrder, DAY_MS, type Look, type Phase } from './chat-order'
+import { SessionOwners } from './owners'
 import { SessionScanner, type ReadFrom, type SessionFacts } from './session-scan'
 import { remoteSessionsDir } from './remote-sessions'
 import { WorkLedgers, gitBranch, keepsWorktree } from './work-line'
@@ -114,6 +115,7 @@ export class ChatListService {
   private readonly scanner: SessionScanner
   private readonly ledgers: WorkLedgers
   private readonly order: ChatOrder
+  private readonly owners: SessionOwners
 
   constructor(private readonly deps: ChatListDeps) {
     this.now = deps.now ?? Date.now
@@ -121,6 +123,7 @@ export class ChatListService {
     this.scanner = new SessionScanner(deps.home ?? null, deps.readFrom)
     this.ledgers = new WorkLedgers(deps.evaRoot)
     this.order = new ChatOrder(deps.config)
+    this.owners = new SessionOwners(deps.evaRoot)
   }
 
   /** Reads `file` again on the next list (its header at least), or every file. */
@@ -256,6 +259,7 @@ export class ChatListService {
       for (const [sid, s] of relay) if (s.kind === 'assistant') this.assistantIds.add(sid)
     const now = this.now()
     const work = this.ledgers.current()
+    const owners = this.owners.current()
     const place = new PlaceReader(work)
     const seen = new Set<string>()
     const rows: ChatRow[] = []
@@ -337,6 +341,7 @@ export class ChatListService {
         snoozedUntilMs: null,
         wokeMs: null,
         startedMs: null,
+        owner: owners.get(id) ?? null,
       })
     }
     this.scanner.retain(seen)

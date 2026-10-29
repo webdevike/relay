@@ -44,6 +44,17 @@
   border-color: var(--eva-text-dim);
   background: var(--eva-hover);
 }
+/* An assistant's own sessions, under its header: a quiet label, then the chips. */
+.eva-owned {
+  margin-top: var(--eva-space-native-sm);
+}
+.eva-owned-label {
+  flex: none;
+  color: var(--eva-text-dim);
+}
+.eva-owned .eva-chip:hover {
+  background: var(--eva-hover);
+}
 .eva-chip:focus-visible,
 .eva-chips-clear:focus-visible,
 .eva-jobs-head:focus-visible {

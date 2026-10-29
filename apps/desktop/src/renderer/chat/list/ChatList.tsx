@@ -174,11 +174,15 @@ export function ChatList({
     (r: Row): string => cats?.categoryOf(r.id, r.title, r.workedIn) ?? '',
     [cats],
   )
+  // A chat an assistant started (auto-work) lives under that assistant's thread, not here.
   const rows = useMemo(
     () =>
       list
         ? list.rows.filter(
-            (r) => r.agent === agent && (!searching || r.title.toLowerCase().includes(query)),
+            (r) =>
+              r.owner === null &&
+              r.agent === agent &&
+              (!searching || r.title.toLowerCase().includes(query)),
           )
         : [],
     [list, agent, searching, query],
@@ -321,7 +325,7 @@ export function ChatList({
   // Native agent_switcher: every agent's chats counted, settled too; empty tabs hidden except
   // Eva and the selected one.
   const counts = new Map<ChatAgent, number>()
-  for (const r of list.rows) counts.set(r.agent, (counts.get(r.agent) ?? 0) + 1)
+  for (const r of list.rows) if (r.owner === null) counts.set(r.agent, (counts.get(r.agent) ?? 0) + 1)
   const tabs = ChatAgentSchema.options.filter(
     (a) => (counts.get(a) ?? 0) > 0 || a === 'Eva' || a === agent,
   )

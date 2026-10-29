@@ -219,6 +219,12 @@
   border-radius: 50%;
   background: var(--mantine-color-gray-1);
 }
+/* "< (portrait) Astra / ENG-6545 auto-work": the owner's pill on a chat it started. */
+.eva-as-crumb-back > .eva-as-crumb-portrait {
+  width: calc(var(--eva-control-xs) - 8px);
+  height: calc(var(--eva-control-xs) - 8px);
+  margin: 0 var(--eva-space-xs) 0 2px;
+}
 .eva-as-crumb-here {
   min-width: 0;
   overflow: hidden;

@@ -24,6 +24,7 @@ export function chatRow(id: string, title: string, extra: Partial<ChatRow> = {})
     snoozedUntilMs: null,
     wokeMs: null,
     startedMs: null,
+    owner: null,
     ...extra,
   }
 }

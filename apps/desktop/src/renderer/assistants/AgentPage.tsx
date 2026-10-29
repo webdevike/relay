@@ -1,5 +1,6 @@
 import { Button } from '@mantine/core'
 import type { Place } from '@evaos/shell-core'
+import { OwnedSessions } from '../chat/strips/OwnedSessions'
 import { agentIdOf, agentOf, startAgent, useAssistants } from './assistants-store'
 import { PortraitCard } from './PortraitCard'
 import './assistants.css'
@@ -54,6 +55,8 @@ export function AgentPage({ place }: { place: Place }) {
           Relay couldn&apos;t start {title}. {failed}
         </p>
       ) : null}
+      {/* Sessions it started (auto-work) are reachable before its own thread exists. */}
+      <OwnedSessions agent={id} />
     </div>
   )
 }

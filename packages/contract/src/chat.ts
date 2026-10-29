@@ -41,6 +41,14 @@ export const ChatWorkSchema = z.object({
   pr: z.number().int().positive().nullable(),
 })
 
+/**
+ * The assistant that started a chat (it is in `work/eva/agents/<agent>/sessions.json`, e.g. an
+ * auto-work session): the chat lives under that assistant, not in the Chats list. `closed` once
+ * the assistant's job no longer needs it (the entry's `closedAt`); the transcript stays.
+ */
+export const ChatOwnerSchema = z.object({ agent: z.string(), closed: z.boolean() })
+export type ChatOwner = z.infer<typeof ChatOwnerSchema>
+
 export const ChatRowSchema = z.object({
   id: z.string(),
   file: z.string(),
@@ -70,6 +78,8 @@ export const ChatRowSchema = z.object({
   wokeMs: z.number().nullable(),
   /** Start of the current run while working, for "Working 16s". */
   startedMs: z.number().nullable(),
+  /** The assistant that started it, else null (Isaac's own chat). */
+  owner: ChatOwnerSchema.nullable(),
 })
 export const ChatPrefsSchema = z.object({
   chat_categories: z.array(z.string()),

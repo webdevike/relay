@@ -518,6 +518,7 @@ describe('contract', () => {
         snoozedUntilMs: null,
         wokeMs: null,
         startedMs: 1,
+        owner: { agent: 'astra', closed: false },
       }
       const prefs = {
         chat_categories: [],

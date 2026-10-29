@@ -10,6 +10,9 @@ import { PendingDialog } from './cards/PendingDialog'
 import { JobsStrip } from './strips/JobsStrip'
 import { StatusStrip } from './strips/StatusStrip'
 import { SubagentChips } from './strips/SubagentChips'
+import { OwnedSessions } from './strips/OwnedSessions'
+import { listStore, useListStore } from './list/list-store'
+import { sessionId } from '@evaos/chat-core/session-id'
 import { chatStore, hiddenKey, useChatStore } from './chat-store'
 import { createStreamDrain } from './stream-drain'
 import { invoke, on } from '../ipc'
@@ -28,7 +31,7 @@ import { draftKeyFor, loadDrafts } from './drafts'
 import { toggleSidebar, useLayout } from '../shell/layout-store'
 import { openSubagentTab, toggleToolPanes, useTiling } from '../tiling/tiling-store'
 import { setChatTitle } from '../eva/names-store'
-import { AgentCrumb } from '../assistants/AgentCrumb'
+import { AgentCrumb, OwnedCrumb } from '../assistants/AgentCrumb'
 import { agentFile, agentIdOf, agentOf, useAssistants } from '../assistants/assistants-store'
 import { fillComposer } from './composer-fill'
 import {
@@ -88,6 +91,14 @@ export function ChatPane() {
     [reactionThread],
   )
   const placeChat = place.page === 'chat' ? place.chat : thread
+  // A chat an assistant started names that assistant in its header and leads back to its thread.
+  const shownId = place.page === 'chat' && pane?.file ? sessionId(pane.file) : null
+  const ownerAgent = useListStore((s) =>
+    shownId === null ? null : (s.list?.rows.find((r) => r.id === shownId)?.owner?.agent ?? null),
+  )
+  useEffect(() => {
+    if (shownId !== null && !listStore.getState().list) void listStore.getState().load()
+  }, [shownId])
   const appTab = useTabs(activeTabId)
   const draftKey = draftKeyFor(pane, placeChat, browserScope(placeOf('chat'), appTab))
   useEffect(() => void loadDrafts(), [])
@@ -174,9 +185,16 @@ export function ChatPane() {
             {pane.running ? (
               <span className="eva-streaming-dot" role="img" aria-label="Eva is replying" />
             ) : null}
-            {/* An agent's thread names its way back: "< Assistants / Astra". */}
+            {/* An agent's thread names its way back: "< Assistants / Astra"; a chat it started,
+                "< Astra / ENG-6545 auto-work". */}
             <h2 className="eva-heading eva-chat-title" title={pane.file || undefined}>
-              {agent !== null ? <AgentCrumb id={agent} /> : pane.title}
+              {agent !== null ? (
+                <AgentCrumb id={agent} />
+              ) : ownerAgent !== null ? (
+                <OwnedCrumb agent={ownerAgent} title={pane.title} />
+              ) : (
+                pane.title
+              )}
             </h2>
             {pane.file && !pane.extras.running && !pane.owner && !pane.away ? (
               <span className="eva-chat-saved">Saved session</span>
@@ -221,6 +239,7 @@ export function ChatPane() {
           {pane.error}
         </div>
       ) : null}
+      {agent !== null && thread !== null ? <OwnedSessions agent={agent} /> : null}
       {pane && !(pane.file === '' && pane.messages.length === 0) ? (
         <WidgetActions.Provider value={widgetActions}>
           <ReactionScope.Provider value={reactionScope}>

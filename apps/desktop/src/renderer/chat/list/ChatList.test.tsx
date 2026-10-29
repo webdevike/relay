@@ -25,6 +25,10 @@ const value: ChatListValue = {
     chatRow('p', 'Pinned plan', { pinned: true, returnedMs: now - 1000 }),
     chatRow('s', 'Snoozed thing', { snoozedUntilMs: now + 3_600_000 }),
     chatRow('e', 'Eren chat', { agent: 'Eren', returnedMs: now }),
+    chatRow('w', 'ENG-1 auto-work', {
+      returnedMs: now - 500,
+      owner: { agent: 'astra', closed: false },
+    }),
   ],
   prefs: listPrefs(),
   error: null,
@@ -64,6 +68,12 @@ describe('ChatList layout', () => {
     const relay = screen.getByTestId('chat-group-Relay')
     expect(relay).toHaveTextContent('Relay1')
     expect(within(relay).getByLabelText('Working')).toBeInTheDocument()
+  })
+
+  it('a chat an assistant started is not listed; it lives under that assistant', async () => {
+    mount('auto')
+    await screen.findByTestId('chat-agent-eva')
+    expect(screen.queryByTestId('chat-row-w')).toBeNull()
   })
 
   it('agent tabs count every chat, hide empty ones, and filter', async () => {

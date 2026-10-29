@@ -125,6 +125,7 @@ export {
   type Op,
   type ChatList,
   type ChatRow,
+  type ChatOwner,
   type ChatAgent,
   ChatAgentSchema,
   type ChatPrefs,
