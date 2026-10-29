@@ -56,11 +56,27 @@ export function createDropFrameRouter(store: DropsStoreActions): DropFrameRouter
       case "canvas.rooms":
       case "canvas.access":
       case "canvas.unavailable":
+      case "sessions.list":
+      case "session.chunk":
+      case "agent.started":
+      case "blob.data":
+      case "usage.snapshot":
+      case "catchup.snapshot":
+      case "catchup.noted":
+      case "reactions.snapshot":
+      case "artifacts.snapshot":
+      case "artifacts.acted":
+      case "live.answer":
+      case "live.state":
+      case "studio.state":
+      case "studio.job":
+      case "studio.removed":
+      case "studio.res":
       case "ack":
       case "nack":
       case "pong":
-        // Session, command, agent, board, vnc and canvas traffic; owned by SessionMachine, CommandQueue
-        // and the other routers.
+        // Session, command, agent, board, vnc, canvas and studio traffic; owned by SessionMachine,
+        // CommandQueue and the other routers.
         return;
     }
   };

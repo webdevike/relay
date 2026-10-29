@@ -7,7 +7,7 @@
 import { useEffect } from "react";
 import { AppState, type AppStateStatus, type NativeEventSubscription } from "react-native";
 import { CryptoDigestAlgorithm, digest } from "expo-crypto";
-import { encode, parseServerMessage, reactionExcerpt, WS_PATH, type ArtifactAction, type CatchUpSignal, type ClientMessage, type Command, type InputEvent } from "@relay/protocol";
+import { encode, parseServerMessage, reactionExcerpt, WS_PATH, type ArtifactAction, type CatchUpSignal, type ClientMessage, type Command, type InputEvent, type StudioOp, type StudioResult } from "@relay/protocol";
 import { useConnectionStore } from "@/state/connection";
 import { useAgentsStore } from "@/state/agents";
 import { useDropsStore } from "@/state/drops";
@@ -20,6 +20,7 @@ import { useAssistantStore } from "@/state/assistant";
 import { useReactionsStore } from "@/state/reactions";
 import { useArtifactsStore } from "@/state/artifacts";
 import { useCanvasStore } from "@/state/canvas";
+import { useStudioStore } from "@/state/studio";
 import { callIsLive, useCallStore } from "@/state/call";
 import { createCallFrameRouter } from "@/call/frames";
 import { callStats } from "@/call/stats";
@@ -37,6 +38,7 @@ import { createCatchUpFrameRouter } from "./catchup";
 import { createAssistantFrameRouter } from "./assistant";
 import { createReactionFrameRouter } from "./reactions";
 import { createArtifactFrameRouter, PendingActs, type ActResult } from "./artifacts";
+import { createStudioFrameRouter, PendingStudio } from "./studio";
 import { beginCanvasAccess, canvasWelcomeFrames, createCanvasFrameRouter } from "./canvas";
 import { allowedTarget, mayDiscover, parseOnlyHost } from "./only-host";
 import * as identity from "./identity";
@@ -88,6 +90,7 @@ const reactionThreads = new Map<string, number>();
 /** Artifact threads with a screen or sheet open on them, counted like `reactionThreads`. */
 const artifactThreads = new Map<string, number>();
 const pendingActs = new PendingActs();
+const pendingStudio = new PendingStudio();
 
 const commandQueue = new CommandQueue();
 const socket = new RelaySocket();
@@ -109,6 +112,7 @@ const routeAssistantFrame = createAssistantFrameRouter(useAssistantStore.getStat
 const routeReactionFrame = createReactionFrameRouter(useReactionsStore.getState());
 const routeArtifactFrame = createArtifactFrameRouter(useArtifactsStore.getState(), pendingActs);
 const routeCanvasFrame = createCanvasFrameRouter(useCanvasStore.getState(), () => hostAuthority);
+const routeStudioFrame = createStudioFrameRouter(useStudioStore.getState(), pendingStudio);
 const routeCallFrame = createCallFrameRouter(
   { update: useCallStore.getState().update, current: () => useCallStore.getState().call },
   {
@@ -183,6 +187,8 @@ socket.onMessage = (data) => {
     // forgot its tokens; an open the socket dropped before its answer asks again.
     useCanvasStore.getState().reconnected();
     for (const frame of canvasWelcomeFrames(useCanvasStore.getState().access)) socket.send(encode(frame));
+    // Studio jobs ran on while away; the host sends the whole state again.
+    socket.send(encode({ t: "studio.list" }));
   }
   if (message.t === "agent.image") imagesInFlight.delete(imageKey(message.sessionId, message.id));
   // Answered on the Mac, in the chat or on another device: take its notification off the lock screen.
@@ -201,6 +207,7 @@ socket.onMessage = (data) => {
   routeReactionFrame(message);
   routeArtifactFrame(message);
   routeCanvasFrame(message);
+  routeStudioFrame(message);
   routeAssistantFrame(message);
   routeCallFrame(message);
   void dispatch({ type: "server", message });
@@ -360,7 +367,9 @@ async function retarget(id: string | null): Promise<void> {
   useReactionsStore.getState().clear();
   useArtifactsStore.getState().clear();
   useCanvasStore.getState().clear();
+  useStudioStore.getState().clear();
   pendingActs.cancelAll();
+  pendingStudio.cancelAll();
   useVncStore.getState().setAccess({ kind: "idle" });
   await resetSession();
 }
@@ -573,6 +582,24 @@ export function actArtifacts(thread: string, action: ArtifactAction): Promise<Ac
   const rid = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   const answer = pendingActs.add(rid);
   socket.send(encode({ t: "artifacts.act", thread, rid, by: "isaac", action }));
+  return answer;
+}
+
+/** Ephemeral; the answer lands in `useStudioStore()`. Also sent on every welcome. */
+export function requestStudio(): void {
+  if (useConnectionStore.getState().status !== "connected") return;
+  socket.send(encode({ t: "studio.list" }));
+}
+
+/**
+ * One Studio request (create, quote, cancel, delete, upload, frame, refresh). Resolves with the
+ * host's `studio.res`; fails at once while not connected and after `STUDIO_TIMEOUT_MS` unanswered.
+ */
+export function studioRequest(op: StudioOp): Promise<StudioResult> {
+  const rid = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  if (useConnectionStore.getState().status !== "connected") return Promise.resolve({ rid, ok: false, error: "Not connected to your Mac." });
+  const answer = pendingStudio.add(rid);
+  socket.send(encode({ t: "studio.req", rid, op }));
   return answer;
 }
 

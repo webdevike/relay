@@ -12,11 +12,15 @@ export interface OptionRowProps {
   badge?: string | undefined;
   /** Shown left of the label and description, e.g. an assistant's portrait. */
   leading?: ReactNode;
+  /** Right of the label instead of `badge`, e.g. a quiet `Pill`. */
+  trailing?: ReactNode;
+  /** Dimmed and not selectable (the description says why). */
+  disabled?: boolean;
   onPress: () => void;
 }
 
 /** One selectable choice in a list: bordered row, accent-tinted while selected. */
-export function OptionRow({ label, description, selected, badge, leading, onPress }: OptionRowProps) {
+export function OptionRow({ label, description, selected, badge, leading, trailing, disabled = false, onPress }: OptionRowProps) {
   const colors = useColors();
   const content = (
     <>
@@ -29,6 +33,7 @@ export function OptionRow({ label, description, selected, badge, leading, onPres
             {badge}
           </Text>
         )}
+        {trailing}
       </View>
       {description !== undefined && description.length > 0 && (
         <Text variant="caption" color="textMuted" style={{ marginTop: spacing.xs }}>
@@ -39,6 +44,8 @@ export function OptionRow({ label, description, selected, badge, leading, onPres
   );
   return (
     <Pressable
+      accessibilityState={{ selected, disabled }}
+      disabled={disabled}
       onPress={() => {
         tapHaptic();
         onPress();
@@ -51,7 +58,7 @@ export function OptionRow({ label, description, selected, badge, leading, onPres
         backgroundColor: selected ? `${colors.accent}1F` : colors.surface,
         paddingVertical: spacing.sm,
         paddingHorizontal: spacing.md,
-        opacity: pressed ? 0.85 : 1,
+        opacity: disabled ? 0.5 : pressed ? 0.85 : 1,
       })}
     >
       {leading === undefined ? (
