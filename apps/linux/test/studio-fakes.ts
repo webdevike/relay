@@ -38,13 +38,16 @@ export class FakeClock implements SessionClock {
 
 export interface FakeMedia extends StudioMedia {
   readonly frameCalls: { readonly src: string; readonly at: string }[];
+  readonly coverCalls: { readonly src: string; readonly dest: string; readonly width: number; readonly height: number }[];
 }
 
-/** Images probe 100x200, mp4s 480x848 and 5 s; thumbs and frames are placeholder bytes. */
+/** Images probe 100x200, mp4s 480x848 and 5 s; thumbs, frames and crops are placeholder bytes. */
 export function fakeMedia(): FakeMedia {
   const frameCalls: { src: string; at: string }[] = [];
+  const coverCalls: { src: string; dest: string; width: number; height: number }[] = [];
   return {
     frameCalls,
+    coverCalls,
     probe: (path) => Promise.resolve(path.endsWith(".mp4") ? { width: 480, height: 848, durationMs: 5000 } : { width: 100, height: 200, durationMs: 40 }),
     thumb: (_src, dest) => {
       writeFileSync(dest, JPEG);
@@ -56,6 +59,11 @@ export function fakeMedia(): FakeMedia {
       return Promise.resolve();
     },
     jpeg: () => Promise.resolve(JPEG),
+    cover: (src, dest, width, height) => {
+      coverCalls.push({ src, dest, width, height });
+      writeFileSync(dest, PNG);
+      return Promise.resolve();
+    },
   };
 }
 

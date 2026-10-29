@@ -1,15 +1,17 @@
 // Images on Isaac's ChatGPT subscription, the way the Codex CLI asks for them: the access token
 // from omp (`omp --profile personal token openai-codex`, never logged), the account id from its
 // JWT, and `codex/images/generations` (text) or `codex/images/edits` (reference images as JPEG data
-// URLs). The reply is one base64 PNG. Seeds are not a thing there.
+// URLs). The reply is one base64 PNG. The endpoints ignore `size`, so the prompt names the
+// orientation and ffmpeg cuts the reply to exactly the size picked. Seeds are not a thing there.
 
 import { execFile } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { StudioBackend, StudioSpec } from "@relay/protocol";
+import type { StudioAspect, StudioBackend, StudioSpec } from "@relay/protocol";
 import { z } from "zod";
-import { BACKEND_BASE } from "./backends";
+import { BACKEND_BASE, parseSize } from "./backends";
+import type { StudioMedia } from "./media";
 import { oneLine, type StudioRunInput, type StudioRunner, type StudioRunOutput } from "./runner";
 
 export const CODEX_IMAGES_URL = "https://chatgpt.com/backend-api/codex/images";
@@ -67,6 +69,16 @@ export function ompCodexToken(omp: string | null, now: () => number = Date.now):
   };
 }
 
+/**
+ * What the prompt says about shape: the image endpoints ignore `size` (and `quality`) and answer
+ * 1536x1024 unless the prompt asks for another orientation.
+ */
+export const CODEX_ASPECT_SENTENCES: Readonly<Record<StudioAspect, string>> = {
+  "9:16": "Vertical 9:16 portrait image, taller than wide.",
+  "16:9": "Horizontal 16:9 landscape image, wider than tall.",
+  "1:1": "Square 1:1 image.",
+};
+
 /** The request Codex's image endpoint takes for `spec`; `images` are JPEG bytes (edits). */
 export function codexImageRequest(
   backend: "codex-image" | "codex-edit",
@@ -75,7 +87,8 @@ export function codexImageRequest(
   accountId: string,
   images: readonly Uint8Array[],
 ): { readonly url: string; readonly init: RequestInit } {
-  const common = { prompt: spec.prompt, model: CODEX_IMAGE_MODEL, n: 1, quality: "high", size: spec.resolution };
+  const prompt = `${spec.prompt} ${CODEX_ASPECT_SENTENCES[spec.aspect]}`;
+  const common = { prompt, model: CODEX_IMAGE_MODEL, n: 1, quality: "high", size: spec.resolution };
   const body =
     backend === "codex-edit"
       ? { images: images.map((bytes) => ({ image_url: `data:image/jpeg;base64,${Buffer.from(bytes).toString("base64")}` })), ...common }
@@ -126,7 +139,9 @@ export interface CodexRunnerDeps {
   readonly token: () => Promise<string>;
   readonly fetch: Fetch;
   /** An image file as JPEG bytes (edit references). */
-  readonly jpeg: (path: string) => Promise<Uint8Array>;
+  readonly jpeg: StudioMedia["jpeg"];
+  /** Scales an image to cover `width` x `height` and crops the middle, written as PNG. */
+  readonly cover: StudioMedia["cover"];
 }
 
 export class CodexRunner implements StudioRunner {
@@ -161,10 +176,13 @@ export class CodexRunner implements StudioRunner {
     const reply = ImageReply.safeParse(json);
     if (!reply.success) throw new Error("Codex sent no image");
     const bytes = Buffer.from(reply.data.data[0]?.b64_json ?? "", "base64");
-    const jpeg = bytes[0] === 0xff && bytes[1] === 0xd8;
-    const path = join(input.workDir, jpeg ? "out.jpg" : "out.png");
-    writeFileSync(path, bytes, { mode: 0o600 });
-    return { path, mimeType: jpeg ? "image/jpeg" : "image/png" };
+    const raw = join(input.workDir, bytes[0] === 0xff && bytes[1] === 0xd8 ? "raw.jpg" : "raw.png");
+    writeFileSync(raw, bytes, { mode: 0o600 });
+    // The returned shape only roughly follows the prompt: cut it to exactly the size picked.
+    const [width, height] = parseSize(input.spec.resolution) ?? [1088, 1920];
+    const path = join(input.workDir, "out.png");
+    await this.deps.cover(raw, path, width, height);
+    return { path, mimeType: "image/png" };
   }
 }
 

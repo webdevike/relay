@@ -500,8 +500,8 @@ function studioService(agentHome: string | null, emit: (message: StudioMessage) 
       dir: defaultStudioDir(),
       runners: {
         ltx: new LtxRunner(ltxDir),
-        "codex-image": new CodexRunner({ backend: "codex-image", token, fetch, jpeg: media.jpeg }),
-        "codex-edit": new CodexRunner({ backend: "codex-edit", token, fetch, jpeg: media.jpeg }),
+        "codex-image": new CodexRunner({ backend: "codex-image", token, fetch, jpeg: media.jpeg, cover: media.cover }),
+        "codex-edit": new CodexRunner({ backend: "codex-edit", token, fetch, jpeg: media.jpeg, cover: media.cover }),
         higgsfield: new HiggsfieldRunner({
           credentials: ompHiggsfieldCredentials(join(homedir(), ".omp", "profiles", "personal", "agent", "agent.db")),
           fetch,

@@ -1,5 +1,6 @@
 // What Studio asks of ffmpeg: an asset's size and length, its JPEG thumb, a video's first or last
-// frame, and a reference image as JPEG (Codex edits take JPEG data URLs). On the tools drops use
+// frame, a reference image as JPEG (Codex edits take JPEG data URLs), and an image cut to an exact
+// size (Codex answers roughly the shape asked for). On the tools drops use
 // (`findTool` adds Homebrew's dirs to launchd's bare PATH; `runTool` is Node's child_process, so
 // the vitest suite can run the real thing).
 
@@ -17,6 +18,8 @@ export interface StudioMedia {
   readonly frame: (src: string, at: "first" | "last", dest: string) => Promise<void>;
   /** An image file as JPEG bytes. Rejects with a one-line reason. */
   readonly jpeg: (src: string) => Promise<Uint8Array>;
+  /** Scales an image (lanczos) to cover `width` x `height`, crops the middle to exactly that, writes it to `dest` (PNG). Rejects with a one-line reason. */
+  readonly cover: (src: string, dest: string, width: number, height: number) => Promise<void>;
 }
 
 export function ffmpegMedia(log: (line: string) => void): StudioMedia {
@@ -62,5 +65,10 @@ export function ffmpegMedia(log: (line: string) => void): StudioMedia {
       await runTool([ffmpeg(), "-v", "error", "-y", ...seek, "-i", src, "-update", "1", dest]);
     },
     jpeg: async (src) => await runTool([ffmpeg(), "-v", "error", "-i", src, "-frames:v", "1", "-q:v", "2", "-f", "image2pipe", "-c:v", "mjpeg", "pipe:1"]),
+    cover: async (src, dest, width, height) => {
+      const size = `${String(width)}:${String(height)}`;
+      const fit = `scale=${size}:force_original_aspect_ratio=increase:flags=lanczos,crop=${size},setsar=1`;
+      await runTool([ffmpeg(), "-v", "error", "-y", "-i", src, "-frames:v", "1", "-vf", fit, "-update", "1", dest]);
+    },
   };
 }

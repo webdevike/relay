@@ -335,6 +335,10 @@ Backends (`src/studio/`), each a runner behind one seam so the tests use fakes:
 - `codex-image`, `codex-edit` (free, images, three at once): Codex's image endpoints
   (`chatgpt.com/backend-api/codex/images/generations` and `/edits`, references as JPEG data URLs) on the token
   `omp --profile personal token openai-codex` prints (never logged; omp from PATH or `$RELAY_CANVAS_OMP`). No seeds.
+  The endpoints ignore `size` and `quality` (1536x1024 unless the prompt says otherwise), so the prompt sent upstream
+  gets one orientation sentence for the aspect ("Vertical 9:16 portrait image, taller than wide.", the job keeps the
+  prompt as typed) and ffmpeg scales the reply to cover and center-crops it (lanczos) to exactly the size picked:
+  one per aspect, 1088x1920, 1920x1088 or 1280x1280, close to what Codex draws so it never upscales much.
 - `higgsfield` (paid, video, two at once): Higgsfield's MCP server with the token omp keeps for its Higgsfield tools
   (`~/.omp/profiles/personal/agent/agent.db`, opened read-only and never refreshed; an expired one makes the backend
   unavailable until an omp session renews it). A curated set of models with their own sizes, lengths and keyframe

@@ -7,13 +7,11 @@ import { MAX_STUDIO_REFS, type StudioAsset, type StudioBackend, type StudioBacke
 /** Every backend in the order clients list them. */
 export const STUDIO_BACKENDS: readonly StudioBackendId[] = ["ltx", "codex-image", "codex-edit", "higgsfield"];
 
+/** One size per aspect, close to what Codex really draws (about 1.6 MP), so the exact crop upscales little. */
 const CODEX_RESOLUTIONS: StudioBackend["resolutions"] = [
   { id: "1088x1920", label: "1080p", aspect: "9:16" },
-  { id: "1440x2560", label: "1440p", aspect: "9:16" },
   { id: "1920x1088", label: "1080p", aspect: "16:9" },
-  { id: "2560x1440", label: "1440p", aspect: "16:9" },
-  { id: "1024x1024", label: "1K", aspect: "1:1" },
-  { id: "2048x2048", label: "2K", aspect: "1:1" },
+  { id: "1280x1280", label: "1280 square", aspect: "1:1" },
 ];
 
 /** Each backend with `available: false`; its runner's `describe` says whether it can run now. */

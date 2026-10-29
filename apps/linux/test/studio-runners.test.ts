@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { StudioSpec } from "@relay/protocol";
 import { afterEach, describe, expect, it } from "vitest";
-import { chatgptAccountId, CODEX_IMAGE_MODEL, CodexRunner, type Fetch } from "../src/studio/codex";
+import { chatgptAccountId, CODEX_IMAGE_MODEL, codexImageRequest, CodexRunner, type Fetch } from "../src/studio/codex";
 import {
   curatedModels,
   curlHeaders,
@@ -21,7 +21,7 @@ import { findTool } from "../src/drops/video";
 import { ltxArgv, LtxRunner, runProcessGroup } from "../src/studio/ltx";
 import { ffmpegMedia } from "../src/studio/media";
 import type { StudioRunInput } from "../src/studio/runner";
-import { imageSpec, JPEG, ltxSpec, MP4, paidSpec, PNG } from "./studio-fakes";
+import { fakeMedia, imageSpec, JPEG, ltxSpec, MP4, paidSpec, PNG } from "./studio-fakes";
 
 const dirs: string[] = [];
 
@@ -192,14 +192,16 @@ describe("Codex runner", () => {
     expect(chatgptAccountId(`x.${Buffer.from("{}").toString("base64url")}.y`)).toBeNull();
   });
 
-  it("asks images/generations like the Codex CLI and writes the PNG it returns", async () => {
+  it("asks images/generations like the Codex CLI, naming the orientation, and crops the reply to the size picked", async () => {
     const { fetch, calls } = capturingFetch(() => Response.json({ data: [{ b64_json: Buffer.from(PNG).toString("base64") }] }));
-    const runner = new CodexRunner({ backend: "codex-image", token: () => Promise.resolve(TOKEN), fetch, jpeg: () => Promise.resolve(JPEG) });
+    const media = fakeMedia();
+    const runner = new CodexRunner({ backend: "codex-image", token: () => Promise.resolve(TOKEN), fetch, jpeg: media.jpeg, cover: media.cover });
     expect(await runner.describe()).toMatchObject({ id: "codex-image", available: true, seed: false });
     const input = runInput(imageSpec());
     const output = await runner.run(input);
     expect(output).toEqual({ path: join(input.workDir, "out.png"), mimeType: "image/png" });
-    expect(new Uint8Array(readFileSync(output.path))).toEqual(PNG);
+    expect(media.coverCalls).toEqual([{ src: join(input.workDir, "raw.png"), dest: output.path, width: 1088, height: 1920 }]);
+    expect(new Uint8Array(readFileSync(join(input.workDir, "raw.png")))).toEqual(PNG);
     const [call] = calls;
     expect(call?.url).toBe("https://chatgpt.com/backend-api/codex/images/generations");
     expect(call?.init.method).toBe("POST");
@@ -211,12 +213,21 @@ describe("Codex runner", () => {
       "Content-Type": "application/json",
     });
     expect(call?.init.signal).toBe(input.signal);
-    expect(bodyOf(call)).toEqual({ prompt: "a red kite", model: CODEX_IMAGE_MODEL, n: 1, quality: "high", size: "1088x1920" });
+    expect(bodyOf(call)).toEqual({ prompt: "a red kite Vertical 9:16 portrait image, taller than wide.", model: CODEX_IMAGE_MODEL, n: 1, quality: "high", size: "1088x1920" });
+  });
+
+  it("names each aspect in the prompt it sends, leaving the spec's prompt alone", () => {
+    const prompt = (spec: StudioSpec): unknown => bodyOf(codexImageRequest("codex-image", spec, TOKEN, "acct-1", []))["prompt"];
+    const landscape = imageSpec({ aspect: "16:9", resolution: "1920x1088" });
+    expect(prompt(landscape)).toBe("a red kite Horizontal 16:9 landscape image, wider than tall.");
+    expect(landscape.prompt).toBe("a red kite");
+    expect(prompt(imageSpec({ aspect: "1:1", resolution: "1280x1280" }))).toBe("a red kite Square 1:1 image.");
   });
 
   it("sends edit references as JPEG data URLs to images/edits", async () => {
-    const { fetch, calls } = capturingFetch(() => Response.json({ data: [{ b64_json: Buffer.from(PNG).toString("base64") }] }));
+    const { fetch, calls } = capturingFetch(() => Response.json({ data: [{ b64_json: Buffer.from(JPEG).toString("base64") }] }));
     const converted: string[] = [];
+    const media = fakeMedia();
     const runner = new CodexRunner({
       backend: "codex-edit",
       token: () => Promise.resolve(TOKEN),
@@ -225,19 +236,24 @@ describe("Codex runner", () => {
         converted.push(path);
         return Promise.resolve(JPEG);
       },
+      cover: media.cover,
     });
-    await runner.run(runInput(imageSpec({ backend: "codex-edit", refs: ["a", "b"] }), { refs: ["/a.png", "/b.webp"] }));
+    const input = runInput(imageSpec({ backend: "codex-edit", aspect: "1:1", resolution: "1280x1280", refs: ["a", "b"] }), { refs: ["/a.png", "/b.webp"] });
+    expect(await runner.run(input)).toEqual({ path: join(input.workDir, "out.png"), mimeType: "image/png" });
+    expect(media.coverCalls).toEqual([{ src: join(input.workDir, "raw.jpg"), dest: join(input.workDir, "out.png"), width: 1280, height: 1280 }]);
     expect(converted).toEqual(["/a.png", "/b.webp"]);
     expect(calls[0]?.url).toBe("https://chatgpt.com/backend-api/codex/images/edits");
     const jpeg = `data:image/jpeg;base64,${Buffer.from(JPEG).toString("base64")}`;
-    expect(bodyOf(calls[0])).toEqual({ images: [{ image_url: jpeg }, { image_url: jpeg }], prompt: "a red kite", model: CODEX_IMAGE_MODEL, n: 1, quality: "high", size: "1088x1920" });
+    expect(bodyOf(calls[0])).toEqual({ images: [{ image_url: jpeg }, { image_url: jpeg }], prompt: "a red kite Square 1:1 image.", model: CODEX_IMAGE_MODEL, n: 1, quality: "high", size: "1280x1280" });
   });
 
   it("surfaces the server's refusal in one line, and is unavailable without a token", async () => {
     const { fetch } = capturingFetch(() => Response.json({ error: { message: "Your request was rejected\nby the safety system." } }, { status: 400 }));
-    const runner = new CodexRunner({ backend: "codex-image", token: () => Promise.resolve(TOKEN), fetch, jpeg: () => Promise.resolve(JPEG) });
+    const media = fakeMedia();
+    const runner = new CodexRunner({ backend: "codex-image", token: () => Promise.resolve(TOKEN), fetch, jpeg: media.jpeg, cover: media.cover });
     await expect(runner.run(runInput(imageSpec()))).rejects.toThrow("Codex refused (HTTP 400): Your request was rejected by the safety system.");
-    const signedOut = new CodexRunner({ backend: "codex-image", token: () => Promise.reject(new Error("omp token openai-codex failed: not logged in")), fetch, jpeg: () => Promise.resolve(JPEG) });
+    expect(media.coverCalls).toEqual([]);
+    const signedOut = new CodexRunner({ backend: "codex-image", token: () => Promise.reject(new Error("omp token openai-codex failed: not logged in")), fetch, jpeg: media.jpeg, cover: media.cover });
     expect(await signedOut.describe()).toMatchObject({ available: false, reason: "omp token openai-codex failed: not logged in" });
   });
 });
@@ -473,7 +489,7 @@ describe("Higgsfield MCP", () => {
 const ffmpeg = findTool("ffmpeg");
 
 describe.skipIf(ffmpeg === null || findTool("ffprobe") === null)("Studio media on the real ffmpeg", () => {
-  it("sizes a clip, thumbs it within 640 px, grabs its last frame and turns an image into JPEG", async () => {
+  it("sizes a clip, thumbs it within 640 px, grabs its last frame, turns an image into JPEG and cuts images to exact sizes", async () => {
     const dir = freshDir();
     const clip = join(dir, "clip.mp4");
     const made = spawnSync(ffmpeg ?? "ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=24", "-t", "2", "-c:v", "libx264", "-pix_fmt", "yuv420p", clip]);
@@ -490,6 +506,15 @@ describe.skipIf(ffmpeg === null || findTool("ffprobe") === null)("Studio media o
     await media.frame(clip, "last", last);
     expect(await media.probe(last)).toMatchObject({ width: 1280, height: 720 });
     expect([...(await media.jpeg(last)).slice(0, 2)]).toEqual([0xff, 0xd8]);
+
+    // What Codex sends back for a portrait or an unshaped prompt, cut to Studio's exact sizes.
+    for (const [source, width, height] of [["941x1672", 1088, 1920], ["1536x1024", 1280, 1280], ["1536x1024", 1920, 1088]] as const) {
+      const raw = join(dir, `raw-${source}.png`);
+      expect(spawnSync(ffmpeg ?? "ffmpeg", ["-v", "error", "-f", "lavfi", "-i", `testsrc2=size=${source}`, "-frames:v", "1", raw]).status).toBe(0);
+      const out = join(dir, `out-${source}-${String(width)}.png`);
+      await media.cover(raw, out, width, height);
+      expect(await media.probe(out)).toMatchObject({ width, height });
+    }
     expect(logs).toEqual([]);
   });
 });
