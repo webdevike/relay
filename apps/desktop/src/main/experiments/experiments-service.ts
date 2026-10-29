@@ -96,14 +96,15 @@ export function overallStatus(
   results: string | null,
 ): ExperimentStatus {
   if (live?.status === 'running') return 'running'
-  if (summary && summary.status !== 'planned') return summary.status
+  // A finished status.json outranks a summary.json still saying running (the bench never rewrote it).
+  const stale = summary?.status === 'running' && live !== null
+  if (summary && summary.status !== 'planned' && !stale) return summary.status
   // Older experiments: the record's verdict, else results.md's `## Verdict: FAIL` line.
   const resultsLine = results ? /^#{1,3}\s+Verdict\b.*$/im.exec(results)?.[0] : undefined
   return (
     verdictStatus(recordVerdict) ??
     verdictStatus(resultsLine?.replace(/^#+\s*/, '')) ??
-    summary?.status ??
-    'planned'
+    (stale ? 'inconclusive' : (summary?.status ?? 'planned'))
   )
 }
 

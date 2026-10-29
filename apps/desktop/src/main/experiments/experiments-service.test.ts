@@ -133,6 +133,15 @@ describe('record.md and verdict parsing', () => {
     }
     expect(overallStatus(live, null, 'FAIL', null)).toBe('running')
     expect(overallStatus({ ...live, status: 'scored' }, null, null, null)).toBe('planned')
+    // summary.json left at running after the bench scored: the finished status.json and the verdict win.
+    const runningSummary = { status: 'running' } as unknown as Parameters<typeof overallStatus>[1]
+    expect(
+      overallStatus({ ...live, status: 'scored' }, runningSummary, null, '## Verdict: FAIL (rejected)\n'),
+    ).toBe('fail')
+    expect(overallStatus({ ...live, status: 'scored' }, runningSummary, null, '## Verdict\nranked\n')).toBe(
+      'inconclusive',
+    )
+    expect(overallStatus(null, runningSummary, null, null)).toBe('running')
     expect(overallStatus(null, null, null, '# r\n\n## Verdict: INCONCLUSIVE\n')).toBe(
       'inconclusive',
     )
