@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MantineProvider } from '@mantine/core'
 import { mediaUrl } from '../widgets/media-url'
 import { Markdown } from './Markdown'
 import { clearMediaProbes, urlIsVideo } from './MarkdownMedia'
+import { dismissTop } from '../../hotkeys/dismiss'
 
 vi.mock('../../ipc', () => ({ invoke: vi.fn(), on: vi.fn() }))
 vi.mock('../widgets/rich/model-scene', () => ({ mountModel: vi.fn() }))
@@ -91,6 +92,23 @@ describe('markdown media: image or inline video', () => {
     expect(video.hasAttribute('poster')).toBe(false)
     expect(screen.getByAltText('Pic').tagName).toBe('IMG')
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('opens a clicked image full size in the image viewer; Escape closes it', async () => {
+    show('![Systems map](https://cdn.example.com/map.png)')
+    expect(screen.queryByAltText('Image 1 of 1')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Open Systems map' }))
+    const shown = await screen.findByAltText('Image 1 of 1')
+    expect(shown).toHaveAttribute('src', mediaUrl('https://cdn.example.com/map.png'))
+    // Esc runs the topmost dismisser (the app's hotkey layer calls dismissTop).
+    act(() => void dismissTop())
+    await waitFor(() => expect(screen.queryByAltText('Image 1 of 1')).toBeNull())
+  })
+
+  it('a linked image follows its link instead of opening the viewer', () => {
+    show('[![Logo](https://cdn.example.com/logo.png)](https://example.com)')
+    expect(screen.getByAltText('Logo').closest('a')).toHaveAttribute('href', 'https://example.com')
+    expect(screen.queryByTestId('md-image')).toBeNull()
   })
 })
 
