@@ -20,7 +20,7 @@
     "newArchEnabled": true,
     "ios": {
       "bundleIdentifier": "com.ike.relay",
-      "buildNumber": "14",
+      "buildNumber": "15",
       "appleTeamId": "CH63V3XD76",
       "supportsTablet": false,
       "entitlements": {
