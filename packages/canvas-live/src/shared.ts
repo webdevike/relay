@@ -51,6 +51,8 @@ export interface Presence {
 	typing?: { nodeId: string; field: TextField; index: number; selectAll?: boolean } | null;
 	/** Agent is dragging an edge out of this node. */
 	connecting?: { source: string } | null;
+	/** Agents: work handed to them that runs off the board (files, screenshots, research), while it runs. */
+	task?: string | null;
 	/** This client tidies (pushes overlapping cards apart); the lowest such human id tidies changes no client owns. */
 	tidy?: boolean;
 }

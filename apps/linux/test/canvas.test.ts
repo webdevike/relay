@@ -62,6 +62,8 @@ class FakeBrain implements CanvasBrain {
 function answer(message: string): string {
   if (message.includes("# Session start")) return "@say Last time we mapped the roles. Open questions go on the left.\n@add_node agenda note -900 0 480\nAgenda\n1 · Is support staff?\n@end\n@say First one: is support staff?\n";
   if (message.includes("# Session end")) return "We renamed the root and settled that support is staff. Still open: ops.";
+  if (message.includes("# Handoff landed")) return "@point tab-shot\n@say Done, the settings tab is on the board.\n";
+  if (message.includes("Isaac says: show me the settings tab")) return "@handoff main grab a screenshot of the settings tab, put it at 2000,0\n@say On it, Eva is grabbing that.\n";
   return "@say Done, renamed it.\n@set_text root title\nECS roles, renamed live\n@end\n";
 }
 
@@ -118,6 +120,7 @@ let chatFile: string;
 let subagentFile: string;
 let novaFile: string;
 let posted: { sessionId: string; content: string; details: CanvasEntry }[];
+let replies: { sessionId: string; text: string; submit: boolean }[];
 let brains: FakeBrain[];
 let chats: CanvasChats;
 let service: CanvasService;
@@ -138,8 +141,9 @@ beforeEach(() => {
   writeFileSync(novaFile, `${turnLine("user", "Nova, plan the week on a board")}\n`);
   writeFileSync(join(root, "nova.png"), "png");
   posted = [];
+  replies = [];
   brains = [];
-  const live = [session("s-chat"), session("s-nova", { kind: "assistant", assistant: "nova", title: "Nova" })];
+  const live = [session("s-chat"), session("s-nova", { kind: "assistant", assistant: "nova", title: "Nova" }), session("s-chat:Build.Worker", { title: "Worker" })];
   const files: Record<string, string> = { "s-chat": chatFile, "s-nova": novaFile };
   chats = {
     sessions: live,
@@ -148,6 +152,10 @@ beforeEach(() => {
     canvas: (sessionId, content, details) => {
       posted.push({ sessionId, content, details });
       return Promise.resolve(true);
+    },
+    reply: (sessionId, text, submit) => {
+      replies.push({ sessionId, text, submit });
+      return Promise.resolve();
     },
   };
   service = new CanvasService({
@@ -350,7 +358,9 @@ describe("agents joining a live room", () => {
         return (await res.json()) as { ran: number; said: string[]; skipped: string[] };
       }),
     );
-    for (const result of results) expect(result).toEqual({ ran: 4, said: [expect.stringMatching(/here$/)], skipped: ["add_edge nope root: no node nope"] });
+    results.forEach((result, i) => {
+      expect(result).toEqual({ ran: 4, said: [expect.stringMatching(/here$/)], skipped: ["add_edge nope root: no node nope"], added: [`shot-${String(i)}`, `note-${String(i)}`] });
+    });
 
     const states = [...(tab.awareness.getStates() as Map<number, Presence>).values()];
     expect(states.filter((p) => p.user.kind === "agent").map((p) => p.user.name).sort()).toEqual(["Eva", "Priya", "Sam", "Theo"]);
@@ -397,11 +407,108 @@ describe("agents joining a live room", () => {
       ran: 1,
       said: [],
       skipped: ["add_image bad: no image file at /nope/missing.png", "add_image bad2: src must be an https URL or a local file path, not data:image/png;base64,AA"],
+      added: ["col"],
     });
+    // Cards land exactly where asked, even over another card or inside a frame (no nudging).
+    await service.act("ecs-roles", theo, "@add_node in-col note 2950 0 400\nInside the column\n@end\n@add_node on-top note 2950 0 400\nRight on top\n@end");
+    const placed = service.view("ecs-roles").board.nodes;
+    for (const id of ["in-col", "on-top"]) expect(placed.find((n) => n.id === id)).toMatchObject({ x: 2950, y: 0 });
     expect(service.view("ecs-roles").board.nodes.find((n) => n.id === "col")).toMatchObject({ type: "frame", x: 2900, y: -100, w: 600, h: 1500, data: { title: "Theo's column" } });
     for (let i = 1; i < 8; i++) service.join("ecs-roles", { name: `Agent ${String(i)}` });
     expect(() => service.join("ecs-roles", { name: "Ninth" })).toThrow(/8 agents/);
     expect(() => service.join("no-such-board", { name: "Theo" })).toThrow(/No live canvas session/);
+  });
+
+  it("puts cards in frames: new frames adopt by center, landing inside parents, @parent sets and clears", async () => {
+    await service.start({ slug: "ecs-roles", caller: { sessionFile: chatFile } });
+    const theo = service.join("ecs-roles", { name: "Theo" }).participant.id;
+    const parentOf = (id: string): string | undefined => service.view("ecs-roles").board.nodes.find((n) => n.id === id)?.parent;
+    await service.act("ecs-roles", theo, "@add_node in-a note 5000 0 200\nA\n@end\n@add_node half note 5400 0 200\nB\n@end\n@add_node far note 8000 0 200\nC\n@end");
+    // Frame holds `in-a` entirely and the center of `half` (its right part sticks out); `far` is outside.
+    await service.act("ecs-roles", theo, "@add_frame grp 4900 -100 600 600\nGroup\n@end");
+    expect(service.view("ecs-roles").board.nodes.find((n) => n.id === "grp")).toMatchObject({ x: 4900, y: -100, w: 600, h: 600 });
+    expect(parentOf("in-a")).toBe("grp");
+    expect(parentOf("half")).toBe("grp");
+    expect(parentOf("far")).toBeUndefined();
+    // Moving a card out clears the parent; landing fully inside sets it.
+    await service.act("ecs-roles", theo, "@move_node in-a 7000 0");
+    expect(parentOf("in-a")).toBeUndefined();
+    await service.act("ecs-roles", theo, "@move_node in-a 5000 100");
+    expect(parentOf("in-a")).toBe("grp");
+    expect(service.view("ecs-roles").board.nodes.find((n) => n.id === "in-a")).toMatchObject({ x: 5000, y: 100 });
+    // A new card added inside the frame joins it; explicit @parent overrides.
+    await service.act("ecs-roles", theo, "@add_node fresh note 5000 300 200\nD\n@end");
+    expect(parentOf("fresh")).toBe("grp");
+    const reply = await service.act("ecs-roles", theo, "@parent far grp\n@parent in-a none\n@parent far nope\n@parent grp far");
+    expect(reply.skipped).toEqual(["parent far: no node nope", "parent grp: far is not a frame"]);
+    expect(parentOf("far")).toBe("grp");
+    expect(parentOf("in-a")).toBeUndefined();
+  });
+});
+
+describe("handing work off", () => {
+  const selfAct = (slug: string, body: unknown): Promise<Response> =>
+    handleCanvasRequest(service, () => "", new Request(`http://h/canvas/sessions/${slug}/self/act`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }), `/canvas/sessions/${slug}/self/act`, "127.0.0.1");
+
+  it("hands a tool request to the chat, which lands it as the canvas self, and the canvas self confirms", async () => {
+    const started = await service.start({ slug: "ecs-roles", caller: { sessionFile: chatFile } });
+    const room = service.roomById(started.roomId);
+    if (room === undefined) throw new Error("no room");
+    const tab = joinRoom(service, room, "Isaac");
+    await until(() => tab.doc.getMap(DOC_KEYS.nodes).has("agenda"), "the opener");
+    const chat = tab.doc.getArray<ChatMsg>(DOC_KEYS.chat);
+    chat.push([{ id: "n-tab", kind: "human", name: "Isaac", color: "#0ea5e9", text: "show me the settings tab", nodeIds: [], at: null, ts: Date.now() }]);
+    await until(() => replies.length === 1, "the handoff");
+    const delivered = replies[0];
+    expect(delivered).toMatchObject({ sessionId: "s-chat", submit: true });
+    expect(delivered?.text).toMatch(/^\[Canvas request from Isaac\] grab a screenshot of the settings tab, put it at 2000,0\n/);
+    expect(delivered?.text).toContain("canvas act ecs-roles --handoff h");
+    const id = /handoff (h\w+)\./.exec(delivered?.text ?? "")?.[1] ?? "";
+    expect(service.view("ecs-roles").handoffs).toMatchObject([{ id, to: "main", toName: "Eva", from: "Isaac", state: "open" }]);
+    const eva = (): Presence | undefined => [...(tab.awareness.getStates() as Map<number, Presence>).values()].find((p) => p.user.name === "Eva");
+    await until(() => eva()?.task === "grab a screenshot of the settings tab, put it at 2000,0", "Eva shown working on it");
+    expect(chat.toArray().some((m) => m.kind === "event" && m.text === "Handed to Eva: grab a screenshot of the settings tab, put it at 2000,0")).toBe(true);
+    expect(chat.toArray().some((m) => m.kind === "agent" && m.text === "On it, Eva is grabbing that.")).toBe(true);
+
+    // The chat does the work and lands it on the board as its canvas self.
+    const image = join(root, "settings.png");
+    writeFileSync(image, "png");
+    const res = await selfAct("ecs-roles", { script: `@add_image tab-shot 2000 0 640 400 ${image}\nSettings tab\nthe live tab\n@end`, handoff: id });
+    expect(await res.json()).toEqual({ ran: 1, said: [], skipped: [], added: ["tab-shot"] });
+    expect(tab.doc.getMap<Y.Map<unknown>>(DOC_KEYS.nodes).get("tab-shot")?.toJSON()).toMatchObject({ type: "image", x: 2000, y: 0, src: image });
+    await until(() => chat.toArray().some((m) => m.kind === "agent" && m.text === "Done, the settings tab is on the board."), "the confirmation");
+    expect(brains[0]?.prompts.at(-1)).toContain(`Eva finished what Isaac asked for: "grab a screenshot of the settings tab, put it at 2000,0". New cards: tab-shot ("Settings tab").`);
+    expect(eva()?.task).toBeNull();
+    expect(service.view("ecs-roles").handoffs).toEqual([]);
+    await expect(service.selfAct("ecs-roles", "@say again", id)).rejects.toMatchObject({ status: 409 });
+    await expect(service.selfAct("ecs-roles", "@say hi", "h-nope")).rejects.toMatchObject({ status: 404 });
+    tab.leave();
+  });
+
+  it("routes Isaac's @Name notes to a worker's session and shows it working until it lands", async () => {
+    const started = await service.start({ slug: "ecs-roles", caller: { sessionFile: chatFile } });
+    const room = service.roomById(started.roomId);
+    if (room === undefined) throw new Error("no room");
+    const tab = joinRoom(service, room, "Isaac");
+    await until(() => tab.doc.getMap(DOC_KEYS.nodes).has("agenda"), "the opener");
+    expect(() => service.join("ecs-roles", { name: "Ghost", session: "NoSuchAgent" })).toThrow(/No live omp session/);
+    expect(() => service.join("ecs-roles", { name: "main" })).toThrow(CanvasError);
+    const theo = service.join("ecs-roles", { name: "Theo", purpose: "logs and screenshots", session: "Worker" }).participant;
+    expect(theo).toMatchObject({ worker: true, status: "idle" });
+
+    tab.doc.getArray<ChatMsg>(DOC_KEYS.chat).push([{ id: "n-theo", kind: "human", name: "Isaac", color: "#0ea5e9", text: "@Theo grab the error log", nodeIds: [], at: null, ts: Date.now() }]);
+    await until(() => replies.length === 1, "the routed note");
+    expect(replies[0]).toMatchObject({ sessionId: "s-chat:Build.Worker", submit: true });
+    expect(replies[0]?.text).toContain('canvas act ecs-roles --as "Theo" --handoff h');
+    expect(service.view("ecs-roles").participants).toMatchObject([{ name: "Theo", status: "working", task: "grab the error log" }]);
+    // It went to Theo, not to a canvas self turn.
+    expect(brains[0]?.prompts.filter((p) => !p.includes("# Session start"))).toEqual([]);
+
+    const id = /handoff (h\w+)\./.exec(replies[0]?.text ?? "")?.[1] ?? "";
+    await expect(service.act("ecs-roles", theo.id, "@add_node err-log note 2600 0 420\nError log\nTimeout at 12:04\n@end", id)).resolves.toMatchObject({ ran: 1, added: ["err-log"] });
+    expect(service.view("ecs-roles").participants).toMatchObject([{ name: "Theo", status: "idle" }]);
+    await until(() => brains[0]?.prompts.some((p) => p.includes("# Handoff landed") && p.includes("Theo finished what Isaac asked for")) === true, "the landed turn");
+    tab.leave();
   });
 });
 

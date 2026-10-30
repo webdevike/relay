@@ -4,9 +4,10 @@
 //   GET  /canvas/sessions                                    {rev, rooms, participants}
 //   GET  /canvas/sessions/<room>                             {board, chat, participants, ...}
 //   POST /canvas/sessions/<room>/end                         {summary}
-//   POST /canvas/sessions/<room>/participants {name, color?, purpose?}   join as an agent
-//   POST /canvas/sessions/<room>/participants/<id>/act {script}          {ran, said, skipped}
-//   POST /canvas/sessions/<room>/participants/<id>/leave                 {ok}
+//   POST /canvas/sessions/<room>/participants {name, color?, purpose?, session?}   join as an agent (a worker with session)
+//   POST /canvas/sessions/<room>/participants/<id>/act {script, handoff?}          {ran, said, skipped, added}
+//   POST /canvas/sessions/<room>/participants/<id>/leave                           {ok}
+//   POST /canvas/sessions/<room>/self/act {script, handoff?}   act as the canvas self (the chat that started it)
 // Token-gated, for the web client (token from `canvas.open`):
 //   GET  /canvas/<slug>/?token=      the client page
 //   GET  /canvas/<slug>/me?token=    {me, roomId, board, agent, live}
@@ -75,8 +76,9 @@ const JoinBody = z.object({
     .regex(/^#[0-9a-fA-F]{6}$/, "must be #rrggbb")
     .optional(),
   purpose: Text.optional(),
+  session: z.string().min(1).max(200).optional(),
 });
-const ActBody = z.object({ script: z.string().min(1).max(20_000) });
+const ActBody = z.object({ script: z.string().min(1).max(20_000), handoff: z.string().min(1).max(60).optional() });
 
 function parseWith<T>(schema: z.ZodType<T>, body: unknown): T {
   const parsed = schema.safeParse(body);
@@ -155,12 +157,19 @@ async function sessions(canvas: CanvasService, request: Request, rest: string[],
     const room = canvas.roomById(ref) ?? canvas.list().find((info) => info.slug === ref && info.live);
     return json({ summary: await canvas.end(room?.id ?? ref) });
   }
+  if (rest.length === 3 && sub === "self" && participantId === "act") {
+    const act = parseWith(ActBody, await body());
+    return json(await canvas.selfAct(ref, act.script, act.handoff));
+  }
   if (sub === "participants") {
     if (rest.length === 2) {
       const join: JoinRequest = parseWith(JoinBody, await body());
       return json(canvas.join(ref, join));
     }
-    if (rest.length === 4 && participantId !== undefined && verb === "act") return json(await canvas.act(ref, participantId, parseWith(ActBody, await body()).script));
+    if (rest.length === 4 && participantId !== undefined && verb === "act") {
+      const act = parseWith(ActBody, await body());
+      return json(await canvas.act(ref, participantId, act.script, act.handoff));
+    }
     if (rest.length === 4 && participantId !== undefined && verb === "leave") {
       canvas.leave(ref, participantId);
       return json({ ok: true });

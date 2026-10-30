@@ -54,3 +54,11 @@ test("parses the joined agents' actions: images with spaced paths, frames, curso
   const frame = actions[2];
   expect(frame?.kind === "add_frame" && [frame.id, frame.x, frame.y, frame.w, frame.h, frame.text.text]).toEqual(["col-a", 1180, -80, 860, 1400, "GitHub"]);
 });
+
+test("parses @parent with a frame id or none", () => {
+  const { actions } = run(["@parent img-list grp-screens\n@parent img-list none\n@parent lonely\n"]);
+  expect(actions).toEqual([
+    { kind: "parent", id: "img-list", frame: "grp-screens" },
+    { kind: "parent", id: "img-list", frame: null },
+  ]);
+});

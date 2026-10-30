@@ -5,6 +5,11 @@
 // context), and the chat gets the Join card, each canvas turn and the wrap-up as `relay-canvas`
 // rows through the session's relay-bridge. Clients list rooms (`canvas.rooms`) and get a token for
 // one (`canvas.open` -> `canvas.access`) to load the web client.
+// Handoffs: what the canvas self cannot do with the board DSL it hands to the chat ("main") or to
+// a worker (a participant joined with `--session`) as a message into that omp session, through
+// the bridge's `reply` (a turn when idle, a steer mid-turn). Isaac's `@<Worker> ...` notes go the
+// same way without a canvas self turn. The session lands the work with an act carrying the
+// handoff id, and the canvas self confirms it in the room.
 
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -13,11 +18,12 @@ import { exportBoard, type Board } from "@relay/canvas-live/board";
 import { DOC_KEYS, type ChatMsg, type ModelKey, type SessionInfo, type User } from "@relay/canvas-live/shared";
 import type { AssistantAgentConfig } from "../assistant/registry";
 import type * as Y from "yjs";
+import { str } from "./actor";
 import { CanvasAgent, systemPrompt, type AgentIdentity } from "./agent";
 import type { BrainFactory, CanvasBrain } from "./brain";
 import { chatFileOf, subagentName } from "./caller";
 import { chatContext } from "./context";
-import { ActRefused, CanvasParticipant, MAX_PARTICIPANTS, type ActResult, type ParticipantOptions } from "./participant";
+import { ActRefused, CanvasParticipant, MAX_BATCH_ACTIONS, MAX_PARTICIPANTS, parseScript, type ActResult, type ParticipantOptions } from "./participant";
 import { BoardFile, boardPath } from "./persist";
 import { portraitSeed } from "./portrait";
 import { CanvasSync, type CanvasPeer } from "./room";
@@ -35,6 +41,8 @@ export const END_AFTER_MS = 2 * 60_000;
 export const UNJOINED_END_MS = 30 * 60_000;
 /** Ended rooms listed in `canvas.rooms` for their cards. */
 const MAX_ENDED = 20;
+/** The CLI an agent session runs to work a room (skill://canvas). */
+const CLI = "bun ~/Eva/work/relay/apps/linux/src/main.ts";
 
 /** A request the HTTP layer answers with `status` and `{ error: message }`. */
 export class CanvasError extends Error {
@@ -46,13 +54,15 @@ export class CanvasError extends Error {
   }
 }
 
-/** What the rooms need of the omp bridge: its sessions, their files, and posting a canvas row into one. */
+/** What the rooms need of the omp bridge: its sessions, their files, posting a canvas row into one, and messaging one. */
 export interface CanvasChats {
   readonly sessions: readonly AgentSession[];
   sessionForFile(file: string): AgentSession | null;
   sessionFile(sessionId: string): string | null;
   /** Resolves false when the session's bridge predates canvas rows. */
   canvas(sessionId: string, content: string, details: CanvasEntry): Promise<boolean>;
+  /** A message into the session as if Isaac typed it (`submit`): a turn when idle, a steer mid-turn. */
+  reply(sessionId: string, text: string, submit: boolean): Promise<void>;
 }
 
 export interface CanvasServiceDeps {
@@ -103,6 +113,8 @@ export interface JoinRequest {
   readonly color?: string | undefined;
   /** What it is here to do; shown in the room's chat when it joins. */
   readonly purpose?: string | undefined;
+  /** The omp session behind it (a bridge session id, or a subagent's id): it joins as a worker. */
+  readonly session?: string | undefined;
 }
 
 /** One joined agent, as the API lists it. */
@@ -112,6 +124,24 @@ export interface ParticipantInfo {
   readonly color: string;
   readonly avatar?: string;
   readonly purpose: string;
+  /** Joined with a session behind it: handoffs and `@Name` notes reach it. */
+  readonly worker: boolean;
+  /** Working: a batch running or a handed-off request not landed yet. */
+  readonly status: "working" | "idle";
+  readonly task?: string;
+}
+
+/** Work the canvas self (or Isaac with `@Name`) handed to the chat or a worker. */
+export interface Handoff {
+  readonly id: string;
+  /** "main" (the chat that started the room) or a worker's lowercased name. */
+  readonly to: string;
+  readonly toName: string;
+  readonly request: string;
+  /** Who asked (the human whose note it came from). */
+  readonly from: string;
+  readonly at: number;
+  state: "open" | "landed" | "failed";
 }
 
 export interface JoinResult {
@@ -134,6 +164,8 @@ export interface RoomView {
   readonly agent: CanvasAgentInfo;
   readonly humans: readonly string[];
   readonly participants: readonly ParticipantInfo[];
+  /** Handoffs still open, oldest first. */
+  readonly handoffs: readonly Handoff[];
   /** The board in file shape (as `<slug>.json` holds it once saved). */
   readonly board: Board;
   /** The latest cursor-chat lines, oldest first. */
@@ -148,6 +180,8 @@ export class CanvasRoom {
   readonly participants = new Map<string, CanvasParticipant>();
   /** Everyone who ever joined as a participant, for the wrap-up row. */
   readonly participantNames = new Set<string>();
+  /** Every handoff of the room, by id. */
+  readonly handoffs = new Map<string, Handoff>();
   endedAt: number | undefined;
   summary: string | null = null;
   humans: readonly string[] = [];
@@ -342,6 +376,30 @@ export class CanvasService {
           this.finish(room, summary);
         },
         log: this.deps.log,
+        handoff: (target, request, from) => {
+          this.handOff(room, target, request, from?.name ?? CANVAS_HUMAN);
+        },
+        direct: (msg) => {
+          // `@Name do X` to a worker goes straight to its session; the canvas self stays out of it.
+          const match = /^@([\w.-]+)[\s,:]+([\s\S]+)$/.exec(msg.text.trim());
+          const worker = match === null ? undefined : room.participants.get((match[1] ?? "").toLowerCase());
+          if (match === null || worker?.sessionId == null) return false;
+          const request = (match[2] ?? "").trim();
+          // Out of the chat observer that saw the note, so its own chat line is a separate change.
+          queueMicrotask(() => {
+            this.handOff(room, worker.user.name, request, msg.name);
+          });
+          return true;
+        },
+        workers: () => {
+          const main = [...room.handoffs.values()].filter((h) => h.state === "open" && h.to === "main");
+          return [
+            `- main: ${agent.name} in the chat "${chatSession.title}", every tool (files, code, screenshots, builds, research)${main.length > 0 ? `; working on: ${main.map((h) => h.request).join(" | ")}` : ""}`,
+            ...[...room.participants.values()]
+              .filter((p) => p.sessionId !== null)
+              .map((p) => `- ${p.user.name}: ${p.purpose === "" ? "no purpose given" : p.purpose}; ${p.task === null ? "idle" : `working on: ${p.task}`}`),
+          ];
+        },
       },
       { endAfterMs: this.deps.endAfterMs ?? END_AFTER_MS, ...this.deps.pacing },
     );
@@ -363,7 +421,7 @@ export class CanvasService {
 
     const startLine = [
       `Live canvas started on "${room.board}" (board ${slug}${created ? ", new" : ""}). ${CANVAS_HUMAN} has a Join card in this chat; ${agent.name} in the room is this session, with this chat as context.`,
-      `Each canvas turn and the wrap-up summary will appear here as canvas rows; they are notes, not turns to answer. Subagents can work the board alongside with their own cursors: relay-linux canvas join ${slug} --as <Name>.`,
+      `Each canvas turn and the wrap-up summary will appear here as canvas rows; they are notes, not turns to answer. What the canvas needs real tools for (files, screenshots, builds, research) arrives here as a "[Canvas request from ${CANVAS_HUMAN}]" message: do it and land it on the board with the command that message gives. Subagents can work the board alongside with their own cursors: relay-linux canvas join ${slug} --as <Name> (add --session <their id> to take requests too).`,
       ...(purpose === "" ? [] : [`Purpose: ${purpose}`]),
     ].join(" ");
     try {
@@ -397,17 +455,22 @@ export class CanvasService {
 
   /**
    * An agent joins the live room `ref` (slug or room id) as its own participant: its own cursor,
-   * name, color and portrait. The same name again is the same participant. Throws `CanvasError`.
+   * name, color and portrait. The same name again is the same participant. With `session` it is a
+   * worker: handoffs and `@Name` notes go to that omp session. Throws `CanvasError`.
    */
   join(ref: string, request: JoinRequest): JoinResult {
     const room = this.liveRoom(ref);
     const name = request.name.trim().slice(0, 40);
     if (name === "") throw new CanvasError(400, "a participant needs a name (--as <Name>)");
     const key = name.toLowerCase();
-    if (key === room.agent.name.toLowerCase() || key === CANVAS_HUMAN.toLowerCase())
+    if (key === room.agent.name.toLowerCase() || key === CANVAS_HUMAN.toLowerCase() || key === "main")
       throw new CanvasError(409, `${name} is already in the room as its ${key === CANVAS_HUMAN.toLowerCase() ? "human" : "canvas self"}; join under another name.`);
+    const session = request.session === undefined || request.session.trim() === "" ? null : this.workerSession(request.session.trim());
     const existing = room.participants.get(key);
-    if (existing !== undefined) return this.joinResult(room, existing, false);
+    if (existing !== undefined) {
+      if (session !== null) existing.sessionId = session;
+      return this.joinResult(room, existing, false);
+    }
     if (room.participants.size >= MAX_PARTICIPANTS) throw new CanvasError(429, `${room.board} already has ${String(MAX_PARTICIPANTS)} agents working on it.`);
 
     const user = this.participantUser(room, name, request.color);
@@ -419,6 +482,7 @@ export class CanvasService {
       id,
       user,
       request.purpose?.trim() ?? "",
+      session,
       room.sync.doc,
       room.sync.awareness,
       { ...this.deps.pacing, ...this.deps.participants },
@@ -430,19 +494,45 @@ export class CanvasService {
     );
     room.participants.set(key, participant);
     room.participantNames.add(name);
-    this.deps.log(`canvas ${room.slug}: ${name} joined as a participant`);
+    this.deps.log(`canvas ${room.slug}: ${name} joined as a ${session === null ? "participant" : `worker for session ${session}`}`);
     return this.joinResult(room, participant, true);
   }
 
-  /** Runs one batch of action lines as participant `participantId` of room `ref`. Throws `CanvasError`. */
-  async act(ref: string, participantId: string, script: string): Promise<ActResult> {
-    const participant = this.participant(this.liveRoom(ref), participantId);
+  /**
+   * Runs one batch of action lines as participant `participantId` of room `ref`; with `handoffId`,
+   * the batch lands that handoff and the canvas self confirms it. Throws `CanvasError`.
+   */
+  async act(ref: string, participantId: string, script: string, handoffId?: string): Promise<ActResult> {
+    const room = this.liveRoom(ref);
+    const participant = this.participant(room, participantId);
+    const handoff = this.openHandoff(room, handoffId);
+    let result: ActResult;
     try {
-      return await participant.act(script);
+      result = await participant.act(script);
     } catch (error) {
       if (error instanceof ActRefused) throw new CanvasError(error.status, error.message);
       throw error;
     }
+    if (handoff !== undefined) this.land(room, handoff, participant.user.name, result);
+    return result;
+  }
+
+  /**
+   * Runs one batch as the room's canvas self (the chat that started the room acting on the board as
+   * itself), after its queued turns; with `handoffId`, the batch lands that handoff. Throws `CanvasError`.
+   */
+  async selfAct(ref: string, script: string, handoffId?: string): Promise<ActResult> {
+    const room = this.liveRoom(ref);
+    const handoff = this.openHandoff(room, handoffId);
+    const steps = parseScript(script);
+    const actions = steps.filter((step) => step.kind === "action").length;
+    if (steps.length === 0) throw new CanvasError(400, "nothing to do: no @say or action lines");
+    if (actions > MAX_BATCH_ACTIONS) throw new CanvasError(400, `${String(actions)} actions in one batch; send at most ${String(MAX_BATCH_ACTIONS)}`);
+    const self = room.agents[0];
+    if (self === undefined) throw new CanvasError(500, "the room has no canvas self");
+    const result = await self.act(steps);
+    if (handoff !== undefined) this.land(room, handoff, room.agent.name, result);
+    return result;
   }
 
   /** Participant `participantId` leaves room `ref`; leaving twice is fine. */
@@ -463,6 +553,7 @@ export class CanvasService {
       agent: room.agent,
       humans: [...room.humans],
       participants: this.participantInfos(room),
+      handoffs: [...room.handoffs.values()].filter((h) => h.state === "open"),
       board: exportBoard(room.sync.doc),
       chat: room.sync.doc
         .getArray<ChatMsg>(DOC_KEYS.chat)
@@ -477,6 +568,114 @@ export class CanvasService {
     const out: Record<string, ParticipantInfo[]> = {};
     for (const room of this.rooms.values()) out[room.id] = this.participantInfos(room);
     return out;
+  }
+
+  /**
+   * Hands `request` to `target` ("main", the canvas self's own name, or a worker's name): a chat
+   * line in the room, the target shown as working on it, and the request delivered into the target
+   * session as a message telling it how to land the work. A participant with no session behind it,
+   * or an unknown name, gets nothing: the request goes to main instead.
+   */
+  private handOff(room: CanvasRoom, target: string, request: string, from: string): void {
+    if (!room.live || request.trim() === "") return;
+    const key = target.replace(/^@/, "").toLowerCase();
+    const named = key === "main" || key === room.agent.name.toLowerCase() ? undefined : room.participants.get(key);
+    const worker = named?.sessionId == null ? undefined : named;
+    if (worker === undefined && key !== "main" && key !== room.agent.name.toLowerCase())
+      this.deps.log(`canvas ${room.slug}: handoff to ${target} goes to main (${named === undefined ? "no such participant" : "it has no session behind it"})`);
+    this.seq += 1;
+    const handoff: Handoff = {
+      id: `h${this.now().toString(36)}${String(this.seq)}`,
+      to: worker === undefined ? "main" : key,
+      toName: worker?.user.name ?? room.agent.name,
+      request: request.trim(),
+      from,
+      at: this.now(),
+      state: "open",
+    };
+    room.handoffs.set(handoff.id, handoff);
+    this.event(room, `Handed to ${handoff.toName}: ${handoff.request}`);
+    this.showTask(room, handoff.to);
+    const as = worker === undefined ? "" : ` --as "${worker.user.name}"`;
+    const text = [
+      `[Canvas request from ${from}] ${handoff.request}`,
+      `(Live canvas "${room.board}", board ${room.slug}, handoff ${handoff.id}.) Do it with your tools, then put the result on the board ${worker === undefined ? `as ${room.agent.name} (your cursor in the room)` : `as ${worker.user.name}`} and close the handoff, in one batch:`,
+      `${CLI} canvas act ${room.slug}${as} --handoff ${handoff.id} - <<'EOF'`,
+      "@add_image <new-id> <x> <y> <w> </absolute/path.png>",
+      "<title>",
+      "<caption>",
+      "@end",
+      "EOF",
+      `Any action lines work (@add_node, @add_frame, @say ...; skill://canvas section 9). Free space: ${CLI} canvas show ${room.slug}. ${room.agent.name} confirms it to ${from} in the room when it lands.`,
+    ].join("\n");
+    const sessionId = worker?.sessionId ?? room.chatSessionId;
+    this.deps.chats.reply(sessionId, text, true).then(
+      () => {
+        this.deps.log(`canvas ${room.slug}: handoff ${handoff.id} delivered to ${handoff.toName} (session ${sessionId})`);
+      },
+      (error: unknown) => {
+        const why = error instanceof Error ? error.message : String(error);
+        handoff.state = "failed";
+        this.showTask(room, handoff.to);
+        this.event(room, `Could not reach ${handoff.toName}: ${why}`);
+        this.deps.log(`canvas ${room.slug}: handoff ${handoff.id} to ${handoff.toName} failed: ${why}`);
+      },
+    );
+  }
+
+  /** The handoff an act lands; undefined without an id. Throws `CanvasError` for one this room does not have open. */
+  private openHandoff(room: CanvasRoom, id: string | undefined): Handoff | undefined {
+    if (id === undefined || id === "") return undefined;
+    const handoff = room.handoffs.get(id);
+    if (handoff === undefined) throw new CanvasError(404, `No handoff ${id} in ${room.board}.`);
+    if (handoff.state === "landed") throw new CanvasError(409, `Handoff ${id} already landed; act without --handoff to add more.`);
+    return handoff;
+  }
+
+  /** A handoff's work is on the board: the target goes back to idle and the canvas self confirms it. */
+  private land(room: CanvasRoom, handoff: Handoff, by: string, result: ActResult): void {
+    handoff.state = "landed";
+    this.showTask(room, handoff.to);
+    const nodes = room.sync.doc.getMap<Y.Map<unknown>>(DOC_KEYS.nodes);
+    const cards = result.added.map((id) => {
+      const node = nodes.get(id);
+      return `${id} ("${node === undefined ? "" : str(node, "title")}")`;
+    });
+    const text = [
+      `${by} finished what ${handoff.from} asked for: "${handoff.request}".`,
+      cards.length === 0 ? "No new cards." : `New cards: ${cards.join(", ")}.`,
+      ...(result.said.length === 0 ? [] : [`${by} said: ${result.said.join(" / ")}`]),
+      ...(result.skipped.length === 0 ? [] : [`Did not run: ${result.skipped.join("; ")}`]),
+    ].join(" ");
+    this.deps.log(`canvas ${room.slug}: handoff ${handoff.id} landed by ${by} (${String(result.ran)} actions)`);
+    room.agents[0]?.landed(text);
+  }
+
+  /** Shows on `to` ("main" or a worker's key) the oldest request it still has open, or none. */
+  private showTask(room: CanvasRoom, to: string): void {
+    const next = [...room.handoffs.values()].find((h) => h.state === "open" && h.to === to)?.request ?? null;
+    if (to === "main") room.agents[0]?.setTask(next);
+    else room.participants.get(to)?.setTask(next);
+  }
+
+  /** A session notice in the room's chat, in the canvas self's name. */
+  private event(room: CanvasRoom, text: string): void {
+    const { name, color } = room.agent;
+    room.sync.doc.transact(() => {
+      room.sync.doc.getArray<ChatMsg>(DOC_KEYS.chat).push([{ id: `ev-${this.now().toString(36)}-${String(this.seq)}`, kind: "event", name, color, text, nodeIds: [], at: null, ts: this.now() }]);
+    }, "host");
+  }
+
+  /**
+   * The live bridge session `ref` names: its id, or a subagent's (bridge id `<parent>:<agent id>`;
+   * a nested agent id may come dotted, `Parent.Child`, or bare). Throws `CanvasError`.
+   */
+  private workerSession(ref: string): string {
+    const live = this.deps.chats.sessions.filter((session) => session.status !== "ended");
+    const leaf = (id: string): string => id.split(":").at(-1)?.split(".").at(-1) ?? id;
+    const found = live.find((session) => session.id === ref) ?? live.find((session) => session.id.includes(":") && leaf(session.id) === leaf(ref));
+    if (found === undefined) throw new CanvasError(404, `No live omp session ${ref} on this host (give a session id, or a subagent's id).`);
+    return found.id;
   }
 
   /** A websocket joined `room`. */
@@ -637,7 +836,16 @@ export class CanvasService {
   }
 
   private participantInfos(room: CanvasRoom): ParticipantInfo[] {
-    return [...room.participants.values()].map((p) => ({ id: p.id, name: p.user.name, color: p.user.color, ...(p.user.avatar === undefined ? {} : { avatar: p.user.avatar }), purpose: p.purpose }));
+    return [...room.participants.values()].map((p) => ({
+      id: p.id,
+      name: p.user.name,
+      color: p.user.color,
+      ...(p.user.avatar === undefined ? {} : { avatar: p.user.avatar }),
+      purpose: p.purpose,
+      worker: p.sessionId !== null,
+      status: p.working ? "working" : "idle",
+      ...(p.task === null ? {} : { task: p.task }),
+    }));
   }
 
   private joinResult(room: CanvasRoom, participant: CanvasParticipant, created: boolean): JoinResult {

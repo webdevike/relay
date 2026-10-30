@@ -7,6 +7,11 @@
 // before the model is asked, the reply streams into the bubble and its actions run as their lines
 // complete. Wrap up (the button, the CLI, or the room empty for a while) writes the summary.
 // Agents that joined with `canvas join` (participant.ts) never start a turn here: only humans do.
+// What the board DSL cannot do (files, screenshots, builds, research) the canvas self hands off
+// with `@handoff <main|Name> <request>`: the room delivers it to the chat (main) or a worker as a
+// message, that session does the work and lands it with `canvas act --handoff <id>`, and the canvas
+// self gets a "landed" turn to confirm it to Isaac. The chat can also act on the board as the
+// canvas self (`script`), serialized with its turns.
 
 import type { Awareness } from "y-protocols/awareness";
 import type * as Y from "yjs";
@@ -14,6 +19,7 @@ import { DOC_KEYS, type ChatMsg, type ModelKey, type Presence, type ServerMetric
 import { AGENT_ORIGIN, CanvasActor, str } from "./actor";
 import type { CanvasBrain } from "./brain";
 import { ActionParser, TextStream } from "./dsl";
+import { PACE_MS, runSteps, type ActResult, type Step } from "./participant";
 
 /** Who and what the agent is in this room. */
 export interface AgentIdentity {
@@ -35,6 +41,12 @@ export interface AgentHooks {
   /** The session wrapped up with `summary` (posted to the chat by the room). Called once. */
   ended(summary: string): void;
   log(line: string): void;
+  /** `@handoff <target> <request>` in a reply to `from` (null outside a note's turn). */
+  handoff(target: string, request: string, from: ChatMsg | null): void;
+  /** A human note addressed to a worker (`@Name ...`); true when the room routed it there instead. */
+  direct(msg: ChatMsg): boolean;
+  /** Lines naming who work can be handed to (main and each worker), for the turn's prompt. */
+  workers(): string[];
 }
 
 export interface AgentOptions {
@@ -46,7 +58,12 @@ export interface AgentOptions {
   readonly typeMs?: number;
 }
 
-type Turn = { kind: "message"; msg: ChatMsg } | { kind: "open" } | { kind: "close"; done: (summary: string) => void };
+type Turn =
+  | { kind: "message"; msg: ChatMsg }
+  | { kind: "open" }
+  | { kind: "close"; done: (summary: string) => void }
+  | { kind: "script"; steps: readonly Step[]; done: (result: ActResult) => void }
+  | { kind: "landed"; text: string };
 
 export function systemPrompt(identity: AgentIdentity): string {
   const { user, human, chatTitle, purpose, chat, chatTurns } = identity;
@@ -72,8 +89,10 @@ Reply ONLY with action lines in this exact format (no code fences, no other pros
 <body lines>
 @end
 @move_node <nodeId> <x> <y>
+@parent <nodeId> <frameId|none>   (put a node in a frame so it moves with it; a new frame adopts the cards whose center is inside it)
 @add_edge <sourceId> <targetId> <optional short label>
 @delete <nodeId>
+@handoff <main|WorkerName> <the request, one line>
 
 How to run the session:
 - First line is @say, or @point then @say when you are talking about a node. When you change a node, the @say names it by its title.
@@ -82,7 +101,8 @@ How to run the session:
 - If a note is ambiguous (you cannot tell which node or what change they want, and the attached nodes, chat and board do not settle it), do NOT edit: reply with one @say asking one short, specific question, and nothing else.
 - When a note critiques a node's wording, rewrite it with @set_text (whole field). Keep the board's voice: plain, concrete, short lines; keep numbering like "1 · ".
 - Add a node only when it helps. Put new nodes in empty space beside the related node (right: x = node.x + node.w + 60, or below), never overlapping, width 360-460. Connect related nodes with @add_edge.
-- New ids: short lowercase kebab-case. Use only ids that exist (or that you just added). Keep it fast: a few actions, and never touch nodes nobody asked about.`;
+- New ids: short lowercase kebab-case. Use only ids that exist (or that you just added). Keep it fast: a few actions, and never touch nodes nobody asked about.
+- You can only change the board. When a note asks for something that needs real tools (reading files or code, screenshots of apps, tabs or pages, running builds or tests, web research, making images), never say you cannot: hand it off. Write one @handoff line to main (${name} in the chat "${chatTitle}", which has every tool) or to a worker listed under "# Workers" whose purpose fits, with exactly what to make and where on the board to put it (a free x,y). Then one @say, e.g. "On it, ${name} is grabbing that." (the worker's name when it goes to a worker). Do not make placeholder cards for it. When the work lands you get a "# Handoff landed" turn: confirm it then.`;
   const parts = [base];
   if (purpose !== "") parts.push(`What this canvas session is for (from when you started it): ${purpose}`);
   parts.push(chat === "" ? "(The chat that opened this board has no text turns yet.)" : `The chat that opened this board (${String(chatTurns)} turns, oldest first):\n<chat>\n${chat}\n</chat>`);
@@ -109,7 +129,7 @@ export class CanvasAgent {
     if (tr.local || this.closed) return;
     for (const d of event.changes.delta) {
       if (!Array.isArray(d.insert)) continue;
-      for (const m of d.insert as ChatMsg[]) if (m.kind === "human") this.enqueue({ kind: "message", msg: m });
+      for (const m of d.insert as ChatMsg[]) if (m.kind === "human" && !this.hooks.direct(m)) this.enqueue({ kind: "message", msg: m });
     }
   };
   private readonly onPresence = (): void => {
@@ -167,6 +187,26 @@ export class CanvasAgent {
     return promise;
   }
 
+  /**
+   * Runs action lines as the canvas self (the chat acting on the board as itself), after the turns
+   * already queued. Resolves with what ran; nothing runs once the session has closed.
+   */
+  act(steps: readonly Step[]): Promise<ActResult> {
+    const { promise, resolve } = Promise.withResolvers<ActResult>();
+    this.enqueue({ kind: "script", steps, done: resolve });
+    return promise;
+  }
+
+  /** Handed-off work landed on the board: a turn to tell the room, `text` saying what and where. */
+  landed(text: string): void {
+    this.enqueue({ kind: "landed", text });
+  }
+
+  /** Shows (or clears) the request the chat is working on for this room, off the board. */
+  setTask(text: string | null): void {
+    this.setP({ task: text });
+  }
+
   /** Stops listening (the room is gone); no summary. */
   dispose(): void {
     this.closed = true;
@@ -218,15 +258,21 @@ export class CanvasAgent {
   private async loop(): Promise<void> {
     this.busy = true;
     for (let t = this.queue.shift(); t !== undefined; t = this.queue.shift()) {
-      if (this.closed && t.kind !== "close") continue;
+      if (this.closed && t.kind !== "close") {
+        if (t.kind === "script") t.done({ ran: 0, said: [], skipped: ["the canvas session has ended"], added: [] });
+        continue;
+      }
       try {
         if (t.kind === "message") await this.respond(t.msg.id, (onDelta) => this.brain(this.modelKey()).run(this.prompt(t.msg), onDelta), t.msg);
         else if (t.kind === "open") await this.open();
+        else if (t.kind === "script") t.done(await this.script(t.steps));
+        else if (t.kind === "landed") await this.respond(`landed-${Date.now().toString(36)}`, (onDelta) => this.brain(this.modelKey()).run(this.landedPrompt(t.text), onDelta), null, "landed");
         else t.done(await this.close());
       } catch (error) {
         this.hooks.log(`canvas agent ${this.identity.user.name}: ${error instanceof Error ? error.message : String(error)}`);
         this.setP({ status: "idle", typing: null, connecting: null });
         if (t.kind === "close") t.done("");
+        if (t.kind === "script") t.done({ ran: 0, said: [], skipped: [`failed: ${error instanceof Error ? error.message : String(error)}`], added: [] });
       }
     }
     this.busy = false;
@@ -329,7 +375,7 @@ export class CanvasAgent {
   }
 
   /** One model turn: stream speech into the bubble and run actions as their lines complete. */
-  private async respond(id: string, source: (onDelta: (delta: string) => void) => Promise<void>, msg: ChatMsg | null): Promise<void> {
+  private async respond(id: string, source: (onDelta: (delta: string) => void) => Promise<void>, msg: ChatMsg | null, label = msg === null ? "opener" : "turn"): Promise<void> {
     const t0 = performance.now();
     const modelKey = this.modelKey();
     clearTimeout(this.clearBubbleTimer);
@@ -351,6 +397,13 @@ export class CanvasAgent {
 
     const parser = new ActionParser(
       (a) => {
+        if (a.kind === "handoff") {
+          // Routed in reply order, once the edits written before it have run.
+          exec = exec.then(() => {
+            this.hooks.handoff(a.target, a.request, msg);
+          });
+          return;
+        }
         exec = exec.then(async () => {
           const skipped = await this.actor.run(a, markEdit);
           if (skipped !== null) this.hooks.log(`canvas agent action ${a.kind} skipped: ${skipped}`);
@@ -382,12 +435,42 @@ export class CanvasAgent {
     const server: ServerMetrics = { model: modelKey, cursor: cursorMs, firstToken, firstEdit: timing.firstEdit, modelDone, done, output };
     this.doc.getMap(DOC_KEYS.metrics).set(`s:${id}`, server);
     this.hooks.log(
-      `canvas agent ${user.name} ${modelKey} ${msg === null ? "opener" : "turn"}: cursor=${cursorMs.toFixed(1)}ms first=${firstToken.toFixed(0)}ms edit=${timing.firstEdit === null ? "-" : timing.firstEdit.toFixed(0)}ms model=${modelDone.toFixed(0)}ms done=${done.toFixed(0)}ms`,
+      `canvas agent ${user.name} ${modelKey} ${label}: cursor=${cursorMs.toFixed(1)}ms first=${firstToken.toFixed(0)}ms edit=${timing.firstEdit === null ? "-" : timing.firstEdit.toFixed(0)}ms model=${modelDone.toFixed(0)}ms done=${done.toFixed(0)}ms`,
     );
     this.clearBubbleTimer = setTimeout(() => {
       this.setP({ bubble: null, selected: [] });
     }, 8000);
     if (msg !== null) this.hooks.turn({ name: msg.name, text: msg.text }, said);
+  }
+
+  /** The chat's action lines, run as the canvas self: its cursor, its bubble, its chat lines. */
+  private async script(steps: readonly Step[]): Promise<ActResult> {
+    clearTimeout(this.clearBubbleTimer);
+    const { user } = this.identity;
+    const result = await runSteps(this.actor, steps, {
+      say: (text) => {
+        const id = `self-${Date.now().toString(36)}-${String(this.chat.length)}`;
+        this.setP({ bubble: { text, replyTo: id, streaming: false } });
+        this.chat.push([{ id, kind: "agent", name: user.name, color: user.color, text, nodeIds: [], at: { ...this.actor.cursor }, ts: Date.now() }]);
+      },
+      stopped: () => this.closed,
+      paceMs: this.options.typeMs === 0 ? 0 : PACE_MS,
+    });
+    this.setP({ status: "idle", typing: null, connecting: null });
+    this.clearBubbleTimer = setTimeout(() => {
+      this.setP({ bubble: null, selected: [] });
+    }, 8000);
+    return result;
+  }
+
+  private landedPrompt(text: string): string {
+    return [
+      this.prompt(null),
+      "",
+      "# Handoff landed",
+      text,
+      `Tell ${this.identity.human} it is done in one short @say naming what landed, with @point <the new card> first when there is one. No other edits.`,
+    ].join("\n");
   }
 
   /** Per-turn context: purpose, full board, who is here and their selections, recent chat, the note. */
@@ -427,6 +510,8 @@ export class CanvasAgent {
       const at = p.cursor ? `, cursor @${String(Math.round(p.cursor.x))},${String(Math.round(p.cursor.y))}` : "";
       lines.push(`- ${p.user.name}: ${sel}${at}`);
     }
+
+    lines.push("", "# Workers (who @handoff can go to)", ...this.hooks.workers());
 
     const recent = this.chat
       .toArray()

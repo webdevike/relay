@@ -37,7 +37,15 @@ export interface ActorOptions {
   readonly frameMs?: number;
   /** Delay per typed chunk. */
   readonly typeMs?: number;
+  /** Nudge new notes and images off occupied spots; default `CANVAS_AVOID_OVERLAP=1`, else off. */
+  readonly avoidOverlap?: boolean;
 }
+
+/**
+ * Collision avoidance is off for now: cards land exactly where the agent asked, so it can group
+ * them inside frames. `CANVAS_AVOID_OVERLAP=1` in the host's environment turns the nudging back on.
+ */
+export const AVOID_OVERLAP = process.env["CANVAS_AVOID_OVERLAP"] === "1";
 
 export const str = (m: Y.Map<unknown>, k: string): string => {
   const v = m.get(k);
@@ -149,12 +157,16 @@ export class CanvasActor {
   }
 
   /**
-   * Glides to the free spot nearest (x, y) and looks again on arrival: another actor may have put
-   * a card there meanwhile. Resolves with the spot that is still free.
+   * Glides to (x, y). With overlap avoidance on, that is the free spot nearest (x, y), looked at
+   * again on arrival (another actor may have put a card there meanwhile). Resolves with the spot.
    */
-  private async arriveAtFreeSpot(x: number, y: number, w: number, h: number): Promise<{ x: number; y: number }> {
-    let spot = this.freeSpot(x, y, w, h);
+  private async arriveAt(x: number, y: number, w: number, h: number): Promise<{ x: number; y: number }> {
     this.setP({ status: "moving" });
+    if (!(this.options.avoidOverlap ?? AVOID_OVERLAP)) {
+      await this.glide(x + 30, y + 24);
+      return { x, y };
+    }
+    let spot = this.freeSpot(x, y, w, h);
     for (let tries = 0; tries < 3; tries++) {
       await this.glide(spot.x + 30, spot.y + 24);
       const again = this.freeSpot(spot.x, spot.y, w, h);
@@ -197,6 +209,62 @@ export class CanvasActor {
     const edges = [...this.edges.values()].map((e) => ({ source: str(e, "source"), target: str(e, "target") }));
     const layout = this.doc.getMap(DOC_KEYS.meta).get("layout");
     return placeUnplaced(nodes, edges, layout === "grid" || layout === "tree" || layout === "flow" ? layout : undefined);
+  }
+
+  /** True when `id` is `ancestor` or sits (at any depth) inside it. */
+  private isUnder(id: string, ancestor: string): boolean {
+    const seen = new Set<string>();
+    let cur: string | undefined = id;
+    while (cur !== undefined && !seen.has(cur)) {
+      if (cur === ancestor) return true;
+      seen.add(cur);
+      const p: unknown = this.nodes.get(cur)?.get("parent");
+      cur = typeof p === "string" ? p : undefined;
+    }
+    return false;
+  }
+
+  /** Sets a node's frame from where it is: the smallest frame holding it fully, else none. Coordinates stay absolute. */
+  private autoParent(id: string): void {
+    const m = this.nodes.get(id);
+    const b = this.box(id);
+    if (!m || !b) return;
+    let best: string | null = null;
+    let bestArea = Number.POSITIVE_INFINITY;
+    for (const [fid, f] of this.nodes) {
+      if (fid === id || f.get("type") !== "frame") continue;
+      const fb = this.box(fid);
+      if (!fb) continue;
+      const area = fb.w * fb.h;
+      if (area <= b.w * b.h || area >= bestArea) continue;
+      if (b.x >= fb.x && b.y >= fb.y && b.x + b.w <= fb.x + fb.w && b.y + b.h <= fb.y + fb.h) {
+        best = fid;
+        bestArea = area;
+      }
+    }
+    if (best === null) {
+      if (m.has("parent")) m.delete("parent");
+    } else if (m.get("parent") !== best) m.set("parent", best);
+  }
+
+  /** A new frame takes in the nodes whose center is inside it (unless a smaller frame already holds them). */
+  private adopt(frameId: string): void {
+    const fb = this.box(frameId);
+    if (!fb) return;
+    const area = fb.w * fb.h;
+    for (const [id, m] of this.nodes) {
+      if (id === frameId) continue;
+      const b = this.box(id);
+      if (!b || b.w * b.h >= area) continue;
+      const cx = b.x + b.w / 2;
+      const cy = b.y + b.h / 2;
+      if (cx < fb.x || cy < fb.y || cx > fb.x + fb.w || cy > fb.y + fb.h) continue;
+      const cur = m.get("parent");
+      const curBox = typeof cur === "string" ? this.box(cur) : null;
+      if (curBox && curBox.w * curBox.h <= area) continue;
+      if (this.isUnder(frameId, id)) continue;
+      m.set("parent", frameId);
+    }
   }
 
   /**
@@ -259,10 +327,9 @@ export class CanvasActor {
       case "add_node":
       case "add_frame": {
         if (this.nodes.has(a.id)) return `id ${a.id} is taken`;
-        // Models misjudge free space; nudge a note's spot until it clears every node (again on
-        // arrival: another agent may have filled it meanwhile). A frame is placed exactly: it is
-        // meant to sit behind the nodes it groups.
-        const spot = a.kind === "add_frame" ? { x: a.x, y: a.y } : await this.arriveAtFreeSpot(a.x, a.y, a.w, 220);
+        // A frame is always placed exactly (it sits behind the cards it groups); notes too unless
+        // overlap avoidance is on, which nudges them until they clear every node.
+        const spot = a.kind === "add_frame" ? { x: a.x, y: a.y } : await this.arriveAt(a.x, a.y, a.w, 220);
         if (a.kind === "add_frame") {
           this.setP({ status: "moving" });
           await this.glide(spot.x + 30, spot.y + 24);
@@ -279,6 +346,8 @@ export class CanvasActor {
         m.set("fields", []);
         transact(() => {
           this.nodes.set(a.id, m);
+          if (a.kind === "add_frame") this.adopt(a.id);
+          else this.autoParent(a.id);
         });
         this.setP({ selected: [a.id], status: "typing" });
         await this.type(a.id, ["title", "body"], a.text, markEdit);
@@ -292,7 +361,7 @@ export class CanvasActor {
         while (!a.text.closed) await a.text.changed();
         const [title = "", ...rest] = a.text.text.split("\n");
         const caption = rest.join(" ").trim();
-        const spot = await this.arriveAtFreeSpot(a.x, a.y, a.w, Math.round(a.w * 0.75 + 40));
+        const spot = await this.arriveAt(a.x, a.y, a.w, Math.round(a.w * 0.75 + 40));
         if (this.nodes.has(a.id)) return `id ${a.id} is taken`;
         const m = new Y.Map<unknown>();
         m.set("type", "image");
@@ -307,6 +376,7 @@ export class CanvasActor {
         m.set("fields", []);
         transact(() => {
           this.nodes.set(a.id, m);
+          this.autoParent(a.id);
         });
         this.setP({ selected: [a.id], status: "idle" });
         return null;
@@ -323,6 +393,24 @@ export class CanvasActor {
             m.set("x", Math.round(x - 30));
             m.set("y", Math.round(y - 20));
           });
+        });
+        transact(() => {
+          this.autoParent(a.id);
+        });
+        return null;
+      }
+      case "parent": {
+        const m = this.nodes.get(a.id);
+        if (!m) return missing(a.id);
+        if (a.frame !== null) {
+          const f = this.nodes.get(a.frame);
+          if (!f) return missing(a.frame);
+          if (f.get("type") !== "frame") return `${a.frame} is not a frame`;
+          if (this.isUnder(a.frame, a.id)) return `${a.frame} is inside ${a.id}`;
+        }
+        transact(() => {
+          if (a.frame === null) m.delete("parent");
+          else m.set("parent", a.frame);
         });
         return null;
       }
@@ -367,6 +455,9 @@ export class CanvasActor {
         this.setP({ selected: [] });
         return null;
       }
+      case "handoff":
+        // The canvas self's turn routes its handoffs before they get here (agent.ts).
+        return "only the room's canvas self hands work off";
     }
   }
 

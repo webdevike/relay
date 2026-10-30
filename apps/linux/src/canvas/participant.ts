@@ -7,6 +7,9 @@
 // serialized and paced, a participant may have only a few batches waiting, and a room takes
 // only so many participants. Its `@say` lines go into the room's cursor chat as agent lines; they
 // never start a turn of the canvas self, which only answers humans.
+// A participant that joined with `--session <id>` is a worker: the omp session behind it gets the
+// canvas self's `@handoff <Name> ...` and Isaac's `@<Name> ...` notes as messages, and its `task`
+// (shown in the room) is the request it is working on until an act with `--handoff` lands it.
 
 import * as awarenessProtocol from "y-protocols/awareness";
 import * as Y from "yjs";
@@ -38,6 +41,8 @@ export interface ActResult {
   readonly said: string[];
   /** Actions that did not run, with why (`add_edge a b: no node b`). */
   readonly skipped: string[];
+  /** Ids of the cards it added. */
+  readonly added: string[];
 }
 
 /** A batch the participant refused before running any of it. */
@@ -50,10 +55,10 @@ export class ActRefused extends Error {
   }
 }
 
-type Step = { kind: "say"; text: string } | { kind: "action"; action: Action };
+export type Step = { kind: "say"; text: string } | { kind: "action"; action: Action };
 
 /** The batch's steps in script order; `@say` lines and actions interleave as written. */
-function parseScript(script: string): Step[] {
+export function parseScript(script: string): Step[] {
   const steps: Step[] = [];
   const parser = new ActionParser(
     (action) => {
@@ -74,7 +79,39 @@ function parseScript(script: string): Step[] {
   return steps.filter((step) => step.kind === "action" || step.text.trim() !== "");
 }
 
-const describe = (a: Action): string => (a.kind === "add_edge" ? `add_edge ${a.source} ${a.target}` : a.kind === "cursor" ? `cursor ${String(a.x)} ${String(a.y)}` : `${a.kind} ${a.id}`);
+const describe = (a: Action): string =>
+  a.kind === "add_edge" ? `add_edge ${a.source} ${a.target}` : a.kind === "cursor" ? `cursor ${String(a.x)} ${String(a.y)}` : a.kind === "handoff" ? `handoff ${a.target}` : `${a.kind} ${a.id}`;
+
+/**
+ * Runs a batch's steps in order through `actor`, pausing `paceMs` after each action: `say` puts a
+ * line in the room (bubble and chat), `stopped` ends the batch early (the agent left the room).
+ */
+export async function runSteps(actor: CanvasActor, steps: readonly Step[], hooks: { say: (text: string) => void; stopped: () => boolean; paceMs: number }): Promise<ActResult> {
+  const said: string[] = [];
+  const skipped: string[] = [];
+  const added: string[] = [];
+  let ran = 0;
+  for (const step of steps) {
+    if (hooks.stopped()) {
+      if (step.kind === "action") skipped.push(`${describe(step.action)}: left the room`);
+      continue;
+    }
+    if (step.kind === "say") {
+      const text = step.text.trim();
+      said.push(text);
+      hooks.say(text);
+      continue;
+    }
+    const { action } = step;
+    const why = await actor.run(action);
+    if (why === null) {
+      ran += 1;
+      if (action.kind === "add_node" || action.kind === "add_image" || action.kind === "add_frame") added.push(action.id);
+    } else skipped.push(`${describe(action)}: ${why}`);
+    await sleep(hooks.paceMs);
+  }
+  return { ran, said, skipped, added };
+}
 
 export class CanvasParticipant {
   /** The participant's own awareness client: its cursor is a separate person in the room. */
@@ -87,6 +124,7 @@ export class CanvasParticipant {
   private bubbleTimer: Timer | undefined;
   private idleTimer: Timer | undefined;
   private said = 0;
+  private taskText: string | null = null;
   private readonly forward = ({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }): void => {
     const update = awarenessProtocol.encodeAwarenessUpdate(this.own, [...added, ...updated, ...removed]);
     awarenessProtocol.applyAwarenessUpdate(this.roomAwareness, update, this);
@@ -97,6 +135,8 @@ export class CanvasParticipant {
     readonly user: User,
     /** What it is here to do, from `canvas join --prompt`; empty when not given. */
     readonly purpose: string,
+    /** The omp session that gets its handoffs (a worker), else null; a re-join may set it. */
+    public sessionId: string | null,
     private readonly doc: Y.Doc,
     private readonly roomAwareness: awarenessProtocol.Awareness,
     private readonly options: ParticipantOptions,
@@ -115,6 +155,24 @@ export class CanvasParticipant {
   /** The awareness client id its cursor has in the room. */
   get clientId(): number {
     return this.own.clientID;
+  }
+
+  /** The request handed to it that it is working on off the board; null when it has none. */
+  get task(): string | null {
+    return this.taskText;
+  }
+
+  /** Working: a batch running or waiting, or a handed-off request not landed yet. Else idle. */
+  get working(): boolean {
+    return this.pending > 0 || this.taskText !== null;
+  }
+
+  /** Shows (or clears) the request it is working on; a worker with a task never idles out. */
+  setTask(text: string | null): void {
+    if (this.left) return;
+    this.taskText = text;
+    this.actor.setP({ task: text });
+    this.touch();
   }
 
   /**
@@ -157,33 +215,21 @@ export class CanvasParticipant {
   }
 
   private async run(steps: Step[]): Promise<ActResult> {
-    const said: string[] = [];
-    const skipped: string[] = [];
-    let ran = 0;
     clearTimeout(this.bubbleTimer);
-    for (const step of steps) {
-      if (this.left) {
-        if (step.kind === "action") skipped.push(`${describe(step.action)}: left the room`);
-        continue;
-      }
-      if (step.kind === "say") {
-        const text = step.text.trim();
-        said.push(text);
+    const result = await runSteps(this.actor, steps, {
+      say: (text) => {
         this.say(text);
-        continue;
-      }
-      const why = await this.actor.run(step.action);
-      if (why === null) ran += 1;
-      else skipped.push(`${describe(step.action)}: ${why}`);
-      await sleep(this.options.paceMs ?? PACE_MS);
-    }
+      },
+      stopped: () => this.left,
+      paceMs: this.options.paceMs ?? PACE_MS,
+    });
     if (!this.left) {
       this.actor.setP({ status: "idle", typing: null, connecting: null });
       this.bubbleTimer = setTimeout(() => {
         if (!this.left) this.actor.setP({ bubble: null, selected: [] });
       }, 8000);
     }
-    return { ran, said, skipped };
+    return result;
   }
 
   private say(text: string): void {
@@ -207,7 +253,7 @@ export class CanvasParticipant {
     clearTimeout(this.idleTimer);
     if (this.left) return;
     this.idleTimer = setTimeout(() => {
-      if (this.pending === 0) this.leave();
+      if (this.pending === 0 && this.taskText === null) this.leave();
       else this.touch();
     }, this.options.idleLeaveMs ?? IDLE_LEAVE_MS);
   }

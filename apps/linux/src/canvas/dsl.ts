@@ -14,7 +14,13 @@
 //   @add_image <newId> <x> <y> <w> <src>                   then title line, caption lines, @end
 //                                         (src: an absolute local path or an https image URL; may hold spaces)
 //   @add_frame <newId> <x> <y> <w> <h>                     then title line, @end
+//   @parent <id> <frameId|none>           put a node in a frame (it then moves with it), or take it out
+//                                         (@add_frame adopts the nodes whose center is inside it; @add_* and
+//                                         @move_node parent a node that lands fully inside a frame, and clear
+//                                         the parent when it lands outside it)
 //   @cursor <x> <y>                       glide the cursor to a spot on the board
+//   @handoff <main|Name> <request>        the canvas self only: hand work that needs real tools to
+//                                         the chat that started the room (main) or a joined worker
 
 import type { TextField } from "@relay/canvas-live/shared";
 
@@ -53,8 +59,10 @@ export type Action =
   | { kind: "add_image"; id: string; x: number; y: number; w: number; src: string; text: TextStream }
   | { kind: "add_frame"; id: string; x: number; y: number; w: number; h: number; text: TextStream }
   | { kind: "move_node"; id: string; x: number; y: number }
+  | { kind: "parent"; id: string; frame: string | null }
   | { kind: "add_edge"; source: string; target: string; label: string }
-  | { kind: "delete"; id: string };
+  | { kind: "delete"; id: string }
+  | { kind: "handoff"; target: string; request: string };
 
 const NODE_TYPES: Record<string, "note" | "topic" | "suggestion"> = { note: "note", topic: "topic", suggestion: "suggestion" };
 
@@ -226,6 +234,9 @@ export class ActionParser {
       case "move_node":
         if (a[0]) this.onAction({ kind: "move_node", id: a[0], x: num(a[1]), y: num(a[2]) });
         return;
+      case "parent":
+        if (a[0] && a[1]) this.onAction({ kind: "parent", id: a[0], frame: a[1] === "none" ? null : a[1] });
+        return;
       case "add_edge":
         if (a[0] && a[1]) this.onAction({ kind: "add_edge", source: a[0], target: a[1], label: a.slice(2).join(" ") });
         return;
@@ -233,7 +244,10 @@ export class ActionParser {
         if (a[0]) this.onAction({ kind: "delete", id: a[0] });
         return;
       case "add_image": {
-        const src = a.slice(4).join(" ");
+        // A height before the src (`<x> <y> <w> <h> <src>`) is dropped: an image keeps its aspect ratio.
+        const rest = a.slice(4);
+        if (rest.length > 1 && /^\d+(\.\d+)?$/.test(rest[0] ?? "")) rest.shift();
+        const src = rest.join(" ");
         if (!a[0] || src === "") return;
         const text = new TextStream();
         this.onAction({ kind: "add_image", id: a[0], x: num(a[1]), y: num(a[2]), w: num(a[3]) || 420, src, text });
@@ -249,6 +263,9 @@ export class ActionParser {
       }
       case "cursor":
         this.onAction({ kind: "cursor", x: num(a[0]), y: num(a[1]) });
+        return;
+      case "handoff":
+        if (a[0] && a.length > 1) this.onAction({ kind: "handoff", target: a[0], request: a.slice(1).join(" ") });
         return;
       case "say":
         this.onSay(a.join(" "));

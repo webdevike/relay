@@ -106,15 +106,22 @@ const USAGE = `relay-linux <command>
                                    given). Isaac gets a Join card in this chat; the canvas agent
                                    is this chat's assistant (Nova in Nova's thread, else Eva) with
                                    the chat as context, and posts each turn and the wrap-up here
-  canvas join <slug> --as <Name> [--prompt "what I am here to do"] [--color "#rrggbb"]
+  canvas join <slug> --as <Name> [--prompt "what I am here to do"] [--color "#rrggbb"] [--session <id>|me]
                                    join a live room as an agent of your own (any omp session, a
-                                   subagent too): your own cursor, name, color and portrait
-  canvas act <slug> --as <Name> [<lines> | -]
-                                   run action lines as <Name> (joins first when needed): @say,
+                                   subagent too): your own cursor, name, color and portrait. With
+                                   --session (a session id, a subagent's id, or me) you are a
+                                   worker: the canvas self's @handoff <Name> and Isaac's "@<Name> ..."
+                                   notes reach that session as messages
+  canvas act <slug> [--as <Name>] [--handoff <id>] [--leave] [<lines> | -]
+                                   run action lines as <Name> (joins first when needed), or without
+                                   --as as the room's canvas self (the chat that started it): @say,
                                    @add_node, @add_image, @add_frame, @add_edge, @set_text,
                                    @append_text, @move_node, @point, @select, @cursor, @delete
-                                   (skill://canvas section 8); no lines or - reads stdin
-  canvas show <slug>               the live room's board, who is in it, and the latest chat (JSON)
+                                   (skill://canvas sections 8-9); no lines or - reads stdin.
+                                   --handoff lands that handoff (the canvas self confirms it);
+                                   --leave takes <Name> out of the room after the batch
+  canvas show <slug>               the live room's board, who is in it (working or idle), open
+                                   handoffs, and the latest chat (JSON)
   canvas leave <slug> --as <Name>  take <Name>'s cursor out of the room
   canvas list                      list the running host's canvas rooms
   canvas end [<slug>]              wrap up the live session on <slug> (default: this chat's)
@@ -667,8 +674,21 @@ const ParticipantReply = z.object({ id: z.string(), name: z.string(), color: z.s
 const CanvasJoinReply = z.object({ roomId: z.string(), slug: z.string(), board: z.string(), created: z.boolean(), participant: ParticipantReply, agent: z.object({ name: z.string() }), participants: z.array(ParticipantReply) });
 const CanvasActReply = z.object({ ran: z.number(), said: z.array(z.string()), skipped: z.array(z.string()) });
 
+/** `--session me`: the id the bridge knows the calling omp session by (a subagent's agent id, else the chat's session id). */
+function ownSessionRef(): string {
+  const caller = detectCaller(systemCallerDeps);
+  if (caller === null) throw new Error("canvas join --session me: run this from an omp session");
+  if (caller.sessionFile !== caller.chatFile) return basename(caller.sessionFile, ".jsonl");
+  const id = basename(caller.chatFile, ".jsonl").split("_").at(-1);
+  if (id === undefined || id === "") throw new Error("canvas join --session me: cannot tell this session's id from its transcript name");
+  return id;
+}
+
 /** `canvas start|join|act|show|leave|list|end`: talks to the running host's loopback `/canvas/sessions`. */
-async function canvasCommand(positionals: string[], options: { title: string | undefined; prompt: string | undefined; as: string | undefined; color: string | undefined }): Promise<void> {
+async function canvasCommand(
+  positionals: string[],
+  options: { title: string | undefined; prompt: string | undefined; as: string | undefined; color: string | undefined; session: string | undefined; handoff: string | undefined; leave: boolean },
+): Promise<void> {
   const { title, prompt } = options;
   const [verb, slug] = positionals;
   const base = `${hostUrl()}/canvas/sessions`;
@@ -694,31 +714,52 @@ async function canvasCommand(positionals: string[], options: { title: string | u
     case "leave": {
       if (slug === undefined) throw new Error(`canvas ${verb}: missing <slug>`);
       const name = options.as?.trim() ?? "";
-      if (name === "") throw new Error(`canvas ${verb}: missing --as <Name> (the name your cursor shows)`);
       const room = `${base}/${encodeURIComponent(slug)}`;
+      const rest = positionals.slice(2);
+      const readScript = async (): Promise<string> => (rest.length === 0 || rest[0] === "-" ? await Bun.stdin.text() : rest.join(" "));
+      const report = (who: string, board: string, result: z.infer<typeof CanvasActReply>): void => {
+        console.log(`${who}: ran ${String(result.ran)} action${result.ran === 1 ? "" : "s"}${result.said.length > 0 ? `, said ${String(result.said.length)} line${result.said.length === 1 ? "" : "s"}` : ""} on "${board}"${options.handoff === undefined ? "" : `; handoff ${options.handoff} landed, the canvas self confirms it in the room`}.`);
+        for (const line of result.skipped) console.log(`skipped: ${line}`);
+      };
+      if (verb === "act" && name === "") {
+        // No --as: the room's canvas self, i.e. the chat that started the room acting as itself.
+        const result = CanvasActReply.parse(await hostJson(await post(`${room}/self/act`, { script: await readScript(), ...(options.handoff === undefined ? {} : { handoff: options.handoff }) }), "canvas act"));
+        report("canvas self", slug, result);
+        return;
+      }
+      if (name === "") throw new Error(`canvas ${verb}: missing --as <Name> (the name your cursor shows)`);
+      const session = verb !== "join" || options.session === undefined ? undefined : options.session === "me" ? ownSessionRef() : options.session;
       const joined = CanvasJoinReply.parse(
         await hostJson(
-          await post(`${room}/participants`, { name, ...(prompt === undefined || verb !== "join" ? {} : { purpose: prompt }), ...(options.color === undefined ? {} : { color: options.color }) }),
+          await post(`${room}/participants`, {
+            name,
+            ...(prompt === undefined || verb !== "join" ? {} : { purpose: prompt }),
+            ...(options.color === undefined ? {} : { color: options.color }),
+            ...(session === undefined ? {} : { session }),
+          }),
           `canvas ${verb}`,
         ),
       );
       const me = joined.participant;
-      if (verb === "leave") {
+      const leave = async (): Promise<void> => {
         await hostJson(await post(`${room}/participants/${encodeURIComponent(me.id)}/leave`, {}), "canvas leave");
         console.log(`${me.name} left "${joined.board}".`);
+      };
+      if (verb === "leave") {
+        await leave();
         return;
       }
       if (verb === "join") {
         const others = joined.participants.filter((p) => p.id !== me.id).map((p) => p.name);
-        console.log(`${joined.created ? "Joined" : "Already in"} "${joined.board}" (board ${joined.slug}) as ${me.name} (${me.color}), next to ${[joined.agent.name, ...others].join(", ")}.`);
+        console.log(`${joined.created ? "Joined" : "Already in"} "${joined.board}" (board ${joined.slug}) as ${me.name} (${me.color})${session === undefined ? "" : `, a worker: handoffs to ${me.name} reach session ${session}`}, next to ${[joined.agent.name, ...others].join(", ")}.`);
         console.log(`Read the board: relay-linux canvas show ${joined.slug}. Act: relay-linux canvas act ${joined.slug} --as "${me.name}" with action lines on stdin (skill://canvas section 8). Leave: relay-linux canvas leave ${joined.slug} --as "${me.name}".`);
         return;
       }
-      const rest = positionals.slice(2);
-      const script = rest.length === 0 || rest[0] === "-" ? await Bun.stdin.text() : rest.join(" ");
-      const result = CanvasActReply.parse(await hostJson(await post(`${room}/participants/${encodeURIComponent(me.id)}/act`, { script }), "canvas act"));
-      console.log(`${me.name}: ran ${String(result.ran)} action${result.ran === 1 ? "" : "s"}${result.said.length > 0 ? `, said ${String(result.said.length)} line${result.said.length === 1 ? "" : "s"}` : ""} on "${joined.board}".`);
-      for (const line of result.skipped) console.log(`skipped: ${line}`);
+      const result = CanvasActReply.parse(
+        await hostJson(await post(`${room}/participants/${encodeURIComponent(me.id)}/act`, { script: await readScript(), ...(options.handoff === undefined ? {} : { handoff: options.handoff }) }), "canvas act"),
+      );
+      report(me.name, joined.board, result);
+      if (options.leave) await leave();
       return;
     }
     case "show": {
@@ -846,6 +887,9 @@ async function main(argv: string[]): Promise<void> {
       prompt: { type: "string" },
       as: { type: "string" },
       color: { type: "string" },
+      session: { type: "string" },
+      handoff: { type: "string" },
+      leave: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -907,7 +951,7 @@ async function main(argv: string[]): Promise<void> {
       return;
     }
     case "canvas":
-      await canvasCommand(positionals.slice(1), { title: values.title, prompt: values.prompt, as: values.as, color: values.color });
+      await canvasCommand(positionals.slice(1), { title: values.title, prompt: values.prompt, as: values.as, color: values.color, session: values.session, handoff: values.handoff, leave: values.leave });
       return;
     case "react":
       await react(values.agent, positionals.slice(1), values.message, values.clear);
