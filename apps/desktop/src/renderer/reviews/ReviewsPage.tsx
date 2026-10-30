@@ -38,7 +38,7 @@ import {
 } from './review-model'
 import './reviews.css'
 
-type Tab = 'conversation' | 'files' | 'commits' | 'checks' | 'guide'
+type Tab = 'conversation' | 'files' | 'checks' | 'guide'
 type View = 'for-me' | 'created'
 
 interface PrivateAsk {
@@ -351,28 +351,6 @@ function Conversation({ pr, asks, now }: { pr: ReviewPr; asks: PrivateAsk[]; now
   )
 }
 
-function Commits({ pr, now }: { pr: ReviewPr; now: number }) {
-  return (
-    <div className="eva-rv-list" data-testid="review-commits">
-      {pr.commits.map((c) => (
-        <button
-          type="button"
-          key={c.oid}
-          className="eva-rv-listrow"
-          onClick={() => openLink(`${pr.url}/commits/${c.oid}`)}
-        >
-          <IconGitCommit size={14} className="eva-rv-dim" />
-          <span className="eva-rv-ellipsis">{c.headline}</span>
-          <span className="eva-rv-spacer" />
-          <span className="eva-rv-dim">{c.author}</span>
-          <code className="eva-rv-sha">{c.oid.slice(0, 7)}</code>
-          <span className="eva-rv-dim">{ago(c.at, now)}</span>
-        </button>
-      ))}
-    </div>
-  )
-}
-
 function Checks({ pr }: { pr: ReviewPr }) {
   if (pr.checks.length === 0)
     return <div className="eva-rv-empty">No checks ran on this pull request.</div>
@@ -483,7 +461,6 @@ function Detail({
   const TABS: Array<{ id: Tab; label: string; count?: number; icon?: ReactNode }> = [
     { id: 'conversation', label: 'Conversation', count: pr.timeline.length + 1 },
     { id: 'files', label: 'Files', count: pr.files.length },
-    { id: 'commits', label: 'Commits', count: pr.commits.length },
     { id: 'checks', label: 'Checks', count: pr.checks.length, icon: <IconCircleCheck size={13} /> },
     { id: 'guide', label: 'Guide', icon: <IconBook2 size={13} /> },
   ]
@@ -578,7 +555,6 @@ function Detail({
                 onViewed={(p, on) => setViewed(on ? [...viewed, p] : viewed.filter((v) => v !== p))}
               />
             ) : null}
-            {tab === 'commits' ? <Commits pr={pr} now={now} /> : null}
             {tab === 'checks' ? <Checks pr={pr} /> : null}
             {tab === 'guide' ? (
               <ReviewGuide
@@ -706,7 +682,7 @@ function Detail({
   )
 }
 
-/** Reviews: Isaac's GitHub review queue beside one pull request (Conversation, Files, Commits, Checks, Guide). */
+/** Reviews: Isaac's GitHub review queue beside one pull request (Conversation, Files, Checks, Guide). */
 export function ReviewsPage(_: { place: Place }) {
   const [queue, setQueue] = useState<ReviewQueue | null>(null)
   const [error, setError] = useState<string | null>(null)

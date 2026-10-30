@@ -51,9 +51,8 @@ test('reviews a real PR end to end without writing anywhere', async ({ app, shel
   await expect(shell.locator(sel('review-diff')).first()).toBeVisible()
   await shot(shell, '03-files-split')
 
-  await shell.locator(sel('review-tab-commits')).click()
-  await expect(shell.locator(sel('review-commits'))).toBeVisible()
-  await shot(shell, '04-commits')
+  await expect(shell.locator(sel('review-tab-commits'))).toHaveCount(0)
+  await shot(shell, '04-tabs')
   await shell.locator(sel('review-tab-checks')).click()
   await expect(shell.locator(sel('review-checks'))).toBeVisible()
   await shot(shell, '05-checks')
