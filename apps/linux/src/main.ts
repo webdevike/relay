@@ -21,6 +21,7 @@ import { spawnFill } from "./assistant/signin";
 import { defaultAssistantPath, FileAssistantStore } from "./assistant/store";
 import { CallService } from "./call/service";
 import { EvaRealtimeVoice } from "./call/voice";
+import { readThreadMemory } from "./live/brief";
 import { openAiKey, OpenAiLive } from "./live/openai";
 import { LiveService } from "./live/service";
 import { FileDeviceStore } from "./device-store";
@@ -301,6 +302,7 @@ function serve(
               session: () => thread.current(),
               turn: (text) => thread.turn(text),
               rows: async () => (await thread.snapshot()).messages,
+              memory: () => readThreadMemory(agentHome, thread.id),
             };
           },
           api: liveKey === null ? null : new OpenAiLive(liveKey),

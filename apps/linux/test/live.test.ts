@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { AgentSession, ServerMessage } from "@relay/protocol";
 import { VOICE_NOTE } from "../src/assistant/voice";
-import { CLOSE_WAIT_MS, LiveCall, liveInput, TICK_MS, TRANSCRIPT_WAIT_MS, type LiveThread } from "../src/live/call";
+import { estimatedTokens, headline, liveBrief, memoryBrief, recentTurns } from "../src/live/brief";
+import { clockLine, CLOSE_WAIT_MS, LiveCall, TICK_MS, TRANSCRIPT_WAIT_MS, type LiveThread } from "../src/live/call";
 import { openAiKey, sessionBody, type LiveApi, type LiveEvent, type LiveSessionConfig, type SidebandEvents } from "../src/live/openai";
 import { LiveService } from "../src/live/service";
 import type { FrameSink } from "../src/seams";
@@ -79,6 +80,9 @@ class FakeThread implements LiveThread {
       { role: "assistant", text: "Done, Thursday at 9." },
     ]);
   }
+  memory(): Promise<string | null> {
+    return Promise.resolve("# Thread memory\n\n## About Isaac lately\n- 2026-10-23 Isaac lives in Plainfield, CT.\n\n## Tracking\n- 2026-10-29 Dentist moved to Thursday. Details follow.\n\n## Promised\n- (none)\n");
+  }
 }
 
 async function settle(): Promise<void> {
@@ -114,17 +118,22 @@ function heard(api: FakeApi, words: string[], fromMs = 0): void {
 }
 
 describe("live call", () => {
-  it("creates the session from the phone's offer, answers it, greets and listens", async () => {
+  it("creates the session from the phone's offer with a short brief, answers it, and greets once GPT-Live starts it", async () => {
     const h = await started();
     expect(h.api.offer).toBe("v=0 offer");
     expect(h.api.config?.voice).toBe("marin");
     expect(h.api.config?.instructions).toContain("voice of Nova");
+    expect(h.api.config?.input.map((message) => message.role)).toEqual(["developer", "user", "assistant", "developer", "developer"]);
+    expect(h.api.config?.input[0]?.text).toContain("- 2026-10-29 Dentist moved to Thursday.");
     expect(h.sent).toEqual([
       { t: "live.state", callId: "l1", agent: "nova", state: "connecting" },
       { t: "live.answer", callId: "l1", agent: "nova", sessionId: "live_1", sdp: "v=0 answer" },
       { t: "live.state", callId: "l1", agent: "nova", state: "listening" },
     ]);
-    expect(h.api.sent[0]).toMatchObject({ type: "session.commentary.append", delegation_id: null });
+    expect(h.api.commentary()).toEqual([]);
+    h.api.emit({ type: "session.started", session: { id: "live_1" } });
+    h.api.emit({ type: "session.started", session: { id: "live_1" } });
+    expect(h.api.sent).toEqual([expect.objectContaining({ type: "session.commentary.append", event_id: "l1-greet", delegation_id: null })]);
   });
 
   it("hands Isaac's words to the thread as a voice turn and the settled reply back as commentary", async () => {
@@ -137,12 +146,12 @@ describe("live call", () => {
     h.thread.status = "working";
     h.call.observe({ kind: "sessions" });
     h.call.observe({ kind: "message", sessionId: "s-1", id: "m1", text: "You have **two** things", streaming: true });
-    expect(h.api.commentary()).toHaveLength(1);
+    expect(h.api.commentary()).toHaveLength(0);
     h.call.observe({ kind: "message", sessionId: "s-1", id: "m1", text: "You have **two** things: [dentist](https://x.y) at 9.\n[[details]]\n- 09:00 dentist", streaming: true });
     expect(h.api.commentary().at(-1)).toBe("You have two things: dentist at 9.");
     expect(h.api.sent.at(-1)).toMatchObject({ delegation_id: "item_1" });
     h.call.observe({ kind: "message", sessionId: "s-1", id: "m1", text: "You have two things: dentist at 9.\n[[details]]\n- 09:00 dentist", streaming: false });
-    expect(h.api.commentary()).toHaveLength(2);
+    expect(h.api.commentary()).toHaveLength(1);
     h.thread.status = "idle";
     h.call.observe({ kind: "sessions" });
     expect(h.sent.at(-1)).toEqual({ t: "live.state", callId: "l1", agent: "nova", state: "listening" });
@@ -167,7 +176,7 @@ describe("live call", () => {
   it("ignores rows that were in the thread before the call delegated", async () => {
     const h = await started();
     h.call.observe({ kind: "message", sessionId: "s-1", id: "old", text: "Earlier reply.", streaming: false });
-    expect(h.api.commentary()).toHaveLength(1);
+    expect(h.api.commentary()).toHaveLength(0);
   });
 
   it("tells the voice when the thread cannot be reached", async () => {
@@ -242,27 +251,65 @@ describe("live call", () => {
     await settle();
     expect(h.thread.turns).toEqual([`${VOICE_NOTE}\nAnd my calendar?`]);
   });
+
+  it("hands over the voice's question with the answer that only makes sense with it", async () => {
+    const h = await started();
+    heard(h.api, [" What's", " on my", " calendar?"]);
+    h.api.emit({ type: "session.output_transcript.delta", delta: " Today or", start_ms: 1_000, end_ms: 1_200 });
+    h.api.emit({ type: "session.output_transcript.delta", delta: " tomorrow?", start_ms: 1_200, end_ms: 1_500 });
+    heard(h.api, [" Tomorrow."], 3_000);
+    h.api.emit({ type: "session.delegation.created", offset_ms: 3_200, delegation: { id: "item_1", type: "delegation", target: "client" } });
+    await settle();
+    expect(h.thread.turns).toEqual([`${VOICE_NOTE}\nIsaac: What's on my calendar?\nYou (on the call): Today or tomorrow?\nIsaac: Tomorrow.`]);
+    expect(h.sent.at(-1)).toMatchObject({ state: "thinking", text: "Tomorrow." });
+    // The next request starts fresh: the earlier exchange went with the last delegation.
+    h.api.emit({ type: "session.output_transcript.delta", delta: " Anything else?", start_ms: 6_000, end_ms: 6_400 });
+    heard(h.api, [" Yes,", " email", " Sam."], 7_000);
+    h.api.emit({ type: "session.delegation.created", offset_ms: 7_600, delegation: { id: "item_2", type: "delegation", target: "client" } });
+    await settle();
+    expect(h.thread.turns.at(-1)).toBe(`${VOICE_NOTE}\nYou (on the call): Anything else?\nIsaac: Yes, email Sam.`);
+  });
 });
 
 describe("live session setup", () => {
-  it("seeds the voice with the end of the thread and a greeting", () => {
-    const input = liveInput(
+  it("seeds the voice with a capped brief, the last turns, the time and a greeting", () => {
+    const input = liveBrief(
       "Nova",
+      "## About Isaac lately\n- 2026-10-23 Isaac lives in Plainfield, CT.\n## Tracking\n- 2026-10-20 Old thing.\n- 2026-10-30 New **thing** shipped in `relay` main. More detail.\n## Promised\n- (none)\n## Recent\n- Nova: ignored\n",
       [
         { role: "user", text: "a" },
         { role: "card", text: "x" },
-        { role: "assistant", text: "b" },
+        { role: "assistant", text: "(nothing to report)" },
+        { role: "assistant", text: "Here is [the link](https://x.y)." },
       ],
-      Date.UTC(2026, 9, 28, 19, 7),
+      clockLine(Date.UTC(2026, 9, 28, 19, 7)),
     );
-    expect(input.map((message) => message.role)).toEqual(["user", "assistant", "developer", "developer"]);
-    expect(input[2]?.text).toMatch(/^The time is now Wednesday, October 28, 2026 at \d{1,2}:07 [AP]M\.$/);
-    expect(sessionBody({ instructions: "i", voice: "marin", input })["input"]).toEqual([
-      { type: "message", role: "user", content: [{ type: "input_text", text: "a" }] },
-      { type: "message", role: "assistant", content: [{ type: "output_text", text: "b" }] },
-      { type: "message", role: "developer", content: [{ type: "input_text", text: input[2]?.text }] },
-      { type: "message", role: "developer", content: [{ type: "input_text", text: input[3]?.text }] },
-    ]);
+    expect(input.map((message) => message.role)).toEqual(["developer", "user", "assistant", "developer", "developer"]);
+    expect(input[0]?.text).toBe(
+      [
+        "Background from Nova's notes, only so you know what Isaac means. These may be out of date: for their status or details, delegate.",
+        "About Isaac:",
+        "- 2026-10-23 Isaac lives in Plainfield, CT.",
+        "Open threads, newest first:",
+        "- 2026-10-30 New thing shipped in relay main.",
+        "- 2026-10-20 Old thing.",
+      ].join("\n"),
+    );
+    expect(input[2]?.text).toBe("Here is the link.");
+    expect(input[3]?.text).toMatch(/^The time is now Wednesday, October 28, 2026 at \d{1,2}:07 [AP]M\.$/);
+    expect(sessionBody({ instructions: "i", voice: "marin", input })["input"]).toContainEqual({ type: "message", role: "assistant", content: [{ type: "output_text", text: "Here is the link." }] });
+  });
+
+  it("keeps the startup input around 600 tokens however long the thread and its memory are", () => {
+    const long = "word ".repeat(400);
+    const memory = ["## About Isaac lately", ...Array.from({ length: 30 }, (_, i) => `- 2026-10-${String(10 + (i % 20))} ${long}`), "## Tracking", ...Array.from({ length: 200 }, () => `- 2026-10-30 ${long}`), "## Promised", ...Array.from({ length: 20 }, () => `- ${long}`)].join("\n");
+    const rows = Array.from({ length: 500 }, (_, i) => ({ role: i % 2 === 0 ? "user" : "assistant", text: long }));
+    const input = liveBrief("Nova", memory, rows, clockLine(Date.UTC(2026, 9, 30, 15, 0)));
+    expect(recentTurns(rows)).toHaveLength(4);
+    expect(estimatedTokens(input.map((message) => message.text))).toBeLessThanOrEqual(650);
+    expect(headline(`- 2026-10-30 ${long}`).length).toBeLessThanOrEqual(110);
+    expect(memoryBrief("Nova", null)).toBeNull();
+    expect(memoryBrief("Nova", "## Promised\n- (none)\n")).toBeNull();
   });
 
   it("reads the key from the environment, else the agent home's secrets file", () => {

@@ -296,14 +296,21 @@ export to the board file like a drag.
 
 "Talk to Nova" (the iPhone Action Button, or Call in a thread) is a GPT-Live call: OpenAI's full-duplex
 `gpt-live-1` is the voice, the assistant's own omp session is the brain. The phone sends its WebRTC SDP offer
-(`live.start`); the host (`src/live/`) creates the session with `POST /v1/live/sessions` (client delegation,
-the end of the thread and the time as startup input) and answers with OpenAI's SDP (`live.answer`), so the
-key stays on the host and audio runs phone <-> OpenAI. The host attaches to the session's sideband
-(`/v1/live/sessions/{id}/attach`); on each `session.delegation.created` it hands Isaac's transcript since the
-last delegation to the thread as a normal voice turn (`[Voice call` note, so it shows in the chat and memory),
-and returns each settled reply's spoken part (before `[[details]]`) as `session.commentary.append`. The voice
-answers greetings, small talk and the time itself (the host appends the time every minute); everything else
-is delegated. While the thread works the host sends quiet progress (`session.thinking.append`). `live.state`
+(`live.start`); the host (`src/live/`) creates the session with `POST /v1/live/sessions` (client delegation)
+and answers with OpenAI's SDP (`live.answer`), so the key stays on the host and audio runs phone <-> OpenAI.
+The voice starts with a short brief, never the thread (`src/live/brief.ts`, ~300-600 tokens however long the
+thread is): headlines of `## About Isaac lately`, `## Promised` and the newest `## Tracking` items of
+`<agent-home>/work/eva/agents/<id>/thread.md`, the last four turns, the time and the greeting; the log line
+`session ... created` gives its size. The host attaches to the session's sideband
+(`/v1/live/sessions/{id}/attach`) and repeats the greeting once `session.started` arrives; on each
+`session.delegation.created` it hands Isaac's transcript since the last delegation to the thread as a normal
+voice turn (`[Voice call` note, so it shows in the chat and memory), with the voice's question and the words
+before it when he was answering a question the voice asked, and returns each settled reply's spoken part
+(before `[[details]]`) as `session.commentary.append`. The voice answers greetings, small talk, the time
+(the host appends it every minute) and quick general facts itself; everything else, web lookups included,
+is delegated (client delegation has no voice-side tools: hosted `web_search` exists only in Responses
+delegation, which would take the assistant out of the loop). While the thread works the host sends quiet
+progress (`session.thinking.append`). `live.state`
 tells the phone `connecting` / `listening` / `thinking` (with the words) / `ended`. The call outlives its
 socket; the phone ends it (`session.close` on its data channel + `live.end`), OpenAI drops it, or it is closed
 after 30 minutes.

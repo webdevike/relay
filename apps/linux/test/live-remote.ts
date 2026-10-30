@@ -8,7 +8,10 @@
 
 import { createHmac, randomBytes } from "node:crypto";
 import { encode, parseServerMessage, type AgentSession, type AssistantSnapshot, type ClientMessage, type ServerMessage } from "@relay/protocol";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { FileDeviceStore } from "../src/device-store";
+import { readThreadMemory } from "../src/live/brief";
 import type { LiveThread } from "../src/live/call";
 import type { AgentProviderChange } from "../src/seams";
 
@@ -67,6 +70,8 @@ export async function connectRemoteThread(host: string, agent: string, label: st
         });
       },
       rows: () => Promise.resolve(state.snapshot?.messages ?? []),
+      // Same machine as the host: its agent home is ~/Eva unless RELAY_AGENT_HOME says otherwise.
+      memory: () => readThreadMemory(process.env["RELAY_AGENT_HOME"] ?? join(homedir(), "Eva"), agent),
     },
     newRows: () => (state.snapshot?.messages ?? []).filter((row) => !before.has(row.id)).map((row) => ({ role: row.role, voice: row.voice === true, text: row.text })),
     close: () => {

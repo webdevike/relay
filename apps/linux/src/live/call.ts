@@ -7,9 +7,10 @@
 //
 //   connecting -> listening <-> thinking -> ... -> ended
 //
-// The voice handles small talk and acknowledgements itself; anything that needs facts, memory,
-// the time, Isaac's things or an action is delegated (see `liveInstructions`): GPT-Live knows
-// none of it, so answering by itself would mean guessing.
+// The voice starts with a short brief only (`liveBrief`: Isaac lately, open threads, the last few
+// turns, the time), never the thread. It handles small talk, the time and quick general facts
+// itself; anything that needs facts about Isaac, memory, the web, or an action is delegated (see
+// `liveInstructions`): GPT-Live knows none of it, so answering by itself would mean guessing.
 
 import { MAX_LIVE_CALL_MS, type AgentSession, type LiveState, type ServerMessage } from "@relay/protocol";
 import { SILENCE_MARKER } from "../assistant/service";
@@ -17,7 +18,8 @@ import { spokenPartComplete, voiceTurn } from "../assistant/voice";
 import { plainSpeech } from "../call/speech";
 import type { AgentProviderChange } from "../seams";
 import type { SessionClock } from "../session";
-import type { LiveApi, LiveEvent, LiveInputMessage, Sideband } from "./openai";
+import { estimatedTokens, liveBrief } from "./brief";
+import type { LiveApi, LiveEvent, Sideband } from "./openai";
 
 /** A delegation waits at most this long for the transcript to reach the moment it was made. */
 export const TRANSCRIPT_WAIT_MS = 700;
@@ -27,10 +29,6 @@ export const TURN_START_GRACE_MS = 20_000;
 export const CLOSE_WAIT_MS = 3_000;
 /** One append carries at most 500 tokens; replies are cut to this many characters. */
 export const MAX_COMMENTARY_CHARS = 1_600;
-/** Thread rows seeding the voice's context, newest last, and their combined size. */
-export const HISTORY_ROWS = 12;
-export const HISTORY_CHARS = 6_000;
-const HISTORY_ROW_CHARS = 600;
 /** While the assistant works, how often the voice is told how long it has been at it. */
 export const TICK_MS = 20_000;
 /** Isaac's transcript pausing this long (clock ms) starts a new utterance; the voice gets the time then. */
@@ -39,6 +37,8 @@ export const UTTERANCE_GAP_MS = 1_500;
 export const VOICE_RUN_GAP_MS = 800;
 /** A stretch of the voice's speech this long answered Isaac (shorter is a backchannel like "mm-hm"). */
 export const VOICE_ANSWER_WORDS = 3;
+/** The voice's latest stretches of speech kept, to find the question Isaac is answering. */
+export const VOICE_RUNS_KEPT = 8;
 
 /** The assistant thread a live call talks to. */
 export interface LiveThread {
@@ -50,6 +50,8 @@ export interface LiveThread {
   turn(text: string): Promise<void>;
   /** The thread's rows as the chat shows them, oldest first. */
   rows(): Promise<readonly { readonly role: string; readonly text: string }[]>;
+  /** The assistant's thread memory (`thread.md`), or null when it has none. */
+  memory(): Promise<string | null>;
 }
 
 export interface LiveCallDeps {
@@ -76,35 +78,26 @@ export function clockLine(at: number): string {
 export function liveInstructions(title: string): string {
   return [
     `You are the voice of ${title}, Isaac's personal assistant, on a live call he started from his iPhone. You speak for ${title}; never call yourself a voice model or mention a backend.`,
-    `${title} herself works behind you: she knows Isaac, his projects, his notes and memory, his calendar, email and files, and can look things up and take actions. You know none of that and cannot see or do anything. You are told the current time as the call goes on: answer what time, day or date it is yourself from the latest time you were told.`,
-    "Delegate every other request that needs facts, memory, Isaac's information, the web, or any action. The earlier messages you were given are only there so you know what he means; never answer from them, delegate so the answer is current. While it runs, at most a very short acknowledgement, then wait quietly; if Isaac asks, say it is still being worked on. Never guess or make up an answer. When the result arrives, say it naturally and briefly in your own words; keep names and numbers exact.",
-    "Handle greetings, small talk, 'hold on', and questions about what he meant yourself. Be warm, relaxed and brief: one or two short sentences a turn. If Isaac talks over you, stop and listen.",
+    `${title} herself works behind you: she knows Isaac, his projects, his notes and memory, his calendar, email and files, and can look things up on the web and take actions. You only have a short background brief and cannot see or do anything. You are told the current time as the call goes on: answer what time, day or date it is yourself from the latest time you were told.`,
+    "Handle greetings, small talk, 'hold on', questions about what he meant, and quick general-knowledge facts you are sure of (a definition, a unit conversion, simple math) yourself.",
+    `Delegate everything else: anything about Isaac, his work, plans, messages, files or memory, the status of anything in the brief, anything current or on the web, and any action. When you delegate, say only a very short acknowledgement like "Checking." and then wait quietly; if Isaac asks, say ${title} is still on it. Never guess or make up an answer.`,
+    "When the result arrives, say it naturally and briefly in your own words, keeping names and numbers exact. Be warm, relaxed and brief: one or two short sentences a turn. If Isaac talks over you, stop and listen.",
   ].join("\n\n");
-}
-
-/** Startup context: the end of the thread, so "that" and "it" make sense, the time, and a short hello. */
-export function liveInput(title: string, rows: readonly { readonly role: string; readonly text: string }[], now: number): LiveInputMessage[] {
-  const recent: LiveInputMessage[] = [];
-  let budget = HISTORY_CHARS;
-  for (const row of [...rows].reverse()) {
-    if (recent.length === HISTORY_ROWS || budget <= 0) break;
-    if (row.role !== "user" && row.role !== "assistant") continue;
-    const text = row.text.trim().slice(0, Math.min(HISTORY_ROW_CHARS, budget));
-    if (text === "") continue;
-    budget -= text.length;
-    recent.unshift({ role: row.role, text });
-  }
-  return [
-    ...recent,
-    { role: "developer", text: clockLine(now) },
-    { role: "developer", text: `Isaac just started a call with ${title}. Greet him now in at most four words, like "Hey, what's up?", then pause and listen.` },
-  ];
 }
 
 interface Heard {
   readonly text: string;
   readonly startMs: number;
   readonly endMs: number;
+}
+
+/** Transcript pieces as one line of words. */
+function spoken(pieces: readonly Heard[]): string {
+  return pieces
+    .map((piece) => piece.text)
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export class LiveCall {
@@ -120,8 +113,12 @@ export class LiveCall {
    */
   private readonly heard: Heard[] = [];
   private handedOver = 0;
-  /** The voice's current stretch of speech on the session timeline, and its words so far. */
-  private voiceRun = { startMs: 0, endMs: -Infinity, words: 0 };
+  /** The voice's current stretch of speech on the session timeline: its words so far, and their text. */
+  private voiceRun = { startMs: 0, endMs: -Infinity, words: 0, text: "" };
+  private readonly voiceRuns: { readonly startMs: number; text: string }[] = [];
+  /** How much of `heard` the last delegation covered: what came before is settled for good. */
+  private delegatedUpTo = 0;
+  private greeted = false;
   /** When Isaac's transcript last grew (clock ms); a longer gap starts a new utterance. */
   private lastHeardAt = -Infinity;
   private transcriptWaiters: (() => void)[] = [];
@@ -155,15 +152,17 @@ export class LiveCall {
   async start(offer: string): Promise<void> {
     this.startedAt = this.deps.clock.now();
     this.setState("connecting");
-    const rows = await this.deps.thread.rows().catch(() => []);
+    const [rows, memory] = await Promise.all([this.deps.thread.rows().catch(() => []), this.deps.thread.memory().catch(() => null)]);
+    const input = liveBrief(this.deps.thread.title, memory, rows, clockLine(this.deps.clock.now()));
+    const instructions = liveInstructions(this.deps.thread.title);
     let created: { sessionId: string; answer: string };
     try {
-      created = await this.deps.api.create({ instructions: liveInstructions(this.deps.thread.title), voice: this.deps.voice, input: liveInput(this.deps.thread.title, rows, this.deps.clock.now()) }, offer);
+      created = await this.deps.api.create({ instructions, voice: this.deps.voice, input }, offer);
     } catch (error) {
       this.end(`GPT-Live unavailable: ${error instanceof Error ? error.message : String(error)}`, true);
       return;
     }
-    this.deps.log(`live ${this.id}: session ${created.sessionId} for ${this.deps.thread.title} created in ${String(this.deps.clock.now() - this.startedAt)} ms`);
+    this.deps.log(`live ${this.id}: session ${created.sessionId} for ${this.deps.thread.title} created in ${String(this.deps.clock.now() - this.startedAt)} ms (startup context ~${String(estimatedTokens(input.map((message) => message.text)))} tokens, instructions ~${String(estimatedTokens([instructions]))})`);
     if (!this.ended) this.deps.send({ t: "live.answer", callId: this.id, agent: this.agent, sessionId: created.sessionId, sdp: created.answer });
     let sideband: Sideband;
     try {
@@ -187,8 +186,8 @@ export class LiveCall {
       return;
     }
     this.deps.log(`live ${this.id}: sideband attached at +${String(this.deps.clock.now() - this.startedAt)} ms`);
-    // The greeting is in the startup input too; the docs ask for it once more after start.
-    sideband.send({ type: "session.commentary.append", event_id: `${this.id}-greet`, delegation_id: null, content: `Greet Isaac now as ${this.deps.thread.title} in at most four words, then pause and listen.` });
+    // The greeting is in the startup input too; the docs ask for it once more after
+    // `session.started` (see `event`), which the sideband also gets.
     this.cancelCap = this.deps.clock.after(MAX_LIVE_CALL_MS, () => {
       this.end(`call reached ${String(MAX_LIVE_CALL_MS / 60_000)} minutes`);
     });
@@ -297,8 +296,13 @@ export class LiveCall {
         const delta = typeof event["delta"] === "string" ? event["delta"] : "";
         const startMs = typeof event["start_ms"] === "number" ? event["start_ms"] : 0;
         const endMs = typeof event["end_ms"] === "number" ? event["end_ms"] : startMs;
-        if (startMs - this.voiceRun.endMs > VOICE_RUN_GAP_MS) this.voiceRun = { startMs, endMs, words: 0 };
+        if (startMs - this.voiceRun.endMs > VOICE_RUN_GAP_MS) {
+          this.voiceRun = { startMs, endMs, words: 0, text: "" };
+          this.voiceRuns.push(this.voiceRun);
+          if (this.voiceRuns.length > VOICE_RUNS_KEPT) this.voiceRuns.shift();
+        }
         this.voiceRun.endMs = endMs;
+        this.voiceRun.text += delta;
         this.voiceRun.words += delta.split(/\s+/).filter((word) => word !== "").length;
         if (this.voiceRun.words >= VOICE_ANSWER_WORDS) {
           const runStart = this.voiceRun.startMs;
@@ -309,6 +313,13 @@ export class LiveCall {
         }
         return;
       }
+      case "session.started":
+        this.deps.log(`live ${this.id}: GPT-Live started the session at +${String(this.deps.clock.now() - this.startedAt)} ms`);
+        if (!this.greeted) {
+          this.greeted = true;
+          this.sideband?.send({ type: "session.commentary.append", event_id: `${this.id}-greet`, delegation_id: null, content: `Greet Isaac now as ${this.deps.thread.title} in at most four words, then pause and listen.` });
+        }
+        return;
       case "session.delegation.created": {
         const delegation = event["delegation"];
         const id = typeof delegation === "object" && delegation !== null && "id" in delegation && typeof delegation.id === "string" ? delegation.id : null;
@@ -356,13 +367,10 @@ export class LiveCall {
     }
     const sideband = this.sideband;
     if (this.ended || sideband === null) return;
-    const text = this.heard
-      .slice(from)
-      .map((piece) => piece.text)
-      .join("")
-      .replace(/\s+/g, " ")
-      .trim();
+    const text = spoken(this.heard.slice(from));
+    const request = this.withQuestion(text, from);
     this.handedOver = this.heard.length;
+    this.delegatedUpTo = this.heard.length;
     this.delegation = id;
     if (text === "") {
       this.deps.log(`live ${this.id}: delegation ${id} with no words heard`);
@@ -375,7 +383,7 @@ export class LiveCall {
     this.replied = false;
     const turn = (this.turnSeq += 1);
     this.turnAt = this.deps.clock.now();
-    this.deps.log(`live ${this.id}: delegation ${id} "${text}" (transcript wait ${String(this.turnAt - asked)} ms)`);
+    this.deps.log(`live ${this.id}: delegation ${id} "${request.replace(/\n/g, " / ")}" (transcript wait ${String(this.turnAt - asked)} ms)`);
     this.setState("thinking", text);
     this.cancelGrace?.();
     this.cancelGrace = this.deps.clock.after(TURN_START_GRACE_MS, () => {
@@ -383,7 +391,7 @@ export class LiveCall {
       if (this.awaiting && !this.sawWorking) this.turnDone();
     });
     try {
-      await this.deps.thread.turn(voiceTurn(text));
+      await this.deps.thread.turn(voiceTurn(request));
     } catch (error) {
       // A newer delegation owns the call now; a hung-up call ignores this (setState and the closed sideband are no-ops).
       if (turn !== this.turnSeq) return;
@@ -392,6 +400,20 @@ export class LiveCall {
       sideband.send({ type: "session.commentary.append", event_id: `${id}-failed`, delegation_id: id, content: `${this.deps.thread.title} could not be reached just now (${message.slice(0, 200)}). Say so briefly.` });
       this.turnDone();
     }
+  }
+
+  /**
+   * Isaac's `text` (his words from `heard[from]` on) as the request the assistant gets. When the
+   * voice had just asked him something ("Today or tomorrow?"), his words answer that question and
+   * mean nothing alone: the request then carries the exchange since the last delegation.
+   */
+  private withQuestion(text: string, from: number): string {
+    const answerAt = this.heard[from]?.startMs ?? Infinity;
+    const asked = this.voiceRuns.filter((run) => run.startMs < answerAt).at(-1);
+    const question = asked?.text.replace(/\s+/g, " ").trim() ?? "";
+    if (text === "" || asked === undefined || !question.endsWith("?")) return text;
+    const before = spoken(this.heard.slice(this.delegatedUpTo, from).filter((piece) => piece.startMs < asked.startMs));
+    return [...(before === "" ? [] : [`Isaac: ${before}`]), `You (on the call): ${question}`, `Isaac: ${text}`].join("\n");
   }
 
   private turnDone(): void {
