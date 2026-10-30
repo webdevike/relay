@@ -16,7 +16,7 @@
 // Open: GET /canvas/avatar/<key>    an assistant's avatar PNG
 //       GET /canvas/portrait/<seed> a joined agent's portrait SVG
 
-import { readFileSync } from "node:fs";
+import { type Stats, readFileSync, statSync } from "node:fs";
 import { extname, isAbsolute, join } from "node:path";
 import { CanvasSlug } from "@relay/protocol";
 import { z } from "zod";
@@ -117,7 +117,7 @@ export async function handleCanvasRequest(canvas: CanvasService | null, page: ()
     if (route === "me" && request.method === "GET") {
       return json({ me: { name: grant.human, color: HUMAN_COLOR }, roomId: room.id, board: room.board, agent: room.agent, live: room.live });
     }
-    if (route === "img" && request.method === "GET") return image(canvas, room, url.searchParams.get("src"));
+    if (route === "img" && request.method === "GET") return image(canvas, room, request, url.searchParams.get("src"));
     if (route === "end" && request.method === "POST") return json({ summary: await canvas.end(room.id) });
     return new Response("not found", { status: 404 });
   } catch (error) {
@@ -170,18 +170,32 @@ async function sessions(canvas: CanvasService, request: Request, rest: string[],
 }
 
 /** A local image the board holds; anything else (and remote URLs, which load directly) is refused. */
-function image(canvas: CanvasService, room: CanvasRoom, src: string | null): Response {
+function image(canvas: CanvasService, room: CanvasRoom, request: Request, src: string | null): Response {
   if (src === null || src === "") return fail(400, "missing src");
   if (/^(https?:|data:|blob:)/i.test(src)) return fail(400, "remote images load directly");
   if (!room.imageSrcs().has(src)) return fail(404, "that image is not on this board");
   const file = isAbsolute(src) ? src : join(canvas.canvasDir, src);
   const type = IMAGE_TYPES[extname(file).toLowerCase()];
   if (type === undefined) return fail(415, "not an image");
+  return localImageResponse(request, file, type);
+}
+
+/**
+ * Serves a file that can change under the same URL (the board's local paths). The ETag tracks
+ * mtime and size, and `no-cache` makes the browser revalidate, so an overwritten file shows its
+ * new content instead of the cached old bytes.
+ */
+export function localImageResponse(request: Request, file: string, type: string): Response {
+  let stat: Stats;
   let bytes: Buffer;
   try {
+    stat = statSync(file);
     bytes = readFileSync(file);
   } catch {
     return fail(404, "image file missing");
   }
-  return new Response(bytes, { headers: { "content-type": type, "cache-control": "private, max-age=3600" } });
+  const etag = `"${stat.mtimeMs}-${stat.size}"`;
+  const headers = { "content-type": type, "cache-control": "no-cache", etag };
+  if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
+  return new Response(bytes, { headers });
 }
