@@ -9,14 +9,17 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { CanvasSlug, type AgentSession, type CanvasAgent as CanvasAgentInfo, type CanvasEntry, type CanvasRoomInfo, type ServerMessage } from "@relay/protocol";
-import { DOC_KEYS, type ModelKey, type SessionInfo, type User } from "@relay/canvas-live/shared";
+import { exportBoard, type Board } from "@relay/canvas-live/board";
+import { DOC_KEYS, type ChatMsg, type ModelKey, type SessionInfo, type User } from "@relay/canvas-live/shared";
 import type { AssistantAgentConfig } from "../assistant/registry";
 import type * as Y from "yjs";
 import { CanvasAgent, systemPrompt, type AgentIdentity } from "./agent";
 import type { BrainFactory, CanvasBrain } from "./brain";
 import { chatFileOf, subagentName } from "./caller";
 import { chatContext } from "./context";
+import { ActRefused, CanvasParticipant, MAX_PARTICIPANTS, type ActResult, type ParticipantOptions } from "./participant";
 import { BoardFile, boardPath } from "./persist";
+import { portraitSeed } from "./portrait";
 import { CanvasSync, type CanvasPeer } from "./room";
 import { CanvasTokens, type CanvasGrant } from "./tokens";
 
@@ -24,8 +27,8 @@ import { CanvasTokens, type CanvasGrant } from "./tokens";
 export const CANVAS_HUMAN = "Isaac";
 /** Default look of the agent of a plain chat (Relay calls those chats' agent Eva). */
 const EVA: CanvasAgentInfo = { name: "Eva", color: "#8b5cf6" };
-/** Colors for subagents, picked by name. */
-const SUBAGENT_COLORS = ["#0ca678", "#f59f00", "#7048e8", "#e8590c", "#1098ad", "#d6336c"];
+/** Colors for joined agents, picked by name (the first one no one in the room wears yet). */
+const PARTICIPANT_COLORS = ["#0ca678", "#f59f00", "#7048e8", "#e8590c", "#1098ad", "#d6336c", "#37b24d", "#4263eb"];
 /** Wrap up this long after the last human left. */
 export const END_AFTER_MS = 2 * 60_000;
 /** Close a room nobody joined after this long (its warm brain costs a ping every few minutes). */
@@ -69,6 +72,8 @@ export interface CanvasServiceDeps {
   readonly unjoinedEndMs?: number;
   /** Agent animation pacing; tests use 0. */
   readonly pacing?: { frameMs: number; typeMs: number };
+  /** Joined agents' pacing and idle leave; tests shorten them. */
+  readonly participants?: Pick<ParticipantOptions, "paceMs" | "idleLeaveMs">;
 }
 
 /** `POST /canvas/sessions` body. */
@@ -91,10 +96,58 @@ export interface StartResult {
   readonly created: boolean;
 }
 
+/** `POST /canvas/sessions/<room>/participants` body: an agent joining a live room. */
+export interface JoinRequest {
+  readonly name: string;
+  /** `#rrggbb`; picked from the name when absent. */
+  readonly color?: string | undefined;
+  /** What it is here to do; shown in the room's chat when it joins. */
+  readonly purpose?: string | undefined;
+}
+
+/** One joined agent, as the API lists it. */
+export interface ParticipantInfo {
+  readonly id: string;
+  readonly name: string;
+  readonly color: string;
+  readonly avatar?: string;
+  readonly purpose: string;
+}
+
+export interface JoinResult {
+  readonly roomId: string;
+  readonly slug: string;
+  readonly board: string;
+  readonly participant: ParticipantInfo;
+  /** False when an agent of that name was already in the room (the same participant again). */
+  readonly created: boolean;
+  /** The room's canvas self, and every joined agent now. */
+  readonly agent: CanvasAgentInfo;
+  readonly participants: readonly ParticipantInfo[];
+}
+
+/** `GET /canvas/sessions/<room>`: what a joined agent reads before it acts. */
+export interface RoomView {
+  readonly roomId: string;
+  readonly slug: string;
+  readonly live: boolean;
+  readonly agent: CanvasAgentInfo;
+  readonly humans: readonly string[];
+  readonly participants: readonly ParticipantInfo[];
+  /** The board in file shape (as `<slug>.json` holds it once saved). */
+  readonly board: Board;
+  /** The latest cursor-chat lines, oldest first. */
+  readonly chat: readonly Pick<ChatMsg, "kind" | "name" | "text" | "nodeIds" | "ts">[];
+}
+
 /** One room the host holds: its doc and peers, its file, its agent, and where its chat rows go. */
 export class CanvasRoom {
   readonly agents: CanvasAgent[] = [];
   readonly brains = new Map<ModelKey, CanvasBrain>();
+  /** Agents that joined with `canvas join`, by lowercased name. */
+  readonly participants = new Map<string, CanvasParticipant>();
+  /** Everyone who ever joined as a participant, for the wrap-up row. */
+  readonly participantNames = new Set<string>();
   endedAt: number | undefined;
   summary: string | null = null;
   humans: readonly string[] = [];
@@ -236,8 +289,12 @@ export class CanvasService {
     const now = this.now();
     this.seq += 1;
     const roomId = `${slug}-${now.toString(36)}${String(this.seq)}`;
+    // The canvas self is the chat's own agent (Nova in Nova's thread, Eva in a plain chat), with
+    // the chat as context, whichever session ran `canvas start`. A command run while subagents
+    // work cannot tell which session ran it (they share one omp process and its open files), and
+    // a subagent that wants its own cursor joins the room with `canvas join --as <Name>` instead.
     const isSubagent = sessionFile !== chatFile;
-    const agent = this.agentFor(chatSession, isSubagent ? subagentName(sessionFile) : null, request.caller.name);
+    const agent = this.agentFor(chatSession, request.caller.name);
     const chat: CanvasRoomInfo["chat"] = {
       sessionId: chatSession.id,
       ...(chatSession.kind === "assistant" && chatSession.assistant !== undefined ? { assistant: chatSession.assistant } : {}),
@@ -262,7 +319,7 @@ export class CanvasService {
       if (settings.get("model") === undefined) settings.set("model", "sonnet");
     }, "host");
 
-    const context = chatContext(sessionFile, agent.name, CANVAS_HUMAN);
+    const context = chatContext(chatFile, agent.name, CANVAS_HUMAN);
     const identity: AgentIdentity = { user: this.user(agent), human: CANVAS_HUMAN, chatTitle: chatSession.title, purpose, chat: context.turns, chatTurns: context.turnCount };
     const brain = (model: ModelKey): CanvasBrain => {
       let b = room.brains.get(model);
@@ -306,7 +363,7 @@ export class CanvasService {
 
     const startLine = [
       `Live canvas started on "${room.board}" (board ${slug}${created ? ", new" : ""}). ${CANVAS_HUMAN} has a Join card in this chat; ${agent.name} in the room is this session, with this chat as context.`,
-      "Each canvas turn and the wrap-up summary will appear here as canvas rows; they are notes, not turns to answer.",
+      `Each canvas turn and the wrap-up summary will appear here as canvas rows; they are notes, not turns to answer. Subagents can work the board alongside with their own cursors: relay-linux canvas join ${slug} --as <Name>.`,
       ...(purpose === "" ? [] : [`Purpose: ${purpose}`]),
     ].join(" ");
     try {
@@ -316,7 +373,7 @@ export class CanvasService {
       this.unload(room, true);
       throw new CanvasError(502, `Could not post the Join card to the chat: ${error instanceof Error ? error.message : String(error)}`);
     }
-    this.deps.log(`canvas ${slug}: ${agent.name} started a session for chat ${chatSession.id}${isSubagent ? ` (subagent ${subagentName(sessionFile)})` : ""}`);
+    this.deps.log(`canvas ${slug}: ${agent.name} started a session for chat ${chatSession.id}${isSubagent ? ` (run from subagent ${subagentName(sessionFile)})` : ""}`);
     this.changed();
     return this.result(room, true);
   }
@@ -336,6 +393,90 @@ export class CanvasService {
   /** The room with this id, when loaded. */
   roomById(roomId: string): CanvasRoom | undefined {
     return [...this.rooms.values()].find((room) => room.id === roomId);
+  }
+
+  /**
+   * An agent joins the live room `ref` (slug or room id) as its own participant: its own cursor,
+   * name, color and portrait. The same name again is the same participant. Throws `CanvasError`.
+   */
+  join(ref: string, request: JoinRequest): JoinResult {
+    const room = this.liveRoom(ref);
+    const name = request.name.trim().slice(0, 40);
+    if (name === "") throw new CanvasError(400, "a participant needs a name (--as <Name>)");
+    const key = name.toLowerCase();
+    if (key === room.agent.name.toLowerCase() || key === CANVAS_HUMAN.toLowerCase())
+      throw new CanvasError(409, `${name} is already in the room as its ${key === CANVAS_HUMAN.toLowerCase() ? "human" : "canvas self"}; join under another name.`);
+    const existing = room.participants.get(key);
+    if (existing !== undefined) return this.joinResult(room, existing, false);
+    if (room.participants.size >= MAX_PARTICIPANTS) throw new CanvasError(429, `${room.board} already has ${String(MAX_PARTICIPANTS)} agents working on it.`);
+
+    const user = this.participantUser(room, name, request.color);
+    this.seq += 1;
+    const id = `p${this.now().toString(36)}${String(this.seq)}`;
+    // Cursors start in a column left of the board, one row per agent, so they never stack.
+    const start = { x: -300, y: 240 + 90 * (room.participants.size + 1) };
+    const participant = new CanvasParticipant(
+      id,
+      user,
+      request.purpose?.trim() ?? "",
+      room.sync.doc,
+      room.sync.awareness,
+      { ...this.deps.pacing, ...this.deps.participants },
+      start,
+      (gone) => {
+        if (room.participants.get(key) === gone) room.participants.delete(key);
+        this.deps.log(`canvas ${room.slug}: ${gone.user.name} left`);
+      },
+    );
+    room.participants.set(key, participant);
+    room.participantNames.add(name);
+    this.deps.log(`canvas ${room.slug}: ${name} joined as a participant`);
+    return this.joinResult(room, participant, true);
+  }
+
+  /** Runs one batch of action lines as participant `participantId` of room `ref`. Throws `CanvasError`. */
+  async act(ref: string, participantId: string, script: string): Promise<ActResult> {
+    const participant = this.participant(this.liveRoom(ref), participantId);
+    try {
+      return await participant.act(script);
+    } catch (error) {
+      if (error instanceof ActRefused) throw new CanvasError(error.status, error.message);
+      throw error;
+    }
+  }
+
+  /** Participant `participantId` leaves room `ref`; leaving twice is fine. */
+  leave(ref: string, participantId: string): void {
+    const room = this.findRoom(ref);
+    if (room === undefined) return;
+    for (const participant of room.participants.values()) if (participant.id === participantId) participant.leave();
+  }
+
+  /** What a joined agent reads: the board as it is now, who is here, the latest chat. Throws `CanvasError`. */
+  view(ref: string): RoomView {
+    const room = this.findRoom(ref);
+    if (room === undefined) throw new CanvasError(404, `No canvas session on ${ref}.`);
+    return {
+      roomId: room.id,
+      slug: room.slug,
+      live: room.live,
+      agent: room.agent,
+      humans: [...room.humans],
+      participants: this.participantInfos(room),
+      board: exportBoard(room.sync.doc),
+      chat: room.sync.doc
+        .getArray<ChatMsg>(DOC_KEYS.chat)
+        .toArray()
+        .slice(-30)
+        .map(({ kind, name, text, nodeIds, ts }) => ({ kind, name, text, nodeIds, ts })),
+    };
+  }
+
+  /** Joined agents of every loaded room, by room id (for `GET /canvas/sessions`). */
+  participantsByRoom(): Record<string, ParticipantInfo[]> {
+    const out: Record<string, ParticipantInfo[]> = {};
+    for (const room of this.rooms.values()) out[room.id] = this.participantInfos(room);
+    return out;
   }
 
   /** A websocket joined `room`. */
@@ -404,7 +545,9 @@ export class CanvasService {
     const meta = room.sync.doc.getMap(DOC_KEYS.meta);
     const session = meta.get("session") as SessionInfo | undefined;
     if (session !== undefined) meta.set("session", { ...session, open: false, endedAt: room.endedAt, summary });
-    this.post(room, { kind: "end", text: summary }, `Canvas "${room.board}" wrap-up: ${summary}`);
+    const joined = [...room.participantNames];
+    this.post(room, { kind: "end", text: summary }, `Canvas "${room.board}" wrap-up: ${summary}${joined.length === 0 ? "" : ` Agents who worked the board: ${joined.join(", ")}.`}`);
+    for (const participant of [...room.participants.values()]) participant.leave(true);
     for (const brain of room.brains.values()) brain.dispose();
     room.brains.clear();
     room.file.flush();
@@ -418,6 +561,7 @@ export class CanvasService {
     this.rooms.delete(room.slug);
     clearTimeout(room.unjoinedTimer);
     for (const agent of room.agents) agent.dispose();
+    for (const participant of [...room.participants.values()]) participant.leave(true);
     for (const brain of room.brains.values()) brain.dispose();
     room.brains.clear();
     try {
@@ -457,22 +601,68 @@ export class CanvasService {
     return this.deps.chats.sessions.find((session) => session.kind === "assistant" && session.assistant === id && session.status !== "ended") ?? null;
   }
 
-  /** The agent's look: the subagent's own name, else the assistant's, else Eva; `name` overrides. */
-  private agentFor(chat: AgentSession, subagent: string | null, name: string | undefined): CanvasAgentInfo {
+  /** The canvas self's look: the chat's assistant (name, accent, avatar), else Eva; `name` overrides. */
+  private agentFor(chat: AgentSession, name: string | undefined): CanvasAgentInfo {
     let agent: CanvasAgentInfo = EVA;
-    if (subagent !== null) {
-      agent = { name: subagent, color: SUBAGENT_COLORS[nameHash(subagent) % SUBAGENT_COLORS.length] ?? EVA.color };
-    } else if (chat.kind === "assistant" && chat.assistant !== undefined) {
-      const id = chat.assistant;
-      const config = this.deps.registry.find((entry) => entry.id === id);
-      const accent = config?.portrait?.colors?.accent;
-      agent = { name: config?.title ?? chat.title, color: accent !== undefined && /^#[0-9a-fA-F]{6}$/.test(accent) ? accent : EVA.color };
-      if (this.avatarFile(id) !== null) agent = { ...agent, avatar: `/canvas/avatar/${id}` };
-    } else if (this.avatarFile("eva") !== null) {
-      agent = { ...EVA, avatar: "/canvas/avatar/eva" };
-    }
+    if (chat.kind === "assistant" && chat.assistant !== undefined) agent = this.assistantLook(chat.assistant, chat.title);
+    else if (this.avatarFile("eva") !== null) agent = { ...EVA, avatar: "/canvas/avatar/eva" };
     const override = name?.trim();
     return override === undefined || override === "" ? agent : { ...agent, name: override.slice(0, 100) };
+  }
+
+  /** Assistant `id` as the registry draws it: its title, accent and avatar PNG when there is one. */
+  private assistantLook(id: string, fallbackTitle: string): CanvasAgentInfo {
+    const config = this.deps.registry.find((entry) => entry.id === id);
+    const accent = config?.portrait?.colors?.accent;
+    const agent: CanvasAgentInfo = { name: config?.title ?? fallbackTitle, color: accent !== undefined && /^#[0-9a-fA-F]{6}$/.test(accent) ? accent : EVA.color };
+    return this.avatarFile(id) === null ? agent : { ...agent, avatar: `/canvas/avatar/${id}` };
+  }
+
+  /**
+   * A joined agent's look. An assistant joining under its own name (`--as Astra`) looks like that
+   * assistant; anyone else gets the color asked for (else the first palette color no one in the
+   * room wears, starting at its name's) and the Rooms portrait for its name.
+   */
+  private participantUser(room: CanvasRoom, name: string, color: string | undefined): User {
+    const assistant = this.deps.registry.find((entry) => entry.id === name.toLowerCase() || entry.title.toLowerCase() === name.toLowerCase());
+    if (assistant !== undefined) {
+      const look = this.assistantLook(assistant.id, name);
+      return { ...this.user({ ...look, name }), ...(color === undefined ? {} : { color }) };
+    }
+    const worn = new Set([room.agent.color.toLowerCase(), ...[...room.participants.values()].map((p) => p.user.color.toLowerCase())]);
+    const first = nameHash(name) % PARTICIPANT_COLORS.length;
+    const palette = [...PARTICIPANT_COLORS.slice(first), ...PARTICIPANT_COLORS.slice(0, first)];
+    const picked = color ?? palette.find((candidate) => !worn.has(candidate)) ?? palette[0] ?? EVA.color;
+    return { name, color: picked, kind: "agent", avatar: `/canvas/portrait/${portraitSeed(name)}` };
+  }
+
+  private participantInfos(room: CanvasRoom): ParticipantInfo[] {
+    return [...room.participants.values()].map((p) => ({ id: p.id, name: p.user.name, color: p.user.color, ...(p.user.avatar === undefined ? {} : { avatar: p.user.avatar }), purpose: p.purpose }));
+  }
+
+  private joinResult(room: CanvasRoom, participant: CanvasParticipant, created: boolean): JoinResult {
+    const participants = this.participantInfos(room);
+    const self = participants.find((p) => p.id === participant.id);
+    if (self === undefined) throw new CanvasError(500, "participant missing from its room");
+    return { roomId: room.id, slug: room.slug, board: room.board, participant: self, created, agent: room.agent, participants };
+  }
+
+  /** The loaded room `ref` names (slug or room id), live or ended. */
+  private findRoom(ref: string): CanvasRoom | undefined {
+    return this.rooms.get(ref) ?? [...this.rooms.values()].find((room) => room.id === ref);
+  }
+
+  /** The live room `ref` names. Throws `CanvasError`: 404 when there is none, 409 once it ended. */
+  private liveRoom(ref: string): CanvasRoom {
+    const room = this.findRoom(ref);
+    if (room === undefined) throw new CanvasError(404, `No live canvas session on ${ref}; start one first (relay-linux canvas start ${ref}).`);
+    if (!room.live) throw new CanvasError(409, `The canvas session on ${room.board} has ended.`);
+    return room;
+  }
+
+  private participant(room: CanvasRoom, id: string): CanvasParticipant {
+    for (const participant of room.participants.values()) if (participant.id === id) return participant;
+    throw new CanvasError(410, `Participant ${id} is not in ${room.board} (it left, or the host restarted); join again.`);
   }
 
   private pickSlug(slug: string | undefined, title: string | undefined): string {

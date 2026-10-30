@@ -103,7 +103,18 @@ const USAGE = `relay-linux <command>
                                    from an omp session: start a live canvas on board <slug> (an
                                    EvaOS board; a new one when it does not exist or no slug is
                                    given). Isaac gets a Join card in this chat; the canvas agent
-                                   is this session and posts each turn and the wrap-up here
+                                   is this chat's assistant (Nova in Nova's thread, else Eva) with
+                                   the chat as context, and posts each turn and the wrap-up here
+  canvas join <slug> --as <Name> [--prompt "what I am here to do"] [--color "#rrggbb"]
+                                   join a live room as an agent of your own (any omp session, a
+                                   subagent too): your own cursor, name, color and portrait
+  canvas act <slug> --as <Name> [<lines> | -]
+                                   run action lines as <Name> (joins first when needed): @say,
+                                   @add_node, @add_image, @add_frame, @add_edge, @set_text,
+                                   @append_text, @move_node, @point, @select, @cursor, @delete
+                                   (skill://canvas section 8); no lines or - reads stdin
+  canvas show <slug>               the live room's board, who is in it, and the latest chat (JSON)
+  canvas leave <slug> --as <Name>  take <Name>'s cursor out of the room
   canvas list                      list the running host's canvas rooms
   canvas end [<slug>]              wrap up the live session on <slug> (default: this chat's)
   react <emoji> [--agent <id>] [--message latest|<key>]
@@ -650,8 +661,13 @@ async function hostJson(response: Response, what: string): Promise<unknown> {
 const CanvasRoomsReply = z.object({ rooms: z.array(z.object({ id: z.string(), slug: z.string(), board: z.string(), live: z.boolean(), agent: z.object({ name: z.string() }), chat: z.object({ sessionId: z.string().optional(), title: z.string().optional() }), humans: z.array(z.string()) })) });
 const CanvasStartReply = z.object({ roomId: z.string(), slug: z.string(), board: z.string(), agent: z.object({ name: z.string() }), joinPath: z.string(), created: z.boolean() });
 
-/** `canvas start|list|end`: talks to the running host's loopback `/canvas/sessions`. */
-async function canvasCommand(positionals: string[], title: string | undefined, prompt: string | undefined): Promise<void> {
+const ParticipantReply = z.object({ id: z.string(), name: z.string(), color: z.string() });
+const CanvasJoinReply = z.object({ roomId: z.string(), slug: z.string(), board: z.string(), created: z.boolean(), participant: ParticipantReply, agent: z.object({ name: z.string() }), participants: z.array(ParticipantReply) });
+const CanvasActReply = z.object({ ran: z.number(), said: z.array(z.string()), skipped: z.array(z.string()) });
+
+/** `canvas start|join|act|show|leave|list|end`: talks to the running host's loopback `/canvas/sessions`. */
+async function canvasCommand(positionals: string[], options: { title: string | undefined; prompt: string | undefined; as: string | undefined; color: string | undefined }): Promise<void> {
+  const { title, prompt } = options;
   const [verb, slug] = positionals;
   const base = `${hostUrl()}/canvas/sessions`;
   const post = (url: string, body: unknown): Promise<Response> => fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -671,10 +687,52 @@ async function canvasCommand(positionals: string[], title: string | undefined, p
       console.log(`Isaac got a Join card in this chat. Your canvas self (${room.agent.name}, with this chat as context) runs the room on its own; each canvas turn and the wrap-up summary come back to this chat as canvas rows, nothing for you to do until then. End it early with: relay-linux canvas end ${room.slug}`);
       return;
     }
+    case "join":
+    case "act":
+    case "leave": {
+      if (slug === undefined) throw new Error(`canvas ${verb}: missing <slug>`);
+      const name = options.as?.trim() ?? "";
+      if (name === "") throw new Error(`canvas ${verb}: missing --as <Name> (the name your cursor shows)`);
+      const room = `${base}/${encodeURIComponent(slug)}`;
+      const joined = CanvasJoinReply.parse(
+        await hostJson(
+          await post(`${room}/participants`, { name, ...(prompt === undefined || verb !== "join" ? {} : { purpose: prompt }), ...(options.color === undefined ? {} : { color: options.color }) }),
+          `canvas ${verb}`,
+        ),
+      );
+      const me = joined.participant;
+      if (verb === "leave") {
+        await hostJson(await post(`${room}/participants/${encodeURIComponent(me.id)}/leave`, {}), "canvas leave");
+        console.log(`${me.name} left "${joined.board}".`);
+        return;
+      }
+      if (verb === "join") {
+        const others = joined.participants.filter((p) => p.id !== me.id).map((p) => p.name);
+        console.log(`${joined.created ? "Joined" : "Already in"} "${joined.board}" (board ${joined.slug}) as ${me.name} (${me.color}), next to ${[joined.agent.name, ...others].join(", ")}.`);
+        console.log(`Read the board: relay-linux canvas show ${joined.slug}. Act: relay-linux canvas act ${joined.slug} --as "${me.name}" with action lines on stdin (skill://canvas section 8). Leave: relay-linux canvas leave ${joined.slug} --as "${me.name}".`);
+        return;
+      }
+      const rest = positionals.slice(2);
+      const script = rest.length === 0 || rest[0] === "-" ? await Bun.stdin.text() : rest.join(" ");
+      const result = CanvasActReply.parse(await hostJson(await post(`${room}/participants/${encodeURIComponent(me.id)}/act`, { script }), "canvas act"));
+      console.log(`${me.name}: ran ${String(result.ran)} action${result.ran === 1 ? "" : "s"}${result.said.length > 0 ? `, said ${String(result.said.length)} line${result.said.length === 1 ? "" : "s"}` : ""} on "${joined.board}".`);
+      for (const line of result.skipped) console.log(`skipped: ${line}`);
+      return;
+    }
+    case "show": {
+      if (slug === undefined) throw new Error("canvas show: missing <slug>");
+      console.log(JSON.stringify(await hostJson(await fetch(`${base}/${encodeURIComponent(slug)}`), "canvas show"), null, 2));
+      return;
+    }
     case "list": {
-      const { rooms } = CanvasRoomsReply.parse(await hostJson(await fetch(base), "canvas list"));
+      const reply = await hostJson(await fetch(base), "canvas list");
+      const { rooms } = CanvasRoomsReply.parse(reply);
+      const participants = z.object({ participants: z.record(z.array(ParticipantReply)).optional() }).parse(reply).participants ?? {};
       if (rooms.length === 0) console.log("no canvas rooms");
-      for (const room of rooms) console.log(`${room.slug}  ${room.live ? "live" : "ended"}  "${room.board}"  ${room.agent.name}  chat ${room.chat.title ?? room.chat.sessionId ?? "-"}${room.humans.length > 0 ? `  here: ${room.humans.join(", ")}` : ""}`);
+      for (const room of rooms) {
+        const agents = (participants[room.id] ?? []).map((p) => p.name);
+        console.log(`${room.slug}  ${room.live ? "live" : "ended"}  "${room.board}"  ${room.agent.name}${agents.length > 0 ? ` + ${agents.join(", ")}` : ""}  chat ${room.chat.title ?? room.chat.sessionId ?? "-"}${room.humans.length > 0 ? `  here: ${room.humans.join(", ")}` : ""}`);
+      }
       return;
     }
     case "end": {
@@ -694,7 +752,7 @@ async function canvasCommand(positionals: string[], title: string | undefined, p
       return;
     }
     default:
-      throw new Error(`canvas: expected start, list or end\n\n${USAGE}`);
+      throw new Error(`canvas: expected start, join, act, show, leave, list or end\n\n${USAGE}`);
   }
 }
 
@@ -784,6 +842,8 @@ async function main(argv: string[]): Promise<void> {
       canvases: { type: "string" },
       title: { type: "string" },
       prompt: { type: "string" },
+      as: { type: "string" },
+      color: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -845,7 +905,7 @@ async function main(argv: string[]): Promise<void> {
       return;
     }
     case "canvas":
-      await canvasCommand(positionals.slice(1), values.title, values.prompt);
+      await canvasCommand(positionals.slice(1), { title: values.title, prompt: values.prompt, as: values.as, color: values.color });
       return;
     case "react":
       await react(values.agent, positionals.slice(1), values.message, values.clear);

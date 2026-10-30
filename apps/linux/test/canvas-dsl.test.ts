@@ -43,3 +43,14 @@ test("parses identically regardless of chunking", () => {
   expect(add?.kind === "add_node" && add.text.text).toBe("Why this order\nDefaults stay put so muscle memory works.");
   expect(whole.actions[3]).toEqual({ kind: "add_edge", source: "key-d1", target: "n-why", label: "because" });
 });
+
+test("parses the joined agents' actions: images with spaced paths, frames, cursor moves", () => {
+  const { actions } = run([
+    "@cursor 1200 -40\n@add_image shot-1 1200 0 820 /Users/ike/Library/Application Support/x/shot one.png\nInbox, GitHub view\nthe PR diff column\n@end\n@add_frame col-a 1180 -80 860 1400\nGitHub\n@end\n",
+  ]);
+  expect(actions[0]).toEqual({ kind: "cursor", x: 1200, y: -40 });
+  const image = actions[1];
+  expect(image?.kind === "add_image" && [image.src, image.w, image.text.text]).toEqual(["/Users/ike/Library/Application Support/x/shot one.png", 820, "Inbox, GitHub view\nthe PR diff column"]);
+  const frame = actions[2];
+  expect(frame?.kind === "add_frame" && [frame.id, frame.x, frame.y, frame.w, frame.h, frame.text.text]).toEqual(["col-a", 1180, -80, 860, 1400, "GitHub"]);
+});

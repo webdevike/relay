@@ -10,6 +10,9 @@
 //       pairs itself as a throwaway device, `canvas.get` + `canvas.open`, joins the room over
 //       y-websocket as Isaac, waits for the opener, says the note at the first node, waits for
 //       the reply and its edits, optionally presses Wrap up; prints a JSON report with latencies.
+//   bun test/canvas-e2e.ts access --slug <slug> [--port 7917]
+//       pairs a throwaway device and prints the room page's URL with a fresh token, for a browser
+//       (Playwright) to join as Isaac and screenshot what the desktop shows.
 
 import { createHmac, randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -52,7 +55,39 @@ const log = (line: string): void => {
 
 if (positionals[0] === "host") host();
 else if (positionals[0] === "client") await client();
-else throw new Error("usage: canvas-e2e.ts host|client ...");
+else if (positionals[0] === "access") await access();
+else throw new Error("usage: canvas-e2e.ts host|client|access ...");
+
+async function access(): Promise<void> {
+  const slug = values.slug ?? "";
+  const devices = new FileDeviceStore();
+  const deviceId = `canvas-e2e-${randomBytes(4).toString("hex")}`;
+  const secret = randomBytes(32);
+  devices.save(secret, deviceId, "Canvas e2e");
+  try {
+    const relay = new WebSocket(`ws://127.0.0.1:${String(port)}/relay`);
+    const reply = Promise.withResolvers<ServerMessage>();
+    relay.onmessage = (event: MessageEvent<string>) => {
+      const parsed = parseServerMessage(event.data);
+      if (!parsed.ok) return;
+      const message = parsed.value;
+      if (message.t === "challenge") relay.send(encode({ t: "auth", proof: createHmac("sha256", secret).update(message.nonce, "utf8").digest("hex") }));
+      if (message.t === "welcome") relay.send(encode({ t: "canvas.open", slug }));
+      if (message.t === "canvas.access" || message.t === "canvas.unavailable") reply.resolve(message);
+    };
+    const opened = Promise.withResolvers<undefined>();
+    relay.addEventListener("open", () => { opened.resolve(undefined); }, { once: true });
+    await opened.promise;
+    relay.send(encode({ t: "hello", v: 1, deviceId, deviceName: "Canvas e2e", platform: "ios" }));
+    const answer = await reply.promise;
+    relay.close();
+    if (answer.t !== "canvas.access") throw new Error(answer.t === "canvas.unavailable" ? answer.reason : "no access");
+    process.stdout.write(`${JSON.stringify({ url: `http://127.0.0.1:${String(port)}${answer.path}` })}\n`);
+  } finally {
+    devices.forget(deviceId);
+  }
+  process.exit(0);
+}
 
 function host(): void {
   if (process.env["XDG_CONFIG_HOME"] === undefined || process.env["RELAY_AGENTS_SOCKET"] === undefined) throw new Error("set XDG_CONFIG_HOME and RELAY_AGENTS_SOCKET to a temp dir");

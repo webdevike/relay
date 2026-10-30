@@ -12,6 +12,8 @@ import type * as Y from "yjs";
 
 /** Debounce of the export after a doc change. */
 export const EXPORT_DEBOUNCE_MS = 400;
+/** Longest a change waits for its export while edits keep coming (several agents typing at once). */
+export const EXPORT_MAX_WAIT_MS = 2000;
 /** Debounce of the watcher: editors write in bursts (tmp file, rename). */
 const WATCH_DEBOUNCE_MS = 150;
 /** Doc updates with this origin came from the file; they never trigger an export by themselves. */
@@ -27,16 +29,23 @@ export class BoardFile {
   /** `diskText` parsed: the base an outside write is merged against. */
   private diskBoard: Board = { version: CANVAS_VERSION, title: "", nodes: [], edges: [] };
   private exportTimer: ReturnType<typeof setTimeout> | null = null;
+  /** When the oldest change not yet exported came in; null when everything is written. */
+  private dirtySince: number | null = null;
   private watchTimer: ReturnType<typeof setTimeout> | null = null;
   private watcher: FSWatcher | null = null;
   private closed = false;
   private readonly onUpdate = (_update: Uint8Array, origin: unknown): void => {
     if (origin === FILE_ORIGIN || this.closed) return;
+    const now = Date.now();
+    this.dirtySince ??= now;
     clearTimeout(this.exportTimer ?? undefined);
-    this.exportTimer = setTimeout(() => {
-      this.exportTimer = null;
-      this.flush();
-    }, EXPORT_DEBOUNCE_MS);
+    this.exportTimer = setTimeout(
+      () => {
+        this.exportTimer = null;
+        this.flush();
+      },
+      Math.max(0, Math.min(EXPORT_DEBOUNCE_MS, this.dirtySince + EXPORT_MAX_WAIT_MS - now)),
+    );
   };
 
   constructor(
@@ -74,6 +83,7 @@ export class BoardFile {
   flush(): void {
     clearTimeout(this.exportTimer ?? undefined);
     this.exportTimer = null;
+    this.dirtySince = null;
     const board = exportBoard(this.doc);
     const text = boardText(board);
     // A file another writer formatted differently but holding the same board is left alone.

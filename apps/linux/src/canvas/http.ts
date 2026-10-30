@@ -1,8 +1,12 @@
 // The canvas routes, on plain `Request`/`Response` (the websocket upgrade itself stays in
-// server.ts). Loopback JSON for agents on this machine:
+// server.ts). Loopback JSON for agents on this machine (<room> is a room id or a board slug):
 //   POST /canvas/sessions {slug?, title?, prompt?, caller}   start (or rejoin) a session
-//   GET  /canvas/sessions                                    {rev, rooms}
-//   POST /canvas/sessions/<roomId>/end                       {summary}
+//   GET  /canvas/sessions                                    {rev, rooms, participants}
+//   GET  /canvas/sessions/<room>                             {board, chat, participants, ...}
+//   POST /canvas/sessions/<room>/end                         {summary}
+//   POST /canvas/sessions/<room>/participants {name, color?, purpose?}   join as an agent
+//   POST /canvas/sessions/<room>/participants/<id>/act {script}          {ran, said, skipped}
+//   POST /canvas/sessions/<room>/participants/<id>/leave                 {ok}
 // Token-gated, for the web client (token from `canvas.open`):
 //   GET  /canvas/<slug>/?token=      the client page
 //   GET  /canvas/<slug>/me?token=    {me, roomId, board, agent, live}
@@ -10,13 +14,15 @@
 //   POST /canvas/<slug>/end?token=   Wrap up -> {summary}
 //   WS   /canvas/<slug>/ws?token=    y-websocket (server.ts)
 // Open: GET /canvas/avatar/<key>    an assistant's avatar PNG
+//       GET /canvas/portrait/<seed> a joined agent's portrait SVG
 
 import { readFileSync } from "node:fs";
 import { extname, isAbsolute, join } from "node:path";
 import { CanvasSlug } from "@relay/protocol";
 import { z } from "zod";
 import { isLoopback } from "../boards/http";
-import { CanvasError, type CanvasRoom, type CanvasService, type StartRequest } from "./service";
+import { portraitSvg } from "./portrait";
+import { CanvasError, type CanvasRoom, type CanvasService, type JoinRequest, type StartRequest } from "./service";
 
 const HUMAN_COLOR = "#0ea5e9";
 const IMAGE_TYPES: Record<string, string> = {
@@ -59,7 +65,21 @@ const StartBody = z.object({
 });
 
 function parseStart(body: unknown): StartRequest {
-  const parsed = StartBody.safeParse(body);
+  return parseWith(StartBody, body);
+}
+
+const JoinBody = z.object({
+  name: z.string().min(1).max(40),
+  color: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/, "must be #rrggbb")
+    .optional(),
+  purpose: Text.optional(),
+});
+const ActBody = z.object({ script: z.string().min(1).max(20_000) });
+
+function parseWith<T>(schema: z.ZodType<T>, body: unknown): T {
+  const parsed = schema.safeParse(body);
   if (!parsed.success) throw new CanvasError(400, parsed.error.issues.map((issue) => `${issue.path.join(".") || "body"}: ${issue.message}`).join("; "));
   return parsed.data;
 }
@@ -75,6 +95,11 @@ export async function handleCanvasRequest(canvas: CanvasService | null, page: ()
       const file = parts.length === 2 ? canvas.avatarFile(parts[1] ?? "") : null;
       if (file === null || request.method !== "GET") return new Response("not found", { status: 404 });
       return new Response(readFileSync(file), { headers: { "content-type": "image/png", "cache-control": "max-age=3600" } });
+    }
+    if (parts[0] === "portrait") {
+      const seed = parts.length === 2 ? (parts[1] ?? "") : "";
+      if (!/^[a-z0-9-]{1,60}$/.test(seed) || request.method !== "GET") return new Response("not found", { status: 404 });
+      return new Response(portraitSvg(seed), { headers: { "content-type": "image/svg+xml", "cache-control": "max-age=86400" } });
     }
     const slug = parts[0] ?? "";
     if (!CanvasSlug.safeParse(slug).success) return new Response("not found", { status: 404 });
@@ -108,20 +133,38 @@ async function sessions(canvas: CanvasService, request: Request, rest: string[],
     if (request.headers.has("origin")) return fail(403, "browser requests are not allowed");
     if (!(request.headers.get("content-type") ?? "").toLowerCase().startsWith("application/json")) return fail(415, "content-type must be application/json");
   }
-  if (rest.length === 0) {
-    if (request.method === "GET") return json({ rev: canvas.rev, rooms: canvas.list() });
-    if (request.method !== "POST") return fail(405, "method not allowed");
-    let body: unknown;
+  const body = async (): Promise<unknown> => {
     try {
-      body = await request.json();
+      return await request.json();
     } catch {
-      return fail(400, "body is not JSON");
+      throw new CanvasError(400, "body is not JSON");
     }
-    return json(await canvas.start(parseStart(body)));
-  }
-  if (rest.length === 2 && rest[1] === "end") {
+  };
+  const [ref = "", sub, participantId, verb] = rest;
+  if (rest.length === 0) {
+    if (request.method === "GET") return json({ rev: canvas.rev, rooms: canvas.list(), participants: canvas.participantsByRoom() });
     if (request.method !== "POST") return fail(405, "method not allowed");
-    return json({ summary: await canvas.end(rest[0] ?? "") });
+    return json(await canvas.start(parseStart(await body())));
+  }
+  if (rest.length === 1) {
+    if (request.method !== "GET") return fail(405, "method not allowed");
+    return json(canvas.view(ref));
+  }
+  if (request.method !== "POST") return fail(405, "method not allowed");
+  if (rest.length === 2 && sub === "end") {
+    const room = canvas.roomById(ref) ?? canvas.list().find((info) => info.slug === ref && info.live);
+    return json({ summary: await canvas.end(room?.id ?? ref) });
+  }
+  if (sub === "participants") {
+    if (rest.length === 2) {
+      const join: JoinRequest = parseWith(JoinBody, await body());
+      return json(canvas.join(ref, join));
+    }
+    if (rest.length === 4 && participantId !== undefined && verb === "act") return json(await canvas.act(ref, participantId, parseWith(ActBody, await body()).script));
+    if (rest.length === 4 && participantId !== undefined && verb === "leave") {
+      canvas.leave(ref, participantId);
+      return json({ ok: true });
+    }
   }
   return fail(404, "not found");
 }

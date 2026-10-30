@@ -11,6 +11,10 @@
 //   @move_node <id> <x> <y>
 //   @add_edge <sourceId> <targetId> [label words]
 //   @delete <id>
+//   @add_image <newId> <x> <y> <w> <src>                   then title line, caption lines, @end
+//                                         (src: an absolute local path or an https image URL; may hold spaces)
+//   @add_frame <newId> <x> <y> <w> <h>                     then title line, @end
+//   @cursor <x> <y>                       glide the cursor to a spot on the board
 
 import type { TextField } from "@relay/canvas-live/shared";
 
@@ -41,10 +45,13 @@ export class TextStream {
 
 export type Action =
   | { kind: "point"; id: string }
+  | { kind: "cursor"; x: number; y: number }
   | { kind: "select"; id: string }
   | { kind: "append_text"; id: string; field: TextField; text: TextStream }
   | { kind: "set_text"; id: string; field: TextField; text: TextStream }
   | { kind: "add_node"; id: string; type: "note" | "topic" | "suggestion"; x: number; y: number; w: number; text: TextStream }
+  | { kind: "add_image"; id: string; x: number; y: number; w: number; src: string; text: TextStream }
+  | { kind: "add_frame"; id: string; x: number; y: number; w: number; h: number; text: TextStream }
   | { kind: "move_node"; id: string; x: number; y: number }
   | { kind: "add_edge"; source: string; target: string; label: string }
   | { kind: "delete"; id: string };
@@ -224,6 +231,24 @@ export class ActionParser {
         return;
       case "delete":
         if (a[0]) this.onAction({ kind: "delete", id: a[0] });
+        return;
+      case "add_image": {
+        const src = a.slice(4).join(" ");
+        if (!a[0] || src === "") return;
+        const text = new TextStream();
+        this.onAction({ kind: "add_image", id: a[0], x: num(a[1]), y: num(a[2]), w: num(a[3]) || 420, src, text });
+        this.openBlock(text);
+        return;
+      }
+      case "add_frame": {
+        if (!a[0]) return;
+        const text = new TextStream();
+        this.onAction({ kind: "add_frame", id: a[0], x: num(a[1]), y: num(a[2]), w: num(a[3]) || 600, h: num(a[4]) || 600, text });
+        this.openBlock(text);
+        return;
+      }
+      case "cursor":
+        this.onAction({ kind: "cursor", x: num(a[0]), y: num(a[1]) });
         return;
       case "say":
         this.onSay(a.join(" "));

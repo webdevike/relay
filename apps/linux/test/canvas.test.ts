@@ -163,6 +163,7 @@ beforeEach(() => {
     log: () => undefined,
     watch: false,
     pacing: { frameMs: 0, typeMs: 0 },
+    participants: { paceMs: 0 },
   });
 });
 
@@ -262,12 +263,16 @@ describe("starting a session", () => {
     expect(readFileSync(join(canvasDir, "week-plan.json"), "utf8")).toContain('"title": "Week plan"');
   });
 
-  it("from a subagent: the agent is the subagent, the rows go to the chat that owns it", async () => {
+  it("from a subagent: the canvas self is still the chat's agent, with the chat as context", async () => {
+    // The CLI cannot tell a subagent's call from its parent's (one omp process holds both
+    // transcripts open), so the room is the chat's; subagents take a cursor with `canvas join`.
     const started = await service.start({ slug: "ecs-roles", caller: { sessionFile: subagentFile } });
-    expect(started.agent.name).toBe("Worker");
+    expect(started.agent.name).toBe("Eva");
     expect(started.chat.sessionId).toBe("s-chat");
-    expect(posted[0]).toMatchObject({ sessionId: "s-chat", details: { kind: "start", agent: { name: "Worker" } } });
-    expect(brains[0]?.system).toContain("Worker assignment: review the roles board");
+    expect(posted[0]).toMatchObject({ sessionId: "s-chat", details: { kind: "start", agent: { name: "Eva" } } });
+    expect(posted[0]?.content).toContain("canvas join ecs-roles --as <Name>");
+    expect(brains[0]?.system).toContain("Let's go over the ECS roles board");
+    expect(brains[0]?.system).not.toContain("Worker assignment");
   });
 
   it("refuses a chat Relay does not know", async () => {
@@ -314,6 +319,89 @@ describe("a session at the canvas", () => {
     expect((room.sync.doc.getMap(DOC_KEYS.meta).get("session") as { open: boolean }).open).toBe(false);
     tab.leave();
     expect(service.snapshot().rooms).toMatchObject([{ slug: "ecs-roles", live: false }]);
+  });
+});
+
+describe("agents joining a live room", () => {
+  const act = (slug: string, id: string, script: string): Promise<Response> =>
+    handleCanvasRequest(service, () => "", new Request(`http://h/canvas/sessions/${slug}/participants/${id}/act`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ script }) }), `/canvas/sessions/${slug}/participants/${id}/act`, "127.0.0.1");
+
+  it("gives each joined agent its own cursor and attributed edits, merged into one board on disk", async () => {
+    const started = await service.start({ slug: "ecs-roles", caller: { sessionFile: chatFile } });
+    const room = service.roomById(started.roomId);
+    if (room === undefined) throw new Error("no room");
+    const tab = joinRoom(service, room, "Isaac");
+    await until(() => tab.doc.getMap(DOC_KEYS.nodes).has("agenda"), "the opener");
+
+    const names = ["Theo", "Priya", "Sam"];
+    const joined = names.map((name) => service.join("ecs-roles", { name, purpose: `${name}'s column` }));
+    expect(new Set(joined.map((j) => j.participant.color)).size).toBe(3);
+    expect(joined[0]?.participant).toMatchObject({ name: "Theo", avatar: "/canvas/portrait/theo" });
+    expect(service.join("ecs-roles", { name: "theo" })).toMatchObject({ created: false, participant: { id: joined[0]?.participant.id } });
+    expect(() => service.join("ecs-roles", { name: "Eva" })).toThrow(CanvasError);
+
+    // All three act at once, each in its own column; one also edits a shared note.
+    const image = join(root, "shot.png");
+    writeFileSync(image, "png");
+    const results = await Promise.all(
+      joined.map(async (j, i) => {
+        const x = 2000 + i * 600;
+        const res = await act("ecs-roles", j.participant.id, [`@cursor ${String(x)} 0`, `@say ${j.participant.name} here`, `@add_image shot-${String(i)} ${String(x)} 0 480 ${image}`, `Shot ${String(i)}`, "what to look at", "@end", `@add_node note-${String(i)} note ${String(x)} 500 420`, `Note ${String(i)}`, `from ${j.participant.name}`, "@end", "@append_text agenda body", `${String(i + 2)} · ${j.participant.name}'s question`, "@end", "@add_edge nope root"].join("\n"));
+        return (await res.json()) as { ran: number; said: string[]; skipped: string[] };
+      }),
+    );
+    for (const result of results) expect(result).toEqual({ ran: 4, said: [expect.stringMatching(/here$/)], skipped: ["add_edge nope root: no node nope"] });
+
+    const states = [...(tab.awareness.getStates() as Map<number, Presence>).values()];
+    expect(states.filter((p) => p.user.kind === "agent").map((p) => p.user.name).sort()).toEqual(["Eva", "Priya", "Sam", "Theo"]);
+    const nodes = tab.doc.getMap<Y.Map<unknown>>(DOC_KEYS.nodes);
+    for (let i = 0; i < 3; i++) {
+      expect(nodes.get(`shot-${String(i)}`)?.toJSON()).toMatchObject({ type: "image", src: image, caption: "what to look at" });
+      expect((nodes.get(`note-${String(i)}`)?.get("body") as Y.Text).toJSON()).toBe(`from ${names[i] ?? ""}`);
+    }
+    // Concurrent appends to one note all land; none clobbers another.
+    const agenda = (nodes.get("agenda")?.get("body") as Y.Text).toJSON();
+    for (const name of names) expect(agenda).toContain(`${name}'s question`);
+    const chat = tab.doc.getArray<ChatMsg>(DOC_KEYS.chat).toArray();
+    expect(chat.filter((m) => m.kind === "agent" && names.includes(m.name)).map((m) => m.text).sort()).toEqual(["Priya here", "Sam here", "Theo here"]);
+    expect(chat.some((m) => m.kind === "event" && m.text === "Theo joined: Theo's column")).toBe(true);
+    // Their lines never start a turn of the canvas self: only the opener's prompt so far.
+    expect(brains[0]?.prompts.filter((p) => !p.includes("# Session start"))).toEqual([]);
+
+    // Leaving takes the cursor away at once.
+    service.leave("ecs-roles", joined[2]?.participant.id ?? "");
+    expect([...(tab.awareness.getStates() as Map<number, Presence>).values()].some((p) => p.user.name === "Sam")).toBe(false);
+    expect((await act("ecs-roles", joined[2]?.participant.id ?? "", "@say still here?")).status).toBe(410);
+
+    // The room ends: the wrap-up row names them, and the board on disk holds their work.
+    await service.end(room.id);
+    // Isaac said nothing, but the agents worked: the canvas self writes a real summary.
+    expect(posted.at(-1)?.details.text).toBe("We renamed the root and settled that support is staff. Still open: ops.");
+    expect(posted.at(-1)?.content).toContain("Agents who worked the board: Theo, Priya, Sam.");
+    const onDisk = parseBoard(readFileSync(join(canvasDir, "ecs-roles.json"), "utf8"));
+    expect(onDisk.nodes.filter((n) => /^(shot|note)-\d$/.test(n.id)).map((n) => n.id).sort()).toEqual(["note-0", "note-1", "note-2", "shot-0", "shot-1", "shot-2"]);
+    expect(onDisk.nodes.find((n) => n.id === "shot-1")?.data).toMatchObject({ title: "Shot 1", src: image, caption: "what to look at" });
+    expect(() => service.join("ecs-roles", { name: "Late" })).toThrow(/ended/);
+    tab.leave();
+  });
+
+  it("queues each agent's batches, refuses a backlog, and caps the room", async () => {
+    await service.start({ slug: "ecs-roles", caller: { sessionFile: chatFile } });
+    const theo = service.join("ecs-roles", { name: "Theo" }).participant.id;
+    const batches = [1, 2, 3, 4].map((n) => service.act("ecs-roles", theo, `@add_node q-${String(n)} note 3000 ${String(n * 300)} 400\nQ${String(n)}\n@end`));
+    await expect(service.act("ecs-roles", theo, "@say one too many")).rejects.toMatchObject({ status: 429 });
+    expect((await Promise.all(batches)).map((r) => r.ran)).toEqual([1, 1, 1, 1]);
+    await expect(service.act("ecs-roles", theo, "no actions, just prose")).resolves.toMatchObject({ ran: 0, said: ["no actions, just prose"] });
+    await expect(service.act("ecs-roles", theo, "   ")).rejects.toMatchObject({ status: 400 });
+    await expect(service.act("ecs-roles", theo, "@add_frame col 2900 -100 600 1500\nTheo's column\n@end\n@add_image bad 0 0 400 /nope/missing.png\nx\n@end\n@add_image bad2 0 0 400 data:image/png;base64,AA\nx\n@end")).resolves.toEqual({
+      ran: 1,
+      said: [],
+      skipped: ["add_image bad: no image file at /nope/missing.png", "add_image bad2: src must be an https URL or a local file path, not data:image/png;base64,AA"],
+    });
+    expect(service.view("ecs-roles").board.nodes.find((n) => n.id === "col")).toMatchObject({ type: "frame", x: 2900, y: -100, w: 600, h: 1500, data: { title: "Theo's column" } });
+    for (let i = 1; i < 8; i++) service.join("ecs-roles", { name: `Agent ${String(i)}` });
+    expect(() => service.join("ecs-roles", { name: "Ninth" })).toThrow(/8 agents/);
+    expect(() => service.join("no-such-board", { name: "Theo" })).toThrow(/No live canvas session/);
   });
 });
 
