@@ -1,6 +1,8 @@
 // Everyone else's cursor: name tag, live cursor-chat draft or bubble, the agent's avatar and
 // status, its caret-following glide and the line it drags when connecting two nodes. Follow mode
-// pans the board so the agent stays in view while it works.
+// pans the board so the agent stays in view while it works. An agent's cursor shows only while it
+// is doing something (a turn or batch running, a new line said, a move) and fades out
+// AGENT_LINGER_MS after; people's cursors always show.
 import { useReactFlow, useStoreApi } from "@xyflow/react";
 import { type CSSProperties, type RefObject, useEffect, useRef } from "react";
 import { avatarUrl } from "./env";
@@ -11,6 +13,8 @@ import { awareness, env, presenceStates } from "./room";
 export const follow = { on: env.follow };
 /** How long follow keeps panning after the agent's cursor stops moving. */
 const FOLLOW_SETTLE_MS = 2500;
+/** How long an agent's cursor stays after its last action or line before it fades out. */
+const AGENT_LINGER_MS = 3000;
 
 export function CursorArrow({ color }: { color: string }) {
 	return (
@@ -32,6 +36,8 @@ export function Cursors({ wrapRef, bottomInset }: { wrapRef: RefObject<HTMLDivEl
 	// When each agent's cursor target last changed: follow keeps panning until a point lands, even
 	// after the agent has gone idle (an opener that ends with "@point" otherwise stops mid-pan).
 	const moved = useRef(new Map<number, { x: number; y: number; at: number }>());
+	// When each agent last did something (worked, said a new line, moved), and the line it said.
+	const active = useRef(new Map<number, { at: number; said: string }>());
 	const inset = useRef(bottomInset);
 	inset.current = bottomInset;
 
@@ -74,8 +80,20 @@ export function Cursors({ wrapRef, bottomInset }: { wrapRef: RefObject<HTMLDivEl
 					const sx = Math.max(4, Math.min(wrap.width - 70, rx));
 					const sy = Math.max(4, Math.min(wrap.height - 40, ry));
 					el.style.transform = `translate(${sx}px, ${sy}px)`;
-					el.style.opacity = "1";
-					el.classList.toggle("is-offscreen", off);
+					const isAgent = p.user?.kind === "agent";
+					if (isAgent) {
+						const said = p.bubble?.text ?? "";
+						const was = active.current.get(cid);
+						const busy = (p.status !== undefined && p.status !== "idle") || p.bubble?.streaming === true;
+						const lastMove = moved.current.get(cid);
+						const stepped = lastMove !== undefined && (lastMove.x !== target.x || lastMove.y !== target.y);
+						// First sight (a page just loaded): an idle agent starts hidden, its old bubble no news.
+						if (was === undefined) active.current.set(cid, { at: busy ? now : -AGENT_LINGER_MS, said });
+						else if (busy || stepped || (said !== "" && said !== was.said)) active.current.set(cid, { at: now, said: said || was.said });
+					}
+					const shown = !isAgent || now - (active.current.get(cid)?.at ?? -AGENT_LINGER_MS) < AGENT_LINGER_MS;
+					el.style.opacity = shown ? "1" : "0";
+					el.classList.toggle("is-offscreen", off && shown);
 					const lastMove = moved.current.get(cid);
 					if (lastMove === undefined || lastMove.x !== target.x || lastMove.y !== target.y) moved.current.set(cid, { x: target.x, y: target.y, at: now });
 					const settling = now - (moved.current.get(cid)?.at ?? 0) < FOLLOW_SETTLE_MS;

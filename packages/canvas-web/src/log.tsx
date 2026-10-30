@@ -58,20 +58,25 @@ export function SideLog({ open, setOpen, touch }: { open: boolean; setOpen: (ope
 						{ended ? `Session with ${agent.name} ended` : `Live with ${agent.name}`}
 						{session?.chatTitle ? `, from ${session.chatTitle}` : ""}
 					</div>
-					<div className="cv-people">
-						{[...people.entries()].flatMap(([cid, p]) =>
-							!p.user
-								? []
-								: [
-										p.user.avatar ? (
-											<img key={cid} src={avatarUrl(env, p.user.avatar)} alt={p.user.name} title={p.user.name} style={{ borderColor: p.user.color }} />
-										) : (
-											<span key={cid} style={{ background: p.user.color }} title={p.user.name}>
-												{p.user.name.slice(0, 1)}
-											</span>
-										),
-									],
-						)}
+					<div className="cv-people" aria-label="Who is here">
+						{[...people.entries()].flatMap(([cid, p]) => {
+							if (!p.user) return [];
+							const agent = p.user.kind === "agent";
+							// An agent works while a turn or batch runs, or while a handed-off request is open.
+							const working = agent && ((p.status !== undefined && p.status !== "idle") || (p.task ?? "") !== "");
+							const state = !agent ? null : working ? (p.task ? `working: ${p.task}` : "working") : "idle";
+							return [
+								<span key={cid} className={`cv-person${agent && !working ? " is-idle" : ""}`} title={state === null ? p.user.name : `${p.user.name}, ${state}`}>
+									{p.user.avatar ? (
+										<img src={avatarUrl(env, p.user.avatar)} alt="" style={{ borderColor: p.user.color }} />
+									) : (
+										<i style={{ background: p.user.color }}>{p.user.name.slice(0, 1)}</i>
+									)}
+									{p.user.name}
+									{agent ? <em>{working ? "working" : "idle"}</em> : null}
+								</span>,
+							];
+						})}
 					</div>
 				</div>
 				<button type="button" className="cv-icon-btn" onClick={() => setOpen(false)} aria-label="Collapse chat" title="Collapse chat">

@@ -1,4 +1,4 @@
-import { IconCornerDownRight, IconEye, IconLayoutDistributeHorizontal, IconMessageCircle } from "@tabler/icons-react";
+import { IconBoxMultiple, IconCornerDownRight, IconEye, IconLayoutDistributeHorizontal, IconMessageCircle } from "@tabler/icons-react";
 import {
 	Background,
 	BackgroundVariant,
@@ -6,6 +6,7 @@ import {
 	ConnectionMode,
 	type Node,
 	type NodeChange,
+	type OnNodeDrag,
 	ReactFlow,
 	ReactFlowProvider,
 	applyNodeChanges,
@@ -23,7 +24,7 @@ import { CanvasEdge } from "./edge";
 import { postEmbed } from "./embed";
 import { useAgent, useConnection, useSession } from "./hooks";
 import { SideLog } from "./log";
-import { type CardNode, type LinkEdge, absolutePositions, snapEdges, snapNodes, toFlowEdges, toFlowNodes } from "./model";
+import { type CardNode, type FlowBox, type LinkEdge, absolutePositions, groupNodes, reparentDropped, snapEdges, snapNodes, toFlowEdges, toFlowNodes, ungroupFrames } from "./model";
 import { awareness, doc, env, presenceStates, provider, self, setPresence, subscribePresence, yChat, yEdges, yMeta, yMetrics, yNodes, ySettings } from "./room";
 import { useTidy, useTidySetting } from "./useTidy";
 
@@ -203,6 +204,56 @@ function Board({ logOpen }: { logOpen: boolean }) {
 		setPresence("selected", ids);
 	}, []);
 
+	/** Every node as drawn: absolute top-left and measured size. */
+	const flowBoxes = useCallback((): FlowBox[] => {
+		const out: FlowBox[] = [];
+		for (const [id, n] of store.getState().nodeLookup) {
+			out.push({ id, type: n.data.spec.type, x: n.internals.positionAbsolute.x, y: n.internals.positionAbsolute.y, w: n.measured.width ?? n.width ?? 0, h: n.measured.height ?? n.height ?? 0 });
+		}
+		return out;
+	}, [store]);
+
+	/** A card dropped into a frame joins it; dropped out of one, it leaves. */
+	const onDragStop = useCallback<OnNodeDrag<CardNode>>(
+		(e, node, dragged) => {
+			const ids = dragged.map((n) => n.id);
+			doc.transact(() => {
+				reparentDropped(yNodes, flowBoxes(), ids);
+			});
+			tidy.onNodeDragStop(e, node, dragged);
+		},
+		[flowBoxes, tidy],
+	);
+
+	const group = useCallback(() => {
+		if (selectedIds.length < 2) return;
+		const id = `grp-${Date.now().toString(36)}`;
+		doc.transact(() => {
+			groupNodes(yNodes, flowBoxes(), selectedIds, id);
+		});
+	}, [selectedIds, flowBoxes]);
+
+	/** The frames to dissolve: the selected ones, else the frames that hold the selected cards. */
+	const ungroupTargets = (): string[] => {
+		const frames = selectedIds.filter((id) => yNodes.get(id)?.get("type") === "frame");
+		if (frames.length > 0) return frames;
+		const up = new Set<string>();
+		for (const id of selectedIds) {
+			const p = yNodes.get(id)?.get("parent");
+			if (typeof p === "string" && yNodes.get(p)?.get("type") === "frame") up.add(p);
+		}
+		return [...up];
+	};
+	const canUngroup = ungroupTargets().length > 0;
+	const ungroup = useCallback(() => {
+		const targets = ungroupTargets();
+		if (targets.length === 0) return;
+		doc.transact(() => {
+			ungroupFrames(yNodes, targets);
+		});
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [selectedIds]);
+
 	/** Own pointer: screen spot for popups, flow spot for everyone else (one awareness update per frame). */
 	const rafPending = useRef(0);
 	const trackPointer = useCallback(
@@ -259,11 +310,15 @@ function Board({ logOpen }: { logOpen: boolean }) {
 			if (e.key === "/" && !e.metaKey && !e.ctrlKey && !e.altKey) {
 				e.preventDefault();
 				openChat();
+			} else if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "g") {
+				e.preventDefault();
+				if (e.shiftKey) ungroup();
+				else group();
 			}
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [openChat]);
+	}, [openChat, group, ungroup]);
 
 	useEffect(() => {
 		if (ended && chat) {
@@ -384,7 +439,7 @@ function Board({ logOpen }: { logOpen: boolean }) {
 				onConnect={onConnect}
 				onSelectionChange={onSelectionChange}
 				onNodeDragStart={tidy.onNodeDragStart}
-				onNodeDragStop={tidy.onNodeDragStop}
+				onNodeDragStop={onDragStop}
 				connectionMode={ConnectionMode.Loose}
 				nodesConnectable={!TOUCH}
 				minZoom={0.1}
@@ -438,6 +493,16 @@ function Board({ logOpen }: { logOpen: boolean }) {
 				>
 					<IconLayoutDistributeHorizontal size={16} /> Tidy
 				</button>
+				{selectedIds.length > 1 ? (
+					<button type="button" className="cv-toggle" title="Put the selected cards in a frame (Cmd+G)" onClick={group}>
+						<IconBoxMultiple size={16} /> Group
+					</button>
+				) : null}
+				{canUngroup ? (
+					<button type="button" className="cv-toggle" title="Dissolve the frame, keeping its cards (Cmd+Shift+G)" onClick={ungroup}>
+						<IconBoxMultiple size={16} /> Ungroup
+					</button>
+				) : null}
 			</div>
 			{ended ? (
 				<div className="cv-ended" role="status">

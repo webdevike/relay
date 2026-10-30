@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { applyDiff, freeColor, host, roomAgent, snapEdges, snapNodes, swatchColor, toFlowEdges, toFlowNodes, uniqueName } from "../src/model";
+import { type FlowBox, applyDiff, freeColor, groupNodes, host, reparentDropped, roomAgent, snapEdges, snapNodes, swatchColor, toFlowEdges, toFlowNodes, uniqueName, ungroupFrames } from "../src/model";
 
 function node(doc: Y.Doc, id: string, fields: Record<string, unknown>): void {
 	const m = new Y.Map<unknown>();
@@ -141,5 +141,50 @@ describe("helpers", () => {
 		expect(roomAgent(undefined, null, [{ name: "Isaac", color: "#000", kind: "human" }, nova])).toBe(nova);
 		expect(roomAgent({ assistant: "Nova", open: true }, null, [])?.name).toBe("Nova");
 		expect(roomAgent(undefined, null, [])).toBeNull();
+	});
+});
+
+describe("grouping", () => {
+	const setup = () => {
+		const doc = new Y.Doc();
+		node(doc, "frame", { type: "frame", x: 0, y: 0, w: 500, h: 400 });
+		node(doc, "a", { type: "note", x: 50, y: 50, w: 200, h: 100 });
+		node(doc, "b", { type: "note", x: 900, y: 50, w: 200, h: 100 });
+		const yNodes = doc.getMap<Y.Map<unknown>>("nodes");
+		const boxes = (): FlowBox[] =>
+			[...yNodes].map(([id, m]) => ({ id, type: m.get("type") as FlowBox["type"], x: m.get("x") as number, y: m.get("y") as number, w: m.get("w") as number, h: (m.get("h") as number | undefined) ?? 100 }));
+		return { yNodes, boxes };
+	};
+
+	it("parents a card dropped with its center in a frame, and clears it when dragged out", () => {
+		const { yNodes, boxes } = setup();
+		yNodes.get("b")?.set("x", 100);
+		expect(reparentDropped(yNodes, boxes(), ["b", "a"])).toEqual(["b", "a"]);
+		expect(yNodes.get("b")?.get("parent")).toBe("frame");
+		expect(yNodes.get("b")?.get("x")).toBe(100);
+		yNodes.get("a")?.set("x", 1000);
+		reparentDropped(yNodes, boxes(), ["a"]);
+		expect(yNodes.get("a")?.has("parent")).toBe(false);
+	});
+
+	it("leaves a card that sits outside every frame alone", () => {
+		const { yNodes, boxes } = setup();
+		expect(reparentDropped(yNodes, boxes(), ["b"])).toEqual([]);
+	});
+
+	it("groups a selection into a frame around it and ungroups it", () => {
+		const { yNodes, boxes } = setup();
+		expect(groupNodes(yNodes, boxes(), ["a", "b"], "g1")).toBe("g1");
+		const g = yNodes.get("g1");
+		expect(g?.get("type")).toBe("frame");
+		expect(g?.get("x")).toBe(10);
+		expect(g?.get("y")).toBe(-6);
+		expect(g?.get("w")).toBe(1130);
+		expect(g?.get("h")).toBe(196);
+		expect(yNodes.get("a")?.get("parent")).toBe("g1");
+		expect(yNodes.get("b")?.get("parent")).toBe("g1");
+		expect(ungroupFrames(yNodes, ["g1"]).sort()).toEqual(["a", "b"]);
+		expect(yNodes.has("g1")).toBe(false);
+		expect(yNodes.get("a")?.has("parent")).toBe(false);
 	});
 });

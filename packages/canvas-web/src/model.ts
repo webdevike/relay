@@ -49,6 +49,125 @@ export interface LinkData extends Record<string, unknown> {
 export type LinkEdge = Edge<LinkData, "link">;
 
 const num = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+const nodeParent = (m: Y.Map<unknown> | undefined): string | undefined => {
+	const p = m?.get("parent");
+	return typeof p === "string" ? p : undefined;
+};
+
+/** A node as drawn: absolute top-left and size. */
+export interface FlowBox {
+	id: string;
+	type: NodeKind;
+	x: number;
+	y: number;
+	w: number;
+	h: number;
+}
+
+/** True when `id` is `ancestor` or sits at any depth inside it. */
+function isUnder(yNodes: Y.Map<Y.Map<unknown>>, id: string, ancestor: string): boolean {
+	const seen = new Set<string>();
+	for (let cur: string | undefined = id; cur !== undefined && !seen.has(cur); cur = nodeParent(yNodes.get(cur))) {
+		if (cur === ancestor) return true;
+		seen.add(cur);
+	}
+	return false;
+}
+
+/**
+ * The frame a dropped node belongs to: the smallest other frame whose area holds the node's
+ * center (and is larger than the node, never one of its own descendants), else null.
+ */
+export function frameForDrop(boxes: readonly FlowBox[], id: string, yNodes: Y.Map<Y.Map<unknown>>): string | null {
+	const b = boxes.find((x) => x.id === id);
+	if (!b) return null;
+	const cx = b.x + b.w / 2;
+	const cy = b.y + b.h / 2;
+	let best: string | null = null;
+	let bestArea = Number.POSITIVE_INFINITY;
+	for (const f of boxes) {
+		if (f.id === id || f.type !== "frame") continue;
+		const area = f.w * f.h;
+		if (area <= b.w * b.h || area >= bestArea) continue;
+		if (cx < f.x || cy < f.y || cx > f.x + f.w || cy > f.y + f.h) continue;
+		if (isUnder(yNodes, f.id, id)) continue;
+		best = f.id;
+		bestArea = area;
+	}
+	return best;
+}
+
+/** Sets each dropped node's `parent` from where it landed; coordinates stay absolute. Returns the ids that changed. */
+export function reparentDropped(yNodes: Y.Map<Y.Map<unknown>>, boxes: readonly FlowBox[], ids: readonly string[]): string[] {
+	const moved = new Set(ids);
+	const changed: string[] = [];
+	for (const id of ids) {
+		const m = yNodes.get(id);
+		if (!m) continue;
+		const p = nodeParent(m);
+		// A child that travels with its selected frame has not changed frames.
+		if (p !== undefined && moved.has(p)) continue;
+		const next = frameForDrop(boxes, id, yNodes);
+		if ((next ?? undefined) === p) continue;
+		if (next === null) m.delete("parent");
+		else m.set("parent", next);
+		changed.push(id);
+	}
+	return changed;
+}
+
+const GROUP_PAD = 40;
+const GROUP_TOP = 56;
+
+/** Wraps the selected nodes in a new frame. Returns its id, or null when there is nothing to group. */
+export function groupNodes(yNodes: Y.Map<Y.Map<unknown>>, boxes: readonly FlowBox[], ids: readonly string[], newId: string, title = "Group"): string | null {
+	const picked = boxes.filter((b) => ids.includes(b.id) && yNodes.has(b.id));
+	if (picked.length === 0 || yNodes.has(newId)) return null;
+	const x = Math.min(...picked.map((b) => b.x)) - GROUP_PAD;
+	const y = Math.min(...picked.map((b) => b.y)) - GROUP_TOP;
+	const w = Math.max(...picked.map((b) => b.x + b.w)) + GROUP_PAD - x;
+	const h = Math.max(...picked.map((b) => b.y + b.h)) + GROUP_PAD - y;
+	const f = new Y.Map<unknown>();
+	f.set("type", "frame");
+	f.set("x", Math.round(x));
+	f.set("y", Math.round(y));
+	f.set("w", Math.round(w));
+	f.set("h", Math.round(h));
+	f.set("title", new Y.Text(title));
+	f.set("body", new Y.Text(""));
+	f.set("fields", []);
+	// The new frame sits where the selection did: in their shared frame, if they have one.
+	const parents = new Set(picked.map((b) => nodeParent(yNodes.get(b.id))));
+	const shared = parents.size === 1 ? [...parents][0] : undefined;
+	if (shared !== undefined && !ids.includes(shared)) f.set("parent", shared);
+	yNodes.set(newId, f);
+	const chosen = new Set(picked.map((b) => b.id));
+	for (const b of picked) {
+		const p = nodeParent(yNodes.get(b.id));
+		if (p !== undefined && chosen.has(p)) continue;
+		yNodes.get(b.id)?.set("parent", newId);
+	}
+	return newId;
+}
+
+/** Deletes the frames and hands their children to the frame's own parent (or none). Returns the freed ids. */
+export function ungroupFrames(yNodes: Y.Map<Y.Map<unknown>>, frameIds: readonly string[]): string[] {
+	const freed: string[] = [];
+	for (const fid of frameIds) {
+		const f = yNodes.get(fid);
+		if (!f || f.get("type") !== "frame") continue;
+		const up = nodeParent(f);
+		for (const [id, m] of yNodes) {
+			if (nodeParent(m) !== fid) continue;
+			if (up !== undefined && up !== fid) m.set("parent", up);
+			else m.delete("parent");
+			freed.push(id);
+		}
+		yNodes.delete(fid);
+	}
+	return freed;
+}
+
 const str = (v: unknown): string | undefined => (typeof v === "string" ? v : v instanceof Y.Text ? v.toString() : undefined);
 
 function swatches(v: unknown): Swatch[] | undefined {

@@ -62,7 +62,8 @@ export function useTidy(): Tidy {
 			const boxes: Box[] = [];
 			for (const [id, n] of lookup) {
 				const m = yNodes.get(id);
-				if (!m) continue;
+				// A frame groups the cards drawn over it: cards may sit on it, so it is never a collision.
+				if (!m || m.get("type") === "frame") continue;
 				const x = m.get("x");
 				const y = m.get("y");
 				const placed = isNum(x) && isNum(y);

@@ -650,6 +650,10 @@ mark {
 	will-change: transform;
 	transition: opacity 0.2s;
 }
+/* An agent's cursor fades out a few seconds after it stops working (cursors.tsx). */
+.cv-cursor.is-agent {
+	transition: opacity 0.6s;
+}
 .cv-cursor.is-offscreen {
 	opacity: 0.55 !important;
 }
@@ -1015,23 +1019,42 @@ mark {
 }
 .cv-people {
 	display: flex;
-	gap: 4px;
+	flex-wrap: wrap;
+	gap: 4px 10px;
 	margin-top: 8px;
 }
-.cv-people span,
-.cv-people img {
-	width: 22px;
-	height: 22px;
-	border-radius: 50%;
+.cv-person {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	font-size: 12px;
+	transition: opacity 0.3s;
 }
-.cv-people span {
+.cv-person em {
+	font-style: normal;
+	font-size: 11px;
+	color: var(--c-muted);
+}
+/* A joined agent (or the canvas self) with nothing running and nothing handed to it. */
+.cv-person.is-idle {
+	opacity: 0.45;
+}
+.cv-person i,
+.cv-person img {
+	width: 20px;
+	height: 20px;
+	border-radius: 50%;
+	flex: none;
+}
+.cv-person i {
 	color: #fff;
 	font-size: 11px;
+	font-style: normal;
 	font-weight: 600;
 	display: grid;
 	place-items: center;
 }
-.cv-people img {
+.cv-person img {
 	border: 2px solid;
 	background: var(--c-surface);
 	object-fit: cover;
