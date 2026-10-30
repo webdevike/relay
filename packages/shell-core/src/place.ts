@@ -11,6 +11,7 @@ export type FixedPage =
   | 'canvas'
   | 'rooms'
   | 'studio'
+  | 'reviews'
   | 'settings'
 /**
  * `agent:<id>` is a registry agent's thread (native Page::Agent), `board:<slug>` a Relay host
@@ -42,6 +43,7 @@ const FIXED_PAGES: readonly string[] = [
   'canvas',
   'rooms',
   'studio',
+  'reviews',
   'settings',
 ]
 

@@ -10,13 +10,14 @@ import './pages.css'
 /** One page other than a chat, in its page area: in the chat pane, or as a page tab in a tool pane. */
 export function PageView({ place }: { place: Place }) {
   const meta = pageMeta(place)
-  // The theme editor, Canvas, Rooms and Studio own their scrolling (two panes; a board; a chat
-  // feed; a composer beside a gallery).
+  // The theme editor, Canvas, Rooms, Studio and Reviews own their scrolling (two panes; a board; a
+  // chat feed; a composer beside a gallery; a queue beside a pull request).
   const ownsScroll =
     (meta.kind === 'settings' && place.settingsSection === 'Theme') ||
     meta.kind === 'canvas' ||
     meta.slug === 'rooms' ||
-    meta.slug === 'studio'
+    meta.slug === 'studio' ||
+    meta.slug === 'reviews'
   const key = placeKey(place)
   const Page = pageRegistry[meta.kind as PageRegistryKind]
   return (

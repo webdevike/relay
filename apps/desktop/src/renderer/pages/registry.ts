@@ -15,6 +15,7 @@ import { RoomsPage } from '../rooms/RoomsPage'
 import { WorkspacePage } from '../workspace/WorkspacePage'
 import { SettingsPage } from '../settings/SettingsPage'
 import { StudioPage } from '../studio/StudioPage'
+import { ReviewsPage } from '../reviews/ReviewsPage'
 import { TestBenchPage } from '../test-bench/TestBenchPage'
 
 export type PageRegistryKind =
@@ -29,6 +30,7 @@ const PAGE_BY_SLUG: Record<string, ComponentType<{ place: Place }>> = {
   meetings: MeetingsHome,
   rooms: RoomsPage,
   studio: StudioPage,
+  reviews: ReviewsPage,
 }
 
 /** Dispatches the implemented top-level pages. */

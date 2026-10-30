@@ -30,6 +30,7 @@ import {
 } from './chat/widget-protocols'
 import { registerUsageIpc } from './usage/usage-ipc'
 import { linearReader, registerLinearIpc } from './linear/linear-ipc'
+import { registerReviewsIpc } from './reviews/reviews-ipc'
 import { createPrSource, toolRunner } from './context-popover/pr-source'
 import { startStatusReader } from './relay/artifacts-status'
 import { registerRoomsIpc } from './rooms/rooms-ipc'
@@ -170,6 +171,7 @@ function bootstrap(): void {
       registerCanvasIpc(ctx)
       registerUsageIpc(ctx, chat.mini)
       registerLinearIpc(ctx, linear)
+      registerReviewsIpc(ctx, run)
       registerRoomsIpc(ctx)
       registerFilesIpc(ctx, chat)
       registerBrowser(ctx)

@@ -64,6 +64,7 @@ export const AGENT_FIXED_PAGES = [
   'canvas',
   'rooms',
   'studio',
+  'reviews',
   'settings',
 ] as const
 

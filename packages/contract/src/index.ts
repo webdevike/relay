@@ -18,6 +18,7 @@ import { artifactsEvents, artifactsInvoke } from './artifacts'
 import { studioEvents, studioInvoke } from './studio'
 import { draftsInvoke } from './drafts'
 import { linearInvoke } from './linear'
+import { reviewsInvoke } from './reviews'
 import { roomsEvents, roomsInvoke } from './rooms'
 import { filesEvents, filesInvoke } from './files'
 import { agentEvents, agentInvoke } from './agent'
@@ -34,6 +35,7 @@ export * from './artifacts'
 export * from './studio'
 export * from './drafts'
 export * from './linear'
+export * from './reviews'
 export * from './rooms'
 export * from './rooms-roster'
 export * from './rooms-mentions'
@@ -62,6 +64,7 @@ export {
 
 export const invokeContract = {
   ...linearInvoke,
+  ...reviewsInvoke,
   ...appInvoke,
   ...shellInvoke,
   ...evaInvoke,
