@@ -5,7 +5,8 @@
 //
 // start(agent): haptic -> Live Activity -> microphone + audio session -> peer connection (mic
 // track, `oai-events` data channel) -> offer with every ICE candidate -> host link (handshake) ->
-// `live.start` -> `live.answer` -> remote description -> `session.started` on the data channel:
+// `live.start` -> `live.answer` -> remote description (on an IPv6-only network each IPv4 candidate
+// also at its NAT64 address, see LiveCallNetwork) -> `session.started` on the data channel:
 // listening. Anything failing before that ends the call cleanly and reports a fallback (the
 // legacy call); once live, failures just end it. end(): `session.close` (waiting up to 3 s for
 // `session.closed`), `live.end` to the host, everything closed, audio session handed back, the
@@ -110,6 +111,8 @@ private final class LiveCallRun {
   var speakingTimer: Task<Void, Never>?
   var disconnectTimer: Task<Void, Never>?
   var audioObservers: [NSObjectProtocol] = []
+  /// Why it did not go live, network-wise; sent to the host with `live.end`, never shown.
+  var diagnosis: String?
 
   init(agent: String) {
     self.agent = agent
@@ -262,13 +265,22 @@ public final class LiveCallEngine {
     let answer = try await run.answer.wait(
       seconds: Self.answerSeconds, timeoutError: LiveCallFailure.fallback("Your Mac did not answer the live call"))
     try check(run)
+    let remote = LiveCallNetwork.withNat64Candidates(answer)
+    if remote.added > 0 { NSLog("[LiveCall] NAT64 network: added \(remote.added) IPv6 twins of GPT-Live's IPv4 candidates") }
     do {
-      try await peer.setRemoteDescription(RTCSessionDescription(type: .answer, sdp: answer))
+      try await peer.setRemoteDescription(RTCSessionDescription(type: .answer, sdp: remote.sdp))
     } catch {
       throw LiveCallFailure.fallback("GPT-Live's answer was unusable: \(error.localizedDescription)")
     }
-    try await run.started.wait(
-      seconds: Self.sessionSeconds, timeoutError: LiveCallFailure.fallback("GPT-Live did not start the session"))
+    do {
+      try await run.started.wait(
+        seconds: Self.sessionSeconds, timeoutError: LiveCallFailure.fallback("GPT-Live did not start the session"))
+    } catch LiveCallFailure.fallback(let reason) {
+      // For the host log only (with live.end): says whether the network or GPT-Live held it up.
+      run.diagnosis = LiveCallNetwork.diagnosis(peer: run.peer, channel: run.channel, nat64Added: remote.added)
+      NSLog("[LiveCall] not live: \(reason) (\(run.diagnosis ?? ""))")
+      throw LiveCallFailure.fallback(reason)
+    }
   }
 
   private func check(_ run: LiveCallRun) throws {
@@ -537,7 +549,7 @@ public final class LiveCallEngine {
     }
     if !hostEnded && run.link.host != nil {
       var frame: [String: Any] = ["t": "live.end", "callId": run.id]
-      if let error { frame["reason"] = String(error.prefix(2000)) }
+      if let error { frame["reason"] = String((run.diagnosis.map { "\(error) (\($0))" } ?? error).prefix(2000)) }
       await run.link.sendAndWait(frame, seconds: 1)
     }
     run.link.close()
