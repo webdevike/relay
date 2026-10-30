@@ -7,7 +7,11 @@ import { parseDiff, splitPath } from './diff'
 
 type Filter = 'all' | 'unviewed' | 'viewed'
 
-const CHANGE_LABEL: Record<string, string> = { ADDED: 'added', DELETED: 'deleted', RENAMED: 'renamed' }
+const CHANGE_LABEL: Record<string, string> = {
+  ADDED: 'added',
+  DELETED: 'deleted',
+  RENAMED: 'renamed',
+}
 
 /** Files: a flat file rail (filter, Viewed boxes) beside every file's diff, split by default. */
 export function ReviewFiles({
@@ -69,7 +73,8 @@ export function ReviewFiles({
         />
         <span className="eva-rv-spacer" />
         <span className="eva-rv-dim">
-          {pr.files.length} files · {pr.files.filter((f) => viewed.has(f.path)).length} / {pr.files.length} viewed
+          {pr.files.length} files · {pr.files.filter((f) => viewed.has(f.path)).length} /{' '}
+          {pr.files.length} viewed
         </span>
         <SegmentedControl
           size="xs"
@@ -136,7 +141,9 @@ export function ReviewFiles({
                   </span>
                   <span className="eva-rv-spacer" />
                   {CHANGE_LABEL[f.change] ? (
-                    <span className="eva-rv-pill" data-tone="green">{CHANGE_LABEL[f.change]}</span>
+                    <span className="eva-rv-pill" data-tone="green">
+                      {CHANGE_LABEL[f.change]}
+                    </span>
                   ) : null}
                   <span className="eva-rv-add">+{f.additions}</span>
                   <span className="eva-rv-del">-{f.deletions}</span>

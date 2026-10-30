@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { Button, Modal, SegmentedControl, Textarea } from '@mantine/core'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { Button, SegmentedControl, Textarea } from '@mantine/core'
+import { EvaModal } from '../overlay'
 import { notifications } from '@mantine/notifications'
 import {
   IconBook2,
@@ -27,7 +28,15 @@ import { openLink } from '../navigation/open-link'
 import { Markdown } from '../chat/markdown/Markdown'
 import { ReviewFiles } from './ReviewFiles'
 import { ReviewGuide } from './ReviewGuide'
-import { ago, mentionsAstra, nextAfter, prKey, queueGroups, type QueueGroup } from './review-model'
+import {
+  ago,
+  agoPhrase,
+  mentionsAstra,
+  nextAfter,
+  prKey,
+  queueGroups,
+  type QueueGroup,
+} from './review-model'
 import './reviews.css'
 
 type Tab = 'conversation' | 'files' | 'commits' | 'checks' | 'guide'
@@ -151,20 +160,20 @@ function Queue({
             {g.label} <span className="eva-rv-dim">{g.count}</span>
             {closed[g.id] ? <IconChevronRight size={12} /> : <IconChevronDown size={12} />}
           </button>
-          {closed[g.id]
-            ? null
-            : g.rows.length === 0
-              ? <div className="eva-rv-dim eva-rv-pad">Nothing here.</div>
-              : g.rows.map((r) => (
-                  <QueueRow
-                    key={prKey(r)}
-                    row={r}
-                    subtitle={g.subtitle}
-                    active={selected === prKey(r)}
-                    now={now}
-                    onOpen={() => onOpen(r)}
-                  />
-                ))}
+          {closed[g.id] ? null : g.rows.length === 0 ? (
+            <div className="eva-rv-dim eva-rv-pad">Nothing here.</div>
+          ) : (
+            g.rows.map((r) => (
+              <QueueRow
+                key={prKey(r)}
+                row={r}
+                subtitle={g.subtitle}
+                active={selected === prKey(r)}
+                now={now}
+                onOpen={() => onOpen(r)}
+              />
+            ))
+          )}
         </div>
       ))}
     </aside>
@@ -200,7 +209,9 @@ function Rail({ pr }: { pr: ReviewPr }) {
               <Avatar login={r.login} />
               <span className="eva-rv-ellipsis">{r.login}</span>
               <span className="eva-rv-spacer" />
-              <span className="eva-rv-pill" data-tone={s.tone}>{s.label}</span>
+              <span className="eva-rv-pill" data-tone={s.tone}>
+                {s.label}
+              </span>
             </div>
           )
         })}
@@ -208,27 +219,40 @@ function Rail({ pr }: { pr: ReviewPr }) {
       <RailSection title="Assignees">
         {pr.assignees.length === 0 ? <div className="eva-rv-dim">Nobody assigned.</div> : null}
         {pr.assignees.map((a) => (
-          <div key={a} className="eva-rv-rail-person"><Avatar login={a} />{a}</div>
+          <div key={a} className="eva-rv-rail-person">
+            <Avatar login={a} />
+            {a}
+          </div>
         ))}
       </RailSection>
       <RailSection title="Labels">
-        {pr.labels.length === 0 ? <div className="eva-rv-dim">No labels.</div> : (
+        {pr.labels.length === 0 ? (
+          <div className="eva-rv-dim">No labels.</div>
+        ) : (
           <div className="eva-rv-labels">
             {pr.labels.map((l) => (
-              <span key={l.name} className="eva-rv-label" style={{ borderColor: `#${l.color}` }}>{l.name}</span>
+              <span key={l.name} className="eva-rv-label" style={{ borderColor: `#${l.color}` }}>
+                {l.name}
+              </span>
             ))}
           </div>
         )}
       </RailSection>
       <RailSection title="Milestone">
-        <div className={pr.milestone ? undefined : 'eva-rv-dim'}>{pr.milestone ?? 'No milestone.'}</div>
+        <div className={pr.milestone ? undefined : 'eva-rv-dim'}>
+          {pr.milestone ?? 'No milestone.'}
+        </div>
       </RailSection>
       <RailSection title="Projects">
-        <div className={pr.projects.length ? undefined : 'eva-rv-dim'}>{pr.projects.join(', ') || 'None yet.'}</div>
+        <div className={pr.projects.length ? undefined : 'eva-rv-dim'}>
+          {pr.projects.join(', ') || 'None yet.'}
+        </div>
       </RailSection>
       <RailSection title="Participants">
         <div className="eva-rv-labels">
-          {pr.participants.map((p) => <Avatar key={p} login={p} />)}
+          {pr.participants.map((p) => (
+            <Avatar key={p} login={p} />
+          ))}
         </div>
       </RailSection>
     </aside>
@@ -241,39 +265,49 @@ function CheckIcon({ state }: { state: string }) {
   return <IconCircleDashed size={15} className="eva-rv-dim" />
 }
 
-function Conversation({
-  pr,
-  asks,
-  now,
-}: {
-  pr: ReviewPr
-  asks: PrivateAsk[]
-  now: number
-}) {
+function Conversation({ pr, asks, now }: { pr: ReviewPr; asks: PrivateAsk[]; now: number }) {
+  // A question just sent shows where it landed: the end of the conversation.
+  const lastAsk = useRef<HTMLDivElement>(null)
+  const asked = useRef(asks.length)
+  useEffect(() => {
+    if (asks.length > asked.current) lastAsk.current?.scrollIntoView({ block: 'nearest' })
+    asked.current = asks.length
+  }, [asks.length])
   // One timeline: comments and reviews interleaved with pushes, oldest first, like E3.
   const items = [
-    ...pr.commits.map((c) => ({ at: c.at, key: `c${c.oid}`, node: (
-      <div className="eva-rv-push">
-        <IconGitCommit size={13} className="eva-rv-dim" />
-        <b>{c.author}</b> <span className="eva-rv-dim">pushed</span>
-        <code className="eva-rv-sha">{c.oid.slice(0, 7)}</code>
-        <span className="eva-rv-ellipsis">{c.headline}</span>
-        <span className="eva-rv-spacer" />
-        <span className="eva-rv-dim">{ago(c.at, now)}</span>
-      </div>
-    ) })),
-    ...pr.timeline.map((t, i) => ({ at: t.at, key: `t${i}`, node: (
-      <div className="eva-rv-comment">
-        <div className="eva-rv-comment-head">
-          <Avatar login={t.author} />
-          <b>{t.author}</b>
-          <span className="eva-rv-dim">
-            {t.kind === 'review' ? (REVIEW_STATE[t.state ?? '']?.label.toLowerCase() ?? 'reviewed') : 'commented'} {ago(t.at, now)} ago
-          </span>
+    ...pr.commits.map((c) => ({
+      at: c.at,
+      key: `c${c.oid}`,
+      node: (
+        <div className="eva-rv-push">
+          <IconGitCommit size={13} className="eva-rv-dim" />
+          <b>{c.author}</b> <span className="eva-rv-dim">pushed</span>
+          <code className="eva-rv-sha">{c.oid.slice(0, 7)}</code>
+          <span className="eva-rv-ellipsis">{c.headline}</span>
+          <span className="eva-rv-spacer" />
+          <span className="eva-rv-dim">{ago(c.at, now)}</span>
         </div>
-        {t.body.trim() ? <Markdown text={t.body} /> : null}
-      </div>
-    ) })),
+      ),
+    })),
+    ...pr.timeline.map((t, i) => ({
+      at: t.at,
+      key: `t${i}`,
+      node: (
+        <div className="eva-rv-comment">
+          <div className="eva-rv-comment-head">
+            <Avatar login={t.author} />
+            <b>{t.author}</b>
+            <span className="eva-rv-dim">
+              {t.kind === 'review'
+                ? (REVIEW_STATE[t.state ?? '']?.label.toLowerCase() ?? 'reviewed')
+                : 'commented'}{' '}
+              {agoPhrase(t.at, now)}
+            </span>
+          </div>
+          {t.body.trim() ? <Markdown text={t.body} /> : null}
+        </div>
+      ),
+    })),
   ].sort((a, b) => a.at - b.at)
 
   return (
@@ -281,18 +315,30 @@ function Conversation({
       <div className="eva-rv-comment-head">
         <Avatar login={pr.author.login} />
         <b>{pr.author.login}</b>
-        <span className="eva-rv-dim">opened this {ago(pr.createdAt, now)} ago</span>
+        <span className="eva-rv-dim">opened this {agoPhrase(pr.createdAt, now)}</span>
       </div>
       <div className="eva-rv-body">
-        {pr.body.trim() ? <Markdown text={pr.body} /> : <span className="eva-rv-dim">No description.</span>}
+        {pr.body.trim() ? (
+          <Markdown text={pr.body} />
+        ) : (
+          <span className="eva-rv-dim">No description.</span>
+        )}
       </div>
       <div className="eva-rv-timeline">
-        {items.map((i) => <div key={i.key}>{i.node}</div>)}
+        {items.map((i) => (
+          <div key={i.key}>{i.node}</div>
+        ))}
       </div>
       {asks.map((a, i) => (
-        <div key={i} className="eva-rv-private" data-testid="review-private-ask">
+        <div
+          key={i}
+          ref={i === asks.length - 1 ? lastAsk : undefined}
+          className="eva-rv-private"
+          data-testid="review-private-ask"
+        >
           <div className="eva-rv-private-head">
-            <IconLock size={13} /> Private to Astra <span className="eva-rv-dim">{ago(a.at, now)}</span>
+            <IconLock size={13} /> Private to Astra{' '}
+            <span className="eva-rv-dim">{agoPhrase(a.at, now)}</span>
           </div>
           <div className="eva-rv-private-q">{a.text}</div>
           <div className="eva-rv-dim">
@@ -329,7 +375,8 @@ function Commits({ pr, now }: { pr: ReviewPr; now: number }) {
 }
 
 function Checks({ pr }: { pr: ReviewPr }) {
-  if (pr.checks.length === 0) return <div className="eva-rv-empty">No checks ran on this pull request.</div>
+  if (pr.checks.length === 0)
+    return <div className="eva-rv-empty">No checks ran on this pull request.</div>
   return (
     <div className="eva-rv-list" data-testid="review-checks">
       {pr.checks.map((c, i) => (
@@ -393,7 +440,10 @@ function Detail({
     }
     if (kind === 'ask') setAsks([...asks, { text, at: Date.now(), status: r.value.status }])
     notifications.show({
-      message: r.value.status === 'sent' ? "Sent to Astra's thread." : `Test instance, not sent: ${r.value.command}`,
+      message:
+        r.value.status === 'sent'
+          ? "Sent to Astra's thread."
+          : `Test instance, not sent: ${r.value.command}`,
       color: r.value.status === 'sent' ? 'green' : 'gray',
     })
     return true
@@ -420,7 +470,8 @@ function Detail({
         : await invoke('reviews.comment', { ...ref, body: draft.trim() })
     setBusy(false)
     setConfirm(null)
-    if (!r.ok) return fail(r.error.code === 'dry-run' ? 'Not posted' : "Couldn't post it", r.error.message)
+    if (!r.ok)
+      return fail(r.error.code === 'dry-run' ? 'Not posted' : "Couldn't post it", r.error.message)
     setDraft('')
     notifications.show({ message: 'Posted on GitHub.', color: 'green' })
     onRefresh()
@@ -433,7 +484,13 @@ function Detail({
     { id: 'checks', label: 'Checks', count: pr.checks.length, icon: <IconCircleCheck size={13} /> },
     { id: 'guide', label: 'Guide', icon: <IconBook2 size={13} /> },
   ]
-  const state = pr.draft ? 'Draft' : pr.state === 'OPEN' ? 'Open' : pr.state === 'MERGED' ? 'Merged' : 'Closed'
+  const state = pr.draft
+    ? 'Draft'
+    : pr.state === 'OPEN'
+      ? 'Open'
+      : pr.state === 'MERGED'
+        ? 'Merged'
+        : 'Closed'
 
   return (
     <section className="eva-rv-detail" data-testid="review-detail">
@@ -442,31 +499,55 @@ function Detail({
           <IconChevronLeft size={14} /> Inbox
         </button>
         <span className="eva-rv-spacer" />
-        <span className="eva-rv-dim eva-rv-small">updated {ago(fetchedAt, now)} ago</span>
+        <span className="eva-rv-dim eva-rv-small">updated {agoPhrase(fetchedAt, now)}</span>
         <button type="button" className="eva-rv-iconbtn" aria-label="Refresh" onClick={onRefresh}>
           <IconRefresh size={14} />
         </button>
-        <Button size="xs" leftSection={<IconSparkles size={14} />} onClick={() => setConfirm('handoff')} data-testid="review-handoff">
+        <Button
+          size="xs"
+          leftSection={<IconSparkles size={14} />}
+          onClick={() => setConfirm('handoff')}
+          data-testid="review-handoff"
+        >
           Hand to Astra
         </Button>
-        <Button size="xs" variant="default" leftSection={<IconCheck size={14} />} onClick={onDone} data-testid="review-done">
+        <Button
+          size="xs"
+          variant="default"
+          leftSection={<IconCheck size={14} />}
+          onClick={onDone}
+          data-testid="review-done"
+        >
           Done
         </Button>
-        <button type="button" className="eva-rv-iconbtn" aria-label="Open on GitHub" onClick={() => openLink(pr.url)}>
+        <button
+          type="button"
+          className="eva-rv-iconbtn"
+          aria-label="Open on GitHub"
+          onClick={() => openLink(pr.url)}
+        >
           <IconExternalLink size={14} />
         </button>
       </header>
       <div className="eva-rv-head">
         <div className="eva-rv-titlerow">
           <IconGitPullRequest size={15} className="eva-rv-ok" />
-          <span className="eva-rv-dim eva-rv-mono eva-rv-repo" title={pr.repo}>{pr.repo}</span>
+          <span className="eva-rv-dim eva-rv-mono eva-rv-repo" title={pr.repo}>
+            {pr.repo}
+          </span>
           <span className="eva-rv-dim">#{pr.number}</span>
           <h1 className="eva-rv-title">{pr.title}</h1>
         </div>
         <div className="eva-rv-meta">
-          <span className="eva-rv-pill" data-tone={state === 'Open' ? 'green' : state === 'Merged' ? 'violet' : 'gray'}>{state}</span>
+          <span
+            className="eva-rv-pill"
+            data-tone={state === 'Open' ? 'green' : state === 'Merged' ? 'violet' : 'gray'}
+          >
+            {state}
+          </span>
           <span>{pr.author.login}</span>·<span>{ago(pr.createdAt, now)}</span>·
-          <IconGitBranch size={12} /><span className="eva-rv-mono">{pr.base}</span>
+          <IconGitBranch size={12} />
+          <span className="eva-rv-mono">{pr.base}</span>
           <span className="eva-rv-dim">‹</span>
           <span className="eva-rv-mono">{pr.head}</span>·
           <span className="eva-rv-add">+{pr.additions}</span>
@@ -535,20 +616,32 @@ function Detail({
               <div className="eva-rv-composer-foot">
                 <span className="eva-rv-dim eva-rv-small">
                   {mentionsAstra(draft) ? (
-                    <><IconLock size={11} /> Private to Astra, never posted on GitHub</>
+                    <>
+                      <IconLock size={11} /> Private to Astra, never posted on GitHub
+                    </>
                   ) : (
                     'Cmd+Enter to comment'
                   )}
                 </span>
                 <span className="eva-rv-spacer" />
-                <Button size="xs" variant="subtle" disabled={!draft.trim() || busy} onClick={() => void submit()}>
+                <Button
+                  size="xs"
+                  variant="subtle"
+                  disabled={!draft.trim() || busy}
+                  onClick={() => void submit()}
+                >
                   {mentionsAstra(draft) ? 'Ask Astra' : 'Comment'}
                 </Button>
               </div>
             </div>
           ) : tab === 'files' || tab === 'guide' ? (
             <div className="eva-rv-dock">
-              <button type="button" className="eva-rv-dockbtn" onClick={() => setConfirm('review')} data-testid="review-changes">
+              <button
+                type="button"
+                className="eva-rv-dockbtn"
+                onClick={() => setConfirm('review')}
+                data-testid="review-changes"
+              >
                 <IconMessage size={14} /> Review changes
               </button>
             </div>
@@ -557,23 +650,34 @@ function Detail({
         <Rail pr={pr} />
       </div>
 
-      <Modal
+      <EvaModal
         opened={confirm === 'comment'}
         onClose={() => setConfirm(null)}
         title="Post this comment on GitHub?"
-        centered
+        size={480}
       >
-        <div className="eva-rv-confirm-text" data-testid="review-confirm-text">{draft.trim()}</div>
+        <div className="eva-rv-confirm-text" data-testid="review-confirm-text">
+          {draft.trim()}
+        </div>
         <div className="eva-rv-dim eva-rv-small">
           Posts as you on {pr.repo}#{pr.number}. Everyone on the PR sees it.
         </div>
         <div className="eva-rv-modal-actions">
-          <Button variant="default" onClick={() => setConfirm(null)}>Cancel</Button>
-          <Button loading={busy} onClick={() => void post()} data-testid="review-confirm-post">Post comment</Button>
+          <Button variant="default" onClick={() => setConfirm(null)}>
+            Cancel
+          </Button>
+          <Button loading={busy} onClick={() => void post()} data-testid="review-confirm-post">
+            Post comment
+          </Button>
         </div>
-      </Modal>
+      </EvaModal>
 
-      <Modal opened={confirm === 'review'} onClose={() => setConfirm(null)} title="Review changes" centered>
+      <EvaModal
+        opened={confirm === 'review'}
+        onClose={() => setConfirm(null)}
+        title="Review changes"
+        size={480}
+      >
         <SegmentedControl
           fullWidth
           value={event}
@@ -589,7 +693,9 @@ function Detail({
           onChange={(e) => setDraft(e.currentTarget.value)}
         />
         <div className="eva-rv-modal-actions">
-          <Button variant="default" onClick={() => setConfirm(null)}>Cancel</Button>
+          <Button variant="default" onClick={() => setConfirm(null)}>
+            Cancel
+          </Button>
           <Button
             loading={busy}
             disabled={event !== 'approve' && !draft.trim()}
@@ -598,12 +704,17 @@ function Detail({
             Submit review on GitHub
           </Button>
         </div>
-      </Modal>
+      </EvaModal>
 
-      <Modal opened={confirm === 'handoff'} onClose={() => setConfirm(null)} title="Hand to Astra" centered>
+      <EvaModal
+        opened={confirm === 'handoff'}
+        onClose={() => setConfirm(null)}
+        title="Hand to Astra"
+        size={480}
+      >
         <div className="eva-rv-dim eva-rv-small">
-          Astra gets {pr.repo}#{pr.number} in her thread, reviews it and tells you what needs your call.
-          Nothing is posted on GitHub.
+          Astra gets {pr.repo}#{pr.number} in her thread, reviews it and tells you what needs your
+          call. Nothing is posted on GitHub.
         </div>
         <Textarea
           mt="sm"
@@ -615,7 +726,9 @@ function Detail({
           data-testid="review-handoff-note"
         />
         <div className="eva-rv-modal-actions">
-          <Button variant="default" onClick={() => setConfirm(null)}>Cancel</Button>
+          <Button variant="default" onClick={() => setConfirm(null)}>
+            Cancel
+          </Button>
           <Button
             loading={busy}
             leftSection={<IconSparkles size={14} />}
@@ -633,7 +746,7 @@ function Detail({
             Send to Astra
           </Button>
         </div>
-      </Modal>
+      </EvaModal>
     </section>
   )
 }
@@ -677,7 +790,8 @@ export function ReviewsPage(_: { place: Place }) {
   // Open the first PR that needs Isaac once the queue arrives.
   useEffect(() => {
     if (!queue || selected || autoOpened) return
-    const first = queueGroups(queue, view).find((g) => g.rows.length > 0 && g.id !== 'completed')?.rows[0]
+    const first = queueGroups(queue, view).find((g) => g.rows.length > 0 && g.id !== 'completed')
+      ?.rows[0]
     if (first) {
       setAutoOpened(true)
       setSelected(first)
@@ -690,7 +804,11 @@ export function ReviewsPage(_: { place: Place }) {
 
   const done = async (): Promise<void> => {
     if (!queue || !pr || !selected) return
-    const r = await invoke('reviews.done', { url: pr.pr.url, updatedAt: Math.max(selected.updatedAt, pr.pr.updatedAt), done: true })
+    const r = await invoke('reviews.done', {
+      url: pr.pr.url,
+      updatedAt: Math.max(selected.updatedAt, pr.pr.updatedAt),
+      done: true,
+    })
     if (!r.ok) return fail("Couldn't mark it done", r.error.message)
     const next = nextAfter(queueGroups(queue, view), pr.key)
     setQueue({ ...queue, done: r.value })
@@ -733,7 +851,13 @@ export function ReviewsPage(_: { place: Place }) {
         />
       ) : (
         <div className="eva-rv-placeholder eva-rv-dim">
-          {prError ? `Couldn't load the pull request: ${prError}` : selected ? 'Loading the pull request...' : queue ? 'Pick a pull request from the queue.' : 'Loading your reviews...'}
+          {prError
+            ? `Couldn't load the pull request: ${prError}`
+            : selected
+              ? 'Loading the pull request...'
+              : queue
+                ? 'Pick a pull request from the queue.'
+                : 'Loading your reviews...'}
         </div>
       )}
     </div>

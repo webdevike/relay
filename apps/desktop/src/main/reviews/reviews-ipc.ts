@@ -65,7 +65,12 @@ interface Raw {
   files: Array<{ path: string; additions: number; deletions: number; changeType?: string }>
   reviewRequests: Array<{ login?: string; name?: string; slug?: string }>
   latestReviews: Array<{ author: { login: string } | null; state: string }>
-  reviews: Array<{ author: { login: string } | null; state: string; body: string; submittedAt: string }>
+  reviews: Array<{
+    author: { login: string } | null
+    state: string
+    body: string
+    submittedAt: string
+  }>
   comments: Array<{ author: { login: string } | null; body: string; createdAt: string }>
   assignees: Array<{ login: string }>
   labels: Array<{ name: string; color: string }>
@@ -177,7 +182,12 @@ export function toPr(repo: string, raw: Raw, diff: string): ReviewPr {
 }
 
 /** What Astra reads: the ask or handoff, then the PR. */
-export function astraLine(kind: 'handoff' | 'ask', title: string, url: string, text: string): string {
+export function astraLine(
+  kind: 'handoff' | 'ask',
+  title: string,
+  url: string,
+  text: string,
+): string {
   const note = text.trim()
   if (kind === 'ask') {
     return `Private question from Isaac's Reviews inbox (answer him, never post it on GitHub): ${note}\nPR: ${title} ${url}`
@@ -192,24 +202,35 @@ export function registerReviewsIpc(ctx: MainContext, run: ToolRun): void {
   const cwd = os.homedir()
 
   const gh = async (args: string[]): Promise<string> => {
-    if (!readsGitHub) throw fail('github-off', 'GitHub is off in this instance (EVAOS_REVIEWS_GH=1 turns it on)')
+    if (!readsGitHub)
+      throw fail('github-off', 'GitHub is off in this instance (EVAOS_REVIEWS_GH=1 turns it on)')
     const res = await run('gh', args, cwd)
     if (res.code !== 0) throw fail('gh-failed', `gh ${args.slice(0, 2).join(' ')} failed`)
     return res.stdout
   }
 
-  const search = async (q: string, perPage: number): Promise<{ total: number; rows: ReviewRow[] }> => {
+  const search = async (
+    q: string,
+    perPage: number,
+  ): Promise<{ total: number; rows: ReviewRow[] }> => {
     const out = await gh([
-      'api', '-X', 'GET', 'search/issues',
-      '-f', `q=is:pr org:${REVIEWS_ORG} ${q}`,
-      '-f', `per_page=${perPage}`,
-      '-f', 'sort=updated',
+      'api',
+      '-X',
+      'GET',
+      'search/issues',
+      '-f',
+      `q=is:pr org:${REVIEWS_ORG} ${q}`,
+      '-f',
+      `per_page=${perPage}`,
+      '-f',
+      'sort=updated',
     ])
     const body = JSON.parse(out) as { total_count: number; items: SearchItem[] }
     return { total: body.total_count, rows: body.items.map(toRow) }
   }
 
-  const done = (): Record<string, number> => ctx.config.readJson<Record<string, number>>(DONE_FILE, {})
+  const done = (): Record<string, number> =>
+    ctx.config.readJson<Record<string, number>>(DONE_FILE, {})
 
   let cached: { at: number; queue: Promise<Omit<ReviewQueue, 'done'>> } | null = null
   const loadQueue = async (): Promise<Omit<ReviewQueue, 'done'>> => {
@@ -256,8 +277,20 @@ export function registerReviewsIpc(ctx: MainContext, run: ToolRun): void {
 
   handle(ctx, 'reviews.review', async ({ repo, number, event, body }) => {
     if (!writes) throw fail('dry-run', 'Test instance: the review was not submitted')
-    const flag = { approve: '--approve', 'request-changes': '--request-changes', comment: '--comment' }[event]
-    await gh(['pr', 'review', String(number), '-R', repo, flag, ...(body.trim() ? ['--body', body] : [])])
+    const flag = {
+      approve: '--approve',
+      'request-changes': '--request-changes',
+      comment: '--comment',
+    }[event]
+    await gh([
+      'pr',
+      'review',
+      String(number),
+      '-R',
+      repo,
+      flag,
+      ...(body.trim() ? ['--body', body] : []),
+    ])
     return { ok: true as const }
   })
 

@@ -2,13 +2,23 @@ import { Fragment } from 'react'
 import { splitRows, type DiffLine, type Hunk } from './diff'
 
 function Cell({ line, side }: { line: DiffLine | null; side: 'left' | 'right' }) {
-  if (!line) return <><td className="eva-rv-num" data-kind="empty" /><td className="eva-rv-code" data-kind="empty" /></>
+  if (!line)
+    return (
+      <>
+        <td className="eva-rv-num" data-kind="empty" />
+        <td className="eva-rv-code" data-kind="empty" />
+      </>
+    )
   const n = side === 'left' ? line.old : line.new
   const kind = line.kind === 'ctx' ? 'ctx' : line.kind
   return (
     <>
-      <td className="eva-rv-num" data-kind={kind}>{n}</td>
-      <td className="eva-rv-code" data-kind={kind}>{line.text}</td>
+      <td className="eva-rv-num" data-kind={kind}>
+        {n}
+      </td>
+      <td className="eva-rv-code" data-kind={kind}>
+        {line.text}
+      </td>
     </>
   )
 }
@@ -65,12 +75,18 @@ export function DiffView({ hunks, mode }: { hunks: readonly Hunk[]; mode: 'split
             <Skipped count={h.skipped} cols={4} />
             {h.lines.map((l, i) => (
               <tr key={i}>
-                <td className="eva-rv-num" data-kind={l.kind}>{l.old}</td>
-                <td className="eva-rv-num" data-kind={l.kind}>{l.new}</td>
+                <td className="eva-rv-num" data-kind={l.kind}>
+                  {l.old}
+                </td>
+                <td className="eva-rv-num" data-kind={l.kind}>
+                  {l.new}
+                </td>
                 <td className="eva-rv-sign" data-kind={l.kind}>
                   {l.kind === 'add' ? '+' : l.kind === 'del' ? '-' : ''}
                 </td>
-                <td className="eva-rv-code" data-kind={l.kind}>{l.text}</td>
+                <td className="eva-rv-code" data-kind={l.kind}>
+                  {l.text}
+                </td>
               </tr>
             ))}
           </Fragment>

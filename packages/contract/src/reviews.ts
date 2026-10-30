@@ -109,7 +109,10 @@ export const ReviewCommitSchema = z.object({
 export type ReviewCommit = z.infer<typeof ReviewCommitSchema>
 
 /** What a handoff to Astra did: `sent`, or `dry-run` in test instances (the command is shown). */
-export const AstraSendSchema = z.object({ status: z.enum(['sent', 'dry-run']), command: z.string() })
+export const AstraSendSchema = z.object({
+  status: z.enum(['sent', 'dry-run']),
+  command: z.string(),
+})
 
 export const reviewsInvoke = {
   'reviews.queue': {
@@ -122,9 +125,7 @@ export const reviewsInvoke = {
   },
   /** One commit's message and patch: a Guide step. */
   'reviews.commit': {
-    input: z
-      .object({ repo: PrRef.shape.repo, oid: z.string().regex(/^[0-9a-f]{7,40}$/) })
-      .strict(),
+    input: z.object({ repo: PrRef.shape.repo, oid: z.string().regex(/^[0-9a-f]{7,40}$/) }).strict(),
     output: ReviewCommitSchema,
   },
   /** Posts a comment on GitHub. The renderer only calls this after Isaac confirms the exact text. */

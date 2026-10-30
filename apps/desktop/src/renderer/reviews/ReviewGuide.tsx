@@ -9,11 +9,29 @@ import { commitWhy } from './review-model'
 
 const two = (n: number): string => String(n).padStart(2, '0')
 
+/** Core change first: source, then tests, then docs, config and lockfiles. */
+function fileRank(path: string): number {
+  if (
+    /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$|^\.changeset\/|\.(md|json|ya?ml|toml)$/i.test(
+      path,
+    )
+  )
+    return 2
+  if (/(\.test|\.spec)\.\w+$|(^|\/)(__tests__|tests?)\//.test(path)) return 1
+  return 0
+}
+
 /**
  * The PR as a story, one step at a time: each commit in order, its message as the why, then the
- * code it changed. Commits load on demand (one `gh api` call per step shown).
+ * code it changed, core files first. Commits load on demand (one `gh api` call per step shown).
  */
-export function ReviewGuide({ pr, onViewInDiff }: { pr: ReviewPr; onViewInDiff: (path: string) => void }) {
+export function ReviewGuide({
+  pr,
+  onViewInDiff,
+}: {
+  pr: ReviewPr
+  onViewInDiff: (path: string) => void
+}) {
   const steps = pr.commits
   const [step, setStep] = useState(0)
   const [loaded, setLoaded] = useState<Record<string, ReviewCommit | string>>({})
@@ -45,10 +63,22 @@ export function ReviewGuide({ pr, onViewInDiff }: { pr: ReviewPr; onViewInDiff: 
         </span>
         <span className="eva-rv-dim eva-rv-ellipsis">{commit.headline}</span>
         <span className="eva-rv-spacer" />
-        <button type="button" className="eva-rv-iconbtn" aria-label="Previous step" disabled={!prev} onClick={() => setStep(step - 1)}>
+        <button
+          type="button"
+          className="eva-rv-iconbtn"
+          aria-label="Previous step"
+          disabled={!prev}
+          onClick={() => setStep(step - 1)}
+        >
           <IconChevronLeft size={15} />
         </button>
-        <button type="button" className="eva-rv-iconbtn" aria-label="Next step" disabled={!next} onClick={() => setStep(step + 1)}>
+        <button
+          type="button"
+          className="eva-rv-iconbtn"
+          aria-label="Next step"
+          disabled={!next}
+          onClick={() => setStep(step + 1)}
+        >
           <IconChevronRight size={15} />
         </button>
       </div>
@@ -65,7 +95,12 @@ export function ReviewGuide({ pr, onViewInDiff }: { pr: ReviewPr; onViewInDiff: 
           />
         ))}
       </div>
-      <h2 className="eva-rv-guide-title">{commit.headline}</h2>
+      <h2 className="eva-rv-guide-title">
+        {/* GitHub cuts a long headline at 72 characters; the commit's own first line is whole. */}
+        {data !== undefined && typeof data !== 'string'
+          ? data.message.split('\n', 1)[0]
+          : commit.headline}
+      </h2>
       {data === undefined ? (
         <div className="eva-rv-dim">Loading this step...</div>
       ) : typeof data === 'string' ? (
@@ -77,37 +112,45 @@ export function ReviewGuide({ pr, onViewInDiff }: { pr: ReviewPr; onViewInDiff: 
               <Markdown text={commitWhy(data.message)} />
             </div>
           ) : null}
-          {data.files.map((f) => {
-            const { dir, name } = splitPath(f.path)
-            const hunks = parseHunks(f.patch)
-            return (
-              <div key={f.path} className="eva-rv-guide-file">
-                <div className="eva-rv-guide-filehead">
-                  <span className="eva-rv-path">
-                    <span className="eva-rv-dim">{dir}</span>
-                    {name}
-                  </span>
-                  {f.status !== 'modified' ? (
-                    <span className="eva-rv-pill" data-tone="green">{f.status}</span>
-                  ) : null}
-                  <span className="eva-rv-add">+{f.additions}</span>
-                  <span className="eva-rv-del">-{f.deletions}</span>
-                  {inPr.has(f.path) ? (
-                    <button type="button" className="eva-rv-link" onClick={() => onViewInDiff(f.path)}>
-                      View in diff
-                    </button>
-                  ) : null}
-                </div>
-                {hunks.length > 0 ? (
-                  <div className="eva-rv-guide-code">
-                    <DiffView hunks={hunks} mode="unified" />
+          {[...data.files]
+            .sort((a, b) => fileRank(a.path) - fileRank(b.path))
+            .map((f) => {
+              const { dir, name } = splitPath(f.path)
+              const hunks = parseHunks(f.patch)
+              return (
+                <div key={f.path} className="eva-rv-guide-file">
+                  <div className="eva-rv-guide-filehead">
+                    <span className="eva-rv-path">
+                      <span className="eva-rv-dim">{dir}</span>
+                      {name}
+                    </span>
+                    {f.status !== 'modified' ? (
+                      <span className="eva-rv-pill" data-tone="green">
+                        {f.status}
+                      </span>
+                    ) : null}
+                    <span className="eva-rv-add">+{f.additions}</span>
+                    <span className="eva-rv-del">-{f.deletions}</span>
+                    {inPr.has(f.path) ? (
+                      <button
+                        type="button"
+                        className="eva-rv-link"
+                        onClick={() => onViewInDiff(f.path)}
+                      >
+                        View in diff
+                      </button>
+                    ) : null}
                   </div>
-                ) : (
-                  <div className="eva-rv-empty">No text changes to show</div>
-                )}
-              </div>
-            )
-          })}
+                  {hunks.length > 0 ? (
+                    <div className="eva-rv-guide-code">
+                      <DiffView hunks={hunks} mode="unified" />
+                    </div>
+                  ) : (
+                    <div className="eva-rv-empty">No text changes to show</div>
+                  )}
+                </div>
+              )
+            })}
         </>
       )}
       <div className="eva-rv-guide-nav">
@@ -120,7 +163,12 @@ export function ReviewGuide({ pr, onViewInDiff }: { pr: ReviewPr; onViewInDiff: 
           <span />
         )}
         {next ? (
-          <button type="button" className="eva-rv-guide-navbtn" data-next onClick={() => setStep(step + 1)}>
+          <button
+            type="button"
+            className="eva-rv-guide-navbtn"
+            data-next
+            onClick={() => setStep(step + 1)}
+          >
             <span className="eva-rv-dim">{two(step + 2)}</span> {next.headline}
             <IconChevronRight size={14} />
           </button>

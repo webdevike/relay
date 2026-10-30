@@ -15,6 +15,12 @@ export function ago(at: number, now: number): string {
   return `${Math.round(d / 30)}mo`
 }
 
+/** `3d ago`, or `just now`: an age inside a sentence. */
+export function agoPhrase(at: number, now: number): string {
+  const a = ago(at, now)
+  return a === 'just now' ? a : `${a} ago`
+}
+
 /** A row stays hidden after Done until the PR changes again. */
 export function isDone(row: ReviewRow, done: Record<string, number>): boolean {
   const at = done[row.url]
@@ -35,14 +41,34 @@ export function queueGroups(q: ReviewQueue, view: 'for-me' | 'created'): QueueGr
   const live = (rows: ReviewRow[]) => rows.filter((r) => !isDone(r, q.done))
   if (view === 'created') {
     const rows = live(q.created)
-    return [{ id: 'created', label: 'Open', rows, count: rows.length, subtitle: 'Waiting on reviewers' }]
+    return [
+      { id: 'created', label: 'Open', rows, count: rows.length, subtitle: 'Waiting on reviewers' },
+    ]
   }
   const needs = live(q.needs)
   const reviewing = live(q.reviewing)
   return [
-    { id: 'needs', label: 'Needs your review', rows: needs, count: needs.length, subtitle: 'Waiting for your review' },
-    { id: 'reviewing', label: "You're reviewing", rows: reviewing, count: reviewing.length, subtitle: 'You reviewed it' },
-    { id: 'completed', label: 'Completed', rows: q.completed, count: q.completedTotal, subtitle: 'Closed' },
+    {
+      id: 'needs',
+      label: 'Needs your review',
+      rows: needs,
+      count: needs.length,
+      subtitle: 'Waiting for your review',
+    },
+    {
+      id: 'reviewing',
+      label: "You're reviewing",
+      rows: reviewing,
+      count: reviewing.length,
+      subtitle: 'You reviewed it',
+    },
+    {
+      id: 'completed',
+      label: 'Completed',
+      rows: q.completed,
+      count: q.completedTotal,
+      subtitle: 'Closed',
+    },
   ]
 }
 
