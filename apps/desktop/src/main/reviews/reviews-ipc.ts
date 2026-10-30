@@ -4,10 +4,20 @@
 // (EVAOS_E2E=1) never write: both answer `dry-run` with the command they would have run.
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { z } from 'zod'
 import type { ReviewPr, ReviewQueue, ReviewRow } from '@evaos/contract'
 import type { MainContext } from '../context'
 import type { ToolRun } from '../context-popover/pr-source'
 import { handle } from '../ipc/handle'
+import { claudeWriter, guideCache } from './guide'
+
+/** What the Guide is written from. */
+const GuidePr = z.object({
+  title: z.string(),
+  body: z.string(),
+  headRefOid: z.string(),
+  files: z.array(z.object({ path: z.string(), additions: z.number(), deletions: z.number() })),
+})
 
 export const REVIEWS_ORG = 'eCardSystems'
 const DONE_FILE = 'reviews-done.json'
@@ -285,29 +295,14 @@ export function registerReviewsIpc(ctx: MainContext, run: ToolRun): void {
     return { ok: true as const }
   })
 
-  handle(ctx, 'reviews.commit', async ({ repo, oid }) => {
-    const raw = JSON.parse(await gh(['api', `repos/${repo}/commits/${oid}`])) as {
-      sha: string
-      commit: { message: string }
-      files?: Array<{
-        filename: string
-        status: string
-        additions: number
-        deletions: number
-        patch?: string
-      }>
-    }
-    return {
-      oid: raw.sha,
-      message: raw.commit.message,
-      files: (raw.files ?? []).map((f) => ({
-        path: f.filename,
-        status: f.status,
-        additions: f.additions,
-        deletions: f.deletions,
-        patch: f.patch ?? '',
-      })),
-    }
+  const guide = guideCache(ctx.config, claudeWriter(ctx.env.claudeBin, ctx.env.live))
+  handle(ctx, 'reviews.guide', async ({ repo, number }) => {
+    const [view, diff] = await Promise.all([
+      gh(['pr', 'view', String(number), '-R', repo, '--json', 'title,body,files,headRefOid']),
+      gh(['pr', 'diff', String(number), '-R', repo, '--color=never']),
+    ])
+    const pr = GuidePr.parse(JSON.parse(view))
+    return guide(`${repo}#${number}`, pr.headRefOid, { ...pr, diff })
   })
 
   handle(ctx, 'reviews.astra', async ({ url, title, text }) => {

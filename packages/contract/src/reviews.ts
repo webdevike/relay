@@ -92,21 +92,25 @@ export type ReviewPr = z.infer<typeof ReviewPrSchema>
 
 const PrRef = z.object({ repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/), number: z.number().int() })
 
-export const ReviewCommitSchema = z.object({
-  oid: z.string(),
-  message: z.string(),
-  files: z.array(
+/** The Guide: the PR's changed files grouped into sections a reviewer reads top to bottom. */
+export const ReviewGuideSchema = z.object({
+  /** The head commit the Guide was written for (it is cached per head). */
+  headSha: z.string(),
+  /** `model`: written from the title, body and diff; `folders`: the fallback grouping. */
+  source: z.enum(['model', 'folders']),
+  /** Why the model's walkthrough is missing, when source is `folders`. */
+  error: z.string().nullable(),
+  sections: z.array(
     z.object({
-      path: z.string(),
-      status: z.string(),
-      additions: z.number(),
-      deletions: z.number(),
-      /** Unified hunks without the file header; empty for binary or huge files. */
-      patch: z.string(),
+      title: z.string(),
+      /** One to three plain sentences: what this part changes and why. */
+      why: z.string(),
+      /** PR file paths, in reading order. */
+      files: z.array(z.string()),
     }),
   ),
 })
-export type ReviewCommit = z.infer<typeof ReviewCommitSchema>
+export type ReviewGuide = z.infer<typeof ReviewGuideSchema>
 
 /** What an ask to Astra did: `sent`, or `dry-run` in test instances (the command is shown). */
 export const AstraSendSchema = z.object({
@@ -123,10 +127,10 @@ export const reviewsInvoke = {
     input: PrRef.strict(),
     output: ReviewPrSchema,
   },
-  /** One commit's message and patch: a Guide step. */
-  'reviews.commit': {
-    input: z.object({ repo: PrRef.shape.repo, oid: z.string().regex(/^[0-9a-f]{7,40}$/) }).strict(),
-    output: ReviewCommitSchema,
+  /** The Guide for the PR's current head: written by a model, or grouped by folder when that fails. */
+  'reviews.guide': {
+    input: PrRef.strict(),
+    output: ReviewGuideSchema,
   },
   /** Posts a comment on GitHub. The renderer only calls this after Isaac confirms the exact text. */
   'reviews.comment': {

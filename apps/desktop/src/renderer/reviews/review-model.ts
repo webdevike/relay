@@ -83,8 +83,3 @@ export function nextAfter(groups: readonly QueueGroup[], key: string): ReviewRow
 
 /** Mentioning Astra makes a comment a private question to her instead of a GitHub comment. */
 export const mentionsAstra = (text: string): boolean => /(^|\s)@astra\b/i.test(text)
-
-/** The commit message after its headline: a Guide step's why. */
-export function commitWhy(message: string): string {
-  return message.split('\n').slice(1).join('\n').trim()
-}

@@ -1,30 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
-import { Checkbox } from '@mantine/core'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Checkbox, Loader } from '@mantine/core'
 import { IconCheck, IconDots, IconFile } from '@tabler/icons-react'
-import type { ReviewCommit, ReviewPr } from '@evaos/contract'
+import type { ReviewGuide as Guide, ReviewPr } from '@evaos/contract'
 import { invoke } from '../ipc'
 import { openLink } from '../navigation/open-link'
 import { EvaMenu } from '../overlay'
 import { Markdown } from '../chat/markdown/Markdown'
 import { DiffView } from './DiffView'
-import { parseHunks, splitPath } from './diff'
-import { commitWhy } from './review-model'
+import { parseDiff, splitPath } from './diff'
 
 const two = (n: number): string => String(n).padStart(2, '0')
-
-/** Core change first: source, then tests, then docs, config and lockfiles. */
-function fileRank(path: string): number {
-  if (
-    /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$|^\.changeset\/|\.(md|json|ya?ml|toml)$/i.test(
-      path,
-    )
-  )
-    return 2
-  if (/(\.test|\.spec)\.\w+$|(^|\/)(__tests__|tests?)\//.test(path)) return 1
-  return 0
-}
-
-type Loaded = ReviewCommit | string
 
 function FileMenu({ onViewInDiff, url }: { onViewInDiff: () => void; url: string }) {
   const [open, setOpen] = useState(false)
@@ -44,10 +29,11 @@ function FileMenu({ onViewInDiff, url }: { onViewInDiff: () => void; url: string
 }
 
 /**
- * The PR as a story in one scroll, like Linear's Guide: each section (a commit, merges left out)
- * pairs its what and why (the commit message body) and file list on the left with that section's
- * file cards on the right. A reviewed file collapses; a thin tick rail on the far left tracks
- * progress. Reviewed is the same per-file state as Files' Viewed.
+ * The PR as a walkthrough in one scroll, like Linear's Guide: main writes 3 to 6 sections (a model
+ * reads the title, description and diff; cached per head commit; grouped by folder when that
+ * fails). Each section pairs its title, what and why, and file list on the left with its file cards
+ * on the right. A reviewed file collapses; a thin tick rail on the far left tracks progress.
+ * Reviewed is the same per-file state as Files' Viewed.
  */
 export function ReviewGuide({
   pr,
@@ -60,165 +46,163 @@ export function ReviewGuide({
   onViewed: (path: string, on: boolean) => void
   onViewInDiff: (path: string) => void
 }) {
-  const sections = pr.commits.filter((c) => !/^Merge (remote-tracking )?branch /.test(c.headline))
-  const [loaded, setLoaded] = useState<Record<string, Loaded>>({})
+  const [guide, setGuide] = useState<Guide | string | null>(null)
   const refs = useRef<Array<HTMLElement | null>>([])
+  const diffs = useMemo(() => new Map(parseDiff(pr.diff).map((f) => [f.path, f])), [pr.diff])
+  const stats = useMemo(() => new Map(pr.files.map((f) => [f.path, f])), [pr.files])
 
   useEffect(() => {
     let live = true
-    for (const c of sections) {
-      void invoke('reviews.commit', { repo: pr.repo, oid: c.oid }).then((r) => {
-        if (live) setLoaded((m) => ({ ...m, [c.oid]: r.ok ? r.value : r.error.message }))
-      })
-    }
+    setGuide(null)
+    void invoke('reviews.guide', { repo: pr.repo, number: pr.number }).then((r) => {
+      if (live) setGuide(r.ok ? r.value : r.error.message)
+    })
     return () => {
       live = false
     }
-    // Sections derive from pr.commits; refetch only for another PR.
-  }, [pr.url])
+  }, [pr.repo, pr.number, pr.updatedAt])
 
-  // Only files still in the PR count toward review (a later commit may drop one again).
-  const inPr = new Set(pr.files.map((f) => f.path))
-  const filesOf = (oid: string): ReviewCommit['files'] => {
-    const d = loaded[oid]
-    if (d === undefined || typeof d === 'string') return []
-    return [...d.files].sort((a, b) => fileRank(a.path) - fileRank(b.path))
-  }
-  const sectionDone = (oid: string): boolean => {
-    const files = filesOf(oid).filter((f) => inPr.has(f.path))
-    return files.length > 0 && files.every((f) => viewed.has(f.path))
+  const head = (
+    <header className="eva-rv-lguide-head">
+      <h1 className="eva-rv-lguide-title">{pr.title}</h1>
+      <div className="eva-rv-meta">
+        <span>{pr.author.login}</span>·
+        <span className="eva-rv-mono">
+          {pr.repo.split('/')[1]}#{pr.number}
+        </span>
+        ·<span className="eva-rv-mono">{pr.base}</span>
+        <span className="eva-rv-dim">‹</span>
+        <span className="eva-rv-mono">{pr.head}</span>
+      </div>
+    </header>
+  )
+
+  if (guide === null || typeof guide === 'string') {
+    return (
+      <div className="eva-rv-lguide" data-testid="review-guide">
+        <nav className="eva-rv-ticks" aria-hidden />
+        <div className="eva-rv-lguide-col">
+          {head}
+          {guide === null ? (
+            <div className="eva-rv-lguide-wait" data-testid="review-guide-loading">
+              <Loader size={14} />
+              Writing the walkthrough from the description and diff...
+            </div>
+          ) : (
+            <div className="eva-rv-error">Couldn't build the guide: {guide}</div>
+          )}
+        </div>
+      </div>
+    )
   }
 
-  if (sections.length === 0) {
-    return <div className="eva-rv-empty">This pull request has no commits.</div>
-  }
-
+  const sections = guide.sections
   return (
-    <div className="eva-rv-lguide" data-testid="review-guide">
+    <div className="eva-rv-lguide" data-testid="review-guide" data-source={guide.source}>
       <nav className="eva-rv-ticks" aria-label="Sections">
-        {sections.map((c, i) => (
+        {sections.map((s, i) => (
           <button
-            key={c.oid}
+            key={i}
             type="button"
             className="eva-rv-tick"
-            data-done={sectionDone(c.oid) || undefined}
-            title={`${two(i + 1)} ${c.headline}`}
-            aria-label={`Section ${i + 1}: ${c.headline}`}
+            data-done={s.files.every((f) => viewed.has(f)) || undefined}
+            title={`${two(i + 1)} ${s.title}`}
+            aria-label={`Section ${i + 1}: ${s.title}`}
             onClick={() => refs.current[i]?.scrollIntoView({ block: 'start', behavior: 'smooth' })}
           />
         ))}
       </nav>
       <div className="eva-rv-lguide-col">
-        <header className="eva-rv-lguide-head">
-          <h1 className="eva-rv-lguide-title">{pr.title}</h1>
-          <div className="eva-rv-meta">
-            <span>{pr.author.login}</span>·
-            <span className="eva-rv-mono">
-              {pr.repo.split('/')[1]}#{pr.number}
-            </span>
-            ·<span className="eva-rv-mono">{pr.base}</span>
-            <span className="eva-rv-dim">‹</span>
-            <span className="eva-rv-mono">{pr.head}</span>
+        {head}
+        {guide.source === 'folders' ? (
+          <div className="eva-rv-dim eva-rv-small" data-testid="review-guide-fallback">
+            Grouped by folder: the walkthrough couldn't be written ({guide.error}).
           </div>
-        </header>
-        {sections.map((c, i) => {
-          const data = loaded[c.oid]
-          const files = filesOf(c.oid)
-          const title = typeof data === 'object' ? data.message.split('\n', 1)[0] : c.headline
-          const why = typeof data === 'object' ? commitWhy(data.message) : ''
-          return (
-            <section
-              key={c.oid}
-              className="eva-rv-lsec"
-              ref={(el) => {
-                refs.current[i] = el
-              }}
-              data-testid="review-guide-section"
-            >
-              <div className="eva-rv-lsec-left">
-                <div className="eva-rv-dim eva-rv-small">
-                  {two(i + 1)} / {two(sections.length)}
-                </div>
-                <h2 className="eva-rv-lsec-title">{title}</h2>
-                {data === undefined ? <div className="eva-rv-dim">Loading...</div> : null}
-                {typeof data === 'string' ? (
-                  <div className="eva-rv-error">Couldn't load this commit: {data}</div>
-                ) : null}
-                {why ? (
-                  <div className="eva-rv-lsec-why">
-                    <Markdown text={why} />
-                  </div>
-                ) : null}
-                {files.length > 0 ? (
-                  <div className="eva-rv-lsec-files">
-                    {files.map((f) => {
-                      const { dir, name } = splitPath(f.path)
-                      return (
-                        <button
-                          key={f.path}
-                          type="button"
-                          className="eva-rv-lsec-file"
-                          onClick={() =>
-                            refs.current[i]
-                              ?.querySelector(`[data-gfile="${CSS.escape(f.path)}"]`)
-                              ?.scrollIntoView({ block: 'center', behavior: 'smooth' })
-                          }
-                        >
-                          <IconFile size={13} className="eva-rv-dim" />
-                          <span className="eva-rv-ellipsis">
-                            {name} <span className="eva-rv-dim">{dir.replace(/\/$/, '')}</span>
-                          </span>
-                          <span className="eva-rv-spacer" />
-                          {f.additions ? <span className="eva-rv-add">+{f.additions}</span> : null}
-                          {f.deletions ? <span className="eva-rv-del">-{f.deletions}</span> : null}
-                          {viewed.has(f.path) ? (
-                            <IconCheck size={13} className="eva-rv-accent" />
-                          ) : null}
-                        </button>
-                      )
-                    })}
-                  </div>
-                ) : null}
+        ) : null}
+        {sections.map((s, i) => (
+          <section
+            key={i}
+            className="eva-rv-lsec"
+            ref={(el) => {
+              refs.current[i] = el
+            }}
+            data-testid="review-guide-section"
+          >
+            <div className="eva-rv-lsec-left">
+              <div className="eva-rv-dim eva-rv-small">
+                {two(i + 1)} / {two(sections.length)}
               </div>
-              <div className="eva-rv-lsec-right">
-                {files.map((f) => {
-                  const { dir, name } = splitPath(f.path)
-                  const reviewed = viewed.has(f.path)
-                  const hunks = parseHunks(f.patch)
+              <h2 className="eva-rv-lsec-title">{s.title}</h2>
+              {s.why ? (
+                <div className="eva-rv-lsec-why">
+                  <Markdown text={s.why} />
+                </div>
+              ) : null}
+              <div className="eva-rv-lsec-files">
+                {s.files.map((path) => {
+                  const { dir, name } = splitPath(path)
+                  const f = stats.get(path)
                   return (
-                    <div key={f.path} className="eva-rv-gcard" data-gfile={f.path}>
-                      <div className="eva-rv-gcard-head">
-                        <IconFile size={14} className="eva-rv-dim" />
-                        <span className="eva-rv-ellipsis">
-                          {name} <span className="eva-rv-dim">{dir}</span>
-                        </span>
-                        <span className="eva-rv-spacer" />
-                        {f.additions ? <span className="eva-rv-add">+{f.additions}</span> : null}
-                        {f.deletions ? <span className="eva-rv-del">-{f.deletions}</span> : null}
-                        <Checkbox
-                          size="xs"
-                          label="Reviewed"
-                          checked={reviewed}
-                          disabled={!inPr.has(f.path)}
-                          onChange={(e) => onViewed(f.path, e.currentTarget.checked)}
-                        />
-                        <FileMenu
-                          url={`${pr.url}/files`}
-                          onViewInDiff={() => onViewInDiff(f.path)}
-                        />
-                      </div>
-                      {reviewed ? null : hunks.length > 0 ? (
-                        <DiffView hunks={hunks} mode="unified" />
-                      ) : (
-                        <div className="eva-rv-empty">No text changes to show</div>
-                      )}
-                    </div>
+                    <button
+                      key={path}
+                      type="button"
+                      className="eva-rv-lsec-file"
+                      onClick={() =>
+                        refs.current[i]
+                          ?.querySelector(`[data-gfile="${CSS.escape(path)}"]`)
+                          ?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+                      }
+                    >
+                      <IconFile size={13} className="eva-rv-dim" />
+                      <span className="eva-rv-ellipsis">
+                        {name} <span className="eva-rv-dim">{dir.replace(/\/$/, '')}</span>
+                      </span>
+                      <span className="eva-rv-spacer" />
+                      {f?.additions ? <span className="eva-rv-add">+{f.additions}</span> : null}
+                      {f?.deletions ? <span className="eva-rv-del">-{f.deletions}</span> : null}
+                      {viewed.has(path) ? <IconCheck size={13} className="eva-rv-accent" /> : null}
+                    </button>
                   )
                 })}
               </div>
-            </section>
-          )
-        })}
+            </div>
+            <div className="eva-rv-lsec-right">
+              {s.files.map((path) => {
+                const { dir, name } = splitPath(path)
+                const f = stats.get(path)
+                const d = diffs.get(path)
+                const reviewed = viewed.has(path)
+                return (
+                  <div key={path} className="eva-rv-gcard" data-gfile={path}>
+                    <div className="eva-rv-gcard-head">
+                      <IconFile size={14} className="eva-rv-dim" />
+                      <span className="eva-rv-ellipsis">
+                        {name} <span className="eva-rv-dim">{dir}</span>
+                      </span>
+                      <span className="eva-rv-spacer" />
+                      {f?.additions ? <span className="eva-rv-add">+{f.additions}</span> : null}
+                      {f?.deletions ? <span className="eva-rv-del">-{f.deletions}</span> : null}
+                      <Checkbox
+                        size="xs"
+                        label="Reviewed"
+                        checked={reviewed}
+                        onChange={(e) => onViewed(path, e.currentTarget.checked)}
+                      />
+                      <FileMenu url={`${pr.url}/files`} onViewInDiff={() => onViewInDiff(path)} />
+                    </div>
+                    {reviewed ? null : d && d.hunks.length > 0 ? (
+                      <DiffView hunks={d.hunks} mode="unified" />
+                    ) : (
+                      <div className="eva-rv-empty">
+                        {d?.binary ? 'Binary file' : 'No text changes to show'}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+        ))}
       </div>
     </div>
   )

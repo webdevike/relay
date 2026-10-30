@@ -1,4 +1,5 @@
 import * as fs from 'node:fs'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import type { Page } from '@playwright/test'
 import { test, expect } from './fixtures'
@@ -8,8 +9,14 @@ import { test, expect } from './fixtures'
 // write (GitHub comment, review, private @Astra ask) into a dry run, and the spec checks that.
 // EVAOS_REVIEWS_SHOTS=<dir> keeps the screenshots there.
 test.skip(process.env.EVAOS_LIVE !== '1', 'live GitHub reads are opt-in (EVAOS_LIVE=1)')
-test.use({ launchEnv: { EVAOS_REVIEWS_GH: '1' } })
-test.setTimeout(120_000)
+// The Guide is written by the real claude CLI (a read: the model sees the PR, nothing is posted).
+test.use({
+  launchEnv: {
+    EVAOS_REVIEWS_GH: '1',
+    EVAOS_CLAUDE_BIN: process.env.EVAOS_CLAUDE_BIN ?? path.join(os.homedir(), '.local/bin/claude'),
+  },
+})
+test.setTimeout(300_000)
 
 const sel = (id: string): string => `[data-testid="${id}"]`
 const SHOTS = process.env.EVAOS_REVIEWS_SHOTS ?? path.join(__dirname, '../test-results/reviews')
@@ -51,13 +58,19 @@ test('reviews a real PR end to end without writing anywhere', async ({ app, shel
   await expect(shell.locator(sel('review-checks'))).toBeVisible()
   await shot(shell, '05-checks')
 
-  // Guide: one scroll of sections (commits); reviewing a file collapses it and checks it off.
+  // Guide: an authored walkthrough in one scroll; reviewing a file collapses it and checks it off.
   await shell.locator(sel('review-tab-guide')).click()
   const guide = shell.locator(sel('review-guide'))
-  await expect(guide.locator(sel('review-diff')).first()).toBeVisible({ timeout: 30_000 })
-  await expect(guide.locator(sel('review-guide-section'))).not.toHaveCount(0)
-  await expect(shell.locator('[data-testid="review-tab-guide"]')).toBeVisible()
-  await shell.waitForTimeout(1500)
+  await expect(guide.locator(sel('review-guide-loading'))).toBeVisible()
+  await shot(shell, '06a-guide-loading')
+  await expect(guide).toHaveAttribute('data-source', 'model', { timeout: 200_000 })
+  const titles = await guide.locator('.eva-rv-lsec-title').allTextContents()
+  expect(titles.length).toBeGreaterThanOrEqual(3)
+  expect(titles.length).toBeLessThanOrEqual(7)
+  // Sections are written, not commits: no commit headline anywhere in the Guide.
+  await expect(guide).not.toContainText('feat: ref ENG-6312 Filter')
+  await expect(guide.locator(sel('review-diff')).first()).toBeVisible()
+  await shell.waitForTimeout(500)
   await shot(shell, '06-guide-top')
   const first = guide.locator(sel('review-guide-section')).first()
   for (const box of await first.getByLabel('Reviewed').all()) await box.check()
