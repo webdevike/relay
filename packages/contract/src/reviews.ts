@@ -108,7 +108,7 @@ export const ReviewCommitSchema = z.object({
 })
 export type ReviewCommit = z.infer<typeof ReviewCommitSchema>
 
-/** What a handoff to Astra did: `sent`, or `dry-run` in test instances (the command is shown). */
+/** What an ask to Astra did: `sent`, or `dry-run` in test instances (the command is shown). */
 export const AstraSendSchema = z.object({
   status: z.enum(['sent', 'dry-run']),
   command: z.string(),
@@ -141,10 +141,9 @@ export const reviewsInvoke = {
     }).strict(),
     output: z.object({ ok: z.literal(true) }),
   },
-  /** Sends a line to Astra's thread: a handoff of the whole PR, or a private question about it. */
+  /** Sends Isaac's private @Astra question about a PR to Astra's thread, never to GitHub. */
   'reviews.astra': {
     input: PrRef.extend({
-      kind: z.enum(['handoff', 'ask']),
       url: z.string().url(),
       title: z.string(),
       text: z.string().max(8_000),

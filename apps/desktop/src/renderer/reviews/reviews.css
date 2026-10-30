@@ -629,95 +629,129 @@
   border-block: 1px solid var(--eva-c-border);
 }
 
-/* Guide */
-.eva-rv-guide {
-  max-width: 760px;
-  margin: 0 auto;
-  padding: calc(var(--mantine-spacing-xs) * 1.8) var(--mantine-spacing-md)
-    calc(var(--mantine-spacing-xs) * 2.4);
+/* Guide: one scroll of sections, what and why on the left, the section's files on the right. */
+.eva-rv-accent {
+  color: var(--eva-c-accent);
+  flex: none;
+}
+.eva-rv-lguide {
+  display: flex;
+  min-height: 100%;
+}
+.eva-rv-ticks {
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: 60vh;
+  width: 20px;
+  flex: none;
   display: flex;
   flex-direction: column;
-  gap: var(--mantine-spacing-xs);
+  justify-content: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  padding: 0 calc(var(--mantine-spacing-xs) * 0.4);
 }
-.eva-rv-guide-top {
-  display: flex;
-  align-items: center;
-  gap: var(--mantine-spacing-xs);
-  font-size: var(--eva-fz-label);
-}
-.eva-rv-guide-count b {
-  color: var(--eva-c-foreground);
-}
-.eva-rv-stepper {
-  display: flex;
-  gap: calc(var(--mantine-spacing-xs) * 0.4);
-}
-.eva-rv-stepbar {
-  flex: 1;
-  height: 3px;
-  border: 0;
-  border-radius: 2px;
+.eva-rv-tick {
+  width: 8px;
+  height: 2px;
   padding: 0;
-  cursor: pointer;
+  border: 0;
+  border-radius: 1px;
   background: var(--eva-c-border);
+  cursor: pointer;
 }
-.eva-rv-stepbar[data-state='done'] {
-  background: color-mix(in srgb, var(--eva-c-accent) 55%, transparent);
-}
-.eva-rv-stepbar[data-state='current'] {
+.eva-rv-tick[data-done] {
+  width: 12px;
   background: var(--eva-c-accent);
 }
-.eva-rv-guide-title {
-  margin: calc(var(--mantine-spacing-xs) * 0.6) 0 0;
-  font-size: 16px;
-  font-weight: 600;
+.eva-rv-lguide-col {
+  flex: 1;
+  min-width: 0;
+  padding: var(--mantine-spacing-lg) var(--mantine-spacing-lg) var(--mantine-spacing-xl)
+    var(--mantine-spacing-xs);
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xl);
 }
-.eva-rv-guide-why {
-  color: var(--eva-c-muted-foreground);
-  font-size: var(--eva-fz-body);
-}
-.eva-rv-guide-file {
+.eva-rv-lguide-head {
   display: flex;
   flex-direction: column;
   gap: calc(var(--mantine-spacing-xs) * 0.6);
 }
-.eva-rv-guide-filehead {
+.eva-rv-lguide-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.eva-rv-lsec {
+  display: grid;
+  grid-template-columns: minmax(240px, 2fr) minmax(0, 3.4fr);
+  gap: var(--mantine-spacing-lg);
+  align-items: start;
+  scroll-margin-top: var(--mantine-spacing-md);
+}
+.eva-rv-lsec-left {
+  position: sticky;
+  top: var(--mantine-spacing-md);
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+}
+.eva-rv-lsec-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+.eva-rv-lsec-why {
+  font-size: var(--eva-fz-body);
+  line-height: 1.55;
+}
+.eva-rv-lsec-files {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  margin-top: calc(var(--mantine-spacing-xs) * 0.4);
+}
+.eva-rv-lsec-file {
   display: flex;
   align-items: center;
-  gap: calc(var(--mantine-spacing-xs) * 0.8);
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  padding: calc(var(--mantine-spacing-xs) * 0.5) calc(var(--mantine-spacing-xs) * 0.8);
+  border: 0;
+  border-radius: var(--eva-radius-sm);
+  background: var(--eva-c-secondary-background);
+  color: inherit;
   font-size: var(--eva-fz-label);
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
 }
-.eva-rv-guide-code {
+.eva-rv-lsec-file:hover {
+  background: var(--eva-hover);
+}
+.eva-rv-lsec-right {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  min-width: 0;
+}
+.eva-rv-gcard {
   border: 1px solid var(--eva-c-border);
   border-radius: var(--eva-radius);
   overflow: hidden;
+  background: var(--eva-c-secondary-background);
 }
-.eva-rv-guide-nav {
+.eva-rv-gcard-head {
   display: flex;
-  justify-content: space-between;
-  gap: var(--mantine-spacing-sm);
-  margin-top: calc(var(--mantine-spacing-xs) * 0.6);
-}
-.eva-rv-guide-navbtn {
-  display: inline-flex;
   align-items: center;
-  gap: calc(var(--mantine-spacing-xs) * 0.6);
-  border: 1px solid transparent;
-  border-radius: var(--eva-radius-sm);
-  background: none;
-  color: inherit;
-  cursor: pointer;
-  padding: calc(var(--mantine-spacing-xs) * 0.4) calc(var(--mantine-spacing-xs) * 0.8);
-  max-width: 48%;
-  text-align: left;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+  padding: calc(var(--mantine-spacing-xs) * 0.6) var(--mantine-spacing-xs);
+  font-size: var(--eva-fz-label);
+  min-width: 0;
 }
-.eva-rv-guide-navbtn[data-next] {
-  border-color: var(--eva-c-border);
-  margin-left: auto;
-}
-.eva-rv-guide-navbtn:hover {
-  background: var(--eva-hover);
+.eva-rv-gcard .eva-rv-diff {
+  border-top: 1px solid var(--eva-c-border);
+  background: var(--eva-c-background);
 }

@@ -19,7 +19,6 @@ import {
   IconLock,
   IconMessage,
   IconRefresh,
-  IconSparkles,
 } from '@tabler/icons-react'
 import type { ReviewPr, ReviewQueue, ReviewRow } from '@evaos/contract'
 import type { Place } from '@evaos/shell-core'
@@ -425,20 +424,24 @@ function Detail({
   const [viewed, setViewed] = useLocal<string[]>(`eva-reviews-viewed:${pr.url}`, [])
   const [asks, setAsks] = useLocal<PrivateAsk[]>(`eva-reviews-asks:${pr.url}`, [])
   const [draft, setDraft] = useState('')
-  const [confirm, setConfirm] = useState<'comment' | 'review' | 'handoff' | null>(null)
-  const [note, setNote] = useState('')
+  const [confirm, setConfirm] = useState<'comment' | 'review' | null>(null)
   const [event, setEvent] = useState<(typeof REVIEW_EVENTS)[number]['value']>('comment')
   const [busy, setBusy] = useState(false)
   const ref = { repo: pr.repo, number: pr.number }
   const viewedSet = new Set(viewed)
 
-  const astra = async (kind: 'handoff' | 'ask', text: string): Promise<boolean> => {
-    const r = await invoke('reviews.astra', { ...ref, kind, url: pr.url, title: pr.title, text })
+  const astra = async (text: string): Promise<boolean> => {
+    const r = await invoke('reviews.astra', {
+      ...ref,
+      url: pr.url,
+      title: pr.title,
+      text,
+    })
     if (!r.ok) {
       fail("Couldn't reach Astra", r.error.message)
       return false
     }
-    if (kind === 'ask') setAsks([...asks, { text, at: Date.now(), status: r.value.status }])
+    setAsks([...asks, { text, at: Date.now(), status: r.value.status }])
     notifications.show({
       message:
         r.value.status === 'sent'
@@ -455,7 +458,7 @@ function Detail({
     if (!text) return
     if (mentionsAstra(text)) {
       setBusy(true)
-      if (await astra('ask', text)) setDraft('')
+      if (await astra(text)) setDraft('')
       setBusy(false)
       return
     }
@@ -503,14 +506,6 @@ function Detail({
         <button type="button" className="eva-rv-iconbtn" aria-label="Refresh" onClick={onRefresh}>
           <IconRefresh size={14} />
         </button>
-        <Button
-          size="xs"
-          leftSection={<IconSparkles size={14} />}
-          onClick={() => setConfirm('handoff')}
-          data-testid="review-handoff"
-        >
-          Hand to Astra
-        </Button>
         <Button
           size="xs"
           variant="default"
@@ -588,6 +583,8 @@ function Detail({
             {tab === 'guide' ? (
               <ReviewGuide
                 pr={pr}
+                viewed={viewedSet}
+                onViewed={(p, on) => setViewed(on ? [...viewed, p] : viewed.filter((v) => v !== p))}
                 onViewInDiff={(p) => {
                   setFocusFile(p)
                   setTab('files')
@@ -702,48 +699,6 @@ function Detail({
             onClick={() => void post()}
           >
             Submit review on GitHub
-          </Button>
-        </div>
-      </EvaModal>
-
-      <EvaModal
-        opened={confirm === 'handoff'}
-        onClose={() => setConfirm(null)}
-        title="Hand to Astra"
-        size={480}
-      >
-        <div className="eva-rv-dim eva-rv-small">
-          Astra gets {pr.repo}#{pr.number} in her thread, reviews it and tells you what needs your
-          call. Nothing is posted on GitHub.
-        </div>
-        <Textarea
-          mt="sm"
-          autosize
-          minRows={2}
-          placeholder="Anything she should look at (optional)"
-          value={note}
-          onChange={(e) => setNote(e.currentTarget.value)}
-          data-testid="review-handoff-note"
-        />
-        <div className="eva-rv-modal-actions">
-          <Button variant="default" onClick={() => setConfirm(null)}>
-            Cancel
-          </Button>
-          <Button
-            loading={busy}
-            leftSection={<IconSparkles size={14} />}
-            data-testid="review-handoff-send"
-            onClick={async () => {
-              setBusy(true)
-              const ok = await astra('handoff', note)
-              setBusy(false)
-              if (ok) {
-                setNote('')
-                setConfirm(null)
-              }
-            }}
-          >
-            Send to Astra
           </Button>
         </div>
       </EvaModal>

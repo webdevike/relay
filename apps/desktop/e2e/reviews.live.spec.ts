@@ -5,7 +5,7 @@ import { test, expect } from './fixtures'
 
 // Opt-in live spec: the Reviews page against real GitHub (gh, Isaac's account) on PR
 // eCardSystems/node-client-api-service#170. Read-only by construction: EVAOS_E2E=1 turns every
-// write (GitHub comment, review, Astra handoff) into a dry run, and the spec checks that.
+// write (GitHub comment, review, private @Astra ask) into a dry run, and the spec checks that.
 // EVAOS_REVIEWS_SHOTS=<dir> keeps the screenshots there.
 test.skip(process.env.EVAOS_LIVE !== '1', 'live GitHub reads are opt-in (EVAOS_LIVE=1)')
 test.use({ launchEnv: { EVAOS_REVIEWS_GH: '1' } })
@@ -51,13 +51,21 @@ test('reviews a real PR end to end without writing anywhere', async ({ app, shel
   await expect(shell.locator(sel('review-checks'))).toBeVisible()
   await shot(shell, '05-checks')
 
+  // Guide: one scroll of sections (commits); reviewing a file collapses it and checks it off.
   await shell.locator(sel('review-tab-guide')).click()
   const guide = shell.locator(sel('review-guide'))
   await expect(guide.locator(sel('review-diff')).first()).toBeVisible({ timeout: 30_000 })
-  await guide.getByRole('button', { name: 'Next step' }).click()
-  await guide.getByRole('button', { name: 'Next step' }).click()
-  await expect(guide.locator(sel('review-diff')).first()).toBeVisible({ timeout: 30_000 })
-  await shot(shell, '06-guide-step3')
+  await expect(guide.locator(sel('review-guide-section'))).not.toHaveCount(0)
+  await expect(shell.locator('[data-testid="review-tab-guide"]')).toBeVisible()
+  await shell.waitForTimeout(1500)
+  await shot(shell, '06-guide-top')
+  const first = guide.locator(sel('review-guide-section')).first()
+  for (const box of await first.getByLabel('Reviewed').all()) await box.check()
+  await first.scrollIntoViewIfNeeded()
+  await shot(shell, '06b-guide-reviewed')
+  await guide.locator(sel('review-guide-section')).nth(2).scrollIntoViewIfNeeded()
+  await shot(shell, '06c-guide-section3')
+  await expect(shell.getByRole('button', { name: 'Hand to Astra' })).toHaveCount(0)
 
   // @Astra is private: it goes to Astra (dry run here), never to the GitHub confirm.
   await shell.locator(sel('review-tab-conversation')).click()
@@ -79,16 +87,6 @@ test('reviews a real PR end to end without writing anywhere', async ({ app, shel
   await shot(shell, '09-comment-confirm')
   await shell.locator(sel('review-confirm-post')).click()
   await expect(shell.getByText('Test instance: the comment was not posted')).toBeVisible()
-
-  await shell.locator(sel('review-handoff')).click()
-  await shell.locator(sel('review-handoff-note')).fill('Check the S3 versions paging.')
-  await shell.waitForTimeout(400)
-  await shot(shell, '10-handoff')
-  await shell.locator(sel('review-handoff-send')).click()
-  await expect(
-    shell.getByText(/Test instance, not sent: bun .*eva-thread\.ts --agent astra/).last(),
-  ).toBeVisible()
-  await shot(shell, '11-handoff-sent')
 
   await shell.locator(sel('review-done')).click()
   await expect(shell.locator(sel('review-row-170'))).toHaveCount(0)

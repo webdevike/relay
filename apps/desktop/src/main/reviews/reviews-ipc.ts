@@ -181,18 +181,9 @@ export function toPr(repo: string, raw: Raw, diff: string): ReviewPr {
   }
 }
 
-/** What Astra reads: the ask or handoff, then the PR. */
-export function astraLine(
-  kind: 'handoff' | 'ask',
-  title: string,
-  url: string,
-  text: string,
-): string {
-  const note = text.trim()
-  if (kind === 'ask') {
-    return `Private question from Isaac's Reviews inbox (answer him, never post it on GitHub): ${note}\nPR: ${title} ${url}`
-  }
-  return `Isaac handed you this PR from his Reviews inbox: review it and tell him what needs his call.${note ? ` His note: ${note}` : ''}\nPR: ${title} ${url}`
+/** What Astra reads: Isaac's private question, then the PR. */
+export function astraLine(title: string, url: string, text: string): string {
+  return `Private question from Isaac's Reviews inbox (answer him, never post it on GitHub): ${text.trim()}\nPR: ${title} ${url}`
 }
 
 export function registerReviewsIpc(ctx: MainContext, run: ToolRun): void {
@@ -319,9 +310,9 @@ export function registerReviewsIpc(ctx: MainContext, run: ToolRun): void {
     }
   })
 
-  handle(ctx, 'reviews.astra', async ({ kind, url, title, text }) => {
+  handle(ctx, 'reviews.astra', async ({ url, title, text }) => {
     const tool = path.join(ctx.env.evaRoot, '.omp/tools/eva-thread.ts')
-    const line = astraLine(kind, title, url, text)
+    const line = astraLine(title, url, text)
     const command = `bun ${tool} --agent astra ${JSON.stringify(line)}`
     if (!writes) return { status: 'dry-run' as const, command }
     const res = await run(tool, ['--agent', 'astra', line], ctx.env.evaRoot)
