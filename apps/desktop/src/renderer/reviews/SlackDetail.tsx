@@ -22,7 +22,9 @@ import { EvaModal } from '../overlay'
 import { Markdown } from '../chat/markdown/Markdown'
 import { quoteOf } from './LinearDetail'
 import { ago, agoPhrase, mentionsAstra } from './review-model'
-import { Avatar, PrivateAsks, askAstra, fail, useLocal, type PrivateAsk } from './review-ui'
+import { Avatar, fail, useLocal } from './review-ui'
+import { AstraInline, useAstraItem } from './AstraInline'
+import { slackContext } from './astra-context'
 
 /** The Slack queue as the page holds it: the last read, whether a fresh one is running, its error. */
 export interface SlackState {
@@ -247,7 +249,7 @@ export function SlackDetail({
   const [thread, setThread] = useState<SlackThread | null>(null)
   const [reading, setReading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [asks, setAsks] = useLocal<PrivateAsk[]>(`eva-reviews-asks:${row.url}`, [])
+  const astra = useAstraItem(row.url)
   const [pending, setPending] = useLocal<PendingSend[]>(`eva-reviews-slack-sent:${row.url}`, [])
   const [draft, setDraft] = useState('')
   const [confirm, setConfirm] = useState<string | null>(null)
@@ -289,12 +291,8 @@ export function SlackDetail({
     if (!text) return
     if (mentionsAstra(text)) {
       setBusy(true)
-      const about = `(about the Slack ${row.threadTs ? 'thread' : 'DM'} ${title}) `
-      if (
-        await askAstra({ url: row.url, title: `Slack: ${title}` }, `${about}${text}`, asks, setAsks)
-      ) {
-        setDraft('')
-      }
+      const label = `Slack ${title}`
+      if (await astra.ask(text, label, () => slackContext(row, thread))) setDraft('')
       setBusy(false)
       return
     }
@@ -434,7 +432,6 @@ export function SlackDetail({
                   ))}
                 </>
               )}
-              <PrivateAsks asks={asks} now={now} where="Slack" />
             </div>
           </div>
           <div className="eva-rv-composer">
@@ -472,12 +469,13 @@ export function SlackDetail({
               <Button
                 size="xs"
                 variant="subtle"
-                disabled={!draft.trim() || busy}
+                disabled={!draft.trim() || busy || astra.asking}
                 onClick={() => void send()}
               >
                 {mentionsAstra(draft) ? 'Ask Astra' : 'Send'}
               </Button>
             </div>
+            <AstraInline item={astra.item} onUseAsReply={(t) => setDraft(t)} />
           </div>
         </div>
       </div>

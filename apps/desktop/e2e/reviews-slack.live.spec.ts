@@ -6,8 +6,8 @@ import { test, expect } from './fixtures'
 
 // Opt-in live spec: Slack in Reviews against Isaac's real Slack, read through the claude.ai Slack
 // connector (read tools only) with the real claude CLI. Read-only by construction: EVAOS_E2E=1
-// turns the hand-off to Astra (the only way a reply reaches Slack) and the private @Astra ask into
-// dry runs, and the spec checks that. EVAOS_REVIEWS_SHOTS=<dir> keeps the screenshots there.
+// turns the hand-off to Astra (the only way a reply reaches Slack) into a dry run, and the spec
+// checks that. EVAOS_REVIEWS_SHOTS=<dir> keeps the screenshots there.
 test.skip(process.env.EVAOS_LIVE !== '1', 'live Slack reads are opt-in (EVAOS_LIVE=1)')
 
 /** Linear shares the queue; without its key the screenshots show a Linear error. */
@@ -95,14 +95,11 @@ test('reads Slack threads waiting on Isaac and hands a reply to Astra without po
   await expect(shell.locator(sel('slack-pending-send')).last()).toBeVisible()
   await shot(shell, 'slack-sent-to-astra')
 
-  // @Astra is private: no confirm, a private card, never sent to Slack.
+  // @Astra marks the box private; what an ask does is reviews-astra.live.spec.ts.
   await box.fill('@Astra what does Todd expect from me here?')
+  await expect(box).toHaveAttribute('data-private', 'true')
   await shot(shell, 'slack-private-typing')
-  await box.press('Meta+Enter')
-  await expect(shell.locator(sel('review-private-ask')).last()).toContainText('Todd expect')
-  await expect(shell.getByText('Send this reply in Slack?')).toHaveCount(0)
-  await shell.waitForTimeout(400)
-  await shot(shell, 'slack-private-sent')
+  await box.fill('')
 
   // Done hides it locally.
   const before = await rows.count()

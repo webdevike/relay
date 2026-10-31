@@ -18,7 +18,7 @@ import { artifactsEvents, artifactsInvoke } from './artifacts'
 import { studioEvents, studioInvoke } from './studio'
 import { draftsInvoke } from './drafts'
 import { linearInvoke } from './linear'
-import { reviewsInvoke } from './reviews'
+import { reviewsEvents, reviewsInvoke } from './reviews'
 import { roomsEvents, roomsInvoke } from './rooms'
 import { filesEvents, filesInvoke } from './files'
 import { agentEvents, agentInvoke } from './agent'
@@ -108,6 +108,7 @@ export const eventContract = {
   ...agentEvents,
   ...updateEvents,
   ...contextEvents,
+  ...reviewsEvents,
 }
 
 export type InvokeChannel = keyof typeof invokeContract

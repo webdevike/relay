@@ -45,15 +45,9 @@ import {
   queueGroups,
   type QueueGroup,
 } from './review-model'
-import {
-  Avatar,
-  PrivateAsks,
-  RailSection,
-  askAstra,
-  fail,
-  useLocal,
-  type PrivateAsk,
-} from './review-ui'
+import { Avatar, RailSection, fail, useLocal } from './review-ui'
+import { AstraInline, useAstraItem } from './AstraInline'
+import { prContext } from './astra-context'
 import './reviews.css'
 
 type Tab = 'conversation' | 'files' | 'checks' | 'guide'
@@ -324,7 +318,7 @@ function CheckIcon({ state }: { state: string }) {
   return <IconCircleDashed size={15} className="eva-rv-dim" />
 }
 
-function Conversation({ pr, asks, now }: { pr: ReviewPr; asks: PrivateAsk[]; now: number }) {
+function Conversation({ pr, now }: { pr: ReviewPr; now: number }) {
   // One timeline: comments and reviews interleaved with pushes, oldest first, like E3.
   const items = [
     ...pr.commits.map((c) => ({
@@ -381,7 +375,6 @@ function Conversation({ pr, asks, now }: { pr: ReviewPr; asks: PrivateAsk[]; now
           <div key={i.key}>{i.node}</div>
         ))}
       </div>
-      <PrivateAsks asks={asks} now={now} where="GitHub" />
     </div>
   )
 }
@@ -435,7 +428,6 @@ function Detail({
   const [tab, setTab] = useState<Tab>('conversation')
   const [focusFile, setFocusFile] = useState<string | null>(null)
   const [viewed, setViewed] = useLocal<string[]>(`eva-reviews-viewed:${pr.url}`, [])
-  const [asks, setAsks] = useLocal<PrivateAsk[]>(`eva-reviews-asks:${pr.url}`, [])
   const [draft, setDraft] = useState('')
   const [confirm, setConfirm] = useState<'comment' | 'review' | null>(null)
   const [event, setEvent] = useState<(typeof REVIEW_EVENTS)[number]['value']>('comment')
@@ -443,15 +435,16 @@ function Detail({
   const ref = { repo: pr.repo, number: pr.number }
   const viewedSet = new Set(viewed)
 
-  const astra = (text: string): Promise<boolean> => askAstra(pr, text, asks, setAsks)
+  const astra = useAstraItem(pr.url)
 
-  // Cmd+Enter or Comment: @Astra goes privately to Astra; anything else asks before it posts.
+  // Cmd+Enter or Comment: @Astra asks Astra in this PR's own session; anything else asks before it posts.
   const submit = async (): Promise<void> => {
     const text = draft.trim()
     if (!text) return
     if (mentionsAstra(text)) {
       setBusy(true)
-      if (await astra(text)) setDraft('')
+      const label = `${pr.repo.split('/')[1]}#${pr.number}`
+      if (await astra.ask(text, label, () => prContext(pr))) setDraft('')
       setBusy(false)
       return
     }
@@ -561,7 +554,7 @@ function Detail({
       <div className="eva-rv-main">
         <div className="eva-rv-content">
           <div className="eva-rv-scroll">
-            {tab === 'conversation' ? <Conversation pr={pr} asks={asks} now={now} /> : null}
+            {tab === 'conversation' ? <Conversation pr={pr} now={now} /> : null}
             {tab === 'files' ? (
               <ReviewFiles
                 pr={pr}
@@ -615,12 +608,13 @@ function Detail({
                 <Button
                   size="xs"
                   variant="subtle"
-                  disabled={!draft.trim() || busy}
+                  disabled={!draft.trim() || busy || astra.asking}
                   onClick={() => void submit()}
                 >
                   {mentionsAstra(draft) ? 'Ask Astra' : 'Comment'}
                 </Button>
               </div>
+              <AstraInline item={astra.item} onUseAsReply={(t) => setDraft(t)} />
             </div>
           ) : tab === 'files' || tab === 'guide' ? (
             <div className="eva-rv-dock">

@@ -17,15 +17,9 @@ import { openLink } from '../navigation/open-link'
 import { EvaModal } from '../overlay'
 import { Markdown } from '../chat/markdown/Markdown'
 import { agoPhrase, mentionsAstra } from './review-model'
-import {
-  Avatar,
-  PrivateAsks,
-  RailSection,
-  askAstra,
-  fail,
-  useLocal,
-  type PrivateAsk,
-} from './review-ui'
+import { Avatar, RailSection, fail } from './review-ui'
+import { AstraInline, useAstraItem } from './AstraInline'
+import { ticketContext } from './astra-context'
 
 type Tab = 'details' | 'comments'
 
@@ -391,7 +385,6 @@ export function LinearDetail({
   const [ticket, setTicket] = useState<{ t: LinearTicket; at: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [tab, setTab] = useState<Tab>('details')
-  const [asks, setAsks] = useLocal<PrivateAsk[]>(`eva-reviews-asks:${row.url}`, [])
   const [draft, setDraft] = useState('')
   const [reply, setReply] = useState<{ to: LinearComment; text: string } | null>(null)
   const [confirm, setConfirm] = useState<{ body: string; parent: LinearComment | null } | null>(
@@ -399,6 +392,7 @@ export function LinearDetail({
   )
   const [busy, setBusy] = useState(false)
   const descRef = useRef<HTMLDivElement>(null)
+  const astra = useAstraItem(row.url)
 
   const load = useCallback(async () => {
     setError(null)
@@ -430,17 +424,11 @@ export function LinearDetail({
       const about = parent
         ? `(about ${parent.author.name}'s comment: "${parent.body.slice(0, 300)}") `
         : ''
-      const ok = await askAstra(
-        { url: t.url, title: `${t.key} ${t.title}` },
-        `${about}${body}`,
-        asks,
-        setAsks,
-      )
+      const ok = await astra.ask(`${about}${body}`, t.key, () => ticketContext(t))
       setBusy(false)
       if (ok) {
         if (parent) setReply(null)
         else setDraft('')
-        setTab('comments')
       }
       return
     }
@@ -623,7 +611,6 @@ export function LinearDetail({
                     ) : null}
                   </div>
                 ))}
-                <PrivateAsks asks={asks} now={now} where="Linear" />
               </div>
             )}
           </div>
@@ -638,6 +625,7 @@ export function LinearDetail({
               onSend={() => void send(draft, null)}
               testid="linear-composer"
             />
+            <AstraInline item={astra.item} onUseAsReply={(text) => setDraft(text)} />
           </div>
         </div>
         <Rail t={t} />

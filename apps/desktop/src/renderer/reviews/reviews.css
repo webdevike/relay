@@ -991,3 +991,59 @@
   border-radius: var(--eva-radius);
   font-size: var(--eva-fz-label);
 }
+
+/* An item's Astra session, under the comment box */
+.eva-rv-astra {
+  margin-top: var(--mantine-spacing-xs);
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius);
+  background: var(--eva-c-secondary-background);
+  display: flex;
+  flex-direction: column;
+  max-height: 46vh;
+  min-height: 0;
+}
+.eva-rv-astra-head {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  padding: calc(var(--mantine-spacing-xs) * 0.6) var(--mantine-spacing-xs);
+  border-bottom: 1px solid var(--eva-c-border);
+  font-size: var(--eva-fz-label);
+}
+.eva-rv-astra-body {
+  overflow-y: auto;
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-rv-astra-q {
+  align-self: flex-end;
+  max-width: 80%;
+  white-space: pre-wrap;
+  padding: calc(var(--mantine-spacing-xs) * 0.6) var(--mantine-spacing-xs);
+  border-radius: var(--eva-radius);
+  background: var(--eva-c-accent-background);
+  font-size: var(--eva-fz-body);
+}
+.eva-rv-astra-a {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  font-size: var(--eva-fz-body);
+}
+.eva-rv-astra-a > .eva-md {
+  align-self: stretch;
+}
+.eva-rv-astra-tool {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  min-width: 0;
+}
+.eva-rv-astra-wait {
+  color: var(--eva-c-warning);
+  font-size: var(--eva-fz-label);
+}

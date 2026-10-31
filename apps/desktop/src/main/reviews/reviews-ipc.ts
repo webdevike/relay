@@ -1,7 +1,7 @@
 // The Reviews page: Isaac's GitHub review queue for the eCardSystems org and one PR's detail, read
-// with `gh`. Writes leave the app only on an explicit action: a GitHub comment after Isaac confirms
-// the text in the renderer, and a line to Astra's thread through eva-thread.ts. Test instances
-// (EVAOS_E2E=1) never write: both answer `dry-run` with the command they would have run.
+// with `gh`. Writes leave the app only on an explicit action: a GitHub comment or review after
+// Isaac confirms the text in the renderer. Test instances (EVAOS_E2E=1) never post. @Astra asks go
+// to the item's own Astra session (astra-sessions.ts), never to GitHub.
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { z } from 'zod'
@@ -12,6 +12,7 @@ import { handle } from '../ipc/handle'
 import { claudeWriter, guideCache } from './guide'
 import { registerLinearInbox } from './linear-inbox'
 import { registerSlackInbox } from './slack-inbox'
+import { registerAstraSessions } from './astra-sessions'
 
 /** What the Guide is written from. */
 const GuidePr = z.object({
@@ -193,11 +194,6 @@ export function toPr(repo: string, raw: Raw, diff: string): ReviewPr {
   }
 }
 
-/** What Astra reads: Isaac's private question, then the PR or ticket it is about. */
-export function astraLine(title: string, url: string, text: string): string {
-  return `Private question from Isaac's Reviews inbox (answer him, never post it on GitHub, Linear or Slack): ${text.trim()}\nAbout: ${title} ${url}`
-}
-
 export function registerReviewsIpc(ctx: MainContext, run: ToolRun): void {
   // gh reads real GitHub: the live app, or a test instance that opts in with EVAOS_REVIEWS_GH=1.
   const readsGitHub = ctx.env.live || process.env.EVAOS_REVIEWS_GH === '1'
@@ -307,7 +303,7 @@ export function registerReviewsIpc(ctx: MainContext, run: ToolRun): void {
     return guide(`${repo}#${number}`, pr.headRefOid, { ...pr, diff })
   })
 
-  /** One line to Astra's thread through eva-thread.ts; a dry run in test instances. */
+  /** One line to Astra's main thread through eva-thread.ts (Slack send requests); a dry run in test instances. */
   const tellAstra = async (
     line: string,
   ): Promise<{ status: 'sent' | 'dry-run'; command: string }> => {
@@ -319,8 +315,6 @@ export function registerReviewsIpc(ctx: MainContext, run: ToolRun): void {
     return { status: 'sent', command }
   }
 
-  handle(ctx, 'reviews.astra', ({ url, title, text }) => tellAstra(astraLine(title, url, text)))
-
   handle(ctx, 'reviews.done', ({ url, updatedAt, done: on }) => {
     const next = { ...done() }
     if (on) next[url] = updatedAt
@@ -331,4 +325,5 @@ export function registerReviewsIpc(ctx: MainContext, run: ToolRun): void {
 
   registerLinearInbox(ctx, { reads: readsGitHub, writes })
   registerSlackInbox(ctx, { reads: readsGitHub, tellAstra })
+  registerAstraSessions(ctx)
 }
