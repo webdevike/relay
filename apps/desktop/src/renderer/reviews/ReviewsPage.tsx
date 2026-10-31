@@ -20,12 +20,20 @@ import {
   IconMessage,
   IconRefresh,
 } from '@tabler/icons-react'
-import type { LinearRow, LinearTicket, ReviewPr, ReviewQueue, ReviewRow } from '@evaos/contract'
+import type {
+  LinearRow,
+  LinearTicket,
+  ReviewPr,
+  ReviewQueue,
+  ReviewRow,
+  SlackRow,
+} from '@evaos/contract'
 import type { Place } from '@evaos/shell-core'
 import { invoke } from '../ipc'
 import { openLink } from '../navigation/open-link'
 import { Markdown } from '../chat/markdown/Markdown'
 import { LinearDetail } from './LinearDetail'
+import { SlackDetail, SlackGroups, type SlackState } from './SlackDetail'
 import { ReviewFiles } from './ReviewFiles'
 import { ReviewGuide } from './ReviewGuide'
 import {
@@ -97,6 +105,7 @@ function Queue({
   linear,
   done,
   onOpenTicket,
+  slackGroups,
 }: {
   queue: ReviewQueue | null
   view: View
@@ -109,6 +118,8 @@ function Queue({
   linear: { rows: LinearRow[] | null; error: string | null } | null
   done: Record<string, number>
   onOpenTicket: (r: LinearRow) => void
+  /** Slack's Mentions and Replies groups (For me only). */
+  slackGroups: ReactNode
 }) {
   const [closed, setClosed] = useState<Record<string, boolean>>({ completed: true })
   const groups: QueueGroup[] = queue ? queueGroups(queue, view) : []
@@ -204,6 +215,7 @@ function Queue({
       {groups.map((g) => (
         <Fragment key={g.id}>
           {g.id === 'completed' ? linearGroup : null}
+          {g.id === 'completed' ? slackGroups : null}
           <div className="eva-rv-group">
             <button
               type="button"
@@ -231,6 +243,7 @@ function Queue({
         </Fragment>
       ))}
       {queue === null && view === 'for-me' ? linearGroup : null}
+      {queue === null ? slackGroups : null}
     </aside>
   )
 }
@@ -700,6 +713,8 @@ export function ReviewsPage(_: { place: Place }) {
     error: null,
   })
   const [ticket, setTicket] = useState<LinearRow | null>(null)
+  const [slack, setSlack] = useState<SlackState>({ queue: null, reading: false, error: null })
+  const [thread, setThread] = useState<SlackRow | null>(null)
   // Done marks from the last Done here, so a ticket hides even when GitHub could not be read.
   const [doneLocal, setDoneLocal] = useState<Record<string, number>>({})
   const doneMap = { ...queue?.done, ...doneLocal }
@@ -729,21 +744,36 @@ export function ReviewsPage(_: { place: Place }) {
     else setPrError(r.error.message)
   }, [])
 
+  // Slack is read through Astra's connector (tens of seconds): show the last read, then read again.
+  const readSlack = useCallback(async () => {
+    setSlack((s) => ({ ...s, reading: true }))
+    const r = await invoke('reviews.slackQueue', { refresh: true })
+    setSlack((s) =>
+      r.ok
+        ? { queue: r.value, reading: false, error: null }
+        : { ...s, reading: false, error: r.error.message },
+    )
+  }, [])
+
   useEffect(() => {
     void loadQueue(false)
     void loadLinear(false)
-  }, [loadQueue, loadLinear])
+    void invoke('reviews.slackQueue', { refresh: false }).then((r) => {
+      if (r.ok && r.value) setSlack((s) => (s.queue ? s : { ...s, queue: r.value }))
+    })
+    void readSlack()
+  }, [loadQueue, loadLinear, readSlack])
 
   // Open the first PR that needs Isaac once the queue arrives.
   useEffect(() => {
-    if (!queue || selected || ticket || autoOpened) return
+    if (!queue || selected || ticket || thread || autoOpened) return
     const first = queueGroups(queue, view).find((g) => g.rows.length > 0 && g.id !== 'completed')
       ?.rows[0]
     if (first) {
       setAutoOpened(true)
       setSelected(first)
     }
-  }, [queue, view, selected, ticket, autoOpened])
+  }, [queue, view, selected, ticket, thread, autoOpened])
 
   useEffect(() => {
     if (selected && pr?.key !== prKey(selected)) void loadPr(selected)
@@ -785,7 +815,28 @@ export function ReviewsPage(_: { place: Place }) {
   const openTicket = (row: LinearRow): void => {
     setSelected(null)
     setPr(null)
+    setThread(null)
     setTicket(row)
+  }
+
+  const openThread = (row: SlackRow): void => {
+    setSelected(null)
+    setPr(null)
+    setTicket(null)
+    setThread(row)
+  }
+
+  // Done holds a thread back until someone writes in it again.
+  const doneThread = async (row: SlackRow): Promise<void> => {
+    const r = await invoke('reviews.done', { url: row.url, updatedAt: row.updatedAt, done: true })
+    if (!r.ok) return fail("Couldn't mark it done", r.error.message)
+    setDoneLocal(r.value)
+    if (queue) setQueue({ ...queue, done: r.value })
+    const rows = slack.queue?.rows ?? []
+    const at = rows.findIndex((x) => x.url === row.url)
+    const rest = rows.filter((x) => x.url !== row.url && !(r.value[x.url]! >= x.updatedAt))
+    setThread(rest[Math.min(Math.max(at, 0), rest.length - 1)] ?? null)
+    notifications.show({ message: `Done: ${row.channelName}`, color: 'green' })
   }
 
   const shown = selected && pr?.key === prKey(selected) ? pr : null
@@ -798,19 +849,41 @@ export function ReviewsPage(_: { place: Place }) {
           setView(v)
           setSelected(null)
           setTicket(null)
+          setThread(null)
           setAutoOpened(false)
         }}
         selected={ticket ? `linear:${ticket.key}` : selected ? prKey(selected) : null}
         onOpen={(r) => {
           setTicket(null)
+          setThread(null)
           setSelected(r)
         }}
         now={now}
         linear={linear}
         done={doneMap}
         onOpenTicket={openTicket}
+        slackGroups={
+          view === 'for-me' ? (
+            <SlackGroups
+              slack={slack}
+              done={doneMap}
+              selected={thread?.url ?? null}
+              onOpen={openThread}
+              onRefresh={() => void readSlack()}
+              now={now}
+            />
+          ) : null
+        }
       />
-      {ticket ? (
+      {thread ? (
+        <SlackDetail
+          key={thread.url}
+          row={thread}
+          now={now}
+          onBack={() => setThread(null)}
+          onDone={() => void doneThread(thread)}
+        />
+      ) : ticket ? (
         <LinearDetail
           key={ticket.key}
           row={ticket}
@@ -842,7 +915,7 @@ export function ReviewsPage(_: { place: Place }) {
             : selected
               ? 'Loading the pull request...'
               : queue
-                ? 'Pick a pull request or ticket from the queue.'
+                ? 'Pick a pull request, ticket or Slack thread from the queue.'
                 : 'Loading your reviews...'}
         </div>
       )}

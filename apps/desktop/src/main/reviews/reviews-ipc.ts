@@ -11,6 +11,7 @@ import type { ToolRun } from '../context-popover/pr-source'
 import { handle } from '../ipc/handle'
 import { claudeWriter, guideCache } from './guide'
 import { registerLinearInbox } from './linear-inbox'
+import { registerSlackInbox } from './slack-inbox'
 
 /** What the Guide is written from. */
 const GuidePr = z.object({
@@ -194,7 +195,7 @@ export function toPr(repo: string, raw: Raw, diff: string): ReviewPr {
 
 /** What Astra reads: Isaac's private question, then the PR or ticket it is about. */
 export function astraLine(title: string, url: string, text: string): string {
-  return `Private question from Isaac's Reviews inbox (answer him, never post it on GitHub or Linear): ${text.trim()}\nAbout: ${title} ${url}`
+  return `Private question from Isaac's Reviews inbox (answer him, never post it on GitHub, Linear or Slack): ${text.trim()}\nAbout: ${title} ${url}`
 }
 
 export function registerReviewsIpc(ctx: MainContext, run: ToolRun): void {
@@ -306,15 +307,19 @@ export function registerReviewsIpc(ctx: MainContext, run: ToolRun): void {
     return guide(`${repo}#${number}`, pr.headRefOid, { ...pr, diff })
   })
 
-  handle(ctx, 'reviews.astra', async ({ url, title, text }) => {
+  /** One line to Astra's thread through eva-thread.ts; a dry run in test instances. */
+  const tellAstra = async (
+    line: string,
+  ): Promise<{ status: 'sent' | 'dry-run'; command: string }> => {
     const tool = path.join(ctx.env.evaRoot, '.omp/tools/eva-thread.ts')
-    const line = astraLine(title, url, text)
     const command = `bun ${tool} --agent astra ${JSON.stringify(line)}`
-    if (!writes) return { status: 'dry-run' as const, command }
+    if (!writes) return { status: 'dry-run', command }
     const res = await run(tool, ['--agent', 'astra', line], ctx.env.evaRoot)
     if (res.code !== 0) throw fail('astra-failed', 'eva-thread.ts could not reach Astra')
-    return { status: 'sent' as const, command }
-  })
+    return { status: 'sent', command }
+  }
+
+  handle(ctx, 'reviews.astra', ({ url, title, text }) => tellAstra(astraLine(title, url, text)))
 
   handle(ctx, 'reviews.done', ({ url, updatedAt, done: on }) => {
     const next = { ...done() }
@@ -325,4 +330,5 @@ export function registerReviewsIpc(ctx: MainContext, run: ToolRun): void {
   })
 
   registerLinearInbox(ctx, { reads: readsGitHub, writes })
+  registerSlackInbox(ctx, { reads: readsGitHub, tellAstra })
 }

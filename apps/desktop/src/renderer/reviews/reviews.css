@@ -910,3 +910,84 @@
   flex: none;
   white-space: nowrap;
 }
+
+/* Slack threads */
+.eva-rv-group-headrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: calc(var(--mantine-spacing-xs) * 0.4);
+}
+.eva-rv-reading {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+}
+.eva-rv-smsg {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  padding: calc(var(--mantine-spacing-xs) * 0.6) calc(var(--mantine-spacing-xs) * 0.4);
+  border-radius: var(--eva-radius);
+}
+.eva-rv-smsg[data-mention] {
+  background: var(--eva-c-secondary-background);
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+}
+.eva-rv-smsg:hover .eva-rv-lcomment-actions,
+.eva-rv-smsg:focus-within .eva-rv-lcomment-actions {
+  opacity: 1;
+}
+.eva-rv-smsg-row {
+  display: flex;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-rv-savatar .eva-rv-avatar {
+  width: 28px;
+  height: 28px;
+  font-size: 12px;
+}
+.eva-rv-smsg-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+}
+.eva-rv-smsg-body img {
+  max-width: 100%;
+}
+.eva-rv-sfile,
+.eva-rv-sreact {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  padding: calc(var(--mantine-spacing-xs) * 0.2) calc(var(--mantine-spacing-xs) * 0.8);
+  border: 1px solid var(--eva-c-border);
+  border-radius: 999px;
+  font-size: var(--eva-fz-label);
+}
+.eva-rv-sfile {
+  border-radius: var(--eva-radius-sm);
+}
+.eva-rv-sdivider {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  color: var(--eva-c-muted-foreground);
+  font-size: var(--eva-fz-label);
+}
+.eva-rv-sdivider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--eva-c-border);
+}
+.eva-rv-spending {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  border: 1px dashed var(--eva-c-border);
+  border-radius: var(--eva-radius);
+  font-size: var(--eva-fz-label);
+}

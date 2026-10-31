@@ -185,6 +185,55 @@ export const LinearTicketSchema = z.object({
 })
 export type LinearTicket = z.infer<typeof LinearTicketSchema>
 
+const SlackId = z.string().regex(/^[CDG][A-Z0-9]+$/)
+const SlackTs = z.string().regex(/^\d+\.\d+$/)
+
+/** A Slack thread (`threadTs` set) or a DM outside a thread (`threadTs` null). */
+const SlackRef = z.object({ channel: SlackId, threadTs: SlackTs.nullable() })
+
+/** One Slack conversation waiting on Isaac. */
+export const SlackRowSchema = z.object({
+  /** `mention`: someone @mentioned him; `dm`: a DM or group DM; `reply`: a thread he is in. */
+  kind: z.enum(['mention', 'dm', 'reply']),
+  channel: z.string(),
+  channelName: z.string(),
+  threadTs: z.string().nullable(),
+  /** The newest message from someone else; Done holds until a newer one. */
+  ts: z.string(),
+  author: z.string(),
+  text: z.string(),
+  url: z.string(),
+  /** Epoch ms of `ts`. */
+  updatedAt: z.number(),
+})
+export type SlackRow = z.infer<typeof SlackRowSchema>
+
+export const SlackQueueSchema = z.object({ rows: z.array(SlackRowSchema), fetchedAt: z.number() })
+export type SlackQueue = z.infer<typeof SlackQueueSchema>
+
+export const SlackMessageSchema = z.object({
+  ts: z.string(),
+  author: z.string(),
+  /** It is Isaac's own message. */
+  mine: z.boolean(),
+  /** Markdown, mentions as @Name. */
+  text: z.string(),
+  mentionsMe: z.boolean(),
+  reactions: z.array(z.object({ emoji: z.string(), count: z.number() })),
+  files: z.array(z.string()),
+  at: z.number(),
+})
+export type SlackMessage = z.infer<typeof SlackMessageSchema>
+
+export const SlackThreadSchema = z.object({
+  channel: z.string(),
+  channelName: z.string(),
+  threadTs: z.string().nullable(),
+  messages: z.array(SlackMessageSchema),
+  fetchedAt: z.number(),
+})
+export type SlackThread = z.infer<typeof SlackThreadSchema>
+
 export const reviewsInvoke = {
   'reviews.queue': {
     input: z.object({ refresh: z.boolean() }).strict(),
@@ -223,6 +272,27 @@ export const reviewsInvoke = {
   'reviews.done': {
     input: z.object({ url: z.string().url(), updatedAt: z.number(), done: z.boolean() }).strict(),
     output: z.record(z.string(), z.number()),
+  },
+  /**
+   * Slack threads and DMs waiting on Isaac. `refresh: false` answers the last saved read at once
+   * (null before the first); `refresh: true` reads Slack again (tens of seconds).
+   */
+  'reviews.slackQueue': {
+    input: z.object({ refresh: z.boolean() }).strict(),
+    output: SlackQueueSchema.nullable(),
+  },
+  /** One thread (or a DM's recent messages); same cache rule as the queue. */
+  'reviews.slackThread': {
+    input: SlackRef.extend({ refresh: z.boolean() }).strict(),
+    output: SlackThreadSchema.nullable(),
+  },
+  /**
+   * Hands Isaac's confirmed reply to Astra, who posts it from the Slack desktop app. The app never
+   * posts to Slack itself.
+   */
+  'reviews.slackSend': {
+    input: SlackRef.extend({ text: z.string().min(1).max(8_000) }).strict(),
+    output: AstraSendSchema,
   },
   /** Linear tickets that want Isaac: mentions, assignments, comments, newest first. */
   'reviews.linearQueue': {
