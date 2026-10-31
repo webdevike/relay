@@ -118,6 +118,68 @@ export const AstraSendSchema = z.object({
   command: z.string(),
 })
 
+const LinearKey = z.string().regex(/^[A-Z][A-Z0-9]*-\d+$/)
+
+/** One Linear ticket in the Reviews queue. */
+export const LinearRowSchema = z.object({
+  key: z.string(),
+  title: z.string(),
+  url: z.string(),
+  /** Why it is here: `mentioned you`, `assigned you`, `commented`, `replied`. */
+  reason: z.string(),
+  /** Who did it. */
+  actor: z.string(),
+  /** Epoch ms of the newest notification about it; Done holds until this moves. */
+  updatedAt: z.number(),
+  unread: z.boolean(),
+})
+export type LinearRow = z.infer<typeof LinearRowSchema>
+
+const LinearPerson = z.object({ name: z.string(), handle: z.string() })
+
+export const LinearCommentSchema = z.object({
+  id: z.string(),
+  /** Top-level comment this replies to; null for a thread's first comment. */
+  parentId: z.string().nullable(),
+  author: LinearPerson,
+  /** Markdown; Linear's uploaded images point at local copies main downloaded. */
+  body: z.string(),
+  at: z.number(),
+  url: z.string(),
+  /** It @mentions Isaac. */
+  mentionsMe: z.boolean(),
+})
+export type LinearComment = z.infer<typeof LinearCommentSchema>
+
+export const LinearTicketSchema = z.object({
+  /** Linear's issue id (a uuid): comments are posted against it. */
+  id: z.string(),
+  key: z.string(),
+  title: z.string(),
+  url: z.string(),
+  description: z.string(),
+  creator: z.string(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+  state: z.object({ name: z.string(), type: z.string(), color: z.string() }),
+  assignee: z.string().nullable(),
+  priority: z.string(),
+  labels: z.array(z.object({ name: z.string(), color: z.string() })),
+  project: z.string().nullable(),
+  team: z.string(),
+  parent: z.object({ key: z.string(), title: z.string(), url: z.string() }).nullable(),
+  children: z.array(
+    z.object({ key: z.string(), title: z.string(), url: z.string(), state: z.string() }),
+  ),
+  /** Linked GitHub PRs and other attachments. */
+  links: z.array(z.object({ title: z.string(), url: z.string(), kind: z.string() })),
+  comments: z.array(LinearCommentSchema),
+  /** People on the ticket, for @mentions in a reply. */
+  people: z.array(LinearPerson),
+  me: LinearPerson,
+})
+export type LinearTicket = z.infer<typeof LinearTicketSchema>
+
 export const reviewsInvoke = {
   'reviews.queue': {
     input: z.object({ refresh: z.boolean() }).strict(),
@@ -145,18 +207,36 @@ export const reviewsInvoke = {
     }).strict(),
     output: z.object({ ok: z.literal(true) }),
   },
-  /** Sends Isaac's private @Astra question about a PR to Astra's thread, never to GitHub. */
+  /** Sends Isaac's private @Astra question about a PR or ticket to Astra's thread, never to GitHub or Linear. */
   'reviews.astra': {
-    input: PrRef.extend({
-      url: z.string().url(),
-      title: z.string(),
-      text: z.string().max(8_000),
-    }).strict(),
+    input: z
+      .object({ url: z.string().url(), title: z.string(), text: z.string().max(8_000) })
+      .strict(),
     output: AstraSendSchema,
   },
-  /** Marks a PR handled (hidden from the queue until it changes) or brings it back. */
+  /** Marks a PR or ticket handled (hidden from the queue until it changes) or brings it back. */
   'reviews.done': {
     input: z.object({ url: z.string().url(), updatedAt: z.number(), done: z.boolean() }).strict(),
     output: z.record(z.string(), z.number()),
+  },
+  /** Linear tickets that want Isaac: mentions, assignments, comments, newest first. */
+  'reviews.linearQueue': {
+    input: z.object({ refresh: z.boolean() }).strict(),
+    output: z.array(LinearRowSchema),
+  },
+  'reviews.linearTicket': {
+    input: z.object({ key: LinearKey }).strict(),
+    output: LinearTicketSchema,
+  },
+  /** Posts a comment (or a reply under `parentId`) on Linear, after Isaac confirms the exact text. */
+  'reviews.linearComment': {
+    input: z
+      .object({
+        issueId: z.string().min(1),
+        parentId: z.string().min(1).nullable(),
+        body: z.string().min(1).max(65_000),
+      })
+      .strict(),
+    output: z.object({ url: z.string() }),
   },
 } as const

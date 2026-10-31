@@ -10,6 +10,7 @@ import type { MainContext } from '../context'
 import type { ToolRun } from '../context-popover/pr-source'
 import { handle } from '../ipc/handle'
 import { claudeWriter, guideCache } from './guide'
+import { registerLinearInbox } from './linear-inbox'
 
 /** What the Guide is written from. */
 const GuidePr = z.object({
@@ -191,9 +192,9 @@ export function toPr(repo: string, raw: Raw, diff: string): ReviewPr {
   }
 }
 
-/** What Astra reads: Isaac's private question, then the PR. */
+/** What Astra reads: Isaac's private question, then the PR or ticket it is about. */
 export function astraLine(title: string, url: string, text: string): string {
-  return `Private question from Isaac's Reviews inbox (answer him, never post it on GitHub): ${text.trim()}\nPR: ${title} ${url}`
+  return `Private question from Isaac's Reviews inbox (answer him, never post it on GitHub or Linear): ${text.trim()}\nAbout: ${title} ${url}`
 }
 
 export function registerReviewsIpc(ctx: MainContext, run: ToolRun): void {
@@ -322,4 +323,6 @@ export function registerReviewsIpc(ctx: MainContext, run: ToolRun): void {
     ctx.config.writeJson(DONE_FILE, next)
     return next
   })
+
+  registerLinearInbox(ctx, { reads: readsGitHub, writes })
 }

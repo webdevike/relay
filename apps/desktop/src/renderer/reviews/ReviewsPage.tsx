@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Button, SegmentedControl, Textarea } from '@mantine/core'
+import { Fragment, useCallback, useEffect, useState, type ReactNode } from 'react'
+import { Button, SegmentedControl, TextInput, Textarea } from '@mantine/core'
 import { EvaModal } from '../overlay'
 import { notifications } from '@mantine/notifications'
 import {
@@ -20,11 +20,12 @@ import {
   IconMessage,
   IconRefresh,
 } from '@tabler/icons-react'
-import type { ReviewPr, ReviewQueue, ReviewRow } from '@evaos/contract'
+import type { LinearRow, LinearTicket, ReviewPr, ReviewQueue, ReviewRow } from '@evaos/contract'
 import type { Place } from '@evaos/shell-core'
 import { invoke } from '../ipc'
 import { openLink } from '../navigation/open-link'
 import { Markdown } from '../chat/markdown/Markdown'
+import { LinearDetail } from './LinearDetail'
 import { ReviewFiles } from './ReviewFiles'
 import { ReviewGuide } from './ReviewGuide'
 import {
@@ -36,51 +37,19 @@ import {
   queueGroups,
   type QueueGroup,
 } from './review-model'
+import {
+  Avatar,
+  PrivateAsks,
+  RailSection,
+  askAstra,
+  fail,
+  useLocal,
+  type PrivateAsk,
+} from './review-ui'
 import './reviews.css'
 
 type Tab = 'conversation' | 'files' | 'checks' | 'guide'
 type View = 'for-me' | 'created'
-
-interface PrivateAsk {
-  text: string
-  at: number
-  status: 'sent' | 'dry-run'
-}
-
-/** Per-PR things only this app knows (files marked viewed, private asks to Astra), kept locally. */
-function useLocal<T>(key: string | null, empty: T): [T, (v: T) => void] {
-  const read = (): T => {
-    if (!key) return empty
-    try {
-      const raw = localStorage.getItem(key)
-      return raw ? (JSON.parse(raw) as T) : empty
-    } catch {
-      return empty
-    }
-  }
-  const [value, setValue] = useState<T>(read)
-  useEffect(() => setValue(read()), [key])
-  return [
-    value,
-    (v: T) => {
-      setValue(v)
-      if (key) localStorage.setItem(key, JSON.stringify(v))
-    },
-  ]
-}
-
-function fail(title: string, message: string): void {
-  notifications.show({ title, message, color: 'red' })
-}
-
-/** Initials in a circle: GitHub avatars are remote images the shell does not load. */
-function Avatar({ login }: { login: string }) {
-  return (
-    <span className="eva-rv-avatar" title={login} aria-hidden>
-      {login.slice(0, 1).toUpperCase()}
-    </span>
-  )
-}
 
 function QueueRow({
   row,
@@ -125,16 +94,99 @@ function Queue({
   selected,
   onOpen,
   now,
+  linear,
+  done,
+  onOpenTicket,
 }: {
   queue: ReviewQueue | null
   view: View
   setView: (v: View) => void
+  /** `owner/repo#n` for a PR, `linear:ENG-1` for a ticket. */
   selected: string | null
   onOpen: (r: ReviewRow) => void
   now: number
+  /** null rows while loading. */
+  linear: { rows: LinearRow[] | null; error: string | null } | null
+  done: Record<string, number>
+  onOpenTicket: (r: LinearRow) => void
 }) {
   const [closed, setClosed] = useState<Record<string, boolean>>({ completed: true })
   const groups: QueueGroup[] = queue ? queueGroups(queue, view) : []
+  // Linear tickets that want Isaac, under For me, before the finished reviews.
+  const tickets = linear?.rows?.filter(
+    (r) => !(done[r.url] !== undefined && r.updatedAt <= done[r.url]!),
+  )
+  const linearGroup =
+    view === 'for-me' && linear ? (
+      <div className="eva-rv-group" data-testid="review-linear-group">
+        <button
+          type="button"
+          className="eva-rv-group-head"
+          onClick={() => setClosed({ ...closed, linear: !closed.linear })}
+        >
+          Linear <span className="eva-rv-dim">{tickets ? tickets.length : ''}</span>
+          {closed.linear ? <IconChevronRight size={12} /> : <IconChevronDown size={12} />}
+        </button>
+        {closed.linear ? null : linear.error ? (
+          <div className="eva-rv-dim eva-rv-pad">Couldn&apos;t read Linear: {linear.error}</div>
+        ) : !tickets ? (
+          <div className="eva-rv-dim eva-rv-pad">Loading...</div>
+        ) : tickets.length === 0 ? (
+          <div className="eva-rv-dim eva-rv-pad">Nothing here.</div>
+        ) : (
+          tickets.map((r) => (
+            <button
+              key={r.key}
+              type="button"
+              className="eva-rv-qrow"
+              data-active={selected === `linear:${r.key}` || undefined}
+              data-unread={r.unread || undefined}
+              data-testid={`review-ticket-${r.key}`}
+              onClick={() => onOpenTicket(r)}
+              title={`${r.key} ${r.title}`}
+            >
+              <span className="eva-rv-qrow-line">
+                <span className="eva-rv-qrow-title">{r.title}</span>
+                <span className="eva-rv-dim eva-rv-mono eva-rv-qrow-key">{r.key}</span>
+              </span>
+              <span className="eva-rv-qrow-line eva-rv-dim">
+                <span className="eva-rv-qrow-sub">
+                  {r.actor} {r.reason}
+                </span>
+                <Avatar login={r.actor} />
+                <span>{ago(r.updatedAt, now)}</span>
+              </span>
+            </button>
+          ))
+        )}
+        {closed.linear ? null : (
+          <TextInput
+            size="xs"
+            className="eva-rv-open-ticket"
+            placeholder="Open a ticket: ENG-1234"
+            data-testid="review-open-ticket"
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return
+              const m = /\b([A-Z][A-Z0-9]*-\d+)\b/.exec(e.currentTarget.value.toUpperCase())
+              if (!m) return
+              const key = m[1]!
+              e.currentTarget.value = ''
+              onOpenTicket(
+                tickets?.find((r) => r.key === key) ?? {
+                  key,
+                  title: key,
+                  url: `https://linear.app/issue/${key}`,
+                  reason: '',
+                  actor: '',
+                  updatedAt: 0,
+                  unread: false,
+                },
+              )
+            }}
+          />
+        )}
+      </div>
+    ) : null
   return (
     <aside className="eva-rv-queue" data-testid="review-queue">
       <div className="eva-rv-queue-title">Reviews</div>
@@ -150,41 +202,36 @@ function Queue({
       />
       {queue === null ? <div className="eva-rv-dim eva-rv-pad">Loading...</div> : null}
       {groups.map((g) => (
-        <div key={g.id} className="eva-rv-group">
-          <button
-            type="button"
-            className="eva-rv-group-head"
-            onClick={() => setClosed({ ...closed, [g.id]: !closed[g.id] })}
-          >
-            {g.label} <span className="eva-rv-dim">{g.count}</span>
-            {closed[g.id] ? <IconChevronRight size={12} /> : <IconChevronDown size={12} />}
-          </button>
-          {closed[g.id] ? null : g.rows.length === 0 ? (
-            <div className="eva-rv-dim eva-rv-pad">Nothing here.</div>
-          ) : (
-            g.rows.map((r) => (
-              <QueueRow
-                key={prKey(r)}
-                row={r}
-                subtitle={g.subtitle}
-                active={selected === prKey(r)}
-                now={now}
-                onOpen={() => onOpen(r)}
-              />
-            ))
-          )}
-        </div>
+        <Fragment key={g.id}>
+          {g.id === 'completed' ? linearGroup : null}
+          <div className="eva-rv-group">
+            <button
+              type="button"
+              className="eva-rv-group-head"
+              onClick={() => setClosed({ ...closed, [g.id]: !closed[g.id] })}
+            >
+              {g.label} <span className="eva-rv-dim">{g.count}</span>
+              {closed[g.id] ? <IconChevronRight size={12} /> : <IconChevronDown size={12} />}
+            </button>
+            {closed[g.id] ? null : g.rows.length === 0 ? (
+              <div className="eva-rv-dim eva-rv-pad">Nothing here.</div>
+            ) : (
+              g.rows.map((r) => (
+                <QueueRow
+                  key={prKey(r)}
+                  row={r}
+                  subtitle={g.subtitle}
+                  active={selected === prKey(r)}
+                  now={now}
+                  onOpen={() => onOpen(r)}
+                />
+              ))
+            )}
+          </div>
+        </Fragment>
       ))}
+      {queue === null && view === 'for-me' ? linearGroup : null}
     </aside>
-  )
-}
-
-function RailSection({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="eva-rv-rail-sec">
-      <div className="eva-rv-rail-title">{title}</div>
-      {children}
-    </section>
   )
 }
 
@@ -265,13 +312,6 @@ function CheckIcon({ state }: { state: string }) {
 }
 
 function Conversation({ pr, asks, now }: { pr: ReviewPr; asks: PrivateAsk[]; now: number }) {
-  // A question just sent shows where it landed: the end of the conversation.
-  const lastAsk = useRef<HTMLDivElement>(null)
-  const asked = useRef(asks.length)
-  useEffect(() => {
-    if (asks.length > asked.current) lastAsk.current?.scrollIntoView({ block: 'nearest' })
-    asked.current = asks.length
-  }, [asks.length])
   // One timeline: comments and reviews interleaved with pushes, oldest first, like E3.
   const items = [
     ...pr.commits.map((c) => ({
@@ -328,25 +368,7 @@ function Conversation({ pr, asks, now }: { pr: ReviewPr; asks: PrivateAsk[]; now
           <div key={i.key}>{i.node}</div>
         ))}
       </div>
-      {asks.map((a, i) => (
-        <div
-          key={i}
-          ref={i === asks.length - 1 ? lastAsk : undefined}
-          className="eva-rv-private"
-          data-testid="review-private-ask"
-        >
-          <div className="eva-rv-private-head">
-            <IconLock size={13} /> Private to Astra{' '}
-            <span className="eva-rv-dim">{agoPhrase(a.at, now)}</span>
-          </div>
-          <div className="eva-rv-private-q">{a.text}</div>
-          <div className="eva-rv-dim">
-            {a.status === 'sent'
-              ? "Sent to Astra's thread. Her answer arrives there, never on GitHub."
-              : 'Test instance: not sent to Astra.'}
-          </div>
-        </div>
-      ))}
+      <PrivateAsks asks={asks} now={now} where="GitHub" />
     </div>
   )
 }
@@ -408,27 +430,7 @@ function Detail({
   const ref = { repo: pr.repo, number: pr.number }
   const viewedSet = new Set(viewed)
 
-  const astra = async (text: string): Promise<boolean> => {
-    const r = await invoke('reviews.astra', {
-      ...ref,
-      url: pr.url,
-      title: pr.title,
-      text,
-    })
-    if (!r.ok) {
-      fail("Couldn't reach Astra", r.error.message)
-      return false
-    }
-    setAsks([...asks, { text, at: Date.now(), status: r.value.status }])
-    notifications.show({
-      message:
-        r.value.status === 'sent'
-          ? "Sent to Astra's thread."
-          : `Test instance, not sent: ${r.value.command}`,
-      color: r.value.status === 'sent' ? 'green' : 'gray',
-    })
-    return true
-  }
+  const astra = (text: string): Promise<boolean> => askAstra(pr, text, asks, setAsks)
 
   // Cmd+Enter or Comment: @Astra goes privately to Astra; anything else asks before it posts.
   const submit = async (): Promise<void> => {
@@ -693,6 +695,14 @@ export function ReviewsPage(_: { place: Place }) {
   const [now, setNow] = useState(Date.now())
   // Back to the queue stays there: the first PR opens by itself only once.
   const [autoOpened, setAutoOpened] = useState(false)
+  const [linear, setLinear] = useState<{ rows: LinearRow[] | null; error: string | null }>({
+    rows: null,
+    error: null,
+  })
+  const [ticket, setTicket] = useState<LinearRow | null>(null)
+  // Done marks from the last Done here, so a ticket hides even when GitHub could not be read.
+  const [doneLocal, setDoneLocal] = useState<Record<string, number>>({})
+  const doneMap = { ...queue?.done, ...doneLocal }
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 15_000)
@@ -707,6 +717,11 @@ export function ReviewsPage(_: { place: Place }) {
     } else setError(r.error.message)
   }, [])
 
+  const loadLinear = useCallback(async (refresh: boolean) => {
+    const r = await invoke('reviews.linearQueue', { refresh })
+    setLinear(r.ok ? { rows: r.value, error: null } : { rows: null, error: r.error.message })
+  }, [])
+
   const loadPr = useCallback(async (row: ReviewRow) => {
     setPrError(null)
     const r = await invoke('reviews.pr', { repo: row.repo, number: row.number })
@@ -716,18 +731,19 @@ export function ReviewsPage(_: { place: Place }) {
 
   useEffect(() => {
     void loadQueue(false)
-  }, [loadQueue])
+    void loadLinear(false)
+  }, [loadQueue, loadLinear])
 
   // Open the first PR that needs Isaac once the queue arrives.
   useEffect(() => {
-    if (!queue || selected || autoOpened) return
+    if (!queue || selected || ticket || autoOpened) return
     const first = queueGroups(queue, view).find((g) => g.rows.length > 0 && g.id !== 'completed')
       ?.rows[0]
     if (first) {
       setAutoOpened(true)
       setSelected(first)
     }
-  }, [queue, view, selected, autoOpened])
+  }, [queue, view, selected, ticket, autoOpened])
 
   useEffect(() => {
     if (selected && pr?.key !== prKey(selected)) void loadPr(selected)
@@ -743,9 +759,33 @@ export function ReviewsPage(_: { place: Place }) {
     if (!r.ok) return fail("Couldn't mark it done", r.error.message)
     const next = nextAfter(queueGroups(queue, view), pr.key)
     setQueue({ ...queue, done: r.value })
+    setDoneLocal(r.value)
     setSelected(next)
     if (!next) setPr(null)
     notifications.show({ message: `Done: ${pr.pr.title}`, color: 'green' })
+  }
+
+  const doneTicket = async (t: LinearTicket): Promise<void> => {
+    if (!ticket) return
+    const r = await invoke('reviews.done', {
+      url: t.url,
+      updatedAt: Math.max(ticket.updatedAt, Date.now()),
+      done: true,
+    })
+    if (!r.ok) return fail("Couldn't mark it done", r.error.message)
+    setDoneLocal(r.value)
+    if (queue) setQueue({ ...queue, done: r.value })
+    const rows = linear.rows ?? []
+    const at = rows.findIndex((x) => x.key === ticket.key)
+    const rest = rows.filter((x) => x.key !== ticket.key && !(r.value[x.url]! >= x.updatedAt))
+    setTicket(rest[Math.min(Math.max(at, 0), rest.length - 1)] ?? null)
+    notifications.show({ message: `Done: ${t.key} ${t.title}`, color: 'green' })
+  }
+
+  const openTicket = (row: LinearRow): void => {
+    setSelected(null)
+    setPr(null)
+    setTicket(row)
   }
 
   const shown = selected && pr?.key === prKey(selected) ? pr : null
@@ -757,13 +797,28 @@ export function ReviewsPage(_: { place: Place }) {
         setView={(v) => {
           setView(v)
           setSelected(null)
+          setTicket(null)
           setAutoOpened(false)
         }}
-        selected={selected ? prKey(selected) : null}
-        onOpen={setSelected}
+        selected={ticket ? `linear:${ticket.key}` : selected ? prKey(selected) : null}
+        onOpen={(r) => {
+          setTicket(null)
+          setSelected(r)
+        }}
         now={now}
+        linear={linear}
+        done={doneMap}
+        onOpenTicket={openTicket}
       />
-      {error ? (
+      {ticket ? (
+        <LinearDetail
+          key={ticket.key}
+          row={ticket}
+          now={now}
+          onBack={() => setTicket(null)}
+          onDone={(t) => void doneTicket(t)}
+        />
+      ) : error ? (
         <div className="eva-rv-placeholder eva-rv-error">Couldn't read GitHub: {error}</div>
       ) : shown ? (
         <Detail
@@ -787,7 +842,7 @@ export function ReviewsPage(_: { place: Place }) {
             : selected
               ? 'Loading the pull request...'
               : queue
-                ? 'Pick a pull request from the queue.'
+                ? 'Pick a pull request or ticket from the queue.'
                 : 'Loading your reviews...'}
         </div>
       )}

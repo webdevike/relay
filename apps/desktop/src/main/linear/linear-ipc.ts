@@ -14,7 +14,7 @@ const QUERY = `query($id: String!) { issue(id: $id) {
 } }`
 
 /** `LINEAR_API_KEY`, else `secrets/linear.env` in the Eva root (as EvaOS's linear source). */
-async function apiKey(evaRoot: string): Promise<string | null> {
+export async function apiKey(evaRoot: string): Promise<string | null> {
   if (process.env.LINEAR_API_KEY) return process.env.LINEAR_API_KEY
   const text = await readFile(path.join(evaRoot, 'secrets/linear.env'), 'utf8').catch(() => '')
   const m = /^\s*(?:export\s+)?LINEAR_API_KEY\s*=\s*["']?([^"'\s]+)/m.exec(text)
