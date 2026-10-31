@@ -135,7 +135,12 @@ export const LinearRowSchema = z.object({
 })
 export type LinearRow = z.infer<typeof LinearRowSchema>
 
-const LinearPerson = z.object({ name: z.string(), handle: z.string() })
+const LinearPerson = z.object({
+  name: z.string(),
+  handle: z.string(),
+  /** Profile page; Linear treats a link to it in a comment as an @mention. */
+  url: z.string(),
+})
 
 export const LinearCommentSchema = z.object({
   id: z.string(),

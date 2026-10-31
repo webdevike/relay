@@ -32,6 +32,22 @@ type Tab = 'details' | 'comments'
 interface Person {
   name: string
   handle: string
+  /** Profile page: the mention Linear understands. Empty for Astra, who is never posted. */
+  url: string
+}
+
+/**
+ * The body Linear gets: each `@Name` of a person on the ticket becomes a link to their profile,
+ * which Linear renders and notifies as a mention (plain `@handle` text is neither). Longer names
+ * go first so `@Ann Lee` is not read as `@Ann`.
+ */
+export function linearBody(text: string, people: readonly Person[]): string {
+  let out = text
+  for (const p of [...people].filter((x) => x.url).sort((a, b) => b.name.length - a.name.length)) {
+    const at = new RegExp(`@${p.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`, 'g')
+    out = out.replace(at, p.url)
+  }
+  return out
 }
 
 /** `> ` before every line: a quote in markdown. */
@@ -83,7 +99,10 @@ function ReplyBox({
   const box = useRef<HTMLTextAreaElement>(null)
   const [query, setQuery] = useState<string | null>(null)
   const priv = mentionsAstra(value)
-  const options: Person[] = [{ name: 'Astra (private)', handle: 'Astra' }, ...people].filter(
+  const options: Person[] = [
+    { name: 'Astra (private)', handle: 'Astra', url: '' },
+    ...people,
+  ].filter(
     (p) =>
       query !== null &&
       (p.handle.toLowerCase().startsWith(query.toLowerCase()) ||
@@ -97,7 +116,9 @@ function ReplyBox({
   const pick = (p: Person): void => {
     const el = box.current
     const caret = el?.selectionStart ?? value.length
-    const before = value.slice(0, caret).replace(/@([\w.-]*)$/, `@${p.handle} `)
+    // The editor shows `@Name`; linearBody turns it into the profile link Linear mentions with.
+    const label = p.url ? p.name : p.handle
+    const before = value.slice(0, caret).replace(/@([\w.-]*)$/, `@${label} `)
     onChange(before + value.slice(caret))
     setQuery(null)
     caretAt.current = before.length
@@ -423,7 +444,8 @@ export function LinearDetail({
       }
       return
     }
-    setConfirm({ body, parent })
+    // The confirm shows exactly what Linear will get: mentions as profile links.
+    setConfirm({ body: linearBody(body, t.people), parent })
   }
 
   const post = async (): Promise<void> => {

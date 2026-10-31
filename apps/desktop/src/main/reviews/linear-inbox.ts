@@ -23,7 +23,13 @@ const ms = (iso: string | null | undefined): number => {
   return Number.isNaN(t) ? 0 : t
 }
 
-const User = z.object({ id: z.string(), name: z.string(), displayName: z.string() })
+const User = z.object({
+  id: z.string(),
+  name: z.string(),
+  displayName: z.string(),
+  /** The profile page; a link to it in a comment is a mention. */
+  url: z.string().optional(),
+})
 
 const QueueData = z.object({
   viewer: User,
@@ -171,16 +177,16 @@ const Ticket = z.object({
 })
 
 const TICKET_QUERY = `query($id: String!) {
-  viewer { id name displayName }
+  viewer { id name displayName url }
   issue(id: $id) {
     id identifier title url description createdAt updatedAt priorityLabel
-    creator { id name displayName }
-    state { name type color } assignee { id name displayName } team { name }
+    creator { id name displayName url }
+    state { name type color } assignee { id name displayName url } team { name }
     labels { nodes { name color } } project { name }
     parent { identifier title url }
     children { nodes { identifier title url state { name } } }
     attachments { nodes { title url sourceType } }
-    comments(first: 250) { nodes { id body createdAt url user { id name displayName } parent { id } } }
+    comments(first: 250) { nodes { id body createdAt url user { id name displayName url } parent { id } } }
   }
 }`
 
@@ -278,9 +284,16 @@ export function registerLinearInbox(
 
   handle(ctx, 'reviews.linearTicket', async ({ key }): Promise<LinearTicket> => {
     const { viewer, issue: i } = Ticket.parse(await gql(TICKET_QUERY, { id: key }))
-    const person = (u: z.infer<typeof User>) => ({ name: u.name, handle: u.displayName })
+    // A mention Linear understands is a link to the person's profile; `@handle` text is not one.
+    const workspace = /^https:\/\/linear\.app\/[^/]+/.exec(i.url)?.[0] ?? 'https://linear.app'
+    const person = (u: z.infer<typeof User>) => ({
+      name: u.name,
+      handle: u.displayName,
+      url: u.url ?? `${workspace}/profiles/${u.displayName}`,
+    })
+    const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const mine = new RegExp(
-      `(^|[^\\w])@${viewer.displayName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`,
+      `(^|[^\\w])@${esc(viewer.displayName)}\\b|${esc(person(viewer).url)}(?![\\w-])`,
       'i',
     )
     const comments = await Promise.all(
@@ -289,14 +302,14 @@ export function registerLinearInbox(
         .map(async (c) => ({
           id: c.id,
           parentId: c.parent?.id ?? null,
-          author: c.user ? person(c.user) : { name: 'Linear', handle: 'linear' },
+          author: c.user ? person(c.user) : { name: 'Linear', handle: 'linear', url: '' },
           body: await withLocalImages(c.body),
           at: ms(c.createdAt),
           url: c.url,
           mentionsMe: mine.test(c.body),
         })),
     )
-    const people = new Map<string, { name: string; handle: string }>()
+    const people = new Map<string, LinearTicket['me']>()
     for (const u of [i.creator, i.assignee, ...i.comments.nodes.map((c) => c.user)]) {
       if (u && u.id !== viewer.id) people.set(u.id, person(u))
     }

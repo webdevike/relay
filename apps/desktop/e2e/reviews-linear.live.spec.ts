@@ -100,6 +100,20 @@ test('reads, replies to and finishes a real Linear ticket without writing anywhe
   // @ lists Astra and the people on the ticket; @Astra goes privately to Astra, never to Linear.
   const box = shell.locator(sel('linear-composer'))
   await box.click()
+  // Picking a person shows @Name; Linear gets their profile link, the mention it understands.
+  await box.pressSequentially('@ste')
+  await box.press('Enter')
+  await expect(box).toHaveValue('@Steve Arms ')
+  await box.pressSequentially('can you retest?')
+  await box.press('Meta+Enter')
+  await expect(shell.locator(sel('review-confirm-text'))).toHaveText(
+    /^https:\/\/linear\.app\/[^/]+\/profiles\/[\w.-]+ can you retest\?$/,
+  )
+  await shell.waitForTimeout(400)
+  await shot(shell, 'linear-mention-confirm')
+  await shell.getByRole('button', { name: 'Cancel' }).last().click()
+  await box.fill('')
+  await box.click()
   await box.pressSequentially('@')
   await expect(shell.locator(sel('review-mention-list'))).toBeVisible()
   await shot(shell, 'linear-mention')
