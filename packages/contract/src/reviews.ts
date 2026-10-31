@@ -112,11 +112,34 @@ export const ReviewGuideSchema = z.object({
 })
 export type ReviewGuide = z.infer<typeof ReviewGuideSchema>
 
-/** What an ask to Astra did: `sent`, or `dry-run` in test instances (the command is shown). */
-export const AstraSendSchema = z.object({
-  status: z.enum(['sent', 'dry-run']),
-  command: z.string(),
+/** One turn of an item's Astra session as Reviews shows it inline. */
+export const AstraTurnSchema = z.object({
+  id: z.string(),
+  role: z.enum(['user', 'assistant', 'tool']),
+  /** Markdown; for Isaac's first ask, only his question (the seed is not shown). */
+  text: z.string(),
+  streaming: z.boolean(),
 })
+export type AstraTurn = z.infer<typeof AstraTurnSchema>
+
+/** An item's Astra session: one per item, kept across restarts. */
+export const AstraItemSchema = z.object({
+  url: z.string(),
+  title: z.string(),
+  /** The omp session file; null until omp reports it. */
+  file: z.string().nullable(),
+  turns: z.array(AstraTurnSchema),
+  working: z.boolean(),
+  /** A question omp is blocked on (Astra's `ask`), answered from the session. */
+  waiting: z.string().nullable(),
+  error: z.string().nullable(),
+})
+export type AstraItem = z.infer<typeof AstraItemSchema>
+
+export const reviewsEvents = {
+  /** An item's Astra session changed (streamed text, a turn ending). */
+  'reviews.astraUpdate': AstraItemSchema,
+} as const
 
 const LinearKey = z.string().regex(/^[A-Z][A-Z0-9]*-\d+$/)
 
@@ -212,12 +235,33 @@ export const reviewsInvoke = {
     }).strict(),
     output: z.object({ ok: z.literal(true) }),
   },
-  /** Sends Isaac's private @Astra question about a PR or ticket to Astra's thread, never to GitHub or Linear. */
-  'reviews.astra': {
+  /**
+   * Asks Astra about an item in that item's own Astra session: the first ask starts it (her prime,
+   * her thread memory and the item as `context`), later asks continue it. Nothing reaches GitHub,
+   * Linear or Slack. Answers stream as `reviews.astraUpdate`.
+   */
+  'reviews.astraAsk': {
     input: z
-      .object({ url: z.string().url(), title: z.string(), text: z.string().max(8_000) })
+      .object({
+        url: z.string().url(),
+        /** `repo#170`, `ENG-6406`: the session is titled `Astra · <label>`. */
+        label: z.string().min(1).max(200),
+        /** The item as Markdown (title, description, comments, diff); read on the first ask only. */
+        context: z.string().max(400_000),
+        text: z.string().min(1).max(8_000),
+      })
       .strict(),
-    output: AstraSendSchema,
+    output: AstraItemSchema,
+  },
+  /** The item's Astra session as it stands; null when there is none yet. */
+  'reviews.astraThread': {
+    input: z.object({ url: z.string().url() }).strict(),
+    output: AstraItemSchema.nullable(),
+  },
+  /** Lets the item's omp process go (when idle), so the chat view can take the session over. */
+  'reviews.astraRelease': {
+    input: z.object({ url: z.string().url() }).strict(),
+    output: z.object({ released: z.boolean() }),
   },
   /** Marks a PR or ticket handled (hidden from the queue until it changes) or brings it back. */
   'reviews.done': {

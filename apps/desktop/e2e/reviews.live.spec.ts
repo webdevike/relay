@@ -6,7 +6,7 @@ import { test, expect } from './fixtures'
 
 // Opt-in live spec: the Reviews page against real GitHub (gh, Isaac's account) on PR
 // eCardSystems/node-client-api-service#170. Read-only by construction: EVAOS_E2E=1 turns every
-// write (GitHub comment, review, private @Astra ask) into a dry run, and the spec checks that.
+// write (GitHub comment, review) into a dry run, and the spec checks that.
 // EVAOS_REVIEWS_SHOTS=<dir> keeps the screenshots there.
 test.skip(process.env.EVAOS_LIVE !== '1', 'live GitHub reads are opt-in (EVAOS_LIVE=1)')
 // The Guide is written by the real claude CLI (a read: the model sees the PR, nothing is posted).
@@ -79,15 +79,12 @@ test('reviews a real PR end to end without writing anywhere', async ({ app, shel
   await shot(shell, '06c-guide-section3')
   await expect(shell.getByRole('button', { name: 'Hand to Astra' })).toHaveCount(0)
 
-  // @Astra is private: it goes to Astra (dry run here), never to the GitHub confirm.
+  // @Astra marks the box private; what an ask does is reviews-astra.live.spec.ts.
   await shell.locator(sel('review-tab-conversation')).click()
   const box = shell.locator(sel('review-composer'))
   await box.fill('@Astra can a hot asset page pass 1000 versions here?')
+  await expect(box).toHaveAttribute('data-private', 'true')
   await shot(shell, '07-private-typing')
-  await box.press('Meta+Enter')
-  await expect(shell.locator(sel('review-private-ask')).last()).toContainText('1000 versions')
-  await expect(shell.getByText('Post this comment on GitHub?')).toHaveCount(0)
-  await shot(shell, '08-private-sent')
 
   // A plain comment asks first and shows the exact text; posting is a dry run in tests.
   await box.fill('Looks good once the versions route pages.')

@@ -1,9 +1,8 @@
 // The Reviews page: Isaac's GitHub review queue for the eCardSystems org and one PR's detail, read
-// with `gh`. Writes leave the app only on an explicit action: a GitHub comment after Isaac confirms
-// the text in the renderer, and a line to Astra's thread through eva-thread.ts. Test instances
-// (EVAOS_E2E=1) never write: both answer `dry-run` with the command they would have run.
+// with `gh`. Writes leave the app only on an explicit action: a GitHub comment or review after
+// Isaac confirms the text in the renderer. Test instances (EVAOS_E2E=1) never post. @Astra asks go
+// to the item's own Astra session (astra-sessions.ts), never to GitHub.
 import * as os from 'node:os'
-import * as path from 'node:path'
 import { z } from 'zod'
 import type { ReviewPr, ReviewQueue, ReviewRow } from '@evaos/contract'
 import type { MainContext } from '../context'
@@ -11,6 +10,7 @@ import type { ToolRun } from '../context-popover/pr-source'
 import { handle } from '../ipc/handle'
 import { claudeWriter, guideCache } from './guide'
 import { registerLinearInbox } from './linear-inbox'
+import { registerAstraSessions } from './astra-sessions'
 
 /** What the Guide is written from. */
 const GuidePr = z.object({
@@ -192,11 +192,6 @@ export function toPr(repo: string, raw: Raw, diff: string): ReviewPr {
   }
 }
 
-/** What Astra reads: Isaac's private question, then the PR or ticket it is about. */
-export function astraLine(title: string, url: string, text: string): string {
-  return `Private question from Isaac's Reviews inbox (answer him, never post it on GitHub or Linear): ${text.trim()}\nAbout: ${title} ${url}`
-}
-
 export function registerReviewsIpc(ctx: MainContext, run: ToolRun): void {
   // gh reads real GitHub: the live app, or a test instance that opts in with EVAOS_REVIEWS_GH=1.
   const readsGitHub = ctx.env.live || process.env.EVAOS_REVIEWS_GH === '1'
@@ -306,16 +301,6 @@ export function registerReviewsIpc(ctx: MainContext, run: ToolRun): void {
     return guide(`${repo}#${number}`, pr.headRefOid, { ...pr, diff })
   })
 
-  handle(ctx, 'reviews.astra', async ({ url, title, text }) => {
-    const tool = path.join(ctx.env.evaRoot, '.omp/tools/eva-thread.ts')
-    const line = astraLine(title, url, text)
-    const command = `bun ${tool} --agent astra ${JSON.stringify(line)}`
-    if (!writes) return { status: 'dry-run' as const, command }
-    const res = await run(tool, ['--agent', 'astra', line], ctx.env.evaRoot)
-    if (res.code !== 0) throw fail('astra-failed', 'eva-thread.ts could not reach Astra')
-    return { status: 'sent' as const, command }
-  })
-
   handle(ctx, 'reviews.done', ({ url, updatedAt, done: on }) => {
     const next = { ...done() }
     if (on) next[url] = updatedAt
@@ -325,4 +310,5 @@ export function registerReviewsIpc(ctx: MainContext, run: ToolRun): void {
   })
 
   registerLinearInbox(ctx, { reads: readsGitHub, writes })
+  registerAstraSessions(ctx)
 }

@@ -6,7 +6,7 @@ import { test, expect } from './fixtures'
 
 // Opt-in live spec: Linear tickets in Reviews against Isaac's real Linear (his key from
 // LINEAR_API_KEY or ~/Eva/secrets/linear.env) on ENG-6406. Read-only by construction: EVAOS_E2E=1
-// turns posting to Linear and the private @Astra ask into dry runs, and the spec checks that.
+// turns posting to Linear into a dry run, and the spec checks that.
 // EVAOS_REVIEWS_SHOTS=<dir> keeps the screenshots there.
 test.skip(process.env.EVAOS_LIVE !== '1', 'live Linear reads are opt-in (EVAOS_LIVE=1)')
 
@@ -118,14 +118,11 @@ test('reads, replies to and finishes a real Linear ticket without writing anywhe
   await expect(shell.locator(sel('review-mention-list'))).toBeVisible()
   await shot(shell, 'linear-mention')
   await box.press('Enter')
+  // Astra is first in the list; what an @Astra ask does is reviews-astra.live.spec.ts.
   await expect(box).toHaveValue('@Astra ')
-  await box.pressSequentially('what should I tell Steve about the borders?')
+  await expect(shell.locator(sel('linear-composer'))).toHaveAttribute('data-private', 'true')
   await shot(shell, 'linear-private-typing')
-  await box.press('Meta+Enter')
-  await expect(shell.locator(sel('review-private-ask')).last()).toContainText('borders')
-  await expect(shell.getByText('Post this comment on Linear?')).toHaveCount(0)
-  await shell.waitForTimeout(400)
-  await shot(shell, 'linear-private-sent')
+  await box.fill('')
 
   // Done hides it locally.
   await shell.locator(sel('review-done')).click()
