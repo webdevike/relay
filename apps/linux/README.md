@@ -408,8 +408,15 @@ her main thread); its first prompt is her prime, her thread memory (`work/eva/ag
 (PR, ticket or Slack thread as Markdown) and the question after a marker, so only the question shows as his turn.
 Later asks are turns in the live session; once it ended, the next ask resumes its file. The item's turns come
 from the provider's conversation while it lives (tool rows one line, notices dropped; `working`, and `waiting`
-for an approval or a question) and from the session file after it ended. Without an agent home Astra asks are
-refused.
+for an approval or a question) and from the session file after it ended. The host names the session itself (omp
+starts with `--no-title`, then `agent.configure { title }` once it joined), as Relay Desktop does. Without an agent
+home Astra asks are refused.
+
+One source of truth: the prompts, queries and parsers in `src/reviews/` are ports of evaos-electron's
+`apps/desktop/src/main/reviews` (and `renderer/reviews/astra-context.ts` for the item context); a change to a
+Slack prompt, the Linear queries, the Guide prompt or the Astra seed goes in both until the desktop reads them
+from here. A test host with its own `XDG_CONFIG_HOME` also moves `gh`'s login (`~/.config/gh`): run it with
+`GH_CONFIG_DIR=$HOME/.config/gh`.
 
 ## Differences from the Mac app
 
