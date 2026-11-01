@@ -72,6 +72,9 @@ export function createDropFrameRouter(store: DropsStoreActions): DropFrameRouter
       case "studio.job":
       case "studio.removed":
       case "studio.res":
+      case "reviews.res":
+      case "reviews.queue":
+      case "reviews.astra":
       case "ack":
       case "nack":
       case "pong":
