@@ -82,6 +82,8 @@ export function ItemScreen({ header, children, dock, refreshControl, toast, stic
           >
             {children}
           </ScrollView>
+          {/* Text scrolling under the bottom controls blurs out instead of reading between them (Linear's bottom edge). */}
+          {dockHeight > 0 && <TopBlur edge="bottom" height={dockHeight + spacing.xl} strength={2} />}
           <View
             style={styles.dock}
             onLayout={(event) => {

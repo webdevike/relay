@@ -89,6 +89,7 @@ export default function ReviewSlackScreen() {
         <Timeline
           rows={rows}
           astra={composer.astra}
+          me={messages.find((m) => m.mine)?.author}
           now={now}
           onUseAsReply={composer.takeAnswer}
           onStop={composer.stop}

@@ -15,15 +15,17 @@ export interface TimelineProps<T> {
   now: number;
   onUseAsReply: (text: string) => void;
   onStop: () => void;
+  /** Isaac's name where the item knows it (Linear's viewer, his own Slack messages); else "You". */
+  me?: string | undefined;
 }
 
-export function Timeline<T>({ rows, renderEntry, astra, now, onUseAsReply, onStop }: TimelineProps<T>) {
+export function Timeline<T>({ rows, renderEntry, astra, now, onUseAsReply, onStop, me }: TimelineProps<T>) {
   const router = useRouter();
   return (
     <View style={styles.list}>
       {rows.map((row) => {
         if (row.kind === "entry") return <Fragment key={row.key}>{renderEntry(row.entry, row.at)}</Fragment>;
-        if (row.kind === "ask") return <AskCard key={row.key} text={row.text} at={row.at} now={now} />;
+        if (row.kind === "ask") return <AskCard key={row.key} text={row.text} at={row.at} now={now} name={me ?? "You"} />;
         return (
           <AstraCard
             key={row.key}

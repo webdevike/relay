@@ -162,6 +162,7 @@ export default function ReviewLinearScreen() {
         <Timeline
           rows={rows}
           astra={composer.astra}
+          me={ticket?.me.name}
           now={now}
           onUseAsReply={composer.takeAnswer}
           onStop={composer.stop}

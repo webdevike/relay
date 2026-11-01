@@ -3,6 +3,7 @@ import type { AstraItem, AstraTurn, LinearComment, ReviewGuide, ReviewPr, SlackM
 import {
   astraAnswer,
   composerIntent,
+  githubMarkdown,
   githubPrOf,
   guideProgress,
   insertMention,
@@ -263,9 +264,10 @@ describe("snoozeChoices", () => {
     ]);
   });
 
-  it("makes next week a week on from a Monday, and the coming Monday from a Sunday", () => {
+  it("makes next week a week on from a Monday, and never the same time as Tomorrow (a Sunday)", () => {
     expect(snoozeChoices(local(2026, 10, 2, 8))[2]?.until).toBe(local(2026, 10, 9, 9));
-    expect(snoozeChoices(local(2026, 10, 1, 23))[2]?.until).toBe(local(2026, 10, 2, 9));
+    expect(snoozeChoices(local(2026, 10, 1, 23))[1]?.until).toBe(local(2026, 10, 2, 9));
+    expect(snoozeChoices(local(2026, 10, 1, 23))[2]?.until).toBe(local(2026, 10, 9, 9));
   });
 });
 
@@ -288,5 +290,12 @@ describe("mentions", () => {
     expect(insertMention("@", "Astra")).toBe("@Astra ");
     expect(insertMention("thanks", "Todd")).toBe("thanks @Todd ");
     expect(insertMention("", "Todd")).toBe("@Todd ");
+  });
+});
+
+describe("githubMarkdown", () => {
+  it("turns the HTML bots put in PR bodies into Markdown", () => {
+    const body = '<!-- linear-review-link -->\n<p><a href="https://linear.app/x/review/1?openGuide=true">Review in Linear</a></p>\n\n## What\nLine<br>two <img src="https://x/a.png" width="300">';
+    expect(githubMarkdown(body)).toBe("[Review in Linear](https://linear.app/x/review/1?openGuide=true)\n\n## What\nLine\ntwo ![](https://x/a.png)");
   });
 });

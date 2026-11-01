@@ -36,11 +36,11 @@ function PrivateMark({ label }: { label: string }) {
 }
 
 /** Isaac's private question to Astra, as his own card. */
-export function AskCard({ text, at, now }: { text: string; at: number; now: number }) {
+export function AskCard({ text, at, now, name }: { text: string; at: number; now: number; name: string }) {
   return (
     <FeedCard
-      avatar={<Avatar name="You" size={FEED_AVATAR} tint={nameTint("You")} />}
-      name="You"
+      avatar={<Avatar name={name} size={FEED_AVATAR} tint={nameTint(name)} />}
+      name={name}
       meta={Number.isFinite(at) ? `· ${reviewAgo(at, now)}` : undefined}
       badge={<PrivateMark label="Private" />}
     >

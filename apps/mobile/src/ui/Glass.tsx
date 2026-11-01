@@ -8,7 +8,7 @@ import { Text } from "./Text";
 
 /** Height of glass buttons and bars, a 44pt touch target. */
 export const GLASS_HEIGHT = 44;
-const BLUR_INTENSITY = 40;
+const BLUR_INTENSITY = 80;
 
 export interface GlassProps {
   radius: number;
@@ -25,8 +25,9 @@ export function Glass({ radius, style, children }: GlassProps) {
   const scheme = useScheme();
   return (
     <View style={[styles.glass, { borderRadius: radius, borderColor: colors.hairline }, style]}>
-      <BlurView intensity={BLUR_INTENSITY} tint={scheme} style={StyleSheet.absoluteFill} />
-      <View style={[StyleSheet.absoluteFill, { backgroundColor: withAlpha(colors.surfaceRaised, 0.6) }]} />
+      <BlurView intensity={BLUR_INTENSITY} tint={scheme === "dark" ? "systemMaterialDark" : "systemMaterialLight"} style={StyleSheet.absoluteFill} />
+      {/* Text that scrolls under must not read through the controls (Linear's glass is mostly opaque). */}
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: withAlpha(colors.surfaceRaised, 0.78) }]} />
       {children}
     </View>
   );

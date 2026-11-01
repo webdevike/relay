@@ -231,16 +231,36 @@ const BARE_VERDICT: Record<string, string> = {
   DISMISSED: "had a review dismissed",
 };
 
+/**
+ * GitHub bodies mix Markdown with the HTML bots and templates write (`<!-- linear-review-link -->`,
+ * `<p><a href="...">Review in Linear</a></p>`, `<br>`, `<img src>`): comments dropped, links and
+ * images as Markdown, paragraph and line tags as line breaks, any other tag removed.
+ */
+export function githubMarkdown(body: string): string {
+  return body
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<a\s[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi, (_, href: string, text: string) => `[${text.replace(/<[^>]+>/g, "").trim() || href}](${href})`)
+    .replace(/<img\s[^>]*src="([^"]+)"[^>]*\/?>/gi, (_, src: string) => `![](${src})`)
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/?(p|div)(\s[^>]*)?>/gi, "\n")
+    .replace(/<\/?(details|summary|sub|sup|span|picture|source)(\s[^>]*)?>/gi, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 /** The Conversation tab: the description, then comments, reviews and pushes; a verdict with no words is a line, a bare comment review nothing. */
 export function prEntries(pr: Pick<ReviewPr, "author" | "body" | "createdAt" | "timeline">): TimelineEntry<PrEntry>[] {
-  const entries: TimelineEntry<PrEntry>[] = [{ key: "description", at: pr.createdAt, entry: { kind: "post", author: pr.author.login, body: pr.body.trim() === "" ? "_No description._" : pr.body, verdict: null } }];
+  const description = githubMarkdown(pr.body);
+  // The description leads like Linear's, even before commits authored before the PR was opened.
+  const first = Math.min(pr.createdAt, ...pr.timeline.map((item) => item.at));
+  const entries: TimelineEntry<PrEntry>[] = [{ key: "description", at: first, entry: { kind: "post", author: pr.author.login, body: description === "" ? "_No description._" : description, verdict: null } }];
   pr.timeline.forEach((item, i) => {
     const key = `${item.kind}-${String(i)}`;
     if (item.kind === "commit") {
       const sha = item.state ?? "";
       entries.push({ key, at: item.at, entry: { kind: "activity", actor: item.author, text: `pushed ${sha}${item.body === "" ? "" : `: ${item.body}`}`, highlights: sha === "" ? [] : [sha] } });
     } else if (item.body.trim() !== "") {
-      entries.push({ key, at: item.at, entry: { kind: "post", author: item.author, body: item.body, verdict: item.kind === "review" ? item.state : null } });
+      entries.push({ key, at: item.at, entry: { kind: "post", author: item.author, body: githubMarkdown(item.body), verdict: item.kind === "review" ? item.state : null } });
     } else if (item.kind === "review" && item.state !== null && BARE_VERDICT[item.state] !== undefined) {
       entries.push({ key, at: item.at, entry: { kind: "activity", actor: item.author, text: BARE_VERDICT[item.state] ?? "", highlights: [] } });
     }
@@ -268,7 +288,7 @@ export interface SnoozeChoice {
   until: number;
 }
 
-/** Snooze's choices from `now`, in local time: three hours on, tomorrow at 9 AM, next Monday at 9 AM (a week on from a Monday). */
+/** Snooze's choices from `now`, in local time: three hours on, tomorrow at 9 AM, next Monday at 9 AM (a week further when that Monday is tomorrow, so the two never match). */
 export function snoozeChoices(now: number): SnoozeChoice[] {
   const tomorrow = new Date(now);
   tomorrow.setDate(tomorrow.getDate() + 1);
@@ -276,6 +296,7 @@ export function snoozeChoices(now: number): SnoozeChoice[] {
   const monday = new Date(now);
   monday.setDate(monday.getDate() + ((8 - monday.getDay()) % 7 || 7));
   monday.setHours(9, 0, 0, 0);
+  if (monday.getTime() === tomorrow.getTime()) monday.setDate(monday.getDate() + 7);
   return [
     { key: "later", label: "Later today", until: now + 3 * HOUR_MS },
     { key: "tomorrow", label: "Tomorrow", until: tomorrow.getTime() },

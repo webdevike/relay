@@ -300,6 +300,14 @@ describe("astra turns", () => {
     expect(seed.endsWith(`${ASK_MARK}@Astra is it safe?`)).toBe(true);
   });
 
+  it("drops her reply-chip token from answers, whole or still streaming in", () => {
+    const turns = toTurns([
+      message("a1", "assistant", "Reply with a time.\n\n[[replies: Use that reply | Suggest a day]]"),
+      message("a2", "assistant", "Say yes.\n\n[[repl", { streaming: true }),
+    ]);
+    expect(turns.map((t) => t.text)).toEqual(["Reply with a time.", "Say yes."]);
+  });
+
   it("shows only his words for the seed, a line per tool, and no notices", () => {
     const turns = toTurns([
       message("u1", "user", `prime and item${ASK_MARK}@Astra is it safe?`),

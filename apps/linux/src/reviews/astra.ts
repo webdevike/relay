@@ -13,6 +13,7 @@ import { z } from "zod";
 import type { LaunchOptions } from "../agents/herdr";
 import { parseSessionRows } from "../agents/transcript";
 import { loadRegistry } from "../assistant/registry";
+import { splitReplies } from "../assistant/replies";
 import type { AgentProvider, AgentProviderChange } from "../seams";
 import type { SessionClock } from "../session";
 import { readJson, writeJson } from "./exec";
@@ -70,7 +71,9 @@ export function toTurns(messages: readonly Row[]): AstraTurn[] {
       const line = (m.tool === undefined ? m.text : `${m.tool.name} ${m.tool.summary}`).trim().split("\n")[0] ?? "";
       if (line !== "") turns.push({ id: m.id, role: "tool", text: line, streaming, ...at });
     } else if (m.text.trim() !== "" || streaming) {
-      turns.push({ id: m.id, role: "assistant", text: m.text, streaming, ...at });
+      // Her prime ends replies with a `[[replies: a | b]]` chip token for the phone's thread; Reviews has no chips.
+      const { text } = splitReplies(m.text, streaming);
+      if (text.trim() !== "" || streaming) turns.push({ id: m.id, role: "assistant", text, streaming, ...at });
     }
   }
   return turns;
