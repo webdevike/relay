@@ -28,5 +28,7 @@ export function SourceGlyph({ item, size = 20 }: { item: Pick<ReviewItem, "ref" 
   const colors = useColors();
   if (item.ref.kind === "github") return <PrGlyph size={size} />;
   if (item.ref.kind === "linear") return <LinearStateGlyph type={item.stateType} size={size} />;
-  return <SymbolView name={item.slackKind === "dm" ? "bubble.left" : "number"} size={size} tintColor={colors.textMuted} />;
+  // A DM channel (`D...`) reads as a conversation whatever the kind; a mention there is still a DM.
+  const dm = item.slackKind === "dm" || item.ref.channel.startsWith("D");
+  return <SymbolView name={dm ? "bubble.left" : "number"} size={size} tintColor={colors.textMuted} />;
 }

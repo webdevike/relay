@@ -76,7 +76,7 @@ export function toTurns(messages: readonly Row[]): AstraTurn[] {
 }
 
 export interface AstraSessionsDeps {
-  readonly agents: Pick<AgentProvider, "sessions" | "conversation" | "reply">;
+  readonly agents: Pick<AgentProvider, "sessions" | "conversation" | "reply" | "configure">;
   /** The bridge's `launchJoined`; null when the host has no agent home. */
   readonly launch: ((options: LaunchOptions) => Promise<{ readonly joined: Promise<string> }>) | null;
   /** A live session's transcript file, when omp reported one. */
@@ -166,6 +166,8 @@ export class AstraSessions {
       ({ joined } = await launch({
         prompt,
         label: title,
+        // Named by the host (below), as Relay Desktop names its item sessions; omp's auto-title would rename it.
+        ompArgs: ["--no-title"],
         env: { RELAY_AGENTS_SOCKET: this.deps.socketPath },
         ...(astra.profile === undefined ? {} : { profile: astra.profile }),
         ...(astra.model === undefined ? {} : { model: astra.model }),
@@ -181,6 +183,9 @@ export class AstraSessions {
       (sessionId) => {
         this.pending.delete(url);
         this.remember(url, { title, sessionFile: this.deps.sessionFile(sessionId) ?? file, sessionId });
+        this.deps.agents.configure({ sessionId, title }).catch((error: unknown) => {
+          this.deps.log(`reviews: could not name ${sessionId}: ${error instanceof Error ? error.message : String(error)}`);
+        });
         this.schedule(url);
       },
       (error: unknown) => {

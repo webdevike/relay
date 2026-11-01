@@ -36,9 +36,9 @@ export function UnderlineTabs<K extends string>({ tabs, value, onChange }: Under
               }}
               style={{ paddingTop: spacing.sm, paddingBottom: spacing.md - 2 }}
             >
-              <Text variant="title" color={selected ? "text" : "textMuted"} style={{ fontWeight: "500" }} numberOfLines={1}>
+              <Text variant="body" color={selected ? "text" : "textMuted"} style={{ fontWeight: "500" }} numberOfLines={1}>
                 {tab.label}
-                {tab.count !== undefined && <Text variant="title" color="textFaint" style={{ fontWeight: "400" }}>{` ${String(tab.count)}`}</Text>}
+                {tab.count !== undefined && <Text variant="body" color="textFaint" style={{ fontWeight: "400" }}>{` ${String(tab.count)}`}</Text>}
               </Text>
               <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 2, borderRadius: 1, backgroundColor: selected ? colors.text : "transparent" }} />
             </Pressable>

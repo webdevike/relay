@@ -174,5 +174,5 @@ export default function ReviewPrScreen() {
 const styles = StyleSheet.create({
   head: { paddingHorizontal: spacing.xl, paddingBottom: spacing.md, gap: spacing.sm },
   meta: { flexDirection: "row", alignItems: "center", gap: spacing.sm, flexWrap: "wrap" },
-  title: { fontSize: 24, lineHeight: 30 },
+  title: { fontSize: 21, lineHeight: 27, fontWeight: "600" },
 });

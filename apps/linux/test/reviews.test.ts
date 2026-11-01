@@ -327,6 +327,7 @@ describe("astra sessions", () => {
     let join_: (id: string) => void = () => undefined;
     const sessions: AgentSession[] = [];
     const replies: string[] = [];
+    const named: string[] = [];
     const conversation: AgentMessage[] = [];
     const emitted: AstraItem[] = [];
     const astra = new AstraSessions({
@@ -335,6 +336,10 @@ describe("astra sessions", () => {
         conversation: () => Promise.resolve(conversation),
         reply: (id, text) => {
           replies.push(`${id}:${text}`);
+          return Promise.resolve();
+        },
+        configure: (change) => {
+          named.push(`${change.sessionId}:${change.title ?? ""}`);
           return Promise.resolve();
         },
       },
@@ -354,7 +359,7 @@ describe("astra sessions", () => {
     const first = await astra.ask(url, "Astra · o/r#1", "o/r#1", () => Promise.resolve("### Pull request o/r#1"), "@Astra is it safe?");
     expect(first).toMatchObject({ url, title: "Astra · o/r#1", sessionId: null, working: true, turns: [{ role: "user", text: "@Astra is it safe?" }] });
     expect(launches).toHaveLength(1);
-    expect(launches[0]).toMatchObject({ label: "Astra · o/r#1", profile: "work", model: "claude-opus", env: { RELAY_AGENTS_SOCKET: "/tmp/test-agents.sock" } });
+    expect(launches[0]).toMatchObject({ label: "Astra · o/r#1", profile: "work", model: "claude-opus", ompArgs: ["--no-title"], env: { RELAY_AGENTS_SOCKET: "/tmp/test-agents.sock" } });
     expect(launches[0]?.env).not.toHaveProperty("RELAY_ASSISTANT");
     expect(launches[0]?.prompt).toContain("### Pull request o/r#1");
     expect(launches[0]?.prompt?.endsWith(`${ASK_MARK}@Astra is it safe?`)).toBe(true);
@@ -370,6 +375,7 @@ describe("astra sessions", () => {
       ["assistant", "Mostly."],
     ]);
     expect(JSON.parse(readFileSync(join(dir, "astra.json"), "utf8"))).toEqual({ [url]: { title: "Astra · o/r#1", sessionFile: "/sessions/s1.jsonl", sessionId: "s1" } });
+    expect(named).toEqual(["s1:Astra · o/r#1"]);
 
     sessions.splice(0, 1, session("s1", "needs_permission", "bash: rm"));
     astra.observe({ kind: "sessions" });
@@ -385,7 +391,7 @@ describe("astra sessions", () => {
 
   it("refuses asks without an agent home", async () => {
     const astra = new AstraSessions({
-      agents: { sessions: [], conversation: () => Promise.resolve(null), reply: () => Promise.resolve() },
+      agents: { sessions: [], conversation: () => Promise.resolve(null), reply: () => Promise.resolve(), configure: () => Promise.resolve() },
       launch: null,
       sessionFile: () => null,
       agentHome: null,
@@ -432,7 +438,7 @@ describe("service", () => {
       gh: "gh",
       claude: "claude",
       fetch: () => Promise.reject(new Error("no network in tests")),
-      agents: { sessions: [], conversation: () => Promise.resolve(null), reply: () => Promise.resolve() },
+      agents: { sessions: [], conversation: () => Promise.resolve(null), reply: () => Promise.resolve(), configure: () => Promise.resolve() },
       launch: null,
       sessionFile: () => null,
       socketPath: "/tmp/x.sock",

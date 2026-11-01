@@ -164,7 +164,7 @@ export default function ReviewLinearScreen() {
 const styles = StyleSheet.create({
   page: { paddingHorizontal: spacing.xl, gap: spacing.sm },
   meta: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  title: { fontSize: 24, lineHeight: 30 },
+  title: { fontSize: 21, lineHeight: 27, fontWeight: "600" },
   properties: { marginTop: spacing.md, borderTopWidth: StyleSheet.hairlineWidth },
   linked: { flexShrink: 1 },
 });

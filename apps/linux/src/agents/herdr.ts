@@ -120,6 +120,8 @@ export interface LaunchOptions {
   readonly resume?: string;
   /** The herdr workspace label (an assistant thread's title, e.g. "Astra"); default basename(home). */
   readonly label?: string;
+  /** Further omp flags after the others, e.g. `--no-title` for a session the host names itself. */
+  readonly ompArgs?: readonly string[];
 }
 
 /**
@@ -148,6 +150,7 @@ export async function launchInHerdr(home: string, log: (line: string) => void, o
       ...(options.profile === undefined ? [] : ["--profile", options.profile, ...profileIntegrations()]),
       ...(options.model === undefined ? [] : ["--model", options.model]),
       ...(options.resume === undefined ? [] : [`--resume=${options.resume}`]),
+      ...(options.ompArgs ?? []),
     ];
     const start = ["agent", "start", name, "--kind", "omp", "--pane", paneId, "--timeout", String(AGENT_START_TIMEOUT_MS), ...(ompArgs.length === 0 ? [] : ["--", ...ompArgs])];
     // A fresh workspace's shell can still be starting (slow rc files); herdr refuses the pane until its prompt is up.

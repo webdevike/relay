@@ -42,7 +42,7 @@ export interface ReviewsServiceDeps {
   readonly gh: string;
   readonly claude: string;
   readonly fetch: Fetch;
-  readonly agents: Pick<AgentProvider, "sessions" | "conversation" | "reply">;
+  readonly agents: Pick<AgentProvider, "sessions" | "conversation" | "reply" | "configure">;
   readonly launch: AstraSessionsDeps["launch"];
   readonly sessionFile: (sessionId: string) => string | null;
   readonly socketPath: string;
