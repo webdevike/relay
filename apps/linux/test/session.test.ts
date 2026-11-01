@@ -13,7 +13,7 @@ import type { UsageService } from "../src/usage/service";
 import type { CatchUpDeck } from "../src/catchup/service";
 import type { ReactionRelaying } from "../src/reactions/service";
 import type { ArtifactRelaying } from "../src/artifacts/service";
-import { AckFailure, type AgentConfigChange, type AgentProvider, type AssistantRelaying, type AssistantThread, type CallClientMessage, type CallRelaying, type CanvasRelaying, type DeviceStore, type DropBox, type FrameSink, type GateCommand, type InboxRelaying, type InputSink, type LiveClientMessage, type LiveRelaying, type PairedDevice, type PairingUI, type PushRegistry, type StudioRelaying, type TextInjecting, type VncAccess } from "../src/seams";
+import { AckFailure, type AgentConfigChange, type AgentProvider, type AssistantRelaying, type AssistantThread, type CallClientMessage, type CallRelaying, type CanvasRelaying, type DeviceStore, type DropBox, type FrameSink, type GateCommand, type InboxRelaying, type InputSink, type LiveClientMessage, type LiveRelaying, type PairedDevice, type PairingUI, type PushRegistry, type ReviewsRelaying, type StudioRelaying, type TextInjecting, type VncAccess } from "../src/seams";
 import { ASSISTANT_FOLLOW_MS, ClientSession, PAIRING_TIMEOUT_MS, type SessionClock, type SessionDeps } from "../src/session";
 import { ltxSpec, studioHarness } from "./studio-fakes";
 
@@ -118,6 +118,7 @@ interface HarnessOptions {
   canvas?: CanvasRelaying;
   sessionFiles?: SessionFiles;
   studio?: StudioRelaying;
+  reviews?: ReviewsRelaying;
 }
 
 function harness(options: HarnessOptions = {}): Harness {
@@ -171,6 +172,7 @@ function harness(options: HarnessOptions = {}): Harness {
     canvas: options.canvas ?? null,
     sessionFiles: options.sessionFiles ?? null,
     studio: options.studio ?? null,
+    reviews: options.reviews ?? null,
   };
   const sink = new RecordingSink();
   const clock = new FakeClock();
@@ -1430,5 +1432,36 @@ describe("studio", () => {
     expect(h.sink.last()).toEqual({ t: "studio.state", jobs: [], uploads: [], backends: [] });
     h.session.receive({ t: "studio.req", rid: "r9", op: { kind: "refresh" } });
     expect(h.sink.last()).toEqual({ t: "studio.res", rid: "r9", ok: false, error: "This host runs no Studio." });
+  });
+});
+
+describe("reviews", () => {
+  it("answers reviews.req with reviews.res under the same rid, success or refusal", async () => {
+    const ops: unknown[] = [];
+    const reviews: ReviewsRelaying = {
+      handle: (op) => {
+        ops.push(op);
+        return Promise.resolve(op.kind === "done" ? { ok: true, done: { [op.url]: op.updatedAt } } : { ok: false, error: "gh pr view failed" });
+      },
+      openMedia: () => null,
+      observe: () => undefined,
+    };
+    const h = harness({ reviews });
+    pair(h);
+    const sent = h.sink.sent.length;
+    h.session.receive({ t: "reviews.req", rid: "q1", op: { kind: "done", url: "https://github.com/o/r/pull/1", updatedAt: 5, done: true } });
+    await h.sink.sentCount(sent + 1);
+    expect(h.sink.last()).toEqual({ t: "reviews.res", rid: "q1", ok: true, done: { "https://github.com/o/r/pull/1": 5 } });
+    h.session.receive({ t: "reviews.req", rid: "q2", op: { kind: "pr", repo: "o/r", number: 1 } });
+    await h.sink.sentCount(sent + 2);
+    expect(h.sink.last()).toEqual({ t: "reviews.res", rid: "q2", ok: false, error: "gh pr view failed" });
+    expect(ops).toHaveLength(2);
+  });
+
+  it("refuses requests on a host without Reviews", () => {
+    const h = harness();
+    pair(h);
+    h.session.receive({ t: "reviews.req", rid: "r9", op: { kind: "queue", refresh: false } });
+    expect(h.sink.last()).toEqual({ t: "reviews.res", rid: "r9", ok: false, error: "This host runs no Reviews." });
   });
 });

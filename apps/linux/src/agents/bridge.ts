@@ -291,6 +291,16 @@ export class OmpBridgeProvider implements AgentProvider {
    * The pane's `RELAY_LAUNCH_ID`, echoed in its bridge's `hello`, settles `joined`.
    */
   async launch(prompt?: string, thinkingLevel?: string, profile?: "personal" | "work", resume?: string): Promise<{ readonly joined: Promise<string> }> {
+    return this.launchJoined({
+      ...(prompt === undefined ? {} : { prompt }),
+      ...(thinkingLevel === undefined ? {} : { thinkingLevel }),
+      ...(profile === undefined ? {} : { profile }),
+      ...(resume === undefined ? {} : { resume }),
+    });
+  }
+
+  /** `launchWith` whose `joined` settles with the session id the pane's omp registers under (`RELAY_LAUNCH_ID`). */
+  async launchJoined(options: LaunchOptions): Promise<{ readonly joined: Promise<string> }> {
     const launchId = crypto.randomUUID();
     const { promise, resolve, reject } = Promise.withResolvers<string>();
     this.launches.set(launchId, resolve);
@@ -299,13 +309,7 @@ export class OmpBridgeProvider implements AgentProvider {
       reject(new AckFailure({ code: "agent_launch_failed", message: "the launched omp session never registered" }));
     }, LAUNCH_JOIN_TIMEOUT_MS);
     try {
-      await this.launchWith({
-        env: { RELAY_LAUNCH_ID: launchId },
-        ...(prompt === undefined ? {} : { prompt }),
-        ...(thinkingLevel === undefined ? {} : { thinkingLevel }),
-        ...(profile === undefined ? {} : { profile }),
-        ...(resume === undefined ? {} : { resume }),
-      });
+      await this.launchWith({ ...options, env: { ...options.env, RELAY_LAUNCH_ID: launchId } });
     } catch (error) {
       clearTimeout(timer);
       this.launches.delete(launchId);

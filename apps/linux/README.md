@@ -364,6 +364,53 @@ draft.py's generation grid, about 210 s for 5 s at 480x848; Codex 25 s, edits 45
 long jobs really took (a moving average). After a restart running jobs read "Stopped when the host restarted" and
 queued ones run again.
 
+## Reviews (`reviews.req`, `reviews.queue`, `reviews.astra`)
+
+What waits on Isaac's reply, on the phone as in Relay Desktop's Reviews page (`packages/protocol/src/reviews.ts` is
+the wire spec, `src/reviews/` ports evaos-electron's `main/reviews`). A device asks `reviews.req { rid, op }` and
+gets `reviews.res` with the same rid (`ok: false` and a one-line `error` on any failure); the host pushes
+`reviews.queue { queue }` to every device whenever a source finishes reading or Done changes, and
+`reviews.astra { item }` (debounced 150 ms) whenever an item's Astra session changes.
+
+Sources, merged newest first into one `ReviewQueue` (a failing source keeps its last rows and sets its `error`):
+
+- GitHub with `gh` (on PATH, else `/opt/homebrew/bin/gh`; launchd gives the host a thin PATH, so children get
+  `~/.local/bin`, `/opt/homebrew/bin` and `/usr/local/bin` added): open PRs in `eCardSystems` that request his
+  review (`needs`) and the ones he reviewed that moved (`reviewing`), cached 60 s. `pr` is `gh pr view --json`
+  plus `gh pr diff` (cut at `MAX_REVIEW_DIFF`, `diffTruncated`), pushed commits in the timeline.
+- Linear's GraphQL API with `LINEAR_API_KEY` or `<agent home>/secrets/linear.env`, cached 60 s: one row per
+  ticket with an unanswered ask from someone else. Images uploaded to Linear need the key, so `linear` downloads
+  them once into `$XDG_CONFIG_HOME/relay/reviews/media/<sha1><ext>` and the markdown points at the host-relative
+  `/reviews/media/<file>/<token>` (the phone prefixes its host URL). The token is an HMAC of the file name under a
+  per-process secret; `GET|HEAD` serves the file only for a matching token, 404 otherwise.
+- Slack through headless `claude -p` (`$RELAY_CLAUDE`, `~/.local/bin/claude`, Homebrew's, then PATH) with only the
+  claude.ai Slack connector's read tools, `EVA_GATE_OFF=1`, in a throwaway temp dir, 240 s per read, one read at a
+  time per thing. The queue and the last 40 threads are kept in `reviews/slack.json`: `queue { refresh: false }`
+  answers the last read (and starts the first), `refresh: true` reads again in the background
+  (`sources.slack.loading`), pushed when done; `slack { refresh }` answers the kept thread or reads it fresh.
+
+The Guide (`guide`) is written by `claude -p` on Sonnet with no tools from the PR's title, body and diff, kept per
+`<repo>#<n>@<headSha>` in `reviews/guides.json` (the newest 40); when that fails the files are grouped by folder.
+Done (`done { url, updatedAt, done }`) lives in `reviews/done.json` (0600, url -> `updatedAt`); an item stays hidden
+until its `updatedAt` moves past it.
+
+Writes only on an explicit op after Isaac confirmed the text: `comment` and `review` with `gh`, `linearComment`
+with the GraphQL API. `slackSend` never posts: it hands `Slack send request: channel=<id> thread_ts=<ts|none>
+text=<exact>` to Astra's main thread (`AssistantThread.say`, as `POST /assistant/say` does), and she posts it from
+the Slack desktop app. `RELAY_REVIEWS_DRY_RUN=1` makes a test host refuse all four with "Test host: nothing was
+posted"; reads stay real.
+
+Astra item sessions (`astraAsk { url, ref, text }`, `astra { url }`): one omp session per item, titled
+`Astra · <label>` (`eCardSystems/api#170`, `ENG-6406`, `#ui-ux`), kept in `reviews/astra.json` (url -> title,
+session id, session file). The first ask launches it through herdr like a phone-started session, with Astra's
+registry profile and model, `RELAY_AGENTS_SOCKET` set to this host's socket and no `RELAY_ASSISTANT` (it is not
+her main thread); its first prompt is her prime, her thread memory (`work/eva/agents/astra/thread.md`), the item
+(PR, ticket or Slack thread as Markdown) and the question after a marker, so only the question shows as his turn.
+Later asks are turns in the live session; once it ended, the next ask resumes its file. The item's turns come
+from the provider's conversation while it lives (tool rows one line, notices dropped; `working`, and `waiting`
+for an approval or a question) and from the session file after it ended. Without an agent home Astra asks are
+refused.
+
 ## Differences from the Mac app
 
 - No tray/menu UI; the terminal is the UI.

@@ -1,7 +1,7 @@
 // Seams between transport, input and storage. Mirrors apps/mac/Sources/RelayCore/Seams.swift:
 // the session only ever talks to these; input/ and the stores implement them; main.ts wires them.
 
-import type { AckError, AgentApproval, AgentAsk, AgentAskAnswer, AgentImage, AgentMessage, AgentOptions, AgentSession, ApprovalConfirmation, AssistantAgent, AssistantSnapshot, ClientMessage, Command, Drop, DropOrigin, GateStatus, InboxItem, InboxResolve, InputEvent, KeyName, ServerMessage, StudioOp, StudioResult, StudioState } from "@relay/protocol";
+import type { AckError, AgentApproval, AgentAsk, AgentAskAnswer, AgentImage, AgentMessage, AgentOptions, AgentSession, ApprovalConfirmation, AssistantAgent, AssistantSnapshot, ClientMessage, Command, Drop, DropOrigin, GateStatus, InboxItem, InboxResolve, InputEvent, KeyName, ReviewsOp, ReviewsResult, ServerMessage, StudioOp, StudioResult, StudioState } from "@relay/protocol";
 
 /** Outbound side of one connection. `send` after `close` is a no-op. */
 export interface FrameSink {
@@ -191,6 +191,20 @@ export interface StudioRelaying {
   open(id: string, token: string): DropBlob | null;
   /** Its JPEG preview (an image without one serves itself) under the same token check. */
   openThumb(id: string, token: string): DropBlob | null;
+}
+
+/**
+ * What the session and server need of Reviews (`reviews/service.ts`): one `reviews.req` op at a
+ * time, Linear's downloaded images behind `/reviews/media/<name>/<token>`, and every provider
+ * change (an item's Astra session streaming or ending). `reviews.queue` and `reviews.astra` reach
+ * every device through the service's own broadcast.
+ */
+export interface ReviewsRelaying {
+  /** Never rejects: a failure is `{ ok: false, error }`. */
+  handle(op: ReviewsOp): Promise<Omit<ReviewsResult, "rid">>;
+  /** A downloaded image iff `token` is its token; null otherwise. */
+  openMedia(name: string, token: string): DropBlob | null;
+  observe(change: AgentProviderChange): void;
 }
 
 /** Shows / hides the pairing PIN. Exactly one `endPairing` per `beginPairing`. */

@@ -48,6 +48,7 @@ import {
   type InputAccess,
   type InputSink,
   type PushRegistry,
+  type ReviewsRelaying,
   type StudioRelaying,
   type TextInjecting,
   type VncAccess,
@@ -97,6 +98,8 @@ export interface SessionDeps {
   readonly sessionFiles: SessionFiles | null;
   /** null when the host runs no Studio; `studio.list` then answers empty and every `studio.req` is refused. */
   readonly studio: StudioRelaying | null;
+  /** null when the host runs no Reviews; every `reviews.req` is then refused. */
+  readonly reviews: ReviewsRelaying | null;
 }
 
 /** Clock and scheduling seams so tests drive time deterministically. */
@@ -658,6 +661,18 @@ export class ClientSession {
         }
         void studio.handle(message.op).then((result) => {
           if (!this.closed) this.sink.send({ t: "studio.res", rid: message.rid, ...result });
+        });
+        break;
+      }
+      case "reviews.req": {
+        // Queue and Astra changes reach every device through the service's broadcast; this is the answer.
+        const reviews = this.deps.reviews;
+        if (reviews === null) {
+          this.sink.send({ t: "reviews.res", rid: message.rid, ok: false, error: "This host runs no Reviews." });
+          break;
+        }
+        void reviews.handle(message.op).then((result) => {
+          if (!this.closed) this.sink.send({ t: "reviews.res", rid: message.rid, ...result });
         });
         break;
       }

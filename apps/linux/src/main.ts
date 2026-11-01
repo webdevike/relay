@@ -58,6 +58,8 @@ import { LtxRunner } from "./studio/ltx";
 import { ffmpegMedia } from "./studio/media";
 import { StudioService, type StudioMessage } from "./studio/service";
 import { defaultStudioDir } from "./studio/store";
+import { bunRun, defaultReviewsDir, resolveClaude, resolveGh } from "./reviews/exec";
+import { ReviewsService } from "./reviews/service";
 
 const USAGE = `relay-linux <command>
 
@@ -83,7 +85,12 @@ const USAGE = `relay-linux <command>
                                    Studio keeps jobs in $XDG_CONFIG_HOME/relay/studio; local
                                    video runs <agent-home>/work/local-video/draft.py
                                    ($RELAY_STUDIO_LTX_DIR), Codex images and Higgsfield use
-                                   omp's personal sign-ins
+                                   omp's personal sign-ins.
+                                   Reviews reads GitHub with gh, Linear with $LINEAR_API_KEY
+                                   or <agent-home>/secrets/linear.env, Slack with claude
+                                   ($RELAY_CLAUDE) and keeps its state in
+                                   $XDG_CONFIG_HOME/relay/reviews; RELAY_REVIEWS_DRY_RUN=1
+                                   refuses every post (a test host)
   devices                          list paired phones
   forget <deviceId>                remove a paired phone
   share <text | url | path> ...    add to the drop box of the running host: one existing file
@@ -395,6 +402,32 @@ function serve(
   const studio = studioService(agentHome, (message) => {
     server.broadcastExcept(message, null);
   });
+  // Queue and Astra pushes go out long after `server` below is initialised.
+  const reviewsWrites = process.env["RELAY_REVIEWS_DRY_RUN"] !== "1";
+  const reviews = new ReviewsService({
+    dir: defaultReviewsDir(),
+    agentHome,
+    writes: reviewsWrites,
+    run: bunRun,
+    gh: resolveGh(),
+    claude: resolveClaude(),
+    fetch: globalThis.fetch,
+    agents,
+    launch: agentHome === null ? null : (options) => agents.launchJoined(options),
+    sessionFile: (sessionId) => agents.sessionFile(sessionId),
+    socketPath: defaultSocketPath(),
+    // A Slack send request is a job message to Astra's main thread, as eva-thread.ts sends it.
+    tellAstra: async (line) => {
+      const thread = assistant?.thread("astra");
+      if (thread === undefined) throw new Error("Astra's thread does not run on this host");
+      await thread.say(line);
+    },
+    broadcast: (message) => {
+      server.broadcastExcept(message, null);
+    },
+    clock: systemClock,
+    log,
+  });
   log(`live view: VNC bridge to 127.0.0.1:${String(vncPort)} (macOS Screen Sharing)`);
   const server: RelayServer = new RelayServer(
     { port, hostName: name, version: pkg.version, vncPort },
@@ -420,6 +453,7 @@ function serve(
       canvas,
       sessionFiles: new SessionFiles(),
       studio,
+      reviews,
       canvasPage: () => CANVAS_PAGE,
       pairing: new TerminalPairingUI(),
       log,
@@ -448,6 +482,7 @@ function serve(
   clipboard?.start();
   catchup?.start();
   studio?.start();
+  log(`reviews in ${defaultReviewsDir()}${reviewsWrites ? "" : " (RELAY_REVIEWS_DRY_RUN=1: nothing is posted)"}`);
   log(catchupFeed === null ? "catch up disabled (no --agent-home or $RELAY_CATCHUP_FEED)" : `catch up feed ${catchupFeed}`);
   log(
     clipboard === null
@@ -464,6 +499,7 @@ function serve(
     advertiser.stop();
     canvas?.stop();
     studio?.stop();
+    reviews.stop();
     server.stop();
     voice?.stop();
     catchup?.stop();
