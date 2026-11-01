@@ -50,8 +50,8 @@ ${o.memory === null || o.memory.trim() === "" ? "(empty)" : o.memory.trim()}
 ${o.context.trim()}${ASK_MARK}${o.question.trim()}`;
 }
 
-/** A transcript row: the provider's `AgentMessage` or a parsed session-file row. */
-type Row = Pick<AgentMessage, "id" | "role" | "text" | "tool" | "streaming">;
+/** A transcript row: the provider's `AgentMessage` or a parsed session-file row (a streamed one has no time yet). */
+type Row = Pick<AgentMessage, "id" | "role" | "text" | "tool" | "streaming"> & { readonly at?: number };
 
 /**
  * Rows as Reviews shows them: Isaac's words only (the seed above `ASK_MARK` hidden), tool rows as
@@ -61,15 +61,16 @@ export function toTurns(messages: readonly Row[]): AstraTurn[] {
   const turns: AstraTurn[] = [];
   for (const m of messages) {
     const streaming = m.streaming === true;
+    const at = m.at === undefined ? {} : { at: m.at };
     if (m.role === "system") continue;
     if (m.role === "user") {
-      const at = m.text.lastIndexOf(ASK_MARK);
-      turns.push({ id: m.id, role: "user", text: at >= 0 ? m.text.slice(at + ASK_MARK.length) : m.text, streaming: false });
+      const mark = m.text.lastIndexOf(ASK_MARK);
+      turns.push({ id: m.id, role: "user", text: mark >= 0 ? m.text.slice(mark + ASK_MARK.length) : m.text, streaming: false, ...at });
     } else if (m.role === "tool") {
       const line = (m.tool === undefined ? m.text : `${m.tool.name} ${m.tool.summary}`).trim().split("\n")[0] ?? "";
-      if (line !== "") turns.push({ id: m.id, role: "tool", text: line, streaming });
+      if (line !== "") turns.push({ id: m.id, role: "tool", text: line, streaming, ...at });
     } else if (m.text.trim() !== "" || streaming) {
-      turns.push({ id: m.id, role: "assistant", text: m.text, streaming });
+      turns.push({ id: m.id, role: "assistant", text: m.text, streaming, ...at });
     }
   }
   return turns;
@@ -100,6 +101,8 @@ export interface AstraSessionsDeps {
 /** A launch that has not registered yet, or failed. */
 interface Pending {
   readonly question: string;
+  /** Epoch ms he asked. */
+  readonly at: number;
   readonly starting: boolean;
   readonly error: string | null;
 }
@@ -117,7 +120,7 @@ export class AstraSessions {
    * turns with those words it showed when he asked). A launched omp registers before its first
    * prompt is submitted, so its first snapshots have no turns at all.
    */
-  private readonly asked = new Map<string, { text: string; before: number }>();
+  private readonly asked = new Map<string, { text: string; before: number; at: number }>();
 
   constructor(private readonly deps: AstraSessionsDeps) {
     const parsed = Store.safeParse(readJson(deps.storePath, {}));
@@ -153,7 +156,8 @@ export class AstraSessions {
     const saved = this.store[url];
     const live = this.live(saved?.sessionId);
     const shown = await this.snapshot(url);
-    this.asked.set(url, { text: text.trim(), before: userTurns(shown?.turns ?? [], text) });
+    const askedAt = this.deps.clock.now();
+    this.asked.set(url, { text: text.trim(), before: userTurns(shown?.turns ?? [], text), at: askedAt });
     if (live !== undefined) {
       await this.deps.agents.reply(live.id, text, true);
       return this.snapshot(url).then((item) => item ?? this.empty(url, title));
@@ -174,7 +178,7 @@ export class AstraSessions {
       prompt = seedPrompt({ prime, memory: this.readHome(join("work", "eva", "agents", AGENT, "thread.md")), title, label, url, context: await context(), question: text });
     }
     this.remember(url, { title, sessionFile: file, sessionId: null });
-    this.pending.set(url, { question: text, starting: true, error: null });
+    this.pending.set(url, { question: text, at: askedAt, starting: true, error: null });
     let joined: Promise<string>;
     try {
       ({ joined } = await launch({
@@ -189,7 +193,7 @@ export class AstraSessions {
       }));
     } catch (error) {
       const message = `Couldn't start Astra: ${error instanceof Error ? error.message : String(error)}`;
-      this.pending.set(url, { question: text, starting: false, error: message });
+      this.pending.set(url, { question: text, at: askedAt, starting: false, error: message });
       this.schedule(url);
       throw new Error(message);
     }
@@ -203,7 +207,7 @@ export class AstraSessions {
         this.schedule(url);
       },
       (error: unknown) => {
-        this.pending.set(url, { question: text, starting: false, error: `Couldn't start Astra: ${error instanceof Error ? error.message : String(error)}` });
+        this.pending.set(url, { question: text, at: askedAt, starting: false, error: `Couldn't start Astra: ${error instanceof Error ? error.message : String(error)}` });
         this.schedule(url);
       },
     );
@@ -245,7 +249,7 @@ export class AstraSessions {
       const asked = this.asked.get(url);
       if (asked !== undefined && userTurns(turns, asked.text) <= asked.before) {
         // Sent, not in the transcript yet: his bubble stays and she counts as working.
-        turns.push({ id: "pending", role: "user", text: asked.text, streaming: false });
+        turns.push({ id: "pending", role: "user", text: asked.text, streaming: false, at: asked.at });
         return { url, title, sessionId: live.id, turns, working: true, waiting, error: null };
       }
       this.asked.delete(url);
@@ -261,7 +265,7 @@ export class AstraSessions {
       }
     }
     const turns = toTurns(rows);
-    if (pending?.starting === true) turns.push({ id: "pending", role: "user", text: pending.question, streaming: false });
+    if (pending?.starting === true) turns.push({ id: "pending", role: "user", text: pending.question, streaming: false, at: pending.at });
     return { url, title, sessionId: null, turns, working: pending?.starting === true, waiting: null, error: pending?.error ?? null };
   }
 

@@ -9,7 +9,7 @@ import type { ToolRun } from "../src/reviews/exec";
 import { toItem, toPr, type RawPr } from "../src/reviews/github";
 import { folderSections, guideCache, parseGuide, promptDiff } from "../src/reviews/guide";
 import { handleReviewsMedia } from "../src/reviews/http";
-import { linearItem, reasonOf, ReviewMedia, toRows as linearRows } from "../src/reviews/linear";
+import { linearItem, reasonOf, ReviewMedia, toActivity, toRows as linearRows } from "../src/reviews/linear";
 import { DRY_RUN_ERROR, ReviewsService, type ReviewsMessage, type ReviewsServiceDeps } from "../src/reviews/service";
 import { sendLine, slackItem, slackLink, toRows as slackRows, toThread, tsMs } from "../src/reviews/slack";
 import { systemClock } from "../src/session";
@@ -167,6 +167,19 @@ describe("linear", () => {
       stateType: "unstarted",
     });
   });
+
+  it("shows status changes as activity, oldest first, and skips other history", () => {
+    expect(
+      toActivity([
+        { createdAt: "2026-10-30T22:53:00Z", actor: { name: "Steve Arms" }, fromState: { name: "In QA" }, toState: { name: "Done" } },
+        { createdAt: "2026-10-29T10:00:00Z", actor: null, fromState: null, toState: { name: "Todo" } },
+        { createdAt: "2026-10-29T11:00:00Z", actor: { name: "Steve Arms" }, fromState: null, toState: null },
+      ]),
+    ).toEqual([
+      { at: Date.parse("2026-10-29T10:00:00Z"), actor: "Linear", text: "set status to Todo", highlights: ["Todo"] },
+      { at: Date.parse("2026-10-30T22:53:00Z"), actor: "Steve Arms", text: "changed status from In QA to Done", highlights: ["In QA", "Done"] },
+    ]);
+  });
 });
 
 describe("slack", () => {
@@ -301,6 +314,14 @@ describe("astra turns", () => {
       ["tool", "read src/a.ts", false],
       ["assistant", "Mostly. **One risk**.", true],
       ["user", "@Astra which file first?", false],
+    ]);
+  });
+
+  it("carries each row's time, and none on a streamed row without one", () => {
+    const turns = toTurns([message("u1", "user", "hi", { at: 10 }), { id: "a1", role: "assistant", text: "yo", streaming: true }]);
+    expect(turns).toEqual([
+      { id: "u1", role: "user", text: "hi", streaming: false, at: 10 },
+      { id: "a1", role: "assistant", text: "yo", streaming: true },
     ]);
   });
 });
@@ -541,6 +562,75 @@ describe("service", () => {
     }
     expect(calls).toEqual([]);
     expect(told).toEqual([]);
+  });
+
+  it("refuses a Linear upload on a test host before reading the key", async () => {
+    const fetch = vi.fn(() => Promise.reject(new Error("no")));
+    const { reviews } = service({ writes: false, fetch });
+    expect(await reviews.handle({ kind: "linearUpload", name: "a.png", mime: "image/png", data: "aGk=" })).toEqual({ ok: false, error: DRY_RUN_ERROR });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("uploads an image to Linear: fileUpload, then a PUT of the bytes with Linear's headers", async () => {
+    const seen: { url: string; init: RequestInit | undefined }[] = [];
+    const fetch = (url: string, init?: RequestInit): Promise<Response> => {
+      seen.push({ url, init });
+      if (url === "https://api.linear.app/graphql") {
+        return Promise.resolve(
+          Response.json({
+            data: {
+              fileUpload: {
+                success: true,
+                uploadFile: { uploadUrl: "https://storage.example/put?sig=1", assetUrl: "https://uploads.linear.app/a/b/c", headers: [{ key: "x-goog-meta", value: "m" }] },
+              },
+            },
+          }),
+        );
+      }
+      return Promise.resolve(new Response(null, { status: 200 }));
+    };
+    const { reviews } = service({ fetch });
+    vi.stubEnv("LINEAR_API_KEY", "lin_key");
+    expect(await reviews.handle({ kind: "linearUpload", name: "shot.png", mime: "image/png", data: Buffer.from("hi").toString("base64") })).toEqual({
+      ok: true,
+      url: "https://uploads.linear.app/a/b/c",
+    });
+    expect(JSON.parse(seen[0]?.init?.body as string)).toMatchObject({ variables: { contentType: "image/png", filename: "shot.png", size: 2 } });
+    expect(seen[1]?.url).toBe("https://storage.example/put?sig=1");
+    expect(seen[1]?.init?.method).toBe("PUT");
+    expect(seen[1]?.init?.headers).toEqual({ "content-type": "image/png", "cache-control": "public, max-age=31536000", "x-goog-meta": "m" });
+    expect(Buffer.from(seen[1]?.init?.body as Uint8Array).toString()).toBe("hi");
+  });
+
+  it("keeps snoozes in snooze.json, hides them until they run out, and drops expired ones", async () => {
+    let now = 1_000;
+    const clock = { ...systemClock, now: () => now };
+    const { reviews, sent } = service({ clock });
+    const url = "https://github.com/eCardSystems/api/pull/1";
+    const answer = await reviews.handle({ kind: "snooze", url, until: 5_000 });
+    expect(answer.queue?.snoozed).toEqual({ [url]: 5_000 });
+    expect(queues(sent).at(-1)?.snoozed).toEqual({ [url]: 5_000 });
+    const file = join(dir, "snooze.json");
+    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ [url]: 5_000 });
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    expect(service({ clock }).reviews.queue().snoozed).toEqual({ [url]: 5_000 });
+    now = 6_000;
+    expect(reviews.queue().snoozed).toEqual({});
+    await reviews.handle({ kind: "snooze", url: "https://x/2", until: 9_000 });
+    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ "https://x/2": 9_000 });
+    expect((await reviews.handle({ kind: "snooze", url: "https://x/2", until: null })).queue?.snoozed).toEqual({});
+  });
+
+  it("keeps read marks in read.json, pushes the queue, and clears one on unread", async () => {
+    const { reviews, sent } = service();
+    const url = "https://github.com/eCardSystems/api/pull/1";
+    expect((await reviews.handle({ kind: "read", url, updatedAt: 42, read: true })).queue?.read).toEqual({ [url]: 42 });
+    expect(queues(sent).at(-1)?.read).toEqual({ [url]: 42 });
+    const file = join(dir, "read.json");
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    expect(service().reviews.queue().read).toEqual({ [url]: 42 });
+    expect((await reviews.handle({ kind: "read", url, updatedAt: 42, read: false })).queue?.read).toEqual({});
+    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({});
   });
 
   it("hands a Slack send to Astra's main thread as one line", async () => {

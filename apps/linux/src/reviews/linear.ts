@@ -3,7 +3,7 @@
 // and comment threads, read from Linear's GraphQL API with his key (LINEAR_API_KEY or
 // `<agent home>/secrets/linear.env`). Images uploaded to Linear need that key, so the host downloads
 // them once (`ReviewMedia`) and the markdown points at `/reviews/media/<file>/<token>` on the host.
-// Posting a comment is the only write, after Isaac confirms the text.
+// Writes, after Isaac confirms: posting a comment, and uploading an image for one (`upload`).
 
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -206,6 +206,16 @@ const Ticket = z.object({
         }),
       ),
     }),
+    history: z.object({
+      nodes: z.array(
+        z.object({
+          createdAt: z.string(),
+          actor: z.object({ name: z.string() }).nullable(),
+          fromState: z.object({ name: z.string() }).nullable(),
+          toState: z.object({ name: z.string() }).nullable(),
+        }),
+      ),
+    }),
   }),
 });
 
@@ -220,6 +230,7 @@ const TICKET_QUERY = `query($id: String!) {
     children { nodes { identifier title url state { name } } }
     attachments { nodes { title url sourceType } }
     comments(first: 250) { nodes { id body createdAt url user { id name displayName url } parent { id } } }
+    history(first: 100) { nodes { createdAt actor { name } fromState { name } toState { name } } }
   }
 }`;
 
@@ -240,6 +251,38 @@ const CommentMade = z.object({
     comment: z.object({ url: z.string() }).nullable(),
   }),
 });
+
+const UploadMade = z.object({
+  fileUpload: z.object({
+    success: z.boolean(),
+    uploadFile: z
+      .object({
+        uploadUrl: z.string(),
+        assetUrl: z.string(),
+        headers: z.array(z.object({ key: z.string(), value: z.string() })),
+      })
+      .nullable(),
+  }),
+});
+
+/** A ticket's status changes as activity lines, oldest first; other history (labels, assignees ...) is left out. */
+export function toActivity(nodes: z.infer<typeof Ticket>["issue"]["history"]["nodes"]): LinearTicket["activity"] {
+  return nodes
+    .flatMap((n) => {
+      const to = n.toState?.name;
+      if (to === undefined || to === n.fromState?.name) return [];
+      const from = n.fromState?.name;
+      return [
+        {
+          at: ms(n.createdAt),
+          actor: n.actor?.name ?? "Linear",
+          text: from === undefined ? `set status to ${to}` : `changed status from ${from} to ${to}`,
+          highlights: from === undefined ? [to] : [from, to],
+        },
+      ];
+    })
+    .sort((a, b) => a.at - b.at);
+}
 
 /**
  * Linear's uploads as files in `dir` (`<sha1 of the url><ext>`), served at
@@ -378,6 +421,7 @@ export class Linear {
       children: i.children.nodes.map((c) => ({ key: c.identifier, title: c.title, url: c.url, state: c.state.name })),
       links: i.attachments.nodes.map((a) => ({ title: a.title, url: a.url, kind: a.sourceType ?? "link" })),
       comments,
+      activity: toActivity(i.history.nodes),
       people: [...people.values()],
       me: person(viewer),
     };
@@ -392,5 +436,23 @@ export class Linear {
     );
     if (!data.commentCreate.success || !data.commentCreate.comment) throw new Error("Linear did not take the comment");
     return data.commentCreate.comment.url;
+  }
+
+  /** Uploads an image to Linear's storage (a signed PUT); answers the asset url a comment embeds. */
+  async upload(name: string, mime: string, bytes: Uint8Array): Promise<string> {
+    const data = UploadMade.parse(
+      await this.gql(`mutation($contentType: String!, $filename: String!, $size: Int!) { fileUpload(contentType: $contentType, filename: $filename, size: $size) { success uploadFile { uploadUrl assetUrl headers { key value } } } }`, {
+        contentType: mime,
+        filename: name,
+        size: bytes.byteLength,
+      }),
+    );
+    const file = data.fileUpload.uploadFile;
+    if (!data.fileUpload.success || file === null) throw new Error("Linear did not take the upload");
+    const headers: Record<string, string> = { "content-type": mime, "cache-control": "public, max-age=31536000" };
+    for (const h of file.headers) headers[h.key] = h.value;
+    const res = await this.fetchFn(file.uploadUrl, { method: "PUT", headers, body: bytes, signal: AbortSignal.timeout(60_000) });
+    if (!res.ok) throw new Error(`Linear's storage answered ${String(res.status)}`);
+    return file.assetUrl;
   }
 }

@@ -1,6 +1,6 @@
 // Reviews on the host: what waits on Isaac's reply, for Relay mobile as Relay Desktop's Reviews page
 // shows it (packages/protocol/src/reviews.ts is the wire spec). Every `reviews.req` op is answered
-// here; `reviews.queue` goes to every device whenever a source finishes reading or Done changes, and
+// here; `reviews.queue` goes to every device whenever a source finishes reading or Done, a snooze or a read mark changes, and
 // `reviews.astra` whenever an item's Astra session changes.
 //
 // Sources: GitHub (`gh`, cached 60 s), Linear (GraphQL with his key, cached 60 s), Slack (headless
@@ -32,7 +32,7 @@ export const DRY_RUN_ERROR = "Test host: nothing was posted";
 export type ReviewsMessage = Extract<ServerMessage, { t: "reviews.queue" | "reviews.astra" }>;
 
 export interface ReviewsServiceDeps {
-  /** `$XDG_CONFIG_HOME/relay/reviews`: done.json, guides.json, slack.json, astra.json, media/. */
+  /** `$XDG_CONFIG_HOME/relay/reviews`: done.json, snooze.json, read.json, guides.json, slack.json, astra.json, media/. */
   readonly dir: string;
   /** Linear's key file, Astra's registry, prime and memory; null refuses Astra asks. */
   readonly agentHome: string | null;
@@ -53,7 +53,20 @@ export interface ReviewsServiceDeps {
   readonly log: (line: string) => void;
 }
 
-const Done = z.record(z.string(), z.number());
+/** url -> epoch ms: done.json (the item's updatedAt when Done), snooze.json (until), read.json (the updatedAt seen). */
+const Marks = z.record(z.string(), z.number());
+
+function readMarks(path: string): Record<string, number> {
+  const parsed = Marks.safeParse(readJson(path, {}));
+  return parsed.success ? parsed.data : {};
+}
+
+/** `marks` without `url`, then with `url -> value` unless value is null. */
+function setMark(marks: Readonly<Record<string, number>>, url: string, value: number | null): Record<string, number> {
+  const next = Object.fromEntries(Object.entries(marks).filter(([u]) => u !== url));
+  if (value !== null) next[url] = value;
+  return next;
+}
 
 interface SourceSlot {
   rows: ReviewItem[];
@@ -81,6 +94,10 @@ export class ReviewsService implements ReviewsRelaying {
   private readonly astra: AstraSessions;
   private readonly donePath: string;
   private done: Record<string, number>;
+  private readonly snoozePath: string;
+  private snoozed: Record<string, number>;
+  private readonly readPath: string;
+  private seen: Record<string, number>;
   private readonly slots: Record<ReviewSource, SourceSlot>;
   private readonly prs = new Map<string, ReviewPr>();
   private readonly tickets = new Map<string, LinearTicket>();
@@ -105,8 +122,11 @@ export class ReviewsService implements ReviewsRelaying {
       log: deps.log,
     });
     this.donePath = join(deps.dir, "done.json");
-    const done = Done.safeParse(readJson(this.donePath, {}));
-    this.done = done.success ? done.data : {};
+    this.done = readMarks(this.donePath);
+    this.snoozePath = join(deps.dir, "snooze.json");
+    this.snoozed = readMarks(this.snoozePath);
+    this.readPath = join(deps.dir, "read.json");
+    this.seen = readMarks(this.readPath);
     const idle = (): SourceSlot => ({ rows: [], state: { loading: false, error: null, fetchedAt: null }, reading: null });
     const slack = this.slack.cached();
     this.slots = {
@@ -118,7 +138,22 @@ export class ReviewsService implements ReviewsRelaying {
 
   queue(): ReviewQueue {
     const items = [...this.slots.github.rows, ...this.slots.linear.rows, ...this.slots.slack.rows].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, MAX_ITEMS);
-    return { items, done: { ...this.done }, sources: { github: this.slots.github.state, linear: this.slots.linear.state, slack: this.slots.slack.state } };
+    const now = this.deps.clock.now();
+    const snoozed = Object.fromEntries(Object.entries(this.snoozed).filter(([, until]) => until > now));
+    return {
+      items,
+      done: { ...this.done },
+      snoozed,
+      read: { ...this.seen },
+      sources: { github: this.slots.github.state, linear: this.slots.linear.state, slack: this.slots.slack.state },
+    };
+  }
+
+  /** The queue as it stands now, to every device. */
+  private pushQueue(): ReviewQueue {
+    const queue = this.queue();
+    this.deps.broadcast({ t: "reviews.queue", queue });
+    return queue;
   }
 
   /** One read of a source at a time; the rows stay on failure, which sets the source's error. */
@@ -182,12 +217,26 @@ export class ReviewsService implements ReviewsRelaying {
       case "slack":
         return { thread: await this.slack.thread(op.channel, op.threadTs, op.refresh) };
       case "done": {
-        const next = Object.fromEntries(Object.entries(this.done).filter(([url]) => url !== op.url));
-        if (op.done) next[op.url] = op.updatedAt;
+        const next = setMark(this.done, op.url, op.done ? op.updatedAt : null);
         writeJson(this.donePath, next);
         this.done = next;
-        this.deps.broadcast({ t: "reviews.queue", queue: this.queue() });
+        this.pushQueue();
         return { done: { ...next } };
+      }
+      case "snooze": {
+        // Snoozes that ran out are dropped while the file is written anyway.
+        const now = this.deps.clock.now();
+        const live = Object.fromEntries(Object.entries(this.snoozed).filter(([, until]) => until > now));
+        const next = setMark(live, op.url, op.until !== null && op.until > now ? op.until : null);
+        writeJson(this.snoozePath, next);
+        this.snoozed = next;
+        return { queue: this.pushQueue() };
+      }
+      case "read": {
+        const next = setMark(this.seen, op.url, op.read ? op.updatedAt : null);
+        writeJson(this.readPath, next);
+        this.seen = next;
+        return { queue: this.pushQueue() };
       }
       case "comment":
         this.refuseWrites();
@@ -199,6 +248,9 @@ export class ReviewsService implements ReviewsRelaying {
       case "linearComment":
         this.refuseWrites();
         return { url: await this.linear.comment(op.issueId, op.parentId, op.body) };
+      case "linearUpload":
+        this.refuseWrites();
+        return { url: await this.linear.upload(op.name, op.mime, Buffer.from(op.data, "base64")) };
       case "slackSend":
         this.refuseWrites();
         await this.deps.tellAstra(sendLine(op.channel, op.threadTs, op.text));

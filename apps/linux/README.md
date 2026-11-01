@@ -369,7 +369,7 @@ queued ones run again.
 What waits on Isaac's reply, on the phone as in Relay Desktop's Reviews page (`packages/protocol/src/reviews.ts` is
 the wire spec, `src/reviews/` ports evaos-electron's `main/reviews`). A device asks `reviews.req { rid, op }` and
 gets `reviews.res` with the same rid (`ok: false` and a one-line `error` on any failure); the host pushes
-`reviews.queue { queue }` to every device whenever a source finishes reading or Done changes, and
+`reviews.queue { queue }` to every device whenever a source finishes reading or Done, a snooze or a read mark changes, and
 `reviews.astra { item }` (debounced 150 ms) whenever an item's Astra session changes.
 
 Sources, merged newest first into one `ReviewQueue` (a failing source keeps its last rows and sets its `error`):
@@ -394,10 +394,19 @@ The Guide (`guide`) is written by `claude -p` on Sonnet with no tools from the P
 Done (`done { url, updatedAt, done }`) lives in `reviews/done.json` (0600, url -> `updatedAt`); an item stays hidden
 until its `updatedAt` moves past it.
 
+Snooze (`snooze { url, until }`, null wakes it) lives in `reviews/snooze.json` (url -> `until`) and read marks
+(`read { url, updatedAt, read }`, `read: false` for Unread) in `reviews/read.json` (url -> the `updatedAt` seen),
+both 0600 like done.json; each answers `{ queue }` and pushes it. `queue.snoozed` leaves out snoozes whose time
+passed (dropped from the file on the next snooze). A ticket's `activity` is its status changes from Linear's issue
+history ("changed status from In QA to Done", or "set status to Todo"; state names in `highlights`), oldest first,
+and Astra's turns carry `at` from the transcript (a pending ask, the time he asked) to sit among the comments.
+
 Writes only on an explicit op after Isaac confirmed the text: `comment` and `review` with `gh`, `linearComment`
-with the GraphQL API. `slackSend` never posts: it hands `Slack send request: channel=<id> thread_ts=<ts|none>
+with the GraphQL API, and `linearUpload { name, mime, data }` (an image for a comment: Linear's `fileUpload`, then
+a PUT of the bytes to its signed URL with its headers; answers the `assetUrl` to embed as `![name](url)`).
+`slackSend` never posts: it hands `Slack send request: channel=<id> thread_ts=<ts|none>
 text=<exact>` to Astra's main thread (`AssistantThread.say`, as `POST /assistant/say` does), and she posts it from
-the Slack desktop app. `RELAY_REVIEWS_DRY_RUN=1` makes a test host refuse all four with "Test host: nothing was
+the Slack desktop app. `RELAY_REVIEWS_DRY_RUN=1` makes a test host refuse all five with "Test host: nothing was
 posted"; reads stay real.
 
 Astra item sessions (`astraAsk { url, ref, text }`, `astra { url }`): one omp session per item, titled
