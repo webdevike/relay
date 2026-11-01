@@ -51,4 +51,15 @@ describe('reviews astra sessions', () => {
     // A saved session without a clock leaves untimed rows untimed.
     expect(toTurns([makeMessage('a2', 'assistant', 'Hi')]).map((t) => t.at)).toEqual([undefined])
   })
+
+  it('cuts her tap-to-answer replies line, also while it streams in', () => {
+    const ask = 'Post it Friday?\n\n[[replies: Use that reply | Suggest a specific day]]'
+    expect(toTurns([makeMessage('a1', 'assistant', ask)])[0]!.text).toBe('Post it Friday?')
+    for (const tail of ['[[rep', '[[replies: Use that']) {
+      const m = makeMessage('a2', 'assistant', `Post it Friday?\n${tail}`, { streaming: true })
+      expect(toTurns([m])[0]!.text).toBe('Post it Friday?')
+    }
+    // A reply that was only the token shows nothing.
+    expect(toTurns([makeMessage('a3', 'assistant', '[[replies: A | B]]')])).toEqual([])
+  })
 })

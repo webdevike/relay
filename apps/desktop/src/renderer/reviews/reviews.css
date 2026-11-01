@@ -1003,6 +1003,18 @@
 .eva-rv-astra-card[data-astra='ask'] {
   border-left-color: var(--eva-c-border);
 }
+/* In a narrow column the header wraps whole items (the private hint goes to its own line), never inside one. */
+.eva-rv-astra-card .eva-rv-comment-head {
+  flex-wrap: wrap;
+  row-gap: calc(var(--mantine-spacing-xs) * 0.3);
+}
+.eva-rv-astra-card .eva-rv-comment-head > * {
+  white-space: nowrap;
+  flex: none;
+}
+.eva-rv-astra-card .eva-rv-comment-head > .eva-rv-spacer {
+  flex: 1 0 0;
+}
 .eva-rv-astra-face {
   width: 18px;
   height: 18px;

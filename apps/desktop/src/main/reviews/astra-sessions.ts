@@ -14,6 +14,7 @@ import { cmd } from '@evaos/chat-core/frames'
 import type { Frame } from '@evaos/chat-core/line-framer'
 import type { ChatMessage } from '@evaos/chat-core/message'
 import { LiveReducer } from '@evaos/chat-core/reducer'
+import { splitReplies } from '@evaos/chat-core/replies'
 import { parseSession } from '@evaos/chat-core/session'
 import type { AstraItem, AstraTurn } from '@evaos/contract'
 import { REGISTRY_FILE } from '../assistants/assistants'
@@ -83,9 +84,11 @@ ${o.context.trim()}${ASK_MARK}${o.question.trim()}`
 
 /**
  * A chat row as Reviews shows it: Isaac's words only, tool rows as one line; thinking and omp's
- * notices (startup tool listings) dropped, a failure shows as the session's error instead. `at` is
- * omp's message time; a row omp has not timed yet (Isaac's prompt before its echo, the streaming
- * answer) takes the time `seen` first met it, and a tool row its turn's time.
+ * notices (startup tool listings) dropped, a failure shows as the session's error instead. An
+ * answer loses its trailing `[[replies: ...]]` line (cut while it streams in, too): Reviews has no
+ * tap-to-answer buttons. `at` is omp's message time; a row omp has not timed yet (Isaac's prompt
+ * before its echo, the streaming answer) takes the time `seen` first met it, and a tool row its
+ * turn's time.
  */
 export function toTurns(
   messages: readonly ChatMessage[],
@@ -116,7 +119,9 @@ export function toTurns(
     } else if (m.role === 'tool') {
       turns.push({ id: m.id, role: 'tool', text: m.text, streaming: m.streaming, ...time })
     } else if (m.text.trim() !== '' || m.streaming) {
-      turns.push({ id: m.id, role: 'assistant', text: m.text, streaming: m.streaming, ...time })
+      const text = splitReplies(m.text, m.streaming).text
+      if (text.trim() === '' && !m.streaming) continue
+      turns.push({ id: m.id, role: 'assistant', text, streaming: m.streaming, ...time })
     }
   }
   return turns
