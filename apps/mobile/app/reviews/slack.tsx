@@ -67,7 +67,6 @@ export default function ReviewSlackScreen() {
       header={<ItemHeader title={channelName} subtitle={item === undefined ? undefined : `${item.actor} ${item.reason}`} onDone={done} />}
       dock={
         <ComposerDock
-          url={params.url}
           composer={composer}
           placeholder={threadTs === null ? "Reply" : "Reply in thread"}
           hint="Type @Astra to ask privately. Nothing posts until you send."

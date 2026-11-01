@@ -8,7 +8,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AgentMessage, AstraItem, AstraTurn } from "@relay/protocol";
+import { untagged, type AgentMessage, type AstraItem, type AstraTurn } from "@relay/protocol";
 import { z } from "zod";
 import type { LaunchOptions } from "../agents/herdr";
 import { parseSessionRows } from "../agents/transcript";
@@ -75,6 +75,12 @@ export function toTurns(messages: readonly Row[]): AstraTurn[] {
   return turns;
 }
 
+/** How many of Isaac's turns carry `text` (a surface tag or the seed around it does not matter). */
+function userTurns(turns: readonly AstraTurn[], text: string): number {
+  const asked = text.trim();
+  return turns.filter((t) => t.role === "user" && untagged(t.text).includes(asked)).length;
+}
+
 export interface AstraSessionsDeps {
   readonly agents: Pick<AgentProvider, "sessions" | "conversation" | "reply" | "configure">;
   /** The bridge's `launchJoined`; null when the host has no agent home. */
@@ -106,6 +112,12 @@ export class AstraSessions {
   private readonly timers = new Map<string, () => void>();
   /** Each item's last seen session status, so a `sessions` change pushes only the items it moved. */
   private readonly statusKeys = new Map<string, string>();
+  /**
+   * The newest ask per item until the session's transcript shows it (`before` = how many of his
+   * turns with those words it showed when he asked). A launched omp registers before its first
+   * prompt is submitted, so its first snapshots have no turns at all.
+   */
+  private readonly asked = new Map<string, { text: string; before: number }>();
 
   constructor(private readonly deps: AstraSessionsDeps) {
     const parsed = Store.safeParse(readJson(deps.storePath, {}));
@@ -140,6 +152,8 @@ export class AstraSessions {
     if (launch === null || this.deps.agentHome === null) throw new Error("Astra asks need the host's --agent-home");
     const saved = this.store[url];
     const live = this.live(saved?.sessionId);
+    const shown = await this.snapshot(url);
+    this.asked.set(url, { text: text.trim(), before: userTurns(shown?.turns ?? [], text) });
     if (live !== undefined) {
       await this.deps.agents.reply(live.id, text, true);
       return this.snapshot(url).then((item) => item ?? this.empty(url, title));
@@ -227,7 +241,15 @@ export class AstraSessions {
           : live.status === "waiting"
             ? detail !== undefined && detail !== "" ? detail : "Astra is asking you something"
             : null;
-      return { url, title, sessionId: live.id, turns: toTurns(rows), working: live.status === "working", waiting, error: null };
+      const turns = toTurns(rows);
+      const asked = this.asked.get(url);
+      if (asked !== undefined && userTurns(turns, asked.text) <= asked.before) {
+        // Sent, not in the transcript yet: his bubble stays and she counts as working.
+        turns.push({ id: "pending", role: "user", text: asked.text, streaming: false });
+        return { url, title, sessionId: live.id, turns, working: true, waiting, error: null };
+      }
+      this.asked.delete(url);
+      return { url, title, sessionId: live.id, turns, working: live.status === "working", waiting, error: null };
     }
     let rows: Row[] = [];
     if (saved?.sessionFile != null) {

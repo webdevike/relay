@@ -83,7 +83,6 @@ export default function ReviewLinearScreen() {
       refreshControl={<RefreshControl refreshing={loading && ticket !== undefined} tintColor={colors.textMuted} onRefresh={load} />}
       dock={
         <ComposerDock
-          url={params.url}
           composer={composer}
           replyingTo={reply?.author.name ?? null}
           onClearReply={() => {

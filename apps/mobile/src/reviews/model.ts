@@ -114,6 +114,41 @@ export function lastAstraAnswer(item: AstraItem | undefined): string | null {
   return turn === undefined ? null : turn.text.trim();
 }
 
+/** An ask sent from the composer that the session may not show yet. */
+export interface PendingAsk {
+  text: string;
+  /** How many of Isaac's turns with the same words the session showed when he sent it. */
+  before: number;
+}
+
+/** Isaac's turns that carry the ask's words (a tag or the seed around them does not matter). */
+function askCount(item: AstraItem | undefined, text: string): number {
+  const asked = text.trim();
+  return (item?.turns ?? []).filter((t) => t.role === "user" && t.text.includes(asked)).length;
+}
+
+/** The ask as sent now, against what the session shows. */
+export function pendingAsk(item: AstraItem | undefined, text: string): PendingAsk {
+  return { text: text.trim(), before: askCount(item, text) };
+}
+
+/** Whether the session now shows the ask as one of Isaac's turns. */
+export function askLanded(item: AstraItem | undefined, ask: PendingAsk): boolean {
+  return askCount(item, ask.text) > ask.before;
+}
+
+/**
+ * The item's session as the panel shows it: an ask the session has not shown yet stands at the end
+ * as Isaac's bubble with Astra working, from the tap until the session's own turn replaces it. A
+ * brand-new session pushes before its first prompt reaches the transcript, so without this the
+ * question vanished until the answer came.
+ */
+export function withPendingAsk(item: AstraItem | undefined, url: string, ask: PendingAsk | undefined): AstraItem | undefined {
+  if (ask === undefined || askLanded(item, ask)) return item;
+  const base = item ?? { url, title: "Astra", sessionId: null, turns: [], working: false, waiting: null, error: null };
+  return { ...base, working: true, error: null, turns: [...base.turns, { id: "pending-ask", role: "user", text: ask.text, streaming: false }] };
+}
+
 /** `https://github.com/owner/repo/pull/243` as its repo and number; null for any other link. */
 export function githubPrOf(url: string): { repo: string; number: number } | null {
   const match = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/.exec(url);

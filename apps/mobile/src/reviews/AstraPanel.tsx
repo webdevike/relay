@@ -21,20 +21,20 @@ const ASTRA = { id: "astra" } as const;
 const MAX_HEIGHT = 340;
 
 export interface AstraPanelProps {
+  /** The session with an ask it does not show yet at the end (`withPendingAsk`). */
   item: AstraItem | undefined;
-  /** An ask that has not reached the session yet, or failed to. */
-  asking: boolean;
+  /** The ask could not reach the session. */
   askError: string | null;
   onUseAsReply: (() => void) | null;
   onStop: () => void;
   onOpenSession: (sessionId: string) => void;
 }
 
-export function AstraPanel({ item, asking, askError, onUseAsReply, onStop, onOpenSession }: AstraPanelProps) {
+export function AstraPanel({ item, askError, onUseAsReply, onStop, onOpenSession }: AstraPanelProps) {
   const colors = useColors();
   const scroll = useRef<ScrollView>(null);
   const agent = useAssistantStore((state) => state.agents?.find((a) => a.id === "astra"));
-  const working = asking || item?.working === true;
+  const working = item?.working === true;
   const sessionId = item?.sessionId ?? null;
   return (
     <View style={[styles.panel, { borderTopColor: colors.hairline, backgroundColor: colors.bg }]} accessibilityLabel="Astra panel">
@@ -63,7 +63,7 @@ export function AstraPanel({ item, asking, askError, onUseAsReply, onStop, onOpe
       </View>
       <ScrollView
         ref={scroll}
-        style={{ maxHeight: MAX_HEIGHT }}
+        style={styles.scroll}
         contentContainerStyle={styles.turns}
         onContentSizeChange={() => {
           scroll.current?.scrollToEnd({ animated: false });
@@ -111,7 +111,9 @@ export function AstraPanel({ item, asking, askError, onUseAsReply, onStop, onOpe
 }
 
 const styles = StyleSheet.create({
-  panel: { borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.sm, gap: spacing.sm },
+  // Shrinks (with its list) when the keyboard leaves less room than it wants; the newest turn stays in view.
+  panel: { flexShrink: 1, minHeight: 0, borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.sm, gap: spacing.sm },
+  scroll: { maxHeight: MAX_HEIGHT, flexShrink: 1, minHeight: 0 },
   head: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   private: { flex: 1 },
   open: { flexDirection: "row", alignItems: "center", gap: 4 },

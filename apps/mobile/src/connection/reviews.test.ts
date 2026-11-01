@@ -6,6 +6,7 @@ vi.mock("@/state/storage", () => ({
 }));
 
 import { useReviewsStore } from "@/state/reviews";
+import { withPendingAsk } from "@/reviews/model";
 import { createReviewsFrameRouter, PendingReviews, REVIEWS_SLOW_TIMEOUT_MS, REVIEWS_TIMEOUT_MS, reviewsTimeout, type ReviewsFrameRouter } from "./reviews";
 
 const idle = { loading: false, error: null, fetchedAt: 1 };
@@ -42,6 +43,44 @@ describe("pushed frames", () => {
     route({ t: "reviews.astra", item: astra });
     expect(useReviewsStore.getState().queue?.items.map((i) => i.url)).toEqual(["a"]);
     expect(useReviewsStore.getState().astra["u"]?.sessionId).toBe("s1");
+  });
+});
+
+describe("an ask on an item with no session yet", () => {
+  const url = "https://linear.app/x/issue/ENG-1";
+  const shown = () => withPendingAsk(useReviewsStore.getState().astra[url], url, useReviewsStore.getState().asks[url]);
+  const session = (turns: AstraItem["turns"], working: boolean): AstraItem => ({ url, title: "Astra · ENG-1", sessionId: "s1", turns, working, waiting: null, error: null });
+
+  it("shows the question and Astra working at once, through the new session's first pushes, then her streamed answer", () => {
+    useReviewsStore.getState().ask(url, "@Astra what does Todd want?");
+    expect(shown()).toMatchObject({ working: true, turns: [{ role: "user", text: "@Astra what does Todd want?" }] });
+
+    // The launched omp registered before its first prompt reached the transcript: no turns yet.
+    route({ t: "reviews.astra", item: session([], false) });
+    expect(shown()).toMatchObject({ sessionId: "s1", working: true, turns: [{ id: "pending-ask", role: "user" }] });
+
+    route({ t: "reviews.astra", item: session([{ id: "m1", role: "user", text: "@Astra what does Todd want?", streaming: false }, { id: "m2", role: "assistant", text: "A yes or n", streaming: true }], true) });
+    expect(useReviewsStore.getState().asks[url]).toBeUndefined();
+    expect(shown()?.turns.map((t) => [t.id, t.text])).toEqual([
+      ["m1", "@Astra what does Todd want?"],
+      ["m2", "A yes or n"],
+    ]);
+  });
+
+  it("asking the same words again waits for the new turn, not the old one", () => {
+    const asked = [{ id: "m1", role: "user" as const, text: "@Astra again?", streaming: false }, { id: "m2", role: "assistant" as const, text: "Yes.", streaming: false }];
+    route({ t: "reviews.astra", item: session(asked, false) });
+    useReviewsStore.getState().ask(url, "@Astra again?");
+    route({ t: "reviews.astra", item: session(asked, false) });
+    expect(shown()?.turns.at(-1)).toMatchObject({ id: "pending-ask" });
+    route({ t: "reviews.astra", item: session([...asked, { id: "m3", role: "user", text: "@Astra again?", streaming: false }], true) });
+    expect(shown()?.turns.at(-1)).toMatchObject({ id: "m3" });
+  });
+
+  it("a refused ask leaves no bubble behind", () => {
+    useReviewsStore.getState().ask(url, "@Astra hi");
+    useReviewsStore.getState().dropAsk(url);
+    expect(shown()).toBeUndefined();
   });
 });
 

@@ -4,10 +4,8 @@ import { AstraPanel } from "./AstraPanel";
 import { Composer } from "./Composer";
 import { ConfirmSheet } from "./ConfirmSheet";
 import type { ReviewComposer } from "./useReviewComposer";
-import { useReviewsStore } from "@/state/reviews";
 
 export interface ComposerDockProps {
-  url: string;
   composer: ReviewComposer;
   /** Overrides the composer's own placeholder (Slack's "Reply in thread"). */
   placeholder?: string | undefined;
@@ -16,9 +14,8 @@ export interface ComposerDockProps {
   onClearReply?: (() => void) | undefined;
 }
 
-export function ComposerDock({ url, composer, placeholder, hint, replyingTo, onClearReply }: ComposerDockProps) {
+export function ComposerDock({ composer, placeholder, hint, replyingTo, onClearReply }: ComposerDockProps) {
   const router = useRouter();
-  const astra = useReviewsStore((state) => state.astra[url]);
   return (
     <>
       <Composer
@@ -32,8 +29,7 @@ export function ComposerDock({ url, composer, placeholder, hint, replyingTo, onC
       />
       {composer.showAstra && (
         <AstraPanel
-          item={astra}
-          asking={composer.asking}
+          item={composer.astra}
           askError={composer.askError}
           onUseAsReply={composer.takeAnswer}
           onStop={composer.stop}

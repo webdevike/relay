@@ -10,6 +10,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import type { AstraItem, LinearTicket, ReviewGuide, ReviewPr, ReviewQueue, SlackThread } from "@relay/protocol";
+import { askLanded, pendingAsk, type PendingAsk } from "@/reviews/model";
 import { fileStorage } from "./storage";
 
 /** `owner/repo#170`: one PR's key in the detail caches and the ticks. */
@@ -31,6 +32,8 @@ export interface ReviewsStore {
   /** A thread the host has not read yet is `null`. */
   threads: Record<string, SlackThread | null>;
   astra: Record<string, AstraItem>;
+  /** Asks sent from an item's composer that its session does not show yet, by item url. */
+  asks: Record<string, PendingAsk>;
   setQueue: (queue: ReviewQueue) => void;
   /** Done marks from a `done` answer (the host's whole record). */
   setDone: (done: Record<string, number>) => void;
@@ -40,9 +43,18 @@ export interface ReviewsStore {
   setGuide: (key: string, guide: ReviewGuide) => void;
   setTicket: (ticket: LinearTicket) => void;
   setThread: (key: string, thread: SlackThread | null) => void;
+  /** A session snapshot; an ask it now shows is no longer pending. */
   setAstra: (item: AstraItem) => void;
+  /** Isaac just asked `text` on item `url`: shown at once, until the session shows it. */
+  ask: (url: string, text: string) => void;
+  /** The ask failed or was refused; the panel shows the error instead. */
+  dropAsk: (url: string) => void;
   /** Another host: everything this one said goes. */
   clear: () => void;
+}
+
+function withoutKey<T>(record: Readonly<Record<string, T>>, key: string): Record<string, T> {
+  return Object.fromEntries(Object.entries(record).filter(([k]) => k !== key));
 }
 
 export const useReviewsStore = create<ReviewsStore>((set, get) => ({
@@ -52,6 +64,7 @@ export const useReviewsStore = create<ReviewsStore>((set, get) => ({
   tickets: {},
   threads: {},
   astra: {},
+  asks: {},
   setQueue: (queue) => {
     set({ queue });
   },
@@ -79,10 +92,19 @@ export const useReviewsStore = create<ReviewsStore>((set, get) => ({
     set({ threads: { ...get().threads, [key]: thread } });
   },
   setAstra: (item) => {
-    set({ astra: { ...get().astra, [item.url]: item } });
+    const { astra, asks } = get();
+    const asked = asks[item.url];
+    const landed = asked !== undefined && askLanded(item, asked);
+    set({ astra: { ...astra, [item.url]: item }, asks: landed ? withoutKey(asks, item.url) : asks });
+  },
+  ask: (url, text) => {
+    set({ asks: { ...get().asks, [url]: pendingAsk(get().astra[url], text) } });
+  },
+  dropAsk: (url) => {
+    set({ asks: withoutKey(get().asks, url) });
   },
   clear: () => {
-    set({ queue: null, prs: {}, guides: {}, tickets: {}, threads: {}, astra: {} });
+    set({ queue: null, prs: {}, guides: {}, tickets: {}, threads: {}, astra: {}, asks: {} });
   },
 }));
 

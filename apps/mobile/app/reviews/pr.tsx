@@ -101,7 +101,7 @@ export default function ReviewPrScreen() {
         setMenu(true);
       }} />}
       refreshControl={<RefreshControl refreshing={loading && pr !== undefined} tintColor={colors.textMuted} onRefresh={load} />}
-      dock={<ComposerDock url={params.url} composer={composer} />}
+      dock={<ComposerDock composer={composer} />}
     >
       <View style={styles.head}>
         <View style={styles.meta}>

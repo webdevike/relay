@@ -389,6 +389,50 @@ describe("astra sessions", () => {
     astra.stop();
   });
 
+  it("keeps the question showing, Astra working, while a new session has no turns yet", async () => {
+    const home = join(dir, "home");
+    mkdirSync(join(home, ".omp", "assistant", "agents", "astra"), { recursive: true });
+    writeFileSync(join(home, ".omp", "assistant", "agents.json"), JSON.stringify({ agents: [{ id: "astra", title: "Astra" }] }));
+    writeFileSync(join(home, ".omp", "assistant", "agents", "astra", "prime.md"), "You are Astra.");
+    let join_: (id: string) => void = () => undefined;
+    const sessions: AgentSession[] = [];
+    const conversation: AgentMessage[] = [];
+    const emitted: AstraItem[] = [];
+    let prompt = "";
+    const astra = new AstraSessions({
+      agents: { sessions, conversation: () => Promise.resolve(conversation), reply: () => Promise.resolve(), configure: () => Promise.resolve() },
+      launch: (options) => {
+        prompt = options.prompt ?? "";
+        return Promise.resolve({ joined: new Promise<string>((resolve) => (join_ = resolve)) });
+      },
+      sessionFile: () => null,
+      agentHome: home,
+      socketPath: "/tmp/x.sock",
+      storePath: join(dir, "astra.json"),
+      emit: (item) => emitted.push(item),
+      clock: systemClock,
+      log: () => undefined,
+    });
+    const url = "https://linear.app/x/issue/ENG-1";
+    await astra.ask(url, "Astra · ENG-1", "ENG-1", () => Promise.resolve("### Linear ticket ENG-1"), "@Astra what now?");
+    // omp registered idle; its first prompt is not in the transcript yet.
+    sessions.push(session("s1", "idle"));
+    join_("s1");
+    await vi.waitFor(() => {
+      expect(emitted.at(-1)).toMatchObject({ sessionId: "s1", working: true, turns: [{ id: "pending", role: "user", text: "@Astra what now?" }] });
+    });
+    conversation.push(message("m1", "user", prompt), message("m2", "assistant", "Reply to Todd."));
+    sessions.splice(0, 1, session("s1", "working"));
+    astra.observe({ kind: "sessions" });
+    await vi.waitFor(() => {
+      expect(emitted.at(-1)?.turns.map((t) => [t.id, t.text])).toEqual([
+        ["m1", "@Astra what now?"],
+        ["m2", "Reply to Todd."],
+      ]);
+    });
+    astra.stop();
+  });
+
   it("refuses asks without an agent home", async () => {
     const astra = new AstraSessions({
       agents: { sessions: [], conversation: () => Promise.resolve(null), reply: () => Promise.resolve(), configure: () => Promise.resolve() },
@@ -503,6 +547,15 @@ describe("service", () => {
     const { reviews, told } = service();
     expect(await reviews.handle({ kind: "slackSend", channel: "C1", threadTs: "1.5", text: "Ship it" })).toEqual({ ok: true });
     expect(told).toEqual(["Slack send request: channel=C1 thread_ts=1.5 text=Ship it"]);
+  });
+
+  it("passes native emoji through unchanged to Astra's line and to gh", async () => {
+    const { reviews, told, calls } = service();
+    const text = "Ship it 🎬👍🏽 ✅ — thanks! 👨‍👩‍👧";
+    await reviews.handle({ kind: "slackSend", channel: "C1", threadTs: null, text });
+    expect(told).toEqual([`Slack send request: channel=C1 thread_ts=none text=${text}`]);
+    await reviews.handle({ kind: "comment", repo: "o/r", number: 1, body: text });
+    expect(calls.at(-1)).toEqual(["gh", "pr", "comment", "1", "-R", "o/r", "--body", text]);
   });
 
   it("answers a failing read with one line", async () => {

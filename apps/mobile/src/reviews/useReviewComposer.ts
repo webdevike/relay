@@ -4,11 +4,11 @@
  * `@Astra` text asks her at once, anything else opens the confirm sheet, whose confirm alone sends.
  */
 import { useCallback, useEffect, useState } from "react";
-import type { ReviewRef, ReviewsOp } from "@relay/protocol";
+import type { AstraItem, ReviewRef, ReviewsOp } from "@relay/protocol";
 import { reviewsRequest, sendCommand } from "@/connection";
 import { useReviewsStore } from "@/state/reviews";
 import type { ConfirmPost } from "./ConfirmSheet";
-import { composerIntent, lastAstraAnswer, type ComposerTarget } from "./model";
+import { composerIntent, lastAstraAnswer, withPendingAsk, type ComposerTarget } from "./model";
 
 export interface PendingPost extends ConfirmPost {
   op: ReviewsOp;
@@ -21,8 +21,8 @@ export interface ReviewComposer {
   pending: PendingPost | null;
   posting: boolean;
   postError: string | null;
-  /** True from an ask until its answer: the session may not have pushed anything yet. */
-  asking: boolean;
+  /** The item's Astra session as the panel shows it, with an ask it does not show yet at the end. */
+  astra: AstraItem | undefined;
   askError: string | null;
   /** Whether the Astra panel docks under the composer. */
   showAstra: boolean;
@@ -38,12 +38,13 @@ export interface ReviewComposer {
 }
 
 export function useReviewComposer(url: string, reference: ReviewRef | null, target: ComposerTarget | null, onPosted: (message: string) => void): ReviewComposer {
-  const astra = useReviewsStore((state) => state.astra[url]);
+  const session = useReviewsStore((state) => state.astra[url]);
+  const asked = useReviewsStore((state) => state.asks[url]);
+  const astra = withPendingAsk(session, url, asked);
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState<PendingPost | null>(null);
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
-  const [asking, setAsking] = useState(false);
   const [askError, setAskError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -64,11 +65,13 @@ export function useReviewComposer(url: string, reference: ReviewRef | null, targ
       return;
     }
     setDraft("");
-    setAsking(true);
     setAskError(null);
+    // The bubble and Astra's working state show now; the session's own turn replaces them.
+    useReviewsStore.getState().ask(url, intent.text);
     void reviewsRequest({ kind: "astraAsk", url, ref: reference, text: intent.text }).then((result) => {
-      setAsking(false);
-      if (!result.ok) setAskError(result.error ?? "Astra could not take that.");
+      if (result.ok) return;
+      useReviewsStore.getState().dropAsk(url);
+      setAskError(result.error ?? "Astra could not take that.");
     });
   };
 
@@ -89,14 +92,14 @@ export function useReviewComposer(url: string, reference: ReviewRef | null, targ
   };
 
   const answer = lastAstraAnswer(astra);
-  const showAstra = asking || askError !== null || (astra !== undefined && astra.turns.length > 0);
+  const showAstra = askError !== null || (astra !== undefined && astra.turns.length > 0);
   return {
     draft,
     setDraft,
     pending,
     posting,
     postError,
-    asking,
+    astra,
     askError,
     showAstra,
     placeholder: showAstra ? "Comment, or @Astra to ask again" : "Comment, or @Astra to ask privately",
