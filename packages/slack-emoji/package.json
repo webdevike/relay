@@ -1,0 +1,22 @@
+{
+  "name": "@relay/slack-emoji",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Slack emoji shortcodes (:clapper:, :+1::skin-tone-3:) as emoji, for Relay phone and desktop Reviews.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "bun build.ts",
+    "lint": "eslint src test",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@relay/eslint-config": "workspace:*",
+    "@types/node": "^20.0.0"
+  }
+}

@@ -8,6 +8,7 @@ import { Pressable, StyleSheet, View } from "react-native";
 import ReanimatedSwipeable, { type SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 import { SymbolView } from "expo-symbols";
 import { reviewAgo, type ReviewItem } from "@relay/protocol";
+import { emojify } from "@relay/slack-emoji";
 import { spacing, useColors } from "@/theme";
 import { Text } from "@/ui/Text";
 import { SourceGlyph } from "./SourceGlyph";
@@ -49,7 +50,7 @@ export function QueueRow({ item, now, onOpen, onDone }: QueueRowProps) {
     >
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${item.unread ? "Unread, " : ""}${item.title}, ${item.actor} ${item.reason} ${item.label}, ${age}`}
+        accessibilityLabel={`${item.unread ? "Unread, " : ""}${emojify(item.title)}, ${item.actor} ${item.reason} ${item.label}, ${age}`}
         accessibilityHint="Swipe left for Done"
         accessibilityActions={[{ name: "done", label: "Done" }]}
         onAccessibilityAction={(event) => {
@@ -65,7 +66,7 @@ export function QueueRow({ item, now, onOpen, onDone }: QueueRowProps) {
         <View style={[styles.text, { borderBottomColor: colors.hairline }]}>
           <View style={styles.line}>
             <Text variant="title" numberOfLines={1} style={[styles.title, !item.unread && styles.read]}>
-              {item.title}
+              {emojify(item.title)}
             </Text>
             <Text variant="label" color="textFaint" tabular>
               {age}

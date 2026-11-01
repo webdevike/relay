@@ -9,6 +9,7 @@ apps/mobile      Expo + React Native + TypeScript (Expo Router, Gesture Handler,
 apps/mac         Swift + SwiftUI menu-bar app (Network.framework, Bonjour, CGEvent, Accessibility)
 apps/linux       Bun + TypeScript host daemon (Bun.serve WebSocket, avahi, /dev/uinput, wtype). See apps/linux/README.md
 packages/protocol  Wire protocol: zod schemas + JSON fixtures. apps/mac/Sources/RelayProtocol mirrors it.
+packages/slack-emoji  Slack shortcodes (:clapper:, :+1::skin-tone-3:) as emoji; phone and desktop Reviews. `bun build.ts` regenerates src/data.ts.
 tooling/         Shared eslint config
 ```
 

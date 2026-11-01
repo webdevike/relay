@@ -6,6 +6,7 @@
 import { StyleSheet, View } from "react-native";
 import { SymbolView, type SFSymbol } from "expo-symbols";
 import { reviewAgo, type SlackMessage } from "@relay/protocol";
+import { emojify, reactionEmoji } from "@relay/slack-emoji";
 import { MessageText } from "@/agents/MessageText";
 import { radii, spacing, useColors } from "@/theme";
 import { Avatar } from "@/ui/Avatar";
@@ -24,11 +25,6 @@ function slackWhen(at: number, now: number): string {
   return now - at < DAY_MS ? reviewAgo(at, now) : new Date(at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-/** Slack sends emoji as names (`fire`); a name shows as `:fire:`, a real emoji as itself. */
-function emojiText(emoji: string): string {
-  return /^[\w+-]+$/.test(emoji) ? `:${emoji}:` : emoji;
-}
-
 export function SlackBubble({ message, now }: { message: SlackMessage; now: number }) {
   const colors = useColors();
   const extras = (
@@ -45,7 +41,7 @@ export function SlackBubble({ message, now }: { message: SlackMessage; now: numb
         <View style={[styles.reactions, message.mine && styles.end]}>
           {message.reactions.map((reaction) => (
             <View key={reaction.emoji} style={[styles.chip, { borderColor: colors.hairline }]} accessibilityLabel={`${reaction.emoji}, ${String(reaction.count)}`}>
-              <Text variant="label">{emojiText(reaction.emoji)}</Text>
+              <Text variant="label">{reactionEmoji(reaction.emoji)}</Text>
               <Text variant="label" color="textMuted" tabular>
                 {String(reaction.count)}
               </Text>
@@ -59,7 +55,7 @@ export function SlackBubble({ message, now }: { message: SlackMessage; now: numb
     return (
       <View style={styles.mineWrap}>
         <View style={[styles.bubble, styles.end, { backgroundColor: colors.bubbleUser }]}>
-          <Text style={styles.mineText}>{message.text}</Text>
+          <Text style={styles.mineText}>{emojify(message.text)}</Text>
         </View>
         {extras}
       </View>
@@ -76,7 +72,7 @@ export function SlackBubble({ message, now }: { message: SlackMessage; now: numb
           </Text>
         </Text>
         <View style={[styles.bubble, { backgroundColor: colors.surfaceRaised }]}>
-          <MessageText text={message.text} />
+          <MessageText text={emojify(message.text)} />
         </View>
         {extras}
       </View>

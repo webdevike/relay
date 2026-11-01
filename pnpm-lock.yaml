@@ -92,6 +92,9 @@ importers:
       '@relay/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@relay/slack-emoji':
+        specifier: workspace:*
+        version: link:../../packages/slack-emoji
       '@relay/widget-runtime':
         specifier: link:../../packages/widget-runtime
         version: link:../../packages/widget-runtime
@@ -302,6 +305,15 @@ importers:
       zod:
         specifier: ^3.25.0
         version: 3.25.76
+    devDependencies:
+      '@relay/eslint-config':
+        specifier: workspace:*
+        version: link:../../tooling/eslint-config
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.43
+
+  packages/slack-emoji:
     devDependencies:
       '@relay/eslint-config':
         specifier: workspace:*

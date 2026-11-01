@@ -145,3 +145,12 @@ describe("githubPrOf", () => {
     expect(githubPrOf("https://github.com/eCardSystems/api/issues/243")).toBeNull();
   });
 });
+
+describe("native emoji in the composer", () => {
+  it("go out exactly as typed to Slack, GitHub and Linear", () => {
+    const text = "Ship it 🎬👍🏽 ✅ 👨‍👩‍👧";
+    expect(composerIntent(`  ${text}\n`, { kind: "slack", channel: "C1", threadTs: null, channelName: "Chris" })).toMatchObject({ op: { kind: "slackSend", text } });
+    expect(composerIntent(text, { kind: "github", repo: "o/r", number: 1 })).toMatchObject({ op: { kind: "comment", body: text } });
+    expect(composerIntent(text, { kind: "linear", issueId: "i", key: "ENG-1", reply: null })).toMatchObject({ op: { kind: "linearComment", body: text } });
+  });
+});
