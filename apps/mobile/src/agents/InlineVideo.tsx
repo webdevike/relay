@@ -28,8 +28,15 @@ const FALLBACK_ASPECT = 16 / 9;
 const RADIUS = 22;
 
 export function InlineVideo({ video, alt }: { video: VideoEmbed; alt: string }) {
-  const screen = useWindowDimensions().width;
   const [uri, poster] = useDropSrc([video.src, video.poster ?? ""]);
+  if (uri === null || uri === undefined) return <MediaPlaceholder label="Connect to the host to load this video." />;
+  // Keyed by the stream URL: the tap state lives below, so a disconnect (placeholder above) or a new
+  // URL unmounts it and the video returns to its poster instead of replaying itself on remount.
+  return <InlineVideoFrame key={uri} video={video} alt={alt} uri={uri} poster={poster ?? null} />;
+}
+
+function InlineVideoFrame({ video, alt, uri, poster }: { video: VideoEmbed; alt: string; uri: string; poster: string | null }) {
+  const screen = useWindowDimensions().width;
   const [phase, setPhase] = useState<"poster" | "starting" | "playing" | "error">("poster");
   const [trackAspect, setTrackAspect] = useState<number | null>(null);
 
@@ -38,7 +45,6 @@ export function InlineVideo({ video, alt }: { video: VideoEmbed; alt: string }) 
   const height = Math.round(Math.min(widest / aspect, MAX_HEIGHT));
   const width = Math.round(height * aspect);
 
-  if (uri === null || uri === undefined) return <MediaPlaceholder label="Connect to the host to load this video." />;
   if (phase === "error") {
     const label =
       video.mimeType === "video/webm"
