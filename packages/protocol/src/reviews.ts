@@ -25,6 +25,8 @@ const nonEmpty = z.string().min(1);
 export const MAX_REVIEW_TEXT = 20_000;
 /** The diff a PR detail carries; a longer one is cut and `diffTruncated` set. */
 export const MAX_REVIEW_DIFF = 400_000;
+/** Base64 characters an uploaded image may carry (about 6 MB of image); the phone scales photos well under it. */
+export const MAX_REVIEW_UPLOAD = 8_000_000;
 
 export const ReviewSource = z.enum(["github", "linear", "slack"]);
 export type ReviewSource = z.infer<typeof ReviewSource>;
@@ -86,6 +88,10 @@ export const ReviewQueue = z.object({
   items: z.array(ReviewItem).max(500),
   /** Item urls marked Done, each with the item's `updatedAt` at that moment. */
   done: z.record(z.string(), ms),
+  /** Item urls snoozed, each until that epoch ms; hidden until then (and back on their own). */
+  snoozed: z.record(z.string(), ms).default({}),
+  /** Item urls Isaac has seen, each with the item's `updatedAt` then; newer activity is unread again. "Unread" removes the mark. */
+  read: z.record(z.string(), ms).default({}),
   sources: z.object({ github: ReviewSourceState, linear: ReviewSourceState, slack: ReviewSourceState }),
 });
 export type ReviewQueue = z.infer<typeof ReviewQueue>;
@@ -203,6 +209,19 @@ export const LinearTicket = z.object({
   /** People on the ticket, for @mentions in a reply. */
   people: z.array(LinearPerson),
   me: LinearPerson,
+  /** Status changes and other history lines shown between comments ("changed status from In QA to Done"), oldest first. */
+  activity: z
+    .array(
+      z.object({
+        at: ms,
+        actor: z.string(),
+        /** What happened after the actor's name, e.g. "changed status from In QA to Done". */
+        text: z.string(),
+        /** Names in `text` drawn bright (state names). */
+        highlights: z.array(z.string()),
+      }),
+    )
+    .default([]),
 });
 export type LinearTicket = z.infer<typeof LinearTicket>;
 
@@ -236,6 +255,8 @@ export const AstraTurn = z.object({
   /** Markdown; for Isaac's first ask, only his question (the seed is not shown). */
   text: z.string(),
   streaming: z.boolean(),
+  /** Epoch ms the turn was said, for placing it among an item's comments; absent on older hosts. */
+  at: ms.optional(),
 });
 export type AstraTurn = z.infer<typeof AstraTurn>;
 
@@ -285,6 +306,12 @@ export const ReviewsOp = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("astraAsk"), url: nonEmpty, ref: ReviewRef, text: Body }),
   /** The item's Astra session, if it has one. */
   z.object({ kind: z.literal("astra"), url: nonEmpty }),
+  /** Hides an item until `until` (epoch ms); null brings it back now. */
+  z.object({ kind: z.literal("snooze"), url: nonEmpty, until: ms.nullable() }),
+  /** Marks an item seen (`read`, with the `updatedAt` it was seen at) or unread again. */
+  z.object({ kind: z.literal("read"), url: nonEmpty, updatedAt: ms, read: z.boolean() }),
+  /** Uploads an image to Linear for a comment; answers its `url` to embed as Markdown. `data` is base64. */
+  z.object({ kind: z.literal("linearUpload"), name: z.string().min(1).max(200), mime: z.enum(["image/jpeg", "image/png", "image/gif", "image/webp"]), data: z.string().min(1).max(MAX_REVIEW_UPLOAD) }),
 ]);
 export type ReviewsOp = z.infer<typeof ReviewsOp>;
 
@@ -317,10 +344,17 @@ export function isReviewDone(item: Pick<ReviewItem, "url" | "updatedAt">, done: 
   return at !== undefined && item.updatedAt <= at;
 }
 
-/** The rows that still wait on Isaac, newest first, optionally from one source. */
-export function liveReviewItems(queue: Pick<ReviewQueue, "items" | "done">, source: ReviewSource | null = null): ReviewItem[] {
+/** Unread: the source says so and Isaac has not seen this activity here. */
+export function isReviewUnread(item: Pick<ReviewItem, "url" | "updatedAt" | "unread">, read: Readonly<Record<string, number>>): boolean {
+  const at = read[item.url];
+  return item.unread && !(at !== undefined && item.updatedAt <= at);
+}
+
+/** The rows that still wait on Isaac (not Done, not snoozed at `now`), newest first, optionally from one source. */
+export function liveReviewItems(queue: Pick<ReviewQueue, "items" | "done"> & Partial<Pick<ReviewQueue, "snoozed">>, source: ReviewSource | null = null, now = Date.now()): ReviewItem[] {
+  const snoozed = queue.snoozed ?? {};
   return queue.items
-    .filter((item) => (source === null || item.ref.kind === source) && !isReviewDone(item, queue.done))
+    .filter((item) => (source === null || item.ref.kind === source) && !isReviewDone(item, queue.done) && !((snoozed[item.url] ?? 0) > now))
     .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 

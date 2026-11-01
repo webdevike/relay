@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isReviewDone, liveReviewItems, mentionsAstra, parseClientMessage, parseServerMessage, reviewAgo, reviewDayGroups, type ReviewItem } from "../src/index";
+import { isReviewDone, isReviewUnread, liveReviewItems, mentionsAstra, parseClientMessage, parseServerMessage, reviewAgo, reviewDayGroups, type ReviewItem } from "../src/index";
 
 const item = (over: Partial<ReviewItem> = {}): ReviewItem => ({
   url: "https://github.com/eCardSystems/api/pull/170",
@@ -55,6 +55,27 @@ describe("reviews helpers", () => {
     const earlier = item({ updatedAt: new Date(2026, 9, 30, 23, 0).getTime() });
     expect(reviewDayGroups([today, earlier], now).map((g) => [g.label, g.items.length])).toEqual([["Today", 1], ["Earlier", 1]]);
     expect(reviewDayGroups([earlier], now).map((g) => g.label)).toEqual(["Earlier"]);
+  });
+
+  it("hides a snoozed item until its time, and reads unread from the seen marks", () => {
+    const queue = { items: [item()], done: {}, snoozed: { [item().url]: 5000 } };
+    expect(liveReviewItems(queue, null, 4999)).toEqual([]);
+    expect(liveReviewItems(queue, null, 5000)).toHaveLength(1);
+    expect(isReviewUnread(item(), {})).toBe(true);
+    expect(isReviewUnread(item(), { [item().url]: 1000 })).toBe(false);
+    expect(isReviewUnread(item({ updatedAt: 2000 }), { [item().url]: 1000 })).toBe(true);
+    expect(isReviewUnread(item({ unread: false }), {})).toBe(false);
+  });
+
+  it("parses snooze, read and upload ops, and an old host's queue without the new marks", () => {
+    const req = (op: unknown) => parseClientMessage(JSON.stringify({ t: "reviews.req", rid: "r", op })).ok;
+    expect(req({ kind: "snooze", url: "https://x", until: 5 })).toBe(true);
+    expect(req({ kind: "snooze", url: "https://x", until: null })).toBe(true);
+    expect(req({ kind: "read", url: "https://x", updatedAt: 5, read: false })).toBe(true);
+    expect(req({ kind: "linearUpload", name: "a.jpg", mime: "image/jpeg", data: "QUJD" })).toBe(true);
+    expect(req({ kind: "linearUpload", name: "a.svg", mime: "image/svg+xml", data: "QUJD" })).toBe(false);
+    const old = parseServerMessage(JSON.stringify({ t: "reviews.queue", queue: { items: [], done: {}, sources: { github: { loading: false, error: null, fetchedAt: 1 }, linear: { loading: false, error: null, fetchedAt: 1 }, slack: { loading: false, error: null, fetchedAt: 1 } } } }));
+    expect(old.ok && old.value.t === "reviews.queue" ? [old.value.queue.snoozed, old.value.queue.read] : null).toEqual([{}, {}]);
   });
 
   it("formats ages and spots @Astra", () => {
