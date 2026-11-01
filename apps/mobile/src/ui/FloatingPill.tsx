@@ -66,10 +66,13 @@ export interface FloatingPillInputProps {
   onLines?: (lines: number) => void;
   /** Called when the field takes focus. */
   onFocus?: () => void;
+  /** Takes focus (and raises the keyboard) when it mounts. */
+  autoFocus?: boolean;
+  testID?: string | undefined;
 }
 
 /** The borderless multiline text field that lives inside a `FloatingPill`. */
-export function FloatingPillInput({ value, onChangeText, placeholder, editable = true, accessibilityLabel, tall = false, onLines, onFocus }: FloatingPillInputProps) {
+export function FloatingPillInput({ value, onChangeText, placeholder, editable = true, accessibilityLabel, tall = false, onLines, onFocus, autoFocus = false, testID }: FloatingPillInputProps) {
   const colors = useColors();
   const scheme = useScheme();
   return (
@@ -84,6 +87,8 @@ export function FloatingPillInput({ value, onChangeText, placeholder, editable =
       selectionColor={colors.accent}
       accessibilityLabel={accessibilityLabel ?? placeholder}
       onFocus={onFocus}
+      autoFocus={autoFocus}
+      testID={testID}
       onContentSizeChange={(event) => {
         onLines?.(lineCount(event.nativeEvent.contentSize.height));
       }}

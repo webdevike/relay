@@ -39,6 +39,10 @@ export interface ReviewsStore {
   setDone: (done: Record<string, number>) => void;
   /** Hides (or with `done` false shows) a row at once, before the host confirms. */
   markDone: (url: string, updatedAt: number, done: boolean) => void;
+  /** Hides a row until `until` (null brings it back) at once, before the host confirms. */
+  markSnoozed: (url: string, until: number | null) => void;
+  /** Marks a row seen at `updatedAt` (or, with `read` false, unread again) at once, before the host confirms. */
+  markRead: (url: string, updatedAt: number, read: boolean) => void;
   setPr: (pr: ReviewPr) => void;
   setGuide: (key: string, guide: ReviewGuide) => void;
   setTicket: (ticket: LinearTicket) => void;
@@ -75,9 +79,23 @@ export const useReviewsStore = create<ReviewsStore>((set, get) => ({
   markDone: (url, updatedAt, done) => {
     const queue = get().queue;
     if (queue === null) return;
-    const next = Object.fromEntries(Object.entries(queue.done).filter(([key]) => key !== url));
+    const next = withoutKey(queue.done, url);
     if (done) next[url] = updatedAt;
     set({ queue: { ...queue, done: next } });
+  },
+  markSnoozed: (url, until) => {
+    const queue = get().queue;
+    if (queue === null) return;
+    const next = withoutKey(queue.snoozed, url);
+    if (until !== null) next[url] = until;
+    set({ queue: { ...queue, snoozed: next } });
+  },
+  markRead: (url, updatedAt, read) => {
+    const queue = get().queue;
+    if (queue === null) return;
+    const next = withoutKey(queue.read, url);
+    if (read) next[url] = updatedAt;
+    set({ queue: { ...queue, read: next } });
   },
   setPr: (pr) => {
     set({ prs: { ...get().prs, [prKey(pr.repo, pr.number)]: pr } });
@@ -98,7 +116,7 @@ export const useReviewsStore = create<ReviewsStore>((set, get) => ({
     set({ astra: { ...astra, [item.url]: item }, asks: landed ? withoutKey(asks, item.url) : asks });
   },
   ask: (url, text) => {
-    set({ asks: { ...get().asks, [url]: pendingAsk(get().astra[url], text) } });
+    set({ asks: { ...get().asks, [url]: pendingAsk(get().astra[url], text, Date.now()) } });
   },
   dropAsk: (url) => {
     set({ asks: withoutKey(get().asks, url) });

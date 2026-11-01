@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { byteSize, elapsed, relativeTime, tokenCount, truncate } from "./format";
+import { byteSize, clockTime, elapsed, highlightParts, longDate, nameTint, relativeTime, tokenCount, truncate } from "./format";
 
 describe("relativeTime", () => {
   const now = 1_000_000;
@@ -74,5 +74,27 @@ describe("tokenCount", () => {
     expect(tokenCount(850)).toBe("850 tokens");
     expect(tokenCount(41_999)).toBe("41k tokens");
     expect(tokenCount(1_240_000)).toBe("1.2M tokens");
+  });
+});
+
+describe("activity dates and highlights", () => {
+  it("writes a full local date with a 12-hour time", () => {
+    expect(longDate(new Date(2026, 9, 30, 17, 53).getTime())).toBe("October 30, 2026 at 5:53 PM");
+    expect(clockTime(new Date(2026, 0, 1, 0, 5).getTime())).toBe("12:05 AM");
+  });
+
+  it("cuts the highlighted words out as bright runs", () => {
+    expect(highlightParts("changed status from In QA to Done", ["In QA", "Done"])).toEqual([
+      { text: "changed status from ", bright: false },
+      { text: "In QA", bright: true },
+      { text: " to ", bright: false },
+      { text: "Done", bright: true },
+    ]);
+    expect(highlightParts("no change", [])).toEqual([{ text: "no change", bright: false }]);
+  });
+
+  it("gives a name one stable tint", () => {
+    expect(nameTint("Steve Arms")).toBe(nameTint(" steve arms "));
+    expect(nameTint("Steve Arms")).toMatch(/^#[0-9A-F]{6}$/);
   });
 });

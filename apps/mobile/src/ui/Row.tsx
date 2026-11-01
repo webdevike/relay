@@ -11,9 +11,10 @@ export interface RowProps {
   trailing?: ReactNode;
   onPress?: () => void;
   disabled?: boolean;
+  testID?: string | undefined;
 }
 
-export function Row({ title, subtitle, leading, trailing, onPress, disabled = false }: RowProps) {
+export function Row({ title, subtitle, leading, trailing, onPress, disabled = false, testID }: RowProps) {
   const colors = useColors();
   const content = (
     <View
@@ -46,6 +47,7 @@ export function Row({ title, subtitle, leading, trailing, onPress, disabled = fa
   return (
     <Pressable
       disabled={disabled}
+      testID={testID}
       onPress={() => {
         tapHaptic();
         onPress();

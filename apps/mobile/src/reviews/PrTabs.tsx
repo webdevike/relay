@@ -1,16 +1,18 @@
-/** A PR screen's Conversation, Files and Checks tabs (the Guide is `PrGuide`). */
+/** A PR screen's Conversation post card, Files and Checks tabs (the Guide is `PrGuide`). */
 import { useMemo } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { SymbolView, type SFSymbol } from "expo-symbols";
 import { reviewAgo, type ReviewCheck, type ReviewPr } from "@relay/protocol";
 import { DiffView } from "@/agents/DiffView";
 import { MessageText } from "@/agents/MessageText";
+import { nameTint } from "@/lib/format";
 import { openExternal } from "@/lib/links";
 import { spacing, useColors, type ColorToken } from "@/theme";
 import { Avatar } from "@/ui/Avatar";
+import { FEED_AVATAR, FeedCard } from "@/ui/FeedCard";
 import { Pill } from "@/ui/Pill";
 import { Text } from "@/ui/Text";
-import { splitDiffFiles } from "./model";
+import { splitDiffFiles, type PrEntry } from "./model";
 
 /** `+802 −113`, green and red. */
 export function DiffStat({ additions, deletions }: { additions: number; deletions: number }) {
@@ -29,49 +31,18 @@ const VERDICT: Record<string, { label: string; tone: "ok" | "danger" | "textMute
   DISMISSED: { label: "Dismissed", tone: "textMuted" },
 };
 
-function Post({ author, at, body, now, verdict }: { author: string; at: number; body: string; now: number; verdict?: string | null | undefined }) {
-  const badge = verdict === null || verdict === undefined ? undefined : VERDICT[verdict];
+/** A Conversation post as a timeline card: the description, a comment, or a review with words and its verdict. */
+export function PrPostCard({ post, at, now }: { post: Extract<PrEntry, { kind: "post" }>; at: number; now: number }) {
+  const badge = post.verdict === null ? undefined : VERDICT[post.verdict];
   return (
-    <View style={styles.post}>
-      <Avatar name={author} size={32} />
-      <View style={styles.postBody}>
-        <View style={styles.postHead}>
-          <Text variant="title">{author}</Text>
-          <Text variant="label" color="textFaint">
-            {reviewAgo(at, now)}
-          </Text>
-          {badge !== undefined && <Pill label={badge.label} tone={badge.tone} />}
-        </View>
-        {body.trim() !== "" && <MessageText text={body} />}
-      </View>
-    </View>
-  );
-}
-
-export function PrConversation({ pr, now }: { pr: ReviewPr; now: number }) {
-  const colors = useColors();
-  return (
-    <View style={styles.tab}>
-      <Post author={pr.author.login} at={pr.createdAt} body={pr.body.trim() === "" ? "_No description._" : pr.body} now={now} />
-      {pr.timeline.map((entry, i) =>
-        entry.kind === "commit" ? (
-          <View key={i} style={[styles.commit, { borderTopColor: colors.hairline }]} accessibilityLabel={`${entry.author} pushed ${entry.state ?? ""}: ${entry.body}`}>
-            <SymbolView name="smallcircle.filled.circle" size={12} tintColor={colors.textMuted} />
-            <Text numberOfLines={1} style={styles.commitText}>
-              {entry.author}
-              <Text color="textMuted">{` pushed ${entry.state ?? ""}`}</Text>
-            </Text>
-            <Text variant="label" color="textFaint">
-              {reviewAgo(entry.at, now)}
-            </Text>
-          </View>
-        ) : (
-          <View key={i} style={[styles.entry, { borderTopColor: colors.hairline }]}>
-            <Post author={entry.author} at={entry.at} body={entry.body} now={now} verdict={entry.kind === "review" ? entry.state : null} />
-          </View>
-        ),
-      )}
-    </View>
+    <FeedCard
+      avatar={<Avatar name={post.author} size={FEED_AVATAR} tint={nameTint(post.author)} />}
+      name={post.author}
+      meta={`· ${reviewAgo(at, now)}`}
+      badge={badge === undefined ? undefined : <Pill label={badge.label} tone={badge.tone} />}
+    >
+      {post.body.trim() !== "" && <MessageText text={post.body} large />}
+    </FeedCard>
   );
 }
 
@@ -152,12 +123,6 @@ export function PrChecks({ pr }: { pr: ReviewPr }) {
 
 const styles = StyleSheet.create({
   tab: { paddingHorizontal: spacing.xl, paddingTop: spacing.lg, gap: spacing.md },
-  post: { flexDirection: "row", gap: spacing.md },
-  postBody: { flex: 1, gap: spacing.xs },
-  postHead: { flexDirection: "row", alignItems: "center", gap: spacing.sm, flexWrap: "wrap" },
-  entry: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: spacing.md },
-  commit: { flexDirection: "row", alignItems: "center", gap: spacing.md, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: spacing.md },
-  commitText: { flex: 1 },
   file: { gap: spacing.xs },
   fileHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   change: { textTransform: "capitalize" },

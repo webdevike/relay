@@ -1,6 +1,28 @@
 import { describe, expect, it } from "vitest";
-import type { AstraItem, LinearComment, ReviewGuide, SlackMessage } from "@relay/protocol";
-import { composerIntent, githubPrOf, guideProgress, lastAstraAnswer, linearThreads, prBadge, slackParts, splitDiffFiles, splitPath, withHostMedia } from "./model";
+import type { AstraItem, AstraTurn, LinearComment, ReviewGuide, ReviewPr, SlackMessage } from "@relay/protocol";
+import {
+  astraAnswer,
+  composerIntent,
+  githubPrOf,
+  guideProgress,
+  insertMention,
+  linearEntries,
+  linearThreads,
+  mentionCandidates,
+  mentionQuery,
+  mergeTimeline,
+  pendingAsk,
+  prBadge,
+  prEntries,
+  slackEntries,
+  slackParts,
+  snoozeChoices,
+  splitDiffFiles,
+  splitPath,
+  withHostMedia,
+  withPendingAsk,
+  type TimelineRow,
+} from "./model";
 
 const person = (name: string) => ({ name, handle: name.toLowerCase(), url: `https://linear.app/u/${name}` });
 
@@ -119,23 +141,14 @@ describe("guide and badges", () => {
     expect(prBadge({ state: "MERGED", draft: false }).label).toBe("Merged");
   });
 
-  it("finds Astra's newest answer for Use as reply", () => {
-    const item: AstraItem = {
-      url: "u",
-      title: "t",
-      sessionId: null,
-      working: false,
-      waiting: null,
-      error: null,
-      turns: [
-        { id: "1", role: "user", text: "q", streaming: false },
-        { id: "2", role: "assistant", text: " first ", streaming: false },
-        { id: "3", role: "tool", text: "read", streaming: false },
-        { id: "4", role: "assistant", text: "second", streaming: false },
-      ],
-    };
-    expect(lastAstraAnswer(item)).toBe("second");
-    expect(lastAstraAnswer(undefined)).toBeNull();
+  it("finds a card's answer for Use as reply", () => {
+    const turns: AstraTurn[] = [
+      { id: "2", role: "assistant", text: " first ", streaming: false },
+      { id: "3", role: "tool", text: "read", streaming: false },
+      { id: "4", role: "assistant", text: "second", streaming: false },
+    ];
+    expect(astraAnswer(turns)).toBe("second");
+    expect(astraAnswer([{ id: "t", role: "tool", text: "read", streaming: false }])).toBeNull();
   });
 });
 
@@ -152,5 +165,128 @@ describe("native emoji in the composer", () => {
     expect(composerIntent(`  ${text}\n`, { kind: "slack", channel: "C1", threadTs: null, channelName: "Chris" })).toMatchObject({ op: { kind: "slackSend", text } });
     expect(composerIntent(text, { kind: "github", repo: "o/r", number: 1 })).toMatchObject({ op: { kind: "comment", body: text } });
     expect(composerIntent(text, { kind: "linear", issueId: "i", key: "ENG-1", reply: null })).toMatchObject({ op: { kind: "linearComment", body: text } });
+  });
+});
+
+describe("mergeTimeline", () => {
+  const session = (turns: AstraTurn[], extra: Partial<AstraItem> = {}): AstraItem => ({ url: "u", title: "t", sessionId: "s", turns, working: false, waiting: null, error: null, ...extra });
+  const entries = [
+    { key: "a", at: 100, entry: "comment a" },
+    { key: "b", at: 300, entry: "comment b" },
+  ];
+  const shape = (rows: TimelineRow<string>[]) => rows.map((row) => (row.kind === "entry" ? row.entry : row.kind === "ask" ? `ask:${row.text}` : `astra:${row.turns.map((t) => t.id).join("+")}${row.last ? "!" : ""}`));
+
+  it("puts Astra's asks and cards among the comments by time, answers and tool work in one card", () => {
+    const astra = session([
+      { id: "q", role: "user", text: "@Astra why?", streaming: false, at: 200 },
+      { id: "t", role: "tool", text: "read", streaming: false, at: 210 },
+      { id: "r", role: "assistant", text: "because", streaming: false, at: 220 },
+      { id: "q2", role: "user", text: "@Astra and?", streaming: false, at: 400 },
+      { id: "r2", role: "assistant", text: "that", streaming: false, at: 410 },
+    ]);
+    expect(shape(mergeTimeline(entries, astra))).toEqual(["comment a", "ask:@Astra why?", "astra:t+r", "comment b", "ask:@Astra and?", "astra:r2!"]);
+  });
+
+  it("sends turns without a time to the end in session order", () => {
+    const astra = session([
+      { id: "q", role: "user", text: "old", streaming: false },
+      { id: "r", role: "assistant", text: "older host", streaming: false, at: 50 },
+    ]);
+    expect(shape(mergeTimeline(entries, astra))).toEqual(["comment a", "comment b", "ask:old", "astra:r!"]);
+  });
+
+  it("never puts a card before the one ahead of it in the session", () => {
+    const astra = session([
+      { id: "q", role: "user", text: "late", streaming: false, at: 350 },
+      { id: "r", role: "assistant", text: "clock skew", streaming: false, at: 150 },
+    ]);
+    expect(shape(mergeTimeline(entries, astra))).toEqual(["comment a", "comment b", "ask:late", "astra:r!"]);
+  });
+
+  it("shows a pending ask at its send time with an empty working card of Astra's after it", () => {
+    const ask = pendingAsk(undefined, "@Astra what now?", 250);
+    const rows = mergeTimeline(entries, withPendingAsk(undefined, "u", ask));
+    expect(shape(rows)).toEqual(["comment a", "ask:@Astra what now?", "astra:!", "comment b"]);
+  });
+
+  it("adds no Astra rows without a session", () => {
+    expect(shape(mergeTimeline(entries, undefined))).toEqual(["comment a", "comment b"]);
+  });
+});
+
+describe("timeline entries", () => {
+  it("makes a Linear ticket's threads and history lines dated entries", () => {
+    const entries = linearEntries([comment("c1", 10), comment("r1", 30, "c1")], [{ at: 20, actor: "Steve Arms", text: "changed status from In QA to Done", highlights: ["In QA", "Done"] }]);
+    expect(entries.map((e) => [e.key, e.at, e.entry.kind])).toEqual([
+      ["c1", 10, "thread"],
+      ["activity-0", 20, "activity"],
+    ]);
+  });
+
+  it("turns a PR's pushes and bare verdicts into lines and drops a bare comment review", () => {
+    const pr: Pick<ReviewPr, "author" | "body" | "createdAt" | "timeline"> = {
+      author: { login: "todd" },
+      body: "",
+      createdAt: 1,
+      timeline: [
+        { kind: "commit", author: "todd", body: "fix the thing", state: "abc1234", at: 2 },
+        { kind: "review", author: "isaac", body: "", state: "APPROVED", at: 3 },
+        { kind: "review", author: "sam", body: "", state: "COMMENTED", at: 4 },
+        { kind: "review", author: "sam", body: "Nit: rename", state: "CHANGES_REQUESTED", at: 5 },
+        { kind: "comment", author: "todd", body: "Done", state: null, at: 6 },
+      ],
+    };
+    expect(prEntries(pr).map((e) => e.entry)).toEqual([
+      { kind: "post", author: "todd", body: "_No description._", verdict: null },
+      { kind: "activity", actor: "todd", text: "pushed abc1234: fix the thing", highlights: ["abc1234"] },
+      { kind: "activity", actor: "isaac", text: "approved these changes", highlights: [] },
+      { kind: "post", author: "sam", body: "Nit: rename", verdict: "CHANGES_REQUESTED" },
+      { kind: "post", author: "todd", body: "Done", verdict: null },
+    ]);
+  });
+
+  it("puts the replies divider after a Slack thread's parent", () => {
+    expect(slackEntries([message("2.0", 2), message("1.0", 1)], "1.0").map((e) => e.key)).toEqual(["1.0", "replies", "2.0"]);
+    expect(slackEntries([message("1.0", 1)], null).map((e) => e.key)).toEqual(["1.0"]);
+  });
+});
+
+describe("snoozeChoices", () => {
+  const local = (y: number, mo: number, d: number, h: number, mi = 0) => new Date(y, mo, d, h, mi).getTime();
+
+  it("offers three hours on, tomorrow 9 AM and next Monday 9 AM in local time", () => {
+    const now = local(2026, 9, 30, 17, 53); // Friday, October 30, 2026
+    expect(snoozeChoices(now)).toEqual([
+      { key: "later", label: "Later today", until: now + 3 * 3_600_000 },
+      { key: "tomorrow", label: "Tomorrow", until: local(2026, 9, 31, 9) },
+      { key: "next-week", label: "Next week", until: local(2026, 10, 2, 9) },
+    ]);
+  });
+
+  it("makes next week a week on from a Monday, and the coming Monday from a Sunday", () => {
+    expect(snoozeChoices(local(2026, 10, 2, 8))[2]?.until).toBe(local(2026, 10, 9, 9));
+    expect(snoozeChoices(local(2026, 10, 1, 23))[2]?.until).toBe(local(2026, 10, 2, 9));
+  });
+});
+
+describe("mentions", () => {
+  it("reads the name being typed after a trailing @", () => {
+    expect(mentionQuery("hey @")).toBe("");
+    expect(mentionQuery("@ste")).toBe("ste");
+    expect(mentionQuery("mail foo@bar")).toBeNull();
+    expect(mentionQuery("hey @steve ")).toBeNull();
+  });
+
+  it("offers Astra first, then the item's people once each, matched at any word start", () => {
+    expect(mentionCandidates(["Steve Arms", "Todd", "steve arms", "astra", ""], "")).toEqual(["Astra", "Steve Arms", "Todd"]);
+    expect(mentionCandidates(["Steve Arms", "Todd"], "ar")).toEqual(["Steve Arms"]);
+    expect(mentionCandidates(["Steve Arms", "Todd"], "a")).toEqual(["Astra", "Steve Arms"]);
+  });
+
+  it("replaces the typed @query with the picked name, or adds it at the end", () => {
+    expect(insertMention("thanks @ste", "Steve Arms")).toBe("thanks @Steve Arms ");
+    expect(insertMention("@", "Astra")).toBe("@Astra ");
+    expect(insertMention("thanks", "Todd")).toBe("thanks @Todd ");
+    expect(insertMention("", "Todd")).toBe("@Todd ");
   });
 });

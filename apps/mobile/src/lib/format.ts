@@ -64,3 +64,49 @@ export function tokenCount(tokens: number): string {
 function scaled(value: number, unit: string): string {
   return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${unit}`;
 }
+
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+/** `5:53 PM` in local time (built by hand: ICU puts a narrow no-break space before PM). */
+export function clockTime(at: number): string {
+  const d = new Date(at);
+  return `${String(d.getHours() % 12 || 12)}:${String(d.getMinutes()).padStart(2, "0")} ${d.getHours() < 12 ? "AM" : "PM"}`;
+}
+
+/** `October 30, 2026 at 5:53 PM` in local time: an activity line's date. */
+export function longDate(at: number): string {
+  const d = new Date(at);
+  return `${MONTHS[d.getMonth()] ?? ""} ${String(d.getDate())}, ${String(d.getFullYear())} at ${clockTime(at)}`;
+}
+
+/** `text` cut into runs, each `highlights` word (leftmost, then longest) its own bright run. */
+export function highlightParts(text: string, highlights: readonly string[]): { text: string; bright: boolean }[] {
+  const words = highlights.filter((word) => word !== "");
+  const parts: { text: string; bright: boolean }[] = [];
+  let rest = text;
+  while (rest !== "") {
+    let best: { index: number; word: string } | null = null;
+    for (const word of words) {
+      const index = rest.indexOf(word);
+      if (index >= 0 && (best === null || index < best.index || (index === best.index && word.length > best.word.length))) best = { index, word };
+    }
+    if (best === null) {
+      parts.push({ text: rest, bright: false });
+      break;
+    }
+    if (best.index > 0) parts.push({ text: rest.slice(0, best.index), bright: false });
+    parts.push({ text: best.word, bright: true });
+    rest = rest.slice(best.index + best.word.length);
+  }
+  return parts;
+}
+
+/** Identity colors for initials avatars of people with no photo. */
+const NAME_TINTS = ["#E57373", "#F0A35E", "#E8C64B", "#7BC67E", "#4DB6AC", "#64B5F6", "#9575CD", "#F06292"];
+
+/** One stable `#RRGGBB` per name (case and spacing aside), for `Avatar` `tint`. */
+export function nameTint(name: string): string {
+  let hash = 0;
+  for (const ch of name.trim().toLowerCase()) hash = (hash * 31 + (ch.codePointAt(0) ?? 0)) >>> 0;
+  return NAME_TINTS[hash % NAME_TINTS.length] ?? "#64B5F6";
+}

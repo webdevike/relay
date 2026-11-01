@@ -1,69 +1,60 @@
 /**
- * The bar over every Reviews screen: back on the left, an optional centered title and subtitle
- * (a Slack thread's channel), and on the right Done and the ⋯ menu when the screen has them.
+ * The bar over every Reviews screen (Linear's issue view): a round glass back button, the item's
+ * small grey key over its truncated title, and on the right one glass capsule with the edit glyph
+ * (open the item in its app) and ⋯ (the screen's menu) when the screen has them.
  */
-import type { ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
-import { SymbolView } from "expo-symbols";
 import { useRouter } from "expo-router";
-import { spacing, useColors } from "@/theme";
-import { Chip } from "@/ui/Chip";
-import { IconButton } from "@/ui/IconButton";
+import { spacing } from "@/theme";
+import { GlassBar, GlassButton, type GlassSegment } from "@/ui/Glass";
 import { Text } from "@/ui/Text";
 
 export interface ItemHeaderProps {
+  /** Small grey line over the title: `ENG-6545`, `api#170`, `#ui-ux`, `DM`. */
+  label?: string | undefined;
   title?: string | undefined;
-  subtitle?: string | undefined;
-  onDone?: (() => void) | undefined;
+  /** The edit glyph: opens the item in its app or on the web. */
+  onEdit?: (() => void) | undefined;
+  /** What the edit glyph says to VoiceOver: "Open in Linear". */
+  editLabel?: string | undefined;
   onMenu?: (() => void) | undefined;
-  /** Replaces Done and the menu (the queue's own controls). */
-  right?: ReactNode;
 }
 
-export function ItemHeader({ title, subtitle, onDone, onMenu, right }: ItemHeaderProps) {
-  const colors = useColors();
+export function ItemHeader({ label, title, onEdit, editLabel = "Open", onMenu }: ItemHeaderProps) {
   const router = useRouter();
+  const segments: GlassSegment[] = [
+    ...(onEdit === undefined ? [] : [{ key: "edit", symbol: "square.and.pencil" as const, onPress: onEdit, accessibilityLabel: editLabel, testID: "review-edit" }]),
+    ...(onMenu === undefined ? [] : [{ key: "more", symbol: "ellipsis" as const, onPress: onMenu, accessibilityLabel: "More", testID: "review-more" }]),
+  ];
   return (
-    <View style={[styles.bar, title !== undefined && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.hairline }]}>
-      <IconButton
+    <View style={styles.bar}>
+      <GlassButton
         symbol="chevron.left"
-        size={44}
         accessibilityLabel="Back"
+        testID="review-back"
         onPress={() => {
           router.back();
         }}
       />
       <View style={styles.middle}>
-        {title !== undefined && (
-          <Text variant="title" numberOfLines={1}>
+        {label !== undefined && label !== "" && (
+          <Text variant="caption" color="textMuted" numberOfLines={1}>
+            {label}
+          </Text>
+        )}
+        {title !== undefined && title !== "" && (
+          <Text variant="label" numberOfLines={1} style={styles.title}>
             {title}
           </Text>
         )}
-        {subtitle !== undefined && (
-          <Text variant="caption" color="textMuted" numberOfLines={1}>
-            {subtitle}
-          </Text>
-        )}
       </View>
-      <View style={styles.right}>
-        {right}
-        {onDone !== undefined && (
-          <Chip
-            label="Done"
-            accessibilityLabel="Mark Done"
-            leading={<SymbolView name="checkmark" size={13} tintColor={colors.text} />}
-            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-            onPress={onDone}
-          />
-        )}
-        {onMenu !== undefined && <IconButton symbol="ellipsis" size={44} accessibilityLabel="More" onPress={onMenu} />}
-      </View>
+      {segments.length > 0 && <GlassBar segments={segments} />}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  bar: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm },
-  middle: { flex: 1, alignItems: "center" },
-  right: { flexDirection: "row", alignItems: "center", gap: spacing.sm, minWidth: 44, justifyContent: "flex-end" },
+  bar: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm },
+  middle: { flex: 1 },
+  title: { fontSize: 15, fontWeight: "600" },
 });

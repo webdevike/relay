@@ -16,7 +16,7 @@ function item(url: string, updatedAt: number): ReviewItem {
 }
 
 function queue(items: ReviewItem[], done: Record<string, number> = {}): ReviewQueue {
-  return { items, done, sources: { github: idle, linear: idle, slack: idle } };
+  return { items, done, snoozed: {}, read: {}, sources: { github: idle, linear: idle, slack: idle } };
 }
 
 const guide: ReviewGuide = { headSha: "abc", source: "model", error: null, sections: [{ title: "Filters", why: "w", files: ["a.ts"] }] };

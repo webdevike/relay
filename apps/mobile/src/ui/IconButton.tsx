@@ -20,6 +20,7 @@ export interface IconButtonProps {
   disabledOpacity?: number;
   /** Extra touch area, so a small disc still makes a 44pt target. */
   hitSlop?: Insets;
+  testID?: string | undefined;
 }
 
 const OVERLAY = { tint: "#FFFFFF", background: "rgba(255,255,255,0.12)" } as const;
@@ -41,6 +42,7 @@ export function IconButton({
   glyphSize,
   disabledOpacity = 0.4,
   hitSlop,
+  testID,
 }: IconButtonProps) {
   const colors = useColors();
   const overlay = tone === "overlay";
@@ -52,6 +54,7 @@ export function IconButton({
     <Pressable
       disabled={disabled}
       hitSlop={hitSlop}
+      testID={testID}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       accessibilityState={{ disabled }}

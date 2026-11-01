@@ -15,12 +15,14 @@ import { SourceGlyph } from "./SourceGlyph";
 
 export interface QueueRowProps {
   item: ReviewItem;
+  /** The source's unread less what Isaac has seen here (`isReviewUnread`). */
+  unread: boolean;
   now: number;
   onOpen: () => void;
   onDone: () => void;
 }
 
-export function QueueRow({ item, now, onOpen, onDone }: QueueRowProps) {
+export function QueueRow({ item, unread, now, onOpen, onDone }: QueueRowProps) {
   const colors = useColors();
   const swipe = useRef<SwipeableMethods>(null);
   const age = reviewAgo(item.updatedAt, now);
@@ -50,7 +52,7 @@ export function QueueRow({ item, now, onOpen, onDone }: QueueRowProps) {
     >
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${item.unread ? "Unread, " : ""}${emojify(item.title)}, ${item.actor} ${item.reason} ${item.label}, ${age}`}
+        accessibilityLabel={`${unread ? "Unread, " : ""}${emojify(item.title)}, ${item.actor} ${item.reason} ${item.label}, ${age}`}
         accessibilityHint="Swipe left for Done"
         accessibilityActions={[{ name: "done", label: "Done" }]}
         onAccessibilityAction={(event) => {
@@ -59,13 +61,13 @@ export function QueueRow({ item, now, onOpen, onDone }: QueueRowProps) {
         onPress={onOpen}
         style={({ pressed }) => [styles.row, { backgroundColor: pressed ? colors.surfaceRaised : colors.bg }]}
       >
-        <View style={[styles.dot, { backgroundColor: item.unread ? colors.accent : "transparent" }]} />
+        <View style={[styles.dot, { backgroundColor: unread ? colors.accent : "transparent" }]} />
         <View style={styles.glyph}>
           <SourceGlyph item={item} />
         </View>
         <View style={[styles.text, { borderBottomColor: colors.hairline }]}>
           <View style={styles.line}>
-            <Text variant="title" numberOfLines={1} style={[styles.title, !item.unread && styles.read]}>
+            <Text variant="title" numberOfLines={1} style={[styles.title, !unread && styles.read]}>
               {emojify(item.title)}
             </Text>
             <Text variant="label" color="textFaint" tabular>

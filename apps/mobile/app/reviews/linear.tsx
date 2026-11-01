@@ -1,7 +1,8 @@
 /**
- * A Linear ticket in Reviews (`/reviews/linear?url&key`): status, assignee, priority, project and
- * linked PR, the description folded, then the comments as threads. "Reply in thread" points the
- * composer at that thread; a post goes out only from the confirm sheet.
+ * A Linear ticket in Reviews (`/reviews/linear?url&key`), laid out like Linear's iOS issue view:
+ * status, assignee, priority, project and linked PR, the description card, then comment threads,
+ * history lines and Astra's cards in time order. "Reply in thread" points the composer at that
+ * thread; a post goes out only from the confirm sheet.
  */
 import { useCallback, useEffect, useState } from "react";
 import { RefreshControl, StyleSheet, View } from "react-native";
@@ -10,18 +11,20 @@ import type { LinearComment, ReviewRef } from "@relay/protocol";
 import { hostBaseUrl, reviewsRequest } from "@/connection";
 import { openExternal } from "@/lib/links";
 import { useTransientMessage } from "@/lib/useTransientMessage";
-import { markReviewDone, openReviewItem } from "@/reviews/actions";
-import { ComposerDock } from "@/reviews/ComposerDock";
+import { openReviewItem, useMarkSeen } from "@/reviews/actions";
+import { ItemDock } from "@/reviews/ItemDock";
 import { ItemHeader } from "@/reviews/ItemHeader";
 import { ItemScreen } from "@/reviews/ItemScreen";
-import { FoldedMarkdown, LinearComments, PropertyRow } from "@/reviews/LinearParts";
-import { githubPrOf, withHostMedia } from "@/reviews/model";
+import { FoldedMarkdown, LinearThreadCard, PropertyRow } from "@/reviews/LinearParts";
+import { githubPrOf, linearEntries, mergeTimeline, withHostMedia } from "@/reviews/model";
 import { LinearStateGlyph, PrGlyph } from "@/reviews/SourceGlyph";
+import { Timeline } from "@/reviews/Timeline";
 import { useReviewComposer } from "@/reviews/useReviewComposer";
 import { useReviewsStore } from "@/state/reviews";
 import { spacing, useColors } from "@/theme";
 import { Avatar } from "@/ui/Avatar";
 import { EmptyState } from "@/ui/EmptyState";
+import { ActivityLine, FeedCard } from "@/ui/FeedCard";
 import { Row } from "@/ui/Row";
 import { Sheet } from "@/ui/Sheet";
 import { Text } from "@/ui/Text";
@@ -52,6 +55,9 @@ export default function ReviewLinearScreen() {
     load();
   }, [load]);
 
+  const updatedAt = item?.updatedAt ?? ticket?.updatedAt;
+  useMarkSeen(params.url, item?.updatedAt);
+
   const reference: ReviewRef = { kind: "linear", key: params.key };
   const composer = useReviewComposer(
     params.url,
@@ -62,32 +68,46 @@ export default function ReviewLinearScreen() {
       setReply(null);
       load();
     },
+    toast.show,
   );
-
-  const done = () => {
-    void markReviewDone(params.url, item?.updatedAt ?? ticket?.updatedAt ?? now).then((failure) => {
-      if (failure !== null) toast.show(failure);
-    });
-    router.back();
-  };
 
   const linkedPr = ticket?.links.find((link) => githubPrOf(link.url) !== null);
   const linkedRef = linkedPr === undefined ? null : githubPrOf(linkedPr.url);
+  const rows = mergeTimeline(ticket === undefined ? [] : linearEntries(ticket.comments, ticket.activity), composer.astra);
+  const people = ticket === undefined ? [] : ticket.people.filter((p) => p.handle !== ticket.me.handle).map((p) => p.name);
+  const title = ticket?.title ?? item?.title ?? "";
 
   return (
     <ItemScreen
       toast={toast.message}
-      header={<ItemHeader onDone={done} onMenu={() => {
-        setMenu(true);
-      }} />}
+      followKey={composer.followKey}
+      revealKey={composer.revealKey}
+      header={
+        <ItemHeader
+          label={params.key}
+          title={title}
+          editLabel="Open in Linear"
+          onEdit={() => {
+            openExternal(ticket?.url ?? params.url);
+          }}
+          onMenu={() => {
+            setMenu(true);
+          }}
+        />
+      }
       refreshControl={<RefreshControl refreshing={loading && ticket !== undefined} tintColor={colors.textMuted} onRefresh={load} />}
       dock={
-        <ComposerDock
+        <ItemDock
           composer={composer}
+          url={params.url}
+          updatedAt={updatedAt}
+          placeholder="Comment"
+          people={people}
           replyingTo={reply?.author.name ?? null}
           onClearReply={() => {
             setReply(null);
           }}
+          notify={toast.show}
         />
       }
     >
@@ -97,7 +117,7 @@ export default function ReviewLinearScreen() {
           <Text color="textMuted">{params.key}</Text>
         </View>
         <Text variant="largeTitle" style={styles.title}>
-          {ticket?.title ?? item?.title ?? ""}
+          {title}
         </Text>
         {ticket === undefined ? (
           <EmptyState symbol="circle.lefthalf.filled" title={error === null ? "Reading the ticket…" : "Could not read the ticket"} body={error ?? "Asking your Mac for it from Linear."} actionLabel="Try again" onAction={load} />
@@ -132,15 +152,35 @@ export default function ReviewLinearScreen() {
                 </PropertyRow>
               )}
             </View>
-            {ticket.description.trim() !== "" && <FoldedMarkdown text={withHostMedia(ticket.description, base)} />}
-            <LinearComments
-              comments={ticket.comments}
-              now={now}
-              body={(markdown) => withHostMedia(markdown, base)}
-              onReply={setReply}
-            />
+            {ticket.description.trim() !== "" && (
+              <FeedCard>
+                <FoldedMarkdown text={withHostMedia(ticket.description, base)} />
+              </FeedCard>
+            )}
           </>
         )}
+        <Timeline
+          rows={rows}
+          astra={composer.astra}
+          now={now}
+          onUseAsReply={composer.takeAnswer}
+          onStop={composer.stop}
+          renderEntry={(entry, at) =>
+            entry.kind === "thread" ? (
+              <LinearThreadCard
+                thread={entry.thread}
+                now={now}
+                body={(markdown) => withHostMedia(markdown, base)}
+                onReply={(comment) => {
+                  setReply(comment);
+                  composer.compose();
+                }}
+              />
+            ) : (
+              <ActivityLine actor={entry.actor} text={entry.text} highlights={entry.highlights} at={at} />
+            )
+          }
+        />
       </View>
       <Sheet
         visible={menu}
@@ -161,9 +201,9 @@ export default function ReviewLinearScreen() {
 }
 
 const styles = StyleSheet.create({
-  page: { paddingHorizontal: spacing.xl, gap: spacing.sm },
-  meta: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  title: { fontSize: 21, lineHeight: 27, fontWeight: "600" },
-  properties: { marginTop: spacing.md, borderTopWidth: StyleSheet.hairlineWidth },
+  page: { paddingHorizontal: spacing.lg, gap: spacing.md },
+  meta: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingHorizontal: spacing.xs },
+  title: { fontSize: 24, lineHeight: 30, fontWeight: "700", paddingHorizontal: spacing.xs },
+  properties: { borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: spacing.xs },
   linked: { flexShrink: 1 },
 });

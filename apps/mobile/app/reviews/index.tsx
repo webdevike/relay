@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshControl, SectionList, StyleSheet, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
-import { liveReviewItems, reviewDayGroups, type ReviewItem, type ReviewQueue, type ReviewSource } from "@relay/protocol";
+import { isReviewUnread, liveReviewItems, reviewDayGroups, type ReviewItem, type ReviewQueue, type ReviewSource } from "@relay/protocol";
 import { reviewsRequest } from "@/connection";
 import { useTransientMessage } from "@/lib/useTransientMessage";
 import { markReviewDone, openReviewItem } from "@/reviews/actions";
@@ -72,7 +72,8 @@ export default function Reviews() {
     };
   }, []);
 
-  const waiting = useMemo(() => (queue === null ? [] : liveReviewItems(queue)), [queue]);
+  // Snoozed rows come back on their own as `now` passes their time.
+  const waiting = useMemo(() => (queue === null ? [] : liveReviewItems(queue, null, now)), [queue, now]);
   const shown = useMemo(() => (filter === "all" ? waiting : waiting.filter((item) => item.ref.kind === filter)), [waiting, filter]);
   const sections = useMemo(() => reviewDayGroups(shown, now).map((group) => ({ title: group.label, data: group.items })), [shown, now]);
   const notes = queue === null ? [] : sourceNotes(queue, filter);
@@ -121,6 +122,7 @@ export default function Reviews() {
         renderItem={({ item }) => (
           <QueueRow
             item={item}
+            unread={queue !== null && isReviewUnread(item, queue.read)}
             now={now}
             onOpen={() => {
               openReviewItem(router, item);

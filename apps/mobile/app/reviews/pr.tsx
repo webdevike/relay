@@ -1,27 +1,31 @@
 /**
- * A PR in Reviews (`/reviews/pr?url&repo&number`): its title, state and size, then Conversation,
- * Files (unified diff per file), Checks and the Guide. The ⋯ menu opens it on GitHub or approves /
- * requests changes, each through the confirm sheet like every comment; `@Astra` asks her privately.
+ * A PR in Reviews (`/reviews/pr?url&repo&number`): its title, state and size, then Conversation
+ * (the description, comments and reviews as cards, pushes and bare verdicts as lines, Astra's
+ * cards among them by time), Files (unified diff per file), Checks and the Guide. The ⋯ menu opens
+ * it on GitHub or approves / requests changes, each through the confirm sheet like every comment;
+ * `@Astra` asks her privately (an ask from another tab brings Conversation up to show it).
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { RefreshControl, StyleSheet, View } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
 import { reviewAgo, type ReviewRef } from "@relay/protocol";
 import { reviewsRequest } from "@/connection";
 import { openExternal } from "@/lib/links";
 import { useTransientMessage } from "@/lib/useTransientMessage";
-import { markReviewDone } from "@/reviews/actions";
-import { ComposerDock } from "@/reviews/ComposerDock";
+import { useMarkSeen } from "@/reviews/actions";
+import { ItemDock } from "@/reviews/ItemDock";
 import { ItemHeader } from "@/reviews/ItemHeader";
 import { ItemScreen } from "@/reviews/ItemScreen";
-import { prBadge } from "@/reviews/model";
+import { mergeTimeline, prBadge, prEntries } from "@/reviews/model";
 import { PrGuide } from "@/reviews/PrGuide";
-import { DiffStat, PrChecks, PrConversation, PrFiles } from "@/reviews/PrTabs";
+import { DiffStat, PrChecks, PrFiles, PrPostCard } from "@/reviews/PrTabs";
 import { PrGlyph } from "@/reviews/SourceGlyph";
+import { Timeline } from "@/reviews/Timeline";
 import { useReviewComposer } from "@/reviews/useReviewComposer";
 import { prKey, useReviewsStore } from "@/state/reviews";
 import { spacing, useColors } from "@/theme";
 import { EmptyState } from "@/ui/EmptyState";
+import { ActivityLine } from "@/ui/FeedCard";
 import { Pill } from "@/ui/Pill";
 import { Row } from "@/ui/Row";
 import { Sheet } from "@/ui/Sheet";
@@ -32,7 +36,6 @@ type Tab = "conversation" | "files" | "checks" | "guide";
 
 export default function ReviewPrScreen() {
   const colors = useColors();
-  const router = useRouter();
   const params = useLocalSearchParams<{ url: string; repo: string; number: string }>();
   const repo = params.repo;
   const number = Number(params.number);
@@ -70,15 +73,19 @@ export default function ReviewPrScreen() {
     loadGuide();
   }, [load, loadGuide]);
 
-  const reference: ReviewRef = { kind: "github", repo, number };
-  const composer = useReviewComposer(params.url, reference, { kind: "github", repo, number }, toast.show);
+  const updatedAt = item?.updatedAt ?? pr?.updatedAt;
+  useMarkSeen(params.url, item?.updatedAt);
 
-  const done = () => {
-    void markReviewDone(params.url, item?.updatedAt ?? pr?.updatedAt ?? now).then((failure) => {
-      if (failure !== null) toast.show(failure);
-    });
-    router.back();
-  };
+  const reference: ReviewRef = { kind: "github", repo, number };
+  const composer = useReviewComposer(params.url, reference, { kind: "github", repo, number }, toast.show, toast.show);
+
+  // Astra's cards live in Conversation: an ask sent from another tab brings it up.
+  const asked = useRef(composer.revealKey);
+  useEffect(() => {
+    if (asked.current === composer.revealKey) return;
+    asked.current = composer.revealKey;
+    setTab("conversation");
+  }, [composer.revealKey]);
 
   const review = (event: "approve" | "request-changes") => {
     setMenu(false);
@@ -93,15 +100,30 @@ export default function ReviewPrScreen() {
 
   const badge = pr === undefined ? null : prBadge(pr);
   const conversationCount = pr?.timeline.length ?? 0;
+  const label = `${repo.split("/")[1] ?? repo}#${String(number)}`;
+  const title = pr?.title ?? item?.title ?? "";
+  const people = pr === undefined ? [] : [pr.author.login, ...pr.reviewers.map((r) => r.login), ...pr.assignees, ...pr.timeline.map((t) => t.author)];
 
   return (
     <ItemScreen
       toast={toast.message}
-      header={<ItemHeader onDone={done} onMenu={() => {
-        setMenu(true);
-      }} />}
+      followKey={tab === "conversation" ? composer.followKey : ""}
+      revealKey={composer.revealKey}
+      header={
+        <ItemHeader
+          label={label}
+          title={title}
+          editLabel="Open in GitHub"
+          onEdit={() => {
+            openExternal(pr?.url ?? params.url);
+          }}
+          onMenu={() => {
+            setMenu(true);
+          }}
+        />
+      }
       refreshControl={<RefreshControl refreshing={loading && pr !== undefined} tintColor={colors.textMuted} onRefresh={load} />}
-      dock={<ComposerDock composer={composer} />}
+      dock={<ItemDock composer={composer} url={params.url} updatedAt={updatedAt} placeholder="Comment" people={people} notify={toast.show} />}
     >
       <View style={styles.head}>
         <View style={styles.meta}>
@@ -109,7 +131,7 @@ export default function ReviewPrScreen() {
           <Text color="textMuted" numberOfLines={1}>{`${repo.split("/")[1] ?? repo} #${String(number)}`}</Text>
         </View>
         <Text variant="largeTitle" style={styles.title}>
-          {pr?.title ?? item?.title ?? ""}
+          {title}
         </Text>
         {pr !== undefined && badge !== null && (
           <View style={styles.meta}>
@@ -133,7 +155,20 @@ export default function ReviewPrScreen() {
             value={tab}
             onChange={setTab}
           />
-          {tab === "conversation" && <PrConversation pr={pr} now={now} />}
+          {tab === "conversation" && (
+            <View style={styles.conversation}>
+              <Timeline
+                rows={mergeTimeline(prEntries(pr), composer.astra)}
+                astra={composer.astra}
+                now={now}
+                onUseAsReply={composer.takeAnswer}
+                onStop={composer.stop}
+                renderEntry={(entry, at) =>
+                  entry.kind === "post" ? <PrPostCard post={entry} at={at} now={now} /> : <ActivityLine actor={entry.actor} text={entry.text} highlights={entry.highlights} at={at} />
+                }
+              />
+            </View>
+          )}
           {tab === "files" && <PrFiles pr={pr} />}
           {tab === "checks" && <PrChecks pr={pr} />}
           {tab === "guide" && <PrGuide pr={pr} guide={guide} loading={guideLoading} error={guideError} onRetry={loadGuide} />}
@@ -174,5 +209,6 @@ export default function ReviewPrScreen() {
 const styles = StyleSheet.create({
   head: { paddingHorizontal: spacing.xl, paddingBottom: spacing.md, gap: spacing.sm },
   meta: { flexDirection: "row", alignItems: "center", gap: spacing.sm, flexWrap: "wrap" },
-  title: { fontSize: 21, lineHeight: 27, fontWeight: "600" },
+  title: { fontSize: 24, lineHeight: 30, fontWeight: "700" },
+  conversation: { paddingHorizontal: spacing.lg, paddingTop: spacing.lg },
 });

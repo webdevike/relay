@@ -1,17 +1,19 @@
-/** A Linear ticket's pieces: property rows, the folded description and the threaded comments. */
+/** A Linear ticket's pieces: property rows, the folded description and a comment thread as one timeline card. */
 import { useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { SymbolView } from "expo-symbols";
 import { reviewAgo, type LinearComment } from "@relay/protocol";
 import { MessageText } from "@/agents/MessageText";
+import { nameTint } from "@/lib/format";
 import { tapHaptic } from "@/lib/haptics";
 import { spacing, useColors } from "@/theme";
 import { Avatar } from "@/ui/Avatar";
+import { FEED_AVATAR, FeedCard } from "@/ui/FeedCard";
 import { Text } from "@/ui/Text";
-import { linearThreads } from "./model";
+import type { LinearThread } from "./model";
 
 /** Description height before "Show full description". */
-const FOLDED_HEIGHT = 120;
+const FOLDED_HEIGHT = 160;
 
 export function PropertyRow({ label, children, onPress }: { label: string; children: ReactNode; onPress?: (() => void) | undefined }) {
   const colors = useColors();
@@ -40,7 +42,7 @@ export function FoldedMarkdown({ text }: { text: string }) {
             setTall(event.nativeEvent.layout.height > FOLDED_HEIGHT);
           }}
         >
-          <MessageText text={text} />
+          <MessageText text={text} large />
         </View>
       </View>
       {tall && (
@@ -59,83 +61,78 @@ export function FoldedMarkdown({ text }: { text: string }) {
   );
 }
 
-function CommentView({ comment, now, body, small }: { comment: LinearComment; now: number; body: string; small: boolean }) {
+/** A comment's author line inside a thread card: initials avatar, bold name, faint age. */
+function ReplyHead({ comment, now }: { comment: LinearComment; now: number }) {
   return (
-    <View style={styles.comment}>
-      <Avatar name={comment.author.name} size={small ? 26 : 32} />
-      <View style={styles.commentBody}>
-        {comment.mentionsMe && (
-          <Text variant="label" color="accent">
-            Mentions you
-          </Text>
-        )}
-        <View style={styles.commentHead}>
-          <Text variant="title">{comment.author.name}</Text>
-          <Text variant="label" color="textFaint">
-            {reviewAgo(comment.at, now)}
-          </Text>
-        </View>
-        <MessageText text={body} />
-      </View>
+    <View style={styles.replyHead}>
+      <Avatar name={comment.author.name} size={FEED_AVATAR} tint={nameTint(comment.author.name)} />
+      <Text variant="label" numberOfLines={1} style={styles.replyName}>
+        {comment.author.name}
+      </Text>
+      <Text variant="label" color="textFaint">{`· ${reviewAgo(comment.at, now)}`}</Text>
     </View>
   );
 }
 
-export interface LinearCommentsProps {
-  comments: readonly LinearComment[];
+export interface LinearThreadCardProps {
+  thread: LinearThread;
   now: number;
   /** Rewrites a body before it renders (host media urls). */
   body: (markdown: string) => string;
   onReply: (comment: LinearComment) => void;
 }
 
-export function LinearComments({ comments, now, body, onReply }: LinearCommentsProps) {
+/** A top-level comment as a card, its replies indented under a hairline inside it, then "Reply in thread". */
+export function LinearThreadCard({ thread, now, body, onReply }: LinearThreadCardProps) {
   const colors = useColors();
-  const threads = linearThreads(comments);
+  const { comment, replies } = thread;
   return (
-    <View style={styles.comments}>
-      <Text variant="title" style={styles.heading}>
-        Comments
-      </Text>
-      {threads.length === 0 && <Text color="textMuted">No comments yet.</Text>}
-      {threads.map((thread) => (
-        <View key={thread.comment.id} style={styles.thread}>
-          <CommentView comment={thread.comment} now={now} body={body(thread.comment.body)} small={false} />
-          {thread.replies.map((reply) => (
-            <View key={reply.id} style={styles.reply}>
-              <CommentView comment={reply} now={now} body={body(reply.body)} small />
-            </View>
-          ))}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Reply in thread to ${thread.comment.author.name}`}
-            hitSlop={8}
-            onPress={() => {
-              tapHaptic();
-              onReply(thread.comment);
-            }}
-            style={({ pressed }) => [styles.replyButton, pressed && { opacity: 0.6 }]}
-          >
-            <SymbolView name="arrowshape.turn.up.left" size={14} tintColor={colors.accent} />
-            <Text color="accent">Reply in thread</Text>
-          </Pressable>
+    <FeedCard
+      avatar={<Avatar name={comment.author.name} size={FEED_AVATAR} tint={nameTint(comment.author.name)} />}
+      name={comment.author.name}
+      meta={`· ${reviewAgo(comment.at, now)}`}
+      badge={
+        comment.mentionsMe ? (
+          <Text variant="caption" color="accent" style={styles.badge}>
+            Mentions you
+          </Text>
+        ) : undefined
+      }
+    >
+      <MessageText text={body(comment.body)} large />
+      {replies.map((reply) => (
+        <View key={reply.id} style={[styles.reply, { borderTopColor: colors.hairline }]}>
+          <ReplyHead comment={reply} now={now} />
+          <MessageText text={body(reply.body)} large />
         </View>
       ))}
-    </View>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Reply in thread to ${comment.author.name}`}
+        hitSlop={8}
+        onPress={() => {
+          tapHaptic();
+          onReply(comment);
+        }}
+        style={({ pressed }) => [styles.replyButton, pressed && { opacity: 0.6 }]}
+      >
+        <SymbolView name="arrowshape.turn.up.left" size={13} tintColor={colors.textMuted} />
+        <Text variant="label" color="textMuted">
+          Reply in thread
+        </Text>
+      </Pressable>
+    </FeedCard>
   );
 }
 
 const styles = StyleSheet.create({
   property: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.lg, paddingVertical: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth },
   value: { flexDirection: "row", alignItems: "center", gap: spacing.sm, flexShrink: 1 },
-  folded: { gap: spacing.sm, paddingTop: spacing.md },
+  folded: { gap: spacing.sm },
   clip: { maxHeight: FOLDED_HEIGHT, overflow: "hidden" },
-  comments: { gap: spacing.lg, paddingTop: spacing.xl },
-  heading: { fontSize: 20, lineHeight: 26 },
-  thread: { gap: spacing.md },
-  comment: { flexDirection: "row", gap: spacing.md },
-  commentBody: { flex: 1, gap: 2 },
-  commentHead: { flexDirection: "row", alignItems: "baseline", gap: spacing.sm },
-  reply: { marginLeft: 44 },
-  replyButton: { flexDirection: "row", alignItems: "center", gap: spacing.xs, marginLeft: 44 },
+  badge: { marginLeft: "auto" },
+  reply: { marginLeft: spacing.lg, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: spacing.md, gap: spacing.xs },
+  replyHead: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  replyName: { fontWeight: "700", flexShrink: 1 },
+  replyButton: { flexDirection: "row", alignItems: "center", gap: spacing.xs, paddingTop: spacing.xs },
 });
