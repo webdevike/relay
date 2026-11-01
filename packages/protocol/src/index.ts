@@ -22,6 +22,7 @@ import { untagged } from "./surface";
 import { WidgetNode } from "./widget";
 import { Artifact, ArtifactAction, ArtifactActor, ArtifactTab, ArtifactThread, MAX_ARTIFACTS, MAX_ARTIFACT_TABS } from "./artifacts";
 import { StudioJob, StudioOp, StudioResult, StudioRid, StudioState } from "./studio";
+import { AstraItem, ReviewQueue, ReviewsOp, ReviewsResult, ReviewsRid } from "./reviews";
 
 export const PROTOCOL_VERSION = 1 as const;
 export const BONJOUR_SERVICE_TYPE = "_relay._tcp" as const;
@@ -1298,6 +1299,8 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("studio.list") }),
   /** Create, quote, cancel, delete, upload, grab a frame or refresh in Studio; answered by `studio.res` with the same `rid`. */
   z.object({ t: z.literal("studio.req"), rid: StudioRid, op: StudioOp }),
+  /** Reviews: the queue, one item's detail, Done, a confirmed post, an Astra ask; answered by `reviews.res` with the same `rid`. */
+  z.object({ t: z.literal("reviews.req"), rid: ReviewsRid, op: ReviewsOp }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 
@@ -1470,6 +1473,12 @@ export const ServerMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("studio.removed"), id: nonEmpty }),
   /** Answer to `studio.req`. */
   StudioResult.extend({ t: z.literal("studio.res") }),
+  /** Answer to `reviews.req`. */
+  ReviewsResult.extend({ t: z.literal("reviews.res") }),
+  /** The Reviews queue changed (a source finished reading, an item marked Done); pushed to every device. */
+  z.object({ t: z.literal("reviews.queue"), queue: ReviewQueue }),
+  /** An item's Astra session changed (streamed text, a turn ending); pushed to every device. */
+  z.object({ t: z.literal("reviews.astra"), item: AstraItem }),
   z.object({ t: z.literal("ack"), id: nonEmpty }),
   z.object({ t: z.literal("nack"), id: nonEmpty, error: AckError }),
   z.object({ t: z.literal("pong"), ts: ms, serverTs: ms }),
@@ -1514,3 +1523,4 @@ export * from "./openui";
 export * from "./surface";
 export * from "./artifacts";
 export * from "./studio";
+export * from "./reviews";

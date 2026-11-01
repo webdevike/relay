@@ -7,7 +7,7 @@
 import { useEffect } from "react";
 import { AppState, type AppStateStatus, type NativeEventSubscription } from "react-native";
 import { CryptoDigestAlgorithm, digest } from "expo-crypto";
-import { encode, parseServerMessage, reactionExcerpt, WS_PATH, type ArtifactAction, type CatchUpSignal, type ClientMessage, type Command, type InputEvent, type StudioOp, type StudioResult } from "@relay/protocol";
+import { encode, parseServerMessage, reactionExcerpt, WS_PATH, type ArtifactAction, type CatchUpSignal, type ClientMessage, type Command, type InputEvent, type ReviewsOp, type ReviewsResult, type StudioOp, type StudioResult } from "@relay/protocol";
 import { useConnectionStore } from "@/state/connection";
 import { useAgentsStore } from "@/state/agents";
 import { useDropsStore } from "@/state/drops";
@@ -21,6 +21,7 @@ import { useReactionsStore } from "@/state/reactions";
 import { useArtifactsStore } from "@/state/artifacts";
 import { useCanvasStore } from "@/state/canvas";
 import { useStudioStore } from "@/state/studio";
+import { useReviewsStore } from "@/state/reviews";
 import { callIsLive, useCallStore } from "@/state/call";
 import { createCallFrameRouter } from "@/call/frames";
 import { callStats } from "@/call/stats";
@@ -39,6 +40,7 @@ import { createAssistantFrameRouter } from "./assistant";
 import { createReactionFrameRouter } from "./reactions";
 import { createArtifactFrameRouter, PendingActs, type ActResult } from "./artifacts";
 import { createStudioFrameRouter, PendingStudio } from "./studio";
+import { createReviewsFrameRouter, PendingReviews } from "./reviews";
 import { beginCanvasAccess, canvasWelcomeFrames, createCanvasFrameRouter } from "./canvas";
 import { allowedTarget, mayDiscover, parseOnlyHost } from "./only-host";
 import * as identity from "./identity";
@@ -91,6 +93,7 @@ const reactionThreads = new Map<string, number>();
 const artifactThreads = new Map<string, number>();
 const pendingActs = new PendingActs();
 const pendingStudio = new PendingStudio();
+const pendingReviews = new PendingReviews();
 
 const commandQueue = new CommandQueue();
 const socket = new RelaySocket();
@@ -113,6 +116,7 @@ const routeReactionFrame = createReactionFrameRouter(useReactionsStore.getState(
 const routeArtifactFrame = createArtifactFrameRouter(useArtifactsStore.getState(), pendingActs);
 const routeCanvasFrame = createCanvasFrameRouter(useCanvasStore.getState(), () => hostAuthority);
 const routeStudioFrame = createStudioFrameRouter(useStudioStore.getState(), pendingStudio);
+const routeReviewsFrame = createReviewsFrameRouter(useReviewsStore.getState(), pendingReviews);
 const routeCallFrame = createCallFrameRouter(
   { update: useCallStore.getState().update, current: () => useCallStore.getState().call },
   {
@@ -189,6 +193,8 @@ socket.onMessage = (data) => {
     for (const frame of canvasWelcomeFrames(useCanvasStore.getState().access)) socket.send(encode(frame));
     // Studio jobs ran on while away; the host sends the whole state again.
     socket.send(encode({ t: "studio.list" }));
+    // The Reviews queue moved while away; the host answers with its last read at once.
+    void sendReviews({ kind: "queue", refresh: false });
   }
   if (message.t === "agent.image") imagesInFlight.delete(imageKey(message.sessionId, message.id));
   // Answered on the Mac, in the chat or on another device: take its notification off the lock screen.
@@ -208,6 +214,7 @@ socket.onMessage = (data) => {
   routeArtifactFrame(message);
   routeCanvasFrame(message);
   routeStudioFrame(message);
+  routeReviewsFrame(message);
   routeAssistantFrame(message);
   routeCallFrame(message);
   void dispatch({ type: "server", message });
@@ -368,8 +375,10 @@ async function retarget(id: string | null): Promise<void> {
   useArtifactsStore.getState().clear();
   useCanvasStore.getState().clear();
   useStudioStore.getState().clear();
+  useReviewsStore.getState().clear();
   pendingActs.cancelAll();
   pendingStudio.cancelAll();
+  pendingReviews.cancelAll();
   useVncStore.getState().setAccess({ kind: "idle" });
   await resetSession();
 }
@@ -601,6 +610,23 @@ export function studioRequest(op: StudioOp): Promise<StudioResult> {
   const answer = pendingStudio.add(rid);
   socket.send(encode({ t: "studio.req", rid, op }));
   return answer;
+}
+
+function sendReviews(op: ReviewsOp): Promise<ReviewsResult> {
+  const rid = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  const answer = pendingReviews.add(rid, op);
+  socket.send(encode({ t: "reviews.req", rid, op }));
+  return answer;
+}
+
+/**
+ * One Reviews request (queue, an item's detail, Done, a confirmed post, an Astra ask). What the
+ * answer carries lands in `useReviewsStore()`; resolves with the host's `reviews.res`, fails at once
+ * while not connected and after the op's timeout (`reviewsTimeout`) unanswered.
+ */
+export function reviewsRequest(op: ReviewsOp): Promise<ReviewsResult> {
+  if (useConnectionStore.getState().status !== "connected") return Promise.resolve({ rid: "offline", ok: false, error: "Not connected to your Mac." });
+  return sendReviews(op);
 }
 
 /**

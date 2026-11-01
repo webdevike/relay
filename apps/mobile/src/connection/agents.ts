@@ -112,6 +112,9 @@ export function createAgentFrameRouter(store: AgentsStoreActions, send: (message
       case "studio.job":
       case "studio.removed":
       case "studio.res":
+      case "reviews.res":
+      case "reviews.queue":
+      case "reviews.astra":
         // Session, command, drop, board, vnc, canvas and studio traffic; owned by SessionMachine, CommandQueue and the other routers.
         return;
     }

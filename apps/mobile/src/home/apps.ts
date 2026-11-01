@@ -15,6 +15,8 @@ import { assistantsCaption, useAssistantStore } from "@/state/assistant";
 import { useUsageStore } from "@/state/usage";
 import { countOf } from "@/lib/format";
 import { USAGE_WARN, usageHint, usagePeak } from "@/lib/usage";
+import { liveReviewItems } from "@relay/protocol";
+import { useReviewsStore } from "@/state/reviews";
 
 export interface HomeApp {
   key: string;
@@ -55,6 +57,9 @@ export function useHomeApps(): HomeApp[] {
   const usage = useUsageStore((state) => state.usage);
   // Jobs the host is still making; pushed live while connected.
   const studioActive = useStudioStore((state) => state.jobs.filter(studioJobActive).length);
+  // Asked on every welcome and pushed on every change; rows marked Done drop out.
+  const reviewsQueue = useReviewsStore((state) => state.queue);
+  const reviewsWaiting = reviewsQueue === null ? null : liveReviewItems(reviewsQueue).length;
   const usageTop = usagePeak(usage);
   const hostLine =
     mac === null
@@ -78,6 +83,15 @@ export function useHomeApps(): HomeApp[] {
       ...(agentsAvailable ? { value: order.length } : {}),
       ...(needingCount > 0 ? { badge: needingCount } : {}),
       href: "/agents",
+    },
+    {
+      key: "reviews",
+      symbol: "checklist",
+      label: "Reviews",
+      color: "green",
+      hint: reviewsWaiting === null ? "PRs, tickets and threads for you" : reviewsWaiting === 0 ? "Nothing waiting on you" : `${String(reviewsWaiting)} waiting on you`,
+      ...(reviewsWaiting === null ? {} : { value: reviewsWaiting }),
+      href: "/reviews",
     },
     {
       key: "usage",

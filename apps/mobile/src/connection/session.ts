@@ -266,6 +266,9 @@ export class SessionMachine {
       case "studio.job":
       case "studio.removed":
       case "studio.res":
+      case "reviews.res":
+      case "reviews.queue":
+      case "reviews.astra":
       case "ack":
       case "nack":
         // Agent, drop, board, gate, usage, catch up, reaction, assistant, vnc, canvas and studio frames are routed to their stores and ack/nack to CommandQueue by index.ts. Live calls run on the native module's own socket.
