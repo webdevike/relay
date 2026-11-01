@@ -16,6 +16,7 @@ import {
   IconRefresh,
 } from '@tabler/icons-react'
 import type { SlackMessage, SlackQueue, SlackRow, SlackThread } from '@evaos/contract'
+import { emojify, reactionEmoji } from '@relay/slack-emoji'
 import { invoke } from '../ipc'
 import { openLink } from '../navigation/open-link'
 import { EvaModal } from '../overlay'
@@ -122,7 +123,7 @@ export function SlackGroups({
                 data-testid="review-slack-row"
                 data-thread={r.threadTs ? true : undefined}
                 onClick={() => onOpen(r)}
-                title={`${where(r)}: ${r.text}`}
+                title={`${where(r)}: ${emojify(r.text)}`}
               >
                 <span className="eva-rv-qrow-line">
                   <span className="eva-rv-qrow-title">
@@ -131,7 +132,7 @@ export function SlackGroups({
                   </span>
                 </span>
                 <span className="eva-rv-qrow-line eva-rv-dim">
-                  <span className="eva-rv-qrow-sub">{r.text}</span>
+                  <span className="eva-rv-qrow-sub">{emojify(r.text)}</span>
                   <Avatar login={r.author || '?'} />
                   <span>{ago(r.updatedAt, now)}</span>
                 </span>
@@ -202,7 +203,7 @@ function MessageView({
             </span>
           </div>
           <div ref={body} className="eva-rv-smsg-body">
-            <Markdown text={m.text} />
+            <Markdown text={emojify(m.text)} />
           </div>
           {m.files.length > 0 ? (
             <div className="eva-rv-labels">
@@ -218,7 +219,7 @@ function MessageView({
             <div className="eva-rv-labels">
               {m.reactions.map((r) => (
                 <span key={r.emoji} className="eva-rv-sreact">
-                  {r.emoji} {r.count}
+                  {reactionEmoji(r.emoji)} {r.count}
                 </span>
               ))}
             </div>
@@ -369,7 +370,7 @@ export function SlackDetail({
             <IconHash size={15} className="eva-rv-dim" />
           )}
           <h1 className="eva-rv-title eva-rv-ellipsis">
-            {parent ? firstLine(parent.text) : title}
+            {parent ? firstLine(emojify(parent.text)) : title}
           </h1>
         </div>
         <div className="eva-rv-meta">

@@ -34,6 +34,7 @@
     "@mantine/notifications": "9.7.2",
     "@playwright/test": "1.64.1",
     "@relay/portrait-motion": "link:../../../relay/packages/portrait-motion",
+    "@relay/slack-emoji": "link:../../../relay/packages/slack-emoji",
     "@relay/widget-runtime": "link:../../../relay/packages/widget-runtime",
     "@tabler/icons-react": "3.49.0",
     "@testing-library/jest-dom": "^7.0.1",
