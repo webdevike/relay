@@ -16,7 +16,7 @@ import type { ChatMessage } from '@evaos/chat-core/message'
 import { LiveReducer } from '@evaos/chat-core/reducer'
 import { splitReplies } from '@evaos/chat-core/replies'
 import { parseSession } from '@evaos/chat-core/session'
-import type { AstraItem, AstraTurn } from '@evaos/contract'
+import { astraItemUrl, type AstraItem, type AstraTurn } from '@evaos/contract'
 import { REGISTRY_FILE } from '../assistants/assistants'
 import type { MainContext } from '../context'
 import { OmpStdioTransport } from '../chat/omp-transport'
@@ -138,12 +138,25 @@ interface Live {
   seen: Map<string, number>
 }
 
+/**
+ * The store with every entry under its item's `astraItemUrl`: entries saved under a Linear link
+ * with a workspace and slug read as the ticket's; of two for one item, the one with a file wins.
+ */
+export function keyStore(data: StoreData): StoreData {
+  const out: StoreData = {}
+  for (const [url, entry] of Object.entries(data)) {
+    const key = astraItemUrl(url)
+    if (!out[key]?.file) out[key] = entry
+  }
+  return out
+}
+
 export function registerAstraSessions(ctx: MainContext): void {
   const live = new Map<string, Live>()
 
   const load = (): StoreData => {
     const s = Store.safeParse(ctx.config.readJson<unknown>(STORE_FILE, {}))
-    return s.success ? s.data : {}
+    return s.success ? keyStore(s.data) : {}
   }
   const remember = (url: string, title: string, file: string | null): void => {
     ctx.config.writeJson(STORE_FILE, { ...load(), [url]: { title, file } })
@@ -315,7 +328,8 @@ export function registerAstraSessions(ctx: MainContext): void {
     return l
   }
 
-  handle(ctx, 'reviews.astraAsk', async ({ url, label, context, text }) => {
+  handle(ctx, 'reviews.astraAsk', async ({ url: link, label, context, text }) => {
+    const url = astraItemUrl(link)
     const title = `Astra · ${label}`
     const saved = load()[url]
     let l = live.get(url)
@@ -331,7 +345,7 @@ export function registerAstraSessions(ctx: MainContext): void {
           memory: readText(`work/eva/agents/${AGENT}/thread.md`),
           title,
           label,
-          url,
+          url: link,
           context,
           question: text,
         })
@@ -357,9 +371,10 @@ export function registerAstraSessions(ctx: MainContext): void {
     return snapshot(url)!
   })
 
-  handle(ctx, 'reviews.astraThread', ({ url }) => snapshot(url))
+  handle(ctx, 'reviews.astraThread', ({ url }) => snapshot(astraItemUrl(url)))
 
-  handle(ctx, 'reviews.astraRelease', async ({ url }) => {
+  handle(ctx, 'reviews.astraRelease', async ({ url: link }) => {
+    const url = astraItemUrl(link)
     const l = live.get(url)
     if (!l || l.reducer.running) return { released: false }
     await release(url)
@@ -367,7 +382,7 @@ export function registerAstraSessions(ctx: MainContext): void {
   })
 
   handle(ctx, 'reviews.astraStop', async ({ url }) => {
-    const l = live.get(url)
+    const l = live.get(astraItemUrl(url))
     if (!l || !l.reducer.running) return { stopped: false }
     await l.transport.abort()
     return { stopped: true }

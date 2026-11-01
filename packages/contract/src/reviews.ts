@@ -147,6 +147,16 @@ export const AstraItemSchema = z.object({
 })
 export type AstraItem = z.infer<typeof AstraItemSchema>
 
+/**
+ * The url an item's Astra session is kept under: a Linear ticket by its key alone
+ * (`https://linear.app/issue/ENG-1`), whatever workspace and title slug its link carries, so the
+ * queue's row and a ticket opened by key share one session; anything else as it is.
+ */
+export function astraItemUrl(url: string): string {
+  const m = /^https:\/\/linear\.app\/(?:[^/?#]+\/)?issue\/([A-Z][A-Z0-9]*-\d+)(?:[/?#]|$)/.exec(url)
+  return m ? `https://linear.app/issue/${m[1]}` : url
+}
+
 export const reviewsEvents = {
   /** An item's Astra session changed (streamed text, a turn ending). */
   'reviews.astraUpdate': AstraItemSchema,

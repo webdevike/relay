@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { makeMessage } from '@evaos/chat-core/message'
-import { ASK_MARK, seedPrompt, toTurns } from './astra-sessions'
+import { astraItemUrl } from '@evaos/contract'
+import { ASK_MARK, keyStore, seedPrompt, toTurns } from './astra-sessions'
 
 describe('reviews astra sessions', () => {
   it('seeds a new item session with her prime, memory, the item, then the question', () => {
@@ -61,5 +62,27 @@ describe('reviews astra sessions', () => {
     }
     // A reply that was only the token shows nothing.
     expect(toTurns([makeMessage('a3', 'assistant', '[[replies: A | B]]')])).toEqual([])
+  })
+
+  it("keeps a Linear ticket's session under its key, whichever link opened it", () => {
+    const short = 'https://linear.app/issue/ENG-6504'
+    expect(astraItemUrl('https://linear.app/ecard-systems/issue/ENG-6504/fix-the-ui-bug')).toBe(
+      short,
+    )
+    expect(astraItemUrl('https://linear.app/ecard-systems/issue/ENG-6504')).toBe(short)
+    expect(astraItemUrl(short)).toBe(short)
+    const pr = 'https://github.com/ecard/app/pull/170'
+    expect(astraItemUrl(pr)).toBe(pr)
+    // Old entries read under the key; of two for one ticket, the one with a file wins.
+    expect(
+      keyStore({
+        [short]: { title: 'Astra · ENG-6504', file: '/s/a.jsonl' },
+        'https://linear.app/ecard-systems/issue/ENG-6504/fix': { title: 'x', file: null },
+        [pr]: { title: 'Astra · app#170', file: null },
+      }),
+    ).toEqual({
+      [short]: { title: 'Astra · ENG-6504', file: '/s/a.jsonl' },
+      [pr]: { title: 'Astra · app#170', file: null },
+    })
   })
 })

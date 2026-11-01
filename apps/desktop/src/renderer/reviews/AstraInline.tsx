@@ -7,7 +7,7 @@ import {
   IconPlayerStopFilled,
   IconTool,
 } from '@tabler/icons-react'
-import type { AstraItem } from '@evaos/contract'
+import { astraItemUrl, type AstraItem } from '@evaos/contract'
 import { placeOf } from '@evaos/shell-core'
 import { invoke, on } from '../ipc'
 import { openPlace } from '../navigation/navigate'
@@ -35,7 +35,8 @@ export function useAstraItem(url: string): {
       if (live && r.ok) setItem(r.value)
     })
     const off = on('reviews.astraUpdate', (s) => {
-      if (s.url === url) setItem(s)
+      // Main keeps a Linear ticket's session under its key, whichever link opened it.
+      if (s.url === astraItemUrl(url)) setItem(s)
     })
     return () => {
       live = false
