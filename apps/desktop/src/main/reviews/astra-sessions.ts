@@ -83,24 +83,40 @@ ${o.context.trim()}${ASK_MARK}${o.question.trim()}`
 
 /**
  * A chat row as Reviews shows it: Isaac's words only, tool rows as one line; thinking and omp's
- * notices (startup tool listings) dropped, a failure shows as the session's error instead.
+ * notices (startup tool listings) dropped, a failure shows as the session's error instead. `at` is
+ * omp's message time; a row omp has not timed yet (Isaac's prompt before its echo, the streaming
+ * answer) takes the time `seen` first met it, and a tool row its turn's time.
  */
-export function toTurns(messages: readonly ChatMessage[]): AstraTurn[] {
+export function toTurns(
+  messages: readonly ChatMessage[],
+  seen?: Map<string, number>,
+  now = Date.now(),
+): AstraTurn[] {
   const turns: AstraTurn[] = []
+  let last: number | undefined
   for (const m of messages) {
     if (m.role === 'thinking' || m.role === 'canvas' || m.role === 'notice') continue
+    let at = m.role === 'tool' ? undefined : (m.at ?? seen?.get(m.id))
+    if (at === undefined && seen && m.role !== 'tool') {
+      at = now
+      seen.set(m.id, now)
+    }
+    at ??= last
+    last = at
+    const time = at === undefined ? {} : { at }
     if (m.role === 'user') {
-      const at = m.text.lastIndexOf(ASK_MARK)
+      const mark = m.text.lastIndexOf(ASK_MARK)
       turns.push({
         id: m.id,
         role: 'user',
-        text: at >= 0 ? m.text.slice(at + ASK_MARK.length) : m.text,
+        text: mark >= 0 ? m.text.slice(mark + ASK_MARK.length) : m.text,
         streaming: false,
+        ...time,
       })
     } else if (m.role === 'tool') {
-      turns.push({ id: m.id, role: 'tool', text: m.text, streaming: m.streaming })
+      turns.push({ id: m.id, role: 'tool', text: m.text, streaming: m.streaming, ...time })
     } else if (m.text.trim() !== '' || m.streaming) {
-      turns.push({ id: m.id, role: 'assistant', text: m.text, streaming: m.streaming })
+      turns.push({ id: m.id, role: 'assistant', text: m.text, streaming: m.streaming, ...time })
     }
   }
   return turns
@@ -113,6 +129,8 @@ interface Live {
   idle: ReturnType<typeof setTimeout> | null
   emitTimer: ReturnType<typeof setTimeout> | null
   exited: boolean
+  /** When this process first showed a row omp has not timed (see `toTurns`). */
+  seen: Map<string, number>
 }
 
 export function registerAstraSessions(ctx: MainContext): void {
@@ -179,7 +197,7 @@ export function registerAstraSessions(ctx: MainContext): void {
         url,
         title,
         file: l.file,
-        turns: toTurns(l.reducer.messages()),
+        turns: toTurns(l.reducer.messages(), l.seen),
         working: l.reducer.running && !l.exited,
         waiting: d ? (d.kind === 'ask' ? 'Astra is asking you something' : d.title) : null,
         error: l.reducer.error,
@@ -243,6 +261,7 @@ export function registerAstraSessions(ctx: MainContext): void {
       idle: null,
       emitTimer: null,
       exited: false,
+      seen: new Map(),
     }
     live.set(url, l)
     transport.onFrame((f: Frame) => {
@@ -340,6 +359,13 @@ export function registerAstraSessions(ctx: MainContext): void {
     if (!l || l.reducer.running) return { released: false }
     await release(url)
     return { released: true }
+  })
+
+  handle(ctx, 'reviews.astraStop', async ({ url }) => {
+    const l = live.get(url)
+    if (!l || !l.reducer.running) return { stopped: false }
+    await l.transport.abort()
+    return { stopped: true }
   })
 
   ctx.onBeforeQuit(async () => {

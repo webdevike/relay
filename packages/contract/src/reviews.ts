@@ -125,6 +125,11 @@ export const AstraTurnSchema = z.object({
   /** Markdown; for Isaac's first ask, only his question (the seed is not shown). */
   text: z.string(),
   streaming: z.boolean(),
+  /**
+   * When it was said (epoch ms): omp's message time, else when the desktop first saw it; a tool
+   * row takes its turn's time. Absent turns go after the item's comments, in order.
+   */
+  at: z.number().optional(),
 })
 export type AstraTurn = z.infer<typeof AstraTurnSchema>
 
@@ -317,6 +322,11 @@ export const reviewsInvoke = {
   'reviews.astraRelease': {
     input: z.object({ url: z.string().url() }).strict(),
     output: z.object({ released: z.boolean() }),
+  },
+  /** Stops Astra's running turn on the item (the partial answer stays). */
+  'reviews.astraStop': {
+    input: z.object({ url: z.string().url() }).strict(),
+    output: z.object({ stopped: z.boolean() }),
   },
   /** Marks a PR or ticket handled (hidden from the queue until it changes) or brings it back. */
   'reviews.done': {

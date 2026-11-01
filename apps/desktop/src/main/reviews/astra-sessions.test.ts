@@ -37,4 +37,18 @@ describe('reviews astra sessions', () => {
       ['user', '@Astra which file first?', false],
     ])
   })
+
+  it("times turns by omp's clock, else first seen, and a tool by its turn", () => {
+    const seen = new Map<string, number>()
+    const rows = [
+      makeMessage('u1', 'user', '@Astra is it safe?', { at: 1_000 }),
+      makeMessage('x1', 'tool', 'read src/a.ts'),
+      makeMessage('a1', 'assistant', 'Mostly', { streaming: true }),
+    ]
+    expect(toTurns(rows, seen, 5_000).map((t) => t.at)).toEqual([1_000, 1_000, 5_000])
+    // The streaming answer keeps the time it was first seen.
+    expect(toTurns(rows, seen, 9_000).map((t) => t.at)).toEqual([1_000, 1_000, 5_000])
+    // A saved session without a clock leaves untimed rows untimed.
+    expect(toTurns([makeMessage('a2', 'assistant', 'Hi')]).map((t) => t.at)).toEqual([undefined])
+  })
 })

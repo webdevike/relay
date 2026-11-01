@@ -21,6 +21,7 @@ import {
   IconRefresh,
 } from '@tabler/icons-react'
 import type {
+  AstraItem,
   LinearRow,
   LinearTicket,
   ReviewPr,
@@ -46,7 +47,8 @@ import {
   type QueueGroup,
 } from './review-model'
 import { Avatar, RailSection, fail, useLocal } from './review-ui'
-import { AstraInline, useAstraItem } from './AstraInline'
+import { AstraCard, itemBlocks, useAstraItem } from './AstraInline'
+import { mergeTimeline } from './astra-timeline'
 import { prContext } from './astra-context'
 import './reviews.css'
 
@@ -318,7 +320,18 @@ function CheckIcon({ state }: { state: string }) {
   return <IconCircleDashed size={15} className="eva-rv-dim" />
 }
 
-function Conversation({ pr, now }: { pr: ReviewPr; now: number }) {
+function Conversation({
+  pr,
+  now,
+  astra,
+  onUseAsReply,
+}: {
+  pr: ReviewPr
+  now: number
+  /** The PR's Astra session: her cards join the timeline by time. */
+  astra: AstraItem | null
+  onUseAsReply: (text: string) => void
+}) {
   // One timeline: comments and reviews interleaved with pushes, oldest first, like E3.
   const items = [
     ...pr.commits.map((c) => ({
@@ -355,6 +368,7 @@ function Conversation({ pr, now }: { pr: ReviewPr; now: number }) {
       ),
     })),
   ].sort((a, b) => a.at - b.at)
+  const blocks = itemBlocks(astra)
 
   return (
     <div className="eva-rv-conv" data-testid="review-conversation">
@@ -371,9 +385,21 @@ function Conversation({ pr, now }: { pr: ReviewPr; now: number }) {
         )}
       </div>
       <div className="eva-rv-timeline">
-        {items.map((i) => (
-          <div key={i.key}>{i.node}</div>
-        ))}
+        {mergeTimeline(items, (i) => i.at, blocks).map((e) =>
+          e.kind === 'astra' ? (
+            <AstraCard
+              key={`astra-${e.block.id}`}
+              block={e.block}
+              item={astra!}
+              last={e.block === blocks.at(-1)}
+              now={now}
+              look="pr"
+              onUseAsReply={onUseAsReply}
+            />
+          ) : (
+            <div key={e.item.key}>{e.item.node}</div>
+          ),
+        )}
       </div>
     </div>
   )
@@ -554,7 +580,9 @@ function Detail({
       <div className="eva-rv-main">
         <div className="eva-rv-content">
           <div className="eva-rv-scroll">
-            {tab === 'conversation' ? <Conversation pr={pr} now={now} /> : null}
+            {tab === 'conversation' ? (
+              <Conversation pr={pr} now={now} astra={astra.item} onUseAsReply={setDraft} />
+            ) : null}
             {tab === 'files' ? (
               <ReviewFiles
                 pr={pr}
@@ -614,7 +642,6 @@ function Detail({
                   {mentionsAstra(draft) ? 'Ask Astra' : 'Comment'}
                 </Button>
               </div>
-              <AstraInline item={astra.item} onUseAsReply={(t) => setDraft(t)} />
             </div>
           ) : tab === 'files' || tab === 'guide' ? (
             <div className="eva-rv-dock">

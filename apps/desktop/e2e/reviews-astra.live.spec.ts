@@ -65,9 +65,10 @@ test('@Astra on a PR runs its own Astra session and answers inline', async ({ ap
     '@Astra In two or three sentences: what does this PR change, and what is the riskiest part? Read only; do not post or send anything.',
   )
   await box.press('Meta+Enter')
-  const inline = shell.locator(sel('review-astra'))
-  await expect(inline).toBeVisible({ timeout: 60_000 })
-  await expect(inline).toContainText('Astra · node-client-api-service#170')
+  // Her session joins the PR's conversation: his ask and her reply as private comment cards.
+  const inline = shell.locator(sel('review-conversation'))
+  await expect(inline.locator(sel('review-astra')).first()).toBeVisible({ timeout: 60_000 })
+  await expect(inline.locator(sel('review-astra')).first()).toContainText('Private, not posted')
   await expect(inline.locator(sel('review-astra-question')).first()).toContainText('riskiest part')
   await expect(inline.locator(sel('review-astra-question')).first()).not.toContainText(
     'You are Astra',
@@ -102,7 +103,7 @@ test('@Astra on a PR runs its own Astra session and answers inline', async ({ ap
   await box.fill('')
 
   // Open session: the normal chat view on the same file.
-  await inline.locator(sel('review-astra-open')).click()
+  await inline.locator(sel('review-astra-open')).last().click()
   await expect(shell.locator(sel('page-chat-wrap'))).toBeVisible()
   await shell.waitForTimeout(2000)
   await shot(shell, 'astra-inline-5-session')

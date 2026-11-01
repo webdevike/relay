@@ -18,7 +18,8 @@ import { EvaModal } from '../overlay'
 import { Markdown } from '../chat/markdown/Markdown'
 import { agoPhrase, mentionsAstra } from './review-model'
 import { Avatar, RailSection, fail } from './review-ui'
-import { AstraInline, useAstraItem } from './AstraInline'
+import { AstraCard, itemBlocks, useAstraItem } from './AstraInline'
+import { mergeTimeline } from './astra-timeline'
 import { ticketContext } from './astra-context'
 
 type Tab = 'details' | 'comments'
@@ -415,6 +416,8 @@ export function LinearDetail({
   const t = ticket.t
   const roots = t.comments.filter((c) => c.parentId === null)
   const repliesTo = (id: string) => t.comments.filter((c) => c.parentId === id)
+  const blocks = itemBlocks(astra.item)
+  const timeline = mergeTimeline(roots, (c) => c.at, blocks)
 
   const send = async (text: string, parent: LinearComment | null): Promise<void> => {
     const body = text.trim()
@@ -429,6 +432,8 @@ export function LinearDetail({
       if (ok) {
         if (parent) setReply(null)
         else setDraft('')
+        // Her answer comes in the comment timeline.
+        setTab('comments')
       }
       return
     }
@@ -567,50 +572,65 @@ export function LinearDetail({
               </div>
             ) : (
               <div className="eva-rv-conv" data-testid="linear-comments">
-                {roots.length === 0 ? <div className="eva-rv-dim">No comments yet.</div> : null}
-                {roots.map((c) => (
-                  <div key={c.id} className="eva-rv-lthread" data-testid="linear-thread">
-                    <CommentView
-                      c={c}
-                      now={now}
-                      onReply={() =>
-                        setReply((r) => (r && r.to.id === c.id ? r : { to: c, text: '' }))
-                      }
-                      onQuote={(text) => quote(text, c)}
-                    />
-                    {repliesTo(c.id).length > 0 || reply?.to.id === c.id ? (
-                      <div className="eva-rv-lreplies">
-                        {repliesTo(c.id).map((r) => (
-                          <CommentView
-                            key={r.id}
-                            c={r}
-                            now={now}
-                            onQuote={(text) => quote(text, c)}
-                          />
-                        ))}
-                        {reply?.to.id === c.id ? (
-                          <div className="eva-rv-linline" data-testid="linear-inline-reply">
-                            <div className="eva-rv-dim eva-rv-small">
-                              Replying to {c.author.name}&apos;s comment
-                            </div>
-                            <ReplyBox
-                              value={reply.text}
-                              onChange={(text) => setReply({ to: c, text })}
-                              people={t.people}
-                              placeholder={`Reply to ${c.author.name}. Type @Astra to ask Astra privately.`}
-                              target={`sends to Linear as a reply to ${c.author.name}`}
-                              busy={busy}
-                              autoFocus
-                              onSend={() => void send(reply.text, c)}
-                              onCancel={() => setReply(null)}
-                              testid="linear-reply-box"
+                {timeline.length === 0 ? <div className="eva-rv-dim">No comments yet.</div> : null}
+                {timeline.map((e) =>
+                  e.kind === 'astra' ? (
+                    <div key={`astra-${e.block.id}`} className="eva-rv-lthread">
+                      <AstraCard
+                        block={e.block}
+                        item={astra.item!}
+                        last={e.block === blocks.at(-1)}
+                        now={now}
+                        look="linear"
+                        onUseAsReply={setDraft}
+                      />
+                    </div>
+                  ) : (
+                    <div key={e.item.id} className="eva-rv-lthread" data-testid="linear-thread">
+                      <CommentView
+                        c={e.item}
+                        now={now}
+                        onReply={() =>
+                          setReply((r) =>
+                            r && r.to.id === e.item.id ? r : { to: e.item, text: '' },
+                          )
+                        }
+                        onQuote={(text) => quote(text, e.item)}
+                      />
+                      {repliesTo(e.item.id).length > 0 || reply?.to.id === e.item.id ? (
+                        <div className="eva-rv-lreplies">
+                          {repliesTo(e.item.id).map((r) => (
+                            <CommentView
+                              key={r.id}
+                              c={r}
+                              now={now}
+                              onQuote={(text) => quote(text, e.item)}
                             />
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
-                ))}
+                          ))}
+                          {reply?.to.id === e.item.id ? (
+                            <div className="eva-rv-linline" data-testid="linear-inline-reply">
+                              <div className="eva-rv-dim eva-rv-small">
+                                Replying to {e.item.author.name}&apos;s comment
+                              </div>
+                              <ReplyBox
+                                value={reply.text}
+                                onChange={(text) => setReply({ to: e.item, text })}
+                                people={t.people}
+                                placeholder={`Reply to ${e.item.author.name}. Type @Astra to ask Astra privately.`}
+                                target={`sends to Linear as a reply to ${e.item.author.name}`}
+                                busy={busy}
+                                autoFocus
+                                onSend={() => void send(reply.text, e.item)}
+                                onCancel={() => setReply(null)}
+                                testid="linear-reply-box"
+                              />
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  ),
+                )}
               </div>
             )}
           </div>
@@ -625,7 +645,6 @@ export function LinearDetail({
               onSend={() => void send(draft, null)}
               testid="linear-composer"
             />
-            <AstraInline item={astra.item} onUseAsReply={(text) => setDraft(text)} />
           </div>
         </div>
         <Rail t={t} />
