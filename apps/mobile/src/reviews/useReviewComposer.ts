@@ -4,6 +4,7 @@
  * `@Astra` text asks her at once, anything else opens the confirm sheet, whose confirm alone sends.
  */
 import { useCallback, useEffect, useState } from "react";
+import { Keyboard } from "react-native";
 import type { AstraItem, ReviewRef, ReviewsOp } from "@relay/protocol";
 import { reviewsRequest, sendCommand } from "@/connection";
 import { useReviewsStore } from "@/state/reviews";
@@ -52,6 +53,8 @@ export function useReviewComposer(url: string, reference: ReviewRef | null, targ
   }, [url]);
 
   const confirm = useCallback((post: PendingPost) => {
+    // The sheet rises from the bottom: with the keyboard up it would open behind it.
+    Keyboard.dismiss();
     setPostError(null);
     setPending(post);
   }, []);
