@@ -115,8 +115,10 @@ final class UndoPill {
     private let panel: NSPanel
     private let button = NSButton()
     private var action: (() -> Void)?
+    private var shown = false
 
-    var isVisible: Bool { panel.isVisible && panel.alphaValue > 0.01 }
+    /// True from show() until hide(), regardless of the fade animation's current alpha.
+    var isVisible: Bool { shown }
     var frame: CGRect { panel.frame }
 
     init() {
@@ -143,9 +145,10 @@ final class UndoPill {
         panel.contentView = view
     }
 
-    func configure(title: String, action: @escaping () -> Void) {
+    /// `title` nil shows just "Undo" (when the caption already says what Buddy did).
+    func configure(title: String?, action: @escaping () -> Void) {
         self.action = action
-        let text = "↩ Undo  ·  \(title)"
+        let text = title.map { "↩ Undo  ·  \($0)" } ?? "↩ Undo"
         let font = NSFont.systemFont(ofSize: 12, weight: .semibold)
         button.attributedTitle = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: NSColor.white])
         let width = ceil((text as NSString).size(withAttributes: [.font: font]).width) + 26
@@ -157,15 +160,17 @@ final class UndoPill {
     func setFrameOrigin(_ origin: CGPoint) { panel.setFrameOrigin(origin) }
 
     func show() {
+        shown = true
         panel.alphaValue = 0
         panel.orderFrontRegardless()
         NSAnimationContext.runAnimationGroup { $0.duration = 0.18; panel.animator().alphaValue = 1 }
     }
 
     func hide(duration: TimeInterval) {
-        guard panel.isVisible else { return }
-        NSAnimationContext.runAnimationGroup({ $0.duration = duration; panel.animator().alphaValue = 0 }) { [panel] in
-            MainActor.assumeIsolated { if panel.alphaValue < 0.01 { panel.orderOut(nil) } }
+        guard shown else { return }
+        shown = false
+        NSAnimationContext.runAnimationGroup({ $0.duration = duration; panel.animator().alphaValue = 0 }) { [weak self, panel] in
+            MainActor.assumeIsolated { if self?.shown == false { panel.orderOut(nil) } }
         }
     }
 

@@ -157,11 +157,12 @@ final class OverlayController {
         try? await Task.sleep(nanoseconds: 350_000_000)
     }
 
-    /// A small Undo pill beside the caption; it fades with Buddy.
-    func showUndo(_ record: UndoRecord) {
+    /// A small Undo pill beside the caption; it fades with Buddy. `withTitle` repeats what Buddy
+    /// did, for when the caption moves on to the next instruction.
+    func showUndo(_ record: UndoRecord, withTitle: Bool) {
         let pill = undoPill ?? UndoPill()
         undoPill = pill
-        pill.configure(title: record.title) { [weak self] in
+        pill.configure(title: withTitle ? record.title : nil) { [weak self] in
             guard let self else { return }
             self.undoPill?.hide(duration: 0.15)
             self.setCaption("Undoing...")

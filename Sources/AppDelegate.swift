@@ -363,7 +363,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         request = DoRequest(announce: request.announce, coreStep: request.coreStep, actions: Array(request.actions.prefix(6)))
         let point = request.actions.compactMap(\.point).first
-        await overlay.chore(at: point, context: context, caption: request.coreStep ? "On it..." : (plan.say ?? "One sec..."))
+        let doing = (request.actions.first?.description ?? (request.coreStep ? "On it" : "One sec")) + "..."
+        await overlay.chore(at: point, context: context, caption: doing)
         try Task.checkCancellation()
         let undo: UndoRecord
         do {
@@ -375,7 +376,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         Log.info("did: \(request.announce) (core=\(request.coreStep))")
         overlay.setCaption(request.announce)
-        overlay.showUndo(undo)
+        overlay.showUndo(undo, withTitle: !request.coreStep)
         say(request.announce)
 
         if request.coreStep {
