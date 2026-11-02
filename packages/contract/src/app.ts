@@ -14,6 +14,12 @@ export const AppInfoSchema = z.object({
   instance: z.enum(['stable', 'dev']),
   /** EVAOS_BUILD: the build id (short sha) of a deployed stable build; null when unset. */
   build: z.string().max(64).nullable(),
+  /** `eva`: Isaac's home base, every page. `starter`: a new user's Relay (Assistants, Chat, Canvas, Settings). */
+  profile: z.enum(['eva', 'starter']).default('eva'),
+  /** False until the first-run setup wizard has finished. */
+  setupComplete: z.boolean().default(true),
+  /** The home base folder (same as evaRoot). */
+  homeRoot: z.string().default(''),
 })
 export type AppInfo = z.infer<typeof AppInfoSchema>
 

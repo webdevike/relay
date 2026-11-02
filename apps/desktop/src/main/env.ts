@@ -16,6 +16,12 @@ export interface Env {
   legacyConfigDir: string | null
   sessionsDir: string
   arcExportCmd: string[] | null
+  /** `eva` (Isaac's home base, every page) or `starter` (a new user: Assistants, Chat, Canvas, Settings). */
+  profile: 'eva' | 'starter'
+  /** False until the first-run setup wizard finishes (starter only). */
+  setupComplete: boolean
+  /** The home base folder (same as evaRoot). */
+  homeRoot: string
   live: boolean
   /**
    * The one copy Isaac uses day to day: packaged, or EVAOS_STABLE=1 (the supervisor runs it from
@@ -98,6 +104,73 @@ export interface ResolveEnvInput {
 
 const DEFAULT_ARC_CMD = ['bun', '.omp/tools/arc-cookies.ts', '.omp/tools/lib/evaos-arc-sites.txt']
 
+export interface HomeConfig {
+  root: string
+  profile: 'eva' | 'starter'
+  setupComplete: boolean
+  hostName?: string
+}
+
+export const HOME_FILE = 'home.json'
+
+function expandHome(p: string, homedir: string): string {
+  if (p === '~') return homedir
+  return p.startsWith('~/') ? path.join(homedir, p.slice(2)) : p
+}
+
+/**
+ * `<configDir>/home.json` wins; else ~/Eva when it exists (Isaac, unchanged); else a starter
+ * ~/Relay that still needs setup. A malformed file is logged and treated as absent.
+ */
+export function resolveHome(configDir: string, homedir: string): HomeConfig {
+  const file = path.join(configDir, HOME_FILE)
+  if (fs.existsSync(file)) {
+    const raw = readJsonFile<Record<string, unknown>>(file)
+    if (
+      raw &&
+      typeof raw === 'object' &&
+      typeof raw.root === 'string' &&
+      raw.root !== '' &&
+      (raw.profile === 'eva' || raw.profile === 'starter') &&
+      typeof raw.setupComplete === 'boolean'
+    ) {
+      const cfg: HomeConfig = {
+        root: path.resolve(expandHome(raw.root, homedir)),
+        profile: raw.profile,
+        setupComplete: raw.setupComplete,
+      }
+      if (typeof raw.hostName === 'string') cfg.hostName = raw.hostName
+      return cfg
+    }
+    console.error(`[env] ${file} is malformed; falling back to the default home base`)
+  }
+  const evaDir = path.join(homedir, 'Eva')
+  if (fs.existsSync(evaDir)) return { root: evaDir, profile: 'eva', setupComplete: true }
+  return { root: path.join(homedir, 'Relay'), profile: 'starter', setupComplete: false }
+}
+
+/**
+ * omp's session folder for a cwd: under home `-<relative path>` (`~/Eva` is `-Eva`), elsewhere
+ * `--<absolute path>--`, with path separators and `:` turned into `-`.
+ */
+export function ompSessionFolderName(root: string, homedir: string): string {
+  const sep = /[/\\:]/g
+  const rel = path.relative(homedir, root)
+  if (rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel)) {
+    return `-${rel.replace(sep, '-')}`
+  }
+  return `--${root.replace(/^[/\\]/, '').replace(sep, '-')}--`
+}
+
+/** Atomically writes `<configDir>/home.json` (configDir is outside the fs write guard). */
+export function writeHome(configDir: string, cfg: HomeConfig): void {
+  fs.mkdirSync(configDir, { recursive: true })
+  const file = path.join(configDir, HOME_FILE)
+  const tmp = `${file}.${process.pid}.tmp`
+  fs.writeFileSync(tmp, `${JSON.stringify(cfg, null, 2)}\n`)
+  fs.renameSync(tmp, file)
+}
+
 function real(p: string): string {
   try {
     return fs.realpathSync(p)
@@ -159,10 +232,32 @@ export function resolveEnv(input: ResolveEnvInput): Env {
   const live = stable || env.EVAOS_LIVE === '1'
   const realRoot = path.join(homedir, 'Eva')
 
+  // The app is "Relay"; its folder is "Relay Desktop" because Relay Host already owns "Relay".
+  const supportDir = path.join(homedir, 'Library/Application Support')
+  const stableConfigDir = path.join(supportDir, STABLE_CONFIG_NAME)
+  const configDir = env.EVAOS_CONFIG_DIR
+    ? env.EVAOS_CONFIG_DIR
+    : stable
+      ? stableConfigDir
+      : live
+        ? path.join(supportDir, DEV_CONFIG_NAME)
+        : path.join(tmpdir, `evaos-electron-dev-${pid}`)
+  if (!stable && real(configDir) === real(stableConfigDir)) {
+    throw new Error(
+      `Refusing to use the stable app's config folder (${stableConfigDir}) from Relay Dev. Only the stable app (EVAOS_STABLE=1) runs there.`,
+    )
+  }
+
+  // Home base: only a live app reads home.json. An explicit EVAOS_EVA_ROOT is a dev/test
+  // override of Isaac's setup and stays the eva profile.
+  const home: HomeConfig =
+    live && !env.EVAOS_EVA_ROOT
+      ? resolveHome(configDir, homedir)
+      : { root: realRoot, profile: 'eva', setupComplete: true }
   const evaRoot = env.EVAOS_EVA_ROOT
     ? env.EVAOS_EVA_ROOT
     : live
-      ? realRoot
+      ? home.root
       : path.join(repoRoot, 'fixtures/eva-root')
   if (!live && real(evaRoot) === real(realRoot)) {
     throw new Error(
@@ -198,25 +293,13 @@ export function resolveEnv(input: ResolveEnvInput): Env {
   const sessionsDir = env.EVAOS_SESSIONS_DIR
     ? env.EVAOS_SESSIONS_DIR
     : live
-      ? path.join(env.PI_CODING_AGENT_DIR || path.join(homedir, '.omp/agent'), 'sessions/-Eva')
+      ? path.join(
+          env.PI_CODING_AGENT_DIR || path.join(homedir, '.omp/agent'),
+          'sessions',
+          ompSessionFolderName(evaRoot, homedir),
+        )
       : path.join(repoRoot, 'fixtures/agent/sessions/-fixture')
 
-  // The app is "Relay"; its folder is "Relay Desktop" because Relay Host already owns "Relay".
-  const supportDir = path.join(homedir, 'Library/Application Support')
-  const stableConfigDir = path.join(supportDir, STABLE_CONFIG_NAME)
-  const configDir = env.EVAOS_CONFIG_DIR
-    ? env.EVAOS_CONFIG_DIR
-    : stable
-      ? stableConfigDir
-      : live
-        ? path.join(supportDir, DEV_CONFIG_NAME)
-        : path.join(tmpdir, `evaos-electron-dev-${pid}`)
-  if (!stable && real(configDir) === real(stableConfigDir)) {
-    throw new Error(
-      `Refusing to use the stable app's config folder (${stableConfigDir}) from Relay Dev. Only the stable app (EVAOS_STABLE=1) runs there.`,
-    )
-  }
-  // Builds named "EvaOS Electron" kept their state here; moved once into configDir at launch.
   const legacyConfigDir =
     stable && !env.EVAOS_CONFIG_DIR ? path.join(supportDir, 'EvaOS Electron') : null
 
@@ -288,6 +371,9 @@ export function resolveEnv(input: ResolveEnvInput): Env {
   if (now !== null && !Number.isFinite(Date.parse(now))) {
     throw new Error('EVAOS_NOW must be an ISO 8601 date-time')
   }
+  const profile = home.profile
+  const setupComplete = home.setupComplete
+  const homeRoot = evaRoot
 
   return {
     habitGateBin,
@@ -304,6 +390,9 @@ export function resolveEnv(input: ResolveEnvInput): Env {
         readJsonFile<{ host?: unknown }>(path.join(configDir, REMOTE_FILE))?.host,
     ),
     evaRoot,
+    profile,
+    setupComplete,
+    homeRoot,
     ompBin,
     ompProfilesDir,
     configDir,

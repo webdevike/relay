@@ -17,6 +17,9 @@ export function registerAppIpc(ctx: MainContext): void {
       noMotion: ctx.env.noMotion,
       instance: ctx.env.instance,
       build: ctx.env.build,
+      profile: ctx.env.profile,
+      setupComplete: ctx.env.setupComplete,
+      homeRoot: ctx.env.homeRoot,
     }
   })
   // The page stays "visible" while the window is hidden (background throttling is off), so what

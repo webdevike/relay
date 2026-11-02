@@ -15,6 +15,7 @@ import {
   saveTabs,
   switchTo,
   togglePin,
+  placeOf,
   type Place,
   type Tabs,
 } from '@evaos/shell-core'
@@ -128,13 +129,20 @@ export function startTabs(): () => void {
 
   void (async () => {
     let tabs: Tabs | null = null
+    let needsSetup = false
     try {
-      const r = await invoke('layout.load', {})
-      if (r.ok) tabs = loadTabs(r.value.tabs)
+      const [layout, info] = await Promise.all([invoke('layout.load', {}), invoke('app.info', {})])
+      if (layout.ok) tabs = loadTabs(layout.value.tabs)
+      needsSetup = info.ok && info.value.setupComplete === false
     } catch {
       // fall through to defaults
     }
     if (disposed) return
+    if (needsSetup) {
+      // First run of a new home base: the setup wizard replaces the default Dashboard tab.
+      const opened = navigate(defaultTabs(), placeOf('setup'))
+      tabs = { ...opened, list: opened.list.map((t) => ({ ...t, back: [], forward: [] })) }
+    }
     if (tabs) {
       lastSaved = JSON.stringify(saveTabs(tabs))
       tabsStore.setState({ tabs, loaded: true })

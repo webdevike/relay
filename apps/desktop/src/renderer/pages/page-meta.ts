@@ -122,6 +122,7 @@ export function pageMeta(place: Place): PageMeta {
   if (page === 'settings') {
     return { kind: 'settings', slug: 'settings', title: place.settingsSection, description: '' }
   }
+  if (page === 'setup') return { kind: 'page', slug: 'setup', title: 'Setup', description: '' }
   const nav = NAV_PAGES.find((n) => n.page === page)
   return {
     kind: page === 'chat' ? 'chat' : page === 'canvas' ? 'canvas' : 'page',

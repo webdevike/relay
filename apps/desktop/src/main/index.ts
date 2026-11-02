@@ -159,13 +159,16 @@ function bootstrap(): void {
       const prs = createPrSource(ctx, run)
       const linear = linearReader(ctx.env.evaRoot)
       registerContext(ctx, queue, chat, experiments, run, prs)
-      const stopStatuses = startStatusReader({
-        relay: chat.artifacts,
-        pr: (repo, number) => prs.get(repo, number, false),
-        onPrChange: (cb) => prs.onChange(cb),
-        linear: prs.allowed ? linear : null,
-      })
-      ctx.onBeforeQuit(async () => stopStatuses())
+      // Linear and PR status polling is Isaac's eCard workflow; a starter home never starts it.
+      if (ctx.env.profile === 'eva') {
+        const stopStatuses = startStatusReader({
+          relay: chat.artifacts,
+          pr: (repo, number) => prs.get(repo, number, false),
+          onPrChange: (cb) => prs.onChange(cb),
+          linear: prs.allowed ? linear : null,
+        })
+        ctx.onBeforeQuit(async () => stopStatuses())
+      }
       registerWidgetMedia(ctx)
       registerWidgetFrames()
       const evaWatch = startEvaWatch(ctx)

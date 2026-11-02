@@ -7,6 +7,7 @@ import { canvasNavPlace } from '../canvas/canvas-store'
 import { invoke } from '../ipc'
 import { openPlace } from '../navigation/navigate'
 import { NAV_PAGES } from '../pages/page-meta'
+import { STARTER_SLUGS, useProfile } from '../pages/profile'
 import { activePlace, useTabs } from '../tabs/tabs-store'
 import { AppearanceControl } from '../theme/AppearanceControl'
 import { ScrollArea } from '../ui/ScrollArea'
@@ -21,11 +22,12 @@ const OVERVIEW = NAV_PAGES.find((n) => n.slug === 'dashboard')!
 const SETTING = NAV_PAGES.find((n) => n.slug === 'setting')!
 
 function EnvBadge() {
-  const [live, setLive] = useState<boolean | null>(null)
+  const [text, setText] = useState('')
   useEffect(() => {
     let cancelled = false
     void invoke('app.info', {}).then((r) => {
-      if (!cancelled && r.ok) setLive(r.value.live)
+      if (cancelled || !r.ok) return
+      setText(r.value.profile === 'starter' ? 'Relay' : r.value.live ? 'Live Eva data' : 'Fixture data')
     })
     return () => {
       cancelled = true
@@ -33,7 +35,7 @@ function EnvBadge() {
   }, [])
   return (
     <span className="eva-env-badge" data-testid="env-badge">
-      {live === null ? '' : live ? 'Live Eva data' : 'Fixture data'}
+      {text}
     </span>
   )
 }
@@ -46,6 +48,8 @@ export function MainNav() {
   const error = useSidebarData((s) => s.error)
   const boards = useBoards((s) => s.data?.boards ?? null)
   const { ref, width } = useElementSize<HTMLDivElement>()
+  const profile = useProfile()
+  const main = profile === null ? [] : MAIN.filter((n) => profile === 'eva' || STARTER_SLUGS[n.slug])
 
   const go = (page: Place['page'], e: MouseEvent): void => {
     const newTab = e.metaKey
@@ -90,7 +94,7 @@ export function MainNav() {
       <div className="eva-sb-scroll">
         <ScrollArea data-testid="sidebar-scroll">
           <div className="eva-sb-section eva-sb-section-main">Main</div>
-          {MAIN.map((n) => (
+          {main.map((n) => (
             <NavRow
               key={n.slug}
               slug={n.slug}
@@ -121,7 +125,7 @@ export function MainNav() {
             active={here.page === OVERVIEW.page}
             onClick={(e) => go(OVERVIEW.page, e)}
           />
-          {boards?.map((b) => (
+          {(profile === 'eva' ? boards : null)?.map((b) => (
             <NavRow
               key={b.slug}
               slug={`board-${b.slug}`}
