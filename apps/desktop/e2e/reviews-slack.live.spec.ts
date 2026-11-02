@@ -46,7 +46,7 @@ test('reads Slack threads waiting on Isaac and hands a reply to Astra without po
   await shell.evaluate(() => (window as unknown as Shell).__evaosShell.openPlace('settings'))
   const dark = shell.locator(sel('appearance-dark'))
   if (await dark.isVisible().catch(() => false)) await dark.click()
-  await shell.evaluate(() => (window as unknown as Shell).__evaosShell.openPlace('reviews'))
+  await shell.locator(sel('nav-reviews')).click()
   await shell.keyboard.press('Meta+Shift+B')
   const groups = shell.locator(sel('review-slack-groups'))
   await expect(groups).toBeVisible()

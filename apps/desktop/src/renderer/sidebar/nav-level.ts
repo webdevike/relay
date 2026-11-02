@@ -2,7 +2,14 @@ import { useStore } from 'zustand'
 import { createStore } from 'zustand/vanilla'
 import type { Place } from '@evaos/shell-core'
 
-export type NavLevel = 'root' | 'assistants' | 'chats' | 'canvas' | 'settings' | 'meetings'
+export type NavLevel =
+  | 'root'
+  | 'assistants'
+  | 'chats'
+  | 'canvas'
+  | 'settings'
+  | 'meetings'
+  | 'reviews'
 
 export const navLevelStore = createStore<{ level: NavLevel }>(() => ({ level: 'root' }))
 
@@ -22,6 +29,7 @@ export function levelForPlace(place: Place): Exclude<NavLevel, 'root'> | null {
   if (place.page === 'assistants' || place.page.startsWith('agent:')) return 'assistants'
   if (place.page === 'chat') return 'chats'
   if (place.page === 'meetings') return 'meetings'
+  if (place.page === 'reviews') return 'reviews'
   if (place.page === 'canvas') return 'canvas'
   if (place.page === 'settings') return 'settings'
   return null

@@ -59,6 +59,9 @@ export function MainNav() {
     } else if (page === 'meetings') {
       openPlace(placeOf('meetings'), { newTab })
       openSub('meetings')
+    } else if (page === 'reviews') {
+      openPlace(placeOf('reviews'), { newTab })
+      openSub('reviews')
     } else if (page === 'canvas') {
       // A plain click while on a board only drills in.
       if (!(here.page === 'canvas' && !newTab)) openPlace(canvasNavPlace(), { newTab })
@@ -102,7 +105,8 @@ export function MainNav() {
                 n.slug === 'assistants' ||
                 n.slug === 'chat' ||
                 n.slug === 'canvas' ||
-                n.slug === 'meetings'
+                n.slug === 'meetings' ||
+                n.slug === 'reviews'
               }
               onClick={(e) => go(n.page, e)}
             />

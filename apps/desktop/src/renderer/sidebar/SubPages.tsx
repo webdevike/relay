@@ -16,6 +16,7 @@ import { openPlace } from '../navigation/navigate'
 import { activePlace, newChatTab, useTabs } from '../tabs/tabs-store'
 import { ScrollArea } from '../ui/ScrollArea'
 import { MeetingsList } from '../meetings/MeetingsList'
+import { ReviewsList } from '../reviews/ReviewsList'
 import { ChatList } from '../chat/list/ChatList'
 import { SearchBox } from './SearchBox'
 import { backToRoot, type NavLevel } from './nav-level'
@@ -33,8 +34,14 @@ export function SubPage({ level }: { level: Exclude<NavLevel, 'root'> }) {
   const [query, setQuery] = useState('')
   // The chats page pins its Settled fold here, below the scrolling list.
   const [footer, setFooter] = useState<HTMLDivElement | null>(null)
-  const copy = level === 'settings' || level === 'assistants' ? null : COPY[level]
-  const title = copy ? copy.title : level === 'assistants' ? 'Assistants' : 'Settings'
+  const copy = level === 'settings' || level === 'assistants' || level === 'reviews' ? null : COPY[level]
+  const title = copy
+    ? copy.title
+    : level === 'assistants'
+      ? 'Assistants'
+      : level === 'reviews'
+        ? 'Reviews'
+        : 'Settings'
 
   const pick = (section: SettingsSection, e: MouseEvent): void => {
     openPlace(placeOf('settings', { settingsSection: section }), { newTab: e.metaKey })
@@ -128,6 +135,8 @@ export function SubPage({ level }: { level: Exclude<NavLevel, 'root'> }) {
             <AssistantsList />
           ) : level === 'meetings' ? (
             <MeetingsList query={query} />
+          ) : level === 'reviews' ? (
+            <ReviewsList />
           ) : level === 'chats' ? (
             <ChatList query={query} footer={footer} />
           ) : level === 'canvas' ? (

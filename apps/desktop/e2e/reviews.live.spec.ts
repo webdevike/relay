@@ -34,7 +34,8 @@ test('reviews a real PR end to end without writing anywhere', async ({ app, shel
   await shell.evaluate(() => (window as unknown as Shell).__evaosShell.openPlace('settings'))
   const dark = shell.locator(sel('appearance-dark'))
   if (await dark.isVisible().catch(() => false)) await dark.click()
-  await shell.evaluate(() => (window as unknown as Shell).__evaosShell.openPlace('reviews'))
+  await shell.locator(sel('nav-reviews')).click()
+  await expect(shell.locator(sel('sidebar-sub-reviews'))).toBeVisible()
   await expect(shell.locator(sel('review-queue'))).toBeVisible()
   await expect(shell.locator(sel('review-queue'))).not.toContainText('Loading', { timeout: 30_000 })
   // Only the page: the default layout's Browser pane would take a third of the window.

@@ -136,23 +136,15 @@
 
 /* Queue */
 .eva-rv-queue {
-  width: 230px;
-  flex: none;
-  overflow-y: auto;
-  padding: var(--mantine-spacing-sm) calc(var(--mantine-spacing-xs) * 0.8);
-  border-right: 1px solid var(--eva-c-border);
   display: flex;
   flex-direction: column;
   gap: calc(var(--mantine-spacing-xs) * 0.2);
-}
-.eva-rv-queue-title {
-  font-weight: 600;
-  padding: calc(var(--mantine-spacing-xs) * 0.2) calc(var(--mantine-spacing-xs) * 0.8)
-    calc(var(--mantine-spacing-xs) * 0.8);
+  padding: 0 var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  min-width: 0;
 }
 .eva-rv-queue-view {
-  margin: 0 calc(var(--mantine-spacing-xs) * 0.8) var(--mantine-spacing-xs);
-  align-self: flex-start;
+  flex: none;
+  margin-bottom: var(--mantine-spacing-xs);
 }
 .eva-rv-group {
   display: flex;
@@ -199,11 +191,12 @@
   font-size: var(--eva-fz-label);
 }
 .eva-rv-qrow-title {
-  flex: 1;
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
   font-size: var(--eva-fz-body);
   font-weight: 500;
 }

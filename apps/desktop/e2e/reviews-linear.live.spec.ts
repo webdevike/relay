@@ -39,7 +39,7 @@ test('reads, replies to and finishes a real Linear ticket without writing anywhe
   await shell.evaluate(() => (window as unknown as Shell).__evaosShell.openPlace('settings'))
   const dark = shell.locator(sel('appearance-dark'))
   if (await dark.isVisible().catch(() => false)) await dark.click()
-  await shell.evaluate(() => (window as unknown as Shell).__evaosShell.openPlace('reviews'))
+  await shell.locator(sel('nav-reviews')).click()
   const group = shell.locator(sel('review-linear-group'))
   await expect(group).toBeVisible()
   await expect(group).not.toContainText('Loading', { timeout: 30_000 })

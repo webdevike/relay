@@ -52,7 +52,7 @@ test('@Astra on a PR runs its own Astra session and answers inline', async ({ ap
   await shell.evaluate(() => (window as unknown as Shell).__evaosShell.openPlace('settings'))
   const dark = shell.locator(sel('appearance-dark'))
   if (await dark.isVisible().catch(() => false)) await dark.click()
-  await shell.evaluate(() => (window as unknown as Shell).__evaosShell.openPlace('reviews'))
+  await shell.locator(sel('nav-reviews')).click()
   await expect(shell.locator(sel('review-queue'))).not.toContainText('Loading', { timeout: 60_000 })
   await shell.keyboard.press('Meta+Shift+B')
   await shell.locator(sel('review-queue')).getByText('Created', { exact: true }).click()

@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Button, SegmentedControl, TextInput, Textarea } from '@mantine/core'
 import { EvaModal } from '../overlay'
 import { notifications } from '@mantine/notifications'
@@ -20,229 +20,24 @@ import {
   IconMessage,
   IconRefresh,
 } from '@tabler/icons-react'
-import type {
-  AstraItem,
-  LinearRow,
-  LinearTicket,
-  ReviewPr,
-  ReviewQueue,
-  ReviewRow,
-  SlackRow,
-} from '@evaos/contract'
+import type { AstraItem, LinearTicket, ReviewPr, ReviewRow, SlackRow } from '@evaos/contract'
 import type { Place } from '@evaos/shell-core'
 import { invoke } from '../ipc'
 import { openLink } from '../navigation/open-link'
 import { Markdown } from '../chat/markdown/Markdown'
 import { LinearDetail } from './LinearDetail'
-import { SlackDetail, SlackGroups, type SlackState } from './SlackDetail'
+import { SlackDetail } from './SlackDetail'
 import { ReviewFiles } from './ReviewFiles'
 import { ReviewGuide } from './ReviewGuide'
-import {
-  ago,
-  agoPhrase,
-  mentionsAstra,
-  nextAfter,
-  prKey,
-  queueGroups,
-  type QueueGroup,
-} from './review-model'
+import { ago, agoPhrase, mentionsAstra, nextAfter, prKey, queueGroups } from './review-model'
 import { Avatar, RailSection, fail, useLocal } from './review-ui'
 import { AstraCard, itemBlocks, useAstraItem } from './AstraInline'
 import { mergeTimeline } from './astra-timeline'
 import { prContext } from './astra-context'
+import { loadQueue, reviewsStore, useReviews, useReviewsSurface } from './reviews-store'
 import './reviews.css'
 
 type Tab = 'conversation' | 'files' | 'checks' | 'guide'
-type View = 'for-me' | 'created'
-
-function QueueRow({
-  row,
-  subtitle,
-  active,
-  now,
-  onOpen,
-}: {
-  row: ReviewRow
-  subtitle: string
-  active: boolean
-  now: number
-  onOpen: () => void
-}) {
-  const Glyph = row.draft ? IconGitPullRequestDraft : IconGitPullRequest
-  return (
-    <button
-      type="button"
-      className="eva-rv-qrow"
-      data-active={active || undefined}
-      data-testid={`review-row-${row.number}`}
-      onClick={onOpen}
-      title={`${row.repo}#${row.number} ${row.title}`}
-    >
-      <span className="eva-rv-qrow-line">
-        <span className="eva-rv-qrow-title">{row.title}</span>
-        <Glyph size={14} className="eva-rv-qrow-icon" data-draft={row.draft || undefined} />
-      </span>
-      <span className="eva-rv-qrow-line eva-rv-dim">
-        <span className="eva-rv-qrow-sub">{subtitle}</span>
-        <Avatar login={row.author} />
-        <span>{ago(row.updatedAt, now)}</span>
-      </span>
-    </button>
-  )
-}
-
-function Queue({
-  queue,
-  view,
-  setView,
-  selected,
-  onOpen,
-  now,
-  linear,
-  done,
-  onOpenTicket,
-  slackGroups,
-}: {
-  queue: ReviewQueue | null
-  view: View
-  setView: (v: View) => void
-  /** `owner/repo#n` for a PR, `linear:ENG-1` for a ticket. */
-  selected: string | null
-  onOpen: (r: ReviewRow) => void
-  now: number
-  /** null rows while loading. */
-  linear: { rows: LinearRow[] | null; error: string | null } | null
-  done: Record<string, number>
-  onOpenTicket: (r: LinearRow) => void
-  /** Slack's Mentions and Replies groups (For me only). */
-  slackGroups: ReactNode
-}) {
-  const [closed, setClosed] = useState<Record<string, boolean>>({ completed: true })
-  const groups: QueueGroup[] = queue ? queueGroups(queue, view) : []
-  // Linear tickets that want Isaac, under For me, before the finished reviews.
-  const tickets = linear?.rows?.filter(
-    (r) => !(done[r.url] !== undefined && r.updatedAt <= done[r.url]!),
-  )
-  const linearGroup =
-    view === 'for-me' && linear ? (
-      <div className="eva-rv-group" data-testid="review-linear-group">
-        <button
-          type="button"
-          className="eva-rv-group-head"
-          onClick={() => setClosed({ ...closed, linear: !closed.linear })}
-        >
-          Linear <span className="eva-rv-dim">{tickets ? tickets.length : ''}</span>
-          {closed.linear ? <IconChevronRight size={12} /> : <IconChevronDown size={12} />}
-        </button>
-        {closed.linear ? null : linear.error ? (
-          <div className="eva-rv-dim eva-rv-pad">Couldn&apos;t read Linear: {linear.error}</div>
-        ) : !tickets ? (
-          <div className="eva-rv-dim eva-rv-pad">Loading...</div>
-        ) : tickets.length === 0 ? (
-          <div className="eva-rv-dim eva-rv-pad">Nothing here.</div>
-        ) : (
-          tickets.map((r) => (
-            <button
-              key={r.key}
-              type="button"
-              className="eva-rv-qrow"
-              data-active={selected === `linear:${r.key}` || undefined}
-              data-unread={r.unread || undefined}
-              data-testid={`review-ticket-${r.key}`}
-              onClick={() => onOpenTicket(r)}
-              title={`${r.key} ${r.title}`}
-            >
-              <span className="eva-rv-qrow-line">
-                <span className="eva-rv-qrow-title">{r.title}</span>
-                <span className="eva-rv-dim eva-rv-mono eva-rv-qrow-key">{r.key}</span>
-              </span>
-              <span className="eva-rv-qrow-line eva-rv-dim">
-                <span className="eva-rv-qrow-sub">
-                  {r.actor} {r.reason}
-                </span>
-                <Avatar login={r.actor} />
-                <span>{ago(r.updatedAt, now)}</span>
-              </span>
-            </button>
-          ))
-        )}
-        {closed.linear ? null : (
-          <TextInput
-            size="xs"
-            className="eva-rv-open-ticket"
-            placeholder="Open a ticket: ENG-1234"
-            data-testid="review-open-ticket"
-            onKeyDown={(e) => {
-              if (e.key !== 'Enter') return
-              const m = /\b([A-Z][A-Z0-9]*-\d+)\b/.exec(e.currentTarget.value.toUpperCase())
-              if (!m) return
-              const key = m[1]!
-              e.currentTarget.value = ''
-              onOpenTicket(
-                tickets?.find((r) => r.key === key) ?? {
-                  key,
-                  title: key,
-                  url: `https://linear.app/issue/${key}`,
-                  reason: '',
-                  actor: '',
-                  updatedAt: 0,
-                  unread: false,
-                },
-              )
-            }}
-          />
-        )}
-      </div>
-    ) : null
-  return (
-    <aside className="eva-rv-queue" data-testid="review-queue">
-      <div className="eva-rv-queue-title">Reviews</div>
-      <SegmentedControl
-        size="xs"
-        value={view}
-        onChange={(v) => setView(v as View)}
-        data={[
-          { value: 'for-me', label: 'For me' },
-          { value: 'created', label: 'Created' },
-        ]}
-        className="eva-rv-queue-view"
-      />
-      {queue === null ? <div className="eva-rv-dim eva-rv-pad">Loading...</div> : null}
-      {groups.map((g) => (
-        <Fragment key={g.id}>
-          {g.id === 'completed' ? linearGroup : null}
-          {g.id === 'completed' ? slackGroups : null}
-          <div className="eva-rv-group">
-            <button
-              type="button"
-              className="eva-rv-group-head"
-              onClick={() => setClosed({ ...closed, [g.id]: !closed[g.id] })}
-            >
-              {g.label} <span className="eva-rv-dim">{g.count}</span>
-              {closed[g.id] ? <IconChevronRight size={12} /> : <IconChevronDown size={12} />}
-            </button>
-            {closed[g.id] ? null : g.rows.length === 0 ? (
-              <div className="eva-rv-dim eva-rv-pad">Nothing here.</div>
-            ) : (
-              g.rows.map((r) => (
-                <QueueRow
-                  key={prKey(r)}
-                  row={r}
-                  subtitle={g.subtitle}
-                  active={selected === prKey(r)}
-                  now={now}
-                  onOpen={() => onOpen(r)}
-                />
-              ))
-            )}
-          </div>
-        </Fragment>
-      ))}
-      {queue === null && view === 'for-me' ? linearGroup : null}
-      {queue === null ? slackGroups : null}
-    </aside>
-  )
-}
 
 const REVIEW_STATE: Record<string, { label: string; tone: string }> = {
   PENDING: { label: 'Pending', tone: 'amber' },
@@ -718,44 +513,25 @@ function Detail({
   )
 }
 
-/** Reviews: Isaac's GitHub review queue beside one pull request (Conversation, Files, Checks, Guide). */
+/** Reviews: the pull request, ticket or Slack thread picked in the sidebar queue (Conversation, Files, Checks, Guide). */
 export function ReviewsPage(_: { place: Place }) {
-  const [queue, setQueue] = useState<ReviewQueue | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [view, setView] = useState<View>('for-me')
-  const [selected, setSelected] = useState<ReviewRow | null>(null)
+  useReviewsSurface()
+  const queue = useReviews((s) => s.queue)
+  const error = useReviews((s) => s.error)
+  const view = useReviews((s) => s.view)
+  const selected = useReviews((s) => s.selected)
+  const ticket = useReviews((s) => s.ticket)
+  const thread = useReviews((s) => s.thread)
+  const linear = useReviews((s) => s.linear)
+  const slack = useReviews((s) => s.slack)
+  const autoOpened = useReviews((s) => s.autoOpened)
   const [pr, setPr] = useState<{ key: string; pr: ReviewPr; at: number } | null>(null)
   const [prError, setPrError] = useState<string | null>(null)
   const [now, setNow] = useState(Date.now())
-  // Back to the queue stays there: the first PR opens by itself only once.
-  const [autoOpened, setAutoOpened] = useState(false)
-  const [linear, setLinear] = useState<{ rows: LinearRow[] | null; error: string | null }>({
-    rows: null,
-    error: null,
-  })
-  const [ticket, setTicket] = useState<LinearRow | null>(null)
-  const [slack, setSlack] = useState<SlackState>({ queue: null, reading: false, error: null })
-  const [thread, setThread] = useState<SlackRow | null>(null)
-  // Done marks from the last Done here, so a ticket hides even when GitHub could not be read.
-  const [doneLocal, setDoneLocal] = useState<Record<string, number>>({})
-  const doneMap = { ...queue?.done, ...doneLocal }
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 15_000)
     return () => clearInterval(t)
-  }, [])
-
-  const loadQueue = useCallback(async (refresh: boolean) => {
-    const r = await invoke('reviews.queue', { refresh })
-    if (r.ok) {
-      setQueue(r.value)
-      setError(null)
-    } else setError(r.error.message)
-  }, [])
-
-  const loadLinear = useCallback(async (refresh: boolean) => {
-    const r = await invoke('reviews.linearQueue', { refresh })
-    setLinear(r.ok ? { rows: r.value, error: null } : { rows: null, error: r.error.message })
   }, [])
 
   const loadPr = useCallback(async (row: ReviewRow) => {
@@ -765,143 +541,71 @@ export function ReviewsPage(_: { place: Place }) {
     else setPrError(r.error.message)
   }, [])
 
-  // Slack is read through Astra's connector (tens of seconds): show the last read, then read again.
-  const readSlack = useCallback(async () => {
-    setSlack((s) => ({ ...s, reading: true }))
-    const r = await invoke('reviews.slackQueue', { refresh: true })
-    setSlack((s) =>
-      r.ok
-        ? { queue: r.value, reading: false, error: null }
-        : { ...s, reading: false, error: r.error.message },
-    )
-  }, [])
-
-  useEffect(() => {
-    void loadQueue(false)
-    void loadLinear(false)
-    void invoke('reviews.slackQueue', { refresh: false }).then((r) => {
-      if (r.ok && r.value) setSlack((s) => (s.queue ? s : { ...s, queue: r.value }))
-    })
-    void readSlack()
-  }, [loadQueue, loadLinear, readSlack])
-
   // Open the first PR that needs Isaac once the queue arrives.
   useEffect(() => {
     if (!queue || selected || ticket || thread || autoOpened) return
     const first = queueGroups(queue, view).find((g) => g.rows.length > 0 && g.id !== 'completed')
       ?.rows[0]
-    if (first) {
-      setAutoOpened(true)
-      setSelected(first)
-    }
+    if (first) reviewsStore.setState({ autoOpened: true, selected: first })
   }, [queue, view, selected, ticket, thread, autoOpened])
 
   useEffect(() => {
     if (selected && pr?.key !== prKey(selected)) void loadPr(selected)
   }, [selected, pr, loadPr])
 
+  const markDone = async (url: string, updatedAt: number): Promise<Record<string, number> | null> => {
+    const r = await invoke('reviews.done', { url, updatedAt, done: true })
+    if (!r.ok) {
+      fail("Couldn't mark it done", r.error.message)
+      return null
+    }
+    reviewsStore.setState((s) => ({
+      doneLocal: r.value,
+      queue: s.queue ? { ...s.queue, done: r.value } : s.queue,
+    }))
+    return r.value
+  }
+
   const done = async (): Promise<void> => {
     if (!queue || !pr || !selected) return
-    const r = await invoke('reviews.done', {
-      url: pr.pr.url,
-      updatedAt: Math.max(selected.updatedAt, pr.pr.updatedAt),
-      done: true,
-    })
-    if (!r.ok) return fail("Couldn't mark it done", r.error.message)
-    const next = nextAfter(queueGroups(queue, view), pr.key)
-    setQueue({ ...queue, done: r.value })
-    setDoneLocal(r.value)
-    setSelected(next)
+    if (!(await markDone(pr.pr.url, Math.max(selected.updatedAt, pr.pr.updatedAt)))) return
+    const next = nextAfter(queueGroups(reviewsStore.getState().queue ?? queue, view), pr.key)
+    reviewsStore.setState({ selected: next })
     if (!next) setPr(null)
     notifications.show({ message: `Done: ${pr.pr.title}`, color: 'green' })
   }
 
   const doneTicket = async (t: LinearTicket): Promise<void> => {
     if (!ticket) return
-    const r = await invoke('reviews.done', {
-      url: t.url,
-      updatedAt: Math.max(ticket.updatedAt, Date.now()),
-      done: true,
-    })
-    if (!r.ok) return fail("Couldn't mark it done", r.error.message)
-    setDoneLocal(r.value)
-    if (queue) setQueue({ ...queue, done: r.value })
+    const marks = await markDone(t.url, Math.max(ticket.updatedAt, Date.now()))
+    if (!marks) return
     const rows = linear.rows ?? []
     const at = rows.findIndex((x) => x.key === ticket.key)
-    const rest = rows.filter((x) => x.key !== ticket.key && !(r.value[x.url]! >= x.updatedAt))
-    setTicket(rest[Math.min(Math.max(at, 0), rest.length - 1)] ?? null)
+    const rest = rows.filter((x) => x.key !== ticket.key && !(marks[x.url]! >= x.updatedAt))
+    reviewsStore.setState({ ticket: rest[Math.min(Math.max(at, 0), rest.length - 1)] ?? null })
     notifications.show({ message: `Done: ${t.key} ${t.title}`, color: 'green' })
-  }
-
-  const openTicket = (row: LinearRow): void => {
-    setSelected(null)
-    setPr(null)
-    setThread(null)
-    setTicket(row)
-  }
-
-  const openThread = (row: SlackRow): void => {
-    setSelected(null)
-    setPr(null)
-    setTicket(null)
-    setThread(row)
   }
 
   // Done holds a thread back until someone writes in it again.
   const doneThread = async (row: SlackRow): Promise<void> => {
-    const r = await invoke('reviews.done', { url: row.url, updatedAt: row.updatedAt, done: true })
-    if (!r.ok) return fail("Couldn't mark it done", r.error.message)
-    setDoneLocal(r.value)
-    if (queue) setQueue({ ...queue, done: r.value })
+    const marks = await markDone(row.url, row.updatedAt)
+    if (!marks) return
     const rows = slack.queue?.rows ?? []
     const at = rows.findIndex((x) => x.url === row.url)
-    const rest = rows.filter((x) => x.url !== row.url && !(r.value[x.url]! >= x.updatedAt))
-    setThread(rest[Math.min(Math.max(at, 0), rest.length - 1)] ?? null)
+    const rest = rows.filter((x) => x.url !== row.url && !(marks[x.url]! >= x.updatedAt))
+    reviewsStore.setState({ thread: rest[Math.min(Math.max(at, 0), rest.length - 1)] ?? null })
     notifications.show({ message: `Done: ${row.channelName}`, color: 'green' })
   }
 
   const shown = selected && pr?.key === prKey(selected) ? pr : null
   return (
     <div className="eva-rv" data-testid="reviews-page">
-      <Queue
-        queue={queue}
-        view={view}
-        setView={(v) => {
-          setView(v)
-          setSelected(null)
-          setTicket(null)
-          setThread(null)
-          setAutoOpened(false)
-        }}
-        selected={ticket ? `linear:${ticket.key}` : selected ? prKey(selected) : null}
-        onOpen={(r) => {
-          setTicket(null)
-          setThread(null)
-          setSelected(r)
-        }}
-        now={now}
-        linear={linear}
-        done={doneMap}
-        onOpenTicket={openTicket}
-        slackGroups={
-          view === 'for-me' ? (
-            <SlackGroups
-              slack={slack}
-              done={doneMap}
-              selected={thread?.url ?? null}
-              onOpen={openThread}
-              onRefresh={() => void readSlack()}
-              now={now}
-            />
-          ) : null
-        }
-      />
       {thread ? (
         <SlackDetail
           key={thread.url}
           row={thread}
           now={now}
-          onBack={() => setThread(null)}
+          onBack={() => reviewsStore.setState({ thread: null })}
           onDone={() => void doneThread(thread)}
         />
       ) : ticket ? (
@@ -909,7 +613,7 @@ export function ReviewsPage(_: { place: Place }) {
           key={ticket.key}
           row={ticket}
           now={now}
-          onBack={() => setTicket(null)}
+          onBack={() => reviewsStore.setState({ ticket: null })}
           onDone={(t) => void doneTicket(t)}
         />
       ) : error ? (
@@ -920,7 +624,7 @@ export function ReviewsPage(_: { place: Place }) {
           fetchedAt={shown.at}
           now={now}
           onBack={() => {
-            setSelected(null)
+            reviewsStore.setState({ selected: null })
             setPr(null)
           }}
           onRefresh={() => {
