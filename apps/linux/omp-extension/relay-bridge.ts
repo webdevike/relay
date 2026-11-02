@@ -340,7 +340,7 @@ function listModelOptions(models: readonly Model[]): ModelOption[] {
 }
 
 type Outbound =
-  | ({ t: "hello"; launchId?: string } & SessionInfo)
+  | ({ t: "hello"; launchId?: string; pid?: number; herdrPane?: string } & SessionInfo)
   | ({ t: "status"; status: Status; statusDetail?: string; lastActivity: string; lastActivityAt: number; canRespond?: boolean } & Settings & Activity)
   | { t: "messages"; append: InboxMessage[] }
   | { t: "message.update"; id: string; text: string; streaming: boolean }
@@ -555,6 +555,13 @@ function herdrSlot(): HerdrSlot | undefined {
   return { tab, workspace: owned ? workspace : undefined };
 }
 const HERDR = herdrSlot();
+/**
+ * This omp to the host: its pid, and the herdr pane it runs in (herdr sets HERDR_PANE_ID, also on
+ * a pane it restores). Two omps on one transcript are told apart by the pid, and the host closes
+ * the one it drops through its pane (apps/linux/src/agents/bridge.ts).
+ */
+const HERDR_PANE = process.env["HERDR_PANE_ID"] || undefined;
+const PROCESS: { pid: number; herdrPane?: string } = { pid: process.pid, ...(HERDR_PANE === undefined ? {} : { herdrPane: HERDR_PANE }) };
 const MAX_HERDR_LABEL = 48;
 
 /** Mirrors omp's session title onto the Herdr tab (and workspace, when it is ours). Fire and forget. */
@@ -1365,7 +1372,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
     buffer = "";
     next.setNoDelay(true);
     next.on("connect", () => {
-      send({ t: "hello", ...current, status, lastActivity, lastActivityAt, ...(LAUNCH_ID === undefined ? {} : { launchId: LAUNCH_ID }) });
+      send({ t: "hello", ...current, ...PROCESS, status, lastActivity, lastActivityAt, ...(LAUNCH_ID === undefined ? {} : { launchId: LAUNCH_ID }) });
       // A host that restarted while a tool waits for approval learns of it again.
       for (const pending of pendingApprovals.values()) send(pending.frame);
       // ctx.model is still unresolved during session_start; report the settings once it is.
@@ -1531,7 +1538,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
     seedGoal(context);
     if (ASSISTANT !== null) seedHistory(context);
     const current = info();
-    if (current !== null) send({ t: "hello", ...current });
+    if (current !== null) send({ t: "hello", ...current, ...PROCESS });
   });
 
   pi.on("agent_start", () => {

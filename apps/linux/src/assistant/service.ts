@@ -67,6 +67,12 @@ export interface AssistantServiceDeps {
   readonly launch: (options: LaunchOptions) => Promise<void>;
   /** The transcript file of a live session, when omp reported one. */
   readonly sessionFile: (sessionId: string) => string | null;
+  /** The live session whose transcript is `file`, whichever omp runs it (the bridge's `sessionForFile`); null when none is. */
+  readonly holder: (file: string) => AgentSession | null;
+  /** Closes the omp running session `sessionId`; resolves once it is gone (the bridge's `close`). */
+  readonly close: (sessionId: string) => Promise<void>;
+  /** Resolves once omps that outlived a host restart have had time to reconnect (the bridge's `reconnected`). */
+  readonly reconnected: () => Promise<void>;
   /** Where the agent runs and where its prime lives; null when the host has no `--agent-home`. */
   readonly agentHome: string | null;
   readonly store: AssistantStore;
@@ -190,6 +196,8 @@ export class AssistantService implements AssistantThread {
   private starting: Promise<AgentSession> | null = null;
   private waiter: Starting | null = null;
   private persisted: string | null = null;
+  /** Set once a stray omp on the remembered transcript set off a resume; cleared when the thread is live again. */
+  private strayHandled = false;
   private primeCache: string | null | undefined;
   /** Parsed, filtered earlier transcripts by file; stale once the file's mtime or size moves. */
   private readonly transcripts = new Map<string, { mtimeMs: number; size: number; messages: AssistantMessage[] }>();
@@ -288,6 +296,8 @@ export class AssistantService implements AssistantThread {
       const session = this.current();
       // Before the key check: the file can arrive in a later status report that changes nothing else.
       if (session !== undefined) this.remember(session.id);
+      if (session === undefined) this.resumeOverStray();
+      else this.strayHandled = false;
       const key = session === undefined ? null : `${session.id} ${session.status}`;
       if (key === this.seen) return false;
       this.seen = key;
@@ -394,18 +404,52 @@ export class AssistantService implements AssistantThread {
   }
 
   /**
+   * An omp on the remembered transcript that is not this thread leaves the thread looking unstarted
+   * while its transcript is in use: herdr restores the pane after its server restarts (a reboot),
+   * resuming the transcript without the env the host started it with. The thread is resumed over
+   * it (`start` closes it first), once until the thread is live again, so it comes back by itself
+   * and the transcript keeps a single omp.
+   */
+  private resumeOverStray(): void {
+    if (this.strayHandled || this.starting !== null || this.deps.agentHome === null) return;
+    const file = this.deps.store.load()?.sessionFile;
+    if (file === undefined) return;
+    const stray = this.deps.holder(file);
+    // The thread's own omp on its way out (ended) is not a stray: it was ended on purpose.
+    if (stray === null || (stray.kind === "assistant" && stray.assistant === this.id)) return;
+    this.strayHandled = true;
+    this.ensureSession().catch((error: unknown) => {
+      this.deps.log(`assistant ${this.id}: could not resume over the omp on its transcript: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  }
+
+  /**
    * Starts the agent: resumes the remembered transcript when its file is still there, else a new
    * session primed from `<agentHome>/.omp/assistant/agents/<id>/prime.md`. The pane gets
    * `RELAY_ASSISTANT=<id>` and `RELAY_ASSISTANT_TITLE=<title>` and a herdr workspace labelled with
    * the title. Resolves once the session has registered with the bridge; a primed thread also
    * waits for the prime to be underway (status `working`), so the turn that follows steers in
    * behind it rather than racing the typed prime for the editor.
+   *
+   * A transcript takes one omp at a time. Before a resume the host gives an omp that outlived its
+   * own restart time to reconnect (that is the thread, nothing to start), and closes any other omp
+   * still on the transcript.
    */
   private async start(): Promise<AgentSession> {
     const home = this.deps.agentHome;
     if (home === null) throw new AckFailure({ code: "agent_launch_failed", message: "host was started without --agent-home" });
     const remembered = this.deps.store.load()?.sessionFile ?? null;
     const resume = remembered !== null && existsSync(remembered) ? remembered : null;
+    if (resume !== null) {
+      await this.deps.reconnected();
+      const live = this.current();
+      if (live !== undefined) return live;
+      const stray = this.deps.holder(resume);
+      if (stray !== null) {
+        this.deps.log(`assistant ${this.id}: closing session ${stray.id} (${stray.title}), which runs the thread's transcript without being the thread`);
+        await this.deps.close(stray.id);
+      }
+    }
     const prime = resume === null ? this.prime(true) : null;
     const { promise, resolve, reject } = Promise.withResolvers<AgentSession>();
     const cancel = this.deps.clock.after(REGISTER_TIMEOUT_MS, () => {

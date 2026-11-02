@@ -239,6 +239,19 @@ export async function launchInHerdr(home: string, log: (line: string) => void, o
   }
 }
 
+/**
+ * Closes herdr pane `paneId`, which ends the process running in it. Rejects with `AckFailure`
+ * (`agent_launch_failed`) when herdr is missing or refuses.
+ */
+export async function closeHerdrPane(paneId: string): Promise<void> {
+  try {
+    await herdr(["pane", "close", paneId]);
+  } catch (error) {
+    if (error instanceof HerdrError) throw fail(`herdr: ${error.message}`);
+    throw error;
+  }
+}
+
 function profileIntegrations(): string[] {
   const agent = join(homedir(), ".omp", "agent");
   const args = ["--config", join(agent, "config.yml")];

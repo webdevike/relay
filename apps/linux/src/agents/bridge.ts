@@ -19,7 +19,7 @@ import { AgentAccount, AgentAskQuestion, AgentBackgroundJob, AgentGoal, type Age
 import { z } from "zod";
 import { AckFailure, type AgentConfigChange, type AgentProvider, type AgentProviderChange, type GateCommand } from "../seams";
 import { destructivePattern } from "./destructive";
-import { launchInHerdr, type LaunchOptions } from "./herdr";
+import { closeHerdrPane, launchInHerdr, type LaunchOptions } from "./herdr";
 
 const StatusFrame = z.object({
   t: z.literal("status"),
@@ -46,7 +46,15 @@ const StatusFrame = z.object({
 });
 
 const Inbound = z.discriminatedUnion("t", [
-  z.object({ t: z.literal("hello") }).merge(AgentSession.omit({ id: true })).extend({ sessionId: z.string().min(1), sessionFile: z.string().min(1).optional(), launchId: z.string().min(1).optional() }),
+  z.object({ t: z.literal("hello") }).merge(AgentSession.omit({ id: true })).extend({
+    sessionId: z.string().min(1),
+    sessionFile: z.string().min(1).optional(),
+    launchId: z.string().min(1).optional(),
+    /** The omp process; absent from extensions that predate it. Two connections for one session with different pids are two omps on one transcript. */
+    pid: z.number().int().positive().optional(),
+    /** The herdr pane omp runs in (`HERDR_PANE_ID`), when it runs in one: closing it ends that omp. */
+    herdrPane: z.string().min(1).optional(),
+  }),
   StatusFrame,
   z.object({ t: z.literal("messages"), append: z.array(AgentMessage).min(1) }),
   z.object({ t: z.literal("message.update"), id: z.string().min(1), text: z.string(), streaming: z.boolean() }),
@@ -84,6 +92,10 @@ const REQUEST_TIMEOUT_MS = 5000;
 const GATE_TIMEOUT_MS = 15_000;
 /** How long a launched omp has to register before its `joined` gives up (herdr has already started it). */
 const LAUNCH_JOIN_TIMEOUT_MS = 60_000;
+/** The extension reconnects every 3 s; past this a host that just started has heard from every omp that outlived it. */
+export const RECONNECT_GRACE_MS = 5000;
+/** How long `close` waits for the closed omp to disconnect. */
+const CLOSE_TIMEOUT_MS = 10_000;
 /** A session that answered with something unparseable offers nothing rather than failing the request. */
 const NO_OPTIONS: AgentOptionsT = { models: [], skills: [] };
 
@@ -105,6 +117,17 @@ interface Connection {
   readonly pending: Map<string, Pending>;
   /** What this session last read from the gate CLI; undefined until it has reported once. */
   gate: GateStatusT | null | undefined;
+  /** The omp process behind this connection, from its `hello`; null until then or from an older extension. */
+  pid: number | null;
+  /** The herdr pane that omp runs in, from its `hello`; null when it said none. */
+  herdrPane: string | null;
+  /**
+   * Set once this omp is being closed as a second process on a transcript another connection
+   * carries (or on `close`): its session is unlisted and its frames are ignored until it is gone.
+   */
+  retired: boolean;
+  /** Settles when the socket closes. */
+  readonly gone: { readonly promise: Promise<void>; readonly resolve: () => void };
 }
 
 export function defaultSocketPath(): string {
@@ -130,12 +153,16 @@ export class OmpBridgeProvider implements AgentProvider {
   private gateState: GateStatusT | null = null;
   /** `gateState` minus the ticking countdown: a change here is what phones are told about. */
   private gateKey = "null";
+  /** When `start` began listening; omps that outlived a host restart reconnect within `RECONNECT_GRACE_MS` of it. */
+  private listeningSince = 0;
 
   constructor(
     private readonly path: string,
     private readonly log: (line: string) => void,
     /** Directory a phone-started session opens in; `null` disables `agent.start`. */
     private readonly home: string | null,
+    /** Closes a herdr pane (and the omp in it); `closeHerdrPane` outside tests. */
+    private readonly closePane: (paneId: string) => Promise<void> = closeHerdrPane,
   ) {}
 
   get isAvailable(): boolean {
@@ -151,7 +178,7 @@ export class OmpBridgeProvider implements AgentProvider {
     if (existsSync(this.path)) unlinkSync(this.path); // stale socket from a previous run
     const handler: SocketHandler<Connection> = {
       open: (socket) => {
-        socket.data = { socket, buffer: "", outbound: null, session: null, sessionFile: null, pending: new Map(), gate: undefined };
+        socket.data = { socket, buffer: "", outbound: null, session: null, sessionFile: null, pending: new Map(), gate: undefined, pid: null, herdrPane: null, retired: false, gone: Promise.withResolvers<void>() };
         this.connections.add(socket.data);
       },
       data: (socket, chunk) => {
@@ -170,6 +197,7 @@ export class OmpBridgeProvider implements AgentProvider {
     };
     Bun.listen<Connection>({ unix: this.path, socket: handler });
     this.listening = true;
+    this.listeningSince = Date.now();
   }
 
   async conversation(sessionId: string): Promise<AgentMessageT[] | null> {
@@ -205,6 +233,26 @@ export class OmpBridgeProvider implements AgentProvider {
       if (connection.session !== null && connection.sessionFile === file) return connection.session;
     }
     return null;
+  }
+
+  /**
+   * Closes the omp running session `sessionId`: its herdr pane when it runs in one, else `/exit`
+   * through its bridge. The session leaves the list at once; resolves when the omp has
+   * disconnected, or after `CLOSE_TIMEOUT_MS`. Nothing to do for a session that is not live.
+   */
+  async close(sessionId: string): Promise<void> {
+    const connection = this.find(sessionId);
+    if (connection === undefined) return;
+    const { promise, resolve } = Promise.withResolvers<void>();
+    const timer = setTimeout(resolve, CLOSE_TIMEOUT_MS);
+    await Promise.race([this.retire(connection, sessionId, "closed by the host"), promise]);
+    clearTimeout(timer);
+  }
+
+  /** Resolves once omp sessions that outlived a restart of this host have had time to reconnect. */
+  reconnected(): Promise<void> {
+    const wait = this.listeningSince + RECONNECT_GRACE_MS - Date.now();
+    return wait > 0 ? Bun.sleep(wait) : Promise.resolve();
   }
 
   async options(sessionId: string): Promise<AgentOptionsT | null> {
@@ -411,15 +459,34 @@ export class OmpBridgeProvider implements AgentProvider {
   }
 
   private handleFrame(connection: Connection, frame: Inbound): void {
+    // A retired omp is on its way out: only answers to requests still count.
+    if (connection.retired && frame.t !== "result") return;
     switch (frame.t) {
       case "hello": {
-        // A reconnect from the same session replaces any older connection carrying that id.
-        for (const other of this.connections) {
-          if (other !== connection && other.session?.id === frame.sessionId) this.drop(other);
-        }
         if (frame.launchId !== undefined) {
           this.launches.get(frame.launchId)?.(frame.sessionId);
           this.launches.delete(frame.launchId);
+        }
+        connection.pid = frame.pid ?? null;
+        connection.herdrPane = frame.herdrPane ?? null;
+        for (const other of [...this.connections]) {
+          if (other === connection || other.session?.id !== frame.sessionId) continue;
+          // The same omp reconnecting before its old socket closed (or an extension too old to say
+          // which process it is): the newer connection replaces the older.
+          if (other.pid === null || connection.pid === null || other.pid === connection.pid) {
+            this.drop(other);
+            continue;
+          }
+          // A second omp on one transcript: herdr restoring a pane after its server restarted, or a
+          // resume racing a reconnect. Replacing one connection with the other would make the
+          // loser reconnect and win back every few seconds, so one of them is closed instead: an
+          // assistant thread over a copy without the thread's identity, else the one already here.
+          if (frame.assistant !== undefined && other.session.assistant === undefined) {
+            void this.retire(other, frame.sessionId, `omp ${connection.pid} took over its transcript as assistant ${frame.assistant}`);
+            continue;
+          }
+          void this.retire(connection, frame.sessionId, `omp ${other.pid} already runs this transcript`);
+          return;
         }
         connection.session = {
           id: frame.sessionId,
@@ -546,8 +613,35 @@ export class OmpBridgeProvider implements AgentProvider {
     this.onChange?.({ kind: "gate" });
   }
 
+  /**
+   * Closes the omp behind `connection` (session `sessionId`): its herdr pane, else `/exit` through
+   * its bridge. The connection stays open, so the extension does not reconnect, but its session is
+   * unlisted and its frames are ignored; resolves when the socket closes.
+   */
+  private retire(connection: Connection, sessionId: string, why: string): Promise<void> {
+    if (connection.retired) return connection.gone.promise;
+    connection.retired = true;
+    const pane = connection.herdrPane;
+    this.log(`agent session ${sessionId}: closing omp ${connection.pid ?? "(pid unknown)"}${pane === null ? "" : ` in herdr pane ${pane}`}: ${why}`);
+    if (connection.session !== null) {
+      connection.session = null;
+      // The asks and approvals are this omp's only when no other connection carries the session.
+      if (this.find(sessionId) === undefined) {
+        this.pendingAsks.delete(sessionId);
+        this.pendingApprovals.delete(sessionId);
+      }
+      this.publish();
+    }
+    const viaBridge = (): Promise<unknown> => this.request(connection, "end", {});
+    void (pane === null ? viaBridge() : this.closePane(pane).catch(viaBridge)).catch((error: unknown) => {
+      this.log(`agent session ${sessionId}: omp ${connection.pid ?? "(pid unknown)"} did not close: ${error instanceof Error ? error.message : String(error)}`);
+    });
+    return connection.gone.promise;
+  }
+
   private drop(connection: Connection): void {
     if (!this.connections.delete(connection)) return;
+    connection.gone.resolve();
     for (const pending of connection.pending.values()) {
       clearTimeout(pending.timer);
       pending.reject(new AckFailure({ code: "agent_not_found", message: "omp session disconnected" }));
