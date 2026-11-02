@@ -26,7 +26,7 @@ Read-only; installs, starts and writes nothing.
 Missing tools have `installed:false` and `null` version/path. How each field is found:
 
 - `omp.providers`: `omp usage accounts --json` (local, fast; `mcp_oauth:*` entries are skipped) plus `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` lines in `~/.omp/agent/.env` (reported as `anthropic` / `openai`). `loggedIn` is true when the list is not empty.
-- `tailscale`: the CLI on PATH, else `/Applications/Tailscale.app/Contents/MacOS/Tailscale`; `status --json` gives `BackendState` (`running` = `Running`; `loggedIn` = not `NeedsLogin`/`NoState`) and `Self.TailscaleIPs[0]`.
+- `tailscale`: installed from the CLI on PATH or `/Applications/Tailscale.app` (version from `Info.plist`). The CLI is only run (`status --json`, `BackendState` and `Self.TailscaleIPs[0]`) when the Tailscale app process is already running (`pgrep`); otherwise it reports `running:false, loggedIn:false`. detect never launches the app, since any CLI call would pop macOS VPN dialogs.
 - `relayHost.installed`: `~/Applications/Relay Host.app` or `/Applications/Relay Host.app`; `running`: `~/.config/relay/serve.json` (`{port,pid}`) with a live pid.
 
 ```
@@ -43,7 +43,7 @@ Missing tools have `installed:false` and `null` version/path. How each field is 
 | bun        | `curl -fsSL https://bun.sh/install \| bash` (installs to `~/.bun`, edits the shell rc)                                                                                                                                                               | bun.sh/docs/installation                                 |
 | omp        | `curl -fsSL https://omp.sh/install \| sh -s -- --binary`: prebuilt binary to `~/.local/bin/omp`, sha256-verified, no Bun needed. Then `herdr integration install omp` if herdr is present.                                                           | omp.sh, github.com/can1357/oh-my-pi `scripts/install.sh` |
 | herdr      | `curl -fsSL https://herdr.dev/install.sh \| sh`: checksum-verified binary to `~/.local/bin/herdr`. Then `herdr integration install omp` if omp is present. This is the terminal tool (`herdr server`, `herdr workspace ...`) that Relay Host drives. | herdr.dev/tui                                            |
-| tailscale  | Standalone `Tailscale-latest-macos.pkg` from `pkgs.tailscale.com/stable`, signature-checked, installed under the admin prompt, then the app is opened so the user can sign in. The CLI is the one inside the app bundle.                             | pkgs.tailscale.com                                       |
+| tailscale  | Standalone `Tailscale-latest-macos.pkg` from `pkgs.tailscale.com/stable`, signature-checked, installed under the admin prompt. The app is NOT launched (its first start pops macOS VPN dialogs); the wizard opens it when the user asks.                                                                                       | pkgs.tailscale.com                                       |
 | relay-host | Delegates to `install-host.sh <root> <hostName>` (defaults: `$RELAY_HOME_ROOT` or `~/Relay`, the Mac's computer name).                                                                                                                               | below                                                    |
 
 Manual test (do NOT run on a machine that already has your setup): `./install.sh bun`, `./install.sh omp`, ... On an installed machine each prints `OK <version> (already installed)` and changes nothing.

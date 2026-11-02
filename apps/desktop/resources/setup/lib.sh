@@ -98,8 +98,8 @@ tool_version() {
     omp) "$bin" --version 2>/dev/null | sed -n '1s#^omp/##;1s#^v##;1p' ;;
     herdr) "$bin" --version 2>/dev/null | sed -n '1s/^herdr[[:space:]]*//p' ;;
     tailscale)
-      # The app bundle's CLI hangs until its network extension is approved: read the bundle version instead.
-      if [ "$bin" = "$TAILSCALE_APP_CLI" ]; then
+      # Never run the CLI for the version: it can launch the app (VPN prompts). Prefer the bundle version.
+      if [ -f /Applications/Tailscale.app/Contents/Info.plist ]; then
         plist_get /Applications/Tailscale.app/Contents/Info.plist CFBundleShortVersionString
       else
         { run_timeout 5 "$bin" version 2>/dev/null || true; } | sed -n '1p'

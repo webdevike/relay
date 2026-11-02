@@ -14,23 +14,46 @@ const DEFAULT_PORT = 7817
 
 export function PhoneStep({ ctx }: { ctx: WizardCtx }) {
   const [openError, setOpenError] = useState<string | null>(null)
+  const [opened, setOpened] = useState(false)
   const t = ctx.detect?.tailscale
   const ready = t?.installed === true && t.loggedIn && !!t.tailnetIp
   const recheck = useRef(ctx.recheck)
   recheck.current = ctx.recheck
 
-  // Live recheck while Tailscale still needs its sign-in.
+  // Live recheck only after the user chose to open Tailscale (the app is then running and its macOS approval
+  // dialogs are expected). Stops when signed in or when the step unmounts (Skip / Back / Continue).
   useEffect(() => {
-    if (ready) return
+    if (!opened || ready) return
     const id = setInterval(() => void recheck.current(), 3000)
     return () => clearInterval(id)
-  }, [ready])
+  }, [opened, ready])
 
   const port = ctx.detect?.relayHost.port ?? DEFAULT_PORT
   const address = t?.tailnetIp ? `${t.tailnetIp}:${port}` : null
 
   return (
     <Stack gap="md" data-testid="setup-phone">
+      <Group
+        gap="sm"
+        style={{
+          position: 'sticky',
+          top: 0,
+          zIndex: 5,
+          background: 'var(--mantine-color-body)',
+          padding: '6px 0',
+        }}
+      >
+        <Button
+          onClick={ctx.finish}
+          data-testid="setup-phone-next"
+          variant={ready ? 'filled' : 'default'}
+        >
+          {ready ? 'Continue' : 'Skip for now'}
+        </Button>
+        <Button variant="subtle" onClick={ctx.back}>
+          Back
+        </Button>
+      </Group>
       <Text c="dimmed" size="sm">
         Your iPhone reaches this Mac through Tailscale, a private network only your devices are on.
         You can skip this and pair later from Settings, Setup.
@@ -59,15 +82,18 @@ export function PhoneStep({ ctx }: { ctx: WizardCtx }) {
                 disabled={!t?.installed}
                 data-testid="setup-open-tailscale"
                 onClick={() =>
-                  void invoke('setup.openTailscale', {}).then((r) =>
-                    setOpenError(r.ok ? null : r.error.message),
-                  )
+                  void invoke('setup.openTailscale', {}).then((r) => {
+                    setOpenError(r.ok ? null : r.error.message)
+                    if (r.ok) setOpened(true)
+                  })
                 }
               >
-                Open Tailscale
+                {opened ? 'Open Tailscale again' : 'Open Tailscale'}
               </Button>
               <Text size="xs" c="dimmed">
-                Sign in there, then come back. This page checks on its own.
+                {opened
+                  ? 'Sign in there, then come back. This page checks on its own.'
+                  : 'macOS will ask you to approve a VPN configuration the first time.'}
               </Text>
             </Group>
             {openError ? (
@@ -124,19 +150,6 @@ export function PhoneStep({ ctx }: { ctx: WizardCtx }) {
           <List.Item>Paste the address above and confirm.</List.Item>
         </List>
       </div>
-
-      <Group>
-        <Button
-          onClick={ctx.finish}
-          data-testid="setup-phone-next"
-          variant={ready ? 'filled' : 'default'}
-        >
-          {ready ? 'Continue' : 'Skip for now'}
-        </Button>
-        <Button variant="subtle" onClick={ctx.back}>
-          Back
-        </Button>
-      </Group>
     </Stack>
   )
 }

@@ -141,8 +141,9 @@ case "$TOOL" in
       || fail "could not download the Tailscale installer from pkgs.tailscale.com"
     progress 50 "Verifying Tailscale installer"
     install_pkg_as_admin "$tmp/Tailscale.pkg" "Tailscale"
-    progress 90 "Starting Tailscale"
-    run_logged open -a Tailscale || true
+    # Do not launch the app: its first start pops the macOS VPN / network-extension dialogs. The wizard opens it
+    # only when the user asks.
+    progress 90 "Finishing Tailscale"
     i=0
     while [ -z "$(tool_path tailscale)" ] && [ "$i" -lt 20 ]; do sleep 1; i=$((i + 1)); done
     v="$(verified_version tailscale)"
