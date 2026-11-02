@@ -1,0 +1,373 @@
+import Cocoa
+import QuartzCore
+
+enum Palette {
+    static let blue = NSColor(srgbRed: 0.231, green: 0.510, blue: 0.965, alpha: 1)      // #3B82F6
+    static let deepBlue = NSColor(srgbRed: 0.145, green: 0.388, blue: 0.922, alpha: 1)  // #2563EB
+    static let ink = NSColor(srgbRed: 0.043, green: 0.106, blue: 0.227, alpha: 1)       // #0B1B3A
+    static let panel = NSColor(srgbRed: 0.106, green: 0.118, blue: 0.141, alpha: 0.96)  // #1B1E24
+    static let muted = NSColor(white: 0.66, alpha: 1)
+    static let faint = NSColor(white: 0.48, alpha: 1)
+}
+
+/// Global AppKit point (bottom-left origin) from a global CoreGraphics point (top-left origin).
+func appKitPoint(_ p: CGPoint) -> CGPoint {
+    CGPoint(x: p.x, y: (NSScreen.screens.first?.frame.height ?? 0) - p.y)
+}
+
+func appKitRect(_ r: CGRect) -> CGRect {
+    CGRect(x: r.minX, y: (NSScreen.screens.first?.frame.height ?? 0) - r.maxY, width: r.width, height: r.height)
+}
+
+/// Full-screen, transparent, click-through window on every Space. Never key, never main.
+final class OverlayWindow: NSWindow {
+    init(screen: NSScreen) {
+        super.init(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        isOpaque = false
+        backgroundColor = .clear
+        hasShadow = false
+        ignoresMouseEvents = true
+        isReleasedWhenClosed = false
+        level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.assistiveTechHighWindow)))
+        collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
+        let view = NSView(frame: CGRect(origin: .zero, size: screen.frame.size))
+        view.wantsLayer = true
+        view.layer?.masksToBounds = false
+        contentView = view
+        setFrame(screen.frame, display: false)
+    }
+
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+}
+
+/// Shows Buddy: think at the cursor, glide to each target, pulse, caption, fade.
+@MainActor
+final class OverlayController {
+    var onDismiss: (() -> Void)?
+    private(set) var isShowing = false
+
+    private var window: OverlayWindow?
+    private var screenFrame: CGRect = .zero
+    private let buddy = BuddyCharacter()
+    private var marks: [CALayer] = []
+    private var monitors: [Any] = []
+    private var fadeWork: DispatchWorkItem?
+    /// Bumped on every show or dismiss; stale animation callbacks compare against it.
+    private var generation = 0
+    /// Buddy's tip in global AppKit coordinates.
+    private var tip: CGPoint = .zero
+
+    static let restingOffset = CGPoint(x: 22, y: -6)
+
+    // MARK: Public
+
+    func showThinking(near mouse: CGPoint, appName: String) {
+        begin(at: CGPoint(x: mouse.x + Self.restingOffset.x, y: mouse.y + Self.restingOffset.y))
+        buddy.setThinking(true, text: "Looking at \(appName)")
+        layoutCaption()
+    }
+
+    /// A caption-only message (errors, "can't see that"). `near` nil keeps Buddy where it is.
+    func showMessage(_ text: String, near mouse: CGPoint?) {
+        if !isShowing || mouse != nil {
+            let m = mouse ?? NSEvent.mouseLocation
+            begin(at: CGPoint(x: m.x + Self.restingOffset.x, y: m.y + Self.restingOffset.y))
+        }
+        buddy.setThinking(false, text: text)
+        layoutCaption()
+        scheduleFade(after: dwell(for: text))
+    }
+
+    func perform(_ plan: Plan, context: ScreenContext, stay: Bool) {
+        if !isShowing { begin(at: CGPoint(x: NSEvent.mouseLocation.x + Self.restingOffset.x, y: NSEvent.mouseLocation.y + Self.restingOffset.y)) }
+        buddy.setStaying(stay)
+        let steps = plan.steps.prefix(3).map { resolve($0, context: context) }
+        let firstCaption = plan.say ?? steps.first?.label ?? "Done"
+        guard !steps.isEmpty else {
+            buddy.setThinking(false, text: firstCaption)
+            layoutCaption()
+            if !stay { scheduleFade(after: dwell(for: firstCaption)) }
+            return
+        }
+        run(steps, index: 0, firstCaption: firstCaption, stay: stay, generation: generation)
+    }
+
+    func dismiss(fast: Bool) {
+        guard isShowing else { return }
+        isShowing = false
+        generation += 1
+        let finishing = generation
+        removeMonitors()
+        fadeWork?.cancel()
+        fadeWork = nil
+        let duration = fast ? 0.12 : 0.35
+        let layers = [buddy.root] + marks
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(duration)
+        CATransaction.setCompletionBlock { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.generation == finishing else { return }
+                self.clearMarks()
+                self.buddy.setThinking(false, text: "")
+                self.window?.orderOut(nil)
+            }
+        }
+        layers.forEach { $0.opacity = 0 }
+        CATransaction.commit()
+        onDismiss?()
+    }
+
+    // MARK: Steps
+
+    private struct ResolvedStep {
+        enum Shape { case point(CGPoint), rect(CGRect) }
+        let shape: Shape
+        let tip: CGPoint
+        let label: String
+    }
+
+    private func resolve(_ step: PlanStep, context: ScreenContext) -> ResolvedStep {
+        switch step.kind {
+        case .point(let p):
+            let global = appKitPoint(context.globalPoint(p))
+            return ResolvedStep(shape: .point(global), tip: global, label: step.label)
+        case .highlight(let r):
+            let global = appKitRect(context.globalRect(r))
+            // Rest the tip just inside the bottom edge so Buddy's body sits below, not on top.
+            let tip = CGPoint(x: global.midX, y: global.minY + min(10, global.height * 0.25))
+            return ResolvedStep(shape: .rect(global), tip: tip, label: step.label)
+        }
+    }
+
+    private func run(_ steps: [ResolvedStep], index: Int, firstCaption: String, stay: Bool, generation token: Int) {
+        guard token == generation, index < steps.count else { return }
+        let step = steps[index]
+        moveToScreen(containing: step.tip)
+        let caption = index == 0 ? firstCaption : (step.label.isEmpty ? firstCaption : step.label)
+        buddy.setThinking(false, text: caption)
+        clearMarks()
+        let from = tip
+        tip = step.tip
+        layoutCaption()
+        let distance = hypot(step.tip.x - from.x, step.tip.y - from.y)
+        let duration = min(0.9, max(0.45, 0.35 + Double(distance) / 2500))
+        buddy.look(toward: CGPoint(x: step.tip.x - from.x, y: step.tip.y - from.y))
+        buddy.glide(from: local(from), to: local(step.tip), duration: duration) { [weak self] in
+            guard let self, token == self.generation else { return }
+            self.buddy.land()
+            self.mark(step.shape)
+            if index + 1 < steps.count {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.4 + self.readingExtra(caption)) { [weak self] in
+                    self?.run(steps, index: index + 1, firstCaption: firstCaption, stay: stay, generation: token)
+                }
+            } else if !stay {
+                self.scheduleFade(after: self.dwell(for: caption))
+            }
+        }
+    }
+
+    // MARK: Pieces
+
+    private func begin(at point: CGPoint) {
+        generation += 1
+        fadeWork?.cancel()
+        fadeWork = nil
+        clearMarks()
+        tip = point
+        moveToScreen(containing: point, force: window == nil)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        buddy.root.removeAllAnimations()
+        buddy.root.position = local(point)
+        buddy.root.opacity = 1
+        CATransaction.commit()
+        if !isShowing { buddy.appear() }
+        window?.orderFrontRegardless()
+        isShowing = true
+        installMonitors()
+    }
+
+    private func moveToScreen(containing point: CGPoint, force: Bool = false) {
+        let screen = NSScreen.screens.first(where: { NSMouseInRect(point, $0.frame, false) })
+            ?? NSScreen.screens.min(by: { distance(point, $0.frame) < distance(point, $1.frame) })
+            ?? NSScreen.main!
+        if window == nil {
+            let w = OverlayWindow(screen: screen)
+            w.contentView?.layer?.addSublayer(buddy.root)
+            window = w
+        }
+        guard force || screen.frame != screenFrame else { return }
+        screenFrame = screen.frame
+        window?.setFrame(screen.frame, display: false)
+        buddy.setContentsScale(screen.backingScaleFactor)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        // Jump to the nearest point on the new screen; the glide continues from there.
+        let clamped = CGPoint(x: min(max(tip.x, screenFrame.minX + 40), screenFrame.maxX - 40),
+                              y: min(max(tip.y, screenFrame.minY + 40), screenFrame.maxY - 40))
+        tip = clamped
+        buddy.root.position = local(clamped)
+        CATransaction.commit()
+    }
+
+    private func distance(_ p: CGPoint, _ r: CGRect) -> CGFloat {
+        let dx = max(r.minX - p.x, 0, p.x - r.maxX)
+        let dy = max(r.minY - p.y, 0, p.y - r.maxY)
+        return hypot(dx, dy)
+    }
+
+    private func local(_ global: CGPoint) -> CGPoint {
+        CGPoint(x: global.x - screenFrame.minX, y: global.y - screenFrame.minY)
+    }
+
+    private func layoutCaption() {
+        buddy.layoutLabels(tip: local(tip), in: CGRect(origin: .zero, size: screenFrame.size))
+    }
+
+    private func mark(_ shape: ResolvedStep.Shape) {
+        guard let root = window?.contentView?.layer else { return }
+        let scale = window?.backingScaleFactor ?? 2
+        let layer: CALayer
+        switch shape {
+        case .point(let p):
+            layer = Marks.ring(at: local(p), scale: scale)
+        case .rect(let r):
+            layer = Marks.outline(CGRect(origin: local(r.origin), size: r.size), scale: scale)
+        }
+        root.insertSublayer(layer, below: buddy.root)
+        marks.append(layer)
+    }
+
+    private func clearMarks() {
+        marks.forEach { $0.removeFromSuperlayer() }
+        marks.removeAll()
+    }
+
+    private func readingExtra(_ text: String) -> TimeInterval {
+        min(1.0, Double(max(0, text.count - 40)) * 0.03)
+    }
+
+    /// About 2 s after arriving, a bit longer for long captions.
+    private func dwell(for text: String) -> TimeInterval { 2.0 + readingExtra(text) }
+
+    private func scheduleFade(after delay: TimeInterval) {
+        fadeWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.dismiss(fast: false) }
+        fadeWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    /// Passive monitors: they see clicks and Esc meant for other apps without consuming them.
+    private func installMonitors() {
+        guard monitors.isEmpty else { return }
+        if let click = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown], handler: { [weak self] _ in
+            MainActor.assumeIsolated { self?.dismiss(fast: true) }
+        }) { monitors.append(click) }
+        // Watching keys system-wide needs Accessibility; without it, a click still dismisses.
+        if AXIsProcessTrusted(), let key = NSEvent.addGlobalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
+            guard event.keyCode == 53 else { return } // Esc
+            MainActor.assumeIsolated { self?.dismiss(fast: true) }
+        }) { monitors.append(key) }
+    }
+
+    private func removeMonitors() {
+        monitors.forEach(NSEvent.removeMonitor)
+        monitors.removeAll()
+    }
+}
+
+/// Ring and outline marks that pulse where Buddy points.
+enum Marks {
+    static func ring(at center: CGPoint, scale: CGFloat) -> CALayer {
+        let container = CALayer()
+        container.position = center
+        container.bounds = CGRect(x: -20, y: -20, width: 40, height: 40)
+        container.contentsScale = scale
+        let radius: CGFloat = 16
+        let circle = CGPath(ellipseIn: CGRect(x: -radius, y: -radius, width: radius * 2, height: radius * 2), transform: nil)
+
+        let ring = CAShapeLayer()
+        ring.path = circle
+        ring.fillColor = Palette.blue.withAlphaComponent(0.16).cgColor
+        ring.strokeColor = Palette.blue.cgColor
+        ring.lineWidth = 2.5
+        ring.contentsScale = scale
+        container.addSublayer(ring)
+
+        let pulse = CAShapeLayer()
+        pulse.path = circle
+        pulse.fillColor = NSColor.clear.cgColor
+        pulse.strokeColor = Palette.blue.cgColor
+        pulse.lineWidth = 2
+        pulse.opacity = 0
+        pulse.contentsScale = scale
+        container.addSublayer(pulse)
+
+        let grow = CABasicAnimation(keyPath: "transform.scale")
+        grow.fromValue = 1
+        grow.toValue = 2.3
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0.9
+        fade.toValue = 0
+        let group = CAAnimationGroup()
+        group.animations = [grow, fade]
+        group.duration = 0.85
+        group.repeatCount = 3
+        group.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        pulse.add(group, forKey: "pulse")
+
+        let pop = CASpringAnimation(keyPath: "transform.scale")
+        pop.fromValue = 0.3
+        pop.toValue = 1
+        pop.damping = 11
+        pop.initialVelocity = 6
+        pop.duration = pop.settlingDuration
+        ring.add(pop, forKey: "pop")
+        return container
+    }
+
+    static func outline(_ rect: CGRect, scale: CGFloat) -> CALayer {
+        let frame = rect.insetBy(dx: -5, dy: -5)
+        let path = CGPath(roundedRect: frame, cornerWidth: 8, cornerHeight: 8, transform: nil)
+        let container = CALayer()
+        container.contentsScale = scale
+
+        let outline = CAShapeLayer()
+        outline.path = path
+        outline.fillColor = Palette.blue.withAlphaComponent(0.08).cgColor
+        outline.strokeColor = Palette.blue.cgColor
+        outline.lineWidth = 2.5
+        outline.contentsScale = scale
+        container.addSublayer(outline)
+
+        let glow = CAShapeLayer()
+        glow.path = path
+        glow.fillColor = NSColor.clear.cgColor
+        glow.strokeColor = Palette.blue.cgColor
+        glow.lineWidth = 2
+        glow.opacity = 0
+        glow.contentsScale = scale
+        container.addSublayer(glow)
+
+        let width = CABasicAnimation(keyPath: "lineWidth")
+        width.fromValue = 2
+        width.toValue = 12
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0.7
+        fade.toValue = 0
+        let group = CAAnimationGroup()
+        group.animations = [width, fade]
+        group.duration = 0.9
+        group.repeatCount = 3
+        group.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        glow.add(group, forKey: "pulse")
+
+        let appear = CABasicAnimation(keyPath: "opacity")
+        appear.fromValue = 0
+        appear.toValue = 1
+        appear.duration = 0.18
+        outline.add(appear, forKey: "appear")
+        return container
+    }
+}

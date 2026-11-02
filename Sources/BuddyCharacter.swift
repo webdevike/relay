@@ -1,0 +1,262 @@
+import Cocoa
+import QuartzCore
+
+/// Buddy: a blue teardrop cursor with a face, a "Buddy" name tag and a one-line caption.
+/// `root` sits exactly on the tip (the hotspot); everything else hangs below-right of it.
+@MainActor
+final class BuddyCharacter {
+    let root = CALayer()
+    private let body = CALayer()
+    private let shape = CAShapeLayer()
+    private let eyes = CALayer()
+    private let pupils: [CALayer] = [CALayer(), CALayer()]
+    private let mouth = CAShapeLayer()
+    private let tag = CALayer()
+    private let tagText = CATextLayer()
+    private let caption = CALayer()
+    private let captionText = CATextLayer()
+
+    private var thinkingTimer: Timer?
+    private var thinkingBase = ""
+    private var staying = false
+
+    private static let center = CGPoint(x: 15, y: -15)
+    private static let radius: CGFloat = 11.5
+    private static let tagFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
+    private static let captionFont = NSFont.systemFont(ofSize: 13, weight: .medium)
+    private static let maxCaptionWidth: CGFloat = 600
+
+    init() {
+        root.bounds = .zero
+        root.anchorPoint = .zero
+        root.masksToBounds = false
+
+        body.bounds = .zero
+        body.anchorPoint = .zero
+        root.addSublayer(body)
+
+        shape.path = Self.teardrop()
+        shape.fillColor = Palette.blue.cgColor
+        shape.strokeColor = NSColor.white.cgColor
+        shape.lineWidth = 2
+        shape.lineJoin = .round
+        shape.shadowColor = NSColor.black.cgColor
+        shape.shadowOpacity = 0.35
+        shape.shadowRadius = 4
+        shape.shadowOffset = CGSize(width: 0, height: -1.5)
+        body.addSublayer(shape)
+
+        let c = Self.center
+        eyes.frame = CGRect(x: c.x - 7, y: c.y - 2, width: 14, height: 8)
+        for (index, x) in [CGFloat(1), 8].enumerated() {
+            let white = CALayer()
+            white.frame = CGRect(x: x, y: 0, width: 5, height: 6.5)
+            white.cornerRadius = 2.5
+            white.backgroundColor = NSColor.white.cgColor
+            let pupil = pupils[index]
+            pupil.bounds = CGRect(x: 0, y: 0, width: 2.8, height: 3.2)
+            pupil.cornerRadius = 1.4
+            pupil.backgroundColor = Palette.ink.cgColor
+            pupil.position = CGPoint(x: 2.5, y: 3.2)
+            white.addSublayer(pupil)
+            eyes.addSublayer(white)
+        }
+        body.addSublayer(eyes)
+
+        let smile = CGMutablePath()
+        smile.addArc(center: CGPoint(x: c.x + 0.5, y: c.y - 2.5), radius: 3.6,
+                     startAngle: .pi * 1.18, endAngle: .pi * 1.82, clockwise: false)
+        mouth.path = smile
+        mouth.strokeColor = NSColor.white.cgColor
+        mouth.fillColor = NSColor.clear.cgColor
+        mouth.lineWidth = 1.5
+        mouth.lineCap = .round
+        body.addSublayer(mouth)
+        tag.anchorPoint = .zero
+        caption.anchorPoint = .zero
+
+        tag.backgroundColor = Palette.deepBlue.cgColor
+        tag.cornerRadius = 9
+        tag.borderColor = NSColor.white.withAlphaComponent(0.7).cgColor
+        tag.borderWidth = 1
+        tagText.font = Self.tagFont
+        tagText.fontSize = Self.tagFont.pointSize
+        tagText.foregroundColor = NSColor.white.cgColor
+        tagText.alignmentMode = .center
+        tag.addSublayer(tagText)
+        root.addSublayer(tag)
+
+        caption.backgroundColor = Palette.panel.cgColor
+        caption.cornerRadius = 9
+        caption.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
+        caption.borderWidth = 1
+        caption.shadowColor = NSColor.black.cgColor
+        caption.shadowOpacity = 0.3
+        caption.shadowRadius = 6
+        caption.shadowOffset = CGSize(width: 0, height: -2)
+        captionText.font = Self.captionFont
+        captionText.fontSize = Self.captionFont.pointSize
+        captionText.foregroundColor = NSColor.white.cgColor
+        captionText.truncationMode = .end
+        captionText.isWrapped = false
+        caption.addSublayer(captionText)
+        root.addSublayer(caption)
+
+        setTagText("Buddy")
+        startBlinking()
+    }
+
+    /// Teardrop: a circle with its point at (0, 0), aimed up-left like a cursor.
+    private static func teardrop() -> CGPath {
+        let c = center, r = radius
+        let toTip = CGPoint(x: -c.x, y: -c.y)
+        let d = hypot(toTip.x, toTip.y)
+        let theta = atan2(toTip.y, toTip.x)
+        let alpha = acos(r / d)
+        let path = CGMutablePath()
+        path.move(to: .zero)
+        path.addLine(to: CGPoint(x: c.x + r * cos(theta + alpha), y: c.y + r * sin(theta + alpha)))
+        path.addArc(center: c, radius: r, startAngle: theta + alpha, endAngle: theta - alpha + 2 * .pi, clockwise: false)
+        path.closeSubpath()
+        return path
+    }
+
+    func setContentsScale(_ scale: CGFloat) {
+        for layer in [root, body, shape, mouth, tag, tagText, caption, captionText] { layer.contentsScale = scale }
+    }
+
+    func setStaying(_ stay: Bool) {
+        staying = stay
+        setTagText(stay ? "Buddy · staying" : "Buddy")
+    }
+
+    private func setTagText(_ text: String) {
+        let width = ceil((text as NSString).size(withAttributes: [.font: Self.tagFont]).width) + 16
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        tag.bounds = CGRect(x: 0, y: 0, width: width, height: 18)
+        tagText.string = text
+        tagText.frame = CGRect(x: 0, y: 2, width: width, height: 14)
+        CATransaction.commit()
+    }
+
+    func setThinking(_ thinking: Bool, text: String) {
+        thinkingTimer?.invalidate()
+        thinkingTimer = nil
+        body.removeAnimation(forKey: "bob")
+        if thinking {
+            thinkingBase = text
+            var dots = 0
+            setCaption(text + "   ")
+            thinkingTimer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    dots = (dots + 1) % 4
+                    self.setCaption(self.thinkingBase + String(repeating: ".", count: dots) + String(repeating: " ", count: 3 - dots))
+                }
+            }
+            let bob = CABasicAnimation(keyPath: "transform.translation.y")
+            bob.fromValue = -1.5
+            bob.toValue = 1.5
+            bob.duration = 0.55
+            bob.autoreverses = true
+            bob.repeatCount = .infinity
+            bob.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            body.add(bob, forKey: "bob")
+        } else {
+            setCaption(text)
+        }
+    }
+
+    private func setCaption(_ text: String) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        caption.isHidden = text.isEmpty
+        captionText.string = text
+        let measured = ceil((text as NSString).size(withAttributes: [.font: Self.captionFont]).width)
+        let width = min(Self.maxCaptionWidth, measured) + 22
+        caption.bounds = CGRect(x: 0, y: 0, width: width, height: 26)
+        captionText.frame = CGRect(x: 11, y: 4, width: width - 22, height: 18)
+        CATransaction.commit()
+    }
+
+    /// Places tag and caption below-right of the tip, kept inside `bounds` (overlay-local).
+    func layoutLabels(tip: CGPoint, in bounds: CGRect) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        let below = tip.y - 84 > bounds.minY + 8
+        var tagOrigin = CGPoint(x: 28, y: below ? -50 : 12)
+        var captionOrigin = CGPoint(x: 28, y: below ? -80 : 34)
+        let overflowTag = tip.x + tagOrigin.x + tag.bounds.width - (bounds.maxX - 8)
+        if overflowTag > 0 { tagOrigin.x -= overflowTag }
+        let overflowCaption = tip.x + captionOrigin.x + caption.bounds.width - (bounds.maxX - 8)
+        if overflowCaption > 0 { captionOrigin.x -= overflowCaption }
+        tag.frame = CGRect(origin: tagOrigin, size: tag.bounds.size)
+        caption.frame = CGRect(origin: captionOrigin, size: caption.bounds.size)
+        CATransaction.commit()
+    }
+
+    func look(toward direction: CGPoint) {
+        let length = max(1, hypot(direction.x, direction.y))
+        let offset = CGPoint(x: direction.x / length * 1.1, y: direction.y / length * 1.3)
+        for pupil in pupils { pupil.position = CGPoint(x: 2.5 + offset.x, y: 3.2 + offset.y) }
+    }
+
+    func appear() {
+        let pop = CASpringAnimation(keyPath: "transform.scale")
+        pop.fromValue = 0.4
+        pop.toValue = 1
+        pop.damping = 12
+        pop.initialVelocity = 8
+        pop.duration = pop.settlingDuration
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0
+        fade.toValue = 1
+        fade.duration = 0.15
+        root.add(pop, forKey: "appear")
+        root.add(fade, forKey: "appearFade")
+    }
+
+    /// Smooth curved glide, like a person moving their mouse, easing into the target.
+    func glide(from start: CGPoint, to end: CGPoint, duration: CFTimeInterval, completion: @escaping @MainActor () -> Void) {
+        let current = root.presentation()?.position ?? start
+        let dx = end.x - current.x, dy = end.y - current.y
+        let distance = hypot(dx, dy)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion() } }
+        if distance > 1 {
+            let bend = min(80, distance * 0.12)
+            let mid = CGPoint(x: (current.x + end.x) / 2, y: (current.y + end.y) / 2)
+            let control = CGPoint(x: mid.x - dy / distance * bend, y: mid.y + dx / distance * bend)
+            let path = CGMutablePath()
+            path.move(to: current)
+            path.addQuadCurve(to: end, control: control)
+            let move = CAKeyframeAnimation(keyPath: "position")
+            move.path = path
+            move.duration = duration
+            move.timingFunction = CAMediaTimingFunction(controlPoints: 0.35, 0.0, 0.15, 1.0)
+            root.add(move, forKey: "glide")
+        }
+        root.position = end
+        CATransaction.commit()
+    }
+
+    /// Small squash on arrival.
+    func land() {
+        let squash = CAKeyframeAnimation(keyPath: "transform.scale")
+        squash.values = [1, 1.14, 0.96, 1]
+        squash.keyTimes = [0, 0.35, 0.7, 1]
+        squash.duration = 0.32
+        body.add(squash, forKey: "land")
+    }
+
+    private func startBlinking() {
+        let blink = CAKeyframeAnimation(keyPath: "transform.scale.y")
+        blink.values = [1, 1, 0.1, 1]
+        blink.keyTimes = [0, 0.93, 0.965, 1]
+        blink.duration = 3.6
+        blink.repeatCount = .infinity
+        eyes.add(blink, forKey: "blink")
+    }
+}
