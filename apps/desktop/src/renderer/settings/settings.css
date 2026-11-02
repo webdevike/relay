@@ -202,3 +202,24 @@
     padding-right: 0;
   }
 }
+/* Settings > Links: a rule's opener picker beside its move and remove buttons. */
+.eva-links-controls {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--mantine-spacing-xs);
+  flex-shrink: 0;
+}
+.eva-links-opener {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+  width: 220px;
+}
+.eva-links-add {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-links-add-input {
+  flex: 1;
+}

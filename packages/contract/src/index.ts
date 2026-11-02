@@ -18,6 +18,7 @@ import { artifactsEvents, artifactsInvoke } from './artifacts'
 import { studioEvents, studioInvoke } from './studio'
 import { draftsInvoke } from './drafts'
 import { linearInvoke } from './linear'
+import { linksEvents, linksInvoke } from './links'
 import { reviewsEvents, reviewsInvoke } from './reviews'
 import { roomsEvents, roomsInvoke } from './rooms'
 import { filesEvents, filesInvoke } from './files'
@@ -35,6 +36,7 @@ export * from './artifacts'
 export * from './studio'
 export * from './drafts'
 export * from './linear'
+export * from './links'
 export * from './reviews'
 export * from './rooms'
 export * from './rooms-roster'
@@ -64,6 +66,7 @@ export {
 
 export const invokeContract = {
   ...linearInvoke,
+  ...linksInvoke,
   ...reviewsInvoke,
   ...appInvoke,
   ...shellInvoke,
@@ -90,6 +93,7 @@ export const invokeContract = {
   ...contextInvoke,
 }
 export const eventContract = {
+  ...linksEvents,
   ...appEvents,
   ...chatEvents,
   ...browserEvents,

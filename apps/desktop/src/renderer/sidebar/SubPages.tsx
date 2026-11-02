@@ -3,6 +3,7 @@ import {
   IconChevronLeft,
   IconEdit,
   IconInfoCircle,
+  IconLink,
   IconMessage,
   IconPalette,
   IconPlus,
@@ -21,7 +22,12 @@ import { ChatList } from '../chat/list/ChatList'
 import { SearchBox } from './SearchBox'
 import { backToRoot, type NavLevel } from './nav-level'
 
-const SECTION_ICON = { Theme: IconPalette, Chat: IconMessage, About: IconInfoCircle } as const
+const SECTION_ICON = {
+  Theme: IconPalette,
+  Chat: IconMessage,
+  Links: IconLink,
+  About: IconInfoCircle,
+} as const
 
 const COPY = {
   chats: { title: 'Chats', search: 'Search chats' },
@@ -34,7 +40,8 @@ export function SubPage({ level }: { level: Exclude<NavLevel, 'root'> }) {
   const [query, setQuery] = useState('')
   // The chats page pins its Settled fold here, below the scrolling list.
   const [footer, setFooter] = useState<HTMLDivElement | null>(null)
-  const copy = level === 'settings' || level === 'assistants' || level === 'reviews' ? null : COPY[level]
+  const copy =
+    level === 'settings' || level === 'assistants' || level === 'reviews' ? null : COPY[level]
   const title = copy
     ? copy.title
     : level === 'assistants'

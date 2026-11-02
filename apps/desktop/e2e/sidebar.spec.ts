@@ -115,7 +115,7 @@ test('account menu takes Esc first and hides the browser view', async ({ app, sh
 test('settings sub-page opens a settings section', async ({ shell }) => {
   await shell.locator(sel('nav-setting')).click()
   await expect.poll(() => level(shell)).toBe('settings')
-  await expect(shell.locator('[data-testid^=settings-item-]')).toHaveCount(2)
+  await expect(shell.locator('[data-testid^=settings-item-]')).toHaveCount(4)
   await shell.locator(sel('settings-item-chat')).click()
   await expect
     .poll(async () => (await tabs(shell)).list[(await tabs(shell)).active]!.title)

@@ -19,7 +19,7 @@ export type FixedPage =
  */
 export type PageKey = FixedPage | `workspace:${string}` | `agent:${string}` | `board:${string}`
 
-export const SETTINGS_SECTIONS = ['Theme', 'Chat', 'About'] as const
+export const SETTINGS_SECTIONS = ['Theme', 'Chat', 'Links', 'About'] as const
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
 
 export interface Place {

@@ -8,11 +8,13 @@ import '@mantine/notifications/styles.css'
 import './styles/tokens.css'
 import './styles/motion.css'
 import { App } from './app/App'
+import { startLinks } from './navigation/link-prefs'
 import { bootstrapTheme } from './theme/bootstrap'
 import { ThemeProvider } from './theme/theme-config'
 
 async function start(): Promise<void> {
   await bootstrapTheme()
+  void startLinks()
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <ThemeProvider>

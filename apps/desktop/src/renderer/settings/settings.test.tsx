@@ -3,11 +3,12 @@ import userEvent from '@testing-library/user-event'
 import { MantineProvider } from '@mantine/core'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { placeOf } from '@evaos/shell-core'
+import { DEFAULT_LINK_PREFS } from '@evaos/contract'
 
 const invoke = vi.fn()
 const MISSING = 'Claude Code was not found. Install it, then try again.'
 let harnessStatus = { omp: true, claude: true }
-vi.mock('../ipc', () => ({ invoke: (...a: unknown[]) => invoke(...a) }))
+vi.mock('../ipc', () => ({ invoke: (...a: unknown[]) => invoke(...a), on: () => () => undefined }))
 vi.mock('@mantine/notifications', () => ({ notifications: { show: vi.fn() } }))
 
 import { SettingsPage } from './SettingsPage'
@@ -23,7 +24,7 @@ import {
 import { pageRegistry } from '../pages/registry'
 import { assistantsStore } from '../assistants/assistants-store'
 
-function page(section: 'Theme' | 'Chat' | 'About') {
+function page(section: 'Theme' | 'Chat' | 'Links' | 'About') {
   return render(
     <MantineProvider env="test">
       <SettingsPage place={placeOf('settings', { settingsSection: section })} />
@@ -38,6 +39,9 @@ beforeEach(() => {
     if (c === 'settings.load')
       return { ok: true, value: { show_thinking: false, show_tools: false, harness: 'omp' } }
     if (c === 'chat.harnessStatus') return { ok: true, value: harnessStatus }
+    if (c === 'links.get')
+      return { ok: true, value: { prefs: DEFAULT_LINK_PREFS, apps: ['Arc', 'Linear', 'Slack'] } }
+    if (c === 'links.set') return { ok: true, value: input.prefs }
     return {
       ok: true,
       value: { show_thinking: false, show_tools: false, harness: 'omp', ...input },
@@ -271,6 +275,50 @@ describe('SettingsPage', () => {
       'href',
       'https://creativecommons.org/licenses/by/4.0/',
     )
+  })
+
+  it('Links lists the default rules and saves an added site, a changed opener and a removal', async () => {
+    const user = userEvent.setup()
+    page('Links')
+    const rules = await screen.findByTestId('links-rules')
+    for (const p of ['linear.app', 'slack.com', '*.slack.com', 'github.com'])
+      expect(within(rules).getByTestId(`links-rule-${p}`)).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('links-opener-github.com')).toHaveValue('Arc'))
+    expect(screen.getByTestId('links-opener-fallback')).toHaveValue('Relay browser')
+
+    await user.type(screen.getByTestId('links-add-input'), 'https://Docs.Example.com/a?b=1')
+    await user.click(screen.getByTestId('links-add'))
+    const added = {
+      rules: [
+        ...DEFAULT_LINK_PREFS.rules,
+        { pattern: 'docs.example.com/a', opener: { kind: 'browser' } },
+      ],
+      fallback: { kind: 'browser' },
+    }
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('links.set', { prefs: added }))
+
+    await user.click(screen.getByTestId('links-opener-docs.example.com/a'))
+    await user.click(await screen.findByRole('option', { name: 'Default browser' }))
+    await waitFor(() =>
+      expect(invoke).toHaveBeenLastCalledWith('links.set', {
+        prefs: {
+          ...added,
+          rules: [
+            ...DEFAULT_LINK_PREFS.rules,
+            { pattern: 'docs.example.com/a', opener: { kind: 'system' } },
+          ],
+        },
+      }),
+    )
+
+    await user.click(screen.getByTestId('links-remove-github.com'))
+    await waitFor(() =>
+      expect(screen.queryByTestId('links-rule-github.com')).not.toBeInTheDocument(),
+    )
+
+    await user.type(screen.getByTestId('links-add-input'), 'localhost')
+    await user.click(screen.getByTestId('links-add'))
+    expect(screen.getByText('Type a site like example.com or *.example.com')).toBeInTheDocument()
   })
 
   it('registry maps settings to SettingsPage and has no em dash', () => {

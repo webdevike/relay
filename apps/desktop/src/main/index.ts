@@ -14,6 +14,7 @@ import { registerLayoutIpc } from './layout-ipc'
 import { registerDraftsIpc } from './drafts-ipc'
 import { installQuitGuard } from './quit-guard'
 import { registerSettingsIpc } from './settings-ipc'
+import { registerLinksIpc } from './links/links-ipc'
 import { readLastBackground, registerThemeIpc } from './theme-ipc'
 import { createWriteQueue } from './write-queue'
 import { installAppMenu } from './menu'
@@ -149,6 +150,7 @@ function bootstrap(): void {
       registerDraftsIpc(ctx)
       registerThemeIpc(ctx, queue)
       registerSettingsIpc(ctx, queue)
+      registerLinksIpc(ctx, queue)
       registerEvaIpc(ctx)
       const chat = registerChat(ctx, queue)
       const experiments = registerExperimentsIpc(ctx)

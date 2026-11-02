@@ -1,15 +1,20 @@
+import { resolveLink } from '@evaos/contract'
 import { invoke } from '../ipc'
 import { revealTool } from '../tiling/tiling-store'
+import { linkPrefsStore } from './link-prefs'
 
-/** Web links open in a new tab of the current scope's browser; other schemes go nowhere. */
+/**
+ * Opens a web link where Settings > Links says: a new tab of the current scope's browser, or (an
+ * app, a URL scheme, the default browser) through main. Other schemes go nowhere.
+ */
 export function openLink(href: string): void {
-  let url: URL
-  try {
-    url = new URL(href)
-  } catch {
+  const { prefs, apps } = linkPrefsStore.getState()
+  const route = resolveLink(prefs, href, (app) => apps.includes(app))
+  if (route.to === 'none') return
+  if (route.to === 'browser') {
+    revealTool('browser')
+    void invoke('browser.createTab', { url: route.url })
     return
   }
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') return
-  revealTool('browser')
-  void invoke('browser.createTab', { url: url.href })
+  void invoke('links.open', { url: new URL(href).href })
 }

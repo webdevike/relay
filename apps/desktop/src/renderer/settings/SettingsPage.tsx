@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import type { Place } from '@evaos/shell-core'
 import { AboutSection } from './AboutSection'
 import { ChatSection } from './ChatSection'
+import { LinksSection } from './LinksSection'
 import { ThemeSection } from './ThemeSection'
 import { startSettings } from './settings-store'
 import './settings.css'
@@ -9,6 +10,7 @@ import './settings.css'
 const SECTIONS = {
   Theme: { Body: ThemeSection, desc: 'Colors, fonts and shape for the whole app.' },
   Chat: { Body: ChatSection, desc: "What conversations show besides Eva's replies." },
+  Links: { Body: LinksSection, desc: 'Where clicked links open, by site.' },
   About: { Body: AboutSection, desc: 'Credits for the art EvaOS ships.' },
 } as const
 

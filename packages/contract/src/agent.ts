@@ -107,7 +107,7 @@ const PageTabArgs = z
         .max(300)
         .regex(/^(workspace|board):.+$/),
     ]),
-    settingsSection: z.enum(['Theme', 'Chat', 'About']).optional(),
+    settingsSection: z.enum(['Theme', 'Chat', 'Links', 'About']).optional(),
     canvas: z.string().max(200).optional(),
     meeting: z.string().max(500).optional(),
   })
@@ -233,7 +233,7 @@ export const agentActions = {
             .regex(/^(workspace|agent|board):.+$/),
         ]),
         newTab: z.boolean().optional(),
-        settingsSection: z.enum(['Theme', 'Chat', 'About']).optional(),
+        settingsSection: z.enum(['Theme', 'Chat', 'Links', 'About']).optional(),
         canvas: z.string().max(200).optional(),
         meeting: z.string().max(500).optional(),
       })
