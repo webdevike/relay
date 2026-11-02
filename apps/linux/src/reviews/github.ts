@@ -6,6 +6,8 @@ import { homedir } from "node:os";
 import { MAX_REVIEW_DIFF, type ReviewItem, type ReviewPr } from "@relay/protocol";
 import { z } from "zod";
 import type { ToolRun } from "./exec";
+import type { Fetch, ReviewMedia } from "./linear";
+import { isGithubUpload, isLinearUpload, localizeImages } from "./media";
 
 export const REVIEWS_ORG = "eCardSystems";
 const GH_TIMEOUT_MS = 60_000;
@@ -162,6 +164,8 @@ export class GitHub {
   constructor(
     private readonly run: ToolRun,
     private readonly gh: string,
+    /** Where PR images are kept and how they are fetched; without it bodies stay as GitHub wrote them. */
+    private readonly images?: { media: ReviewMedia; fetchFn: Fetch; linearKey: () => string | null },
   ) {}
 
   private async call(args: readonly string[]): Promise<string> {
@@ -194,7 +198,34 @@ export class GitHub {
       this.call(["pr", "view", String(number), "-R", repo, "--json", PR_JSON_FIELDS]),
       this.call(["pr", "diff", String(number), "-R", repo, "--color=never"]),
     ]);
-    return toPr(repo, JSON.parse(view) as RawPr, diff);
+    const pr = toPr(repo, JSON.parse(view) as RawPr, diff);
+    if (this.images === undefined) return pr;
+    // GitHub's attachments open only signed in, and its `<img>` tags become markdown; PR bodies
+    // carry Linear proof screenshots too.
+    const { media, fetchFn, linearKey } = this.images;
+    const sources = [
+      { match: isGithubUpload, headers: () => this.authHeader() },
+      { match: isLinearUpload, headers: () => Promise.resolve(((key) => (key ? { authorization: key } : {}))(linearKey())) },
+    ];
+    const local = (md: string): Promise<string> => localizeImages(md, media, sources, fetchFn);
+    const [body, timeline] = await Promise.all([
+      local(pr.body),
+      Promise.all(pr.timeline.map(async (t) => (t.kind === "commit" ? t : { ...t, body: await local(t.body) }))),
+    ]);
+    return { ...pr, body, timeline };
+  }
+
+  private token: Promise<string | null> | null = null;
+
+  /** gh's login as a header, asked once (`gh auth token`); none when gh can't say. */
+  private async authHeader(): Promise<Record<string, string>> {
+    this.token ??= this.call(["auth", "token"]).then(
+      (out) => out.trim() || null,
+      () => null,
+    );
+    const t = await this.token;
+    if (t === null) this.token = null;
+    return t === null ? {} : { authorization: `token ${t}` };
   }
 
   async guideInput(repo: string, number: number): Promise<GuidePr> {

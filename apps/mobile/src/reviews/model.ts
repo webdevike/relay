@@ -86,6 +86,20 @@ export function withHostMedia(markdown: string, base: string | null): string {
   return markdown.replace(/(\]\(|src=["'])\/reviews\/media\//g, `$1${base}/reviews/media/`);
 }
 
+/** A Linear profile link (`https://linear.app/<workspace>/profiles/<handle>`): how Linear writes a mention. */
+const LINEAR_PROFILE = /(?<!\]\()<?https:\/\/linear\.app\/[\w-]+\/profiles\/([\w.-]+)>?/g;
+
+/**
+ * What a Linear body shows: each profile link as a bold `@Name`, the way Linear shows a mention
+ * (semibold, not a link). The name comes from the people on the ticket, else the handle.
+ */
+export function linearMentions(markdown: string, people: readonly { name: string; handle: string }[]): string {
+  return markdown.replace(LINEAR_PROFILE, (_, handle: string) => {
+    const person = people.find((p) => p.handle.toLowerCase() === handle.toLowerCase());
+    return `**@${(person?.name ?? handle).replace(/[*_[\]]/g, "")}**`;
+  });
+}
+
 /** A thread's first message is its parent (the "N replies" divider follows it); a DM has none. */
 export function slackParts(messages: readonly SlackMessage[], threadTs: string | null): { parent: SlackMessage | null; replies: SlackMessage[] } {
   const sorted = [...messages].sort((a, b) => a.at - b.at);

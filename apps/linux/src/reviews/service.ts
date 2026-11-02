@@ -103,10 +103,10 @@ export class ReviewsService implements ReviewsRelaying {
   private readonly tickets = new Map<string, LinearTicket>();
 
   constructor(private readonly deps: ReviewsServiceDeps) {
-    this.github = new GitHub(deps.run, deps.gh);
     this.media = new ReviewMedia(join(deps.dir, "media"));
+    this.github = new GitHub(deps.run, deps.gh, { media: this.media, fetchFn: deps.fetch, linearKey: () => linearKey(deps.agentHome) });
     this.linear = new Linear(() => linearKey(deps.agentHome), this.media, deps.fetch);
-    this.slack = new Slack(deps.run, deps.claude, join(deps.dir, "slack.json"));
+    this.slack = new Slack(deps.run, deps.claude, join(deps.dir, "slack.json"), this.media);
     this.guide = guideCache(join(deps.dir, "guides.json"), claudeWriter(deps.run, deps.claude));
     this.astra = new AstraSessions({
       agents: deps.agents,

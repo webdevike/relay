@@ -9,7 +9,7 @@ import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import type { ReviewRef } from "@relay/protocol";
 import { emojify } from "@relay/slack-emoji";
-import { reviewsRequest } from "@/connection";
+import { hostBaseUrl, reviewsRequest } from "@/connection";
 import { openExternal } from "@/lib/links";
 import { useTransientMessage } from "@/lib/useTransientMessage";
 import { useMarkSeen } from "@/reviews/actions";
@@ -93,7 +93,7 @@ export default function ReviewSlackScreen() {
           now={now}
           onUseAsReply={composer.takeAnswer}
           onStop={composer.stop}
-          renderEntry={(entry) => (entry.kind === "message" ? <SlackCard message={entry.message} now={now} /> : <RepliesDivider count={entry.count} />)}
+          renderEntry={(entry) => (entry.kind === "message" ? <SlackCard message={entry.message} now={now} base={hostBaseUrl()} link={params.url} /> : <RepliesDivider count={entry.count} />)}
         />
         {reading && (
           <View style={styles.reading} accessibilityLabel="Reading Slack">

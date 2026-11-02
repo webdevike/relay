@@ -235,6 +235,11 @@ export const SlackMessage = z.object({
   mentionsMe: z.boolean(),
   reactions: z.array(z.object({ emoji: z.string(), count: z.number() })),
   files: z.array(z.string()),
+  /**
+   * The files with Slack's id and, for an image the host fetched through the Slack app, its host
+   * path (`/reviews/media/<file>/<token>`); `src` null for other files. Older hosts send none.
+   */
+  attachments: z.array(z.object({ name: z.string(), id: z.string(), src: z.string().nullable() })).default([]),
   at: ms,
 });
 export type SlackMessage = z.infer<typeof SlackMessage>;

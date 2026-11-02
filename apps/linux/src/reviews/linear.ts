@@ -5,13 +5,14 @@
 // them once (`ReviewMedia`) and the markdown points at `/reviews/media/<file>/<token>` on the host.
 // Writes, after Isaac confirms: posting a comment, and uploading an image for one (`upload`).
 
-import { createHash, createHmac, randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { createHmac, randomBytes } from "node:crypto";
+import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { LinearTicket, ReviewItem } from "@relay/protocol";
 import { z } from "zod";
 import { sameToken } from "../drops/serve";
 import type { DropBlob } from "../seams";
+import { isLinearUpload, localizeImages } from "./media";
 
 const ms = (iso: string | null | undefined): number => {
   const t = iso ? Date.parse(iso) : NaN;
@@ -234,14 +235,6 @@ const TICKET_QUERY = `query($id: String!) {
   }
 }`;
 
-/** Linear's uploaded images in markdown (`![alt](https://uploads.linear.app/...)`). */
-const UPLOAD = /!\[([^\]]*)\]\((https:\/\/uploads\.linear\.app\/[^)\s]+)\)/g;
-const EXT: Record<string, string> = {
-  "image/png": ".png",
-  "image/jpeg": ".jpg",
-  "image/gif": ".gif",
-  "image/webp": ".webp",
-};
 const MIME: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" };
 const MEDIA_NAME = /^[0-9a-f]{40}\.(png|jpg|gif|webp)$/;
 
@@ -346,28 +339,10 @@ export class Linear {
     return body.data;
   }
 
-  /** A Linear upload as a host path (downloaded once with the key); the URL itself on failure. */
-  private async localImage(url: string): Promise<string> {
-    const sha = createHash("sha1").update(url).digest("hex");
-    const have = existsSync(this.media.dir) ? readdirSync(this.media.dir).find((f) => f.startsWith(`${sha}.`)) : undefined;
-    if (have !== undefined) return this.media.path(have);
-    try {
-      const token = this.key();
-      const res = await this.fetchFn(url, { headers: token ? { authorization: token } : {}, signal: AbortSignal.timeout(20_000) });
-      const ext = EXT[(res.headers.get("content-type") ?? "").split(";")[0]?.trim() ?? ""];
-      if (!res.ok || ext === undefined) return url;
-      mkdirSync(this.media.dir, { recursive: true, mode: 0o700 });
-      writeFileSync(join(this.media.dir, `${sha}${ext}`), Buffer.from(await res.arrayBuffer()), { mode: 0o600 });
-      return this.media.path(`${sha}${ext}`);
-    } catch {
-      return url;
-    }
-  }
-
-  private async withLocalImages(md: string): Promise<string> {
-    const urls = [...new Set([...md.matchAll(UPLOAD)].map((m) => m[2] ?? ""))];
-    const local = new Map(await Promise.all(urls.map(async (u) => [u, await this.localImage(u)] as const)));
-    return md.replace(UPLOAD, (_, alt: string, url: string) => `![${alt}](${local.get(url) ?? url})`);
+  /** Linear's uploads (and any `<img>` tag) pointed at the host's copy, downloaded with the key. */
+  private withLocalImages(md: string): Promise<string> {
+    const key = this.key();
+    return localizeImages(md, this.media, [{ match: isLinearUpload, headers: () => Promise.resolve(key ? { authorization: key } : {}) }], this.fetchFn);
   }
 
   async queue(): Promise<LinearRow[]> {

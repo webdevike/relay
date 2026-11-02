@@ -2,11 +2,13 @@
  * One Slack message as a timeline card, Isaac's own the same as everyone's: initials, bold name,
  * faint date, the text, attached file names as chips and reactions as emoji-and-count pills.
  */
-import { StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import { SymbolView, type SFSymbol } from "expo-symbols";
 import { reviewAgo, type SlackMessage } from "@relay/protocol";
 import { emojify, reactionEmoji } from "@relay/slack-emoji";
 import { MessageText } from "@/agents/MessageText";
+import { MarkdownImages } from "@/agents/MarkdownImages";
+import { openExternal } from "@/lib/links";
 import { nameTint } from "@/lib/format";
 import { radii, spacing, useColors } from "@/theme";
 import { Avatar } from "@/ui/Avatar";
@@ -21,10 +23,17 @@ function fileSymbol(name: string): SFSymbol {
   return "doc";
 }
 
-export function SlackCard({ message, now }: { message: SlackMessage; now: number }) {
+/**
+ * One Slack message as a card. Images the host fetched through the Slack app show inline (a tap
+ * opens the viewer); any other file is a chip that opens the thread in Slack (`link`).
+ */
+export function SlackCard({ message, now, base, link }: { message: SlackMessage; now: number; base: string | null; link?: string }) {
   const colors = useColors();
   // `7h` within a day, else `Oct 28`.
   const when = now - message.at < DAY_MS ? reviewAgo(message.at, now) : new Date(message.at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const withImage = base === null ? [] : message.attachments.filter((a) => a.src !== null);
+  const images = withImage.map((a) => ({ src: `${base ?? ""}${a.src ?? ""}`, alt: a.name }));
+  const shown = new Set(withImage.map((a) => a.name));
   return (
     <FeedCard
       avatar={<Avatar name={message.author} size={FEED_AVATAR} tint={nameTint(message.author)} />}
@@ -39,14 +48,23 @@ export function SlackCard({ message, now }: { message: SlackMessage; now: number
       }
     >
       <MessageText text={emojify(message.text)} large />
-      {message.files.map((file) => (
-        <View key={file} style={[styles.chip, { borderColor: colors.hairline }]}>
-          <SymbolView name={fileSymbol(file)} size={14} tintColor={colors.textMuted} />
-          <Text variant="label" numberOfLines={1}>
-            {file}
-          </Text>
-        </View>
-      ))}
+      {images.length > 0 && <MarkdownImages images={images} />}
+      {message.files
+        .filter((file) => !shown.has(file))
+        .map((file) => (
+          <Pressable
+            key={file}
+            onPress={link === undefined ? undefined : () => { openExternal(link); }}
+            accessibilityRole={link === undefined ? undefined : "link"}
+            accessibilityHint={link === undefined ? undefined : "Opens the thread in Slack"}
+            style={[styles.chip, { borderColor: colors.hairline }]}
+          >
+            <SymbolView name={fileSymbol(file)} size={14} tintColor={colors.textMuted} />
+            <Text variant="label" numberOfLines={1}>
+              {file}
+            </Text>
+          </Pressable>
+        ))}
       {message.reactions.length > 0 && (
         <View style={styles.reactions}>
           {message.reactions.map((reaction) => (

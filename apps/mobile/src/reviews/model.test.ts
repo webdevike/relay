@@ -20,6 +20,7 @@ import {
   snoozeChoices,
   splitDiffFiles,
   splitPath,
+  linearMentions,
   withHostMedia,
   withPendingAsk,
   type TimelineRow,
@@ -32,7 +33,7 @@ function comment(id: string, at: number, parentId: string | null = null): Linear
 }
 
 function message(ts: string, at: number): SlackMessage {
-  return { ts, author: "Todd", mine: false, text: ts, mentionsMe: false, reactions: [], files: [], at };
+  return { ts, author: "Todd", mine: false, text: ts, mentionsMe: false, reactions: [], files: [], attachments: [], at };
 }
 
 describe("composerIntent", () => {
@@ -297,5 +298,15 @@ describe("githubMarkdown", () => {
   it("turns the HTML bots put in PR bodies into Markdown", () => {
     const body = '<!-- linear-review-link -->\n<p><a href="https://linear.app/x/review/1?openGuide=true">Review in Linear</a></p>\n\n## What\nLine<br>two <img src="https://x/a.png" width="300">';
     expect(githubMarkdown(body)).toBe("[Review in Linear](https://linear.app/x/review/1?openGuide=true)\n\n## What\nLine\ntwo ![](https://x/a.png)");
+  });
+});
+
+describe("linearMentions", () => {
+  it("shows profile links as a bold @Name, the handle when nobody matches", () => {
+    const people = [{ name: "Noah Champoux", handle: "noah" }];
+    expect(linearMentions("https://linear.app/ecard-systems/profiles/noah Sounds good, <https://linear.app/ws/profiles/sarms>?", people)).toBe(
+      "**@Noah Champoux** Sounds good, **@sarms**?",
+    );
+    expect(linearMentions("[Noah](https://linear.app/ws/profiles/noah)", people)).toBe("[Noah](https://linear.app/ws/profiles/noah)");
   });
 });

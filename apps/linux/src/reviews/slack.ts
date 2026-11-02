@@ -11,10 +11,14 @@ import { join } from "node:path";
 import { SlackThread, type ReviewItem } from "@relay/protocol";
 import { z } from "zod";
 import { readJson, writeJson, type ToolRun } from "./exec";
+import type { ReviewMedia } from "./linear";
+import { slackImage } from "./media";
 
 const KEEP_THREADS = 40;
 const READ_TIMEOUT_MS = 240_000;
 const WORKSPACE = "https://ecardplatform.slack.com";
+/** Files worth fetching as images (Slack's thread read names them, no type). */
+const IMAGE_NAME = /\.(?:png|jpe?g|gif|webp)$/i;
 
 /** The connector's read tools; nothing that posts, reacts or marks read is allowed. */
 export const SLACK_READ_TOOLS = [
@@ -83,7 +87,7 @@ export function threadPrompt(channel: string, threadTs: string | null): string {
 Find my own user id, then ${what}.
 
 Reply with ONLY this JSON, no prose and no code fence:
-{"me":"<my user id>","channel_name":"<#name, the person's name for a DM, or the group DM members>","messages":[{"ts":"<ts>","author":"<display name>","author_id":"<user id>","text":"<the full message as Markdown: mentions as @Name, links as [text](url), code as backticks or fenced blocks>","mentions_me":true,"reactions":[{"emoji":"<unicode emoji, or :name:>","count":1}],"files":[{"name":"<file name>"}]}]}
+{"me":"<my user id>","channel_name":"<#name, the person's name for a DM, or the group DM members>","messages":[{"ts":"<ts>","author":"<display name>","author_id":"<user id>","text":"<the full message as Markdown: mentions as @Name, links as [text](url), code as backticks or fenced blocks>","mentions_me":true,"reactions":[{"emoji":"<unicode emoji, or :name:>","count":1}],"files":[{"name":"<file name>","id":"<Slack file id, F...>"}]}]}
 Oldest first. Never shorten a message.`;
 }
 
@@ -186,7 +190,7 @@ const ThreadAnswer = z.object({
         text: z.string().catch(""),
         mentions_me: z.boolean().catch(false),
         reactions: z.array(z.object({ emoji: z.string(), count: z.number() })).catch([]),
-        files: z.array(z.object({ name: z.string() })).catch([]),
+        files: z.array(z.object({ name: z.string(), id: z.string().catch("") })).catch([]),
       })
       .nullable()
       .catch(null),
@@ -212,6 +216,7 @@ export function toThread(answer: string, channel: string, threadTs: string | nul
         mentionsMe: m.mentions_me,
         reactions: m.reactions,
         files: m.files.map((f) => f.name),
+        attachments: m.files.map((f) => ({ name: f.name, id: f.id, src: null })),
         at: tsMs(m.ts),
       })),
     fetchedAt: Date.now(),
@@ -237,6 +242,8 @@ export class Slack {
     private readonly run: ToolRun,
     private readonly claude: string,
     private readonly file: string,
+    /** Where Slack's images are kept; without it files stay chips. */
+    private readonly media?: ReviewMedia,
   ) {}
 
   /** One headless connector read; throws with a short reason. */
@@ -320,19 +327,42 @@ export class Slack {
     });
   }
 
+  /**
+   * The thread with its images' host paths, fetched through the Slack app (kept files at once). Run
+   * on every answer: a path's token lives only as long as this host process.
+   */
+  private async withImages(thread: SlackThread): Promise<SlackThread> {
+    const media = this.media;
+    if (media === undefined) return thread;
+    return {
+      ...thread,
+      messages: await Promise.all(
+        thread.messages.map(async (m) => ({
+          ...m,
+          attachments: await Promise.all(
+            m.attachments.map(async (a) => ({
+              ...a,
+              src: a.id !== "" && IMAGE_NAME.test(a.name) ? await slackImage(a.id, media) : null,
+            })),
+          ),
+        })),
+      ),
+    };
+  }
+
   /** The last read thread, or (`refresh`, or never read) a fresh read. */
   async thread(channel: string, threadTs: string | null, refresh: boolean): Promise<SlackThread> {
     const key = `${channel}:${threadTs ?? "dm"}`;
     const hit = this.load().threads[key];
-    if (!refresh && hit !== undefined) return hit;
+    if (!refresh && hit !== undefined) return this.withImages(hit);
     return this.once(key, async () => {
       const thread = toThread(await this.read(threadPrompt(channel, threadTs)), channel, threadTs);
       this.save((c) => ({ ...c, threads: { ...c.threads, [key]: thread } }));
-      return thread;
+      return this.withImages(thread);
     });
   }
 
-  /** The thread as last read, without reading. */
+  /** The thread as last read, without reading (its text: Astra's context, a row's title). */
   cachedThread(channel: string, threadTs: string | null): SlackThread | null {
     return this.load().threads[`${channel}:${threadTs ?? "dm"}`] ?? null;
   }

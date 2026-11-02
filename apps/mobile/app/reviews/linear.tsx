@@ -16,7 +16,7 @@ import { ItemDock } from "@/reviews/ItemDock";
 import { ItemHeader } from "@/reviews/ItemHeader";
 import { ItemScreen } from "@/reviews/ItemScreen";
 import { FoldedMarkdown, LinearThreadCard, PropertyRow } from "@/reviews/LinearParts";
-import { githubPrOf, linearEntries, mergeTimeline, withHostMedia } from "@/reviews/model";
+import { githubPrOf, linearEntries, linearMentions, mergeTimeline, withHostMedia } from "@/reviews/model";
 import { LinearStateGlyph, PrGlyph } from "@/reviews/SourceGlyph";
 import { Timeline } from "@/reviews/Timeline";
 import { useReviewComposer } from "@/reviews/useReviewComposer";
@@ -42,6 +42,7 @@ export default function ReviewLinearScreen() {
   const toast = useTransientMessage();
   const now = Date.now();
   const base = hostBaseUrl();
+  const everyone = ticket === undefined ? [] : [...ticket.people, ticket.me];
 
   const load = useCallback(() => {
     setLoading(true);
@@ -154,7 +155,7 @@ export default function ReviewLinearScreen() {
             </View>
             {ticket.description.trim() !== "" && (
               <FeedCard>
-                <FoldedMarkdown text={withHostMedia(ticket.description, base)} />
+                <FoldedMarkdown text={withHostMedia(linearMentions(ticket.description, everyone), base)} />
               </FeedCard>
             )}
           </>
@@ -171,7 +172,7 @@ export default function ReviewLinearScreen() {
               <LinearThreadCard
                 thread={entry.thread}
                 now={now}
-                body={(markdown) => withHostMedia(markdown, base)}
+                body={(markdown) => withHostMedia(linearMentions(markdown, everyone), base)}
                 onReply={(comment) => {
                   setReply(comment);
                   composer.compose();

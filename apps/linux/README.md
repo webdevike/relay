@@ -384,8 +384,11 @@ Sources, merged newest first into one `ReviewQueue` (a failing source keeps its 
   review (`needs`) and the ones he reviewed that moved (`reviewing`), cached 60 s. `pr` is `gh pr view --json`
   plus `gh pr diff` (cut at `MAX_REVIEW_DIFF`, `diffTruncated`), pushed commits in the timeline.
 - Linear's GraphQL API with `LINEAR_API_KEY` or `<agent home>/secrets/linear.env`, cached 60 s: one row per
-  ticket with an unanswered ask from someone else. Images uploaded to Linear need the key, so `linear` downloads
-  them once into `$XDG_CONFIG_HOME/relay/reviews/media/<sha1><ext>` and the markdown points at the host-relative
+  ticket with an unanswered ask from someone else. Images need credentials (Linear's uploads the key, GitHub's
+  `user-attachments` gh's login, Slack's files the Slack desktop app's session through its debugging port 9333, read
+  only: `files.info` and the file, nothing typed or navigated), so `media.ts` downloads them once into
+  `$XDG_CONFIG_HOME/relay/reviews/media/<sha1><ext>` (GitHub's `<img>` tags become Markdown) and the markdown (or a
+  Slack message's `attachments[].src`) points at the host-relative
   `/reviews/media/<file>/<token>` (the phone prefixes its host URL). The token is an HMAC of the file name under a
   per-process secret; `GET|HEAD` serves the file only for a matching token, 404 otherwise.
 - Slack through headless `claude -p` (`$RELAY_CLAUDE`, `~/.local/bin/claude`, Homebrew's, then PATH) with only the
