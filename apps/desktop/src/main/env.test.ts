@@ -296,12 +296,20 @@ describe('resolveEnv', () => {
     expect(e.nativeChatSettings).toBeNull()
   })
 
-  it('shares the native EvaOS canvas folder and pins when live', () => {
-    const e = resolveEnv(base({ env: { EVAOS_LIVE: '1' } }))
-    expect(e.canvasDir).toBe('/home/u/Library/Application Support/EvaOS/canvases')
+  it('shares the native EvaOS canvas folder and pins when live (eva profile)', () => {
+    const home = fakeHome(true)
+    const e = resolveEnv(base({ homedir: home, env: { EVAOS_LIVE: '1' } }))
+    const evaos = path.join(home, 'Library/Application Support/EvaOS')
+    expect(e.canvasDir).toBe(path.join(evaos, 'canvases'))
     expect(e.canvasSeedDir).toBeNull()
-    expect(e.nativeCanvasPins).toBe('/home/u/Library/Application Support/EvaOS/canvas.json')
-    expect(e.nativeChatSettings).toBe('/home/u/Library/Application Support/EvaOS/chat.json')
+    expect(e.nativeCanvasPins).toBe(path.join(evaos, 'canvas.json'))
+    expect(e.nativeChatSettings).toBe(path.join(evaos, 'chat.json'))
+  })
+
+  it('a starter user keeps canvases in the Relay folder', () => {
+    const home = fakeHome(false)
+    const e = resolveEnv(base({ homedir: home, env: { EVAOS_LIVE: '1' } }))
+    expect(e.canvasDir).toBe(path.join(home, 'Library/Application Support/Relay/canvases'))
   })
 
   it('EVAOS_CANVAS_DIR wins without seeding, and the real folder needs EVAOS_LIVE', () => {
