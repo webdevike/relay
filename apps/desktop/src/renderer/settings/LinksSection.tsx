@@ -186,11 +186,13 @@ export function LinksSection() {
             <span className="eva-settings-label">
               <span className="eva-settings-label-title">{rule.pattern}</span>
               <span className="eva-settings-label-help">
-                {rule.pattern.startsWith('*.')
-                  ? `Any subdomain of ${rule.pattern.slice(2)}`
-                  : rule.pattern.includes('/')
-                    ? 'This page and the pages under it'
-                    : `${rule.pattern} and www.${rule.pattern}`}
+                {rule.opener.kind === 'reviews'
+                  ? 'Items open in Reviews; other links go on'
+                  : rule.pattern.startsWith('*.')
+                    ? `Any subdomain of ${rule.pattern.slice(2)}`
+                    : rule.pattern.includes('/')
+                      ? 'This page and the pages under it'
+                      : `${rule.pattern} and www.${rule.pattern}`}
               </span>
             </span>
             <span className="eva-links-controls">

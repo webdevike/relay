@@ -162,6 +162,11 @@
   flex: none;
   min-width: 0;
 }
+/* An item's id in its header (ENG-6692, repo#246) never wraps. */
+.eva-rv-titlerow > .eva-rv-mono {
+  flex: none;
+  white-space: nowrap;
+}
 .eva-rv-group {
   display: flex;
   flex-direction: column;

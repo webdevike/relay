@@ -76,6 +76,8 @@ test('Settings > Links routes clicked chat links by site, saved in links.json', 
   const rules = shell.getByTestId('links-rules')
   for (const p of ['linear.app', 'slack.com', '*.slack.com', 'github.com'])
     await expect(rules.getByTestId(`links-rule-${p}`)).toBeVisible()
+  for (const p of ['github.com/*/*/pull', 'linear.app/*/issue', '*.slack.com/archives'])
+    await expect(shell.getByTestId(`links-opener-${p}`)).toHaveValue('Relay Reviews')
   await expect(shell.getByTestId('links-opener-fallback')).toHaveValue('Relay browser')
   if (shots) await shell.screenshot({ path: path.join(shots, 'links-settings.png') })
 
@@ -106,14 +108,8 @@ test('Settings > Links routes clicked chat links by site, saved in links.json', 
     .click()
   const log = shell.getByTestId('chat-log')
   await expect(log).toContainText('See the ticket')
-  const linear = fs.existsSync('/Applications/Linear.app')
-
-  await log.getByRole('link', { name: 'the ticket' }).click()
   await log.getByRole('link', { name: 'the docs' }).click()
-  const expected = [
-    ...(linear ? [{ to: 'app', app: 'Linear', url: 'linear://ecard/issue/ENG-1/x' }] : []),
-    { to: 'system', url: 'https://docs.example.com/a/b' },
-  ]
+  const expected = [{ to: 'system', url: 'https://docs.example.com/a/b' }]
   await expect.poll(() => launches(app)).toEqual(expected)
 
   // No rule matches: a tab in Relay's browser, nothing launched.
@@ -124,4 +120,9 @@ test('Settings > Links routes clicked chat links by site, saved in links.json', 
   })
   expect(await launches(app)).toEqual(expected)
   if (shots) await shell.screenshot({ path: path.join(shots, 'links-chat.png') })
+
+  // A Linear issue is an item: it opens in Reviews in this tab, launching nothing.
+  await log.getByRole('link', { name: 'the ticket' }).click()
+  await expect(shell.getByTestId('reviews-page')).toBeVisible()
+  expect(await launches(app)).toEqual(expected)
 })
