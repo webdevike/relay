@@ -346,6 +346,11 @@ Backends (`src/studio/`), each a runner behind one seam so the tests use fakes:
   gets one orientation sentence for the aspect ("Vertical 9:16 portrait image, taller than wide.", the job keeps the
   prompt as typed) and ffmpeg scales the reply to cover and center-crops it (lanczos) to exactly the size picked:
   one per aspect, 1088x1920, 1920x1088 or 1280x1280, close to what Codex draws so it never upscales much.
+- `kontext` (free, local image edit, one reference required): FLUX.1 Kontext dev Q8 (`mflux-community/flux-1-dev-kontext-mflux-q8`)
+  through `mflux-generate-kontext` from the mflux uv tool (`$RELAY_STUDIO_KONTEXT_BIN` overrides the binary), model read
+  offline from the Hugging Face cache; available only when both exist. Sizes 576x1024, 1024x576, 1024x1024; 24 steps,
+  guidance 2.5, optional seed. Shares the GPU queue with LTX (one at a time). About 3 min per 1024x576 image and 25 GB
+  of RAM: stop the local Qwen server (`ai.eva.qwen-local`) first when memory is tight. Own process group, like LTX.
 - `higgsfield` (paid, video, two at once): Higgsfield's MCP server with the token omp keeps for its Higgsfield tools
   (`~/.omp/profiles/personal/agent/agent.db`, opened read-only and never refreshed; an expired one makes the backend
   unavailable until an omp session renews it). A curated set of models with their own sizes, lengths and keyframe

@@ -5,13 +5,20 @@
 import { MAX_STUDIO_REFS, type StudioAsset, type StudioBackend, type StudioBackendId, type StudioSpec } from "@relay/protocol";
 
 /** Every backend in the order clients list them. */
-export const STUDIO_BACKENDS: readonly StudioBackendId[] = ["ltx", "codex-image", "codex-edit", "higgsfield"];
+export const STUDIO_BACKENDS: readonly StudioBackendId[] = ["ltx", "codex-image", "codex-edit", "kontext", "higgsfield"];
 
 /** One size per aspect, close to what Codex really draws (about 1.6 MP), so the exact crop upscales little. */
 const CODEX_RESOLUTIONS: StudioBackend["resolutions"] = [
   { id: "1088x1920", label: "1080p", aspect: "9:16" },
   { id: "1920x1088", label: "1080p", aspect: "16:9" },
   { id: "1280x1280", label: "1280 square", aspect: "1:1" },
+];
+
+/** FLUX.1 Kontext dev draws exactly these (multiples of 16, about 0.6 to 1 MP). */
+const KONTEXT_RESOLUTIONS: StudioBackend["resolutions"] = [
+  { id: "576x1024", label: "576x1024", aspect: "9:16" },
+  { id: "1024x576", label: "1024x576", aspect: "16:9" },
+  { id: "1024x1024", label: "1024 square", aspect: "1:1" },
 ];
 
 /** Each backend with `available: false`; its runner's `describe` says whether it can run now. */
@@ -64,6 +71,19 @@ export const BACKEND_BASE: Readonly<Record<StudioBackendId, StudioBackend>> = {
     seed: false,
     serial: false,
   },
+  kontext: {
+    id: "kontext",
+    label: "FLUX Kontext (local)",
+    mode: "image",
+    paid: false,
+    available: false,
+    resolutions: KONTEXT_RESOLUTIONS,
+    seconds: [],
+    frames: [],
+    refs: 1,
+    seed: true,
+    serial: true,
+  },
   higgsfield: {
     id: "higgsfield",
     label: "Higgsfield (paid)",
@@ -81,15 +101,19 @@ export const BACKEND_BASE: Readonly<Record<StudioBackendId, StudioBackend>> = {
 };
 
 /**
- * How many jobs run at once, per pool: the GPU takes one LTX job at a time (first in, first out),
- * both Codex backends share one ChatGPT account, Higgsfield bills each job.
+ * How many jobs run at once, per pool: the GPU takes one LTX or Kontext job at a time (first in,
+ * first out), both Codex backends share one ChatGPT account, Higgsfield bills each job.
  */
 export const STUDIO_POOLS: Readonly<Record<StudioBackendId, { readonly pool: string; readonly max: number }>> = {
   ltx: { pool: "gpu", max: 1 },
   "codex-image": { pool: "codex", max: 3 },
   "codex-edit": { pool: "codex", max: 3 },
+  kontext: { pool: "gpu", max: 1 },
   higgsfield: { pool: "higgsfield", max: 2 },
 };
+
+/** A Kontext job: model load plus 24 steps (about 3 min at 1024x576 on the Mac Mini). */
+const KONTEXT_ESTIMATE_MS = 240_000;
 
 /** `WxH` as numbers; null for other ids (`720p`, `std`). */
 export function parseSize(resolution: string): readonly [number, number] | null {
@@ -139,6 +163,8 @@ export function baseEstimateMs(spec: StudioSpec): number {
       return 25_000;
     case "codex-edit":
       return 45_000;
+    case "kontext":
+      return KONTEXT_ESTIMATE_MS;
     case "higgsfield":
       return 120_000;
   }

@@ -30,8 +30,8 @@ export const MAX_STUDIO_REFS = 4;
 export const StudioMode = z.enum(["image", "video"]);
 export type StudioMode = z.infer<typeof StudioMode>;
 
-/** `ltx`: local LTX-2.5 video. `codex-image` / `codex-edit`: images on the ChatGPT subscription. `higgsfield`: paid. */
-export const StudioBackendId = z.enum(["ltx", "codex-image", "codex-edit", "higgsfield"]);
+/** `ltx`: local LTX-2.5 video. `codex-image` / `codex-edit`: images on the ChatGPT subscription. `kontext`: local FLUX.1 Kontext image edit. `higgsfield`: paid. */
+export const StudioBackendId = z.enum(["ltx", "codex-image", "codex-edit", "kontext", "higgsfield"]);
 export type StudioBackendId = z.infer<typeof StudioBackendId>;
 
 export const StudioAspect = z.enum(["9:16", "16:9", "1:1"]);

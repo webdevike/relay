@@ -54,6 +54,7 @@ import { systemClock } from "./session";
 import { ClipboardWatcher, systemPaste, systemWatch } from "./drops/clipboard";
 import { CodexRunner, ompCodexToken } from "./studio/codex";
 import { HiggsfieldRunner, ompHiggsfieldCredentials } from "./studio/higgsfield";
+import { KontextRunner } from "./studio/kontext";
 import { LtxRunner } from "./studio/ltx";
 import { ffmpegMedia } from "./studio/media";
 import { StudioService, type StudioMessage } from "./studio/service";
@@ -558,6 +559,7 @@ function studioService(agentHome: string | null, emit: (message: StudioMessage) 
         ltx: new LtxRunner(ltxDir),
         "codex-image": new CodexRunner({ backend: "codex-image", token, fetch, jpeg: media.jpeg, cover: media.cover }),
         "codex-edit": new CodexRunner({ backend: "codex-edit", token, fetch, jpeg: media.jpeg, cover: media.cover }),
+        kontext: new KontextRunner(),
         higgsfield: new HiggsfieldRunner({
           credentials: ompHiggsfieldCredentials(join(homedir(), ".omp", "profiles", "personal", "agent", "agent.db")),
           fetch,

@@ -1405,7 +1405,7 @@ describe("studio", () => {
       await studio.service.handle({ kind: "refresh" });
       h.session.receive({ t: "studio.list" });
       expect(h.sink.last()).toEqual({ t: "studio.state", ...studio.service.state() });
-      expect(studio.service.state().backends.map((backend) => backend.id)).toEqual(["ltx", "codex-image", "codex-edit", "higgsfield"]);
+      expect(studio.service.state().backends.map((backend) => backend.id)).toEqual(["ltx", "codex-image", "codex-edit", "kontext", "higgsfield"]);
 
       const sent = h.sink.sent.length;
       h.session.receive({ t: "studio.req", rid: "r1", op: { kind: "create", spec: ltxSpec(), origin: "phone" } });

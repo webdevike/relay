@@ -367,18 +367,18 @@ export class StudioService implements StudioRelaying {
   }
 
   /**
-   * Notes and ETAs of queued jobs: an LTX job waits for the GPU through the running job and every
-   * job ahead of it, so its ETA is all of that plus its own run. Others wait for a free slot.
+   * Notes and ETAs of queued jobs: a GPU job (LTX or Kontext) waits for the GPU through the running
+   * job and every job ahead of it, so its ETA is all of that plus its own run. Others wait for a free slot.
    */
   private updateWaiting(): void {
     const now = this.deps.clock.now();
     let gpuFreeInMs = 0;
     for (const slot of this.running.values()) {
-      if (slot.backend === "ltx") gpuFreeInMs += Math.max(0, slot.estimateMs - (now - slot.startedAt));
+      if (STUDIO_POOLS[slot.backend].pool === "gpu") gpuFreeInMs += Math.max(0, slot.estimateMs - (now - slot.startedAt));
     }
     for (const job of [...this.store.jobs].reverse()) {
       if (job.state !== "queued") continue;
-      if (job.spec.backend !== "ltx") {
+      if (STUDIO_POOLS[job.spec.backend].pool !== "gpu") {
         if (job.note !== SLOT_NOTE) this.touch({ ...job, note: SLOT_NOTE });
         continue;
       }

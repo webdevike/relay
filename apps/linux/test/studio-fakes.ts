@@ -119,6 +119,7 @@ export function availableBackends(): Record<StudioBackendId, StudioBackend> {
     ltx: { ...BACKEND_BASE.ltx, available: true },
     "codex-image": { ...BACKEND_BASE["codex-image"], available: true },
     "codex-edit": { ...BACKEND_BASE["codex-edit"], available: true },
+    kontext: { ...BACKEND_BASE.kontext, available: true },
     higgsfield: {
       ...BACKEND_BASE.higgsfield,
       available: true,
@@ -155,6 +156,7 @@ export function studioHarness(dir: string): StudioHarness {
     ltx: new FakeRunner(backends.ltx),
     "codex-image": new FakeRunner(backends["codex-image"]),
     "codex-edit": new FakeRunner(backends["codex-edit"]),
+    kontext: new FakeRunner(backends.kontext),
     higgsfield: new FakeRunner(backends.higgsfield),
   };
   const media = fakeMedia();

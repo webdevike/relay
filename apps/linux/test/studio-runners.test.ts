@@ -18,6 +18,7 @@ import {
   studioModel,
 } from "../src/studio/higgsfield";
 import { findTool } from "../src/drops/video";
+import { KONTEXT_MODEL, kontextArgv, KontextRunner } from "../src/studio/kontext";
 import { ltxArgv, LtxRunner, runProcessGroup } from "../src/studio/ltx";
 import { ffmpegMedia } from "../src/studio/media";
 import type { StudioRunInput } from "../src/studio/runner";
@@ -177,6 +178,43 @@ describe("LTX runner", () => {
     expect(Date.now() - at).toBeGreaterThanOrEqual(100);
     expect(await gone(shell ?? 0)).toBe(true);
     expect(await gone(sleep ?? 0)).toBe(true);
+  });
+});
+
+describe("Kontext runner", () => {
+  const kontextSpec = (over: Partial<StudioSpec> = {}): StudioSpec =>
+    imageSpec({ backend: "kontext", aspect: "16:9", resolution: "1024x576", refs: ["a"], ...over });
+
+  it("builds the CLI's argv: the one reference, size, 24 steps, guidance 2.5, seed and out", () => {
+    expect(kontextArgv("/bin/mk", { spec: kontextSpec(), seed: 7, refs: ["/a.png"] }, "/w/out.png")).toEqual([
+      "/bin/mk", "--model", KONTEXT_MODEL, "--base-model", "dev-kontext", "--image-path", "/a.png", "--prompt", "a red kite",
+      "--width", "1024", "--height", "576", "--steps", "24", "--guidance", "2.5", "--seed", "7", "--output", "/w/out.png",
+    ]);
+    expect(() => kontextArgv("/bin/mk", { spec: kontextSpec(), refs: [] }, "/o.png")).toThrow("reference");
+  });
+
+  it("is available only with mflux installed and the model cached", async () => {
+    const dir = freshDir();
+    const paths = { bin: join(dir, "mflux-generate-kontext"), snapshots: join(dir, "snapshots") };
+    expect((await new KontextRunner(paths).describe()).reason).toContain("no mflux");
+    writeFileSync(paths.bin, "#!/bin/sh\n");
+    chmodSync(paths.bin, 0o755);
+    expect((await new KontextRunner(paths).describe()).reason).toContain("Hugging Face cache");
+    mkdirSync(join(paths.snapshots, "abc"), { recursive: true });
+    expect(await new KontextRunner(paths).describe()).toMatchObject({ id: "kontext", available: true, seed: true, serial: true, refs: 1, paid: false });
+  });
+
+  it("runs the CLI offline, shows its step progress and returns the png", async () => {
+    const dir = freshDir();
+    const paths = { bin: join(dir, "mflux-generate-kontext"), snapshots: join(dir, "snapshots") };
+    mkdirSync(join(paths.snapshots, "abc"), { recursive: true });
+    // Stand-in CLI: a tqdm line on stderr, the offline flag, then the --output file.
+    writeFileSync(paths.bin, `#!/bin/sh\necho "$HF_HUB_OFFLINE" > "${dir}/offline"\nprintf ' 25%%|##  | 6/24 [00:30<01:30, 5.0s/it]\\r' >&2\nwhile [ $# -gt 0 ]; do\n  if [ "$1" = "--output" ]; then echo png > "$2"; fi\n  shift\ndone\n`);
+    chmodSync(paths.bin, 0o755);
+    const input = runInput(kontextSpec(), { seed: 3, refs: ["/a.png"] });
+    expect(await new KontextRunner(paths).run(input)).toEqual({ path: join(input.workDir, "out.png"), mimeType: "image/png" });
+    expect(input.notes).toEqual(["Loading FLUX Kontext", "Step 6 of 24"]);
+    expect(readFileSync(join(dir, "offline"), "utf8").trim()).toBe("1");
   });
 });
 
