@@ -7,3 +7,4 @@ release/
 test-results/
 playwright-report/
 *.tsbuildinfo
+apps/desktop/resources/RelayHost/

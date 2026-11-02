@@ -23,6 +23,22 @@ ditto "apps/desktop/release/mac-arm64/Relay.app" ~/"Applications/Relay.app"
 rm -rf ~/"Applications/EvaOS Electron.app"  # once, after the rename
 ```
 
+### Install Relay.dmg (testers, new Mac)
+
+The dmg bundles the first-run setup wizard scripts and a prebuilt Relay Host app. Build it with:
+
+```
+pnpm -C apps/desktop package:onboarding   # RELAY_REPO=/path/to/relay worktree, default /Users/ike/Eva/work/relay-onb
+```
+
+Output: `apps/desktop/release/Relay-<version>-arm64.dmg` (version from `apps/desktop/package.json`).
+
+To install: open the dmg and drag Relay to Applications. The build is signed with a development identity and is not notarized yet, so the first time right-click Relay in Applications and choose Open, then Open again. Or clear the quarantine flag instead:
+
+```
+xattr -dr com.apple.quarantine /Applications/Relay.app
+```
+
 Dev mode, against fixtures and fake omp (safe): `pnpm dev`. Dev mode against real Eva and real omp: `pnpm dev:live`. Both run as **Relay Dev** (own config dir, CDP 9340 for `dev:live`, `DEV` pill in the footer); the stable app Isaac uses runs from `work/evaos-electron-live` and is updated only by `bun .omp/tools/relay-desktop-deploy.ts` (see `apps/desktop/README.md`).
 
 Headless and test launches set `EVAOS_E2E=1` (background accessory app) and `EVAOS_HIDDEN_WINDOW=1` (transparent, click-through window) so nothing covers the screen.

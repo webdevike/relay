@@ -7,10 +7,14 @@ files:
   - out/**
   - package.json
   - resources/**
+  - '!resources/RelayHost/**'
 # The setup wizard's shell scripts run with bash, so they ship as real files: Relay.app/Contents/Resources/setup.
+# RelayHost is a prebuilt, already signed "Relay Host.app" copied in by scripts/package-onboarding.sh.
 extraResources:
   - from: resources/setup
     to: setup
+  - from: resources/RelayHost
+    to: RelayHost
 asarUnpack:
   - '**/node_modules/node-pty/**'
   - '**/node_modules/electron-chrome-extensions/**'
@@ -20,6 +24,9 @@ mac:
   target:
     - target: dir
       arch: arm64
+    - target: dmg
+      arch: arm64
+  artifactName: Relay-${version}-${arch}.${ext}
   # A real signature carries the bundle id; macOS drops notifications from the ad-hoc "Electron" one.
   identity: 'Apple Development: Created via API (9KJ57Q4A39)'
   hardenedRuntime: false

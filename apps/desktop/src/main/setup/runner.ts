@@ -26,6 +26,20 @@ export function resolveSetupDir(
   return candidates.find((d) => exists(d)) ?? null
 }
 
+/** Packaged: Relay.app/Contents/Resources/RelayHost/Relay Host.app. Dev: apps/desktop/resources/RelayHost. An explicit RELAY_HOST_APP wins. */
+export function resolveHostApp(
+  o: { packaged: boolean; resourcesPath: string; appPath: string; override?: string },
+  exists: (p: string) => boolean = (p) => fs.existsSync(p),
+): string | null {
+  const candidates = [
+    ...(o.override ? [o.override] : []),
+    o.packaged
+      ? path.join(o.resourcesPath, 'RelayHost/Relay Host.app')
+      : path.join(o.appPath, 'resources/RelayHost/Relay Host.app'),
+  ]
+  return candidates.find((d) => exists(d)) ?? null
+}
+
 export function missingScripts(
   dir: string | null,
   exists: (p: string) => boolean = (p) => fs.existsSync(p),

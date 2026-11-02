@@ -8,7 +8,7 @@ import type { MainContext } from '../context'
 import { writeHome } from '../env'
 import { buildCommand, childPathFor, runCapture } from '../eva/spawn'
 import { emit, handle } from '../ipc/handle'
-import { checkRoot, missingScripts, planRun, resolveSetupDir, runScript } from './runner'
+import { checkRoot, missingScripts, planRun, resolveHostApp, resolveSetupDir, runScript } from './runner'
 
 const PROGRESS_FILE = 'setup-progress.json'
 
@@ -25,6 +25,12 @@ export function registerSetup(ctx: MainContext): void {
     appPath: app.getAppPath(),
     override: process.env.RELAY_SETUP_DIR,
   })
+  const hostApp = resolveHostApp({
+    packaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    appPath: app.getAppPath(),
+    override: process.env.RELAY_HOST_APP,
+  })
   const running = new Map<string, () => void>()
 
   const commandFor = async (script: string, args: string[]) => {
@@ -38,7 +44,12 @@ export function registerSetup(ctx: MainContext): void {
       pathEnv: await childPathFor(ctx.env.live, home),
       homedir: home,
       execPath: process.execPath,
-      baseEnv: { ...process.env, RELAY_SETUP_DIR: dir, RELAY_RESOURCES: process.resourcesPath },
+      baseEnv: {
+        ...process.env,
+        RELAY_SETUP_DIR: dir,
+        RELAY_RESOURCES: process.resourcesPath,
+        ...(hostApp !== null ? { RELAY_HOST_APP: hostApp } : {}),
+      },
     })
   }
 
