@@ -393,3 +393,12 @@ describe("linearMentions", () => {
     expect(linearMentions("[Noah](https://linear.app/ws/profiles/noah)", people)).toBe("[Noah](https://linear.app/ws/profiles/noah)");
   });
 });
+
+describe("astraThreads with a surface tag", () => {
+  it("reads a reply's thread past a client's leading surface tag", () => {
+    const root = { id: "u1", role: "user" as const, text: "@Astra why?", streaming: false, at: 1 };
+    const reply = { id: "u2", role: "user" as const, text: `<surface>iPhone - Relay</surface>\n${threadReplyText("@Astra why?", "and then?")}`, streaming: false, at: 2 };
+    const threads = astraThreads([root, reply], false);
+    expect(threads).toHaveLength(1);
+  });
+});

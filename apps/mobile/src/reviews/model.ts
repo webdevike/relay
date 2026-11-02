@@ -4,7 +4,7 @@
  * threads, a Slack thread's parent and replies, the Guide's progress and a PR's state badge, the
  * item's timeline with Astra's turns merged in by time, the snooze choices and @mention picking.
  */
-import { mentionsAstra, type AstraItem, type AstraTurn, type LinearComment, type ReviewGuide, type ReviewPr, type ReviewRef, type ReviewsOp, type SlackMessage } from "@relay/protocol";
+import { mentionsAstra, untagged, type AstraItem, type AstraTurn, type LinearComment, type ReviewGuide, type ReviewPr, type ReviewRef, type ReviewsOp, type SlackMessage } from "@relay/protocol";
 import type { ToneToken } from "@/theme";
 
 /** Where the screen's composer posts: the item it sits on. */
@@ -270,8 +270,10 @@ export function astraThreads(turns: readonly AstraTurn[], pending: boolean): Ast
   for (const turn of turns) {
     const at = turn.at ?? Infinity;
     if (turn.role === "user") {
-      const match = THREAD_REPLY.exec(turn.text);
-      const text = stripThreadReply(turn.text);
+      // A client's leading surface tag never hides which thread a reply names.
+      const said = untagged(turn.text);
+      const match = THREAD_REPLY.exec(said);
+      const text = match === null ? turn.text : said.slice(match[0].length);
       if (match !== null) {
         const named = threads.filter((t) => t.root !== null && threadSnippet(t.root.text) === match[1]).pop();
         const thread = named ?? threads[threads.length - 1];
