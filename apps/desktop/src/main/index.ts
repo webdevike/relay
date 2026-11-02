@@ -40,6 +40,7 @@ import { registerAgentControl } from './agent-control'
 import { reportFatal } from './fatal'
 import { registerUpdate } from './update'
 import { registerContext } from './context-popover'
+import { registerSetup } from './setup'
 
 function bootstrap(): void {
   let env
@@ -146,6 +147,7 @@ function bootstrap(): void {
 
       const queue = createWriteQueue()
       registerAppIpc(ctx)
+      registerSetup(ctx)
       registerLayoutIpc(ctx, queue)
       registerDraftsIpc(ctx)
       registerThemeIpc(ctx, queue)

@@ -7,6 +7,10 @@ files:
   - out/**
   - package.json
   - resources/**
+# The setup wizard's shell scripts run with bash, so they ship as real files: Relay.app/Contents/Resources/setup.
+extraResources:
+  - from: resources/setup
+    to: setup
 asarUnpack:
   - '**/node_modules/node-pty/**'
   - '**/node_modules/electron-chrome-extensions/**'
