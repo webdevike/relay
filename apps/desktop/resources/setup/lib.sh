@@ -12,7 +12,7 @@ export PATH="$HOME/.local/bin:$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/u
 
 SETUP_LOG_DIR="${RELAY_SETUP_LOG_DIR:-$HOME/Library/Logs/Relay}"
 SETUP_LOG="$SETUP_LOG_DIR/setup.log"
-mkdir -p "$SETUP_LOG_DIR" 2>/dev/null || true
+ensure_log() { mkdir -p "$SETUP_LOG_DIR" 2>/dev/null || true; }
 
 TAILSCALE_APP_CLI="/Applications/Tailscale.app/Contents/MacOS/Tailscale"
 
@@ -36,7 +36,7 @@ install_err_trap() {
   trap 'fail "unexpected failure (line $LINENO); see $SETUP_LOG"' ERR
 }
 
-log_line() { printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$SETUP_LOG" 2>/dev/null || true; }
+log_line() { ensure_log; printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$SETUP_LOG" 2>/dev/null || true; }
 
 # Run a command with stdout+stderr appended to the setup log. Returns its exit status.
 run_logged() {
@@ -102,6 +102,7 @@ json_get() { plutil -extract "$1" raw -o - - 2>/dev/null || true; }
 admin_run() {
   local cmd="$1" esc
   esc="$(printf '%s' "$cmd" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"
+  ensure_log
   osascript -e "do shell script \"$esc\" with administrator privileges" >>"$SETUP_LOG" 2>&1
 }
 
@@ -113,6 +114,7 @@ download() {
 }
 
 need_network() {
+  ensure_log
   curl -fsS --connect-timeout 8 -o /dev/null -I https://github.com >>"$SETUP_LOG" 2>&1 \
     || fail "no internet connection (could not reach github.com)"
 }
