@@ -2,19 +2,18 @@
 // comments and replies, from other people, on tickets still open) and one ticket's details and
 // comment threads, read from Linear's GraphQL API with his key (LINEAR_API_KEY or
 // secrets/linear.env, like the ticket badge card). Images uploaded to Linear need that key, so main
-// downloads them into the config dir and the markdown points at the local copies. Posting a comment
-// is the only write, after Isaac confirms the text; test instances (EVAOS_E2E=1) never post.
-import { createHash } from 'node:crypto'
-import * as fs from 'node:fs'
+// downloads them (review-media.ts) and the markdown points at the served `/reviews/media/<file>`.
+// Posting a comment is the only write, after Isaac confirms the text; test instances (EVAOS_E2E=1)
+// never post.
 import * as path from 'node:path'
 import { z } from 'zod'
 import type { LinearRow, LinearTicket } from '@evaos/contract'
 import type { MainContext } from '../context'
 import { handle } from '../ipc/handle'
 import { apiKey } from '../linear/linear-ipc'
+import { REVIEWS_MEDIA_DIR, isLinearUpload, localizeImages } from './review-media'
 
 const QUEUE_TTL_MS = 60_000
-const MEDIA_DIR = 'linear-media'
 
 const fail = (code: string, message: string): Error => Object.assign(new Error(message), { code })
 
@@ -190,15 +189,6 @@ const TICKET_QUERY = `query($id: String!) {
   }
 }`
 
-/** Linear's uploaded images in markdown (`![alt](https://uploads.linear.app/...)`). */
-const UPLOAD = /!\[([^\]]*)\]\((https:\/\/uploads\.linear\.app\/[^)\s]+)\)/g
-const EXT: Record<string, string> = {
-  'image/png': '.png',
-  'image/jpeg': '.jpg',
-  'image/gif': '.gif',
-  'image/webp': '.webp',
-}
-
 const CommentMade = z.object({
   commentCreate: z.object({
     success: z.boolean(),
@@ -210,7 +200,7 @@ export function registerLinearInbox(
   ctx: MainContext,
   opts: { reads: boolean; writes: boolean },
 ): void {
-  const mediaDir = path.join(ctx.config.dir, MEDIA_DIR)
+  const mediaDir = path.join(ctx.config.dir, REVIEWS_MEDIA_DIR)
 
   const gql = async (query: string, variables: Record<string, unknown> = {}): Promise<unknown> => {
     if (!opts.reads)
@@ -235,40 +225,16 @@ export function registerLinearInbox(
     return body.data
   }
 
-  /** A Linear upload as a local file (downloaded once with the key); the URL itself on failure. */
-  const localImage = async (url: string): Promise<string> => {
-    const name = createHash('sha1').update(url).digest('hex')
-    const have = fs.existsSync(mediaDir)
-      ? fs.readdirSync(mediaDir).find((f) => f.startsWith(`${name}.`))
-      : undefined
-    if (have) return path.join(mediaDir, have)
-    try {
-      const token = await apiKey(ctx.env.evaRoot)
-      const res = await fetch(url, {
-        headers: token ? { authorization: token } : {},
-        signal: AbortSignal.timeout(20_000),
-      })
-      const ext = EXT[(res.headers.get('content-type') ?? '').split(';')[0]!.trim()]
-      if (!res.ok || !ext) return url
-      fs.mkdirSync(mediaDir, { recursive: true })
-      const file = path.join(mediaDir, `${name}${ext}`)
-      fs.writeFileSync(file, Buffer.from(await res.arrayBuffer()))
-      return file
-    } catch {
-      return url
-    }
-  }
-
-  const withLocalImages = async (md: string): Promise<string> => {
-    const urls = [...new Set([...md.matchAll(UPLOAD)].map((m) => m[2]!))]
-    const local = new Map(
-      await Promise.all(urls.map(async (u) => [u, await localImage(u)] as const)),
-    )
-    return md.replace(
-      UPLOAD,
-      (_, alt: string, url: string) => `![${alt}](${local.get(url) ?? url})`,
-    )
-  }
+  const withLocalImages = (md: string): Promise<string> =>
+    localizeImages(md, mediaDir, [
+      {
+        match: isLinearUpload,
+        headers: async (): Promise<Record<string, string>> => {
+          const token = await apiKey(ctx.env.evaRoot)
+          return token ? { authorization: token } : {}
+        },
+      },
+    ])
 
   let cached: { at: number; rows: Promise<LinearRow[]> } | null = null
   handle(ctx, 'reviews.linearQueue', async ({ refresh }) => {

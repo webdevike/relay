@@ -5,6 +5,7 @@ import type { MainContext } from '../context'
 import { relayConfigDir, servePort } from '../relay/device'
 import { FRAME_SCHEME, handleFrameRequest } from './widget-frame'
 import { handleMediaRequest } from './widget-media'
+import { REVIEWS_MEDIA_DIR } from '../reviews/review-media'
 
 const MEDIA_SCHEME = 'relay-media'
 
@@ -38,11 +39,14 @@ export function registerWidgetSchemes(): void {
 export function registerWidgetMedia(ctx: MainContext): void {
   const relayDir =
     ctx.env.relayDir ??
-    (ctx.env.live ? relayConfigDir(process.env, os.homedir()) : path.join(ctx.env.configDir, 'relay'))
+    (ctx.env.live
+      ? relayConfigDir(process.env, os.homedir())
+      : path.join(ctx.env.configDir, 'relay'))
   const deps = {
     cacheDir: path.join(relayDir, 'widget-media'),
     servePort: () => servePort(relayDir),
     home: os.homedir(),
+    reviewsDir: path.join(ctx.env.configDir, REVIEWS_MEDIA_DIR),
   }
   protocol.handle(MEDIA_SCHEME, (request) => handleMediaRequest(request, deps))
 }

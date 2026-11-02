@@ -11,6 +11,7 @@ import * as path from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import type { ReadableStream as WebReadableStream } from 'node:stream/web'
+import { REVIEWS_MEDIA_PREFIX, reviewsMediaFile } from '../reviews/review-media'
 
 export interface MediaDeps {
   /** Where downloads are kept (`<relay config>/widget-media`). */
@@ -18,6 +19,8 @@ export interface MediaDeps {
   /** The local Relay host's port, or null when it isn't running. */
   servePort(): number | null
   home: string
+  /** Reviews' downloaded images (`<config>/reviews-media`), served as `/reviews/media/<file>`. */
+  reviewsDir?: string
   /** Download timeout in ms (default 60 s). */
   timeoutMs?: number
   /** Largest download kept, in bytes (default 200 MB). */
@@ -143,6 +146,13 @@ export async function resolveMedia(src: string, deps: MediaDeps): Promise<string
     const port = deps.servePort()
     if (port === null) throw new MediaError(503, "Relay isn't running, so its drop can't load")
     return download(`http://127.0.0.1:${port}${src}`, deps)
+  }
+  // Reviews' downloaded images (main/reviews/review-media.ts): `/reviews/media/<sha1><ext>`.
+  if (src.startsWith(REVIEWS_MEDIA_PREFIX)) {
+    const file = deps.reviewsDir ? reviewsMediaFile(deps.reviewsDir, src) : null
+    if (!file) throw new MediaError(400, `Not a media source: ${src}`)
+    if (!fs.existsSync(file)) throw new MediaError(404, `Not found: ${src}`)
+    return file
   }
   const local = src.startsWith('~/') ? path.join(deps.home, src.slice(2)) : src
   if (!path.isAbsolute(local)) throw new MediaError(400, `Not a media source: ${src}`)

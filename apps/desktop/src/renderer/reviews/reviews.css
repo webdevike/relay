@@ -1055,3 +1055,30 @@
   color: var(--eva-c-warning);
   font-size: var(--eva-fz-label);
 }
+
+/* A Linear @mention, as Linear shows it: the name in semibold body text, not a pill or a link. */
+.eva-md-mention[data-color='linear'] {
+  display: inline;
+  padding: 0;
+  background: none;
+  color: var(--eva-c-foreground);
+  font-weight: 600;
+}
+
+/* A Slack message's images, inline; a click opens the image viewer. */
+.eva-rv-simages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-rv-simages img {
+  max-width: min(100%, 420px);
+  max-height: 320px;
+  border-radius: var(--eva-radius-sm);
+  border: 1px solid var(--eva-c-border);
+}
+button.eva-rv-sfile {
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}

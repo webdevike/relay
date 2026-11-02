@@ -13,6 +13,8 @@ import { claudeWriter, guideCache } from './guide'
 import { registerLinearInbox } from './linear-inbox'
 import { registerSlackInbox } from './slack-inbox'
 import { registerAstraSessions } from './astra-sessions'
+import { REVIEWS_MEDIA_DIR, isGithubUpload, isLinearUpload, localizeImages } from './review-media'
+import { apiKey } from '../linear/linear-ipc'
 
 /** What the Guide is written from. */
 const GuidePr = z.object({
@@ -260,12 +262,46 @@ export function registerReviewsIpc(ctx: MainContext, run: ToolRun): void {
     return { ...(await cached.queue), done: done() }
   })
 
+  // `gh auth token` once: GitHub's uploaded images open only signed in.
+  let token: Promise<string | null> | null = null
+  const githubAuth = async (): Promise<Record<string, string>> => {
+    token ??= run('gh', ['auth', 'token'], cwd).then((r) =>
+      r.code === 0 && r.stdout.trim() ? r.stdout.trim() : null,
+    )
+    const t = await token
+    if (t === null) token = null
+    return t ? { authorization: `token ${t}` } : {}
+  }
+
   handle(ctx, 'reviews.pr', async ({ repo, number }) => {
     const [view, diff] = await Promise.all([
       gh(['pr', 'view', String(number), '-R', repo, '--json', PR_JSON_FIELDS]),
       gh(['pr', 'diff', String(number), '-R', repo, '--color=never']),
     ])
-    return toPr(repo, JSON.parse(view) as Raw, diff)
+    const pr = toPr(repo, JSON.parse(view) as Raw, diff)
+    // GitHub's attachments need his login; `<img>` tags become markdown the page renders.
+    const media = path.join(ctx.config.dir, REVIEWS_MEDIA_DIR)
+    const sources = [
+      { match: isGithubUpload, headers: githubAuth },
+      // PR bodies carry Linear proof screenshots too.
+      {
+        match: isLinearUpload,
+        headers: async (): Promise<Record<string, string>> => {
+          const key = await apiKey(ctx.env.evaRoot)
+          return key ? { authorization: key } : {}
+        },
+      },
+    ]
+    const [body, timeline] = await Promise.all([
+      localizeImages(pr.body, media, sources),
+      Promise.all(
+        pr.timeline.map(async (t) => ({
+          ...t,
+          body: await localizeImages(t.body, media, sources),
+        })),
+      ),
+    ])
+    return { ...pr, body, timeline }
   })
 
   handle(ctx, 'reviews.comment', async ({ repo, number, body }) => {

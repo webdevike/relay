@@ -21,6 +21,7 @@ import { invoke } from '../ipc'
 import { openLink } from '../navigation/open-link'
 import { EvaModal } from '../overlay'
 import { Markdown } from '../chat/markdown/Markdown'
+import { MarkdownMedia } from '../chat/markdown/MarkdownMedia'
 import { quoteOf } from './LinearDetail'
 import { ago, agoPhrase, mentionsAstra } from './review-model'
 import { Avatar, fail, useLocal } from './review-ui'
@@ -167,10 +168,13 @@ function selectionIn(el: HTMLElement | null): string | null {
 function MessageView({
   m,
   now,
+  link,
   onQuote,
 }: {
   m: SlackMessage
   now: number
+  /** Where "Open in Slack" goes for a file shown as a chip. */
+  link: string
   onQuote: (text: string) => void
 }) {
   const body = useRef<HTMLDivElement>(null)
@@ -206,14 +210,32 @@ function MessageView({
           <div ref={body} className="eva-rv-smsg-body">
             <Markdown text={emojify(m.text)} />
           </div>
-          {m.files.length > 0 ? (
+          {m.files.some((f) => f.image) ? (
+            <div className="eva-rv-simages" data-testid="slack-images">
+              {m.files.flatMap((f) =>
+                f.image ? [<MarkdownMedia key={f.id || f.name} src={f.image} alt={f.name} />] : [],
+              )}
+            </div>
+          ) : null}
+          {m.files.some((f) => !f.image) ? (
             <div className="eva-rv-labels">
-              {m.files.map((f) => (
-                <span key={f} className="eva-rv-sfile">
-                  <IconFile size={13} className="eva-rv-dim" />
-                  {f}
-                </span>
-              ))}
+              {m.files.flatMap((f) =>
+                f.image
+                  ? []
+                  : [
+                      <button
+                        key={f.id || f.name}
+                        type="button"
+                        className="eva-rv-sfile"
+                        title="Open in Slack"
+                        onClick={() => openLink(link)}
+                      >
+                        <IconFile size={13} className="eva-rv-dim" />
+                        {f.name}
+                        <IconExternalLink size={11} className="eva-rv-dim" />
+                      </button>,
+                    ],
+              )}
             </div>
           ) : null}
           {m.reactions.length > 0 ? (
@@ -405,6 +427,7 @@ export function SlackDetail({
                     <MessageView
                       m={parent}
                       now={now}
+                      link={row.url}
                       onQuote={(t) => setDraft((d) => d + quoteOf(t))}
                     />
                   ) : null}
@@ -429,6 +452,7 @@ export function SlackDetail({
                         <MessageView
                           m={e.item}
                           now={now}
+                          link={row.url}
                           onQuote={(t) => setDraft((d) => d + quoteOf(t))}
                         />
                       </Fragment>

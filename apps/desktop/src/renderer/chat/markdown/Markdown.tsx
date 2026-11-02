@@ -1,6 +1,10 @@
 import './markdown.css'
 import { createContext, memo, useContext, useMemo, type MouseEvent } from 'react'
-import ReactMarkdown, { type Components, type ExtraProps } from 'react-markdown'
+import ReactMarkdown, {
+  defaultUrlTransform,
+  type Components,
+  type ExtraProps,
+} from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { CodeBlock } from './CodeBlock'
 import { openLink } from '../../navigation/open-link'
@@ -143,13 +147,22 @@ const components: Components = {
 
 const PLUGINS = [remarkGfm]
 
+/** react-markdown's safe-URL filter, except that `mention:` links (rendered as a pill) survive it. */
+const keepMentions = (url: string): string =>
+  url.startsWith(MENTION_SCHEME) ? url : defaultUrlTransform(url)
+
 /** An assistant reply: GitHub-flavored markdown, never raw HTML. */
 function MarkdownImpl({ text }: { text: string }) {
   const source = useMemo(() => replyMarkdown(text), [text])
   return (
     <div className="eva-md">
       <SourceContext.Provider value={source}>
-        <ReactMarkdown remarkPlugins={PLUGINS} components={components} skipHtml>
+        <ReactMarkdown
+          remarkPlugins={PLUGINS}
+          components={components}
+          urlTransform={keepMentions}
+          skipHtml
+        >
           {source}
         </ReactMarkdown>
       </SourceContext.Provider>

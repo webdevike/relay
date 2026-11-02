@@ -264,7 +264,15 @@ export const SlackMessageSchema = z.object({
   text: z.string(),
   mentionsMe: z.boolean(),
   reactions: z.array(z.object({ emoji: z.string(), count: z.number() })),
-  files: z.array(z.string()),
+  files: z.array(
+    z.object({
+      name: z.string(),
+      /** Slack's file id (`F...`); empty when the read did not give one. */
+      id: z.string(),
+      /** An image's served copy (`/reviews/media/<file>`); null for other files or when Slack's app was not reachable. */
+      image: z.string().nullable(),
+    }),
+  ),
   at: z.number(),
 })
 export type SlackMessage = z.infer<typeof SlackMessageSchema>

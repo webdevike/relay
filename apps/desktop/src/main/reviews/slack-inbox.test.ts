@@ -37,7 +37,7 @@ describe('slack inbox', () => {
     expect(
       t.messages.map((m) => [m.author, m.mine, m.mentionsMe, m.files, m.reactions.length]),
     ).toEqual([
-      ['Todd', false, true, ['a.png'], 1],
+      ['Todd', false, true, [{ name: 'a.png', id: '', image: null }], 1],
       ['Isaac', true, false, [], 0],
     ])
   })

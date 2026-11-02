@@ -18,9 +18,13 @@ import {
 import type { MainContext } from '../context'
 import { buildCommand, childPathFor, runCapture } from '../eva/spawn'
 import { handle } from '../ipc/handle'
+import { REVIEWS_MEDIA_DIR } from './review-media'
+import { slackImage } from './slack-media'
 
 const CACHE_FILE = 'reviews-slack.json'
 const KEEP_THREADS = 40
+/** Files worth fetching as images (Slack's thread read names them, no type). */
+const IMAGE_NAME = /\.(?:png|jpe?g|gif|webp)$/i
 const READ_TIMEOUT_MS = 240_000
 const WORKSPACE = 'https://ecardplatform.slack.com'
 
@@ -95,7 +99,7 @@ export function threadPrompt(channel: string, threadTs: string | null): string {
 Find my own user id, then ${what}.
 
 Reply with ONLY this JSON, no prose and no code fence:
-{"me":"<my user id>","channel_name":"<#name, the person's name for a DM, or the group DM members>","messages":[{"ts":"<ts>","author":"<display name>","author_id":"<user id>","text":"<the full message as Markdown: mentions as @Name, links as [text](url), code as backticks or fenced blocks>","mentions_me":true,"reactions":[{"emoji":"<unicode emoji, or :name:>","count":1}],"files":[{"name":"<file name>"}]}]}
+{"me":"<my user id>","channel_name":"<#name, the person's name for a DM, or the group DM members>","messages":[{"ts":"<ts>","author":"<display name>","author_id":"<user id>","text":"<the full message as Markdown: mentions as @Name, links as [text](url), code as backticks or fenced blocks>","mentions_me":true,"reactions":[{"emoji":"<unicode emoji, or :name:>","count":1}],"files":[{"name":"<file name>","id":"<Slack file id, F...>"}]}]}
 Oldest first. Never shorten a message.`
 }
 
@@ -168,7 +172,7 @@ const ThreadAnswer = z.object({
         text: z.string().catch(''),
         mentions_me: z.boolean().catch(false),
         reactions: z.array(z.object({ emoji: z.string(), count: z.number() })).catch([]),
-        files: z.array(z.object({ name: z.string() })).catch([]),
+        files: z.array(z.object({ name: z.string(), id: z.string().catch('') })).catch([]),
       })
       .nullable()
       .catch(null),
@@ -193,7 +197,7 @@ export function toThread(answer: string, channel: string, threadTs: string | nul
         text: m.text,
         mentionsMe: m.mentions_me,
         reactions: m.reactions,
-        files: m.files.map((f) => f.name),
+        files: m.files.map((f) => ({ name: f.name, id: f.id, image: null })),
         at: tsMs(m.ts),
       })),
     fetchedAt: Date.now(),
@@ -278,6 +282,8 @@ export function registerSlackInbox(
     }
   }
 
+  const mediaDir = path.join(ctx.config.dir, REVIEWS_MEDIA_DIR)
+
   const load = (): CacheData => {
     const c = Cache.safeParse(ctx.config.readJson<unknown>(CACHE_FILE, {}))
     return c.success ? c.data : { queue: null, threads: {} }
@@ -309,11 +315,33 @@ export function registerSlackInbox(
     })
   })
 
+  /** The thread with its image files fetched through Slack's app (kept files at once). */
+  const withImages = async (thread: SlackThread): Promise<SlackThread> => ({
+    ...thread,
+    messages: await Promise.all(
+      thread.messages.map(async (m) => ({
+        ...m,
+        files: await Promise.all(
+          m.files.map(async (f) => {
+            if (f.image || !f.id || !IMAGE_NAME.test(f.name)) return f
+            const r = await slackImage(f.id, mediaDir)
+            return 'image' in r ? { ...f, image: r.image } : f
+          }),
+        ),
+      })),
+    ),
+  })
+
   handle(ctx, 'reviews.slackThread', async ({ channel, threadTs, refresh }) => {
     const key = `${channel}:${threadTs ?? 'dm'}`
-    if (!refresh) return load().threads[key] ?? null
+    if (!refresh) {
+      const kept = load().threads[key]
+      return kept ? withImages(kept) : null
+    }
     return once(key, async () => {
-      const thread = toThread(await read(threadPrompt(channel, threadTs)), channel, threadTs)
+      const thread = await withImages(
+        toThread(await read(threadPrompt(channel, threadTs)), channel, threadTs),
+      )
       save((c) => ({ ...c, threads: { ...c.threads, [key]: thread } }))
       return thread
     })

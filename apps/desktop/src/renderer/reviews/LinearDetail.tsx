@@ -45,6 +45,22 @@ export function linearBody(text: string, people: readonly Person[]): string {
   return out
 }
 
+/** A Linear profile link (`https://linear.app/<workspace>/profiles/<handle>`): how Linear writes a mention. */
+const PROFILE = /(?<!\]\()<?https:\/\/linear\.app\/[\w-]+\/profiles\/([\w.-]+)>?/g
+
+/**
+ * What a Linear body shows: each profile link as `@<Name>` in Linear's mention style (the
+ * `mention:` pill the app's Markdown renders), the name from the people on the ticket, else the
+ * handle. The body itself keeps the links, so a quote or reply still mentions the person.
+ */
+export function linearDisplay(text: string, people: readonly Person[]): string {
+  return text.replace(PROFILE, (_, handle: string) => {
+    const p = people.find((x) => x.handle.toLowerCase() === handle.toLowerCase())
+    const name = (p?.name ?? handle).replace(/[[\]]/g, '')
+    return `[@${name}](mention:linear)`
+  })
+}
+
 /** `> ` before every line: a quote in markdown. */
 export function quoteOf(text: string): string {
   return `${text
@@ -209,11 +225,14 @@ function ReplyBox({
 function CommentView({
   c,
   now,
+  people,
   onReply,
   onQuote,
 }: {
   c: LinearComment
   now: number
+  /** Everyone on the ticket, Isaac too: whom a profile link names. */
+  people: readonly Person[]
   onReply?: () => void
   onQuote: (text: string) => void
 }) {
@@ -255,7 +274,7 @@ function CommentView({
         </span>
       </div>
       <div ref={body} className="eva-rv-lcomment-body">
-        <Markdown text={c.body} />
+        <Markdown text={linearDisplay(c.body, people)} />
       </div>
     </div>
   )
@@ -414,6 +433,7 @@ export function LinearDetail({
     )
   }
   const t = ticket.t
+  const everyone = [...t.people, t.me]
   const roots = t.comments.filter((c) => c.parentId === null)
   const repliesTo = (id: string) => t.comments.filter((c) => c.parentId === id)
   const blocks = itemBlocks(astra.item)
@@ -564,7 +584,7 @@ export function LinearDetail({
                 </div>
                 <div className="eva-rv-body" ref={descRef}>
                   {t.description.trim() ? (
-                    <Markdown text={t.description} />
+                    <Markdown text={linearDisplay(t.description, everyone)} />
                   ) : (
                     <span className="eva-rv-dim">No description.</span>
                   )}
@@ -590,6 +610,7 @@ export function LinearDetail({
                       <CommentView
                         c={e.item}
                         now={now}
+                        people={everyone}
                         onReply={() =>
                           setReply((r) =>
                             r && r.to.id === e.item.id ? r : { to: e.item, text: '' },
@@ -604,6 +625,7 @@ export function LinearDetail({
                               key={r.id}
                               c={r}
                               now={now}
+                              people={everyone}
                               onQuote={(text) => quote(text, e.item)}
                             />
                           ))}
