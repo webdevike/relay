@@ -47,6 +47,8 @@ export const SavedThemeSchema = z.object({
     .max(200)
     .optional(),
   colorScheme: z.enum(['light', 'dark']).optional(),
+  /** Set once the saved configs were read with the focus ring defaulting to off ('auto' = old default). */
+  focusRingMigrated: z.boolean().optional(),
 })
 export type SavedTheme = z.infer<typeof SavedThemeSchema>
 

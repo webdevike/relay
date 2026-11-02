@@ -12,8 +12,8 @@ vi.mock('@mantine/notifications', () => ({ notifications: { show: vi.fn() } }))
 
 import { SettingsPage } from './SettingsPage'
 import { resetSettingsForTest } from './settings-store'
-import { THEME_PRESETS } from '@relay/widget-runtime/theme'
 import {
+  THEME_PRESETS,
   applyPreset,
   persistTheme,
   seedTheme,
@@ -77,6 +77,7 @@ describe('SettingsPage', () => {
         preset: 'forest',
         themes: [],
         colorScheme: 'light',
+        focusRingMigrated: true,
       }),
     )
     expect(screen.getByTestId('theme-preset-picker')).toHaveTextContent('Forest')
@@ -115,7 +116,7 @@ describe('SettingsPage', () => {
     const user = userEvent.setup()
     applyPreset('forest')
     page('Theme')
-    updateConfig((c) => ({ ...c, focusRing: 'never' }))
+    updateConfig((c) => ({ ...c, focusRing: 'always' }))
     await user.click(await screen.findByTestId('theme-save'))
     expect(screen.getByTestId('theme-save-state')).toHaveTextContent('Your version')
     expect(themeStore.getState().themes).toEqual([
@@ -124,11 +125,11 @@ describe('SettingsPage', () => {
     // Switching away and back returns his saved version, not the shipped one.
     applyPreset('default')
     applyPreset('forest')
-    expect(themeStore.getState().present.focusRing).toBe('never')
+    expect(themeStore.getState().present.focusRing).toBe('always')
     await user.click(screen.getByTestId('theme-actions'))
     await user.click(await screen.findByTestId('theme-reset'))
     expect(themeStore.getState().themes).toEqual([])
-    expect(themeStore.getState().present.focusRing).toBe('auto')
+    expect(themeStore.getState().present.focusRing).toBe('never')
   })
 
   it('Save as new makes his own theme, picks it, and it can be deleted', async () => {
