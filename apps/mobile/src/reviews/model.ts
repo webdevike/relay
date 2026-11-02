@@ -4,7 +4,7 @@
  * threads, a Slack thread's parent and replies, the Guide's progress and a PR's state badge, the
  * item's timeline with Astra's turns merged in by time, the snooze choices and @mention picking.
  */
-import { mentionsAstra, untagged, type AstraItem, type AstraTurn, type LinearComment, type ReviewGuide, type ReviewPr, type ReviewRef, type ReviewsOp, type SlackMessage } from "@relay/protocol";
+import { mentionsAstra, untagged, type AstraItem, type AstraTurn, type LinearComment, type ReviewGuide, type ReviewItem, type ReviewPr, type ReviewRef, type ReviewsOp, type ReviewSource, type SlackMessage } from "@relay/protocol";
 import type { ToneToken } from "@/theme";
 
 /** Where the screen's composer posts: the item it sits on. */
@@ -185,23 +185,105 @@ export function reviewRoute(url: string, ref: ReviewRef): ReviewRoute {
   return { pathname: "/reviews/slack", params: { url, channel: ref.channel, threadTs: ref.threadTs ?? "" } };
 }
 
+/** An item link as the item it names. */
+export interface ReviewLink {
+  url: string;
+  ref: ReviewRef;
+}
+
 /**
- * The screen a link to an item opens (`relay://reviews?item=<url>`): a GitHub PR, a Linear issue
- * (`https://linear.app/<ws>/issue/<KEY>[/slug]`) or a Slack permalink
- * (`https://<ws>.slack.com/archives/<channel>/p<digits>[?thread_ts=<ts>]`, the message ts being the
- * digits with a dot before the last six; `thread_ts` names the thread when present). Null for any other link.
+ * The item a link names: a GitHub PR, a Linear issue (`https://linear.app/<ws>/issue/<KEY>[/slug]`)
+ * or a Slack permalink (`https://<ws>.slack.com/archives/<channel>/p<digits>[?thread_ts=<ts>]`, the
+ * message ts being the digits with a dot before the last six; `thread_ts` names the thread when
+ * present, and a DM channel's (`D...`) message without one is the conversation). Null for any other link.
  */
-export function reviewItemRoute(url: string): ReviewRoute | null {
+export function reviewLinkOf(url: string): ReviewLink | null {
   const pr = githubPrOf(url);
-  if (pr !== null) return reviewRoute(url, { kind: "github", ...pr });
-  const linear = /^https:\/\/linear\.app\/[\w-]+\/issue\/([A-Z][A-Z0-9]*-\d+)(?:[/?#]|$)/.exec(url)?.[1];
-  if (linear !== undefined) return reviewRoute(url, { kind: "linear", key: linear });
+  if (pr !== null) return { url, ref: { kind: "github", ...pr } };
+  const linear = /^https:\/\/linear\.app\/[\w-]+\/issue\/([a-z][a-z0-9]*-\d+)(?:[/?#]|$)/i.exec(url)?.[1];
+  if (linear !== undefined) return { url, ref: { kind: "linear", key: linear.toUpperCase() } };
   const slack = /^https:\/\/[\w-]+\.slack\.com\/archives\/([CDG][A-Z0-9]+)\/p(\d{7,})(?:\?([^#]*))?/.exec(url);
   const channel = slack?.[1];
   const digits = slack?.[2];
   if (channel === undefined || digits === undefined) return null;
   const thread = /(?:^|&)thread_ts=(\d+\.\d+)(?:&|$)/.exec(slack?.[3] ?? "")?.[1];
-  return reviewRoute(url, { kind: "slack", channel, threadTs: thread ?? `${digits.slice(0, -6)}.${digits.slice(-6)}` });
+  const threadTs = thread ?? (channel.startsWith("D") ? null : `${digits.slice(0, -6)}.${digits.slice(-6)}`);
+  return { url, ref: { kind: "slack", channel, threadTs } };
+}
+
+/** The screen a link to an item opens (`relay://reviews?item=<url>`, see `reviewLinkOf`); null for any other link. */
+export function reviewItemRoute(url: string): ReviewRoute | null {
+  const link = reviewLinkOf(url);
+  return link === null ? null : reviewRoute(link.url, link.ref);
+}
+
+/** `https://linear.app/<ws>/issue/...` as its workspace. */
+const LINEAR_WORKSPACE = /^https:\/\/linear\.app\/([\w-]+)\/issue\//;
+
+/**
+ * What the queue's search text names when it is a whole item id or link: a PR, Linear issue or Slack
+ * link (`reviewLinkOf`), `owner/repo#n`, or a bare Linear key (`ENG-6693`, any case). A bare key's
+ * link takes its workspace from a Linear item in `items` (`https://linear.app/issue/<KEY>` without one).
+ */
+export function reviewTargetOf(text: string, items: readonly Pick<ReviewItem, "url" | "ref">[]): ReviewLink | null {
+  const query = text.trim();
+  const link = reviewLinkOf(query);
+  if (link !== null) return link;
+  const pr = /^([\w.-]+\/[\w.-]+)#(\d+)$/.exec(query);
+  if (pr?.[1] !== undefined && pr[2] !== undefined && Number(pr[2]) > 0) {
+    return { url: `https://github.com/${pr[1]}/pull/${pr[2]}`, ref: { kind: "github", repo: pr[1], number: Number(pr[2]) } };
+  }
+  if (!/^[a-z][a-z0-9]*-\d+$/i.test(query)) return null;
+  const key = query.toUpperCase();
+  const workspace = items.flatMap((item) => (item.ref.kind === "linear" ? [LINEAR_WORKSPACE.exec(item.url)?.[1]] : [])).find((ws) => ws !== undefined);
+  return { url: workspace === undefined ? `https://linear.app/issue/${key}` : `https://linear.app/${workspace}/issue/${key}`, ref: { kind: "linear", key } };
+}
+
+/** Whether two references name the same item (a repo's case does not matter). */
+export function sameReviewRef(a: ReviewRef, b: ReviewRef): boolean {
+  if (a.kind === "github") return b.kind === "github" && a.repo.toLowerCase() === b.repo.toLowerCase() && a.number === b.number;
+  if (a.kind === "linear") return b.kind === "linear" && a.key === b.key;
+  return b.kind === "slack" && a.channel === b.channel && a.threadTs === b.threadTs;
+}
+
+/** The item's id as its source writes it: `ENG-6693`, `api#246` (the repo without its owner), `#ui-ux` or `DM`. */
+export function reviewItemId(item: Pick<ReviewItem, "ref" | "label">): string {
+  if (item.ref.kind === "github") return `${item.ref.repo.split("/").pop() ?? item.ref.repo}#${String(item.ref.number)}`;
+  if (item.ref.kind === "linear") return item.ref.key;
+  return item.label === "DM" || item.label.startsWith("#") ? item.label : `#${item.label}`;
+}
+
+/**
+ * Whether the item matches the queue's search text: a whole id or link (`reviewTargetOf`) matches
+ * that item; anything else matches when every word is in its title, id (`ENG-6693`, `api#246`,
+ * `owner/repo#246`, `#246`), person or channel, in any case. Blank text matches everything.
+ */
+export function reviewMatches(item: Pick<ReviewItem, "url" | "ref" | "title" | "actor" | "label">, text: string): boolean {
+  const words = text.trim().toLowerCase().split(/\s+/).filter((word) => word !== "");
+  if (words.length === 0) return true;
+  const target = reviewTargetOf(text, []);
+  if (target !== null && sameReviewRef(target.ref, item.ref)) return true;
+  const ids = item.ref.kind === "github" ? [`${item.ref.repo}#${String(item.ref.number)}`] : item.ref.kind === "slack" ? [item.ref.channel] : [];
+  const haystack = [item.title, item.actor, item.label, reviewItemId(item), ...ids].join("\n").toLowerCase();
+  return words.every((word) => haystack.includes(word));
+}
+
+/** The row search offers for an item id or link the queue does not list. */
+export interface ReviewOpenRow {
+  /** `Open ENG-6693`, `Open PR eCardSystems/api#246`, `Open Slack thread`, `Open Slack DM`. */
+  title: string;
+  route: ReviewRoute;
+  source: ReviewSource;
+}
+
+/** Search text that names an item (`reviewTargetOf`) missing from `items`, as the row that opens its screen; null otherwise. */
+export function reviewOpenRow(text: string, items: readonly Pick<ReviewItem, "url" | "ref">[]): ReviewOpenRow | null {
+  const target = reviewTargetOf(text, items);
+  if (target === null || items.some((item) => sameReviewRef(item.ref, target.ref))) return null;
+  const { ref } = target;
+  const title =
+    ref.kind === "github" ? `Open PR ${ref.repo}#${String(ref.number)}` : ref.kind === "linear" ? `Open ${ref.key}` : ref.threadTs === null ? "Open Slack DM" : "Open Slack thread";
+  return { title, route: reviewRoute(target.url, ref), source: ref.kind };
 }
 
 /** One dated piece of an item's own timeline: a comment, a message, an activity line. */

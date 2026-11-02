@@ -111,6 +111,7 @@ export default function ReviewPrScreen() {
       revealKey={composer.revealKey}
       header={
         <ItemHeader
+          source="github"
           label={label}
           title={title}
           editLabel="Open in GitHub"

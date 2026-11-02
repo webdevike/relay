@@ -1,7 +1,7 @@
 /**
- * One Reviews queue row: unread dot, source glyph, title on one line, `<actor> <reason> <label>`
- * under it and the age on the right. Swiping left shows a green Done; VoiceOver gets Done as an
- * action on the row.
+ * One Reviews queue row: unread dot, source glyph, title on one line, the source's brand mark and the
+ * item's id (`ENG-6693`, `api#246`, `#ui-ux`) then `<actor> <reason>` under it, and the age on the
+ * right. Swiping left shows a green Done; VoiceOver gets Done as an action on the row.
  */
 import { useRef } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
@@ -11,7 +11,8 @@ import { reviewAgo, type ReviewItem } from "@relay/protocol";
 import { emojify } from "@relay/slack-emoji";
 import { spacing, useColors } from "@/theme";
 import { Text } from "@/ui/Text";
-import { SourceGlyph } from "./SourceGlyph";
+import { reviewItemId } from "./model";
+import { ReviewId, SOURCE_NAME, SourceGlyph } from "./SourceGlyph";
 
 export interface QueueRowProps {
   item: ReviewItem;
@@ -52,7 +53,7 @@ export function QueueRow({ item, unread, now, onOpen, onDone }: QueueRowProps) {
     >
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${unread ? "Unread, " : ""}${emojify(item.title)}, ${item.actor} ${item.reason} ${item.label}, ${age}`}
+        accessibilityLabel={`${unread ? "Unread, " : ""}${emojify(item.title)}, ${SOURCE_NAME[item.ref.kind]} ${reviewItemId(item)}, ${item.actor} ${item.reason}, ${age}`}
         accessibilityHint="Swipe left for Done"
         accessibilityActions={[{ name: "done", label: "Done" }]}
         onAccessibilityAction={(event) => {
@@ -74,10 +75,12 @@ export function QueueRow({ item, unread, now, onOpen, onDone }: QueueRowProps) {
               {age}
             </Text>
           </View>
-          <Text color="textMuted" numberOfLines={1}>
-            {`${item.actor} ${item.reason} `}
-            <Text color="textFaint">{item.label}</Text>
-          </Text>
+          <View style={styles.meta}>
+            <ReviewId item={item} variant="body" />
+            <Text color="textMuted" numberOfLines={1} style={styles.reason}>
+              {`${item.actor} ${item.reason}`}
+            </Text>
+          </View>
         </View>
       </Pressable>
     </ReanimatedSwipeable>
@@ -91,6 +94,8 @@ const styles = StyleSheet.create({
   text: { flex: 1, gap: 2, paddingVertical: spacing.md, paddingRight: spacing.xl, borderBottomWidth: StyleSheet.hairlineWidth },
   line: { flexDirection: "row", alignItems: "baseline", gap: spacing.md },
   title: { flex: 1 },
+  meta: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  reason: { flexShrink: 1 },
   read: { fontWeight: "400" },
   action: { width: 92, alignItems: "center", justifyContent: "center", gap: 2 },
 });

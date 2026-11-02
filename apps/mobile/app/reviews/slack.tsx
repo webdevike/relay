@@ -68,6 +68,7 @@ export default function ReviewSlackScreen() {
       revealKey={composer.revealKey}
       header={
         <ItemHeader
+          source="slack"
           label={item?.label ?? channelName}
           title={item === undefined ? channelName : emojify(item.title)}
           editLabel="Open in Slack"

@@ -85,6 +85,7 @@ export default function ReviewLinearScreen() {
       revealKey={composer.revealKey}
       header={
         <ItemHeader
+          source="linear"
           label={params.key}
           title={title}
           editLabel="Open in Linear"

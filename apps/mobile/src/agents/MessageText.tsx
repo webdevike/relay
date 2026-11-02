@@ -3,7 +3,7 @@
 import { Fragment, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Platform, Text as RNText, ScrollView, type TextStyle, View } from "react-native";
 import Animated, { FadeIn, ReduceMotion, useReducedMotion } from "react-native-reanimated";
-import { openExternal } from "@/lib/links";
+import { openChatLink } from "@/lib/links";
 import { motion, radii, spacing, type, useColors } from "@/theme";
 import { BlockQuote } from "@/ui/BlockQuote";
 import { ListItem } from "@/ui/ListItem";
@@ -236,7 +236,7 @@ function Inlines({ runs, streaming = false, fontSize = type.body.fontSize }: { r
         }
         const href = run.href;
         return (
-          <RNText key={i} style={style} accessibilityRole={href === undefined ? undefined : "link"} onPress={href === undefined ? undefined : () => { openExternal(href); }}>
+          <RNText key={i} style={style} accessibilityRole={href === undefined ? undefined : "link"} onPress={href === undefined ? undefined : () => { openChatLink(href); }}>
             {streaming ? <InlineContent text={run.text} /> : run.text}
           </RNText>
         );

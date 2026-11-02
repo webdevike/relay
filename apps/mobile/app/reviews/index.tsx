@@ -5,18 +5,20 @@
  * `relay://reviews?item=<encoded item url>` opens that item's screen.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { RefreshControl, SectionList, StyleSheet, View } from "react-native";
+import { Pressable, RefreshControl, SectionList, StyleSheet, TextInput, View } from "react-native";
+import { SymbolView } from "expo-symbols";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { isReviewUnread, liveReviewItems, reviewDayGroups, type ReviewItem, type ReviewQueue, type ReviewSource } from "@relay/protocol";
 import { reviewsRequest } from "@/connection";
 import { useTransientMessage } from "@/lib/useTransientMessage";
 import { markReviewDone, openReviewItem } from "@/reviews/actions";
 import { ItemHeader } from "@/reviews/ItemHeader";
-import { reviewItemRoute } from "@/reviews/model";
+import { reviewItemRoute, reviewMatches, reviewOpenRow } from "@/reviews/model";
+import { SourceMark } from "@/reviews/SourceGlyph";
 import { QueueRow } from "@/reviews/QueueRow";
 import { useConnectionStore } from "@/state/connection";
 import { useReviewsStore } from "@/state/reviews";
-import { spacing, useColors } from "@/theme";
+import { spacing, useColors, useScheme } from "@/theme";
 import { EmptyState } from "@/ui/EmptyState";
 import { Screen } from "@/ui/Screen";
 import { SegmentedTabs } from "@/ui/SegmentedTabs";
@@ -50,9 +52,11 @@ function sourceNotes(queue: ReviewQueue, filter: Filter): string[] {
 
 export default function Reviews() {
   const colors = useColors();
+  const scheme = useScheme();
   const router = useRouter();
   const queue = useReviewsStore((state) => state.queue);
   const connected = useConnectionStore((state) => state.status === "connected");
+  const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [now, setNow] = useState(() => Date.now());
   const [pulled, setPulled] = useState(false);
@@ -86,7 +90,10 @@ export default function Reviews() {
 
   // Snoozed rows come back on their own as `now` passes their time.
   const waiting = useMemo(() => (queue === null ? [] : liveReviewItems(queue, null, now)), [queue, now]);
-  const shown = useMemo(() => (filter === "all" ? waiting : waiting.filter((item) => item.ref.kind === filter)), [waiting, filter]);
+  const text = search.trim();
+  const byFilter = useMemo(() => (filter === "all" ? waiting : waiting.filter((item) => item.ref.kind === filter)), [waiting, filter]);
+  const shown = useMemo(() => (text === "" ? byFilter : byFilter.filter((item) => reviewMatches(item, text))), [byFilter, text]);
+  const openRow = useMemo(() => (text === "" ? null : reviewOpenRow(text, waiting)), [waiting, text]);
   const sections = useMemo(() => reviewDayGroups(shown, now).map((group) => ({ title: group.label, data: group.items })), [shown, now]);
   const notes = queue === null ? [] : sourceNotes(queue, filter);
 
@@ -124,6 +131,39 @@ export default function Reviews() {
               {queue === null ? (connected ? "Asking your Mac…" : "Not connected") : waiting.length === 0 ? "Nothing waiting on you" : `${String(waiting.length)} waiting on you`}
             </Text>
             <SegmentedTabs tabs={FILTERS} value={filter} onChange={setFilter} />
+            <View style={[styles.search, { backgroundColor: colors.surfaceRaised }]}>
+              <SymbolView name="magnifyingglass" size={15} tintColor={colors.textFaint} />
+              <TextInput
+                value={search}
+                onChangeText={setSearch}
+                placeholder="Search title, ENG-6693, repo#246, person, channel"
+                placeholderTextColor={colors.textFaint}
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="search"
+                clearButtonMode="while-editing"
+                keyboardAppearance={scheme}
+                selectionColor={colors.accent}
+                accessibilityLabel="Search reviews"
+                style={[styles.searchInput, { color: colors.text }]}
+              />
+            </View>
+            {openRow !== null && (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={openRow.title}
+                onPress={() => {
+                  router.push(openRow.route);
+                }}
+                style={[styles.open, { borderBottomColor: colors.hairline }]}
+              >
+                <SourceMark source={openRow.source} size={16} color="textMuted" />
+                <Text style={styles.openTitle} numberOfLines={1}>
+                  {openRow.title}
+                </Text>
+                <SymbolView name="chevron.right" size={12} tintColor={colors.textFaint} />
+              </Pressable>
+            )}
           </View>
         }
         renderSectionHeader={({ section }) => (
@@ -145,10 +185,14 @@ export default function Reviews() {
           />
         )}
         ListEmptyComponent={
-          queue === null ? null : (
+          queue === null || openRow !== null ? null : text !== "" ? (
+            <EmptyState symbol="magnifyingglass" title="No matches." body="Nothing in the queue matches that search." />
+          ) : (
             <EmptyState symbol="checklist" title="All caught up" body={filter === "all" ? "Nothing from GitHub, Linear or Slack waits on you." : `Nothing from ${SOURCE_NAME[filter]} waits on you.`} />
           )
         }
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         ListFooterComponent={
           notes.length === 0 ? null : (
             <View style={styles.notes}>
@@ -174,6 +218,10 @@ export default function Reviews() {
 const styles = StyleSheet.create({
   head: { paddingHorizontal: spacing.xl, paddingBottom: spacing.md, gap: spacing.xs },
   count: { marginBottom: spacing.md },
+  search: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingHorizontal: spacing.md, borderRadius: 12, marginTop: spacing.sm },
+  searchInput: { flex: 1, minHeight: 38, fontSize: 16 },
+  open: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth },
+  openTitle: { flex: 1, fontWeight: "600" },
   section: { paddingHorizontal: spacing.xl, paddingTop: spacing.lg, paddingBottom: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth },
   notes: { paddingHorizontal: spacing.xl, paddingTop: spacing.lg, gap: spacing.xs },
   list: { paddingBottom: spacing.xxxl },

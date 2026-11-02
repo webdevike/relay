@@ -27,7 +27,13 @@ import {
   type TimelineRow,
   astraThreads,
   astraTyping,
+  reviewItemId,
   reviewItemRoute,
+  reviewLinkOf,
+  reviewMatches,
+  reviewOpenRow,
+  reviewTargetOf,
+  sameReviewRef,
   stripThreadReply,
   threadReplyText,
   threadSnippet,
@@ -400,5 +406,77 @@ describe("astraThreads with a surface tag", () => {
     const reply = { id: "u2", role: "user" as const, text: `<surface>iPhone - Relay</surface>\n${threadReplyText("@Astra why?", "and then?")}`, streaming: false, at: 2 };
     const threads = astraThreads([root, reply], false);
     expect(threads).toHaveLength(1);
+  });
+});
+
+describe("review links, ids and search", () => {
+  const pr = { url: "https://github.com/eCardSystems/api/pull/246", ref: { kind: "github", repo: "eCardSystems/api", number: 246 }, title: "Fix the retry loop", actor: "Noah Champoux", label: "eCardSystems/api" } as const;
+  const linear = { url: "https://linear.app/ecard/issue/ENG-6693/slug", ref: { kind: "linear", key: "ENG-6693" }, title: "Reports export", actor: "Steve Arms", label: "ENG-6693" } as const;
+  const slack = { url: "https://ecard.slack.com/archives/C0123ABC/p1730000000123456", ref: { kind: "slack", channel: "C0123ABC", threadTs: "1730000000.123456" }, title: "Deploy today?", actor: "Sarah", label: "ui-ux" } as const;
+  const dm = { url: "https://ecard.slack.com/archives/D0123ABC/p1730000000123456", ref: { kind: "slack", channel: "D0123ABC", threadTs: null }, title: "Hi", actor: "Chris", label: "DM" } as const;
+  const items = [pr, linear, slack, dm];
+
+  it("reviewLinkOf names the item a link points at", () => {
+    expect(reviewLinkOf(pr.url)).toEqual({ url: pr.url, ref: pr.ref });
+    expect(reviewLinkOf(linear.url)?.ref).toEqual({ kind: "linear", key: "ENG-6693" });
+    expect(reviewLinkOf(slack.url)?.ref).toEqual(slack.ref);
+    expect(reviewLinkOf(dm.url)?.ref).toEqual(dm.ref);
+    expect(reviewLinkOf("https://example.com/x")).toBeNull();
+    expect(reviewLinkOf("https://github.com/eCardSystems/api/issues/3")).toBeNull();
+  });
+
+  it("reviewTargetOf reads links, owner/repo#n and bare keys", () => {
+    expect(reviewTargetOf(` ${pr.url} `, [])?.ref).toEqual(pr.ref);
+    expect(reviewTargetOf("eCardSystems/api#246", [])).toEqual({ url: "https://github.com/eCardSystems/api/pull/246", ref: pr.ref });
+    expect(reviewTargetOf("eng-6693", [])).toEqual({ url: "https://linear.app/issue/ENG-6693", ref: linear.ref });
+    expect(reviewTargetOf("ENG-6693", items)?.url).toBe("https://linear.app/ecard/issue/ENG-6693");
+    expect(reviewTargetOf("retry loop", items)).toBeNull();
+    expect(reviewTargetOf("api#246", items)).toBeNull();
+    expect(reviewTargetOf("owner/repo#0", items)).toBeNull();
+  });
+
+  it("sameReviewRef ignores a repo's case", () => {
+    expect(sameReviewRef(pr.ref, { kind: "github", repo: "ecardsystems/API", number: 246 })).toBe(true);
+    expect(sameReviewRef(pr.ref, { kind: "github", repo: "eCardSystems/api", number: 247 })).toBe(false);
+    expect(sameReviewRef(linear.ref, pr.ref)).toBe(false);
+    expect(sameReviewRef(slack.ref, dm.ref)).toBe(false);
+  });
+
+  it("reviewItemId writes an id the way its source does", () => {
+    expect(reviewItemId(pr)).toBe("api#246");
+    expect(reviewItemId(linear)).toBe("ENG-6693");
+    expect(reviewItemId(slack)).toBe("#ui-ux");
+    expect(reviewItemId({ ref: slack.ref, label: "#ui-ux" })).toBe("#ui-ux");
+    expect(reviewItemId(dm)).toBe("DM");
+  });
+
+  it("reviewMatches searches title, id, people and channel; blank matches all", () => {
+    expect(reviewMatches(pr, "")).toBe(true);
+    expect(reviewMatches(pr, "RETRY loop")).toBe(true);
+    expect(reviewMatches(pr, "retry nothing")).toBe(false);
+    expect(reviewMatches(pr, "api#246")).toBe(true);
+    expect(reviewMatches(pr, "ecardsystems/api#246")).toBe(true);
+    expect(reviewMatches(pr, "#246")).toBe(true);
+    expect(reviewMatches(pr, "noah")).toBe(true);
+    expect(reviewMatches(linear, "eng-6693")).toBe(true);
+    expect(reviewMatches(linear, "eng-6694")).toBe(false);
+    expect(reviewMatches(linear, linear.url)).toBe(true);
+    expect(reviewMatches(slack, "ui-ux")).toBe(true);
+    expect(reviewMatches(slack, "steve")).toBe(false);
+    expect(reviewMatches(dm, "dm")).toBe(true);
+  });
+
+  it("reviewOpenRow offers an item the queue does not list, and only then", () => {
+    expect(reviewOpenRow("ENG-9999", items)).toEqual({
+      title: "Open ENG-9999",
+      source: "linear",
+      route: { pathname: "/reviews/linear", params: { url: "https://linear.app/ecard/issue/ENG-9999", key: "ENG-9999" } },
+    });
+    expect(reviewOpenRow("owner/repo#9", items)).toMatchObject({ title: "Open PR owner/repo#9", source: "github", route: { pathname: "/reviews/pr" } });
+    expect(reviewOpenRow("https://ecard.slack.com/archives/C0999ZZ/p1730000000123456", items)?.title).toBe("Open Slack thread");
+    expect(reviewOpenRow("https://ecard.slack.com/archives/D0999ZZ/p1730000000123456", items)?.title).toBe("Open Slack DM");
+    expect(reviewOpenRow("ENG-6693", items)).toBeNull();
+    expect(reviewOpenRow("ecardsystems/api#246", items)).toBeNull();
+    expect(reviewOpenRow("retry loop", items)).toBeNull();
   });
 });
