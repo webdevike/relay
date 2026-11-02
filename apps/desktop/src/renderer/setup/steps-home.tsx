@@ -268,9 +268,7 @@ export function HostStep({ ctx }: { ctx: WizardCtx }) {
           }
           return
         }
-        const tick = Promise.withResolvers<void>()
-        setTimeout(tick.resolve, 1000)
-        await tick.promise
+        await new Promise<void>((resolve) => setTimeout(resolve, 1000))
       }
       if (!cancelled) {
         setTimedOut(true)

@@ -20,9 +20,9 @@ export function loadProfile(): Promise<Profile> {
   return memo
 }
 
-/** null until main answers. */
-export function useProfile(): Profile | null {
-  const [profile, setProfile] = useState<Profile | null>(null)
+/** `eva` until main says otherwise, so the full nav renders at once; flips once if starter. */
+export function useProfile(): Profile {
+  const [profile, setProfile] = useState<Profile>('eva')
   useEffect(() => {
     let cancelled = false
     void loadProfile().then((p) => {

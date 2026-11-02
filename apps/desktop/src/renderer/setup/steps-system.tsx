@@ -137,7 +137,10 @@ export function InstallStep({ ctx }: { ctx: WizardCtx }) {
 
   const patchRow = (tool: string, r: Partial<Row>): void => {
     if (!alive.current) return
-    setRows((cur) => ({ ...cur, [tool]: { status: 'wait', percent: 0, line: '', ...cur[tool], ...r } }))
+    setRows((cur) => {
+      const prev: Row = cur[tool] ?? { status: 'wait', percent: 0, line: '' }
+      return { ...cur, [tool]: { ...prev, ...r } }
+    })
   }
 
   const runAll = async (tools: string[]): Promise<void> => {

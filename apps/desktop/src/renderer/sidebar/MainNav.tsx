@@ -49,7 +49,7 @@ export function MainNav() {
   const boards = useBoards((s) => s.data?.boards ?? null)
   const { ref, width } = useElementSize<HTMLDivElement>()
   const profile = useProfile()
-  const main = profile === null ? [] : MAIN.filter((n) => profile === 'eva' || STARTER_SLUGS[n.slug])
+  const main = MAIN.filter((n) => profile === 'eva' || STARTER_SLUGS[n.slug])
 
   const go = (page: Place['page'], e: MouseEvent): void => {
     const newTab = e.metaKey
