@@ -220,11 +220,13 @@ function serve(
     // No registry: assistants are off and the lists below stay empty.
   }
   let device: UinputDevice | MacInputDevice | null = null;
+  let accessRequested = false;
   try {
     device = process.platform === "darwin" ? new MacInputDevice() : new UinputDevice();
     if (device instanceof MacInputDevice) {
-      log(`macOS input: Accessibility ${device.granted ? "granted" : "required"}`);
-      if (!device.granted) device.requestAccess();
+      // No prompt here: a new Mac would get an unexplained Accessibility dialog at login. The first
+      // pointer/keyboard command from a phone asks instead (session `inputAllowed`).
+      log(`macOS input: Accessibility ${device.granted ? "granted" : "not granted yet (asked on first phone input)"}`);
     } else {
       log("virtual input device created");
     }
@@ -546,6 +548,11 @@ function serve(
       access: {
         get granted() {
           return device instanceof MacInputDevice ? device.granted : device !== null;
+        },
+        request: () => {
+          if (!(device instanceof MacInputDevice) || accessRequested) return;
+          accessRequested = true;
+          device.requestAccess();
         },
       },
       images,

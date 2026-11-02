@@ -427,7 +427,7 @@ export class ClientSession {
   private handleAuthenticated(deviceId: string, message: ClientMessage): void {
     switch (message.t) {
       case "input":
-        if (this.deps.access.granted) this.deps.input.handle(message.events);
+        if (this.inputAllowed()) this.deps.input.handle(message.events);
         break;
       case "cmd":
         this.handleCmd(message.id, message.cmd, deviceId);
@@ -756,18 +756,25 @@ export class ClientSession {
     }
   }
 
+  /** Input needs the OS permission; the first refused use asks for it (never at startup). */
+  private inputAllowed(): boolean {
+    if (this.deps.access.granted) return true;
+    this.deps.access.request?.();
+    return false;
+  }
+
   private run(id: string, cmd: Command, deviceId: string): Promise<void> {
     switch (cmd.kind) {
       case "text.insert":
-        return this.deps.access.granted
+        return this.inputAllowed()
           ? this.deps.text.insert(cmd.text)
           : Promise.reject(noInputDevice());
       case "key.press":
-        return this.deps.access.granted
+        return this.inputAllowed()
           ? this.deps.text.press(cmd.key)
           : Promise.reject(noInputDevice());
       case "clipboard.paste":
-        return this.deps.access.granted
+        return this.inputAllowed()
           ? this.deps.images.paste(cmd.image)
           : Promise.reject(noInputDevice());
       case "agent.reply": {

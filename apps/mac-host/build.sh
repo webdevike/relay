@@ -24,7 +24,10 @@ codesign --force --sign "${IDENTITY:--}" --identifier com.ike.relay.input "$APP/
 codesign --force --sign "${IDENTITY:--}" --identifier com.ike.relay.daemon "$APP/Contents/MacOS/relay-host"
 # omp extensions the host installs into ~/.omp/agent/extensions when missing (agents/extensions.ts).
 mkdir -p "$APP/Contents/Resources/omp-extension"
-cp ../linux/omp-extension/relay-bridge.ts "$APP/Contents/Resources/omp-extension/"
+# Bundled: the source imports ../src/agents/* by relative path, which only resolves from a repo checkout
+# (Isaac's symlink). omp's own packages stay external; omp resolves them when it loads the extension.
+(cd ../linux && bun build omp-extension/relay-bridge.ts --target=bun --format=esm --external '@oh-my-pi/*' \
+  --outfile "../mac-host/$APP/Contents/Resources/omp-extension/relay-bridge.ts")
 # herdr's own agent-state extension, when this machine has it; otherwise the host runs `herdr integration install omp`.
 [ -f "$HOME/.omp/agent/extensions/herdr-omp-agent-state.ts" ] && cp "$HOME/.omp/agent/extensions/herdr-omp-agent-state.ts" "$APP/Contents/Resources/omp-extension/"
 cat > "$APP/Contents/Info.plist" <<EOF
