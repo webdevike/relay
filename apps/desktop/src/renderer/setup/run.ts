@@ -80,17 +80,19 @@ export function firstIncomplete(state: SetupState): SetupStep {
   return SETUP_STEPS.find((s) => !state.done.includes(s)) ?? 'done'
 }
 
-/** Tools `detect.sh` found missing, in install order. relay-host is installed by its own step. */
+/**
+ * Tools `detect.sh` found missing, in install order. relay-host is installed by its own step. Tailscale is not
+ * listed: its .pkg auto-launches the app and macOS VPN dialogs, so the iPhone step installs it only on request.
+ */
 export function missingTools(
   d: SetupDetect,
-): Array<'clt' | 'brew' | 'bun' | 'omp' | 'herdr' | 'tailscale'> {
+): Array<'clt' | 'brew' | 'bun' | 'omp' | 'herdr'> {
   const rows = [
     ['clt', d.clt.installed],
     ['brew', d.brew.installed],
     ['bun', d.bun.installed],
     ['omp', d.omp.installed],
     ['herdr', d.herdr.installed],
-    ['tailscale', d.tailscale.installed],
   ] as const
   return rows.filter(([, installed]) => !installed).map(([tool]) => tool)
 }

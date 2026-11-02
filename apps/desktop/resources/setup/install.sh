@@ -141,8 +141,8 @@ case "$TOOL" in
       || fail "could not download the Tailscale installer from pkgs.tailscale.com"
     progress 50 "Verifying Tailscale installer"
     install_pkg_as_admin "$tmp/Tailscale.pkg" "Tailscale"
-    # Do not launch the app: its first start pops the macOS VPN / network-extension dialogs. The wizard opens it
-    # only when the user asks.
+    # The pkg's postinstall launches Tailscale.app itself (launchd), so macOS VPN / network-extension dialogs appear
+    # right after this. That is why only the iPhone step runs this tool, on an explicit click; never the Install step.
     progress 90 "Finishing Tailscale"
     i=0
     while [ -z "$(tool_path tailscale)" ] && [ "$i" -lt 20 ]; do sleep 1; i=$((i + 1)); done

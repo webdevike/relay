@@ -1,10 +1,11 @@
-import { Alert, Button, CopyButton, Group, List, Stack, Text } from '@mantine/core'
-import { IconCheck, IconX } from '@tabler/icons-react'
+import { Alert, Button, CopyButton, Group, List, Progress, Stack, Text } from '@mantine/core'
+import { IconCheck, IconMinus, IconX } from '@tabler/icons-react'
 import { useEffect, useRef, useState } from 'react'
 import { placeOf } from '@evaos/shell-core'
 import { invoke } from '../ipc'
 import { openPlace } from '../navigation/navigate'
 import { flushPendingTabs } from '../tabs/tabs-store'
+import { useSetupRun } from './run'
 import { QrCode } from './QrCode'
 import type { WizardCtx } from './wizard'
 
@@ -15,18 +16,24 @@ const DEFAULT_PORT = 7817
 export function PhoneStep({ ctx }: { ctx: WizardCtx }) {
   const [openError, setOpenError] = useState<string | null>(null)
   const [opened, setOpened] = useState(false)
+  const install = useSetupRun()
   const t = ctx.detect?.tailscale
   const ready = t?.installed === true && t.loggedIn && !!t.tailnetIp
   const recheck = useRef(ctx.recheck)
   recheck.current = ctx.recheck
 
-  // Live recheck only after the user chose to open Tailscale (the app is then running and its macOS approval
-  // dialogs are expected). Stops when signed in or when the step unmounts (Skip / Back / Continue).
+  // The user asked for Tailscale here, so its macOS approval dialogs are expected. Once the install finished
+  // (the pkg starts the app) or the user opened it, recheck live until signed in or the step unmounts.
+  const engaged = opened || install.view.status === 'ok'
   useEffect(() => {
-    if (!opened || ready) return
+    if (!engaged || ready) return
     const id = setInterval(() => void recheck.current(), 3000)
     return () => clearInterval(id)
-  }, [opened, ready])
+  }, [engaged, ready])
+
+  const installTailscale = (): void => {
+    void install.start({ task: 'install', tool: 'tailscale' }).then(() => void recheck.current())
+  }
 
   const port = ctx.detect?.relayHost.port ?? DEFAULT_PORT
   const address = t?.tailnetIp ? `${t.tailnetIp}:${port}` : null
@@ -66,20 +73,45 @@ export function PhoneStep({ ctx }: { ctx: WizardCtx }) {
             <IconCheck size={16} color="var(--mantine-color-green-6)" />
             <Text size="sm">Signed in{t?.tailnetIp ? ` as ${t.tailnetIp}` : ''}</Text>
           </Group>
+        ) : !t?.installed ? (
+          <Stack gap="xs" mt={4} data-testid="setup-tailscale-install">
+            <Text size="sm">Set up Tailscale (lets your iPhone reach this Mac)</Text>
+            <Group>
+              <Button
+                size="xs"
+                loading={install.view.status === 'running'}
+                onClick={installTailscale}
+                data-testid="setup-install-tailscale"
+              >
+                {install.view.status === 'err' ? 'Try again' : 'Install Tailscale'}
+              </Button>
+              <Text size="xs" c="dimmed">
+                macOS will ask to allow a VPN configuration: click Allow.
+              </Text>
+            </Group>
+            {install.view.status === 'running' ? (
+              <div>
+                <Progress value={install.view.percent} size="sm" />
+                <Text size="xs" c="dimmed" mt={4}>
+                  {install.view.line}
+                </Text>
+              </div>
+            ) : null}
+            {install.view.status === 'err' ? (
+              <Text size="xs" c="red">
+                {install.view.message || 'Could not install Tailscale.'}
+              </Text>
+            ) : null}
+          </Stack>
         ) : (
           <Stack gap="xs" mt={4}>
             <Group gap={6}>
               <IconX size={16} color="var(--mantine-color-red-6)" />
-              <Text size="sm">
-                {t?.installed
-                  ? 'Not signed in yet.'
-                  : 'Tailscale is not installed. Go back to the install step.'}
-              </Text>
+              <Text size="sm">Not signed in yet.</Text>
             </Group>
             <Group>
               <Button
                 size="xs"
-                disabled={!t?.installed}
                 data-testid="setup-open-tailscale"
                 onClick={() =>
                   void invoke('setup.openTailscale', {}).then((r) => {
@@ -91,7 +123,7 @@ export function PhoneStep({ ctx }: { ctx: WizardCtx }) {
                 {opened ? 'Open Tailscale again' : 'Open Tailscale'}
               </Button>
               <Text size="xs" c="dimmed">
-                {opened
+                {engaged
                   ? 'Sign in there, then come back. This page checks on its own.'
                   : 'macOS will ask you to approve a VPN configuration the first time.'}
               </Text>
@@ -158,6 +190,8 @@ interface Check {
   label: string
   ok: boolean
   detail: string
+  /** Not set up is fine: shown neutral, never as a failure. */
+  optional?: boolean
 }
 
 export function DoneStep({ ctx }: { ctx: WizardCtx }) {
@@ -191,6 +225,15 @@ export function DoneStep({ ctx }: { ctx: WizardCtx }) {
           label: 'Your assistants are ready',
           ok: assistants > 0,
           detail: `${assistants} in ${root}`,
+        },
+        {
+          label: 'Tailscale (iPhone away from home Wi-Fi)',
+          ok: d?.tailscale.installed === true && d.tailscale.loggedIn,
+          optional: true,
+          detail:
+            d?.tailscale.installed === true && d.tailscale.loggedIn
+              ? (d.tailscale.tailnetIp ?? 'Signed in')
+              : 'not set up (optional: needed for iPhone away from home Wi-Fi). Run setup again from Settings, Setup, to add it later.',
         },
       ])
     })()
@@ -234,8 +277,8 @@ export function DoneStep({ ctx }: { ctx: WizardCtx }) {
             className="eva-settings-row eva-settings-row-static eva-setup-check-row"
             data-testid="setup-health"
           >
-            <span className="eva-setup-icon" data-ok={String(c.ok)}>
-              {c.ok ? <IconCheck size={16} /> : <IconX size={16} />}
+            <span className="eva-setup-icon" data-ok={String(c.ok)} data-optional={String(!!c.optional)}>
+              {c.ok ? <IconCheck size={16} /> : c.optional ? <IconMinus size={16} /> : <IconX size={16} />}
             </span>
             <span className="eva-settings-label">
               <span className="eva-settings-label-title">{c.label}</span>

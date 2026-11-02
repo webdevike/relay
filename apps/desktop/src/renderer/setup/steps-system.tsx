@@ -103,12 +103,12 @@ export function CheckStep({ ctx }: { ctx: WizardCtx }) {
           />
           <Status ok={d.herdr.installed} label="herdr" detail={ver(d.herdr)} />
           <Status
-            ok={d.tailscale.installed ? (d.tailscale.loggedIn ? true : 'warn') : false}
+            ok={d.tailscale.installed && d.tailscale.loggedIn ? true : 'warn'}
             label="tailscale"
             detail={
               d.tailscale.installed
                 ? `${ver(d.tailscale)}${d.tailscale.loggedIn ? ', signed in' : ', needs sign-in (later)'}`
-                : ver(d.tailscale)
+                : 'Not installed (optional, set up later on the iPhone step)'
             }
           />
         </div>

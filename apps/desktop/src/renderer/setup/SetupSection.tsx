@@ -27,8 +27,9 @@ export function SetupSection() {
         <span className="eva-settings-label">
           <span className="eva-settings-label-title">Run setup again</span>
           <span className="eva-settings-label-help">
-            Checks your tools, AI sign-in, Relay Host and iPhone pairing again, and fixes what is
-            missing. Nothing is deleted or replaced.
+            Checks your tools, AI sign-in and Relay Host again, and fixes what is missing. Step
+            through to the iPhone step to set up Tailscale and pairing later. Nothing is deleted or
+            replaced.
           </span>
         </span>
         <Button
