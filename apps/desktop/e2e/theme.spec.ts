@@ -131,3 +131,38 @@ test.describe('focus ring never', () => {
     expect(focused).toEqual({ visible: true, outline: 'none' })
   })
 })
+
+for (const [name, saved] of [
+  ['a fresh config', null],
+  ["an older file saved with 'auto'", { preset: 'default', config: { focusRing: 'auto' } }],
+] as const) {
+  test.describe(`focus ring default: ${name}`, () => {
+    test.use({
+      configDir: async ({ configDir }, use) => {
+        if (saved) fs.writeFileSync(path.join(configDir, 'theme.json'), JSON.stringify(saved))
+        await use(configDir)
+      },
+    })
+
+    test('starts off: no outline on a keyboard-focused control', async ({ shell }) => {
+      await shell.locator('[data-testid=nav-chat]').focus()
+      await shell.keyboard.press('Shift+Tab')
+      await shell.keyboard.press('Tab')
+      await expect(shell.locator('html')).toHaveAttribute('data-focus-ring', 'never')
+      const focused = await shell.evaluate(() => {
+        const el = document.activeElement as HTMLElement
+        return { visible: el.matches(':focus-visible'), outline: getComputedStyle(el).outlineStyle }
+      })
+      expect(focused).toEqual({ visible: true, outline: 'none' })
+      await shell.screenshot({
+        path: path.join(
+          '..',
+          '..',
+          'proof',
+          'texo-theme',
+          `focus-ring-default-${saved ? 'migrated' : 'fresh'}.png`,
+        ),
+      })
+    })
+  })
+}

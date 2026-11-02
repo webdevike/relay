@@ -2,7 +2,7 @@ import { useEffect, useMemo, type ReactNode } from 'react'
 import { createStore, useStore } from 'zustand'
 import { MantineProvider, type CSSVariablesResolver } from '@mantine/core'
 import {
-  THEME_PRESETS,
+  THEME_PRESETS as RELAY_THEME_PRESETS,
   cssVariablesFor,
   themeOverrideFor,
   type ColorScheme,
@@ -14,6 +14,16 @@ import { invoke } from '../ipc'
 
 // The theme model, presets and their Mantine override live in @relay/widget-runtime/theme, shared
 // with agent-made widgets; this module is the editor's store, persistence and provider.
+
+/**
+ * Relay Desktop's built-in presets: the shared ones with the focus ring off. The ring stays a
+ * setting (Settings > Theme), it just starts off in every theme; the shared runtime (agent-made
+ * widgets) keeps its own default.
+ */
+export const THEME_PRESETS: ThemePreset[] = RELAY_THEME_PRESETS.map((p) => ({
+  ...p,
+  config: { ...p.config, focusRing: 'never' },
+}))
 
 /**
  * A theme Isaac saved: his own (`value` starts with `user-`) or his version of a built-in preset
@@ -55,16 +65,21 @@ export const themeStore = createStore<ThemeHistory>(() => ({
 
 const isScheme = (v: unknown): v is ColorScheme => v === 'light' || v === 'dark'
 
-/** A saved config merged over the Default preset, so keys added since it was saved get values. */
-function configFrom(value: unknown): ThemeConfig {
+/**
+ * A saved config merged over the Default preset, so keys added since it was saved get values.
+ * Files written before the ring defaulted to off hold 'auto' only because that was the old
+ * default, so `migrate` reads it as 'never'; an explicit 'always' is kept.
+ */
+function configFrom(value: unknown, migrate: boolean): ThemeConfig {
   // Older files kept the scheme inside the config; it moved out of the config.
   const { colorScheme: _legacy, ...rest } = value as Partial<ThemeConfig> & {
     colorScheme?: unknown
   }
+  if (migrate && rest.focusRing === 'auto') rest.focusRing = 'never'
   return { ...THEME_PRESETS[0]!.config, ...rest }
 }
 
-function themesFrom(value: unknown): UserTheme[] {
+function themesFrom(value: unknown, migrate: boolean): UserTheme[] {
   if (!Array.isArray(value)) return []
   const out: UserTheme[] = []
   for (const item of value) {
@@ -73,7 +88,7 @@ function themesFrom(value: unknown): UserTheme[] {
     if (typeof name !== 'string' || typeof label !== 'string') continue
     if (typeof config !== 'object' || config === null) continue
     if (out.some((t) => t.value === name)) continue
-    out.push({ value: name, label, config: configFrom(config) })
+    out.push({ value: name, label, config: configFrom(config, migrate) })
   }
   return out
 }
@@ -81,13 +96,17 @@ function themesFrom(value: unknown): UserTheme[] {
 /** Persisted state merged over the Default preset, as Texo restores it; anything else is ignored. */
 export function parseSavedTheme(value: unknown): SavedTheme | undefined {
   if (typeof value !== 'object' || value === null) return undefined
-  const { config, preset: name, colorScheme, themes } = value as Record<string, unknown>
+  const { config, preset: name, colorScheme, themes, focusRingMigrated } = value as Record<
+    string,
+    unknown
+  >
   if (typeof config !== 'object' || config === null || typeof name !== 'string') return undefined
   const legacy = (config as { colorScheme?: unknown }).colorScheme
-  const saved = themesFrom(themes)
+  const migrate = focusRingMigrated !== true
+  const saved = themesFrom(themes, migrate)
   const known = THEME_PRESETS.some((p) => p.value === name) || saved.some((t) => t.value === name)
   return {
-    config: configFrom(config),
+    config: configFrom(config, migrate),
     // Older builds marked any edit 'custom' and lost the theme it started from.
     preset: known ? name : THEME_PRESETS[0]!.value,
     themes: saved,
@@ -271,6 +290,7 @@ export function persistTheme(): void {
       preset: state.preset,
       themes: state.themes,
       colorScheme: state.colorScheme,
+      focusRingMigrated: true,
     }).catch(() => {})
   })
 }

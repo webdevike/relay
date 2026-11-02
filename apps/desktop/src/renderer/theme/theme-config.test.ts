@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('../ipc', () => ({ invoke: vi.fn(() => Promise.resolve({ ok: true, value: {} })) }))
 
-import { THEME_PRESETS, cssVariablesFor } from '@relay/widget-runtime/theme'
-import { parseSavedTheme } from './theme-config'
+import { cssVariablesFor } from '@relay/widget-runtime/theme'
+import { THEME_PRESETS, parseSavedTheme } from './theme-config'
 
 const defaults = THEME_PRESETS[0]!.config
 
@@ -24,14 +24,43 @@ describe('parseSavedTheme', () => {
       preset: 'user-calm',
       themes: [
         { value: 'user-calm', label: 'Calm', config: { primaryColor: 'teal' } },
-        { value: 'forest', label: 'Forest', config: { focusRing: 'never' } },
+        { value: 'forest', label: 'Forest', config: { focusRing: 'always' } },
         { value: 'bad' },
       ],
     })!
     expect(saved.preset).toBe('user-calm')
     expect(saved.themes.map((t) => t.value)).toEqual(['user-calm', 'forest'])
-    expect(saved.themes[1]!.config).toEqual({ ...defaults, focusRing: 'never' })
+    expect(saved.themes[1]!.config).toEqual({ ...defaults, focusRing: 'always' })
     expect(parseSavedTheme({ config: {}, preset: 'custom' })!.preset).toBe('default')
+  })
+
+  it('defaults the focus ring to off in every built-in preset', () => {
+    expect(THEME_PRESETS.length).toBeGreaterThan(1)
+    for (const p of THEME_PRESETS) expect(p.config.focusRing).toBe('never')
+    expect(defaults.focusRing).toBe('never')
+  })
+
+  it("reads an unmigrated saved 'auto' as off, in the config and in saved themes, but keeps 'always'", () => {
+    const saved = parseSavedTheme({
+      config: { focusRing: 'auto' },
+      preset: 'forest',
+      themes: [
+        { value: 'forest', label: 'Forest', config: { focusRing: 'auto' } },
+        { value: 'user-a', label: 'A', config: { focusRing: 'always' } },
+      ],
+    })!
+    expect(saved.config.focusRing).toBe('never')
+    expect(saved.themes.map((t) => t.config.focusRing)).toEqual(['never', 'always'])
+    expect(parseSavedTheme({ config: {}, preset: 'default' })!.config.focusRing).toBe('never')
+  })
+
+  it("keeps an explicit 'auto' once the file is marked migrated", () => {
+    const saved = parseSavedTheme({
+      config: { focusRing: 'auto' },
+      preset: 'default',
+      focusRingMigrated: true,
+    })!
+    expect(saved.config.focusRing).toBe('auto')
   })
 
   it('reads the scheme beside the config, and moves an older in-config scheme out', () => {

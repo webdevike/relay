@@ -2,18 +2,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, render, screen } from '@testing-library/react'
 import { DEFAULT_THEME, MantineProvider } from '@mantine/core'
 import type { ReactNode } from 'react'
-import { THEME_PRESETS } from '@relay/widget-runtime/theme'
+import { THEME_PRESETS as RELAY_THEME_PRESETS } from '@relay/widget-runtime/theme'
 import { Markdown } from '../markdown/Markdown'
 import { WidgetActions } from './actions'
 import { frameThemeFor, frameUrl } from './frame-theme'
 import { MAX_FRAME_HEIGHT, WidgetFrame } from './WidgetFrame'
-import { seedTheme, setColorScheme } from '../../theme/theme-config'
+import { THEME_PRESETS, seedTheme, setColorScheme } from '../../theme/theme-config'
 
 vi.mock('../../navigation/open-link', () => ({ openLink: vi.fn() }))
 vi.mock('../../ipc', () => ({ invoke: vi.fn(() => Promise.resolve({ ok: true })), on: vi.fn() }))
 
 const defaults = THEME_PRESETS[0]!.config
-const attio = THEME_PRESETS.find((p) => p.value === 'attio')!.config
+const attio = RELAY_THEME_PRESETS.find((p) => p.value === 'attio')!.config
 
 const show = (ui: ReactNode, reply = vi.fn(), canReply = true) => {
   render(
