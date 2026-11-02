@@ -39,6 +39,7 @@ import { registerReloader } from '../../reload/reload'
 import { listStore, subscribeListChanges, useListStore } from './list-store'
 import { on } from '../../ipc'
 import { folderShown, folders, isRead, isSettled, isWorking, split, type Folder } from './look'
+import { useProfile } from '../../pages/profile'
 
 const DEBOUNCE_MS = 100
 /** The clock ticks every second while a chat works (for "Working 16s"), else every minute. */
@@ -169,6 +170,7 @@ export function ChatList({
   )
 
   const agent = list?.prefs.chat_agent ?? 'Eva'
+  const starter = useProfile() === 'starter'
   const cats = useMemo(() => (list ? Categories.fromPrefs(list.prefs) : null), [list])
   const categoryOf = useCallback(
     (r: Row): string => cats?.categoryOf(r.id, r.title, r.workedIn) ?? '',
@@ -325,29 +327,33 @@ export function ChatList({
   // Native agent_switcher: every agent's chats counted, settled too; empty tabs hidden except
   // Eva and the selected one.
   const counts = new Map<ChatAgent, number>()
-  for (const r of list.rows) if (r.owner === null) counts.set(r.agent, (counts.get(r.agent) ?? 0) + 1)
+  for (const r of list.rows)
+    if (r.owner === null) counts.set(r.agent, (counts.get(r.agent) ?? 0) + 1)
   const tabs = ChatAgentSchema.options.filter(
     (a) => (counts.get(a) ?? 0) > 0 || a === 'Eva' || a === agent,
   )
   const switcher = (
     <div className="eva-cl-agent-wrap">
-      <SegmentedControl
-        className="eva-cl-agents"
-        data-testid="chat-agents"
-        size="xs"
-        fullWidth
-        value={agent}
-        onChange={(v) => void listStore.getState().setAgent(ChatAgentSchema.parse(v))}
-        data={tabs.map((a) => ({
-          value: a,
-          label: (
-            <span className="eva-cl-agent" data-testid={`chat-agent-${a.toLowerCase()}`}>
-              {a}
-              <span className="eva-cl-count">{counts.get(a) ?? 0}</span>
-            </span>
-          ),
-        }))}
-      />
+      {/* A starter home has one chat agent: a lone "Eva" tab only names Isaac's setup. */}
+      {starter && tabs.length <= 1 ? null : (
+        <SegmentedControl
+          className="eva-cl-agents"
+          data-testid="chat-agents"
+          size="xs"
+          fullWidth
+          value={agent}
+          onChange={(v) => void listStore.getState().setAgent(ChatAgentSchema.parse(v))}
+          data={tabs.map((a) => ({
+            value: a,
+            label: (
+              <span className="eva-cl-agent" data-testid={`chat-agent-${a.toLowerCase()}`}>
+                {a}
+                <span className="eva-cl-count">{counts.get(a) ?? 0}</span>
+              </span>
+            ),
+          }))}
+        />
+      )}
       <ActionIcon
         className="eva-cl-new-category"
         variant="subtle"

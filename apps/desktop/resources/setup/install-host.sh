@@ -83,7 +83,14 @@ EXT_SRC="$APP_DEST/Contents/Resources/omp-extension/relay-bridge.ts"
 EXT_DIR="$HOME/.omp/agent/extensions"
 if [ -f "$EXT_SRC" ]; then
   mkdir -p "$EXT_DIR"
-  [ -e "$EXT_DIR/relay-bridge.ts" ] || cp "$EXT_SRC" "$EXT_DIR/relay-bridge.ts"
+  # A symlink is a developer checkout: leave it. A plain copy came from an earlier install: refresh it.
+  [ -L "$EXT_DIR/relay-bridge.ts" ] || cp "$EXT_SRC" "$EXT_DIR/relay-bridge.ts"
+fi
+
+# Assistants run omp in a hidden herdr pane: omp's own first-run wizard would wait there forever for
+# keys nobody can press. Relay's wizard already did its job (tools, AI sign-in).
+if [ -n "$(tool_path omp)" ] && [ "$(omp config get startup.setupWizard 2>/dev/null)" != "false" ]; then
+  run_logged omp config set startup.setupWizard false || fail "could not turn off omp's first-run setup: $(last_log_lines 2)"
 fi
 
 # ---- 6. herdr server agent (only when nobody keeps one alive already) ----

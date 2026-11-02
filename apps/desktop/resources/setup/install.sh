@@ -12,7 +12,7 @@ install_err_trap
 require_macos
 
 TOOL="${1:-}"
-[ -n "$TOOL" ] || fail "usage: install.sh brew|bun|omp|herdr|tailscale|relay-host"
+[ -n "$TOOL" ] || fail "usage: install.sh clt|brew|bun|omp|herdr|tailscale|relay-host"
 shift || true
 
 already() { # already <tool>: exit OK when installed
@@ -38,6 +38,8 @@ verified_version() { # verified_version <tool>: fail unless it now resolves and 
 # Wire herdr's omp status extension (best effort, only when both tools exist).
 herdr_omp_integration() {
   if [ -n "$(tool_path herdr)" ] && [ -n "$(tool_path omp)" ]; then
+    # A fresh omp has not created its extensions folder yet; herdr refuses to install without it.
+    mkdir -p "$HOME/.omp/agent/extensions"
     run_logged herdr integration install omp || log_line "herdr integration install omp failed (non-fatal)"
   fi
 }
@@ -47,11 +49,32 @@ install_pkg_as_admin() { # install_pkg_as_admin <pkg> <label>
   pkgutil --check-signature "$pkg" 2>&1 | grep -q 'Status: signed' \
     || fail "$label package signature check failed; refusing to install"
   progress 70 "Installing $label (macOS will ask for your password)"
-  admin_run "/usr/sbin/installer -pkg '$pkg' -target /" \
+  admin_run "/usr/sbin/installer -pkg '$pkg' -target /" "Relay is installing $label. Enter your password to allow this." \
     || fail "$label install was cancelled or failed (the macOS password prompt may have been dismissed)"
 }
 
 case "$TOOL" in
+  clt)
+    # Apple's command line tools (git). Without them a fresh Mac's /usr/bin/git is a stub that pops
+    # Apple's installer the first time omp runs git. Headless install, as Homebrew's installer does it.
+    already clt
+    need_network
+    progress 5 "Looking up Apple's command line tools (this can take a minute)"
+    flag=/tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
+    touch "$flag"
+    label="$(softwareupdate -l 2>>"$SETUP_LOG" | grep -B 1 -E 'Command Line Tools' | awk -F'*' '/^ *\*/ {print $2}' \
+      | sed -e 's/^ *Label: //' -e 's/^ *//' | sort -V | tail -n 1 || true)"
+    rm -f "$flag"
+    [ -n "$label" ] || fail "Apple's software update did not offer the command line tools; run 'xcode-select --install' in Terminal, then Retry"
+    progress 30 "Installing $label (a few minutes; macOS will ask for your password)"
+    admin_run "touch '$flag' && softwareupdate -i '$label' && xcode-select --switch /Library/Developer/CommandLineTools; rc=\$?; rm -f '$flag'; exit \$rc" \
+      "Relay is installing Apple's command line tools. Enter your password to allow this." \
+      || fail "command line tools install was cancelled or failed: $(last_log_lines 2)"
+    progress 95 "Checking command line tools"
+    v="$(verified_version clt)"
+    ok "$v"
+    ;;
+
   brew)
     already brew
     need_network

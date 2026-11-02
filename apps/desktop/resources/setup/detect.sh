@@ -20,7 +20,8 @@ basic() {
   printf '"installed":%s,"version":%s,"path":%s' "$(bool "$installed")" "$(jstr "$version")" "$(jstr "$path")"
 }
 
-# ---- brew / bun / herdr ----
+# ---- clt / brew / bun / herdr ----
+CLT="{$(basic clt)}"
 BREW="{$(basic brew)}"
 BUN="{$(basic bun)}"
 HERDR="{$(basic herdr)}"
@@ -62,8 +63,10 @@ OMP="{$(basic omp),\"loggedIn\":$(bool "$logged_in"),\"providers\":[$providers_j
 # ---- tailscale ----
 ts_running=0; ts_logged_in=0; ts_ip=""
 ts_bin="$(tool_path tailscale)"
-if [ -n "$ts_bin" ]; then
-  ts_json="$("$ts_bin" status --json 2>/dev/null || true)"
+# The app bundle's CLI starts the GUI (Welcome window, VPN prompt) when the app is not running, and never answers
+# until its network extension is approved: only ask a running app, and cap the wait.
+if [ -n "$ts_bin" ] && { [ "$ts_bin" != "$TAILSCALE_APP_CLI" ] || pgrep -xq Tailscale; }; then
+  ts_json="$(run_timeout 5 "$ts_bin" status --json 2>/dev/null || true)"
   if [ -n "$ts_json" ]; then
     state="$(printf '%s' "$ts_json" | json_get BackendState)"
     [ "$state" = "Running" ] && ts_running=1
@@ -93,5 +96,5 @@ RELAYHOST="{\"installed\":$(bool "$host_installed"),\"running\":$(bool "$host_ru
 case "$host_port" in ''|*[!0-9]*) ;; *) RELAYHOST="$RELAYHOST,\"port\":$host_port" ;; esac
 RELAYHOST="$RELAYHOST}"
 
-printf '{"brew":%s,"bun":%s,"omp":%s,"herdr":%s,"tailscale":%s,"relayHost":%s}\n' \
-  "$BREW" "$BUN" "$OMP" "$HERDR" "$TAILSCALE" "$RELAYHOST"
+printf '{"clt":%s,"brew":%s,"bun":%s,"omp":%s,"herdr":%s,"tailscale":%s,"relayHost":%s}\n' \
+  "$CLT" "$BREW" "$BUN" "$OMP" "$HERDR" "$TAILSCALE" "$RELAYHOST"

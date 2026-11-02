@@ -41,7 +41,10 @@ export function WelcomeStep({ ctx }: { ctx: WizardCtx }) {
 
 function Status({ ok, label, detail }: { ok: boolean | 'warn'; label: string; detail: string }) {
   return (
-    <div className="eva-settings-row eva-settings-row-static" data-testid={`setup-tool-${label}`}>
+    <div
+      className="eva-settings-row eva-settings-row-static eva-setup-check-row"
+      data-testid={`setup-tool-${label}`}
+    >
       <span className="eva-setup-icon" data-ok={String(ok)}>
         {ok === true ? (
           <IconCheck size={16} />
@@ -86,6 +89,7 @@ export function CheckStep({ ctx }: { ctx: WizardCtx }) {
       ) : null}
       {d ? (
         <div className="eva-settings-card">
+          <Status ok={d.clt.installed} label="clt" detail={ver(d.clt)} />
           <Status ok={d.brew.installed} label="brew" detail={ver(d.brew)} />
           <Status ok={d.bun.installed} label="bun" detail={ver(d.bun)} />
           <Status
@@ -163,7 +167,7 @@ export function InstallStep({ ctx }: { ctx: WizardCtx }) {
     for (const tool of tools) {
       if (rows[tool]?.status === 'ok') continue
       patchRow(tool, { status: 'run', percent: 0, line: 'Starting…' })
-      const out = await runSetup({ task: 'install', tool: tool as 'brew' }, (p) =>
+      const out = await runSetup({ task: 'install', tool: tool as 'clt' }, (p) =>
         patchRow(tool, { ...(p.percent !== null ? { percent: p.percent } : {}), line: p.line }),
       )
       if (!out.ok) {
@@ -190,7 +194,11 @@ export function InstallStep({ ctx }: { ctx: WizardCtx }) {
   const allDone = todo !== null && todo.every((t) => rows[t]?.status === 'ok')
   return (
     <Stack gap="md" data-testid="setup-install">
-      {todo !== null && todo.length === 0 ? (
+      {todo === null ? (
+        <Text c="dimmed" size="sm">
+          Checking your Mac…
+        </Text>
+      ) : todo.length === 0 ? (
         <Text>Everything Relay needs is already on your Mac.</Text>
       ) : (
         <Text c="dimmed" size="sm">
@@ -278,15 +286,29 @@ export function AiStep({ ctx }: { ctx: WizardCtx }) {
   const saveKey = async (): Promise<void> => {
     const out = await key.start({ task: 'ai-key', provider, key: apiKey.trim() })
     setApiKey('')
-    if (out.ok) await ctx.recheck()
+    if (out.ok) {
+      setUseKey(false)
+      await ctx.recheck()
+    }
   }
 
   return (
     <Stack gap="md" data-testid="setup-ai">
       {signedIn ? (
-        <Alert color="green" title="You are signed in to AI" data-testid="setup-ai-ok">
-          {providers.length > 0 ? `Connected: ${providers.join(', ')}.` : 'omp is signed in.'}
-        </Alert>
+        <>
+          <Alert color="green" title="You are signed in to AI" data-testid="setup-ai-ok">
+            {providers.length > 0 ? `Connected: ${providers.join(', ')}.` : 'omp is signed in.'}
+          </Alert>
+          <Group>
+            <Button
+              variant="subtle"
+              onClick={() => setUseKey((v) => !v)}
+              data-testid="setup-ai-key-toggle"
+            >
+              Use a different API key
+            </Button>
+          </Group>
+        </>
       ) : (
         <>
           <Text c="dimmed" size="sm">
@@ -327,42 +349,42 @@ export function AiStep({ ctx }: { ctx: WizardCtx }) {
               {login.view.message}
             </Alert>
           ) : null}
-          {useKey ? (
-            <Stack gap="xs">
-              <SegmentedControl
-                value={provider}
-                onChange={(v) => setProvider(v as SetupProvider)}
-                data={[
-                  { value: 'anthropic', label: 'Anthropic' },
-                  { value: 'openai', label: 'OpenAI' },
-                ]}
-              />
-              <PasswordInput
-                label="API key"
-                description="Stored by omp on this Mac. Relay does not keep a copy."
-                value={apiKey}
-                onChange={(e) => setApiKey(e.currentTarget.value)}
-                autoComplete="off"
-                data-testid="setup-ai-key"
-              />
-              <Group>
-                <Button
-                  onClick={() => void saveKey()}
-                  disabled={apiKey.trim() === ''}
-                  loading={key.view.status === 'running'}
-                >
-                  Save key
-                </Button>
-              </Group>
-              {key.view.status === 'err' ? (
-                <Alert color="red" title="Could not save the key">
-                  {key.view.message}
-                </Alert>
-              ) : null}
-            </Stack>
-          ) : null}
         </>
       )}
+      {useKey ? (
+        <Stack gap="xs">
+          <SegmentedControl
+            value={provider}
+            onChange={(v) => setProvider(v as SetupProvider)}
+            data={[
+              { value: 'anthropic', label: 'Anthropic' },
+              { value: 'openai', label: 'OpenAI' },
+            ]}
+          />
+          <PasswordInput
+            label="API key"
+            description="Stored by omp on this Mac. Relay does not keep a copy."
+            value={apiKey}
+            onChange={(e) => setApiKey(e.currentTarget.value)}
+            autoComplete="off"
+            data-testid="setup-ai-key"
+          />
+          <Group>
+            <Button
+              onClick={() => void saveKey()}
+              disabled={apiKey.trim() === ''}
+              loading={key.view.status === 'running'}
+            >
+              Save key
+            </Button>
+          </Group>
+          {key.view.status === 'err' ? (
+            <Alert color="red" title="Could not save the key">
+              {key.view.message}
+            </Alert>
+          ) : null}
+        </Stack>
+      ) : null}
       <Group>
         <Button
           onClick={ctx.finish}

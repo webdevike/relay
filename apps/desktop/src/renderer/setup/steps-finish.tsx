@@ -218,7 +218,7 @@ export function DoneStep({ ctx }: { ctx: WizardCtx }) {
         {(checks ?? []).map((c) => (
           <div
             key={c.label}
-            className="eva-settings-row eva-settings-row-static"
+            className="eva-settings-row eva-settings-row-static eva-setup-check-row"
             data-testid="setup-health"
           >
             <span className="eva-setup-icon" data-ok={String(c.ok)}>

@@ -8,6 +8,8 @@ const ToolSchema = z.object({
 })
 
 export const SetupDetectSchema = z.object({
+  /** Apple's command line tools (git). A fresh Mac lacks them, and omp's first git call pops Apple's installer. */
+  clt: ToolSchema.prefault({}),
   brew: ToolSchema.prefault({}),
   bun: ToolSchema.prefault({}),
   omp: ToolSchema.extend({
@@ -28,7 +30,15 @@ export const SetupDetectSchema = z.object({
 export type SetupDetect = z.infer<typeof SetupDetectSchema>
 
 /** Tools `install.sh` knows, in install order. */
-export const SETUP_TOOLS = ['brew', 'bun', 'omp', 'herdr', 'tailscale', 'relay-host'] as const
+export const SETUP_TOOLS = [
+  'clt',
+  'brew',
+  'bun',
+  'omp',
+  'herdr',
+  'tailscale',
+  'relay-host',
+] as const
 export const SetupToolSchema = z.enum(SETUP_TOOLS)
 export type SetupTool = z.infer<typeof SetupToolSchema>
 

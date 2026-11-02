@@ -15,6 +15,11 @@
 .eva-setup-icon[data-ok='false'] {
   color: var(--mantine-color-red-6);
 }
+/* Status rows: icon then label, left to right (settings rows push the label to the far side). */
+.eva-setup-check-row {
+  justify-content: flex-start;
+  gap: 12px;
+}
 .eva-setup-install-row {
   padding: 12px 16px;
 }

@@ -50,9 +50,29 @@ last_log_lines() { tail -n "${1:-3}" "$SETUP_LOG" 2>/dev/null | tr '\r\n' '  '; 
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
+# Run a command, killing it after <secs>. Returns its status (137 when killed). macOS has no `timeout`.
+# The Tailscale app CLI blocks forever until its network extension is approved, so probes need a cap.
+run_timeout() {
+  local secs="$1" pid watcher rc
+  shift
+  "$@" &
+  pid=$!
+  ( sleep "$secs"; kill -9 "$pid" 2>/dev/null ) >/dev/null 2>&1 &
+  watcher=$!
+  rc=0; wait "$pid" || rc=$?
+  kill "$watcher" 2>/dev/null || true
+  return "$rc"
+}
+
 # Absolute path of a tool, or empty.
 tool_path() {
   case "$1" in
+    clt)
+      # xcode-select -p alone is not enough: the developer dir must really hold git
+      # (/usr/bin/git on a fresh Mac is only a stub that pops Apple's installer).
+      local dev
+      dev="$(xcode-select -p 2>/dev/null || true)"
+      if [ -n "$dev" ] && [ -x "$dev/usr/bin/git" ]; then echo "$dev/usr/bin/git"; fi ;;
     brew)
       if have brew; then command -v brew
       elif [ -x /opt/homebrew/bin/brew ]; then echo /opt/homebrew/bin/brew
@@ -72,11 +92,18 @@ tool_version() {
   bin="$(tool_path "$1")"
   [ -n "$bin" ] || return 0
   case "$1" in
-    brew) "$bin" --version 2>/dev/null | sed -n '1s/^Homebrew[[:space:]]*//p' ;;
+    clt) pkgutil --pkg-info=com.apple.pkg.CLTools_Executables 2>/dev/null | sed -n 's/^version: //p' ;;
+    brew) "$bin" --version 2>/dev/null | sed -n '1s/^Homebrew[[:space:]]*//;1s/^>=//;1s/[[:space:]].*//;1p' ;;
     bun) "$bin" --version 2>/dev/null | sed -n '1p' ;;
     omp) "$bin" --version 2>/dev/null | sed -n '1s#^omp/##;1s#^v##;1p' ;;
     herdr) "$bin" --version 2>/dev/null | sed -n '1s/^herdr[[:space:]]*//p' ;;
-    tailscale) "$bin" version 2>/dev/null | sed -n '1p' ;;
+    tailscale)
+      # The app bundle's CLI hangs until its network extension is approved: read the bundle version instead.
+      if [ "$bin" = "$TAILSCALE_APP_CLI" ]; then
+        plist_get /Applications/Tailscale.app/Contents/Info.plist CFBundleShortVersionString
+      else
+        { run_timeout 5 "$bin" version 2>/dev/null || true; } | sed -n '1p'
+      fi ;;
   esac
 }
 
@@ -99,11 +126,13 @@ json_get() { plutil -extract "$1" raw -o - - 2>/dev/null || true; }
 # ---- macOS helpers ------------------------------------------------------------
 
 # Run a shell command as root through the standard macOS password prompt. We never see the password.
+# usage: admin_run <command> [<reason shown in the prompt>]
 admin_run() {
-  local cmd="$1" esc
+  local cmd="$1" reason="${2:-Relay setup needs your password to continue.}" esc rsn
   esc="$(printf '%s' "$cmd" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"
+  rsn="$(printf '%s' "$reason" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"
   ensure_log
-  osascript -e "do shell script \"$esc\" with administrator privileges" >>"$SETUP_LOG" 2>&1
+  osascript -e "do shell script \"$esc\" with prompt \"$rsn\" with administrator privileges" >>"$SETUP_LOG" 2>&1
 }
 
 # Download URL to a file (resumable, logged). Fails with ERR text on network problems.

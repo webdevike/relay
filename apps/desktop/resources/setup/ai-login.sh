@@ -44,6 +44,22 @@ if [ "$API_KEY_MODE" = 1 ]; then
   key="$(cat | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
   [ -n "$key" ] || fail "no API key was provided on stdin"
   case "$key" in *[[:space:]\"\'\\]*) fail "the API key contains characters that are not valid in a key" ;; esac
+  progress 40 "Checking the key with $PROVIDER"
+  # Ask the provider's model list with the key (headers via stdin config, so the key never reaches argv or the log).
+  case "$PROVIDER" in
+    anthropic) url=https://api.anthropic.com/v1/models
+      cfg="header = \"x-api-key: $key\"
+header = \"anthropic-version: 2023-06-01\"" ;;
+    openai) url=https://api.openai.com/v1/models
+      cfg="header = \"Authorization: Bearer $key\"" ;;
+  esac
+  code="$(printf '%s\n' "$cfg" | curl -sS -o /dev/null -w '%{http_code}' --max-time 20 -K - "$url" 2>/dev/null || true)"
+  case "$code" in
+    200) ;;
+    401|403) fail "$PROVIDER did not accept this key; check it and paste it again" ;;
+    ''|000) fail "could not reach $PROVIDER to check the key; check your internet connection" ;;
+    *) fail "$PROVIDER answered HTTP $code when checking the key" ;;
+  esac
   env_dir="$HOME/.omp/agent"
   env_file="$env_dir/.env"
   mkdir -p "$env_dir"
