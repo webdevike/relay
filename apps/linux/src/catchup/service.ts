@@ -17,6 +17,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { CatchUpFeed, untagged, type CatchUpCard, type CatchUpItem, type CatchUpSignal, type CatchUpSnapshot } from "@relay/protocol";
 import { z } from "zod";
+import { human } from "../host-config";
 
 /** Marks for ids that left the feed are dropped after this long. */
 export const CATCHUP_READ_TTL_MS = 30 * 86_400_000;
@@ -70,17 +71,26 @@ export interface CatchUpNote {
   text: string;
 }
 
-/** What an assistant receives for a handed card: the card, Isaac's note, and how to act or bounce. */
-export function handoffMessage(item: CatchUpItem, note: string | undefined): string {
+/** How a handoff words its scope and bounce instructions; absent: the original host owner's. */
+export interface HandoffOptions {
+  /** Parenthesis in "If it is outside your scope (...)". */
+  readonly scopes?: string;
+  /** The command that bounces card `id`. */
+  readonly bounce?: (id: string) => string;
+}
+
+/** What an assistant receives for a handed card: the card, the human's note, and how to act or bounce. */
+export function handoffMessage(item: CatchUpItem, note: string | undefined, options: HandoffOptions = {}): string {
+  const who = human();
   return [
     `[Catch Up handoff] ${item.label}: ${item.title}`,
     item.body.trim(),
     item.url === undefined ? "" : `Link: ${item.url}`,
-    note === undefined || note.trim() === "" ? "" : `Isaac's note: ${note.trim()}`,
+    note === undefined || note.trim() === "" ? "" : `${who}'s note: ${note.trim()}`,
     "",
-    "Work this within your normal permissions. Anything that posts, sends or reviews as Isaac (Slack, email, GitHub comments or reviews) needs his approval first.",
-    "If it is outside your scope (Astra: eCard Systems work only; Nova: personal only), you lack the access, or it needs Isaac's own decision, do not guess: bounce it with a one-line reason:",
-    `  bun ~/Eva/.omp/tools/catchup.ts bounce ${item.id} "<reason>"`,
+    `Work this within your normal permissions. Anything that posts, sends or reviews as ${who} (Slack, email, GitHub comments or reviews) needs his approval first.`,
+    `If it is outside your scope (${options.scopes ?? "Astra: eCard Systems work only; Nova: personal only"}), you lack the access, or it needs ${who}'s own decision, do not guess: bounce it with a one-line reason:`,
+    `  ${options.bounce?.(item.id) ?? `bun ~/Eva/.omp/tools/catchup.ts bounce ${item.id} "<reason>"`}`,
     "If you can do part of it, do that part and reply here with the one question you need answered.",
   ]
     .filter((line, index, lines) => line !== "" || (index > 0 && lines[index - 1] !== ""))
@@ -98,6 +108,8 @@ export interface CatchUpServiceDeps {
   deliver?: (agent: string, text: string) => Promise<void>;
   /** Whether `agent` is an assistant on this host. */
   knows?: (agent: string) => boolean;
+  /** Wording of the handoff's scope and bounce lines. */
+  handoffOptions?: HandoffOptions;
   log: (line: string) => void;
   now?: () => number;
 }
@@ -169,7 +181,7 @@ export class CatchUpService implements CatchUpDeck {
     const trimmed = note?.trim();
     const handed = { agent, at: this.stamp(), ...(trimmed === undefined || trimmed === "" ? {} : { note: trimmed }) };
     this.update(id, { read: this.stamp(), handed, bounced: null });
-    deliver(agent, handoffMessage(item, trimmed)).then(
+    deliver(agent, handoffMessage(item, trimmed, this.deps.handoffOptions)).then(
       () => {
         this.deps.log(`catchup: handed ${id} to ${agent}`);
       },

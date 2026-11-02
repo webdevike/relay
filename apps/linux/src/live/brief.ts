@@ -10,12 +10,18 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { plainSpeech } from "../call/speech";
+import { human } from "../host-config";
 import type { LiveInputMessage } from "./openai";
 
-/** Assistant `agent`'s thread memory, `<agentHome>/work/eva/agents/<agent>/thread.md`; null when it has none. */
+/**
+ * Assistant `agent`'s thread memory, `<agentHome>/work/eva/agents/<agent>/thread.md` (else
+ * `<agentHome>/work/agents/<agent>/thread.md`, where a starter home keeps it); null when it has none.
+ */
 export async function readThreadMemory(agentHome: string | null, agent: string): Promise<string | null> {
   if (agentHome === null) return null;
-  return readFile(join(agentHome, "work", "eva", "agents", agent, "thread.md"), "utf8").catch(() => null);
+  return readFile(join(agentHome, "work", "eva", "agents", agent, "thread.md"), "utf8")
+    .catch(() => readFile(join(agentHome, "work", "agents", agent, "thread.md"), "utf8"))
+    .catch(() => null);
 }
 
 /** Items per memory section, and the length of one headline. */
@@ -81,12 +87,13 @@ export function memoryBrief(title: string, markdown: string | null): string | nu
     const items = (sections.get(name) ?? []).filter((item) => !NOTHING.test(item.trim()));
     return (latest ? newest(items, count) : items.slice(-count)).map(headline);
   };
-  const about = pick("about isaac lately", ABOUT_ITEMS, true);
+  const who = human();
+  const about = pick("about isaac lately", ABOUT_ITEMS, true).concat(who === "Isaac" ? [] : pick(`about ${who.toLowerCase()} lately`, ABOUT_ITEMS, true));
   const promised = pick("promised", PROMISED_ITEMS, false);
   const tracking = pick("tracking", TRACKING_ITEMS, true);
   if (about.length + promised.length + tracking.length === 0) return null;
-  const lines = [`Background from ${title}'s notes, only so you know what Isaac means. These may be out of date: for their status or details, delegate.`];
-  if (about.length > 0) lines.push("About Isaac:", ...about.map((line) => `- ${line}`));
+  const lines = [`Background from ${title}'s notes, only so you know what ${who} means. These may be out of date: for their status or details, delegate.`];
+  if (about.length > 0) lines.push(`About ${who}:`, ...about.map((line) => `- ${line}`));
   if (promised.length > 0) lines.push(`${title} promised him:`, ...promised.map((line) => `- ${line}`));
   if (tracking.length > 0) lines.push("Open threads, newest first:", ...tracking.map((line) => `- ${line}`));
   return lines.join("\n");
@@ -112,7 +119,7 @@ export function liveBrief(title: string, memory: string | null, rows: readonly {
     ...(background === null ? [] : [{ role: "developer" as const, text: background }]),
     ...recentTurns(rows),
     { role: "developer", text: clock },
-    { role: "developer", text: `Isaac just started a call with ${title}. Greet him now in at most four words, like "Hey, what's up?", then pause and listen.` },
+    { role: "developer", text: `${human()} just started a call with ${title}. Greet him now in at most four words, like "Hey, what's up?", then pause and listen.` },
   ];
 }
 

@@ -15,6 +15,7 @@
 // `/artifacts/media/<sha>/<token>` (the token, like a drop's, only ever travels to paired devices).
 
 import { randomBytes, timingSafeEqual } from "node:crypto";
+import { human } from "../host-config";
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -269,7 +270,7 @@ export class ArtifactService implements ArtifactRelaying {
         const clash = state.tabs.find(
           (tab) => tab.title.toLowerCase() === title || (action.rule !== undefined && tab.rule !== undefined && sameRule(tab.rule, action.rule)),
         );
-        if (clash !== undefined && clash.hidden && !isaac) return { changed: false, error: `Isaac hid the "${clash.title}" tab; do not add it back.` };
+        if (clash !== undefined && clash.hidden && !isaac) return { changed: false, error: `${human()} hid the "${clash.title}" tab; do not add it back.` };
         if (clash !== undefined && !clash.hidden) return { changed: false, error: `The "${clash.title}" tab (${clash.id}) already shows this; reuse it.` };
         const unknown = action.items?.filter((id) => !state.items.has(id)) ?? [];
         if (unknown.length > 0) return { changed: false, error: `Unknown artifact ids: ${unknown.slice(0, 5).join(", ")}. Add them with artifacts.add first.` };
@@ -293,8 +294,8 @@ export class ArtifactService implements ArtifactRelaying {
         const tab = state.tabs.find((candidate) => candidate.id === action.tab);
         if (tab === undefined) return { changed: false, error: `No tab ${action.tab}; artifacts.list shows the tabs.` };
         if (!isaac) {
-          if (tab.createdBy !== by) return { changed: false, error: `The "${tab.title}" tab is ${tab.createdBy === "default" ? "a default tab" : `${tab.createdBy}'s`}; only its maker or Isaac can change it.` };
-          if (action.hidden !== undefined || action.fresh !== undefined) return { changed: false, error: "Only Isaac hides and shows tabs." };
+          if (tab.createdBy !== by) return { changed: false, error: `The "${tab.title}" tab is ${tab.createdBy === "default" ? "a default tab" : `${tab.createdBy}'s`}; only its maker or ${human()} can change it.` };
+          if (action.hidden !== undefined || action.fresh !== undefined) return { changed: false, error: `Only ${human()} hides and shows tabs.` };
           if (action.rule !== undefined && defaultTabFor(action.rule) !== null) return { changed: false, error: "That rule is a default tab's; reuse the default instead." };
         }
         if (action.rule !== undefined && action.items !== undefined) return { changed: false, error: "Give the tab either a rule or a list of items, not both." };
@@ -323,7 +324,7 @@ export class ArtifactService implements ArtifactRelaying {
       case "tab.remove": {
         const tab = state.tabs.find((candidate) => candidate.id === action.tab);
         if (tab === undefined) return { changed: false, error: `No tab ${action.tab}.` };
-        if (isDefaultTab(tab.id)) return { changed: false, error: "Default tabs are never removed; Isaac can hide them." };
+        if (isDefaultTab(tab.id)) return { changed: false, error: `Default tabs are never removed; ${human()} can hide them.` };
         if (!isaac && tab.createdBy !== by) return { changed: false, error: `The "${tab.title}" tab is ${tab.createdBy}'s; agents remove only tabs they made.` };
         state.tabs = state.tabs.filter((candidate) => candidate.id !== tab.id);
         return { changed: true };

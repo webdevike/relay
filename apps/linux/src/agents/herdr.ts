@@ -1,17 +1,26 @@
-// Opens a phone-started omp session inside Herdr (the terminal workspace manager Isaac keeps his
-// sessions in): every session gets its own workspace, so the workspace list reads like the
-// phone's inbox. Herdr's default server is started headless in its own transient systemd user
-// unit when it is not running: it outlives this daemon (a `setsid` child would still die with
-// the service cgroup), and a later `herdr` attaches to it.
+// Opens a phone-started omp session inside Herdr (the terminal workspace manager the host's owner
+// keeps their sessions in): every session gets its own workspace, so the workspace list reads like the
+// phone's inbox. Herdr's default server is started headless when it is not running: on Linux in
+// its own transient systemd user unit (it outlives this daemon; a `setsid` child would still die
+// with the service cgroup), on macOS through the per-user LaunchAgent `dev.relay.herdr` (written
+// here when missing; the owner's own `ai.eva.herdr` agent is never touched). A later `herdr`
+// attaches to it.
 //
-// The pane runs the user's interactive shell, so `omp` resolves through the shell's PATH rather
-// than the service's; only `herdr` itself must be reachable from here.
+// The host may be started without a login shell's PATH (a login item, launchd), so `herdr` is
+// resolved from PATH plus ~/.local/bin, ~/.bun/bin and the Homebrew dirs, and the child's PATH
+// carries the same dirs so the pane's shell finds `omp` and `bun` too.
 
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { z } from "zod";
+import { resolveTool, toolPath } from "../host-config";
 import { AckFailure } from "../seams";
+
+/** Label of the LaunchAgent this host writes for herdr's server (macOS). */
+export const HERDR_LAUNCH_LABEL = "dev.relay.herdr";
+/** The owner's pre-existing herdr LaunchAgent: when its plist exists it restarts the server itself. */
+const LEGACY_HERDR_LABEL = "ai.eva.herdr";
 
 const SERVER_START_TIMEOUT_MS = 5000;
 const SERVER_POLL_MS = 250;
@@ -50,7 +59,9 @@ function fail(message: string): AckFailure {
 }
 
 async function herdr(args: readonly string[]): Promise<Record<string, unknown>> {
-  const proc = Bun.spawn(["herdr", ...args], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+  const bin = resolveTool("herdr");
+  if (bin === null) throw new HerdrError("herdr_missing", "herdr is not installed on the host (not on PATH)");
+  const proc = Bun.spawn([bin, ...args], { stdin: "ignore", stdout: "pipe", stderr: "pipe", env: { ...process.env, PATH: toolPath() } });
   const [stdout, stderr, code] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
@@ -76,13 +87,58 @@ function result<T>(schema: z.ZodType<T>, value: Record<string, unknown>): T {
   return parsed.data;
 }
 
-/** Workspaces of the running default server, starting it headless first when nothing answers. */
-async function ensureServer(log: (line: string) => void): Promise<z.infer<typeof WorkspaceList>["workspaces"]> {
-  try {
-    return result(WorkspaceList, await herdr(["workspace", "list"])).workspaces;
-  } catch (error) {
-    if (!(error instanceof HerdrError) || error.code !== "server_not_running") throw error;
+function launchAgentsDir(): string {
+  return join(homedir(), "Library", "LaunchAgents");
+}
+
+function xmlEscape(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** Starts `herdr server` through the user's `dev.relay.herdr` LaunchAgent (plist written when missing), else detached. */
+async function startServerMac(bin: string, log: (line: string) => void): Promise<void> {
+  if (existsSync(join(launchAgentsDir(), `${LEGACY_HERDR_LABEL}.plist`))) {
+    log(`herdr server is not running; ${LEGACY_HERDR_LABEL} owns it and will restart it`);
+    return;
   }
+  const plist = join(launchAgentsDir(), `${HERDR_LAUNCH_LABEL}.plist`);
+  const logPath = join(homedir(), "Library", "Logs", "RelayHerdr.log");
+  if (!existsSync(plist)) {
+    mkdirSync(launchAgentsDir(), { recursive: true });
+    mkdirSync(join(homedir(), "Library", "Logs"), { recursive: true });
+    writeFileSync(
+      plist,
+      `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>${HERDR_LAUNCH_LABEL}</string>
+<key>ProgramArguments</key><array><string>${xmlEscape(bin)}</string><string>server</string></array>
+<key>WorkingDirectory</key><string>${xmlEscape(homedir())}</string>
+<key>EnvironmentVariables</key><dict><key>PATH</key><string>${xmlEscape(toolPath(""))}</string><key>SHELL</key><string>${xmlEscape(process.env["SHELL"] ?? "/bin/zsh")}</string></dict>
+<key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>10</integer>
+<key>StandardOutPath</key><string>${xmlEscape(logPath)}</string><key>StandardErrorPath</key><string>${xmlEscape(logPath)}</string>
+</dict></plist>
+`,
+    );
+  }
+  const domain = `gui/${String(process.getuid?.() ?? 501)}`;
+  const boot = Bun.spawn(["/bin/launchctl", "bootstrap", domain, plist], { stdin: "ignore", stdout: "ignore", stderr: "pipe" });
+  if ((await boot.exited) === 0) {
+    log(`started herdr server (LaunchAgent ${HERDR_LAUNCH_LABEL})`);
+    return;
+  }
+  // Already bootstrapped (it exited and is throttled) or no GUI domain: kick it, else run it detached.
+  const kick = Bun.spawn(["/bin/launchctl", "kickstart", `${domain}/${HERDR_LAUNCH_LABEL}`], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+  if ((await kick.exited) === 0) {
+    log(`started herdr server (kickstarted ${HERDR_LAUNCH_LABEL})`);
+    return;
+  }
+  const detached = Bun.spawn([bin, "server"], { stdin: "ignore", stdout: "ignore", stderr: "ignore", env: { ...process.env, PATH: toolPath() }, detached: true });
+  detached.unref();
+  log("started herdr server (detached process; launchctl was unavailable)");
+}
+
+async function startServerLinux(log: (line: string) => void): Promise<void> {
   const proc = Bun.spawn(
     ["systemd-run", "--user", "--collect", "--quiet", `--unit=${SERVER_UNIT}`, "herdr", "server"],
     { stdin: "ignore", stdout: "ignore", stderr: "pipe" },
@@ -92,6 +148,17 @@ async function ensureServer(log: (line: string) => void): Promise<z.infer<typeof
     throw fail(`could not start the herdr server: ${stderr.length > 0 ? stderr : "systemd-run failed"}`);
   }
   log(`started headless herdr server (systemd user unit ${SERVER_UNIT})`);
+}
+
+/** Workspaces of the running default server, starting it headless first when nothing answers. */
+async function ensureServer(bin: string, log: (line: string) => void): Promise<z.infer<typeof WorkspaceList>["workspaces"]> {
+  try {
+    return result(WorkspaceList, await herdr(["workspace", "list"])).workspaces;
+  } catch (error) {
+    if (!(error instanceof HerdrError) || error.code !== "server_not_running") throw error;
+  }
+  if (process.platform === "darwin") await startServerMac(bin, log);
+  else await startServerLinux(log);
   const deadline = Date.now() + SERVER_START_TIMEOUT_MS;
   for (;;) {
     await Bun.sleep(SERVER_POLL_MS);
@@ -133,9 +200,10 @@ export interface LaunchOptions {
  * rejects with `AckFailure` (`agent_launch_failed`).
  */
 export async function launchInHerdr(home: string, log: (line: string) => void, options: LaunchOptions = {}): Promise<string> {
-  if (Bun.which("herdr") === null) throw fail("herdr is not installed on the host (not on PATH)");
+  const bin = resolveTool("herdr");
+  if (bin === null) throw fail("herdr is not installed on the host (not on PATH, ~/.local/bin, ~/.bun/bin or Homebrew)");
   try {
-    await ensureServer(log);
+    await ensureServer(bin, log);
     const label = options.label ?? basename(home);
     const env = ["--env", "RELAY_HERDR_OWNED=1"];
     for (const [key, value] of Object.entries(options.env ?? {})) env.push("--env", `${key}=${value}`);

@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { AgentMessage, AgentSession, CallState, ServerMessage } from "@relay/protocol";
-import { VOICE_NOTE, splitVoiceTurn, spokenPart, voiceTurn, withoutDetailsMarker } from "../src/assistant/voice";
+import { splitVoiceTurn, spokenPart, voiceNote, voiceTurn, withoutDetailsMarker } from "../src/assistant/voice";
 import { FILLER_AFTER_MS, TURN_START_GRACE_MS, VoiceCall, type CallThread, type Ears, type EarsEvents, type VoiceStack } from "../src/call/call";
 import { ReplySpeech, sentences, speakable } from "../src/call/speech";
 import { wavDataStart } from "../src/call/voice";
 import type { AgentProviderChange } from "../src/seams";
 import type { SessionClock } from "../src/session";
+
+const VOICE_NOTE = voiceNote();
 
 class FakeClock implements SessionClock {
   private timers: { at: number; fn: () => void; cancelled: boolean }[] = [];

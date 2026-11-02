@@ -1,6 +1,13 @@
 #!/bin/sh
-# Builds "Relay Host.app" (arm64). `./build.sh 0.2.0 --release` also publishes GitHub release host-v0.2.0,
-# which every installed copy picks up within an hour (or via "Check for Updates").
+# Builds "Relay Host.app" (arm64) into build/.
+#   ./build.sh 0.2.0            build only
+#   ./build.sh 0.2.0 --release  also publish GitHub release host-v0.2.0, which every installed copy
+#                               picks up within an hour (or via "Check for Updates")
+#   ./build.sh 0.2.0 --dist     self-contained app for a new user's machine: the relay-host binary, the
+#                               input dylib and the omp extensions inside, signed with the local
+#                               'Apple Development' identity (ad hoc without one), copied to
+#                               dist/Relay Host.app; no GitHub release. Relay Desktop's installer
+#                               ships it as Relay.app/Contents/Resources/RelayHost/Relay Host.app.
 set -eu
 VERSION=${1:?version}
 cd "$(dirname "$0")"
@@ -15,6 +22,11 @@ clang -O2 -Wall -Wextra -Werror -dynamiclib -framework ApplicationServices -mmac
 IDENTITY=$(security find-identity -v -p codesigning | sed -n 's/.*\([0-9A-F]\{40\}\) "Apple Development.*/\1/p' | head -n 1)
 codesign --force --sign "${IDENTITY:--}" --identifier com.ike.relay.input "$APP/Contents/MacOS/relay-input.dylib"
 codesign --force --sign "${IDENTITY:--}" --identifier com.ike.relay.daemon "$APP/Contents/MacOS/relay-host"
+# omp extensions the host installs into ~/.omp/agent/extensions when missing (agents/extensions.ts).
+mkdir -p "$APP/Contents/Resources/omp-extension"
+cp ../linux/omp-extension/relay-bridge.ts "$APP/Contents/Resources/omp-extension/"
+# herdr's own agent-state extension, when this machine has it; otherwise the host runs `herdr integration install omp`.
+[ -f "$HOME/.omp/agent/extensions/herdr-omp-agent-state.ts" ] && cp "$HOME/.omp/agent/extensions/herdr-omp-agent-state.ts" "$APP/Contents/Resources/omp-extension/"
 cat > "$APP/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -33,6 +45,12 @@ EOF
 # No --deep: nested helpers are already signed above.
 codesign --force --sign "${IDENTITY:--}" "$APP"
 (cd build && rm -f RelayHost.zip && ditto -ck --keepParent "Relay Host.app" RelayHost.zip)
+if [ "${2:-}" = "--dist" ]; then
+  codesign --verify --strict "$APP"
+  rm -rf dist && mkdir -p dist
+  ditto "$APP" "dist/Relay Host.app"
+  echo "built dist/Relay Host.app"
+fi
 if [ "${2:-}" = "--release" ]; then
   gh release create "host-v$VERSION" build/RelayHost.zip --repo webdevike/relay --title "Relay Host $VERSION" --notes "Relay Host $VERSION" --latest
 fi
