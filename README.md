@@ -136,8 +136,8 @@ each step in place of the user.
 - Chore: "how do I bevel?" in Object Mode switched to Edit Mode (one `mode_set`), then pointed at
   the Bevel tool icon. About 10 s end to end: 4.9 s to the first plan (capture included), the
   chore itself in 0.05 s, then a second capture and a 2.7 s plan.
-- Do it: "bevel it for me" beveled the cube (Edit Mode, select all, `mesh.bevel`); pressing Undo
-  restored the original 8-vertex cube in Object Mode.
+- Do it: "bevel it for me" beveled the cube's edges through `bpy` (switching to Edit Mode on the
+  way); pressing Undo stepped back until the scene matched the original cube in Object Mode.
 - Lesson: three steps planned exactly as listed, each detected done within about 1 s and
   advanced; ended with "Nice, you did it".
 - Voice: `RelayBuddy --voice-test` on a spoken file transcribed "Where is the bevel tool?" in
