@@ -17,7 +17,7 @@ import { openLink } from '../navigation/open-link'
 import { EvaModal } from '../overlay'
 import { Markdown } from '../chat/markdown/Markdown'
 import { agoPhrase, mentionsAstra } from './review-model'
-import { Avatar, RailSection, fail } from './review-ui'
+import { Avatar, RailSection, SourceMark, fail } from './review-ui'
 import { AstraThreadView, threadPropsOf, useAstraItem } from './AstraInline'
 import { mergeTimeline, threadReplyText } from './astra-timeline'
 import { ticketContext } from './astra-context'
@@ -519,13 +519,14 @@ export function LinearDetail({
           type="button"
           className="eva-rv-iconbtn"
           aria-label="Open in Linear"
-          onClick={() => openLink(t.url)}
+          onClick={() => openLink(t.url, { reviews: false })}
         >
           <IconExternalLink size={14} />
         </button>
       </header>
       <div className="eva-rv-head">
         <div className="eva-rv-titlerow">
+          <SourceMark source="linear" size={15} />
           <span className="eva-rv-ldot" style={{ background: t.state.color }} />
           <span className="eva-rv-dim eva-rv-mono">{t.key}</span>
           <h1 className="eva-rv-title">{t.title}</h1>

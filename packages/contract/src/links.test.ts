@@ -5,6 +5,7 @@ import {
   normalizePattern,
   patternMatches,
   resolveLink,
+  seedLinkPrefs,
   type LinkPrefs,
   type WebUrl,
 } from './links'
@@ -32,6 +33,12 @@ describe('patternMatches', () => {
     expect(m('github.com/ecardsystems', 'https://github.com/ecardsystems')).toBe(true)
     expect(m('github.com/ecardsystems', 'https://github.com/ecardsystemsx')).toBe(false)
   })
+  it('fits any one path segment to a *', () => {
+    expect(m('github.com/*/*/pull', 'https://github.com/o/r/pull/12/files')).toBe(true)
+    expect(m('github.com/*/*/pull', 'https://github.com/o/r/issues/12')).toBe(false)
+    expect(m('github.com/*/*/pull', 'https://github.com/o/pull')).toBe(false)
+    expect(m('linear.app/*/issue', 'https://linear.app/ecard/issue/ENG-1/x')).toBe(true)
+  })
 })
 
 describe('normalizePattern', () => {
@@ -48,28 +55,61 @@ describe('normalizePattern', () => {
 })
 
 describe('resolveLink', () => {
-  it('opens Isaac’s defaults: Linear and Slack in their apps, GitHub in Arc, the rest here', () => {
+  it('opens Isaac’s defaults: items in Reviews, Linear and Slack in their apps, GitHub in Arc, the rest here', () => {
+    for (const url of [
+      'https://linear.app/ecard/issue/ENG-6693/x?y=1',
+      'https://ecard.slack.com/archives/C1ABC/p1730000000123456',
+      'https://github.com/o/r/pull/1',
+      'https://github.com/o/r/pull/1/files',
+    ]) {
+      expect(resolveLink(DEFAULT_LINK_PREFS, url, all)).toEqual({ to: 'reviews', url })
+    }
     expect(
-      resolveLink(DEFAULT_LINK_PREFS, 'https://linear.app/ecard/issue/ENG-1/x?y=1', all),
-    ).toEqual({
+      resolveLink(DEFAULT_LINK_PREFS, 'https://linear.app/ecard/issue/ENG-1/x?y=1', all, {
+        reviews: false,
+      }),
+    ).toEqual({ to: 'app', app: 'Linear', url: 'linear://ecard/issue/ENG-1/x?y=1' })
+    expect(resolveLink(DEFAULT_LINK_PREFS, 'https://linear.app/ecard/view/all', all)).toEqual({
       to: 'app',
       app: 'Linear',
-      url: 'linear://ecard/issue/ENG-1/x?y=1',
+      url: 'linear://ecard/view/all',
     })
-    expect(resolveLink(DEFAULT_LINK_PREFS, 'https://ecard.slack.com/archives/C1/p2', all)).toEqual({
+    expect(resolveLink(DEFAULT_LINK_PREFS, 'https://ecard.slack.com/archives/C1', all)).toEqual({
       to: 'app',
       app: 'Slack',
-      url: 'https://ecard.slack.com/archives/C1/p2',
+      url: 'https://ecard.slack.com/archives/C1',
     })
-    expect(resolveLink(DEFAULT_LINK_PREFS, 'https://github.com/o/r/pull/1', all)).toEqual({
+    expect(resolveLink(DEFAULT_LINK_PREFS, 'https://github.com/o/r/issues/1', all)).toEqual({
       to: 'app',
       app: 'Arc',
-      url: 'https://github.com/o/r/pull/1',
+      url: 'https://github.com/o/r/issues/1',
     })
     expect(resolveLink(DEFAULT_LINK_PREFS, 'https://example.com/a', all)).toEqual({
       to: 'browser',
       url: 'https://example.com/a',
     })
+  })
+  it('adds the Reviews rules once to prefs saved before them, above the apps', () => {
+    const old: LinkPrefs = {
+      rules: [
+        { pattern: 'example.com', opener: { kind: 'system' } },
+        { pattern: 'linear.app', opener: { kind: 'app', app: 'Linear' } },
+        { pattern: 'github.com', opener: { kind: 'app', app: 'Arc' } },
+      ],
+      fallback: { kind: 'browser' },
+    }
+    const seeded = seedLinkPrefs(old)
+    expect(seeded.rules.map((r) => r.pattern)).toEqual([
+      'example.com',
+      'github.com/*/*/pull',
+      'linear.app/*/issue',
+      '*.slack.com/archives',
+      'linear.app',
+      'github.com',
+    ])
+    expect(seeded.seeded).toEqual(['reviews'])
+    const trimmed = { ...seeded, rules: seeded.rules.filter((r) => r.opener.kind !== 'reviews') }
+    expect(seedLinkPrefs(trimmed)).toBe(trimmed)
   })
   it('falls back to Relay’s browser for an app that is not installed', () => {
     expect(resolveLink(DEFAULT_LINK_PREFS, 'https://github.com/o', none)).toEqual({

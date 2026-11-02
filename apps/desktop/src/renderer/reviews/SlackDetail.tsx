@@ -24,7 +24,7 @@ import { Markdown } from '../chat/markdown/Markdown'
 import { MarkdownMedia } from '../chat/markdown/MarkdownMedia'
 import { quoteOf } from './LinearDetail'
 import { ago, agoPhrase, mentionsAstra } from './review-model'
-import { Avatar, fail, useLocal } from './review-ui'
+import { Avatar, SourceMark, fail, useLocal } from './review-ui'
 import { AstraThreadView, threadPropsOf, useAstraItem } from './AstraInline'
 import { mergeTimeline, threadReplyText } from './astra-timeline'
 import { slackContext } from './astra-context'
@@ -49,7 +49,10 @@ const isDone = (r: SlackRow, done: Record<string, number>): boolean =>
 /** `#ui-ux` stays; a DM is the person's name. */
 const where = (r: { channelName: string }): string => r.channelName
 
-/** Mentions (DMs count: they are to him) and Replies, like the Slack design's Threads queue. */
+/**
+ * Mentions (DMs count: they are to him) and Replies, like the Slack design's Threads queue. While
+ * the queue is searched, only `match`ing rows show, every group open, empty groups hidden.
+ */
 export function SlackGroups({
   slack,
   done,
@@ -57,6 +60,7 @@ export function SlackGroups({
   onOpen,
   onRefresh,
   now,
+  match,
 }: {
   slack: SlackState
   done: Record<string, number>
@@ -64,13 +68,14 @@ export function SlackGroups({
   onOpen: (r: SlackRow) => void
   onRefresh: () => void
   now: number
+  match?: (r: SlackRow) => boolean
 }) {
   const [closed, setClosed] = useState<Record<string, boolean>>({})
-  const rows = (slack.queue?.rows ?? []).filter((r) => !isDone(r, done))
+  const rows = (slack.queue?.rows ?? []).filter((r) => !isDone(r, done) && (!match || match(r)))
   const groups = [
     { id: 'mentions', label: 'Slack mentions', rows: rows.filter((r) => r.kind !== 'reply') },
     { id: 'replies', label: 'Slack replies', rows: rows.filter((r) => r.kind === 'reply') },
-  ]
+  ].filter((g) => !match || g.rows.length > 0)
   return (
     <div data-testid="review-slack-groups">
       {groups.map((g, gi) => (
@@ -107,7 +112,7 @@ export function SlackGroups({
               )
             ) : null}
           </span>
-          {closed[g.id] ? null : slack.queue === null ? (
+          {closed[g.id] && !match ? null : slack.queue === null ? (
             gi === 0 ? (
               <div className="eva-rv-dim eva-rv-pad">
                 {slack.error ? `Couldn't read Slack: ${slack.error}` : 'Reading Slack...'}
@@ -128,6 +133,7 @@ export function SlackGroups({
                 title={`${where(r)}: ${emojify(r.text)}`}
               >
                 <span className="eva-rv-qrow-line">
+                  <SourceMark source="slack" />
                   <span className="eva-rv-qrow-title">
                     {where(r)}
                     {r.threadTs && r.kind === 'reply' ? ' thread' : ''}
@@ -382,13 +388,14 @@ export function SlackDetail({
           type="button"
           className="eva-rv-iconbtn"
           aria-label="Open in Slack"
-          onClick={() => openLink(row.url)}
+          onClick={() => openLink(row.url, { reviews: false })}
         >
           <IconExternalLink size={14} />
         </button>
       </header>
       <div className="eva-rv-head">
         <div className="eva-rv-titlerow">
+          <SourceMark source="slack" size={15} />
           {row.kind === 'dm' ? (
             <IconMessage size={15} className="eva-rv-dim" />
           ) : (
@@ -399,7 +406,7 @@ export function SlackDetail({
           </h1>
         </div>
         <div className="eva-rv-meta">
-          <span>{title}</span>·
+          <span className={row.kind === 'dm' ? undefined : 'eva-rv-mono'}>{title}</span>·
           <span>
             {row.kind === 'mention'
               ? `${row.author} mentioned you`

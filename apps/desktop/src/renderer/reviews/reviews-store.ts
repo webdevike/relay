@@ -4,6 +4,7 @@ import { createStore } from 'zustand/vanilla'
 import type { LinearRow, ReviewQueue, ReviewRow, SlackRow } from '@evaos/contract'
 import { invoke } from '../ipc'
 import type { SlackState } from './SlackDetail'
+import { itemLinkOf } from './queue-search'
 
 export type ReviewsView = 'for-me' | 'created'
 
@@ -103,8 +104,8 @@ export type ReviewItem =
   | { kind: 'slack'; row: SlackRow }
 
 /**
- * The row for an item link: the queue's own row when it lists the item, else one made from the
- * link (the detail loads the rest). Null for any other link.
+ * The row for an item link (or a bare `ENG-6693` / `owner/repo#246`): the queue's own row when it
+ * lists the item, else one made from the link (the detail loads the rest). Null for any other link.
  */
 export function reviewItemOf(
   url: string,
@@ -112,7 +113,7 @@ export function reviewItemOf(
 ): ReviewItem | null {
   let u: URL
   try {
-    u = new URL(url)
+    u = new URL(itemLinkOf(url))
   } catch {
     return null
   }
@@ -141,13 +142,27 @@ export function reviewItemOf(
       },
     }
   }
-  const issue = /^\/[^/]+\/issue\/([a-z][a-z0-9]*-\d+)/i.exec(u.pathname)
+  const issue = /^(?:\/[^/]+)?\/issue\/([a-z][a-z0-9]*-\d+)/i.exec(u.pathname)
   if (u.hostname === 'linear.app' && issue) {
     const key = issue[1]!.toUpperCase()
     const known = s.linear.rows?.find((r) => r.key === key)
+    // A bare key's link takes its workspace from a queued ticket's.
+    const ws = u.pathname.startsWith('/issue/')
+      ? s.linear.rows
+          ?.map((r) => /^https:\/\/linear\.app\/([^/]+)\/issue\//.exec(r.url)?.[1])
+          .find(Boolean)
+      : undefined
     return {
       kind: 'linear',
-      row: known ?? { key, title: key, url, reason: '', actor: '', updatedAt: 0, unread: false },
+      row: known ?? {
+        key,
+        title: key,
+        url: ws ? `https://linear.app/${ws}/issue/${key}` : u.href,
+        reason: '',
+        actor: '',
+        updatedAt: 0,
+        unread: false,
+      },
     }
   }
   const msg = /^\/archives\/([A-Z0-9]+)\/p(\d{7,})/.exec(u.pathname)

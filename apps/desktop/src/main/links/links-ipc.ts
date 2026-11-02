@@ -7,6 +7,7 @@ import {
   DEFAULT_LINK_PREFS,
   LinkPrefsSchema,
   resolveLink,
+  seedLinkPrefs,
   type LinkPrefs,
   type LinkRoute,
 } from '@evaos/contract'
@@ -19,9 +20,10 @@ import type { WriteQueue } from '../write-queue'
 /** Settings > Links, in the config folder. Missing or invalid: the defaults. */
 export const LINKS_FILE = 'links.json'
 
+/** The saved rules, with default rule sets added since they were saved (`seedLinkPrefs`). */
 export function loadLinkPrefs(config: ConfigStore): LinkPrefs {
   const parsed = LinkPrefsSchema.safeParse(config.readJson<unknown>(LINKS_FILE, null))
-  return parsed.success ? parsed.data : DEFAULT_LINK_PREFS
+  return parsed.success ? seedLinkPrefs(parsed.data) : DEFAULT_LINK_PREFS
 }
 
 /** Where apps live; each `<Name>.app` directly inside is an app an opener can name. */
@@ -52,7 +54,7 @@ export function installedApps(dirs: readonly string[]): string[] {
 }
 
 export type Launcher = (
-  route: Exclude<LinkRoute, { to: 'none' } | { to: 'browser' }>,
+  route: Exclude<LinkRoute, { to: 'none' } | { to: 'browser' } | { to: 'reviews' }>,
 ) => Promise<boolean>
 
 /** Launches outside Relay: `open -a <app> <url>`, else the system's handler for the URL. */
@@ -102,9 +104,12 @@ export function registerLinksIpc(
       return next.prefs
     }),
   )
-  handle(ctx, 'links.open', async ({ url }) => {
-    const route = resolveLink(loadLinkPrefs(ctx.config), url, (app) => apps.includes(app))
-    if (route.to === 'none' || route.to === 'browser') return { to: route.to, launched: false }
+  handle(ctx, 'links.open', async ({ url, reviews }) => {
+    const route = resolveLink(loadLinkPrefs(ctx.config), url, (app) => apps.includes(app), {
+      reviews,
+    })
+    if (route.to === 'none' || route.to === 'browser' || route.to === 'reviews')
+      return { to: route.to, launched: false }
     return { to: route.to, launched: await launch(route) }
   })
 }

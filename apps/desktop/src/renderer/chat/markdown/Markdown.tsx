@@ -129,7 +129,7 @@ const components: Components = {
         title={href}
         onClick={(e: MouseEvent) => {
           e.preventDefault()
-          if (href) openLink(href)
+          if (href) openLink(href, { newPane: e.metaKey })
         }}
       >
         <InLink.Provider value={true}>{children}</InLink.Provider>

@@ -146,6 +146,22 @@
   flex: none;
   margin-bottom: var(--mantine-spacing-xs);
 }
+.eva-rv-queue-search {
+  flex: none;
+  margin: calc(var(--mantine-spacing-xs) * 0.4) 0 var(--mantine-spacing-xs);
+}
+/* The source's brand mark: small, monochrome, the row's dim color. */
+.eva-rv-source {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-rv-prid {
+  display: inline-flex;
+  flex: none;
+  min-width: 0;
+}
 .eva-rv-group {
   display: flex;
   flex-direction: column;
@@ -771,9 +787,6 @@
   background: var(--eva-c-accent);
   margin-right: calc(var(--mantine-spacing-xs) * 0.6);
   vertical-align: middle;
-}
-.eva-rv-open-ticket {
-  margin: calc(var(--mantine-spacing-xs) * 0.4) calc(var(--mantine-spacing-xs) * 0.8) 0;
 }
 .eva-rv-ldot {
   display: inline-block;

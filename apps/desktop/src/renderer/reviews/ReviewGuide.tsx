@@ -22,7 +22,9 @@ function FileMenu({ onViewInDiff, url }: { onViewInDiff: () => void; url: string
       </EvaMenu.Target>
       <EvaMenu.Dropdown>
         <EvaMenu.Item onClick={onViewInDiff}>View in diff</EvaMenu.Item>
-        <EvaMenu.Item onClick={() => openLink(url)}>Open on GitHub</EvaMenu.Item>
+        <EvaMenu.Item onClick={() => openLink(url, { reviews: false })}>
+          Open on GitHub
+        </EvaMenu.Item>
       </EvaMenu.Dropdown>
     </EvaMenu>
   )

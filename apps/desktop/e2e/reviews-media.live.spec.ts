@@ -77,8 +77,8 @@ test('Reviews shows GitHub, Linear and Slack images inline and Linear mentions b
   await shell.keyboard.press('Meta+Shift+B')
 
   // Linear: ENG-5974's uploads, served from the config dir (whose path has spaces in live use).
-  await shell.locator(sel('review-open-ticket')).fill('ENG-5974')
-  await shell.locator(sel('review-open-ticket')).press('Enter')
+  await shell.locator(sel('review-search')).fill('ENG-5974')
+  await shell.locator(sel('review-search')).press('Enter')
   const details = shell.locator(sel('linear-details'))
   await expect(details).toBeVisible({ timeout: 60_000 })
   await expect(details).not.toContainText('![')

@@ -123,7 +123,7 @@ export function LinkBlock({ spec }: { spec: LinkSpec }) {
       data-testid="widget-link"
       onClick={(e) => {
         e.preventDefault()
-        openLink(spec.url)
+        openLink(spec.url, { newPane: e.metaKey })
       }}
     >
       {spec.label}

@@ -30,7 +30,7 @@ import { SlackDetail } from './SlackDetail'
 import { ReviewFiles } from './ReviewFiles'
 import { ReviewGuide } from './ReviewGuide'
 import { ago, agoPhrase, mentionsAstra, nextAfter, prKey, queueGroups } from './review-model'
-import { Avatar, RailSection, fail, useLocal } from './review-ui'
+import { Avatar, RailSection, SourceMark, fail, useLocal } from './review-ui'
 import { AstraThreadView, threadPropsOf, useAstraItem } from './AstraInline'
 import { mergeTimeline, threadReplyText } from './astra-timeline'
 import { prContext } from './astra-context'
@@ -330,18 +330,21 @@ function Detail({
           type="button"
           className="eva-rv-iconbtn"
           aria-label="Open on GitHub"
-          onClick={() => openLink(pr.url)}
+          onClick={() => openLink(pr.url, { reviews: false })}
         >
           <IconExternalLink size={14} />
         </button>
       </header>
       <div className="eva-rv-head">
         <div className="eva-rv-titlerow">
+          <SourceMark source="github" size={15} />
           <IconGitPullRequest size={15} className="eva-rv-ok" />
-          <span className="eva-rv-dim eva-rv-mono eva-rv-repo" title={pr.repo}>
-            {pr.repo}
+          <span className="eva-rv-dim eva-rv-mono eva-rv-prid" data-testid="review-head-id">
+            <span className="eva-rv-repo" title={pr.repo}>
+              {pr.repo}
+            </span>
+            #{pr.number}
           </span>
-          <span className="eva-rv-dim">#{pr.number}</span>
           <h1 className="eva-rv-title">{pr.title}</h1>
         </div>
         <div className="eva-rv-meta">

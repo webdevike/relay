@@ -48,8 +48,8 @@ test('reads, replies to and finishes a real Linear ticket without writing anywhe
   await shot(shell, 'linear-queue')
 
   // Details: description with images inline, properties in the rail.
-  await shell.locator(sel('review-open-ticket')).fill(TICKET)
-  await shell.locator(sel('review-open-ticket')).press('Enter')
+  await shell.locator(sel('review-search')).fill(TICKET)
+  await shell.locator(sel('review-search')).press('Enter')
   await expect(shell.locator(sel('linear-details'))).toBeVisible({ timeout: 30_000 })
   await expect(shell.locator(sel('linear-rail'))).toContainText('Status')
   await expect(shell.locator(sel('linear-rail'))).toContainText('Linked PRs')

@@ -42,7 +42,7 @@ function Cell({ cell }: { cell: TableCell }) {
       style={{ fontWeight: style.fontWeight }}
       onClick={(e) => {
         e.preventDefault()
-        openLink(url)
+        openLink(url, { newPane: e.metaKey })
       }}
     >
       {content}

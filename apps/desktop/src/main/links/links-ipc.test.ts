@@ -46,6 +46,7 @@ describe('links ipc', () => {
     const prefs: LinkPrefs = {
       rules: [{ pattern: 'example.com', opener: { kind: 'system' } }],
       fallback: { kind: 'browser' },
+      seeded: ['reviews'],
     }
     await call('links.set', { prefs })
     expect(JSON.parse(fs.readFileSync(path.join(dir, LINKS_FILE), 'utf8'))).toEqual(prefs)
@@ -60,10 +61,14 @@ describe('links ipc', () => {
       dirs: [apps],
       launch,
     })
+    // An item link is the page's to open in Reviews; with `reviews: false` it goes to its app.
     expect(await call('links.open', { url: 'https://linear.app/w/issue/ENG-1' })).toEqual({
-      to: 'app',
-      launched: true,
+      to: 'reviews',
+      launched: false,
     })
+    expect(
+      await call('links.open', { url: 'https://linear.app/w/issue/ENG-1', reviews: false }),
+    ).toEqual({ to: 'app', launched: true })
     expect(launch).toHaveBeenCalledWith({ to: 'app', app: 'Linear', url: 'linear://w/issue/ENG-1' })
     // Slack isn't installed here: its rule falls back to the side browser, launching nothing.
     expect(await call('links.open', { url: 'https://slack.com/x' })).toEqual({

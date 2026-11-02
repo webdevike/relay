@@ -48,6 +48,7 @@ function openerOf(value: string, current: LinkOpener, pattern: string): LinkOpen
     const name = pattern.replace(/^\*\./, '').split('.')[0] || 'app'
     return { kind: 'scheme', template: `${name}://{path}` }
   }
+  if (value === 'reviews') return { kind: 'reviews' }
   return value === 'system' ? { kind: 'system' } : { kind: 'browser' }
 }
 
@@ -63,6 +64,7 @@ function openerData(apps: string[], current: LinkOpener) {
       group: 'Relay',
       items: [
         { value: 'browser', label: 'Relay browser' },
+        { value: 'reviews', label: 'Relay Reviews' },
         { value: 'system', label: 'Default browser' },
       ],
     },

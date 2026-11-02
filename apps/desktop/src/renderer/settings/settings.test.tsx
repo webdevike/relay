@@ -284,6 +284,7 @@ describe('SettingsPage', () => {
     for (const p of ['linear.app', 'slack.com', '*.slack.com', 'github.com'])
       expect(within(rules).getByTestId(`links-rule-${p}`)).toBeInTheDocument()
     await waitFor(() => expect(screen.getByTestId('links-opener-github.com')).toHaveValue('Arc'))
+    expect(screen.getByTestId('links-opener-github.com/*/*/pull')).toHaveValue('Relay Reviews')
     expect(screen.getByTestId('links-opener-fallback')).toHaveValue('Relay browser')
 
     await user.type(screen.getByTestId('links-add-input'), 'https://Docs.Example.com/a?b=1')
@@ -294,6 +295,7 @@ describe('SettingsPage', () => {
         { pattern: 'docs.example.com/a', opener: { kind: 'browser' } },
       ],
       fallback: { kind: 'browser' },
+      seeded: ['reviews'],
     }
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('links.set', { prefs: added }))
 
