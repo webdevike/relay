@@ -27,6 +27,8 @@ export type TimelineEntry<C> = { kind: 'comment'; item: C } | { kind: 'astra'; t
 
 /** How a reply typed in a thread names its thread to the session (and to the phone, which reads the same turns). */
 const REPLY = /^\(Reply in your thread on "([^"\n]*)"\)\n/
+/** The `<surface>...</surface>` line a client may put before a prompt. */
+const SURFACE = /^<surface>[^<]*<\/surface>\s*/
 
 /** The root's words as a reply's first line names them. */
 export function threadSnippet(root: string): string {
@@ -51,8 +53,10 @@ export function astraThreads(turns: readonly AstraTurn[], pending = false): Astr
   const time = (t: AstraTurn) => (t.at === undefined ? {} : { at: t.at })
   for (const t of turns) {
     if (t.role === 'user') {
-      const m = REPLY.exec(t.text)
-      const turn = m ? { ...t, text: t.text.slice(m[0].length) } : t
+      // A client's leading surface tag never hides which thread a reply names.
+      const said = t.text.replace(SURFACE, '')
+      const m = REPLY.exec(said)
+      const turn = m ? { ...t, text: said.slice(m[0].length) } : t
       if (m && threads.length > 0) {
         const named = threads.findLast((x) => threadSnippet(x.root.text) === m[1])
         current = named ?? threads.at(-1)!

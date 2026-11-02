@@ -61,6 +61,13 @@ describe('astra threads', () => {
     ])
   })
 
+  it('reads a reply past a client surface tag', () => {
+    const tagged = `<surface>iPhone - Relay</surface>\n${threadReplyText('u1', 'more')}`
+    expect(shape(astraThreads([turn('u1', 'user', 1), turn('u2', 'user', 2, tagged)]))).toEqual([
+      ['u1', ['ask:more']],
+    ])
+  })
+
   it('gives the newest ask a pending reply slot of hers', () => {
     const one = astraThreads([turn('u1', 'user', 10)], true)
     expect(one[0]!.replies).toEqual([{ kind: 'reply', id: 'u1-pending', at: 10, turns: [] }])
