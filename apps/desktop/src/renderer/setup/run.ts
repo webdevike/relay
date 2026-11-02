@@ -81,7 +81,9 @@ export function firstIncomplete(state: SetupState): SetupStep {
 }
 
 /** Tools `detect.sh` found missing, in install order. relay-host is installed by its own step. */
-export function missingTools(d: SetupDetect): Array<'brew' | 'bun' | 'omp' | 'herdr' | 'tailscale'> {
+export function missingTools(
+  d: SetupDetect,
+): Array<'brew' | 'bun' | 'omp' | 'herdr' | 'tailscale'> {
   const rows = [
     ['brew', d.brew.installed],
     ['bun', d.bun.installed],

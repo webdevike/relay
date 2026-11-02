@@ -31,7 +31,11 @@ export function SetupSection() {
             missing. Nothing is deleted or replaced.
           </span>
         </span>
-        <Button variant="default" onClick={() => openPlace(placeOf('setup'))} data-testid="setup-rerun">
+        <Button
+          variant="default"
+          onClick={() => openPlace(placeOf('setup'))}
+          data-testid="setup-rerun"
+        >
           Run setup again
         </Button>
       </div>

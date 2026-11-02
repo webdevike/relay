@@ -98,7 +98,10 @@ export function parseLine(line: string): ScriptLine | null {
 }
 
 /** Splits a stream into lines across chunk boundaries. */
-export function lineSplitter(onLine: (line: string) => void): { push(chunk: string): void; end(): void } {
+export function lineSplitter(onLine: (line: string) => void): {
+  push(chunk: string): void
+  end(): void
+} {
   let rest = ''
   return {
     push(chunk) {

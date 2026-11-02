@@ -61,7 +61,9 @@ export type SetupAssistant = z.infer<typeof SetupAssistantSchema>
 export const SetupAnswersSchema = z.object({
   userName: z.string().min(1).max(80),
   assistants: z.array(SetupAssistantSchema).min(1).max(8),
-  firstWorkspace: z.object({ name: z.string().max(80), description: z.string().max(300) }).optional(),
+  firstWorkspace: z
+    .object({ name: z.string().max(80), description: z.string().max(300) })
+    .optional(),
 })
 export type SetupAnswers = z.infer<typeof SetupAnswersSchema>
 
@@ -72,16 +74,30 @@ export const SetupStateSchema = z.object({
   hostName: z.string().max(100).optional(),
   userName: z.string().max(80).optional(),
   assistants: z.array(SetupAssistantSchema).max(8).optional(),
-  firstWorkspace: z.object({ name: z.string().max(80), description: z.string().max(300) }).optional(),
+  firstWorkspace: z
+    .object({ name: z.string().max(80), description: z.string().max(300) })
+    .optional(),
 })
 export type SetupState = z.infer<typeof SetupStateSchema>
 
 export const SetupRunSchema = z.discriminatedUnion('task', [
   z.object({ task: z.literal('install'), tool: SetupToolSchema }),
   z.object({ task: z.literal('ai-login'), provider: SetupProviderSchema }),
-  z.object({ task: z.literal('ai-key'), provider: SetupProviderSchema, key: z.string().min(1).max(500) }),
-  z.object({ task: z.literal('scaffold'), root: z.string().min(1).max(1000), answers: SetupAnswersSchema }),
-  z.object({ task: z.literal('install-host'), root: z.string().min(1).max(1000), hostName: z.string().min(1).max(100) }),
+  z.object({
+    task: z.literal('ai-key'),
+    provider: SetupProviderSchema,
+    key: z.string().min(1).max(500),
+  }),
+  z.object({
+    task: z.literal('scaffold'),
+    root: z.string().min(1).max(1000),
+    answers: SetupAnswersSchema,
+  }),
+  z.object({
+    task: z.literal('install-host'),
+    root: z.string().min(1).max(1000),
+    hostName: z.string().min(1).max(100),
+  }),
 ])
 export type SetupRun = z.infer<typeof SetupRunSchema>
 

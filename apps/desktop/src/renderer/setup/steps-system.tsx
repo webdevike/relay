@@ -1,4 +1,14 @@
-import { Alert, Badge, Button, Group, PasswordInput, Progress, SegmentedControl, Stack, Text } from '@mantine/core'
+import {
+  Alert,
+  Badge,
+  Button,
+  Group,
+  PasswordInput,
+  Progress,
+  SegmentedControl,
+  Stack,
+  Text,
+} from '@mantine/core'
 import { IconCheck, IconCircleDashed, IconX } from '@tabler/icons-react'
 import { useEffect, useRef, useState } from 'react'
 import type { SetupProvider } from '@evaos/contract'
@@ -14,9 +24,9 @@ export function WelcomeStep({ ctx }: { ctx: WizardCtx }) {
         assistants know, and links your phone.
       </Text>
       <Text c="dimmed" size="sm">
-        Here is what will happen: check which tools you already have, install the missing ones,
-        sign in to AI, create your home base folder and assistants, start Relay Host, and pair
-        your iPhone. Nothing is changed without showing you first, and nothing you already have is
+        Here is what will happen: check which tools you already have, install the missing ones, sign
+        in to AI, create your home base folder and assistants, start Relay Host, and pair your
+        iPhone. Nothing is changed without showing you first, and nothing you already have is
         replaced or deleted. macOS may ask for your password for a few installs; you type it into
         macOS, never into Relay.
       </Text>
@@ -33,7 +43,13 @@ function Status({ ok, label, detail }: { ok: boolean | 'warn'; label: string; de
   return (
     <div className="eva-settings-row eva-settings-row-static" data-testid={`setup-tool-${label}`}>
       <span className="eva-setup-icon" data-ok={String(ok)}>
-        {ok === true ? <IconCheck size={16} /> : ok === 'warn' ? <IconCircleDashed size={16} /> : <IconX size={16} />}
+        {ok === true ? (
+          <IconCheck size={16} />
+        ) : ok === 'warn' ? (
+          <IconCircleDashed size={16} />
+        ) : (
+          <IconX size={16} />
+        )}
       </span>
       <span className="eva-settings-label">
         <span className="eva-settings-label-title">{TOOL_LABEL[label] ?? label}</span>
@@ -54,8 +70,10 @@ export function CheckStep({ ctx }: { ctx: WizardCtx }) {
     void ctx.recheck().finally(() => setBusy(false))
   }, [ctx])
   const missing = d ? missingTools(d) : []
-  const ver = (t: { installed: boolean; version?: string | null }, fallback = 'Missing, will be installed') =>
-    t.installed ? `Installed${t.version ? ` (${t.version})` : ''}` : fallback
+  const ver = (
+    t: { installed: boolean; version?: string | null },
+    fallback = 'Missing, will be installed',
+  ) => (t.installed ? `Installed${t.version ? ` (${t.version})` : ''}` : fallback)
   return (
     <Stack gap="md" data-testid="setup-check">
       <Text c="dimmed" size="sm">
@@ -94,11 +112,7 @@ export function CheckStep({ ctx }: { ctx: WizardCtx }) {
         <Text size="sm">{busy ? 'Checking…' : ''}</Text>
       )}
       <Group>
-        <Button
-          onClick={ctx.finish}
-          disabled={!d}
-          data-testid="setup-check-next"
-        >
+        <Button onClick={ctx.finish} disabled={!d} data-testid="setup-check-next">
           {missing.length > 0 ? `Install ${missing.length} missing` : 'Continue'}
         </Button>
         <Button
@@ -171,7 +185,6 @@ export function InstallStep({ ctx }: { ctx: WizardCtx }) {
     const list = missingTools(ctx.detect)
     setTodo(list)
     if (list.length > 0) void runAll(list)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctx.detect])
 
   const allDone = todo !== null && todo.every((t) => rows[t]?.status === 'ok')
@@ -181,22 +194,41 @@ export function InstallStep({ ctx }: { ctx: WizardCtx }) {
         <Text>Everything Relay needs is already on your Mac.</Text>
       ) : (
         <Text c="dimmed" size="sm">
-          Installing what is missing. If macOS asks for your password or opens an installer, follow it
-          and come back here.
+          Installing what is missing. If macOS asks for your password or opens an installer, follow
+          it and come back here.
         </Text>
       )}
       <div className="eva-settings-card">
         {(todo ?? []).map((tool) => {
           const r = rows[tool] ?? { status: 'wait', percent: 0, line: '' }
           return (
-            <div key={tool} className="eva-setup-install-row" data-testid={`setup-install-${tool}`} data-status={r.status}>
+            <div
+              key={tool}
+              className="eva-setup-install-row"
+              data-testid={`setup-install-${tool}`}
+              data-status={r.status}
+            >
               <Group justify="space-between">
                 <Text fw={600}>{TOOL_LABEL[tool] ?? tool}</Text>
-                <Badge color={r.status === 'ok' ? 'green' : r.status === 'err' ? 'red' : 'gray'} variant="light">
-                  {r.status === 'wait' ? 'Waiting' : r.status === 'run' ? 'Installing' : r.status === 'ok' ? 'Done' : 'Failed'}
+                <Badge
+                  color={r.status === 'ok' ? 'green' : r.status === 'err' ? 'red' : 'gray'}
+                  variant="light"
+                >
+                  {r.status === 'wait'
+                    ? 'Waiting'
+                    : r.status === 'run'
+                      ? 'Installing'
+                      : r.status === 'ok'
+                        ? 'Done'
+                        : 'Failed'}
                 </Badge>
               </Group>
-              <Progress value={r.percent} size="sm" mt={6} color={r.status === 'err' ? 'red' : undefined} />
+              <Progress
+                value={r.percent}
+                size="sm"
+                mt={6}
+                color={r.status === 'err' ? 'red' : undefined}
+              />
               <Text size="xs" c={r.status === 'err' ? 'red' : 'dimmed'} mt={4}>
                 {r.line}
               </Text>
@@ -206,13 +238,18 @@ export function InstallStep({ ctx }: { ctx: WizardCtx }) {
       </div>
       <Group>
         {failed ? (
-          <Button color="red" variant="light" onClick={() => void runAll(todo ?? [])} data-testid="setup-install-retry">
+          <Button
+            color="red"
+            variant="light"
+            onClick={() => void runAll(todo ?? [])}
+            data-testid="setup-install-retry"
+          >
             Retry
           </Button>
         ) : null}
         <Button
           onClick={ctx.finish}
-          disabled={running || (todo === null) || (!allDone && todo.length > 0)}
+          disabled={running || todo === null || (!allDone && todo.length > 0)}
           data-testid="setup-install-next"
         >
           Continue
@@ -253,17 +290,30 @@ export function AiStep({ ctx }: { ctx: WizardCtx }) {
       ) : (
         <>
           <Text c="dimmed" size="sm">
-            Your assistants think with an AI account of yours. Sign in with the one you have. A browser
-            window opens, and you sign in on the provider's own page.
+            Your assistants think with an AI account of yours. Sign in with the one you have. A
+            browser window opens, and you sign in on the provider's own page.
           </Text>
           <Group>
-            <Button onClick={() => void sign('anthropic')} loading={login.view.status === 'running'} data-testid="setup-ai-claude">
+            <Button
+              onClick={() => void sign('anthropic')}
+              loading={login.view.status === 'running'}
+              data-testid="setup-ai-claude"
+            >
               Sign in with Claude
             </Button>
-            <Button onClick={() => void sign('openai')} loading={login.view.status === 'running'} variant="default" data-testid="setup-ai-chatgpt">
+            <Button
+              onClick={() => void sign('openai')}
+              loading={login.view.status === 'running'}
+              variant="default"
+              data-testid="setup-ai-chatgpt"
+            >
               Sign in with ChatGPT
             </Button>
-            <Button variant="subtle" onClick={() => setUseKey((v) => !v)} data-testid="setup-ai-key-toggle">
+            <Button
+              variant="subtle"
+              onClick={() => setUseKey((v) => !v)}
+              data-testid="setup-ai-key-toggle"
+            >
               Use an API key
             </Button>
           </Group>
@@ -296,7 +346,11 @@ export function AiStep({ ctx }: { ctx: WizardCtx }) {
                 data-testid="setup-ai-key"
               />
               <Group>
-                <Button onClick={() => void saveKey()} disabled={apiKey.trim() === ''} loading={key.view.status === 'running'}>
+                <Button
+                  onClick={() => void saveKey()}
+                  disabled={apiKey.trim() === ''}
+                  loading={key.view.status === 'running'}
+                >
                   Save key
                 </Button>
               </Group>
@@ -310,7 +364,11 @@ export function AiStep({ ctx }: { ctx: WizardCtx }) {
         </>
       )}
       <Group>
-        <Button onClick={ctx.finish} data-testid="setup-ai-next" variant={signedIn ? 'filled' : 'default'}>
+        <Button
+          onClick={ctx.finish}
+          data-testid="setup-ai-next"
+          variant={signedIn ? 'filled' : 'default'}
+        >
           {signedIn ? 'Continue' : 'Skip for now'}
         </Button>
         <Button variant="subtle" onClick={ctx.back}>

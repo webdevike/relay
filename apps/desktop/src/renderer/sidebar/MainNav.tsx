@@ -27,7 +27,9 @@ function EnvBadge() {
     let cancelled = false
     void invoke('app.info', {}).then((r) => {
       if (cancelled || !r.ok) return
-      setText(r.value.profile === 'starter' ? 'Relay' : r.value.live ? 'Live Eva data' : 'Fixture data')
+      setText(
+        r.value.profile === 'starter' ? 'Relay' : r.value.live ? 'Live Eva data' : 'Fixture data',
+      )
     })
     return () => {
       cancelled = true

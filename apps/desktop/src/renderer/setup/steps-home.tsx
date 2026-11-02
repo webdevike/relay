@@ -1,4 +1,15 @@
-import { ActionIcon, Alert, Avatar, Button, Group, Progress, SegmentedControl, Stack, Text, TextInput } from '@mantine/core'
+import {
+  ActionIcon,
+  Alert,
+  Avatar,
+  Button,
+  Group,
+  Progress,
+  SegmentedControl,
+  Stack,
+  Text,
+  TextInput,
+} from '@mantine/core'
 import { IconPlus, IconTrash } from '@tabler/icons-react'
 import { useEffect, useState } from 'react'
 import type { SetupAssistant } from '@evaos/contract'
@@ -47,8 +58,8 @@ export function HomeStep({ ctx }: { ctx: WizardCtx }) {
   return (
     <Stack gap="md" data-testid="setup-home">
       <Text>
-        Your home base is one folder on your Mac. Your assistants read it to know you and write to it
-        to remember. It has five layers, from the most general to the most current:
+        Your home base is one folder on your Mac. Your assistants read it to know you and write to
+        it to remember. It has five layers, from the most general to the most current:
       </Text>
       <Layers />
       <TextInput
@@ -86,7 +97,9 @@ export function HomeStep({ ctx }: { ctx: WizardCtx }) {
             ctx.patch({
               root: root.trim(),
               userName: userName.trim(),
-              ...(ws.trim() !== '' ? { firstWorkspace: { name: ws.trim(), description: wsText.trim() } } : {}),
+              ...(ws.trim() !== ''
+                ? { firstWorkspace: { name: ws.trim(), description: wsText.trim() } }
+                : {}),
             })
             ctx.finish()
           }}
@@ -148,8 +161,8 @@ export function AssistantsStep({ ctx }: { ctx: WizardCtx }) {
   return (
     <Stack gap="md" data-testid="setup-assistants">
       <Text c="dimmed" size="sm">
-        An assistant is a long-running chat with its own job and memory. Start small; you can add more
-        any time.
+        An assistant is a long-running chat with its own job and memory. Start small; you can add
+        more any time.
       </Text>
       <SegmentedControl
         value={preset}
@@ -164,7 +177,10 @@ export function AssistantsStep({ ctx }: { ctx: WizardCtx }) {
         data-testid="setup-preset"
       />
       {list.map((a, i) => {
-        const id = assistantId(a.id || a.name, list.slice(0, i).map((x) => assistantId(x.id || x.name, [])))
+        const id = assistantId(
+          a.id || a.name,
+          list.slice(0, i).map((x) => assistantId(x.id || x.name, [])),
+        )
         return (
           <div key={i} className="eva-setup-assistant" data-testid={`setup-assistant-${i}`}>
             <Avatar src={portrait({ style: 'micah', seed: id })} size={56} radius="xl" alt="" />
@@ -217,7 +233,11 @@ export function AssistantsStep({ ctx }: { ctx: WizardCtx }) {
         </>
       ) : null}
       {run.view.status === 'err' ? (
-        <Alert color="red" title="Could not create your home base" data-testid="setup-scaffold-error">
+        <Alert
+          color="red"
+          title="Could not create your home base"
+          data-testid="setup-scaffold-error"
+        >
           {run.view.message}
         </Alert>
       ) : null}

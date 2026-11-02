@@ -48,7 +48,9 @@ export function PhoneStep({ ctx }: { ctx: WizardCtx }) {
             <Group gap={6}>
               <IconX size={16} color="var(--mantine-color-red-6)" />
               <Text size="sm">
-                {t?.installed ? 'Not signed in yet.' : 'Tailscale is not installed. Go back to the install step.'}
+                {t?.installed
+                  ? 'Not signed in yet.'
+                  : 'Tailscale is not installed. Go back to the install step.'}
               </Text>
             </Group>
             <Group>
@@ -83,8 +85,16 @@ export function PhoneStep({ ctx }: { ctx: WizardCtx }) {
           Point the camera at each code. Sign in to the same Tailscale account as the Mac.
         </Text>
         <Group gap="xl">
-          <QrCode value={TESTFLIGHT_URL} caption="Relay (TestFlight)" testid="setup-qr-testflight" />
-          <QrCode value={TAILSCALE_IOS_URL} caption="Tailscale (App Store)" testid="setup-qr-tailscale" />
+          <QrCode
+            value={TESTFLIGHT_URL}
+            caption="Relay (TestFlight)"
+            testid="setup-qr-testflight"
+          />
+          <QrCode
+            value={TAILSCALE_IOS_URL}
+            caption="Tailscale (App Store)"
+            testid="setup-qr-tailscale"
+          />
         </Group>
       </div>
 
@@ -116,7 +126,11 @@ export function PhoneStep({ ctx }: { ctx: WizardCtx }) {
       </div>
 
       <Group>
-        <Button onClick={ctx.finish} data-testid="setup-phone-next" variant={ready ? 'filled' : 'default'}>
+        <Button
+          onClick={ctx.finish}
+          data-testid="setup-phone-next"
+          variant={ready ? 'filled' : 'default'}
+        >
           {ready ? 'Continue' : 'Skip for now'}
         </Button>
         <Button variant="subtle" onClick={ctx.back}>
@@ -156,7 +170,9 @@ export function DoneStep({ ctx }: { ctx: WizardCtx }) {
         {
           label: 'Relay Host is running',
           ok: hostUp,
-          detail: hostUp ? `Port ${h.ok ? h.value.hostPort : ''}` : 'Your iPhone will not connect until it runs.',
+          detail: hostUp
+            ? `Port ${h.ok ? h.value.hostPort : ''}`
+            : 'Your iPhone will not connect until it runs.',
         },
         {
           label: 'Your assistants are ready',
@@ -168,7 +184,6 @@ export function DoneStep({ ctx }: { ctx: WizardCtx }) {
     return () => {
       cancelled = true
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const open = async (): Promise<void> => {
@@ -201,7 +216,11 @@ export function DoneStep({ ctx }: { ctx: WizardCtx }) {
       </Text>
       <div className="eva-settings-card">
         {(checks ?? []).map((c) => (
-          <div key={c.label} className="eva-settings-row eva-settings-row-static" data-testid="setup-health">
+          <div
+            key={c.label}
+            className="eva-settings-row eva-settings-row-static"
+            data-testid="setup-health"
+          >
             <span className="eva-setup-icon" data-ok={String(c.ok)}>
               {c.ok ? <IconCheck size={16} /> : <IconX size={16} />}
             </span>
@@ -218,7 +237,12 @@ export function DoneStep({ ctx }: { ctx: WizardCtx }) {
         </Alert>
       ) : null}
       <Group>
-        <Button onClick={() => void open()} loading={finishing} disabled={checks === null} data-testid="setup-finish">
+        <Button
+          onClick={() => void open()}
+          loading={finishing}
+          disabled={checks === null}
+          data-testid="setup-finish"
+        >
           {ctx.rerun ? 'Done' : 'Open Relay'}
         </Button>
         <Button variant="subtle" onClick={ctx.back} disabled={finishing}>

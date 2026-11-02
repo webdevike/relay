@@ -8,7 +8,14 @@ import type { MainContext } from '../context'
 import { writeHome } from '../env'
 import { buildCommand, childPathFor, runCapture } from '../eva/spawn'
 import { emit, handle } from '../ipc/handle'
-import { checkRoot, missingScripts, planRun, resolveHostApp, resolveSetupDir, runScript } from './runner'
+import {
+  checkRoot,
+  missingScripts,
+  planRun,
+  resolveHostApp,
+  resolveSetupDir,
+  runScript,
+} from './runner'
 
 const PROGRESS_FILE = 'setup-progress.json'
 

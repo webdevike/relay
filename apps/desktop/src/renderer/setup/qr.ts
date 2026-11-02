@@ -115,7 +115,11 @@ export function qrModules(text: string): boolean[][] {
     setFn(6, i, i % 2 === 0)
     setFn(i, 6, i % 2 === 0)
   }
-  for (const [cx, cy] of [[3, 3], [size - 4, 3], [3, size - 4]] as const) {
+  for (const [cx, cy] of [
+    [3, 3],
+    [size - 4, 3],
+    [3, size - 4],
+  ] as const) {
     for (let dy = -4; dy <= 4; dy++) {
       for (let dx = -4; dx <= 4; dx++) {
         const d = Math.max(Math.abs(dx), Math.abs(dy))

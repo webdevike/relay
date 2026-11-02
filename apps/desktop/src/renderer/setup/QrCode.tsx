@@ -3,7 +3,15 @@ import { useMemo } from 'react'
 import { qrSvg } from './qr'
 
 /** A scannable QR for `value`, with its caption underneath. */
-export function QrCode({ value, caption, testid }: { value: string; caption: string; testid: string }) {
+export function QrCode({
+  value,
+  caption,
+  testid,
+}: {
+  value: string
+  caption: string
+  testid: string
+}) {
   const src = useMemo(() => `data:image/svg+xml;utf8,${encodeURIComponent(qrSvg(value))}`, [value])
   return (
     <div className="eva-setup-qr" data-testid={testid}>

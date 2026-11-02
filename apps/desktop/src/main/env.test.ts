@@ -59,9 +59,8 @@ describe('resolveEnv', () => {
     expect(typeof e.ompBin).toBe('string')
     expect(e.ompProfilesDir).toBe(path.join(home, '.omp/profiles'))
     expect(
-      resolveEnv(
-        base({ homedir: home, env: { EVAOS_LIVE: '1', EVAOS_OMP_PROFILES_DIR: '/p' } }),
-      ).ompProfilesDir,
+      resolveEnv(base({ homedir: home, env: { EVAOS_LIVE: '1', EVAOS_OMP_PROFILES_DIR: '/p' } }))
+        .ompProfilesDir,
     ).toBe('/p')
     expect(
       resolveEnv(base({ homedir: home, env: { EVAOS_LIVE: '1', EVAOS_RELAY_DIR: '/r' } })).relayDir,
@@ -76,7 +75,9 @@ describe('resolveEnv', () => {
       path.join(configDir, 'home.json'),
       JSON.stringify({ root: '~/Relay', profile: 'starter', setupComplete: false }),
     )
-    const e = resolveEnv(base({ homedir: home, env: { EVAOS_LIVE: '1', EVAOS_CONFIG_DIR: configDir } }))
+    const e = resolveEnv(
+      base({ homedir: home, env: { EVAOS_LIVE: '1', EVAOS_CONFIG_DIR: configDir } }),
+    )
     expect(e.profile).toBe('starter')
     expect(e.evaRoot).toBe(path.join(home, 'Relay'))
     expect(e.homeRoot).toBe(path.join(home, 'Relay'))
@@ -98,7 +99,9 @@ describe('resolveEnv', () => {
     const cfgA = path.join(withEva, 'cfg')
     fs.mkdirSync(cfgA, { recursive: true })
     fs.writeFileSync(path.join(cfgA, 'home.json'), '{ nope')
-    const a = resolveEnv(base({ homedir: withEva, env: { EVAOS_LIVE: '1', EVAOS_CONFIG_DIR: cfgA } }))
+    const a = resolveEnv(
+      base({ homedir: withEva, env: { EVAOS_LIVE: '1', EVAOS_CONFIG_DIR: cfgA } }),
+    )
     expect(a.profile).toBe('eva')
     expect(a.evaRoot).toBe(path.join(withEva, 'Eva'))
 
