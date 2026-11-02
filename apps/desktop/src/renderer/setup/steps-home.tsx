@@ -15,7 +15,7 @@ import { useEffect, useState } from 'react'
 import type { SetupAssistant } from '@evaos/contract'
 import { invoke } from '../ipc'
 import { portrait } from '../ui/portrait'
-import { assistantId, useSetupRun } from './run'
+import { AVATAR_PALETTE, assistantId, useSetupRun } from './run'
 import type { WizardCtx } from './wizard'
 
 const LAYERS: ReadonlyArray<readonly [string, string, string]> = [
@@ -183,7 +183,16 @@ export function AssistantsStep({ ctx }: { ctx: WizardCtx }) {
         )
         return (
           <div key={i} className="eva-setup-assistant" data-testid={`setup-assistant-${i}`}>
-            <Avatar src={portrait({ style: 'micah', seed: id })} size={56} radius="xl" alt="" />
+            <Avatar
+              src={portrait({
+                style: 'micah',
+                seed: id,
+                colors: AVATAR_PALETTE[i % AVATAR_PALETTE.length]!,
+              })}
+              size={56}
+              radius="xl"
+              alt=""
+            />
             <Stack gap={6} style={{ flex: 1 }}>
               <TextInput
                 label="Name"

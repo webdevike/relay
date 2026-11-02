@@ -316,10 +316,14 @@ export function resolveEnv(input: ResolveEnvInput): Env {
   // Native EvaOS keeps boards under its config dir; the canvas skill writes them there.
   const nativeDir = path.join(supportDir, 'EvaOS')
   const nativeCanvasDir = path.join(nativeDir, 'canvases')
+  // A starter user has no EvaOS: Relay Host puts their boards in `Relay/canvases` (same path), so
+  // canvases made on the host show here. The eva profile keeps the native EvaOS folder.
   const canvasDir = env.EVAOS_CANVAS_DIR
     ? env.EVAOS_CANVAS_DIR
     : live
-      ? nativeCanvasDir
+      ? home.profile === 'starter'
+        ? path.join(supportDir, 'Relay', 'canvases')
+        : nativeCanvasDir
       : path.join(configDir, 'canvases')
   if (!live && real(canvasDir) === real(nativeCanvasDir)) {
     throw new Error(

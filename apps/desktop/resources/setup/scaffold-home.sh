@@ -145,6 +145,8 @@ while IFS= read -r -d '' src; do
 done < <(find "$TEMPLATE" -type f -print0 | sort -z)
 
 # ---- 2. registry ----
+# The avatar is the wizard's preview: micah, seed = the assistant id, colors by position
+# (AVATAR_PALETTE in src/renderer/setup/run.ts; keep the two in step).
 ids_palette_paper=("#ffe3e3" "#e7f5ff" "#ebfbee" "#fff3bf" "#f3d9fa" "#d0ebff")
 ids_palette_accent=("#1c7ed6" "#f76707" "#2f9e44" "#e03131" "#7048e8" "#0c8599")
 registry="$ROOT/.omp/assistant/agents.json"
@@ -160,8 +162,8 @@ else
       printf '    {\n      "id": %s,\n      "title": %s' "\"$(json_esc "${A_ID[$i]}")\"" "\"$(json_esc "${A_NAME[$i]}")\""
       [ -z "${A_PURPOSE[$i]}" ] || printf ',\n      "scope": "%s"' "$(json_esc "${A_PURPOSE[$i]}")"
       [ -z "${A_MODEL[$i]}" ] || printf ',\n      "model": "%s"' "$(json_esc "${A_MODEL[$i]}")"
-      printf ',\n      "avatar": {\n        "style": "micah",\n        "seed": "%s-%s",\n        "colors": { "paper": "%s", "accent": "%s" }\n      }\n    }' \
-        "$(json_esc "${A_ID[$i]}")" "$((i + 1))" "${ids_palette_paper[$p]}" "${ids_palette_accent[$p]}"
+      printf ',\n      "avatar": {\n        "style": "micah",\n        "seed": "%s",\n        "colors": { "paper": "%s", "accent": "%s" }\n      }\n    }' \
+        "$(json_esc "${A_ID[$i]}")" "${ids_palette_paper[$p]}" "${ids_palette_accent[$p]}"
       i=$((i + 1))
       [ "$i" -lt "$COUNT" ] && printf ','
       printf '\n'

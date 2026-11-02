@@ -117,3 +117,13 @@ export function assistantId(name: string, taken: string[]): string {
   for (let n = 2; taken.includes(id); n++) id = `${base}-${n}`
   return id
 }
+
+/** Avatar paper/accent colors by assistant position; scaffold-home.sh writes the same into agents.json. */
+export const AVATAR_PALETTE: ReadonlyArray<{ paper: string; accent: string }> = [
+  { paper: '#ffe3e3', accent: '#1c7ed6' },
+  { paper: '#e7f5ff', accent: '#f76707' },
+  { paper: '#ebfbee', accent: '#2f9e44' },
+  { paper: '#fff3bf', accent: '#e03131' },
+  { paper: '#f3d9fa', accent: '#7048e8' },
+  { paper: '#d0ebff', accent: '#0c8599' },
+]
