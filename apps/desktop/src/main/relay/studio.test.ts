@@ -71,6 +71,7 @@ const BACKENDS: StudioBackend[] = [
   }),
   backend({ id: 'codex-image', mode: 'image' }),
   backend({ id: 'codex-edit', mode: 'image', refs: 4 }),
+  backend({ id: 'kontext', mode: 'image', refs: 1, seed: true, serial: true }),
   backend({ id: 'higgsfield', mode: 'video', paid: true, balance: 500 }),
 ]
 const ASSET = {
@@ -432,6 +433,10 @@ describe('studio agent actions', () => {
     expect(relay.ops.at(-1)).toMatchObject({ spec: { mode: 'video', backend: 'ltx' } })
     await generate(runners, { refs: ['a1'] })
     expect(relay.ops.at(-1)).toMatchObject({ spec: { backend: 'codex-edit', refs: ['a1'] } })
+    await generate(runners, { backend: 'kontext', refs: ['a1'], seed: 5 })
+    expect(relay.ops.at(-1)).toMatchObject({
+      spec: { mode: 'image', backend: 'kontext', refs: ['a1'], seed: 5, resolution: 'kontext-square' },
+    })
   })
 
   it('refuses paid, unavailable and unknown settings with a clear code', async () => {

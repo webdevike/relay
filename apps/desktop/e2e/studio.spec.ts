@@ -211,6 +211,7 @@ test('agents generate, list and open Studio through the control API', async ({
     'ltx',
     'codex-image',
     'codex-edit',
+    'kontext',
     'higgsfield',
   ])
   expect(value.jobs).toHaveLength(2)
