@@ -2,7 +2,8 @@
  * The composer of one item's screen: its draft, whether the typing card is open, the post waiting
  * on the confirm sheet, an image uploading into a Linear draft and the item's Astra session.
  * Opening the screen asks the host for an existing session; sending an `@Astra` text asks her at
- * once, anything else opens the confirm sheet, whose confirm alone sends.
+ * once (a new private thread), anything else opens the confirm sheet, whose confirm alone sends. A
+ * thread's own reply box asks her at once too, its text led by the thread's reply prefix.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Keyboard } from "react-native";
@@ -11,7 +12,7 @@ import { reviewsRequest, sendCommand } from "@/connection";
 import { choosePhoto } from "@/lib/photo";
 import { useReviewsStore } from "@/state/reviews";
 import type { ConfirmPost } from "./ConfirmSheet";
-import { composerIntent, withPendingAsk, type ComposerTarget } from "./model";
+import { composerIntent, threadReplyText, withPendingAsk, type ComposerTarget } from "./model";
 
 export interface PendingPost extends ConfirmPost {
   op: ReviewsOp;
@@ -33,6 +34,8 @@ export interface ReviewComposer {
   /** The item's Astra session as the timeline shows it: an ask it does not show yet at the end, a failed ask as its error. */
   astra: AstraItem | undefined;
   send: () => void;
+  /** A reply typed in a thread's own box: to Astra at once with the thread's prefix, never a post. */
+  replyInThread: (rootText: string, text: string) => void;
   /** Opens the confirm sheet for any post (the PR menu's Approve and Request changes too). */
   confirm: (post: PendingPost) => void;
   post: () => void;
@@ -42,7 +45,7 @@ export interface ReviewComposer {
   stop: () => void;
   /** Changes whenever Astra's part of the timeline grows or changes state (followed while at the bottom). */
   followKey: string;
-  /** Changes when Isaac asks Astra (the timeline scrolls to his ask). */
+  /** Changes when Isaac asks Astra from the main composer (the timeline scrolls to his new thread). */
   revealKey: number;
   /** Linear only: picks a photo, uploads it to Linear and adds it to the draft; null where images cannot go. */
   attachImage: (() => void) | null;
@@ -65,6 +68,7 @@ export function useReviewComposer(
   const [postError, setPostError] = useState<string | null>(null);
   const [askError, setAskError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [revealKey, setRevealKey] = useState(0);
   // The photo picker takes the keyboard down; the card stays open through the pick and the upload.
   const attaching = useRef(false);
 
@@ -83,6 +87,18 @@ export function useReviewComposer(
     setPending(post);
   }, []);
 
+  /** Asks Astra at once: Isaac's card and her typing show now; the session's own turn replaces them. */
+  const ask = (text: string) => {
+    if (reference === null) return;
+    setAskError(null);
+    useReviewsStore.getState().ask(url, text);
+    void reviewsRequest({ kind: "astraAsk", url, ref: reference, text }).then((result) => {
+      if (result.ok) return;
+      useReviewsStore.getState().dropAsk(url);
+      setAskError(result.error ?? "Astra could not take that.");
+    });
+  };
+
   const send = () => {
     if (target === null || reference === null || uploading) return;
     const intent = composerIntent(draft, target);
@@ -93,14 +109,8 @@ export function useReviewComposer(
     }
     setDraft("");
     if (!Keyboard.isVisible()) setOpen(false);
-    setAskError(null);
-    // Isaac's card and Astra's working state show now; the session's own turn replaces them.
-    useReviewsStore.getState().ask(url, intent.text);
-    void reviewsRequest({ kind: "astraAsk", url, ref: reference, text: intent.text }).then((result) => {
-      if (result.ok) return;
-      useReviewsStore.getState().dropAsk(url);
-      setAskError(result.error ?? "Astra could not take that.");
-    });
+    ask(intent.text);
+    setRevealKey(Date.now());
   };
 
   const post = () => {
@@ -162,6 +172,9 @@ export function useReviewComposer(
     postError,
     astra,
     send,
+    replyInThread: (rootText, text) => {
+      if (text.trim() !== "") ask(threadReplyText(rootText, text));
+    },
     confirm,
     post,
     cancel: () => {
@@ -177,7 +190,7 @@ export function useReviewComposer(
       if (sessionId !== null) void sendCommand({ kind: "agent.abort", sessionId }).catch(() => undefined);
     },
     followKey: `${String(turns.length)}:${String(newest?.text.length ?? 0)}:${String(astra?.working ?? false)}:${astra?.waiting ?? ""}:${astra?.error ?? ""}`,
-    revealKey: asked?.at ?? 0,
+    revealKey,
     attachImage:
       target?.kind === "linear"
         ? () => {

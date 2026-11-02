@@ -167,6 +167,7 @@ export default function ReviewLinearScreen() {
           now={now}
           onUseAsReply={composer.takeAnswer}
           onStop={composer.stop}
+          onThreadReply={composer.replyInThread}
           renderEntry={(entry, at) =>
             entry.kind === "thread" ? (
               <LinearThreadCard

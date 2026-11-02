@@ -93,6 +93,7 @@ export default function ReviewSlackScreen() {
           now={now}
           onUseAsReply={composer.takeAnswer}
           onStop={composer.stop}
+          onThreadReply={composer.replyInThread}
           renderEntry={(entry) => (entry.kind === "message" ? <SlackCard message={entry.message} now={now} base={hostBaseUrl()} link={params.url} /> : <RepliesDivider count={entry.count} />)}
         />
         {reading && (

@@ -163,6 +163,7 @@ export default function ReviewPrScreen() {
                 now={now}
                 onUseAsReply={composer.takeAnswer}
                 onStop={composer.stop}
+                onThreadReply={composer.replyInThread}
                 renderEntry={(entry, at) =>
                   entry.kind === "post" ? <PrPostCard post={entry} at={at} now={now} /> : <ActivityLine actor={entry.actor} text={entry.text} highlights={entry.highlights} at={at} />
                 }

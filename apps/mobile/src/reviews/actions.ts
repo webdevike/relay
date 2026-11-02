@@ -1,16 +1,14 @@
 /** What the Reviews screens do with an item: open its screen, mark it Done, Unread or seen, snooze it. */
 import { useEffect, useRef } from "react";
 import type { Router } from "expo-router";
-import type { ReviewItem, ReviewRef } from "@relay/protocol";
+import type { ReviewItem } from "@relay/protocol";
 import { reviewsRequest } from "@/connection";
 import { useReviewsStore } from "@/state/reviews";
+import { reviewRoute } from "./model";
 
 /** The item's own screen: PR, ticket or Slack thread. */
 export function openReviewItem(router: Router, item: Pick<ReviewItem, "url" | "ref">): void {
-  const ref: ReviewRef = item.ref;
-  if (ref.kind === "github") router.push({ pathname: "/reviews/pr", params: { url: item.url, repo: ref.repo, number: String(ref.number) } });
-  if (ref.kind === "linear") router.push({ pathname: "/reviews/linear", params: { url: item.url, key: ref.key } });
-  if (ref.kind === "slack") router.push({ pathname: "/reviews/slack", params: { url: item.url, channel: ref.channel, threadTs: ref.threadTs ?? "" } });
+  router.push(reviewRoute(item.url, item.ref));
 }
 
 /**

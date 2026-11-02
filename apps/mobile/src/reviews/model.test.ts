@@ -23,7 +23,14 @@ import {
   linearMentions,
   withHostMedia,
   withPendingAsk,
+  type ThreadPart,
   type TimelineRow,
+  astraThreads,
+  astraTyping,
+  reviewItemRoute,
+  stripThreadReply,
+  threadReplyText,
+  threadSnippet,
 } from "./model";
 
 const person = (name: string) => ({ name, handle: name.toLowerCase(), url: `https://linear.app/u/${name}` });
@@ -176,9 +183,11 @@ describe("mergeTimeline", () => {
     { key: "a", at: 100, entry: "comment a" },
     { key: "b", at: 300, entry: "comment b" },
   ];
-  const shape = (rows: TimelineRow<string>[]) => rows.map((row) => (row.kind === "entry" ? row.entry : row.kind === "ask" ? `ask:${row.text}` : `astra:${row.turns.map((t) => t.id).join("+")}${row.last ? "!" : ""}`));
+  const part = (p: ThreadPart) => (p.kind === "ask" ? `ask:${p.text}` : `astra:${p.turns.map((t) => t.id).join("+")}`);
+  const shape = (rows: TimelineRow<string>[]) =>
+    rows.map((row) => (row.kind === "entry" ? row.entry : `${row.thread.root?.text ?? "-"}${row.thread.live ? "!" : ""}[${row.thread.replies.map(part).join(", ")}]`));
 
-  it("puts Astra's asks and cards among the comments by time, answers and tool work in one card", () => {
+  it("puts each thread among the comments at its root's time, her answers and tool work in one reply", () => {
     const astra = session([
       { id: "q", role: "user", text: "@Astra why?", streaming: false, at: 200 },
       { id: "t", role: "tool", text: "read", streaming: false, at: 210 },
@@ -186,7 +195,7 @@ describe("mergeTimeline", () => {
       { id: "q2", role: "user", text: "@Astra and?", streaming: false, at: 400 },
       { id: "r2", role: "assistant", text: "that", streaming: false, at: 410 },
     ]);
-    expect(shape(mergeTimeline(entries, astra))).toEqual(["comment a", "ask:@Astra why?", "astra:t+r", "comment b", "ask:@Astra and?", "astra:r2!"]);
+    expect(shape(mergeTimeline(entries, astra))).toEqual(["comment a", "@Astra why?[astra:t+r]", "comment b", "@Astra and?![astra:r2]"]);
   });
 
   it("sends turns without a time to the end in session order", () => {
@@ -194,25 +203,99 @@ describe("mergeTimeline", () => {
       { id: "q", role: "user", text: "old", streaming: false },
       { id: "r", role: "assistant", text: "older host", streaming: false, at: 50 },
     ]);
-    expect(shape(mergeTimeline(entries, astra))).toEqual(["comment a", "comment b", "ask:old", "astra:r!"]);
+    expect(shape(mergeTimeline(entries, astra))).toEqual(["comment a", "comment b", "old![astra:r]"]);
   });
 
-  it("never puts a card before the one ahead of it in the session", () => {
+  it("never puts a thread before the one ahead of it in the session", () => {
     const astra = session([
       { id: "q", role: "user", text: "late", streaming: false, at: 350 },
-      { id: "r", role: "assistant", text: "clock skew", streaming: false, at: 150 },
+      { id: "q2", role: "user", text: "skewed", streaming: false, at: 150 },
     ]);
-    expect(shape(mergeTimeline(entries, astra))).toEqual(["comment a", "comment b", "ask:late", "astra:r!"]);
+    expect(shape(mergeTimeline(entries, astra))).toEqual(["comment a", "comment b", "late[]", "skewed![]"]);
   });
 
-  it("shows a pending ask at its send time with an empty working card of Astra's after it", () => {
+  it("shows a pending ask at once as a new thread with an empty reply of hers", () => {
     const ask = pendingAsk(undefined, "@Astra what now?", 250);
     const rows = mergeTimeline(entries, withPendingAsk(undefined, "u", ask));
-    expect(shape(rows)).toEqual(["comment a", "ask:@Astra what now?", "astra:!", "comment b"]);
+    expect(shape(rows)).toEqual(["comment a", "@Astra what now?![astra:]", "comment b"]);
+    expect(rows[1]?.kind === "thread" && rows[1].thread.replies[0]?.id).toBe("pending-ask-pending");
   });
 
   it("adds no Astra rows without a session", () => {
     expect(shape(mergeTimeline(entries, undefined))).toEqual(["comment a", "comment b"]);
+  });
+});
+
+describe("Astra threads", () => {
+  const user = (id: string, text: string, at: number): AstraTurn => ({ id, role: "user", text, streaming: false, at });
+  const her = (id: string, text: string, at: number, streaming = false): AstraTurn => ({ id, role: "assistant", text, streaming, at });
+
+  it("makes the snippet and the reply prefix exactly as the desktop does", () => {
+    expect(threadSnippet('  @Astra is "this"\n\tsafe?  ')).toBe("@Astra is 'this' safe?");
+    expect(threadSnippet("x".repeat(100))).toHaveLength(80);
+    expect(threadReplyText('@Astra is "this" safe?', "  and the tests? ")).toBe(`(Reply in your thread on "@Astra is 'this' safe?")\nand the tests?`);
+    expect(stripThreadReply(threadReplyText("root", "words"))).toBe("words");
+    expect(stripThreadReply("no prefix")).toBe("no prefix");
+  });
+
+  it("starts a thread for each main-composer ask and routes a reply to the thread it names", () => {
+    const threads = astraThreads(
+      [
+        user("a", "@Astra first?", 1),
+        her("a1", "one", 2),
+        user("b", "@Astra second?", 3),
+        her("b1", "two", 4),
+        user("c", threadReplyText("@Astra first?", "more on one"), 5),
+        her("c1", "one, more", 6),
+      ],
+      false,
+    );
+    expect(threads.map((t) => [t.root?.text, t.live, t.replies.map((p) => (p.kind === "ask" ? `ask:${p.text}` : `astra:${p.turns.map((x) => x.id).join("+")}`))])).toEqual([
+      ["@Astra first?", true, ["astra:a1", "ask:more on one", "astra:c1"]],
+      ["@Astra second?", false, ["astra:b1"]],
+    ]);
+  });
+
+  it("sends a reply naming no thread to the newest one, and with no thread makes it a root without its prefix", () => {
+    const orphan = threadReplyText("gone", "hello");
+    expect(astraThreads([user("a", "@Astra hi", 1), user("b", orphan, 2)], false)[0]?.replies).toEqual([{ kind: "ask", id: "b", at: 2, text: "hello" }]);
+    expect(astraThreads([user("b", orphan, 2)], false).map((t) => t.root?.text)).toEqual(["hello"]);
+  });
+
+  it("gives the thread of the newest ask an empty reply of hers while pending", () => {
+    const turns = [user("a", "@Astra first?", 1), her("a1", "one", 2), user("b", "@Astra second?", 3), user("c", threadReplyText("@Astra first?", "and?"), 4)];
+    const [first, second] = astraThreads(turns, true);
+    expect(first?.live).toBe(true);
+    expect(first?.replies.at(-1)).toEqual({ kind: "reply", id: "c-pending", at: 4, turns: [] });
+    expect(second?.replies).toEqual([]);
+    expect(astraThreads(turns.slice(0, 2), true)[0]?.replies).toHaveLength(1);
+  });
+
+  it("types while she works with no answer streaming", () => {
+    expect(astraTyping([], true)).toBe(true);
+    expect(astraTyping([{ id: "t", role: "tool", text: "read", streaming: false }], true)).toBe(true);
+    expect(astraTyping([her("r", "Look", 1, true)], true)).toBe(false);
+    expect(astraTyping([her("r", "", 1, true)], true)).toBe(true);
+    expect(astraTyping([], false)).toBe(false);
+  });
+});
+
+describe("reviewItemRoute", () => {
+  it("opens a PR, a Linear issue and a Slack permalink on their screens", () => {
+    const pr = "https://github.com/eCardSystems/react-client-reports-app/pull/246";
+    expect(reviewItemRoute(pr)).toEqual({ pathname: "/reviews/pr", params: { url: pr, repo: "eCardSystems/react-client-reports-app", number: "246" } });
+    const linear = "https://linear.app/ecard/issue/ENG-6604/fix-the-thing";
+    expect(reviewItemRoute(linear)).toEqual({ pathname: "/reviews/linear", params: { url: linear, key: "ENG-6604" } });
+    expect(reviewItemRoute("https://linear.app/ecard/issue/ENG-6604")).toMatchObject({ params: { key: "ENG-6604" } });
+    const message = "https://ecard.slack.com/archives/C0123ABC/p1730000000123456";
+    expect(reviewItemRoute(message)).toEqual({ pathname: "/reviews/slack", params: { url: message, channel: "C0123ABC", threadTs: "1730000000.123456" } });
+    const reply = `${message}?thread_ts=1729999999.000100&cid=C0123ABC`;
+    expect(reviewItemRoute(reply)).toMatchObject({ params: { channel: "C0123ABC", threadTs: "1729999999.000100" } });
+  });
+
+  it("opens nothing for any other link", () => {
+    expect(reviewItemRoute("https://github.com/eCardSystems/api/issues/3")).toBeNull();
+    expect(reviewItemRoute("https://example.com")).toBeNull();
   });
 });
 

@@ -3,8 +3,8 @@
  * floating glass header (blurred beneath it) and under the dock floating at the bottom (the action
  * bars, or the composer card over the keyboard), with a toast above the dock.
  */
-import { useRef, useState, type ReactElement, type ReactNode } from "react";
-import { KeyboardAvoidingView, ScrollView, StyleSheet, View, type RefreshControlProps } from "react-native";
+import { createContext, useCallback, useContext, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { Dimensions, Keyboard, KeyboardAvoidingView, ScrollView, StyleSheet, View, type RefreshControlProps } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { spacing, useColors } from "@/theme";
 import { GLASS_HEIGHT } from "@/ui/Glass";
@@ -15,6 +15,13 @@ import { TopBlur } from "@/ui/TopBlur";
 const HEADER_HEIGHT = GLASS_HEIGHT + 2 * spacing.sm;
 /** How close to the end still counts as being at the bottom. */
 const END_SLOP = 48;
+
+/** Scrolls the page so a view inside it (a thread's reply box) sits above the dock and the keyboard. */
+const RevealContext = createContext<(node: View | null) => void>(() => undefined);
+
+export function useItemReveal(): (node: View | null) => void {
+  return useContext(RevealContext);
+}
 
 export interface ItemScreenProps {
   header: ReactNode;
@@ -52,6 +59,17 @@ export function ItemScreen({ header, children, dock, refreshControl, toast, stic
     if (reveal || (atEnd && (follow || stickToEnd))) scroll.current?.scrollToEnd({ animated: !stickToEnd || reveal });
   };
 
+  const revealNode = useCallback(
+    (node: View | null) => {
+      node?.measureInWindow((_x, y, _width, height) => {
+        const visibleBottom = (Keyboard.metrics()?.screenY ?? Dimensions.get("window").height) - dockHeight - spacing.md;
+        const over = y + height - visibleBottom;
+        if (over > 0) scroll.current?.scrollTo({ y: metrics.current.offset + over, animated: true });
+      });
+    },
+    [dockHeight],
+  );
+
   // The agent screen's layout: the avoiding view is the safe area's direct child, so the frame it
   // measures is its place on screen. Nested under `Screen`'s body it measured from below the status
   // bar and left the composer that much behind the keyboard.
@@ -80,7 +98,7 @@ export function ItemScreen({ header, children, dock, refreshControl, toast, stic
               onContentSize(height);
             }}
           >
-            {children}
+            <RevealContext.Provider value={revealNode}>{children}</RevealContext.Provider>
           </ScrollView>
           {/* Text scrolling under the bottom controls blurs out instead of reading between them (Linear's bottom edge). */}
           {dockHeight > 0 && <TopBlur edge="bottom" height={dockHeight + spacing.xl} strength={2} />}

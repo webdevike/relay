@@ -4,7 +4,7 @@
  * threads, a Slack thread's parent and replies, the Guide's progress and a PR's state badge, the
  * item's timeline with Astra's turns merged in by time, the snooze choices and @mention picking.
  */
-import { mentionsAstra, type AstraItem, type AstraTurn, type LinearComment, type ReviewGuide, type ReviewPr, type ReviewsOp, type SlackMessage } from "@relay/protocol";
+import { mentionsAstra, type AstraItem, type AstraTurn, type LinearComment, type ReviewGuide, type ReviewPr, type ReviewRef, type ReviewsOp, type SlackMessage } from "@relay/protocol";
 import type { ToneToken } from "@/theme";
 
 /** Where the screen's composer posts: the item it sits on. */
@@ -172,6 +172,38 @@ export function githubPrOf(url: string): { repo: string; number: number } | null
   return match?.[1] === undefined || match[2] === undefined ? null : { repo: match[1], number: Number(match[2]) };
 }
 
+/** An item's own screen and its params (expo-router search params are strings). */
+export type ReviewRoute =
+  | { pathname: "/reviews/pr"; params: { url: string; repo: string; number: string } }
+  | { pathname: "/reviews/linear"; params: { url: string; key: string } }
+  | { pathname: "/reviews/slack"; params: { url: string; channel: string; threadTs: string } };
+
+/** The screen of the item at `url` with reference `ref`: PR, ticket or Slack thread (`threadTs` empty for a DM). */
+export function reviewRoute(url: string, ref: ReviewRef): ReviewRoute {
+  if (ref.kind === "github") return { pathname: "/reviews/pr", params: { url, repo: ref.repo, number: String(ref.number) } };
+  if (ref.kind === "linear") return { pathname: "/reviews/linear", params: { url, key: ref.key } };
+  return { pathname: "/reviews/slack", params: { url, channel: ref.channel, threadTs: ref.threadTs ?? "" } };
+}
+
+/**
+ * The screen a link to an item opens (`relay://reviews?item=<url>`): a GitHub PR, a Linear issue
+ * (`https://linear.app/<ws>/issue/<KEY>[/slug]`) or a Slack permalink
+ * (`https://<ws>.slack.com/archives/<channel>/p<digits>[?thread_ts=<ts>]`, the message ts being the
+ * digits with a dot before the last six; `thread_ts` names the thread when present). Null for any other link.
+ */
+export function reviewItemRoute(url: string): ReviewRoute | null {
+  const pr = githubPrOf(url);
+  if (pr !== null) return reviewRoute(url, { kind: "github", ...pr });
+  const linear = /^https:\/\/linear\.app\/[\w-]+\/issue\/([A-Z][A-Z0-9]*-\d+)(?:[/?#]|$)/.exec(url)?.[1];
+  if (linear !== undefined) return reviewRoute(url, { kind: "linear", key: linear });
+  const slack = /^https:\/\/[\w-]+\.slack\.com\/archives\/([CDG][A-Z0-9]+)\/p(\d{7,})(?:\?([^#]*))?/.exec(url);
+  const channel = slack?.[1];
+  const digits = slack?.[2];
+  if (channel === undefined || digits === undefined) return null;
+  const thread = /(?:^|&)thread_ts=(\d+\.\d+)(?:&|$)/.exec(slack?.[3] ?? "")?.[1];
+  return reviewRoute(url, { kind: "slack", channel, threadTs: thread ?? `${digits.slice(0, -6)}.${digits.slice(-6)}` });
+}
+
 /** One dated piece of an item's own timeline: a comment, a message, an activity line. */
 export interface TimelineEntry<T> {
   key: string;
@@ -179,49 +211,110 @@ export interface TimelineEntry<T> {
   entry: T;
 }
 
-/**
- * A row of the item's timeline: one of its own entries, Isaac's private ask to Astra (his card,
- * marked Private), or one Astra card (her answer with the tool work before it). `last` marks the
- * newest Astra card, the one that shows her working, waiting or failing and the Stop button.
- */
-export type TimelineRow<T> =
-  | { kind: "entry"; key: string; at: number; entry: T }
-  | { kind: "ask"; key: string; at: number; text: string }
-  | { kind: "astra"; key: string; at: number; turns: AstraTurn[]; last: boolean };
+/** The first line of a reply typed in a thread's own box: Astra reads which thread it answers. */
+const THREAD_REPLY = /^\(Reply in your thread on "([^"\n]*)"\)\n/;
 
-type AstraRow = Extract<TimelineRow<never>, { kind: "ask" | "astra" }>;
+/** A thread's root as its reply prefix names it: whitespace runs as one space, `"` as `'`, trimmed, at most 80 characters. */
+export function threadSnippet(rootText: string): string {
+  return rootText.replace(/\s+/g, " ").replace(/"/g, "'").trim().slice(0, 80);
+}
+
+/** What a reply typed in the thread on `rootText` sends to Astra: the prefix line, then his words. */
+export function threadReplyText(rootText: string, text: string): string {
+  return `(Reply in your thread on "${threadSnippet(rootText)}")\n${text.trim()}`;
+}
+
+/** A turn's text without a thread reply's prefix line (what shows); unchanged without one. */
+export function stripThreadReply(text: string): string {
+  const match = THREAD_REPLY.exec(text);
+  return match === null ? text : text.slice(match[0].length);
+}
+
+/** Inside a thread: one of Isaac's replies (prefix stripped), or one run of Astra's answers and tool work. */
+export type ThreadPart = { kind: "ask"; id: string; at: number; text: string } | { kind: "reply"; id: string; at: number; turns: AstraTurn[] };
 
 /**
- * The session's turns as cards: each of Isaac's asks alone, each run of her answers and tool work
- * as one card. A card stands at its first turn's time, never before the card ahead of it (session
- * order holds); a turn with no time (an older host) sends it and the rest to the end. A session
- * that works, waits or failed after his ask gets an empty card of hers to say so.
+ * One private thread of an item's Astra session: Isaac's root ask (null only when the session opens
+ * with her turns) and its replies. `live` marks the thread of his newest ask, the one that shows her
+ * working, waiting or failing.
  */
-function astraRows(item: AstraItem | undefined): AstraRow[] {
-  if (item === undefined) return [];
-  const rows: AstraRow[] = [];
+export interface AstraThread {
+  id: string;
+  at: number;
+  root: { id: string; at: number; text: string } | null;
+  replies: ThreadPart[];
+  live: boolean;
+}
+
+/**
+ * The session's turns as threads (the shared desktop and phone rule): an ask from the main composer
+ * starts one; an ask carrying the reply prefix joins the newest thread whose root it names (else the
+ * newest thread); her turns join the thread of the ask before them. While `pending` (an ask going
+ * out, or she works, waits or failed) that thread ends in a reply of hers, empty until she answers.
+ * A thread stands at its root's time, never before the one ahead of it; a turn with no time (an
+ * older host) sends it and the rest to the end.
+ */
+export function astraThreads(turns: readonly AstraTurn[], pending: boolean): AstraThread[] {
+  const threads: AstraThread[] = [];
+  let current: AstraThread | null = null;
   let floor = -Infinity;
   const place = (turn: AstraTurn): number => {
     floor = Math.max(floor, turn.at ?? Infinity);
     return floor;
   };
-  for (const turn of item.turns) {
-    const at = place(turn);
-    const last = rows[rows.length - 1];
-    if (turn.role === "user") rows.push({ kind: "ask", key: turn.id, at, text: turn.text });
-    else if (last?.kind === "astra") last.turns.push(turn);
-    else rows.push({ kind: "astra", key: turn.id, at, turns: [turn], last: false });
+  const open = (turn: AstraTurn, root: AstraThread["root"]): AstraThread => {
+    const thread: AstraThread = { id: turn.id, at: place(turn), root, replies: [], live: false };
+    threads.push(thread);
+    return thread;
+  };
+  for (const turn of turns) {
+    const at = turn.at ?? Infinity;
+    if (turn.role === "user") {
+      const match = THREAD_REPLY.exec(turn.text);
+      const text = stripThreadReply(turn.text);
+      if (match !== null) {
+        const named = threads.filter((t) => t.root !== null && threadSnippet(t.root.text) === match[1]).pop();
+        const thread = named ?? threads[threads.length - 1];
+        if (thread !== undefined) {
+          thread.replies.push({ kind: "ask", id: turn.id, at, text });
+          current = thread;
+          continue;
+        }
+      }
+      current = open(turn, { id: turn.id, at, text });
+      continue;
+    }
+    current ??= open(turn, null);
+    const last = current.replies[current.replies.length - 1];
+    if (last?.kind === "reply") last.turns.push(turn);
+    else current.replies.push({ kind: "reply", id: turn.id, at, turns: [turn] });
   }
-  const busy = item.working || item.waiting !== null || item.error !== null;
-  if (busy && rows[rows.length - 1]?.kind !== "astra") rows.push({ kind: "astra", key: "astra-status", at: floor === -Infinity ? Infinity : floor, turns: [], last: false });
-  const newest = rows.filter((row) => row.kind === "astra").pop();
-  if (newest !== undefined) newest.last = true;
-  return rows;
+  if (current !== null) {
+    current.live = true;
+    const last = current.replies[current.replies.length - 1];
+    const newest = turns[turns.length - 1];
+    if (pending && last?.kind !== "reply" && newest !== undefined) current.replies.push({ kind: "reply", id: `${newest.id}-pending`, at: newest.at ?? Infinity, turns: [] });
+  }
+  return threads;
 }
 
-/** The item's entries and its Astra session in one list, oldest first; at the same moment an entry goes before Astra. */
+/**
+ * Whether her reply shows the typing dots: she is working and no answer text is streaming (the
+ * reply is still empty, or its newest turn is tool work or a settled answer).
+ */
+export function astraTyping(turns: readonly AstraTurn[], working: boolean): boolean {
+  const newest = turns[turns.length - 1];
+  return working && !(newest?.role === "assistant" && newest.streaming && newest.text.trim() !== "");
+}
+
+/** A row of the item's timeline: one of its own entries, or one of Astra's private threads. */
+export type TimelineRow<T> = { kind: "entry"; key: string; at: number; entry: T } | { kind: "thread"; key: string; at: number; thread: AstraThread };
+
+/** The item's entries and its Astra threads in one list, oldest first; at the same moment an entry goes before a thread. */
 export function mergeTimeline<T>(entries: readonly TimelineEntry<T>[], astra: AstraItem | undefined): TimelineRow<T>[] {
-  const rows: TimelineRow<T>[] = [...entries.map((e) => ({ kind: "entry" as const, ...e })), ...astraRows(astra)];
+  const pending = astra !== undefined && (astra.working || astra.waiting !== null || astra.error !== null);
+  const threads = astraThreads(astra?.turns ?? [], pending).map((thread) => ({ kind: "thread" as const, key: `thread-${thread.id}`, at: thread.at, thread }));
+  const rows: TimelineRow<T>[] = [...entries.map((e) => ({ kind: "entry" as const, ...e })), ...threads];
   // Array.prototype.sort is stable: equal times keep the order above.
   return rows.sort((a, b) => (a.at === b.at ? 0 : a.at < b.at ? -1 : 1));
 }

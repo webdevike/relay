@@ -2,15 +2,17 @@
  * Reviews (`/reviews`): what waits on Isaac's reply from GitHub, Linear and Slack, newest first in
  * Today and Earlier, filtered by source. Swipe a row left for Done; pull to read every source again
  * (Slack's read takes minutes, so it is said quietly under the list until it lands).
+ * `relay://reviews?item=<encoded item url>` opens that item's screen.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshControl, SectionList, StyleSheet, View } from "react-native";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { isReviewUnread, liveReviewItems, reviewDayGroups, type ReviewItem, type ReviewQueue, type ReviewSource } from "@relay/protocol";
 import { reviewsRequest } from "@/connection";
 import { useTransientMessage } from "@/lib/useTransientMessage";
 import { markReviewDone, openReviewItem } from "@/reviews/actions";
 import { ItemHeader } from "@/reviews/ItemHeader";
+import { reviewItemRoute } from "@/reviews/model";
 import { QueueRow } from "@/reviews/QueueRow";
 import { useConnectionStore } from "@/state/connection";
 import { useReviewsStore } from "@/state/reviews";
@@ -71,6 +73,16 @@ export default function Reviews() {
       clearInterval(timer);
     };
   }, []);
+
+  // `relay://reviews?item=<url>` opens that item's own screen over the queue.
+  const { item: linked } = useLocalSearchParams<{ item?: string }>();
+  useEffect(() => {
+    if (linked === undefined || linked === "") return;
+    router.setParams({ item: undefined });
+    const route = reviewItemRoute(linked);
+    if (route === null) toast.show("Reviews cannot open that link");
+    else router.push(route);
+  }, [linked, router, toast]);
 
   // Snoozed rows come back on their own as `now` passes their time.
   const waiting = useMemo(() => (queue === null ? [] : liveReviewItems(queue, null, now)), [queue, now]);
