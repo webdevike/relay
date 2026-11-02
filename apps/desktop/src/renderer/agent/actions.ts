@@ -44,6 +44,7 @@ import { listStore } from '../chat/list/list-store'
 import { currentSpace, filesStore, locatePath, showPath } from '../files/files-store'
 import { requestExperiment } from '../test-bench/bench-request'
 import { requestStudioOpen, studioStore } from '../studio/studio-store'
+import { openReviewItem, reviewItemOf } from '../reviews/reviews-store'
 import {
   contextStore,
   pinContext,
@@ -255,9 +256,10 @@ async function paneTabOf(spec: PaneTabSpec): Promise<PaneTab> {
       return { kind: 'experiment-arm', experiment, arm, label: found.label }
     }
     case 'page': {
-      const { page, ...extra } = spec.args
+      const { page, item, ...extra } = spec.args
       const key = pageFromKey(page)
       if (!key) fail('invalid-params', `Unknown page ${page}`)
+      if (item !== undefined) checkReviewItem(key, item)
       return { kind: 'page', place: placeOf(key, extra) }
     }
   }
@@ -272,7 +274,22 @@ async function showArgs(spec: PaneTabSpec, chatFile: string | null): Promise<obj
     const { path, line, column } = spec.args
     return showPath(path, chatFile, { line, column })
   }
+  if (spec.kind === 'page' && spec.args.item) {
+    openReviewItem(spec.args.item)
+    return { item: spec.args.item }
+  }
   return {}
+}
+
+/** Fails unless `item` is a link Reviews opens, on the Reviews page. */
+function checkReviewItem(page: string, item: string): void {
+  if (page !== 'reviews') fail('invalid-params', '`item` is for the reviews page only')
+  if (!reviewItemOf(item)) {
+    fail(
+      'invalid-params',
+      `Reviews opens GitHub pull requests, Linear issues and Slack messages, not ${item}`,
+    )
+  }
 }
 
 /** A pane action's tab: an open tab's id, or a spec (opened there, then shown). */
@@ -331,9 +348,10 @@ async function switchEcardApp(id: string | undefined, scope: string | undefined)
 }
 
 export const rendererActions: AgentRunners<'renderer'> = {
-  'page.open': ({ page, newTab, settingsSection, canvas, meeting }) => {
+  'page.open': ({ page, newTab, settingsSection, canvas, meeting, item }) => {
     const key = pageFromKey(page)
     if (!key) fail('invalid-params', `Unknown page ${page}`)
+    if (item !== undefined) checkReviewItem(key, item)
     navigateTo(
       placeOf(key, {
         ...(settingsSection ? { settingsSection } : {}),
@@ -342,7 +360,8 @@ export const rendererActions: AgentRunners<'renderer'> = {
       }),
       { newTab },
     )
-    return { page: key }
+    if (item !== undefined) openReviewItem(item)
+    return { page: key, ...(item === undefined ? {} : { item }) }
   },
   'layout.read': () => layoutSnapshot(),
   'tab.focus': ({ id }) => {
@@ -383,6 +402,7 @@ export const rendererActions: AgentRunners<'renderer'> = {
         }
         showAway(t, `opened ${paneTabTitle(tab)}`, async () => {
           openTab(tab, pane)
+          if (spec.kind === 'page' && spec.args.item) openReviewItem(spec.args.item)
           if (spec.kind === 'files' && spec.args?.path) {
             const { path, line, column } = spec.args
             await showPath(path, t.chatFile, { line, column })

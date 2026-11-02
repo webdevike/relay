@@ -136,6 +136,8 @@ interface Live {
   exited: boolean
   /** When this process first showed a row omp has not timed (see `toTurns`). */
   seen: Map<string, number>
+  /** An ask went out and omp has not started its turn yet: she counts as working already. */
+  asked: boolean
 }
 
 /**
@@ -216,7 +218,7 @@ export function registerAstraSessions(ctx: MainContext): void {
         title,
         file: l.file,
         turns: toTurns(l.reducer.messages(), l.seen),
-        working: l.reducer.running && !l.exited,
+        working: (l.reducer.running || l.asked) && !l.exited,
         waiting: d ? (d.kind === 'ask' ? 'Astra is asking you something' : d.title) : null,
         error: l.reducer.error,
       }
@@ -280,6 +282,7 @@ export function registerAstraSessions(ctx: MainContext): void {
       emitTimer: null,
       exited: false,
       seen: new Map(),
+      asked: false,
     }
     live.set(url, l)
     transport.onFrame((f: Frame) => {
@@ -301,6 +304,7 @@ export function registerAstraSessions(ctx: MainContext): void {
       if (raw.type === '_eof') l.exited = true
       const wasRunning = l.reducer.running
       l.reducer.apply(raw)
+      if (l.reducer.running || l.reducer.error) l.asked = false
       // After a turn the process waits a while for a follow-up, then lets go.
       if (wasRunning && !l.reducer.running) {
         clearTimeout(l.idle ?? undefined)
@@ -359,9 +363,11 @@ export function registerAstraSessions(ctx: MainContext): void {
     }
     // The prompt row shows at once; omp treats a prompt sent mid-turn as a steer.
     l.reducer.sendPrompt(prompt)
+    l.asked = true
     try {
       await l.transport.send(prompt)
     } catch (e) {
+      l.asked = false
       throw fail(
         'astra-send-failed',
         `Couldn't reach Astra: ${e instanceof Error ? e.message : String(e)}`,

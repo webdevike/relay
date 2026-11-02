@@ -985,16 +985,71 @@
   font-size: var(--eva-fz-label);
 }
 
-/* An item's Astra session as cards in its comment timeline, dressed as that surface's comments */
-.eva-rv-astra-card {
-  border-left: 2px solid var(--eva-c-accent);
-  background: var(--eva-c-secondary-background);
-  border-radius: var(--eva-radius);
-  padding-left: var(--mantine-spacing-sm);
-  padding-right: var(--mantine-spacing-sm);
+/*
+ * An item's private Astra threads in its comment timeline, in that surface's own comment cards
+ * and reply indentation (Linear's thread, Slack's messages, GitHub's comments).
+ */
+.eva-rv-athread {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  padding-bottom: calc(var(--mantine-spacing-xs) * 0.8);
 }
-.eva-rv-astra-card[data-astra='ask'] {
-  border-left-color: var(--eva-c-border);
+.eva-rv-athread-pr {
+  padding-top: var(--mantine-spacing-xs);
+  border-bottom: 1px solid var(--eva-c-border);
+}
+.eva-rv-acomment {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+}
+.eva-rv-athread-reply {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+}
+/* Astra's typing: three dots pulsing in a message bubble until her words stream in. */
+.eva-rv-typing {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  align-self: flex-start;
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  border-radius: var(--eva-radius-lg, var(--eva-radius));
+  background: var(--eva-c-secondary-background);
+  border: 1px solid var(--eva-c-border);
+}
+.eva-rv-typing > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--eva-c-muted-foreground);
+  animation: eva-rv-typing 1.2s ease-in-out infinite;
+}
+.eva-rv-typing > span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.eva-rv-typing > span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes eva-rv-typing {
+  0%,
+  60%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .eva-rv-typing > span {
+    animation: none;
+    opacity: 0.6;
+  }
 }
 /* In a narrow column the header wraps whole items (the private hint goes to its own line), never inside one. */
 .eva-rv-astra-card .eva-rv-comment-head {

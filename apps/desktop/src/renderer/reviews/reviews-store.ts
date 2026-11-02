@@ -96,6 +96,96 @@ export function openThread(row: SlackRow): void {
   set({ selected: null, ticket: null, thread: row })
 }
 
+/** An item link as the row Reviews opens: a GitHub pull request, a Linear issue or a Slack message. */
+export type ReviewItem =
+  | { kind: 'pr'; row: ReviewRow }
+  | { kind: 'linear'; row: LinearRow }
+  | { kind: 'slack'; row: SlackRow }
+
+/**
+ * The row for an item link: the queue's own row when it lists the item, else one made from the
+ * link (the detail loads the rest). Null for any other link.
+ */
+export function reviewItemOf(
+  url: string,
+  s: ReviewsState = reviewsStore.getState(),
+): ReviewItem | null {
+  let u: URL
+  try {
+    u = new URL(url)
+  } catch {
+    return null
+  }
+  const pr = /^\/([^/]+\/[^/]+)\/pull\/(\d+)/.exec(u.pathname)
+  if (u.hostname === 'github.com' && pr) {
+    const repo = pr[1]!
+    const number = Number(pr[2])
+    const q = s.queue
+    const known = [
+      ...(q?.needs ?? []),
+      ...(q?.reviewing ?? []),
+      ...(q?.completed ?? []),
+      ...(q?.created ?? []),
+    ].find((r) => r.repo.toLowerCase() === repo.toLowerCase() && r.number === number)
+    const href = `https://github.com/${repo}/pull/${number}`
+    return {
+      kind: 'pr',
+      row: known ?? {
+        repo,
+        number,
+        title: `${repo}#${number}`,
+        url: href,
+        author: '',
+        draft: false,
+        updatedAt: 0,
+      },
+    }
+  }
+  const issue = /^\/[^/]+\/issue\/([a-z][a-z0-9]*-\d+)/i.exec(u.pathname)
+  if (u.hostname === 'linear.app' && issue) {
+    const key = issue[1]!.toUpperCase()
+    const known = s.linear.rows?.find((r) => r.key === key)
+    return {
+      kind: 'linear',
+      row: known ?? { key, title: key, url, reason: '', actor: '', updatedAt: 0, unread: false },
+    }
+  }
+  const msg = /^\/archives\/([A-Z0-9]+)\/p(\d{7,})/.exec(u.pathname)
+  if (/(^|\.)slack\.com$/.test(u.hostname) && msg) {
+    const channel = msg[1]!
+    const ts = `${msg[2]!.slice(0, -6)}.${msg[2]!.slice(-6)}`
+    // A DM's message opens the conversation; a channel's message opens its thread.
+    const threadTs = u.searchParams.get('thread_ts') ?? (channel.startsWith('D') ? null : ts)
+    const known = s.slack.queue?.rows.find((r) => r.channel === channel && r.threadTs === threadTs)
+    return {
+      kind: 'slack',
+      row: known ?? {
+        kind: channel.startsWith('D') ? 'dm' : 'reply',
+        channel,
+        channelName: channel,
+        threadTs,
+        ts,
+        author: '',
+        text: '',
+        url,
+        updatedAt: Number(ts) * 1000,
+      },
+    }
+  }
+  return null
+}
+
+/** Opens an item link in Reviews (an agent's deep link); false when it is no item Reviews shows. */
+export function openReviewItem(url: string): boolean {
+  const item = reviewItemOf(url)
+  if (!item) return false
+  if (item.kind === 'pr') set({ ticket: null, thread: null, selected: item.row, autoOpened: true })
+  else if (item.kind === 'linear')
+    set({ selected: null, thread: null, ticket: item.row, autoOpened: true })
+  else set({ selected: null, ticket: null, thread: item.row, autoOpened: true })
+  return true
+}
+
 let mounted = 0
 
 /** Ref-counted: the first Reviews surface (sidebar queue or page) to mount reads everything. */

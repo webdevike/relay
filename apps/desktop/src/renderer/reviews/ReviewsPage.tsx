@@ -20,7 +20,7 @@ import {
   IconMessage,
   IconRefresh,
 } from '@tabler/icons-react'
-import type { AstraItem, LinearTicket, ReviewPr, ReviewRow, SlackRow } from '@evaos/contract'
+import type { LinearTicket, ReviewPr, ReviewRow, SlackRow } from '@evaos/contract'
 import type { Place } from '@evaos/shell-core'
 import { invoke } from '../ipc'
 import { openLink } from '../navigation/open-link'
@@ -31,8 +31,8 @@ import { ReviewFiles } from './ReviewFiles'
 import { ReviewGuide } from './ReviewGuide'
 import { ago, agoPhrase, mentionsAstra, nextAfter, prKey, queueGroups } from './review-model'
 import { Avatar, RailSection, fail, useLocal } from './review-ui'
-import { AstraCard, itemBlocks, useAstraItem } from './AstraInline'
-import { mergeTimeline } from './astra-timeline'
+import { AstraThreadView, threadPropsOf, useAstraItem } from './AstraInline'
+import { mergeTimeline, threadReplyText } from './astra-timeline'
 import { prContext } from './astra-context'
 import { loadQueue, reviewsStore, useReviews, useReviewsSurface } from './reviews-store'
 import './reviews.css'
@@ -123,8 +123,8 @@ function Conversation({
 }: {
   pr: ReviewPr
   now: number
-  /** The PR's Astra session: her cards join the timeline by time. */
-  astra: AstraItem | null
+  /** The PR's Astra session: its private threads join the timeline by time. */
+  astra: ReturnType<typeof useAstraItem>
   onUseAsReply: (text: string) => void
 }) {
   // One timeline: comments and reviews interleaved with pushes, oldest first, like E3.
@@ -163,7 +163,7 @@ function Conversation({
       ),
     })),
   ].sort((a, b) => a.at - b.at)
-  const blocks = itemBlocks(astra)
+  const threadProps = threadPropsOf(astra)
 
   return (
     <div className="eva-rv-conv" data-testid="review-conversation">
@@ -180,15 +180,20 @@ function Conversation({
         )}
       </div>
       <div className="eva-rv-timeline">
-        {mergeTimeline(items, (i) => i.at, blocks).map((e) =>
+        {mergeTimeline(items, (i) => i.at, astra.threads).map((e) =>
           e.kind === 'astra' ? (
-            <AstraCard
-              key={`astra-${e.block.id}`}
-              block={e.block}
-              item={astra!}
-              last={e.block === blocks.at(-1)}
+            <AstraThreadView
+              key={`astra-${e.thread.id}`}
+              {...threadProps(e.thread)}
               now={now}
               look="pr"
+              onReply={(root, text) =>
+                astra.ask(
+                  threadReplyText(root, text),
+                  `${pr.repo.split('/')[1]}#${pr.number}`,
+                  () => prContext(pr),
+                )
+              }
               onUseAsReply={onUseAsReply}
             />
           ) : (
@@ -376,7 +381,7 @@ function Detail({
         <div className="eva-rv-content">
           <div className="eva-rv-scroll">
             {tab === 'conversation' ? (
-              <Conversation pr={pr} now={now} astra={astra.item} onUseAsReply={setDraft} />
+              <Conversation pr={pr} now={now} astra={astra} onUseAsReply={setDraft} />
             ) : null}
             {tab === 'files' ? (
               <ReviewFiles
@@ -553,7 +558,10 @@ export function ReviewsPage(_: { place: Place }) {
     if (selected && pr?.key !== prKey(selected)) void loadPr(selected)
   }, [selected, pr, loadPr])
 
-  const markDone = async (url: string, updatedAt: number): Promise<Record<string, number> | null> => {
+  const markDone = async (
+    url: string,
+    updatedAt: number,
+  ): Promise<Record<string, number> | null> => {
     const r = await invoke('reviews.done', { url, updatedAt, done: true })
     if (!r.ok) {
       fail("Couldn't mark it done", r.error.message)

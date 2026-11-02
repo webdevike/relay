@@ -25,8 +25,8 @@ import { MarkdownMedia } from '../chat/markdown/MarkdownMedia'
 import { quoteOf } from './LinearDetail'
 import { ago, agoPhrase, mentionsAstra } from './review-model'
 import { Avatar, fail, useLocal } from './review-ui'
-import { AstraCard, itemBlocks, useAstraItem } from './AstraInline'
-import { mergeTimeline } from './astra-timeline'
+import { AstraThreadView, threadPropsOf, useAstraItem } from './AstraInline'
+import { mergeTimeline, threadReplyText } from './astra-timeline'
 import { slackContext } from './astra-context'
 
 /** The Slack queue as the page holds it: the last read, whether a fresh one is running, its error. */
@@ -302,8 +302,8 @@ export function SlackDetail({
   const title = thread?.channelName ?? row.channelName
   const parent = row.threadTs ? thread?.messages[0] : undefined
   const rest = parent ? thread!.messages.slice(1) : (thread?.messages ?? [])
-  const blocks = itemBlocks(astra.item)
-  const timeline = mergeTimeline(rest, (m) => m.at, blocks)
+  const timeline = mergeTimeline(rest, (m) => m.at, astra.threads)
+  const threadProps = threadPropsOf(astra)
   // Sends Slack has not shown back yet (by exact text, after the send).
   const waiting = pending.filter(
     (p) =>
@@ -438,13 +438,16 @@ export function SlackDetail({
                   ) : null}
                   {timeline.map((e) =>
                     e.kind === 'astra' ? (
-                      <AstraCard
-                        key={`astra-${e.block.id}`}
-                        block={e.block}
-                        item={astra.item!}
-                        last={e.block === blocks.at(-1)}
+                      <AstraThreadView
+                        key={`astra-${e.thread.id}`}
+                        {...threadProps(e.thread)}
                         now={now}
                         look="slack"
+                        onReply={(root, text) =>
+                          astra.ask(threadReplyText(root, text), `Slack ${title}`, () =>
+                            slackContext(row, thread),
+                          )
+                        }
                         onUseAsReply={setDraft}
                       />
                     ) : (

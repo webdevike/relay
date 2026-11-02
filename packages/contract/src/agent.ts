@@ -98,6 +98,9 @@ const PaneTabId = z.string().min(1).max(4200)
 const Side = z.enum(['right', 'left', 'down', 'up'])
 const Share = z.number().gt(0).lt(1)
 
+/** A Reviews item link: `https://github.com/<owner>/<repo>/pull/<n>`, a Linear issue or a Slack message. */
+const ReviewItemUrl = z.string().url().max(2048)
+
 const PageTabArgs = z
   .object({
     page: z.union([
@@ -110,6 +113,8 @@ const PageTabArgs = z
     settingsSection: z.enum(['Theme', 'Chat', 'Links', 'About']).optional(),
     canvas: z.string().max(200).optional(),
     meeting: z.string().max(500).optional(),
+    /** Reviews only: the item to open (a GitHub PR, Linear issue or Slack message link). */
+    item: ReviewItemUrl.optional(),
   })
   .strict()
 
@@ -222,7 +227,7 @@ export const agentActions = {
   'page.open': {
     title: 'Open a page',
     description:
-      'Opens a page in the current app tab (or a new one): a top-level page slug, or `workspace:<slug>`, `agent:<id>`, `board:<slug>`.',
+      'Opens a page in the current app tab (or a new one): a top-level page slug, or `workspace:<slug>`, `agent:<id>`, `board:<slug>`. For `reviews`, `item` opens that pull request, Linear issue or Slack thread (its link). To show it beside the chat instead, use tab.open with kind `page` and args {page: "reviews", item}.',
     params: z
       .object({
         page: z.union([
@@ -236,6 +241,7 @@ export const agentActions = {
         settingsSection: z.enum(['Theme', 'Chat', 'Links', 'About']).optional(),
         canvas: z.string().max(200).optional(),
         meeting: z.string().max(500).optional(),
+        item: ReviewItemUrl.optional(),
       })
       .strict(),
     side: 'renderer',

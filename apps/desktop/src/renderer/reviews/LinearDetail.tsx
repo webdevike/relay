@@ -18,8 +18,8 @@ import { EvaModal } from '../overlay'
 import { Markdown } from '../chat/markdown/Markdown'
 import { agoPhrase, mentionsAstra } from './review-model'
 import { Avatar, RailSection, fail } from './review-ui'
-import { AstraCard, itemBlocks, useAstraItem } from './AstraInline'
-import { mergeTimeline } from './astra-timeline'
+import { AstraThreadView, threadPropsOf, useAstraItem } from './AstraInline'
+import { mergeTimeline, threadReplyText } from './astra-timeline'
 import { ticketContext } from './astra-context'
 
 type Tab = 'details' | 'comments'
@@ -436,8 +436,8 @@ export function LinearDetail({
   const everyone = [...t.people, t.me]
   const roots = t.comments.filter((c) => c.parentId === null)
   const repliesTo = (id: string) => t.comments.filter((c) => c.parentId === id)
-  const blocks = itemBlocks(astra.item)
-  const timeline = mergeTimeline(roots, (c) => c.at, blocks)
+  const timeline = mergeTimeline(roots, (c) => c.at, astra.threads)
+  const threadProps = threadPropsOf(astra)
 
   const send = async (text: string, parent: LinearComment | null): Promise<void> => {
     const body = text.trim()
@@ -595,16 +595,17 @@ export function LinearDetail({
                 {timeline.length === 0 ? <div className="eva-rv-dim">No comments yet.</div> : null}
                 {timeline.map((e) =>
                   e.kind === 'astra' ? (
-                    <div key={`astra-${e.block.id}`} className="eva-rv-lthread">
-                      <AstraCard
-                        block={e.block}
-                        item={astra.item!}
-                        last={e.block === blocks.at(-1)}
-                        now={now}
-                        look="linear"
-                        onUseAsReply={setDraft}
-                      />
-                    </div>
+                    <AstraThreadView
+                      key={`astra-${e.thread.id}`}
+                      {...threadProps(e.thread)}
+                      now={now}
+                      look="linear"
+                      me={t.me.name}
+                      onReply={(root, text) =>
+                        astra.ask(threadReplyText(root, text), t.key, () => ticketContext(t))
+                      }
+                      onUseAsReply={setDraft}
+                    />
                   ) : (
                     <div key={e.item.id} className="eva-rv-lthread" data-testid="linear-thread">
                       <CommentView
