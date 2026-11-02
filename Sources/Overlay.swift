@@ -102,6 +102,7 @@ final class OverlayController {
         fadeWork?.cancel()
         fadeWork = nil
         let duration = fast ? 0.12 : 0.35
+        undoPill?.hide(duration: duration)
         let layers = [buddy.root] + marks
         CATransaction.begin()
         CATransaction.setAnimationDuration(duration)
@@ -110,12 +111,125 @@ final class OverlayController {
                 guard let self, self.generation == finishing else { return }
                 self.clearMarks()
                 self.buddy.setThinking(false, text: "")
-                self.window?.orderOut(nil)
+                if self.stepPill == nil { self.window?.orderOut(nil) }
             }
         }
         layers.forEach { $0.opacity = 0 }
         CATransaction.commit()
         onDismiss?()
+    }
+
+    // MARK: Chores, Undo, lesson pill
+
+    /// Updates the caption in place (Buddy stays where it is).
+    func setCaption(_ text: String) {
+        guard isShowing else { return }
+        buddy.setThinking(false, text: text)
+        layoutCaption()
+    }
+
+    /// Glides along a dotted trail to where a chore happens and shows a click there.
+    /// `point` is in screenshot pixels; nil clicks where Buddy is.
+    func chore(at point: CGPoint?, context: ScreenContext, caption: String) async {
+        if !isShowing { begin(at: CGPoint(x: NSEvent.mouseLocation.x + Self.restingOffset.x, y: NSEvent.mouseLocation.y + Self.restingOffset.y)) }
+        let token = generation
+        fadeWork?.cancel()
+        buddy.setThinking(false, text: caption)
+        clearMarks()
+        let target = point.map { appKitPoint(context.globalPoint($0)) } ?? tip
+        moveToScreen(containing: target)
+        let from = tip
+        tip = target
+        layoutCaption()
+        let distance = hypot(target.x - from.x, target.y - from.y)
+        let duration = min(0.9, max(0.45, 0.35 + Double(distance) / 2500))
+        buddy.look(toward: CGPoint(x: target.x - from.x, y: target.y - from.y))
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let path = buddy.glide(from: local(from), to: local(target), duration: duration) { [weak self] in
+                if let self, token == self.generation {
+                    self.buddy.land()
+                    self.addLayer(Marks.click(at: self.local(target), scale: self.window?.backingScaleFactor ?? 2))
+                }
+                continuation.resume()
+            }
+            if let path { addLayer(Marks.trail(path, duration: duration, scale: window?.backingScaleFactor ?? 2)) }
+        }
+        try? await Task.sleep(nanoseconds: 350_000_000)
+    }
+
+    /// A small Undo pill beside the caption; it fades with Buddy.
+    func showUndo(_ record: UndoRecord) {
+        let pill = undoPill ?? UndoPill()
+        undoPill = pill
+        pill.configure(title: record.title) { [weak self] in
+            guard let self else { return }
+            self.undoPill?.hide(duration: 0.15)
+            self.setCaption("Undoing...")
+            Task { @MainActor in
+                let ok = await record.perform()
+                Log.info("undo \(ok ? "ok" : "failed"): \(record.title)")
+                self.showMessage(ok ? "Undone" : "I couldn't undo that one", near: nil)
+            }
+        }
+        positionUndoPill()
+        pill.show()
+    }
+
+    /// Same as clicking the Undo pill (for scripts and tests).
+    func undoNow() {
+        guard undoPill?.isVisible == true else { return Log.info("undo: nothing to undo") }
+        undoPill?.trigger()
+    }
+
+    private var undoPill: UndoPill?
+    private var stepPill: CALayer?
+    private var stepPillWork: DispatchWorkItem?
+
+    /// "Step 2 of 3 · Scale it" near the user's cursor; hides itself after a few seconds.
+    func showStepPill(_ text: String) {
+        let mouse = NSEvent.mouseLocation
+        moveToScreen(containing: isShowing ? tip : mouse, force: window == nil)
+        guard let root = window?.contentView?.layer else { return }
+        stepPill?.removeFromSuperlayer()
+        let pill = Marks.pill(text, scale: window?.backingScaleFactor ?? 2)
+        let origin = local(CGPoint(x: mouse.x + 16, y: mouse.y + 18))
+        pill.frame.origin = CGPoint(x: min(origin.x, screenFrame.width - pill.bounds.width - 8),
+                                    y: min(origin.y, screenFrame.height - pill.bounds.height - 8))
+        root.addSublayer(pill)
+        stepPill = pill
+        window?.orderFrontRegardless()
+        stepPillWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, let pill = self.stepPill else { return }
+            CATransaction.begin()
+            CATransaction.setAnimationDuration(0.4)
+            CATransaction.setCompletionBlock { MainActor.assumeIsolated {
+                pill.removeFromSuperlayer()
+                if self.stepPill === pill { self.stepPill = nil }
+                if !self.isShowing, self.stepPill == nil { self.window?.orderOut(nil) }
+            } }
+            pill.opacity = 0
+            CATransaction.commit()
+        }
+        stepPillWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.5, execute: work)
+    }
+
+    private func addLayer(_ layer: CALayer) {
+        guard let root = window?.contentView?.layer else { return }
+        root.insertSublayer(layer, below: buddy.root)
+        marks.append(layer)
+    }
+
+    private func positionUndoPill() {
+        guard let pill = undoPill else { return }
+        let caption = buddy.captionFrame
+        let anchor = CGPoint(x: tip.x + caption.maxX + 8, y: tip.y + caption.minY)
+        var origin = CGPoint(x: anchor.x, y: anchor.y + (caption.height - pill.frame.height) / 2)
+        if origin.x + pill.frame.width > screenFrame.maxX - 8 {
+            origin = CGPoint(x: tip.x + caption.minX, y: tip.y + caption.minY - pill.frame.height - 6)
+        }
+        pill.setFrameOrigin(origin)
     }
 
     // MARK: Steps
@@ -150,6 +264,7 @@ final class OverlayController {
         let from = tip
         tip = step.tip
         layoutCaption()
+        positionUndoPill()
         let distance = hypot(step.tip.x - from.x, step.tip.y - from.y)
         let duration = min(0.9, max(0.45, 0.35 + Double(distance) / 2500))
         buddy.look(toward: CGPoint(x: step.tip.x - from.x, y: step.tip.y - from.y))
@@ -174,6 +289,7 @@ final class OverlayController {
         fadeWork?.cancel()
         fadeWork = nil
         clearMarks()
+        undoPill?.hide(duration: 0.1)
         tip = point
         moveToScreen(containing: point, force: window == nil)
         CATransaction.begin()
@@ -248,12 +364,23 @@ final class OverlayController {
         min(1.0, Double(max(0, text.count - 40)) * 0.03)
     }
 
-    /// About 2 s after arriving, a bit longer for long captions.
-    private func dwell(for text: String) -> TimeInterval { 2.0 + readingExtra(text) }
+    /// About 2 s after arriving, a bit longer for long captions; 4 s while an Undo pill is up,
+    /// so there is time to reach it.
+    private func dwell(for text: String) -> TimeInterval {
+        let base = 2.0 + readingExtra(text)
+        return undoPill?.isVisible == true ? max(base, 4.0) : base
+    }
 
     private func scheduleFade(after delay: TimeInterval) {
         fadeWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.dismiss(fast: false) }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            // Hovering the Undo pill holds Buddy until the pointer leaves.
+            if let pill = self.undoPill, pill.isVisible, NSMouseInRect(NSEvent.mouseLocation, pill.frame, false) {
+                return self.scheduleFade(after: 1.0)
+            }
+            self.dismiss(fast: false)
+        }
         fadeWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }

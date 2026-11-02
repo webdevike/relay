@@ -26,5 +26,7 @@
 	<string>Buddy looks at the window you ask about so it can point at the right control.</string>
 	<key>NSAccessibilityUsageDescription</key>
 	<string>Buddy reads the names and positions of controls in the window you ask about.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Buddy listens while you hold the talk key so you can ask by voice.</string>
 </dict>
 </plist>

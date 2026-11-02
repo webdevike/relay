@@ -217,11 +217,19 @@ final class BuddyCharacter {
         root.add(fade, forKey: "appearFade")
     }
 
+    /// Caption bubble frame relative to the tip (root sits on the tip with a zero-size bounds).
+    var captionFrame: CGRect { caption.isHidden ? .zero : caption.frame }
+
     /// Smooth curved glide, like a person moving their mouse, easing into the target.
-    func glide(from start: CGPoint, to end: CGPoint, duration: CFTimeInterval, completion: @escaping @MainActor () -> Void) {
+    /// Returns the path it follows (overlay-local), for drawing a trail along it.
+    static let glideTiming = CAMediaTimingFunction(controlPoints: 0.35, 0.0, 0.15, 1.0)
+
+    @discardableResult
+    func glide(from start: CGPoint, to end: CGPoint, duration: CFTimeInterval, completion: @escaping @MainActor () -> Void) -> CGPath? {
         let current = root.presentation()?.position ?? start
         let dx = end.x - current.x, dy = end.y - current.y
         let distance = hypot(dx, dy)
+        var path: CGMutablePath?
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion() } }
@@ -229,17 +237,19 @@ final class BuddyCharacter {
             let bend = min(80, distance * 0.12)
             let mid = CGPoint(x: (current.x + end.x) / 2, y: (current.y + end.y) / 2)
             let control = CGPoint(x: mid.x - dy / distance * bend, y: mid.y + dx / distance * bend)
-            let path = CGMutablePath()
-            path.move(to: current)
-            path.addQuadCurve(to: end, control: control)
+            let curve = CGMutablePath()
+            curve.move(to: current)
+            curve.addQuadCurve(to: end, control: control)
             let move = CAKeyframeAnimation(keyPath: "position")
-            move.path = path
+            move.path = curve
             move.duration = duration
-            move.timingFunction = CAMediaTimingFunction(controlPoints: 0.35, 0.0, 0.15, 1.0)
+            move.timingFunction = Self.glideTiming
             root.add(move, forKey: "glide")
+            path = curve
         }
         root.position = end
         CATransaction.commit()
+        return path
     }
 
     /// Small squash on arrival.

@@ -2,7 +2,7 @@ import Cocoa
 
 /// Capture through the already-authorized cua-driver daemon (com.trycua.driver holds
 /// Accessibility + Screen Recording), so Relay Buddy works before it has grants of its own.
-enum CuaDriverCapture {
+enum CuaDriver {
     static let executable = "/Applications/CuaDriver.app/Contents/MacOS/cua-driver"
     static let socket = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Caches/cua-driver/cua-driver.sock").path
@@ -62,6 +62,7 @@ enum CuaDriverCapture {
             target: target,
             windowTitle: json["window_title"] as? String ?? window.title,
             windowFrame: frame,
+            windowID: window.id,
             jpeg: jpeg,
             imageSize: CGSize(width: cgImage.width, height: cgImage.height),
             scale: scale,
@@ -69,7 +70,18 @@ enum CuaDriverCapture {
             backend: "cua-driver")
     }
 
-    private static func run(_ command: [String]) async throws -> Data {
+    /// One cua-driver tool call through the daemon; returns its JSON result.
+    @discardableResult
+    static func call(_ tool: String, _ args: [String: Any]) async throws -> [String: Any] {
+        let argJSON = String(data: try JSONSerialization.data(withJSONObject: args), encoding: .utf8)!
+        let output = try await run([executable, "call", tool, argJSON])
+        guard let json = try? JSONSerialization.jsonObject(with: output) as? [String: Any] else {
+            throw CaptureError.failed("cua-driver \(tool): " + String(decoding: output.prefix(300), as: UTF8.self))
+        }
+        return json
+    }
+
+    static func run(_ command: [String]) async throws -> Data {
         try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 let process = Process()

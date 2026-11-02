@@ -9,6 +9,7 @@ struct ScreenContext {
     let windowTitle: String
     /// Window frame in global display points, top-left origin (CoreGraphics space).
     let windowFrame: CGRect
+    let windowID: CGWindowID
     let jpeg: Data
     let imageSize: CGSize
     /// Screenshot pixels per display point.
@@ -52,12 +53,12 @@ enum Capture {
 
     static var backendDescription: String {
         if nativeAvailable { return AXIsProcessTrusted() ? "native (ScreenCaptureKit + AX)" : "native screenshot, AX off" }
-        return CuaDriverCapture.isAvailable ? "cua-driver" : "unavailable"
+        return CuaDriver.isAvailable ? "cua-driver" : "unavailable"
     }
 
     static func capture(_ target: TargetApp) async throws -> ScreenContext {
         if nativeAvailable { return try await native(target) }
-        if CuaDriverCapture.isAvailable { return try await CuaDriverCapture.capture(target) }
+        if CuaDriver.isAvailable { return try await CuaDriver.capture(target) }
         throw CaptureError.noPermission
     }
 
@@ -139,6 +140,7 @@ enum Capture {
             target: target,
             windowTitle: scWindow.title ?? window.title,
             windowFrame: frame,
+            windowID: window.id,
             jpeg: jpeg,
             imageSize: CGSize(width: image.width, height: image.height),
             scale: actualScale,

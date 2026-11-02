@@ -6,7 +6,9 @@ import Cocoa
 //   RelayBuddy                          run the menu-bar app
 //   RelayBuddy --ask "q" [--target app] run the app and ask "q" once it is up
 //   RelayBuddy --send "q" [--target app] ask a running instance, then exit
-//   RelayBuddy --summon                 open the prompt bubble in a running instance (same as the hotkey)
+//   RelayBuddy --summon                 open the prompt bubble in a running instance (same as a hotkey tap)
+//   RelayBuddy --undo                   press the Undo pill in a running instance
+//   RelayBuddy --voice-test|--voice-say|--voice-barge ...   voice self-tests (Sources/Voice/README.md)
 // --target takes an app name or bundle id; without it Buddy looks at the frontmost app.
 
 let arguments = CommandLine.arguments
@@ -27,6 +29,21 @@ if arguments.contains("--summon") {
     DistributedNotificationCenter.default().postNotificationName(
         BuddyNotification.summon, object: nil, userInfo: nil, deliverImmediately: true)
     exit(0)
+}
+if arguments.contains("--undo") {
+    DistributedNotificationCenter.default().postNotificationName(
+        BuddyNotification.undo, object: nil, userInfo: nil, deliverImmediately: true)
+    exit(0)
+}
+if VoiceTest.handles(arguments) {
+    let done = DispatchSemaphore(value: 0)
+    nonisolated(unsafe) var code: Int32 = 0
+    Task {
+        code = await VoiceTest.run(arguments)
+        done.signal()
+    }
+    while done.wait(timeout: .now()) == .timedOut { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+    exit(code)
 }
 
 MainActor.assumeIsolated {

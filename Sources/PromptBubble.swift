@@ -146,6 +146,22 @@ final class PromptBubble: NSObject, NSTextFieldDelegate {
 
     @objc private func closeClicked() { close() }
 
+    /// Hold-to-talk: the placeholder says Buddy is listening; the live transcript fills the field.
+    func setListening(_ listening: Bool) {
+        let text = listening ? "Listening..." : "Where is the bevel tool?"
+        field.placeholderAttributedString = NSAttributedString(string: text, attributes: [
+            .font: NSFont.systemFont(ofSize: 19), .foregroundColor: listening ? Palette.blue : Palette.faint])
+    }
+
+    func showTranscript(_ text: String) { field.stringValue = text }
+
+    /// A lesson is running: hint the bubble's lesson words.
+    func setLessonHint(_ hint: String?) {
+        guard let hint else { return }
+        field.placeholderAttributedString = NSAttributedString(string: hint, attributes: [
+            .font: NSFont.systemFont(ofSize: 19), .foregroundColor: Palette.faint])
+    }
+
     @objc private func submitClicked() {
         let text = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !closed else { return }

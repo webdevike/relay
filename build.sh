@@ -9,8 +9,8 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 
 swiftc -O -swift-version 5 -target arm64-apple-macosx14.0 \
-	-framework Cocoa -framework Carbon -framework ScreenCaptureKit -framework QuartzCore \
-	-o "$APP/Contents/MacOS/RelayBuddy" Sources/*.swift
+	-framework Cocoa -framework Carbon -framework ScreenCaptureKit -framework QuartzCore -framework AVFoundation \
+	-o "$APP/Contents/MacOS/RelayBuddy" Sources/*.swift Sources/Voice/*.swift
 
 # A stable signing identity keeps macOS privacy grants across rebuilds; ad-hoc otherwise.
 IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Apple Development/ {print $2; exit}')"
