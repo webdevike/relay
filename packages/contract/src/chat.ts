@@ -195,11 +195,6 @@ export const chatInvoke = {
     input: z.object({ file: AbsPathSchema.endsWith('.jsonl') }).strict(),
     output: z.object({ title: z.string(), messages: z.array(ChatMessageSchema) }),
   },
-  /** An assistant's thread (a session file), read only: what a tool pane shows for its tab. */
-  'chat.readThread': {
-    input: z.object({ file: AbsPathSchema.endsWith('.jsonl') }).strict(),
-    output: z.object({ title: z.string(), messages: z.array(ChatMessageSchema) }),
-  },
   'chat.send': {
     input: z
       .object({
@@ -229,6 +224,14 @@ export const chatInvoke = {
         })
         .nullable(),
     }),
+  },
+  /**
+   * A pane that went away (a tool pane's chat tab closed): main forgets it. Its omp, if it ran
+   * one, has stdin closed; a session Relay runs stops being followed for it.
+   */
+  'chat.drop': {
+    input: z.object({ paneId: PaneIdSchema }).strict(),
+    output: z.object({}),
   },
   'chat.snapshot': {
     input: z.object({ paneId: PaneIdSchema }).strict(),

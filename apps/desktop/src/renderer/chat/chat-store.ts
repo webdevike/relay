@@ -80,6 +80,8 @@ export interface ChatState {
   setExtras(e: Extras): void
   clearDone(paneId: string): void
   openPane(paneId: string, data: OpenData): void
+  /** Forgets a pane that went away (a tool pane's chat tab closed). */
+  dropPane(paneId: string): void
   setMessages(paneId: string, messages: ChatMessage[]): void
   /** Applies one drained batch worth of ops. Only changed rows get a new object identity. */
   applyOps(paneId: string, ops: Op[], seq: number): void
@@ -265,6 +267,12 @@ export const chatStore = createStore<ChatState>((set) => ({
         },
       },
     })),
+  dropPane: (paneId) =>
+    set((s) => {
+      const { [paneId]: _gone, ...panes } = s.panes
+      const { [paneId]: _pending, ...pendingExtras } = s.pendingExtras
+      return { panes, pendingExtras }
+    }),
   setMessages: (paneId, messages) =>
     set((s) => {
       const pane = s.panes[paneId]

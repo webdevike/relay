@@ -81,3 +81,39 @@ describe('chat store drafts and meta', () => {
     expect(pane()).toMatchObject({ file: '/s/a.jsonl', boundTo: null })
   })
 })
+
+describe('chat store with several panes', () => {
+  beforeEach(() => chatStore.setState({ panes: {}, pendingExtras: {} }))
+
+  const msg = (id: string, text: string) =>
+    ({ id, role: 'assistant', text, streaming: true }) as never
+  const extras = (paneId: string, running: boolean) => ({
+    paneId,
+    running,
+    subagents: [],
+    jobs: [],
+  })
+
+  it('keeps main and a tool pane on one thread apart, and drops only the tool pane', () => {
+    const s = chatStore.getState()
+    s.openPane('pane-1', { file: '/s/nova.jsonl', title: 'Nova', messages: [], meta })
+    // A tool pane's extras can arrive before its open answers.
+    s.setExtras(extras('tool-1', true))
+    s.openPane('tool-1', { file: '/s/nova.jsonl', title: 'Nova', messages: [], meta })
+    s.setExtras(extras('pane-1', false))
+    s.applyOps('tool-1', [{ op: 'upsert', message: msg('m1', 'Foxes') }], 1)
+    s.applyOps('tool-1', [{ op: 'meta', patch: { running: true } }], 2)
+    const { panes } = chatStore.getState()
+    expect(panes['tool-1']).toMatchObject({ lastSeq: 2, running: true, extras: { running: true } })
+    expect(panes['tool-1']!.messages.map((m) => m.text)).toEqual(['Foxes'])
+    expect(panes['pane-1']).toMatchObject({ lastSeq: 0, running: false, messages: [] })
+    expect(panes['pane-1']!.extras.running).toBe(false)
+
+    chatStore.getState().dropPane('tool-1')
+    expect(Object.keys(chatStore.getState().panes)).toEqual(['pane-1'])
+    // A late batch for the dropped pane lands nowhere.
+    chatStore.getState().applyOps('tool-1', [{ op: 'meta', patch: { running: false } }], 3)
+    expect(chatStore.getState().panes['tool-1']).toBeUndefined()
+    expect(chatStore.getState().pendingExtras['tool-1']).toBeUndefined()
+  })
+})

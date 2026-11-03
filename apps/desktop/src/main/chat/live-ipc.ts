@@ -209,6 +209,10 @@ export function registerLiveIpc(
   }))
   handle(ctx, 'chat.goal', async ({ paneId, op }) => ({ sent: await manager.goal(paneId, op) }))
   handle(ctx, 'chat.close', async ({ paneId }) => ({ exit: await manager.close(paneId) }))
+  handle(ctx, 'chat.drop', async ({ paneId }) => {
+    await manager.drop(paneId)
+    return {}
+  })
   handle(ctx, 'chat.openDraft', ({ paneId }) => {
     const meta = { model: null, thinking: null, contextTokens: null }
     manager.openDraft(paneId, meta)

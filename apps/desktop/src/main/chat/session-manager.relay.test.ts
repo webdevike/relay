@@ -196,6 +196,30 @@ describe('SessionManager with Relay: chats omp runs outside this app', () => {
     expect(relay.log.at(-1)).toBe('unsubscribe out')
   })
 
+  it("two panes on one assistant's session both stream and reply; a dropped pane goes quiet", async () => {
+    const { mgr, relay, batches, shown } = setup()
+    relay.set([{ id: 'out', status: 'working', kind: 'assistant' }])
+    mgr.open('pane-1', FILE, [user('u1', 'hi')], meta)
+    mgr.open('tool-1', FILE, [user('u1', 'hi')], meta)
+    relay.emit({ kind: 'stream', session: 'out', id: 'm1', text: 'Foxes', streaming: true })
+    expect(shown('pane-1')).toEqual(['user:hi', 'assistant:Foxes'])
+    expect(shown('tool-1')).toEqual(['user:hi', 'assistant:Foxes'])
+    // The pane's composer replies through Relay like main's does.
+    await mgr.send('tool-1', 'and owls?')
+    expect(relay.commands.at(-1)).toMatchObject({ kind: 'agent.reply', sessionId: 'out' })
+    // Main still shows the session: the subscription stays; the dropped pane emits nothing more.
+    await mgr.drop('tool-1')
+    expect([...relay.subs]).toEqual(['out'])
+    expect(() => mgr.snapshot('tool-1')).toThrow()
+    vi.advanceTimersByTime(16)
+    batches.length = 0
+    relay.emit({ kind: 'stream', session: 'out', id: 'm1', text: 'Foxes hunt', streaming: true })
+    vi.advanceTimersByTime(16)
+    expect(batches.map((b) => b.paneId)).toEqual(['pane-1'])
+    await mgr.drop('pane-1')
+    expect(relay.log.at(-1)).toBe('unsubscribe out')
+  })
+
   it('shows the streamed reply live and drops it once the file has it, without a duplicate', () => {
     const { mgr, relay, write, shown } = setup()
     relay.set([{ id: 'out', status: 'working' }])

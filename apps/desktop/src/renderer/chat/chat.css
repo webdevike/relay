@@ -4,6 +4,14 @@
 .eva-chat .eva-chat-header {
   -webkit-app-region: drag;
 }
+/* An assistant's thread as a tool pane's tab: the pane's tab strip moves panes, not the window,
+   and the chat fills the pane's page area (its log scrolls itself). */
+.eva-chat.eva-chat-tool .eva-chat-header {
+  -webkit-app-region: no-drag;
+}
+.eva-page-area > .eva-chat-tool {
+  min-height: 0;
+}
 .eva-chat-header .eva-chat-title {
   margin: 0;
   flex: 1;

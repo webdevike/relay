@@ -1511,6 +1511,20 @@ export class SessionManager {
     return this.release(pane, timeoutMs)
   }
 
+  /**
+   * `chat.drop`: the pane went away (a tool pane's chat tab closed). Nothing more goes out under
+   * its id, Relay stops being followed for it unless another pane still shows that session, and
+   * an omp it ran has stdin closed like any pane leaving its chat.
+   */
+  async drop(paneId: string): Promise<void> {
+    const pane = this.panes.get(paneId)
+    if (!pane) return
+    this.panes.delete(paneId)
+    this.dropRemote(pane)
+    this.syncSubscriptions()
+    await this.release(pane)
+  }
+
   /** Returns whether an abort command was written (false for unknown panes or stopped sessions). */
   async abort(paneId: string): Promise<boolean> {
     const pane = this.panes.get(paneId)

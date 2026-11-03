@@ -6,7 +6,9 @@ import { FakeRelayHost } from './helpers/fake-relay-host'
 import { EVA_FIXTURE_ROOT } from './helpers/paths'
 
 // An assistant's thread is a page like any other: dragging its tab out of the app tab bar onto the
-// chat's edge splits it into a pane that reads the thread. Real thread file, real Relay session.
+// chat's edge splits it into a pane that is the whole chat, as main's pane shows it: the thread,
+// its header with the notch, and a composer whose replies go through Relay and stream back there.
+// Real thread file, real (fake) Relay session.
 
 let fx: ChatFixture
 let host: FakeRelayHost
@@ -69,7 +71,7 @@ test.use({ startOnChat: false })
 
 const sel = (id: string): string => `[data-testid="${id}"]`
 
-test("Nova's thread tab, dragged onto the chat's edge, splits into a pane that shows the thread", async ({
+test("Nova's thread tab, dragged onto the chat's edge, splits into a pane that is the full chat", async ({
   shell,
   rendererErrors,
 }) => {
@@ -90,5 +92,38 @@ test("Nova's thread tab, dragged onto the chat's edge, splits into a pane that s
   await expect(pane).toHaveCount(1)
   await expect(pane).toContainText('Hi Nova')
   await expect(pane).toContainText('dentist at five')
+  // Not the read-only transcript: the chat pane itself, its header and composer.
+  await expect(pane.locator(sel('subagent-transcript'))).toHaveCount(0)
+  const view = pane.locator(sel('chat-pane'))
+  await expect(view).toHaveAttribute('data-chat-pane', /^tool-\d+$/)
+  await expect(view.locator(sel('agent-crumb'))).toBeVisible()
+  await expect(view.locator(sel('agent-notch'))).toBeVisible()
+  await expect(view.locator(sel('artifacts-button'))).toBeVisible()
+
+  // A reply typed in the pane goes to Nova's session through Relay and shows at once.
+  const box = view.locator(sel('composer-input'))
+  await expect(box).toBeEnabled()
+  await box.fill('And the vet?')
+  await box.press('Enter')
+  await expect
+    .poll(() => host.replies().map((r) => [r.session, r.text]))
+    .toEqual([['nova-1', expect.stringContaining('And the vet?')]])
+  await expect(view.locator(sel('chat-log'))).toContainText('And the vet?')
+
+  // Nova's answer streams into the pane while Relay hears her working.
+  host.upsert({
+    id: 'nova-1',
+    status: 'working',
+    kind: 'assistant',
+    assistant: 'nova',
+    title: 'Nova',
+  })
+  host.stream('nova-1', 'm2', 'The vet is', true)
+  await expect(view.locator(sel('msg-relay-stream'))).toContainText('The vet is')
+  host.stream('nova-1', 'm2', 'The vet is open until six.', true)
+  await expect(view.locator(sel('msg-relay-stream'))).toContainText('open until six.')
+  host.stream('nova-1', 'm2', 'The vet is open until six.', false)
+  host.upsert({ id: 'nova-1', status: 'idle', kind: 'assistant', assistant: 'nova', title: 'Nova' })
+  await expect(view.locator(sel('chat-log'))).toContainText('The vet is open until six.')
   expect(rendererErrors).toEqual([])
 })

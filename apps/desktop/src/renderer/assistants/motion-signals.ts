@@ -7,13 +7,13 @@ import { agentOf, type AssistantsState } from './assistants-store'
  * Where an agent's portrait gets its mood: the `MotionSignals` the portrait-motion `Director`
  * turns into a face (Thinking, Researching, Working, Idle). Relay's
  * status and running tool and the Start button are known for every agent; the open thread's
- * detail (its tool rows, subagents, jobs, question, failure) only for the agent whose thread main's
- * chat pane shows. A reply streaming in is just its turn running.
+ * detail (its tool rows, subagents, jobs, question, failure) only for an agent whose thread a chat
+ * pane shows (main's, or a tool pane's). A reply streaming in is just its turn running.
  */
 export function motionSignals(
   assistants: AssistantsState,
   id: string,
-  /** Main's chat pane, which counts only while it shows this agent's thread file. */
+  /** A chat pane, which counts only while it shows this agent's thread file. */
   pane: PaneState | null | undefined,
 ): MotionSignals {
   const agent = agentOf(assistants, id)

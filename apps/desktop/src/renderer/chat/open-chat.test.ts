@@ -15,7 +15,7 @@ vi.mock('@mantine/notifications', () => ({
 }))
 
 import { chatStore } from './chat-store'
-import { openChatFile, PANE_ID } from './open-chat'
+import { dropChatPane, newToolPaneId, openChatFile, PANE_ID } from './open-chat'
 
 const ok = (title: string) => ({
   ok: true,
@@ -54,5 +54,24 @@ describe('openChatFile', () => {
     pending.get('/s/c.jsonl')!({ ok: false, error: { code: 'x', message: 'nope' } })
     await p
     expect(show).toHaveBeenCalledWith(expect.objectContaining({ message: 'nope' }))
+  })
+
+  it("opens a tool pane's chat beside main's; a drop waits for its open, which then lands nowhere", async () => {
+    const main = openChatFile('/s/m.jsonl')
+    pending.get('/s/m.jsonl')!(ok('M'))
+    await main
+    const id = newToolPaneId()
+    expect(id).toMatch(/^tool-\d+$/)
+    expect(newToolPaneId()).not.toBe(id)
+    const tool = openChatFile('/s/nova.jsonl', id)
+    expect(invoke).toHaveBeenLastCalledWith('chat.open', { paneId: id, file: '/s/nova.jsonl' })
+    dropChatPane(id)
+    await Promise.resolve()
+    expect(invoke.mock.calls.map((c) => c[0])).not.toContain('chat.drop')
+    pending.get('/s/nova.jsonl')!(ok('Nova'))
+    await tool
+    await vi.waitFor(() => expect(invoke).toHaveBeenLastCalledWith('chat.drop', { paneId: id }))
+    expect(chatStore.getState().panes[id]).toBeUndefined()
+    expect(chatStore.getState().panes[PANE_ID]?.file).toBe('/s/m.jsonl')
   })
 })

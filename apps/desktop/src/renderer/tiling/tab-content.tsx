@@ -92,11 +92,13 @@ export function useAttachContent(body: RefObject<HTMLElement | null>, id: string
   }, [body, id])
 }
 
+/** The subagent as the chat pane showing its session lists it (main's first, else a tool pane's). */
 function useViewedSubagent(tab: SubagentTab) {
   return useChatStore((s) => {
-    const pane = s.panes[PANE_ID]
-    if (!pane || pane.file !== tab.session) return undefined
-    return pane.extras.subagents.find((a) => a.name === tab.name)
+    const main = s.panes[PANE_ID]
+    const pane =
+      main?.file === tab.session ? main : Object.values(s.panes).find((p) => p.file === tab.session)
+    return pane?.extras.subagents.find((a) => a.name === tab.name)
   })
 }
 

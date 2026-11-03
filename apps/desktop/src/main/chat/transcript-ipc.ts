@@ -110,11 +110,4 @@ export function registerTranscriptIpc(
     const { title, messages } = parseSession(fs.readFileSync(real, 'utf8'))
     return { title, messages }
   })
-  handle(ctx, 'chat.readThread', async ({ file }) => {
-    await remote?.open(file)
-    const { title, messages } = parseSession(
-      fs.readFileSync(resolveInsideSessionsDir(sessionsDirs, file), 'utf8'),
-    )
-    return { title, messages }
-  })
 }
