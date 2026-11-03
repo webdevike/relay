@@ -34,6 +34,8 @@ enum Navigator {
         let frame: CGRect
         let jevMs: Int
         let pressMs: Int
+        /// "cache" (replayed saved path, no model call) or "jev".
+        let source: String
     }
 
     struct Result {
@@ -76,7 +78,8 @@ enum Navigator {
                             result.reason = json["reason"] as? String ?? ""
                         } else if let label = json["label"] as? String, let f = json["frame"] as? [String: Double] {
                             let step = Step(label: label, frame: CGRect(x: f["x"] ?? 0, y: f["y"] ?? 0, width: f["w"] ?? 0, height: f["h"] ?? 0),
-                                            jevMs: json["jev_ms"] as? Int ?? 0, pressMs: json["press_ms"] as? Int ?? 0)
+                                            jevMs: json["jev_ms"] as? Int ?? 0, pressMs: json["press_ms"] as? Int ?? 0,
+                                            source: json["source"] as? String ?? "jev")
                             result.steps.append(step)
                             Task { @MainActor in onStep(step) }
                         }
