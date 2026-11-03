@@ -1,6 +1,7 @@
 import { Button } from '@mantine/core'
 import { ToolChat } from '../chat/ChatPane'
-import type { Place } from '@evaos/shell-core'
+import { placeOf, type Place } from '@evaos/shell-core'
+import { openPlace } from '../navigation/navigate'
 import { agentIdOf, agentOf, startAgent, useAssistants } from './assistants-store'
 import { PortraitCard } from './PortraitCard'
 import './assistants.css'
@@ -55,9 +56,21 @@ export function AgentPage({ place }: { place: Place }) {
         <p className="eva-as-note">Relay is not running, so {title} cannot be started from here.</p>
       )}
       {failed ? (
-        <p className="eva-as-note eva-as-failed" role="alert">
-          Relay couldn&apos;t start {title}. {failed}
-        </p>
+        <div className="eva-as-note eva-as-failed" role="alert">
+          <p>
+            {title} didn&apos;t start. {failed}
+          </p>
+          {/no AI account/i.test(failed) ? (
+            <Button
+              mt="xs"
+              variant="default"
+              data-testid={`signin-${id}`}
+              onClick={() => openPlace(placeOf('settings', { settingsSection: 'Setup' }))}
+            >
+              Sign in
+            </Button>
+          ) : null}
+        </div>
       ) : null}
     </div>
   )

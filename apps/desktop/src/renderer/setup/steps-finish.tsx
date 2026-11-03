@@ -7,6 +7,7 @@ import { openPlace } from '../navigation/navigate'
 import { flushPendingTabs } from '../tabs/tabs-store'
 import { useSetupRun } from './run'
 import { QrCode } from './QrCode'
+import { AiStep } from './steps-system'
 import type { WizardCtx } from './wizard'
 
 export const TESTFLIGHT_URL = 'https://testflight.apple.com/join/hjsTe54Y'
@@ -198,6 +199,8 @@ export function DoneStep({ ctx }: { ctx: WizardCtx }) {
   const [checks, setChecks] = useState<Check[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [finishing, setFinishing] = useState(false)
+  // Bumped after a sign-in here, so the checks run again.
+  const [round, setRound] = useState(0)
   const root = ctx.state.root ?? ctx.defaultRoot
 
   useEffect(() => {
@@ -240,7 +243,8 @@ export function DoneStep({ ctx }: { ctx: WizardCtx }) {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [round])
+  const signedIn = checks?.find((c) => c.label === 'Signed in to AI')?.ok !== false
 
   const open = async (): Promise<void> => {
     setError(null)
@@ -277,8 +281,18 @@ export function DoneStep({ ctx }: { ctx: WizardCtx }) {
             className="eva-settings-row eva-settings-row-static eva-setup-check-row"
             data-testid="setup-health"
           >
-            <span className="eva-setup-icon" data-ok={String(c.ok)} data-optional={String(!!c.optional)}>
-              {c.ok ? <IconCheck size={16} /> : c.optional ? <IconMinus size={16} /> : <IconX size={16} />}
+            <span
+              className="eva-setup-icon"
+              data-ok={String(c.ok)}
+              data-optional={String(!!c.optional)}
+            >
+              {c.ok ? (
+                <IconCheck size={16} />
+              ) : c.optional ? (
+                <IconMinus size={16} />
+              ) : (
+                <IconX size={16} />
+              )}
             </span>
             <span className="eva-settings-label">
               <span className="eva-settings-label-title">{c.label}</span>
@@ -287,6 +301,14 @@ export function DoneStep({ ctx }: { ctx: WizardCtx }) {
           </div>
         ))}
       </div>
+      {!signedIn ? (
+        <Alert color="yellow" title="Sign in to AI first" data-testid="setup-done-no-ai">
+          Your assistants can&apos;t think without an AI account, so they would not start. Sign in
+          below with Claude or ChatGPT, or add an API key. Already signed in with `omp login` in
+          Terminal? Press Skip for now below to check again.
+        </Alert>
+      ) : null}
+      {!signedIn ? <AiStep ctx={{ ...ctx, finish: () => setRound((r) => r + 1) }} /> : null}
       {error ? (
         <Alert color="red" title="Could not finish setup">
           {error}
@@ -296,7 +318,7 @@ export function DoneStep({ ctx }: { ctx: WizardCtx }) {
         <Button
           onClick={() => void open()}
           loading={finishing}
-          disabled={checks === null}
+          disabled={checks === null || !signedIn}
           data-testid="setup-finish"
         >
           {ctx.rerun ? 'Done' : 'Open Relay'}

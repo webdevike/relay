@@ -6,6 +6,12 @@ import { AssistantsService } from './assistants'
 
 /** Relay's deltas come in bursts; one recompute per burst. */
 const COALESCE_MS = 30
+/**
+ * A start acks only once the host's omp has registered, which the host allows 30 s
+ * (REGISTER_TIMEOUT_MS in apps/linux/src/assistant/service.ts). Waiting longer lets the host's own
+ * reason (no AI account, omp missing, herdr down) reach the page instead of "didn't answer in time".
+ */
+const START_TIMEOUT_MS = 45_000
 
 /**
  * `assistants.list` / `assistants.start`, and `assistants.changed` whenever what the Assistants
@@ -32,7 +38,7 @@ export function registerAssistantsIpc(
   // the next session list carries the thread.
   handle(ctx, 'assistants.start', async ({ agent }) => {
     const title = service.agents().find((a) => a.id === agent)?.title ?? agent
-    await relay.command({ kind: 'assistant.turn', agent, text: `Hi ${title}` })
+    await relay.command({ kind: 'assistant.turn', agent, text: `Hi ${title}` }, START_TIMEOUT_MS)
     return { started: true as const }
   })
 
