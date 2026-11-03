@@ -182,8 +182,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         voice.beginListening()
     }
 
+    /// The last caption she spoke or showed, for handoffs ("the last thing I explained").
+    private var lastSaid: String?
+
     private func say(_ text: String?) {
-        guard speaks, let text, !text.isEmpty else { return }
+        guard let text, !text.isEmpty else { return }
+        lastSaid = text
+        guard speaks else { return }
         voice.speak(text, voice: assistant.liveVoice)
     }
 
@@ -335,6 +340,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             lesson.stop()
             return runShortcut(shortcut, started: started)
         }
+        if let intent = Handoff.intent(in: question) {
+            lesson.stop()
+            return runHandoff(intent, said: question, target: target, assistant: decision.assistant, started: started)
+        }
         if lesson.handleCommand(question) { return }
         if let goal = LessonController.goal(in: question) ?? learningHowTo(question, target: target) {
             work?.cancel()
@@ -411,6 +420,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.overlay.showMessage("Opening \(repo) PR \(number) in your browser", near: nil)
                 Log.info("route: path=shortcut kind=github pr=\(number) repo=\(repo) url=\(url.absoluteString) total=\(ms())ms")
             }
+        }
+    }
+
+    /// Bundles the screen and hands it on (Handoff): a message in the assistant's Relay thread (tickets go to
+    /// Astra as a draft request), or a follow-up in Nova's followups.json. One line confirms it.
+    private func runHandoff(_ intent: Handoff.Intent, said: String, target: TargetApp, assistant: Assistant, started: Date) {
+        work?.cancel()
+        voice.stopSpeaking()
+        let agent = intent.kind == .ticket ? Assistants.work : (intent.kind == .remind ? Assistants.personal : assistant)
+        answer(as: agent)
+        overlay.showMessage(intent.kind == .remind ? "Saving that..." : "Handing this to \(agent.title)...", near: NSEvent.mouseLocation)
+        let explained = lastSaid
+        work = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let bundle = await Handoff.gather(target: target, lastExplanation: explained)
+            let line: String
+            var detail = ""
+            if intent.kind == .remind, let when = intent.when {
+                var text = (intent.test ? "TEST (Relay Assist handoff test, just mark done): " : "") +
+                    "Remind Isaac about what he was looking at in \(bundle.app): \"\(bundle.windowTitle)\"."
+                if let t = bundle.ticket { text += " Ticket \(t)." }
+                if let u = bundle.url { text += " \(u)" }
+                if let s = bundle.selection { text += " He had selected: \"\(s.prefix(300))\"." }
+                if let p = bundle.screenshot { text += " Screenshot: \(p)" }
+                let ok = Handoff.remind(agent: Assistants.personal.id, at: when, text: text)
+                line = ok ? "I'll remind you \(Handoff.describe(when))" : "I couldn't save that reminder"
+                detail = "at=\(ISO8601DateFormatter().string(from: when))"
+            } else {
+                let (ok, out) = await Handoff.tell(agent: agent.id, Handoff.message(intent, said: said, bundle: bundle))
+                line = ok ? "Sent to \(agent.title)" : "I couldn't reach \(agent.title) (\(out))"
+                detail = out
+            }
+            Log.info(String(format: "route: path=handoff kind=%@ agent=%@ test=%@ ticket=%@ selection=%@ shot=%@ %@ total=%.0fms",
+                            intent.kind.rawValue, agent.id, intent.test ? "yes" : "no", bundle.ticket ?? "-",
+                            bundle.selection == nil ? "no" : "yes", bundle.screenshot == nil ? "no" : "yes", detail,
+                            Date().timeIntervalSince(started) * 1000))
+            self.overlay.showMessage(line, near: nil)
+            self.say(line)
         }
     }
 
