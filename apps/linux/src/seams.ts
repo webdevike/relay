@@ -40,6 +40,8 @@ export interface ImagePasting {
  */
 export interface InputAccess {
   readonly granted: boolean;
+  /** Asks the OS for the permission (macOS: its Accessibility prompt). Called when input is refused. */
+  request?(): void;
 }
 
 export interface PairedDevice {

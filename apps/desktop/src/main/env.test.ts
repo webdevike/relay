@@ -1,5 +1,15 @@
-import { describe, expect, it } from 'vitest'
-import { resolveEnv, type ResolveEnvInput } from './env'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { describe, expect, it, vi } from 'vitest'
+import { ompSessionFolderName, resolveEnv, type ResolveEnvInput } from './env'
+
+/** A throwaway home dir, with an Eva folder when `eva` (Isaac's Mac). */
+function fakeHome(eva: boolean): string {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-env-'))
+  if (eva) fs.mkdirSync(path.join(home, 'Eva'))
+  return home
+}
 
 const base = (over: Partial<ResolveEnvInput> = {}): ResolveEnvInput => ({
   env: {},
@@ -34,33 +44,91 @@ describe('resolveEnv', () => {
   })
 
   it('uses the real root and the Relay Dev folder when EVAOS_LIVE=1 without EVAOS_STABLE', () => {
-    const e = resolveEnv(base({ env: { EVAOS_LIVE: '1' } }))
+    const home = fakeHome(true)
+    const e = resolveEnv(base({ homedir: home, env: { EVAOS_LIVE: '1' } }))
     expect(e.live).toBe(true)
     expect(e.stable).toBe(false)
     expect(e.instance).toBe('dev')
-    expect(e.evaRoot).toBe('/home/u/Eva')
-    expect(e.configDir).toBe('/home/u/Library/Application Support/Relay Dev')
+    expect(e.evaRoot).toBe(path.join(home, 'Eva'))
+    expect(e.profile).toBe('eva')
+    expect(e.setupComplete).toBe(true)
+    expect(e.configDir).toBe(path.join(home, 'Library/Application Support/Relay Dev'))
     expect(e.legacyConfigDir).toBeNull()
     expect(e.relayDir).toBeNull()
-    expect(e.sessionsDir).toBe('/home/u/.omp/agent/sessions/-Eva')
+    expect(e.sessionsDir).toBe(path.join(home, '.omp/agent/sessions/-Eva'))
     expect(typeof e.ompBin).toBe('string')
-    expect(e.ompProfilesDir).toBe('/home/u/.omp/profiles')
+    expect(e.ompProfilesDir).toBe(path.join(home, '.omp/profiles'))
     expect(
-      resolveEnv(base({ env: { EVAOS_LIVE: '1', EVAOS_OMP_PROFILES_DIR: '/p' } })).ompProfilesDir,
+      resolveEnv(base({ homedir: home, env: { EVAOS_LIVE: '1', EVAOS_OMP_PROFILES_DIR: '/p' } }))
+        .ompProfilesDir,
     ).toBe('/p')
-    expect(resolveEnv(base({ env: { EVAOS_LIVE: '1', EVAOS_RELAY_DIR: '/r' } })).relayDir).toBe(
-      '/r',
+    expect(
+      resolveEnv(base({ homedir: home, env: { EVAOS_LIVE: '1', EVAOS_RELAY_DIR: '/r' } })).relayDir,
+    ).toBe('/r')
+  })
+
+  it('reads home.json: a starter root that still needs setup', () => {
+    const home = fakeHome(false)
+    const configDir = path.join(home, 'cfg')
+    fs.mkdirSync(configDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(configDir, 'home.json'),
+      JSON.stringify({ root: '~/Relay', profile: 'starter', setupComplete: false }),
     )
+    const e = resolveEnv(
+      base({ homedir: home, env: { EVAOS_LIVE: '1', EVAOS_CONFIG_DIR: configDir } }),
+    )
+    expect(e.profile).toBe('starter')
+    expect(e.evaRoot).toBe(path.join(home, 'Relay'))
+    expect(e.homeRoot).toBe(path.join(home, 'Relay'))
+    expect(e.setupComplete).toBe(false)
+    expect(e.sessionsDir).toBe(path.join(home, '.omp/agent/sessions/-Relay'))
+  })
+
+  it('with no home.json and no ~/Eva, is a starter at ~/Relay that needs setup', () => {
+    const home = fakeHome(false)
+    const e = resolveEnv(base({ homedir: home, env: { EVAOS_LIVE: '1' } }))
+    expect(e.profile).toBe('starter')
+    expect(e.evaRoot).toBe(path.join(home, 'Relay'))
+    expect(e.setupComplete).toBe(false)
+  })
+
+  it('falls back to the default home base when home.json is malformed', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const withEva = fakeHome(true)
+    const cfgA = path.join(withEva, 'cfg')
+    fs.mkdirSync(cfgA, { recursive: true })
+    fs.writeFileSync(path.join(cfgA, 'home.json'), '{ nope')
+    const a = resolveEnv(
+      base({ homedir: withEva, env: { EVAOS_LIVE: '1', EVAOS_CONFIG_DIR: cfgA } }),
+    )
+    expect(a.profile).toBe('eva')
+    expect(a.evaRoot).toBe(path.join(withEva, 'Eva'))
+
+    const bare = fakeHome(false)
+    const cfgB = path.join(bare, 'cfg')
+    fs.mkdirSync(cfgB, { recursive: true })
+    fs.writeFileSync(path.join(cfgB, 'home.json'), JSON.stringify({ root: '', profile: 'x' }))
+    const b = resolveEnv(base({ homedir: bare, env: { EVAOS_LIVE: '1', EVAOS_CONFIG_DIR: cfgB } }))
+    expect(b.profile).toBe('starter')
+    expect(b.setupComplete).toBe(false)
+    err.mockRestore()
+  })
+
+  it('names omp session folders from the home-relative root', () => {
+    expect(ompSessionFolderName('/Users/x/Eva', '/Users/x')).toBe('-Eva')
+    expect(ompSessionFolderName('/Users/x/Relay', '/Users/x')).toBe('-Relay')
   })
 
   it('EVAOS_STABLE=1 is the stable live app in the Relay Desktop folder', () => {
-    const e = resolveEnv(base({ env: { EVAOS_STABLE: '1' } }))
+    const home = fakeHome(true)
+    const e = resolveEnv(base({ homedir: home, env: { EVAOS_STABLE: '1' } }))
     expect(e.live).toBe(true)
     expect(e.stable).toBe(true)
     expect(e.instance).toBe('stable')
-    expect(e.evaRoot).toBe('/home/u/Eva')
-    expect(e.configDir).toBe('/home/u/Library/Application Support/Relay Desktop')
-    expect(e.legacyConfigDir).toBe('/home/u/Library/Application Support/EvaOS Electron')
+    expect(e.evaRoot).toBe(path.join(home, 'Eva'))
+    expect(e.configDir).toBe(path.join(home, 'Library/Application Support/Relay Desktop'))
+    expect(e.legacyConfigDir).toBe(path.join(home, 'Library/Application Support/EvaOS Electron'))
     expect(e.relayDir).not.toBeNull()
     expect(e.cdpPort).toBe(9339)
   })
@@ -95,10 +163,14 @@ describe('resolveEnv', () => {
   })
 
   it('treats a packaged app as stable and live, with overrides still winning', () => {
-    const e = resolveEnv(base({ isPackaged: true, env: { EVAOS_CONFIG_DIR: '/cfg' } }))
+    const home = fakeHome(true)
+    const e = resolveEnv(
+      base({ homedir: home, isPackaged: true, env: { EVAOS_CONFIG_DIR: '/cfg' } }),
+    )
     expect(e.live).toBe(true)
     expect(e.instance).toBe('stable')
-    expect(e.evaRoot).toBe('/home/u/Eva')
+    expect(e.evaRoot).toBe(path.join(home, 'Eva'))
+    expect(e.profile).toBe('eva')
     expect(e.configDir).toBe('/cfg')
     expect(e.legacyConfigDir).toBeNull()
   })
@@ -224,12 +296,20 @@ describe('resolveEnv', () => {
     expect(e.nativeChatSettings).toBeNull()
   })
 
-  it('shares the native EvaOS canvas folder and pins when live', () => {
-    const e = resolveEnv(base({ env: { EVAOS_LIVE: '1' } }))
-    expect(e.canvasDir).toBe('/home/u/Library/Application Support/EvaOS/canvases')
+  it('shares the native EvaOS canvas folder and pins when live (eva profile)', () => {
+    const home = fakeHome(true)
+    const e = resolveEnv(base({ homedir: home, env: { EVAOS_LIVE: '1' } }))
+    const evaos = path.join(home, 'Library/Application Support/EvaOS')
+    expect(e.canvasDir).toBe(path.join(evaos, 'canvases'))
     expect(e.canvasSeedDir).toBeNull()
-    expect(e.nativeCanvasPins).toBe('/home/u/Library/Application Support/EvaOS/canvas.json')
-    expect(e.nativeChatSettings).toBe('/home/u/Library/Application Support/EvaOS/chat.json')
+    expect(e.nativeCanvasPins).toBe(path.join(evaos, 'canvas.json'))
+    expect(e.nativeChatSettings).toBe(path.join(evaos, 'chat.json'))
+  })
+
+  it('a starter user keeps canvases in the Relay folder', () => {
+    const home = fakeHome(false)
+    const e = resolveEnv(base({ homedir: home, env: { EVAOS_LIVE: '1' } }))
+    expect(e.canvasDir).toBe(path.join(home, 'Library/Application Support/Relay/canvases'))
   })
 
   it('EVAOS_CANVAS_DIR wins without seeding, and the real folder needs EVAOS_LIVE', () => {

@@ -5,7 +5,7 @@
 // over its loopback HTTP endpoint; `serve` leaves its port in `relay/serve.json` so `share`
 // can find it.
 
-import { chmodSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -14,6 +14,7 @@ import { Drop, sessionReactionThread } from "@relay/protocol";
 import { z } from "zod";
 import pkg from "../package.json";
 import { bundleVersion } from "./bundle-version";
+import { ensureOmpExtensions } from "./agents/extensions";
 import { defaultSocketPath, OmpBridgeProvider } from "./agents/bridge";
 import { SessionFiles } from "./agents/session-files";
 import {
@@ -60,14 +61,15 @@ import type { EventPoster } from "./input/poster";
 import { TrackpadInputSink } from "./input/trackpad";
 import { UinputDevice } from "./input/uinput";
 import { BonjourAdvertiser } from "./mdns";
-import { TerminalPairingUI } from "./pairing";
+import { PinFilePairingUI, TerminalPairingUI } from "./pairing";
+import { PAIRING_TIMEOUT_MS, systemClock } from "./session";
+import { featureOn, loadHostConfig, relayConfigDir, resolveHuman, setHuman, toolPath, type HostConfig } from "./host-config";
 import { ExpoPushSender } from "./push/expo";
 import { InboxService } from "./inbox/service";
 import { AttentionNotifier } from "./push/notifier";
 import { FilePushTokenStore } from "./push/token-store";
 import { RelayServer } from "./server";
 import { DEFAULT_VNC_PORT } from "./vnc";
-import { systemClock } from "./session";
 import { ClipboardWatcher, systemPaste, systemWatch } from "./drops/clipboard";
 import { CodexRunner, ompCodexToken } from "./studio/codex";
 import { HiggsfieldRunner, ompHiggsfieldCredentials } from "./studio/higgsfield";
@@ -86,6 +88,8 @@ import { ReviewsService } from "./reviews/service";
 
 const USAGE = `relay-linux <command>
 
+  Defaults for serve come from ~/.config/relay/host.json ({agentHome, name, port, human?,
+  features?}) when it exists; the flags below win over it.
   serve [--port N] [--name NAME] [--agent-home DIR] [--no-clipboard] [--boards DIR] [--vnc-port N]
         [--canvases DIR]
                                    run the host (default command); --agent-home is where a
@@ -154,6 +158,9 @@ const USAGE = `relay-linux <command>
                                    handoffs, and the latest chat (JSON)
   canvas leave <slug> --as <Name>  take <Name>'s cursor out of the room
   canvas list                      list the running host's canvas rooms
+  catchup bounce <id> <reason> [--agent <id>]
+                                   from an assistant's session: hand Catch Up card <id> back
+                                   (--agent defaults to $RELAY_ASSISTANT)
   canvas end [<slug>]              wrap up the live session on <slug> (default: this chat's)
   react <emoji> [--agent <id>] [--message latest|<key>]
   react --clear [--agent <id>] [--message latest|<key>]
@@ -170,6 +177,11 @@ const ServeInfo = z.object({ port: z.number().int().min(1).max(65535), pid: z.nu
 function serveInfoPath(): string {
   const base = process.env["XDG_CONFIG_HOME"] ?? join(homedir(), ".config");
   return join(base, "relay", "serve.json");
+}
+
+/** Where the open pairing's PIN is left for Relay Desktop: `{pin, expiresAt, deviceName}`, 0600. */
+function pairingPinPath(): string {
+  return join(relayConfigDir(), "pairing.json");
 }
 
 /**
@@ -199,13 +211,22 @@ function serve(
   boardsDir: string | null,
   vncPort: number,
   canvasDir: string | null,
+  config: HostConfig | null,
 ): void {
+  let registry: readonly AssistantAgentConfig[] = [];
+  try {
+    if (agentHome !== null) registry = loadRegistry(agentHome);
+  } catch {
+    // No registry: assistants are off and the lists below stay empty.
+  }
   let device: UinputDevice | MacInputDevice | null = null;
+  let accessRequested = false;
   try {
     device = process.platform === "darwin" ? new MacInputDevice() : new UinputDevice();
     if (device instanceof MacInputDevice) {
-      log(`macOS input: Accessibility ${device.granted ? "granted" : "required"}`);
-      if (!device.granted) device.requestAccess();
+      // No prompt here: a new Mac would get an unexplained Accessibility dialog at login. The first
+      // pointer/keyboard command from a phone asks instead (session `inputAllowed`).
+      log(`macOS input: Accessibility ${device.granted ? "granted" : "not granted yet (asked on first phone input)"}`);
     } else {
       log("virtual input device created");
     }
@@ -225,6 +246,10 @@ function serve(
         : "text input: wtype",
   );
 
+  // The host may be started by a login item or launchd with no login-shell PATH: omp, herdr and
+  // bun live in ~/.local/bin, ~/.bun/bin or Homebrew. Appended, so an existing PATH keeps priority.
+  process.env["PATH"] = toolPath();
+  void ensureOmpExtensions(log);
   const agents = new OmpBridgeProvider(defaultSocketPath(), log, agentHome);
   const pushTokens = new FilePushTokenStore();
   const drops = new FileDropStore(undefined, {
@@ -258,7 +283,10 @@ function serve(
   });
   // Snapshots go out on feed or state changes, and handoffs reach the assistant threads, long after
   // `server` and `assistant` below are initialised.
-  const catchupFeed = defaultCatchUpFeedPath(agentHome);
+  // Catch Up reads a feed an Eva job builds; a host without that feed (and without features.catchup) has none.
+  const feedPath = defaultCatchUpFeedPath(agentHome);
+  const catchupFeed =
+    feedPath !== null && featureOn(config, "catchup", existsSync(feedPath) || process.env["RELAY_CATCHUP_FEED"] !== undefined) ? feedPath : null;
   const catchup =
     catchupFeed === null
       ? null
@@ -269,13 +297,22 @@ function serve(
           emit: (snapshot) => {
             server.broadcastExcept({ t: "catchup.snapshot", ...snapshot }, null);
           },
-          // A handoff is Isaac's turn in that assistant's thread, as if he had typed it there.
+          // A handoff is the human's turn in that assistant's thread, as if they had typed it there.
           deliver: async (agent, text) => {
             const thread = assistant?.thread(agent);
             if (thread === undefined) throw new Error(`no assistant thread ${agent}`);
             await thread.turn(text);
           },
           knows: (agent) => assistant?.threads.some((thread) => thread.id === agent) ?? false,
+          // Without the owner's Eva tools, scopes come from the registry and a bounce is this binary's `catchup bounce`.
+          ...(config === null
+            ? {}
+            : {
+                handoffOptions: {
+                  scopes: registry.map((agent) => `${agent.title}: ${agent.scope ?? "any work"}`).join("; "),
+                  bounce: (id: string) => `"${process.execPath}" catchup bounce ${id} "<reason>"`,
+                },
+              }),
           log,
         });
   // `isViewing` only runs once sessions change, long after `server` below is initialised.
@@ -304,6 +341,9 @@ function serve(
         agents,
         launch: (options) => agents.launchWith(options),
         sessionFile: (sessionId) => agents.sessionFile(sessionId),
+        holder: (file) => agents.sessionForFile(file),
+        close: (sessionId) => agents.close(sessionId),
+        reconnected: () => agents.reconnected(),
         agentHome,
         store: new FileAssistantStore(defaultAssistantPath(agent.id)),
         tokens: pushTokens,
@@ -325,11 +365,16 @@ function serve(
       log,
     },
   );
+  // Local voice calls run on Eva's speech stack (eva-realtime venv + pocket-tts); a host without it has none.
+  const voiceRoot =
+    agentHome === null
+      ? null
+      : (process.env["RELAY_VOICE_ROOT"] ?? join(agentHome, "apps", "eva-realtime"));
   const voice =
-    assistant === null || agentHome === null
+    assistant === null || voiceRoot === null || !featureOn(config, "voiceLocal", existsSync(voiceRoot))
       ? null
       : new EvaRealtimeVoice({
-          root: process.env["RELAY_VOICE_ROOT"] ?? join(agentHome, "apps", "eva-realtime"),
+          root: voiceRoot,
           ttsUrl: `http://127.0.0.1:${process.env["POCKET_PORT"] ?? "8853"}`,
           defaultVoice: process.env["POCKET_VOICE"] ?? "stuart_bell",
           log,
@@ -463,37 +508,40 @@ function serve(
             clipboard.expect(mimeType, bytes);
           },
   });
-  const canvas = liveCanvas(canvasDir, agentHome, agents);
+  const canvas = liveCanvas(canvasDir, agentHome, agents, registry, config);
   // Jobs and state go out long after `server` below is initialised.
-  const studio = studioService(agentHome, (message) => {
+  const studio = studioService(agentHome, config, (message) => {
     server.broadcastExcept(message, null);
   });
-  // Queue and Astra pushes go out long after `server` below is initialised.
+  // Reviews is Isaac's eCard queue, answered by his assistant Astra; a host without that assistant
+  // (and without features.reviews) has no Reviews.
   const reviewsWrites = process.env["RELAY_REVIEWS_DRY_RUN"] !== "1";
-  const reviews = new ReviewsService({
-    dir: defaultReviewsDir(),
-    agentHome,
-    writes: reviewsWrites,
-    run: bunRun,
-    gh: resolveGh(),
-    claude: resolveClaude(),
-    fetch: globalThis.fetch,
-    agents,
-    launch: agentHome === null ? null : (options) => agents.launchJoined(options),
-    sessionFile: (sessionId) => agents.sessionFile(sessionId),
-    socketPath: defaultSocketPath(),
-    // A Slack send request is a job message to Astra's main thread, as eva-thread.ts sends it.
-    tellAstra: async (line) => {
-      const thread = assistant?.thread("astra");
-      if (thread === undefined) throw new Error("Astra's thread does not run on this host");
-      await thread.say(line);
-    },
-    broadcast: (message) => {
-      server.broadcastExcept(message, null);
-    },
-    clock: systemClock,
-    log,
-  });
+  const reviews = !featureOn(config, "reviews", assistant?.thread("astra") !== undefined)
+    ? null
+    : new ReviewsService({
+        dir: defaultReviewsDir(),
+        agentHome,
+        writes: reviewsWrites,
+        run: bunRun,
+        gh: resolveGh(),
+        claude: resolveClaude(),
+        fetch: globalThis.fetch,
+        agents,
+        launch: agentHome === null ? null : (options) => agents.launchJoined(options),
+        sessionFile: (sessionId) => agents.sessionFile(sessionId),
+        socketPath: defaultSocketPath(),
+        // A Slack send request is a job message to Astra's main thread, as eva-thread.ts sends it.
+        tellAstra: async (line) => {
+          const thread = assistant?.thread("astra");
+          if (thread === undefined) throw new Error("Astra's thread does not run on this host");
+          await thread.say(line);
+        },
+        broadcast: (message) => {
+          server.broadcastExcept(message, null);
+        },
+        clock: systemClock,
+        log,
+      });
   log(`live view: VNC bridge to 127.0.0.1:${String(vncPort)} (macOS Screen Sharing)`);
   const server: RelayServer = new RelayServer(
     { port, hostName: name, version: bundleVersion() ?? pkg.version, vncPort },
@@ -503,6 +551,11 @@ function serve(
       access: {
         get granted() {
           return device instanceof MacInputDevice ? device.granted : device !== null;
+        },
+        request: () => {
+          if (!(device instanceof MacInputDevice) || accessRequested) return;
+          accessRequested = true;
+          device.requestAccess();
         },
       },
       images,
@@ -526,10 +579,11 @@ function serve(
       reviews,
       query,
       canvasPage: () => CANVAS_PAGE,
-      pairing: new TerminalPairingUI(),
+      pairing: new PinFilePairingUI(new TerminalPairingUI(), pairingPinPath(), PAIRING_TIMEOUT_MS),
       log,
     },
   );
+  rmSync(pairingPinPath(), { force: true });
   const boundPort = server.start();
   const infoPath = serveInfoPath();
   mkdirSync(dirname(infoPath), { recursive: true, mode: 0o700 });
@@ -558,11 +612,13 @@ function serve(
   catchup?.start();
   studio?.start();
   log(
-    `reviews in ${defaultReviewsDir()}${reviewsWrites ? "" : " (RELAY_REVIEWS_DRY_RUN=1: nothing is posted)"}`,
+    reviews === null
+      ? "reviews disabled (no astra assistant and no features.reviews)"
+      : `reviews in ${defaultReviewsDir()}${reviewsWrites ? "" : " (RELAY_REVIEWS_DRY_RUN=1: nothing is posted)"}`,
   );
   log(
     catchupFeed === null
-      ? "catch up disabled (no --agent-home or $RELAY_CATCHUP_FEED)"
+      ? "catch up disabled (no feed, or no --agent-home / $RELAY_CATCHUP_FEED)"
       : `catch up feed ${catchupFeed}`,
   );
   log(
@@ -577,10 +633,11 @@ function serve(
     log("shutting down");
     clipboard?.stop();
     rmSync(infoPath, { force: true });
+    rmSync(pairingPinPath(), { force: true });
     advertiser.stop();
     canvas?.stop();
     studio?.stop();
-    reviews.stop();
+    reviews?.stop();
     server.stop();
     voice?.stop();
     catchup?.stop();
@@ -599,6 +656,8 @@ function liveCanvas(
   canvasDir: string | null,
   agentHome: string | null,
   agents: OmpBridgeProvider,
+  registry: readonly AssistantAgentConfig[],
+  config: HostConfig | null,
 ): CanvasService | null {
   if (canvasDir === null) {
     log("live canvas disabled (no --canvases)");
@@ -609,20 +668,17 @@ function liveCanvas(
     log("live canvas disabled: omp not found (set $RELAY_CANVAS_OMP)");
     return null;
   }
-  let registry: readonly AssistantAgentConfig[] = [];
-  try {
-    if (agentHome !== null) registry = loadRegistry(agentHome);
-  } catch {
-    // Without a registry every chat's agent is Eva.
-  }
-  const configDir = join(process.env["XDG_CONFIG_HOME"] ?? join(homedir(), ".config"), "relay");
+  const configDir = relayConfigDir();
+  // The sign-ins live in omp's `personal` profile on the owner's host; a starter host has only omp's default.
+  const profile = existsSync(join(homedir(), ".omp", "profiles", "personal")) ? "personal" : null;
   log(`live canvas on boards in ${canvasDir} (brains: ${omp})`);
   return new CanvasService({
     canvasDir,
     chats: agents,
     registry,
+    ...(config === null || registry[0] === undefined ? {} : { defaultAgentName: registry[0].title }),
     avatarsDir: agentHome === null ? null : join(agentHome, "work", "assistant-avatars"),
-    brains: ompBrains({ omp, profile: "personal", configs: [brainConfigOverlay(configDir)], log }),
+    brains: ompBrains({ omp, profile, configs: [brainConfigOverlay(configDir)], log }),
     log,
   });
 }
@@ -634,13 +690,25 @@ function liveCanvas(
  */
 function studioService(
   agentHome: string | null,
+  config: HostConfig | null,
   emit: (message: StudioMessage) => void,
 ): StudioService | null {
-  const media = ffmpegMedia(log);
-  const token = ompCodexToken(resolveOmp());
   const ltxDir =
     process.env["RELAY_STUDIO_LTX_DIR"] ??
     join(agentHome ?? join(homedir(), "Eva"), "work", "local-video");
+  // Studio runs on the owner's LTX install and omp's `personal` sign-ins; without either (and without features.studio) it is off.
+  if (
+    !featureOn(
+      config,
+      "studio",
+      existsSync(ltxDir) || existsSync(join(homedir(), ".omp", "profiles", "personal")),
+    )
+  ) {
+    log("studio disabled (no local video install or personal omp profile, and no features.studio)");
+    return null;
+  }
+  const media = ffmpegMedia(log);
+  const token = ompCodexToken(resolveOmp());
   try {
     const studio = new StudioService({
       dir: defaultStudioDir(),
@@ -793,6 +861,23 @@ async function assistantSay(agent: string | undefined, positionals: string[]): P
     process.exit(1);
   }
   console.log(`told ${agent}`);
+}
+
+/** `catchup bounce <id> <reason>`: the running host gets Catch Up card `id` handed back by assistant `agent`. */
+async function catchupBounce(agent: string | undefined, positionals: string[]): Promise<void> {
+  const [id, ...reason] = positionals;
+  if (agent === undefined || agent === "") throw new Error("catchup bounce: missing --agent <id> (or $RELAY_ASSISTANT)");
+  if (id === undefined || reason.length === 0) throw new Error("catchup bounce: expected <id> <reason>");
+  const response = await fetch(`${hostUrl()}/catchup/bounce`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ id, agent, reason: reason.join(" ") }),
+  });
+  if (!response.ok) {
+    console.error(await response.text());
+    process.exit(1);
+  }
+  console.log(`bounced ${id}`);
 }
 
 /** The host's JSON answer, or exit 1 with its `{error}` (or body). */
@@ -1160,8 +1245,8 @@ async function main(argv: string[]): Promise<void> {
     args: argv,
     allowPositionals: true,
     options: {
-      port: { type: "string", default: "0" },
-      name: { type: "string", default: hostname() },
+      port: { type: "string" },
+      name: { type: "string" },
       "agent-home": { type: "string" },
       "no-clipboard": { type: "boolean", default: false },
       boards: { type: "string" },
@@ -1187,24 +1272,35 @@ async function main(argv: string[]): Promise<void> {
   }
   switch (command) {
     case "serve": {
-      const port = Number.parseInt(values.port, 10);
+      const config = loadHostConfig();
+      const portText = values.port ?? String(config?.port ?? 0);
+      const port = Number.parseInt(portText, 10);
       if (!Number.isInteger(port) || port < 0 || port > 65535)
-        throw new Error(`invalid --port ${values.port}`);
+        throw new Error(`invalid --port ${portText}`);
       const vncPort = Number.parseInt(values["vnc-port"], 10);
       if (!Number.isInteger(vncPort) || vncPort < 1 || vncPort > 65535)
         throw new Error(`invalid --vnc-port ${values["vnc-port"]}`);
+      const name = values.name ?? config?.name ?? hostname();
+      setHuman(resolveHuman(config, name));
+      // The Eva boards dir exists only on the owner's Mac; other hosts keep canvases under Relay's own support dir.
+      const evaCanvases = join(homedir(), "Library", "Application Support", "EvaOS", "canvases");
+      const defaultCanvases =
+        process.platform !== "darwin" ? null : config === null || existsSync(evaCanvases) ? evaCanvases : join(homedir(), "Library", "Application Support", "Relay", "canvases");
       serve(
         port,
-        values.name,
-        values["agent-home"] ?? process.env["HOME"] ?? null,
+        name,
+        values["agent-home"] ?? config?.agentHome ?? process.env["HOME"] ?? null,
         !values["no-clipboard"],
         values.boards ?? process.env["RELAY_BOARDS_DIR"] ?? null,
         vncPort,
-        values.canvases ??
-          (process.platform === "darwin"
-            ? join(homedir(), "Library", "Application Support", "EvaOS", "canvases")
-            : null),
+        values.canvases ?? defaultCanvases,
+        config,
       );
+      return;
+    }
+    case "catchup": {
+      if (positionals[1] !== "bounce") throw new Error("catchup: try `catchup bounce <id> <reason>`");
+      await catchupBounce(values.agent ?? process.env["RELAY_ASSISTANT"], positionals.slice(2));
       return;
     }
     case "devices": {

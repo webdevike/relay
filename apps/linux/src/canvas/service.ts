@@ -12,11 +12,13 @@
 // handoff id, and the canvas self confirms it in the room.
 
 import { existsSync, readdirSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { CanvasSlug, type AgentSession, type CanvasAgent as CanvasAgentInfo, type CanvasEntry, type CanvasRoomInfo, type ServerMessage } from "@relay/protocol";
 import { exportBoard, type Board } from "@relay/canvas-live/board";
 import { DOC_KEYS, type ChatMsg, type ModelKey, type SessionInfo, type User } from "@relay/canvas-live/shared";
 import type { AssistantAgentConfig } from "../assistant/registry";
+import { human } from "../host-config";
 import type * as Y from "yjs";
 import { str } from "./actor";
 import { CanvasAgent, systemPrompt, type AgentIdentity } from "./agent";
@@ -29,8 +31,8 @@ import { portraitSeed } from "./portrait";
 import { CanvasSync, type CanvasPeer } from "./room";
 import { CanvasTokens, type CanvasGrant } from "./tokens";
 
-/** The human every room is for: tokens are bound to this name. */
-export const CANVAS_HUMAN = "Isaac";
+/** The human every room is for: tokens are bound to this name (the host's owner, see host-config.ts). */
+export const canvasHuman = human;
 /** Default look of the agent of a plain chat (Relay calls those chats' agent Eva). */
 const EVA: CanvasAgentInfo = { name: "Eva", color: "#8b5cf6" };
 /** Colors for joined agents, picked by name (the first one no one in the room wears yet). */
@@ -41,8 +43,13 @@ export const END_AFTER_MS = 2 * 60_000;
 export const UNJOINED_END_MS = 30 * 60_000;
 /** Ended rooms listed in `canvas.rooms` for their cards. */
 const MAX_ENDED = 20;
-/** The CLI an agent session runs to work a room (skill://canvas). */
-const CLI = "bun ~/Eva/work/relay/apps/linux/src/main.ts";
+/**
+ * The CLI an agent session runs to work a room (skill://canvas): the owner's checkout when it is
+ * there, else this very binary (the packaged relay-host).
+ */
+const CLI = existsSync(join(homedir(), "Eva", "work", "relay", "apps", "linux", "src", "main.ts"))
+  ? "bun ~/Eva/work/relay/apps/linux/src/main.ts"
+  : `"${process.execPath}"`;
 
 /** A request the HTTP layer answers with `status` and `{ error: message }`. */
 export class CanvasError extends Error {
@@ -73,6 +80,8 @@ export interface CanvasServiceDeps {
   readonly registry: readonly AssistantAgentConfig[];
   /** `<agent home>/work/assistant-avatars`: `<id>.png` per assistant (and `eva.png`). */
   readonly avatarsDir: string | null;
+  /** Name of a plain chat's canvas agent; absent: "Eva". */
+  readonly defaultAgentName?: string;
   readonly brains: BrainFactory;
   readonly log: (line: string) => void;
   readonly now?: () => number;
@@ -286,7 +295,7 @@ export class CanvasService {
       const board = room?.board ?? this.ended.find((info) => info.slug === slug)?.board;
       return { t: "canvas.unavailable", slug, reason: board === undefined ? "No live canvas session on this board." : `The canvas session on ${board} has ended.` };
     }
-    const grant = this.tokens.issue(slug, deviceId, CANVAS_HUMAN);
+    const grant = this.tokens.issue(slug, deviceId, canvasHuman());
     return { t: "canvas.access", slug, path: `/canvas/${slug}/?token=${encodeURIComponent(grant.token)}`, token: grant.token, expiresAt: grant.expiresAt };
   }
 
@@ -353,8 +362,8 @@ export class CanvasService {
       if (settings.get("model") === undefined) settings.set("model", "sonnet");
     }, "host");
 
-    const context = chatContext(chatFile, agent.name, CANVAS_HUMAN);
-    const identity: AgentIdentity = { user: this.user(agent), human: CANVAS_HUMAN, chatTitle: chatSession.title, purpose, chat: context.turns, chatTurns: context.turnCount };
+    const context = chatContext(chatFile, agent.name, canvasHuman());
+    const identity: AgentIdentity = { user: this.user(agent), human: canvasHuman(), chatTitle: chatSession.title, purpose, chat: context.turns, chatTurns: context.turnCount };
     const brain = (model: ModelKey): CanvasBrain => {
       let b = room.brains.get(model);
       if (b === undefined) {
@@ -377,7 +386,7 @@ export class CanvasService {
         },
         log: this.deps.log,
         handoff: (target, request, from) => {
-          this.handOff(room, target, request, from?.name ?? CANVAS_HUMAN);
+          this.handOff(room, target, request, from?.name ?? canvasHuman());
         },
         direct: (msg) => {
           // `@Name do X` to a worker goes straight to its session; the canvas self stays out of it.
@@ -420,8 +429,8 @@ export class CanvasService {
     }, this.deps.unjoinedEndMs ?? UNJOINED_END_MS);
 
     const startLine = [
-      `Live canvas started on "${room.board}" (board ${slug}${created ? ", new" : ""}). ${CANVAS_HUMAN} has a Join card in this chat; ${agent.name} in the room is this session, with this chat as context.`,
-      `Each canvas turn and the wrap-up summary will appear here as canvas rows; they are notes, not turns to answer. What the canvas needs real tools for (files, screenshots, builds, research) arrives here as a "[Canvas request from ${CANVAS_HUMAN}]" message: do it and land it on the board with the command that message gives. Subagents can work the board alongside with their own cursors: relay-linux canvas join ${slug} --as <Name> (add --session <their id> to take requests too).`,
+      `Live canvas started on "${room.board}" (board ${slug}${created ? ", new" : ""}). ${canvasHuman()} has a Join card in this chat; ${agent.name} in the room is this session, with this chat as context.`,
+      `Each canvas turn and the wrap-up summary will appear here as canvas rows; they are notes, not turns to answer. What the canvas needs real tools for (files, screenshots, builds, research) arrives here as a "[Canvas request from ${canvasHuman()}]" message: do it and land it on the board with the command that message gives. Subagents can work the board alongside with their own cursors: relay-linux canvas join ${slug} --as <Name> (add --session <their id> to take requests too).`,
       ...(purpose === "" ? [] : [`Purpose: ${purpose}`]),
     ].join(" ");
     try {
@@ -463,8 +472,8 @@ export class CanvasService {
     const name = request.name.trim().slice(0, 40);
     if (name === "") throw new CanvasError(400, "a participant needs a name (--as <Name>)");
     const key = name.toLowerCase();
-    if (key === room.agent.name.toLowerCase() || key === CANVAS_HUMAN.toLowerCase() || key === "main")
-      throw new CanvasError(409, `${name} is already in the room as its ${key === CANVAS_HUMAN.toLowerCase() ? "human" : "canvas self"}; join under another name.`);
+    if (key === room.agent.name.toLowerCase() || key === canvasHuman().toLowerCase() || key === "main")
+      throw new CanvasError(409, `${name} is already in the room as its ${key === canvasHuman().toLowerCase() ? "human" : "canvas self"}; join under another name.`);
     const session = request.session === undefined || request.session.trim() === "" ? null : this.workerSession(request.session.trim());
     const existing = room.participants.get(key);
     if (existing !== undefined) {
@@ -802,7 +811,7 @@ export class CanvasService {
 
   /** The canvas self's look: the chat's assistant (name, accent, avatar), else Eva; `name` overrides. */
   private agentFor(chat: AgentSession, name: string | undefined): CanvasAgentInfo {
-    let agent: CanvasAgentInfo = EVA;
+    let agent: CanvasAgentInfo = this.deps.defaultAgentName === undefined ? EVA : { ...EVA, name: this.deps.defaultAgentName };
     if (chat.kind === "assistant" && chat.assistant !== undefined) agent = this.assistantLook(chat.assistant, chat.title);
     else if (this.avatarFile("eva") !== null) agent = { ...EVA, avatar: "/canvas/avatar/eva" };
     const override = name?.trim();

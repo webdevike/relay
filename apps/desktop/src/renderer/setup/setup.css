@@ -1,0 +1,80 @@
+/* The setup wizard borrows the settings page's cards and rows; these are its own parts. */
+.eva-setup-col {
+  max-width: 720px;
+}
+.eva-setup-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-setup-icon[data-ok='true'] {
+  color: var(--mantine-color-green-6);
+}
+.eva-setup-icon[data-ok='false'] {
+  color: var(--mantine-color-red-6);
+}
+/* Status rows: icon then label, left to right (settings rows push the label to the far side). */
+.eva-setup-check-row {
+  justify-content: flex-start;
+  gap: 12px;
+}
+.eva-setup-install-row {
+  padding: 12px 16px;
+}
+.eva-setup-install-row + .eva-setup-install-row {
+  border-top: 1px solid var(--eva-c-border);
+}
+.eva-setup-layers {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.eva-setup-layer {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  box-sizing: border-box;
+  min-width: 260px;
+  max-width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius);
+  background: var(--eva-c-secondary-background);
+  font-size: 13px;
+  color: var(--eva-c-foreground);
+}
+.eva-setup-layer-tag {
+  font-weight: 700;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-setup-layer-text {
+  color: var(--eva-c-muted-foreground);
+}
+.eva-setup-assistant {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  padding: 16px;
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius);
+  background: var(--eva-c-secondary-background);
+}
+.eva-setup-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.eva-setup-qr img {
+  border-radius: 8px;
+  background: #fff;
+}
+.eva-setup-address {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--eva-c-foreground);
+  user-select: all;
+}

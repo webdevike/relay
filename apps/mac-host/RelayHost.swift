@@ -7,6 +7,16 @@ let repo = "webdevike/relay"
 let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
 let logURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/RelayHost.log")
 
+/// `~/.config/relay/host.json` (`$XDG_CONFIG_HOME/relay/host.json`), written by the Relay setup wizard:
+/// `{"agentHome": string, "name": string, "port": number, ...}`. Empty when absent or unreadable, so
+/// every setting falls back to the original logic.
+func readHostConfig() -> [String: Any] {
+  let home = FileManager.default.homeDirectoryForCurrentUser.path
+  let base = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"] ?? "\(home)/.config"
+  guard let data = FileManager.default.contents(atPath: "\(base)/relay/host.json"),
+        let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+  return json
+}
 final class App: NSObject, NSApplicationDelegate {
   let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
   let status = NSMenuItem(title: "Starting…", action: nil, keyEquivalent: "")
@@ -38,9 +48,21 @@ final class App: NSObject, NSApplicationDelegate {
     let p = Process()
     p.executableURL = Bundle.main.url(forAuxiliaryExecutable: "relay-host")
     let home = FileManager.default.homeDirectoryForCurrentUser.path
-    let agentHome = FileManager.default.fileExists(atPath: "\(home)/Eva") ? "\(home)/Eva" : home
+    let config = readHostConfig()
+    // host.json first; without it: ~/Eva when it exists, else the home folder.
+    let configuredHome = (config["agentHome"] as? String).map { ($0 as NSString).expandingTildeInPath }
+    let agentHome = configuredHome ?? (FileManager.default.fileExists(atPath: "\(home)/Eva") ? "\(home)/Eva" : home)
+    let port = (config["port"] as? Int) ?? 7817
+    let name = (config["name"] as? String) ?? Host.current().localizedName ?? "Mac"
     let boards = "\(home)/Library/Application Support/Relay/boards"
-    p.arguments = ["serve", "--port", "7817", "--name", Host.current().localizedName ?? "Mac", "--agent-home", agentHome, "--no-clipboard", "--boards", boards]
+    p.arguments = ["serve", "--port", "\(port)", "--name", name, "--agent-home", agentHome, "--no-clipboard", "--boards", boards]
+    // A login item starts with a bare PATH: give relay-host the dirs omp, herdr and bun are installed in.
+    var env = ProcessInfo.processInfo.environment
+    let toolDirs = ["\(home)/.local/bin", "\(home)/.bun/bin", "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
+    var parts = (env["PATH"] ?? "").split(separator: ":").map(String.init)
+    for dir in toolDirs where !parts.contains(dir) { parts.append(dir) }
+    env["PATH"] = parts.joined(separator: ":")
+    p.environment = env
     FileManager.default.createFile(atPath: logURL.path, contents: nil)
     let log = try? FileHandle(forWritingTo: logURL)
     log?.seekToEndOfFile()
@@ -53,7 +75,7 @@ final class App: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { self.start() }
       }
     }
-    do { try p.run(); process = p; status.title = "Running on port 7817" } catch { status.title = "Failed: \(error.localizedDescription)" }
+    do { try p.run(); process = p; status.title = "Running on port \(port)" } catch { status.title = "Failed: \(error.localizedDescription)" }
   }
 
   @objc func showLog() { NSWorkspace.shared.open(logURL) }

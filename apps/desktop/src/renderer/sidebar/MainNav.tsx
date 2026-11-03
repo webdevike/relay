@@ -6,6 +6,7 @@ import { canvasNavPlace } from '../canvas/canvas-store'
 import { openFromNav } from '../navigation/open-in-app'
 import { navTargetOf, type ClickMods } from '../navigation/open-target'
 import { NAV_PAGES } from '../pages/page-meta'
+import { STARTER_SLUGS, useProfile } from '../pages/profile'
 import { activePlace, useTabs } from '../tabs/tabs-store'
 import { brandTooltip, useAbout } from '../about/build-info'
 import { ScrollArea } from '../ui/ScrollArea'
@@ -34,6 +35,8 @@ export function MainNav() {
   const jobs = useSidebarData((s) => s.scheduledJobs)
   const error = useSidebarData((s) => s.error)
   const boards = useBoards((s) => s.data?.boards ?? null)
+  const profile = useProfile()
+  const main = MAIN.filter((n) => profile === 'eva' || STARTER_SLUGS[n.slug])
 
   const go = (page: Place['page'], e: ClickMods): void => {
     const here_ = navTargetOf(e) === 'here'
@@ -81,7 +84,7 @@ export function MainNav() {
       <div className="eva-sb-scroll">
         <ScrollArea data-testid="sidebar-scroll">
           <div className="eva-sb-section eva-sb-section-main">Main</div>
-          {MAIN.map((n) => (
+          {main.map((n) => (
             <NavRow
               key={n.slug}
               slug={n.slug}
@@ -147,6 +150,7 @@ export function MainNav() {
               )
             }}
           />
+
         </ScrollArea>
       </div>
       <div className="eva-sb-footer" data-testid="sidebar-footer">

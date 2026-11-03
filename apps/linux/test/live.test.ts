@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { AgentSession, ServerMessage } from "@relay/protocol";
-import { VOICE_NOTE } from "../src/assistant/voice";
+import { voiceNote } from "../src/assistant/voice";
 import { estimatedTokens, headline, liveBrief, memoryBrief, recentTurns } from "../src/live/brief";
 import { clockLine, CLOSE_WAIT_MS, LiveCall, TICK_MS, TRANSCRIPT_WAIT_MS, type LiveThread } from "../src/live/call";
 import { openAiKey, sessionBody, type LiveApi, type LiveEvent, type LiveSessionConfig, type SidebandEvents } from "../src/live/openai";
 import { LiveService } from "../src/live/service";
 import type { FrameSink } from "../src/seams";
 import type { SessionClock } from "../src/session";
+
+const VOICE_NOTE = voiceNote();
 
 class FakeClock implements SessionClock {
   private timers: { at: number; fn: () => void; cancelled: boolean }[] = [];

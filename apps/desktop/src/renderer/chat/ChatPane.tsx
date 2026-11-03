@@ -5,6 +5,7 @@ import { ContextButton } from '../context/ContextButton'
 import { ArtifactsButton } from '../artifacts/ArtifactsButton'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChatLog } from './ChatLog'
+import { useProfile } from '../pages/profile'
 import { Composer, type ComposerHandle } from './Composer'
 import { WidgetActions, type WidgetActionsValue } from './widgets/actions'
 import { PendingDialog } from './cards/PendingDialog'
@@ -74,6 +75,7 @@ export function ToolChat({ place }: { place: Place }) {
 
 function ChatView({ paneId, place, main }: { paneId: string; place: Place; main: boolean }) {
   const pane = useChatStore((s) => s.panes[paneId])
+  const starter = useProfile() === 'starter'
   const composer = useRef<ComposerHandle>(null)
   // A widget reply can go wherever the composer can send: a pane with a session. A stopped one
   // resumes on send (session-manager starts omp) and one running outside this app gets it through
@@ -311,7 +313,7 @@ function ChatView({ paneId, place, main }: { paneId: string; place: Place; main:
       ) : main ? (
         <div className="eva-chat-empty">
           <div className="eva-chat-intro">
-            <h2>What should Eva work on?</h2>
+            <h2>{starter ? 'What should we work on?' : 'What should Eva work on?'}</h2>
             {evaRoot ? (
               <div className="eva-dim">Each chat is an omp session in {evaRoot}.</div>
             ) : null}

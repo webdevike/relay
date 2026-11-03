@@ -5,11 +5,30 @@ import { AgentsDeltaTracker } from "../src/agents/delta-tracker";
 
 /** Feeds extension frames straight into the provider, past the unix socket. */
 function connect(provider: OmpBridgeProvider): (frame: object) => void {
-  const connection = { socket: null, buffer: "", outbound: null, session: null, sessionFile: null, pending: new Map(), gate: undefined };
-  const inner = provider as unknown as { connections: Set<unknown>; receive(connection: unknown, chunk: Uint8Array): void };
+  return link(provider).send;
+}
+
+/** `connect`, plus what the host wrote to this socket and a way to close it as the omp exiting would. */
+function link(provider: OmpBridgeProvider): { send: (frame: object) => void; written: () => Record<string, unknown>[]; close: () => void } {
+  const written: string[] = [];
+  const socket = {
+    write: (bytes: Uint8Array) => {
+      written.push(Buffer.from(bytes).toString("utf8"));
+      return bytes.length;
+    },
+    end: () => undefined,
+  };
+  const connection = { socket, buffer: "", outbound: null, session: null, sessionFile: null, pending: new Map(), gate: undefined, pid: null, herdrPane: null, retired: false, gone: Promise.withResolvers<void>() };
+  const inner = provider as unknown as { connections: Set<unknown>; receive(connection: unknown, chunk: Uint8Array): void; drop(connection: unknown): void };
   inner.connections.add(connection);
-  return (frame) => {
-    inner.receive(connection, Buffer.from(`${JSON.stringify(frame)}\n`));
+  return {
+    send: (frame) => {
+      inner.receive(connection, Buffer.from(`${JSON.stringify(frame)}\n`));
+    },
+    written: () => written.join("").split("\n").filter((line) => line.length > 0).map((line) => JSON.parse(line) as Record<string, unknown>),
+    close: () => {
+      inner.drop(connection);
+    },
   };
 }
 
@@ -97,5 +116,86 @@ describe("session activity", () => {
     expect(tracker.apply([{ ...base, goal }])).not.toHaveProperty("upsert");
     expect(tracker.apply([{ ...base, goal: { ...goal, tokensUsed: 5000 } }])).toHaveProperty("upsert");
     expect(tracker.apply([base])).toHaveProperty("upsert");
+  });
+});
+
+describe("one omp per transcript", () => {
+  const file = "/Users/a/.omp/agent/sessions/-Relay/x_s1.jsonl";
+  const thread = { ...hello, title: "Relay", kind: "assistant", assistant: "relay", sessionFile: file };
+  const copy = { ...hello, title: "Initialize Relay thread memory", kind: "manual", sessionFile: file };
+
+  function setup() {
+    const logs: string[] = [];
+    const closed: string[] = [];
+    const provider = new OmpBridgeProvider("/unused.sock", (line) => logs.push(line), null, (pane) => {
+      closed.push(pane);
+      return Promise.resolve();
+    });
+    let published = 0;
+    provider.onChange = (change) => {
+      if (change.kind === "sessions") published += 1;
+    };
+    return { provider, logs, closed, published: () => published };
+  }
+
+  it("closes the pane of an untagged copy when the assistant thread registers on the same transcript, and lists only the thread", () => {
+    const h = setup();
+    const restored = link(h.provider);
+    restored.send({ ...copy, pid: 720, herdrPane: "w1:p1" });
+    expect(h.provider.sessions.map((s) => s.kind)).toEqual(["manual"]);
+    const resumed = link(h.provider);
+    resumed.send({ ...thread, pid: 961, herdrPane: "w2:p1" });
+    expect(h.closed).toEqual(["w1:p1"]);
+    expect(h.provider.sessions).toHaveLength(1);
+    expect(h.provider.sessions[0]).toMatchObject({ id: "s1", kind: "assistant", assistant: "relay" });
+    expect(h.provider.sessionForFile(file)?.kind).toBe("assistant");
+    // The closed copy's last words change nothing, and its exit is quiet.
+    const before = h.published();
+    restored.send({ t: "status", status: "idle", lastActivity: "", lastActivityAt: 9 });
+    restored.close();
+    expect(h.published()).toBe(before);
+    expect(h.provider.sessions[0]?.kind).toBe("assistant");
+    expect(h.logs.filter((line) => line.includes("ended"))).toEqual([]);
+  });
+
+  it("keeps the omp already on the transcript and closes a second one, rather than trading them every reconnect", () => {
+    const h = setup();
+    link(h.provider).send({ ...thread, pid: 720, herdrPane: "w1:p1" });
+    const second = link(h.provider);
+    second.send({ ...thread, pid: 961, herdrPane: "w2:p1" });
+    expect(h.closed).toEqual(["w2:p1"]);
+    expect(h.provider.sessions).toHaveLength(1);
+    // It reconnecting before it exits does not take the session over either.
+    link(h.provider).send({ ...thread, pid: 961, herdrPane: "w2:p1" });
+    expect(h.provider.sessions).toHaveLength(1);
+    expect(h.logs.filter((line) => line.includes("closing omp"))).toHaveLength(2);
+  });
+
+  it("lets the same omp reconnect over its old socket, as before", () => {
+    const h = setup();
+    link(h.provider).send({ ...thread, pid: 720 });
+    link(h.provider).send({ ...thread, pid: 720 });
+    link(h.provider).send(thread);
+    expect(h.closed).toEqual([]);
+    expect(h.provider.sessions).toHaveLength(1);
+  });
+
+  it("close() shuts a session's omp through its pane, else through its bridge, and unlists it at once", async () => {
+    const h = setup();
+    const inPane = link(h.provider);
+    inPane.send({ ...copy, pid: 720, herdrPane: "w1:p1" });
+    const closing = h.provider.close("s1");
+    expect(h.provider.sessions).toEqual([]);
+    inPane.close();
+    await closing;
+    expect(h.closed).toEqual(["w1:p1"]);
+
+    const bare = link(h.provider);
+    bare.send({ ...copy, sessionId: "s2", pid: 800 });
+    const ending = h.provider.close("s2");
+    expect(bare.written().map((frame) => frame["t"])).toEqual(["end"]);
+    bare.close();
+    await ending;
+    await h.provider.close("nobody");
   });
 });

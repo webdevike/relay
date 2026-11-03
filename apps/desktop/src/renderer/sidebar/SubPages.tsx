@@ -8,6 +8,7 @@ import {
   IconMessage,
   IconPalette,
   IconPlus,
+  IconTool,
 } from '@tabler/icons-react'
 import { useState, type MouseEvent } from 'react'
 import { SETTINGS_SECTIONS, placeOf, type SettingsSection } from '@evaos/shell-core'
@@ -22,12 +23,14 @@ import { MeetingsList } from '../meetings/MeetingsList'
 import { ReviewsList } from '../reviews/ReviewsList'
 import { ChatList } from '../chat/list/ChatList'
 import { SearchBox } from './SearchBox'
+import { useStarterProfile } from '../setup/SetupSection'
 import { backToRoot, type NavLevel } from './nav-level'
 
 const SECTION_ICON = {
   Theme: IconPalette,
   Chat: IconMessage,
   Links: IconLink,
+  Setup: IconTool,
   About: IconInfoCircle,
   Changelog: IconHistory,
 } as const
@@ -41,6 +44,8 @@ const COPY = {
 export function SubPage({ level }: { level: Exclude<NavLevel, 'root'> }) {
   const here = useTabs(activePlace)
   const [query, setQuery] = useState('')
+  // The Setup section is for the starter profile; Eva's settings list is unchanged.
+  const starter = useStarterProfile()
   // The chats page pins its Settled fold here, below the scrolling list.
   const [footer, setFooter] = useState<HTMLDivElement | null>(null)
   const copy =
@@ -152,7 +157,7 @@ export function SubPage({ level }: { level: Exclude<NavLevel, 'root'> }) {
           ) : level === 'canvas' ? (
             <CanvasList query={query} />
           ) : (
-            SETTINGS_SECTIONS.map((s) => {
+            SETTINGS_SECTIONS.filter((s) => s !== 'Setup' || starter).map((s) => {
               const Glyph = SECTION_ICON[s]
               const active = here.page === 'settings' && here.settingsSection === s
               return (

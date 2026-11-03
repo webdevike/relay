@@ -139,6 +139,8 @@ interface HarnessOptions {
   agentHome?: null;
   launchFails?: boolean;
   fill?: { exit: number; stderr?: string };
+  /** Settles the bridge's reconnect grace; default already over. */
+  reconnected?: Promise<void>;
 }
 
 function harness(options: HarnessOptions = {}) {
@@ -166,6 +168,7 @@ function harness(options: HarnessOptions = {}) {
   const logs: string[] = [];
   const clock = beside?.clock ?? new FakeClock();
   const fill = fakeFill(options.fill);
+  const closed: string[] = [];
   const service = new AssistantService({
     agent,
     agents,
@@ -174,6 +177,14 @@ function harness(options: HarnessOptions = {}) {
       return options.launchFails === true ? Promise.reject(new AckFailure({ code: "agent_launch_failed", message: "herdr is not installed" })) : Promise.resolve();
     },
     sessionFile: (sessionId) => files.get(sessionId) ?? null,
+    holder: (file) => agents.sessions.find((session) => files.get(session.id) === file) ?? null,
+    close: (sessionId) => {
+      closed.push(sessionId);
+      agents.sessions = agents.sessions.filter((session) => session.id !== sessionId);
+      service.observe({ kind: "sessions" });
+      return Promise.resolve();
+    },
+    reconnected: () => options.reconnected ?? Promise.resolve(),
     agentHome: options.agentHome === null ? null : home,
     store,
     tokens: {
@@ -204,7 +215,7 @@ function harness(options: HarnessOptions = {}) {
     service.observe({ kind: "sessions" });
   };
   const remembered = (): AssistantRecord | null => store.load();
-  return { home, storePath, service, agents, files, launches, tokens, viewing, pushes, broadcasts, logs, clock, register, remembered, fills: fill.runs };
+  return { home, storePath, service, agents, files, launches, tokens, viewing, pushes, broadcasts, logs, clock, register, remembered, fills: fill.runs, closed };
 }
 
 const flush = (): Promise<void> => {
@@ -572,6 +583,57 @@ describe("AssistantService turns", () => {
     h.register("idle", file);
     await turn;
     expect(h.agents.replies).toEqual([["eva-1", "back?", true]]);
+  });
+
+  it("resumes the thread over an omp on its transcript that is not the thread (a pane herdr restored), closing that omp first", async () => {
+    const sessions = mkdtempSync(join(tmpdir(), "eva-sessions-"));
+    dirs.push(sessions);
+    const file = join(sessions, "eva.jsonl");
+    writeFileSync(file, "");
+    const h = harness({ remembered: file });
+    const stray: AgentSession = { id: "eva-1", provider: "omp", title: "Initialize thread memory", projectPath: "/home/ike/Eva", status: "idle", lastActivity: "", lastActivityAt: 1, canRespond: true, kind: "manual" };
+    h.agents.sessions = [stray];
+    h.files.set("eva-1", file);
+    h.service.observe({ kind: "sessions" });
+    await flush();
+    expect(h.closed).toEqual(["eva-1"]);
+    expect(h.launches).toEqual([{ ...ASTRA_ENV, resume: file }]);
+    h.register("idle", file);
+    await flush();
+    expect(h.service.current()).toMatchObject({ kind: "assistant", assistant: "astra" });
+    h.service.observe({ kind: "sessions" });
+    expect(h.launches).toHaveLength(1);
+    expect(h.closed).toHaveLength(1);
+  });
+
+  it("leaves the thread's own ended omp alone", async () => {
+    const sessions = mkdtempSync(join(tmpdir(), "eva-sessions-"));
+    dirs.push(sessions);
+    const file = join(sessions, "eva.jsonl");
+    writeFileSync(file, "");
+    const h = harness({ remembered: file });
+    h.agents.sessions = [astra("ended")];
+    h.files.set("eva-1", file);
+    h.service.observe({ kind: "sessions" });
+    await flush();
+    expect([h.closed, h.launches]).toEqual([[], []]);
+  });
+
+  it("after a host restart, waits for the thread's omp to reconnect before resuming, and launches nothing when it does", async () => {
+    const sessions = mkdtempSync(join(tmpdir(), "eva-sessions-"));
+    dirs.push(sessions);
+    const file = join(sessions, "eva.jsonl");
+    writeFileSync(file, "");
+    const grace = Promise.withResolvers<void>();
+    const h = harness({ remembered: file, reconnected: grace.promise });
+    const turn = h.service.turn("still there?");
+    await flush();
+    expect(h.launches).toEqual([]);
+    h.register("idle", file);
+    grace.resolve();
+    await turn;
+    expect(h.launches).toEqual([]);
+    expect(h.agents.replies).toEqual([["eva-1", "still there?", true]]);
   });
 
   it("starts fresh when the remembered file is gone, and shares one launch between concurrent turns", async () => {

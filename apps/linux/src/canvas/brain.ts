@@ -59,8 +59,8 @@ export function brainConfigOverlay(dir: string): string {
 export interface OmpBrainOptions {
   /** Absolute omp binary. */
   readonly omp: string;
-  /** `--profile`. */
-  readonly profile: string;
+  /** `--profile`; null runs on omp's default (unprofiled) sign-ins. */
+  readonly profile: string | null;
   /** `--config` overlays, in order. */
   readonly configs: readonly string[];
   readonly log: (line: string) => void;
@@ -93,7 +93,7 @@ export class OmpBrain implements CanvasBrain {
     this.proc = Bun.spawn(
       [
         options.omp,
-        "--profile", options.profile,
+        ...(options.profile === null ? [] : ["--profile", options.profile]),
         ...configs,
         "--mode", "rpc", "--no-ui", "--no-tools", "--no-skills", "--no-rules", "--no-extensions",
         "--no-lsp", "--no-session", "--no-title", "--thinking", "off",
