@@ -48,29 +48,29 @@ export function Footer() {
   const updateChip = useUpdate((s) => s.update.pending && s.dismissed)
   return (
     <footer className="eva-footer" data-testid="footer">
-      {/* Which copy this is and when it was built, plus a flag once it needs a restart. */}
-      <span className="eva-build-stamp" data-testid="build-kind">
-        {info?.instance === 'dev' ? (
-          <span
-            className="eva-dev-badge"
-            data-testid="dev-badge"
-            title={`Relay Dev · config ${info.configDir}`}
-          >
-            DEV
-          </span>
-        ) : null}
-        {info?.instance === 'stable'
-          ? `stable · ${info.build ?? __RELAY_BUILD__}`
-          : `${BUILD_KIND} · ${__RELAY_BUILD__}`}
-        {needsRestart ? (
-          <span
-            className="eva-build-stale"
-            title="App code changed; restart the dev build to load it"
-          >
-            {' · needs rebuild'}
-          </span>
-        ) : null}
-      </span>
+      {/* Dev copies say which copy they are; the installed app shows nothing. */}
+      {info && info.instance !== 'stable' ? (
+        <span className="eva-build-stamp" data-testid="build-kind">
+          {info.instance === 'dev' ? (
+            <span
+              className="eva-dev-badge"
+              data-testid="dev-badge"
+              title={`Relay Dev · config ${info.configDir}`}
+            >
+              DEV
+            </span>
+          ) : null}
+          {`${BUILD_KIND} · ${__RELAY_BUILD__}`}
+          {needsRestart ? (
+            <span
+              className="eva-build-stale"
+              title="App code changed; restart the dev build to load it"
+            >
+              {' · needs rebuild'}
+            </span>
+          ) : null}
+        </span>
+      ) : null}
       {updateChip ? (
         <button
           type="button"

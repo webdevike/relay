@@ -277,10 +277,3 @@ html[data-eva-motion='off'] .eva-sb-track {
 .eva-sb-page[data-level='chats'] .eva-sb-sub-title {
   padding-right: 0;
 }
-.eva-env-badge {
-  font-family: var(--eva-font-mono);
-  font-size: var(--eva-fz-label);
-  color: var(--eva-text-dim);
-  padding: 0 12px;
-  min-height: 16px;
-}

@@ -1,10 +1,9 @@
 import { useElementSize } from '@mantine/hooks'
 import relayIcon from '../assets/brand/relay-icon.png'
-import { useEffect, useState, type MouseEvent } from 'react'
+import { type MouseEvent } from 'react'
 import { placeOf, type Place } from '@evaos/shell-core'
 import { useBoards } from '../boards/boards-store'
 import { canvasNavPlace } from '../canvas/canvas-store'
-import { invoke } from '../ipc'
 import { openPlace } from '../navigation/navigate'
 import { NAV_PAGES } from '../pages/page-meta'
 import { activePlace, useTabs } from '../tabs/tabs-store'
@@ -19,24 +18,6 @@ import { countLabel, useSidebarData } from './sidebar-store'
 const MAIN = NAV_PAGES.filter((n) => n.slug !== 'setting' && n.slug !== 'dashboard')
 const OVERVIEW = NAV_PAGES.find((n) => n.slug === 'dashboard')!
 const SETTING = NAV_PAGES.find((n) => n.slug === 'setting')!
-
-function EnvBadge() {
-  const [live, setLive] = useState<boolean | null>(null)
-  useEffect(() => {
-    let cancelled = false
-    void invoke('app.info', {}).then((r) => {
-      if (!cancelled && r.ok) setLive(r.value.live)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-  return (
-    <span className="eva-env-badge" data-testid="env-badge">
-      {live === null ? '' : live ? 'Live Eva data' : 'Fixture data'}
-    </span>
-  )
-}
 
 const settingsPlace = (): Place => placeOf('settings', { settingsSection: 'Theme' })
 
@@ -146,7 +127,6 @@ export function MainNav() {
         />
         <AccountMenu />
         <AppearanceControl iconOnly={width > 0 && width < 248} />
-        <EnvBadge />
       </div>
     </div>
   )

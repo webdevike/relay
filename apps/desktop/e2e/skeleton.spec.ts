@@ -22,7 +22,6 @@ test('skeleton: shell renders and app.info round-trips', async ({ app, shell, co
   expect(v.e2e).toBe(true)
   expect(v.launchCount).toBe(1)
   expect(fs.existsSync(path.join(configDir, 'app-state.json'))).toBe(true)
-  await expect(shell.locator('[data-testid=env-badge]')).toHaveText('Fixture data')
   const windows = await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().length)
   expect(windows).toBe(1)
   // A window opened while macOS reports it occluded (locked screen, other Space) must still paint.
