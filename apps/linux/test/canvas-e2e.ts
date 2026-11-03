@@ -100,7 +100,6 @@ function host(): void {
     canvasDir,
     chats: agents,
     registry: loadRegistry(join(homedir(), "Eva")),
-    avatarsDir: join(homedir(), "Eva", "work", "assistant-avatars"),
     brains: ompBrains({ omp, profile: "personal", configs: [brainConfigOverlay(configDir)], log }),
     log,
   });

@@ -1,3 +1,4 @@
+export { assistantAvatarSvg, assistantPortrait } from "./avatar";
 export * from "./affine";
 export { bbox, centre, type Box } from "./bbox";
 export {

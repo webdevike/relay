@@ -4,6 +4,8 @@
 // deterministic, served as SVG at `/canvas/portrait/<seed>`.
 
 import { createAvatar } from "@dicebear/core";
+import { assistantAvatarSvg, assistantPortrait } from "@relay/portrait-motion";
+import type { AssistantAgentConfig } from "../assistant/registry";
 import * as notionists from "@dicebear/notionists";
 
 /** `Mara Voss` -> `mara-voss` (Rooms' seed), kept to what the portrait route accepts. */
@@ -26,4 +28,10 @@ export function portraitSvg(seed: string): string {
     drawn.set(seed, svg);
   }
   return svg;
+}
+
+/** The SVG behind `/canvas/avatar/<key>`: registry assistant `key` drawn by the shared function Relay desktop's AgentPortrait uses (`assistantAvatarSvg`), else null. */
+export function assistantAvatar(registry: readonly AssistantAgentConfig[], key: string): string | null {
+  const config = registry.find((entry) => entry.id === key);
+  return config === undefined ? null : assistantAvatarSvg(assistantPortrait(config));
 }

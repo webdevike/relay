@@ -27,7 +27,7 @@ import { chatFileOf, subagentName } from "./caller";
 import { chatContext } from "./context";
 import { ActRefused, CanvasParticipant, MAX_BATCH_ACTIONS, MAX_PARTICIPANTS, parseScript, type ActResult, type ParticipantOptions } from "./participant";
 import { BoardFile, boardPath } from "./persist";
-import { portraitSeed } from "./portrait";
+import { assistantAvatar, portraitSeed } from "./portrait";
 import { CanvasSync, type CanvasPeer } from "./room";
 import { CanvasTokens, type CanvasGrant } from "./tokens";
 
@@ -78,8 +78,6 @@ export interface CanvasServiceDeps {
   readonly chats: CanvasChats;
   /** The assistant registry (names, colors); empty without an agent home. */
   readonly registry: readonly AssistantAgentConfig[];
-  /** `<agent home>/work/assistant-avatars`: `<id>.png` per assistant (and `eva.png`). */
-  readonly avatarsDir: string | null;
   /** Name of a plain chat's canvas agent; absent: "Eva". */
   readonly defaultAgentName?: string;
   readonly brains: BrainFactory;
@@ -306,11 +304,9 @@ export class CanvasService {
     return room === undefined || grant === null ? null : { room, grant };
   }
 
-  /** The PNG behind `/canvas/avatar/<key>`, when there is one. */
-  avatarFile(key: string): string | null {
-    if (this.deps.avatarsDir === null || !/^[a-z0-9-]{1,60}$/.test(key)) return null;
-    const file = join(this.deps.avatarsDir, `${key}.png`);
-    return existsSync(file) ? file : null;
+  /** The SVG behind `/canvas/avatar/<key>`: assistant `key` drawn exactly as Relay desktop draws it, else null. */
+  avatarSvg(key: string): string | null {
+    return assistantAvatar(this.deps.registry, key);
   }
 
   /** Where a board's relative image srcs resolve (as EvaOS resolves them). */
@@ -813,17 +809,16 @@ export class CanvasService {
   private agentFor(chat: AgentSession, name: string | undefined): CanvasAgentInfo {
     let agent: CanvasAgentInfo = this.deps.defaultAgentName === undefined ? EVA : { ...EVA, name: this.deps.defaultAgentName };
     if (chat.kind === "assistant" && chat.assistant !== undefined) agent = this.assistantLook(chat.assistant, chat.title);
-    else if (this.avatarFile("eva") !== null) agent = { ...EVA, avatar: "/canvas/avatar/eva" };
     const override = name?.trim();
     return override === undefined || override === "" ? agent : { ...agent, name: override.slice(0, 100) };
   }
 
-  /** Assistant `id` as the registry draws it: its title, accent and avatar PNG when there is one. */
+  /** Assistant `id` as the registry draws it: its title, accent and avatar (the shared desktop portrait) when it is listed. */
   private assistantLook(id: string, fallbackTitle: string): CanvasAgentInfo {
     const config = this.deps.registry.find((entry) => entry.id === id);
     const accent = config?.portrait?.colors?.accent;
     const agent: CanvasAgentInfo = { name: config?.title ?? fallbackTitle, color: accent !== undefined && /^#[0-9a-fA-F]{6}$/.test(accent) ? accent : EVA.color };
-    return this.avatarFile(id) === null ? agent : { ...agent, avatar: `/canvas/avatar/${id}` };
+    return config === undefined ? agent : { ...agent, avatar: `/canvas/avatar/${id}` };
   }
 
   /**

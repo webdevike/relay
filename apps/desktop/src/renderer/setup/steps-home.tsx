@@ -115,7 +115,8 @@ export function HomeStep({ ctx }: { ctx: WizardCtx }) {
 }
 
 const PRESETS: Record<string, SetupAssistant[]> = {
-  one: [{ id: 'relay', name: 'Relay', purpose: 'A general assistant for anything I ask.' }],
+  // Not "Relay": that is the app's name, and "Relay couldn't start Relay" reads as nonsense.
+  one: [{ id: 'assistant', name: 'Assistant', purpose: 'A general assistant for anything I ask.' }],
   pair: [
     { id: 'home', name: 'Home', purpose: 'My personal life: plans, errands, reading, ideas.' },
     { id: 'work', name: 'Work', purpose: 'My job: projects, writing, code, meetings.' },

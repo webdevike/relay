@@ -9,7 +9,7 @@
 //   - shapes the transcript into `assistant.snapshot` frames for the phones following the thread:
 //     the earlier contexts (the transcripts in the store's `history`, which the nightly rollover
 //     fills) followed by the live session, debounced, on every change of that session;
-//   - hides the machinery: job lines, the prime, empty replies and the silence marker;
+//   - hides the machinery: the prime, empty replies and the silence marker; job lines go as `status` rows;
 //   - pushes each settled reply to every registered phone not looking at the thread;
 //   - takes messages from the host's own jobs (`relay-linux assistant say --agent <id>`) as
 //     prefixed turns that the agent then relays to Isaac in its own words.
@@ -31,7 +31,7 @@ import { type FillSpawn, runFill, signinHost, splitSignin } from "./signin";
 import type { AssistantStore } from "./store";
 import { splitVoiceTurn, withoutDetailsMarker } from "./voice";
 
-/** A turn from the host's jobs rather than from Isaac, for agent `title`; the thread hides it (and the agent's silent answer to it). */
+/** A turn from the host's jobs rather than from Isaac, for agent `title`; the thread shows it as a `status` row (and hides the agent's silent answer to it). */
 export function statusPrefix(title: string): string {
   return `[From ${title}'s background jobs] `;
 }
@@ -86,11 +86,24 @@ export interface AssistantServiceDeps {
   readonly log: (line: string) => void;
   /** Starts the browser tool that types credentials into a login page (`spawnFill` in the host). */
   readonly spawn: FillSpawn;
+  /**
+   * Whether omp has an AI account (`hasAiAccount`): false stops a start at once with a sign-in
+   * message, since omp without one sits on "No model selected" and never takes the prime.
+   */
+  readonly aiAccount?: () => Promise<boolean | null>;
+  /** The host log a failed start points at, for support. */
+  readonly logPath?: string | null;
+}
+
+/** "No AI account" as the start fails with it: what failed, what to do, where the log is. */
+export function noAccountMessage(title: string, logPath: string | null): string {
+  return `${title} can't think yet: no AI account is signed in on this Mac. Open Settings > Setup in Relay and sign in with Claude or ChatGPT (or add an API key), then start ${title} again.${logPath === null ? "" : ` Host log: ${logPath}`}`;
 }
 
 /**
- * The thread as the phone shows it: Isaac's turns and the agent's replies. Left out: tool rows,
- * omp's synthetic system rows, the host's job lines (`prefix` and the legacy prefixes), the persona
+ * The thread as the phone shows it: Isaac's turns and the agent's replies, and the host's job lines
+ * (`prefix` and the legacy prefixes) as `status` rows, which the phone draws as quiet background
+ * rows (an older phone hides them). Left out: tool rows, omp's synthetic system rows, the persona
  * prime (including the pre-registry Eva and Astra primes), a reply with nothing to show (still empty
  * while streaming, or a prime turn that only ran tools) and the silence marker, whole or still
  * streaming in. Isaac's turns show without the surface tag the sending client put on them. A turn
@@ -115,7 +128,13 @@ export function toAssistantMessages(messages: readonly AgentMessage[], prime: st
         ((prime !== null && (said.trim() === prime || said.startsWith(prime.split("\n", 1)[0] ?? prime))) ||
           LEGACY_PRIME_STARTS.some((start) => said.startsWith(start)));
       firstUser = false;
-      if (isPrime || said.startsWith(prefix) || LEGACY_STATUS_PREFIXES.some((legacy) => said.startsWith(legacy))) continue;
+      if (isPrime) continue;
+      // A job line (heartbeat, job report, handoff) is not Isaac's: a `status` row, which a phone from
+      // before background rows never shows and a newer one draws as a quiet row, not his bubble.
+      if (said.startsWith(prefix) || LEGACY_STATUS_PREFIXES.some((legacy) => said.startsWith(legacy))) {
+        out.push({ id: message.id, role: "status", text: said, at: message.at });
+        continue;
+      }
       const { text, voice } = splitVoiceTurn(said);
       out.push({ id: message.id, role: "user", text, at: message.at, ...images, ...(voice ? { voice } : {}) });
     } else if (message.role === "assistant" && (message.text.length > 0 || "images" in images)) {
@@ -438,6 +457,11 @@ export class AssistantService implements AssistantThread {
   private async start(): Promise<AgentSession> {
     const home = this.deps.agentHome;
     if (home === null) throw new AckFailure({ code: "agent_launch_failed", message: "host was started without --agent-home" });
+    // A named omp profile holds its own sign-ins the check does not read; only the default is checked.
+    if (this.deps.agent.profile === undefined && (await this.deps.aiAccount?.()) === false) {
+      this.deps.log(`assistant ${this.id}: not starting: omp has no AI account`);
+      throw new AckFailure({ code: "agent_launch_failed", message: noAccountMessage(this.title, this.deps.logPath ?? null) });
+    }
     const remembered = this.deps.store.load()?.sessionFile ?? null;
     const resume = remembered !== null && existsSync(remembered) ? remembered : null;
     if (resume !== null) {
@@ -453,8 +477,14 @@ export class AssistantService implements AssistantThread {
     const prime = resume === null ? this.prime(true) : null;
     const { promise, resolve, reject } = Promise.withResolvers<AgentSession>();
     const cancel = this.deps.clock.after(REGISTER_TIMEOUT_MS, () => {
+      const registered = this.current() !== undefined;
       this.waiter = null;
-      reject(new AckFailure({ code: "agent_launch_failed", message: `${this.title} did not come up within 30 s` }));
+      const log = this.deps.logPath ?? null;
+      const what = registered
+        ? `omp started but did not take ${this.title}'s first prompt within 30 s (it may be waiting on a sign-in or a model choice)`
+        : `omp did not connect to Relay Host within 30 s`;
+      this.deps.log(`assistant ${this.id}: start failed: ${what}`);
+      reject(new AckFailure({ code: "agent_launch_failed", message: `${what}. Check Settings > Setup in Relay, then start ${this.title} again.${log === null ? "" : ` Host log: ${log}`}` }));
     });
     this.waiter = { primed: prime !== null, resolve };
     try {

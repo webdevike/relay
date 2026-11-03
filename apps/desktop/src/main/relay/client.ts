@@ -118,8 +118,9 @@ export interface RelayLink extends RelaySource {
   /** Streams `sessionId`'s replies, asks and approvals, on this connection and every later one. */
   subscribe(sessionId: string): void
   unsubscribe(sessionId: string): void
-  /** Resolves once Relay carried the command out; rejects with a RelayCommandError. */
-  command(cmd: RelayCommand): Promise<void>
+  /** Resolves once Relay carried the command out; rejects with a RelayCommandError. `timeoutMs`
+   * overrides the ack wait. */
+  command(cmd: RelayCommand, timeoutMs?: number): Promise<void>
   onEvent(cb: (e: RelaySessionEvent) => void): () => void
   /** The host's dashboards by title while connected; null until Relay sends them and while down. */
   boards(): readonly Board[] | null
@@ -681,7 +682,8 @@ export class RelayClient
     for (const cb of [...this.studioListeners]) cb(change)
   }
 
-  command(cmd: RelayCommand): Promise<void> {
+  /** `timeoutMs` overrides the ack wait for a command the host may take longer to answer. */
+  command(cmd: RelayCommand, timeoutMs: number = this.commandTimeoutMs): Promise<void> {
     if (!this.feed?.authenticated) {
       return Promise.reject(new RelayCommandError('not_connected', NOT_CONNECTED))
     }
@@ -691,7 +693,7 @@ export class RelayClient
     const timer = setTimeout(() => {
       this.pending.delete(id)
       reject(new RelayCommandError('timeout', NO_ANSWER))
-    }, this.commandTimeoutMs)
+    }, timeoutMs)
     this.pending.set(id, { resolve, reject, timer })
     this.send(cmdFrame(id, cmd))
     return promise

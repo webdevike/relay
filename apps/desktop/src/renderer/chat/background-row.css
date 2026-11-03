@@ -1,0 +1,99 @@
+/* Background messages in a chat: A, a one-line system row; C, a heartbeat's chip row. Quiet: dim, no badge. */
+.eva-bg-event,
+.eva-bg-beat {
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
+  min-width: 0;
+}
+.eva-bg-beat {
+  border: 1px solid var(--eva-border);
+  border-radius: var(--eva-radius-lg);
+}
+.eva-bg-head {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+  width: 100%;
+  min-width: 0;
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  border: 0;
+  border-radius: var(--eva-radius);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.eva-bg-head:hover {
+  background: var(--eva-hover);
+}
+.eva-bg-icon {
+  flex: none;
+}
+.eva-bg-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-bg-time {
+  flex: none;
+}
+.eva-bg-chevron {
+  flex: none;
+  transition: transform 120ms;
+}
+.eva-bg-chevron[data-open='true'] {
+  transform: rotate(180deg);
+}
+.eva-bg-body {
+  margin-block: 0 var(--mantine-spacing-xs);
+  margin-inline: var(--mantine-spacing-xl) var(--mantine-spacing-sm);
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  border-radius: var(--eva-radius);
+  background: var(--eva-hover);
+  color: var(--eva-text);
+  overflow-wrap: anywhere;
+}
+.eva-bg-pills {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-bg-pill {
+  padding: 0 var(--mantine-spacing-sm);
+  border-radius: 999px;
+  background: var(--eva-hover);
+  white-space: nowrap;
+}
+.eva-bg-list {
+  display: flex;
+  flex-direction: column;
+  padding: 0 var(--mantine-spacing-sm) var(--mantine-spacing-xs);
+}
+.eva-bg-item {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+  padding: var(--mantine-spacing-xs) 0;
+  border-top: 1px solid var(--eva-border);
+  min-width: 0;
+}
+.eva-bg-item-title {
+  flex: 1;
+  min-width: 0;
+  color: var(--eva-text);
+  overflow-wrap: anywhere;
+}
+.eva-bg-item-meta {
+  flex: none;
+}
+.eva-bg-item-link {
+  flex: none;
+  color: var(--eva-text-dim);
+  text-decoration: underline;
+}

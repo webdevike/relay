@@ -207,3 +207,31 @@ describe("interactive openui widgets", () => {
     expect(renderedText(runtime)).toEqual(["Hi Ada"]);
   });
 });
+
+describe("live Query in a chat fence", () => {
+  const code = 'root = Text("open: " + items.total)\nitems = Query("work_items", {}, {total: 0})';
+
+  it("fetches through the thread's query client once it is on screen", async () => {
+    const asked: string[] = [];
+    const runtime = syncOpenUIRuntime(null, code, false, {
+      run: (tool) => {
+        asked.push(tool);
+        return Promise.resolve({ total: 7 });
+      },
+    });
+    const unsubscribe = runtime.subscribe(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(asked).toEqual(["work_items"]);
+    expect(runtime.snapshot().node).toEqual({ widget: "text", text: "open: 7" });
+    unsubscribe();
+  });
+
+  it("keeps its defaults and says why when the fetch fails, and keeps the client across streamed updates", async () => {
+    const runtime = syncOpenUIRuntime(null, code, true, { run: () => Promise.reject(new Error("Not connected to your Mac.")) });
+    syncOpenUIRuntime(runtime, code, false);
+    runtime.subscribe(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(runtime.snapshot().node).toEqual({ widget: "text", text: "open: 0" });
+    expect(runtime.snapshot().errors.find((e) => e.code === "query-error")?.message).toMatch(/Not connected to your Mac/);
+  });
+});

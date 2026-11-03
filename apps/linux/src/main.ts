@@ -15,6 +15,7 @@ import { z } from "zod";
 import pkg from "../package.json";
 import { bundleVersion } from "./bundle-version";
 import { ensureOmpExtensions } from "./agents/extensions";
+import { hasAiAccount, hostLogPath, ompAccounts } from "./assistant/ai-account";
 import { defaultSocketPath, OmpBridgeProvider } from "./agents/bridge";
 import { SessionFiles } from "./agents/session-files";
 import {
@@ -355,6 +356,8 @@ function serve(
         clock: systemClock,
         log,
         spawn: spawnFill,
+        aiAccount: () => hasAiAccount(ompAccounts(resolveOmp())),
+        logPath: hostLogPath(),
       }),
     {
       // The phones' agent list follows status and last-reply changes on its own, without waiting for a request.
@@ -677,7 +680,6 @@ function liveCanvas(
     chats: agents,
     registry,
     ...(config === null || registry[0] === undefined ? {} : { defaultAgentName: registry[0].title }),
-    avatarsDir: agentHome === null ? null : join(agentHome, "work", "assistant-avatars"),
     brains: ompBrains({ omp, profile, configs: [brainConfigOverlay(configDir)], log }),
     log,
   });

@@ -3,10 +3,13 @@
 import { Fragment, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Platform, Text as RNText, ScrollView, type TextStyle, View } from "react-native";
 import Animated, { FadeIn, ReduceMotion, useReducedMotion } from "react-native-reanimated";
+import { liveQuery } from "@/connection";
 import { openChatLink } from "@/lib/links";
+import { useBoardsStore } from "@/state/boards";
 import { motion, radii, spacing, type, useColors } from "@/theme";
 import { BlockQuote } from "@/ui/BlockQuote";
 import { ListItem } from "@/ui/ListItem";
+import { Text } from "@/ui/Text";
 import { CodeBlock } from "./CodeBlock";
 import { MarkdownImages } from "./MarkdownImages";
 import { HtmlWidget } from "./HtmlWidget";
@@ -131,11 +134,14 @@ function BlockView({ block, body, streaming = false }: { block: Block; body: Bod
 /**
  * A ```openui fence drawn live. It owns the fence's runtime while mounted (blocks are keyed by
  * position inside a message keyed by id), feeds it every streamed version of the text, and redraws
- * the widget whenever its `$variable` state changes.
+ * the widget whenever its `$variable` state changes. On a host that answers queries (`welcome`
+ * features "query") its Query statements fetch live host data, as on the desktop; a fetch that
+ * fails keeps the last data and says so under the widget. An older host leaves them at their defaults.
  */
 function OpenUIBlock({ code, partial }: { code: string; partial: boolean }) {
+  const queries = useBoardsStore((state) => state.queries);
   const [{ runtime, subscribe, getSnapshot }] = useState(() => {
-    const created = syncOpenUIRuntime(null, code, partial);
+    const created = syncOpenUIRuntime(null, code, partial, queries ? liveQuery : null);
     return { runtime: created, subscribe: (cb: () => void) => created.subscribe(cb), getSnapshot: () => created.snapshot() };
   });
   // Before paint, so a streamed chunk never shows a frame of the previous text.
@@ -145,9 +151,16 @@ function OpenUIBlock({ code, partial }: { code: string; partial: boolean }) {
   const snapshot = useSyncExternalStore(subscribe, getSnapshot);
   const view = openUIView(snapshot, partial);
   if (view.kind === "code") return <CodeBlock code={code} lang="openui" invalid={view.invalid} />;
+  // A Query that could not fetch, or whose last fetch failed: the widget keeps its data and says why.
+  const stale = queries ? (snapshot.errors.find((error) => error.code === "query-error")?.message ?? null) : null;
   return (
     <OpenUIRuntimeContext.Provider value={runtime}>
       <Widget spec={view.spec} />
+      {stale !== null && (
+        <Text variant="caption" color="textMuted" style={{ marginTop: spacing.xs }}>
+          {stale}
+        </Text>
+      )}
     </OpenUIRuntimeContext.Provider>
   );
 }

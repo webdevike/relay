@@ -40,8 +40,11 @@ import { useMessageEntrances } from "@/ui/useMessageEntrances";
 import { ImageViewer } from "@/agents/ImageViewer";
 import { MarkdownImages } from "@/agents/MarkdownImages";
 import { MessageImageStack } from "@/agents/MessageImageStack";
-import { topLevelImages } from "@/agents/markdown";
+import { bubbleSegments, topLevelImages } from "@/agents/markdown";
 import { MessageText } from "@/agents/MessageText";
+import { BackgroundRow } from "@/agents/BackgroundRow";
+import { ReplyWidgetActions } from "@/agents/WidgetActions";
+import { backgroundOf } from "@/lib/background";
 import { BubbleMenuProvider, ChatBubble } from "@/agents/BubbleMenu";
 import { quoteIntoDraft } from "@/lib/bubbleMenu";
 import { bubbleReactionKey } from "@/lib/reactions";
@@ -279,11 +282,19 @@ function Thread({ agent }: { agent: string }) {
     sendTurn(text, photos, true);
   };
 
+  // A widget's reply button or input in the thread answers as a chip does: Isaac's next turn. One
+  // callback for the thread's life, so the widgets below don't redraw on every keystroke.
+  const sendTurnRef = useRef(sendTurn);
+  sendTurnRef.current = sendTurn;
+  const widgetReply = useCallback((words: string) => {
+    sendTurnRef.current(words, [], false);
+  }, []);
+
   // Image bytes are fetched against the omp session the thread runs in; empty while the agent is not running.
   const sessionId = snapshot === null || snapshot.sessionId === "" ? null : snapshot.sessionId;
 
-  // Machinery is invisible: the host no longer sends job lines as `status` rows, and an older host's are not shown.
-  const messages = (snapshot?.messages ?? []).filter((message) => message.role !== "status");
+  // Background messages (the host's job lines arrive as `status` rows) show as quiet rows; any other status row is machinery, never shown.
+  const messages = (snapshot?.messages ?? []).filter((message) => message.role !== "status" || backgroundOf(message) !== null);
   const rows: AssistantMessage[] =
     pending === null ? messages : [...messages, { id: PENDING_ID, role: "user", text: pending.text, at: Date.now() }];
   const newestFirst = [...rows].reverse();
@@ -296,9 +307,9 @@ function Thread({ agent }: { agent: string }) {
   // Tap-to-answer replies under the newest reply once it has settled; hidden while offline, where a tap could not send.
   const replies = connected ? liveReplies(snapshot, pending) : null;
 
-  // Only the newest user message carries a receipt: Sending while its echo is pending, Seen once
+  // Only the newest message Isaac typed carries a receipt: Sending while its echo is pending, Seen once
   // the host's snapshot lists it.
-  const latestUserId = newestFirst.find((message) => message.role === "user")?.id ?? null;
+  const latestUserId = newestFirst.find((message) => message.role === "user" && backgroundOf(message) === null)?.id ?? null;
   const receipt = latestUserId === null ? null : latestUserId === PENDING_ID ? "Sending" : "Seen";
 
   const dark = useScheme() === "dark";
@@ -377,43 +388,46 @@ function Thread({ agent }: { agent: string }) {
               />
             </View>
           ) : (
-            <FlatList
-              ref={listRef}
-              style={[styles.fill, { marginTop: listTop }]}
-              data={newestFirst}
-              inverted
-              keyExtractor={(message) => message.id}
-              extraData={`${latestUserId ?? ""}|${receipt ?? ""}`}
-              renderItem={({ item, index }) => (
-                // Inverted: the next index is the older row above this one, and a row's top margin is the space above it.
-                <MessageAppearance animate={enteringMessages.has(item.id)} user={item.role === "user"} gap={gapAbove(item, newestFirst[index + 1])}>
-                  <Row
-                    agent={agent}
-                    message={item}
-                    receipt={item.id === latestUserId ? receipt : null}
-                    streaming={busy && index === 0 && item.role === "assistant"}
-                    sessionId={sessionId}
-                    local={item.id === PENDING_ID ? pending?.images : undefined}
-                    replies={index === 0 ? replies : null}
-                    onReply={(reply) => {
-                      sendTurn(reply, [], false);
-                    }}
-                    onOpenImages={(uris, start) => {
-                      setViewing({ uris, start });
-                    }}
-                    onSignIn={openSignIn}
-                  />
-                </MessageAppearance>
-              )}
-              // Inverted: the header sits at the visual bottom, below the newest row.
-              ListHeaderComponent={typing ? <TypingRow title={title} gap={newest !== undefined && senderOf(newest) === "eva" ? GAP_RUN : GAP_SENDER} /> : null}
-              // Inverted: reserve room at the visual bottom for the floating composer.
-              contentContainerStyle={{ paddingTop: composerHeight + spacing.md }}
-              contentOffset={{ x: 0, y: initialOffset.current }}
-              {...scrollHandlers}
-              keyboardDismissMode="interactive"
-              keyboardShouldPersistTaps="handled"
-            />
+            // Reply buttons and inputs in the thread's widgets answer as Isaac's turn; offline they stay disabled.
+            <ReplyWidgetActions reply={connected ? widgetReply : null}>
+              <FlatList
+                ref={listRef}
+                style={[styles.fill, { marginTop: listTop }]}
+                data={newestFirst}
+                inverted
+                keyExtractor={(message) => message.id}
+                extraData={`${latestUserId ?? ""}|${receipt ?? ""}`}
+                renderItem={({ item, index }) => (
+                  // Inverted: the next index is the older row above this one, and a row's top margin is the space above it.
+                  <MessageAppearance animate={enteringMessages.has(item.id)} user={senderOf(item) === "user"} gap={gapAbove(item, newestFirst[index + 1])}>
+                    <Row
+                      agent={agent}
+                      message={item}
+                      receipt={item.id === latestUserId ? receipt : null}
+                      streaming={busy && index === 0 && item.role === "assistant"}
+                      sessionId={sessionId}
+                      local={item.id === PENDING_ID ? pending?.images : undefined}
+                      replies={index === 0 ? replies : null}
+                      onReply={(reply) => {
+                        sendTurn(reply, [], false);
+                      }}
+                      onOpenImages={(uris, start) => {
+                        setViewing({ uris, start });
+                      }}
+                      onSignIn={openSignIn}
+                    />
+                  </MessageAppearance>
+                )}
+                // Inverted: the header sits at the visual bottom, below the newest row.
+                ListHeaderComponent={typing ? <TypingRow title={title} gap={newest !== undefined && senderOf(newest) === "eva" ? GAP_RUN : GAP_SENDER} /> : null}
+                // Inverted: reserve room at the visual bottom for the floating composer.
+                contentContainerStyle={{ paddingTop: composerHeight + spacing.md }}
+                contentOffset={{ x: 0, y: initialOffset.current }}
+                {...scrollHandlers}
+                keyboardDismissMode="interactive"
+                keyboardShouldPersistTaps="handled"
+              />
+            </ReplyWidgetActions>
           )}
           <ScrollToBottom visible={awayFromBottom} onPress={scrollToBottom} bottom={composerHeight + spacing.sm} />
           <View pointerEvents="box-none" style={[styles.header, { top: insets.top + HEADER_TOP }]}>
@@ -580,8 +594,10 @@ function gapAbove(message: AssistantMessage, above: AssistantMessage | undefined
   return senderOf(message) === senderOf(above) ? GAP_RUN : GAP_SENDER;
 }
 
+/** Who a row reads as for spacing and entrance: a background message is a quiet system row, not Isaac's turn. */
 function senderOf(message: AssistantMessage): "user" | "status" | "eva" {
-  return message.role === "user" ? "user" : message.role === "status" ? "status" : "eva";
+  if (message.role === "status" || backgroundOf(message) !== null) return "status";
+  return message.role === "user" ? "user" : "eva";
 }
 
 /** The typing dots at the live edge of the inverted list, in the incoming bubble's fill. */
@@ -638,6 +654,9 @@ function Row({ agent, message, receipt, streaming, sessionId, local, onOpenImage
         />
       </View>
     );
+  // A turn Isaac did not type (a job line, heartbeat, canvas notice, handoff, tapback): a quiet centered row.
+  const background = backgroundOf(message);
+  if (background !== null) return <BackgroundRow message={background} at={message.at} fill={bubbleFill} />;
   switch (message.role) {
     case "user":
       return (
@@ -670,6 +689,10 @@ function Row({ agent, message, receipt, streaming, sessionId, local, onOpenImage
       const { images: tiles, hasBody } = topLevelImages(message.text);
       const { signin } = message;
       const showBubble = hasBody || (imageCount === 0 && tiles.length === 0 && signin === undefined);
+      // A reply with widgets breaks out to the row's full width: its prose stays in texting bubbles,
+      // each widget sits in a card of its own between them. One reaction target for the whole reply.
+      const segments = hasBody ? bubbleSegments(message.text) : [];
+      const wide = segments.some((segment) => segment.kind === "widget");
       return (
         <View style={styles.evaRow}>
           {signin !== undefined && (
@@ -691,10 +714,26 @@ function Row({ agent, message, receipt, streaming, sessionId, local, onOpenImage
             </View>
           )}
           {showBubble && (
-            <ChatBubble messageKey={reactionKey} side="left" text={message.text} style={styles.evaBubbleFrame} radius={EVA_RADIUS} ring={page}>
-              <View style={[styles.evaBubble, { backgroundColor: bubbleFill }]}>
-                <MessageText text={message.text} large skipImages streaming={streaming} />
-              </View>
+            <ChatBubble messageKey={reactionKey} side="left" text={message.text} style={wide ? styles.evaWideFrame : styles.evaBubbleFrame} radius={EVA_RADIUS} ring={page}>
+              {wide ? (
+                <View style={styles.segments}>
+                  {segments.map((segment, i) =>
+                    segment.kind === "widget" ? (
+                      <View key={i} style={[styles.widgetCard, { backgroundColor: bubbleFill }]} testID="eva-widget-card">
+                        <MessageText text={segment.text} large streaming={streaming} />
+                      </View>
+                    ) : topLevelImages(segment.text).hasBody ? (
+                      <View key={i} style={[styles.evaBubble, styles.segmentBubble, { backgroundColor: bubbleFill }]}>
+                        <MessageText text={segment.text} large skipImages streaming={streaming} />
+                      </View>
+                    ) : null,
+                  )}
+                </View>
+              ) : (
+                <View style={[styles.evaBubble, { backgroundColor: bubbleFill }]}>
+                  <MessageText text={message.text} large skipImages streaming={streaming} />
+                </View>
+              )}
             </ChatBubble>
           )}
           {replies !== null && (
@@ -751,6 +790,12 @@ const styles = StyleSheet.create({
   tilesAboveCaption: { marginBottom: GAP_RUN },
   evaBubbleFrame: { alignSelf: "flex-start", maxWidth: "88%" },
   evaBubble: { borderRadius: EVA_RADIUS, paddingVertical: 11, paddingHorizontal: 17 },
+  /** A reply with widgets: the row's full width, prose bubbles hugging the left at the usual measure. */
+  evaWideFrame: { alignSelf: "stretch" },
+  segments: { gap: GAP_RUN },
+  segmentBubble: { alignSelf: "flex-start", maxWidth: "88%" },
+  /** Padding of radii.md's difference from the bubble's, so the widget's own frame sits concentric in the card. */
+  widgetCard: { borderRadius: EVA_RADIUS, padding: EVA_RADIUS - radii.md },
   card: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.lg, padding: spacing.md, gap: spacing.sm },
   status: { textAlign: "center", paddingHorizontal: spacing.xxxl, fontWeight: "400" },
   composer: { paddingBottom: COMPOSER_BOTTOM },
