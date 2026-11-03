@@ -2,6 +2,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { REMOTE_FILE, relayConfigDir, type RelayRemote } from './relay/device'
+import { ownBuild } from './update/packaged'
 
 export interface Env {
   evaRoot: string
@@ -375,8 +376,10 @@ function parseCdpPort(raw: string | undefined, fallback: number | null): number 
 }
 
 export function loadEnv(app: { isPackaged: boolean; getAppPath(): string }): Env {
+  // A packaged app carries its build in package.json (`relayBuild`, stamped by the deploy).
+  const build = process.env.EVAOS_BUILD ?? (app.isPackaged ? ownBuild(app.getAppPath()) : null)
   return resolveEnv({
-    env: process.env,
+    env: build ? { ...process.env, EVAOS_BUILD: build } : process.env,
     isPackaged: app.isPackaged,
     repoRoot: path.resolve(app.getAppPath(), '../..'),
     homedir: os.homedir(),
