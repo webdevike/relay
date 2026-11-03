@@ -168,6 +168,68 @@ export function ungroupFrames(yNodes: Y.Map<Y.Map<unknown>>, frameIds: readonly 
 	return freed;
 }
 
+/** `ids` with `id` added, or removed when it is already there (Shift-click and long-press selection). */
+export function toggleId(ids: readonly string[], id: string): string[] {
+	return ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id];
+}
+
+/** Origin of this viewer's own edits (moves, deletes, groups): the only ones Cmd+Z undoes. */
+export const LOCAL_ORIGIN = "canvas-local";
+
+/**
+ * Undo for this viewer alone: other people's and the agent's edits are never tracked or undone.
+ * One step per gesture: a caller ends it with `stopCapturing()` (no timer merges steps).
+ */
+export function createUndo(yNodes: Y.Map<Y.Map<unknown>>, yEdges: Y.Map<Y.Map<unknown>>): Y.UndoManager {
+	return new Y.UndoManager([yNodes, yEdges], { trackedOrigins: new Set([LOCAL_ORIGIN]), captureTimeout: 1e9 });
+}
+
+/** The ids in `ids` that are frames still holding a card that is not itself being deleted. */
+export function framesWithOutsideChildren(yNodes: Y.Map<Y.Map<unknown>>, ids: readonly string[]): string[] {
+	const going = new Set(ids);
+	const frames = ids.filter((id) => yNodes.get(id)?.get("type") === "frame");
+	return frames.filter((fid) => {
+		for (const [id, m] of yNodes) if (nodeParent(m) === fid && !going.has(id)) return true;
+		return false;
+	});
+}
+
+/**
+ * Deletes nodes and the edges on them. A deleted frame's other cards stay, handed to the nearest
+ * frame above that is not deleted (or none), unless `keepChildren` is false: then the whole frame goes.
+ * Returns every id removed.
+ */
+export function deleteNodes(yNodes: Y.Map<Y.Map<unknown>>, yEdges: Y.Map<Y.Map<unknown>>, ids: readonly string[], keepChildren = true): string[] {
+	const going = new Set(ids.filter((id) => yNodes.has(id)));
+	if (!keepChildren) {
+		for (let grew = true; grew; ) {
+			grew = false;
+			for (const [id, m] of yNodes) {
+				const p = nodeParent(m);
+				if (p !== undefined && going.has(p) && !going.has(id)) {
+					going.add(id);
+					grew = true;
+				}
+			}
+		}
+	}
+	const survivor = (from: string | undefined): string | undefined => {
+		let p = from;
+		for (let guard = 0; p !== undefined && going.has(p) && guard < 64; guard++) p = nodeParent(yNodes.get(p));
+		return p !== undefined && going.has(p) ? undefined : p;
+	};
+	for (const [id, m] of yNodes) {
+		const p = nodeParent(m);
+		if (going.has(id) || p === undefined || !going.has(p)) continue;
+		const up = survivor(p);
+		if (up !== undefined) m.set("parent", up);
+		else m.delete("parent");
+	}
+	for (const id of going) yNodes.delete(id);
+	for (const [eid, e] of yEdges) if (going.has(String(e.get("source"))) || going.has(String(e.get("target")))) yEdges.delete(eid);
+	return [...going];
+}
+
 const str = (v: unknown): string | undefined => (typeof v === "string" ? v : v instanceof Y.Text ? v.toString() : undefined);
 
 function swatches(v: unknown): Swatch[] | undefined {

@@ -1,10 +1,12 @@
 import { Button, useComputedColorScheme } from '@mantine/core'
 import { IconArrowLeft } from '@tabler/icons-react'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { invoke } from '../../ipc'
 import { useInToolPane } from '../../pages/place-host'
 import { AgentAvatar } from './AgentAvatar'
 import { originPlace, useLiveRooms } from './live-store'
+import { canvasThemeMessage } from './theme-message'
+import { useThemeConfig } from '../../theme/theme-config'
 import { backToChat, returnPointOf } from './return-point'
 
 /** "Isaac here", "Isaac and Sam here", "Isaac, Sam and Ana here"; empty with nobody in. */
@@ -66,16 +68,24 @@ export function LiveCanvasView({
     }
   }, [open, slug, scheme])
 
+  // The page follows the app's appearance and theme preset live, not only as it was when opened.
+  const { config } = useThemeConfig()
+  const postTheme = useCallback((): void => {
+    frame.current?.contentWindow?.postMessage(canvasThemeMessage(config, scheme), '*')
+  }, [config, scheme])
+  useEffect(postTheme, [postTheme, url])
+
   // The room page says when it ended (Wrap up) before the host's list does.
   useEffect(() => {
     const onMessage = (e: MessageEvent): void => {
       if (e.source !== frame.current?.contentWindow) return
       const type = (e.data as { type?: unknown } | null)?.type
       if (type === 'canvas.ended') setEndedHere(true)
+      if (type === 'canvas.ready') postTheme()
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
-  }, [])
+  }, [postTheme])
 
   const origin = shown ? originPlace(shown) : null
   const canGoBack = !inPane && (returnPointOf(slug) !== null || origin !== null)
@@ -141,6 +151,7 @@ export function LiveCanvasView({
           title={`Live canvas: ${title}`}
           src={url}
           sandbox="allow-scripts allow-same-origin"
+          onLoad={postTheme}
         />
       ) : (
         <div className="eva-cv-empty" data-testid="canvas-live-status">

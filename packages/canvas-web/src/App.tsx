@@ -1,4 +1,4 @@
-import { IconBoxMultiple, IconCornerDownRight, IconEye, IconLayoutDistributeHorizontal, IconMessageCircle } from "@tabler/icons-react";
+import { IconBoxMultiple, IconCornerDownRight, IconEye, IconLayoutDistributeHorizontal, IconMessageCircle, IconMoon, IconSun, IconTrash } from "@tabler/icons-react";
 import {
 	Background,
 	BackgroundVariant,
@@ -6,6 +6,7 @@ import {
 	ConnectionMode,
 	type Node,
 	type NodeChange,
+	SelectionMode,
 	type OnNodeDrag,
 	ReactFlow,
 	ReactFlowProvider,
@@ -24,8 +25,9 @@ import { CanvasEdge } from "./edge";
 import { postEmbed } from "./embed";
 import { useAgent, useConnection, useSession } from "./hooks";
 import { SideLog } from "./log";
-import { type CardNode, type FlowBox, type LinkEdge, absolutePositions, groupNodes, reparentDropped, snapEdges, snapNodes, toFlowEdges, toFlowNodes, ungroupFrames } from "./model";
-import { awareness, doc, env, presenceStates, provider, self, setPresence, subscribePresence, yChat, yEdges, yMeta, yMetrics, yNodes, ySettings } from "./room";
+import { type CardNode, type FlowBox, LOCAL_ORIGIN, type LinkEdge, absolutePositions, deleteNodes, framesWithOutsideChildren, groupNodes, reparentDropped, snapEdges, snapNodes, toFlowEdges, toFlowNodes, toggleId, ungroupFrames } from "./model";
+import { pageTheme, useScheme } from "./page-theme";
+import { awareness, doc, env, presenceStates, provider, self, setPresence, subscribePresence, undo, yChat, yEdges, yMeta, yMetrics, yNodes, ySettings } from "./room";
 import { useTidy, useTidySetting } from "./useTidy";
 
 const NODE_TYPES = { card: CanvasCard };
@@ -148,12 +150,13 @@ function Board({ logOpen }: { logOpen: boolean }) {
 		});
 	}, [initialized, nodes, rf, readDoc]);
 
-	const onNodesChange = useCallback((changes: NodeChange<CardNode>[]) => {
-		setNodes((nds) => applyNodeChanges(changes, nds));
-		tidy.sizesChanged(changes);
-		doc.transact(() => {
-			for (const c of changes) {
-				if (c.type === "position" && c.dragging && c.position) {
+	const onNodesChange = useCallback(
+		(changes: NodeChange<CardNode>[]) => {
+			setNodes((nds) => applyNodeChanges(changes, nds));
+			tidy.sizesChanged(changes);
+			doc.transact(() => {
+				for (const c of changes) {
+					if (c.type !== "position" || !c.dragging || !c.position) continue;
 					// React Flow reports a child's position relative to its frame; the file keeps absolute ones.
 					const parentId = store.getState().nodeLookup.get(c.id)?.parentId;
 					const origin = parentId ? absRef.current.get(parentId) : undefined;
@@ -180,13 +183,11 @@ function Board({ logOpen }: { logOpen: boolean }) {
 							child.set("y", at.y + dy);
 						}
 					}
-				} else if (c.type === "remove") {
-					yNodes.delete(c.id);
-					for (const [eid, e] of yEdges) if (e.get("source") === c.id || e.get("target") === c.id) yEdges.delete(eid);
 				}
-			}
-		});
-	}, [store, tidy]);
+			}, LOCAL_ORIGIN);
+		},
+		[store, tidy],
+	);
 
 	const onConnect = useCallback((c: Connection) => {
 		if (!c.source || !c.target || c.source === c.target) return;
@@ -198,11 +199,91 @@ function Board({ logOpen }: { logOpen: boolean }) {
 		yEdges.set(`e-${c.source}-${c.target}-${Date.now().toString(36)}`, e);
 	}, []);
 
+	const selectedRef = useRef<string[]>([]);
+	/** Selection as it was when the current press began (React Flow replaces it on press). */
+	const selBefore = useRef<string[]>([]);
+	/** Touch multi-select: after a long press, taps toggle cards until nothing is selected. */
+	const multiTouch = useRef(false);
+	const forced = useRef<string[] | null>(null);
+	const press = useRef<{ x: number; y: number; timer: number } | null>(null);
+	const [ask, setAsk] = useState<{ ids: string[]; frames: string[] } | null>(null);
+	const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+
 	const onSelectionChange = useCallback(({ nodes: sel }: { nodes: Node[] }) => {
 		const ids = sel.map((n) => n.id);
+		selectedRef.current = ids;
+		if (ids.length === 0) multiTouch.current = false;
 		setSelectedIds(ids);
 		setPresence("selected", ids);
 	}, []);
+
+	const setSelection = useCallback((ids: readonly string[]) => {
+		const want = new Set(ids);
+		setNodes((nds) => nds.map((n) => (!!n.selected === want.has(n.id) ? n : { ...n, selected: want.has(n.id) })));
+	}, []);
+
+	/** Deletes now; a frame that still holds other cards first asks (keeping them is the default). */
+	const requestDelete = useCallback(() => {
+		const ids = selectedRef.current.filter((id) => yNodes.has(id));
+		if (ids.length === 0 || ended) return;
+		const frames = framesWithOutsideChildren(yNodes, ids);
+		if (frames.length > 0) {
+			setAsk({ ids, frames });
+			return;
+		}
+		doc.transact(() => {
+			deleteNodes(yNodes, yEdges, ids);
+		}, LOCAL_ORIGIN);
+		undo.stopCapturing();
+	}, [ended]);
+
+	const confirmDelete = (keepChildren: boolean) => {
+		if (!ask) return;
+		doc.transact(() => {
+			deleteNodes(yNodes, yEdges, ask.ids, keepChildren);
+		}, LOCAL_ORIGIN);
+		undo.stopCapturing();
+		setAsk(null);
+	};
+
+	const cancelPress = () => {
+		if (press.current) window.clearTimeout(press.current.timer);
+		press.current = null;
+	};
+	const onPressStart = (e: React.PointerEvent) => {
+		selBefore.current = selectedRef.current;
+		if (e.pointerType !== "touch") return;
+		const id = (e.target as HTMLElement).closest<HTMLElement>(".react-flow__node")?.dataset["id"];
+		if (!id) return;
+		cancelPress();
+		press.current = {
+			x: e.clientX,
+			y: e.clientY,
+			timer: window.setTimeout(() => {
+				press.current = null;
+				multiTouch.current = true;
+				forced.current = toggleId(selBefore.current, id);
+				setSelection(forced.current);
+				navigator.vibrate?.(10);
+			}, 450),
+		};
+	};
+	const onPressMove = (e: React.PointerEvent) => {
+		const p = press.current;
+		if (p && Math.hypot(e.clientX - p.x, e.clientY - p.y) > 8) cancelPress();
+	};
+	const onNodeClick = useCallback(
+		(_: React.MouseEvent, node: Node) => {
+			if (!TOUCH) return;
+			if (forced.current) {
+				setSelection(forced.current);
+				forced.current = null;
+			} else if (multiTouch.current) {
+				setSelection(toggleId(selBefore.current, node.id));
+			}
+		},
+		[setSelection],
+	);
 
 	/** Every node as drawn: absolute top-left and measured size. */
 	const flowBoxes = useCallback((): FlowBox[] => {
@@ -213,13 +294,21 @@ function Board({ logOpen }: { logOpen: boolean }) {
 		return out;
 	}, [store]);
 
-	/** A card dropped into a frame joins it; dropped out of one, it leaves. */
+	/** A card dropped into a frame joins it; dropped out of one, it leaves. One undo step per drag. */
+	const onDragStart = useCallback<OnNodeDrag<CardNode>>(
+		(e, node, dragged) => {
+			undo.stopCapturing();
+			tidy.onNodeDragStart(e, node, dragged);
+		},
+		[tidy],
+	);
 	const onDragStop = useCallback<OnNodeDrag<CardNode>>(
 		(e, node, dragged) => {
 			const ids = dragged.map((n) => n.id);
 			doc.transact(() => {
 				reparentDropped(yNodes, flowBoxes(), ids);
-			});
+			}, LOCAL_ORIGIN);
+			undo.stopCapturing();
 			tidy.onNodeDragStop(e, node, dragged);
 		},
 		[flowBoxes, tidy],
@@ -230,7 +319,8 @@ function Board({ logOpen }: { logOpen: boolean }) {
 		const id = `grp-${Date.now().toString(36)}`;
 		doc.transact(() => {
 			groupNodes(yNodes, flowBoxes(), selectedIds, id);
-		});
+		}, LOCAL_ORIGIN);
+		undo.stopCapturing();
 	}, [selectedIds, flowBoxes]);
 
 	/** The frames to dissolve: the selected ones, else the frames that hold the selected cards. */
@@ -250,7 +340,8 @@ function Board({ logOpen }: { logOpen: boolean }) {
 		if (targets.length === 0) return;
 		doc.transact(() => {
 			ungroupFrames(yNodes, targets);
-		});
+		}, LOCAL_ORIGIN);
+		undo.stopCapturing();
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [selectedIds]);
 
@@ -307,18 +398,46 @@ function Board({ logOpen }: { logOpen: boolean }) {
 		const onKey = (e: KeyboardEvent) => {
 			const t = e.target as HTMLElement | null;
 			if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+			const mod = (e.metaKey || e.ctrlKey) && !e.altKey;
+			const key = e.key.toLowerCase();
+			if (e.key === "Escape") {
+				setMenu(null);
+				setAsk(null);
+				return;
+			}
+			if (ask) return;
 			if (e.key === "/" && !e.metaKey && !e.ctrlKey && !e.altKey) {
 				e.preventDefault();
 				openChat();
-			} else if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "g") {
+			} else if (mod && key === "g") {
 				e.preventDefault();
 				if (e.shiftKey) ungroup();
 				else group();
+			} else if (mod && key === "a") {
+				e.preventDefault();
+				setSelection([...yNodes.keys()]);
+			} else if (mod && key === "z" && !ended) {
+				e.preventDefault();
+				if (e.shiftKey) undo.redo();
+				else undo.undo();
+			} else if (e.key === "Delete" || e.key === "Backspace") {
+				if (t?.tagName === "BUTTON" && !t.closest(".react-flow__node")) return;
+				e.preventDefault();
+				requestDelete();
 			}
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [openChat, group, ungroup]);
+	}, [openChat, group, ungroup, setSelection, requestDelete, ask, ended]);
+
+	useEffect(() => {
+		if (!menu) return;
+		const close = (e: PointerEvent) => {
+			if (!(e.target as Element | null)?.closest?.(".cv-menu")) setMenu(null);
+		};
+		window.addEventListener("pointerdown", close);
+		return () => window.removeEventListener("pointerdown", close);
+	}, [menu]);
 
 	useEffect(() => {
 		if (ended && chat) {
@@ -405,12 +524,18 @@ function Board({ logOpen }: { logOpen: boolean }) {
 		</div>
 	) : null;
 
+	const scheme = useScheme();
+
 	return (
 		<div
 			className={`cv-board${TOUCH ? " is-touch" : ""}`}
 			ref={wrapRef}
 			onPointerMove={onPointerMove}
 			onPointerDown={onPointerDown}
+			onPointerDownCapture={onPressStart}
+			onPointerMoveCapture={onPressMove}
+			onPointerUpCapture={cancelPress}
+			onPointerCancelCapture={cancelPress}
 			onPointerLeave={(e) => {
 				if (e.pointerType !== "touch") setPresence("cursor", null);
 			}}
@@ -438,7 +563,7 @@ function Board({ logOpen }: { logOpen: boolean }) {
 				onNodesChange={onNodesChange}
 				onConnect={onConnect}
 				onSelectionChange={onSelectionChange}
-				onNodeDragStart={tidy.onNodeDragStart}
+				onNodeDragStart={onDragStart}
 				onNodeDragStop={onDragStop}
 				connectionMode={ConnectionMode.Loose}
 				nodesConnectable={!TOUCH}
@@ -447,7 +572,21 @@ function Board({ logOpen }: { logOpen: boolean }) {
 				zoomOnPinch
 				zoomOnDoubleClick={false}
 				proOptions={{ hideAttribution: true }}
-				deleteKeyCode={["Backspace", "Delete"]}
+				deleteKeyCode={null}
+				selectionOnDrag={!TOUCH}
+				selectionMode={SelectionMode.Partial}
+				panOnDrag={TOUCH ? true : [1, 2]}
+				panOnScroll={!TOUCH}
+				panActivationKeyCode="Space"
+				multiSelectionKeyCode={["Shift", "Meta", "Control"]}
+				onNodeClick={onNodeClick}
+				onNodeContextMenu={(e, node) => {
+					e.preventDefault();
+					if (ended) return;
+					const r = wrapRef.current?.getBoundingClientRect();
+					if (!selectedRef.current.includes(node.id)) setSelection([node.id]);
+					setMenu({ x: e.clientX - (r?.left ?? 0), y: e.clientY - (r?.top ?? 0) });
+				}}
 				// Edge labels can't be scrolled into view on focus; nodes can.
 				edgesFocusable={false}
 			>
@@ -503,14 +642,104 @@ function Board({ logOpen }: { logOpen: boolean }) {
 						<IconBoxMultiple size={16} /> Ungroup
 					</button>
 				) : null}
+				{!TOUCH && selectedIds.length > 0 && !ended ? (
+					<button type="button" className="cv-toggle" title="Delete the selected cards (Delete)" onClick={requestDelete}>
+						<IconTrash size={16} /> Delete
+					</button>
+				) : null}
+				<button
+					type="button"
+					className="cv-toggle cv-icon-toggle"
+					aria-label={scheme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+					title={scheme === "dark" ? "Light mode" : "Dark mode"}
+					onClick={pageTheme.toggle}
+				>
+					{scheme === "dark" ? <IconSun size={16} stroke={1.5} /> : <IconMoon size={16} stroke={1.5} />}
+				</button>
 			</div>
+			{ask ? (
+				<div className="cv-confirm" role="dialog" aria-label="Delete frame">
+					<b>{ask.frames.length > 1 ? "Delete these frames?" : "Delete this frame?"}</b>
+					<span>It still holds cards. Keep them on the board, or delete them with it?</span>
+					<div className="cv-confirm-actions">
+						<button
+							type="button"
+							className="cv-toggle on"
+							// biome-ignore lint/a11y/noAutofocus: keeping the cards is the default, Enter picks it
+							autoFocus
+							onClick={() => confirmDelete(true)}
+						>
+							Keep the cards
+						</button>
+						<button type="button" className="cv-toggle" onClick={() => confirmDelete(false)}>
+							Delete the cards too
+						</button>
+						<button type="button" className="cv-toggle" onClick={() => setAsk(null)}>
+							Cancel
+						</button>
+					</div>
+				</div>
+			) : null}
+			{menu ? (
+				<div className="cv-menu" role="menu" style={{ transform: popupAt(menu.x - 14, menu.y - 16) }}>
+					<button
+						type="button"
+						role="menuitem"
+						onClick={() => {
+							setMenu(null);
+							requestDelete();
+						}}
+					>
+						<IconTrash size={14} /> Delete
+					</button>
+					{selectedIds.length > 1 ? (
+						<button
+							type="button"
+							role="menuitem"
+							onClick={() => {
+								setMenu(null);
+								group();
+							}}
+						>
+							<IconBoxMultiple size={14} /> Group
+						</button>
+					) : null}
+					{canUngroup ? (
+						<button
+							type="button"
+							role="menuitem"
+							onClick={() => {
+								setMenu(null);
+								ungroup();
+							}}
+						>
+							<IconBoxMultiple size={14} /> Ungroup
+						</button>
+					) : null}
+				</div>
+			) : null}
 			{ended ? (
 				<div className="cv-ended" role="status">
 					<b>Session with {agent.name} ended</b>
 					{session?.summary ? <p>{session.summary}</p> : null}
 					<span>The summary is in the chat. The board stays as it is.</span>
 				</div>
-			) : chat && TOUCH ? null : (
+			) : chat && TOUCH ? null : TOUCH && selectedIds.length > 0 ? (
+				<div className="cv-selbar" role="toolbar" aria-label="Selection" style={{ bottom: keyboard + 16 }}>
+					<span className="cv-selbar-count">{selectedIds.length} selected</span>
+					<button type="button" className="cv-selbar-btn" onClick={openChat}>
+						<IconMessageCircle size={18} /> Comment
+					</button>
+					{selectedIds.length > 1 ? (
+						<button type="button" className="cv-selbar-btn" onClick={group}>
+							<IconBoxMultiple size={18} /> Group
+						</button>
+					) : null}
+					<button type="button" className="cv-selbar-btn danger" aria-label="Delete selected" onClick={requestDelete}>
+						<IconTrash size={18} /> Delete
+					</button>
+				</div>
+			) : (
 				<button type="button" className="cv-fab" onClick={openChat} style={TOUCH ? { bottom: keyboard + 16 } : undefined}>
 					<IconMessageCircle size={18} /> Comment {TOUCH ? null : <kbd>/</kbd>}
 				</button>

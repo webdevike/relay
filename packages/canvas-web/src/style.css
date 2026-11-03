@@ -1540,3 +1540,118 @@ mark {
 :root[data-embed="phone"] .cv-model button {
 	min-height: 40px;
 }
+
+/* ---------- theme toggle, selection, delete ---------- */
+.cv-icon-toggle {
+	padding: 6px;
+	justify-content: center;
+	color: var(--c-muted);
+	background: transparent;
+	border-color: transparent;
+}
+.cv-icon-toggle:hover {
+	color: var(--c-fg);
+	background: var(--c-popover);
+	border-color: var(--c-border);
+}
+.cv-board .react-flow__nodesselection-rect {
+	border: 1px solid color-mix(in srgb, var(--c-accent) 60%, transparent);
+	border-radius: 6px;
+	background: color-mix(in srgb, var(--c-accent) 5%, transparent);
+}
+.cv-board .react-flow__selection {
+	border-radius: 2px;
+}
+.cv-selbar {
+	position: absolute;
+	left: 50%;
+	transform: translateX(-50%);
+	z-index: 6;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 6px;
+	background: var(--c-popover);
+	border: 1px solid var(--c-border);
+	border-radius: var(--round);
+	box-shadow: var(--c-overlay-shadow);
+}
+.cv-selbar-count {
+	padding: 0 8px;
+	font-size: 13px;
+	color: var(--c-muted);
+	white-space: nowrap;
+}
+.cv-selbar-btn {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-height: 44px;
+	padding: 8px 14px;
+	font-size: 14px;
+	color: var(--c-fg);
+	background: transparent;
+	border: 0;
+	border-radius: var(--round);
+	cursor: pointer;
+}
+.cv-selbar-btn.danger {
+	color: var(--c-danger);
+}
+.cv-confirm {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	z-index: 8;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	width: min(340px, calc(100% - 32px));
+	padding: 16px;
+	font-size: 13px;
+	color: var(--c-fg);
+	background: var(--c-popover);
+	border: 1px solid var(--c-border);
+	border-radius: 12px;
+	box-shadow: var(--c-overlay-shadow);
+}
+.cv-confirm > span {
+	color: var(--c-muted);
+}
+.cv-confirm-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 4px;
+}
+.cv-menu {
+	position: absolute;
+	top: 0;
+	left: 0;
+	z-index: 8;
+	display: flex;
+	flex-direction: column;
+	min-width: 150px;
+	padding: 4px;
+	background: var(--c-popover);
+	border: 1px solid var(--c-border);
+	border-radius: 10px;
+	box-shadow: var(--c-overlay-shadow);
+}
+.cv-menu button {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 7px 10px;
+	font-size: 13px;
+	text-align: left;
+	color: var(--c-fg);
+	background: transparent;
+	border: 0;
+	border-radius: 6px;
+	cursor: pointer;
+}
+.cv-menu button:hover {
+	background: var(--c-surface);
+}

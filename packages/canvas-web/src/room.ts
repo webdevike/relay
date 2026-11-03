@@ -4,7 +4,7 @@ import { WebsocketProvider } from "y-websocket";
 import * as Y from "yjs";
 import { type ChatMsg, DOC_KEYS, type Presence, type User } from "../../canvas-live/src/shared";
 import { parseEnv, roomUrl, wsParams, wsServer } from "./env";
-import { HUMAN_COLORS, freeColor, uniqueName } from "./model";
+import { HUMAN_COLORS, createUndo, freeColor, uniqueName } from "./model";
 
 export const env = parseEnv(location.href);
 export const doc = new Y.Doc();
@@ -19,6 +19,9 @@ export const yMeta = doc.getMap<unknown>(DOC_KEYS.meta);
 export const yChat = doc.getArray<ChatMsg>(DOC_KEYS.chat);
 export const ySettings = doc.getMap<unknown>(DOC_KEYS.settings);
 export const yMetrics = doc.getMap<unknown>(DOC_KEYS.metrics);
+
+/** This viewer's undo stack: only their own moves, deletes and groups (see `createUndo`). */
+export const undo = createUndo(yNodes, yEdges);
 
 // Handle for scripted QA (reconnect and concurrent-edit checks).
 Object.assign(window, { __canvas: { doc, provider, awareness } });

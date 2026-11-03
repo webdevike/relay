@@ -3,14 +3,9 @@ import "./style.css";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { env, loadIdentity } from "./room";
+import "./page-theme";
 
-// Light or dark: `theme=` from the embedding app wins, else the system setting (live).
-const dark = matchMedia("(prefers-color-scheme: dark)");
-const applyTheme = () => {
-	document.documentElement.dataset["theme"] = env.theme ?? (dark.matches ? "dark" : "light");
-};
-applyTheme();
-dark.addEventListener("change", applyTheme);
+// Light or dark (viewer toggle, else the embedding app, else the system) is applied by page-theme.
 document.documentElement.dataset["embed"] = env.embed;
 
 const root = document.getElementById("root");
