@@ -1,0 +1,42 @@
+name: desktop
+
+# Relay desktop (apps/desktop + the @evaos/* packages): the checks of scripts/gate.sh that need no
+# display. The app has its own pnpm workspace (pnpm 12, isolated) and links Relay packages from the
+# root install (pnpm 9, hoisted) and from packages/widget-runtime's own install.
+on:
+  push:
+    paths: ["apps/desktop/**", "packages/browser-core/**", "packages/chat-core/**", "packages/contract/**", "packages/eva-core/**", "packages/shell-core/**", "packages/portrait-motion/**", "packages/slack-emoji/**", "packages/widget-runtime/**", "scripts/**", "fixtures/**", "eslint.config.mjs", "stylelint.config.mjs", "tsconfig.desktop.json", ".prettierrc", "pnpm-lock.yaml", ".github/workflows/desktop.yml"]
+  pull_request:
+    paths: ["apps/desktop/**", "packages/browser-core/**", "packages/chat-core/**", "packages/contract/**", "packages/eva-core/**", "packages/shell-core/**", "packages/portrait-motion/**", "packages/slack-emoji/**", "packages/widget-runtime/**", "scripts/**", "fixtures/**", "eslint.config.mjs", "stylelint.config.mjs", "tsconfig.desktop.json", ".prettierrc", "pnpm-lock.yaml", ".github/workflows/desktop.yml"]
+
+jobs:
+  check:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      # pnpm 10+ switches to each workspace's packageManager version (root 9.15.0, desktop 12.11.2).
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.11.2
+      - name: Install
+        run: |
+          pnpm install --frozen-lockfile
+          (cd packages/widget-runtime && pnpm install --frozen-lockfile --ignore-workspace)
+          (cd apps/desktop && pnpm install --frozen-lockfile)
+          # Electron 44 has no postinstall: fetch its binary.
+          (cd apps/desktop/node_modules/electron && node install.js)
+      - name: Typecheck
+        working-directory: apps/desktop
+        run: pnpm -r --include-workspace-root typecheck
+      - name: Lint (eslint, prettier, em-dash, spacing)
+        working-directory: apps/desktop
+        run: pnpm lint
+      - name: Unit tests
+        working-directory: apps/desktop
+        run: pnpm -r --include-workspace-root test
+      - name: Build
+        working-directory: apps/desktop
+        run: pnpm build

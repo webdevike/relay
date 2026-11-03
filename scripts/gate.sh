@@ -13,6 +13,8 @@ step "install check"
 pnpm install --frozen-lockfile
 (cd packages/widget-runtime && pnpm install --frozen-lockfile --ignore-workspace)
 desktop install --frozen-lockfile
+# Electron 44 has no postinstall: fetch its binary (from the cache when it has one).
+[ -d apps/desktop/node_modules/electron/dist ] || (cd apps/desktop/node_modules/electron && node install.js)
 step "typecheck"
 desktop -r --include-workspace-root typecheck
 step "lint (eslint, prettier, em-dash, spacing)"
