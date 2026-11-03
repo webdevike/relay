@@ -251,17 +251,18 @@
 }
 .eva-rv-queue[data-variant='page'] .eva-rv-qrow {
   flex-direction: row;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--mantine-spacing-sm);
+  gap: calc(var(--mantine-spacing-xs) * 0.2) var(--mantine-spacing-sm);
   border-radius: 0;
   border-bottom: 1px solid var(--eva-c-border);
 }
+/* The title takes the row; the details drop under it when the page is narrow. */
 .eva-rv-queue[data-variant='page'] .eva-rv-qrow-title {
-  flex: 1;
+  flex: 1 1 18em;
   -webkit-line-clamp: 1;
   overflow-wrap: normal;
   text-overflow: ellipsis;
-  min-width: 8em;
 }
 .eva-rv-queue[data-variant='page'] .eva-rv-qrow-line {
   flex: none;
@@ -273,6 +274,9 @@
 .eva-rv-qrow-pills {
   display: inline-flex;
   gap: calc(var(--mantine-spacing-xs) * 0.4);
+}
+.eva-rv-qrow-pills .eva-rv-pill {
+  background: transparent;
 }
 
 /* Detail */
