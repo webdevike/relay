@@ -13,7 +13,9 @@ import {
   isDefaultTab,
   ruleMatches,
   sameRule,
+  subagentView,
   tabItems,
+  tidyIds,
   visibleTabs,
   type ArtifactTab,
 } from './artifacts'
@@ -150,5 +152,68 @@ describe('artifacts mirror', () => {
       }).success,
     ).toBe(true)
     expect(TabRule.safeParse({ kind: ['gh-pr'], colour: 'red' }).success).toBe(false)
+  })
+})
+
+describe('subagentView and tidyIds', () => {
+  const sub = (id: string, state: 'running' | 'done' | 'failed', extra: Partial<Artifact> = {}) =>
+    item(`subagent:${id}`, { subagent: { state, startedAt: NOW - 60_000 }, ...extra })
+
+  it('reads a running subagent nobody touched in 30 minutes as done', () => {
+    expect(subagentView(sub('a', 'running'), NOW)).toBe('running')
+    const quiet = NOW - 31 * 60_000
+    expect(
+      subagentView(
+        sub('a', 'running', { lastSeen: quiet, subagent: { state: 'running', startedAt: quiet } }),
+        NOW,
+      ),
+    ).toBe('done')
+    expect(subagentView(sub('a', 'failed'), NOW)).toBe('failed')
+    expect(subagentView(item('linear:ENG-1'), NOW)).toBeNull()
+  })
+
+  it('tidies finished, closed, stale and duplicate items and keeps running, pinned and recent ones', () => {
+    const fillers = [10, 20, 30, 40, 50].map((n) => `user@${NOW - 1000 + n}`)
+    const all = [
+      sub('run', 'running'),
+      sub('done', 'done'),
+      sub('bad', 'failed'),
+      sub('pinned', 'done', { pinned: { by: 'isaac', at: NOW }, sources: fillers }),
+      sub('fresh', 'done', { sources: [`assistant@${NOW}`] }),
+      item('linear:ENG-9', {
+        sources: ['user@1'],
+        status: { state: 'done', stateType: 'completed', fetchedAt: NOW },
+      }),
+      item('linear:ENG-2', {
+        sources: [`user@${NOW}`],
+        status: { state: 'in progress', stateType: 'started', fetchedAt: NOW },
+      }),
+      item('url:https://a.test/x', {
+        url: 'https://a.test/x',
+        lastSeen: NOW - 2 * DAY_MS,
+        sources: [`user@${NOW}`, 'user@1'],
+      }),
+      item('url:https://a.test/y', {
+        url: 'https://a.test/y',
+        lastSeen: NOW - 2 * DAY_MS,
+        sources: ['user@2'],
+      }),
+      item('url:https://a.test/x#frag', {
+        url: 'https://a.test/x#frag',
+        lastSeen: NOW - 3 * DAY_MS,
+        sources: ['user@3'],
+      }),
+    ]
+    expect(tidyIds(all, NOW).sort()).toEqual([
+      'linear:ENG-9',
+      'subagent:bad',
+      'subagent:done',
+      'url:https://a.test/x#frag',
+      'url:https://a.test/y',
+    ])
+  })
+
+  it('does not offer an item that is already tidied', () => {
+    expect(tidyIds([sub('done', 'done', { tidied: { by: 'isaac', at: NOW } })], NOW)).toEqual([])
   })
 })

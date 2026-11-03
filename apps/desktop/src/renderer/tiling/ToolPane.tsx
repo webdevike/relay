@@ -17,7 +17,7 @@ import {
 import { findPane, placeOf, tabId, type PaneTab, type SubagentTab } from '@evaos/shell-core'
 import { useChatStore } from '../chat/chat-store'
 import { PANE_ID } from '../chat/open-chat'
-import { SubagentStateIcon, subagentState } from '../chat/strips/SubagentChips'
+import { SubagentStateIcon, subagentState, useMinute } from '../chat/strips/SubagentChips'
 import { useNamesVersion } from '../eva/names-store'
 import { EvaMenu } from '../overlay'
 import { paneTabIcon, paneTabTitle } from './pane-tab-meta'
@@ -54,6 +54,7 @@ const ADDABLE: Array<{ label: string; Icon: typeof IconGlobe; tab: PaneTab }> = 
 
 /** A running subagent's tab spins like its chip while the chat in front is its own. */
 function SubagentGlyph({ tab }: { tab: SubagentTab }) {
+  const now = useMinute()
   const subagent = useChatStore((s) => {
     const pane = s.panes[PANE_ID]
     if (!pane || pane.file !== tab.session) return undefined
@@ -63,7 +64,7 @@ function SubagentGlyph({ tab }: { tab: SubagentTab }) {
     const Icon = paneTabIcon(tab)
     return <Icon size={14} stroke={1.5} />
   }
-  return <SubagentStateIcon state={subagentState(subagent)} />
+  return <SubagentStateIcon state={subagentState(subagent, now)} />
 }
 
 function PaneTabButton({ tab, active, paneId }: { tab: PaneTab; active: boolean; paneId: string }) {

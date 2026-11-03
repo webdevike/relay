@@ -41,6 +41,8 @@ import {
   defaultTabs,
   isDefaultTab,
   ruleMatches,
+  subagentView,
+  tidyIds,
   tabItems,
   visibleTabs,
   type Artifact,
@@ -74,8 +76,6 @@ import {
   ruleChips,
   searchItems,
   subagentTree,
-  subagentView,
-  tidyIds,
   tabOrigin,
   watchTarget,
   whenText,
@@ -87,8 +87,6 @@ import {
   setActiveTab,
   setShowTidied,
   startArtifacts,
-  tidyItems,
-  untidyItems,
   useArtifacts,
   useArtifactsThread,
 } from './artifacts-store'
@@ -723,18 +721,17 @@ export function ArtifactsPanel({ hidden }: { hidden: boolean }) {
       ? withTranscripts(base, target.file, chatPane.extras.subagents, now)
       : base
   }, [hostItems, target, chatPane?.file, chatPane?.extras.subagents, now])
-  const tidied = useArtifacts((s) => (thread ? s.tidied[thread] : undefined))
   const showTidied = useArtifacts((s) => (thread ? s.showTidied[thread] === true : false))
-  const hiddenIds = useMemo(() => new Set(tidied ?? []), [tidied])
-  // Tidied items stay out of every tab unless "Show tidied" is on; a running subagent never hides.
+  // Items Tidy hid (the host keeps that, so the phone sees the same) stay out of every tab unless
+  // "Show tidied" is on; a running subagent never hides.
   const items = useMemo(
     () =>
       showTidied
         ? allItems
-        : allItems.filter((i) => !hiddenIds.has(i.id) || subagentView(i, now) === 'running'),
-    [allItems, hiddenIds, showTidied, now],
+        : allItems.filter((i) => i.tidied === undefined || subagentView(i, now) === 'running'),
+    [allItems, showTidied, now],
   )
-  const tidiedCount = allItems.filter((i) => hiddenIds.has(i.id)).length
+  const tidiedCount = allItems.filter((i) => i.tidied !== undefined).length
   const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items])
   // The Subagents tab's spinner and its list both read the rows that tab shows, through subagentView.
   const subagentsTab = tabs.find((t) => t.id === 'subagents')
@@ -745,7 +742,7 @@ export function ArtifactsPanel({ hidden }: { hidden: boolean }) {
 
   const tidy = (): void => {
     if (!thread) return
-    const ids = tidyIds(items, now)
+    const ids = tidyIds(allItems, now)
     if (ids.length === 0) {
       notifications.show({
         title: 'Nothing to tidy',
@@ -753,10 +750,11 @@ export function ArtifactsPanel({ hidden }: { hidden: boolean }) {
       })
       return
     }
-    tidyItems(thread, ids)
+    void act(thread, { op: 'tidy', ids, tidied: true })
     const id = `artifacts-tidy-${Date.now()}`
     notifications.show({
       id,
+      autoClose: 8000,
       title: `Tidied ${ids.length} ${ids.length === 1 ? 'item' : 'items'}`,
       message: (
         <Button
@@ -764,7 +762,7 @@ export function ArtifactsPanel({ hidden }: { hidden: boolean }) {
           variant="subtle"
           data-testid="artifacts-tidy-undo"
           onClick={() => {
-            untidyItems(thread, ids)
+            void act(thread, { op: 'tidy', ids, tidied: false })
             notifications.hide(id)
           }}
         >

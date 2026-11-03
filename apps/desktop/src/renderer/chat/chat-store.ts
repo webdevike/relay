@@ -1,6 +1,7 @@
 import { useStore } from 'zustand'
 import { createStore } from 'zustand/vanilla'
 import type { AwayView } from '@evaos/chat-core/batcher'
+import { subagentFinished } from '@evaos/chat-core/jobs'
 import type {
   BgJob,
   ChatMessage,
@@ -228,7 +229,9 @@ export const chatStore = createStore<ChatState>((set) => ({
       const pane = s.panes[paneId]
       if (!pane) return s
       const next = new Set(s.hiddenDone)
-      for (const a of pane.extras.subagents) if (a.done) next.add(hiddenKey(pane.file, a.name))
+      for (const a of pane.extras.subagents) {
+        if (subagentFinished(a, Date.now())) next.add(hiddenKey(pane.file, a.name))
+      }
       return { hiddenDone: next }
     }),
   openPane: (paneId, data) =>

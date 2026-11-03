@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Artifact, ArtifactTab } from '@evaos/chat-core/artifacts'
+import { subagentView, type Artifact, type ArtifactTab } from '@evaos/chat-core/artifacts'
 import {
   actorName,
   ageText,
@@ -20,8 +20,6 @@ import {
   seenText,
   statusPills,
   subagentTree,
-  subagentView,
-  tidyIds,
   withTranscripts,
   watchTarget,
 } from './artifacts-model'
@@ -203,44 +201,6 @@ describe('artifacts model', () => {
     const gone = subagentTree([sub('running', NOW - 31 * 60_000)], NOW)
     expect(gone.running).toEqual([])
     expect(gone.finished).toHaveLength(1)
-  })
-
-  it('tidies finished, stale, closed and duplicate items but keeps running, pinned and recent ones', () => {
-    const day = 24 * 60 * 60 * 1000
-    const sub = (id: string, state: 'running' | 'done' | 'failed', extra: Partial<Artifact> = {}) =>
-      item(`subagent:${id}`, { subagent: { state, startedAt: NOW - 60_000 }, ...extra })
-    const items = [
-      sub('run', 'running'),
-      sub('done', 'done'),
-      sub('bad', 'failed'),
-      sub('pinned', 'done', {
-        pinned: { by: 'isaac', at: NOW },
-        sources: [10, 20, 30, 40, 50].map((n) => `user@${NOW - 1000 + n}`),
-      }),
-      sub('fresh', 'done', { sources: [`assistant@${NOW}`] }),
-      item('linear:ENG-1', {
-        sources: ['user@1'],
-        status: { state: 'done', stateType: 'completed', fetchedAt: NOW },
-      }),
-      item('linear:ENG-2', {
-        sources: [`user@${NOW}`],
-        status: { state: 'in progress', stateType: 'started', fetchedAt: NOW },
-      }),
-      item('url:https://a.test/x', {
-        url: 'https://a.test/x',
-        lastSeen: NOW - 2 * day,
-        sources: [`user@${NOW}`, 'user@1'],
-      }),
-      item('url:https://a.test/y', {
-        url: 'https://a.test/y',
-        lastSeen: NOW - 2 * day,
-        sources: ['user@2'],
-      }),
-    ]
-    const out = tidyIds(items, NOW)
-    expect(out.sort()).toEqual(
-      ['subagent:bad', 'subagent:done', 'linear:ENG-1', 'url:https://a.test/y'].sort(),
-    )
   })
 
   it('orders media tiles and formats lengths and ages', () => {

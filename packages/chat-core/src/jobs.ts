@@ -1,5 +1,6 @@
 // Background jobs and subagents derived from session files. Pure over text and listings;
 // callers in main read the files. Ported from Rust chat.rs background_jobs / subagents.
+import { SUBAGENT_STALE_MS } from './artifacts'
 import { oneLine } from './session'
 
 type Json = Record<string, unknown>
@@ -91,10 +92,12 @@ export interface SubagentEntry {
 }
 
 /**
- * A subagent transcript untouched this long without its `.md` was abandoned (crashed, killed, its
- * process gone), not running. The context button's dot and the Artifacts panel both read it.
+ * Whether a listed subagent is over: its `.md` exists, or its transcript went untouched for
+ * SUBAGENT_STALE_MS (crashed, killed). The chips, the context dot and the Artifacts panel agree on it.
  */
-export const SUBAGENT_STALE_MS = 30 * 60_000
+export function subagentFinished(s: { done: boolean; mtimeMs: number }, now: number): boolean {
+  return s.done || now - s.mtimeMs > SUBAGENT_STALE_MS
+}
 
 /**
  * Subagents from the direct entries of a session's folder, newest first. A `<name>.jsonl`

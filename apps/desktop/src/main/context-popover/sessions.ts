@@ -4,12 +4,11 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { z } from 'zod'
-import { SUBAGENT_STALE_MS, subagentsFromListing } from '@evaos/chat-core/jobs'
+import { SUBAGENT_STALE_MS } from '@evaos/chat-core/artifacts'
+import { subagentsFromListing } from '@evaos/chat-core/jobs'
 import { readTail } from '../assistants/assistants'
 import { lastAssistantLine } from '../chat/extras'
 
-/** A transcript untouched this long without its `.md` was abandoned, not running. */
-export const STALE_MS = SUBAGENT_STALE_MS
 /** A session file written this recently is still working. */
 export const ACTIVE_MS = 10 * 60_000
 
@@ -58,7 +57,7 @@ function stat(file: string): fs.Stats | null {
 
 /**
  * The subagents of session `file`, newest first: running ones (no `.md` yet, written in the last
- * STALE_MS) and finished ones (by their `.md` time). Abandoned transcripts are left out.
+ * SUBAGENT_STALE_MS) and finished ones (by their `.md` time). Abandoned transcripts are left out.
  */
 export function subagentsOf(file: string, now: number, lines: LineCache): Worker[] {
   const dir = file.replace(/\.jsonl$/, '')
@@ -80,7 +79,7 @@ export function subagentsOf(file: string, now: number, lines: LineCache): Worker
   }
   const out: Worker[] = []
   for (const s of subagentsFromListing(entries)) {
-    if (!s.done && now - s.mtimeMs > STALE_MS) continue
+    if (!s.done && now - s.mtimeMs > SUBAGENT_STALE_MS) continue
     const full = path.join(dir, s.file)
     const st = stat(full)
     if (!st) continue

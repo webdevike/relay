@@ -1,12 +1,24 @@
 import './strips.css'
+import { useEffect, useState } from 'react'
 import { Scroller, Tooltip } from '@mantine/core'
 import { IconAlertCircle, IconCheck, IconChevronLeft, IconChevronRight } from '@tabler/icons-react'
+import { subagentFinished } from '@evaos/chat-core/jobs'
 import type { Subagent } from '@evaos/chat-core/message'
 
 export type SubagentState = 'running' | 'done' | 'failed'
 
-export const subagentState = (s: Subagent): SubagentState =>
-  s.failed ? 'failed' : s.done ? 'done' : 'running'
+/** A clock that ticks each minute, so a subagent that goes quiet stops spinning without new files. */
+export function useMinute(): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(Date.now()), 60_000)
+    return () => window.clearInterval(t)
+  }, [])
+  return now
+}
+
+export const subagentState = (s: Subagent, now: number): SubagentState =>
+  s.failed ? 'failed' : subagentFinished(s, now) ? 'done' : 'running'
 
 /** Spinner while running, a check when done, an alert when failed. */
 export function SubagentStateIcon({ state }: { state: SubagentState }) {
@@ -36,9 +48,10 @@ export function SubagentChips({
   onOpen,
   onClearDone,
 }: SubagentChipsProps) {
-  const shown = subagents.filter((s) => !(s.done && hidden.has(s.name)))
+  const now = useMinute()
+  const shown = subagents.filter((s) => !(subagentFinished(s, now) && hidden.has(s.name)))
   if (shown.length === 0) return null
-  const anyDone = shown.some((s) => s.done)
+  const anyDone = shown.some((s) => subagentFinished(s, now))
   return (
     <div className="eva-chips" data-testid="subagent-chips" role="group" aria-label="Subagents">
       <Scroller
@@ -51,7 +64,7 @@ export function SubagentChips({
         endControlIcon={<IconChevronRight size={14} stroke={1.5} />}
       >
         {shown.map((s) => {
-          const state = subagentState(s)
+          const state = subagentState(s, now)
           return (
             <Tooltip
               key={s.name}

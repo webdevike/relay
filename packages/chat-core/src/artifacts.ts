@@ -85,6 +85,10 @@ export type ArtifactStatus = z.infer<typeof ArtifactStatus>
 export const ArtifactPin = z.object({ by: ArtifactActor, at: ms })
 export type ArtifactPin = z.infer<typeof ArtifactPin>
 
+/** Set by `artifacts.act {op:"tidy"}`: the item is hidden from the tabs (Show tidied brings it back); nothing is deleted. */
+export const ArtifactTidied = z.object({ by: ArtifactActor, at: ms })
+export type ArtifactTidied = z.infer<typeof ArtifactTidied>
+
 export const ArtifactMedia = z.object({
   mimeType: z.string().min(1).max(100),
   width: z.number().int().positive().optional(),
@@ -144,6 +148,7 @@ export const Artifact = z.object({
   /** Who first brought it into the thread: Isaac (`user`) or the agent (`assistant`). */
   from: z.enum(['user', 'assistant']).optional(),
   pinned: ArtifactPin.optional(),
+  tidied: ArtifactTidied.optional(),
   status: ArtifactStatus.optional(),
 })
 export type Artifact = z.infer<typeof Artifact>
@@ -347,6 +352,103 @@ export function visibleTabs(tabs: readonly ArtifactTab[]): ArtifactTab[] {
   return tabs.filter((tab) => !tab.hidden)
 }
 
+/** A subagent the host has not heard from this long without its result file is gone (crashed, killed), not running. */
+export const SUBAGENT_STALE_MS = 30 * 60_000
+
+/**
+ * The one place a subagent's state is read: the host's `running` only holds while the item was
+ * touched within SUBAGENT_STALE_MS, so a dead one reads as done everywhere (tab spinner, rows, dots).
+ */
+export function subagentView(item: Artifact, now: number): SubagentState | null {
+  const sub = item.subagent
+  if (item.kind !== 'subagent' || sub === undefined) return null
+  if (sub.state !== 'running') return sub.state
+  return now - Math.max(item.lastSeen, sub.startedAt) > SUBAGENT_STALE_MS ? 'done' : 'running'
+}
+
+/** Newest messages whose mentions Tidy always keeps. */
+export const TIDY_KEEP_MESSAGES = 5
+/** A link not seen for this long is tidied. */
+export const TIDY_LINK_AGE_MS = DAY_MS
+/** A link named by none of this many newest messages is tidied. */
+export const TIDY_LINK_MESSAGES = 20
+
+const TIDY_LINK_KINDS: Readonly<Record<string, true>> = {
+  linear: true,
+  'gh-pr': true,
+  'gh-issue': true,
+  url: true,
+  branch: true,
+}
+
+/** The omp time of a bubble key `<role>@<ms>`; 0 when it has none. */
+const bubbleAt = (key: string): number => Number(key.slice(key.lastIndexOf('@') + 1)) || 0
+
+/** The newest `n` distinct message keys any item names as a source. */
+function newestMessages(items: readonly Artifact[], n: number): Set<string> {
+  const keys = new Set(items.flatMap((i) => i.sources))
+  return new Set([...keys].sort((a, b) => bubbleAt(b) - bubbleAt(a)).slice(0, n))
+}
+
+/** What makes two entries the same thing: a URL without its fragment or trailing slash, else kind and title. */
+function dupeKey(item: Artifact): string | null {
+  if (item.kind === 'subagent') return null
+  if (item.url !== undefined && /^https?:/i.test(item.url)) {
+    return `url:${item.url.replace(/#.*$/, '').replace(/\/+$/, '').toLowerCase()}`
+  }
+  return `${item.kind}:${item.title.trim().toLowerCase()}`
+}
+
+/**
+ * The ids Tidy hides (the one rule phone and desktop share): finished, failed or abandoned subagents;
+ * links named by none of the newest messages and either not seen for a day or by none of the newest
+ * TIDY_LINK_MESSAGES; done or canceled tickets and merged or closed PRs; duplicates. Running, pinned
+ * and recently mentioned items are always kept, and items already tidied are not offered again.
+ */
+export function tidyIds(items: readonly Artifact[], now: number): string[] {
+  const live = items.filter((i) => i.tidied === undefined)
+  const recent = newestMessages(live, TIDY_KEEP_MESSAGES)
+  const wide = newestMessages(live, TIDY_LINK_MESSAGES)
+  const kept = (i: Artifact): boolean =>
+    subagentView(i, now) === 'running' ||
+    i.pinned !== undefined ||
+    i.sources.some((s) => recent.has(s))
+  const out = new Set<string>()
+  for (const i of live) {
+    if (kept(i)) continue
+    if (subagentView(i, now) !== null) {
+      out.add(i.id)
+      continue
+    }
+    if (TIDY_LINK_KINDS[i.kind] !== true) continue
+    const st = i.status
+    const closed =
+      st !== undefined &&
+      (st.stateType === 'completed' ||
+        st.stateType === 'canceled' ||
+        st.state === 'merged' ||
+        st.state === 'closed')
+    if (closed || now - i.lastSeen > TIDY_LINK_AGE_MS || !i.sources.some((s) => wide.has(s))) {
+      out.add(i.id)
+    }
+  }
+  // Of each group of the same thing, the pinned, then newest, one stays.
+  const groups = new Map<string, Artifact[]>()
+  for (const i of live) {
+    const k = dupeKey(i)
+    if (k !== null) groups.set(k, [...(groups.get(k) ?? []), i])
+  }
+  for (const g of groups.values()) {
+    if (g.length < 2) continue
+    const [, ...rest] = [...g].sort(
+      (a, b) =>
+        Number(b.pinned !== undefined) - Number(a.pinned !== undefined) || b.lastSeen - a.lastSeen,
+    )
+    for (const d of rest) if (!kept(d)) out.add(d.id)
+  }
+  return [...out]
+}
+
 /** What a client may do; the host checks who may do it (`by`). */
 export const ArtifactAction = z.discriminatedUnion('op', [
   /** Add something no message holds; `tab` also files it under that item tab. Answers `{id}`. */
@@ -386,6 +488,12 @@ export const ArtifactAction = z.discriminatedUnion('op', [
   z.object({
     op: z.literal('status'),
     statuses: z.record(z.string().min(1).max(2100), ArtifactStatus),
+  }),
+  /** Tidy (`tidied: true`) or bring back (`false`) items: hidden from the tabs, never deleted. Pinned and running items are left alone. */
+  z.object({
+    op: z.literal('tidy'),
+    ids: z.array(z.string().min(1).max(2100)).min(1).max(MAX_ARTIFACTS),
+    tidied: z.boolean(),
   }),
 ])
 export type ArtifactAction = z.infer<typeof ArtifactAction>

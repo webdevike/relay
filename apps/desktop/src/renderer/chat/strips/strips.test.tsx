@@ -22,12 +22,17 @@ import { SubagentChips } from './SubagentChips'
 import { JobsStrip, elapsed } from './JobsStrip'
 import { StatusStrip } from './StatusStrip'
 
-const sub = (name: string, done: boolean, lastLine = ''): Subagent => ({
+const sub = (
+  name: string,
+  done: boolean,
+  lastLine = '',
+  mtimeMs = done ? 1 : Date.now(),
+): Subagent => ({
   name,
   file: `${name}.jsonl`,
   done,
   failed: false,
-  mtimeMs: 1,
+  mtimeMs,
   lastLine,
   tool: null,
 })
@@ -62,6 +67,20 @@ describe('SubagentChips', () => {
     expect(screen.getByText('Clear done')).toBeEnabled()
     await user.click(screen.getByText('Clear done'))
     expect(clear).toHaveBeenCalled()
+  })
+
+  it('a chip whose transcript went quiet for 30 minutes without a result reads as done, not running', () => {
+    wrap(
+      <SubagentChips
+        subagents={[sub('dead', false, '', Date.now() - 31 * 60_000), sub('live', false)]}
+        hidden={new Set()}
+        onOpen={() => undefined}
+        onClearDone={() => undefined}
+      />,
+    )
+    expect(screen.getByTestId('subagent-chip-dead')).toHaveAttribute('data-state', 'done')
+    expect(screen.getByTestId('subagent-chip-live')).toHaveAttribute('data-state', 'running')
+    expect(screen.getByText('Clear done')).toBeEnabled()
   })
 
   it('Clear done sits outside the scrolling chips', () => {
