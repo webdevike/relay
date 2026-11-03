@@ -18,9 +18,11 @@ jobs:
         with:
           node-version: 24
       # pnpm 10+ switches to each workspace's packageManager version (root 9.15.0, desktop 12.11.2).
+      # Bootstrap with desktop's version, read from its packageManager (no `version:` input, which
+      # conflicts with the root package.json's packageManager).
       - uses: pnpm/action-setup@v4
         with:
-          version: 12.11.2
+          package_json_file: apps/desktop/package.json
       - name: Install
         run: |
           pnpm install --frozen-lockfile
