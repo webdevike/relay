@@ -201,12 +201,13 @@ function build(): void {
   const from = saved
   saved = null
   let tabs = tabsState.tabs
+  // The engine's own size once laid out; before its first layout, the element's or the window's.
   const box = {
-    width: Math.max(root.clientWidth, 1) || window.innerWidth,
-    height: Math.max(root.clientHeight, 1) || window.innerHeight,
+    width: api.width || root.clientWidth || window.innerWidth,
+    height: api.height || root.clientHeight || window.innerHeight,
   }
   let json = reconcileDock(from.dock, tabs, (id) => titleOf(tabs, id))
-  let save = json === null
+  const save = json === null
   if (!json && from.tiling) {
     const migrated = migrateTiling(from.tiling, tabs, box, titleOf)
     if (migrated) {
@@ -311,8 +312,10 @@ function refresh(): void {
   }
   const prev = tilingStore.getState()
   const next = { panes, focus, zoom: maximized, lead: leadPane?.id ?? null, contentMin }
-  if (JSON.stringify([prev.panes, prev.focus, prev.zoom, prev.lead, prev.contentMin]) !==
-    JSON.stringify([next.panes, next.focus, next.zoom, next.lead, next.contentMin])) {
+  if (
+    JSON.stringify([prev.panes, prev.focus, prev.zoom, prev.lead, prev.contentMin]) !==
+    JSON.stringify([next.panes, next.focus, next.zoom, next.lead, next.contentMin])
+  ) {
     tilingStore.setState(next)
   }
   // A tab moved to another pane can land somewhere else at the same size: slots re-measure.
@@ -718,7 +721,9 @@ export function moveTab(id: string, toPane: string, index?: number): void {
   const panel = api?.getPanel(id)
   if (!panel) fail('not-found', `No tab ${id}`)
   const group = paneOf(toPane)
-  const front = group.activePanel ? group.panels.indexOf(group.activePanel) + 1 : group.panels.length
+  const front = group.activePanel
+    ? group.panels.indexOf(group.activePanel) + 1
+    : group.panels.length
   const at = Math.min(Math.max(Math.trunc(index ?? front), 0), group.panels.length)
   panel.api.moveTo({ group, index: at })
   panel.api.setActive()

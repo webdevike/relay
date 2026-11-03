@@ -35,7 +35,6 @@
   --dv-active-sash-color: transparent;
   --dv-icon-hover-background-color: var(--eva-hover);
   --dv-scrollbar-background-color: transparent;
-  --dv-tabs-container-scrollbar-color: transparent;
   --dv-border-radius: var(--eva-card-radius);
   --dv-spacing-padding: 0px;
   --dv-overlay-z-index: 50;
@@ -61,7 +60,7 @@
 /* Headers: the tab strip is window chrome you can drag the window by, the tabs and buttons not. */
 .dockview-theme-relay .dv-tabs-and-actions-container {
   align-items: center;
-  gap: var(--eva-space-xs);
+  gap: calc(var(--mantine-spacing-md) * 0.25);
   -webkit-app-region: drag;
 }
 .dockview-theme-relay .dv-tabs-and-actions-container > :not(.dv-void-container) {
@@ -80,7 +79,7 @@
 }
 .dockview-theme-relay .dv-tabs-container {
   align-items: center;
-  gap: var(--eva-space-xs);
+  gap: calc(var(--mantine-spacing-md) * 0.25);
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -111,10 +110,11 @@
 .eva-dock-actions {
   display: flex;
   align-items: center;
-  gap: var(--eva-space-xs);
+  gap: calc(var(--mantine-spacing-md) * 0.25);
   height: 100%;
 }
-.eva-dock-prefix:empty {
+/* A header slot with nothing in it takes no room (and none of the strip's gap). */
+.dockview-theme-relay .dv-tabs-and-actions-container > :has(> .dv-react-part:empty) {
   display: none;
 }
 .eva-dock-prefix[data-lead-in] {
@@ -140,15 +140,18 @@
 .dockview-theme-relay .dv-groupview[data-pane-kind='tool'] > .dv-tabs-and-actions-container {
   height: var(--eva-chat-header-h);
   box-sizing: border-box;
-  padding: 0 var(--eva-space-sm) 0 var(--mantine-spacing-sm);
-  gap: var(--eva-space-sm);
+  padding: 0 var(--eva-gap) 0 var(--mantine-spacing-sm);
+  gap: var(--eva-gap);
   background: var(--eva-c-background);
   border: 1px solid var(--eva-c-border);
   border-bottom-color: var(--eva-c-border);
   border-radius: var(--eva-card-radius) var(--eva-card-radius) 0 0;
   transition: border-color var(--eva-dur-fast) ease;
 }
-.dockview-theme-relay .dv-groupview[data-pane-kind='tool'] > .dv-tabs-and-actions-container .dv-tabs-container {
+.dockview-theme-relay
+  .dv-groupview[data-pane-kind='tool']
+  > .dv-tabs-and-actions-container
+  .dv-tabs-container {
   gap: calc(var(--mantine-spacing-xs) / 2);
 }
 .dockview-theme-relay .dv-groupview[data-pane-kind='tool'] > .dv-content-container {
@@ -300,7 +303,10 @@
     opacity var(--eva-dur-fast) ease,
     background-color var(--eva-dur-fast) ease;
 }
-.dockview-theme-relay .dv-split-view-container.dv-horizontal > .dv-sash-container > .dv-sash::after {
+.dockview-theme-relay
+  .dv-split-view-container.dv-horizontal
+  > .dv-sash-container
+  > .dv-sash::after {
   width: 3px;
   height: 32px;
 }

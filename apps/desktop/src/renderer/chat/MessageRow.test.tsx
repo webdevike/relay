@@ -3,6 +3,9 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MantineProvider } from '@mantine/core'
 import { makeMessage } from '@evaos/chat-core/message'
 import { MessageRow, ToolRunRow } from './MessageRow'
+import { resetTabsForTests, tabsStore } from '../tabs/tabs-store'
+import { resetTilingForTests } from '../tiling/tiling-store'
+import { mountTestDock } from '../tiling/test-dock'
 
 const invoke = vi.hoisted(() => vi.fn())
 vi.mock('../ipc', () => ({ invoke }))
@@ -79,9 +82,14 @@ describe('MessageRow', () => {
 
   it('opens web links in a new panel browser tab', () => {
     invoke.mockResolvedValue({ ok: true, value: {} })
+    resetTabsForTests()
+    resetTilingForTests()
+    tabsStore.setState({ loaded: true })
+    const unmount = mountTestDock()
     wrap(<MessageRow m={makeMessage('a', 'assistant', 'see [docs](https://x.example/a)')} />)
     fireEvent.click(screen.getByRole('link', { name: 'docs' }))
     expect(invoke).toHaveBeenCalledWith('browser.createTab', { url: 'https://x.example/a' })
+    unmount()
   })
 
   it('shows thinking inline', () => {

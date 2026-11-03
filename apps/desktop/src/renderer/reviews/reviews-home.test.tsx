@@ -99,10 +99,10 @@ vi.mock('../navigation/navigate', () => ({
   setNavigator: () => {},
 }))
 vi.mock('../navigation/open-link', () => ({ openLink: () => {} }))
-const openTab = vi.fn()
+const openPlaceBeside = vi.fn()
 vi.mock('../tiling/tiling-store', async (orig) => ({
   ...(await orig<typeof TilingStore>()),
-  openTab: (...a: unknown[]) => openTab(...a),
+  openPlaceBeside: (...a: unknown[]) => openPlaceBeside(...a),
 }))
 
 import { createTabs, placeOf } from '@evaos/shell-core'
@@ -126,7 +126,7 @@ beforeEach(() => {
   live173Draft = true
   invoke.mockClear()
   openPlace.mockClear()
-  openTab.mockClear()
+  openPlaceBeside.mockClear()
   resetReviewsForTests()
   reviewsStore.setState({ view: 'for-me' })
   tabsStore.setState(
@@ -196,10 +196,9 @@ describe('Reviews home (nothing selected)', () => {
     wrap()
     const row = await screen.findByTestId('review-row-172')
     fireEvent.click(row, { metaKey: true })
-    expect(openTab).toHaveBeenLastCalledWith({
-      kind: 'page',
-      place: reviewPlaceOf({ kind: 'pr', repo: ROW.repo, number: ROW.number }),
-    })
+    expect(openPlaceBeside).toHaveBeenLastCalledWith(
+      reviewPlaceOf({ kind: 'pr', repo: ROW.repo, number: ROW.number }),
+    )
     fireEvent.click(row, { metaKey: true, shiftKey: true })
     expect(openPlace).toHaveBeenLastCalledWith(
       reviewPlaceOf({ kind: 'pr', repo: ROW.repo, number: ROW.number }),

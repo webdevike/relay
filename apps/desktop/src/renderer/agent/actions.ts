@@ -223,7 +223,12 @@ export function layoutSnapshot(): Record<string, unknown> {
     }
     const tool = toolTabOfId(id)
     const args = tool ? tabArgs(tool) : undefined
-    return { id, kind: tool?.kind ?? 'tool', title: tool ? paneTabTitle(tool) : id, ...(args ? { args } : {}) }
+    return {
+      id,
+      kind: tool?.kind ?? 'tool',
+      title: tool ? paneTabTitle(tool) : id,
+      ...(args ? { args } : {}),
+    }
   }
   const node = (n: DockShape): Record<string, unknown> => {
     if (n.type === 'split') {

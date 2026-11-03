@@ -52,14 +52,15 @@ export function PrefixActions({ group }: IDockviewHeaderActionsProps) {
   const pane = usePane(group.id)
   const sidebar = useLayout((s) => s.state)
   const front = pane?.active === null || !pane ? null : appTabOf(pane.active)
-  const history = useTabs((s) => {
-    const tab = front === null ? undefined : s.tabs.list.find((t) => t.id === front)
-    return { back: (tab?.back.length ?? 0) > 0, forward: (tab?.forward.length ?? 0) > 0 }
-  })
+  // The tab itself (a stable reference): an object built in the selector would re-render forever.
+  const tab = useTabs((s) => (front === null ? undefined : s.tabs.list.find((t) => t.id === front)))
+  const history = { back: (tab?.back.length ?? 0) > 0, forward: (tab?.forward.length ?? 0) > 0 }
   const lead = useTiling((s) => s.lead === group.id)
   const topLeft = pane?.rect !== null && pane?.rect?.x === 0 && pane.rect.y === 0
   if (!pane) return null
   const room = sidebar !== 'open' && topLeft
+  // Nothing to show: no element, so the strip's gap doesn't push the tabs in (dock.css).
+  if (!pane.app && !room) return null
   return (
     <div className="eva-dock-prefix" data-lead-in={room || undefined}>
       {pane.app ? (

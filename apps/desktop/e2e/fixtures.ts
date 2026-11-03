@@ -111,7 +111,7 @@ export const test = base.extend<Fixtures>({
     }
     if (!toolPanes) {
       type Hooks = { __evaosShell: { setPanel(open: boolean): void } }
-      await page.waitForSelector('[data-pane-id=chat]', { state: 'attached' })
+      await page.waitForSelector('[data-pane-kind=app]', { state: 'attached' })
       await page.evaluate(() => (window as unknown as Hooks).__evaosShell.setPanel(false))
       await page.waitForSelector('[data-pane-kind=tool]', { state: 'hidden' })
     }

@@ -23,6 +23,9 @@ import {
 } from '../theme/theme-config'
 import { pageRegistry } from '../pages/registry'
 import { assistantsStore } from '../assistants/assistants-store'
+import { resetTabsForTests, tabsStore } from '../tabs/tabs-store'
+import { resetTilingForTests } from '../tiling/tiling-store'
+import { mountTestDock } from '../tiling/test-dock'
 
 function page(section: 'Theme' | 'Chat' | 'Links' | 'About' | 'Changelog') {
   return render(
@@ -289,6 +292,10 @@ describe('SettingsPage', () => {
         relayUp: true,
       },
     })
+    resetTabsForTests()
+    resetTilingForTests()
+    tabsStore.setState({ loaded: true })
+    const unmount = mountTestDock()
     page('About')
     const credits = screen.getByTestId('settings-credits')
     expect(credits).toHaveTextContent(
@@ -298,6 +305,7 @@ describe('SettingsPage', () => {
     expect(invoke).toHaveBeenCalledWith('browser.createTab', {
       url: 'https://www.dicebear.com/styles/micah/',
     })
+    unmount()
     expect(within(credits).getByText('creativecommons.org/licenses/by/4.0')).toHaveAttribute(
       'href',
       'https://creativecommons.org/licenses/by/4.0/',

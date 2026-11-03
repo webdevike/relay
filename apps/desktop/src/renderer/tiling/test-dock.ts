@@ -9,8 +9,10 @@ import { applySavedLayout, attachDock, nextGroupId } from './tiling-store'
 export function mountTestDock(dock: unknown = null, apply = true): () => void {
   const host = document.createElement('div')
   document.body.appendChild(host)
+  const part = () => ({ element: document.createElement('div'), init: () => {} })
   const api = createDockview(host, {
-    createComponent: () => ({ element: document.createElement('div'), init: () => {} }),
+    createComponent: part,
+    createTabComponent: part,
     disableFloatingGroups: true,
     groupIdGenerator: nextGroupId,
   })

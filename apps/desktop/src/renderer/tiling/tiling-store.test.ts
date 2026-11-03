@@ -58,7 +58,10 @@ let host: HTMLDivElement
 function mount(saved: { dock?: unknown; tiling?: unknown } = {}, list?: Tab[], active = 1): void {
   tabsStore.setState(
     {
-      tabs: createTabs(list ?? [tab(0, 'dashboard'), tab(1, 'chat', { chat: '/s/a.jsonl' })], active),
+      tabs: createTabs(
+        list ?? [tab(0, 'dashboard'), tab(1, 'chat', { chat: '/s/a.jsonl' })],
+        active,
+      ),
       loaded: true,
     },
     true,

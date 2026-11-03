@@ -39,7 +39,12 @@ describe('panels', () => {
     expect(appPanelId(7)).toBe('tab:7')
     expect(appTabOf('tab:7')).toBe(7)
     expect(appTabOf('browser')).toBeNull()
-    const sub = { kind: 'subagent', session: '/s/a.jsonl', file: '/s/a/x.jsonl', name: 'X' } as const
+    const sub = {
+      kind: 'subagent',
+      session: '/s/a.jsonl',
+      file: '/s/a/x.jsonl',
+      name: 'X',
+    } as const
     expect(toolTabId(sub)).toBe('subagent:/s/a/x.jsonl')
     expect(toolTabFromJson(sub)).toEqual(sub)
     expect(toolTabFromJson({ kind: 'page' })).toBeNull()
@@ -56,7 +61,10 @@ describe('defaultDock', () => {
     expect(tools!.activeView).toBe('files')
     const sizes = d.grid.root.type === 'branch' ? d.grid.root.data.map((n) => n.size) : []
     expect(sizes).toEqual([900, 300])
-    expect(d.panels['files']).toMatchObject({ contentComponent: 'tool', params: { tab: { kind: 'files' } } })
+    expect(d.panels['files']).toMatchObject({
+      contentComponent: 'tool',
+      params: { tab: { kind: 'files' } },
+    })
     expect(d.panels['tab:0']).toMatchObject({ contentComponent: 'app', tabComponent: 'app' })
     // Room for the chat, a gap and a tool pane.
     expect(shapeMinWidth(dockShape(d))).toBe(MAIN_MIN + 8 + 240)
@@ -104,7 +112,12 @@ describe('migrateTiling', () => {
           dir: 'column',
           sizes: [0.6, 0.4],
           children: [
-            { type: 'pane', id: 'p2', tabs: [{ kind: 'browser' }, { kind: 'files' }], active: 'files' },
+            {
+              type: 'pane',
+              id: 'p2',
+              tabs: [{ kind: 'browser' }, { kind: 'files' }],
+              active: 'files',
+            },
             {
               type: 'pane',
               id: 'p3',

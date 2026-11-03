@@ -147,7 +147,11 @@ describe('loadLayout', () => {
 
   it('keeps defaults when the call fails, and the panes still count as loaded', async () => {
     unmount = mountTestDock(null, false)
-    invoke.mockRejectedValue(new Error('x'))
+    invoke.mockImplementation((ch: string) =>
+      ch === 'layout.load'
+        ? Promise.reject(new Error('x'))
+        : Promise.resolve({ ok: true, value: {} }),
+    )
     await loadLayout()
     expect(g().sidebarWidth).toBe(272)
     expect(show).not.toHaveBeenCalled()

@@ -1,4 +1,5 @@
 import 'dockview-react/dist/styles/dockview.css'
+import '../../tabs/tabs.css'
 import './dock.css'
 import { useEffect, useRef } from 'react'
 import { DockviewReact, type DockviewReadyEvent, type DockviewTheme } from 'dockview-react'

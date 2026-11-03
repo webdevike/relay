@@ -1,27 +1,6 @@
-.eva-tabbar {
-  flex: none;
-  height: var(--eva-tab-strip-h);
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  gap: var(--eva-space-xs);
-  padding: 0;
-  background: var(--eva-chrome);
-  -webkit-app-region: drag;
-  min-width: 0;
-}
-.eva-tabbar[data-lead-in='true'] {
-  padding-left: var(--eva-traffic);
-}
-.eva-tabbar > * {
-  -webkit-app-region: no-drag;
-}
-.eva-tabbar > .eva-tabbar-spacer {
-  -webkit-app-region: drag;
-  flex: 1 0 8px;
-  align-self: stretch;
-}
-.eva-tabbar .eva-tabbar-btn {
+/* App tabs and the strip's buttons (Back, Forward, New tab) in a pane header (tiling/dock): the
+   strip itself is dockview's, laid out in dock.css. */
+.eva-tabbar-btn {
   flex: none;
   width: var(--eva-kit-control-xs);
   min-width: var(--eva-kit-control-xs);
@@ -51,18 +30,6 @@
 }
 .eva-tabbar-btn[aria-pressed='true'] {
   color: var(--eva-c-foreground);
-}
-.eva-tabs-scroll {
-  display: flex;
-  align-items: center;
-  gap: var(--eva-space-xs);
-  min-width: 0;
-  flex: 0 1 auto;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.eva-tabs-scroll::-webkit-scrollbar {
-  display: none;
 }
 .eva-tab {
   flex: 0 1 auto;

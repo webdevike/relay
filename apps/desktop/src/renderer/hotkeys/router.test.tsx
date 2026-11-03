@@ -18,7 +18,9 @@ import { browserStore } from '../browser/browser-store'
 import { useBrowserHotkeys } from '../browser/useBrowserHotkeys'
 import { useDismissable } from './dismiss'
 import { setFocusedPane } from './pane-focus'
-import { activateTab, resetTilingForTests } from '../tiling/tiling-store'
+import { activateTab, resetTilingForTests, tilingStore } from '../tiling/tiling-store'
+import { mountTestDock } from '../tiling/test-dock'
+import { resetTabsForTests, tabsStore } from '../tabs/tabs-store'
 import {
   registerAction,
   registerOverlayChord,
@@ -191,15 +193,21 @@ describe('hotkey router', () => {
     hotkeyCb!({ chord: 'cmd+w', fromGuest: false })
     expect(invoke).not.toHaveBeenCalled()
     expect(close).toHaveBeenCalledTimes(1)
-    // The default tool pane (p2) has the keyboard, with Files in front: not the browser's yet.
-    setFocusedPane('p2')
+    // The default tool pane has the keyboard, with Files in front: not the browser's yet.
+    resetTabsForTests()
+    tabsStore.setState({ loaded: true })
+    const unmountDock = mountTestDock()
+    const tools = tilingStore.getState().panes.find((p) => !p.app)!
+    setFocusedPane(tools.id)
     activateTab('files')
+    invoke.mockClear()
     hotkeyCb!({ chord: 'cmd+w', fromGuest: false })
     expect(invoke).not.toHaveBeenCalled()
     activateTab('browser')
     hotkeyCb!({ chord: 'cmd+w', fromGuest: false })
     expect(invoke).toHaveBeenCalledWith('browser.closeTab', { tabId: 't1' })
     unmount()
+    unmountDock()
     off()
   })
 

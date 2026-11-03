@@ -97,29 +97,6 @@
   margin-left: var(--eva-main-left);
   margin-right: var(--eva-gap);
 }
-/* A tool pane on the top edge starts below the tab strip, level with the chat's card; the strip
-   above it is window chrome you can drag the window by. */
-.eva-pane[data-pad-top] {
-  padding-top: var(--eva-tab-strip-h);
-  -webkit-app-region: drag;
-}
-.eva-main-column {
-  height: 100%;
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-.eva-main-card {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-.eva-main-card > .eva-chat {
-  min-width: 0;
-  flex: 1;
-}
 
 /* Sidebar toggles interpolate both fitted columns and main's left inset together. */
 .eva-shell[data-sidebar-transition='true'] .eva-sidebar {

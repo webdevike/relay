@@ -20,6 +20,7 @@ import {
   enterScope,
   resetTilingForTests,
   revealTool,
+  startTiling,
   tabVisible,
   tilingStore,
 } from '../tiling/tiling-store'
@@ -43,12 +44,12 @@ const tab = (id: string) => ({
 })
 
 let stopWatch: () => void
+let stopTiling: () => void
 let unmount: () => void
 beforeEach(() => {
   resetTabsForTests()
   resetTilingForTests()
   tabsStore.setState({ loaded: true })
-  unmount = mountTestDock()
   resetScopesForTests()
   setAgentTitles({ nova: 'Nova' })
   listStore.setState({ list: { rows: [row] } as unknown as ListState['list'] })
@@ -63,6 +64,8 @@ beforeEach(() => {
     return { ok: true, value: {} }
   })
   show.mockReset()
+  stopTiling = startTiling()
+  unmount = mountTestDock()
   stopWatch = startScopeWatch()
   // Isaac is on the Dashboard with Files in front of the tool pane.
   enterScope('page:dashboard')
@@ -70,6 +73,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   stopWatch()
+  stopTiling()
   unmount()
 })
 

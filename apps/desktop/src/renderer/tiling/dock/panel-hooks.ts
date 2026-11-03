@@ -2,15 +2,12 @@ import { useSyncExternalStore } from 'react'
 import type { DockviewPanelApi } from 'dockview-react'
 import { useTiling } from '../tiling-store'
 
-/** The panel is the one in front of its pane (dockview's per-group active panel). */
+/**
+ * The panel is the one in front of its pane, focused or not (dockview's own `isActive` is only
+ * true in the focused pane, so a tool pane's front tab would look like the others).
+ */
 export function usePanelActive(api: DockviewPanelApi): boolean {
-  return useSyncExternalStore(
-    (cb) => {
-      const d = api.onDidActiveChange(cb)
-      return () => d.dispose()
-    },
-    () => api.isActive,
-  )
+  return useTiling((s) => s.panes.some((p) => p.active === api.id))
 }
 
 /** The panel's content is on screen (in front of a pane that shows). */
