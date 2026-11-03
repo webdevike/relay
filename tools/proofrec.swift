@@ -4,6 +4,7 @@
 //
 //   swiftc -O -o build/proofrec tools/proofrec.swift
 //   build/proofrec <out.mov> <seconds> <pid> [<pid> ...]
+//   PROOFREC_AUDIO=1 also records the included apps' audio (ScreenCaptureKit, no extra permission).
 import AVFoundation
 import Foundation
 import ScreenCaptureKit
@@ -31,6 +32,11 @@ final class Recorder: NSObject, SCRecordingOutputDelegate {
         config.height = display.height
         config.minimumFrameInterval = CMTime(value: 1, timescale: 30)
         config.showsCursor = false
+        if ProcessInfo.processInfo.environment["PROOFREC_AUDIO"] == "1" {
+            config.capturesAudio = true
+            config.sampleRate = 48000
+            config.channelCount = 2
+        }
         let stream = SCStream(filter: filter, configuration: config, delegate: nil)
         let recordingConfig = SCRecordingOutputConfiguration()
         try? FileManager.default.removeItem(at: output)
