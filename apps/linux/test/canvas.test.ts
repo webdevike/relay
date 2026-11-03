@@ -146,7 +146,6 @@ beforeEach(() => {
   writeFileSync(join(sessions, "2026-10-28T00-00-00-000Z_chat", "Build.jsonl"), `${turnLine("user", "Build the thing")}\n`);
   writeFileSync(subagentFile, `${turnLine("user", "Worker assignment: review the roles board with Isaac")}\n`);
   writeFileSync(novaFile, `${turnLine("user", "Nova, plan the week on a board")}\n`);
-  writeFileSync(join(root, "nova.png"), "png");
   posted = [];
   replies = [];
   brains = [];
@@ -169,7 +168,6 @@ beforeEach(() => {
     canvasDir,
     chats,
     registry: [{ id: "nova", title: "Nova", avatar: "nova-17", portrait: { style: "micah", seed: "nova-17", colors: { accent: "#f76707" } } }],
-    avatarsDir: root,
     brains: (system) => {
       const brain = new FakeBrain(system, answer);
       brains.push(brain);

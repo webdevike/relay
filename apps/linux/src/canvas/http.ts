@@ -16,7 +16,7 @@
 //   POST /canvas/<slug>/end?token=   Wrap up -> {summary}
 //   POST /canvas/<slug>/query?token= {tool, args}: a live `ui` node's Query (the host query tools)
 //   WS   /canvas/<slug>/ws?token=    y-websocket (server.ts)
-// Open: GET /canvas/avatar/<key>    an assistant's avatar PNG
+// Open: GET /canvas/avatar/<key>    an assistant's avatar SVG (the same drawing as Relay Desktop's)
 //       GET /canvas/portrait/<seed> a joined agent's portrait SVG
 
 import { type Stats, readFileSync, statSync } from "node:fs";
@@ -102,9 +102,9 @@ export async function handleCanvasRequest(canvas: CanvasService | null, page: ()
   try {
     if (parts[0] === "sessions") return await sessions(canvas, request, parts.slice(1), remote);
     if (parts[0] === "avatar") {
-      const file = parts.length === 2 ? canvas.avatarFile(parts[1] ?? "") : null;
-      if (file === null || request.method !== "GET") return new Response("not found", { status: 404 });
-      return new Response(readFileSync(file), { headers: { "content-type": "image/png", "cache-control": "max-age=3600" } });
+      const svg = parts.length === 2 && /^[a-z0-9-]{1,60}$/.test(parts[1] ?? "") ? canvas.avatarSvg(parts[1] ?? "") : null;
+      if (svg === null || request.method !== "GET") return new Response("not found", { status: 404 });
+      return new Response(svg, { headers: { "content-type": "image/svg+xml", "cache-control": "max-age=3600" } });
     }
     if (parts[0] === "portrait") {
       const seed = parts.length === 2 ? (parts[1] ?? "") : "";

@@ -17,6 +17,7 @@
     "@dicebear/core": "^9.4.3",
     "@dicebear/notionists": "^9.4.2",
     "@relay/canvas-live": "workspace:*",
+    "@relay/portrait-motion": "workspace:*",
     "@relay/protocol": "workspace:*",
     "lib0": "^0.2.119",
     "y-protocols": "^1.0.7",

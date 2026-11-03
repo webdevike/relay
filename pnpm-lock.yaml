@@ -44,6 +44,9 @@ importers:
       '@relay/canvas-live':
         specifier: workspace:*
         version: link:../../packages/canvas-live
+      '@relay/portrait-motion':
+        specifier: workspace:*
+        version: link:../../packages/portrait-motion
       '@relay/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol

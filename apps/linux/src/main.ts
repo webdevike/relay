@@ -677,7 +677,6 @@ function liveCanvas(
     chats: agents,
     registry,
     ...(config === null || registry[0] === undefined ? {} : { defaultAgentName: registry[0].title }),
-    avatarsDir: agentHome === null ? null : join(agentHome, "work", "assistant-avatars"),
     brains: ompBrains({ omp, profile, configs: [brainConfigOverlay(configDir)], log }),
     log,
   });
