@@ -46,6 +46,13 @@ describe('assistant breadcrumb', () => {
     expect(notch.querySelector('[data-testid="agent-crumb-status"]')).not.toBeNull()
   })
 
+  it('the notch names the agent over its status, "idle" at rest', () => {
+    ui(<AgentNotch id="nova" />)
+    const notch = screen.getByTestId('agent-notch')
+    expect(notch.querySelector('.eva-as-notch-name')?.textContent).toBe('nova')
+    expect(screen.getByTestId('agent-crumb-status').textContent).toBe('idle')
+  })
+
   it("a chat an assistant started links back to that assistant's thread", () => {
     ui(<OwnedCrumb agent="astra" title="ENG-1 auto-work" />)
     fireEvent.click(screen.getByTestId('owned-crumb-back'))

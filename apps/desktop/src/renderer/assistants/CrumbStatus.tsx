@@ -8,8 +8,8 @@ import { useAgentStatus } from './motion-store'
  * same grid cell, so nothing beside them moves; with motion off they swap at once. Long words end
  * in an ellipsis.
  */
-export function CrumbStatus({ id }: { id: string }) {
-  const text = useAgentStatus(id)
+export function CrumbStatus({ id, rest = null }: { id: string; rest?: string | null }) {
+  const text = useAgentStatus(id) ?? rest
   const [shown, setShown] = useState(text)
   const [leaving, setLeaving] = useState<string | null>(null)
   if (text !== shown) {

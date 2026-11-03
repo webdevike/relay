@@ -200,12 +200,12 @@
   display: inline-flex;
   align-items: center;
   gap: var(--mantine-spacing-xs);
-  max-width: 40%;
+  max-width: 50%;
   box-sizing: border-box;
-  padding: calc(var(--mantine-spacing-xs) / 2) var(--mantine-spacing-sm);
+  padding: var(--mantine-spacing-xs);
   border: 1px solid var(--eva-c-border);
   border-top-color: transparent;
-  border-radius: 0 0 calc(var(--mantine-spacing-xs) * 1.5) calc(var(--mantine-spacing-xs) * 1.5);
+  border-radius: 0 0 calc(var(--mantine-spacing-xs) * 2) calc(var(--mantine-spacing-xs) * 2);
   background: var(--eva-c-background);
   pointer-events: none;
 }
@@ -235,11 +235,32 @@
     var(--eva-c-background) var(--eva-notch-flare)
   );
 }
-.eva-as-notch .eva-as-crumb-status {
-  flex: 0 1 auto;
+.eva-as-notch-portrait {
+  flex: none;
+  width: calc(var(--eva-control-xs) + var(--mantine-spacing-xs));
+  height: calc(var(--eva-control-xs) + var(--mantine-spacing-xs));
+  border-radius: 50%;
+  background: var(--mantine-color-gray-1);
 }
-.eva-as-notch .eva-as-crumb-status:not(:empty) {
-  padding-right: var(--mantine-spacing-xs);
+.eva-as-notch-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: left;
+}
+.eva-as-notch-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--eva-fz-body);
+  font-weight: var(--eva-fw-medium);
+  line-height: 1.2;
+  color: var(--eva-c-foreground);
+}
+.eva-as-notch .eva-as-crumb-status {
+  flex: none;
+  line-height: 1.2;
 }
 
 /* "< Assistants / Astra" */
