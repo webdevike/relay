@@ -30,22 +30,19 @@ enum Capabilities {
         let caption: String
         switch hook {
         case "Blender":
-            spoken = "In Blender I can point you at any tool, teach you step by step and tick each step off as you do it, " +
-                "and handle little chores like switching modes, with an Undo. " +
+            spoken = "In Blender I can point you at any tool, teach you step by step, and switch modes for you. " +
                 "Try \"where's the bevel tool\" or \"teach me to add a torus\"."
             caption = "Find tools, lessons that check off, mode chores. Try \"where's the bevel tool\""
         case "Linear":
-            spoken = "Here I can explain the ticket you're on, what's blocking it and what's next, open any issue by its key, " +
-                "and hand it to \(workAssistant) or remind you about it later. I only read Linear, I won't change anything. " +
-                "Try \"what's blocking this?\" or \"open ENG-6309\"."
+            spoken = "Here I can explain this ticket and what's blocking it, open any issue by its key, " +
+                "and hand it to \(workAssistant). I only read Linear. Try \"what's blocking this?\""
             caption = "Explain tickets, open by key, hand off, remind. Try \"what's blocking this?\""
         default:
             let (first, second) = examples(bundleID: bundleID, navigates: navigates)
-            let moves = navigates
-                ? "point at anything on screen, take you to the right screen, and do small chores like opening a menu"
-                : "point at anything on screen and do small chores like opening a menu"
-            spoken = "In \(app) I can \(moves), with an Undo. I can also open a Linear issue or a PR by name, " +
-                "and hand things off or remind you later. Try \"\(first)\" or \"\(second)\"."
+            let moves = navigates ? "point at anything, take you to the right screen, and do small chores"
+                : "point at anything and do small chores"
+            spoken = "In \(app) I can \(moves). I can also open tickets and hand things off. " +
+                "Try \"\(first)\" or \"\(second)\"."
             caption = (navigates ? "Point, navigate, chores, open tickets, hand off." : "Point, chores, open tickets, hand off.") +
                 " Try \"\(first)\""
         }
