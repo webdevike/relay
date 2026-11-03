@@ -17,10 +17,21 @@ export const AppInfoSchema = z.object({
 })
 export type AppInfo = z.infer<typeof AppInfoSchema>
 
+/** What Settings > About shows: this build, and the Relay Host it is connected to. */
+export const AppAboutSchema = z.object({
+  build: z.string().max(64).nullable(),
+  instance: z.enum(['stable', 'dev']),
+  /** The connected host's name and version (`welcome.state.mac`); null while not connected. */
+  hostName: z.string().max(200).nullable(),
+  hostVersion: z.string().max(64).nullable(),
+})
+export type AppAbout = z.infer<typeof AppAboutSchema>
+
 const Empty = z.object({})
 
 export const appInvoke = {
   'app.info': { input: z.object({}).strict(), output: AppInfoSchema },
+  'app.about': { input: z.object({}).strict(), output: AppAboutSchema },
   'app.setBackground': {
     input: z.object({ color: z.string().regex(/^#[0-9a-fA-F]{6}$/) }).strict(),
     output: Empty,

@@ -93,6 +93,8 @@ export interface SessionManagerDeps {
   emit: (batch: Batch) => void
   cwd: string
   machineLabel: string
+  /** What follows `Relay Desktop` in the surface tag: the build and the host version (`surfaceDetail`). */
+  surfaceDetail?: () => string
   intervalMs?: number
   setInterval?: (fn: () => void, ms: number) => unknown
   clearInterval?: (handle: unknown) => void
@@ -555,7 +557,11 @@ export class SessionManager {
     const sent = this.addPrompt(pane, text, images)
     try {
       await this.deps.relay!.command(
-        replyCommand(session, tagged(text, this.deps.machineLabel), sending),
+        replyCommand(
+          session,
+          tagged(text, this.deps.machineLabel, this.deps.surfaceDetail?.()),
+          sending,
+        ),
       )
     } catch (e) {
       this.dropPrompt(pane, sent)
@@ -572,7 +578,7 @@ export class SessionManager {
   ): Promise<void> {
     const r = pane.remote!
     const queued = {
-      text: tagged(text, this.deps.machineLabel),
+      text: tagged(text, this.deps.machineLabel, this.deps.surfaceDetail?.()),
       images: relayImagesOrThrow(images),
     }
     if (r.session === null) {
@@ -594,7 +600,7 @@ export class SessionManager {
     images: ReadonlyArray<{ mimeType: string; data: string }> | undefined,
   ): Promise<void> {
     const queued = {
-      text: tagged(text, this.deps.machineLabel),
+      text: tagged(text, this.deps.machineLabel, this.deps.surfaceDetail?.()),
       images: relayImagesOrThrow(images),
     }
     const args = this.startArgs(pane, 'omp') ?? []
@@ -643,7 +649,7 @@ export class SessionManager {
     resume: string | null,
   ): Promise<void> {
     const queued = {
-      text: tagged(text, this.deps.machineLabel),
+      text: tagged(text, this.deps.machineLabel, this.deps.surfaceDetail?.()),
       images: relayImagesOrThrow(images),
     }
     const prompted = pane.prompted
@@ -1136,7 +1142,10 @@ export class SessionManager {
         images && images.length > 0
           ? images.map((i) => ({ type: 'image', data: i.data, mimeType: i.mimeType }))
           : undefined
-      await transport.send(tagged(text, this.deps.machineLabel), promptImages)
+      await transport.send(
+        tagged(text, this.deps.machineLabel, this.deps.surfaceDetail?.()),
+        promptImages,
+      )
     } catch (e) {
       // omp never received the prompt (EPIPE after exit, for example).
       this.takeBack(pane, rowId)

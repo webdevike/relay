@@ -272,10 +272,15 @@ const PairOkSchema = z.object({ secret: z.string().regex(/^[0-9a-fA-F]{64}$/) })
 export const LOST_SECRET =
   'Relay Host knows this app but its pairing secret is missing here. Remove this device on the Relay Host to pair again.'
 const AgentsSchema = z.object({ rev, sessions: list })
+/** The host's name and version, `welcome.state.mac` (and `mac.state`'s `mac`). */
+const HostSchema = z.object({ name: z.string().min(1), version: z.string().min(1) })
 const WelcomeSchema = z.object({
-  state: z.object({ agents: z.unknown() }).catch({ agents: undefined }),
+  state: z
+    .object({ agents: z.unknown(), mac: HostSchema.optional().catch(undefined) })
+    .catch({ agents: undefined, mac: undefined }),
   features: z.array(z.string()).catch([]).default([]),
 })
+const MacStateSchema = z.object({ mac: HostSchema.optional().catch(undefined) })
 const DeltaSchema = z.object({ rev, upsert: list, remove: list })
 const ErrorSchema = z.object({ message: z.string().catch('unknown error') })
 const MessageSchema = z.object({
@@ -464,6 +469,8 @@ export class Feed {
   authenticated = false
   /** What the host answers beyond the base protocol (`welcome.features`; "query": `query.req`). */
   features: readonly string[] = []
+  /** The Relay Host's name and version as its welcome (and later `mac.state`) said; null before. */
+  host: { name: string; version: string } | null = null
   private rev = 0
   private sessions = new Map<string, RelaySession>()
   private boardRev = 0
@@ -516,12 +523,18 @@ export class Feed {
         this.authenticated = true
         const w = WelcomeSchema.parse(f)
         this.features = w.features
+        this.host = w.state.mac ?? null
         this.reset(w.state.agents)
         events.push(this.list())
         // Boards stream on this connection from here; the snapshot answers. The canvas rooms
         // come once now and are pushed after every change.
         replies.push({ t: 'board.subscribe' })
         replies.push({ t: 'canvas.get' })
+        break
+      }
+      case 'mac.state': {
+        const host = MacStateSchema.parse(f).mac
+        if (host) this.host = host
         break
       }
       case 'board.snapshot': {

@@ -9,6 +9,7 @@ import {
   type RelayArtifacts,
   type RelayCanvas,
   type RelayFrames,
+  type RelayHostInfo,
   type RelayLink,
   type RelayQueries,
   type RelayReactions,
@@ -36,7 +37,8 @@ export function startRelay(
   RelayCanvas &
   RelayFrames &
   RelayStudio &
-  RelayQueries {
+  RelayQueries &
+  RelayHostInfo {
   const remote = ctx.env.relayRemote
   if (remote !== null || ctx.env.relayDir !== null) {
     const client = new RelayClient({

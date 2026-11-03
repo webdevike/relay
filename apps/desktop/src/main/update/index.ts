@@ -1,5 +1,5 @@
 import { powerMonitor } from 'electron'
-import type { UpdateState } from '@evaos/contract'
+import type { ChangelogEntry, UpdateCheckStatus, UpdateState } from '@evaos/contract'
 import type { MainContext } from '../context'
 import { emit, handle } from '../ipc/handle'
 import { shouldAutoRestart } from './policy'
@@ -21,7 +21,13 @@ export interface UpdateHandle {
  */
 export function registerUpdate(
   ctx: MainContext,
-  deps: { chatWorking(): boolean; restart(): void },
+  deps: {
+    chatWorking(): boolean
+    restart(): void
+    /** The packaged updater's check-now; `unavailable` where there is none (Relay Dev). */
+    checkNow(): Promise<UpdateCheckStatus>
+    changelog(): Promise<ChangelogEntry[]>
+  },
 ): UpdateHandle {
   let state: UpdateState = { pending: false, build: null, summary: null }
   let timer: NodeJS.Timeout | undefined
@@ -31,6 +37,8 @@ export function registerUpdate(
     deps.restart()
     return {}
   })
+  handle(ctx, 'update.check', async () => ({ status: await deps.checkNow() }))
+  handle(ctx, 'update.changelog', async () => ({ entries: await deps.changelog() }))
   ctx.onBeforeQuit(async () => clearInterval(timer))
 
   return {

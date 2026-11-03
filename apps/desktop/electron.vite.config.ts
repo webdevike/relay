@@ -61,7 +61,10 @@ export default defineConfig({
   },
   renderer: {
     root: 'src/renderer',
-    define: { __RELAY_BUILD__: JSON.stringify(buildStamp) },
+    define: {
+      __RELAY_BUILD__: JSON.stringify(buildStamp),
+      __RELAY_BUILT_AT__: JSON.stringify(new Date().toISOString()),
+    },
     plugins: [react(), devCsp, staleSignal],
     server: {
       // This app's workspace (apps/desktop/pnpm-workspace.yaml) is nested in the monorepo: allow the

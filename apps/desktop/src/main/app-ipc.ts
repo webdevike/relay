@@ -28,3 +28,19 @@ export function registerAppIpc(ctx: MainContext): void {
   ctx.win.on('minimize', shown)
   ctx.win.on('restore', shown)
 }
+
+/** Settings > About: this build, and the Relay Host connected right now. */
+export function registerAboutIpc(
+  ctx: MainContext,
+  hostInfo: () => { name: string; version: string } | null,
+): void {
+  handle(ctx, 'app.about', () => {
+    const host = hostInfo()
+    return {
+      build: ctx.env.build,
+      instance: ctx.env.instance,
+      hostName: host?.name ?? null,
+      hostVersion: host?.version ?? null,
+    }
+  })
+}

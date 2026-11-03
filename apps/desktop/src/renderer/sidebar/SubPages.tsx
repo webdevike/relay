@@ -2,6 +2,7 @@ import { ActionIcon, Kbd, Tooltip } from '@mantine/core'
 import {
   IconChevronLeft,
   IconEdit,
+  IconHistory,
   IconInfoCircle,
   IconLink,
   IconMessage,
@@ -27,6 +28,7 @@ const SECTION_ICON = {
   Chat: IconMessage,
   Links: IconLink,
   About: IconInfoCircle,
+  Changelog: IconHistory,
 } as const
 
 const COPY = {

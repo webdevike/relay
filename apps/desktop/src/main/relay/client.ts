@@ -127,6 +127,11 @@ export interface RelayLink extends RelaySource {
   onBoardsChange(cb: () => void): () => void
 }
 
+/** The Relay Host this app is connected to, as its `welcome` named it (null while not connected). */
+export interface RelayHostInfo {
+  host(): { name: string; version: string } | null
+}
+
 /** Live widgets' data (board tiles, canvas `ui` cards): the host's read-only query tools. */
 export interface RelayQueries {
   /** Connected to a host that answers live widget queries (`welcome.features` has "query"). */
@@ -320,7 +325,8 @@ export class RelayClient
     RelayCanvas,
     RelayFrames,
     RelayStudio,
-    RelayQueries
+    RelayQueries,
+    RelayHostInfo
 {
   private readonly dial: Dial
   private readonly secret: (configDir: string) => Uint8Array
@@ -414,6 +420,10 @@ export class RelayClient
 
   queriesUp(): boolean {
     return this.feed?.authenticated === true && this.feed.features.includes(QUERY_FEATURE)
+  }
+
+  host(): { name: string; version: string } | null {
+    return this.feed?.authenticated === true ? this.feed.host : null
   }
 
   async query(tool: string, args: Record<string, unknown>): Promise<BoardQueryAnswer> {
@@ -962,7 +972,8 @@ export class StaticRelay
     RelayCanvas,
     RelayFrames,
     RelayStudio,
-    RelayQueries
+    RelayQueries,
+    RelayHostInfo
 {
   private list: ReadonlyMap<string, RelaySession> | null = null
   private readonly listeners = new Set<() => void>()
@@ -971,6 +982,11 @@ export class StaticRelay
 
   sessions(): ReadonlyMap<string, RelaySession> | null {
     return this.list
+  }
+
+  /** Never connected, so no host. */
+  host(): null {
+    return null
   }
 
   onChange(cb: () => void): () => void {

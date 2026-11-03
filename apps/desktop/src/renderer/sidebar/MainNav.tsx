@@ -1,4 +1,5 @@
 import relayIcon from '../assets/brand/relay-icon.png'
+import { Tooltip } from '@mantine/core'
 import { type MouseEvent } from 'react'
 import { placeOf, type Place } from '@evaos/shell-core'
 import { useBoards } from '../boards/boards-store'
@@ -6,6 +7,7 @@ import { canvasNavPlace } from '../canvas/canvas-store'
 import { openPlace } from '../navigation/navigate'
 import { NAV_PAGES } from '../pages/page-meta'
 import { activePlace, useTabs } from '../tabs/tabs-store'
+import { brandTooltip, useAbout } from '../about/build-info'
 import { ScrollArea } from '../ui/ScrollArea'
 import { NavRow } from './NavRow'
 import { openSub } from './nav-level'
@@ -17,6 +19,7 @@ const OVERVIEW = NAV_PAGES.find((n) => n.slug === 'dashboard')!
 const SETTING = NAV_PAGES.find((n) => n.slug === 'setting')!
 
 export function MainNav() {
+  const about = useAbout()
   const here = useTabs(activePlace)
   const jobs = useSidebarData((s) => s.scheduledJobs)
   const error = useSidebarData((s) => s.error)
@@ -52,10 +55,17 @@ export function MainNav() {
   return (
     <div className="eva-sb-page" data-testid="sidebar-main">
       <div className="eva-sb-header">
-        <div className="eva-sb-brand">
-          <img className="eva-sb-logo" src={relayIcon} alt="" aria-hidden draggable={false} />
-          <span className="eva-sb-brand-name">Relay</span>
-        </div>
+        <Tooltip
+          label={brandTooltip(about?.build ?? null, __RELAY_BUILT_AT__)}
+          position="bottom-start"
+          openDelay={400}
+          withinPortal
+        >
+          <div className="eva-sb-brand">
+            <img className="eva-sb-logo" src={relayIcon} alt="" aria-hidden draggable={false} />
+            <span className="eva-sb-brand-name">Relay</span>
+          </div>
+        </Tooltip>
       </div>
       <div className="eva-sb-scroll">
         <ScrollArea data-testid="sidebar-scroll">

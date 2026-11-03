@@ -62,6 +62,8 @@ export interface ChatHandles {
   mini: Mini | null
   /** Raw frames of the Relay connection (the remote host's `reviews.req` answers). */
   frames: RelayFrames
+  /** The connected Relay Host's name and version, null while not connected. */
+  hostInfo(): { name: string; version: string } | null
 }
 
 const STATUS_COALESCE_MS = 30
@@ -219,5 +221,6 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     studio: relay,
     mini,
     frames: relay,
+    hostInfo: () => relay.host(),
   }
 }

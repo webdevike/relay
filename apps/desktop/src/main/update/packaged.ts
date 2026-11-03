@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, watch, writeFileSync, rmSync } fro
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { z } from 'zod'
+import { ChangelogEntrySchema, type ChangelogEntry, type UpdateCheckStatus } from '@evaos/contract'
 
 const run = promisify(execFile)
 
@@ -51,6 +52,21 @@ export const LatestSchema = z.object({
   app: z.string().min(1),
 })
 export type Latest = z.infer<typeof LatestSchema>
+
+/**
+ * `<dir>/history.json`: every deploy relay-desktop-deploy.ts made and every Relay Host install it
+ * recorded, as an array of ChangelogEntry. Entries that do not parse are skipped; the rest come
+ * back newest first.
+ */
+export function parseHistory(raw: unknown): ChangelogEntry[] {
+  if (!Array.isArray(raw)) return []
+  const entries: ChangelogEntry[] = []
+  for (const item of raw) {
+    const r = ChangelogEntrySchema.safeParse(item)
+    if (r.success && !Number.isNaN(Date.parse(r.data.at))) entries.push(r.data)
+  }
+  return entries.sort((a, b) => Date.parse(b.at) - Date.parse(a.at))
+}
 
 export function readSource(configDir: string): UpdateSource | null {
   try {
@@ -126,6 +142,10 @@ export function swapScript(): string {
 
 export interface PackagedUpdater {
   start(): void
+  /** Looks for a newer build now, as a deploy's kick does, and says what it found. */
+  checkNow(): Promise<UpdateCheckStatus>
+  /** The source's deploy history, newest first; empty without a source or when it cannot be read. */
+  changelog(): Promise<ChangelogEntry[]>
   /** True when a staged bundle will be swapped in after this process exits (call right before quitting). */
   scheduleSwap(): boolean
 }
@@ -168,9 +188,10 @@ export function createPackagedUpdater(opts: {
     }
   }
 
-  async function latest(src: UpdateSource): Promise<Latest | null> {
-    const file = path.posix.join(src.dir, 'latest.json')
-    const text = src.ssh
+  /** A file the source keeps next to latest.json: read locally, or over ssh from the Mini. */
+  async function sourceFile(src: UpdateSource, name: string): Promise<string> {
+    const file = path.posix.join(src.dir, name)
+    return src.ssh
       ? (
           await run(
             'ssh',
@@ -179,19 +200,28 @@ export function createPackagedUpdater(opts: {
           )
         ).stdout
       : readFileSync(file, 'utf8')
-    const r = LatestSchema.safeParse(JSON.parse(text))
+  }
+
+  async function latest(src: UpdateSource): Promise<Latest | null> {
+    const r = LatestSchema.safeParse(JSON.parse(await sourceFile(src, 'latest.json')))
     return r.success ? r.data : null
   }
 
-  async function check(): Promise<void> {
-    if (checking) return
+  async function check(): Promise<UpdateCheckStatus> {
+    if (checking) {
+      again = true
+      return 'busy'
+    }
     checking = true
+    let status: UpdateCheckStatus = 'failed'
     try {
       const src = readSource(opts.configDir)
       const mine = ownBuild(opts.appPath)
-      if (!src || !mine) return
+      if (!src || !mine) return (status = 'unavailable')
       const l = await latest(src)
-      if (!l || l.build === mine || l.build === rejected) return
+      if (!l) return status
+      if (l.build === mine) return (status = 'current')
+      if (l.build === rejected) return (status = 'failed')
       const have = readStaged()
       if (have?.build !== l.build) {
         mkdirSync(stageDir, { recursive: true })
@@ -218,19 +248,32 @@ export function createPackagedUpdater(opts: {
         if (!keepsIdentity(current, staged)) {
           rejected = l.build
           log(`update ${l.build} skipped: signed as ${staged ?? 'nothing'}, this app is ${current}`)
-          return
+          return status
         }
         writeFileSync(stagedMarker, JSON.stringify({ build: l.build }))
       }
       opts.offer({ summary: l.summary ?? `Build ${l.build}`, build: l.build })
+      return (status = 'ready')
     } catch (e) {
       log(`update check failed: ${e instanceof Error ? e.message : String(e)}`)
+      return status
     } finally {
       checking = false
       if (again) {
         again = false
         void check()
       }
+    }
+  }
+
+  async function changelog(): Promise<ChangelogEntry[]> {
+    const src = readSource(opts.configDir)
+    if (!src) return []
+    try {
+      return parseHistory(JSON.parse(await sourceFile(src, 'history.json')))
+    } catch (e) {
+      log(`deploy history unavailable: ${e instanceof Error ? e.message : String(e)}`)
+      return []
     }
   }
 
@@ -251,6 +294,8 @@ export function createPackagedUpdater(opts: {
         log(`update kick watcher unavailable: ${e instanceof Error ? e.message : String(e)}`)
       }
     },
+    checkNow: () => check(),
+    changelog,
     scheduleSwap() {
       const staged = readStaged()
       if (!staged || staged.build === ownBuild(opts.appPath)) return false

@@ -19,8 +19,8 @@ import { createChatTransport } from './transport-factory'
 import { SessionManager } from './session-manager'
 import { parseSession } from '@evaos/chat-core/session'
 import { machineLabel } from '@evaos/chat-core/tagged'
-import type { Batch } from '@evaos/contract'
-import type { RelayLink } from '../relay/client'
+import { surfaceDetail, type Batch } from '@evaos/contract'
+import type { RelayHostInfo, RelayLink } from '../relay/client'
 import type { Mini } from '../relay/mini'
 import { herdrRunner, launchInHerdr } from './herdr'
 
@@ -108,7 +108,7 @@ function commandsFor(ctx: MainContext): CommandCatalog {
 
 export function createSessionManager(
   ctx: MainContext,
-  relay: RelayLink,
+  relay: RelayLink & RelayHostInfo,
   mini: Mini | null,
 ): SessionManager {
   const dropNext = new Set<string>()
@@ -147,6 +147,7 @@ export function createSessionManager(
         : {}),
     cwd: ctx.env.evaRoot,
     machineLabel: machineLabel(),
+    surfaceDetail: () => surfaceDetail(ctx.env.build, relay.host()?.version ?? null),
     createTransport: () =>
       createChatTransport(ctx, () => {
         const e = extraEnv

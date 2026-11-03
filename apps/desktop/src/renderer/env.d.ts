@@ -10,6 +10,8 @@ import type {
 
 declare global {
   const __RELAY_BUILD__: string
+  /** When this build was made, ISO 8601. */
+  const __RELAY_BUILT_AT__: string
 }
 
 declare global {

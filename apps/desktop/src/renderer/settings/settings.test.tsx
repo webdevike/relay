@@ -24,7 +24,7 @@ import {
 import { pageRegistry } from '../pages/registry'
 import { assistantsStore } from '../assistants/assistants-store'
 
-function page(section: 'Theme' | 'Chat' | 'Links' | 'About') {
+function page(section: 'Theme' | 'Chat' | 'Links' | 'About' | 'Changelog') {
   return render(
     <MantineProvider env="test">
       <SettingsPage place={placeOf('settings', { settingsSection: section })} />
@@ -42,6 +42,33 @@ beforeEach(() => {
     if (c === 'links.get')
       return { ok: true, value: { prefs: DEFAULT_LINK_PREFS, apps: ['Arc', 'Linear', 'Slack'] } }
     if (c === 'links.set') return { ok: true, value: input.prefs }
+    if (c === 'app.about')
+      return {
+        ok: true,
+        value: {
+          build: '31e55632a7',
+          instance: 'stable',
+          hostName: "Isaac's Mac Mini",
+          hostVersion: '0.2.51',
+        },
+      }
+    if (c === 'update.check') return { ok: true, value: { status: 'current' } }
+    if (c === 'update.changelog')
+      return {
+        ok: true,
+        value: {
+          entries: [
+            {
+              kind: 'desktop',
+              build: '31e55632a7',
+              at: '2026-11-03T13:08:00',
+              changes: ['Changelog page'],
+            },
+            { kind: 'host', version: '0.2.51', at: '2026-11-03T13:11:00' },
+            { kind: 'desktop', build: 'dd8206e741', at: '2026-11-02T22:00:00', changes: ['Older'] },
+          ],
+        },
+      }
     return {
       ok: true,
       value: { show_thinking: false, show_tools: false, harness: 'omp', ...input },
@@ -275,6 +302,31 @@ describe('SettingsPage', () => {
       'href',
       'https://creativecommons.org/licenses/by/4.0/',
     )
+  })
+
+  it('About shows the build, channel and host version, and checks for updates on request', async () => {
+    page('About')
+    await waitFor(() => expect(screen.getByTestId('about-build')).toHaveTextContent('31e5563'))
+    expect(screen.getByTestId('about-build')).toHaveTextContent('built Nov 3')
+    expect(screen.getByTestId('about-channel')).toHaveTextContent('stable')
+    expect(screen.getByTestId('about-host')).toHaveTextContent("Isaac's Mac Mini 0.2.51")
+    fireEvent.click(screen.getByTestId('about-check'))
+    await waitFor(() =>
+      expect(screen.getByTestId('about-check-result')).toHaveTextContent("You're up to date."),
+    )
+    expect(invoke).toHaveBeenCalledWith('update.check', {})
+  })
+
+  it('Changelog lists builds and host installs newest first in day groups, marking the running build', async () => {
+    page('Changelog')
+    const days = await screen.findAllByTestId('changelog-day')
+    expect(days).toHaveLength(2)
+    expect(within(days[0]!).getByText('Tuesday, November 3')).toBeInTheDocument()
+    const builds = within(days[0]!).getAllByTestId('changelog-build')
+    expect(builds[0]).toHaveTextContent('31e5563 · You are here')
+    expect(builds[0]).toHaveTextContent('Changelog page')
+    expect(within(days[0]!).getByTestId('changelog-host')).toHaveTextContent('Relay Host 0.2.51')
+    expect(within(days[1]!).getByTestId('changelog-build')).not.toHaveTextContent('You are here')
   })
 
   it('Links lists the default rules and saves an added site, a changed opener and a removal', async () => {

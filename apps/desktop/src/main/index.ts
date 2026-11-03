@@ -5,7 +5,7 @@ import { APP_NAME, appName, moveLegacyConfig } from './app-name'
 import { createConfigStore } from './config-store'
 import type { MainContext } from './context'
 import { loadEnv } from './env'
-import { registerAppIpc } from './app-ipc'
+import { registerAboutIpc, registerAppIpc } from './app-ipc'
 import { registerBrowser } from './browser'
 import { registerChat } from './chat'
 import { registerEvaIpc } from './eva-ipc'
@@ -189,7 +189,10 @@ function bootstrap(): void {
       const update = registerUpdate(ctx, {
         chatWorking: () => chat.anyWorking(),
         restart: restartForUpdate,
+        checkNow: async () => (await packagedUpdater?.checkNow()) ?? 'unavailable',
+        changelog: async () => (await packagedUpdater?.changelog()) ?? [],
       })
+      registerAboutIpc(ctx, chat.hostInfo)
       if (app.isPackaged) {
         packagedUpdater = createPackagedUpdater({
           configDir: env.configDir,

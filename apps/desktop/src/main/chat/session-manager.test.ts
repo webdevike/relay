@@ -131,6 +131,20 @@ describe('SessionManager', () => {
       vi.useRealTimers()
     })
 
+    it('names the running build and the host version in the surface tag, read at each send', async () => {
+      let detail = ' 31e5563'
+      const { mgr, transports } = setup({ deps: { surfaceDetail: () => detail } })
+      mgr.open('pane-1', '/s/a.jsonl', [], meta)
+      await mgr.send('pane-1', 'first')
+      detail = ' 31e5563 · host 0.2.51'
+      await mgr.send('pane-1', 'second')
+      expect(transports[0]!.sent).toEqual([
+        '<surface>Mac - Relay Desktop 31e5563</surface>\nfirst',
+        '<surface>Mac - Relay Desktop 31e5563 · host 0.2.51</surface>\nsecond',
+      ])
+      vi.useRealTimers()
+    })
+
     it('remembers the choice for later sends from the same pane', async () => {
       const { mgr, transports } = setup()
       mgr.open('pane-1', '/s/a.jsonl', [], meta)

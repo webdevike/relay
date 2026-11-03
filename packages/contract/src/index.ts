@@ -43,11 +43,12 @@ export * from './rooms-roster'
 export * from './rooms-mentions'
 export * from './files'
 export * from './agent'
+export * from './build'
 export * from './update'
 export * from './context'
 
 export * from './result'
-export { AppInfoSchema, type AppInfo } from './app'
+export { AppInfoSchema, type AppInfo, AppAboutSchema, type AppAbout } from './app'
 export {
   type SavedTabs,
   type SavedTheme,

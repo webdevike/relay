@@ -5,6 +5,11 @@ describe('tagged', () => {
   it('tags plain text on its own first line', () => {
     expect(tagged('hi', 'Mac Mini')).toBe('<surface>Mac Mini - Relay Desktop</surface>\nhi')
   })
+  it('names the build and host version after the client, still stripped for display', () => {
+    const t = tagged('hi', 'Mac Mini', ' 31e5563 · host 0.2.51')
+    expect(t).toBe('<surface>Mac Mini - Relay Desktop 31e5563 · host 0.2.51</surface>\nhi')
+    expect(untagged(t)).toBe('hi')
+  })
   it('leaves slash commands and blank text untouched', () => {
     expect(tagged('/model x', 'Mac')).toBe('/model x')
     expect(tagged('  /model x', 'Mac')).toBe('  /model x')

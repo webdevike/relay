@@ -223,3 +223,14 @@
 .eva-links-add-input {
   flex: 1;
 }
+
+/* Settings > Changelog: one quiet timeline per day. */
+.eva-changelog-day + .eva-changelog-day {
+  margin-top: var(--mantine-spacing-lg);
+}
+.eva-changelog-heading {
+  margin: 0 0 var(--mantine-spacing-md);
+  font-size: var(--eva-fz-body);
+  font-weight: var(--eva-fw-medium);
+  color: var(--eva-c-muted-foreground);
+}

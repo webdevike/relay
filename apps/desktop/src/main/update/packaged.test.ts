@@ -11,6 +11,7 @@ import {
   readSource,
   swapScript,
   watchKick,
+  parseHistory,
 } from './packaged'
 
 const tmp = (): string => mkdtempSync(path.join(tmpdir(), 'relay-upd-'))
@@ -39,6 +40,20 @@ describe('packaged updater helpers', () => {
   it('parses latest.json', () => {
     expect(LatestSchema.parse({ build: 'abc', app: 'abc/Relay.app' }).summary).toBeNull()
     expect(LatestSchema.safeParse({ build: 'abc' }).success).toBe(false)
+  })
+
+  it('reads the deploy history newest first and skips what does not parse', () => {
+    const desktop = (build: string, at: string) => ({ kind: 'desktop', build, at, changes: ['x'] })
+    expect(parseHistory('nope')).toEqual([])
+    expect(
+      parseHistory([
+        desktop('a', '2026-11-03T09:00:00-05:00'),
+        { kind: 'host', version: '0.2.51', at: '2026-11-03T12:00:00-05:00' },
+        { kind: 'desktop', build: 'bad' },
+        desktop('c', 'not a date'),
+        desktop('b', '2026-11-03T10:00:00-05:00'),
+      ]).map((e) => (e.kind === 'host' ? e.version : e.build)),
+    ).toEqual(['0.2.51', 'b', 'a'])
   })
 
   it('swap script waits for the pid, clones, swaps and reopens', () => {
