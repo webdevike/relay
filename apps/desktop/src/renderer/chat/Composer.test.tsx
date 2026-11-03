@@ -152,7 +152,9 @@ describe('Composer', () => {
       })
       expect(aborts()).toHaveLength(0)
       expect(document.activeElement).not.toBe(box)
-      expect(shown).toHaveBeenCalledWith(expect.objectContaining({ message: 'Press Esc again to stop' }))
+      expect(shown).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Press Esc again to stop' }),
+      )
     })
 
     it('a second Escape inside 500 ms aborts, before sidebar Back', () => {
