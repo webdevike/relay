@@ -3,6 +3,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import type { Page } from '@playwright/test'
 import { test, expect } from './fixtures'
+import { pickScheme } from './helpers/appearance'
 
 // Opt-in live spec: Slack in Reviews against Isaac's real Slack, read through the claude.ai Slack
 // connector (read tools only) with the real claude CLI. Read-only by construction: EVAOS_E2E=1
@@ -44,8 +45,7 @@ test('reads Slack threads waiting on Isaac and hands a reply to Astra without po
   await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.setSize(1800, 1000))
   await shell.waitForFunction(() => !!(window as unknown as Partial<Shell>).__evaosShell)
   await shell.evaluate(() => (window as unknown as Shell).__evaosShell.openPlace('settings'))
-  const dark = shell.locator(sel('appearance-dark'))
-  if (await dark.isVisible().catch(() => false)) await dark.click()
+  await pickScheme(shell, 'dark')
   await shell.locator(sel('nav-reviews')).click()
   await shell.keyboard.press('Meta+Shift+B')
   const groups = shell.locator(sel('review-slack-groups'))

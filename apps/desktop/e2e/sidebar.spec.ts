@@ -1,5 +1,6 @@
 import type { ElectronApplication, Page } from '@playwright/test'
 import { test, expect } from './fixtures'
+import { pickScheme } from './helpers/appearance'
 import { startStaticServer, type StaticServer } from './helpers/static-server'
 
 type Snap = {
@@ -103,17 +104,18 @@ test('account menu takes Esc first and hides the browser view', async ({ app, sh
   await addr.fill(String(server.port))
   await addr.press('Enter')
   await expect.poll(() => viewVisible(app)).toBe(true)
-  await shell.locator(sel('account-trigger')).click()
-  await expect(shell.locator(sel('account-menu'))).toBeVisible()
+  await shell.locator(sel('nav-setting')).click()
+  await expect(shell.locator(sel('settings-menu'))).toBeVisible()
   await expect(shell.locator(sel('account-quit'))).toBeVisible()
   await expect.poll(() => viewVisible(app)).toBe(false)
   await shell.keyboard.press('Escape')
-  await expect(shell.locator(sel('account-menu'))).toBeHidden()
+  await expect(shell.locator(sel('settings-menu'))).toBeHidden()
   await expect.poll(() => viewVisible(app)).toBe(true)
 })
 
 test('settings sub-page opens a settings section', async ({ shell }) => {
   await shell.locator(sel('nav-setting')).click()
+  await shell.locator(sel('settings-all')).click()
   await expect.poll(() => level(shell)).toBe('settings')
   await expect(shell.locator('[data-testid^=settings-item-]')).toHaveCount(4)
   await shell.locator(sel('settings-item-chat')).click()
@@ -150,7 +152,7 @@ test('Appearance in the sidebar does not recreate the sidebar', async ({ shell }
     ;(window as unknown as { __sb: Element | null }).__sb =
       document.querySelector('[data-testid=sidebar]')
   })
-  await shell.locator(sel('appearance-light')).click()
+  await pickScheme(shell, 'light')
   await expect(shell.locator('html')).toHaveAttribute('data-resolved', 'light')
   expect(
     await shell.evaluate(() => {

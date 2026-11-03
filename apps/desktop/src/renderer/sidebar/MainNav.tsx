@@ -1,4 +1,3 @@
-import { useElementSize } from '@mantine/hooks'
 import relayIcon from '../assets/brand/relay-icon.png'
 import { type MouseEvent } from 'react'
 import { placeOf, type Place } from '@evaos/shell-core'
@@ -7,9 +6,8 @@ import { canvasNavPlace } from '../canvas/canvas-store'
 import { openPlace } from '../navigation/navigate'
 import { NAV_PAGES } from '../pages/page-meta'
 import { activePlace, useTabs } from '../tabs/tabs-store'
-import { AppearanceControl } from '../theme/AppearanceControl'
 import { ScrollArea } from '../ui/ScrollArea'
-import { AccountMenu } from './AccountMenu'
+import { SettingsPopover } from './SettingsPopover'
 import { NavRow } from './NavRow'
 import { openSub } from './nav-level'
 import { countLabel, useSidebarData } from './sidebar-store'
@@ -19,14 +17,11 @@ const MAIN = NAV_PAGES.filter((n) => n.slug !== 'setting' && n.slug !== 'dashboa
 const OVERVIEW = NAV_PAGES.find((n) => n.slug === 'dashboard')!
 const SETTING = NAV_PAGES.find((n) => n.slug === 'setting')!
 
-const settingsPlace = (): Place => placeOf('settings', { settingsSection: 'Theme' })
-
 export function MainNav() {
   const here = useTabs(activePlace)
   const jobs = useSidebarData((s) => s.scheduledJobs)
   const error = useSidebarData((s) => s.error)
   const boards = useBoards((s) => s.data?.boards ?? null)
-  const { ref, width } = useElementSize<HTMLDivElement>()
 
   const go = (page: Place['page'], e: MouseEvent): void => {
     const newTab = e.metaKey
@@ -47,16 +42,13 @@ export function MainNav() {
       // A plain click while on a board only drills in.
       if (!(here.page === 'canvas' && !newTab)) openPlace(canvasNavPlace(), { newTab })
       openSub('canvas')
-    } else if (page === 'settings') {
-      openPlace(settingsPlace(), { newTab })
-      openSub('settings')
     } else {
       openPlace(placeOf(page), { newTab })
     }
   }
 
   return (
-    <div className="eva-sb-page" ref={ref} data-testid="sidebar-main">
+    <div className="eva-sb-page" data-testid="sidebar-main">
       <div className="eva-sb-header">
         <div className="eva-sb-brand">
           <img className="eva-sb-logo" src={relayIcon} alt="" aria-hidden draggable={false} />
@@ -118,15 +110,12 @@ export function MainNav() {
             Could not read counts. Press the refresh shortcut to try again.
           </div>
         ) : null}
-        <NavRow
+        <SettingsPopover
           slug={SETTING.slug}
           title={SETTING.title}
           icon={SETTING.icon}
           active={here.page === 'settings'}
-          onClick={(e) => go('settings', e)}
         />
-        <AccountMenu />
-        <AppearanceControl iconOnly={width > 0 && width < 248} />
       </div>
     </div>
   )

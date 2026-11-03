@@ -3,6 +3,7 @@ import * as path from 'node:path'
 import type { Page } from '@playwright/test'
 import { z } from 'zod'
 import { test, expect, launchApp } from './fixtures'
+import { pickScheme } from './helpers/appearance'
 
 test.use({ startOnChat: false })
 
@@ -61,7 +62,7 @@ test('switching the scheme never remounts and saves the scheme and window backgr
   await shell.evaluate(() => {
     window.__themeTag = document.querySelector('[data-testid=rail]')
   })
-  await shell.locator('[data-testid=appearance-dark]').click()
+  await pickScheme(shell, 'dark')
   await expect(shell.locator('html')).toHaveAttribute('data-resolved', 'dark')
   expect(
     await shell.evaluate(() => {

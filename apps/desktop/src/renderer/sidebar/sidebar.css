@@ -209,39 +209,12 @@ html[data-eva-motion='off'] .eva-sb-track {
   font-size: var(--eva-fz-label);
   padding: 0 12px;
 }
-.eva-sb-account {
-  display: flex;
-  align-items: center;
-  gap: var(--eva-space-native-xs);
-  width: 100%;
-  min-height: 48px;
-  margin-top: var(--eva-space-native-xs);
-  padding: var(--eva-space-native-xs);
-  box-sizing: border-box;
-  border: 0;
-  border-radius: var(--eva-radius-lg);
-  background: var(--eva-c-muted-background);
-  color: var(--eva-chrome-text);
-  font: inherit;
-  font-size: var(--eva-fz-label);
-  font-weight: var(--eva-fw-medium);
-  cursor: pointer;
+/* Settings popover: flat rows split by hairlines, nothing boxed. */
+.eva-sb-row-static {
+  cursor: default;
 }
-.eva-sb-account:hover {
-  background: var(--eva-hover);
-}
-.eva-sb-account-label {
-  flex: 1;
-  text-align: left;
-}
-.eva-sb-avatar {
-  width: 28px;
-  height: 28px;
-  border-radius: var(--eva-radius-round);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--eva-hover);
+.eva-sb-row-static:hover {
+  background: transparent;
 }
 .eva-sb-sub-title {
   display: flex;

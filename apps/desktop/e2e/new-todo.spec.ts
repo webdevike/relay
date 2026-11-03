@@ -137,8 +137,8 @@ test('a todos.md without ## Open keeps the modal open with the error', async ({
 })
 
 test('Cmd+N is ignored while the account menu is open', async ({ shell }) => {
-  await shell.locator(sel('account-trigger')).click()
-  await expect(shell.locator(sel('account-menu'))).toBeVisible()
+  await shell.locator(sel('nav-setting')).click()
+  await expect(shell.locator(sel('settings-menu'))).toBeVisible()
   await shell.keyboard.press('Meta+n')
   await expect(shell.locator(sel('new-todo-text'))).toBeHidden()
 })

@@ -2,6 +2,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import type { Page } from '@playwright/test'
 import { test as base, expect } from './fixtures'
+import { pickScheme } from './helpers/appearance'
 import { makeEvaFixture, type EvaFixture } from './helpers/eva-fixture'
 import { FAKE_JOB_RUN, SESSIONS_FIXTURE_DIR } from './helpers/paths'
 import { proofShot } from './helpers/proofShot'
@@ -79,7 +80,7 @@ test('create validates inline and writes a minimal job.md', async ({ app, shell,
 test('edit changes exactly one line', async ({ app, shell, evaFx }) => {
   const file = path.join(evaFx.root, 'jobs/nightly/job.md')
   const before = fs.readFileSync(file, 'utf8')
-  await shell.locator(sel('appearance-dark')).click()
+  await pickScheme(shell, 'dark')
   await expect(shell.locator('html')).toHaveAttribute('data-resolved', 'dark')
   await openJob(shell, 'nightly')
   await expect(shell.locator(sel('job-every'))).toHaveValue('2h')

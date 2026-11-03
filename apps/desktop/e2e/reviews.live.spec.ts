@@ -3,6 +3,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import type { Page } from '@playwright/test'
 import { test, expect } from './fixtures'
+import { pickScheme } from './helpers/appearance'
 
 // Opt-in live spec: the Reviews page against real GitHub (gh, Isaac's account) on PR
 // eCardSystems/node-client-api-service#170. Read-only by construction: EVAOS_E2E=1 turns every
@@ -32,8 +33,7 @@ test('reviews a real PR end to end without writing anywhere', async ({ app, shel
   await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.setSize(1800, 1000))
   await shell.waitForFunction(() => !!(window as unknown as Partial<Shell>).__evaosShell)
   await shell.evaluate(() => (window as unknown as Shell).__evaosShell.openPlace('settings'))
-  const dark = shell.locator(sel('appearance-dark'))
-  if (await dark.isVisible().catch(() => false)) await dark.click()
+  await pickScheme(shell, 'dark')
   await shell.locator(sel('nav-reviews')).click()
   await expect(shell.locator(sel('sidebar-sub-reviews'))).toBeVisible()
   await expect(shell.locator(sel('review-queue'))).toBeVisible()

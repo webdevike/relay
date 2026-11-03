@@ -39,7 +39,6 @@ import { dismissTop } from '../hotkeys/dismiss'
 import { tabsStore } from '../tabs/tabs-store'
 import { SidebarColumn } from './SidebarColumn'
 import { MainNav } from './MainNav'
-import { AccountMenu } from './AccountMenu'
 import { SubPage } from './SubPages'
 import { backToRoot, openSub, navLevelStore } from './nav-level'
 import { resetSidebarForTests, sidebarStore } from './sidebar-store'
@@ -89,12 +88,6 @@ describe('MainNav', () => {
     fireEvent.click(screen.getByTestId('nav-canvas'))
     expect(navLevelStore.getState().level).toBe('canvas')
     expect(openPlace).toHaveBeenLastCalledWith(placeOf('canvas'), { newTab: false })
-    backToRoot()
-    fireEvent.click(screen.getByTestId('nav-setting'))
-    expect(navLevelStore.getState().level).toBe('settings')
-    expect(openPlace).toHaveBeenLastCalledWith(placeOf('settings', { settingsSection: 'Theme' }), {
-      newTab: false,
-    })
   })
 
   it('counts show above zero, cap at 99+ and hide on error', () => {
@@ -220,15 +213,15 @@ describe('sub-pages', () => {
     expect(navLevelStore.getState().level).toBe('root')
   })
 
-  it('an open account menu takes Esc before the sub-page', async () => {
+  it('an open settings popover takes Esc before the sub-page', async () => {
     openSub('chats')
     wrap(
       <>
         <SidebarColumn />
       </>,
     )
-    fireEvent.click(screen.getByTestId('account-trigger'))
-    expect(await screen.findByTestId('account-menu')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('nav-setting'))
+    expect(await screen.findByTestId('settings-menu')).toBeInTheDocument()
     act(() => void dismissTop())
     expect(navLevelStore.getState().level).toBe('chats')
     act(() => void dismissTop())
@@ -236,13 +229,23 @@ describe('sub-pages', () => {
   })
 })
 
-describe('AccountMenu', () => {
-  it('opens with Settings and Quit and Quit invokes app.quit', async () => {
-    wrap(<AccountMenu />)
-    fireEvent.click(screen.getByTestId('account-trigger'))
-    const menu = await screen.findByTestId('account-menu')
-    expect(within(menu).getByText('Settings')).toBeInTheDocument()
+describe('settings popover', () => {
+  it('holds account, appearance and All settings; Quit invokes app.quit', async () => {
+    wrap(<MainNav />)
+    fireEvent.click(screen.getByTestId('nav-setting'))
+    const menu = await screen.findByTestId('settings-menu')
+    expect(within(menu).getByText('Account')).toBeInTheDocument()
+    expect(within(menu).getByTestId('appearance-dark')).toBeInTheDocument()
     fireEvent.click(within(menu).getByText('Quit'))
     expect(invoke).toHaveBeenCalledWith('app.quit', {})
+  })
+
+  it('opening the row does not navigate; All settings opens the Settings page', async () => {
+    wrap(<MainNav />)
+    fireEvent.click(screen.getByTestId('nav-setting'))
+    expect(openPlace).not.toHaveBeenCalled()
+    fireEvent.click(await screen.findByTestId('settings-all'))
+    expect(navLevelStore.getState().level).toBe('settings')
+    expect(openPlace).toHaveBeenLastCalledWith(placeOf('settings', { settingsSection: 'Theme' }))
   })
 })

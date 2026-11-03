@@ -1,5 +1,6 @@
 import type { ElectronApplication, Page } from '@playwright/test'
 import { test as base, expect } from './fixtures'
+import { pickScheme } from './helpers/appearance'
 import { makeEvaFixture, type EvaFixture } from './helpers/eva-fixture'
 import { proofShot } from './helpers/proofShot'
 
@@ -100,10 +101,10 @@ test('meeting detail shows the overview, transcript and opens the notes', async 
   expect(snap.list[snap.active]!.title).toBe('Daily standup')
 
   await shell.locator(sel('sidebar-back')).click()
-  await shell.locator(sel('appearance-dark')).click()
+  await pickScheme(shell, 'dark')
   await expect(shell.locator('html')).toHaveAttribute('data-resolved', 'dark')
   await proofShot(app, shell, 'meeting-detail-dark', PHASE)
-  await shell.locator(sel('appearance-light')).click()
+  await pickScheme(shell, 'light')
   await expect(shell.locator('html')).toHaveAttribute('data-resolved', 'light')
   await proofShot(app, shell, 'meeting-detail-light', PHASE)
 

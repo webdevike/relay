@@ -2,6 +2,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import type { ElectronApplication, Page } from '@playwright/test'
 import { test as base, expect } from './fixtures'
+import { pickScheme } from './helpers/appearance'
 import { makeEvaFixture, type EvaFixture } from './helpers/eva-fixture'
 import { proofShot } from './helpers/proofShot'
 
@@ -91,11 +92,11 @@ test('a workspace card opens the page with chips, timeline, todos and sections',
     .locator(sel('page-scroll'))
     .evaluate((e) => ((e.firstElementChild as HTMLElement | null) ?? e).scrollTo?.(0, 0))
   await shell.locator(sel('ws-header')).scrollIntoViewIfNeeded()
-  await shell.locator(sel('appearance-dark')).click()
+  await pickScheme(shell, 'dark')
   await expect(shell.locator('html')).toHaveAttribute('data-resolved', 'dark')
   await proofShot(app, shell, 'workspace-dark', PHASE)
 
-  await shell.locator(sel('appearance-light')).click()
+  await pickScheme(shell, 'light')
   await expect(shell.locator('html')).toHaveAttribute('data-resolved', 'light')
   await proofShot(app, shell, 'workspace-light', PHASE)
 })

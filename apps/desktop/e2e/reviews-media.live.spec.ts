@@ -3,6 +3,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import type { Locator, Page } from '@playwright/test'
 import { test, expect } from './fixtures'
+import { pickScheme } from './helpers/appearance'
 
 // Opt-in live spec: images in Reviews from all three sources, against real items. GitHub's
 // attachments (`<img>` tags to github.com/user-attachments, need gh auth) on
@@ -70,8 +71,7 @@ test('Reviews shows GitHub, Linear and Slack images inline and Linear mentions b
   await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.setSize(1800, 1000))
   await shell.waitForFunction(() => !!(window as unknown as Partial<Shell>).__evaosShell)
   await shell.evaluate(() => (window as unknown as Shell).__evaosShell.openPlace('settings'))
-  const dark = shell.locator(sel('appearance-dark'))
-  if (await dark.isVisible().catch(() => false)) await dark.click()
+  await pickScheme(shell, 'dark')
   await shell.locator(sel('nav-reviews')).click()
   await expect(shell.locator(sel('review-queue'))).toBeVisible()
   await shell.keyboard.press('Meta+Shift+B')

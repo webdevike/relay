@@ -1,6 +1,7 @@
 import * as fs from 'node:fs'
 import type { ElectronApplication, Page } from '@playwright/test'
 import { test, expect } from './fixtures'
+import { pickScheme } from './helpers/appearance'
 import { startStaticServer, type StaticServer } from './helpers/static-server'
 import { proofShot } from './helpers/proofShot'
 
@@ -92,7 +93,7 @@ test.beforeEach(async ({ app, shell }) => {
 })
 
 test('shell-dark-1280x800', async ({ app, shell }) => {
-  await shell.locator(sel('appearance-dark')).click()
+  await pickScheme(shell, 'dark')
   await resolved(shell).toHaveAttribute('data-resolved', 'dark')
   await expect(shell.locator(sel('shell'))).toHaveAttribute('data-sidebar-state', 'open')
   expect((await box(shell, 'sidebar')).width).toBe(272)
@@ -104,7 +105,7 @@ test('shell-dark-1280x800', async ({ app, shell }) => {
 })
 
 test('shell-light-1280x800', async ({ app, shell }) => {
-  await shell.locator(sel('appearance-light')).click()
+  await pickScheme(shell, 'light')
   await resolved(shell).toHaveAttribute('data-resolved', 'light')
   await finish(app, shell, 'shell-light-1280x800')
 })
@@ -170,6 +171,7 @@ test('tabs-pinned-menu', async ({ app, shell }) => {
 
 test('sidebar-subpage-settings', async ({ app, shell }) => {
   await shell.locator(sel('nav-setting')).click()
+  await shell.locator(sel('settings-all')).click()
   const sb = shell.locator(sel('sidebar'))
   await expect(sb).toHaveAttribute('data-sidebar-level', 'settings')
   await expect(shell.locator(sel('sidebar-back'))).toBeVisible()
@@ -230,7 +232,7 @@ test('settings-theme-light', async ({ app, shell }) => {
 })
 
 test('appearance-live-switch', async ({ app, shell }) => {
-  await shell.locator(sel('appearance-dark')).click()
+  await pickScheme(shell, 'dark')
   await resolved(shell).toHaveAttribute('data-resolved', 'dark')
   await expect(shell.locator('style[data-mantine-disable-transition]')).toHaveCount(0)
   const before = await shell.evaluate(() => {
@@ -241,7 +243,7 @@ test('appearance-live-switch', async ({ app, shell }) => {
       bg: getComputedStyle(document.body).backgroundColor,
     }
   })
-  await shell.locator(sel('appearance-light')).click()
+  await pickScheme(shell, 'light')
   await resolved(shell).toHaveAttribute('data-resolved', 'light')
   // Mantine inserts a transient transition-disabling style tag during a scheme switch.
   await expect(shell.locator('style[data-mantine-disable-transition]')).toHaveCount(0)

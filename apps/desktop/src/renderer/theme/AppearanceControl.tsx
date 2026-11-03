@@ -12,12 +12,14 @@ const ITEMS: { value: ColorScheme; label: string; Icon: typeof IconSun }[] = [
 export interface AppearanceControlProps {
   iconOnly?: boolean
   testid?: string
+  size?: 'xs' | 'sm' | 'md'
 }
 
 /** The theme config's color scheme, as Texo's header toggle sets it. */
 export function AppearanceControl({
   iconOnly = false,
   testid = 'appearance',
+  size = 'sm',
 }: AppearanceControlProps) {
   const value = useColorScheme()
   const data = ITEMS.map(({ value: v, label, Icon }) => {
@@ -46,6 +48,7 @@ export function AppearanceControl({
   return (
     <SegmentedControl
       data-testid={testid}
+      size={size}
       fullWidth
       aria-label="Appearance"
       role="radiogroup"
