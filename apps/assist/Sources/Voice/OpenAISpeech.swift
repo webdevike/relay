@@ -16,15 +16,6 @@ final class OpenAISpeech: VoiceOutput, @unchecked Sendable {
     /// Seconds from speak() to the first audio chunk of the last utterance.
     private(set) var firstAudioLatency: TimeInterval?
 
-    /// A private ephemeral session, not URLSession.shared: the shared session keeps a persistent Alt-Svc
-    /// cache, and once api.openai.com's `h3` advertisement is learned it races QUIC (UDP), which on these
-    /// Macs stalls for 15-30 s or times out. Ephemeral keeps every connection on TCP + HTTP/2.
-    private let session: URLSession = {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 30
-        return URLSession(configuration: configuration)
-    }()
-
     private let lock = VoiceLock()
     private var generation = 0
     private var speaking = false
@@ -138,19 +129,61 @@ final class OpenAISpeech: VoiceOutput, @unchecked Sendable {
 
     // MARK: network
 
+    /// First request carries the voice `instructions`. Measured (curl, same body, 20 requests each): with
+    /// `instructions` gpt-4o-mini-tts hangs without answering on roughly 10-55% of requests (any
+    /// instruction text, any client), without it 20/20 answer in ~0.6 s. So if the styled request has not
+    /// produced audio after `hedgeDelay`, the same sentence is requested again without `instructions`;
+    /// whichever delivers audio first plays and the other is cancelled.
+    static let hedgeDelay: UInt64 = 900_000_000
+
+    private final class Race: @unchecked Sendable {
+        private let lock = NSLock()
+        private var winner: Int?
+        private var tasks: [Task<Request?, Never>] = []
+        func set(_ tasks: [Task<Request?, Never>]) { lock.lock(); self.tasks = tasks; lock.unlock() }
+        var decided: Bool { lock.lock(); defer { lock.unlock() }; return winner != nil }
+        /// True when attempt `id` owns the audio; the first to offer a chunk wins and cancels the others.
+        func offer(_ id: Int) -> Bool {
+            lock.lock()
+            if winner == nil { winner = id; let others = tasks.enumerated().filter { $0.offset != id }.map(\.element); lock.unlock(); others.forEach { $0.cancel() }; return true }
+            let mine = winner == id
+            lock.unlock()
+            return mine
+        }
+        func cancelAll() { lock.lock(); let all = tasks; lock.unlock(); all.forEach { $0.cancel() } }
+    }
+
+    /// An attempt that ended without audio, kept to report why.
+    private struct Request { let error: Error }
+
     private func produce(_ sentence: String, key: String, into out: AsyncStream<Data>.Continuation, generation mine: Int) async {
         defer { out.finish() }
+        let race = Race()
+        let styled = Task { [self] in await attempt(sentence, key: key, styled: true, id: 0, race: race, into: out) }
+        let plain = Task { [self] () -> Request? in
+            try? await Task.sleep(nanoseconds: OpenAISpeech.hedgeDelay)
+            if Task.isCancelled || race.decided { return nil }
+            return await attempt(sentence, key: key, styled: false, id: 1, race: race, into: out)
+        }
+        race.set([styled, plain])
+        let failed: [Request?] = await withTaskCancellationHandler {
+            [await styled.value, await plain.value]
+        } onCancel: { race.cancelAll() }
+        // A winner got audio; otherwise report the plain attempt's error (or the styled one's).
+        if !race.decided, let error = (failed[1] ?? failed[0])?.error { record(error, generation: mine) }
+    }
+
+    private func attempt(_ sentence: String, key: String, styled: Bool, id: Int, race: Race,
+                         into out: AsyncStream<Data>.Continuation) async -> Request? {
         var request = URLRequest(url: URL(string: "https://api.openai.com/v1/audio/speech")!, timeoutInterval: 30)
         request.httpMethod = "POST"
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body: [String: Any] = [
-            "model": model, "voice": voice, "input": sentence,
-            "instructions": style, "response_format": "pcm",
-        ]
+        var body: [String: Any] = ["model": model, "voice": voice, "input": sentence, "response_format": "pcm"]
+        if styled { body["instructions"] = style }
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         do {
-            let (bytes, response) = try await session.bytes(for: request)
+            let (bytes, response) = try await URLSession.shared.bytes(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             guard status == 200 else {
                 var data = Data()
@@ -158,21 +191,23 @@ final class OpenAISpeech: VoiceOutput, @unchecked Sendable {
                 let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
                 let message = ((json?["error"] as? [String: Any])?["message"] as? String)
                     ?? String(decoding: data, as: UTF8.self)
-                record(VoiceError.http(status, message), generation: mine)
-                return
+                return Request(error: VoiceError.http(status, message))
             }
             var buffer = Data()
             for try await byte in bytes {
                 buffer.append(byte)
                 if buffer.count >= 4800 {                       // 100 ms
+                    guard race.offer(id) else { return nil }
                     out.yield(buffer)
                     buffer.removeAll(keepingCapacity: true)
                 }
             }
-            if buffer.count >= 2 { out.yield(buffer.prefix(buffer.count & ~1)) }
+            if buffer.count >= 2, race.offer(id) { out.yield(buffer.prefix(buffer.count & ~1)) }
+            return nil
         } catch is CancellationError {
+            return nil
         } catch {
-            if (error as? URLError)?.code != .cancelled { record(error, generation: mine) }
+            return (error as? URLError)?.code == .cancelled ? nil : Request(error: error)
         }
     }
 
