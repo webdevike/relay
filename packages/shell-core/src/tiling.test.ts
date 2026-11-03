@@ -119,7 +119,7 @@ describe('tiling', () => {
     t = splitPane(defaultTiling(), 'p2', 'down', nova).tiling
     expect(findTab(t, tabId(nova))).not.toBeNull()
     // It survives a layout.json round trip.
-    expect(findTab(tilingFromJson(tilingToJson(t)), tabId(nova))).not.toBeNull()
+    expect(findTab(tilingFromJson(tilingToJson(t))!, tabId(nova))).not.toBeNull()
   })
 
   it('opens a new tab in the focused or last tool pane, else a new pane', () => {
