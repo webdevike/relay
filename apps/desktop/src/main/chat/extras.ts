@@ -61,6 +61,24 @@ export function lastAssistantLine(text: string): string {
   return ''
 }
 
+/**
+ * A finished subagent's outcome: the first line of its result `.md` (omp writes the summary as a
+ * JSON string, so a quoted body is decoded first). '' when it is empty or unreadable.
+ */
+export function outcomeLine(md: string): string {
+  let body = md.trim()
+  if (body.startsWith('"')) {
+    try {
+      const parsed: unknown = JSON.parse(body)
+      if (typeof parsed === 'string') body = parsed
+    } catch {
+      // not a JSON string: read it as plain text
+    }
+  }
+  const first = body.split('\n').find((l) => l.trim() !== '') ?? ''
+  return oneLine(first.replace(/^#+\s*/, '').replace(/\*\*/g, ''), LAST_LINE_MAX)
+}
+
 // What `runningTool` reads of a transcript record; anything else in it is ignored.
 const ToolCallSchema = z.object({ type: z.literal('toolCall'), id: z.string(), name: z.string() })
 const RecordSchema = z.object({
@@ -168,20 +186,24 @@ export class ExtrasService {
       return []
     }
     return subagentsFromListing(entries).map((s) => {
-      let text = ''
-      try {
-        text = this.readText(path.join(dir, s.file))
-      } catch {
-        text = ''
+      const read = (f: string): string => {
+        try {
+          return this.readText(path.join(dir, f))
+        } catch {
+          return ''
+        }
       }
+      const text = read(s.file)
       const done = s.done || ompSubagentEnded(text)
+      // A finished one shows its outcome (its `.md`), not the progress note it ended on.
+      const outcome = s.done ? outcomeLine(read(`${s.name}.md`)) : ''
       return {
         name: s.name,
         file: s.file,
         done,
         failed: false,
         mtimeMs: s.mtimeMs,
-        lastLine: lastAssistantLine(text),
+        lastLine: outcome !== '' ? outcome : lastAssistantLine(text),
         tool: done ? null : runningTool(text),
       }
     })

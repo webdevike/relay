@@ -193,6 +193,46 @@ describe('artifacts model', () => {
     expect(state('unlisted')).toBe('running')
     expect(state('dead')).toBeUndefined()
   })
+  it('lists every subagent that finished today, shows its outcome, and drops yesterday and abandoned ones', () => {
+    const session = '/s/chat.jsonl'
+    const fact = (name: string, done: boolean, ago: number, lastLine: string) => ({
+      name,
+      file: `${name}.jsonl`,
+      done,
+      failed: false,
+      mtimeMs: NOW - ago,
+      lastLine,
+    })
+    const host = item('subagent:/s/chat/hosted.jsonl', {
+      path: '/s/chat/hosted.jsonl',
+      tidied: { by: 'isaac', at: NOW },
+      subagent: {
+        state: 'done',
+        startedAt: NOW - 90_000,
+        endedAt: NOW - 1000,
+        line: 'Typecheck, test, lint',
+      },
+    })
+    const out = withTranscripts(
+      [host],
+      session,
+      [
+        fact('hosted', true, 1000, 'Fixed it in abc123'),
+        fact('unlisted', true, 2000, 'Shipped'),
+        fact('yesterday', true, 30 * 3_600_000, 'Old'),
+        fact('abandoned', false, 40 * 60_000, 'Stuck'),
+      ],
+      NOW,
+    )
+    const sub = (n: string) => out.find((i) => i.path === `/s/chat/${n}.jsonl`)?.subagent
+    expect(sub('hosted')?.line).toBe('Fixed it in abc123')
+    expect(sub('unlisted')).toMatchObject({ state: 'done', line: 'Shipped' })
+    expect(sub('yesterday')).toBeUndefined()
+    expect(sub('abandoned')).toBeUndefined()
+    expect(subagentTree(out, NOW).finished.map((r) => r.item.path)).toEqual(
+      expect.arrayContaining(['/s/chat/hosted.jsonl', '/s/chat/unlisted.jsonl']),
+    )
+  })
   it('reads one state for a subagent: a running one nobody has touched in 30 minutes is done', () => {
     const sub = (state: 'running' | 'done', touched: number) =>
       item('subagent:x', { lastSeen: touched, subagent: { state, startedAt: touched } })

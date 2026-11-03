@@ -254,7 +254,9 @@ export interface TranscriptFact {
  * The open chat's subagents as the host's items plus what the transcripts on disk say (the same
  * facts the context button's dot reads). The files win on state: a transcript with its `.md` is
  * done whatever the host still says, and one written within SUBAGENT_STALE_MS without it is
- * running even before the host has listed it, so the dot and this list agree about it.
+ * running even before the host has listed it, so the dot and this list agree about it. One that
+ * finished today is listed even when the host never did (or Tidy hid it), and a finished row's
+ * line is its outcome, not the progress note it ended on.
  */
 export function withTranscripts(
   items: readonly Artifact[],
@@ -266,6 +268,7 @@ export function withTranscripts(
   if (dir === session || facts.length === 0) return [...items]
   const byPath = new Map(facts.map((f) => [`${dir}/${f.file}`, f]))
   const seen = new Set<string>()
+  const today = new Date(now).toDateString()
   const out = items.map((item): Artifact => {
     const fact = item.path !== undefined ? byPath.get(item.path) : undefined
     if (fact === undefined || item.subagent === undefined) return item
@@ -277,19 +280,28 @@ export function withTranscripts(
       : now - fact.mtimeMs > SUBAGENT_STALE_MS
         ? 'done'
         : 'running'
-    if (state === item.subagent.state) return item
+    const line =
+      state !== 'running' && fact.lastLine !== '' ? fact.lastLine.slice(0, 200) : undefined
+    if (state === item.subagent.state && (line === undefined || line === item.subagent.line)) {
+      return item
+    }
     return {
       ...item,
       lastSeen: Math.max(item.lastSeen, fact.mtimeMs),
       subagent: {
         ...item.subagent,
         state,
+        ...(line !== undefined ? { line } : {}),
         ...(state === 'running' ? {} : { endedAt: item.subagent.endedAt ?? fact.mtimeMs }),
       },
     }
   })
   for (const [path, fact] of byPath) {
-    if (seen.has(path) || fact.done || now - fact.mtimeMs > SUBAGENT_STALE_MS) continue
+    if (seen.has(path)) continue
+    const running = !fact.done && now - fact.mtimeMs <= SUBAGENT_STALE_MS
+    // An abandoned transcript (no `.md`, quiet for 30 minutes) is not a finished subagent.
+    if (!running && !fact.done) continue
+    if (!running && new Date(fact.mtimeMs).toDateString() !== today) continue
     out.push({
       id: `subagent:${path}`,
       kind: 'subagent',
@@ -301,8 +313,9 @@ export function withTranscripts(
       sources: [],
       addedBy: 'extractor',
       subagent: {
-        state: 'running',
+        state: running ? 'running' : fact.failed ? 'failed' : 'done',
         startedAt: fact.mtimeMs,
+        ...(running ? {} : { endedAt: fact.mtimeMs }),
         ...(fact.lastLine !== '' ? { line: fact.lastLine.slice(0, 200) } : {}),
       },
     })

@@ -737,15 +737,16 @@ export function ArtifactsPanel({
   }, [hostItems, threadFile, chatPane?.file, chatPane?.extras.subagents, now])
   const showTidied = useArtifacts((s) => (thread ? s.showTidied[thread] === true : false))
   // Items Tidy hid (the host keeps that, so the phone sees the same) stay out of every tab unless
-  // "Show tidied" is on; a running subagent never hides.
+  // "Show tidied" is on; a subagent never hides here: the tabs themselves fade finished ones
+  // after the day, so Tidy cannot empty "Finished today".
   const items = useMemo(
     () =>
       showTidied
         ? allItems
-        : allItems.filter((i) => i.tidied === undefined || subagentView(i, now) === 'running'),
-    [allItems, showTidied, now],
+        : allItems.filter((i) => i.tidied === undefined || i.kind === 'subagent'),
+    [allItems, showTidied],
   )
-  const tidiedCount = allItems.filter((i) => i.tidied !== undefined).length
+  const tidiedCount = allItems.filter((i) => i.tidied !== undefined && i.kind !== 'subagent').length
   const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items])
   // The Subagents tab's spinner and its list both read the rows that tab shows, through subagentView.
   const subagentsTab = tabs.find((t) => t.id === 'subagents')

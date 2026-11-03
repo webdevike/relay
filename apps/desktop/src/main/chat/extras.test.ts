@@ -64,6 +64,25 @@ describe('ExtrasService', () => {
     ])
   })
 
+  it('a finished subagent shows the first line of its .md as its outcome', () => {
+    const { svc, texts, dirs, out } = setup([{ paneId: 'pane-1', file: '/s/x.jsonl', live: false }])
+    dirs['/s/x'] = [
+      { name: 'a.jsonl', mtimeMs: 1 },
+      { name: 'a.md', mtimeMs: 2 },
+      { name: 'b.jsonl', mtimeMs: 1 },
+      { name: 'b.md', mtimeMs: 2 },
+    ]
+    texts['/s/x/a.jsonl'] = [user, asst('Typecheck, test, lint')].join('\n')
+    texts['/s/x/a.md'] = JSON.stringify('I fixed **all** three bugs.\n\n## Causes\n1. x')
+    texts['/s/x/b.jsonl'] = [user, asst('Last note')].join('\n')
+    texts['/s/x/b.md'] = ''
+    svc.refresh()
+    expect(out[0]!.subagents.map((s) => [s.name, s.lastLine]).sort()).toEqual([
+      ['a', 'I fixed all three bugs.'],
+      ['b', 'Last note'],
+    ])
+  })
+
   it('a subagent whose transcript ended on yield/session_exit is done without a .md (mirror, missed event)', () => {
     const { svc, texts, dirs, out } = setup([{ paneId: 'pane-1', file: '/s/x.jsonl', live: false }])
     // Trimmed tail of a real finished subagent (AssistVoiceFix.jsonl, 2026-11-03).
