@@ -17,7 +17,7 @@ import {
   IconX,
 } from '@tabler/icons-react'
 import { useChatStore } from '../chat/chat-store'
-import { PANE_ID } from '../chat/open-chat'
+import { useFrontChatPane } from '../chat/front-chat'
 import { EditorArea } from './EditorArea'
 import { FileIcon } from './FileIcon'
 import { FileTree } from './FileTree'
@@ -131,7 +131,8 @@ function ExplorerHead({ root }: { root: string }) {
  * the explorer or search; the editor takes the rest. Quick open floats over both.
  */
 export function FilesPanel({ hidden }: { hidden: boolean }) {
-  const chatFile = useChatStore((s) => s.panes[PANE_ID]?.file || null)
+  const front = useFrontChatPane()
+  const chatFile = useChatStore((s) => s.panes[front]?.file || null)
   const root = useFiles((s) => s.root)
   const side = useFiles((s) => s.side)
   const sideOpen = useFiles((s) => s.sideOpen)

@@ -3,7 +3,6 @@ import { createStore } from 'zustand/vanilla'
 import {
   activeTab,
   back,
-  closeActive,
   closeOthers,
   closeTab,
   defaultTabs,
@@ -24,6 +23,11 @@ import { invoke } from '../ipc'
 import { registerAction } from '../hotkeys/router'
 import { setNavigator, type OpenPlaceOptions } from '../navigation/navigate'
 
+/**
+ * The app tabs: each a chat or a page with its own history, shown as a pane tab (tiling/ keeps
+ * where). `active` is the app tab in front: the one focused last, whose place the browser scope,
+ * the context popover and the sidebar's selection follow.
+ */
 export interface TabsState {
   tabs: Tabs
   loaded: boolean
@@ -38,31 +42,47 @@ export function useTabs<T>(selector: (s: TabsState) => T): T {
 export const activePlace = (s: TabsState): Place => activeTab(s.tabs).here
 export const activeTabId = (s: TabsState): number => activeTab(s.tabs).id
 
-function update(fn: (t: Tabs) => Tabs): void {
+/** Applies a tabs reducer (shell-core tabs.ts); an unchanged result leaves the store alone. */
+export function updateTabs(fn: (t: Tabs) => Tabs): void {
   const cur = tabsStore.getState().tabs
   const next = fn(cur)
   if (next !== cur) tabsStore.setState({ tabs: next })
 }
 
 export function navigateTo(place: Place, opts?: OpenPlaceOptions): void {
-  update((t) => (opts?.newTab ? navigate(forkTab(t), place) : navigate(t, place)))
+  updateTabs((t) => (opts?.newTab ? navigate(forkTab(t), place) : navigate(t, place)))
 }
 
-/** Points the active tab at `place` without adding history (a draft chat that got its file). */
-export function replaceActivePlace(place: Place): void {
-  update((t) => {
-    const cur = activeTab(t)
-    return { ...t, list: t.list.map((x) => (x === cur ? { ...x, here: place } : x)) }
+/** Points app tab `id` (the active one by default) at `place` without adding history. */
+export function replaceTabPlace(place: Place, id?: number): void {
+  updateTabs((t) => {
+    const target = id ?? activeTab(t).id
+    if (!t.list.some((x) => x.id === target)) return t
+    return { ...t, list: t.list.map((x) => (x.id === target ? { ...x, here: place } : x)) }
   })
 }
 
-export const newChatTab = (): void => update(openNewChat)
-export const activate = (id: number): void => update((t) => switchTo(t, id))
-export const close = (id: number): void => update((t) => closeTab(t, id))
-export const closeOthersOf = (id: number): void => update((t) => closeOthers(t, id))
-export const togglePinOf = (id: number): void => update((t) => togglePin(t, id))
-export const goBack = (): void => update(back)
-export const goForward = (): void => update(forward)
+export const newChatTab = (): void => updateTabs(openNewChat)
+export const activate = (id: number): void => updateTabs((t) => switchTo(t, id))
+export const close = (id: number): void => updateTabs((t) => closeTab(t, id))
+export const closeOthersOf = (id: number): void => updateTabs((t) => closeOthers(t, id))
+export const togglePinOf = (id: number): void => updateTabs((t) => togglePin(t, id))
+/** Back and Forward in app tab `id`'s history (the active one by default). */
+export function goBack(id?: number): void {
+  stepIn(id, back)
+}
+export function goForward(id?: number): void {
+  stepIn(id, forward)
+}
+
+function stepIn(id: number | undefined, step: (t: Tabs) => Tabs): void {
+  updateTabs((t) => {
+    const at = id === undefined ? t.active : t.list.findIndex((x) => x.id === id)
+    if (at < 0) return t
+    const moved = step({ ...t, active: at })
+    return moved.list === t.list ? t : moved
+  })
+}
 
 const SAVE_DELAY = 250
 let started: (() => void) | null = null
@@ -78,10 +98,8 @@ export function startTabs(): () => void {
   if (started) return started
   setNavigator(navigateTo)
   const offs = [
-    registerAction('new-tab', newChatTab),
-    registerAction('close-tab', () => update(closeActive)),
-    registerAction('history-back', goBack),
-    registerAction('history-forward', goForward),
+    registerAction('history-back', () => goBack()),
+    registerAction('history-forward', () => goForward()),
   ]
 
   let lastSaved = JSON.stringify(saveTabs(tabsStore.getState().tabs))
@@ -123,7 +141,7 @@ export function startTabs(): () => void {
   const unsub = tabsStore.subscribe((s, prev) => {
     if (!s.loaded || s.tabs === prev.tabs) return
     if (JSON.stringify(saveTabs(s.tabs)) === lastSaved) return
-    if (timer) clearTimeout(timer)
+    clearTimeout(timer ?? undefined)
     timer = setTimeout(flush, SAVE_DELAY)
   })
 
@@ -156,7 +174,7 @@ export function startTabs(): () => void {
     unsub()
     if (typeof window !== 'undefined') window.removeEventListener('pagehide', onPageHide)
     flushNow = () => {}
-    if (timer) clearTimeout(timer)
+    clearTimeout(timer ?? undefined)
     offs.forEach((o) => o())
     setNavigator(null)
     started = null

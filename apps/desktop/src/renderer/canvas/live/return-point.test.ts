@@ -5,10 +5,10 @@ vi.mock('../../ipc', () => ({
   on: vi.fn(() => () => {}),
 }))
 
-import { activeTab, allPanes, CHAT_PANE, isChatPane, placeOf, tabId } from '@evaos/shell-core'
+import { activeTab, appPanelId, placeOf, samePlace, type Place } from '@evaos/shell-core'
 import { navigateTo, resetTabsForTests, tabsStore } from '../../tabs/tabs-store'
 import { chatStore } from '../../chat/chat-store'
-import { PANE_ID } from '../../chat/open-chat'
+import { resetFrontChatForTests, setTabChatPane } from '../../chat/front-chat'
 import {
   rememberChatScroll,
   resetChatScrollForTests,
@@ -18,25 +18,44 @@ import {
   focusPaneById,
   openSubagentTab,
   resetTilingForTests,
+  startTiling,
   tilingStore,
 } from '../../tiling/tiling-store'
+import { mountTestDock } from '../../tiling/test-dock'
 import { backToChat, joinCanvas, resetReturnPointsForTests, returnPointOf } from './return-point'
 
 const FILE = '/s/-fixture/2026-10-28T10-00-00-000Z_s1.jsonl'
 const CHAT = placeOf('chat', { chat: FILE })
 const BOARD = placeOf('canvas', { canvas: 'mind-map' })
-const BOARD_TAB = { kind: 'page', place: BOARD } as const
 const ROADMAP = placeOf('canvas', { canvas: 'roadmap' })
 const meta = { model: null, thinking: null, contextTokens: null }
 
+let unmount = (): void => {}
+let stop = (): void => {}
 beforeEach(() => {
+  unmount()
+  stop()
   resetTabsForTests()
   resetTilingForTests()
+  resetFrontChatForTests()
   resetChatScrollForTests()
   resetReturnPointsForTests()
+  tabsStore.setState({ loaded: true })
+  stop = startTiling()
+  unmount = mountTestDock()
   navigateTo(CHAT)
-  chatStore.getState().openPane(PANE_ID, { file: FILE, title: 'Plan', messages: [], meta })
+  const tab = activeTab(tabsStore.getState().tabs).id
+  setTabChatPane(tab, 'pane-chat')
+  chatStore.getState().openPane('pane-chat', { file: FILE, title: 'Plan', messages: [], meta })
 })
+
+/** The pane showing the app tab on `place`. */
+const paneShowing = (place: Place): string | undefined => {
+  const tab = tabsStore.getState().tabs.list.find((t) => samePlace(t.here, place))
+  return tab
+    ? tilingStore.getState().panes.find((p) => p.views.includes(appPanelId(tab.id)))?.id
+    : undefined
+}
 
 const here = () => activeTab(tabsStore.getState().tabs)
 
@@ -45,8 +64,8 @@ describe('join and back to chat', () => {
     rememberChatScroll(FILE, { offset: 420, pinned: false })
     openSubagentTab({ session: FILE, file: '/s/sub.jsonl', name: 'Scout' })
     // The click is in the chat pane, so the chat pane has the focus.
-    focusPaneById(CHAT_PANE)
-    const panes = tilingStore.getState().tiling
+    focusPaneById(paneShowing(CHAT)!)
+    const panes = tilingStore.getState().panes
     const tabs = tabsStore.getState().tabs.list.length
 
     joinCanvas('mind-map', 'here')
@@ -61,7 +80,7 @@ describe('join and back to chat', () => {
     expect(here().forward.at(-1)).toEqual(BOARD)
     expect(takeChatScrollRequest(FILE)).toEqual({ offset: 420, pinned: false })
     expect(takeChatScrollRequest(FILE)).toBeNull()
-    expect(tilingStore.getState().tiling).toBe(panes)
+    expect(tilingStore.getState().panes).toBe(panes)
     expect(returnPointOf('mind-map')).toBeNull()
   })
 
@@ -69,19 +88,16 @@ describe('join and back to chat', () => {
     const tabs = tabsStore.getState().tabs.list.length
     joinCanvas('mind-map')
     expect(here().here).toEqual(CHAT)
-    expect(tabsStore.getState().tabs.list).toHaveLength(tabs)
+    // The board is a tab of its own in that pane; the chat stays the app tab in front.
+    expect(tabsStore.getState().tabs.list).toHaveLength(tabs + 1)
     expect(returnPointOf('mind-map')).toBeNull()
-    const t = tilingStore.getState().tiling
-    const pane = allPanes(t.root).find((p) => p.tabs.some((x) => tabId(x) === tabId(BOARD_TAB)))
+    const pane = paneShowing(BOARD)
     expect(pane).toBeDefined()
-    expect(isChatPane(pane!.id)).toBe(false)
-    expect(t.focus).toBe(pane!.id)
+    expect(pane).not.toBe(paneShowing(CHAT))
+    expect(tilingStore.getState().focus).toBe(pane)
     // A second board joins as a tab of that same pane.
     joinCanvas('roadmap')
-    const after = allPanes(tilingStore.getState().tiling.root).find((p) => p.id === pane!.id)
-    expect(after?.tabs.map(tabId)).toEqual(
-      expect.arrayContaining([tabId(BOARD_TAB), tabId({ kind: 'page', place: ROADMAP })]),
-    )
+    expect(paneShowing(ROADMAP)).toBe(pane)
   })
 
   it('Cmd+click joins in a new tab with the way back', () => {

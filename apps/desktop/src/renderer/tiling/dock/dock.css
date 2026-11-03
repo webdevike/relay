@@ -1,0 +1,341 @@
+/* dockview wearing Relay: every color, size and radius from Relay's tokens, so none of its own
+   chrome shows. A pane holding app tabs keeps the main column's look (its tabs on the shell
+   background above a bordered card); a tool pane keeps the tool pane's (its tabs in the card's
+   header). The focused pane's border is a shade stronger while more than one pane shows. */
+.eva-tiling {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.eva-dock {
+  position: absolute;
+  inset: 0;
+}
+.dockview-theme-relay {
+  --dv-group-view-background-color: transparent;
+  --dv-tabs-and-actions-container-background-color: transparent;
+  --dv-tabs-and-actions-container-height: var(--eva-tab-strip-h);
+  --dv-tabs-and-actions-container-font-size: var(--eva-fz-label);
+  --dv-tab-font-size: var(--eva-fz-label);
+  --dv-tab-margin: 0;
+  --dv-tab-divider-color: transparent;
+  --dv-tab-border-radius: var(--eva-radius);
+  --dv-activegroup-visiblepanel-tab-background-color: transparent;
+  --dv-activegroup-hiddenpanel-tab-background-color: transparent;
+  --dv-inactivegroup-visiblepanel-tab-background-color: transparent;
+  --dv-inactivegroup-hiddenpanel-tab-background-color: transparent;
+  --dv-activegroup-visiblepanel-tab-color: inherit;
+  --dv-activegroup-hiddenpanel-tab-color: inherit;
+  --dv-inactivegroup-visiblepanel-tab-color: inherit;
+  --dv-inactivegroup-hiddenpanel-tab-color: inherit;
+  --dv-separator-border: transparent;
+  --dv-paneview-header-border-color: transparent;
+  --dv-sash-color: transparent;
+  --dv-active-sash-color: transparent;
+  --dv-icon-hover-background-color: var(--eva-hover);
+  --dv-scrollbar-background-color: transparent;
+  --dv-tabs-container-scrollbar-color: transparent;
+  --dv-border-radius: var(--eva-card-radius);
+  --dv-spacing-padding: 0px;
+  --dv-overlay-z-index: 50;
+  /* The drop overlay: Relay's accent ring over a faint wash of it. */
+  --dv-drag-over-background-color: color-mix(in srgb, var(--eva-c-ring) 12%, transparent);
+  --dv-drag-over-border-color: var(--eva-c-ring);
+  --dv-drag-over-border: 1px solid var(--eva-c-ring);
+  --dv-edge-dock-indicator-color: var(--eva-c-ring);
+  --dv-context-menu-background-color: var(--eva-c-popover-background);
+  --dv-context-menu-color: var(--eva-c-popover-foreground);
+  color: var(--eva-chrome-text);
+  background: transparent;
+  height: 100%;
+}
+.dockview-theme-relay .dv-dockview,
+.dockview-theme-relay .dv-groupview {
+  background: transparent;
+}
+.dockview-theme-relay .dv-split-view-container .dv-view-container > .dv-view::before {
+  display: none;
+}
+
+/* Headers: the tab strip is window chrome you can drag the window by, the tabs and buttons not. */
+.dockview-theme-relay .dv-tabs-and-actions-container {
+  align-items: center;
+  gap: var(--eva-space-xs);
+  -webkit-app-region: drag;
+}
+.dockview-theme-relay .dv-tabs-and-actions-container > :not(.dv-void-container) {
+  -webkit-app-region: no-drag;
+}
+.dockview-theme-relay .dv-tabs-and-actions-container .dv-void-container {
+  align-self: stretch;
+  min-width: 8px;
+  cursor: default;
+  -webkit-app-region: drag;
+}
+.dockview-theme-relay .dv-scrollable,
+.dockview-theme-relay .dv-tabs-container {
+  min-width: 0;
+  height: 100%;
+}
+.dockview-theme-relay .dv-tabs-container {
+  align-items: center;
+  gap: var(--eva-space-xs);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.dockview-theme-relay .dv-tabs-container::-webkit-scrollbar {
+  display: none;
+}
+.dockview-theme-relay .dv-tab {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  background: transparent !important;
+  flex-shrink: 1;
+}
+.dockview-theme-relay .dv-tab:focus-visible::after,
+.dockview-theme-relay .dv-tab:has(:focus-visible)::after {
+  display: none;
+}
+.dockview-theme-relay .dv-tab:focus-visible > * {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: -2px;
+}
+.dockview-theme-relay .dv-tab.dv-active-tab {
+  flex-shrink: 0;
+}
+.eva-dock-prefix,
+.eva-dock-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--eva-space-xs);
+  height: 100%;
+}
+.eva-dock-prefix:empty {
+  display: none;
+}
+.eva-dock-prefix[data-lead-in] {
+  padding-left: var(--eva-traffic);
+}
+
+/* A pane holding app tabs: tabs on the shell background, the content a bordered card. */
+.dockview-theme-relay .dv-groupview[data-pane-kind='app'] > .dv-content-container {
+  box-sizing: border-box;
+  background: var(--eva-c-background);
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-card-radius);
+  overflow: hidden;
+  transition: border-color var(--eva-dur-fast) ease;
+}
+/* A tool pane: on the top edge it starts below the strip height (window chrome you can drag), its
+   tabs in the card's header. */
+.dockview-theme-relay .dv-groupview[data-pane-kind='tool'][data-top] {
+  padding-top: var(--eva-tab-strip-h);
+  box-sizing: border-box;
+  -webkit-app-region: drag;
+}
+.dockview-theme-relay .dv-groupview[data-pane-kind='tool'] > .dv-tabs-and-actions-container {
+  height: var(--eva-chat-header-h);
+  box-sizing: border-box;
+  padding: 0 var(--eva-space-sm) 0 var(--mantine-spacing-sm);
+  gap: var(--eva-space-sm);
+  background: var(--eva-c-background);
+  border: 1px solid var(--eva-c-border);
+  border-bottom-color: var(--eva-c-border);
+  border-radius: var(--eva-card-radius) var(--eva-card-radius) 0 0;
+  transition: border-color var(--eva-dur-fast) ease;
+}
+.dockview-theme-relay .dv-groupview[data-pane-kind='tool'] > .dv-tabs-and-actions-container .dv-tabs-container {
+  gap: calc(var(--mantine-spacing-xs) / 2);
+}
+.dockview-theme-relay .dv-groupview[data-pane-kind='tool'] > .dv-content-container {
+  box-sizing: border-box;
+  background: var(--eva-c-background);
+  border: 1px solid var(--eva-c-border);
+  border-top: 0;
+  border-radius: 0 0 var(--eva-card-radius) var(--eva-card-radius);
+  overflow: hidden;
+  transition: border-color var(--eva-dur-fast) ease;
+}
+.dockview-theme-relay .dv-groupview[data-focused][data-pane-kind='app'] > .dv-content-container,
+.dockview-theme-relay .dv-groupview[data-focused][data-pane-kind='tool'] > .dv-content-container,
+.dockview-theme-relay
+  .dv-groupview[data-focused][data-pane-kind='tool']
+  > .dv-tabs-and-actions-container {
+  border-color: color-mix(in srgb, var(--eva-c-foreground) 28%, var(--eva-c-border));
+}
+.dockview-theme-relay
+  .dv-groupview[data-focused][data-pane-kind='tool']
+  > .dv-tabs-and-actions-container {
+  border-bottom-color: var(--eva-c-border);
+}
+.dockview-theme-relay .dv-content-container > .dv-react-part,
+.dockview-theme-relay .dv-content-container > div {
+  height: 100%;
+}
+
+/* Panel content fills its card. */
+.eva-app-panel,
+.eva-pane-body {
+  position: relative;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  -webkit-app-region: no-drag;
+}
+.eva-app-panel > .eva-chat {
+  min-width: 0;
+  flex: 1;
+}
+.eva-tab-content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.eva-tab-park {
+  display: none;
+}
+.eva-dock-watermark {
+  height: 100%;
+}
+
+/* Tool tabs: quiet text tabs, the one in front in the foreground color on a soft fill. */
+.eva-pane-tab {
+  /* Tabs share a narrow strip, titles truncating; the icon and close always stay. */
+  min-width: 44px;
+  max-width: 200px;
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  height: 28px;
+  box-sizing: border-box;
+  padding: 0 calc(var(--mantine-spacing-xs) / 2) 0 var(--mantine-spacing-xs);
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: var(--eva-fw-medium);
+  color: var(--eva-c-muted-foreground);
+  cursor: pointer;
+  user-select: none;
+  transition:
+    color var(--eva-dur-fast) ease,
+    background-color var(--eva-dur-fast) ease;
+}
+.eva-pane-tab > svg {
+  flex: none;
+}
+.eva-pane-tab:hover {
+  color: var(--eva-c-foreground);
+}
+.eva-pane-tab[data-active] {
+  color: var(--eva-c-foreground);
+  background: var(--eva-c-accent-background);
+}
+.eva-pane-tab-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-pane-tab-close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+/* Close shows on the tab in front and on hover; its space is always kept so hovering never shifts tabs. */
+.eva-pane-tab:not([data-active]):not(:hover) .eva-pane-tab-close {
+  visibility: hidden;
+}
+.eva-pane-tab-close:hover {
+  background: var(--eva-c-accent-background);
+}
+/* An app tab dropped among tool tabs, or the other way round, keeps its own look. */
+.dockview-theme-relay .dv-groupview[data-pane-kind='tool'] .eva-tab[data-active='true'] {
+  background: var(--eva-c-accent-background);
+  border-color: transparent;
+}
+
+/* Sashes sit in the gaps between panes, like the old dividers: the gap is the grab area, a pill
+   shows on hover and drag. */
+.dockview-theme-relay .dv-split-view-container > .dv-sash-container > .dv-sash {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  --eva-grip-color: var(--mantine-color-gray-4);
+  --eva-grip-active: var(--mantine-color-gray-5);
+}
+[data-mantine-color-scheme='dark'] .dockview-theme-relay .dv-sash {
+  --eva-grip-color: var(--mantine-color-dark-3);
+  --eva-grip-active: var(--mantine-color-dark-2);
+}
+.dockview-theme-relay .dv-split-view-container.dv-horizontal > .dv-sash-container > .dv-sash {
+  width: var(--eva-gap) !important;
+  cursor: col-resize;
+}
+.dockview-theme-relay .dv-split-view-container.dv-vertical > .dv-sash-container > .dv-sash {
+  height: var(--eva-gap) !important;
+  cursor: row-resize;
+}
+.dockview-theme-relay .dv-split-view-container > .dv-sash-container > .dv-sash::after {
+  content: '';
+  border-radius: 2px;
+  background: var(--eva-grip-color);
+  opacity: 0;
+  transition:
+    opacity var(--eva-dur-fast) ease,
+    background-color var(--eva-dur-fast) ease;
+}
+.dockview-theme-relay .dv-split-view-container.dv-horizontal > .dv-sash-container > .dv-sash::after {
+  width: 3px;
+  height: 32px;
+}
+.dockview-theme-relay .dv-split-view-container.dv-vertical > .dv-sash-container > .dv-sash::after {
+  width: 32px;
+  height: 3px;
+}
+.dockview-theme-relay .dv-sash:hover::after,
+.dockview-theme-relay .dv-sash:active::after {
+  opacity: 1;
+}
+.dockview-theme-relay .dv-sash:active::after {
+  background: var(--eva-grip-active);
+}
+
+/* The drop overlay: the pane half (or whole pane) a drop fills, in Relay's ring color. */
+.dockview-theme-relay .dv-drop-target-container .dv-drop-target-anchor,
+.dockview-theme-relay .dv-drop-target > .dv-drop-target-dropzone > .dv-drop-target-selection {
+  box-sizing: border-box;
+  border-radius: var(--eva-card-radius);
+  border: 1px solid var(--eva-c-ring);
+  background: color-mix(in srgb, var(--eva-c-ring) 12%, transparent);
+}
+/* A tab dragged over a strip: a thin line where it lands. */
+.dockview-theme-relay .dv-tab .dv-drop-target-selection,
+.dockview-theme-relay .dv-tabs-and-actions-container .dv-drop-target-selection {
+  border-radius: 1px;
+}
+/* The dragged tab's ghost: its title on the popover color. */
+.dv-tab-ghost,
+.dockview-theme-relay .dv-tab.dv-tab--dragging {
+  opacity: 0.6;
+}
+body.eva-tab-dragging,
+body.eva-tab-dragging * {
+  cursor: grabbing !important;
+  user-select: none;
+}

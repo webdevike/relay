@@ -14,14 +14,16 @@ import type { ChatRow } from '@evaos/contract'
 import { listStore, type ListState } from '../chat/list/list-store'
 import { setAgentTitles } from '../eva/names-store'
 import { filesStore } from '../files/files-store'
-import { isTabVisible } from '@evaos/shell-core'
+import { resetTabsForTests, tabsStore } from '../tabs/tabs-store'
 import {
   activateTab,
   enterScope,
   resetTilingForTests,
   revealTool,
+  tabVisible,
   tilingStore,
 } from '../tiling/tiling-store'
+import { mountTestDock } from '../tiling/test-dock'
 import { rendererActions } from './actions'
 import { badgeStore, resetScopesForTests, resolveScope, startScopeWatch } from './scope'
 
@@ -41,8 +43,12 @@ const tab = (id: string) => ({
 })
 
 let stopWatch: () => void
+let unmount: () => void
 beforeEach(() => {
+  resetTabsForTests()
   resetTilingForTests()
+  tabsStore.setState({ loaded: true })
+  unmount = mountTestDock()
   resetScopesForTests()
   setAgentTitles({ nova: 'Nova' })
   listStore.setState({ list: { rows: [row] } as unknown as ListState['list'] })
@@ -62,7 +68,10 @@ beforeEach(() => {
   enterScope('page:dashboard')
   revealTool('files')
 })
-afterEach(() => stopWatch())
+afterEach(() => {
+  stopWatch()
+  unmount()
+})
 
 describe('resolveScope', () => {
   it('maps page keys and their browser scopes to the page', () => {
@@ -98,11 +107,11 @@ describe('resolveScope', () => {
   })
 })
 
-const visible = (id: string) => isTabVisible(tilingStore.getState().tiling, id)
+const visible = (id: string) => tabVisible(id)
 
 describe('scoped content actions', () => {
   it("browser.open for a page not in front opens in that page's browser and leaves the front alone", async () => {
-    const before = tilingStore.getState().tiling
+    const before = tilingStore.getState().panes
     const r = await rendererActions['browser.open']({ url: 'https://x.test/', scope: 'agent:nova' })
 
     expect(r).toMatchObject({ id: 't9', scope: 'page:agent:nova', background: true })
@@ -111,7 +120,7 @@ describe('scoped content actions', () => {
       scope: 'page:agent:nova',
     })
     expect(tilingStore.getState().scope).toBe('page:dashboard')
-    expect(tilingStore.getState().tiling).toBe(before)
+    expect(tilingStore.getState().panes).toBe(before)
     // No app tab shows Nova's page: a toast says what happened, and the badge waits for a tab.
     expect(badgeStore.getState().badges).toEqual({ 'page:agent:nova': 'Nova opened a tab' })
     expect(show).toHaveBeenCalledWith(

@@ -8,19 +8,21 @@ import {
   type Result,
 } from '@evaos/contract'
 import {
-  allPanes,
-  findTab,
-  isChatPane,
+  activeTab,
+  appPanelId,
+  appTabOf,
   pageFromKey,
+  placeKey,
   placeOf,
-  tabId,
-  visiblePaneIds,
-  type PaneTab,
-  type TileNode,
+  samePlace,
+  toolTabId,
+  type DockShape,
+  type Place,
+  type ToolTab,
 } from '@evaos/shell-core'
 import { invoke } from '../ipc'
 import { runAction } from '../hotkeys/router'
-import { activate, activePlace, close, navigateTo, newChatTab, tabsStore } from '../tabs/tabs-store'
+import { activate, activePlace, navigateTo, newChatTab, tabsStore } from '../tabs/tabs-store'
 import { tabTitle } from '../tabs/tab-meta'
 import {
   activateTab,
@@ -28,18 +30,24 @@ import {
   closeTab,
   focusNeighbor,
   focusPaneById,
+  layoutShape,
   moveTab,
   openArmTab,
+  openPlaceBeside,
+  openPlaceInPane,
   openTab,
   resizeNode,
   revealTool,
   splitAt,
   tilingStore,
+  toolTabOfId,
+  visiblePanes,
   zoomPane,
+  closeAppTab,
 } from '../tiling/tiling-store'
 import { paneTabTitle } from '../tiling/pane-tab-meta'
 import { chatStore } from '../chat/chat-store'
-import { PANE_ID } from '../chat/open-chat'
+import { frontChatPaneOf } from '../chat/front-chat'
 import { listStore } from '../chat/list/list-store'
 import { currentSpace, filesStore, locatePath, showPath } from '../files/files-store'
 import { requestExperiment } from '../test-bench/bench-request'
@@ -108,8 +116,7 @@ async function waitFor(check: () => boolean, ms: number): Promise<boolean> {
 export async function readState(): Promise<Record<string, unknown>> {
   const tabs = tabsStore.getState().tabs
   const here = activePlace(tabsStore.getState())
-  const { tiling } = tilingStore.getState()
-  const pane = chatStore.getState().panes[PANE_ID]
+  const pane = chatStore.getState().panes[frontChatPaneOf()]
   const space = currentSpace(filesStore.getState())
   const browser = await invoke('browser.state', {})
   return {
@@ -151,9 +158,9 @@ export async function readState(): Promise<Record<string, unknown>> {
     text: {
       main: textOf('[data-testid=main-card]'),
       panes: Object.fromEntries(
-        visiblePaneIds(tiling)
-          .filter((id) => !isChatPane(id))
-          .map((id) => [id, textOf(`[data-testid="pane-${id}"]`)]),
+        visiblePanes()
+          .filter((p) => !p.views.some((v) => v === appPanelId(activeTab(tabs).id)))
+          .map((p) => [p.id, textOf(`[data-testid="pane-${p.id}"]`)]),
       ),
     },
   }
@@ -172,75 +179,82 @@ function composerText(): string | null {
 }
 
 /** What layout.read shows of a tool tab beyond its kind: what it needs to show it again. */
-function tabArgs(tab: PaneTab): Record<string, unknown> | undefined {
+function tabArgs(tab: ToolTab): Record<string, unknown> | undefined {
   switch (tab.kind) {
     case 'subagent':
       return { session: tab.session, file: tab.file, name: tab.name }
     case 'experiment-arm':
       return { experiment: tab.experiment, arm: tab.arm, label: tab.label }
-    case 'page': {
-      const p = tab.place
-      return {
-        page: p.page,
-        ...(p.page === 'canvas' && p.canvas ? { canvas: p.canvas } : {}),
-        ...(p.page === 'meetings' && p.meeting ? { meeting: p.meeting } : {}),
-        ...(p.page === 'settings' ? { settingsSection: p.settingsSection } : {}),
-      }
-    }
     default:
       return undefined
   }
 }
 
-/** The pane tree as agents read it (layout.read, state.read `layout`). */
-export function layoutSnapshot(): Record<string, unknown> {
-  const { tiling, rects } = tilingStore.getState()
-  const shown = visiblePaneIds(tiling)
-  const appTabs = tabsStore.getState().tabs
-  const node = (n: TileNode): Record<string, unknown> => {
-    if (n.type === 'split') {
-      return {
-        split: n.id,
-        dir: n.dir,
-        sizes: n.sizes.map((x) => Math.round(x * 1000) / 1000),
-        children: n.children.map(node),
-      }
-    }
-    const common = { pane: n.id, rect: rects[n.id] ?? null, visible: shown.includes(n.id) }
-    if (isChatPane(n.id)) {
-      return {
-        ...common,
-        kind: 'chat',
-        tabs: appTabs.list.map((t, i) => ({
-          id: t.id,
-          page: t.here.page,
-          title: tabTitle(t.here),
-          active: i === appTabs.active,
-        })),
-      }
-    }
-    return {
-      ...common,
-      kind: 'tool',
-      active: n.active,
-      tabs: n.tabs.map((t) => ({
-        id: tabId(t),
-        kind: t.kind,
-        title: paneTabTitle(t),
-        ...(tabArgs(t) ? { args: tabArgs(t) } : {}),
-      })),
-    }
-  }
+/** A page's args as tab.open takes them. */
+function placeArgs(p: Place): Record<string, unknown> {
   return {
-    root: node(tiling.root),
-    focus: tiling.focus,
-    zoom: tiling.zoom,
-    panes: allPanes(tiling.root).map((p) => p.id),
+    page: p.page,
+    ...(p.page === 'chat' && p.chat ? { chat: p.chat } : {}),
+    ...(p.page === 'canvas' && p.canvas ? { canvas: p.canvas } : {}),
+    ...(p.page === 'meetings' && p.meeting ? { meeting: p.meeting } : {}),
+    ...(p.page === 'settings' ? { settingsSection: p.settingsSection } : {}),
   }
 }
 
-/** A tab spec's tool tab; an experiment arm's label comes from its run. */
-async function paneTabOf(spec: PaneTabSpec): Promise<PaneTab> {
+/** The panes as agents read them (layout.read, state.read `layout`). */
+export function layoutSnapshot(): Record<string, unknown> {
+  const s = tilingStore.getState()
+  const shown = visiblePanes(s).map((p) => p.id)
+  const appTabs = tabsStore.getState().tabs
+  const front = activeTab(appTabs).id
+  const tab = (id: string): Record<string, unknown> => {
+    const n = appTabOf(id)
+    if (n !== null) {
+      const t = appTabs.list.find((x) => x.id === n)
+      return {
+        id,
+        kind: 'app',
+        app: n,
+        title: t ? tabTitle(t.here) : id,
+        ...(t ? { args: placeArgs(t.here) } : {}),
+        active: n === front,
+        pinned: t?.pinned ?? false,
+      }
+    }
+    const tool = toolTabOfId(id)
+    const args = tool ? tabArgs(tool) : undefined
+    return { id, kind: tool?.kind ?? 'tool', title: tool ? paneTabTitle(tool) : id, ...(args ? { args } : {}) }
+  }
+  const node = (n: DockShape): Record<string, unknown> => {
+    if (n.type === 'split') {
+      const total = n.children.reduce((a, c) => a + c.size, 0) || 1
+      return {
+        dir: n.dir,
+        sizes: n.children.map((c) => Math.round((c.size / total) * 1000) / 1000),
+        children: n.children.map(node),
+      }
+    }
+    const view = s.panes.find((p) => p.id === n.id)
+    return {
+      pane: n.id,
+      kind: view?.app ? 'app' : 'tool',
+      rect: view?.rect ?? null,
+      visible: shown.includes(n.id),
+      active: n.active,
+      tabs: n.views.map(tab),
+    }
+  }
+  const shape = layoutShape()
+  return {
+    root: shape ? node(shape) : null,
+    focus: s.focus,
+    zoom: s.zoom,
+    panes: s.panes.map((p) => p.id),
+  }
+}
+
+/** A tab spec's tool tab or page; an experiment arm's label comes from its run. */
+async function paneTabOf(spec: PaneTabSpec): Promise<ToolTab | Place> {
   switch (spec.kind) {
     case 'browser':
     case 'files':
@@ -259,9 +273,30 @@ async function paneTabOf(spec: PaneTabSpec): Promise<PaneTab> {
       const key = pageFromKey(page)
       if (!key) fail('invalid-params', `Unknown page ${page}`)
       if (item !== undefined) checkReviewItem(key, item)
-      return { kind: 'page', place: placeOf(key, extra) }
+      return placeOf(key, extra)
     }
   }
+}
+
+const isPlace = (v: ToolTab | Place): v is Place => 'page' in v
+
+/** The app tab showing `place`, as its panel id. */
+function placePanel(place: Place): string | null {
+  const t = tabsStore.getState().tabs.list.find((x) => samePlace(x.here, place))
+  return t ? appPanelId(t.id) : null
+}
+
+/**
+ * Shows a tool tab or a page: in `pane` when one is named, else where it goes by default (a page
+ * beside the app tab in front). Answers the pane and the tab's id.
+ */
+function showTab(what: ToolTab | Place, pane?: string): { pane: string; tab: string } {
+  if (!isPlace(what)) return { pane: openTab(what, pane), tab: toolTabId(what) }
+  if (pane !== undefined) openPlaceInPane(what, pane)
+  else openPlaceBeside(what)
+  const tab = placePanel(what) ?? placeKey(what)
+  const at = tilingStore.getState().panes.find((p) => p.views.includes(tab))?.id ?? ''
+  return { pane: at, tab }
 }
 
 /** What a spec's args ask of the tab's content once it shows (a URL, a file). */
@@ -291,15 +326,30 @@ function checkReviewItem(page: string, item: string): void {
   }
 }
 
-/** A pane action's tab: an open tab's id, or a spec (opened there, then shown). */
-async function tabFor(tab: string | PaneTabSpec): Promise<PaneTab> {
-  if (typeof tab !== 'string') return paneTabOf(tab)
-  const hit = findTab(tilingStore.getState().tiling, tab)
-  if (!hit) fail('not-found', `No tab ${tab}; layout.read lists them`)
-  return hit.tab
+/**
+ * An open tab's panel id from what agents name it: a panel id (`tab:3`, `browser`,
+ * `subagent:…`), or a page's place key (`test-bench`, `review:pr:…`).
+ */
+function panelOf(id: string): string {
+  if (tilingStore.getState().panes.some((p) => p.views.includes(id))) return id
+  const t = tabsStore.getState().tabs.list.find((x) => placeKey(x.here) === id)
+  if (t) return appPanelId(t.id)
+  return fail('not-found', `No tab ${id}; layout.read lists them`)
 }
 
-const shownChatFile = (): string | null => chatStore.getState().panes[PANE_ID]?.file || null
+/** A pane action's tab: an open tab's panel id, or a spec (opened, then moved). */
+async function tabFor(tab: string | PaneTabSpec): Promise<string | ToolTab> {
+  if (typeof tab === 'string') return panelOf(tab)
+  const what = await paneTabOf(tab)
+  if (!isPlace(what)) return what
+  return placePanel(what) ?? showTab(what).tab
+}
+
+const shownChatFile = (): string | null =>
+  chatStore.getState().panes[frontChatPaneOf()]?.file || null
+
+const focusedPaneId = (): string =>
+  tilingStore.getState().focus ?? fail('not-found', 'No pane has the focus')
 
 /**
  * Runs a content action where it belongs: `front` in the tool tabs on screen (no scope, or the
@@ -365,8 +415,9 @@ export const rendererActions: AgentRunners<'renderer'> = {
   'layout.read': () => layoutSnapshot(),
   'tab.focus': ({ id }) => {
     if (typeof id === 'string') {
-      activateTab(id)
-      return { active: id, pane: tilingStore.getState().tiling.focus }
+      const panel = panelOf(id)
+      activateTab(panel)
+      return { active: panel, pane: tilingStore.getState().focus }
     }
     if (!tabsStore.getState().tabs.list.some((t) => t.id === id)) fail('not-found', `No tab ${id}`)
     activate(id)
@@ -374,11 +425,11 @@ export const rendererActions: AgentRunners<'renderer'> = {
   },
   'tab.close': ({ id }) => {
     if (typeof id === 'string') {
-      closeTab(id)
+      closeTab(panelOf(id))
       return { closed: id }
     }
     if (!tabsStore.getState().tabs.list.some((t) => t.id === id)) fail('not-found', `No tab ${id}`)
-    close(id)
+    closeAppTab(id)
     return { closed: id }
   },
   'tab.open': ({ kind, args, pane, scope }) => {
@@ -386,12 +437,11 @@ export const rendererActions: AgentRunners<'renderer'> = {
     return inScope(
       scope,
       async () => {
-        const tab = await paneTabOf(spec)
-        const at = openTab(tab, pane)
-        return { pane: at, tab: tabId(tab), ...(await showArgs(spec, shownChatFile())) }
+        const shown = showTab(await paneTabOf(spec), pane)
+        return { ...shown, ...(await showArgs(spec, shownChatFile())) }
       },
       async (t) => {
-        const tab = await paneTabOf(spec)
+        const what = await paneTabOf(spec)
         // The content goes to that scope now; the tab comes forward when Isaac opens it.
         let shown: object = {}
         if (spec.kind === 'browser' && spec.args?.url) {
@@ -399,20 +449,21 @@ export const rendererActions: AgentRunners<'renderer'> = {
         } else if (spec.kind === 'files' && spec.args?.path) {
           shown = await locatePath(spec.args.path, t.chatFile)
         }
-        showAway(t, `opened ${paneTabTitle(tab)}`, async () => {
-          openTab(tab, pane)
+        const title = isPlace(what) ? tabTitle(what) : paneTabTitle(what)
+        showAway(t, `opened ${title}`, async () => {
+          showTab(what, pane)
           if (spec.kind === 'page' && spec.args.item) openReviewItem(spec.args.item)
           if (spec.kind === 'files' && spec.args?.path) {
             const { path, line, column } = spec.args
             await showPath(path, t.chatFile, { line, column })
           }
         })
-        return { tab: tabId(tab), ...shown }
+        return { tab: isPlace(what) ? placeKey(what) : toolTabId(what), ...shown }
       },
     )
   },
   'pane.split': async ({ pane, dir, tab, size }) => {
-    const at = pane ?? tilingStore.getState().tiling.focus
+    const at = pane ?? focusedPaneId()
     const what = tab === undefined ? undefined : await tabFor(tab)
     const made = splitAt(at, dir, what, size)
     if (made === null)
@@ -422,10 +473,10 @@ export const rendererActions: AgentRunners<'renderer'> = {
   },
   'pane.close': ({ pane }) => {
     closePaneById(pane)
-    return { closed: pane, focus: tilingStore.getState().tiling.focus }
+    return { closed: pane, focus: tilingStore.getState().focus }
   },
   'pane.move': ({ tab, toPane, index }) => {
-    moveTab(tab, toPane, index)
+    moveTab(panelOf(tab), toPane, index)
     return { tab, pane: toPane }
   },
   'pane.resize': ({ pane, size, px }) => {
@@ -435,13 +486,13 @@ export const rendererActions: AgentRunners<'renderer'> = {
   'pane.focus': ({ pane, dir }) => {
     if (pane !== undefined) focusPaneById(pane)
     else if (dir !== undefined && focusNeighbor(dir) === null) {
-      fail('not-found', `No pane ${dir} of ${tilingStore.getState().tiling.focus}`)
+      fail('not-found', `No pane ${dir} of ${tilingStore.getState().focus}`)
     }
-    return { focus: tilingStore.getState().tiling.focus }
+    return { focus: tilingStore.getState().focus }
   },
   'pane.zoom': ({ pane, on }) => {
-    zoomPane(pane ?? tilingStore.getState().tiling.focus, on)
-    return { zoom: tilingStore.getState().tiling.zoom }
+    zoomPane(pane ?? focusedPaneId(), on)
+    return { zoom: tilingStore.getState().zoom }
   },
   'chat.open': async ({ query, newTab }) => {
     const row = findChat(await chatRows(), query)
@@ -454,9 +505,12 @@ export const rendererActions: AgentRunners<'renderer'> = {
   },
   'chat.start': async ({ prompt }) => {
     newChatTab()
-    const ready = await waitFor(() => chatStore.getState().panes[PANE_ID]?.file === '', 10_000)
+    const ready = await waitFor(() => {
+      const id = frontChatPaneOf()
+      return id !== '' && chatStore.getState().panes[id]?.file === ''
+    }, 10_000)
     if (!ready) fail('not-ready', 'The new chat did not open')
-    value(await invoke('chat.send', { paneId: PANE_ID, text: prompt }))
+    value(await invoke('chat.send', { paneId: frontChatPaneOf(), text: prompt }))
     return { sent: true }
   },
   'files.open': ({ path, line, column, scope }) =>
@@ -590,14 +644,14 @@ export const rendererActions: AgentRunners<'renderer'> = {
     if (job !== undefined && view.loaded && !view.jobs.some((j) => j.id === job)) {
       fail('not-found', `No Studio job ${job}; studio.list lists them`)
     }
-    const tab: PaneTab = { kind: 'page', place: placeOf('studio') }
+    const studio = placeOf('studio')
     const show = (): void => {
-      openTab(tab)
+      openPlaceBeside(studio)
       if (job !== undefined) requestStudioOpen({ job })
       else if (draft !== undefined) requestStudioOpen({ draft })
     }
     const result = {
-      tab: tabId(tab),
+      tab: placeKey(studio),
       ...(job === undefined ? {} : { job }),
       draft: draft !== undefined,
     }

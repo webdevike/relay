@@ -17,20 +17,20 @@ import { sessionId } from '@evaos/chat-core/session-id'
 import { chatStore, hiddenKey, useChatStore } from './chat-store'
 import { createStreamDrain } from './stream-drain'
 import { invoke, on } from '../ipc'
-import { browserScope, frontTabs, placeOf, toolsShown, type Place } from '@evaos/shell-core'
-import { FOLDED_LABEL } from '../tabs/TabBar'
-import {
-  activePlace,
-  activeTabId,
-  replaceActivePlace,
-  tabsStore,
-  useTabs,
-} from '../tabs/tabs-store'
+import { browserScope, placeOf, type Place } from '@evaos/shell-core'
+import { replaceTabPlace } from '../tabs/tabs-store'
 import { renameBrowserScope } from '../browser/browser-scope'
-import { dropChatPane, newToolPaneId, openChatFile, openDraftPane, PANE_ID } from './open-chat'
+import { dropChatPane, newChatPaneId, openChatFile, openDraftPane } from './open-chat'
+import { setTabChatPane } from './front-chat'
 import { draftKeyFor, loadDrafts } from './drafts'
-import { toggleSidebar, useLayout } from '../shell/layout-store'
-import { openSubagentTab, toggleToolPanes, useTiling } from '../tiling/tiling-store'
+import { FOLDED_LABEL, toggleSidebar, useLayout } from '../shell/layout-store'
+import {
+  frontToolTabs,
+  openSubagentTab,
+  toggleToolPanes,
+  toolsShown,
+  useTiling,
+} from '../tiling/tiling-store'
 import { setChatTitle } from '../eva/names-store'
 import { AgentCrumb, OwnedCrumb } from '../assistants/AgentCrumb'
 import { AgentNotch } from '../assistants/AgentNotch'
@@ -51,29 +51,71 @@ declare global {
   }
 }
 
-/** Main's chat pane: what the app tab in front shows when it is a chat or an assistant's thread. */
-export function ChatPane() {
-  const place = useTabs(activePlace)
-  return <ChatView paneId={PANE_ID} place={place} main />
+/**
+ * What every chat on screen shares, mounted once: the one stream drain (batches from main are
+ * applied once per animation frame, to whichever pane they name), the extras listener for every
+ * pane, and the saved composer drafts.
+ */
+export function ChatRuntime() {
+  useEffect(() => {
+    void loadDrafts()
+    const offExtras = on('chat.extras', (e) => chatStore.getState().setExtras(e))
+    let e2e = false
+    void invoke('app.info', {}).then((r) => {
+      if (r.ok) e2e = r.value.e2e
+    })
+    const drain = createStreamDrain({
+      store: chatStore,
+      subscribe: (cb) => on('chat.batch', cb),
+      requestSnapshot: async (paneId) => {
+        const r = await invoke('chat.snapshot', { paneId })
+        return r.ok ? r.value : null
+      },
+      onStats: (paneId, s) => {
+        if (!e2e) return
+        window.__evaosChatStats = { ...window.__evaosChatStats, [paneId]: s }
+      },
+    })
+    return () => {
+      offExtras()
+      drain.dispose()
+    }
+  }, [])
+  return null
 }
 
 /**
- * An assistant's thread as a tool pane's tab: the same chat as main's pane, under its own pane id
- * (a fresh one each mount, forgotten when the tab goes). Main runs one omp per session file, so a
- * second pane on a chat this app runs reads it live and sends through its owner once Isaac says
- * so; one Relay runs (an assistant's) streams and replies in every pane alike.
+ * App tab `tab`'s chat (a chat, or an assistant's thread) while it is on screen, under its own
+ * chat pane id: a fresh one each mount, forgotten when the tab goes behind another or closes.
+ * Main runs one omp per session file, so a second pane on a chat this app runs reads it live and
+ * sends through its owner once Isaac says so; one Relay runs (an assistant's) streams and replies
+ * in every pane alike. `lead` puts the sidebar and panel toggles in its header.
  */
-export function ToolChat({ place }: { place: Place }) {
+export function TabChat({ tab, place, lead }: { tab: number; place: Place; lead: boolean }) {
   const [paneId, setPaneId] = useState<string | null>(null)
   useEffect(() => {
-    const id = newToolPaneId()
+    const id = newChatPaneId()
     setPaneId(id)
-    return () => dropChatPane(id)
-  }, [])
-  return paneId === null ? null : <ChatView paneId={paneId} place={place} main={false} />
+    setTabChatPane(tab, id)
+    return () => {
+      setTabChatPane(tab, null)
+      dropChatPane(id)
+    }
+  }, [tab])
+  return paneId === null ? null : <ChatView paneId={paneId} place={place} tab={tab} lead={lead} />
 }
 
-function ChatView({ paneId, place, main }: { paneId: string; place: Place; main: boolean }) {
+function ChatView({
+  paneId,
+  place,
+  tab,
+  lead,
+}: {
+  paneId: string
+  place: Place
+  tab: number
+  lead: boolean
+}) {
   const pane = useChatStore((s) => s.panes[paneId])
   const starter = useProfile() === 'starter'
   const composer = useRef<ComposerHandle>(null)
@@ -87,11 +129,11 @@ function ChatView({ paneId, place, main }: { paneId: string; place: Place; main:
   )
   const [evaRoot, setEvaRoot] = useState<string | null>(null)
   const sidebarState = useLayout((s) => s.state)
-  const panelOpen = useTiling((s) => toolsShown(s.tiling))
+  const panelOpen = useTiling(toolsShown)
   // The subagent a pane shows in front, when it is one of this chat's.
   const viewedSubagent = useTiling((s) => {
-    const tab = frontTabs(s.tiling).find((t) => t.kind === 'subagent' && t.session === pane?.file)
-    return tab?.kind === 'subagent' ? tab.name : null
+    const front = frontToolTabs(s).find((t) => t.kind === 'subagent' && t.session === pane?.file)
+    return front?.kind === 'subagent' ? front.name : null
   })
   const sidebarLabel =
     sidebarState === 'open'
@@ -123,11 +165,7 @@ function ChatView({ paneId, place, main }: { paneId: string; place: Place; main:
   useEffect(() => {
     if (shownId !== null && !listStore.getState().list) void listStore.getState().load()
   }, [shownId])
-  const appTab = useTabs(activeTabId)
-  const draftKey = draftKeyFor(pane, placeChat, main ? browserScope(placeOf('chat'), appTab) : '')
-  useEffect(() => {
-    if (main) void loadDrafts()
-  }, [main])
+  const draftKey = draftKeyFor(pane, placeChat, browserScope(placeOf('chat'), tab))
 
   const hiddenDone = useChatStore((s) => s.hiddenDone)
   const hiddenNames = useMemo(() => {
@@ -137,33 +175,21 @@ function ChatView({ paneId, place, main }: { paneId: string; place: Place; main:
     return names
   }, [pane, hiddenDone])
 
-  // Subagents and jobs come from main (file-derived), pushed per pane; main's pane listens for all.
+  // A tab whose place is a session path shows that session; a draft tab shows a new chat.
   useEffect(() => {
-    if (!main) return
-    return on('chat.extras', (e) => chatStore.getState().setExtras(e))
-  }, [main])
-
-  const activeIx = useTabs((s) => s.tabs.active)
-  const reopen = main ? activeIx : -1
-
-  // A tab whose place is a session path shows that session; a draft tab shows a new chat (main's
-  // pane only: a tool pane's tab is always a thread).
-  useEffect(() => {
-    if (placeChat === 'draft') {
-      if (main) void openDraftPane()
-    } else if (placeChat) void openChatFile(placeChat, paneId)
-  }, [placeChat, reopen, main, paneId])
+    if (placeChat === 'draft') void openDraftPane(paneId)
+    else if (placeChat) void openChatFile(placeChat, paneId)
+  }, [placeChat, paneId])
 
   // A new chat that omp gave a session file: the tab follows it in place, so Back never returns
   // to a dead draft and the pane does not reopen. The draft's browser tabs carry over.
   const boundTo = pane?.boundTo ?? null
   useEffect(() => {
-    if (!main || !boundTo || placeChat !== 'draft') return
-    const appTab = activeTabId(tabsStore.getState())
+    if (!boundTo || placeChat !== 'draft') return
     const chat = placeOf('chat', { chat: boundTo })
-    renameBrowserScope(browserScope(placeOf('chat'), appTab), browserScope(chat, appTab))
-    replaceActivePlace(chat)
-  }, [main, boundTo, placeChat])
+    renameBrowserScope(browserScope(placeOf('chat'), tab), browserScope(chat, tab))
+    replaceTabPlace(chat, tab)
+  }, [boundTo, placeChat, tab])
 
   // A tab on this chat names it as the header does, and follows a rename or omp's auto title.
   const shownFile = pane?.file ?? ''
@@ -172,42 +198,19 @@ function ChatView({ paneId, place, main }: { paneId: string; place: Place; main:
     if (shownFile !== '' && shownTitle !== '') setChatTitle(shownFile, shownTitle)
   }, [shownFile, shownTitle])
 
-  // One drain for the whole app (main's pane): batches from main are applied once per animation
-  // frame, to whichever pane they name.
+  const draft = placeChat === 'draft' || (pane !== undefined && pane.file === '')
   useEffect(() => {
-    if (!main) return
-    let e2e = false
+    if (!draft || evaRoot !== null) return
     void invoke('app.info', {}).then((r) => {
-      if (r.ok) {
-        e2e = r.value.e2e
-        setEvaRoot(r.value.evaRoot)
-      }
+      if (r.ok) setEvaRoot(r.value.evaRoot)
     })
-    const drain = createStreamDrain({
-      store: chatStore,
-      subscribe: (cb) => on('chat.batch', cb),
-      requestSnapshot: async (paneId) => {
-        const r = await invoke('chat.snapshot', { paneId })
-        return r.ok ? r.value : null
-      },
-      onStats: (paneId, s) => {
-        if (!e2e) return
-        window.__evaosChatStats = { ...window.__evaosChatStats, [paneId]: s }
-      },
-    })
-    return () => drain.dispose()
-  }, [main])
+  }, [draft, evaRoot])
 
   // An error is a banner, not a lock: the next send retries (and restarts omp if it exited).
-  const Root = main ? 'main' : 'section'
   return (
-    <Root
-      className={main ? 'eva-chat' : 'eva-chat eva-chat-tool'}
-      data-testid="chat-pane"
-      data-chat-pane={paneId}
-    >
+    <section className="eva-chat" data-testid="chat-pane" data-chat-pane={paneId}>
       <div className="eva-chat-header" data-testid="chat-header">
-        {main ? (
+        {lead ? (
           <Tooltip label={sidebarLabel} position="bottom">
             <ActionIcon
               variant="subtle"
@@ -260,20 +263,11 @@ function ChatView({ paneId, place, main }: { paneId: string; place: Place; main:
           </>
         ) : (
           <h2 className="eva-heading eva-chat-title">
-            {!main && agent !== null ? <AgentCrumb id={agent} /> : 'New chat'}
+            {agent !== null ? <AgentCrumb id={agent} /> : 'New chat'}
           </h2>
         )}
-        {/* This header is the page's whenever the pane shows (a chat, an agent's thread; MainCard
-            drops MainHeader then); otherwise the pane is hidden and MainHeader has the button.
-            A tool pane's chat is always a thread. */}
-        {place.page === 'chat' || thread !== null ? (
-          agent !== null ? (
-            <ArtifactsButton agent={agent} />
-          ) : (
-            <ContextButton />
-          )
-        ) : null}
-        {main ? (
+        {agent !== null ? <ArtifactsButton agent={agent} /> : <ContextButton />}
+        {lead ? (
           <Tooltip label={panelOpen ? 'Hide tool panes' : 'Show tool panes'} position="bottom">
             <ActionIcon
               variant="subtle"
@@ -304,13 +298,13 @@ function ChatView({ paneId, place, main }: { paneId: string; place: Place; main:
               // A draft keeps its log key when omp names the file, so binding never jumps the scroll.
               file={pane.boundTo ? '' : pane.file}
               scrollFile={pane.file}
-              shown={!main || place.page === 'chat' || thread !== null}
+              shown
               typing={typing}
               busy={pane.running}
             />
           </ReactionScope.Provider>
         </WidgetActions.Provider>
-      ) : main ? (
+      ) : draft ? (
         <div className="eva-chat-empty">
           <div className="eva-chat-intro">
             <h2>{starter ? 'What should we work on?' : 'What should Eva work on?'}</h2>
@@ -320,7 +314,7 @@ function ChatView({ paneId, place, main }: { paneId: string; place: Place; main:
           </div>
         </div>
       ) : (
-        // A tool pane's thread while it opens: nothing to say yet.
+        // A thread while it opens: nothing to say yet.
         <div className="eva-chat-empty" />
       )}
       {pane ? (
@@ -343,6 +337,6 @@ function ChatView({ paneId, place, main }: { paneId: string; place: Place; main:
       {pane ? <JobsStrip running={pane.extras.running} jobs={pane.extras.jobs} /> : null}
       <StatusStrip paneId={paneId} />
       <Composer ref={composer} paneId={paneId} disabled={!pane} draftKey={draftKey} />
-    </Root>
+    </section>
   )
 }

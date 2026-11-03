@@ -1,7 +1,7 @@
 import { useCallback, useSyncExternalStore } from 'react'
 import { Director, statusText, type MotionSignals, type MotionState } from '@relay/portrait-motion'
 import { chatStore } from '../chat/chat-store'
-import { PANE_ID } from '../chat/open-chat'
+import { frontChatPaneOf } from '../chat/front-chat'
 import { agentOf, assistantsStore } from './assistants-store'
 import { onMotionGate, pageHidden } from './motion-gate'
 import { motionSignals } from './motion-signals'
@@ -20,14 +20,14 @@ export function overrideSignals(id: string, patch: Partial<MotionSignals> | null
 }
 
 /**
- * Agent `id`'s signals now, from the Assistants list and the chat pane showing its thread: main's
- * when it does, else a tool pane's.
+ * Agent `id`'s signals now, from the Assistants list and the chat pane showing its thread: the
+ * one in front when it does, else any other.
  */
 export function agentSignals(id: string): MotionSignals {
   const assistants = assistantsStore.getState()
   const { panes } = chatStore.getState()
   const file = agentOf(assistants, id)?.file
-  const main = panes[PANE_ID]
+  const main = panes[frontChatPaneOf()]
   const pane =
     !file || main?.file === file ? main : Object.values(panes).find((p) => p.file === file)
   const real = motionSignals(assistants, id, pane)

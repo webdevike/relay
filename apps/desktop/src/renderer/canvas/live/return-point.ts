@@ -8,7 +8,7 @@ import { openInApp } from '../../navigation/open-in-app'
 import type { OpenTarget } from '../../navigation/open-target'
 import { goBack, navigateTo, tabsStore } from '../../tabs/tabs-store'
 import { chatStore } from '../../chat/chat-store'
-import { PANE_ID } from '../../chat/open-chat'
+import { frontChatPaneOf } from '../../chat/front-chat'
 import { chatScrollOf, requestChatScroll, type ChatScroll } from '../../chat/chat-scroll'
 
 /** Where Isaac was when he joined a board's room. */
@@ -37,7 +37,7 @@ export function joinCanvas(slug: string, target: OpenTarget = 'split'): void {
     points.delete(slug)
   } else {
     const place = activeTab(tabsStore.getState().tabs).here
-    const file = chatStore.getState().panes[PANE_ID]?.file ?? ''
+    const file = chatStore.getState().panes[frontChatPaneOf()]?.file ?? ''
     points.set(slug, {
       place,
       file,

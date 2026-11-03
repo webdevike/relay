@@ -3,7 +3,7 @@ import { useLayoutEffect, useState } from 'react'
 import { GAP } from '@evaos/shell-core'
 import { TestOverlay, useTestOverlayOpener } from '../overlay/TestOverlay'
 import { SidebarColumn } from '../sidebar/SidebarColumn'
-import { TilingRoot } from '../tiling/TilingRoot'
+import { DockRoot } from '../tiling/dock/DockRoot'
 import { Footer } from './Footer'
 import { Grip } from './Grip'
 import { layoutStore, setWindowWidth, useLayout } from './layout-store'
@@ -59,7 +59,7 @@ export function Shell() {
       <div className="eva-shell-body">
         <SidebarColumn />
         {state === 'open' ? <Grip /> : null}
-        <TilingRoot />
+        <DockRoot />
       </div>
       <Footer />
       <TestOverlay opened={overlayOpen} onClose={() => setOverlayOpen(false)} />

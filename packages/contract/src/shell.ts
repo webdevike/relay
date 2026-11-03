@@ -69,9 +69,11 @@ export const shellInvoke = {
     output: z.object({
       sidebarWidth: z.number(),
       tabs: z.unknown().nullable(),
-      /** The saved pane tree in its layout.json form (shell-core tilingFromJson reads it). */
+      /** The saved dockview layout (its toJSON); shell-core reconcileDock reads it. */
+      dock: z.unknown().nullable(),
+      /** The split tree kept before dockview, while no `dock` is saved: migrated once. */
       tiling: z.unknown().nullable(),
-      /** The side panel before tiling, while no tiling is saved: seeds the first tree. */
+      /** The side panel before panes, while neither layout is saved: seeds the first layout. */
       legacyPanel: z.object({ width: z.number(), tool: ToolKindSchema }).nullable(),
       reset: z.boolean(),
     }),
@@ -81,8 +83,8 @@ export const shellInvoke = {
       .object({
         sidebarWidth: z.number().finite().optional(),
         tabs: SavedTabsSchema.optional(),
-        /** The pane tree in its layout.json form (shell-core tilingToJson); main validates it. */
-        tiling: z.record(z.string(), z.unknown()).optional(),
+        /** The dockview layout (its toJSON); saving it drops the split tree and old panel keys. */
+        dock: z.record(z.string(), z.unknown()).optional(),
       })
       .strict(),
     output: Empty,

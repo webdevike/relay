@@ -11,7 +11,6 @@ vi.mock('electron', () => ({
 }))
 
 import { createConfigStore, type ConfigStore } from './config-store'
-import { defaultTiling, tilingToJson } from '@evaos/shell-core'
 import { loadLayout, saveLayout } from './layout-ipc'
 import { loadTheme, readLastBackground, saveLastBackground, saveTheme } from './theme-ipc'
 import { loadSettings, saveSettings, seedFavorites } from './settings-ipc'
@@ -31,6 +30,7 @@ describe('layout', () => {
     expect(loadLayout(config)).toEqual({
       sidebarWidth: 272,
       tabs: null,
+      dock: null,
       tiling: null,
       legacyPanel: null,
       reset: false,
@@ -44,31 +44,36 @@ describe('layout', () => {
     fs.writeFileSync(path.join(dir, 'layout.json'), '{"zoom": 2}')
     const q = createWriteQueue()
     const tabs = { active: 0, list: [] }
-    const tiling = defaultTiling()
+    const dock = { grid: { root: { type: 'branch', data: [], size: 1 } }, panels: {} }
     await Promise.all([
       q.enqueue(() => saveLayout(config, { sidebarWidth: 300.4, tabs })),
-      q.enqueue(() => saveLayout(config, { tiling })),
+      q.enqueue(() => saveLayout(config, { dock })),
     ])
     expect(read('layout.json')).toMatchObject({
       sidebar_width: 300,
-      tiling: tilingToJson(tiling),
+      dock,
       zoom: 2,
       tabs,
     })
   })
-  it('seeds from the old panel until a tiling is saved, then drops its choices', () => {
+  it('seeds from the old panel, then the split tree, until a dock is saved', () => {
     fs.writeFileSync(
       path.join(dir, 'layout.json'),
       '{"panel_width": 500, "panel_tool": "files", "panel_choices": {"chat:/a": true}}',
     )
     expect(loadLayout(config)).toMatchObject({
+      dock: null,
       tiling: null,
       legacyPanel: { width: 500, tool: 'files' },
     })
-    const tiling = defaultTiling(0.4, 'files')
-    saveLayout(config, { tiling })
-    expect(loadLayout(config)).toMatchObject({ tiling: tilingToJson(tiling), legacyPanel: null })
-    expect(read('layout.json')).not.toHaveProperty('panel_choices')
+    const tiling = { root: { type: 'pane', id: 'chat', tabs: [], active: null } }
+    fs.writeFileSync(path.join(dir, 'layout.json'), JSON.stringify({ panel_width: 500, tiling }))
+    expect(loadLayout(config)).toMatchObject({ tiling, legacyPanel: null })
+    const dock = { grid: { root: { type: 'branch', data: [], size: 1 } }, panels: {} }
+    saveLayout(config, { dock })
+    expect(loadLayout(config)).toMatchObject({ dock, tiling: null, legacyPanel: null })
+    expect(read('layout.json')).not.toHaveProperty('tiling')
+    expect(read('layout.json')).not.toHaveProperty('panel_width')
   })
   it('queue survives a rejected task', async () => {
     const q = createWriteQueue()
