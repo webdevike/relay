@@ -19,14 +19,15 @@ protocol AppHook: Sendable {
 }
 
 enum AppHooks {
-    /// RELAY_BUDDY_HOOKS: comma list of enabled hooks (default "blender"); "none" disables all.
+    /// RELAY_BUDDY_HOOKS: comma list of enabled hooks (default "blender,linear"); "none" disables all.
     private static let enabled: Set<String> = {
-        let raw = ProcessInfo.processInfo.environment["RELAY_BUDDY_HOOKS"] ?? "blender"
+        let raw = ProcessInfo.processInfo.environment["RELAY_BUDDY_HOOKS"] ?? "blender,linear"
         return Set(raw.lowercased().split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
     }()
 
     static func hook(for target: TargetApp) -> AppHook? {
         if enabled.contains("blender"), target.bundleID == "org.blenderfoundation.blender" { return BlenderHook() }
+        if enabled.contains("linear"), target.bundleID == LinearHook.bundleID { return LinearHook(pid: target.pid) }
         return nil
     }
 }

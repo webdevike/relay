@@ -174,19 +174,36 @@ final class BuddyCharacter {
         caption.isHidden = text.isEmpty
         captionText.string = text
         let measured = ceil((text as NSString).size(withAttributes: [.font: Self.captionFont]).width)
-        let width = min(Self.maxCaptionWidth, measured) + 22
-        caption.bounds = CGRect(x: 0, y: 0, width: width, height: 26)
-        captionText.frame = CGRect(x: 11, y: 4, width: width - 22, height: 18)
+        if measured <= Self.maxCaptionWidth && !text.contains("\n") {
+            captionText.isWrapped = false
+            let width = measured + 22
+            caption.bounds = CGRect(x: 0, y: 0, width: width, height: 26)
+            captionText.frame = CGRect(x: 11, y: 4, width: width - 22, height: 18)
+        } else {
+            // A longer explanation: wrap inside the max width and grow the bubble taller.
+            captionText.isWrapped = true
+            let textWidth = Self.maxCaptionWidth
+            let box = (text as NSString).boundingRect(
+                with: CGSize(width: textWidth, height: 2000),
+                options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: Self.captionFont])
+            let height = ceil(box.height) + 4
+            caption.bounds = CGRect(x: 0, y: 0, width: textWidth + 22, height: height + 12)
+            captionText.frame = CGRect(x: 11, y: 6, width: textWidth, height: height)
+        }
         CATransaction.commit()
     }
+
+    /// True while the caption is taller than the one-line bubble.
+    var captionIsTall: Bool { caption.bounds.height > 30 }
 
     /// Places tag and caption below-right of the tip, kept inside `bounds` (overlay-local).
     func layoutLabels(tip: CGPoint, in bounds: CGRect) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        let below = tip.y - 84 > bounds.minY + 8
+        let extra = max(0, caption.bounds.height - 26)
+        let below = tip.y - 84 - extra > bounds.minY + 8
         var tagOrigin = CGPoint(x: 28, y: below ? -50 : 12)
-        var captionOrigin = CGPoint(x: 28, y: below ? -80 : 34)
+        var captionOrigin = CGPoint(x: 28, y: below ? -80 - extra : 34)
         let overflowTag = tip.x + tagOrigin.x + tag.bounds.width - (bounds.maxX - 8)
         if overflowTag > 0 { tagOrigin.x -= overflowTag }
         let overflowCaption = tip.x + captionOrigin.x + caption.bounds.width - (bounds.maxX - 8)

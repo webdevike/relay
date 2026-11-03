@@ -447,7 +447,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func carryOut(_ plan: Plan, question: String, context: ScreenContext, ask: AskContext,
                           hook: AppHook?, stay: Bool) async throws {
         guard var request = plan.doRequest else {
-            overlay.perform(plan, context: context, stay: stay)
+            // A long Linear explanation stays up until dismissed (Esc or click) instead of fading at 2 s.
+            let explain = hook?.name == "Linear" && ((plan.say?.count ?? 0) > 90 || plan.say?.contains("\n") == true)
+            overlay.perform(plan, context: context, stay: stay, hold: explain)
             return say(plan.say)
         }
         if request.coreStep && !ask.userAskedToDo {

@@ -79,7 +79,8 @@ final class OverlayController {
         scheduleFade(after: dwell(for: text))
     }
 
-    func perform(_ plan: Plan, context: ScreenContext, stay: Bool) {
+    /// `hold`: keep the caption up until dismissed (Esc or a click) instead of fading, for long explanations.
+    func perform(_ plan: Plan, context: ScreenContext, stay: Bool, hold: Bool = false) {
         if !isShowing { begin(at: CGPoint(x: NSEvent.mouseLocation.x + Self.restingOffset.x, y: NSEvent.mouseLocation.y + Self.restingOffset.y)) }
         buddy.setStaying(stay)
         let steps = plan.steps.prefix(3).map { resolve($0, context: context) }
@@ -87,10 +88,10 @@ final class OverlayController {
         guard !steps.isEmpty else {
             buddy.setThinking(false, text: firstCaption)
             layoutCaption()
-            if !stay { scheduleFade(after: dwell(for: firstCaption)) }
+            if !stay && !hold { scheduleFade(after: dwell(for: firstCaption)) }
             return
         }
-        run(steps, index: 0, firstCaption: firstCaption, stay: stay, generation: generation)
+        run(steps, index: 0, firstCaption: firstCaption, stay: stay || hold, generation: generation)
     }
 
     func dismiss(fast: Bool) {

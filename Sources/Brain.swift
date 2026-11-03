@@ -68,7 +68,8 @@ final class Brain {
 
     Answer with tool calls only, all of them together in ONE turn as parallel calls, in this order:
     - say(text): one short caption shown next to your cursor. At most 90 characters, plain and friendly, \
-    telling the user what to do there, e.g. "Click Bevel, then drag to size it". Never use em dashes.
+    telling the user what to do there, e.g. "Click Bevel, then drag to size it". Never use em dashes. \
+    Exception: when the app hook notes ask for a multi-line explanation, follow them instead.
     - point(x, y, label): put your cursor on one exact spot, the center of a button, icon, menu or field. \
     label names it in 1 to 4 words.
     - highlight(rect, label): outline a larger region instead, such as a panel, a menu or a group of controls.
@@ -80,7 +81,7 @@ final class Brain {
     - When an accessibility element matches the target, aim at the center of its frame.
     - Many apps draw icon-only toolbars with no accessibility labels. Look at the screenshot closely and \
     aim at the exact icon.
-    - Every answer about the screen MUST include at least one point, highlight or do call.
+    - Every answer about the screen MUST include at least one point, highlight or do call, unless the app hook notes say pointing is optional (then say + done is enough).
     - For "how do I X" or "where is X", point at the button, icon or menu item for X (for example the \
     tool's icon in a toolbar), not at the object it acts on, and mention the shortcut in say().
     - Usually one point or highlight. Use up to three, in order, only when the path needs several steps.
@@ -124,7 +125,7 @@ final class Brain {
 
     private static let tools: [[String: Any]] = [
         function("say", "Show one short caption line next to Buddy's cursor.",
-                 ["text": ["type": "string", "description": "At most 90 characters."]]),
+                 ["text": ["type": "string", "description": "At most 90 characters, unless the app hook notes ask for a longer multi-line explanation."]]),
         function("point", "Move Buddy's cursor to one exact spot in the screenshot and pulse a ring there.", [
             "x": ["type": "number", "description": "Screenshot pixel x."],
             "y": ["type": "number", "description": "Screenshot pixel y."],
