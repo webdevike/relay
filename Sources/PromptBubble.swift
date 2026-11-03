@@ -28,14 +28,12 @@ final class PromptBubble: NSObject, NSTextFieldDelegate {
     var router: ((String) -> Assistant)?
     private var assistant: Assistant
     private let face = CALayer()
-    private var title: NSTextField?
-    private let appName: String
 
-    static let size = CGSize(width: 440, height: 134)
+    static let size = CGSize(width: 420, height: 48)
 
-    init(appName: String, assistant: Assistant) {
+    /// Just a text field with the answering assistant's avatar as a small leading dot; Return asks, Esc closes.
+    init(assistant: Assistant) {
         self.assistant = assistant
-        self.appName = appName
         panel = BubblePanel(contentRect: CGRect(origin: .zero, size: Self.size),
                             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         super.init()
@@ -50,33 +48,25 @@ final class PromptBubble: NSObject, NSTextFieldDelegate {
         panel.isMovableByWindowBackground = true
         panel.appearance = NSAppearance(named: .darkAqua)
         panel.onCancel = { [weak self] in self?.close() }
-        buildContent(appName: appName, assistant: assistant)
+        buildContent()
     }
 
-    private func buildContent(appName: String, assistant: Assistant) {
+    private func buildContent() {
         let surface = DragSurface(frame: CGRect(origin: .zero, size: Self.size))
         surface.wantsLayer = true
         surface.layer?.backgroundColor = Palette.panel.cgColor
-        surface.layer?.cornerRadius = 14
+        surface.layer?.cornerRadius = Self.size.height / 2
         surface.layer?.masksToBounds = true
-        surface.layer?.borderWidth = 1
-        surface.layer?.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
         panel.contentView = surface
 
-        let faceView = NSView(frame: CGRect(x: 12, y: 99, width: 24, height: 24))
+        let faceView = NSView(frame: CGRect(x: 14, y: (Self.size.height - 22) / 2, width: 22, height: 22))
         faceView.wantsLayer = true
         face.frame = faceView.bounds
-        face.cornerRadius = 12
+        face.cornerRadius = 11
         face.masksToBounds = true
         face.contentsGravity = .resizeAspectFill
         faceView.layer?.addSublayer(face)
         surface.addSubview(faceView)
-
-        let title = NSTextField(labelWithString: "")
-        title.frame = CGRect(x: 42, y: 102, width: 350, height: 18)
-        title.wantsLayer = true
-        surface.addSubview(title)
-        self.title = title
         paintIdentity()
         buildRest(in: surface)
     }
@@ -84,15 +74,10 @@ final class PromptBubble: NSObject, NSTextFieldDelegate {
     private func paintIdentity() {
         face.backgroundColor = assistant.accent.cgColor
         face.contents = Assistants.avatar(for: assistant)?.cgImage(forProposedRect: nil, context: nil, hints: nil)
-        let s = NSMutableAttributedString(string: assistant.title, attributes: [
-            .font: NSFont.systemFont(ofSize: 13, weight: .semibold), .foregroundColor: assistant.accent])
-        s.append(NSAttributedString(string: "   Ask about \(appName)", attributes: [
-            .font: NSFont.systemFont(ofSize: 13), .foregroundColor: Palette.muted]))
-        title?.attributedStringValue = s
     }
 
-    /// The typed words route to someone else ("Astra, ...", an issue key): crossfade and pop the avatar and
-    /// name to her before Return, so nothing flips after the question is sent.
+    /// The typed words route to someone else ("Astra, ...", an issue key): crossfade and pop the avatar
+    /// to her before Return, so nothing flips after the question is sent.
     func setAssistant(_ next: Assistant) {
         guard next.id != assistant.id else { return }
         Log.info("bubble: \(assistant.title) -> \(next.title) while typing")
@@ -101,7 +86,6 @@ final class PromptBubble: NSObject, NSTextFieldDelegate {
         fade.type = .fade
         fade.duration = 0.25
         face.add(fade, forKey: "identity")
-        title?.layer?.add(fade, forKey: "identity")
         let pop = CAKeyframeAnimation(keyPath: "transform.scale")
         pop.values = [1, 0.7, 1.12, 1]
         pop.keyTimes = [0, 0.35, 0.75, 1]
@@ -115,46 +99,24 @@ final class PromptBubble: NSObject, NSTextFieldDelegate {
     }
 
     private func buildRest(in surface: NSView) {
-        let close = NSButton(title: "✕", target: self, action: #selector(closeClicked))
-        close.isBordered = false
-        close.font = .systemFont(ofSize: 12, weight: .medium)
-        close.contentTintColor = Palette.muted
-        close.frame = CGRect(x: Self.size.width - 34, y: 100, width: 22, height: 22)
-        close.toolTip = "Close (Esc)"
-        surface.addSubview(close)
-
-        field.frame = CGRect(x: 16, y: 56, width: Self.size.width - 32, height: 30)
+        field.frame = CGRect(x: 44, y: (Self.size.height - 28) / 2, width: Self.size.width - 58, height: 28)
         field.isBordered = false
         field.isBezeled = false
         field.drawsBackground = false
         field.focusRingType = .none
-        field.font = .systemFont(ofSize: 19)
+        field.font = .systemFont(ofSize: 18)
         field.textColor = .white
-        field.placeholderAttributedString = NSAttributedString(string: "Where is the bevel tool?", attributes: [
-            .font: NSFont.systemFont(ofSize: 19), .foregroundColor: Palette.faint])
+        field.placeholderAttributedString = Self.placeholder("Ask anything", color: Palette.faint)
         field.cell?.usesSingleLineMode = true
         field.cell?.lineBreakMode = .byTruncatingHead
         field.delegate = self
         field.target = self
         field.action = #selector(submitClicked)
         surface.addSubview(field)
+    }
 
-        let divider = NSView(frame: CGRect(x: 0, y: 46, width: Self.size.width, height: 1))
-        divider.wantsLayer = true
-        divider.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.08).cgColor
-        surface.addSubview(divider)
-
-        let footer = NSTextField(labelWithString: "Active window only  ·  Screenshot + accessibility  ·  Esc closes")
-        footer.font = .systemFont(ofSize: 11)
-        footer.textColor = Palette.faint
-        footer.frame = CGRect(x: 18, y: 15, width: 330, height: 16)
-        surface.addSubview(footer)
-
-        let ask = NSButton(title: "Ask", target: self, action: #selector(submitClicked))
-        ask.bezelStyle = .rounded
-        ask.bezelColor = Palette.accent
-        ask.frame = CGRect(x: Self.size.width - 78, y: 9, width: 64, height: 28)
-        surface.addSubview(ask)
+    private static func placeholder(_ text: String, color: NSColor) -> NSAttributedString {
+        NSAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: 18), .foregroundColor: color])
     }
 
     /// Opens just below-right of the cursor, kept on the cursor's screen.
@@ -188,13 +150,10 @@ final class PromptBubble: NSObject, NSTextFieldDelegate {
         onClose?()
     }
 
-    @objc private func closeClicked() { close() }
-
-    /// Hold-to-talk: the placeholder says Buddy is listening; the live transcript fills the field.
+    /// Hold-to-talk: the placeholder says she is listening; the live transcript fills the field.
     func setListening(_ listening: Bool) {
-        let text = listening ? "Listening..." : "Where is the bevel tool?"
-        field.placeholderAttributedString = NSAttributedString(string: text, attributes: [
-            .font: NSFont.systemFont(ofSize: 19), .foregroundColor: listening ? Palette.accent : Palette.faint])
+        field.placeholderAttributedString = Self.placeholder(listening ? "Listening..." : "Ask anything",
+                                                             color: listening ? assistant.accent : Palette.faint)
     }
 
     func showTranscript(_ text: String) { field.stringValue = text }
@@ -202,8 +161,7 @@ final class PromptBubble: NSObject, NSTextFieldDelegate {
     /// A lesson is running: hint the bubble's lesson words.
     func setLessonHint(_ hint: String?) {
         guard let hint else { return }
-        field.placeholderAttributedString = NSAttributedString(string: hint, attributes: [
-            .font: NSFont.systemFont(ofSize: 19), .foregroundColor: Palette.faint])
+        field.placeholderAttributedString = Self.placeholder(hint, color: Palette.faint)
     }
 
     @objc private func submitClicked() {

@@ -95,14 +95,13 @@ final class BuddyCharacter {
         tag.addSublayer(tagText)
         root.addSublayer(tag)
 
-        caption.backgroundColor = Palette.panel.cgColor
-        caption.cornerRadius = 9
-        caption.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
-        caption.borderWidth = 1
+        // One quiet line: a soft dark backdrop for legibility, no border.
+        caption.backgroundColor = Palette.panel.withAlphaComponent(0.88).cgColor
+        caption.cornerRadius = 8
         caption.shadowColor = NSColor.black.cgColor
-        caption.shadowOpacity = 0.3
-        caption.shadowRadius = 6
-        caption.shadowOffset = CGSize(width: 0, height: -2)
+        caption.shadowOpacity = 0.2
+        caption.shadowRadius = 4
+        caption.shadowOffset = CGSize(width: 0, height: -1)
         captionText.font = Self.captionFont
         captionText.fontSize = Self.captionFont.pointSize
         captionText.foregroundColor = NSColor.white.cgColor
@@ -168,6 +167,7 @@ final class BuddyCharacter {
         setTagText(stay ? "\(name) · staying" : name)
     }
 
+    /// The name tag shows only while she is staying; her avatar in the head already says who she is.
     private func setTagText(_ text: String) {
         let width = ceil((text as NSString).size(withAttributes: [.font: Self.tagFont]).width) + 16
         CATransaction.begin()
@@ -175,6 +175,7 @@ final class BuddyCharacter {
         tag.bounds = CGRect(x: 0, y: 0, width: width, height: 18)
         tagText.string = text
         tagText.frame = CGRect(x: 0, y: 2, width: width, height: 14)
+        tag.isHidden = !staying
         CATransaction.commit()
     }
 
@@ -240,8 +241,9 @@ final class BuddyCharacter {
         CATransaction.setDisableActions(true)
         let extra = max(0, caption.bounds.height - 26)
         let below = tip.y - 98 - extra > bounds.minY + 8
+        let room: CGFloat = tag.isHidden ? 0 : 30
         var tagOrigin = CGPoint(x: 42, y: below ? -64 : 12)
-        var captionOrigin = CGPoint(x: 42, y: below ? -94 - extra : 34)
+        var captionOrigin = CGPoint(x: 42, y: below ? -64 - room - extra : 12 + room)
         let overflowTag = tip.x + tagOrigin.x + tag.bounds.width - (bounds.maxX - 8)
         if overflowTag > 0 { tagOrigin.x -= overflowTag }
         let overflowCaption = tip.x + captionOrigin.x + caption.bounds.width - (bounds.maxX - 8)

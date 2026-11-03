@@ -180,7 +180,8 @@ final class OverlayController {
     }
 
     /// `hold`: keep the caption up until dismissed (Esc or a click) instead of fading, for long explanations.
-    func perform(_ plan: Plan, context: ScreenContext, stay: Bool, hold: Bool = false) {
+    /// `stepNumber`: a lesson step; its number is drawn on the target.
+    func perform(_ plan: Plan, context: ScreenContext, stay: Bool, hold: Bool = false, stepNumber: Int? = nil) {
         if !isShowing { begin(at: CGPoint(x: NSEvent.mouseLocation.x + Self.restingOffset.x, y: NSEvent.mouseLocation.y + Self.restingOffset.y)) }
         buddy.setStaying(stay)
         let steps = plan.steps.prefix(3).map { resolve($0, context: context) }
@@ -191,7 +192,8 @@ final class OverlayController {
             if !stay && !hold { scheduleFade(after: dwell(for: firstCaption)) }
             return
         }
-        run(steps, index: 0, firstCaption: firstCaption, stay: stay || hold, generation: generation)
+        Log.info("overlay marks: " + steps.map { "\($0.label.isEmpty ? "?" : $0.label)=\($0.source)" }.joined(separator: ", "))
+        run(steps, index: 0, firstCaption: firstCaption, stay: stay || hold, stepNumber: stepNumber, generation: generation)
     }
 
     func dismiss(fast: Bool) {
@@ -212,7 +214,7 @@ final class OverlayController {
                 guard let self, self.generation == finishing else { return }
                 self.clearMarks()
                 self.buddy.setThinking(false, text: "")
-                if self.stepPill == nil { self.window?.orderOut(nil) }
+                self.window?.orderOut(nil)
             }
         }
         layers.forEach { $0.opacity = 0 }
@@ -258,12 +260,11 @@ final class OverlayController {
         try? await Task.sleep(nanoseconds: 350_000_000)
     }
 
-    /// A small Undo pill beside the caption; it fades with Buddy. `withTitle` repeats what Buddy
-    /// did, for when the caption moves on to the next instruction.
-    func showUndo(_ record: UndoRecord, withTitle: Bool) {
+    /// A small "Undo" pill beside the caption; it fades with Buddy.
+    func showUndo(_ record: UndoRecord) {
         let pill = undoPill ?? UndoPill()
         undoPill = pill
-        pill.configure(title: withTitle ? record.title : nil) { [weak self] in
+        pill.configure { [weak self] in
             guard let self else { return }
             self.onUndo?()
             self.undoPill?.hide(duration: 0.15)
@@ -288,38 +289,6 @@ final class OverlayController {
     var undoAvailable: Bool { undoPill?.isVisible == true }
 
     private var undoPill: UndoPill?
-    private var stepPill: CALayer?
-    private var stepPillWork: DispatchWorkItem?
-
-    /// "Step 2 of 3 · Scale it" near the user's cursor; hides itself after a few seconds.
-    func showStepPill(_ text: String) {
-        let mouse = NSEvent.mouseLocation
-        moveToScreen(containing: isShowing ? tip : mouse, force: window == nil)
-        guard let root = window?.contentView?.layer else { return }
-        stepPill?.removeFromSuperlayer()
-        let pill = Marks.pill(text, scale: window?.backingScaleFactor ?? 2)
-        let origin = local(CGPoint(x: mouse.x + 16, y: mouse.y + 18))
-        pill.frame.origin = CGPoint(x: min(origin.x, screenFrame.width - pill.bounds.width - 8),
-                                    y: min(origin.y, screenFrame.height - pill.bounds.height - 8))
-        root.addSublayer(pill)
-        stepPill = pill
-        window?.orderFrontRegardless()
-        stepPillWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            guard let self, let pill = self.stepPill else { return }
-            CATransaction.begin()
-            CATransaction.setAnimationDuration(0.4)
-            CATransaction.setCompletionBlock { MainActor.assumeIsolated {
-                pill.removeFromSuperlayer()
-                if self.stepPill === pill { self.stepPill = nil }
-                if !self.isShowing, self.stepPill == nil { self.window?.orderOut(nil) }
-            } }
-            pill.opacity = 0
-            CATransaction.commit()
-        }
-        stepPillWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.5, execute: work)
-    }
 
     private func addLayer(_ layer: CALayer) {
         guard let root = window?.contentView?.layer else { return }
@@ -341,26 +310,68 @@ final class OverlayController {
     // MARK: Steps
 
     private struct ResolvedStep {
-        enum Shape { case point(CGPoint), rect(CGRect) }
+        enum Shape {
+            case point(CGPoint)
+            /// Bounds confirmed by the AX tree or an app hook; never a model-guessed box.
+            case box(CGRect)
+        }
         let shape: Shape
         let tip: CGPoint
         let label: String
+        /// Where the mark came from, for the log: ring, ax:<label>, hook.
+        let source: String
+    }
+
+    private static let controlRoles: Set<String> = [
+        "Button", "MenuButton", "PopUpButton", "CheckBox", "RadioButton", "TextField", "TextArea", "SearchField",
+        "ComboBox", "Slider", "Link", "Tab", "MenuBarItem", "MenuItem", "DisclosureTriangle", "Cell", "Row",
+        "SegmentedControl", "StaticText", "Heading", "Image", "Incrementor",
+    ]
+
+    /// The one control under `p` per the AX tree (screenshot pixels): the smallest labelled control holding
+    /// it, small enough to be a single control. nil means unconfirmed: point plainly, draw no box.
+    private static func axControl(at p: CGPoint, context: ScreenContext) -> AXElement? {
+        let limit = context.imageSize.width * context.imageSize.height * 0.04
+        return context.axLines.compactMap(AXElement.parse).filter {
+            !$0.label.isEmpty && controlRoles.contains($0.role) && $0.frame.contains(p)
+                && $0.frame.width >= 8 && $0.frame.height >= 8 && $0.frame.width * $0.frame.height <= limit
+        }.min { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }
     }
 
     private func resolve(_ step: PlanStep, context: ScreenContext) -> ResolvedStep {
+        var confirmed: (CGRect, String)?
+        let center: CGPoint
         switch step.kind {
         case .point(let p):
-            let global = appKitPoint(context.globalPoint(p))
-            return ResolvedStep(shape: .point(global), tip: global, label: step.label)
+            center = p
+            if let box = step.box { confirmed = (box, "hook") }
+            else if let hit = Self.axControl(at: p, context: context) { confirmed = (hit.frame, "ax:\(hit.label)") }
         case .highlight(let r):
-            let global = appKitRect(context.globalRect(r))
-            // Rest the tip just inside the bottom edge so Buddy's body sits below, not on top.
-            let tip = CGPoint(x: global.midX, y: global.minY + min(10, global.height * 0.25))
-            return ResolvedStep(shape: .rect(global), tip: tip, label: step.label)
+            center = CGPoint(x: r.midX, y: r.midY)
+            if let box = step.box {
+                confirmed = (box, "hook")
+            } else if let hit = context.axLines.compactMap(AXElement.parse).first(where: { !$0.label.isEmpty && Self.iou($0.frame, r) > 0.6 }) {
+                confirmed = (hit.frame, "ax:\(hit.label)")
+            }
         }
+        guard let (box, source) = confirmed else {
+            let global = appKitPoint(context.globalPoint(center))
+            return ResolvedStep(shape: .point(global), tip: global, label: step.label, source: "ring")
+        }
+        let global = appKitRect(context.globalRect(box))
+        // Rest the tip on the box's lower-right corner so the control itself stays visible inside its outline.
+        let tip = CGPoint(x: global.maxX - min(8, global.width * 0.25), y: global.minY + min(8, global.height * 0.25))
+        return ResolvedStep(shape: .box(global), tip: tip, label: step.label, source: source)
     }
 
-    private func run(_ steps: [ResolvedStep], index: Int, firstCaption: String, stay: Bool, generation token: Int) {
+    private static func iou(_ a: CGRect, _ b: CGRect) -> CGFloat {
+        let i = a.intersection(b)
+        guard !i.isNull else { return 0 }
+        let inter = i.width * i.height
+        return inter / (a.width * a.height + b.width * b.height - inter)
+    }
+
+    private func run(_ steps: [ResolvedStep], index: Int, firstCaption: String, stay: Bool, stepNumber: Int?, generation token: Int) {
         guard token == generation, index < steps.count else { return }
         let step = steps[index]
         moveToScreen(containing: step.tip)
@@ -374,18 +385,19 @@ final class OverlayController {
         let distance = hypot(step.tip.x - from.x, step.tip.y - from.y)
         let duration = min(0.9, max(0.45, 0.35 + Double(distance) / 2500))
         buddy.look(toward: CGPoint(x: step.tip.x - from.x, y: step.tip.y - from.y))
-        buddy.glide(from: local(from), to: local(step.tip), duration: duration) { [weak self] in
+        let path = buddy.glide(from: local(from), to: local(step.tip), duration: duration) { [weak self] in
             guard let self, token == self.generation else { return }
             self.buddy.land()
-            self.mark(step.shape)
+            self.mark(step.shape, number: index == 0 ? stepNumber : nil)
             if index + 1 < steps.count {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.4 + self.readingExtra(caption)) { [weak self] in
-                    self?.run(steps, index: index + 1, firstCaption: firstCaption, stay: stay, generation: token)
+                    self?.run(steps, index: index + 1, firstCaption: firstCaption, stay: stay, stepNumber: stepNumber, generation: token)
                 }
             } else if !stay {
                 self.scheduleFade(after: self.dwell(for: caption))
             }
         }
+        if let path { addLayer(Marks.trail(path, duration: duration, scale: window?.backingScaleFactor ?? 2)) }
     }
 
     // MARK: Pieces
@@ -447,18 +459,30 @@ final class OverlayController {
         buddy.layoutLabels(tip: local(tip), in: CGRect(origin: .zero, size: screenFrame.size))
     }
 
-    private func mark(_ shape: ResolvedStep.Shape) {
-        guard let root = window?.contentView?.layer else { return }
+    /// Ring on a plain point, outline on confirmed bounds; the lesson step number on the target; and a thin
+    /// leader from the caption when the caption had to sit far from what it talks about.
+    private func mark(_ shape: ResolvedStep.Shape, number: Int?) {
         let scale = window?.backingScaleFactor ?? 2
-        let layer: CALayer
+        let anchor: CGPoint
+        let badgeAt: CGPoint
         switch shape {
         case .point(let p):
-            layer = Marks.ring(at: local(p), scale: scale)
-        case .rect(let r):
-            layer = Marks.outline(CGRect(origin: local(r.origin), size: r.size), scale: scale)
+            addLayer(Marks.ring(at: local(p), scale: scale))
+            anchor = local(p)
+            badgeAt = CGPoint(x: local(p).x - 20, y: local(p).y + 20)
+        case .box(let r):
+            let box = CGRect(origin: local(r.origin), size: r.size)
+            addLayer(Marks.outline(box, scale: scale))
+            anchor = CGPoint(x: box.midX, y: box.midY)
+            badgeAt = CGPoint(x: box.minX - 6, y: box.maxY + 6)
         }
-        root.insertSublayer(layer, below: buddy.root)
-        marks.append(layer)
+        if let number { addLayer(Marks.badge("\(number)", at: badgeAt, scale: scale)) }
+        let caption = buddy.captionFrame
+        guard caption != .zero else { return }
+        let t = local(tip)
+        let rect = caption.offsetBy(dx: t.x, dy: t.y)
+        let start = CGPoint(x: min(max(anchor.x, rect.minX), rect.maxX), y: min(max(anchor.y, rect.minY), rect.maxY))
+        if hypot(start.x - anchor.x, start.y - anchor.y) > 90 { addLayer(Marks.leader(from: start, to: anchor, scale: scale)) }
     }
 
     private func clearMarks() {

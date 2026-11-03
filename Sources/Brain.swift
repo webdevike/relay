@@ -8,6 +8,9 @@ struct PlanStep {
     }
     let kind: Kind
     let label: String
+    /// Bounds of the control, in screenshot pixels, when an app hook or the AX tree confirms them; the
+    /// overlay outlines only confirmed bounds.
+    var box: CGRect? = nil
 }
 
 struct Plan {

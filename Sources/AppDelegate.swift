@@ -291,7 +291,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Look at the window while the user types: it is what they are asking about, and it
         // takes the capture off the wait after they press Return.
         prefetch = target.map { app in Task { try await Capture.capture(app) } }
-        let newBubble = PromptBubble(appName: appName, assistant: likely.assistant)
+        let newBubble = PromptBubble(assistant: likely.assistant)
         newBubble.router = { AssistantRouter.live($0, screen: likely) }
         newBubble.onSubmit = { [weak self] text in self?.submit(text) }
         newBubble.onClose = { [weak self] in
@@ -622,7 +622,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 ran.append(phase)
                 Log.info("did (cached): \(request.announce)")
                 overlay.setCaption(request.announce)
-                overlay.showUndo(undo, withTitle: true)
+                overlay.showUndo(undo)
                 say(request.announce)
                 try await Task.sleep(nanoseconds: 300_000_000)
                 ctx = try await Capture.capture(context.target)
@@ -710,7 +710,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         Log.info("did: \(request.announce) (core=\(request.coreStep))")
         overlay.setCaption(request.announce)
-        overlay.showUndo(undo, withTitle: !request.coreStep)
+        overlay.showUndo(undo)
         say(request.announce)
 
         if request.coreStep {

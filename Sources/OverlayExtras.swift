@@ -78,18 +78,17 @@ extension Marks {
         return container
     }
 
-    /// Small capsule with text, e.g. the lesson step pill.
-    static func pill(_ text: String, scale: CGFloat) -> CALayer {
-        let font = NSFont.systemFont(ofSize: 12, weight: .semibold)
-        let width = ceil((text as NSString).size(withAttributes: [.font: font]).width) + 24
-        let layer = CALayer()
-        layer.anchorPoint = .zero
-        layer.bounds = CGRect(x: 0, y: 0, width: width, height: 24)
-        layer.cornerRadius = 12
-        layer.backgroundColor = Palette.panel.cgColor
-        layer.borderColor = Palette.accent.cgColor
-        layer.borderWidth = 1.5
-        layer.contentsScale = scale
+    /// A lesson step number on its target: a small accent disc with the digit.
+    static func badge(_ text: String, at center: CGPoint, scale: CGFloat) -> CALayer {
+        let disc = CALayer()
+        disc.bounds = CGRect(x: 0, y: 0, width: 20, height: 20)
+        disc.position = center
+        disc.cornerRadius = 10
+        disc.backgroundColor = Palette.accent.cgColor
+        disc.borderColor = NSColor.white.cgColor
+        disc.borderWidth = 1.5
+        disc.contentsScale = scale
+        let font = NSFont.systemFont(ofSize: 11, weight: .bold)
         let label = CATextLayer()
         label.string = text
         label.font = font
@@ -97,14 +96,35 @@ extension Marks {
         label.foregroundColor = NSColor.white.cgColor
         label.alignmentMode = .center
         label.contentsScale = scale
-        label.frame = CGRect(x: 0, y: 4, width: width, height: 16)
-        layer.addSublayer(label)
-        let appear = CABasicAnimation(keyPath: "opacity")
-        appear.fromValue = 0
-        appear.toValue = 1
-        appear.duration = 0.2
-        layer.add(appear, forKey: "appear")
-        return layer
+        label.frame = CGRect(x: 0, y: 3, width: 20, height: 14)
+        disc.addSublayer(label)
+        let pop = CASpringAnimation(keyPath: "transform.scale")
+        pop.fromValue = 0.3
+        pop.toValue = 1
+        pop.damping = 11
+        pop.duration = pop.settlingDuration
+        disc.add(pop, forKey: "pop")
+        return disc
+    }
+
+    /// Thin line from a caption to the thing it describes, drawn in.
+    static func leader(from start: CGPoint, to end: CGPoint, scale: CGFloat) -> CALayer {
+        let path = CGMutablePath()
+        path.move(to: start)
+        path.addLine(to: end)
+        let line = CAShapeLayer()
+        line.path = path
+        line.strokeColor = Palette.accent.withAlphaComponent(0.85).cgColor
+        line.lineWidth = 1.5
+        line.lineCap = .round
+        line.fillColor = NSColor.clear.cgColor
+        line.contentsScale = scale
+        let draw = CABasicAnimation(keyPath: "strokeEnd")
+        draw.fromValue = 0
+        draw.toValue = 1
+        draw.duration = 0.25
+        line.add(draw, forKey: "draw")
+        return line
     }
 }
 
@@ -134,10 +154,8 @@ final class UndoPill {
         panel.becomesKeyOnlyIfNeeded = true
         let view = NSView(frame: panel.contentRect(forFrameRect: panel.frame))
         view.wantsLayer = true
-        view.layer?.backgroundColor = Palette.deepAccent.cgColor
+        view.layer?.backgroundColor = Palette.panel.cgColor
         view.layer?.cornerRadius = 13
-        view.layer?.borderColor = NSColor.white.withAlphaComponent(0.75).cgColor
-        view.layer?.borderWidth = 1
         button.isBordered = false
         button.target = self
         button.action = #selector(clicked)
@@ -145,10 +163,9 @@ final class UndoPill {
         panel.contentView = view
     }
 
-    /// `title` nil shows just "Undo" (when the caption already says what Buddy did).
-    func configure(title: String?, action: @escaping () -> Void) {
+    func configure(action: @escaping () -> Void) {
         self.action = action
-        let text = title.map { "↩ Undo  ·  \($0)" } ?? "↩ Undo"
+        let text = "Undo"
         let font = NSFont.systemFont(ofSize: 12, weight: .semibold)
         button.attributedTitle = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: NSColor.white])
         let width = ceil((text as NSString).size(withAttributes: [.font: font]).width) + 26

@@ -3,20 +3,19 @@ import QuartzCore
 
 /// The lesson's step list: a small dark panel with every step, the current one highlighted in the
 /// assistant's accent, finished ones checked off. Non-activating (the app being learned keeps focus),
-/// mouse-transparent except over its header (drag) and its Skip / Stop buttons, and it remembers
-/// where Isaac dragged it.
+/// mouse-transparent except over its header (the drag handle; it remembers where Isaac dragged it).
+/// No buttons: "skip", "stop" (typed or said) or Esc.
 @MainActor
 final class LessonChecklist {
     enum State { case pending, current, done, skipped }
 
-    var onSkip: (() -> Void)?
     var onStop: (() -> Void)?
     private(set) var isVisible = false
 
     private static let width: CGFloat = 332
-    private static let headerHeight: CGFloat = 58
+    private static let headerHeight: CGFloat = 36
     private static let rowHeight: CGFloat = 46
-    private static let footerHeight: CGFloat = 42
+    private static let bottomInset: CGFloat = 6
     private static let defaultsKey = "lessonChecklistOrigin"
 
     private var panel: NSPanel?
@@ -24,10 +23,11 @@ final class LessonChecklist {
     private var rows: [ChecklistRow] = []
     private var states: [State] = []
     private var headline: NSTextField?
+    private var progress: NSTextField?
     private var closeWork: DispatchWorkItem?
     private var monitors: [Any] = []
     /// Never grabs Esc (a lesson runs for minutes and the app being learned needs its Esc); without
-    /// Accessibility, Esc stops the lesson only while the overlay is up (its grab) or via Stop.
+    /// Accessibility, Esc stops the lesson only while the overlay is up (its grab); "stop" works any time.
     private lazy var esc: EscKey = {
         let key = EscKey(name: "lesson list", grab: false)
         key.onEsc = { [weak self] in self?.onStop?() }
@@ -41,7 +41,7 @@ final class LessonChecklist {
     /// Shows the list for a new lesson on the screen holding `windowFrame` (global CoreGraphics coordinates).
     func show(assistant: Assistant, goal: String, steps: [LessonStep], windowFrame: CGRect?) {
         close(animated: false)
-        let height = Self.headerHeight + Self.rowHeight * CGFloat(steps.count) + Self.footerHeight
+        let height = Self.headerHeight + Self.rowHeight * CGFloat(steps.count) + Self.bottomInset
         let size = CGSize(width: Self.width, height: height)
         let panel = NSPanel(contentRect: CGRect(origin: .zero, size: size),
                             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -61,13 +61,12 @@ final class LessonChecklist {
         root.layer?.backgroundColor = Palette.panel.cgColor
         root.layer?.cornerRadius = 14
         root.layer?.masksToBounds = true
-        root.layer?.borderWidth = 1
-        root.layer?.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
+        root.layer?.borderWidth = 0
         root.dragRect = CGRect(x: 0, y: 0, width: size.width, height: Self.headerHeight)
         panel.contentView = root
         self.root = root
 
-        buildHeader(in: root, assistant: assistant, goal: goal)
+        buildHeader(in: root, goal: goal)
         states = Array(repeating: .pending, count: steps.count)
         rows = steps.enumerated().map { index, step in
             let row = ChecklistRow(number: index + 1, title: step.title, instruction: step.instruction,
@@ -76,7 +75,6 @@ final class LessonChecklist {
             root.addSubview(row)
             return row
         }
-        buildFooter(in: root, y: size.height - Self.footerHeight, accent: assistant.accent)
 
         place(panel, size: size, windowFrame: windowFrame)
         self.panel = panel
@@ -91,31 +89,37 @@ final class LessonChecklist {
         guard states.indices.contains(i) else { return }
         states[i] = .current
         rows[i].set(.current, animated: true)
+        updateProgress()
+    }
+
+    private func updateProgress() {
+        let finished = states.filter { $0 == .done || $0 == .skipped }.count
+        progress?.stringValue = "\(finished)/\(states.count)"
     }
 
     func markDone(_ i: Int) {
         guard states.indices.contains(i) else { return }
         states[i] = .done
         rows[i].set(.done, animated: true)
+        updateProgress()
     }
 
     func markSkipped(_ i: Int) {
         guard states.indices.contains(i) else { return }
         states[i] = .skipped
         rows[i].set(.skipped, animated: true)
+        updateProgress()
     }
 
-    /// Every step handled: "Done! ✓", a small burst, and the panel closes itself after about 4 s.
+    /// Every step handled: the title turns into "Done ✓" and the panel closes itself after about 3 s.
     func celebrate(goal: String, accent: NSColor) {
-        guard let root, let panel else { return }
-        headline?.stringValue = "Done! ✓"
+        guard panel != nil else { return }
+        headline?.stringValue = "Done ✓  \(goal)"
         headline?.textColor = accent
-        root.showDoneFooter("Nice work: \(goal)")
-        burst(in: root, accent: accent)
+        updateProgress()
         let work = DispatchWorkItem { [weak self] in self?.close(animated: true) }
         closeWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: work)
-        _ = panel
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: work)
     }
 
     func close(animated: Bool = true) {
@@ -140,70 +144,24 @@ final class LessonChecklist {
 
     // MARK: Layout
 
-    private func buildHeader(in root: NSView, assistant: Assistant, goal: String) {
-        let avatar = NSView(frame: CGRect(x: 14, y: 14, width: 30, height: 30))
-        avatar.wantsLayer = true
-        avatar.layer?.cornerRadius = 15
-        avatar.layer?.masksToBounds = true
-        avatar.layer?.backgroundColor = assistant.accent.cgColor
-        if let image = Assistants.avatar(for: assistant) {
-            avatar.layer?.contents = image
-            avatar.layer?.contentsGravity = .resizeAspectFill
-        }
-        root.addSubview(avatar)
-
-        let name = NSTextField(labelWithString: "\(assistant.title)  ·  Lesson")
-        name.font = .systemFont(ofSize: 11, weight: .semibold)
-        name.textColor = assistant.accent
-        name.frame = CGRect(x: 54, y: 11, width: Self.width - 68, height: 15)
-        root.addSubview(name)
-
+    /// One line: the goal, and a tiny "1/3" progress at the right. It is also the drag handle.
+    private func buildHeader(in root: NSView, goal: String) {
         let title = NSTextField(labelWithString: goal.prefix(1).uppercased() + goal.dropFirst())
-        title.font = .systemFont(ofSize: 15, weight: .semibold)
+        title.font = .systemFont(ofSize: 13, weight: .semibold)
         title.textColor = .white
         title.lineBreakMode = .byTruncatingTail
-        title.frame = CGRect(x: 54, y: 27, width: Self.width - 68, height: 20)
+        title.frame = CGRect(x: 16, y: 11, width: Self.width - 72, height: 17)
         root.addSubview(title)
         headline = title
+
+        let count = NSTextField(labelWithString: "")
+        count.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
+        count.textColor = Palette.faint
+        count.alignment = .right
+        count.frame = CGRect(x: Self.width - 56, y: 12, width: 40, height: 15)
+        root.addSubview(count)
+        progress = count
     }
-
-    private func buildFooter(in root: ChecklistRoot, y: CGFloat, accent: NSColor) {
-        let line = NSView(frame: CGRect(x: 14, y: y, width: Self.width - 28, height: 1))
-        line.wantsLayer = true
-        line.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.08).cgColor
-        root.addSubview(line)
-
-        let hint = NSTextField(labelWithString: "Esc stops")
-        hint.font = .systemFont(ofSize: 11)
-        hint.textColor = Palette.faint
-        hint.frame = CGRect(x: 16, y: y + 14, width: 90, height: 14)
-        root.addSubview(hint)
-        root.footerViews.append(hint)
-
-        let stop = footerButton("Stop", x: Self.width - 14 - 52, y: y + 8, action: #selector(stopClicked))
-        let skip = footerButton("Skip", x: Self.width - 14 - 52 - 8 - 52, y: y + 8, action: #selector(skipClicked))
-        for button in [skip, stop] {
-            root.addSubview(button)
-            root.buttons.append(button)
-            root.footerViews.append(button)
-        }
-    }
-
-    private func footerButton(_ title: String, x: CGFloat, y: CGFloat, action: Selector) -> NSButton {
-        let button = ChecklistButton(frame: CGRect(x: x, y: y, width: 52, height: 26))
-        button.isBordered = false
-        button.wantsLayer = true
-        button.layer?.cornerRadius = 8
-        button.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.08).cgColor
-        button.attributedTitle = NSAttributedString(string: title, attributes: [
-            .font: NSFont.systemFont(ofSize: 12, weight: .medium), .foregroundColor: Palette.muted])
-        button.target = self
-        button.action = action
-        return button
-    }
-
-    @objc private func skipClicked() { onSkip?() }
-    @objc private func stopClicked() { onStop?() }
 
     // MARK: Placement
 
@@ -280,80 +238,20 @@ final class LessonChecklist {
         let point = root.convert(panel.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)
         panel.ignoresMouseEvents = !root.interactive(at: point)
     }
-
-    // MARK: Celebration
-
-    private func burst(in view: NSView, accent: NSColor) {
-        guard let layer = view.layer else { return }
-        let emitter = CAEmitterLayer()
-        emitter.frame = layer.bounds
-        emitter.emitterPosition = CGPoint(x: layer.bounds.midX, y: 40)
-        emitter.emitterShape = .line
-        emitter.emitterSize = CGSize(width: layer.bounds.width * 0.7, height: 1)
-        let dot = NSImage(size: CGSize(width: 8, height: 8), flipped: false) { rect in
-            NSColor.white.setFill()
-            NSBezierPath(roundedRect: rect, xRadius: 2, yRadius: 2).fill()
-            return true
-        }
-        let colors: [NSColor] = [accent, .white, accent.blended(withFraction: 0.5, of: .white) ?? accent, NSColor(srgbRed: 0.32, green: 0.81, blue: 0.4, alpha: 1)]
-        emitter.emitterCells = colors.map { color in
-            let cell = CAEmitterCell()
-            cell.contents = dot.cgImage(forProposedRect: nil, context: nil, hints: nil)
-            cell.color = color.cgColor
-            cell.birthRate = 14
-            cell.lifetime = 1.6
-            cell.velocity = 110
-            cell.velocityRange = 50
-            cell.emissionLongitude = .pi / 2   // layer is flipped: positive y is down
-            cell.emissionRange = .pi / 3
-            cell.yAcceleration = 90
-            cell.spin = 3
-            cell.spinRange = 4
-            cell.scale = 0.7
-            cell.scaleRange = 0.4
-            cell.alphaSpeed = -0.6
-            return cell
-        }
-        layer.addSublayer(emitter)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { emitter.birthRate = 0 }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { emitter.removeFromSuperlayer() }
-    }
 }
 
 private extension CGRect {
     var area: CGFloat { isNull ? 0 : width * height }
 }
 
-/// Flipped root view: y grows downward. Reports which points take the mouse.
+/// Flipped root view: y grows downward. Only the header (drag handle) takes the mouse.
 private final class ChecklistRoot: NSView {
     var dragRect: CGRect = .zero
-    var buttons: [NSButton] = []
-    var footerViews: [NSView] = []
-    private var doneLabel: NSTextField?
 
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { true }
 
-    func interactive(at point: CGPoint) -> Bool {
-        if dragRect.contains(point) { return true }
-        return buttons.contains { !$0.isHidden && $0.frame.contains(point) }
-    }
-
-    func showDoneFooter(_ text: String) {
-        footerViews.forEach { $0.isHidden = true }
-        let label = NSTextField(labelWithString: text)
-        label.font = .systemFont(ofSize: 12, weight: .medium)
-        label.textColor = Palette.muted
-        label.lineBreakMode = .byTruncatingTail
-        label.frame = CGRect(x: 16, y: bounds.height - 28, width: bounds.width - 32, height: 16)
-        addSubview(label)
-        doneLabel = label
-    }
-}
-
-private final class ChecklistButton: NSButton {
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override var mouseDownCanMoveWindow: Bool { false }
+    func interactive(at point: CGPoint) -> Bool { dragRect.contains(point) }
 }
 
 /// One numbered step: badge, title, one-line instruction.

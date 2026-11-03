@@ -22,6 +22,9 @@ final class LessonController {
     private var prepared: [Int: Task<CachedPhase?, Never>] = [:]
     /// When the last step was checked off (or next/skip said): the next point is timed from here.
     private var advancedAt: Date?
+    /// Steps with no usable check: they wait for "next", and their caption says so.
+    private var manual: Set<Int> = []
+    private static let nextHint = " Say next when you're done."
 
     private let checklist = LessonChecklist()
     private var assistant = Assistants.personal
@@ -29,7 +32,6 @@ final class LessonController {
     init(brain: Brain, overlay: OverlayController) {
         self.brain = brain
         self.overlay = overlay
-        checklist.onSkip = { [weak self] in _ = self?.handleCommand("skip") }
         checklist.onStop = { [weak self] in _ = self?.handleCommand("stop") }
     }
 
@@ -66,6 +68,7 @@ final class LessonController {
         cancelTasks()
         dropPrepared()
         advancedAt = nil
+        manual = []
         checklist.close()
         isActive = true
         self.goal = goal
@@ -131,7 +134,6 @@ final class LessonController {
         index = i
         let step = steps[i]
         checklist.setCurrent(i)
-        overlay.showStepPill("Step \(i + 1) of \(steps.count)  ·  \(step.title)")
         Log.info("lesson step \(i + 1)/\(steps.count): \(step.instruction)")
         startPolling(step, index: i)
         let ahead = prepared.removeValue(forKey: i)
@@ -147,7 +149,9 @@ final class LessonController {
                     guard !Task.isCancelled, self.index == i else { return }
                     Log.info(String(format: "lesson point step %d: prefetched (%@, waited %.0fms) %@ after the check",
                                     i + 1, via, Date().timeIntervalSince(waited) * 1000, ms()))
-                    self.overlay.perform(plan, context: context, stay: false)
+                    var plan = plan
+                    if self.manual.contains(i) { plan.say = (plan.say ?? step.instruction) + Self.nextHint }
+                    self.overlay.perform(plan, context: context, stay: false, stepNumber: i + 1)
                     if let say = plan.say { self.speak(say) }
                     return
                 }
@@ -161,7 +165,8 @@ final class LessonController {
                 plan.doRequest = nil
                 if plan.say == nil { plan.say = step.instruction }
                 Log.info(String(format: "lesson point step %d: terra %@ after the check, %@", i + 1, ms(), plan.summary))
-                self.overlay.perform(plan, context: context, stay: false)
+                if self.manual.contains(i) { plan.say = (plan.say ?? step.instruction) + Self.nextHint }
+                self.overlay.perform(plan, context: context, stay: false, stepNumber: i + 1)
                 if let say = plan.say { self.speak(say) }
             } catch is CancellationError {
             } catch {
@@ -289,8 +294,9 @@ final class LessonController {
 
     private func waitForNext(_ i: Int, why: String) {
         guard isActive, index == i else { return }
-        Log.info("lesson step \(i + 1): \(why), waits for next or Skip")
-        overlay.showStepPill("Step \(i + 1) of \(steps.count)  ·  \(steps[i].title)  ·  say next when done")
+        Log.info("lesson step \(i + 1): \(why), waits for next or skip")
+        manual.insert(i)
+        if overlay.isShowing { overlay.setCaption(steps[i].instruction + Self.nextHint) }
     }
 
     /// A model-written check that is already true (or errors) when the lesson is planned would tick its
@@ -348,7 +354,6 @@ final class LessonController {
         } else {
             checklist.close()
         }
-        overlay.showStepPill("Lesson done  ·  \(goal)")
         overlay.showMessage(message, near: nil)
         speak(message)
     }
