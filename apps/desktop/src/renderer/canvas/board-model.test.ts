@@ -222,6 +222,18 @@ describe('React Flow model', () => {
       toBoard({ title: 't', layout: undefined, nodes, edges: [] }, null).nodes[0],
     ).toMatchObject({ w: 402 })
   })
+
+  it("writes a live ui card's size once its handles resized it, not before", () => {
+    const nodes = toFlowNodes([node('u', 'ui', { x: 0, y: 0 })], new Map([['u', [0, 0]]]))
+    expect(toBoard({ title: 't', layout: undefined, nodes, edges: [] }, null).nodes).toEqual([
+      { id: 'u', type: 'ui', x: 0, y: 0 },
+    ])
+    nodes[0]!.width = 512.4
+    nodes[0]!.height = 300
+    expect(
+      toBoard({ title: 't', layout: undefined, nodes, edges: [] }, null).nodes[0],
+    ).toMatchObject({ w: 512, h: 300 })
+  })
 })
 
 describe('visibleShare', () => {

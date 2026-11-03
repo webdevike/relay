@@ -10,14 +10,19 @@ import {
 	IconNote,
 	IconPhoto,
 	IconSparkles,
+	IconTimeline,
 } from "@tabler/icons-react";
-import { Handle, type NodeProps, Position } from "@xyflow/react";
+import { Handle, NodeResizeControl, type NodeProps, Position } from "@xyflow/react";
 import { type CSSProperties, type MouseEvent, type ReactNode, memo, useMemo, useState, useSyncExternalStore } from "react";
 import * as Y from "yjs";
 import type { Presence, TextField } from "../../canvas-live/src/shared";
 import { imageUrl } from "./env";
 import { type CardNode, type NodeSnap, applyDiff, host, swatchColor, tone } from "./model";
 import { awareness, doc, env, presenceStates, subscribePresence, yEdges, yNodes } from "./room";
+import { LiveWidget, roomQueryClient } from "./widget";
+
+/** Every `ui` card's Query statements go through the room's token-gated `query` route. */
+const roomQuery = roomQueryClient(env);
 
 // ---------- who else is on this node (re-render a card only when its own slice changes) ----------
 
@@ -375,6 +380,16 @@ function Body({ spec, hasChildren, caret }: { spec: NodeSnap; hasChildren: boole
 			);
 		case "typography":
 			return <Specimen spec={spec} caret={caret} />;
+		case "ui":
+			return (
+				<>
+					<Field nodeId={id} field="title" value={title} fallback="Live widget" className="cv-frame-title" caret={caret} icon={<IconTimeline size={12} stroke={1.75} aria-hidden />} />
+					{/* Its own pointer, wheel and keys: buttons, inputs and scrolling stay off the board's pan and drag. */}
+					<div className="cv-ui-body nodrag nopan nowheel" data-testid={`canvas-ui-${id}`} onPointerDown={stop} onDoubleClick={stop} onKeyDown={(e) => e.stopPropagation()}>
+						<LiveWidget source={spec.body} query={roomQuery} />
+					</div>
+				</>
+			);
 	}
 }
 
@@ -384,6 +399,9 @@ const SIDES = [
 	["right", Position.Right],
 	["bottom", Position.Bottom],
 ] as const;
+
+/** A `ui` card's resize grip, inside its bottom-right corner (React Flow centers handles on the edge). */
+const RESIZE_CORNER: CSSProperties = { left: "auto", top: "auto", right: 0, bottom: 0, translate: "none", width: 14, height: 14 };
 
 /** One node, drawn by its kind. */
 export const CanvasCard = memo(function CanvasCard({ id, data, selected }: NodeProps<CardNode>) {
@@ -399,10 +417,28 @@ export const CanvasCard = memo(function CanvasCard({ id, data, selected }: NodeP
 			data-tone={t}
 			data-selected={selected ? "true" : undefined}
 			data-testid={`canvas-card-${id}`}
-			style={spec.h !== undefined || kind === "frame" ? { height: "100%" } : undefined}
+			style={spec.h !== undefined || kind === "frame" || kind === "ui" ? { height: "100%" } : undefined}
 		>
 			<PresenceRing others={others} />
 			<Body spec={spec} hasChildren={hasChildren} caret={caret} />
+			{kind === "ui" ? (
+				<NodeResizeControl
+					position="bottom-right"
+					minWidth={240}
+					minHeight={140}
+					className="cv-ui-resize"
+					style={RESIZE_CORNER}
+					onResizeEnd={(_e, size) => {
+						// The corner handle keeps the top-left where it is: only the size changes.
+						const m = yNodes.get(id);
+						if (!m) return;
+						doc.transact(() => {
+							m.set("w", Math.round(size.width));
+							m.set("h", Math.round(size.height));
+						});
+					}}
+				/>
+			) : null}
 			{SIDES.map(([side, position]) => (
 				<Handle key={side} id={side} type="source" position={position} className="cv-handle" />
 			))}

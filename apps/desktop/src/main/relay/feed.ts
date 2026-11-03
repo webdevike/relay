@@ -219,6 +219,7 @@ const BoardWidgetSchema = z.object({
   id: z.string().min(1),
   span: z.number().catch(BOARD_COLUMNS).default(BOARD_COLUMNS),
   spec: z.looseObject({}),
+  openui: z.string().min(1).optional().catch(undefined),
 })
 const BoardSchema = z.object({
   slug: z.string().min(1),
@@ -231,7 +232,8 @@ const BoardSchema = z.object({
 
 /**
  * A board as Relay sends it, or null without a slug or a title. A tile without an id or a spec is
- * dropped; a span outside the grid is clamped to it (native BoardWidget::columns).
+ * dropped; a span outside the grid is clamped to it (native BoardWidget::columns). A live tile
+ * keeps its `openui` source next to the static `spec` the host rendered from it.
  */
 export function parseBoard(value: unknown): Board | null {
   const r = BoardSchema.safeParse(value)
@@ -242,7 +244,12 @@ export function parseBoard(value: unknown): Board | null {
     const w = BoardWidgetSchema.safeParse(raw).data
     if (!w) continue
     const span = Math.min(BOARD_COLUMNS, Math.max(1, Math.round(w.span)))
-    widgets.push({ id: w.id, span, spec: w.spec })
+    widgets.push({
+      id: w.id,
+      span,
+      spec: w.spec,
+      ...(w.openui === undefined ? {} : { openui: w.openui }),
+    })
   }
   return {
     slug: b.slug,
@@ -267,6 +274,7 @@ export const LOST_SECRET =
 const AgentsSchema = z.object({ rev, sessions: list })
 const WelcomeSchema = z.object({
   state: z.object({ agents: z.unknown() }).catch({ agents: undefined }),
+  features: z.array(z.string()).catch([]).default([]),
 })
 const DeltaSchema = z.object({ rev, upsert: list, remove: list })
 const ErrorSchema = z.object({ message: z.string().catch('unknown error') })
@@ -350,6 +358,12 @@ const StudioResSchema = z.object({
   credits: z.number().nonnegative().optional().catch(undefined),
   balance: z.number().optional().catch(undefined),
 })
+const QueryResSchema = z.object({
+  rid: z.string().min(1),
+  ok: z.boolean(),
+  data: z.unknown().optional(),
+  error: z.string().optional().catch(undefined),
+})
 
 /** Studio's state as the host sends it; a job, upload or backend that does not parse is dropped. */
 export function parseStudioState(value: {
@@ -420,6 +434,8 @@ export type FeedEvent =
   | { kind: 'studioRemoved'; id: string }
   /** The host's answer to `studio.req` request `rid`. */
   | { kind: 'studioRes'; rid: string; answer: StudioAnswer }
+  /** The host's answer to `query.req` request `rid` (a live widget's data). */
+  | { kind: 'queryRes'; rid: string; ok: boolean; data?: unknown; error?: string }
 
 /** What one frame asks to send back, and what the app should hear. */
 export interface FeedOutput {
@@ -446,6 +462,8 @@ export function hello(deviceId = DEVICE_ID): Frame {
  */
 export class Feed {
   authenticated = false
+  /** What the host answers beyond the base protocol (`welcome.features`; "query": `query.req`). */
+  features: readonly string[] = []
   private rev = 0
   private sessions = new Map<string, RelaySession>()
   private boardRev = 0
@@ -494,15 +512,18 @@ export class Feed {
         events.push({ kind: 'paired', secret: this.secret })
         break
       }
-      case 'welcome':
+      case 'welcome': {
         this.authenticated = true
-        this.reset(WelcomeSchema.parse(f).state.agents)
+        const w = WelcomeSchema.parse(f)
+        this.features = w.features
+        this.reset(w.state.agents)
         events.push(this.list())
         // Boards stream on this connection from here; the snapshot answers. The canvas rooms
         // come once now and are pushed after every change.
         replies.push({ t: 'board.subscribe' })
         replies.push({ t: 'canvas.get' })
         break
+      }
       case 'board.snapshot': {
         const s = BoardSnapshotSchema.parse(f)
         this.boardRev = s.rev
@@ -673,6 +694,11 @@ export class Feed {
           const { rid, ...answer } = r.data
           events.push({ kind: 'studioRes', rid, answer })
         }
+        break
+      }
+      case 'query.res': {
+        const r = QueryResSchema.safeParse(f)
+        if (r.success) events.push({ kind: 'queryRes', ...r.data })
         break
       }
       case 'ack':

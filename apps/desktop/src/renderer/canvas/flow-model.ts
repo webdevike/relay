@@ -142,6 +142,11 @@ function fileNode(n: CardNode, at: Point): CanvasNode {
       w = roundHalfAway(n.width)
     if (n.height !== undefined && (h !== undefined || n.height !== FRAME_DEFAULT_H))
       h = roundHalfAway(n.height)
+  } else if (spec.type === 'ui') {
+    // A live widget keeps the size its resize handles gave it.
+    if (n.width !== undefined && (w !== undefined || n.width !== defaultWidth('ui')))
+      w = roundHalfAway(n.width)
+    if (n.height !== undefined) h = roundHalfAway(n.height)
   }
   const out: CanvasNode = { id: spec.id, type: spec.type }
   out.x = roundHalfAway(at[0])

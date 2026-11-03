@@ -13,10 +13,14 @@ import {
   IconNote,
   IconPhoto,
   IconSparkles,
+  IconTimeline,
 } from '@tabler/icons-react'
-import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { Handle, NodeResizer, Position, type NodeProps } from '@xyflow/react'
 import { memo, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
 import type { CanvasNode } from '@evaos/contract'
+import { liveQuery } from '../../boards/live-query'
+import { OpenUIQuery } from '../../chat/widgets/actions'
+import { OpenUIBlock } from '../../chat/widgets/Widget'
 import { openLink } from '../../navigation/open-link'
 import { useBoardActions } from '../context'
 import type { CardNode } from '../flow-model'
@@ -288,6 +292,26 @@ function Body({ id, spec, hasChildren }: { id: string; spec: CanvasNode; hasChil
       )
     case 'typography':
       return <Specimen spec={spec} />
+    case 'ui':
+      return (
+        <>
+          <div className="eva-cv-ui-title">
+            <IconTimeline size={12} stroke={1.75} aria-hidden />
+            <span>{title || 'Live widget'}</span>
+          </div>
+          {/* Its own pointer and wheel: buttons, inputs and scrolling stay off the board's pan and drag. */}
+          <div
+            className="eva-cv-ui-body nodrag nopan nowheel"
+            data-testid={`canvas-ui-${id}`}
+            onPointerDown={stop}
+            onDoubleClick={stop}
+          >
+            <OpenUIQuery.Provider value={liveQuery}>
+              <OpenUIBlock code={d.body ?? ''} closed />
+            </OpenUIQuery.Provider>
+          </div>
+        </>
+      )
   }
 }
 
@@ -322,8 +346,11 @@ export const CanvasCard = memo(function CanvasCard({ id, data, selected }: NodeP
       data-tone={t}
       data-selected={selected ? 'true' : undefined}
       data-testid={`canvas-card-${id}`}
-      style={spec.h !== undefined || kind === 'frame' ? { height: '100%' } : undefined}
+      style={
+        spec.h !== undefined || kind === 'frame' || kind === 'ui' ? { height: '100%' } : undefined
+      }
     >
+      {kind === 'ui' ? <NodeResizer isVisible={selected} minWidth={240} minHeight={140} /> : null}
       <Body id={id} spec={spec} hasChildren={hasChildren} />
       <Handles />
     </div>

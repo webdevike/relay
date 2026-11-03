@@ -123,6 +123,7 @@ describe('MainNav', () => {
       data: {
         boards: [board('eva-today', 'Eva today'), board('goodops', 'GoodOps live')],
         relayUp: true,
+        queries: false,
       },
     })
     seed('board:goodops')

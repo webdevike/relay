@@ -3,8 +3,10 @@ import { useElementSize } from '@mantine/hooks'
 import { useMemo, type ReactNode } from 'react'
 import type { BoardWidget } from '@evaos/contract'
 import type { Place } from '@evaos/shell-core'
-import { WidgetBlock } from '../chat/widgets/Widget'
+import { OpenUIQuery } from '../chat/widgets/actions'
+import { OpenUIBlock, WidgetBlock } from '../chat/widgets/Widget'
 import { boardOf, boardSlugOf, useBoards } from './boards-store'
+import { liveQuery } from './live-query'
 import './boards.css'
 
 /** Below this content width every tile takes the full row (native boards::STACK_BELOW). */
@@ -22,16 +24,23 @@ export function updatedLabel(stamp: string): string {
   })
 }
 
-function Tile({ widget, stacked }: { widget: BoardWidget; stacked: boolean }) {
-  // The spec draws like a ```ui fence; a tile that doesn't parse shows its JSON in place.
+/**
+ * One tile. A live tile (its `openui` source, on a host that answers queries) runs its Query
+ * statements while on screen, refreshing on their own intervals; otherwise the spec draws like a
+ * ```ui fence (for a live tile, the host's render of it at write time). A tile that doesn't parse
+ * shows its source in place.
+ */
+function Tile({ widget, stacked, live }: { widget: BoardWidget; stacked: boolean; live: boolean }) {
   const json = useMemo(() => JSON.stringify(widget.spec), [widget.spec])
+  const openui = live ? widget.openui : undefined
   return (
     <div
       className="eva-board-tile"
       data-testid={`board-tile-${widget.id}`}
+      data-live={openui !== undefined || undefined}
       style={{ gridColumn: `span ${stacked ? 12 : widget.span}` }}
     >
-      <WidgetBlock json={json} />
+      {openui !== undefined ? <OpenUIBlock code={openui} closed /> : <WidgetBlock json={json} />}
     </div>
   )
 }
@@ -39,7 +48,7 @@ function Tile({ widget, stacked }: { widget: BoardWidget; stacked: boolean }) {
 /**
  * A Relay host dashboard (native boards::render): its title, workspace and last write, then its
  * tiles on a 12-column grid, left to right, each row wrapping when the next span does not fit.
- * Relay streams every write, so the page updates in place.
+ * Relay streams every write, so the page updates in place; live tiles refresh their own data.
  */
 export function BoardPage({ place }: { place: Place }) {
   const slug = boardSlugOf(place) ?? ''
@@ -48,6 +57,8 @@ export function BoardPage({ place }: { place: Place }) {
   // Measured from the first render, so the grid stacks the moment the board arrives.
   const { ref, width } = useElementSize<HTMLDivElement>()
   const stacked = width > 0 && width < STACK_BELOW
+  // Live tiles run only on a host that answers queries; an older one's tiles draw their spec.
+  const live = data?.queries === true && board?.widgets.some((w) => w.openui !== undefined) === true
 
   let body: ReactNode = null
   if (data !== null && board === null) {
@@ -73,16 +84,23 @@ export function BoardPage({ place }: { place: Place }) {
               </Badge>
             ) : null}
             {board.updatedAt ? <span>Updated {updatedLabel(board.updatedAt)}</span> : null}
+            {live ? (
+              <Badge size="sm" variant="light" color="green" radius="sm" tt="none">
+                Live
+              </Badge>
+            ) : null}
           </div>
         </div>
         {board.widgets.length === 0 ? (
           <p className="eva-board-dim">This dashboard has no widgets yet.</p>
         ) : (
-          <div className="eva-board-grid" data-testid="board-grid">
-            {board.widgets.map((w) => (
-              <Tile key={w.id} widget={w} stacked={stacked} />
-            ))}
-          </div>
+          <OpenUIQuery.Provider value={liveQuery}>
+            <div className="eva-board-grid" data-testid="board-grid">
+              {board.widgets.map((w) => (
+                <Tile key={w.id} widget={w} stacked={stacked} live={live} />
+              ))}
+            </div>
+          </OpenUIQuery.Provider>
         )}
       </>
     )

@@ -222,6 +222,8 @@ describe('Relay feed', () => {
           { id: 'c', span: 40, spec: { widget: 'divider' } },
           { span: 3, spec: { widget: 'divider' } },
           { id: 'd', span: 3 },
+          { id: 'e', span: 6, spec: { widget: 'divider' }, openui: 'root = Divider()' },
+          { id: 'f', span: 6, spec: { widget: 'divider' }, openui: 42 },
         ],
       }),
     ).toEqual({
@@ -234,6 +236,8 @@ describe('Relay feed', () => {
         { id: 'a', span: 4, spec: { widget: 'stat', label: 'Up', value: '1' } },
         { id: 'b', span: 12, spec: { widget: 'divider' } },
         { id: 'c', span: 12, spec: { widget: 'divider' } },
+        { id: 'e', span: 6, spec: { widget: 'divider' }, openui: 'root = Divider()' },
+        { id: 'f', span: 6, spec: { widget: 'divider' } },
       ],
     })
     expect(parseBoard({ slug: 'ops', widgets: [] })).toBeNull()

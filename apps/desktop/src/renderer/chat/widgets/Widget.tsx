@@ -16,7 +16,7 @@ import {
   type WidgetSpec,
 } from '@evaos/chat-core/widget'
 import { createOpenUIRuntime, type OpenUIRuntime } from '@evaos/chat-core/openui'
-import { OpenUIActions, WidgetScope } from './actions'
+import { OpenUIActions, OpenUIQuery, WidgetScope } from './actions'
 import { CodeBlock } from '../markdown/CodeBlock'
 import { ButtonBlock, InputBlock } from './blocks/actions'
 import {
@@ -222,21 +222,25 @@ function scopedRuntime(key: string, code: string, partial: boolean): OpenUIRunti
  * runtime per block that keeps its `$variable` state while the text streams in and buttons run.
  * While the fence still streams it renders the valid prefix live (plain source until a root
  * renders); once closed, a root that doesn't render shows its source under the warning header.
- * `at` is the fence's offset in the reply, naming the block within its message.
+ * `at` is the fence's offset in the reply, naming the block within its message. Under an
+ * `OpenUIQuery` client (dashboards, canvas) its Query statements fetch live host data; a fetch
+ * that fails keeps the last data and says so under the widget.
  */
 export function OpenUIBlock({ code, closed, at }: { code: string; closed: boolean; at?: number }) {
   const scope = useContext(WidgetScope)
+  const query = useContext(OpenUIQuery)
   const partial = !closed
   const own = useRef<OpenUIRuntime | null>(null)
   const runtime =
     scope !== null && at !== undefined
       ? scopedRuntime(`${scope}:${String(at)}`, code, partial)
-      : (own.current ??= createOpenUIRuntime(code, { partial }))
+      : (own.current ??= createOpenUIRuntime(code, { partial, query }))
   // Streamed text keeps the $variables the user changed; subscribers rerender before paint.
   useLayoutEffect(() => runtime.update(code, { partial }), [runtime, code, partial])
-  const spec = useSyncExternalStore(runtime.subscribe, runtime.snapshot).node
+  const { node: spec, errors } = useSyncExternalStore(runtime.subscribe, runtime.snapshot)
   const fallback = <CodeBlock lang="openui" code={code} invalid />
   if (spec === null) return closed ? fallback : <CodeBlock lang="openui" code={code} />
+  const stale = query === null ? undefined : errors.find((e) => e.code === 'query-error')
   return (
     <div
       className="eva-widget"
@@ -249,6 +253,15 @@ export function OpenUIBlock({ code, closed, at }: { code: string; closed: boolea
           <WidgetRoot spec={spec} />
         </OpenUIActions.Provider>
       </WidgetBoundary>
+      {stale ? (
+        <div
+          className="eva-widget-live-issue"
+          data-testid="widget-live-issue"
+          title={stale.message}
+        >
+          {stale.message}
+        </div>
+      ) : null}
     </div>
   )
 }

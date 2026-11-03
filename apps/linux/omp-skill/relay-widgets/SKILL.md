@@ -32,7 +32,7 @@ root = Stat("Collected", "$7.9k", Delta("12%", "up"))
 5. Omit trailing optional arguments; write `null` to skip an optional argument before one you set.
 6. Use references (`name = ...` then `name`) for readability and streaming; references may be used before they're defined (hoisting).
 7. Every variable except `root` MUST be reachable from `root`; unreferenced ones are dropped silently.
-8. Literals only: no prose, comments, expressions, `$variables`, Query/Mutation. The only `@` steps are `@ToAssistant` and `@OpenUrl`, in a Button's action slot.
+8. Literals only: no prose, comments, expressions, `$variables`, Query/Mutation. The only `@` steps are `@ToAssistant` and `@OpenUrl`, in a Button's action slot. (Interactive widgets lift this with `$variables` and `@Set`; live dashboard tiles and canvas `ui` nodes add `Query`; both below.)
 9. `root` may be `Card(...)` (framed), a `Stack(...)`, or one standalone widget (`root = Chart(...)`).
 10. Use only the components and arguments below. A node that fails validation is dropped; an invalid root drops the whole widget (renders as code under "Widget couldn't render"). Never invent fields.
 
@@ -44,7 +44,7 @@ root = Stat("Collected", "$7.9k", Delta("12%", "up"))
 - `Card(children: Component[], title?, width?: "compact"|"full")`: hairline frame with optional heading. Don't nest cards for decoration. `width: "compact"` keeps a small tool (calculator, keypad, short form) phone-sized (~380px) on the desktop chat column; phones always use full width. Default `full`.
 - `Stack(children, direction?: "vertical"|"horizontal", gap?: "xs"|"sm"|"md"|"lg")`: column (default) or row of equal-width columns; gap default `sm`. A Button fills its column.
 - `Grid(children, columns?: 2|3|4, gap?)`: rows of equal cells (default 2); a Button fills its cell at a comfortable tap height (keypads, choice grids); phones may drop columns.
-- `Tabs(tabs: Tab[])` with `Tab(label, children)`: 2-6 tabs, first shown.
+- `Tabs(tabs: Tab[])` with `Tab(label, children)`: 2-6 tabs, first shown. On the phone the panes swipe sideways (tap a tab or swipe; the tab follows), so a multi-screen widget should be `Tabs`, not stacked sections. Desktop stays click-to-switch.
 - `Collapse(title, children, open?)`: open defaults to false.
 - Limits: containers nest at most 4 deep, at most 24 children each (per tab); past either the widget falls back to code.
 
@@ -166,7 +166,7 @@ history = Timeline([TimelineEntry("Opened", "Mon", "Filed by Steve"), TimelineEn
 - Buttons change state: `@Set($var, expression)`, `@Reset($a, $b, ...)` (back to declared defaults). `Action([...])` runs steps in order; each `@Set` sees the earlier ones. @Set/@Reset run on the device and send no turn; add `@ToAssistant` only when the result should become Isaac's next message. Keep self-contained tools (calculator, counter, converter) fully local.
 - `Input(..., value: $var)` (5th positional arg) keeps the typed text in `$var` for other widgets to read; in `reply`, `{value}` is still the submitted text.
 - State is local to that widget on that device and resets on app reload/re-render from scratch; it is never sent back to the agent.
-- No Query, Mutation or @Run: no data fetching or server calls from a widget.
+- No Query, Mutation or @Run in chat: a Query there only shows its defaults. Live data runs on dashboards and canvas `ui` nodes (see "Live data" below).
 - EvaOS (and any surface without the OpenUI runtime) shows the fence as code.
 
 Counter:
@@ -206,6 +206,29 @@ ksub = Button("−", Action([@Set($acc, result), @Set($op, "-"), @Set($cur, ""),
 kadd = Button("+", Action([@Set($acc, result), @Set($op, "+"), @Set($cur, ""), @Set($display, "" + @Round($acc, 10))]), null, "secondary", "accent")
 keq = Button("=", Action([@Set($acc, result), @Set($op, ""), @Set($cur, ""), @Set($display, "" + @Round($acc, 10))]), null, "primary")
 clear = Button("Clear", @Reset($display, $cur, $acc, $op), null, "subtle")
+```
+
+## Live data: `Query` (dashboards and canvas `ui` nodes only)
+
+A live dashboard tile (`board ops` with `openui`, skill://dashboards) or canvas `ui` node (`@add_ui`, skill://canvas) may read the Relay host's read-only query tools:
+
+```
+name = Query("tool", {args}, defaults, refreshSec)
+```
+
+- `tool` is one of: `work_items` (open work items: `total`, `byWorkspace [{name,count}]`, `items [...]`; args `workspace?`, `move?`, `limit?`), `jobs` (Eva's jobs and their last run: `total`, `failing`, `jobs [{name,lastRunAt?,lastRunAgo?,lastResult?,lastLine?,...}]`; arg `name?`), `linear_issues` (Isaac's assigned issues: `total`, `byState`, `issues [...]`; args `state?`, `team?`, `limit?`), `github_prs` (`total`, `prs [...]`; args `filter?`, `state?`, `owner?`, `repo?`, `limit?`), `relay_sessions` (`total`, `byStatus`, `sessions [...]`, `assistants [...]`; args `kind?`, `limit?`). Every result has `asOf` ("HH:MM:SS") and `at` (epoch ms). Exact args and fields: `~/Eva/work/relay/packages/protocol/src/query.ts`, or the table in skill://dashboards.
+- Args are checked strictly (an unknown key refuses the write). `refreshSec` is 10 to 3600; leave it out to fetch once. The widget shows `defaults` until the first answer, so give them the result's shape with one placeholder row (`{total: 0, byWorkspace: [{name: "Loading", count: 0}], asOf: "-"}`).
+- Read data with member access and the list builtins: `items.total`, `@Each(items.byWorkspace, "w", Row(w.name, "" + w.count))`, `@Count(list)`, `@Sum`, `@Sort(list, "field", "desc")`, `@Filter(list, "field", "==", value)`, `@First`, `@Round`. Missing optional fields read as null: `j.lastRunAgo == null ? "never" : j.lastRunAgo`.
+- `Button("Refresh", @Run(name))` refetches now. A failed fetch keeps the last data and shows the reason under the widget. Clients fetch only while the widget is on screen.
+- No `Mutation`: nothing in a widget writes. `@ToAssistant` stays disabled (there is no chat behind a board).
+
+```openui
+root = Card([head, rows, asOf, again], "Work items by workspace")
+items = Query("work_items", {}, {total: 0, byWorkspace: [{name: "Loading", count: 0}], asOf: "-"}, 30)
+head = Stat("Open items", "" + items.total)
+rows = Rows(@Each(items.byWorkspace, "w", Row(w.name, "" + w.count)))
+asOf = Text("As of " + items.asOf + ", refreshes every 30 s", "caption")
+again = Button("Refresh now", @Run(items), null, "subtle")
 ```
 
 ## Custom UI: ```mantine-widget and ```html-widget

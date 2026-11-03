@@ -4,6 +4,16 @@
   width: 100%;
   min-width: 0;
 }
+
+/* A live widget's last fetch failed: it keeps its last data and says why, quietly. */
+.eva-widget-live-issue {
+  margin-top: var(--mantine-spacing-xs);
+  overflow: hidden;
+  color: var(--eva-c-muted-foreground);
+  font-size: var(--eva-fz-label);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 .eva-md .eva-widget {
   margin: 0 0 var(--mantine-spacing-xs);
 }

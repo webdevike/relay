@@ -8,13 +8,21 @@ import type { Board } from "@relay/protocol";
 
 export interface BoardsStore {
   boards: Board[];
+  /** The host answers live widget queries (`welcome.features` has "query"); false on older hosts,
+   * whose live tiles then draw the static spec the host rendered. */
+  queries: boolean;
   setAll: (boards: Board[]) => void;
   upsert: (board: Board) => void;
   remove: (slug: string) => void;
+  setQueries: (queries: boolean) => void;
 }
 
 export const useBoardsStore = create<BoardsStore>((set) => ({
   boards: [],
+  queries: false,
+  setQueries: (queries) => {
+    set({ queries });
+  },
   setAll: (boards) => {
     set({ boards });
   },

@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react'
-import type { OpenUIRuntime } from '@evaos/chat-core/openui'
+import type { OpenUIQueryClient, OpenUIRuntime } from '@evaos/chat-core/openui'
 
 /** What a widget's reply button or field can do: send text as Isaac's next turn to the chat. */
 export interface WidgetActionsValue {
@@ -28,3 +28,8 @@ export const OpenUIActions = createContext<Pick<OpenUIRuntime, 'dispatch' | 'set
  * user gave it) across rerenders, streaming and the log unmounting rows scrolled out of view. Null
  * outside a chat message: each block then keeps its own. */
 export const WidgetScope = createContext<string | null>(null)
+
+/** Runs a live ```openui block's Query statements (dashboard tiles, canvas `ui` cards); a block
+ * created under it fetches while mounted and refreshes on its own intervals. Null in chat, where a
+ * Query shows its defaults. Keep the value stable: a block keeps the client it was created with. */
+export const OpenUIQuery = createContext<OpenUIQueryClient | null>(null)

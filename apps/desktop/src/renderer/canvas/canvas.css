@@ -445,6 +445,29 @@
   font-weight: var(--eva-fw-semibold);
 }
 
+/* A live OpenUI widget: a quiet title, then the widget, scrolling inside when resized smaller. */
+.eva-cv-card[data-kind='ui'] {
+  --xy-resize-background-color: var(--eva-c-accent);
+  gap: var(--mantine-spacing-xs);
+  min-height: 140px;
+}
+.eva-cv-ui-title {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-md) * 0.375);
+  color: var(--eva-c-muted-foreground);
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: var(--eva-fw-semibold);
+}
+.eva-cv-ui-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  cursor: auto;
+  user-select: text;
+}
+
 .eva-cv-card[data-kind='suggestion'] {
   padding: var(--mantine-spacing-sm);
   gap: var(--mantine-spacing-xs);

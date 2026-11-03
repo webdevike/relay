@@ -14,9 +14,11 @@
 import type { ThreadReactions } from '@evaos/chat-core/reactions'
 import type { Artifact, ArtifactAction, ArtifactTab } from '@evaos/chat-core/artifacts'
 import {
+  BoardQueryAnswerSchema,
   studioWithJob,
   studioWithout,
   type Board,
+  type BoardQueryAnswer,
   type CanvasRoom,
   type StudioAnswer,
   type StudioChange,
@@ -59,6 +61,10 @@ export const CLOSED = 'Relay closed the connection.'
 export const LOST = 'Lost the connection to Relay.'
 export const NOT_CONNECTED = "Relay isn't connected."
 export const NO_ANSWER = "Relay didn't answer in time."
+/** An older Relay Host: no `welcome.features` "query", or no `/query` route. */
+export const NO_QUERIES = "This Relay Host doesn't run live widget queries; update it."
+/** `welcome.features` entry of a host that answers live widget queries. */
+const QUERY_FEATURE = 'query'
 
 export interface RelaySocket {
   send(text: string): void
@@ -103,6 +109,7 @@ export type RelaySessionEvent = Exclude<
       | 'studioJob'
       | 'studioRemoved'
       | 'studioRes'
+      | 'queryRes'
   }
 >
 
@@ -118,6 +125,18 @@ export interface RelayLink extends RelaySource {
   boards(): readonly Board[] | null
   /** Called after every change of the boards, including Relay going down. */
   onBoardsChange(cb: () => void): () => void
+}
+
+/** Live widgets' data (board tiles, canvas `ui` cards): the host's read-only query tools. */
+export interface RelayQueries {
+  /** Connected to a host that answers live widget queries (`welcome.features` has "query"). */
+  queriesUp(): boolean
+  /**
+   * Runs one read-only host query tool for a live widget: loopback `POST /query` on the local
+   * host, the `query.req` frame on a remote one. Never rejects; `unsupported` means the host is
+   * too old to answer, so the widget should show its static spec.
+   */
+  query(tool: string, args: Record<string, unknown>): Promise<BoardQueryAnswer>
 }
 
 /** Raw frames of an authenticated connection (the remote session mirror's requests and answers). */
@@ -272,6 +291,8 @@ export interface RelayClientOptions {
   now?: () => number
   /** How long an `artifacts.act` may wait for its `artifacts.acted`. */
   actTimeoutMs?: number
+  /** Test seam: the HTTP client for loopback `POST /query`. */
+  fetch?: (url: string, init: RequestInit) => Promise<Response>
 }
 
 /** A Relay Host on another Mac: paired with a PIN, never through its `devices.json`. */
@@ -292,7 +313,14 @@ interface Pending {
 
 /** Keeps a connection to Relay up while started; `sessions()` is null whenever it is down. */
 export class RelayClient
-  implements RelayLink, RelayReactions, RelayArtifacts, RelayCanvas, RelayFrames, RelayStudio
+  implements
+    RelayLink,
+    RelayReactions,
+    RelayArtifacts,
+    RelayCanvas,
+    RelayFrames,
+    RelayStudio,
+    RelayQueries
 {
   private readonly dial: Dial
   private readonly secret: (configDir: string) => Uint8Array
@@ -343,6 +371,11 @@ export class RelayClient
     string,
     { resolve(r: StudioAnswer): void; timer: NodeJS.Timeout }
   >()
+  /** Live widget queries sent on this connection (remote hosts), by rid, until Relay answers. */
+  private readonly queryReqs = new Map<
+    string,
+    { resolve(r: BoardQueryAnswer): void; timer: NodeJS.Timeout }
+  >()
   /** The http origin of the host this connection reached. */
   private origin: string | null = null
   private commands = 0
@@ -377,6 +410,51 @@ export class RelayClient
   onBoardsChange(cb: () => void): () => void {
     this.boardListeners.add(cb)
     return () => this.boardListeners.delete(cb)
+  }
+
+  queriesUp(): boolean {
+    return this.feed?.authenticated === true && this.feed.features.includes(QUERY_FEATURE)
+  }
+
+  async query(tool: string, args: Record<string, unknown>): Promise<BoardQueryAnswer> {
+    if (!this.feed?.authenticated) return { ok: false, error: NOT_CONNECTED }
+    if (!this.queriesUp()) return { ok: false, error: NO_QUERIES, unsupported: true }
+    if (this.o.remote) return this.queryFrame(tool, args)
+    const origin = this.origin
+    if (origin === null) return { ok: false, error: NOT_CONNECTED }
+    let res: Response
+    try {
+      res = await (this.o.fetch ?? fetch)(`${origin}/query`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ tool, args }),
+        signal: AbortSignal.timeout(this.commandTimeoutMs),
+      })
+    } catch (e) {
+      return { ok: false, error: `Couldn't reach Relay: ${(e as Error).message}` }
+    }
+    // No route: a host older than its welcome said (or one with queries turned off).
+    if (res.status === 404 || res.status === 405)
+      return { ok: false, error: NO_QUERIES, unsupported: true }
+    const body = BoardQueryAnswerSchema.safeParse(await res.json().catch(() => null))
+    if (!body.success) return { ok: false, error: `Relay answered ${String(res.status)}.` }
+    return body.data.ok
+      ? { ok: true, data: body.data.data }
+      : { ok: false, error: body.data.error ?? `Relay answered ${String(res.status)}.` }
+  }
+
+  /** A remote host's query, over the connection (its `/query` is loopback only). */
+  private queryFrame(tool: string, args: Record<string, unknown>): Promise<BoardQueryAnswer> {
+    this.commands += 1
+    const rid = `relay-desktop-query-${this.now()}-${this.commands}`
+    const { promise, resolve } = Promise.withResolvers<BoardQueryAnswer>()
+    const timer = setTimeout(() => {
+      this.queryReqs.delete(rid)
+      resolve({ ok: false, error: NO_ANSWER })
+    }, this.commandTimeoutMs)
+    this.queryReqs.set(rid, { resolve, timer })
+    this.send({ t: 'query.req', rid, tool, args })
+    return promise
   }
 
   /** Why Relay is down, while it is (null before the first attempt ends and while connected). */
@@ -756,6 +834,18 @@ export class RelayClient
           s.resolve(event.answer)
           break
         }
+        case 'queryRes': {
+          const q = this.queryReqs.get(event.rid)
+          if (!q) break
+          this.queryReqs.delete(event.rid)
+          clearTimeout(q.timer)
+          q.resolve(
+            event.ok
+              ? { ok: true, data: event.data }
+              : { ok: false, error: event.error ?? "Relay couldn't run that query." },
+          )
+          break
+        }
         case 'ack':
         case 'nack': {
           const p = this.pending.get(event.id)
@@ -831,6 +921,11 @@ export class RelayClient
       s.resolve({ ok: false, error: reason })
     }
     this.studioReqs.clear()
+    for (const q of this.queryReqs.values()) {
+      clearTimeout(q.timer)
+      q.resolve({ ok: false, error: reason })
+    }
+    this.queryReqs.clear()
     this.answerStudioList()
     for (const slug of [...this.canvasOpens.keys()])
       this.answerCanvas(slug, { ok: false, error: reason })
@@ -860,7 +955,14 @@ export class RelayClient
 
 /** A Relay that is never connected: fixtures and e2e, unless a test sets sessions. */
 export class StaticRelay
-  implements RelayLink, RelayReactions, RelayArtifacts, RelayCanvas, RelayFrames, RelayStudio
+  implements
+    RelayLink,
+    RelayReactions,
+    RelayArtifacts,
+    RelayCanvas,
+    RelayFrames,
+    RelayStudio,
+    RelayQueries
 {
   private list: ReadonlyMap<string, RelaySession> | null = null
   private readonly listeners = new Set<() => void>()
@@ -917,6 +1019,14 @@ export class StaticRelay
 
   onBoardsChange(): () => void {
     return () => undefined
+  }
+
+  queriesUp(): boolean {
+    return false
+  }
+
+  query(): Promise<BoardQueryAnswer> {
+    return Promise.resolve({ ok: false, error: NOT_CONNECTED })
   }
 
   /** Never connected, so never any canvas rooms nor a way into one. */

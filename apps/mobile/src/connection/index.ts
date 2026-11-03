@@ -41,6 +41,7 @@ import { createReactionFrameRouter } from "./reactions";
 import { createArtifactFrameRouter, PendingActs, type ActResult } from "./artifacts";
 import { createStudioFrameRouter, PendingStudio } from "./studio";
 import { createReviewsFrameRouter, PendingReviews } from "./reviews";
+import { createQueryClient, createQueryFrameRouter, PendingQueries } from "./query";
 import { beginCanvasAccess, canvasWelcomeFrames, createCanvasFrameRouter } from "./canvas";
 import { allowedTarget, mayDiscover, parseOnlyHost } from "./only-host";
 import * as identity from "./identity";
@@ -94,6 +95,13 @@ const artifactThreads = new Map<string, number>();
 const pendingActs = new PendingActs();
 const pendingStudio = new PendingStudio();
 const pendingReviews = new PendingReviews();
+const pendingQueries = new PendingQueries();
+/** Live dashboard tiles' Query statements; only reachable on a host whose welcome offers "query". */
+export const liveQuery = createQueryClient(pendingQueries, (rid, tool, args) => {
+  if (useConnectionStore.getState().status !== "connected" || !useBoardsStore.getState().queries) return false;
+  socket.send(encode({ t: "query.req", rid, tool, args }));
+  return true;
+});
 
 const commandQueue = new CommandQueue();
 const socket = new RelaySocket();
@@ -117,6 +125,7 @@ const routeArtifactFrame = createArtifactFrameRouter(useArtifactsStore.getState(
 const routeCanvasFrame = createCanvasFrameRouter(useCanvasStore.getState(), () => hostAuthority);
 const routeStudioFrame = createStudioFrameRouter(useStudioStore.getState(), pendingStudio);
 const routeReviewsFrame = createReviewsFrameRouter(useReviewsStore.getState(), pendingReviews);
+const routeQueryFrame = createQueryFrameRouter(useBoardsStore.getState().setQueries, pendingQueries);
 const routeCallFrame = createCallFrameRouter(
   { update: useCallStore.getState().update, current: () => useCallStore.getState().call },
   {
@@ -147,6 +156,9 @@ socket.onClose = () => {
   // The host hangs up a call with its socket; say so here rather than leave the screen listening.
   const call = useCallStore.getState().call;
   if (call !== null && call.state !== "ended") useCallStore.getState().update(call.id, { state: "ended", error: "Lost the connection to your Mac" });
+  // The next welcome says again whether this host answers queries; nothing in flight will be.
+  useBoardsStore.getState().setQueries(false);
+  pendingQueries.cancelAll();
   void dispatch({ type: "socketClosed" });
 };
 socket.onError = (error) => {
@@ -215,6 +227,7 @@ socket.onMessage = (data) => {
   routeCanvasFrame(message);
   routeStudioFrame(message);
   routeReviewsFrame(message);
+  routeQueryFrame(message);
   routeAssistantFrame(message);
   routeCallFrame(message);
   void dispatch({ type: "server", message });
@@ -379,6 +392,8 @@ async function retarget(id: string | null): Promise<void> {
   pendingActs.cancelAll();
   pendingStudio.cancelAll();
   pendingReviews.cancelAll();
+  pendingQueries.cancelAll();
+  useBoardsStore.getState().setQueries(false);
   useVncStore.getState().setAccess({ kind: "idle" });
   await resetSession();
 }

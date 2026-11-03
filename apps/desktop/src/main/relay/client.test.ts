@@ -7,6 +7,7 @@ import {
   NOT_CONNECTED,
   NOT_RUNNING,
   NO_ANSWER,
+  NO_QUERIES,
   RelayClient,
   RelayCommandError,
   StaticRelay,
@@ -187,6 +188,55 @@ describe('RelayClient', () => {
     relay.handlers.at(-1)!.closed(CLOSED)
     expect(client.boards()).toBeNull()
     expect(boardChanges).toHaveBeenCalledTimes(3)
+    client.stop()
+  })
+
+  it("runs live widget queries through the local host's loopback /query, only once it offers them", async () => {
+    const relay = new FakeRelay()
+    const calls: Array<[string, RequestInit]> = []
+    let status = 200
+    const fetch = async (url: string, init: RequestInit): Promise<Response> => {
+      calls.push([url, init])
+      return Response.json(
+        status === 200 ? { ok: true, data: { total: 3 } } : { ok: false, error: 'gone' },
+        { status },
+      )
+    }
+    const client = new RelayClient({
+      configDir: configDir(7817),
+      dial: relay.dial,
+      secret: () => SECRET,
+      fetch,
+    })
+    expect(await client.query('work_items', {})).toEqual({ ok: false, error: NOT_CONNECTED })
+    client.start()
+    await vi.advanceTimersByTimeAsync(0)
+    // A host without the feature (0.2.49 and older): the tile keeps its static spec.
+    relay.say({ t: 'welcome', state: { agents: { rev: 0, sessions: [] } } })
+    expect(client.queriesUp()).toBe(false)
+    expect(await client.query('work_items', {})).toEqual({
+      ok: false,
+      error: NO_QUERIES,
+      unsupported: true,
+    })
+    expect(calls).toEqual([])
+    relay.say({ t: 'welcome', state: { agents: { rev: 0, sessions: [] } }, features: ['query'] })
+    expect(client.queriesUp()).toBe(true)
+    expect(await client.query('jobs', { name: 'x' })).toEqual({ ok: true, data: { total: 3 } })
+    expect(calls[0]?.[0]).toBe('http://127.0.0.1:7817/query')
+    expect(calls[0]?.[1]).toMatchObject({
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+    })
+    expect(JSON.parse(String(calls[0]?.[1].body))).toEqual({ tool: 'jobs', args: { name: 'x' } })
+    status = 422
+    expect(await client.query('jobs', {})).toEqual({ ok: false, error: 'gone' })
+    status = 404
+    expect(await client.query('jobs', {})).toEqual({
+      ok: false,
+      error: NO_QUERIES,
+      unsupported: true,
+    })
     client.stop()
   })
 
@@ -590,6 +640,22 @@ describe('RelayClient with a remote host', () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(client.down()).toBe('Pairing with Relay Host was cancelled.')
     expect(relay.closes).toBe(1)
+    client.stop()
+  })
+
+  it("asks a remote host's queries over the connection and fails them when it drops", async () => {
+    const { client, relay } = remote(Buffer.alloc(32, 5))
+    client.start()
+    await vi.advanceTimersByTimeAsync(0)
+    relay.say({ t: 'welcome', state: { agents: { rev: 0, sessions: [] } }, features: ['query'] })
+    const answered = client.query('work_items', { limit: 5 })
+    const req = relay.frames().at(-1)!
+    expect(req).toMatchObject({ t: 'query.req', tool: 'work_items', args: { limit: 5 } })
+    relay.say({ t: 'query.res', rid: req.rid, ok: true, data: { total: 1 } })
+    expect(await answered).toEqual({ ok: true, data: { total: 1 } })
+    const dropped = client.query('jobs', {})
+    relay.handlers.at(-1)!.closed(CLOSED)
+    expect(await dropped).toEqual({ ok: false, error: CLOSED })
     client.stop()
   })
 })
