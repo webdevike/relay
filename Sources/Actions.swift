@@ -53,8 +53,20 @@ enum Executor {
             return UndoRecord(title: title) { await hook.undo(to: before) }
         }
         let pid = context.target.pid
+        let window = Int(context.windowID)
         return UndoRecord(title: title) {
-            (try? await CuaDriver.call("hotkey", ["pid": Int(pid), "keys": ["cmd", "z"]])) != nil
+            // Background shortcuts are often refused (Cmd+Z included), so use the Edit menu's live
+            // "Undo <action>" item; its title changes with the last action.
+            if let state = try? await CuaDriver.call("get_window_state", ["pid": Int(pid), "window_id": window]),
+               let tree = state["tree_markdown"] as? String,
+               let regex = try? NSRegularExpression(pattern: #"\[\d+\] AXMenuItem "(Undo[^"]*)""#),
+               let match = regex.firstMatch(in: tree, range: NSRange(tree.startIndex..., in: tree)),
+               let range = Range(match.range(at: 1), in: tree) {
+                if (try? await CuaDriver.call("invoke_menu", ["pid": Int(pid), "window_id": window, "path": ["Edit", String(tree[range])]])) != nil {
+                    return true
+                }
+            }
+            return (try? await CuaDriver.call("hotkey", ["pid": Int(pid), "window_id": window, "keys": ["cmd", "z"]])) != nil
         }
     }
 

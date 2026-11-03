@@ -100,6 +100,7 @@ final class Brain {
     moves there so the user sees what changed; null only if nothing on screen fits), and the fields its kind needs: \
     blender_python needs code; click needs x and y; key needs keys, e.g. ["cmd","1"] or ["escape"]; \
     menu needs menu_path, e.g. ["View","Show Sidebar"]. Unused fields are null.
+    - Outside Blender, use a menu action whenever the command is in the app's menus; keyboard shortcuts sent in the background are often dropped. Use key only for keys with no menu item (Escape, arrows).
     - Never do anything destructive or irreversible: no deleting, sending, saving, buying or quitting.
     """
 

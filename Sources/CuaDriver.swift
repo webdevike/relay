@@ -78,6 +78,10 @@ enum CuaDriver {
         guard let json = try? JSONSerialization.jsonObject(with: output) as? [String: Any] else {
             throw CaptureError.failed("cua-driver \(tool): " + String(decoding: output.prefix(300), as: UTF8.self))
         }
+        // A refusal (e.g. background keyboard refused, menu item not found) means nothing happened.
+        if let refusal = json["refusal"] as? [String: Any] {
+            throw CaptureError.failed("cua-driver \(tool) refused: \(refusal["code"] ?? "") \(refusal["message"] ?? "")")
+        }
         return json
     }
 
