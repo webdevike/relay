@@ -67,18 +67,9 @@ html[data-eva-motion='off'] .eva-sb-track {
   object-fit: contain;
   -webkit-user-drag: none;
 }
-.eva-sb-brand-text {
-  display: flex;
-  flex-direction: column;
-  line-height: var(--eva-lh-label);
-}
 .eva-sb-brand-name {
   font-size: var(--eva-fz-heading);
   font-weight: var(--eva-fw-medium);
-}
-.eva-sb-brand-sub {
-  font-size: var(--eva-fz-caption);
-  font-weight: var(--eva-fw-regular);
 }
 .eva-sb-search {
   display: flex;

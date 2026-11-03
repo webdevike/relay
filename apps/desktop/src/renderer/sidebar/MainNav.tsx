@@ -54,10 +54,7 @@ export function MainNav() {
       <div className="eva-sb-header">
         <div className="eva-sb-brand">
           <img className="eva-sb-logo" src={relayIcon} alt="" aria-hidden draggable={false} />
-          <span className="eva-sb-brand-text">
-            <span className="eva-sb-brand-name">Relay</span>
-            <span className="eva-sb-brand-sub eva-dim">Work OS</span>
-          </span>
+          <span className="eva-sb-brand-name">Relay</span>
         </div>
       </div>
       <div className="eva-sb-scroll">
