@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canvasEmbedUrl, parseEmbedEvent, staysInRoom } from "./embed";
+import { canvasEmbedUrl, parseEmbedEvent, staysInRoom, themeScript } from "./embed";
 
 const ROOM = "http://100.85.157.127:7817/canvas/artifacts/?token=t1";
 
@@ -7,6 +7,10 @@ describe("canvas embed", () => {
   it("adds the phone embed mode and theme after the token", () => {
     expect(canvasEmbedUrl(ROOM, "dark")).toBe(`${ROOM}&embed=phone&theme=dark`);
     expect(canvasEmbedUrl("http://h:1/canvas/a/", "light")).toBe("http://h:1/canvas/a/?embed=phone&theme=light");
+  });
+
+  it("builds the script that tells the page the app's scheme changed", () => {
+    expect(themeScript("dark")).toBe('window.postMessage({"type":"relay.theme","scheme":"dark"}, "*"); true;');
   });
 
   it("parses the page's events and rejects anything else", () => {

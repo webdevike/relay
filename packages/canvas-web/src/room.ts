@@ -23,8 +23,9 @@ export const yMetrics = doc.getMap<unknown>(DOC_KEYS.metrics);
 /** This viewer's undo stack: only their own moves, deletes and groups (see `createUndo`). */
 export const undo = createUndo(yNodes, yEdges);
 
-// Handle for scripted QA (reconnect and concurrent-edit checks).
-Object.assign(window, { __canvas: { doc, provider, awareness } });
+// Handle for scripted QA (reconnect, concurrent-edit and zoom checks); the board adds `rf`.
+export const qa: { doc: Y.Doc; provider: WebsocketProvider; awareness: typeof awareness; rf?: unknown } = { doc, provider, awareness };
+Object.assign(window, { __canvas: qa });
 
 /** `GET /canvas/<slug>/me`. */
 export interface RoomMe {

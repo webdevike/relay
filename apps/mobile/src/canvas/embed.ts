@@ -13,6 +13,14 @@ export function canvasEmbedUrl(url: string, scheme: ColorScheme): string {
   return `${url}${url.includes("?") ? "&" : "?"}embed=phone&theme=${scheme}`;
 }
 
+/**
+ * Script for the web view's `injectJavaScript`: tells the page the app's scheme changed
+ * (`relay.theme`, the message Relay Desktop also sends), so the board and its widgets follow live.
+ */
+export function themeScript(scheme: ColorScheme): string {
+  return `window.postMessage(${JSON.stringify({ type: "relay.theme", scheme })}, "*"); true;`;
+}
+
 /** `scheme://authority` of an absolute URL, lowercased; null when `url` is not absolute. */
 function originOf(url: string): string | null {
   const match = /^([a-z][a-z0-9+.-]*:\/\/[^/?#]*)/i.exec(url);

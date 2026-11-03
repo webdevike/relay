@@ -27,7 +27,7 @@ import { useAgent, useConnection, useSession } from "./hooks";
 import { SideLog } from "./log";
 import { type CardNode, type FlowBox, LOCAL_ORIGIN, type LinkEdge, absolutePositions, deleteNodes, framesWithOutsideChildren, groupNodes, reparentDropped, snapEdges, snapNodes, toFlowEdges, toFlowNodes, toggleId, ungroupFrames } from "./model";
 import { pageTheme, useScheme } from "./page-theme";
-import { awareness, doc, env, presenceStates, provider, self, setPresence, subscribePresence, undo, yChat, yEdges, yMeta, yMetrics, yNodes, ySettings } from "./room";
+import { awareness, doc, env, presenceStates, provider, qa, self, setPresence, subscribePresence, undo, yChat, yEdges, yMeta, yMetrics, yNodes, ySettings } from "./room";
 import { useTidy, useTidySetting } from "./useTidy";
 
 const NODE_TYPES = { card: CanvasCard };
@@ -108,7 +108,21 @@ function Board({ logOpen }: { logOpen: boolean }) {
 	const absRef = useRef(new Map<string, { x: number; y: number }>());
 	const tidy = useTidy();
 	const tidyOn = useTidySetting();
+	// Scripted QA (zoom and screenshot checks) drives the viewport through this.
+	useEffect(() => {
+		qa.rf = rf;
+	}, [rf]);
 
+	/** A pan or zoom that ends between device pixels redraws text and borders soft: settle on a whole device pixel. */
+	const snapViewport = useCallback(
+		(_: unknown, v: { x: number; y: number; zoom: number }) => {
+			const dpr = window.devicePixelRatio || 1;
+			const x = Math.round(v.x * dpr) / dpr;
+			const y = Math.round(v.y * dpr) / dpr;
+			if (x !== v.x || y !== v.y) void rf.setViewport({ x, y, zoom: v.zoom });
+		},
+		[rf],
+	);
 	/** Doc to React Flow; drawn sizes from the previous pass feed placement and frame growth. */
 	const readDoc = useCallback(() => {
 		const specs = snapNodes(yNodes);
@@ -564,6 +578,7 @@ function Board({ logOpen }: { logOpen: boolean }) {
 				onConnect={onConnect}
 				onSelectionChange={onSelectionChange}
 				onNodeDragStart={onDragStart}
+				onMoveEnd={snapViewport}
 				onNodeDragStop={onDragStop}
 				connectionMode={ConnectionMode.Loose}
 				nodesConnectable={!TOUCH}

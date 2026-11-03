@@ -7,7 +7,7 @@
  * title and the agent with a live dot. When the session ends (the page says so, the host lists
  * the room ended, or there was no room to open) the screen says so and Back to chat leads out.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter, type Href } from "expo-router";
@@ -21,7 +21,7 @@ import { Text } from "@/ui/Text";
 import { spacing, useColors, useScheme } from "@/theme";
 import { tapHaptic } from "@/lib/haptics";
 import { openExternal } from "@/lib/links";
-import { canvasEmbedUrl, parseEmbedEvent, staysInRoom } from "@/canvas/embed";
+import { canvasEmbedUrl, parseEmbedEvent, staysInRoom, themeScript } from "@/canvas/embed";
 import { liveRoomOn, useCanvasStore } from "@/state/canvas";
 import { useConnectionStore } from "@/state/connection";
 import { hostBaseUrl, requestCanvasAccess } from "@/connection";
@@ -71,6 +71,12 @@ export default function CanvasScreen() {
   useEffect(() => {
     if (url === null && access?.kind === "ready") setUrl(canvasEmbedUrl(access.url, scheme));
   }, [access, url, scheme]);
+
+  // The app's appearance changed while the room is open: tell the page, which restyles live.
+  const web = useRef<WebView>(null);
+  useEffect(() => {
+    web.current?.injectJavaScript(themeScript(scheme));
+  }, [scheme]);
 
   const back = (): void => {
     tapHaptic();
@@ -152,6 +158,7 @@ export default function CanvasScreen() {
             automaticallyAdjustContentInsets={false}
             contentInsetAdjustmentBehavior="never"
             onShouldStartLoadWithRequest={onNavigate}
+            ref={web}
             onMessage={onMessage}
             onLoadEnd={() => {
               setLoading(false);
