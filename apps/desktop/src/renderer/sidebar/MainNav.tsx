@@ -1,5 +1,5 @@
 import { useElementSize } from '@mantine/hooks'
-import { IconAsterisk } from '@tabler/icons-react'
+import relayIcon from '../assets/brand/relay-icon.png'
 import { useEffect, useState, type MouseEvent } from 'react'
 import { placeOf, type Place } from '@evaos/shell-core'
 import { useBoards } from '../boards/boards-store'
@@ -78,9 +78,7 @@ export function MainNav() {
     <div className="eva-sb-page" ref={ref} data-testid="sidebar-main">
       <div className="eva-sb-header">
         <div className="eva-sb-brand">
-          <span className="eva-sb-tile">
-            <IconAsterisk size={20} aria-hidden />
-          </span>
+          <img className="eva-sb-logo" src={relayIcon} alt="" aria-hidden draggable={false} />
           <span className="eva-sb-brand-text">
             <span className="eva-sb-brand-name">Relay</span>
             <span className="eva-sb-brand-sub eva-dim">Work OS</span>

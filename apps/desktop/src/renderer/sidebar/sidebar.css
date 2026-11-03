@@ -60,15 +60,12 @@ html[data-eva-motion='off'] .eva-sb-track {
   gap: var(--eva-space-native-sm);
   padding: 0 var(--eva-space-xs);
 }
-.eva-sb-tile {
+.eva-sb-logo {
   width: var(--eva-tile-lg);
   height: var(--eva-tile-lg);
-  border-radius: var(--eva-radius);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--eva-accent);
-  color: var(--eva-accent-fg);
+  flex: none;
+  object-fit: contain;
+  -webkit-user-drag: none;
 }
 .eva-sb-brand-text {
   display: flex;

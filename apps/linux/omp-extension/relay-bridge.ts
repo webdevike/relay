@@ -115,6 +115,7 @@ interface ModelOption {
   name: string;
   vendor: string;
   thinkingLevels: string[];
+  contextWindow?: number;
 }
 
 interface SkillChoice {
@@ -334,6 +335,7 @@ function listModelOptions(models: readonly Model[]): ModelOption[] {
       name: model.name,
       vendor: model.identity.class,
       thinkingLevels: thinkingLevelsFor(model),
+      ...(typeof model.contextWindow === "number" && model.contextWindow > 0 ? { contextWindow: model.contextWindow } : {}),
     }));
 }
 

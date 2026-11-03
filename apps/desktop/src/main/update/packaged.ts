@@ -32,7 +32,9 @@ export type Latest = z.infer<typeof LatestSchema>
 
 export function readSource(configDir: string): UpdateSource | null {
   try {
-    const raw: unknown = JSON.parse(readFileSync(path.join(configDir, 'update-source.json'), 'utf8'))
+    const raw: unknown = JSON.parse(
+      readFileSync(path.join(configDir, 'update-source.json'), 'utf8'),
+    )
     const r = UpdateSourceSchema.safeParse(raw)
     return r.success ? r.data : null
   } catch {

@@ -114,7 +114,15 @@ export function createMini(
         const raw: unknown[] = Array.isArray(m.thinkingLevels) ? m.thinkingLevels : []
         const levels = raw.filter((l): l is string => typeof l === 'string')
         return [
-          { provider, id, name: str(m.name) ?? id, contextWindow: null, images: true, levels },
+          {
+            provider,
+            id,
+            name: str(m.name) ?? id,
+            contextWindow:
+              typeof m.contextWindow === 'number' && m.contextWindow > 0 ? m.contextWindow : null,
+            images: true,
+            levels,
+          },
         ]
       })
       const commands = list(f.skills)

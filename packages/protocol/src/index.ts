@@ -20,7 +20,15 @@
 import { z } from "zod";
 import { untagged } from "./surface";
 import { WidgetNode } from "./widget";
-import { Artifact, ArtifactAction, ArtifactActor, ArtifactTab, ArtifactThread, MAX_ARTIFACTS, MAX_ARTIFACT_TABS } from "./artifacts";
+import {
+  Artifact,
+  ArtifactAction,
+  ArtifactActor,
+  ArtifactTab,
+  ArtifactThread,
+  MAX_ARTIFACTS,
+  MAX_ARTIFACT_TABS,
+} from "./artifacts";
 import { StudioJob, StudioOp, StudioResult, StudioRid, StudioState } from "./studio";
 import { AstraItem, ReviewQueue, ReviewsOp, ReviewsResult, ReviewsRid } from "./reviews";
 
@@ -178,6 +186,8 @@ export const AgentModel = z.object({
   /** Company behind the model (e.g. "anthropic"), which may differ from the hosting provider. */
   vendor: nonEmpty,
   thinkingLevels: z.array(nonEmpty),
+  /** Context window in tokens, when the model's catalog entry states one (older hosts omit it). */
+  contextWindow: z.number().int().positive().optional(),
 });
 export type AgentModel = z.infer<typeof AgentModel>;
 
@@ -464,7 +474,11 @@ export const CanvasRoomInfo = z.object({
   live: z.boolean(),
   agent: CanvasAgent,
   /** The chat the session came from: an omp session id and, for assistant threads, the assistant id. */
-  chat: z.object({ sessionId: z.string().optional(), assistant: z.string().optional(), title: z.string().max(400).optional() }),
+  chat: z.object({
+    sessionId: z.string().optional(),
+    assistant: z.string().optional(),
+    title: z.string().max(400).optional(),
+  }),
   /** Names of the humans in the room now. */
   humans: z.array(z.string().max(100)).max(50),
   startedAt: ms,
@@ -570,7 +584,6 @@ export const AssistantSnapshot = z.object({
 });
 export type AssistantSnapshot = z.infer<typeof AssistantSnapshot>;
 
-
 export const MacState = z.object({
   name: nonEmpty,
   version: nonEmpty,
@@ -621,7 +634,14 @@ export const CallId = z.string().min(1).max(64);
  * for Isaac; `hearing`: he is talking; `thinking`: his words went to the assistant, no reply audio
  * yet; `speaking`: reply (or filler) audio is playing; `ended`: over, `error` says why if it failed.
  */
-export const CallState = z.enum(["connecting", "listening", "hearing", "thinking", "speaking", "ended"]);
+export const CallState = z.enum([
+  "connecting",
+  "listening",
+  "hearing",
+  "thinking",
+  "speaking",
+  "ended",
+]);
 export type CallState = z.infer<typeof CallState>;
 
 const CallAudio = z.string().min(1).max(MAX_CALL_AUDIO_BASE64);
@@ -652,8 +672,6 @@ export const LiveState = z.enum(["connecting", "listening", "thinking", "ended"]
 export type LiveState = z.infer<typeof LiveState>;
 
 const LiveSdp = z.string().min(1).max(MAX_LIVE_SDP);
-
-
 
 // ---------------------------------------------------------------------------------------------
 // Habit gate: at planned breaks the host locks its AI tools until a habit (or a one-time task) is
@@ -790,7 +808,10 @@ export const CatchUpItem = z.object({
   /** Markdown. */
   body: z.string(),
   /** Opened by the card's Open link; http(s) only (a phone cannot open the Mac's file:// notes). */
-  url: z.string().regex(/^https?:\/\//i).optional(),
+  url: z
+    .string()
+    .regex(/^https?:\/\//i)
+    .optional(),
   /** ISO 8601. */
   ts: z.string().datetime({ offset: true }),
   /** 3 = most important; the builder orders the feed by it (after Isaac's pinned cards), then newer first. */
@@ -871,7 +892,10 @@ export const ReactionEmoji = z
   .max(32)
   // Emoji_Component covers the joiner, the variation selector, keycaps, skin tones and tag characters.
   .regex(/^(?:\p{Extended_Pictographic}|\p{Emoji_Component})+$/u)
-  .refine((value) => /\p{Extended_Pictographic}|\p{Regional_Indicator}|\u20e3/u.test(value), "not an emoji");
+  .refine(
+    (value) => /\p{Extended_Pictographic}|\p{Regional_Indicator}|\u20e3/u.test(value),
+    "not an emoji",
+  );
 
 /**
  * The conversation a reaction belongs to: `assistant:<agent id>` for an assistant's thread (it
@@ -886,8 +910,14 @@ export function assistantReactionThread(agent: string): string {
 }
 
 /** The reaction thread of a session: its assistant's thread when it runs one, else its own. */
-export function sessionReactionThread(session: { readonly id: string; readonly kind?: string | undefined; readonly assistant?: string | undefined }): string {
-  return session.kind === "assistant" && session.assistant !== undefined ? assistantReactionThread(session.assistant) : `session:${session.id}`;
+export function sessionReactionThread(session: {
+  readonly id: string;
+  readonly kind?: string | undefined;
+  readonly assistant?: string | undefined;
+}): string {
+  return session.kind === "assistant" && session.assistant !== undefined
+    ? assistantReactionThread(session.assistant)
+    : `session:${session.id}`;
 }
 
 /**
@@ -974,7 +1004,11 @@ export const Board = z
     const seen = new Set<string>();
     for (const [index, widget] of board.widgets.entries()) {
       if (seen.has(widget.id))
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["widgets", index, "id"], message: `duplicate widget id ${widget.id}` });
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["widgets", index, "id"],
+          message: `duplicate widget id ${widget.id}`,
+        });
       seen.add(widget.id);
     }
   });
@@ -1002,7 +1036,12 @@ export const BoardOp = z.discriminatedUnion("op", [
     after: BoardWidgetId.nullable().optional(),
   }),
   z.object({ op: z.literal("remove"), id: BoardWidgetId }),
-  z.object({ op: z.literal("meta"), title: BoardTitle.optional(), workspace: z.string().optional(), icon: z.string().optional() }),
+  z.object({
+    op: z.literal("meta"),
+    title: BoardTitle.optional(),
+    workspace: z.string().optional(),
+    icon: z.string().optional(),
+  }),
 ]);
 export type BoardOp = z.infer<typeof BoardOp>;
 
@@ -1115,7 +1154,10 @@ export const Command = z.discriminatedUnion("kind", [
   /** Finish the active habit or task; `photo` is the proof a photo habit requires. */
   z.object({ kind: z.literal("gate.done"), id: nonEmpty, photo: AgentImage.optional() }),
   /** Unlock without a habit; the typed reason is logged with the gate's history. */
-  z.object({ kind: z.literal("gate.override"), reason: z.string().trim().min(1).max(MAX_GATE_REASON) }),
+  z.object({
+    kind: z.literal("gate.override"),
+    reason: z.string().trim().min(1).max(MAX_GATE_REASON),
+  }),
   /** Give a persistent assistant (`agent`, default the registry's first) a new turn. Text may be empty only when images are present (the host nacks a turn with neither). */
   z.object({
     kind: z.literal("assistant.turn"),
@@ -1239,15 +1281,30 @@ export const ClientMessage = z.discriminatedUnion("t", [
    * Hand a Catch Up item to an assistant: the host sends it (with `note`) to that assistant's thread as
    * Isaac's turn and marks it read with `handedTo`. Unknown ids or agents re-send the snapshot unchanged.
    */
-  z.object({ t: z.literal("catchup.handoff"), id: nonEmpty, agent: AssistantAgentId, note: z.string().trim().max(MAX_CATCHUP_NOTE).optional() }),
+  z.object({
+    t: z.literal("catchup.handoff"),
+    id: nonEmpty,
+    agent: AssistantAgentId,
+    note: z.string().trim().max(MAX_CATCHUP_NOTE).optional(),
+  }),
   /** An assistant hands an item back (also `POST /catchup/bounce` on loopback): unread again, first in the deck, `reason` shown on the card. */
-  z.object({ t: z.literal("catchup.bounce"), id: nonEmpty, agent: AssistantAgentId, reason: z.string().trim().min(1).max(MAX_CATCHUP_NOTE) }),
+  z.object({
+    t: z.literal("catchup.bounce"),
+    id: nonEmpty,
+    agent: AssistantAgentId,
+    reason: z.string().trim().min(1).max(MAX_CATCHUP_NOTE),
+  }),
   /**
    * Isaac's note on why a card does or does not need him (`signal`, `text` or both; neither is answered
    * `ok: false`): the host appends it with the card's fields to Nova's notes and answers `catchup.noted`.
    * The card's state does not change.
    */
-  z.object({ t: z.literal("catchup.note"), id: nonEmpty, signal: CatchUpSignal.optional(), text: z.string().trim().max(MAX_CATCHUP_NOTE).default("") }),
+  z.object({
+    t: z.literal("catchup.note"),
+    id: nonEmpty,
+    signal: CatchUpSignal.optional(),
+    text: z.string().trim().max(MAX_CATCHUP_NOTE).default(""),
+  }),
   /** Ask for a thread's reactions; answered by `reactions.snapshot`. */
   z.object({ t: z.literal("reactions.get"), thread: ReactionThread }),
   /**
@@ -1255,7 +1312,13 @@ export const ClientMessage = z.discriminatedUnion("t", [
    * `excerpt` is `reactionExcerpt` of its text. Every device gets the thread's new `reactions.snapshot`;
    * the agent hears it quietly on its next turn.
    */
-  z.object({ t: z.literal("reaction.set"), thread: ReactionThread, message: ReactionKey, emoji: ReactionEmoji, excerpt: z.string().max(MAX_REACTION_EXCERPT) }),
+  z.object({
+    t: z.literal("reaction.set"),
+    thread: ReactionThread,
+    message: ReactionKey,
+    emoji: ReactionEmoji,
+    excerpt: z.string().max(MAX_REACTION_EXCERPT),
+  }),
   /** Take back the reaction on bubble `message` of `thread`; unknown ones re-send the snapshot unchanged. */
   z.object({ t: z.literal("reaction.clear"), thread: ReactionThread, message: ReactionKey }),
   /** Ask for a thread's artifacts; every device gets its `artifacts.snapshot` (Relay desktop refreshes stale states from it). */
@@ -1264,7 +1327,13 @@ export const ClientMessage = z.discriminatedUnion("t", [
    * Change a thread's artifacts or tabs as `by` (`isaac` from the UI, else the agent). Answered by
    * `artifacts.acted` with the same `rid`; a change also pushes the thread's snapshot to every device.
    */
-  z.object({ t: z.literal("artifacts.act"), thread: ArtifactThread, rid: z.string().min(1).max(64), by: ArtifactActor, action: ArtifactAction }),
+  z.object({
+    t: z.literal("artifacts.act"),
+    thread: ArtifactThread,
+    rid: z.string().min(1).max(64),
+    by: ArtifactActor,
+    action: ArtifactAction,
+  }),
   /** Ask for a one-time ticket to open VNC_PATH; answered by `vnc.ticket` or `vnc.unavailable`. */
   z.object({ t: z.literal("vnc.open") }),
   /** List the canvas rooms the host holds; answered by `canvas.rooms` (also pushed on every change). */
@@ -1332,7 +1401,11 @@ export const ServerMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("welcome"), state: Snapshot }),
   z.object({ t: z.literal("error"), code: ErrorCode, message: z.string() }),
   z.object({ t: z.literal("mac.state"), mac: MacState }),
-  z.object({ t: z.literal("agents.snapshot"), rev: z.number().int(), sessions: z.array(AgentSession) }),
+  z.object({
+    t: z.literal("agents.snapshot"),
+    rev: z.number().int(),
+    sessions: z.array(AgentSession),
+  }),
   z.object({
     t: z.literal("agents.delta"),
     rev: z.number().int(),
@@ -1356,8 +1429,19 @@ export const ServerMessage = z.discriminatedUnion("t", [
    * unsequenced: the last one (`streaming: false`) is the final text. Ignored when the phone does
    * not hold `id`; the next `agent.conversation` carries the settled message.
    */
-  z.object({ t: z.literal("agent.message.update"), sessionId: nonEmpty, id: nonEmpty, text: z.string(), streaming: z.boolean() }),
-  z.object({ t: z.literal("agent.options"), sessionId: nonEmpty, models: z.array(AgentModel), skills: z.array(AgentSkill) }),
+  z.object({
+    t: z.literal("agent.message.update"),
+    sessionId: nonEmpty,
+    id: nonEmpty,
+    text: z.string(),
+    streaming: z.boolean(),
+  }),
+  z.object({
+    t: z.literal("agent.options"),
+    sessionId: nonEmpty,
+    models: z.array(AgentModel),
+    skills: z.array(AgentSkill),
+  }),
   /** The session is blocked on omp's `ask` tool; render the choices and answer with `agent.ask.answer`. */
   z.object({ t: z.literal("agent.ask"), sessionId: nonEmpty, ask: AgentAsk }),
   /** A pending ask was answered or cancelled (from the terminal or another device); dismiss its card. */
@@ -1377,7 +1461,12 @@ export const ServerMessage = z.discriminatedUnion("t", [
   /** The item closed (answered on the Mac, in the chat, or on a phone); withdraw its notification. */
   z.object({ t: z.literal("inbox.resolve"), ...InboxResolveFields }),
   /** `image` is null when the session no longer has that image. */
-  z.object({ t: z.literal("agent.image"), sessionId: nonEmpty, id: nonEmpty, image: AgentImage.nullable() }),
+  z.object({
+    t: z.literal("agent.image"),
+    sessionId: nonEmpty,
+    id: nonEmpty,
+    image: AgentImage.nullable(),
+  }),
   /** Answer to `sessions.list`: top-level transcripts, newest first. */
   z.object({ t: z.literal("sessions.list"), files: z.array(SessionFile) }),
   /** `data` is base64 of the bytes at `offset`; null when the file is missing or not an allowed transcript. `size` is the whole file's. */
@@ -1396,9 +1485,18 @@ export const ServerMessage = z.discriminatedUnion("t", [
    */
   z.object({ t: z.literal("agent.started"), id: nonEmpty, sessionId: nonEmpty }),
   /** `data` is base64; `mime` and `data` are null when there is no such blob. */
-  z.object({ t: z.literal("blob.data"), hash: nonEmpty, mime: z.string().nullable(), data: z.string().nullable() }),
+  z.object({
+    t: z.literal("blob.data"),
+    hash: nonEmpty,
+    mime: z.string().nullable(),
+    data: z.string().nullable(),
+  }),
   /** Full durable thread of assistant `agent`, sent on request and after each completed turn. */
-  z.object({ t: z.literal("assistant.snapshot"), agent: AssistantAgentId, snapshot: AssistantSnapshot }),
+  z.object({
+    t: z.literal("assistant.snapshot"),
+    agent: AssistantAgentId,
+    snapshot: AssistantSnapshot,
+  }),
   /** Answer to `assistant.agents`: the host's assistant threads in registry order (the first is the default). */
   z.object({ t: z.literal("assistant.agents"), agents: z.array(AssistantAgent) }),
   /** A drop was added on either side; also mirrored as a push notification for host-origin drops. */
@@ -1409,7 +1507,12 @@ export const ServerMessage = z.discriminatedUnion("t", [
   /** Every board at `rev`; the answer to `board.subscribe` and `board.get`. */
   z.object({ t: z.literal("board.snapshot"), rev: z.number().int(), boards: z.array(Board) }),
   /** One write: the changed board in full, or the slug that was deleted (exactly one of the two). */
-  z.object({ t: z.literal("board.delta"), rev: z.number().int(), board: Board.optional(), removed: BoardSlug.optional() }),
+  z.object({
+    t: z.literal("board.delta"),
+    rev: z.number().int(),
+    board: Board.optional(),
+    removed: BoardSlug.optional(),
+  }),
   /** The habit gate changed, or the answer to `gate.get`. `null`: no bridge reports a gate on this host. */
   z.object({ t: z.literal("gate.status"), gate: GateStatus.nullable() }),
   /** Usage of every omp account; the answer to `usage.get`/`usage.refresh`, and pushed when a refresh ends. */
@@ -1419,22 +1522,47 @@ export const ServerMessage = z.discriminatedUnion("t", [
   /** Answer to `catchup.note`: `ok` false when the host has no notes file or the card left the feed. */
   z.object({ t: z.literal("catchup.noted"), id: nonEmpty, ok: z.boolean() }),
   /** A thread's reactions: the answer to `reactions.get`, and pushed to every device when they change. */
-  z.object({ t: z.literal("reactions.snapshot"), thread: ReactionThread, reactions: ThreadReactions }),
+  z.object({
+    t: z.literal("reactions.snapshot"),
+    thread: ReactionThread,
+    reactions: ThreadReactions,
+  }),
   /** A thread's artifacts and tab bar: the answer to `artifacts.get`, and pushed to every device when they change. */
-  z.object({ t: z.literal("artifacts.snapshot"), thread: ArtifactThread, items: z.array(Artifact).max(MAX_ARTIFACTS), tabs: z.array(ArtifactTab).max(MAX_ARTIFACT_TABS) }),
+  z.object({
+    t: z.literal("artifacts.snapshot"),
+    thread: ArtifactThread,
+    items: z.array(Artifact).max(MAX_ARTIFACTS),
+    tabs: z.array(ArtifactTab).max(MAX_ARTIFACT_TABS),
+  }),
   /** Answer to `artifacts.act`: `error` says why it was refused (shown to the agent as is); `id` names what `add` / `tab.add` made. */
-  z.object({ t: z.literal("artifacts.acted"), rid: z.string().min(1).max(64), ok: z.boolean(), error: z.string().max(400).optional(), id: z.string().max(2100).optional() }),
+  z.object({
+    t: z.literal("artifacts.acted"),
+    rid: z.string().min(1).max(64),
+    ok: z.boolean(),
+    error: z.string().max(400).optional(),
+    id: z.string().max(2100).optional(),
+  }),
   /** Answer to `vnc.open`: open `VNC_PATH?ticket=<ticket>` within VNC_TICKET_TTL_MS. Single use. */
   z.object({ t: z.literal("vnc.ticket"), ticket: nonEmpty }),
   /** Answer to `vnc.open` when nothing listens on the Mac's VNC port: Screen Sharing is off. */
   z.object({ t: z.literal("vnc.unavailable") }),
   /** Every canvas room the host holds at `rev`: the answer to `canvas.get`, and pushed to every socket on any change. */
-  z.object({ t: z.literal("canvas.rooms"), rev: z.number().int().nonnegative(), rooms: z.array(CanvasRoomInfo).max(200) }),
+  z.object({
+    t: z.literal("canvas.rooms"),
+    rev: z.number().int().nonnegative(),
+    rooms: z.array(CanvasRoomInfo).max(200),
+  }),
   /**
    * Answer to `canvas.open`: load `path` (host-relative, e.g. `/canvas/<slug>/?token=…`) from the
    * host's http origin. The token opens the page, its websocket and its images until `expiresAt`.
    */
-  z.object({ t: z.literal("canvas.access"), slug: CanvasSlug, path: z.string().min(1).max(500), token: nonEmpty, expiresAt: ms }),
+  z.object({
+    t: z.literal("canvas.access"),
+    slug: CanvasSlug,
+    path: z.string().min(1).max(500),
+    token: nonEmpty,
+    expiresAt: ms,
+  }),
   /** Answer to `canvas.open` when no live room is on `slug` (the session ended): `reason` is one line for the UI. */
   z.object({ t: z.literal("canvas.unavailable"), slug: CanvasSlug, reason: z.string().max(400) }),
   /**
@@ -1450,11 +1578,22 @@ export const ServerMessage = z.discriminatedUnion("t", [
     error: z.string().optional(),
   }),
   /** Reply audio, PCM16 LE mono at CALL_OUTPUT_RATE, base64; play in order, dropping any `gen` below the last `call.flush`. */
-  z.object({ t: z.literal("call.audio"), callId: CallId, gen: z.number().int().nonnegative(), pcm: CallAudio }),
+  z.object({
+    t: z.literal("call.audio"),
+    callId: CallId,
+    gen: z.number().int().nonnegative(),
+    pcm: CallAudio,
+  }),
   /** Barge-in: stop playback now and drop queued or late audio of generations below `gen`. */
   z.object({ t: z.literal("call.flush"), callId: CallId, gen: z.number().int().nonnegative() }),
   /** OpenAI's SDP answer for the offer in `live.start`; `sessionId` is the GPT-Live session. */
-  z.object({ t: z.literal("live.answer"), callId: CallId, agent: AssistantAgentId, sessionId: nonEmpty, sdp: LiveSdp }),
+  z.object({
+    t: z.literal("live.answer"),
+    callId: CallId,
+    agent: AssistantAgentId,
+    sessionId: nonEmpty,
+    sdp: LiveSdp,
+  }),
   /** Where live call `callId` stands (see LiveState); `text`: the words the assistant is working on (`thinking`). */
   z.object({
     t: z.literal("live.state"),
