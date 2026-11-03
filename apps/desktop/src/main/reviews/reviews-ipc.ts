@@ -395,9 +395,11 @@ export function registerReviewsIpc(
       '-R',
       repo,
       '--json',
-      'statusCheckRollup,reviewDecision',
+      'statusCheckRollup,reviewDecision,isDraft',
     ])
-    const v = JSON.parse(out) as Pick<Raw, 'statusCheckRollup'> & { reviewDecision?: string | null }
+    const v = JSON.parse(out) as Pick<Raw, 'statusCheckRollup' | 'isDraft'> & {
+      reviewDecision?: string | null
+    }
     const states = v.statusCheckRollup.map(checkState).filter((s) => s !== 'skipped')
     const ci = !states.length
       ? ('none' as const)
@@ -409,7 +411,7 @@ export function registerReviewsIpc(
     const decision = (['APPROVED', 'CHANGES_REQUESTED', 'REVIEW_REQUIRED'] as const).find(
       (d) => d === v.reviewDecision,
     )
-    return { ci, decision: decision ?? null }
+    return { draft: v.isDraft, ci, decision: decision ?? null }
   })
 
   // An old Mini host does not know the `work` op and never answers it: ask once, then stop.

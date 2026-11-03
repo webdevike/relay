@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { ReviewRow, ReviewRowStatus, ReviewWork } from '@evaos/contract'
 import { invoke } from '../ipc'
 import { prKey } from './review-model'
+import { loadQueue } from './reviews-store'
 
 /** What a PR row's pills are built from: GitHub's CI and decision, and Astra's ledger and loop. */
 export interface RowStatus {
@@ -13,6 +14,8 @@ export interface RowStatus {
 export const MAX_SELF_REVIEWS = 3
 /** The ledger and loop move on their own, so the list reads them again this often. */
 const WORK_POLL_MS = 10_000
+/** GitHub is a `gh` call per PR, so its flags are read less often. */
+const GITHUB_POLL_MS = 30_000
 const WORKERS = 3
 
 export interface Pill {
@@ -34,11 +37,13 @@ const CI_PILL = {
  */
 export function rowPills(row: Pick<ReviewRow, 'draft'>, s: RowStatus | undefined): Pill[] {
   const pills: Pill[] = []
-  if (row.draft) pills.push({ label: 'Draft', tone: 'gray' })
+  // The live read beats the queue's cached search row, which can still say Draft.
+  const draft = s?.github?.draft ?? row.draft
+  if (draft) pills.push({ label: 'Draft', tone: 'gray' })
   const ci = s?.github?.ci
   if (ci && ci !== 'none') pills.push({ ...CI_PILL[ci], testId: 'review-row-ci' })
   const work = s?.work
-  if (row.draft && work?.approve === 'ready') {
+  if (draft && work?.approve === 'ready') {
     pills.push({ label: 'Approve ready', tone: 'violet', testId: 'review-row-approve' })
   }
   const loop = work?.loop
@@ -50,7 +55,7 @@ export function rowPills(row: Pick<ReviewRow, 'draft'>, s: RowStatus | undefined
     })
   } else if (work?.approve === 'sent') {
     pills.push({ label: 'Approved', tone: 'green', testId: 'review-row-work' })
-  } else if (!row.draft) {
+  } else if (!draft) {
     const decision = s?.github?.decision
     const label =
       decision === 'APPROVED'
@@ -73,16 +78,16 @@ export function rowPills(row: Pick<ReviewRow, 'draft'>, s: RowStatus | undefined
   return pills
 }
 
-// CI and the review decision change only when the PR does: read once per update. The work state
-// comes from local ledgers (or the Mini's host), so it is read again on a timer and on demand.
+// GitHub's draft flag, CI and decision change on GitHub (Astra marks a draft ready), the work state
+// in the ledgers (or the Mini's host): both are read again on timers and on demand.
 const githubCache = new Map<string, ReviewRowStatus | null>()
 const workCache = new Map<string, ReviewWork | null>()
 const listeners = new Set<() => void>()
 const refreshers = new Set<() => void>()
 
-const githubKey = (r: ReviewRow): string => `${prKey(r)}@${r.updatedAt}`
+const githubKey = (r: ReviewRow): string => prKey(r)
 
-/** Reads every visible row's work state again now (after Approve), so the list changes at once. */
+/** Reads every visible row again now (after Approve), so the list changes at once. */
 export function refreshRowStatus(): void {
   for (const f of refreshers) f()
 }
@@ -94,7 +99,7 @@ async function readWork(r: ReviewRow): Promise<void> {
 
 async function readGithub(r: ReviewRow): Promise<void> {
   const res = await invoke('reviews.rowStatus', { repo: r.repo, number: r.number })
-  githubCache.set(githubKey(r), res.ok ? res.value : null)
+  if (res.ok) githubCache.set(githubKey(r), res.value)
 }
 
 /** Runs `job` over `rows`, `WORKERS` at a time, telling the hook after each. */
@@ -113,7 +118,7 @@ async function pool(
   await Promise.all(Array.from({ length: WORKERS }, worker))
 }
 
-/** Statuses for `rows`: CI and decision once per PR update, the work state live. */
+/** Statuses for `rows`: GitHub's draft flag, CI and decision and Astra's work state, each read again on a timer. */
 export function useRowStatus(rows: ReviewRow[]): Record<string, RowStatus> {
   const [, bump] = useState(0)
   const wanted = rows.map(githubKey).join('|')
@@ -127,19 +132,25 @@ export function useRowStatus(rows: ReviewRow[]): Record<string, RowStatus> {
   useEffect(() => {
     let live = true
     const alive = (): boolean => live
-    void pool(
-      rows.filter((r) => !githubCache.has(githubKey(r))),
-      readGithub,
-      alive,
-    )
     const refreshWork = (): void => void pool(rows, readWork, alive)
+    const refreshGithub = (): void => void pool(rows, readGithub, alive)
+    const refreshAll = (): void => {
+      refreshWork()
+      refreshGithub()
+      // The queue's own rows (and their draft flag) come from a cached search: read it again too.
+      void loadQueue(true)
+    }
     refreshWork()
-    refreshers.add(refreshWork)
-    const t = setInterval(refreshWork, WORK_POLL_MS)
+    // Rows read before (this update) keep their pills while the new read runs.
+    refreshGithub()
+    refreshers.add(refreshAll)
+    const w = setInterval(refreshWork, WORK_POLL_MS)
+    const g = setInterval(refreshGithub, GITHUB_POLL_MS)
     return () => {
       live = false
-      refreshers.delete(refreshWork)
-      clearInterval(t)
+      refreshers.delete(refreshAll)
+      clearInterval(w)
+      clearInterval(g)
     }
     // `wanted` is the rows' identity; the rows array itself is new every render.
   }, [wanted])

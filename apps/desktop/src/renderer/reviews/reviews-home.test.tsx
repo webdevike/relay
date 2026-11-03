@@ -18,6 +18,8 @@ const LOOPING = { ...ROW, number: 174, title: 'Self-reviewing', draft: true }
 let rows: (typeof ROW)[] = [ROW, DRAFT, LOOPING]
 /** What the Mini's ledger says about #173 (the one waiting on Isaac). */
 let approveState: 'ready' | 'sent' = 'ready'
+/** GitHub's live draft flag for #173 (the queue's cached search row says draft). */
+let live173Draft = true
 
 const invoke = vi.fn(async (ch: string, arg?: { number?: number }) => {
   if (ch === 'reviews.queue') {
@@ -39,7 +41,11 @@ const invoke = vi.fn(async (ch: string, arg?: { number?: number }) => {
   if (ch === 'reviews.rowStatus') {
     return {
       ok: true,
-      value: { ci: arg?.number === 173 ? 'fail' : 'pass', decision: null },
+      value: {
+        draft: arg?.number === 173 ? live173Draft : arg?.number === 174,
+        ci: arg?.number === 173 ? 'fail' : 'pass',
+        decision: null,
+      },
     }
   }
   if (ch === 'reviews.work') {
@@ -117,6 +123,7 @@ const wrap = () =>
 beforeEach(() => {
   rows = [ROW, DRAFT, LOOPING]
   approveState = 'ready'
+  live173Draft = true
   invoke.mockClear()
   openPlace.mockClear()
   openTab.mockClear()
@@ -152,6 +159,15 @@ describe('Reviews home (nothing selected)', () => {
     await act(async () => refreshRowStatus())
     expect(await screen.findByText('Approved')).toBeTruthy()
     expect(screen.queryByText('Approve ready')).toBeNull()
+  })
+
+  it('drops the Draft pill when GitHub says the PR is ready, whatever the cached queue row says', async () => {
+    wrap()
+    await waitFor(() => expect(screen.getAllByText('Draft')).toHaveLength(2))
+    live173Draft = false
+    await act(async () => refreshRowStatus())
+    await waitFor(() => expect(screen.getAllByText('Draft')).toHaveLength(1))
+    expect(screen.getByText('Ready for review')).toBeTruthy()
   })
 
   it('does not open a PR by itself', async () => {

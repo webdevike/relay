@@ -14,16 +14,27 @@ const work = (w: Partial<ReviewWork> = {}): ReviewWork => ({
   approve: null,
   ...w,
 })
+// The live GitHub read carries the draft flag; `labels` keeps it equal to the row's unless a test says otherwise.
 const labels = (draft: boolean, s?: RowStatus): string[] =>
-  rowPills({ draft }, s).map((p) => p.label)
+  rowPills({ draft }, s && s.github ? { ...s, github: { ...s.github, draft } } : s).map(
+    (p) => p.label,
+  )
 const gh = (
   ci: 'pass' | 'fail' | 'pending' | 'none' = 'pass',
   decision: null | 'APPROVED' = null,
-) => ({
-  ci,
-  decision,
-})
+) => ({ draft: false, ci, decision })
 
+describe('live draft flag', () => {
+  it('beats a stale queue row in both directions', () => {
+    const live = (draft: boolean): RowStatus => ({ github: { ...gh(), draft }, work: work() })
+    expect(rowPills({ draft: true }, live(false)).map((p) => p.label)).toEqual([
+      'CI passing',
+      'Ready for review',
+    ])
+    expect(rowPills({ draft: false }, live(true)).map((p) => p.label)).toContain('Draft')
+    expect(rowPills({ draft: true }, undefined).map((p) => p.label)).toEqual(['Draft'])
+  })
+})
 describe('row pills', () => {
   it('shows nothing before anything is read, but Draft', () => {
     expect(labels(false)).toEqual([])

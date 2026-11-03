@@ -297,8 +297,9 @@ export const ReviewApproveSchema = z.object({
 })
 export type ReviewApprove = z.infer<typeof ReviewApproveSchema>
 
-/** The check rollup and review decision a queue row shows as pills. */
+/** The live draft flag, check rollup and review decision a queue row shows as pills. */
 export const ReviewRowStatusSchema = z.object({
+  draft: z.boolean(),
   ci: z.enum(['pass', 'fail', 'pending', 'none']),
   decision: z.enum(['APPROVED', 'CHANGES_REQUESTED', 'REVIEW_REQUIRED']).nullable(),
 })
