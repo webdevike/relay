@@ -202,7 +202,7 @@
   gap: var(--mantine-spacing-xs);
   max-width: 50%;
   box-sizing: border-box;
-  padding: var(--mantine-spacing-xs);
+  padding: 0 var(--mantine-spacing-lg) var(--mantine-spacing-xs);
   border: 1px solid var(--eva-c-border);
   border-top-color: transparent;
   border-radius: 0 0 calc(var(--mantine-spacing-xs) * 2) calc(var(--mantine-spacing-xs) * 2);
