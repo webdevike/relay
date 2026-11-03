@@ -81,7 +81,7 @@ final class LessonController {
         work = Task { [weak self] in
             guard let self else { return }
             do {
-                let (context, ask) = try await self.look(note: nil)
+                let (context, ask, _) = try await self.look(note: nil)
                 let (title, planned) = try await self.brain.planLesson(goal: goal, context: context, ask: ask)
                 try Task.checkCancellation()
                 self.goal = title
@@ -121,13 +121,16 @@ final class LessonController {
         prepared = [:]
     }
 
-    private func look(note: String?) async throws -> (ScreenContext, AskContext) {
+    private func look(note: String?) async throws -> (ScreenContext, AskContext, BlenderLayout?) {
         guard let target else { throw CaptureError.noWindow("the app") }
         async let state = hook?.sceneState()
+        async let layoutRaw = (hook as? BlenderHook)?.layout()
         let context = try await Capture.capture(target)
-        let ask = AskContext(sceneState: await state, hookName: hook?.name, hookNotes: hook?.promptNotes,
+        var ask = AskContext(sceneState: await state, hookName: hook?.name, hookNotes: hook?.promptNotes,
                              userAskedToDo: false, note: note)
-        return (context, ask)
+        let layout = BlenderLayout(await layoutRaw, context: context)
+        if let layout { ask.sceneState = (ask.sceneState.map { $0 + "\n" } ?? "") + layout.prompt }
+        return (context, ask, layout)
     }
 
     private func show(_ i: Int) {
@@ -158,8 +161,9 @@ final class LessonController {
                 Log.info("lesson point step \(i + 1): prefetched target gone or prefetch failed, asking terra")
             }
             do {
-                let (context, ask) = try await self.look(note: self.stepNote(i, ahead: false))
+                let (context, ask, layout) = try await self.look(note: self.stepNote(i, ahead: false))
                 var plan = try await self.brain.plan(question: step.instruction, context: context, ask: ask)
+                if let layout { plan.steps = layout.refine(plan.steps) }
                 try Task.checkCancellation()
                 guard self.index == i else { return }
                 plan.doRequest = nil
@@ -199,8 +203,9 @@ final class LessonController {
         return Task { [weak self] in
             guard let self else { return nil }
             do {
-                let (context, ask) = try await self.look(note: self.stepNote(i, ahead: true))
-                let plan = try await self.brain.plan(question: self.steps[i].instruction, context: context, ask: ask)
+                let (context, ask, layout) = try await self.look(note: self.stepNote(i, ahead: true))
+                var plan = try await self.brain.plan(question: self.steps[i].instruction, context: context, ask: ask)
+                if let layout { plan.steps = layout.refine(plan.steps) }
                 try Task.checkCancellation()
                 var phase = PlanCache.phase(from: plan, context: context)
                 if phase.say == nil { phase.say = self.steps[i].instruction }

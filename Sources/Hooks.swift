@@ -165,23 +165,44 @@ struct BlenderHook: AppHook {
             lines.append(info)
         lines.append('Selected objects: ' + (', '.join(o.name for o in c.selected_objects) or 'none'))
         lines.append('Objects: ' + ', '.join('%s (%s)' % (o.name, o.type) for o in list(c.scene.objects)[:30]))
-        # Lets the model point at an Edit Mode tool in the same turn it switches modes for the user.
-        if c.mode == 'OBJECT' and ob and ob.type == 'MESH':
-            try:
-                from bl_ui.space_toolsystem_common import ToolSelectPanelHelper
-                _cls = ToolSelectPanelHelper._tool_class_from_space_type('VIEW_3D')
-                def _label(t):
-                    t = t[0] if isinstance(t, tuple) else t
-                    return t.split('.')[-1].replace('_', ' ').title() if isinstance(t, str) else getattr(t, 'label', '?')
-                with _buddy_ctx():
-                    _tools = ['|' if t is None else _label(t) for t in _cls.tools_from_context(bpy.context, mode='EDIT_MESH')]
-                lines.append('Edit Mode left toolbar, top to bottom, same icon size and spacing as now, | = gap '
-                             '(tools down to Add Cube keep their places): ' + ', '.join(_tools))
-            except Exception:
-                pass
         print('\n'.join(lines))
         """#
         return try? await BlenderLink.execute(script, timeout: 3).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Editor areas, their regions and the toolbar's tools (current mode, plus Edit Mode when in Object Mode
+    /// with a mesh), straight from Blender's window data: positions that do not depend on reading pixels.
+    func layout() async -> [String: Any]? {
+        let script = BlenderLink.prelude + #"""
+        w = bpy.context.window_manager.windows[0]
+        def _tools(mode):
+            from bl_ui.space_toolsystem_common import ToolSelectPanelHelper
+            cls = ToolSelectPanelHelper._tool_class_from_space_type('VIEW_3D')
+            out = []
+            with _buddy_ctx():
+                for t in cls.tools_from_context(bpy.context, mode=mode):
+                    if t is None:
+                        out.append(None)
+                        continue
+                    t = t[0] if isinstance(t, tuple) else t
+                    out.append(t.split('.')[-1].replace('_', ' ').title() if isinstance(t, str) else getattr(t, 'label', '?'))
+            return out
+        areas = [[a.type, a.x, a.y, a.width, a.height,
+                  [[r.type, r.x, r.y, r.width, r.height] for r in a.regions if r.width > 1 and r.height > 1]]
+                 for a in w.screen.areas]
+        tools = {}
+        try:
+            tools[bpy.context.mode] = _tools(bpy.context.mode)
+            ob = bpy.context.view_layer.objects.active
+            if bpy.context.mode == 'OBJECT' and ob and ob.type == 'MESH':
+                tools['EDIT_MESH'] = _tools('EDIT_MESH')
+        except Exception:
+            pass
+        print(json.dumps({'win': [w.width, w.height], 'unit': 20 * bpy.context.preferences.system.ui_scale,
+                          'mode': bpy.context.mode, 'areas': areas, 'tools': tools}))
+        """#
+        guard let out = try? await BlenderLink.execute(script, timeout: 3) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [String: Any]
     }
 
     func snapshot() async -> String? {
@@ -242,5 +263,102 @@ struct BlenderHook: AppHook {
         let data = (try? JSONSerialization.data(withJSONObject: [s], options: .withoutEscapingSlashes)) ?? Data("[\"\"]".utf8)
         let array = String(decoding: data, as: UTF8.self)
         return String(array.dropFirst().dropLast())
+    }
+}
+
+/// Blender's layout (BlenderHook.layout) in screenshot pixels: editor areas and regions exactly, and the
+/// toolbar's tool buttons from the tool list and Blender's toolbar spacing (1.2 units to the first button
+/// centre, 1.725 units per button, 0.35 per gap; measured on Blender 5.2). Feeds the prompt, and turns a
+/// model's point at a named tool into that button's rect (confirmed bounds the overlay may outline).
+struct BlenderLayout {
+    struct Item { let name: String; let rect: CGRect; let mode: String? }
+    let regions: [Item]
+    let tools: [Item]
+    let mode: String
+
+    private static let areaNames = ["VIEW_3D": "3D Viewport", "PROPERTIES": "Properties editor", "OUTLINER": "Outliner",
+                                    "DOPESHEET_EDITOR": "Timeline", "TIMELINE": "Timeline", "IMAGE_EDITOR": "Image editor",
+                                    "NODE_EDITOR": "Node editor"]
+    private static let regionNames = ["HEADER": "header", "TOOL_HEADER": "tool settings bar", "TOOLS": "toolbar", "UI": "sidebar (N panel)"]
+
+    init?(_ raw: [String: Any]?, context: ScreenContext) {
+        guard let raw, let win = raw["win"] as? [Double], win.count == 2, win[0] > 0,
+              let areas = raw["areas"] as? [[Any]] else { return nil }
+        let s = Double(context.imageSize.width) / win[0]
+        let titleBar = Double(context.imageSize.height) - win[1] * s
+        func rect(_ v: [Any]) -> CGRect? {
+            let n = v.compactMap { ($0 as? NSNumber)?.doubleValue }
+            guard n.count == 4 else { return nil }
+            return CGRect(x: n[0] * s, y: titleBar + (win[1] - (n[1] + n[3])) * s, width: n[2] * s, height: n[3] * s)
+        }
+        var regions: [Item] = []
+        var toolbar: CGRect?
+        for area in areas where area.count == 6 {
+            guard let type = area[0] as? String, let areaRect = rect(Array(area[1...4])) else { continue }
+            let areaName = Self.areaNames[type] ?? type.lowercased().replacingOccurrences(of: "_", with: " ")
+            regions.append(Item(name: areaName, rect: areaRect, mode: nil))
+            for region in (area[5] as? [[Any]]) ?? [] where region.count == 5 {
+                guard let rtype = region[0] as? String, let name = Self.regionNames[rtype], let r = rect(Array(region[1...4])) else { continue }
+                regions.append(Item(name: "\(areaName) \(name)", rect: r, mode: nil))
+                if type == "VIEW_3D", rtype == "TOOLS" { toolbar = r }
+            }
+        }
+        var tools: [Item] = []
+        let unit = ((raw["unit"] as? NSNumber)?.doubleValue ?? 20) * s
+        if let toolbar, Double(toolbar.width) < unit * 1.725 * 1.8, let lists = raw["tools"] as? [String: [Any]] {
+            for (mode, list) in lists {
+                var gaps = 0, index = 0
+                for entry in list {
+                    guard let name = entry as? String else { gaps += 1; continue }
+                    let cy = Double(toolbar.minY) + unit * (1.2 + 1.725 * Double(index) + 0.35 * Double(gaps))
+                    let size = unit * 1.7
+                    tools.append(Item(name: name, rect: CGRect(x: Double(toolbar.midX) - size / 2, y: cy - size / 2, width: size, height: size), mode: mode))
+                    index += 1
+                }
+            }
+        }
+        self.regions = regions
+        self.tools = tools
+        self.mode = raw["mode"] as? String ?? ""
+    }
+
+    private static func box(_ r: CGRect) -> String {
+        "[\(Int(r.minX)),\(Int(r.minY)),\(Int(r.width)),\(Int(r.height))]"
+    }
+
+    var prompt: String {
+        var lines = ["Blender layout from its API, in screenshot pixels [x,y,w,h] (exact; use these instead of guessing from the image):"]
+        lines += regions.map { "- \($0.name) \(Self.box($0.rect))" }
+        let modes = Set(tools.compactMap(\.mode))
+        for mode in (modes.contains(self.mode) ? [self.mode] : []) + modes.subtracting([self.mode]).sorted() {
+            let label = mode == self.mode ? "Toolbar buttons now (\(mode))" : "Toolbar buttons once in \(mode) (after the mode switch)"
+            lines.append(label + ": " + tools.filter { $0.mode == mode }.map { "\($0.name) \(Self.box($0.rect))" }.joined(separator: ", "))
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// A point at a named toolbar tool snaps to that button (current mode first, then the mode it switches
+    /// to) and carries its rect; a highlight matching an editor region carries that region's exact rect.
+    func refine(_ steps: [PlanStep]) -> [PlanStep] {
+        steps.map { step in
+            switch step.kind {
+            case .point(let p):
+                let nearToolbar = regions.contains { $0.name.hasSuffix("toolbar") && $0.rect.insetBy(dx: -24, dy: -24).contains(p) }
+                let candidates = tools.filter { Jev.labelMatches($0.name, target: step.label) }
+                guard nearToolbar, let tool = candidates.first(where: { $0.mode == mode }) ?? candidates.first else { return step }
+                Log.info("blender layout: \"\(step.label)\" -> toolbar \(tool.name) \(Self.box(tool.rect)) (\(tool.mode ?? "")), model said (\(Int(p.x)),\(Int(p.y)))")
+                return PlanStep(kind: .point(CGPoint(x: tool.rect.midX, y: tool.rect.midY)), label: step.label, box: tool.rect)
+            case .highlight(let r):
+                guard let region = regions.max(by: { Self.iou($0.rect, r) < Self.iou($1.rect, r) }), Self.iou(region.rect, r) > 0.5 else { return step }
+                Log.info("blender layout: highlight \"\(step.label)\" -> \(region.name) \(Self.box(region.rect))")
+                return PlanStep(kind: .highlight(region.rect), label: step.label, box: region.rect)
+            }
+        }
+    }
+
+    private static func iou(_ a: CGRect, _ b: CGRect) -> CGFloat {
+        let i = a.intersection(b)
+        guard !i.isNull else { return 0 }
+        return i.width * i.height / (a.width * a.height + b.width * b.height - i.width * i.height)
     }
 }

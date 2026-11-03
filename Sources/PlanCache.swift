@@ -16,6 +16,8 @@ struct CachedStep: Codable {
     var rel: [Double]
     /// Screenshot width / height at save time, to notice a window that changed shape.
     var aspect: Double
+    /// Hook-confirmed bounds of the control (e.g. a Blender toolbar button), fractions [x, y, w, h].
+    var boxRel: [Double]? = nil
 }
 
 struct CachedAction: Codable {
@@ -134,8 +136,9 @@ enum PlanCache {
             case .point(let p):
                 let hit = elements.filter { $0.frame.contains(p) && $0.frame.width * $0.frame.height < limit }
                     .min { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }
-                phase.steps.append(CachedStep(kind: "point", label: step.label, role: hit?.role, axLabel: hit?.label,
-                                              rel: [Double(p.x / w), Double(p.y / h)], aspect: Double(w / h)))
+                let box = step.box.map { [Double($0.minX / w), Double($0.minY / h), Double($0.width / w), Double($0.height / h)] }
+                phase.steps.append(CachedStep(kind: "point", label: step.label, role: hit?.role, axLabel: step.box == nil ? hit?.label : nil,
+                                              rel: [Double(p.x / w), Double(p.y / h)], aspect: Double(w / h), boxRel: box))
             case .highlight(let r):
                 let hit = elements.first { iou($0.frame, r) > 0.7 }
                 phase.steps.append(CachedStep(kind: "highlight", label: step.label, role: hit?.role, axLabel: hit?.label,
@@ -219,7 +222,10 @@ enum PlanCache {
             guard let best = matches.min(by: { dist($0.center, expected) < dist($1.center, expected) }) else { return nil }
             return PlanStep(kind: step.kind == "point" ? .point(best.center) : .highlight(best.frame), label: step.label)
         }
-        if step.kind == "point" { return PlanStep(kind: .point(expected), label: step.label) }
+        if step.kind == "point" {
+            let box = step.boxRel.flatMap { b in b.count == 4 ? CGRect(x: b[0] * Double(w), y: b[1] * Double(h), width: b[2] * Double(w), height: b[3] * Double(h)) : nil }
+            return PlanStep(kind: .point(expected), label: step.label, box: box)
+        }
         return PlanStep(kind: .highlight(CGRect(x: step.rel[0] * Double(w), y: step.rel[1] * Double(h),
                                                width: step.rel[2] * Double(w), height: step.rel[3] * Double(h))), label: step.label)
     }

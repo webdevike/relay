@@ -428,6 +428,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             do {
                 async let state = hook?.sceneState()
+                async let layoutRaw = (hook as? BlenderHook)?.layout()
                 var context: ScreenContext
                 if let prefetched, let early = try? await prefetched.value {
                     context = early
@@ -436,6 +437,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 var ask = AskContext(sceneState: await state, hookName: hook?.name, hookNotes: hook?.promptNotes,
                                      userAskedToDo: askedToDo)
+                let blender = BlenderLayout(await layoutRaw, context: context)
+                if let blender { ask.sceneState = (ask.sceneState.map { $0 + "\n" } ?? "") + blender.prompt }
                 Log.info(String(format: "captured %@ window %.0fx%.0f via %@ in %.2fs, %d AX lines, hook state %@",
                                 target.name, context.windowFrame.width, context.windowFrame.height, context.backend,
                                 Date().timeIntervalSince(started), context.axLines.count,
@@ -503,7 +506,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     Log.info(String(format: "plan-cache: miss %.0fms (%@)", Date().timeIntervalSince(lookupStarted) * 1000, fingerprint))
                 }
                 let terraStarted = Date()
-                let plan = try await self.brain.plan(question: question, context: context, ask: ask)
+                var plan = try await self.brain.plan(question: question, context: context, ask: ask)
+                if let blender { plan.steps = blender.refine(plan.steps) }
                 try Task.checkCancellation()
                 Log.info(String(format: "route: path=terra terra=%.0fms total=%.0fms", Date().timeIntervalSince(terraStarted) * 1000,
                                 Date().timeIntervalSince(started) * 1000))
