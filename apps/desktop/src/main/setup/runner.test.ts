@@ -142,7 +142,7 @@ describe.skipIf(process.platform !== 'darwin')('ai-login.sh browser sign-in', ()
   it('reports a closed stdin as a cancelled sign-in', async () => {
     const { home, env } = fakeHome()
     const job = runScript(aiLogin(env), home, { timeoutMs: 10_000 }, () => {})
-    expect(await job.done).toEqual({ ok: false, message: 'sign-in to openai was cancelled' })
+    expect(await job.done).toEqual({ ok: false, message: 'sign-in to ChatGPT was cancelled' })
   })
 
   it("reports omp's failure line without the provider's JSON body", async () => {
@@ -158,7 +158,7 @@ describe.skipIf(process.platform !== 'darwin')('ai-login.sh browser sign-in', ()
     job.send('not-a-code')
     expect(await job.done).toEqual({
       ok: false,
-      message: 'sign-in to openai did not finish: openai-codex token exchange failed: 401',
+      message: 'sign-in to ChatGPT did not finish: openai-codex token exchange failed: 401',
     })
   })
 })

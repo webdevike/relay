@@ -21,9 +21,9 @@ if [ "${1:-}" = "--api-key" ]; then API_KEY_MODE=1; shift; fi
 PROVIDER="${1:-}"
 
 case "$PROVIDER" in
-  anthropic) OMP_PROVIDER=anthropic; ENV_NAME=ANTHROPIC_API_KEY ;;
+  anthropic) OMP_PROVIDER=anthropic; ENV_NAME=ANTHROPIC_API_KEY; ACCOUNT=Claude ;;
   # A ChatGPT subscription signs in as omp's `openai-codex`; the plain `openai` provider is an API key.
-  openai) OMP_PROVIDER=openai-codex; ENV_NAME=OPENAI_API_KEY ;;
+  openai) OMP_PROVIDER=openai-codex; ENV_NAME=OPENAI_API_KEY; ACCOUNT=ChatGPT ;;
   *) fail "usage: ai-login.sh [--api-key] <anthropic|openai>" ;;
 esac
 
@@ -82,7 +82,7 @@ if has_account "$OMP_PROVIDER"; then
   ok "$PROVIDER (already signed in)"
 fi
 
-progress 10 "Opening your browser to sign in to $PROVIDER"
+progress 10 "Opening your browser to sign in to $ACCOUNT"
 log_line "omp login $OMP_PROVIDER"
 from=$(( $(wc -c <"$SETUP_LOG" 2>/dev/null || echo 0) + 1 ))
 # omp opens the browser, waits for the callback (or a pasted address on stdin) and stores the
@@ -92,9 +92,9 @@ if ! omp login "$OMP_PROVIDER" >>"$SETUP_LOG" 2>&1; then
   why="$(tail -c "+$from" "$SETUP_LOG" | grep -m1 'Login failed:' | sed -e 's/^.*Login failed: //' -e 's/[[:space:]]*{.*$//' || true)"
   [ -n "$why" ] || why="$(last_log_lines 2)"
   case "$why" in
-    *"stdin closed"*|*"Login cancelled"*) fail "sign-in to $PROVIDER was cancelled" ;;
-    *"in use"*) fail "another sign-in is still holding the port $PROVIDER redirects back to (quit any other Codex or omp sign-in), then try again" ;;
-    *) fail "sign-in to $PROVIDER did not finish: $why" ;;
+    *"stdin closed"*|*"Login cancelled"*) fail "sign-in to $ACCOUNT was cancelled" ;;
+    *"in use"*) fail "another sign-in is still holding the port $ACCOUNT redirects back to (quit any other Codex or omp sign-in), then try again" ;;
+    *) fail "sign-in to $ACCOUNT did not finish: $why" ;;
   esac
 fi
 progress 90 "Checking sign-in"

@@ -386,7 +386,8 @@ export function AiStep({ ctx }: { ctx: WizardCtx }) {
           ) : null}
           {login.view.status === 'err' ? (
             <Alert color="red" title="Sign-in did not finish" data-testid="setup-ai-error">
-              {login.view.message} Press Sign in again to retry.
+              <Text size="sm">{login.view.message}</Text>
+              <Text size="sm">Press a Sign in button to try again.</Text>
             </Alert>
           ) : null}
         </>
