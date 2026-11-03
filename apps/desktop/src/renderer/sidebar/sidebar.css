@@ -44,21 +44,18 @@ html[data-eva-motion='off'] .eva-sb-track {
   flex: none;
   display: flex;
   flex-direction: column;
-  gap: var(--eva-space-native-xs);
-  padding: 0 var(--eva-space-native-sm) var(--eva-space-native-sm);
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  padding: calc(var(--mantine-spacing-md) * 0.875) var(--mantine-spacing-md);
   -webkit-app-region: drag;
 }
 .eva-sb-header > * {
   -webkit-app-region: no-drag;
 }
-.eva-sb-header:has(.eva-sb-brand) {
-  gap: var(--eva-space-md);
-}
 .eva-sb-brand {
   display: flex;
   align-items: center;
-  gap: var(--eva-space-native-sm);
-  padding: 0 var(--eva-space-xs);
+  gap: var(--mantine-spacing-sm);
+  padding: 0 var(--mantine-spacing-sm);
 }
 .eva-sb-logo {
   width: var(--eva-tile-lg);
@@ -83,9 +80,9 @@ html[data-eva-motion='off'] .eva-sb-track {
 .eva-sb-search {
   display: flex;
   align-items: center;
-  gap: var(--eva-space-xs);
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
   height: var(--eva-control-sm);
-  padding: 0 var(--eva-space-native-xs);
+  padding: 0 var(--mantine-spacing-xs);
   box-sizing: border-box;
   border-radius: var(--eva-radius);
   border: 1px solid transparent;
@@ -112,7 +109,7 @@ html[data-eva-motion='off'] .eva-sb-track {
 .eva-sb-scroll {
   flex: 1;
   min-height: 0;
-  padding: 0 var(--eva-space-native-sm);
+  padding: var(--mantine-spacing-md) var(--mantine-spacing-md) 0;
 }
 .eva-sb-scroll > .eva-scroll {
   height: 100%;
@@ -121,21 +118,23 @@ html[data-eva-motion='off'] .eva-sb-track {
   font-size: var(--eva-fz-caption);
   font-weight: var(--eva-fw-regular);
   color: var(--eva-text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 .eva-sb-section-main {
-  padding: var(--eva-space-native-xs) var(--eva-space-xs) var(--eva-space-xs);
+  padding: 0 var(--mantine-spacing-sm) calc(var(--mantine-spacing-xs) * 0.8);
 }
 /* A later group: more space above it than between its rows. */
 .eva-sb-section-group {
-  padding: var(--eva-space-md) var(--eva-space-xs) var(--eva-space-xs);
+  padding: var(--mantine-spacing-md) var(--mantine-spacing-sm) calc(var(--mantine-spacing-xs) * 0.8);
 }
 .eva-sb-row {
   display: flex;
   align-items: center;
-  gap: var(--eva-space-native-sm);
+  gap: var(--mantine-spacing-sm);
   width: 100%;
   height: var(--eva-control-sm);
-  padding: 0 var(--eva-space-native-sm);
+  padding: 0 var(--mantine-spacing-sm);
   box-sizing: border-box;
   border: 0;
   border-radius: var(--eva-radius);
@@ -150,7 +149,7 @@ html[data-eva-motion='off'] .eva-sb-track {
     color var(--eva-dur-fast) ease;
 }
 .eva-sb-scroll .eva-sb-row + .eva-sb-row {
-  margin-top: var(--eva-space-xs);
+  margin-top: calc(var(--mantine-spacing-xs) * 0.4);
 }
 .eva-sb-row:hover {
   background: var(--eva-hover);
@@ -170,7 +169,7 @@ html[data-eva-motion='off'] .eva-sb-track {
   font-size: var(--eva-fz-caption);
   font-weight: var(--eva-fw-regular);
   font-variant-numeric: tabular-nums;
-  padding: 0 var(--eva-space-xs);
+  padding: 0 calc(var(--mantine-spacing-xs) * 0.4);
   border-radius: var(--eva-radius-sm);
   background: var(--eva-hover);
 }
@@ -181,22 +180,22 @@ html[data-eva-motion='off'] .eva-sb-track {
   color: var(--eva-text-dim);
 }
 .eva-sb-empty {
-  padding: var(--eva-space-sm) 12px;
+  padding: var(--mantine-spacing-sm);
   font-size: var(--eva-fz-label);
 }
 .eva-sb-footer {
   flex: none;
   display: flex;
   flex-direction: column;
-  gap: var(--eva-space-xs);
-  padding: var(--eva-space-native-sm) var(--eva-space-native-sm) var(--eva-space-native-xs);
+  gap: calc(var(--mantine-spacing-xs) * 0.2);
+  padding: var(--mantine-spacing-md);
 }
 /* Pinned below a sub-page's scrolling list (the chats Settled fold); opens upward, scrolls itself. */
 .eva-sb-subfooter {
   flex: none;
   max-height: 45%;
   overflow-y: auto;
-  padding: var(--eva-space-native-xs) var(--eva-space-native-sm);
+  padding: calc(var(--mantine-spacing-xs) * 0.4) var(--mantine-spacing-md);
 }
 .eva-sb-subfooter.eva-cl:empty {
   display: none;
@@ -206,7 +205,7 @@ html[data-eva-motion='off'] .eva-sb-track {
 }
 .eva-sb-error {
   font-size: var(--eva-fz-label);
-  padding: 0 12px;
+  padding: 0 var(--mantine-spacing-sm);
 }
 /* Settings popover: flat rows split by hairlines, nothing boxed. */
 .eva-sb-row-static {
@@ -219,7 +218,7 @@ html[data-eva-motion='off'] .eva-sb-track {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 var(--eva-space-native-xs);
+  padding: 0 var(--mantine-spacing-xs);
 }
 .eva-sb-title,
 .eva-sb-title-btn {
@@ -239,8 +238,8 @@ html[data-eva-motion='off'] .eva-sb-track {
   align-self: flex-start;
   width: auto;
   height: var(--eva-control-xs);
-  gap: var(--eva-space-xs);
-  padding: 0 var(--eva-space-native-xs) 0 var(--eva-space-xs);
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  padding: 0 var(--mantine-spacing-xs);
   color: var(--eva-text-dim);
 }
 .eva-sb-page[data-level='chats'] [data-testid='sidebar-back']:hover {

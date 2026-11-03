@@ -245,23 +245,7 @@
     "padding: var(--eva-space-native-lg)": 1
   },
   "apps/desktop/src/renderer/sidebar/sidebar.css": {
-    "gap: var(--eva-space-md)": 1,
-    "gap: var(--eva-space-native-sm)": 2,
-    "gap: var(--eva-space-native-xs)": 1,
-    "gap: var(--eva-space-xs)": 3,
-    "margin-top: var(--eva-space-xs)": 1,
-    "padding: 0 12px": 1,
-    "padding: 0 var(--eva-space-native-sm)": 2,
-    "padding: 0 var(--eva-space-native-sm) var(--eva-space-native-sm)": 1,
-    "padding: 0 var(--eva-space-native-xs)": 2,
-    "padding: 0 var(--eva-space-native-xs) 0 var(--eva-space-xs)": 1,
-    "padding: 0 var(--eva-space-xs)": 2,
-    "padding: var(--eva-sidebar-top) 0 0": 1,
-    "padding: var(--eva-space-md) var(--eva-space-xs) var(--eva-space-xs)": 1,
-    "padding: var(--eva-space-native-xs) var(--eva-space-native-sm)": 1,
-    "padding: var(--eva-space-native-xs) var(--eva-space-native-sm) var(--eva-space-native-sm)": 1,
-    "padding: var(--eva-space-native-xs) var(--eva-space-xs) var(--eva-space-xs)": 1,
-    "padding: var(--eva-space-sm) 12px": 1
+    "padding: var(--eva-sidebar-top) 0 0": 1
   },
   "apps/desktop/src/renderer/styles/tokens.css": {
     "gap: var(--eva-space-sm)": 1,
