@@ -27,6 +27,9 @@ struct LinearHook: AppHook {
         state says no issue is open, say so in the first line, then summarize the issues visible in the list in the \
         screenshot and accessibility elements in one or two lines. If the API data is missing, answer from the screen \
         only and say it is from the screen.
+        If the state says a document is open (not the issue view), your first line says it is that doc for the key \
+        ("This is the design doc for ENG-6309"), then explain what the doc says from its visible text, then one line \
+        on the issue it belongs to (status, what blocks it). Never describe a document as if it were the issue.
         Never state anything the data does not show. You are read-only in Linear: never call do(), and if asked \
         to comment, change status, assign or edit, say in one line that you only read tickets.
         """
@@ -39,20 +42,57 @@ struct LinearHook: AppHook {
             Log.info("linear hook: no issue key in window title \"\(title)\"")
             return "No issue is open on screen (window title \"\(title)\"): the user is in a list, board or other view."
         }
+        var issue: String?
         if let hit = Self.cached(key) {
             Log.info(String(format: "linear hook: %@ from cache (%.0f ms)", key, Date().timeIntervalSince(started) * 1000))
-            return hit
+            issue = hit
+        } else {
+            do {
+                let text = try await Self.fetch(key)
+                Self.store(key, text)
+                Log.info(String(format: "linear hook: fetched %@ in %.0f ms (%d chars)", key, Date().timeIntervalSince(started) * 1000, text.count))
+                issue = text
+            } catch {
+                Log.info(String(format: "linear hook: fetch %@ failed after %.0f ms: %@, screen only", key,
+                                Date().timeIntervalSince(started) * 1000, error.localizedDescription))
+            }
         }
-        do {
-            let text = try await Self.fetch(key)
-            Self.store(key, text)
-            Log.info(String(format: "linear hook: fetched %@ in %.0f ms (%d chars)", key, Date().timeIntervalSince(started) * 1000, text.count))
-            return text
-        } catch {
-            Log.info(String(format: "linear hook: fetch %@ failed after %.0f ms: %@, screen only", key,
-                            Date().timeIntervalSince(started) * 1000, error.localizedDescription))
-            return "Issue on screen: \(key) (window title \"\(title)\"). The Linear API did not answer in time, so there is no ticket data: answer from the screen only."
+        if let doc = Self.document(key: key, windowTitle: title, issue: issue, pid: pid) {
+            Log.info("linear hook: window shows a document \"\(doc.title)\" for \(key), not the issue view (\(doc.text.count) chars of doc text via AX)")
+            return """
+            Open on screen: a document titled "\(doc.title)" for \(key), not the issue view itself (window title "\(title)").
+            Document text visible on screen:
+            \(doc.text.isEmpty ? "(could not read it: answer from the screenshot)" : doc.text)
+
+            The issue this document belongs to:
+            \(issue ?? "Issue \(key): the Linear API did not answer in time, so there is no ticket data.")
+            """
         }
+        Log.info("linear hook: \(key) issue view")
+        return issue ?? "Issue on screen: \(key) (window title \"\(title)\"). The Linear API did not answer in time, so there is no ticket data: answer from the screen only."
+    }
+
+    /// A document opened from an issue (Linear titles its tab and window "<KEY> <doc title>") rather than
+    /// the issue view: the window title after the key is not the issue's title, or, without API data, the
+    /// page lacks the issue view's Properties panel. The doc's text is the page's main editor, read via AX.
+    static func document(key: String, windowTitle: String, issue: String?, pid: pid_t) -> (title: String, text: String)? {
+        guard let range = windowTitle.range(of: key) else { return nil }
+        let rest = windowTitle[range.upperBound...].trimmingCharacters(in: .whitespaces)
+        guard !rest.isEmpty else { return nil }
+        let page = AXPage.read(pid: pid, windowTitle: windowTitle)
+        if let issue, let first = issue.split(separator: "\n").first, first.hasPrefix("Ticket \(key): ") {
+            let issueTitle = normalized(String(first.dropFirst("Ticket \(key): ".count)))
+            let shown = normalized(rest)
+            let n = min(issueTitle.count, shown.count, 40)
+            if n > 0, issueTitle.prefix(n) == shown.prefix(n) { return nil }
+        } else if page.headings.contains("Properties") || page.headings.isEmpty {
+            return nil
+        }
+        return (rest, page.editorText)
+    }
+
+    private static func normalized(_ s: String) -> String {
+        s.lowercased().filter { $0.isLetter || $0.isNumber }
     }
 
     func snapshot() async -> String? { nil }
@@ -206,5 +246,49 @@ struct LinearHook: AppHook {
             }
         }
         return out.joined(separator: "\n")
+    }
+}
+
+/// The Linear page's headings and main editor text, read straight from the AX tree (Linear is a web
+/// view: its editor is one AXTextArea whose value is the whole document).
+enum AXPage {
+    static func read(pid: pid_t, windowTitle: String) -> (headings: Set<String>, editorText: String) {
+        guard AXIsProcessTrusted() else { return ([], "") }
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, 0.25)
+        var value: CFTypeRef?
+        AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value)
+        let windows = (value as? [AXUIElement]) ?? []
+        guard let window = windows.first(where: { string($0, kAXTitleAttribute) == windowTitle }) ?? windows.first else { return ([], "") }
+        var headings: Set<String> = []
+        var editor = ""
+        var stack = [window]
+        var visited = 0
+        let deadline = Date().addingTimeInterval(0.8)
+        while let element = stack.popLast(), visited < 5000, Date() < deadline {
+            visited += 1
+            switch string(element, kAXRoleAttribute) {
+            case "AXHeading":
+                if let t = string(element, kAXTitleAttribute) ?? string(element, kAXDescriptionAttribute) { headings.insert(t) }
+            case "AXTextArea":
+                if let t = string(element, kAXValueAttribute), t.count > editor.count { editor = t }
+                continue
+            case "AXMenuBar":
+                continue
+            default:
+                break
+            }
+            var children: CFTypeRef?
+            AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &children)
+            stack.append(contentsOf: ((children as? [AXUIElement]) ?? []).reversed())
+        }
+        let text = editor.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (headings, text.count <= 3000 ? text : String(text.prefix(3000)) + " [...]")
+    }
+
+    private static func string(_ element: AXUIElement, _ attribute: String) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { return nil }
+        return value as? String
     }
 }
