@@ -98,7 +98,8 @@ final class OpenAISpeech: VoiceOutput, @unchecked Sendable {
                 }
             }
         }
-        if isCurrent(mine) { teardownEngine() }
+        let finished = isCurrent(mine) && !Task.isCancelled
+        if finished { teardownEngine() }
         if let url = recordTo, !recorded.isEmpty { try OpenAISpeech.writeWAV(recorded, to: url) }
         lock.lock()
         let error = (generation == mine) ? failure : nil
@@ -108,7 +109,9 @@ final class OpenAISpeech: VoiceOutput, @unchecked Sendable {
             Log.info("speech voice=\(voice) model=\(model) ttfb=\(ttfb) error=\(error.localizedDescription)")
             throw error
         }
-        Log.info("speech voice=\(voice) model=\(model) ttfb=\(ttfb) ok chars=\(spoken.count)" + (error.map { " late-error=\($0.localizedDescription)" } ?? ""))
+        Log.info("speech voice=\(voice) model=\(model) ttfb=\(ttfb) ok chars=\(spoken.count) "
+                 + String(format: "%@ after %.1fs", finished ? "played to the end" : "cut short", Date().timeIntervalSince(started))
+                 + (error.map { " late-error=\($0.localizedDescription)" } ?? ""))
     }
 
     /// Instant: halts the player, cancels downloads, releases a pending speak().
@@ -132,9 +135,11 @@ final class OpenAISpeech: VoiceOutput, @unchecked Sendable {
     /// First request carries the voice `instructions`. Measured (curl, same body, 20 requests each): with
     /// `instructions` gpt-4o-mini-tts hangs without answering on roughly 10-55% of requests (any
     /// instruction text, any client), without it 20/20 answer in ~0.6 s. So if the styled request has not
-    /// produced audio after `hedgeDelay`, the same sentence is requested again without `instructions`;
-    /// whichever delivers audio first plays and the other is cancelled.
-    static let hedgeDelay: UInt64 = 900_000_000
+    /// produced audio after the first `hedgeDelays` entry, the same sentence is requested again without
+    /// `instructions`, and once more after the second; whichever delivers audio first plays and the others
+    /// are cancelled. The second plain request is there because on bad days (2026-11-03: styled 3/3 and
+    /// plain 2/7 hung for 12 s+) one plain request hangs too, and a lesson's next line then went silent.
+    static let hedgeDelays: [UInt64] = [900_000_000, 2_400_000_000]
 
     private final class Race: @unchecked Sendable {
         private let lock = NSLock()
@@ -160,17 +165,21 @@ final class OpenAISpeech: VoiceOutput, @unchecked Sendable {
         defer { out.finish() }
         let race = Race()
         let styled = Task { [self] in await attempt(sentence, key: key, styled: true, id: 0, race: race, into: out) }
-        let plain = Task { [self] () -> Request? in
-            try? await Task.sleep(nanoseconds: OpenAISpeech.hedgeDelay)
-            if Task.isCancelled || race.decided { return nil }
-            return await attempt(sentence, key: key, styled: false, id: 1, race: race, into: out)
+        let plains = OpenAISpeech.hedgeDelays.enumerated().map { n, delay in
+            Task { [self] () -> Request? in
+                try? await Task.sleep(nanoseconds: delay)
+                if Task.isCancelled || race.decided { return nil }
+                return await attempt(sentence, key: key, styled: false, id: n + 1, race: race, into: out)
+            }
         }
-        race.set([styled, plain])
+        race.set([styled] + plains)
         let failed: [Request?] = await withTaskCancellationHandler {
-            [await styled.value, await plain.value]
+            var results = [await styled.value]
+            for plain in plains { results.append(await plain.value) }
+            return results
         } onCancel: { race.cancelAll() }
-        // A winner got audio; otherwise report the plain attempt's error (or the styled one's).
-        if !race.decided, let error = (failed[1] ?? failed[0])?.error { record(error, generation: mine) }
+        // A winner got audio; otherwise report the last plain attempt's error (or an earlier one's).
+        if !race.decided, let error = failed.reversed().compactMap({ $0?.error }).first { record(error, generation: mine) }
     }
 
     private func attempt(_ sentence: String, key: String, styled: Bool, id: Int, race: Race,

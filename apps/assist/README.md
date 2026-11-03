@@ -10,7 +10,7 @@ hold it to ask by voice. The answer comes from one of Isaac's assistants: **Nova
 her name on the tag) glides to the control, pulses a ring on it, shows a one-line caption (and
 says it in her voice), then fades about 2 seconds later. It does small chores for you (switching a
 mode, opening a menu) with an Undo pill, does the step itself only when you say "do it", and runs
-short lessons ("teach me to ...") that move on when you finish each step.
+short lessons ("teach me to ...", "walk me through ...") that move on by themselves as you finish each step.
 
 ## Assistants and routing
 
@@ -81,8 +81,9 @@ make test                        # or ./build.sh test: behaviour tests in Tests/
 
 The tests cover the rules decided without a model or the screen: who answers (names, issue keys,
 the Linear app rule), the open-by-key shortcuts, "what can you do here?", handoff intents,
-plan-cache trust (saved only once used without Undo, deleted on Undo after a replay, `--forget`)
-and lesson checks (one step at a time, a check already true at step start never ticks it off).
+plan-cache trust (saved only once used without Undo, deleted on Undo after a replay, `--forget`),
+which asks start a lesson ("can you walk me through how to make a donut?"), and how the app's state
+ticks lesson steps off and jumps ahead (`LessonProgress`, the donut recipe's steps).
 They use a temp registry, plan store and log (`RELAY_BUDDY_LOG`).
 
 The OpenAI key comes from `OPENAI_API_KEY`, else `/Users/ike/Eva/secrets/openai.env`
@@ -130,11 +131,18 @@ app that was frontmost. A newly started Buddy tells any older instance to quit.
   stays 4 s (instead of 2 s) so the Undo pill is reachable, and hovering the pill holds it.
 - **Undo**: through the app hook when there is one (Blender: steps `bpy.ops.ed.undo()` back until
   the scene's fingerprint matches the state before Buddy acted), else Cmd+Z to the app.
-- **Lessons**: "teach me to X" plans 2 to 5 steps (the user's own list when given), shows a small
-  "Step 2 of 3 · Scale it up" pill by the cursor that hides itself, points at each step, and
-  checks about once a second whether the step is done: a hook expression (Blender, for example
-  `obj is not None and obj.name.startswith('Torus')`), or any change in the window's AX tree for
-  apps without a hook. Type or say `next`/`skip` to move on, `stop` to end.
+- **Lessons** (`Sources/Lesson.swift`): "teach me to X", "walk me through X", "can you show me how
+  to X", "X step by step" (and in Blender a plain "how do I X") start one. A built-in recipe runs
+  when there is one (`Sources/LessonRecipes.swift`: the classic Blender donut, 9 steps from torus to
+  Solidify icing); otherwise the model plans 2 to 5 steps (the user's own list when given). The
+  checklist panel shows every step; each step is spoken and captioned the moment it starts, then
+  pointed at (planned one step ahead). Twice a second every remaining step's check is read against
+  the live app (Blender: one add-on round trip; skipped while a transform or box select is still
+  running), and the lesson moves to the furthest step the app shows done: a user who runs ahead
+  is followed there, steps already done when it starts are ticked. A check whose state passes (a
+  mode, a selection) never blocks that jump; one whose state lasts (a torus, a modifier) does. A
+  step with no check is done on any scene change; apps without a hook move on when the window's
+  AX tree changes. Type or say `next`/`skip` to move on by hand, `stop` (or Esc) to end.
 - **What can you do here?** (also "help"): a template answer, no model call, built from what is
   wired for the app in front (its hook, Jev navigation, the open-by-key shortcuts, lessons,
   handoffs): a few spoken sentences, one caption line and two things to try (`Sources/Capabilities.swift`).
@@ -145,10 +153,12 @@ app that was frontmost. A newly started Buddy tells any older instance to quit.
   appends to Nova's `followups.json`; `RELAY_ASSIST_FOLLOWUPS=<file>` points it at a scratch copy.
   Saying "test" marks the message TEST so the assistant only acknowledges it.
 - **Overlay**: transparent, click-through, on every Space, never key. Any click (it still reaches
-  the app) or Esc dismisses Buddy at once and stops speech. The Undo pill is the one clickable
-  piece, a separate non-activating panel.
+  the app) or Esc dismisses Buddy at once. The Undo pill is the one clickable piece, a separate
+  non-activating panel.
 - **Voice** (`Sources/Voice`, built by BuddyVoice): streaming transcription while the key is
-  held, spoken captions that stop the moment you dismiss Buddy or ask again.
+  held, and spoken captions. A click never cuts her off (it is the user doing what she said); Esc,
+  "stop", holding the hotkey or a new ask does. A lesson step done while she is still speaking
+  hands over to the next step's line straight away.
 - **Log**: `~/Library/Logs/RelayBuddy.log` (timings, tool calls, chores, undo, lesson progress).
 
 ## App hooks

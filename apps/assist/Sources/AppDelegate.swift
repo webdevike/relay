@@ -134,13 +134,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             MainActor.assumeIsolated { self?.overlay.undoNow() }
         }
 
-        overlay.onDismiss = { [weak self] in
-            self?.voice.stopSpeaking()
-        }
         overlay.onUndo = { [weak self] in self?.trust.undone() }
         trust.undoShowing = { [weak self] in self?.overlay.undoAvailable == true }
         overlay.isSpeaking = { [weak self] in self?.voice.isSpeaking ?? false }
-        overlay.onEscape = { [weak self] in _ = self?.lesson.handleCommand("stop") }
+        // Esc is the one key that silences her; a click (the user doing the step) only hides the caption.
+        overlay.onEscape = { [weak self] in
+            guard let self else { return }
+            Log.info("esc: speech stopped")
+            self.voice.stopSpeaking()
+            _ = self.lesson.handleCommand("stop")
+        }
         Log.info(AXIsProcessTrusted()
                  ? "esc: Accessibility granted, passive global key monitor (Esc also reaches the app)"
                  : "esc: no Accessibility, so global key monitors get no keys; Carbon Esc hotkey while the overlay shows, Stop button for lessons")
@@ -195,6 +198,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let text, !text.isEmpty else { return }
         lastSaid = text
         guard speaks else { return }
+        if voice.isSpeaking { Log.info("speech: hands over to the next line while still speaking") }
         voice.speak(text, voice: assistant.liveVoice)
     }
 
@@ -355,23 +359,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return runHandoff(intent, said: question, target: target, assistant: decision.assistant, started: started)
         }
         if lesson.handleCommand(question) { return }
-        if let goal = LessonController.goal(in: question) ?? learningHowTo(question, target: target) {
+        if LessonController.isStop(question) {
+            Log.info("stop: speech stopped")
+            voice.stopSpeaking()
+            return overlay.dismiss(fast: true)
+        }
+        if let goal = LessonController.goal(in: question, learnable: AppHooks.hook(for: target) is BlenderHook) {
             work?.cancel()
+            voice.stopSpeaking()
             return lesson.start(goal: goal, target: target, assistant: decision.assistant)
         }
         lesson.stop()
         ask(question, about: target, prefetched: prefetched)
-    }
-
-    /// "how do I bevel this cube" in an app you're learning (one with a live hook, like Blender) gets a
-    /// step-by-step lesson that waits for each step, not a one-line answer mixing shortcuts and tools.
-    private func learningHowTo(_ question: String, target: TargetApp) -> String? {
-        guard AppHooks.hook(for: target) is BlenderHook else { return nil }
-        let pattern = #"^\s*(?:so\s+|ok\s+|okay\s+)?(?:how (?:do|can|would|should) i|how to|how do you)\s+(.+?)\??\s*$"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
-              let match = regex.firstMatch(in: question, range: NSRange(question.startIndex..., in: question)),
-              let range = Range(match.range(at: 1), in: question) else { return nil }
-        return String(question[range])
     }
 
     /// "What can you do here?" / "help": the template from Capabilities, spoken plus one caption line. A

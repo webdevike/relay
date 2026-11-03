@@ -14,8 +14,19 @@ protocol AppHook: Sendable {
     func undo(to snapshot: String) async -> Bool
     /// Evaluates a lesson step's completion check.
     func check(_ expression: String) async -> Bool?
+    /// Evaluates several checks against one moment of the app's state, in order (nil: that one errored).
+    /// nil overall while the user is mid-operation (a drag, a modal tool), when the state is not settled.
+    func checks(_ expressions: [String]) async -> [Bool?]?
     /// Extra rules for the model about acting in this app.
     var promptNotes: String { get }
+}
+
+extension AppHook {
+    func checks(_ expressions: [String]) async -> [Bool?]? {
+        var out: [Bool?] = []
+        for expression in expressions { out.append(await check(expression)) }
+        return out
+    }
 }
 
 enum AppHooks {
@@ -258,11 +269,45 @@ struct BlenderHook: AppHook {
         return nil
     }
 
+    /// One round trip for every check. A transform, duplicate or box select still running (the user is
+    /// dragging) reports "busy": its half-done state neither ticks a step nor counts as undone.
+    func checks(_ expressions: [String]) async -> [Bool?]? {
+        let script = BlenderLink.prelude + """
+        obj = bpy.context.view_layer.objects.active
+        if obj and obj.mode == 'EDIT':
+            obj.update_from_editmode()
+        _busy = [op.bl_idname for w in bpy.context.window_manager.windows for op in w.modal_operators
+                 if op.bl_idname.startswith(('TRANSFORM_OT', 'MESH_OT', 'VIEW3D_OT_select', 'OBJECT_OT_duplicate'))]
+        _env = {'bpy': bpy, 'obj': obj, 'scene': bpy.context.scene, 'mode': bpy.context.mode}
+        _out = []
+        for _e in \(Self.pythonList(expressions)):
+            try:
+                _out.append(bool(eval(_e, _env)))
+            except Exception as e:
+                _out.append('ERR %s' % e)
+        print(json.dumps({'busy': _busy, 'results': _out}))
+        """
+        guard let out = try? await BlenderLink.execute(script, timeout: 3),
+              let json = (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [String: Any] else { return nil }
+        if let busy = json["busy"] as? [String], !busy.isEmpty { return nil }
+        let results = (json["results"] as? [Any]) ?? []
+        guard results.count == expressions.count else { return nil }
+        return zip(results, expressions).map { result, expression in
+            if let ok = result as? Bool { return ok }
+            Log.info("lesson check error: \(result) for \(expression)")
+            return nil
+        }
+    }
+
     /// A Python string literal (JSON string syntax is valid Python).
     static func pythonString(_ s: String) -> String {
-        let data = (try? JSONSerialization.data(withJSONObject: [s], options: .withoutEscapingSlashes)) ?? Data("[\"\"]".utf8)
-        let array = String(decoding: data, as: UTF8.self)
-        return String(array.dropFirst().dropLast())
+        String(pythonList([s]).dropFirst().dropLast())
+    }
+
+    /// A Python list of string literals (a JSON array of strings is valid Python).
+    static func pythonList(_ strings: [String]) -> String {
+        let data = (try? JSONSerialization.data(withJSONObject: strings, options: .withoutEscapingSlashes)) ?? Data("[]".utf8)
+        return String(decoding: data, as: UTF8.self)
     }
 }
 

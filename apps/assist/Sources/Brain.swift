@@ -32,6 +32,9 @@ struct LessonStep {
     let instruction: String
     /// App-hook expression that turns true once the user finished the step (Blender: Python).
     var doneCheck: String?
+    /// The state the check reads stays once made (a torus, a modifier). False for a mode or selection
+    /// the next steps leave again: an unmet check of that kind does not stop a skip ahead past it.
+    var lasting = true
 }
 
 /// What Buddy knows about the moment of the question, beyond the screenshot.
@@ -131,6 +134,8 @@ final class Brain {
     active object or None), scene, mode (bpy.context.mode, e.g. 'OBJECT', 'EDIT_MESH'). Keep it \
     robust, e.g. "obj is not None and obj.name.startswith('Torus')" or \
     "obj is not None and all(p.use_smooth for p in obj.data.polygons)". Use null when there is no hook.
+    - lasting: true when what the check reads stays once made (an object, a modifier, shading); false \
+    when it is a mode or a selection that later steps leave again (e.g. "mode == 'EDIT_MESH'").
     """
 
     private static let nullableNumber: [String: Any] = ["type": ["number", "null"]]
@@ -178,6 +183,7 @@ final class Brain {
                 "title": ["type": "string"],
                 "instruction": ["type": "string"],
                 "done_check": nullableString,
+                "lasting": ["type": "boolean"],
             ]),
         ] as [String: Any],
     ])
@@ -279,7 +285,8 @@ final class Brain {
             let args = (try? JSONSerialization.jsonObject(with: Data((item["arguments"] as? String ?? "{}").utf8))) as? [String: Any] ?? [:]
             let steps = ((args["steps"] as? [[String: Any]]) ?? []).compactMap { s -> LessonStep? in
                 guard let title = s["title"] as? String, let instruction = s["instruction"] as? String else { return nil }
-                return LessonStep(title: title, instruction: instruction, doneCheck: s["done_check"] as? String)
+                return LessonStep(title: title, instruction: instruction, doneCheck: s["done_check"] as? String,
+                                  lasting: s["lasting"] as? Bool ?? true)
             }
             if !steps.isEmpty { return ((args["goal"] as? String) ?? goal, Array(steps.prefix(6))) }
         }

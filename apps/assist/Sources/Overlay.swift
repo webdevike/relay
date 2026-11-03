@@ -126,7 +126,6 @@ final class OverlayWindow: NSWindow {
 /// Shows Buddy: think at the cursor, glide to each target, pulse, caption, fade.
 @MainActor
 final class OverlayController {
-    var onDismiss: (() -> Void)?
     /// Fired when the user (or --undo) presses the Undo pill: a plan they undid is not worth caching.
     var onUndo: (() -> Void)?
     private(set) var isShowing = false
@@ -219,7 +218,6 @@ final class OverlayController {
         }
         layers.forEach { $0.opacity = 0 }
         CATransaction.commit()
-        onDismiss?()
     }
 
     // MARK: Chores, Undo, lesson pill
@@ -525,8 +523,13 @@ final class OverlayController {
     /// Passive monitors: they see clicks and Esc meant for other apps without consuming them.
     private func installMonitors() {
         guard monitors.isEmpty else { return }
+        // A click is the user doing the step: it hides the caption and marks, never her voice.
         if let click = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown], handler: { [weak self] _ in
-            MainActor.assumeIsolated { self?.dismiss(fast: true) }
+            MainActor.assumeIsolated {
+                guard let self, self.isShowing else { return }
+                Log.info("overlay: click hid the caption (speaking=\(self.isSpeaking?() == true), speech keeps playing)")
+                self.dismiss(fast: true)
+            }
         }) { monitors.append(click) }
         esc.activate()
     }

@@ -1,6 +1,6 @@
 # Buddy voice
 
-Hold to talk, release to send. Buddy speaks its caption aloud while it points, and goes quiet the moment you talk or dismiss it.
+Hold to talk, release to send. Buddy speaks its caption aloud while it points, and goes quiet the moment you talk, press Esc, say "stop" or ask again; a click (you doing the step) never cuts her off.
 
 ## Pieces
 

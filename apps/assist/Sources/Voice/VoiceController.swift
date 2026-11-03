@@ -2,14 +2,15 @@ import Carbon.HIToolbox
 import Cocoa
 import Foundation
 
-/// Push-to-talk plus spoken answers, with barge-in: starting to talk (or dismissing) silences Buddy
-/// at once. The app owns one of these and forwards the callbacks into the bubble and overlay.
+/// Push-to-talk plus spoken answers, with barge-in: starting to talk, Esc, "stop" or a new ask silences
+/// her at once; a click (the user doing what she said) never does. The app owns one of these and
+/// forwards the callbacks into the bubble and overlay.
 ///
 ///     beginListening()   key down: silences Buddy, starts the mic, partials stream to onPartial
 ///     endListening()     key up: stops the mic, onFinal(text) fires with the transcript
 ///     cancelListening()  dismissed: drop the turn, no onFinal
 ///     speak(text)        say the caption aloud (replaces anything still playing)
-///     stopSpeaking()     silence now (call on dismiss / new question)
+///     stopSpeaking()     silence now (Esc, "stop", a new question)
 @MainActor
 final class VoiceController {
     var onListening: ((Bool) -> Void)?
@@ -94,6 +95,9 @@ final class VoiceController {
     /// `voice`: the answering assistant's liveVoice, the same voice name Relay's live calls use.
     func speak(_ text: String, voice: String) {
         speakTask?.cancel()
+        // Silence the line still playing now, before the new one starts: the old speak() then sees it is no
+        // longer current and leaves the new line's audio engine alone.
+        output.stop()
         speakTurn += 1
         let mine = speakTurn
         onSpeaking?(true)

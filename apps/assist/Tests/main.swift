@@ -2,7 +2,8 @@ import Foundation
 
 // Behaviour tests for the rules Relay Assist decides by itself, without a model or the screen:
 // who answers (AssistantRouter), the no-brain asks (Shortcut, Capabilities, Handoff), when a plan
-// earns or loses its cache entry (PlanTrust), and how lesson checks tick steps off (LessonGate).
+// earns or loses its cache entry (PlanTrust), which asks start a lesson, and how the app's state ticks
+// lesson steps off and jumps ahead (LessonProgress, the donut recipe).
 // Built with the app's sources by `./build.sh test` (or `make test`); exits non-zero on a failure.
 
 // Fixtures before any static reads them: a registry with three assistants, a scratch plan store and log.
@@ -131,29 +132,82 @@ expect(!PlanCache.isSafe(action("bpy.ops.object.delete()")), "a delete is never 
 expect(!PlanCache.isSafe(BuddyAction(kind: .key, description: "Save", point: nil, code: nil, keys: ["cmd", "s"], menuPath: nil)),
        "Cmd+S is never replayed")
 
-// MARK: LessonGate
+// MARK: Lesson routing
 
-func run(_ results: [Bool?]) -> [LessonGate.Outcome] {
-    var gate = LessonGate()
-    return results.map { gate.observe($0).0 }
+let blenderAsks: [(String, String)] = [
+    ("Can you walk me through how to make a donut?", "make a donut"),
+    ("walk me through making a donut", "making a donut"),
+    ("Teach me how to add a torus.", "add a torus"),
+    ("teach me to model a mug", "model a mug"),
+    ("lesson: bevel the cube", "bevel the cube"),
+    ("could you please show me how to make a donut in Blender?", "make a donut"),
+    ("hey, can you guide me through making a donut please", "making a donut"),
+    ("I want to make a donut, walk me through it", "make a donut"),
+    ("make a donut step by step", "make a donut"),
+    ("how do I make a donut?", "make a donut"),
+    ("So how can I bevel this cube", "bevel this cube"),
+]
+for (ask, goal) in blenderAsks {
+    expectEqual(LessonController.goal(in: ask, learnable: true), goal, "\"\(ask)\" starts a lesson in Blender")
 }
-expectEqual(run([false, false, true]), [.waiting, .waiting, .done], "a check ticks its step once it turns true")
-expectEqual(run([true]), [.alreadyTrue], "a check already true at step start never ticks the step off")
-expectEqual(run([nil, nil]), [.waiting, .waiting], "an erroring check is never done")
-expectEqual(run([false, nil, true]), [.waiting, .waiting, .done], "an error in between does not block a later true")
-// Step 1 "add a torus" also left it smooth, so step 2's "shade smooth" check is already true when step 2 starts:
-// step 2 waits for "next" instead of ticking off the moment step 1 does.
-expectEqual(run([false, true]) + run([true]), [.waiting, .done, .alreadyTrue], "steps finish one at a time, in order")
-var gate = LessonGate()
-expectEqual(gate.observe(false).changed, true, "the first result is logged")
-expectEqual(gate.observe(false).changed, false, "a repeat is not logged")
-expectEqual(gate.observe(true).changed, true, "a change is logged")
-expect(LessonGate.usableAtPlanTime(false), "a check false at plan time is kept")
-expect(!LessonGate.usableAtPlanTime(true), "a check already true at plan time is rejected")
-expect(!LessonGate.usableAtPlanTime(nil), "a check that errors at plan time is rejected")
-expectEqual(LessonController.goal(in: "Teach me how to add a torus."), "add a torus", "teach me how to")
-expectEqual(LessonController.goal(in: "lesson: bevel the cube"), "bevel the cube", "lesson:")
-expect(LessonController.goal(in: "where is the bevel tool") == nil, "a question is not a lesson")
+expectEqual(LessonController.goal(in: "Can you walk me through how to make a donut?", learnable: false), "make a donut",
+            "a walkthrough ask is a lesson in any app")
+expect(LessonController.goal(in: "how do I make a folder", learnable: false) == nil, "a plain how-do-I outside Blender is an answer")
+for ask in ["where is the bevel tool", "what is this?", "show me the bevel tool", "walk the dog", "can you help me find Wi-Fi"] {
+    expect(LessonController.goal(in: ask, learnable: true) == nil, "\"\(ask)\" is not a lesson")
+}
+for said in ["stop", "Stop.", "stop talking", "be quiet", "end lesson"] { expect(LessonController.isStop(said), "\"\(said)\" stops her") }
+for said in ["stop the bevel", "next", "don't stop"] { expect(!LessonController.isStop(said), "\"\(said)\" is not a stop") }
+
+// MARK: LessonProgress
+
+// Five steps; step 3 (index 2) is a mode that passes, the rest last.
+let lasting = [true, true, false, true, true]
+func reached(_ current: Int, _ met: [Bool?]) -> Int? { LessonProgress.reached(from: current, met: met, lasting: lasting) }
+expectEqual(reached(0, [false, false, false, false, false]), nil, "nothing done yet, nothing reached")
+expectEqual(reached(0, [true, false, false, false, false]), 0, "the current step done ticks it")
+expectEqual(reached(0, [true, true, false, false, false]), 1, "two steps done at once: jump past both")
+expectEqual(reached(1, [true, false, true, false, false]), nil, "a passing mode on a later step jumps nowhere while a lasting step before it is undone")
+expectEqual(reached(1, [true, true, false, true, false]), 3, "a passing step left again is passed over on a skip ahead")
+expectEqual(reached(2, [true, true, false, true, true]), 4, "on a passing step, a later lasting step done jumps to the end")
+expectEqual(reached(0, [false, true, false, false, false]), nil, "a later step done means nothing while the current lasting step is not")
+expectEqual(reached(1, [true, nil, false, true, false]), 3, "a step with no check (or an error) does not stop a skip ahead")
+expectEqual(reached(4, [true, true, true, true, true]), 4, "the last step done ends the walk there")
+expectEqual(reached(5, [true, true, true, true, true]), nil, "past the end, nothing")
+expect(LessonProgress.usableAtPlanTime(false), "a check false at plan time is kept")
+expect(!LessonProgress.usableAtPlanTime(true), "a check already true at plan time is rejected")
+expect(!LessonProgress.usableAtPlanTime(nil), "a check that errors at plan time is rejected")
+
+// MARK: The donut recipe
+
+let donut = LessonRecipes.match(goal: "make a donut", hook: BlenderHook())
+expect(donut != nil, "a donut in Blender uses the built-in recipe")
+expect(LessonRecipes.match(goal: "making a doughnut", hook: BlenderHook()) != nil, "doughnut spelling too")
+expect(LessonRecipes.match(goal: "make a donut", hook: nil) == nil, "no recipe without the Blender hook")
+expect(LessonRecipes.match(goal: "model a mug", hook: BlenderHook()) == nil, "other goals are planned by the model")
+if let donut {
+    expectEqual(donut.steps.map(\.title).prefix(4), ["Add a torus", "Shape the dough", "Smooth the shape", "Shade smooth"],
+                "torus, scale, subdivision, shade smooth")
+    expect(donut.steps.allSatisfy { $0.doneCheck != nil }, "every donut step has a check")
+    for step in donut.steps {
+        expect(step.instruction.count <= 90, "\"\(step.title)\" fits one caption (\(step.instruction.count) chars)")
+        expect(!step.instruction.contains("\u{2014}"), "\"\(step.title)\" has no em dash")
+    }
+    // The user's scene as the recipe's checks would read it, step by step. He adds the torus, scales,
+    // then does shade smooth before the subdivision, goes into Edit Mode, selects, separates the icing:
+    // each poll lands on the furthest step the scene shows.
+    let lasts = donut.steps.map(\.lasting)
+    func at(_ current: Int, _ met: [Bool]) -> Int? { LessonProgress.reached(from: current, met: met, lasting: lasts) }
+    expectEqual(lasts, [true, true, true, true, false, false, true, false, true], "mode and selection steps pass")
+    expectEqual(at(0, [true, false, false, false, false, false, false, false, false]), 0, "torus added: step 1 ticks")
+    expectEqual(at(1, [true, true, false, false, false, false, false, false, false]), 1, "scaled: step 2 ticks")
+    expectEqual(at(2, [true, true, false, true, false, false, false, false, false]), nil, "shade smooth before the subdivision waits on it")
+    expectEqual(at(2, [true, true, true, true, false, false, false, false, false]), 3, "subdivision then too: jump past shade smooth")
+    expectEqual(at(4, [true, true, true, true, true, true, false, false, false]), 5, "Tab and a box select at once: steps 5 and 6")
+    expectEqual(at(6, [true, true, true, true, false, false, true, false, false]), 6, "icing separated: step 7 ticks once out of Edit Mode too")
+    expectEqual(at(4, [true, true, true, true, false, false, true, true, false]), 7, "icing made and selected while on step 5: jump to 9")
+    expectEqual(at(7, [true, true, true, true, false, false, true, false, true]), 8, "Solidify on with the dough active: the lesson ends")
+}
 
 // MARK: PlanTrust (async: the store is a real JSON file in the scratch dir)
 
