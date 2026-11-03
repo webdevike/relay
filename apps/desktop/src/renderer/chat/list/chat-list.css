@@ -26,7 +26,7 @@
 .eva-cl {
   display: flex;
   flex-direction: column;
-  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  gap: calc(var(--mantine-spacing-xs) / 2);
   /* The end padding keeps row fills clear of the overlay scrollbar. */
   padding: calc(var(--mantine-spacing-xs) / 2) var(--mantine-spacing-xs) var(--mantine-spacing-sm) 0;
 }
@@ -74,19 +74,17 @@
   flex-direction: column;
 }
 .eva-cl-section + .eva-cl-section {
-  margin-top: calc(var(--mantine-spacing-xs) * 0.4);
+  margin-top: calc(var(--mantine-spacing-xs) / 2);
 }
 .eva-cl-rows {
   display: flex;
   flex-direction: column;
-  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  gap: calc(var(--mantine-spacing-xs) / 2);
   padding-top: calc(var(--mantine-spacing-xs) / 2);
 }
-/* A folder's rows sit under its header behind a 14px guide line; the Snoozed / Settled folds do not. */
+/* A folder's rows sit indented under its header; the Snoozed / Settled folds do not. */
 .eva-cl-nested > .eva-cl-rows {
-  margin-inline-start: calc(var(--mantine-spacing-md) * 0.875);
-  padding-inline-start: calc(var(--mantine-spacing-xs) * 0.4);
-  border-inline-start: 1px solid var(--eva-border);
+  padding-inline-start: var(--mantine-spacing-md);
 }
 
 /* Folder header and the Snoozed / Settled folds: Accordion.Control. */
