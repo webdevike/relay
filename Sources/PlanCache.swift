@@ -242,3 +242,55 @@ enum PlanCache {
         return DoRequest(announce: phase.announce ?? "Done", coreStep: false, actions: actions)
     }
 }
+
+/// When a plan earns its place in the cache and when it loses it. A new plan is trusted only once it
+/// was used without Undo: one that did a chore is saved after its Undo pill has gone away unpressed;
+/// Undo cancels that save. Undo after a replay means the cached plan did the wrong thing, so the
+/// replayed entry is deleted; the next ask ends that window.
+@MainActor
+final class PlanTrust {
+    /// True while an Undo pill is on screen.
+    var undoShowing: () -> Bool = { false }
+    /// How long a chore's save waits before it starts watching the pill, how often it looks, and its cap.
+    var settle: TimeInterval = 1
+    var pollEvery: TimeInterval = 0.5
+    var maxWait: TimeInterval = 120
+
+    private var pending: Task<Void, Never>?
+    /// Key of the plan just replayed from the cache: an Undo now deletes it.
+    private(set) var replayedKey: String?
+
+    func newAsk() { replayedKey = nil }
+
+    func replayed(_ key: String) { replayedKey = key }
+
+    /// Saves `plan` under `key` once trusted. Returns the save's task (it logs either way).
+    @discardableResult
+    func schedule(_ key: String, _ plan: CachedPlan) -> Task<Void, Never> {
+        let started = Date()
+        let needsWait = plan.phases.contains { !$0.actions.isEmpty }
+        pending?.cancel()
+        let task = Task { @MainActor [weak self] in
+            if needsWait, let self {
+                try? await Task.sleep(nanoseconds: UInt64(self.settle * 1e9))
+                while self.undoShowing(), !Task.isCancelled, Date().timeIntervalSince(started) < self.maxWait {
+                    try? await Task.sleep(nanoseconds: UInt64(self.pollEvery * 1e9))
+                }
+            }
+            if Task.isCancelled { return Log.info("plan-cache: not saved (undone or replaced)") }
+            PlanCache.save(key, plan)
+            Log.info(String(format: "plan-cache: saved %.0fms (%d phases, %@)%@", Date().timeIntervalSince(started) * 1000,
+                            plan.phases.count, plan.fingerprint, needsWait ? " after the Undo pill went unpressed" : ""))
+        }
+        pending = task
+        return task
+    }
+
+    /// The Undo pill was pressed: the plan waiting to be saved is not, and a replayed one is deleted.
+    func undone() {
+        pending?.cancel()
+        guard let key = replayedKey else { return }
+        replayedKey = nil
+        Log.info(PlanCache.remove(key) ? "plan-cache: deleted the replayed entry (undone)" : "plan-cache: replayed entry already gone")
+    }
+}

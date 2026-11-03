@@ -64,7 +64,14 @@ and single-question clips.
 ./build.sh                       # swiftc build into build/RelayBuddy.app, signed with the local
                                  # Apple Development identity when present (stable privacy grants)
 open build/RelayBuddy.app        # menu-bar app, no Dock icon
+make test                        # or ./build.sh test: behaviour tests in Tests/main.swift
 ```
+
+The tests cover the rules decided without a model or the screen: who answers (names, issue keys,
+the Linear app rule), the open-by-key shortcuts, "what can you do here?", handoff intents,
+plan-cache trust (saved only once used without Undo, deleted on Undo after a replay, `--forget`)
+and lesson checks (one step at a time, a check already true at step start never ticks it off).
+They use a temp registry, plan store and log (`RELAY_BUDDY_LOG`).
 
 The OpenAI key comes from `OPENAI_API_KEY`, else `/Users/ike/Eva/secrets/openai.env`
 (override the path with `RELAY_BUDDY_ENV_FILE`). Model: `gpt-6.1-terra` (`RELAY_BUDDY_MODEL`),

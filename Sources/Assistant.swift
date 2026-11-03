@@ -177,7 +177,7 @@ enum AssistantRouter {
         return Assistants.personal
     }
 
-    private static func decide(_ question: String, target: TargetApp?) -> Decision {
+    static func decide(_ question: String, target: TargetApp?) -> Decision {
         if let (assistant, stripped) = addressed(question) {
             return Decision(assistant: assistant, question: stripped, reason: "addressed:\(assistant.title)")
         }

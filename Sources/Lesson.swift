@@ -36,7 +36,7 @@ final class LessonController {
     }
 
     /// Matches "teach me to X", "teach me how to X", "lesson: X"; returns X.
-    static func goal(in question: String) -> String? {
+    nonisolated static func goal(in question: String) -> String? {
         let pattern = #"^\s*(?:please\s+)?(?:teach me(?: how)? to|lesson:?|show me how to)\s+(.+)$"#
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
               let match = regex.firstMatch(in: question, range: NSRange(question.startIndex..., in: question)),
@@ -256,24 +256,25 @@ final class LessonController {
         }
         poll = Task { [weak self] in
             var baseline: Int?
-            var last: Bool??
+            var gate = LessonGate()
             while !Task.isCancelled {
-                if last != nil || baseline != nil { try? await Task.sleep(nanoseconds: 500_000_000) }
+                if gate.started || baseline != nil { try? await Task.sleep(nanoseconds: 500_000_000) }
                 guard !Task.isCancelled else { return }
                 var done = false
                 if let hook, let check = step.doneCheck {
                     let result = await hook.check(check)
                     guard !Task.isCancelled else { return }
-                    if last == nil, result == true {
+                    let first = !gate.started
+                    let (outcome, changed) = gate.observe(result)
+                    if outcome == .alreadyTrue {
                         Log.info("lesson check step \(i + 1): YES already at step start, rejected for \(check)")
                         self?.waitForNext(i, why: "check already true at step start")
                         return
                     }
-                    if last == nil || last! != result {
-                        Log.info("lesson check step \(i + 1): \(Self.describe(result))\(last == nil ? " at step start" : "") for \(check)")
+                    if changed {
+                        Log.info("lesson check step \(i + 1): \(Self.describe(result))\(first ? " at step start" : "") for \(check)")
                     }
-                    last = .some(result)
-                    done = result == true
+                    done = outcome == .done
                 } else if let pid {
                     // No hook: any change in the window's controls counts as progress.
                     let lines = await Task.detached { () -> [String] in
@@ -313,19 +314,17 @@ final class LessonController {
             guard let check = step.doneCheck else { continue }
             let now = await hook.check(check)
             Log.info("lesson check step \(i + 1) at plan time: \(Self.describe(now)) for \(check)")
-            guard now == false else {
-                let why = now == true ? "it is already true now" : "it raised an error"
-                var replacement: String?
-                if let sceneState, let fresh = await brain.recheck(goal: goal, step: step, sceneState: sceneState,
-                                                                   rejected: check, why: why, timeout: 6) {
-                    let again = await hook.check(fresh)
-                    Log.info("lesson check step \(i + 1) re-planned: \(Self.describe(again)) at plan time for \(fresh)")
-                    if again == false { replacement = fresh }
-                }
-                steps[i].doneCheck = replacement
-                if replacement == nil { Log.info("lesson check step \(i + 1) rejected (\(why)): waits for next") }
-                continue
+            guard !LessonGate.usableAtPlanTime(now) else { continue }
+            let why = now == true ? "it is already true now" : "it raised an error"
+            var replacement: String?
+            if let sceneState, let fresh = await brain.recheck(goal: goal, step: step, sceneState: sceneState,
+                                                               rejected: check, why: why, timeout: 6) {
+                let again = await hook.check(fresh)
+                Log.info("lesson check step \(i + 1) re-planned: \(Self.describe(again)) at plan time for \(fresh)")
+                if LessonGate.usableAtPlanTime(again) { replacement = fresh }
             }
+            steps[i].doneCheck = replacement
+            if replacement == nil { Log.info("lesson check step \(i + 1) rejected (\(why)): waits for next") }
         }
         return steps
     }
@@ -362,4 +361,28 @@ final class LessonController {
         overlay.showMessage(message, near: nil)
         speak(message)
     }
+}
+
+/// The rules one step's done-check follows, so steps finish one at a time and in order: a check counts
+/// only once it has been seen false for this step; one that is already true when the step starts (the
+/// step before did it too) never ticks the step off by itself, and an error is never "done".
+struct LessonGate {
+    enum Outcome: Equatable { case waiting, done, alreadyTrue }
+    private var last: Bool??
+
+    /// A result has been seen for this step.
+    var started: Bool { last != nil }
+
+    /// Folds in one poll's result (nil: the check errored); `changed` is true when it differs from the last.
+    mutating func observe(_ result: Bool?) -> (Outcome, changed: Bool) {
+        let first = last == nil
+        let changed = first || last! != result
+        last = .some(result)
+        if first, result == true { return (.alreadyTrue, changed) }
+        return (result == true ? .done : .waiting, changed)
+    }
+
+    /// A planned check is kept only when it is false right now (true already, or an error, would tick
+    /// its step off by itself or never).
+    static func usableAtPlanTime(_ result: Bool?) -> Bool { result == false }
 }

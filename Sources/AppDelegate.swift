@@ -11,7 +11,9 @@ enum BuddyNotification {
 }
 
 enum Log {
+    /// RELAY_BUDDY_LOG moves it (the test runner logs to a temp file).
     private static let url: URL = {
+        if let path = ProcessInfo.processInfo.environment["RELAY_BUDDY_LOG"] { return URL(fileURLWithPath: path) }
         let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("RelayBuddy.log")
@@ -45,6 +47,12 @@ struct TargetApp: Sendable {
         pid = app.processIdentifier
         name = app.localizedName ?? "this app"
         bundleID = app.bundleIdentifier ?? ""
+    }
+
+    init(pid: pid_t, name: String, bundleID: String) {
+        self.pid = pid
+        self.name = name
+        self.bundleID = bundleID
     }
 
     /// System surfaces that are frontmost without being an app the user is learning.
@@ -124,15 +132,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         overlay.onDismiss = { [weak self] in
             self?.voice.stopSpeaking()
         }
-        overlay.onUndo = { [weak self] in
-            guard let self else { return }
-            self.pendingSave?.cancel()
-            // Undo after a replay means the cached plan did the wrong thing: it must not replay again.
-            if let key = self.replayedKey {
-                self.replayedKey = nil
-                Log.info(PlanCache.remove(key) ? "plan-cache: deleted the replayed entry (undone)" : "plan-cache: replayed entry already gone")
-            }
-        }
+        overlay.onUndo = { [weak self] in self?.trust.undone() }
+        trust.undoShowing = { [weak self] in self?.overlay.undoAvailable == true }
         overlay.isSpeaking = { [weak self] in self?.voice.isSpeaking ?? false }
         overlay.onEscape = { [weak self] in _ = self?.lesson.handleCommand("stop") }
         Log.info(AXIsProcessTrusted()
@@ -482,7 +483,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func ask(_ question: String, about target: TargetApp, prefetched: Task<ScreenContext, Error>? = nil) {
         work?.cancel()
-        replayedKey = nil
+        trust.newAsk()
         voice.stopSpeaking()
         let stay = question.range(of: #"\bstay\b"#, options: [.regularExpression, .caseInsensitive]) != nil
         let hook = AppHooks.hook(for: target)
@@ -530,8 +531,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 var cacheMissed = false
                 if cacheOn {
                     if let entry = PlanCache.lookup(cacheKey) {
-                        // Until the next ask, Undo means this replay was wrong (onUndo deletes the entry).
-                        self.replayedKey = cacheKey
+                        // Until the next ask, Undo means this replay was wrong (PlanTrust deletes the entry).
+                        self.trust.replayed(cacheKey)
                         switch try await self.replay(entry, context: context, hook: hook, stay: stay, started: started) {
                         case .done:
                             PlanCache.recordHit(cacheKey)
@@ -581,8 +582,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let recorded = try await self.carryOut(plan, question: question, context: context, ask: ask, hook: hook, stay: stay,
                                                        started: started)
                 if cacheOn, let recorded, !recorded.isEmpty {
-                    self.scheduleSave(key: cacheKey, question: question, context: context, fingerprint: fingerprint,
-                                      phases: prefix + recorded)
+                    self.trust.schedule(cacheKey, CachedPlan(question: PlanCache.normalize(question), bundleID: target.bundleID,
+                                                             version: PlanCache.version(of: target), fingerprint: fingerprint,
+                                                             phases: prefix + recorded, savedAt: Date(), hits: 0))
                 }
             } catch is CancellationError {
                 Log.info("ask cancelled")
@@ -715,32 +717,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return .done
     }
 
-    private var pendingSave: Task<Void, Never>?
-    /// Key of the plan just replayed from the cache: an Undo now deletes it.
-    private var replayedKey: String?
-
-    /// A new plan is trusted only once it was used without Undo: one that did a chore is saved after its
-    /// Undo pill has gone away unpressed (onUndo cancels this).
-    private func scheduleSave(key: String, question: String, context: ScreenContext, fingerprint: String, phases: [CachedPhase]) {
-        let entry = CachedPlan(question: PlanCache.normalize(question), bundleID: context.target.bundleID,
-                               version: PlanCache.version(of: context.target), fingerprint: fingerprint,
-                               phases: phases, savedAt: Date(), hits: 0)
-        let started = Date()
-        let needsWait = phases.contains { !$0.actions.isEmpty }
-        pendingSave?.cancel()
-        pendingSave = Task { @MainActor [weak self] in
-            if needsWait {
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-                while self?.overlay.undoAvailable == true, !Task.isCancelled, Date().timeIntervalSince(started) < 120 {
-                    try? await Task.sleep(nanoseconds: 500_000_000)
-                }
-                if Task.isCancelled { return Log.info("plan-cache: not saved (undone or replaced)") }
-            }
-            PlanCache.save(key, entry)
-            Log.info(String(format: "plan-cache: saved %.0fms (%d phases, %@)%@", Date().timeIntervalSince(started) * 1000, phases.count,
-                            fingerprint, needsWait ? " after the Undo pill went unpressed" : ""))
-        }
-    }
+    /// Plan-cache trust: saves only plans used without Undo, deletes a replayed one on Undo.
+    private let trust = PlanTrust()
 
     /// Points, or does chores (then looks again and points), or does the step when asked to.
     /// Returns what to cache: the phases of this answer, or nil when it must not be replayed.
