@@ -17,6 +17,11 @@ final class LessonController {
     private var hook: AppHook?
     private var work: Task<Void, Never>?
     private var poll: Task<Void, Never>?
+    /// Points for upcoming steps, planned while the user works on the step before; stored by meaning
+    /// (AX label or window fraction) so they can be found again on the changed screen without Terra.
+    private var prepared: [Int: Task<CachedPhase?, Never>] = [:]
+    /// When the last step was checked off (or next/skip said): the next point is timed from here.
+    private var advancedAt: Date?
 
     private let checklist = LessonChecklist()
     private var assistant = Assistants.personal
@@ -59,6 +64,8 @@ final class LessonController {
 
     func start(goal: String, target: TargetApp, assistant: Assistant) {
         cancelTasks()
+        dropPrepared()
+        advancedAt = nil
         checklist.close()
         isActive = true
         self.goal = goal
@@ -92,6 +99,7 @@ final class LessonController {
     func stop() {
         guard isActive else { return }
         cancelTasks()
+        dropPrepared()
         isActive = false
         checklist.close()
     }
@@ -101,6 +109,11 @@ final class LessonController {
         poll?.cancel()
         work = nil
         poll = nil
+    }
+
+    private func dropPrepared() {
+        prepared.values.forEach { $0.cancel() }
+        prepared = [:]
     }
 
     private func look(note: String?) async throws -> (ScreenContext, AskContext) {
@@ -119,20 +132,33 @@ final class LessonController {
         overlay.showStepPill("Step \(i + 1) of \(steps.count)  ·  \(step.title)")
         Log.info("lesson step \(i + 1)/\(steps.count): \(step.instruction)")
         startPolling(step, index: i)
+        let ahead = prepared.removeValue(forKey: i)
+        // Work out the next step's point now, while the user is busy with this one.
+        if i + 1 < steps.count, prepared[i + 1] == nil { prepared[i + 1] = prepare(i + 1) }
+        let since = advancedAt
         work = Task { [weak self] in
             guard let self else { return }
+            let ms = { since.map { String(format: "%.0fms", Date().timeIntervalSince($0) * 1000) } ?? "first step" }
+            if let ahead {
+                let waited = Date()
+                if let phase = await ahead.value, let (plan, context, via) = await self.relocate(phase) {
+                    guard !Task.isCancelled, self.index == i else { return }
+                    Log.info(String(format: "lesson point step %d: prefetched (%@, waited %.0fms) %@ after the check",
+                                    i + 1, via, Date().timeIntervalSince(waited) * 1000, ms()))
+                    self.overlay.perform(plan, context: context, stay: false)
+                    if let say = plan.say { self.speak(say) }
+                    return
+                }
+                Log.info("lesson point step \(i + 1): prefetched target gone or prefetch failed, asking terra")
+            }
             do {
-                let note = """
-                Lesson "\(self.goal)": the user is on step \(i + 1) of \(self.steps.count): \(step.instruction)
-                Point at where they do this step and say the instruction. Do not call do(): the user does it.
-                """
-                let (context, ask) = try await self.look(note: note)
+                let (context, ask) = try await self.look(note: self.stepNote(i, ahead: false))
                 var plan = try await self.brain.plan(question: step.instruction, context: context, ask: ask)
                 try Task.checkCancellation()
                 guard self.index == i else { return }
                 plan.doRequest = nil
                 if plan.say == nil { plan.say = step.instruction }
-                Log.info(String(format: "lesson point step %d: %@", i + 1, plan.summary))
+                Log.info(String(format: "lesson point step %d: terra %@ after the check, %@", i + 1, ms(), plan.summary))
                 self.overlay.perform(plan, context: context, stay: false)
                 if let say = plan.say { self.speak(say) }
             } catch is CancellationError {
@@ -143,6 +169,68 @@ final class LessonController {
         }
     }
 
+    private func stepNote(_ i: Int, ahead: Bool) -> String {
+        let step = steps[i]
+        if ahead, i > 0 {
+            return """
+            Lesson "\(goal)": the user is doing step \(i) of \(steps.count) right now: \(steps[i - 1].instruction)
+            Plan the NEXT step, step \(i + 1): \(step.instruction)
+            Point at where they will do step \(i + 1) once step \(i) is done (the screen may change a little when \
+            step \(i) is done, e.g. Edit Mode shows the mesh; aim where that control or object will be) and say the \
+            instruction for step \(i + 1). Do not call do(): the user does it.
+            """
+        }
+        return """
+        Lesson "\(goal)": the user is on step \(i + 1) of \(steps.count): \(step.instruction)
+        Point at where they do this step and say the instruction. Do not call do(): the user does it.
+        """
+    }
+
+    /// Plans step `i`'s point and caption from the current screen; the result is saved by meaning.
+    private func prepare(_ i: Int) -> Task<CachedPhase?, Never> {
+        let started = Date()
+        return Task { [weak self] in
+            guard let self else { return nil }
+            do {
+                let (context, ask) = try await self.look(note: self.stepNote(i, ahead: true))
+                let plan = try await self.brain.plan(question: self.steps[i].instruction, context: context, ask: ask)
+                try Task.checkCancellation()
+                var phase = PlanCache.phase(from: plan, context: context)
+                if phase.say == nil { phase.say = self.steps[i].instruction }
+                Log.info(String(format: "lesson prefetch step %d: ready in %.0fms, %@ [%@]", i + 1,
+                                Date().timeIntervalSince(started) * 1000, plan.summary,
+                                phase.steps.map { $0.axLabel.map { "ax:\($0)" } ?? "fraction" }.joined(separator: ",")))
+                return phase.steps.isEmpty ? nil : phase
+            } catch {
+                if !(error is CancellationError) { Log.info("lesson prefetch step \(i + 1) failed: \(error.localizedDescription)") }
+                return nil
+            }
+        }
+    }
+
+    /// Finds a prefetched point on the screen as it is now, cheaply: the window's frame from the window
+    /// list plus, only when the point landed on a labelled control, a fresh AX walk. No screenshot, no
+    /// model. nil when the window changed shape or the labelled control is gone.
+    private func relocate(_ phase: CachedPhase) async -> (Plan, ScreenContext, String)? {
+        guard let target, let window = Capture.frontWindow(pid: target.pid) else { return nil }
+        let pid = target.pid
+        let needsAX = phase.steps.contains { $0.axLabel != nil }
+        let lines = needsAX
+            ? await Task.detached { AXTree.lines(pid: pid, windowFrame: window.frame, scale: 1) }.value
+            : []
+        let context = ScreenContext(target: target, windowTitle: window.title, windowFrame: window.frame, windowID: window.id,
+                                    jpeg: Data(), imageSize: window.frame.size, scale: 1, axLines: lines, backend: "lesson-relocate")
+        var plan = Plan(say: phase.say)
+        for cached in phase.steps {
+            guard let step = PlanCache.resolve(cached, context: context) else {
+                Log.info("lesson relocate: \"\(cached.axLabel ?? cached.label)\" not on screen any more")
+                return nil
+            }
+            plan.steps.append(step)
+        }
+        return (plan, context, needsAX ? "ax label" : "window fraction")
+    }
+
     private func startPolling(_ step: LessonStep, index i: Int) {
         poll?.cancel()
         let hook = self.hook
@@ -150,7 +238,7 @@ final class LessonController {
         poll = Task { [weak self] in
             var baseline: Int?
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                try? await Task.sleep(nanoseconds: 500_000_000)
                 guard !Task.isCancelled else { return }
                 var done = false
                 if let hook, let check = step.doneCheck {
@@ -183,6 +271,7 @@ final class LessonController {
     /// all fire again in show(), on every advance.
     private func advance(skipped: Bool) {
         cancelTasks()
+        advancedAt = Date()
         if skipped { checklist.markSkipped(index) } else { checklist.markDone(index) }
         if index + 1 < steps.count {
             show(index + 1)
@@ -193,6 +282,7 @@ final class LessonController {
 
     private func finish(message: String, completedAll: Bool = false) {
         cancelTasks()
+        dropPrepared()
         isActive = false
         Log.info("lesson end: \(message)")
         if completedAll {
