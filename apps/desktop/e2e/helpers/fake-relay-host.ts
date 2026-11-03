@@ -190,6 +190,8 @@ export class FakeRelayHost {
   /** Every room page the app loaded (path and query), in order. */
   readonly roomPages: string[] = []
   private rev = 0
+  /** `welcome.state.mac.version`: what the host says it runs. */
+  macVersion = '0'
   /** Studio's jobs and uploads (newest first) and its backends. */
   readonly studio: { jobs: Json[]; uploads: Json[]; backends: Json[] } = {
     jobs: [],
@@ -626,7 +628,7 @@ export class FakeRelayHost {
           state: {
             mac: {
               name: 'Fake Mac',
-              version: '0',
+              version: this.macVersion,
               accessibilityGranted: false,
               agentsAvailable: true,
             },
