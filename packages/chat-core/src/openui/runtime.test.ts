@@ -2,7 +2,7 @@
 // this package's `WidgetNode`; Relay's prompt `CALCULATOR` is copied in ./calculator.fixture.
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { parseWidget, type WidgetSpec } from '../widget'
 import { createOpenUIRuntime, parseOpenUI, type OpenUIRuntime } from '.'
 import { CALCULATOR } from './calculator.fixture'
@@ -230,6 +230,48 @@ describe('vendored lang-core', () => {
       expect(source, file).not.toMatch(
         /from\s+["'](?:node:|fs|path|process)|\b(?:window|document|process)\.\w/,
       )
+    }
+  })
+})
+
+describe('createOpenUIRuntime with a query client', () => {
+  /** Lets the runner's fetch (queued as microtasks) reach the client and land its answer. */
+  async function flush(): Promise<void> {
+    for (let i = 0; i < 5; i++) await Promise.resolve()
+  }
+
+  it('fetches once subscribed, refreshes on the interval and on @Run, stops when unsubscribed', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] })
+    try {
+      let n = 1
+      const tools: string[] = []
+      const runtime = createOpenUIRuntime(
+        `root = Stack([Text("Jobs " + jobs.total), Button("Refresh", @Run(jobs))])
+jobs = Query("jobs", {}, {total: 0}, 30)`,
+        {
+          query: {
+            run: (tool) => {
+              tools.push(tool)
+              return Promise.resolve({ total: n++ })
+            },
+          },
+        },
+      )
+      expect(runtime.snapshot().node).toMatchObject({ children: [{ text: 'Jobs 0' }, {}] })
+      const off = runtime.subscribe(() => undefined)
+      await flush()
+      expect(runtime.snapshot().node).toMatchObject({ children: [{ text: 'Jobs 1' }, {}] })
+      vi.advanceTimersByTime(30_000)
+      await flush()
+      expect(runtime.snapshot().node).toMatchObject({ children: [{ text: 'Jobs 2' }, {}] })
+      runtime.dispatch('root/children/1')
+      await flush()
+      expect(runtime.snapshot().node).toMatchObject({ children: [{ text: 'Jobs 3' }, {}] })
+      off()
+      vi.advanceTimersByTime(300_000)
+      expect(tools).toEqual(['jobs', 'jobs', 'jobs'])
+    } finally {
+      vi.useRealTimers()
     }
   })
 })

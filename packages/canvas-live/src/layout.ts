@@ -72,6 +72,8 @@ export function defaultWidth(kind: NodeKind): number {
       return 220;
     case "frame":
       return 330;
+    case "ui":
+      return 420;
     case "suggestion":
     case "typography":
       return 260;
@@ -111,6 +113,8 @@ export function estimateHeight(node: LayoutNode, width: number): number {
       return 60 + Math.max(Math.ceil((node.colors?.length ?? 0) / 4), 1) * 72;
     case "typography":
       return 150 + lines(node.sample, 7) * 20;
+    case "ui":
+      return 320;
   }
 }
 

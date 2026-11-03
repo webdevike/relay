@@ -14,6 +14,9 @@
 //   @add_image <newId> <x> <y> <w> <src>                   then title line, caption lines, @end
 //                                         (src: an absolute local path or an https image URL; may hold spaces)
 //   @add_frame <newId> <x> <y> <w> <h>                     then title line, @end
+//   @add_ui <newId> <x> <y> <w> [h]                        then title line, OpenUI Lang source lines, @end
+//                                         (a live widget: checked like a dashboard's before it lands;
+//                                         @set_text <id> body replaces its source, checked the same way)
 //   @parent <id> <frameId|none>           put a node in a frame (it then moves with it), or take it out
 //                                         (@add_frame adopts the nodes whose center is inside it; @add_* and
 //                                         @move_node parent a node that lands fully inside a frame, and clear
@@ -58,6 +61,7 @@ export type Action =
   | { kind: "add_node"; id: string; type: "note" | "topic" | "suggestion"; x: number; y: number; w: number; text: TextStream }
   | { kind: "add_image"; id: string; x: number; y: number; w: number; src: string; text: TextStream }
   | { kind: "add_frame"; id: string; x: number; y: number; w: number; h: number; text: TextStream }
+  | { kind: "add_ui"; id: string; x: number; y: number; w: number; h: number | null; text: TextStream }
   | { kind: "move_node"; id: string; x: number; y: number }
   | { kind: "parent"; id: string; frame: string | null }
   | { kind: "add_edge"; source: string; target: string; label: string }
@@ -258,6 +262,13 @@ export class ActionParser {
         if (!a[0]) return;
         const text = new TextStream();
         this.onAction({ kind: "add_frame", id: a[0], x: num(a[1]), y: num(a[2]), w: num(a[3]) || 600, h: num(a[4]) || 600, text });
+        this.openBlock(text);
+        return;
+      }
+      case "add_ui": {
+        if (!a[0]) return;
+        const text = new TextStream();
+        this.onAction({ kind: "add_ui", id: a[0], x: num(a[1]), y: num(a[2]), w: num(a[3]) || 420, h: num(a[4]) || null, text });
         this.openBlock(text);
         return;
       }

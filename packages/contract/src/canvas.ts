@@ -16,6 +16,8 @@ export const CANVAS_NODE_KINDS = [
   'suggestion',
   'palette',
   'typography',
+  /** A live OpenUI widget: `data.title` is its card title, `data.body` its OpenUI Lang source. */
+  'ui',
 ] as const
 export const CanvasNodeKindSchema = z.enum(CANVAS_NODE_KINDS)
 

@@ -1,13 +1,14 @@
 // Live dashboards on disk: `<dir>/<slug>.json`, one pretty-printed `Board` per file. Files are read
 // once at start (invalid ones are logged and skipped); afterwards memory is authoritative. Every
-// write runs through one async queue: validate the whole result, persist it (tmp + rename), then
-// commit it in memory, bump the global rev and report the change. A write that fails validation
-// changes nothing, so a batch of ops lands all together or not at all.
+// write runs through one async queue: render the tiles written as live OpenUI (checked, then
+// evaluated against real query data into the static `spec` older clients draw), validate the whole
+// result, persist it (tmp + rename), then commit it in memory, bump the global rev and report the
+// change. A write that fails changes nothing, so a batch of ops lands all together or not at all.
 
 import { mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { Board, BoardOp, BoardPut, type BoardWidget, type ServerMessage } from "@relay/protocol";
+import { Board, BoardOp, BoardPut, type BoardWidgetInput, type ServerMessage, type WidgetSpec } from "@relay/protocol";
 import { z } from "zod";
 
 export type BoardDelta = Extract<ServerMessage, { t: "board.delta" }>;
@@ -35,9 +36,22 @@ function parse<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, value: unknown): 
   return result.data;
 }
 
+/** A board being written: tiles given as a live `openui` source have no `spec` until rendered. */
+type BoardDraft = Omit<Board, "widgets"> & { widgets: BoardWidgetInput[] };
+
+/** Checks a live source and renders it against real query data into its static `spec`; throws why not. */
+export type LiveRender = (source: string) => Promise<WidgetSpec>;
+
+/** A tile as written: an `openui` source drops any `spec` beside it (the host renders its own). */
+function inputWidget(widget: BoardWidgetInput): BoardWidgetInput {
+  if (widget.openui !== undefined) return { id: widget.id, span: widget.span, openui: widget.openui };
+  if (widget.spec === undefined) throw new BoardError(400, `widget ${widget.id} needs a spec or an openui source`);
+  return { id: widget.id, span: widget.span, spec: widget.spec };
+}
+
 /** Applies `ops` in order to a copy of `board`; throws on an op that cannot apply. */
-export function applyOps(board: Board, ops: readonly BoardOp[]): Board {
-  let next: Board = { ...board, widgets: [...board.widgets] };
+export function applyOps(board: Board, ops: readonly BoardOp[]): BoardDraft {
+  let next: BoardDraft = { ...board, widgets: [...board.widgets] };
   for (const op of ops) {
     if (op.op === "meta") {
       next = {
@@ -54,7 +68,12 @@ export function applyOps(board: Board, ops: readonly BoardOp[]): Board {
       continue;
     }
     const existing = at >= 0 ? next.widgets[at] : undefined;
-    const widget: BoardWidget = { id: op.id, span: op.span ?? existing?.span ?? 12, spec: op.spec };
+    const widget = inputWidget({
+      id: op.id,
+      span: op.span ?? existing?.span ?? 12,
+      ...(op.spec === undefined ? {} : { spec: op.spec }),
+      ...(op.openui === undefined ? {} : { openui: op.openui }),
+    });
     if (op.after === undefined) {
       if (existing === undefined) next.widgets.push(widget);
       else next.widgets[at] = widget;
@@ -83,6 +102,8 @@ export class FileBoardStore {
   constructor(
     private readonly dir: string,
     log: (line: string) => void,
+    /** Renders live tiles; null refuses them ("live widgets need the host's query tools"). */
+    private readonly live: LiveRender | null,
   ) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     for (const name of readdirSync(dir).filter((file) => file.endsWith(".json")).sort()) {
@@ -123,7 +144,7 @@ export class FileBoardStore {
         title: put.title,
         ...(put.workspace === undefined ? {} : { workspace: put.workspace }),
         ...(put.icon === undefined ? {} : { icon: put.icon }),
-        widgets: put.widgets ?? [],
+        widgets: (put.widgets ?? []).map(inputWidget),
         updatedAt: "",
       });
     });
@@ -147,8 +168,21 @@ export class FileBoardStore {
     });
   }
 
-  private async write(draft: Board): Promise<Board> {
-    const board = parse(Board, { ...draft, updatedAt: new Date().toISOString() });
+  /** Renders the tiles written as `openui` (in parallel), then validates and persists the board. */
+  private async write(draft: BoardDraft): Promise<Board> {
+    const widgets = await Promise.all(
+      draft.widgets.map(async (widget) => {
+        if (widget.spec !== undefined) return widget;
+        if (widget.openui === undefined) throw new BoardError(400, `widget ${widget.id} needs a spec or an openui source`);
+        if (this.live === null) throw new BoardError(400, "live widgets need the host's query tools, which this host does not run");
+        try {
+          return { ...widget, spec: await this.live(widget.openui) };
+        } catch (error) {
+          throw new BoardError(400, `widget ${widget.id} openui: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }),
+    );
+    const board = parse(Board, { ...draft, widgets, updatedAt: new Date().toISOString() });
     const path = join(this.dir, `${board.slug}.json`);
     const tmp = `${path}.tmp`;
     await writeFile(tmp, `${JSON.stringify(board, null, 2)}\n`, { mode: 0o600 });

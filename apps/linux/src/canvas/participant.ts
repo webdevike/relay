@@ -106,7 +106,7 @@ export async function runSteps(actor: CanvasActor, steps: readonly Step[], hooks
     const why = await actor.run(action);
     if (why === null) {
       ran += 1;
-      if (action.kind === "add_node" || action.kind === "add_image" || action.kind === "add_frame") added.push(action.id);
+      if (action.kind === "add_node" || action.kind === "add_image" || action.kind === "add_frame" || action.kind === "add_ui") added.push(action.id);
     } else skipped.push(`${describe(action)}: ${why}`);
     await sleep(hooks.paceMs);
   }

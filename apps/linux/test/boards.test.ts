@@ -22,7 +22,7 @@ const stat = (value: string) => ({ widget: "stat", label: "L", value });
 const ids = (board: Board): string[] => board.widgets.map((widget) => widget.id);
 
 function store(dir = freshDir(), log: string[] = []): { boards: FileBoardStore; deltas: BoardDelta[]; dir: string; log: string[] } {
-  const boards = new FileBoardStore(dir, (line) => log.push(line));
+  const boards = new FileBoardStore(dir, (line) => log.push(line), null);
   const deltas: BoardDelta[] = [];
   boards.onChange = (delta) => deltas.push(delta);
   return { boards, deltas, dir, log };

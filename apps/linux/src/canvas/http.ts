@@ -13,6 +13,7 @@
 //   GET  /canvas/<slug>/me?token=    {me, roomId, board, agent, live}
 //   GET  /canvas/<slug>/img?token=&src=   a local image the board holds (remote URLs load directly)
 //   POST /canvas/<slug>/end?token=   Wrap up -> {summary}
+//   POST /canvas/<slug>/query?token= {tool, args}: a live `ui` node's Query (the host query tools)
 //   WS   /canvas/<slug>/ws?token=    y-websocket (server.ts)
 // Open: GET /canvas/avatar/<key>    an assistant's avatar PNG
 //       GET /canvas/portrait/<seed> a joined agent's portrait SVG
@@ -22,6 +23,8 @@ import { extname, isAbsolute, join } from "node:path";
 import { CanvasSlug } from "@relay/protocol";
 import { z } from "zod";
 import { isLoopback } from "../boards/http";
+import { answerQuery } from "../query/http";
+import type { QueryRelaying } from "../query/service";
 import { portraitSvg } from "./portrait";
 import { CanvasError, type CanvasRoom, type CanvasService, type JoinRequest, type StartRequest } from "./service";
 
@@ -86,8 +89,8 @@ function parseWith<T>(schema: z.ZodType<T>, body: unknown): T {
   return parsed.data;
 }
 
-/** Every `/canvas` route but the websocket. `page` is the web client's HTML. */
-export async function handleCanvasRequest(canvas: CanvasService | null, page: () => string, request: Request, path: string, remote: string): Promise<Response> {
+/** Every `/canvas` route but the websocket. `page` is the web client's HTML; `query` answers its `ui` nodes' queries. */
+export async function handleCanvasRequest(canvas: CanvasService | null, page: () => string, request: Request, path: string, remote: string, query: QueryRelaying | null): Promise<Response> {
   if (canvas === null) return fail(404, "live canvas disabled");
   const url = new URL(request.url);
   const parts = path.split("/").slice(2);
@@ -121,6 +124,10 @@ export async function handleCanvasRequest(canvas: CanvasService | null, page: ()
     }
     if (route === "img" && request.method === "GET") return image(canvas, room, request, url.searchParams.get("src"));
     if (route === "end" && request.method === "POST") return json({ summary: await canvas.end(room.id) });
+    if (route === "query" && request.method === "POST") {
+      if (query === null) return json({ ok: false, error: "this host runs no queries" }, 404);
+      return await answerQuery(query, request, `canvas:${slug}:${grant.human}`);
+    }
     return new Response("not found", { status: 404 });
   } catch (error) {
     if (error instanceof CanvasError) return fail(error.status, error.message);

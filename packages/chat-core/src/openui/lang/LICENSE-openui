@@ -12,8 +12,9 @@ Relay changes, kept minimal so an upstream sync stays a plain diff:
   parser/cloud-config.ts, parser/validate-library.ts), parser/merge.ts, parser/enrich-errors.ts,
   the parser/index.ts barrel, the runtime's query/mutation/MCP/tool-provider/state-field/
   evaluate-tree/evaluate-prop modules, message.ts, utils/, postinstall and the ci-info dependency.
-- runtime/store.ts: verbatim. runtime/evaluator.ts: local state only. Library functions, custom
-  actions, @Run, reactive schemas and ReactiveAssign are removed; a catalog component inside an
+- runtime/store.ts: verbatim. runtime/evaluator.ts: local state only, plus `@Run(query)` as a
+  `run` step (Relay's runtime re-fetches; ../queries.ts runs Query statements). Library functions,
+  custom actions, @Run of a Mutation, reactive schemas and ReactiveAssign are removed; a catalog component inside an
   expression evaluates to an ElementNode whose props stay AST (Relay's converter evaluates them);
   non-AST values (materialized elements inside expressions) pass through unchanged.
 - prompt.ts: generateSystemPrompt keeps only the `{ library, promptOptions }` form.

@@ -60,6 +60,10 @@ import { ffmpegMedia } from "./studio/media";
 import { StudioService, type StudioMessage } from "./studio/service";
 import { defaultStudioDir } from "./studio/store";
 import { bunRun, defaultReviewsDir, resolveClaude, resolveGh } from "./reviews/exec";
+import { linearKey } from "./reviews/linear";
+import { liveRender } from "./query/openui";
+import { QueryService } from "./query/service";
+import { queryTools } from "./query/tools";
 import { ReviewsService } from "./reviews/service";
 
 const USAGE = `relay-linux <command>
@@ -202,7 +206,22 @@ function serve(
   const agents = new OmpBridgeProvider(defaultSocketPath(), log, agentHome);
   const pushTokens = new FilePushTokenStore();
   const drops = new FileDropStore(undefined, { maxVideoBytes: maxVideoBytesFromEnv(), probe: ffmpegProbe(log) });
-  const boards = boardsDir === null ? null : new FileBoardStore(boardsDir, log);
+  // Live widgets' read-only data; `assistant` is only read once a query arrives, long after it is initialised.
+  const query = new QueryService(
+    queryTools({
+      evaRoot: agentHome,
+      run: bunRun,
+      gh: resolveGh(),
+      linearKey: () => linearKey(agentHome),
+      fetch: globalThis.fetch,
+      sessions: () => agents.sessions,
+      assistants: () => assistant?.agents() ?? Promise.resolve([]),
+      now: Date.now,
+    }),
+    Date.now,
+    log,
+  );
+  const boards = boardsDir === null ? null : new FileBoardStore(boardsDir, log, liveRender(query));
   // Snapshots only flow once a phone asks (`usage.get`), long after `server` below is initialised.
   const usage = createUsageService({
     profilesDir: join(homedir(), ".omp", "profiles"),
@@ -455,6 +474,7 @@ function serve(
       sessionFiles: new SessionFiles(),
       studio,
       reviews,
+      query,
       canvasPage: () => CANVAS_PAGE,
       pairing: new TerminalPairingUI(),
       log,

@@ -62,3 +62,16 @@ test("parses @parent with a frame id or none", () => {
     { kind: "parent", id: "img-list", frame: null },
   ]);
 });
+
+test("parses @add_ui with an optional height, keeping the OpenUI source's @-calls inside the block", () => {
+  const source = 'root = Card([s, refresh], "Jobs")\njobs = Query("jobs", {}, {failing: 0}, 30)\ns = Stat("Failing", "" + jobs.failing)\nrefresh = Button("Refresh", @Run(jobs))';
+  const text = `@add_ui live-jobs 100 -40 480 300\nJobs last run\n${source}\n@end\n@add_ui auto 0 0 400\nT\nroot = Text("x")\n@end\n`;
+  for (const size of [1, 4, text.length]) {
+    const chunks: string[] = [];
+    for (let i = 0; i < text.length; i += size) chunks.push(text.slice(i, i + size));
+    const { actions } = run(chunks);
+    const [ui, auto] = actions;
+    expect(ui?.kind === "add_ui" && [ui.id, ui.x, ui.y, ui.w, ui.h, ui.text.text, ui.text.closed]).toEqual(["live-jobs", 100, -40, 480, 300, `Jobs last run\n${source}`, true]);
+    expect(auto?.kind === "add_ui" && auto.h).toBeNull();
+  }
+});

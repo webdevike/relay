@@ -11,6 +11,7 @@ import {
   PROTOCOL_VERSION,
   defaultTabs,
   parseClientMessage,
+  QUERY_FEATURE,
   toHex,
   type AgentApproval,
   type AgentAsk,
@@ -32,6 +33,7 @@ import type { ArtifactRelaying } from "./artifacts/service";
 import type { CommandDedupStore } from "./dedup";
 import type { PairingCoordinator } from "./pairing";
 import type { UsageService } from "./usage/service";
+import type { QueryRelaying } from "./query/service";
 import {
   AckFailure,
   type AgentProvider,
@@ -100,6 +102,8 @@ export interface SessionDeps {
   readonly studio: StudioRelaying | null;
   /** null when the host runs no Reviews; every `reviews.req` is then refused. */
   readonly reviews: ReviewsRelaying | null;
+  /** null when the host runs no query tools; `query.req` is then refused and `welcome.features` leaves "query" out. */
+  readonly query: QueryRelaying | null;
 }
 
 /** Clock and scheduling seams so tests drive time deterministically. */
@@ -676,6 +680,17 @@ export class ClientSession {
         });
         break;
       }
+      case "query.req": {
+        const query = this.deps.query;
+        if (query === null) {
+          this.sink.send({ t: "query.res", rid: message.rid, ok: false, error: "This host runs no queries." });
+          break;
+        }
+        void query.run(message.tool, message.args ?? {}, deviceId).then((answer) => {
+          if (!this.closed) this.sink.send({ t: "query.res", rid: message.rid, ...answer });
+        });
+        break;
+      }
       case "hello":
       case "auth":
       case "pair.request":
@@ -907,7 +922,7 @@ export class ClientSession {
 
   private authenticate(deviceId: string): void {
     this.phase = { kind: "authenticated", deviceId };
-    this.sink.send({ t: "welcome", state: this.snapshot() });
+    this.sink.send({ t: "welcome", state: this.snapshot(), ...(this.deps.query === null ? {} : { features: [QUERY_FEATURE] }) });
     // Items that opened while this device was away; the escalator itself is the one that sent them.
     if (deviceId !== ESCALATOR_DEVICE_ID) {
       for (const item of this.deps.inbox?.pending() ?? []) this.sink.send({ t: "inbox.item", item });

@@ -26,6 +26,8 @@ import { isVideoMime, videoMimeOf, VideoTooLarge } from "./drops/video";
 import { PairingCoordinator } from "./pairing";
 import { handleStudioRequest } from "./studio/http";
 import { handleReviewsMedia } from "./reviews/http";
+import { handleQueryRequest } from "./query/http";
+import type { QueryRelaying } from "./query/service";
 import type { AttentionNotifier } from "./push/notifier";
 import type {
   AgentProvider,
@@ -98,6 +100,8 @@ export interface ServerDeps {
   readonly studio: StudioRelaying | null;
   /** Reviews' ops, pushes and Linear images; null disables `/reviews/media` and refuses `reviews.req`. */
   readonly reviews: ReviewsRelaying | null;
+  /** Live widgets' read-only queries; null disables `/query`, `/canvas/<slug>/query` and `query.req` (and leaves "query" out of `welcome.features`). */
+  readonly query: QueryRelaying | null;
   /** The canvas web client's HTML, served at `/canvas/<slug>/`. */
   readonly canvasPage: () => string;
   readonly pairing: PairingUI;
@@ -221,7 +225,8 @@ export class RelayServer {
         if (path === "/boards" || path.startsWith("/boards/"))
           return handleBoardRequest(this.deps.boards, request, path, remote);
         if (path === "/canvas" || path.startsWith("/canvas/"))
-          return handleCanvasRequest(this.deps.canvas, this.deps.canvasPage, request, path, remote);
+          return handleCanvasRequest(this.deps.canvas, this.deps.canvasPage, request, path, remote, this.deps.query);
+        if (path === "/query") return handleQueryRequest(this.deps.query, request, remote);
         if (path === "/assistant/say") return handleAssistantSay(this.deps.assistant, request, remote);
         if (path === "/catchup/bounce") return handleCatchUpBounce(this.deps.catchup, request, remote);
         if (path === "/reactions/agent") return handleAgentReaction(this.deps.reactions, this.deps.assistant, request, remote);
@@ -541,6 +546,7 @@ export class RelayServer {
         sessionFiles: this.deps.sessionFiles,
         studio: this.deps.studio,
         reviews: this.deps.reviews,
+        query: this.deps.query,
       },
       (closed) => {
         const reason = closed.closeReason;

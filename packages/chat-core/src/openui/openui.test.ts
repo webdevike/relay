@@ -593,10 +593,12 @@ describe('parseOpenUI', () => {
     })
   })
 
-  it('rejects Query and Mutation', () => {
-    const result = parseOpenUI('root = Text("x")\nq = Query("tool", {}, {})')
+  it("shows a Query's defaults with a warning and rejects Mutation", () => {
+    const result = parseOpenUI('root = Text(q.label)\nq = Query("tool", {}, {label: "x"})')
     expect(result.node).toEqual({ widget: 'text', text: 'x' })
-    expect(result.errors.map((e) => e.code)).toContain('unsupported-expression')
+    expect(result.errors.map((e) => [e.code, e.severity])).toEqual([['query-error', 'warning']])
+    const mutation = parseOpenUI('root = Text("x")\nm = Mutation("tool", {})')
+    expect(mutation.errors.map((e) => e.code)).toContain('unsupported-expression')
   })
 
   it('reports unresolved and orphaned statements unless partial', () => {

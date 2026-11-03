@@ -316,7 +316,7 @@ describe("a session at the canvas", () => {
     // Wrap up from the page's button: summary to the chat, the room ends, the board is on disk.
     const access = service.open("ecs-roles", "phone-1");
     if (access.t !== "canvas.access") throw new Error("expected access");
-    const res = await handleCanvasRequest(service, () => "", new Request(`http://h/canvas/ecs-roles/end?token=${access.token}`, { method: "POST" }), "/canvas/ecs-roles/end", "100.64.0.2");
+    const res = await handleCanvasRequest(service, () => "", new Request(`http://h/canvas/ecs-roles/end?token=${access.token}`, { method: "POST" }), "/canvas/ecs-roles/end", "100.64.0.2", null);
     expect(await res.json()).toEqual({ summary: "We renamed the root and settled that support is staff. Still open: ops." });
     expect(posted.at(-1)).toMatchObject({ sessionId: "s-chat", details: { kind: "end", text: "We renamed the root and settled that support is staff. Still open: ops." } });
     expect(brains.every((b) => b.disposed)).toBe(true);
@@ -332,7 +332,7 @@ describe("a session at the canvas", () => {
 
 describe("agents joining a live room", () => {
   const act = (slug: string, id: string, script: string): Promise<Response> =>
-    handleCanvasRequest(service, () => "", new Request(`http://h/canvas/sessions/${slug}/participants/${id}/act`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ script }) }), `/canvas/sessions/${slug}/participants/${id}/act`, "127.0.0.1");
+    handleCanvasRequest(service, () => "", new Request(`http://h/canvas/sessions/${slug}/participants/${id}/act`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ script }) }), `/canvas/sessions/${slug}/participants/${id}/act`, "127.0.0.1", null);
 
   it("gives each joined agent its own cursor and attributed edits, merged into one board on disk", async () => {
     const started = await service.start({ slug: "ecs-roles", caller: { sessionFile: chatFile } });
@@ -444,11 +444,36 @@ describe("agents joining a live room", () => {
     expect(parentOf("far")).toBe("grp");
     expect(parentOf("in-a")).toBeUndefined();
   });
+
+  it("adds a live ui node only when its OpenUI source checks, replaces its source whole, and persists it in the board", async () => {
+    const room = await service.start({ slug: "ecs-roles", caller: { sessionFile: chatFile } });
+    const theo = service.join("ecs-roles", { name: "Theo" }).participant.id;
+    const source = 'root = Card([Stat("Open items", "" + items.total)])\nitems = Query("work_items", {}, {total: 0}, 30)';
+    const added = await service.act("ecs-roles", theo, `@add_ui live-work 6000 0 420 260\nActive work\n${source}\n@end`);
+    expect(added).toEqual({ ran: 1, said: [], skipped: [], added: ["live-work"] });
+    expect(service.view("ecs-roles").board.nodes.find((n) => n.id === "live-work")).toMatchObject({ type: "ui", x: 6000, y: 0, w: 420, h: 260, data: { title: "Active work", body: source } });
+    const refused = await service.act(
+      "ecs-roles",
+      theo,
+      '@add_ui bad 6500 0 420\nBad\nroot = Text("x")\nq = Query("shell", {cmd: "ls"}, {})\n@end\n@set_text live-work body\nroot = Text("x")\nq = Query("jobs", {}, {}, 1)\n@end',
+    );
+    expect(refused.skipped).toEqual([
+      expect.stringMatching(/^add_ui bad: openui: q: unknown query tool "shell"/),
+      expect.stringMatching(/^set_text live-work: openui: q: refresh is 1s/),
+    ]);
+    expect(service.view("ecs-roles").board.nodes.some((n) => n.id === "bad")).toBe(false);
+    expect(service.view("ecs-roles").board.nodes.find((n) => n.id === "live-work")?.data?.body).toBe(source);
+    const next = 'root = Text("Jobs failing: " + jobs.failing)\njobs = Query("jobs", {}, {failing: 0}, 60)';
+    expect((await service.act("ecs-roles", theo, `@set_text live-work body\n${next}\n@end`)).ran).toBe(1);
+    await service.end(room.roomId);
+    const onDisk = parseBoard(readFileSync(join(canvasDir, "ecs-roles.json"), "utf8"));
+    expect(onDisk.nodes.find((n) => n.id === "live-work")).toMatchObject({ type: "ui", w: 420, h: 260, data: { title: "Active work", body: next } });
+  });
 });
 
 describe("handing work off", () => {
   const selfAct = (slug: string, body: unknown): Promise<Response> =>
-    handleCanvasRequest(service, () => "", new Request(`http://h/canvas/sessions/${slug}/self/act`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }), `/canvas/sessions/${slug}/self/act`, "127.0.0.1");
+    handleCanvasRequest(service, () => "", new Request(`http://h/canvas/sessions/${slug}/self/act`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }), `/canvas/sessions/${slug}/self/act`, "127.0.0.1", null);
 
   it("hands a tool request to the chat, which lands it as the canvas self, and the canvas self confirms", async () => {
     const started = await service.start({ slug: "ecs-roles", caller: { sessionFile: chatFile } });
@@ -518,7 +543,7 @@ describe("canvas http", () => {
     const access = service.open("platform-assets-filters", "phone-1");
     if (access.t !== "canvas.access") throw new Error("expected access");
     expect(access.path).toBe(`/canvas/platform-assets-filters/?token=${encodeURIComponent(access.token)}`);
-    const get = (path: string, query = ""): Promise<Response> => handleCanvasRequest(service, () => "<html>client</html>", new Request(`http://h${path}${query}`), path, "100.64.0.2");
+    const get = (path: string, query = ""): Promise<Response> => handleCanvasRequest(service, () => "<html>client</html>", new Request(`http://h${path}${query}`), path, "100.64.0.2", null);
     const base = "/canvas/platform-assets-filters";
     const page = await get(`${base}/`, `?token=${access.token}`);
     expect(await page.text()).toBe("<html>client</html>");
@@ -542,16 +567,16 @@ describe("canvas http", () => {
 
   it("keeps the sessions API to loopback JSON without Origin", async () => {
     const post = (headers: Record<string, string>, remote = "127.0.0.1"): Promise<Response> =>
-      handleCanvasRequest(service, () => "", new Request("http://h/canvas/sessions", { method: "POST", headers, body: JSON.stringify({ slug: "ecs-roles", caller: { sessionFile: chatFile } }) }), "/canvas/sessions", remote);
+      handleCanvasRequest(service, () => "", new Request("http://h/canvas/sessions", { method: "POST", headers, body: JSON.stringify({ slug: "ecs-roles", caller: { sessionFile: chatFile } }) }), "/canvas/sessions", remote, null);
     expect((await post({ "content-type": "application/json" }, "100.64.0.2")).status).toBe(403);
     expect((await post({ "content-type": "application/json", origin: "http://evil.test" })).status).toBe(403);
     expect((await post({ "content-type": "text/plain" })).status).toBe(415);
     const ok = await post({ "content-type": "application/json" });
     expect(ok.status).toBe(200);
     expect(await ok.json()).toMatchObject({ slug: "ecs-roles", created: true });
-    const bad = await handleCanvasRequest(service, () => "", new Request("http://h/canvas/sessions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ caller: {} }) }), "/canvas/sessions", "127.0.0.1");
+    const bad = await handleCanvasRequest(service, () => "", new Request("http://h/canvas/sessions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ caller: {} }) }), "/canvas/sessions", "127.0.0.1", null);
     expect(bad.status).toBe(400);
-    const list = await handleCanvasRequest(service, () => "", new Request("http://h/canvas/sessions"), "/canvas/sessions", "127.0.0.1");
+    const list = await handleCanvasRequest(service, () => "", new Request("http://h/canvas/sessions"), "/canvas/sessions", "127.0.0.1", null);
     expect(await list.json()).toMatchObject({ rooms: [{ slug: "ecs-roles", live: true }] });
   });
 });

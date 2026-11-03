@@ -13,6 +13,7 @@ import type { UsageService } from "../src/usage/service";
 import type { CatchUpDeck } from "../src/catchup/service";
 import type { ReactionRelaying } from "../src/reactions/service";
 import type { ArtifactRelaying } from "../src/artifacts/service";
+import type { QueryRelaying } from "../src/query/service";
 import { AckFailure, type AgentConfigChange, type AgentProvider, type AssistantRelaying, type AssistantThread, type CallClientMessage, type CallRelaying, type CanvasRelaying, type DeviceStore, type DropBox, type FrameSink, type GateCommand, type InboxRelaying, type InputSink, type LiveClientMessage, type LiveRelaying, type PairedDevice, type PairingUI, type PushRegistry, type ReviewsRelaying, type StudioRelaying, type TextInjecting, type VncAccess } from "../src/seams";
 import { ASSISTANT_FOLLOW_MS, ClientSession, PAIRING_TIMEOUT_MS, type SessionClock, type SessionDeps } from "../src/session";
 import { ltxSpec, studioHarness } from "./studio-fakes";
@@ -119,6 +120,7 @@ interface HarnessOptions {
   sessionFiles?: SessionFiles;
   studio?: StudioRelaying;
   reviews?: ReviewsRelaying;
+  query?: QueryRelaying;
 }
 
 function harness(options: HarnessOptions = {}): Harness {
@@ -173,6 +175,7 @@ function harness(options: HarnessOptions = {}): Harness {
     sessionFiles: options.sessionFiles ?? null,
     studio: options.studio ?? null,
     reviews: options.reviews ?? null,
+    query: options.query ?? null,
   };
   const sink = new RecordingSink();
   const clock = new FakeClock();
@@ -1121,7 +1124,7 @@ describe("boards", () => {
   it("board.subscribe answers a snapshot and only subscribed sockets get deltas; board.get re-sends the snapshot", async () => {
     const dir = mkdtempSync(join(tmpdir(), "relay-boards-"));
     try {
-      const boards = new FileBoardStore(dir, () => undefined);
+      const boards = new FileBoardStore(dir, () => undefined, null);
       const first = await boards.put("ops", { title: "Ops" });
       // Each harness has its own pairing coordinator, so both phones pair independently.
       const subscribed = harness({ boards });
@@ -1150,6 +1153,34 @@ describe("boards", () => {
     pair(h);
     h.session.receive({ t: "board.subscribe" });
     expect(h.sink.last()).toEqual({ t: "board.snapshot", rev: 0, boards: [] });
+  });
+});
+
+describe("query", () => {
+  it("a host with query tools says so on welcome and answers query.req with the caller's device id", async () => {
+    const asked: [string, unknown, string][] = [];
+    const h = harness({
+      query: {
+        run: (tool, args, caller) => {
+          asked.push([tool, args, caller]);
+          return Promise.resolve({ ok: true, data: { total: 3 } });
+        },
+      },
+    });
+    pair(h);
+    expect(h.sink.last()).toMatchObject({ t: "welcome", features: ["query"] });
+    h.session.receive({ t: "query.req", rid: "r1", tool: "work_items", args: { limit: 5 } });
+    await Promise.resolve();
+    expect(asked).toEqual([["work_items", { limit: 5 }, "phone-1"]]);
+    expect(h.sink.last()).toEqual({ t: "query.res", rid: "r1", ok: true, data: { total: 3 } });
+  });
+
+  it("a host without them leaves features out and refuses query.req", () => {
+    const h = harness();
+    pair(h);
+    expect(h.sink.last()).not.toHaveProperty("features");
+    h.session.receive({ t: "query.req", rid: "r2", tool: "jobs" });
+    expect(h.sink.last()).toEqual({ t: "query.res", rid: "r2", ok: false, error: "This host runs no queries." });
   });
 });
 

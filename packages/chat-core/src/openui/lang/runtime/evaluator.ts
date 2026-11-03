@@ -233,7 +233,12 @@ function evaluateLazyStep(name: string, args: ASTNode[]): ActionStep | null {
       if (targets.length === 0) return null;
       return { type: ACTION_STEPS.Reset, targets };
     }
-    // Relay fork: @Run (queries/mutations) is not supported.
+    // Relay fork: @Run re-fetches a Query (the runtime runs it); Mutations are not supported.
+    case "Run": {
+      const ref = args[0];
+      if (ref?.k !== "RuntimeRef" || ref.refType !== "query") return null;
+      return { type: "run", statementId: ref.n, refType: "query" };
+    }
     default:
       return null;
   }

@@ -13,6 +13,7 @@ import type { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
 import { placeUnplaced, type LayoutNode } from "@relay/canvas-live/layout";
 import { DOC_KEYS, type NodeKind, type Presence, type TextField, type User } from "@relay/canvas-live/shared";
+import { liveRefusal } from "../query/openui";
 import type { Action, TextStream } from "./dsl";
 
 const ease = (t: number): number => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
@@ -307,6 +308,20 @@ export class CanvasActor {
           if (!b || !(yt instanceof Y.Text)) return missing(a.id);
           this.setP({ status: "moving" });
           await this.glide(b.x + 40, b.y + (a.field === "title" ? 24 : 60));
+          // A live widget's source lands whole and only once it checks: typed char by char it
+          // would render a half program in every client meanwhile.
+          if (a.field === "body" && this.nodes.get(a.id)?.get("type") === "ui") {
+            while (!a.text.closed) await a.text.changed();
+            const source = a.kind === "set_text" ? a.text.text.trim() : `${yt.toString()}\n${a.text.text.trim()}`;
+            const refused = liveRefusal(source);
+            if (refused !== null) return `openui: ${refused}`;
+            this.setP({ selected: [a.id], status: "typing" });
+            transact(() => {
+              yt.delete(0, yt.length);
+              yt.insert(0, source);
+            });
+            return null;
+          }
           if (a.kind === "set_text") {
             this.setP({ selected: [a.id], status: "typing", typing: { nodeId: a.id, field: a.field, index: 0, selectAll: true } });
             await sleep(this.options.typeMs === 0 ? 0 : 140);
@@ -351,6 +366,32 @@ export class CanvasActor {
         });
         this.setP({ selected: [a.id], status: "typing" });
         await this.type(a.id, ["title", "body"], a.text, markEdit);
+        return null;
+      }
+      case "add_ui": {
+        if (this.nodes.has(a.id)) return `id ${a.id} is taken`;
+        // Title on the first line, the OpenUI source after it; checked before anything lands.
+        while (!a.text.closed) await a.text.changed();
+        const [title = "", ...rest] = a.text.text.split("\n");
+        const source = rest.join("\n").trim();
+        const refused = liveRefusal(source);
+        if (refused !== null) return `openui: ${refused}`;
+        const spot = await this.arriveAt(a.x, a.y, a.w, a.h ?? 320);
+        if (this.nodes.has(a.id)) return `id ${a.id} is taken`;
+        const m = new Y.Map<unknown>();
+        m.set("type", "ui");
+        m.set("x", Math.round(spot.x));
+        m.set("y", Math.round(spot.y));
+        m.set("w", Math.round(a.w));
+        if (a.h !== null) m.set("h", Math.round(a.h));
+        m.set("title", new Y.Text(title.trim()));
+        m.set("body", new Y.Text(source));
+        m.set("fields", []);
+        transact(() => {
+          this.nodes.set(a.id, m);
+          this.autoParent(a.id);
+        });
+        this.setP({ selected: [a.id], status: "idle" });
         return null;
       }
       case "add_image": {

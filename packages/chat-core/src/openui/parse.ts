@@ -5,7 +5,7 @@
  * (each with an error) instead of rejecting the whole tree. `parseOpenUI` evaluates against the
  * declared defaults; `createOpenUIRuntime` (./runtime) keeps state and runs button actions.
  *
- * Port of ~/Eva/work/relay/packages/protocol/src/openui/parse.ts at commit ac61677, validating into
+ * Port of ~/Eva/work/relay/packages/protocol/src/openui/parse.ts, validating into
  * this package's `WidgetNode` (zod 4 here, zod 3 there).
  */
 import type { ZodError } from 'zod'
@@ -21,6 +21,7 @@ import {
 } from './lang/parser/types'
 import { evaluate, isActionPlan } from './lang/runtime/evaluator'
 import { relayLibrary, WIDGET_KIND_BY_NAME } from './library'
+import { queryCalls } from './queries'
 
 export type OpenUIErrorCode =
   | ValidationErrorCode
@@ -28,8 +29,10 @@ export type OpenUIErrorCode =
   | 'invalid-widget'
   /** A sub-component (Row, Ticket, ...) or a non-component value sits where a widget belongs. */
   | 'not-a-widget'
-  /** Query, Mutation, @Run or another construct Relay widgets don't run. */
+  /** Mutation, @Run of a Mutation or another construct Relay widgets don't run. */
   | 'unsupported-expression'
+  /** A Query that cannot fetch here (no live surface, bad tool name) or whose last fetch failed; its data stays the defaults or the last answer. */
+  | 'query-error'
   /** Evaluating the program against the current state threw; nothing rendered. */
   | 'runtime-error'
   /** A name is referenced but never defined. */
@@ -89,11 +92,25 @@ export interface Built extends ParseOpenUIResult {
 
 const parser = createParser(relayLibrary.toJSONSchema(), relayLibrary.root)
 
-/** Parses one ```openui block body against its declared `$variable` defaults. Never throws. */
+/** Parses one ```openui block body against its declared `$variable` defaults; Queries show their
+ * defaults (with a warning each: live data needs a runtime with a query client). Never throws. */
 export function parseOpenUI(text: string, opts: ParseOpenUIOptions = {}): ParseOpenUIResult {
   const program = compileProgram(text, opts.partial === true)
   const defaults = program.result?.stateDeclarations ?? {}
-  const { node, errors, complete } = buildTree(program, (name) => defaults[name] ?? null)
+  const getState = (name: string) => defaults[name] ?? null
+  const calls = new Map(queryCalls(program.result, getState).map((call) => [call.id, call]))
+  const { node, errors, complete } = buildTree(
+    program,
+    getState,
+    (name) => calls.get(name)?.defaults ?? null,
+  )
+  for (const id of calls.keys())
+    errors.push({
+      code: 'query-error',
+      message: 'Query shows its defaults here: live data runs on dashboards and canvas ui nodes',
+      statementId: id,
+      severity: 'warning',
+    })
   return { node, errors, complete }
 }
 
@@ -144,21 +161,26 @@ export function compileProgram(text: string, partial: boolean): Program {
         severity: 'warning',
       })
   }
-  for (const { statementId } of [...result.queryStatements, ...result.mutationStatements])
+  for (const { statementId } of result.mutationStatements)
     errors.push({
       code: 'unsupported-expression',
-      message: "Relay widgets don't run Query or Mutation",
+      message: "Relay widgets don't run Mutation: a widget never writes",
       statementId,
     })
   return { result, errors, complete: !incomplete && unresolved.length === 0, partial }
 }
 
-/** Evaluates a program against `getState` into a validated tree. Never throws. */
-export function buildTree(program: Program, getState: (name: string) => unknown): Built {
+/** Evaluates a program against `getState` into a validated tree; `resolveRef` answers references to
+ * Query statements (their data). Never throws. */
+export function buildTree(
+  program: Program,
+  getState: (name: string) => unknown,
+  resolveRef: (name: string) => unknown = () => null,
+): Built {
   const ctx: Ctx = {
     errors: [...program.errors],
     partial: program.partial,
-    evaluate: (node) => evaluate(node, { getState, resolveRef: () => null }),
+    evaluate: (node) => evaluate(node, { getState, resolveRef }),
     getState,
     actions: new Map(),
     bindings: new Map(),
@@ -333,8 +355,8 @@ function uniqueId(id: string, taken: ReadonlyMap<string, unknown>): string {
   return unique
 }
 
-/** A button's action, evaluated now. With a local step (@Set, @Reset) it becomes an `action` id the
- * renderer dispatches to the runtime; otherwise its first @ToAssistant is `reply` and @OpenUrl
+/** A button's action, evaluated now. With a local step (@Set, @Reset, @Run) it becomes an `action` id
+ * the renderer dispatches to the runtime; otherwise its first @ToAssistant is `reply` and @OpenUrl
  * `url`, as static widgets have. A button with no action sends its label, as the prompt promises. */
 function buttonAction(out: Record<string, Json>, el: ElementNode, ctx: Ctx, id: string): void {
   const raw = el.props['action']
@@ -358,7 +380,9 @@ function buttonAction(out: Record<string, Json>, el: ElementNode, ctx: Ctx, id: 
     labelReply(out)
     return
   }
-  if (plan.steps.some((step) => step.type === 'set' || step.type === 'reset')) {
+  if (
+    plan.steps.some((step) => step.type === 'set' || step.type === 'reset' || step.type === 'run')
+  ) {
     const actionId = uniqueId(id, ctx.actions)
     // Kept per step, so a later step reads the state the earlier ones set.
     const list =
@@ -373,7 +397,7 @@ function buttonAction(out: Record<string, Json>, el: ElementNode, ctx: Ctx, id: 
   else
     error(
       'unsupported-expression',
-      'Relay buttons run @ToAssistant, @OpenUrl, @Set and @Reset only',
+      'Relay buttons run @ToAssistant, @OpenUrl, @Set, @Reset and @Run(query) only',
     )
   labelReply(out)
 }

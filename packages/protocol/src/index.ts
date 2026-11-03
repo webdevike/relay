@@ -20,6 +20,7 @@
 import { z } from "zod";
 import { untagged } from "./surface";
 import { WidgetNode } from "./widget";
+import { MAX_LIVE_OPENUI } from "./openui/live";
 import {
   Artifact,
   ArtifactAction,
@@ -981,13 +982,30 @@ export const BoardWidgetId = BoardSlug;
 
 const BoardSpan = z.number().int().min(1).max(BOARD_COLUMNS);
 
-/** One tile: a widget spec spanning `span` of the board's 12 columns. */
+/** A board widget's live OpenUI Lang source (`Query(...)` for data, refreshing while on screen). */
+export const BoardOpenUI = z.string().min(1).max(MAX_LIVE_OPENUI);
+
+/**
+ * One tile spanning `span` of the board's 12 columns. A live tile carries its `openui` source,
+ * which clients that run OpenUI draw (with query data); `spec` is then the host's static render of
+ * it at write time, what older clients draw.
+ */
 export const BoardWidget = z.object({
   id: BoardWidgetId,
   span: BoardSpan.default(BOARD_COLUMNS),
   spec: WidgetNode,
+  openui: BoardOpenUI.optional(),
 });
 export type BoardWidget = z.infer<typeof BoardWidget>;
+
+/** A tile as written: a `spec`, or an `openui` source the host checks and renders (a `spec` next to it is replaced). */
+export const BoardWidgetInput = z.object({
+  id: BoardWidgetId,
+  span: BoardSpan.default(BOARD_COLUMNS),
+  spec: WidgetNode.optional(),
+  openui: BoardOpenUI.optional(),
+});
+export type BoardWidgetInput = z.infer<typeof BoardWidgetInput>;
 
 export const BoardTitle = z.string().min(1).max(120);
 
@@ -1019,20 +1037,22 @@ export const BoardPut = z.object({
   title: BoardTitle,
   workspace: z.string().optional(),
   icon: z.string().optional(),
-  widgets: z.array(BoardWidget).max(MAX_BOARD_WIDGETS).optional(),
+  widgets: z.array(BoardWidgetInput).max(MAX_BOARD_WIDGETS).optional(),
 });
 export type BoardPut = z.infer<typeof BoardPut>;
 
 /**
  * One edit to an existing board. `upsert.after`: the tile id to place it after, null for first;
- * absent keeps an existing tile where it is and appends a new one.
+ * absent keeps an existing tile where it is and appends a new one. An upsert gives `spec` or a
+ * live `openui` source (checked and rendered by the host; it wins over a `spec` beside it).
  */
 export const BoardOp = z.discriminatedUnion("op", [
   z.object({
     op: z.literal("upsert"),
     id: BoardWidgetId,
     span: BoardSpan.optional(),
-    spec: WidgetNode,
+    spec: WidgetNode.optional(),
+    openui: BoardOpenUI.optional(),
     after: BoardWidgetId.nullable().optional(),
   }),
   z.object({ op: z.literal("remove"), id: BoardWidgetId }),
@@ -1374,6 +1394,13 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("studio.req"), rid: StudioRid, op: StudioOp }),
   /** Reviews: the queue, one item's detail, Done, a confirmed post, an Astra ask; answered by `reviews.res` with the same `rid`. */
   z.object({ t: z.literal("reviews.req"), rid: ReviewsRid, op: ReviewsOp }),
+  /** Run one allowlisted read-only query tool (`QUERY_TOOLS`) for a live widget; answered by `query.res` with the same `rid`. Only sent to a host whose `welcome.features` has "query". */
+  z.object({
+    t: z.literal("query.req"),
+    rid: z.string().min(1).max(64),
+    tool: z.string().min(1).max(64),
+    args: z.record(z.unknown()).optional(),
+  }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 
@@ -1402,7 +1429,8 @@ export const ServerMessage = z.discriminatedUnion("t", [
   /** Paired. `secret` is hex; the phone stores it and never sends it again. */
   z.object({ t: z.literal("pair.ok"), secret: nonEmpty }),
   z.object({ t: z.literal("pair.failed"), reason: PairFailure }),
-  z.object({ t: z.literal("welcome"), state: Snapshot }),
+  /** `features`: what this host answers beyond the base protocol ("query": `query.req`); absent on older hosts. */
+  z.object({ t: z.literal("welcome"), state: Snapshot, features: z.array(z.string()).optional() }),
   z.object({ t: z.literal("error"), code: ErrorCode, message: z.string() }),
   z.object({ t: z.literal("mac.state"), mac: MacState }),
   z.object({
@@ -1623,6 +1651,8 @@ export const ServerMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("reviews.queue"), queue: ReviewQueue }),
   /** An item's Astra session changed (streamed text, a turn ending); pushed to every device. */
   z.object({ t: z.literal("reviews.astra"), item: AstraItem }),
+  /** Answer to `query.req`: the tool's result, or why it was refused (unknown tool, bad args, rate limit, a source failing). */
+  z.object({ t: z.literal("query.res"), rid: z.string().min(1).max(64), ok: z.boolean(), data: z.unknown().optional(), error: z.string().optional() }),
   z.object({ t: z.literal("ack"), id: nonEmpty }),
   z.object({ t: z.literal("nack"), id: nonEmpty, error: AckError }),
   z.object({ t: z.literal("pong"), ts: ms, serverTs: ms }),
@@ -1668,3 +1698,4 @@ export * from "./surface";
 export * from "./artifacts";
 export * from "./studio";
 export * from "./reviews";
+export * from "./query";

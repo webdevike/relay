@@ -10,7 +10,8 @@
 //   settings: Y.Map             { model: ModelKey, tidy?: boolean (false: cards may overlap and links draw as curves through them) }
 //   metrics:  Y.Map             "s:<msgId>" → ServerMetrics, "c:<msgId>" → ClientMetrics
 
-export const NODE_KINDS = ["topic", "note", "ticket", "image", "link", "frame", "suggestion", "palette", "typography"] as const;
+/** `ui`: a live OpenUI widget; `title` is its card title and `body` its OpenUI Lang source (Query data, buttons and inputs run in every client). */
+export const NODE_KINDS = ["topic", "note", "ticket", "image", "link", "frame", "suggestion", "palette", "typography", "ui"] as const;
 export type NodeKind = (typeof NODE_KINDS)[number];
 
 /** Data keys stored as plain values on a node's Y.Map (title and body are Y.Text). */
