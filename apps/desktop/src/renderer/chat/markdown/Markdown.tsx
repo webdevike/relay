@@ -11,6 +11,8 @@ import { openTargetOf } from '../../navigation/open-target'
 import { openLink } from '../../navigation/open-link'
 import { OpenUIBlock, WidgetBlock } from '../widgets/Widget'
 import { WidgetFrame, WidgetFramePending } from '../widgets/WidgetFrame'
+import { OpenUIQuery } from '../widgets/actions'
+import { liveQuery } from '../../boards/live-query'
 import { InLink, MarkdownMedia } from './MarkdownMedia'
 
 type Element = NonNullable<ExtraProps['node']>
@@ -155,18 +157,23 @@ const keepMentions = (url: string): string =>
 /** An assistant reply: GitHub-flavored markdown, never raw HTML. */
 function MarkdownImpl({ text }: { text: string }) {
   const source = useMemo(() => replyMarkdown(text), [text])
+  // A reply's Query widgets fetch live host data wherever the reply is drawn (any chat, subagent
+  // transcript, room, review); a surface that provides its own client keeps it.
+  const client = useContext(OpenUIQuery) ?? liveQuery
   return (
     <div className="eva-md">
-      <SourceContext.Provider value={source}>
-        <ReactMarkdown
-          remarkPlugins={PLUGINS}
-          components={components}
-          urlTransform={keepMentions}
-          skipHtml
-        >
-          {source}
-        </ReactMarkdown>
-      </SourceContext.Provider>
+      <OpenUIQuery.Provider value={client}>
+        <SourceContext.Provider value={source}>
+          <ReactMarkdown
+            remarkPlugins={PLUGINS}
+            components={components}
+            urlTransform={keepMentions}
+            skipHtml
+          >
+            {source}
+          </ReactMarkdown>
+        </SourceContext.Provider>
+      </OpenUIQuery.Provider>
     </div>
   )
 }
