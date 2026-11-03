@@ -205,6 +205,18 @@
   font: inherit;
   font-size: var(--eva-fz-label);
   cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+/* The agent's name in the crumb: a link to its thread, no button chrome. */
+.eva-as-crumb-link {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: var(--eva-fw-medium);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
 }
 .eva-as-crumb-back:hover {
   color: var(--eva-c-foreground);

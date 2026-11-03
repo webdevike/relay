@@ -8,16 +8,25 @@ import { invoke } from '../ipc'
 const LOG_ID = 'subagent-view'
 
 /**
- * A subagent's transcript, read only. Re-read whenever `version` changes (the subagent file's
- * mtime from the chat's extras), keeping the last read on screen meanwhile.
+ * A subagent's transcript (or, with `read="chat.readThread"`, an assistant's thread), read only.
+ * Re-read whenever `version` changes (the subagent file's mtime from the chat's extras; for a
+ * thread, what the assistant is doing), keeping the last read on screen meanwhile.
  */
-export function SubagentTranscript({ file, version }: { file: string; version: number | null }) {
+export function SubagentTranscript({
+  file,
+  version,
+  read: channel = 'chat.readSubagent',
+}: {
+  file: string
+  version: number | string | null
+  read?: 'chat.readSubagent' | 'chat.readThread'
+}) {
   const [read, setRead] = useState<{ file: string; messages: ChatMessage[] } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let live = true
-    void invoke('chat.readSubagent', { file })
+    void invoke(channel, { file })
       .then((r) => {
         if (!live) return
         if (r.ok) {
@@ -31,7 +40,7 @@ export function SubagentTranscript({ file, version }: { file: string; version: n
     return () => {
       live = false
     }
-  }, [file, version])
+  }, [channel, file, version])
 
   const messages = read?.file === file ? read.messages : null
   return (

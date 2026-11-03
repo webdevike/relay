@@ -195,6 +195,11 @@ export const chatInvoke = {
     input: z.object({ file: AbsPathSchema.endsWith('.jsonl') }).strict(),
     output: z.object({ title: z.string(), messages: z.array(ChatMessageSchema) }),
   },
+  /** An assistant's thread (a session file), read only: what a tool pane shows for its tab. */
+  'chat.readThread': {
+    input: z.object({ file: AbsPathSchema.endsWith('.jsonl') }).strict(),
+    output: z.object({ title: z.string(), messages: z.array(ChatMessageSchema) }),
+  },
   'chat.send': {
     input: z
       .object({

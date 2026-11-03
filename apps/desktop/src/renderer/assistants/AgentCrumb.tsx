@@ -27,7 +27,14 @@ export function AgentCrumb({ id }: { id: string }) {
         /
       </span>
       <AgentPortrait id={id} className="eva-as-crumb-portrait" />
-      <span className="eva-as-crumb-here">{agentTitle(id) ?? id}</span>
+      <button
+        type="button"
+        className="eva-as-crumb-here eva-as-crumb-link"
+        data-testid="breadcrumb-agent"
+        onClick={(e) => openPlace(placeOf(`agent:${id}`), { newTab: e.metaKey })}
+      >
+        {agentTitle(id) ?? id}
+      </button>
       <CrumbStatus id={id} />
     </span>
   )

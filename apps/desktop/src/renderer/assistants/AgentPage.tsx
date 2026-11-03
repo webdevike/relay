@@ -1,4 +1,5 @@
 import { Button } from '@mantine/core'
+import { SubagentTranscript } from '../chat/SubagentTranscript'
 import type { Place } from '@evaos/shell-core'
 import { agentIdOf, agentOf, startAgent, useAssistants } from './assistants-store'
 import { PortraitCard } from './PortraitCard'
@@ -24,6 +25,17 @@ export function AgentPage({ place }: { place: Place }) {
   const starting = useAssistants((s) => s.starting[id] === true)
   const failed = useAssistants((s) => s.failed[id] ?? null)
   if (!loaded) return null
+  // The thread exists: this page is a tool pane's tab (main's chat pane shows it otherwise), so
+  // it reads the thread, refreshed as the agent's status moves.
+  if (agent?.file) {
+    return (
+      <SubagentTranscript
+        file={agent.file}
+        version={`${agent.status}:${agent.tool ?? ''}`}
+        read="chat.readThread"
+      />
+    )
+  }
   const title = agent?.title ?? id
   return (
     <div className="eva-as-start" data-testid={`agent-start-${id}`}>

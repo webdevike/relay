@@ -437,6 +437,7 @@ describe('contract', () => {
         'setLaunch',
         'readImage',
         'readSubagent',
+        'readThread',
         'harnessStatus',
       ]) {
         expect(INVOKE_CHANNELS).toContain(`chat.${c}`)

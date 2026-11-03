@@ -8,6 +8,13 @@ vi.mock('../ipc', () => ({
   on: () => () => {},
 }))
 
+const startTabDrag = vi.fn()
+vi.mock('../tiling/tab-drag', async (orig) => ({
+  ...(await orig<typeof TabDrag>()),
+  startTabDrag: (...a: unknown[]) => startTabDrag(...a),
+}))
+
+import type * as TabDrag from '../tiling/tab-drag'
 import { createTabs, placeOf, type Tab } from '@evaos/shell-core'
 import { toolsShown } from '@evaos/shell-core'
 import { resetLayoutStoreForTests, setWindowWidth } from '../shell/layout-store'
@@ -54,6 +61,20 @@ describe('TabBar', () => {
     const pinned = screen.getByTestId('tab-pinned-0')
     expect(pinned).not.toHaveTextContent('Dashboard')
     expect(screen.queryByTestId('tab-close-0')).toBeNull()
+  })
+
+  it('an assistant thread tab starts a pane drag like a page tab; a chat tab does not', () => {
+    startTabDrag.mockClear()
+    seed([tab(0, 'chat'), tab(1, 'agent:nova'), tab(2, 'jobs')], 0)
+    ui()
+    fireEvent.pointerDown(screen.getByTestId('tab-0'), { button: 0 })
+    expect(startTabDrag).not.toHaveBeenCalled()
+    fireEvent.pointerDown(screen.getByTestId('tab-1'), { button: 0 })
+    expect(startTabDrag).toHaveBeenLastCalledWith(expect.anything(), {
+      tab: { kind: 'page', place: placeOf('agent:nova') },
+      title: 'nova',
+      fromAppTab: 1,
+    })
   })
 
   it('click, middle click, close button and plus', () => {

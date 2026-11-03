@@ -112,6 +112,16 @@ describe('tiling', () => {
     expect(() => closePane(defaultTiling(), CHAT_PANE)).toThrow('cannot close')
   })
 
+  it("takes an assistant's thread tab into a pane or a split like any other page", () => {
+    const nova = { kind: 'page', place: placeOf('agent:nova') } as const
+    let t = openPaneTab(defaultTiling(), nova)
+    expect(findTab(t, tabId(nova))?.pane.id).toBe('p2')
+    t = splitPane(defaultTiling(), 'p2', 'down', nova).tiling
+    expect(findTab(t, tabId(nova))).not.toBeNull()
+    // It survives a layout.json round trip.
+    expect(findTab(tilingFromJson(tilingToJson(t)), tabId(nova))).not.toBeNull()
+  })
+
   it('opens a new tab in the focused or last tool pane, else a new pane', () => {
     let t = openPaneTab(defaultTiling(), bench)
     expect(findTab(t, 'page:test-bench')?.pane.id).toBe('p2')

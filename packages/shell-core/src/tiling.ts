@@ -101,9 +101,9 @@ export interface DividerRect {
 export const isToolKind = (v: unknown): v is ToolKind =>
   v === 'browser' || v === 'files' || v === 'artifacts'
 
-/** A page a tool pane can show: anything but a chat or an assistant's thread. */
+/** A page a tool pane can show: anything but a chat (an assistant's thread is a page like any other). */
 export function pageTabAllowed(place: Place): boolean {
-  return place.page !== 'chat' && !place.page.startsWith('agent:')
+  return place.page !== 'chat'
 }
 
 export function tabId(tab: PaneTab): string {
