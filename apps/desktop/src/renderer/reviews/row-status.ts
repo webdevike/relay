@@ -38,7 +38,7 @@ export function rowPills(row: Pick<ReviewRow, 'draft'>, s: RowStatus | undefined
   const ci = s?.github?.ci
   if (ci && ci !== 'none') pills.push({ ...CI_PILL[ci], testId: 'review-row-ci' })
   const work = s?.work
-  if (work?.approve === 'ready') {
+  if (row.draft && work?.approve === 'ready') {
     pills.push({ label: 'Approve ready', tone: 'violet', testId: 'review-row-approve' })
   }
   const loop = work?.loop
