@@ -177,11 +177,20 @@ launch: **native** (ScreenCaptureKit + AX in process) when it holds Screen Recor
 **cua-driver** (`cua-driver call get_window_state` against the authorized CuaDriver daemon; start
 it with `open -n -g -a CuaDriver --args serve`).
 
-To give it its own grants: choose **Give Relay Assist Its Own Permissions…** in its menu-bar menu,
-then in System Settings > Privacy & Security turn on **Relay Assist** (bundle `com.relay.buddy`,
-so grants made under the old name carry over) under **Screen & System
-Audio Recording** and **Accessibility**, and relaunch it. For voice: System Settings > Privacy &
-Security > **Microphone** > **Relay Assist** (or answer the prompt the first time you hold the key).
+**Inside Relay (the packaged Relay.app, e.g. the MacBook)**: relay-desktop-deploy.ts ships Assist as
+`Relay.app/Contents/Helpers/Relay Assist.app` and Relay starts it as a child process
+(`apps/desktop/src/main/assist.ts`), so macOS charges every grant to **Relay**: grant Relay once
+under System Settings > Privacy & Security > **Screen & System Audio Recording**,
+**Accessibility** and **Microphone**. The deploy signs Relay and Assist with one stable
+self-signed identity ("Relay Local Signing"), so the grants survive every self-update. Relay
+opens at login and starts Assist; quitting Relay quits Assist. The log line
+`permissions: screenRecording=... accessibility=... microphone=...` in `RelayBuddy.log` shows
+what macOS answers. The menu item **Allow Screen Recording and Accessibility…** asks for them
+(under Relay's name when Relay started Assist).
+
+**Standalone (`open build/RelayBuddy.app`, the Mini)**: the same menu item asks for Assist's own
+grants; turn on **Relay Assist** (bundle `com.relay.buddy`) under Screen & System Audio
+Recording, Accessibility and Microphone, then relaunch it.
 
 ## Tests and proof
 

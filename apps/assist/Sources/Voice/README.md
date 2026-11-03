@@ -19,7 +19,7 @@ Overrides: `RELAY_BUDDY_STT_MODEL`, `RELAY_BUDDY_TTS_MODEL`. The voice is not co
 
 ## Microphone permission (needed once)
 
-The app asks the first time you hold the talk key. If you decline, or it never asks, open System Settings > Privacy & Security > Microphone and switch on Relay Buddy. The bundle's Info.plist must carry `NSMicrophoneUsageDescription`, otherwise macOS ends the process the moment the mic is touched. Keep the signing identity stable (build.sh does) so the grant survives rebuilds.
+The app asks the first time you hold the talk key. If you decline, or it never asks, open System Settings > Privacy & Security > Microphone and switch on Relay (Assist started by the packaged Relay.app; Relay Assist when run standalone). The responsible app's Info.plist must carry `NSMicrophoneUsageDescription` (Relay's electron-builder.yml and Assist's Resources/Info.plist both do), otherwise macOS ends the process the moment the mic is touched. Keep the signing identity stable (build.sh and relay-desktop-deploy.ts do) so the grant survives rebuilds.
 
 ## Testing without a microphone
 

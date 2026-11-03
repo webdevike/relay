@@ -41,6 +41,10 @@ import { reportFatal } from './fatal'
 import { registerUpdate } from './update'
 import { registerContext } from './context-popover'
 import { createPackagedUpdater, type PackagedUpdater } from './update/packaged'
+import { assistExecutable, startAssist } from './assist'
+
+/** Marks that the packaged app registered itself as a login item once. */
+const LOGIN_ITEM_FILE = 'login-item.json'
 
 function bootstrap(): void {
   let env
@@ -195,6 +199,15 @@ function bootstrap(): void {
           log: (m) => console.warn(m),
         })
         packagedUpdater.start()
+        // Relay Assist runs as Relay's child so its privacy grants are Relay's (assist.ts).
+        const assist = startAssist(assistExecutable(process.resourcesPath), (m) => console.warn(m))
+        if (assist) ctx.onBeforeQuit(() => assist.stop())
+        // The packaged app opens at login (and starts Assist); registered once, so turning it
+        // off in System Settings > General > Login Items stays off.
+        if (!config.readJson(LOGIN_ITEM_FILE, false)) {
+          app.setLoginItemSettings({ openAtLogin: true })
+          config.writeJson(LOGIN_ITEM_FILE, true)
+        }
       }
       registerAgentControl(ctx, update, chat.artifacts, chat.canvas, chat.studio)
       installTestHooks(ctx)

@@ -1,5 +1,6 @@
 import ApplicationServices
 import Carbon.HIToolbox
+import AVFoundation
 import Cocoa
 
 enum BuddyNotification {
@@ -89,6 +90,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Log.info("Relay Assist up. model=\(brain.model) capture=\(Capture.backendDescription) assistants=\(Assistants.all.map { "\($0.title)(\($0.liveVoice))" }.joined(separator: ","))")
+        // The grants as macOS answers for this process (Relay's when Relay started it).
+        let status = AVCaptureDevice.authorizationStatus(for: .audio)
+        let mic = status == .authorized ? "authorized" : status == .denied ? "denied" : status == .notDetermined ? "notDetermined" : "restricted"
+        Log.info("permissions: screenRecording=\(CGPreflightScreenCaptureAccess()) accessibility=\(AXIsProcessTrusted()) microphone=\(mic) parent=\(getppid())")
         Assistants.prepareAvatars()
         EcardRepos.refreshIfStale()
         lastExternalApp = NSWorkspace.shared.frontmostApplication.flatMap { isIgnorable($0) ? nil : $0 }
@@ -252,7 +257,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         capture.isEnabled = false
         menu.addItem(capture)
         if !CGPreflightScreenCaptureAccess() || !AXIsProcessTrusted() {
-            let setup = NSMenuItem(title: "Give Relay Assist Its Own Permissions…", action: #selector(requestPermissions), keyEquivalent: "")
+            // Started by Relay, macOS asks under Relay's name: the grants belong to Relay.
+            let setup = NSMenuItem(title: "Allow Screen Recording and Accessibility…", action: #selector(requestPermissions), keyEquivalent: "")
             setup.target = self
             menu.addItem(setup)
         }
