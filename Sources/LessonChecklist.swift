@@ -26,6 +26,13 @@ final class LessonChecklist {
     private var headline: NSTextField?
     private var closeWork: DispatchWorkItem?
     private var monitors: [Any] = []
+    /// Never grabs Esc (a lesson runs for minutes and the app being learned needs its Esc); without
+    /// Accessibility, Esc stops the lesson only while the overlay is up (its grab) or via Stop.
+    private lazy var esc: EscKey = {
+        let key = EscKey(name: "lesson list", grab: false)
+        key.onEsc = { [weak self] in self?.onStop?() }
+        return key
+    }()
     private var placing = false
     private var moveObserver: NSObjectProtocol?
 
@@ -239,15 +246,13 @@ final class LessonChecklist {
         if let m = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged], handler: { update($0) }) { monitors.append(m) }
         if let m = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved], handler: { update($0); return $0 }) { monitors.append(m) }
         panel?.ignoresMouseEvents = true
-        if AXIsProcessTrusted(), let key = NSEvent.addGlobalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
-            guard event.keyCode == 53 else { return } // Esc
-            MainActor.assumeIsolated { self?.onStop?() }
-        }) { monitors.append(key) }
+        esc.activate()
     }
 
     private func removeMonitors() {
         monitors.forEach(NSEvent.removeMonitor)
         monitors.removeAll()
+        esc.deactivate()
     }
 
     private func updateMousePassThrough() {

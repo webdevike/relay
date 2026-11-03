@@ -134,6 +134,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         overlay.isSpeaking = { [weak self] in self?.voice.isSpeaking ?? false }
+        overlay.onEscape = { [weak self] in _ = self?.lesson.handleCommand("stop") }
+        Log.info(AXIsProcessTrusted()
+                 ? "esc: Accessibility granted, passive global key monitor (Esc also reaches the app)"
+                 : "esc: no Accessibility, so global key monitors get no keys; Carbon Esc hotkey while the overlay shows, Stop button for lessons")
 
         if let question = initialQuestion {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in

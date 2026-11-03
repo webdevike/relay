@@ -1,5 +1,85 @@
+import Carbon.HIToolbox
 import Cocoa
 import QuartzCore
+
+/// Esc while Relay Assist is on screen. Measured (posted Esc, RelayBuddy.log "esc ... received via"): with
+/// Accessibility a passive global key monitor gets it and Esc still reaches the app underneath; without it
+/// macOS gives global monitors no keys, but a Carbon hotkey for Esc (needs no permission) still fires. So
+/// without Accessibility `grab` (the overlay, which is up for seconds) holds that hotkey while active; it
+/// takes those Esc presses from the app underneath, which is why the lesson list (up for minutes, over an
+/// app that needs Esc) never grabs.
+@MainActor
+final class EscKey {
+    var onEsc: (() -> Void)?
+    private let name: String
+    private let grab: Bool
+    private var monitors: [Any] = []
+    private var ref: EventHotKeyRef?
+    private static var grabbing: EscKey?
+    private static var handlerInstalled = false
+    private static var logged: Set<String> = []
+    nonisolated private static let signature = OSType(0x52_42_45_53)  // "RBES"
+
+    init(name: String, grab: Bool) {
+        self.name = name
+        self.grab = grab
+    }
+
+    func activate() {
+        guard monitors.isEmpty, ref == nil else { return }
+        let trusted = AXIsProcessTrusted()
+        if trusted, let m = NSEvent.addGlobalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
+            guard event.keyCode == UInt16(kVK_Escape) else { return }
+            MainActor.assumeIsolated { self?.fire("global key monitor") }
+        }) { monitors.append(m) }
+        // Our own panels, when one of them has the keyboard.
+        if let m = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
+            guard event.keyCode == UInt16(kVK_Escape) else { return event }
+            MainActor.assumeIsolated { self?.fire("local monitor") }
+            return nil
+        }) { monitors.append(m) }
+        var path = trusted ? "global key monitor (Accessibility granted)" : "local monitor only (no Accessibility: global monitors get no keys)"
+        if grab, !trusted {
+            Self.installHandler()
+            let id = EventHotKeyID(signature: Self.signature, id: 1)
+            if RegisterEventHotKey(UInt32(kVK_Escape), 0, id, GetApplicationEventTarget(), 0, &ref) == noErr {
+                Self.grabbing = self
+                path = "Carbon Esc hotkey while visible (no Accessibility)"
+            } else {
+                ref = nil
+                path += ", Carbon Esc hotkey FAILED to register"
+            }
+        }
+        if Self.logged.insert(name + path).inserted { Log.info("esc (\(name)): listening via \(path)") }
+    }
+
+    func deactivate() {
+        monitors.forEach(NSEvent.removeMonitor)
+        monitors.removeAll()
+        if let ref { UnregisterEventHotKey(ref) }
+        ref = nil
+        if Self.grabbing === self { Self.grabbing = nil }
+    }
+
+    private func fire(_ via: String) {
+        Log.info("esc (\(name)): received via \(via)")
+        onEsc?()
+    }
+
+    private static func installHandler() {
+        guard !handlerInstalled else { return }
+        handlerInstalled = true
+        var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        InstallEventHandler(GetApplicationEventTarget(), { _, event, _ -> OSStatus in
+            var id = EventHotKeyID()
+            GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
+                              nil, MemoryLayout<EventHotKeyID>.size, nil, &id)
+            guard id.signature == EscKey.signature else { return OSStatus(eventNotHandledErr) }
+            DispatchQueue.main.async { MainActor.assumeIsolated { EscKey.grabbing?.fire("Carbon hotkey") } }
+            return noErr
+        }, 1, &spec, nil, nil)
+    }
+}
 
 enum Palette {
     /// The answering assistant's accent (agents.json avatar.colors.accent); written on the main thread
@@ -56,6 +136,16 @@ final class OverlayController {
     private let buddy = BuddyCharacter()
     private var marks: [CALayer] = []
     private var monitors: [Any] = []
+    private lazy var esc: EscKey = {
+        let key = EscKey(name: "overlay", grab: true)
+        key.onEsc = { [weak self] in
+            self?.dismiss(fast: true)
+            self?.onEscape?()
+        }
+        return key
+    }()
+    /// Esc pressed while Buddy was showing (after it dismissed): the app also ends a running lesson.
+    var onEscape: (() -> Void)?
     private var fadeWork: DispatchWorkItem?
     /// Bumped on every show or dismiss; stale animation callbacks compare against it.
     private var generation = 0
@@ -414,16 +504,13 @@ final class OverlayController {
         if let click = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown], handler: { [weak self] _ in
             MainActor.assumeIsolated { self?.dismiss(fast: true) }
         }) { monitors.append(click) }
-        // Watching keys system-wide needs Accessibility; without it, a click still dismisses.
-        if AXIsProcessTrusted(), let key = NSEvent.addGlobalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
-            guard event.keyCode == 53 else { return } // Esc
-            MainActor.assumeIsolated { self?.dismiss(fast: true) }
-        }) { monitors.append(key) }
+        esc.activate()
     }
 
     private func removeMonitors() {
         monitors.forEach(NSEvent.removeMonitor)
         monitors.removeAll()
+        esc.deactivate()
     }
 }
 
