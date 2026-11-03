@@ -59,7 +59,8 @@ import { invoke } from '../ipc'
 import { openLink } from '../navigation/open-link'
 import { openPlace } from '../navigation/navigate'
 import { EvaMenu } from '../overlay'
-import { openSubagentTab, revealTool, useTiling } from '../tiling/tiling-store'
+import { openSubagentTab, revealTool } from '../tiling/tiling-store'
+import { agentOf, useAssistants } from '../assistants/assistants-store'
 import { requestExperiment } from '../test-bench/bench-request'
 import { ArtifactRow, RowButton, type RowActions } from './ArtifactRow'
 import { MediaGrid, MediaLightbox } from './ArtifactsMedia'
@@ -688,10 +689,19 @@ function ItemMenu({
  * chat's), in tabs. The four defaults come first, agents' tabs after; a tab's rows come from
  * `tabItems`, the rule the phone uses too.
  */
-export function ArtifactsPanel({ hidden }: { hidden: boolean }) {
+export function ArtifactsPanel({
+  hidden,
+  scope,
+  onNavigate,
+}: {
+  hidden: boolean
+  /** The page whose thread this shows: `page:agent:<id>` or `chat:<file>`. */
+  scope: string
+  /** Called after a row takes Isaac somewhere else, so a popover around the panel can close. */
+  onNavigate?: () => void
+}) {
   useEffect(() => startArtifacts(), [])
   useNamesVersion()
-  const scope = useTiling((s) => s.scope)
   const target = useMemo(() => watchTarget(scope), [scope])
   const thread = useArtifactsThread(target, !hidden)
   const view = useArtifacts((s) => (thread ? s.threads[thread] : undefined))
@@ -715,12 +725,16 @@ export function ArtifactsPanel({ hidden }: { hidden: boolean }) {
   const hostItems = view?.items
   // The open chat's subagents are read from its transcripts too, the facts the context button's
   // dot uses, so the tab's spinner, this list and that dot agree.
+  const agentFile = useAssistants((s) =>
+    target?.agent != null ? (agentOf(s, target.agent)?.file ?? null) : null,
+  )
+  const threadFile = target === null ? null : target.file !== '' ? target.file : agentFile
   const allItems = useMemo(() => {
     const base = hostItems ?? []
-    return target !== null && target.file !== '' && chatPane?.file === target.file
-      ? withTranscripts(base, target.file, chatPane.extras.subagents, now)
+    return threadFile !== null && chatPane?.file === threadFile
+      ? withTranscripts(base, threadFile, chatPane.extras.subagents, now)
       : base
-  }, [hostItems, target, chatPane?.file, chatPane?.extras.subagents, now])
+  }, [hostItems, threadFile, chatPane?.file, chatPane?.extras.subagents, now])
   const showTidied = useArtifacts((s) => (thread ? s.showTidied[thread] === true : false))
   // Items Tidy hid (the host keeps that, so the phone sees the same) stay out of every tab unless
   // "Show tidied" is on; a running subagent never hides.
@@ -803,17 +817,21 @@ export function ArtifactsPanel({ hidden }: { hidden: boolean }) {
       switch (to.to) {
         case 'browser':
           openLink(to.url)
+          onNavigate?.()
           return
         case 'files':
           revealTool('files')
           void showPath(to.path, chatStore.getState().panes[PANE_ID]?.file || null)
+          onNavigate?.()
           return
         case 'testbench':
           requestExperiment(to.experiment)
           openPlace(placeOf('test-bench'))
+          onNavigate?.()
           return
         case 'canvas':
           openPlace(placeOf('canvas', { canvas: to.slug }))
+          onNavigate?.()
           return
         case 'subagent':
           openSubagentTab({
@@ -821,6 +839,7 @@ export function ArtifactsPanel({ hidden }: { hidden: boolean }) {
             file: to.file,
             name: to.name,
           })
+          onNavigate?.()
           return
         case 'lightbox': {
           const list = tab ? tabItems(tab, items, now).filter((i) => i.media !== undefined) : []

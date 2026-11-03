@@ -199,7 +199,7 @@ export function zoomPane(paneId: string, on?: boolean): void {
 
 /**
  * The panel toggle (Cmd+Shift+B): hides the tool panes by zooming the chat pane, shows them again,
- * and with no tool pane left opens today's (Browser, Files, Artifacts) right of the chat.
+ * and with no tool pane left opens today's (Browser, Files) right of the chat.
  */
 export function toggleToolPanes(open?: boolean): void {
   updateTiling((t) => {

@@ -37,9 +37,9 @@ const shape = (t: Tiling): unknown => {
 const bench = { kind: 'page', place: placeOf('test-bench') } as const
 
 describe('tiling', () => {
-  it('defaults to today: chat, then one tool pane with the three tools', () => {
+  it('defaults to today: chat, then one tool pane with the two tools', () => {
     const t = defaultTiling(0.3, 'files')
-    expect(shape(t)).toEqual({ row: ['chat[]', 'p2[browser,files,artifacts]'] })
+    expect(shape(t)).toEqual({ row: ['chat[]', 'p2[browser,files]'] })
     expect(t.root.type === 'split' && t.root.sizes).toEqual([0.7, 0.3])
     expect(isTabVisible(t, 'files')).toBe(true)
     expect(isTabVisible(t, 'browser')).toBe(false)
@@ -49,16 +49,13 @@ describe('tiling', () => {
   it('splits a pane, moving a tab that is open elsewhere', () => {
     const { tiling, pane } = splitPane(defaultTiling(), 'p2', 'down', { kind: 'browser' })
     expect(shape(tiling)).toEqual({
-      row: ['chat[]', { column: ['p2[files,artifacts]', `${pane}[browser]`] }],
+      row: ['chat[]', { column: ['p2[files]', `${pane}[browser]`] }],
     })
     expect(tiling.focus).toBe(pane)
     // Splitting the same way again adds a sibling instead of nesting.
     const again = splitPane(tiling, pane, 'down', bench).tiling
     expect(shape(again)).toEqual({
-      row: [
-        'chat[]',
-        { column: ['p2[files,artifacts]', `${pane}[browser]`, 'p5[page:test-bench]'] },
-      ],
+      row: ['chat[]', { column: ['p2[files]', `${pane}[browser]`, 'p5[page:test-bench]'] }],
     })
   })
 
@@ -68,7 +65,7 @@ describe('tiling', () => {
     const canvas = { kind: 'page', place: placeOf('canvas', { canvas: 'b' }) } as const
     t = splitPane(t, t.root.type === 'split' ? t.root.children[1]!.id : '', 'right', canvas).tiling
     expect(shape(t)).toEqual({
-      row: ['chat[]', { column: ['p2[files,artifacts]', 'p3[browser]'] }, 'p5[canvas:b]'],
+      row: ['chat[]', { column: ['p2[files]', 'p3[browser]'] }, 'p5[canvas:b]'],
     })
   })
 
@@ -76,7 +73,7 @@ describe('tiling', () => {
     const { tiling, pane } = splitPane(defaultTiling(), 's1', 'right', bench, 0.25)
     expect(tiling.root.id).toBe('s1')
     expect(shape(tiling)).toEqual({
-      row: ['chat[]', 'p2[browser,files,artifacts]', `${pane}[page:test-bench]`],
+      row: ['chat[]', 'p2[browser,files]', `${pane}[page:test-bench]`],
     })
     expect(tiling.root.type === 'split' && tiling.root.sizes[2]).toBeCloseTo(0.25)
   })
@@ -86,10 +83,10 @@ describe('tiling', () => {
       ({ kind: 'page', place: placeOf('canvas', { canvas: slug }) }) as const
     let t = openPaneTab(defaultTiling(), canvas(null))
     t = replacePaneTab(t, 'page:canvas', canvas('b'))
-    expect(shape(t)).toEqual({ row: ['chat[]', 'p2[browser,canvas:b,files,artifacts]'] })
+    expect(shape(t)).toEqual({ row: ['chat[]', 'p2[browser,canvas:b,files]'] })
     t = openPaneTab(t, canvas(null))
     t = replacePaneTab(t, 'page:canvas', canvas('b'))
-    expect(shape(t)).toEqual({ row: ['chat[]', 'p2[browser,canvas:b,files,artifacts]'] })
+    expect(shape(t)).toEqual({ row: ['chat[]', 'p2[browser,canvas:b,files]'] })
     expect(isTabVisible(t, 'canvas:b')).toBe(true)
   })
 
@@ -99,9 +96,9 @@ describe('tiling', () => {
   })
 
   it('moving the last tab out closes its pane and collapses the split', () => {
-    let t = splitPane(defaultTiling(), 'p2', 'right', { kind: 'artifacts' }).tiling
-    t = movePaneTab(t, { kind: 'artifacts' }, 'p2', 0)
-    expect(shape(t)).toEqual({ row: ['chat[]', 'p2[artifacts,browser,files]'] })
+    let t = splitPane(defaultTiling(), 'p2', 'right', { kind: 'files' }).tiling
+    t = movePaneTab(t, { kind: 'files' }, 'p2', 0)
+    expect(shape(t)).toEqual({ row: ['chat[]', 'p2[files,browser]'] })
     expect(t.focus).toBe('p2')
   })
 
@@ -140,8 +137,8 @@ describe('tiling', () => {
   it('closing a tab picks the next one and an empty pane goes away', () => {
     let t = activatePaneTab(defaultTiling(), 'files')
     t = closePaneTab(t, 'files')
-    expect(allPanes(t.root)[1]?.active).toBe('artifacts')
-    t = closePaneTab(closePaneTab(t, 'artifacts'), 'browser')
+    expect(allPanes(t.root)[1]?.active).toBe('browser')
+    t = closePaneTab(t, 'browser')
     expect(shape(t)).toBe('chat[]')
     expect(t.focus).toBe(CHAT_PANE)
   })

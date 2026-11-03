@@ -244,7 +244,6 @@ async function paneTabOf(spec: PaneTabSpec): Promise<PaneTab> {
   switch (spec.kind) {
     case 'browser':
     case 'files':
-    case 'artifacts':
       return { kind: spec.kind }
     case 'subagent':
       return { kind: 'subagent', ...spec.args }

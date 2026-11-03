@@ -29,16 +29,12 @@ import { replaceTab, useTiling } from './tiling-store'
 const FilesPanel = lazy(() =>
   import('../files/FilesPanel').then((m) => ({ default: m.FilesPanel })),
 )
-// The Artifacts tool loads the first time it opens.
-const ArtifactsPanel = lazy(() =>
-  import('../artifacts/ArtifactsPanel').then((m) => ({ default: m.ArtifactsPanel })),
-)
 
 /**
  * Every tab's content renders once, through a portal, into its own detached node; a pane shows
  * its tab in front by moving that node into its body, and parks the rest out of sight. Moving a
  * tab to another pane, splitting or zooming never remounts it (the browser keeps its view, Files
- * its editors). The browser, Files and Artifacts stay mounted after their tab closes, like the
+ * its editors). The browser and Files stay mounted after their tab closes, like the
  * old side panel kept them, so closing a tab or pane never loses an edit.
  */
 const nodes = new Map<string, HTMLDivElement>()
@@ -130,12 +126,6 @@ function TabContent({ tab, visible }: { tab: PaneTab; visible: boolean }) {
           <FilesPanel hidden={!visible} />
         </Suspense>
       )
-    case 'artifacts':
-      return (
-        <Suspense fallback={null}>
-          <ArtifactsPanel hidden={!visible} />
-        </Suspense>
-      )
     case 'subagent':
       return <SubagentContent tab={tab} />
     case 'experiment-arm':
@@ -146,7 +136,7 @@ function TabContent({ tab, visible }: { tab: PaneTab; visible: boolean }) {
 }
 
 /** Tools that stay mounted once opened; the browser from the start (its host scope follows it). */
-const KEPT: readonly PaneTab['kind'][] = ['browser', 'files', 'artifacts']
+const KEPT: readonly PaneTab['kind'][] = ['browser', 'files']
 
 /** Renders every tab's content into its node, and the park the hidden ones wait in. */
 export function TabContentHost() {

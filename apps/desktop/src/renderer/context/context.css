@@ -50,6 +50,9 @@
 .eva-ctx-dot[data-dot='running'] {
   background: var(--mantine-color-blue-5);
 }
+.eva-ctx-dot[data-dot='active'] {
+  background: var(--eva-c-accent);
+}
 
 .eva-ctx-pop {
   display: flex;

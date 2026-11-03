@@ -35,7 +35,7 @@ describe('readLayoutText', () => {
     expect(readLayoutText('{"panel_tool":"terminal"}').legacyPanel).toEqual(defaults.legacyPanel)
   })
   it('a saved tiling wins over the old panel', () => {
-    const tiling = defaultTiling(0.4, 'artifacts')
+    const tiling = defaultTiling(0.4, 'files')
     const r = readLayoutText(JSON.stringify({ panel_width: 500, tiling: tilingToJson(tiling) }))
     expect(r.tiling).toEqual(tiling)
     expect(r.legacyPanel).toBeNull()

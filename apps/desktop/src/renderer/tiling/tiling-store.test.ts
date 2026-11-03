@@ -73,7 +73,7 @@ describe('tiling store', () => {
     expect(allPanes(t().root)).toHaveLength(1)
     toggleToolPanes(true)
     const tool = allPanes(t().root)[1]
-    expect(tool?.tabs.map((x) => x.kind)).toEqual(['browser', 'files', 'artifacts'])
+    expect(tool?.tabs.map((x) => x.kind)).toEqual(['browser', 'files'])
     expect(visible('browser')).toBe(true)
   })
 
@@ -82,8 +82,8 @@ describe('tiling store', () => {
     const p = splitAt('p2', 'down')
     expect(p).not.toBeNull()
     expect(findTab(t(), 'browser')?.pane.id).toBe(p)
-    // From the chat pane every tool is open, so the tool pane's tab in front moves.
-    expect(defaultSplitTab(t(), 'chat')).toEqual({ kind: 'files' })
+    // Both tools are open in panes of one tab each: nothing to move from the chat pane.
+    expect(defaultSplitTab(t(), 'chat')).toBeNull()
     // An only tab with every tool open: nothing to split with.
     expect(splitAt(p!, 'right')).toBeNull()
   })

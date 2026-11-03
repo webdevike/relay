@@ -1,11 +1,11 @@
 // Who is working for a chat or an assistant, from files only: a session's subagent transcripts
-// (`<session>/<Name>.jsonl`, done once omp wrote `<Name>.md`) and an assistant's own record of the
+// (`<session>/<Name>.jsonl`, done once omp wrote `<Name>.md` or the transcript ends) and an assistant's own record of the
 // sessions it started (`work/eva/agents/<id>/sessions.json`, Astra's `auto-work.json`).
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { z } from 'zod'
 import { SUBAGENT_STALE_MS } from '@evaos/chat-core/artifacts'
-import { subagentsFromListing } from '@evaos/chat-core/jobs'
+import { ompSubagentEnded, subagentsFromListing } from '@evaos/chat-core/jobs'
 import { readTail } from '../assistants/assistants'
 import { lastAssistantLine } from '../chat/extras'
 
@@ -56,7 +56,7 @@ function stat(file: string): fs.Stats | null {
 }
 
 /**
- * The subagents of session `file`, newest first: running ones (no `.md` yet, written in the last
+ * The subagents of session `file`, newest first: running ones (not ended, written in the last
  * SUBAGENT_STALE_MS) and finished ones (by their `.md` time). Abandoned transcripts are left out.
  */
 export function subagentsOf(file: string, now: number, lines: LineCache): Worker[] {
@@ -79,16 +79,19 @@ export function subagentsOf(file: string, now: number, lines: LineCache): Worker
   }
   const out: Worker[] = []
   for (const s of subagentsFromListing(entries)) {
-    if (!s.done && now - s.mtimeMs > SUBAGENT_STALE_MS) continue
     const full = path.join(dir, s.file)
     const st = stat(full)
     if (!st) continue
+    // Done once omp wrote the `.md`, or the transcript itself ends (session_exit / yield result):
+    // the same call the chips and the Artifacts panel make.
+    const done = s.done || ompSubagentEnded(readTail(full, TAIL) ?? '')
+    if (!done && now - s.mtimeMs > SUBAGENT_STALE_MS) continue
     out.push({
       name: s.name,
       file: full,
       session: file,
-      running: !s.done,
-      at: s.done ? (mds.get(`${s.name}.md`) ?? s.mtimeMs) : st.birthtimeMs || s.mtimeMs,
+      running: !done,
+      at: done ? (mds.get(`${s.name}.md`) ?? s.mtimeMs) : st.birthtimeMs || s.mtimeMs,
       line: lines.line(full, st),
     })
   }

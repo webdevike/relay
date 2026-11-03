@@ -77,9 +77,7 @@ describe('agent action registry', () => {
     expect(open.safeParse({ kind: 'subagent', args: { name: 'x' } }).success).toBe(false)
     const split = agentActions['pane.split'].params
     expect(split.safeParse({ dir: 'down', tab: 'browser' }).success).toBe(true)
-    expect(split.safeParse({ dir: 'down', tab: { kind: 'artifacts' }, size: 0.3 }).success).toBe(
-      true,
-    )
+    expect(split.safeParse({ dir: 'down', tab: { kind: 'files' }, size: 0.3 }).success).toBe(true)
     expect(split.safeParse({ dir: 'down', size: 1 }).success).toBe(false)
     expect(split.safeParse({ dir: 'down', scope: 'x' }).success).toBe(false)
     const resize = agentActions['pane.resize'].params
@@ -181,7 +179,7 @@ describe('artifacts actions', () => {
       agentActions['artifacts.tab.update'].params.safeParse({ id: 'open-prs', hidden: true })
         .success,
     ).toBe(false)
-    expect(agentActions['tab.open'].params.safeParse({ kind: 'artifacts' }).success).toBe(true)
+    expect(agentActions['tab.open'].params.safeParse({ kind: 'artifacts' }).success).toBe(false)
   })
 })
 

@@ -4,15 +4,14 @@ import {
   IconFlask,
   IconGlobe,
   IconRobot,
-  IconStack2,
   type Icon,
 } from '@tabler/icons-react'
 import type { PaneTab } from '@evaos/shell-core'
 import { PAGE_ICONS } from '../tabs/tab-icons'
 import { tabIconName, tabTitle } from '../tabs/tab-meta'
 
-const TOOL_TITLES = { browser: 'Browser', files: 'Files', artifacts: 'Artifacts' } as const
-const TOOL_ICONS = { browser: IconGlobe, files: IconFiles, artifacts: IconStack2 } as const
+const TOOL_TITLES = { browser: 'Browser', files: 'Files' } as const
+const TOOL_ICONS = { browser: IconGlobe, files: IconFiles } as const
 
 /** A tool tab's title, as its pane strip and layout.read name it. Text only. */
 export function paneTabTitle(tab: PaneTab): string {

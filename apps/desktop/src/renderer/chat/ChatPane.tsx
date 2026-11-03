@@ -2,6 +2,7 @@ import './chat.css'
 import { ActionIcon, Tooltip } from '@mantine/core'
 import { IconLayoutSidebar, IconLayoutSidebarRight } from '@tabler/icons-react'
 import { ContextButton } from '../context/ContextButton'
+import { ArtifactsButton } from '../artifacts/ArtifactsButton'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChatLog } from './ChatLog'
 import { Composer, type ComposerHandle } from './Composer'
@@ -221,7 +222,13 @@ export function ChatPane() {
         )}
         {/* This header is the page's whenever the pane shows (a chat, an agent's thread; MainCard
             drops MainHeader then); otherwise the pane is hidden and MainHeader has the button. */}
-        {place.page === 'chat' || thread !== null ? <ContextButton /> : null}
+        {place.page === 'chat' || thread !== null ? (
+          agent !== null ? (
+            <ArtifactsButton agent={agent} />
+          ) : (
+            <ContextButton />
+          )
+        ) : null}
         <Tooltip label={panelOpen ? 'Hide tool panes' : 'Show tool panes'} position="bottom">
           <ActionIcon
             variant="subtle"

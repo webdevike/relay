@@ -153,11 +153,11 @@ describe('scoped content actions', () => {
 
   it('tab.open for a page not in front waits for it, then brings the tab forward', async () => {
     activateTab('browser')
-    const r = await rendererActions['tab.open']({ kind: 'artifacts', scope: 'agent:nova' })
-    expect(r).toMatchObject({ tab: 'artifacts', scope: 'page:agent:nova', background: true })
-    expect(visible('artifacts')).toBe(false)
+    const r = await rendererActions['tab.open']({ kind: 'files', scope: 'agent:nova' })
+    expect(r).toMatchObject({ tab: 'files', scope: 'page:agent:nova', background: true })
+    expect(visible('files')).toBe(false)
     enterScope('page:agent:nova')
-    await vi.waitFor(() => expect(visible('artifacts')).toBe(true))
+    await vi.waitFor(() => expect(visible('files')).toBe(true))
   })
 
   it('the scope in front runs as before', async () => {

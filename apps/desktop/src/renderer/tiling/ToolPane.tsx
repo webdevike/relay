@@ -11,7 +11,6 @@ import {
   IconPhotoSpark,
   IconPlus,
   IconSchema,
-  IconStack2,
   IconX,
 } from '@tabler/icons-react'
 import { findPane, placeOf, tabId, type PaneTab, type SubagentTab } from '@evaos/shell-core'
@@ -46,7 +45,6 @@ function tip(label: string, chord?: string) {
 const ADDABLE: Array<{ label: string; Icon: typeof IconGlobe; tab: PaneTab }> = [
   { label: 'Browser', Icon: IconGlobe, tab: { kind: 'browser' } },
   { label: 'Files', Icon: IconFiles, tab: { kind: 'files' } },
-  { label: 'Artifacts', Icon: IconStack2, tab: { kind: 'artifacts' } },
   { label: 'Test Bench', Icon: IconListCheck, tab: { kind: 'page', place: placeOf('test-bench') } },
   { label: 'Canvas', Icon: IconSchema, tab: { kind: 'page', place: placeOf('canvas') } },
   { label: 'Studio', Icon: IconPhotoSpark, tab: { kind: 'page', place: placeOf('studio') } },

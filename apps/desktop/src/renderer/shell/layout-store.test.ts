@@ -145,7 +145,7 @@ describe('loadLayout', () => {
   })
 
   it('restores the saved pane tree', async () => {
-    const saved = tilingToJson(defaultTiling(0.5, 'artifacts'))
+    const saved = tilingToJson(defaultTiling(0.5, 'files'))
     loaded({ tiling: saved })
     await loadLayout()
     expect(tilingToJson(tilingStore.getState().tiling)).toEqual(saved)

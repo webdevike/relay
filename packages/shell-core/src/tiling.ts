@@ -20,8 +20,8 @@ export const CHAT_MIN_H = 240
 export const TOOL_PANE_SHARE = 0.34
 const SIZE_MIN = 0.05
 
-export type ToolKind = 'browser' | 'files' | 'artifacts'
-export const TOOL_KINDS: readonly ToolKind[] = ['browser', 'files', 'artifacts']
+export type ToolKind = 'browser' | 'files'
+export const TOOL_KINDS: readonly ToolKind[] = ['browser', 'files']
 
 export type PaneTab =
   | { kind: ToolKind }
@@ -98,8 +98,7 @@ export interface DividerRect {
 
 // Tabs ----------------------------------------------------------------------------------------
 
-export const isToolKind = (v: unknown): v is ToolKind =>
-  v === 'browser' || v === 'files' || v === 'artifacts'
+export const isToolKind = (v: unknown): v is ToolKind => v === 'browser' || v === 'files'
 
 /** A page a tool pane can show: anything but a chat (an assistant's thread is a page like any other). */
 export function pageTabAllowed(place: Place): boolean {
@@ -204,7 +203,7 @@ export function preferredToolPane(t: Tiling): PaneNode | null {
 
 const chatLeaf = (): PaneNode => ({ type: 'pane', id: CHAT_PANE, tabs: [], active: null })
 
-/** Today's shell: the chat, and one tool pane on the right with Browser, Files and Artifacts. */
+/** Today's shell: the chat, and one tool pane on the right with Browser and Files. */
 export function defaultTiling(share = TOOL_PANE_SHARE, tool: ToolKind = 'browser'): Tiling {
   const s = clampShare(share)
   return {

@@ -61,7 +61,7 @@ export const ChatSettingsSchema = z.object({
 export type ChatSettings = z.infer<typeof ChatSettingsSchema>
 
 const Empty = z.object({})
-const ToolKindSchema = z.enum(['browser', 'files', 'artifacts'])
+const ToolKindSchema = z.enum(['browser', 'files'])
 
 export const shellInvoke = {
   'layout.load': {

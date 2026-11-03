@@ -158,9 +158,7 @@ async function paneMenu(shell: Page, pane: string, item: string): Promise<void> 
   await shell.locator(`${sel(`pane-add-menu-${pane}`)} ${sel(item)}`).click()
 }
 
-const DEFAULT: PaneView[] = [
-  { id: 'p2', tabs: ['browser', 'files', 'artifacts'], active: 'browser' },
-]
+const DEFAULT: PaneView[] = [{ id: 'p2', tabs: ['browser', 'files'], active: 'browser' }]
 
 test('one global tree: tool tabs follow the page in front, the toggle hides and shows them', async ({
   app,
@@ -299,7 +297,7 @@ test('one global tree: tool tabs follow the page in front, the toggle hides and 
   await openChat(shell, chatB)
   await expect.poll(() => stripIds(shell)).toEqual([aTab, bTab])
 
-  // With every tool pane closed, the toggle opens Browser, Files and Artifacts again.
+  // With every tool pane closed, the toggle opens Browser and Files again.
   await shell.locator(sel('pane-close-p2')).click()
   await expect.poll(() => panes(shell)).toEqual([])
   await expect(toggle).toHaveAttribute('aria-pressed', 'false')
@@ -307,7 +305,7 @@ test('one global tree: tool tabs follow the page in front, the toggle hides and 
   await toggle.click()
   await expect
     .poll(() => panes(shell))
-    .toEqual([{ id: 'p3', tabs: ['browser', 'files', 'artifacts'], active: 'browser' }])
+    .toEqual([{ id: 'p3', tabs: ['browser', 'files'], active: 'browser' }])
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
   await expect.poll(() => stripIds(shell)).toEqual([aTab, bTab])
 })
@@ -323,7 +321,7 @@ test('the + menu splits a pane right and down, and maximizes one', async ({
   await expect
     .poll(() => panes(shell))
     .toEqual([
-      { id: 'p2', tabs: ['files', 'artifacts'], active: 'files' },
+      { id: 'p2', tabs: ['files'], active: 'files' },
       { id: 'p3', tabs: ['browser'], active: 'browser' },
     ])
   await expect(shell.locator(`${sel('pane-body-p3')} ${sel('browser-panel')}`)).toBeVisible()
@@ -353,36 +351,21 @@ test('the + menu splits a pane right and down, and maximizes one', async ({
   expect(Math.round(chat.width - (await box(shell, sel('pane-chat'))).width)).toBe(40)
   expect(Math.round((await box(shell, sel('pane-p3'))).width)).toBe(Math.round(p3.width))
 
-  // Split down moves p2's tab in front to a new pane under it.
-  await paneMenu(shell, 'p2', 'pane-split-down-p2')
+  // Maximize fills the panes' area with one pane; its header button restores the others.
+  await paneMenu(shell, 'p3', 'pane-zoom-p3')
   await expect
     .poll(() => panes(shell))
-    .toEqual([
-      { id: 'p2', tabs: ['artifacts'], active: 'artifacts' },
-      { id: 'p4', tabs: ['files'], active: 'files' },
-      { id: 'p3', tabs: ['browser'], active: 'browser' },
-    ])
-  const top = await box(shell, sel('pane-p2'))
-  const under = await box(shell, sel('pane-p4'))
-  expect(under.y).toBeGreaterThan(top.y + top.height)
-  expect(Math.abs(under.x - top.x)).toBeLessThanOrEqual(1)
-  await expect
-    .poll(() => savedShape(configDir))
-    .toEqual(['row', 'chat', ['column', 'p2', 'p4'], 'p3'])
-
-  // Maximize fills the panes' area with one pane; its header button restores the others.
-  await paneMenu(shell, 'p4', 'pane-zoom-p4')
-  await expect.poll(() => panes(shell)).toEqual([{ id: 'p4', tabs: ['files'], active: 'files' }])
+    .toEqual([{ id: 'p3', tabs: ['browser'], active: 'browser' }])
   await expect(shell.locator(sel('pane-chat'))).toBeHidden()
-  const restore = shell.locator(`${sel('pane-header-p4')} ${sel('pane-zoom-p4')}`)
+  const restore = shell.locator(`${sel('pane-header-p3')} ${sel('pane-zoom-p3')}`)
   await expect(restore).toHaveAttribute('aria-label', 'Restore panes')
   await restore.click()
-  await expect.poll(async () => (await panes(shell)).map((p) => p.id)).toEqual(['p2', 'p4', 'p3'])
+  await expect.poll(async () => (await panes(shell)).map((p) => p.id)).toEqual(['p2', 'p3'])
   await expect(shell.locator(sel('pane-chat'))).toBeVisible()
 
   // Splitting a pane with one tab opens a tool that is not open anywhere: none is left here.
   await paneMenu(shell, 'p3', 'pane-split-p3')
-  await expect.poll(async () => (await panes(shell)).map((p) => p.id)).toEqual(['p2', 'p4', 'p3'])
+  await expect.poll(async () => (await panes(shell)).map((p) => p.id)).toEqual(['p2', 'p3'])
 })
 
 test('dragging a tab onto a pane edge makes a new pane, and the tree survives a restart', async ({
@@ -393,8 +376,8 @@ test('dragging a tab onto a pane edge makes a new pane, and the tree survives a 
   await size(app, shell, 1400, 900)
   await expect.poll(() => panes(shell)).toEqual(DEFAULT)
 
-  // Drag Artifacts to the chat pane's bottom edge: the drop zone shows the half it would take.
-  const { x: sx, y: sy } = await grab(shell, 'artifacts')
+  // Drag Files to the chat pane's bottom edge: the drop zone shows the half it would take.
+  const { x: sx, y: sy } = await grab(shell, 'files')
   const chat = await box(shell, sel('pane-chat'))
   await shell.mouse.move(sx, sy)
   await shell.mouse.down()
@@ -414,8 +397,8 @@ test('dragging a tab onto a pane edge makes a new pane, and the tree survives a 
   await expect(zone).toHaveCount(0)
 
   const after: PaneView[] = [
-    { id: 'p3', tabs: ['artifacts'], active: 'artifacts' },
-    { id: 'p2', tabs: ['browser', 'files'], active: 'browser' },
+    { id: 'p3', tabs: ['files'], active: 'files' },
+    { id: 'p2', tabs: ['browser'], active: 'browser' },
   ]
   await expect
     .poll(async () => (await panes(shell)).sort((a, b) => a.id.localeCompare(b.id)))
@@ -427,27 +410,24 @@ test('dragging a tab onto a pane edge makes a new pane, and the tree survives a 
   expect(Math.abs(p3.width - chat2.width)).toBeLessThanOrEqual(1)
   await expect.poll(() => savedShape(configDir)).toEqual(['row', ['column', 'chat', 'p3'], 'p2'])
 
-  // Drag Files onto the middle of the new pane: it joins that pane's tabs.
-  const files = await grab(shell, 'files')
+  // Drag Browser onto the middle of the new pane: it joins that pane's tabs, and its own pane goes.
+  const browser = await grab(shell, 'browser')
   const body = await box(shell, sel('pane-body-p3'))
-  await shell.mouse.move(files.x, files.y)
+  await shell.mouse.move(browser.x, browser.y)
   await shell.mouse.down()
   await shell.mouse.move(body.x + body.width / 2, body.y + body.height / 2, { steps: 12 })
   await expect(shell.locator(sel('drop-zone'))).toHaveAttribute('data-zone', 'center')
   await shell.mouse.up()
   await expect
-    .poll(async () => (await panes(shell)).find((p) => p.id === 'p3'))
-    .toEqual({ id: 'p3', tabs: ['artifacts', 'files'], active: 'files' })
-  await expect
-    .poll(() => panes(shell).then((v) => v.find((p) => p.id === 'p2')?.tabs))
-    .toEqual(['browser'])
+    .poll(() => panes(shell))
+    .toEqual([{ id: 'p3', tabs: ['files', 'browser'], active: 'browser' }])
   await expect
     .poll(() => {
       const t = layoutFile(configDir)['tiling'] as { root?: SavedNode } | undefined
       const p3n = t?.root ? findSaved(t.root, 'p3') : null
       return p3n?.type === 'pane' ? p3n.tabs.map((x) => x.kind) : null
     })
-    .toEqual(['artifacts', 'files'])
+    .toEqual(['files', 'browser'])
   const want = await panes(shell)
   await app.close()
 
@@ -463,7 +443,7 @@ test('dragging a tab onto a pane edge makes a new pane, and the tree survives a 
     const c = await box(page, sel('pane-chat'))
     const n = await box(page, sel('pane-p3'))
     expect(n.y).toBeGreaterThan(c.y + c.height)
-    expect(savedShape(configDir)).toEqual(['row', ['column', 'chat', 'p3'], 'p2'])
+    expect(savedShape(configDir)).toEqual(['column', 'chat', 'p3'])
   } finally {
     await app2.close()
   }

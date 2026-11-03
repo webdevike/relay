@@ -5,6 +5,7 @@ import { AgentNotch } from '../assistants/AgentNotch'
 import { agentIdOf } from '../assistants/assistants-store'
 import { useNamesVersion } from '../eva/names-store'
 import { ContextButton } from '../context/ContextButton'
+import { ArtifactsButton } from '../artifacts/ArtifactsButton'
 import { FOLDED_LABEL } from '../tabs/TabBar'
 import { tabTitle } from '../tabs/tab-meta'
 import { activePlace, useTabs } from '../tabs/tabs-store'
@@ -52,7 +53,7 @@ export function MainHeader() {
         <span className="eva-main-header-title">{tabTitle(place)}</span>
       )}
       {agent !== null ? <AgentNotch id={agent} /> : null}
-      <ContextButton />
+      {agent !== null ? <ArtifactsButton agent={agent} /> : <ContextButton />}
       <Tooltip
         label={
           <span className="eva-tip">

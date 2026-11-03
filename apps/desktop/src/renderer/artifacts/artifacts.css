@@ -470,3 +470,10 @@
   flex-wrap: wrap;
   gap: var(--eva-space-xs);
 }
+
+/* The Artifacts overlay on an assistant page: the panel gets a fixed height to fill. */
+.eva-art-pop {
+  display: flex;
+  flex-direction: column;
+  height: min(560px, calc(100vh - 120px));
+}
