@@ -11,10 +11,12 @@ import './pages.css'
 export function PageView({ place }: { place: Place }) {
   const meta = pageMeta(place)
   // The theme editor, Canvas, Rooms, Studio and Reviews own their scrolling (two panes; a board; a
-  // chat feed; a composer beside a gallery; a queue beside a pull request).
+  // chat feed; a composer beside a gallery; a queue beside a pull request), and so does an
+  // assistant's page (a thread's log scrolls itself; its start card scrolls on its own).
   const ownsScroll =
     (meta.kind === 'settings' && place.settingsSection === 'Theme') ||
     meta.kind === 'canvas' ||
+    meta.kind === 'agent' ||
     meta.slug === 'rooms' ||
     meta.slug === 'studio' ||
     meta.slug === 'reviews'

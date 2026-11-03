@@ -158,6 +158,7 @@
 .eva-as-start {
   min-height: 360px;
   height: 100%;
+  overflow-y: auto;
   box-sizing: border-box;
   padding: var(--mantine-spacing-lg);
   display: flex;
