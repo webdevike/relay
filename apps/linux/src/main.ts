@@ -13,9 +13,15 @@ import { parseArgs } from "node:util";
 import { Drop, sessionReactionThread } from "@relay/protocol";
 import { z } from "zod";
 import pkg from "../package.json";
+import { bundleVersion } from "./bundle-version";
 import { defaultSocketPath, OmpBridgeProvider } from "./agents/bridge";
 import { SessionFiles } from "./agents/session-files";
-import { type AssistantAgentConfig, liveVoiceFor, loadRegistry, REGISTRY_FILE } from "./assistant/registry";
+import {
+  type AssistantAgentConfig,
+  liveVoiceFor,
+  loadRegistry,
+  REGISTRY_FILE,
+} from "./assistant/registry";
 import { AssistantService, AssistantThreads, type AssistantThreadsDeps } from "./assistant/service";
 import { spawnFill } from "./assistant/signin";
 import { defaultAssistantPath, FileAssistantStore } from "./assistant/store";
@@ -26,10 +32,21 @@ import { openAiKey, OpenAiLive } from "./live/openai";
 import { LiveService } from "./live/service";
 import { FileDeviceStore } from "./device-store";
 import { FileDropStore } from "./drops/store";
-import { ffmpegProbe, isVideoMime, maxVideoBytesFromEnv, videoMimeOf, VideoTooLarge } from "./drops/video";
+import {
+  ffmpegProbe,
+  isVideoMime,
+  maxVideoBytesFromEnv,
+  videoMimeOf,
+  VideoTooLarge,
+} from "./drops/video";
 import { FileBoardStore } from "./boards/store";
 import { createUsageService, ompUsageRunner } from "./usage/service";
-import { CatchUpService, defaultCatchUpFeedPath, defaultCatchUpNotesPath, defaultCatchUpStatePath } from "./catchup/service";
+import {
+  CatchUpService,
+  defaultCatchUpFeedPath,
+  defaultCatchUpNotesPath,
+  defaultCatchUpStatePath,
+} from "./catchup/service";
 import { defaultReactionsPath, reactionFeedbackPath, ReactionService } from "./reactions/service";
 import { ArtifactService, defaultArtifactsRoot } from "./artifacts/service";
 import { brainConfigOverlay, ompBrains, resolveOmp } from "./canvas/brain";
@@ -199,13 +216,20 @@ function serve(
   }
   const poster = device ?? NO_INPUT;
   const typer = device instanceof MacInputDevice ? device.typeText.bind(device) : detectTextTyper();
-  log(device instanceof MacInputDevice ? "text input: macOS Unicode" : typer === null
-    ? "text input: uinput US layout (ASCII only; install wtype on Wayland for Unicode)"
-    : "text input: wtype");
+  log(
+    device instanceof MacInputDevice
+      ? "text input: macOS Unicode"
+      : typer === null
+        ? "text input: uinput US layout (ASCII only; install wtype on Wayland for Unicode)"
+        : "text input: wtype",
+  );
 
   const agents = new OmpBridgeProvider(defaultSocketPath(), log, agentHome);
   const pushTokens = new FilePushTokenStore();
-  const drops = new FileDropStore(undefined, { maxVideoBytes: maxVideoBytesFromEnv(), probe: ffmpegProbe(log) });
+  const drops = new FileDropStore(undefined, {
+    maxVideoBytes: maxVideoBytesFromEnv(),
+    probe: ffmpegProbe(log),
+  });
   // Live widgets' read-only data; `assistant` is only read once a query arrives, long after it is initialised.
   const query = new QueryService(
     queryTools({
@@ -270,30 +294,35 @@ function serve(
     isViewing: (deviceId, sessionId): boolean => server.isViewing(deviceId, sessionId),
     log,
   });
-  const assistant = assistantThreads(agentHome, (agent) => new AssistantService({
-    agent,
-    agents,
-    launch: (options) => agents.launchWith(options),
-    sessionFile: (sessionId) => agents.sessionFile(sessionId),
+  const assistant = assistantThreads(
     agentHome,
-    store: new FileAssistantStore(defaultAssistantPath(agent.id)),
-    tokens: pushTokens,
-    sender: new ExpoPushSender(),
-    broadcast: (message): void => {
-      server.broadcastAssistant(agent.id, message);
+    (agent) =>
+      new AssistantService({
+        agent,
+        agents,
+        launch: (options) => agents.launchWith(options),
+        sessionFile: (sessionId) => agents.sessionFile(sessionId),
+        agentHome,
+        store: new FileAssistantStore(defaultAssistantPath(agent.id)),
+        tokens: pushTokens,
+        sender: new ExpoPushSender(),
+        broadcast: (message): void => {
+          server.broadcastAssistant(agent.id, message);
+        },
+        isViewing: (deviceId): boolean => server.isViewingAssistant(deviceId, agent.id),
+        clock: systemClock,
+        log,
+        spawn: spawnFill,
+      }),
+    {
+      // The phones' agent list follows status and last-reply changes on its own, without waiting for a request.
+      broadcast: (message): void => {
+        server.broadcastExcept(message, null);
+      },
+      clock: systemClock,
+      log,
     },
-    isViewing: (deviceId): boolean => server.isViewingAssistant(deviceId, agent.id),
-    clock: systemClock,
-    log,
-    spawn: spawnFill,
-  }), {
-    // The phones' agent list follows status and last-reply changes on its own, without waiting for a request.
-    broadcast: (message): void => {
-      server.broadcastExcept(message, null);
-    },
-    clock: systemClock,
-    log,
-  });
+  );
   const voice =
     assistant === null || agentHome === null
       ? null
@@ -352,9 +381,12 @@ function serve(
       server.broadcastExcept(message, null);
     },
     session: (thread) => {
-      if (thread.startsWith("assistant:")) return assistant?.thread(thread.slice("assistant:".length))?.current()?.id ?? null;
+      if (thread.startsWith("assistant:"))
+        return assistant?.thread(thread.slice("assistant:".length))?.current()?.id ?? null;
       const id = thread.slice("session:".length);
-      return agents.sessions.some((session) => session.id === id && session.status !== "ended") ? id : null;
+      return agents.sessions.some((session) => session.id === id && session.status !== "ended")
+        ? id
+        : null;
     },
     note: (sessionId, text) => agents.note(sessionId, text),
     clock: systemClock,
@@ -373,10 +405,17 @@ function serve(
         return file === null ? [] : [file];
       }
       const agent = thread.slice("assistant:".length);
-      const record = assistant?.threads.some((candidate) => candidate.id === agent) === true ? new FileAssistantStore(defaultAssistantPath(agent)).load() : null;
+      const record =
+        assistant?.threads.some((candidate) => candidate.id === agent) === true
+          ? new FileAssistantStore(defaultAssistantPath(agent)).load()
+          : null;
       const live = assistant?.thread(agent)?.current();
       const liveFile = live === undefined ? null : agents.sessionFile(live.id);
-      const files = [...(record?.history ?? []), ...(record?.sessionFile === undefined ? [] : [record.sessionFile]), ...(liveFile === null ? [] : [liveFile])];
+      const files = [
+        ...(record?.history ?? []),
+        ...(record?.sessionFile === undefined ? [] : [record.sessionFile]),
+        ...(liveFile === null ? [] : [liveFile]),
+      ];
       return [...new Set(files)];
     },
     threadOf: (sessionId) => {
@@ -387,8 +426,13 @@ function serve(
     repoOf: (cwd) => {
       const known = repos.get(cwd);
       if (known !== undefined) return known;
-      const out = Bun.spawnSync(["git", "-C", cwd, "remote", "get-url", "origin"], { stdout: "pipe", stderr: "ignore" });
-      const match = /github\.com[:/]([\w.-]+\/[\w.-]+?)(?:\.git)?$/.exec(out.stdout.toString().trim());
+      const out = Bun.spawnSync(["git", "-C", cwd, "remote", "get-url", "origin"], {
+        stdout: "pipe",
+        stderr: "ignore",
+      });
+      const match = /github\.com[:/]([\w.-]+\/[\w.-]+?)(?:\.git)?$/.exec(
+        out.stdout.toString().trim(),
+      );
       const repo = out.exitCode === 0 ? (match?.[1] ?? null) : null;
       repos.set(cwd, repo);
       return repo;
@@ -450,11 +494,15 @@ function serve(
   });
   log(`live view: VNC bridge to 127.0.0.1:${String(vncPort)} (macOS Screen Sharing)`);
   const server: RelayServer = new RelayServer(
-    { port, hostName: name, version: pkg.version, vncPort },
+    { port, hostName: name, version: bundleVersion() ?? pkg.version, vncPort },
     {
       input: new TrackpadInputSink(poster),
       text: new KeyboardInjector(poster, typer),
-      access: { get granted() { return device instanceof MacInputDevice ? device.granted : device !== null; } },
+      access: {
+        get granted() {
+          return device instanceof MacInputDevice ? device.granted : device !== null;
+        },
+      },
       images,
       agents,
       devices: new FileDeviceStore(),
@@ -494,7 +542,11 @@ function serve(
       ? "agent.start disabled (no --agent-home and no $HOME)"
       : `agent.start opens omp in ${agentHome}`,
   );
-  log(boardsDir === null ? "boards disabled (no --boards or $RELAY_BOARDS_DIR)" : `boards stored in ${boardsDir}`);
+  log(
+    boardsDir === null
+      ? "boards disabled (no --boards or $RELAY_BOARDS_DIR)"
+      : `boards stored in ${boardsDir}`,
+  );
 
   const advertiser = new BonjourAdvertiser(name, boundPort, log);
   advertiser.start();
@@ -503,8 +555,14 @@ function serve(
   clipboard?.start();
   catchup?.start();
   studio?.start();
-  log(`reviews in ${defaultReviewsDir()}${reviewsWrites ? "" : " (RELAY_REVIEWS_DRY_RUN=1: nothing is posted)"}`);
-  log(catchupFeed === null ? "catch up disabled (no --agent-home or $RELAY_CATCHUP_FEED)" : `catch up feed ${catchupFeed}`);
+  log(
+    `reviews in ${defaultReviewsDir()}${reviewsWrites ? "" : " (RELAY_REVIEWS_DRY_RUN=1: nothing is posted)"}`,
+  );
+  log(
+    catchupFeed === null
+      ? "catch up disabled (no --agent-home or $RELAY_CATCHUP_FEED)"
+      : `catch up feed ${catchupFeed}`,
+  );
   log(
     clipboard === null
       ? watchClipboard
@@ -535,7 +593,11 @@ function serve(
  * Live canvas rooms on the boards in `canvasDir`, their agents' brains a warm omp each; null (and
  * logged) without a canvases dir or an omp binary.
  */
-function liveCanvas(canvasDir: string | null, agentHome: string | null, agents: OmpBridgeProvider): CanvasService | null {
+function liveCanvas(
+  canvasDir: string | null,
+  agentHome: string | null,
+  agents: OmpBridgeProvider,
+): CanvasService | null {
   if (canvasDir === null) {
     log("live canvas disabled (no --canvases)");
     return null;
@@ -568,20 +630,39 @@ function liveCanvas(canvasDir: string | null, agentHome: string | null, agents: 
  * (`$RELAY_STUDIO_LTX_DIR`), Codex images on omp's personal ChatGPT sign-in, Higgsfield on omp's
  * personal Higgsfield sign-in. Null (and logged) when its index can't be read.
  */
-function studioService(agentHome: string | null, emit: (message: StudioMessage) => void): StudioService | null {
+function studioService(
+  agentHome: string | null,
+  emit: (message: StudioMessage) => void,
+): StudioService | null {
   const media = ffmpegMedia(log);
   const token = ompCodexToken(resolveOmp());
-  const ltxDir = process.env["RELAY_STUDIO_LTX_DIR"] ?? join(agentHome ?? join(homedir(), "Eva"), "work", "local-video");
+  const ltxDir =
+    process.env["RELAY_STUDIO_LTX_DIR"] ??
+    join(agentHome ?? join(homedir(), "Eva"), "work", "local-video");
   try {
     const studio = new StudioService({
       dir: defaultStudioDir(),
       runners: {
         ltx: new LtxRunner(ltxDir),
-        "codex-image": new CodexRunner({ backend: "codex-image", token, fetch, jpeg: media.jpeg, cover: media.cover }),
-        "codex-edit": new CodexRunner({ backend: "codex-edit", token, fetch, jpeg: media.jpeg, cover: media.cover }),
+        "codex-image": new CodexRunner({
+          backend: "codex-image",
+          token,
+          fetch,
+          jpeg: media.jpeg,
+          cover: media.cover,
+        }),
+        "codex-edit": new CodexRunner({
+          backend: "codex-edit",
+          token,
+          fetch,
+          jpeg: media.jpeg,
+          cover: media.cover,
+        }),
         kontext: new KontextRunner(),
         higgsfield: new HiggsfieldRunner({
-          credentials: ompHiggsfieldCredentials(join(homedir(), ".omp", "profiles", "personal", "agent", "agent.db")),
+          credentials: ompHiggsfieldCredentials(
+            join(homedir(), ".omp", "profiles", "personal", "agent", "agent.db"),
+          ),
           fetch,
           now: Date.now,
           sleep: (ms, signal) => delay(ms, undefined, { signal }),
@@ -696,7 +777,10 @@ async function share(positionals: string[]): Promise<void> {
 /** `assistant say --agent <id> <text>`: the running host hands the text to agent `id` as a turn from the host's jobs. */
 async function assistantSay(agent: string | undefined, positionals: string[]): Promise<void> {
   if (agent === undefined || agent === "") throw new Error("assistant say: missing --agent <id>");
-  const text = positionals.length === 0 || positionals[0] === "-" ? await Bun.stdin.text() : positionals.join(" ");
+  const text =
+    positionals.length === 0 || positionals[0] === "-"
+      ? await Bun.stdin.text()
+      : positionals.join(" ");
   const response = await fetch(`${hostUrl()}/assistant/say?agent=${encodeURIComponent(agent)}`, {
     method: "POST",
     headers: { "content-type": "text/plain; charset=utf-8" },
@@ -725,12 +809,43 @@ async function hostJson(response: Response, what: string): Promise<unknown> {
   return JSON.parse(text);
 }
 
-const CanvasRoomsReply = z.object({ rooms: z.array(z.object({ id: z.string(), slug: z.string(), board: z.string(), live: z.boolean(), agent: z.object({ name: z.string() }), chat: z.object({ sessionId: z.string().optional(), title: z.string().optional() }), humans: z.array(z.string()) })) });
-const CanvasStartReply = z.object({ roomId: z.string(), slug: z.string(), board: z.string(), agent: z.object({ name: z.string() }), joinPath: z.string(), created: z.boolean() });
+const CanvasRoomsReply = z.object({
+  rooms: z.array(
+    z.object({
+      id: z.string(),
+      slug: z.string(),
+      board: z.string(),
+      live: z.boolean(),
+      agent: z.object({ name: z.string() }),
+      chat: z.object({ sessionId: z.string().optional(), title: z.string().optional() }),
+      humans: z.array(z.string()),
+    }),
+  ),
+});
+const CanvasStartReply = z.object({
+  roomId: z.string(),
+  slug: z.string(),
+  board: z.string(),
+  agent: z.object({ name: z.string() }),
+  joinPath: z.string(),
+  created: z.boolean(),
+});
 
 const ParticipantReply = z.object({ id: z.string(), name: z.string(), color: z.string() });
-const CanvasJoinReply = z.object({ roomId: z.string(), slug: z.string(), board: z.string(), created: z.boolean(), participant: ParticipantReply, agent: z.object({ name: z.string() }), participants: z.array(ParticipantReply) });
-const CanvasActReply = z.object({ ran: z.number(), said: z.array(z.string()), skipped: z.array(z.string()) });
+const CanvasJoinReply = z.object({
+  roomId: z.string(),
+  slug: z.string(),
+  board: z.string(),
+  created: z.boolean(),
+  participant: ParticipantReply,
+  agent: z.object({ name: z.string() }),
+  participants: z.array(ParticipantReply),
+});
+const CanvasActReply = z.object({
+  ran: z.number(),
+  said: z.array(z.string()),
+  skipped: z.array(z.string()),
+});
 
 /** `--session me`: the id the bridge knows the calling omp session by (a subagent's agent id, else the chat's session id). */
 function ownSessionRef(): string {
@@ -738,33 +853,63 @@ function ownSessionRef(): string {
   if (caller === null) throw new Error("canvas join --session me: run this from an omp session");
   if (caller.sessionFile !== caller.chatFile) return basename(caller.sessionFile, ".jsonl");
   const id = basename(caller.chatFile, ".jsonl").split("_").at(-1);
-  if (id === undefined || id === "") throw new Error("canvas join --session me: cannot tell this session's id from its transcript name");
+  if (id === undefined || id === "")
+    throw new Error(
+      "canvas join --session me: cannot tell this session's id from its transcript name",
+    );
   return id;
 }
 
 /** `canvas start|join|act|show|leave|list|end`: talks to the running host's loopback `/canvas/sessions`. */
 async function canvasCommand(
   positionals: string[],
-  options: { title: string | undefined; prompt: string | undefined; as: string | undefined; color: string | undefined; session: string | undefined; handoff: string | undefined; leave: boolean },
+  options: {
+    title: string | undefined;
+    prompt: string | undefined;
+    as: string | undefined;
+    color: string | undefined;
+    session: string | undefined;
+    handoff: string | undefined;
+    leave: boolean;
+  },
 ): Promise<void> {
   const { title, prompt } = options;
   const [verb, slug] = positionals;
   const base = `${hostUrl()}/canvas/sessions`;
-  const post = (url: string, body: unknown): Promise<Response> => fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const post = (url: string, body: unknown): Promise<Response> =>
+    fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
   switch (verb ?? "") {
     case "start": {
       const caller = detectCaller(systemCallerDeps);
       const assistant = process.env["RELAY_ASSISTANT"]?.trim();
-      if (caller === null && (assistant === undefined || assistant === "")) throw new Error("canvas start: run this from an omp session (no omp session file found among this command's ancestors)");
+      if (caller === null && (assistant === undefined || assistant === ""))
+        throw new Error(
+          "canvas start: run this from an omp session (no omp session file found among this command's ancestors)",
+        );
       const body = {
         ...(slug === undefined ? {} : { slug }),
         ...(title === undefined ? {} : { title }),
         ...(prompt === undefined ? {} : { prompt }),
-        caller: caller === null ? { assistant } : { sessionFile: caller.sessionFile, chatFile: caller.chatFile, ...(caller.assistant === undefined ? {} : { assistant: caller.assistant }) },
+        caller:
+          caller === null
+            ? { assistant }
+            : {
+                sessionFile: caller.sessionFile,
+                chatFile: caller.chatFile,
+                ...(caller.assistant === undefined ? {} : { assistant: caller.assistant }),
+              },
       };
       const room = CanvasStartReply.parse(await hostJson(await post(base, body), "canvas start"));
-      console.log(`${room.created ? "Started" : "Rejoined"} a live canvas on "${room.board}" (board ${room.slug}, room ${room.roomId}) as ${room.agent.name}.`);
-      console.log(`Isaac got a Join card in this chat. Your canvas self (${room.agent.name}, with this chat as context) runs the room on its own; each canvas turn and the wrap-up summary come back to this chat as canvas rows, nothing for you to do until then. End it early with: relay-linux canvas end ${room.slug}`);
+      console.log(
+        `${room.created ? "Started" : "Rejoined"} a live canvas on "${room.board}" (board ${room.slug}, room ${room.roomId}) as ${room.agent.name}.`,
+      );
+      console.log(
+        `Isaac got a Join card in this chat. Your canvas self (${room.agent.name}, with this chat as context) runs the room on its own; each canvas turn and the wrap-up summary come back to this chat as canvas rows, nothing for you to do until then. End it early with: relay-linux canvas end ${room.slug}`,
+      );
       return;
     }
     case "join":
@@ -774,19 +919,36 @@ async function canvasCommand(
       const name = options.as?.trim() ?? "";
       const room = `${base}/${encodeURIComponent(slug)}`;
       const rest = positionals.slice(2);
-      const readScript = async (): Promise<string> => (rest.length === 0 || rest[0] === "-" ? await Bun.stdin.text() : rest.join(" "));
+      const readScript = async (): Promise<string> =>
+        rest.length === 0 || rest[0] === "-" ? await Bun.stdin.text() : rest.join(" ");
       const report = (who: string, board: string, result: z.infer<typeof CanvasActReply>): void => {
-        console.log(`${who}: ran ${String(result.ran)} action${result.ran === 1 ? "" : "s"}${result.said.length > 0 ? `, said ${String(result.said.length)} line${result.said.length === 1 ? "" : "s"}` : ""} on "${board}"${options.handoff === undefined ? "" : `; handoff ${options.handoff} landed, the canvas self confirms it in the room`}.`);
+        console.log(
+          `${who}: ran ${String(result.ran)} action${result.ran === 1 ? "" : "s"}${result.said.length > 0 ? `, said ${String(result.said.length)} line${result.said.length === 1 ? "" : "s"}` : ""} on "${board}"${options.handoff === undefined ? "" : `; handoff ${options.handoff} landed, the canvas self confirms it in the room`}.`,
+        );
         for (const line of result.skipped) console.log(`skipped: ${line}`);
       };
       if (verb === "act" && name === "") {
         // No --as: the room's canvas self, i.e. the chat that started the room acting as itself.
-        const result = CanvasActReply.parse(await hostJson(await post(`${room}/self/act`, { script: await readScript(), ...(options.handoff === undefined ? {} : { handoff: options.handoff }) }), "canvas act"));
+        const result = CanvasActReply.parse(
+          await hostJson(
+            await post(`${room}/self/act`, {
+              script: await readScript(),
+              ...(options.handoff === undefined ? {} : { handoff: options.handoff }),
+            }),
+            "canvas act",
+          ),
+        );
         report("canvas self", slug, result);
         return;
       }
-      if (name === "") throw new Error(`canvas ${verb}: missing --as <Name> (the name your cursor shows)`);
-      const session = verb !== "join" || options.session === undefined ? undefined : options.session === "me" ? ownSessionRef() : options.session;
+      if (name === "")
+        throw new Error(`canvas ${verb}: missing --as <Name> (the name your cursor shows)`);
+      const session =
+        verb !== "join" || options.session === undefined
+          ? undefined
+          : options.session === "me"
+            ? ownSessionRef()
+            : options.session;
       const joined = CanvasJoinReply.parse(
         await hostJson(
           await post(`${room}/participants`, {
@@ -800,7 +962,10 @@ async function canvasCommand(
       );
       const me = joined.participant;
       const leave = async (): Promise<void> => {
-        await hostJson(await post(`${room}/participants/${encodeURIComponent(me.id)}/leave`, {}), "canvas leave");
+        await hostJson(
+          await post(`${room}/participants/${encodeURIComponent(me.id)}/leave`, {}),
+          "canvas leave",
+        );
         console.log(`${me.name} left "${joined.board}".`);
       };
       if (verb === "leave") {
@@ -809,12 +974,22 @@ async function canvasCommand(
       }
       if (verb === "join") {
         const others = joined.participants.filter((p) => p.id !== me.id).map((p) => p.name);
-        console.log(`${joined.created ? "Joined" : "Already in"} "${joined.board}" (board ${joined.slug}) as ${me.name} (${me.color})${session === undefined ? "" : `, a worker: handoffs to ${me.name} reach session ${session}`}, next to ${[joined.agent.name, ...others].join(", ")}.`);
-        console.log(`Read the board: relay-linux canvas show ${joined.slug}. Act: relay-linux canvas act ${joined.slug} --as "${me.name}" with action lines on stdin (skill://canvas section 8). Leave: relay-linux canvas leave ${joined.slug} --as "${me.name}".`);
+        console.log(
+          `${joined.created ? "Joined" : "Already in"} "${joined.board}" (board ${joined.slug}) as ${me.name} (${me.color})${session === undefined ? "" : `, a worker: handoffs to ${me.name} reach session ${session}`}, next to ${[joined.agent.name, ...others].join(", ")}.`,
+        );
+        console.log(
+          `Read the board: relay-linux canvas show ${joined.slug}. Act: relay-linux canvas act ${joined.slug} --as "${me.name}" with action lines on stdin (skill://canvas section 8). Leave: relay-linux canvas leave ${joined.slug} --as "${me.name}".`,
+        );
         return;
       }
       const result = CanvasActReply.parse(
-        await hostJson(await post(`${room}/participants/${encodeURIComponent(me.id)}/act`, { script: await readScript(), ...(options.handoff === undefined ? {} : { handoff: options.handoff }) }), "canvas act"),
+        await hostJson(
+          await post(`${room}/participants/${encodeURIComponent(me.id)}/act`, {
+            script: await readScript(),
+            ...(options.handoff === undefined ? {} : { handoff: options.handoff }),
+          }),
+          "canvas act",
+        ),
       );
       report(me.name, joined.board, result);
       if (options.leave) await leave();
@@ -822,17 +997,27 @@ async function canvasCommand(
     }
     case "show": {
       if (slug === undefined) throw new Error("canvas show: missing <slug>");
-      console.log(JSON.stringify(await hostJson(await fetch(`${base}/${encodeURIComponent(slug)}`), "canvas show"), null, 2));
+      console.log(
+        JSON.stringify(
+          await hostJson(await fetch(`${base}/${encodeURIComponent(slug)}`), "canvas show"),
+          null,
+          2,
+        ),
+      );
       return;
     }
     case "list": {
       const reply = await hostJson(await fetch(base), "canvas list");
       const { rooms } = CanvasRoomsReply.parse(reply);
-      const participants = z.object({ participants: z.record(z.array(ParticipantReply)).optional() }).parse(reply).participants ?? {};
+      const participants =
+        z.object({ participants: z.record(z.array(ParticipantReply)).optional() }).parse(reply)
+          .participants ?? {};
       if (rooms.length === 0) console.log("no canvas rooms");
       for (const room of rooms) {
         const agents = (participants[room.id] ?? []).map((p) => p.name);
-        console.log(`${room.slug}  ${room.live ? "live" : "ended"}  "${room.board}"  ${room.agent.name}${agents.length > 0 ? ` + ${agents.join(", ")}` : ""}  chat ${room.chat.title ?? room.chat.sessionId ?? "-"}${room.humans.length > 0 ? `  here: ${room.humans.join(", ")}` : ""}`);
+        console.log(
+          `${room.slug}  ${room.live ? "live" : "ended"}  "${room.board}"  ${room.agent.name}${agents.length > 0 ? ` + ${agents.join(", ")}` : ""}  chat ${room.chat.title ?? room.chat.sessionId ?? "-"}${room.humans.length > 0 ? `  here: ${room.humans.join(", ")}` : ""}`,
+        );
       }
       return;
     }
@@ -843,12 +1028,29 @@ async function canvasCommand(
       if (slug === undefined) {
         // This chat's room: omp names a transcript `<time>_<session id>.jsonl`; else the only live room.
         const chatFile = detectCaller(systemCallerDeps)?.chatFile;
-        const sessionId = chatFile === undefined ? undefined : basename(chatFile, ".jsonl").split("_").at(-1);
-        room = live.find((candidate) => sessionId !== undefined && candidate.chat.sessionId === sessionId) ?? (live.length === 1 ? live[0] : undefined);
-        if (room === undefined) throw new Error(live.length === 0 ? "canvas end: no live canvas session" : `canvas end: several live sessions, name one: ${live.map((r) => r.slug).join(", ")}`);
+        const sessionId =
+          chatFile === undefined ? undefined : basename(chatFile, ".jsonl").split("_").at(-1);
+        room =
+          live.find(
+            (candidate) => sessionId !== undefined && candidate.chat.sessionId === sessionId,
+          ) ?? (live.length === 1 ? live[0] : undefined);
+        if (room === undefined)
+          throw new Error(
+            live.length === 0
+              ? "canvas end: no live canvas session"
+              : `canvas end: several live sessions, name one: ${live.map((r) => r.slug).join(", ")}`,
+          );
       }
-      if (room === undefined) throw new Error(`canvas end: no live canvas session on ${slug ?? ""}`);
-      const { summary } = z.object({ summary: z.string() }).parse(await hostJson(await post(`${base}/${encodeURIComponent(room.id)}/end`, {}), "canvas end"));
+      if (room === undefined)
+        throw new Error(`canvas end: no live canvas session on ${slug ?? ""}`);
+      const { summary } = z
+        .object({ summary: z.string() })
+        .parse(
+          await hostJson(
+            await post(`${base}/${encodeURIComponent(room.id)}/end`, {}),
+            "canvas end",
+          ),
+        );
       console.log(`Wrapped up "${room.board}". Summary (also posted to the chat): ${summary}`);
       return;
     }
@@ -858,22 +1060,36 @@ async function canvasCommand(
 }
 
 /** `react <emoji> | --clear`: the running host puts assistant `agent`'s reaction on one of Isaac's bubbles in its thread. */
-async function react(agent: string | undefined, positionals: string[], message: string | undefined, clear: boolean): Promise<void> {
+async function react(
+  agent: string | undefined,
+  positionals: string[],
+  message: string | undefined,
+  clear: boolean,
+): Promise<void> {
   const id = agent ?? process.env["RELAY_ASSISTANT"];
-  if (id === undefined || id === "") throw new Error("react: missing --agent <id> (or $RELAY_ASSISTANT)");
+  if (id === undefined || id === "")
+    throw new Error("react: missing --agent <id> (or $RELAY_ASSISTANT)");
   const emoji = positionals[0];
   if (!clear && emoji === undefined) throw new Error("react: missing <emoji> (or --clear)");
   const response = await fetch(`${hostUrl()}/reactions/agent`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ agent: id, ...(clear ? { clear } : { emoji }), ...(message === undefined ? {} : { message }) }),
+    body: JSON.stringify({
+      agent: id,
+      ...(clear ? { clear } : { emoji }),
+      ...(message === undefined ? {} : { message }),
+    }),
   });
   if (!response.ok) {
     console.error(await response.text());
     process.exit(1);
   }
   const answer = (await response.json()) as { message: string; emoji: string | null };
-  console.log(answer.emoji === null ? `cleared ${id}'s reaction on ${answer.message}` : `${id} reacted ${answer.emoji} to ${answer.message}`);
+  console.log(
+    answer.emoji === null
+      ? `cleared ${id}'s reaction on ${answer.message}`
+      : `${id} reacted ${answer.emoji} to ${answer.message}`,
+  );
 }
 
 function isFile(path: string): boolean {
@@ -901,13 +1117,24 @@ async function board(positionals: string[]): Promise<void> {
       response = await fetch(target());
       break;
     case "put":
-      response = await fetch(target(), { method: "PUT", headers: { "content-type": "application/json" }, body: await Bun.stdin.text() });
+      response = await fetch(target(), {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: await Bun.stdin.text(),
+      });
       break;
     case "ops":
-      response = await fetch(`${target()}/ops`, { method: "POST", headers: { "content-type": "application/json" }, body: await Bun.stdin.text() });
+      response = await fetch(`${target()}/ops`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: await Bun.stdin.text(),
+      });
       break;
     case "rm":
-      response = await fetch(target(), { method: "DELETE", headers: { "content-type": "application/json" } });
+      response = await fetch(target(), {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+      });
       break;
     default:
       throw new Error(`board: expected list, get, put, ops or rm\n\n${USAGE}`);
@@ -971,7 +1198,10 @@ async function main(argv: string[]): Promise<void> {
         !values["no-clipboard"],
         values.boards ?? process.env["RELAY_BOARDS_DIR"] ?? null,
         vncPort,
-        values.canvases ?? (process.platform === "darwin" ? join(homedir(), "Library", "Application Support", "EvaOS", "canvases") : null),
+        values.canvases ??
+          (process.platform === "darwin"
+            ? join(homedir(), "Library", "Application Support", "EvaOS", "canvases")
+            : null),
       );
       return;
     }
@@ -1004,12 +1234,23 @@ async function main(argv: string[]): Promise<void> {
       return;
     case "assistant": {
       const verb = positionals[1];
-      if (verb !== "say") throw new Error(`assistant: unknown subcommand ${verb ?? "(none)"}; try \`assistant say --agent <id> <text>\``);
+      if (verb !== "say")
+        throw new Error(
+          `assistant: unknown subcommand ${verb ?? "(none)"}; try \`assistant say --agent <id> <text>\``,
+        );
       await assistantSay(values.agent, positionals.slice(2));
       return;
     }
     case "canvas":
-      await canvasCommand(positionals.slice(1), { title: values.title, prompt: values.prompt, as: values.as, color: values.color, session: values.session, handoff: values.handoff, leave: values.leave });
+      await canvasCommand(positionals.slice(1), {
+        title: values.title,
+        prompt: values.prompt,
+        as: values.as,
+        color: values.color,
+        session: values.session,
+        handoff: values.handoff,
+        leave: values.leave,
+      });
       return;
     case "react":
       await react(values.agent, positionals.slice(1), values.message, values.clear);
