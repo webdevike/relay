@@ -120,6 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         overlay.onDismiss = { [weak self] in
             self?.voice.stopSpeaking()
         }
+        overlay.onUndo = { [weak self] in self?.pendingSave?.cancel() }
 
         if let question = initialQuestion {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
@@ -325,7 +326,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 } else {
                     context = try await Capture.capture(target)
                 }
-                let ask = AskContext(sceneState: await state, hookName: hook?.name, hookNotes: hook?.promptNotes,
+                var ask = AskContext(sceneState: await state, hookName: hook?.name, hookNotes: hook?.promptNotes,
                                      userAskedToDo: askedToDo)
                 Log.info(String(format: "captured %@ window %.0fx%.0f via %@ in %.2fs, %d AX lines, hook state %@",
                                 target.name, context.windowFrame.width, context.windowFrame.height, context.backend,
@@ -342,6 +343,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     }
                 } else if hook == nil, Navigator.isNavigation(question) {
                     Log.info("route: jev-nav skipped (nav=\(Navigator.enabled) skipApp=\(Navigator.skips(target)) jev=\(Jev.isAvailable) AX=\(context.axLines.count) lines), terra")
+                }
+                // Trailblaze: replay what Terra worked out last time for this ask in this context.
+                let cacheOn = PlanCache.enabled && hook?.name != "Linear" && !askedToDo
+                let fingerprint = PlanCache.fingerprint(context: context, sceneState: ask.sceneState, hook: hook)
+                let cacheKey = PlanCache.key(context: context, question: question, fingerprint: fingerprint)
+                var prefix: [CachedPhase] = []
+                let lookupStarted = Date()
+                var cacheMissed = false
+                if cacheOn {
+                    if let entry = PlanCache.lookup(cacheKey) {
+                        switch try await self.replay(entry, context: context, hook: hook, stay: stay, started: started) {
+                        case .done:
+                            PlanCache.recordHit(cacheKey)
+                            Log.info(String(format: "plan-cache: hit %.0fms (terra calls: 0)", Date().timeIntervalSince(started) * 1000))
+                            return
+                        case .failed(let ran, let moved):
+                            Log.info(String(format: "plan-cache: stale %.0fms, falling back to terra (%d chore phases already ran)",
+                                            Date().timeIntervalSince(lookupStarted) * 1000, ran.count))
+                            prefix = ran
+                            if moved {
+                                try await Task.sleep(nanoseconds: 300_000_000)
+                                context = try await Capture.capture(target)
+                                ask.sceneState = await hook?.sceneState()
+                            }
+                        }
+                    } else {
+                        cacheMissed = true
+                    }
                 }
                 if Navigator.enabled, !askedToDo, let (jevPlan, pick) = await self.tryJev(question, context: context) {
                     Log.info(String(format: "route: path=jev jev=%dms total=%.0fms point=\"%@\" conf=%@", pick.ms,
@@ -360,13 +389,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     }
                     return
                 }
+                if cacheMissed {
+                    Log.info(String(format: "plan-cache: miss %.0fms (%@)", Date().timeIntervalSince(lookupStarted) * 1000, fingerprint))
+                }
                 let terraStarted = Date()
                 let plan = try await self.brain.plan(question: question, context: context, ask: ask)
                 try Task.checkCancellation()
                 Log.info(String(format: "route: path=terra terra=%.0fms total=%.0fms", Date().timeIntervalSince(terraStarted) * 1000,
                                 Date().timeIntervalSince(started) * 1000))
                 Log.info(String(format: "plan in %.2fs total: %@", Date().timeIntervalSince(started), plan.summary))
-                try await self.carryOut(plan, question: question, context: context, ask: ask, hook: hook, stay: stay)
+                let recorded = try await self.carryOut(plan, question: question, context: context, ask: ask, hook: hook, stay: stay,
+                                                       started: started)
+                if cacheOn, let recorded, !recorded.isEmpty {
+                    self.scheduleSave(key: cacheKey, question: question, context: context, fingerprint: fingerprint,
+                                      phases: prefix + recorded)
+                }
             } catch is CancellationError {
                 Log.info("ask cancelled")
             } catch {
@@ -443,14 +480,92 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return .handled
     }
 
+    private func logPoint(_ path: String, started: Date) {
+        Log.info(String(format: "ask->point: path=%@ %.0fms", path, Date().timeIntervalSince(started) * 1000))
+    }
+
+    private enum ReplayOutcome {
+        case done
+        /// `ran`: chore phases already carried out; `moved`: the screen may have changed.
+        case failed(ran: [CachedPhase], moved: Bool)
+    }
+
+    /// Runs a cached plan with no model call. Any step that cannot be resolved or run ends in
+    /// `.failed`, and the caller asks Terra live.
+    private func replay(_ entry: CachedPlan, context: ScreenContext, hook: AppHook?, stay: Bool, started: Date) async throws -> ReplayOutcome {
+        var ctx = context
+        var ran: [CachedPhase] = []
+        for phase in entry.phases {
+            if !phase.actions.isEmpty {
+                let request = PlanCache.request(phase, context: ctx)
+                guard !request.actions.isEmpty else { return .failed(ran: ran, moved: !ran.isEmpty) }
+                let doing = (request.actions.first?.description ?? "One sec") + "..."
+                await overlay.chore(at: request.actions.compactMap(\.point).first, context: ctx, caption: doing)
+                try Task.checkCancellation()
+                let undo: UndoRecord
+                do {
+                    undo = try await Executor.run(request, context: ctx, hook: hook)
+                } catch {
+                    Log.info("plan-cache: chore failed: \(error.localizedDescription)")
+                    return .failed(ran: ran, moved: true)
+                }
+                ran.append(phase)
+                Log.info("did (cached): \(request.announce)")
+                overlay.setCaption(request.announce)
+                overlay.showUndo(undo, withTitle: true)
+                say(request.announce)
+                try await Task.sleep(nanoseconds: 300_000_000)
+                ctx = try await Capture.capture(context.target)
+            } else {
+                var plan = Plan()
+                plan.say = phase.say
+                for cached in phase.steps {
+                    guard let step = PlanCache.resolve(cached, context: ctx) else {
+                        Log.info("plan-cache: could not resolve \"\(cached.axLabel ?? cached.label)\"")
+                        return .failed(ran: ran, moved: !ran.isEmpty)
+                    }
+                    plan.steps.append(step)
+                }
+                logPoint("cache", started: started)
+                overlay.perform(plan, context: ctx, stay: stay)
+                say(plan.say)
+                ran.append(phase)
+            }
+        }
+        return .done
+    }
+
+    private var pendingSave: Task<Void, Never>?
+
+    /// A plan that needed a chore is saved after the Undo pill has gone, and only if nobody pressed it.
+    private func scheduleSave(key: String, question: String, context: ScreenContext, fingerprint: String, phases: [CachedPhase]) {
+        let entry = CachedPlan(question: PlanCache.normalize(question), bundleID: context.target.bundleID,
+                               version: PlanCache.version(of: context.target), fingerprint: fingerprint,
+                               phases: phases, savedAt: Date(), hits: 0)
+        let started = Date()
+        let needsWait = phases.contains { !$0.actions.isEmpty }
+        pendingSave?.cancel()
+        pendingSave = Task { @MainActor in
+            if needsWait {
+                try? await Task.sleep(nanoseconds: 5_500_000_000)
+                if Task.isCancelled { return Log.info("plan-cache: not saved (undone)") }
+            }
+            PlanCache.save(key, entry)
+            Log.info(String(format: "plan-cache: saved %.0fms (%d phases, %@)", Date().timeIntervalSince(started) * 1000, phases.count, fingerprint))
+        }
+    }
+
     /// Points, or does chores (then looks again and points), or does the step when asked to.
+    /// Returns what to cache: the phases of this answer, or nil when it must not be replayed.
     private func carryOut(_ plan: Plan, question: String, context: ScreenContext, ask: AskContext,
-                          hook: AppHook?, stay: Bool) async throws {
+                          hook: AppHook?, stay: Bool, started: Date) async throws -> [CachedPhase]? {
         guard var request = plan.doRequest else {
             // A long Linear explanation stays up until dismissed (Esc or click) instead of fading at 2 s.
             let explain = hook?.name == "Linear" && ((plan.say?.count ?? 0) > 90 || plan.say?.contains("\n") == true)
             overlay.perform(plan, context: context, stay: stay, hold: explain)
-            return say(plan.say)
+            logPoint("terra", started: started)
+            say(plan.say)
+            return plan.steps.isEmpty ? nil : [PlanCache.phase(from: plan, context: context)]
         }
         if request.coreStep && !ask.userAskedToDo {
             // The model wanted to do the very thing being taught: drop the actions, teach instead.
@@ -459,9 +574,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             teaching.doRequest = nil
             if teaching.say == nil { teaching.say = request.announce }
             overlay.perform(teaching, context: context, stay: stay)
-            return say(teaching.say)
+            say(teaching.say)
+            return nil
         }
         request = DoRequest(announce: request.announce, coreStep: request.coreStep, actions: Array(request.actions.prefix(6)))
+        let choresPhase = PlanCache.choresPhase(request, say: plan.say, context: context)
         let point = request.actions.compactMap(\.point).first
         let doing = (request.actions.first?.description ?? (request.coreStep ? "On it" : "One sec")) + "..."
         await overlay.chore(at: point, context: context, caption: doing)
@@ -472,7 +589,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } catch {
             Log.info("do failed: \(error.localizedDescription)")
             overlay.showMessage("I couldn't do that: \(error.localizedDescription)", near: nil)
-            return
+            return nil
         }
         Log.info("did: \(request.announce) (core=\(request.coreStep))")
         overlay.setCaption(request.announce)
@@ -481,7 +598,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if request.coreStep {
             overlay.perform(Plan(say: request.announce), context: context, stay: stay)
-            return
+            return nil
         }
         // A chore cleared the way: look again and point at what the user asked about.
         try await Task.sleep(nanoseconds: 300_000_000)
@@ -496,6 +613,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         plan2.doRequest = nil
         Log.info("plan after chore: \(plan2.summary)")
         overlay.perform(plan2, context: fresh, stay: stay)
+        logPoint("terra", started: started)
         say(plan2.say)
+        guard let choresPhase, !plan2.steps.isEmpty else {
+            if choresPhase == nil { Log.info("plan-cache: not saved (chore outside the safe set)") }
+            return nil
+        }
+        return [choresPhase, PlanCache.phase(from: plan2, context: fresh)]
     }
 }

@@ -45,6 +45,8 @@ final class OverlayWindow: NSWindow {
 @MainActor
 final class OverlayController {
     var onDismiss: (() -> Void)?
+    /// Fired when the user (or --undo) presses the Undo pill: a plan they undid is not worth caching.
+    var onUndo: (() -> Void)?
     private(set) var isShowing = false
 
     private var window: OverlayWindow?
@@ -165,6 +167,7 @@ final class OverlayController {
         undoPill = pill
         pill.configure(title: withTitle ? record.title : nil) { [weak self] in
             guard let self else { return }
+            self.onUndo?()
             self.undoPill?.hide(duration: 0.15)
             self.setCaption("Undoing...")
             Task { @MainActor in
