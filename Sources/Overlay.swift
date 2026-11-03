@@ -194,6 +194,9 @@ final class OverlayController {
         undoPill?.trigger()
     }
 
+    /// True while an Undo pill is on screen (a plan with a chore is not trusted until it goes away unpressed).
+    var undoAvailable: Bool { undoPill?.isVisible == true }
+
     private var undoPill: UndoPill?
     private var stepPill: CALayer?
     private var stepPillWork: DispatchWorkItem?

@@ -124,7 +124,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         overlay.onDismiss = { [weak self] in
             self?.voice.stopSpeaking()
         }
-        overlay.onUndo = { [weak self] in self?.pendingSave?.cancel() }
+        overlay.onUndo = { [weak self] in
+            guard let self else { return }
+            self.pendingSave?.cancel()
+            // Undo after a replay means the cached plan did the wrong thing: it must not replay again.
+            if let key = self.replayedKey {
+                self.replayedKey = nil
+                Log.info(PlanCache.remove(key) ? "plan-cache: deleted the replayed entry (undone)" : "plan-cache: replayed entry already gone")
+            }
+        }
         overlay.isSpeaking = { [weak self] in self?.voice.isSpeaking ?? false }
 
         if let question = initialQuestion {
@@ -403,6 +411,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func ask(_ question: String, about target: TargetApp, prefetched: Task<ScreenContext, Error>? = nil) {
         work?.cancel()
+        replayedKey = nil
         voice.stopSpeaking()
         let stay = question.range(of: #"\bstay\b"#, options: [.regularExpression, .caseInsensitive]) != nil
         let hook = AppHooks.hook(for: target)
@@ -447,6 +456,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 var cacheMissed = false
                 if cacheOn {
                     if let entry = PlanCache.lookup(cacheKey) {
+                        // Until the next ask, Undo means this replay was wrong (onUndo deletes the entry).
+                        self.replayedKey = cacheKey
                         switch try await self.replay(entry, context: context, hook: hook, stay: stay, started: started) {
                         case .done:
                             PlanCache.recordHit(cacheKey)
@@ -630,8 +641,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private var pendingSave: Task<Void, Never>?
+    /// Key of the plan just replayed from the cache: an Undo now deletes it.
+    private var replayedKey: String?
 
-    /// A plan that needed a chore is saved after the Undo pill has gone, and only if nobody pressed it.
+    /// A new plan is trusted only once it was used without Undo: one that did a chore is saved after its
+    /// Undo pill has gone away unpressed (onUndo cancels this).
     private func scheduleSave(key: String, question: String, context: ScreenContext, fingerprint: String, phases: [CachedPhase]) {
         let entry = CachedPlan(question: PlanCache.normalize(question), bundleID: context.target.bundleID,
                                version: PlanCache.version(of: context.target), fingerprint: fingerprint,
@@ -639,13 +653,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let started = Date()
         let needsWait = phases.contains { !$0.actions.isEmpty }
         pendingSave?.cancel()
-        pendingSave = Task { @MainActor in
+        pendingSave = Task { @MainActor [weak self] in
             if needsWait {
-                try? await Task.sleep(nanoseconds: 5_500_000_000)
-                if Task.isCancelled { return Log.info("plan-cache: not saved (undone)") }
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                while self?.overlay.undoAvailable == true, !Task.isCancelled, Date().timeIntervalSince(started) < 120 {
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                }
+                if Task.isCancelled { return Log.info("plan-cache: not saved (undone or replaced)") }
             }
             PlanCache.save(key, entry)
-            Log.info(String(format: "plan-cache: saved %.0fms (%d phases, %@)", Date().timeIntervalSince(started) * 1000, phases.count, fingerprint))
+            Log.info(String(format: "plan-cache: saved %.0fms (%d phases, %@)%@", Date().timeIntervalSince(started) * 1000, phases.count,
+                            fingerprint, needsWait ? " after the Undo pill went unpressed" : ""))
         }
     }
 

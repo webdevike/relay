@@ -8,6 +8,7 @@ import Cocoa
 //   RelayBuddy --send "q" [--target app] ask a running instance, then exit
 //   RelayBuddy --summon                 open the prompt bubble in a running instance (same as a hotkey tap)
 //   RelayBuddy --undo                   press the Undo pill in a running instance
+//   RelayBuddy --forget "q"             delete the cached plans for "q" (every app and context), then exit
 //   RelayBuddy --voice-test|--voice-say|--voice-barge ...   voice self-tests (Sources/Voice/README.md)
 // --target takes an app name or bundle id; without it Buddy looks at the frontmost app.
 
@@ -16,6 +17,11 @@ let arguments = CommandLine.arguments
 func argument(after flag: String) -> String? {
     guard let index = arguments.firstIndex(of: flag), index + 1 < arguments.count else { return nil }
     return arguments[index + 1]
+}
+if let question = argument(after: "--forget") {
+    let count = PlanCache.forget(question)
+    print("forgot \(count) cached plan\(count == 1 ? "" : "s") for \"\(PlanCache.normalize(question))\"")
+    exit(0)
 }
 
 if let question = argument(after: "--send") {

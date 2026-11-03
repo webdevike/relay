@@ -175,6 +175,25 @@ enum PlanCache {
         write(store)
     }
 
+    /// Deletes one entry; false when it was not there.
+    @discardableResult
+    static func remove(_ key: String) -> Bool {
+        var store = load()
+        guard store.entries.removeValue(forKey: key) != nil else { return false }
+        write(store)
+        return true
+    }
+
+    /// `--forget "<question>"`: deletes every entry for this question, in any app or context. Returns how many.
+    static func forget(_ question: String) -> Int {
+        var store = load()
+        let wanted = normalize(question)
+        let keys = store.entries.filter { $0.value.question == wanted }.map(\.key)
+        keys.forEach { store.entries.removeValue(forKey: $0) }
+        if !keys.isEmpty { write(store) }
+        return keys.count
+    }
+
     static func recordHit(_ key: String) {
         var store = load()
         store.entries[key]?.hits += 1

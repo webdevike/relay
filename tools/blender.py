@@ -53,6 +53,9 @@ if len(cube.data.vertices) != 8 or any(p.use_smooth for p in cube.data.polygons)
 for o in bpy.context.scene.objects:
     o.select_set(o.name == 'Cube')
 bpy.context.view_layer.objects.active = cube
+# Direct data edits bypass Blender's undo stack: record the reset so Buddy's Undo has a state to return to.
+with ctx():
+    bpy.ops.ed.undo_push(message='Buddy test reset')
 '''
 
 
