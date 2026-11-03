@@ -75,6 +75,8 @@ export interface RelaySession {
   activity: string | null
   /** When `activity` happened (epoch ms), or null. */
   activityAt: number | null
+  /** Share of the model's context window in use (0..1) when the host reports it. */
+  contextUsed?: number | null
 }
 
 // Lenient like native Session::parse: only `id` and a known `status` are required; any other field
@@ -91,6 +93,7 @@ const SessionSchema = z.object({
   projectPath: optText,
   lastActivity: optText,
   lastActivityAt: z.number().finite().optional().catch(undefined),
+  contextUsed: z.number().min(0).max(1).optional().catch(undefined),
 })
 
 /** One session as Relay sends it, or null when it has no id or a status this app does not know. */
@@ -112,6 +115,7 @@ export function parseSession(value: unknown): RelaySession | null {
     assistant: s.assistant || null,
     activity: s.lastActivity?.trim() || null,
     activityAt: s.lastActivityAt || null,
+    ...(s.contextUsed === undefined ? {} : { contextUsed: s.contextUsed }),
   }
 }
 

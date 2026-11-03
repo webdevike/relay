@@ -45,6 +45,7 @@ import {
   STARTING_TEXT,
 } from './remote'
 import type { Mini } from '../relay/mini'
+import { windowFromShare } from './context-window'
 
 export class CodedError extends Error {
   constructor(
@@ -969,6 +970,11 @@ export class SessionManager {
       model: parsed.meta.model,
       thinking: parsed.meta.thinking,
       contextTokens: parsed.meta.contextTokens,
+      // A session on the Mini reports a share of its window, not the window; the file has the tokens.
+      contextWindow: windowFromShare(
+        parsed.meta.contextTokens,
+        r.session !== null ? this.liveSession(r.session)?.contextUsed : null,
+      ),
     })
     if (Object.keys(meta).length > 0) pane.batcher.markMeta(meta)
     // A model or thinking level sent through Relay shows until the file records it.

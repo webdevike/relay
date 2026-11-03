@@ -179,7 +179,9 @@ export class LiveReducer {
   }
 
   /** Takes what the session file or Relay says about the model and thinking level. */
-  setMeta(patch: Pick<Partial<SessionMeta>, 'model' | 'thinking' | 'contextTokens'>): MetaPatch {
+  setMeta(
+    patch: Pick<Partial<SessionMeta>, 'model' | 'thinking' | 'contextTokens' | 'contextWindow'>,
+  ): MetaPatch {
     const out: MetaPatch = {}
     const m = this.metaState
     if (patch.model !== undefined && JSON.stringify(patch.model) !== JSON.stringify(m.model)) {
@@ -193,6 +195,14 @@ export class LiveReducer {
     if (patch.contextTokens !== undefined && patch.contextTokens !== m.contextTokens) {
       m.contextTokens = patch.contextTokens
       out.contextTokens = patch.contextTokens
+    }
+    if (
+      patch.contextWindow !== undefined &&
+      patch.contextWindow !== null &&
+      patch.contextWindow !== m.contextWindow
+    ) {
+      m.contextWindow = patch.contextWindow
+      out.contextWindow = patch.contextWindow
     }
     return out
   }
