@@ -62,9 +62,9 @@ describe('parseBackground', () => {
       icon: 'hand',
       summary: 'Relay Assist · Isaac said hi while looking at Linear',
     })
-    expect(parseBackground('Live canvas started on "Live UI demo" (board live-ui-demo, new).')).toMatchObject(
-      { kind: 'event', icon: 'board', summary: 'Canvas · started "Live UI demo"' },
-    )
+    expect(
+      parseBackground('Live canvas started on "Live UI demo" (board live-ui-demo, new).'),
+    ).toMatchObject({ kind: 'event', icon: 'board', summary: 'Canvas · started "Live UI demo"' })
     expect(parseBackground('Canvas "Demo" · Isaac: move the chart left')).toMatchObject({
       kind: 'event',
       icon: 'chat',
