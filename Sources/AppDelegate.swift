@@ -336,6 +336,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let decision = AssistantRouter.route(asked, target: target, stage: "ask")
         answer(as: decision.assistant)
         let question = decision.question
+        if Capabilities.isAsking(question) {
+            return showCapabilities(target: target, started: started)
+        }
         if let shortcut = Shortcut.match(question, target: target) {
             lesson.stop()
             return runShortcut(shortcut, started: started)
@@ -362,6 +365,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               let match = regex.firstMatch(in: question, range: NSRange(question.startIndex..., in: question)),
               let range = Range(match.range(at: 1), in: question) else { return nil }
         return String(question[range])
+    }
+
+    /// "What can you do here?" / "help": the template from Capabilities, spoken plus one caption line. A
+    /// running lesson keeps going.
+    private func showCapabilities(target: TargetApp, started: Date) {
+        work?.cancel()
+        voice.stopSpeaking()
+        let hook = AppHooks.hook(for: target)
+        let navigates = Navigator.enabled && hook == nil && !Navigator.skips(target) && Jev.isAvailable
+        let answer = Capabilities.answer(app: target.name, bundleID: target.bundleID, hook: hook?.name, navigates: navigates,
+                                         inLesson: lesson.isActive, workAssistant: Assistants.work.title)
+        overlay.showMessage(answer.caption, near: NSEvent.mouseLocation)
+        say(answer.spoken)
+        Log.info(String(format: "route: path=capabilities app=%@ hook=%@ nav=%@ lesson=%@ total=%.0fms said=\"%@\"", target.name,
+                        hook?.name ?? "none", navigates ? "yes" : "no", lesson.isActive ? "yes" : "no",
+                        Date().timeIntervalSince(started) * 1000, answer.spoken))
     }
 
     /// Opens what the question names without asking the brain: a Linear issue (then points at its

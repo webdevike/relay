@@ -116,6 +116,9 @@ app that was frontmost. A newly started Buddy tells any older instance to quit.
   checks about once a second whether the step is done: a hook expression (Blender, for example
   `obj is not None and obj.name.startswith('Torus')`), or any change in the window's AX tree for
   apps without a hook. Type or say `next`/`skip` to move on, `stop` to end.
+- **What can you do here?** (also "help"): a template answer, no model call, built from what is
+  wired for the app in front (its hook, Jev navigation, the open-by-key shortcuts, lessons,
+  handoffs): a few spoken sentences, one caption line and two things to try (`Sources/Capabilities.swift`).
 - **Overlay**: transparent, click-through, on every Space, never key. Any click (it still reaches
   the app) or Esc dismisses Buddy at once and stops speech. The Undo pill is the one clickable
   piece, a separate non-activating panel.
