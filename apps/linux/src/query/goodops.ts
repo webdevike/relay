@@ -9,6 +9,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { QueryArgs } from "@relay/protocol";
 import { z } from "zod";
+import { clockTime } from "./tools";
 
 /** One SQL statement with positional params; rows as plain objects. */
 export type GoodOpsSql = (text: string, params: readonly unknown[]) => Promise<readonly Record<string, unknown>[]>;
@@ -109,7 +110,6 @@ const DAYS: Record<QueryArgs<"goodops_collections">["range"], number> = { today:
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 const money = (cents: number) => ({ amount: Math.round(cents) / 100, amountText: usd.format(Math.round(cents / 100)) });
 const centralDay = new Intl.DateTimeFormat("en-CA", { timeZone: ZONE });
-const centralClock = new Intl.DateTimeFormat("en-GB", { timeZone: ZONE, hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 
 /** YYYY-MM-DD `back` days before the Central day of `ms`. */
 function dayBefore(ms: number, back: number): string {
@@ -350,7 +350,7 @@ export function goodopsCollections(deps: GoodOpsDeps): (args: QueryArgs<"goodops
     const [statusCounts, flagCounts] = [byStatus, flags].map((m) => [...m].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)));
 
     return {
-      asOf: centralClock.format(now),
+      asOf: clockTime(now),
       at: now,
       range: args.range,
       from,
@@ -362,7 +362,7 @@ export function goodopsCollections(deps: GoodOpsDeps): (args: QueryArgs<"goodops
               accounts: bookResult.accounts,
               ...money(bookResult.cents),
               buckets: bookResult.buckets.map((b) => ({ bucket: b.bucket, accounts: b.accounts, ...money(b.cents) })),
-              asOf: centralClock.format(bookResult.at),
+              asOf: clockTime(bookResult.at),
             },
       calls: {
         ...tally,
