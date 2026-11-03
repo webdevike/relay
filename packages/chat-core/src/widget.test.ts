@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_CHILDREN, MAX_DEPTH, parseAppLink, parseWidget, type WidgetSpec } from './widget'
+import {
+  MAX_CHILDREN,
+  MAX_DEPTH,
+  parseAppLink,
+  parseAssistantAvatar,
+  parseWidget,
+  type WidgetSpec,
+} from './widget'
 
 const parse = (spec: object): WidgetSpec | null => parseWidget(JSON.stringify(spec))
 
@@ -136,6 +143,18 @@ describe('parseWidget', () => {
       'https://example.com',
     ])
       expect(parseAppLink(bad)).toBeNull()
+  })
+
+  it('keeps relay://assistant/<id>/avatar as an avatar src and drops other relay:// sources', () => {
+    expect(parseAssistantAvatar('relay://assistant/nova/avatar')).toBe('nova')
+    expect(parseAssistantAvatar('relay://assistant/nova')).toBeNull()
+    expect(parse({ widget: 'avatar', name: 'Nova', src: 'relay://assistant/nova/avatar' })).toMatchObject({
+      src: 'relay://assistant/nova/avatar',
+    })
+    expect(parse({ widget: 'avatar', name: 'Nova', src: 'relay://assistant/nova' })).toEqual({
+      widget: 'avatar',
+      name: 'Nova',
+    })
   })
 
   it('takes a relay:// url on a card, link and button; a card drops a bad one', () => {

@@ -35,6 +35,8 @@ import type {
   TimelineSpec,
   Tone,
 } from '@evaos/chat-core/widget'
+import { parseAssistantAvatar } from '@evaos/chat-core/widget'
+import { AgentPortrait } from '../../../assistants/AgentPortrait'
 import { openLink } from '../../../navigation/open-link'
 import { CodeBlock } from '../../markdown/CodeBlock'
 import { mediaUrl } from '../media-url'
@@ -285,15 +287,21 @@ export function QuoteBlock({ spec }: { spec: QuoteSpec }) {
 
 /** A person: photo (initials while it loads or when there is none), name, subtitle. */
 export function AvatarBlock({ spec }: { spec: AvatarSpec }) {
+  // `relay://assistant/<id>/avatar` is the assistant's own (animated) portrait, drawn locally.
+  const assistant = spec.src !== undefined ? parseAssistantAvatar(spec.src) : null
   return (
     <Group gap="sm" wrap="nowrap" className="eva-wb-avatar" data-testid="widget-avatar">
-      <Avatar
-        src={spec.src !== undefined ? mediaUrl(spec.src) : null}
-        name={spec.name}
-        color="initials"
-        alt={spec.name}
-        radius="100%"
-      />
+      {assistant !== null ? (
+        <AgentPortrait id={assistant} className="eva-wb-avatar-portrait" />
+      ) : (
+        <Avatar
+          src={spec.src !== undefined ? mediaUrl(spec.src) : null}
+          name={spec.name}
+          color="initials"
+          alt={spec.name}
+          radius="100%"
+        />
+      )}
       <div className="eva-wb-avatar-text">
         <Text size="sm" fw={500} truncate>
           {spec.name}

@@ -236,7 +236,7 @@ const WIDGET_DEFS: Record<WidgetKind, [props: z.ZodObject, description: string]>
   ],
   avatar: [
     z.object({ name: z.string(), subtitle: z.string().optional(), src: z.string().optional() }),
-    "A person: photo (drop path or https; initials without one), name, subtitle.",
+    'A person: photo (drop path or https; initials without one), name, subtitle. src "relay://assistant/<id>/avatar" shows that assistant\'s own portrait.',
   ],
   timeline: [
     z.object({ items: z.array(TimelineEntry.ref) }),

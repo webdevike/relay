@@ -143,6 +143,11 @@
 .eva-wb-avatar-text {
   min-width: 0;
 }
+.eva-wb-avatar-portrait {
+  flex: none;
+  width: 38px;
+  height: 38px;
+}
 
 .eva-wb-table-scroll {
   overflow-x: auto;

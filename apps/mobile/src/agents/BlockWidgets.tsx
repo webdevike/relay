@@ -6,7 +6,9 @@ import { useContext } from "react";
 import { View } from "react-native";
 import { openWidgetUrl } from "@/lib/links";
 import { spacing } from "@/theme";
+import { agentPortrait, useAssistantStore } from "@/state/assistant";
 import { Avatar } from "@/ui/Avatar";
+import { BreathingPortrait } from "@/ui/BreathingPortrait";
 import { BlockQuote } from "@/ui/BlockQuote";
 import { Button, type ButtonVariant } from "@/ui/Button";
 import { CheckMark } from "@/ui/CheckMark";
@@ -32,6 +34,7 @@ import type {
   TableSpec,
   TimelineSpec,
 } from "./widget";
+import { parseAssistantAvatar } from "./widget";
 
 const buttonVariant: Record<ButtonSpec["variant"], ButtonVariant> = {
   primary: "primary",
@@ -187,11 +190,18 @@ export function QuoteWidget({ spec }: { spec: QuoteSpec }) {
 }
 
 export function AvatarWidget({ spec }: { spec: AvatarSpec }) {
-  // Drop paths resolve against the connected host; until then (or with no photo) initials show.
-  const [uri] = useDropSrc(spec.src === undefined ? [] : [spec.src]);
+  // `relay://assistant/<id>/avatar` draws that assistant's own portrait; drop paths resolve
+  // against the connected host, and until then (or with no photo) initials show.
+  const assistant = spec.src === undefined ? null : parseAssistantAvatar(spec.src);
+  const agents = useAssistantStore((s) => s.agents);
+  const [uri] = useDropSrc(spec.src === undefined || assistant !== null ? [] : [spec.src]);
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
-      <Avatar name={spec.name} uri={uri} />
+      {assistant !== null ? (
+        <BreathingPortrait name={spec.name} portrait={agentPortrait(agents, assistant)} size={36} working={false} />
+      ) : (
+        <Avatar name={spec.name} uri={uri} />
+      )}
       <View style={{ flex: 1, gap: 2 }}>
         <Text variant="label" style={{ fontWeight: "600" }} numberOfLines={1}>
           {spec.name}

@@ -143,6 +143,14 @@ export function parseAppLink(url: string): AppLink | null {
   return kind === "assistant" ? { kind, id: name! } : { kind: "open", page: name! };
 }
 
+const ASSISTANT_AVATAR = /^relay:\/\/assistant\/([a-z0-9][a-z0-9-]{0,63})\/avatar$/;
+
+/** The assistant id in a `relay://assistant/<id>/avatar` source, or null for anything else. The app
+ * draws that assistant's own animated portrait instead of fetching an image. */
+export function parseAssistantAvatar(src: string): string | null {
+  return ASSISTANT_AVATAR.exec(src)?.[1] ?? null;
+}
+
 /** Where a tappable widget goes: an absolute http(s) URL or an in-app `relay://` link. */
 const LinkUrl = z.union([WebUrl, z.string().refine((u) => parseAppLink(u) !== null)]);
 
@@ -383,7 +391,9 @@ const Avatar = z.object({
   widget: z.literal("avatar"),
   name: NonEmpty,
   subtitle: z.string().optional(),
-  src: MediaSrc.optional().catch(undefined),
+  src: MediaSrc.or(z.string().refine((s) => parseAssistantAvatar(s) !== null))
+    .optional()
+    .catch(undefined),
 });
 
 const TimelineEntry = z.object({

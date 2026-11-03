@@ -287,6 +287,22 @@ describe('WidgetBlock', () => {
     expect(openLink).toHaveBeenCalledWith('https://github.com/o/r/pull/412', { newPane: false })
   })
 
+  it("draws relay://assistant/<id>/avatar as that assistant's own portrait, with no image fetch", () => {
+    show(
+      widget({
+        widget: 'avatar',
+        name: 'Nova',
+        subtitle: 'Personal',
+        src: 'relay://assistant/nova/avatar',
+      }),
+    )
+    const portrait = screen.getByTestId('agent-portrait-nova')
+    expect(portrait).toHaveClass('eva-wb-avatar-portrait')
+    expect(portrait.querySelector('img')).not.toBeNull()
+    expect(document.querySelector('img[src^="relay-media:"]')).toBeNull()
+    expect(screen.getByText('Nova')).toBeInTheDocument()
+  })
+
   it('sends a reply button as the next turn and opens a url button', () => {
     const reply = show(
       widget({
