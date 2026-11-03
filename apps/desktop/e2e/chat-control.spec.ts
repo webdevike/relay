@@ -57,14 +57,18 @@ test.describe('chat control', () => {
   const dot = (shell: import('@playwright/test').Page) =>
     shell.locator('[data-testid=chat-header] [aria-label="Eva is replying"]')
 
-  for (const how of ['button', 'escape']) {
+  for (const how of ['button', 'double-escape', 'cmd-period']) {
     test(`abort by ${how} keeps the partial reply`, async ({ shell }) => {
       await openAndSend(shell, 'Tell me about foxes')
       const stop = shell.locator('[data-testid=composer-stop]')
       await expect(stop).toBeVisible()
       await expect(shell.locator('[data-testid=chat-log]')).toContainText('Foxes hunt at dusk')
       if (how === 'button') await stop.click()
-      else await shell.locator('[data-testid=composer-input]').press('Escape')
+      else if (how === 'double-escape') {
+        const box = shell.locator('[data-testid=composer-input]')
+        await box.press('Escape')
+        await shell.keyboard.press('Escape')
+      } else await shell.locator('[data-testid=composer-input]').press('Meta+.')
       await expect(dot(shell)).toHaveCount(0)
       await expect(stop).toHaveCount(0)
       // The abort tail ends the assistant message as aborted and adds the Stopped. notice.
@@ -75,6 +79,20 @@ test.describe('chat control', () => {
       await expect.poll(() => readLog().some((e) => e.detail?.type === 'abort')).toBe(true)
     })
   }
+
+  test('a single Escape blurs the composer and does not abort', async ({ shell }) => {
+    await openAndSend(shell, 'Tell me about foxes')
+    const stop = shell.locator('[data-testid=composer-stop]')
+    await expect(stop).toBeVisible()
+    const box = shell.locator('[data-testid=composer-input]')
+    await box.press('Escape')
+    await expect(box).not.toBeFocused()
+    await expect(shell.getByText('Press Esc again to stop')).toBeVisible()
+    // Past the 500 ms window the reply is still running and nothing was sent.
+    await shell.waitForTimeout(800)
+    await expect(stop).toBeVisible()
+    expect(readLog().some((e) => e.detail?.type === 'abort')).toBe(false)
+  })
 
   test('steer shows the optimistic row last and reconciles it once', async ({ shell }) => {
     await openAndSend(shell, 'First')

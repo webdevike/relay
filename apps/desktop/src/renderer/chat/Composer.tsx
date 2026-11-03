@@ -1,6 +1,6 @@
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react'
 import { slashMatches, type SlashCommand } from '@evaos/chat-core/launch'
-import { ActionIcon, Textarea } from '@mantine/core'
+import { ActionIcon, Textarea, Tooltip } from '@mantine/core'
 import { IconArrowUp, IconPlayerStopFilled, IconPlus } from '@tabler/icons-react'
 import { invoke } from '../ipc'
 import { chatStore, useChatStore } from './chat-store'
@@ -19,6 +19,11 @@ import {
 } from './composer/image-input'
 import './composer/composer.css'
 import { DISMISS_PRIORITY, useDismissable } from '../hotkeys/dismiss'
+import { notifications } from '@mantine/notifications'
+
+const ABORT_WINDOW_MS = 500
+const STOP_TOAST_ID = 'composer-stop-hint'
+const STOP_TOOLTIP = 'Stop (press Esc twice, or ⌘.)'
 
 type Attached = ReadImage & { id: string }
 
@@ -47,7 +52,8 @@ interface Box {
 
 /**
  * Composer: Enter sends (a send while a reply runs is a steer), Shift+Enter inserts a newline.
- * Stop and Escape abort the running turn. Images arrive by paste, drop or the attach button.
+ * The Stop button, double Escape (inside 500 ms) and Cmd+. abort the running turn; a single
+ * Escape only closes what is open, else blurs. Images arrive by paste, drop or the attach button.
  * Widget replies go through the same send (`ref.sendReply`) without touching the draft.
  * The unsent text is saved per `draftKey` (drafts.ts) and comes back when that chat shows again,
  * after a restart too, without moving focus. Attached images are not saved.
@@ -99,6 +105,7 @@ export function Composer({
   const nextId = useRef(0)
   const picker = useRef<HTMLInputElement>(null)
   const input = useRef<HTMLTextAreaElement>(null)
+  const root = useRef<HTMLDivElement>(null)
   /** A widget reply main asked to confirm (owned elsewhere): resent as-is on confirm. */
   const pendingReply = useRef<string | null>(null)
   const imagesRef = useRef(images)
@@ -168,10 +175,67 @@ export function Composer({
     await invoke('chat.abort', { paneId })
   }
 
-  // The window router handles Escape in capture phase. Claim it ahead of sidebar Back
-  // only while this composer has focus; modal/popover dismissers keep their priority.
-  useDismissable(DISMISS_PRIORITY.subPageBack + 1, () => void abort(), running && focused)
-  // An open `/` menu takes Escape ahead of the abort above.
+  // Escape never aborts on its own. The first press (after anything open has closed) blurs the
+  // composer and arms a stop for ABORT_WINDOW_MS; a second press inside it aborts. Cmd+. aborts
+  // at once. The router handles Escape in capture phase; claim it ahead of sidebar Back only
+  // while this composer has focus or a stop is armed. Modal/popover dismissers keep priority.
+  const [armed, setArmed] = useState(false)
+  const armedRef = useRef(false)
+  const armTimer = useRef<number | null>(null)
+  const disarm = (): void => {
+    if (armTimer.current) clearTimeout(armTimer.current)
+    armTimer.current = null
+    armedRef.current = false
+    setArmed(false)
+  }
+  useEffect(
+    () => () => {
+      if (armTimer.current) clearTimeout(armTimer.current)
+    },
+    [],
+  )
+  useEffect(() => {
+    if (!running && armedRef.current) disarm()
+  }, [running])
+  useDismissable(
+    DISMISS_PRIORITY.subPageBack + 1,
+    () => {
+      if (running && armedRef.current) {
+        disarm()
+        void abort()
+        return
+      }
+      input.current?.blur()
+      if (!running) return
+      armedRef.current = true
+      setArmed(true)
+      armTimer.current = window.setTimeout(disarm, ABORT_WINDOW_MS)
+      notifications.hide(STOP_TOAST_ID)
+      notifications.show({
+        id: STOP_TOAST_ID,
+        message: 'Press Esc again to stop',
+        autoClose: ABORT_WINDOW_MS + 500,
+      })
+    },
+    focused || (running && armed),
+  )
+  // Cmd+. stops the reply from this pane, or from nowhere in particular (focus on the page body).
+  useEffect(() => {
+    if (!running) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (!e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || e.key !== '.') return
+      const at = document.activeElement
+      if (at && at !== document.body && !root.current?.contains(at)) return
+      e.preventDefault()
+      e.stopPropagation()
+      disarm()
+      void abort()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [running, paneId])
+  // An open `/` menu takes Escape ahead of the stop above.
   useDismissable(
     DISMISS_PRIORITY.subPageBack + 2,
     () => setSlashHidden(true),
@@ -268,6 +332,7 @@ export function Composer({
 
   return (
     <div
+      ref={root}
       className="eva-composer"
       data-testid="composer"
       data-dragging={dragging ? 'true' : undefined}
@@ -361,11 +426,6 @@ export function Composer({
                 return
               }
             }
-            if (e.key === 'Escape' && running) {
-              e.preventDefault()
-              void abort()
-              return
-            }
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault()
               void send()
@@ -406,16 +466,18 @@ export function Composer({
           }
         >
           {running ? (
-            <ActionIcon
-              className="eva-composer-round"
-              size="var(--eva-tile-md)"
-              variant="default"
-              data-testid="composer-stop"
-              aria-label="Stop response"
-              onClick={() => void abort()}
-            >
-              <IconPlayerStopFilled size="calc(var(--eva-font-size) * .75)" />
-            </ActionIcon>
+            <Tooltip label={STOP_TOOLTIP} openDelay={400}>
+              <ActionIcon
+                className="eva-composer-round"
+                size="var(--eva-tile-md)"
+                variant="default"
+                data-testid="composer-stop"
+                aria-label="Stop response"
+                onClick={() => void abort()}
+              >
+                <IconPlayerStopFilled size="calc(var(--eva-font-size) * .75)" />
+              </ActionIcon>
+            </Tooltip>
           ) : null}
           <ActionIcon
             className="eva-composer-round"

@@ -20,6 +20,11 @@ import { Composer, type ComposerHandle } from './Composer'
 import { chatStore } from './chat-store'
 import { DISMISS_PRIORITY, dismissTop, useDismissable } from '../hotkeys/dismiss'
 
+const shown = vi.fn()
+vi.mock('@mantine/notifications', () => ({
+  notifications: { show: (...a: unknown[]) => shown(...a), hide: vi.fn() },
+}))
+
 const wrap = (disabled = false) =>
   render(
     <MantineProvider>
@@ -120,30 +125,86 @@ describe('Composer', () => {
     expect(sent()).toHaveLength(0)
   })
 
-  it('focused running composer aborts before sidebar Back in the capture Escape ladder', async () => {
-    invoke.mockClear()
-    chatStore.setState({ panes: {} })
-    chatStore.getState().openPane('pane-1', {
-      file: '/f',
-      title: 't',
-      messages: [],
-      meta: { model: null, thinking: null, contextTokens: null },
+  describe('Escape while a reply runs', () => {
+    const runningPane = (): void => {
+      invoke.mockClear()
+      shown.mockClear()
+      chatStore.setState({ panes: {} })
+      chatStore.getState().openPane('pane-1', {
+        file: '/f',
+        title: 't',
+        messages: [],
+        meta: { model: null, thinking: null, contextTokens: null },
+      })
+      chatStore.getState().applyOps('pane-1', [{ op: 'meta', patch: { running: true } }], 1)
+    }
+    const aborts = (): unknown[][] => invoke.mock.calls.filter((c) => c[0] === 'chat.abort')
+
+    afterEach(() => vi.useRealTimers())
+
+    it('a single Escape blurs, shows the hint and does not abort', () => {
+      runningPane()
+      wrap()
+      const box = screen.getByTestId('composer-input')
+      act(() => box.focus())
+      act(() => {
+        expect(dismissTop()).toBe(true)
+      })
+      expect(aborts()).toHaveLength(0)
+      expect(document.activeElement).not.toBe(box)
+      expect(shown).toHaveBeenCalledWith(expect.objectContaining({ message: 'Press Esc again to stop' }))
     })
-    chatStore.getState().applyOps('pane-1', [{ op: 'meta', patch: { running: true } }], 1)
-    const back = vi.fn()
-    render(<SidebarBack onBack={back} />)
-    wrap()
-    fireEvent.focus(screen.getByTestId('composer-input'))
-    act(() => {
-      expect(dismissTop()).toBe(true)
+
+    it('a second Escape inside 500 ms aborts, before sidebar Back', () => {
+      runningPane()
+      const back = vi.fn()
+      render(<SidebarBack onBack={back} />)
+      wrap()
+      act(() => screen.getByTestId('composer-input').focus())
+      act(() => void dismissTop())
+      act(() => void dismissTop())
+      expect(aborts()).toEqual([['chat.abort', { paneId: 'pane-1' }]])
+      expect(back).not.toHaveBeenCalled()
     })
-    expect(invoke).toHaveBeenCalledWith('chat.abort', { paneId: 'pane-1' })
-    expect(back).not.toHaveBeenCalled()
-    fireEvent.blur(screen.getByTestId('composer-input'))
-    act(() => {
-      dismissTop()
+
+    it('a second Escape after 500 ms does not abort and falls through to Back', () => {
+      vi.useFakeTimers()
+      runningPane()
+      const back = vi.fn()
+      render(<SidebarBack onBack={back} />)
+      wrap()
+      act(() => screen.getByTestId('composer-input').focus())
+      act(() => void dismissTop())
+      act(() => void vi.advanceTimersByTime(600))
+      act(() => void dismissTop())
+      expect(aborts()).toHaveLength(0)
+      expect(back).toHaveBeenCalledTimes(1)
     })
-    expect(back).toHaveBeenCalledTimes(1)
+
+    it('an open popover takes Escape first and the composer keeps focus', () => {
+      runningPane()
+      const closePopover = vi.fn()
+      function Popover() {
+        useDismissable(DISMISS_PRIORITY.overlay, closePopover)
+        return null
+      }
+      render(<Popover />)
+      wrap()
+      const box = screen.getByTestId('composer-input')
+      act(() => box.focus())
+      act(() => void dismissTop())
+      expect(closePopover).toHaveBeenCalledTimes(1)
+      expect(document.activeElement).toBe(box)
+      expect(aborts()).toHaveLength(0)
+    })
+
+    it('Cmd+. aborts at once and the Stop button carries the shortcut hint', () => {
+      runningPane()
+      wrap()
+      act(() => screen.getByTestId('composer-input').focus())
+      fireEvent.keyDown(window, { key: '.', metaKey: true })
+      expect(aborts()).toHaveLength(1)
+    })
   })
 
   it('disabled shows the not-running placeholder', () => {
