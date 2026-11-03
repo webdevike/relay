@@ -1,6 +1,8 @@
 import { useState, type ReactNode } from 'react'
 import { Button } from '@mantine/core'
+import { IconCircleCheck, IconCircleDot, IconCircleX } from '@tabler/icons-react'
 import type { Proposal } from '@evaos/contract'
+import { ListPill, ListRow } from '../ui/list'
 import { acceptProposal, dismissProposal, loadMeeting, loadMeetings } from './meetings-store'
 
 export interface ProposalRowProps {
@@ -9,13 +11,13 @@ export interface ProposalRowProps {
   proposal: Proposal
   /** Overrides the default Accept and Dismiss buttons. */
   actions?: ReactNode
-  /** Resolved proposals render dim with a status badge. */
+  /** Resolved proposals render dim with a status pill. */
   dim?: boolean
 }
 
 type Pending = 'accept' | 'dismiss' | null
 
-/** One proposal. All text is rendered as React text only. */
+/** One proposal as a list row: what to do, from which meeting, and Accept or Dismiss. */
 export function ProposalRow({ stem, meetingTitle, proposal, actions, dim }: ProposalRowProps) {
   const [pending, setPending] = useState<Pending>(null)
   const [refusal, setRefusal] = useState<string | null>(null)
@@ -63,26 +65,44 @@ export function ProposalRow({ stem, meetingTitle, proposal, actions, dim }: Prop
       </Button>
     </>
   ) : null
-  const shown = actions ?? defaultActions
+  const resolved = dim && proposal.status !== 'proposed'
+  const Glyph = !resolved
+    ? IconCircleDot
+    : proposal.status === 'accepted'
+      ? IconCircleCheck
+      : IconCircleX
 
   return (
-    <div
-      className="eva-mt-proposal"
-      data-testid={`proposal-${id}`}
-      data-stem={stem}
-      data-dim={dim ? 'true' : undefined}
-    >
-      <div className="eva-mt-proposal-main">
-        {meetingTitle !== '' ? <span className="eva-mt-label">{meetingTitle}</span> : null}
-        <span className="eva-mt-proposal-text">{proposal.text}</span>
-        {proposal.source ? <span className="eva-mt-label">From {proposal.source}</span> : null}
-      </div>
-      {dim && proposal.status !== 'proposed' ? (
-        <span className="eva-mt-badge" data-testid={`proposal-status-${id}`}>
-          {proposal.status === 'accepted' ? 'Accepted' : 'Dismissed'}
-        </span>
-      ) : null}
-      {shown ? <div className="eva-mt-proposal-actions">{shown}</div> : null}
+    <>
+      <ListRow
+        data-testid={`proposal-${id}`}
+        data-stem={stem}
+        dim={dim}
+        multiline
+        leading={<Glyph size={16} stroke={1.5} aria-hidden />}
+        title={proposal.text}
+        meta={
+          meetingTitle !== '' || proposal.source ? (
+            <>
+              {meetingTitle !== '' ? <span>{meetingTitle}</span> : null}
+              {meetingTitle !== '' && proposal.source ? ' · ' : null}
+              {proposal.source ? <span>From {proposal.source}</span> : null}
+            </>
+          ) : undefined
+        }
+        trailing={
+          resolved ? (
+            <ListPill
+              tone={proposal.status === 'accepted' ? 'ok' : 'dim'}
+              data-testid={`proposal-status-${id}`}
+            >
+              {proposal.status === 'accepted' ? 'Accepted' : 'Dismissed'}
+            </ListPill>
+          ) : (
+            (actions ?? defaultActions)
+          )
+        }
+      />
       {refusal !== null ? (
         <div className="eva-mt-refusal" role="alert" data-testid={`meeting-refusal-${id}`}>
           <span>{refusal}</span>
@@ -91,6 +111,6 @@ export function ProposalRow({ stem, meetingTitle, proposal, actions, dim }: Prop
           </Button>
         </div>
       ) : null}
-    </div>
+    </>
   )
 }

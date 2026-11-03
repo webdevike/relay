@@ -190,7 +190,7 @@ describe('sub-pages', () => {
     expect(screen.getByPlaceholderText('Search boards')).toBeInTheDocument()
     expect(screen.getByTestId('canvas-new')).toHaveAttribute('aria-label', 'New board')
     expect(await screen.findByTestId('canvas-row-a')).toHaveTextContent('Alpha')
-    expect(screen.getAllByTestId('canvas-section').map((s) => s.textContent)).toEqual([
+    expect(screen.getAllByTestId('canvas-section-label').map((s) => s.textContent)).toEqual([
       'Pinned',
       'Recent',
     ])

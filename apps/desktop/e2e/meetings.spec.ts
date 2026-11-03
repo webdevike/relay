@@ -53,7 +53,7 @@ test('the sidebar lists meetings by day with folded test calls and search', asyn
   shell,
 }) => {
   await openMeetings(shell)
-  await expect(shell.locator(sel('meetings-day'))).toHaveText([
+  await expect(shell.locator(sel('meetings-day-label'))).toHaveText([
     'Today',
     'Yesterday',
     retroLabel(),
@@ -61,8 +61,9 @@ test('the sidebar lists meetings by day with folded test calls and search', asyn
   ])
   await expect(shell.locator(sel('meeting-row-standup'))).toContainText('Daily standup')
   await expect(shell.locator(sel('meeting-row-planning'))).toContainText('Sprint planning')
-  const fold = shell.locator(sel('meetings-tests'))
-  await expect(fold).toHaveText(/Test calls \(1\)/)
+  const fold = shell.locator(sel('meetings-tests-head'))
+  await expect(shell.locator(sel('meetings-tests-label'))).toHaveText('Test calls')
+  await expect(shell.locator(sel('meetings-tests-count'))).toHaveText('1')
   await expect(fold).toHaveAttribute('aria-expanded', 'false')
   await expect(shell.locator(sel('meeting-row-test-call'))).toHaveCount(0)
 
@@ -123,7 +124,7 @@ test('meeting detail shows the overview, transcript and opens the notes', async 
 
 test('a test call explains why it was skipped', async ({ shell }) => {
   await openMeetings(shell)
-  await shell.locator(sel('meetings-tests')).click()
+  await shell.locator(sel('meetings-tests-head')).click()
   await shell.locator(sel('meeting-row-test-call')).click()
   await expect(shell.locator(sel('page-meeting'))).toContainText('Eva skipped this as a test call.')
 })

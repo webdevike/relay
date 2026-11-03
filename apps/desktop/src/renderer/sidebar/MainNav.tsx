@@ -1,15 +1,16 @@
 import relayIcon from '../assets/brand/relay-icon.png'
 import { Tooltip } from '@mantine/core'
-import { type MouseEvent } from 'react'
 import { placeOf, type Place } from '@evaos/shell-core'
 import { useBoards } from '../boards/boards-store'
 import { canvasNavPlace } from '../canvas/canvas-store'
 import { openFromNav } from '../navigation/open-in-app'
-import { navTargetOf } from '../navigation/open-target'
+import { navTargetOf, type ClickMods } from '../navigation/open-target'
 import { NAV_PAGES } from '../pages/page-meta'
 import { activePlace, useTabs } from '../tabs/tabs-store'
 import { brandTooltip, useAbout } from '../about/build-info'
 import { ScrollArea } from '../ui/ScrollArea'
+import { ListRow, ListView } from '../ui/list'
+import { navIcon } from './icons'
 import { NavRow } from './NavRow'
 import { openSub } from './nav-level'
 import { countLabel, useSidebarData } from './sidebar-store'
@@ -19,6 +20,14 @@ const MAIN = NAV_PAGES.filter((n) => n.slug !== 'setting' && n.slug !== 'dashboa
 const OVERVIEW = NAV_PAGES.find((n) => n.slug === 'dashboard')!
 const SETTING = NAV_PAGES.find((n) => n.slug === 'setting')!
 
+/** A row under Dashboards: the built-in Overview, then each Relay board. */
+interface Dashboard {
+  slug: string
+  title: string
+  icon: string
+  page: Place['page']
+}
+
 export function MainNav() {
   const about = useAbout()
   const here = useTabs(activePlace)
@@ -26,7 +35,7 @@ export function MainNav() {
   const error = useSidebarData((s) => s.error)
   const boards = useBoards((s) => s.data?.boards ?? null)
 
-  const go = (page: Place['page'], e: MouseEvent): void => {
+  const go = (page: Place['page'], e: ClickMods): void => {
     const here_ = navTargetOf(e) === 'here'
     const nav = (p: Place): void => openFromNav(p, e)
     if (page === 'assistants') {
@@ -95,26 +104,49 @@ export function MainNav() {
               onClick={(e) => go(n.page, e)}
             />
           ))}
-          <div className="eva-sb-section eva-sb-section-group" data-testid="sidebar-dashboards">
-            Dashboards
-          </div>
-          <NavRow
-            slug={OVERVIEW.slug}
-            title="Overview"
-            icon={OVERVIEW.icon}
-            active={here.page === OVERVIEW.page}
-            onClick={(e) => go(OVERVIEW.page, e)}
+          <ListView<Dashboard>
+            className="eva-sb-dashboards"
+            density="compact"
+            groups={[
+              {
+                id: 'dashboards',
+                label: 'Dashboards',
+                count: null,
+                testid: 'sidebar-dashboards',
+                items: [
+                  {
+                    slug: OVERVIEW.slug,
+                    title: 'Overview',
+                    icon: OVERVIEW.icon,
+                    page: OVERVIEW.page,
+                  },
+                  ...(boards ?? []).map((b) => ({
+                    slug: `board-${b.slug}`,
+                    title: b.title,
+                    icon: b.icon ?? 'IconLayoutDashboard',
+                    page: `board:${b.slug}` as Place['page'],
+                  })),
+                ],
+              },
+            ]}
+            rowKey={(d) => d.slug}
+            renderRow={(d) => {
+              const Glyph = navIcon(d.icon)
+              const active = here.page === d.page
+              return (
+                <ListRow
+                  key={d.slug}
+                  data-testid={`nav-${d.slug}`}
+                  active={active}
+                  aria-current={active ? 'page' : undefined}
+                  leading={<Glyph size={16} aria-hidden />}
+                  title={d.title}
+                  onActivate={(e) => go(d.page, e)}
+                  middleClick
+                />
+              )
+            }}
           />
-          {boards?.map((b) => (
-            <NavRow
-              key={b.slug}
-              slug={`board-${b.slug}`}
-              title={b.title}
-              icon={b.icon ?? 'IconLayoutDashboard'}
-              active={here.page === `board:${b.slug}`}
-              onClick={(e) => go(`board:${b.slug}`, e)}
-            />
-          ))}
         </ScrollArea>
       </div>
       <div className="eva-sb-footer" data-testid="sidebar-footer">

@@ -650,20 +650,10 @@
   flex: 1;
 }
 
-/* Sidebar list. */
-.eva-cv-list-label {
-  margin: 0;
-  padding: var(--mantine-spacing-sm) calc(var(--mantine-spacing-md) * 0.25)
-    calc(var(--mantine-spacing-md) * 0.125);
+/* Sidebar list: a board's node count beside its title. */
+.eva-cv-count {
   font-size: var(--eva-fz-caption);
-  font-weight: var(--eva-fw-regular);
-  color: var(--eva-text-dim);
-}
-.eva-cv-row {
-  gap: calc(var(--mantine-spacing-md) * 0.25);
-}
-.eva-cv-row > svg {
-  flex: none;
+  font-variant-numeric: tabular-nums;
   color: var(--eva-text-dim);
 }
 

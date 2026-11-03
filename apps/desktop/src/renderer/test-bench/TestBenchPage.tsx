@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { ActionIcon, Button, Progress, Tooltip } from '@mantine/core'
 import {
+  IconAlertTriangle,
   IconArrowLeft,
   IconCheck,
   IconClock,
@@ -25,6 +26,7 @@ import { frontTabs } from '@evaos/shell-core'
 import { openArmTab, useTiling } from '../tiling/tiling-store'
 import { STATUS_LABEL, duration, pct, primaryRate, tokenCount, usd } from './experiment-format'
 import { onExperimentRequest, takeExperimentRequest } from './bench-request'
+import { ListEmpty, ListRow, ListView, type ListColumn } from '../ui/list'
 import './test-bench.css'
 
 const STATUS_ICON: Record<ExperimentStatus, Icon> = {
@@ -160,29 +162,62 @@ function rowProps(onOpen: () => void) {
   } as const
 }
 
-function RunsList({ rows, onOpen }: { rows: ExperimentRow[]; onOpen: (id: string) => void }) {
+const RUN_COLUMNS: ListColumn[] = [
+  { id: 'run', label: 'Run', width: 'minmax(120px, 1fr)' },
+  { id: 'quality', label: 'Quality', width: 'minmax(0, auto)', align: 'end' },
+  { id: 'cost', label: 'Cost', width: 'minmax(96px, auto)', align: 'end' },
+  { id: 'status', label: 'Status', width: '140px', align: 'end' },
+]
+
+function RunsList({
+  rows,
+  error,
+  onOpen,
+}: {
+  rows: ExperimentRow[] | null
+  error: string | null
+  onOpen: (id: string) => void
+}) {
   return (
-    <div className="eva-bench-list" data-testid="experiments-list">
-      {rows.map((row) => {
-        const meta = [
-          row.date,
-          row.round !== null ? `round ${row.round}` : null,
-          row.arms !== null ? `${row.arms} ${row.arms === 1 ? 'test' : 'tests'}` : null,
-        ].filter(Boolean)
-        return (
-          <div
-            key={row.id}
-            className="eva-bench-run"
-            data-testid={`experiment-row-${row.id}`}
-            {...rowProps(() => onOpen(row.id))}
-          >
-            <span className="eva-bench-run-main">
-              <span className="eva-bench-run-title">{row.title}</span>
-              <span className="eva-bench-dim">{meta.join(' · ')}</span>
-            </span>
-            <Headline row={row} />
-            <RowCost cost={row.cost} />
-            <span className="eva-bench-run-status">
+    <ListView<ExperimentRow>
+      data-testid="experiments-list"
+      columns={RUN_COLUMNS}
+      groups={[{ id: 'runs', items: rows ?? [] }]}
+      loading={rows === null ? { label: 'Loading experiments' } : false}
+      error={
+        rows === null && error ? (
+          <ListEmpty role="alert" icon={<IconAlertTriangle size={24} stroke={1.5} />}>
+            Could not read work/experiments ({error}).
+          </ListEmpty>
+        ) : undefined
+      }
+      empty={
+        <ListEmpty
+          data-testid="experiments-empty"
+          icon={<IconFlask size={24} stroke={1.5} />}
+          title="No experiments yet"
+        >
+          Experiments started with bun .omp/tools/exp.ts init show up here as they run.
+        </ListEmpty>
+      }
+      rowKey={(row) => row.id}
+      renderRow={(row) => (
+        <ListRow
+          key={row.id}
+          data-testid={`experiment-row-${row.id}`}
+          title={row.title}
+          meta={[
+            row.date,
+            row.round !== null ? `round ${row.round}` : null,
+            row.arms !== null ? `${row.arms} ${row.arms === 1 ? 'test' : 'tests'}` : null,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+          onActivate={() => onOpen(row.id)}
+          cells={[
+            <Headline key="h" row={row} />,
+            <RowCost key="c" cost={row.cost} />,
+            <span key="s" className="eva-bench-run-status">
               <StatusPill status={row.status} progress={row.progress} />
               {row.progress?.planned ? (
                 <Progress
@@ -192,11 +227,11 @@ function RunsList({ rows, onOpen }: { rows: ExperimentRow[]; onOpen: (id: string
                   aria-label="Cases done"
                 />
               ) : null}
-            </span>
-          </div>
-        )
-      })}
-    </div>
+            </span>,
+          ]}
+        />
+      )}
+    />
   )
 }
 
@@ -249,7 +284,7 @@ function ArmsTable({ detail }: { detail: ExperimentDetail }) {
             role="row"
           >
             <span className="eva-bench-arm-name" role="cell">
-              <span className="eva-bench-run-title">{arm.label}</span>
+              <span className="eva-bench-arm-title">{arm.label}</span>
               <span className="eva-bench-dim">
                 {arm.role}
                 {arm.id !== arm.role && arm.id !== arm.label ? ` · ${arm.id}` : ''}
@@ -412,26 +447,8 @@ export function TestBenchPage(_props: { place: Place }) {
     ) : (
       <p className="eva-bench-dim">Loading experiment</p>
     )
-  } else if (rows === null) {
-    body = error ? (
-      <p className="eva-bench-warning" role="alert">
-        Could not read work/experiments ({error}).
-      </p>
-    ) : (
-      <p className="eva-bench-dim">Loading experiments</p>
-    )
-  } else if (rows.length === 0) {
-    body = (
-      <div className="eva-bench-empty" data-testid="experiments-empty">
-        <IconFlask size={24} />
-        <h2>No experiments yet</h2>
-        <p className="eva-bench-dim">
-          Experiments started with bun .omp/tools/exp.ts init show up here as they run.
-        </p>
-      </div>
-    )
   } else {
-    body = <RunsList rows={rows} onOpen={setSelected} />
+    body = <RunsList rows={rows} error={error} onOpen={setSelected} />
   }
 
   return (

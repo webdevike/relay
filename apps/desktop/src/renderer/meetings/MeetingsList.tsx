@@ -1,11 +1,12 @@
-import { IconChevronDown, IconCircleDot } from '@tabler/icons-react'
-import { useMemo, useState, type MouseEvent } from 'react'
+import { IconCalendarEvent, IconCircleDot } from '@tabler/icons-react'
+import { useMemo } from 'react'
 import type { MeetingSummary } from '@evaos/contract'
 import { placeOf } from '@evaos/shell-core'
 import { localDate } from '@evaos/eva-core/model/dates'
 import { filterByTitle, groupByDay, type Meeting } from '@evaos/eva-core/model/meetings'
 import { openFromNav } from '../navigation/open-in-app'
 import { activePlace, useTabs } from '../tabs/tabs-store'
+import { ListEmpty, ListRow, ListTime, ListView, type ListGroup } from '../ui/list'
 import { useMeetings, useMeetingsSurface } from './meetings-store'
 import './meetings.css'
 
@@ -31,43 +32,13 @@ function asMeeting(m: MeetingSummary): Meeting {
   }
 }
 
-function Row({ m, active, dim }: { m: MeetingSummary; active: boolean; dim?: boolean }) {
-  const open = (e: MouseEvent): void => openFromNav(placeOf('meetings', { meeting: m.stem }), e)
-  return (
-    <button
-      type="button"
-      className="eva-sb-row eva-mt-row"
-      data-testid={`meeting-row-${m.stem}`}
-      data-active={active ? 'true' : undefined}
-      data-dim={dim ? 'true' : undefined}
-      onClick={open}
-    >
-      {m.pending > 0 ? (
-        <span
-          role="img"
-          className="eva-mt-dot"
-          aria-label={`Waiting on you, ${m.pending} ${m.pending === 1 ? 'proposal' : 'proposals'}`}
-          data-testid={`meeting-waiting-${m.stem}`}
-        >
-          <IconCircleDot size={14} aria-hidden />
-        </span>
-      ) : null}
-      <span className="eva-mt-row-text">
-        <span className="eva-mt-row-title">{m.title}</span>
-        <span className="eva-mt-row-meta">{timeLabel(m.start)}</span>
-      </span>
-    </button>
-  )
-}
-
-/** Sidebar body for the Meetings sub-page (MEET-01). */
+/** Sidebar body for the Meetings sub-page (MEET-01): day groups, then the folded test calls. */
 export function MeetingsList({ query }: { query: string }) {
   useMeetingsSurface()
   const list = useMeetings((s) => s.list)
   const now = useMeetings((s) => s.now)
   const error = useMeetings((s) => s.error)
   const here = useTabs(activePlace)
-  const [testsOpen, setTestsOpen] = useState(false)
 
   const byStem = useMemo(() => new Map((list ?? []).map((m) => [m.stem, m])), [list])
   const view = useMemo(() => {
@@ -79,64 +50,75 @@ export function MeetingsList({ query }: { query: string }) {
     }
   }, [list, now, query])
 
-  if (view === null) {
-    return error ? (
-      <div className="eva-sb-empty eva-dim" role="alert" data-testid="sidebar-sub-empty">
-        Could not read the meetings folder.
-      </div>
-    ) : (
-      <div className="eva-sb-empty eva-dim" data-testid="sidebar-sub-empty">
-        Loading meetings
-      </div>
-    )
-  }
-  if (list!.length === 0) {
-    return (
-      <div className="eva-sb-empty eva-dim" data-testid="sidebar-sub-empty">
-        No meetings yet.
-      </div>
-    )
-  }
-  if (view.groups.length === 0 && view.tests.length === 0) {
-    return (
-      <div className="eva-sb-empty eva-dim" data-testid="sidebar-sub-empty">
-        No meetings match.
-      </div>
-    )
-  }
-  const isActive = (stem: string): boolean => here.page === 'meetings' && here.meeting === stem
-  const open = testsOpen || view.forceTestsOpen
+  const groups: ListGroup<MeetingSummary>[] = view
+    ? [
+        ...view.groups.map((g) => ({
+          id: g.key ?? 'undated',
+          label: g.label,
+          testid: 'meetings-day',
+          items: g.meetings.map((m) => byStem.get(m.stem)!),
+        })),
+        ...(view.tests.length > 0
+          ? [
+              {
+                id: 'tests',
+                label: 'Test calls',
+                testid: 'meetings-tests',
+                forceOpen: view.forceTestsOpen,
+                items: view.tests.map((m) => byStem.get(m.stem)!),
+              },
+            ]
+          : []),
+      ]
+    : []
   return (
-    <div className="eva-mt-list" data-testid="meetings-list">
-      {view.groups.map((g) => (
-        <section key={g.key ?? 'undated'} aria-label={g.label}>
-          <h3 className="eva-mt-day" data-testid="meetings-day">
-            {g.label}
-          </h3>
-          {g.meetings.map((m) => (
-            <Row key={m.stem} m={byStem.get(m.stem)!} active={isActive(m.stem)} />
-          ))}
-        </section>
-      ))}
-      {view.tests.length > 0 ? (
-        <section>
-          <button
-            type="button"
-            className="eva-mt-tests"
-            data-testid="meetings-tests"
-            aria-expanded={open}
-            onClick={() => setTestsOpen(!testsOpen)}
-          >
-            <span>Test calls ({view.tests.length})</span>
-            <IconChevronDown size={14} aria-hidden data-open={open ? 'true' : undefined} />
-          </button>
-          {open
-            ? view.tests.map((m) => (
-                <Row key={m.stem} m={byStem.get(m.stem)!} active={isActive(m.stem)} dim />
-              ))
-            : null}
-        </section>
-      ) : null}
-    </div>
+    <ListView<MeetingSummary>
+      data-testid="meetings-list"
+      density="compact"
+      groups={groups}
+      defaultCollapsed={['tests']}
+      rowKey={(m) => m.stem}
+      renderRow={(m, g) => (
+        <ListRow
+          key={m.stem}
+          data-testid={`meeting-row-${m.stem}`}
+          active={here.page === 'meetings' && here.meeting === m.stem}
+          dim={g.id === 'tests'}
+          leading={
+            m.pending > 0 ? (
+              <span
+                role="img"
+                className="eva-mt-waiting"
+                aria-label={`Waiting on you, ${m.pending} ${m.pending === 1 ? 'proposal' : 'proposals'}`}
+                data-testid={`meeting-waiting-${m.stem}`}
+              >
+                <IconCircleDot size={16} stroke={1.75} aria-hidden />
+              </span>
+            ) : (
+              <IconCalendarEvent size={16} stroke={1.5} aria-hidden />
+            )
+          }
+          title={m.title}
+          trailing={<ListTime>{timeLabel(m.start)}</ListTime>}
+          onActivate={(e) => openFromNav(placeOf('meetings', { meeting: m.stem }), e)}
+          middleClick
+        />
+      )}
+      loading={
+        view === null && !error ? { label: 'Loading meetings', testid: 'sidebar-sub-empty' } : false
+      }
+      error={
+        view === null && error ? (
+          <ListEmpty role="alert" data-testid="sidebar-sub-empty">
+            Could not read the meetings folder.
+          </ListEmpty>
+        ) : undefined
+      }
+      empty={
+        <ListEmpty data-testid="sidebar-sub-empty">
+          {list?.length === 0 ? 'No meetings yet.' : 'No meetings match.'}
+        </ListEmpty>
+      }
+    />
   )
 }

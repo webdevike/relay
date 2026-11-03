@@ -1,11 +1,9 @@
-import { Fragment, useCallback, useEffect, useRef, useState, type HTMLAttributes } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { Button, Loader, Textarea } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import {
   IconCheck,
-  IconChevronDown,
   IconChevronLeft,
-  IconChevronRight,
   IconClock,
   IconExternalLink,
   IconFile,
@@ -23,7 +21,7 @@ import { EvaModal } from '../overlay'
 import { Markdown } from '../chat/markdown/Markdown'
 import { MarkdownMedia } from '../chat/markdown/MarkdownMedia'
 import { quoteOf } from './LinearDetail'
-import { ago, agoPhrase, mentionsAstra } from './review-model'
+import { agoPhrase, mentionsAstra } from './review-model'
 import { Avatar, SourceMark, fail, useLocal } from './review-ui'
 import { AstraThreadView, threadPropsOf, useAstraItem } from './AstraInline'
 import { mergeTimeline, threadReplyText } from './astra-timeline'
@@ -41,120 +39,6 @@ interface PendingSend {
   text: string
   at: number
   status: 'sent' | 'dry-run'
-}
-
-const isDone = (r: SlackRow, done: Record<string, number>): boolean =>
-  done[r.url] !== undefined && r.updatedAt <= done[r.url]!
-
-/** `#ui-ux` stays; a DM is the person's name. */
-const where = (r: { channelName: string }): string => r.channelName
-
-/**
- * Mentions (DMs count: they are to him) and Replies, like the Slack design's Threads queue. While
- * the queue is searched, only `match`ing rows show, every group open, empty groups hidden.
- */
-export function SlackGroups({
-  slack,
-  done,
-  isActive,
-  rowProps,
-  onRefresh,
-  now,
-  match,
-}: {
-  slack: SlackState
-  done: Record<string, number>
-  isActive: (r: SlackRow) => boolean
-  /** Click, middle-click, context menu: what the row does (ReviewRowMenu `rowHandlers`). */
-  rowProps: (r: SlackRow) => HTMLAttributes<HTMLButtonElement>
-  onRefresh: () => void
-  now: number
-  match?: (r: SlackRow) => boolean
-}) {
-  const [closed, setClosed] = useState<Record<string, boolean>>({})
-  const rows = (slack.queue?.rows ?? []).filter((r) => !isDone(r, done) && (!match || match(r)))
-  const groups = [
-    { id: 'mentions', label: 'Slack mentions', rows: rows.filter((r) => r.kind !== 'reply') },
-    { id: 'replies', label: 'Slack replies', rows: rows.filter((r) => r.kind === 'reply') },
-  ].filter((g) => !match || g.rows.length > 0)
-  return (
-    <div data-testid="review-slack-groups">
-      {groups.map((g, gi) => (
-        <div key={g.id} className="eva-rv-group">
-          <span className="eva-rv-group-headrow">
-            <button
-              type="button"
-              className="eva-rv-group-head"
-              onClick={() => setClosed({ ...closed, [g.id]: !closed[g.id] })}
-            >
-              {g.label} <span className="eva-rv-dim">{slack.queue ? g.rows.length : ''}</span>
-              {closed[g.id] ? <IconChevronRight size={12} /> : <IconChevronDown size={12} />}
-            </button>
-            {gi === 0 ? (
-              slack.reading ? (
-                <span
-                  className="eva-rv-dim eva-rv-small eva-rv-reading"
-                  data-testid="review-slack-reading"
-                >
-                  <Loader size={10} /> reading
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  className="eva-rv-iconbtn"
-                  aria-label="Read Slack again"
-                  title={
-                    slack.queue ? `Read ${agoPhrase(slack.queue.fetchedAt, now)}` : 'Read Slack'
-                  }
-                  onClick={onRefresh}
-                >
-                  <IconRefresh size={12} />
-                </button>
-              )
-            ) : null}
-          </span>
-          {closed[g.id] && !match ? null : slack.queue === null ? (
-            gi === 0 ? (
-              <div className="eva-rv-dim eva-rv-pad">
-                {slack.error ? `Couldn't read Slack: ${slack.error}` : 'Reading Slack...'}
-              </div>
-            ) : null
-          ) : g.rows.length === 0 ? (
-            <div className="eva-rv-dim eva-rv-pad">Nothing here.</div>
-          ) : (
-            g.rows.map((r) => (
-              <button
-                key={r.url}
-                type="button"
-                className="eva-rv-qrow"
-                data-active={isActive(r) || undefined}
-                data-testid="review-slack-row"
-                data-thread={r.threadTs ? true : undefined}
-                {...rowProps(r)}
-                title={`${where(r)}: ${emojify(r.text)}`}
-              >
-                <span className="eva-rv-qrow-line">
-                  <SourceMark source="slack" />
-                  <span className="eva-rv-qrow-title">
-                    {where(r)}
-                    {r.threadTs && r.kind === 'reply' ? ' thread' : ''}
-                  </span>
-                </span>
-                <span className="eva-rv-qrow-line eva-rv-dim">
-                  <span className="eva-rv-qrow-sub">{emojify(r.text)}</span>
-                  <Avatar login={r.author || '?'} />
-                  <span>{ago(r.updatedAt, now)}</span>
-                </span>
-              </button>
-            ))
-          )}
-        </div>
-      ))}
-      {slack.queue && slack.error ? (
-        <div className="eva-rv-dim eva-rv-pad">Last read failed: {slack.error}</div>
-      ) : null}
-    </div>
-  )
 }
 
 /** `Today at 14:09`, `Oct 28 at 09:12`. */

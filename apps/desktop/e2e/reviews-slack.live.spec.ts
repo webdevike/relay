@@ -48,7 +48,7 @@ test('reads Slack threads waiting on Isaac and hands a reply to Astra without po
   await pickScheme(shell, 'dark')
   await shell.locator(sel('nav-reviews')).click()
   await shell.keyboard.press('Meta+Shift+B')
-  const groups = shell.locator(sel('review-slack-groups'))
+  const groups = shell.locator(sel('review-slack-mentions'))
   await expect(groups).toBeVisible()
   await expect(shell.locator(sel('review-slack-reading'))).toBeVisible()
   await shot(shell, 'slack-queue-reading')

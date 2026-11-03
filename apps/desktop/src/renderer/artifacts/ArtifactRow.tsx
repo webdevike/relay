@@ -1,5 +1,5 @@
 import type { MouseEvent, ReactNode } from 'react'
-import { ActionIcon, Badge, Tooltip } from '@mantine/core'
+import { ActionIcon, Tooltip } from '@mantine/core'
 import {
   IconCircleCheck,
   IconCircleDashed,
@@ -34,8 +34,9 @@ import {
   repoName,
   seenText,
   statusPills,
-  type Pill,
+  type Tone,
 } from './artifacts-model'
+import { ListPill, ListRow, type ListTone } from '../ui/list'
 
 const ICON = { size: 16, stroke: 1.5 } as const
 
@@ -74,20 +75,15 @@ export function KindIcon({ item }: { item: Artifact }) {
   }
 }
 
-export function StatusPill({ pill }: { pill: Pill }) {
-  return (
-    <Badge
-      className="eva-art-pill"
-      variant="light"
-      color={pill.tone}
-      radius="sm"
-      size="sm"
-      tt="none"
-      data-tone={pill.tone}
-    >
-      {pill.label}
-    </Badge>
-  )
+/** The model's pill colors as list tones (orange reads as a warning). */
+const PILL_TONE: Record<Tone, ListTone> = {
+  gray: 'dim',
+  blue: 'info',
+  yellow: 'warn',
+  orange: 'warn',
+  green: 'ok',
+  red: 'bad',
+  violet: 'accent',
 }
 
 /** "Open in Linear", "Open on GitHub", or the browser for anything else. */
@@ -170,68 +166,62 @@ export function ArtifactRow({
   const target = openTarget(item)
   const external = externalUrl(item)
   return (
-    <div
-      className="eva-art-row"
-      role="button"
-      tabIndex={0}
+    <ListRow
       data-testid={`artifact-row-${item.id}`}
-      onClick={(e) => actions.open(item, openTargetOf(e))}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') actions.open(item)
-      }}
-      onContextMenu={(e) => {
-        e.preventDefault()
-        actions.menu(item, e.clientX, e.clientY)
-      }}
-    >
-      <span className="eva-art-row-icon">
-        <KindIcon item={item} />
-      </span>
-      <span className="eva-art-row-text">
-        <span className="eva-art-row-title">
+      tooltip={[key, title].filter(Boolean).join(' ')}
+      leading={<KindIcon item={item} />}
+      title={
+        <>
           {key !== null ? <span className="eva-art-key">{key}</span> : null}
-          {title !== '' ? <span className="eva-art-title-text">{title}</span> : null}
-        </span>
-        <span className="eva-art-row-meta">{meta.join(' · ')}</span>
-      </span>
-      {pills.length > 0 ? (
-        <span className="eva-art-pills">
-          {pills.map((p) => (
-            <StatusPill key={p.label} pill={p} />
-          ))}
-        </span>
-      ) : null}
-      <span className="eva-art-row-actions">
-        {target?.to === 'browser' ? (
+          {title}
+        </>
+      }
+      meta={meta.join(' · ')}
+      trailing={
+        pills.length > 0
+          ? pills.map((p) => (
+              <ListPill key={p.label} tone={PILL_TONE[p.tone]}>
+                {p.label}
+              </ListPill>
+            ))
+          : undefined
+      }
+      onActivate={(e) => actions.open(item, openTargetOf(e))}
+      middleClick
+      onMenu={(x, y) => actions.menu(item, x, y)}
+      actions={
+        <>
+          {target?.to === 'browser' ? (
+            <RowButton
+              label="Open in the browser panel"
+              onClick={(e) => actions.open(item, openTargetOf(e))}
+            >
+              <IconLayoutSidebarRight {...ICON} />
+            </RowButton>
+          ) : null}
+          {external !== null ? (
+            <RowButton label={externalLabel(item)} onClick={() => actions.external(external)}>
+              <IconExternalLink {...ICON} />
+            </RowButton>
+          ) : null}
           <RowButton
-            label="Open in the browser panel"
-            onClick={(e) => actions.open(item, openTargetOf(e))}
+            label={item.pinned ? 'Unpin' : 'Pin to the top'}
+            testid={`artifact-pin-${item.id}`}
+            onClick={() => actions.pin(item, item.pinned === undefined)}
           >
-            <IconLayoutSidebarRight {...ICON} />
+            {item.pinned ? <IconPinnedOff {...ICON} /> : <IconPin {...ICON} />}
           </RowButton>
-        ) : null}
-        {external !== null ? (
-          <RowButton label={externalLabel(item)} onClick={() => actions.external(external)}>
-            <IconExternalLink {...ICON} />
+          <RowButton
+            label="More"
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect()
+              actions.menu(item, r.left, r.bottom)
+            }}
+          >
+            <IconDots {...ICON} />
           </RowButton>
-        ) : null}
-        <RowButton
-          label={item.pinned ? 'Unpin' : 'Pin to the top'}
-          testid={`artifact-pin-${item.id}`}
-          onClick={() => actions.pin(item, item.pinned === undefined)}
-        >
-          {item.pinned ? <IconPinnedOff {...ICON} /> : <IconPin {...ICON} />}
-        </RowButton>
-        <RowButton
-          label="More"
-          onClick={(e) => {
-            const r = e.currentTarget.getBoundingClientRect()
-            actions.menu(item, r.left, r.bottom)
-          }}
-        >
-          <IconDots {...ICON} />
-        </RowButton>
-      </span>
-    </div>
+        </>
+      }
+    />
   )
 }

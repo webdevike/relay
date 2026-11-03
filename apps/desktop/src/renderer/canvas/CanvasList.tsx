@@ -1,6 +1,6 @@
 import { Button, TextInput } from '@mantine/core'
 import { IconPencil, IconPin, IconPinnedOff, IconSchema, IconTrash } from '@tabler/icons-react'
-import { useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { CanvasEntry } from '@evaos/contract'
 import { placeOf } from '@evaos/shell-core'
@@ -14,6 +14,7 @@ import {
   useCanvasList,
   useCanvasListSurface,
 } from './canvas-store'
+import { ListEmpty, ListRow, ListView } from '../ui/list'
 import './canvas.css'
 
 /** Pinned, then Recent (newest first), filtered by title or slug (native sidebar_list). */
@@ -42,39 +43,25 @@ function Row({
   active: boolean
   onMenu: (entry: CanvasEntry, x: number, y: number) => void
 }) {
-  const open = (e: MouseEvent): void => openFromNav(placeOf('canvas', { canvas: entry.slug }), e)
   return (
-    <button
-      type="button"
-      className="eva-sb-row eva-cv-row"
+    <ListRow
       data-testid={`canvas-row-${entry.slug}`}
-      data-active={active ? 'true' : undefined}
+      active={active}
       aria-current={active ? 'page' : undefined}
-      onClick={open}
-      onAuxClick={(e) => {
-        if (e.button !== 1) return
-        e.preventDefault()
-        open(e)
-      }}
-      onContextMenu={(e) => {
-        e.preventDefault()
-        onMenu(entry, e.clientX, e.clientY)
-      }}
-      onKeyDown={(e: KeyboardEvent) => {
-        if (e.key === 'F10' && e.shiftKey) {
-          e.preventDefault()
-          const r = e.currentTarget.getBoundingClientRect()
-          onMenu(entry, r.left + 16, r.bottom)
-        }
-      }}
-    >
-      <IconSchema size={16} stroke={1.5} aria-hidden className="eva-cv-row-icon" />
-      <span className="eva-sb-row-label">{entry.title}</span>
-      {entry.pinned ? <IconPin size={12} stroke={1.5} aria-label="Pinned" /> : null}
-      <span className="eva-sb-count" data-testid={`canvas-count-${entry.slug}`}>
-        {entry.nodes}
-      </span>
-    </button>
+      leading={<IconSchema size={16} stroke={1.5} aria-hidden />}
+      title={entry.title}
+      trailing={
+        <>
+          {entry.pinned ? <IconPin size={12} stroke={1.5} aria-label="Pinned" /> : null}
+          <span className="eva-cv-count" data-testid={`canvas-count-${entry.slug}`}>
+            {entry.nodes}
+          </span>
+        </>
+      }
+      onActivate={(e) => openFromNav(placeOf('canvas', { canvas: entry.slug }), e)}
+      middleClick
+      onMenu={(x, y) => onMenu(entry, x, y)}
+    />
   )
 }
 
@@ -196,42 +183,45 @@ export function CanvasList({ query }: { query: string }) {
   const [renaming, setRenaming] = useState<CanvasEntry | null>(null)
   const [deleting, setDeleting] = useState<CanvasEntry | null>(null)
   const groups = useMemo(() => (entries ? sections(entries, query) : []), [entries, query])
-
-  if (entries === null) {
-    return (
-      <div
-        className="eva-sb-empty eva-dim"
-        role={error ? 'alert' : undefined}
-        data-testid="sidebar-sub-empty"
-      >
-        {error ? 'Could not read the canvases folder.' : 'Loading boards'}
-      </div>
-    )
-  }
   const active = here.page === 'canvas' ? here.canvas : null
   return (
-    <div className="eva-cv-list" data-testid="canvas-list">
-      {groups.length === 0 ? (
-        <div className="eva-sb-empty eva-dim" data-testid="sidebar-sub-empty">
-          {query.trim() === '' ? 'No boards yet' : 'No boards match'}
-        </div>
-      ) : (
-        groups.map((g) => (
-          <section key={g.label} aria-label={g.label}>
-            <h3 className="eva-cv-list-label" data-testid="canvas-section">
-              {g.label}
-            </h3>
-            {g.entries.map((e) => (
-              <Row
-                key={e.slug}
-                entry={e}
-                active={active === e.slug}
-                onMenu={(entry, x, y) => setMenu({ entry, x, y })}
-              />
-            ))}
-          </section>
-        ))
-      )}
+    <>
+      <ListView<CanvasEntry>
+        data-testid="canvas-list"
+        density="compact"
+        groups={groups.map((g) => ({
+          id: g.label,
+          label: g.label,
+          testid: 'canvas-section',
+          items: g.entries,
+        }))}
+        rowKey={(e) => e.slug}
+        renderRow={(e) => (
+          <Row
+            key={e.slug}
+            entry={e}
+            active={active === e.slug}
+            onMenu={(entry, x, y) => setMenu({ entry, x, y })}
+          />
+        )}
+        loading={
+          entries === null && !error
+            ? { label: 'Loading boards', testid: 'sidebar-sub-empty' }
+            : false
+        }
+        error={
+          entries === null && error ? (
+            <ListEmpty role="alert" data-testid="sidebar-sub-empty">
+              Could not read the canvases folder.
+            </ListEmpty>
+          ) : undefined
+        }
+        empty={
+          <ListEmpty data-testid="sidebar-sub-empty">
+            {query.trim() === '' ? 'No boards yet' : 'No boards match'}
+          </ListEmpty>
+        }
+      />
       {createPortal(
         <EvaMenu
           opened={menu !== null}
@@ -289,6 +279,6 @@ export function CanvasList({ query }: { query: string }) {
       )}
       <RenameModal entry={renaming} onClose={() => setRenaming(null)} />
       <DeleteModal entry={deleting} onClose={() => setDeleting(null)} />
-    </div>
+    </>
   )
 }

@@ -104,17 +104,21 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers())
 
 describe('HabitsPage', () => {
-  it('shows the gate strip, plan source and the stale line', async () => {
+  it('shows the gate KPIs, plan source and the stale line', async () => {
     ui()
     const strip = await screen.findByTestId('habit-gate-strip')
-    expect(strip).toHaveTextContent('Unlocked. Next break at 11:30 PM.')
+    expect(strip).toHaveAttribute('data-locked', 'false')
+    expect(screen.getByTestId('habit-gate')).toHaveTextContent('Unlocked')
+    expect(screen.getByTestId('habit-next-break')).toHaveTextContent('11:30 PM')
+    expect(strip).toHaveTextContent('1 of 3')
     expect(strip).toHaveTextContent('From your calendar')
     expect(screen.queryByTestId('habits-stale')).toBeNull()
     act(() => habitStore.setState({ stale: true }))
     expect(screen.getByText('Showing the last status. Retrying.')).toBeInTheDocument()
     act(() => habitStore.setState({ status: seed({ locked: true }) as never }))
-    expect(screen.getByTestId('habit-gate-strip')).toHaveTextContent(
-      'Locked: finish a habit to unlock AI tools.',
+    expect(screen.getByTestId('habit-gate-strip')).toHaveAttribute('data-locked', 'true')
+    expect(screen.getByTestId('habit-gate')).toHaveTextContent(
+      'LockedFinish a habit to unlock AI tools',
     )
   })
 
@@ -132,11 +136,12 @@ describe('HabitsPage', () => {
     expect(within(breaks).getByText('Done')).toBeInTheDocument()
     expect(within(breaks).getByText('Due')).toBeInTheDocument()
     expect(within(breaks).getByText('Upcoming')).toBeInTheDocument()
-    const history = screen.getByTestId('habit-history')
-    expect(within(history).getByText('Today')).toBeInTheDocument()
-    expect(within(history).getByText('Yesterday')).toBeInTheDocument()
-    expect(within(history).getByText('Overridden: Meeting ran long')).toBeInTheDocument()
-    fireEvent.click(within(history).getByTestId('history-photo'))
+    const today = screen.getByTestId('history-day-Today')
+    expect(within(today).getByText('Done today')).toBeInTheDocument()
+    const yesterday = screen.getByTestId('history-day-Yesterday')
+    expect(within(yesterday).getByText('Done yesterday')).toBeInTheDocument()
+    expect(within(yesterday).getByText('Overridden: Meeting ran long')).toBeInTheDocument()
+    fireEvent.click(within(today).getByTestId('history-photo'))
     expect(invoke).toHaveBeenCalledWith('habit.openPhoto', { path: '/p/walk-proof.png' })
   })
 

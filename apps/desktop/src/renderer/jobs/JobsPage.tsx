@@ -4,9 +4,11 @@ import {
   IconAlertTriangle,
   IconCheck,
   IconLoader2,
+  IconMessageCircle,
   IconMinus,
   IconPlus,
   IconRefresh,
+  IconTerminal2,
   IconTool,
   type Icon,
 } from '@tabler/icons-react'
@@ -14,6 +16,7 @@ import type { Place } from '@evaos/shell-core'
 import type { JobSummaryDto } from '@evaos/contract'
 import { agoLabel, scheduleLabel } from '@evaos/eva-core/model/jobs'
 import { registerReloader } from '../reload/reload'
+import { ListEmpty, ListPill, ListRow, ListView, type ListColumn, type ListTone } from '../ui/list'
 import { JobForm } from './JobForm'
 import { formatNextDue } from './job-format'
 import { loadJobs, openJobForm, setJobEnabled, useJobs } from './jobs-store'
@@ -28,6 +31,16 @@ interface Badge {
   tone: 'success' | 'warning' | 'dim'
   spin?: boolean
 }
+
+const PILL_TONE: Record<Badge['tone'], ListTone> = { success: 'ok', warning: 'bad', dim: 'dim' }
+
+const COLUMNS: ListColumn[] = [
+  { id: 'name', label: 'Name', width: 'minmax(0, 2.2fr)' },
+  { id: 'schedule', label: 'Schedule', width: 'minmax(88px, 0.8fr)' },
+  { id: 'last', label: 'Last run', width: 'minmax(150px, 1.4fr)' },
+  { id: 'due', label: 'Next due', width: 'minmax(0, 1.2fr)' },
+  { id: 'enabled', label: 'Enabled', width: '64px' },
+]
 
 /**
  * How the last run ended; null when the job ran but left no run record (script jobs only stamp
@@ -48,62 +61,68 @@ export function runBadge(job: JobSummaryDto): Badge | null {
   }
 }
 
-function Row({ job, now }: { job: JobSummaryDto; now: number }) {
+function JobRow({ job, now }: { job: JobSummaryDto; now: number }) {
   const badge = runBadge(job)
   const due = formatNextDue(job.nextDueAt, job.enabled, job.every, new Date(now))
+  const Kind = job.hasScript ? IconTerminal2 : IconMessageCircle
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      className="eva-jobs-grid eva-jobs-row"
+    <ListRow
       data-testid={`job-row-${job.name}`}
-      onClick={() => openJobForm({ mode: 'edit', name: job.name })}
-      onKeyDown={(e) => {
-        if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
-          e.preventDefault()
-          openJobForm({ mode: 'edit', name: job.name })
-        }
-      }}
-    >
-      <span className="eva-jobs-name">
-        <span className="eva-jobs-mono">{job.name}</span>
-        {job.description ? <span className="eva-jobs-desc">{job.description}</span> : null}
-      </span>
-      <span>{scheduleLabel(job.every)}</span>
-      <span className="eva-jobs-last">
-        {job.lastRunAt !== null ? (
-          <span className="eva-jobs-dim">{agoLabel(job.lastRunAt, now)}</span>
-        ) : null}
-        {badge ? (
+      className="eva-jobs-row"
+      leading={<Kind size={16} stroke={1.5} aria-hidden />}
+      title={<span className="eva-jobs-mono">{job.name}</span>}
+      meta={job.description || undefined}
+      dim={!job.enabled}
+      onActivate={() => openJobForm({ mode: 'edit', name: job.name })}
+      cells={[
+        scheduleLabel(job.every),
+        <span key="last" className="eva-jobs-last">
+          {job.lastRunAt !== null ? (
+            <span className="eva-dim">{agoLabel(job.lastRunAt, now)}</span>
+          ) : null}
+          {badge ? (
+            <ListPill
+              tone={PILL_TONE[badge.tone]}
+              icon={
+                <badge.Glyph
+                  size={12}
+                  stroke={1.75}
+                  className={badge.spin ? 'eva-list-spin' : undefined}
+                />
+              }
+              data-testid={`job-state-${job.name}`}
+            >
+              {badge.text}
+            </ListPill>
+          ) : null}
+        </span>,
+        due.tone === 'warning' ? (
+          <ListPill key="due" tone="warn" data-testid={`job-due-${job.name}`}>
+            {due.text}
+          </ListPill>
+        ) : (
           <span
-            className="eva-jobs-state"
-            data-tone={badge.tone}
-            data-testid={`job-state-${job.name}`}
+            key="due"
+            className={due.tone === 'dim' ? 'eva-dim' : undefined}
+            data-testid={`job-due-${job.name}`}
           >
-            <badge.Glyph size={14} className={badge.spin ? 'eva-jobs-spin' : undefined} />
-            {badge.text}
+            {due.text}
           </span>
-        ) : null}
-      </span>
-      <span
-        className={due.tone === 'normal' ? undefined : `eva-jobs-${due.tone}`}
-        data-testid={`job-due-${job.name}`}
-      >
-        {due.text}
-      </span>
-      <span className="eva-jobs-switch-cell" onClick={(e) => e.stopPropagation()}>
-        <Tooltip label={job.enabled ? 'Enabled' : 'Disabled'} openDelay={300}>
-          <Switch
-            size="md"
-            data-testid={`job-enabled-${job.name}`}
-            aria-label={`Enable ${job.name}`}
-            checked={job.enabled}
-            onChange={(e) => void setJobEnabled(job.name, e.currentTarget.checked)}
-            onKeyDown={(e) => e.stopPropagation()}
-          />
-        </Tooltip>
-      </span>
-    </div>
+        ),
+        <span key="enabled" onClick={(e) => e.stopPropagation()}>
+          <Tooltip label={job.enabled ? 'Enabled' : 'Disabled'} openDelay={300}>
+            <Switch
+              size="md"
+              data-testid={`job-enabled-${job.name}`}
+              aria-label={`Enable ${job.name}`}
+              checked={job.enabled}
+              onChange={(e) => void setJobEnabled(job.name, e.currentTarget.checked)}
+              onKeyDown={(e) => e.stopPropagation()}
+            />
+          </Tooltip>
+        </span>,
+      ]}
+    />
   )
 }
 
@@ -130,48 +149,6 @@ export function JobsPage(_props: { place: Place }) {
     </Button>
   )
 
-  let body
-  if (list === null && error) {
-    body = (
-      <div className="eva-jobs-empty" role="alert" data-testid="jobs-error">
-        <p>{JOBS_ERROR_COPY}</p>
-        <Button variant="default" onClick={() => void loadJobs()} data-testid="jobs-retry">
-          Retry
-        </Button>
-      </div>
-    )
-  } else if (list === null || (loading && list.length === 0)) {
-    body = (
-      <p className="eva-jobs-dim" data-testid="jobs-loading">
-        Loading jobs
-      </p>
-    )
-  } else if (list.length === 0) {
-    body = (
-      <div className="eva-jobs-empty" data-testid="jobs-empty">
-        <IconTool size={24} />
-        <h2>No jobs yet</h2>
-        <p className="eva-jobs-dim">Create a job to have Eva run steps on a schedule.</p>
-        {newJob}
-      </div>
-    )
-  } else {
-    body = (
-      <div className="eva-jobs-card" data-testid="jobs-table">
-        <div className="eva-jobs-grid eva-jobs-header" role="presentation">
-          <span>Name</span>
-          <span>Schedule</span>
-          <span>Last run</span>
-          <span>Next due</span>
-          <span>Enabled</span>
-        </div>
-        {list.map((job) => (
-          <Row key={job.name} job={job} now={now} />
-        ))}
-      </div>
-    )
-  }
-
   return (
     <div className="eva-jobs-col" data-testid="page-jobs">
       <div className="eva-jobs-head">
@@ -194,7 +171,43 @@ export function JobsPage(_props: { place: Place }) {
         </Tooltip>
         {list && list.length > 0 ? newJob : null}
       </div>
-      {body}
+      <ListView<JobSummaryDto>
+        data-testid="jobs-table"
+        columns={COLUMNS}
+        groups={[{ id: 'jobs', items: list ?? [] }]}
+        rowKey={(j) => j.name}
+        renderRow={(j) => <JobRow key={j.name} job={j} now={now} />}
+        error={
+          list === null && error ? (
+            <ListEmpty
+              role="alert"
+              data-testid="jobs-error"
+              action={
+                <Button variant="default" onClick={() => void loadJobs()} data-testid="jobs-retry">
+                  Retry
+                </Button>
+              }
+            >
+              {JOBS_ERROR_COPY}
+            </ListEmpty>
+          ) : undefined
+        }
+        loading={
+          list === null || (loading && list.length === 0)
+            ? { label: 'Loading jobs', testid: 'jobs-loading' }
+            : false
+        }
+        empty={
+          <ListEmpty
+            data-testid="jobs-empty"
+            icon={<IconTool size={24} stroke={1.5} />}
+            title="No jobs yet"
+            action={newJob}
+          >
+            Create a job to have Eva run steps on a schedule.
+          </ListEmpty>
+        }
+      />
       <JobForm />
     </div>
   )

@@ -1,18 +1,20 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { ActionIcon, Button, TextInput, Tooltip } from '@mantine/core'
 import {
   IconActivity,
+  IconAlertTriangle,
   IconCircleCheck,
   IconClock,
   IconListCheck,
   IconPhoto,
   IconX,
 } from '@tabler/icons-react'
-import type { GateHistory } from '@evaos/eva-core/model/gate'
+import type { BreakRow, GateHistory, HistoryRow } from '@evaos/eva-core/model/gate'
 import { MAX_MINUTES, historyRows, streak, todaysBreaks } from '@evaos/eva-core/model/gate'
 import { localDate } from '@evaos/eva-core/model/dates'
 import type { GateStatus } from '@evaos/contract'
 import { invoke } from '../ipc'
+import { ListPill, ListRow, ListTime, type ListGroup } from '../ui/list'
 import { runHabit } from './habit-store'
 
 export const MINUTES_ERROR = `Minutes must be a whole number from 1 to ${MAX_MINUTES}.`
@@ -45,92 +47,217 @@ export function parseMinutes(text: string): number | null {
   return n >= 1 && n <= MAX_MINUTES ? n : null
 }
 
-function Section({
-  icon,
-  title,
-  testid,
-  children,
-}: {
-  icon: React.ReactNode
-  title: string
-  testid?: string
-  children: React.ReactNode
-}) {
-  return (
-    <section className="eva-habits-section" data-testid={testid}>
-      <h2 className="eva-habits-h2">
-        {icon}
-        {title}
-      </h2>
-      <div className="eva-habits-card">{children}</div>
-    </section>
-  )
+/** One row of the Habits page: a habit, an open task, one of today's breaks, or a finished one. */
+export type HabitItem =
+  | { kind: 'habit'; habit: GateStatus['habits'][number]; streak: number }
+  | { kind: 'task'; task: GateStatus['tasks'][number] }
+  | { kind: 'break'; row: BreakRow; index: number }
+  | { kind: 'history'; row: HistoryRow; index: number }
+
+export function habitItemKey(item: HabitItem): string {
+  switch (item.kind) {
+    case 'habit':
+      return `habit:${item.habit.id}`
+    case 'task':
+      return `task:${item.task.id}`
+    case 'break':
+      return `break:${item.row.at}-${item.index}`
+    case 'history':
+      return `history:${item.row.entry.doneAt}-${item.row.entry.id}-${item.index}`
+  }
 }
 
-export function HabitsTable({
-  status,
-  now,
-  onOpen,
-}: {
-  status: GateStatus
-  now: Date
-  onOpen: (id: string) => void
-}) {
+const BREAK_LABEL = { done: 'Done', due: 'Due', upcoming: 'Upcoming' } as const
+const BREAK_TONE = { done: 'ok', due: 'warn', upcoming: 'dim' } as const
+
+/**
+ * The page's groups, in reading order: habits, open tasks (with the add form), today's breaks,
+ * then what was finished, one group per day.
+ */
+export function habitGroups(
+  status: GateStatus,
+  now: Date,
+  taskForm: ReactNode,
+): ListGroup<HabitItem>[] {
   const today = localDate(now)
-  return (
-    <Section icon={<IconActivity size={18} />} title="Habits" testid="habits-section">
-      {status.habits.length === 0 ? (
-        <p className="eva-habits-empty">
-          No habits yet. Add one to have something to pick at a break.
-        </p>
-      ) : (
-        <>
-          <div className="eva-habits-grid eva-habits-header" role="presentation">
-            <span>Habit</span>
-            <span>Minutes</span>
-            <span>Proof</span>
-            <span>Streak</span>
-          </div>
-          {status.habits.map((h) => {
-            const n = streak(status.history as GateHistory[], h.id, today)
-            return (
-              <div
-                key={h.id}
-                role="button"
-                tabIndex={0}
-                className="eva-habits-grid eva-habits-row"
-                data-testid={`habit-row-${h.id}`}
-                onClick={() => onOpen(h.id)}
-                onKeyDown={(e) => {
-                  if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
-                    e.preventDefault()
-                    onOpen(h.id)
-                  }
-                }}
-              >
-                <span className="eva-habits-name">{h.name}</span>
-                <span>{h.minutes}</span>
-                <span>
-                  <span className="eva-habits-chip">{h.photo ? 'Photo' : 'Honor'}</span>
-                </span>
-                <span className={n === 0 ? 'eva-habits-dim' : undefined}>
-                  {n === 0 ? 'None yet' : `${n} ${n === 1 ? 'day' : 'days'}`}
-                </span>
-              </div>
-            )
-          })}
-        </>
-      )}
-    </Section>
-  )
+  const history = status.history as GateHistory[]
+  const days: Array<{ label: string; items: HabitItem[] }> = []
+  historyRows(history).forEach((row, index) => {
+    const label = dayLabel(row.entry.doneAt, now)
+    const last = days[days.length - 1]
+    const item: HabitItem = { kind: 'history', row, index }
+    if (last && last.label === label) last.items.push(item)
+    else days.push({ label, items: [item] })
+  })
+  const groups: ListGroup<HabitItem>[] = [
+    {
+      id: 'habits',
+      label: 'Habits',
+      testid: 'habits-section',
+      items: status.habits.map((habit) => ({
+        kind: 'habit',
+        habit,
+        streak: streak(history, habit.id, today),
+      })),
+      empty: 'No habits yet. Add one to have something to pick at a break.',
+    },
+    {
+      id: 'tasks',
+      label: 'One-time tasks',
+      testid: 'tasks-section',
+      intro: taskForm,
+      items: status.tasks.filter((t) => !t.done).map((task) => ({ kind: 'task', task })),
+      empty: 'No open tasks.',
+    },
+    {
+      id: 'breaks',
+      label: "Today's breaks",
+      testid: 'breaks-today',
+      items: todaysBreaks(status.plan, now).map((row, index) => ({ kind: 'break', row, index })),
+      empty: 'No breaks planned for today yet.',
+    },
+  ]
+  if (days.length === 0) {
+    groups.push({
+      id: 'history',
+      label: 'Done',
+      testid: 'habit-history',
+      items: [],
+      empty: 'Nothing finished yet.',
+    })
+  } else {
+    for (const d of days) {
+      groups.push({
+        id: `history-${d.label}`,
+        label: `Done ${d.label === 'Today' || d.label === 'Yesterday' ? d.label.toLowerCase() : d.label}`,
+        testid: `history-day-${d.label}`,
+        items: d.items,
+      })
+    }
+  }
+  return groups
 }
 
-export function TasksSection({ status }: { status: GateStatus }) {
+/** A habit, task, break or finished entry as a row of the page's list. */
+export function HabitRow({
+  item,
+  onOpen,
+  onRemoveTask,
+}: {
+  item: HabitItem
+  onOpen: (id: string) => void
+  onRemoveTask: (id: string) => void
+}) {
+  switch (item.kind) {
+    case 'habit': {
+      const { habit: h, streak: n } = item
+      return (
+        <ListRow
+          data-testid={`habit-row-${h.id}`}
+          leading={<IconActivity size={16} stroke={1.5} aria-hidden />}
+          title={h.name}
+          meta={`${h.minutes} min`}
+          onActivate={() => onOpen(h.id)}
+          trailing={
+            <>
+              <ListPill tone={h.photo ? 'info' : 'dim'}>{h.photo ? 'Photo' : 'Honor'}</ListPill>
+              <ListTime>{n === 0 ? 'None yet' : `${n} ${n === 1 ? 'day' : 'days'}`}</ListTime>
+            </>
+          }
+        />
+      )
+    }
+    case 'task': {
+      const t = item.task
+      return (
+        <ListRow
+          data-testid={`task-row-${t.id}`}
+          leading={<IconListCheck size={16} stroke={1.5} aria-hidden />}
+          title={t.name}
+          meta={t.minutes === null ? undefined : `${t.minutes} min`}
+          trailing={
+            <Tooltip label="Remove task" openDelay={300}>
+              <ActionIcon
+                variant="subtle"
+                color="gray"
+                size="sm"
+                aria-label="Remove task"
+                data-testid={`task-remove-${t.id}`}
+                onClick={() => onRemoveTask(t.id)}
+              >
+                <IconX size={16} stroke={1.5} />
+              </ActionIcon>
+            </Tooltip>
+          }
+        />
+      )
+    }
+    case 'break': {
+      const b = item.row
+      const Glyph = b.state === 'done' ? IconCircleCheck : IconClock
+      return (
+        <ListRow
+          data-testid={`break-${item.index}`}
+          data-state={b.state}
+          dim={b.state === 'upcoming'}
+          leading={<Glyph size={16} stroke={1.5} aria-hidden />}
+          title={timeLabel(b.at)}
+          trailing={<ListPill tone={BREAK_TONE[b.state]}>{BREAK_LABEL[b.state]}</ListPill>}
+        />
+      )
+    }
+    case 'history': {
+      const r = item.row
+      const photo = r.entry.photo
+      return (
+        <ListRow
+          data-testid="history-row"
+          leading={
+            r.overridden ? (
+              <IconAlertTriangle size={16} stroke={1.5} aria-hidden />
+            ) : (
+              <IconCircleCheck size={16} stroke={1.5} aria-hidden />
+            )
+          }
+          title={r.name}
+          meta={r.label || undefined}
+          trailing={
+            <>
+              {r.entry.kind === 'task' ? <ListPill tone="dim">Task</ListPill> : null}
+              {photo ? (
+                <Tooltip label="Open the proof photo" openDelay={300}>
+                  <ActionIcon
+                    variant="subtle"
+                    color="gray"
+                    size="sm"
+                    aria-label="Open the proof photo"
+                    data-testid="history-photo"
+                    onClick={() => void invoke('habit.openPhoto', { path: photo })}
+                  >
+                    <IconPhoto size={16} stroke={1.5} />
+                  </ActionIcon>
+                </Tooltip>
+              ) : null}
+              <ListTime>{timeLabel(r.entry.doneAt)}</ListTime>
+            </>
+          }
+        />
+      )
+    }
+  }
+}
+
+/** The add form above the open tasks, and the gate's refusal when a change fails. */
+export function TaskAdd({
+  failure,
+  onFailure,
+}: {
+  failure: string | null
+  onFailure: (message: string | null) => void
+}) {
   const [name, setName] = useState('')
   const [minutes, setMinutes] = useState('')
   const [errors, setErrors] = useState<{ name?: string; minutes?: string }>({})
-  const [failure, setFailure] = useState<string | null>(null)
-  const open = status.tasks.filter((t) => !t.done)
 
   const add = async (): Promise<void> => {
     const e: { name?: string; minutes?: string } = {}
@@ -143,18 +270,14 @@ export function TasksSection({ status }: { status: GateStatus }) {
     if (r.ok) {
       setName('')
       setMinutes('')
-      setFailure(null)
+      onFailure(null)
     } else {
-      setFailure(r.message)
+      onFailure(r.message)
     }
-  }
-  const remove = async (id: string): Promise<void> => {
-    const r = await runHabit({ action: 'task-rm', id })
-    setFailure(r.ok ? null : r.message)
   }
 
   return (
-    <Section icon={<IconListCheck size={18} />} title="One-time tasks" testid="tasks-section">
+    <>
       <form
         className="eva-habits-add"
         onSubmit={(e) => {
@@ -189,107 +312,6 @@ export function TasksSection({ status }: { status: GateStatus }) {
           {`Could not change the task. The habit gate said: ${failure}. Try again.`}
         </p>
       ) : null}
-      {open.length === 0 ? (
-        <p className="eva-habits-empty">No open tasks.</p>
-      ) : (
-        open.map((t) => (
-          <div key={t.id} className="eva-habits-task" data-testid={`task-row-${t.id}`}>
-            <span className="eva-habits-name">{t.name}</span>
-            <span className="eva-habits-dim">{t.minutes === null ? '' : `${t.minutes} min`}</span>
-            <Tooltip label="Remove task" openDelay={300}>
-              <ActionIcon
-                variant="subtle"
-                color="gray"
-                aria-label="Remove task"
-                data-testid={`task-remove-${t.id}`}
-                onClick={() => void remove(t.id)}
-              >
-                <IconX size={16} />
-              </ActionIcon>
-            </Tooltip>
-          </div>
-        ))
-      )}
-    </Section>
-  )
-}
-
-const BREAK_LABEL = { done: 'Done', due: 'Due', upcoming: 'Upcoming' } as const
-
-export function BreaksToday({ status, now }: { status: GateStatus; now: Date }) {
-  const rows = todaysBreaks(status.plan, now)
-  return (
-    <Section icon={<IconClock size={18} />} title="Today's breaks" testid="breaks-today">
-      {rows.length === 0 ? (
-        <p className="eva-habits-empty">No breaks planned for today yet.</p>
-      ) : (
-        rows.map((b, i) => (
-          <div
-            key={`${b.at}-${i}`}
-            className="eva-habits-line"
-            data-testid={`break-${i}`}
-            data-state={b.state}
-          >
-            <span className="eva-habits-state" data-state={b.state}>
-              {b.state === 'done' ? <IconCircleCheck size={16} /> : <IconClock size={16} />}
-              {BREAK_LABEL[b.state]}
-            </span>
-            <span>{timeLabel(b.at)}</span>
-          </div>
-        ))
-      )}
-    </Section>
-  )
-}
-
-export function HistorySection({ status, now }: { status: GateStatus; now: Date }) {
-  const rows = historyRows(status.history as GateHistory[])
-  const groups: Array<{ label: string; items: typeof rows }> = []
-  for (const r of rows) {
-    const label = dayLabel(r.entry.doneAt, now)
-    const last = groups[groups.length - 1]
-    if (last && last.label === label) last.items.push(r)
-    else groups.push({ label, items: [r] })
-  }
-  const openPhoto = (path: string): void => {
-    void invoke('habit.openPhoto', { path })
-  }
-  return (
-    <Section icon={<IconClock size={18} />} title="History" testid="habit-history">
-      {rows.length === 0 ? (
-        <p className="eva-habits-empty">Nothing finished yet.</p>
-      ) : (
-        groups.map((g) => (
-          <div key={g.label} data-testid={`history-day-${g.label}`}>
-            <div className="eva-habits-day">{g.label}</div>
-            {g.items.map((r, i) => (
-              <div
-                key={`${r.entry.doneAt}-${r.entry.id}-${i}`}
-                className="eva-habits-line"
-                data-testid="history-row"
-              >
-                <span className="eva-habits-name">{r.name}</span>
-                {r.entry.kind === 'task' ? <span className="eva-habits-chip">Task</span> : null}
-                <span className="eva-habits-dim">{timeLabel(r.entry.doneAt)}</span>
-                <span className="eva-habits-dim eva-habits-grow">{r.label}</span>
-                {r.entry.photo ? (
-                  <Tooltip label="Open the proof photo" openDelay={300}>
-                    <ActionIcon
-                      variant="subtle"
-                      color="gray"
-                      aria-label="Open the proof photo"
-                      data-testid="history-photo"
-                      onClick={() => openPhoto(r.entry.photo!)}
-                    >
-                      <IconPhoto size={16} />
-                    </ActionIcon>
-                  </Tooltip>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        ))
-      )}
-    </Section>
+    </>
   )
 }

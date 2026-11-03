@@ -1,11 +1,10 @@
 import { createPortal } from 'react-dom'
-import type { MouseEvent, KeyboardEvent } from 'react'
 import { IconExternalLink, IconLayoutColumns, IconPlus } from '@tabler/icons-react'
 import { setReviewTitle } from '../eva/names-store'
 import { openPlace } from '../navigation/navigate'
 import { openInApp } from '../navigation/open-in-app'
 import { openLink } from '../navigation/open-link'
-import { navTargetOf } from '../navigation/open-target'
+import { navTargetOf, type ClickMods } from '../navigation/open-target'
 import { EvaMenu } from '../overlay'
 import { activePlace, tabsStore } from '../tabs/tabs-store'
 import { reviewIdOf, reviewPlaceOf, reviewRefOf, reviewTitleOf } from './review-place'
@@ -45,37 +44,13 @@ export interface RowMenuState {
 }
 
 /**
- * What a queue row does besides open in place: Cmd-click opens a side pane, Cmd+Shift-click and
- * middle-click a new tab, and the context menu (or Shift+F10) offers both.
+ * A queue row was opened (ListRow onActivate): in place on a plain click, Enter or Space; a side
+ * pane with Cmd; a new tab with Cmd+Shift or a middle click. The context menu offers both.
  */
-export function rowHandlers(item: ReviewItem, onMenu: (m: RowMenuState) => void) {
-  return {
-    onClick: (e: MouseEvent) => {
-      const target = navTargetOf(e)
-      if (target === 'split') splitReviewRow(item)
-      else openReviewRow(item, target === 'tab')
-    },
-    onAuxClick: (e: MouseEvent) => {
-      if (e.button !== 1) return
-      e.preventDefault()
-      openReviewRow(item, true)
-    },
-    // A middle press would start autoscroll before the auxclick.
-    onMouseDown: (e: MouseEvent) => {
-      if (e.button === 1) e.preventDefault()
-    },
-    onContextMenu: (e: MouseEvent) => {
-      e.preventDefault()
-      onMenu({ item, x: e.clientX, y: e.clientY })
-    },
-    onKeyDown: (e: KeyboardEvent<HTMLElement>) => {
-      if (e.key === 'F10' && e.shiftKey) {
-        e.preventDefault()
-        const r = e.currentTarget.getBoundingClientRect()
-        onMenu({ item, x: r.left + 16, y: r.bottom })
-      }
-    },
-  }
+export function activateReviewRow(item: ReviewItem, e: ClickMods): void {
+  const target = navTargetOf(e)
+  if (target === 'split') splitReviewRow(item)
+  else openReviewRow(item, target === 'tab')
 }
 
 /** The one menu of the queue: open the row's item in a new tab or a split pane. */

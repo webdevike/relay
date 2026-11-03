@@ -116,9 +116,9 @@ html[data-eva-motion='off'] .eva-sb-track {
 .eva-sb-section-main {
   padding: var(--eva-space-native-xs) var(--eva-space-xs) var(--eva-space-xs);
 }
-/* A later group: more space above it than between its rows. */
-.eva-sb-section-group {
-  padding: var(--eva-space-md) var(--eva-space-xs) var(--eva-space-xs);
+/* The Dashboards group: more space above it than between its rows. */
+.eva-sb-dashboards {
+  margin-top: var(--mantine-spacing-sm);
 }
 .eva-sb-row {
   display: flex;

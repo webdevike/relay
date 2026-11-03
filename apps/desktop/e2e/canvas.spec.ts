@@ -76,7 +76,7 @@ test('Canvas lists the boards and opens each with its cards, light and dark', as
     await expect(shell.locator(sel(`canvas-row-${b.slug}`))).toContainText(b.title)
     await expect(shell.locator(sel(`canvas-count-${b.slug}`))).toHaveText(String(b.nodes))
   }
-  await expect(shell.locator(sel('canvas-section'))).toHaveText(['Recent'])
+  await expect(shell.locator(sel('canvas-section-label'))).toHaveText(['Recent'])
   // The nav opened the newest board.
   await expect(shell.locator(sel('canvas-board'))).toBeVisible()
 
@@ -211,7 +211,7 @@ test('boards are created, pinned, renamed and deleted from the sidebar', async (
 
   await shell.locator(sel('canvas-row-moodboard')).click({ button: 'right' })
   await shell.locator(sel('canvas-menu-pin')).click()
-  await expect(shell.locator(sel('canvas-section'))).toHaveText(['Pinned', 'Recent'])
+  await expect(shell.locator(sel('canvas-section-label'))).toHaveText(['Pinned', 'Recent'])
 
   await shell.locator(sel('canvas-row-mind-map')).click({ button: 'right' })
   await shell.locator(sel('canvas-menu-rename')).click()

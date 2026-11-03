@@ -14,7 +14,7 @@ const ROOT = path.resolve(import.meta.dirname, '..')
 const FILES = 'apps/desktop/src/renderer/**/*.css'
 const BASELINE = path.join(ROOT, 'scripts/spacing-baseline.json')
 /** Directories that may not carry baseline entries at all. */
-export const STRICT = ['apps/desktop/src/renderer/chat/list/']
+export const STRICT = ['apps/desktop/src/renderer/chat/list/', 'apps/desktop/src/renderer/ui/list/']
 
 /** file -> "property: value" -> count. */
 export type Counts = Record<string, Record<string, number>>

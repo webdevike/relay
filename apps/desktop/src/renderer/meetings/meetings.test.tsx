@@ -147,8 +147,9 @@ describe('MeetingsList', () => {
   it('groups by day, folds test calls and marks waiting rows', async () => {
     wrap(<MeetingsList query="" />)
     await screen.findByTestId('meetings-list')
-    const days = screen.getAllByTestId('meetings-day').map((n) => n.textContent)
+    const days = screen.getAllByTestId('meetings-day-label').map((n) => n.textContent)
     expect(days).toEqual(['Today', 'Yesterday', 'Oct 5', 'Undated'])
+    expect(screen.getByTestId('meetings-list')).toHaveAttribute('data-density', 'compact')
     const row = screen.getByTestId('meeting-row-standup')
     expect(row).toHaveTextContent('Daily standup')
     expect(row).toHaveTextContent(/\d{1,2}:\d{2}\s?[AP]M/)
@@ -160,8 +161,9 @@ describe('MeetingsList', () => {
       'aria-label',
       'Waiting on you, 1 proposal',
     )
-    const tests = screen.getByTestId('meetings-tests')
-    expect(tests).toHaveTextContent('Test calls (1)')
+    const tests = screen.getByTestId('meetings-tests-head')
+    expect(screen.getByTestId('meetings-tests-label')).toHaveTextContent('Test calls')
+    expect(screen.getByTestId('meetings-tests-count')).toHaveTextContent('1')
     expect(tests).toHaveAttribute('aria-expanded', 'false')
     expect(screen.queryByTestId('meeting-row-test-call')).toBeNull()
     fireEvent.click(tests)
@@ -200,7 +202,7 @@ describe('MeetingsList', () => {
         <MeetingsList query="test" />
       </MantineProvider>,
     )
-    expect(screen.getByTestId('meetings-tests')).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByTestId('meetings-tests-head')).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByTestId('meeting-row-test-call')).toBeInTheDocument()
     rerender(
       <MantineProvider>

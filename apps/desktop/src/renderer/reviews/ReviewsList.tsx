@@ -1,15 +1,23 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
-import { SegmentedControl, TextInput } from '@mantine/core'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { ActionIcon, Loader, SegmentedControl, TextInput, Tooltip } from '@mantine/core'
 import {
-  IconChevronDown,
-  IconChevronRight,
   IconGitPullRequest,
   IconGitPullRequestDraft,
+  IconRefresh,
   IconSearch,
 } from '@tabler/icons-react'
 import type { ReviewRow, SlackRow } from '@evaos/contract'
-import { SlackGroups } from './SlackDetail'
-import { ago, prKey, queueGroups, type QueueGroup } from './review-model'
+import { emojify } from '@relay/slack-emoji'
+import {
+  ListEmpty,
+  ListPill,
+  ListRow,
+  ListTime,
+  ListView,
+  type ListGroup,
+  type ListTone,
+} from '../ui/list'
+import { ago, agoPhrase, prKey, queueGroups } from './review-model'
 import {
   openReviewItem,
   readSlack,
@@ -17,6 +25,7 @@ import {
   setView,
   useReviews,
   useReviewsSurface,
+  type ReviewItem,
   type ReviewsView,
 } from './reviews-store'
 import {
@@ -34,74 +43,36 @@ import {
   sourceOf,
   type SourceFilter,
 } from './queue-search'
-import { Avatar, SourceMark, useLocal } from './review-ui'
-import { ReviewRowMenu, rowHandlers, type RowMenuState } from './ReviewRowMenu'
+import { SourceMark, useLocal } from './review-ui'
+import { ReviewRowMenu, activateReviewRow, type RowMenuState } from './ReviewRowMenu'
 import { reviewIdOf, reviewIdOfPlace } from './review-place'
 import { activePlace, useTabs } from '../tabs/tabs-store'
-import { rowPills, rowStatusKey, useRowStatus, type RowStatus } from './row-status'
+import { rowPills, rowStatusKey, useRowStatus, type Pill } from './row-status'
 import './reviews.css'
-
-function QueueRow({
-  row,
-  subtitle,
-  active,
-  now,
-  onMenu,
-  page = false,
-  status,
-}: {
-  row: ReviewRow
-  subtitle: string
-  active: boolean
-  now: number
-  onMenu: (m: RowMenuState) => void
-  /** The page's list: one line per row with status pills (CI, Approve ready), no group subtitle. */
-  page?: boolean
-  status?: RowStatus | undefined
-}) {
-  const Glyph = row.draft ? IconGitPullRequestDraft : IconGitPullRequest
-  return (
-    <button
-      type="button"
-      className="eva-rv-qrow"
-      data-active={active || undefined}
-      data-testid={`review-row-${row.number}`}
-      {...rowHandlers({ kind: 'pr', row }, onMenu)}
-      title={`${row.repo}#${row.number} ${row.title}`}
-    >
-      <span className="eva-rv-qrow-title">{row.title}</span>
-      <span className="eva-rv-qrow-line eva-rv-dim">
-        <SourceMark source="github" />
-        <span className="eva-rv-mono eva-rv-qrow-key">{shortPrId(row)}</span>
-        {page ? (
-          <span className="eva-rv-qrow-pills">
-            {rowPills(row, status).map((p) => (
-              <span key={p.label} className="eva-rv-pill" data-tone={p.tone} data-testid={p.testId}>
-                {p.label}
-              </span>
-            ))}
-          </span>
-        ) : (
-          <>
-            <Glyph size={14} className="eva-rv-qrow-icon" data-draft={row.draft || undefined} />
-            <span className="eva-rv-qrow-sub">{subtitle}</span>
-          </>
-        )}
-        {page ? <span>{row.author}</span> : <Avatar login={row.author} />}
-        <span>{ago(row.updatedAt, now)}</span>
-      </span>
-    </button>
-  )
-}
 
 const VIEWS: Array<{ value: ReviewsView; label: string }> = [
   { value: 'created', label: 'Created' },
   { value: 'for-me', label: 'For me' },
 ]
 
+const PILL_TONE: Record<Pill['tone'], ListTone> = {
+  green: 'ok',
+  red: 'bad',
+  amber: 'warn',
+  violet: 'accent',
+  gray: 'dim',
+}
+
+/** A queue row: a PR, a Linear ticket or a Slack thread, or the Open row for a typed key. */
+type QueueItem = ReviewItem | { kind: 'open'; item: ReviewItem }
+
+const isDone = (r: { url: string; updatedAt: number }, done: Record<string, number>): boolean =>
+  done[r.url] !== undefined && r.updatedAt <= done[r.url]!
+
 /**
- * Sidebar body for the Reviews sub-page: the review queue, Linear and Slack groups, a source
- * filter, and a search across them that offers to open a typed key or link the queue lacks.
+ * The review queue, Linear and Slack groups, a source filter, and a search across them that
+ * offers to open a typed key or link the queue lacks. The sidebar shows it compact (one line a
+ * row); the Reviews page, with nothing selected, as two-line rows with live status pills.
  */
 export function ReviewsList({ variant = 'sidebar' }: { variant?: 'sidebar' | 'page' }) {
   const page = variant === 'page'
@@ -117,9 +88,10 @@ export function ReviewsList({ variant = 'sidebar' }: { variant?: 'sidebar' | 'pa
   const doneLocal = useReviews((s) => s.doneLocal)
   const done = useMemo(() => ({ ...queueDone, ...doneLocal }), [queueDone, doneLocal])
   const [now, setNow] = useState(Date.now())
-  const [closed, setClosed] = useState<Record<string, boolean>>({ completed: true })
+  const [closed, setClosed] = useState<ReadonlySet<string>>(() => new Set(['completed']))
   const [source, setSource] = useLocal<SourceFilter>('eva.reviews.source', 'all')
   const [query, setQuery] = useState('')
+  const [menu, setMenu] = useState<RowMenuState | null>(null)
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 15_000)
@@ -147,9 +119,7 @@ export function ReviewsList({ variant = 'sidebar' }: { variant?: 'sidebar' | 'pa
         : thread
           ? reviewIdOf({ kind: 'slack', channel: thread.channel, threadTs: thread.threadTs })
           : null)
-  const prActive = (r: ReviewRow): boolean => activeId === `pr:${r.repo}#${r.number}`
-  const [menu, setMenu] = useState<RowMenuState | null>(null)
-  const groups: QueueGroup[] = (queue && shows('github') ? queueGroups(queue, view) : [])
+  const queueRows = (queue && shows('github') ? queueGroups(queue, view) : [])
     .map((g) =>
       searching
         ? { ...g, rows: g.rows.filter((r) => prId(r) === targetId || prMatches(r, words)) }
@@ -158,102 +128,241 @@ export function ReviewsList({ variant = 'sidebar' }: { variant?: 'sidebar' | 'pa
     .filter((g) => !searching || g.rows.length > 0)
   // Linear tickets that want Isaac, under For me, before the finished reviews.
   const tickets = linear.rows?.filter(
-    (r) =>
-      !(done[r.url] !== undefined && r.updatedAt <= done[r.url]!) &&
-      (!searching || linearId(r) === targetId || linearMatches(r, words)),
+    (r) => !isDone(r, done) && (!searching || linearId(r) === targetId || linearMatches(r, words)),
   )
-  const slackMatch = searching
-    ? (r: SlackRow) => slackId(r) === targetId || slackMatches(r, words)
-    : undefined
   const slackRows = (slack.queue?.rows ?? []).filter(
-    (r) =>
-      !(done[r.url] !== undefined && r.updatedAt <= done[r.url]!) && (!slackMatch || slackMatch(r)),
+    (r) => !isDone(r, done) && (!searching || slackId(r) === targetId || slackMatches(r, words)),
   )
   const forMe = view === 'for-me'
   const showLinear = forMe && shows('linear') && (!searching || (tickets?.length ?? 0) > 0)
   const showSlack = forMe && shows('slack') && (!searching || slackRows.length > 0)
   const shownIds = new Set([
-    ...groups.flatMap((g) => g.rows.map(prId)),
+    ...queueRows.flatMap((g) => g.rows.map(prId)),
     ...(showLinear ? (tickets ?? []).map(linearId) : []),
     ...(showSlack ? slackRows.map(slackId) : []),
   ])
   const openItem = target && !shownIds.has(itemId(target)) ? target : null
+  // Rows of the live groups get CI and Approve-ready; finished ones do not.
+  const status = useRowStatus(
+    page ? queueRows.filter((g) => g.id !== 'completed').flatMap((g) => g.rows) : [],
+  )
 
-  const linearGroup = showLinear ? (
-    <div className="eva-rv-group" data-testid="review-linear-group">
-      <button
-        type="button"
-        className="eva-rv-group-head"
-        onClick={() => setClosed({ ...closed, linear: !closed.linear })}
-      >
-        Linear <span className="eva-rv-dim">{tickets ? tickets.length : ''}</span>
-        {closed.linear ? <IconChevronRight size={12} /> : <IconChevronDown size={12} />}
-      </button>
-      {closed.linear && !searching ? null : linear.error ? (
-        <div className="eva-rv-dim eva-rv-pad">Couldn&apos;t read Linear: {linear.error}</div>
-      ) : !tickets ? (
-        <div className="eva-rv-dim eva-rv-pad">Loading...</div>
-      ) : tickets.length === 0 ? (
-        <div className="eva-rv-dim eva-rv-pad">Nothing here.</div>
-      ) : (
-        tickets.map((r) => (
-          <button
-            key={r.key}
-            type="button"
-            className="eva-rv-qrow"
-            data-active={activeId === `linear:${r.key}` || undefined}
-            data-unread={r.unread || undefined}
-            data-testid={`review-ticket-${r.key}`}
-            {...rowHandlers({ kind: 'linear', row: r }, setMenu)}
-            title={`${r.key} ${r.title}`}
-          >
-            <span className="eva-rv-qrow-title">{r.title}</span>
-            <span className="eva-rv-qrow-line eva-rv-dim">
-              <SourceMark source="linear" />
-              <span className="eva-rv-mono eva-rv-qrow-key">{r.key}</span>
-              <span className="eva-rv-qrow-sub">
-                {r.actor} {r.reason}
-              </span>
-              <Avatar login={r.actor} />
-              <span>{ago(r.updatedAt, now)}</span>
-            </span>
-          </button>
-        ))
-      )}
-    </div>
-  ) : null
-  const slackGroups = showSlack ? (
-    <SlackGroups
-      slack={slack}
-      done={done}
-      isActive={(r) =>
-        activeId === reviewIdOf({ kind: 'slack', channel: r.channel, threadTs: r.threadTs })
+  const linearGroup: ListGroup<QueueItem> | null = showLinear
+    ? {
+        id: 'linear',
+        label: 'Linear',
+        testid: 'review-linear-group',
+        count: tickets ? tickets.length : null,
+        items: (tickets ?? []).map((row) => ({ kind: 'linear', row })),
+        empty: linear.error
+          ? `Couldn't read Linear: ${linear.error}`
+          : !tickets
+            ? 'Loading...'
+            : 'Nothing here.',
       }
-      rowProps={(r) => rowHandlers({ kind: 'slack', row: r }, setMenu)}
-      onRefresh={() => void readSlack()}
-      now={now}
-      match={slackMatch}
-    />
-  ) : null
+    : null
+  // Mentions (DMs count: they are to him) and Replies, like the Slack design's Threads queue.
+  const slackGroups: ListGroup<QueueItem>[] = showSlack
+    ? [
+        {
+          id: 'slack-mentions',
+          label: 'Slack mentions',
+          testid: 'review-slack-mentions',
+          rows: slackRows.filter((r) => r.kind !== 'reply'),
+        },
+        {
+          id: 'slack-replies',
+          label: 'Slack replies',
+          testid: 'review-slack-replies',
+          rows: slackRows.filter((r) => r.kind === 'reply'),
+        },
+      ]
+        .filter((g) => !searching || g.rows.length > 0)
+        .map(({ rows, ...g }, i) => ({
+          ...g,
+          count: slack.queue ? rows.length : null,
+          items: rows.map((row) => ({ kind: 'slack', row })),
+          // The queue is read once for both groups: its state shows on the first.
+          empty:
+            slack.queue === null
+              ? i === 0
+                ? slack.error
+                  ? `Couldn't read Slack: ${slack.error}`
+                  : 'Reading Slack...'
+                : undefined
+              : 'Nothing here.',
+          intro:
+            i === 0 && slack.queue && slack.error ? `Last read failed: ${slack.error}` : undefined,
+          actions:
+            i === 0 ? (
+              slack.reading ? (
+                <span
+                  className="eva-rv-reading eva-rv-dim eva-rv-small"
+                  data-testid="review-slack-reading"
+                >
+                  <Loader size={10} /> reading
+                </span>
+              ) : (
+                <Tooltip
+                  label={
+                    slack.queue ? `Read ${agoPhrase(slack.queue.fetchedAt, now)}` : 'Read Slack'
+                  }
+                  openDelay={300}
+                >
+                  <ActionIcon
+                    variant="subtle"
+                    color="gray"
+                    size="sm"
+                    aria-label="Read Slack again"
+                    onClick={() => void readSlack()}
+                  >
+                    <IconRefresh size={14} stroke={1.5} />
+                  </ActionIcon>
+                </Tooltip>
+              )
+            ) : undefined,
+        }))
+    : []
+
   // Enter opens a typed key or link (queued or not); the Open row offers one the queue lacks.
   const open = (): void => {
     if (target && openReviewItem(query)) setQuery('')
   }
   const empty =
-    groups.length === 0 && !showLinear && !showSlack && !openItem && (searching || !forMe)
+    queueRows.length === 0 && !showLinear && !showSlack && !openItem && (searching || !forMe)
   // The page's empty state is only for a queue that is truly empty, not one still loading.
   const loaded = !!queue && (!showLinear || !!tickets) && (!slack.reading || !forMe)
   const pageEmpty =
     page &&
     !searching &&
     loaded &&
-    groups.every((g) => g.rows.length === 0) &&
+    queueRows.every((g) => g.rows.length === 0) &&
     (tickets?.length ?? 0) === 0 &&
     slackRows.length === 0
-  // Rows of the live groups get CI and Approve-ready; finished ones do not.
-  const status = useRowStatus(
-    page ? groups.filter((g) => g.id !== 'completed').flatMap((g) => g.rows) : [],
-  )
+  const githubLoading = queue === null && shows('github') && !searching
+
+  const groups: ListGroup<QueueItem>[] = []
+  if (!pageEmpty) {
+    if (openItem) groups.push({ id: 'open', items: [{ kind: 'open', item: openItem }] })
+    for (const g of queueRows) {
+      if (g.id === 'completed') {
+        if (linearGroup) groups.push(linearGroup)
+        groups.push(...slackGroups)
+      }
+      groups.push({
+        id: g.id,
+        label: g.label,
+        count: searching ? g.rows.length : g.count,
+        items: g.rows.map((row) => ({ kind: 'pr', row })),
+        empty: 'Nothing here.',
+      })
+    }
+    if (!queueRows.some((g) => g.id === 'completed')) {
+      if (linearGroup) groups.push(linearGroup)
+      groups.push(...slackGroups)
+    }
+    // GitHub is still being read while Linear and Slack already show.
+    if (githubLoading && groups.length > 0) {
+      groups.unshift({ id: 'github-loading', items: [], empty: 'Loading...' })
+    }
+  }
+  const subtitle = new Map<string, string>(queueRows.map((g) => [g.id, g.subtitle]))
+
+  const row = (item: QueueItem, group: ListGroup<QueueItem>): ReactNode => {
+    if (item.kind === 'open') {
+      return (
+        <ListRow
+          key="open"
+          data-testid="review-search-open"
+          tooltip={query.trim()}
+          leading={<SourceMark source={sourceOf(item.item)} />}
+          title={openLabel(item.item)}
+          onActivate={open}
+        />
+      )
+    }
+    const handlers = {
+      onActivate: (e: Parameters<typeof activateReviewRow>[1]) => activateReviewRow(item, e),
+      middleClick: true,
+      onMenu: (x: number, y: number) => setMenu({ item, x, y }),
+    }
+    if (item.kind === 'pr') {
+      const r: ReviewRow = item.row
+      const Glyph = r.draft ? IconGitPullRequestDraft : IconGitPullRequest
+      return (
+        <ListRow
+          key={prKey(r)}
+          data-testid={`review-row-${r.number}`}
+          tooltip={`${r.repo}#${r.number} ${r.title}`}
+          active={activeId === `pr:${r.repo}#${r.number}`}
+          leading={
+            <Glyph
+              size={16}
+              stroke={1.5}
+              className="eva-rv-prglyph"
+              data-draft={r.draft || undefined}
+              aria-label={r.draft ? 'Draft pull request' : 'Pull request'}
+            />
+          }
+          title={r.title}
+          meta={
+            page
+              ? `${shortPrId(r)} · ${r.author}`
+              : `${shortPrId(r)} · ${subtitle.get(group.id) ?? ''}`
+          }
+          trailing={
+            <>
+              {page
+                ? rowPills(r, status[rowStatusKey(r)]).map((p) => (
+                    <ListPill key={p.label} tone={PILL_TONE[p.tone]} data-testid={p.testId}>
+                      {p.label}
+                    </ListPill>
+                  ))
+                : null}
+              <ListTime>{ago(r.updatedAt, now)}</ListTime>
+            </>
+          }
+          {...handlers}
+        />
+      )
+    }
+    if (item.kind === 'linear') {
+      const r = item.row
+      return (
+        <ListRow
+          key={r.key}
+          data-testid={`review-ticket-${r.key}`}
+          data-unread={r.unread || undefined}
+          tooltip={`${r.key} ${r.title}`}
+          active={activeId === `linear:${r.key}`}
+          leading={<SourceMark source="linear" />}
+          title={r.title}
+          meta={`${r.key} · ${r.actor} ${r.reason}`}
+          trailing={<ListTime>{ago(r.updatedAt, now)}</ListTime>}
+          {...handlers}
+        />
+      )
+    }
+    const r: SlackRow = item.row
+    const text = emojify(r.text)
+    return (
+      <ListRow
+        key={r.url}
+        data-testid="review-slack-row"
+        data-thread={r.threadTs ? true : undefined}
+        tooltip={`${r.channelName}: ${text}`}
+        active={
+          activeId === reviewIdOf({ kind: 'slack', channel: r.channel, threadTs: r.threadTs })
+        }
+        leading={<SourceMark source="slack" />}
+        title={`${r.channelName}${r.threadTs && r.kind === 'reply' ? ' thread' : ''}`}
+        meta={r.author ? `${r.author}: ${text}` : text}
+        trailing={<ListTime>{ago(r.updatedAt, now)}</ListTime>}
+        {...handlers}
+      />
+    )
+  }
+
   return (
     <div
       className="eva-rv-queue"
@@ -293,75 +402,44 @@ export function ReviewsList({ variant = 'sidebar' }: { variant?: 'sidebar' | 'pa
         className="eva-rv-queue-view"
         data-testid="review-source-filter"
       />
-      {openItem ? (
-        <button
-          type="button"
-          className="eva-rv-qrow"
-          data-testid="review-search-open"
-          onClick={open}
-          title={query.trim()}
-        >
-          <span className="eva-rv-qrow-line">
-            <SourceMark source={sourceOf(openItem)} />
-            <span className="eva-rv-qrow-title">{openLabel(openItem)}</span>
-          </span>
-        </button>
-      ) : null}
-      {queue === null && shows('github') && !searching ? (
-        <div className="eva-rv-dim eva-rv-pad">Loading...</div>
-      ) : null}
-      {empty ? (
-        <div className="eva-rv-dim eva-rv-pad" data-testid="review-search-empty">
-          {searching
-            ? 'No matches.'
-            : page
-              ? 'Nothing in this view.'
-              : 'Linear and Slack are under For me.'}
-        </div>
-      ) : null}
-      {groups.map((g) => (
-        <Fragment key={g.id}>
-          {g.id === 'completed' ? linearGroup : null}
-          {g.id === 'completed' ? slackGroups : null}
-          <div className="eva-rv-group">
-            <button
-              type="button"
-              className="eva-rv-group-head"
-              onClick={() => setClosed({ ...closed, [g.id]: !closed[g.id] })}
-            >
-              {g.label} <span className="eva-rv-dim">{searching ? g.rows.length : g.count}</span>
-              {closed[g.id] ? <IconChevronRight size={12} /> : <IconChevronDown size={12} />}
-            </button>
-            {closed[g.id] && !searching ? null : g.rows.length === 0 ? (
-              <div className="eva-rv-dim eva-rv-pad">Nothing here.</div>
-            ) : (
-              g.rows.map((r) => (
-                <QueueRow
-                  key={prKey(r)}
-                  row={r}
-                  subtitle={g.subtitle}
-                  active={prActive(r)}
-                  now={now}
-                  onMenu={setMenu}
-                  page={page}
-                  status={page ? status[rowStatusKey(r)] : undefined}
-                />
-              ))
-            )}
-          </div>
-        </Fragment>
-      ))}
-      {pageEmpty ? (
-        <div className="eva-rv-dim eva-rv-pad" data-testid="reviews-home-empty">
-          Your review queue is empty.
-        </div>
-      ) : null}
-      {groups.some((g) => g.id === 'completed') ? null : (
-        <>
-          {linearGroup}
-          {slackGroups}
-        </>
-      )}
+      <ListView<QueueItem>
+        density={page ? 'comfortable' : 'compact'}
+        groups={groups}
+        rowKey={(x) =>
+          x.kind === 'open'
+            ? 'open'
+            : x.kind === 'pr'
+              ? prKey(x.row)
+              : x.kind === 'linear'
+                ? x.row.key
+                : x.row.url
+        }
+        renderRow={row}
+        collapsed={closed}
+        onCollapsedChange={(id, c) => {
+          const next = new Set(closed)
+          if (c) next.add(id)
+          else next.delete(id)
+          setClosed(next)
+        }}
+        forceOpen={searching}
+        loading={githubLoading && groups.length === 0 ? { label: 'Loading reviews' } : false}
+        empty={
+          empty ? (
+            <ListEmpty data-testid="review-search-empty">
+              {searching
+                ? 'No matches.'
+                : page
+                  ? 'Nothing in this view.'
+                  : 'Linear and Slack are under For me.'}
+            </ListEmpty>
+          ) : pageEmpty ? (
+            <ListEmpty data-testid="reviews-home-empty" title="Your review queue is empty">
+              Pull requests, tickets and Slack threads you are asked to look at land here.
+            </ListEmpty>
+          ) : undefined
+        }
+      />
       <ReviewRowMenu menu={menu} onClose={() => setMenu(null)} />
     </div>
   )

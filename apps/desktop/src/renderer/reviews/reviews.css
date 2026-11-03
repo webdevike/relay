@@ -167,76 +167,26 @@
   flex: none;
   white-space: nowrap;
 }
-.eva-rv-group {
-  display: flex;
-  flex-direction: column;
-  gap: calc(var(--mantine-spacing-xs) * 0.1);
-  margin-bottom: calc(var(--mantine-spacing-xs) * 0.6);
-}
-.eva-rv-group-head {
-  display: flex;
-  align-items: center;
-  gap: calc(var(--mantine-spacing-xs) * 0.6);
-  border: 0;
-  background: none;
-  padding: calc(var(--mantine-spacing-xs) * 0.6) calc(var(--mantine-spacing-xs) * 0.8);
-  cursor: pointer;
-  color: var(--eva-c-muted-foreground);
-  font-size: var(--eva-fz-label);
-  text-align: left;
-}
-.eva-rv-qrow {
-  display: flex;
-  flex-direction: column;
-  gap: calc(var(--mantine-spacing-xs) * 0.2);
-  border: 0;
-  border-radius: var(--eva-radius-sm);
-  background: transparent;
-  color: inherit;
-  padding: calc(var(--mantine-spacing-xs) * 0.6) calc(var(--mantine-spacing-xs) * 0.8);
-  text-align: left;
-  cursor: pointer;
-  min-width: 0;
-}
-.eva-rv-qrow:hover {
-  background: var(--eva-hover);
-}
-.eva-rv-qrow[data-active] {
-  background: var(--eva-c-secondary-active-background);
-}
-.eva-rv-qrow-line {
-  display: flex;
-  align-items: center;
-  gap: calc(var(--mantine-spacing-xs) * 0.6);
-  min-width: 0;
-  font-size: var(--eva-fz-label);
-}
-.eva-rv-qrow-title {
-  min-width: 0;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow-wrap: anywhere;
-  font-size: var(--eva-fz-body);
-  font-weight: 500;
-}
-.eva-rv-qrow-sub {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.eva-rv-qrow-icon {
+/* A queue row's PR mark: green while open, dim as a draft. */
+.eva-rv-prglyph {
   color: var(--eva-c-success);
-  flex: none;
 }
-.eva-rv-qrow-icon[data-draft] {
+.eva-rv-prglyph[data-draft] {
   color: var(--eva-c-muted-foreground);
+}
+/* A Linear ticket with news since Isaac last looked. */
+.eva-rv-queue [data-unread] .eva-list-title::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--eva-c-accent);
+  margin-right: calc(var(--mantine-spacing-xs) * 0.6);
+  vertical-align: middle;
 }
 
-/* The page's list (nothing selected): flat rows on one line, hairline dividers, quiet pills. */
+/* The page's queue (nothing selected): a centered column that scrolls. */
 .eva-rv-queue[data-variant='page'] {
   flex: 1;
   width: 100%;
@@ -245,38 +195,6 @@
   height: 100%;
   overflow-y: auto;
   padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
-}
-.eva-rv-queue[data-variant='page'] .eva-rv-group {
-  gap: 0;
-}
-.eva-rv-queue[data-variant='page'] .eva-rv-qrow {
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: calc(var(--mantine-spacing-xs) * 0.2) var(--mantine-spacing-sm);
-  border-radius: 0;
-  border-bottom: 1px solid var(--eva-c-border);
-}
-/* The title takes the row; the details drop under it when the page is narrow. */
-.eva-rv-queue[data-variant='page'] .eva-rv-qrow-title {
-  flex: 1 1 18em;
-  -webkit-line-clamp: 1;
-  overflow-wrap: normal;
-  text-overflow: ellipsis;
-}
-.eva-rv-queue[data-variant='page'] .eva-rv-qrow-line {
-  flex: none;
-}
-.eva-rv-queue[data-variant='page'] .eva-rv-qrow-sub {
-  flex: 0 1 auto;
-  max-width: 220px;
-}
-.eva-rv-qrow-pills {
-  display: inline-flex;
-  gap: calc(var(--mantine-spacing-xs) * 0.4);
-}
-.eva-rv-qrow-pills .eva-rv-pill {
-  background: transparent;
 }
 
 /* Detail */
@@ -829,20 +747,6 @@
 }
 
 /* Linear tickets */
-.eva-rv-qrow-key {
-  flex: none;
-  font-size: 11px;
-}
-.eva-rv-qrow[data-unread] .eva-rv-qrow-title::before {
-  content: '';
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--eva-c-accent);
-  margin-right: calc(var(--mantine-spacing-xs) * 0.6);
-  vertical-align: middle;
-}
 .eva-rv-ldot {
   display: inline-block;
   width: 10px;
@@ -973,12 +877,6 @@
 }
 
 /* Slack threads */
-.eva-rv-group-headrow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-right: calc(var(--mantine-spacing-xs) * 0.4);
-}
 .eva-rv-reading {
   display: inline-flex;
   align-items: center;

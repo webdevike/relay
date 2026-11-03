@@ -62,6 +62,7 @@ import { EvaMenu } from '../overlay'
 import { openSubagentTab, revealTool } from '../tiling/tiling-store'
 import { agentOf, useAssistants } from '../assistants/assistants-store'
 import { requestExperiment } from '../test-bench/bench-request'
+import { ListEmpty, ListRow, ListTime, ListView, type ListGroup } from '../ui/list'
 import { ArtifactRow, RowButton, type RowActions } from './ArtifactRow'
 import { MediaGrid, MediaLightbox } from './ArtifactsMedia'
 import {
@@ -146,11 +147,9 @@ function Empty({
   children?: ReactNode
 }) {
   return (
-    <div className="eva-art-empty" data-testid="artifacts-empty">
-      <span className="eva-art-empty-icon">{icon}</span>
-      <span className="eva-art-empty-title">{title}</span>
-      {children ? <span className="eva-art-empty-text">{children}</span> : null}
-    </div>
+    <ListEmpty data-testid="artifacts-empty" icon={icon} title={title}>
+      {children}
+    </ListEmpty>
   )
 }
 
@@ -205,15 +204,22 @@ interface ViewProps {
   onEditRule: (tab: ArtifactTab) => void
 }
 
-function Rows({
-  rows,
+/** The thread's items as list groups of artifact rows. */
+function ArtifactList({
+  groups,
   byId,
   now,
   actions,
-}: Pick<ViewProps, 'byId' | 'now' | 'actions'> & { rows: readonly Artifact[] }) {
+  empty,
+}: Pick<ViewProps, 'byId' | 'now' | 'actions'> & {
+  groups: ListGroup<Artifact>[]
+  empty: ReactNode
+}) {
   return (
-    <>
-      {rows.map((item) => (
+    <ListView<Artifact>
+      groups={groups}
+      rowKey={(item) => item.id}
+      renderRow={(item) => (
         <ArtifactRow
           key={item.id}
           item={item}
@@ -222,8 +228,9 @@ function Rows({
           pinnedBy={item.pinned ? nameOf(item.pinned.by) : null}
           actions={actions}
         />
-      ))}
-    </>
+      )}
+      empty={empty}
+    />
   )
 }
 
@@ -238,33 +245,34 @@ function LinksView({ tab, items, rows, byId, now, actions }: ViewProps) {
           query,
         )
   const groups = linkGroups(pool)
+  const noted = groups[0]?.key === 'pinned' ? 1 : 0
   return (
     <>
       <SearchBar value={query} onChange={setQuery} placeholder="Search links" />
       <div className="eva-art-scroll">
-        {groups.length === 0 ? (
-          query.trim() !== '' ? (
-            <Empty icon={<IconSearch size={20} stroke={1.5} />} title="Nothing matches">
-              Try other words.
-            </Empty>
-          ) : (
-            <Empty icon={<IconLink size={20} stroke={1.5} />} title="No links yet">
-              Tickets, PRs and web links this thread mentions land here, one row each.
-            </Empty>
-          )
-        ) : (
-          groups.map((g, i) => (
-            <section key={g.key} className="eva-art-group" aria-label={g.label}>
-              <h3 className="eva-art-group-label">
-                <span>{g.label}</span>
-                {i === (groups[0]?.key === 'pinned' ? 1 : 0) ? (
-                  <span className="eva-art-group-note">last mention first</span>
-                ) : null}
-              </h3>
-              <Rows rows={g.rows} byId={byId} now={now} actions={actions} />
-            </section>
-          ))
-        )}
+        <ArtifactList
+          groups={groups.map((g, i) => ({
+            id: g.key,
+            label: g.label,
+            items: g.rows,
+            actions:
+              i === noted ? <span className="eva-art-group-note">last mention first</span> : null,
+          }))}
+          byId={byId}
+          now={now}
+          actions={actions}
+          empty={
+            query.trim() !== '' ? (
+              <Empty icon={<IconSearch size={20} stroke={1.5} />} title="Nothing matches">
+                Try other words.
+              </Empty>
+            ) : (
+              <Empty icon={<IconLink size={20} stroke={1.5} />} title="No links yet">
+                Tickets, PRs and web links this thread mentions land here, one row each.
+              </Empty>
+            )
+          }
+        />
       </div>
     </>
   )
@@ -329,46 +337,43 @@ function SubagentRow({ row, now, actions }: { row: TreeRow; now: number; actions
         ? whenText(sub.endedAt, now)
         : ''
   return (
-    <div
-      className="eva-art-row eva-art-sub"
-      role="button"
-      tabIndex={0}
-      style={{ paddingLeft: `calc(var(--eva-space-md) + ${depth} * 24px)` }}
+    <ListRow
       data-testid={`artifact-row-${item.id}`}
       data-state={state ?? undefined}
-      onClick={() => actions.open(item)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') actions.open(item)
-      }}
-    >
-      <span className="eva-art-row-icon">
-        {running ? (
+      // A child subagent sits under its parent, one step in per level.
+      style={
+        depth > 0
+          ? { paddingLeft: `calc(var(--mantine-spacing-xs) * 0.8 + ${depth} * 24px)` }
+          : undefined
+      }
+      leading={
+        running ? (
           <span className="eva-spinner" aria-label="Running" />
         ) : state === 'failed' ? (
           <IconAlertCircle {...ICON} data-tone="red" aria-label="Failed" />
         ) : (
           <IconCircleCheck {...ICON} data-tone="green" aria-label="Done" />
-        )}
-      </span>
-      <span className="eva-art-row-text">
-        <span className="eva-art-row-title">
-          <span className="eva-art-title-text">{item.title}</span>
-        </span>
-        {line !== '' ? <span className="eva-art-row-meta">{line}</span> : null}
-      </span>
-      <span className="eva-art-row-when">{right}</span>
-      <span className="eva-art-row-actions">
-        <RowButton label="Open the transcript in the panel" onClick={() => actions.open(item)}>
-          <IconListDetails {...ICON} />
-        </RowButton>
-        <RowButton
-          label={item.pinned ? 'Unpin' : 'Keep it past today'}
-          onClick={() => actions.pin(item, item.pinned === undefined)}
-        >
-          {item.pinned ? <IconPinnedOff {...ICON} /> : <IconPin {...ICON} />}
-        </RowButton>
-      </span>
-    </div>
+        )
+      }
+      title={item.title}
+      tooltip={item.title}
+      meta={line || undefined}
+      trailing={<ListTime>{right}</ListTime>}
+      onActivate={() => actions.open(item)}
+      actions={
+        <>
+          <RowButton label="Open the transcript in the panel" onClick={() => actions.open(item)}>
+            <IconListDetails {...ICON} />
+          </RowButton>
+          <RowButton
+            label={item.pinned ? 'Unpin' : 'Keep it past today'}
+            onClick={() => actions.pin(item, item.pinned === undefined)}
+          >
+            {item.pinned ? <IconPinnedOff {...ICON} /> : <IconPin {...ICON} />}
+          </RowButton>
+        </>
+      }
+    />
   )
 }
 
@@ -376,27 +381,19 @@ function SubagentsView({ rows, now, actions }: ViewProps) {
   const { running, finished } = subagentTree(rows, now)
   return (
     <div className="eva-art-scroll">
-      {running.length + finished.length === 0 ? (
-        <Empty icon={<IconSubtask size={20} stroke={1.5} />} title="No subagents today">
-          Subagents this thread starts show here while they run and for the rest of the day.
-        </Empty>
-      ) : null}
-      {running.length > 0 ? (
-        <section className="eva-art-group" aria-label="Running">
-          <h3 className="eva-art-group-label">Running</h3>
-          {running.map((r) => (
-            <SubagentRow key={r.item.id} row={r} now={now} actions={actions} />
-          ))}
-        </section>
-      ) : null}
-      {finished.length > 0 ? (
-        <section className="eva-art-group" aria-label="Finished today">
-          <h3 className="eva-art-group-label">Finished today</h3>
-          {finished.map((r) => (
-            <SubagentRow key={r.item.id} row={r} now={now} actions={actions} />
-          ))}
-        </section>
-      ) : null}
+      <ListView<TreeRow>
+        groups={[
+          { id: 'running', label: 'Running', items: running },
+          { id: 'finished', label: 'Finished today', items: finished },
+        ].filter((g) => g.items.length > 0)}
+        rowKey={(r) => r.item.id}
+        renderRow={(r) => <SubagentRow key={r.item.id} row={r} now={now} actions={actions} />}
+        empty={
+          <Empty icon={<IconSubtask size={20} stroke={1.5} />} title="No subagents today">
+            Subagents this thread starts show here while they run and for the rest of the day.
+          </Empty>
+        }
+      />
     </div>
   )
 }
@@ -453,7 +450,7 @@ function RuleHeader({
   )
 }
 
-function ListView(props: ViewProps) {
+function ItemsView(props: ViewProps) {
   const { tab, items, rows, byId, now, actions, onEditRule } = props
   const [query, setQuery] = useState('')
   const own = !isDefaultTab(tab.id)
@@ -480,29 +477,39 @@ function ListView(props: ViewProps) {
         placeholder={`Search ${isDefaultTab(tab.id) ? tab.title.toLowerCase() : tab.title}`}
       />
       <div className="eva-art-scroll">
-        {shown.length === 0 ? (
-          query.trim() !== '' ? (
-            <Empty icon={<IconSearch size={20} stroke={1.5} />} title="Nothing matches">
-              Try other words.
-            </Empty>
-          ) : own ? (
-            <Empty
-              icon={<IconFilter size={20} stroke={1.5} />}
-              title="Nothing matches this rule yet"
-            >
-              It fills by itself as the thread brings in matching items.
-            </Empty>
-          ) : (
-            <Empty icon={<IconStack2 size={20} stroke={1.5} />} title="Nothing here yet">
-              Links, media, files and subagents this thread brings in collect here.
-            </Empty>
-          )
-        ) : (
-          <>
-            <div className="eva-art-count">{`${shown.length} ${shown.length === 1 ? 'item' : 'items'}, last activity first`}</div>
-            <Rows rows={shown} byId={byId} now={now} actions={actions} />
-          </>
-        )}
+        <ArtifactList
+          groups={[
+            {
+              id: 'all',
+              label: `${shown.length} ${shown.length === 1 ? 'item' : 'items'}`,
+              count: null,
+              collapsible: false,
+              items: shown,
+              actions: <span className="eva-art-group-note">last activity first</span>,
+            },
+          ]}
+          byId={byId}
+          now={now}
+          actions={actions}
+          empty={
+            query.trim() !== '' ? (
+              <Empty icon={<IconSearch size={20} stroke={1.5} />} title="Nothing matches">
+                Try other words.
+              </Empty>
+            ) : own ? (
+              <Empty
+                icon={<IconFilter size={20} stroke={1.5} />}
+                title="Nothing matches this rule yet"
+              >
+                It fills by itself as the thread brings in matching items.
+              </Empty>
+            ) : (
+              <Empty icon={<IconStack2 size={20} stroke={1.5} />} title="Nothing here yet">
+                Links, media, files and subagents this thread brings in collect here.
+              </Empty>
+            )
+          }
+        />
       </div>
     </>
   )
@@ -904,7 +911,7 @@ export function ArtifactsPanel({
     if (tab.id === 'links') return <LinksView key={tab.id} {...props} />
     if (tab.id === 'media') return <MediaView key={tab.id} {...props} placeholder="Search media" />
     if (tab.id === 'subagents') return <SubagentsView key={tab.id} {...props} />
-    return <ListView key={tab.id} {...props} />
+    return <ItemsView key={tab.id} {...props} />
   }
 
   return (

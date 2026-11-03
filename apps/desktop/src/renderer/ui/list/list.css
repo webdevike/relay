@@ -1,0 +1,357 @@
+/*
+ * Relay's one list (ui/list, board list-view-options option B). Flat rows on hairline dividers,
+ * a quiet hover wash, the open row tinted, status in pills, no shadows and no accent stripes.
+ * Compact (option A) is one line with no dividers, for sidebars and popovers; columns (option C)
+ * lays rows on a grid under a header row. Spacing is Mantine's scale only (scripts/lint-spacing.ts).
+ */
+.eva-list {
+  --eva-list-bg: var(--eva-c-background);
+  min-width: 0;
+}
+.eva-list[data-density='compact'] {
+  --eva-list-bg: var(--eva-chrome);
+}
+
+/* Header slot (KPI strip) and footer. */
+.eva-list-header {
+  margin-bottom: var(--mantine-spacing-lg);
+}
+.eva-list-footer {
+  margin-top: var(--mantine-spacing-sm);
+}
+
+/* Groups: more space around a group than inside it. */
+.eva-list-group + .eva-list-group {
+  margin-top: var(--mantine-spacing-lg);
+}
+.eva-list[data-density='compact'] .eva-list-group + .eva-list-group {
+  margin-top: var(--mantine-spacing-sm);
+}
+.eva-list-ghead {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  min-height: var(--eva-control-xs);
+  border-bottom: 1px solid var(--eva-c-border);
+}
+.eva-list-ghead[data-density='compact'] {
+  border-bottom: 0;
+}
+.eva-list-gtoggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+  min-height: var(--eva-control-xs);
+  padding: 0 calc(var(--mantine-spacing-xs) * 0.8);
+  color: var(--eva-c-foreground);
+}
+.eva-list-ghead[data-density='compact'] .eva-list-gtoggle {
+  padding: 0 calc(var(--mantine-spacing-xs) * 0.4);
+  color: var(--eva-text-dim);
+}
+.eva-list-glabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--eva-fz-body);
+  font-weight: var(--eva-fw-semibold);
+}
+.eva-list-ghead[data-density='compact'] .eva-list-glabel {
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-regular);
+}
+.eva-list-gcount {
+  flex: none;
+  font-size: var(--eva-fz-label);
+  font-variant-numeric: tabular-nums;
+  color: var(--eva-text-dim);
+}
+.eva-list-gchev {
+  flex: none;
+  margin-left: auto;
+  color: var(--eva-text-dim);
+}
+button.eva-list-gtoggle:hover .eva-list-gchev,
+button.eva-list-gtoggle:hover {
+  color: var(--eva-c-foreground);
+}
+.eva-list-gactions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+}
+.eva-list-intro {
+  padding: calc(var(--mantine-spacing-xs) * 0.8) calc(var(--mantine-spacing-xs) * 0.8);
+  border-bottom: 1px solid var(--eva-c-border);
+}
+.eva-list-note {
+  padding: calc(var(--mantine-spacing-xs) * 0.8);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-text-dim);
+}
+
+/* Rows: comfortable (option B). */
+.eva-list-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+  min-width: 0;
+  padding: calc(var(--mantine-spacing-xs) * 0.8);
+  border-bottom: 1px solid var(--eva-c-border);
+  color: var(--eva-c-foreground);
+  font-size: var(--eva-fz-body);
+  text-align: left;
+  transition: background-color var(--eva-dur-fast) ease;
+}
+.eva-list-row[data-interactive] {
+  cursor: pointer;
+}
+.eva-list-row[data-interactive]:hover {
+  background: var(--eva-hover);
+}
+.eva-list-row[data-active] {
+  background: var(--eva-nav-active-bg);
+}
+.eva-list-row:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: -2px;
+}
+.eva-list-leading {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--eva-text-dim);
+}
+.eva-list-leading[data-tile] {
+  width: var(--eva-tile-md);
+  height: var(--eva-tile-md);
+  border-radius: var(--eva-radius);
+  background: var(--eva-c-secondary-background);
+}
+.eva-list-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.2);
+}
+.eva-list-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--eva-fw-medium);
+  line-height: 1.3;
+}
+.eva-list-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
+  color: var(--eva-text-dim);
+}
+.eva-list-row[data-dim] .eva-list-title {
+  color: var(--eva-text-dim);
+}
+.eva-list-row[data-multiline] .eva-list-title {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.eva-list-trailing {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-text-dim);
+}
+.eva-list-time {
+  min-width: calc(var(--eva-font-size) * 4.5);
+  text-align: right;
+  font-size: var(--eva-fz-label);
+  font-variant-numeric: tabular-nums;
+  color: var(--eva-text-dim);
+  white-space: nowrap;
+}
+.eva-list-pill {
+  font-weight: var(--eva-fw-medium);
+}
+/* A running status icon inside a pill. */
+.eva-list-spin {
+  animation: eva-list-spin 1s linear infinite;
+}
+@keyframes eva-list-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+html[data-eva-motion='off'] .eva-list-spin {
+  animation: none;
+}
+
+/* Hover-revealed actions sit over the right end, on the row's own fill. */
+.eva-list-actions {
+  position: absolute;
+  top: 50%;
+  right: calc(var(--mantine-spacing-xs) * 0.8);
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.2);
+  padding-left: calc(var(--mantine-spacing-xs) * 0.8);
+  background: linear-gradient(var(--eva-hover), var(--eva-hover)), var(--eva-list-bg);
+  opacity: 0;
+  pointer-events: none;
+}
+.eva-list-row[data-active] .eva-list-actions {
+  background:
+    linear-gradient(var(--eva-nav-active-bg), var(--eva-nav-active-bg)), var(--eva-list-bg);
+}
+.eva-list-row:hover .eva-list-actions,
+.eva-list-row:focus-within .eva-list-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Compact (option A): one line, no dividers, rounded wash like the sidebar's rows. */
+.eva-list-row[data-density='compact'] {
+  min-height: var(--eva-control-sm);
+  padding: 0 var(--mantine-spacing-sm);
+  border-bottom: 0;
+  border-radius: var(--eva-radius);
+}
+.eva-list-row[data-density='compact'] + .eva-list-row[data-density='compact'] {
+  margin-top: calc(var(--mantine-spacing-xs) * 0.4);
+}
+.eva-list-row[data-density='compact'][data-active] {
+  color: var(--eva-nav-active-fg);
+}
+.eva-list-row[data-density='compact'] .eva-list-text {
+  flex-direction: row;
+  align-items: baseline;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+}
+.eva-list-row[data-density='compact'] .eva-list-title {
+  flex: 0 1 auto;
+  font-weight: var(--eva-fw-regular);
+}
+.eva-list-row[data-density='compact'][data-active] .eva-list-title {
+  font-weight: var(--eva-fw-medium);
+}
+.eva-list-row[data-density='compact'] .eva-list-meta {
+  flex: 1 1 0;
+}
+.eva-list-row[data-density='compact'][data-dim] {
+  opacity: 0.6;
+}
+
+/* Columns (option C): the header row and rows share one grid. */
+.eva-list-colhead,
+.eva-list-row[data-grid] {
+  display: grid;
+  grid-template-columns: var(--eva-list-grid);
+  align-items: center;
+  column-gap: var(--mantine-spacing-md);
+}
+.eva-list-colhead {
+  min-height: var(--eva-control-xs);
+  padding: 0 calc(var(--mantine-spacing-xs) * 0.8);
+  border-bottom: 1px solid var(--eva-c-border);
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-medium);
+  color: var(--eva-text-dim);
+}
+.eva-list-cell,
+.eva-list-th {
+  min-width: 0;
+}
+.eva-list-main {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+}
+.eva-list-cell[data-align='center'],
+.eva-list-th[data-align='center'] {
+  justify-self: center;
+  text-align: center;
+}
+.eva-list-cell[data-align='end'],
+.eva-list-th[data-align='end'] {
+  justify-self: end;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Loading, empty and error. */
+.eva-list-loading .eva-list-text {
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+}
+.eva-list-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+  padding: var(--mantine-spacing-xl) var(--mantine-spacing-md);
+  text-align: center;
+}
+.eva-list-empty-icon {
+  display: inline-flex;
+  color: var(--eva-text-dim);
+}
+.eva-list-empty-title {
+  margin: 0;
+  font-size: var(--eva-fz-body);
+  font-weight: var(--eva-fw-semibold);
+}
+.eva-list-empty-hint {
+  max-width: 360px;
+  margin: 0;
+  font-size: var(--eva-fz-body);
+  line-height: var(--eva-lh-body);
+  color: var(--eva-text-dim);
+}
+.eva-list[data-density='compact'] .eva-list-empty {
+  align-items: flex-start;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  text-align: left;
+}
+.eva-list[data-density='compact'] .eva-list-empty-hint {
+  font-size: var(--eva-fz-label);
+}
+
+/* KPI strip (option D): big numbers, small labels, no cards. */
+.eva-list-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--mantine-spacing-lg);
+}
+.eva-list-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  min-width: 0;
+}
+.eva-list-kval {
+  font-size: calc(var(--eva-font-size) * 2);
+  font-weight: var(--eva-fw-semibold);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.eva-list-klabel {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-text-dim);
+}
