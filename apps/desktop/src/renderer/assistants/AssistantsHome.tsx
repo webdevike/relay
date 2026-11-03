@@ -1,5 +1,5 @@
 import { Avatar } from '@mantine/core'
-import { IconRobot } from '@tabler/icons-react'
+import { IconMessageChatbot } from '@tabler/icons-react'
 import type { AssistantStatus } from '@evaos/contract'
 import { agoLabel } from '@evaos/eva-core/model/jobs'
 import { placeOf, type Place } from '@evaos/shell-core'
@@ -34,7 +34,7 @@ export function AssistantsHome({ place }: { place: Place }) {
       </div>
       {data === null ? null : data.agents.length === 0 ? (
         <div className="eva-as-empty" data-testid="assistants-empty">
-          <IconRobot size={28} stroke={1.5} aria-hidden />
+          <IconMessageChatbot size={28} stroke={1.5} aria-hidden />
           <div className="eva-as-empty-title">No assistants yet</div>
           <p className="eva-as-dim">
             Add agents to .omp/assistant/agents.json and they appear here.

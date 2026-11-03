@@ -18,7 +18,7 @@ export const NAV_PAGES: readonly NavPage[] = [
     title: 'Assistants',
     description:
       'Always-on agents, each with its own thread. Open one to pick up where it left off.',
-    icon: 'IconRobot',
+    icon: 'IconMessageChatbot',
   },
   {
     slug: 'dashboard',

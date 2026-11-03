@@ -13,7 +13,7 @@ import {
   IconSettings,
   IconHelp,
   IconSchema,
-  IconRobot,
+  IconMessageChatbot,
   IconUsersGroup,
   IconPhotoSpark,
   type Icon,
@@ -35,7 +35,7 @@ export const PAGE_ICONS: Record<string, Icon> = {
   IconSettings,
   IconHelp,
   IconSchema,
-  IconRobot,
+  IconMessageChatbot,
   IconUsersGroup,
   IconPhotoSpark,
 }

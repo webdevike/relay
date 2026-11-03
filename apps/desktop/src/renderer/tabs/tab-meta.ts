@@ -25,7 +25,7 @@ const TITLES: Record<string, string> = {
 
 const ICONS: Record<string, string> = {
   dashboard: 'IconLayoutDashboard',
-  assistants: 'IconRobot',
+  assistants: 'IconMessageChatbot',
   chat: 'IconMessage',
   'test-bench': 'IconListCheck',
   jobs: 'IconCalendarTime',
