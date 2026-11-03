@@ -624,11 +624,14 @@ describe("AssistantService changes", () => {
     h.service.observe({ kind: "message", sessionId: "eva-1", id: "a1", text: "On it, the run finished fine.", streaming: false });
     h.service.observe({ kind: "message", sessionId: "eva-1", id: "a2", text: "", streaming: false });
     h.service.observe({ kind: "conversation", sessionId: "eva-1", appended: [{ id: "a3", role: "assistant", text: "x".repeat(200), at: 2 }] });
+    h.service.observe({ kind: "conversation", sessionId: "eva-1", appended: [{ id: "a4", role: "assistant", text: "## Done\n**PR #12** is [open](https://x/12).\n\nMore below.\n[[replies: Merge | Wait]]", at: 3 }] });
     await flush();
     expect(h.pushes.map((push) => [push.to, push.title, push.body, push.data, push.interruptionLevel])).toEqual([
       ["ExponentPushToken[one]", "Astra", "On it, the run finished fine.", { assistant: true, agent: "astra" }, undefined],
       ["ExponentPushToken[one]", "Astra", `${"x".repeat(179)}…`, { assistant: true, agent: "astra" }, undefined],
+      ["ExponentPushToken[one]", "Astra", "Done: PR #12 is open.", { assistant: true, agent: "astra" }, undefined],
     ]);
+    expect(h.pushes[0]).toMatchObject({ threadId: "assistant:astra", mutableContent: true });
   });
 
   it("remembers the session file as soon as a status report carries it, keeping the history", () => {

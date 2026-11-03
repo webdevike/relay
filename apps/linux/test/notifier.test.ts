@@ -70,7 +70,14 @@ describe("AttentionNotifier", () => {
     expect(h.sent).toEqual([]);
     h.notifier.observe([session("a", "waiting")]);
     h.notifier.observe([session("a", "needs_permission", { statusDetail: "bash" })]);
-    expect(h.sent).toEqual([[{ to: "ExponentPushToken[one]", title: "a", body: "asked a question", data: { sessionId: "a" } }]]);
+    expect(h.sent).toEqual([[{ to: "ExponentPushToken[one]", title: "Session · a", body: "asked a question", data: { sessionId: "a" }, threadId: "session:a" }]]);
+  });
+
+  it("titles a job's push as a job and an assistant's with its name alone", () => {
+    const h = harness();
+    h.notifier.seed([session("j", "working", { kind: "job" }), session("n", "working", { kind: "assistant", assistant: "nova", title: "Nova" })]);
+    h.notifier.observe([session("j", "waiting", { kind: "job", title: "nightly" }), session("n", "waiting", { kind: "assistant", assistant: "nova", title: "Nova" })]);
+    expect(h.sent.map((batch) => batch[0]?.title)).toEqual(["Job · nightly", "Nova"]);
   });
 
   it("does not announce sessions that were already waiting at startup", () => {
@@ -122,7 +129,7 @@ describe("AttentionNotifier", () => {
     h.notifier.observe([session("a", "working"), session("b", "waiting")]);
     h.clock.advance(REMINDER_MS);
     expect(h.sent).toHaveLength(3);
-    expect(h.sent[2]?.[0]?.title).toBe("b is still waiting");
+    expect(h.sent[2]?.[0]?.title).toBe("Session · b is still waiting");
     h.clock.advance(REMINDER_MS * 3);
     expect(h.sent).toHaveLength(3);
   });

@@ -31,6 +31,10 @@ export interface PushMessage {
   readonly interruptionLevel?: "passive" | "active" | "time-sensitive";
   /** The notification category whose actions the phone registered. */
   readonly categoryId?: string;
+  /** iOS groups notifications with the same thread id into one stack (`aps.thread-id`). */
+  readonly threadId?: string;
+  /** Hands the notification to the app's Notification Service Extension first (`mutable-content`). */
+  readonly mutableContent?: boolean;
   /** Wakes the app in the background (a silent push the app handles without showing). */
   readonly contentAvailable?: boolean;
   /** `null` for no sound; the sender defaults to the system sound. */
@@ -109,13 +113,15 @@ export class AttentionNotifier {
       this.notify(sessionId, true);
     });
 
-    const title = reminder ? `${session.title} is still waiting` : session.title;
+    const name = reminder ? `${session.title} is still waiting` : session.title;
+    // An assistant's own session is titled with its name; anything else says what kind of run it is.
+    const title = session.kind === "assistant" ? name : `${session.kind === "job" ? "Job" : "Session"} · ${name}`;
     // The body is display: a session's activity line never shows a client's surface tag.
     const body = session.status === "needs_permission" ? `Needs permission${session.statusDetail === undefined ? "" : `: ${session.statusDetail}`}` : untagged(session.lastActivity);
-    this.send(title, body, { sessionId: session.id }, (deviceId) => this.deps.isViewing(deviceId, session.id));
+    this.send({ title, body, data: { sessionId: session.id }, threadId: `session:${session.id}` }, (deviceId) => this.deps.isViewing(deviceId, session.id));
   }
 
-  private send(title: string, body: string, data: PushData, skip: (deviceId: string) => boolean): void {
+  private send(message: Omit<PushMessage, "to">, skip: (deviceId: string) => boolean): void {
     // EvaOS applies the away, 45 s, quiet hours, habit break and rate-limit rules and sends what passes
     // as `inbox.item`; pushing here too would ping Isaac while he sits at the Mac.
     if (this.deps.suppressed?.() === true) return;
@@ -125,7 +131,7 @@ export class AttentionNotifier {
       recipients.push({ deviceId, token });
     }
     if (recipients.length === 0) return;
-    const messages = recipients.map((recipient) => ({ to: recipient.token, title, body, data }));
+    const messages = recipients.map((recipient) => ({ ...message, to: recipient.token }));
     void this.deps.sender.send(messages).then(
       (outcomes) => {
         outcomes.forEach((outcome, index) => {

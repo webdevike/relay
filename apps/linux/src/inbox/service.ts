@@ -72,16 +72,22 @@ function categoryOf(item: InboxItem): string | undefined {
   }
 }
 
+/** What a lock-screen title leads with, so an approval or a question reads as one at a glance; an alert's title already says what it is. */
+const KIND_PREFIX: Record<InboxItem["kind"], string | null> = { approval: "Approval", ask: "Question", alert: null };
+
 /** The notification for a new item. Time Sensitive breaks through Focus, as an agent blocked on Isaac should. */
 export function pushMessageOf(token: string, item: InboxItem): PushMessage {
   const category = categoryOf(item);
-  const title = item.more === undefined || item.more === 0 ? item.title : `${item.title} (+${item.more} more)`;
+  const prefix = KIND_PREFIX[item.kind];
+  const folded = item.more === undefined || item.more === 0 ? item.title : `${item.title} (+${item.more} more)`;
   return {
     to: token,
-    title,
+    title: prefix === null ? folded : `${prefix} · ${folded}`,
     // Display: an item quoting Isaac's prompt shows it without a client's surface tag.
     body: untagged(item.body),
     data: { ...pushDataOf(item), ...(item.sessionId === undefined ? {} : { sessionId: item.sessionId }) },
+    // Approvals stack together, as do questions; an alert stacks with its session's other pushes.
+    threadId: prefix === null ? (item.sessionId === undefined ? "inbox" : `session:${item.sessionId}`) : `inbox:${item.kind}`,
     // A digest is a nudge, never a break through Focus, and makes no sound.
     interruptionLevel: item.passive === true ? "passive" : "time-sensitive",
     ...(item.passive === true ? { sound: null } : {}),

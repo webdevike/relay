@@ -21,6 +21,7 @@ import { untagged, type AgentImage, type AgentMessage, type AgentSession, type A
 import type { LaunchOptions } from "../agents/herdr";
 import { parseSessionRows } from "../agents/transcript";
 import type { PushSender } from "../push/notifier";
+import { pushPreview } from "../push/preview";
 import type { PushTokenSource } from "../push/token-store";
 import { AckFailure, type AgentProvider, type AgentProviderChange, type AssistantRelaying, type AssistantThread } from "../seams";
 import type { SessionClock } from "../session";
@@ -49,6 +50,7 @@ export function isSilent(text: string): boolean {
 export function primeFile(id: string): string {
   return join(".omp", "assistant", "agents", id, "prime.md");
 }
+/** Most characters of a reply a push shows (its opening sentences, as plain text). */
 export const MAX_PUSH_BODY = 180;
 /** Characters of a reply kept for the agent list's preview line. */
 export const MAX_LAST_REPLY = 140;
@@ -454,15 +456,18 @@ export class AssistantService implements AssistantThread {
     // A push is display: no client's surface tag, even one an agent echoed back.
     const raw = splitReplies(untagged(reply), false).text;
     const { text: shown, signin } = splitSignin(raw, false);
-    const text = signin === undefined ? raw : shown.trim().length > 0 ? shown.trim() : `Sign in to ${signin.host}`;
+    const text = signin === undefined ? withoutDetailsMarker(raw) : shown.trim().length > 0 ? withoutDetailsMarker(shown.trim()) : `Sign in to ${signin.host}`;
     const recipients: { deviceId: string; token: string }[] = [];
     for (const [deviceId, token] of this.deps.tokens.tokens()) {
       if (this.deps.isViewing(deviceId)) continue;
       recipients.push({ deviceId, token });
     }
     if (recipients.length === 0) return;
-    const body = text.length > MAX_PUSH_BODY ? `${text.slice(0, MAX_PUSH_BODY - 1)}…` : text;
-    void this.deps.sender.send(recipients.map((recipient) => ({ to: recipient.token, title: this.title, body, data: { assistant: true as const, agent: this.id } }))).then(
+    const body = pushPreview(text, MAX_PUSH_BODY);
+    // Titled with the assistant's name and stacked per assistant, like a conversation in Messages; the
+    // phone's Notification Service Extension (mutableContent) puts the assistant's portrait on it.
+    const message = { title: this.title, body, data: { assistant: true as const, agent: this.id }, threadId: `assistant:${this.id}`, mutableContent: true };
+    void this.deps.sender.send(recipients.map((recipient) => ({ ...message, to: recipient.token }))).then(
       (outcomes) => {
         outcomes.forEach((outcome, index) => {
           if (outcome.ok) return;

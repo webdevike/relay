@@ -65,11 +65,16 @@ describe("InboxService items", () => {
     ]);
     expect(h.pushes[0]).toMatchObject({
       to: "ExponentPushToken[one]",
-      title: "ENG-6243 style regen needs approval",
+      title: "Approval · ENG-6243 style regen needs approval",
       body: "git push --force-with-lease origin style/x",
       data: { id: "approval:t1", kind: "approval", sessionId: "s1", approvalId: "t1", requiresBiometric: true },
     });
     expect(h.pushes[2]?.data).toMatchObject({ askId: "a1", questionId: "q1", options: ["Yes", "No"] });
+    expect(h.pushes.map((push) => [push.title, push.threadId])).toEqual([
+      ["Approval · ENG-6243 style regen needs approval", "inbox:approval"],
+      ["Approval · ENG-6243 style regen needs approval", "inbox:approval"],
+      ["Question · ENG-6227 asked you", "inbox:ask"],
+    ]);
   });
 
   it("does not buzz again for a known id, a silent item, or a session the phone is viewing; a fold shows in the title", () => {
@@ -117,7 +122,7 @@ describe("InboxService digests", () => {
     const digest: InboxItem = { id: "digest:1", kind: "alert", title: "Morning digest", body: "2 need you, 5 updates", at: 1, passive: true };
     h.service.item("evaos", digest);
     expect(h.frames).toEqual([{ message: { t: "inbox.item", item: digest }, except: "evaos" }]);
-    expect(h.pushes).toEqual([{ to: "ExponentPushToken[one]", title: "Morning digest", body: "2 need you, 5 updates", data: { id: "digest:1", kind: "alert" }, interruptionLevel: "passive", sound: null }]);
+    expect(h.pushes).toEqual([{ to: "ExponentPushToken[one]", title: "Morning digest", body: "2 need you, 5 updates", data: { id: "digest:1", kind: "alert" }, threadId: "inbox", interruptionLevel: "passive", sound: null }]);
     expect(h.service.pending()).toEqual([]);
     h.pushes.length = 0;
     h.service.resolve("evaos", { id: "digest:1" });

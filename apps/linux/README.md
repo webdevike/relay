@@ -183,6 +183,13 @@ not quiet hours or a habit break, rate limited) and speaks to the host as the de
 - While `evaos` is connected the host's own "session is waiting" pushes (`AttentionNotifier`) are suppressed:
   the engine already applied the rules. Without EvaOS they behave as before.
 - `RELAY_EXPO_PUSH_URL` points the push sender somewhere else (a scratch host captures sends locally).
+- How pushes read on the lock screen: an assistant reply is titled with the assistant's name, its body is
+  the reply's opening sentences as plain text (`src/push/preview.ts`: markdown, code, images and the
+  `[[replies: ...]]` token dropped, at most `MAX_PUSH_BODY` characters), stacked per assistant
+  (`threadId: assistant:<id>`) and sent `mutableContent`, so the phone's Notification Service Extension
+  shows it as a Communication Notification with the assistant's portrait. Inbox items lead with
+  `Approval · ` or `Question · ` and stack by kind (`inbox:<kind>`); the host's own session pushes lead
+  with `Job · ` or `Session · ` (an assistant's session with its name alone) and stack per session.
 
 ## Catch Up (`catchup.list`, `catchup.mark`, `catchup.handoff`, `catchup.bounce`, `catchup.note`)
 
