@@ -8,6 +8,7 @@ import {
   SegmentedControl,
   Stack,
   Text,
+  TextInput,
 } from '@mantine/core'
 import { IconCheck, IconCircleDashed, IconX } from '@tabler/icons-react'
 import { useEffect, useRef, useState } from 'react'
@@ -276,12 +277,21 @@ export function AiStep({ ctx }: { ctx: WizardCtx }) {
   const [provider, setProvider] = useState<SetupProvider>('anthropic')
   const [apiKey, setApiKey] = useState('')
   const [useKey, setUseKey] = useState(false)
+  const [pasted, setPasted] = useState('')
+  const [pasteError, setPasteError] = useState('')
   const signedIn = ctx.detect?.omp.loggedIn === true
   const providers = ctx.detect?.omp.providers ?? []
 
   const sign = async (p: SetupProvider): Promise<void> => {
+    setPasted('')
+    setPasteError('')
     const out = await login.start({ task: 'ai-login', provider: p })
     if (out.ok) await ctx.recheck()
+  }
+  const finishPasted = async (): Promise<void> => {
+    const out = await login.send(pasted.trim())
+    setPasteError(out.ok ? '' : (out.message ?? 'Could not hand the address to the sign-in.'))
+    if (out.ok) setPasted('')
   }
   const saveKey = async (): Promise<void> => {
     const out = await key.start({ task: 'ai-key', provider, key: apiKey.trim() })
@@ -340,13 +350,44 @@ export function AiStep({ ctx }: { ctx: WizardCtx }) {
             </Button>
           </Group>
           {login.view.status === 'running' ? (
-            <Text size="sm" c="dimmed">
-              {login.view.line || 'Waiting for you to finish signing in in the browser…'}
-            </Text>
+            <Stack gap="xs" data-testid="setup-ai-waiting">
+              <Text size="sm" c="dimmed">
+                {login.view.line || 'Waiting for you to finish signing in in the browser…'}
+              </Text>
+              <Text size="sm" c="dimmed">
+                Signed in, but the browser shows a page that cannot connect? Copy the whole address
+                from the browser's address bar and paste it here.
+              </Text>
+              <Group align="flex-end">
+                <TextInput
+                  flex={1}
+                  placeholder="The address the browser shows, or the code"
+                  value={pasted}
+                  onChange={(e) => setPasted(e.currentTarget.value)}
+                  autoComplete="off"
+                  data-testid="setup-ai-paste"
+                />
+                <Button
+                  onClick={() => void finishPasted()}
+                  disabled={pasted.trim() === ''}
+                  data-testid="setup-ai-paste-submit"
+                >
+                  Finish sign-in
+                </Button>
+                <Button variant="subtle" onClick={login.cancel} data-testid="setup-ai-cancel">
+                  Cancel
+                </Button>
+              </Group>
+              {pasteError ? (
+                <Text size="sm" c="red">
+                  {pasteError}
+                </Text>
+              ) : null}
+            </Stack>
           ) : null}
           {login.view.status === 'err' ? (
-            <Alert color="red" title="Sign-in did not finish">
-              {login.view.message}
+            <Alert color="red" title="Sign-in did not finish" data-testid="setup-ai-error">
+              {login.view.message} Press Sign in again to retry.
             </Alert>
           ) : null}
         </>

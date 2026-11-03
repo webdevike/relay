@@ -20,7 +20,6 @@ const MAIN = NAV_PAGES.filter((n) => n.slug !== 'setting' && n.slug !== 'dashboa
 const OVERVIEW = NAV_PAGES.find((n) => n.slug === 'dashboard')!
 const SETTING = NAV_PAGES.find((n) => n.slug === 'setting')!
 
-
 export function MainNav() {
   const about = useAbout()
   const here = useTabs(activePlace)

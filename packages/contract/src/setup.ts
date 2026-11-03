@@ -140,6 +140,14 @@ export const setupInvoke = {
     }),
   },
   'setup.cancel': { input: z.object({ runId: z.string().max(64) }).strict(), output: Empty },
+  /**
+   * A line to a running browser sign-in's stdin: the address the browser landed on (or its code)
+   * when the redirect back to this Mac could not load. Fails once that run has ended.
+   */
+  'setup.input': {
+    input: z.object({ runId: z.string().max(64), text: z.string().min(1).max(8000) }).strict(),
+    output: Empty,
+  },
   'setup.state.save': { input: z.object({ state: SetupStateSchema }).strict(), output: Empty },
   'setup.openTailscale': { input: Empty.strict(), output: Empty },
   /** Is the new home base ready: its assistants file and how many assistants it lists. */

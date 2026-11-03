@@ -18,8 +18,8 @@ export interface RunProgress {
 export async function runSetup(
   run: SetupRun,
   onProgress: (p: RunProgress) => void = () => {},
+  runId: string = crypto.randomUUID(),
 ): Promise<RunOutcome> {
-  const runId = crypto.randomUUID()
   const off = on('setup.progress', (p) => {
     if (p.runId === runId) onProgress({ percent: p.percent, line: p.line })
   })
@@ -45,10 +45,19 @@ export interface RunView {
 
 const IDLE: RunView = { status: 'idle', percent: 0, line: '', message: '', version: '' }
 
-/** One script run as component state: start it, watch percent and the latest line. */
-export function useSetupRun(): { view: RunView; start(run: SetupRun): Promise<RunOutcome> } {
+/**
+ * One script run as component state: start it, watch percent and the latest line, and (for a
+ * browser sign-in) send it a pasted line or cancel it.
+ */
+export function useSetupRun(): {
+  view: RunView
+  start(run: SetupRun): Promise<RunOutcome>
+  send(text: string): Promise<RunOutcome>
+  cancel(): void
+} {
   const [view, setView] = useState<RunView>(IDLE)
   const alive = useRef(true)
+  const current = useRef<string | null>(null)
   useEffect(() => {
     alive.current = true
     return () => {
@@ -56,11 +65,20 @@ export function useSetupRun(): { view: RunView; start(run: SetupRun): Promise<Ru
     }
   }, [])
   const start = useCallback(async (run: SetupRun): Promise<RunOutcome> => {
+    const runId = crypto.randomUUID()
+    current.current = runId
     setView({ ...IDLE, status: 'running' })
-    const out = await runSetup(run, (p) => {
-      if (!alive.current) return
-      setView((v) => ({ ...v, percent: p.percent ?? v.percent, line: p.line }))
-    })
+    const out = await runSetup(
+      run,
+      (p) => {
+        if (!alive.current || current.current !== runId) return
+        setView((v) => ({ ...v, percent: p.percent ?? v.percent, line: p.line }))
+      },
+      runId,
+    )
+    // A retry or a cancel took the view over; this run's end is not news.
+    if (current.current !== runId) return out
+    current.current = null
     if (alive.current) {
       setView((v) => ({
         ...v,
@@ -72,7 +90,21 @@ export function useSetupRun(): { view: RunView; start(run: SetupRun): Promise<Ru
     }
     return out
   }, [])
-  return { view, start }
+  const send = useCallback(async (text: string): Promise<RunOutcome> => {
+    const runId = current.current
+    if (runId === null) return { ok: false, message: 'Nothing is running.' }
+    const r = await invoke('setup.input', { runId, text })
+    return r.ok ? { ok: true } : { ok: false, message: r.error.message }
+  }, [])
+  /** Ends the run; the view goes back to idle rather than showing it as a failure. */
+  const cancel = useCallback((): void => {
+    const runId = current.current
+    if (runId === null) return
+    current.current = null
+    setView(IDLE)
+    void invoke('setup.cancel', { runId })
+  }, [])
+  return { view, start, send, cancel }
 }
 
 /** The first step the wizard has not finished yet. */
@@ -84,9 +116,7 @@ export function firstIncomplete(state: SetupState): SetupStep {
  * Tools `detect.sh` found missing, in install order. relay-host is installed by its own step. Tailscale is not
  * listed: its .pkg auto-launches the app and macOS VPN dialogs, so the iPhone step installs it only on request.
  */
-export function missingTools(
-  d: SetupDetect,
-): Array<'clt' | 'brew' | 'bun' | 'omp' | 'herdr'> {
+export function missingTools(d: SetupDetect): Array<'clt' | 'brew' | 'bun' | 'omp' | 'herdr'> {
   const rows = [
     ['clt', d.clt.installed],
     ['brew', d.brew.installed],

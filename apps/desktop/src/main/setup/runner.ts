@@ -122,6 +122,12 @@ export interface ScriptPlan {
   args: string[]
   /** Piped to stdin (an API key); never echoed, logged or emitted. */
   stdin?: string
+  /**
+   * stdin stays an open pipe for the whole run and `send` writes lines to it. A browser sign-in
+   * (`omp login`) reads a pasted code from stdin and ends the sign-in, callback listener and all,
+   * the moment stdin closes, so its stdin must stay open until it finishes.
+   */
+  interactive?: boolean
   timeoutMs: number
   cleanup?: () => void
 }
@@ -133,7 +139,7 @@ export function planRun(run: SetupRun, homedir: string): ScriptPlan {
     case 'install':
       return { script: 'install.sh', args: [run.tool], timeoutMs: 30 * MIN }
     case 'ai-login':
-      return { script: 'ai-login.sh', args: [run.provider], timeoutMs: 10 * MIN }
+      return { script: 'ai-login.sh', args: [run.provider], interactive: true, timeoutMs: 10 * MIN }
     case 'ai-key':
       return {
         script: 'ai-login.sh',
@@ -168,16 +174,18 @@ export interface ScriptOutcome {
 
 /**
  * Runs one setup script to its end, streaming each stdout/stderr line to `onLine`. Success is exit 0
- * with no `ERR` line; a `cancel()` ends it as a failure.
+ * with no `ERR` line. `cancel()` (or the timeout) closes stdin and signals the script's whole process
+ * group, so nothing it started (an `omp login` holding its callback port) outlives it.
  */
 export function runScript(
   cmd: Command,
   cwd: string,
-  plan: Pick<ScriptPlan, 'stdin' | 'timeoutMs'>,
+  plan: Pick<ScriptPlan, 'stdin' | 'interactive' | 'timeoutMs'>,
   onLine: (line: ScriptLine) => void,
-): { done: Promise<ScriptOutcome>; cancel: () => void } {
+): { done: Promise<ScriptOutcome>; cancel: () => void; send: (text: string) => boolean } {
   let child: ChildProcess | null = null
   let cancelled = false
+  let exited = false
   const { promise: done, resolve } = Promise.withResolvers<ScriptOutcome>()
   let version: string | undefined
   let error: string | undefined
@@ -192,32 +200,45 @@ export function runScript(
   }
   const out = lineSplitter(handle)
   const errs = lineSplitter(handle)
+  const stop = (): void => {
+    const c = child
+    if (c === null || exited) return
+    c.stdin?.end()
+    try {
+      // Spawned detached, the script leads its own process group: a negative pid signals all of it.
+      if (c.pid !== undefined) process.kill(-c.pid, 'SIGTERM')
+    } catch {
+      c.kill('SIGTERM')
+    }
+  }
   try {
     const c = spawn(cmd.file, cmd.argv, {
       cwd,
       env: cmd.env,
-      stdio: [plan.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+      stdio: [plan.stdin === undefined && !plan.interactive ? 'ignore' : 'pipe', 'pipe', 'pipe'],
       shell: false,
+      detached: true,
     })
     child = c
     const timer = setTimeout(() => {
       error ??= 'Timed out'
-      c.kill('SIGTERM')
+      stop()
     }, plan.timeoutMs)
     c.stdout?.setEncoding('utf8')
     c.stderr?.setEncoding('utf8')
     c.stdout?.on('data', (d: string) => out.push(d))
     c.stderr?.on('data', (d: string) => errs.push(d))
-    if (plan.stdin !== undefined) {
-      c.stdin?.on('error', () => {})
-      c.stdin?.end(plan.stdin)
-    }
+    c.stdin?.on('error', () => {})
+    if (plan.stdin !== undefined) c.stdin?.end(plan.stdin)
     c.once('error', (e) => {
       clearTimeout(timer)
+      exited = true
       resolve({ ok: false, message: `Could not start ${cmd.file}: ${e.message}` })
     })
     c.once('close', (code) => {
       clearTimeout(timer)
+      exited = true
+      c.stdin?.destroy()
       out.end()
       errs.end()
       if (cancelled) return resolve({ ok: false, message: 'Cancelled' })
@@ -232,7 +253,14 @@ export function runScript(
     done,
     cancel: () => {
       cancelled = true
-      child?.kill('SIGTERM')
+      stop()
+    },
+    /** One line to an interactive script's stdin; false when it is not interactive or has ended. */
+    send: (text) => {
+      const stdin = child?.stdin
+      if (!plan.interactive || exited || !stdin || stdin.writableEnded) return false
+      stdin.write(`${text.replace(/[\r\n]+/g, ' ').trim()}\n`)
+      return true
     },
   }
 }

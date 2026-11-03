@@ -28,7 +28,7 @@ rm -rf ~/"Applications/EvaOS Electron.app"  # once, after the rename
 The dmg bundles the first-run setup wizard scripts and a prebuilt Relay Host app. Build it with:
 
 ```
-pnpm -C apps/desktop package:onboarding   # RELAY_REPO=/path/to/relay worktree, default /Users/ike/Eva/work/relay-onb
+pnpm -C apps/desktop package:onboarding   # builds Relay Host from this repo's apps/mac-host (RELAY_REPO overrides)
 ```
 
 Output: `apps/desktop/release/Relay-<version>-arm64.dmg` (version from `apps/desktop/package.json`).

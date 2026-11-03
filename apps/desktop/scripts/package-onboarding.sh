@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Builds release/Relay-<version>-arm64.dmg with the Relay Host app and the setup scripts bundled.
-# Usage: bash scripts/package-onboarding.sh        (RELAY_REPO overrides the relay worktree)
+# Usage: bash scripts/package-onboarding.sh        (RELAY_REPO overrides the repo holding apps/mac-host)
 set -euo pipefail
 
 DESKTOP="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-RELAY_REPO="${RELAY_REPO:-/Users/ike/Eva/work/relay-onb}"
+RELAY_REPO="${RELAY_REPO:-$(cd "$DESKTOP/../.." && pwd)}"
 
 VERSION="$(node -p "require('$DESKTOP/package.json').version")"
 [ -n "$VERSION" ] || { echo "could not read version from package.json" >&2; exit 1; }

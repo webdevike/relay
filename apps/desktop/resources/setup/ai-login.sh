@@ -4,6 +4,11 @@
 #   ai-login.sh <anthropic|openai>             omp's own browser login (`omp login`): Claude account / ChatGPT account
 #   ai-login.sh --api-key <anthropic|openai>   reads the API key from STDIN, stores it in ~/.omp/agent/.env (chmod 600)
 #
+# Browser login: STDIN is handed to `omp login` and must stay open until it ends. omp listens for the
+# browser's redirect (ChatGPT: http://localhost:1455/auth/callback) and reads a pasted redirect address
+# or code from stdin at the same time; it gives up, callback listener and all, the moment stdin closes.
+# Relay keeps a pipe open and writes the address the user pastes; closing it cancels the sign-in.
+#
 # stdout protocol: PROGRESS lines, then `OK <provider>` or `ERR <message>`. The key is never echoed or logged.
 set -eEuo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -26,7 +31,7 @@ esac
 
 has_account() { # has_account <omp provider id>
   local json count i p
-  json="$(omp usage accounts --json 2>/dev/null || true)"
+  json="$(omp usage accounts --json </dev/null 2>/dev/null || true)"
   [ -n "$json" ] || return 1
   count="$(printf '%s' "$json" | json_get accounts)"
   case "$count" in ''|*[!0-9]*) return 1 ;; esac
@@ -79,9 +84,15 @@ fi
 
 progress 10 "Opening your browser to sign in to $PROVIDER"
 log_line "omp login $OMP_PROVIDER"
-# omp opens the browser, waits for the callback and stores the credential in ~/.omp/agent/agent.db.
-if ! omp login "$OMP_PROVIDER" </dev/null >>"$SETUP_LOG" 2>&1; then
-  fail "sign-in to $PROVIDER did not finish: $(last_log_lines 2)"
+# omp opens the browser, waits for the callback (or a pasted address on stdin) and stores the
+# credential in ~/.omp/agent/agent.db.
+if ! omp login "$OMP_PROVIDER" >>"$SETUP_LOG" 2>&1; then
+  last="$(last_log_lines 2)"
+  case "$last" in
+    *"stdin closed"*|*"Login cancelled"*) fail "sign-in to $PROVIDER was cancelled" ;;
+    *"in use"*) fail "another sign-in is still holding the port $PROVIDER redirects back to (quit any other Codex or omp sign-in), then try again" ;;
+    *) fail "sign-in to $PROVIDER did not finish: $last" ;;
+  esac
 fi
 progress 90 "Checking sign-in"
 has_account "$OMP_PROVIDER" || fail "omp finished but no $PROVIDER account was saved; try again"

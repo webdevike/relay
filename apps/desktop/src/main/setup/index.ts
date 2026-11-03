@@ -38,7 +38,10 @@ export function registerSetup(ctx: MainContext): void {
     appPath: app.getAppPath(),
     override: process.env.RELAY_HOST_APP,
   })
-  const running = new Map<string, () => void>()
+  const running = new Map<
+    string,
+    { task: string; cancel: () => void; send: (text: string) => boolean; done: Promise<unknown> }
+  >()
 
   const commandFor = async (script: string, args: string[]) => {
     if (dir === null || !fs.existsSync(path.join(dir, script))) {
@@ -95,6 +98,13 @@ export function registerSetup(ctx: MainContext): void {
 
   handle(ctx, 'setup.run', async ({ runId, run }) => {
     if (running.has(runId)) fail('setup-busy', 'That step is already running.')
+    if (run.task === 'ai-login') {
+      // One browser sign-in at a time: a second `omp login` could not bind the callback port the
+      // first still holds, so a retry ends the earlier one first.
+      const earlier = [...running.values()].filter((r) => r.task === 'ai-login')
+      for (const r of earlier) r.cancel()
+      await Promise.all(earlier.map((r) => r.done))
+    }
     const plan = planRun(run, home)
     try {
       const cmd = await commandFor(plan.script, plan.args)
@@ -105,7 +115,7 @@ export function registerSetup(ctx: MainContext): void {
           emit(ctx, 'setup.progress', { runId, percent: null, line: line.text })
         }
       })
-      running.set(runId, () => job.cancel())
+      running.set(runId, { task: run.task, cancel: job.cancel, send: job.send, done: job.done })
       return await job.done
     } finally {
       running.delete(runId)
@@ -114,7 +124,14 @@ export function registerSetup(ctx: MainContext): void {
   })
 
   handle(ctx, 'setup.cancel', ({ runId }) => {
-    running.get(runId)?.()
+    running.get(runId)?.cancel()
+    return {}
+  })
+
+  handle(ctx, 'setup.input', ({ runId, text }) => {
+    if (running.get(runId)?.send(text) !== true) {
+      fail('setup-not-running', 'That sign-in is no longer running. Start it again.')
+    }
     return {}
   })
 
@@ -181,6 +198,6 @@ export function registerSetup(ctx: MainContext): void {
   })
 
   ctx.onBeforeQuit(async () => {
-    for (const cancel of running.values()) cancel()
+    for (const r of running.values()) r.cancel()
   })
 }

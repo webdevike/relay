@@ -59,6 +59,8 @@ printf '%s' "$KEY" | ./ai-login.sh --api-key openai      # OPENAI_API_KEY=...
 
 Prints `OK <provider>` when done; an existing sign-in prints `OK <provider> (already signed in)`. The key is never echoed or logged. omp loads `~/.omp/agent/.env` itself (omp.sh/docs/providers).
 
+Browser sign-in hands its stdin to `omp login`, which reads a pasted redirect address or code from it while it waits for the browser's redirect (ChatGPT: `http://localhost:1455/auth/callback`, which omp serves on 127.0.0.1 and ::1). omp ends the sign-in, callback listener included, as soon as stdin closes, so the caller must keep stdin open until the script exits: Relay holds a pipe open, writes the address the user pastes when the redirect page cannot load, and closes it to cancel. Run by hand from a terminal, stdin is the terminal. Never run it with `</dev/null`: the listener would be gone before the browser redirects.
+
 ## scaffold-home.sh `<root>` `<answers.json>`
 
 Builds the ICM home base from `starter-home/`. Never overwrites an existing file. Prints `OK <root> (<n> created, <m> kept)`.
