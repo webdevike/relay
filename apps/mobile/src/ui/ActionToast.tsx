@@ -14,7 +14,6 @@ export interface ActionToastProps {
 export function ActionToast({ message, action, onAction }: ActionToastProps) {
   return (
     <View
-      accessibilityLiveRegion="polite"
       style={{
         alignSelf: "center",
         flexDirection: "row",

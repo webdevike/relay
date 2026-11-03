@@ -436,11 +436,8 @@ export function ArtifactsSheet({ thread, agent, session, open, onClose }: Artifa
             </ScrollView>
           </View>
         )}
-        <BottomSheetScrollView contentContainerStyle={{ paddingBottom: insets.bottom + spacing.xxl }} keyboardShouldPersistTaps="handled">
-          {body}
-        </BottomSheetScrollView>
         {undo !== null && (
-          <View style={[styles.undo, { bottom: insets.bottom + spacing.lg }]} pointerEvents="box-none">
+          <View style={styles.undo}>
             <ActionToast
               message={undo.message}
               action="Undo"
@@ -451,6 +448,9 @@ export function ArtifactsSheet({ thread, agent, session, open, onClose }: Artifa
             />
           </View>
         )}
+        <BottomSheetScrollView contentContainerStyle={{ paddingBottom: insets.bottom + spacing.xxl }} keyboardShouldPersistTaps="handled">
+          {body}
+        </BottomSheetScrollView>
       </BottomSheet>
       <ImageViewer images={viewer?.images ?? null} start={viewer?.start ?? 0} onClose={() => { setViewer(null); }} />
       {video !== null && <VideoModal uri={video} onClose={() => { setVideo(null); }} />}
@@ -716,7 +716,7 @@ function VideoModal({ uri, onClose }: { uri: string; onClose: () => void }) {
 }
 
 const styles = StyleSheet.create({
-  undo: { position: "absolute", left: 0, right: 0 },
+  undo: { paddingTop: spacing.sm },
   head: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingHorizontal: spacing.xl, paddingBottom: spacing.sm },
   title: { flex: 1 },
   search: { flex: 1, height: 36, borderRadius: radii.md, paddingHorizontal: spacing.md, fontSize: 15 },
