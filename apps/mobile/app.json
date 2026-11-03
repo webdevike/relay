@@ -20,14 +20,18 @@
     "newArchEnabled": true,
     "ios": {
       "bundleIdentifier": "com.ike.relay",
-      "buildNumber": "15",
+      "buildNumber": "16",
       "appleTeamId": "CH63V3XD76",
       "supportsTablet": false,
       "entitlements": {
-        "com.apple.developer.usernotifications.time-sensitive": true
+        "com.apple.developer.usernotifications.time-sensitive": true,
+        "com.apple.developer.usernotifications.communication": true
       },
       "infoPlist": {
         "NSSupportsLiveActivities": true,
+        "NSUserActivityTypes": [
+          "INSendMessageIntent"
+        ],
         "CADisableMinimumFrameDurationOnPhone": true,
         "NSLocalNetworkUsageDescription": "Relay finds your Mac on the local network.",
         "NSBonjourServices": [
@@ -81,7 +85,7 @@
         {
           "cameraPermission": "Relay takes a photo as proof when you finish a habit.",
           "photosPermission": "Relay picks a photo as proof when you finish a habit.",
-          "microphonePermission": false
+          "microphonePermission": "Relay listens while you dictate or talk to your assistants on a call."
         }
       ],
       "./plugins/withPodDeploymentFloor",
