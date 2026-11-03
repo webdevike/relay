@@ -114,12 +114,9 @@
   color: inherit;
   cursor: pointer;
 }
-/* Close shows on the tab in front and on hover, so short tool names never truncate. */
+/* Close shows on the tab in front and on hover; its space is always kept so hovering never shifts tabs. */
 .eva-pane-tab:not([data-active]):not(:hover) .eva-pane-tab-close {
-  display: none;
-}
-.eva-pane-tab:not([data-active]):not(:hover) {
-  padding-right: var(--mantine-spacing-xs);
+  visibility: hidden;
 }
 .eva-pane-tab-close:hover {
   background: var(--eva-c-accent-background);
