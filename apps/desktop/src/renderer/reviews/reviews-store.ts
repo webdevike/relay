@@ -28,7 +28,7 @@ export interface ReviewsState {
 const initial = (): ReviewsState => ({
   queue: null,
   error: null,
-  view: 'for-me',
+  view: 'created',
   selected: null,
   ticket: null,
   thread: null,

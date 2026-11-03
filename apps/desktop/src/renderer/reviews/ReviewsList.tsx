@@ -158,8 +158,8 @@ function QueueRow({
 }
 
 const VIEWS: Array<{ value: ReviewsView; label: string }> = [
-  { value: 'for-me', label: 'For me' },
   { value: 'created', label: 'Created' },
+  { value: 'for-me', label: 'For me' },
 ]
 
 /**
