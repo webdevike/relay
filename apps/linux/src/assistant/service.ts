@@ -86,6 +86,18 @@ export interface AssistantServiceDeps {
   readonly log: (line: string) => void;
   /** Starts the browser tool that types credentials into a login page (`spawnFill` in the host). */
   readonly spawn: FillSpawn;
+  /**
+   * Whether omp has an AI account (`hasAiAccount`): false stops a start at once with a sign-in
+   * message, since omp without one sits on "No model selected" and never takes the prime.
+   */
+  readonly aiAccount?: () => Promise<boolean | null>;
+  /** The host log a failed start points at, for support. */
+  readonly logPath?: string | null;
+}
+
+/** "No AI account" as the start fails with it: what failed, what to do, where the log is. */
+export function noAccountMessage(title: string, logPath: string | null): string {
+  return `${title} can't think yet: no AI account is signed in on this Mac. Open Settings > Setup in Relay and sign in with Claude or ChatGPT (or add an API key), then start ${title} again.${logPath === null ? "" : ` Host log: ${logPath}`}`;
 }
 
 /**
@@ -438,6 +450,11 @@ export class AssistantService implements AssistantThread {
   private async start(): Promise<AgentSession> {
     const home = this.deps.agentHome;
     if (home === null) throw new AckFailure({ code: "agent_launch_failed", message: "host was started without --agent-home" });
+    // A named omp profile holds its own sign-ins the check does not read; only the default is checked.
+    if (this.deps.agent.profile === undefined && (await this.deps.aiAccount?.()) === false) {
+      this.deps.log(`assistant ${this.id}: not starting: omp has no AI account`);
+      throw new AckFailure({ code: "agent_launch_failed", message: noAccountMessage(this.title, this.deps.logPath ?? null) });
+    }
     const remembered = this.deps.store.load()?.sessionFile ?? null;
     const resume = remembered !== null && existsSync(remembered) ? remembered : null;
     if (resume !== null) {
@@ -453,8 +470,14 @@ export class AssistantService implements AssistantThread {
     const prime = resume === null ? this.prime(true) : null;
     const { promise, resolve, reject } = Promise.withResolvers<AgentSession>();
     const cancel = this.deps.clock.after(REGISTER_TIMEOUT_MS, () => {
+      const registered = this.current() !== undefined;
       this.waiter = null;
-      reject(new AckFailure({ code: "agent_launch_failed", message: `${this.title} did not come up within 30 s` }));
+      const log = this.deps.logPath ?? null;
+      const what = registered
+        ? `omp started but did not take ${this.title}'s first prompt within 30 s (it may be waiting on a sign-in or a model choice)`
+        : `omp did not connect to Relay Host within 30 s`;
+      this.deps.log(`assistant ${this.id}: start failed: ${what}`);
+      reject(new AckFailure({ code: "agent_launch_failed", message: `${what}. Check Settings > Setup in Relay, then start ${this.title} again.${log === null ? "" : ` Host log: ${log}`}` }));
     });
     this.waiter = { primed: prime !== null, resolve };
     try {
