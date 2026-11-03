@@ -200,7 +200,8 @@
   display: inline-flex;
   align-items: center;
   gap: var(--mantine-spacing-xs);
-  max-width: 50%;
+  /* Fixed width: changing status words crossfade in place and never resize the notch. */
+  width: min(calc(var(--eva-control-xs) * 8), 50%);
   box-sizing: border-box;
   padding: 0 var(--mantine-spacing-lg) var(--mantine-spacing-xs);
   border: 1px solid var(--eva-c-border);
@@ -243,6 +244,7 @@
   background: var(--mantine-color-gray-1);
 }
 .eva-as-notch-text {
+  flex: 1 1 auto;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -259,7 +261,6 @@
   color: var(--eva-c-foreground);
 }
 .eva-as-notch .eva-as-crumb-status {
-  flex: none;
   line-height: 1.2;
 }
 
