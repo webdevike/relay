@@ -6,7 +6,7 @@ import { makeChatFixture, type ChatFixture } from './helpers/chat-fixture'
 import { startStaticServer, type StaticServer } from './helpers/static-server'
 
 // The window's panes are one global split tree: the chat pane and tool panes holding tool tabs.
-// Browser, Files and Artifacts show what belongs to the page in front (its browser scope):
+// Browser and Files show what belongs to the page in front (its browser scope):
 // each chat owns its browser tabs, pinned tabs show everywhere.
 
 type Snap = {
@@ -458,3 +458,34 @@ function findSaved(node: SavedNode, id: string): SavedNode | null {
   }
   return null
 }
+
+test('dragging an app tab (a page, an assistant thread) onto the chat edge splits it into a pane', async ({
+  app,
+  shell,
+}) => {
+  const errors: string[] = []
+  shell.on('pageerror', (e) => errors.push(String(e)))
+  shell.on('console', (m) => m.type() === 'error' && errors.push(m.text()))
+  await size(app, shell, 1400, 900)
+  for (const [page, tab] of [
+    ['jobs', 'page:jobs'],
+    ['agent:nova', 'agent:nova'],
+  ] as const) {
+    await shell.evaluate(
+      (p) => (window as unknown as ShellHooks).__evaosShell.openPlace(p, true),
+      page,
+    )
+    const grabbed = (await shell.locator('[data-testid=tabbar] [role=tab]').last().boundingBox())!
+    const chat = await box(shell, sel('pane-chat'))
+    const before = (await panes(shell)).length
+    await shell.mouse.move(grabbed.x + grabbed.width / 2, grabbed.y + grabbed.height / 2)
+    await shell.mouse.down()
+    await shell.mouse.move(chat.x + chat.width - 24, chat.y + chat.height / 2, { steps: 12 })
+    await expect(shell.locator(sel('drop-zone'))).toHaveAttribute('data-zone', 'right')
+    await shell.mouse.up()
+    await expect.poll(async () => (await panes(shell)).length).toBe(before + 1)
+    // The dragged page now lives in a pane of its own and left the app tab bar.
+    expect((await panes(shell)).some((p) => p.tabs.length === 1 && p.tabs[0] === tab)).toBe(true)
+  }
+  expect(errors).toEqual([])
+})
