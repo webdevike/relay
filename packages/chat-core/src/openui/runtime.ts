@@ -74,14 +74,12 @@ export function createOpenUIRuntime(text: string, opts: OpenUIRuntimeOptions = {
     snapshot() {
       if (!snapshot) {
         const { node, errors, complete } = current()
-        const issues = queries
-          .issues()
-          .map(({ id, message }): OpenUIError => ({
-            code: 'query-error',
-            message,
-            statementId: id,
-            severity: 'warning',
-          }))
+        const issues = queries.issues().map(({ id, message }): OpenUIError => ({
+          code: 'query-error',
+          message,
+          statementId: id,
+          severity: 'warning',
+        }))
         snapshot = { node, errors: issues.length === 0 ? errors : [...errors, ...issues], complete }
       }
       return snapshot
