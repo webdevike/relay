@@ -379,6 +379,15 @@ export function registerReviewsIpc(
     host ? host.approvable(repo, number) : approveOf(repo, number),
   )
 
+  handle(ctx, 'reviews.ci', async ({ repo, number }) => {
+    const out = await gh(['pr', 'view', String(number), '-R', repo, '--json', 'statusCheckRollup'])
+    const checks = (JSON.parse(out) as Pick<Raw, 'statusCheckRollup'>).statusCheckRollup
+    const states = checks.map(checkState).filter((s) => s !== 'skipped')
+    if (states.length === 0) return 'none' as const
+    if (states.includes('fail')) return 'fail' as const
+    return states.includes('pending') ? ('pending' as const) : ('pass' as const)
+  })
+
   handle(ctx, 'reviews.approve', async ({ repo, number }) => {
     if (host) {
       if (!writes) return { status: 'dry-run', command: `reviews.req approve ${repo}#${number}` }

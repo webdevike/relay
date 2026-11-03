@@ -408,6 +408,11 @@ export const reviewsInvoke = {
     input: PrRef.strict(),
     output: ReviewApproveSchema.nullable(),
   },
+  /** A PR's check rollup for a queue row: fail beats pending beats pass; none when it runs no checks. */
+  'reviews.ci': {
+    input: PrRef.strict(),
+    output: z.enum(['pass', 'fail', 'pending', 'none']),
+  },
   /**
    * Hands Isaac's confirmed approval to Astra, who runs ready.ts for the ticket. The app never
    * runs it itself.

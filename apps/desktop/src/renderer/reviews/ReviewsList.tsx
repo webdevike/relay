@@ -38,7 +38,62 @@ import { Avatar, SourceMark, useLocal } from './review-ui'
 import { ReviewRowMenu, rowHandlers, type RowMenuState } from './ReviewRowMenu'
 import { reviewIdOf, reviewIdOfPlace } from './review-place'
 import { activePlace, useTabs } from '../tabs/tabs-store'
+import { invoke } from '../ipc'
 import './reviews.css'
+
+/** A queue row's CI rollup and Approve-ready flag, read once per PR update for the page's list. */
+interface RowStatus {
+  ci: 'pass' | 'fail' | 'pending' | 'none' | null
+  approve: 'ready' | 'running' | null
+}
+
+const statusKey = (r: ReviewRow): string => `${prKey(r)}@${r.updatedAt}`
+const statusCache = new Map<string, RowStatus>()
+const STATUS_WORKERS = 3
+
+async function readStatus(r: ReviewRow): Promise<RowStatus> {
+  const ref = { repo: r.repo, number: r.number }
+  const [ci, approvable] = await Promise.all([
+    invoke('reviews.ci', ref),
+    // Only auto-work drafts can wait on Isaac's approval.
+    r.draft ? invoke('reviews.approvable', ref) : null,
+  ])
+  const a = approvable?.ok ? approvable.value : null
+  return {
+    ci: ci.ok ? ci.value : null,
+    approve: a?.state === 'ready' ? 'ready' : a?.state === 'running' ? 'running' : null,
+  }
+}
+
+/** Statuses for `rows`, fetched a few at a time (a gh call each) and kept per PR update. */
+function useRowStatus(rows: ReviewRow[]): Record<string, RowStatus> {
+  const [, bump] = useState(0)
+  const wanted = rows.map(statusKey).join('|')
+  useEffect(() => {
+    let live = true
+    const todo = rows.filter((r) => !statusCache.has(statusKey(r)))
+    const worker = async (): Promise<void> => {
+      for (let r = todo.shift(); live && r; r = todo.shift()) {
+        statusCache.set(statusKey(r), await readStatus(r))
+        if (live) bump((n) => n + 1)
+      }
+    }
+    for (let i = 0; i < STATUS_WORKERS; i++) void worker()
+    return () => {
+      live = false
+    }
+    // `wanted` is the rows' identity; the rows array itself is new every render.
+  }, [wanted])
+  return Object.fromEntries(
+    rows.map((r) => [statusKey(r), statusCache.get(statusKey(r))] as const).filter(([, s]) => s),
+  ) as Record<string, RowStatus>
+}
+
+const CI_PILL = {
+  pass: { label: 'CI passing', tone: 'green' },
+  fail: { label: 'CI failing', tone: 'red' },
+  pending: { label: 'CI running', tone: 'amber' },
+} as const
 
 function QueueRow({
   row,
@@ -46,14 +101,18 @@ function QueueRow({
   active,
   now,
   onMenu,
+  status,
 }: {
   row: ReviewRow
   subtitle: string
   active: boolean
   now: number
   onMenu: (m: RowMenuState) => void
+  /** The page's list shows these as quiet pills; the sidebar passes none. */
+  status?: RowStatus | undefined
 }) {
   const Glyph = row.draft ? IconGitPullRequestDraft : IconGitPullRequest
+  const ci = status?.ci && status.ci !== 'none' ? CI_PILL[status.ci] : null
   return (
     <button
       type="button"
@@ -69,6 +128,23 @@ function QueueRow({
         <span className="eva-rv-mono eva-rv-qrow-key">{shortPrId(row)}</span>
         <Glyph size={14} className="eva-rv-qrow-icon" data-draft={row.draft || undefined} />
         <span className="eva-rv-qrow-sub">{subtitle}</span>
+        {status ? (
+          <span className="eva-rv-qrow-pills">
+            {row.draft ? <span className="eva-rv-pill">Draft</span> : null}
+            {ci ? (
+              <span className="eva-rv-pill" data-tone={ci.tone} data-testid="review-row-ci">
+                {ci.label}
+              </span>
+            ) : null}
+            {status.approve === 'ready' ? (
+              <span className="eva-rv-pill" data-tone="violet" data-testid="review-row-approve">
+                Approve ready
+              </span>
+            ) : status.approve === 'running' ? (
+              <span className="eva-rv-pill">Self-review</span>
+            ) : null}
+          </span>
+        ) : null}
         <Avatar login={row.author} />
         <span>{ago(row.updatedAt, now)}</span>
       </span>
@@ -85,7 +161,8 @@ const VIEWS: Array<{ value: ReviewsView; label: string }> = [
  * Sidebar body for the Reviews sub-page: the review queue, Linear and Slack groups, a source
  * filter, and a search across them that offers to open a typed key or link the queue lacks.
  */
-export function ReviewsList() {
+export function ReviewsList({ variant = 'sidebar' }: { variant?: 'sidebar' | 'page' }) {
+  const page = variant === 'page'
   useReviewsSurface()
   const queue = useReviews((s) => s.queue)
   const view = useReviews((s) => s.view)
@@ -222,8 +299,25 @@ export function ReviewsList() {
   }
   const empty =
     groups.length === 0 && !showLinear && !showSlack && !openItem && (searching || !forMe)
+  // The page's empty state is only for a queue that is truly empty, not one still loading.
+  const loaded = !!queue && (!showLinear || !!tickets) && (!slack.reading || !forMe)
+  const pageEmpty =
+    page &&
+    !searching &&
+    loaded &&
+    groups.every((g) => g.rows.length === 0) &&
+    (tickets?.length ?? 0) === 0 &&
+    slackRows.length === 0
+  // Rows of the live groups get CI and Approve-ready; finished ones do not.
+  const status = useRowStatus(
+    page ? groups.filter((g) => g.id !== 'completed').flatMap((g) => g.rows) : [],
+  )
   return (
-    <div className="eva-rv-queue" data-testid="review-queue">
+    <div
+      className="eva-rv-queue"
+      data-variant={variant}
+      data-testid={page ? 'reviews-home' : 'review-queue'}
+    >
       <TextInput
         size="xs"
         className="eva-rv-queue-search"
@@ -276,7 +370,11 @@ export function ReviewsList() {
       ) : null}
       {empty ? (
         <div className="eva-rv-dim eva-rv-pad" data-testid="review-search-empty">
-          {searching ? 'No matches.' : 'Linear and Slack are under For me.'}
+          {searching
+            ? 'No matches.'
+            : page
+              ? 'Nothing in this view.'
+              : 'Linear and Slack are under For me.'}
         </div>
       ) : null}
       {groups.map((g) => (
@@ -303,12 +401,18 @@ export function ReviewsList() {
                   active={prActive(r)}
                   now={now}
                   onMenu={setMenu}
+                  status={page ? status[statusKey(r)] : undefined}
                 />
               ))
             )}
           </div>
         </Fragment>
       ))}
+      {pageEmpty ? (
+        <div className="eva-rv-dim eva-rv-pad" data-testid="reviews-home-empty">
+          Your review queue is empty.
+        </div>
+      ) : null}
       {groups.some((g) => g.id === 'completed') ? null : (
         <>
           {linearGroup}

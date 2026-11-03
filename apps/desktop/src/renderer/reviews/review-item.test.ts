@@ -61,7 +61,6 @@ describe('Reviews item links', () => {
       selected: row,
       ticket: null,
       thread: null,
-      autoOpened: true,
     })
     expect(openReviewItem('https://linear.app/w/issue/ENG-1')).toBe(true)
     expect(reviewsStore.getState()).toMatchObject({ selected: null, ticket: { key: 'ENG-1' } })

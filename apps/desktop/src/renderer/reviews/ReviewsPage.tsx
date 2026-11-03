@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { Button, SegmentedControl, Textarea } from '@mantine/core'
+import { Button, SegmentedControl, Textarea, Tooltip } from '@mantine/core'
 import { EvaModal } from '../overlay'
 import { notifications } from '@mantine/notifications'
 import {
@@ -12,7 +12,6 @@ import {
   IconExternalLink,
   IconGitBranch,
   IconGitCommit,
-  IconGitPullRequest,
   IconLock,
   IconMessage,
   IconRefresh,
@@ -24,6 +23,7 @@ import { openLink } from '../navigation/open-link'
 import { Markdown } from '../chat/markdown/Markdown'
 import { LinearDetail } from './LinearDetail'
 import { SlackDetail } from './SlackDetail'
+import { ReviewsList } from './ReviewsList'
 import { ReviewFiles } from './ReviewFiles'
 import { ReviewGuide } from './ReviewGuide'
 import { ago, agoPhrase, mentionsAstra, nextAfter, prKey, queueGroups } from './review-model'
@@ -337,10 +337,27 @@ export function Detail({
           <IconChevronLeft size={14} /> Inbox
         </button>
         <span className="eva-rv-spacer" />
-        <span className="eva-rv-dim eva-rv-small">updated {agoPhrase(fetchedAt, now)}</span>
-        <button type="button" className="eva-rv-iconbtn" aria-label="Refresh" onClick={onRefresh}>
-          <IconRefresh size={14} />
-        </button>
+        <Tooltip label={`Updated ${agoPhrase(fetchedAt, now)}. Refresh`} openDelay={300}>
+          <button
+            type="button"
+            className="eva-rv-iconbtn"
+            aria-label="Refresh"
+            data-testid="review-refresh"
+            onClick={onRefresh}
+          >
+            <IconRefresh size={14} />
+          </button>
+        </Tooltip>
+        <Tooltip label="Open on GitHub" openDelay={300}>
+          <button
+            type="button"
+            className="eva-rv-iconbtn"
+            aria-label="Open on GitHub"
+            onClick={() => openLink(pr.url, { reviews: false })}
+          >
+            <IconExternalLink size={14} />
+          </button>
+        </Tooltip>
         {approval && approval.state !== 'running' ? (
           <Button
             size="xs"
@@ -367,28 +384,15 @@ export function Detail({
         >
           Done
         </Button>
-        <button
-          type="button"
-          className="eva-rv-iconbtn"
-          aria-label="Open on GitHub"
-          onClick={() => openLink(pr.url, { reviews: false })}
-        >
-          <IconExternalLink size={14} />
-        </button>
       </header>
       <div className="eva-rv-head">
-        <div className="eva-rv-titlerow">
-          <SourceMark source="github" size={15} />
-          <IconGitPullRequest size={15} className="eva-rv-ok" />
-          <span className="eva-rv-dim eva-rv-mono eva-rv-prid" data-testid="review-head-id">
-            <span className="eva-rv-repo" title={pr.repo}>
-              {pr.repo}
-            </span>
-            #{pr.number}
-          </span>
-          <h1 className="eva-rv-title">{pr.title}</h1>
-        </div>
+        <h1 className="eva-rv-title eva-rv-title-wrap">{pr.title}</h1>
         <div className="eva-rv-meta">
+          <SourceMark source="github" size={13} />
+          <span className="eva-rv-mono" title={pr.repo} data-testid="review-head-id">
+            {pr.repo.split('/')[1]}#{pr.number}
+          </span>
+          ·
           <span
             className="eva-rv-pill"
             data-tone={state === 'Open' ? 'green' : state === 'Merged' ? 'violet' : 'gray'}
@@ -396,12 +400,14 @@ export function Detail({
             {state}
           </span>
           <span>{pr.author.login}</span>·<span>{ago(pr.createdAt, now)}</span>·
-          <IconGitBranch size={12} />
-          <span className="eva-rv-mono">{pr.base}</span>
-          <span className="eva-rv-dim">‹</span>
-          <span className="eva-rv-mono">{pr.head}</span>·
           <span className="eva-rv-add">+{pr.additions}</span>
-          <span className="eva-rv-del">-{pr.deletions}</span>
+          <span className="eva-rv-del">−{pr.deletions}</span>
+        </div>
+        <div className="eva-rv-meta eva-rv-branch">
+          <IconGitBranch size={12} />
+          <span className="eva-rv-mono">{pr.head}</span>
+          <span>into</span>
+          <span className="eva-rv-mono">{pr.base}</span>
         </div>
       </div>
       <nav className="eva-rv-tabs" role="tablist">
@@ -617,7 +623,6 @@ export function ReviewsPage(_: { place: Place }) {
   const thread = useReviews((s) => s.thread)
   const linear = useReviews((s) => s.linear)
   const slack = useReviews((s) => s.slack)
-  const autoOpened = useReviews((s) => s.autoOpened)
   const [pr, setPr] = useState<{ key: string; pr: ReviewPr; at: number } | null>(null)
   const [prError, setPrError] = useState<string | null>(null)
   const [now, setNow] = useState(Date.now())
@@ -633,14 +638,6 @@ export function ReviewsPage(_: { place: Place }) {
     if (r.ok) setPr({ key: prKey(row), pr: r.value, at: Date.now() })
     else setPrError(r.error.message)
   }, [])
-
-  // Open the first PR that needs Isaac once the queue arrives.
-  useEffect(() => {
-    if (!queue || selected || ticket || thread || autoOpened) return
-    const first = queueGroups(queue, view).find((g) => g.rows.length > 0 && g.id !== 'completed')
-      ?.rows[0]
-    if (first) reviewsStore.setState({ autoOpened: true, selected: first })
-  }, [queue, view, selected, ticket, thread, autoOpened])
 
   useEffect(() => {
     if (selected && pr?.key !== prKey(selected)) void loadPr(selected)
@@ -713,16 +710,12 @@ export function ReviewsPage(_: { place: Place }) {
           }}
           onDone={() => void done()}
         />
-      ) : (
+      ) : selected || prError ? (
         <div className="eva-rv-placeholder eva-rv-dim">
-          {prError
-            ? `Couldn't load the pull request: ${prError}`
-            : selected
-              ? 'Loading the pull request...'
-              : queue
-                ? 'Pick a pull request, ticket or Slack thread from the queue.'
-                : 'Loading your reviews...'}
+          {prError ? `Couldn't load the pull request: ${prError}` : 'Loading the pull request...'}
         </div>
+      ) : (
+        <ReviewsList variant="page" />
       )}
     </div>
   )

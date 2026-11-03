@@ -23,8 +23,6 @@ export interface ReviewsState {
   slack: SlackState
   /** Done marks from the last Done here, so a ticket hides even when GitHub could not be read. */
   doneLocal: Record<string, number>
-  /** Back to the queue stays there: the first PR opens by itself only once. */
-  autoOpened: boolean
 }
 
 const initial = (): ReviewsState => ({
@@ -37,7 +35,6 @@ const initial = (): ReviewsState => ({
   linear: { rows: null, error: null },
   slack: { queue: null, reading: false, error: null },
   doneLocal: {},
-  autoOpened: false,
 })
 
 export const reviewsStore = createStore<ReviewsState>(initial)
@@ -82,7 +79,7 @@ function loadAll(): void {
 }
 
 export function setView(view: ReviewsView): void {
-  set({ view, selected: null, ticket: null, thread: null, autoOpened: false })
+  set({ view, selected: null, ticket: null, thread: null })
 }
 
 export function openPr(row: ReviewRow): void {
@@ -194,10 +191,9 @@ export function reviewItemOf(
 export function openReviewItem(url: string): boolean {
   const item = reviewItemOf(url)
   if (!item) return false
-  if (item.kind === 'pr') set({ ticket: null, thread: null, selected: item.row, autoOpened: true })
-  else if (item.kind === 'linear')
-    set({ selected: null, thread: null, ticket: item.row, autoOpened: true })
-  else set({ selected: null, ticket: null, thread: item.row, autoOpened: true })
+  if (item.kind === 'pr') set({ ticket: null, thread: null, selected: item.row })
+  else if (item.kind === 'linear') set({ selected: null, thread: null, ticket: item.row })
+  else set({ selected: null, ticket: null, thread: item.row })
   return true
 }
 
