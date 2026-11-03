@@ -156,7 +156,7 @@ export function ReviewFiles({
                 </header>
                 {open ? (
                   d && d.hunks.length > 0 ? (
-                    <DiffView hunks={d.hunks} mode={mode} />
+                    <DiffView hunks={d.hunks} mode={mode} path={f.path} />
                   ) : (
                     <div className="eva-rv-empty">
                       {d?.binary ? 'Binary file' : 'No text changes to show'}

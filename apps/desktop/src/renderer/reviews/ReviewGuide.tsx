@@ -193,7 +193,7 @@ export function ReviewGuide({
                       <FileMenu url={`${pr.url}/files`} onViewInDiff={() => onViewInDiff(path)} />
                     </div>
                     {reviewed ? null : d && d.hunks.length > 0 ? (
-                      <DiffView hunks={d.hunks} mode="unified" />
+                      <DiffView hunks={d.hunks} mode="unified" path={path} />
                     ) : (
                       <div className="eva-rv-empty">
                         {d?.binary ? 'Binary file' : 'No text changes to show'}
