@@ -68,7 +68,6 @@ function JobRow({ job, now }: { job: JobSummaryDto; now: number }) {
   return (
     <ListRow
       data-testid={`job-row-${job.name}`}
-      className="eva-jobs-row"
       leading={<Kind size={16} stroke={1.5} aria-hidden />}
       title={<span className="eva-jobs-mono">{job.name}</span>}
       meta={job.description || undefined}
