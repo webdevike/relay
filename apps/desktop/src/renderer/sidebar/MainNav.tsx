@@ -7,7 +7,6 @@ import { openPlace } from '../navigation/navigate'
 import { NAV_PAGES } from '../pages/page-meta'
 import { activePlace, useTabs } from '../tabs/tabs-store'
 import { ScrollArea } from '../ui/ScrollArea'
-import { SettingsPopover } from './SettingsPopover'
 import { NavRow } from './NavRow'
 import { openSub } from './nav-level'
 import { countLabel, useSidebarData } from './sidebar-store'
@@ -42,6 +41,9 @@ export function MainNav() {
       // A plain click while on a board only drills in.
       if (!(here.page === 'canvas' && !newTab)) openPlace(canvasNavPlace(), { newTab })
       openSub('canvas')
+    } else if (page === 'settings') {
+      openPlace(placeOf('settings', { settingsSection: 'Theme' }), { newTab })
+      openSub('settings')
     } else {
       openPlace(placeOf(page), { newTab })
     }
@@ -110,11 +112,12 @@ export function MainNav() {
             Could not read counts. Press the refresh shortcut to try again.
           </div>
         ) : null}
-        <SettingsPopover
+        <NavRow
           slug={SETTING.slug}
           title={SETTING.title}
           icon={SETTING.icon}
           active={here.page === 'settings'}
+          onClick={(e) => go('settings', e)}
         />
       </div>
     </div>

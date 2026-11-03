@@ -84,7 +84,6 @@ test('entrance plays once per launch, not on navigation', async () => {
     const before = await fades(page)
     const cls = await page.locator('[data-testid=sidebar]').getAttribute('class')
     await page.locator('[data-testid=nav-setting]').click()
-    await page.locator('[data-testid=settings-all]').click()
     await expect(page.locator('[data-testid=sidebar]')).toHaveAttribute(
       'data-sidebar-level',
       'settings',

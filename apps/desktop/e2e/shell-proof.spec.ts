@@ -171,7 +171,6 @@ test('tabs-pinned-menu', async ({ app, shell }) => {
 
 test('sidebar-subpage-settings', async ({ app, shell }) => {
   await shell.locator(sel('nav-setting')).click()
-  await shell.locator(sel('settings-all')).click()
   const sb = shell.locator(sel('sidebar'))
   await expect(sb).toHaveAttribute('data-sidebar-level', 'settings')
   await expect(shell.locator(sel('sidebar-back'))).toBeVisible()

@@ -1,4 +1,4 @@
-import type { ElectronApplication, Page } from '@playwright/test'
+import type { Page } from '@playwright/test'
 import { test, expect } from './fixtures'
 import { pickScheme } from './helpers/appearance'
 import { startStaticServer, type StaticServer } from './helpers/static-server'
@@ -8,9 +8,6 @@ type Snap = {
   list: Array<{ id: number; page: string; pinned: boolean; title: string }>
 }
 type Shell = { __evaosShell: { tabs(): Snap; openPlace(p: string, n?: boolean): void } }
-type G = {
-  __evaosTest: { hooks: { browser: { host: { activeView(): { getVisible(): boolean } } } } }
-}
 
 test.use({ startOnChat: false, colorScheme: 'dark' })
 
@@ -25,10 +22,6 @@ test.afterAll(async () => {
 const tabs = (shell: Page): Promise<Snap> =>
   shell.evaluate(() => (window as unknown as Shell).__evaosShell.tabs())
 const sel = (id: string): string => `[data-testid=${id}]`
-const viewVisible = (app: ElectronApplication): Promise<boolean> =>
-  app.evaluate(() =>
-    (globalThis as unknown as G).__evaosTest.hooks.browser.host.activeView().getVisible(),
-  )
 const level = (shell: Page): Promise<string | null> =>
   shell.locator(sel('sidebar')).getAttribute('data-sidebar-level')
 
@@ -99,23 +92,8 @@ test('chats sub-page slides, Back and Esc return, Cmd+F focuses its search', asy
   await expect.poll(async () => (await tabs(shell)).list.map((t) => t.title)).toContain('New chat')
 })
 
-test('account menu takes Esc first and hides the browser view', async ({ app, shell }) => {
-  const addr = shell.locator(sel('address-input'))
-  await addr.fill(String(server.port))
-  await addr.press('Enter')
-  await expect.poll(() => viewVisible(app)).toBe(true)
-  await shell.locator(sel('nav-setting')).click()
-  await expect(shell.locator(sel('settings-menu'))).toBeVisible()
-  await expect(shell.locator(sel('account-quit'))).toBeVisible()
-  await expect.poll(() => viewVisible(app)).toBe(false)
-  await shell.keyboard.press('Escape')
-  await expect(shell.locator(sel('settings-menu'))).toBeHidden()
-  await expect.poll(() => viewVisible(app)).toBe(true)
-})
-
 test('settings sub-page opens a settings section', async ({ shell }) => {
   await shell.locator(sel('nav-setting')).click()
-  await shell.locator(sel('settings-all')).click()
   await expect.poll(() => level(shell)).toBe('settings')
   await expect(shell.locator('[data-testid^=settings-item-]')).toHaveCount(4)
   await shell.locator(sel('settings-item-chat')).click()

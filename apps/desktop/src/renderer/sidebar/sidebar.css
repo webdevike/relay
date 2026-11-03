@@ -208,13 +208,6 @@ html[data-eva-motion='off'] .eva-sb-track {
   font-size: var(--eva-fz-label);
   padding: 0 12px;
 }
-/* Settings popover: flat rows split by hairlines, nothing boxed. */
-.eva-sb-row-static {
-  cursor: default;
-}
-.eva-sb-row-static:hover {
-  background: transparent;
-}
 .eva-sb-sub-title {
   display: flex;
   align-items: center;

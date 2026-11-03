@@ -122,14 +122,8 @@ test('native edit chords and plain typing are untouched', async ({ shell }) => {
   expect(await actions(shell)).toEqual([])
 })
 
-test('Esc pops menu, then sub-page, then does nothing and is not prevented', async ({ shell }) => {
+test('Esc pops the sub-page, then does nothing and is not prevented', async ({ shell }) => {
   await focusShell(shell)
-  await shell.locator(sel('nav-setting')).click()
-  await expect(shell.locator(sel('settings-menu'))).toBeVisible()
-  await shell.keyboard.press('Escape')
-  await expect(shell.locator(sel('settings-menu'))).toBeHidden()
-  expect(await level(shell)).toBe('root')
-
   await shell.locator(sel('nav-chat')).click()
   await expect.poll(() => level(shell)).toBe('chats')
 

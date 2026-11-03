@@ -1,7 +1,0 @@
-/* The control is stock Mantine SegmentedControl; this only lays out each label's icon and text. */
-.eva-appearance-seg {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: calc(var(--mantine-spacing-xs) / 2);
-}

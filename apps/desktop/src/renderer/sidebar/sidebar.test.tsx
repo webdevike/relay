@@ -1,5 +1,5 @@
 import { MantineProvider } from '@mantine/core'
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const invoke = vi.fn(async (...a: unknown[]) =>
@@ -212,40 +212,15 @@ describe('sub-pages', () => {
     act(() => void dismissTop())
     expect(navLevelStore.getState().level).toBe('root')
   })
-
-  it('an open settings popover takes Esc before the sub-page', async () => {
-    openSub('chats')
-    wrap(
-      <>
-        <SidebarColumn />
-      </>,
-    )
-    fireEvent.click(screen.getByTestId('nav-setting'))
-    expect(await screen.findByTestId('settings-menu')).toBeInTheDocument()
-    act(() => void dismissTop())
-    expect(navLevelStore.getState().level).toBe('chats')
-    act(() => void dismissTop())
-    expect(navLevelStore.getState().level).toBe('root')
-  })
 })
 
-describe('settings popover', () => {
-  it('holds account, appearance and All settings; Quit invokes app.quit', async () => {
+describe('Setting row', () => {
+  it('opens the Settings page on Theme and drills into the settings sub-page', () => {
     wrap(<MainNav />)
     fireEvent.click(screen.getByTestId('nav-setting'))
-    const menu = await screen.findByTestId('settings-menu')
-    expect(within(menu).getByText('Account')).toBeInTheDocument()
-    expect(within(menu).getByTestId('appearance-dark')).toBeInTheDocument()
-    fireEvent.click(within(menu).getByText('Quit'))
-    expect(invoke).toHaveBeenCalledWith('app.quit', {})
-  })
-
-  it('opening the row does not navigate; All settings opens the Settings page', async () => {
-    wrap(<MainNav />)
-    fireEvent.click(screen.getByTestId('nav-setting'))
-    expect(openPlace).not.toHaveBeenCalled()
-    fireEvent.click(await screen.findByTestId('settings-all'))
     expect(navLevelStore.getState().level).toBe('settings')
-    expect(openPlace).toHaveBeenLastCalledWith(placeOf('settings', { settingsSection: 'Theme' }))
+    expect(openPlace).toHaveBeenLastCalledWith(placeOf('settings', { settingsSection: 'Theme' }), {
+      newTab: false,
+    })
   })
 })
