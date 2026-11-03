@@ -1,5 +1,5 @@
 import { spawn, execFile } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, watch, writeFileSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { z } from 'zod'
@@ -9,6 +9,28 @@ const run = promisify(execFile)
 /** How often the app looks for a newer build; the first look is a little after launch. */
 export const CHECK_EVERY_MS = 5 * 60_000
 export const FIRST_CHECK_MS = 20_000
+
+/**
+ * `<configDir>/update-now`: relay-desktop-deploy.ts touches it over ssh right after publishing a
+ * build, so the app checks at once instead of at the next poll. Consumed (deleted) on use.
+ */
+export const KICK_FILE = 'update-now'
+
+/** Calls `onKick` whenever KICK_FILE appears in `dir` (also if it was already there), deleting it first. */
+export function watchKick(dir: string, onKick: () => void): () => void {
+  const file = path.join(dir, KICK_FILE)
+  const take = (): void => {
+    if (!existsSync(file)) return
+    rmSync(file, { force: true })
+    onKick()
+  }
+  const w = watch(dir, (_event, name) => {
+    if (name === null || name === KICK_FILE) take()
+  })
+  w.on('error', () => undefined)
+  take()
+  return () => w.close()
+}
 
 /**
  * Where new builds come from, `<configDir>/update-source.json`. `ssh` (optional) is a
@@ -60,6 +82,30 @@ export function bundleOf(execPath: string): string {
 }
 
 /**
+ * The designated requirement `bundle` is signed with (`codesign -d -r-`), e.g.
+ * `identifier "dev.eva.relay-desktop" and certificate leaf = H"..."`; null when unsigned.
+ */
+export async function requirementOf(bundle: string): Promise<string | null> {
+  try {
+    const { stdout, stderr } = await run('codesign', ['-d', '-r-', bundle], { timeout: 30_000 })
+    return /designated => (.+)/.exec(stdout + stderr)?.[1]?.trim() ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Whether a bundle signed with `staged` keeps the privacy grants (Screen Recording,
+ * Accessibility, Microphone) macOS gave the app signed with `current`: TCC stores the
+ * designated requirement, so a stably signed app only takes a bundle with the same one. An
+ * ad-hoc app (`cdhash ...`, new every build) has no grants to keep and takes any bundle, which
+ * is how it moves to the stable identity once.
+ */
+export function keepsIdentity(current: string | null, staged: string | null): boolean {
+  return current === null || current.startsWith('cdhash ') || current === staged
+}
+
+/**
  * The shell that swaps the staged bundle in once this process is gone and opens it. It clones
  * (APFS) the staged copy next to the old bundle so a failed copy leaves the old app in place,
  * and reopens the old app if the final move fails.
@@ -107,6 +153,10 @@ export function createPackagedUpdater(opts: {
   const stagedMarker = path.join(stageDir, 'staged.json')
   const log = opts.log ?? (() => undefined)
   let checking = false
+  /** A kick arrived mid-check (maybe before the new latest.json was read): look once more after. */
+  let again = false
+  /** A build whose signature would drop this app's privacy grants; not fetched again this run. */
+  let rejected: string | null = null
   let timer: NodeJS.Timeout | undefined
 
   const readStaged = (): Staged | null => {
@@ -141,7 +191,7 @@ export function createPackagedUpdater(opts: {
       const mine = ownBuild(opts.appPath)
       if (!src || !mine) return
       const l = await latest(src)
-      if (!l || l.build === mine) return
+      if (!l || l.build === mine || l.build === rejected) return
       const have = readStaged()
       if (have?.build !== l.build) {
         mkdirSync(stageDir, { recursive: true })
@@ -158,6 +208,18 @@ export function createPackagedUpdater(opts: {
           ],
           { timeout: 20 * 60_000 },
         )
+        // A bundle that fails its own signature would not launch; one signed with another
+        // identity would launch without the grants Isaac gave this one.
+        await run('codesign', ['--verify', '--deep', '--strict', stagedApp], {
+          timeout: 5 * 60_000,
+        })
+        const current = await requirementOf(bundleOf(opts.execPath))
+        const staged = await requirementOf(stagedApp)
+        if (!keepsIdentity(current, staged)) {
+          rejected = l.build
+          log(`update ${l.build} skipped: signed as ${staged ?? 'nothing'}, this app is ${current}`)
+          return
+        }
         writeFileSync(stagedMarker, JSON.stringify({ build: l.build }))
       }
       opts.offer({ summary: l.summary ?? `Build ${l.build}`, build: l.build })
@@ -165,6 +227,10 @@ export function createPackagedUpdater(opts: {
       log(`update check failed: ${e instanceof Error ? e.message : String(e)}`)
     } finally {
       checking = false
+      if (again) {
+        again = false
+        void check()
+      }
     }
   }
 
@@ -174,6 +240,16 @@ export function createPackagedUpdater(opts: {
       setTimeout(() => void check(), FIRST_CHECK_MS).unref()
       timer = setInterval(() => void check(), CHECK_EVERY_MS)
       timer.unref()
+      try {
+        mkdirSync(opts.configDir, { recursive: true })
+        watchKick(opts.configDir, () => {
+          log('update check requested by a deploy')
+          if (checking) again = true
+          else void check()
+        })
+      } catch (e) {
+        log(`update kick watcher unavailable: ${e instanceof Error ? e.message : String(e)}`)
+      }
     },
     scheduleSwap() {
       const staged = readStaged()

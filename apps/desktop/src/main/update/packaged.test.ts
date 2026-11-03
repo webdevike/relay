@@ -1,8 +1,17 @@
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { LatestSchema, bundleOf, ownBuild, readSource, swapScript } from './packaged'
+import {
+  KICK_FILE,
+  LatestSchema,
+  bundleOf,
+  keepsIdentity,
+  ownBuild,
+  readSource,
+  swapScript,
+  watchKick,
+} from './packaged'
 
 const tmp = (): string => mkdtempSync(path.join(tmpdir(), 'relay-upd-'))
 
@@ -37,5 +46,28 @@ describe('packaged updater helpers', () => {
     expect(s).toContain('kill -0 "$pid"')
     expect(s).toContain('cp -cR "$staged" "$new"')
     expect(s.trim().endsWith('open "$dest"')).toBe(true)
+  })
+
+  it('takes only a bundle that keeps the stable signing identity (and the privacy grants)', () => {
+    const stable = 'identifier "dev.eva.relay-desktop" and certificate leaf = H"e439"'
+    // An ad-hoc or unsigned app moves to the stable identity once.
+    expect(keepsIdentity('cdhash H"cfec"', stable)).toBe(true)
+    expect(keepsIdentity(null, stable)).toBe(true)
+    expect(keepsIdentity(stable, stable)).toBe(true)
+    expect(keepsIdentity(stable, 'cdhash H"6a17"')).toBe(false)
+    expect(
+      keepsIdentity(stable, 'identifier "dev.eva.relay-desktop" and certificate leaf = H"9b97"'),
+    ).toBe(false)
+    expect(keepsIdentity(stable, null)).toBe(false)
+  })
+
+  it('a kick file triggers a check and is consumed', async () => {
+    const d = tmp()
+    const { promise, resolve } = Promise.withResolvers<void>()
+    const stop = watchKick(d, resolve)
+    writeFileSync(path.join(d, KICK_FILE), '')
+    await promise
+    stop()
+    expect(existsSync(path.join(d, KICK_FILE))).toBe(false)
   })
 })
