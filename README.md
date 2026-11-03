@@ -126,6 +126,12 @@ app that was frontmost. A newly started Buddy tells any older instance to quit.
 - **What can you do here?** (also "help"): a template answer, no model call, built from what is
   wired for the app in front (its hook, Jev navigation, the open-by-key shortcuts, lessons,
   handoffs): a few spoken sentences, one caption line and two things to try (`Sources/Capabilities.swift`).
+- **Handoffs** (`Sources/Handoff.swift`): "let's get started on this", "look into this", "hand this
+  off", "make a ticket for this" post the screen's context (app, window, ticket key, URL, selection,
+  screenshot, the last explanation) to the assistant's Relay thread via `.omp/tools/eva-thread.ts`;
+  tickets go to Astra as a draft, never created in Linear. "remind me about this (tomorrow at 3pm)"
+  appends to Nova's `followups.json`; `RELAY_ASSIST_FOLLOWUPS=<file>` points it at a scratch copy.
+  Saying "test" marks the message TEST so the assistant only acknowledges it.
 - **Overlay**: transparent, click-through, on every Space, never key. Any click (it still reaches
   the app) or Esc dismisses Buddy at once and stops speech. The Undo pill is the one clickable
   piece, a separate non-activating panel.

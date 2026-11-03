@@ -177,8 +177,10 @@ enum Handoff {
     }
 
     /// Appends a pending follow-up to `agent`'s followups.json ({"at": ISO-8601 UTC, "text": ...}, as Nova keeps them).
+    /// RELAY_ASSIST_FOLLOWUPS points it at another file (a scratch copy for tests).
     static func remind(agent: String, at date: Date, text: String) -> Bool {
-        let url = eva.appendingPathComponent("work/eva/agents/\(agent)/followups.json")
+        let url = ProcessInfo.processInfo.environment["RELAY_ASSIST_FOLLOWUPS"].map { URL(fileURLWithPath: $0) }
+            ?? eva.appendingPathComponent("work/eva/agents/\(agent)/followups.json")
         var list = ((try? JSONSerialization.jsonObject(with: Data(contentsOf: url))) as? [[String: Any]]) ?? []
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime]
