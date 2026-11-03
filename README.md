@@ -39,6 +39,13 @@ short lessons ("teach me to ...") that move on when you finish each step.
 
 ## Proof videos
 
+- `proof/morning-demo.mp4` (`tools/record-morning.sh`, then `tools/morning-cut.py`): 74 s with
+  the assistants' voices, 1280x720. Input-only bubble and "where is the bevel tool" (outline on
+  Bevel, trail from the Edit Mode chore); a Blender lesson whose checklist ticks off as each step
+  is done, the next step pointed at at once; "open ENG-6309" from Finder; "what is this ticket?"
+  spoken by Astra; "TEST: hand this off"; "what can you do here?". Stills:
+  `proof/morning-still-*.png`. The recorder waits for 120 s of idle and stops if someone touches
+  the Mac; `ONLY="4 6"` re-records single scenes.
 - `proof/assistant-cursor.mp4` (`tools/record-assistant.sh`): one hotkey, four asks. Blender
   "where is the bevel tool" (Nova, orange); Finder "open ENG-6309" (Astra, blue, Linear opens by
   shortcut and she points at the title); Linear "what is this ticket?" (Astra explains it);
