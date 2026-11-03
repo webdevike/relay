@@ -29,8 +29,10 @@ install a packaged copy is in `TRY.md` next to this file.
 
 ## Stable app and Relay Dev
 
-Exactly one copy is the **stable** app Isaac uses: `EVAOS_STABLE=1` (or a packaged build), run by
-a supervisor from the separate stable checkout `work/evaos-electron-live`. Every other copy
+Exactly one copy per Mac is the **stable** app Isaac uses: the packaged `/Applications/Relay.app`
+(or `EVAOS_STABLE=1`), built, signed and published by `.omp/tools/relay-desktop-deploy.ts` from
+the separate stable checkout `work/relay-monorepo-live`; it updates itself
+(`src/main/update/packaged.ts`) and starts Relay Assist as its child (`src/main/assist.ts`). Every other copy
 (agent testing, `pnpm dev`, `pnpm dev:live`, e2e) is **Relay Dev**: app name and window title
 `Relay Dev`, a `DEV` pill in the footer (hover shows its config dir), its own config dir and CDP
 port. `src/main/env.ts` refuses to start Relay Dev on the stable config dir or port.
