@@ -95,6 +95,10 @@ final class Brain {
     menu, panel or tab, closing a popup. When the target is hidden behind a chore, do the chore with \
     core_step false instead of only describing it. Then do NOT point at the hidden target in this turn: \
     you get a fresh screenshot after the chore and point then. say() should describe the next step.
+    - Exception, Blender mode switches: when the only chore is one blender_python action that is exactly \
+    bpy.ops.object.mode_set(mode='...'), point in the same turn at where the target WILL be once that mode is \
+    on (e.g. Edit Mode adds the mesh tools, Bevel among them, to the left toolbar, below the ones shown now), \
+    and say() the next step. Buddy checks the mode switched and points without looking again.
     - The core step is the thing the user asked to learn (asked "how do I bevel": beveling is core). \
     Only do a core step when the prompt says "User asked you to do it: yes"; then set core_step true \
     and include any chores it needs in the same actions list. Otherwise teach it by pointing.

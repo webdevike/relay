@@ -694,6 +694,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             overlay.perform(Plan(say: request.announce), context: context, stay: stay)
             return nil
         }
+        // Blender mode switch planned together with the point (one Terra turn): the hook confirms the
+        // mode, then point where the model predicted, with no second screenshot or plan.
+        if hook is BlenderHook, !plan.steps.isEmpty, let mode = Self.modeSwitch(request) {
+            let state = await hook?.sceneState() ?? ""
+            let now = state.split(separator: "\n").first { $0.hasPrefix("Mode: ") }.map { String($0.dropFirst(6)) } ?? "?"
+            if Self.mode(now, matches: mode) {
+                var pointing = plan
+                pointing.doRequest = nil
+                Log.info(String(format: "chore+point in one turn: mode_set(%@) verified by hook (Mode: %@), pointing at %@ without a second plan, %.0fms",
+                                mode, now, plan.steps.map(\.label).joined(separator: ", "), Date().timeIntervalSince(started) * 1000))
+                overlay.perform(pointing, context: context, stay: stay)
+                logPoint("terra-one-turn", started: started)
+                say(pointing.say)
+                guard let choresPhase else { return nil }
+                return [choresPhase, PlanCache.phase(from: pointing, context: context)]
+            }
+            Log.info("chore+point in one turn: hook says Mode: \(now), wanted \(mode); looking again")
+        }
         // A chore cleared the way: look again and point at what the user asked about.
         try await Task.sleep(nanoseconds: 300_000_000)
         async let state = hook?.sceneState()
@@ -714,5 +732,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return nil
         }
         return [choresPhase, PlanCache.phase(from: plan2, context: fresh)]
+    }
+
+    /// The mode a chore switches Blender to, when the chore is only `bpy.ops.object.mode_set(mode='X')`.
+    private static func modeSwitch(_ request: DoRequest) -> String? {
+        guard request.actions.count == 1, let action = request.actions.first, action.kind == .blenderPython,
+              let code = action.code?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let regex = try? NSRegularExpression(pattern: #"^bpy\.ops\.object\.mode_set\(\s*mode\s*=\s*['"]([A-Z_]+)['"]\s*\)$"#),
+              let match = regex.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)),
+              let range = Range(match.range(at: 1), in: code) else { return nil }
+        return String(code[range])
+    }
+
+    /// bpy.context.mode names differ from mode_set's ('EDIT' -> 'EDIT_MESH', 'VERTEX_PAINT' -> 'PAINT_VERTEX').
+    private static func mode(_ contextMode: String, matches setMode: String) -> Bool {
+        switch setMode {
+        case "EDIT": return contextMode.hasPrefix("EDIT")
+        case "VERTEX_PAINT": return contextMode == "PAINT_VERTEX"
+        case "WEIGHT_PAINT": return contextMode == "PAINT_WEIGHT"
+        case "TEXTURE_PAINT": return contextMode == "PAINT_TEXTURE"
+        default: return contextMode == setMode || contextMode.hasPrefix(setMode)
+        }
     }
 }

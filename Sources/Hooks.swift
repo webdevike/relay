@@ -165,6 +165,20 @@ struct BlenderHook: AppHook {
             lines.append(info)
         lines.append('Selected objects: ' + (', '.join(o.name for o in c.selected_objects) or 'none'))
         lines.append('Objects: ' + ', '.join('%s (%s)' % (o.name, o.type) for o in list(c.scene.objects)[:30]))
+        # Lets the model point at an Edit Mode tool in the same turn it switches modes for the user.
+        if c.mode == 'OBJECT' and ob and ob.type == 'MESH':
+            try:
+                from bl_ui.space_toolsystem_common import ToolSelectPanelHelper
+                _cls = ToolSelectPanelHelper._tool_class_from_space_type('VIEW_3D')
+                def _label(t):
+                    t = t[0] if isinstance(t, tuple) else t
+                    return t.split('.')[-1].replace('_', ' ').title() if isinstance(t, str) else getattr(t, 'label', '?')
+                with _buddy_ctx():
+                    _tools = ['|' if t is None else _label(t) for t in _cls.tools_from_context(bpy.context, mode='EDIT_MESH')]
+                lines.append('Edit Mode left toolbar, top to bottom, same icon size and spacing as now, | = gap '
+                             '(tools down to Add Cube keep their places): ' + ', '.join(_tools))
+            except Exception:
+                pass
         print('\n'.join(lines))
         """#
         return try? await BlenderLink.execute(script, timeout: 3).trimmingCharacters(in: .whitespacesAndNewlines)
