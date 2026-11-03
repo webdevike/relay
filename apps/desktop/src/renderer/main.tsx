@@ -18,7 +18,7 @@ async function start(): Promise<void> {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <ThemeProvider>
-        <Notifications position="top-right" layout="stacked" />
+        <Notifications position="top-right" layout="stacked" className="eva-toasts" />
         <App />
       </ThemeProvider>
     </StrictMode>,

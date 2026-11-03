@@ -89,7 +89,7 @@
   min-width: 0;
 }
 /* Toasts float over drag strips (tab strip, tool pane top edge); their buttons must stay clickable. */
-.mantine-Notifications-root {
+.eva-toasts {
   -webkit-app-region: no-drag;
 }
 /* The panes area (tiling/): starts at the sidebar, or a gap in from the window edge without it. */
