@@ -7,10 +7,14 @@
     "./*": "./src/*.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit -p ."
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run"
   },
   "dependencies": {
     "@evaos/chat-core": "workspace:*",
     "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "vitest": "5.0.4"
   }
 }

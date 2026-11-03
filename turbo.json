@@ -36,6 +36,7 @@
       ],
       "outputs": [
         "dist/**",
+        "out/**",
         ".build/release/**",
         "build/**"
       ]

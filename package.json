@@ -14,12 +14,17 @@
     "affected": "turbo run lint typecheck test build --filter=...[HEAD^1]",
     "format": "prettier --write \"**/*.{ts,tsx,json,md,yaml}\"",
     "ota:publish": "pnpm --filter @relay/ota-server ota:publish",
-    "ota:install": "pnpm --filter @relay/ota-server ota:install"
+    "ota:install": "pnpm --filter @relay/ota-server ota:install",
+    "dev": "pnpm -C apps/desktop dev",
+    "dev:live": "pnpm -C apps/desktop dev:live",
+    "e2e": "pnpm -C apps/desktop e2e",
+    "gate": "bash scripts/gate.sh"
   },
   "devDependencies": {
     "@eslint/js": "^9.30.0",
     "eslint": "^9.30.0",
     "prettier": "^3.6.0",
+    "stylelint": "^17.16.0",
     "turbo": "^2.10.12",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.35.0",

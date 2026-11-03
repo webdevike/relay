@@ -6,3 +6,13 @@ packages:
   - "!packages/widget-runtime"
   # Own isolated install (React 19.3 + React Flow + Yjs): builds generated/canvas.html for the host.
   - "!packages/canvas-web"
+  # Relay desktop: its own pnpm workspace (apps/desktop/pnpm-workspace.yaml: the app and its five
+  # @evaos packages, isolated install, React 19.3 + Mantine + Electron). In this hoisted install the
+  # phone app's React 19.1 takes the root slot and every desktop React library gets its own nested
+  # React 19.3 copy, which breaks hooks in the desktop's tests.
+  - "!apps/desktop"
+  - "!packages/browser-core"
+  - "!packages/chat-core"
+  - "!packages/contract"
+  - "!packages/eva-core"
+  - "!packages/shell-core"

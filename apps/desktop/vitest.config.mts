@@ -6,6 +6,15 @@ const exclude = ['e2e/**/*.spec.ts', 'out/**', '**/node_modules/**']
 export default defineConfig({
   test: {
     projects: [
+      // The desktop gate and lint scripts live at the repo root (scripts/).
+      {
+        test: {
+          name: 'scripts',
+          root: '../..',
+          environment: 'node',
+          include: ['scripts/**/*.test.ts'],
+        },
+      },
       {
         test: {
           name: 'main',

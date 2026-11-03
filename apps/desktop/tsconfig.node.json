@@ -1,5 +1,5 @@
 {
-  "extends": "../../tsconfig.base.json",
+  "extends": "../../tsconfig.desktop.json",
   "compilerOptions": { "types": ["node"], "lib": ["ES2024", "DOM"] },
   "include": [
     "src/main",

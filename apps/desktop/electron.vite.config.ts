@@ -1,8 +1,6 @@
 import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
-import { realpathSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { searchForWorkspaceRoot } from 'vite'
 import type { ViteDevServer } from 'vite'
 
 // Shown in the footer so Isaac can tell which build is running: when this build started.
@@ -33,13 +31,6 @@ const staleSignal = {
     })
   },
 }
-
-// @relay/widget-runtime and @relay/portrait-motion are linked from the Relay checkout, outside this
-// workspace: the dev server may serve their files (theme, theme-components.css, the motion source
-// and the DiceBear styles it imports from Relay's node_modules) only when allowed by real path.
-const widgetRuntime = realpathSync(resolve(__dirname, 'node_modules/@relay/widget-runtime'))
-const portraitMotion = realpathSync(resolve(__dirname, 'node_modules/@relay/portrait-motion'))
-const relayModules = resolve(portraitMotion, '../../node_modules')
 
 // The built app keeps the strict CSP from index.html; only the dev server relaxes it for HMR.
 const devCsp = {
@@ -73,9 +64,10 @@ export default defineConfig({
     define: { __RELAY_BUILD__: JSON.stringify(buildStamp) },
     plugins: [react(), devCsp, staleSignal],
     server: {
-      fs: {
-        allow: [searchForWorkspaceRoot(__dirname), widgetRuntime, portraitMotion, relayModules],
-      },
+      // This app's workspace (apps/desktop/pnpm-workspace.yaml) is nested in the monorepo: allow the
+      // monorepo root for its packages, @relay/widget-runtime, @relay/portrait-motion and the DiceBear
+      // styles the motion source imports from the root node_modules.
+      fs: { allow: [resolve(__dirname, '../..')] },
     },
     // One copy of DiceBear: the still portraits (ui/portrait.ts) and the motion rigs share it.
     resolve: { dedupe: ['@dicebear/core', '@dicebear/micah', '@dicebear/notionists'] },

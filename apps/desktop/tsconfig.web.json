@@ -1,9 +1,16 @@
 {
-  "extends": "../../tsconfig.base.json",
+  "extends": "../../tsconfig.desktop.json",
   "compilerOptions": {
     "jsx": "react-jsx",
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
-    "types": ["vite/client", "@testing-library/jest-dom"]
+    "types": ["vite/client", "@testing-library/jest-dom"],
+    // With jsx react-jsx every file gets an implicit `react/jsx-runtime` import; for the packages
+    // outside this dir (../../packages/*) it would resolve to the monorepo root's @types/react 19.1
+    // (the phone app's). Point them all at this app's 19.3 types.
+    "paths": {
+      "react": ["./node_modules/@types/react"],
+      "react/*": ["./node_modules/@types/react/*"]
+    }
   },
   "include": ["src/renderer"]
 }

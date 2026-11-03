@@ -42,7 +42,9 @@ export function findEmDashes(file: string, text: string): DashHit[] {
 function main(): void {
   const files = [
     ...fs.globSync('apps/desktop/src/renderer/**/*.{ts,tsx}'),
-    ...fs.globSync('packages/*/src/**/*.{ts,tsx}'),
+    ...fs.globSync(
+      'packages/{browser-core,chat-core,contract,eva-core,shell-core}/src/**/*.{ts,tsx}',
+    ),
   ]
     // Vendored openui lang-core: its strings are LLM prompt text and parser errors, never UI.
     .filter((f) => !f.includes('node_modules') && !f.includes('/openui/lang/'))

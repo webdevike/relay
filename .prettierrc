@@ -1,1 +1,22 @@
-{ "semi": true, "singleQuote": false, "printWidth": 100, "trailingComma": "all" }
+{
+  "semi": true,
+  "singleQuote": false,
+  "printWidth": 100,
+  "trailingComma": "all",
+  "overrides": [
+    {
+      "files": [
+        "apps/desktop/**",
+        "packages/browser-core/**",
+        "packages/chat-core/**",
+        "packages/contract/**",
+        "packages/eva-core/**",
+        "packages/shell-core/**",
+        "scripts/**",
+        "eslint.config.mjs",
+        "stylelint.config.mjs"
+      ],
+      "options": { "semi": false, "singleQuote": true }
+    }
+  ]
+}
