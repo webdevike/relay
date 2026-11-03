@@ -26,6 +26,7 @@ import { ChatAgentSchema, type ChatAgent, type ChatRow as Row } from '@evaos/con
 import { Categories } from '@evaos/chat-core/categories'
 import { placeOf } from '@evaos/shell-core'
 import { openPlace } from '../../navigation/navigate'
+import { openFromNav } from '../../navigation/open-in-app'
 import { activePlace, useTabs } from '../../tabs/tabs-store'
 import { ChatRow } from './ChatRow'
 import { DeleteChatModal } from './DeleteChatModal'
@@ -232,7 +233,7 @@ export function ChatList({
 
   const open = (row: Row, e: MouseEvent | KeyboardEvent): void => {
     void markRead(row.id)
-    openPlace(placeOf('chat', { chat: row.file }), { newTab: e.metaKey })
+    openFromNav(placeOf('chat', { chat: row.file }), e)
   }
 
   const rowEl = (row: Row, opts: { nested: boolean; settled?: boolean; group?: string }) => (

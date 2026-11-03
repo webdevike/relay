@@ -178,7 +178,7 @@ test('reload triggers: Cmd+R, window focus and the refresh button', async ({
   await expect(shell.locator(sel('dash-updated'))).toContainText('Updated')
 })
 
-test('workspace cards navigate, meta-click opens a new tab', async ({ app, shell }) => {
+test('workspace cards navigate, cmd+shift-click opens a new tab', async ({ app, shell }) => {
   await size(app, shell, ...WIDE)
   const count = async (): Promise<number> => (await tabs(shell)).list.length
   const n = await count()
@@ -190,7 +190,7 @@ test('workspace cards navigate, meta-click opens a new tab', async ({ app, shell
 
   await shell.evaluate(() => (window as unknown as Shell).__evaosShell.openPlace('dashboard'))
   await expect(shell.locator(sel('ws-card-goodops'))).toBeVisible()
-  await shell.locator(sel('ws-card-goodops')).click({ modifiers: ['Meta'] })
+  await shell.locator(sel('ws-card-goodops')).click({ modifiers: ['Meta', 'Shift'] })
   await expect.poll(count).toBe(n + 1)
 })
 

@@ -3,7 +3,7 @@ import { IconMessageChatbot } from '@tabler/icons-react'
 import type { AssistantStatus } from '@evaos/contract'
 import { agoLabel } from '@evaos/eva-core/model/jobs'
 import { placeOf, type Place } from '@evaos/shell-core'
-import { openPlace } from '../navigation/navigate'
+import { openFromNav } from '../navigation/open-in-app'
 import { pageMeta } from '../pages/page-meta'
 import { portrait } from '../ui/portrait'
 import { useAssistants } from './assistants-store'
@@ -49,7 +49,7 @@ export function AssistantsHome({ place }: { place: Place }) {
               className="eva-as-row"
               data-testid={`assistant-row-${a.id}`}
               data-status={a.status}
-              onClick={(e) => openPlace(placeOf(`agent:${a.id}`), { newTab: e.metaKey })}
+              onClick={(e) => openFromNav(placeOf(`agent:${a.id}`), e)}
             >
               <PortraitMotion id={a.id} testId={`agent-portrait-${a.id}`}>
                 <Avatar

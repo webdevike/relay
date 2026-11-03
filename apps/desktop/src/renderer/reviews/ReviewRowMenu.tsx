@@ -1,13 +1,13 @@
 import { createPortal } from 'react-dom'
 import type { MouseEvent, KeyboardEvent } from 'react'
 import { IconExternalLink, IconLayoutColumns, IconPlus } from '@tabler/icons-react'
-import { CHAT_PANE } from '@evaos/shell-core'
 import { setReviewTitle } from '../eva/names-store'
 import { openPlace } from '../navigation/navigate'
+import { openInApp } from '../navigation/open-in-app'
 import { openLink } from '../navigation/open-link'
+import { navTargetOf } from '../navigation/open-target'
 import { EvaMenu } from '../overlay'
 import { activePlace, tabsStore } from '../tabs/tabs-store'
-import { splitAt } from '../tiling/tiling-store'
 import { reviewIdOf, reviewPlaceOf, reviewRefOf, reviewTitleOf } from './review-place'
 import { openPr, openThread, openTicket, type ReviewItem } from './reviews-store'
 
@@ -18,7 +18,7 @@ function nameIt(item: ReviewItem): void {
 
 /**
  * Opens a queue row. On the Reviews page a plain click shows it there (as before); anywhere else
- * (a chat, another review) it goes to the item's own place in this tab, and `newTab` (Cmd-click,
+ * (a chat, another review) it goes to the item's own place in this tab, and `newTab` (Cmd+Shift-click,
  * middle-click, the menu) always opens its own tab, so several can be open at once.
  */
 export function openReviewRow(item: ReviewItem, newTab: boolean): void {
@@ -32,10 +32,10 @@ export function openReviewRow(item: ReviewItem, newTab: boolean): void {
   openPlace(reviewPlaceOf(reviewRefOf(item)), { newTab })
 }
 
-/** The item's own place in a split pane beside the chat. */
+/** The item's own place in the pane right of the chat (a tab of it when one is open). */
 export function splitReviewRow(item: ReviewItem): void {
   nameIt(item)
-  splitAt(CHAT_PANE, 'right', { kind: 'page', place: reviewPlaceOf(reviewRefOf(item)) })
+  openInApp(reviewPlaceOf(reviewRefOf(item)), 'split')
 }
 
 export interface RowMenuState {
@@ -45,12 +45,16 @@ export interface RowMenuState {
 }
 
 /**
- * What a queue row does besides open in place: Cmd-click and middle-click open a new tab, the
- * context menu (or Shift+F10) offers the new tab and a split.
+ * What a queue row does besides open in place: Cmd-click opens a side pane, Cmd+Shift-click and
+ * middle-click a new tab, and the context menu (or Shift+F10) offers both.
  */
 export function rowHandlers(item: ReviewItem, onMenu: (m: RowMenuState) => void) {
   return {
-    onClick: (e: MouseEvent) => openReviewRow(item, e.metaKey || e.ctrlKey),
+    onClick: (e: MouseEvent) => {
+      const target = navTargetOf(e)
+      if (target === 'split') splitReviewRow(item)
+      else openReviewRow(item, target === 'tab')
+    },
     onAuxClick: (e: MouseEvent) => {
       if (e.button !== 1) return
       e.preventDefault()

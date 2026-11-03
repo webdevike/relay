@@ -176,7 +176,7 @@ describe('MeetingsList', () => {
     expect(openPlace).toHaveBeenLastCalledWith(placeOf('meetings', { meeting: 'standup' }), {
       newTab: false,
     })
-    fireEvent.click(row, { metaKey: true })
+    fireEvent.click(row, { metaKey: true, shiftKey: true })
     expect(openPlace).toHaveBeenLastCalledWith(placeOf('meetings', { meeting: 'standup' }), {
       newTab: true,
     })

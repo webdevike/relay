@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent } fro
 import { createPortal } from 'react-dom'
 import type { CanvasEntry } from '@evaos/contract'
 import { placeOf } from '@evaos/shell-core'
-import { openPlace } from '../navigation/navigate'
+import { openFromNav } from '../navigation/open-in-app'
 import { EvaMenu, EvaModal } from '../overlay'
 import { activePlace, useTabs } from '../tabs/tabs-store'
 import {
@@ -42,8 +42,7 @@ function Row({
   active: boolean
   onMenu: (entry: CanvasEntry, x: number, y: number) => void
 }) {
-  const open = (e: MouseEvent): void =>
-    openPlace(placeOf('canvas', { canvas: entry.slug }), { newTab: e.metaKey })
+  const open = (e: MouseEvent): void => openFromNav(placeOf('canvas', { canvas: entry.slug }), e)
   return (
     <button
       type="button"
@@ -52,6 +51,11 @@ function Row({
       data-active={active ? 'true' : undefined}
       aria-current={active ? 'page' : undefined}
       onClick={open}
+      onAuxClick={(e) => {
+        if (e.button !== 1) return
+        e.preventDefault()
+        open(e)
+      }}
       onContextMenu={(e) => {
         e.preventDefault()
         onMenu(entry, e.clientX, e.clientY)

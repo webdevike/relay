@@ -4,7 +4,7 @@ import type { MeetingSummary } from '@evaos/contract'
 import { placeOf } from '@evaos/shell-core'
 import { localDate } from '@evaos/eva-core/model/dates'
 import { filterByTitle, groupByDay, type Meeting } from '@evaos/eva-core/model/meetings'
-import { openPlace } from '../navigation/navigate'
+import { openFromNav } from '../navigation/open-in-app'
 import { activePlace, useTabs } from '../tabs/tabs-store'
 import { useMeetings, useMeetingsSurface } from './meetings-store'
 import './meetings.css'
@@ -32,8 +32,7 @@ function asMeeting(m: MeetingSummary): Meeting {
 }
 
 function Row({ m, active, dim }: { m: MeetingSummary; active: boolean; dim?: boolean }) {
-  const open = (e: MouseEvent): void =>
-    openPlace(placeOf('meetings', { meeting: m.stem }), { newTab: e.metaKey })
+  const open = (e: MouseEvent): void => openFromNav(placeOf('meetings', { meeting: m.stem }), e)
   return (
     <button
       type="button"

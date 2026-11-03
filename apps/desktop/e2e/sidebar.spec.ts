@@ -51,7 +51,7 @@ test('plain click replaces, cmd-click opens a tab, pinned opens another', async 
   await expect(shell.locator(sel('nav-habits'))).toHaveAttribute('data-active', 'true')
   await expect(shell.locator(sel('nav-dashboard'))).not.toHaveAttribute('data-active', 'true')
 
-  await shell.locator(sel('nav-dashboard')).click({ modifiers: ['Meta'] })
+  await shell.locator(sel('nav-dashboard')).click({ modifiers: ['Meta', 'Shift'] })
   await expect.poll(async () => (await tabs(shell)).list.length).toBe(2)
 
   const first = (await tabs(shell)).list[0]!

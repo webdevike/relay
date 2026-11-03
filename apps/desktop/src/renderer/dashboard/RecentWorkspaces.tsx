@@ -3,7 +3,7 @@ import { placeOf } from '@evaos/shell-core'
 import type { WorkspaceSummary } from '@evaos/contract'
 import { activityRows } from '@evaos/eva-core/model/dashboard'
 import { relativeLabel } from '@evaos/eva-core/model/dates'
-import { openPlace } from '../navigation/navigate'
+import { openFromNav } from '../navigation/open-in-app'
 import { ActivityChart } from '../ui/ActivityChart'
 import { Segmented } from './Segmented'
 import { setRange, type Range } from './dashboard-store'
@@ -52,9 +52,7 @@ export function RecentWorkspaces(p: RecentProps) {
                 <button
                   type="button"
                   className="eva-dash-name-link"
-                  onClick={(e) =>
-                    openPlace(placeOf(`workspace:${ws.id}`), { newTab: e.metaKey || e.ctrlKey })
-                  }
+                  onClick={(e) => openFromNav(placeOf(`workspace:${ws.id}`), e)}
                 >
                   {ws.displayName}
                 </button>

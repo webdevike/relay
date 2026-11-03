@@ -4,7 +4,8 @@ import { type MouseEvent } from 'react'
 import { placeOf, type Place } from '@evaos/shell-core'
 import { useBoards } from '../boards/boards-store'
 import { canvasNavPlace } from '../canvas/canvas-store'
-import { openPlace } from '../navigation/navigate'
+import { openFromNav } from '../navigation/open-in-app'
+import { navTargetOf } from '../navigation/open-target'
 import { NAV_PAGES } from '../pages/page-meta'
 import { activePlace, useTabs } from '../tabs/tabs-store'
 import { brandTooltip, useAbout } from '../about/build-info'
@@ -26,29 +27,30 @@ export function MainNav() {
   const boards = useBoards((s) => s.data?.boards ?? null)
 
   const go = (page: Place['page'], e: MouseEvent): void => {
-    const newTab = e.metaKey
+    const here_ = navTargetOf(e) === 'here'
+    const nav = (p: Place): void => openFromNav(p, e)
     if (page === 'assistants') {
-      openPlace(placeOf('assistants'), { newTab })
+      nav(placeOf('assistants'))
       openSub('assistants')
     } else if (page === 'chat') {
       // A plain click on Chat while already on a chat only drills in.
-      if (!(here.page === 'chat' && !newTab)) openPlace(placeOf('chat'), { newTab })
+      if (!(here.page === 'chat' && here_)) nav(placeOf('chat'))
       openSub('chats')
     } else if (page === 'meetings') {
-      openPlace(placeOf('meetings'), { newTab })
+      nav(placeOf('meetings'))
       openSub('meetings')
     } else if (page === 'reviews') {
-      openPlace(placeOf('reviews'), { newTab })
+      nav(placeOf('reviews'))
       openSub('reviews')
     } else if (page === 'canvas') {
       // A plain click while on a board only drills in.
-      if (!(here.page === 'canvas' && !newTab)) openPlace(canvasNavPlace(), { newTab })
+      if (!(here.page === 'canvas' && here_)) nav(canvasNavPlace())
       openSub('canvas')
     } else if (page === 'settings') {
-      openPlace(placeOf('settings', { settingsSection: 'Theme' }), { newTab })
+      nav(placeOf('settings', { settingsSection: 'Theme' }))
       openSub('settings')
     } else {
-      openPlace(placeOf(page), { newTab })
+      nav(placeOf(page))
     }
   }
 

@@ -1,6 +1,6 @@
 import { Avatar } from '@mantine/core'
 import { placeOf } from '@evaos/shell-core'
-import { openPlace } from '../navigation/navigate'
+import { openFromNav } from '../navigation/open-in-app'
 import { activePlace, useTabs } from '../tabs/tabs-store'
 import { portrait } from '../ui/portrait'
 import { agentIdOf, useAssistants } from './assistants-store'
@@ -26,7 +26,12 @@ export function AssistantsList() {
           data-testid={`sidebar-agent-${a.id}`}
           data-active={open === a.id ? 'true' : undefined}
           aria-current={open === a.id ? 'page' : undefined}
-          onClick={(e) => openPlace(placeOf(`agent:${a.id}`), { newTab: e.metaKey })}
+          onClick={(e) => openFromNav(placeOf(`agent:${a.id}`), e)}
+          onAuxClick={(e) => {
+            if (e.button !== 1) return
+            e.preventDefault()
+            openFromNav(placeOf(`agent:${a.id}`), e)
+          }}
         >
           <PortraitMotion id={a.id} testId={`sidebar-portrait-${a.id}`}>
             <Avatar

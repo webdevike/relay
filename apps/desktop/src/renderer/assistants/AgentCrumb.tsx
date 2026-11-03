@@ -1,7 +1,7 @@
 import { IconChevronLeft } from '@tabler/icons-react'
 import { placeOf } from '@evaos/shell-core'
 import { useNamesVersion, agentTitle } from '../eva/names-store'
-import { openPlace } from '../navigation/navigate'
+import { openFromNav } from '../navigation/open-in-app'
 import { AgentPortrait } from './AgentPortrait'
 import './assistants.css'
 
@@ -17,7 +17,7 @@ export function AgentCrumb({ id }: { id: string }) {
         type="button"
         className="eva-as-crumb-back"
         data-testid="breadcrumb-back"
-        onClick={(e) => openPlace(placeOf('assistants'), { newTab: e.metaKey })}
+        onClick={(e) => openFromNav(placeOf('assistants'), e)}
       >
         <IconChevronLeft stroke={2} aria-hidden />
         Assistants
@@ -29,7 +29,7 @@ export function AgentCrumb({ id }: { id: string }) {
         type="button"
         className="eva-as-crumb-here eva-as-crumb-link"
         data-testid="breadcrumb-agent"
-        onClick={(e) => openPlace(placeOf(`agent:${id}`), { newTab: e.metaKey })}
+        onClick={(e) => openFromNav(placeOf(`agent:${id}`), e)}
       >
         {agentTitle(id) ?? id}
       </button>
@@ -49,7 +49,7 @@ export function OwnedCrumb({ agent, title }: { agent: string; title: string }) {
         type="button"
         className="eva-as-crumb-back"
         data-testid="owned-crumb-back"
-        onClick={(e) => openPlace(placeOf(`agent:${agent}`), { newTab: e.metaKey })}
+        onClick={(e) => openFromNav(placeOf(`agent:${agent}`), e)}
       >
         <IconChevronLeft stroke={2} aria-hidden />
         <AgentPortrait id={agent} className="eva-as-crumb-portrait" />

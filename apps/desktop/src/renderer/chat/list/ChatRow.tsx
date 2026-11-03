@@ -48,7 +48,7 @@ export interface ChatRowProps {
   active: boolean
   /** Fades the background for 300 ms after a title, status or return change. */
   changed?: boolean
-  /** Click or Enter; Cmd opens a new tab. */
+  /** Click or Enter; Cmd opens a side pane, Cmd+Shift or middle-click a new tab. */
   onOpen: (row: Row, e: MouseEvent | KeyboardEvent) => void
   /** Opens the chat menu at a viewport point (right-click or Shift+F10). */
   onMenu?: (row: Row, x: number, y: number) => void
@@ -416,6 +416,12 @@ function ChatRowImpl({
             data-nested={nested ? 'true' : undefined}
             data-snoozing={snoozing ? 'true' : undefined}
             onClick={(e: MouseEvent) => {
+              hideCard()
+              onOpen(row, e)
+            }}
+            onAuxClick={(e: MouseEvent) => {
+              if (e.button !== 1) return
+              e.preventDefault()
               hideCard()
               onOpen(row, e)
             }}

@@ -3,7 +3,7 @@ import { placeOf } from '@evaos/shell-core'
 import type { WorkspaceSummary } from '@evaos/contract'
 import { filterCounts, type FilterId } from '@evaos/eva-core/model/dashboard'
 import { relativeLabel } from '@evaos/eva-core/model/dates'
-import { openPlace } from '../navigation/navigate'
+import { openFromNav } from '../navigation/open-in-app'
 import { Segmented } from './Segmented'
 import { setFilter } from './dashboard-store'
 
@@ -59,9 +59,7 @@ export function WorkspaceGrid(p: GridProps) {
                 className={`eva-dash-card${p.entrance ? ' eva-cue-grid-cards' : ''}`}
                 style={{ ['--i' as string]: Math.min(i, 11) }}
                 data-testid={`ws-card-${ws.id}`}
-                onClick={(e) =>
-                  openPlace(placeOf(`workspace:${ws.id}`), { newTab: e.metaKey || e.ctrlKey })
-                }
+                onClick={(e) => openFromNav(placeOf(`workspace:${ws.id}`), e)}
               >
                 <span className="eva-dash-card-name">
                   <span className="eva-dash-ellipsis">{ws.displayName}</span>

@@ -145,7 +145,7 @@ describe('DashboardPage', () => {
     expect(relay.style.getPropertyValue('--i')).toBe('0')
     fireEvent.click(relay)
     expect(openPlace).toHaveBeenLastCalledWith(placeOf('workspace:relay'), { newTab: false })
-    fireEvent.click(relay, { metaKey: true })
+    fireEvent.click(relay, { metaKey: true, shiftKey: true })
     expect(openPlace).toHaveBeenLastCalledWith(placeOf('workspace:relay'), { newTab: true })
   })
 

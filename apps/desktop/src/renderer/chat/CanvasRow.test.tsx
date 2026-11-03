@@ -60,7 +60,10 @@ describe('canvas rows', () => {
     expect(screen.queryByRole('button', { name: 'Join' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Open board' }))
     expect(nav.openBoard).toHaveBeenCalledWith('mind-map', 'split')
-    fireEvent.click(screen.getByRole('button', { name: 'Open board' }), { metaKey: true })
+    fireEvent.click(screen.getByRole('button', { name: 'Open board' }), {
+      metaKey: true,
+      shiftKey: true,
+    })
     expect(nav.openBoard).toHaveBeenLastCalledWith('mind-map', 'tab')
   })
 

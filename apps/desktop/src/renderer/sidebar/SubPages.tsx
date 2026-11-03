@@ -14,7 +14,8 @@ import { SETTINGS_SECTIONS, placeOf, type SettingsSection } from '@evaos/shell-c
 import { AssistantsList } from '../assistants/AssistantsList'
 import { CanvasList } from '../canvas/CanvasList'
 import { newBoard } from '../canvas/canvas-store'
-import { openPlace } from '../navigation/navigate'
+import { openFromNav } from '../navigation/open-in-app'
+import { navTargetOf } from '../navigation/open-target'
 import { activePlace, newChatTab, useTabs } from '../tabs/tabs-store'
 import { ScrollArea } from '../ui/ScrollArea'
 import { MeetingsList } from '../meetings/MeetingsList'
@@ -53,7 +54,7 @@ export function SubPage({ level }: { level: Exclude<NavLevel, 'root'> }) {
         : 'Settings'
 
   const pick = (section: SettingsSection, e: MouseEvent): void => {
-    openPlace(placeOf('settings', { settingsSection: section }), { newTab: e.metaKey })
+    openFromNav(placeOf('settings', { settingsSection: section }), e)
   }
 
   return (
@@ -88,7 +89,7 @@ export function SubPage({ level }: { level: Exclude<NavLevel, 'root'> }) {
               type="button"
               className="eva-sb-title-btn"
               data-testid="assistants-home-link"
-              onClick={(e) => openPlace(placeOf('assistants'), { newTab: e.metaKey })}
+              onClick={(e) => openFromNav(placeOf('assistants'), e)}
             >
               {title}
             </button>
@@ -97,7 +98,7 @@ export function SubPage({ level }: { level: Exclude<NavLevel, 'root'> }) {
               type="button"
               className="eva-sb-title-btn"
               data-testid="meetings-home"
-              onClick={(e) => openPlace(placeOf('meetings'), { newTab: e.metaKey })}
+              onClick={(e) => openFromNav(placeOf('meetings'), e)}
             >
               {title}
             </button>
@@ -122,7 +123,7 @@ export function SubPage({ level }: { level: Exclude<NavLevel, 'root'> }) {
               size="var(--eva-kit-control-sm)"
               aria-label="New board"
               data-testid="canvas-new"
-              onClick={(e) => void newBoard(e.metaKey)}
+              onClick={(e) => void newBoard(navTargetOf(e))}
             >
               <IconPlus size="calc(var(--eva-font-size) * .875)" stroke={1.5} />
             </ActionIcon>

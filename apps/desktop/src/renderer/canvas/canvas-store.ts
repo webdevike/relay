@@ -5,7 +5,8 @@ import type { CanvasEntry } from '@evaos/contract'
 import { placeOf, type Place } from '@evaos/shell-core'
 import { setCanvasTitles } from '../eva/names-store'
 import { invoke, on } from '../ipc'
-import { openPlace } from '../navigation/navigate'
+import { openPlaceAt } from '../navigation/open-in-app'
+import type { OpenTarget } from '../navigation/open-target'
 import { registerReloader } from '../reload/reload'
 
 export interface CanvasListState {
@@ -80,11 +81,11 @@ export function loadCanvasList(): Promise<void> {
 
 export type OpResult = { ok: true } | { ok: false; message: string }
 
-/** Creates `untitled-<n>` and shows it. */
-export async function newBoard(newTab = false): Promise<void> {
+/** Creates `untitled-<n>` and shows it where `target` says. */
+export async function newBoard(target: OpenTarget = 'here'): Promise<void> {
   const r = await invoke('canvas.create', {})
   await loadCanvasList()
-  if (r.ok) openPlace(placeOf('canvas', { canvas: r.value.slug }), { newTab })
+  if (r.ok) openPlaceAt(placeOf('canvas', { canvas: r.value.slug }), target)
 }
 
 export async function renameBoard(slug: string, title: string): Promise<OpResult> {

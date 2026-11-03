@@ -17,11 +17,13 @@ const openReviewItem = vi.fn()
 vi.mock('../reviews/reviews-store', () => ({
   openReviewItem: (...a: unknown[]) => openReviewItem(...a),
 }))
+const openPlace = vi.fn()
+vi.mock('./navigate', () => ({ openPlace: (...a: unknown[]) => openPlace(...a) }))
 
 import { linkPrefsStore } from './link-prefs'
 import { openLink } from './open-link'
-import { openInApp } from './open-in-app'
-import { openTargetOf } from './open-target'
+import { openFromNav, openInApp } from './open-in-app'
+import { navTargetOf, openTargetOf } from './open-target'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -100,12 +102,34 @@ describe('openLink', () => {
   })
 })
 
-describe('openTargetOf', () => {
-  it('splits by default, Cmd is a new tab, Option is here', () => {
+describe('click targets', () => {
+  it('in a chat: split by default and with Cmd, Cmd+Shift or middle a new tab, Option here', () => {
     expect(openTargetOf({})).toBe('split')
-    expect(openTargetOf({ metaKey: false, altKey: false })).toBe('split')
-    expect(openTargetOf({ metaKey: true })).toBe('tab')
+    expect(openTargetOf({ metaKey: true })).toBe('split')
+    expect(openTargetOf({ metaKey: true, shiftKey: true })).toBe('tab')
+    expect(openTargetOf({ button: 1 })).toBe('tab')
     expect(openTargetOf({ altKey: true })).toBe('here')
-    expect(openTargetOf({ metaKey: true, altKey: true })).toBe('tab')
+  })
+  it('on navigation: this tab by default, Cmd a split, Cmd+Shift or middle a new tab', () => {
+    expect(navTargetOf({})).toBe('here')
+    expect(navTargetOf({ metaKey: true })).toBe('split')
+    expect(navTargetOf({ ctrlKey: true })).toBe('split')
+    expect(navTargetOf({ metaKey: true, shiftKey: true })).toBe('tab')
+    expect(navTargetOf({ button: 1 })).toBe('tab')
+  })
+  it('openFromNav: Cmd splits beside, plain and Cmd+Shift go through openPlace', () => {
+    openFromNav(placeOf('jobs'), {})
+    expect(openPlace).toHaveBeenLastCalledWith(placeOf('jobs'), { newTab: false })
+    openFromNav(placeOf('jobs'), { metaKey: true, shiftKey: true })
+    expect(openPlace).toHaveBeenLastCalledWith(placeOf('jobs'), { newTab: true })
+    expect(openTab).not.toHaveBeenCalled()
+    openFromNav(placeOf('jobs'), { metaKey: true })
+    expect(openTab).toHaveBeenLastCalledWith({ kind: 'page', place: placeOf('jobs') })
+    expect(openPlace).toHaveBeenCalledTimes(2)
+  })
+  it('Cmd keeps an app override: a Linear link still opens the app, not a pane', () => {
+    openLink('https://linear.app/w/view/all', { target: openTargetOf({ metaKey: true }) })
+    expect(invoke).toHaveBeenLastCalledWith('links.open', { url: 'https://linear.app/w/view/all' })
+    expect(openTab).not.toHaveBeenCalled()
   })
 })

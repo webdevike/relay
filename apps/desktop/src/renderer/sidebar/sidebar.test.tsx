@@ -77,7 +77,16 @@ describe('MainNav', () => {
     wrap(<MainNav />)
     fireEvent.click(screen.getByTestId('nav-habits'))
     expect(openPlace).toHaveBeenLastCalledWith(placeOf('habits'), { newTab: false })
+    fireEvent.click(screen.getByTestId('nav-habits'), { metaKey: true, shiftKey: true })
+    expect(openPlace).toHaveBeenLastCalledWith(placeOf('habits'), { newTab: true })
+    // Cmd opens a side pane, not through openPlace; middle-click is a new tab.
+    const calls = openPlace.mock.calls.length
     fireEvent.click(screen.getByTestId('nav-habits'), { metaKey: true })
+    expect(openPlace.mock.calls).toHaveLength(calls)
+    fireEvent(
+      screen.getByTestId('nav-habits'),
+      new MouseEvent('auxclick', { bubbles: true, cancelable: true, button: 1 }),
+    )
     expect(openPlace).toHaveBeenLastCalledWith(placeOf('habits'), { newTab: true })
     fireEvent.click(screen.getByTestId('nav-chat'))
     expect(navLevelStore.getState().level).toBe('chats')
@@ -157,7 +166,7 @@ describe('sub-pages', () => {
     expect(openPlace).toHaveBeenLastCalledWith(placeOf('settings', { settingsSection: 'Chat' }), {
       newTab: false,
     })
-    fireEvent.click(screen.getByTestId('settings-item-chat'), { metaKey: true })
+    fireEvent.click(screen.getByTestId('settings-item-chat'), { metaKey: true, shiftKey: true })
     expect(openPlace).toHaveBeenLastCalledWith(placeOf('settings', { settingsSection: 'Chat' }), {
       newTab: true,
     })

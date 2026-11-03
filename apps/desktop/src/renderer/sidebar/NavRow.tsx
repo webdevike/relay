@@ -32,6 +32,11 @@ export function NavRow({
       data-active={active ? 'true' : undefined}
       aria-current={active ? 'page' : undefined}
       onClick={onClick}
+      onAuxClick={(e) => {
+        if (e.button !== 1) return
+        e.preventDefault()
+        onClick(e)
+      }}
     >
       <Glyph size={16} aria-hidden />
       <span className="eva-sb-row-label">{title}</span>

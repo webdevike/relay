@@ -66,13 +66,13 @@ vi.mock('../navigation/navigate', () => ({
 }))
 const openLink = vi.fn()
 vi.mock('../navigation/open-link', () => ({ openLink: (...a: unknown[]) => openLink(...a) }))
-const splitAt = vi.fn()
+const openTab = vi.fn()
 vi.mock('../tiling/tiling-store', async (orig) => ({
   ...(await orig<typeof TilingStore>()),
-  splitAt: (...a: unknown[]) => splitAt(...a),
+  openTab: (...a: unknown[]) => openTab(...a),
 }))
 
-import { CHAT_PANE, createTabs, placeOf, type Place } from '@evaos/shell-core'
+import { createTabs, placeOf, type Place } from '@evaos/shell-core'
 import { tabsStore } from '../tabs/tabs-store'
 import { ReviewPage } from './ReviewPage'
 import { ReviewsList } from './ReviewsList'
@@ -101,7 +101,7 @@ beforeEach(() => {
   invoke.mockClear()
   openPlace.mockClear()
   openLink.mockClear()
-  splitAt.mockClear()
+  openTab.mockClear()
   resetReviewsForTests()
   seed(placeOf('reviews'))
 })
@@ -122,15 +122,18 @@ describe('queue rows open review places', () => {
     expect(reviewsStore.getState().selected).toBeNull()
   })
 
-  it('Cmd-click and middle-click open a new tab for a PR, a ticket and a Slack thread', async () => {
+  it('Cmd-click opens a side pane, Cmd+Shift-click and middle-click a new tab', async () => {
     wrap(<ReviewsList />)
     const pr = await screen.findByTestId('review-row-172')
     fireEvent.click(pr, { metaKey: true })
+    expect(openTab).toHaveBeenLastCalledWith({ kind: 'page', place: PR_PLACE })
+    expect(openPlace).not.toHaveBeenCalled()
+    fireEvent.click(pr, { metaKey: true, shiftKey: true })
     expect(openPlace).toHaveBeenLastCalledWith(PR_PLACE, { newTab: true })
     fireEvent(pr, new MouseEvent('auxclick', { bubbles: true, cancelable: true, button: 1 }))
     expect(openPlace).toHaveBeenCalledTimes(2)
     const ticket = await screen.findByTestId('review-ticket-ENG-6648')
-    fireEvent.click(ticket, { metaKey: true })
+    fireEvent.click(ticket, { metaKey: true, shiftKey: true })
     expect(openPlace).toHaveBeenLastCalledWith(TICKET_PLACE, { newTab: true })
     const thread = await screen.findByTestId('review-slack-row')
     fireEvent(thread, new MouseEvent('auxclick', { bubbles: true, cancelable: true, button: 1 }))
@@ -149,10 +152,7 @@ describe('queue rows open review places', () => {
     expect(openPlace).toHaveBeenLastCalledWith(PR_PLACE, { newTab: true })
     fireEvent.contextMenu(await screen.findByTestId('review-ticket-ENG-6648'))
     fireEvent.click(await screen.findByTestId('review-row-menu-split'))
-    expect(splitAt).toHaveBeenLastCalledWith(CHAT_PANE, 'right', {
-      kind: 'page',
-      place: TICKET_PLACE,
-    })
+    expect(openTab).toHaveBeenLastCalledWith({ kind: 'page', place: TICKET_PLACE })
     fireEvent.contextMenu(await screen.findByTestId('review-row-172'))
     fireEvent.click(await screen.findByTestId('review-row-menu-link'))
     expect(openLink).toHaveBeenLastCalledWith(ROW.url, { reviews: false })
