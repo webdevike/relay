@@ -2,7 +2,7 @@
 # Sign omp in to an AI provider.
 #
 #   ai-login.sh <anthropic|openai>             omp's own browser login (`omp login`): Claude account / ChatGPT account
-#   ai-login.sh --api-key <anthropic|openai>   reads the API key from STDIN, stores it in ~/.omp/agent/.env (chmod 600)
+#   ai-login.sh --stdin <anthropic|openai>     reads the API key from STDIN, stores it in ~/.omp/agent/.env (chmod 600)
 #
 # Browser login: STDIN is handed to `omp login` and must stay open until it ends. omp listens for the
 # browser's redirect (ChatGPT: http://localhost:1455/auth/callback) and reads a pasted redirect address
@@ -17,14 +17,14 @@ install_err_trap
 require_macos
 
 API_KEY_MODE=0
-if [ "${1:-}" = "--api-key" ]; then API_KEY_MODE=1; shift; fi
+if [ "${1:-}" = "--stdin" ]; then API_KEY_MODE=1; shift; fi
 PROVIDER="${1:-}"
 
 case "$PROVIDER" in
   anthropic) OMP_PROVIDER=anthropic; ENV_NAME=ANTHROPIC_API_KEY; ACCOUNT=Claude ;;
   # A ChatGPT subscription signs in as omp's `openai-codex`; the plain `openai` provider is an API key.
   openai) OMP_PROVIDER=openai-codex; ENV_NAME=OPENAI_API_KEY; ACCOUNT=ChatGPT ;;
-  *) fail "usage: ai-login.sh [--api-key] <anthropic|openai>" ;;
+  *) fail "usage: ai-login.sh [--stdin] <anthropic|openai>" ;;
 esac
 
 [ -n "$(tool_path omp)" ] || fail "omp is not installed; run install.sh omp first"

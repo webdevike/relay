@@ -143,7 +143,7 @@ export function planRun(run: SetupRun, homedir: string): ScriptPlan {
     case 'ai-key':
       return {
         script: 'ai-login.sh',
-        args: ['--api-key', run.provider],
+        args: ['--stdin', run.provider],
         stdin: run.key.endsWith('\n') ? run.key : `${run.key}\n`,
         timeoutMs: 2 * MIN,
       }

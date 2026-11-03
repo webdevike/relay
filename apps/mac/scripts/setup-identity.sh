@@ -26,11 +26,13 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
 	-addext "basicConstraints=critical,CA:false" \
 	-addext "keyUsage=critical,digitalSignature" >/dev/null 2>&1
 
-# -legacy: macOS `security` cannot read OpenSSL 3's modern PKCS12 MAC
+# -legacy: macOS `security` cannot read OpenSSL 3's modern PKCS12 MAC. The p12 only lives in $TMP
+# for the import, so its password is random per run.
+P12_PASS="$(openssl rand -hex 16)"
 openssl pkcs12 -export -legacy -inkey "$TMP/key.pem" -in "$TMP/cert.pem" \
-	-out "$TMP/id.p12" -passout pass:relay -name "$IDENTITY" >/dev/null 2>&1
+	-out "$TMP/id.p12" -passout "pass:$P12_PASS" -name "$IDENTITY" >/dev/null 2>&1
 
-security import "$TMP/id.p12" -k "$KEYCHAIN" -P relay -T /usr/bin/codesign -A >/dev/null 2>&1
+security import "$TMP/id.p12" -k "$KEYCHAIN" -P "$P12_PASS" -T /usr/bin/codesign -A >/dev/null 2>&1
 
 # trust it for code signing so it shows under `find-identity -p codesigning`
 security add-trusted-cert -r trustRoot -p codeSign -k "$KEYCHAIN" "$TMP/cert.pem" >/dev/null 2>&1

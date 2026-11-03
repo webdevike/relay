@@ -53,8 +53,8 @@ Manual test (do NOT run on a machine that already has your setup): `./install.sh
 ```
 ./ai-login.sh anthropic            # omp login anthropic: browser sign-in with a Claude account
 ./ai-login.sh openai               # omp login openai-codex: browser sign-in with a ChatGPT account
-printf '%s' "$KEY" | ./ai-login.sh --api-key anthropic   # writes ANTHROPIC_API_KEY=... to ~/.omp/agent/.env (chmod 600)
-printf '%s' "$KEY" | ./ai-login.sh --api-key openai      # OPENAI_API_KEY=...
+printf '%s' "$KEY" | ./ai-login.sh --stdin anthropic   # writes ANTHROPIC_API_KEY=... to ~/.omp/agent/.env (chmod 600)
+printf '%s' "$KEY" | ./ai-login.sh --stdin openai      # OPENAI_API_KEY=...
 ```
 
 Prints `OK <provider>` when done; an existing sign-in prints `OK <provider> (already signed in)`. The key is never echoed or logged. omp loads `~/.omp/agent/.env` itself (omp.sh/docs/providers).
