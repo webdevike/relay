@@ -207,8 +207,9 @@ final class LessonChecklist {
 
     // MARK: Placement
 
-    /// Top-right of the screen holding the target window, inset from the edge, below the menu bar;
-    /// a position Isaac dragged to wins when it is still on a screen.
+    /// Off the app being learned (its top-right panels are where lessons point): at the screen edge beside the
+    /// target window when there is room (right, then left), else bottom-right of its screen. A position Isaac
+    /// dragged to wins when it is still on a screen.
     private func place(_ panel: NSPanel, size: CGSize, windowFrame: CGRect?) {
         placing = true
         defer { DispatchQueue.main.async { [weak self] in self?.placing = false } }
@@ -216,6 +217,7 @@ final class LessonChecklist {
             let rect = CGRect(origin: CGPoint(x: saved[0], y: saved[1]), size: size)
             if NSScreen.screens.contains(where: { $0.visibleFrame.intersects(rect.insetBy(dx: 20, dy: 20)) }) {
                 panel.setFrameOrigin(rect.origin)
+                Log.info(String(format: "lesson list: placed where it was dragged last, (%.0f, %.0f)", rect.minX, rect.minY))
                 observeMoves(panel)
                 return
             }
@@ -225,7 +227,23 @@ final class LessonChecklist {
             return NSScreen.screens.max { $0.frame.intersection(ak).area < $1.frame.intersection(ak).area }
         } ?? NSScreen.main ?? NSScreen.screens[0]
         let visible = screen.visibleFrame
-        panel.setFrameOrigin(CGPoint(x: visible.maxX - size.width - 16, y: visible.maxY - size.height - 16))
+        let margin: CGFloat = 16
+        let top = visible.maxY - size.height - margin
+        let rightX = visible.maxX - size.width - margin
+        let leftX = visible.minX + margin
+        let window = windowFrame.map(appKitRect)?.intersection(visible)
+        let origin: CGPoint
+        let spot: String
+        if let window, !window.isNull, rightX >= window.maxX + 8 {
+            (origin, spot) = (CGPoint(x: rightX, y: top), "right of the window")
+        } else if let window, !window.isNull, leftX + size.width <= window.minX - 8 {
+            (origin, spot) = (CGPoint(x: leftX, y: top), "left of the window")
+        } else {
+            (origin, spot) = (CGPoint(x: rightX, y: visible.minY + margin), "bottom-right (no room beside the window)")
+        }
+        panel.setFrameOrigin(origin)
+        Log.info(String(format: "lesson list: placed %@ at (%.0f, %.0f), window %@", spot, origin.x, origin.y,
+                        window.map { NSStringFromRect($0) } ?? "unknown"))
         observeMoves(panel)
     }
 
