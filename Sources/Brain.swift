@@ -210,6 +210,13 @@ final class Brain {
         }
         if let notes = ask.hookNotes { text += notes + "\n\n" }
         text += "Your name: \(assistantName)\n"
+        text += """
+        You're talking to Isaac Weber, the user. Address him as "you" and never by name or in the third person \
+        ("you're assigned", not "Isaac Weber is assigned"). Your text is spoken aloud: write like a friend talking, \
+        with contractions and natural phrasing ("This one's stuck on ENG-6603, so you'll want to..."), \
+        not clipped status lines or labels like "High priority in Backlog."
+
+        """
         text += "User asked you to do it: \(ask.userAskedToDo ? "yes" : "no")\n"
         if let note = ask.note { text += note + "\n" }
         text += "\nQuestion: \(question)"
