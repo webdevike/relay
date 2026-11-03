@@ -79,44 +79,6 @@ export function updateTiling(fn: (t: Tiling) => Tiling): Tiling {
   return next
 }
 
-/** The sidebar's slide, in ms (0 under reduced motion, and where CSS vars do not resolve). */
-function slideMs(): number {
-  const raw = getComputedStyle(document.documentElement).getPropertyValue('--eva-dur-slide').trim()
-  const n = parseFloat(raw)
-  if (!Number.isFinite(n)) return 0
-  return raw.endsWith('ms') ? n : n * 1000
-}
-
-let closing: number | undefined
-
-/**
- * A close that leaves no tool pane on screen folds the panel first (the toggle's animation) and
- * removes the pane once the slide ended, so pane X, last tab, shortcut and the toggle all move alike.
- */
-function closeFolding(fn: (t: Tiling) => Tiling): void {
-  const before = tilingStore.getState().tiling
-  const next = fn(before)
-  const ms = slideMs()
-  if (next === before) return
-  if (ms <= 0 || before.zoom !== null || !toolsShown(before) || toolsShown(next)) {
-    tilingStore.setState({ tiling: next })
-    return
-  }
-  clearTimeout(closing)
-  tilingStore.setState({ tiling: setZoom(before, CHAT_PANE) })
-  closing = window.setTimeout(() => {
-    closing = undefined
-    const now = tilingStore.getState().tiling
-    if (now.zoom !== CHAT_PANE) return
-    try {
-      const done = fn(now)
-      tilingStore.setState({ tiling: done.zoom === null ? done : setZoom(done, null) })
-    } catch (e) {
-      if (!(e instanceof TilingError)) throw e
-    }
-  }, ms)
-}
-
 // Tabs ----------------------------------------------------------------------------------------
 
 /** Shows a tool tab (see shell-core openPaneTab). Answers the pane that holds it. */
@@ -147,7 +109,7 @@ export function activateTab(id: string): void {
 }
 
 export function closeTab(id: string): void {
-  closeFolding((t) => closePaneTab(t, id))
+  updateTiling((t) => closePaneTab(t, id))
 }
 
 export function moveTab(id: string, toPane: string, index?: number): void {
@@ -211,7 +173,7 @@ export function splitAt(paneId: string, side: Side, tab?: PaneTab, share?: numbe
 }
 
 export function closePaneById(id: string): void {
-  closeFolding((t) => closePane(t, id))
+  updateTiling((t) => closePane(t, id))
 }
 
 export function focusPaneById(id: string): void {

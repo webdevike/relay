@@ -13,7 +13,6 @@ import {
 import {
   CHAT_PANE,
   GAP,
-  toolsShown,
   allPanes,
   findNode,
   isChatPane,
@@ -147,10 +146,7 @@ export function TilingRoot() {
   const ref = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ w: 0, h: 0 })
   const widths = useRef(new Map<string, number>())
-  const last = useRef({ shown: false, w: 0, h: 0 })
-  /** Pane ids already on screen once; null until the first loaded render. */
-  const mounted = useRef<Set<string> | null>(null)
-  const [, setUnfold] = useState(0)
+  const last = useRef<{ zoom: string | null; w: number; h: number }>({ zoom: null, w: 0, h: 0 })
   useFilesHotkeys()
   useBrowserHotkeys()
 
@@ -181,26 +177,19 @@ export function TilingRoot() {
   )
 
   useEffect(() => setRects(layout.panes), [layout])
-  // Only a panel open or close animates (the sidebar's rule): not window fitting, divider drags
-  // or layout changes that happen to land in the same render.
+  // Only a panel toggle animates (the sidebar's rule): not window fitting, divider drags or
+  // layout changes that happen to land in the same render.
   useLayoutEffect(() => {
     const el = ref.current
     const prev = last.current
-    const now = { shown: toolsShown(tiling), w: size.w, h: size.h }
-    last.current = now
-    if (!el || !loaded) return
-    const seeded = mounted.current !== null
-    const toggled = seeded && prev.shown !== now.shown && prev.w === now.w && prev.h === now.h
+    last.current = { zoom: tiling.zoom, w: size.w, h: size.h }
+    if (!el) return
+    const toggled =
+      (prev.zoom === CHAT_PANE) !== (tiling.zoom === CHAT_PANE) &&
+      prev.w === size.w &&
+      prev.h === size.h
     el.dataset['panelTransition'] = String(toggled)
-    const ids = new Set(allPanes(tiling.root).map((p) => p.id))
-    const fresh = [...ids].some((id) => !mounted.current?.has(id))
-    mounted.current = ids
-    if (seeded && toggled && fresh) {
-      // The folded frame must be styled once before it unfolds, or there is nothing to transition.
-      void el.offsetWidth
-      setUnfold((n) => n + 1)
-    }
-  }, [layout, tiling, size.w, size.h, loaded])
+  }, [layout, tiling.zoom, size.w, size.h])
   // A tab moved to another pane can land somewhere else at the same size: slots re-measure.
   useEffect(() => {
     window.dispatchEvent(new Event(LAYOUT_EVENT))
@@ -212,9 +201,6 @@ export function TilingRoot() {
   // The panel toggle zooms the chat pane: the tool panes fold to the right edge instead of
   // vanishing, so the frames slide like the sidebar column does.
   const folding = tiling.zoom === CHAT_PANE
-  // A tool pane opening for the first time (no pane to unfold) mounts folded for one frame.
-  const entering = (id: string): boolean =>
-    mounted.current !== null && !last.current.shown && !mounted.current.has(id) && !isChatPane(id)
   return (
     <div
       className="eva-tiling"
@@ -224,7 +210,7 @@ export function TilingRoot() {
     >
       {panes.map((p) => {
         const own = layout.panes[p.id]
-        const collapsed = (own === undefined && folding && size.w > 0) || (own && entering(p.id))
+        const collapsed = own === undefined && folding && size.w > 0
         const rect: Rect | undefined = collapsed ? { x: size.w, y: 0, w: 0, h: size.h } : own
         if (own) widths.current.set(p.id, own.w)
         return (
@@ -234,7 +220,7 @@ export function TilingRoot() {
             rect={rect}
             padTop={rect !== undefined && rect.y === 0 && !isChatPane(p.id)}
             focused={many && tiling.focus === p.id}
-            collapsed={collapsed === true}
+            collapsed={collapsed}
             innerW={widths.current.get(p.id) ?? 0}
           >
             {isChatPane(p.id) ? <ChatPaneContent /> : <ToolPane id={p.id} />}

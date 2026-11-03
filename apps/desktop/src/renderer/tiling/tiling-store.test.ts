@@ -77,20 +77,6 @@ describe('tiling store', () => {
     expect(visible('browser')).toBe(true)
   })
 
-  it('closing the last tool pane folds the panel first, then removes the pane after the slide', () => {
-    document.documentElement.style.setProperty('--eva-dur-slide', '260ms')
-    try {
-      closePaneById('p2')
-      expect(t().zoom).toBe('chat')
-      expect(allPanes(t().root)).toHaveLength(2)
-      vi.advanceTimersByTime(260)
-      expect(t().zoom).toBeNull()
-      expect(allPanes(t().root)).toHaveLength(1)
-    } finally {
-      document.documentElement.style.removeProperty('--eva-dur-slide')
-    }
-  })
-
   it('splitting without a tab moves the one in front, else opens a tool not open yet', () => {
     expect(defaultSplitTab(t(), 'p2')).toEqual({ kind: 'browser' })
     const p = splitAt('p2', 'down')
