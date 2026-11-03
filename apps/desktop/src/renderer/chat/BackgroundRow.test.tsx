@@ -3,7 +3,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MantineProvider } from '@mantine/core'
 import { makeMessage } from '@evaos/chat-core/message'
 import { MessageRow } from './MessageRow'
-import { parseBackground } from './background-message'
+import { parseBackground } from '@evaos/chat-core/background'
 
 const open = vi.hoisted(() => vi.fn())
 vi.mock('../navigation/open-link', () => ({ openLink: open }))

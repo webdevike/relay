@@ -21,7 +21,7 @@ import {
   type BackgroundIcon,
   type BackgroundMessage,
   type HeartbeatItem,
-} from './background-message'
+} from '@evaos/chat-core/background'
 import { Markdown } from './markdown/Markdown'
 
 const ICONS: Record<BackgroundIcon, Icon> = {

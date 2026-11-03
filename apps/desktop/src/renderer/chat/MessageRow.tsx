@@ -9,7 +9,7 @@ import { ToolBlock, ToolGroup } from './ToolRows'
 import { BubbleActions } from './reactions/BubbleActions'
 import { CanvasRow } from './CanvasRow'
 import { BackgroundRow } from './BackgroundRow'
-import { parseBackground } from './background-message'
+import { parseBackground } from '@evaos/chat-core/background'
 import { ReplyChips } from './ReplyChips'
 
 /** Thumbnails for a message's images; Enter or click opens the viewer on that image. */

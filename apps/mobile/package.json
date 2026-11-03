@@ -20,6 +20,7 @@
     "@dicebear/micah": "^9.4.3",
     "@dicebear/notionists": "^9.4.2",
     "@gorhom/bottom-sheet": "^5.2.14",
+    "@evaos/chat-core": "link:../../packages/chat-core",
     "@relay/portrait-motion": "workspace:*",
     "@relay/protocol": "workspace:*",
     "@relay/slack-emoji": "workspace:*",
