@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { backgroundJobs, claudeSubagentDone, subagentsFromListing } from './jobs'
+import { backgroundJobs, claudeSubagentDone, ompSubagentEnded, subagentsFromListing } from './jobs'
 
 const j = (o: unknown) => JSON.stringify(o)
 const call = j({
@@ -116,5 +116,25 @@ describe('claudeSubagentDone', () => {
     expect(
       claudeSubagentDone([asst([{ type: 'text' }]), j({ uuid: 'v', type: 'user' })].join('\n')),
     ).toBe(false)
+  })
+})
+
+describe('ompSubagentEnded', () => {
+  const msg = (m: unknown) => j({ type: 'message', message: m })
+  const result = msg({ role: 'toolResult', toolName: 'yield', content: [] })
+  const exit = j({ type: 'custom', customType: 'session_exit', data: { reason: 'dispose' } })
+  const start = j({ type: 'custom', customType: 'tool_execution_start', data: {} })
+  it('ends on the yield result or session_exit, with trailing blank lines and a half-written line', () => {
+    expect(ompSubagentEnded([start, result].join('\n') + '\n\n')).toBe(true)
+    expect(ompSubagentEnded([result, exit].join('\n') + '\n')).toBe(true)
+    expect(ompSubagentEnded([result, start].join('\n'))).toBe(true)
+    expect(ompSubagentEnded(`${result}\n{"type":"mess`)).toBe(true)
+  })
+  it('does not end mid-work or after a follow-up', () => {
+    expect(ompSubagentEnded('')).toBe(false)
+    expect(ompSubagentEnded(msg({ role: 'toolResult', toolName: 'read' }))).toBe(false)
+    expect(ompSubagentEnded([result, msg({ role: 'user', content: 'more' })].join('\n'))).toBe(
+      false,
+    )
   })
 })

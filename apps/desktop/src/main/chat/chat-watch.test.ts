@@ -125,6 +125,24 @@ describe('ChatWatch', () => {
     expect(got.batches.flat()).toContain(path.join(dir, 'sess'))
   })
 
+  it('polls a subagent folder: a change fs events miss still reports', async () => {
+    const file = path.join(dir, 'sess.jsonl')
+    fs.writeFileSync(file, '{}\n')
+    fs.mkdirSync(path.join(dir, 'sess'))
+    const old = new Date(Date.now() - 3 * 3600_000)
+    fs.utimesSync(file, old, old)
+    watch = new ChatWatch({ dirs: [dir], sweepMs: 50 })
+    const got = collect(watch)
+    watch.start()
+    // Let the poll take its baseline, then silence the fs events by stopping the watcher's report path.
+    await ready()
+    got.batches.length = 0
+    // Bump the folder's mtime without a file event the classifier accepts (a .png is ignored).
+    fs.writeFileSync(path.join(dir, 'sess', 'a.png'), 'x')
+    await until(() => got.batches.length > 0, 1000)
+    expect(got.batches.flat()).toContain(path.join(dir, 'sess'))
+  })
+
   it('stops everything on close', async () => {
     watch = new ChatWatch({ dirs: [dir] })
     const got = collect(watch)

@@ -64,6 +64,33 @@ describe('ExtrasService', () => {
     ])
   })
 
+  it('a subagent whose transcript ended on yield/session_exit is done without a .md (mirror, missed event)', () => {
+    const { svc, texts, dirs, out } = setup([{ paneId: 'pane-1', file: '/s/x.jsonl', live: false }])
+    // Trimmed tail of a real finished subagent (AssistVoiceFix.jsonl, 2026-11-03).
+    const yielded = [
+      call('toolu_01', 'yield'),
+      '{"type":"custom","customType":"tool_execution_start","data":{"toolCallId":"toolu_01","toolName":"yield"}}',
+      '{"type":"message","message":{"role":"toolResult","toolCallId":"toolu_01","toolName":"yield","content":[{"type":"text","text":"Result submitted."}]}}',
+    ]
+    const exit =
+      '{"type":"custom","customType":"session_exit","data":{"reason":"dispose","kind":"normal"}}'
+    dirs['/s/x'] = [
+      { name: 'idle.jsonl', mtimeMs: 3 },
+      { name: 'gone.jsonl', mtimeMs: 2 },
+      { name: 'busy.jsonl', mtimeMs: 1 },
+    ]
+    texts['/s/x/idle.jsonl'] = [user, ...yielded].join('\n') + '\n'
+    texts['/s/x/gone.jsonl'] = [user, ...yielded, exit].join('\n') + '\n'
+    // A follow-up after the yield wakes it again.
+    texts['/s/x/busy.jsonl'] = [user, ...yielded, user, call('k2', 'read')].join('\n') + '\n'
+    svc.refresh()
+    expect(out[0]!.subagents.map((s) => [s.name, s.done, s.tool])).toEqual([
+      ['idle', true, null],
+      ['gone', true, null],
+      ['busy', false, 'read'],
+    ])
+  })
+
   it('a live pane lists unfinished jobs', () => {
     const { svc, texts, out } = setup([{ paneId: 'pane-1', file: '/s/x.jsonl', live: true }])
     texts['/s/x.jsonl'] = started('bg_1')

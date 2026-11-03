@@ -136,3 +136,32 @@ export function claudeSubagentDone(text: string): boolean {
   }
   return false
 }
+
+/**
+ * An omp subagent is over when its transcript's last record is `session_exit`, or the result of its
+ * `yield` call. The `.md` beside it says the same, but a mirrored transcript (the other Mac) never
+ * has the `.md`, and a missed file event leaves a local chip without it until the next listing.
+ */
+export function ompSubagentEnded(text: string): boolean {
+  let end = text.length
+  while (end > 0) {
+    const start = text.lastIndexOf('\n', end - 1) + 1
+    const line = text.slice(start, end).trim()
+    end = start - 1
+    if (line === '') continue
+    let record: unknown
+    try {
+      record = JSON.parse(line)
+    } catch {
+      continue
+    }
+    if (!isObj(record)) continue
+    if (record.type === 'custom') {
+      if (record.customType === 'session_exit') return true
+      continue
+    }
+    if (record.type !== 'message' || !isObj(record.message)) continue
+    return record.message.role === 'toolResult' && record.message.toolName === 'yield'
+  }
+  return false
+}

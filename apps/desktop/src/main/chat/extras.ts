@@ -2,7 +2,7 @@
 // truth). Reuses the ChatWatch batches fed in by index.ts; this module never watches anything.
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { backgroundJobs, subagentsFromListing } from '@evaos/chat-core/jobs'
+import { backgroundJobs, ompSubagentEnded, subagentsFromListing } from '@evaos/chat-core/jobs'
 import { oneLine } from '@evaos/chat-core/session'
 import type { Subagent } from '@evaos/chat-core/message'
 import { z } from 'zod'
@@ -174,14 +174,15 @@ export class ExtrasService {
       } catch {
         text = ''
       }
+      const done = s.done || ompSubagentEnded(text)
       return {
         name: s.name,
         file: s.file,
-        done: s.done,
+        done,
         failed: false,
         mtimeMs: s.mtimeMs,
         lastLine: lastAssistantLine(text),
-        tool: s.done ? null : runningTool(text),
+        tool: done ? null : runningTool(text),
       }
     })
   }

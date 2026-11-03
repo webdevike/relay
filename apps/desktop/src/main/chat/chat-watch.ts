@@ -51,6 +51,7 @@ export class ChatWatch {
   private readonly cbs = new Set<(files: string[]) => void>()
   private readonly pending = new Set<string>()
   private readonly stamps = new Map<string, Stamp>()
+  private readonly folders = new Map<string, number>()
   private watcher: FSWatcher | null = null
   private pollTimer: NodeJS.Timeout | null = null
   private sweepTimer: NodeJS.Timeout | null = null
@@ -156,11 +157,40 @@ export class ChatWatch {
     }
   }
 
+  /**
+   * A session's subagent folder changes (`.md` written, transcript added) bump its own mtime. FSEvents
+   * can miss those, and the session file itself is quiet while its subagents work, so the poll
+   * watches the folder too: a chip must not wait for the next unrelated change to read done.
+   */
+  private checkFolder(f: string): void {
+    const dir = f.replace(/\.jsonl$/, '')
+    if (dir === f) return
+    let mtimeMs: number | null = null
+    try {
+      const st = fs.statSync(dir)
+      if (st.isDirectory()) mtimeMs = st.mtimeMs
+    } catch {
+      // no subagents
+    }
+    const prev = this.folders.get(dir)
+    if (mtimeMs === null) {
+      if (prev !== undefined) {
+        this.folders.delete(dir)
+        this.mark(dir)
+      }
+      return
+    }
+    this.folders.set(dir, mtimeMs)
+    // First sight is the baseline; only a later change is news.
+    if (prev !== undefined && prev !== mtimeMs) this.mark(dir)
+  }
+
   /** `all` sweeps every file and detects adds and removals; otherwise only recent or live files. */
   private poll(all: boolean): void {
     if (this.closed) return
     const t = this.now()
     const check = (f: string): void => {
+      this.checkFolder(f)
       const st = this.statOf(f)
       const prev = this.stamps.get(f)
       if (!st) {
