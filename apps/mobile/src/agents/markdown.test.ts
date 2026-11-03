@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type Block, imageBasename, imageSrcKind, parseBlocks, parseInline, previewText, topLevelImages } from "./markdown";
+import { type Block, bubbleSegments, imageBasename, imageSrcKind, parseBlocks, parseInline, previewText, topLevelImages } from "./markdown";
 
 describe("parseInline", () => {
   it("splits inline code out of prose and keeps it literal", () => {
@@ -273,5 +273,45 @@ describe("previewText", () => {
   it("is empty for nothing readable", () => {
     expect(previewText("")).toBe("");
     expect(previewText("---")).toBe("");
+  });
+});
+
+describe("bubbleSegments", () => {
+  it("cuts a reply at its widget fences, keeping other fences in the prose", () => {
+    const text = [
+      "Here is the before and after.",
+      "",
+      "```ui",
+      '{"widget":"compare","before":{"src":"/drops/a/t"},"after":{"src":"/drops/b/t"}}',
+      "```",
+      "",
+      "And the code:",
+      "```ts",
+      "const x = 1;",
+      "```",
+      "```openui",
+      'root = Text("hi")',
+      "```",
+    ].join("\n");
+    expect(bubbleSegments(text)).toEqual([
+      { kind: "prose", text: "Here is the before and after." },
+      { kind: "widget", text: '```ui\n{"widget":"compare","before":{"src":"/drops/a/t"},"after":{"src":"/drops/b/t"}}\n```' },
+      { kind: "prose", text: "And the code:\n```ts\nconst x = 1;\n```" },
+      { kind: "widget", text: '```openui\nroot = Text("hi")\n```' },
+    ]);
+  });
+
+  it("runs a still-streaming widget fence to the end, and keeps a plain reply whole", () => {
+    expect(bubbleSegments('Look:\n```html-widget\n<div>')).toEqual([
+      { kind: "prose", text: "Look:" },
+      { kind: "widget", text: "```html-widget\n<div>" },
+    ]);
+    expect(bubbleSegments("Just words.\n\nTwo paragraphs.")).toEqual([{ kind: "prose", text: "Just words.\n\nTwo paragraphs." }]);
+    expect(bubbleSegments("```mantine-widget\nx\n```\n\n")).toEqual([{ kind: "widget", text: "```mantine-widget\nx\n```" }]);
+  });
+
+  it("leaves a widget fence inside another fence alone", () => {
+    const text = "````md\n```ui\n{}\n```\n````";
+    expect(bubbleSegments(text)).toEqual([{ kind: "prose", text }]);
   });
 });

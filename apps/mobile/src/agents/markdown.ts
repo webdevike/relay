@@ -280,6 +280,60 @@ export function topLevelImages(text: string): { images: MessageImage[]; hasBody:
   return { images, hasBody };
 }
 
+/** Fences drawn as widgets (```ui, ```openui, ```html-widget, ```mantine-widget). */
+const WIDGET_FENCES: Record<string, true> = { ui: true, openui: true, "html-widget": true, "mantine-widget": true };
+
+/** One bubble's worth of a message: prose for a text bubble, or one widget fence for a full-width card. */
+export interface BubbleSegment {
+  kind: "prose" | "widget";
+  text: string;
+}
+
+/**
+ * A message cut at its top-level widget fences, for a chat that draws prose in text bubbles and
+ * each widget at the bubble column's full width. Fences close as `parseBlocks` closes them; any
+ * other fence stays inside its prose. A still-streaming widget fence runs to the end of the text.
+ * Prose that is only blank lines is dropped.
+ */
+export function bubbleSegments(text: string): BubbleSegment[] {
+  const lines = text.split("\n");
+  const segments: BubbleSegment[] = [];
+  let prose: string[] = [];
+  const flush = (): void => {
+    const joined = prose.join("\n").replace(/^\s*\n|\n\s*$/g, "");
+    if (joined.trim() !== "") segments.push({ kind: "prose", text: joined });
+    prose = [];
+  };
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i] ?? "";
+    const fence = FENCE.exec(line);
+    if (!fence) {
+      prose.push(line);
+      i += 1;
+      continue;
+    }
+    const [, marker = "", name = ""] = fence;
+    const closer = marker.charAt(0);
+    let end = i + 1;
+    while (end < lines.length) {
+      const t = (lines[end] ?? "").trim();
+      end += 1;
+      if (t.length >= 3 && t === closer.repeat(t.length)) break;
+    }
+    const fenced = lines.slice(i, end);
+    if (WIDGET_FENCES[name.toLowerCase()] === true) {
+      flush();
+      segments.push({ kind: "widget", text: fenced.join("\n") });
+    } else {
+      prose.push(...fenced);
+    }
+    i = end;
+  }
+  flush();
+  return segments;
+}
+
 function parseLines(lines: string[]): Block[] {
   const blocks: Block[] = [];
   let i = 0;

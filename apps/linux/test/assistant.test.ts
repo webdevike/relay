@@ -226,7 +226,7 @@ const flush = (): Promise<void> => {
 };
 
 describe("toAssistantMessages", () => {
-  it("keeps user and assistant rows and drops tool rows, system rows, job lines and the prime", () => {
+  it("keeps user and assistant rows, shows job lines as status rows, and drops tool rows, system rows and the prime", () => {
     const rows: AgentMessage[] = [
       { id: "p", role: "user", text: "You are Astra.", at: 1 },
       { id: "u1", role: "user", text: "morning", at: 2 },
@@ -239,30 +239,39 @@ describe("toAssistantMessages", () => {
     ];
     expect(toAssistantMessages(rows, "You are Astra.", STATUS_PREFIX)).toEqual([
       { id: "u1", role: "user", text: "morning", at: 2 },
+      { id: "j1", role: "status", text: `${STATUS_PREFIX}furry-drop finished`, at: 6 },
       { id: "a2", role: "assistant", text: "The furry-drop run is done.", at: 7 },
       { id: "u2", role: "user", text: "You are Astra.", at: 8 },
     ]);
     expect(toAssistantMessages(rows.slice(0, 1), null, STATUS_PREFIX)).toEqual([{ id: "p", role: "user", text: "You are Astra.", at: 1 }]);
   });
 
-  it("hides the pre-registry Eva and Astra primes and job prefixes from stored history", () => {
+  it("hides the pre-registry Eva and Astra primes and shows their job prefixes as status rows from stored history", () => {
     const rows: AgentMessage[] = [
       { id: "p", role: "user", text: "You are Eva, Isaac's personal assistant, in your one continuous thread with him.", at: 1 },
       { id: "j", role: "user", text: "[From Eva's background jobs] old heartbeat", at: 2 },
       { id: "k", role: "user", text: "[From Astra's background jobs] old heartbeat", at: 3 },
       { id: "u", role: "user", text: "hello Astra", at: 4 },
     ];
-    expect(toAssistantMessages(rows, "You are Astra, for eCard Systems work.\n", STATUS_PREFIX)).toEqual([{ id: "u", role: "user", text: "hello Astra", at: 4 }]);
+    const shown = [
+      { id: "j", role: "status", text: "[From Eva's background jobs] old heartbeat", at: 2 },
+      { id: "k", role: "status", text: "[From Astra's background jobs] old heartbeat", at: 3 },
+      { id: "u", role: "user", text: "hello Astra", at: 4 },
+    ];
+    expect(toAssistantMessages(rows, "You are Astra, for eCard Systems work.\n", STATUS_PREFIX)).toEqual(shown);
     const astraPrime: AgentMessage = { id: "p", role: "user", text: "You are Astra, Isaac's personal assistant, in your one continuous thread with him.", at: 1 };
-    expect(toAssistantMessages([astraPrime, ...rows.slice(1)], "You are Nova.", statusPrefix("Nova"))).toEqual([{ id: "u", role: "user", text: "hello Astra", at: 4 }]);
+    expect(toAssistantMessages([astraPrime, ...rows.slice(1)], "You are Nova.", statusPrefix("Nova"))).toEqual(shown);
   });
 
-  it("hides each agent's own job prefix", () => {
+  it("shows each agent's own job lines as status rows, never as Isaac's turns", () => {
     const rows: AgentMessage[] = [
       { id: "j", role: "user", text: "[From Nova's background jobs] Gmail: 2 new", at: 1 },
       { id: "u", role: "user", text: "hi Nova", at: 2 },
     ];
-    expect(toAssistantMessages(rows, null, statusPrefix("Nova"))).toEqual([{ id: "u", role: "user", text: "hi Nova", at: 2 }]);
+    expect(toAssistantMessages(rows, null, statusPrefix("Nova"))).toEqual([
+      { id: "j", role: "status", text: "[From Nova's background jobs] Gmail: 2 new", at: 1 },
+      { id: "u", role: "user", text: "hi Nova", at: 2 },
+    ]);
   });
 
   it("shows a call's turns as Isaac's words marked voice, and a reply's details marker as a paragraph break", () => {
@@ -278,7 +287,7 @@ describe("toAssistantMessages", () => {
     ]);
   });
 
-  it("shows Isaac's turns without the surface tag the desktop or the phone put on them, and still hides a tagged job line", () => {
+  it("shows Isaac's turns without the surface tag the desktop or the phone put on them, and a tagged job line as an untagged status row", () => {
     const rows: AgentMessage[] = [
       { id: "p", role: "user", text: "<surface>Mac Mini - Relay Desktop</surface>\nYou are Nova.", at: 1 },
       { id: "u1", role: "user", text: "<surface>Mac Mini - Relay Desktop</surface>\nbook the table", at: 2 },
@@ -291,6 +300,7 @@ describe("toAssistantMessages", () => {
       { id: "u1", role: "user", text: "book the table", at: 2 },
       { id: "u2", role: "user", text: "for four", at: 3 },
       { id: "u3", role: "user", text: "older history", at: 4 },
+      { id: "j", role: "status", text: "[From Nova's background jobs] Gmail: 2 new", at: 5 },
       { id: "u4", role: "user", text: "what time is it", at: 6, voice: true },
     ]);
   });
@@ -484,7 +494,7 @@ describe("registry and store paths", () => {
 });
 
 describe("toAssistantMessages machinery", () => {
-  it("hides job lines, the prime, empty replies and the silence marker, whole or streaming in", () => {
+  it("hides the prime, empty replies and the silence marker, whole or streaming in, and shows job lines as status rows", () => {
     const rows: AgentMessage[] = [
       { id: "p", role: "user", text: "You are Eva.", at: 1 },
       { id: "a0", role: "assistant", text: "", at: 2 },
@@ -496,6 +506,7 @@ describe("toAssistantMessages machinery", () => {
       { id: "a5", role: "assistant", text: "(", at: 8 },
     ];
     expect(toAssistantMessages(rows, "You are Eva.", STATUS_PREFIX)).toEqual([
+      { id: "j1", role: "status", text: `${STATUS_PREFIX}Rollover: fresh context`, at: 3 },
       { id: "a4", role: "assistant", text: "(nothing to report) but wait", at: 7 },
       { id: "a5", role: "assistant", text: "(", at: 8 },
     ]);
@@ -751,6 +762,7 @@ describe("AssistantService earlier contexts", () => {
     expect(snapshot.messages).toEqual([
       { id: "2026-10-14T0400_aaaa-3", role: "user", text: "morning", at: 3 },
       { id: "2026-10-14T0400_aaaa-4", role: "assistant", text: "Morning.", at: 4 },
+      { id: "2026-10-14T0400_aaaa-5", role: "status", text: `${STATUS_PREFIX}Heartbeat: 1 new.`, at: 5 },
       { id: "2026-10-15T0400_bbbb-2", role: "user", text: "again", at: 11 },
       { id: "2026-10-15T0400_bbbb-3", role: "assistant", text: "Hi again.", at: 12 },
       { id: "u1", role: "user", text: "live", at: 22 },

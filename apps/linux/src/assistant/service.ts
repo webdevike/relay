@@ -9,7 +9,7 @@
 //   - shapes the transcript into `assistant.snapshot` frames for the phones following the thread:
 //     the earlier contexts (the transcripts in the store's `history`, which the nightly rollover
 //     fills) followed by the live session, debounced, on every change of that session;
-//   - hides the machinery: job lines, the prime, empty replies and the silence marker;
+//   - hides the machinery: the prime, empty replies and the silence marker; job lines go as `status` rows;
 //   - pushes each settled reply to every registered phone not looking at the thread;
 //   - takes messages from the host's own jobs (`relay-linux assistant say --agent <id>`) as
 //     prefixed turns that the agent then relays to Isaac in its own words.
@@ -31,7 +31,7 @@ import { type FillSpawn, runFill, signinHost, splitSignin } from "./signin";
 import type { AssistantStore } from "./store";
 import { splitVoiceTurn, withoutDetailsMarker } from "./voice";
 
-/** A turn from the host's jobs rather than from Isaac, for agent `title`; the thread hides it (and the agent's silent answer to it). */
+/** A turn from the host's jobs rather than from Isaac, for agent `title`; the thread shows it as a `status` row (and hides the agent's silent answer to it). */
 export function statusPrefix(title: string): string {
   return `[From ${title}'s background jobs] `;
 }
@@ -89,8 +89,9 @@ export interface AssistantServiceDeps {
 }
 
 /**
- * The thread as the phone shows it: Isaac's turns and the agent's replies. Left out: tool rows,
- * omp's synthetic system rows, the host's job lines (`prefix` and the legacy prefixes), the persona
+ * The thread as the phone shows it: Isaac's turns and the agent's replies, and the host's job lines
+ * (`prefix` and the legacy prefixes) as `status` rows, which the phone draws as quiet background
+ * rows (an older phone hides them). Left out: tool rows, omp's synthetic system rows, the persona
  * prime (including the pre-registry Eva and Astra primes), a reply with nothing to show (still empty
  * while streaming, or a prime turn that only ran tools) and the silence marker, whole or still
  * streaming in. Isaac's turns show without the surface tag the sending client put on them. A turn
@@ -115,7 +116,13 @@ export function toAssistantMessages(messages: readonly AgentMessage[], prime: st
         ((prime !== null && (said.trim() === prime || said.startsWith(prime.split("\n", 1)[0] ?? prime))) ||
           LEGACY_PRIME_STARTS.some((start) => said.startsWith(start)));
       firstUser = false;
-      if (isPrime || said.startsWith(prefix) || LEGACY_STATUS_PREFIXES.some((legacy) => said.startsWith(legacy))) continue;
+      if (isPrime) continue;
+      // A job line (heartbeat, job report, handoff) is not Isaac's: a `status` row, which a phone from
+      // before background rows never shows and a newer one draws as a quiet row, not his bubble.
+      if (said.startsWith(prefix) || LEGACY_STATUS_PREFIXES.some((legacy) => said.startsWith(legacy))) {
+        out.push({ id: message.id, role: "status", text: said, at: message.at });
+        continue;
+      }
       const { text, voice } = splitVoiceTurn(said);
       out.push({ id: message.id, role: "user", text, at: message.at, ...images, ...(voice ? { voice } : {}) });
     } else if (message.role === "assistant" && (message.text.length > 0 || "images" in images)) {

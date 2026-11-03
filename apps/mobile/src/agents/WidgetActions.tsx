@@ -43,3 +43,10 @@ export function SessionWidgetActions({
   );
   return <Context.Provider value={actions}>{children}</Context.Provider>;
 }
+
+/** Lets widgets below answer through `reply` (an assistant thread sends it as Isaac's turn); with
+ * null (offline) they stay disabled. `reply` should keep its identity across renders. */
+export function ReplyWidgetActions({ reply, children }: { reply: ((text: string) => void) | null; children: ReactNode }) {
+  const actions = useMemo<WidgetActions | null>(() => (reply === null ? null : { reply }), [reply]);
+  return <Context.Provider value={actions}>{children}</Context.Provider>;
+}

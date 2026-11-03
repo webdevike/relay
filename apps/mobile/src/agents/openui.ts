@@ -3,16 +3,17 @@
  * holds the widget's `$variable` state, is fed every streamed version of the fence, and runs
  * button actions locally. No React Native, so vitest covers it.
  */
-import { createOpenUIRuntime, type OpenUIRuntime, type ParseOpenUIResult } from "@relay/protocol";
+import { createOpenUIRuntime, type OpenUIQueryClient, type OpenUIRuntime, type ParseOpenUIResult } from "@relay/protocol";
 import type { ButtonSpec, WidgetSpec } from "./widget";
 
 /** What a fence shows: its live widget, or its source as code (flagged invalid once it's closed). */
 export type OpenUIView = { kind: "widget"; spec: WidgetSpec } | { kind: "code"; invalid: boolean };
 
-/** Creates the fence's runtime on first sight, then feeds it each new version of the text, so
- * state the user changed survives streaming. */
-export function syncOpenUIRuntime(runtime: OpenUIRuntime | null, code: string, partial: boolean): OpenUIRuntime {
-  if (runtime === null) return createOpenUIRuntime(code, { partial });
+/** Creates the fence's runtime on first sight (its Query statements fetching through `query`, or
+ * showing their defaults without one), then feeds it each new version of the text, so state the
+ * user changed survives streaming. */
+export function syncOpenUIRuntime(runtime: OpenUIRuntime | null, code: string, partial: boolean, query: OpenUIQueryClient | null = null): OpenUIRuntime {
+  if (runtime === null) return createOpenUIRuntime(code, { partial, query });
   runtime.update(code, { partial });
   return runtime;
 }
