@@ -1,0 +1,767 @@
+/* Canvas (native canvas_view + cards.rs). Card sizes are flow units: pixels at zoom 1. */
+
+.eva-cv-page {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.eva-cv-header {
+  flex: none;
+  height: var(--eva-control-md);
+  padding: 0 var(--mantine-spacing-md);
+  display: flex;
+  align-items: center;
+  gap: var(--eva-gap);
+  border-bottom: 1px solid var(--eva-c-border);
+}
+.eva-cv-title {
+  flex: none;
+  margin: 0;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--eva-fz-heading);
+  font-weight: var(--eva-fw-semibold);
+}
+.eva-cv-status-line {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-cv-status-line[data-error='true'] {
+  color: var(--eva-c-danger);
+}
+.eva-cv-tidy {
+  flex: none;
+}
+
+.eva-cv-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--eva-gap);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+}
+
+/* A board while a live room holds it: the Relay host's room page fills the page. */
+.eva-cv-live-frame {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  display: block;
+}
+.eva-cv-live-who {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  min-width: 0;
+}
+.eva-cv-live-with {
+  font-weight: var(--eva-fw-semibold);
+  white-space: nowrap;
+}
+.eva-cv-live-here {
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+  white-space: nowrap;
+}
+.eva-cv-live-actions {
+  display: flex;
+  gap: var(--mantine-spacing-sm);
+}
+
+/* React Flow chrome follows the theme in light and dark. */
+.eva-cv-flow {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  /* The minimap reads the board's width (below). */
+  container-type: inline-size;
+  container-name: eva-cv-board;
+  outline: none;
+}
+.eva-cv-flow .react-flow {
+  --cv-panel: color-mix(in srgb, var(--eva-c-foreground) 3%, var(--eva-c-background));
+  --xy-background-color: var(--eva-c-background);
+  --xy-background-pattern-color: color-mix(in srgb, var(--eva-c-foreground) 28%, transparent);
+  --xy-edge-stroke: color-mix(in srgb, var(--eva-c-foreground) 35%, transparent);
+  --xy-edge-stroke-selected: var(--eva-c-foreground);
+  --xy-edge-stroke-width: 1.5;
+  --xy-connectionline-stroke: var(--eva-c-accent);
+  --xy-connectionline-stroke-width: 1.5;
+  --xy-handle-background-color: var(--cv-panel);
+  --xy-selection-background-color: color-mix(in srgb, var(--eva-c-accent) 8%, transparent);
+  --xy-selection-border: 1px solid color-mix(in srgb, var(--eva-c-accent) 60%, transparent);
+  --xy-minimap-background-color: var(--cv-panel);
+  --xy-minimap-mask-background-color: color-mix(in srgb, var(--eva-c-background) 55%, transparent);
+  --xy-minimap-mask-stroke-color: var(--eva-c-border);
+  --xy-minimap-node-background-color: color-mix(in srgb, var(--eva-c-foreground) 40%, transparent);
+  color: var(--eva-c-foreground);
+  font-family: var(--eva-font-ui);
+}
+.eva-cv-flow[data-tool='hand'] .react-flow__pane {
+  cursor: grab;
+}
+.eva-cv-flow[data-tool='hand'] .react-flow__pane.dragging {
+  cursor: grabbing;
+}
+
+.eva-cv-chrome {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-md) * 0.125);
+  padding: calc(var(--mantine-spacing-md) * 0.25);
+  border-radius: var(--eva-card-radius);
+  border: 1px solid var(--eva-c-border);
+  background: var(--eva-c-popover-background);
+}
+.eva-cv-controls {
+  flex-direction: column;
+}
+.eva-cv-chrome-btn {
+  color: var(--eva-c-muted-foreground);
+}
+.eva-cv-chrome-btn[data-active='true'] {
+  color: var(--eva-c-accent);
+  background: color-mix(in srgb, var(--eva-c-accent) 15%, transparent);
+}
+.eva-cv-rule {
+  flex: none;
+  width: 1px;
+  height: 20px;
+  margin: 0 calc(var(--mantine-spacing-md) * 0.25);
+  background: var(--eva-c-border);
+}
+.eva-cv-controls .eva-cv-rule {
+  width: 20px;
+  height: 1px;
+  margin: calc(var(--mantine-spacing-md) * 0.25) 0;
+}
+.eva-cv-minimap {
+  border-radius: var(--eva-card-radius);
+  border: 1px solid var(--eva-c-border);
+  overflow: hidden;
+}
+/* A narrow board keeps its room for cards and the controls: no minimap. */
+@container eva-cv-board (max-width: 640px) {
+  .eva-cv-minimap {
+    display: none;
+  }
+}
+.eva-cv-minimap .eva-cv-mini-topic,
+.eva-cv-minimap .eva-cv-mini-selected {
+  fill: var(--eva-c-accent);
+}
+.eva-cv-minimap .eva-cv-mini-frame {
+  fill: color-mix(in srgb, var(--eva-c-foreground) 14%, transparent);
+}
+
+/* Edges: gray beziers; a selected card's edges turn bright and thicker. */
+.react-flow__edge-path.eva-cv-edge-accent {
+  stroke: var(--eva-c-accent);
+  stroke-width: 2;
+}
+.react-flow__edge-path.eva-cv-edge-proposed {
+  stroke-dasharray: 6 5;
+}
+.react-flow__edge-path.eva-cv-edge-lit {
+  stroke: var(--eva-c-foreground);
+  stroke-width: 2.25;
+}
+.react-flow__edge-path.eva-cv-edge-accent.eva-cv-edge-lit {
+  stroke: var(--eva-c-accent);
+}
+.eva-cv-edge-label {
+  position: absolute;
+  padding: calc(var(--mantine-spacing-md) * 0.0625) var(--eva-gap);
+  border-radius: var(--eva-radius-round);
+  border: 1px solid var(--eva-c-border);
+  background: var(--cv-panel);
+  color: var(--eva-c-muted-foreground);
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  pointer-events: all;
+}
+.eva-cv-edge-label[data-tone='accent'],
+.eva-cv-edge-label[data-lit='true'] {
+  color: var(--eva-c-foreground);
+}
+
+/* Handles: small round dots on each side. */
+.eva-cv-handle.react-flow__handle {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px solid var(--eva-c-border);
+  background: var(--cv-panel);
+  opacity: 0;
+}
+.react-flow__node:hover .eva-cv-handle,
+.react-flow__node.selected .eva-cv-handle,
+.react-flow.connecting .eva-cv-handle {
+  opacity: 1;
+}
+
+/* Cards. */
+.eva-cv-card {
+  --cv-tint: var(--eva-c-accent);
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--eva-gap);
+  padding: calc(var(--mantine-spacing-md) * 0.875);
+  border-radius: 10px;
+  border: 1px solid var(--eva-c-border);
+  background: var(--cv-panel);
+  color: var(--eva-c-foreground);
+  font-size: 12px;
+  line-height: 18px;
+  text-align: left;
+}
+.eva-cv-card[data-selected='true'] {
+  outline: 1.5px solid var(--eva-c-accent);
+  outline-offset: -0.5px;
+}
+.eva-cv-card[data-tone='accent'] {
+  --cv-tint: var(--eva-c-accent);
+}
+.eva-cv-card[data-tone='warn'] {
+  --cv-tint: var(--eva-c-warning);
+}
+.eva-cv-card[data-tone='danger'] {
+  --cv-tint: var(--eva-c-danger);
+}
+.eva-cv-card[data-tone='success'] {
+  --cv-tint: var(--eva-c-success);
+}
+.eva-cv-card[data-tone='muted'] {
+  --cv-tint: var(--eva-c-muted-foreground);
+}
+.eva-cv-heading {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: var(--eva-fw-medium);
+  color: var(--eva-c-foreground);
+  overflow-wrap: anywhere;
+}
+.eva-cv-small {
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--eva-c-muted-foreground);
+  overflow-wrap: anywhere;
+}
+.eva-cv-meta {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-md) * 0.375);
+  font-size: 11px;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-cv-pad {
+  padding: 0 calc(var(--mantine-spacing-md) * 0.125);
+}
+.eva-cv-link {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-md) * 0.25);
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--eva-c-muted-foreground);
+  cursor: pointer;
+}
+.eva-cv-link:hover {
+  color: var(--eva-c-accent);
+}
+
+.eva-cv-card[data-kind='topic'] {
+  min-height: 84px;
+  justify-content: center;
+  gap: calc(var(--mantine-spacing-md) * 0.125);
+  padding: calc(var(--mantine-spacing-md) * 0.875) calc(var(--mantine-spacing-md) * 1.5);
+  border-radius: 14px;
+  border-color: transparent;
+  background: var(--eva-c-primary-background);
+  color: var(--eva-c-primary-foreground);
+}
+.eva-cv-topic-label {
+  font-size: 10px;
+  line-height: 14px;
+  font-weight: var(--eva-fw-medium);
+  opacity: 0.7;
+}
+.eva-cv-topic-title {
+  font-size: 18px;
+  line-height: 24px;
+  font-weight: var(--eva-fw-semibold);
+  overflow-wrap: anywhere;
+}
+.eva-cv-topic-body {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.eva-cv-card[data-kind='note'] {
+  min-height: 80px;
+  border-radius: 4px;
+  border-color: color-mix(in srgb, var(--cv-tint) 40%, transparent);
+  background: color-mix(in srgb, var(--cv-tint) 14%, var(--eva-c-background));
+}
+.eva-cv-note-title {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-md) * 0.375);
+  color: var(--cv-tint);
+  font-size: 13px;
+  font-weight: var(--eva-fw-semibold);
+}
+.eva-cv-note-body {
+  color: color-mix(in srgb, var(--eva-c-foreground) 85%, transparent);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.eva-cv-ticket-head {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-md) * 0.375);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-cv-ticket-key {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--eva-font-mono);
+  font-size: 11px;
+}
+.eva-cv-status {
+  flex: none;
+  padding: calc(var(--mantine-spacing-md) * 0.125) var(--eva-gap);
+  border-radius: var(--eva-radius-round);
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: var(--eva-fw-medium);
+  color: var(--cv-tint);
+  background: color-mix(in srgb, var(--cv-tint) 15%, transparent);
+}
+.eva-cv-status[data-tone='accent'] {
+  --cv-tint: var(--eva-c-accent);
+}
+.eva-cv-status[data-tone='warn'] {
+  --cv-tint: var(--eva-c-warning);
+}
+.eva-cv-status[data-tone='danger'] {
+  --cv-tint: var(--eva-c-danger);
+}
+.eva-cv-status[data-tone='success'] {
+  --cv-tint: var(--eva-c-success);
+}
+.eva-cv-status[data-tone='muted'] {
+  --cv-tint: var(--eva-c-muted-foreground);
+}
+
+.eva-cv-card[data-kind='image'] {
+  padding: var(--mantine-spacing-xs);
+  gap: calc(var(--mantine-spacing-md) * 0.375);
+}
+.eva-cv-picture {
+  display: block;
+  width: 100%;
+  border-radius: 6px;
+  object-fit: cover;
+}
+.eva-cv-picture-wrap {
+  position: relative;
+}
+.eva-cv-picture-open {
+  position: absolute;
+  top: calc(var(--mantine-spacing-md) * 0.375);
+  right: calc(var(--mantine-spacing-md) * 0.375);
+  color: var(--eva-c-muted-foreground);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.eva-cv-card:hover .eva-cv-picture-open,
+.eva-cv-picture-open:focus-visible {
+  opacity: 1;
+}
+.eva-cv-picture-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--mantine-spacing-md) * 0.375);
+  padding: var(--mantine-spacing-xs);
+  box-sizing: border-box;
+  background: color-mix(in srgb, var(--eva-c-foreground) 6%, transparent);
+  color: var(--eva-c-muted-foreground);
+  font-size: 11px;
+  overflow: hidden;
+}
+.eva-cv-picture-note > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.eva-cv-link-head {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-md) * 0.375);
+  color: var(--eva-c-accent);
+}
+
+.eva-cv-card[data-kind='frame'] {
+  gap: var(--mantine-spacing-xs);
+  border-radius: 12px;
+  border-color: color-mix(in srgb, var(--eva-c-foreground) 28%, transparent);
+  background: color-mix(in srgb, var(--eva-c-foreground) 2%, transparent);
+}
+.eva-cv-frame-title {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-md) * 0.375);
+  color: var(--eva-c-muted-foreground);
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: var(--eva-fw-semibold);
+}
+
+.eva-cv-card[data-kind='suggestion'] {
+  padding: var(--mantine-spacing-sm);
+  gap: var(--mantine-spacing-xs);
+  border-color: color-mix(in srgb, var(--eva-c-accent) 60%, transparent);
+  background: color-mix(in srgb, var(--eva-c-accent) 7%, var(--eva-c-background));
+}
+.eva-cv-suggest-title {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-md) * 0.375);
+  font-size: 13px;
+}
+.eva-cv-suggest-title > svg {
+  color: var(--eva-c-accent);
+  flex: none;
+}
+.eva-cv-suggest-actions {
+  display: flex;
+  gap: var(--eva-gap);
+}
+.eva-cv-pill-btn {
+  flex: none;
+  padding: calc(var(--mantine-spacing-md) * 0.1875) var(--mantine-spacing-xs);
+  border: 0;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 18px;
+  cursor: pointer;
+  background: var(--eva-c-secondary-background);
+  color: color-mix(in srgb, var(--eva-c-foreground) 85%, transparent);
+}
+.eva-cv-pill-btn[data-variant='accent'] {
+  background: var(--eva-c-primary-background);
+  color: var(--eva-c-primary-foreground);
+}
+.eva-cv-pill-btn:hover {
+  opacity: 0.85;
+}
+
+.eva-cv-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-cv-swatch {
+  width: 46px;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-md) * 0.1875);
+}
+.eva-cv-swatch-chip {
+  width: 46px;
+  height: 46px;
+  border-radius: 8px;
+  border: 1px solid var(--eva-c-border);
+  box-sizing: border-box;
+}
+.eva-cv-swatch-name {
+  font-size: 10px;
+  line-height: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-cv-swatch-hex {
+  font-family: var(--eva-font-mono);
+  font-size: 9px;
+  line-height: 12px;
+  color: var(--eva-c-muted-foreground);
+}
+
+.eva-cv-type-head {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--mantine-spacing-sm);
+}
+.eva-cv-type-aa {
+  font-size: 44px;
+  line-height: 48px;
+  font-weight: var(--eva-fw-semibold);
+}
+.eva-cv-type-family {
+  padding-bottom: calc(var(--mantine-spacing-md) * 0.375);
+  font-size: 13px;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-cv-type-weight {
+  font-size: 13px;
+}
+.eva-cv-type-sample {
+  font-size: 16px;
+  line-height: 22px;
+}
+
+/* An empty frame's browser wireframe. */
+.eva-cv-wire {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: 8px;
+  border: 1px solid var(--eva-c-border);
+  background: var(--cv-panel);
+  overflow: hidden;
+}
+.eva-cv-wire-bar {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.5);
+  padding: var(--eva-gap) var(--mantine-spacing-xs);
+}
+.eva-cv-wire-url {
+  margin-left: calc(var(--mantine-spacing-md) * 0.375);
+  font-size: 10px;
+  color: var(--eva-c-muted-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-cv-wire-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--eva-c-foreground) 18%, transparent);
+}
+.eva-cv-wire-dot[data-tone='danger'] {
+  background: var(--eva-c-danger);
+}
+.eva-cv-wire-dot[data-tone='warn'] {
+  background: var(--eva-c-warning);
+}
+.eva-cv-wire-dot[data-tone='success'] {
+  background: var(--eva-c-success);
+}
+.eva-cv-wire-dot[data-on='true'] {
+  background: var(--eva-c-accent);
+}
+.eva-cv-wire-body {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--mantine-spacing-sm);
+  padding: 0 var(--mantine-spacing-xs) var(--mantine-spacing-xs);
+  overflow: hidden;
+}
+.eva-cv-wire-side,
+.eva-cv-wire-main {
+  display: flex;
+  flex-direction: column;
+}
+.eva-cv-wire-side {
+  gap: calc(var(--mantine-spacing-md) * 0.375);
+  padding-top: calc(var(--mantine-spacing-md) * 0.25);
+}
+.eva-cv-wire-main {
+  flex: 1;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-cv-wire-line {
+  flex: none;
+  display: block;
+  height: 5px;
+  border-radius: var(--eva-radius-round);
+  background: color-mix(in srgb, var(--eva-c-foreground) 18%, transparent);
+}
+.eva-cv-wire-line[data-on='true'] {
+  background: var(--eva-c-accent);
+}
+.eva-cv-wire-heading {
+  height: 8px;
+}
+.eva-cv-wire-row {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-md) * 0.375);
+}
+.eva-cv-wire-grow {
+  flex: 1;
+}
+
+/* Sidebar list. */
+.eva-cv-list-label {
+  margin: 0;
+  padding: var(--mantine-spacing-sm) calc(var(--mantine-spacing-md) * 0.25)
+    calc(var(--mantine-spacing-md) * 0.125);
+  font-size: var(--eva-fz-caption);
+  font-weight: var(--eva-fw-regular);
+  color: var(--eva-text-dim);
+}
+.eva-cv-row {
+  gap: calc(var(--mantine-spacing-md) * 0.25);
+}
+.eva-cv-row > svg {
+  flex: none;
+  color: var(--eva-text-dim);
+}
+
+.eva-cv-modal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-md);
+}
+.eva-cv-modal-body {
+  margin: 0 0 var(--mantine-spacing-md);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-cv-modal-error {
+  margin: 0 0 var(--mantine-spacing-md);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-danger);
+}
+.eva-cv-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: calc(var(--mantine-spacing-md) * 0.25);
+}
+
+/* Image lightbox (Lightbox.tsx): a full-window stage under a one-line header. */
+.eva-lb-heading {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.eva-lb-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--mantine-spacing-xs);
+  min-width: 0;
+}
+.eva-lb-title,
+.eva-lb-caption {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-lb-count {
+  flex: none;
+  font-size: var(--eva-fz-label);
+  font-weight: 400;
+  color: var(--eva-c-muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.eva-lb-caption {
+  font-size: var(--eva-fz-label);
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-lb-tools {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-md) * 0.125);
+}
+.eva-lb-btn {
+  color: var(--eva-c-muted-foreground);
+}
+.eva-lb-btn[data-active='true'] {
+  color: var(--eva-c-accent);
+}
+.eva-lb-btn:disabled,
+.eva-lb-btn[data-disabled] {
+  background: transparent;
+  opacity: 0.4;
+}
+.eva-lb-actual {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+.eva-lb-zoom {
+  width: 44px;
+  text-align: center;
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.eva-lb-rule {
+  width: 1px;
+  height: 20px;
+  margin: 0 calc(var(--mantine-spacing-md) * 0.25);
+  background: var(--eva-c-border);
+}
+.eva-lb-stage {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: var(--eva-card-radius);
+  background: color-mix(in srgb, var(--eva-c-foreground) 4%, transparent);
+  cursor: zoom-in;
+  touch-action: none;
+  user-select: none;
+}
+.eva-lb-stage[data-pannable='true'] {
+  cursor: grab;
+}
+.eva-lb-stage[data-pannable='true']:active {
+  cursor: grabbing;
+}
+.eva-lb-img {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  max-width: none;
+  pointer-events: none;
+}
+.eva-lb-note {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--mantine-spacing-md) * 0.375);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+}

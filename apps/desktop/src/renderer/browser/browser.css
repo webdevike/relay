@@ -1,0 +1,233 @@
+.eva-browser {
+  --eva-address-h: var(--eva-control-lg);
+  --eva-tab-strip-h: var(--eva-control-md);
+}
+
+.eva-tab-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--eva-space-native-xs);
+  padding: 0 var(--eva-space-native-sm);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.eva-tab {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--eva-space-native-xs);
+  height: var(--eva-control-xs);
+  min-width: 0;
+  max-width: 220px;
+  padding: 0 var(--eva-space-native-xs);
+  border: 1px solid transparent;
+  border-radius: var(--eva-radius);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-text-dim);
+  cursor: pointer;
+}
+.eva-tab:hover {
+  background: var(--eva-surface-2);
+}
+.eva-tab.is-active {
+  background: var(--eva-surface-2);
+  border-color: var(--eva-border);
+  color: var(--eva-text);
+}
+.eva-tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-tab-icon,
+.eva-tab-pin {
+  flex: none;
+}
+.eva-tab-pin {
+  color: var(--eva-text-dim);
+}
+.eva-tab-new {
+  flex: none;
+}
+.eva-address-row {
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--eva-space-xs);
+  padding: 0 var(--eva-space-native-xs) 0 var(--eva-space-native-sm);
+}
+.eva-address-input {
+  flex: 1;
+  min-width: 0;
+}
+.eva-address-input input {
+  height: var(--eva-kit-control-md);
+  min-height: var(--eva-kit-control-md);
+  border-radius: var(--eva-radius);
+  color: var(--eva-text);
+}
+.eva-address-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+/* Tab row: the scrolling tab strip, then the local eCard app chip when the tab is on the switch. */
+.eva-browser-tabs {
+  display: flex;
+  align-items: center;
+  flex: none;
+  min-width: 0;
+  padding-right: var(--mantine-spacing-xs);
+  background: var(--eva-surface);
+}
+.eva-browser-tabs > .eva-tab-strip {
+  flex: 1;
+  min-width: 0;
+}
+/* The local eCard app switch: a quiet chip naming the app the tab shows, and its menu rows. */
+.eva-app-switch {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  height: var(--eva-control-xs);
+  padding: 0 var(--mantine-spacing-xs);
+  border: 1px solid var(--eva-border);
+  border-radius: var(--eva-radius);
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-medium);
+  color: var(--eva-text);
+  white-space: nowrap;
+}
+.eva-app-switch:hover,
+.eva-app-switch[aria-expanded='true'] {
+  border-color: var(--eva-c-input-border);
+}
+.eva-app-switch svg {
+  color: var(--eva-text-dim);
+}
+.eva-app-switch-note {
+  padding: var(--mantine-spacing-xs);
+  max-width: 360px;
+  font-size: var(--eva-fz-label);
+  color: var(--eva-text-dim);
+}
+.eva-app-switch-item-label {
+  min-width: 0;
+}
+.eva-app-switch-head,
+.eva-app-switch-meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--mantine-spacing-xs);
+  min-width: 0;
+}
+.eva-app-switch-key {
+  flex: none;
+  font-weight: var(--eva-fw-semibold);
+}
+.eva-app-switch-title,
+.eva-app-switch-branch {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-app-switch-meta {
+  font-size: var(--eva-fz-caption);
+  color: var(--eva-text-dim);
+}
+.eva-app-switch-meta > :last-child {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.eva-app-switch-states {
+  display: inline-flex;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+}
+.eva-browser-slot {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.eva-page-card {
+  max-width: 320px;
+  padding: var(--eva-space-lg);
+  text-align: center;
+}
+.eva-page-card-icon {
+  width: var(--eva-tile-md);
+  height: var(--eva-tile-md);
+  color: var(--eva-text-dim);
+}
+.eva-overlay-body {
+  margin: 0 0 var(--eva-space-md);
+}
+.eva-tab-close {
+  flex: none;
+  margin-left: auto;
+}
+.eva-suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  box-sizing: border-box;
+  margin: 0 var(--eva-space-sm);
+  background: var(--eva-surface-2);
+  border: 1px solid var(--eva-border);
+  border-radius: var(--eva-radius);
+  overflow: hidden;
+  animation: eva-suggest-in 120ms ease-out;
+}
+.eva-suggestion {
+  display: flex;
+  align-items: center;
+  gap: var(--eva-space-sm);
+  height: 32px;
+  padding: 0 var(--eva-space-sm);
+  cursor: pointer;
+  min-width: 0;
+}
+.eva-suggestion.is-active {
+  background: var(--eva-border);
+}
+.eva-suggestion-title {
+  font-weight: 600;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-suggestion-url {
+  color: var(--eva-text-dim);
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@keyframes eva-suggest-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .eva-suggestions {
+    animation: none;
+  }
+}
+
+.eva-extension-actions {
+  display: flex;
+  align-items: center;
+  flex: none;
+}

@@ -1,0 +1,285 @@
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-weight: 400;
+  src: url('../assets/fonts/IBMPlexMono-Regular.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-weight: 600;
+  src: url('../assets/fonts/IBMPlexMono-SemiBold.ttf') format('truetype');
+}
+
+:root {
+  --eva-space-xs: 4px;
+  --eva-space-sm: 8px;
+  --eva-space-md: 16px;
+  --eva-space-lg: 24px;
+  --eva-space-xl: 32px;
+  --eva-space-2xl: 48px;
+  --eva-space-3xl: 64px;
+
+  /* Native scale.rs steps, separate from the port's legacy layout spacing. */
+  --eva-space-native-xs: calc(var(--eva-font-size) * 10 / 14);
+  --eva-space-native-sm: calc(var(--eva-font-size) * 12 / 14);
+  --eva-space-native-lg: calc(var(--eva-font-size) * 20 / 14);
+  --eva-fz-caption: calc(var(--eva-font-size) * 11 / 14);
+  --eva-lh-body: 1.45;
+  --eva-lh-label: 1.4;
+  --eva-control-xs: calc(var(--eva-font-size) * 30 / 14);
+  --eva-control-sm: calc(var(--eva-font-size) * 36 / 14);
+  --eva-control-md: calc(var(--eva-font-size) * 42 / 14);
+  --eva-control-lg: calc(var(--eva-font-size) * 50 / 14);
+  --eva-tile-xs: calc(var(--eva-font-size) * 18 / 14);
+  --eva-tile-md: calc(var(--eva-font-size) * 2);
+  --eva-tile-lg: calc(var(--eva-font-size) * 34 / 14);
+  --eva-radius-sm: calc(var(--eva-radius) / 2);
+  --eva-radius-xl: calc(var(--eva-radius) * 2);
+  --eva-radius-round: 9999px;
+  --eva-chat-column-w: 780px;
+  --eva-kit-control-xs: calc(var(--eva-font-size) * 1.25);
+  --eva-kit-control-sm: calc(var(--eva-font-size) * 1.5);
+  --eva-kit-control-md: calc(var(--eva-font-size) * 2);
+  --eva-kit-control-lg: calc(var(--eva-font-size) * 2.75);
+  --eva-kit-input-px: 10px;
+  --eva-kit-input-py: 8px;
+
+  --eva-fz-body: var(--eva-font-size);
+  --eva-fz-label: calc(var(--eva-font-size) * 12 / 14);
+  --eva-fz-heading: calc(var(--eva-font-size) * 16 / 14);
+  --eva-fz-display: calc(var(--eva-font-size) * 20 / 14);
+  --eva-fw-medium: 500;
+  --eva-fw-regular: 400;
+  --eva-fw-semibold: 600;
+  --eva-font-mono: var(--eva-font-code);
+
+  --eva-main-min: 480px;
+  --eva-tab-strip-h: var(--eva-tile-lg);
+  --eva-address-h: 40px;
+  /* ecard-table-lab shell: 44px card headers, 10px card corners. */
+  --eva-chat-header-h: 44px;
+  --eva-card-radius: 10px;
+}
+
+/*
+ * Mantine owns every color, font and radius (Texo's model): the active preset writes
+ * --mantine-* and --eva-color-* through cssVariablesResolver in theme/theme-config.tsx.
+ * --eva-c-* keep the shell's existing names and only point at those variables.
+ */
+:root {
+  --eva-font-ui: var(--mantine-font-family);
+  --eva-font-code: var(--mantine-font-family-monospace);
+  --eva-font-size: var(--mantine-font-size-sm);
+  --eva-font-code-size: var(--mantine-font-size-sm);
+  --eva-radius: var(--mantine-radius-default);
+  --eva-radius-lg: var(--mantine-radius-lg);
+  --eva-shadow: var(--mantine-shadow-xs);
+
+  --eva-c-background: var(--mantine-color-body);
+  --eva-c-foreground: var(--mantine-color-text);
+  --eva-c-muted-foreground: var(--mantine-color-dimmed);
+  --eva-c-border: var(--mantine-color-default-border);
+  --eva-c-input-border: var(--mantine-color-default-border);
+  --eva-c-ring: var(--mantine-primary-color-filled);
+  --eva-c-caret: var(--mantine-color-text);
+  --eva-c-overlay: rgb(0 0 0 / 0.6);
+  --eva-c-link: var(--mantine-color-anchor);
+  --eva-c-accent: var(--mantine-primary-color-filled);
+  --eva-c-accent-background: var(--mantine-color-default-hover);
+  --eva-c-secondary-background: var(--eva-color-surface);
+  --eva-c-secondary-active-background: var(--mantine-color-default-hover);
+  --eva-c-muted-background: var(--eva-color-muted);
+  --eva-c-group_box-background: var(--eva-color-card);
+  --eva-c-popover-background: var(--eva-color-popover);
+  --eva-c-popover-foreground: var(--mantine-color-text);
+  --eva-c-primary-background: var(--mantine-primary-color-filled);
+  --eva-c-primary-hover-background: var(--mantine-primary-color-filled-hover);
+  --eva-c-primary-foreground: var(--mantine-primary-color-contrast);
+  --eva-c-danger: var(--mantine-color-red-text);
+  --eva-c-danger-background: var(--mantine-color-red-filled);
+  --eva-c-success: var(--mantine-color-green-text);
+  --eva-c-success-background: var(--mantine-color-green-filled);
+  --eva-c-warning: var(--mantine-color-yellow-text);
+  --eva-c-warning-background: var(--mantine-color-yellow-filled);
+  --eva-c-sidebar-background: var(--eva-color-surface);
+  --eva-c-sidebar-foreground: var(--mantine-color-text);
+  --eva-c-sidebar-border: var(--mantine-color-default-border);
+  --eva-c-sidebar-primary-background: var(--mantine-primary-color-light);
+  --eva-c-sidebar-primary-foreground: var(--mantine-primary-color-light-color);
+  --eva-c-tab-foreground: var(--mantine-color-dimmed);
+  --eva-c-tab-active-background: var(--mantine-color-body);
+  --eva-c-tab-active-foreground: var(--mantine-color-text);
+}
+
+/* Older shell names for the same variables. */
+:root {
+  --eva-bg: var(--eva-c-background);
+  --eva-surface: var(--eva-c-secondary-background);
+  --eva-surface-2: var(--eva-c-accent-background);
+  --eva-border: var(--eva-c-border);
+  --eva-text: var(--eva-c-foreground);
+  --eva-text-dim: var(--eva-c-muted-foreground);
+  --eva-accent: var(--eva-c-primary-background);
+  --eva-accent-fg: var(--eva-c-primary-foreground);
+  --eva-ok: var(--eva-c-success-background);
+  --eva-warn: var(--eva-c-warning-background);
+  --eva-danger: var(--eva-c-danger-background);
+
+  --eva-chrome: var(--eva-c-sidebar-background);
+  --eva-chrome-text: var(--eva-c-sidebar-foreground);
+  --eva-chrome-border: var(--eva-c-sidebar-border);
+  --eva-hover: var(--eva-c-accent-background);
+  --eva-nav-active-bg: var(--eva-c-sidebar-primary-background);
+  --eva-nav-active-fg: var(--eva-c-sidebar-primary-foreground);
+  --eva-popover-bg: var(--eva-c-popover-background);
+  --eva-popover-fg: var(--eva-c-popover-foreground);
+
+  --eva-ease: cubic-bezier(0.215, 0.61, 0.355, 1);
+  /* One slide for the sidebar fold, sidebar drill-in and the right panel (table-lab's iOS-like curve). */
+  --eva-ease-slide: cubic-bezier(0.32, 0.72, 0, 1);
+  --eva-dur-slide: 260ms;
+  --eva-dur-fast: 120ms;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--eva-bg);
+  color: var(--eva-text);
+  font-family: var(--eva-font-ui);
+  font-size: var(--eva-fz-body);
+  line-height: var(--eva-lh-body);
+  overflow: hidden;
+}
+
+:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: 2px;
+}
+
+/*
+ * Settings > Theme > Focus ring (theme-config sets data-focus-ring on <html>). Mantine applies it
+ * to its own components only; these extend it to the app's own controls. never removes every
+ * outline, so it has to beat component rules; always also shows the ring for mouse focus, at the
+ * lowest specificity so a control's own focus style still wins.
+ */
+html[data-focus-ring='never'] :focus,
+html[data-focus-ring='never'] :focus-visible {
+  outline: none !important;
+}
+:where(html[data-focus-ring='always']) :focus {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: 2px;
+}
+
+/*
+ * One scrollbar everywhere: native scrollers (chat log, code, tables, lists, dropdowns) draw the
+ * thumb Mantine's ScrollArea draws (ui/ScrollArea.tsx, scrollbarSize 6): a rounded thumb inset
+ * by a fifth of the lane, 40% of the text color, 50% on hover, shown while the pointer is over
+ * the scroller. Components must not set the standard scrollbar width or color properties, since
+ * Chromium then ignores these rules for that element; hiding a bar with width none still works.
+ */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+  background: transparent;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  border: 1.2px solid transparent;
+  border-radius: 6px;
+  background-clip: padding-box;
+  /* Mantine's thumb never shrinks below 2.75rem, so long chats keep a grabbable thumb. */
+  min-height: 2.75rem;
+  min-width: 2.75rem;
+  background-color: transparent;
+}
+:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.4);
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 0, 0, 0.5);
+}
+[data-mantine-color-scheme='dark'] :hover::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.4);
+}
+[data-mantine-color-scheme='dark'] ::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.5);
+}
+
+.eva-label {
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-semibold);
+  line-height: 1.4;
+}
+
+.eva-dim {
+  color: var(--eva-text-dim);
+}
+
+.eva-chat {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--eva-bg);
+}
+.eva-chat-header {
+  box-sizing: border-box;
+  height: var(--eva-chat-header-h);
+  flex: none;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: var(--eva-space-sm);
+  padding: 0 var(--eva-space-sm) 0 10px;
+  border-bottom: 1px solid var(--eva-c-border);
+}
+.eva-chat-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--eva-space-xl);
+  text-align: center;
+}
+.eva-heading {
+  font-size: var(--eva-fz-heading);
+  font-weight: var(--eva-fw-semibold);
+  line-height: 1.2;
+  margin: 0 0 var(--eva-space-sm);
+}
+
+.eva-browser {
+  box-sizing: border-box;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--eva-surface);
+}
+.eva-tab-strip {
+  height: var(--eva-tab-strip-h);
+  flex: none;
+  background: var(--eva-surface);
+}
+.eva-address-row {
+  height: var(--eva-address-h);
+  flex: none;
+  background: var(--eva-surface);
+}
+.eva-browser-slot {
+  flex: 1;
+  background: var(--eva-bg);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}

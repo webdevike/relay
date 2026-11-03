@@ -1,0 +1,6 @@
+{
+  "state": "failed",
+  "startedAt": "{{at-1-10:00}}",
+  "endedAt": "{{at-1-10:02}}",
+  "note": "omp exit 1"
+}

@@ -1,0 +1,9 @@
+{"type":"title","v":1,"title":"Background build job","updatedAt":1791194400000}
+{"type":"session","version":3,"id":"p4-jobs","timestamp":"2026-10-05T22:00:00.000Z","cwd":"/fixture/eva-root"}
+{"type":"message","id":"u1","parentId":null,"message":{"role":"user","content":"Hello from p4-jobs","attribution":"user"}}
+{"type":"message","id":"a1","parentId":"u1","message":{"role":"assistant","provider":"anthropic","model":"claude-opus-5-5","content":[{"type":"text","text":"Reply for Background build job."}],"stopReason":"stop"}}
+{"type":"message","id":"c-call-bg1","parentId":"a1","message":{"role":"assistant","content":[{"type":"toolCall","id":"call-bg1","name":"bash","arguments":{"command":"pnpm build --watch","async":true}}]}}
+{"type":"message","id":"r-call-bg1","parentId":"c-call-bg1","timestamp":"2026-10-05T12:00:00.000Z","message":{"role":"toolResult","toolCallId":"call-bg1","toolName":"bash","content":[{"type":"text","text":"Started bg_1"}],"details":{"async":{"state":"running","jobId":"bg_1","type":"bash"}}}}
+{"type":"message","id":"c-call-bg2","parentId":"a1","message":{"role":"assistant","content":[{"type":"toolCall","id":"call-bg2","name":"bash","arguments":{"command":"sleep 5 && echo done","async":true}}]}}
+{"type":"message","id":"r-call-bg2","parentId":"c-call-bg2","timestamp":"2026-10-05T12:01:00.000Z","message":{"role":"toolResult","toolCallId":"call-bg2","toolName":"bash","content":[{"type":"text","text":"Started bg_2"}],"details":{"async":{"state":"running","jobId":"bg_2","type":"bash"}}}}
+{"type":"custom_message","id":"d1","parentId":"r-call-bg2","details":{"jobs":[{"jobId":"bg_2","status":"completed"}]}}

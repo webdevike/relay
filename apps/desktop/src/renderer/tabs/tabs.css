@@ -1,0 +1,163 @@
+.eva-tabbar {
+  flex: none;
+  height: var(--eva-tab-strip-h);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--eva-space-xs);
+  padding: 0;
+  background: var(--eva-chrome);
+  -webkit-app-region: drag;
+  min-width: 0;
+}
+.eva-tabbar[data-lead-in='true'] {
+  padding-left: var(--eva-traffic);
+}
+.eva-tabbar > * {
+  -webkit-app-region: no-drag;
+}
+.eva-tabbar > .eva-tabbar-spacer {
+  -webkit-app-region: drag;
+  flex: 1 0 8px;
+  align-self: stretch;
+}
+.eva-tabbar .eva-tabbar-btn {
+  flex: none;
+  width: var(--eva-kit-control-xs);
+  min-width: var(--eva-kit-control-xs);
+  height: var(--eva-kit-control-xs);
+  min-height: var(--eva-kit-control-xs);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-tabbar-btn svg,
+.eva-tab > svg,
+.eva-tab > .eva-tab-portrait,
+.eva-tab-close svg {
+  flex: none;
+  width: var(--eva-fz-label);
+  height: var(--eva-fz-label);
+}
+.eva-tab > .eva-tab-portrait {
+  border-radius: 50%;
+  background: var(--mantine-color-gray-1);
+}
+.eva-tabbar-btn:hover {
+  background: var(--eva-hover);
+}
+.eva-tabbar-btn:disabled {
+  background: transparent;
+  color: var(--eva-c-muted-foreground);
+  opacity: 0.4;
+}
+.eva-tabbar-btn[aria-pressed='true'] {
+  color: var(--eva-c-foreground);
+}
+.eva-tabs-scroll {
+  display: flex;
+  align-items: center;
+  gap: var(--eva-space-xs);
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.eva-tabs-scroll::-webkit-scrollbar {
+  display: none;
+}
+.eva-tab {
+  flex: 0 1 auto;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--eva-space-native-xs);
+  height: calc(var(--eva-tile-md) + 2px);
+  min-width: 0;
+  max-width: 220px;
+  padding: 0 calc((var(--eva-tile-md) - var(--eva-tile-xs)) / 2) 0 var(--eva-space-native-xs);
+  border: 1px solid transparent;
+  border-radius: var(--eva-radius);
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
+  color: var(--eva-c-tab-foreground);
+  cursor: pointer;
+  user-select: none;
+  outline-offset: -2px;
+  transition:
+    background-color var(--eva-dur-fast) ease,
+    border-color var(--eva-dur-fast) ease,
+    color var(--eva-dur-fast) ease;
+}
+.eva-tab:hover {
+  background: var(--eva-hover);
+}
+.eva-tab[data-active='true'] {
+  flex: none;
+  background: var(--eva-c-background);
+  color: var(--eva-c-tab-active-foreground);
+  border-color: var(--eva-c-border);
+}
+.eva-tab-pinned {
+  flex: none;
+  min-width: var(--eva-tile-lg);
+  width: var(--eva-tile-lg);
+  padding: 0;
+  justify-content: center;
+}
+/* An agent acted in this page's panel while Isaac was elsewhere (agent/scope.ts). */
+.eva-tab:has(.eva-tab-badge) {
+  position: relative;
+}
+.eva-tab-badge {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--eva-accent);
+  pointer-events: none;
+}
+.eva-tab .eva-tab-title {
+  flex: 1;
+  font-weight: var(--eva-fw-regular);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-tab-close {
+  flex: none;
+  width: var(--eva-tile-xs);
+  height: var(--eva-tile-xs);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: max(0px, calc(var(--eva-radius) - (var(--eva-tile-md) - var(--eva-tile-xs)) / 2));
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--eva-dur-fast) var(--eva-ease);
+}
+.eva-tab:hover .eva-tab-close,
+.eva-tab[data-active='true'] .eva-tab-close,
+.eva-tab:focus-visible .eva-tab-close,
+.eva-tab:focus-within .eva-tab-close {
+  opacity: 1;
+}
+.eva-tab-close:hover {
+  background: var(--eva-hover);
+}
+.eva-tab-menu-anchor {
+  position: fixed;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.eva-tip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

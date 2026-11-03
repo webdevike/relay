@@ -1,0 +1,121 @@
+.eva-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--eva-c-background) 96%, transparent);
+  color: var(--eva-c-foreground);
+  animation: eva-gate-fade 120ms ease-out;
+}
+html[data-eva-motion='off'] .eva-gate {
+  animation: none;
+}
+@keyframes eva-gate-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.eva-gate-col {
+  width: 100%;
+  max-width: 480px;
+  padding: var(--eva-space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--eva-space-md);
+}
+.eva-gate-heading {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.eva-gate-body {
+  margin: 0;
+  font-size: 14px;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-gate-pick,
+.eva-gate-timer,
+.eva-gate-override {
+  display: flex;
+  flex-direction: column;
+  gap: var(--eva-space-md);
+}
+.eva-gate-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.eva-gate-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 48px;
+  padding: 0 16px;
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius);
+  background: var(--eva-c-secondary-background);
+  color: var(--eva-c-foreground);
+  cursor: pointer;
+  text-align: left;
+}
+.eva-gate-row[aria-checked='true'] {
+  border-color: var(--eva-c-accent);
+}
+.eva-gate-row:focus-visible {
+  outline: 2px solid var(--eva-c-accent);
+  outline-offset: 2px;
+}
+.eva-gate-row-name {
+  flex: 1;
+  font-size: 14px;
+}
+.eva-gate-row-meta {
+  font-size: 12px;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-gate-chip {
+  font-size: 12px;
+  padding: 2px 8px;
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius);
+}
+.eva-gate-countdown {
+  font-size: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.eva-gate-line {
+  margin: 0;
+  font-size: 14px;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-gate-line[data-ended='true'] {
+  padding-left: 12px;
+  border-left: 4px solid var(--eva-c-warning-background);
+  color: var(--eva-c-foreground);
+}
+.eva-gate-photo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.eva-gate-help {
+  margin: 0;
+  font-size: 12px;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-gate-error {
+  font-size: 14px;
+  color: var(--eva-c-danger-background);
+}
+.eva-gate-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}

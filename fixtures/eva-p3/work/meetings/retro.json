@@ -1,0 +1,22 @@
+{
+  "stem": "retro",
+  "title": "Retro",
+  "start": "{{at-10-15:00}}",
+  "notes": "",
+  "processed": true,
+  "memorized": [
+    {
+      "kind": "decision",
+      "text": "Keep weekly retros",
+      "where": [],
+      "p": 0.9
+    },
+    {
+      "kind": "decision",
+      "text": "Drop the Friday demo",
+      "where": [],
+      "p": 0.85
+    }
+  ],
+  "proposals": []
+}

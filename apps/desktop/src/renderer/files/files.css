@@ -1,0 +1,592 @@
+/* Files panel: rail | sidebar (explorer or search) | editor. Flat, hairline dividers, quiet hovers. */
+.eva-files {
+  --eva-files-row-h: 22px;
+  --eva-files-fz: 13px;
+  --eva-git-m: var(--mantine-color-orange-text);
+  --eva-git-a: var(--mantine-color-green-text);
+  --eva-git-d: var(--mantine-color-red-text);
+  --eva-git-r: var(--mantine-color-blue-text);
+  --eva-files-hover: var(--mantine-color-default-hover);
+  --eva-files-selected: var(--mantine-primary-color-light);
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  position: relative;
+  font-size: var(--eva-files-fz);
+  border-top: 1px solid var(--eva-c-border);
+}
+[data-mantine-color-scheme='dark'] .eva-files {
+  --eva-git-m: var(--mantine-color-yellow-text);
+}
+.eva-files[hidden] {
+  display: none;
+}
+
+.eva-files-rail {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  padding: calc(var(--mantine-spacing-xs) * 0.6) 0;
+  width: 40px;
+  border-right: 1px solid var(--eva-c-border);
+}
+.eva-files-rail-btn {
+  color: var(--eva-c-muted-foreground);
+}
+.eva-files-rail-btn[data-active] {
+  color: var(--eva-c-foreground);
+  background: var(--eva-files-hover);
+}
+
+.eva-files-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  position: relative;
+}
+.eva-files-side {
+  flex: none;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-right: 1px solid var(--eva-c-border);
+  background: var(--eva-c-background);
+}
+/* Narrow: the sidebar floats over the editor (an overlay, so it may carry a shadow). */
+.eva-files-body[data-narrow] .eva-files-side {
+  position: absolute;
+  inset: 0 auto 0 0;
+  z-index: 5;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.12);
+}
+.eva-files-sash {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 2;
+}
+.eva-files-sash:hover {
+  background: linear-gradient(
+    to right,
+    transparent 2px,
+    var(--eva-c-ring) 2px 4px,
+    transparent 4px
+  );
+}
+
+.eva-files-side-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.2);
+  height: 32px;
+  padding: 0 calc(var(--mantine-spacing-xs) * 0.6) 0 calc(var(--mantine-spacing-xs) * 0.8);
+}
+.eva-files-root {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  font-weight: var(--eva-fw-medium);
+}
+
+.eva-files-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.eva-files-error {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+  padding: calc(var(--mantine-spacing-xs) * 0.4) calc(var(--mantine-spacing-xs) * 0.8);
+  border-bottom: 1px solid var(--eva-c-border);
+  color: var(--eva-c-danger);
+}
+.eva-files-error span {
+  flex: 1;
+}
+
+/* Tree ------------------------------------------------------------------------------------ */
+.eva-files-tree {
+  flex: 1;
+  min-height: 0;
+  outline: none;
+}
+.eva-files-row {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  height: var(--eva-files-row-h);
+  padding: 0 calc(var(--mantine-spacing-xs) * 0.8) 0 calc(var(--mantine-spacing-xs) * 0.4);
+  color: var(--eva-c-foreground);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.eva-files-row:hover {
+  background: var(--eva-files-hover);
+}
+.eva-files-row[data-selected] {
+  background: var(--eva-files-hover);
+}
+.eva-files-tree:focus-visible .eva-files-row[data-selected],
+.eva-files-tree:focus .eva-files-row[data-selected] {
+  background: var(--eva-files-selected);
+  box-shadow: inset 0 0 0 1px var(--eva-c-ring);
+}
+.eva-files-row[data-ignored] {
+  opacity: 0.5;
+}
+.eva-files-row[data-locked] {
+  color: var(--eva-c-muted-foreground);
+  cursor: default;
+}
+.eva-files-row[data-git='M'] {
+  color: var(--eva-git-m);
+}
+.eva-files-row[data-git='A'],
+.eva-files-row[data-git='U'] {
+  color: var(--eva-git-a);
+}
+.eva-files-row[data-git='D'],
+.eva-files-row[data-git='C'] {
+  color: var(--eva-git-d);
+}
+.eva-files-row[data-git='R'] {
+  color: var(--eva-git-r);
+}
+/* Indent guides, one per level, like VS Code's tree; the group sits flush (no row gap inside). */
+.eva-files-guides {
+  flex: none;
+  align-self: stretch;
+  display: flex;
+}
+.eva-files-guide {
+  width: 12px;
+  background: linear-gradient(
+    to right,
+    transparent 7px,
+    var(--eva-c-border) 7px 8px,
+    transparent 8px
+  );
+}
+.eva-files-twist {
+  flex: none;
+  display: inline-flex;
+  width: 14px;
+  color: var(--eva-c-muted-foreground);
+  transition: transform var(--eva-dur-fast) ease;
+}
+.eva-files-twist[data-open] {
+  transform: rotate(90deg);
+}
+.eva-files-icon {
+  flex: none;
+  display: block;
+}
+.eva-files-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.eva-files-lock {
+  flex: none;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-files-git {
+  flex: none;
+  width: 12px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: var(--eva-fw-medium);
+}
+.eva-files-git-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin: 0 calc(var(--mantine-spacing-xs) * 0.3);
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.8;
+}
+.eva-files-empty {
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
+  color: var(--eva-c-muted-foreground);
+}
+
+/* Quick open ------------------------------------------------------------------------------ */
+.eva-files-qo-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: calc(var(--mantine-spacing-xs) * 0.8) var(--mantine-spacing-md) 0;
+}
+.eva-files-qo {
+  width: min(560px, 100%);
+  max-height: min(420px, 80%);
+  display: flex;
+  flex-direction: column;
+  border-radius: 8px;
+  background: var(--eva-c-popover-background);
+  color: var(--eva-c-popover-foreground);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.08),
+    0 12px 32px rgb(0 0 0 / 0.18);
+  overflow: hidden;
+}
+.eva-files-qo-input {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+  padding: 0 var(--mantine-spacing-xs);
+  height: 36px;
+  border-bottom: 1px solid var(--eva-c-border);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-files-qo-input input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  color: var(--eva-c-foreground);
+}
+.eva-files-qo-list {
+  overflow-y: auto;
+  padding: calc(var(--mantine-spacing-xs) * 0.4) 0;
+}
+.eva-files-qo-item {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+  height: 26px;
+  padding: 0 var(--mantine-spacing-xs);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.eva-files-qo-item:hover {
+  background: var(--eva-files-hover);
+}
+.eva-files-qo-item[data-active] {
+  background: var(--eva-files-selected);
+}
+.eva-files-qo-name {
+  flex: none;
+}
+.eva-files-qo-dir {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--eva-c-muted-foreground);
+  font-size: 12px;
+}
+.eva-files-qo mark,
+.eva-files-search mark {
+  background: transparent;
+  color: var(--mantine-primary-color-light-color);
+  font-weight: 600;
+}
+.eva-files-qo-note {
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  color: var(--eva-c-muted-foreground);
+}
+
+/* Search ---------------------------------------------------------------------------------- */
+.eva-files-search {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.eva-files-search-box {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.2);
+  margin: calc(var(--mantine-spacing-xs) * 0.8);
+  margin-bottom: calc(var(--mantine-spacing-xs) * 0.4);
+  padding: 0 calc(var(--mantine-spacing-xs) * 0.3) 0 calc(var(--mantine-spacing-xs) * 0.8);
+  height: 30px;
+  border: 1px solid var(--eva-c-input-border);
+  border-radius: 6px;
+}
+.eva-files-search-box:focus-within {
+  border-color: var(--eva-c-ring);
+}
+.eva-files-search-box input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  color: var(--eva-c-foreground);
+}
+.eva-files-search-summary {
+  flex: none;
+  min-height: 18px;
+  padding: 0 var(--mantine-spacing-xs);
+  color: var(--eva-c-muted-foreground);
+  font-size: 12px;
+}
+.eva-files-search-results {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: var(--mantine-spacing-xs);
+}
+.eva-files-search-head,
+.eva-files-search-hit {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  height: var(--eva-files-row-h);
+  padding: 0 var(--mantine-spacing-xs) 0 calc(var(--mantine-spacing-xs) * 0.4);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.eva-files-search-hit {
+  padding-left: calc(var(--mantine-spacing-xs) * 3.6);
+}
+.eva-files-search-head:hover,
+.eva-files-search-hit:hover {
+  background: var(--eva-files-hover);
+}
+.eva-files-search-head .eva-files-name {
+  flex: none;
+}
+.eva-files-search-dir {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--eva-c-muted-foreground);
+  font-size: 12px;
+}
+.eva-files-search-count {
+  flex: none;
+  color: var(--eva-c-muted-foreground);
+  font-size: 11px;
+}
+.eva-files-search-preview {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--eva-font-code);
+  font-size: 12px;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-files-search-preview mark {
+  color: var(--eva-c-foreground);
+  background: var(--eva-files-selected);
+  border-radius: 2px;
+}
+
+/* Editor ---------------------------------------------------------------------------------- */
+.eva-files-editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.eva-files-tabs {
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  height: 34px;
+  border-bottom: 1px solid var(--eva-c-border);
+}
+.eva-files-tabs-scroll {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.eva-files-tabs-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.2);
+  padding: 0 calc(var(--mantine-spacing-xs) * 0.4);
+}
+.eva-files-tab {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  max-width: 220px;
+  padding: 0 calc(var(--mantine-spacing-xs) * 0.4) 0 var(--mantine-spacing-xs);
+  border-right: 1px solid var(--eva-c-border);
+  color: var(--eva-c-muted-foreground);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.eva-files-tab:hover {
+  color: var(--eva-c-foreground);
+}
+.eva-files-tab[data-active] {
+  color: var(--eva-c-foreground);
+  background: var(--eva-files-hover);
+}
+.eva-files-tab[data-preview] .eva-files-tab-name {
+  font-style: italic;
+}
+.eva-files-tab-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.eva-files-tab-hint {
+  color: var(--eva-c-muted-foreground);
+  font-size: 11px;
+}
+.eva-files-tab-close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.eva-files-tab-close:hover {
+  background: var(--eva-files-hover);
+}
+.eva-files-tab-close svg {
+  opacity: 0;
+}
+.eva-files-tab[data-active] .eva-files-tab-close svg,
+.eva-files-tab:hover .eva-files-tab-close svg {
+  opacity: 1;
+}
+.eva-files-tab-dot {
+  display: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+/* Unsaved: a dot that turns into the close button on hover, like VS Code. */
+.eva-files-tab[data-dirty] .eva-files-tab-dot {
+  display: block;
+}
+.eva-files-tab[data-dirty] .eva-files-tab-close svg {
+  display: none;
+}
+.eva-files-tab[data-dirty] .eva-files-tab-close:hover .eva-files-tab-dot {
+  display: none;
+}
+.eva-files-tab[data-dirty] .eva-files-tab-close:hover svg {
+  display: block;
+  opacity: 1;
+}
+
+.eva-files-banner {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+  padding: calc(var(--mantine-spacing-xs) * 0.5) var(--mantine-spacing-xs);
+  border-bottom: 1px solid var(--eva-c-border);
+  color: var(--eva-c-warning);
+}
+.eva-files-banner span {
+  flex: 1;
+  color: var(--eva-c-foreground);
+}
+
+.eva-files-monaco {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.eva-files-md {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--mantine-spacing-md) var(--mantine-spacing-lg);
+  max-width: 760px;
+}
+.eva-files-image {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--mantine-spacing-xs);
+  padding: var(--mantine-spacing-md);
+  color: var(--eva-c-muted-foreground);
+  font-size: 12px;
+}
+.eva-files-image img {
+  max-width: 100%;
+  max-height: calc(100% - 32px);
+  object-fit: contain;
+  background-color: var(--eva-c-background);
+  background-image: conic-gradient(
+    var(--eva-files-hover) 25%,
+    transparent 0 50%,
+    var(--eva-files-hover) 0 75%,
+    transparent 0
+  );
+  background-size: 16px 16px;
+}
+.eva-files-notice {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--mantine-spacing-xs);
+  padding: var(--mantine-spacing-lg);
+  color: var(--eva-c-muted-foreground);
+  text-align: center;
+}
+.eva-files-notice p {
+  margin: 0 0 var(--mantine-spacing-xs);
+}
+.eva-files-welcome {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: var(--mantine-spacing-lg);
+  color: var(--eva-c-muted-foreground);
+  text-align: center;
+}
+.eva-files-welcome p {
+  margin: 0 0 calc(var(--mantine-spacing-xs) * 0.4);
+}
+.eva-files-modal-text {
+  margin: 0 0 var(--mantine-spacing-md);
+}
+.eva-files-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--mantine-spacing-xs);
+}

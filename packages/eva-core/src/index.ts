@@ -1,0 +1,7 @@
+export { createEvaFs, EvaFsDenied, type EvaFs, type ReadStamp } from './fs/eva-fs'
+export { createPathQueue } from './fs/path-queue'
+export { WRITE_KINDS, matchWrite, realpathLoose, type WriteKind } from './fs/allowlist'
+export { installWriteTrap, withEvaFsWrite } from './fs/write-trap'
+export { countOpenTodos } from './sidebar/todos'
+export { parseDurationMs, jobFrontmatter, jobScheduled } from './sidebar/jobs'
+export { readSidebar, type SidebarData } from './sidebar/read'

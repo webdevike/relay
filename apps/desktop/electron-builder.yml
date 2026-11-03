@@ -1,0 +1,22 @@
+appId: dev.eva.relay-desktop
+productName: Relay
+directories:
+  output: release
+  buildResources: resources
+files:
+  - out/**
+  - package.json
+  - resources/**
+asarUnpack:
+  - '**/node_modules/node-pty/**'
+  - '**/node_modules/electron-chrome-extensions/**'
+npmRebuild: false
+mac:
+  icon: resources/icon.icns
+  target:
+    - target: dir
+      arch: arm64
+  # A real signature carries the bundle id; macOS drops notifications from the ad-hoc "Electron" one.
+  identity: 'Apple Development: Created via API (9KJ57Q4A39)'
+  hardenedRuntime: false
+  gatekeeperAssess: false

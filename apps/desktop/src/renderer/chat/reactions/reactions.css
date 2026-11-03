@@ -1,0 +1,207 @@
+/* Tapbacks on chat bubbles: the corner button, the reactions, the floating bar, the context menu anchor. */
+.eva-bubble-wrap {
+  position: relative;
+}
+/* A prompt's bubble keeps its 80% cap on the wrapper, which shrinks to it in the right-aligned turn. */
+.eva-turn-user > .eva-bubble-wrap {
+  max-width: 80%;
+}
+.eva-turn-user > .eva-bubble-wrap .eva-bubble {
+  max-width: 100%;
+}
+/*
+ * A reply of plain prose shrinks to its text, so its corner (and the reaction there) sits by the
+ * words, as on a bubble. Anything laid out to the column's width (code, tables, media, widgets)
+ * keeps the full column.
+ */
+.eva-bubble-wrap[data-corner='end']:not(
+    :has(
+      pre,
+      table,
+      img,
+      video,
+      canvas,
+      iframe,
+      svg:not(.tabler-icon),
+      .eva-widget,
+      .eva-widget-page
+    )
+  ) {
+  width: fit-content;
+  max-width: 100%;
+}
+
+/* The react button: the bubble's outer top corner, overlapping its edge: a prompt's left, a reply's right. */
+.eva-react-corner {
+  position: absolute;
+  top: -12px;
+  z-index: 1;
+  display: flex;
+}
+.eva-react-corner[data-corner='start'] {
+  left: -12px;
+}
+/* A reply has no bubble padding: its corner sits a little further out, above the line's end. */
+.eva-react-corner[data-corner='end'] {
+  top: -18px;
+  right: -24px;
+}
+
+/*
+ * The reactions: side by side on the bubble's bottom-right corner, overlapping it a little
+ * (iMessage's tapback), Isaac's outermost. A bubble with any keeps room under it, so they clear
+ * the next row.
+ */
+.eva-reactions {
+  position: absolute;
+  right: -8px;
+  bottom: -14px;
+  z-index: 1;
+  display: flex;
+  gap: calc(var(--mantine-spacing-xs) / 5);
+}
+.eva-bubble-wrap[data-reacted='true'] {
+  margin-bottom: var(--mantine-spacing-sm);
+}
+/* A reply has no bubble: its reactions hang under its last line (or picture) rather than on it. */
+.eva-reactions[data-corner='end'] {
+  right: -4px;
+  bottom: -22px;
+}
+.eva-bubble-wrap[data-corner='end'][data-reacted='true'] {
+  margin-bottom: var(--mantine-spacing-lg);
+}
+
+.eva-react-btn {
+  box-shadow: var(--eva-shadow);
+  opacity: 0;
+  transition: opacity var(--eva-dur-fast);
+}
+.eva-bubble-wrap:hover .eva-react-btn,
+.eva-bubble-wrap:focus-within .eva-react-btn,
+.eva-bubble-wrap[data-open='true'] .eva-react-btn {
+  opacity: 1;
+}
+
+.eva-reaction-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 calc(var(--mantine-spacing-xs) / 2);
+  border: 2px solid var(--eva-bg);
+  border-radius: var(--eva-radius-round);
+  background: var(--eva-c-muted-background);
+  box-shadow: var(--eva-shadow);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  animation: eva-reaction-pop 180ms ease-out;
+}
+/* An assistant's: its tiny portrait, then the emoji. */
+.eva-reaction-badge[data-agent] {
+  gap: calc(var(--mantine-spacing-xs) * 0.3);
+  padding-left: calc(var(--mantine-spacing-xs) * 0.3);
+}
+.eva-reaction-portrait {
+  width: 16px;
+  height: 16px;
+  overflow: hidden;
+}
+button.eva-reaction-badge {
+  cursor: pointer;
+}
+.eva-reaction-badge:focus-visible,
+.eva-reaction-pick:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: 1px;
+}
+@keyframes eva-reaction-pop {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* The bar: a pill of quick picks above the bubble, the grid of more under them. */
+.eva-popover-dropdown.eva-reaction-pop {
+  padding: calc(var(--mantine-spacing-xs) / 2);
+  border-radius: var(--eva-radius-round);
+}
+.eva-popover-dropdown.eva-reaction-pop:has(.eva-reaction-grid) {
+  border-radius: var(--eva-radius-xl);
+}
+.eva-reaction-bar {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+}
+.eva-reaction-row,
+.eva-reaction-grid {
+  display: flex;
+  gap: calc(var(--mantine-spacing-xs) / 5);
+}
+.eva-reaction-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 32px);
+}
+.eva-reaction-pick {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--eva-radius-round);
+  background: transparent;
+  color: var(--eva-text-dim);
+  font-size: 19px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color var(--eva-dur-fast),
+    transform var(--eva-dur-fast);
+}
+.eva-reaction-pick:hover {
+  background: var(--eva-hover);
+  transform: scale(1.12);
+}
+.eva-reaction-pick[data-active='true'] {
+  background: color-mix(in srgb, var(--eva-accent) 22%, transparent);
+}
+
+.eva-bubble-menu-anchor {
+  position: fixed;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .eva-react-btn,
+  .eva-reaction-pick {
+    transition: none;
+  }
+  .eva-reaction-pick:hover {
+    transform: none;
+  }
+  .eva-reaction-badge {
+    animation: none;
+  }
+}
+html[data-eva-motion='off'] .eva-react-btn,
+html[data-eva-motion='off'] .eva-reaction-pick {
+  transition: none;
+}
+html[data-eva-motion='off'] .eva-reaction-pick:hover {
+  transform: none;
+}
+html[data-eva-motion='off'] .eva-reaction-badge {
+  animation: none;
+}

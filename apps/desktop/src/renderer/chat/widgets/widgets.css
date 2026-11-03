@@ -1,0 +1,194 @@
+/* ```ui widgets in replies (widgets.rs): full column width, one hairline frame, quiet hovers. */
+
+.eva-widget {
+  width: 100%;
+  min-width: 0;
+}
+.eva-md .eva-widget {
+  margin: 0 0 var(--mantine-spacing-xs);
+}
+/* Two widgets in a row are separate things; give them air (rich.rs: XL between Ui segments). */
+.eva-md .eva-widget + .eva-widget {
+  margin-top: var(--mantine-spacing-md);
+}
+
+.eva-wb-frame {
+  min-width: 0;
+  background: var(--eva-surface);
+  border-color: var(--eva-border);
+  border-radius: var(--eva-radius-lg);
+}
+/* A compact card (calculator, keypad, short form) keeps phone width at the left of the column. */
+.eva-wb-frame[data-width='compact'] {
+  max-width: 380px;
+}
+
+/* Root row of stats: hairlines above and below, one between cells. */
+.eva-wb-stats {
+  display: flex;
+  width: 100%;
+  border-top: 1px solid var(--eva-border);
+  border-bottom: 1px solid var(--eva-border);
+}
+.eva-wb-stats-cell {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: var(--mantine-spacing-md) var(--mantine-spacing-lg);
+}
+.eva-wb-stats-cell:first-child {
+  padding-left: 0;
+}
+.eva-wb-stats-cell:last-child {
+  padding-right: 0;
+}
+.eva-wb-stats-cell + .eva-wb-stats-cell {
+  border-left: 1px solid var(--eva-border);
+}
+
+.eva-wb-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  width: 100%;
+}
+.eva-wb-row-cell,
+.eva-wb-grid-cell {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.eva-wb-text {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.eva-wb-text[data-style='display'] {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.eva-wb-rows-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-md);
+  padding: calc(var(--mantine-spacing-xs) * 0.9) 0;
+}
+.eva-wb-rows-row + .eva-wb-rows-row {
+  border-top: 1px solid var(--eva-border);
+}
+.eva-wb-rows-label {
+  min-width: 0;
+}
+.eva-wb-rows-value {
+  flex: none;
+}
+
+.eva-wb-divider {
+  border-color: var(--eva-border);
+}
+
+.eva-wb-num {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.eva-wb-item[data-done] .eva-wb-item-text {
+  color: var(--mantine-color-dimmed);
+  text-decoration: line-through;
+}
+.eva-wb-check {
+  flex: none;
+  margin-top: calc(var(--mantine-spacing-xs) / 5);
+  color: var(--mantine-color-dimmed);
+}
+.eva-wb-check[data-checked] {
+  color: var(--mantine-color-green-filled);
+}
+
+.eva-wb-quote-root {
+  padding: 0 0 0 var(--mantine-spacing-sm);
+  background: none;
+  border-inline-start: 2px solid var(--eva-border);
+  border-radius: 0;
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-body);
+}
+.eva-wb-quote-cite {
+  margin-top: calc(var(--mantine-spacing-xs) / 2);
+  font-size: var(--eva-fz-caption);
+}
+
+.eva-wb-avatar-text {
+  min-width: 0;
+}
+
+.eva-wb-table-scroll {
+  overflow-x: auto;
+}
+.eva-wb-table-scroll table {
+  min-width: max-content;
+  width: 100%;
+}
+.eva-wb-table-scroll th,
+.eva-wb-table-scroll td {
+  white-space: nowrap;
+}
+.eva-wb-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  vertical-align: middle;
+}
+.eva-wb-cell svg {
+  flex: none;
+}
+
+.eva-wb-input-field {
+  flex: 1;
+  min-width: 0;
+}
+.eva-wb-sent {
+  color: var(--mantine-color-dimmed);
+}
+
+.eva-wb-collapse-head {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  width: 100%;
+  padding: calc(var(--mantine-spacing-xs) * 0.4) calc(var(--mantine-spacing-xs) * 0.6);
+  border-radius: var(--eva-radius-sm);
+  font-size: var(--eva-fz-body);
+  font-weight: var(--eva-fw-medium);
+  transition: background var(--eva-dur-fast) ease;
+}
+.eva-wb-collapse-head:hover {
+  background: var(--eva-hover);
+}
+.eva-wb-collapse-head:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: -2px;
+}
+.eva-wb-chevron {
+  flex: none;
+  color: var(--mantine-color-dimmed);
+  transition: transform var(--eva-dur-fast) ease;
+}
+.eva-wb-collapse-head[data-open='true'] .eva-wb-chevron {
+  transform: rotate(90deg);
+}
+
+/* Agent-made pages (```html-widget, ```mantine-widget): borderless and transparent on the reply,
+   full column width; the page sets the height. The frame inherits the shell's color-scheme, which
+   matches the page's, so Chromium paints no opaque backdrop behind it. */
+.eva-widget-page {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+}
+.eva-widget-page-pending {
+  padding: var(--mantine-spacing-xs) 0;
+  color: var(--eva-c-muted-foreground);
+  font-size: var(--eva-fz-label);
+}

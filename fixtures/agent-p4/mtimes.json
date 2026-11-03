@@ -1,0 +1,21 @@
+{
+  "p4-ecard": 130,
+  "p4-relay": 140,
+  "p4-evaos": 150,
+  "p4-other1": 160,
+  "p4-other2": 170,
+  "p4-other3": 180,
+  "p4-other4": 190,
+  "p4-other5": 200,
+  "p4-other6": 210,
+  "p4-other7": 220,
+  "p4-pinned": 230,
+  "p4-archived": 240,
+  "p4-jobs": 250,
+  "p4-subagents": 260,
+  "p4-subagents/a": 265,
+  "p4-subagents/b": 262,
+  "p4-images": 270,
+  "p4-rename": 280,
+  "p4-writer": 290
+}

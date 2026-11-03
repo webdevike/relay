@@ -1,0 +1,135 @@
+{
+  "version": 1,
+  "title": "Calm ops moodboard",
+  "layout": "grid",
+  "nodes": [
+    {
+      "id": "title",
+      "type": "topic",
+      "data": {
+        "title": "Calm ops UI",
+        "body": "Quiet surfaces, dense where it counts"
+      }
+    },
+    {
+      "id": "palette",
+      "type": "palette",
+      "data": {
+        "title": "Palette",
+        "colors": [
+          {
+            "hex": "#100F0F",
+            "name": "Surface"
+          },
+          {
+            "hex": "#282726",
+            "name": "Border"
+          },
+          {
+            "hex": "#CECDC3",
+            "name": "Text"
+          },
+          {
+            "hex": "#24837B",
+            "name": "Accent"
+          },
+          {
+            "hex": "#D0A215"
+          }
+        ]
+      }
+    },
+    {
+      "id": "type-ui",
+      "type": "typography",
+      "data": {
+        "title": "Interface",
+        "font": "Inter",
+        "sample": "Ship the proof on dev"
+      }
+    },
+    {
+      "id": "type-mono",
+      "type": "typography",
+      "data": {
+        "title": "Code",
+        "font": "IBM Plex Mono",
+        "sample": "pnpm -r typecheck"
+      }
+    },
+    {
+      "id": "calm",
+      "type": "frame",
+      "data": {
+        "title": "Calm surfaces"
+      }
+    },
+    {
+      "id": "calm-1",
+      "type": "image",
+      "parent": "calm",
+      "data": {
+        "title": "Inky gradient",
+        "src": "moodboard-calm.png",
+        "caption": "Dark base, teal accent",
+        "url": "https://example.com/calm"
+      }
+    },
+    {
+      "id": "calm-note",
+      "type": "note",
+      "parent": "calm",
+      "data": {
+        "title": "Borrow",
+        "body": "One accent color, no borders on cards."
+      }
+    },
+    {
+      "id": "dense",
+      "type": "frame",
+      "data": {
+        "title": "Dense tables"
+      }
+    },
+    {
+      "id": "dense-1",
+      "type": "image",
+      "parent": "dense",
+      "data": {
+        "title": "Ops grid",
+        "src": "moodboard-dense.png",
+        "caption": "32px rows, sticky header"
+      }
+    },
+    {
+      "id": "dense-2",
+      "type": "image",
+      "parent": "dense",
+      "data": {
+        "title": "Card rows",
+        "src": "moodboard-cards.png",
+        "caption": "Grouped by status",
+        "url": "https://example.com/cards"
+      }
+    },
+    {
+      "id": "dense-note",
+      "type": "note",
+      "parent": "dense",
+      "data": {
+        "title": "Borrow",
+        "body": "Inline filters above the table.",
+        "tone": "accent"
+      }
+    },
+    {
+      "id": "wire",
+      "type": "frame",
+      "data": {
+        "title": "Settings page",
+        "url": "https://example.com/settings"
+      }
+    }
+  ],
+  "edges": []
+}

@@ -1,0 +1,363 @@
+.eva-bench-col {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: var(--mantine-spacing-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-md);
+}
+.eva-bench-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--mantine-spacing-sm);
+}
+.eva-bench-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--eva-c-foreground);
+}
+.eva-bench-spacer {
+  flex: 1;
+}
+.eva-bench-dim {
+  color: var(--eva-c-muted-foreground);
+  font-size: var(--eva-fz-label);
+}
+.eva-bench-faint {
+  color: var(--eva-c-muted-foreground);
+  font-size: var(--eva-fz-caption);
+}
+.eva-bench-mono {
+  font-family: var(--eva-font-mono);
+  font-size: var(--eva-fz-label);
+}
+.eva-bench-label {
+  font-size: var(--eva-fz-label);
+  font-weight: 600;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-bench-warning {
+  margin: 0;
+  color: var(--eva-c-warning);
+  font-size: var(--eva-fz-label);
+}
+
+/* Level 1: flat rows, hairline dividers. */
+.eva-bench-list,
+.eva-bench-table {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--eva-c-border);
+}
+.eva-bench-run,
+.eva-bench-arm {
+  display: grid;
+  align-items: center;
+  column-gap: var(--mantine-spacing-md);
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-xs);
+  border-bottom: 1px solid var(--eva-c-border);
+  color: var(--eva-c-foreground);
+  font-size: var(--eva-fz-body);
+  cursor: pointer;
+}
+.eva-bench-run {
+  grid-template-columns: minmax(120px, 1fr) minmax(0, auto) minmax(96px, auto) 140px;
+}
+.eva-bench-run > :nth-child(2),
+.eva-bench-run > :nth-child(3) {
+  justify-self: end;
+}
+.eva-bench-run:hover,
+.eva-bench-arm:not(.eva-bench-thead):hover,
+.eva-bench-arm[data-selected='true'] {
+  background: var(--eva-hover);
+}
+.eva-bench-run:focus-visible,
+.eva-bench-arm:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: -2px;
+}
+.eva-bench-run-main,
+.eva-bench-arm-name {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.eva-bench-run-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-bench-headline {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: var(--mantine-spacing-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+}
+/* Arm labels can be whole sentences: capped, and they shrink (ellipsis) before the rates ever clip. */
+.eva-bench-headline > span {
+  flex-shrink: 0;
+}
+.eva-bench-headline > span:has(> .eva-bench-headline-label) {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3em;
+  min-width: 0;
+  flex-shrink: 1;
+}
+.eva-bench-headline-label {
+  max-width: 18ch;
+  min-width: 3ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.eva-bench-run-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-bench-run-cost {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Status: a quiet pill, color paired with an icon. */
+.eva-bench-status {
+  --bench-tone: var(--eva-c-muted-foreground);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  padding: 0 var(--mantine-spacing-xs);
+  border-radius: 999px;
+  font-size: var(--eva-fz-label);
+  font-weight: 600;
+  line-height: 20px;
+  color: var(--bench-tone);
+  background: color-mix(in srgb, var(--bench-tone) 12%, transparent);
+  white-space: nowrap;
+}
+.eva-bench-status[data-status='pass'] {
+  --bench-tone: var(--eva-c-success);
+}
+.eva-bench-status[data-status='fail'] {
+  --bench-tone: var(--eva-c-danger);
+}
+.eva-bench-status[data-status='inconclusive'] {
+  --bench-tone: var(--eva-c-warning);
+}
+.eva-bench-status[data-status='running'] {
+  --bench-tone: var(--eva-c-accent);
+}
+.eva-bench-progress-text {
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+}
+.eva-bench-spin {
+  animation: eva-bench-spin 1s linear infinite;
+}
+@keyframes eva-bench-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+html[data-eva-motion='off'] .eva-bench-spin {
+  animation: none;
+}
+
+.eva-bench-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  padding: var(--mantine-spacing-xl) var(--mantine-spacing-md);
+  text-align: center;
+}
+.eva-bench-empty h2 {
+  margin: 0;
+  font-size: var(--eva-fz-heading);
+}
+
+/* Level 2: one run. */
+.eva-bench-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-md);
+}
+.eva-bench-detail-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-bench-title-line {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+}
+.eva-bench-question {
+  margin: 0;
+  max-width: 75ch;
+  line-height: 1.5;
+}
+.eva-bench-verdict {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+  max-width: 75ch;
+}
+.eva-bench-verdict p {
+  margin: 0;
+  line-height: 1.5;
+}
+/* Narrow main column (side panel open): the tests table scrolls sideways, names never collapse. */
+.eva-bench-table {
+  overflow-x: auto;
+}
+.eva-bench-arm {
+  min-width: 680px;
+  grid-template-columns: minmax(150px, 1.6fr) minmax(110px, 1fr) repeat(5, minmax(64px, 0.6fr));
+}
+/* Quality/$ adds a column when the run has a primary metric. */
+.eva-bench-table[data-quality-per-dollar='true'] .eva-bench-arm {
+  min-width: 750px;
+  grid-template-columns: minmax(150px, 1.6fr) minmax(110px, 1fr) repeat(6, minmax(64px, 0.6fr));
+}
+.eva-bench-arm > span:not(:first-child) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.eva-bench-cap::first-letter {
+  text-transform: uppercase;
+}
+.eva-bench-thead {
+  cursor: default;
+  font-size: var(--eva-fz-label);
+  font-weight: 600;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-bench-results {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* Level 3: the side panel. */
+.eva-bench-panel {
+  flex: 1;
+  min-height: 0;
+}
+.eva-bench-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-lg);
+  padding: var(--mantine-spacing-md);
+}
+.eva-bench-panel-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-bench-panel-section h3 {
+  margin: 0;
+  font-size: var(--eva-fz-body);
+  font-weight: 600;
+}
+.eva-bench-facts {
+  margin: 0;
+  font-size: var(--eva-fz-label);
+}
+.eva-bench-facts > div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-md);
+  padding: var(--mantine-spacing-xs) 0;
+  border-bottom: 1px solid var(--eva-c-border);
+}
+.eva-bench-facts dt {
+  color: var(--eva-c-muted-foreground);
+}
+.eva-bench-facts dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.eva-bench-mini {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--eva-fz-label);
+  font-variant-numeric: tabular-nums;
+}
+.eva-bench-mini th {
+  font-weight: 600;
+  color: var(--eva-c-muted-foreground);
+  text-align: right;
+}
+.eva-bench-mini th,
+.eva-bench-mini td {
+  padding: var(--mantine-spacing-xs) 0 var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  border-bottom: 1px solid var(--eva-c-border);
+  text-align: right;
+  vertical-align: top;
+}
+.eva-bench-mini th:first-child,
+.eva-bench-mini td:first-child {
+  padding-left: 0;
+  text-align: left;
+}
+.eva-bench-cases {
+  table-layout: fixed;
+}
+.eva-bench-cases th:nth-child(2) {
+  width: 64px;
+}
+.eva-bench-cases th:nth-child(3) {
+  width: 34%;
+}
+.eva-bench-cases th:nth-child(4) {
+  width: 48px;
+}
+.eva-bench-cases td:first-child > span:first-child,
+.eva-bench-cases td:nth-child(3) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-bench-cases td:first-child > span:first-child {
+  display: block;
+}
+.eva-bench-outcome {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-bench-outcome[data-passed='true'] {
+  color: var(--eva-c-success);
+}
+.eva-bench-outcome[data-passed='false'] {
+  color: var(--eva-c-danger);
+}
+.eva-bench-error {
+  color: var(--eva-c-danger);
+  font-family: inherit;
+  white-space: normal;
+}
+.eva-bench-skipped {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--eva-fz-label);
+}
+.eva-bench-skipped li {
+  padding: var(--mantine-spacing-xs) 0;
+  border-bottom: 1px solid var(--eva-c-border);
+}

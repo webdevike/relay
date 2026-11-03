@@ -1,0 +1,15 @@
+.planning
+fixtures
+proof
+out
+release
+pnpm-lock.yaml
+.claude
+.tools
+logs
+test-results
+IDEA.md
+CLAUDE.md
+*.sh
+packages/eva-core/src/model/__fixtures__
+packages/chat-core/src/openui/lang

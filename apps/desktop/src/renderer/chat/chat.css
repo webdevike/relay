@@ -1,0 +1,349 @@
+.eva-mono {
+  font-family: var(--eva-font-mono);
+}
+.eva-chat .eva-chat-header {
+  -webkit-app-region: drag;
+}
+.eva-chat-header .eva-chat-title {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: var(--eva-fw-medium);
+  line-height: 1.2;
+}
+.eva-chat-header > button {
+  flex: none;
+  -webkit-app-region: no-drag;
+}
+.eva-chat-saved {
+  flex: none;
+  padding: 2px var(--eva-space-native-xs);
+  border-radius: var(--eva-radius-round);
+  background: var(--eva-c-muted-background);
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+}
+.eva-chat-panel-toggle {
+  margin-left: auto;
+}
+.eva-chat .eva-chat-empty {
+  min-height: 0;
+  overflow-y: auto;
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: var(--eva-space-native-xs) var(--eva-space-native-lg) var(--eva-space-native-lg);
+  text-align: left;
+}
+.eva-chat-intro {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--eva-space-native-xs);
+  width: 100%;
+  max-width: var(--eva-chat-column-w);
+  box-sizing: border-box;
+  margin-inline: auto;
+  padding-block: var(--eva-space-xl);
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
+  overflow-wrap: anywhere;
+}
+.eva-chat-intro h2 {
+  max-width: 100%;
+  margin: 0;
+  font-size: calc(var(--eva-font-size) * 22 / 14);
+  font-weight: var(--eva-fw-medium);
+  line-height: 1.4;
+  text-align: center;
+}
+
+.eva-log {
+  flex: 1 1 0;
+  min-height: 0;
+  position: relative;
+}
+.eva-row {
+  padding: var(--eva-space-sm) var(--eva-space-native-lg);
+}
+.eva-row-inner {
+  max-width: var(--eva-chat-column-w);
+  margin: 0 auto;
+}
+.eva-turn-user {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--eva-space-native-xs);
+}
+.eva-bubble {
+  max-width: 80%;
+  background: var(--eva-c-muted-background);
+  border-radius: var(--eva-radius-lg);
+  padding: var(--eva-space-native-xs) var(--eva-space-md);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.eva-thinking {
+  font-style: italic;
+  color: var(--eva-text-dim);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.eva-notice {
+  padding: var(--eva-space-xs) var(--eva-space-sm);
+  border: 1px solid var(--eva-border);
+  border-radius: var(--eva-radius);
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
+  overflow-wrap: anywhere;
+}
+
+/* Tool calls (chat_view.rs ToolBlock and tool_group). */
+.eva-tool,
+.eva-tool-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--eva-space-xs);
+  min-width: 0;
+}
+.eva-tool-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
+}
+.eva-tool-toggle {
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: var(--eva-font-ui);
+  text-align: left;
+  cursor: pointer;
+  transition: color 120ms;
+}
+.eva-tool-toggle:hover {
+  color: var(--eva-text);
+}
+.eva-tool-toggle:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: 2px;
+  border-radius: var(--eva-radius-sm);
+}
+.eva-tool-icon {
+  flex: none;
+}
+.eva-tool-name {
+  flex: none;
+  color: var(--eva-text);
+  font-weight: var(--eva-fw-semibold);
+}
+.eva-tool-summary,
+.eva-tool-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-tool-failed {
+  flex: none;
+  color: var(--eva-danger);
+}
+.eva-tool-code {
+  margin: 0;
+  padding: var(--eva-space-sm) var(--eva-space-native-sm);
+  border-radius: var(--eva-radius);
+  background: var(--eva-c-muted-background);
+  font-family: var(--eva-font-mono);
+  font-size: calc(var(--eva-font-size) * 13 / 14);
+  line-height: 1.5;
+  white-space: pre;
+  overflow-x: auto;
+}
+.eva-tool-output {
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+}
+.eva-tool-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-left: 6px;
+  padding-left: var(--eva-space-native-sm);
+  border-left: 1px solid var(--eva-border);
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
+  color: var(--eva-text-dim);
+}
+.eva-tool-line {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.eva-tool-line-name {
+  flex: none;
+  color: var(--eva-text);
+}
+.eva-chevron {
+  flex: none;
+  transition: transform 150ms;
+}
+.eva-chevron[data-open='true'] {
+  transform: rotate(90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .eva-chevron {
+    transition: none;
+  }
+}
+
+.eva-streaming-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-right: var(--eva-space-sm);
+  border-radius: 50%;
+  background: var(--eva-accent);
+}
+.eva-chat-reconnecting {
+  margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-error-banner {
+  flex: none;
+  padding: var(--eva-space-sm) var(--eva-space-md);
+  color: var(--eva-danger);
+  border-bottom: 1px solid var(--eva-border);
+  background: var(--eva-surface);
+}
+.eva-composer {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--eva-space-native-xs);
+  padding: var(--eva-space-native-xs) var(--eva-space-native-lg) var(--eva-space-native-lg);
+  background: var(--eva-bg);
+}
+.eva-composer > * {
+  width: 100%;
+  max-width: var(--eva-chat-column-w);
+  box-sizing: border-box;
+  margin-inline: auto;
+}
+.eva-composer-field {
+  min-width: 0;
+}
+
+.eva-pill {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--eva-space-xs);
+  height: 28px;
+  padding: 0 var(--eva-space-md);
+  border-radius: var(--eva-radius-round);
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-medium);
+  line-height: 1.4;
+  cursor: pointer;
+  animation: eva-pill-in 120ms ease-out;
+}
+.eva-pill-jump {
+  background: var(--eva-surface);
+  color: var(--eva-text);
+  border: 1px solid var(--eva-border);
+  transition: background-color 120ms;
+}
+.eva-pill-jump:hover {
+  background: var(--eva-hover);
+}
+.eva-pill-new {
+  background: var(--eva-accent);
+  color: var(--eva-accent-fg);
+  border: 1px solid var(--eva-accent);
+}
+@keyframes eva-pill-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .eva-pill {
+    animation: none;
+  }
+}
+
+/*
+ * Tap-to-answer replies under the newest reply: quiet capsules like the jump pill, left-aligned
+ * with the reply and wrapping. The top margin clears reaction badges hanging off the last line.
+ */
+.eva-reply-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mantine-spacing-xs);
+  margin-top: var(--mantine-spacing-sm);
+}
+.eva-reply-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 var(--mantine-spacing-md);
+  border: 1px solid var(--eva-border);
+  border-radius: var(--eva-radius-round);
+  background: var(--eva-surface);
+  color: var(--eva-text);
+  font-family: var(--eva-font-ui);
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-medium);
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color var(--eva-dur-fast);
+}
+.eva-reply-chip:hover:not(:disabled) {
+  border-color: var(--mantine-color-default-border-hover, var(--eva-c-muted-foreground));
+}
+.eva-reply-chip:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: 2px;
+}
+.eva-reply-chip:disabled {
+  color: var(--eva-text-dim);
+  cursor: default;
+}
+
+.eva-writer-prompt-body {
+  margin: 0 0 var(--eva-space-md, 12px);
+}
+.eva-writer-prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--eva-space-sm);
+}
+.eva-chat-owner {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -1,0 +1,5 @@
+/* Layout only: the scroll area fills its slot. Scrollbar look is stock Mantine. */
+.eva-scroll {
+  position: relative;
+  min-height: 0;
+}

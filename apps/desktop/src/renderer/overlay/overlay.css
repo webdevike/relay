@@ -1,0 +1,79 @@
+/* Native menu surfaces and row spacing from ui.rs::menu_popover/menu_list. */
+.eva-modal-backdrop {
+  background: var(--eva-c-overlay);
+  backdrop-filter: none;
+}
+.eva-modal-content,
+.eva-menu-dropdown,
+.eva-popover-dropdown {
+  background: var(--eva-popover-bg);
+  color: var(--eva-popover-fg);
+  border: 1px solid var(--eva-border);
+  box-shadow: var(--eva-shadow);
+  border-radius: var(--eva-radius-xl);
+}
+.eva-modal-content {
+  padding: var(--eva-space-md);
+  border-radius: var(--eva-radius-lg);
+}
+.eva-modal-header {
+  background: transparent;
+  padding: 0 0 var(--eva-space-native-xs);
+  min-height: 0;
+}
+.eva-modal-title {
+  font-size: var(--eva-fz-heading);
+  font-weight: var(--eva-fw-medium);
+  line-height: 1.55;
+}
+.eva-modal-body {
+  padding: 0;
+  font-size: var(--eva-fz-body);
+  line-height: var(--eva-lh-body);
+}
+.eva-modal-content[data-fullscreen='true'] {
+  display: flex;
+  flex-direction: column;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+/* A press on the image stage focuses the surface itself; it is a container, not a control. */
+.eva-modal-content[data-fullscreen='true']:focus {
+  outline: none;
+}
+.eva-modal-content[data-fullscreen='true'] .eva-modal-header {
+  gap: calc(var(--mantine-spacing-md) * 0.375);
+}
+.eva-modal-content[data-fullscreen='true'] .eva-modal-title {
+  flex: 1;
+  min-width: 0;
+}
+.eva-modal-content[data-fullscreen='true'] .eva-modal-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.eva-menu-dropdown {
+  padding: var(--eva-space-native-xs);
+  max-height: min(460px, calc(100vh - var(--eva-space-xl)));
+  overflow-y: auto;
+}
+.eva-menu-item {
+  min-height: calc(var(--eva-fz-body) * var(--eva-lh-body) + var(--eva-space-sm) * 2);
+  height: auto;
+  padding: var(--eva-space-sm) var(--eva-space-native-sm);
+  gap: var(--eva-space-native-sm);
+  border-radius: var(--eva-radius);
+  font-size: var(--eva-fz-body);
+  line-height: var(--eva-lh-body);
+  color: inherit;
+}
+.eva-menu-item:hover,
+.eva-menu-item[data-hovered] {
+  background: var(--eva-hover);
+}
+.eva-popover-dropdown {
+  padding: var(--eva-space-native-xs);
+  max-width: calc(100vw - var(--eva-space-xl));
+}

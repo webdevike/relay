@@ -1,0 +1,124 @@
+/*
+ * Animated assistant portraits (@relay/portrait-motion). Small portraits (.eva-pm: crumb, tabs,
+ * Assistants rows) only breathe, in CSS; the start card (.eva-pmc) is drawn per frame by
+ * portrait-painter.ts. The face alone shows state: no ring or status dot. Motion off (the app
+ * setting or the system's reduced motion) holds them still; a hidden page pauses them.
+ */
+.eva-pm,
+.eva-pmc {
+  position: relative;
+  flex: none;
+}
+
+/* Small portraits */
+.eva-pm {
+  display: inline-flex;
+  border-radius: 50%;
+}
+.eva-pm > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+}
+/* The animations sit at zero specificity (:where) so the motion-off and hidden rules below win. */
+:where(.eva-pm > :first-child) {
+  transform-origin: 50% 70%;
+  animation: eva-pm-breathe 3.6s ease-in-out infinite;
+}
+:where(.eva-pm[data-state='snoozing'] > :first-child) {
+  animation-duration: 6s;
+}
+
+@keyframes eva-pm-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.04);
+  }
+}
+
+html[data-eva-motion='off'] .eva-pm > * {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .eva-pm > * {
+    animation: none;
+  }
+}
+html[data-eva-page-hidden='true'] .eva-pm > * {
+  animation-play-state: paused;
+}
+
+/* The start card: overlays in the portrait's accent, else the app's primary; confetti tones. */
+.eva-pmc {
+  --eva-pm-c: var(--eva-pm-accent, var(--mantine-primary-color-filled));
+  --eva-pm-soft: color-mix(in srgb, var(--eva-pm-c) 55%, white);
+  --eva-pm-deep: color-mix(in srgb, var(--eva-pm-c) 75%, black);
+}
+.eva-pmc-art {
+  position: absolute;
+  inset: 0;
+}
+.eva-pmc-disc {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--eva-pm-paper, var(--mantine-color-gray-1));
+}
+.eva-pmc-disc > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.eva-pmc-fx {
+  position: absolute;
+  overflow: visible;
+  pointer-events: none;
+}
+.eva-pmc-waves circle {
+  fill: none;
+  stroke: var(--eva-pm-c);
+}
+.eva-pmc-zzz text,
+.eva-pmc-quiz text,
+.eva-pmc-conf .eva-pmc-t0 {
+  fill: var(--eva-pm-c);
+}
+.eva-pmc-conf .eva-pmc-t1 {
+  fill: var(--eva-pm-soft);
+}
+.eva-pmc-conf .eva-pmc-t2 {
+  fill: var(--eva-pm-deep);
+}
+.eva-pmc-zzz text,
+.eva-pmc-quiz text {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Rounded', 'Helvetica Neue', sans-serif;
+  font-weight: 800;
+}
+.eva-pmc-quiz path,
+.eva-pmc-quiz circle {
+  fill: var(--eva-pm-bubble, #fff);
+  stroke: var(--eva-pm-c);
+}
+.eva-pmc-quiz rect {
+  fill: var(--eva-pm-bubble, #fff);
+}
+.eva-pmc-drop path {
+  fill: var(--eva-pm-soft);
+  stroke: var(--eva-pm-c);
+}
+/* Researching: a magnifier (the playground's): white lens at 60%, accent rim and a heavier handle. */
+.eva-pmc-lens {
+  stroke: var(--eva-pm-c);
+}
+.eva-pmc-lens circle {
+  fill: #fff;
+  fill-opacity: 0.6;
+}
+.eva-pmc-lens path {
+  fill: none;
+}

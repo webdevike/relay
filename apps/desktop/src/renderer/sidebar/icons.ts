@@ -1,0 +1,40 @@
+import {
+  IconBrain,
+  IconCalendar,
+  IconCalendarTime,
+  IconFile,
+  IconFlame,
+  IconHelp,
+  IconInbox,
+  IconLayoutDashboard,
+  IconListCheck,
+  IconMessage,
+  IconPhotoSpark,
+  IconRobot,
+  IconSchema,
+  IconSettings,
+  IconUsers,
+  IconUsersGroup,
+  type Icon,
+} from '@tabler/icons-react'
+
+const ICONS: Record<string, Icon> = {
+  IconBrain,
+  IconCalendar,
+  IconCalendarTime,
+  IconFile,
+  IconFlame,
+  IconHelp,
+  IconInbox,
+  IconLayoutDashboard,
+  IconListCheck,
+  IconMessage,
+  IconPhotoSpark,
+  IconRobot,
+  IconSchema,
+  IconSettings,
+  IconUsers,
+  IconUsersGroup,
+}
+
+export const navIcon = (name: string): Icon => ICONS[name] ?? IconFile

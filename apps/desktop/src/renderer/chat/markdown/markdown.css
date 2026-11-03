@@ -1,0 +1,284 @@
+/* Assistant replies (rich.rs markdown): body size, readable line height, quiet structure. */
+.eva-md {
+  min-width: 0;
+  font-size: var(--eva-fz-body);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.eva-md > :first-child {
+  margin-top: 0;
+}
+.eva-md > :last-child {
+  margin-bottom: 0;
+}
+.eva-md p,
+.eva-md ul,
+.eva-md ol,
+.eva-md blockquote,
+.eva-md .eva-md-table,
+.eva-md .eva-codeblock {
+  margin: 0 0 var(--eva-space-native-xs);
+}
+.eva-md h1,
+.eva-md h2,
+.eva-md h3,
+.eva-md h4,
+.eva-md h5,
+.eva-md h6 {
+  margin: var(--eva-space-md) 0 var(--eva-space-xs);
+  font-weight: var(--eva-fw-semibold);
+  line-height: 1.35;
+}
+.eva-md h1 {
+  font-size: calc(var(--eva-font-size) * 18 / 14);
+}
+.eva-md h2 {
+  font-size: calc(var(--eva-font-size) * 16 / 14);
+}
+.eva-md h3,
+.eva-md h4,
+.eva-md h5,
+.eva-md h6 {
+  font-size: var(--eva-fz-body);
+}
+.eva-md ul,
+.eva-md ol {
+  padding-left: calc(var(--eva-font-size) * 20 / 14);
+}
+.eva-md li + li,
+.eva-md li > ul,
+.eva-md li > ol {
+  margin-top: 2px;
+}
+.eva-md li > ul,
+.eva-md li > ol {
+  margin-bottom: 0;
+}
+.eva-md li > p {
+  margin: 0;
+}
+.eva-md ul.contains-task-list {
+  padding-left: 0;
+  list-style: none;
+}
+.eva-md .task-list-item input {
+  margin: 0 var(--eva-space-sm) 0 0;
+  vertical-align: -1px;
+  accent-color: var(--eva-c-primary-background);
+}
+.eva-md strong {
+  font-weight: var(--eva-fw-semibold);
+}
+.eva-md a {
+  color: var(--mantine-color-anchor);
+  text-decoration: none;
+  cursor: pointer;
+}
+.eva-md a:hover {
+  text-decoration: underline;
+}
+.eva-md blockquote {
+  padding-left: var(--eva-space-native-sm);
+  border-left: 2px solid var(--eva-border);
+  color: var(--eva-text-dim);
+}
+.eva-md hr {
+  margin: var(--eva-space-md) 0;
+  border: 0;
+  border-top: 1px solid var(--eva-border);
+}
+.eva-md :not(pre) > code {
+  padding: 1px 5px;
+  border-radius: var(--eva-radius-sm);
+  background: var(--eva-c-muted-background);
+  font-family: var(--eva-font-mono);
+  font-size: 0.875em;
+}
+.eva-md img {
+  max-width: 100%;
+  border-radius: var(--eva-radius);
+}
+/* A reply's image is a button that opens the viewer; it draws exactly like the bare image. */
+.eva-md-image {
+  display: inline-block;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: var(--eva-radius);
+  background: none;
+  vertical-align: top;
+  cursor: zoom-in;
+}
+.eva-md-image img {
+  display: block;
+}
+.eva-md-image:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: 2px;
+}
+/* An inline video sizes like an image: its own aspect, never wider than the column. */
+.eva-md-video {
+  display: block;
+  max-width: 100%;
+}
+.eva-md-video video {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--eva-radius);
+  background: #000;
+}
+.eva-md-video-caption,
+.eva-md-video-error {
+  display: block;
+  margin-top: calc(var(--mantine-spacing-xs) / 2);
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
+}
+
+/* Tables fit their columns while the column is wide enough, then scroll sideways in place. */
+.eva-md-table {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--eva-border);
+  border-radius: var(--eva-radius);
+}
+.eva-md-table table {
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
+  font-variant-numeric: tabular-nums;
+}
+.eva-md-table th,
+.eva-md-table td {
+  padding: 6px var(--eva-space-native-sm);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: normal;
+}
+.eva-md-table th {
+  font-weight: var(--eva-fw-medium);
+  color: var(--eva-text-dim);
+  background: var(--eva-c-muted-background);
+  white-space: nowrap;
+}
+.eva-md-table tr + tr td,
+.eva-md-table thead + tbody tr:first-child td {
+  border-top: 1px solid var(--eva-border);
+}
+
+/* Fenced code (rich.rs code_frame). */
+.eva-codeblock {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--eva-border);
+  border-radius: var(--eva-radius);
+}
+.eva-codeblock-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 32px;
+  padding: 0 4px 0 var(--eva-space-native-sm);
+  border-bottom: 1px solid var(--eva-border);
+}
+.eva-codeblock-lang {
+  font-size: var(--eva-fz-caption);
+  color: var(--eva-text-dim);
+}
+.eva-codeblock-lang[data-invalid] {
+  color: var(--eva-c-warning);
+}
+.eva-codeblock-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  min-width: 24px;
+  justify-content: center;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--eva-radius-sm);
+  background: transparent;
+  color: var(--eva-text-dim);
+  font-family: var(--eva-font-ui);
+  font-size: var(--eva-fz-caption);
+  cursor: pointer;
+  transition:
+    background-color 120ms,
+    color 120ms;
+}
+.eva-codeblock-copy:hover {
+  background: var(--eva-hover);
+  color: var(--eva-text);
+}
+.eva-codeblock-copy:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: -2px;
+}
+.eva-codeblock-body {
+  margin: 0;
+  padding: var(--eva-space-sm) var(--eva-space-native-sm);
+  overflow-x: auto;
+  font-family: var(--eva-font-mono);
+  font-size: calc(var(--eva-font-size) * 13 / 14);
+  line-height: 1.55;
+  white-space: pre;
+}
+.eva-codeblock-body code {
+  font: inherit;
+}
+
+/* highlight.js tokens on the theme's own palette, so both schemes read. */
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-doctag,
+.hljs-section {
+  color: var(--mantine-color-violet-text);
+}
+.hljs-string,
+.hljs-regexp,
+.hljs-addition,
+.hljs-symbol {
+  color: var(--mantine-color-green-text);
+}
+.hljs-number,
+.hljs-literal,
+.hljs-variable.constant_ {
+  color: var(--mantine-color-orange-text);
+}
+.hljs-title,
+.hljs-title.function_,
+.hljs-selector-id,
+.hljs-selector-class {
+  color: var(--mantine-color-blue-text);
+}
+.hljs-attr,
+.hljs-attribute,
+.hljs-property,
+.hljs-name,
+.hljs-tag {
+  color: var(--mantine-color-cyan-text);
+}
+.hljs-type,
+.hljs-built_in,
+.hljs-title.class_ {
+  color: var(--mantine-color-yellow-text);
+}
+.hljs-comment,
+.hljs-quote,
+.hljs-meta {
+  color: var(--eva-text-dim);
+  font-style: italic;
+}
+.hljs-deletion {
+  color: var(--mantine-color-red-text);
+}
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: var(--eva-fw-semibold);
+}

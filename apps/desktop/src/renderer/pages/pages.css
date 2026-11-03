@@ -1,0 +1,22 @@
+.eva-page-chat {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  flex-direction: column;
+}
+.eva-page-chat > .eva-chat {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.eva-page-area {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.eva-page-area > .eva-page-scroll {
+  flex: 1;
+  min-height: 0;
+}

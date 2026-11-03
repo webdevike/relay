@@ -1,0 +1,3 @@
+{"type":"session","version":3,"id":"ScoutExportPaths","timestamp":"2026-10-20T09:40:00.000Z","cwd":"/fixture/eva-root"}
+{"type":"message","id":"s1","parentId":null,"message":{"role":"user","content":"Find every caller of writeCsv.","attribution":"agent"}}
+{"type":"message","id":"s2","parentId":"s1","message":{"role":"assistant","content":[{"type":"text","text":"Three callers: the export route, the nightly job and the admin backfill. All go through writeCsv."}],"stopReason":"stop"}}

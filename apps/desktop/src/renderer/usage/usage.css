@@ -1,0 +1,131 @@
+/* Footer usage meter: quiet text on the chrome; color only when an account nears its limit. */
+.eva-usage {
+  display: flex;
+  align-items: center;
+  gap: var(--eva-space-md);
+  height: 100%;
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+  -webkit-app-region: no-drag;
+}
+.eva-usage-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.eva-usage-provider {
+  display: inline-flex;
+  align-items: center;
+  margin-right: var(--eva-space-xs);
+  color: var(--mantine-color-dimmed);
+}
+.eva-usage-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--eva-space-xs);
+  height: 22px;
+  padding: 0 6px;
+  border-radius: var(--eva-radius-sm);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-usage-item:hover,
+.eva-usage-item:focus-visible {
+  background: var(--eva-c-accent-background);
+}
+.eva-usage-item[data-level='warn'] {
+  color: var(--eva-c-warning);
+}
+.eva-usage-item[data-level='danger'] {
+  color: var(--eva-c-danger);
+}
+.eva-usage-item[data-stale='true'] {
+  opacity: 0.6;
+}
+.eva-usage-profile {
+  font-weight: var(--eva-fw-medium);
+}
+.eva-usage-num {
+  font-variant-numeric: tabular-nums;
+}
+.eva-usage-none {
+  color: var(--eva-c-muted-foreground);
+}
+
+.eva-usage-tip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--eva-fz-label);
+}
+.eva-usage-tip-title {
+  font-weight: var(--eva-fw-semibold);
+}
+/* One grid for all rows, so labels, percents and reset times line up. */
+.eva-usage-tip-grid {
+  display: grid;
+  grid-template-columns: auto auto auto;
+  justify-content: start;
+  column-gap: var(--eva-space-sm);
+  row-gap: 2px;
+}
+.eva-usage-tip-row {
+  display: contents;
+}
+.eva-usage-tip-grid .eva-usage-num {
+  text-align: right;
+}
+.eva-usage-tip-note {
+  max-width: 280px;
+  white-space: normal;
+  opacity: 0.8;
+}
+
+.eva-usage-pop {
+  display: flex;
+  flex-direction: column;
+  gap: var(--eva-space-md);
+}
+.eva-usage-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--eva-space-xs);
+  min-width: 0;
+}
+.eva-usage-detail-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--eva-space-sm);
+  min-width: 0;
+}
+/* Fixed columns, so every account's bars line up. */
+.eva-usage-table {
+  table-layout: fixed;
+  font-size: var(--eva-fz-label);
+}
+.eva-usage-table .eva-usage-label {
+  width: 104px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.eva-usage-table .eva-usage-num {
+  width: 48px;
+  padding-right: var(--eva-space-sm);
+}
+.eva-usage-table .eva-usage-reset {
+  width: 128px;
+  white-space: nowrap;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-usage-table .eva-usage-bar {
+  padding-right: var(--eva-space-sm);
+}
+.eva-usage-pop-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--eva-space-sm);
+  padding-top: var(--eva-space-sm);
+  border-top: 1px solid var(--eva-c-border);
+}

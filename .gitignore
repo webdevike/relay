@@ -15,3 +15,11 @@ apps/mac/Relay.app
 apps/mac/build/
 # Local Expo modules keep their native sources under ios/; only generated app folders are ignored above.
 !apps/mobile/modules/**/ios/
+# Relay desktop (apps/desktop): electron-vite output, packaged builds, e2e results, gate logs, repo-local pnpm shim.
+out/
+release/
+test-results/
+playwright-report/
+logs/
+.tools/
+*.tsbuildinfo

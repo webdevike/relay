@@ -1,0 +1,289 @@
+.eva-sidebar-inner {
+  --eva-sidebar-top: 34px;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: var(--eva-chrome);
+  color: var(--eva-chrome-text);
+}
+.eva-sb-track {
+  display: flex;
+  width: calc(var(--eva-sidebar-inner-w, 264px) * 2);
+  height: 100%;
+  transition: transform var(--eva-dur-slide) var(--eva-ease-slide);
+  -webkit-app-region: no-drag;
+}
+.eva-sb-track:not([data-level='root']) {
+  transform: translateX(calc(var(--eva-sidebar-inner-w, 264px) * -1));
+}
+html[data-eva-motion='off'] .eva-sb-track {
+  transition: none;
+}
+.eva-sb-slot {
+  flex: none;
+  width: var(--eva-sidebar-inner-w, 264px);
+  height: 100%;
+  min-width: 0;
+}
+.eva-sb-slot[data-away='true'] {
+  visibility: hidden;
+}
+.eva-sb-nav {
+  height: 100%;
+}
+.eva-sb-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  box-sizing: border-box;
+  padding: var(--eva-sidebar-top) 0 0;
+}
+.eva-sb-header {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--eva-space-native-xs);
+  padding: 0 var(--eva-space-native-sm) var(--eva-space-native-sm);
+  -webkit-app-region: drag;
+}
+.eva-sb-header > * {
+  -webkit-app-region: no-drag;
+}
+.eva-sb-header:has(.eva-sb-brand) {
+  gap: var(--eva-space-md);
+}
+.eva-sb-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--eva-space-native-sm);
+  padding: 0 var(--eva-space-xs);
+}
+.eva-sb-tile {
+  width: var(--eva-tile-lg);
+  height: var(--eva-tile-lg);
+  border-radius: var(--eva-radius);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--eva-accent);
+  color: var(--eva-accent-fg);
+}
+.eva-sb-brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: var(--eva-lh-label);
+}
+.eva-sb-brand-name {
+  font-size: var(--eva-fz-heading);
+  font-weight: var(--eva-fw-medium);
+}
+.eva-sb-brand-sub {
+  font-size: var(--eva-fz-caption);
+  font-weight: var(--eva-fw-regular);
+}
+.eva-sb-search {
+  display: flex;
+  align-items: center;
+  gap: var(--eva-space-xs);
+  height: var(--eva-control-sm);
+  padding: 0 var(--eva-space-native-xs);
+  box-sizing: border-box;
+  border-radius: var(--eva-radius);
+  border: 1px solid transparent;
+  background: var(--eva-c-muted-background);
+  color: var(--eva-text-dim);
+}
+.eva-sb-search:focus-within {
+  border-color: var(--eva-c-ring);
+}
+.eva-sb-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--eva-chrome-text);
+  font: inherit;
+  font-size: var(--eva-fz-body);
+}
+.eva-sb-search input::placeholder {
+  color: var(--eva-text-dim);
+  opacity: 1;
+}
+.eva-sb-scroll {
+  flex: 1;
+  min-height: 0;
+  padding: 0 var(--eva-space-native-sm);
+}
+.eva-sb-scroll > .eva-scroll {
+  height: 100%;
+}
+.eva-sb-section {
+  font-size: var(--eva-fz-caption);
+  font-weight: var(--eva-fw-regular);
+  color: var(--eva-text-dim);
+}
+.eva-sb-section-main {
+  padding: var(--eva-space-native-xs) var(--eva-space-xs) var(--eva-space-xs);
+}
+/* A later group: more space above it than between its rows. */
+.eva-sb-section-group {
+  padding: var(--eva-space-md) var(--eva-space-xs) var(--eva-space-xs);
+}
+.eva-sb-row {
+  display: flex;
+  align-items: center;
+  gap: var(--eva-space-native-sm);
+  width: 100%;
+  height: var(--eva-control-sm);
+  padding: 0 var(--eva-space-native-sm);
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--eva-radius);
+  background: transparent;
+  color: var(--eva-chrome-text);
+  font: inherit;
+  font-size: var(--eva-fz-body);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--eva-dur-fast) ease,
+    color var(--eva-dur-fast) ease;
+}
+.eva-sb-scroll .eva-sb-row + .eva-sb-row {
+  margin-top: var(--eva-space-xs);
+}
+.eva-sb-row:hover {
+  background: var(--eva-hover);
+}
+.eva-sb-row[data-active='true'] {
+  background: var(--eva-nav-active-bg);
+  color: var(--eva-nav-active-fg);
+}
+.eva-sb-row-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-sb-count {
+  font-size: var(--eva-fz-caption);
+  font-weight: var(--eva-fw-regular);
+  font-variant-numeric: tabular-nums;
+  padding: 0 var(--eva-space-xs);
+  border-radius: var(--eva-radius-sm);
+  background: var(--eva-hover);
+}
+.eva-sb-row[data-active='true'] .eva-sb-count {
+  background: color-mix(in srgb, var(--eva-nav-active-fg) 15%, transparent);
+}
+.eva-sb-chev {
+  color: var(--eva-text-dim);
+}
+.eva-sb-empty {
+  padding: var(--eva-space-sm) 12px;
+  font-size: var(--eva-fz-label);
+}
+.eva-sb-footer {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--eva-space-xs);
+  padding: var(--eva-space-native-xs) var(--eva-space-native-sm) var(--eva-space-native-sm);
+  border-top: 1px solid var(--eva-chrome-border);
+}
+/* Pinned below a sub-page's scrolling list (the chats Settled fold); opens upward, scrolls itself. */
+.eva-sb-subfooter {
+  flex: none;
+  max-height: 45%;
+  overflow-y: auto;
+  padding: var(--eva-space-native-xs) var(--eva-space-native-sm);
+}
+.eva-sb-subfooter.eva-cl:empty {
+  display: none;
+}
+.eva-sb-subfooter .eva-cl-fold {
+  margin-top: 0;
+}
+.eva-sb-error {
+  font-size: var(--eva-fz-label);
+  padding: 0 12px;
+}
+.eva-sb-account {
+  display: flex;
+  align-items: center;
+  gap: var(--eva-space-native-xs);
+  width: 100%;
+  min-height: 48px;
+  margin-top: var(--eva-space-native-xs);
+  padding: var(--eva-space-native-xs);
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--eva-radius-lg);
+  background: var(--eva-c-muted-background);
+  color: var(--eva-chrome-text);
+  font: inherit;
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-medium);
+  cursor: pointer;
+}
+.eva-sb-account:hover {
+  background: var(--eva-hover);
+}
+.eva-sb-account-label {
+  flex: 1;
+  text-align: left;
+}
+.eva-sb-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--eva-radius-round);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--eva-hover);
+}
+.eva-sb-sub-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--eva-space-native-xs);
+}
+.eva-sb-title,
+.eva-sb-title-btn {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--eva-fz-heading);
+  font-weight: var(--eva-fw-medium);
+}
+.eva-sb-title-btn {
+  cursor: pointer;
+}
+.eva-sb-page[data-level='chats'] [data-testid='sidebar-back'] {
+  align-self: flex-start;
+  width: auto;
+  height: var(--eva-control-xs);
+  gap: var(--eva-space-xs);
+  padding: 0 var(--eva-space-native-xs) 0 var(--eva-space-xs);
+  color: var(--eva-text-dim);
+}
+.eva-sb-page[data-level='chats'] [data-testid='sidebar-back']:hover {
+  color: var(--eva-chrome-text);
+}
+.eva-sb-page[data-level='chats'] .eva-sb-sub-title {
+  padding-right: 0;
+}
+.eva-env-badge {
+  font-family: var(--eva-font-mono);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-text-dim);
+  padding: 0 12px;
+  min-height: 16px;
+}

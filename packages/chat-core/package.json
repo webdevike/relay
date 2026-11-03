@@ -1,0 +1,19 @@
+{
+  "name": "@evaos/chat-core",
+  "version": "0.0.0",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./openui": "./src/openui/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2"
+  },
+  "dependencies": {
+    "zod": "4.6.7"
+  }
+}

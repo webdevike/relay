@@ -1,0 +1,157 @@
+.eva-composer-frame {
+  position: relative;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--eva-border);
+  border-radius: var(--eva-radius-xl);
+  background: var(--eva-surface);
+}
+.eva-composer[data-dragging='true'] .eva-composer-frame {
+  outline: 2px dashed var(--eva-c-primary-background);
+  outline-offset: 2px;
+}
+.eva-composer-field {
+  padding: var(--eva-space-native-sm) var(--eva-space-native-sm) var(--eva-space-xs);
+}
+.eva-composer-input.eva-composer-input {
+  padding: var(--eva-kit-input-py) var(--eva-kit-input-px);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--eva-text);
+  font-family: var(--eva-font-ui);
+  font-size: var(--eva-fz-body);
+  line-height: var(--eva-lh-body);
+}
+.eva-composer-input:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: 2px;
+}
+.eva-composer-input:disabled {
+  color: var(--eva-text-dim);
+}
+.eva-composer-attach {
+  flex: none;
+  color: var(--eva-text-dim);
+}
+.eva-composer-round {
+  flex: none;
+  width: var(--eva-tile-md);
+  height: var(--eva-tile-md);
+  margin-left: var(--eva-space-xs);
+  border: 0;
+  border-radius: var(--eva-radius-round);
+}
+.eva-composer-drop {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--eva-fz-body);
+  font-weight: var(--eva-fw-medium);
+  color: var(--eva-c-primary-background);
+  background: var(--eva-surface);
+  opacity: 0.92;
+  pointer-events: none;
+}
+.eva-composer-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--eva-space-native-xs);
+  padding: var(--eva-space-native-sm) var(--eva-space-native-sm) 0;
+}
+.eva-composer-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--eva-space-native-xs);
+  min-width: 0;
+  max-width: min(240px, 100%);
+  padding: var(--eva-space-xs);
+  background: var(--eva-bg);
+  border: 1px solid var(--eva-border);
+  border-radius: var(--eva-radius);
+}
+.eva-composer-chip img {
+  display: block;
+  flex: none;
+  width: var(--eva-tile-md);
+  height: var(--eva-tile-md);
+  object-fit: cover;
+  border-radius: var(--eva-radius-sm);
+}
+.eva-composer-chip-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
+}
+.eva-composer-chip-remove {
+  flex: none;
+}
+.eva-composer-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--eva-space-xs);
+  padding: 0 var(--eva-space-native-xs) var(--eva-space-native-xs);
+}
+.eva-composer-tools,
+.eva-composer-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--eva-space-xs);
+  min-width: 0;
+}
+.eva-composer-tools {
+  flex-wrap: wrap;
+}
+.eva-composer-actions {
+  flex: 1 1 240px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.eva-composer-notice {
+  padding: var(--eva-space-xs) var(--eva-space-native-sm);
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
+  color: var(--eva-danger);
+}
+.eva-context-ring {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  font-variant-numeric: tabular-nums;
+}
+/* The `/` menu floats just above the composer frame. */
+.eva-slash-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + var(--mantine-spacing-xs));
+  z-index: 20;
+  overflow: hidden;
+}
+.eva-slash-row {
+  display: block;
+  width: 100%;
+  padding: 6px var(--mantine-spacing-sm);
+  border: 1px solid transparent;
+  border-radius: var(--mantine-radius-sm);
+}
+.eva-slash-row:hover {
+  border-color: var(--mantine-color-default-border);
+}
+.eva-slash-row[aria-selected='true'] {
+  border-color: var(--mantine-color-default-border);
+  background: var(--mantine-color-default-hover);
+}
+.eva-slash-footer {
+  border-top: 1px solid var(--mantine-color-default-border);
+}

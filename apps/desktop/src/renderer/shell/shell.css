@@ -1,0 +1,235 @@
+/* Inset-card shell after ecard-table-lab: navigation on the shell background, the panes (the
+   chat and tool panes, tiling/) as bordered 10px cards (border only, no shadow), 44px card
+   headers on a hairline, the sidebar slides, a pill grip fades in on each gap. */
+.eva-shell {
+  --eva-traffic: 80px;
+  --eva-gap: 8px;
+  --eva-sidebar-w: 272px;
+  --eva-main-left: 0px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  background: var(--eva-chrome);
+  color: var(--eva-chrome-text);
+}
+.eva-shell-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  box-sizing: border-box;
+}
+/* Native EvaOS footer: the shell background, no border; the cards end above it. */
+.eva-footer {
+  flex: none;
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0 var(--eva-gap);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  background: var(--eva-chrome);
+  -webkit-app-region: drag;
+}
+.eva-build-stamp {
+  margin-right: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--eva-font-mono);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-text-dim);
+}
+.eva-build-stale {
+  color: var(--eva-warning, #e8a23a);
+}
+/* Relay Dev: an accent pill so a test copy is never mistaken for the stable app. */
+.eva-dev-badge {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--eva-accent);
+  color: var(--eva-accent-fg);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  cursor: default;
+  -webkit-app-region: no-drag;
+}
+.eva-update-chip {
+  margin-right: var(--eva-gap);
+  padding: 2px 10px;
+  border: none;
+  border-radius: 999px;
+  background: var(--eva-accent);
+  color: var(--eva-accent-fg);
+  font: inherit;
+  font-size: var(--eva-fz-label);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.eva-update-chip:focus-visible {
+  outline: 2px solid var(--eva-accent);
+  outline-offset: 2px;
+}
+
+.eva-sidebar {
+  flex: none;
+  box-sizing: border-box;
+  width: var(--eva-sidebar-w);
+  overflow: hidden;
+  background: var(--eva-chrome);
+  -webkit-app-region: drag;
+}
+.eva-card {
+  box-sizing: border-box;
+  background: var(--eva-c-background);
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-card-radius);
+  overflow: hidden;
+  min-width: 0;
+}
+/* The panes area (tiling/): starts at the sidebar, or a gap in from the window edge without it. */
+.eva-tiling {
+  margin-left: var(--eva-main-left);
+  margin-right: var(--eva-gap);
+}
+/* A tool pane on the top edge starts below the tab strip, level with the chat's card; the strip
+   above it is window chrome you can drag the window by. */
+.eva-pane[data-pad-top] {
+  padding-top: var(--eva-tab-strip-h);
+  -webkit-app-region: drag;
+}
+.eva-main-column {
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.eva-main-card {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.eva-main-card > .eva-chat {
+  min-width: 0;
+  flex: 1;
+}
+
+/* Sidebar toggles interpolate both fitted columns and main's left inset together. */
+.eva-shell[data-sidebar-transition='true'] .eva-sidebar {
+  transition: width var(--eva-dur-slide) var(--eva-ease-slide);
+}
+.eva-shell[data-sidebar-transition='true'] .eva-tiling {
+  transition: margin-left var(--eva-dur-slide) var(--eva-ease-slide);
+}
+.eva-shell[data-sidebar-transition='true'] .eva-grip-sidebar {
+  transition: left var(--eva-dur-slide) var(--eva-ease-slide);
+}
+body.eva-resizing,
+body.eva-resizing * {
+  cursor: col-resize !important;
+}
+body.eva-resizing-rows,
+body.eva-resizing-rows * {
+  cursor: row-resize !important;
+}
+body.eva-resizing .eva-sidebar,
+body.eva-resizing .eva-tiling,
+body.eva-resizing .eva-grip-sidebar {
+  transition: none !important;
+}
+
+/* The gap itself is the grab area; a short pill appears on hover, focus and drag. */
+.eva-grip {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: var(--eva-gap);
+  z-index: 2;
+  cursor: col-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  outline: none;
+  -webkit-app-region: no-drag;
+  --eva-grip-color: var(--mantine-color-gray-4);
+  --eva-grip-active: var(--mantine-color-gray-5);
+}
+[data-mantine-color-scheme='dark'] .eva-grip {
+  --eva-grip-color: var(--mantine-color-dark-3);
+  --eva-grip-active: var(--mantine-color-dark-2);
+}
+.eva-grip-sidebar {
+  left: calc(var(--eva-sidebar-w) - var(--eva-gap) / 2);
+}
+.eva-grip-bar {
+  width: 3px;
+  height: 32px;
+  border-radius: 2px;
+  background: var(--eva-grip-color);
+  opacity: 0;
+  transition:
+    opacity var(--eva-dur-fast) ease,
+    background-color var(--eva-dur-fast) ease;
+}
+.eva-grip:hover .eva-grip-bar,
+.eva-grip:focus-visible .eva-grip-bar,
+.eva-grip.is-dragging .eva-grip-bar {
+  opacity: 1;
+}
+.eva-grip.is-dragging .eva-grip-bar {
+  background: var(--eva-grip-active);
+}
+
+.eva-main-header,
+.eva-pane-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: var(--eva-chat-header-h);
+  box-sizing: border-box;
+  gap: var(--eva-space-sm);
+  padding: 0 var(--eva-space-sm) 0 10px;
+  border-bottom: 1px solid var(--eva-c-border);
+  -webkit-app-region: drag;
+}
+.eva-main-header-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: var(--eva-fw-medium);
+  line-height: 1.2;
+  color: var(--eva-c-foreground);
+}
+.eva-header-btn {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  border-radius: 6px;
+  color: var(--eva-c-muted-foreground);
+  transition:
+    color var(--eva-dur-fast) ease,
+    background-color var(--eva-dur-fast) ease;
+  -webkit-app-region: no-drag;
+}
+.eva-header-btn:hover {
+  color: var(--eva-c-foreground);
+}
+/* A subagent's transcript in a pane: the chat log, read only. */
+.eva-subagent-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.eva-subagent-empty {
+  padding: var(--eva-space-native-lg);
+}

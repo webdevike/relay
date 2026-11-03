@@ -1,0 +1,1157 @@
+/* Reviews page: queue | PR (header, tabs, body + rail). Theme tokens only. */
+.eva-rv {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  color: var(--eva-c-foreground);
+  font-size: var(--eva-fz-body);
+}
+.eva-rv-dim {
+  color: var(--eva-c-muted-foreground);
+}
+.eva-rv-small {
+  font-size: var(--eva-fz-caption);
+}
+.eva-rv-mono {
+  font-family: var(--eva-font-mono);
+  font-size: 12px;
+}
+.eva-rv-spacer {
+  flex: 1;
+}
+.eva-rv-pad {
+  padding: calc(var(--mantine-spacing-xs) * 0.6) calc(var(--mantine-spacing-xs) * 0.8);
+  font-size: var(--eva-fz-label);
+}
+.eva-rv-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.eva-rv-add {
+  color: var(--eva-c-success);
+  font-family: var(--eva-font-mono);
+  font-size: 12px;
+}
+.eva-rv-del {
+  color: var(--eva-c-danger);
+  font-family: var(--eva-font-mono);
+  font-size: 12px;
+}
+.eva-rv-ok {
+  color: var(--eva-c-success);
+}
+.eva-rv-bad {
+  color: var(--eva-c-danger);
+}
+.eva-rv-error {
+  color: var(--eva-c-danger);
+}
+.eva-rv-empty {
+  padding: var(--mantine-spacing-md);
+  color: var(--eva-c-muted-foreground);
+  font-size: var(--eva-fz-label);
+}
+.eva-rv-placeholder {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: calc(var(--mantine-spacing-xs) * 2.4);
+}
+.eva-rv-iconbtn {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: var(--eva-radius-sm);
+  background: transparent;
+  color: var(--eva-c-muted-foreground);
+  cursor: pointer;
+}
+.eva-rv-iconbtn:hover:not(:disabled) {
+  background: var(--eva-hover);
+  color: var(--eva-c-foreground);
+}
+.eva-rv-iconbtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.eva-rv-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--eva-c-link);
+  cursor: pointer;
+  font-size: var(--eva-fz-label);
+}
+.eva-rv-pill {
+  font-size: 11px;
+  line-height: 16px;
+  padding: 0 calc(var(--mantine-spacing-xs) * 0.6);
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  color: var(--eva-c-muted-foreground);
+  white-space: nowrap;
+}
+.eva-rv-pill[data-tone='green'] {
+  color: var(--eva-c-success);
+  background: var(--eva-c-success-background);
+}
+.eva-rv-pill[data-tone='red'] {
+  color: var(--eva-c-danger);
+  background: var(--eva-c-danger-background);
+}
+.eva-rv-pill[data-tone='amber'] {
+  color: var(--eva-c-warning);
+}
+.eva-rv-pill[data-tone='violet'] {
+  color: var(--eva-c-accent);
+}
+.eva-rv-avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--eva-c-muted-background);
+  color: var(--eva-c-foreground);
+  font-size: 10px;
+  font-weight: 600;
+}
+.eva-rv-path {
+  font-family: var(--eva-font-mono);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-rv-sha {
+  font-family: var(--eva-font-mono);
+  font-size: 11.5px;
+  color: var(--eva-c-muted-foreground);
+}
+
+/* Queue */
+.eva-rv-queue {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.2);
+  padding: 0 var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  min-width: 0;
+}
+.eva-rv-queue-view {
+  flex: none;
+  margin-bottom: var(--mantine-spacing-xs);
+}
+.eva-rv-queue-search {
+  flex: none;
+  margin: calc(var(--mantine-spacing-xs) * 0.4) 0 var(--mantine-spacing-xs);
+}
+/* The source's brand mark: small, monochrome, the row's dim color. */
+.eva-rv-source {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-rv-prid {
+  display: inline-flex;
+  flex: none;
+  min-width: 0;
+}
+/* An item's id in its header (ENG-6692, repo#246) never wraps. */
+.eva-rv-titlerow > .eva-rv-mono {
+  flex: none;
+  white-space: nowrap;
+}
+.eva-rv-group {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.1);
+  margin-bottom: calc(var(--mantine-spacing-xs) * 0.6);
+}
+.eva-rv-group-head {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  border: 0;
+  background: none;
+  padding: calc(var(--mantine-spacing-xs) * 0.6) calc(var(--mantine-spacing-xs) * 0.8);
+  cursor: pointer;
+  color: var(--eva-c-muted-foreground);
+  font-size: var(--eva-fz-label);
+  text-align: left;
+}
+.eva-rv-qrow {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.2);
+  border: 0;
+  border-radius: var(--eva-radius-sm);
+  background: transparent;
+  color: inherit;
+  padding: calc(var(--mantine-spacing-xs) * 0.6) calc(var(--mantine-spacing-xs) * 0.8);
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+.eva-rv-qrow:hover {
+  background: var(--eva-hover);
+}
+.eva-rv-qrow[data-active] {
+  background: var(--eva-c-secondary-active-background);
+}
+.eva-rv-qrow-line {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  min-width: 0;
+  font-size: var(--eva-fz-label);
+}
+.eva-rv-qrow-title {
+  min-width: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+  font-size: var(--eva-fz-body);
+  font-weight: 500;
+}
+.eva-rv-qrow-sub {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-rv-qrow-icon {
+  color: var(--eva-c-success);
+  flex: none;
+}
+.eva-rv-qrow-icon[data-draft] {
+  color: var(--eva-c-muted-foreground);
+}
+
+/* Detail */
+.eva-rv-detail {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.eva-rv-topbar {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+  padding: calc(var(--mantine-spacing-xs) * 0.8) var(--mantine-spacing-sm);
+  border-bottom: 1px solid var(--eva-c-border);
+}
+.eva-rv-back {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  padding: calc(var(--mantine-spacing-xs) * 0.2) calc(var(--mantine-spacing-xs) * 0.4);
+}
+.eva-rv-head {
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md) calc(var(--mantine-spacing-xs) * 0.8);
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+}
+.eva-rv-titlerow {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+  min-width: 0;
+}
+.eva-rv-repo {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-rv-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+  min-width: 0;
+}
+.eva-rv-meta {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  flex-wrap: wrap;
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-rv-tabs {
+  display: flex;
+  gap: calc(var(--mantine-spacing-xs) * 0.2);
+  padding: 0 var(--mantine-spacing-sm);
+  border-bottom: 1px solid var(--eva-c-border);
+}
+.eva-rv-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  border: 0;
+  background: none;
+  color: var(--eva-c-muted-foreground);
+  padding: calc(var(--mantine-spacing-xs) * 0.8) calc(var(--mantine-spacing-xs) * 0.8);
+  cursor: pointer;
+  font-size: var(--eva-fz-body);
+}
+.eva-rv-tab[aria-selected='true'] {
+  color: var(--eva-c-foreground);
+  box-shadow: inset 0 -2px 0 var(--eva-c-accent);
+}
+.eva-rv-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.eva-rv-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.eva-rv-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* Rail */
+.eva-rv-rail {
+  width: 230px;
+  flex: none;
+  overflow-y: auto;
+  border-left: 1px solid var(--eva-c-border);
+  padding: calc(var(--mantine-spacing-xs) * 0.4) var(--mantine-spacing-sm);
+}
+.eva-rv-rail-sec {
+  padding: var(--mantine-spacing-sm) 0;
+  border-bottom: 1px solid var(--eva-c-border);
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  font-size: var(--eva-fz-label);
+}
+.eva-rv-rail-sec:last-child {
+  border-bottom: 0;
+}
+.eva-rv-rail-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-rv-rail-person {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+  min-width: 0;
+}
+.eva-rv-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+}
+.eva-rv-label {
+  border: 1px solid;
+  border-radius: 999px;
+  padding: 0 calc(var(--mantine-spacing-xs) * 0.6);
+  font-size: 11px;
+}
+
+/* Conversation */
+.eva-rv-conv {
+  padding: calc(var(--mantine-spacing-xs) * 1.4) var(--mantine-spacing-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-rv-comment-head {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+  font-size: var(--eva-fz-label);
+}
+.eva-rv-body {
+  font-size: var(--eva-fz-body);
+}
+.eva-rv-timeline {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--eva-c-border);
+}
+.eva-rv-push {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+  padding: calc(var(--mantine-spacing-xs) * 0.6) calc(var(--mantine-spacing-xs) * 0.4);
+  border-bottom: 1px solid var(--eva-c-border);
+  font-size: var(--eva-fz-label);
+  min-width: 0;
+}
+.eva-rv-push > b,
+.eva-rv-push > span:not(.eva-rv-ellipsis) {
+  white-space: nowrap;
+  flex: none;
+}
+.eva-rv-comment {
+  padding: var(--mantine-spacing-xs) calc(var(--mantine-spacing-xs) * 0.4);
+  border-bottom: 1px solid var(--eva-c-border);
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+}
+.eva-rv-private {
+  border-radius: var(--eva-radius);
+  background: var(--eva-c-accent-background);
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  font-size: var(--eva-fz-label);
+}
+.eva-rv-private-head {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  font-weight: 600;
+}
+.eva-rv-private-q {
+  font-size: var(--eva-fz-body);
+  white-space: pre-wrap;
+}
+.eva-rv-composer {
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-md) var(--mantine-spacing-sm);
+  border-top: 1px solid var(--eva-c-border);
+}
+.eva-rv-composer textarea[data-private] {
+  border-color: var(--eva-c-accent);
+}
+.eva-rv-composer-foot {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+  margin-top: calc(var(--mantine-spacing-xs) * 0.6);
+}
+.eva-rv-dock {
+  display: flex;
+  justify-content: center;
+  padding: calc(var(--mantine-spacing-xs) * 0.8);
+  border-top: 1px solid var(--eva-c-border);
+}
+.eva-rv-dockbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+  min-width: 360px;
+  padding: calc(var(--mantine-spacing-xs) * 0.6) var(--mantine-spacing-sm);
+  cursor: pointer;
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius);
+  background: var(--eva-c-secondary-background);
+  color: inherit;
+}
+.eva-rv-confirm-text {
+  white-space: pre-wrap;
+  padding: var(--mantine-spacing-xs);
+  border-radius: var(--eva-radius-sm);
+  background: var(--eva-c-muted-background);
+  margin-bottom: calc(var(--mantine-spacing-xs) * 0.8);
+  max-height: 280px;
+  overflow: auto;
+}
+.eva-rv-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+  margin-top: calc(var(--mantine-spacing-xs) * 1.4);
+}
+
+/* Commits, Checks */
+.eva-rv-list {
+  padding: calc(var(--mantine-spacing-xs) * 0.8) var(--mantine-spacing-sm);
+  display: flex;
+  flex-direction: column;
+}
+.eva-rv-listrow {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+  padding: calc(var(--mantine-spacing-xs) * 0.8) calc(var(--mantine-spacing-xs) * 0.6);
+  border: 0;
+  border-bottom: 1px solid var(--eva-c-border);
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font-size: var(--eva-fz-body);
+  min-width: 0;
+}
+.eva-rv-listrow:hover:not(:disabled) {
+  background: var(--eva-hover);
+}
+
+/* Files */
+.eva-rv-files {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.eva-rv-files-bar {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+  padding: calc(var(--mantine-spacing-xs) * 0.8) var(--mantine-spacing-sm);
+  font-size: var(--eva-fz-label);
+}
+.eva-rv-files-filter {
+  width: 180px;
+}
+.eva-rv-files-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.eva-rv-filelist {
+  width: 210px;
+  flex: none;
+  overflow-y: auto;
+  border-right: 1px solid var(--eva-c-border);
+  padding: 0 calc(var(--mantine-spacing-xs) * 0.4);
+}
+.eva-rv-fileitem {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  padding: calc(var(--mantine-spacing-xs) * 0.4) calc(var(--mantine-spacing-xs) * 0.6);
+  border-radius: var(--eva-radius-sm);
+  cursor: pointer;
+  font-size: var(--eva-fz-label);
+  min-width: 0;
+}
+.eva-rv-fileitem:hover {
+  background: var(--eva-hover);
+}
+.eva-rv-fileitem[data-active] {
+  background: var(--eva-c-secondary-active-background);
+}
+.eva-rv-fileitem-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+.eva-rv-filediffs {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: 0 var(--mantine-spacing-sm) var(--mantine-spacing-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-rv-filecard {
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius);
+  overflow: hidden;
+  flex: none;
+}
+.eva-rv-filecard-head {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+  padding: calc(var(--mantine-spacing-xs) * 0.6) calc(var(--mantine-spacing-xs) * 0.8);
+  background: var(--eva-c-secondary-background);
+  border-bottom: 1px solid var(--eva-c-border);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  font-size: var(--eva-fz-label);
+}
+
+/* Diff table */
+.eva-rv-diff {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-family: var(--eva-font-mono);
+  font-size: 12px;
+  line-height: 18px;
+}
+.eva-rv-numcol {
+  width: 44px;
+}
+.eva-rv-signcol {
+  width: 16px;
+}
+.eva-rv-num {
+  text-align: right;
+  padding: 0 calc(var(--mantine-spacing-xs) * 0.8) 0 calc(var(--mantine-spacing-xs) * 0.4);
+  color: var(--eva-c-muted-foreground);
+  user-select: none;
+  vertical-align: top;
+}
+.eva-rv-sign {
+  color: var(--eva-c-muted-foreground);
+  user-select: none;
+  vertical-align: top;
+}
+.eva-rv-code {
+  white-space: pre-wrap;
+  word-break: break-all;
+  padding: 0 calc(var(--mantine-spacing-xs) * 0.8) 0 calc(var(--mantine-spacing-xs) * 0.2);
+  vertical-align: top;
+}
+.eva-rv-diff [data-kind='add'] {
+  background: color-mix(in srgb, var(--eva-c-success) 16%, transparent);
+}
+.eva-rv-diff [data-kind='del'] {
+  background: color-mix(in srgb, var(--eva-c-danger) 16%, transparent);
+}
+.eva-rv-diff [data-kind='empty'] {
+  background: var(--eva-c-muted-background);
+}
+.eva-rv-diff[data-mode='split'] td:nth-child(3) {
+  border-left: 1px solid var(--eva-c-border);
+}
+.eva-rv-skip {
+  padding: calc(var(--mantine-spacing-xs) * 0.2) var(--mantine-spacing-xs);
+  font-family: var(--eva-font-sans, inherit);
+  font-size: 11px;
+  color: var(--eva-c-muted-foreground);
+  background: var(--eva-c-secondary-background);
+  border-block: 1px solid var(--eva-c-border);
+}
+
+/* Guide: one scroll of sections, what and why on the left, the section's files on the right. */
+.eva-rv-accent {
+  color: var(--eva-c-accent);
+  flex: none;
+}
+.eva-rv-lguide {
+  display: flex;
+  min-height: 100%;
+}
+.eva-rv-ticks {
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: 60vh;
+  width: 20px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  padding: 0 calc(var(--mantine-spacing-xs) * 0.4);
+}
+.eva-rv-tick {
+  width: 8px;
+  height: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 1px;
+  background: var(--eva-c-border);
+  cursor: pointer;
+}
+.eva-rv-tick[data-done] {
+  width: 12px;
+  background: var(--eva-c-accent);
+}
+.eva-rv-lguide-col {
+  flex: 1;
+  min-width: 0;
+  padding: var(--mantine-spacing-lg) var(--mantine-spacing-lg) var(--mantine-spacing-xl)
+    var(--mantine-spacing-xs);
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xl);
+}
+.eva-rv-lguide-head {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+}
+.eva-rv-lguide-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.eva-rv-lsec {
+  display: grid;
+  grid-template-columns: minmax(240px, 2fr) minmax(0, 3.4fr);
+  gap: var(--mantine-spacing-lg);
+  align-items: start;
+  scroll-margin-top: var(--mantine-spacing-md);
+}
+.eva-rv-lsec-left {
+  position: sticky;
+  top: var(--mantine-spacing-md);
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+}
+.eva-rv-lsec-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+.eva-rv-lsec-why {
+  margin: 0;
+  font-size: var(--eva-fz-body);
+  line-height: 1.55;
+}
+.eva-rv-lguide-wait {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  color: var(--eva-c-muted-foreground);
+  font-size: var(--eva-fz-label);
+}
+.eva-rv-lsec-files {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  margin-top: calc(var(--mantine-spacing-xs) * 0.4);
+}
+.eva-rv-lsec-file {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  padding: calc(var(--mantine-spacing-xs) * 0.5) calc(var(--mantine-spacing-xs) * 0.8);
+  border: 0;
+  border-radius: var(--eva-radius-sm);
+  background: var(--eva-c-secondary-background);
+  color: inherit;
+  font-size: var(--eva-fz-label);
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+.eva-rv-lsec-file:hover {
+  background: var(--eva-hover);
+}
+.eva-rv-lsec-right {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  min-width: 0;
+}
+.eva-rv-gcard {
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius);
+  overflow: hidden;
+  background: var(--eva-c-secondary-background);
+}
+.eva-rv-gcard-head {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+  padding: calc(var(--mantine-spacing-xs) * 0.6) var(--mantine-spacing-xs);
+  font-size: var(--eva-fz-label);
+  min-width: 0;
+}
+.eva-rv-gcard .eva-rv-diff {
+  border-top: 1px solid var(--eva-c-border);
+  background: var(--eva-c-background);
+}
+
+/* Linear tickets */
+.eva-rv-qrow-key {
+  flex: none;
+  font-size: 11px;
+}
+.eva-rv-qrow[data-unread] .eva-rv-qrow-title::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--eva-c-accent);
+  margin-right: calc(var(--mantine-spacing-xs) * 0.6);
+  vertical-align: middle;
+}
+.eva-rv-ldot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 50%;
+}
+.eva-rv-lstate {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+}
+.eva-rv-raillink {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  font-size: var(--eva-fz-label);
+  cursor: pointer;
+}
+.eva-rv-raillink:hover .eva-rv-ellipsis {
+  text-decoration: underline;
+}
+.eva-rv-lthread {
+  border-bottom: 1px solid var(--eva-c-border);
+  padding-bottom: calc(var(--mantine-spacing-xs) * 0.8);
+}
+.eva-rv-lthread:last-of-type {
+  border-bottom: 0;
+}
+.eva-rv-lcomment {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  padding: calc(var(--mantine-spacing-xs) * 0.8) calc(var(--mantine-spacing-xs) * 0.4);
+  border-radius: var(--eva-radius);
+}
+.eva-rv-lcomment[data-mention] {
+  background: var(--eva-c-secondary-background);
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+}
+.eva-rv-lmention {
+  color: var(--eva-c-link);
+  font-size: var(--eva-fz-label);
+  font-weight: 500;
+}
+.eva-rv-lcomment-actions {
+  display: inline-flex;
+  gap: calc(var(--mantine-spacing-xs) * 0.2);
+  opacity: 0;
+}
+.eva-rv-lcomment:hover .eva-rv-lcomment-actions,
+.eva-rv-lcomment:focus-within .eva-rv-lcomment-actions {
+  opacity: 1;
+}
+.eva-rv-lcomment-body {
+  padding-left: calc(var(--mantine-spacing-xs) * 2.6);
+}
+.eva-rv-lreplies {
+  margin-left: calc(var(--mantine-spacing-xs) * 2.6);
+  padding-left: var(--mantine-spacing-sm);
+  border-left: 2px solid var(--eva-c-border);
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+}
+.eva-rv-linline {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  padding: var(--mantine-spacing-xs);
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius);
+}
+.eva-rv-replybox {
+  position: relative;
+}
+.eva-rv-replybox textarea[data-private] {
+  border-color: var(--eva-c-accent);
+}
+.eva-rv-replybox [data-private] {
+  color: var(--eva-c-accent);
+}
+.eva-rv-mentions {
+  position: absolute;
+  bottom: calc(100% - var(--mantine-spacing-xl));
+  left: var(--mantine-spacing-sm);
+  z-index: 5;
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  padding: calc(var(--mantine-spacing-xs) * 0.4);
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius);
+  background: var(--eva-c-popover-background);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.25);
+}
+.eva-rv-mention-opt {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+  padding: calc(var(--mantine-spacing-xs) * 0.5) calc(var(--mantine-spacing-xs) * 0.8);
+  border: 0;
+  border-radius: var(--eva-radius-sm);
+  background: none;
+  color: inherit;
+  text-align: left;
+  font-size: var(--eva-fz-label);
+  cursor: pointer;
+}
+.eva-rv-mention-opt:first-child,
+.eva-rv-mention-opt:hover {
+  background: var(--eva-hover);
+}
+.eva-rv-body img,
+.eva-rv-lcomment-body img {
+  max-width: 100%;
+  border-radius: var(--eva-radius-sm);
+}
+.eva-rv-raillink .eva-rv-mono {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* Slack threads */
+.eva-rv-group-headrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: calc(var(--mantine-spacing-xs) * 0.4);
+}
+.eva-rv-reading {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+}
+.eva-rv-smsg {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  padding: calc(var(--mantine-spacing-xs) * 0.6) calc(var(--mantine-spacing-xs) * 0.4);
+  border-radius: var(--eva-radius);
+}
+.eva-rv-smsg[data-mention] {
+  background: var(--eva-c-secondary-background);
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+}
+.eva-rv-smsg:hover .eva-rv-lcomment-actions,
+.eva-rv-smsg:focus-within .eva-rv-lcomment-actions {
+  opacity: 1;
+}
+.eva-rv-smsg-row {
+  display: flex;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-rv-savatar .eva-rv-avatar {
+  width: 28px;
+  height: 28px;
+  font-size: 12px;
+}
+.eva-rv-smsg-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+}
+.eva-rv-smsg-body img {
+  max-width: 100%;
+}
+.eva-rv-sfile,
+.eva-rv-sreact {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  padding: calc(var(--mantine-spacing-xs) * 0.2) calc(var(--mantine-spacing-xs) * 0.8);
+  border: 1px solid var(--eva-c-border);
+  border-radius: 999px;
+  font-size: var(--eva-fz-label);
+}
+.eva-rv-sfile {
+  border-radius: var(--eva-radius-sm);
+}
+.eva-rv-sdivider {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  color: var(--eva-c-muted-foreground);
+  font-size: var(--eva-fz-label);
+}
+.eva-rv-sdivider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--eva-c-border);
+}
+.eva-rv-spending {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  border: 1px dashed var(--eva-c-border);
+  border-radius: var(--eva-radius);
+  font-size: var(--eva-fz-label);
+}
+
+/*
+ * An item's private Astra threads in its comment timeline, in that surface's own comment cards
+ * and reply indentation (Linear's thread, Slack's messages, GitHub's comments).
+ */
+.eva-rv-athread {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  padding-bottom: calc(var(--mantine-spacing-xs) * 0.8);
+}
+.eva-rv-athread-pr {
+  padding-top: var(--mantine-spacing-xs);
+  border-bottom: 1px solid var(--eva-c-border);
+}
+.eva-rv-acomment {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+}
+.eva-rv-athread-reply {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+}
+/* Astra's typing: three dots pulsing in a message bubble until her words stream in. */
+.eva-rv-typing {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  align-self: flex-start;
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  border-radius: var(--eva-radius-lg, var(--eva-radius));
+  background: var(--eva-c-secondary-background);
+  border: 1px solid var(--eva-c-border);
+}
+.eva-rv-typing > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--eva-c-muted-foreground);
+  animation: eva-rv-typing 1.2s ease-in-out infinite;
+}
+.eva-rv-typing > span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.eva-rv-typing > span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes eva-rv-typing {
+  0%,
+  60%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .eva-rv-typing > span {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+/* In a narrow column the header wraps whole items (the private hint goes to its own line), never inside one. */
+.eva-rv-astra-card .eva-rv-comment-head {
+  flex-wrap: wrap;
+  row-gap: calc(var(--mantine-spacing-xs) * 0.3);
+}
+.eva-rv-astra-card .eva-rv-comment-head > * {
+  white-space: nowrap;
+  flex: none;
+}
+.eva-rv-astra-card .eva-rv-comment-head > .eva-rv-spacer {
+  flex: 1 0 0;
+}
+.eva-rv-astra-face {
+  width: 18px;
+  height: 18px;
+  overflow: hidden;
+  border-radius: 50%;
+  flex: none;
+}
+.eva-rv-astra-face img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.eva-rv-astra-private {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.3);
+  color: var(--eva-c-muted-foreground);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.eva-rv-astra-q {
+  white-space: pre-wrap;
+  font-size: var(--eva-fz-body);
+}
+.eva-rv-astra-a {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  font-size: var(--eva-fz-body);
+  min-width: 0;
+}
+.eva-rv-astra-tool {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  min-width: 0;
+}
+.eva-rv-astra-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  margin-left: calc(var(--mantine-spacing-xs) * -0.6);
+}
+.eva-rv-astra-wait {
+  color: var(--eva-c-warning);
+  font-size: var(--eva-fz-label);
+}
+
+/* A Linear @mention, as Linear shows it: the name in semibold body text, not a pill or a link. */
+.eva-md-mention[data-color='linear'] {
+  display: inline;
+  padding: 0;
+  background: none;
+  color: var(--eva-c-foreground);
+  font-weight: 600;
+}
+
+/* A Slack message's images, inline; a click opens the image viewer. */
+.eva-rv-simages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-rv-simages img {
+  max-width: min(100%, 420px);
+  max-height: 320px;
+  border-radius: var(--eva-radius-sm);
+  border: 1px solid var(--eva-c-border);
+}
+button.eva-rv-sfile {
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}

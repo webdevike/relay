@@ -1,0 +1,134 @@
+import { notifications } from '@mantine/notifications'
+import { useStore } from 'zustand'
+import { createStore } from 'zustand/vanilla'
+import { SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN, fitSidebar } from '@evaos/shell-core'
+import { invoke } from '../ipc'
+import { registerAction } from '../hotkeys/router'
+import { applySavedTiling, contentMinWidth, tilingStore } from '../tiling/tiling-store'
+
+export type SidebarState = 'open' | 'hidden' | 'folded'
+
+/** The sidebar column. The panes beside it live in the tiling store. */
+export interface LayoutState {
+  windowWidth: number
+  /** Preferred width persisted to layout.json, never overwritten by window fitting. */
+  sidebarWidth: number
+  /** Preference, memory only (D-04). */
+  sidebarWanted: boolean
+  /** The smallest width the panes on screen take (tiling-store contentMinWidth). */
+  contentMin: number
+  loaded: boolean
+  /** Derived through shell-core fitSidebar only (D-01). */
+  sidebarPx: number
+  state: SidebarState
+}
+
+type Base = Pick<
+  LayoutState,
+  'windowWidth' | 'sidebarWidth' | 'sidebarWanted' | 'contentMin' | 'loaded'
+>
+
+function derive(b: Base): Pick<LayoutState, 'sidebarPx' | 'state'> {
+  const px = fitSidebar(b.windowWidth, b.sidebarWanted ? b.sidebarWidth : undefined, b.contentMin)
+  const state: SidebarState = !b.sidebarWanted ? 'hidden' : px === 0 ? 'folded' : 'open'
+  return { sidebarPx: px, state }
+}
+
+function initial(): LayoutState {
+  const base: Base = {
+    windowWidth: typeof window === 'undefined' ? 1280 : window.innerWidth,
+    sidebarWidth: SIDEBAR_DEFAULT,
+    sidebarWanted: true,
+    contentMin: contentMinWidth(tilingStore.getState().tiling),
+    loaded: false,
+  }
+  return { ...base, ...derive(base) }
+}
+
+export const layoutStore = createStore<LayoutState>(initial)
+
+function patch(p: Partial<Base>): void {
+  layoutStore.setState((s) => {
+    const base: Base = { ...s, ...p }
+    return { ...p, ...derive(base) }
+  })
+}
+
+// The sidebar folds when the panes on screen need its room.
+tilingStore.subscribe((s, prev) => {
+  if (s.tiling === prev.tiling) return
+  const contentMin = contentMinWidth(s.tiling)
+  if (contentMin !== layoutStore.getState().contentMin) patch({ contentMin })
+})
+
+const clampSidebar = (n: number): number => Math.min(Math.max(n, SIDEBAR_MIN), SIDEBAR_MAX)
+
+export function useLayout<T>(selector: (s: LayoutState) => T): T {
+  return useStore(layoutStore, selector)
+}
+
+export function setWindowWidth(w: number): void {
+  if (!Number.isFinite(w) || w === layoutStore.getState().windowWidth) return
+  patch({ windowWidth: w })
+}
+
+export function toggleSidebar(on?: boolean): void {
+  patch({ sidebarWanted: on ?? !layoutStore.getState().sidebarWanted })
+}
+
+/** In-memory only; never calls IPC (T-02-30). A width that would fold the sidebar is ignored. */
+export function previewSidebarWidth(px: number): void {
+  if (!Number.isFinite(px)) return
+  const s = layoutStore.getState()
+  const w = clampSidebar(px)
+  if (fitSidebar(s.windowWidth, w, s.contentMin) === 0) return
+  patch({ sidebarWidth: w })
+}
+
+function saveSidebarWidth(px: number): void {
+  void invoke('layout.save', { sidebarWidth: px }).then((r) => {
+    if (!r.ok) console.warn('layout.save failed', r.error)
+  })
+}
+
+export function commitSidebarWidth(): void {
+  saveSidebarWidth(Math.round(layoutStore.getState().sidebarWidth))
+}
+
+export function resetSidebarWidth(): void {
+  patch({ sidebarWidth: SIDEBAR_DEFAULT })
+  // Save the default itself so a narrow window does not persist a squeezed width.
+  saveSidebarWidth(SIDEBAR_DEFAULT)
+}
+
+let resetToastShown = false
+
+/** Loads the sidebar width and the pane tree from layout.json; the defaults stand on failure. */
+export async function loadLayout(): Promise<void> {
+  try {
+    const r = await invoke('layout.load', {})
+    if (r.ok) {
+      const sidebarWidth = clampSidebar(r.value.sidebarWidth)
+      applySavedTiling(r.value.tiling, r.value.legacyPanel, sidebarWidth)
+      patch({ sidebarWidth, loaded: true })
+      if (r.value.reset && !resetToastShown) {
+        resetToastShown = true
+        notifications.show({ message: 'Layout was reset to defaults.' })
+      }
+      return
+    }
+  } catch {
+    // keep defaults silently
+  }
+  tilingStore.setState({ loaded: true })
+}
+
+/** Test seam. */
+export function resetLayoutStoreForTests(): void {
+  resetToastShown = false
+  layoutStore.setState(initial(), true)
+}
+
+export function registerLayoutActions(): () => void {
+  return registerAction('toggle-sidebar', () => toggleSidebar())
+}

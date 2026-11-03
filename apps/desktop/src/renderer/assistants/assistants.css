@@ -1,0 +1,278 @@
+/* Sidebar page */
+.eva-as-side .eva-as-side-row {
+  /* Title over scope, like native's two-line agent rows. */
+  height: calc(var(--eva-control-sm) * 1.5);
+}
+.eva-as-side-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.eva-as-side-title,
+.eva-as-side-scope {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-as-side-row[data-active='true'] .eva-as-side-title {
+  font-weight: var(--eva-fw-medium);
+}
+.eva-as-side-scope {
+  font-size: var(--eva-fz-label);
+  color: var(--eva-text-dim);
+}
+
+/* Home */
+.eva-as-col {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: var(--mantine-spacing-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-lg);
+}
+.eva-as-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-as-title {
+  margin: 0;
+  font-size: var(--eva-fz-display);
+  font-weight: var(--eva-fw-semibold);
+  line-height: 1.2;
+  color: var(--eva-c-foreground);
+}
+.eva-as-dim {
+  margin: 0;
+  font-size: var(--eva-fz-body);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-as-empty {
+  min-height: 360px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--mantine-spacing-sm);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-as-empty-title {
+  font-size: var(--eva-fz-heading);
+  font-weight: var(--eva-fw-medium);
+  color: var(--eva-c-foreground);
+}
+.eva-as-rows {
+  display: flex;
+  flex-direction: column;
+}
+.eva-as-row {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-md);
+  width: 100%;
+  padding: var(--mantine-spacing-sm);
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--eva-radius);
+  background: transparent;
+  color: var(--eva-c-foreground);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--eva-dur-fast) ease;
+}
+.eva-as-row + .eva-as-row {
+  border-top: 1px solid var(--eva-c-border);
+  border-radius: 0;
+}
+.eva-as-row:hover {
+  background: var(--eva-hover);
+}
+/* Portraits are black line art: they sit on light paper in both schemes, like on the phone. */
+.eva-as-avatar {
+  flex: none;
+  background: var(--mantine-color-gray-1);
+}
+.eva-as-row-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.eva-as-row-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--mantine-spacing-sm);
+  min-width: 0;
+}
+.eva-as-row-title {
+  flex: none;
+  font-size: var(--eva-fz-body);
+  font-weight: var(--eva-fw-medium);
+}
+.eva-as-row-scope,
+.eva-as-row-reply {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-as-row-scope {
+  font-size: var(--eva-fz-label);
+}
+.eva-as-row-reply {
+  flex: 1;
+  font-size: var(--eva-fz-body);
+}
+.eva-as-row-age {
+  flex: none;
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+  opacity: 0.7;
+}
+.eva-as-pill {
+  flex: none;
+  padding: 0 var(--mantine-spacing-xs);
+  line-height: 1.6;
+  border-radius: var(--eva-radius-round);
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-medium);
+  white-space: nowrap;
+  background: var(--eva-c-muted-background);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-as-pill[data-status='working'] {
+  background: color-mix(in srgb, var(--eva-accent) 15%, transparent);
+  color: var(--eva-accent);
+}
+.eva-as-pill[data-status='needs-you'] {
+  background: var(--eva-c-warning-background);
+  color: var(--eva-c-warning);
+}
+
+/* An agent's page before its thread starts */
+.eva-as-start {
+  min-height: 360px;
+  height: 100%;
+  box-sizing: border-box;
+  padding: var(--mantine-spacing-lg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--mantine-spacing-sm);
+}
+.eva-as-start-title {
+  margin: 0;
+  font-size: var(--eva-fz-heading);
+  font-weight: var(--eva-fw-medium);
+  color: var(--eva-c-foreground);
+}
+.eva-as-center {
+  text-align: center;
+}
+.eva-as-note {
+  margin: 0;
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-as-failed {
+  color: var(--eva-c-danger);
+}
+
+/* "< Assistants / Astra" */
+.eva-as-crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  min-width: 0;
+  font-size: var(--eva-fz-body);
+}
+.eva-as-crumb-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  height: var(--eva-control-xs);
+  padding: 0 var(--mantine-spacing-xs);
+  border: 0;
+  border-radius: var(--eva-radius);
+  background: var(--eva-c-muted-background);
+  color: var(--eva-c-muted-foreground);
+  font: inherit;
+  font-size: var(--eva-fz-label);
+  cursor: pointer;
+}
+.eva-as-crumb-back:hover {
+  color: var(--eva-c-foreground);
+}
+.eva-as-crumb-sep {
+  color: var(--eva-c-muted-foreground);
+}
+.eva-as-crumb-portrait {
+  flex: none;
+  width: var(--eva-control-xs);
+  height: var(--eva-control-xs);
+  border-radius: 50%;
+  background: var(--mantine-color-gray-1);
+}
+/* "< (portrait) Astra / ENG-6545 auto-work": the owner's pill on a chat it started. */
+.eva-as-crumb-back > .eva-as-crumb-portrait {
+  width: calc(var(--eva-control-xs) - 8px);
+  height: calc(var(--eva-control-xs) - 8px);
+  margin: 0 var(--eva-space-xs) 0 2px;
+}
+.eva-as-crumb-here {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--eva-fw-medium);
+}
+/* What the agent is doing, muted after its name: old and new words share one grid cell and crossfade. */
+.eva-as-crumb-status {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: grid;
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-regular);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-as-crumb-status-text {
+  grid-area: 1 / 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  animation: eva-as-status-in 180ms ease both;
+}
+.eva-as-crumb-status-text[data-leaving='true'] {
+  animation-name: eva-as-status-out;
+}
+@keyframes eva-as-status-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes eva-as-status-out {
+  to {
+    opacity: 0;
+  }
+}
+html[data-eva-motion='off'] .eva-as-crumb-status-text {
+  animation: none;
+}
+html[data-eva-motion='off'] .eva-as-crumb-status-text[data-leaving='true'] {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .eva-as-crumb-status-text {
+    animation: none;
+  }
+  .eva-as-crumb-status-text[data-leaving='true'] {
+    display: none;
+  }
+}

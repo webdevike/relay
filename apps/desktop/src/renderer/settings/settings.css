@@ -1,0 +1,225 @@
+.eva-settings {
+  width: 100%;
+}
+.eva-settings-col {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: var(--eva-space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.eva-settings-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--eva-c-foreground);
+}
+.eva-settings-desc {
+  margin: 0;
+  font-size: 14px;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-settings-card {
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius);
+  background: var(--eva-c-secondary-background);
+}
+.eva-settings-card-pad {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.eva-settings-card-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--eva-c-foreground);
+}
+.eva-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  cursor: pointer;
+}
+.eva-settings-row + .eva-settings-row {
+  border-top: 1px solid var(--eva-c-border);
+}
+.eva-settings-row-static {
+  cursor: default;
+}
+.eva-settings-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.eva-settings-label-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--eva-c-foreground);
+}
+.eva-settings-label-help {
+  font-size: 14px;
+  color: var(--eva-c-muted-foreground);
+}
+/* Texo's /theme split (app.module.css) and inspector rows (theme-controls.module.css). */
+.eva-settings-theme {
+  --eva-theme-tools-width: 300px;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  box-sizing: border-box;
+  padding: var(--mantine-spacing-md);
+}
+.eva-theme-split {
+  display: grid;
+  grid-template-columns: var(--eva-theme-tools-width) minmax(0, 1fr);
+  gap: var(--mantine-spacing-lg);
+  flex: 1;
+  height: 100%;
+  min-width: 0;
+}
+.eva-theme-tools {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-sm);
+  min-height: 0;
+  overflow: hidden;
+  padding-right: var(--mantine-spacing-md);
+  border-right: 1px solid var(--mantine-color-default-border);
+}
+.eva-theme-tools > * {
+  flex: 0 0 auto;
+}
+.eva-theme-tools > .eva-theme-controls-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.eva-theme-picker-row {
+  height: 36px;
+}
+.eva-theme-picker {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+}
+.eva-theme-save-row {
+  min-height: 30px;
+}
+.eva-theme-save-state {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-theme-save-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-md);
+}
+.eva-theme-content {
+  min-width: 0;
+  min-height: 0;
+}
+.eva-theme-picker-option[data-combobox-selected] {
+  background: transparent;
+  color: inherit;
+}
+.eva-theme-picker-option[data-combobox-selected] > svg {
+  color: var(--mantine-color-dimmed);
+  opacity: 0.65;
+}
+.eva-theme-properties .mantine-InputWrapper-root {
+  display: grid;
+  grid-template-columns: minmax(88px, 112px) minmax(0, 1fr);
+  column-gap: var(--mantine-spacing-sm);
+  align-items: center;
+}
+.eva-theme-properties .mantine-InputWrapper-label {
+  grid-column: 1;
+  margin: 0;
+  color: var(--mantine-color-dimmed);
+  font-size: var(--mantine-font-size-sm);
+  line-height: 1.2;
+}
+.eva-theme-properties .mantine-Input-wrapper {
+  grid-column: 2;
+  grid-row: 1;
+  width: 100%;
+}
+.eva-theme-properties .mantine-InputWrapper-description,
+.eva-theme-properties .mantine-InputWrapper-error {
+  grid-column: 2;
+}
+.eva-theme-properties
+  .mantine-InputWrapper-root:not(:has(.mantine-InputWrapper-label))
+  .mantine-Input-wrapper {
+  grid-column: 1 / -1;
+}
+.eva-theme-properties .mantine-Switch-root {
+  display: grid;
+  grid-template-columns: minmax(88px, 112px) minmax(0, 1fr);
+  column-gap: var(--mantine-spacing-sm);
+  align-items: center;
+}
+.eva-theme-properties .mantine-Switch-labelWrapper {
+  grid-column: 1;
+  grid-row: 1;
+}
+.eva-theme-properties .mantine-Switch-body {
+  display: contents;
+}
+.eva-theme-properties .mantine-Switch-track {
+  grid-column: 2;
+  grid-row: 1;
+}
+.eva-theme-chart {
+  height: 100px;
+  display: flex;
+  align-items: flex-end;
+  gap: var(--mantine-spacing-xs);
+  border-bottom: 1px solid var(--mantine-color-default-border);
+}
+.eva-theme-chart > div {
+  flex: 1;
+  min-width: 0;
+  border-radius: var(--mantine-radius-sm) var(--mantine-radius-sm) 0 0;
+}
+@media (max-width: 64em) {
+  .eva-theme-split {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+  }
+  .eva-theme-tools {
+    border-right: 0;
+    padding-right: 0;
+  }
+}
+/* Settings > Links: a rule's opener picker beside its move and remove buttons. */
+.eva-links-controls {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--mantine-spacing-xs);
+  flex-shrink: 0;
+}
+.eva-links-opener {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+  width: 220px;
+}
+.eva-links-add {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-links-add-input {
+  flex: 1;
+}

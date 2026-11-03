@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Login form</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: sans-serif;
+        background: linear-gradient(160deg, #335577, #77aa99);
+      }
+      form {
+        padding: 24px;
+        display: grid;
+        gap: 12px;
+        max-width: 280px;
+      }
+    </style>
+  </head>
+  <body>
+    <form>
+      <input id="username" name="username" type="text" autocomplete="username" />
+      <input id="password" name="password" type="password" autocomplete="current-password" />
+      <button type="submit">Sign in</button>
+    </form>
+  </body>
+</html>

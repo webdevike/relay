@@ -1,0 +1,643 @@
+/*
+ * The chat list (native EvaOS chat_view.rs look_list / look_row) on Mantine: rows are NavLink,
+ * folders and folds are Accordion items. Spacing is Mantine's scale only (scripts/lint-spacing.ts):
+ * every row and header is at least 32px tall with spacing-xs inside, and adjacent surfaces keep
+ * spacing-xs / 2 between them, so a hovered header never paints into the active row below it
+ * (e2e/chat-list-geometry.spec.ts).
+ */
+.eva-cl-root,
+.eva-cl-agent-wrap {
+  /* Secondary text: mixed toward the sidebar, so it keeps contrast in every theme preset. */
+  --cl-dim: color-mix(in srgb, var(--mantine-color-text) 72%, var(--eva-chrome));
+  --cl-hover: color-mix(in srgb, var(--mantine-color-text) 7%, transparent);
+  --cl-active: color-mix(in srgb, var(--mantine-color-text) 12%, transparent);
+  --cl-active-hover: color-mix(in srgb, var(--mantine-color-text) 15%, transparent);
+}
+/* Dark text sits closer to its background: dim it less to keep 4.5:1 on hover and active fills. */
+[data-mantine-color-scheme='dark'] .eva-cl-root,
+[data-mantine-color-scheme='dark'] .eva-cl-agent-wrap {
+  --cl-dim: color-mix(in srgb, var(--mantine-color-text) 85%, var(--eva-chrome));
+}
+.eva-cl-root {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.eva-cl {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  /* The end padding keeps row fills clear of the overlay scrollbar. */
+  padding: calc(var(--mantine-spacing-xs) / 2) var(--mantine-spacing-xs) var(--mantine-spacing-sm) 0;
+}
+.eva-cl-empty {
+  padding: var(--mantine-spacing-md) var(--mantine-spacing-xs) 0;
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
+}
+
+/* Agent tabs: Eva | Eren | Elysia | Jobs, each with a muted count. */
+.eva-cl-agent-wrap {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 4);
+  margin: var(--mantine-spacing-xs) var(--mantine-spacing-xs) 0;
+}
+.eva-cl-agents {
+  flex: 1;
+  min-width: 0;
+}
+.eva-cl-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+}
+.eva-cl-new-category {
+  flex: none;
+  color: var(--cl-dim);
+  opacity: 0;
+  transition: opacity var(--eva-dur-fast) ease-out;
+}
+.eva-cl-agent-wrap:hover .eva-cl-new-category,
+.eva-cl-agent-wrap:focus-within .eva-cl-new-category {
+  opacity: 1;
+}
+.eva-cl-count {
+  flex: none;
+  color: var(--cl-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Folder and fold sections; folders sit a little apart from each other. */
+.eva-cl-section {
+  display: flex;
+  flex-direction: column;
+}
+.eva-cl-section + .eva-cl-section {
+  margin-top: calc(var(--mantine-spacing-xs) / 2);
+}
+.eva-cl-rows {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  padding-top: calc(var(--mantine-spacing-xs) / 2);
+}
+/* A folder's rows sit indented under its header; the Snoozed / Settled folds do not. */
+.eva-cl-nested > .eva-cl-rows {
+  padding-inline-start: var(--mantine-spacing-md);
+}
+
+/* Folder header and the Snoozed / Settled folds: Accordion.Control. */
+.eva-cl-grouprow {
+  position: relative;
+}
+.eva-cl-group,
+.eva-cl-fold {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  width: 100%;
+  min-height: 32px;
+  padding: calc(var(--mantine-spacing-xs) / 2) var(--mantine-spacing-xs);
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--mantine-radius-default);
+  background: transparent;
+  color: var(--cl-dim);
+  font: inherit;
+  font-size: var(--eva-fz-label);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--eva-dur-fast) ease-out,
+    color var(--eva-dur-fast) ease-out;
+}
+.eva-cl-group:hover,
+.eva-cl-fold:hover {
+  background: var(--cl-hover);
+  color: var(--mantine-color-text);
+}
+.eva-cl-group:focus-visible,
+.eva-cl-fold:focus-visible,
+.eva-cl .eva-cl-row:focus-visible,
+.eva-cl-more:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: -2px;
+}
+.eva-cl-fold {
+  margin-top: calc(var(--mantine-spacing-xs) / 2);
+}
+.eva-cl-control-label {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  min-width: 0;
+}
+.eva-cl-group-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mantine-color-text);
+}
+.eva-cl-spacer {
+  flex: 1;
+}
+.eva-cl-grouprow[data-menu='true'] .eva-cl-group {
+  padding-right: calc(var(--mantine-spacing-xs) * 3);
+}
+.eva-cl-chev {
+  display: flex;
+  flex: none;
+  color: var(--cl-dim);
+  transition: transform var(--eva-dur-fast) ease-out;
+}
+.eva-cl-chev[data-rotate] {
+  transform: rotate(90deg);
+}
+.eva-cl-fold-line {
+  flex: 1;
+  height: 1px;
+  background: var(--eva-border);
+}
+
+/* Project badges: the icon, else two letters on a darkened chart color. */
+.eva-cl-badge-img,
+.eva-cl-badge-tile {
+  flex: none;
+  width: calc(var(--eva-font-size) * 16 / 14);
+  height: calc(var(--eva-font-size) * 16 / 14);
+  border-radius: 3px;
+}
+.eva-cl-badge-img[data-size='sm'],
+.eva-cl-badge-tile[data-size='sm'] {
+  width: calc(var(--eva-font-size) * 13 / 14);
+  height: calc(var(--eva-font-size) * 13 / 14);
+}
+.eva-cl-badge-img {
+  object-fit: contain;
+}
+.eva-cl-badge-tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: calc(var(--eva-font-size) * 8 / 14);
+  font-weight: var(--eva-fw-semibold);
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+/* Status icons and pills: native status colors, mixed toward the text for contrast. */
+.eva-cl-status {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+}
+.eva-cl-status[data-status='working'],
+.eva-cl-pill[data-status='working'] {
+  color: color-mix(in srgb, var(--mantine-color-blue-text) 55%, var(--mantine-color-text));
+}
+.eva-cl-group .eva-cl-status[data-status='working'] {
+  color: var(--cl-dim);
+}
+.eva-cl-status[data-status='approval'],
+.eva-cl-status[data-status='woke'],
+.eva-cl-pill[data-status='approval'],
+.eva-cl-pill[data-status='woke'],
+.eva-cl-woke {
+  color: color-mix(in srgb, var(--eva-c-warning) 55%, var(--mantine-color-text));
+}
+.eva-cl-status[data-status='asked'],
+.eva-cl-pill[data-status='asked'] {
+  color: color-mix(in srgb, var(--eva-chart-3) 55%, var(--mantine-color-text));
+}
+.eva-cl-status[data-status='monitoring'],
+.eva-cl-pill[data-status='monitoring'] {
+  color: var(--mantine-color-text);
+}
+.eva-cl-status[data-status='failed'],
+.eva-cl-pill[data-status='failed'] {
+  color: color-mix(in srgb, var(--eva-c-danger) 55%, var(--mantine-color-text));
+}
+.eva-cl-status[data-status='done'],
+.eva-cl-pill[data-status='done'] {
+  color: color-mix(in srgb, var(--eva-c-success) 55%, var(--mantine-color-text));
+}
+.eva-cl-spinner {
+  width: 10px;
+  height: 10px;
+  box-sizing: border-box;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: eva-cl-spin 0.8s linear infinite;
+}
+@keyframes eva-cl-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.eva-cl-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 4);
+  font-variant-numeric: tabular-nums;
+}
+.eva-cl-woke {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 4);
+  padding: 0 calc(var(--mantine-spacing-xs) / 2);
+  border-radius: var(--mantine-radius-default);
+  background: color-mix(in srgb, var(--eva-c-warning) 16%, transparent);
+  font-weight: var(--eva-fw-medium);
+}
+
+/* Rows: NavLink, three lines (native look_row). */
+.eva-cl-rowwrap {
+  position: relative;
+}
+.eva-cl .eva-cl-row {
+  --nl-bg: var(--cl-active);
+  --nl-hover: var(--cl-active-hover);
+  --nl-color: var(--mantine-color-text);
+  align-items: flex-start;
+  min-height: 32px;
+  padding: calc(var(--mantine-spacing-xs) / 2) var(--mantine-spacing-xs);
+  box-sizing: border-box;
+  border-radius: var(--mantine-radius-default);
+  color: var(--cl-dim);
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+  transition: background-color var(--eva-dur-fast) ease-out;
+}
+.eva-cl .eva-cl-row:hover,
+.eva-cl .eva-cl-row[data-snoozing='true'] {
+  background-color: var(--cl-hover);
+}
+.eva-cl .eva-cl-row[data-active] {
+  background-color: var(--cl-active);
+  color: var(--mantine-color-text);
+}
+.eva-cl .eva-cl-row[data-active]:hover {
+  background-color: var(--cl-active-hover);
+}
+.eva-cl-row-body {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) / 4);
+  min-width: 0;
+}
+.eva-cl .eva-cl-row-label {
+  display: block;
+  min-width: 0;
+  font-size: inherit;
+}
+.eva-cl .eva-cl-row-more {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) / 4);
+  min-width: 0;
+  color: inherit;
+  font-size: inherit;
+  opacity: 1;
+}
+.eva-cl .eva-cl-row-more:empty {
+  display: none;
+}
+.eva-cl-line1,
+.eva-cl-line3 {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 4);
+  min-width: 0;
+  font-size: var(--eva-fz-caption);
+}
+.eva-cl-line1 {
+  min-height: 24px;
+}
+.eva-cl-line3 {
+  min-height: calc(var(--eva-font-size) * 16 / 14);
+}
+.eva-cl-line2 {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  min-width: 0;
+}
+.eva-cl-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(var(--eva-font-size) * 13 / 14);
+  color: var(--cl-dim);
+}
+.eva-cl-title[data-bright='true'],
+.eva-cl .eva-cl-row[data-active] .eva-cl-title {
+  color: var(--mantine-color-text);
+}
+.eva-cl-category,
+.eva-cl-work {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-cl-flag {
+  flex: none;
+}
+/* Linear ticket badge on line 1; hovering it swaps the hover card to the ticket's. */
+.eva-cl-ticket {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-right: 4px;
+  border-radius: 4px;
+  /* Linear's brand indigo, so it never reads as a status icon. */
+  color: #5e6ad2;
+  background: color-mix(in srgb, #5e6ad2 16%, transparent);
+}
+.eva-cl-ticket:hover {
+  background: color-mix(in srgb, #5e6ad2 28%, transparent);
+}
+.eva-cl-ticket-head {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-text-dim);
+}
+.eva-cl-when {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+}
+.eva-cl-pr {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.eva-cl-row-edit {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  padding: calc(var(--mantine-spacing-xs) / 2) var(--mantine-spacing-xs);
+  box-sizing: border-box;
+}
+
+/* Hover quick actions replace the right side of line 1. */
+.eva-cl-quick {
+  flex: none;
+  display: none;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 4);
+  height: 24px;
+}
+.eva-cl-row:hover .eva-cl-quick,
+.eva-cl-row:focus-within .eva-cl-quick,
+.eva-cl-row[data-snoozing='true'] .eva-cl-quick {
+  display: inline-flex;
+}
+.eva-cl-row:hover .eva-cl-when,
+.eva-cl-row:focus-within .eva-cl-when,
+.eva-cl-row[data-snoozing='true'] .eva-cl-when {
+  display: none;
+}
+.eva-cl-quick-btn {
+  color: var(--cl-dim);
+}
+.eva-cl-quick-settle {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 4);
+  height: 24px;
+  padding: 0 calc(var(--mantine-spacing-xs) / 2);
+  border-radius: var(--mantine-radius-default);
+  color: var(--cl-dim);
+  font: inherit;
+  transition:
+    background-color var(--eva-dur-fast) ease-out,
+    color var(--eva-dur-fast) ease-out;
+}
+.eva-cl-quick-settle:hover,
+.eva-cl-quick-settle:focus-visible,
+.eva-cl-quick-btn:hover {
+  background: var(--eva-c-muted-background);
+  color: var(--mantine-color-text);
+}
+
+/* Hover card (native look_card). */
+.eva-cl-card {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+}
+.eva-cl-card-title {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: calc(var(--eva-font-size) * 13 / 14);
+  font-weight: var(--eva-fw-semibold);
+  color: var(--eva-text);
+}
+.eva-cl-card-lines {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) / 4);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-text-dim);
+}
+.eva-cl-card-line {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  min-width: 0;
+}
+.eva-cl-card-icon {
+  flex: none;
+  display: inline-flex;
+  justify-content: center;
+  width: 14px;
+}
+.eva-cl-card-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Show N more. */
+.eva-cl-more {
+  display: flex;
+  align-items: center;
+  align-self: flex-start;
+  min-height: 24px;
+  padding: 0 var(--mantine-spacing-xs);
+  border-radius: var(--mantine-radius-default);
+  color: var(--cl-dim);
+  font-size: var(--eva-fz-caption);
+  transition: color var(--eva-dur-fast) ease-out;
+}
+.eva-cl-more:hover {
+  color: var(--mantine-color-text);
+}
+.eva-cl-note {
+  padding: 0 var(--mantine-spacing-sm);
+  color: var(--cl-dim);
+  font-size: var(--eva-fz-caption);
+  line-height: 24px;
+}
+
+.eva-cl-row[data-changed='true'] {
+  animation: eva-cl-flash 300ms ease-out;
+}
+@keyframes eva-cl-flash {
+  from {
+    background: var(--eva-nav-active-bg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .eva-cl-row[data-changed='true'],
+  .eva-cl-spinner {
+    animation: none;
+  }
+  .eva-cl-chev {
+    transition: none;
+  }
+}
+html[data-eva-motion='off'] .eva-cl-row[data-changed='true'],
+html[data-eva-motion='off'] .eva-cl-spinner,
+html[data-eva-motion='off'] .eva-cl-chev {
+  animation: none;
+  transition: none;
+}
+
+/* Row and folder actions: the folder `...` button, inline rename, error line, menu anchor. */
+.eva-cl-grouprow > .eva-cl-actions {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  right: calc(var(--mantine-spacing-xs) / 4);
+  transform: translateY(-50%);
+  color: var(--cl-dim);
+  opacity: 0;
+  transition: opacity var(--eva-dur-fast) ease-out;
+}
+.eva-cl-grouprow:hover .eva-cl-actions,
+.eva-cl-grouprow:focus-within .eva-cl-actions,
+.eva-cl-actions:focus-visible {
+  opacity: 1;
+}
+.eva-cl-grouprow[data-menu='true']:hover .eva-cl-status,
+.eva-cl-grouprow[data-menu='true']:focus-within .eva-cl-status {
+  visibility: hidden;
+}
+.eva-cl-rename {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 calc(var(--mantine-spacing-xs) / 2);
+  box-sizing: border-box;
+  border: 1px solid var(--eva-accent);
+  border-radius: var(--mantine-radius-default);
+  background: var(--eva-surface, transparent);
+  color: var(--eva-text);
+  font: inherit;
+  font-size: var(--eva-fz-body);
+}
+.eva-cl-rename:focus {
+  outline: none;
+}
+.eva-cl-row-error {
+  padding: calc(var(--mantine-spacing-xs) / 4) var(--mantine-spacing-sm)
+    calc(var(--mantine-spacing-xs) / 2);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-danger-background);
+}
+.eva-cl-menu-anchor {
+  position: fixed;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.eva-menu-item.eva-cl-menu-danger {
+  color: var(--eva-c-danger-background);
+}
+.eva-cl-menu-when {
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-caption);
+}
+.eva-cl-toast {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-sm);
+}
+.eva-cl-delete-body {
+  margin: 0 0 var(--mantine-spacing-md);
+}
+.eva-cl-delete-error {
+  margin: 0 0 var(--mantine-spacing-md);
+  color: var(--eva-c-danger-background);
+}
+.eva-cl-delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--mantine-spacing-sm);
+}
+/* Outlined danger: the theme's danger foreground is itself red, so a filled button would not meet 4.5:1. */
+.eva-cl-delete-confirm {
+  background: transparent;
+  border: 1px solid var(--eva-c-danger-background);
+  color: var(--eva-c-danger-background);
+}
+.eva-cl-delete-confirm:hover {
+  background: var(--eva-hover);
+}
+
+/* Categories: drag states and the inline name field. */
+.eva-cl-rowwrap[data-dragging='true'] {
+  z-index: 5;
+  opacity: 0.6;
+  background: var(--cl-hover);
+  border-radius: var(--mantine-radius-default);
+}
+.eva-cl-grouprow[data-drop='true']::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--eva-c-primary-background);
+  pointer-events: none;
+}
+.eva-cl-grouprow[data-drop='true'] .eva-cl-group {
+  background: var(--cl-hover);
+}
+.eva-cl-newcat,
+.eva-cl-catinput {
+  display: flex;
+  flex-direction: column;
+  padding: calc(var(--mantine-spacing-xs) / 4) var(--mantine-spacing-sm);
+}
+.eva-cl-grouprow > .eva-cl-catinput {
+  height: 32px;
+  justify-content: center;
+}
+.eva-cl-catinput .eva-cl-row-error {
+  padding-left: 0;
+}

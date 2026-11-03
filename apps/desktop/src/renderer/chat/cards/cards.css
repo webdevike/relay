@@ -1,0 +1,102 @@
+.eva-pending-dialog {
+  flex: none;
+  box-sizing: border-box;
+  width: calc(100% - var(--eva-space-native-lg) * 2);
+  max-width: var(--eva-chat-column-w);
+  margin: var(--eva-space-native-xs) auto 0;
+  max-height: 60vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.eva-question {
+  display: flex;
+  flex-direction: column;
+  gap: var(--eva-space-native-sm);
+  padding: var(--eva-space-md);
+  background: var(--eva-surface);
+  border: 1px solid var(--eva-border);
+  border-radius: var(--eva-radius-xl);
+}
+.eva-question[data-dead='true'] {
+  opacity: 0.6;
+}
+.eva-question-text {
+  color: var(--eva-text);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.eva-question-desc {
+  margin-left: auto;
+}
+.eva-kbd,
+.eva-kbd-gap {
+  flex: none;
+  min-width: 20px;
+  text-align: center;
+}
+.eva-kbd {
+  font-family: var(--eva-font-mono);
+  padding: 0 var(--eva-space-xs);
+  border: 1px solid var(--eva-border);
+  border-radius: var(--eva-radius-sm);
+  background: var(--eva-surface-2);
+  color: var(--eva-text-dim);
+}
+.eva-question-actions {
+  display: flex;
+  gap: var(--eva-space-sm);
+}
+/* QuestionCard option rows (Mantine UnstyledButton). */
+.eva-question-option {
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+}
+.eva-question-option:hover:not(:disabled) {
+  background: var(--mantine-color-default-hover);
+}
+.eva-question-option[data-selected='true'] {
+  border-color: var(--mantine-primary-color-filled);
+  background: var(--mantine-primary-color-light);
+}
+.eva-question-option:focus-visible {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: -1px;
+}
+.eva-card-button {
+  min-height: var(--eva-kit-control-md);
+  padding: 0 var(--eva-space-md);
+  background: var(--eva-surface-2);
+  color: var(--eva-text);
+  border: 1px solid var(--eva-border);
+  border-radius: var(--eva-radius);
+  font-family: var(--eva-font-ui);
+  font-size: var(--eva-fz-body);
+  cursor: pointer;
+}
+.eva-card-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.eva-card-button:focus-visible,
+.eva-card-input:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: 1px;
+}
+.eva-card-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--eva-space-sm) var(--eva-space-md);
+  background: var(--eva-surface-2);
+  color: var(--eva-text);
+  border: 1px solid var(--eva-c-input-border);
+  border-radius: var(--eva-radius);
+  font: inherit;
+  resize: vertical;
+}
+.eva-question-caption {
+  margin-top: var(--eva-space-xs);
+}
+.eva-card-input.eva-mono {
+  font-family: var(--eva-font-mono);
+}

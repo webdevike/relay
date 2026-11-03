@@ -1,0 +1,117 @@
+{
+  "version": 1,
+  "status": "COMPLETE",
+  "reviewMode": "CHECKPOINTS",
+  "questionPolicy": "AGENT_DEFAULTS",
+  "baseCommit": "e70840448d890f7000b93db4579747e01eb2e4d3",
+  "baselineUntracked": [],
+  "spike": {
+    "status": "COMPLETE"
+  },
+  "planReview": {
+    "status": "APPROVED"
+  },
+  "complexityPolicy": {
+    "target": 5,
+    "maximum": 13
+  },
+  "humanReview": {
+    "status": "APPROVED"
+  },
+  "complexity": {
+    "score": 8,
+    "rationale": "Required isolated browser evidence, protected adjudication, real provider boundaries and shared CLI/UI persistence are coupled; reducing to 5 would omit acceptance criteria. Existing Electron, authentication, contracts and storage avoid new frameworks."
+  },
+  "budget": {
+    "productionLoc": { "expected": 3050, "hardCap": 3300 },
+    "filesTouched": { "expected": 36, "hardCap": 38 },
+    "newDependencies": 0,
+    "newAbstractions": 0
+  },
+  "issues": [
+    {
+      "id": "01",
+      "slug": "trustworthy-evidence",
+      "status": "COMPLETE",
+      "reviewMode": "AUTO",
+      "dependsOn": [],
+      "files": [
+        "packages/contract/src/test-bench.ts",
+        "packages/contract/src/index.ts",
+        "apps/desktop/src/main/test-bench/fixtures.ts",
+        "apps/desktop/src/main/test-bench/browser.ts",
+        "apps/desktop/src/main/test-bench/engine.ts",
+        "apps/desktop/src/main/test-bench/store.ts",
+        "apps/desktop/src/main/test-bench/scoring.ts",
+        "packages/contract/src/test-bench.test.ts",
+        "apps/desktop/src/main/test-bench/fixtures.test.ts",
+        "apps/desktop/src/main/test-bench/browser.test.ts",
+        "apps/desktop/src/main/test-bench/engine.test.ts",
+        "apps/desktop/src/main/test-bench/store.test.ts"
+      ],
+      "budget": {
+        "productionLoc": { "expected": 1400, "maximum": 1500 },
+        "filesTouched": 12
+      }
+    },
+    {
+      "id": "02",
+      "slug": "real-comparisons-cli",
+      "status": "COMPLETE",
+      "reviewMode": "AUTO",
+      "dependsOn": ["01"],
+      "files": [
+        "apps/desktop/src/main/test-bench/models.ts",
+        "apps/desktop/src/main/test-bench/cli.ts",
+        "apps/desktop/scripts/test-bench.mjs",
+        "apps/desktop/electron.vite.config.ts",
+        "apps/desktop/package.json",
+        "package.json",
+        "TRY.md",
+        "apps/desktop/src/main/test-bench/models.test.ts",
+        "apps/desktop/src/main/test-bench/cli.test.ts"
+      ],
+      "budget": {
+        "productionLoc": { "expected": 800, "maximum": 900 },
+        "filesTouched": 9
+      }
+    },
+    {
+      "id": "03",
+      "slug": "test-bench-integration",
+      "status": "COMPLETE",
+      "reviewMode": "AUTO",
+      "dependsOn": ["02"],
+      "files": [
+        "apps/desktop/src/main/test-bench/ipc.ts",
+        "apps/desktop/src/main/index.ts",
+        "apps/desktop/src/main/context.ts",
+        "apps/desktop/src/renderer/test-bench/TestBenchPage.tsx",
+        "apps/desktop/src/renderer/test-bench/test-bench.css",
+        "packages/shell-core/src/place.ts",
+        "apps/desktop/src/renderer/pages/page-meta.ts",
+        "apps/desktop/src/renderer/pages/registry.ts",
+        "apps/desktop/src/renderer/tabs/tab-meta.ts",
+        "apps/desktop/src/main/test-bench/ipc.test.ts",
+        "apps/desktop/src/renderer/test-bench/TestBenchPage.test.tsx",
+        "packages/shell-core/src/place.test.ts",
+        "apps/desktop/src/renderer/pages/page-meta.test.ts",
+        "apps/desktop/e2e/test-bench.spec.ts",
+        "apps/desktop/tsconfig.node.json",
+        "apps/desktop/src/renderer/sidebar/sidebar.test.tsx",
+        "packages/eva-core/src/write-scan.test.ts"
+      ],
+      "budget": {
+        "productionLoc": { "expected": 850, "maximum": 900 },
+        "filesTouched": 17
+      }
+    }
+  ],
+  "openQuestions": [
+    { "id": "Q1", "issueId": "01", "type": "IMPLEMENTATION", "importance": "MEDIUM", "status": "AGENT_DECIDED" },
+    { "id": "Q2", "issueId": "01", "type": "IMPLEMENTATION", "importance": "MEDIUM", "status": "AGENT_DECIDED" },
+    { "id": "Q3", "issueId": "02", "type": "IMPLEMENTATION", "importance": "MEDIUM", "status": "AGENT_DECIDED" },
+    { "id": "Q4", "issueId": "02", "type": "IMPLEMENTATION", "importance": "LOW", "status": "AGENT_DECIDED" },
+    { "id": "Q5", "issueId": "03", "type": "UX", "importance": "LOW", "status": "AGENT_DECIDED" }
+  ]
+}

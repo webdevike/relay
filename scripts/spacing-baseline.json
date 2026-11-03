@@ -1,0 +1,221 @@
+{
+  "apps/desktop/src/renderer/browser/browser.css": {
+    "gap: var(--eva-space-native-xs)": 2,
+    "gap: var(--eva-space-sm)": 1,
+    "gap: var(--eva-space-xs)": 1,
+    "margin: 0 0 var(--eva-space-md)": 1,
+    "margin: 0 var(--eva-space-sm)": 1,
+    "padding: 0 var(--eva-space-native-sm)": 1,
+    "padding: 0 var(--eva-space-native-xs)": 1,
+    "padding: 0 var(--eva-space-native-xs) 0 var(--eva-space-native-sm)": 1,
+    "padding: 0 var(--eva-space-sm)": 1,
+    "padding: var(--eva-space-lg)": 1
+  },
+  "apps/desktop/src/renderer/chat/cards/cards.css": {
+    "gap: var(--eva-space-native-sm)": 3,
+    "gap: var(--eva-space-sm)": 2,
+    "margin-top: var(--eva-space-xs)": 1,
+    "margin: var(--eva-space-native-xs) auto 0": 1,
+    "padding: 0 var(--eva-space-md)": 1,
+    "padding: 0 var(--eva-space-xs)": 1,
+    "padding: var(--eva-space-md)": 1,
+    "padding: var(--eva-space-native-sm) var(--eva-space-md)": 1,
+    "padding: var(--eva-space-sm) var(--eva-space-md)": 1
+  },
+  "apps/desktop/src/renderer/chat/chat.css": {
+    "gap: var(--eva-space-native-xs)": 5,
+    "gap: var(--eva-space-sm)": 2,
+    "gap: var(--eva-space-xs)": 1,
+    "margin-right: var(--eva-space-sm)": 1,
+    "margin: 0 0 var(--eva-space-md, 12px)": 1,
+    "padding-block: var(--eva-space-xl)": 1,
+    "padding-bottom: var(--eva-space-sm)": 1,
+    "padding: 0 var(--eva-space-md)": 1,
+    "padding: 2px var(--eva-space-native-xs)": 1,
+    "padding: var(--eva-space-native-xs) var(--eva-space-md)": 1,
+    "padding: var(--eva-space-native-xs) var(--eva-space-native-lg) var(--eva-space-native-lg)": 2,
+    "padding: var(--eva-space-sm) var(--eva-space-md)": 2,
+    "padding: var(--eva-space-sm) var(--eva-space-native-lg)": 1,
+    "padding: var(--eva-space-xs) 0 var(--eva-space-sm) var(--eva-space-lg)": 1
+  },
+  "apps/desktop/src/renderer/chat/composer/composer.css": {
+    "gap: 4px": 2,
+    "gap: var(--eva-space-native-sm)": 1,
+    "gap: var(--eva-space-native-xs)": 2,
+    "gap: var(--eva-space-xs)": 2,
+    "margin-left: var(--eva-space-xs)": 1,
+    "margin-top: 4px": 1,
+    "padding: 0 8px": 1,
+    "padding: 0 var(--eva-space-native-sm)": 1,
+    "padding: 0 var(--eva-space-native-xs) var(--eva-space-native-xs)": 1,
+    "padding: 0 var(--eva-space-xs)": 1,
+    "padding: 8px 8px 0": 1,
+    "padding: var(--eva-kit-input-py) var(--eva-kit-input-px)": 1,
+    "padding: var(--eva-space-native-sm) var(--eva-space-native-sm) 0": 1,
+    "padding: var(--eva-space-native-sm) var(--eva-space-native-sm) var(--eva-space-xs)": 1,
+    "padding: var(--eva-space-xs)": 1,
+    "padding: var(--eva-space-xs) var(--eva-space-native-sm)": 1
+  },
+  "apps/desktop/src/renderer/chat/images.css": {
+    "gap: var(--eva-space-native-xs)": 1
+  },
+  "apps/desktop/src/renderer/chat/strips/strips.css": {
+    "gap: var(--eva-space-md)": 1,
+    "gap: var(--eva-space-native-xs)": 1,
+    "gap: var(--eva-space-xs)": 2,
+    "margin: var(--eva-space-native-xs) auto 0": 2,
+    "padding: 0 var(--eva-space-md)": 2,
+    "padding: 0 var(--eva-space-xs)": 1,
+    "padding: var(--eva-space-sm) var(--eva-space-md)": 1,
+    "padding: var(--eva-space-xs) var(--eva-space-native-sm)": 1
+  },
+  "apps/desktop/src/renderer/dashboard/dashboard.css": {
+    "gap: 4px": 3,
+    "gap: 8px": 14,
+    "gap: var(--eva-space-lg)": 2,
+    "gap: var(--eva-space-md)": 6,
+    "margin-top: 8px": 1,
+    "margin: 0 0 8px": 1,
+    "padding: 0 12px": 1,
+    "padding: 0 24px": 1,
+    "padding: 0 4px": 1,
+    "padding: 0 8px": 2,
+    "padding: var(--eva-space-lg)": 1,
+    "padding: var(--eva-space-md)": 5
+  },
+  "apps/desktop/src/renderer/habits/gate-overlay.css": {
+    "gap: 12px": 1,
+    "gap: 8px": 3,
+    "gap: var(--eva-space-md)": 2,
+    "padding-left: 12px": 1,
+    "padding: 0 16px": 1,
+    "padding: 2px 8px": 1,
+    "padding: var(--eva-space-lg)": 1
+  },
+  "apps/desktop/src/renderer/habits/habits.css": {
+    "column-gap: 16px": 1,
+    "gap: 12px": 2,
+    "gap: 16px": 1,
+    "gap: 4px": 2,
+    "gap: 8px": 8,
+    "gap: var(--eva-space-md)": 1,
+    "padding: 0 16px": 3,
+    "padding: 0 8px": 1,
+    "padding: 16px": 2,
+    "padding: 8px 12px": 1,
+    "padding: 8px 16px": 1,
+    "padding: 8px 16px 4px": 1,
+    "padding: var(--eva-space-lg)": 1
+  },
+  "apps/desktop/src/renderer/jobs/job-form.css": {
+    "gap: 16px": 1,
+    "gap: 4px": 1,
+    "gap: 8px": 5,
+    "padding-top: 8px": 1,
+    "padding: 8px 12px": 1
+  },
+  "apps/desktop/src/renderer/jobs/jobs.css": {
+    "column-gap: 12px": 1,
+    "column-gap: 16px": 1,
+    "gap: 12px": 1,
+    "gap: 4px": 1,
+    "gap: 8px": 2,
+    "gap: var(--eva-space-md)": 1,
+    "padding-bottom: var(--eva-space-md)": 1,
+    "padding: 0 16px": 1,
+    "padding: 48px 16px": 1,
+    "padding: var(--eva-space-lg)": 1
+  },
+  "apps/desktop/src/renderer/meetings/meetings.css": {
+    "gap: 2px": 2,
+    "gap: var(--eva-space-lg)": 1,
+    "gap: var(--eva-space-md)": 4,
+    "gap: var(--eva-space-sm)": 4,
+    "gap: var(--eva-space-xs)": 1,
+    "padding-bottom: var(--eva-space-md)": 1,
+    "padding-left: 20px": 1,
+    "padding: 0 12px": 3,
+    "padding: 2px 10px": 1,
+    "padding: 4px 12px": 1,
+    "padding: 6px 2px": 1,
+    "padding: var(--eva-space-lg)": 1,
+    "padding: var(--eva-space-sm) var(--eva-space-md)": 1
+  },
+  "apps/desktop/src/renderer/overlay/overlay.css": {
+    "gap: var(--eva-space-native-sm)": 1,
+    "padding: 0 0 var(--eva-space-native-xs)": 1,
+    "padding: var(--eva-space-md)": 1,
+    "padding: var(--eva-space-native-xs)": 2,
+    "padding: var(--eva-space-sm) var(--eva-space-native-sm)": 1
+  },
+  "apps/desktop/src/renderer/settings/settings.css": {
+    "gap: 16px": 2,
+    "gap: 2px": 1,
+    "gap: 4px": 1,
+    "padding: 16px": 2,
+    "padding: var(--eva-space-lg)": 1
+  },
+  "apps/desktop/src/renderer/shell/shell.css": {
+    "gap: var(--eva-space-sm)": 1,
+    "margin-left: var(--eva-main-left)": 1,
+    "padding-top: var(--eva-tab-strip-h)": 1,
+    "padding: 0 var(--eva-space-sm) 0 10px": 1
+  },
+  "apps/desktop/src/renderer/sidebar/sidebar.css": {
+    "gap: var(--eva-space-md)": 1,
+    "gap: var(--eva-space-native-sm)": 2,
+    "gap: var(--eva-space-native-xs)": 2,
+    "gap: var(--eva-space-xs)": 3,
+    "margin-left: var(--eva-space-native-sm)": 1,
+    "margin-top: var(--eva-space-native-xs)": 1,
+    "margin-top: var(--eva-space-xs)": 1,
+    "margin: var(--eva-space-native-xs) 0": 1,
+    "padding-left: var(--eva-space-native-sm)": 1,
+    "padding: 0 12px": 2,
+    "padding: 0 var(--eva-space-native-sm)": 2,
+    "padding: 0 var(--eva-space-native-sm) var(--eva-space-native-sm)": 1,
+    "padding: 0 var(--eva-space-native-xs)": 2,
+    "padding: 0 var(--eva-space-native-xs) 0 var(--eva-space-xs)": 1,
+    "padding: 0 var(--eva-space-xs)": 3,
+    "padding: var(--eva-sidebar-top) 0 0": 1,
+    "padding: var(--eva-space-native-xs)": 1,
+    "padding: var(--eva-space-native-xs) var(--eva-space-native-sm) var(--eva-space-native-sm)": 1,
+    "padding: var(--eva-space-native-xs) var(--eva-space-xs) var(--eva-space-xs)": 1,
+    "padding: var(--eva-space-sm) 12px": 1,
+    "padding: var(--eva-space-xs) var(--eva-space-native-xs)": 1
+  },
+  "apps/desktop/src/renderer/styles/tokens.css": {
+    "gap: var(--eva-space-sm)": 1,
+    "margin: 0 0 var(--eva-space-sm)": 1,
+    "padding: 0 var(--eva-space-sm) 0 10px": 1,
+    "padding: var(--eva-space-xl)": 1
+  },
+  "apps/desktop/src/renderer/tabs/tabs.css": {
+    "gap: 6px": 1,
+    "gap: var(--eva-space-native-xs)": 1,
+    "gap: var(--eva-space-xs)": 2,
+    "padding-left: var(--eva-traffic)": 1,
+    "padding: 0 calc((var(--eva-tile-md) - var(--eva-tile-xs)) / 2) 0 var(--eva-space-native-xs)": 1
+  },
+  "apps/desktop/src/renderer/todo/new-todo.css": {
+    "gap: 16px": 1,
+    "gap: 8px": 2
+  },
+  "apps/desktop/src/renderer/ui/activity-chart.css": {
+    "margin: -1px": 1
+  },
+  "apps/desktop/src/renderer/workspace/workspace.css": {
+    "gap: 16px": 1,
+    "gap: 24px": 1,
+    "gap: 6px": 2,
+    "gap: 8px": 7,
+    "margin-top: 8px": 1,
+    "margin: 8px 0 4px": 1,
+    "padding-top: 64px": 1,
+    "padding: 0 12px": 1,
+    "padding: 0 8px": 1,
+    "padding: 24px": 1,
+    "padding: 8px 12px": 1,
+    "padding: var(--eva-space-md)": 1
+  }
+}
