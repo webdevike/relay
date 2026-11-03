@@ -1,13 +1,11 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { Button, SegmentedControl, TextInput, Textarea } from '@mantine/core'
+import { Button, SegmentedControl, Textarea } from '@mantine/core'
 import { EvaModal } from '../overlay'
 import { notifications } from '@mantine/notifications'
 import {
   IconBook2,
   IconCheck,
-  IconChevronDown,
   IconChevronLeft,
-  IconChevronRight,
   IconCircleCheck,
   IconCircleDashed,
   IconCircleX,
@@ -15,7 +13,6 @@ import {
   IconGitBranch,
   IconGitCommit,
   IconGitPullRequest,
-  IconGitPullRequestDraft,
   IconLock,
   IconMessage,
   IconRefresh,
