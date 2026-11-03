@@ -58,7 +58,7 @@ case "$TOOL" in
     # Apple's command line tools (git). Without them a fresh Mac's /usr/bin/git is a stub that pops
     # Apple's installer the first time omp runs git. Headless install, as Homebrew's installer does it.
     already clt
-    need_network
+    need_network https://swscan.apple.com/
     progress 5 "Looking up Apple's command line tools (this can take a minute)"
     flag=/tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
     touch "$flag"

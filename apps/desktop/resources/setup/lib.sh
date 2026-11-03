@@ -142,10 +142,15 @@ download() {
   curl -fL --retry 3 --connect-timeout 15 -o "$dest" "$url" >>"$SETUP_LOG" 2>&1
 }
 
+# need_network [url]: fail early, with a message a person can act on, when this Mac cannot reach the
+# server the step downloads from (default github.com). Logged with a timestamp, not bare curl output.
 need_network() {
-  ensure_log
-  curl -fsS --connect-timeout 8 -o /dev/null -I https://github.com >>"$SETUP_LOG" 2>&1 \
-    || fail "no internet connection (could not reach github.com)"
+  local url="${1:-https://github.com}" host
+  host="${url#https://}"; host="${host%%/*}"
+  log_line "checking internet: $url"
+  # Any HTTP answer means the server is reachable (Apple's update host answers 404 at its root).
+  curl -sS --connect-timeout 8 -o /dev/null -I "$url" >>"$SETUP_LOG" 2>&1 \
+    || fail "this Mac is not online (could not reach $host). Check Wi-Fi or Ethernet, then press Retry"
 }
 
 require_macos() {
