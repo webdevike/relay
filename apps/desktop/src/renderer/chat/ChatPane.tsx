@@ -183,7 +183,8 @@ export function ChatPane() {
         </Tooltip>
         {pane ? (
           <>
-            {pane.running ? (
+            {/* An assistant's notch already says it's working, so its thread shows no dot. */}
+            {pane.running && agent === null ? (
               <span className="eva-streaming-dot" role="img" aria-label="Eva is replying" />
             ) : null}
             {/* An agent's thread names its way back: "< Assistants / Astra"; a chat it started,
