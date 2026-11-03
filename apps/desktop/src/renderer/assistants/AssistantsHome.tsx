@@ -1,5 +1,12 @@
 import { Avatar } from '@mantine/core'
-import { IconMessageChatbot } from '@tabler/icons-react'
+import type { ReactNode } from 'react'
+import {
+  IconBellRinging,
+  IconCircleDashed,
+  IconLoader2,
+  IconMessageChatbot,
+  IconMoon,
+} from '@tabler/icons-react'
 import type { Assistant, AssistantStatus } from '@evaos/contract'
 import { agoLabel } from '@evaos/eva-core/model/jobs'
 import { placeOf, type Place } from '@evaos/shell-core'
@@ -30,6 +37,13 @@ const STATUS_TONE: Record<AssistantStatus, ListTone> = {
   'needs-you': 'warn',
   idle: 'dim',
   'not-started': 'dim',
+}
+const ICON = { size: 16, stroke: 1.5, 'aria-hidden': true } as const
+const STATUS_ICON: Record<AssistantStatus, ReactNode> = {
+  working: <IconLoader2 {...ICON} className="eva-list-spin" />,
+  'needs-you': <IconBellRinging {...ICON} />,
+  idle: <IconMoon {...ICON} />,
+  'not-started': <IconCircleDashed {...ICON} />,
 }
 
 /**
@@ -74,7 +88,9 @@ export function AssistantsHome({ place }: { place: Place }) {
               trailing={
                 <>
                   <ListStatus
-                    items={[{ label: STATUS_LABEL[a.status], tone: STATUS_TONE[a.status] }]}
+                    label={STATUS_LABEL[a.status]}
+                    tone={STATUS_TONE[a.status]}
+                    icon={STATUS_ICON[a.status]}
                     data-testid={`assistant-status-${a.id}`}
                   />
                   <ListTime>

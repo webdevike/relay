@@ -42,6 +42,7 @@ const jobs = () => [
     lastRunAt: null,
   }),
   job('broken', { runState: 'failed' }),
+  job('late', { nextDueAt: NOW - 60_000 }),
 ]
 
 function ui() {
@@ -65,7 +66,7 @@ describe('JobsPage', () => {
     ui()
     expect(await screen.findByTestId('job-row-nightly')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Jobs' })).toBeInTheDocument()
-    expect(screen.getByTestId('jobs-scheduled')).toHaveTextContent('2 scheduled')
+    expect(screen.getByTestId('jobs-scheduled')).toHaveTextContent('3 scheduled')
     for (const c of ['Name', 'Last run', 'Enabled']) {
       expect(screen.getByText(c)).toBeInTheDocument()
     }
@@ -104,6 +105,20 @@ describe('JobsPage', () => {
       text: 'paused',
       tone: 'dim',
     })
+  })
+
+  it('gives the run result and an overdue job their own icon slots', async () => {
+    invoke.mockResolvedValue({ ok: true, value: { now: NOW, jobs: jobs() } })
+    ui()
+    await screen.findByTestId('job-row-late')
+    expect(screen.getByTestId('job-state-broken')).toHaveTextContent('failed')
+    expect(screen.getByTestId('job-overdue-late')).toHaveTextContent('Overdue')
+    expect(screen.queryByTestId('job-overdue-nightly')).toBeNull()
+    // Both rows keep two slots, so the icons line up.
+    for (const n of ['broken', 'late']) {
+      const marks = screen.getByTestId(`job-row-${n}`).querySelector('.eva-list-marks')!
+      expect(marks.children).toHaveLength(2)
+    }
   })
 
   it('toggles optimistically and reverts with a toast on refusal', async () => {

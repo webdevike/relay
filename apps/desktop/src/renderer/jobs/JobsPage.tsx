@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { ActionIcon, Button, Switch, Tooltip, VisuallyHidden } from '@mantine/core'
 import {
   IconAlertTriangle,
+  IconClockExclamation,
   IconCheck,
   IconLoader2,
   IconMessageCircle,
@@ -19,7 +20,7 @@ import { registerReloader } from '../reload/reload'
 import {
   ListEmpty,
   ListRow,
-  ListStatus,
+  ListMarks,
   ListView,
   rowTip,
   type ListColumn,
@@ -93,20 +94,33 @@ function JobRow({ job, now }: { job: JobSummaryDto; now: number }) {
           {job.lastRunAt !== null ? (
             <span className="eva-dim">{agoLabel(job.lastRunAt, now)}</span>
           ) : null}
-          {badge ? (
-            <ListStatus
-              items={[{ label: badge.text, tone: PILL_TONE[badge.tone] }]}
-              icon={
-                <badge.Glyph
-                  size={16}
-                  stroke={1.5}
-                  aria-hidden
-                  className={badge.spin ? 'eva-list-spin' : undefined}
-                />
-              }
-              data-testid={`job-state-${job.name}`}
-            />
-          ) : null}
+          <ListMarks
+            slots={[
+              badge
+                ? {
+                    label: badge.text,
+                    tone: PILL_TONE[badge.tone],
+                    icon: (
+                      <badge.Glyph
+                        size={16}
+                        stroke={1.5}
+                        aria-hidden
+                        className={badge.spin ? 'eva-list-spin' : undefined}
+                      />
+                    ),
+                    'data-testid': `job-state-${job.name}`,
+                  }
+                : null,
+              due.tone === 'warning'
+                ? {
+                    label: due.text,
+                    tone: 'warn',
+                    icon: <IconClockExclamation size={16} stroke={1.5} aria-hidden />,
+                    'data-testid': `job-overdue-${job.name}`,
+                  }
+                : null,
+            ]}
+          />
         </span>,
         <span key="enabled" onClick={(e) => e.stopPropagation()}>
           <Tooltip label={job.enabled ? 'Enabled' : 'Disabled'} openDelay={300}>

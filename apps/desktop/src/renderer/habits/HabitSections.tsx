@@ -198,9 +198,7 @@ export function HabitRow({
           dim={b.state === 'upcoming'}
           leading={<IconClock size={16} stroke={1.5} aria-hidden />}
           title={timeLabel(b.at)}
-          trailing={
-            <ListStatus items={[{ label: BREAK_LABEL[b.state], tone: BREAK_TONE[b.state] }]} />
-          }
+          trailing={<ListStatus label={BREAK_LABEL[b.state]} tone={BREAK_TONE[b.state]} />}
         />
       )
     }

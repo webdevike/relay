@@ -3,6 +3,7 @@ import { ActionIcon, Tooltip } from '@mantine/core'
 import {
   IconCircleCheck,
   IconCircleDashed,
+  IconCircleDot,
   IconCircleX,
   IconDots,
   IconExternalLink,
@@ -19,6 +20,11 @@ import {
   IconPin,
   IconPinnedOff,
   IconProgress,
+  IconEyeSearch,
+  IconLoader2,
+  IconMessageExclamation,
+  IconPencil,
+  IconThumbUp,
   IconSubtask,
   IconTicket,
   IconWorld,
@@ -36,7 +42,7 @@ import {
   statusPills,
   type Tone,
 } from './artifacts-model'
-import { ListRow, ListStatus, rowTip, type ListTone } from '../ui/list'
+import { ListMarks, ListRow, rowTip, type ListTone } from '../ui/list'
 
 const ICON = { size: 16, stroke: 1.5 } as const
 
@@ -84,6 +90,20 @@ const PILL_TONE: Record<Tone, ListTone> = {
   green: 'ok',
   red: 'bad',
   violet: 'accent',
+}
+
+/** A PR's or issue's own icon per state, review and check result; a ticket's state keeps its tone's. */
+const STATUS_ICON: Record<string, ReactNode> = {
+  Merged: <IconGitMerge {...ICON} />,
+  Closed: <IconGitPullRequestClosed {...ICON} />,
+  Draft: <IconPencil {...ICON} />,
+  'Changes requested': <IconMessageExclamation {...ICON} />,
+  'Review required': <IconEyeSearch {...ICON} />,
+  Approved: <IconThumbUp {...ICON} />,
+  Open: <IconCircleDot {...ICON} />,
+  'Checks failing': <IconCircleX {...ICON} />,
+  'Checks running': <IconLoader2 {...ICON} className="eva-list-spin" />,
+  'Checks pass': <IconCircleCheck {...ICON} />,
 }
 
 /** "Open in Linear", "Open on GitHub", or the browser for anything else. */
@@ -163,6 +183,9 @@ export function ArtifactRow({
     pinnedBy !== null ? `pinned by ${pinnedBy}` : seenText(item, now),
   ].filter((x): x is string => x !== null)
   const pills = statusPills(item)
+  // Two slots, the same on every row: the item's state or review, then its checks.
+  const state = pills.find((p) => !p.label.startsWith('Checks'))
+  const checks = pills.find((p) => p.label.startsWith('Checks'))
   const target = openTarget(item)
   const external = externalUrl(item)
   return (
@@ -178,7 +201,11 @@ export function ArtifactRow({
       }
       trailing={
         pills.length > 0 ? (
-          <ListStatus items={pills.map((p) => ({ label: p.label, tone: PILL_TONE[p.tone] }))} />
+          <ListMarks
+            slots={[state, checks].map((p) =>
+              p ? { label: p.label, tone: PILL_TONE[p.tone], icon: STATUS_ICON[p.label] } : null,
+            )}
+          />
         ) : undefined
       }
       onActivate={(e) => actions.open(item, openTargetOf(e))}

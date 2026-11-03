@@ -18,15 +18,29 @@ const WORK_POLL_MS = 10_000
 const GITHUB_POLL_MS = 30_000
 const WORKERS = 3
 
+/** Which status a pill is, so the list can give each its own icon and slot. */
+export type PillId =
+  | 'draft'
+  | 'ci-pass'
+  | 'ci-fail'
+  | 'ci-pending'
+  | 'approve-ready'
+  | 'self-review'
+  | 'approved'
+  | 'changes'
+  | 'in-review'
+  | 'ready-for-review'
+
 export interface Pill {
+  id: PillId
   label: string
   tone: 'green' | 'red' | 'amber' | 'violet' | 'gray'
 }
 
 const CI_PILL = {
-  pass: { label: 'CI passing', tone: 'green' },
-  fail: { label: 'CI failing', tone: 'red' },
-  pending: { label: 'CI running', tone: 'amber' },
+  pass: { id: 'ci-pass', label: 'CI passing', tone: 'green' },
+  fail: { id: 'ci-fail', label: 'CI failing', tone: 'red' },
+  pending: { id: 'ci-pending', label: 'CI running', tone: 'amber' },
 } as const
 
 /**
@@ -38,36 +52,37 @@ export function rowPills(row: Pick<ReviewRow, 'draft'>, s: RowStatus | undefined
   const pills: Pill[] = []
   // The live read beats the queue's cached search row, which can still say Draft.
   const draft = s?.github?.draft ?? row.draft
-  if (draft) pills.push({ label: 'Draft', tone: 'gray' })
+  if (draft) pills.push({ id: 'draft', label: 'Draft', tone: 'gray' })
   const ci = s?.github?.ci
   if (ci && ci !== 'none') pills.push(CI_PILL[ci])
   const work = s?.work
   if (draft && work?.approve === 'ready') {
-    pills.push({ label: 'Approve ready', tone: 'violet' })
+    pills.push({ id: 'approve-ready', label: 'Approve ready', tone: 'violet' })
   }
   const loop = work?.loop
   if (loop?.running) {
     pills.push({
+      id: 'self-review',
       label: loop.rounds > 0 ? `Self-review ${loop.rounds}/${MAX_SELF_REVIEWS}` : 'Self-review',
       tone: 'violet',
     })
   } else if (work?.approve === 'sent') {
-    pills.push({ label: 'Approved', tone: 'green' })
+    pills.push({ id: 'approved', label: 'Approved', tone: 'green' })
   } else if (!draft) {
     const decision = s?.github?.decision
-    const label =
+    const stage: Omit<Pill, 'tone'> | null =
       decision === 'APPROVED'
-        ? 'Approved'
+        ? { id: 'approved', label: 'Approved' }
         : decision === 'CHANGES_REQUESTED'
-          ? 'Changes requested'
+          ? { id: 'changes', label: 'Changes requested' }
           : work?.phase === 'in-review'
-            ? 'In review'
+            ? { id: 'in-review', label: 'In review' }
             : work
-              ? 'Ready for review'
+              ? { id: 'ready-for-review', label: 'Ready for review' }
               : null
-    if (label) {
+    if (stage) {
       pills.push({
-        label,
+        ...stage,
         tone: decision === 'APPROVED' ? 'green' : decision === 'CHANGES_REQUESTED' ? 'red' : 'gray',
       })
     }

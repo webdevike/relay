@@ -139,20 +139,32 @@ describe('Reviews home (nothing selected)', () => {
   const status = (n: number) =>
     within(screen.getByTestId(`review-row-${n}`)).getByTestId('review-row-status')
 
-  it('lists the queue instead of a placeholder, one status mark a row', async () => {
+  it('lists the queue instead of a placeholder, a status icon per slot', async () => {
     wrap()
     expect(await screen.findByTestId('review-row-172')).toBeTruthy()
     expect(screen.queryByText(/Pick a pull request/)).toBeNull()
-    await waitFor(() => expect(screen.getAllByTestId('review-row-status')).toHaveLength(3))
-    expect(status(172)).toHaveTextContent('CI passing')
-    expect(status(173)).toHaveTextContent('Draft · CI failing · Approve ready')
+    await waitFor(() => expect(screen.getAllByTestId('review-row-ci')).toHaveLength(3))
+    expect(screen.getAllByTestId('review-row-ci').map((m) => m.textContent)).toEqual([
+      'CI passing',
+      'CI failing',
+      'CI passing',
+    ])
+    await waitFor(() => expect(screen.getAllByTestId('review-row-approve')).toHaveLength(1))
+    expect(status(173)).toHaveTextContent('Draft')
+    // Four fixed slots on every row, a missing status leaves its slot empty, and no pills.
+    for (const n of [172, 173, 174]) {
+      expect(status(n).querySelectorAll('.eva-list-status')).toHaveLength(4)
+    }
+    expect(status(172).querySelectorAll('.eva-list-status:empty')).toHaveLength(3)
     expect(screen.getByTestId('review-row-172').querySelectorAll('.eva-list-pill')).toHaveLength(0)
   })
 
   it('shows where each auto-work PR stands, from the ledger and the self-review loop', async () => {
     wrap()
     await waitFor(() =>
-      expect(status(174)).toHaveTextContent('Draft · CI passing · Self-review 1/3'),
+      expect(
+        within(screen.getByTestId('review-row-174')).getByTestId('review-row-work'),
+      ).toHaveTextContent('Self-review 1/3'),
     )
   })
 

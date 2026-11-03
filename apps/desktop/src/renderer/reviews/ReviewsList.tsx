@@ -8,16 +8,7 @@ import {
 } from '@tabler/icons-react'
 import type { ReviewRow, SlackRow } from '@evaos/contract'
 import { emojify } from '@relay/slack-emoji'
-import {
-  ListEmpty,
-  ListRow,
-  ListStatus,
-  ListTime,
-  ListView,
-  rowTip,
-  type ListGroup,
-  type ListTone,
-} from '../ui/list'
+import { ListEmpty, ListRow, ListTime, ListView, rowTip, type ListGroup } from '../ui/list'
 import { ago, agoPhrase, prKey, queueGroups } from './review-model'
 import {
   openReviewItem,
@@ -49,21 +40,14 @@ import { SourceMark, useLocal } from './review-ui'
 import { ReviewRowMenu, activateReviewRow, type RowMenuState } from './ReviewRowMenu'
 import { reviewIdOf, reviewIdOfPlace } from './review-place'
 import { activePlace, useTabs } from '../tabs/tabs-store'
-import { rowPills, rowStatusKey, useRowStatus, type Pill } from './row-status'
+import { rowPills, rowStatusKey, useRowStatus } from './row-status'
+import { RowMarks } from './RowMarks'
 import './reviews.css'
 
 const VIEWS: Array<{ value: ReviewsView; label: string }> = [
   { value: 'created', label: 'Created' },
   { value: 'for-me', label: 'For me' },
 ]
-
-const PILL_TONE: Record<Pill['tone'], ListTone> = {
-  green: 'ok',
-  red: 'bad',
-  amber: 'warn',
-  violet: 'accent',
-  gray: 'dim',
-}
 
 /** A queue row: a PR, a Linear ticket or a Slack thread, or the Open row for a typed key. */
 type QueueItem = ReviewItem | { kind: 'open'; item: ReviewItem }
@@ -312,15 +296,7 @@ export function ReviewsList({ variant = 'sidebar' }: { variant?: 'sidebar' | 'pa
           title={page ? r.title : sidebarTitle(r.title)}
           trailing={
             <>
-              {page ? (
-                <ListStatus
-                  data-testid="review-row-status"
-                  items={rowPills(r, status[rowStatusKey(r)]).map((p) => ({
-                    label: p.label,
-                    tone: PILL_TONE[p.tone],
-                  }))}
-                />
-              ) : null}
+              {page ? <RowMarks pills={rowPills(r, status[rowStatusKey(r)])} /> : null}
               <ListTime>{ago(r.updatedAt, now)}</ListTime>
             </>
           }

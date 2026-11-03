@@ -5,7 +5,7 @@ import {
   ListEmpty,
   ListKpis,
   ListRow,
-  ListStatus,
+  ListMarks,
   ListView,
   type ListGroup,
   type ListViewProps,
@@ -217,21 +217,25 @@ describe('ListView', () => {
     expect(screen.getByTestId('list-kpis-more')).toHaveAttribute('aria-label', 'Streak: 3 days')
   })
 
-  it('collapses statuses into one mark in the most urgent tone', () => {
+  it('draws statuses as fixed icon slots, an empty one keeping its place', () => {
     render(
       <MantineProvider>
-        <ListStatus
-          data-testid="s"
-          items={[
-            { label: 'Draft', tone: 'dim' },
-            { label: 'CI failing', tone: 'bad' },
+        <ListMarks
+          data-testid="m"
+          slots={[
+            { label: 'Draft', tone: 'dim', 'data-testid': 'draft' },
+            null,
+            { label: 'CI failing', tone: 'bad', 'data-testid': 'ci' },
           ]}
         />
       </MantineProvider>,
     )
-    const s = screen.getByTestId('s')
-    expect(s).toHaveAttribute('data-tone', 'bad')
-    expect(s).toHaveTextContent('Draft · CI failing')
+    const slots = screen.getByTestId('m').children
+    expect(slots).toHaveLength(3)
+    expect(slots[1]).toBeEmptyDOMElement()
+    expect(screen.getByTestId('draft')).toHaveTextContent('Draft')
+    expect(screen.getByTestId('ci')).toHaveAttribute('data-tone', 'bad')
+    expect(screen.getByTestId('ci')).toHaveTextContent('CI failing')
   })
 
   it('windows long lists', () => {

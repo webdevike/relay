@@ -59,35 +59,53 @@ const TONE_ICON: Record<ListTone, ReactNode> = {
   accent: <IconCircleDot size={16} stroke={1.5} aria-hidden />,
   dim: <IconCircle size={16} stroke={1.5} aria-hidden />,
 }
-/** Which of several statuses the one icon takes its color from: the one that needs a look first. */
-const TONE_RANK: ListTone[] = ['bad', 'warn', 'accent', 'info', 'ok', 'dim']
 
-/**
- * A row's one status mark: an icon in the most urgent tone among `items`, and every status as
- * words in the tooltip ("Draft · CI passing · Self-review 1/3"). The words also sit in the DOM
- * for screen readers. A row never shows more than one of these.
- */
-export function ListStatus({
-  items,
-  icon,
-  'data-testid': testid,
-}: {
-  items: ReadonlyArray<{ label: string; tone: ListTone }>
-  /** Replaces the tone's icon (a spinner for a running job). */
+export interface ListMarkProps {
+  /** The status in words: the tooltip, and screen-reader text. */
+  label: string
+  tone: ListTone
+  /** Replaces the tone's default icon (a spinner for something running). */
   icon?: ReactNode
   'data-testid'?: string
-}) {
-  if (items.length === 0) return null
-  const tone = TONE_RANK.find((t) => items.some((i) => i.tone === t)) ?? 'dim'
-  const text = items.map((i) => i.label).join(' · ')
+}
+
+/**
+ * One status of a row as an icon in its tone, its words in the tooltip. The words also sit in
+ * the DOM for screen readers.
+ */
+export function ListStatus({ label, tone, icon, 'data-testid': testid }: ListMarkProps) {
   return (
-    <Tooltip label={text} openDelay={200}>
+    <Tooltip label={label} openDelay={200}>
       {/* An empty title keeps the row's own tooltip from stacking on this one. */}
       <span className="eva-list-status" data-tone={tone} title="" data-testid={testid}>
         {icon ?? TONE_ICON[tone]}
-        <VisuallyHidden component="span">{text}</VisuallyHidden>
+        <VisuallyHidden component="span">{label}</VisuallyHidden>
       </span>
     </Tooltip>
+  )
+}
+
+/**
+ * A row's statuses as fixed icon slots, the same slots on every row so a column of icons scans
+ * down the list. A slot with no status is empty but keeps its width.
+ */
+export function ListMarks({
+  slots,
+  'data-testid': testid,
+}: {
+  slots: ReadonlyArray<ListMarkProps | null>
+  'data-testid'?: string
+}) {
+  return (
+    <span className="eva-list-marks" data-testid={testid}>
+      {slots.map((m, i) =>
+        m ? (
+          <ListStatus key={i} {...m} />
+        ) : (
+          <span key={i} className="eva-list-status" aria-hidden />
+        ),
+      )}
+    </span>
   )
 }
 

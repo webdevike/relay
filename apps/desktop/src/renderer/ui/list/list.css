@@ -180,13 +180,20 @@ button.eva-list-gtoggle:hover {
 .eva-list-pill {
   font-weight: var(--eva-fw-medium);
 }
-/* The one status mark at a row's end: an icon in the status color, its words in the tooltip. */
+/* A status mark: an icon in the status color, its words in the tooltip. Every mark, and every
+   empty slot, is the same width so a column of them lines up from row to row. */
+.eva-list-marks {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+}
 .eva-list-status {
   flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: var(--eva-tile-md);
+  width: calc(var(--eva-tile-xs) + var(--mantine-spacing-xs) * 0.4);
+  height: var(--eva-tile-xs);
   color: var(--eva-text-dim);
 }
 .eva-list-status[data-tone='ok'] {
