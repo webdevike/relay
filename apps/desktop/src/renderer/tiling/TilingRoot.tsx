@@ -6,12 +6,10 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
   type ReactNode,
   type RefObject,
 } from 'react'
 import {
-  CHAT_PANE,
   GAP,
   allPanes,
   findNode,
@@ -41,14 +39,10 @@ interface FrameProps {
   /** A tool pane on the top edge starts below the tab strip, level with the chat's card. */
   padTop: boolean
   focused: boolean
-  /** Folded away by the panel toggle: zero wide at the right edge, hidden once it got there. */
-  collapsed: boolean
-  /** The width the pane's content keeps while the frame folds (like the sidebar's inner width). */
-  innerW: number
   children: ReactNode
 }
 
-function PaneFrame({ id, rect, padTop, focused, collapsed, innerW, children }: FrameProps) {
+function PaneFrame({ id, rect, padTop, focused, children }: FrameProps) {
   const chat = isChatPane(id)
   return (
     <div
@@ -57,22 +51,11 @@ function PaneFrame({ id, rect, padTop, focused, collapsed, innerW, children }: F
       data-pane-kind={chat ? 'chat' : 'tool'}
       data-focused={focused || undefined}
       data-pad-top={padTop || undefined}
-      data-collapsed={collapsed || undefined}
       data-testid={chat ? 'pane-chat' : undefined}
       tabIndex={-1}
       style={
-        rect
-          ? ({
-              left: rect.x,
-              top: rect.y,
-              width: rect.w,
-              height: rect.h,
-              '--eva-pane-inner-w': `${innerW}px`,
-            } as CSSProperties)
-          : { display: 'none' }
+        rect ? { left: rect.x, top: rect.y, width: rect.w, height: rect.h } : { display: 'none' }
       }
-      aria-hidden={collapsed || undefined}
-      inert={collapsed || undefined}
       onPointerDownCapture={() => {
         if (tilingStore.getState().tiling.focus !== id) focusPaneById(id)
       }}
@@ -145,8 +128,6 @@ export function TilingRoot() {
   const tiling = useTiling((s) => s.tiling)
   const ref = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ w: 0, h: 0 })
-  const widths = useRef(new Map<string, number>())
-  const last = useRef<{ zoom: string | null; w: number; h: number }>({ zoom: null, w: 0, h: 0 })
   useFilesHotkeys()
   useBrowserHotkeys()
 
@@ -177,19 +158,6 @@ export function TilingRoot() {
   )
 
   useEffect(() => setRects(layout.panes), [layout])
-  // Only a panel toggle animates (the sidebar's rule): not window fitting, divider drags or
-  // layout changes that happen to land in the same render.
-  useLayoutEffect(() => {
-    const el = ref.current
-    const prev = last.current
-    last.current = { zoom: tiling.zoom, w: size.w, h: size.h }
-    if (!el) return
-    const toggled =
-      (prev.zoom === CHAT_PANE) !== (tiling.zoom === CHAT_PANE) &&
-      prev.w === size.w &&
-      prev.h === size.h
-    el.dataset['panelTransition'] = String(toggled)
-  }, [layout, tiling.zoom, size.w, size.h])
   // A tab moved to another pane can land somewhere else at the same size: slots re-measure.
   useEffect(() => {
     window.dispatchEvent(new Event(LAYOUT_EVENT))
@@ -198,9 +166,6 @@ export function TilingRoot() {
   if (!loaded) return <div className="eva-tiling" ref={ref} data-testid="tiling" />
   const panes = allPanes(tiling.root)
   const many = Object.keys(layout.panes).length > 1
-  // The panel toggle zooms the chat pane: the tool panes fold to the right edge instead of
-  // vanishing, so the frames slide like the sidebar column does.
-  const folding = tiling.zoom === CHAT_PANE
   return (
     <div
       className="eva-tiling"
@@ -209,10 +174,7 @@ export function TilingRoot() {
       data-zoomed={tiling.zoom !== null || undefined}
     >
       {panes.map((p) => {
-        const own = layout.panes[p.id]
-        const collapsed = own === undefined && folding && size.w > 0
-        const rect: Rect | undefined = collapsed ? { x: size.w, y: 0, w: 0, h: size.h } : own
-        if (own) widths.current.set(p.id, own.w)
+        const rect = layout.panes[p.id]
         return (
           <PaneFrame
             key={p.id}
@@ -220,8 +182,6 @@ export function TilingRoot() {
             rect={rect}
             padTop={rect !== undefined && rect.y === 0 && !isChatPane(p.id)}
             focused={many && tiling.focus === p.id}
-            collapsed={collapsed}
-            innerW={widths.current.get(p.id) ?? 0}
           >
             {isChatPane(p.id) ? <ChatPaneContent /> : <ToolPane id={p.id} />}
           </PaneFrame>
