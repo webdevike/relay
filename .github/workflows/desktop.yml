@@ -26,7 +26,8 @@ jobs:
       - name: Install
         run: |
           pnpm install --frozen-lockfile
-          (cd packages/widget-runtime && pnpm install --frozen-lockfile --ignore-workspace)
+          # pnpm 12 fails on unreviewed build scripts; widget-runtime has no workspace file to allow esbuild.
+          (cd packages/widget-runtime && pnpm install --frozen-lockfile --ignore-workspace --allow-build=esbuild)
           (cd apps/desktop && pnpm install --frozen-lockfile)
           # Electron 44 has no postinstall: fetch its binary.
           (cd apps/desktop/node_modules/electron && node install.js)
