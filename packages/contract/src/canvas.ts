@@ -18,6 +18,12 @@ export const CANVAS_NODE_KINDS = [
   'typography',
   /** A live OpenUI widget: `data.title` is its card title, `data.body` its OpenUI Lang source. */
   'ui',
+  /**
+   * An interactive prototype: `data.title` is its card title, `data.body` its JSX (the
+   * ```mantine-widget contract), `data.system` its design system (`relay`, `ecard`, `mantine`) and
+   * `data.viewport` `mobile` for a phone-width screen.
+   */
+  'proto',
 ] as const
 export const CanvasNodeKindSchema = z.enum(CANVAS_NODE_KINDS)
 
@@ -47,6 +53,8 @@ export const CanvasNodeDataSchema = z.object({
   colors: z.array(CanvasSwatchSchema).max(500).optional(),
   font: Text.optional(),
   sample: Text.optional(),
+  system: Text.optional(),
+  viewport: Text.optional(),
 })
 
 export const CanvasNodeSchema = z.object({

@@ -75,3 +75,18 @@ test("parses @add_ui with an optional height, keeping the OpenUI source's @-call
     expect(auto?.kind === "add_ui" && auto.h).toBeNull();
   }
 });
+
+test("parses @add_proto with an optional height, the design system and a mobile viewport, keeping JSX lines whole", () => {
+  const jsx = 'const [n, setN] = useState(0);\n\nreturn <Button onClick={() => setN(n + 1)}>{n}</Button>;';
+  const text = `@add_proto assets 0 600 960 640 ecard\nPlatform Assets\n${jsx}\n@end\n@add_proto approve 1000 600 430 relay mobile\nApprove\n<Text>Hi</Text>\n@end\n@add_proto plain 0 0 0 Mantine\nT\n<Text />\n@end\n`;
+  for (const size of [1, 5, text.length]) {
+    const chunks: string[] = [];
+    for (let i = 0; i < text.length; i += size) chunks.push(text.slice(i, i + size));
+    const [assets, approve, plain] = run(chunks).actions;
+    expect(assets?.kind === "add_proto" && [assets.id, assets.x, assets.y, assets.w, assets.h, assets.system, assets.viewport, assets.text.text]).toEqual([
+      "assets", 0, 600, 960, 640, "ecard", "desktop", `Platform Assets\n${jsx}`,
+    ]);
+    expect(approve?.kind === "add_proto" && [approve.w, approve.h, approve.system, approve.viewport]).toEqual([430, null, "relay", "mobile"]);
+    expect(plain?.kind === "add_proto" && [plain.w, plain.system]).toEqual([960, "mantine"]);
+  }
+});

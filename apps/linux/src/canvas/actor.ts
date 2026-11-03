@@ -14,6 +14,8 @@ import * as Y from "yjs";
 import { placeUnplaced, type LayoutNode } from "@relay/canvas-live/layout";
 import { DOC_KEYS, type NodeKind, type Presence, type TextField, type User } from "@relay/canvas-live/shared";
 import { liveRefusal } from "../query/openui";
+import { protoSourceRefusal } from "../../../../packages/widget-runtime/src/proto";
+import { DESIGN_SYSTEMS, isDesignSystem } from "../../../../packages/widget-runtime/src/systems";
 import type { Action, TextStream } from "./dsl";
 
 const ease = (t: number): number => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
@@ -337,15 +339,22 @@ export class CanvasActor {
           await this.glide(b.x + 40, b.y + (a.field === "title" ? 24 : 60));
           // A live widget's source lands whole and only once it checks: typed char by char it
           // would render a half program in every client meanwhile.
-          if (a.field === "body" && this.nodes.get(a.id)?.get("type") !== "ui" && (await openUiAhead(a.text, 0))) {
+          const kind = this.nodes.get(a.id)?.get("type");
+          if (a.field === "body" && kind !== "ui" && kind !== "proto" && (await openUiAhead(a.text, 0))) {
             while (!a.text.closed) await a.text.changed();
             if (looksLikeOpenUI(a.text.text)) return `${OPENUI_NOTE_REFUSAL}; use @set_text on a ui node, or @add_ui for a new widget`;
           }
-          if (a.field === "body" && this.nodes.get(a.id)?.get("type") === "ui") {
+          if (a.field === "body" && (kind === "ui" || kind === "proto")) {
             while (!a.text.closed) await a.text.changed();
             const source = a.kind === "set_text" ? a.text.text.trim() : `${yt.toJSON()}\n${a.text.text.trim()}`;
-            const refused = liveRefusal(source);
-            if (refused !== null) return `openui: ${refused}`;
+            if (kind === "ui") {
+              const refused = liveRefusal(source);
+              if (refused !== null) return `openui: ${refused}`;
+            } else {
+              const system = this.nodes.get(a.id)?.get("system");
+              const refused = protoSourceRefusal(source, isDesignSystem(system) ? system : "mantine");
+              if (refused !== null) return `jsx: ${refused}`;
+            }
             this.setP({ selected: [a.id], status: "typing" });
             transact(() => {
               yt.delete(0, yt.length);
@@ -421,6 +430,35 @@ export class CanvasActor {
         if (a.h !== null) m.set("h", Math.round(a.h));
         m.set("title", new Y.Text(title.trim()));
         m.set("body", new Y.Text(source));
+        m.set("fields", []);
+        transact(() => {
+          this.nodes.set(a.id, m);
+          this.autoParent(a.id);
+        });
+        this.setP({ selected: [a.id], status: "idle" });
+        return null;
+      }
+      case "add_proto": {
+        if (this.nodes.has(a.id)) return `id ${a.id} is taken`;
+        if (!isDesignSystem(a.system)) return `unknown design system "${a.system}" (use ${DESIGN_SYSTEMS.join(", ")})`;
+        // Title on the first line, the JSX after it; it lands whole, and only once it compiles.
+        while (!a.text.closed) await a.text.changed();
+        const [title = "", ...rest] = a.text.text.split("\n");
+        const source = rest.join("\n").trim();
+        const refused = protoSourceRefusal(source, a.system);
+        if (refused !== null) return `jsx: ${refused}`;
+        const spot = await this.arriveAt(a.x, a.y, a.w, a.h ?? 640);
+        if (this.nodes.has(a.id)) return `id ${a.id} is taken`;
+        const m = new Y.Map<unknown>();
+        m.set("type", "proto");
+        m.set("x", Math.round(spot.x));
+        m.set("y", Math.round(spot.y));
+        m.set("w", Math.round(a.w));
+        m.set("h", Math.round(a.h ?? 640));
+        m.set("title", new Y.Text(title.trim()));
+        m.set("body", new Y.Text(source));
+        m.set("system", a.system);
+        if (a.viewport === "mobile") m.set("viewport", "mobile");
         m.set("fields", []);
         transact(() => {
           this.nodes.set(a.id, m);

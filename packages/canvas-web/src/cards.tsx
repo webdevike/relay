@@ -10,14 +10,17 @@ import {
 	IconNote,
 	IconPhoto,
 	IconSparkles,
+	IconTemplate,
 	IconTimeline,
 } from "@tabler/icons-react";
 import { Handle, NodeResizeControl, type NodeProps, Position } from "@xyflow/react";
 import { type CSSProperties, type MouseEvent, type ReactNode, memo, useMemo, useState, useSyncExternalStore } from "react";
 import * as Y from "yjs";
 import type { Presence, TextField } from "../../canvas-live/src/shared";
-import { imageUrl } from "./env";
-import { type CardNode, type NodeSnap, applyDiff, host, swatchColor, tone } from "./model";
+import { MOBILE_VIEWPORT_WIDTH } from "../../widget-runtime/src/systems";
+import { imageUrl, roomUrl } from "./env";
+import { type CardNode, type NodeSnap, applyDiff, host, protoPageParams, swatchColor, tone } from "./model";
+import { useScheme } from "./page-theme";
 import { awareness, doc, env, presenceStates, subscribePresence, yEdges, yNodes } from "./room";
 import { LiveWidget, roomQueryClient } from "./widget";
 
@@ -287,6 +290,29 @@ function SuggestionButtons({ id }: { id: string }) {
 	);
 }
 
+/**
+ * A prototype's page: the host renders its JSX in its design system (`proto` route, CSP with no
+ * network) into a sandboxed frame (scripts only, opaque origin). The frame takes its own pointer,
+ * wheel and keys, so clicking and scrolling the mockup never pans the board; it reloads when the JSX,
+ * system or this page's light/dark changes.
+ */
+function ProtoPage({ spec }: { spec: NodeSnap }) {
+	const scheme = useScheme();
+	const mobile = spec.viewport === "mobile";
+	return (
+		<div className="cv-proto-body nodrag nopan nowheel" data-testid={`canvas-proto-${spec.id}`} data-viewport={mobile ? "mobile" : "desktop"} onPointerDown={stop} onDoubleClick={stop}>
+			<iframe
+				className="cv-proto-frame"
+				title={spec.title || "Prototype"}
+				src={roomUrl(env, "proto", protoPageParams(spec, scheme))}
+				sandbox="allow-scripts"
+				referrerPolicy="no-referrer"
+				style={mobile ? { width: MOBILE_VIEWPORT_WIDTH } : undefined}
+			/>
+		</div>
+	);
+}
+
 function showBody(spec: NodeSnap, caret: NodePresence | undefined): boolean {
 	return spec.body !== "" || spec.fields.includes("body") || caret?.typing?.field === "body";
 }
@@ -390,6 +416,13 @@ function Body({ spec, hasChildren, caret }: { spec: NodeSnap; hasChildren: boole
 					</div>
 				</>
 			);
+		case "proto":
+			return (
+				<>
+					<Field nodeId={id} field="title" value={title} fallback="Prototype" className="cv-frame-title" caret={caret} icon={<IconTemplate size={12} stroke={1.75} aria-hidden />} />
+					<ProtoPage spec={spec} />
+				</>
+			);
 	}
 }
 
@@ -400,7 +433,7 @@ const SIDES = [
 	["bottom", Position.Bottom],
 ] as const;
 
-/** A `ui` card's resize grip, inside its bottom-right corner (React Flow centers handles on the edge). */
+/** A `ui` or `proto` card's resize grip, inside its bottom-right corner (React Flow centers handles on the edge). */
 const RESIZE_CORNER: CSSProperties = { left: "auto", top: "auto", right: 0, bottom: 0, translate: "none", width: 14, height: 14 };
 
 /** One node, drawn by its kind. */
@@ -417,11 +450,11 @@ export const CanvasCard = memo(function CanvasCard({ id, data, selected }: NodeP
 			data-tone={t}
 			data-selected={selected ? "true" : undefined}
 			data-testid={`canvas-card-${id}`}
-			style={spec.h !== undefined || kind === "frame" || kind === "ui" ? { height: "100%" } : undefined}
+			style={spec.h !== undefined || kind === "frame" || kind === "ui" || kind === "proto" ? { height: "100%" } : undefined}
 		>
 			<PresenceRing others={others} />
 			<Body spec={spec} hasChildren={hasChildren} caret={caret} />
-			{kind === "ui" ? (
+			{kind === "ui" || kind === "proto" ? (
 				<NodeResizeControl
 					position="bottom-right"
 					minWidth={240}

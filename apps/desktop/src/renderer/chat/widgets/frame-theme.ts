@@ -63,3 +63,8 @@ export function frameUrl(
   if (config) params.set('config', JSON.stringify(config))
   return `relay-widget://frame/${runtime}?${params.toString()}`
 }
+
+/** The `relay-widget:` page of a canvas prototype: its JSX in its design system, light or dark. */
+export function protoFrameUrl(source: string, system: string, scheme: ColorScheme): string {
+  return `relay-widget://frame/proto?${new URLSearchParams({ source, system, scheme }).toString()}`
+}

@@ -3,6 +3,7 @@
 // Y.Doc layout (one doc per board slug, seeded from and exported to the EvaOS board JSON):
 //   nodes:    Y.Map<id, Y.Map>  { type, x?, y?, w?, h?, parent?, title: Y.Text, body: Y.Text,
 //                                 key?, status?, pr?, src?, caption?, url?, tone?, colors?, font?, sample?,
+//                                 system?, viewport?,
 //                                 fields: string[] (data keys the file had, so export round-trips) }
 //   edges:    Y.Map<id, Y.Map>  { source, target, sourceHandle?, targetHandle?, label?, tone? }
 //   meta:     Y.Map             { title, layout?, viewport?, session: SessionInfo }
@@ -10,12 +11,16 @@
 //   settings: Y.Map             { model: ModelKey, tidy?: boolean (false: cards may overlap and links draw as curves through them) }
 //   metrics:  Y.Map             "s:<msgId>" → ServerMetrics, "c:<msgId>" → ClientMetrics
 
-/** `ui`: a live OpenUI widget; `title` is its card title and `body` its OpenUI Lang source (Query data, buttons and inputs run in every client). */
-export const NODE_KINDS = ["topic", "note", "ticket", "image", "link", "frame", "suggestion", "palette", "typography", "ui"] as const;
+/**
+ * `ui`: a live OpenUI widget; `title` is its card title and `body` its OpenUI Lang source (Query data, buttons and inputs run in every client).
+ * `proto`: an interactive prototype; `title` is its card title, `body` its JSX (the ```mantine-widget contract), `system` the design
+ * system it draws in (`relay`, `ecard`, `mantine`; @relay/widget-runtime/systems) and `viewport` `mobile` for a phone-width screen.
+ */
+export const NODE_KINDS = ["topic", "note", "ticket", "image", "link", "frame", "suggestion", "palette", "typography", "ui", "proto"] as const;
 export type NodeKind = (typeof NODE_KINDS)[number];
 
 /** Data keys stored as plain values on a node's Y.Map (title and body are Y.Text). */
-export const PLAIN_DATA_KEYS = ["key", "status", "pr", "src", "caption", "url", "tone", "colors", "font", "sample"] as const;
+export const PLAIN_DATA_KEYS = ["key", "status", "pr", "src", "caption", "url", "tone", "colors", "font", "sample", "system", "viewport"] as const;
 export type PlainDataKey = (typeof PLAIN_DATA_KEYS)[number];
 
 export type TextField = "title" | "body";

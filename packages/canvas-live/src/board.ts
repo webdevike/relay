@@ -31,6 +31,10 @@ export interface BoardNodeData {
   colors?: BoardSwatch[];
   font?: string;
   sample?: string;
+  /** A `proto` node's design system (`relay`, `ecard`, `mantine`). */
+  system?: string;
+  /** A `proto` node's screen: `mobile`, else desktop. */
+  viewport?: string;
 }
 
 export interface BoardNode {
@@ -256,6 +260,8 @@ function dataObj(d: BoardNodeData | undefined): Obj | undefined {
     ["colors", colors],
     ["font", d.font],
     ["sample", d.sample],
+    ["system", d.system],
+    ["viewport", d.viewport],
   ]);
   return obj.fields.some(([, v]) => v !== undefined) ? obj : undefined;
 }

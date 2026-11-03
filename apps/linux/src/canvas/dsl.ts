@@ -17,6 +17,10 @@
 //   @add_ui <newId> <x> <y> <w> [h]                        then title line, OpenUI Lang source lines, @end
 //                                         (a live widget: checked like a dashboard's before it lands;
 //                                         @set_text <id> body replaces its source, checked the same way)
+//   @add_proto <newId> <x> <y> <w> [h] <relay|ecard|mantine> [mobile]   then title line, JSX lines, @end
+//                                         (an interactive prototype in that design system: the JSX is
+//                                         ```mantine-widget's contract and must compile before it lands;
+//                                         @set_text <id> body replaces it, checked the same way)
 //   @parent <id> <frameId|none>           put a node in a frame (it then moves with it), or take it out
 //                                         (@add_frame adopts the nodes whose center is inside it; @add_* and
 //                                         @move_node parent a node that lands fully inside a frame, and clear
@@ -62,6 +66,7 @@ export type Action =
   | { kind: "add_image"; id: string; x: number; y: number; w: number; src: string; text: TextStream }
   | { kind: "add_frame"; id: string; x: number; y: number; w: number; h: number; text: TextStream }
   | { kind: "add_ui"; id: string; x: number; y: number; w: number; h: number | null; text: TextStream }
+  | { kind: "add_proto"; id: string; x: number; y: number; w: number; h: number | null; system: string; viewport: "desktop" | "mobile"; text: TextStream }
   | { kind: "move_node"; id: string; x: number; y: number }
   | { kind: "parent"; id: string; frame: string | null }
   | { kind: "add_edge"; source: string; target: string; label: string }
@@ -269,6 +274,26 @@ export class ActionParser {
         if (!a[0]) return;
         const text = new TextStream();
         this.onAction({ kind: "add_ui", id: a[0], x: num(a[1]), y: num(a[2]), w: num(a[3]) || 420, h: num(a[4]) || null, text });
+        this.openBlock(text);
+        return;
+      }
+      case "add_proto": {
+        if (!a[0]) return;
+        // `[h]` is optional: a number in the fifth slot is the height, else the design system starts there.
+        const rest = a.slice(4);
+        const h = /^\d+(\.\d+)?$/.test(rest[0] ?? "") ? num(rest.shift()) || null : null;
+        const text = new TextStream();
+        this.onAction({
+          kind: "add_proto",
+          id: a[0],
+          x: num(a[1]),
+          y: num(a[2]),
+          w: num(a[3]) || 960,
+          h,
+          system: (rest[0] ?? "").toLowerCase(),
+          viewport: rest[1]?.toLowerCase() === "mobile" ? "mobile" : "desktop",
+          text,
+        });
         this.openBlock(text);
         return;
       }

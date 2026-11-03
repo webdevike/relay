@@ -1,24 +1,27 @@
 /**
  * The Mantine widget runtime: the entry `build.ts` bundles (with React, Mantine, @mantine/charts,
  * @mantine/hooks and Sucrase) into one offline script for the widget page (`frame.ts`
- * `mantineFrameDocument`). It exposes `window.RelayWidget.mount(element, { source, config,
- * colorScheme })`, which compiles the agent's JSX and renders it in a `MantineProvider` with the
- * shared theme. A compile or render error shows a small Mantine Alert in place of the widget.
+ * `mantineFrameDocument`, `protoFrameDocument`). It exposes `window.RelayWidget.mount(element, {
+ * source, config, colorScheme, system? })`, which compiles the agent's JSX and renders it in a
+ * `MantineProvider`: with the shared theme `config`, or, for a prototype, the design `system`'s
+ * theme and components. A compile or render error shows a small Mantine Alert in place of the widget.
  */
 import * as React from "react";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import * as MantineCharts from "@mantine/charts";
-import * as MantineCore from "@mantine/core";
-import * as MantineHooks from "@mantine/hooks";
 import { Alert, MantineProvider, type MantineColorSchemeManager } from "@mantine/core";
+import type { DesignSystem } from "../systems";
 import { cssVariablesFor, themeOverrideFor, type ColorScheme, type ThemeConfig } from "../theme";
 import { compileWidget } from "./compile";
+import { widgetScope } from "./scope";
+import { systemTheme } from "./systems";
 
 export interface MountOptions {
   source: string;
   config: ThemeConfig;
   colorScheme: ColorScheme;
+  /** A prototype's design system: its theme and components replace `config`. */
+  system?: DesignSystem | undefined;
 }
 
 /** `window.relay` from the page's bridge script (`frame.ts`). */
@@ -27,31 +30,6 @@ declare global {
     relay?: unknown;
     RelayWidget?: { mount: (element: HTMLElement, options: MountOptions) => void };
   }
-}
-
-/** React's own hooks and helpers by name, as a widget writes them without `React.`. */
-const REACT_NAMES = [
-  "Fragment",
-  "useActionState",
-  "useCallback",
-  "useDeferredValue",
-  "useEffect",
-  "useId",
-  "useLayoutEffect",
-  "useMemo",
-  "useOptimistic",
-  "useReducer",
-  "useRef",
-  "useState",
-  "useTransition",
-] as const;
-
-function widgetScope(): Record<string, unknown> {
-  const scope: Record<string, unknown> = { ...MantineHooks, ...MantineCore, ...MantineCharts };
-  for (const name of REACT_NAMES) scope[name] = React[name];
-  scope["React"] = React;
-  scope["relay"] = typeof window === "undefined" ? undefined : window.relay;
-  return scope;
 }
 
 /**
@@ -97,21 +75,26 @@ class WidgetBoundary extends Component<{ children: ReactNode }, { error: unknown
   }
 }
 
-export function WidgetRoot({ source, config, colorScheme }: MountOptions) {
-  const theme = React.useMemo(() => themeOverrideFor(config), [config]);
-  const resolver = React.useMemo(() => () => cssVariablesFor(config), [config]);
+export function WidgetRoot({ source, config, colorScheme, system }: MountOptions) {
+  const { theme, resolver } = React.useMemo(
+    () =>
+      system === undefined
+        ? { theme: themeOverrideFor(config), resolver: () => cssVariablesFor(config) }
+        : systemTheme(system),
+    [config, system],
+  );
   const manager = React.useMemo(() => fixedScheme(colorScheme), [colorScheme]);
   const compiled = React.useMemo(() => {
     try {
-      return { Widget: compileWidget(source, widgetScope()), error: null };
+      return { Widget: compileWidget(source, widgetScope(system)), error: null };
     } catch (error) {
       return { Widget: null, error };
     }
-  }, [source]);
+  }, [source, system]);
   return (
     <MantineProvider
       theme={theme}
-      cssVariablesResolver={resolver}
+      {...(resolver === undefined ? {} : { cssVariablesResolver: resolver })}
       colorSchemeManager={manager}
       forceColorScheme={colorScheme}
     >

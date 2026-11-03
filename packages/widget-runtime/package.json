@@ -3,11 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Agent-made widgets for Relay phone and desktop: the shared Mantine theme, the sandboxed frame documents, and the offline Mantine runtime bundle.",
+  "description": "Agent-made widgets for Relay phone and desktop and canvas prototypes: the shared Mantine theme, the design systems (Relay, eCard), the sandboxed frame documents, and the offline Mantine runtime bundle.",
   "exports": {
     "./theme": "./src/theme.ts",
     "./theme-components.css": "./src/theme-components.css",
-    "./frame": "./src/frame.ts"
+    "./frame": "./src/frame.ts",
+    "./proto": "./src/proto.ts",
+    "./systems": "./src/systems/index.ts"
   },
   "scripts": {
     "build": "bun build.ts",

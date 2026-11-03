@@ -98,6 +98,8 @@ function dataObj(d: CanvasNodeData | undefined): Obj | undefined {
     ['colors', colors],
     ['font', d.font],
     ['sample', d.sample],
+    ['system', d.system],
+    ['viewport', d.viewport],
   ])
   return obj.fields.some(([, v]) => v !== undefined) ? obj : undefined
 }

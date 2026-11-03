@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { type FlowBox, applyDiff, freeColor, groupNodes, host, reparentDropped, roomAgent, snapEdges, snapNodes, swatchColor, toFlowEdges, toFlowNodes, uniqueName, ungroupFrames } from "../src/model";
+import { type FlowBox, applyDiff, freeColor, groupNodes, host, protoPageParams, reparentDropped, roomAgent, snapEdges, snapNodes, swatchColor, toFlowEdges, toFlowNodes, uniqueName, ungroupFrames } from "../src/model";
 
 function node(doc: Y.Doc, id: string, fields: Record<string, unknown>): void {
 	const m = new Y.Map<unknown>();
@@ -77,6 +77,28 @@ describe("toFlowNodes", () => {
 		expect(p?.colors).toEqual([{ hex: "#ff0000", name: "Red" }, { hex: "00ff00" }]);
 		expect(k).toMatchObject({ key: "ENG-1", status: "Open", pr: "#12", tone: "danger", fields: ["title", "key"] });
 		expect(z?.type).toBe("note");
+	});
+});
+
+describe("proto nodes", () => {
+	it("snap their design system, viewport and size, defaulting to a desktop screen", () => {
+		const doc = new Y.Doc();
+		node(doc, "p", { type: "proto", x: 0, y: 600, w: 430, h: 640, title: "Approve", body: "<Button />", system: "relay", viewport: "mobile" });
+		node(doc, "q", { type: "proto", x: 1000, y: 600, title: "Assets", body: "<Text />", system: "ecard" });
+		const snaps = snapNodes(doc.getMap("nodes"));
+		expect(snaps[0]).toMatchObject({ type: "proto", system: "relay", viewport: "mobile", body: "<Button />" });
+		const [p, q] = toFlowNodes({ nodes: snaps, edges: [] });
+		expect(p).toMatchObject({ width: 430, height: 640 });
+		expect(q).toMatchObject({ width: 960 });
+	});
+
+	it("load their page with a version that changes with the JSX or system, not the title", () => {
+		const base = { id: "p", body: "<Button />", system: "ecard" };
+		const v = protoPageParams(base, "dark");
+		expect(v).toMatchObject({ id: "p", scheme: "dark" });
+		expect(protoPageParams({ ...base }, "light").v).toBe(v.v);
+		expect(protoPageParams({ ...base, body: "<Button>Go</Button>" }, "dark").v).not.toBe(v.v);
+		expect(protoPageParams({ ...base, system: "relay" }, "dark").v).not.toBe(v.v);
 	});
 });
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { HTML_FRAME_CSP, MANTINE_FRAME_CSP, type FrameTheme } from '@relay/widget-runtime/frame'
+import { PROTO_FRAME_CSP } from '@relay/widget-runtime/proto'
 import { THEME_PRESETS } from '@relay/widget-runtime/theme'
 import { handleFrameRequest } from './widget-frame'
 
@@ -72,5 +73,20 @@ describe('handleFrameRequest', () => {
     expect(page('html', { source: 'x' }).status).toBe(400)
     expect(page('html', { source: 'x', theme: '{nope' }).status).toBe(400)
     expect(page('html', { source: 'x', theme: '[1]' }).status).toBe(400)
+  })
+
+  it("serves a canvas prototype in its design system and the app's scheme", async () => {
+    const res = page('proto', {
+      source: '<BasePanel>Hi</BasePanel>',
+      system: 'ecard',
+      scheme: 'dark',
+    })
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-security-policy')).toBe(PROTO_FRAME_CSP)
+    const html = await res.text()
+    expect(html).toContain('data-mantine-color-scheme="dark" data-design-system="ecard"')
+    expect(html).toContain('"system":"ecard"')
+    expect(page('proto', { source: 'x', system: 'figma' }).status).toBe(400)
+    expect(page('proto', { system: 'relay' }).status).toBe(400)
   })
 })

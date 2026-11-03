@@ -9,6 +9,7 @@
  *   variables (`--fg`, `--muted`, `--accent`, ...).
  * - ```mantine-widget: `mantineFrameDocument`, the agent's JSX evaluated by the bundled Mantine
  *   runtime (`runtime/index.tsx`) with the shared theme (`theme.ts`).
+ * - a canvas `proto` node: `proto.ts`, built from the pieces exported here.
  */
 import { WIDGET_RUNTIME_CSS, WIDGET_RUNTIME_JS } from "../generated/bundle";
 import { defaultConfig, type ThemeConfig } from "./theme";
@@ -52,14 +53,15 @@ export const MANTINE_FRAME_CSP =
   "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data:; font-src data:";
 
 /** JSON safe inside a <script> element: `<` and the JS line separators are escaped. */
-function scriptJson(value: unknown): string {
+export function scriptJson(value: unknown): string {
   return JSON.stringify(value)
     .replace(/</g, "\\u003c")
     .replace(/\u2028/g, "\\u2028")
     .replace(/\u2029/g, "\\u2029");
 }
 
-function head(csp: string): string {
+/** The page head every frame shares: charset, the CSP as a meta tag, a fixed viewport. */
+export function head(csp: string): string {
   return `<meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
@@ -102,7 +104,7 @@ code, pre, kbd, samp { font-family: var(--mono); }`;
  * widget that calls it on load cannot send a message every time the transcript is shown. Messages
  * go to `ReactNativeWebView` on the phone and to the parent window (as a JSON string) on desktop.
  */
-function bridgeScript(theme: FrameTheme): string {
+export function bridgeScript(theme: FrameTheme | null, dark: boolean): string {
   return `(function () {
   function post(message) {
     var data = JSON.stringify(message);
@@ -111,8 +113,8 @@ function bridgeScript(theme: FrameTheme): string {
   }
   var theme = ${scriptJson(theme)};
   window.relay = Object.freeze({
-    theme: Object.freeze(theme),
-    colorScheme: theme.dark ? "dark" : "light",
+    theme: theme && Object.freeze(theme),
+    colorScheme: ${scriptJson(dark ? "dark" : "light")},
     reply: function (text) {
       if (typeof text !== "string" || text.trim() === "") return false;
       if (navigator.userActivation && !navigator.userActivation.isActive) return false;
@@ -144,7 +146,7 @@ export function htmlFrameDocument(body: string, theme: FrameTheme): string {
 <html><head>
 ${head(HTML_FRAME_CSP)}
 <style>${htmlStyle(theme)}</style>
-<script>${bridgeScript(theme)}</script>
+<script>${bridgeScript(theme, theme.dark)}</script>
 </head><body>
 ${body}
 </body></html>`;
@@ -169,7 +171,7 @@ ${head(MANTINE_FRAME_CSP)}
 <style>${paletteStyle(theme)}
 ${CHROME_STYLE}
 #root { padding: 1px 0; }</style>
-<script>${bridgeScript(theme)}</script>
+<script>${bridgeScript(theme, theme.dark)}</script>
 <script>${WIDGET_RUNTIME_JS}</script>
 </head><body>
 <div id="root"></div>

@@ -149,7 +149,7 @@ const USAGE = `relay-linux <command>
   canvas act <slug> [--as <Name>] [--handoff <id>] [--leave] [<lines> | -]
                                    run action lines as <Name> (joins first when needed), or without
                                    --as as the room's canvas self (the chat that started it): @say,
-                                   @add_node, @add_image, @add_frame, @add_edge, @set_text,
+                                   @add_node, @add_image, @add_frame, @add_ui, @add_proto, @add_edge, @set_text,
                                    @append_text, @move_node, @point, @select, @cursor, @delete
                                    (skill://canvas sections 8-9); no lines or - reads stdin.
                                    --handoff lands that handoff (the canvas self confirms it);

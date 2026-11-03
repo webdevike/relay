@@ -12,6 +12,7 @@
 //   GET  /canvas/<slug>/?token=      the client page
 //   GET  /canvas/<slug>/me?token=    {me, roomId, board, agent, live}
 //   GET  /canvas/<slug>/img?token=&src=   a local image the board holds (remote URLs load directly)
+//   GET  /canvas/<slug>/proto?token=&id=&scheme=   a `proto` node's page (its JSX in its design system, CSP: no network)
 //   POST /canvas/<slug>/end?token=   Wrap up -> {summary}
 //   POST /canvas/<slug>/query?token= {tool, args}: a live `ui` node's Query (the host query tools)
 //   WS   /canvas/<slug>/ws?token=    y-websocket (server.ts)
@@ -20,8 +21,12 @@
 
 import { type Stats, readFileSync, statSync } from "node:fs";
 import { extname, isAbsolute, join } from "node:path";
+import { DOC_KEYS } from "@relay/canvas-live/shared";
 import { CanvasSlug } from "@relay/protocol";
+import * as Y from "yjs";
 import { z } from "zod";
+import { PROTO_FRAME_CSP, protoFrameDocument } from "../../../../packages/widget-runtime/src/proto";
+import { isDesignSystem } from "../../../../packages/widget-runtime/src/systems";
 import { isLoopback } from "../boards/http";
 import { answerQuery } from "../query/http";
 import type { QueryRelaying } from "../query/service";
@@ -123,6 +128,7 @@ export async function handleCanvasRequest(canvas: CanvasService | null, page: ()
       return json({ me: { name: grant.human, color: HUMAN_COLOR }, roomId: room.id, board: room.board, agent: room.agent, live: room.live });
     }
     if (route === "img" && request.method === "GET") return image(canvas, room, request, url.searchParams.get("src"));
+    if (route === "proto" && request.method === "GET") return protoPage(room, url.searchParams.get("id"), url.searchParams.get("scheme") === "dark");
     if (route === "end" && request.method === "POST") return json({ summary: await canvas.end(room.id) });
     if (route === "query" && request.method === "POST") {
       if (query === null) return json({ ok: false, error: "this host runs no queries" }, 404);
@@ -194,6 +200,20 @@ function image(canvas: CanvasService, room: CanvasRoom, request: Request, src: s
   const type = IMAGE_TYPES[extname(file).toLowerCase()];
   if (type === undefined) return fail(415, "not an image");
   return localImageResponse(request, file, type);
+}
+
+/**
+ * A `proto` node's page: its JSX drawn in its design system, light or dark. The source is the
+ * room's current one (the client adds a version to the URL so its frame reloads on edits); the page
+ * may not load or send anything (CSP header and meta), and the client frames it sandboxed.
+ */
+function protoPage(room: CanvasRoom, id: string | null, dark: boolean): Response {
+  const node = id === null ? undefined : room.sync.doc.getMap<Y.Map<unknown>>(DOC_KEYS.nodes).get(id);
+  if (!(node instanceof Y.Map) || node.get("type") !== "proto") return new Response("no such prototype", { status: 404 });
+  const body = node.get("body");
+  const system = node.get("system");
+  const html = protoFrameDocument(body instanceof Y.Text ? body.toJSON() : "", { system: isDesignSystem(system) ? system : "mantine", dark });
+  return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "content-security-policy": PROTO_FRAME_CSP, "cache-control": "no-store" } });
 }
 
 /**

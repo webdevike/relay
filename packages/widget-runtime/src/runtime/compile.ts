@@ -22,14 +22,18 @@ export function widgetFactorySource(source: string): string {
   return `function __widget__() {\nreturn function Widget() {\n${body}\n};\n}`;
 }
 
-/** Compiles `source` with `scope` names in reach; throws a SyntaxError-like Error on bad code. */
-export function compileWidget(source: string, scope: Record<string, unknown>): FunctionComponent {
-  const { code } = transform(widgetFactorySource(source), {
+function transformWidget(source: string): string {
+  return transform(widgetFactorySource(source), {
     transforms: ["jsx", "typescript"],
     jsxPragma: "React.createElement",
     jsxFragmentPragma: "React.Fragment",
     production: true,
-  });
+  }).code;
+}
+
+/** Compiles `source` with `scope` names in reach; throws a SyntaxError-like Error on bad code. */
+export function compileWidget(source: string, scope: Record<string, unknown>): FunctionComponent {
+  const code = transformWidget(source);
   const names = Object.keys(scope).filter((name) => IDENTIFIER.test(name));
   // The widget's code is the agent's own: evaluating it is the point. The page's CSP keeps it offline.
   // eslint-disable-next-line @typescript-eslint/no-implied-eval
@@ -40,4 +44,40 @@ export function compileWidget(source: string, scope: Record<string, unknown>): F
   if (typeof component !== "function")
     throw new Error("The widget must return JSX or export a component.");
   return component as FunctionComponent;
+}
+
+const ELEMENT = /React\.createElement\(\s*([A-Za-z_$][\w$]*)/g;
+
+/**
+ * Why `source` would not draw, without running it: it does not parse (JSX or TypeScript), or it
+ * uses a component that is neither in `known` (the scope's names, generated/scope.ts) nor defined
+ * in the code itself. Null when it compiles. A name counts as defined when it appears anywhere in
+ * the compiled code other than as an element type (its declaration, a parameter, an import alias).
+ */
+export function checkWidgetSource(source: string, known: ReadonlySet<string>): string | null {
+  let code: string;
+  try {
+    code = transformWidget(source);
+    // Parses the compiled JS without running it.
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval
+    new Function(code);
+  } catch (error) {
+    return `does not compile: ${error instanceof Error ? error.message : String(error)}`;
+  }
+  const asElement = new Map<string, number>();
+  for (const m of code.matchAll(ELEMENT)) {
+    const name = m[1] ?? "";
+    asElement.set(name, (asElement.get(name) ?? 0) + 1);
+  }
+  const unknown: string[] = [];
+  for (const [name, uses] of asElement) {
+    if (known.has(name)) continue;
+    const all =
+      code.match(new RegExp(`(?<![\\w$.])${name.replace(/\$/g, "\\$")}(?![\\w$])`, "g"))?.length ??
+      0;
+    if (all <= uses) unknown.push(name);
+  }
+  return unknown.length === 0
+    ? null
+    : `unknown component${unknown.length > 1 ? "s" : ""} ${unknown.map((n) => `<${n}>`).join(", ")}: not in Mantine, @mantine/charts or the design system, and not defined in the code`;
 }

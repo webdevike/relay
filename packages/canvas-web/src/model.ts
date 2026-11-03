@@ -31,6 +31,10 @@ export interface NodeSnap {
 	colors?: Swatch[];
 	font?: string;
 	sample?: string;
+	/** A `proto` node's design system. */
+	system?: string;
+	/** A `proto` node's screen (`mobile`, else desktop). */
+	viewport?: string;
 	/** Data keys the file had: `body` shows when listed even if empty. */
 	fields: string[];
 }
@@ -247,7 +251,7 @@ export function nodeKind(v: unknown): NodeKind {
 }
 
 /** Plain string data keys copied from the node map when present. */
-const PLAIN = ["key", "status", "pr", "src", "caption", "url", "tone", "font", "sample"] as const;
+const PLAIN = ["key", "status", "pr", "src", "caption", "url", "tone", "font", "sample", "system", "viewport"] as const;
 
 export function snapNode(id: string, m: Y.Map<unknown>): NodeSnap {
 	const fields = m.get("fields");
@@ -453,6 +457,17 @@ export function toFlowEdges(edges: readonly EdgeSnap[], nodeIds: ReadonlySet<str
 		out.push(edge);
 	}
 	return out;
+}
+
+/**
+ * The query of a `proto` card's page (the host's `proto` route): the node, the scheme, and a version
+ * that changes with its JSX and design system, so the frame reloads when either does.
+ */
+export function protoPageParams(spec: Pick<NodeSnap, "id" | "body" | "system">, scheme: "light" | "dark"): { id: string; scheme: "light" | "dark"; v: string } {
+	const text = `${spec.system ?? ""}\n${spec.body}`;
+	let hash = 5381;
+	for (let i = 0; i < text.length; i++) hash = (Math.imul(hash, 33) + text.charCodeAt(i)) | 0;
+	return { id: spec.id, scheme, v: (hash >>> 0).toString(36) };
 }
 
 export const TONES = ["accent", "warn", "danger", "success", "muted"] as const;

@@ -20,6 +20,7 @@ import { AGENT_ORIGIN, CanvasActor, str } from "./actor";
 import type { CanvasBrain } from "./brain";
 import { ActionParser, TextStream } from "./dsl";
 import { liveUiPrompt } from "./liveui-prompt";
+import { protoPrompt } from "./proto-prompt";
 import { PACE_MS, runSteps, type ActResult, type Step } from "./participant";
 
 /** Who and what the agent is in this room. */
@@ -93,6 +94,10 @@ Reply ONLY with action lines in this exact format (no code fences, no other pros
 <title on the first line>
 <OpenUI program lines>
 @end
+@add_proto <newId> <x> <y> <width> [height] <relay|ecard|mantine> [mobile]   (a clickable PROTOTYPE: title on the first line, then JSX lines, see "Prototypes" below)
+<title on the first line>
+<JSX lines>
+@end
 @move_node <nodeId> <x> <y>
 @parent <nodeId> <frameId|none>   (put a node in a frame so it moves with it; a new frame adopts the cards whose center is inside it)
 @add_edge <sourceId> <targetId> <optional short label>
@@ -109,8 +114,11 @@ How to run the session:
 - New ids: short lowercase kebab-case. Use only ids that exist (or that you just added). Keep it fast: a few actions, and never touch nodes nobody asked about.
 - You can only change the board. When a note asks for something that needs real tools (reading files or code, screenshots of apps, tabs or pages, running builds or tests, web research, making images), never say you cannot: hand it off. Write one @handoff line to main (${name} in the chat "${chatTitle}", which has every tool) or to a worker listed under "# Workers" whose purpose fits, with exactly what to make and where on the board to put it (a free x,y). Then one @say, e.g. "On it, ${name} is grabbing that." (the worker's name when it goes to a worker). Do not make placeholder cards for it. When the work lands you get a "# Handoff landed" turn: confirm it then.
 - A request for live data, widgets, a dashboard or a chart is NOT a handoff and NOT a note: answer it yourself with @add_ui nodes (below).
+- A request to mock up, prototype or design a screen ("mock up X for eCard") is NOT a handoff either: answer it yourself with @add_proto nodes (below).
 
-${liveUiPrompt()}`;
+${liveUiPrompt()}
+
+${protoPrompt()}`;
   const parts = [base];
   if (purpose !== "") parts.push(`What this canvas session is for (from when you started it): ${purpose}`);
   parts.push(chat === "" ? "(The chat that opened this board has no text turns yet.)" : `The chat that opened this board (${String(chatTurns)} turns, oldest first):\n<chat>\n${chat}\n</chat>`);
@@ -487,7 +495,7 @@ export class CanvasAgent {
       "",
       "# Did not run",
       ...skipped.map((s) => `skipped: ${s}`),
-      "These actions from your last reply did NOT land on the board. Fix them and send only the corrected actions (OpenUI belongs in @add_ui with only the listed tools, never in a note), then one short @say. If a reason says a node id is taken or missing, use a fresh or existing id. If it cannot be fixed, @say why in one line.",
+      "These actions from your last reply did NOT land on the board. Fix them and send only the corrected actions (OpenUI belongs in @add_ui with only the listed tools, never in a note; a refused prototype needs JSX that compiles with only Mantine and its design system's components), then one short @say. If a reason says a node id is taken or missing, use a fresh or existing id. If it cannot be fixed, @say why in one line.",
     ].join("\n");
   }
 

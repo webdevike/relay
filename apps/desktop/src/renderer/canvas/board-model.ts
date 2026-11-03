@@ -15,6 +15,8 @@ export function defaultWidth(kind: CanvasNodeKind): number {
       return 330
     case 'ui':
       return 420
+    case 'proto':
+      return 960
     case 'suggestion':
     case 'typography':
       return 260
@@ -56,6 +58,8 @@ export function estimateHeight(node: CanvasNode, width: number): number {
       return 150 + lines(d.sample, 7) * 20
     case 'ui':
       return 320
+    case 'proto':
+      return 640
   }
 }
 
