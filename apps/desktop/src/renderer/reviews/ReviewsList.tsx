@@ -101,6 +101,7 @@ function QueueRow({
   active,
   now,
   onMenu,
+  page = false,
   status,
 }: {
   row: ReviewRow
@@ -108,7 +109,8 @@ function QueueRow({
   active: boolean
   now: number
   onMenu: (m: RowMenuState) => void
-  /** The page's list shows these as quiet pills; the sidebar passes none. */
+  /** The page's list: one line per row with status pills (CI, Approve ready), no group subtitle. */
+  page?: boolean
   status?: RowStatus | undefined
 }) {
   const Glyph = row.draft ? IconGitPullRequestDraft : IconGitPullRequest
@@ -126,9 +128,7 @@ function QueueRow({
       <span className="eva-rv-qrow-line eva-rv-dim">
         <SourceMark source="github" />
         <span className="eva-rv-mono eva-rv-qrow-key">{shortPrId(row)}</span>
-        <Glyph size={14} className="eva-rv-qrow-icon" data-draft={row.draft || undefined} />
-        <span className="eva-rv-qrow-sub">{subtitle}</span>
-        {status ? (
+        {page ? (
           <span className="eva-rv-qrow-pills">
             {row.draft ? <span className="eva-rv-pill">Draft</span> : null}
             {ci ? (
@@ -136,16 +136,21 @@ function QueueRow({
                 {ci.label}
               </span>
             ) : null}
-            {status.approve === 'ready' ? (
+            {status?.approve === 'ready' ? (
               <span className="eva-rv-pill" data-tone="violet" data-testid="review-row-approve">
                 Approve ready
               </span>
-            ) : status.approve === 'running' ? (
+            ) : status?.approve === 'running' ? (
               <span className="eva-rv-pill">Self-review</span>
             ) : null}
           </span>
-        ) : null}
-        <Avatar login={row.author} />
+        ) : (
+          <>
+            <Glyph size={14} className="eva-rv-qrow-icon" data-draft={row.draft || undefined} />
+            <span className="eva-rv-qrow-sub">{subtitle}</span>
+          </>
+        )}
+        {page ? <span>{row.author}</span> : <Avatar login={row.author} />}
         <span>{ago(row.updatedAt, now)}</span>
       </span>
     </button>
@@ -401,6 +406,7 @@ export function ReviewsList({ variant = 'sidebar' }: { variant?: 'sidebar' | 'pa
                   active={prActive(r)}
                   now={now}
                   onMenu={setMenu}
+                  page={page}
                   status={page ? status[statusKey(r)] : undefined}
                 />
               ))

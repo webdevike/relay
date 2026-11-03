@@ -261,14 +261,14 @@
   -webkit-line-clamp: 1;
   overflow-wrap: normal;
   text-overflow: ellipsis;
+  min-width: 8em;
 }
 .eva-rv-queue[data-variant='page'] .eva-rv-qrow-line {
   flex: none;
-  max-width: 60%;
 }
 .eva-rv-queue[data-variant='page'] .eva-rv-qrow-sub {
-  flex: none;
-  max-width: 160px;
+  flex: 0 1 auto;
+  max-width: 220px;
 }
 .eva-rv-qrow-pills {
   display: inline-flex;
