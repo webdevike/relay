@@ -150,14 +150,14 @@ function ItemLine({ item, first }: { item: HeartbeatItem; first: boolean }) {
 }
 
 const styles = StyleSheet.create({
-  row: { paddingHorizontal: spacing.xl, alignItems: "center" },
-  head: { flexDirection: "row", alignItems: "center", gap: spacing.sm, maxWidth: MAX_WIDTH, paddingVertical: spacing.xs },
+  /** The strip and its opened body share one centered measure, at most `MAX_WIDTH` wide. */
+  row: { width: "100%", maxWidth: MAX_WIDTH + 2 * spacing.xl, alignSelf: "center", paddingHorizontal: spacing.xl, alignItems: "center" },
+  head: { flexDirection: "row", alignItems: "center", gap: spacing.sm, maxWidth: "100%", paddingVertical: spacing.xs },
   summary: { flexShrink: 1 },
   pills: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: spacing.xs, flexShrink: 1 },
   pill: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 999, paddingHorizontal: spacing.sm, paddingVertical: 1 },
   body: {
     alignSelf: "stretch",
-    maxWidth: MAX_WIDTH,
     marginTop: spacing.xs,
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radii.lg,
