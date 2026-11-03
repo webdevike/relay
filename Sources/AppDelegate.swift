@@ -340,12 +340,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.say(jevPlan.say)
                     let askedAt = Date()
                     if let richer = await self.brain.caption(question: question, app: target.name, label: pick.element.label,
-                                                             role: pick.element.role, timeout: 1.5) {
+                                                             role: pick.element.role, timeout: 2.5) {
                         try Task.checkCancellation()
                         self.overlay.setCaption(richer)
                         Log.info(String(format: "caption: terra text %.0fms replaced template with \"%@\"", Date().timeIntervalSince(askedAt) * 1000, richer))
                     } else {
-                        Log.info(String(format: "caption: terra text gave nothing within 1.5s (%.0fms), template kept", Date().timeIntervalSince(askedAt) * 1000))
+                        Log.info(String(format: "caption: terra text gave nothing within 2.5s (%.0fms), template kept", Date().timeIntervalSince(askedAt) * 1000))
                     }
                     return
                 }
