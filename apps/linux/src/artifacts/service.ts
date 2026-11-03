@@ -34,6 +34,7 @@ import {
   type ArtifactStatus,
   type Drop,
   type ServerMessage,
+  SUBAGENT_STALE_MS,
 } from "@relay/protocol";
 import { z } from "zod";
 import type { AgentProviderChange, DropBlob } from "../seams";
@@ -44,8 +45,6 @@ import { classifyUrl, scanTranscript, subagentItem, type Found } from "./extract
 export const ARTIFACT_SCAN_DELAY_MS = 1500;
 /** How often running subagents are looked at on disk. */
 export const SUBAGENT_POLL_MS = 15_000;
-/** A subagent transcript nobody wrote to for this long, with no result, is over (its session died). */
-export const SUBAGENT_STALL_MS = 30 * 60_000;
 /** Bytes of a subagent transcript's tail read for its latest status line. */
 const TAIL_BYTES = 48 * 1024;
 /** Largest pasted image the host keeps (base64 is about 4/3 of it). */
@@ -214,6 +213,20 @@ export class ArtifactService implements ArtifactRelaying {
         else delete next.pinned;
         state.items.set(item.id, next);
         return { changed: true };
+      }
+      case "tidy": {
+        let changed = false;
+        for (const id of action.ids) {
+          const item = state.items.get(id);
+          if (item === undefined || (action.tidied === (item.tidied !== undefined))) continue;
+          if (action.tidied && (item.pinned !== undefined || item.subagent?.state === "running")) continue;
+          const next: Artifact = { ...item };
+          if (action.tidied) next.tidied = { by, at: now };
+          else delete next.tidied;
+          state.items.set(id, next);
+          changed = true;
+        }
+        return { changed };
       }
       case "add": {
         const found = this.addable(action);
@@ -533,6 +546,8 @@ export class ArtifactService implements ArtifactRelaying {
           addedBy: "extractor",
           from: role,
         };
+    // A new message naming a tidied item brings it back.
+    delete item.tidied;
     state.items.set(found.id, item);
     return true;
   }
@@ -592,9 +607,9 @@ export class ArtifactService implements ArtifactRelaying {
       const line = lastIntent(path, stat.size);
       if (line !== null && line !== sub.line) next = { ...next, line };
       if (existsSync(result)) next = { ...next, state: "done", endedAt: statSync(result).mtimeMs };
-      else if (now - stat.mtimeMs > SUBAGENT_STALL_MS) next = { ...next, state: "done", endedAt: stat.mtimeMs };
+      else if (now - stat.mtimeMs > SUBAGENT_STALE_MS) next = { ...next, state: "done", endedAt: stat.mtimeMs };
       changed = this.followChildren(state, item, path, now) || changed;
-    } else if (now - sub.startedAt > SUBAGENT_STALL_MS) {
+    } else if (now - sub.startedAt > SUBAGENT_STALE_MS) {
       next = { ...next, state: "done", endedAt: now };
     }
     if (JSON.stringify(next) !== JSON.stringify(sub)) {

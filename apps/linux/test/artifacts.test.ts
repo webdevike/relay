@@ -307,6 +307,25 @@ describe("ArtifactService acts", () => {
     expect(h.service.act("assistant:astra", "isaac", { op: "pin", id: "nope", pinned: true }).ok).toBe(false);
   });
 
+  it("tidies and brings items back; pinned and running ones are left alone, a new mention untidies", () => {
+    const h = seeded();
+    expect(h.service.act("assistant:astra", "astra", { op: "pin", id: "linear:ENG-6528", pinned: true }).ok).toBe(true);
+    const before = h.sent.length;
+    expect(h.service.act("assistant:astra", "isaac", { op: "tidy", ids: ["linear:ENG-6528", "gh-pr:o/r#9"], tidied: true })).toEqual({ ok: true });
+    expect(item(h, "linear:ENG-6528")?.tidied).toBeUndefined();
+    expect(item(h, "gh-pr:o/r#9")?.tidied).toEqual({ by: "isaac", at: h.now });
+    expect(h.sent.length).toBe(before + 1);
+    // Repeating it changes nothing and pushes nothing.
+    h.service.act("assistant:astra", "isaac", { op: "tidy", ids: ["gh-pr:o/r#9"], tidied: true });
+    expect(h.sent.length).toBe(before + 1);
+    h.service.act("assistant:astra", "isaac", { op: "tidy", ids: ["gh-pr:o/r#9"], tidied: false });
+    expect(item(h, "gh-pr:o/r#9")?.tidied).toBeUndefined();
+    h.service.act("assistant:astra", "isaac", { op: "tidy", ids: ["gh-pr:o/r#9"], tidied: true });
+    appendFileSync(transcript(h), user(T0 + 5000, "again https://github.com/o/r/pull/9"));
+    h.service.get("assistant:astra");
+    expect(item(h, "gh-pr:o/r#9")?.tidied).toBeUndefined();
+  });
+
   it("refuses agent tabs that repeat a default, a hidden tab, or a visible one; Isaac's hide is sticky", () => {
     const h = seeded();
     const links = h.service.act("assistant:astra", "astra", { op: "tab.add", title: "Links again", rule: { kind: ["url", "branch", "gh-pr", "gh-issue", "linear"] } });

@@ -8,7 +8,9 @@ import {
   parseServerMessage,
   ruleMatches,
   sameRule,
+  subagentView,
   tabItems,
+  tidyIds,
   type Artifact,
   ArtifactTab,
 } from "../src";
@@ -94,5 +96,38 @@ describe("artifacts frames", () => {
     expect(parseClientMessage(JSON.stringify({ ...act, action: { op: "tab.add", title: "x", rule: { colour: "red" } } })).ok).toBe(false);
     expect(parseServerMessage(JSON.stringify({ t: "artifacts.snapshot", thread: "assistant:nova", items, tabs: defaultTabs() })).ok).toBe(true);
     expect(parseServerMessage(JSON.stringify({ t: "artifacts.acted", rid: "r1", ok: false, error: "Isaac hid it." })).ok).toBe(true);
+  });
+});
+
+describe("subagentView and tidyIds", () => {
+  const sub = (id: string, state: "running" | "done" | "failed", over: Partial<Artifact> = {}) =>
+    item({ id: `subagent:${id}`, kind: "subagent", subagent: { state, startedAt: NOW - 60_000 }, ...over });
+
+  it("reads a running subagent nobody touched in 30 minutes as done", () => {
+    expect(subagentView(sub("a", "running"), NOW)).toBe("running");
+    expect(subagentView(sub("a", "running", { lastSeen: NOW - 31 * 60_000, subagent: { state: "running", startedAt: NOW - 31 * 60_000 } }), NOW)).toBe("done");
+    expect(subagentView(sub("a", "failed"), NOW)).toBe("failed");
+    expect(subagentView(ticket, NOW)).toBeNull();
+  });
+
+  it("tidies finished, closed, stale and duplicate items and keeps running, pinned and recent ones", () => {
+    const fillers = [10, 20, 30, 40, 50].map((n) => `user@${NOW - 1000 + n}`);
+    const all = [
+      sub("run", "running"),
+      sub("done", "done"),
+      sub("bad", "failed"),
+      sub("pinned", "done", { pinned: { by: "isaac", at: NOW }, sources: fillers }),
+      sub("fresh", "done", { sources: [`assistant@${NOW}`] }),
+      item({ id: "linear:ENG-9", kind: "linear", sources: ["user@1"], status: { state: "done", stateType: "completed", fetchedAt: NOW } }),
+      item({ id: "linear:ENG-2", kind: "linear", sources: [`user@${NOW}`], status: { state: "in progress", stateType: "started", fetchedAt: NOW } }),
+      item({ id: "url:https://a.test/x", kind: "url", url: "https://a.test/x", lastSeen: NOW - 2 * DAY_MS, sources: [`user@${NOW}`, "user@1"] }),
+      item({ id: "url:https://a.test/y", kind: "url", url: "https://a.test/y", lastSeen: NOW - 2 * DAY_MS, sources: ["user@2"] }),
+      item({ id: "url:https://a.test/x#frag", kind: "url", url: "https://a.test/x#frag", lastSeen: NOW - 3 * DAY_MS, sources: ["user@3"] }),
+    ];
+    expect(tidyIds(all, NOW).sort()).toEqual(["linear:ENG-9", "subagent:bad", "subagent:done", "url:https://a.test/x#frag", "url:https://a.test/y"]);
+  });
+
+  it("does not offer an item that is already tidied", () => {
+    expect(tidyIds([sub("done", "done", { tidied: { by: "isaac", at: NOW } })], NOW)).toEqual([]);
   });
 });

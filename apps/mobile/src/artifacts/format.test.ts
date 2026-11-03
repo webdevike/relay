@@ -110,7 +110,10 @@ describe("groups", () => {
   });
 
   it("says what a subagent does, else how it ended", () => {
-    expect(subagentLine(item({ id: "s", kind: "subagent", subagent: { state: "running", line: "Reading files", startedAt: 0 } }), NOW)).toBe("Reading files");
+    const live = { lastSeen: NOW - 60_000 };
+    expect(subagentLine(item({ id: "s", kind: "subagent", ...live, subagent: { state: "running", line: "Reading files", startedAt: NOW - 120_000 } }), NOW)).toBe("Reading files");
+    // A "running" one the host has not touched for over 30 minutes is gone: it reads as done, never as working.
+    expect(subagentLine(item({ id: "s", kind: "subagent", subagent: { state: "running", line: "Reading files", startedAt: at(21, 0) } }), NOW)).toBe("done 9:47 PM");
     expect(subagentLine(item({ id: "s", kind: "subagent", subagent: { state: "failed", startedAt: 0, endedAt: at(21, 5) } }), NOW)).toBe("failed 9:05 PM");
   });
 });

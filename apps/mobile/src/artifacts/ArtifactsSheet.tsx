@@ -20,7 +20,7 @@ import { SymbolView, type SFSymbol } from "expo-symbols";
 import { useRouter } from "expo-router";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { isDefaultTab, tabItems, visibleTabs, type Artifact, type ArtifactAction, type AssistantAgent, type AssistantPortrait, type ArtifactKind, type ArtifactTab } from "@relay/protocol";
+import { isDefaultTab, subagentView, tabItems, tidyIds, visibleTabs, type Artifact, type ArtifactAction, type AssistantAgent, type AssistantPortrait, type ArtifactKind, type ArtifactTab } from "@relay/protocol";
 import { actArtifacts, hostBaseUrl } from "@/connection";
 import { ImageViewer, type ViewerImage } from "@/agents/ImageViewer";
 import { openExternal } from "@/lib/links";
@@ -30,6 +30,8 @@ import { useAgentsStore } from "@/state/agents";
 import { useArtifactsStore } from "@/state/artifacts";
 import { useArtifactsSeenStore } from "@/state/artifactsSeen";
 import { useConnectionStore } from "@/state/connection";
+import { ActionToast } from "@/ui/ActionToast";
+import { Button } from "@/ui/Button";
 import { Collapse } from "@/ui/Collapse";
 import { IconButton } from "@/ui/IconButton";
 import { Portrait } from "@/ui/Portrait";
@@ -115,8 +117,13 @@ export function ArtifactsSheet({ thread, agent, session, open, onClose }: Artifa
   const insets = useSafeAreaInsets();
   const ref = useRef<BottomSheet>(null);
   const snapshot = useArtifactsStore((state) => state.threads[thread]);
-  const items = snapshot?.items ?? NO_ITEMS;
+  const allItems = snapshot?.items ?? NO_ITEMS;
   const tabs = snapshot?.tabs ?? NO_TABS;
+  const [showTidied, setShowTidied] = useState(false);
+  const [undo, setUndo] = useState<{ ids: string[]; message: string } | null>(null);
+  // Items Tidy hid (kept by the host, so the desktop sees the same) stay out of every tab unless Show tidied is on.
+  const items = useMemo(() => (showTidied ? allItems : allItems.filter((item) => item.tidied === undefined)), [allItems, showTidied]);
+  const tidiedCount = useMemo(() => allItems.filter((item) => item.tidied !== undefined).length, [allItems]);
   const agents = useAssistantStore((state) => state.agents);
   const sessions = useAgentsStore((state) => state.sessions);
   const ask = useAgentsStore((state) => (session === null ? undefined : state.asks[session]));
@@ -151,7 +158,7 @@ export function ArtifactsSheet({ thread, agent, session, open, onClose }: Artifa
   const counts = useMemo(() => Object.fromEntries(Object.entries(rowsByTab).map(([id, rows]) => [id, rows.length])), [rowsByTab]);
   const current = initialTab(visible, counts, selected);
   const tab = visible.find((entry) => entry.id === current) ?? null;
-  const running = items.some((item) => item.subagent?.state === "running");
+  const running = items.some((item) => subagentView(item, now) === "running");
   const nameOf = useCallback((agentId: string) => agentTitle(agents, agentId), [agents]);
   const tasks = useMemo(
     () => taskGroups({ items, now, threadSession: session, sessions, ask, approval, agent: agents?.find((entry) => entry.id === agent), agentTitle: agentTitle(agents, agent) }),
@@ -178,6 +185,29 @@ export function ArtifactsSheet({ thread, agent, session, open, onClose }: Artifa
       () => undefined,
     );
   };
+
+  const tidy = (): void => {
+    const ids = tidyIds(allItems, Date.now());
+    tapHaptic();
+    if (ids.length === 0) {
+      setUndo(null);
+      Alert.alert("Nothing to tidy", "Everything here is running, pinned or recent.");
+      return;
+    }
+    act({ op: "tidy", ids, tidied: true });
+    setUndo({ ids, message: `Tidied ${String(ids.length)} ${ids.length === 1 ? "item" : "items"}` });
+  };
+
+  // The Undo offer goes away on its own.
+  useEffect(() => {
+    if (undo === null) return;
+    const timer = setTimeout(() => {
+      setUndo(null);
+    }, 8000);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [undo]);
 
   const choose = (next: ArtifactTab): void => {
     tapHaptic();
@@ -365,6 +395,15 @@ export function ArtifactsSheet({ thread, agent, session, open, onClose }: Artifa
               Artifacts
             </Text>
           )}
+          {!searching && <Button label="Tidy" variant="secondary" height={32} onPress={tidy} testID="artifacts-tidy" accessibilityLabel="Tidy artifacts" />}
+          {!searching && tidiedCount > 0 && (
+            <IconButton
+              symbol={showTidied ? "eye.slash" : "eye"}
+              size={34}
+              accessibilityLabel={showTidied ? "Hide tidied items" : `Show ${String(tidiedCount)} tidied items`}
+              onPress={() => { setShowTidied((on) => !on); }}
+            />
+          )}
           <IconButton
             symbol={searching ? "xmark" : "magnifyingglass"}
             size={34}
@@ -400,6 +439,18 @@ export function ArtifactsSheet({ thread, agent, session, open, onClose }: Artifa
         <BottomSheetScrollView contentContainerStyle={{ paddingBottom: insets.bottom + spacing.xxl }} keyboardShouldPersistTaps="handled">
           {body}
         </BottomSheetScrollView>
+        {undo !== null && (
+          <View style={[styles.undo, { bottom: insets.bottom + spacing.lg }]} pointerEvents="box-none">
+            <ActionToast
+              message={undo.message}
+              action="Undo"
+              onAction={() => {
+                act({ op: "tidy", ids: undo.ids, tidied: false });
+                setUndo(null);
+              }}
+            />
+          </View>
+        )}
       </BottomSheet>
       <ImageViewer images={viewer?.images ?? null} start={viewer?.start ?? 0} onClose={() => { setViewer(null); }} />
       {video !== null && <VideoModal uri={video} onClose={() => { setVideo(null); }} />}
@@ -665,6 +716,7 @@ function VideoModal({ uri, onClose }: { uri: string; onClose: () => void }) {
 }
 
 const styles = StyleSheet.create({
+  undo: { position: "absolute", left: 0, right: 0 },
   head: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingHorizontal: spacing.xl, paddingBottom: spacing.sm },
   title: { flex: 1 },
   search: { flex: 1, height: 36, borderRadius: radii.md, paddingHorizontal: spacing.md, fontSize: 15 },

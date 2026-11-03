@@ -4,7 +4,7 @@
  * items a tab shows comes from the protocol's `tabItems`, so the phone and the desktop agree; this
  * only decides how they look.
  */
-import { artifactFaded, compareArtifacts, type AgentApproval, type AgentAsk, type AgentSession, type Artifact, type ArtifactKind, type ArtifactTab, type AssistantAgent, type TabRule } from "@relay/protocol";
+import { artifactFaded, compareArtifacts, subagentView, type AgentApproval, type AgentAsk, type AgentSession, type Artifact, type ArtifactKind, type ArtifactTab, type AssistantAgent, type TabRule } from "@relay/protocol";
 import { elapsed, mediaClock } from "@/lib/format";
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -175,11 +175,6 @@ export function subagentRows(rows: readonly Artifact[]): SubagentRow[] {
   return out;
 }
 
-/** True while any subagent of the thread runs (the Subagents tab spins). */
-export function anySubagentRunning(items: readonly Artifact[]): boolean {
-  return items.some((item) => item.subagent?.state === "running");
-}
-
 export function isVideo(item: Artifact): boolean {
   return item.media?.mimeType.startsWith("video/") === true;
 }
@@ -249,10 +244,11 @@ export function searchArtifacts(items: readonly Artifact[], query: string): Arti
 export function subagentLine(item: Artifact, now: number): string {
   const sub = item.subagent;
   if (sub === undefined) return metaLine(item, now);
-  if (sub.line !== undefined && sub.state === "running") return sub.line;
-  if (sub.state === "running") return `started ${artifactTime(sub.startedAt, now)}`;
+  const state = subagentView(item, now);
+  if (sub.line !== undefined && state === "running") return sub.line;
+  if (state === "running") return `started ${artifactTime(sub.startedAt, now)}`;
   const end = artifactTime(sub.endedAt ?? item.lastSeen, now);
-  return sub.state === "failed" ? `failed ${end}` : `done ${end}`;
+  return state === "failed" ? `failed ${end}` : `done ${end}`;
 }
 
 /** Where a task row stands; the sheet draws its glyph and tone from this. */
@@ -379,7 +375,7 @@ export function taskGroups(input: TaskInputs): TaskGroup[] {
       open: item.url !== undefined && /^https?:/.test(item.url) ? { kind: "url", url: item.url } : null,
     }));
   const subagents = shown.filter((item) => item.kind === "subagent" && item.subagent !== undefined);
-  const working: TaskRow[] = subagentRows(subagents.filter((item) => item.subagent?.state === "running")).map(({ item, depth }) => {
+  const working: TaskRow[] = subagentRows(subagents.filter((item) => subagentView(item, now) === "running")).map(({ item, depth }) => {
     const session = subagentSession(item, threadSession, sessions);
     return {
       key: item.id,
@@ -395,11 +391,11 @@ export function taskGroups(input: TaskInputs): TaskGroup[] {
   });
   const ended = (item: Artifact): number => item.subagent?.endedAt ?? item.lastSeen;
   const resolved: TaskRow[] = subagents
-    .filter((item) => item.subagent?.state !== "running")
+    .filter((item) => subagentView(item, now) !== "running")
     .sort((a, b) => ended(b) - ended(a))
     .map((item) => {
       const session = subagentSession(item, threadSession, sessions);
-      const failed = item.subagent?.state === "failed";
+      const failed = subagentView(item, now) === "failed";
       return {
         key: item.id,
         state: failed ? "failed" : "done",
