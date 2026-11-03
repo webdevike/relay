@@ -189,8 +189,7 @@ html[data-eva-motion='off'] .eva-sb-track {
   display: flex;
   flex-direction: column;
   gap: var(--eva-space-xs);
-  padding: var(--eva-space-native-xs) var(--eva-space-native-sm) var(--eva-space-native-sm);
-  border-top: 1px solid var(--eva-chrome-border);
+  padding: var(--eva-space-native-sm) var(--eva-space-native-sm) var(--eva-space-native-xs);
 }
 /* Pinned below a sub-page's scrolling list (the chats Settled fold); opens upward, scrolls itself. */
 .eva-sb-subfooter {
