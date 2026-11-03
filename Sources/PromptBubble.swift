@@ -24,10 +24,18 @@ final class PromptBubble: NSObject, NSTextFieldDelegate {
     private let field = NSTextField()
     private var outsideClickMonitor: Any?
     private var closed = false
+    /// Who would answer the text typed so far (AssistantRouter rules, screen part decided at summon).
+    var router: ((String) -> Assistant)?
+    private var assistant: Assistant
+    private let face = CALayer()
+    private var title: NSTextField?
+    private let appName: String
 
     static let size = CGSize(width: 440, height: 134)
 
     init(appName: String, assistant: Assistant) {
+        self.assistant = assistant
+        self.appName = appName
         panel = BubblePanel(contentRect: CGRect(origin: .zero, size: Self.size),
                             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         super.init()
@@ -55,29 +63,58 @@ final class PromptBubble: NSObject, NSTextFieldDelegate {
         surface.layer?.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
         panel.contentView = surface
 
-        if let avatar = Assistants.avatar(for: assistant) {
-            let face = NSImageView(frame: CGRect(x: 12, y: 99, width: 24, height: 24))
-            face.image = avatar
-            face.imageScaling = .scaleProportionallyUpOrDown
-            surface.addSubview(face)
-        } else {
-            let dot = NSView(frame: CGRect(x: 18, y: 107, width: 8, height: 8))
-            dot.wantsLayer = true
-            dot.layer?.backgroundColor = Palette.accent.cgColor
-            dot.layer?.cornerRadius = 4
-            surface.addSubview(dot)
-        }
+        let faceView = NSView(frame: CGRect(x: 12, y: 99, width: 24, height: 24))
+        faceView.wantsLayer = true
+        face.frame = faceView.bounds
+        face.cornerRadius = 12
+        face.masksToBounds = true
+        face.contentsGravity = .resizeAspectFill
+        faceView.layer?.addSublayer(face)
+        surface.addSubview(faceView)
 
-        let title = NSTextField(labelWithAttributedString: {
-            let s = NSMutableAttributedString(string: assistant.title, attributes: [
-                .font: NSFont.systemFont(ofSize: 13, weight: .semibold), .foregroundColor: Palette.accent])
-            s.append(NSAttributedString(string: "   Ask about \(appName)", attributes: [
-                .font: NSFont.systemFont(ofSize: 13), .foregroundColor: Palette.muted]))
-            return s
-        }())
+        let title = NSTextField(labelWithString: "")
         title.frame = CGRect(x: 42, y: 102, width: 350, height: 18)
+        title.wantsLayer = true
         surface.addSubview(title)
+        self.title = title
+        paintIdentity()
+        buildRest(in: surface)
+    }
 
+    private func paintIdentity() {
+        face.backgroundColor = assistant.accent.cgColor
+        face.contents = Assistants.avatar(for: assistant)?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        let s = NSMutableAttributedString(string: assistant.title, attributes: [
+            .font: NSFont.systemFont(ofSize: 13, weight: .semibold), .foregroundColor: assistant.accent])
+        s.append(NSAttributedString(string: "   Ask about \(appName)", attributes: [
+            .font: NSFont.systemFont(ofSize: 13), .foregroundColor: Palette.muted]))
+        title?.attributedStringValue = s
+    }
+
+    /// The typed words route to someone else ("Astra, ...", an issue key): crossfade and pop the avatar and
+    /// name to her before Return, so nothing flips after the question is sent.
+    func setAssistant(_ next: Assistant) {
+        guard next.id != assistant.id else { return }
+        Log.info("bubble: \(assistant.title) -> \(next.title) while typing")
+        assistant = next
+        let fade = CATransition()
+        fade.type = .fade
+        fade.duration = 0.25
+        face.add(fade, forKey: "identity")
+        title?.layer?.add(fade, forKey: "identity")
+        let pop = CAKeyframeAnimation(keyPath: "transform.scale")
+        pop.values = [1, 0.7, 1.12, 1]
+        pop.keyTimes = [0, 0.35, 0.75, 1]
+        pop.duration = 0.32
+        face.add(pop, forKey: "pop")
+        paintIdentity()
+    }
+
+    func controlTextDidChange(_ obj: Notification) {
+        if let router { setAssistant(router(field.stringValue)) }
+    }
+
+    private func buildRest(in surface: NSView) {
         let close = NSButton(title: "✕", target: self, action: #selector(closeClicked))
         close.isBordered = false
         close.font = .systemFont(ofSize: 12, weight: .medium)

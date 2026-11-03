@@ -159,7 +159,7 @@ final class OverlayController {
     /// The assistant answering from now on: her colours on every mark, her name and avatar on the cursor.
     func setAssistant(_ assistant: Assistant) {
         Palette.accent = assistant.accent
-        buddy.setIdentity(name: assistant.title, accent: assistant.accent, avatar: Assistants.avatar(for: assistant))
+        buddy.setIdentity(name: assistant.title, accent: assistant.accent, avatar: Assistants.avatar(for: assistant), animated: isShowing)
     }
 
     func showThinking(near mouse: CGPoint, appName: String) {

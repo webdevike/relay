@@ -169,6 +169,14 @@ enum AssistantRouter {
         return decision
     }
 
+    /// Who the bubble shows while the user types: the same rules as `route`, with the screen part
+    /// (`screen`, decided at summon) reused so no AX read runs per keystroke. Not logged.
+    static func live(_ text: String, screen: Decision) -> Assistant {
+        if let (assistant, _) = addressed(text) { return assistant }
+        if screen.assistant.id == Assistants.work.id || ecardQuestion(text) != nil { return Assistants.work }
+        return Assistants.personal
+    }
+
     private static func decide(_ question: String, target: TargetApp?) -> Decision {
         if let (assistant, stripped) = addressed(question) {
             return Decision(assistant: assistant, question: stripped, reason: "addressed:\(assistant.title)")

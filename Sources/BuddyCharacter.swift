@@ -135,11 +135,24 @@ final class BuddyCharacter {
     }
 
     /// Who is answering: her name on the tag, her accent on the body and tag, her avatar in the head
-    /// (the drawn face stays only while the avatar has not been drawn yet).
-    func setIdentity(name: String, accent: NSColor, avatar: NSImage?) {
+    /// (the drawn face stays only while the avatar has not been drawn yet). `animated` (Buddy on screen and
+    /// the answer moved to the other assistant): crossfade and pop the head and tag instead of a hard swap.
+    func setIdentity(name: String, accent: NSColor, avatar: NSImage?, animated: Bool = false) {
+        let changed = name != self.name
         self.name = name
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        if animated, changed {
+            let fade = CATransition()
+            fade.type = .fade
+            fade.duration = 0.3
+            for layer in [avatarLayer, shape, tag, tagText] { layer.add(fade, forKey: "identity") }
+            let pop = CAKeyframeAnimation(keyPath: "transform.scale")
+            pop.values = [1, 0.72, 1.15, 1]
+            pop.keyTimes = [0, 0.35, 0.75, 1]
+            pop.duration = 0.36
+            body.add(pop, forKey: "identity-pop")
+        }
         shape.fillColor = accent.cgColor
         tag.backgroundColor = (accent.blended(withFraction: 0.18, of: .black) ?? accent).cgColor
         avatarLayer.contents = avatar?.cgImage(forProposedRect: nil, context: nil, hints: nil)

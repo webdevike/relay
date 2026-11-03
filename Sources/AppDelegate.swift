@@ -292,6 +292,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // takes the capture off the wait after they press Return.
         prefetch = target.map { app in Task { try await Capture.capture(app) } }
         let newBubble = PromptBubble(appName: appName, assistant: likely.assistant)
+        newBubble.router = { AssistantRouter.live($0, screen: likely) }
         newBubble.onSubmit = { [weak self] text in self?.submit(text) }
         newBubble.onClose = { [weak self] in
             self?.bubble = nil
