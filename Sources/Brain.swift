@@ -260,20 +260,39 @@ final class Brain {
         throw BrainError.badResponse("no lesson steps")
     }
 
+    /// Text-only one-liner for a spot Jev already found: no image, no tools. nil on timeout or error.
+    func caption(question: String, app: String, label: String, role: String, timeout: TimeInterval) async -> String? {
+        guard let key = apiKey else { return nil }
+        let prompt = "App: \(app)\nQuestion: \(question)\nBuddy is pointing at the \(role) \"\(label)\".\n" +
+            "Write the caption Buddy shows next to its cursor: at most 90 characters, plain and friendly, " +
+            "say what to do there, and include the keyboard shortcut only if you are sure of it. No em dashes. Reply with the caption only."
+        let input: [[String: Any]] = [["role": "user", "content": [["type": "input_text", "text": prompt]]]]
+        guard let json = try? await send(input: input, key: key, instructions: "You write one short caption for a Mac app helper.",
+                                         tools: [], toolChoice: "none", timeout: timeout) else { return nil }
+        let text = ((json["output"] as? [[String: Any]]) ?? [])
+            .filter { $0["type"] as? String == "message" }
+            .flatMap { ($0["content"] as? [[String: Any]]) ?? [] }
+            .compactMap { $0["text"] as? String }.joined()
+            .trimmingCharacters(in: CharacterSet(charactersIn: " \n\"'"))
+        return text.isEmpty || text.count > 140 ? nil : text
+    }
+
     private func send(input: [[String: Any]], key: String, instructions: String,
-                      tools: [[String: Any]], toolChoice: Any) async throws -> [String: Any] {
-        let body: [String: Any] = [
+                      tools: [[String: Any]], toolChoice: Any, timeout: TimeInterval = 60) async throws -> [String: Any] {
+        var body: [String: Any] = [
             "model": model,
             "instructions": instructions,
             "input": input,
-            "tools": tools,
-            "tool_choice": toolChoice,
-            "parallel_tool_calls": true,
             "reasoning": ["effort": effort],
             "store": false,
             "include": ["reasoning.encrypted_content"],
         ]
-        var request = URLRequest(url: endpoint, timeoutInterval: 60)
+        if !tools.isEmpty {
+            body["tools"] = tools
+            body["tool_choice"] = toolChoice
+            body["parallel_tool_calls"] = true
+        }
+        var request = URLRequest(url: endpoint, timeoutInterval: timeout)
         request.httpMethod = "POST"
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

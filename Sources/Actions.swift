@@ -63,12 +63,19 @@ enum Executor {
         let window = Int(context.windowID)
         switch action.kind {
         case .click:
-            guard let p = action.point else { throw HookError.failed("no point to click") }
-            // cua-driver clicks in window-local screenshot pixels at the display's backing scale.
-            let backing = Capture.backingScale(for: context.windowFrame)
-            try await CuaDriver.call("click", ["pid": pid, "window_id": window,
-                                              "x": Double(p.x / context.scale * backing),
-                                              "y": Double(p.y / context.scale * backing)])
+            // Prefer the AX element Jev resolves from the action's description over the model's guess.
+            var target = action.point
+            let started = Date()
+            if let element = await Jev.resolveClick(description: action.description, context: context) {
+                Log.info(String(format: "chore: path=jev click \"%@\" in %.0fms (model point %@)", element.label,
+                                Date().timeIntervalSince(started) * 1000, action.point.map { "\(Int($0.x)),\(Int($0.y))" } ?? "none"))
+                target = element.center
+            } else {
+                Log.info(String(format: "chore: path=model-point click \"%@\" (no confident AX match, %.0fms)", action.description,
+                                Date().timeIntervalSince(started) * 1000))
+            }
+            guard let p = target else { throw HookError.failed("no point to click") }
+            try await clickWindow(p, context: context)
         case .key:
             let keys = (action.keys ?? []).map { $0.lowercased() }
             guard let key = keys.last else { throw HookError.failed("no key") }
@@ -80,9 +87,24 @@ enum Executor {
             }
         case .menu:
             guard let path = action.menuPath, !path.isEmpty else { throw HookError.failed("no menu path") }
-            try await CuaDriver.call("invoke_menu", ["pid": pid, "window_id": window, "path": path])
+            do {
+                try await CuaDriver.call("invoke_menu", ["pid": pid, "window_id": window, "path": path])
+            } catch {
+                // The menu path did not resolve: find the item in the AX tree instead.
+                guard let element = await Jev.resolveClick(description: path.joined(separator: " > "), context: context) else { throw error }
+                Log.info("chore: path=jev menu fallback click \"\(element.label)\"")
+                try await clickWindow(element.center, context: context)
+            }
         case .blenderPython:
             throw HookError.failed("Blender's add-on is not reachable for that")
         }
+    }
+
+    /// cua-driver clicks in window-local screenshot pixels at the display's backing scale.
+    private static func clickWindow(_ p: CGPoint, context: ScreenContext) async throws {
+        let backing = Capture.backingScale(for: context.windowFrame)
+        try await CuaDriver.call("click", ["pid": Int(context.target.pid), "window_id": Int(context.windowID),
+                                          "x": Double(p.x / context.scale * backing),
+                                          "y": Double(p.y / context.scale * backing)])
     }
 }

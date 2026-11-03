@@ -332,8 +332,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                 Date().timeIntervalSince(started), context.axLines.count,
                                 ask.sceneState.map { "\($0.split(separator: "\n").count) lines" } ?? "none"))
                 try Task.checkCancellation()
+                if !askedToDo, let (jevPlan, pick) = await self.tryJev(question, context: context) {
+                    Log.info(String(format: "route: path=jev jev=%dms total=%.0fms point=\"%@\" conf=%@", pick.ms,
+                                    Date().timeIntervalSince(started) * 1000, pick.element.label,
+                                    pick.confidence.map { String(format: "%.2f", $0) } ?? "n/a"))
+                    self.overlay.perform(jevPlan, context: context, stay: stay)
+                    self.say(jevPlan.say)
+                    let askedAt = Date()
+                    if let richer = await self.brain.caption(question: question, app: target.name, label: pick.element.label,
+                                                             role: pick.element.role, timeout: 1.5) {
+                        try Task.checkCancellation()
+                        self.overlay.setCaption(richer)
+                        Log.info(String(format: "caption: terra text %.0fms replaced template with \"%@\"", Date().timeIntervalSince(askedAt) * 1000, richer))
+                    } else {
+                        Log.info(String(format: "caption: terra text gave nothing within 1.5s (%.0fms), template kept", Date().timeIntervalSince(askedAt) * 1000))
+                    }
+                    return
+                }
+                let terraStarted = Date()
                 let plan = try await self.brain.plan(question: question, context: context, ask: ask)
                 try Task.checkCancellation()
+                Log.info(String(format: "route: path=terra terra=%.0fms total=%.0fms", Date().timeIntervalSince(terraStarted) * 1000,
+                                Date().timeIntervalSince(started) * 1000))
                 Log.info(String(format: "plan in %.2fs total: %@", Date().timeIntervalSince(started), plan.summary))
                 try await self.carryOut(plan, question: question, context: context, ask: ask, hook: hook, stay: stay)
             } catch is CancellationError {
@@ -343,6 +363,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.overlay.showMessage(error.localizedDescription, near: nil)
             }
         }
+    }
+
+    /// Jev-first pointing: when the question names one control and the AX tree has a labelled
+    /// match, Jev picks it and Buddy points at once. nil means "use Terra", with the reason logged.
+    private func tryJev(_ question: String, context: ScreenContext) async -> (Plan, JevPick)? {
+        guard Jev.isAvailable else { Log.info("route: jev off (no key), terra"); return nil }
+        guard let named = Jev.namedTarget(in: question) else {
+            Log.info("route: no single named target (how-to, vague or not a find), terra")
+            return nil
+        }
+        guard Jev.hasUsableTree(context.axLines) else {
+            Log.info("route: thin AX tree (\(context.axLines.count) lines), terra")
+            return nil
+        }
+        guard let pick = await Jev.pick(question: question, app: context.target.name, title: context.windowTitle,
+                                        elements: Jev.candidates(context.axLines)) else {
+            Log.info("route: jev gave no pick for \"\(named)\", terra")
+            return nil
+        }
+        if let c = pick.confidence, c < Jev.minConfidence {
+            Log.info(String(format: "route: jev conf %.2f below %.2f for \"%@\" in %dms, terra", c, Jev.minConfidence, pick.element.label, pick.ms))
+            return nil
+        }
+        guard Jev.labelMatches(pick.element.label, target: named) else {
+            Log.info("route: jev picked \"\(pick.element.label)\" which does not match \"\(named)\" (\(pick.ms)ms), terra")
+            return nil
+        }
+        var plan = Plan()
+        plan.steps = [PlanStep(kind: .point(pick.element.center), label: pick.element.label)]
+        plan.say = "\(pick.element.label) is here"
+        plan.calls = ["jev:\(pick.element.line)"]
+        return (plan, pick)
     }
 
     /// Points, or does chores (then looks again and points), or does the step when asked to.
