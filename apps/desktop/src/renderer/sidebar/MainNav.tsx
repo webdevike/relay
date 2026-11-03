@@ -150,7 +150,6 @@ export function MainNav() {
               )
             }}
           />
-
         </ScrollArea>
       </div>
       <div className="eva-sb-footer" data-testid="sidebar-footer">

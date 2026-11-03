@@ -277,8 +277,18 @@ export function DoneStep({ ctx }: { ctx: WizardCtx }) {
             className="eva-settings-row eva-settings-row-static eva-setup-check-row"
             data-testid="setup-health"
           >
-            <span className="eva-setup-icon" data-ok={String(c.ok)} data-optional={String(!!c.optional)}>
-              {c.ok ? <IconCheck size={16} /> : c.optional ? <IconMinus size={16} /> : <IconX size={16} />}
+            <span
+              className="eva-setup-icon"
+              data-ok={String(c.ok)}
+              data-optional={String(!!c.optional)}
+            >
+              {c.ok ? (
+                <IconCheck size={16} />
+              ) : c.optional ? (
+                <IconMinus size={16} />
+              ) : (
+                <IconX size={16} />
+              )}
             </span>
             <span className="eva-settings-label">
               <span className="eva-settings-label-title">{c.label}</span>
