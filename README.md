@@ -8,6 +8,7 @@ Sharing; see apps/linux/README.md), and a view of the coding-agent sessions runn
 apps/mobile      Expo + React Native + TypeScript (Expo Router, Gesture Handler, Reanimated, Zustand)
 apps/mac         Swift + SwiftUI menu-bar app (Network.framework, Bonjour, CGEvent, Accessibility)
 apps/linux       Bun + TypeScript host daemon (Bun.serve WebSocket, avahi, /dev/uinput, wtype). See apps/linux/README.md
+apps/desktop     Relay desktop: Electron + React 19.3 + Mantine, with packages/{browser-core,chat-core,contract,eva-core,shell-core}. Its own pnpm workspace; see apps/desktop/README.md
 packages/protocol  Wire protocol: zod schemas + JSON fixtures. apps/mac/Sources/RelayProtocol mirrors it.
 packages/slack-emoji  Slack shortcodes (:clapper:, :+1::skin-tone-3:) as emoji; phone and desktop Reviews. `bun build.ts` regenerates src/data.ts.
 tooling/         Shared eslint config

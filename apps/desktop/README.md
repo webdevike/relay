@@ -5,14 +5,27 @@ the channel lists in `@evaos/contract`), `src/renderer` (React + Mantine). Every
 zod schema in `packages/contract`; main validates inputs, the renderer calls
 `invoke(channel, input)` and subscribes with `on(channel, cb)`.
 
+Its own pnpm workspace inside the Relay monorepo (`pnpm-workspace.yaml` here: this app and
+`packages/{browser-core,chat-core,contract,eva-core,shell-core}`, pnpm 12, isolated linker), kept
+out of the root's hoisted install where the phone app's React 19.1 lives. It links
+`@relay/{portrait-motion,slack-emoji,widget-runtime}` from `packages/`, so install all three:
+
+```
+pnpm install                                                     # repo root (Relay packages)
+(cd packages/widget-runtime && pnpm install --ignore-workspace)  # repo root
+cd apps/desktop && pnpm install && (cd node_modules/electron && node install.js)
+```
+
 ```
 pnpm dev        # Relay Dev: fixtures and fake omp (safe), temp config dir
 pnpm dev:live   # Relay Dev with real ~/Eva and real omp; CDP 9340, agent control on
 pnpm typecheck
-pnpm exec vitest run --project main|preload|renderer
+pnpm exec vitest run --project main|preload|renderer|scripts
+pnpm lint       # eslint, prettier, em-dash and spacing lints, run from the repo root
 ```
 
-How to install a packaged copy is in `TRY.md` at the repo root.
+`pnpm dev`, `pnpm dev:live`, `pnpm e2e` and `pnpm gate` also work from the repo root. How to
+install a packaged copy is in `TRY.md` next to this file.
 
 ## Stable app and Relay Dev
 
