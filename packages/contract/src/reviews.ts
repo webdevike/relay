@@ -286,6 +286,17 @@ export const SlackThreadSchema = z.object({
 })
 export type SlackThread = z.infer<typeof SlackThreadSchema>
 
+/**
+ * Whether Approve shows on a PR: only an eCard auto-work draft whose ledger is at "9 PR (draft)"
+ * with the move on Isaac. `ready` can be tapped, `sent` was handed to Astra and waits for the
+ * ledger to move, `running` means the self-review loop already started.
+ */
+export const ReviewApproveSchema = z.object({
+  key: z.string(),
+  state: z.enum(['ready', 'sent', 'running']),
+})
+export type ReviewApprove = z.infer<typeof ReviewApproveSchema>
+
 export const reviewsInvoke = {
   'reviews.queue': {
     input: z.object({ refresh: z.boolean() }).strict(),
@@ -391,5 +402,18 @@ export const reviewsInvoke = {
       })
       .strict(),
     output: z.object({ url: z.string() }),
+  },
+  /** Whether Approve shows on this PR (an auto-work draft waiting on Isaac), else null. */
+  'reviews.approvable': {
+    input: PrRef.strict(),
+    output: ReviewApproveSchema.nullable(),
+  },
+  /**
+   * Hands Isaac's confirmed approval to Astra, who runs ready.ts for the ticket. The app never
+   * runs it itself.
+   */
+  'reviews.approve': {
+    input: PrRef.strict(),
+    output: AstraSendSchema,
   },
 } as const

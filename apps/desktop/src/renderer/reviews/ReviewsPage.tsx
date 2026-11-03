@@ -17,7 +17,7 @@ import {
   IconMessage,
   IconRefresh,
 } from '@tabler/icons-react'
-import type { LinearTicket, ReviewPr, ReviewRow, SlackRow } from '@evaos/contract'
+import type { LinearTicket, ReviewApprove, ReviewPr, ReviewRow, SlackRow } from '@evaos/contract'
 import type { Place } from '@evaos/shell-core'
 import { invoke } from '../ipc'
 import { openLink } from '../navigation/open-link'
@@ -252,7 +252,18 @@ function Detail({
   const [focusFile, setFocusFile] = useState<string | null>(null)
   const [viewed, setViewed] = useLocal<string[]>(`eva-reviews-viewed:${pr.url}`, [])
   const [draft, setDraft] = useState('')
-  const [confirm, setConfirm] = useState<'comment' | 'review' | null>(null)
+  const [confirm, setConfirm] = useState<'comment' | 'review' | 'approve' | null>(null)
+  const [approval, setApproval] = useState<ReviewApprove | null>(null)
+  // The ledger moves on its own (Astra, the scan): read it when the PR opens and on refresh.
+  useEffect(() => {
+    let live = true
+    void invoke('reviews.approvable', { repo: pr.repo, number: pr.number }).then((r) => {
+      if (live) setApproval(r.ok ? r.value : null)
+    })
+    return () => {
+      live = false
+    }
+  }, [pr.repo, pr.number, fetchedAt])
   const [event, setEvent] = useState<(typeof REVIEW_EVENTS)[number]['value']>('comment')
   const [busy, setBusy] = useState(false)
   const ref = { repo: pr.repo, number: pr.number }
@@ -289,6 +300,22 @@ function Detail({
     onRefresh()
   }
 
+  const approve = async (): Promise<void> => {
+    setBusy(true)
+    const r = await invoke('reviews.approve', ref)
+    setBusy(false)
+    setConfirm(null)
+    if (!r.ok) return fail("Couldn't reach Astra", r.error.message)
+    setApproval((a) => (a ? { ...a, state: 'sent' } : a))
+    notifications.show({
+      message:
+        r.value.status === 'sent'
+          ? 'Sent to Astra to approve.'
+          : `Test instance, not sent: ${r.value.command}`,
+      color: r.value.status === 'sent' ? 'green' : 'gray',
+    })
+  }
+
   const TABS: Array<{ id: Tab; label: string; count?: number; icon?: ReactNode }> = [
     { id: 'conversation', label: 'Conversation', count: pr.timeline.length + 1 },
     { id: 'files', label: 'Files', count: pr.files.length },
@@ -314,6 +341,23 @@ function Detail({
         <button type="button" className="eva-rv-iconbtn" aria-label="Refresh" onClick={onRefresh}>
           <IconRefresh size={14} />
         </button>
+        {approval && approval.state !== 'running' ? (
+          <Button
+            size="xs"
+            leftSection={<IconCheck size={14} />}
+            disabled={approval.state === 'sent'}
+            loading={busy && confirm === 'approve'}
+            onClick={() => setConfirm('approve')}
+            data-testid="review-approve"
+          >
+            {approval.state === 'sent' ? 'Sent to Astra' : 'Approve'}
+          </Button>
+        ) : null}
+        {approval?.state === 'running' ? (
+          <span className="eva-rv-dim eva-rv-small" data-testid="review-approve-running">
+            Self-review running
+          </span>
+        ) : null}
         <Button
           size="xs"
           variant="default"
@@ -458,6 +502,30 @@ function Detail({
         </div>
         <Rail pr={pr} />
       </div>
+
+      <EvaModal
+        opened={confirm === 'approve'}
+        onClose={() => setConfirm(null)}
+        title={`Approve ${approval?.key ?? ''} and hand it to Astra?`}
+        size={480}
+      >
+        <div className="eva-rv-dim eva-rv-small" data-testid="review-approve-text">
+          Astra posts the proof to Linear and starts the self-review loop for {pr.repo}#{pr.number}.
+          Nothing is sent to GitHub from here.
+        </div>
+        <div className="eva-rv-modal-actions">
+          <Button variant="default" onClick={() => setConfirm(null)}>
+            Cancel
+          </Button>
+          <Button
+            loading={busy}
+            onClick={() => void approve()}
+            data-testid="review-approve-confirm"
+          >
+            Hand to Astra
+          </Button>
+        </div>
+      </EvaModal>
 
       <EvaModal
         opened={confirm === 'comment'}
