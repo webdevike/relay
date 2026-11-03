@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { Appearance } from "react-native";
-import { Stack, useNavigationContainerRef } from "expo-router";
+import { Stack, useNavigationContainerRef, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
@@ -11,6 +11,7 @@ import { useSettingsStore } from "@/state/settings";
 import { useColors, useScheme } from "@/theme";
 import { followLiveCalls } from "@/call/live";
 import { LiveCallScreen } from "@/call/LiveCallScreen";
+import { KeyCommands } from "../modules/key-commands";
 
 export default function RootLayout() {
   useConnectionLifecycle();
@@ -22,6 +23,14 @@ export default function RootLayout() {
   useEffect(() => {
     Appearance.setColorScheme(appearance === "system" ? null : appearance);
   }, [appearance]);
+  // Cmd+[ on a hardware keyboard (or iPhone Mirroring) goes back, like Safari.
+  const router = useRouter();
+  useEffect(() => {
+    const subscription = KeyCommands.addListener("back", () => {
+      if (router.canGoBack()) router.back();
+    });
+    return () => subscription.remove();
+  }, [router]);
   // Live calls run natively (the Action Button starts them with no JS). Followed once navigation is
   // ready: a pending fallback opens the assistant's thread, and expo-router refuses to navigate earlier.
   const navigation = useNavigationContainerRef();
