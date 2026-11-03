@@ -58,8 +58,8 @@
 }
 
 .eva-cue-hero {
-  animation: eva-cue var(--eva-cue-hero-duration) var(--eva-ease-out-cubic) calc(var(--eva-cue-hero-delay))
-    both;
+  animation: eva-cue var(--eva-cue-hero-duration) var(--eva-ease-out-cubic)
+    calc(var(--eva-cue-hero-delay)) both;
 }
 
 .eva-cue-sections {

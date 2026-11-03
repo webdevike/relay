@@ -41,16 +41,18 @@ Covers AC1, AC7, visible AC5/AC6 and AC9 integration across all criteria. Issue 
 ## Open Questions
 
 ### Q5: Which UI and review pattern should integrate the approved pilot?
+
 Type: UX
 Importance: LOW
 Answer Format: SINGLE_SELECT
 Options:
+
 - One focused existing-shell page with result/evidence drilldown and after-implementation visual review
 - Separate dashboard and multi-page route family
-Comment: Optional. Per-issue AUTO overrides CHECKPOINTS for the already authorized pilot; main reviews the integrated implementation and visual proof. No new product choice or permission is approved; any HIGH divergence stops.
-Agent Default: One focused existing-shell page with result/evidence drilldown and after-implementation visual review.
-Status: AGENT_DECIDED
-Decision: Reuse navigation metadata, Mantine, tokens and existing page layout; visual review occurs in main's final rendered proof, inline rather than dock.
+  Comment: Optional. Per-issue AUTO overrides CHECKPOINTS for the already authorized pilot; main reviews the integrated implementation and visual proof. No new product choice or permission is approved; any HIGH divergence stops.
+  Agent Default: One focused existing-shell page with result/evidence drilldown and after-implementation visual review.
+  Status: AGENT_DECIDED
+  Decision: Reuse navigation metadata, Mantine, tokens and existing page layout; visual review occurs in main's final rendered proof, inline rather than dock.
 
 ## Verify
 

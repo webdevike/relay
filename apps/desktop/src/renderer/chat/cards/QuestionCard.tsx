@@ -1,5 +1,15 @@
 import { useRef, useState } from 'react'
-import { Box, Button, Group, Kbd, Paper, Stack, Text, TextInput, UnstyledButton } from '@mantine/core'
+import {
+  Box,
+  Button,
+  Group,
+  Kbd,
+  Paper,
+  Stack,
+  Text,
+  TextInput,
+  UnstyledButton,
+} from '@mantine/core'
 import { IconArrowLeft, IconArrowRight, IconCheck } from '@tabler/icons-react'
 import type { AskQuestion, Dialog } from '@evaos/chat-core/message'
 import type { DialogResponse } from '@evaos/contract'

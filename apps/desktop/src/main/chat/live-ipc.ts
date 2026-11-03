@@ -122,29 +122,29 @@ export function createSessionManager(
     ...(mini !== null
       ? { mini }
       : herdrBin !== null
-      ? {
-          herdr: async ({ args, profile }) => {
-            const home = os.homedir()
-            const pathEnv = await childPathFor(ctx.env.live, home)
-            const runner = herdrRunner(
-              async (argv) =>
-                buildCommand(herdrBin, argv, {
-                  pathEnv,
-                  homedir: home,
-                  execPath: process.execPath,
-                  baseEnv: process.env,
-                }),
-              ctx.env.evaRoot,
-            )
-            return launchInHerdr(runner, {
-              root: ctx.env.evaRoot,
-              args,
-              profile,
-              agentDir: ctx.env.agentDir,
-            })
-          },
-        }
-      : {}),
+        ? {
+            herdr: async ({ args, profile }) => {
+              const home = os.homedir()
+              const pathEnv = await childPathFor(ctx.env.live, home)
+              const runner = herdrRunner(
+                async (argv) =>
+                  buildCommand(herdrBin, argv, {
+                    pathEnv,
+                    homedir: home,
+                    execPath: process.execPath,
+                    baseEnv: process.env,
+                  }),
+                ctx.env.evaRoot,
+              )
+              return launchInHerdr(runner, {
+                root: ctx.env.evaRoot,
+                args,
+                profile,
+                agentDir: ctx.env.agentDir,
+              })
+            },
+          }
+        : {}),
     cwd: ctx.env.evaRoot,
     machineLabel: machineLabel(),
     createTransport: () =>
@@ -191,7 +191,11 @@ export function createSessionManager(
   return manager
 }
 
-export function registerLiveIpc(ctx: MainContext, manager: SessionManager, mini: Mini | null): void {
+export function registerLiveIpc(
+  ctx: MainContext,
+  manager: SessionManager,
+  mini: Mini | null,
+): void {
   handle(ctx, 'chat.send', async ({ paneId, text, images, force }) => {
     await manager.send(paneId, text, {
       ...(images ? { images } : {}),
@@ -223,7 +227,10 @@ export function registerLiveIpc(ctx: MainContext, manager: SessionManager, mini:
   }))
   handle(ctx, 'chat.launchState', async ({ paneId }) => {
     // Warm the catalog so imagesAllowed reflects the current model; a failure only means unknown.
-    if (!mini) await catalogFor(ctx).list().catch(() => undefined)
+    if (!mini)
+      await catalogFor(ctx)
+        .list()
+        .catch(() => undefined)
     else if (!mini.peekModels()) await mini.options().catch(() => undefined)
     return manager.launchState(paneId)
   })

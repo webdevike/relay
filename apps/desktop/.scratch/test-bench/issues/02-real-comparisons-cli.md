@@ -44,28 +44,32 @@ Covers AC4, AC8, provider portions of AC5/AC6 and cancellation/error portions of
 ## Open Questions
 
 ### Q3: Which existing omp invocation should adjudicate?
+
 Type: IMPLEMENTATION
 Importance: MEDIUM
 Answer Format: SINGLE_SELECT
 Options:
+
 - Fresh bounded RPC child with mandatory get_state gate before prompt
 - Print-mode child without pre-prompt state handshake
-Comment: Optional. Parent observed the RPC state contract and one successful authenticated call; this supersedes the spike's print-mode candidate.
-Agent Default: Fresh bounded RPC child with mandatory get_state gate before prompt.
-Status: AGENT_DECIDED
-Decision: Use RPC and reject unsafe/unrecognized state before inference. No new auth or architectural permission is needed.
+  Comment: Optional. Parent observed the RPC state contract and one successful authenticated call; this supersedes the spike's print-mode candidate.
+  Agent Default: Fresh bounded RPC child with mandatory get_state gate before prompt.
+  Status: AGENT_DECIDED
+  Decision: Use RPC and reject unsafe/unrecognized state before inference. No new auth or architectural permission is needed.
 
 ### Q4: How should CLI and documentation reuse the engine?
+
 Type: IMPLEMENTATION
 Importance: LOW
 Answer Format: SINGLE_SELECT
 Options:
+
 - Bundled Electron-main CLI using the same service and existing TRY.md
 - Separate Node/browser runner and separate CLI guide
-Comment: Optional. Electron is already the runtime; docs count as production under measurement.
-Agent Default: Bundled Electron-main CLI using the same service and existing TRY.md.
-Status: AGENT_DECIDED
-Decision: Keep one engine/schema and one documentation owner here, including later UI/proof instructions.
+  Comment: Optional. Electron is already the runtime; docs count as production under measurement.
+  Agent Default: Bundled Electron-main CLI using the same service and existing TRY.md.
+  Status: AGENT_DECIDED
+  Decision: Keep one engine/schema and one documentation owner here, including later UI/proof instructions.
 
 ## Implementation Handoff
 

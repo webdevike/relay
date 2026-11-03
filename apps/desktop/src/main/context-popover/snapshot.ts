@@ -771,7 +771,10 @@ function assistantHere(c: Ctx, agentId: string): Here {
       .map((w) => workerRow(w, null)),
     // Its subagents for a day; the sessions it started once its job closed them.
     resolved: workers
-      .filter((w) => !w.running && (w.closed === true || (w.closed === undefined && c.now - w.at < DAY_MS)))
+      .filter(
+        (w) =>
+          !w.running && (w.closed === true || (w.closed === undefined && c.now - w.at < DAY_MS)),
+      )
       .sort((x, y) => y.at - x.at)
       .map((w) => workerRow(w, null)),
   }

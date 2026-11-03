@@ -435,7 +435,13 @@ describe('studio agent actions', () => {
     expect(relay.ops.at(-1)).toMatchObject({ spec: { backend: 'codex-edit', refs: ['a1'] } })
     await generate(runners, { backend: 'kontext', refs: ['a1'], seed: 5 })
     expect(relay.ops.at(-1)).toMatchObject({
-      spec: { mode: 'image', backend: 'kontext', refs: ['a1'], seed: 5, resolution: 'kontext-square' },
+      spec: {
+        mode: 'image',
+        backend: 'kontext',
+        refs: ['a1'],
+        seed: 5,
+        resolution: 'kontext-square',
+      },
     })
   })
 

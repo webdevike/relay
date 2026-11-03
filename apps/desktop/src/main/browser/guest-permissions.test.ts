@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { allowGuestPermission, GESTURE_WINDOW_MS, isClipboardReadTrusted } from './guest-permissions'
+import {
+  allowGuestPermission,
+  GESTURE_WINDOW_MS,
+  isClipboardReadTrusted,
+} from './guest-permissions'
 
 const FRESH = 100
 const TRUSTED = [

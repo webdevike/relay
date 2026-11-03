@@ -49,7 +49,12 @@ class FakeHost {
       })
     } else if (f.t === 'blob.read') {
       const b = this.blobs.get(f.hash as string)
-      this.push({ t: 'blob.data', hash: f.hash, mime: b ? 'image/png' : null, data: b?.toString('base64') ?? null })
+      this.push({
+        t: 'blob.data',
+        hash: f.hash,
+        mime: b ? 'image/png' : null,
+        data: b?.toString('base64') ?? null,
+      })
     }
   }
 }

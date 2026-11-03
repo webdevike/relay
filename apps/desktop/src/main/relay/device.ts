@@ -88,7 +88,9 @@ export function remoteSecretStore(config: ConfigStore, remote: RelayRemote) {
   const id = remoteAuthority(remote)
   return {
     secret(): Uint8Array | null {
-      const p = PairedSchema.safeParse(config.readJson<{ paired?: unknown }>(REMOTE_FILE, {}).paired)
+      const p = PairedSchema.safeParse(
+        config.readJson<{ paired?: unknown }>(REMOTE_FILE, {}).paired,
+      )
       return p.success && p.data.id === id ? Buffer.from(p.data.secretHex, 'hex') : null
     },
     save(secret: Uint8Array): void {

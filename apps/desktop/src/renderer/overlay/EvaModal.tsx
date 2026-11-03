@@ -45,7 +45,10 @@ export function EvaModal({
       data-testid={testid}
     >
       <Modal.Overlay className="eva-modal-backdrop" />
-      <Modal.Content className="eva-modal-content" data-fullscreen={fullScreen ? 'true' : undefined}>
+      <Modal.Content
+        className="eva-modal-content"
+        data-fullscreen={fullScreen ? 'true' : undefined}
+      >
         <Modal.Header className="eva-modal-header">
           <Modal.Title className="eva-modal-title">{title}</Modal.Title>
           {actions}

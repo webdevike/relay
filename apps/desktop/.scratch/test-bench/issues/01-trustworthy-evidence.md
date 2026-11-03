@@ -45,28 +45,32 @@ Covers AC2, AC3, AC5, AC6 and the engine portions of AC1/AC4. This is the comple
 ## Open Questions
 
 ### Q1: Which common comparison input should the pilot use?
+
 Type: IMPLEMENTATION
 Importance: MEDIUM
 Answer Format: SINGLE_SELECT
 Options:
+
 - Equal deterministic text observations; screenshots retained as inspectable evidence
 - Add an image-capable comparison track
-Comment: Optional. The inspected Jev request supports state/questions, not images.
-Agent Default: Equal deterministic text observations; screenshots retained as inspectable evidence.
-Status: AGENT_DECIDED
-Decision: Use the text-observation track for both providers, retaining real PNG evidence without claiming model vision.
+  Comment: Optional. The inspected Jev request supports state/questions, not images.
+  Agent Default: Equal deterministic text observations; screenshots retained as inspectable evidence.
+  Status: AGENT_DECIDED
+  Decision: Use the text-observation track for both providers, retaining real PNG evidence without claiming model vision.
 
 ### Q2: Which execution and accounting defaults apply?
+
 Type: IMPLEMENTATION
 Importance: MEDIUM
 Answer Format: SINGLE_SELECT
 Options:
+
 - Sequential bounded execution and explicit denominators as specified above
 - Parallel execution with a separate scheduler
-Comment: Optional. Limits are versioned implementation defaults, not new permission grants.
-Agent Default: Sequential bounded execution and explicit denominators as specified above.
-Status: AGENT_DECIDED
-Decision: Use the specified bounds, partial persistence and score denominators; injected adjudication is required and has no production fallback.
+  Comment: Optional. Limits are versioned implementation defaults, not new permission grants.
+  Agent Default: Sequential bounded execution and explicit denominators as specified above.
+  Status: AGENT_DECIDED
+  Decision: Use the specified bounds, partial persistence and score denominators; injected adjudication is required and has no production fallback.
 
 ## Verify
 

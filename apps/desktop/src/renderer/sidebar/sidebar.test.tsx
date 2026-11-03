@@ -107,9 +107,7 @@ describe('MainNav', () => {
     expect(screen.queryByTestId('count-jobs')).toBeNull()
     act(() => sidebarStore.setState({ error: true }))
     expect(
-      screen.getByText(
-        'Could not read counts. Press the refresh shortcut to try again.',
-      ),
+      screen.getByText('Could not read counts. Press the refresh shortcut to try again.'),
     ).toBeInTheDocument()
   })
 
@@ -129,7 +127,10 @@ describe('MainNav', () => {
       updatedAt: '',
     })
     boardsStore.setState({
-      data: { boards: [board('eva-today', 'Eva today'), board('goodops', 'GoodOps live')], relayUp: true },
+      data: {
+        boards: [board('eva-today', 'Eva today'), board('goodops', 'GoodOps live')],
+        relayUp: true,
+      },
     })
     seed('board:goodops')
     wrap(<MainNav />)

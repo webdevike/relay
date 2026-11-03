@@ -204,9 +204,7 @@ export function Lightbox({ slug, images, openId, onClose }: LightboxProps) {
   const [index, setIndex] = useState(0)
   const [stage, setStage] = useState<Size | null>(null)
   /** The shown image's natural size and view, keyed by image so a step never shows a stale one. */
-  const [shownView, setShownView] = useState<{ id: string; natural: Size; view: View } | null>(
-    null,
-  )
+  const [shownView, setShownView] = useState<{ id: string; natural: Size; view: View } | null>(null)
   /** Whether the view follows the window: true until the image is zoomed or panned. */
   const fittedRef = useRef(true)
   const opened = openId !== null
@@ -219,7 +217,12 @@ export function Lightbox({ slug, images, openId, onClose }: LightboxProps) {
   // Opening reads the board as it is; later board edits keep the current index.
   useEffect(() => {
     if (openId === null) return
-    setIndex(Math.max(0, imagesRef.current.findIndex((i) => i.id === openId)))
+    setIndex(
+      Math.max(
+        0,
+        imagesRef.current.findIndex((i) => i.id === openId),
+      ),
+    )
     setShownView(null)
   }, [openId])
 

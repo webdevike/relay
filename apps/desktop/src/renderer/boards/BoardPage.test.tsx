@@ -42,7 +42,12 @@ describe('BoardPage', () => {
     act(() =>
       boardsStore.setState({
         data: {
-          boards: [{ ...board, widgets: [{ ...board.widgets[1]!, spec: { widget: 'text', text: 'Busy' } }] }],
+          boards: [
+            {
+              ...board,
+              widgets: [{ ...board.widgets[1]!, spec: { widget: 'text', text: 'Busy' } }],
+            },
+          ],
           relayUp: true,
         },
       }),

@@ -72,7 +72,8 @@ export const AWAY_SETTING =
   'This chat runs outside this app. Change its access and fast mode where it runs.'
 export const MINI_CANT_REACH =
   "This chat runs on the Mini and Relay can't reach it. Reply to it where it runs."
-export const MINI_DOWN = "Relay isn't connected to the Mini. Wait for it to reconnect, then send again."
+export const MINI_DOWN =
+  "Relay isn't connected to the Mini. Wait for it to reconnect, then send again."
 export const MINI_GOAL = 'Start a /goal chat on the Mini: this laptop does not run omp itself.'
 export const APPROVE_ON_PHONE =
   'This is a destructive command. Approve it on your phone or on the Mini.'

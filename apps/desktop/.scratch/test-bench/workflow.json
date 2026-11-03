@@ -108,10 +108,34 @@
     }
   ],
   "openQuestions": [
-    { "id": "Q1", "issueId": "01", "type": "IMPLEMENTATION", "importance": "MEDIUM", "status": "AGENT_DECIDED" },
-    { "id": "Q2", "issueId": "01", "type": "IMPLEMENTATION", "importance": "MEDIUM", "status": "AGENT_DECIDED" },
-    { "id": "Q3", "issueId": "02", "type": "IMPLEMENTATION", "importance": "MEDIUM", "status": "AGENT_DECIDED" },
-    { "id": "Q4", "issueId": "02", "type": "IMPLEMENTATION", "importance": "LOW", "status": "AGENT_DECIDED" },
+    {
+      "id": "Q1",
+      "issueId": "01",
+      "type": "IMPLEMENTATION",
+      "importance": "MEDIUM",
+      "status": "AGENT_DECIDED"
+    },
+    {
+      "id": "Q2",
+      "issueId": "01",
+      "type": "IMPLEMENTATION",
+      "importance": "MEDIUM",
+      "status": "AGENT_DECIDED"
+    },
+    {
+      "id": "Q3",
+      "issueId": "02",
+      "type": "IMPLEMENTATION",
+      "importance": "MEDIUM",
+      "status": "AGENT_DECIDED"
+    },
+    {
+      "id": "Q4",
+      "issueId": "02",
+      "type": "IMPLEMENTATION",
+      "importance": "LOW",
+      "status": "AGENT_DECIDED"
+    },
     { "id": "Q5", "issueId": "03", "type": "UX", "importance": "LOW", "status": "AGENT_DECIDED" }
   ]
 }

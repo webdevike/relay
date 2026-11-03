@@ -191,13 +191,20 @@ describe('tabs', () => {
 
   it('numbers tabs by position when saved ids repeat or are missing', () => {
     const here = { page: 'jobs' }
-    const dup = loadTabs({ active: 1, list: [{ id: 5, here }, { id: 5, here }], nextId: 9 })
+    const dup = loadTabs({
+      active: 1,
+      list: [
+        { id: 5, here },
+        { id: 5, here },
+      ],
+      nextId: 9,
+    })
     expect(dup.list.map((t) => t.id)).toEqual([0, 1])
     expect(dup.nextId).toBe(2)
     expect(dup.active).toBe(1)
-    expect(loadTabs({ active: 0, list: [{ id: 7, here }, { here }] }).list.map((t) => t.id)).toEqual(
-      [0, 1],
-    )
+    expect(
+      loadTabs({ active: 0, list: [{ id: 7, here }, { here }] }).list.map((t) => t.id),
+    ).toEqual([0, 1])
   })
 
   it('drops removed pages from tabs and history while preserving the active supported tab', () => {

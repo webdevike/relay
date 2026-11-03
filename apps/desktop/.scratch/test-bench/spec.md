@@ -112,7 +112,6 @@ Deliver the verification-first UI/UX pilot previously proposed: a runnable fixtu
 
 Revised budget: **3,050 expected / 3,300 maximum production LOC**, **36 expected / 38 maximum total touched files**. Test LOC are accounted separately; docs/config count toward non-test production measurement. Zero new dependencies and zero generic framework abstractions; concrete domain modules/interfaces are not a new framework. Historical reviewed estimate was **2,200 / 2,550 LOC**, **33 / 38 files**; the accounting correction and its limits are recorded below.
 
-
 ## Plan Review
 
 Status: APPROVED
@@ -167,9 +166,11 @@ No open feedback.
 ## Parent Completion
 
 ### Status
+
 COMPLETE
 
 ### Acceptance Criteria
+
 - PASS AC1: Actual EvaOS navigation, exact model selection, Run comparison and Cancel run driven through the browser; saved cancellation showed 0/48 complete and no qualification.
 - PASS AC2: 24 explicit cases, six per category, 16 development/eight holdout. Protected labels excluded by validated public envelopes and outbound-payload regressions.
 - PASS AC3: Live Electron evidence captured clean/defective clipping, associated labels, actual keyboard focus and save/reload persistence. Native PNGs visually inspected.
@@ -181,12 +182,14 @@ COMPLETE
 - PASS AC9: Typecheck, 1,183 unit tests and three Electron scenarios passed. Actual UI, browser cases, error/cancel paths and installed package verified. Installed at `~/Applications/EvaOS Electron.app`; no working session restarted or remote push performed.
 
 ### Planned Complexity
+
 - Score: 8
 - Original production estimate: 2,200 / 2,550 hard cap.
 - Documented normal-format accounting replan: 3,050 / 3,300 hard cap, unchanged acceptance.
 - Files: 36 expected / 38 hard cap.
 
 ### Actual Complexity
+
 - Production LOC added: 3018
 - Production LOC deleted: 13
 - Net LOC: 3005
@@ -197,12 +200,14 @@ COMPLETE
 - Framework abstractions added: 0
 
 ### Subissues
+
 - Planned: 3
 - Completed: 3
 - Added: none
 - Scope changes: none. Existing file headroom covered tab naming and the terminal signal launcher.
 
 ### Verification
+
 - `pnpm typecheck` — PASS.
 - Full Vitest JSON report — 1,183 passed, zero failed, two native-browser tests skipped under Node. Their actual behaviors were independently exercised through live Electron benchmark runs, not counted as unit passes.
 - Focused ESLint — PASS.
@@ -213,9 +218,11 @@ COMPLETE
 - Durable screenshots and unit JSON: Eva hub `work/agent-trust-forge/delivered/`.
 
 ### Simplification
+
 - Reused Electron, existing authentication, shared engine/CLI/UI storage and typed IPC. No new database, browser runtime, service, dependency or dashboard framework.
 - Removed copied-navigation/source-regex assertions; retained runtime boundary and user-behavior regressions.
 - Deferred UI details behind disclosure rather than removing evidence.
 
 ### Final Result
+
 The approved Inspect pilot is implemented and installed within the reviewed accounting envelope. Later capability levels remain explicitly unassessed, not stub executors or granted autonomy.

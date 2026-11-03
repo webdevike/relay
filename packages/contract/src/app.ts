@@ -56,7 +56,15 @@ export const appInvoke = {
   },
   /** The PIN from a remote Relay Host's log, or null when Isaac cancels pairing. */
   'relay.pin.reply': {
-    input: z.object({ id: z.string().max(64), pin: z.string().regex(/^\d{6}$/).nullable() }).strict(),
+    input: z
+      .object({
+        id: z.string().max(64),
+        pin: z
+          .string()
+          .regex(/^\d{6}$/)
+          .nullable(),
+      })
+      .strict(),
     output: Empty,
   },
 } as const

@@ -28,7 +28,9 @@ function useIssue(key: string): Loaded {
     setLoaded({ state: 'loading' })
     void invoke('linear.issue', { key }).then((r) => {
       if (!live) return
-      setLoaded(r.ok ? { state: 'ok', issue: r.value } : { state: 'error', message: r.error.message })
+      setLoaded(
+        r.ok ? { state: 'ok', issue: r.value } : { state: 'error', message: r.error.message },
+      )
     })
     return () => {
       live = false
@@ -81,7 +83,9 @@ export function TicketCard({ ticket }: { ticket: string }) {
       <div className="eva-cl-card-title">{issue.title}</div>
       <div className="eva-cl-card-lines">
         {line(<IconUser size={12} stroke={1.75} />, issue.assignee ?? 'Unassigned')}
-        {issue.project !== null ? line(<IconFolder size={12} stroke={1.75} />, issue.project) : null}
+        {issue.project !== null
+          ? line(<IconFolder size={12} stroke={1.75} />, issue.project)
+          : null}
         <span>{ago === 'now' ? 'Updated just now' : `Updated ${ago} ago`}</span>
       </div>
     </div>

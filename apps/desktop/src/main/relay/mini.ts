@@ -113,7 +113,9 @@ export function createMini(
         if (provider === null || id === null) return []
         const raw: unknown[] = Array.isArray(m.thinkingLevels) ? m.thinkingLevels : []
         const levels = raw.filter((l): l is string => typeof l === 'string')
-        return [{ provider, id, name: str(m.name) ?? id, contextWindow: null, images: true, levels }]
+        return [
+          { provider, id, name: str(m.name) ?? id, contextWindow: null, images: true, levels },
+        ]
       })
       const commands = list(f.skills)
         .map((s) => slashCommand(s, 0))

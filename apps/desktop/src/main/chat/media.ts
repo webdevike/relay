@@ -45,7 +45,8 @@ export function readBlobImage(
       if (!real.startsWith(base + path.sep)) continue
       const stat = fs.statSync(real)
       if (!stat.isFile()) continue
-      if (stat.size > MAX_IMAGE_BYTES) throw new MediaError('image-too-large', 'Image is over 20 MB')
+      if (stat.size > MAX_IMAGE_BYTES)
+        throw new MediaError('image-too-large', 'Image is over 20 MB')
       const bytes = fs.readFileSync(real)
       const size = imageSize(bytes.subarray(0, 65_536))
       if (size === null) throw new MediaError('not-an-image', 'Not a png, jpeg, gif or webp image')

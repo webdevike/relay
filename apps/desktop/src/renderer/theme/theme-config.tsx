@@ -96,10 +96,13 @@ function themesFrom(value: unknown, migrate: boolean): UserTheme[] {
 /** Persisted state merged over the Default preset, as Texo restores it; anything else is ignored. */
 export function parseSavedTheme(value: unknown): SavedTheme | undefined {
   if (typeof value !== 'object' || value === null) return undefined
-  const { config, preset: name, colorScheme, themes, focusRingMigrated } = value as Record<
-    string,
-    unknown
-  >
+  const {
+    config,
+    preset: name,
+    colorScheme,
+    themes,
+    focusRingMigrated,
+  } = value as Record<string, unknown>
   if (typeof config !== 'object' || config === null || typeof name !== 'string') return undefined
   const legacy = (config as { colorScheme?: unknown }).colorScheme
   const migrate = focusRingMigrated !== true
