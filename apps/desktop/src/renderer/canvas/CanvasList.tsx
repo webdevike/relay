@@ -14,7 +14,7 @@ import {
   useCanvasList,
   useCanvasListSurface,
 } from './canvas-store'
-import { ListEmpty, ListRow, ListView } from '../ui/list'
+import { ListEmpty, ListRow, ListView, rowTip } from '../ui/list'
 import './canvas.css'
 
 /** Pinned, then Recent (newest first), filtered by title or slug (native sidebar_list). */
@@ -46,18 +46,11 @@ function Row({
   return (
     <ListRow
       data-testid={`canvas-row-${entry.slug}`}
+      tooltip={rowTip(entry.title, `${entry.nodes} ${entry.nodes === 1 ? 'node' : 'nodes'}`)}
       active={active}
       aria-current={active ? 'page' : undefined}
       leading={<IconSchema size={16} stroke={1.5} aria-hidden />}
       title={entry.title}
-      trailing={
-        <>
-          {entry.pinned ? <IconPin size={12} stroke={1.5} aria-label="Pinned" /> : null}
-          <span className="eva-cv-count" data-testid={`canvas-count-${entry.slug}`}>
-            {entry.nodes}
-          </span>
-        </>
-      }
       onActivate={(e) => openFromNav(placeOf('canvas', { canvas: entry.slug }), e)}
       middleClick
       onMenu={(x, y) => onMenu(entry, x, y)}

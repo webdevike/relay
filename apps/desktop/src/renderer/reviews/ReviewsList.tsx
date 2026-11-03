@@ -10,10 +10,11 @@ import type { ReviewRow, SlackRow } from '@evaos/contract'
 import { emojify } from '@relay/slack-emoji'
 import {
   ListEmpty,
-  ListPill,
   ListRow,
+  ListStatus,
   ListTime,
   ListView,
+  rowTip,
   type ListGroup,
   type ListTone,
 } from '../ui/list'
@@ -38,6 +39,7 @@ import {
   prMatches,
   queryWords,
   shortPrId,
+  sidebarTitle,
   slackId,
   slackMatches,
   sourceOf,
@@ -293,7 +295,10 @@ export function ReviewsList({ variant = 'sidebar' }: { variant?: 'sidebar' | 'pa
         <ListRow
           key={prKey(r)}
           data-testid={`review-row-${r.number}`}
-          tooltip={`${r.repo}#${r.number} ${r.title}`}
+          tooltip={rowTip(
+            r.title,
+            [shortPrId(r), page ? r.author : subtitle.get(group.id)].filter(Boolean).join(' · '),
+          )}
           active={activeId === `pr:${r.repo}#${r.number}`}
           leading={
             <Glyph
@@ -304,21 +309,18 @@ export function ReviewsList({ variant = 'sidebar' }: { variant?: 'sidebar' | 'pa
               aria-label={r.draft ? 'Draft pull request' : 'Pull request'}
             />
           }
-          title={r.title}
-          meta={
-            page
-              ? `${shortPrId(r)} · ${r.author}`
-              : `${shortPrId(r)} · ${subtitle.get(group.id) ?? ''}`
-          }
+          title={page ? r.title : sidebarTitle(r.title)}
           trailing={
             <>
-              {page
-                ? rowPills(r, status[rowStatusKey(r)]).map((p) => (
-                    <ListPill key={p.label} tone={PILL_TONE[p.tone]} data-testid={p.testId}>
-                      {p.label}
-                    </ListPill>
-                  ))
-                : null}
+              {page ? (
+                <ListStatus
+                  data-testid="review-row-status"
+                  items={rowPills(r, status[rowStatusKey(r)]).map((p) => ({
+                    label: p.label,
+                    tone: PILL_TONE[p.tone],
+                  }))}
+                />
+              ) : null}
               <ListTime>{ago(r.updatedAt, now)}</ListTime>
             </>
           }
@@ -333,11 +335,10 @@ export function ReviewsList({ variant = 'sidebar' }: { variant?: 'sidebar' | 'pa
           key={r.key}
           data-testid={`review-ticket-${r.key}`}
           data-unread={r.unread || undefined}
-          tooltip={`${r.key} ${r.title}`}
+          tooltip={rowTip(`${r.key} ${r.title}`, `${r.actor} ${r.reason}`)}
           active={activeId === `linear:${r.key}`}
           leading={<SourceMark source="linear" />}
-          title={r.title}
-          meta={`${r.key} · ${r.actor} ${r.reason}`}
+          title={r.title.includes(r.key) ? r.title : `${r.key} ${r.title}`}
           trailing={<ListTime>{ago(r.updatedAt, now)}</ListTime>}
           {...handlers}
         />
@@ -350,13 +351,17 @@ export function ReviewsList({ variant = 'sidebar' }: { variant?: 'sidebar' | 'pa
         key={r.url}
         data-testid="review-slack-row"
         data-thread={r.threadTs ? true : undefined}
-        tooltip={`${r.channelName}: ${text}`}
+        tooltip={rowTip(`${r.channelName}: ${text}`, r.author)}
         active={
           activeId === reviewIdOf({ kind: 'slack', channel: r.channel, threadTs: r.threadTs })
         }
         leading={<SourceMark source="slack" />}
-        title={`${r.channelName}${r.threadTs && r.kind === 'reply' ? ' thread' : ''}`}
-        meta={r.author ? `${r.author}: ${text}` : text}
+        title={
+          <>
+            {`${r.channelName}${r.threadTs && r.kind === 'reply' ? ' thread' : ''}`}
+            <span className="eva-list-sub">{text}</span>
+          </>
+        }
         trailing={<ListTime>{ago(r.updatedAt, now)}</ListTime>}
         {...handlers}
       />

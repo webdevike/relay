@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { ActionIcon, Button, Switch, Tooltip } from '@mantine/core'
+import { ActionIcon, Button, Switch, Tooltip, VisuallyHidden } from '@mantine/core'
 import {
   IconAlertTriangle,
   IconCheck,
@@ -16,7 +16,15 @@ import type { Place } from '@evaos/shell-core'
 import type { JobSummaryDto } from '@evaos/contract'
 import { agoLabel, scheduleLabel } from '@evaos/eva-core/model/jobs'
 import { registerReloader } from '../reload/reload'
-import { ListEmpty, ListPill, ListRow, ListView, type ListColumn, type ListTone } from '../ui/list'
+import {
+  ListEmpty,
+  ListRow,
+  ListStatus,
+  ListView,
+  rowTip,
+  type ListColumn,
+  type ListTone,
+} from '../ui/list'
 import { JobForm } from './JobForm'
 import { formatNextDue } from './job-format'
 import { loadJobs, openJobForm, setJobEnabled, useJobs } from './jobs-store'
@@ -36,9 +44,7 @@ const PILL_TONE: Record<Badge['tone'], ListTone> = { success: 'ok', warning: 'ba
 
 const COLUMNS: ListColumn[] = [
   { id: 'name', label: 'Name', width: 'minmax(0, 2.2fr)' },
-  { id: 'schedule', label: 'Schedule', width: 'minmax(88px, 0.8fr)' },
-  { id: 'last', label: 'Last run', width: 'minmax(150px, 1.4fr)' },
-  { id: 'due', label: 'Next due', width: 'minmax(0, 1.2fr)' },
+  { id: 'last', label: 'Last run', width: 'minmax(120px, 1fr)' },
   { id: 'enabled', label: 'Enabled', width: '64px' },
 ]
 
@@ -64,50 +70,44 @@ export function runBadge(job: JobSummaryDto): Badge | null {
 function JobRow({ job, now }: { job: JobSummaryDto; now: number }) {
   const badge = runBadge(job)
   const due = formatNextDue(job.nextDueAt, job.enabled, job.every, new Date(now))
+  const schedule = scheduleLabel(job.every)
   const Kind = job.hasScript ? IconTerminal2 : IconMessageCircle
   return (
     <ListRow
       data-testid={`job-row-${job.name}`}
       leading={<Kind size={16} stroke={1.5} aria-hidden />}
-      title={<span className="eva-jobs-mono">{job.name}</span>}
-      meta={job.description || undefined}
+      // The schedule and next due live in the hover text; the job's own description is not shown.
+      tooltip={rowTip(job.name, `${schedule} · ${due.text}`)}
+      title={
+        <>
+          <span className="eva-jobs-mono">{job.name}</span>
+          <VisuallyHidden component="span">
+            {schedule} <span data-testid={`job-due-${job.name}`}>{due.text}</span>
+          </VisuallyHidden>
+        </>
+      }
       dim={!job.enabled}
       onActivate={() => openJobForm({ mode: 'edit', name: job.name })}
       cells={[
-        scheduleLabel(job.every),
         <span key="last" className="eva-jobs-last">
           {job.lastRunAt !== null ? (
             <span className="eva-dim">{agoLabel(job.lastRunAt, now)}</span>
           ) : null}
           {badge ? (
-            <ListPill
-              tone={PILL_TONE[badge.tone]}
+            <ListStatus
+              items={[{ label: badge.text, tone: PILL_TONE[badge.tone] }]}
               icon={
                 <badge.Glyph
-                  size={12}
-                  stroke={1.75}
+                  size={16}
+                  stroke={1.5}
+                  aria-hidden
                   className={badge.spin ? 'eva-list-spin' : undefined}
                 />
               }
               data-testid={`job-state-${job.name}`}
-            >
-              {badge.text}
-            </ListPill>
+            />
           ) : null}
         </span>,
-        due.tone === 'warning' ? (
-          <ListPill key="due" tone="warn" data-testid={`job-due-${job.name}`}>
-            {due.text}
-          </ListPill>
-        ) : (
-          <span
-            key="due"
-            className={due.tone === 'dim' ? 'eva-dim' : undefined}
-            data-testid={`job-due-${job.name}`}
-          >
-            {due.text}
-          </span>
-        ),
         <span key="enabled" onClick={(e) => e.stopPropagation()}>
           <Tooltip label={job.enabled ? 'Enabled' : 'Disabled'} openDelay={300}>
             <Switch

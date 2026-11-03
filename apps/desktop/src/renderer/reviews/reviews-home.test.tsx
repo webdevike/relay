@@ -1,5 +1,5 @@
 import { MantineProvider } from '@mantine/core'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as TilingStore from '../tiling/tiling-store'
 
@@ -136,38 +136,42 @@ beforeEach(() => {
 })
 
 describe('Reviews home (nothing selected)', () => {
-  it('lists the queue instead of a placeholder, with CI and Approve ready', async () => {
+  const status = (n: number) =>
+    within(screen.getByTestId(`review-row-${n}`)).getByTestId('review-row-status')
+
+  it('lists the queue instead of a placeholder, one status mark a row', async () => {
     wrap()
     expect(await screen.findByTestId('review-row-172')).toBeTruthy()
     expect(screen.queryByText(/Pick a pull request/)).toBeNull()
-    await waitFor(() => expect(screen.getAllByTestId('review-row-ci')).toHaveLength(3))
-    expect(screen.getAllByText('CI passing')).toHaveLength(2)
-    expect(screen.getByText('CI failing')).toBeTruthy()
-    await waitFor(() => expect(screen.getAllByTestId('review-row-approve')).toHaveLength(1))
-    expect(screen.getAllByText('Draft')).toHaveLength(2)
+    await waitFor(() => expect(screen.getAllByTestId('review-row-status')).toHaveLength(3))
+    expect(status(172)).toHaveTextContent('CI passing')
+    expect(status(173)).toHaveTextContent('Draft · CI failing · Approve ready')
+    expect(screen.getByTestId('review-row-172').querySelectorAll('.eva-list-pill')).toHaveLength(0)
   })
 
   it('shows where each auto-work PR stands, from the ledger and the self-review loop', async () => {
     wrap()
-    expect(await screen.findByText('Self-review 1/3')).toBeTruthy()
+    await waitFor(() =>
+      expect(status(174)).toHaveTextContent('Draft · CI passing · Self-review 1/3'),
+    )
   })
 
   it('moves a row to Approved when the ledger shows the approve was sent, without a reload', async () => {
     wrap()
-    await screen.findByText('Approve ready')
+    await waitFor(() => expect(status(173)).toHaveTextContent('Approve ready'))
     approveState = 'sent'
     await act(async () => refreshRowStatus())
-    expect(await screen.findByText('Approved')).toBeTruthy()
-    expect(screen.queryByText('Approve ready')).toBeNull()
+    await waitFor(() => expect(status(173)).toHaveTextContent('Approved'))
+    expect(status(173)).not.toHaveTextContent('Approve ready')
   })
 
-  it('drops the Draft pill when GitHub says the PR is ready, whatever the cached queue row says', async () => {
+  it('drops Draft when GitHub says the PR is ready, whatever the cached queue row says', async () => {
     wrap()
-    await waitFor(() => expect(screen.getAllByText('Draft')).toHaveLength(2))
+    await waitFor(() => expect(status(173)).toHaveTextContent('Draft'))
     live173Draft = false
     await act(async () => refreshRowStatus())
-    await waitFor(() => expect(screen.getAllByText('Draft')).toHaveLength(1))
-    expect(screen.getByText('Ready for review')).toBeTruthy()
+    await waitFor(() => expect(status(173)).not.toHaveTextContent('Draft'))
+    expect(status(173)).toHaveTextContent('Ready for review')
   })
 
   it('does not open a PR by itself', async () => {

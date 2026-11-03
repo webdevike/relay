@@ -66,12 +66,16 @@ describe('JobsPage', () => {
     expect(await screen.findByTestId('job-row-nightly')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Jobs' })).toBeInTheDocument()
     expect(screen.getByTestId('jobs-scheduled')).toHaveTextContent('2 scheduled')
-    for (const c of ['Name', 'Schedule', 'Last run', 'Next due', 'Enabled']) {
+    for (const c of ['Name', 'Last run', 'Enabled']) {
       expect(screen.getByText(c)).toBeInTheDocument()
     }
+    expect(screen.queryByText('Schedule')).toBeNull()
+    expect(screen.queryByText('Next due')).toBeNull()
     const row = screen.getByTestId('job-row-nightly')
+    // The schedule and next due are on hover; the description is not shown at all.
+    expect(row).toHaveAttribute('title', expect.stringMatching(/^nightly\nEvery 2h · /))
+    expect(within(row).queryByText('nightly steps')).toBeNull()
     expect(within(row).getByText('Every 2h')).toBeInTheDocument()
-    expect(within(row).getByText('nightly steps')).toBeInTheDocument()
     expect(within(row).getByText('1h ago')).toBeInTheDocument()
     expect(
       within(screen.getByTestId('job-row-manual-check')).getByText('Manual'),

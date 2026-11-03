@@ -29,13 +29,6 @@
   flex: none;
   background: var(--mantine-color-gray-1);
 }
-/* The agent's scope beside its name. */
-.eva-as-row-scope {
-  margin-left: calc(var(--mantine-spacing-xs) * 0.8);
-  font-size: var(--eva-fz-label);
-  font-weight: var(--eva-fw-regular);
-  color: var(--eva-c-muted-foreground);
-}
 
 /* An agent's page before its thread starts */
 .eva-as-start {

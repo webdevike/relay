@@ -19,8 +19,11 @@ import {
 import { pollHabits, runHabit, useHabits } from './habit-store'
 import './habits.css'
 
-/** The gate, the next break, today's breaks and the best streak, as option D's KPI strip. */
-function gateKpis(status: GateStatus, now: Date): ListKpi[] {
+/**
+ * The gate and the next break as option D's KPI strip; today's breaks and the best streak wait
+ * in the strip's info tooltip.
+ */
+function gateKpis(status: GateStatus, now: Date): { shown: ListKpi[]; more: ListKpi[] } {
   const next = nextBreakAt(status.plan, now)
   const breaks = todaysBreaks(status.plan, now)
   const today = localDate(now)
@@ -28,24 +31,28 @@ function gateKpis(status: GateStatus, now: Date): ListKpi[] {
     0,
     ...status.habits.map((h) => streak(status.history as GateHistory[], h.id, today)),
   )
-  return [
-    {
-      label: status.locked ? 'Finish a habit to unlock AI tools' : 'AI tools are on',
-      value: status.locked ? 'Locked' : 'Unlocked',
-      'data-testid': 'habit-gate',
-    },
-    {
-      label: next ? 'Next break' : 'No more breaks today',
-      value: next ? timeLabel(next) : 'None',
-      'data-testid': 'habit-next-break',
-    },
-    {
-      label: 'Breaks today',
-      value: `${breaks.filter((b) => b.state === 'done').length} of ${breaks.length}`,
-      pill: status.plan ? { tone: 'dim', label: planSourceLabel(status.plan.source) } : undefined,
-    },
-    { label: 'Best streak', value: `${best} ${best === 1 ? 'day' : 'days'}` },
-  ]
+  return {
+    shown: [
+      {
+        label: status.locked ? 'Finish a habit to unlock AI tools' : 'AI tools are on',
+        value: status.locked ? 'Locked' : 'Unlocked',
+        'data-testid': 'habit-gate',
+      },
+      {
+        label: next ? 'Next break' : 'No more breaks today',
+        value: next ? timeLabel(next) : 'None',
+        'data-testid': 'habit-next-break',
+      },
+    ],
+    more: [
+      {
+        label: 'Breaks today',
+        value: `${breaks.filter((b) => b.state === 'done').length} of ${breaks.length}`,
+        pill: status.plan ? { tone: 'dim', label: planSourceLabel(status.plan.source) } : undefined,
+      },
+      { label: 'Best streak', value: `${best} ${best === 1 ? 'day' : 'days'}` },
+    ],
+  }
 }
 
 export function HabitsPage(_props: { place: Place }) {
@@ -65,6 +72,7 @@ export function HabitsPage(_props: { place: Place }) {
   }
 
   const now = new Date()
+  const kpis = status ? gateKpis(status, now) : null
   const editing =
     form?.mode === 'edit' ? (status?.habits.find((h) => h.id === form.id) ?? null) : null
   return (
@@ -92,10 +100,11 @@ export function HabitsPage(_props: { place: Place }) {
       </div>
       <ListView<HabitItem>
         header={
-          status ? (
+          status && kpis ? (
             <>
               <ListKpis
-                items={gateKpis(status, now)}
+                items={kpis.shown}
+                more={kpis.more}
                 data-testid="habit-gate-strip"
                 data-locked={status.locked ? 'true' : 'false'}
               />

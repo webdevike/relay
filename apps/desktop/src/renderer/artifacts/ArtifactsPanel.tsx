@@ -62,7 +62,7 @@ import { EvaMenu } from '../overlay'
 import { openSubagentTab, revealTool } from '../tiling/tiling-store'
 import { agentOf, useAssistants } from '../assistants/assistants-store'
 import { requestExperiment } from '../test-bench/bench-request'
-import { ListEmpty, ListRow, ListTime, ListView, type ListGroup } from '../ui/list'
+import { ListEmpty, ListRow, ListTime, ListView, rowTip, type ListGroup } from '../ui/list'
 import { ArtifactRow, RowButton, type RowActions } from './ArtifactRow'
 import { MediaGrid, MediaLightbox } from './ArtifactsMedia'
 import {
@@ -356,8 +356,7 @@ function SubagentRow({ row, now, actions }: { row: TreeRow; now: number; actions
         )
       }
       title={item.title}
-      tooltip={item.title}
-      meta={line || undefined}
+      tooltip={rowTip(item.title, line)}
       trailing={<ListTime>{right}</ListTime>}
       onActivate={() => actions.open(item)}
       actions={

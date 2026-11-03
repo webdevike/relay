@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Button, Textarea } from '@mantine/core'
+import { Button, Textarea, Tooltip } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import {
   IconArrowBackUp,
@@ -493,9 +493,16 @@ export function LinearDetail({
   return (
     <section className="eva-rv-detail" data-testid="linear-detail">
       <header className="eva-rv-topbar">
-        <button type="button" className="eva-rv-back" onClick={onBack}>
-          <IconChevronLeft size={14} /> Inbox
-        </button>
+        <Tooltip label="Back to inbox" openDelay={300}>
+          <button
+            type="button"
+            className="eva-rv-iconbtn"
+            aria-label="Back to inbox"
+            onClick={onBack}
+          >
+            <IconChevronLeft size={14} />
+          </button>
+        </Tooltip>
         <span className="eva-rv-spacer" />
         <span className="eva-rv-dim eva-rv-small">updated {agoPhrase(ticket.at, now)}</span>
         <button

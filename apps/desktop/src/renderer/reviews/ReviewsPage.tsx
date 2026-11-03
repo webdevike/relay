@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { Button, SegmentedControl, Textarea, Tooltip } from '@mantine/core'
+import { Button, Loader, SegmentedControl, Textarea, Tooltip } from '@mantine/core'
 import { EvaModal } from '../overlay'
 import { notifications } from '@mantine/notifications'
 import {
@@ -337,9 +337,17 @@ export function Detail({
   return (
     <section className="eva-rv-detail" data-testid="review-detail">
       <header className="eva-rv-topbar">
-        <button type="button" className="eva-rv-back" onClick={onBack}>
-          <IconChevronLeft size={14} /> Inbox
-        </button>
+        <Tooltip label="Back to inbox" openDelay={300}>
+          <button
+            type="button"
+            className="eva-rv-iconbtn"
+            aria-label="Back to inbox"
+            data-testid="review-back"
+            onClick={onBack}
+          >
+            <IconChevronLeft size={14} />
+          </button>
+        </Tooltip>
         <span className="eva-rv-spacer" />
         <Tooltip label={`Updated ${agoPhrase(fetchedAt, now)}. Refresh`} openDelay={300}>
           <button
@@ -380,9 +388,16 @@ export function Detail({
           </Button>
         ) : null}
         {approval?.state === 'running' ? (
-          <span className="eva-rv-dim eva-rv-small" data-testid="review-approve-running">
-            Self-review running
-          </span>
+          <Tooltip label="Self-review running" openDelay={300}>
+            <span
+              className="eva-rv-dim"
+              role="img"
+              aria-label="Self-review running"
+              data-testid="review-approve-running"
+            >
+              <Loader size={14} />
+            </span>
+          </Tooltip>
         ) : null}
         <Button
           size="xs"
@@ -402,21 +417,30 @@ export function Detail({
             {pr.repo.split('/')[1]}#{pr.number}
           </span>
           ·
-          <span
-            className="eva-rv-pill"
-            data-tone={state === 'Open' ? 'green' : state === 'Merged' ? 'violet' : 'gray'}
-          >
-            {state}
-          </span>
+          {state !== 'Open' ? (
+            <>
+              <span
+                className="eva-rv-pill"
+                data-tone={state === 'Merged' ? 'violet' : 'gray'}
+                data-testid="review-head-state"
+              >
+                {state}
+              </span>
+              ·
+            </>
+          ) : null}
           <span>{pr.author.login}</span>·<span>{ago(pr.createdAt, now)}</span>·
           <span className="eva-rv-add">+{pr.additions}</span>
           <span className="eva-rv-del">−{pr.deletions}</span>
-        </div>
-        <div className="eva-rv-meta eva-rv-branch">
-          <IconGitBranch size={12} />
-          <span className="eva-rv-mono">{pr.head}</span>
-          <span>into</span>
-          <span className="eva-rv-mono">{pr.base}</span>
+          <Tooltip label={`${pr.head} into ${pr.base}`} openDelay={300}>
+            <span
+              className="eva-rv-branchicon"
+              role="img"
+              aria-label={`${pr.head} into ${pr.base}`}
+            >
+              <IconGitBranch size={13} />
+            </span>
+          </Tooltip>
         </div>
       </div>
       <nav className="eva-rv-tabs" role="tablist">

@@ -14,7 +14,7 @@ import { MAX_MINUTES, historyRows, streak, todaysBreaks } from '@evaos/eva-core/
 import { localDate } from '@evaos/eva-core/model/dates'
 import type { GateStatus } from '@evaos/contract'
 import { invoke } from '../ipc'
-import { ListPill, ListRow, ListTime, type ListGroup } from '../ui/list'
+import { ListRow, ListStatus, ListTime, rowTip, type ListGroup } from '../ui/list'
 import { runHabit } from './habit-store'
 
 export const MINUTES_ERROR = `Minutes must be a whole number from 1 to ${MAX_MINUTES}.`
@@ -154,15 +154,12 @@ export function HabitRow({
       return (
         <ListRow
           data-testid={`habit-row-${h.id}`}
+          tooltip={rowTip(h.name, `${h.minutes} min · ${h.photo ? 'Photo proof' : 'Honor system'}`)}
           leading={<IconActivity size={16} stroke={1.5} aria-hidden />}
           title={h.name}
-          meta={`${h.minutes} min`}
           onActivate={() => onOpen(h.id)}
           trailing={
-            <>
-              <ListPill tone={h.photo ? 'info' : 'dim'}>{h.photo ? 'Photo' : 'Honor'}</ListPill>
-              <ListTime>{n === 0 ? 'None yet' : `${n} ${n === 1 ? 'day' : 'days'}`}</ListTime>
-            </>
+            <ListTime>{n === 0 ? 'None yet' : `${n} ${n === 1 ? 'day' : 'days'}`}</ListTime>
           }
         />
       )
@@ -172,9 +169,9 @@ export function HabitRow({
       return (
         <ListRow
           data-testid={`task-row-${t.id}`}
+          tooltip={rowTip(t.name, t.minutes === null ? null : `${t.minutes} min`)}
           leading={<IconListCheck size={16} stroke={1.5} aria-hidden />}
           title={t.name}
-          meta={t.minutes === null ? undefined : `${t.minutes} min`}
           trailing={
             <Tooltip label="Remove task" openDelay={300}>
               <ActionIcon
@@ -194,15 +191,16 @@ export function HabitRow({
     }
     case 'break': {
       const b = item.row
-      const Glyph = b.state === 'done' ? IconCircleCheck : IconClock
       return (
         <ListRow
           data-testid={`break-${item.index}`}
           data-state={b.state}
           dim={b.state === 'upcoming'}
-          leading={<Glyph size={16} stroke={1.5} aria-hidden />}
+          leading={<IconClock size={16} stroke={1.5} aria-hidden />}
           title={timeLabel(b.at)}
-          trailing={<ListPill tone={BREAK_TONE[b.state]}>{BREAK_LABEL[b.state]}</ListPill>}
+          trailing={
+            <ListStatus items={[{ label: BREAK_LABEL[b.state], tone: BREAK_TONE[b.state] }]} />
+          }
         />
       )
     }
@@ -212,6 +210,7 @@ export function HabitRow({
       return (
         <ListRow
           data-testid="history-row"
+          tooltip={rowTip(r.name, r.label, r.entry.kind === 'task' ? 'Task' : null)}
           leading={
             r.overridden ? (
               <IconAlertTriangle size={16} stroke={1.5} aria-hidden />
@@ -220,10 +219,8 @@ export function HabitRow({
             )
           }
           title={r.name}
-          meta={r.label || undefined}
           trailing={
             <>
-              {r.entry.kind === 'task' ? <ListPill tone="dim">Task</ListPill> : null}
               {photo ? (
                 <Tooltip label="Open the proof photo" openDelay={300}>
                   <ActionIcon

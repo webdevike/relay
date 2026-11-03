@@ -184,7 +184,7 @@ describe('sub-pages', () => {
     expect(screen.getByTestId('meetings-home')).toHaveTextContent('Meetings')
   })
 
-  it('lists boards under Pinned and Recent with counts, search and open', async () => {
+  it('lists boards under Pinned and Recent with search and open', async () => {
     seed('canvas', { canvas: 'b' })
     wrap(<SubPage level="canvas" />)
     expect(screen.getByPlaceholderText('Search boards')).toBeInTheDocument()
@@ -194,7 +194,9 @@ describe('sub-pages', () => {
       'Pinned',
       'Recent',
     ])
-    expect(screen.getByTestId('canvas-count-a')).toHaveTextContent('3')
+    // The node count is on hover, not on the row.
+    expect(screen.getByTestId('canvas-row-a')).toHaveAttribute('title', 'Alpha\n3 nodes')
+    expect(screen.queryByTestId('canvas-count-a')).toBeNull()
     expect(screen.getByTestId('canvas-row-b')).toHaveAttribute('data-active', 'true')
     fireEvent.click(screen.getByTestId('canvas-row-a'))
     expect(openPlace).toHaveBeenLastCalledWith(placeOf('canvas', { canvas: 'a' }), {

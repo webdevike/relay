@@ -650,13 +650,6 @@
   flex: 1;
 }
 
-/* Sidebar list: a board's node count beside its title. */
-.eva-cv-count {
-  font-size: var(--eva-fz-caption);
-  font-variant-numeric: tabular-nums;
-  color: var(--eva-text-dim);
-}
-
 .eva-cv-modal {
   display: flex;
   flex-direction: column;

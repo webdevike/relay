@@ -230,8 +230,11 @@ describe('MeetingsHome', () => {
     )
     const waiting = within(screen.getByTestId('meetings-waiting'))
     expect(waiting.getAllByTestId(/^proposal-/)).toHaveLength(3)
-    expect(waiting.getAllByText('Daily standup')).toHaveLength(2)
-    expect(waiting.getAllByText('From Isaac')).toHaveLength(2)
+    // The meeting and who proposed it are on hover, not on the row.
+    const titles = waiting.getAllByTestId(/^proposal-/).map((p) => p.getAttribute('title') ?? '')
+    expect(titles.filter((t) => t.includes('Daily standup'))).toHaveLength(2)
+    expect(titles.filter((t) => t.includes('From Isaac'))).toHaveLength(2)
+    expect(waiting.queryByText('From Isaac')).toBeNull()
     expect(within(screen.getByTestId('meetings-out')).getByText('Sam is out')).toBeInTheDocument()
     expect(within(screen.getByTestId('meetings-out')).getByText('Sun, Oct 18')).toBeInTheDocument()
   })

@@ -26,7 +26,7 @@ import { frontTabs } from '@evaos/shell-core'
 import { openArmTab, useTiling } from '../tiling/tiling-store'
 import { STATUS_LABEL, duration, pct, primaryRate, tokenCount, usd } from './experiment-format'
 import { onExperimentRequest, takeExperimentRequest } from './bench-request'
-import { ListEmpty, ListRow, ListView, type ListColumn } from '../ui/list'
+import { ListEmpty, ListRow, ListView, rowTip, type ListColumn } from '../ui/list'
 import './test-bench.css'
 
 const STATUS_ICON: Record<ExperimentStatus, Icon> = {
@@ -206,13 +206,16 @@ function RunsList({
           key={row.id}
           data-testid={`experiment-row-${row.id}`}
           title={row.title}
-          meta={[
-            row.date,
-            row.round !== null ? `round ${row.round}` : null,
-            row.arms !== null ? `${row.arms} ${row.arms === 1 ? 'test' : 'tests'}` : null,
-          ]
-            .filter(Boolean)
-            .join(' · ')}
+          tooltip={rowTip(
+            row.title,
+            [
+              row.date,
+              row.round !== null ? `round ${row.round}` : null,
+              row.arms !== null ? `${row.arms} ${row.arms === 1 ? 'test' : 'tests'}` : null,
+            ]
+              .filter(Boolean)
+              .join(' · '),
+          )}
           onActivate={() => onOpen(row.id)}
           cells={[
             <Headline key="h" row={row} />,

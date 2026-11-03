@@ -1,3 +1,4 @@
+import { Tooltip } from '@mantine/core'
 import { IconChevronLeft } from '@tabler/icons-react'
 import { placeOf } from '@evaos/shell-core'
 import { useNamesVersion, agentTitle } from '../eva/names-store'
@@ -6,25 +7,25 @@ import { AgentPortrait } from './AgentPortrait'
 import './assistants.css'
 
 /**
- * An agent's page names its way back, like native: "< Assistants / Astra"; the pill goes home. Its
- * portrait and status live in the header's notch (AgentNotch).
+ * An agent's page names its way back and where it is: a back arrow (tooltip "Assistants", it goes
+ * to the home) then the agent's name. Its portrait and status live in the header's notch
+ * (AgentNotch).
  */
 export function AgentCrumb({ id }: { id: string }) {
   useNamesVersion()
   return (
     <span className="eva-as-crumb" data-testid="agent-crumb">
-      <button
-        type="button"
-        className="eva-as-crumb-back"
-        data-testid="breadcrumb-back"
-        onClick={(e) => openFromNav(placeOf('assistants'), e)}
-      >
-        <IconChevronLeft stroke={2} aria-hidden />
-        Assistants
-      </button>
-      <span className="eva-as-crumb-sep" aria-hidden>
-        /
-      </span>
+      <Tooltip label="Assistants" openDelay={300}>
+        <button
+          type="button"
+          className="eva-as-crumb-back"
+          aria-label="Assistants"
+          data-testid="breadcrumb-back"
+          onClick={(e) => openFromNav(placeOf('assistants'), e)}
+        >
+          <IconChevronLeft stroke={2} aria-hidden />
+        </button>
+      </Tooltip>
       <button
         type="button"
         className="eva-as-crumb-here eva-as-crumb-link"

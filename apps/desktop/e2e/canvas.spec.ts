@@ -74,7 +74,10 @@ test('Canvas lists the boards and opens each with its cards, light and dark', as
   await expect(shell.locator(sel('sidebar-sub-title'))).toHaveText('Canvas')
   for (const b of BOARDS) {
     await expect(shell.locator(sel(`canvas-row-${b.slug}`))).toContainText(b.title)
-    await expect(shell.locator(sel(`canvas-count-${b.slug}`))).toHaveText(String(b.nodes))
+    await expect(shell.locator(sel(`canvas-row-${b.slug}`))).toHaveAttribute(
+      'title',
+      new RegExp(`\\n${b.nodes} nodes?$`),
+    )
   }
   await expect(shell.locator(sel('canvas-section-label'))).toHaveText(['Recent'])
   // The nav opened the newest board.

@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
-import { Button, Loader, Textarea } from '@mantine/core'
+import { Button, Loader, Textarea, Tooltip } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import {
   IconCheck,
@@ -237,9 +237,16 @@ export function SlackDetail({
   return (
     <section className="eva-rv-detail" data-testid="slack-detail">
       <header className="eva-rv-topbar">
-        <button type="button" className="eva-rv-back" onClick={onBack}>
-          <IconChevronLeft size={14} /> Inbox
-        </button>
+        <Tooltip label="Back to inbox" openDelay={300}>
+          <button
+            type="button"
+            className="eva-rv-iconbtn"
+            aria-label="Back to inbox"
+            onClick={onBack}
+          >
+            <IconChevronLeft size={14} />
+          </button>
+        </Tooltip>
         <span className="eva-rv-dim eva-rv-small eva-rv-ellipsis">{title}</span>
         <span className="eva-rv-spacer" />
         <span className="eva-rv-dim eva-rv-small">

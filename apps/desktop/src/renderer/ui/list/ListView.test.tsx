@@ -1,7 +1,15 @@
 import { MantineProvider } from '@mantine/core'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { ListEmpty, ListKpis, ListRow, ListView, type ListGroup, type ListViewProps } from '.'
+import {
+  ListEmpty,
+  ListKpis,
+  ListRow,
+  ListStatus,
+  ListView,
+  type ListGroup,
+  type ListViewProps,
+} from '.'
 
 interface Item {
   id: string
@@ -194,6 +202,36 @@ describe('ListView', () => {
     })
     expect(screen.getByText('Habits')).toBeInTheDocument()
     expect(screen.getByText('On track')).toBeInTheDocument()
+  })
+
+  it('keeps KPIs beyond the shown ones in the info icon', () => {
+    ui({
+      header: (
+        <ListKpis
+          items={[{ label: 'Gate', value: 'Open' }]}
+          more={[{ label: 'Streak', value: '3 days' }]}
+        />
+      ),
+    })
+    expect(screen.queryByText('Streak')).toBeNull()
+    expect(screen.getByTestId('list-kpis-more')).toHaveAttribute('aria-label', 'Streak: 3 days')
+  })
+
+  it('collapses statuses into one mark in the most urgent tone', () => {
+    render(
+      <MantineProvider>
+        <ListStatus
+          data-testid="s"
+          items={[
+            { label: 'Draft', tone: 'dim' },
+            { label: 'CI failing', tone: 'bad' },
+          ]}
+        />
+      </MantineProvider>,
+    )
+    const s = screen.getByTestId('s')
+    expect(s).toHaveAttribute('data-tone', 'bad')
+    expect(s).toHaveTextContent('Draft · CI failing')
   })
 
   it('windows long lists', () => {

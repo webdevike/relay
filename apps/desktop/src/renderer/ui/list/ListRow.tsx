@@ -46,6 +46,10 @@ export interface ListRowProps extends Omit<HTMLAttributes<HTMLDivElement>, 'titl
 
 const stop = (e: SyntheticEvent): void => e.stopPropagation()
 
+/** A row's hover text: the lines that are set, one per line (title, then the detail that left the row). */
+export const rowTip = (...lines: Array<string | null | undefined | false>): string =>
+  lines.filter((l): l is string => typeof l === 'string' && l !== '').join('\n')
+
 /**
  * One row of a ListView (option B): a leading icon tile, the title over a meta line, and trailing
  * pills and age, on a hairline divider. Compact rows (option A) put everything on one line;

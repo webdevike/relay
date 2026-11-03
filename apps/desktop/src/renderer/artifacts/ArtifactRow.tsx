@@ -36,7 +36,7 @@ import {
   statusPills,
   type Tone,
 } from './artifacts-model'
-import { ListPill, ListRow, type ListTone } from '../ui/list'
+import { ListRow, ListStatus, rowTip, type ListTone } from '../ui/list'
 
 const ICON = { size: 16, stroke: 1.5 } as const
 
@@ -134,9 +134,9 @@ export function RowButton({
 }
 
 /**
- * One thing the thread holds, as a flat divided row: its key and title, how often and when it
- * came up (or who pinned it), and its live state as quiet pills. Hover shows open, open
- * elsewhere, pin and more.
+ * One thing the thread holds, as a flat divided row: its key and title, and its live state as
+ * one status mark. How often and when it came up (or who pinned it), the repo and linked
+ * tickets are in the hover text, with open, open elsewhere, pin and more.
  */
 export function ArtifactRow({
   item,
@@ -168,7 +168,7 @@ export function ArtifactRow({
   return (
     <ListRow
       data-testid={`artifact-row-${item.id}`}
-      tooltip={[key, title].filter(Boolean).join(' ')}
+      tooltip={rowTip([key, title].filter(Boolean).join(' '), meta.join(' · '))}
       leading={<KindIcon item={item} />}
       title={
         <>
@@ -176,15 +176,10 @@ export function ArtifactRow({
           {title}
         </>
       }
-      meta={meta.join(' · ')}
       trailing={
-        pills.length > 0
-          ? pills.map((p) => (
-              <ListPill key={p.label} tone={PILL_TONE[p.tone]}>
-                {p.label}
-              </ListPill>
-            ))
-          : undefined
+        pills.length > 0 ? (
+          <ListStatus items={pills.map((p) => ({ label: p.label, tone: PILL_TONE[p.tone] }))} />
+        ) : undefined
       }
       onActivate={(e) => actions.open(item, openTargetOf(e))}
       middleClick

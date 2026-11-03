@@ -10,10 +10,29 @@ import {
   openLabel,
   prMatches,
   queryWords,
+  sidebarTitle,
   slackMatches,
 } from './queue-search'
 import { resetReviewsForTests, reviewItemOf, reviewsStore } from './reviews-store'
 
+describe('sidebarTitle', () => {
+  it('leads with the ticket key and drops the commit prefix', () => {
+    expect(sidebarTitle('feat(ui): ENG-6688 sort picker required')).toBe(
+      'ENG-6688 sort picker required',
+    )
+    expect(sidebarTitle('ENG-6688: sort picker required')).toBe('ENG-6688 sort picker required')
+    expect(sidebarTitle('[ENG-6688] sort picker required')).toBe('ENG-6688 sort picker required')
+    expect(sidebarTitle('sort picker required (ENG-6688)')).toBe('ENG-6688 sort picker required')
+    expect(sidebarTitle('fix: ref ENG-6688 Make the eGift sort picker required')).toBe(
+      'ENG-6688 Make the eGift sort picker required',
+    )
+  })
+  it('keeps a title with no key, minus a commit prefix', () => {
+    expect(sidebarTitle('Partner external ids')).toBe('Partner external ids')
+    expect(sidebarTitle('fix: partner ids')).toBe('partner ids')
+    expect(sidebarTitle('ENG-1')).toBe('ENG-1')
+  })
+})
 beforeEach(() => resetReviewsForTests())
 
 const pr: ReviewRow = {

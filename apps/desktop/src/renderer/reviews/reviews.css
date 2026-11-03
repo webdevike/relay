@@ -211,16 +211,6 @@
   padding: calc(var(--mantine-spacing-xs) * 0.8) var(--mantine-spacing-sm);
   border-bottom: 1px solid var(--eva-c-border);
 }
-.eva-rv-back {
-  display: inline-flex;
-  align-items: center;
-  gap: calc(var(--mantine-spacing-xs) * 0.4);
-  border: 0;
-  background: none;
-  color: inherit;
-  cursor: pointer;
-  padding: calc(var(--mantine-spacing-xs) * 0.2) calc(var(--mantine-spacing-xs) * 0.4);
-}
 .eva-rv-head {
   padding: var(--mantine-spacing-sm) var(--mantine-spacing-md) calc(var(--mantine-spacing-xs) * 0.8);
   display: flex;
@@ -249,9 +239,10 @@
 .eva-rv-title-wrap {
   overflow-wrap: break-word;
 }
-.eva-rv-branch {
-  font-size: var(--eva-fz-caption);
-  opacity: 0.85;
+.eva-rv-branchicon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--eva-text-dim);
 }
 .eva-rv-meta {
   display: flex;

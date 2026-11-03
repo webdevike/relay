@@ -21,7 +21,6 @@ const WORKERS = 3
 export interface Pill {
   label: string
   tone: 'green' | 'red' | 'amber' | 'violet' | 'gray'
-  testId?: string
 }
 
 const CI_PILL = {
@@ -41,20 +40,19 @@ export function rowPills(row: Pick<ReviewRow, 'draft'>, s: RowStatus | undefined
   const draft = s?.github?.draft ?? row.draft
   if (draft) pills.push({ label: 'Draft', tone: 'gray' })
   const ci = s?.github?.ci
-  if (ci && ci !== 'none') pills.push({ ...CI_PILL[ci], testId: 'review-row-ci' })
+  if (ci && ci !== 'none') pills.push(CI_PILL[ci])
   const work = s?.work
   if (draft && work?.approve === 'ready') {
-    pills.push({ label: 'Approve ready', tone: 'violet', testId: 'review-row-approve' })
+    pills.push({ label: 'Approve ready', tone: 'violet' })
   }
   const loop = work?.loop
   if (loop?.running) {
     pills.push({
       label: loop.rounds > 0 ? `Self-review ${loop.rounds}/${MAX_SELF_REVIEWS}` : 'Self-review',
       tone: 'violet',
-      testId: 'review-row-work',
     })
   } else if (work?.approve === 'sent') {
-    pills.push({ label: 'Approved', tone: 'green', testId: 'review-row-work' })
+    pills.push({ label: 'Approved', tone: 'green' })
   } else if (!draft) {
     const decision = s?.github?.decision
     const label =
@@ -71,7 +69,6 @@ export function rowPills(row: Pick<ReviewRow, 'draft'>, s: RowStatus | undefined
       pills.push({
         label,
         tone: decision === 'APPROVED' ? 'green' : decision === 'CHANGES_REQUESTED' ? 'red' : 'gray',
-        testId: 'review-row-work',
       })
     }
   }

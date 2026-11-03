@@ -6,7 +6,15 @@ import { placeOf, type Place } from '@evaos/shell-core'
 import { openFromNav } from '../navigation/open-in-app'
 import { pageMeta } from '../pages/page-meta'
 import { portrait } from '../ui/portrait'
-import { ListEmpty, ListPill, ListRow, ListTime, ListView, type ListTone } from '../ui/list'
+import {
+  ListEmpty,
+  ListRow,
+  ListStatus,
+  ListTime,
+  ListView,
+  rowTip,
+  type ListTone,
+} from '../ui/list'
 import { useAssistants } from './assistants-store'
 import { PortraitMotion } from './PortraitMotion'
 import './assistants.css'
@@ -26,8 +34,8 @@ const STATUS_TONE: Record<AssistantStatus, ListTone> = {
 
 /**
  * The Assistants home (native assistants_view::render): the heading with its subtext, then one
- * row per registry agent: its portrait (with its mood, PortraitMotion), title and scope, last
- * reply, its age and status.
+ * row per registry agent: its portrait (with its mood, PortraitMotion), its title, its status
+ * mark and the age of its last reply. Scope and the reply itself are in the hover text.
  */
 export function AssistantsHome({ place }: { place: Place }) {
   const data = useAssistants((s) => s.data)
@@ -61,22 +69,14 @@ export function AssistantsHome({ place }: { place: Place }) {
                   />
                 </PortraitMotion>
               }
-              title={
-                <>
-                  {a.title}
-                  {a.scope ? <span className="eva-as-row-scope">{a.scope}</span> : null}
-                </>
-              }
-              meta={
-                a.reply ? (
-                  <span data-testid={`assistant-reply-${a.id}`}>{a.reply.text}</span>
-                ) : undefined
-              }
+              title={a.title}
+              tooltip={rowTip(a.title, a.scope, a.reply?.text)}
               trailing={
                 <>
-                  <ListPill tone={STATUS_TONE[a.status]} data-testid={`assistant-status-${a.id}`}>
-                    {STATUS_LABEL[a.status]}
-                  </ListPill>
+                  <ListStatus
+                    items={[{ label: STATUS_LABEL[a.status], tone: STATUS_TONE[a.status] }]}
+                    data-testid={`assistant-status-${a.id}`}
+                  />
                   <ListTime>
                     {a.reply && a.reply.at !== null ? agoLabel(a.reply.at, now) : null}
                   </ListTime>

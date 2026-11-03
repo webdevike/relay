@@ -4,7 +4,7 @@ import type { Assistant } from '@evaos/contract'
 import { openFromNav } from '../navigation/open-in-app'
 import { activePlace, useTabs } from '../tabs/tabs-store'
 import { portrait } from '../ui/portrait'
-import { ListRow, ListView } from '../ui/list'
+import { ListRow, ListView, rowTip } from '../ui/list'
 import { agentIdOf, useAssistants } from './assistants-store'
 import { PortraitMotion } from './PortraitMotion'
 import './assistants.css'
@@ -43,7 +43,7 @@ export function AssistantsList() {
             </PortraitMotion>
           }
           title={a.title}
-          meta={a.scope || undefined}
+          tooltip={rowTip(a.title, a.scope)}
           onActivate={(e) => openFromNav(placeOf(`agent:${a.id}`), e)}
           middleClick
         />

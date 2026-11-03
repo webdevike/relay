@@ -32,10 +32,6 @@
   align-items: center;
   gap: calc(var(--mantine-spacing-xs) * 0.4);
   min-height: var(--eva-control-xs);
-  border-bottom: 1px solid var(--eva-c-border);
-}
-.eva-list-ghead[data-density='compact'] {
-  border-bottom: 0;
 }
 .eva-list-gtoggle {
   flex: 1;
@@ -56,10 +52,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--eva-fz-body);
-  font-weight: var(--eva-fw-semibold);
-}
-.eva-list-ghead[data-density='compact'] .eva-list-glabel {
   font-size: var(--eva-fz-label);
   font-weight: var(--eva-fw-regular);
 }
@@ -69,12 +61,18 @@
   font-variant-numeric: tabular-nums;
   color: var(--eva-text-dim);
 }
+/* The collapse chevron shows on hover and focus, and stays on a collapsed group. */
 .eva-list-gchev {
   flex: none;
-  margin-left: auto;
   color: var(--eva-text-dim);
+  opacity: 0;
+  transition: opacity var(--eva-dur-fast) ease;
 }
-button.eva-list-gtoggle:hover .eva-list-gchev,
+.eva-list-gtoggle[aria-expanded='false'] .eva-list-gchev,
+.eva-list-gtoggle:hover .eva-list-gchev,
+.eva-list-gtoggle:focus-visible .eva-list-gchev {
+  opacity: 1;
+}
 button.eva-list-gtoggle:hover {
   color: var(--eva-c-foreground);
 }
@@ -131,8 +129,6 @@ button.eva-list-gtoggle:hover {
 .eva-list-leading[data-tile] {
   width: var(--eva-tile-md);
   height: var(--eva-tile-md);
-  border-radius: var(--eva-radius);
-  background: var(--eva-c-secondary-background);
 }
 .eva-list-text {
   flex: 1;
@@ -183,6 +179,36 @@ button.eva-list-gtoggle:hover {
 }
 .eva-list-pill {
   font-weight: var(--eva-fw-medium);
+}
+/* The one status mark at a row's end: an icon in the status color, its words in the tooltip. */
+.eva-list-status {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--eva-tile-md);
+  color: var(--eva-text-dim);
+}
+.eva-list-status[data-tone='ok'] {
+  color: var(--mantine-color-green-filled);
+}
+.eva-list-status[data-tone='bad'] {
+  color: var(--mantine-color-red-filled);
+}
+.eva-list-status[data-tone='warn'] {
+  color: var(--mantine-color-yellow-filled);
+}
+.eva-list-status[data-tone='info'] {
+  color: var(--mantine-color-blue-filled);
+}
+.eva-list-status[data-tone='accent'] {
+  color: var(--mantine-color-violet-filled);
+}
+/* Secondary words after a title (a key, a scope, a message), dimmer than the title itself. */
+.eva-list-sub {
+  margin-left: calc(var(--mantine-spacing-xs) * 0.8);
+  font-weight: var(--eva-fw-regular);
+  color: var(--eva-text-dim);
 }
 /* A running status icon inside a pill. */
 .eva-list-spin {
@@ -251,6 +277,9 @@ html[data-eva-motion='off'] .eva-list-spin {
 }
 .eva-list-row[data-density='compact'][data-dim] {
   opacity: 0.6;
+}
+.eva-list-row[data-density='compact'] .eva-list-time {
+  min-width: 0;
 }
 
 /* Columns (option C): the header row and rows share one grid. */
@@ -330,15 +359,21 @@ html[data-eva-motion='off'] .eva-list-spin {
 
 /* KPI strip (option D): big numbers, small labels, no cards. */
 .eva-list-kpis {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
   gap: var(--mantine-spacing-lg);
 }
 .eva-list-kpi {
   display: flex;
   flex-direction: column;
   gap: calc(var(--mantine-spacing-xs) * 0.4);
-  min-width: 0;
+  min-width: 140px;
+}
+.eva-list-kmore {
+  margin-top: calc(var(--mantine-spacing-xs) * 0.8);
+  display: inline-flex;
+  color: var(--eva-text-dim);
 }
 .eva-list-kval {
   font-size: calc(var(--eva-font-size) * 2);

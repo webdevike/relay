@@ -28,6 +28,25 @@ export function itemLinkOf(text: string): string {
 export const shortPrId = (r: { repo: string; number: number }): string =>
   `${r.repo.split('/').pop()}#${r.number}`
 
+/**
+ * A pull request's title for the narrow sidebar: its ticket key then the title without a
+ * conventional-commit prefix (`feat(ui): ENG-6688 sort picker required` becomes
+ * `ENG-6688 sort picker required`). A title with no key loses only the prefix.
+ */
+export function sidebarTitle(title: string): string {
+  const key = /\b[A-Z][A-Z0-9]+-\d+\b/.exec(title)?.[0]
+  const rest = (key ? title.replace(key, ' ') : title)
+    .replace(
+      /^\s*(feat|fix|chore|docs|refactor|test|perf|style|build|ci|revert)(\([^)]*\))?!?:\s*/i,
+      ' ',
+    )
+    .replace(/^[\s:|[\]()-]+|[\s:|[\]()-]+$/g, '')
+    .replace(/^ref\s+/i, '')
+    .replace(/\s+/g, ' ')
+  const short = [key, rest].filter(Boolean).join(' ')
+  return short === '' ? title : short
+}
+
 /** One id per item across sources, so a queue row and a parsed link compare equal. */
 export function itemId(item: ReviewItem): string {
   if (item.kind === 'pr') return prId(item.row)

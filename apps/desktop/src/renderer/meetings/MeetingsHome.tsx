@@ -4,7 +4,7 @@ import { IconAlertTriangle, IconCalendarOff, IconGavel } from '@tabler/icons-rea
 import type { Place } from '@evaos/shell-core'
 import { localDate } from '@evaos/eva-core/model/dates'
 import { dayLabel } from '@evaos/eva-core/model/meetings'
-import { ListEmpty, ListRow, ListTime, ListView, type ListGroup } from '../ui/list'
+import { ListEmpty, ListRow, ListTime, ListView, rowTip, type ListGroup } from '../ui/list'
 import { useMeetings, useMeetingsSurface, type MeetingDigest } from './meetings-store'
 import { ProposalRow } from './ProposalRow'
 import './meetings.css'
@@ -103,10 +103,10 @@ export function MeetingsHome(_props: { place: Place }) {
           return (
             <ListRow
               key={`d:${x.d.stem}-${x.i}`}
+              tooltip={rowTip(x.d.text, x.d.title)}
               leading={<IconGavel size={16} stroke={1.5} aria-hidden />}
               title={x.d.text}
               multiline
-              meta={x.d.title}
             />
           )
         }}

@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { Button } from '@mantine/core'
 import { IconCircleCheck, IconCircleDot, IconCircleX } from '@tabler/icons-react'
 import type { Proposal } from '@evaos/contract'
-import { ListPill, ListRow } from '../ui/list'
+import { ListPill, ListRow, rowTip } from '../ui/list'
 import { acceptProposal, dismissProposal, loadMeeting, loadMeetings } from './meetings-store'
 
 export interface ProposalRowProps {
@@ -81,15 +81,12 @@ export function ProposalRow({ stem, meetingTitle, proposal, actions, dim }: Prop
         multiline
         leading={<Glyph size={16} stroke={1.5} aria-hidden />}
         title={proposal.text}
-        meta={
-          meetingTitle !== '' || proposal.source ? (
-            <>
-              {meetingTitle !== '' ? <span>{meetingTitle}</span> : null}
-              {meetingTitle !== '' && proposal.source ? ' · ' : null}
-              {proposal.source ? <span>From {proposal.source}</span> : null}
-            </>
-          ) : undefined
-        }
+        tooltip={rowTip(
+          proposal.text,
+          [meetingTitle, proposal.source ? `From ${proposal.source}` : null]
+            .filter(Boolean)
+            .join(' · '),
+        )}
         trailing={
           resolved ? (
             <ListPill
