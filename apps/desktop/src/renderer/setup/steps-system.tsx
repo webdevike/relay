@@ -358,15 +358,14 @@ export function AiStep({ ctx }: { ctx: WizardCtx }) {
                 Signed in, but the browser shows a page that cannot connect? Copy the whole address
                 from the browser's address bar and paste it here.
               </Text>
-              <Group align="flex-end">
-                <TextInput
-                  flex={1}
-                  placeholder="The address the browser shows, or the code"
-                  value={pasted}
-                  onChange={(e) => setPasted(e.currentTarget.value)}
-                  autoComplete="off"
-                  data-testid="setup-ai-paste"
-                />
+              <TextInput
+                placeholder="The address the browser shows, or the code"
+                value={pasted}
+                onChange={(e) => setPasted(e.currentTarget.value)}
+                autoComplete="off"
+                data-testid="setup-ai-paste"
+              />
+              <Group>
                 <Button
                   onClick={() => void finishPasted()}
                   disabled={pasted.trim() === ''}

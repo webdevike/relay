@@ -109,7 +109,7 @@ describe.skipIf(process.platform !== 'darwin')('ai-login.sh browser sign-in', ()
         'fi',
         'echo "Waiting for browser authentication..."',
         'read -r line || { echo "Login failed: Login cancelled: stdin closed"; exit 1; }',
-        `case "$line" in *code=*) touch ${JSON.stringify(signedIn)} ;; *) echo "Login failed: bad code"; exit 1 ;; esac`,
+        `case "$line" in *code=*) touch ${JSON.stringify(signedIn)} ;; *) printf 'Login failed: openai-codex token exchange failed: 401 {\\n  "code": "token_expired"\\n}\\n'; exit 1 ;; esac`,
       ].join('\n'),
       { mode: 0o755 },
     )
@@ -143,5 +143,22 @@ describe.skipIf(process.platform !== 'darwin')('ai-login.sh browser sign-in', ()
     const { home, env } = fakeHome()
     const job = runScript(aiLogin(env), home, { timeoutMs: 10_000 }, () => {})
     expect(await job.done).toEqual({ ok: false, message: 'sign-in to openai was cancelled' })
+  })
+
+  it("reports omp's failure line without the provider's JSON body", async () => {
+    const { home, env } = fakeHome()
+    const { onLine, waiting } = firstProgress()
+    const job = runScript(
+      aiLogin(env),
+      home,
+      planRun({ task: 'ai-login', provider: 'openai' }, home),
+      onLine,
+    )
+    await waiting
+    job.send('not-a-code')
+    expect(await job.done).toEqual({
+      ok: false,
+      message: 'sign-in to openai did not finish: openai-codex token exchange failed: 401',
+    })
   })
 })
