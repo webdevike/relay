@@ -23,6 +23,7 @@
   overflow: hidden;
 }
 .eva-pane[data-pane-kind='tool'] > * {
+  flex: none;
   width: var(--eva-pane-inner-w);
 }
 .eva-pane[data-collapsed] {
