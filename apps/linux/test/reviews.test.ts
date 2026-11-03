@@ -676,6 +676,22 @@ describe("service", () => {
       expect(await service().reviews.handle({ kind: "approvable", ...op })).toEqual({ ok: true, approve: null });
     });
 
+    it("answers the ledger stage and move with Astra's phase and self-review loop", async () => {
+      const root = home(ledger("9 PR (ready)", "noah"));
+      mkdirSync(join(root, "work", "eva", "agents", "astra"), { recursive: true });
+      writeFileSync(
+        join(root, "work", "eva", "agents", "astra", "auto-work.json"),
+        JSON.stringify({ tickets: { "ENG-6648": { phase: "in-review", ready: { rounds: 2, reviewPid: 1 } } } }),
+      );
+      const { reviews } = service({ agentHome: root });
+      expect(await reviews.handle({ kind: "work", ...op })).toEqual({
+        ok: true,
+        work: { key: "ENG-6648", stage: "9 PR (ready)", move: "noah", phase: "in-review", loop: { running: true, rounds: 2, outcome: null }, approve: null },
+      });
+      expect(await reviews.handle({ kind: "work", ...op, number: 9 })).toEqual({ ok: true, work: null });
+      expect(await service().reviews.handle({ kind: "work", ...op })).toEqual({ ok: true, work: null });
+    });
+
     it("hands one line to Astra, then reads sent, and refuses a second tap", async () => {
       const { reviews, told } = service({ agentHome: home(ledger()) });
       expect(await reviews.handle({ kind: "approve", ...op })).toEqual({ ok: true, approve: { key: "ENG-6648", state: "sent" } });

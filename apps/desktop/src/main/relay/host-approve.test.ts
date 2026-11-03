@@ -83,3 +83,30 @@ describe('Approve through the Mini host', () => {
     expect(frames.listeners()).toBe(0)
   })
 })
+
+describe('Work state through the Mini host', () => {
+  const work = {
+    key: 'ENG-1',
+    stage: '9 PR (draft)',
+    move: 'isaac',
+    phase: 'pre-review',
+    loop: { running: true, rounds: 1, outcome: null },
+    approve: null,
+  }
+
+  it('asks reviews.req work and returns the host’s ledger state', async () => {
+    const p = createHostApprove(frames).work('o/r', 5)
+    expect(frames.sent[0]).toMatchObject({
+      t: 'reviews.req',
+      op: { kind: 'work', repo: 'o/r', number: 5 },
+    })
+    frames.hear({ t: 'reviews.res', rid: frames.sent[0]!.rid, ok: true, work })
+    await expect(p).resolves.toEqual(work)
+  })
+
+  it('reads a missing or malformed answer as no work state', async () => {
+    const p = createHostApprove(frames).work('o/r', 5)
+    frames.hear({ t: 'reviews.res', rid: frames.sent[0]!.rid, ok: true, work: { key: 1 } })
+    await expect(p).resolves.toBeNull()
+  })
+})

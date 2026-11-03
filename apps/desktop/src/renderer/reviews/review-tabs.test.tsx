@@ -103,6 +103,7 @@ beforeEach(() => {
   openLink.mockClear()
   openTab.mockClear()
   resetReviewsForTests()
+  reviewsStore.setState({ view: 'for-me' })
   seed(placeOf('reviews'))
 })
 

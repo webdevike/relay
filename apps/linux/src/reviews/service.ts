@@ -14,7 +14,7 @@ import type { LinearTicket, ReviewApprove, ReviewItem, ReviewPr, ReviewQueue, Re
 import { z } from "zod";
 import type { AgentProvider, AgentProviderChange, DropBlob, ReviewsRelaying } from "../seams";
 import type { SessionClock } from "../session";
-import { approvableKey, approveLine, approveState, readLedgers, readLoop } from "./approve";
+import { approvableKey, approveLine, approveState, readLedgers, readLoop, readTicketWork, workOf } from "./approve";
 import { AstraSessions, type AstraSessionsDeps } from "./astra";
 import { prContext, slackContext, ticketContext } from "./context";
 import { readJson, writeJson, type ToolRun } from "./exec";
@@ -260,6 +260,12 @@ export class ReviewsService implements ReviewsRelaying {
         return {};
       case "approvable":
         return { approve: this.approveOf(op.repo, op.number) };
+      case "work": {
+        const root = this.deps.agentHome;
+        if (root === null) return { work: null };
+        const prUrl = `https://github.com/${op.repo}/pull/${String(op.number)}`;
+        return { work: workOf(readLedgers(root), prUrl, (key) => readTicketWork(root, key), this.approveOf(op.repo, op.number)) };
+      }
       case "approve": {
         this.refuseWrites();
         const approve = this.approveOf(op.repo, op.number);

@@ -1,5 +1,5 @@
 import { MantineProvider } from '@mantine/core'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as TilingStore from '../tiling/tiling-store'
 
@@ -13,8 +13,11 @@ const ROW = {
   updatedAt: Date.now(),
 }
 const DRAFT = { ...ROW, number: 173, title: 'Astra draft', draft: true }
+const LOOPING = { ...ROW, number: 174, title: 'Self-reviewing', draft: true }
 
-let rows: (typeof ROW)[] = [ROW, DRAFT]
+let rows: (typeof ROW)[] = [ROW, DRAFT, LOOPING]
+/** What the Mini's ledger says about #173 (the one waiting on Isaac). */
+let approveState: 'ready' | 'sent' = 'ready'
 
 const invoke = vi.fn(async (ch: string, arg?: { number?: number }) => {
   if (ch === 'reviews.queue') {
@@ -33,9 +36,50 @@ const invoke = vi.fn(async (ch: string, arg?: { number?: number }) => {
   }
   if (ch === 'reviews.linearQueue') return { ok: true, value: [] }
   if (ch === 'reviews.slackQueue') return { ok: true, value: { rows: [], fetchedAt: Date.now() } }
-  if (ch === 'reviews.ci') return { ok: true, value: arg?.number === 173 ? 'fail' : 'pass' }
+  if (ch === 'reviews.rowStatus') {
+    return {
+      ok: true,
+      value: { ci: arg?.number === 173 ? 'fail' : 'pass', decision: null },
+    }
+  }
+  if (ch === 'reviews.work') {
+    if (arg?.number === 173) {
+      return {
+        ok: true,
+        value: {
+          key: 'ENG-1',
+          stage: '9 PR (draft)',
+          move: 'isaac',
+          phase: 'pre-review',
+          loop: null,
+          approve: approveState,
+        },
+      }
+    }
+    if (arg?.number === 174) {
+      return {
+        ok: true,
+        value: {
+          key: 'ENG-2',
+          stage: '9 PR (draft)',
+          move: 'isaac',
+          phase: 'pre-review',
+          loop: { running: true, rounds: 1, outcome: null },
+          approve: null,
+        },
+      }
+    }
+    return { ok: true, value: null }
+  }
   if (ch === 'reviews.approvable') {
-    return { ok: true, value: arg?.number === 173 ? { key: 'ENG-1', state: 'ready' } : null }
+    return {
+      ok: true,
+      value: arg?.number === 173 ? { key: 'ENG-1', state: approveState } : null,
+    }
+  }
+  if (ch === 'reviews.approve') {
+    approveState = 'sent'
+    return { ok: true, value: { status: 'sent', command: 'x' } }
   }
   return { ok: false, error: { code: 'x', message: 'not in tests' } }
 })
@@ -60,6 +104,7 @@ import { tabsStore } from '../tabs/tabs-store'
 import { ReviewsPage } from './ReviewsPage'
 import { reviewPlaceOf } from './review-place'
 import { resetReviewsForTests, reviewsStore } from './reviews-store'
+import { refreshRowStatus } from './row-status'
 
 const here = placeOf('reviews')
 const wrap = () =>
@@ -70,11 +115,13 @@ const wrap = () =>
   )
 
 beforeEach(() => {
-  rows = [ROW, DRAFT]
+  rows = [ROW, DRAFT, LOOPING]
+  approveState = 'ready'
   invoke.mockClear()
   openPlace.mockClear()
   openTab.mockClear()
   resetReviewsForTests()
+  reviewsStore.setState({ view: 'for-me' })
   tabsStore.setState(
     { tabs: createTabs([{ id: 0, here, back: [], forward: [], pinned: false }], 0), loaded: true },
     true,
@@ -86,11 +133,25 @@ describe('Reviews home (nothing selected)', () => {
     wrap()
     expect(await screen.findByTestId('review-row-172')).toBeTruthy()
     expect(screen.queryByText(/Pick a pull request/)).toBeNull()
-    await waitFor(() => expect(screen.getAllByTestId('review-row-ci')).toHaveLength(2))
-    expect(screen.getByText('CI passing')).toBeTruthy()
+    await waitFor(() => expect(screen.getAllByTestId('review-row-ci')).toHaveLength(3))
+    expect(screen.getAllByText('CI passing')).toHaveLength(2)
     expect(screen.getByText('CI failing')).toBeTruthy()
-    expect(screen.getAllByTestId('review-row-approve')).toHaveLength(1)
-    expect(screen.getByText('Draft')).toBeTruthy()
+    await waitFor(() => expect(screen.getAllByTestId('review-row-approve')).toHaveLength(1))
+    expect(screen.getAllByText('Draft')).toHaveLength(2)
+  })
+
+  it('shows where each auto-work PR stands, from the ledger and the self-review loop', async () => {
+    wrap()
+    expect(await screen.findByText('Self-review 1/3')).toBeTruthy()
+  })
+
+  it('moves a row to Approved when the ledger shows the approve was sent, without a reload', async () => {
+    wrap()
+    await screen.findByText('Approve ready')
+    approveState = 'sent'
+    await act(async () => refreshRowStatus())
+    expect(await screen.findByText('Approved')).toBeTruthy()
+    expect(screen.queryByText('Approve ready')).toBeNull()
   })
 
   it('does not open a PR by itself', async () => {

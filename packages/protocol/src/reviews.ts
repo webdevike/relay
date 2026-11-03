@@ -293,6 +293,17 @@ const Body = z.string().min(1).max(MAX_REVIEW_TEXT);
 export const ReviewApprove = z.object({ key: z.string(), state: z.enum(["ready", "sent", "running"]) });
 export type ReviewApprove = z.infer<typeof ReviewApprove>;
 
+/** Where an eCard auto-work PR stands: its ledger (stage, move), Astra's phase and self-review loop, and the Approve button's state. */
+export const ReviewWork = z.object({
+  key: z.string(),
+  stage: z.string(),
+  move: z.string(),
+  phase: z.string().nullable(),
+  loop: z.object({ running: z.boolean(), rounds: z.number(), outcome: z.string().nullable() }).nullable(),
+  approve: z.enum(["ready", "sent", "running"]).nullable(),
+});
+export type ReviewWork = z.infer<typeof ReviewWork>;
+
 export const ReviewsOp = z.discriminatedUnion("kind", [
   /** The queue; `refresh` reads every source again (Slack in the background, pushed when done). */
   z.object({ kind: z.literal("queue"), refresh: z.boolean() }),
@@ -327,6 +338,8 @@ export const ReviewsOp = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("approvable"), repo: RepoName, number: z.number().int().positive() }),
   /** Hands the approve of that draft PR to Astra's main thread; she runs ready.ts. Answers the new `approve`. */
   z.object({ kind: z.literal("approve"), repo: RepoName, number: z.number().int().positive() }),
+  /** Where the PR stands in Astra's flow (ledger stage and move, auto-work phase, self-review loop); answers `work`. */
+  z.object({ kind: z.literal("work"), repo: RepoName, number: z.number().int().positive() }),
   /** Uploads an image to Linear for a comment; answers its `url` to embed as Markdown. `data` is base64. */
   z.object({ kind: z.literal("linearUpload"), name: z.string().min(1).max(200), mime: z.enum(["image/jpeg", "image/png", "image/gif", "image/webp"]), data: z.string().min(1).max(MAX_REVIEW_UPLOAD) }),
 ]);
@@ -349,6 +362,8 @@ export const ReviewsResult = z.object({
   url: z.string().optional(),
   astra: AstraItem.nullable().optional(),
   approve: ReviewApprove.nullable().optional(),
+  /** The auto-work ledger and self-review loop behind the PR; null when auto-work did not open it. */
+  work: ReviewWork.nullable().optional(),
 });
 export type ReviewsResult = z.infer<typeof ReviewsResult>;
 

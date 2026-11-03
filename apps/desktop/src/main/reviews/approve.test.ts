@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { approvableKey, approveLine, approveState } from './approve'
+import { approvableKey, approveLine, approveState, workOf } from './approve'
 
 const PR = 'https://github.com/eCardSystems/node-client-api-service/pull/172'
 
@@ -70,5 +70,41 @@ describe('approve hand-off', () => {
     expect(approveLine('ENG-6648')).toBe(
       'Approve request: Isaac approved the auto-work draft PR for ENG-6648 in Relay Reviews. Run `bun jobs/astra-auto-work/scripts/ready.ts ENG-6648 approve` from /Users/ike/Eva and report what it printed.',
     )
+  })
+})
+
+describe('work state of a PR', () => {
+  const loop = { running: true, rounds: 1, outcome: null }
+
+  it('reads the ledger stage and move with Astra’s phase and loop', () => {
+    const w = workOf(
+      [{ key: 'ENG-6648', text: ledger({ stage: '9 PR (ready)', move: 'noah' }) }],
+      PR,
+      () => ({ phase: 'in-review', loop }),
+      null,
+    )
+    expect(w).toEqual({
+      key: 'ENG-6648',
+      stage: '9 PR (ready)',
+      move: 'noah',
+      phase: 'in-review',
+      loop,
+      approve: null,
+    })
+  })
+
+  it('carries the Approve state and survives a missing auto-work.json', () => {
+    const w = workOf([{ key: 'ENG-6648', text: ledger() }], PR, () => null, {
+      key: 'ENG-6648',
+      state: 'sent',
+    })
+    expect(w).toMatchObject({ phase: null, loop: null, approve: 'sent' })
+  })
+
+  it('is null for a PR auto-work did not open', () => {
+    expect(
+      workOf([{ key: 'ENG-6648', text: ledger({}, '- hand made') }], PR, () => null, null),
+    ).toBeNull()
+    expect(workOf([{ key: 'ENG-6648', text: ledger() }], PR + '1', () => null, null)).toBeNull()
   })
 })

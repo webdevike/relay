@@ -24,6 +24,7 @@ import { Markdown } from '../chat/markdown/Markdown'
 import { LinearDetail } from './LinearDetail'
 import { SlackDetail } from './SlackDetail'
 import { ReviewsList } from './ReviewsList'
+import { refreshRowStatus } from './row-status'
 import { ReviewFiles } from './ReviewFiles'
 import { ReviewGuide } from './ReviewGuide'
 import { ago, agoPhrase, mentionsAstra, nextAfter, prKey, queueGroups } from './review-model'
@@ -252,7 +253,9 @@ export function Detail({
   const [focusFile, setFocusFile] = useState<string | null>(null)
   const [viewed, setViewed] = useLocal<string[]>(`eva-reviews-viewed:${pr.url}`, [])
   const [draft, setDraft] = useState('')
-  const [confirm, setConfirm] = useState<'comment' | 'review' | 'approve' | null>(null)
+  const [confirm, setConfirm] = useState<'comment' | 'review' | null>(null)
+  const [approving, setApproving] = useState(false)
+  const [approveError, setApproveError] = useState<string | null>(null)
   const [approval, setApproval] = useState<ReviewApprove | null>(null)
   // The ledger moves on its own (Astra, the scan): read it when the PR opens and on refresh.
   useEffect(() => {
@@ -300,20 +303,21 @@ export function Detail({
     onRefresh()
   }
 
+  // Approve goes straight to Astra (no confirm): the button and the list row show the new state at once.
   const approve = async (): Promise<void> => {
-    setBusy(true)
+    setApproving(true)
+    setApproveError(null)
     const r = await invoke('reviews.approve', ref)
-    setBusy(false)
-    setConfirm(null)
-    if (!r.ok) return fail("Couldn't reach Astra", r.error.message)
+    setApproving(false)
+    if (!r.ok) {
+      setApproveError(`Couldn't reach Astra: ${r.error.message}`)
+      return
+    }
     setApproval((a) => (a ? { ...a, state: 'sent' } : a))
-    notifications.show({
-      message:
-        r.value.status === 'sent'
-          ? 'Sent to Astra to approve.'
-          : `Test instance, not sent: ${r.value.command}`,
-      color: r.value.status === 'sent' ? 'green' : 'gray',
-    })
+    if (r.value.status !== 'sent') {
+      notifications.show({ message: `Test instance, not sent: ${r.value.command}`, color: 'gray' })
+    }
+    refreshRowStatus()
   }
 
   const TABS: Array<{ id: Tab; label: string; count?: number; icon?: ReactNode }> = [
@@ -358,16 +362,21 @@ export function Detail({
             <IconExternalLink size={14} />
           </button>
         </Tooltip>
+        {approveError ? (
+          <span className="eva-rv-bad eva-rv-small" data-testid="review-approve-error">
+            {approveError}
+          </span>
+        ) : null}
         {approval && approval.state !== 'running' ? (
           <Button
             size="xs"
             leftSection={<IconCheck size={14} />}
             disabled={approval.state === 'sent'}
-            loading={busy && confirm === 'approve'}
-            onClick={() => setConfirm('approve')}
+            loading={approving}
+            onClick={() => void approve()}
             data-testid="review-approve"
           >
-            {approval.state === 'sent' ? 'Sent to Astra' : 'Approve'}
+            {approval.state === 'sent' ? 'Approved' : 'Approve'}
           </Button>
         ) : null}
         {approval?.state === 'running' ? (
@@ -508,30 +517,6 @@ export function Detail({
         </div>
         <Rail pr={pr} />
       </div>
-
-      <EvaModal
-        opened={confirm === 'approve'}
-        onClose={() => setConfirm(null)}
-        title={`Approve ${approval?.key ?? ''} and hand it to Astra?`}
-        size={480}
-      >
-        <div className="eva-rv-dim eva-rv-small" data-testid="review-approve-text">
-          Astra posts the proof to Linear and starts the self-review loop for {pr.repo}#{pr.number}.
-          Nothing is sent to GitHub from here.
-        </div>
-        <div className="eva-rv-modal-actions">
-          <Button variant="default" onClick={() => setConfirm(null)}>
-            Cancel
-          </Button>
-          <Button
-            loading={busy}
-            onClick={() => void approve()}
-            data-testid="review-approve-confirm"
-          >
-            Hand to Astra
-          </Button>
-        </div>
-      </EvaModal>
 
       <EvaModal
         opened={confirm === 'comment'}

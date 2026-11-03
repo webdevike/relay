@@ -38,62 +38,8 @@ import { Avatar, SourceMark, useLocal } from './review-ui'
 import { ReviewRowMenu, rowHandlers, type RowMenuState } from './ReviewRowMenu'
 import { reviewIdOf, reviewIdOfPlace } from './review-place'
 import { activePlace, useTabs } from '../tabs/tabs-store'
-import { invoke } from '../ipc'
+import { rowPills, rowStatusKey, useRowStatus, type RowStatus } from './row-status'
 import './reviews.css'
-
-/** A queue row's CI rollup and Approve-ready flag, read once per PR update for the page's list. */
-interface RowStatus {
-  ci: 'pass' | 'fail' | 'pending' | 'none' | null
-  approve: 'ready' | 'running' | null
-}
-
-const statusKey = (r: ReviewRow): string => `${prKey(r)}@${r.updatedAt}`
-const statusCache = new Map<string, RowStatus>()
-const STATUS_WORKERS = 3
-
-async function readStatus(r: ReviewRow): Promise<RowStatus> {
-  const ref = { repo: r.repo, number: r.number }
-  const [ci, approvable] = await Promise.all([
-    invoke('reviews.ci', ref),
-    // Only auto-work drafts can wait on Isaac's approval.
-    r.draft ? invoke('reviews.approvable', ref) : null,
-  ])
-  const a = approvable?.ok ? approvable.value : null
-  return {
-    ci: ci.ok ? ci.value : null,
-    approve: a?.state === 'ready' ? 'ready' : a?.state === 'running' ? 'running' : null,
-  }
-}
-
-/** Statuses for `rows`, fetched a few at a time (a gh call each) and kept per PR update. */
-function useRowStatus(rows: ReviewRow[]): Record<string, RowStatus> {
-  const [, bump] = useState(0)
-  const wanted = rows.map(statusKey).join('|')
-  useEffect(() => {
-    let live = true
-    const todo = rows.filter((r) => !statusCache.has(statusKey(r)))
-    const worker = async (): Promise<void> => {
-      for (let r = todo.shift(); live && r; r = todo.shift()) {
-        statusCache.set(statusKey(r), await readStatus(r))
-        if (live) bump((n) => n + 1)
-      }
-    }
-    for (let i = 0; i < STATUS_WORKERS; i++) void worker()
-    return () => {
-      live = false
-    }
-    // `wanted` is the rows' identity; the rows array itself is new every render.
-  }, [wanted])
-  return Object.fromEntries(
-    rows.map((r) => [statusKey(r), statusCache.get(statusKey(r))] as const).filter(([, s]) => s),
-  ) as Record<string, RowStatus>
-}
-
-const CI_PILL = {
-  pass: { label: 'CI passing', tone: 'green' },
-  fail: { label: 'CI failing', tone: 'red' },
-  pending: { label: 'CI running', tone: 'amber' },
-} as const
 
 function QueueRow({
   row,
@@ -114,7 +60,6 @@ function QueueRow({
   status?: RowStatus | undefined
 }) {
   const Glyph = row.draft ? IconGitPullRequestDraft : IconGitPullRequest
-  const ci = status?.ci && status.ci !== 'none' ? CI_PILL[status.ci] : null
   return (
     <button
       type="button"
@@ -130,19 +75,11 @@ function QueueRow({
         <span className="eva-rv-mono eva-rv-qrow-key">{shortPrId(row)}</span>
         {page ? (
           <span className="eva-rv-qrow-pills">
-            {row.draft ? <span className="eva-rv-pill">Draft</span> : null}
-            {ci ? (
-              <span className="eva-rv-pill" data-tone={ci.tone} data-testid="review-row-ci">
-                {ci.label}
+            {rowPills(row, status).map((p) => (
+              <span key={p.label} className="eva-rv-pill" data-tone={p.tone} data-testid={p.testId}>
+                {p.label}
               </span>
-            ) : null}
-            {status?.approve === 'ready' ? (
-              <span className="eva-rv-pill" data-tone="violet" data-testid="review-row-approve">
-                Approve ready
-              </span>
-            ) : status?.approve === 'running' ? (
-              <span className="eva-rv-pill">Self-review</span>
-            ) : null}
+            ))}
           </span>
         ) : (
           <>
@@ -407,7 +344,7 @@ export function ReviewsList({ variant = 'sidebar' }: { variant?: 'sidebar' | 'pa
                   now={now}
                   onMenu={setMenu}
                   page={page}
-                  status={page ? status[statusKey(r)] : undefined}
+                  status={page ? status[rowStatusKey(r)] : undefined}
                 />
               ))
             )}

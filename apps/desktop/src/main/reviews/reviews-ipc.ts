@@ -12,8 +12,16 @@ import { handle } from '../ipc/handle'
 import { claudeWriter, guideCache } from './guide'
 import { registerLinearInbox } from './linear-inbox'
 import { registerSlackInbox } from './slack-inbox'
-import { approvableKey, approveLine, approveState, readLedgers, readLoop } from './approve'
-import type { HostApprove } from '../relay/host-approve'
+import {
+  approvableKey,
+  approveLine,
+  approveState,
+  readLedgers,
+  readLoop,
+  readTicketWork,
+  workOf,
+} from './approve'
+import { OLD_HOST, type HostApprove } from '../relay/host-approve'
 import { registerAstraSessions } from './astra-sessions'
 import { REVIEWS_MEDIA_DIR, isGithubUpload, isLinearUpload, localizeImages } from './review-media'
 import { apiKey } from '../linear/linear-ipc'
@@ -379,13 +387,49 @@ export function registerReviewsIpc(
     host ? host.approvable(repo, number) : approveOf(repo, number),
   )
 
-  handle(ctx, 'reviews.ci', async ({ repo, number }) => {
-    const out = await gh(['pr', 'view', String(number), '-R', repo, '--json', 'statusCheckRollup'])
-    const checks = (JSON.parse(out) as Pick<Raw, 'statusCheckRollup'>).statusCheckRollup
-    const states = checks.map(checkState).filter((s) => s !== 'skipped')
-    if (states.length === 0) return 'none' as const
-    if (states.includes('fail')) return 'fail' as const
-    return states.includes('pending') ? ('pending' as const) : ('pass' as const)
+  handle(ctx, 'reviews.rowStatus', async ({ repo, number }) => {
+    const out = await gh([
+      'pr',
+      'view',
+      String(number),
+      '-R',
+      repo,
+      '--json',
+      'statusCheckRollup,reviewDecision',
+    ])
+    const v = JSON.parse(out) as Pick<Raw, 'statusCheckRollup'> & { reviewDecision?: string | null }
+    const states = v.statusCheckRollup.map(checkState).filter((s) => s !== 'skipped')
+    const ci = !states.length
+      ? ('none' as const)
+      : states.includes('fail')
+        ? ('fail' as const)
+        : states.includes('pending')
+          ? ('pending' as const)
+          : ('pass' as const)
+    const decision = (['APPROVED', 'CHANGES_REQUESTED', 'REVIEW_REQUIRED'] as const).find(
+      (d) => d === v.reviewDecision,
+    )
+    return { ci, decision: decision ?? null }
+  })
+
+  // An old Mini host does not know the `work` op and never answers it: ask once, then stop.
+  let hostWorkOff = false
+  handle(ctx, 'reviews.work', async ({ repo, number }) => {
+    if (host) {
+      if (hostWorkOff) return null
+      try {
+        return await host.work(repo, number)
+      } catch (e) {
+        if (e instanceof Error && e.message === OLD_HOST) hostWorkOff = true
+        return null
+      }
+    }
+    return workOf(
+      readLedgers(ctx.env.evaRoot),
+      `https://github.com/${repo}/pull/${number}`,
+      (key) => readTicketWork(ctx.env.evaRoot, key),
+      approveOf(repo, number),
+    )
   })
 
   handle(ctx, 'reviews.approve', async ({ repo, number }) => {

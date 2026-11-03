@@ -3,7 +3,7 @@
 // Astra's main thread. Astra runs ready.ts; the desktop never does.
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import type { ReviewApprove } from '@evaos/contract'
+import type { ReviewApprove, ReviewWork } from '@evaos/contract'
 
 /** Written by jobs/astra-auto-work when it opens a ledger (ledgerField / Decisions line). */
 const AUTO_WORK_MARK = 'auto-work: opened by jobs/astra-auto-work'
@@ -86,4 +86,53 @@ export function readLoop(evaRoot: string, key: string): ApproveFacts['loop'] {
   } catch {
     return null
   }
+}
+
+/** Astra's auto-work.json entry for `key`: its phase and the self-review loop, or null. */
+export function readTicketWork(
+  evaRoot: string,
+  key: string,
+): { phase: string | null; loop: ReviewWork['loop'] } | null {
+  try {
+    const state = JSON.parse(
+      fs.readFileSync(path.join(evaRoot, 'work/eva/agents/astra/auto-work.json'), 'utf8'),
+    ) as {
+      tickets?: Record<string, { phase?: string; ready?: { rounds?: number; outcome?: string } }>
+    }
+    const t = state.tickets?.[key]
+    if (!t) return null
+    const r = t.ready
+    return {
+      phase: t.phase ?? null,
+      loop: r ? { running: !r.outcome, rounds: r.rounds ?? 0, outcome: r.outcome ?? null } : null,
+    }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The auto-work ledger whose PR is `prUrl` (any stage), with Astra's phase and loop; null for a PR
+ * auto-work did not open.
+ */
+export function workOf(
+  ledgers: Array<{ key: string; text: string }>,
+  prUrl: string,
+  ticket: (key: string) => ReturnType<typeof readTicketWork>,
+  approve: ReviewApprove | null,
+): ReviewWork | null {
+  for (const { key, text } of ledgers) {
+    if (field(text, 'pr') !== prUrl || !text.includes(AUTO_WORK_MARK)) continue
+    if (!/^ENG-\d+$/.test(key) || field(text, 'key') !== key) continue
+    const t = ticket(key)
+    return {
+      key,
+      stage: field(text, 'stage'),
+      move: field(text, 'move'),
+      phase: t?.phase ?? null,
+      loop: t?.loop ?? null,
+      approve: approve?.state ?? null,
+    }
+  }
+  return null
 }

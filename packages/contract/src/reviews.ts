@@ -297,6 +297,29 @@ export const ReviewApproveSchema = z.object({
 })
 export type ReviewApprove = z.infer<typeof ReviewApproveSchema>
 
+/** The check rollup and review decision a queue row shows as pills. */
+export const ReviewRowStatusSchema = z.object({
+  ci: z.enum(['pass', 'fail', 'pending', 'none']),
+  decision: z.enum(['APPROVED', 'CHANGES_REQUESTED', 'REVIEW_REQUIRED']).nullable(),
+})
+export type ReviewRowStatus = z.infer<typeof ReviewRowStatusSchema>
+
+/**
+ * Where an eCard auto-work PR stands in Astra's flow, read from its work-item ledger (stage, move),
+ * Astra's auto-work.json (phase, self-review loop) and Isaac's approve hand-off. `loop.rounds` counts
+ * the self-reviews started; `approve` is the Approve button's state (null when it does not show).
+ */
+export const ReviewWorkSchema = z.object({
+  key: z.string(),
+  stage: z.string(),
+  move: z.string(),
+  phase: z.string().nullable(),
+  loop: z
+    .object({ running: z.boolean(), rounds: z.number(), outcome: z.string().nullable() })
+    .nullable(),
+  approve: z.enum(['ready', 'sent', 'running']).nullable(),
+})
+export type ReviewWork = z.infer<typeof ReviewWorkSchema>
 export const reviewsInvoke = {
   'reviews.queue': {
     input: z.object({ refresh: z.boolean() }).strict(),
@@ -408,10 +431,15 @@ export const reviewsInvoke = {
     input: PrRef.strict(),
     output: ReviewApproveSchema.nullable(),
   },
-  /** A PR's check rollup for a queue row: fail beats pending beats pass; none when it runs no checks. */
-  'reviews.ci': {
+  /** A PR row's CI rollup (fail beats pending beats pass; none when it runs no checks) and GitHub's review decision. */
+  'reviews.rowStatus': {
     input: PrRef.strict(),
-    output: z.enum(['pass', 'fail', 'pending', 'none']),
+    output: ReviewRowStatusSchema,
+  },
+  /** The auto-work ledger and self-review loop behind a PR (from the Mini's ledgers), else null. */
+  'reviews.work': {
+    input: PrRef.strict(),
+    output: ReviewWorkSchema.nullable(),
   },
   /**
    * Hands Isaac's confirmed approval to Astra, who runs ready.ts for the ticket. The app never
