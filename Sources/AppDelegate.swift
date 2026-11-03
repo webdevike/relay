@@ -458,7 +458,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var glide: Task<Void, Never>?
         let result = await Navigator.run(goal: question, target: context.target, windowID: context.windowID) { [weak self] step in
             guard let self else { return }
-            Log.info(String(format: "nav: step \"%@\" source=%@ jev=%dms press=%dms", step.label, step.source, step.jevMs, step.pressMs))
+            Log.info(String(format: "nav: step \"%@\" jev=%dms press=%dms", step.label, step.jevMs, step.pressMs))
             glide = Task { @MainActor in
                 await self.overlay.chore(at: CGPoint(x: step.frame.midX, y: step.frame.midY), context: global, caption: step.label + "...")
             }
@@ -468,7 +468,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let arrived = result.final == "done" && !result.steps.isEmpty
         Log.info(String(format: "route: path=jev-nav final=%@ presses=%d script=%dms total=%.0fms steps=[%@] %@", result.final, result.steps.count,
                         result.totalMs, Date().timeIntervalSince(started) * 1000,
-                        result.steps.map { "\($0.label):\($0.source):\($0.jevMs)+\($0.pressMs)" }.joined(separator: ", "), result.reason))
+                        result.steps.map { "\($0.label):\($0.jevMs)+\($0.pressMs)" }.joined(separator: ", "), result.reason))
         guard arrived, let last = result.steps.last else { return .fallback(moved: !result.steps.isEmpty) }
         await glide?.value
         var plan = Plan()
