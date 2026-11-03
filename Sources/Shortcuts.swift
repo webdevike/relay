@@ -93,11 +93,13 @@ enum Shortcut {
         return nil
     }
 
-    /// The issue title from the Linear hook's (read-only, cached) ticket text: "Ticket KEY: title".
+    /// The issue title from the Linear hook's (read-only, cached) ticket text: its "Ticket KEY: title" line
+    /// (the state opens with a line saying which view is on screen).
     static func issueTitle(_ key: String, pid: pid_t) async -> String? {
+        let prefix = "Ticket \(key): "
         guard let state = await LinearHook(pid: pid).sceneState(),
-              let first = state.split(separator: "\n").first, first.hasPrefix("Ticket \(key): ") else { return nil }
-        let title = first.dropFirst("Ticket \(key): ".count).trimmingCharacters(in: .whitespaces)
+              let line = state.split(separator: "\n").first(where: { $0.hasPrefix(prefix) }) else { return nil }
+        let title = line.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
         return title.isEmpty ? nil : title
     }
 
