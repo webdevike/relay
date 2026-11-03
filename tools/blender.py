@@ -32,8 +32,9 @@ print(bpy.context.mode, ob.name if ob else None,
       sorted(o.name for o in bpy.context.scene.objects))
 '''
 
-# Leaves only the default Cube, Light and Camera, in Object Mode with the Cube active.
+# Leaves only the default Cube (8 verts, 2 m), Light and Camera, in Object Mode with the Cube active.
 RESET = '''
+import bmesh
 with ctx():
     if bpy.context.mode != 'OBJECT':
         bpy.ops.object.mode_set(mode='OBJECT')
@@ -43,6 +44,12 @@ for o in list(bpy.context.scene.objects):
 cube = bpy.data.objects['Cube']
 for m in list(cube.modifiers):
     cube.modifiers.remove(m)
+if len(cube.data.vertices) != 8 or any(p.use_smooth for p in cube.data.polygons):
+    bm = bmesh.new()
+    bmesh.ops.create_cube(bm, size=2.0)
+    bm.to_mesh(cube.data)
+    bm.free()
+    cube.data.update()
 for o in bpy.context.scene.objects:
     o.select_set(o.name == 'Cube')
 bpy.context.view_layer.objects.active = cube
