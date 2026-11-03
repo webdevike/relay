@@ -8,6 +8,7 @@ import { openLink } from '../../navigation/open-link'
 import { Markdown } from '../markdown/Markdown'
 import { WidgetActions, WidgetScope } from './actions'
 import { WidgetBlock } from './Widget'
+import { invoke } from '../../ipc'
 
 vi.mock('../../navigation/open-link', () => ({ openLink: vi.fn() }))
 vi.mock('../../ipc', () => ({ invoke: vi.fn(), on: vi.fn() }))
@@ -149,6 +150,21 @@ describe('Markdown ```openui fences', () => {
     first.unmount()
     render(row)
     expect(screen.getByTestId('widget-text')).toHaveTextContent(/^20$/)
+  })
+
+  it("runs a reply widget's Query against the host wherever it is drawn (chat, subagent view)", async () => {
+    vi.mocked(invoke).mockResolvedValue({ ok: true, value: { ok: true, data: { total: 7 } } })
+    const program = [
+      'root = Stat("Open items", "" + items.total)',
+      'items = Query("work_items", {}, {total: 0}, 30)',
+    ].join('\n')
+    show(
+      <WidgetScope.Provider value="msg-query">
+        <Markdown text={openui(program)} />
+      </WidgetScope.Provider>,
+    )
+    expect(await screen.findByText('7')).toBeInTheDocument()
+    expect(invoke).toHaveBeenCalledWith('boards.query', { tool: 'work_items', args: {} })
   })
 
   it('binds a field to a $variable and sends what an action hands back', async () => {

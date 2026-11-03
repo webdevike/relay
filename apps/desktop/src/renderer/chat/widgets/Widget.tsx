@@ -15,7 +15,11 @@ import {
   type WidgetKind,
   type WidgetSpec,
 } from '@evaos/chat-core/widget'
-import { createOpenUIRuntime, type OpenUIRuntime } from '@evaos/chat-core/openui'
+import {
+  createOpenUIRuntime,
+  type OpenUIQueryClient,
+  type OpenUIRuntime,
+} from '@evaos/chat-core/openui'
 import { OpenUIActions, OpenUIQuery, WidgetScope } from './actions'
 import { CodeBlock } from '../markdown/CodeBlock'
 import { ButtonBlock, InputBlock } from './blocks/actions'
@@ -208,10 +212,15 @@ export function WidgetBlock({ json }: { json: string }) {
 const runtimes = new Map<string, OpenUIRuntime>()
 const MAX_RUNTIMES = 200
 
-function scopedRuntime(key: string, code: string, partial: boolean): OpenUIRuntime {
+function scopedRuntime(
+  key: string,
+  code: string,
+  partial: boolean,
+  query: OpenUIQueryClient | null,
+): OpenUIRuntime {
   let runtime = runtimes.get(key)
   if (runtime) runtimes.delete(key)
-  else runtime = createOpenUIRuntime(code, { partial })
+  else runtime = createOpenUIRuntime(code, { partial, query })
   runtimes.set(key, runtime)
   if (runtimes.size > MAX_RUNTIMES) runtimes.delete(runtimes.keys().next().value!)
   return runtime
@@ -233,7 +242,7 @@ export function OpenUIBlock({ code, closed, at }: { code: string; closed: boolea
   const own = useRef<OpenUIRuntime | null>(null)
   const runtime =
     scope !== null && at !== undefined
-      ? scopedRuntime(`${scope}:${String(at)}`, code, partial)
+      ? scopedRuntime(`${scope}:${String(at)}`, code, partial, query)
       : (own.current ??= createOpenUIRuntime(code, { partial, query }))
   // Streamed text keeps the $variables the user changed; subscribers rerender before paint.
   useLayoutEffect(() => runtime.update(code, { partial }), [runtime, code, partial])
