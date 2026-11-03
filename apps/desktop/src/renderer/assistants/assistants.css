@@ -226,7 +226,6 @@
   flex: none;
   width: 1.25em;
   height: 1.25em;
-  margin-left: calc(var(--mantine-spacing-xs) / -2);
 }
 .eva-as-crumb-sep {
   color: var(--eva-c-muted-foreground);
