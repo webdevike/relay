@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>com.relay.buddy</string>
+	<key>CFBundleName</key>
+	<string>Relay Assist</string>
+	<key>CFBundleDisplayName</key>
+	<string>Relay Assist</string>
+	<key>CFBundleExecutable</key>
+	<string>RelayBuddy</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>Relay Assist looks at the window you ask about so your assistant can point at the right control.</string>
+	<key>NSAccessibilityUsageDescription</key>
+	<string>Relay Assist reads the names and positions of controls in the window you ask about.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Relay Assist listens while you hold the talk key so you can ask your assistant by voice.</string>
+</dict>
+</plist>
