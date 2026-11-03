@@ -57,6 +57,23 @@ export const num = (m: Y.Map<unknown>, k: string): number | undefined => {
   return typeof v === "number" && Number.isFinite(v) ? v : undefined;
 };
 
+/** OpenUI Lang source: starts with `root =` or reads a `Query(`. */
+export function looksLikeOpenUI(body: string): boolean {
+  return /^\s*root\s*=/.test(body) || body.includes("Query(");
+}
+
+/** Appended to the reason a note that holds OpenUI is refused, so the brain knows the right action. */
+export const OPENUI_NOTE_REFUSAL = "that text is OpenUI; OpenUI never goes in a note body (notes show it as raw text)";
+
+/**
+ * Whether the text streaming into `text` is OpenUI after its first `skipLines` lines (a title).
+ * Decides from the first body line once it is complete, so ordinary notes still type live.
+ */
+export async function openUiAhead(text: TextStream, skipLines: number): Promise<boolean> {
+  while (!text.closed && text.text.split("\n").length <= skipLines + 1) await text.changed();
+  return looksLikeOpenUI(text.text.split("\n").slice(skipLines).join("\n"));
+}
+
 /** The text field each doc has a typist in, as a queue: the last typist's turn resolves when it is done. */
 const typists = new WeakMap<Y.Doc, Map<string, Promise<void>>>();
 
@@ -269,6 +286,16 @@ export class CanvasActor {
   }
 
   /**
+   * A note whose body is OpenUI becomes a `ui` node (same id and spot) when it checks, else is
+   * refused with why. Undefined: an ordinary note, carry on.
+   */
+  private async openUiNote(a: Extract<Action, { kind: "add_node" }>, markEdit: () => void): Promise<string | null | undefined> {
+    if (!(await openUiAhead(a.text, 1))) return undefined;
+    const converted = await this.run({ kind: "add_ui", id: a.id, x: a.x, y: a.y, w: a.w, h: null, text: a.text }, markEdit);
+    return converted === null ? null : `${converted}; ${OPENUI_NOTE_REFUSAL}. Use @add_ui <id> <x> <y> <w>, then the title line and the program, @end`;
+  }
+
+  /**
    * Runs one action as an animated edit. Resolves with null when it ran, or why it did not (an
    * unknown node id, a taken id); `@say` lines are not actions and never come here.
    */
@@ -310,9 +337,13 @@ export class CanvasActor {
           await this.glide(b.x + 40, b.y + (a.field === "title" ? 24 : 60));
           // A live widget's source lands whole and only once it checks: typed char by char it
           // would render a half program in every client meanwhile.
+          if (a.field === "body" && this.nodes.get(a.id)?.get("type") !== "ui" && (await openUiAhead(a.text, 0))) {
+            while (!a.text.closed) await a.text.changed();
+            if (looksLikeOpenUI(a.text.text)) return `${OPENUI_NOTE_REFUSAL}; use @set_text on a ui node, or @add_ui for a new widget`;
+          }
           if (a.field === "body" && this.nodes.get(a.id)?.get("type") === "ui") {
             while (!a.text.closed) await a.text.changed();
-            const source = a.kind === "set_text" ? a.text.text.trim() : `${yt.toString()}\n${a.text.text.trim()}`;
+            const source = a.kind === "set_text" ? a.text.text.trim() : `${yt.toJSON()}\n${a.text.text.trim()}`;
             const refused = liveRefusal(source);
             if (refused !== null) return `openui: ${refused}`;
             this.setP({ selected: [a.id], status: "typing" });
@@ -341,6 +372,10 @@ export class CanvasActor {
         });
       case "add_node":
       case "add_frame": {
+        if (a.kind === "add_node") {
+          const converted = await this.openUiNote(a, markEdit);
+          if (converted !== undefined) return converted;
+        }
         if (this.nodes.has(a.id)) return `id ${a.id} is taken`;
         // A frame is always placed exactly (it sits behind the cards it groups); notes too unless
         // overlap avoidance is on, which nudges them until they clear every node.

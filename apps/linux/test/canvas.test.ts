@@ -8,12 +8,15 @@ import * as awarenessProtocol from "y-protocols/awareness";
 import * as syncProtocol from "y-protocols/sync";
 import * as Y from "yjs";
 import type { AgentSession, CanvasEntry } from "@relay/protocol";
+import { QUERY_MAX_REFRESH_SEC, QUERY_MIN_REFRESH_SEC, QUERY_TOOL_NAMES } from "@relay/protocol";
 import { boardText, exportBoard, nodesOf, parseBoard } from "@relay/canvas-live/board";
 import { DOC_KEYS, type ChatMsg, type Presence } from "@relay/canvas-live/shared";
 import { OmpBridgeProvider } from "../src/agents/bridge";
 import { parseSessionRows } from "../src/agents/transcript";
 import { toAssistantMessages } from "../src/assistant/service";
 import type { CanvasBrain } from "../src/canvas/brain";
+import { LIVE_UI_EXAMPLES } from "../src/canvas/liveui-prompt";
+import { liveRefusal } from "../src/query/openui";
 import { callerFile, chatFileOf, detectCaller, subagentName } from "../src/canvas/caller";
 import { authorizeCanvasSocket, handleCanvasRequest } from "../src/canvas/http";
 import { BoardFile } from "../src/canvas/persist";
@@ -64,6 +67,8 @@ function answer(message: string): string {
   if (message.includes("# Session end")) return "We renamed the root and settled that support is staff. Still open: ops.";
   if (message.includes("# Handoff landed")) return "@point tab-shot\n@say Done, the settings tab is on the board.\n";
   if (message.includes("Isaac says: show me the settings tab")) return "@handoff main grab a screenshot of the settings tab, put it at 2000,0\n@say On it, Eva is grabbing that.\n";
+  if (message.includes("Isaac says: create me a dashboard")) return '@say On it.\n@add_ui dash-bad 7000 0 420\nInbox\nroot = Stat("Unread", "" + inbox.n)\ninbox = Query("inbox", {}, {n: 0}, 30)\n@end\n';
+  if (message.includes("# Did not run")) return '@say Fixed.\n@add_ui dash-jobs 7000 0 420\nJobs\nroot = Stat("Failing", "" + jobs.failing)\njobs = Query("jobs", {}, {failing: 0}, 30)\n@end\n';
   return "@say Done, renamed it.\n@set_text root title\nECS roles, renamed live\n@end\n";
 }
 
@@ -468,6 +473,54 @@ describe("agents joining a live room", () => {
     await service.end(room.roomId);
     const onDisk = parseBoard(readFileSync(join(canvasDir, "ecs-roles.json"), "utf8"));
     expect(onDisk.nodes.find((n) => n.id === "live-work")).toMatchObject({ type: "ui", w: 420, h: 260, data: { title: "Active work", body: next } });
+  });
+
+  it("converts a note whose body is valid OpenUI into a ui node, and refuses one that is not or that edits a note", async () => {
+    await service.start({ slug: "ecs-roles", caller: { sessionFile: chatFile } });
+    const theo = service.join("ecs-roles", { name: "Theo" }).participant.id;
+    const source = 'root = Card([Stat("Failing", "" + jobs.failing)])\njobs = Query("jobs", {}, {failing: 0}, 30)';
+    const converted = await service.act("ecs-roles", theo, `@add_node dash note 7000 0 420\nJobs\n${source}\n@end`);
+    expect(converted).toEqual({ ran: 1, said: [], skipped: [], added: ["dash"] });
+    expect(service.view("ecs-roles").board.nodes.find((n) => n.id === "dash")).toMatchObject({ type: "ui", data: { title: "Jobs", body: source } });
+
+    const refused = await service.act("ecs-roles", theo, '@add_node bad-note note 7500 0 420\nInbox\nroot = Card([Stat("Unread", "" + inbox.n)])\ninbox = Query("inbox", {}, {n: 0}, 30)\n@end');
+    expect(refused.skipped).toEqual([expect.stringMatching(/^add_node bad-note: openui: inbox: unknown query tool "inbox" \(tools: work_items, jobs, linear_issues, github_prs, relay_sessions\); .*never goes in a note.*Use @add_ui/)]);
+    expect(service.view("ecs-roles").board.nodes.some((n) => n.id === "bad-note")).toBe(false);
+
+    await service.act("ecs-roles", theo, "@add_node plain note 8000 0 420\nPlain\nJust words.\n@end");
+    const edited = await service.act("ecs-roles", theo, `@set_text plain body\n${source}\n@end`);
+    expect(edited.skipped).toEqual([expect.stringMatching(/^set_text plain: that text is OpenUI; OpenUI never goes in a note/)]);
+    expect(service.view("ecs-roles").board.nodes.find((n) => n.id === "plain")?.data?.body).toBe("Just words.");
+  });
+
+  it("tells the canvas self about @add_ui and the real tools, with examples that check, and feeds skipped actions back", async () => {
+    await service.start({ slug: "ecs-roles", caller: { sessionFile: chatFile } });
+    const system = brains[0]?.system ?? "";
+    expect(system).toContain("@add_ui <newId> <x> <y> <width> [height]");
+    expect(system).toContain("Never put OpenUI code");
+    for (const tool of QUERY_TOOL_NAMES) expect(system).toContain(`- ${tool}:`);
+    for (const field of ["byWorkspace", "lastRunAgo", "lastResult", "failing", "byState", "updatedAgo", "byStatus", "assistants"]) expect(system).toContain(field);
+    expect(system).toContain(`refreshSec is ${String(QUERY_MIN_REFRESH_SEC)} to ${String(QUERY_MAX_REFRESH_SEC)}`);
+    for (const example of LIVE_UI_EXAMPLES) {
+      expect(liveRefusal(example.source)).toBeNull();
+      expect(system).toContain(`@add_ui ${example.id} `);
+    }
+  });
+
+  it("a note turn whose action is refused gets one correction turn naming why, and the fix lands", async () => {
+    const started = await service.start({ slug: "ecs-roles", caller: { sessionFile: chatFile } });
+    const room = service.roomById(started.roomId);
+    if (room === undefined) throw new Error("no room");
+    const tab = joinRoom(service, room, "Isaac");
+    await until(() => tab.doc.getMap(DOC_KEYS.nodes).has("agenda"), "the opener");
+    const chat = tab.doc.getArray<ChatMsg>(DOC_KEYS.chat);
+    chat.push([{ id: "n-dash", kind: "human", name: "Isaac", color: "#0ea5e9", text: "create me a dashboard with ui widgets", nodeIds: [], at: null, ts: Date.now() }]);
+    await until(() => tab.doc.getMap(DOC_KEYS.nodes).has("dash-jobs"), "the corrected widget");
+    const correction = brains[0]?.prompts.at(-1) ?? "";
+    expect(correction).toContain("# Did not run");
+    expect(correction).toMatch(/skipped: add_ui dash-bad: openui: .*unknown query tool "inbox" \(tools: work_items, jobs, linear_issues, github_prs, relay_sessions\)/);
+    expect(tab.doc.getMap(DOC_KEYS.nodes).has("dash-bad")).toBe(false);
+    tab.leave();
   });
 });
 

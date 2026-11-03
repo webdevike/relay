@@ -19,6 +19,7 @@ import { DOC_KEYS, type ChatMsg, type ModelKey, type Presence, type ServerMetric
 import { AGENT_ORIGIN, CanvasActor, str } from "./actor";
 import type { CanvasBrain } from "./brain";
 import { ActionParser, TextStream } from "./dsl";
+import { liveUiPrompt } from "./liveui-prompt";
 import { PACE_MS, runSteps, type ActResult, type Step } from "./participant";
 
 /** Who and what the agent is in this room. */
@@ -88,6 +89,10 @@ Reply ONLY with action lines in this exact format (no code fences, no other pros
 <title on the first line>
 <body lines>
 @end
+@add_ui <newId> <x> <y> <width> [height]   (a LIVE widget: title on the first line, then OpenUI program lines, see "Live widgets" below)
+<title on the first line>
+<OpenUI program lines>
+@end
 @move_node <nodeId> <x> <y>
 @parent <nodeId> <frameId|none>   (put a node in a frame so it moves with it; a new frame adopts the cards whose center is inside it)
 @add_edge <sourceId> <targetId> <optional short label>
@@ -102,7 +107,10 @@ How to run the session:
 - When a note critiques a node's wording, rewrite it with @set_text (whole field). Keep the board's voice: plain, concrete, short lines; keep numbering like "1 · ".
 - Add a node only when it helps. Put new nodes in empty space beside the related node (right: x = node.x + node.w + 60, or below), never overlapping, width 360-460. Connect related nodes with @add_edge.
 - New ids: short lowercase kebab-case. Use only ids that exist (or that you just added). Keep it fast: a few actions, and never touch nodes nobody asked about.
-- You can only change the board. When a note asks for something that needs real tools (reading files or code, screenshots of apps, tabs or pages, running builds or tests, web research, making images), never say you cannot: hand it off. Write one @handoff line to main (${name} in the chat "${chatTitle}", which has every tool) or to a worker listed under "# Workers" whose purpose fits, with exactly what to make and where on the board to put it (a free x,y). Then one @say, e.g. "On it, ${name} is grabbing that." (the worker's name when it goes to a worker). Do not make placeholder cards for it. When the work lands you get a "# Handoff landed" turn: confirm it then.`;
+- You can only change the board. When a note asks for something that needs real tools (reading files or code, screenshots of apps, tabs or pages, running builds or tests, web research, making images), never say you cannot: hand it off. Write one @handoff line to main (${name} in the chat "${chatTitle}", which has every tool) or to a worker listed under "# Workers" whose purpose fits, with exactly what to make and where on the board to put it (a free x,y). Then one @say, e.g. "On it, ${name} is grabbing that." (the worker's name when it goes to a worker). Do not make placeholder cards for it. When the work lands you get a "# Handoff landed" turn: confirm it then.
+- A request for live data, widgets, a dashboard or a chart is NOT a handoff and NOT a note: answer it yourself with @add_ui nodes (below).
+
+${liveUiPrompt()}`;
   const parts = [base];
   if (purpose !== "") parts.push(`What this canvas session is for (from when you started it): ${purpose}`);
   parts.push(chat === "" ? "(The chat that opened this board has no text turns yet.)" : `The chat that opened this board (${String(chatTurns)} turns, oldest first):\n<chat>\n${chat}\n</chat>`);
@@ -263,7 +271,11 @@ export class CanvasAgent {
         continue;
       }
       try {
-        if (t.kind === "message") await this.respond(t.msg.id, (onDelta) => this.brain(this.modelKey()).run(this.prompt(t.msg), onDelta), t.msg);
+        if (t.kind === "message") {
+          const skipped = await this.respond(t.msg.id, (onDelta) => this.brain(this.modelKey()).run(this.prompt(t.msg), onDelta), t.msg);
+          // The brain only learns an action did not run if it is told: one correction turn, no loop.
+          if (skipped.length > 0) await this.respond(`retry-${t.msg.id}`, (onDelta) => this.brain(this.modelKey()).run(this.skippedPrompt(skipped), onDelta), null, "retry");
+        }
         else if (t.kind === "open") await this.open();
         else if (t.kind === "script") t.done(await this.script(t.steps));
         else if (t.kind === "landed") await this.respond(`landed-${Date.now().toString(36)}`, (onDelta) => this.brain(this.modelKey()).run(this.landedPrompt(t.text), onDelta), null, "landed");
@@ -375,8 +387,9 @@ export class CanvasAgent {
   }
 
   /** One model turn: stream speech into the bubble and run actions as their lines complete. */
-  private async respond(id: string, source: (onDelta: (delta: string) => void) => Promise<void>, msg: ChatMsg | null, label = msg === null ? "opener" : "turn"): Promise<void> {
+  private async respond(id: string, source: (onDelta: (delta: string) => void) => Promise<void>, msg: ChatMsg | null, label = msg === null ? "opener" : "turn"): Promise<string[]> {
     const t0 = performance.now();
+    const skips: string[] = [];
     const modelKey = this.modelKey();
     clearTimeout(this.clearBubbleTimer);
     let firstToken = 0;
@@ -406,7 +419,10 @@ export class CanvasAgent {
         }
         exec = exec.then(async () => {
           const skipped = await this.actor.run(a, markEdit);
-          if (skipped !== null) this.hooks.log(`canvas agent action ${a.kind} skipped: ${skipped}`);
+          if (skipped !== null) {
+            this.hooks.log(`canvas agent action ${a.kind} skipped: ${skipped}`);
+            skips.push(`${a.kind}${"id" in a ? ` ${a.id}` : ""}: ${skipped}`);
+          }
         }).catch((error: unknown) => {
           this.hooks.log(`canvas agent action ${a.kind}: ${error instanceof Error ? error.message : String(error)}`);
         });
@@ -441,6 +457,7 @@ export class CanvasAgent {
       this.setP({ bubble: null, selected: [] });
     }, 8000);
     if (msg !== null) this.hooks.turn({ name: msg.name, text: msg.text }, said);
+    return skips;
   }
 
   /** The chat's action lines, run as the canvas self: its cursor, its bubble, its chat lines. */
@@ -461,6 +478,17 @@ export class CanvasAgent {
       this.setP({ bubble: null, selected: [] });
     }, 8000);
     return result;
+  }
+
+  /** Turn after actions that did not run: what failed and why, so the brain can correct it. */
+  private skippedPrompt(skipped: readonly string[]): string {
+    return [
+      this.prompt(null),
+      "",
+      "# Did not run",
+      ...skipped.map((s) => `skipped: ${s}`),
+      "These actions from your last reply did NOT land on the board. Fix them and send only the corrected actions (OpenUI belongs in @add_ui with only the listed tools, never in a note), then one short @say. If a reason says a node id is taken or missing, use a fresh or existing id. If it cannot be fixed, @say why in one line.",
+    ].join("\n");
   }
 
   private landedPrompt(text: string): string {
