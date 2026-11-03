@@ -78,6 +78,7 @@ import { StudioService, type StudioMessage } from "./studio/service";
 import { defaultStudioDir } from "./studio/store";
 import { bunRun, defaultReviewsDir, resolveClaude, resolveGh } from "./reviews/exec";
 import { linearKey } from "./reviews/linear";
+import { goodopsSource } from "./query/goodops";
 import { liveRender } from "./query/openui";
 import { QueryService } from "./query/service";
 import { queryTools } from "./query/tools";
@@ -241,6 +242,7 @@ function serve(
       sessions: () => agents.sessions,
       assistants: () => assistant?.agents() ?? Promise.resolve([]),
       now: Date.now,
+      goodops: goodopsSource(agentHome),
     }),
     Date.now,
     log,

@@ -1,14 +1,15 @@
 // The read-only sources behind `QUERY_TOOLS` (packages/protocol/src/query.ts): Eva's work ledgers
 // and job shelf on disk, Isaac's Linear issues (GraphQL with his key, read-only query), GitHub PRs
-// (`gh search prs`, fixed flags, args validated before they reach argv) and Relay's own sessions and
-// assistant threads. Each returns plain JSON that the service parses through the tool's result
-// schema, so a field not listed there never leaves the host.
+// (`gh search prs`, fixed flags, args validated before they reach argv), Relay's own sessions and
+// assistant threads, and GoodOps' collections aggregates (goodops.ts). Each returns plain JSON that
+// the service parses through the tool's result schema, so a field not listed there never leaves the host.
 
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentSession, AssistantAgent, QueryArgs, QueryToolName } from "@relay/protocol";
 import { z } from "zod";
 import type { ToolRun } from "../reviews/exec";
+import { goodopsCollections, type GoodOpsSource } from "./goodops";
 
 export type QueryTools = { readonly [K in QueryToolName]: (args: QueryArgs<K>) => Promise<unknown> };
 
@@ -22,6 +23,8 @@ export interface QueryToolDeps {
   readonly sessions: () => readonly AgentSession[];
   readonly assistants: () => Promise<readonly AssistantAgent[]>;
   readonly now: () => number;
+  /** GoodOps' read-only database and FieldRoutes access; null when secrets/goodops-readonly.env is missing. */
+  readonly goodops: () => GoodOpsSource | null;
 }
 
 const GH_TIMEOUT_MS = 20_000;
@@ -346,5 +349,6 @@ export function queryTools(deps: QueryToolDeps): QueryTools {
     linear_issues: (args) => linearIssues(deps, args),
     github_prs: (args) => githubPrs(deps, args),
     relay_sessions: (args) => relaySessions(deps, args),
+    goodops_collections: goodopsCollections(deps),
   };
 }

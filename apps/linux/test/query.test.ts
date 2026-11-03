@@ -1,12 +1,13 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentSession } from "@relay/protocol";
+import { QUERY_TOOLS, type AgentSession } from "@relay/protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import { FileBoardStore } from "../src/boards/store";
 import { handleQueryRequest } from "../src/query/http";
 import { liveRender, liveRefusal } from "../src/query/openui";
 import { QueryService } from "../src/query/service";
+import type { GoodOpsSql } from "../src/query/goodops";
 import { queryTools, type QueryToolDeps, type QueryTools } from "../src/query/tools";
 import type { ToolRun } from "../src/reviews/exec";
 
@@ -66,6 +67,7 @@ function deps(over: Partial<QueryToolDeps> = {}): QueryToolDeps {
     sessions: () => [session({}), session({ id: "s2", status: "ended" }), session({ id: "s3", status: "waiting", kind: "job" })],
     assistants: () => Promise.resolve([{ id: "nova", title: "Nova", status: "idle", lastReply: { text: "Done.", at: NOW } }]),
     now: () => NOW,
+    goodops: () => null,
     ...over,
   };
 }
@@ -123,6 +125,119 @@ describe("query tools", () => {
   it("linear_issues says what is missing without a key", async () => {
     await expect(queryTools(deps()).linear_issues({ state: "active", limit: 25 })).rejects.toThrow(/no Linear key/);
   });
+
+  it("goodops_collections says what is missing without the read-only env", async () => {
+    await expect(queryTools(deps()).goodops_collections({ range: "7d" })).rejects.toThrow(/goodops-readonly\.env/);
+  });
+
+  it("goodops_collections returns aggregates only, from the database and FieldRoutes", async () => {
+    const sqls: { text: string; params: readonly unknown[] }[] = [];
+    const sql: GoodOpsSql = (text, params) => {
+      sqls.push({ text, params });
+      if (text.includes("min(created_at)"))
+        return Promise.resolve([
+          { customer: "101", office: "5", first: "2026-10-20 09:00:00" },
+          { customer: "102", office: "5", first: "2026-11-02 10:00:00" },
+        ]);
+      return Promise.resolve([
+        { day: "2026-11-03", status: "answered", flags: ["dispute"], n: 2 },
+        { day: "2026-11-03", status: "voicemail", flags: [], n: 5 },
+        { day: "2026-11-02", status: "answered", flags: [], n: 1 },
+        { day: "2026-11-02", status: "texted", flags: [], n: 9 },
+        { day: "2026-11-01", status: "dispatched", flags: [], n: 1 },
+      ]);
+    };
+    const asked: { endpoint: string; params: URLSearchParams }[] = [];
+    const fetch = (url: string, init: RequestInit): Promise<Response> => {
+      const endpoint = url.replace("https://pestcc.pestroutes.com/api/", "");
+      const params = new URLSearchParams(init.body as string);
+      asked.push({ endpoint, params });
+      const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body)));
+      if (endpoint === "office/search")
+        return json({ offices: { a: { officeID: "5", officeName: "Pest Control Consultants Iowa" }, b: { officeID: "3", officeName: "Crown - TEMP" }, c: { officeID: "8", officeName: "Michigan" } } });
+      if (endpoint === "customer/search" && !params.has("includeData")) return json({ customerIDs: [1, 2, 3] });
+      // FieldRoutes answers customers as an array (and some endpoints keyed by id, as payments below).
+      if (endpoint === "customer/search")
+        return json({
+          customers: [
+            { responsibleBalance: "100.50", responsibleBalanceAge: "12", fname: "Ann", phone1: "5551234" },
+            { responsibleBalance: "200.00", responsibleBalanceAge: "45" },
+            { responsibleBalance: "50.00", responsibleBalanceAge: "120" },
+          ],
+        });
+      if (endpoint === "payment/search" && !params.has("includeData")) return json({ paymentIDs: [11, 12, 13, 14, 15] });
+      return json({
+        payments: {
+          11: { customerID: "101", date: "2026-11-03 07:30:00", amount: "100.50", status: "1", paymentSource: "Customer Portal" },
+          12: { customerID: "102", date: "2026-11-02 09:00:00", amount: "40.00", status: "1", paymentSource: "Batch Process" },
+          13: { customerID: "101", date: "2026-11-01 08:00:00", amount: "9.00", status: "0", paymentSource: "Manual" },
+          14: { customerID: "102", date: "2026-11-01 09:00:00", amount: "5.00", status: "1", paymentSource: "Manual" },
+          15: { customerID: "101", date: "2026-11-02 08:00:00", amount: "30.00", status: "1", writeOff: "1" },
+        },
+      });
+    };
+    const tools = queryTools(deps({ fetch, goodops: () => ({ sql, fr: { subdomain: "pestcc", key: "k", token: "t" } }) }));
+    const result = await tools.goodops_collections({ range: "7d" });
+    const parsed = QUERY_TOOLS.goodops_collections.result.parse(result);
+    expect(parsed).toMatchObject({
+      range: "7d",
+      from: "2026-10-28",
+      to: "2026-11-03",
+      delinquency: {
+        accounts: 3,
+        amount: 350.5,
+        amountText: "$351",
+        buckets: [
+          { bucket: "1-29d", accounts: 1, amount: 100.5 },
+          { bucket: "30-59d", accounts: 1, amount: 200 },
+          { bucket: "60-89d", accounts: 0, amount: 0 },
+          { bucket: "90d+", accounts: 1, amount: 50 },
+        ],
+      },
+      calls: {
+        placed: 9,
+        connected: 3,
+        connectRate: 33,
+        voicemail: 5,
+        pending: 1,
+        byStatus: [
+          { name: "Voicemail", count: 5 },
+          { name: "Answered", count: 3 },
+          { name: "Pending", count: 1 },
+        ],
+        flags: [{ name: "Disputes the balance", count: 2 }],
+      },
+      // 12 is Pacific 09:00 = Central 11:00, after 102's 10:00 first contact; 13 failed; 14 came before it; 15 is a write-off.
+      payments: { count: 2, customers: 2, amount: 140.5, amountText: "$141", customerDriven: { count: 1, amount: 100.5 } },
+    });
+    expect(parsed.calls.perDay).toHaveLength(7);
+    expect(parsed.calls.perDay.at(-1)).toEqual({ date: "11-03", placed: 7, connected: 2 });
+    expect(parsed.payments?.perDay.at(-1)).toEqual({ date: "11-03", count: 1, amount: 100.5, amountText: "$101" });
+    // No customer field (names, phones, ids) survives into the answer.
+    expect(JSON.stringify(parsed)).not.toMatch(/Ann|5551234|"101"|customerID/);
+    // Only the program's offices are read; payments are asked for contacted customers, from the day before the range.
+    expect(asked.filter((a) => a.endpoint === "customer/search").every((a) => a.params.get("officeIDs") === "5")).toBe(true);
+    const paymentIds = asked.find((a) => a.endpoint === "payment/search");
+    expect(paymentIds?.params.get("customerIDs")).toBe("[101,102]");
+    expect(paymentIds?.params.get("date")).toBe(JSON.stringify({ operator: ">=", value: "2026-10-27" }));
+    expect(sqls.find((s) => s.text.includes("count(*)"))?.params).toEqual(["2026-10-28"]);
+    expect(sqls.every((s) => /^\s*select/i.test(s.text))).toBe(true);
+
+    // FieldRoutes is cached: a second read only queries the calls again.
+    const before = asked.length;
+    await tools.goodops_collections({ range: "7d" });
+    expect(asked.length).toBe(before);
+  });
+
+  it("goodops_collections still answers calls when FieldRoutes fails", async () => {
+    const sql: GoodOpsSql = (text) => Promise.resolve(text.includes("min(created_at)") ? [{ customer: "101", office: "5", first: "2026-10-20 09:00:00" }] : []);
+    const fetch = () => Promise.resolve(new Response("busy", { status: 503 }));
+    const result = QUERY_TOOLS.goodops_collections.result.parse(
+      await queryTools(deps({ fetch, goodops: () => ({ sql, fr: { subdomain: "pestcc", key: "k", token: "t" } }) })).goodops_collections({ range: "today" }),
+    );
+    expect(result).toMatchObject({ from: "2026-11-03", to: "2026-11-03", delinquency: null, payments: null, calls: { placed: 0, perDay: [{ date: "11-03", placed: 0, connected: 0 }] } });
+    expect(result.unavailable).toEqual(expect.arrayContaining([expect.stringMatching(/^Delinquent book: FieldRoutes answered 503/), expect.stringMatching(/^Payments: FieldRoutes answered 503/)]));
+  });
 });
 
 function fakeTools(over: Partial<Record<keyof QueryTools, () => Promise<unknown>>> = {}): { tools: QueryTools; reads: string[] } {
@@ -140,6 +255,7 @@ function fakeTools(over: Partial<Record<keyof QueryTools, () => Promise<unknown>
       linear_issues: read("linear_issues", { ...stamp, byState: [], issues: [] }),
       github_prs: read("github_prs", { ...stamp, prs: [] }),
       relay_sessions: read("relay_sessions", { ...stamp, byStatus: [], sessions: [], assistants: [] }),
+      goodops_collections: read("goodops_collections", { ...stamp, range: "7d", from: "", to: "", delinquency: null, calls: {}, payments: null, unavailable: [] }),
     },
   };
 }

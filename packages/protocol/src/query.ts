@@ -93,6 +93,11 @@ const RelayAssistant = z.object({
 });
 
 const Count = z.object({ name: z.string(), count: z.number() });
+/** A dollar figure, as a number and as "$12,345". */
+const Money = { amount: z.number(), amountText: z.string() };
+const GoodOpsBucket = z.object({ bucket: z.string(), accounts: z.number(), ...Money });
+const GoodOpsCallDay = z.object({ date: z.string(), placed: z.number(), connected: z.number() });
+const GoodOpsPaymentDay = z.object({ date: z.string(), count: z.number(), ...Money });
 
 /** Every query tool: what it reads, its args and its result. */
 export const QUERY_TOOLS = {
@@ -195,6 +200,54 @@ export const QUERY_TOOLS = {
       assistants: z.array(RelayAssistant),
     }),
     ttlMs: 5_000,
+  },
+  goodops_collections: {
+    description:
+      'GoodOps AI Collections for Pest Control Consultants, aggregates only (no names, phones or account ids). delinquency: active accounts with a past-due balance, total and by age bucket (FieldRoutes, refreshed every 30 min). calls: AI calls placed, connected, by status, office follow-up flags (dispute, already paid, hardship, ...) and per day. payments: settled payments by customers the AI contacted, made after first contact, count, amount and per day. range: "today", "7d" (default) or "30d", in Central time.',
+    args: z.object({ range: z.enum(["today", "7d", "30d"]).default("7d") }).strict(),
+    result: z.object({
+      asOf: AsOf,
+      at: At,
+      range: z.string(),
+      /** First and last day of the range, YYYY-MM-DD (Central). */
+      from: z.string(),
+      to: z.string(),
+      delinquency: z
+        .object({
+          accounts: z.number(),
+          ...Money,
+          buckets: z.array(GoodOpsBucket),
+          asOf: AsOf,
+        })
+        .nullable(),
+      calls: z.object({
+        placed: z.number(),
+        connected: z.number(),
+        /** Connected out of placed, 0 to 100. */
+        connectRate: z.number(),
+        voicemail: z.number(),
+        noAnswer: z.number(),
+        failed: z.number(),
+        optedOut: z.number(),
+        pending: z.number(),
+        byStatus: z.array(Count),
+        flags: z.array(Count),
+        perDay: z.array(GoodOpsCallDay),
+      }),
+      payments: z
+        .object({
+          count: z.number(),
+          customers: z.number(),
+          ...Money,
+          /** Paid through the customer portal or by the office (not autopay). */
+          customerDriven: z.object({ count: z.number(), ...Money }),
+          perDay: z.array(GoodOpsPaymentDay),
+        })
+        .nullable(),
+      /** What could not be read this time, or is not tracked at all. */
+      unavailable: z.array(z.string()),
+    }),
+    ttlMs: 60_000,
   },
 } as const;
 
