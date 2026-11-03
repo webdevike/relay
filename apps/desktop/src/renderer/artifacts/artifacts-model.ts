@@ -2,6 +2,7 @@
 // panel scope shows, row text and status pills, link groups, the subagent tree, media tiles,
 // rule chips and where a click goes. The tabs' contents come from chat-core's `tabItems`, the
 // same rule the phone uses.
+import { SUBAGENT_STALE_MS } from '@evaos/chat-core/jobs'
 import {
   ARTIFACT_KINDS,
   type Artifact,
@@ -236,11 +237,100 @@ export interface TreeRow {
   depth: number
 }
 
+/** The transcript facts of one subagent of the open chat, as main reads them from its folder. */
+export interface TranscriptFact {
+  name: string
+  /** Its transcript's file name inside the session's folder. */
+  file: string
+  done: boolean
+  failed: boolean
+  mtimeMs: number
+  lastLine: string
+}
+
+export type SubagentView = 'running' | 'done' | 'failed'
+
+/**
+ * The one place a subagent's state is read: the host's `running` only holds while the item was
+ * touched within SUBAGENT_STALE_MS; past that it reads as done, so the tab's spinner and the list
+ * never disagree about a dead one.
+ */
+export function subagentView(item: Artifact, now: number): SubagentView | null {
+  const sub = item.subagent
+  if (item.kind !== 'subagent' || sub === undefined) return null
+  if (sub.state !== 'running') return sub.state
+  const touched = Math.max(item.lastSeen, sub.startedAt)
+  return now - touched > SUBAGENT_STALE_MS ? 'done' : 'running'
+}
+
+/**
+ * The open chat's subagents as the host's items plus what the transcripts on disk say (the same
+ * facts the context button's dot reads). The files win on state: a transcript with its `.md` is
+ * done whatever the host still says, and one written within SUBAGENT_STALE_MS without it is
+ * running even before the host has listed it, so the dot and this list agree about it.
+ */
+export function withTranscripts(
+  items: readonly Artifact[],
+  session: string,
+  facts: readonly TranscriptFact[],
+  now: number,
+): Artifact[] {
+  const dir = session.replace(/\.jsonl$/, '')
+  if (dir === session || facts.length === 0) return [...items]
+  const byPath = new Map(facts.map((f) => [`${dir}/${f.file}`, f]))
+  const seen = new Set<string>()
+  const out = items.map((item): Artifact => {
+    const fact = item.path !== undefined ? byPath.get(item.path) : undefined
+    if (fact === undefined || item.subagent === undefined) return item
+    seen.add(item.path!)
+    const state: SubagentView = fact.done
+      ? fact.failed
+        ? 'failed'
+        : 'done'
+      : now - fact.mtimeMs > SUBAGENT_STALE_MS
+        ? 'done'
+        : 'running'
+    if (state === item.subagent.state) return item
+    return {
+      ...item,
+      lastSeen: Math.max(item.lastSeen, fact.mtimeMs),
+      subagent: {
+        ...item.subagent,
+        state,
+        ...(state === 'running' ? {} : { endedAt: item.subagent.endedAt ?? fact.mtimeMs }),
+      },
+    }
+  })
+  for (const [path, fact] of byPath) {
+    if (seen.has(path) || fact.done || now - fact.mtimeMs > SUBAGENT_STALE_MS) continue
+    out.push({
+      id: `subagent:${path}`,
+      kind: 'subagent',
+      title: fact.name,
+      path,
+      mentions: 0,
+      firstSeen: fact.mtimeMs,
+      lastSeen: fact.mtimeMs,
+      sources: [],
+      addedBy: 'extractor',
+      subagent: {
+        state: 'running',
+        startedAt: fact.mtimeMs,
+        ...(fact.lastLine !== '' ? { line: fact.lastLine.slice(0, 200) } : {}),
+      },
+    })
+  }
+  return out
+}
+
 /**
  * The Subagents tab: running ones first (a running child lifts its parent), children nested
  * under their parent; returns the running section and the finished one.
  */
-export function subagentTree(rows: readonly Artifact[]): {
+export function subagentTree(
+  rows: readonly Artifact[],
+  now: number,
+): {
   running: TreeRow[]
   finished: TreeRow[]
 } {
@@ -254,7 +344,7 @@ export function subagentTree(rows: readonly Artifact[]): {
     } else roots.push(r)
   }
   const live = (r: Artifact, seen: Set<string>): boolean =>
-    r.subagent?.state === 'running' ||
+    subagentView(r, now) === 'running' ||
     (children.get(r.id) ?? []).some((c) => !seen.has(c.id) && live(c, new Set([...seen, c.id])))
   const walk = (r: Artifact, depth: number, out: TreeRow[], seen: Set<string>): void => {
     out.push({ item: r, depth })
@@ -268,8 +358,91 @@ export function subagentTree(rows: readonly Artifact[]): {
   return { running, finished }
 }
 
-export const anyRunning = (items: readonly Artifact[]): boolean =>
-  items.some((i) => i.kind === 'subagent' && i.subagent?.state === 'running')
+/** Whether any of the rows the Subagents tab lists is running: the tab's spinner reads this. */
+export const anyRunning = (rows: readonly Artifact[], now: number): boolean =>
+  rows.some((i) => subagentView(i, now) === 'running')
+
+/** Messages (newest first) whose mentions count as "recent" for Tidy. */
+export const TIDY_KEEP_MESSAGES = 5
+/** A link not seen for this long is tidied even if recent messages are many. */
+export const TIDY_LINK_AGE_MS = 24 * 60 * 60 * 1000
+/** A link absent from this many newest messages is tidied. */
+export const TIDY_LINK_MESSAGES = 20
+
+const LINK_KINDS: Record<string, true> = {
+  linear: true,
+  'gh-pr': true,
+  'gh-issue': true,
+  url: true,
+  branch: true,
+}
+
+/** The omp time of a bubble key `<role>@<ms>`; 0 when it has none. */
+const bubbleAt = (key: string): number => Number(key.slice(key.lastIndexOf('@') + 1)) || 0
+
+/** The newest `n` distinct message keys any item names as a source. */
+function newestMessages(items: readonly Artifact[], n: number): Set<string> {
+  const keys = new Set(items.flatMap((i) => i.sources))
+  return new Set([...keys].sort((a, b) => bubbleAt(b) - bubbleAt(a)).slice(0, n))
+}
+
+/** What makes two entries the same thing: a URL without its fragment or trailing slash, else kind and title. */
+function dupeKey(item: Artifact): string | null {
+  if (item.kind === 'subagent') return null
+  if (item.url !== undefined && /^https?:/i.test(item.url)) {
+    return `url:${item.url.replace(/#.*$/, '').replace(/\/+$/, '').toLowerCase()}`
+  }
+  return `${item.kind}:${item.title.trim().toLowerCase()}`
+}
+
+/**
+ * The ids Tidy hides: finished, failed or abandoned subagents; links not named in the newest
+ * messages and either not seen for a day or absent from the newest TIDY_LINK_MESSAGES; done or
+ * canceled tickets (and merged or closed PRs); and duplicates. Running, pinned and recently
+ * mentioned items are always kept. Nothing is deleted: the caller only hides them.
+ */
+export function tidyIds(items: readonly Artifact[], now: number): string[] {
+  const recent = newestMessages(items, TIDY_KEEP_MESSAGES)
+  const wide = newestMessages(items, TIDY_LINK_MESSAGES)
+  const kept = (i: Artifact): boolean =>
+    subagentView(i, now) === 'running' ||
+    i.pinned !== undefined ||
+    i.sources.some((s) => recent.has(s))
+  const out = new Set<string>()
+  for (const i of items) {
+    if (kept(i)) continue
+    if (subagentView(i, now) !== null) {
+      out.add(i.id)
+      continue
+    }
+    if (LINK_KINDS[i.kind] !== true) continue
+    const st = i.status
+    const closed =
+      st !== undefined &&
+      (st.stateType === 'completed' ||
+        st.stateType === 'canceled' ||
+        st.state === 'merged' ||
+        st.state === 'closed')
+    if (closed || now - i.lastSeen > TIDY_LINK_AGE_MS || !i.sources.some((s) => wide.has(s))) {
+      out.add(i.id)
+    }
+  }
+  // Duplicates: of each group of the same thing, the pinned, then newest, one stays.
+  const groups = new Map<string, Artifact[]>()
+  for (const i of items) {
+    const k = dupeKey(i)
+    if (k !== null) groups.set(k, [...(groups.get(k) ?? []), i])
+  }
+  for (const g of groups.values()) {
+    if (g.length < 2) continue
+    const [, ...rest] = [...g].sort(
+      (a, b) =>
+        Number(b.pinned !== undefined) - Number(a.pinned !== undefined) || b.lastSeen - a.lastSeen,
+    )
+    for (const d of rest) if (!kept(d)) out.add(d.id)
+  }
+  return [...out]
+}
 
 export const isVideo = (item: Artifact): boolean =>
   item.media?.mimeType.startsWith('video/') === true

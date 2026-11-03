@@ -74,6 +74,9 @@
 .eva-art-all {
   flex: none;
 }
+.eva-art-tidy {
+  flex: none;
+}
 
 .eva-art-body {
   flex: 1;

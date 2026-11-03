@@ -20,6 +20,9 @@ import {
   seenText,
   statusPills,
   subagentTree,
+  subagentView,
+  tidyIds,
+  withTranscripts,
   watchTarget,
 } from './artifacts-model'
 
@@ -148,18 +151,96 @@ describe('artifacts model', () => {
         title: id,
         subagent: { state, startedAt: 0, ...(parent ? { parent: `subagent:${parent}` } : {}) },
       })
-    const tree = subagentTree([
-      sub('a', 'done'),
-      sub('a1', 'running', 'a'),
-      sub('b', 'done'),
-      sub('c', 'running'),
-    ])
+    const tree = subagentTree(
+      [sub('a', 'done'), sub('a1', 'running', 'a'), sub('b', 'done'), sub('c', 'running')],
+      NOW,
+    )
     expect(tree.running.map((r) => [r.item.title, r.depth])).toEqual([
       ['a', 0],
       ['a1', 1],
       ['c', 0],
     ])
     expect(tree.finished.map((r) => r.item.title)).toEqual(['b'])
+  })
+
+  it('lets the transcripts on disk settle a subagent the host disagrees about', () => {
+    const session = '/s/chat.jsonl'
+    const fact = (name: string, done: boolean, ago: number) => ({
+      name,
+      file: `${name}.jsonl`,
+      done,
+      failed: false,
+      mtimeMs: NOW - ago,
+      lastLine: 'working',
+    })
+    const hostSays = (name: string) =>
+      item(`subagent:/s/chat/${name}.jsonl`, {
+        path: `/s/chat/${name}.jsonl`,
+        subagent: { state: 'running', startedAt: NOW - 60_000 },
+      })
+    const out = withTranscripts(
+      [hostSays('finished'), hostSays('alive')],
+      session,
+      [
+        fact('finished', true, 1000),
+        fact('alive', false, 1000),
+        fact('unlisted', false, 2000),
+        fact('dead', false, 40 * 60_000),
+      ],
+      NOW,
+    )
+    const state = (n: string) => out.find((i) => i.path === `/s/chat/${n}.jsonl`)?.subagent?.state
+    expect(state('finished')).toBe('done')
+    expect(state('alive')).toBe('running')
+    expect(state('unlisted')).toBe('running')
+    expect(state('dead')).toBeUndefined()
+  })
+  it('reads one state for a subagent: a running one nobody has touched in 30 minutes is done', () => {
+    const sub = (state: 'running' | 'done', touched: number) =>
+      item('subagent:x', { lastSeen: touched, subagent: { state, startedAt: touched } })
+    expect(subagentView(sub('running', NOW - 5 * 60_000), NOW)).toBe('running')
+    expect(subagentView(sub('running', NOW - 31 * 60_000), NOW)).toBe('done')
+    const gone = subagentTree([sub('running', NOW - 31 * 60_000)], NOW)
+    expect(gone.running).toEqual([])
+    expect(gone.finished).toHaveLength(1)
+  })
+
+  it('tidies finished, stale, closed and duplicate items but keeps running, pinned and recent ones', () => {
+    const day = 24 * 60 * 60 * 1000
+    const sub = (id: string, state: 'running' | 'done' | 'failed', extra: Partial<Artifact> = {}) =>
+      item(`subagent:${id}`, { subagent: { state, startedAt: NOW - 60_000 }, ...extra })
+    const items = [
+      sub('run', 'running'),
+      sub('done', 'done'),
+      sub('bad', 'failed'),
+      sub('pinned', 'done', {
+        pinned: { by: 'isaac', at: NOW },
+        sources: [10, 20, 30, 40, 50].map((n) => `user@${NOW - 1000 + n}`),
+      }),
+      sub('fresh', 'done', { sources: [`assistant@${NOW}`] }),
+      item('linear:ENG-1', {
+        sources: ['user@1'],
+        status: { state: 'done', stateType: 'completed', fetchedAt: NOW },
+      }),
+      item('linear:ENG-2', {
+        sources: [`user@${NOW}`],
+        status: { state: 'in progress', stateType: 'started', fetchedAt: NOW },
+      }),
+      item('url:https://a.test/x', {
+        url: 'https://a.test/x',
+        lastSeen: NOW - 2 * day,
+        sources: [`user@${NOW}`, 'user@1'],
+      }),
+      item('url:https://a.test/y', {
+        url: 'https://a.test/y',
+        lastSeen: NOW - 2 * day,
+        sources: ['user@2'],
+      }),
+    ]
+    const out = tidyIds(items, NOW)
+    expect(out.sort()).toEqual(
+      ['subagent:bad', 'subagent:done', 'linear:ENG-1', 'url:https://a.test/y'].sort(),
+    )
   })
 
   it('orders media tiles and formats lengths and ages', () => {
@@ -169,7 +250,10 @@ describe('artifacts model', () => {
       lastSeen: NOW - 5,
     })
     const vid = item('drop:v', { media: { mimeType: 'video/mp4', durationMs: 11_000 } })
-    const pin = item('drop:p', { media: { mimeType: 'image/png' }, pinned: { by: 'isaac', at: NOW } })
+    const pin = item('drop:p', {
+      media: { mimeType: 'image/png' },
+      pinned: { by: 'isaac', at: NOW },
+    })
     expect(mediaTiles([img, vid, pin]).map((t) => t.id)).toEqual(['drop:p', 'drop:v', 'drop:i'])
     expect(durationText(11_000)).toBe('0:11')
     expect(durationText(3_723_000)).toBe('1:02:03')

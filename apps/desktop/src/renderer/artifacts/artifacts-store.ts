@@ -30,6 +30,35 @@ export interface ArtifactsState {
   /** The tab shown per thread; absent: the first visible one. */
   active: Record<string, string>
   notices: TabNotice[]
+  /** Item ids Tidy hid per thread. Only hidden from the panel, never deleted; Undo and Show tidied bring them back. */
+  tidied: Record<string, string[]>
+  /** Threads whose tidied items are shown again. */
+  showTidied: Record<string, boolean>
+}
+
+const TIDIED_KEY = 'eva.artifacts.tidied'
+
+function loadTidied(): Record<string, string[]> {
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(TIDIED_KEY) ?? '{}')
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {}
+    return Object.fromEntries(
+      Object.entries(raw).map(([k, v]) => [
+        k,
+        Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [],
+      ]),
+    )
+  } catch {
+    return {}
+  }
+}
+
+function saveTidied(tidied: Record<string, string[]>): void {
+  try {
+    localStorage.setItem(TIDIED_KEY, JSON.stringify(tidied))
+  } catch {
+    // Private storage off: the tidy lasts until the window closes.
+  }
 }
 
 const SEEN_KEY = 'eva.artifacts.noticed'
@@ -58,7 +87,32 @@ export const artifactsStore = createStore<ArtifactsState>(() => ({
   threads: {},
   active: {},
   notices: [],
+  tidied: loadTidied(),
+  showTidied: {},
 }))
+
+/** Hide `ids` in `thread`'s panel (kept apart from the host, so reversible). */
+export function tidyItems(thread: string, ids: readonly string[]): void {
+  artifactsStore.setState((s) => {
+    const tidied = { ...s.tidied, [thread]: [...new Set([...(s.tidied[thread] ?? []), ...ids])] }
+    saveTidied(tidied)
+    return { tidied }
+  })
+}
+
+/** Bring `ids` back (Undo), or all of the thread's when omitted. */
+export function untidyItems(thread: string, ids?: readonly string[]): void {
+  artifactsStore.setState((s) => {
+    const left = ids === undefined ? [] : (s.tidied[thread] ?? []).filter((i) => !ids.includes(i))
+    const tidied = { ...s.tidied, [thread]: left }
+    saveTidied(tidied)
+    return { tidied }
+  })
+}
+
+export function setShowTidied(thread: string, show: boolean): void {
+  artifactsStore.setState((s) => ({ showTidied: { ...s.showTidied, [thread]: show } }))
+}
 
 export function useArtifacts<T>(selector: (s: ArtifactsState) => T): T {
   return useStore(artifactsStore, selector)

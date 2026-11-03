@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { ActionIcon, Scroller, TextInput, Tooltip } from '@mantine/core'
+import { ActionIcon, Button, Scroller, TextInput, Tooltip } from '@mantine/core'
+import { notifications } from '@mantine/notifications'
 import {
   IconAlertCircle,
   IconArrowBarToLeft,
@@ -48,7 +49,7 @@ import {
   type TabRule,
 } from '@evaos/chat-core/artifacts'
 import { AgentPortrait } from '../assistants/AgentPortrait'
-import { chatStore } from '../chat/chat-store'
+import { chatStore, useChatStore } from '../chat/chat-store'
 import { PANE_ID } from '../chat/open-chat'
 import { agentTitle, useNamesVersion } from '../eva/names-store'
 import { showPath } from '../files/files-store'
@@ -64,6 +65,7 @@ import {
   actorName,
   ageText,
   anyRunning,
+  withTranscripts,
   externalUrl,
   linkGroups,
   mediaTiles,
@@ -72,6 +74,8 @@ import {
   ruleChips,
   searchItems,
   subagentTree,
+  subagentView,
+  tidyIds,
   tabOrigin,
   watchTarget,
   whenText,
@@ -81,7 +85,10 @@ import {
   act,
   dismissNotice,
   setActiveTab,
+  setShowTidied,
   startArtifacts,
+  tidyItems,
+  untidyItems,
   useArtifacts,
   useArtifactsThread,
 } from './artifacts-store'
@@ -313,13 +320,15 @@ function MediaView({
 function SubagentRow({ row, now, actions }: { row: TreeRow; now: number; actions: RowActions }) {
   const { item, depth } = row
   const sub = item.subagent
-  const running = sub?.state === 'running'
+  const state = subagentView(item, now)
+  const running = state === 'running'
   const line = sub?.line ?? (sub ? `Started ${whenText(sub.startedAt, now)}` : '')
-  const right = running
-    ? ageText(sub.startedAt, now)
-    : sub?.endedAt !== undefined
-      ? whenText(sub.endedAt, now)
-      : ''
+  const right =
+    running && sub
+      ? ageText(sub.startedAt, now)
+      : sub?.endedAt !== undefined
+        ? whenText(sub.endedAt, now)
+        : ''
   return (
     <div
       className="eva-art-row eva-art-sub"
@@ -327,7 +336,7 @@ function SubagentRow({ row, now, actions }: { row: TreeRow; now: number; actions
       tabIndex={0}
       style={{ paddingLeft: `calc(var(--eva-space-md) + ${depth} * 24px)` }}
       data-testid={`artifact-row-${item.id}`}
-      data-state={sub?.state}
+      data-state={state ?? undefined}
       onClick={() => actions.open(item)}
       onKeyDown={(e) => {
         if (e.key === 'Enter') actions.open(item)
@@ -336,7 +345,7 @@ function SubagentRow({ row, now, actions }: { row: TreeRow; now: number; actions
       <span className="eva-art-row-icon">
         {running ? (
           <span className="eva-spinner" aria-label="Running" />
-        ) : sub?.state === 'failed' ? (
+        ) : state === 'failed' ? (
           <IconAlertCircle {...ICON} data-tone="red" aria-label="Failed" />
         ) : (
           <IconCircleCheck {...ICON} data-tone="green" aria-label="Done" />
@@ -365,7 +374,7 @@ function SubagentRow({ row, now, actions }: { row: TreeRow; now: number; actions
 }
 
 function SubagentsView({ rows, now, actions }: ViewProps) {
-  const { running, finished } = subagentTree(rows)
+  const { running, finished } = subagentTree(rows, now)
   return (
     <div className="eva-art-scroll">
       {running.length + finished.length === 0 ? (
@@ -704,9 +713,66 @@ export function ArtifactsPanel({ hidden }: { hidden: boolean }) {
   const tabs = view && view.tabs.length > 0 ? view.tabs : defaultTabs()
   const shownTabs = visibleTabs(tabs)
   const tab = shownTabs.find((t) => t.id === activeId) ?? shownTabs[0]
-  const items = view?.items ?? []
+  const chatPane = useChatStore((s) => s.panes[PANE_ID])
+  const hostItems = view?.items
+  // The open chat's subagents are read from its transcripts too, the facts the context button's
+  // dot uses, so the tab's spinner, this list and that dot agree.
+  const allItems = useMemo(() => {
+    const base = hostItems ?? []
+    return target !== null && target.file !== '' && chatPane?.file === target.file
+      ? withTranscripts(base, target.file, chatPane.extras.subagents, now)
+      : base
+  }, [hostItems, target, chatPane?.file, chatPane?.extras.subagents, now])
+  const tidied = useArtifacts((s) => (thread ? s.tidied[thread] : undefined))
+  const showTidied = useArtifacts((s) => (thread ? s.showTidied[thread] === true : false))
+  const hiddenIds = useMemo(() => new Set(tidied ?? []), [tidied])
+  // Tidied items stay out of every tab unless "Show tidied" is on; a running subagent never hides.
+  const items = useMemo(
+    () =>
+      showTidied
+        ? allItems
+        : allItems.filter((i) => !hiddenIds.has(i.id) || subagentView(i, now) === 'running'),
+    [allItems, hiddenIds, showTidied, now],
+  )
+  const tidiedCount = allItems.filter((i) => hiddenIds.has(i.id)).length
   const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items])
-  const running = anyRunning(items)
+  // The Subagents tab's spinner and its list both read the rows that tab shows, through subagentView.
+  const subagentsTab = tabs.find((t) => t.id === 'subagents')
+  const running = anyRunning(
+    subagentsTab ? tabItems(subagentsTab, items, now).filter((i) => i.kind === 'subagent') : [],
+    now,
+  )
+
+  const tidy = (): void => {
+    if (!thread) return
+    const ids = tidyIds(items, now)
+    if (ids.length === 0) {
+      notifications.show({
+        title: 'Nothing to tidy',
+        message: 'Everything here is running, pinned or recent.',
+      })
+      return
+    }
+    tidyItems(thread, ids)
+    const id = `artifacts-tidy-${Date.now()}`
+    notifications.show({
+      id,
+      title: `Tidied ${ids.length} ${ids.length === 1 ? 'item' : 'items'}`,
+      message: (
+        <Button
+          size="compact-xs"
+          variant="subtle"
+          data-testid="artifacts-tidy-undo"
+          onClick={() => {
+            untidyItems(thread, ids)
+            notifications.hide(id)
+          }}
+        >
+          Undo
+        </Button>
+      ),
+    })
+  }
 
   const openTab = (t: ArtifactTab): void => {
     if (!thread) return
@@ -863,6 +929,31 @@ export function ArtifactsPanel({ hidden }: { hidden: boolean }) {
               ))}
             </div>
           </Scroller>
+          <Button
+            size="compact-xs"
+            variant="subtle"
+            color="gray"
+            className="eva-art-tidy"
+            data-testid="artifacts-tidy"
+            onClick={tidy}
+          >
+            Tidy
+          </Button>
+          {tidiedCount > 0 ? (
+            <Tooltip label={showTidied ? 'Hide tidied items' : 'Show tidied items'} openDelay={400}>
+              <ActionIcon
+                variant="subtle"
+                color="gray"
+                className="eva-art-all"
+                aria-label="Show tidied"
+                aria-pressed={showTidied}
+                data-testid="artifacts-show-tidied"
+                onClick={() => setShowTidied(thread, !showTidied)}
+              >
+                {showTidied ? <IconEyeOff {...ICON} /> : <IconEye {...ICON} />}
+              </ActionIcon>
+            </Tooltip>
+          ) : null}
           <EvaMenu opened={allOpen} onChange={setAllOpen} width={240} position="bottom-end">
             <EvaMenu.Target>
               <Tooltip

@@ -4,12 +4,12 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { z } from 'zod'
-import { subagentsFromListing } from '@evaos/chat-core/jobs'
+import { SUBAGENT_STALE_MS, subagentsFromListing } from '@evaos/chat-core/jobs'
 import { readTail } from '../assistants/assistants'
 import { lastAssistantLine } from '../chat/extras'
 
 /** A transcript untouched this long without its `.md` was abandoned, not running. */
-export const STALE_MS = 30 * 60_000
+export const STALE_MS = SUBAGENT_STALE_MS
 /** A session file written this recently is still working. */
 export const ACTIVE_MS = 10 * 60_000
 

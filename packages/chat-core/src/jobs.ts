@@ -91,6 +91,12 @@ export interface SubagentEntry {
 }
 
 /**
+ * A subagent transcript untouched this long without its `.md` was abandoned (crashed, killed, its
+ * process gone), not running. The context button's dot and the Artifacts panel both read it.
+ */
+export const SUBAGENT_STALE_MS = 30 * 60_000
+
+/**
  * Subagents from the direct entries of a session's folder, newest first. A `<name>.jsonl`
  * transcript is done once omp wrote `<name>.md`. (Claude callers override `done` with
  * claudeSubagentDone on the transcript text.)
