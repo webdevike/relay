@@ -8,6 +8,8 @@ import { WidgetScope } from './widgets/actions'
 import { ToolBlock, ToolGroup } from './ToolRows'
 import { BubbleActions } from './reactions/BubbleActions'
 import { CanvasRow } from './CanvasRow'
+import { BackgroundRow } from './BackgroundRow'
+import { parseBackground } from './background-message'
 import { ReplyChips } from './ReplyChips'
 
 /** Thumbnails for a message's images; Enter or click opens the viewer on that image. */
@@ -76,7 +78,10 @@ function AssistantBody({ m, live }: { m: ChatMessage; live: boolean }) {
 /** `live`: the newest row of an idle chat, the one tap-to-answer replies show under. */
 function MessageRowImpl({ m, live = false }: { m: ChatMessage; live?: boolean }) {
   let body
-  if (m.role === 'user') {
+  const background = m.role === 'user' ? parseBackground(m.text) : null
+  if (background) {
+    body = <BackgroundRow m={background} at={m.at} />
+  } else if (m.role === 'user') {
     const text = m.text.trim() !== ''
     // Tapbacks go on the text bubble, or on the images of an image-only prompt.
     body = (
