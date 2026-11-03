@@ -289,6 +289,10 @@ test('every widget kind renders inline, media loads, and replies send the next t
     await expect.poll(() => loaded(`[data-testid=widget-${kind}]`), { message: kind }).toBe(true)
   }
   await expect.poll(() => log.locator('[data-testid=widget-avatar] img').first().count()).toBe(1)
+  // `relay://assistant/<id>/avatar` is drawn as the assistant's own portrait, not fetched as an image.
+  await expect(
+    log.locator('[data-testid=widget-avatar] [data-testid=agent-portrait-nova] img'),
+  ).toHaveCount(1)
   await expect
     .poll(() =>
       log
