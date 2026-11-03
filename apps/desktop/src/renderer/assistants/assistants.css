@@ -202,10 +202,9 @@
   gap: var(--mantine-spacing-xs);
   max-width: 40%;
   box-sizing: border-box;
-  padding: calc(var(--mantine-spacing-xs) / 2 + 1px) var(--mantine-spacing-sm)
-    calc(var(--mantine-spacing-xs) / 2);
+  padding: calc(var(--mantine-spacing-xs) / 2) var(--mantine-spacing-sm);
   border: 1px solid var(--eva-c-border);
-  border-top: 0;
+  border-top-color: transparent;
   border-radius: 0 0 calc(var(--mantine-spacing-xs) * 1.5) calc(var(--mantine-spacing-xs) * 1.5);
   background: var(--eva-c-background);
   pointer-events: none;
@@ -214,7 +213,7 @@
 .eva-as-notch::after {
   content: '';
   position: absolute;
-  top: 0;
+  top: -1px;
   width: var(--eva-notch-flare);
   height: var(--eva-notch-flare);
 }
