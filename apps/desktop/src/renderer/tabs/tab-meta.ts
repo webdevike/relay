@@ -23,6 +23,7 @@ const TITLES: Record<string, string> = {
   studio: 'Studio',
   reviews: 'Reviews',
   settings: 'Settings',
+  setup: 'Setup',
 }
 
 const ICONS: Record<string, string> = {
@@ -39,6 +40,7 @@ const ICONS: Record<string, string> = {
   studio: 'IconPhotoSpark',
   reviews: 'IconInbox',
   settings: 'IconSettings',
+  setup: 'IconSettings',
 }
 
 /** Text only: callers render this as a React child, never as HTML (T-02-35). */

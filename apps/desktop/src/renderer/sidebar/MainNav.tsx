@@ -7,6 +7,7 @@ import { canvasNavPlace } from '../canvas/canvas-store'
 import { openFromNav } from '../navigation/open-in-app'
 import { navTargetOf } from '../navigation/open-target'
 import { NAV_PAGES } from '../pages/page-meta'
+import { STARTER_SLUGS, useProfile } from '../pages/profile'
 import { activePlace, useTabs } from '../tabs/tabs-store'
 import { brandTooltip, useAbout } from '../about/build-info'
 import { ScrollArea } from '../ui/ScrollArea'
@@ -19,12 +20,15 @@ const MAIN = NAV_PAGES.filter((n) => n.slug !== 'setting' && n.slug !== 'dashboa
 const OVERVIEW = NAV_PAGES.find((n) => n.slug === 'dashboard')!
 const SETTING = NAV_PAGES.find((n) => n.slug === 'setting')!
 
+
 export function MainNav() {
   const about = useAbout()
   const here = useTabs(activePlace)
   const jobs = useSidebarData((s) => s.scheduledJobs)
   const error = useSidebarData((s) => s.error)
   const boards = useBoards((s) => s.data?.boards ?? null)
+  const profile = useProfile()
+  const main = MAIN.filter((n) => profile === 'eva' || STARTER_SLUGS[n.slug])
 
   const go = (page: Place['page'], e: MouseEvent): void => {
     const here_ = navTargetOf(e) === 'here'
@@ -72,7 +76,7 @@ export function MainNav() {
       <div className="eva-sb-scroll">
         <ScrollArea data-testid="sidebar-scroll">
           <div className="eva-sb-section eva-sb-section-main">Main</div>
-          {MAIN.map((n) => (
+          {main.map((n) => (
             <NavRow
               key={n.slug}
               slug={n.slug}
@@ -105,7 +109,7 @@ export function MainNav() {
             active={here.page === OVERVIEW.page}
             onClick={(e) => go(OVERVIEW.page, e)}
           />
-          {boards?.map((b) => (
+          {(profile === 'eva' ? boards : null)?.map((b) => (
             <NavRow
               key={b.slug}
               slug={`board-${b.slug}`}

@@ -4,6 +4,7 @@ import { AboutSection } from './AboutSection'
 import { ChangelogSection } from './ChangelogSection'
 import { ChatSection } from './ChatSection'
 import { LinksSection } from './LinksSection'
+import { SetupSection } from '../setup/SetupSection'
 import { ThemeSection } from './ThemeSection'
 import { startSettings } from './settings-store'
 import './settings.css'
@@ -12,6 +13,7 @@ const SECTIONS = {
   Theme: { Body: ThemeSection, desc: 'Colors, fonts and shape for the whole app.' },
   Chat: { Body: ChatSection, desc: "What conversations show besides Eva's replies." },
   Links: { Body: LinksSection, desc: 'Where clicked links open, by site.' },
+  Setup: { Body: SetupSection, desc: 'Check your tools, AI sign-in, Relay Host and iPhone again.' },
   About: {
     Body: AboutSection,
     desc: 'This build, the host it talks to, and credits for the art Relay ships.',

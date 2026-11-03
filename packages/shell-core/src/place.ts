@@ -13,6 +13,7 @@ export type FixedPage =
   | 'studio'
   | 'reviews'
   | 'settings'
+  | 'setup'
 /**
  * `agent:<id>` is a registry agent's thread (native Page::Agent), `board:<slug>` a Relay host
  * dashboard (native Page::Board); both saved like native tabs.rs. `review:<kind>:<id>` is one
@@ -22,7 +23,7 @@ export type FixedPage =
 export type PageKey =
   FixedPage | `workspace:${string}` | `agent:${string}` | `board:${string}` | `review:${string}`
 
-export const SETTINGS_SECTIONS = ['Theme', 'Chat', 'Links', 'About', 'Changelog'] as const
+export const SETTINGS_SECTIONS = ['Theme', 'Chat', 'Links', 'Setup', 'About', 'Changelog'] as const
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
 
 export interface Place {
@@ -48,6 +49,7 @@ const FIXED_PAGES: readonly string[] = [
   'studio',
   'reviews',
   'settings',
+  'setup',
 ]
 
 export function pageKey(page: PageKey): string {

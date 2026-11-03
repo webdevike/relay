@@ -9,6 +9,7 @@ import { startBrowserScope } from '../browser/browser-scope'
 import { startTabs } from '../tabs/tabs-store'
 import { startSidebar } from '../sidebar/sidebar-store'
 import { startHabits } from '../habits/habit-store'
+import { useProfile } from '../pages/profile'
 import { startReload } from '../reload/reload'
 import { NewTodoModal } from '../todo/NewTodoModal'
 import { startNewTodo } from '../todo/new-todo-store'
@@ -39,7 +40,6 @@ export function App() {
     const stopSidebar = startSidebar()
     const stopReload = startReload()
     const stopNewTodo = startNewTodo()
-    const stopHabits = startHabits()
     const stopUsage = startUsage()
     const stopAssistants = startAssistants()
     const stopBoards = startBoards()
@@ -60,7 +60,6 @@ export function App() {
       stopSidebar()
       stopReload()
       stopNewTodo()
-      stopHabits()
       stopUsage()
       stopAssistants()
       stopBoards()
@@ -72,11 +71,14 @@ export function App() {
       stopContext()
     }
   }, [])
+  const profile = useProfile()
+  // The habit gate is Isaac's: a starter home never polls it or shows its break screen.
+  useEffect(() => (profile === 'eva' ? startHabits() : undefined), [profile])
   return (
     <>
       <Shell />
       <NewTodoModal />
-      <GateOverlay />
+      {profile === 'eva' ? <GateOverlay /> : null}
       <RelayPinModal />
     </>
   )
