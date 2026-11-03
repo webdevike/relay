@@ -5,13 +5,14 @@
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { z } from 'zod'
-import type { ReviewPr, ReviewQueue, ReviewRow } from '@evaos/contract'
+import type { ReviewApprove, ReviewPr, ReviewQueue, ReviewRow } from '@evaos/contract'
 import type { MainContext } from '../context'
 import type { ToolRun } from '../context-popover/pr-source'
 import { handle } from '../ipc/handle'
 import { claudeWriter, guideCache } from './guide'
 import { registerLinearInbox } from './linear-inbox'
 import { registerSlackInbox } from './slack-inbox'
+import { approvableKey, approveLine, approveState, readLedgers, readLoop } from './approve'
 import { registerAstraSessions } from './astra-sessions'
 import { REVIEWS_MEDIA_DIR, isGithubUpload, isLinearUpload, localizeImages } from './review-media'
 import { apiKey } from '../linear/linear-ipc'
@@ -350,6 +351,37 @@ export function registerReviewsIpc(ctx: MainContext, run: ToolRun): void {
     if (res.code !== 0) throw fail('astra-failed', 'eva-thread.ts could not reach Astra')
     return { status: 'sent', command }
   }
+
+  // Approve on an auto-work draft: the hand-off is the only action; Astra runs ready.ts.
+  const APPROVED_FILE = 'reviews-approved.json'
+  const approveOf = (repo: string, number: number): ReviewApprove | null => {
+    const sent = ctx.config.readJson<Record<string, number>>(APPROVED_FILE, {})
+    const key = approvableKey(
+      readLedgers(ctx.env.evaRoot),
+      `https://github.com/${repo}/pull/${number}`,
+    )
+    if (key === null) return null
+    const state = approveState({
+      loop: readLoop(ctx.env.evaRoot, key),
+      sentAt: sent[key] ?? null,
+    })
+    return { key, state }
+  }
+
+  handle(ctx, 'reviews.approvable', ({ repo, number }) => approveOf(repo, number))
+
+  handle(ctx, 'reviews.approve', async ({ repo, number }) => {
+    const a = approveOf(repo, number)
+    if (a === null) throw fail('not-approvable', 'That PR is no longer waiting on your approval')
+    if (a.state !== 'ready') throw fail('already-sent', `${a.key} was already handed to Astra`)
+    const sent = await tellAstra(approveLine(a.key))
+    if (sent.status === 'sent')
+      ctx.config.writeJson(APPROVED_FILE, {
+        ...ctx.config.readJson<Record<string, number>>(APPROVED_FILE, {}),
+        [a.key]: Date.now(),
+      })
+    return sent
+  })
 
   handle(ctx, 'reviews.done', ({ url, updatedAt, done: on }) => {
     const next = { ...done() }
