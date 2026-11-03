@@ -6,6 +6,7 @@ vi.mock('../ipc', () => ({ invoke: vi.fn(), on: () => () => {} }))
 
 import { setNavigator } from '../navigation/navigate'
 import { AgentCrumb, OwnedCrumb } from './AgentCrumb'
+import { AgentNotch } from './AgentNotch'
 
 const open = vi.fn()
 beforeEach(() => setNavigator(open))
@@ -28,6 +29,21 @@ describe('assistant breadcrumb', () => {
     expect(open).toHaveBeenLastCalledWith(expect.objectContaining({ page: 'agent:nova' }), {
       newTab: false,
     })
+  })
+
+  it('carries only the way back; the portrait and status words live in the header notch', () => {
+    ui(
+      <>
+        <AgentCrumb id="nova" />
+        <AgentNotch id="nova" />
+      </>,
+    )
+    const crumb = screen.getByTestId('agent-crumb')
+    expect(crumb.querySelector('[data-testid="agent-portrait-nova"]')).toBeNull()
+    expect(crumb.querySelector('[data-testid="agent-crumb-status"]')).toBeNull()
+    const notch = screen.getByTestId('agent-notch')
+    expect(notch.querySelector('[data-testid="agent-portrait-nova"]')).not.toBeNull()
+    expect(notch.querySelector('[data-testid="agent-crumb-status"]')).not.toBeNull()
   })
 
   it("a chat an assistant started links back to that assistant's thread", () => {

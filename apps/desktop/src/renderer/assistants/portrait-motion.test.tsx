@@ -18,7 +18,7 @@ import css from './portrait-motion.css?raw'
 import assistantsCss from './assistants.css?raw'
 import { AgentPortrait } from './AgentPortrait'
 import { PortraitCard } from './PortraitCard'
-import { AgentCrumb } from './AgentCrumb'
+import { AgentNotch } from './AgentNotch'
 import { assistantsStore } from './assistants-store'
 import { overrideSignals } from './motion-store'
 
@@ -223,14 +223,14 @@ describe("the card's Extended mode", () => {
   })
 })
 
-describe("the crumb's status words", () => {
+describe("the notch's status words", () => {
   const words = () =>
     [...screen.getByTestId('agent-crumb-status').querySelectorAll('span')]
       .filter((s) => s.dataset['leaving'] !== 'true')
       .map((s) => s.textContent)
 
   it('say what the agent is doing, nothing at rest; needing Isaac and failing first', () => {
-    render(<AgentCrumb id="nova" />)
+    render(<AgentNotch id="nova" />)
     expect(words()).toEqual([])
     act(() => list('working'))
     expect(words()).toEqual(['is thinking'])
@@ -250,7 +250,7 @@ describe("the crumb's status words", () => {
   })
 
   it('crossfade: the old words fade out in place while motion is on, gone at once when off', () => {
-    render(<AgentCrumb id="nova" />)
+    render(<AgentNotch id="nova" />)
     act(() => list('working'))
     act(() => list('working', 'read'))
     const status = screen.getByTestId('agent-crumb-status')

@@ -233,6 +233,7 @@ html[data-focus-ring='never'] :focus-visible {
 }
 .eva-chat-header {
   box-sizing: border-box;
+  position: relative;
   height: var(--eva-chat-header-h);
   flex: none;
   display: flex;

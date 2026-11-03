@@ -184,6 +184,31 @@
   color: var(--eva-c-danger);
 }
 
+/* The header's notch: a quiet pill sitting on the seam under the header, centered, display only. */
+.eva-as-notch {
+  position: absolute;
+  left: 50%;
+  bottom: calc(-1 * var(--eva-space-sm));
+  transform: translateX(-50%);
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  max-width: 40%;
+  box-sizing: border-box;
+  padding: calc(var(--mantine-spacing-xs) / 2);
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius-round);
+  background: var(--eva-c-background);
+  pointer-events: none;
+}
+.eva-as-notch .eva-as-crumb-status {
+  flex: 0 1 auto;
+}
+.eva-as-notch .eva-as-crumb-status:not(:empty) {
+  padding-right: var(--mantine-spacing-xs);
+}
+
 /* "< Assistants / Astra" */
 .eva-as-crumb {
   display: inline-flex;

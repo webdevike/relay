@@ -7,7 +7,7 @@ vi.mock('../ipc', () => ({ invoke: vi.fn(), on: () => () => {} }))
 import type { Assistant, AssistantPortrait } from '@evaos/contract'
 import { placeOf } from '@evaos/shell-core'
 import { portrait } from '../ui/portrait'
-import { AgentCrumb } from './AgentCrumb'
+import { AgentNotch } from './AgentNotch'
 import { AssistantsHome } from './AssistantsHome'
 import { assistantsStore } from './assistants-store'
 
@@ -57,7 +57,7 @@ describe('assistant portraits', () => {
     expect(portrait({ style: 'notionists', seed: 'astra-2' })).toBe(portrait('astra-2'))
   })
 
-  it("seeds each Home row and an agent's crumb from the registry, else from its id", () => {
+  it("seeds each Home row and an agent's notch from the registry, else from its id", () => {
     assistantsStore.setState({
       data: {
         agents: [agent('astra', { style: 'notionists', seed: 'astra-2' }), agent('nova', NOVA)],
@@ -67,8 +67,8 @@ describe('assistant portraits', () => {
     render(
       <MantineProvider>
         <AssistantsHome place={placeOf('assistants')} />
-        <AgentCrumb id="astra" />
-        <AgentCrumb id="gone" />
+        <AgentNotch id="astra" />
+        <AgentNotch id="gone" />
       </MantineProvider>,
     )
     const src = (id: string) =>

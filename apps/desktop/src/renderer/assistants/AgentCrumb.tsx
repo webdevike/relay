@@ -3,12 +3,11 @@ import { placeOf } from '@evaos/shell-core'
 import { useNamesVersion, agentTitle } from '../eva/names-store'
 import { openPlace } from '../navigation/navigate'
 import { AgentPortrait } from './AgentPortrait'
-import { CrumbStatus } from './CrumbStatus'
 import './assistants.css'
 
 /**
- * An agent's page names its way back, like native: "< Assistants / Astra", the agent with its
- * portrait and, muted after its name, what it is doing (CrumbStatus); the pill goes home.
+ * An agent's page names its way back, like native: "< Assistants / Astra"; the pill goes home. Its
+ * portrait and status live in the header's notch (AgentNotch).
  */
 export function AgentCrumb({ id }: { id: string }) {
   useNamesVersion()
@@ -26,7 +25,6 @@ export function AgentCrumb({ id }: { id: string }) {
       <span className="eva-as-crumb-sep" aria-hidden>
         /
       </span>
-      <AgentPortrait id={id} className="eva-as-crumb-portrait" />
       <button
         type="button"
         className="eva-as-crumb-here eva-as-crumb-link"
@@ -35,7 +33,6 @@ export function AgentCrumb({ id }: { id: string }) {
       >
         {agentTitle(id) ?? id}
       </button>
-      <CrumbStatus id={id} />
     </span>
   )
 }

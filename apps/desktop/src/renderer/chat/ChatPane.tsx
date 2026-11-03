@@ -31,6 +31,7 @@ import { toggleSidebar, useLayout } from '../shell/layout-store'
 import { openSubagentTab, toggleToolPanes, useTiling } from '../tiling/tiling-store'
 import { setChatTitle } from '../eva/names-store'
 import { AgentCrumb, OwnedCrumb } from '../assistants/AgentCrumb'
+import { AgentNotch } from '../assistants/AgentNotch'
 import { agentFile, agentIdOf, agentOf, useAssistants } from '../assistants/assistants-store'
 import { fillComposer } from './composer-fill'
 import {
@@ -195,6 +196,7 @@ export function ChatPane() {
                 pane.title
               )}
             </h2>
+            {agent !== null ? <AgentNotch id={agent} /> : null}
             {pane.file && !pane.extras.running && !pane.owner && !pane.away ? (
               <span className="eva-chat-saved">Saved session</span>
             ) : null}

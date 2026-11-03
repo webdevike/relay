@@ -1,6 +1,7 @@
 import { ActionIcon, Kbd, Tooltip } from '@mantine/core'
 import { IconLayoutSidebar, IconLayoutSidebarRight } from '@tabler/icons-react'
 import { AgentCrumb } from '../assistants/AgentCrumb'
+import { AgentNotch } from '../assistants/AgentNotch'
 import { agentIdOf } from '../assistants/assistants-store'
 import { useNamesVersion } from '../eva/names-store'
 import { ContextButton } from '../context/ContextButton'
@@ -50,6 +51,7 @@ export function MainHeader() {
       ) : (
         <span className="eva-main-header-title">{tabTitle(place)}</span>
       )}
+      {agent !== null ? <AgentNotch id={agent} /> : null}
       <ContextButton />
       <Tooltip
         label={

@@ -185,6 +185,7 @@ body.eva-resizing .eva-grip-sidebar {
 
 .eva-main-header,
 .eva-pane-header {
+  position: relative;
   flex: none;
   display: flex;
   align-items: center;
