@@ -184,11 +184,17 @@
   color: var(--eva-c-danger);
 }
 
-/* The header's notch: a quiet pill sitting on the seam under the header, centered, display only. */
+/*
+ * The header's notch, display only: the header's own fill hanging from its bottom edge, centered.
+ * The hairline runs into it and follows its outline: convex bottom corners, and where it meets the
+ * header two concave fillets (radial-gradient rings, so the line stays crisp at any DPI) flare
+ * outward into the header line.
+ */
 .eva-as-notch {
+  --eva-notch-flare: var(--mantine-spacing-xs);
   position: absolute;
+  top: 100%;
   left: 50%;
-  bottom: calc(-1 * var(--eva-space-sm));
   transform: translateX(-50%);
   z-index: 1;
   display: inline-flex;
@@ -196,11 +202,39 @@
   gap: var(--mantine-spacing-xs);
   max-width: 40%;
   box-sizing: border-box;
-  padding: calc(var(--mantine-spacing-xs) / 2);
+  padding: calc(var(--mantine-spacing-xs) / 2 + 1px) var(--mantine-spacing-sm)
+    calc(var(--mantine-spacing-xs) / 2);
   border: 1px solid var(--eva-c-border);
-  border-radius: var(--eva-radius-round);
+  border-top: 0;
+  border-radius: 0 0 calc(var(--mantine-spacing-xs) * 1.5) calc(var(--mantine-spacing-xs) * 1.5);
   background: var(--eva-c-background);
   pointer-events: none;
+}
+.eva-as-notch::before,
+.eva-as-notch::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  width: var(--eva-notch-flare);
+  height: var(--eva-notch-flare);
+}
+.eva-as-notch::before {
+  right: 100%;
+  background: radial-gradient(
+    circle at 0 100%,
+    transparent calc(var(--eva-notch-flare) - 1px),
+    var(--eva-c-border) calc(var(--eva-notch-flare) - 1px) var(--eva-notch-flare),
+    var(--eva-c-background) var(--eva-notch-flare)
+  );
+}
+.eva-as-notch::after {
+  left: 100%;
+  background: radial-gradient(
+    circle at 100% 100%,
+    transparent calc(var(--eva-notch-flare) - 1px),
+    var(--eva-c-border) calc(var(--eva-notch-flare) - 1px) var(--eva-notch-flare),
+    var(--eva-c-background) var(--eva-notch-flare)
+  );
 }
 .eva-as-notch .eva-as-crumb-status {
   flex: 0 1 auto;
