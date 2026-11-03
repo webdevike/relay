@@ -319,7 +319,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             do {
                 async let state = hook?.sceneState()
-                let context: ScreenContext
+                var context: ScreenContext
                 if let prefetched, let early = try? await prefetched.value {
                     context = early
                 } else {
@@ -332,7 +332,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                 Date().timeIntervalSince(started), context.axLines.count,
                                 ask.sceneState.map { "\($0.split(separator: "\n").count) lines" } ?? "none"))
                 try Task.checkCancellation()
-                if !askedToDo, let (jevPlan, pick) = await self.tryJev(question, context: context) {
+                if Navigator.enabled, hook == nil, !Navigator.skips(target), Navigator.isNavigation(question),
+                   Jev.isAvailable, Jev.hasUsableTree(context.axLines) {
+                    switch await self.navigate(question, context: context, started: started, stay: stay) {
+                    case .handled: return
+                    case .fallback(let moved):
+                        // Presses already changed the screen: Terra must plan from what is there now.
+                        if moved { context = try await Capture.capture(target) }
+                    }
+                } else if hook == nil, Navigator.isNavigation(question) {
+                    Log.info("route: jev-nav skipped (nav=\(Navigator.enabled) skipApp=\(Navigator.skips(target)) jev=\(Jev.isAvailable) AX=\(context.axLines.count) lines), terra")
+                }
+                if Navigator.enabled, !askedToDo, let (jevPlan, pick) = await self.tryJev(question, context: context) {
                     Log.info(String(format: "route: path=jev jev=%dms total=%.0fms point=\"%@\" conf=%@", pick.ms,
                                     Date().timeIntervalSince(started) * 1000, pick.element.label,
                                     pick.confidence.map { String(format: "%.2f", $0) } ?? "n/a"))
@@ -395,6 +406,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         plan.say = "\(pick.element.label) is here"
         plan.calls = ["jev:\(pick.element.line)"]
         return (plan, pick)
+    }
+
+    private enum NavOutcome {
+        case handled
+        /// `moved`: at least one control was pressed before giving up.
+        case fallback(moved: Bool)
+    }
+
+    /// Jev navigation loop: press through the screens, gliding to each press, then point at the
+    /// destination. Nothing is pressed that could flip a switch or delete (see jev-nav.ts).
+    private func navigate(_ question: String, context: ScreenContext, started: Date, stay: Bool) async -> NavOutcome {
+        let global = Navigator.globalContext(for: context.target, windowID: context.windowID)
+        var glide: Task<Void, Never>?
+        let result = await Navigator.run(goal: question, target: context.target, windowID: context.windowID) { [weak self] step in
+            guard let self else { return }
+            Log.info(String(format: "nav: step \"%@\" jev=%dms press=%dms", step.label, step.jevMs, step.pressMs))
+            glide = Task { @MainActor in
+                await self.overlay.chore(at: CGPoint(x: step.frame.midX, y: step.frame.midY), context: global, caption: step.label + "...")
+            }
+        }
+        // Let the last callback (queued on the main actor) run before reading the glide task.
+        await Task.yield()
+        let arrived = result.final == "done" && !result.steps.isEmpty
+        Log.info(String(format: "route: path=jev-nav final=%@ presses=%d script=%dms total=%.0fms steps=[%@] %@", result.final, result.steps.count,
+                        result.totalMs, Date().timeIntervalSince(started) * 1000,
+                        result.steps.map { "\($0.label):\($0.jevMs)+\($0.pressMs)" }.joined(separator: ", "), result.reason))
+        guard arrived, let last = result.steps.last else { return .fallback(moved: !result.steps.isEmpty) }
+        await glide?.value
+        var plan = Plan()
+        plan.steps = [PlanStep(kind: .point(CGPoint(x: last.frame.midX, y: last.frame.midY)), label: last.label)]
+        plan.say = "Here's \(last.label)"
+        overlay.perform(plan, context: global, stay: stay)
+        say(plan.say)
+        Log.info(String(format: "nav: arrived at \"%@\" total=%.0fms", last.label, Date().timeIntervalSince(started) * 1000))
+        return .handled
     }
 
     /// Points, or does chores (then looks again and points), or does the step when asked to.
