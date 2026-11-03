@@ -91,14 +91,15 @@ final class VoiceController {
         onListening?(false)
     }
 
-    func speak(_ text: String) {
+    /// `voice`: the answering assistant's liveVoice, the same voice name Relay's live calls use.
+    func speak(_ text: String, voice: String) {
         speakTask?.cancel()
         speakTurn += 1
         let mine = speakTurn
         onSpeaking?(true)
         speakTask = Task { [weak self] in
             guard let self else { return }
-            do { try await self.output.speak(text) } catch {
+            do { try await self.output.speak(text, voice: voice) } catch {
                 if self.speakTurn == mine { self.onError?(error) }
             }
             if self.speakTurn == mine { self.onSpeaking?(false) }

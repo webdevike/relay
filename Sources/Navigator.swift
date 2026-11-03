@@ -9,11 +9,11 @@ enum Navigator {
 
     private static let script = ProcessInfo.processInfo.environment["RELAY_BUDDY_NAV_SCRIPT"]
         ?? "/Users/ike/Eva/.omp/tools/jev-nav.ts"
-    private static let bun = ProcessInfo.processInfo.environment["RELAY_BUDDY_BUN"] ?? "/Users/ike/.bun/bin/bun"
+    static let bun = ProcessInfo.processInfo.environment["RELAY_BUDDY_BUN"] ?? "/Users/ike/.bun/bin/bun"
     static let maxSteps = 6
 
     private static let pattern = try! NSRegularExpression(
-        pattern: #"^\s*(?:(?:hey )?buddy[, ]+)?(?:please )?(?:take me to|bring me to|go to|head to|jump to|navigate to|switch to|open up|open|show me)\s+\S"#,
+        pattern: #"^\s*(?:please )?(?:take me to|bring me to|go to|head to|jump to|navigate to|switch to|open up|open|show me)\s+\S"#,
         options: .caseInsensitive)
 
     /// "take me to X", "open X", "go to X": ask to arrive at a screen, not to point at a control.

@@ -9,7 +9,8 @@ final class OpenAISpeech: VoiceOutput, @unchecked Sendable {
     var playback = true
     /// When set, each speak() also writes what was spoken to this WAV file.
     var recordTo: URL?
-    var voice = VoiceConfig.voice
+    /// The voice of the last speak(): the answering assistant's registry liveVoice.
+    private var voice = ""
     var model = VoiceConfig.speechModel
     var style = VoiceConfig.speechStyle
     /// Seconds from speak() to the first audio chunk of the last utterance.
@@ -28,8 +29,9 @@ final class OpenAISpeech: VoiceOutput, @unchecked Sendable {
 
     var isSpeaking: Bool { lock.lock(); defer { lock.unlock() }; return speaking }
 
-    func speak(_ text: String) async throws {
+    func speak(_ text: String, voice: String) async throws {
         stop()
+        self.voice = voice
         let spoken = OpenAISpeech.prepare(text)
         guard !spoken.isEmpty else { return }
         let key = try VoiceConfig.apiKey()

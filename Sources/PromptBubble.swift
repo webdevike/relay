@@ -27,7 +27,7 @@ final class PromptBubble: NSObject, NSTextFieldDelegate {
 
     static let size = CGSize(width: 440, height: 134)
 
-    init(appName: String) {
+    init(appName: String, assistant: Assistant) {
         panel = BubblePanel(contentRect: CGRect(origin: .zero, size: Self.size),
                             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         super.init()
@@ -42,10 +42,10 @@ final class PromptBubble: NSObject, NSTextFieldDelegate {
         panel.isMovableByWindowBackground = true
         panel.appearance = NSAppearance(named: .darkAqua)
         panel.onCancel = { [weak self] in self?.close() }
-        buildContent(appName: appName)
+        buildContent(appName: appName, assistant: assistant)
     }
 
-    private func buildContent(appName: String) {
+    private func buildContent(appName: String, assistant: Assistant) {
         let surface = DragSurface(frame: CGRect(origin: .zero, size: Self.size))
         surface.wantsLayer = true
         surface.layer?.backgroundColor = Palette.panel.cgColor
@@ -55,20 +55,27 @@ final class PromptBubble: NSObject, NSTextFieldDelegate {
         surface.layer?.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
         panel.contentView = surface
 
-        let dot = NSView(frame: CGRect(x: 18, y: 107, width: 8, height: 8))
-        dot.wantsLayer = true
-        dot.layer?.backgroundColor = Palette.blue.cgColor
-        dot.layer?.cornerRadius = 4
-        surface.addSubview(dot)
+        if let avatar = Assistants.avatar(for: assistant) {
+            let face = NSImageView(frame: CGRect(x: 12, y: 99, width: 24, height: 24))
+            face.image = avatar
+            face.imageScaling = .scaleProportionallyUpOrDown
+            surface.addSubview(face)
+        } else {
+            let dot = NSView(frame: CGRect(x: 18, y: 107, width: 8, height: 8))
+            dot.wantsLayer = true
+            dot.layer?.backgroundColor = Palette.accent.cgColor
+            dot.layer?.cornerRadius = 4
+            surface.addSubview(dot)
+        }
 
         let title = NSTextField(labelWithAttributedString: {
-            let s = NSMutableAttributedString(string: "Buddy", attributes: [
-                .font: NSFont.systemFont(ofSize: 13, weight: .semibold), .foregroundColor: NSColor.white])
+            let s = NSMutableAttributedString(string: assistant.title, attributes: [
+                .font: NSFont.systemFont(ofSize: 13, weight: .semibold), .foregroundColor: Palette.accent])
             s.append(NSAttributedString(string: "   Ask about \(appName)", attributes: [
                 .font: NSFont.systemFont(ofSize: 13), .foregroundColor: Palette.muted]))
             return s
         }())
-        title.frame = CGRect(x: 32, y: 102, width: 360, height: 18)
+        title.frame = CGRect(x: 42, y: 102, width: 350, height: 18)
         surface.addSubview(title)
 
         let close = NSButton(title: "✕", target: self, action: #selector(closeClicked))
@@ -108,7 +115,7 @@ final class PromptBubble: NSObject, NSTextFieldDelegate {
 
         let ask = NSButton(title: "Ask", target: self, action: #selector(submitClicked))
         ask.bezelStyle = .rounded
-        ask.bezelColor = Palette.blue
+        ask.bezelColor = Palette.accent
         ask.frame = CGRect(x: Self.size.width - 78, y: 9, width: 64, height: 28)
         surface.addSubview(ask)
     }
@@ -150,7 +157,7 @@ final class PromptBubble: NSObject, NSTextFieldDelegate {
     func setListening(_ listening: Bool) {
         let text = listening ? "Listening..." : "Where is the bevel tool?"
         field.placeholderAttributedString = NSAttributedString(string: text, attributes: [
-            .font: NSFont.systemFont(ofSize: 19), .foregroundColor: listening ? Palette.blue : Palette.faint])
+            .font: NSFont.systemFont(ofSize: 19), .foregroundColor: listening ? Palette.accent : Palette.faint])
     }
 
     func showTranscript(_ text: String) { field.stringValue = text }

@@ -11,7 +11,7 @@ extension Marks {
         line.lineWidth = 3
         line.lineCap = .round
         line.lineDashPattern = [0.1, 9]
-        line.shadowColor = Palette.deepBlue.cgColor
+        line.shadowColor = Palette.deepAccent.cgColor
         line.shadowOpacity = 0.9
         line.shadowRadius = 2
         line.shadowOffset = .zero
@@ -44,7 +44,7 @@ extension Marks {
 
         let dot = CAShapeLayer()
         dot.path = CGPath(ellipseIn: CGRect(x: -7, y: -7, width: 14, height: 14), transform: nil)
-        dot.fillColor = Palette.blue.cgColor
+        dot.fillColor = Palette.accent.cgColor
         dot.strokeColor = NSColor.white.cgColor
         dot.lineWidth = 2
         dot.contentsScale = scale
@@ -87,7 +87,7 @@ extension Marks {
         layer.bounds = CGRect(x: 0, y: 0, width: width, height: 24)
         layer.cornerRadius = 12
         layer.backgroundColor = Palette.panel.cgColor
-        layer.borderColor = Palette.blue.cgColor
+        layer.borderColor = Palette.accent.cgColor
         layer.borderWidth = 1.5
         layer.contentsScale = scale
         let label = CATextLayer()
@@ -134,7 +134,7 @@ final class UndoPill {
         panel.becomesKeyOnlyIfNeeded = true
         let view = NSView(frame: panel.contentRect(forFrameRect: panel.frame))
         view.wantsLayer = true
-        view.layer?.backgroundColor = Palette.deepBlue.cgColor
+        view.layer?.backgroundColor = Palette.deepAccent.cgColor
         view.layer?.cornerRadius = 13
         view.layer?.borderColor = NSColor.white.withAlphaComponent(0.75).cgColor
         view.layer?.borderWidth = 1

@@ -69,8 +69,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastExternalApp: NSRunningApplication?
     private var work: Task<Void, Never>?
     private var prefetch: Task<ScreenContext, Error>?
-    /// RELAY_BUDDY_SPEAK=0 keeps Buddy quiet (tests, recordings).
+    /// RELAY_BUDDY_SPEAK=0 keeps the assistant quiet (tests, recordings).
     private let speaks = ProcessInfo.processInfo.environment["RELAY_BUDDY_SPEAK"] != "0"
+    /// Who answers the current ask (AssistantRouter): her name, colours, avatar and voice.
+    private var assistant = Assistants.personal
 
     init(initialQuestion: String?, initialTarget: String?) {
         self.initialQuestion = initialQuestion
@@ -78,7 +80,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        Log.info("Relay Buddy up. model=\(brain.model) capture=\(Capture.backendDescription)")
+        Log.info("Relay Assist up. model=\(brain.model) capture=\(Capture.backendDescription) assistants=\(Assistants.all.map { "\($0.title)(\($0.liveVoice))" }.joined(separator: ","))")
+        Assistants.prepareAvatars()
+        EcardRepos.refreshIfStale()
         lastExternalApp = NSWorkspace.shared.frontmostApplication.flatMap { isIgnorable($0) ? nil : $0 }
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
@@ -99,7 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         center.postNotificationName(BuddyNotification.quit, object: me, userInfo: nil, deliverImmediately: true)
         center.addObserver(forName: BuddyNotification.quit, object: nil, queue: .main) { note in
             guard (note.object as? String) != me else { return }
-            Log.info("a newer Relay Buddy started; quitting")
+            Log.info("a newer Relay Assist started; quitting")
             MainActor.assumeIsolated { NSApp.terminate(nil) }
         }
         // Registered after the quit handoff, so an older instance has released the combo.
@@ -167,7 +171,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func say(_ text: String?) {
         guard speaks, let text, !text.isEmpty else { return }
-        voice.speak(text)
+        voice.speak(text, voice: assistant.liveVoice)
+    }
+
+    /// Makes `next` the one answering: cursor, bubble colours, captions' tag, voice and the brain's persona.
+    private func answer(as next: Assistant) {
+        assistant = next
+        brain.assistantName = next.title
+        overlay.setAssistant(next)
     }
 
     // MARK: Targets
@@ -205,11 +216,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setUpStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        let image = NSImage(systemSymbolName: "cursorarrow.rays", accessibilityDescription: "Relay Buddy")
+        let image = NSImage(systemSymbolName: "cursorarrow.rays", accessibilityDescription: "Relay Assist")
         image?.isTemplate = true
         item.button?.image = image
+        item.button?.toolTip = "Relay Assist: \(Assistants.all.map(\.title).joined(separator: " and "))"
         let menu = NSMenu()
-        let ask = NSMenuItem(title: "Ask Buddy", action: #selector(menuSummon), keyEquivalent: " ")
+        let ask = NSMenuItem(title: "Ask \(Assistants.personal.title) or \(Assistants.work.title)", action: #selector(menuSummon), keyEquivalent: " ")
         ask.keyEquivalentModifierMask = [.control, .option]
         ask.target = self
         menu.addItem(ask)
@@ -221,12 +233,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         capture.isEnabled = false
         menu.addItem(capture)
         if !CGPreflightScreenCaptureAccess() || !AXIsProcessTrusted() {
-            let setup = NSMenuItem(title: "Give Buddy Its Own Permissions…", action: #selector(requestPermissions), keyEquivalent: "")
+            let setup = NSMenuItem(title: "Give Relay Assist Its Own Permissions…", action: #selector(requestPermissions), keyEquivalent: "")
             setup.target = self
             menu.addItem(setup)
         }
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "Quit Relay Buddy", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: "Quit Relay Assist", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         item.menu = menu
         statusItem = item
     }
@@ -259,11 +271,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         overlay.dismiss(fast: true)
         target = currentExternalApp()
         let appName = target?.name ?? "this app"
-        Log.info("summon: target=\(appName)")
+        // Who answers by what is on screen; the question can still change it on submit.
+        let likely = AssistantRouter.route("", target: target, stage: "summon")
+        answer(as: likely.assistant)
+        Log.info("summon: target=\(appName) assistant=\(likely.assistant.title)")
         // Look at the window while the user types: it is what they are asking about, and it
         // takes the capture off the wait after they press Return.
         prefetch = target.map { app in Task { try await Capture.capture(app) } }
-        let newBubble = PromptBubble(appName: appName)
+        let newBubble = PromptBubble(appName: appName, assistant: likely.assistant)
         newBubble.onSubmit = { [weak self] text in self?.submit(text) }
         newBubble.onClose = { [weak self] in
             self?.bubble = nil
@@ -296,8 +311,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         route(trimmed, target: target, prefetched: nil)
     }
 
-    /// Lesson words, "teach me to ...", or a plain question.
-    private func route(_ question: String, target: TargetApp, prefetched: Task<ScreenContext, Error>?) {
+    /// Picks who answers, then: a no-brain shortcut, lesson words, "teach me to ...", or a plain question.
+    private func route(_ asked: String, target: TargetApp, prefetched: Task<ScreenContext, Error>?) {
+        let started = Date()
+        let decision = AssistantRouter.route(asked, target: target, stage: "ask")
+        answer(as: decision.assistant)
+        let question = decision.question
+        if let shortcut = Shortcut.match(question, target: target) {
+            lesson.stop()
+            return runShortcut(shortcut, started: started)
+        }
         if lesson.handleCommand(question) { return }
         if let goal = LessonController.goal(in: question) {
             work?.cancel()
@@ -305,6 +328,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         lesson.stop()
         ask(question, about: target, prefetched: prefetched)
+    }
+
+    /// Opens what the question names without asking the brain: a Linear issue (then points at its
+    /// title) or a GitHub pull request in the default browser.
+    private func runShortcut(_ shortcut: Shortcut, started: Date) {
+        work?.cancel()
+        voice.stopSpeaking()
+        let ms = { String(format: "%.0f", Date().timeIntervalSince(started) * 1000) }
+        work = Task { @MainActor [weak self] in
+            guard let self else { return }
+            switch shortcut {
+            case .linear(let key):
+                let via = Shortcut.openLinear(key)
+                Log.info("route: path=shortcut kind=linear key=\(key) via=\(via) opened=\(ms())ms")
+                self.overlay.showMessage("Opening \(key) in Linear", near: NSEvent.mouseLocation)
+                guard let linear = await Shortcut.waitForLinear(showing: key, timeout: 8) else {
+                    Log.info("shortcut: Linear never showed \(key) within 8s (total=\(ms())ms)")
+                    return
+                }
+                Log.info("shortcut: Linear shows \(key) at \(ms())ms")
+                let title = await Shortcut.issueTitle(key, pid: linear.pid)
+                var spot: (AXElement, ScreenContext)?
+                if let title {
+                    for _ in 0..<5 where spot == nil {
+                        if Task.isCancelled { return }
+                        if let context = try? await Capture.capture(linear), let element = Shortcut.titleElement(title, in: context) {
+                            spot = (element, context)
+                        } else {
+                            try? await Task.sleep(nanoseconds: 250_000_000)
+                        }
+                    }
+                }
+                let full = title.map { "Here's \(key): \($0)" } ?? "Here's \(key)"
+                let caption = full.count <= 90 ? full : String(full.prefix(87)) + "..."
+                if let (element, context) = spot {
+                    var plan = Plan()
+                    plan.steps = [PlanStep(kind: .point(element.center), label: element.label)]
+                    plan.say = caption
+                    self.overlay.perform(plan, context: context, stay: false)
+                } else {
+                    self.overlay.showMessage(caption, near: nil)
+                }
+                self.say(caption)
+                Log.info("route: path=shortcut kind=linear key=\(key) point=\(spot == nil ? "none" : "title") total=\(ms())ms")
+            case .pullRequest(let url):
+                NSWorkspace.shared.open(url)
+                self.overlay.showMessage("Opening that pull request in your browser", near: NSEvent.mouseLocation)
+                Log.info("route: path=shortcut kind=github url=\(url.absoluteString) total=\(ms())ms")
+            case .pullRequestNumber(let number, let repo):
+                self.overlay.showThinking(near: NSEvent.mouseLocation, appName: "\(repo) PR \(number)")
+                guard let url = await Shortcut.resolve(number, repo: repo) else {
+                    Log.info("route: path=shortcut kind=github pr=\(number) repo=\(repo) not found total=\(ms())ms")
+                    return self.overlay.showMessage("I couldn't find PR \(number) in \(repo)", near: nil)
+                }
+                NSWorkspace.shared.open(url)
+                self.overlay.showMessage("Opening \(repo) PR \(number) in your browser", near: nil)
+                Log.info("route: path=shortcut kind=github pr=\(number) repo=\(repo) url=\(url.absoluteString) total=\(ms())ms")
+            }
+        }
     }
 
     private func ask(_ question: String, about target: TargetApp, prefetched: Task<ScreenContext, Error>? = nil) {
@@ -606,7 +688,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let fresh = try await Capture.capture(context.target)
         var next = ask
         next.sceneState = await state
-        next.note = "Buddy just did a chore for the user: \(request.announce). Do not call do() again. " +
+        next.note = "You just did a chore for the user: \(request.announce). Do not call do() again. " +
             "Now point at what the user asked about, on this fresh screenshot."
         var plan2 = try await brain.plan(question: question, context: fresh, ask: next)
         try Task.checkCancellation()

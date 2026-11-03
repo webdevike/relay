@@ -27,7 +27,7 @@ struct LinearHook: AppHook {
         state says no issue is open, say so in the first line, then summarize the issues visible in the list in the \
         screenshot and accessibility elements in one or two lines. If the API data is missing, answer from the screen \
         only and say it is from the screen.
-        Never state anything the data does not show. Buddy is read-only in Linear: never call do(), and if asked \
+        Never state anything the data does not show. You are read-only in Linear: never call do(), and if asked \
         to comment, change status, assign or edit, say in one line that you only read tickets.
         """
     }

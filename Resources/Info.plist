@@ -5,9 +5,9 @@
 	<key>CFBundleIdentifier</key>
 	<string>com.relay.buddy</string>
 	<key>CFBundleName</key>
-	<string>Relay Buddy</string>
+	<string>Relay Assist</string>
 	<key>CFBundleDisplayName</key>
-	<string>Relay Buddy</string>
+	<string>Relay Assist</string>
 	<key>CFBundleExecutable</key>
 	<string>RelayBuddy</string>
 	<key>CFBundlePackageType</key>
@@ -23,10 +23,10 @@
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSScreenCaptureUsageDescription</key>
-	<string>Buddy looks at the window you ask about so it can point at the right control.</string>
+	<string>Relay Assist looks at the window you ask about so your assistant can point at the right control.</string>
 	<key>NSAccessibilityUsageDescription</key>
-	<string>Buddy reads the names and positions of controls in the window you ask about.</string>
+	<string>Relay Assist reads the names and positions of controls in the window you ask about.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Buddy listens while you hold the talk key so you can ask by voice.</string>
+	<string>Relay Assist listens while you hold the talk key so you can ask your assistant by voice.</string>
 </dict>
 </plist>

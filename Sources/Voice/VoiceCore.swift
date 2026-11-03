@@ -21,9 +21,9 @@ protocol VoiceInput: AnyObject {
 /// Text to speech.
 protocol VoiceOutput: AnyObject {
     var isSpeaking: Bool { get }
-    /// Speaks `text`; returns when playback finished or `stop()` was called. First audio starts
-    /// as soon as the first sentence arrives from the network.
-    func speak(_ text: String) async throws
+    /// Speaks `text` in `voice` (an assistant's liveVoice, e.g. "marin"); returns when playback
+    /// finished or `stop()` was called. First audio starts as soon as the first sentence arrives.
+    func speak(_ text: String, voice: String) async throws
     /// Silence immediately (well under 100 ms) and make a pending `speak` return.
     func stop()
 }
@@ -40,7 +40,7 @@ enum VoiceError: LocalizedError {
         switch self {
         case .noKey: return "No OpenAI key found (OPENAI_API_KEY)."
         case .micDenied:
-            return "Buddy can't hear you yet. Allow Relay Buddy in System Settings > Privacy & Security > Microphone."
+            return "I can't hear you yet. Allow Relay Assist in System Settings > Privacy & Security > Microphone."
         case .micUnavailable(let why): return "The microphone isn't available: \(why)"
         case .http(let code, let message): return "The voice service failed (\(code)): \(message)"
         case .transcription(let why): return "I couldn't transcribe that: \(why)"
@@ -55,7 +55,6 @@ enum VoiceConfig {
     /// Speech API. OpenAI deprecates gpt-4o-mini-tts on 2027-01-06; swap the model here (and the
     /// transport in OpenAISpeech) when moving to the Realtime API.
     static let speechModel = ProcessInfo.processInfo.environment["RELAY_BUDDY_TTS_MODEL"] ?? "gpt-4o-mini-tts"
-    static let voice = ProcessInfo.processInfo.environment["RELAY_BUDDY_VOICE"] ?? "marin"
     static let speechStyle = """
     Warm, friendly and upbeat, like a patient friend sitting next to the user and showing them \
     where to click. Natural short sentences, a brisk but unhurried pace, a smile in the voice. \

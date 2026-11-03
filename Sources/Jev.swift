@@ -160,7 +160,7 @@ enum Jev {
         guard elements.count >= 3 else { return nil }
         let pick = await pick(
             question: description, app: context.target.name, title: context.windowTitle, elements: elements,
-            instruction: "Buddy must click one control to do this: `question`. Which single element should be clicked? Pick the control itself, not the thing it acts on.")
+            instruction: "The assistant must click one control to do this: `question`. Which single element should be clicked? Pick the control itself, not the thing it acts on.")
         guard let pick, pick.confidence.map({ $0 >= minConfidence }) ?? true,
               !Set(tokens(description)).isDisjoint(with: Set(tokens(pick.element.label))) else { return nil }
         return pick.element

@@ -2,8 +2,10 @@ import Cocoa
 import QuartzCore
 
 enum Palette {
-    static let blue = NSColor(srgbRed: 0.231, green: 0.510, blue: 0.965, alpha: 1)      // #3B82F6
-    static let deepBlue = NSColor(srgbRed: 0.145, green: 0.388, blue: 0.922, alpha: 1)  // #2563EB
+    /// The answering assistant's accent (agents.json avatar.colors.accent); written on the main thread
+    /// by Overlay.setAssistant before anything is drawn for an ask.
+    nonisolated(unsafe) static var accent = NSColor(srgbRed: 0.969, green: 0.404, blue: 0.027, alpha: 1)  // Nova #f76707
+    static var deepAccent: NSColor { accent.blended(withFraction: 0.18, of: .black) ?? accent }
     static let ink = NSColor(srgbRed: 0.043, green: 0.106, blue: 0.227, alpha: 1)       // #0B1B3A
     static let panel = NSColor(srgbRed: 0.106, green: 0.118, blue: 0.141, alpha: 0.96)  // #1B1E24
     static let muted = NSColor(white: 0.66, alpha: 1)
@@ -63,6 +65,12 @@ final class OverlayController {
     static let restingOffset = CGPoint(x: 22, y: -6)
 
     // MARK: Public
+
+    /// The assistant answering from now on: her colours on every mark, her name and avatar on the cursor.
+    func setAssistant(_ assistant: Assistant) {
+        Palette.accent = assistant.accent
+        buddy.setIdentity(name: assistant.title, accent: assistant.accent, avatar: Assistants.avatar(for: assistant))
+    }
 
     func showThinking(near mouse: CGPoint, appName: String) {
         begin(at: CGPoint(x: mouse.x + Self.restingOffset.x, y: mouse.y + Self.restingOffset.y))
@@ -421,8 +429,8 @@ enum Marks {
 
         let ring = CAShapeLayer()
         ring.path = circle
-        ring.fillColor = Palette.blue.withAlphaComponent(0.16).cgColor
-        ring.strokeColor = Palette.blue.cgColor
+        ring.fillColor = Palette.accent.withAlphaComponent(0.16).cgColor
+        ring.strokeColor = Palette.accent.cgColor
         ring.lineWidth = 2.5
         ring.contentsScale = scale
         container.addSublayer(ring)
@@ -430,7 +438,7 @@ enum Marks {
         let pulse = CAShapeLayer()
         pulse.path = circle
         pulse.fillColor = NSColor.clear.cgColor
-        pulse.strokeColor = Palette.blue.cgColor
+        pulse.strokeColor = Palette.accent.cgColor
         pulse.lineWidth = 2
         pulse.opacity = 0
         pulse.contentsScale = scale
@@ -467,8 +475,8 @@ enum Marks {
 
         let outline = CAShapeLayer()
         outline.path = path
-        outline.fillColor = Palette.blue.withAlphaComponent(0.08).cgColor
-        outline.strokeColor = Palette.blue.cgColor
+        outline.fillColor = Palette.accent.withAlphaComponent(0.08).cgColor
+        outline.strokeColor = Palette.accent.cgColor
         outline.lineWidth = 2.5
         outline.contentsScale = scale
         container.addSublayer(outline)
@@ -476,7 +484,7 @@ enum Marks {
         let glow = CAShapeLayer()
         glow.path = path
         glow.fillColor = NSColor.clear.cgColor
-        glow.strokeColor = Palette.blue.cgColor
+        glow.strokeColor = Palette.accent.cgColor
         glow.lineWidth = 2
         glow.opacity = 0
         glow.contentsScale = scale

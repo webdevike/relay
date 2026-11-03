@@ -1,8 +1,8 @@
 import Cocoa
 import QuartzCore
 
-/// Buddy: a blue teardrop cursor with a face, a "Buddy" name tag and a one-line caption.
-/// `root` sits exactly on the tip (the hotspot); everything else hangs below-right of it.
+/// The assistant's cursor: a teardrop in her accent colour carrying her avatar, a name tag and a
+/// one-line caption. `root` sits exactly on the tip (the hotspot); everything else hangs below-right of it.
 @MainActor
 final class BuddyCharacter {
     let root = CALayer()
@@ -11,6 +11,8 @@ final class BuddyCharacter {
     private let eyes = CALayer()
     private let pupils: [CALayer] = [CALayer(), CALayer()]
     private let mouth = CAShapeLayer()
+    private let avatarLayer = CALayer()
+    private var name = "Relay Assist"
     private let tag = CALayer()
     private let tagText = CATextLayer()
     private let caption = CALayer()
@@ -20,8 +22,8 @@ final class BuddyCharacter {
     private var thinkingBase = ""
     private var staying = false
 
-    private static let center = CGPoint(x: 15, y: -15)
-    private static let radius: CGFloat = 11.5
+    private static let center = CGPoint(x: 21, y: -21)
+    private static let radius: CGFloat = 17
     private static let tagFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
     private static let captionFont = NSFont.systemFont(ofSize: 13, weight: .medium)
     private static let maxCaptionWidth: CGFloat = 600
@@ -36,7 +38,7 @@ final class BuddyCharacter {
         root.addSublayer(body)
 
         shape.path = Self.teardrop()
-        shape.fillColor = Palette.blue.cgColor
+        shape.fillColor = Palette.accent.cgColor
         shape.strokeColor = NSColor.white.cgColor
         shape.lineWidth = 2
         shape.lineJoin = .round
@@ -72,10 +74,17 @@ final class BuddyCharacter {
         mouth.lineWidth = 1.5
         mouth.lineCap = .round
         body.addSublayer(mouth)
+        let r = Self.radius
+        avatarLayer.frame = CGRect(x: c.x - r + 1.5, y: c.y - r + 1.5, width: 2 * r - 3, height: 2 * r - 3)
+        avatarLayer.cornerRadius = r - 1.5
+        avatarLayer.masksToBounds = true
+        avatarLayer.contentsGravity = .resizeAspectFill
+        avatarLayer.isHidden = true
+        body.addSublayer(avatarLayer)
         tag.anchorPoint = .zero
         caption.anchorPoint = .zero
 
-        tag.backgroundColor = Palette.deepBlue.cgColor
+        tag.backgroundColor = Palette.deepAccent.cgColor
         tag.cornerRadius = 9
         tag.borderColor = NSColor.white.withAlphaComponent(0.7).cgColor
         tag.borderWidth = 1
@@ -102,7 +111,7 @@ final class BuddyCharacter {
         caption.addSublayer(captionText)
         root.addSublayer(caption)
 
-        setTagText("Buddy")
+        setTagText(name)
         startBlinking()
     }
 
@@ -122,12 +131,28 @@ final class BuddyCharacter {
     }
 
     func setContentsScale(_ scale: CGFloat) {
-        for layer in [root, body, shape, mouth, tag, tagText, caption, captionText] { layer.contentsScale = scale }
+        for layer in [root, body, shape, mouth, avatarLayer, tag, tagText, caption, captionText] { layer.contentsScale = scale }
+    }
+
+    /// Who is answering: her name on the tag, her accent on the body and tag, her avatar in the head
+    /// (the drawn face stays only while the avatar has not been drawn yet).
+    func setIdentity(name: String, accent: NSColor, avatar: NSImage?) {
+        self.name = name
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        shape.fillColor = accent.cgColor
+        tag.backgroundColor = (accent.blended(withFraction: 0.18, of: .black) ?? accent).cgColor
+        avatarLayer.contents = avatar?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        avatarLayer.isHidden = avatar == nil
+        eyes.isHidden = avatar != nil
+        mouth.isHidden = avatar != nil
+        CATransaction.commit()
+        setTagText(staying ? "\(name) · staying" : name)
     }
 
     func setStaying(_ stay: Bool) {
         staying = stay
-        setTagText(stay ? "Buddy · staying" : "Buddy")
+        setTagText(stay ? "\(name) · staying" : name)
     }
 
     private func setTagText(_ text: String) {
@@ -201,9 +226,9 @@ final class BuddyCharacter {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         let extra = max(0, caption.bounds.height - 26)
-        let below = tip.y - 84 - extra > bounds.minY + 8
-        var tagOrigin = CGPoint(x: 28, y: below ? -50 : 12)
-        var captionOrigin = CGPoint(x: 28, y: below ? -80 - extra : 34)
+        let below = tip.y - 98 - extra > bounds.minY + 8
+        var tagOrigin = CGPoint(x: 42, y: below ? -64 : 12)
+        var captionOrigin = CGPoint(x: 42, y: below ? -94 - extra : 34)
         let overflowTag = tip.x + tagOrigin.x + tag.bounds.width - (bounds.maxX - 8)
         if overflowTag > 0 { tagOrigin.x -= overflowTag }
         let overflowCaption = tip.x + captionOrigin.x + caption.bounds.width - (bounds.maxX - 8)

@@ -5,6 +5,7 @@ import Foundation
 ///   --voice-test <audio file>            file -> streaming transcript (partials to stderr, final to stdout)
 ///   --voice-say "text" [--out f.wav]     text -> speech; writes f.wav (default /tmp/buddy-say.wav) and plays it
 ///        [--no-play]                     skip the speakers
+///        [--as nova|astra]               whose liveVoice to use (agents.json), default the personal assistant
 ///   --voice-barge "long text" [--after s] speak, cut it off after s seconds (default 1.2), report the stop time
 ///
 /// `VoiceTest.handles(args)` tells main.swift whether to call `VoiceTest.run(args)` and exit.
@@ -36,7 +37,8 @@ enum VoiceTest {
                 let out = URL(fileURLWithPath: value("--out", in: args) ?? "/tmp/buddy-say.wav")
                 speech.recordTo = out
                 let started = Date()
-                try await speech.speak(text)
+                let who = value("--as", in: args).flatMap(Assistants.named) ?? Assistants.personal
+                try await speech.speak(text, voice: who.liveVoice)
                 let total = Date().timeIntervalSince(started)
                 print(String(format: "first audio %.2fs, done %.2fs, wrote %@", speech.firstAudioLatency ?? -1, total, out.path))
                 return 0
@@ -45,7 +47,7 @@ enum VoiceTest {
                 let after = Double(value("--after", in: args) ?? "") ?? 1.2
                 let speech = OpenAISpeech()
                 let started = Date()
-                let speaking = Task { try await speech.speak(text) }
+                let speaking = Task { try await speech.speak(text, voice: Assistants.personal.liveVoice) }
                 try await Task.sleep(nanoseconds: UInt64(after * 1_000_000_000))
                 let cut = Date()
                 speech.stop()

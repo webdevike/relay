@@ -6,14 +6,14 @@ Hold to talk, release to send. Buddy speaks its caption aloud while it points, a
 
 | File | What |
 |---|---|
-| `VoiceCore.swift` | `VoiceInput` / `VoiceOutput` protocols, `VoiceError`, `VoiceConfig` (models, voice, key), `PCMConverter` |
+| `VoiceCore.swift` | `VoiceInput` / `VoiceOutput` protocols, `VoiceError`, `VoiceConfig` (models, speaking style, key), `PCMConverter` |
 | `RealtimeTranscriber.swift` | Streaming speech to text over `wss://api.openai.com/v1/realtime?intent=transcription`, model `gpt-live-transcribe` (partials as you speak) |
 | `VoiceInputs.swift` | `MicVoiceInput` (AVAudioEngine) and `FileVoiceInput` (wav/aiff/m4a/mp3, for tests) |
-| `OpenAISpeech.swift` | Streaming text to speech, `POST /v1/audio/speech`, model `gpt-4o-mini-tts`, voice `marin`, sentences fetched in parallel, played as chunks arrive |
+| `OpenAISpeech.swift` | Streaming text to speech, `POST /v1/audio/speech`, model `gpt-4o-mini-tts`, in the answering assistant's registry `liveVoice` (Nova `marin`, Astra `ballad`: the voice names Relay's GPT-Live calls use), sentences fetched in parallel, played as chunks arrive |
 | `VoiceController.swift` | `VoiceController` (push to talk + speak + barge-in) and `HoldHotKey` (tap vs hold on one global hotkey) |
-| `VoiceTest.swift` | `--voice-test`, `--voice-say`, `--voice-barge` checks |
+| `VoiceTest.swift` | `--voice-test`, `--voice-say [--as astra]`, `--voice-barge` checks |
 
-Overrides: `RELAY_BUDDY_STT_MODEL`, `RELAY_BUDDY_TTS_MODEL`, `RELAY_BUDDY_VOICE`. The key comes from `OPENAI_API_KEY` or the same env file Brain uses.
+Overrides: `RELAY_BUDDY_STT_MODEL`, `RELAY_BUDDY_TTS_MODEL`. The voice is not configurable here: it is the assistant's `liveVoice` in `~/Eva/.omp/assistant/agents.json`. The key comes from `OPENAI_API_KEY` or the same env file Brain uses.
 
 `gpt-4o-mini-tts` is on OpenAI's deprecation list (shutdown 2027-01-06). Its replacement is the Realtime API (`gpt-realtime-2.1-mini`), which is not served by `/v1/audio/speech`; only `OpenAISpeech` needs to change for that, the `VoiceOutput` protocol stays.
 

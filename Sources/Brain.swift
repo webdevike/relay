@@ -60,9 +60,12 @@ final class Brain {
     let model = ProcessInfo.processInfo.environment["RELAY_BUDDY_MODEL"] ?? "gpt-6.1-terra"
     private let effort = ProcessInfo.processInfo.environment["RELAY_BUDDY_EFFORT"] ?? "low"
     private let endpoint = URL(string: "https://api.openai.com/v1/responses")!
+    /// The assistant answering this ask (Nova, Astra): the model speaks as her.
+    var assistantName = "Relay Assist"
 
     private static let instructions = """
-    You are Buddy, a friendly helper that lives next to the user's cursor inside Relay. The user is \
+    You are one of Isaac's assistants (your name is in the prompt), shown as a cursor with your avatar next to \
+    the user's cursor inside Relay. The user is \
     learning the app in the screenshot and asked a question about it. Show them where to go: you point \
     on their screen. You may do small chores for them, but the user does the thing they are learning.
 
@@ -93,7 +96,7 @@ final class Brain {
     core_step false instead of only describing it. Then do NOT point at the hidden target in this turn: \
     you get a fresh screenshot after the chore and point then. say() should describe the next step.
     - The core step is the thing the user asked to learn (asked "how do I bevel": beveling is core). \
-    Only do a core step when the prompt says "User asked Buddy to do it: yes"; then set core_step true \
+    Only do a core step when the prompt says "User asked you to do it: yes"; then set core_step true \
     and include any chores it needs in the same actions list. Otherwise teach it by pointing.
     - announce is past tense and short, e.g. "Switched to Edit Mode for you" or "Beveled the edges".
     - Each action: kind, description (3 to 6 words), x and y (screenshot pixels of where the action \
@@ -124,9 +127,9 @@ final class Brain {
     private static let nullableStrings: [String: Any] = ["type": ["array", "null"], "items": ["type": "string"]]
 
     private static let tools: [[String: Any]] = [
-        function("say", "Show one short caption line next to Buddy's cursor.",
+        function("say", "Show one short caption line next to your cursor.",
                  ["text": ["type": "string", "description": "At most 90 characters, unless the app hook notes ask for a longer multi-line explanation."]]),
-        function("point", "Move Buddy's cursor to one exact spot in the screenshot and pulse a ring there.", [
+        function("point", "Move your cursor to one exact spot in the screenshot and pulse a ring there.", [
             "x": ["type": "number", "description": "Screenshot pixel x."],
             "y": ["type": "number", "description": "Screenshot pixel y."],
             "label": ["type": "string", "description": "What is there, 1 to 4 words."],
@@ -206,7 +209,8 @@ final class Brain {
             text += "Live app state from the \(ask.hookName ?? "app") hook:\n\(state)\n\n"
         }
         if let notes = ask.hookNotes { text += notes + "\n\n" }
-        text += "User asked Buddy to do it: \(ask.userAskedToDo ? "yes" : "no")\n"
+        text += "Your name: \(assistantName)\n"
+        text += "User asked you to do it: \(ask.userAskedToDo ? "yes" : "no")\n"
         if let note = ask.note { text += note + "\n" }
         text += "\nQuestion: \(question)"
         return text
@@ -265,8 +269,8 @@ final class Brain {
     /// Text-only one-liner for a spot Jev already found: no image, no tools. nil on timeout or error.
     func caption(question: String, app: String, label: String, role: String, timeout: TimeInterval) async -> String? {
         guard let key = apiKey else { return nil }
-        let prompt = "App: \(app)\nQuestion: \(question)\nBuddy is pointing at the \(role) \"\(label)\".\n" +
-            "Write the caption Buddy shows next to its cursor: at most 90 characters, plain and friendly, " +
+        let prompt = "App: \(app)\nQuestion: \(question)\n\(assistantName)'s cursor is pointing at the \(role) \"\(label)\".\n" +
+            "Write the caption \(assistantName) shows next to her cursor, speaking as her: at most 90 characters, plain and friendly, " +
             "say what to do there, and include the keyboard shortcut only if you are sure of it. No em dashes. Reply with the caption only."
         let input: [[String: Any]] = [["role": "user", "content": [["type": "input_text", "text": prompt]]]]
         guard let json = try? await send(input: input, key: key, instructions: "You write one short caption for a Mac app helper.",

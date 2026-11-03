@@ -1,15 +1,51 @@
-# Relay Buddy (prototype)
+# Relay Assist (prototype; repo and binary still named relay-buddy / RelayBuddy)
 
 A macOS menu-bar helper for learning apps. Tap **Control+Option+Space** to type a question, or
-hold it to ask by voice. Buddy, a small blue cursor with a face and a "Buddy" name tag, glides to
-the control, pulses a ring on it, shows a one-line caption (and says it), then fades about
-2 seconds later. It does small chores for you (switching a mode, opening a menu) with an Undo
-pill, does the step itself only when you say "do it", and runs short lessons ("teach me to ...")
-that move on when you finish each step.
+hold it to ask by voice. The answer comes from one of Isaac's assistants: **Nova** (personal) or
+**Astra** (eCard work). Her cursor (a teardrop in her accent colour with her avatar in the head and
+her name on the tag) glides to the control, pulses a ring on it, shows a one-line caption (and
+says it in her voice), then fades about 2 seconds later. It does small chores for you (switching a
+mode, opening a menu) with an Undo pill, does the step itself only when you say "do it", and runs
+short lessons ("teach me to ...") that move on when you finish each step.
+
+## Assistants and routing
+
+- **Identity**: `Sources/Assistant.swift` reads the registry Relay reads,
+  `~/Eva/.omp/assistant/agents.json` (`RELAY_ASSIST_REGISTRY` overrides): title, `liveVoice`,
+  and the designed avatar (DiceBear style, seed, part options, `colors.paper`/`colors.accent`).
+  Avatars are drawn once with Relay's own DiceBear packages (`tools/render-avatar.ts`, the same
+  call as Relay's `portraitSvg`, run with bun against `$RELAY_DIR`, default `~/Eva/work/relay`),
+  rasterized on the paper disc and cached in `~/Library/Caches/RelayBuddy/avatars/`.
+- **Who answers** (local rules, no model call), logged as `route=agent:<id> reason=...`:
+  1. a name in the question ("Nova, where is Wi-Fi", "... , Astra?", "ask Astra ...") wins, and
+     the name is removed from the question;
+  2. eCard on screen: Linear in front, or a Slack, Chrome or Arc window whose title or address
+     bar shows eCard (the eCard Platform Slack workspace, `ecardsystems`, `github.com/eCardSystems`,
+     or one of the org's hyphenated repo names, listed with `gh repo list eCardSystems` once a day
+     into `~/Library/Caches/RelayBuddy/ecard-repos.txt`): Astra;
+  3. eCard in the question: an issue key (`ENG-6309`), "PR", "pull request", "ecard" or an eCard
+     repo name: Astra;
+  4. otherwise Nova.
+  The bubble shows the likely assistant from the screen when it opens (`stage=summon`); the
+  question decides on Return (`stage=ask`).
+- **Voice**: she speaks in her registry `liveVoice` (Nova `marin`, Astra `ballad`), the voice
+  name Relay's GPT-Live calls use, through the existing `/v1/audio/speech` path. There is no
+  separate voice setting any more. Transcription is unchanged.
+- **Shortcuts** (no brain, logged `path=shortcut`): "open/show/go to ENG-6309" opens the issue
+  in the Linear app (`linear://ecard-systems/issue/ENG-6309`, else linear.app), waits for Linear
+  to show it, and points at the issue's title (read through the read-only Linear hook).
+  "open PR 123" in an eCard repo (named in the question, or the GitHub page in front) opens the
+  URL `gh pr view` reports in the default browser; a pasted PR URL opens directly.
 
 ## Proof videos
 
-Phase 2 (phone-friendly 1280x720, cropped around the action):
+- `proof/assistant-cursor.mp4` (`tools/record-assistant.sh`): one hotkey, four asks. Blender
+  "where is the bevel tool" (Nova, orange); Finder "open ENG-6309" (Astra, blue, Linear opens by
+  shortcut and she points at the title); Linear "what is this ticket?" (Astra explains it);
+  System Settings "Nova, where is Wi-Fi" (Nova by name). Recorded with voice off.
+
+Phase 2 (phone-friendly 1280x720, cropped around the action; recorded before the assistants, so
+the cursor there is the old blue "Buddy"):
 
 - `proof/phase2-chore.mp4`: "how do I bevel?" in Object Mode. Buddy switches to Edit Mode for
   you (dotted trail, click, "Undo · Switched to Edit Mode for you"), looks again, and points at
@@ -113,14 +149,16 @@ launch: **native** (ScreenCaptureKit + AX in process) when it holds Screen Recor
 **cua-driver** (`cua-driver call get_window_state` against the authorized CuaDriver daemon; start
 it with `open -n -g -a CuaDriver --args serve`).
 
-To give Buddy its own grants: choose **Give Buddy Its Own Permissions…** in its menu-bar menu,
-then in System Settings > Privacy & Security turn on **Relay Buddy** under **Screen & System
+To give it its own grants: choose **Give Relay Assist Its Own Permissions…** in its menu-bar menu,
+then in System Settings > Privacy & Security turn on **Relay Assist** (bundle `com.relay.buddy`,
+so grants made under the old name carry over) under **Screen & System
 Audio Recording** and **Accessibility**, and relaunch it. For voice: System Settings > Privacy &
-Security > **Microphone** > **Relay Buddy** (or answer the prompt the first time you hold the key).
+Security > **Microphone** > **Relay Assist** (or answer the prompt the first time you hold the key).
 
 ## Tests and proof
 
 ```sh
+tools/record-assistant.sh                  # assistant cursor proof: hotkey asks routed to Nova/Astra (tools/assist-cut.py cuts it)
 tools/record-phase2.sh chore|doit|lesson   # Phase 2 proofs (resets Blender's scene before and after)
 tools/record-proof.sh                      # Phase 1 proof
 tools/prooftest.sh "where is the bevel tool?" Blender proof/blender-bevel.mov 16
@@ -146,7 +184,11 @@ each step in place of the user.
 ## Layout
 
 - `Sources/main.swift`: CLI flags, app start.
-- `Sources/AppDelegate.swift`: menu bar, hotkey and voice, target choice, ask, chore and do-it flow.
+- `Sources/AppDelegate.swift`: menu bar, hotkey and voice, target choice, routing to an assistant,
+  shortcuts, ask, chore and do-it flow.
+- `Sources/Assistant.swift`: the assistant registry, avatar drawing and cache, `AssistantRouter`
+  (who answers), eCard repo list from gh.
+- `Sources/Shortcuts.swift`: no-brain opens (Linear issue, GitHub PR).
 - `Sources/PromptBubble.swift`: the question bubble.
 - `Sources/Capture.swift`, `Sources/CuaDriver.swift`: screenshot, AX tree, cua-driver calls.
 - `Sources/Brain.swift`: Responses API calls, tool schemas, lesson planning.
@@ -154,7 +196,7 @@ each step in place of the user.
 - `Sources/Actions.swift`: `do()` actions, the do-it permission check, the executor and undo.
 - `Sources/Lesson.swift`: lessons.
 - `Sources/Overlay.swift`, `Sources/OverlayExtras.swift`, `Sources/BuddyCharacter.swift`:
-  overlay, Buddy, rings, click trail, step pill, Undo pill.
+  overlay, the assistant's cursor, rings, click trail, step pill, Undo pill.
 - `Sources/Voice/`: voice input and output.
 
 ## Next
