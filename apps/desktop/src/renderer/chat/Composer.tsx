@@ -233,7 +233,6 @@ export function Composer({
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [running, paneId])
   // An open `/` menu takes Escape ahead of the stop above.
   useDismissable(
