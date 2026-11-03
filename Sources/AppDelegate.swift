@@ -323,12 +323,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return runShortcut(shortcut, started: started)
         }
         if lesson.handleCommand(question) { return }
-        if let goal = LessonController.goal(in: question) {
+        if let goal = LessonController.goal(in: question) ?? learningHowTo(question, target: target) {
             work?.cancel()
             return lesson.start(goal: goal, target: target)
         }
         lesson.stop()
         ask(question, about: target, prefetched: prefetched)
+    }
+
+    /// "how do I bevel this cube" in an app you're learning (one with a live hook, like Blender) gets a
+    /// step-by-step lesson that waits for each step, not a one-line answer mixing shortcuts and tools.
+    private func learningHowTo(_ question: String, target: TargetApp) -> String? {
+        guard AppHooks.hook(for: target) is BlenderHook else { return nil }
+        let pattern = #"^\s*(?:so\s+|ok\s+|okay\s+)?(?:how (?:do|can|would|should) i|how to|how do you)\s+(.+?)\??\s*$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+              let match = regex.firstMatch(in: question, range: NSRange(question.startIndex..., in: question)),
+              let range = Range(match.range(at: 1), in: question) else { return nil }
+        return String(question[range])
     }
 
     /// Opens what the question names without asking the brain: a Linear issue (then points at its
