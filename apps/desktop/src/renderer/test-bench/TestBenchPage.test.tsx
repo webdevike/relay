@@ -328,7 +328,7 @@ describe('ExperimentArmPanel', () => {
     expect(byModel.textContent).toContain('$10.00')
     const source = within(panel).getByTestId('cost-price-source')
     expect(source.textContent).toBe(
-      'claude-opus-4-1: $15 / $75 / $1.5 per Mtok — www.anthropic.com (checked 2026-10-27)',
+      'claude-opus-4-1: $15 / $75 / $1.5 per Mtok, source: www.anthropic.com (checked 2026-10-27)',
     )
     expect(within(source).getByRole('link').getAttribute('href')).toBe(
       'https://www.anthropic.com/pricing',

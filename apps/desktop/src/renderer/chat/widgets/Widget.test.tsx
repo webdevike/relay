@@ -282,9 +282,9 @@ describe('WidgetBlock', () => {
     expect(screen.getByText('NK')).toBeInTheDocument()
     expect(screen.getByText('Merged')).toBeInTheDocument()
     fireEvent.click(screen.getByText('The PR'))
-    expect(openLink).toHaveBeenCalledWith('https://github.com')
+    expect(openLink).toHaveBeenCalledWith('https://github.com', { newPane: false })
     fireEvent.click(screen.getByText('#412'))
-    expect(openLink).toHaveBeenCalledWith('https://github.com/o/r/pull/412')
+    expect(openLink).toHaveBeenCalledWith('https://github.com/o/r/pull/412', { newPane: false })
   })
 
   it('sends a reply button as the next turn and opens a url button', () => {

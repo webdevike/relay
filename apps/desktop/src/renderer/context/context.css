@@ -377,10 +377,6 @@ html[data-eva-motion='off'] .eva-ctx-icon[data-spin='true'] {
   box-shadow: 0 calc(-1 * var(--eva-space-native-xs)) 0 var(--eva-space-native-xs)
     var(--eva-c-popover-background);
 }
-/* Mantine's indicator shadow reads as a grey gutter under the selected half; flat, like the app. */
-.eva-ctx-scope .mantine-SegmentedControl-indicator {
-  box-shadow: none;
-}
 
 /* In the scrolling column nothing shrinks: the list scrolls instead of squashing the switch. */
 .eva-ctx-pop > * {

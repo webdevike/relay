@@ -301,6 +301,7 @@ function Popover({ snap, now }: { snap: ContextSnapshot; now: number }) {
           className="eva-ctx-scope"
           size="xs"
           fullWidth
+          styles={{ indicator: { boxShadow: 'none' } }}
           value={snap.scope}
           onChange={(v) => setContextScope(v === 'everywhere' ? 'everywhere' : 'here')}
           data={[

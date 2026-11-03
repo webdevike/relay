@@ -85,7 +85,7 @@ function ArmCostDetail({ cost }: { cost: ArmCost }) {
     rows.push(['Billed $ total', `${usd(cost.billedUsd.total)} (${cost.billedUsd.tests} tests)`])
   }
   const priced = cost.byModel.filter((m) => m.price)
-  const perM = (v: number | null) => (v === null ? '—' : `$${v}`)
+  const perM = (v: number | null) => (v === null ? 'n/a' : `$${v}`)
   return (
     <>
       <Facts rows={rows} />
@@ -139,7 +139,7 @@ function ArmCostDetail({ cost }: { cost: ArmCost }) {
         return (
           <p key={model ?? ''} className="eva-bench-faint" data-testid="cost-price-source">
             {model ?? '(no model id)'}: {perM(p.input)} / {perM(p.output)} / {perM(p.cachedInput)}{' '}
-            per Mtok —{' '}
+            per Mtok, source:{' '}
             {/^https?:\/\//.test(p.source) ? (
               <a
                 href={p.source}

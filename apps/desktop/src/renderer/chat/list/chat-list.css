@@ -363,7 +363,7 @@
   justify-content: center;
   width: 16px;
   height: 16px;
-  margin-right: 4px;
+  margin-right: calc(var(--mantine-spacing-xs) / 2);
   border-radius: 4px;
   /* Linear's brand indigo, so it never reads as a status icon. */
   color: #5e6ad2;
