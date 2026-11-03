@@ -1,4 +1,8 @@
-# Relay Assist (prototype; repo and binary still named relay-buddy / RelayBuddy)
+# Relay Assist (prototype; binary and bundle still named RelayBuddy)
+
+Lives in the Relay monorepo at `apps/assist` (imported with its history from the local repo
+`work/relay-buddy`). Swift only: no package.json, so the pnpm workspace and turbo ignore it; every
+command below runs from `apps/assist`.
 
 A macOS menu-bar helper for learning apps. Tap **Control+Option+Space** to type a question, or
 hold it to ask by voice. The answer comes from one of Isaac's assistants: **Nova** (personal) or
@@ -14,7 +18,8 @@ short lessons ("teach me to ...") that move on when you finish each step.
   `~/Eva/.omp/assistant/agents.json` (`RELAY_ASSIST_REGISTRY` overrides): title, `liveVoice`,
   and the designed avatar (DiceBear style, seed, part options, `colors.paper`/`colors.accent`).
   Avatars are drawn once with Relay's own DiceBear packages (`tools/render-avatar.ts`, the same
-  call as Relay's `portraitSvg`, run with bun against `$RELAY_DIR`, default `~/Eva/work/relay`),
+  call as Relay's `portraitSvg`, run with bun against `$RELAY_DIR`, else this monorepo when run
+  from `apps/assist/tools`, else `~/Eva/work/relay` for the copy bundled into the app),
   rasterized on the paper disc and cached in `~/Library/Caches/RelayBuddy/avatars/`.
 - **Who answers** (local rules, no model call), logged as `route=agent:<id> reason=...`:
   1. a name in the question ("Nova, where is Wi-Fi", "... , Astra?", "ask Astra ...") wins, and
