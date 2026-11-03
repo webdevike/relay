@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import { Collapse, Paper, SimpleGrid, Stack, Tabs, UnstyledButton } from '@mantine/core'
 import { IconChevronRight } from '@tabler/icons-react'
 import type {
@@ -10,6 +10,7 @@ import type {
   TabsSpec,
   WidgetKind,
 } from '@evaos/chat-core/widget'
+import { openLink } from '../../../navigation/open-link'
 import { WidgetTitle } from '../rich/parts'
 import { WidgetNode } from '../Widget'
 import { WidgetCell } from './cell'
@@ -27,11 +28,35 @@ export function Frame({
   children,
   card = false,
   width,
+  url,
+  label,
 }: {
   children: ReactNode
   card?: boolean
   width?: CardSpec['width']
+  /** Makes the whole frame a link (a card's `url`). */
+  url?: string | undefined
+  label?: string | undefined
 }) {
+  const link =
+    url === undefined
+      ? {}
+      : {
+          role: 'link',
+          tabIndex: 0,
+          'aria-label': label,
+          'data-link': true,
+          onClick: (e: MouseEvent<HTMLElement>) => {
+            // A click on a button or link inside the card keeps its own action.
+            if ((e.target as HTMLElement).closest('a, button, input, textarea')) return
+            openLink(url, { newPane: e.metaKey })
+          },
+          onKeyDown: (e: KeyboardEvent<HTMLElement>) => {
+            if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return
+            e.preventDefault()
+            openLink(url)
+          },
+        }
   return (
     <Paper
       withBorder
@@ -40,6 +65,7 @@ export function Frame({
       data-testid="widget-frame"
       data-card={card || undefined}
       data-width={width}
+      {...link}
     >
       <WidgetCell.Provider value={null}>
         <Stack gap={GAP_PX.sm}>{children}</Stack>
@@ -82,7 +108,7 @@ export function StackBlock({ spec }: { spec: StackSpec }) {
  * own hairline border. */
 export function CardBlock({ spec }: { spec: CardSpec }) {
   return (
-    <Frame card width={spec.width}>
+    <Frame card width={spec.width} url={spec.url} label={spec.title}>
       {spec.title !== undefined ? <WidgetTitle>{spec.title}</WidgetTitle> : null}
       {spec.children.map((child, i) => (
         <WidgetNode key={i} spec={child} />

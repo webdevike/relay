@@ -304,6 +304,22 @@ describe('WidgetBlock', () => {
     expect(openLink).toHaveBeenCalledWith('https://github.com/o/r/pull/1')
   })
 
+  it('makes a whole card with a relay:// url one link', () => {
+    show(
+      widget({
+        widget: 'card',
+        title: 'Nova',
+        url: 'relay://assistant/nova',
+        children: [{ widget: 'text', text: 'Personal, Relay, Eva' }],
+      }),
+    )
+    const card = screen.getByRole('link', { name: 'Nova' })
+    fireEvent.click(screen.getByText('Personal, Relay, Eva'))
+    expect(openLink).toHaveBeenLastCalledWith('relay://assistant/nova', { newPane: false })
+    fireEvent.keyDown(card, { key: 'Enter' })
+    expect(openLink).toHaveBeenLastCalledWith('relay://assistant/nova')
+  })
+
   it('disables reply controls without a live session, but not links', () => {
     show(
       widget({

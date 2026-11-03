@@ -1,10 +1,12 @@
 import { resolveLink } from '@evaos/contract'
-import { isChatPane, placeOf } from '@evaos/shell-core'
+import { parseAppLink } from '@evaos/chat-core/widget'
+import { isChatPane, pageFromKey, placeOf, type Place } from '@evaos/shell-core'
 import { invoke } from '../ipc'
 import { openReviewItem } from '../reviews/reviews-store'
 import { navigateTo } from '../tabs/tabs-store'
 import { openTab, revealTool, splitAt, tilingStore } from '../tiling/tiling-store'
 import { linkPrefsStore } from './link-prefs'
+import { openPlace } from './navigate'
 
 export interface OpenLinkOptions {
   /** Cmd+click: an in-app place (Reviews) opens in a new pane beside the focused one. */
@@ -14,11 +16,17 @@ export interface OpenLinkOptions {
 }
 
 /**
- * Opens a web link where Settings > Links says: an item in Reviews (the focused pane's tab, or a
- * new pane), a new tab of the current scope's browser, or (an app, a URL scheme, the default
- * browser) through main. Other schemes go nowhere.
+ * Opens a link. `relay://assistant/<id>` and `relay://open/<page>` are in-app places (never the
+ * browser; Cmd opens a new tab). A web link goes where Settings > Links says: an item in Reviews
+ * (the focused pane's tab, or a new pane), a new tab of the current scope's browser, or (an app, a
+ * URL scheme, the default browser) through main. Other schemes go nowhere.
  */
 export function openLink(href: string, opts: OpenLinkOptions = {}): void {
+  if (href.startsWith('relay://')) {
+    const place = appLinkPlace(href)
+    if (place !== null) openPlace(place, { newTab: opts.newPane === true })
+    return
+  }
   const { prefs, apps } = linkPrefsStore.getState()
   const route = resolveLink(prefs, href, (app) => apps.includes(app), { reviews: opts.reviews })
   if (route.to === 'none') return
@@ -48,4 +56,13 @@ function showInReviews(url: string, newPane: boolean): void {
   else if (isChatPane(focus)) navigateTo(place)
   else openTab({ kind: 'page', place }, focus)
   openReviewItem(url)
+}
+
+/** The place a `relay://` link names, or null for one this app can't open. */
+function appLinkPlace(href: string): Place | null {
+  const link = parseAppLink(href)
+  if (link === null) return null
+  if (link.kind === 'assistant') return placeOf(`agent:${link.id}`)
+  const page = pageFromKey(link.page)
+  return page === null ? null : placeOf(page)
 }

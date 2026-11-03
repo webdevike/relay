@@ -3,7 +3,7 @@ import { SymbolView } from "expo-symbols";
 import { useColors } from "@/theme";
 import { Text } from "@/ui/Text";
 import { IconButton } from "@/ui/IconButton";
-import { openExternal } from "@/lib/links";
+import { openWidgetUrl } from "@/lib/links";
 
 export interface LinkButtonProps {
   url: string;
@@ -16,7 +16,7 @@ export interface LinkButtonProps {
 export function LinkButton({ url, label, variant = "text", tone = "default" }: LinkButtonProps) {
   const colors = useColors();
   const open = () => {
-    openExternal(url);
+    openWidgetUrl(url);
   };
   if (variant === "icon") {
     if (tone === "overlay") {

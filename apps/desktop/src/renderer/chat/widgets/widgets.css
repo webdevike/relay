@@ -32,6 +32,18 @@
 .eva-wb-frame[data-width='compact'] {
   max-width: 380px;
 }
+/* A card with a `url` is one big link: quiet hover, a ring for the keyboard. */
+.eva-wb-frame[data-link] {
+  cursor: pointer;
+  transition: background var(--eva-dur-fast) ease;
+}
+.eva-wb-frame[data-link]:hover {
+  background: var(--eva-hover);
+}
+.eva-wb-frame[data-link]:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: -2px;
+}
 
 /* Root row of stats: hairlines above and below, one between cells. */
 .eva-wb-stats {

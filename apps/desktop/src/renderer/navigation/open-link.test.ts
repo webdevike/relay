@@ -19,6 +19,8 @@ const openReviewItem = vi.fn()
 vi.mock('../reviews/reviews-store', () => ({
   openReviewItem: (...a: unknown[]) => openReviewItem(...a),
 }))
+const openPlace = vi.fn()
+vi.mock('./navigate', () => ({ openPlace: (...a: unknown[]) => openPlace(...a) }))
 
 import { linkPrefsStore } from './link-prefs'
 import { openLink } from './open-link'
@@ -67,5 +69,20 @@ describe('openLink', () => {
     openLink('https://github.com/o')
     openLink('mailto:x@y.z')
     expect(invoke.mock.calls).toEqual([['browser.createTab', { url: 'https://github.com/o' }]])
+  })
+  it('opens relay:// links as in-app places, never in a browser', () => {
+    openLink('relay://assistant/nova')
+    expect(openPlace).toHaveBeenLastCalledWith(placeOf('agent:nova'), { newTab: false })
+    openLink('relay://assistant/astra', { newPane: true })
+    expect(openPlace).toHaveBeenLastCalledWith(placeOf('agent:astra'), { newTab: true })
+    openLink('relay://open/jobs')
+    expect(openPlace).toHaveBeenLastCalledWith(placeOf('jobs'), { newTab: false })
+    expect(openPlace).toHaveBeenCalledTimes(3)
+    // Unknown pages and malformed links go nowhere.
+    openLink('relay://open/nope')
+    openLink('relay://assistant/')
+    openLink('relay://assistant/Nova')
+    expect(openPlace).toHaveBeenCalledTimes(3)
+    expect(invoke).not.toHaveBeenCalled()
   })
 })

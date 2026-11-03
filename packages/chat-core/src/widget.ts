@@ -42,6 +42,24 @@ const WebUrl = z.url().refine((u) => /^https?:\/\//.test(u))
 /** An optional http(s) link that degrades to absent when it's bad, rather than rejecting. */
 const HttpUrl = WebUrl.optional().catch(undefined)
 
+/** An in-app destination a widget can link to: `relay://assistant/<id>` opens that assistant's
+ * thread, `relay://open/<page>` a top-level page. The app resolves it; nothing leaves the app.
+ * Same grammar as @relay/protocol's `parseAppLink`. */
+export type AppLink = { kind: 'assistant'; id: string } | { kind: 'open'; page: string }
+
+const APP_LINK = /^relay:\/\/(assistant|open)\/([a-z0-9][a-z0-9-]{0,63})$/
+
+/** Parses a `relay://assistant/<id>` or `relay://open/<page>` URL; null for anything else. */
+export function parseAppLink(url: string): AppLink | null {
+  const m = APP_LINK.exec(url)
+  if (m === null) return null
+  const [, kind, name] = m
+  return kind === 'assistant' ? { kind, id: name! } : { kind: 'open', page: name! }
+}
+
+/** Where a tappable widget goes: an absolute http(s) URL or an in-app `relay://` link. */
+const LinkUrl = z.union([WebUrl, z.string().refine((u) => parseAppLink(u) !== null)])
+
 /** One ticket card. `stateType` mirrors Linear's workflow-state type and only picks the pill tone;
  * an unknown value degrades to neutral rather than rejecting the whole carousel. */
 const Ticket = z.object({
@@ -261,7 +279,7 @@ const Pr = z.object({
 const Button = z.object({
   widget: z.literal('button'),
   label: NonEmpty,
-  url: WebUrl.optional(),
+  url: LinkUrl.optional(),
   reply: NonEmpty.optional(),
   action: NonEmpty.optional(),
   variant: z.enum(['primary', 'secondary', 'subtle']).catch('secondary'),
@@ -272,7 +290,7 @@ const Button = z.object({
 const Link = z.object({
   widget: z.literal('link'),
   label: NonEmpty,
-  url: WebUrl,
+  url: LinkUrl,
 })
 
 /** One framed image; a click opens the full-screen viewer. `aspect` is width/height, and one
@@ -454,6 +472,8 @@ export interface StackSpec {
 export interface CardSpec {
   widget: 'card'
   title?: string | undefined
+  /** Makes the whole card a link: http(s), or `relay://assistant/<id>` / `relay://open/<page>`. */
+  url?: string | undefined
   width?: 'compact' | 'full' | undefined
   children: WidgetSpec[]
 }
@@ -500,6 +520,7 @@ const Stack = z.object({
 const Card = z.object({
   widget: z.literal('card'),
   title: z.string().optional(),
+  url: LinkUrl.optional().catch(undefined),
   width: z.enum(['compact', 'full']).optional().catch(undefined),
   children: Children,
 })

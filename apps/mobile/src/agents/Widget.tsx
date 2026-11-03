@@ -4,7 +4,8 @@
  * native module is absent. Deterministic and instant: the agent writes the spec, this paints it.
  */
 import { useState } from "react";
-import { View } from "react-native";
+import { Pressable, View } from "react-native";
+import { openWidgetUrl } from "@/lib/links";
 import { loadSkia } from "@/dictation/skia";
 import { radii, spacing, tabularNumbers, type, useColors, type Colors } from "@/theme";
 import { Callout } from "@/ui/Callout";
@@ -73,10 +74,37 @@ const frame = (colors: Colors) =>
  * cards nested deeper draw their own. */
 export function Widget({ spec }: { spec: WidgetSpec }) {
   const colors = useColors();
+  if (spec.widget === "card") return <CardFrame spec={spec} />;
   return (
     <View style={frame(colors)}>
-      {spec.widget === "card" ? <CardBody spec={spec} /> : <Node spec={spec} />}
+      <Node spec={spec} />
     </View>
+  );
+}
+
+/** A card's hairline frame; with a `url` the whole card is one tappable link (an in-app
+ * `relay://` link stays in the app). */
+function CardFrame({ spec }: { spec: CardSpec }) {
+  const colors = useColors();
+  const url = spec.url;
+  if (url === undefined) {
+    return (
+      <View style={frame(colors)}>
+        <CardBody spec={spec} />
+      </View>
+    );
+  }
+  return (
+    <Pressable
+      accessibilityRole="link"
+      accessibilityLabel={spec.title}
+      onPress={() => {
+        openWidgetUrl(url);
+      }}
+      style={({ pressed }) => [frame(colors), { opacity: pressed ? 0.7 : 1 }]}
+    >
+      <CardBody spec={spec} />
+    </Pressable>
   );
 }
 
@@ -142,11 +170,7 @@ function Node({ spec }: { spec: WidgetSpec }) {
     case "stack":
       return <Stack spec={spec} />;
     case "card":
-      return (
-        <View style={frame(colors)}>
-          <CardBody spec={spec} />
-        </View>
-      );
+      return <CardFrame spec={spec} />;
     case "grid":
       return <Grid spec={spec} />;
     case "tabs":

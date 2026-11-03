@@ -4,7 +4,7 @@
  */
 import { useContext } from "react";
 import { View } from "react-native";
-import { openExternal } from "@/lib/links";
+import { openWidgetUrl } from "@/lib/links";
 import { spacing } from "@/theme";
 import { Avatar } from "@/ui/Avatar";
 import { BlockQuote } from "@/ui/BlockQuote";
@@ -63,7 +63,7 @@ export function ButtonWidget({ spec }: { spec: ButtonSpec }) {
       onPress={() => {
         const { reply, url } = pressButton(spec, runtime);
         if (reply !== undefined) actions?.reply(reply);
-        if (url !== undefined) openExternal(url);
+        if (url !== undefined) openWidgetUrl(url);
       }}
     />
   );
