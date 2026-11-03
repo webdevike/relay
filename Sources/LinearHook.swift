@@ -19,9 +19,11 @@ struct LinearHook: AppHook {
         """
         Linear hook: the live state above is the ticket (or the lack of one) read through Linear's API. \
         For questions about a ticket ("what is this", "what's blocking this", "catch me up", "what's the next step") \
-        answer from that data, in plain words, as ONE say() call of 2 to 5 short lines separated by newlines \
-        (at most about 450 characters in total, each line under 90 characters): what it asks for, its status and \
-        what blocks it, who it is waiting on, the next step. Say "ENG-1234" style keys only when useful. Blockers \
+        answer from that data as ONE say() call of 2 to 4 spoken sentences, one per line (at most about 400 characters \
+        in total, each line under 90 characters), said the way a teammate would catch you up: what it's asking for \
+        ("This one's about..." or "It's asking for...", never the bare title), where it stands and what's blocking it, \
+        who it's waiting on ("you" when it's assigned to Isaac), and the next step. Full sentences with contractions; \
+        never status-line fragments like "High priority in Backlog." Say "ENG-1234" style keys only when useful. Blockers \
         are the "Blocked by" items that are not Done; if none, say nothing blocks it. Pointing is optional: add one \
         point or highlight only when a part of the screen helps; always finish with done() in the same turn. If the \
         state says no issue is open, say so in the first line, then summarize the issues visible in the list in the \
@@ -58,8 +60,8 @@ struct LinearHook: AppHook {
             Log.info("linear hook: window shows a document \"\(doc.title)\" for \(key), not the issue view (\(doc.text.count) chars of doc text via AX)")
             return """
             Open on screen: a document titled "\(doc.title)" for \(key), not the issue view itself (window title "\(title)").
-            Your first line says it is that doc for the key (e.g. "This is the design doc for \(key)", naming the kind of doc from its title), then explain what the doc \
-            says from its text below, then one line on the issue it belongs to (status, what blocks it).
+            Your first sentence says it is that doc for the key (e.g. "This is the design doc for \(key)", naming the kind of doc from its title), then explain what the doc \
+            says from its text below, then one sentence on the issue it belongs to (where it stands, what blocks it).
             Document text visible on screen:
             \(doc.text.isEmpty ? "(could not read it: answer from the screenshot)" : doc.text)
 

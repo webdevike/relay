@@ -73,8 +73,10 @@ final class Brain {
     on their screen. You may do small chores for them, but the user does the thing they are learning.
 
     Answer with tool calls only, all of them together in ONE turn as parallel calls, in this order:
-    - say(text): one short caption shown next to your cursor. At most 90 characters, plain and friendly, \
-    telling the user what to do there, e.g. "Click Bevel, then drag to size it". Never use em dashes. \
+    - say(text): one short caption shown next to your cursor and spoken aloud. At most 90 characters, \
+    one full sentence the way a person says it out loud, with contractions, telling the user what to do \
+    there, e.g. "Click Bevel, then drag to size it" or "It's the Wi-Fi item at the top of the sidebar". \
+    Never a label or fragment ("Bevel tool, left toolbar"). Never use em dashes. \
     Exception: when the app hook notes ask for a multi-line explanation, follow them instead.
     - point(x, y, label): put your cursor on one exact spot, the center of a button, icon, menu or field. \
     label names it in 1 to 4 words.
@@ -122,8 +124,8 @@ final class Brain {
     the app in the screenshot. Plan it as 2 to 5 small steps the user does themselves, in order, \
     starting from the current state. When the user lists the steps, use exactly those, in their \
     order, and add nothing. Call lesson() once.
-    - title: 2 to 5 words. instruction: what to do, at most 90 characters, include the shortcut when \
-    there is one. Never use em dashes.
+    - title: 2 to 5 words. instruction: what to do, at most 90 characters, one full spoken sentence with \
+    contractions ("Press Tab and you'll see the mesh"), include the shortcut when there is one. Never use em dashes.
     - done_check: when the prompt has live app state from a hook, a Python expression that becomes \
     True once the user has finished that step and is False now. Names available: bpy, obj (the \
     active object or None), scene, mode (bpy.context.mode, e.g. 'OBJECT', 'EDIT_MESH'). Keep it \
@@ -221,9 +223,11 @@ final class Brain {
         text += "Your name: \(assistantName)\n"
         text += """
         You're talking to Isaac Weber, the user. Address him as "you" and never by name or in the third person \
-        ("you're assigned", not "Isaac Weber is assigned"). Your text is spoken aloud: write like a friend talking, \
-        with contractions and natural phrasing ("This one's stuck on ENG-6603, so you'll want to..."), \
-        not clipped status lines or labels like "High priority in Backlog."
+        ("you're assigned", not "Isaac Weber is assigned" or "Isaac is assigned"). Your text is spoken aloud: \
+        write the way a colleague talks, in full sentences with contractions (it's, you'll, that's, there's). \
+        Never clipped status lines, labels or bare noun phrases: not "High priority in Backlog." but \
+        "It's high priority, but it's still sitting in the backlog." Not "Build partner fee settings." but \
+        "It's asking for partner fee settings."
 
         """
         text += "User asked you to do it: \(ask.userAskedToDo ? "yes" : "no")\n"
@@ -312,8 +316,9 @@ final class Brain {
     func caption(question: String, app: String, label: String, role: String, timeout: TimeInterval) async -> String? {
         guard let key = apiKey else { return nil }
         let prompt = "App: \(app)\nQuestion: \(question)\n\(assistantName)'s cursor is pointing at the \(role) \"\(label)\".\n" +
-            "Write the caption \(assistantName) shows next to her cursor, speaking as her: at most 90 characters, plain and friendly, " +
-            "say what to do there, and include the keyboard shortcut only if you are sure of it. No em dashes. Reply with the caption only."
+            "Write the caption \(assistantName) shows next to her cursor and says aloud, speaking as her: at most 90 characters, " +
+            "one full sentence with contractions the way a person says it, telling the user what to do there; include the keyboard " +
+            "shortcut only if you are sure of it. No em dashes. Reply with the caption only."
         let input: [[String: Any]] = [["role": "user", "content": [["type": "input_text", "text": prompt]]]]
         guard let json = try? await send(input: input, key: key, instructions: "You write one short caption for a Mac app helper.",
                                          tools: [], toolChoice: "none", timeout: timeout) else { return nil }
