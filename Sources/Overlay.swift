@@ -384,6 +384,9 @@ final class OverlayController {
         return undoPill?.isVisible == true ? max(base, 4.0) : base
     }
 
+    /// True while the answering assistant is still speaking; the caption waits for her to finish.
+    var isSpeaking: (() -> Bool)?
+
     private func scheduleFade(after delay: TimeInterval) {
         fadeWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
@@ -391,6 +394,10 @@ final class OverlayController {
             // Hovering the Undo pill holds Buddy until the pointer leaves.
             if let pill = self.undoPill, pill.isVisible, NSMouseInRect(NSEvent.mouseLocation, pill.frame, false) {
                 return self.scheduleFade(after: 1.0)
+            }
+            // Never cut her off: stay up while the answer is still being spoken, then linger briefly.
+            if self.isSpeaking?() == true {
+                return self.scheduleFade(after: 0.8)
             }
             self.dismiss(fast: false)
         }

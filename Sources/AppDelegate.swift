@@ -125,6 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.voice.stopSpeaking()
         }
         overlay.onUndo = { [weak self] in self?.pendingSave?.cancel() }
+        overlay.isSpeaking = { [weak self] in self?.voice.isSpeaking ?? false }
 
         if let question = initialQuestion {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
