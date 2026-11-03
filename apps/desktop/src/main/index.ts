@@ -48,6 +48,14 @@ import { registerSetup } from './setup'
 /** Marks that the packaged app registered itself as a login item once. */
 const LOGIN_ITEM_FILE = 'login-item.json'
 
+// A packaged app relaunched by the updater (or started from a terminal that closed) can lose its
+// stdout/stderr pipe; a later console.log then throws EPIPE and Electron shows a fatal dialog.
+for (const stream of [process.stdout, process.stderr]) {
+  stream.on('error', (e: NodeJS.ErrnoException) => {
+    if (e.code !== 'EPIPE') throw e
+  })
+}
+
 function bootstrap(): void {
   let env
   try {
