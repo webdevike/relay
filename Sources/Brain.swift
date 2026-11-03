@@ -59,6 +59,8 @@ enum BrainError: LocalizedError {
 final class Brain {
     let model = ProcessInfo.processInfo.environment["RELAY_BUDDY_MODEL"] ?? "gpt-6.1-terra"
     private let effort = ProcessInfo.processInfo.environment["RELAY_BUDDY_EFFORT"] ?? "low"
+    /// OpenAI service tier: "fast" (default), "ultrafast" (gpt-6-astra / gpt-6.1-sol only) or "default".
+    private let tier = ProcessInfo.processInfo.environment["RELAY_BUDDY_TIER"] ?? "fast"
     private let endpoint = URL(string: "https://api.openai.com/v1/responses")!
 
     private static let instructions = """
@@ -286,6 +288,7 @@ final class Brain {
             "input": input,
             "reasoning": ["effort": effort],
             "store": false,
+            "service_tier": tier,
             "include": ["reasoning.encrypted_content"],
         ]
         if !tools.isEmpty {
