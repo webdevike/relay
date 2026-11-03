@@ -20,7 +20,7 @@ export function AgentCrumb({ id }: { id: string }) {
         data-testid="breadcrumb-back"
         onClick={(e) => openPlace(placeOf('assistants'), { newTab: e.metaKey })}
       >
-        <IconChevronLeft size="1em" stroke={1.75} aria-hidden />
+        <IconChevronLeft stroke={2} aria-hidden />
         Assistants
       </button>
       <span className="eva-as-crumb-sep" aria-hidden>
@@ -54,7 +54,7 @@ export function OwnedCrumb({ agent, title }: { agent: string; title: string }) {
         data-testid="owned-crumb-back"
         onClick={(e) => openPlace(placeOf(`agent:${agent}`), { newTab: e.metaKey })}
       >
-        <IconChevronLeft size="1em" stroke={1.75} aria-hidden />
+        <IconChevronLeft stroke={2} aria-hidden />
         <AgentPortrait id={agent} className="eva-as-crumb-portrait" />
         {agentTitle(agent) ?? agent}
       </button>
