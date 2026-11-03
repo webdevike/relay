@@ -16,6 +16,35 @@
   min-height: 0;
   outline: none;
 }
+/* The panel toggle slides the frames with the sidebar's own transition (same --eva-dur-slide and
+   --eva-ease-slide, 0s under reduced motion): chat widens as the tool panes fold into the right
+   edge, whose content keeps its width and is clipped, like the sidebar's inner column. */
+.eva-pane[data-pane-kind='tool'] {
+  overflow: hidden;
+}
+.eva-pane[data-pane-kind='tool'] > * {
+  flex: none;
+  width: var(--eva-pane-inner-w);
+}
+.eva-pane[data-collapsed] {
+  visibility: hidden;
+}
+.eva-tiling[data-panel-transition='true'] .eva-pane {
+  transition:
+    left var(--eva-dur-slide) var(--eva-ease-slide),
+    width var(--eva-dur-slide) var(--eva-ease-slide);
+}
+/* Hidden only once folded; shown at once when it opens. */
+.eva-tiling[data-panel-transition='true'] .eva-pane[data-collapsed] {
+  transition:
+    left var(--eva-dur-slide) var(--eva-ease-slide),
+    width var(--eva-dur-slide) var(--eva-ease-slide),
+    visibility 0s linear var(--eva-dur-slide);
+}
+body.eva-resizing .eva-pane,
+body.eva-tab-dragging .eva-pane {
+  transition: none !important;
+}
 .eva-pane-card {
   flex: 1;
   min-height: 0;
