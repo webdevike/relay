@@ -36,12 +36,14 @@ class FakeHost {
       }))
       this.push({ t: 'sessions.list', files })
     } else if (f.t === 'session.read') {
-      const b = this.files.get(f.name as string)
+      const key = typeof f.parent === 'string' ? `${f.parent}/${f.name}` : (f.name as string)
+      const b = this.files.get(key)
       const offset = f.offset as number
       const end = typeof f.limit === 'number' ? offset + f.limit : undefined
       this.push({
         t: 'session.chunk',
         dir: f.dir,
+        ...(typeof f.parent === 'string' && { parent: f.parent }),
         name: f.name,
         offset,
         data: b ? b.subarray(offset, end).toString('base64') : null,
@@ -139,5 +141,39 @@ describe('RemoteSessions', () => {
     expect(() => readBlobImage(dirs, `blob:sha256:${hash}`)).toThrow()
     await mirror.blob(hash)
     expect(readBlobImage(dirs, `blob:sha256:${hash}`).width).toBe(1)
+  })
+
+  it('mirrors a subagent transcript named by its host path, then tails it', async () => {
+    host.files.set('2026_abc.jsonl', Buffer.from('{}\n'))
+    host.files.set('2026_abc/0-Scout.jsonl', Buffer.from('{"a":1}\n'))
+    mirror.start()
+    const hostPath =
+      '/Users/ike/.omp/profiles/personal/agent/sessions/--Users-ike-Eva--/2026_abc/0-Scout.jsonl'
+    const got = await mirror.openSubagent(hostPath)
+    expect(got).toBe(local('2026_abc/0-Scout.jsonl'))
+    expect(fs.readFileSync(got!, 'utf8')).toBe('{"a":1}\n')
+    expect(host.sent).toContainEqual(
+      expect.objectContaining({
+        t: 'session.read',
+        profile: 'personal',
+        dir: '--Users-ike-Eva--',
+        parent: '2026_abc',
+      }),
+    )
+    const changed = vi.fn()
+    mirror.onSubagentChange = changed
+    host.files.set('2026_abc/0-Scout.jsonl', Buffer.from('{"a":1}\n{"b":2}\n'))
+    host.push({ t: 'agents.delta' })
+    vi.advanceTimersByTime(1000)
+    expect(fs.readFileSync(got!, 'utf8')).toBe('{"a":1}\n{"b":2}\n')
+    expect(changed).toHaveBeenCalled()
+    // The chat's chip path (already in the mirror) resolves to the same file.
+    expect(await mirror.openSubagent(got!)).toBe(got)
+  })
+
+  it('answers null for a subagent the host does not have', async () => {
+    host.files.set('2026_abc.jsonl', Buffer.from('{}\n'))
+    mirror.start()
+    expect(await mirror.openSubagent('/h/agent/sessions/d/2026_abc/9-Nope.jsonl')).toBeNull()
   })
 })

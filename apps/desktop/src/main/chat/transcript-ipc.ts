@@ -103,8 +103,10 @@ export function registerTranscriptIpc(
     await remote.blob(token.slice('blob:sha256:'.length))
     return readBlobImage(agentDirs, token)
   })
-  handle(ctx, 'chat.readSubagent', ({ file }) => {
-    const real = resolveSubagentTranscript(sessionsDirs, file)
+  handle(ctx, 'chat.readSubagent', async ({ file }) => {
+    // Remote host: the artifact names the host's path; fetch it (and tail it) into the mirror first.
+    const mirrored = remote ? await remote.openSubagent(file) : null
+    const real = resolveSubagentTranscript(sessionsDirs, mirrored ?? file)
     const { title, messages } = parseSession(fs.readFileSync(real, 'utf8'))
     return { title, messages }
   })

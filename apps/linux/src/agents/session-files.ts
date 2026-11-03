@@ -1,7 +1,9 @@
 // omp chat transcripts and image blobs under the host's omp dir (`~/.omp`), read raw for paired
 // devices. Each store is an omp agent dir: the default `agent/` and every named profile's
-// `profiles/<profile>/agent/`. In each: `sessions/<dir>/<name>.jsonl` (top-level transcripts only;
-// subagent transcripts nest one level deeper and are not listed) and `blobs/<sha256>[.<ext>]`.
+// `profiles/<profile>/agent/`. In each: `sessions/<dir>/<name>.jsonl` (top-level transcripts, the
+// only ones listed) and `blobs/<sha256>[.<ext>]`. Subagent transcripts nest in folders below
+// (`sessions/<dir>/<session stem>[/<subagent stem>...]/<name>.jsonl`); they are read by naming
+// that folder path as `parent`, never listed.
 // Every request names single path segments, and symlinks are refused, so nothing outside those
 // dirs is ever opened.
 import { closeSync, lstatSync, openSync, readdirSync, readFileSync, readSync, type Dirent, type Stats } from "node:fs";
@@ -70,8 +72,8 @@ export class SessionFiles {
     return files.sort((a, b) => b.mtime - a.mtime);
   }
   /** Raw bytes from `offset`, at most `limit` and `MAX_SESSION_CHUNK`; null when the file is not an allowed transcript. */
-  read(profile: string | undefined, dir: string, name: string, offset: number, limit = MAX_SESSION_CHUNK): SessionChunk | null {
-    const path = this.transcript(profile, dir, name);
+  read(profile: string | undefined, dir: string, name: string, offset: number, limit = MAX_SESSION_CHUNK, parent?: string): SessionChunk | null {
+    const path = this.transcript(profile, dir, name, parent);
     if (path === null) return null;
     const fd = openSync(path, "r");
     try {
@@ -114,13 +116,19 @@ export class SessionFiles {
   private agentDir(profile: string | undefined): string {
     return profile === undefined ? join(this.ompDir, "agent") : join(this.ompDir, "profiles", profile, "agent");
   }
-  private transcript(profile: string | undefined, dir: string, name: string): string | null {
-    if (!segment(dir) || !segment(name) || !name.endsWith(".jsonl")) return null;
+  private transcript(profile: string | undefined, dir: string, name: string, parent?: string): string | null {
+    const folders = parent === undefined ? [] : parent.split("/");
+    if (!segment(dir) || !segment(name) || !name.endsWith(".jsonl") || !folders.every(segment)) return null;
     if (profile !== undefined && (!segment(profile) || lstat(join(this.ompDir, "profiles", profile))?.isDirectory() !== true)) return null;
     const agentDir = this.agentDir(profile);
     if (lstat(agentDir)?.isDirectory() !== true || lstat(join(agentDir, "sessions"))?.isDirectory() !== true) return null;
-    if (lstat(join(agentDir, "sessions", dir))?.isDirectory() !== true) return null;
-    const path = join(agentDir, "sessions", dir, name);
+    let folder = join(agentDir, "sessions", dir);
+    if (lstat(folder)?.isDirectory() !== true) return null;
+    for (const part of folders) {
+      folder = join(folder, part);
+      if (lstat(folder)?.isDirectory() !== true) return null;
+    }
+    const path = join(folder, name);
     return lstat(path)?.isFile() === true ? path : null;
   }
 }

@@ -37,6 +37,19 @@ interface Entry {
   waiters: Array<() => void>
 }
 
+/** A subagent transcript on the host, mirrored at `<dir>/<parent>/<name>` and tailed while it is watched. */
+interface Sub {
+  dir: string
+  profile?: string
+  /** The folders below the sessions dir that hold it, "/"-joined. */
+  parent: string
+  name: string
+  size: number
+  have: number
+  reading: boolean
+  waiters: Array<() => void>
+}
+
 /**
  * Mirrors the remote Relay Host's omp transcripts into `dir` so the file-based chat stack works
  * unchanged. Every file's head is fetched for the list; recent and opened files in full, then
@@ -45,6 +58,9 @@ interface Entry {
  */
 export class RemoteSessions {
   private readonly entries = new Map<string, Entry>()
+  private readonly subs = new Map<string, Sub>()
+  /** Called when a mirrored subagent transcript gained bytes (the chat's extras re-read their folder). */
+  onSubagentChange: (() => void) | undefined
   private readonly blobWaiters = new Map<string, Array<() => void>>()
   private readonly blobsDir: string
   private relistTimer: NodeJS.Timeout | undefined
@@ -69,6 +85,107 @@ export class RemoteSessions {
   stop(): void {
     this.off?.()
     clearTimeout(this.relistTimer)
+  }
+
+  /**
+   * Mirrors the subagent transcript `file` and resolves its local path (null when the host has none).
+   * `file` is a host path (`.../sessions/<dir>/<session stem>/<name>.jsonl`, as the Artifacts tab
+   * has it) or already a path in the mirror (as the chat's subagent chips have it).
+   */
+  async openSubagent(file: string): Promise<string | null> {
+    const at = this.locate(file)
+    if (!at) return null
+    const key = `${at.parent}/${at.name}`
+    let s = this.subs.get(key)
+    if (!s) {
+      s = { ...at, size: 0, have: 0, reading: false, waiters: [] }
+      this.subs.set(key, s)
+      try {
+        s.have = fs.statSync(this.subLocal(s)).size
+      } catch {
+        // not mirrored yet
+      }
+    }
+    const sub = s
+    await this.wait(sub.waiters, () => this.pullSub(sub))
+    return fs.existsSync(this.subLocal(sub)) ? this.subLocal(sub) : null
+  }
+
+  private locate(file: string): Omit<Sub, 'size' | 'have' | 'reading' | 'waiters'> | null {
+    const own = path.relative(this.dir, file)
+    if (!own.startsWith('..') && !path.isAbsolute(own)) {
+      const parts = own.split(path.sep)
+      const top = this.entries.get(`${parts[0]}.jsonl`)
+      if (!top || parts.length < 2) return null
+      return {
+        dir: top.dir,
+        ...(top.profile !== undefined && { profile: top.profile }),
+        parent: parts.slice(0, -1).join('/'),
+        name: parts[parts.length - 1]!,
+      }
+    }
+    const m =
+      /\/(?:profiles\/([^/]+)\/)?agent\/sessions\/(.+)$/.exec(file) ??
+      /\/sessions\/(.+)$/.exec(file)
+    const tail = m?.[m.length - 1]
+    if (!tail) return null
+    const parts = tail.split('/')
+    // <dir>/<session stem>[/<subagent stem>...]/<name>.jsonl
+    if (parts.length < 3 || !parts[parts.length - 1]!.endsWith('.jsonl')) return null
+    const profile = m && m.length === 3 ? m[1] : undefined
+    return {
+      dir: parts[0]!,
+      ...(profile !== undefined && { profile }),
+      parent: parts.slice(1, -1).join('/'),
+      name: parts[parts.length - 1]!,
+    }
+  }
+
+  private subLocal(s: Sub): string {
+    return path.join(this.dir, ...s.parent.split('/'), s.name)
+  }
+
+  /** Asks for the bytes `s` lacks; false when nothing is asked. */
+  private pullSub(s: Sub): boolean {
+    if (s.reading) return true
+    s.reading = true
+    const sent = this.link.sendFrame({
+      t: 'session.read',
+      dir: s.dir,
+      parent: s.parent,
+      name: s.name,
+      offset: s.have,
+      ...(s.profile !== undefined && { profile: s.profile }),
+    })
+    if (!sent) s.reading = false
+    return sent
+  }
+
+  private subChunk(f: Record<string, unknown>): void {
+    const name = typeof f.name === 'string' ? f.name : ''
+    const s =
+      typeof f.parent === 'string'
+        ? this.subs.get(`${f.parent}/${name}`)
+        : // A host older than subagent reads answers without `parent`: it has no such file.
+          [...this.subs.values()].find((x) => x.reading && x.name === name && x.dir === f.dir)
+    if (!s) return
+    if (f.parent === undefined || typeof f.data !== 'string' || typeof f.size !== 'number') {
+      s.reading = false
+      for (const done of [...s.waiters]) done()
+      return
+    }
+    if (f.offset !== s.have) return
+    s.reading = false
+    const bytes = Buffer.from(f.data, 'base64')
+    if (bytes.length > 0 || !fs.existsSync(this.subLocal(s))) {
+      fs.mkdirSync(path.dirname(this.subLocal(s)), { recursive: true })
+      fs.appendFileSync(this.subLocal(s), bytes)
+    }
+    s.have += bytes.length
+    s.size = f.size
+    if (bytes.length > 0) this.onSubagentChange?.()
+    if (s.have < s.size && bytes.length > 0) this.pullSub(s)
+    else for (const done of [...s.waiters]) done()
   }
 
   /** Mirrors `file` in full; resolves once it is (or the host does not answer). */
@@ -107,6 +224,7 @@ export class RemoteSessions {
     if (f.t === 'welcome') {
       // A new connection: reads in flight on the old one are gone.
       for (const e of this.entries.values()) e.reading = false
+      for (const s of this.subs.values()) s.reading = false
       this.link.sendFrame({ t: 'sessions.list' })
     } else if (typeof f.t === 'string' && ACTIVITY[f.t] === true) {
       this.relistTimer ??= setTimeout(() => {
@@ -116,7 +234,12 @@ export class RemoteSessions {
     } else if (f.t === 'sessions.list' && Array.isArray(f.files)) {
       this.list(f.files as Array<Record<string, unknown>>)
     } else if (f.t === 'session.chunk') {
-      this.chunk(f)
+      // A host older than subagent reads answers a subagent read without `parent`.
+      const sub =
+        f.parent !== undefined ||
+        [...this.subs.values()].some((s) => s.reading && s.name === f.name)
+      if (sub) this.subChunk(f)
+      else this.chunk(f)
     } else if (f.t === 'blob.data' && typeof f.hash === 'string' && HASH.test(f.hash)) {
       if (typeof f.data === 'string') {
         fs.writeFileSync(path.join(this.blobsDir, f.hash), Buffer.from(f.data, 'base64'))
@@ -157,7 +280,12 @@ export class RemoteSessions {
       if (seen.has(name)) continue
       this.entries.delete(name)
       fs.rmSync(this.local(e), { force: true })
+      const folder = name.replace(/\.jsonl$/, '')
+      fs.rmSync(path.join(this.dir, folder), { recursive: true, force: true })
+      for (const [key, s] of this.subs) if (s.parent.split('/')[0] === folder) this.subs.delete(key)
     }
+    // Watched subagent transcripts grow with their chat: ask for what they gained.
+    for (const s of this.subs.values()) this.pullSub(s)
   }
 
   /** Asks for the next bytes `e` lacks; false when nothing is asked. */

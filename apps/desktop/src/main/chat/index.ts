@@ -72,6 +72,7 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
   remote?.start()
   ctx.onBeforeQuit(async () => remote?.stop())
   const extras = new ExtrasService({ manager, emit: (e) => emit(ctx, 'chat.extras', e) })
+  if (remote) remote.onSubagentChange = () => extras.refresh()
   registerTranscriptIpc(
     ctx,
     sessionsDirs,

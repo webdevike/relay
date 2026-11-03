@@ -1240,11 +1240,15 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("agent.image"), sessionId: nonEmpty, id: nonEmpty }),
   /** List the host's omp transcripts, past and live; answered by `sessions.list`. */
   z.object({ t: z.literal("sessions.list") }),
-  /** Raw transcript bytes from `offset` (capped per frame); answered by `session.chunk`. */
+  /**
+   * Raw transcript bytes from `offset` (capped per frame); answered by `session.chunk`. `parent` names a
+   * subagent transcript: the folders below `dir` that hold it (`<session stem>[/<subagent stem>...]`, "/"-joined).
+   */
   z.object({
     t: z.literal("session.read"),
     profile: nonEmpty.optional(),
     dir: nonEmpty,
+    parent: nonEmpty.optional(),
     name: nonEmpty,
     offset: z.number().int().nonnegative(),
     limit: z.number().int().positive().optional(),
@@ -1474,6 +1478,7 @@ export const ServerMessage = z.discriminatedUnion("t", [
     t: z.literal("session.chunk"),
     profile: nonEmpty.optional(),
     dir: nonEmpty,
+    parent: nonEmpty.optional(),
     name: nonEmpty,
     offset: z.number().int().nonnegative(),
     data: z.string().nullable(),

@@ -740,7 +740,7 @@ export function ArtifactsPanel({ hidden }: { hidden: boolean }) {
     now,
   )
 
-  const tidy = (): void => {
+  const tidy = async (): Promise<void> => {
     if (!thread) return
     const ids = tidyIds(allItems, now)
     if (ids.length === 0) {
@@ -750,7 +750,8 @@ export function ArtifactsPanel({ hidden }: { hidden: boolean }) {
       })
       return
     }
-    void act(thread, { op: 'tidy', ids, tidied: true })
+    // The host's answer decides: a refusal already toasted its reason, so no "Tidied" on top.
+    if (!(await act(thread, { op: 'tidy', ids, tidied: true })).ok) return
     const id = `artifacts-tidy-${Date.now()}`
     notifications.show({
       id,
@@ -933,7 +934,7 @@ export function ArtifactsPanel({ hidden }: { hidden: boolean }) {
             color="gray"
             className="eva-art-tidy"
             data-testid="artifacts-tidy"
-            onClick={tidy}
+            onClick={() => void tidy()}
           >
             Tidy
           </Button>

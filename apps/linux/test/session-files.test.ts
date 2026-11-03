@@ -61,6 +61,15 @@ describe("SessionFiles", () => {
     expect(files.blob("../secret")).toBeNull();
   });
 
+  it("reads a subagent transcript by its parent folders and refuses escapes", () => {
+    const old = "2026-10-01T00-00-00-000Z_old";
+    expect(files.read(undefined, "-Eva", "Sub.jsonl", 0, undefined, old)).toEqual({ data: Buffer.from("subagent\n").toString("base64"), size: 9 });
+    expect(files.read(undefined, "-Eva", "Sub.jsonl", 0, undefined, `${old}/..`)).toBeNull();
+    expect(files.read(undefined, "-Eva", "Sub.jsonl", 0, undefined, "../..")).toBeNull();
+    expect(files.read(undefined, "-Eva", "Sub.jsonl", 0, undefined, "missing")).toBeNull();
+    expect(files.read(undefined, "-Eva", "Sub.jsonl", 0, undefined, "")).toBeNull();
+  });
+
   it("returns a blob's bytes and mime by hash", () => {
     expect(files.blob(HASH)).toEqual({ mime: "image/png", data: PNG.toString("base64") });
     expect(files.blob("b".repeat(64))).toBeNull();

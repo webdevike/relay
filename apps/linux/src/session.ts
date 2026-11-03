@@ -496,10 +496,10 @@ export class ClientSession {
         this.sink.send({ t: "sessions.list", files: this.deps.sessionFiles?.list() ?? [] });
         break;
       case "session.read": {
-        const { profile, dir, name, offset } = message;
-        const chunk = this.deps.sessionFiles?.read(profile, dir, name, offset, message.limit) ?? null;
-        const store = profile === undefined ? {} : { profile };
-        this.sink.send({ t: "session.chunk", ...store, dir, name, offset, data: chunk?.data ?? null, size: chunk?.size ?? 0 });
+        const { profile, dir, parent, name, offset } = message;
+        const chunk = this.deps.sessionFiles?.read(profile, dir, name, offset, message.limit, parent) ?? null;
+        const echo = { ...(profile === undefined ? {} : { profile }), ...(parent === undefined ? {} : { parent }) };
+        this.sink.send({ t: "session.chunk", ...echo, dir, name, offset, data: chunk?.data ?? null, size: chunk?.size ?? 0 });
         break;
       }
       case "blob.read": {
