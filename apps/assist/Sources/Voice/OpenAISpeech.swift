@@ -16,6 +16,15 @@ final class OpenAISpeech: VoiceOutput, @unchecked Sendable {
     /// Seconds from speak() to the first audio chunk of the last utterance.
     private(set) var firstAudioLatency: TimeInterval?
 
+    /// A private ephemeral session, not URLSession.shared: the shared session keeps a persistent Alt-Svc
+    /// cache, and once api.openai.com's `h3` advertisement is learned it races QUIC (UDP), which on these
+    /// Macs stalls for 15-30 s or times out. Ephemeral keeps every connection on TCP + HTTP/2.
+    private let session: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 30
+        return URLSession(configuration: configuration)
+    }()
+
     private let lock = VoiceLock()
     private var generation = 0
     private var speaking = false
@@ -36,6 +45,7 @@ final class OpenAISpeech: VoiceOutput, @unchecked Sendable {
         guard !spoken.isEmpty else { return }
         let key = try VoiceConfig.apiKey()
         let started = Date()
+        firstAudioLatency = nil
 
         lock.lock()
         generation += 1
@@ -62,7 +72,12 @@ final class OpenAISpeech: VoiceOutput, @unchecked Sendable {
             lock.unlock()
         }
 
-        if playback { try startEngine() }
+        if playback {
+            do { try startEngine() } catch {
+                Log.info("speech voice=\(voice) playback error=\(error.localizedDescription)")
+                throw error
+            }
+        }
         var recorded = Data()
         var gotFirst = false
         outer: for stream in streams {
@@ -97,7 +112,12 @@ final class OpenAISpeech: VoiceOutput, @unchecked Sendable {
         lock.lock()
         let error = (generation == mine) ? failure : nil
         lock.unlock()
-        if let error, !gotFirst { throw error }
+        let ttfb = firstAudioLatency.map { String(format: "%.2fs", $0) } ?? "none"
+        if let error, !gotFirst {
+            Log.info("speech voice=\(voice) model=\(model) ttfb=\(ttfb) error=\(error.localizedDescription)")
+            throw error
+        }
+        Log.info("speech voice=\(voice) model=\(model) ttfb=\(ttfb) ok chars=\(spoken.count)" + (error.map { " late-error=\($0.localizedDescription)" } ?? ""))
     }
 
     /// Instant: halts the player, cancels downloads, releases a pending speak().
@@ -130,7 +150,7 @@ final class OpenAISpeech: VoiceOutput, @unchecked Sendable {
         ]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         do {
-            let (bytes, response) = try await URLSession.shared.bytes(for: request)
+            let (bytes, response) = try await session.bytes(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             guard status == 200 else {
                 var data = Data()
