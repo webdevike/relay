@@ -27,9 +27,6 @@ struct LinearHook: AppHook {
         state says no issue is open, say so in the first line, then summarize the issues visible in the list in the \
         screenshot and accessibility elements in one or two lines. If the API data is missing, answer from the screen \
         only and say it is from the screen.
-        If the state says a document is open (not the issue view), your first line says it is that doc for the key \
-        ("This is the design doc for ENG-6309"), then explain what the doc says from its visible text, then one line \
-        on the issue it belongs to (status, what blocks it). Never describe a document as if it were the issue.
         Never state anything the data does not show. You are read-only in Linear: never call do(), and if asked \
         to comment, change status, assign or edit, say in one line that you only read tickets.
         """
@@ -61,6 +58,8 @@ struct LinearHook: AppHook {
             Log.info("linear hook: window shows a document \"\(doc.title)\" for \(key), not the issue view (\(doc.text.count) chars of doc text via AX)")
             return """
             Open on screen: a document titled "\(doc.title)" for \(key), not the issue view itself (window title "\(title)").
+            Your first line says it is that doc for the key (e.g. "This is the design doc for \(key)", naming the kind of doc from its title), then explain what the doc \
+            says from its text below, then one line on the issue it belongs to (status, what blocks it).
             Document text visible on screen:
             \(doc.text.isEmpty ? "(could not read it: answer from the screenshot)" : doc.text)
 
@@ -69,7 +68,8 @@ struct LinearHook: AppHook {
             """
         }
         Log.info("linear hook: \(key) issue view")
-        return issue ?? "Issue on screen: \(key) (window title \"\(title)\"). The Linear API did not answer in time, so there is no ticket data: answer from the screen only."
+        let view = "Open on screen: the issue view of \(key) itself (other tabs in Linear's tab bar, such as documents, are not what the user is looking at)."
+        return view + "\n" + (issue ?? "Issue on screen: \(key) (window title \"\(title)\"). The Linear API did not answer in time, so there is no ticket data: answer from the screen only.")
     }
 
     /// A document opened from an issue (Linear titles its tab and window "<KEY> <doc title>") rather than
