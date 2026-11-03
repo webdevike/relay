@@ -78,6 +78,17 @@ describe("reviews helpers", () => {
     expect(old.ok && old.value.t === "reviews.queue" ? [old.value.queue.snoozed, old.value.queue.read] : null).toEqual([{}, {}]);
   });
 
+  it("parses the Approve ops and their answer", () => {
+    const req = (op: unknown) => parseClientMessage(JSON.stringify({ t: "reviews.req", rid: "r", op })).ok;
+    expect(req({ kind: "approvable", repo: "eCardSystems/api", number: 172 })).toBe(true);
+    expect(req({ kind: "approve", repo: "eCardSystems/api", number: 172 })).toBe(true);
+    expect(req({ kind: "approve", repo: "not a repo", number: 172 })).toBe(false);
+    const res = (approve: unknown) => parseServerMessage(JSON.stringify({ t: "reviews.res", rid: "r", ok: true, approve })).ok;
+    expect(res({ key: "ENG-6648", state: "ready" })).toBe(true);
+    expect(res(null)).toBe(true);
+    expect(res({ key: "ENG-6648", state: "later" })).toBe(false);
+  });
+
   it("formats ages and spots @Astra", () => {
     expect(reviewAgo(0, 3_000)).toBe("just now");
     expect(reviewAgo(0, 3 * 3_600_000)).toBe("3h");

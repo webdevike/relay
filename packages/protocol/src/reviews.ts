@@ -285,6 +285,14 @@ export type AstraItem = z.infer<typeof AstraItem>;
 
 const Body = z.string().min(1).max(MAX_REVIEW_TEXT);
 
+/**
+ * Approve on an eCard auto-work draft PR: its ledger on the host is at "9 PR (draft)" with the move
+ * on Isaac. `ready` may be tapped, `sent` was handed to Astra and waits for the ledger to move,
+ * `running` is the self-review loop that follows.
+ */
+export const ReviewApprove = z.object({ key: z.string(), state: z.enum(["ready", "sent", "running"]) });
+export type ReviewApprove = z.infer<typeof ReviewApprove>;
+
 export const ReviewsOp = z.discriminatedUnion("kind", [
   /** The queue; `refresh` reads every source again (Slack in the background, pushed when done). */
   z.object({ kind: z.literal("queue"), refresh: z.boolean() }),
@@ -315,6 +323,10 @@ export const ReviewsOp = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("snooze"), url: nonEmpty, until: ms.nullable() }),
   /** Marks an item seen (`read`, with the `updatedAt` it was seen at) or unread again. */
   z.object({ kind: z.literal("read"), url: nonEmpty, updatedAt: ms, read: z.boolean() }),
+  /** Whether the PR is an auto-work draft waiting on Isaac's approve (the host reads the ledgers); answers `approve`, null when not. */
+  z.object({ kind: z.literal("approvable"), repo: RepoName, number: z.number().int().positive() }),
+  /** Hands the approve of that draft PR to Astra's main thread; she runs ready.ts. Answers the new `approve`. */
+  z.object({ kind: z.literal("approve"), repo: RepoName, number: z.number().int().positive() }),
   /** Uploads an image to Linear for a comment; answers its `url` to embed as Markdown. `data` is base64. */
   z.object({ kind: z.literal("linearUpload"), name: z.string().min(1).max(200), mime: z.enum(["image/jpeg", "image/png", "image/gif", "image/webp"]), data: z.string().min(1).max(MAX_REVIEW_UPLOAD) }),
 ]);
@@ -336,6 +348,7 @@ export const ReviewsResult = z.object({
   /** Where a posted comment landed. */
   url: z.string().optional(),
   astra: AstraItem.nullable().optional(),
+  approve: ReviewApprove.nullable().optional(),
 });
 export type ReviewsResult = z.infer<typeof ReviewsResult>;
 

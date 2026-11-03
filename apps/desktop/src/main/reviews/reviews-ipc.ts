@@ -13,6 +13,7 @@ import { claudeWriter, guideCache } from './guide'
 import { registerLinearInbox } from './linear-inbox'
 import { registerSlackInbox } from './slack-inbox'
 import { approvableKey, approveLine, approveState, readLedgers, readLoop } from './approve'
+import type { HostApprove } from '../relay/host-approve'
 import { registerAstraSessions } from './astra-sessions'
 import { REVIEWS_MEDIA_DIR, isGithubUpload, isLinearUpload, localizeImages } from './review-media'
 import { apiKey } from '../linear/linear-ipc'
@@ -197,7 +198,11 @@ export function toPr(repo: string, raw: Raw, diff: string): ReviewPr {
   }
 }
 
-export function registerReviewsIpc(ctx: MainContext, run: ToolRun): void {
+export function registerReviewsIpc(
+  ctx: MainContext,
+  run: ToolRun,
+  host: HostApprove | null = null,
+): void {
   // gh reads real GitHub: the live app, or a test instance that opts in with EVAOS_REVIEWS_GH=1.
   const readsGitHub = ctx.env.live || process.env.EVAOS_REVIEWS_GH === '1'
   const writes = !ctx.env.e2e
@@ -352,7 +357,9 @@ export function registerReviewsIpc(ctx: MainContext, run: ToolRun): void {
     return { status: 'sent', command }
   }
 
-  // Approve on an auto-work draft: the hand-off is the only action; Astra runs ready.ts.
+  // Approve on an auto-work draft: the hand-off is the only action; Astra runs ready.ts. The ledgers,
+  // auto-work.json and Astra's thread are the Mini's: on a thin client (remote mode) the Mini's
+  // Relay Host answers, since this laptop has no work/items to read.
   const APPROVED_FILE = 'reviews-approved.json'
   const approveOf = (repo: string, number: number): ReviewApprove | null => {
     const sent = ctx.config.readJson<Record<string, number>>(APPROVED_FILE, {})
@@ -368,9 +375,20 @@ export function registerReviewsIpc(ctx: MainContext, run: ToolRun): void {
     return { key, state }
   }
 
-  handle(ctx, 'reviews.approvable', ({ repo, number }) => approveOf(repo, number))
+  handle(ctx, 'reviews.approvable', ({ repo, number }) =>
+    host ? host.approvable(repo, number) : approveOf(repo, number),
+  )
 
   handle(ctx, 'reviews.approve', async ({ repo, number }) => {
+    if (host) {
+      if (!writes) return { status: 'dry-run', command: `reviews.req approve ${repo}#${number}` }
+      try {
+        await host.approve(repo, number)
+      } catch (e) {
+        throw fail('astra-failed', e instanceof Error ? e.message : String(e))
+      }
+      return { status: 'sent', command: `reviews.req approve ${repo}#${number}` }
+    }
     const a = approveOf(repo, number)
     if (a === null) throw fail('not-approvable', 'That PR is no longer waiting on your approval')
     if (a.state !== 'ready') throw fail('already-sent', `${a.key} was already handed to Astra`)

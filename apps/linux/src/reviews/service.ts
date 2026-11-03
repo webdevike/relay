@@ -10,10 +10,11 @@
 // a confirmed op, and never from a test host (`writes` false).
 
 import { join } from "node:path";
-import type { LinearTicket, ReviewItem, ReviewPr, ReviewQueue, ReviewRef, ReviewSource, ReviewSourceState, ReviewsOp, ReviewsResult, ServerMessage } from "@relay/protocol";
+import type { LinearTicket, ReviewApprove, ReviewItem, ReviewPr, ReviewQueue, ReviewRef, ReviewSource, ReviewSourceState, ReviewsOp, ReviewsResult, ServerMessage } from "@relay/protocol";
 import { z } from "zod";
 import type { AgentProvider, AgentProviderChange, DropBlob, ReviewsRelaying } from "../seams";
 import type { SessionClock } from "../session";
+import { approvableKey, approveLine, approveState, readLedgers, readLoop } from "./approve";
 import { AstraSessions, type AstraSessionsDeps } from "./astra";
 import { prContext, slackContext, ticketContext } from "./context";
 import { readJson, writeJson, type ToolRun } from "./exec";
@@ -98,6 +99,7 @@ export class ReviewsService implements ReviewsRelaying {
   private snoozed: Record<string, number>;
   private readonly readPath: string;
   private seen: Record<string, number>;
+  private readonly approvedPath: string;
   private readonly slots: Record<ReviewSource, SourceSlot>;
   private readonly prs = new Map<string, ReviewPr>();
   private readonly tickets = new Map<string, LinearTicket>();
@@ -127,6 +129,7 @@ export class ReviewsService implements ReviewsRelaying {
     this.snoozed = readMarks(this.snoozePath);
     this.readPath = join(deps.dir, "read.json");
     this.seen = readMarks(this.readPath);
+    this.approvedPath = join(deps.dir, "approved.json");
     const idle = (): SourceSlot => ({ rows: [], state: { loading: false, error: null, fetchedAt: null }, reading: null });
     const slack = this.slack.cached();
     this.slots = {
@@ -255,6 +258,18 @@ export class ReviewsService implements ReviewsRelaying {
         this.refuseWrites();
         await this.deps.tellAstra(sendLine(op.channel, op.threadTs, op.text));
         return {};
+      case "approvable":
+        return { approve: this.approveOf(op.repo, op.number) };
+      case "approve": {
+        this.refuseWrites();
+        const approve = this.approveOf(op.repo, op.number);
+        if (approve === null) throw new Error("That PR is no longer waiting on your approval");
+        if (approve.state !== "ready") throw new Error(`${approve.key} was already handed to Astra`);
+        await this.deps.tellAstra(approveLine(approve.key));
+        const sent = { ...readMarks(this.approvedPath), [approve.key]: this.deps.clock.now() };
+        writeJson(this.approvedPath, sent);
+        return { approve: this.approveOf(op.repo, op.number) };
+      }
       case "astraAsk": {
         const label = this.label(op.ref);
         return { astra: await this.astra.ask(op.url, `Astra · ${label}`, label, () => this.context(op.ref, op.url, label), op.text) };
@@ -262,6 +277,15 @@ export class ReviewsService implements ReviewsRelaying {
       case "astra":
         return { astra: await this.astra.snapshot(op.url) };
     }
+  }
+
+  /** Whether `repo#number` is an auto-work draft waiting on Isaac's approve, from this host's ledgers; null when it is not. */
+  private approveOf(repo: string, number: number): ReviewApprove | null {
+    const root = this.deps.agentHome;
+    if (root === null) return null;
+    const key = approvableKey(readLedgers(root), `https://github.com/${repo}/pull/${String(number)}`);
+    if (key === null) return null;
+    return { key, state: approveState({ loop: readLoop(root, key), sentAt: readMarks(this.approvedPath)[key] ?? null }) };
   }
 
   /** The Slack row the queue has for a thread, else one made from its last read. */

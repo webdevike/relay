@@ -656,6 +656,41 @@ describe("service", () => {
     expect(calls.at(-1)).toEqual(["gh", "pr", "comment", "1", "-R", "o/r", "--body", text]);
   });
 
+  describe("approve on an auto-work draft PR", () => {
+    const PR = "https://github.com/eCardSystems/node-client-api-service/pull/172";
+    const ledger = (stage = "9 PR (draft)", move = "isaac"): string =>
+      `---\nkey: ENG-6648\nstage: ${stage}\nmove: ${move}\npr: ${PR}\n---\n\n## Decisions\n- auto-work: opened by jobs/astra-auto-work\n`;
+    const home = (text: string): string => {
+      const root = mkdtempSync(join(tmpdir(), "relay-eva-"));
+      mkdirSync(join(root, "work", "items"), { recursive: true });
+      writeFileSync(join(root, "work", "items", "ENG-6648.md"), text);
+      return root;
+    };
+    const op = { repo: "eCardSystems/node-client-api-service", number: 172 };
+
+    it("answers the host's ledger state, null for a PR without one or without an agent home", async () => {
+      const { reviews } = service({ agentHome: home(ledger()) });
+      expect(await reviews.handle({ kind: "approvable", ...op })).toEqual({ ok: true, approve: { key: "ENG-6648", state: "ready" } });
+      expect(await reviews.handle({ kind: "approvable", ...op, number: 9 })).toEqual({ ok: true, approve: null });
+      expect(await service({ agentHome: home(ledger("8 verify")) }).reviews.handle({ kind: "approvable", ...op })).toEqual({ ok: true, approve: null });
+      expect(await service().reviews.handle({ kind: "approvable", ...op })).toEqual({ ok: true, approve: null });
+    });
+
+    it("hands one line to Astra, then reads sent, and refuses a second tap", async () => {
+      const { reviews, told } = service({ agentHome: home(ledger()) });
+      expect(await reviews.handle({ kind: "approve", ...op })).toEqual({ ok: true, approve: { key: "ENG-6648", state: "sent" } });
+      expect(told).toHaveLength(1);
+      expect(told[0]).toContain("ready.ts ENG-6648 approve");
+      expect(await reviews.handle({ kind: "approve", ...op })).toEqual({ ok: false, error: "ENG-6648 was already handed to Astra" });
+      expect(told).toHaveLength(1);
+    });
+
+    it("refuses a PR no longer waiting, and a test host", async () => {
+      expect(await service({ agentHome: home(ledger("8 verify")) }).reviews.handle({ kind: "approve", ...op })).toEqual({ ok: false, error: "That PR is no longer waiting on your approval" });
+      expect(await service({ agentHome: home(ledger()), writes: false }).reviews.handle({ kind: "approve", ...op })).toEqual({ ok: false, error: DRY_RUN_ERROR });
+    });
+  });
+
   it("answers a failing read with one line", async () => {
     const { reviews } = service();
     expect(await reviews.handle({ kind: "pr", repo: "o/r", number: 1 })).toEqual({ ok: false, error: "gh pr view failed: not here" });

@@ -14,7 +14,13 @@ import { registerReactionsIpc } from '../relay/reactions-ipc'
 import { registerArtifactsIpc } from '../relay/artifacts-ipc'
 import { registerCanvasLiveIpc } from '../relay/canvas-live-ipc'
 import { registerStudioIpc } from '../relay/studio-ipc'
-import type { RelayArtifacts, RelayCanvas, RelaySource, RelayStudio } from '../relay/client'
+import type {
+  RelayArtifacts,
+  RelayCanvas,
+  RelayFrames,
+  RelaySource,
+  RelayStudio,
+} from '../relay/client'
 import { createMini, type Mini } from '../relay/mini'
 import type { WriteQueue } from '../write-queue'
 import { AUTO_SETTLE_DAYS } from './chat-order'
@@ -54,6 +60,8 @@ export interface ChatHandles {
   studio: RelaySource & RelayStudio & Pick<RelayCanvas, 'canvasOrigin'>
   /** The Mini's omp in remote mode (`relayRemote`), else null. */
   mini: Mini | null
+  /** Raw frames of the Relay connection (the remote host's `reviews.req` answers). */
+  frames: RelayFrames
 }
 
 const STATUS_COALESCE_MS = 30
@@ -210,5 +218,6 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     canvas: relay,
     studio: relay,
     mini,
+    frames: relay,
   }
 }
