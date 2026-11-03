@@ -27,6 +27,7 @@ import { useAgent, useConnection, useSession } from "./hooks";
 import { SideLog } from "./log";
 import { type CardNode, type FlowBox, LOCAL_ORIGIN, type LinkEdge, absolutePositions, deleteNodes, framesWithOutsideChildren, groupNodes, reparentDropped, snapEdges, snapNodes, toFlowEdges, toFlowNodes, toggleId, ungroupFrames } from "./model";
 import { pageTheme, useScheme } from "./page-theme";
+import { ActivityPill } from "./pill";
 import { awareness, doc, env, presenceStates, provider, qa, self, setPresence, subscribePresence, undo, yChat, yEdges, yMeta, yMetrics, yNodes, ySettings } from "./room";
 import { useTidy, useTidySetting } from "./useTidy";
 
@@ -85,7 +86,7 @@ function trackLatency(msgId: string) {
 	setTimeout(off, 120_000);
 }
 
-function Board({ logOpen }: { logOpen: boolean }) {
+function Board({ logOpen, onOpenLog }: { logOpen: boolean; onOpenLog: () => void }) {
 	const [nodes, setNodes] = useState<CardNode[]>([]);
 	const [edges, setEdges] = useState<LinkEdge[]>([]);
 	const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -94,6 +95,8 @@ function Board({ logOpen }: { logOpen: boolean }) {
 	const store = useStoreApi<CardNode, LinkEdge>();
 	const initialized = useNodesInitialized();
 	const didFit = useRef(false);
+	/** The board stays faded out until the first fit has landed, so opening never shows a pan or zoom. */
+	const [opening, setOpening] = useState(true);
 	const [following, setFollowing] = useState(follow.on);
 	const pointer = useRef({ sx: 0, sy: 0, fx: 0, fy: 0 });
 	const ownCursorRef = useRef<HTMLDivElement>(null);
@@ -150,19 +153,27 @@ function Board({ logOpen }: { logOpen: boolean }) {
 		};
 	}, [readDoc]);
 
-	// Open at a readable zoom: fit the board, or start at its top-left when fitting makes text tiny.
+	// Open at a readable zoom: fit the board once, with no animation (or start at its top-left when
+	// fitting makes text tiny), then stay put: cards the agent adds later never move the camera.
 	useEffect(() => {
 		if (!initialized || didFit.current || !nodes.length) return;
 		didFit.current = true;
 		// Now that cards have real heights, frames and unplaced nodes settle around them.
 		readDoc();
 		void rf.fitView({ padding: 0.08, duration: 0 }).then(() => {
-			if (rf.getZoom() >= 0.6) return;
-			const b = rf.getNodesBounds(nodes.map((n) => n.id));
-			const z = TOUCH ? 0.7 : 0.75;
-			void rf.setViewport({ x: -b.x * z + 24, y: -b.y * z + 64, zoom: z });
+			if (rf.getZoom() < 0.6) {
+				const b = rf.getNodesBounds(nodes.map((n) => n.id));
+				const z = TOUCH ? 0.7 : 0.75;
+				void rf.setViewport({ x: -b.x * z + 24, y: -b.y * z + 64, zoom: z });
+			}
+			setOpening(false);
 		});
 	}, [initialized, nodes, rf, readDoc]);
+	// An empty board (or one that never measures) has nothing to fit: show it anyway.
+	useEffect(() => {
+		const t = window.setTimeout(() => setOpening(false), 2000);
+		return () => window.clearTimeout(t);
+	}, []);
 
 	const onNodesChange = useCallback(
 		(changes: NodeChange<CardNode>[]) => {
@@ -542,7 +553,7 @@ function Board({ logOpen }: { logOpen: boolean }) {
 
 	return (
 		<div
-			className={`cv-board${TOUCH ? " is-touch" : ""}`}
+			className={`cv-board${TOUCH ? " is-touch" : ""}${opening ? " is-opening" : ""}`}
 			ref={wrapRef}
 			onPointerMove={onPointerMove}
 			onPointerDown={onPointerDown}
@@ -623,6 +634,7 @@ function Board({ logOpen }: { logOpen: boolean }) {
 				</div>
 			) : null}
 			{connection !== "live" ? <div className="cv-connecting">{connection === "connecting" ? "Connecting" : "Reconnecting"}</div> : null}
+			<ActivityPill onOpen={onOpenLog} />
 			<div className={`cv-topbar${logOpen ? " log-open" : ""}`}>
 				{ended ? null : (
 					<button
@@ -784,7 +796,7 @@ function Room() {
 	useEmbedEvents();
 	return (
 		<>
-			<Board logOpen={logOpen} />
+			<Board logOpen={logOpen} onOpenLog={() => setLogOpen(true)} />
 			<SideLog open={logOpen} setOpen={setLogOpen} touch={TOUCH} />
 		</>
 	);

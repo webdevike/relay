@@ -14,7 +14,7 @@ import {
 	IconTimeline,
 } from "@tabler/icons-react";
 import { Handle, NodeResizeControl, type NodeProps, Position } from "@xyflow/react";
-import { type CSSProperties, type MouseEvent, type ReactNode, memo, useMemo, useState, useSyncExternalStore } from "react";
+import { type CSSProperties, type MouseEvent, type ReactNode, memo, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import * as Y from "yjs";
 import type { Presence, TextField } from "../../canvas-live/src/shared";
 import { MOBILE_VIEWPORT_WIDTH } from "../../widget-runtime/src/systems";
@@ -22,10 +22,26 @@ import { imageUrl, roomUrl } from "./env";
 import { type CardNode, type NodeSnap, applyDiff, host, protoPageParams, swatchColor, tone } from "./model";
 import { useScheme } from "./page-theme";
 import { awareness, doc, env, presenceStates, subscribePresence, yEdges, yNodes } from "./room";
+import type { OpenUIQueryClient } from "../../protocol/src/openui/index";
+import { beginLoad, useCardLoading } from "./activity";
 import { LiveWidget, roomQueryClient } from "./widget";
 
 /** Every `ui` card's Query statements go through the room's token-gated `query` route. */
 const roomQuery = roomQueryClient(env);
+
+/** The room's query client, marking card `id` (and the status pill) busy while a query is in flight. */
+function trackedQuery(id: string): OpenUIQueryClient {
+	return {
+		async run(tool, args) {
+			const end = beginLoad(id);
+			try {
+				return await roomQuery.run(tool, args);
+			} finally {
+				end();
+			}
+		},
+	};
+}
 
 // ---------- who else is on this node (re-render a card only when its own slice changes) ----------
 
@@ -298,15 +314,23 @@ function SuggestionButtons({ id }: { id: string }) {
  */
 function ProtoPage({ spec }: { spec: NodeSnap }) {
 	const scheme = useScheme();
+	const src = roomUrl(env, "proto", protoPageParams(spec, scheme));
+	// Busy until the frame has loaded this page (the load event ends it).
+	const endLoad = useRef<(() => void) | null>(null);
+	useEffect(() => {
+		endLoad.current = beginLoad(spec.id);
+		return () => endLoad.current?.();
+	}, [spec.id, src]);
 	const mobile = spec.viewport === "mobile";
 	return (
 		<div className="cv-proto-body nodrag nopan nowheel" data-testid={`canvas-proto-${spec.id}`} data-viewport={mobile ? "mobile" : "desktop"} onPointerDown={stop} onDoubleClick={stop}>
 			<iframe
 				className="cv-proto-frame"
 				title={spec.title || "Prototype"}
-				src={roomUrl(env, "proto", protoPageParams(spec, scheme))}
+				src={src}
 				sandbox="allow-scripts"
 				referrerPolicy="no-referrer"
+				onLoad={() => endLoad.current?.()}
 				style={mobile ? { width: MOBILE_VIEWPORT_WIDTH } : undefined}
 			/>
 		</div>
@@ -407,15 +431,7 @@ function Body({ spec, hasChildren, caret }: { spec: NodeSnap; hasChildren: boole
 		case "typography":
 			return <Specimen spec={spec} caret={caret} />;
 		case "ui":
-			return (
-				<>
-					<Field nodeId={id} field="title" value={title} fallback="Live widget" className="cv-frame-title" caret={caret} icon={<IconTimeline size={12} stroke={1.75} aria-hidden />} />
-					{/* Its own pointer, wheel and keys: buttons, inputs and scrolling stay off the board's pan and drag. */}
-					<div className="cv-ui-body nodrag nopan nowheel" data-testid={`canvas-ui-${id}`} onPointerDown={stop} onDoubleClick={stop} onKeyDown={(e) => e.stopPropagation()}>
-						<LiveWidget source={spec.body} query={roomQuery} />
-					</div>
-				</>
-			);
+			return <UiBody spec={spec} caret={caret} />;
 		case "proto":
 			return (
 				<>
@@ -424,6 +440,21 @@ function Body({ spec, hasChildren, caret }: { spec: NodeSnap; hasChildren: boole
 				</>
 			);
 	}
+}
+
+/** A live widget card: its queries run through the room, marking the card busy while they are in flight. */
+function UiBody({ spec, caret }: { spec: NodeSnap; caret: NodePresence | undefined }) {
+	const { id, title } = spec;
+	const query = useMemo(() => trackedQuery(id), [id]);
+	return (
+		<>
+			<Field nodeId={id} field="title" value={title} fallback="Live widget" className="cv-frame-title" caret={caret} icon={<IconTimeline size={12} stroke={1.75} aria-hidden />} />
+			{/* Its own pointer, wheel and keys: buttons, inputs and scrolling stay off the board's pan and drag. */}
+			<div className="cv-ui-body nodrag nopan nowheel" data-testid={`canvas-ui-${id}`} onPointerDown={stop} onDoubleClick={stop} onKeyDown={(e) => e.stopPropagation()}>
+				<LiveWidget source={spec.body} query={query} />
+			</div>
+		</>
+	);
 }
 
 const SIDES = [
@@ -443,6 +474,8 @@ export const CanvasCard = memo(function CanvasCard({ id, data, selected }: NodeP
 	const caret = others.find((o) => o.typing);
 	const kind = spec.type;
 	const t = kind === "note" ? tone(spec.tone, "warn") : kind === "ticket" ? tone(spec.tone, "accent") : undefined;
+	// The agent typing into a card, a live widget's query or a prototype frame still loading.
+	const loading = useCardLoading(id) || caret !== undefined;
 	return (
 		<div
 			className="cv-card"
@@ -453,6 +486,7 @@ export const CanvasCard = memo(function CanvasCard({ id, data, selected }: NodeP
 			style={spec.h !== undefined || kind === "frame" || kind === "ui" || kind === "proto" ? { height: "100%" } : undefined}
 		>
 			<PresenceRing others={others} />
+			{loading ? <span className="cv-card-spinner" role="status" aria-label="Loading" data-testid={`canvas-spinner-${id}`} /> : null}
 			<Body spec={spec} hasChildren={hasChildren} caret={caret} />
 			{kind === "ui" || kind === "proto" ? (
 				<NodeResizeControl

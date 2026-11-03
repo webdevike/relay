@@ -1,15 +1,17 @@
 // Everyone else's cursor: name tag, live cursor-chat draft or bubble, the agent's avatar and
-// status, its caret-following glide and the line it drags when connecting two nodes. Follow mode
-// pans the board so the agent stays in view while it works. An agent's cursor shows only while it
-// is doing something (a turn or batch running, a new line said, a move) and fades out
-// AGENT_LINGER_MS after; people's cursors always show.
+// status, its caret-following glide and the line it drags when connecting two nodes. The camera
+// never chases the agent unless the viewer turned Follow on (then follow mode pans the board so the
+// agent stays in view while it works). When the agent works off-screen, a small avatar chip at the
+// viewport edge points to where, and a click jumps there. An agent's cursor shows only while it is
+// doing something (a turn or batch running, a new line said, a move) and fades out AGENT_LINGER_MS
+// after; people's cursors always show.
 import { useReactFlow, useStoreApi } from "@xyflow/react";
 import { type CSSProperties, type RefObject, useEffect, useRef } from "react";
 import { avatarUrl } from "./env";
 import { useThrottledPresence } from "./hooks";
 import { awareness, env, presenceStates } from "./room";
 
-/** Follow the agent like following a presenter; the toolbar toggles it. */
+/** Follow the agent like following a presenter; off until the toolbar toggle (or `follow=1`) turns it on. */
 export const follow = { on: env.follow };
 /** How long follow keeps panning after the agent's cursor stops moving. */
 const FOLLOW_SETTLE_MS = 2500;
@@ -33,6 +35,7 @@ export function Cursors({ wrapRef, bottomInset }: { wrapRef: RefObject<HTMLDivEl
 	const els = useRef(new Map<number, HTMLDivElement>());
 	const lineRef = useRef<SVGPathElement>(null);
 	const smooth = useRef(new Map<number, { x: number; y: number }>());
+	const chips = useRef(new Map<number, { root: HTMLButtonElement; arrow: HTMLSpanElement }>());
 	// When each agent's cursor target last changed: follow keeps panning until a point lands, even
 	// after the agent has gone idle (an opener that ends with "@point" otherwise stops mid-pan).
 	const moved = useRef(new Map<number, { x: number; y: number; at: number }>());
@@ -94,6 +97,22 @@ export function Cursors({ wrapRef, bottomInset }: { wrapRef: RefObject<HTMLDivEl
 					const shown = !isAgent || now - (active.current.get(cid)?.at ?? -AGENT_LINGER_MS) < AGENT_LINGER_MS;
 					el.style.opacity = shown ? "1" : "0";
 					el.classList.toggle("is-offscreen", off && shown);
+					const chip = chips.current.get(cid);
+					if (chip) {
+						const showChip = isAgent && shown && off;
+						chip.root.style.opacity = showChip ? "1" : "0";
+						chip.root.style.pointerEvents = showChip ? "auto" : "none";
+						if (showChip) {
+							// Where the ray from the viewport's center to the agent leaves the viewport, inset a little.
+							const hx = wrap.width / 2;
+							const hy = wrap.height / 2;
+							const vx = rx - hx;
+							const vy = ry - hy;
+							const t = Math.min((hx - 30) / Math.max(1, Math.abs(vx)), (hy - 30) / Math.max(1, Math.abs(vy)));
+							chip.root.style.transform = `translate(${hx + vx * t - 16}px, ${hy + vy * t - 16}px)`;
+							chip.arrow.style.transform = `rotate(${Math.atan2(vy, vx)}rad)`;
+						}
+					}
 					const lastMove = moved.current.get(cid);
 					if (lastMove === undefined || lastMove.x !== target.x || lastMove.y !== target.y) moved.current.set(cid, { x: target.x, y: target.y, at: now });
 					const settling = now - (moved.current.get(cid)?.at ?? 0) < FOLLOW_SETTLE_MS;
@@ -172,6 +191,31 @@ export function Cursors({ wrapRef, bottomInset }: { wrapRef: RefObject<HTMLDivEl
 							</div>
 						) : null}
 					</div>
+				);
+			})}
+			{[...states].map(([cid, p]) => {
+				if (cid === awareness.clientID || p.user?.kind !== "agent") return null;
+				return (
+					<button
+						key={`chip-${cid}`}
+						type="button"
+						className="cv-edge-chip"
+						data-testid={`edge-chip-${p.user.name}`}
+						title={`${p.user.name} is working here. Jump to ${p.user.name}`}
+						style={{ "--who": p.user.color } as CSSProperties}
+						ref={(el) => {
+							const arrow = el?.querySelector<HTMLSpanElement>(".cv-edge-arrow");
+							if (el && arrow) chips.current.set(cid, { root: el, arrow });
+							else chips.current.delete(cid);
+						}}
+						onClick={() => {
+							const at = smooth.current.get(cid) ?? presenceStates().get(cid)?.cursor;
+							if (at) void rf.setCenter(at.x, at.y, { zoom: rf.getZoom(), duration: 450 });
+						}}
+					>
+						<span className="cv-edge-arrow" aria-hidden="true" />
+						{p.user.avatar ? <img className="cv-edge-avatar" src={avatarUrl(env, p.user.avatar)} alt="" /> : <span className="cv-edge-initial">{p.user.name.slice(0, 1)}</span>}
+					</button>
 				);
 			})}
 		</div>

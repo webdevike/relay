@@ -25,6 +25,8 @@ export const MAX_QUEUED_BATCHES = 3;
 export const MAX_BATCH_ACTIONS = 40;
 /** Pause between a participant's actions, so each lands visibly before the next. */
 export const PACE_MS = 150;
+/** Minimum pause after an action that adds a card, so a batch of cards appears one by one. */
+export const ADD_PACE_MS = 380;
 /** A participant that acted this long ago leaves by itself (its cursor would otherwise linger). */
 export const IDLE_LEAVE_MS = 15 * 60_000;
 
@@ -108,7 +110,9 @@ export async function runSteps(actor: CanvasActor, steps: readonly Step[], hooks
       ran += 1;
       if (action.kind === "add_node" || action.kind === "add_image" || action.kind === "add_frame" || action.kind === "add_ui" || action.kind === "add_proto") added.push(action.id);
     } else skipped.push(`${describe(action)}: ${why}`);
-    await sleep(hooks.paceMs);
+    // Cards land one at a time, not in a burst; the camera is the viewer's, so none of this moves it.
+    const adds = action.kind === "add_node" || action.kind === "add_image" || action.kind === "add_frame" || action.kind === "add_ui" || action.kind === "add_proto";
+    await sleep(hooks.paceMs === 0 || !adds ? hooks.paceMs : Math.max(hooks.paceMs, ADD_PACE_MS));
   }
   return { ran, said, skipped, added };
 }

@@ -3,15 +3,15 @@ import { avatarUrl, imageUrl, parseEnv, roomUrl, wsParams, wsServer } from "../s
 
 describe("parseEnv", () => {
 	it("reads slug, token and options from the host's URL", () => {
-		const env = parseEnv("https://mini.ts.net/canvas/artifacts/?token=abc%2Fd&embed=phone&follow=0&theme=dark");
-		expect(env).toEqual({ slug: "artifacts", token: "abc/d", embed: "phone", follow: false, theme: "dark", base: "/canvas/artifacts", origin: "https://mini.ts.net" });
+		const env = parseEnv("https://mini.ts.net/canvas/artifacts/?token=abc%2Fd&embed=phone&follow=1&theme=dark");
+		expect(env).toEqual({ slug: "artifacts", token: "abc/d", embed: "phone", follow: true, theme: "dark", base: "/canvas/artifacts", origin: "https://mini.ts.net" });
 	});
 
-	it("defaults to the web embed, follow on and the system theme", () => {
+	it("defaults to the web embed, follow off and the system theme", () => {
 		const env = parseEnv("http://127.0.0.1:7817/canvas/board-2?token=t&embed=tv&theme=sepia");
 		expect(env.slug).toBe("board-2");
 		expect(env.embed).toBe("web");
-		expect(env.follow).toBe(true);
+		expect(env.follow).toBe(false);
 		expect(env.theme).toBeNull();
 		expect(env.base).toBe("/canvas/board-2");
 	});

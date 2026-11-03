@@ -1,5 +1,5 @@
 // Everything the client needs comes from its own URL: the host serves it at
-// `/canvas/<slug>/?token=…&embed=desktop|phone|web&follow=0&theme=dark|light`, and every other
+// `/canvas/<slug>/?token=…&embed=desktop|phone|web&follow=1&theme=dark|light`, and every other
 // route of the room hangs off the same `/canvas/<slug>` prefix with the same token.
 
 export type Embed = "desktop" | "phone" | "web";
@@ -9,7 +9,7 @@ export interface PageEnv {
 	slug: string;
 	token: string;
 	embed: Embed;
-	/** Keep the agent's cursor in view while it works (`follow=0` turns it off). */
+	/** Keep the agent's cursor in view while it works: off unless the viewer turns Follow on (`follow=1` starts it on). */
 	follow: boolean;
 	/** `theme=` override; null follows prefers-color-scheme. */
 	theme: ThemeChoice;
@@ -39,7 +39,7 @@ export function parseEnv(href: string): PageEnv {
 		slug,
 		token: q.get("token") ?? "",
 		embed: embed === "desktop" || embed === "phone" ? embed : "web",
-		follow: q.get("follow") !== "0",
+		follow: q.get("follow") === "1",
 		theme: theme === "dark" || theme === "light" ? theme : null,
 		base,
 		origin: url.origin,

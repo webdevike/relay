@@ -16,12 +16,17 @@
 import type { Awareness } from "y-protocols/awareness";
 import type * as Y from "yjs";
 import { DOC_KEYS, type ChatMsg, type ModelKey, type Presence, type ServerMetrics, type User } from "@relay/canvas-live/shared";
-import { AGENT_ORIGIN, CanvasActor, str } from "./actor";
+import { AGENT_ORIGIN, CanvasActor, sleep, str } from "./actor";
 import type { CanvasBrain } from "./brain";
 import { ActionParser, TextStream } from "./dsl";
 import { liveUiPrompt } from "./liveui-prompt";
 import { protoPrompt } from "./proto-prompt";
-import { PACE_MS, runSteps, type ActResult, type Step } from "./participant";
+import { ADD_PACE_MS, PACE_MS, runSteps, type ActResult, type Step } from "./participant";
+
+/** Actions that put a new card on the board. */
+const ADDS = new Set<string>(["add_node", "add_image", "add_frame", "add_ui", "add_proto"]);
+/** The opener waits this long after the first human joins, so the page has fitted the board before cards appear. */
+const OPEN_SETTLE_MS = 900;
 
 /** Who and what the agent is in this room. */
 export interface AgentIdentity {
@@ -324,6 +329,7 @@ export class CanvasAgent {
   }
 
   private async open(): Promise<void> {
+    if (this.options.typeMs !== 0) await sleep(OPEN_SETTLE_MS);
     const opener = this.opener;
     this.opener = null;
     const id = `open-${Date.now().toString(36)}`;
@@ -427,6 +433,8 @@ export class CanvasAgent {
         }
         exec = exec.then(async () => {
           const skipped = await this.actor.run(a, markEdit);
+          // Cards land one at a time (an opener replays at once, a model streams in bursts).
+          if (skipped === null && this.options.typeMs !== 0 && ADDS.has(a.kind)) await sleep(ADD_PACE_MS);
           if (skipped !== null) {
             this.hooks.log(`canvas agent action ${a.kind} skipped: ${skipped}`);
             skips.push(`${a.kind}${"id" in a ? ` ${a.id}` : ""}: ${skipped}`);
