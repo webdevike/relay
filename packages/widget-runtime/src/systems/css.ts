@@ -62,8 +62,9 @@ body {
 /**
  * eCard ships light only (its ThemeProvider starts light and its tokens are light values), so a
  * dark prototype maps its page tokens onto Mantine's dark palette. Relay's adaptation, not eCard's.
+ * `:root[...]` outranks the `:root` block eCard's resolver injects after this sheet.
  */
-const ECARD_DARK_CSS = `[data-mantine-color-scheme="dark"] {
+const ECARD_DARK_CSS = `:root[data-mantine-color-scheme="dark"] {
   --color-background-main: var(--mantine-color-dark-8);
   --color-primary-main: var(--mantine-color-text);
   --color-secondary-main: var(--mantine-color-dimmed);
