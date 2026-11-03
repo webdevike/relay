@@ -143,9 +143,9 @@ describe('parseWidget', () => {
     expect(
       parse({ widget: 'card', title: 'Nova', url: 'relay://assistant/nova', children: kids }),
     ).toMatchObject({ url: 'relay://assistant/nova' })
-    expect(
-      parse({ widget: 'card', url: 'https://example.com/x', children: kids }),
-    ).toMatchObject({ url: 'https://example.com/x' })
+    expect(parse({ widget: 'card', url: 'https://example.com/x', children: kids })).toMatchObject({
+      url: 'https://example.com/x',
+    })
     expect(parse({ widget: 'card', url: 'relay://nope/x', children: kids })).toEqual({
       widget: 'card',
       children: kids,
