@@ -18,9 +18,14 @@ final class LessonController {
     private var work: Task<Void, Never>?
     private var poll: Task<Void, Never>?
 
+    private let checklist = LessonChecklist()
+    private var assistant = Assistants.personal
+
     init(brain: Brain, overlay: OverlayController) {
         self.brain = brain
         self.overlay = overlay
+        checklist.onSkip = { [weak self] in _ = self?.handleCommand("skip") }
+        checklist.onStop = { [weak self] in _ = self?.handleCommand("stop") }
     }
 
     /// Matches "teach me to X", "teach me how to X", "lesson: X"; returns X.
@@ -36,9 +41,13 @@ final class LessonController {
     func handleCommand(_ text: String) -> Bool {
         guard isActive else { return false }
         switch text.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: " .!?")) {
-        case "next", "skip", "skip it", "next step", "done":
+        case "next", "next step", "done":
             Log.info("lesson: \(text) on step \(index + 1)")
-            advance()
+            if !steps.isEmpty { advance(skipped: false) }
+            return true
+        case "skip", "skip it":
+            Log.info("lesson: \(text) on step \(index + 1)")
+            if !steps.isEmpty { advance(skipped: true) }
             return true
         case "stop", "end lesson", "stop lesson", "quit lesson":
             finish(message: "Lesson stopped. Ask me anything.")
@@ -48,16 +57,17 @@ final class LessonController {
         }
     }
 
-    func start(goal: String, target: TargetApp) {
+    func start(goal: String, target: TargetApp, assistant: Assistant) {
         cancelTasks()
+        checklist.close()
         isActive = true
         self.goal = goal
+        self.assistant = assistant
         self.target = target
         hook = AppHooks.hook(for: target)
         steps = []
         overlay.showThinking(near: NSEvent.mouseLocation, appName: target.name)
         overlay.setCaption("Planning a lesson: \(goal)")
-        Log.info("lesson start: \"\(goal)\" in \(target.name) hook=\(hook?.name ?? "none")")
         work = Task { [weak self] in
             guard let self else { return }
             do {
@@ -67,6 +77,8 @@ final class LessonController {
                 self.goal = title
                 self.steps = steps
                 Log.info("lesson plan: " + steps.enumerated().map { "\($0 + 1). \($1.title) [\($1.doneCheck ?? "manual")]" }.joined(separator: " "))
+                self.checklist.show(assistant: self.assistant, goal: title, steps: steps,
+                                    windowFrame: Capture.frontWindow(pid: target.pid)?.frame)
                 self.show(0)
             } catch is CancellationError {
             } catch {
@@ -81,6 +93,7 @@ final class LessonController {
         guard isActive else { return }
         cancelTasks()
         isActive = false
+        checklist.close()
     }
 
     private func cancelTasks() {
@@ -102,6 +115,7 @@ final class LessonController {
     private func show(_ i: Int) {
         index = i
         let step = steps[i]
+        checklist.setCurrent(i)
         overlay.showStepPill("Step \(i + 1) of \(steps.count)  ·  \(step.title)")
         Log.info("lesson step \(i + 1)/\(steps.count): \(step.instruction)")
         startPolling(step, index: i)
@@ -162,22 +176,30 @@ final class LessonController {
     private func completed(_ i: Int) {
         guard isActive, index == i else { return }
         Log.info("lesson step \(i + 1) done")
-        advance()
+        advance(skipped: false)
     }
 
-    private func advance() {
+    /// Checks (or dashes) the current step, then points at the next one: caption, voice and cursor
+    /// all fire again in show(), on every advance.
+    private func advance(skipped: Bool) {
         cancelTasks()
+        if skipped { checklist.markSkipped(index) } else { checklist.markDone(index) }
         if index + 1 < steps.count {
             show(index + 1)
         } else {
-            finish(message: "Nice, you did it: \(goal)!")
+            finish(message: "Nice, you did it: \(goal)!", completedAll: true)
         }
     }
 
-    private func finish(message: String) {
+    private func finish(message: String, completedAll: Bool = false) {
         cancelTasks()
         isActive = false
         Log.info("lesson end: \(message)")
+        if completedAll {
+            checklist.celebrate(goal: goal, accent: assistant.accent)
+        } else {
+            checklist.close()
+        }
         overlay.showStepPill("Lesson done  ·  \(goal)")
         overlay.showMessage(message, near: nil)
         speak(message)

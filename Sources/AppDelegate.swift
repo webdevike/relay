@@ -325,7 +325,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if lesson.handleCommand(question) { return }
         if let goal = LessonController.goal(in: question) ?? learningHowTo(question, target: target) {
             work?.cancel()
-            return lesson.start(goal: goal, target: target)
+            return lesson.start(goal: goal, target: target, assistant: decision.assistant)
         }
         lesson.stop()
         ask(question, about: target, prefetched: prefetched)
