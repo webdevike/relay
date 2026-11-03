@@ -53,7 +53,7 @@
   --eva-font-mono: var(--eva-font-code);
 
   --eva-main-min: 480px;
-  --eva-tab-strip-h: var(--eva-tile-lg);
+  --eva-tab-strip-h: calc(var(--eva-tile-md) + 2px + var(--eva-space-xs) * 2);
   --eva-address-h: 40px;
   /* ecard-table-lab shell: 44px card headers, 10px card corners. */
   --eva-chat-header-h: 44px;

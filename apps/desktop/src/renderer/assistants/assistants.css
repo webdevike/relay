@@ -200,7 +200,7 @@
   padding: 0 var(--mantine-spacing-xs);
   border: 0;
   border-radius: var(--eva-radius);
-  background: var(--eva-c-muted-background);
+  background: transparent;
   color: var(--eva-c-muted-foreground);
   font: inherit;
   font-size: var(--eva-fz-label);
@@ -219,7 +219,13 @@
   -webkit-app-region: no-drag;
 }
 .eva-as-crumb-back:hover {
+  background: var(--eva-hover);
   color: var(--eva-c-foreground);
+}
+.eva-as-crumb-back > svg {
+  flex: none;
+  width: 1em;
+  height: 1em;
 }
 .eva-as-crumb-sep {
   color: var(--eva-c-muted-foreground);
