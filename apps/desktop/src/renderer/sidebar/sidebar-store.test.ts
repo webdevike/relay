@@ -99,6 +99,7 @@ describe('nav level', () => {
     expect(levelForPlace(placeOf('chat'))).toBe('chats')
     expect(levelForPlace(placeOf('meetings'))).toBe('meetings')
     expect(levelForPlace(placeOf('reviews'))).toBe('reviews')
+    expect(levelForPlace(placeOf('review:pr:o/r#1'))).toBe('reviews')
     expect(levelForPlace(placeOf('settings'))).toBe('settings')
     expect(levelForPlace(placeOf('habits'))).toBeNull()
   })

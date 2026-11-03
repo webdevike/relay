@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState, type HTMLAttributes } from 'react'
 import { Button, Loader, Textarea } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import {
@@ -56,16 +56,17 @@ const where = (r: { channelName: string }): string => r.channelName
 export function SlackGroups({
   slack,
   done,
-  selected,
-  onOpen,
+  isActive,
+  rowProps,
   onRefresh,
   now,
   match,
 }: {
   slack: SlackState
   done: Record<string, number>
-  selected: string | null
-  onOpen: (r: SlackRow) => void
+  isActive: (r: SlackRow) => boolean
+  /** Click, middle-click, context menu: what the row does (ReviewRowMenu `rowHandlers`). */
+  rowProps: (r: SlackRow) => HTMLAttributes<HTMLButtonElement>
   onRefresh: () => void
   now: number
   match?: (r: SlackRow) => boolean
@@ -126,10 +127,10 @@ export function SlackGroups({
                 key={r.url}
                 type="button"
                 className="eva-rv-qrow"
-                data-active={selected === r.url || undefined}
+                data-active={isActive(r) || undefined}
                 data-testid="review-slack-row"
                 data-thread={r.threadTs ? true : undefined}
-                onClick={() => onOpen(r)}
+                {...rowProps(r)}
                 title={`${where(r)}: ${emojify(r.text)}`}
               >
                 <span className="eva-rv-qrow-line">

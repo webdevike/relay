@@ -29,6 +29,11 @@ vi.mock('../canvas/CanvasPage', () => ({
     <div data-testid="page-canvas">{place.canvas ?? 'newest'}</div>
   ),
 }))
+vi.mock('../reviews/ReviewPage', () => ({
+  ReviewPage: ({ place }: { place: { page: string } }) => (
+    <div data-testid="page-review">{place.page}</div>
+  ),
+}))
 const scrollAreaProps = vi.fn()
 vi.mock('../ui/ScrollArea', () => ({
   ScrollArea: (p: { children: React.ReactNode; scrollKey?: string; 'data-testid'?: string }) => {
@@ -91,6 +96,17 @@ describe('PageRouter', () => {
     ui()
     expect(screen.getByTestId('page-canvas')).toHaveTextContent('ui-moodboard')
     expect(screen.queryByTestId('page-scroll')).toBeNull()
+  })
+
+  it('renders one review item per place, without the page scroll area', () => {
+    go(placeOf('review:pr:eCardSystems/api#172'))
+    const { unmount } = ui()
+    expect(screen.getByTestId('page-review')).toHaveTextContent('review:pr:eCardSystems/api#172')
+    expect(screen.queryByTestId('page-scroll')).toBeNull()
+    unmount()
+    go(placeOf('review:linear:ENG-6648'))
+    ui()
+    expect(screen.getByTestId('page-review')).toHaveTextContent('review:linear:ENG-6648')
   })
 
   it('keeps the chat pane mounted and hidden off the chat place', () => {

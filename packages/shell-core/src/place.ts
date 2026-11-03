@@ -15,9 +15,12 @@ export type FixedPage =
   | 'settings'
 /**
  * `agent:<id>` is a registry agent's thread (native Page::Agent), `board:<slug>` a Relay host
- * dashboard (native Page::Board); both saved like native tabs.rs.
+ * dashboard (native Page::Board); both saved like native tabs.rs. `review:<kind>:<id>` is one
+ * Reviews item (a pull request, Linear issue or Slack thread) as its own place, so it opens in
+ * its own tab or pane; the app defines the id (`review:pr:owner/repo#12`).
  */
-export type PageKey = FixedPage | `workspace:${string}` | `agent:${string}` | `board:${string}`
+export type PageKey =
+  FixedPage | `workspace:${string}` | `agent:${string}` | `board:${string}` | `review:${string}`
 
 export const SETTINGS_SECTIONS = ['Theme', 'Chat', 'Links', 'About'] as const
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
@@ -55,6 +58,7 @@ export function pageFromKey(key: string): PageKey | null {
   if (key.startsWith('workspace:')) return key as PageKey
   if (key.startsWith('agent:') && key.length > 'agent:'.length) return key as PageKey
   if (key.startsWith('board:') && key.length > 'board:'.length) return key as PageKey
+  if (key.startsWith('review:') && key.length > 'review:'.length) return key as PageKey
   return FIXED_PAGES.includes(key) ? (key as PageKey) : null
 }
 

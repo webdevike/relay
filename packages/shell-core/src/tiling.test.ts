@@ -119,6 +119,19 @@ describe('tiling', () => {
     expect(findTab(tilingFromJson(tilingToJson(t))!, tabId(nova))).not.toBeNull()
   })
 
+  it('takes several review items as pane tabs or a split beside the chat, and restores them', () => {
+    const a = { kind: 'page', place: placeOf('review:pr:eCardSystems/api#172') } as const
+    const b = { kind: 'page', place: placeOf('review:linear:ENG-6648') } as const
+    expect(tabId(a)).toBe('review:pr:eCardSystems/api#172')
+    let t = splitPane(defaultTiling(), CHAT_PANE, 'right', a).tiling
+    t = openPaneTab(t, b)
+    expect(findTab(t, tabId(a))).not.toBeNull()
+    expect(findTab(t, tabId(b))).not.toBeNull()
+    const back = tilingFromJson(tilingToJson(t))!
+    expect(findTab(back, tabId(a))).not.toBeNull()
+    expect(findTab(back, tabId(b))).not.toBeNull()
+  })
+
   it('opens a new tab in the focused or last tool pane, else a new pane', () => {
     let t = openPaneTab(defaultTiling(), bench)
     expect(findTab(t, 'page:test-bench')?.pane.id).toBe('p2')

@@ -67,7 +67,9 @@ export function MainNav() {
               title={n.title}
               icon={n.icon}
               active={
-                here.page === n.page || (n.slug === 'assistants' && here.page.startsWith('agent:'))
+                here.page === n.page ||
+                (n.slug === 'assistants' && here.page.startsWith('agent:')) ||
+                (n.slug === 'reviews' && here.page.startsWith('review:'))
               }
               count={n.slug === 'jobs' && !error ? countLabel(jobs) : null}
               countTestid={n.slug === 'jobs' ? 'count-jobs' : undefined}

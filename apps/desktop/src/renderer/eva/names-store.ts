@@ -11,7 +11,23 @@ export interface NamesState {
   agents: Record<string, string>
   /** Relay host dashboard titles by slug. */
   boards: Record<string, string>
+  /** Review item titles by the id after `review:` (`pr:owner/repo#12`), as the queue or detail last showed them. */
+  reviews: Record<string, string>
   version: number
+}
+
+/** Review item titles outlive the app: a restored review tab is named before the queue is read. */
+const REVIEW_TITLES_KEY = 'eva-review-titles'
+const MAX_REVIEW_TITLES = 200
+
+function savedReviewTitles(): Record<string, string> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(REVIEW_TITLES_KEY) ?? '{}') as unknown
+    if (typeof raw !== 'object' || raw === null) return {}
+    return Object.fromEntries(Object.entries(raw).filter(([, v]) => typeof v === 'string'))
+  } catch {
+    return {}
+  }
 }
 
 export const namesStore = createStore<NamesState>(() => ({
@@ -21,6 +37,7 @@ export const namesStore = createStore<NamesState>(() => ({
   chats: {},
   agents: {},
   boards: {},
+  reviews: savedReviewTitles(),
   version: 0,
 }))
 
@@ -51,6 +68,25 @@ export function setBoardTitles(map: Record<string, string>): void {
 export function boardTitle(slug: string): string | null {
   return Object.hasOwn(namesStore.getState().boards, slug)
     ? namesStore.getState().boards[slug]!
+    : null
+}
+
+/** Remembers `title` for review item `id`; the newest `MAX_REVIEW_TITLES` stay on disk. */
+export function setReviewTitle(id: string, title: string): void {
+  if (namesStore.getState().reviews[id] === title) return
+  const kept = Object.entries(namesStore.getState().reviews).filter(([k]) => k !== id)
+  const reviews = Object.fromEntries([...kept, [id, title]].slice(-MAX_REVIEW_TITLES))
+  try {
+    localStorage.setItem(REVIEW_TITLES_KEY, JSON.stringify(reviews))
+  } catch {
+    /* private mode or full: the title stays for this run */
+  }
+  namesStore.setState((s) => ({ reviews, version: s.version + 1 }))
+}
+
+export function reviewTitle(id: string): string | null {
+  return Object.hasOwn(namesStore.getState().reviews, id)
+    ? namesStore.getState().reviews[id]!
     : null
 }
 

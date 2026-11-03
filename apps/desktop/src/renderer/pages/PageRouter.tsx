@@ -17,6 +17,7 @@ export function PageView({ place }: { place: Place }) {
     (meta.kind === 'settings' && place.settingsSection === 'Theme') ||
     meta.kind === 'canvas' ||
     meta.kind === 'agent' ||
+    meta.kind === 'review' ||
     meta.slug === 'rooms' ||
     meta.slug === 'studio' ||
     meta.slug === 'reviews'

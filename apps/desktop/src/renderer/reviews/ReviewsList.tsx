@@ -11,10 +11,7 @@ import type { ReviewRow, SlackRow } from '@evaos/contract'
 import { SlackGroups } from './SlackDetail'
 import { ago, prKey, queueGroups, type QueueGroup } from './review-model'
 import {
-  openPr,
   openReviewItem,
-  openThread,
-  openTicket,
   readSlack,
   reviewItemOf,
   setView,
@@ -38,6 +35,9 @@ import {
   type SourceFilter,
 } from './queue-search'
 import { Avatar, SourceMark, useLocal } from './review-ui'
+import { ReviewRowMenu, rowHandlers, type RowMenuState } from './ReviewRowMenu'
+import { reviewIdOf, reviewIdOfPlace } from './review-place'
+import { activePlace, useTabs } from '../tabs/tabs-store'
 import './reviews.css'
 
 function QueueRow({
@@ -45,11 +45,13 @@ function QueueRow({
   subtitle,
   active,
   now,
+  onMenu,
 }: {
   row: ReviewRow
   subtitle: string
   active: boolean
   now: number
+  onMenu: (m: RowMenuState) => void
 }) {
   const Glyph = row.draft ? IconGitPullRequestDraft : IconGitPullRequest
   return (
@@ -58,7 +60,7 @@ function QueueRow({
       className="eva-rv-qrow"
       data-active={active || undefined}
       data-testid={`review-row-${row.number}`}
-      onClick={() => openPr(row)}
+      {...rowHandlers({ kind: 'pr', row }, onMenu)}
       title={`${row.repo}#${row.number} ${row.title}`}
     >
       <span className="eva-rv-qrow-title">{row.title}</span>
@@ -115,7 +117,19 @@ export function ReviewsList() {
   const targetId = target ? itemId(target) : null
   const shows = (s: SourceFilter) => source === 'all' || source === s
 
-  const selected = ticket ? `linear:${ticket.key}` : selectedPr ? prKey(selectedPr) : null
+  // What is open: the place of a review tab, else the Reviews page's selection.
+  const here = useTabs(activePlace)
+  const activeId =
+    reviewIdOfPlace(here) ??
+    (ticket
+      ? `linear:${ticket.key}`
+      : selectedPr
+        ? `pr:${selectedPr.repo}#${selectedPr.number}`
+        : thread
+          ? reviewIdOf({ kind: 'slack', channel: thread.channel, threadTs: thread.threadTs })
+          : null)
+  const prActive = (r: ReviewRow): boolean => activeId === `pr:${r.repo}#${r.number}`
+  const [menu, setMenu] = useState<RowMenuState | null>(null)
   const groups: QueueGroup[] = (queue && shows('github') ? queueGroups(queue, view) : [])
     .map((g) =>
       searching
@@ -168,10 +182,10 @@ export function ReviewsList() {
             key={r.key}
             type="button"
             className="eva-rv-qrow"
-            data-active={selected === `linear:${r.key}` || undefined}
+            data-active={activeId === `linear:${r.key}` || undefined}
             data-unread={r.unread || undefined}
             data-testid={`review-ticket-${r.key}`}
-            onClick={() => openTicket(r)}
+            {...rowHandlers({ kind: 'linear', row: r }, setMenu)}
             title={`${r.key} ${r.title}`}
           >
             <span className="eva-rv-qrow-title">{r.title}</span>
@@ -193,8 +207,10 @@ export function ReviewsList() {
     <SlackGroups
       slack={slack}
       done={done}
-      selected={thread?.url ?? null}
-      onOpen={openThread}
+      isActive={(r) =>
+        activeId === reviewIdOf({ kind: 'slack', channel: r.channel, threadTs: r.threadTs })
+      }
+      rowProps={(r) => rowHandlers({ kind: 'slack', row: r }, setMenu)}
       onRefresh={() => void readSlack()}
       now={now}
       match={slackMatch}
@@ -284,8 +300,9 @@ export function ReviewsList() {
                   key={prKey(r)}
                   row={r}
                   subtitle={g.subtitle}
-                  active={selected === prKey(r)}
+                  active={prActive(r)}
                   now={now}
+                  onMenu={setMenu}
                 />
               ))
             )}
@@ -298,6 +315,7 @@ export function ReviewsList() {
           {slackGroups}
         </>
       )}
+      <ReviewRowMenu menu={menu} onClose={() => setMenu(null)} />
     </div>
   )
 }

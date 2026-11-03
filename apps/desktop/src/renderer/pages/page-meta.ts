@@ -1,5 +1,12 @@
 import type { PageKey, Place } from '@evaos/shell-core'
-import { agentTitle, boardTitle, meetingTitle, workspaceTitle } from '../eva/names-store'
+import {
+  agentTitle,
+  boardTitle,
+  meetingTitle,
+  reviewTitle,
+  workspaceTitle,
+} from '../eva/names-store'
+import { reviewFallbackTitle } from '../reviews/review-place'
 
 export interface NavPage {
   slug: string
@@ -82,7 +89,7 @@ export const NAV_PAGES: readonly NavPage[] = [
 ]
 
 export type PageKind =
-  'page' | 'settings' | 'workspace' | 'meeting' | 'chat' | 'canvas' | 'agent' | 'board'
+  'page' | 'settings' | 'workspace' | 'meeting' | 'chat' | 'canvas' | 'agent' | 'board' | 'review'
 
 export interface PageMeta {
   kind: PageKind
@@ -110,6 +117,15 @@ export function pageMeta(place: Place): PageMeta {
   if (page.startsWith('board:')) {
     const slug = page.slice('board:'.length)
     return { kind: 'board', slug: 'board', title: boardTitle(slug) ?? slug, description: '' }
+  }
+  if (page.startsWith('review:')) {
+    const id = page.slice('review:'.length)
+    return {
+      kind: 'review',
+      slug: 'review',
+      title: reviewTitle(id) ?? reviewFallbackTitle(id),
+      description: '',
+    }
   }
   if (page === 'meetings' && place.meeting !== null) {
     return {

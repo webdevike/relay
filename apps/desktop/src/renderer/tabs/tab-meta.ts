@@ -5,8 +5,10 @@ import {
   canvasTitle,
   chatTitle,
   meetingTitle,
+  reviewTitle,
   workspaceTitle,
 } from '../eva/names-store'
+import { reviewFallbackTitle, reviewIconOf } from '../reviews/review-place'
 
 const TITLES: Record<string, string> = {
   dashboard: 'Dashboard',
@@ -58,6 +60,10 @@ export function tabTitle(place: Place): string {
     const slug = place.page.slice('board:'.length)
     return boardTitle(slug) ?? slug
   }
+  if (place.page.startsWith('review:')) {
+    const id = place.page.slice('review:'.length)
+    return reviewTitle(id) ?? reviewFallbackTitle(id)
+  }
   if (place.page === 'meetings' && place.meeting)
     return meetingTitle(place.meeting) ?? place.meeting
   if (place.page === 'canvas' && place.canvas) return canvasTitle(place.canvas) ?? place.canvas
@@ -68,5 +74,6 @@ export function tabTitle(place: Place): string {
 export function tabIconName(place: Place): string {
   if (place.page.startsWith('workspace:')) return 'IconFolder'
   if (place.page.startsWith('board:')) return 'IconLayoutDashboard'
+  if (place.page.startsWith('review:')) return reviewIconOf(place.page.slice('review:'.length))
   return ICONS[place.page] ?? 'IconFile'
 }

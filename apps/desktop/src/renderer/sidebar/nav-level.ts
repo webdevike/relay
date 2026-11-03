@@ -23,7 +23,7 @@ export function levelForPlace(place: Place): Exclude<NavLevel, 'root'> | null {
   if (place.page === 'assistants' || place.page.startsWith('agent:')) return 'assistants'
   if (place.page === 'chat') return 'chats'
   if (place.page === 'meetings') return 'meetings'
-  if (place.page === 'reviews') return 'reviews'
+  if (place.page === 'reviews' || place.page.startsWith('review:')) return 'reviews'
   if (place.page === 'canvas') return 'canvas'
   if (place.page === 'settings') return 'settings'
   return null

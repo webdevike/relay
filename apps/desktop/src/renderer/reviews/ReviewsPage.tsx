@@ -233,7 +233,7 @@ const REVIEW_EVENTS = [
 ] as const
 
 /** The PR: E3 header, tabs, the tab's body beside the rail, and the comment box or review dock. */
-function Detail({
+export function Detail({
   pr,
   fetchedAt,
   now,
@@ -586,6 +586,26 @@ function Detail({
   )
 }
 
+/**
+ * Marks an item Done on the host and in the store; null (after a toast) when it fails. Shared by
+ * the page and the places that show one item.
+ */
+export async function markDone(
+  url: string,
+  updatedAt: number,
+): Promise<Record<string, number> | null> {
+  const r = await invoke('reviews.done', { url, updatedAt, done: true })
+  if (!r.ok) {
+    fail("Couldn't mark it done", r.error.message)
+    return null
+  }
+  reviewsStore.setState((s) => ({
+    doneLocal: r.value,
+    queue: s.queue ? { ...s.queue, done: r.value } : s.queue,
+  }))
+  return r.value
+}
+
 /** Reviews: the pull request, ticket or Slack thread picked in the sidebar queue (Conversation, Files, Checks, Guide). */
 export function ReviewsPage(_: { place: Place }) {
   useReviewsSurface()
@@ -625,22 +645,6 @@ export function ReviewsPage(_: { place: Place }) {
   useEffect(() => {
     if (selected && pr?.key !== prKey(selected)) void loadPr(selected)
   }, [selected, pr, loadPr])
-
-  const markDone = async (
-    url: string,
-    updatedAt: number,
-  ): Promise<Record<string, number> | null> => {
-    const r = await invoke('reviews.done', { url, updatedAt, done: true })
-    if (!r.ok) {
-      fail("Couldn't mark it done", r.error.message)
-      return null
-    }
-    reviewsStore.setState((s) => ({
-      doneLocal: r.value,
-      queue: s.queue ? { ...s.queue, done: r.value } : s.queue,
-    }))
-    return r.value
-  }
 
   const done = async (): Promise<void> => {
     if (!queue || !pr || !selected) return

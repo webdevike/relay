@@ -29,6 +29,18 @@ describe('pages', () => {
     for (const p of pages) expect(pageFromKey(pageKey(p))).toBe(p)
     expect(pageFromKey('nope')).toBeNull()
     expect(pageFromKey('board:')).toBeNull()
+    expect(pageFromKey('review:')).toBeNull()
+    for (const key of [
+      'review:pr:eCardSystems/api#172',
+      'review:linear:ENG-6648',
+      'review:slack:C1:',
+    ]) {
+      expect(pageFromKey(key)).toBe(key)
+      expect(placeFromJson(placeToJson(placeOf(key as PageKey)))).toEqual(placeOf(key as PageKey))
+      expect(placeKey(placeOf(key as PageKey))).toBe(key)
+    }
+    expect(samePlace(placeOf('review:pr:a/b#1'), placeOf('review:pr:a/b#2'))).toBe(false)
+    expect(samePlace(placeOf('review:pr:a/b#1'), placeOf('review:pr:a/b#1'))).toBe(true)
   })
 
   it('rejects removed destinations when restoring navigation', () => {
