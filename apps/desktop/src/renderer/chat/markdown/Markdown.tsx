@@ -7,6 +7,7 @@ import ReactMarkdown, {
 } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { CodeBlock } from './CodeBlock'
+import { openTargetOf } from '../../navigation/open-target'
 import { openLink } from '../../navigation/open-link'
 import { OpenUIBlock, WidgetBlock } from '../widgets/Widget'
 import { WidgetFrame, WidgetFramePending } from '../widgets/WidgetFrame'
@@ -129,7 +130,7 @@ const components: Components = {
         title={href}
         onClick={(e: MouseEvent) => {
           e.preventDefault()
-          if (href) openLink(href, { newPane: e.metaKey })
+          if (href) openLink(href, { target: openTargetOf(e) })
         }}
       >
         <InLink.Provider value={true}>{children}</InLink.Provider>

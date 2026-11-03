@@ -16,7 +16,7 @@ import {
   type Place,
   type SubagentTab,
 } from '@evaos/shell-core'
-import { ReplacePlaceContext } from '../pages/place-host'
+import { InToolPaneContext, ReplacePlaceContext } from '../pages/place-host'
 import { BrowserPanel } from '../browser/BrowserPanel'
 import { useChatStore } from '../chat/chat-store'
 import { PANE_ID } from '../chat/open-chat'
@@ -113,7 +113,9 @@ function PageTab({ tab }: { tab: Extract<PaneTab, { kind: 'page' }> }) {
   const replace = useCallback((place: Place) => replaceTab(id, { kind: 'page', place }), [id])
   return (
     <ReplacePlaceContext.Provider value={replace}>
-      <PageView place={tab.place} />
+      <InToolPaneContext.Provider value={true}>
+        <PageView place={tab.place} />
+      </InToolPaneContext.Provider>
     </ReplacePlaceContext.Provider>
   )
 }

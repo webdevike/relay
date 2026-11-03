@@ -2,6 +2,7 @@ import { useContext, useState } from 'react'
 import { Button, Group, Stack, Text, Textarea, TextInput } from '@mantine/core'
 import { IconCheck } from '@tabler/icons-react'
 import type { ButtonSpec, InputSpec } from '@evaos/chat-core/widget'
+import { openTargetOf, type OpenTarget } from '../../../navigation/open-target'
 import { openLink } from '../../../navigation/open-link'
 import { OpenUIActions, useWidgetActions } from '../actions'
 import { useToneColor } from '../rich/parts'
@@ -25,9 +26,9 @@ export function ButtonBlock({ spec }: { spec: ButtonSpec }) {
   const toneText = useToneText()
   const replyText = spec.reply
   const variant = VARIANT[spec.variant]
-  const send = (text: string | undefined, url: string | undefined): void => {
+  const send = (text: string | undefined, url: string | undefined, target: OpenTarget): void => {
     if (text !== undefined && canReply) reply(text)
-    if (url !== undefined) openLink(url)
+    if (url !== undefined) openLink(url, { target })
   }
   return (
     <Button
@@ -42,11 +43,12 @@ export function ButtonBlock({ spec }: { spec: ButtonSpec }) {
       data-testid="widget-button"
       data-cell={cell ?? undefined}
       disabled={(replyText !== undefined && !canReply) || (spec.action !== undefined && !openui)}
-      onClick={() => {
-        if (spec.action === undefined) send(replyText, spec.url)
+      onClick={(e) => {
+        const target = openTargetOf(e)
+        if (spec.action === undefined) send(replyText, spec.url, target)
         else if (openui) {
           const out = openui.dispatch(spec.action)
-          send(out.reply, out.url)
+          send(out.reply, out.url, target)
         }
       }}
     >

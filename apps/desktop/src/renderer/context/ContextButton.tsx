@@ -32,8 +32,9 @@ import {
   type ContextSnapshot,
 } from '@evaos/contract'
 import { EvaPopover } from '../overlay'
-import { navigateTo } from '../tabs/tabs-store'
 import { openLink } from '../navigation/open-link'
+import { openInApp } from '../navigation/open-in-app'
+import { openTargetOf, type OpenTarget } from '../navigation/open-target'
 import { openSubagentTab, revealTool } from '../tiling/tiling-store'
 import { showPath } from '../files/files-store'
 import { chatStore } from '../chat/chat-store'
@@ -94,27 +95,29 @@ function useNow(active: boolean): number {
   return now
 }
 
-function openTarget(open: ContextOpen): void {
+/** Opens what a row points at; an in-app page goes where `target` says (default beside the chat). */
+function openRow(open: ContextOpen, target: OpenTarget): void {
   switch (open.kind) {
     case 'url':
-      openLink(open.url)
+      openLink(open.url, { target })
       break
     case 'files':
       revealTool('files')
       void showPath(open.path, chatStore.getState().panes[PANE_ID]?.file || null)
       break
     case 'chat':
-      navigateTo(placeOf('chat', { chat: open.file }))
+      // A chat can't split off: it opens in this tab unless Cmd asks for a new one.
+      openInApp(placeOf('chat', { chat: open.file }), target === 'split' ? 'here' : target)
       break
     case 'subagent':
       openSubagentTab({ session: open.session, file: open.file, name: open.name })
       break
     case 'experiment':
       requestExperiment(open.id)
-      navigateTo(placeOf('test-bench'))
+      openInApp(placeOf('test-bench'), target)
       break
     case 'jobs':
-      navigateTo(placeOf('jobs'))
+      openInApp(placeOf('jobs'), target)
       break
   }
 }
@@ -168,7 +171,7 @@ function Row({
   /** The row is in Pinned, or its target is pinned. */
   pinned: boolean
   now: number
-  onOpen: () => void
+  onOpen: (target: OpenTarget) => void
 }) {
   const Icon = ICONS[row.icon]
   const pin = row.pin
@@ -224,7 +227,7 @@ function Row({
       data-two-line={row.sub || row.progress ? 'true' : undefined}
     >
       {row.open ? (
-        <UnstyledButton className="eva-ctx-main" onClick={onOpen}>
+        <UnstyledButton className="eva-ctx-main" onClick={(e) => onOpen(openTargetOf(e))}>
           {body}
         </UnstyledButton>
       ) : (
@@ -256,8 +259,8 @@ const ACTION_LOOK: Record<ContextAction['id'], { label: string; Icon: typeof Ico
   'commit-push': { label: 'Commit & push', Icon: IconGitCommit },
 }
 
-function runAction(a: ContextAction): void {
-  if (a.id === 'open-pr') openLink(a.url)
+function runAction(a: ContextAction, target: OpenTarget): void {
+  if (a.id === 'open-pr') openLink(a.url, { target })
   else if (a.id === 'open-files') {
     revealTool('files')
     void showPath(a.path, chatStore.getState().panes[PANE_ID]?.file || null)
@@ -281,10 +284,10 @@ function Popover({ snap, now }: { snap: ContextSnapshot; now: number }) {
       return next
     })
   const close = (): void => setContextOpen(false)
-  const open = (row: ContextRow): void => {
+  const open = (row: ContextRow, target: OpenTarget): void => {
     if (!row.open) return
     close()
-    openTarget(row.open)
+    openRow(row.open, target)
   }
   const hereLabel = snap.kind === 'assistant' ? 'This thread' : 'This chat'
   const f = snap.footer
@@ -315,7 +318,7 @@ function Popover({ snap, now }: { snap: ContextSnapshot; now: number }) {
         <section className="eva-ctx-section" data-testid="context-pinned">
           <h3 className="eva-ctx-head">Pinned</h3>
           {snap.pinned.map((r) => (
-            <Row key={r.id} row={r} pinned now={now} onOpen={() => open(r)} />
+            <Row key={r.id} row={r} pinned now={now} onOpen={(t) => open(r, t)} />
           ))}
         </section>
       ) : null}
@@ -357,7 +360,7 @@ function Popover({ snap, now }: { snap: ContextSnapshot; now: number }) {
                     row={r}
                     pinned={r.pin !== null && pinnedIds.has(pinId(r.pin))}
                     now={now}
-                    onOpen={() => open(r)}
+                    onOpen={(t) => open(r, t)}
                   />
                 ))
               : null}
@@ -386,9 +389,9 @@ function Popover({ snap, now }: { snap: ContextSnapshot; now: number }) {
                 <UnstyledButton
                   className="eva-ctx-action"
                   data-testid={`context-action-${a.id}`}
-                  onClick={() => {
+                  onClick={(e) => {
                     close()
-                    runAction(a)
+                    runAction(a, openTargetOf(e))
                   }}
                 >
                   <Icon size={14} stroke={1.5} aria-hidden />
@@ -402,9 +405,9 @@ function Popover({ snap, now }: { snap: ContextSnapshot; now: number }) {
         <div className="eva-ctx-foot" data-testid="context-footer">
           <UnstyledButton
             className="eva-ctx-foot-link"
-            onClick={() => {
+            onClick={(e) => {
               close()
-              navigateTo(placeOf('jobs'))
+              openInApp(placeOf('jobs'), openTargetOf(e))
             }}
           >
             <IconCalendarTime size={14} stroke={1.5} aria-hidden />
@@ -412,9 +415,9 @@ function Popover({ snap, now }: { snap: ContextSnapshot; now: number }) {
           </UnstyledButton>
           <UnstyledButton
             className="eva-ctx-foot-link"
-            onClick={() => {
+            onClick={(e) => {
               close()
-              navigateTo(placeOf('test-bench'))
+              openInApp(placeOf('test-bench'), openTargetOf(e))
             }}
           >
             <IconFlask size={14} stroke={1.5} aria-hidden />

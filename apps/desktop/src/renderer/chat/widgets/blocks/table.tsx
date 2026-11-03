@@ -1,6 +1,7 @@
 import { Anchor, Stack, Table, Text } from '@mantine/core'
 import { IconBrandGithub } from '@tabler/icons-react'
 import type { TableCell, TableCellIcon, TableSpec } from '@evaos/chat-core/widget'
+import { openTargetOf } from '../../../navigation/open-target'
 import { openLink } from '../../../navigation/open-link'
 import { WidgetTitle } from '../rich/parts'
 import { useToneText } from './content'
@@ -42,7 +43,7 @@ function Cell({ cell }: { cell: TableCell }) {
       style={{ fontWeight: style.fontWeight }}
       onClick={(e) => {
         e.preventDefault()
-        openLink(url, { newPane: e.metaKey })
+        openLink(url, { target: openTargetOf(e) })
       }}
     >
       {content}

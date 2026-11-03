@@ -57,7 +57,7 @@ import { agentTitle, useNamesVersion } from '../eva/names-store'
 import { showPath } from '../files/files-store'
 import { invoke } from '../ipc'
 import { openLink } from '../navigation/open-link'
-import { openPlace } from '../navigation/navigate'
+import { openInApp } from '../navigation/open-in-app'
 import { EvaMenu } from '../overlay'
 import { openSubagentTab, revealTool } from '../tiling/tiling-store'
 import { agentOf, useAssistants } from '../assistants/assistants-store'
@@ -812,12 +812,12 @@ export function ArtifactsPanel({
   }
 
   const actions: RowActions = {
-    open: (item) => {
+    open: (item, target) => {
       const to = openTarget(item)
       if (to === null) return
       switch (to.to) {
         case 'browser':
-          openLink(to.url)
+          openLink(to.url, { target })
           onNavigate?.()
           return
         case 'files':
@@ -827,11 +827,11 @@ export function ArtifactsPanel({
           return
         case 'testbench':
           requestExperiment(to.experiment)
-          openPlace(placeOf('test-bench'))
+          openInApp(placeOf('test-bench'), target)
           onNavigate?.()
           return
         case 'canvas':
-          openPlace(placeOf('canvas', { canvas: to.slug }))
+          openInApp(placeOf('canvas', { canvas: to.slug }), target)
           onNavigate?.()
           return
         case 'subagent':

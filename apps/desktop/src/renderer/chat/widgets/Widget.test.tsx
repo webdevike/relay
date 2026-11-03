@@ -282,9 +282,9 @@ describe('WidgetBlock', () => {
     expect(screen.getByText('NK')).toBeInTheDocument()
     expect(screen.getByText('Merged')).toBeInTheDocument()
     fireEvent.click(screen.getByText('The PR'))
-    expect(openLink).toHaveBeenCalledWith('https://github.com', { newPane: false })
+    expect(openLink).toHaveBeenCalledWith('https://github.com', { target: 'split' })
     fireEvent.click(screen.getByText('#412'))
-    expect(openLink).toHaveBeenCalledWith('https://github.com/o/r/pull/412', { newPane: false })
+    expect(openLink).toHaveBeenCalledWith('https://github.com/o/r/pull/412', { target: 'split' })
   })
 
   it("draws relay://assistant/<id>/avatar as that assistant's own portrait, with no image fetch", () => {
@@ -317,7 +317,7 @@ describe('WidgetBlock', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Nudge' }))
     expect(reply).toHaveBeenCalledWith('nudge Noah')
     fireEvent.click(screen.getByRole('button', { name: 'Open PR' }))
-    expect(openLink).toHaveBeenCalledWith('https://github.com/o/r/pull/1')
+    expect(openLink).toHaveBeenCalledWith('https://github.com/o/r/pull/1', { target: 'split' })
   })
 
   it('makes a whole card with a relay:// url one link', () => {
@@ -331,7 +331,7 @@ describe('WidgetBlock', () => {
     )
     const card = screen.getByRole('link', { name: 'Nova' })
     fireEvent.click(screen.getByText('Personal, Relay, Eva'))
-    expect(openLink).toHaveBeenLastCalledWith('relay://assistant/nova', { newPane: false })
+    expect(openLink).toHaveBeenLastCalledWith('relay://assistant/nova', { target: 'split' })
     fireEvent.keyDown(card, { key: 'Enter' })
     expect(openLink).toHaveBeenLastCalledWith('relay://assistant/nova')
   })

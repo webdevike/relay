@@ -11,3 +11,10 @@ export const ReplacePlaceContext = createContext<(place: Place) => void>(replace
 export function useReplacePlace(): (place: Place) => void {
   return useContext(ReplacePlaceContext)
 }
+
+/** True for a page shown as a tab of a tool pane: the chat it was opened from stays beside it. */
+export const InToolPaneContext = createContext(false)
+
+export function useInToolPane(): boolean {
+  return useContext(InToolPaneContext)
+}

@@ -4,6 +4,7 @@ import { IconSchema } from '@tabler/icons-react'
 import type { CanvasChatEntry } from '@evaos/chat-core/canvas-live'
 import { AgentAvatar } from '../canvas/live/AgentAvatar'
 import { useLiveRooms } from '../canvas/live/live-store'
+import { openTargetOf } from '../navigation/open-target'
 import { joinCanvas, openBoard } from '../canvas/live/return-point'
 import { Markdown } from './markdown/Markdown'
 
@@ -32,7 +33,11 @@ function StartCard({ entry }: { entry: CanvasChatEntry }) {
         ) : null}
       </div>
       {live === true ? (
-        <Button size="sm" data-testid="canvas-join" onClick={() => joinCanvas(entry.slug)}>
+        <Button
+          size="sm"
+          data-testid="canvas-join"
+          onClick={(e) => joinCanvas(entry.slug, openTargetOf(e))}
+        >
           Join
         </Button>
       ) : (
@@ -44,7 +49,7 @@ function StartCard({ entry }: { entry: CanvasChatEntry }) {
             size="sm"
             variant="default"
             data-testid="canvas-open-board"
-            onClick={() => openBoard(entry.slug)}
+            onClick={(e) => openBoard(entry.slug, openTargetOf(e))}
           >
             Open board
           </Button>
@@ -93,7 +98,7 @@ function EndCard({ entry }: { entry: CanvasChatEntry }) {
           variant="default"
           className="eva-canvas-wrap-open"
           data-testid="canvas-open-board"
-          onClick={() => openBoard(entry.slug)}
+          onClick={(e) => openBoard(entry.slug, openTargetOf(e))}
         >
           Open board
         </Button>

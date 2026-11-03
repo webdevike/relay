@@ -44,7 +44,9 @@ describe('canvas rows', () => {
     expect(screen.getByText('Join Nova on Mind map')).toBeInTheDocument()
     expect(screen.getByText('Sketch the onboarding flow')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Join' }))
-    expect(nav.joinCanvas).toHaveBeenCalledWith('mind-map')
+    expect(nav.joinCanvas).toHaveBeenCalledWith('mind-map', 'split')
+    fireEvent.click(screen.getByRole('button', { name: 'Join' }), { altKey: true })
+    expect(nav.joinCanvas).toHaveBeenLastCalledWith('mind-map', 'here')
     // The avatar loads from the host.
     expect(document.querySelector('img')?.getAttribute('src')).toBe(
       'http://127.0.0.1:7817/canvas/avatar/nova',
@@ -57,7 +59,9 @@ describe('canvas rows', () => {
     expect(screen.getByText('Ended')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Join' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Open board' }))
-    expect(nav.openBoard).toHaveBeenCalledWith('mind-map')
+    expect(nav.openBoard).toHaveBeenCalledWith('mind-map', 'split')
+    fireEvent.click(screen.getByRole('button', { name: 'Open board' }), { metaKey: true })
+    expect(nav.openBoard).toHaveBeenLastCalledWith('mind-map', 'tab')
   })
 
   it('without Relay it cannot tell, and says why', () => {
@@ -81,6 +85,6 @@ describe('canvas rows', () => {
     expect(screen.getByText('Canvas wrap-up')).toBeInTheDocument()
     expect(screen.getByText('email').tagName).toBe('STRONG')
     fireEvent.click(screen.getByRole('button', { name: 'Open board' }))
-    expect(nav.openBoard).toHaveBeenCalledWith('mind-map')
+    expect(nav.openBoard).toHaveBeenCalledWith('mind-map', 'split')
   })
 })

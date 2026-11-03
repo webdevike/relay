@@ -37,6 +37,7 @@ import type {
 } from '@evaos/chat-core/widget'
 import { parseAssistantAvatar } from '@evaos/chat-core/widget'
 import { AgentPortrait } from '../../../assistants/AgentPortrait'
+import { openTargetOf } from '../../../navigation/open-target'
 import { openLink } from '../../../navigation/open-link'
 import { CodeBlock } from '../../markdown/CodeBlock'
 import { mediaUrl } from '../media-url'
@@ -125,7 +126,7 @@ export function LinkBlock({ spec }: { spec: LinkSpec }) {
       data-testid="widget-link"
       onClick={(e) => {
         e.preventDefault()
-        openLink(spec.url, { newPane: e.metaKey })
+        openLink(spec.url, { target: openTargetOf(e) })
       }}
     >
       {spec.label}

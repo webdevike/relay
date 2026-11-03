@@ -24,6 +24,7 @@ import {
   IconWorld,
 } from '@tabler/icons-react'
 import type { Artifact } from '@evaos/chat-core/artifacts'
+import { openTargetOf, type OpenTarget } from '../navigation/open-target'
 import {
   externalUrl,
   itemKey,
@@ -98,7 +99,8 @@ function externalLabel(item: Artifact): string {
 }
 
 export interface RowActions {
-  open(item: Artifact): void
+  /** `target`: where an in-app destination (a canvas, the Test Bench) opens; default a split. */
+  open(item: Artifact, target?: OpenTarget): void
   external(url: string): void
   pin(item: Artifact, pinned: boolean): void
   /** The row's menu at a point (copy its link or path, show it in Files). */
@@ -173,7 +175,7 @@ export function ArtifactRow({
       role="button"
       tabIndex={0}
       data-testid={`artifact-row-${item.id}`}
-      onClick={() => actions.open(item)}
+      onClick={(e) => actions.open(item, openTargetOf(e))}
       onKeyDown={(e) => {
         if (e.key === 'Enter') actions.open(item)
       }}
@@ -201,7 +203,10 @@ export function ArtifactRow({
       ) : null}
       <span className="eva-art-row-actions">
         {target?.to === 'browser' ? (
-          <RowButton label="Open in the browser panel" onClick={() => actions.open(item)}>
+          <RowButton
+            label="Open in the browser panel"
+            onClick={(e) => actions.open(item, openTargetOf(e))}
+          >
             <IconLayoutSidebarRight {...ICON} />
           </RowButton>
         ) : null}

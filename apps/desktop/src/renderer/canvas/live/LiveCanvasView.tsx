@@ -2,6 +2,7 @@ import { Button, useComputedColorScheme } from '@mantine/core'
 import { IconArrowLeft } from '@tabler/icons-react'
 import { useEffect, useRef, useState } from 'react'
 import { invoke } from '../../ipc'
+import { useInToolPane } from '../../pages/place-host'
 import { AgentAvatar } from './AgentAvatar'
 import { originPlace, useLiveRooms } from './live-store'
 import { backToChat, returnPointOf } from './return-point'
@@ -34,6 +35,7 @@ export function LiveCanvasView({
   const [error, setError] = useState<string | null>(null)
   const [endedHere, setEndedHere] = useState(false)
   const frame = useRef<HTMLIFrameElement>(null)
+  const inPane = useInToolPane()
   const scheme = useComputedColorScheme('light')
   // The room's last known self: it stays named after it ends or Relay drops.
   const [known, setKnown] = useState(room)
@@ -76,7 +78,7 @@ export function LiveCanvasView({
   }, [])
 
   const origin = shown ? originPlace(shown) : null
-  const canGoBack = returnPointOf(slug) !== null || origin !== null
+  const canGoBack = !inPane && (returnPointOf(slug) !== null || origin !== null)
   const goBack = (): void => backToChat(slug, origin)
   const title = shown?.board || slug
 

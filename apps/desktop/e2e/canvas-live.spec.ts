@@ -6,7 +6,8 @@ import { makeChatFixture, type ChatFixture } from './helpers/chat-fixture'
 import { FakeRelayHost } from './helpers/fake-relay-host'
 
 // A live canvas from a chat: the session file's `relay-canvas` start entry is a Join card; Join
-// opens the board's live room (the host's page in a frame) in the same tab; Back to chat returns
+// opens the board's live room (the host's page in a frame) in a pane beside the chat, Option+click
+// in the same tab; Back to chat (same tab) returns
 // to the same transcript offset with the unsent draft still in the composer. A fake host on a real
 // WebSocket stands in for Relay and serves a tiny room page; no real session is touched.
 let fx: ChatFixture
@@ -115,7 +116,7 @@ async function scrollToCard(shell: Page): Promise<void> {
   }).toPass({ timeout: 20_000 })
 }
 
-test('Join opens the live room in the same tab and Back to chat restores scroll and draft', async ({
+test('Option+click Join opens the live room in the same tab and Back to chat restores scroll and draft', async ({
   shell,
 }) => {
   await shell.locator(sel('nav-chat')).click()
@@ -141,7 +142,7 @@ test('Join opens the live room in the same tab and Back to chat restores scroll 
   expect(before).toBeGreaterThan(200)
   expect(before).toBeLessThan(atEnd - 200)
 
-  await card.getByRole('button', { name: 'Join' }).click()
+  await card.getByRole('button', { name: 'Join' }).click({ modifiers: ['Alt'] })
 
   // The board's live room, in the same tab: the host's page in a frame, the chat hidden.
   const live = shell.locator(sel('canvas-live'))
@@ -179,7 +180,7 @@ test('Join opens the live room in the same tab and Back to chat restores scroll 
   await expect(shell.locator(`${sel('canvas-board')}[data-slug="mind-map"]`)).toBeVisible()
 })
 
-test('a room that ends while open says so, and Open board brings the board back', async ({
+test('Join opens beside the chat; a room that ends says so, and Open board brings the board back', async ({
   shell,
 }) => {
   await shell.locator(sel('nav-chat')).click()
@@ -188,6 +189,11 @@ test('a room that ends while open says so, and Open board brings the board back'
   const card = shell.locator(sel('canvas-start'))
   await scrollToCard(shell)
   await card.getByRole('button', { name: 'Join' }).click()
+  // Beside the chat, not instead of it: the chat pane stays, the room is a tab of a tool pane,
+  // and there is no Back to chat (the chat is right there).
+  await expect(shell.locator(sel('chat-pane'))).toBeVisible()
+  await expect(shell.locator(sel('canvas-live'))).toHaveAttribute('data-slug', 'mind-map')
+  await expect(shell.locator(sel('canvas-live-back'))).toHaveCount(0)
   await expect(shell.frameLocator(sel('canvas-live-frame')).locator(sel('fake-room'))).toBeVisible()
 
   host.setCanvasRooms([{ ...ROOM, live: false, endedAt: Date.now() }])

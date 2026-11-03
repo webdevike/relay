@@ -10,6 +10,7 @@ import type {
   TabsSpec,
   WidgetKind,
 } from '@evaos/chat-core/widget'
+import { openTargetOf } from '../../../navigation/open-target'
 import { openLink } from '../../../navigation/open-link'
 import { WidgetTitle } from '../rich/parts'
 import { WidgetNode } from '../Widget'
@@ -49,7 +50,7 @@ export function Frame({
           onClick: (e: MouseEvent<HTMLElement>) => {
             // A click on a button or link inside the card keeps its own action.
             if ((e.target as HTMLElement).closest('a, button, input, textarea')) return
-            openLink(url, { newPane: e.metaKey })
+            openLink(url, { target: openTargetOf(e) })
           },
           onKeyDown: (e: KeyboardEvent<HTMLElement>) => {
             if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return
