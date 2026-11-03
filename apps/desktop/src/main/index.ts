@@ -40,6 +40,7 @@ import { registerAgentControl } from './agent-control'
 import { reportFatal } from './fatal'
 import { registerUpdate } from './update'
 import { registerContext } from './context-popover'
+import { createPackagedUpdater, type PackagedUpdater } from './update/packaged'
 
 function bootstrap(): void {
   let env
@@ -131,6 +132,7 @@ function bootstrap(): void {
         event.preventDefault()
         app.exit(exitCode)
       })
+      let packagedUpdater: PackagedUpdater | undefined
       let restarting = false
       const restartForUpdate = (): void => {
         if (restarting || quitting) return
@@ -139,6 +141,8 @@ function bootstrap(): void {
         void guard.guardedClose().then((ok) => {
           restarting = false
           if (!ok) return
+          // A packaged app swaps its staged bundle in and reopens itself once this process is gone.
+          packagedUpdater?.scheduleSwap()
           exitCode = UPDATE_RESTART_EXIT_CODE
           app.quit()
         })
@@ -181,6 +185,17 @@ function bootstrap(): void {
         chatWorking: () => chat.anyWorking(),
         restart: restartForUpdate,
       })
+      if (app.isPackaged) {
+        packagedUpdater = createPackagedUpdater({
+          configDir: env.configDir,
+          appPath: app.getAppPath(),
+          execPath: process.execPath,
+          pid: process.pid,
+          offer: (u) => update.offer(u),
+          log: (m) => console.warn(m),
+        })
+        packagedUpdater.start()
+      }
       registerAgentControl(ctx, update, chat.artifacts, chat.canvas, chat.studio)
       installTestHooks(ctx)
     } catch (e) {
