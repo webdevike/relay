@@ -148,7 +148,9 @@ describe('parseWidget', () => {
   it('keeps relay://assistant/<id>/avatar as an avatar src and drops other relay:// sources', () => {
     expect(parseAssistantAvatar('relay://assistant/nova/avatar')).toBe('nova')
     expect(parseAssistantAvatar('relay://assistant/nova')).toBeNull()
-    expect(parse({ widget: 'avatar', name: 'Nova', src: 'relay://assistant/nova/avatar' })).toMatchObject({
+    expect(
+      parse({ widget: 'avatar', name: 'Nova', src: 'relay://assistant/nova/avatar' }),
+    ).toMatchObject({
       src: 'relay://assistant/nova/avatar',
     })
     expect(parse({ widget: 'avatar', name: 'Nova', src: 'relay://assistant/nova' })).toEqual({
