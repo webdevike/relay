@@ -12,6 +12,12 @@
 .eva-page-area > .eva-chat-tool {
   min-height: 0;
 }
+/* An assistant's thread: room for the notch hanging below the header, so the banner, log or
+   empty state never sit under it (at any pane width). */
+.eva-chat-notch-room {
+  flex: none;
+  height: var(--eva-notch-hang);
+}
 .eva-chat-header .eva-chat-title {
   margin: 0;
   flex: 1;

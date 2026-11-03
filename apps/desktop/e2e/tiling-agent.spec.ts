@@ -1,5 +1,6 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import type { Locator } from '@playwright/test'
 import { test as base, expect } from './fixtures'
 import { makeChatFixture, type ChatFixture } from './helpers/chat-fixture'
 import { FakeRelayHost } from './helpers/fake-relay-host'
@@ -71,6 +72,13 @@ test.use({ startOnChat: false })
 
 const sel = (id: string): string => `[data-testid="${id}"]`
 
+/** The hanging notch never covers the log: the log starts at or below the notch's bottom edge. */
+async function expectLogBelowNotch(chat: Locator): Promise<void> {
+  const notch = (await chat.locator(sel('agent-notch')).boundingBox())!
+  const log = (await chat.locator(sel('chat-log')).boundingBox())!
+  expect(log.y).toBeGreaterThanOrEqual(Math.floor(notch.y + notch.height))
+}
+
 test("Nova's thread tab, dragged onto the chat's edge, splits into a pane that is the full chat", async ({
   shell,
   rendererErrors,
@@ -78,6 +86,7 @@ test("Nova's thread tab, dragged onto the chat's edge, splits into a pane that i
   await shell.locator(sel('nav-assistants')).click()
   await shell.locator(sel('sidebar-agent-nova')).click()
   await expect(shell.locator(sel('chat-log'))).toContainText('Hi Nova', { timeout: 10_000 })
+  await expectLogBelowNotch(shell.locator(`${sel('pane-chat')} ${sel('chat-pane')}`))
 
   const tab = shell.locator('[data-testid=tabbar] [role=tab][aria-selected=true]')
   const t = (await tab.boundingBox())!
@@ -99,6 +108,7 @@ test("Nova's thread tab, dragged onto the chat's edge, splits into a pane that i
   await expect(view.locator(sel('agent-crumb'))).toBeVisible()
   await expect(view.locator(sel('agent-notch'))).toBeVisible()
   await expect(view.locator(sel('artifacts-button'))).toBeVisible()
+  await expectLogBelowNotch(view)
 
   // A reply typed in the pane goes to Nova's session through Relay and shows at once.
   const box = view.locator(sel('composer-input'))

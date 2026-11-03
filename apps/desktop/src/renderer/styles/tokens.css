@@ -57,6 +57,8 @@
   --eva-address-h: 40px;
   /* ecard-table-lab shell: 44px card headers, 10px card corners. */
   --eva-chat-header-h: 44px;
+  /* How far an assistant's notch hangs below its chat header: portrait, padding, two hairlines. */
+  --eva-notch-hang: calc(var(--eva-control-xs) + var(--mantine-spacing-xs) * 2 + 2px);
   --eva-card-radius: 10px;
 }
 

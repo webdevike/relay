@@ -286,6 +286,8 @@ function ChatView({ paneId, place, main }: { paneId: string; place: Place; main:
           </Tooltip>
         ) : null}
       </div>
+      {/* The notch hangs below the header: the banner, log or empty state start below it. */}
+      {pane && agent !== null ? <div className="eva-chat-notch-room" aria-hidden /> : null}
       {pane?.error ? (
         <div className="eva-error-banner" role="alert" data-testid="chat-error">
           {pane.error}

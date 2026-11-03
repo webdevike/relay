@@ -203,6 +203,8 @@
   gap: var(--mantine-spacing-xs);
   /* Fixed width: changing status words crossfade in place and never resize the notch. */
   width: min(calc(var(--eva-control-xs) * 8), 50%);
+  /* Fixed height, so the chat below can leave exactly this much room (--eva-notch-hang). */
+  height: var(--eva-notch-hang);
   box-sizing: border-box;
   padding: 0 var(--mantine-spacing-lg) var(--mantine-spacing-xs);
   border: 1px solid var(--eva-c-border);
