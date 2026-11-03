@@ -28,7 +28,7 @@ struct LessonStep {
     let title: String
     let instruction: String
     /// App-hook expression that turns true once the user finished the step (Blender: Python).
-    let doneCheck: String?
+    var doneCheck: String?
 }
 
 /// What Buddy knows about the moment of the question, beyond the screenshot.
@@ -273,6 +273,32 @@ final class Brain {
             if !steps.isEmpty { return ((args["goal"] as? String) ?? goal, Array(steps.prefix(6))) }
         }
         throw BrainError.badResponse("no lesson steps")
+    }
+
+    /// Text-only re-plan of one lesson step's done_check after `rejected` was refused (already true now,
+    /// or it errored). nil on NONE, timeout or error: the step then waits for "next".
+    func recheck(goal: String, step: LessonStep, sceneState: String, rejected: String, why: String, timeout: TimeInterval) async -> String? {
+        guard let key = apiKey else { return nil }
+        let prompt = """
+        Blender lesson "\(goal)", step "\(step.title)": \(step.instruction)
+        Live state now (before the user does this step):
+        \(sceneState)
+
+        This done_check was rejected because \(why): \(rejected)
+        Write one Python expression that is False now and becomes True only once the user has done this step. \
+        Names: bpy, obj (active object or None), scene, mode (e.g. 'OBJECT', 'EDIT_MESH'). \
+        Reply with the expression only, or NONE if no state change shows this step.
+        """
+        let input: [[String: Any]] = [["role": "user", "content": [["type": "input_text", "text": prompt]]]]
+        guard let json = try? await send(input: input, key: key, instructions: "You write one Python boolean expression for a Blender lesson check.",
+                                         tools: [], toolChoice: "none", timeout: timeout) else { return nil }
+        var text = ((json["output"] as? [[String: Any]]) ?? [])
+            .filter { $0["type"] as? String == "message" }
+            .flatMap { ($0["content"] as? [[String: Any]]) ?? [] }
+            .compactMap { $0["text"] as? String }.joined()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        text = text.replacingOccurrences(of: #"^```(?:python)?\s*|\s*```$"#, with: "", options: .regularExpression)
+        return text.isEmpty || text.uppercased() == "NONE" || text.contains("\n") ? nil : text
     }
 
     /// Text-only one-liner for a spot Jev already found: no image, no tools. nil on timeout or error.

@@ -79,11 +79,13 @@ final class LessonController {
             guard let self else { return }
             do {
                 let (context, ask) = try await self.look(note: nil)
-                let (title, steps) = try await self.brain.planLesson(goal: goal, context: context, ask: ask)
+                let (title, planned) = try await self.brain.planLesson(goal: goal, context: context, ask: ask)
                 try Task.checkCancellation()
                 self.goal = title
+                Log.info("lesson plan: " + planned.enumerated().map { "\($0 + 1). \($1.title) [\($1.doneCheck ?? "manual")]" }.joined(separator: " "))
+                let steps = await self.vet(planned, sceneState: ask.sceneState)
+                try Task.checkCancellation()
                 self.steps = steps
-                Log.info("lesson plan: " + steps.enumerated().map { "\($0 + 1). \($1.title) [\($1.doneCheck ?? "manual")]" }.joined(separator: " "))
                 self.checklist.show(assistant: self.assistant, goal: title, steps: steps,
                                     windowFrame: Capture.frontWindow(pid: target.pid)?.frame)
                 self.show(0)
@@ -231,18 +233,37 @@ final class LessonController {
         return (plan, context, needsAX ? "ax label" : "window fraction")
     }
 
+    /// Only the current step's check runs, so steps finish one at a time and in order. A check that is
+    /// already true the moment its step starts (the step before did it too) would tick the step off by
+    /// itself: that step waits for "next" instead. Every result is logged when it changes.
     private func startPolling(_ step: LessonStep, index i: Int) {
         poll?.cancel()
         let hook = self.hook
         let pid = target?.pid
+        if hook != nil, step.doneCheck == nil {
+            poll = nil
+            return waitForNext(i, why: "no usable check")
+        }
         poll = Task { [weak self] in
             var baseline: Int?
+            var last: Bool??
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 500_000_000)
+                if last != nil || baseline != nil { try? await Task.sleep(nanoseconds: 500_000_000) }
                 guard !Task.isCancelled else { return }
                 var done = false
                 if let hook, let check = step.doneCheck {
-                    done = await hook.check(check) == true
+                    let result = await hook.check(check)
+                    guard !Task.isCancelled else { return }
+                    if last == nil, result == true {
+                        Log.info("lesson check step \(i + 1): YES already at step start, rejected for \(check)")
+                        self?.waitForNext(i, why: "check already true at step start")
+                        return
+                    }
+                    if last == nil || last! != result {
+                        Log.info("lesson check step \(i + 1): \(Self.describe(result))\(last == nil ? " at step start" : "") for \(check)")
+                    }
+                    last = .some(result)
+                    done = result == true
                 } else if let pid {
                     // No hook: any change in the window's controls counts as progress.
                     let lines = await Task.detached { () -> [String] in
@@ -252,13 +273,50 @@ final class LessonController {
                     let fingerprint = lines.hashValue
                     if let baseline, !lines.isEmpty { done = fingerprint != baseline }
                     if baseline == nil, !lines.isEmpty { baseline = fingerprint }
+                    if baseline == nil { try? await Task.sleep(nanoseconds: 500_000_000) }
                 }
                 if done {
-                    await MainActor.run { self?.completed(i) }
+                    self?.completed(i)
                     return
                 }
             }
         }
+    }
+
+    private static func describe(_ result: Bool?) -> String {
+        result.map { $0 ? "YES" : "NO" } ?? "ERR"
+    }
+
+    private func waitForNext(_ i: Int, why: String) {
+        guard isActive, index == i else { return }
+        Log.info("lesson step \(i + 1): \(why), waits for next or Skip")
+        overlay.showStepPill("Step \(i + 1) of \(steps.count)  ·  \(steps[i].title)  ·  say next when done")
+    }
+
+    /// A model-written check that is already true (or errors) when the lesson is planned would tick its
+    /// step off by itself: it is re-planned once from the live state, else that step waits for "next".
+    private func vet(_ planned: [LessonStep], sceneState: String?) async -> [LessonStep] {
+        guard let hook else { return planned }
+        var steps = planned
+        for (i, step) in planned.enumerated() {
+            guard let check = step.doneCheck else { continue }
+            let now = await hook.check(check)
+            Log.info("lesson check step \(i + 1) at plan time: \(Self.describe(now)) for \(check)")
+            guard now == false else {
+                let why = now == true ? "it is already true now" : "it raised an error"
+                var replacement: String?
+                if let sceneState, let fresh = await brain.recheck(goal: goal, step: step, sceneState: sceneState,
+                                                                   rejected: check, why: why, timeout: 6) {
+                    let again = await hook.check(fresh)
+                    Log.info("lesson check step \(i + 1) re-planned: \(Self.describe(again)) at plan time for \(fresh)")
+                    if again == false { replacement = fresh }
+                }
+                steps[i].doneCheck = replacement
+                if replacement == nil { Log.info("lesson check step \(i + 1) rejected (\(why)): waits for next") }
+                continue
+            }
+        }
+        return steps
     }
 
     private func completed(_ i: Int) {
