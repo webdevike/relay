@@ -3,6 +3,8 @@ import { router } from "expo-router";
 import { parseAppLink } from "@relay/protocol";
 import { reviewLinkOf } from "@/reviews/model";
 
+const CANVAS_SLUG = /^[a-z0-9-]{1,80}$/;
+
 /** Opens a URL in the system handler, ignoring failures (e.g. no app can handle it). */
 export function openExternal(url: string): void {
   Linking.openURL(url).catch(() => undefined);
@@ -29,11 +31,16 @@ function openAppLink(url: string): boolean {
     case "settings":
       router.navigate("/settings");
       break;
-    case "canvas":
-      router.navigate("/canvas");
+    // A canvas room is opened by its board slug (`?canvas=`); the screen has nothing to show without one.
+    case "canvas": {
+      const slug = link.params?.canvas;
+      if (slug !== undefined && CANVAS_SLUG.test(slug)) router.navigate({ pathname: "/canvas", params: { slug } });
       break;
+    }
+    // `relay://open/board/<slug>` is that board; bare, the list of boards.
     case "board":
-      router.navigate("/boards");
+      if (link.sub === undefined) router.navigate("/boards");
+      else router.navigate({ pathname: "/boards", params: { slug: link.sub } });
       break;
     case "studio":
       router.navigate("/studio");

@@ -36,7 +36,7 @@ import { Chip } from "@/ui/Chip";
 import { AnimatedPortrait } from "@/ui/AnimatedPortrait";
 import { SegmentedTabs } from "@/ui/SegmentedTabs";
 import { Text } from "@/ui/Text";
-import { useWidgetActions } from "./WidgetActions";
+import { useWidgetActions, useWidgetClose } from "./WidgetActions";
 import type { AvatarEditorSpec } from "./widget";
 
 const PREVIEW = 144;
@@ -50,6 +50,7 @@ const FACE_TABS = [
 
 export function AvatarEditor({ spec }: { spec: AvatarEditorSpec }) {
   const actions = useWidgetActions();
+  const close = useWidgetClose();
   const start = useMemo(() => pinPortrait(spec.current as EditPortrait), [spec.current]);
   const [draft, setDraft] = useState<EditPortrait>(start);
   const [face, setFace] = useState<"idle" | "talking">("idle");
@@ -153,9 +154,11 @@ export function AvatarEditor({ spec }: { spec: AvatarEditorSpec }) {
         <Button
           label="Cancel"
           variant="ghost"
-          disabled={sent || !changed}
+          disabled={sent || (close === null && !changed)}
           onPress={() => {
-            setDraft(start);
+            // An editor the header opened closes; one the assistant wrote just goes back to its start.
+            if (close === null) setDraft(start);
+            else close();
           }}
         />
         <Button
@@ -165,6 +168,7 @@ export function AvatarEditor({ spec }: { spec: AvatarEditorSpec }) {
           onPress={() => {
             actions?.reply(saveMessage(spec.agent, draft));
             setSent(true);
+            close?.();
           }}
         />
       </View>
