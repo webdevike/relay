@@ -7,6 +7,7 @@
 
 import { createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import {
+  CONTROL_FEATURE,
   ESCALATOR_DEVICE_ID,
   FILES_PRESENCE_FEATURE,
   PROTOCOL_VERSION,
@@ -28,6 +29,7 @@ import {
 import type { AgentsDeltaTracker } from "./agents/delta-tracker";
 import type { SessionFiles } from "./agents/session-files";
 import type { BoardDelta, FileBoardStore } from "./boards/store";
+import { isLoopback } from "./boards/http";
 import { EMPTY_CATCHUP, type CatchUpDeck } from "./catchup/service";
 import type { ReactionRelaying } from "./reactions/service";
 import type { ArtifactRelaying } from "./artifacts/service";
@@ -43,6 +45,7 @@ import {
   type AssistantThread,
   type CallRelaying,
   type CanvasRelaying,
+  type ControlRelaying,
   type LiveRelaying,
   type DeviceStore,
   type DropBox,
@@ -111,6 +114,8 @@ export interface SessionDeps {
   readonly query: QueryRelaying | null;
   /** null when the host runs no live file presence; `files.*` frames are then ignored and `welcome.features` leaves it out. */
   readonly files: FilePresenceRelaying | null;
+  /** null when the host runs no remote control; `control.*` frames are then ignored and `welcome.features` leaves it out. */
+  readonly control: ControlRelaying | null;
 }
 
 /** Clock and scheduling seams so tests drive time deterministically. */
@@ -314,6 +319,7 @@ export class ClientSession {
     this.stopPairingTimeout();
     this.deps.calls?.drop(this.sink);
     this.deps.files?.drop(this.sink);
+    this.deps.control?.drop(this.sink);
     this.deps.live?.drop(this.sink);
     this.closed = true;
     this.onClose(this);
@@ -722,6 +728,12 @@ export class ClientSession {
       case "files.saved":
         this.deps.files?.saved(message.path, message.hash);
         break;
+      case "control.presence":
+        this.deps.control?.presence({ sink: this.sink, device: deviceId, loopback: isLoopback(this.deps.remoteAddress) }, message);
+        break;
+      case "control.res":
+        this.deps.control?.result(this.sink, message.rid, message.result);
+        break;
       case "hello":
       case "auth":
       case "pair.request":
@@ -970,7 +982,11 @@ export class ClientSession {
 
   private authenticate(deviceId: string): void {
     this.phase = { kind: "authenticated", deviceId };
-    const features = [...(this.deps.query === null ? [] : [QUERY_FEATURE]), ...(this.deps.files === null ? [] : [FILES_PRESENCE_FEATURE])];
+    const features = [
+      ...(this.deps.query === null ? [] : [QUERY_FEATURE]),
+      ...(this.deps.files === null ? [] : [FILES_PRESENCE_FEATURE]),
+      ...(this.deps.control === null ? [] : [CONTROL_FEATURE]),
+    ];
     this.sink.send({ t: "welcome", state: this.snapshot(), ...(features.length === 0 ? {} : { features }) });
     // Items that opened while this device was away; the escalator itself is the one that sent them.
     if (deviceId !== ESCALATOR_DEVICE_ID) {
@@ -1017,6 +1033,7 @@ export class ClientSession {
     this.stopPairingTimeout();
     this.deps.calls?.drop(this.sink);
     this.deps.live?.drop(this.sink);
+    this.deps.control?.drop(this.sink);
     this.closed = true;
     this.failure = `${code}: ${message}`;
     this.sink.send({ t: "error", code, message });

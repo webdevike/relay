@@ -903,6 +903,14 @@ export const agentInvoke = {
     input: z.object({ id: RequestId, approved: z.boolean() }).strict(),
     output: z.object({}),
   },
+  /**
+   * Isaac used the window (`input`: a key, click or scroll), or the page in front changed. Main
+   * tells the Relay Host, so agents on the Mini act on the Mac he is using (remote control).
+   */
+  'agent.presence': {
+    input: z.object({ page: z.string().max(300).nullable(), input: z.boolean() }).strict(),
+    output: z.object({}),
+  },
 } as const
 
 export const agentEvents = {

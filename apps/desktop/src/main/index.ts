@@ -265,7 +265,15 @@ function bootstrap(): void {
         }
       }
       const connections = registerConnections(ctx, chat.hostInfo)
-      registerAgentControl(ctx, update, chat.artifacts, chat.canvas, chat.studio, connections)
+      registerAgentControl(
+        ctx,
+        update,
+        chat.artifacts,
+        chat.canvas,
+        chat.studio,
+        connections,
+        chat.frames,
+      )
       installTestHooks(ctx)
     } catch (e) {
       // A half-started app (no window, no IPC) is worse than a clear failure.

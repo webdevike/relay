@@ -214,5 +214,16 @@ on quit). Every request needs a loopback peer, a loopback `Host` and `Authorizat
   own `focus()`, and a text field that lost focus gets it back.
 - **Destructive** (`app.quit`, `chat.start`): 403 `confirm-required` without `confirm: true`;
   with it, an Allow / Deny toast; no answer in 60 s is `denied`.
+- **Remote** (`src/main/agent-control/remote.ts`): agents on the Mini reach this app on whichever
+  Mac Isaac uses, through the Relay Host. On a host whose `welcome.features` has `control`, the app
+  sends `control.presence` (Mac name, instance, ms since Isaac last pressed a key, clicked,
+  scrolled or brought the window forward, the page in front, focus, remote mode) on connect and
+  after changes (at most once a second; the renderer reports input through `agent.presence`). The
+  host's `control.req {rid, action, params?, confirm?, scope?}` runs through the same runner as
+  `POST /actions/:id` (registry, params, confirm and Isaac's approval, scope, typing queue) and
+  answers `control.res` with the rid; `@actions` answers the catalog. Only the host's
+  authenticated connection delivers frames, and no client can send `control.req`, so nothing but
+  processes on the host's Mac reaches it. The Undo and approval toasts show here, on the Mac that
+  changed.
 
 Eva's client is `bun .omp/tools/relay-ctl.ts` in the Eva repo (`skill://relay-control`).

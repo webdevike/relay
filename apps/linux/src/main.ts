@@ -6,6 +6,7 @@
 // can find it.
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { homedir, hostname } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -94,6 +95,7 @@ import { QueryService } from "./query/service";
 import { queryTools } from "./query/tools";
 import { ReviewsService } from "./reviews/service";
 import { FilePresence } from "./files/presence";
+import { ControlRelay } from "./control/relay";
 
 const USAGE = `relay-linux <command>
 
@@ -624,6 +626,8 @@ function serve(
     clock: systemClock,
     log,
   });
+  // Agents on this Mac drive Relay Desktop on whichever Mac Isaac is using; the token is in serve.json.
+  const control = featureOn(config, "control", true) ? new ControlRelay(randomBytes(32).toString("hex"), systemClock, log) : null;
   log(`live view: VNC bridge to 127.0.0.1:${String(vncPort)} (macOS Screen Sharing)`);
   const server: RelayServer = new RelayServer(
     { port, hostName: name, version: bundleVersion() ?? pkg.version, vncPort },
@@ -663,6 +667,7 @@ function serve(
       reviews,
       query,
       files,
+      control,
       canvasPage: () => CANVAS_PAGE,
       pairing: new PinFilePairingUI(new TerminalPairingUI(), pairingPinPath(), PAIRING_TIMEOUT_MS),
       log,
@@ -683,7 +688,7 @@ function serve(
   activity.start();
   const infoPath = serveInfoPath();
   mkdirSync(dirname(infoPath), { recursive: true, mode: 0o700 });
-  writeFileSync(infoPath, JSON.stringify({ port: boundPort, pid: process.pid }), { mode: 0o600 });
+  writeFileSync(infoPath, JSON.stringify({ port: boundPort, pid: process.pid, ...(control === null ? {} : { controlToken: control.token }) }), { mode: 0o600 });
   chmodSync(infoPath, 0o600);
   log(`listening on ws://0.0.0.0:${boundPort}/relay as "${name}"`);
   log(
