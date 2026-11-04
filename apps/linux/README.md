@@ -280,16 +280,28 @@ ancestor omp process (a subagent's rows go to its top-level chat) and posts loop
 The host (`src/canvas/`) opens a room per board: a Y.Doc seeded from `--canvases/<slug>.json` (default on macOS
 `~/Library/Application Support/EvaOS/canvases`), y-websocket sync and awareness at `/canvas/<slug>/ws`, a
 debounced export back to the same file in EvaOS' exact format, and a watcher that merges outside writes. The
-session's agent (its name, color and avatar; its transcript as context) runs on a warm
-`omp --mode rpc --no-tools --thinking off` brain that streams board actions as a line DSL, typed into the doc as
-CRDT ops while tokens arrive; the opener is precomputed so it plays the moment Isaac joins.
+session's agent (its name, color and avatar; its transcript and its assistant's `thread.md` memory as context) is a
+full omp agent per room (`src/canvas/brain.ts`, `agent-config.ts`): `omp --mode rpc` on Opus at low effort with a saved
+session under `$XDG_CONFIG_HOME/relay/canvas/rooms/<room>/`, working in the agent home with the normal tools (read,
+bash, edit, write, grep, glob, task, web_search, browse) and the board as host tools (`canvas_act` runs action
+lines as its cursor, `canvas_read` reads cards whole). Its text streams into the bubble at its cursor; while a turn
+runs the cursor stays up with a status line (`Presence.doing`: the tool's intent, or "building the mockup…" while it
+writes a prototype), a note sent mid-turn is steered into the running turn, and selecting a card makes its cursor
+glance there. The guard (`src/canvas/guard.ts`, loaded as the session's only extension) refuses writes outside
+`<agent home>/work` and the room's board file, and anything external or in Isaac's name (pushes, GitHub writes,
+deploys, publishing, messages, posting data, purchases, his desktop or browser); those go to the chat as
+`@handoff main`, where Isaac approves them. Per room it stops at `$RELAY_CANVAS_MAX_TURNS` model requests (150) or
+`$RELAY_CANVAS_MAX_TOKENS` (6M), a turn at `$RELAY_CANVAS_MAX_TURN_MIN` (10), and the process idles out after
+`$RELAY_CANVAS_IDLE_STOP_MIN` (10, the session resumes on the next note); `$RELAY_CANVAS_MODEL` and
+`$RELAY_CANVAS_EFFORT` (low, medium) pick the starting model, and the room's model toggle switches it live.
+`GET /canvas/sessions/<room>` reports what it has spent (`usage`).
 
 Chat rows travel through the bridge's `canvas` request: the extension posts a `relay-canvas` custom message
 (`details`: `CanvasEntry` start = Join card, turn = one exchange, end = wrap-up) that lands in the session file
 without starting a turn, and phones see it as `AgentMessage.canvas` / `AssistantMessage.canvas`. Devices list
 rooms with `canvas.get` (`canvas.rooms` is pushed on every change) and enter with `canvas.open` → `canvas.access
 {path, token}`: the token (12 h, multi-use) opens the web client at `/canvas/<slug>/` (built from
-`packages/canvas-web`, embedded in the binary), its websocket, `/me`, `/img` and `/end`. Brains need omp on
+`packages/canvas-web`, embedded in the binary), its websocket, `/me`, `/img` and `/end`. The canvas self needs omp on
 PATH, in `~/.local/bin`, or `$RELAY_CANVAS_OMP`.
 
 The web client keeps the board tidy unless the room's `settings.tidy` is `false` (the Tidy toggle in its top bar):

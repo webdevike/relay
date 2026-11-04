@@ -26,8 +26,8 @@
 //                                         @move_node parent a node that lands fully inside a frame, and clear
 //                                         the parent when it lands outside it)
 //   @cursor <x> <y>                       glide the cursor to a spot on the board
-//   @handoff <main|Name> <request>        the canvas self only: hand work that needs real tools to
-//                                         the chat that started the room (main) or a joined worker
+//   @handoff <main|Name> <request>        the canvas self only: hand work outside its lane (needs Isaac's
+//                                         yes: pushes, deploys, messages, purchases) to the chat (main) or a worker
 
 import type { TextField } from "@relay/canvas-live/shared";
 
