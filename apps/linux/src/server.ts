@@ -80,7 +80,7 @@ export interface ServerDeps {
   readonly inbox: InboxRelaying | null;
   /** The host's assistant threads; null disables `assistant.*` frames and `POST /assistant/say`. */
   readonly assistant: AssistantRelaying | null;
-  /** The registry writer and the setup interview's widgets behind `/assistant/registry`, `/assistant/avatars` and `/assistant/voices`; absent answers them 404. */
+  /** The registry writer behind `/assistant/registry`; absent answers it 404. */
   readonly assistantAdmin?: Omit<AssistantAdmin, "assistant">;
   /** Voice calls with the assistant threads; null disables `call.*` frames. */
   readonly calls: CallRelaying | null;
@@ -231,7 +231,7 @@ export class RelayServer {
         if (path === "/query") return handleQueryRequest(this.deps.query, request, remote);
         if (path === "/assistant/say") return handleAssistantSay(this.deps.assistant, request, remote);
         if (isAssistantAdminPath(path))
-          return handleAssistantAdmin({ registry: null, samples: null, ...this.deps.assistantAdmin, assistant: this.deps.assistant }, request, remote, path);
+          return handleAssistantAdmin({ registry: null, ...this.deps.assistantAdmin, assistant: this.deps.assistant }, request, remote, path);
         if (path === "/catchup/bounce") return handleCatchUpBounce(this.deps.catchup, request, remote);
         if (path === "/reactions/agent") return handleAgentReaction(this.deps.reactions, this.deps.assistant, request, remote);
         return new Response("not found", { status: 404 });

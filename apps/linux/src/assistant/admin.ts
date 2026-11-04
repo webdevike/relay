@@ -1,6 +1,6 @@
 // Writes the assistant registry (`<agentHome>/.omp/assistant/agents.json`) and watches it:
 //   - `create` adds an entry (unique id, title and avatar seed), scaffolds the new assistant's
-//     prime.md (the setup interview, `onboarding.ts`) and its thread memory from the home's
+//     prime.md (its first-run prime, `onboarding.ts`) and its thread memory from the home's
 //     `.omp/assistant/thread.template.md`;
 //   - `update` changes fields of one entry (what an assistant's `assistant set` sends);
 //   - `retire` takes an entry out (kept in `.omp/assistant/retired.json`; its prime and memory stay);
@@ -12,7 +12,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, watch, writeFileSync }
 import { dirname, join } from "node:path";
 import { AssistantAgentId, AssistantPortrait } from "@relay/protocol";
 import { z } from "zod";
-import { AVATARS_PER_PAGE, LIVE_VOICES, onboardingPrime } from "./onboarding";
+import { firstRunPrime, LIVE_VOICES } from "./onboarding";
 import { avatarSeed, loadRegistry, Registry, REGISTRY_FILE, RegistryError, type AssistantAgentConfig } from "./registry";
 import { primeFile } from "./service";
 
@@ -61,7 +61,7 @@ export const AssistantDraft = z.object({
 });
 export type AssistantDraft = z.infer<typeof AssistantDraft>;
 
-/** A change to one entry; `null` clears an optional field. `avatarChoice` picks face n of the last `offerAvatars`. */
+/** A change to one entry; `null` clears an optional field. */
 export const AssistantPatch = z
   .object({
     title: z.string().trim().min(1).max(MAX_TITLE),
@@ -71,7 +71,6 @@ export const AssistantPatch = z
     voice: z.string().trim().min(1).nullable(),
     liveVoice: z.string().trim().min(1).nullable(),
     avatar: Avatar.nullable(),
-    avatarChoice: z.number().int().min(1),
   })
   .partial()
   .strict();
@@ -82,12 +81,6 @@ export interface FieldChange {
   readonly field: string;
   readonly from: unknown;
   readonly to: unknown;
-}
-
-/** One face offered by `offerAvatars`. */
-export interface AvatarOffer {
-  readonly n: number;
-  readonly portrait: AssistantPortrait;
 }
 
 export interface AssistantRegistryDeps {
@@ -118,11 +111,6 @@ export function idFromTitle(title: string): string {
 export function threadFile(agentHome: string, id: string): string {
   const eva = existsSync(join(agentHome, "work", "eva", "agents"));
   return join("work", ...(eva ? ["eva"] : []), "agents", id, "thread.md");
-}
-
-/** Where the faces last offered to `id` are kept, so `avatarChoice` n means what the user tapped. */
-export function avatarChoicesFile(id: string): string {
-  return join(".omp", "assistant", "agents", id, "avatar-choices.json");
 }
 
 function readJson(path: string): unknown {
@@ -193,13 +181,11 @@ export class AssistantRegistry {
     const index = registry.agents.findIndex((agent) => agent.id === id);
     const before = registry.agents[index];
     if (before === undefined) throw new RegistryError(`no assistant ${id}`);
-    const { avatarChoice, ...fields } = patch;
     // A null or empty value clears its field; the others replace in place, new ones go last.
-    const cleared = new Set(Object.entries(fields).flatMap(([field, value]) => (value === null || value === "" ? [field] : [])));
+    const cleared = new Set(Object.entries(patch).flatMap(([field, value]) => (value === null || value === "" ? [field] : [])));
     const next: Record<string, unknown> = Object.fromEntries(
-      [...Object.entries(before), ...Object.entries(fields)].filter(([field]) => !cleared.has(field)),
+      [...Object.entries(before), ...Object.entries(patch)].filter(([field]) => !cleared.has(field)),
     );
-    if (avatarChoice !== undefined) next["avatar"] = this.offered(id, avatarChoice);
     const entry = next as RawEntry;
     const agents = registry.agents.map((agent, at) => (at === index ? entry : agent));
     check(agents, entry);
@@ -231,33 +217,6 @@ export class AssistantRegistry {
     this.write({ ...registry, agents: registry.agents.filter((agent) => agent.id !== id) });
     this.deps.log(`assistant registry: retired ${entry.title} (${id})`);
     return entry;
-  }
-
-  /**
-   * Page `page` of faces for agent `id` (micah, seeds `<id>-<n>` not used by another agent,
-   * the palette's colors); remembered so `update(id, { avatarChoice: n })` takes face n.
-   */
-  offerAvatars(id: string, page: number): AvatarOffer[] {
-    const registry = this.read();
-    if (!registry.agents.some((agent) => agent.id === id)) throw new RegistryError(`no assistant ${id}`);
-    const taken = new Set(registry.agents.filter((agent) => agent.id !== id).map((agent) => avatarSeed(agent)));
-    const offers: AvatarOffer[] = [];
-    for (let n = (page - 1) * AVATARS_PER_PAGE + 1; offers.length < AVATARS_PER_PAGE; n++) {
-      let seed = `${id}-${String(n)}`;
-      for (let k = 2; taken.has(seed); k++) seed = `${id}-${String(n)}-${String(k)}`;
-      const colors = AVATAR_PALETTE[(n - 1) % AVATAR_PALETTE.length];
-      offers.push({ n, portrait: { style: "micah", seed, ...(colors === undefined ? {} : { colors: { ...colors } }) } });
-    }
-    const file = join(this.deps.agentHome, avatarChoicesFile(id));
-    let kept: AvatarOffer[] = [];
-    try {
-      kept = z.array(z.object({ n: z.number(), portrait: AssistantPortrait })).parse(readJson(file));
-    } catch {
-      // First offer.
-    }
-    const byN = new Map([...kept, ...offers].map((offer) => [offer.n, offer]));
-    writeAtomic(file, `${JSON.stringify([...byN.values()].sort((a, b) => a.n - b.n), null, 2)}\n`);
-    return offers;
   }
 
   /** Rereads the file and hands it to `onChange` when it changed and parses; a broken file is logged and the threads keep the last good list. */
@@ -323,19 +282,7 @@ export class AssistantRegistry {
     this.reload();
   }
 
-  private offered(id: string, n: number): AssistantPortrait {
-    let offers: AvatarOffer[] = [];
-    try {
-      offers = z.array(z.object({ n: z.number(), portrait: AssistantPortrait })).parse(readJson(join(this.deps.agentHome, avatarChoicesFile(id))));
-    } catch {
-      // Nothing offered yet.
-    }
-    const offer = offers.find((candidate) => candidate.n === n);
-    if (offer === undefined) throw new RegistryError(`no avatar ${String(n)} was offered to ${id}; run \`assistant avatars --agent ${id}\` first`);
-    return offer.portrait;
-  }
-
-  /** The new assistant's prime.md (the setup interview) and thread.md, unless they exist. */
+  /** The new assistant's prime.md (its first-run prime) and thread.md, unless they exist. */
   private scaffold(entry: RawEntry, others: readonly RawEntry[]): void {
     const home = this.deps.agentHome;
     const userName = this.deps.userName();
@@ -347,7 +294,7 @@ export class AssistantRegistry {
         : `${this.deps.cli} assistant say --agent <id> "<what was asked, with any link>"`;
       writeAtomic(
         prime,
-        `${onboardingPrime({
+        `${firstRunPrime({
           id: entry.id,
           title: entry.title,
           scope: typeof entry["scope"] === "string" ? entry["scope"] : "",

@@ -17,7 +17,6 @@ import { bundleVersion } from "./bundle-version";
 import { ensureOmpExtensions } from "./agents/extensions";
 import { hasAiAccount, hostLogPath, ompAccounts } from "./assistant/ai-account";
 import { AssistantRegistry, type FieldChange } from "./assistant/admin";
-import { InterviewSamples, openAiSpeech, pocketSpeech, rasterizeSvg } from "./assistant/samples";
 import { defaultSocketPath, OmpBridgeProvider } from "./agents/bridge";
 import { SessionFiles } from "./agents/session-files";
 import {
@@ -139,18 +138,15 @@ const USAGE = `relay-linux <command>
                                    relays it to Isaac. \`say -\` or no text reads stdin
   assistant list                   the running host's registry entries (JSON)
   assistant create --title <Name> [--scope "what it is for"] [--id <id>] [--start]
-                                   add an assistant: registry entry, a prime.md that runs a setup
-                                   interview on its first turn, and its thread memory. It shows on
-                                   every phone and desktop at once; --start begins the interview
+                                   add an assistant: registry entry, a first-run prime.md (it
+                                   gets to know you by chatting, then writes its own
+                                   instructions) and its thread memory. It shows on every phone
+                                   and desktop at once; --start opens its thread
   assistant set --agent <id> [--title T] [--scope S] [--model M] [--voice V] [--live-voice V]
-                [--avatar-choice N] [--unset <field>]...
+                [--unset <field>]...
                                    change an assistant's registry entry (--agent defaults to
                                    $RELAY_ASSISTANT); prints what changed
   assistant retire --agent <id>    take an assistant out of the registry (prime and memory stay)
-  assistant avatars --agent <id> [--page N]
-  assistant voices --agent <id>    the setup interview's face and voice pickers: a \`\`\`openui
-                                   block to paste into a reply (taps send "Avatar <n>" /
-                                   "Voice: <name>")
   canvas start [<slug>] [--title "New board"] [--prompt "what this session is for"]
                                    from an omp session: start a live canvas on board <slug> (an
                                    EvaOS board; a new one when it does not exist or no slug is
@@ -438,15 +434,6 @@ function serve(
           log,
         });
   const liveKey = assistant === null ? null : openAiKey(agentHome);
-  // The setup interview's face and voice pickers: drops the chat loads, voices as calls would speak them.
-  const samples = new InterviewSamples({
-    drops,
-    cacheDir: join(relayConfigDir(), "voice-samples"),
-    rasterize: rasterizeSvg,
-    speakLive: liveKey === null ? null : openAiSpeech(liveKey),
-    speakLocal: voice === null ? null : pocketSpeech(`http://127.0.0.1:${process.env["POCKET_PORT"] ?? "8853"}`),
-    log,
-  });
   const live =
     assistant === null
       ? null
@@ -615,7 +602,7 @@ function serve(
       notifier,
       inbox,
       assistant,
-      assistantAdmin: { registry: registryAdmin, samples },
+      assistantAdmin: { registry: registryAdmin },
       calls,
       live,
       usage,
@@ -929,8 +916,6 @@ interface AssistantCliOptions {
   readonly model: string | undefined;
   readonly voice: string | undefined;
   readonly liveVoice: string | undefined;
-  readonly avatarChoice: string | undefined;
-  readonly page: string | undefined;
   readonly unset: readonly string[];
   readonly start: boolean;
 }
@@ -942,7 +927,7 @@ function describeChange(change: FieldChange): string {
   return `${change.field}: ${show(change.from)} -> ${show(change.to)}`;
 }
 
-/** `assistant list|create|set|retire|avatars|voices`: the running host's registry and the setup interview's pickers. */
+/** `assistant list|create|set|retire`: the running host's registry. */
 async function assistantAdminCommand(verb: string, options: AssistantCliOptions): Promise<void> {
   const base = `${hostUrl()}/assistant`;
   const agent = options.agent ?? process.env["RELAY_ASSISTANT"];
@@ -972,7 +957,7 @@ async function assistantAdminCommand(verb: string, options: AssistantCliOptions)
         start: options.start,
       };
       const entry = (await (await call("/registry", { method: "POST", ...json(body) })).json()) as { id: string; title: string };
-      console.log(`created ${entry.title} (${entry.id})${options.start ? "; its setup interview has started" : ""}`);
+      console.log(`created ${entry.title} (${entry.id})${options.start ? "; its thread has started" : ""}`);
       return;
     }
     case "set": {
@@ -983,7 +968,6 @@ async function assistantAdminCommand(verb: string, options: AssistantCliOptions)
         ...(options.model === undefined ? {} : { model: options.model }),
         ...(options.voice === undefined ? {} : { voice: options.voice }),
         ...(options.liveVoice === undefined ? {} : { liveVoice: options.liveVoice }),
-        ...(options.avatarChoice === undefined ? {} : { avatarChoice: Number.parseInt(options.avatarChoice, 10) }),
         ...Object.fromEntries(options.unset.map((field) => [field, null])),
       };
       if (Object.keys(fields).length === 0) throw new Error("assistant set: nothing to change");
@@ -997,16 +981,8 @@ async function assistantAdminCommand(verb: string, options: AssistantCliOptions)
       console.log(`retired ${entry.title} (${id}); its prime.md and thread memory stay`);
       return;
     }
-    case "avatars":
-    case "voices": {
-      const id = need();
-      const page = verb === "avatars" && options.page !== undefined ? `&page=${encodeURIComponent(options.page)}` : "";
-      const program = await (await call(`/${verb}?agent=${encodeURIComponent(id)}${page}`, { method: "POST" })).text();
-      console.log(`\`\`\`openui\n${program}\n\`\`\``);
-      return;
-    }
     default:
-      throw new Error(`assistant: unknown subcommand ${verb}; try say, list, create, set, retire, avatars or voices`);
+      throw new Error(`assistant: unknown subcommand ${verb}; try say, list, create, set or retire`);
   }
 }
 
@@ -1414,8 +1390,6 @@ async function main(argv: string[]): Promise<void> {
       model: { type: "string" },
       voice: { type: "string" },
       "live-voice": { type: "string" },
-      "avatar-choice": { type: "string" },
-      page: { type: "string" },
       unset: { type: "string", multiple: true, default: [] },
       start: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
@@ -1492,7 +1466,7 @@ async function main(argv: string[]): Promise<void> {
         await assistantSay(values.agent, positionals.slice(2));
         return;
       }
-      if (verb === undefined) throw new Error("assistant: try say, list, create, set, retire, avatars or voices");
+      if (verb === undefined) throw new Error("assistant: try say, list, create, set or retire");
       await assistantAdminCommand(verb, {
         agent: values.agent,
         id: values.id,
@@ -1501,8 +1475,6 @@ async function main(argv: string[]): Promise<void> {
         model: values.model,
         voice: values.voice,
         liveVoice: values["live-voice"],
-        avatarChoice: values["avatar-choice"],
-        page: values.page,
         unset: values.unset,
         start: values.start,
       });

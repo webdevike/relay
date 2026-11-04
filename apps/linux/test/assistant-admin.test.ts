@@ -2,12 +2,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { parseOpenUI, type Drop } from "@relay/protocol";
-import { AssistantRegistry, avatarChoicesFile, idFromTitle, RETIRED_FILE, threadFile, WATCH_SETTLE_MS } from "../src/assistant/admin";
+import { AssistantRegistry, idFromTitle, RETIRED_FILE, threadFile, WATCH_SETTLE_MS } from "../src/assistant/admin";
 import { handleAssistantAdmin } from "../src/assistant/http";
-import { avatarChoices, onboardingPrime, primeFirstLine, voiceChoices } from "../src/assistant/onboarding";
-import { loadRegistry, REGISTRY_FILE, RegistryError, type AssistantAgentConfig } from "../src/assistant/registry";
-import { InterviewSamples } from "../src/assistant/samples";
+import { primeFirstLine } from "../src/assistant/onboarding";
+import { REGISTRY_FILE, RegistryError, type AssistantAgentConfig } from "../src/assistant/registry";
 import { primeFile } from "../src/assistant/service";
 
 const dirs: string[] = [];
@@ -50,7 +48,7 @@ describe("idFromTitle", () => {
 });
 
 describe("AssistantRegistry.create", () => {
-  it("adds the entry with a micah face of its own and scaffolds the interview prime and thread memory", () => {
+  it("adds the entry with a micah face of its own and scaffolds the first-run prime and thread memory", () => {
     const dir = home();
     const { admin, changes } = registry(dir);
     const entry = admin.create({ title: "Vega", scope: "Driving and the car" });
@@ -60,9 +58,10 @@ describe("AssistantRegistry.create", () => {
     expect(changes.at(-1)?.map((agent) => agent.id)).toEqual(["nova", "astra", "vega"]);
     const prime = readFileSync(join(dir, primeFile("vega")), "utf8");
     expect(prime.startsWith(primeFirstLine("Vega", "Jane"))).toBe(true);
-    expect(prime).toContain("relay-linux assistant avatars --agent vega");
+    expect(prime).toContain("Don't run a questionnaire");
+    expect(prime).toContain("relay-linux assistant set --agent vega --scope");
     expect(prime).toContain("Nova (nova): Personal; Astra (astra): eCard Systems work");
-    expect(prime).toContain('described you as: "Driving and the car"');
+    expect(prime).toContain('They said it is for: "Driving and the car"');
     expect(readFileSync(join(dir, "work", "agents", "vega", "thread.md"), "utf8")).toContain("## About Jane lately");
   });
 
@@ -118,19 +117,6 @@ describe("AssistantRegistry.update", () => {
     expect(() => admin.update("nova", { title: "Astra" })).toThrow(/called Astra already exists/);
     expect(() => admin.update("nova", { model: "two words" })).toThrow(/model must be/);
     expect(raw(dir).agents).toEqual([NOVA, ASTRA]);
-  });
-
-  it("takes face n of the last offer", () => {
-    const dir = home();
-    const { admin } = registry(dir);
-    expect(() => admin.update("nova", { avatarChoice: 2 })).toThrow(/no avatar 2 was offered/);
-    const offers = admin.offerAvatars("nova", 1);
-    expect(offers.map((offer) => offer.n)).toEqual([1, 2, 3, 4, 5, 6]);
-    expect(offers[1]?.portrait).toEqual({ style: "micah", seed: "nova-2", colors: { paper: "#e7f5ff", accent: "#f76707" } });
-    admin.offerAvatars("nova", 2);
-    expect(admin.update("nova", { avatarChoice: 8 })).toEqual([{ field: "avatar", from: NOVA.avatar, to: { style: "micah", seed: "nova-8", colors: { paper: "#e7f5ff", accent: "#f76707" } } }]);
-    expect(JSON.parse(readFileSync(join(dir, avatarChoicesFile("nova")), "utf8"))).toHaveLength(12);
-    expect(loadRegistry(dir)[0]).toMatchObject({ avatar: "nova-8", portrait: { seed: "nova-8" } });
   });
 });
 
@@ -203,92 +189,11 @@ describe("AssistantRegistry reload and watch", () => {
   });
 });
 
-describe("interview widgets", () => {
-  it("parse as Relay widgets: faces with pick buttons, voice samples with use buttons", () => {
-    const faces = avatarChoices("Vega", [1, 2, 3, 4, 5, 6].map((n) => ({ n, path: `/drops/d${String(n)}/tok` })));
-    const parsedFaces = parseOpenUI(faces);
-    expect(parsedFaces.errors).toEqual([]);
-    expect(JSON.stringify(parsedFaces.node)).toContain("Avatar 6");
-    const voices = voiceChoices("Vega", [
-      { voice: "marin", engine: "live", path: "/drops/v1/tok" },
-      { voice: "alba", engine: "local", path: "/drops/v2/tok" },
-    ]);
-    const parsedVoices = parseOpenUI(voices);
-    expect(parsedVoices.errors).toEqual([]);
-    expect(JSON.stringify(parsedVoices.node)).toContain("Voice: marin");
-    expect(JSON.stringify(parsedVoices.node)).toContain("Local voice: alba");
-  });
-
-  it("the stub prime's summary card parses once filled in", () => {
-    const prime = onboardingPrime({ id: "vega", title: "Vega", scope: "", userName: "Jane", cli: "relay-linux", threadFile: "work/agents/vega/thread.md", others: [], handoff: "relay-linux assistant say --agent <id> \"<text>\"" });
-    const card = /```openui\n([\s\S]*?)\n```/.exec(prime)?.[1] ?? "";
-    expect(parseOpenUI(card.replaceAll(/<[^>]+>/g, "x")).errors).toEqual([]);
-    expect(prime).toContain("The other assistants today: none yet");
-  });
-});
-
-describe("InterviewSamples", () => {
-  function drops() {
-    const box: Drop[] = [];
-    return {
-      box,
-      list: () => box,
-      putBlob: (_origin: "host" | "phone", blob: { name: string; mimeType: string; bytes: Uint8Array }): Drop => {
-        const drop: Drop = { id: `d${String(box.length)}`, kind: "file", origin: "host", createdAt: 1, title: blob.name, file: { name: blob.name, mimeType: blob.mimeType, size: blob.bytes.length, path: `/drops/d${String(box.length)}/t` } };
-        box.push(drop);
-        return drop;
-      },
-    };
-  }
-
-  it("draws each face and renders each voice once, reusing drops while they last", async () => {
-    const cacheDir = mkdtempSync(join(tmpdir(), "relay-samples-"));
-    dirs.push(cacheDir);
-    const box = drops();
-    const svgs: string[] = [];
-    const said: string[] = [];
-    const samples = new InterviewSamples({
-      drops: box,
-      cacheDir,
-      rasterize: (svg) => {
-        svgs.push(svg);
-        return Promise.resolve(new Uint8Array([1]));
-      },
-      speakLive: (voice) => {
-        said.push(voice);
-        return voice === "echo" ? Promise.reject(new Error("rate limited")) : Promise.resolve(new Uint8Array([2]));
-      },
-      speakLocal: null,
-      log: () => undefined,
-    });
-    const offers = [1, 2].map((n) => ({ n, portrait: { style: "micah" as const, seed: `vega-${String(n)}` } }));
-    const first = await samples.avatars("Vega", offers);
-    expect(await samples.avatars("Vega", offers)).toBe(first);
-    expect(svgs).toHaveLength(2);
-    const voices = await samples.voices("Vega");
-    expect(voices).toContain('Audio("/drops/');
-    expect(voices).not.toContain("Echo");
-    await samples.voices("Vega");
-    // A sample is rendered once (the failed one is retried), then served from the cache.
-    expect(said.filter((voice) => voice === "marin")).toHaveLength(1);
-    expect(said.filter((voice) => voice === "echo")).toHaveLength(2);
-    box.box.length = 0;
-    await samples.voices("Vega");
-    expect(said.filter((voice) => voice === "marin")).toHaveLength(1);
-    expect(box.box.length).toBeGreaterThan(0);
-  });
-
-  it("offers no voices without an engine", async () => {
-    const samples = new InterviewSamples({ drops: drops(), cacheDir: tmpdir(), rasterize: () => Promise.resolve(new Uint8Array()), speakLive: null, speakLocal: null, log: () => undefined });
-    expect(await samples.voices("Vega")).toBeNull();
-  });
-});
-
 describe("assistant registry routes", () => {
   it("are loopback only and answer a bad change with a 400", async () => {
     const dir = home();
     const { admin } = registry(dir);
-    const route = (path: string, init: RequestInit = {}, remote = "127.0.0.1") => handleAssistantAdmin({ registry: admin, samples: null, assistant: null }, new Request(`http://127.0.0.1${path}`, init), remote, path);
+    const route = (path: string, init: RequestInit = {}, remote = "127.0.0.1") => handleAssistantAdmin({ registry: admin, assistant: null }, new Request(`http://127.0.0.1${path}`, init), remote, path);
     expect((await route("/assistant/registry", {}, "100.64.0.9")).status).toBe(403);
     expect(await (await route("/assistant/registry")).json()).toEqual({ agents: [NOVA, ASTRA] });
     const bad = await route("/assistant/registry/nova", { method: "PATCH", body: JSON.stringify({ liveVoice: "robot" }) });
@@ -297,6 +202,5 @@ describe("assistant registry routes", () => {
     const good = await route("/assistant/registry/nova", { method: "PATCH", body: JSON.stringify({ scope: "Home" }) });
     expect(await good.json()).toEqual({ changes: [{ field: "scope", from: "Personal", to: "Home" }] });
     expect((await route("/assistant/registry", { method: "POST", body: "{}" })).status).toBe(404);
-    expect((await route("/assistant/avatars?agent=nova", { method: "POST" })).status).toBe(404);
   });
 });

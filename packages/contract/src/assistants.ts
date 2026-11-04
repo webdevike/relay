@@ -66,12 +66,11 @@ export const assistantsInvoke = {
   },
   /**
    * Adds an assistant through Relay (`assistant.create`): the host writes its registry entry and a
-   * prime that runs a setup interview, then starts its thread with "Hi <title>". Answers its id.
+   * first-run prime, then opens its thread with "Hi <title>"; the assistant gets to know Isaac by
+   * chatting and names itself. Without a title it is "New assistant" (numbered when taken). Answers its id.
    */
   'assistants.create': {
-    input: z
-      .object({ title: z.string().trim().min(1).max(40), scope: z.string().trim().max(200).optional() })
-      .strict(),
+    input: z.object({ title: z.string().trim().min(1).max(40).optional() }).strict(),
     output: z.object({ id: z.string().min(1) }),
   },
 } as const

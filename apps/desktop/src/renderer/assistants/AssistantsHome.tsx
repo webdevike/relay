@@ -11,6 +11,7 @@ import {
 import type { Assistant, AssistantStatus } from '@evaos/contract'
 import { agoLabel } from '@evaos/eva-core/model/jobs'
 import { placeOf, type Place } from '@evaos/shell-core'
+import { openPlace } from '../navigation/navigate'
 import { openFromNav } from '../navigation/open-in-app'
 import { pageMeta } from '../pages/page-meta'
 import { portrait } from '../ui/portrait'
@@ -23,8 +24,7 @@ import {
   rowTip,
   type ListTone,
 } from '../ui/list'
-import { useAssistants } from './assistants-store'
-import { NewAssistantModal } from './NewAssistantModal'
+import { createAgent, useAssistants } from './assistants-store'
 import { PortraitMotion } from './PortraitMotion'
 import './assistants.css'
 
@@ -58,6 +58,16 @@ export function AssistantsHome({ place }: { place: Place }) {
   const meta = pageMeta(place)
   const now = Date.now()
   const [creating, setCreating] = useState(false)
+  const [failed, setFailed] = useState<string | null>(null)
+  // One click: Relay Host adds "New assistant" and opens its thread; it gets to know Isaac by chatting.
+  const create = (): void => {
+    setCreating(true)
+    setFailed(null)
+    createAgent()
+      .then((id) => openPlace(placeOf(`agent:${id}`)))
+      .catch((err: unknown) => setFailed(err instanceof Error ? err.message : String(err)))
+      .finally(() => setCreating(false))
+  }
   return (
     <div className="eva-as-col" data-testid="assistants-home">
       <div className="eva-as-head">
@@ -69,15 +79,20 @@ export function AssistantsHome({ place }: { place: Place }) {
             leftSection={<IconPlus size={14} stroke={1.5} aria-hidden />}
             disabled={data?.relayUp !== true}
             title={data?.relayUp === true ? undefined : 'Relay is not connected'}
-            onClick={() => setCreating(true)}
+            loading={creating}
+            onClick={create}
             data-testid="assistants-new"
           >
             New assistant
           </Button>
         </div>
         <p className="eva-as-dim">{meta.description}</p>
+        {failed === null ? null : (
+          <p className="eva-as-dim eva-as-error" data-testid="assistants-new-error">
+            {failed}
+          </p>
+        )}
       </div>
-      <NewAssistantModal opened={creating} onClose={() => setCreating(false)} />
       {data === null ? null : (
         <ListView<Assistant>
           groups={[{ id: 'agents', items: data.agents }]}

@@ -70,11 +70,11 @@ export async function startAgent(id: string): Promise<void> {
 }
 
 /**
- * Adds an assistant through Relay Host, which writes its registry entry and starts its thread on a
- * setup interview. Resolves with its id, or rejects with Relay's reason (a taken name, Relay down).
+ * Adds an assistant ("New assistant") through Relay Host, which writes its registry entry and opens
+ * its thread; it gets to know Isaac by chatting. Resolves with its id, or rejects with Relay's reason.
  */
-export async function createAgent(title: string, scope: string): Promise<string> {
-  const r = await invoke('assistants.create', { title, ...(scope.trim() ? { scope } : {}) })
+export async function createAgent(): Promise<string> {
+  const r = await invoke('assistants.create', {})
   if (!r.ok) throw new Error(r.error.message)
   await load()
   return r.value.id
