@@ -62,7 +62,16 @@ export function lastAssistantLine(text: string): string {
 }
 
 /** Fields a structured (JSON object) result most likely summarizes itself in, best first. */
-const SUMMARY_KEYS = ['summary', 'outcome', 'result', 'message', 'answer', 'description', 'status', 'title']
+const SUMMARY_KEYS = [
+  'summary',
+  'outcome',
+  'result',
+  'message',
+  'answer',
+  'description',
+  'status',
+  'title',
+]
 
 /**
  * A finished subagent's outcome: the first line of its result `.md` (omp writes the summary as a
