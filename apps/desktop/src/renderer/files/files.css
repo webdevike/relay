@@ -518,6 +518,9 @@
   flex: 1;
   color: var(--eva-c-foreground);
 }
+.eva-files-banner[data-tone='info'] {
+  color: var(--eva-c-muted-foreground);
+}
 
 .eva-files-monaco {
   flex: 1;

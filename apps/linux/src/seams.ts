@@ -1,7 +1,7 @@
 // Seams between transport, input and storage. Mirrors apps/mac/Sources/RelayCore/Seams.swift:
 // the session only ever talks to these; input/ and the stores implement them; main.ts wires them.
 
-import type { AckError, AgentApproval, AgentAsk, AgentAskAnswer, AgentImage, AgentMessage, AgentOptions, AgentSession, ApprovalConfirmation, AssistantAgent, AssistantSnapshot, ClientMessage, Command, Drop, DropOrigin, FileFocus, GateStatus, InboxItem, InboxResolve, InputEvent, KeyName, ReviewsOp, ReviewsResult, ServerMessage, StudioOp, StudioResult, StudioState } from "@relay/protocol";
+import type { AckError, AgentApproval, AgentAsk, AgentAskAnswer, AgentImage, AgentMessage, AgentOptions, AgentSession, ApprovalConfirmation, AssistantAgent, AssistantFileReq, AssistantFileRes, AssistantSnapshot, ClientMessage, Command, Drop, DropOrigin, FileFocus, GateStatus, InboxItem, InboxResolve, InputEvent, KeyName, ReviewsOp, ReviewsResult, ServerMessage, StudioOp, StudioResult, StudioState } from "@relay/protocol";
 
 /** Outbound side of one connection. `send` after `close` is a no-op. */
 export interface FrameSink {
@@ -135,6 +135,11 @@ export interface AssistantRelaying {
    * with `start`, starts its thread. Rejects with `AckFailure`. Absent where the host cannot write the registry.
    */
   create?(input: { readonly id?: string; readonly title: string; readonly scope?: string }, start: boolean): Promise<{ readonly id: string; readonly title: string }>;
+  /**
+   * `assistant.file.req`: reads or saves agent `agent`'s prime.md or thread memory (`assistant/files.ts`).
+   * Absent where the host has no agent home.
+   */
+  file?(req: Pick<AssistantFileReq, "agent" | "file" | "op" | "text" | "expectedHash" | "force">): Omit<AssistantFileRes, "t" | "rid">;
 }
 
 /** What the session needs of the host's live canvas rooms (`canvas/service.ts`). */

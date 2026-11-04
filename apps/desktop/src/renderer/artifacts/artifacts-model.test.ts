@@ -233,6 +233,66 @@ describe('artifacts model', () => {
       expect.arrayContaining(['/s/chat/hosted.jsonl', '/s/chat/unlisted.jsonl']),
     )
   })
+  it("lists a thin client's helper once: the host's path and the mirrored one are the same subagent", () => {
+    // The host (the Mini) lists the path on its own disk; this Mac reads a mirror under another root.
+    const session = '/Users/isaac/.relay-mirror/sessions/2026_chat.jsonl'
+    const hostSays = item(
+      'subagent:/Users/ike/.omp/agent/sessions/-Eva/2026_chat/WorkingList.jsonl',
+      {
+        path: '/Users/ike/.omp/agent/sessions/-Eva/2026_chat/WorkingList.jsonl',
+        title: 'WorkingList',
+        lastSeen: NOW - 5000,
+        subagent: { state: 'running', startedAt: NOW - 60_000, line: 'Reading the popover' },
+      },
+    )
+    const fact = {
+      name: 'WorkingList',
+      file: 'WorkingList.jsonl',
+      done: false,
+      failed: false,
+      mtimeMs: NOW - 1000,
+      lastLine: 'Reading the popover',
+    }
+    const out = withTranscripts([hostSays], session, [fact], NOW)
+    expect(out.filter((i) => i.subagent !== undefined)).toHaveLength(1)
+    expect(out[0]?.id).toBe(hostSays.id)
+    // The same helper listed under both paths by the host collapses too, running first.
+    const twin = {
+      ...hostSays,
+      id: 'subagent:/mirror/2026_chat/WorkingList.jsonl',
+      path: '/mirror/2026_chat/WorkingList.jsonl',
+      subagent: { state: 'done' as const, startedAt: NOW - 60_000, endedAt: NOW - 30_000 },
+    }
+    expect(withTranscripts([twin, hostSays], '/s/none', [], NOW).map((i) => i.id)).toEqual([
+      hostSays.id,
+    ])
+    // Two different helpers of different chats that share a file name stay two.
+    const other = {
+      ...hostSays,
+      id: 'subagent:/x/2026_other/WorkingList.jsonl',
+      path: '/x/2026_other/WorkingList.jsonl',
+    }
+    expect(withTranscripts([hostSays, other], '/s/none', [], NOW)).toHaveLength(2)
+  })
+  it('shows a helper woken by a follow-up as running, not finished', () => {
+    const session = '/s/chat.jsonl'
+    const host = item('subagent:/s/chat/Astra.jsonl', {
+      path: '/s/chat/Astra.jsonl',
+      subagent: { state: 'done', startedAt: NOW - 3_600_000, endedAt: NOW - 1_800_000 },
+    })
+    // main's facts: the transcript went on after its `.md`, so the fact is not done.
+    const woken = {
+      name: 'Astra',
+      file: 'Astra.jsonl',
+      done: false,
+      failed: false,
+      mtimeMs: NOW - 2000,
+      lastLine: 'Applying the follow-up',
+    }
+    const [row] = withTranscripts([host], session, [woken], NOW)
+    expect(subagentView(row!, NOW)).toBe('running')
+    expect(row?.subagent).not.toHaveProperty('endedAt')
+  })
   it('reads one state for a subagent: a running one nobody has touched in 30 minutes is done', () => {
     const sub = (state: 'running' | 'done', touched: number) =>
       item('subagent:x', { lastSeen: touched, subagent: { state, startedAt: touched } })

@@ -89,6 +89,28 @@ export interface SubagentEntry {
   file: string
   mtimeMs: number
   done: boolean
+  /** When omp wrote the `.md` (set when it exists): a transcript newer than this was written to since. */
+  resultMtimeMs?: number
+}
+
+/** A transcript this much newer than its result file was written to after the result. */
+export const RESUME_SLACK_MS = 1000
+
+/**
+ * Whether a listed subagent's run is over: omp wrote its `.md`, or its transcript ends with the
+ * `yield` result or `session_exit`. A helper woken by a follow-up message writes to its transcript
+ * again while the old `.md` still sits beside it, so a `.md` older than a transcript that does not
+ * end is no ending: the helper runs again. `text` is the transcript (or its tail); '' says nothing
+ * and leaves the `.md` as the answer.
+ */
+export function subagentOver(s: SubagentEntry, text: string): boolean {
+  const woken =
+    s.done &&
+    s.resultMtimeMs !== undefined &&
+    s.mtimeMs > s.resultMtimeMs + RESUME_SLACK_MS &&
+    text !== '' &&
+    !ompSubagentEnded(text)
+  return !woken && (s.done || ompSubagentEnded(text))
 }
 
 /**
@@ -107,12 +129,19 @@ export function subagentFinished(s: { done: boolean; mtimeMs: number }, now: num
 export function subagentsFromListing(
   entries: ReadonlyArray<{ name: string; mtimeMs: number }>,
 ): SubagentEntry[] {
-  const names = new Set(entries.map((e) => e.name))
+  const results = new Map(entries.map((e) => [e.name, e.mtimeMs]))
   return entries
     .filter((e) => e.name.endsWith('.jsonl'))
     .map((e) => {
       const stem = e.name.slice(0, -'.jsonl'.length)
-      return { name: stem, file: e.name, mtimeMs: e.mtimeMs, done: names.has(`${stem}.md`) }
+      const result = results.get(`${stem}.md`)
+      return {
+        name: stem,
+        file: e.name,
+        mtimeMs: e.mtimeMs,
+        done: result !== undefined,
+        ...(result === undefined ? {} : { resultMtimeMs: result }),
+      }
     })
     .filter((e) => e.name !== '')
     .sort((a, b) => b.mtimeMs - a.mtimeMs)

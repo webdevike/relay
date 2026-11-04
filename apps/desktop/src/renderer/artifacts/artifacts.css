@@ -343,6 +343,34 @@
   gap: var(--eva-space-xs);
 }
 
+/* A Working row's meta line: the kind (icon and label), then the live intent or the question. */
+.eva-art-meta-line {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  min-width: 0;
+}
+.eva-art-owner {
+  flex: none;
+  font-weight: 500;
+}
+.eva-art-kind {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.3);
+  color: var(--eva-text-dim);
+}
+.eva-art-intent {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+[data-state='waiting'] .eva-art-intent {
+  color: var(--eva-text);
+}
+
 /* The Artifacts overlay on an assistant page: the panel gets a fixed height to fill. */
 .eva-art-pop {
   display: flex;

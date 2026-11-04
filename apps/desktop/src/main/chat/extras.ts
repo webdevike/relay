@@ -2,7 +2,7 @@
 // truth). Reuses the ChatWatch batches fed in by index.ts; this module never watches anything.
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { backgroundJobs, ompSubagentEnded, subagentsFromListing } from '@evaos/chat-core/jobs'
+import { backgroundJobs, subagentOver, subagentsFromListing } from '@evaos/chat-core/jobs'
 import { oneLine } from '@evaos/chat-core/session'
 import type { Subagent } from '@evaos/chat-core/message'
 import { z } from 'zod'
@@ -194,9 +194,10 @@ export class ExtrasService {
         }
       }
       const text = read(s.file)
-      const done = s.done || ompSubagentEnded(text)
+      // A helper woken by a follow-up message has an old `.md` and a transcript that goes on: running.
+      const done = subagentOver(s, text)
       // A finished one shows its outcome (its `.md`), not the progress note it ended on.
-      const outcome = s.done ? outcomeLine(read(`${s.name}.md`)) : ''
+      const outcome = done && s.done ? outcomeLine(read(`${s.name}.md`)) : ''
       return {
         name: s.name,
         file: s.file,

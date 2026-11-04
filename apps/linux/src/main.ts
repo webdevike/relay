@@ -16,6 +16,7 @@ import pkg from "../package.json";
 import { bundleVersion } from "./bundle-version";
 import { ensureOmpExtensions } from "./agents/extensions";
 import { hasAiAccount, hostLogPath, ompAccounts } from "./assistant/ai-account";
+import { handleAssistantFile } from "./assistant/files";
 import { AssistantRegistry, type FieldChange } from "./assistant/admin";
 import { defaultSocketPath, OmpBridgeProvider } from "./agents/bridge";
 import { SessionFiles } from "./agents/session-files";
@@ -52,6 +53,8 @@ import {
 } from "./catchup/service";
 import { defaultReactionsPath, reactionFeedbackPath, ReactionService } from "./reactions/service";
 import { ArtifactService, defaultArtifactsRoot } from "./artifacts/service";
+import { ActivityService } from "./activity/service";
+import { listHerdrAgents } from "./agents/herdr";
 import { canvasAgentConfig, type CanvasAgentConfig } from "./canvas/agent-config";
 import { mindConfigOverlay, ompMinds, resolveOmp } from "./canvas/brain";
 import { MODELS } from "@relay/canvas-live/shared";
@@ -396,6 +399,7 @@ function serve(
     log,
     create: thread,
     ...(registryAdmin === null ? {} : { register: (input: unknown) => registryAdmin.create(input) }),
+    ...(agentHome === null ? {} : { file: (req) => handleAssistantFile(agentHome, req) }),
   });
   const stopRegistryWatch =
     registryAdmin === null || assistant === null
@@ -482,11 +486,13 @@ function serve(
     log,
   });
   const repos = new Map<string, string | null>();
+  let activity: ActivityService | null = null;
   const artifacts = new ArtifactService({
     root: defaultArtifactsRoot(),
     evaRoot: agentHome,
     broadcast: (message): void => {
       server.broadcastExcept(message, null);
+      activity?.poke();
     },
     threadFiles: (thread) => {
       if (thread.startsWith("session:")) {
@@ -551,6 +557,30 @@ function serve(
           },
   });
   const canvas = liveCanvas(canvasDir, agentHome, agents, () => registry, config);
+  activity = new ActivityService({
+    sessions: () => agents.sessions,
+    question: (sessionId) => {
+      const ask = agents.pendingAsk(sessionId);
+      if (ask !== null) return ask.questions[0]?.question ?? null;
+      const approval = agents.pendingApproval(sessionId);
+      return approval === null ? null : `Approve ${approval.toolName}${approval.command === "" ? "" : `: ${approval.command}`}`.slice(0, 300);
+    },
+    helpers: () => artifacts.helpers(),
+    harnesses: listHerdrAgents,
+    rooms: () => canvas?.list() ?? [],
+    roomCost: (slug) => {
+      try {
+        return canvas?.view(slug).usage.costUsd;
+      } catch {
+        return undefined;
+      }
+    },
+    broadcast: (message): void => {
+      server.broadcastExcept(message, null);
+    },
+    clock: systemClock,
+    log,
+  });
   // Jobs and state go out long after `server` below is initialised.
   const studio = studioService(agentHome, config, (message) => {
     server.broadcastExcept(message, null);
@@ -625,6 +655,7 @@ function serve(
       catchup,
       reactions,
       artifacts,
+      activity,
       canvas,
       sessionFiles: new SessionFiles(),
       studio,
@@ -638,6 +669,7 @@ function serve(
   );
   rmSync(pairingPinPath(), { force: true });
   const boundPort = server.start();
+  activity.start();
   const infoPath = serveInfoPath();
   mkdirSync(dirname(infoPath), { recursive: true, mode: 0o700 });
   writeFileSync(infoPath, JSON.stringify({ port: boundPort, pid: process.pid }), { mode: 0o600 });
@@ -689,6 +721,7 @@ function serve(
     rmSync(pairingPinPath(), { force: true });
     advertiser.stop();
     canvas?.stop();
+    activity?.stop();
     studio?.stop();
     reviews?.stop();
     server.stop();

@@ -97,6 +97,30 @@ export const filesInvoke = {
     input: z.object({ file: z.string().min(1).max(4096).startsWith('/').nullable() }).strict(),
     output: z.object({ root: z.string(), name: z.string() }).strict(),
   },
+  /**
+   * Opens an assistant's two instruction files (prime.md, thread.md) in the Files panel: the root
+   * to show and the root-relative paths. On a thin client the files are the Mini's, behind a
+   * virtual root served through the Mini's Relay Host; nothing else of it is reachable.
+   */
+  'files.agent': {
+    input: z
+      .object({
+        agent: z
+          .string()
+          .regex(/^[a-z][a-z0-9-]*$/)
+          .max(64),
+      })
+      .strict(),
+    output: z
+      .object({
+        root: z.string(),
+        name: z.string(),
+        prime: z.string(),
+        thread: z.string(),
+        remote: z.boolean(),
+      })
+      .strict(),
+  },
   /** One folder's entries: folders first, then case-insensitive by name. `.git` is never listed. */
   'files.list': {
     input: z.object({ ...rootIn, dir: RelPathSchema }).strict(),

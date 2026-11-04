@@ -5,7 +5,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { z } from 'zod'
 import { SUBAGENT_STALE_MS } from '@evaos/chat-core/artifacts'
-import { ompSubagentEnded, subagentsFromListing } from '@evaos/chat-core/jobs'
+import { subagentOver, subagentsFromListing } from '@evaos/chat-core/jobs'
 import { readTail } from '../assistants/assistants'
 import { lastAssistantLine } from '../chat/extras'
 
@@ -82,9 +82,10 @@ export function subagentsOf(file: string, now: number, lines: LineCache): Worker
     const full = path.join(dir, s.file)
     const st = stat(full)
     if (!st) continue
-    // Done once omp wrote the `.md`, or the transcript itself ends (session_exit / yield result):
-    // the same call the chips and the Artifacts panel make.
-    const done = s.done || ompSubagentEnded(readTail(full, TAIL) ?? '')
+    // Done once omp wrote the `.md`, or the transcript itself ends (session_exit / yield result),
+    // unless the transcript went on after the `.md` (a follow-up woke it): the same call the chips
+    // and the Artifacts panel make.
+    const done = subagentOver(s, readTail(full, TAIL) ?? '')
     if (!done && now - s.mtimeMs > SUBAGENT_STALE_MS) continue
     out.push({
       name: s.name,

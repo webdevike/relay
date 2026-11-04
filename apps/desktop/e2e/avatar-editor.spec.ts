@@ -7,7 +7,7 @@ import { EVA_FIXTURE_ROOT } from './helpers/paths'
 import { pickScheme } from './helpers/appearance'
 
 // An assistant's header portrait turns editable: hovering shows a pencil, clicking opens Edit
-// avatar / Edit instructions. Edit instructions asks the assistant in chat; Edit avatar drops the
+// avatar / Edit instructions. Edit instructions opens prime.md and thread.md in the Files tab; Edit avatar drops the
 // live avatar editor (a native OpenUI widget, drawn locally) into the thread, and Save sends
 // "Save my avatar: {json}" as the next turn. AVATAR_PROOF=<dir> also writes screenshots there.
 const PROOF = process.env.AVATAR_PROOF ?? ''
@@ -115,11 +115,10 @@ test('the header pencil opens Edit avatar and Edit instructions; Save sends the 
   await expect(shell.locator(sel('agent-edit-instructions'))).toBeVisible()
   await shot('2-menu')
 
-  // 3. Edit instructions: the ask is Isaac's next turn.
+  // 3. Edit instructions: opens the assistant's files in the Files tab; nothing goes to the chat.
   await shell.locator(sel('agent-edit-instructions')).click()
-  await expect
-    .poll(() => host.replies().some((r) => r.text.endsWith("I'd like to change your instructions")))
-    .toBe(true)
+  await expect(shell.locator(sel('files-panel'))).toBeVisible()
+  expect(host.replies()).toEqual([])
 
   // 4. Edit avatar: the live editor lands in the thread, starting from Nova's current face.
   await shell.locator(sel('agent-portrait-nova')).first().hover()

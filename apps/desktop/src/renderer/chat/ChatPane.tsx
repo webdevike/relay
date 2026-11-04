@@ -12,6 +12,9 @@ import { PendingDialog } from './cards/PendingDialog'
 import { JobsStrip } from './strips/JobsStrip'
 import { StatusStrip } from './strips/StatusStrip'
 import { SubagentChips } from './strips/SubagentChips'
+import { openActivity } from '../activity/open-activity'
+import { useActivityItems } from '../activity/activity-store'
+import { ownedActive } from '@evaos/chat-core/activity'
 import { listStore, useListStore } from './list/list-store'
 import { sessionId } from '@evaos/chat-core/session-id'
 import { chatStore, hiddenKey, useChatStore } from './chat-store'
@@ -198,6 +201,16 @@ function ChatView({
     replaceTabPlace(chat, tab)
   }, [boundTo, placeChat, tab])
 
+  // Everything else this chat's assistant has in progress (sessions, harnesses, canvas agents),
+  // from the host's activity list: a badge each beside the subagents'.
+  const activityItems = useActivityItems()
+  const ownThread =
+    agent !== null ? `assistant:${agent}` : pane?.file ? `session:${sessionId(pane.file)}` : null
+  const spunOff = useMemo(
+    () => ownedActive(activityItems, ownThread).filter((i) => i.kind !== 'helper'),
+    [activityItems, ownThread],
+  )
+
   // A tab on this chat names it as the header does, and follows a rename or omp's auto title.
   const shownFile = pane?.file ?? ''
   const shownTitle = pane?.title ?? ''
@@ -248,9 +261,7 @@ function ChatView({
                 pane.title
               )}
             </h2>
-            {agent !== null ? (
-              <AgentNotch id={agent} edit={{ paneId, reply: widgetActions.reply }} />
-            ) : null}
+            {agent !== null ? <AgentNotch id={agent} edit={{ paneId }} /> : null}
             {pane.file && !pane.extras.running && !pane.owner && !pane.away ? (
               <span className="eva-chat-saved">Saved session</span>
             ) : null}
@@ -331,6 +342,10 @@ function ChatView({
           subagents={pane.extras.subagents}
           hidden={hiddenNames}
           active={viewedSubagent}
+          activity={spunOff}
+          onOpenActivity={(item) => {
+            openActivity(item)
+          }}
           onOpen={(s) =>
             openSubagentTab({
               session: pane.file,

@@ -140,6 +140,33 @@ describe('RelayClient artifacts', () => {
     client.stop()
   })
 
+  it('asks for the activity list on every connection and keeps the latest snapshot, dropping bad rows', async () => {
+    const { client, socket } = await connected()
+    client.watchActivity()
+    socket.say(welcome)
+    expect(socket.frames()).toContainEqual({ t: 'activity.get' })
+    const heard = vi.fn()
+    client.onActivity(heard)
+    const row = {
+      id: 'harness:w1:p3',
+      kind: 'harness',
+      owner: 'other',
+      title: 'demo-claude',
+      status: 'working',
+      intent: 'claude in harness-demo',
+      startedAt: 1,
+      updatedAt: 2,
+      open: { to: 'terminal', pane: 'w1:p3' },
+    }
+    socket.say({
+      t: 'activity.snapshot',
+      items: [row, { ...row, id: 'bad', open: { to: 'nowhere' } }],
+    })
+    expect(heard).toHaveBeenCalledTimes(1)
+    expect(client.activity().map((i) => i.id)).toEqual(['harness:w1:p3'])
+    client.stop()
+  })
+
   it('resolves an act with its acted answer, a timeout, or the dropped connection', async () => {
     const { client, socket } = await connected()
     expect(

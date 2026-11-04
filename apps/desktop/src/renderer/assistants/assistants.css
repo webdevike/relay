@@ -158,6 +158,15 @@
   opacity: 1;
 }
 
+.eva-as-edit-label,
+.eva-as-edit-hint {
+  display: block;
+}
+.eva-as-edit-hint {
+  font-size: var(--mantine-font-size-xs);
+  color: var(--eva-c-muted-foreground);
+}
+
 .eva-as-notch-text {
   flex: 1 1 auto;
   min-width: 0;

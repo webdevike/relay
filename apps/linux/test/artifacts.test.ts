@@ -288,6 +288,39 @@ describe("ArtifactService", () => {
     expect(item(h, `subagent:${join(sub, "Builder.jsonl")}`)?.subagent?.state).toBe("done");
     expect(item(h, `subagent:${join(sub, "Builder", "Builder.Scout.jsonl")}`)?.subagent?.state).toBe("done");
   });
+
+  it("a finished helper woken by a follow-up message runs again, and finishes again at its next result", () => {
+    const h = harness();
+    const file = transcript(h);
+    appendFileSync(file, assistant(T0, [{ type: "toolCall", name: "task", arguments: { tasks: [{ name: "Builder" }] } }]));
+    const sub = file.replace(/\.jsonl$/, "");
+    mkdirSync(sub, { recursive: true });
+    const transcriptPath = join(sub, "Builder.jsonl");
+    const result = join(sub, "Builder.md");
+    const id = `subagent:${transcriptPath}`;
+    const yielded = line({ type: "message", message: { role: "toolResult", toolName: "yield" } });
+    writeFileSync(transcriptPath, line({ type: "custom", customType: "tool_execution_start", data: { intent: "First task" } }) + yielded);
+    writeFileSync(result, "done");
+    h.now = Date.now();
+    h.service.get("assistant:astra");
+    expect(item(h, id)?.subagent?.state).toBe("done");
+    // The follow-up lands: the old result file stays, the transcript goes on and ends in no result.
+    appendFileSync(transcriptPath, user(h.now, "one more thing") + line({ type: "custom", customType: "tool_execution_start", data: { intent: "Second task" } }));
+    const later = new Date(h.now + 5000);
+    utimesSync(transcriptPath, later, later);
+    h.tick(SUBAGENT_POLL_MS);
+    expect(item(h, id)?.subagent).toMatchObject({ state: "running", line: "Second task" });
+    expect(item(h, id)?.subagent).not.toHaveProperty("endedAt");
+    // Its next result ends it again.
+    appendFileSync(transcriptPath, yielded);
+    const end = new Date(h.now + 10_000);
+    utimesSync(transcriptPath, end, end);
+    writeFileSync(result, "done again");
+    utimesSync(result, end, end);
+    h.tick(SUBAGENT_POLL_MS);
+    expect(item(h, id)?.subagent?.state).toBe("done");
+    expect(h.service.helpers().map((found) => found.item.id)).toContain(id);
+  });
 });
 
 describe("ArtifactService acts", () => {

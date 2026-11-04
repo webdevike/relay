@@ -178,6 +178,9 @@ export function artifactsGetFrame(thread: string): Record<string, unknown> {
   return { t: 'artifacts.get', thread }
 }
 
+/** Asks for the activity list; Relay answers with its `activity.snapshot` (to every device). */
+export const ACTIVITY_GET_FRAME: Record<string, unknown> = { t: 'activity.get' }
+
 /** Asks Relay to do `action` on `thread`'s artifacts as `by`; answered by `artifacts.acted {rid}`. */
 export function artifactsActFrame(
   thread: string,

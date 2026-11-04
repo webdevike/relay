@@ -6,6 +6,7 @@ import { useChatStore } from '../chat/chat-store'
 import { useFrontChatPane } from '../chat/front-chat'
 import { invoke } from '../ipc'
 import { TerminalView } from './TerminalView'
+import { takeWatchRequest, useWatchRequest } from './terminal-watch'
 import './terminal.css'
 
 interface TerminalTab {
@@ -14,6 +15,8 @@ interface TerminalTab {
   /** The chat this terminal was opened for. */
   file: string | null
   title: string
+  /** A herdr pane shown view-only (a harness from the Working tab); the chat file is not used. */
+  watch?: string
 }
 
 const baseName = (p: string): string => p.replace(/\/+$/, '').split('/').pop() || p
@@ -50,6 +53,33 @@ export function TerminalPanel({ hidden }: { hidden: boolean }) {
     setActive((a) => (a === key ? (rest[Math.min(i, rest.length - 1)]?.key ?? null) : a))
   }, [])
 
+  // A harness the Working tab asked for opens view-only, and then no spare shell opens beside it.
+  const request = useWatchRequest()
+  useEffect(() => {
+    if (request === null) return
+    opened.current = true
+    const key = ++seq.current
+    setTabs((t) => {
+      const have = t.find((x) => x.watch === request.pane)
+      if (have) {
+        setActive(have.key)
+        return t
+      }
+      setActive(key)
+      return [
+        ...t,
+        {
+          key,
+          mode: 'attach',
+          file: null,
+          title: `${request.title} (view only)`,
+          watch: request.pane,
+        },
+      ]
+    })
+    takeWatchRequest()
+  }, [request])
+
   // The first time the tool shows, it opens a shell.
   useEffect(() => {
     if (hidden || opened.current) return
@@ -69,7 +99,9 @@ export function TerminalPanel({ hidden }: { hidden: boolean }) {
     }
   }, [hidden, chatFile])
 
-  const attached = tabs.find((t) => t.mode === 'attach' && t.file === chatFile)
+  const attached = tabs.find(
+    (t) => t.mode === 'attach' && t.watch === undefined && t.file === chatFile,
+  )
   const attach = (): void => {
     if (attached) setActive(attached.key)
     else open('attach', chatFile)
@@ -148,6 +180,7 @@ export function TerminalPanel({ hidden }: { hidden: boolean }) {
             <TerminalView
               file={t.file}
               mode={t.mode}
+              {...(t.watch === undefined ? {} : { watch: t.watch })}
               active={!hidden && t.key === active}
               onSpawn={({ cwd, title }) =>
                 setTabs((list) =>
@@ -155,7 +188,12 @@ export function TerminalPanel({ hidden }: { hidden: boolean }) {
                     x.key === t.key
                       ? {
                           ...x,
-                          title: t.mode === 'attach' ? `${title} ${baseName(cwd)}` : baseName(cwd),
+                          title:
+                            t.watch !== undefined
+                              ? x.title
+                              : t.mode === 'attach'
+                                ? `${title} ${baseName(cwd)}`
+                                : baseName(cwd),
                         }
                       : x,
                   ),

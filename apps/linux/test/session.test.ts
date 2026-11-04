@@ -13,6 +13,7 @@ import type { UsageService } from "../src/usage/service";
 import type { CatchUpDeck } from "../src/catchup/service";
 import type { ReactionRelaying } from "../src/reactions/service";
 import type { ArtifactRelaying } from "../src/artifacts/service";
+import type { ActivityRelaying } from "../src/activity/service";
 import type { QueryRelaying } from "../src/query/service";
 import { AckFailure, type AgentConfigChange, type AgentProvider, type AssistantRelaying, type AssistantThread, type CallClientMessage, type CallRelaying, type CanvasRelaying, type DeviceStore, type DropBox, type FilePresenceRelaying, type FrameSink, type GateCommand, type InboxRelaying, type InputSink, type LiveClientMessage, type LiveRelaying, type PairedDevice, type PairingUI, type PushRegistry, type ReviewsRelaying, type StudioRelaying, type TextInjecting, type VncAccess } from "../src/seams";
 import { ASSISTANT_FOLLOW_MS, ClientSession, PAIRING_TIMEOUT_MS, type SessionClock, type SessionDeps } from "../src/session";
@@ -116,6 +117,7 @@ interface HarnessOptions {
   catchup?: CatchUpDeck;
   reactions?: ReactionRelaying;
   artifacts?: ArtifactRelaying;
+  activity?: ActivityRelaying;
   canvas?: CanvasRelaying;
   sessionFiles?: SessionFiles;
   studio?: StudioRelaying;
@@ -172,6 +174,7 @@ function harness(options: HarnessOptions = {}): Harness {
     catchup: options.catchup ?? null,
     reactions: options.reactions ?? null,
     artifacts: options.artifacts ?? null,
+    activity: options.activity ?? null,
     canvas: options.canvas ?? null,
     sessionFiles: options.sessionFiles ?? null,
     studio: options.studio ?? null,
@@ -867,6 +870,23 @@ describe("artifacts", () => {
   });
 });
 
+describe("activity", () => {
+  it("hands activity.get to the service (which broadcasts), and answers an empty list without one", () => {
+    const calls: string[] = [];
+    const activity: ActivityRelaying = { get: () => void calls.push("get"), poke: () => undefined, observe: () => undefined };
+    const h = harness({ activity });
+    pair(h);
+    const sent = h.sink.sent.length;
+    h.session.receive({ t: "activity.get" });
+    expect(calls).toEqual(["get"]);
+    expect(h.sink.sent.length).toBe(sent);
+    const bare = harness();
+    pair(bare);
+    bare.session.receive({ t: "activity.get" });
+    expect(bare.sink.last()).toEqual({ t: "activity.snapshot", items: [] });
+  });
+});
+
 describe("habit gate", () => {
   const locked: GateStatus = { locked: true, blocked: true, reason: "planned break", active: null, habits: [{ id: "draw", name: "Draw", minutes: 10, photo: true }], tasks: [], canFinish: false, remainingSeconds: null };
 
@@ -1329,6 +1349,38 @@ describe("calls", () => {
     expect(calls.warms).toBe(1);
     h.session.receive({ t: "assistant.get", agent: "eva" });
     expect(calls.warms).toBe(1);
+  });
+
+  it("answers assistant.file.req from the assistants, and refuses it on a host without any", () => {
+    const nova: AssistantThread = {
+      id: "nova",
+      title: "Nova",
+      snapshot: () => Promise.resolve({ rev: 0, messages: [], busy: false, sessionId: "" }),
+      listing: () => Promise.resolve({ id: "nova", title: "Nova" }),
+      turn: () => Promise.resolve(),
+      say: () => Promise.resolve(),
+      signin: () => Promise.resolve(),
+    };
+    const asked: unknown[] = [];
+    const assistant: AssistantRelaying = {
+      threads: [nova],
+      thread: () => nova,
+      agents: () => Promise.resolve([]),
+      observe: () => undefined,
+      file: (req) => {
+        asked.push(req);
+        return { ok: true, kind: "text", text: "You are Nova.", version: { mtimeMs: 1, size: 13, hash: "h" } };
+      },
+    };
+    const h = harness({ assistant });
+    pair(h);
+    h.session.receive({ t: "assistant.file.req", rid: "r1", agent: "nova", file: "prime", op: "read" });
+    expect(asked).toHaveLength(1);
+    expect(h.sink.last()).toEqual({ t: "assistant.file.res", rid: "r1", ok: true, kind: "text", text: "You are Nova.", version: { mtimeMs: 1, size: 13, hash: "h" } });
+    const bare = harness();
+    pair(bare);
+    bare.session.receive({ t: "assistant.file.req", rid: "r2", agent: "nova", file: "thread", op: "read" });
+    expect(bare.sink.last()).toMatchObject({ t: "assistant.file.res", rid: "r2", ok: false, code: "invalid" });
   });
 
   it("hands every call frame to the calls with this socket's sink, and hangs up when the socket goes", () => {

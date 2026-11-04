@@ -1,9 +1,17 @@
 import './strips.css'
 import { useEffect, useState } from 'react'
 import { Scroller, Tooltip } from '@mantine/core'
-import { IconAlertCircle, IconCheck, IconChevronLeft, IconChevronRight } from '@tabler/icons-react'
+import {
+  IconAlertCircle,
+  IconCheck,
+  IconChevronLeft,
+  IconChevronRight,
+  IconHandStop,
+} from '@tabler/icons-react'
+import type { ActivityItem } from '@evaos/chat-core/activity'
 import { subagentFinished } from '@evaos/chat-core/jobs'
 import type { Subagent } from '@evaos/chat-core/message'
+import { KIND_ICON } from '../../artifacts/ActivityRows'
 
 export type SubagentState = 'running' | 'done' | 'failed'
 
@@ -35,6 +43,12 @@ export interface SubagentChipsProps {
   active?: string | null
   onOpen: (s: Subagent) => void
   onClearDone: () => void
+  /**
+   * Everything else this chat's assistant has in progress (sessions, harnesses, canvas agents, and
+   * helpers the transcripts do not list): a badge each, opened the way the Working tab's rows are.
+   */
+  activity?: readonly ActivityItem[]
+  onOpenActivity?: (item: ActivityItem) => void
 }
 
 /**
@@ -47,10 +61,12 @@ export function SubagentChips({
   active = null,
   onOpen,
   onClearDone,
+  activity = [],
+  onOpenActivity,
 }: SubagentChipsProps) {
   const now = useMinute()
   const shown = subagents.filter((s) => !(subagentFinished(s, now) && hidden.has(s.name)))
-  if (shown.length === 0) return null
+  if (shown.length === 0 && activity.length === 0) return null
   const anyDone = shown.some((s) => subagentFinished(s, now))
   return (
     <div className="eva-chips" data-testid="subagent-chips" role="group" aria-label="Subagents">
@@ -86,7 +102,41 @@ export function SubagentChips({
                 onClick={() => onOpen(s)}
               >
                 <SubagentStateIcon state={state} />
+                <KIND_ICON.helper size={12} stroke={1.5} aria-hidden="true" />
                 <span className="eva-chip-name">{s.name}</span>
+              </button>
+            </Tooltip>
+          )
+        })}
+        {activity.map((item) => {
+          const Kind = KIND_ICON[item.kind]
+          const waiting = item.status === 'waiting'
+          return (
+            <Tooltip
+              key={item.id}
+              label={item.intent}
+              disabled={item.intent === ''}
+              multiline
+              maw={320}
+              openDelay={400}
+              position="top-start"
+            >
+              <button
+                type="button"
+                className="eva-chip eva-label"
+                data-testid={`activity-chip-${item.id}`}
+                data-state={waiting ? 'waiting' : 'running'}
+                data-kind={item.kind}
+                aria-label={`${item.kind} ${item.title}, ${waiting ? 'waiting on you' : 'running'}`}
+                onClick={() => onOpenActivity?.(item)}
+              >
+                {waiting ? (
+                  <IconHandStop size={12} aria-hidden="true" />
+                ) : (
+                  <span className="eva-spinner" aria-hidden="true" />
+                )}
+                <Kind size={12} stroke={1.5} aria-hidden="true" />
+                <span className="eva-chip-name">{item.title}</span>
               </button>
             </Tooltip>
           )

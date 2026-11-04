@@ -13,6 +13,7 @@
 // With a remote host (another Mac over Tailscale) it dials that instead and pairs with a PIN.
 import type { ThreadReactions } from '@evaos/chat-core/reactions'
 import type { Artifact, ArtifactAction, ArtifactTab } from '@evaos/chat-core/artifacts'
+import type { ActivityItem } from '@evaos/chat-core/activity'
 import {
   BoardQueryAnswerSchema,
   studioWithJob,
@@ -39,6 +40,7 @@ import {
   reactionFrame,
   artifactsActFrame,
   artifactsGetFrame,
+  ACTIVITY_GET_FRAME,
   reactionsGetFrame,
   subscribeFrame,
   studioReqFrame,
@@ -101,6 +103,7 @@ export type RelaySessionEvent = Exclude<
       | 'boards'
       | 'reactions'
       | 'artifacts'
+      | 'activity'
       | 'acted'
       | 'canvasRooms'
       | 'canvasAccess'
@@ -201,6 +204,16 @@ export interface RelayArtifacts {
   actArtifacts(thread: string, by: string, action: ArtifactAction): Promise<ArtifactsActed>
   /** Called with the thread after each snapshot of any thread. */
   onArtifacts(cb: (thread: string) => void): () => void
+}
+
+/** Everything agents are running, as the host last sent it. */
+export interface RelayActivity {
+  /** The host's latest `activity.snapshot`; empty before its first. */
+  activity(): readonly ActivityItem[]
+  /** Asks for the list now (when connected) and after every reconnect. */
+  watchActivity(): void
+  /** Called after each snapshot. */
+  onActivity(cb: () => void): () => void
 }
 
 /** The host's answer to `canvas.open`: the room page's host-relative path, or why there is none. */
@@ -323,6 +336,7 @@ export class RelayClient
     RelayLink,
     RelayReactions,
     RelayArtifacts,
+    RelayActivity,
     RelayCanvas,
     RelayFrames,
     RelayStudio,
@@ -350,6 +364,9 @@ export class RelayClient
   private readonly artifactWatch = new Set<string>()
   /** The last snapshot of every thread heard from; kept while Relay is down. */
   private readonly artifactMap = new Map<string, ArtifactsSnapshot>()
+  private activityRows: readonly ActivityItem[] = []
+  private activityWatched = false
+  private readonly activityListeners = new Set<() => void>()
   /** Artifact actions sent on this connection, by rid, until Relay answers. */
   private readonly acts = new Map<
     string,
@@ -574,6 +591,20 @@ export class RelayClient
     return () => this.artifactListeners.delete(cb)
   }
 
+  activity(): readonly ActivityItem[] {
+    return this.activityRows
+  }
+
+  watchActivity(): void {
+    this.activityWatched = true
+    if (this.feed?.authenticated) this.send(ACTIVITY_GET_FRAME)
+  }
+
+  onActivity(cb: () => void): () => void {
+    this.activityListeners.add(cb)
+    return () => this.activityListeners.delete(cb)
+  }
+
   canvasRooms(): readonly CanvasRoom[] | null {
     return this.canvasList
   }
@@ -772,6 +803,7 @@ export class RelayClient
       for (const id of this.subscriptions) this.send(subscribeFrame(id))
       for (const thread of this.reactionThreads) this.send(reactionsGetFrame(thread))
       for (const thread of this.artifactWatch) this.send(artifactsGetFrame(thread))
+      if (this.activityWatched) this.send(ACTIVITY_GET_FRAME)
       if (this.studioWatched) this.send(STUDIO_LIST_FRAME)
     }
     if (feed.authenticated && typeof frame === 'object' && frame !== null) {
@@ -794,6 +826,10 @@ export class RelayClient
         case 'artifacts':
           this.artifactMap.set(event.thread, { items: event.items, tabs: event.tabs })
           for (const cb of [...this.artifactListeners]) cb(event.thread)
+          break
+        case 'activity':
+          this.activityRows = event.items
+          for (const cb of [...this.activityListeners]) cb()
           break
         case 'acted': {
           const a = this.acts.get(event.rid)
@@ -971,6 +1007,7 @@ export class StaticRelay
     RelayLink,
     RelayReactions,
     RelayArtifacts,
+    RelayActivity,
     RelayCanvas,
     RelayFrames,
     RelayStudio,
@@ -981,6 +1018,8 @@ export class StaticRelay
   private readonly listeners = new Set<() => void>()
   private readonly artifactMap = new Map<string, ArtifactsSnapshot>()
   private readonly artifactListeners = new Set<(thread: string) => void>()
+  private activityRows: readonly ActivityItem[] = []
+  private readonly activityListeners = new Set<() => void>()
 
   sessions(): ReadonlyMap<string, RelaySession> | null {
     return this.list
@@ -1113,6 +1152,23 @@ export class StaticRelay
   onArtifacts(cb: (thread: string) => void): () => void {
     this.artifactListeners.add(cb)
     return () => this.artifactListeners.delete(cb)
+  }
+
+  activity(): readonly ActivityItem[] {
+    return this.activityRows
+  }
+
+  watchActivity(): void {}
+
+  onActivity(cb: () => void): () => void {
+    this.activityListeners.add(cb)
+    return () => this.activityListeners.delete(cb)
+  }
+
+  /** As if the host sent its activity list. */
+  setActivity(items: readonly ActivityItem[]): void {
+    this.activityRows = items
+    for (const cb of [...this.activityListeners]) cb()
   }
 
   /** As if the host sent `thread`'s snapshot. */

@@ -123,6 +123,27 @@ describe('terminal service', () => {
     expect(() => t.svc.kill(id)).not.toThrow()
   })
 
+  it('shows a harness pane view-only: attached without takeover, and every keystroke is dropped', async () => {
+    const t = setup({ pane: null })
+    const { id } = await t.svc.spawn({
+      file: null,
+      mode: 'attach',
+      cols: 80,
+      rows: 24,
+      watch: 'w1:p3',
+    })
+    expect(t.spawned[0]).toMatchObject({ file: '/bin/herdr', argv: ['agent', 'attach', 'w1:p3'] })
+    t.svc.write(id, 'rm -rf /\r')
+    expect(t.ptys[0]!.written).toEqual([])
+    // Resizing still follows the panel, and a bare herdr is still refused.
+    t.svc.resize(id, 100, 30)
+    expect(t.ptys[0]!.size).toEqual([100, 30])
+    const bare = setup({ herdrBin: null })
+    await expect(
+      bare.svc.spawn({ file: null, mode: 'attach', cols: 80, rows: 24, watch: 'w1:p3' }),
+    ).rejects.toMatchObject({ code: 'no-herdr' })
+  })
+
   it('attaches to the chat session through herdr, or says why not', async () => {
     const t = setup()
     const r = await t.svc.spawn({ file: '/chat.jsonl', mode: 'attach', cols: 80, rows: 24 })

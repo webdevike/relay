@@ -8,6 +8,7 @@ import {
   IconEye,
   IconFileOff,
   IconFolderOpen,
+  IconInfoCircle,
   IconRefresh,
   IconX,
 } from '@tabler/icons-react'
@@ -16,6 +17,7 @@ import { Markdown } from '../chat/markdown/Markdown'
 import { FileIcon } from './FileIcon'
 import {
   activateTab,
+  agentFileKey,
   closeTab,
   pinTab,
   reloadTab,
@@ -23,6 +25,7 @@ import {
   revealFinder,
   saveTab,
   setClosingPath,
+  useFiles,
   useSpace,
   type EditorTab,
 } from './files-store'
@@ -152,6 +155,7 @@ export function EditorArea({ root }: { root: string }) {
   const setClosing = (path: string | null): void => setClosingPath(root, path)
   const [previews, setPreviews] = useState<ReadonlySet<string>>(new Set())
   const tab = tabs.find((t) => t.path === active) ?? null
+  const note = useFiles((s) => (tab ? s.agentFiles[agentFileKey(root, tab.path)] : undefined))
   const strip = useRef<HTMLDivElement>(null)
   useEffect(() => {
     strip.current
@@ -234,12 +238,14 @@ export function EditorArea({ root }: { root: string }) {
                 >
                   Copy relative path
                 </EvaMenu.Item>
-                <EvaMenu.Item
-                  leftSection={<IconFolderOpen size={14} stroke={1.5} />}
-                  onClick={() => revealFinder(root, tab.path)}
-                >
-                  Show in Finder
-                </EvaMenu.Item>
+                {note?.remote ? null : (
+                  <EvaMenu.Item
+                    leftSection={<IconFolderOpen size={14} stroke={1.5} />}
+                    onClick={() => revealFinder(root, tab.path)}
+                  >
+                    Show in Finder
+                  </EvaMenu.Item>
+                )}
                 <EvaMenu.Item
                   leftSection={<IconRefresh size={14} stroke={1.5} />}
                   onClick={() => void reloadTab(root, tab.path)}
@@ -273,6 +279,14 @@ export function EditorArea({ root }: { root: string }) {
           >
             Overwrite
           </Button>
+        </div>
+      ) : null}
+      {note?.kind === 'prime' ? (
+        <div className="eva-files-banner" data-tone="info" data-testid="files-prime-note">
+          <IconInfoCircle size={16} stroke={1.5} />
+          <span>
+            Changes apply when {note.title} starts fresh; tell {note.title} to reload now.
+          </span>
         </div>
       ) : null}
       {tab ? <Body root={root} tab={tab} preview={previewing} /> : null}

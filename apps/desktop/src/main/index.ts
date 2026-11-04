@@ -223,9 +223,16 @@ function bootstrap(): void {
           : null,
       )
       registerRoomsIpc(ctx)
-      // Agent cursors in the Files editor and Isaac's caret, through the Relay Host.
-      const presence = registerFilesPresenceIpc(ctx, chat.frames, () => chat.canvas.canvasOrigin())
-      registerFilesIpc(ctx, chat, presence.noteSave)
+      // Agent cursors in the Files editor and Isaac's caret, through the Relay Host; Files tells
+      // presence which host file a host-backed root shows, presence tells Files' saves apart.
+      let files: { hostPathOf(root: string, rel: string): string | null } | null = null
+      const presence = registerFilesPresenceIpc(
+        ctx,
+        chat.frames,
+        () => chat.canvas.canvasOrigin(),
+        (root, rel) => files?.hostPathOf(root, rel) ?? null,
+      )
+      files = registerFilesIpc(ctx, chat, presence.noteSave)
       registerTerminalIpc(ctx, chat)
       registerBrowser(ctx)
       const update = registerUpdate(ctx, {
