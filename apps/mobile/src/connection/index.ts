@@ -7,7 +7,23 @@
 import { useEffect } from "react";
 import { AppState, type AppStateStatus, type NativeEventSubscription } from "react-native";
 import { CryptoDigestAlgorithm, digest } from "expo-crypto";
-import { encode, parseServerMessage, reactionExcerpt, WS_PATH, type ArtifactAction, type CatchUpSignal, type ClientMessage, type Command, type InputEvent, type ReviewsOp, type ReviewsResult, type StudioOp, type StudioResult } from "@relay/protocol";
+import {
+  encode,
+  parseServerMessage,
+  reactionExcerpt,
+  WS_PATH,
+  type ArtifactAction,
+  type CatchUpSignal,
+  type ClientMessage,
+  type Command,
+  type InputEvent,
+  type MeetingsOp,
+  type MeetingsResult,
+  type ReviewsOp,
+  type ReviewsResult,
+  type StudioOp,
+  type StudioResult,
+} from "@relay/protocol";
 import { useConnectionStore } from "@/state/connection";
 import { useAgentsStore } from "@/state/agents";
 import { useDropsStore } from "@/state/drops";
@@ -22,6 +38,7 @@ import { useArtifactsStore } from "@/state/artifacts";
 import { useCanvasStore } from "@/state/canvas";
 import { useStudioStore } from "@/state/studio";
 import { useReviewsStore } from "@/state/reviews";
+import { useMeetingsStore } from "@/state/meetings";
 import { callIsLive, useCallStore } from "@/state/call";
 import { createCallFrameRouter } from "@/call/frames";
 import { callStats } from "@/call/stats";
@@ -41,6 +58,7 @@ import { createReactionFrameRouter } from "./reactions";
 import { createArtifactFrameRouter, PendingActs, type ActResult } from "./artifacts";
 import { createStudioFrameRouter, PendingStudio } from "./studio";
 import { createReviewsFrameRouter, PendingReviews } from "./reviews";
+import { createMeetingsFrameRouter, PendingMeetings } from "./meetings";
 import { createQueryClient, createQueryFrameRouter, PendingQueries } from "./query";
 import { beginCanvasAccess, canvasWelcomeFrames, createCanvasFrameRouter } from "./canvas";
 import { allowedTarget, mayDiscover, parseOnlyHost } from "./only-host";
@@ -95,10 +113,12 @@ const artifactThreads = new Map<string, number>();
 const pendingActs = new PendingActs();
 const pendingStudio = new PendingStudio();
 const pendingReviews = new PendingReviews();
+const pendingMeetings = new PendingMeetings();
 const pendingQueries = new PendingQueries();
 /** Live dashboard tiles' Query statements; only reachable on a host whose welcome offers "query". */
 export const liveQuery = createQueryClient(pendingQueries, (rid, tool, args) => {
-  if (useConnectionStore.getState().status !== "connected" || !useBoardsStore.getState().queries) return false;
+  if (useConnectionStore.getState().status !== "connected" || !useBoardsStore.getState().queries)
+    return false;
   socket.send(encode({ t: "query.req", rid, tool, args }));
   return true;
 });
@@ -112,7 +132,9 @@ function imageKey(sessionId: string, id: string): string {
   return `${sessionId}/${id}`;
 }
 
-const routeAgentFrame = createAgentFrameRouter(useAgentsStore.getState(), (message) => socket.send(encode(message)));
+const routeAgentFrame = createAgentFrameRouter(useAgentsStore.getState(), (message) =>
+  socket.send(encode(message)),
+);
 const routeDropFrame = createDropFrameRouter(useDropsStore.getState());
 const routeVncFrame = createVncFrameRouter(useVncStore.getState(), () => hostAuthority);
 const routeBoardFrame = createBoardFrameRouter(useBoardsStore.getState());
@@ -125,7 +147,11 @@ const routeArtifactFrame = createArtifactFrameRouter(useArtifactsStore.getState(
 const routeCanvasFrame = createCanvasFrameRouter(useCanvasStore.getState(), () => hostAuthority);
 const routeStudioFrame = createStudioFrameRouter(useStudioStore.getState(), pendingStudio);
 const routeReviewsFrame = createReviewsFrameRouter(useReviewsStore.getState(), pendingReviews);
-const routeQueryFrame = createQueryFrameRouter(useBoardsStore.getState().setQueries, pendingQueries);
+const routeMeetingsFrame = createMeetingsFrameRouter(useMeetingsStore.getState(), pendingMeetings);
+const routeQueryFrame = createQueryFrameRouter(
+  useBoardsStore.getState().setQueries,
+  pendingQueries,
+);
 const routeCallFrame = createCallFrameRouter(
   { update: useCallStore.getState().update, current: () => useCallStore.getState().call },
   {
@@ -141,7 +167,8 @@ const routeCallFrame = createCallFrameRouter(
 const discovery = new Discovery({
   onCandidate: (service) => {
     currentCandidate = service;
-    const pairedSecretHex = hosts.hosts.find((host) => host.id === (target ?? service.name))?.secretHex ?? null;
+    const pairedSecretHex =
+      hosts.hosts.find((host) => host.id === (target ?? service.name))?.secretHex ?? null;
     void dispatch({ type: "serviceFound", service, pairedSecretHex });
   },
   onServices: (services) => {
@@ -155,7 +182,10 @@ socket.onOpen = () => {
 socket.onClose = () => {
   // The host hangs up a call with its socket; say so here rather than leave the screen listening.
   const call = useCallStore.getState().call;
-  if (call !== null && call.state !== "ended") useCallStore.getState().update(call.id, { state: "ended", error: "Lost the connection to your Mac" });
+  if (call !== null && call.state !== "ended")
+    useCallStore
+      .getState()
+      .update(call.id, { state: "ended", error: "Lost the connection to your Mac" });
   // The next welcome says again whether this host answers queries; nothing in flight will be.
   useBoardsStore.getState().setQueries(false);
   pendingQueries.cancelAll();
@@ -195,18 +225,24 @@ socket.onMessage = (data) => {
     // The Assistants list comes from the host's registry and live sessions, which may have changed while away.
     socket.send(encode({ t: "assistant.agents" }));
     // A thread is only fetched while its screen is showing; the screen asks again on focus.
-    if (watchedAssistant !== null) socket.send(encode({ t: "assistant.get", agent: watchedAssistant }));
+    if (watchedAssistant !== null)
+      socket.send(encode({ t: "assistant.get", agent: watchedAssistant }));
     // Reactions may have changed on another device while this one was away.
-    for (const thread of reactionThreads.keys()) socket.send(encode({ t: "reactions.get", thread }));
-    for (const thread of artifactThreads.keys()) socket.send(encode({ t: "artifacts.get", thread }));
+    for (const thread of reactionThreads.keys())
+      socket.send(encode({ t: "reactions.get", thread }));
+    for (const thread of artifactThreads.keys())
+      socket.send(encode({ t: "artifacts.get", thread }));
     // Live canvas rooms come and go while away, and a restarted host counts revs from zero again and
     // forgot its tokens; an open the socket dropped before its answer asks again.
     useCanvasStore.getState().reconnected();
-    for (const frame of canvasWelcomeFrames(useCanvasStore.getState().access)) socket.send(encode(frame));
+    for (const frame of canvasWelcomeFrames(useCanvasStore.getState().access))
+      socket.send(encode(frame));
     // Studio jobs ran on while away; the host sends the whole state again.
     socket.send(encode({ t: "studio.list" }));
     // The Reviews queue moved while away; the host answers with its last read at once.
     void sendReviews({ kind: "queue", refresh: false });
+    // Recordings started, ended or moved on while away.
+    socket.send(encode({ t: "meetings.list" }));
   }
   if (message.t === "agent.image") imagesInFlight.delete(imageKey(message.sessionId, message.id));
   // Answered on the Mac, in the chat or on another device: take its notification off the lock screen.
@@ -227,6 +263,7 @@ socket.onMessage = (data) => {
   routeCanvasFrame(message);
   routeStudioFrame(message);
   routeReviewsFrame(message);
+  routeMeetingsFrame(message);
   routeQueryFrame(message);
   routeAssistantFrame(message);
   routeCallFrame(message);
@@ -256,11 +293,18 @@ async function applyEffects(effects: Effect[]): Promise<void> {
         if (manual === null) {
           // A pinned bundle never browses: a bad pin connects nowhere instead of to whatever answers.
           if (mayDiscover(ONLY_HOST)) discovery.start(target);
-          else if (ONLY_HOST.kind === "invalid") useConnectionStore.getState().set({ lastError: `EXPO_PUBLIC_RELAY_ONLY_HOST is not host:port: ${ONLY_HOST.raw}` });
+          else if (ONLY_HOST.kind === "invalid")
+            useConnectionStore
+              .getState()
+              .set({ lastError: `EXPO_PUBLIC_RELAY_ONLY_HOST is not host:port: ${ONLY_HOST.raw}` });
         } else {
           discovery.stop();
           currentCandidate = manual;
-          void dispatch({ type: "serviceFound", service: manual, pairedSecretHex: hosts.hosts.find((host) => host.id === target)?.secretHex ?? null });
+          void dispatch({
+            type: "serviceFound",
+            service: manual,
+            pairedSecretHex: hosts.hosts.find((host) => host.id === target)?.secretHex ?? null,
+          });
         }
         break;
       }
@@ -279,8 +323,12 @@ async function applyEffects(effects: Effect[]): Promise<void> {
         const id = target ?? currentCandidate?.name ?? null;
         if (id === null) break;
         target = id;
-        const name = hosts.hosts.find((host) => host.id === id)?.name ?? currentCandidate?.name ?? id;
-        await persistHosts({ ...upsertHost(hosts, { id, name, address: hostAuthority ?? "", secretHex: effect.hex }), activeId: id });
+        const name =
+          hosts.hosts.find((host) => host.id === id)?.name ?? currentCandidate?.name ?? id;
+        await persistHosts({
+          ...upsertHost(hosts, { id, name, address: hostAuthority ?? "", secretHex: effect.hex }),
+          activeId: id,
+        });
         break;
       }
       case "forgetSecret":
@@ -292,8 +340,15 @@ async function applyEffects(effects: Effect[]): Promise<void> {
         // Keep the saved entry's name and address current with what the host reports on welcome.
         const saved = hosts.hosts.find((host) => host.id === target);
         const mac = effect.partial.mac;
-        if (saved !== undefined && mac !== undefined && mac !== null && (mac.name !== saved.name || (hostAuthority ?? "") !== saved.address)) {
-          await persistHosts(upsertHost(hosts, { ...saved, name: mac.name, address: hostAuthority ?? "" }));
+        if (
+          saved !== undefined &&
+          mac !== undefined &&
+          mac !== null &&
+          (mac.name !== saved.name || (hostAuthority ?? "") !== saved.address)
+        ) {
+          await persistHosts(
+            upsertHost(hosts, { ...saved, name: mac.name, address: hostAuthority ?? "" }),
+          );
         }
         if (effect.partial.status === "connected") syncLiveCallHosts();
         break;
@@ -389,9 +444,11 @@ async function retarget(id: string | null): Promise<void> {
   useCanvasStore.getState().clear();
   useStudioStore.getState().clear();
   useReviewsStore.getState().clear();
+  useMeetingsStore.getState().clear();
   pendingActs.cancelAll();
   pendingStudio.cancelAll();
   pendingReviews.cancelAll();
+  pendingMeetings.cancelAll();
   pendingQueries.cancelAll();
   useBoardsStore.getState().setQueries(false);
   useVncStore.getState().setAccess({ kind: "idle" });
@@ -432,7 +489,10 @@ function onAppStateChange(next: AppStateStatus): void {
 }
 
 useCallStore.subscribe((store, previous) => {
-  const ended = (store.call === null || store.call.state === "ended") && previous.call !== null && previous.call.state !== "ended";
+  const ended =
+    (store.call === null || store.call.state === "ended") &&
+    previous.call !== null &&
+    previous.call.state !== "ended";
   if (ended && AppState.currentState !== "active") onAppStateChange(AppState.currentState);
 });
 
@@ -514,7 +574,14 @@ export function handoffCatchUp(id: string, agent: string, note?: string): boolea
   if (useConnectionStore.getState().status !== "connected") return false;
   useCatchUpStore.getState().markLocal(id, true, agent);
   const trimmed = note?.trim();
-  socket.send(encode({ t: "catchup.handoff", id, agent, ...(trimmed === undefined || trimmed === "" ? {} : { note: trimmed }) }));
+  socket.send(
+    encode({
+      t: "catchup.handoff",
+      id,
+      agent,
+      ...(trimmed === undefined || trimmed === "" ? {} : { note: trimmed }),
+    }),
+  );
   return true;
 }
 
@@ -525,7 +592,14 @@ export function handoffCatchUp(id: string, agent: string, note?: string): boolea
  */
 export function noteCatchUp(id: string, signal: CatchUpSignal | undefined, text: string): boolean {
   if (useConnectionStore.getState().status !== "connected") return false;
-  socket.send(encode({ t: "catchup.note", id, text: text.trim(), ...(signal === undefined ? {} : { signal }) }));
+  socket.send(
+    encode({
+      t: "catchup.note",
+      id,
+      text: text.trim(),
+      ...(signal === undefined ? {} : { signal }),
+    }),
+  );
   return true;
 }
 
@@ -539,7 +613,8 @@ export function requestAssistant(agent: string): void {
   watchedAssistant = agent;
   clearInterval(assistantFollowTimer);
   assistantFollowTimer = setInterval(() => {
-    if (useConnectionStore.getState().status === "connected") socket.send(encode({ t: "assistant.get", agent }));
+    if (useConnectionStore.getState().status === "connected")
+      socket.send(encode({ t: "assistant.get", agent }));
   }, ASSISTANT_FOLLOW_MS);
   if (useConnectionStore.getState().status !== "connected") return;
   socket.send(encode({ t: "assistant.get", agent }));
@@ -582,7 +657,8 @@ export function watchReactions(thread: string): () => void {
  */
 export function watchArtifacts(thread: string): () => void {
   artifactThreads.set(thread, (artifactThreads.get(thread) ?? 0) + 1);
-  if (useConnectionStore.getState().status === "connected") socket.send(encode({ t: "artifacts.get", thread }));
+  if (useConnectionStore.getState().status === "connected")
+    socket.send(encode({ t: "artifacts.get", thread }));
   return () => {
     const count = (artifactThreads.get(thread) ?? 1) - 1;
     if (count > 0) artifactThreads.set(thread, count);
@@ -596,12 +672,18 @@ export function watchArtifacts(thread: string): () => void {
  * the host's `artifacts.acted`; fails at once while not connected.
  */
 export function actArtifacts(thread: string, action: ArtifactAction): Promise<ActResult> {
-  if (useConnectionStore.getState().status !== "connected") return Promise.resolve({ ok: false, error: "Not connected to your Mac." });
+  if (useConnectionStore.getState().status !== "connected")
+    return Promise.resolve({ ok: false, error: "Not connected to your Mac." });
   const store = useArtifactsStore.getState();
-  if (action.op === "pin") store.pin(thread, action.id, action.pinned ? { by: "isaac", at: Date.now() } : undefined);
+  if (action.op === "pin")
+    store.pin(thread, action.id, action.pinned ? { by: "isaac", at: Date.now() } : undefined);
   if (action.op === "tab.update") {
     const { title, hidden, fresh } = action;
-    store.patchTab(thread, action.tab, { ...(title === undefined ? {} : { title }), ...(hidden === undefined ? {} : { hidden }), ...(fresh === undefined ? {} : { fresh }) });
+    store.patchTab(thread, action.tab, {
+      ...(title === undefined ? {} : { title }),
+      ...(hidden === undefined ? {} : { hidden }),
+      ...(fresh === undefined ? {} : { fresh }),
+    });
   }
   const rid = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   const answer = pendingActs.add(rid);
@@ -621,7 +703,8 @@ export function requestStudio(): void {
  */
 export function studioRequest(op: StudioOp): Promise<StudioResult> {
   const rid = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-  if (useConnectionStore.getState().status !== "connected") return Promise.resolve({ rid, ok: false, error: "Not connected to your Mac." });
+  if (useConnectionStore.getState().status !== "connected")
+    return Promise.resolve({ rid, ok: false, error: "Not connected to your Mac." });
   const answer = pendingStudio.add(rid);
   socket.send(encode({ t: "studio.req", rid, op }));
   return answer;
@@ -640,8 +723,29 @@ function sendReviews(op: ReviewsOp): Promise<ReviewsResult> {
  * while not connected and after the op's timeout (`reviewsTimeout`) unanswered.
  */
 export function reviewsRequest(op: ReviewsOp): Promise<ReviewsResult> {
-  if (useConnectionStore.getState().status !== "connected") return Promise.resolve({ rid: "offline", ok: false, error: "Not connected to your Mac." });
+  if (useConnectionStore.getState().status !== "connected")
+    return Promise.resolve({ rid: "offline", ok: false, error: "Not connected to your Mac." });
   return sendReviews(op);
+}
+
+/**
+ * One Meetings request (a record's detail, a recording's page, an Astra ask, accept, dismiss,
+ * stop, discard). A page snapshot or an Astra answer lands in `useMeetingsStore()`; resolves with
+ * the host's `meetings.res`, fails at once while not connected and after its timeout unanswered.
+ */
+export function meetingsRequest(op: MeetingsOp): Promise<MeetingsResult> {
+  const rid = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  if (useConnectionStore.getState().status !== "connected")
+    return Promise.resolve({ rid, ok: false, error: "Not connected to your Mac." });
+  const answer = pendingMeetings.add(rid, op);
+  socket.send(encode({ t: "meetings.req", rid, op }));
+  return answer;
+}
+
+/** Ephemeral; the answer lands in `useMeetingsStore()`. Also sent on every welcome. */
+export function requestMeetings(): void {
+  if (useConnectionStore.getState().status !== "connected") return;
+  socket.send(encode({ t: "meetings.list" }));
 }
 
 /**
@@ -655,7 +759,11 @@ export function react(thread: string, key: string, emoji: string | null, text: s
   const excerpt = reactionExcerpt(text);
   useReactionsStore.getState().setLocal(thread, key, emoji, excerpt, Date.now());
   socket.send(
-    encode(emoji === null ? { t: "reaction.clear", thread, message: key } : { t: "reaction.set", thread, message: key, emoji, excerpt }),
+    encode(
+      emoji === null
+        ? { t: "reaction.clear", thread, message: key }
+        : { t: "reaction.set", thread, message: key, emoji, excerpt },
+    ),
   );
   return true;
 }
@@ -715,7 +823,13 @@ export function unregisterPush(): void {
  */
 export function wakeConnection(): void {
   const status = useConnectionStore.getState().status;
-  if (status === "connected" || status === "connecting" || status === "authenticating" || status === "pairing") return;
+  if (
+    status === "connected" ||
+    status === "connecting" ||
+    status === "authenticating" ||
+    status === "pairing"
+  )
+    return;
   void dispatch({ type: "appActive" });
 }
 
@@ -747,7 +861,11 @@ export function sendCommand(cmd: Command): Promise<void> {
     promise.catch((error: unknown) => {
       const agents = useAgentsStore.getState();
       agents.dropSent(cmd.sessionId, at);
-      agents.failEcho(cmd.sessionId, error instanceof Error && error.message !== "" ? error.message : "Not sent.", at);
+      agents.failEcho(
+        cmd.sessionId,
+        error instanceof Error && error.message !== "" ? error.message : "Not sent.",
+        at,
+      );
     });
   }
   return promise;

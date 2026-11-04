@@ -128,3 +128,77 @@
   font-size: var(--eva-fz-label);
   color: var(--eva-c-danger, var(--eva-text));
 }
+
+/* A recording's page: transcript, then the Ask box pinned at the bottom. */
+.eva-mt-live {
+  padding-bottom: 0;
+}
+.eva-mt-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: var(--mantine-spacing-xs);
+  border-radius: 50%;
+  background: var(--eva-c-danger, #e5484d);
+  vertical-align: 1px;
+}
+.eva-mt-warn {
+  margin: 0;
+  font-size: var(--eva-fz-body);
+  color: var(--eva-c-danger, var(--eva-c-foreground));
+}
+.eva-mt-actions {
+  display: flex;
+  gap: var(--mantine-spacing-sm);
+}
+.eva-mt-transcript-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-md);
+}
+.eva-mt-transcript {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-sm);
+  max-height: 55vh;
+  overflow-y: auto;
+}
+.eva-mt-transcript .eva-mt-line {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  column-gap: var(--mantine-spacing-sm);
+}
+.eva-mt-transcript .eva-mt-line[data-draft] .eva-mt-text {
+  color: var(--eva-c-muted-foreground);
+}
+.eva-mt-time {
+  grid-row: span 2;
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.eva-mt-speaker[data-track='mic'] {
+  color: var(--eva-c-accent);
+}
+.eva-mt-text {
+  line-height: 1.5;
+}
+.eva-mt-ask {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-sm);
+  padding: var(--mantine-spacing-md) 0 var(--mantine-spacing-lg);
+  background: var(--eva-c-background);
+  border-top: 1px solid var(--eva-c-border);
+}
+.eva-mt-question {
+  margin: 0;
+  font-weight: 600;
+  font-size: var(--eva-fz-body);
+}
+.eva-mt-answer {
+  font-size: var(--eva-fz-body);
+}

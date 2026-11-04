@@ -9,6 +9,7 @@ import {
   type RelayActivity,
   type RelayArtifacts,
   type RelayCanvas,
+  type RelayFeatures,
   type RelayFrames,
   type RelayHostInfo,
   type RelayLink,
@@ -38,6 +39,7 @@ export function startRelay(
   RelayActivity &
   RelayCanvas &
   RelayFrames &
+  RelayFeatures &
   RelayStudio &
   RelayQueries &
   RelayHostInfo {

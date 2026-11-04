@@ -15,6 +15,7 @@ import {
 
 const listValue = (title = 'Daily standup') => ({
   now: 1,
+  recordings: [],
   meetings: [
     {
       stem: 'standup',

@@ -4,7 +4,7 @@ import { shellInvoke } from './shell'
 import { evaEvents, evaInvoke } from './eva'
 import { jobsInvoke } from './jobs'
 import { habitsInvoke } from './habits'
-import { meetingsInvoke } from './meetings'
+import { meetingsEvents, meetingsInvoke } from './meetings'
 import { chatEvents, chatInvoke } from './chat'
 import { browserEvents, browserInvoke } from './browser'
 import { experimentsEvents, experimentsInvoke } from './experiments'
@@ -130,6 +130,7 @@ export const eventContract = {
   ...artifactsEvents,
   ...activityEvents,
   ...studioEvents,
+  ...meetingsEvents,
   ...roomsEvents,
   ...filesEvents,
   ...filesPresenceEvents,
@@ -178,4 +179,12 @@ export {
 } from './eva'
 export { type JobSummaryDto, type JobSettingsDto } from './jobs'
 export { GateStatusSchema, type GateStatus } from './habits'
-export { type Proposal, type MeetingSummary } from './meetings'
+export {
+  type Proposal,
+  type MeetingSummary,
+  type Recording,
+  type RecordingView,
+  type LiveLine,
+  type MeetingAstra,
+  type MeetingsChange,
+} from './meetings'

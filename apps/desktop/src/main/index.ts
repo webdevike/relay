@@ -46,6 +46,7 @@ import { registerUpdate } from './update'
 import { registerContext } from './context-popover'
 import { createPackagedUpdater, type PackagedUpdater } from './update/packaged'
 import { assistExecutable, startAssist } from './assist'
+import { registerMeetingsIpc } from './eva/meetings-ipc'
 import { meetingsExecutable, startMeetingsCapture } from './meetings-capture'
 import { openAppLink, showNotice } from './notice'
 import { registerSetup } from './setup'
@@ -184,6 +185,9 @@ function bootstrap(): void {
       registerLinksIpc(ctx, queue)
       registerEvaIpc(ctx)
       const chat = registerChat(ctx, queue)
+      // Meetings: the host's recordings and records when it runs Meetings, else this Mac's records.
+      const offMeetings = registerMeetingsIpc(ctx, chat.frames)
+      ctx.onBeforeQuit(async () => offMeetings())
       const experiments = registerExperimentsIpc(ctx)
       const run = toolRunner(ctx)
       // A thin client (remote mode) has no gh login or Linear key: the Mini's Relay Host reads
