@@ -252,24 +252,72 @@ startedAt, device, stage, health }`. Ingest socket (binary, not part of the zod 
 
 ## Phases
 
-| Phase | Scope | Estimate |
+| Phase | Scope | Status |
 |:--|:--|:--|
-| 1 (done) | spike + this plan | 1 day |
-| 2 | `apps/meetings-capture` helper (detection, scoped tap, mic, spool, stdio), `main/meetings-capture.ts`, deploy + signing + `NSAudioCaptureUsageDescription`, TCC check on the packaged app | 2 to 3 days |
-| 3 | host `src/meetings/` ingest + tickets + storage, `relay-asr` worker (AEC3, VAD windows, Parakeet), echo filter port, protocol schemas + fixtures + Swift mirror if `apps/mac` must decode them, tests | 3 to 4 days |
-| 4 | desktop live page + Ask + Live group + notifications, and mobile `app/meetings` + Home card + push in the same change (OTA) | 3 days |
-| 5 | end-of-call pipeline: re-pass, diarization, naming via mt-autoname exports, summary, protocol writer, digest/memory dir support, host-backed meetings list/proposals for desktop and phone | 2 to 3 days |
-| 6 | shadow run next to MT for about a week of real calls, parity report, fixes | 1 to 2 days of work |
-| 7 | cutover, MT/drawer/mt-autoname agents off, docs, removal after two weeks | half a day |
+| 1 | spike + this plan | done, c622d3c0 |
+| 2 | `apps/meetings-capture` helper (detection, scoped tap, mic, spool, stdio), `main/meetings-capture.ts`, deploy + signing + `NSAudioCaptureUsageDescription`, TCC check on the packaged app | code done, c8d74625 (+ replay pacing and health frames in e4e42e5e); deploy step is `ship/relay-desktop-deploy.patch`; TCC check needs the packaged app |
+| 3 | host `src/meetings/` ingest + tickets + storage, `relay-asr` worker (AEC3, VAD windows, Parakeet), echo filter port, protocol schemas + fixtures, tests | done, e4e42e5e (no Swift mirror: `apps/mac` never decodes meetings frames) |
+| 4 | desktop live page + Ask + Live group + notifications, and mobile `app/meetings` + Home card + push in the same change (OTA) | done, 5121d581 |
+| 5 | end-of-call pipeline: re-pass, diarization, naming via mt-autoname exports, summary, protocol writer, digest/memory dir support, host-backed meetings list/proposals for desktop and phone | done in e4e42e5e (pipeline) and 5121d581 (host-backed list); digest/memory dir support is `ship/meetings-cutover-tools.patch`, applied at cutover |
+| 6 | shadow run next to MT for about a week of real calls, parity report, fixes | next: checklist below |
+| 7 | cutover, MT/drawer/mt-autoname agents off, docs, removal after two weeks | after Isaac's OK (`ship/README.md` section 4) |
 
-## Open decisions for Isaac
+As built, where it differs from the design above:
+- Ask is Astra's session (Isaac's decision): the first question launches an omp session with her registry profile
+  and model (work), seeded with her prime, her thread memory, the calendar context and the transcript so far;
+  later questions are turns carrying only the lines said since her last answer. Questions and answers go into the
+  notes under `## Questions asked during the call`.
+- The echo filter drops a mic word only inside a four-word run the call had in the last 8 s (the drawer used three
+  words, which also dropped everyday phrases like "a little bit" on the real call sample).
+- Shadow notes go to `work/meetings/shadow/` (not `protocols/`), so digest and memory need no change until cutover.
+- Live calls hold new Studio GPU jobs ("Waiting for the meeting to end"); Codex and Higgsfield jobs still run.
+- The calendar lookup (mt-autoname `lookupMeeting`) runs a minute into the call, so a 1:1's other side is named in
+  the live transcript, and again after the call when it had not finished.
 
-- ASR engine: parakeet-mlx in a Python worker on the host (measured here, simplest) or FluidAudio in Swift on the
-  ANE (MT's engine, 3x faster, frees the GPU, more build work)?
-- Where transcription runs for calls on the MacBook: stream to the Mini (one engine, needs the tailnet) or on the
-  MacBook itself?
-- Ask: stateless `claude -p` Sonnet like the drawer, or a question to Astra's session with the meeting as context?
-- Remote speaker names on group calls: keep raw `R_S1` labels (today) or allow a voice library that learns names?
-- Browser meetings (Meet, Teams web): ask each time (today) or never record?
-- Audio retention on the Mini: keep WAVs 30 days, forever, or delete after notes are written?
-- Laptop speakers: accept AEC3 + the word filter, or nudge to headphones when the mic hears the call?
+Verified on the Mini (2026-11-04): relay-asr fed 63 s of the 2026-11-02 sync (both tracks) at real time gave
+finals 0.13 s p50 / 0.23 s max after each utterance closed. End to end, the helper's `--replay` of 45 s of that call
+went through a real ingest socket into the service, live transcription, the after-call re-pass, diarization and a
+real Claude summary into a shadow protocol in MT's format (unit tests check `parseProtocol` reads it).
+Not yet seen: a live Core Audio tap inside the packaged Relay.app, a real call's detection, the host's ingest port
+from the MacBook, the phone screens on a device.
+
+## Shadow-run checklist (phase 6)
+
+Setup once: ship steps 1 to 3 in `ship/README.md`; keep MeetingTranscriber running.
+
+1. Packaged app, first call: the System Audio Recording prompt names Relay; `Recording <title>` notification shows
+   with Stop; the Meetings sidebar has a Live row with a red dot and a running clock on the Mini, the MacBook and
+   the phone (Home shows "In a call").
+2. Health: the page says "Hearing <app> and your mic". Deny the grant once on a test call: the page and a
+   notification say Relay hears silence within about a minute; nothing is written as an empty transcript.
+3. Live view: lines appear within about a second of each pause, drafts dimmed, your words on the mic track, the
+   call on the app track; on laptop speakers your mic does not repeat what the call said.
+4. Ask during the call from the desktop and from the phone (typed, then held to talk): Astra answers inline on
+   both; her session shows in the Agent Inbox titled `Astra · <meeting>`.
+5. Call end: the recording ends on its own about 15 s after the app releases the mic; the page moves through
+   Transcribing, Telling speakers apart, Naming speakers, Writing notes, then shows the notes; a "Notes ready"
+   notification and push.
+6. Per call, compare with MT's protocol for the same call (`~/Downloads/MeetingTranscriber/protocols`): word
+   agreement of the transcripts, the same sections (Summary, Participants, Topics Discussed, Decisions, Tasks,
+   Open Questions, Full Transcript), `**Attendees:**` from Outlook, a 1:1's remote voice named, mic words not
+   duplicated from the call.
+7. Proposals: `git -C ~/Eva apply work/relay-meetings/ship/meetings-cutover-tools.patch` on a scratch copy of
+   the tools (or after cutover), then `bun .omp/tools/meeting-memory.ts --dir work/meetings/shadow --stem <stem>
+   --dry` and compare with MT's record for the call.
+8. Calls to cover: a 1:1 Teams, a group Teams, a Slack huddle, a Zoom or Webex, one on laptop speakers, one
+   Meet in Chrome (the "Record this call?" notification, recorded only after Record).
+9. MacBook: a call recorded there shows live on the Mini's and the phone's Meetings; a call with the MacBook off
+   the tailnet uploads when it is back and gets notes late.
+10. Retention: `~/.config/relay/meetings/` keeps nothing older than 30 days.
+
+Write the results per call in a parity report next to this plan; fixes go on this branch before cutover.
+
+## Isaac's decisions (2026-11-04)
+
+- ASR: parakeet-mlx in a Python worker on the Mini.
+- Calls on the MacBook stream their audio to the Mini.
+- Ask: Astra's session with the meeting as context (work profile).
+- Group-call remote speakers keep raw `R_S1` labels for now.
+- Browser meetings: ask each time.
+- Audio: kept 30 days, then deleted.
+- Laptop speakers: software echo removal plus the word filter.
