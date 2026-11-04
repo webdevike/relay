@@ -34,6 +34,7 @@ import { EmailList } from "./EmailList";
 import { Gallery } from "./Gallery";
 import { ImageBlock } from "./ImageBlock";
 import { Recipe } from "./Recipe";
+import { AvatarEditor } from "./AvatarEditor";
 import { ModelViewer } from "./ModelViewer";
 import { ReplyInput } from "./ReplyInput";
 import { toneColor } from "./tone";
@@ -127,6 +128,8 @@ function Node({ spec }: { spec: WidgetSpec }) {
       return <Gallery spec={spec} />;
     case "model":
       return <ModelViewer spec={spec} />;
+    case "avatarEditor":
+      return <AvatarEditor spec={spec} />;
     case "recipe":
       return <Recipe spec={spec} />;
     case "text":

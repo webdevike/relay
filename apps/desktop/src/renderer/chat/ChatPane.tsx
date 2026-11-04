@@ -34,6 +34,7 @@ import {
 import { setChatTitle } from '../eva/names-store'
 import { AgentCrumb, OwnedCrumb } from '../assistants/AgentCrumb'
 import { AgentNotch } from '../assistants/AgentNotch'
+import { useLocalRows } from './local-rows'
 import { agentFile, agentIdOf, agentOf, useAssistants } from '../assistants/assistants-store'
 import { fillComposer } from './composer-fill'
 import {
@@ -126,6 +127,12 @@ function ChatView({
   const widgetActions = useMemo<WidgetActionsValue>(
     () => ({ reply: (text) => composer.current?.sendReply(text), canReply }),
     [canReply],
+  )
+  // Rows this app added to an assistant's thread (the avatar editor), after the session's messages.
+  const localRows = useLocalRows(paneId)
+  const shownMessages = useMemo(
+    () => (localRows.length === 0 || !pane ? pane?.messages : [...pane.messages, ...localRows]),
+    [pane, localRows],
   )
   const [evaRoot, setEvaRoot] = useState<string | null>(null)
   const sidebarState = useLayout((s) => s.state)
@@ -241,7 +248,9 @@ function ChatView({
                 pane.title
               )}
             </h2>
-            {agent !== null ? <AgentNotch id={agent} /> : null}
+            {agent !== null ? (
+              <AgentNotch id={agent} edit={{ paneId, reply: widgetActions.reply }} />
+            ) : null}
             {pane.file && !pane.extras.running && !pane.owner && !pane.away ? (
               <span className="eva-chat-saved">Saved session</span>
             ) : null}
@@ -289,12 +298,12 @@ function ChatView({
           {pane.error}
         </div>
       ) : null}
-      {pane && !(pane.file === '' && pane.messages.length === 0) ? (
+      {pane && shownMessages && !(pane.file === '' && shownMessages.length === 0) ? (
         <WidgetActions.Provider value={widgetActions}>
           <ReactionScope.Provider value={reactionScope}>
             <ChatLog
               paneId={paneId}
-              messages={pane.messages}
+              messages={shownMessages}
               // A draft keeps its log key when omp names the file, so binding never jumps the scroll.
               file={pane.boundTo ? '' : pane.file}
               scrollFile={pane.file}

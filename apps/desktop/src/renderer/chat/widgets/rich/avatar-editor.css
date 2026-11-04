@@ -1,0 +1,59 @@
+/* The avatar editor: preview on the left, part picker on the right; hairlines, no shadows. */
+.eva-ae-preview {
+  flex: none;
+}
+.eva-ae-controls {
+  flex: 1 1 calc(var(--eva-control-xs) * 8);
+  min-width: 0;
+}
+
+.eva-ae-thumbs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(calc(var(--eva-control-xs) * 1.75), 1fr));
+  gap: var(--mantine-spacing-xs);
+  max-height: calc(var(--eva-control-xs) * 5);
+  overflow-y: auto;
+  padding: calc(var(--mantine-spacing-xs) / 2);
+}
+.eva-ae-thumb {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  padding: calc(var(--mantine-spacing-xs) / 2);
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--mantine-radius-sm);
+  background: var(--eva-c-background);
+  color: var(--eva-c-muted-foreground);
+  font: inherit;
+  font-size: var(--eva-fz-caption, 0.75em);
+  cursor: pointer;
+}
+.eva-ae-thumb:hover {
+  border-color: var(--mantine-primary-color-filled);
+}
+.eva-ae-thumb[aria-selected='true'] {
+  border-color: var(--mantine-primary-color-filled);
+  outline: 1px solid var(--mantine-primary-color-filled);
+}
+.eva-ae-thumb img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;
+  border-radius: var(--mantine-radius-sm);
+  background: var(--eva-ae-ground);
+}
+
+.eva-ae-swatch-label {
+  flex: none;
+  width: calc(var(--eva-control-xs) * 3);
+}
+.eva-ae-swatch {
+  border: 1px solid var(--eva-c-border);
+  cursor: pointer;
+}
+.eva-ae-swatch[aria-pressed='true'] {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: 1px;
+}

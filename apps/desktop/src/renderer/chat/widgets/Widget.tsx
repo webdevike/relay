@@ -47,6 +47,7 @@ import {
 } from './blocks/content'
 import { TableBlock } from './blocks/table'
 import { AudioWidget } from './rich/AudioWidget'
+import { AvatarEditorWidget } from './rich/AvatarEditorWidget'
 import { ChartWidget } from './rich/ChartWidget'
 import { CompareWidget } from './rich/CompareWidget'
 import { DiagramWidget } from './rich/DiagramWidget'
@@ -73,6 +74,7 @@ const REGISTRY: { [K in WidgetKind]: ComponentType<{ spec: SpecOf<K> }> } = {
   video: VideoWidget,
   gallery: GalleryWidget,
   model: ModelWidget,
+  avatarEditor: AvatarEditorWidget,
   diagram: DiagramWidget,
   recipe: RecipeWidget,
   diff: DiffWidget,

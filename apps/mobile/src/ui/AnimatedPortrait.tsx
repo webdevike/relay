@@ -58,6 +58,8 @@ export interface AnimatedPortraitProps {
   paused?: boolean;
   /** The state it moved to, for a status line or an accessibility label. */
   onState?: (state: MotionState) => void;
+  /** Hold this face whatever the signals say (the avatar editor's preview). */
+  face?: MotionState;
 }
 
 interface LoadedRig {
@@ -83,7 +85,7 @@ function loadRig(sk: SkiaModule, portrait: AssistantPortrait): LoadedRig {
   return { rig, svgs };
 }
 
-export function AnimatedPortrait({ name, portrait, size, signals, paused = false, onState }: AnimatedPortraitProps) {
+export function AnimatedPortrait({ name, portrait, size, signals, paused = false, onState, face }: AnimatedPortraitProps) {
   const sk = loadSkia();
   const colors = useColors();
   const reduced = useReducedMotion();
@@ -116,6 +118,7 @@ export function AnimatedPortrait({ name, portrait, size, signals, paused = false
       signals={signals}
       active={active}
       onState={onState}
+      face={face}
     />
   );
 }
@@ -130,18 +133,24 @@ interface MotionCanvasProps {
   signals: MotionSignals;
   active: boolean;
   onState: ((state: MotionState) => void) | undefined;
+  face: MotionState | undefined;
 }
 
-function MotionCanvas({ sk, loaded, name, paper, accent, size, signals, active, onState }: MotionCanvasProps) {
+function MotionCanvas({ sk, loaded, name, paper, accent, size, signals, active, onState, face }: MotionCanvasProps) {
   const reach = Math.ceil(size * FX_REACH);
   const box = size + 2 * reach;
   const signalsRef = useRef(signals);
   signalsRef.current = signals;
   const onStateRef = useRef(onState);
   onStateRef.current = onState;
+  const faceRef = useRef(face);
+  faceRef.current = face;
+  const [directed] = useState(() => new Director());
   const [clock] = useState(() => {
     const now = Date.now();
-    const director = new Director();
+    const director: Pick<Director, "next"> = {
+      next: (s, at) => faceRef.current ?? directed.next(s, at),
+    };
     // Extended mode's memory (the mouth shown, the morph into it) belongs to this rig: a new rig starts afresh.
     return { director, timeline: new Timeline(director.next(signals, now), now), rig: loaded.rig, ext: extension() };
   });

@@ -27,7 +27,8 @@ export interface PainterOptions {
   rig: Rig
   /** The disc's side in CSS px. */
   size: number
-  director: Director
+  /** What picks the face: an agent's `Director`, or anything that names one (the avatar editor holds a state). */
+  director: Pick<Director, 'next'>
   /** The agent's signals now; read once per frame (or tick while still). */
   signals: () => MotionSignals
   /** Hears each change of face. */
