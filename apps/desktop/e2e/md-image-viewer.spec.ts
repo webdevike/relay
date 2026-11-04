@@ -17,7 +17,8 @@ import { test as base, expect } from './fixtures'
 import { APP_DIR } from './helpers/paths'
 import { pickScheme } from './helpers/appearance'
 
-const OUT = process.env.MD_IMAGE_VIEWER_PROOF_DIR ?? path.join(APP_DIR, 'test-results', 'md-image-viewer')
+const OUT =
+  process.env.MD_IMAGE_VIEWER_PROOF_DIR ?? path.join(APP_DIR, 'test-results', 'md-image-viewer')
 const TITLE = 'Markdown image viewer'
 const LOG = '[data-testid=chat-pane] [data-testid=chat-log]'
 const COLORS = ['0x3b82f6', '0xef4444', '0x22c55e', '0xeab308']
@@ -34,7 +35,13 @@ const reply = [
 const session = (id: string) =>
   [
     { type: 'title', v: 1, title: TITLE, source: 'auto', updatedAt: '2026-10-27T09:05:00.000Z' },
-    { type: 'session', version: 3, id, timestamp: '2026-10-27T09:00:00.000Z', cwd: '/fixture/eva-root' },
+    {
+      type: 'session',
+      version: 3,
+      id,
+      timestamp: '2026-10-27T09:00:00.000Z',
+      cwd: '/fixture/eva-root',
+    },
     {
       type: 'message',
       id: 'm001',
@@ -124,7 +131,10 @@ const test = base.extend<{ host: { port: number } }>({
   },
   configDir: async ({ configDir, host }, use) => {
     fs.mkdirSync(path.join(configDir, 'relay'), { recursive: true })
-    fs.writeFileSync(path.join(configDir, 'relay', 'serve.json'), JSON.stringify({ port: host.port }))
+    fs.writeFileSync(
+      path.join(configDir, 'relay', 'serve.json'),
+      JSON.stringify({ port: host.port }),
+    )
     await use(configDir)
   },
 })
@@ -172,7 +182,9 @@ test('a markdown image opens the viewer on all of the reply images, in order', a
   )
   // Wait for the picture to load before shooting.
   await expect
-    .poll(() => viewer.locator('img.eva-viewer-img').evaluate((i: HTMLImageElement) => i.naturalWidth))
+    .poll(() =>
+      viewer.locator('img.eva-viewer-img').evaluate((i: HTMLImageElement) => i.naturalWidth),
+    )
     .toBeGreaterThan(0)
   fs.mkdirSync(OUT, { recursive: true })
   await shell.screenshot({ path: path.join(OUT, 'viewer-2-of-4.png') })

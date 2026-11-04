@@ -26,7 +26,8 @@ for (const project of projects) {
       'playwright',
       'test',
       '--pass-with-no-tests',
-      ...(project ? ['--project', project] : []),
+      // `--project=<name>`: a bare `--project` is variadic and would swallow the spec paths after it.
+      ...(project ? [`--project=${project}`] : []),
       ...args,
     ],
     {
