@@ -1269,6 +1269,46 @@ export const SessionFile = z.object({
   subs: z.array(SessionSub).optional(),
 });
 export type SessionFile = z.infer<typeof SessionFile>;
+/**
+ * Read or save one of an assistant's two instruction files on the host, for a desktop that has no
+ * copy of them (a thin client): `prime` is `.omp/assistant/agents/<agent>/prime.md`, `thread` is
+ * the agent's thread memory (`work/eva/agents/<agent>/thread.md`, or `work/agents/...` in a
+ * starter home). Nothing else is reachable. `version` is `read` without the text, for a poll.
+ * `save` replaces an existing file atomically; it fails `changed-on-disk` when the file no longer
+ * has `expectedHash` (unless `force`).
+ */
+export const AssistantFileReq = z.object({
+  t: z.literal("assistant.file.req"),
+  rid: z.string().min(1).max(64),
+  agent: AssistantAgentId,
+  file: z.enum(["prime", "thread"]),
+  op: z.enum(["read", "version", "save"]),
+  text: z.string().max(2_000_000).optional(),
+  expectedHash: z.string().max(128).nullable().optional(),
+  force: z.boolean().optional(),
+});
+export type AssistantFileReq = z.infer<typeof AssistantFileReq>;
+
+/** What a file was when read; a save refuses when the host's copy no longer matches `hash` (sha1 of its bytes). */
+export const AssistantFileVersion = z.object({ mtimeMs: z.number(), size: z.number().int().nonnegative(), hash: z.string().max(128) });
+export type AssistantFileVersion = z.infer<typeof AssistantFileVersion>;
+
+/** Answer to `assistant.file.req`. `code` names a failure a client acts on; `error` is for people. */
+export const AssistantFileRes = z.object({
+  t: z.literal("assistant.file.res"),
+  rid: z.string().min(1).max(64),
+  ok: z.boolean(),
+  /** `read`: the file's text (absent when it is binary or too large, see `kind`). */
+  text: z.string().optional(),
+  kind: z.enum(["text", "binary", "too-large"]).optional(),
+  /** The file's absolute path on the host (its real path), for clients that key a file by it. */
+  path: z.string().optional(),
+  version: AssistantFileVersion.optional(),
+  code: z.enum(["not-found", "changed-on-disk", "unknown-agent", "invalid", "internal"]).optional(),
+  error: z.string().optional(),
+});
+export type AssistantFileRes = z.infer<typeof AssistantFileRes>;
+
 export const ClientMessage = z.discriminatedUnion("t", [
   ClientHello,
   /** proof = hex(HMAC-SHA256(secret, nonce)) */
@@ -1423,6 +1463,8 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("studio.req"), rid: StudioRid, op: StudioOp }),
   /** Reviews: the queue, one item's detail, Done, a confirmed post, an Astra ask; answered by `reviews.res` with the same `rid`. */
   z.object({ t: z.literal("reviews.req"), rid: ReviewsRid, op: ReviewsOp }),
+  /** Read or save an assistant's prime.md or thread.md on the host (`AssistantFileReq`); answered by `assistant.file.res` with the same `rid`. */
+  AssistantFileReq,
   /** Run one allowlisted read-only query tool (`QUERY_TOOLS`) for a live widget; answered by `query.res` with the same `rid`. Only sent to a host whose `welcome.features` has "query". */
   z.object({
     t: z.literal("query.req"),
@@ -1678,6 +1720,8 @@ export const ServerMessage = z.discriminatedUnion("t", [
   StudioResult.extend({ t: z.literal("studio.res") }),
   /** Answer to `reviews.req`. */
   ReviewsResult.extend({ t: z.literal("reviews.res") }),
+  /** Answer to `assistant.file.req`. */
+  AssistantFileRes,
   /** The Reviews queue changed (a source finished reading, an item marked Done); pushed to every device. */
   z.object({ t: z.literal("reviews.queue"), queue: ReviewQueue }),
   /** An item's Astra session changed (streamed text, a turn ending); pushed to every device. */

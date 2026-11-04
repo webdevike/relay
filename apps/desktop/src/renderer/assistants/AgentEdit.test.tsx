@@ -2,12 +2,24 @@ import { MantineProvider } from '@mantine/core'
 import { fireEvent, render, screen } from '@testing-library/react'
 import type { ChatMessage } from '@evaos/chat-core/message'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type * as FilesStore from '../files/files-store'
+import type * as TilingStore from '../tiling/tiling-store'
 
 vi.mock('../ipc', () => ({ invoke: vi.fn(), on: () => () => {} }))
+vi.mock('../files/files-store', async (orig) => ({
+  ...(await orig<typeof FilesStore>()),
+  openAgentFiles: vi.fn(() => Promise.resolve()),
+}))
+vi.mock('../tiling/tiling-store', async (orig) => ({
+  ...(await orig<typeof TilingStore>()),
+  revealTool: vi.fn(() => 'files'),
+}))
 
 import { dropLocalRows, useLocalRows } from '../chat/local-rows'
+import { openAgentFiles } from '../files/files-store'
+import { revealTool } from '../tiling/tiling-store'
 import { AgentNotch } from './AgentNotch'
-import { EDIT_INSTRUCTIONS_MESSAGE } from './AgentEdit'
+import { INSTRUCTION_FILES_HINT } from './AgentEdit'
 
 afterEach(() => dropLocalRows('pane-1'))
 
@@ -18,14 +30,12 @@ function Rows() {
 }
 
 function show() {
-  const reply = vi.fn()
   render(
     <MantineProvider>
       <Rows />
-      <AgentNotch id="nova" edit={{ paneId: 'pane-1', reply }} />
+      <AgentNotch id="nova" edit={{ paneId: 'pane-1' }} />
     </MantineProvider>,
   )
-  return reply
 }
 
 describe('the header edit menu', () => {
@@ -38,19 +48,24 @@ describe('the header edit menu', () => {
     expect(screen.queryByTestId('agent-edit-pencil')).toBeNull()
   })
 
-  it('offers Edit avatar and Edit instructions from the pencil', async () => {
+  it('offers Edit avatar and Edit instructions, with the two files as a dimmed hint', async () => {
     show()
     fireEvent.click(screen.getByTestId('agent-edit-pencil'))
     expect(await screen.findByTestId('agent-edit-avatar')).toHaveTextContent('Edit avatar')
     expect(screen.getByTestId('agent-edit-instructions')).toHaveTextContent('Edit instructions')
+    expect(screen.getByTestId('agent-edit-instructions-hint')).toHaveTextContent(
+      'prime.md, thread.md',
+    )
+    expect(INSTRUCTION_FILES_HINT).toBe('prime.md, thread.md')
   })
 
-  it('Edit instructions sends the ask as the next turn', async () => {
-    const reply = show()
+  it('Edit instructions opens the assistant files in the Files tab, not the chat', async () => {
+    show()
     fireEvent.click(screen.getByTestId('agent-edit-pencil'))
     fireEvent.click(await screen.findByTestId('agent-edit-instructions'))
-    expect(reply).toHaveBeenCalledExactlyOnceWith("I'd like to change your instructions")
-    expect(EDIT_INSTRUCTIONS_MESSAGE).toBe("I'd like to change your instructions")
+    expect(revealTool).toHaveBeenCalledExactlyOnceWith('files')
+    expect(openAgentFiles).toHaveBeenCalledExactlyOnceWith('nova', 'nova', null)
+    expect(seen).toHaveLength(0)
   })
 
   it('Edit avatar posts the editor into the thread, once', async () => {
