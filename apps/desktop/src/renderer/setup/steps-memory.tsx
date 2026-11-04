@@ -163,6 +163,11 @@ function MemoryControls({
           {run.view.message}
         </Alert>
       ) : null}
+      {(phase === 'ready' || phase === 'needs-key') && !busy ? (
+        <Text size="xs" c="dimmed" data-testid="memory-size-note">
+          Downloads about 3.5 GB the first time.
+        </Text>
+      ) : null}
       <Group>
         {phase === 'ready' || phase === 'needs-key' || phase === 'repair' ? (
           <Button
