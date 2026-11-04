@@ -141,7 +141,10 @@ test('override needs a reason and is recorded in the history', async ({ app, she
   await expect(shell.locator(sel('gate-overlay'))).toHaveCount(0, { timeout: 2000 })
   expect(argvs(evaFx)).toContainEqual(['override', 'Too tired today', '--json'])
   await shell.evaluate(() => (window as unknown as Shell).__evaosShell.openPlace('habits'))
-  await expect(shell.locator(sel('history-day-Today'))).toContainText('Overridden: Too tired today')
+  // The override shows as an Override row; its reason is on hover (the row's title).
+  await expect(
+    shell.locator(`${sel('history-day-Today')} [title*="Overridden: Too tired today"]`),
+  ).toHaveCount(1)
 })
 
 test('a failing gate command shows the error', async ({ shell, evaFx }) => {

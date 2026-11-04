@@ -2,6 +2,7 @@ import { Skeleton, UnstyledButton, VisuallyHidden } from '@mantine/core'
 import { IconChevronDown, IconChevronRight } from '@tabler/icons-react'
 import {
   Fragment,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -119,11 +120,14 @@ function GroupHead<T>({
   group,
   open,
   density,
+  controls,
   onToggle,
 }: {
   group: ListGroup<T>
   open: boolean
   density: ListDensity
+  /** The id of the region holding this group's rows (absent while windowed). */
+  controls: string | undefined
   onToggle: () => void
 }) {
   const count = group.count === undefined ? group.items.length : group.count
@@ -151,6 +155,7 @@ function GroupHead<T>({
         <UnstyledButton
           className="eva-list-gtoggle"
           aria-expanded={open}
+          aria-controls={controls}
           data-testid={id ? `${id}-head` : undefined}
           onClick={onToggle}
         >
@@ -213,6 +218,8 @@ export function ListView<T>({
   'data-testid': testid,
 }: ListViewProps<T>) {
   const [own, setOwn] = useState<ReadonlySet<string>>(() => new Set(defaultCollapsed ?? []))
+  const regionBase = useId()
+  const regionOf = (g: ListGroup<T>): string => `${regionBase}-${g.id}`
   const closed = collapsed ?? own
   const toggle = (id: string): void => {
     const next = !closed.has(id)
@@ -269,7 +276,7 @@ export function ListView<T>({
     ? ({ '--eva-list-grid': gridTemplate(layout.columns) } as CSSProperties)
     : undefined
 
-  const draw = (e: Entry<T>): ReactNode => {
+  const draw = (e: Entry<T>, controls?: string): ReactNode => {
     switch (e.kind) {
       case 'head':
         return (
@@ -277,6 +284,7 @@ export function ListView<T>({
             group={e.group}
             open={e.open}
             density={density}
+            controls={controls}
             onToggle={() => toggle(e.group.id)}
           />
         )
@@ -315,7 +323,18 @@ export function ListView<T>({
         {groups.map((g) => {
           const mine = entries.filter((e) => e.group === g)
           if (mine.length === 0) return null
-          return g.label !== undefined || g.testid ? (
+          if (g.label === undefined && !g.testid)
+            return (
+              <Fragment key={g.id}>
+                {mine.map((e) => (
+                  <Fragment key={keyOf(e)}>{draw(e)}</Fragment>
+                ))}
+              </Fragment>
+            )
+          const head = mine.find((e) => e.kind === 'head')
+          const rest = mine.filter((e) => e.kind !== 'head')
+          const region = regionOf(g)
+          return (
             <section
               key={g.id}
               className="eva-list-group"
@@ -323,16 +342,17 @@ export function ListView<T>({
               data-testid={g.testid}
               aria-label={typeof g.label === 'string' ? g.label : undefined}
             >
-              {mine.map((e) => (
-                <Fragment key={keyOf(e)}>{draw(e)}</Fragment>
-              ))}
+              {head ? draw(head, region) : null}
+              {/* The rows the header's toggle controls (its aria-controls); collapsed, it is not
+                  drawn at all. */}
+              {rest.length > 0 ? (
+                <div id={region}>
+                  {rest.map((e) => (
+                    <Fragment key={keyOf(e)}>{draw(e)}</Fragment>
+                  ))}
+                </div>
+              ) : null}
             </section>
-          ) : (
-            <Fragment key={g.id}>
-              {mine.map((e) => (
-                <Fragment key={keyOf(e)}>{draw(e)}</Fragment>
-              ))}
-            </Fragment>
           )
         })}
       </div>

@@ -97,7 +97,8 @@ test("an assistant's portrait thinks, researches and works with its thread; its 
   const side = shell.locator(sel('sidebar-portrait-nova'))
   const words = shell.locator(`${sel('agent-crumb-status')} > span:not([data-leaving])`)
   await expect(card).toHaveAttribute('data-state', 'idle')
-  await expect(words).toHaveCount(0)
+  // At rest the notch's muted word is "idle" (AgentCrumb.test pins it).
+  await expect(words).toHaveText('idle')
   // No ring or status dot on any avatar.
   await expect(shell.locator('.eva-pm-ring, .eva-pm-dot, .eva-pmc-dot, .eva-pmc-ring')).toHaveCount(
     0,
@@ -170,7 +171,8 @@ test("an assistant's portrait thinks, researches and works with its thread; its 
     ].join('\n') + '\n',
   )
   host.upsert({ ...NOVA_THREAD, statusDetail: '' })
-  const crumb = shell.locator(`${sel('agent-crumb')} ${sel('agent-portrait-nova')}`)
+  // The thread's portrait sits in the header notch (the crumb carries only the way back).
+  const crumb = shell.locator(`${sel('agent-notch')} ${sel('agent-portrait-nova')}`)
   await expect(shell.locator(sel('chat-log'))).toContainText('Hi Nova', { timeout: 10_000 })
   await expect(crumb).toHaveAttribute('data-state', 'thinking')
 
@@ -181,7 +183,7 @@ test("an assistant's portrait thinks, researches and works with its thread; its 
   await expect(shell.locator(sel('msg-relay-stream'))).toContainText('Hi Isaac!')
   await expect(crumb).toHaveAttribute('data-state', 'thinking')
 
-  // 7. The turn ends: Idle, no words.
+  // 7. The turn ends: Idle, and the notch says so.
   host.stream('nova-1', 'm1', answer, false)
   await fx.append(
     'nova-1',
@@ -195,7 +197,7 @@ test("an assistant's portrait thinks, researches and works with its thread; its 
   )
   host.upsert({ ...NOVA_THREAD, status: 'idle' })
   await expect(crumb).toHaveAttribute('data-state', 'idle')
-  await expect(words).toHaveCount(0)
+  await expect(words).toHaveText('idle')
 
   // 8. omp's ask tool waits on Isaac (Relay still says working): a resting face, "needs you".
   host.upsert({ ...NOVA_THREAD, statusDetail: 'ask' })
