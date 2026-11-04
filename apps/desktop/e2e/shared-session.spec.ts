@@ -120,7 +120,8 @@ const answer = (id: string, parentId: string, text: string) =>
       stopReason: 'stop',
     },
   })
-const TAGGED = /^<surface>.+ - Relay Desktop<\/surface>\n/
+// The tag may carry the build and host version after the surface name (" 31e5563 · host 0.2.51").
+const TAGGED = /^<surface>.+ - Relay Desktop(?: [^<]*)?<\/surface>\n/
 
 test('an outside session streams live and takes replies, stop, answers, model and rename through Relay', async ({
   app,
