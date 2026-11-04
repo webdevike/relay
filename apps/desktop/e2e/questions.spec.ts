@@ -84,16 +84,23 @@ test.describe('question cards and extension UI', () => {
   test('[ask-multi] sends one frame once every question is answered', async ({ shell }) => {
     await ask(shell, '[ask-multi] q')
     await expect(card(shell)).toBeVisible()
-    const send = card(shell).getByRole('button', { name: 'Send answer' })
-    await expect(send).toBeDisabled()
+    // One page per question: page 1 offers Next (disabled until answered), not Send answer.
+    await expect(card(shell)).toContainText('1 of 2')
+    await expect(card(shell).getByRole('button', { name: 'Next' })).toBeDisabled()
+    await expect(card(shell).getByRole('button', { name: 'Send answer' })).toHaveCount(0)
     await card(shell)
       .getByRole('radio', { name: /SQLite/ })
       .click()
+    // A single choice on a non-last page moves on to the next question.
+    await expect(card(shell)).toContainText('2 of 2')
+    const send = card(shell).getByRole('button', { name: 'Send answer' })
+    await expect(send).toBeDisabled()
     expect(uiResponses()).toHaveLength(0)
     await card(shell).getByRole('checkbox', { name: /Auth/ }).click()
     await card(shell)
       .getByRole('checkbox', { name: /Export/ })
       .click()
+    await expect(send).toBeEnabled()
     await send.click()
     await expect.poll(() => uiResponses().length).toBe(1)
     expect(uiResponses()[0]).toMatchObject({

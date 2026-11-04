@@ -53,7 +53,11 @@ test('shows gate status, habits, tasks, breaks and history, polled since launch'
   const strip = shell.locator(sel('habit-gate-strip'))
   await expect(shell.locator(sel('habit-gate'))).toContainText('Unlocked')
   await expect(shell.locator(sel('habit-next-break'))).toContainText('11:30 PM')
-  await expect(strip).toContainText('From your calendar')
+  // Two numbers stay visible; the plan source is read off the info icon.
+  await expect(strip.locator(sel('list-kpis-more'))).toHaveAttribute(
+    'aria-label',
+    /From your calendar/,
+  )
   await expect(shell.locator(sel('habit-row-stretch'))).toContainText('2 days')
   await expect(shell.locator(sel('task-row-taxes'))).toBeVisible()
   const breaks = shell.locator(sel('breaks-today'))
@@ -89,7 +93,8 @@ test('adds, edits and removes a habit through the CLI', async ({ shell, evaFx })
   await shell.locator(sel('habit-row-read')).click()
   await shell.locator(sel('habit-minutes')).fill('20')
   await shell.locator(sel('habit-save')).click()
-  await expect(shell.locator(sel('habit-row-read'))).toContainText('20')
+  // The length is on the row's hover title, not in its text.
+  await expect(shell.locator(sel('habit-row-read'))).toHaveAttribute('title', /20 min/)
   expect(argvs(evaFx)).toContainEqual([
     'habit',
     'edit',

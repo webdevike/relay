@@ -4,6 +4,7 @@ import {
   Fragment,
   useLayoutEffect,
   useMemo,
+  useId,
   useRef,
   useState,
   type CSSProperties,
@@ -119,11 +120,14 @@ function GroupHead<T>({
   group,
   open,
   density,
+  controls,
   onToggle,
 }: {
   group: ListGroup<T>
   open: boolean
   density: ListDensity
+  /** The id of the element holding this group's rows, when the rows live in one. */
+  controls?: string
   onToggle: () => void
 }) {
   const count = group.count === undefined ? group.items.length : group.count
@@ -151,6 +155,7 @@ function GroupHead<T>({
         <UnstyledButton
           className="eva-list-gtoggle"
           aria-expanded={open}
+          aria-controls={controls}
           data-testid={id ? `${id}-head` : undefined}
           onClick={onToggle}
         >
@@ -248,6 +253,8 @@ export function ListView<T>({
   const rowCount = entries.reduce((n, e) => n + (e.kind === 'row' ? 1 : 0), 0)
   const windowed = virtualize !== false && rowCount > virtualize
   const body = useRef<HTMLDivElement>(null)
+  const uid = useId()
+  const regionId = (groupId: string): string => `${uid}-${groupId}`
   const scroller = useRef<HTMLElement | null>(null)
   const [scrollReady, setScrollReady] = useState(false)
   const [startMargin, setStartMargin] = useState(0)
@@ -277,6 +284,7 @@ export function ListView<T>({
             group={e.group}
             open={e.open}
             density={density}
+            controls={windowed || e.group.collapsible === false ? undefined : regionId(e.group.id)}
             onToggle={() => toggle(e.group.id)}
           />
         )
@@ -315,6 +323,7 @@ export function ListView<T>({
         {groups.map((g) => {
           const mine = entries.filter((e) => e.group === g)
           if (mine.length === 0) return null
+          const rows = mine.filter((e) => e.kind !== 'head')
           return g.label !== undefined || g.testid ? (
             <section
               key={g.id}
@@ -323,9 +332,18 @@ export function ListView<T>({
               data-testid={g.testid}
               aria-label={typeof g.label === 'string' ? g.label : undefined}
             >
-              {mine.map((e) => (
-                <Fragment key={keyOf(e)}>{draw(e)}</Fragment>
-              ))}
+              {mine
+                .filter((e) => e.kind === 'head')
+                .map((e) => (
+                  <Fragment key={keyOf(e)}>{draw(e)}</Fragment>
+                ))}
+              {rows.length > 0 ? (
+                <div id={regionId(g.id)}>
+                  {rows.map((e) => (
+                    <Fragment key={keyOf(e)}>{draw(e)}</Fragment>
+                  ))}
+                </div>
+              ) : null}
             </section>
           ) : (
             <Fragment key={g.id}>

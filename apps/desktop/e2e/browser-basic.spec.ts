@@ -96,10 +96,8 @@ test('browser panel: navigate, history, bounds, overlay, hardening, errors', asy
   shell,
 }) => {
   const title = shell.locator('[data-testid^=browser-tab-t1]').first()
-  await expect(shell.getByText('New tab', { exact: true }).first()).toBeVisible()
-  await expect(
-    shell.getByText('Type a web address, a search, or a local port such as 3000.'),
-  ).toBeVisible()
+  await expect(shell.locator('[data-testid=page-blank]')).toContainText('Terminal')
+  await expect(shell.locator('[data-testid=tools-grid]')).toBeVisible()
 
   await navigate(shell, String(server.port))
   await expect(title).toContainText('Page A')

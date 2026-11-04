@@ -26,7 +26,7 @@ for (const project of projects) {
       'playwright',
       'test',
       '--pass-with-no-tests',
-      ...(project ? ['--project', project] : []),
+      ...(project ? [`--project=${project}`] : []),
       ...args,
     ],
     {
