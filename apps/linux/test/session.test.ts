@@ -15,7 +15,7 @@ import type { ReactionRelaying } from "../src/reactions/service";
 import type { ArtifactRelaying } from "../src/artifacts/service";
 import type { ActivityRelaying } from "../src/activity/service";
 import type { QueryRelaying } from "../src/query/service";
-import { AckFailure, type AgentConfigChange, type AgentProvider, type AssistantRelaying, type AssistantThread, type CallClientMessage, type CallRelaying, type CanvasRelaying, type DeviceStore, type DropBox, type FrameSink, type GateCommand, type InboxRelaying, type InputSink, type LiveClientMessage, type LiveRelaying, type PairedDevice, type PairingUI, type PushRegistry, type ReviewsRelaying, type StudioRelaying, type TextInjecting, type VncAccess } from "../src/seams";
+import { AckFailure, type AgentConfigChange, type AgentProvider, type AssistantRelaying, type AssistantThread, type CallClientMessage, type CallRelaying, type CanvasRelaying, type DeviceStore, type DropBox, type FilePresenceRelaying, type FrameSink, type GateCommand, type InboxRelaying, type InputSink, type LiveClientMessage, type LiveRelaying, type PairedDevice, type PairingUI, type PushRegistry, type ReviewsRelaying, type StudioRelaying, type TextInjecting, type VncAccess } from "../src/seams";
 import { ASSISTANT_FOLLOW_MS, ClientSession, PAIRING_TIMEOUT_MS, type SessionClock, type SessionDeps } from "../src/session";
 import { ltxSpec, studioHarness } from "./studio-fakes";
 
@@ -123,6 +123,7 @@ interface HarnessOptions {
   studio?: StudioRelaying;
   reviews?: ReviewsRelaying;
   query?: QueryRelaying;
+  files?: FilePresenceRelaying;
 }
 
 function harness(options: HarnessOptions = {}): Harness {
@@ -179,6 +180,7 @@ function harness(options: HarnessOptions = {}): Harness {
     studio: options.studio ?? null,
     reviews: options.reviews ?? null,
     query: options.query ?? null,
+    files: options.files ?? null,
   };
   const sink = new RecordingSink();
   const clock = new FakeClock();
@@ -1231,6 +1233,32 @@ describe("query", () => {
     expect(h.sink.last()).not.toHaveProperty("features");
     h.session.receive({ t: "query.req", rid: "r2", tool: "jobs" });
     expect(h.sink.last()).toEqual({ t: "query.res", rid: "r2", ok: false, error: "This host runs no queries." });
+  });
+});
+
+describe("files presence", () => {
+  it("says so on welcome, hands files.* to the service as this device, and drops the socket on disconnect", () => {
+    const calls: unknown[] = [];
+    const h = harness({
+      files: {
+        open: (client, paths) => calls.push(["open", client.device, client.deviceName, paths]),
+        caret: (client, focus) => calls.push(["caret", client.device, focus]),
+        saved: (path, hash) => calls.push(["saved", path, hash]),
+        drop: (sink) => calls.push(["drop", sink === h.sink]),
+      },
+    });
+    pair(h);
+    expect(h.sink.last()).toMatchObject({ t: "welcome", features: ["files.presence"] });
+    h.session.receive({ t: "files.open", paths: ["/Users/ike/Eva/a.md"] });
+    h.session.receive({ t: "files.caret", focus: { path: "/Users/ike/Eva/a.md", caret: { line: 3, column: 1 } } });
+    h.session.receive({ t: "files.saved", path: "/Users/ike/Eva/a.md", hash: "abc" });
+    h.session.handleDisconnect();
+    expect(calls).toEqual([
+      ["open", "phone-1", "Isaac's iPhone", ["/Users/ike/Eva/a.md"]],
+      ["caret", "phone-1", { path: "/Users/ike/Eva/a.md", caret: { line: 3, column: 1 } }],
+      ["saved", "/Users/ike/Eva/a.md", "abc"],
+      ["drop", true],
+    ]);
   });
 });
 

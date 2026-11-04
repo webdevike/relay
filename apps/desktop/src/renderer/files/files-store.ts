@@ -1,9 +1,18 @@
 import { useStore } from 'zustand'
 import { createStore } from 'zustand/vanilla'
-import type { FileContent, FileEntry, FileVersion, GitStatus, SearchResult } from '@evaos/contract'
+import type {
+  FileContent,
+  FileEntry,
+  FileVersion,
+  GitStatus,
+  PresenceEdit,
+  PresenceRange,
+  SearchResult,
+} from '@evaos/contract'
 import { registerDirty } from '../dirty/dirty-store'
 import { invoke, on } from '../ipc'
 import { recordFile } from '../tiling/recent'
+import { markEdit, markKey, startPresence } from './presence-store'
 import { ancestorsOf, nameOf, parentOf } from './tree-model'
 
 export interface EditorTab {
@@ -17,6 +26,8 @@ export interface EditorTab {
   dirty: boolean
   /** The disk moved on under unsaved edits, or a save found it changed. */
   conflict: boolean
+  /** The agent whose write the unsaved edits could not take in, when it was one. */
+  conflictBy: string | null
   /** Bumped when `content` was replaced from disk; the editor reloads its buffer. */
   loadId: number
 }
@@ -120,10 +131,22 @@ function updateTab(root: string, path: string, patch: Partial<EditorTab>): void 
   update(root, (w) => ({ tabs: w.tabs.map((t) => (t.path === path ? { ...t, ...patch } : t)) }))
 }
 
+/** The disk text moved on: what the editor did with it. */
+export type SyncResult =
+  /** Taken in: `ranges` are the buffer lines that changed (null without a buffer); `dirty` whether unsaved edits remain. */
+  | { ok: true; ranges: PresenceRange[] | null; dirty: boolean }
+  /** Unsaved edits overlap the change: the buffer is untouched. */
+  | { ok: false }
+
 /** What the editor exposes so a save can read the buffer and mark it clean. */
 export interface EditorBridge {
   text(root: string, path: string): string | null
   markClean(root: string, path: string): void
+  /**
+   * The file on disk went from `base` (what the buffer was loaded from) to `next`: a clean buffer
+   * takes the change in place; a dirty one merges it with the unsaved edits (three-way, by line).
+   */
+  sync(root: string, path: string, base: string, next: string): SyncResult
 }
 let bridge: EditorBridge | null = null
 export function setEditorBridge(b: EditorBridge | null): void {
@@ -440,6 +463,7 @@ export function openFile(root: string, path: string, opts: OpenOptions = {}): vo
     version: null,
     dirty: false,
     conflict: false,
+    conflictBy: null,
     loadId: 0,
   }
   update(root, (s) => {
@@ -567,6 +591,7 @@ export async function saveTab(root: string, path: string, force: boolean): Promi
     version: r.value.version,
     content: { kind: 'text', text, version: r.value.version },
     conflict: false,
+    conflictBy: null,
   })
   setDirty(root, path, false)
   refreshGitSoon(root)
@@ -575,7 +600,7 @@ export async function saveTab(root: string, path: string, force: boolean): Promi
 
 /** Drops unsaved edits and loads what is on disk now. */
 export async function reloadTab(root: string, path: string): Promise<void> {
-  updateTab(root, path, { conflict: false })
+  updateTab(root, path, { conflict: false, conflictBy: null })
   setDirty(root, path, false)
   await readTab(root, path)
 }
@@ -600,6 +625,77 @@ function syncWatch(root: string): void {
       void invoke('files.watch', { root, paths: [...paths].slice(0, 2000) })
     }, 100),
   )
+  syncPresence()
+}
+
+let presenceTimer: number | undefined
+
+/** The host watches every open tab (in any root) for agent edits. */
+function syncPresence(): void {
+  window.clearTimeout(presenceTimer)
+  presenceTimer = window.setTimeout(() => {
+    const files = Object.values(filesStore.getState().spaces).flatMap((w) =>
+      w.tabs.map((t) => ({ root: w.root, path: t.path })),
+    )
+    void invoke('files.presence.open', { files: files.slice(0, 200) })
+  }, 100)
+}
+
+/** The buffer lines each tab last took from disk, by the disk version they came with. */
+const applied = new Map<string, { hash: string; ranges: PresenceRange[] }>()
+
+/**
+ * Reads a tab's file again after it changed on disk. Text lands in the buffer in place (Isaac's
+ * caret and scroll stay); unsaved edits are merged with it line by line, and only a change that
+ * overlaps them leaves the buffer alone with the conflict banner (`by`: the agent that wrote it).
+ */
+async function refreshTab(root: string, path: string, by: string | null): Promise<void> {
+  const tab = space(root)?.tabs.find((t) => t.path === path)
+  if (!tab || tab.content === null) return
+  const r = await invoke('files.read', { root, path })
+  const now = space(root)?.tabs.find((t) => t.path === path)
+  if (!now || now.content === null) return
+  if (!r.ok) {
+    // Deleted (or moved) on disk: a clean tab says so; a dirty one keeps its buffer.
+    if (r.error.code === 'not-found' && !now.dirty)
+      updateTab(root, path, { error: 'This file was deleted on disk.' })
+    return
+  }
+  const next = r.value
+  const same =
+    next.kind === 'text' && now.version !== null && next.version.hash === now.version.hash
+  if (same && now.error === null) return
+  if (next.kind === 'text' && now.content.kind === 'text') {
+    const synced = bridge?.sync(root, path, now.content.text, next.text) ?? {
+      ok: true,
+      ranges: null,
+      dirty: false,
+    }
+    if (!synced.ok) {
+      // The local watcher hears the same write without a name: keep the agent's.
+      updateTab(root, path, { conflict: true, conflictBy: by ?? now.conflictBy })
+      return
+    }
+    if (synced.ranges)
+      applied.set(markKey(root, path), { hash: next.version.hash, ranges: synced.ranges })
+    updateTab(root, path, {
+      content: next,
+      error: null,
+      version: next.version,
+      conflict: false,
+      conflictBy: null,
+    })
+    setDirty(root, path, synced.dirty)
+    return
+  }
+  if (now.dirty) updateTab(root, path, { conflict: true, conflictBy: by ?? now.conflictBy })
+  else
+    updateTab(root, path, {
+      content: next,
+      error: null,
+      version: next.kind === 'text' ? next.version : null,
+      loadId: now.loadId + 1,
+    })
 }
 
 async function onDiskChange(root: string, paths: readonly string[]): Promise<void> {
@@ -609,31 +705,41 @@ async function onDiskChange(root: string, paths: readonly string[]): Promise<voi
   for (const p of seen) if (w.children[p] !== undefined) void loadDir(root, p)
   for (const tab of w.tabs) {
     if (!seen.has(tab.path) && !seen.has(parentOf(tab.path))) continue
-    if (tab.content === null) continue
-    const r = await invoke('files.read', { root, path: tab.path })
-    const now = space(root)?.tabs.find((t) => t.path === tab.path)
-    if (!now) continue
-    if (!r.ok) {
-      // Deleted (or moved) on disk: a clean tab says so; a dirty one keeps its buffer.
-      if (r.error.code === 'not-found' && !now.dirty)
-        updateTab(root, tab.path, { error: 'This file was deleted on disk.' })
-      continue
-    }
-    const next = r.value
-    const same =
-      next.kind === 'text' && now.version !== null && next.version.hash === now.version.hash
-    if (same && now.error === null) continue
-    if (now.dirty) updateTab(root, tab.path, { conflict: true })
-    else
-      updateTab(root, tab.path, {
-        content: next,
-        error: null,
-        version: next.kind === 'text' ? next.version : null,
-        loadId: now.loadId + 1,
-      })
+    await refreshTab(root, tab.path, null)
   }
   update(root, () => ({ allFiles: null }))
   refreshGitSoon(root)
+}
+
+/**
+ * An agent's write to an open file (from the host): the tab takes it in (unless the local
+ * watcher already did) and shows the agent's caret and the lines it changed, where they are in
+ * the buffer now. A write that collided with unsaved edits names the agent on the banner instead.
+ */
+export async function applyAgentEdit(edit: PresenceEdit): Promise<void> {
+  for (const { root, path } of edit.targets) {
+    const tab = space(root)?.tabs.find((t) => t.path === path)
+    if (!tab || tab.content?.kind !== 'text') continue
+    if (tab.version?.hash !== edit.hash) await refreshTab(root, path, edit.agent.name)
+    const now = space(root)?.tabs.find((t) => t.path === path)
+    if (!now || now.version?.hash !== edit.hash) {
+      if (now?.conflict) updateTab(root, path, { conflictBy: edit.agent.name })
+      continue
+    }
+    const known = applied.get(markKey(root, path))
+    const ranges = known?.hash === edit.hash ? known.ranges : edit.ranges
+    const last = ranges.at(-1)
+    markEdit(root, path, {
+      agent: edit.agent,
+      ranges,
+      // In buffer lines the caret sits at the end of the last changed line (the editor clamps the column).
+      caret:
+        known?.hash === edit.hash && last
+          ? { line: last.endLine, column: Number.MAX_SAFE_INTEGER }
+          : edit.caret,
+      ...(edit.intent ? { intent: edit.intent } : {}),
+    })
+  }
 }
 
 // Quick open and search ------------------------------------------------------------------
@@ -688,9 +794,16 @@ export function revealFinder(root: string, path: string): void {
   void invoke('files.reveal', { root, path })
 }
 
-/** Subscribes to main's change events; returns the unsubscribe. */
+/** Subscribes to main's change events and the host's presence; returns the unsubscribe. */
 export function startFiles(): () => void {
-  return on('files.changed', ({ root, paths }) => void onDiskChange(root, paths))
+  const offChanged = on('files.changed', ({ root, paths }) => void onDiskChange(root, paths))
+  const offEdits = on('files.presence.edit', (edit) => void applyAgentEdit(edit))
+  const offPresence = startPresence()
+  return () => {
+    offChanged()
+    offEdits()
+    offPresence()
+  }
 }
 
 /** Test seam. */
@@ -698,6 +811,7 @@ export function resetFilesStoreForTests(): void {
   for (const off of dirtyOff.values()) off()
   dirtyOff.clear()
   loadingDirs.clear()
+  applied.clear()
   evaRootFor = undefined
   agentRootFor = undefined
   filesStore.setState({

@@ -4,6 +4,7 @@
 // deterministic, served as SVG at `/canvas/portrait/<seed>`.
 
 import { createAvatar } from "@dicebear/core";
+import type { CanvasAgent } from "@relay/protocol";
 import { assistantAvatarSvg, assistantPortrait } from "@relay/portrait-motion";
 import type { AssistantAgentConfig } from "../assistant/registry";
 import * as notionists from "@dicebear/notionists";
@@ -34,4 +35,15 @@ export function portraitSvg(seed: string): string {
 export function assistantAvatar(registry: readonly AssistantAgentConfig[], key: string): string | null {
   const config = registry.find((entry) => entry.id === key);
   return config === undefined ? null : assistantAvatarSvg(assistantPortrait(config));
+}
+
+/** Default look of the agent of a plain chat (Relay calls those chats' agent Eva). */
+export const EVA_LOOK: CanvasAgent = { name: "Eva", color: "#8b5cf6" };
+
+/** Assistant `id` as the registry draws it: its title, accent and avatar (the shared desktop portrait) when it is listed. */
+export function assistantLook(registry: readonly AssistantAgentConfig[], id: string, fallbackTitle: string): CanvasAgent {
+  const config = registry.find((entry) => entry.id === id);
+  const accent = config?.portrait?.colors?.accent;
+  const agent: CanvasAgent = { name: config?.title ?? fallbackTitle, color: accent !== undefined && /^#[0-9a-fA-F]{6}$/.test(accent) ? accent : EVA_LOOK.color };
+  return config === undefined ? agent : { ...agent, avatar: `/canvas/avatar/${id}` };
 }

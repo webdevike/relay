@@ -29,14 +29,12 @@ import { chatFileOf, subagentName } from "./caller";
 import { chatContext } from "./context";
 import { ActRefused, CanvasParticipant, MAX_BATCH_ACTIONS, MAX_PARTICIPANTS, parseScript, type ActResult, type ParticipantOptions } from "./participant";
 import { BoardFile, boardPath } from "./persist";
-import { assistantAvatar, portraitSeed } from "./portrait";
+import { assistantAvatar, assistantLook, EVA_LOOK, portraitSeed } from "./portrait";
 import { CanvasSync, type CanvasPeer } from "./room";
 import { CanvasTokens, type CanvasGrant } from "./tokens";
 
 /** The human every room is for: tokens are bound to this name (the host's owner, see host-config.ts). */
 export const canvasHuman = human;
-/** Default look of the agent of a plain chat (Relay calls those chats' agent Eva). */
-const EVA: CanvasAgentInfo = { name: "Eva", color: "#8b5cf6" };
 /** Colors for joined agents, picked by name (the first one no one in the room wears yet). */
 const PARTICIPANT_COLORS = ["#0ca678", "#f59f00", "#7048e8", "#e8590c", "#1098ad", "#d6336c", "#37b24d", "#4263eb"];
 /** Wrap up this long after the last human left. */
@@ -819,18 +817,10 @@ export class CanvasService {
 
   /** The canvas self's look: the chat's assistant (name, accent, avatar), else Eva; `name` overrides. */
   private agentFor(chat: AgentSession, name: string | undefined): CanvasAgentInfo {
-    let agent: CanvasAgentInfo = this.deps.defaultAgentName === undefined ? EVA : { ...EVA, name: this.deps.defaultAgentName };
-    if (chat.kind === "assistant" && chat.assistant !== undefined) agent = this.assistantLook(chat.assistant, chat.title);
+    let agent: CanvasAgentInfo = this.deps.defaultAgentName === undefined ? EVA_LOOK : { ...EVA_LOOK, name: this.deps.defaultAgentName };
+    if (chat.kind === "assistant" && chat.assistant !== undefined) agent = assistantLook(this.deps.registry, chat.assistant, chat.title);
     const override = name?.trim();
     return override === undefined || override === "" ? agent : { ...agent, name: override.slice(0, 100) };
-  }
-
-  /** Assistant `id` as the registry draws it: its title, accent and avatar (the shared desktop portrait) when it is listed. */
-  private assistantLook(id: string, fallbackTitle: string): CanvasAgentInfo {
-    const config = this.deps.registry.find((entry) => entry.id === id);
-    const accent = config?.portrait?.colors?.accent;
-    const agent: CanvasAgentInfo = { name: config?.title ?? fallbackTitle, color: accent !== undefined && /^#[0-9a-fA-F]{6}$/.test(accent) ? accent : EVA.color };
-    return config === undefined ? agent : { ...agent, avatar: `/canvas/avatar/${id}` };
   }
 
   /**
@@ -841,13 +831,13 @@ export class CanvasService {
   private participantUser(room: CanvasRoom, name: string, color: string | undefined): User {
     const assistant = this.deps.registry.find((entry) => entry.id === name.toLowerCase() || entry.title.toLowerCase() === name.toLowerCase());
     if (assistant !== undefined) {
-      const look = this.assistantLook(assistant.id, name);
+      const look = assistantLook(this.deps.registry, assistant.id, name);
       return { ...this.user({ ...look, name }), ...(color === undefined ? {} : { color }) };
     }
     const worn = new Set([room.agent.color.toLowerCase(), ...[...room.participants.values()].map((p) => p.user.color.toLowerCase())]);
     const first = nameHash(name) % PARTICIPANT_COLORS.length;
     const palette = [...PARTICIPANT_COLORS.slice(first), ...PARTICIPANT_COLORS.slice(0, first)];
-    const picked = color ?? palette.find((candidate) => !worn.has(candidate)) ?? palette[0] ?? EVA.color;
+    const picked = color ?? palette.find((candidate) => !worn.has(candidate)) ?? palette[0] ?? EVA_LOOK.color;
     return { name, color: picked, kind: "agent", avatar: `/canvas/portrait/${portraitSeed(name)}` };
   }
 

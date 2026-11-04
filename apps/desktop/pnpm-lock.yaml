@@ -227,6 +227,9 @@ importers:
       '@relay/portrait-motion':
         specifier: link:../../packages/portrait-motion
         version: link:../../packages/portrait-motion
+      '@relay/protocol':
+        specifier: link:../../packages/protocol
+        version: link:../../packages/protocol
       '@relay/slack-emoji':
         specifier: link:../../packages/slack-emoji
         version: link:../../packages/slack-emoji

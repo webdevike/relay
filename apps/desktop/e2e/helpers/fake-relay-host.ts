@@ -197,6 +197,17 @@ export class FakeRelayHost {
   private rev = 0
   /** `welcome.state.mac.version`: what the host says it runs. */
   macVersion = '0'
+  /** `welcome.features`: what this host says it answers beyond the base protocol. */
+  features: string[] = []
+  /** Every `files.open` path list, every `files.caret` focus and every `files.saved` the app sent, in order. */
+  readonly filesOpen: string[][] = []
+  readonly carets: Array<Json | null> = []
+  readonly saves: Json[] = []
+
+  /** An agent's write to an open file, as the host's file presence reports it (`files.edit`). */
+  fileEdit(edit: Json): void {
+    this.broadcast({ t: 'files.edit', ...edit })
+  }
   /** Studio's jobs and uploads (newest first) and its backends. */
   readonly studio: { jobs: Json[]; uploads: Json[]; backends: Json[] } = {
     jobs: [],
@@ -651,6 +662,7 @@ export class FakeRelayHost {
             },
             agents: { rev: this.rev, sessions: [...this.sessions.keys()].map((s) => this.wire(s)) },
           },
+          ...(this.features.length > 0 ? { features: this.features } : {}),
         })
         return
       }
@@ -722,6 +734,15 @@ export class FakeRelayHost {
       }
       case 'agent.unsubscribe':
         peer.subs.delete(String(f.sessionId))
+        return
+      case 'files.open':
+        this.filesOpen.push(z.array(z.string()).parse(f.paths))
+        return peer.send({ t: 'files.presence', focus: [] })
+      case 'files.caret':
+        this.carets.push(f.focus === null ? null : JsonSchema.parse(f.focus))
+        return
+      case 'files.saved':
+        this.saves.push(f)
         return
       case 'studio.list':
         this.studioLists += 1

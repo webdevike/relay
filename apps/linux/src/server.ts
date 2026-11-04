@@ -25,6 +25,7 @@ import { CommandDedupStore } from "./dedup";
 import { serveBlob } from "./drops/serve";
 import { isVideoMime, videoMimeOf, VideoTooLarge } from "./drops/video";
 import { PairingCoordinator } from "./pairing";
+import type { FilePresence } from "./files/presence";
 import { handleStudioRequest } from "./studio/http";
 import { handleReviewsMedia } from "./reviews/http";
 import { handleQueryRequest } from "./query/http";
@@ -107,6 +108,8 @@ export interface ServerDeps {
   readonly reviews: ReviewsRelaying | null;
   /** Live widgets' read-only queries; null disables `/query`, `/canvas/<slug>/query` and `query.req` (and leaves "query" out of `welcome.features`). */
   readonly query: QueryRelaying | null;
+  /** Live file presence for Relay desktop's editor; null leaves `files.*` frames unanswered and the feature out of `welcome`. */
+  readonly files: FilePresence | null;
   /** The canvas web client's HTML, served at `/canvas/<slug>/`. */
   readonly canvasPage: () => string;
   readonly pairing: PairingUI;
@@ -395,6 +398,7 @@ export class RelayServer {
     this.deps.artifacts?.observe(change);
     this.deps.activity?.observe(change);
     this.deps.reviews?.observe(change);
+    this.deps.files?.observe(change);
     if (change.kind === "sessions") {
       const sessions = this.deps.agents?.sessions ?? [];
       const delta = this.agentsTracker.apply(sessions);
@@ -557,6 +561,7 @@ export class RelayServer {
         studio: this.deps.studio,
         reviews: this.deps.reviews,
         query: this.deps.query,
+        files: this.deps.files,
       },
       (closed) => {
         const reason = closed.closeReason;

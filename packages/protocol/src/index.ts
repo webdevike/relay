@@ -496,8 +496,12 @@ export const AgentMessage = z.object({
   role: AgentMessageRole,
   text: z.string(),
   at: ms,
-  /** Present when role === "tool": the tool that ran and a one-line summary of its input. */
-  tool: z.object({ name: nonEmpty, summary: z.string() }).optional(),
+  /**
+   * Present when role === "tool": the tool that ran and a one-line summary of its input; `paths`
+   * are the files an editing tool (edit, write, ...) writes, as it named them (relative to the
+   * session's `projectPath` unless absolute), so the host can tell whose edit an open file got.
+   */
+  tool: z.object({ name: nonEmpty, summary: z.string(), paths: z.array(z.string().min(1).max(4096)).max(20).optional() }).optional(),
   /** Images the message carried (a pasted screenshot, a tool's rendered page). */
   images: z.array(AgentImageRef).optional(),
   /** True while the assistant is still producing `text`; `agent.message.update` frames carry the growth. */
@@ -506,6 +510,58 @@ export const AgentMessage = z.object({
   canvas: CanvasEntry.optional().catch(undefined),
 });
 export type AgentMessage = z.infer<typeof AgentMessage>;
+
+// ---------------------------------------------------------------------------------------------
+// Live file presence: Relay desktop tells the host which files it has open (absolute paths on the
+// host) and where Isaac's caret is; the host watches those files and, when one changes on disk,
+// tells every desktop which lines changed and which agent's tool wrote them. Only sent to a host
+// whose `welcome.features` has FILES_PRESENCE_FEATURE.
+// ---------------------------------------------------------------------------------------------
+
+export const FILES_PRESENCE_FEATURE = "files.presence";
+
+/** An absolute path on the host. */
+export const HostFilePath = z.string().min(2).max(4096).startsWith("/");
+
+const linePos = z.number().int().positive();
+
+/** 1-based inclusive lines of the file as it is now. */
+export const FileLineRange = z.object({ startLine: linePos, endLine: linePos });
+export type FileLineRange = z.infer<typeof FileLineRange>;
+
+/** A 1-based line and column. */
+export const FileCaret = z.object({ line: linePos, column: linePos });
+export type FileCaret = z.infer<typeof FileCaret>;
+
+/** Where Isaac is in a file: the caret, the selection when there is one, and its text (clipped). */
+export const FileFocus = z.object({
+  path: HostFilePath,
+  caret: FileCaret,
+  selection: z.object({ start: FileCaret, end: FileCaret }).optional(),
+  selectedText: z.string().max(2000).optional(),
+});
+export type FileFocus = z.infer<typeof FileFocus>;
+
+/** Another device's focus, as the host relays it. */
+export const DeviceFileFocus = FileFocus.extend({ device: nonEmpty, deviceName: z.string().max(200), at: ms });
+export type DeviceFileFocus = z.infer<typeof DeviceFileFocus>;
+
+/** Who wrote an edit: the session's agent look (as on a canvas), or the generic "Agent" when no tool claimed the file. */
+export const FileEditAgent = CanvasAgent.extend({ sessionId: nonEmpty.optional() });
+export type FileEditAgent = z.infer<typeof FileEditAgent>;
+
+/** One write to an open file: what it is now (`hash`: sha1 hex of its bytes), the lines it changed, where the writer's caret ends. */
+export const FileEdit = z.object({
+  path: HostFilePath,
+  hash: z.string().min(1).max(128),
+  ranges: z.array(FileLineRange).max(50),
+  caret: FileCaret,
+  agent: FileEditAgent,
+  /** The tool call's one-line intent, when it gave one. */
+  intent: z.string().max(300).optional(),
+  at: ms,
+});
+export type FileEdit = z.infer<typeof FileEdit>;
 
 /** Where an assistant's thread stands, from its live omp session: no session is "not_started". */
 export const AssistantStatus = z.enum(["working", "needs_you", "idle", "not_started"]);
@@ -1472,6 +1528,16 @@ export const ClientMessage = z.discriminatedUnion("t", [
     tool: z.string().min(1).max(64),
     args: z.record(z.unknown()).optional(),
   }),
+  /**
+   * The files this socket's editor has open (absolute host paths), replacing what it said before.
+   * The host watches them and sends `files.edit` when one changes; the first one also starts
+   * `files.presence` on this socket. Only sent to a host whose `welcome.features` has FILES_PRESENCE_FEATURE.
+   */
+  z.object({ t: z.literal("files.open"), paths: z.array(HostFilePath).max(200) }),
+  /** Where Isaac's caret is now in an open file; null when no file has it. Agents read it through the host. */
+  z.object({ t: z.literal("files.caret"), focus: FileFocus.nullable() }),
+  /** Isaac's editor is saving `path` with these bytes (sha1 hex): that write is his, not an agent's. */
+  z.object({ t: z.literal("files.saved"), path: HostFilePath, hash: z.string().min(1).max(128) }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 
@@ -1734,6 +1800,10 @@ export const ServerMessage = z.discriminatedUnion("t", [
     data: z.unknown().optional(),
     error: z.string().optional(),
   }),
+  /** An open file changed on disk (see FileEdit); sent to every socket that sent `files.open`. */
+  FileEdit.extend({ t: z.literal("files.edit") }),
+  /** Every other device's caret in an open file (`files.caret`), newest first; sent on `files.open` and on every change. */
+  z.object({ t: z.literal("files.presence"), focus: z.array(DeviceFileFocus).max(20) }),
   z.object({ t: z.literal("ack"), id: nonEmpty }),
   z.object({ t: z.literal("nack"), id: nonEmpty, error: AckError }),
   z.object({ t: z.literal("pong"), ts: ms, serverTs: ms }),

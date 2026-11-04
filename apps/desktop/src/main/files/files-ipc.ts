@@ -13,10 +13,12 @@ import { createFilesService } from './files-service'
  * The Files panel: one root folder (the open chat's worktree, else the Eva root) per call. On a thin
  * client (remote mode) an assistant's instruction files are the Mini's, so their virtual roots are
  * served through the Mini's Relay Host (`agent-files.ts`) and every other root stays on this Mac.
+ * `onSave` hears each save before it writes (live presence tells the host the write is Isaac's).
  */
 export function registerFilesIpc(
   ctx: MainContext,
   chat: Pick<ChatHandles, 'placeOf' | 'frames'>,
+  onSave: (root: string, rel: string, text: string) => void,
 ): { hostPathOf(root: string, rel: string): string | null } {
   let childEnv: Promise<NodeJS.ProcessEnv> | null = null
   const env = (): Promise<NodeJS.ProcessEnv> =>
@@ -50,9 +52,10 @@ export function registerFilesIpc(
   handle(ctx, 'files.read', ({ root, path }) =>
     agentFiles && isHostRoot(root) ? agentFiles.read(root, path) : service.read(root, path),
   )
-  handle(ctx, 'files.save', (input) =>
-    agentFiles && isHostRoot(input.root) ? agentFiles.save(input) : service.save(input),
-  )
+  handle(ctx, 'files.save', (input) => {
+    onSave(input.root, input.path, input.text)
+    return agentFiles && isHostRoot(input.root) ? agentFiles.save(input) : service.save(input)
+  })
   // A virtual root has no git, no quick-open list and nothing to search.
   handle(ctx, 'files.gitStatus', ({ root }) =>
     agentFiles && isHostRoot(root)

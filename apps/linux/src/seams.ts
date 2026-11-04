@@ -1,12 +1,31 @@
 // Seams between transport, input and storage. Mirrors apps/mac/Sources/RelayCore/Seams.swift:
 // the session only ever talks to these; input/ and the stores implement them; main.ts wires them.
 
-import type { AckError, AgentApproval, AgentAsk, AgentAskAnswer, AgentImage, AgentMessage, AgentOptions, AgentSession, ApprovalConfirmation, AssistantAgent, AssistantFileReq, AssistantFileRes, AssistantSnapshot, ClientMessage, Command, Drop, DropOrigin, GateStatus, InboxItem, InboxResolve, InputEvent, KeyName, ReviewsOp, ReviewsResult, ServerMessage, StudioOp, StudioResult, StudioState } from "@relay/protocol";
+import type { AckError, AgentApproval, AgentAsk, AgentAskAnswer, AgentImage, AgentMessage, AgentOptions, AgentSession, ApprovalConfirmation, AssistantAgent, AssistantFileReq, AssistantFileRes, AssistantSnapshot, ClientMessage, Command, Drop, DropOrigin, FileFocus, GateStatus, InboxItem, InboxResolve, InputEvent, KeyName, ReviewsOp, ReviewsResult, ServerMessage, StudioOp, StudioResult, StudioState } from "@relay/protocol";
 
 /** Outbound side of one connection. `send` after `close` is a no-op. */
 export interface FrameSink {
   send(message: ServerMessage): void;
   close(): void;
+}
+
+/** A device's socket as live file presence knows it: replies and pushes go through `sink`. */
+export interface FileClient {
+  readonly sink: FrameSink;
+  readonly device: string;
+  readonly deviceName: string;
+}
+
+/** What the session needs of live file presence (`files/presence.ts`): one entry per socket, named by its sink. */
+export interface FilePresenceRelaying {
+  /** `files.open`: the files this socket's editor has open now. */
+  open(client: FileClient, paths: readonly string[]): void;
+  /** `files.caret`: where Isaac's caret is on this socket's device, or nowhere. */
+  caret(client: FileClient, focus: FileFocus | null): void;
+  /** `files.saved`: Isaac's editor is writing `path` with bytes of this sha1. */
+  saved(path: string, hash: string): void;
+  /** The socket closed: forget its files and its caret. */
+  drop(sink: FrameSink): void;
 }
 
 /** The live view's VNC bridge (`VNC_PATH`), as the session sees it. */
