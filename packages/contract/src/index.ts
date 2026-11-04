@@ -22,6 +22,7 @@ import { linksEvents, linksInvoke } from './links'
 import { reviewsEvents, reviewsInvoke } from './reviews'
 import { roomsEvents, roomsInvoke } from './rooms'
 import { filesEvents, filesInvoke } from './files'
+import { filesPresenceEvents, filesPresenceInvoke } from './files-presence'
 import { terminalEvents, terminalInvoke } from './terminal'
 import { agentEvents, agentInvoke } from './agent'
 import {
@@ -50,6 +51,7 @@ export * from './rooms'
 export * from './rooms-roster'
 export * from './rooms-mentions'
 export * from './files'
+export * from './files-presence'
 export * from './terminal'
 export * from './agent'
 export * from './agent-access'
@@ -100,6 +102,7 @@ export const invokeContract = {
   ...draftsInvoke,
   ...roomsInvoke,
   ...filesInvoke,
+  ...filesPresenceInvoke,
   ...terminalInvoke,
   ...agentInvoke,
   ...connectionsInvoke,
@@ -125,6 +128,7 @@ export const eventContract = {
   ...studioEvents,
   ...roomsEvents,
   ...filesEvents,
+  ...filesPresenceEvents,
   ...terminalEvents,
   ...agentEvents,
   ...connectionsEvents,

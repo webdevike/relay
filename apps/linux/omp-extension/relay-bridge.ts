@@ -43,7 +43,7 @@ import {
   skillCommandOf,
   CANVAS_MESSAGE_TYPE,
   type CanvasRow,
-  summarizeArguments,
+  toolCallOf,
   textOf,
   type Image,
   type InboxMessage,
@@ -1679,8 +1679,8 @@ export default function relayBridge(pi: ExtensionAPI): void {
       }
       for (const part of message.content) {
         if (part.type === "toolCall") {
-          const summary = summarizeArguments(part.arguments);
-          appended.push({ id: nextId(), role: "tool", text: summary, at, tool: { name: part.name, summary } });
+          const tool = toolCallOf(part.name, part.arguments);
+          appended.push({ id: nextId(), role: "tool", text: tool.summary, at, tool });
           // Its result may start a background job, labelled with what the call runs.
           backgroundJobs.noteToolCall(part.id, part.arguments);
         }

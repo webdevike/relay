@@ -38,6 +38,7 @@ import { createPrSource, localPrFacts, toolRunner } from './context-popover/pr-s
 import { startStatusReader } from './relay/artifacts-status'
 import { registerRoomsIpc } from './rooms/rooms-ipc'
 import { registerFilesIpc } from './files/files-ipc'
+import { registerFilesPresenceIpc } from './files/presence-ipc'
 import { registerTerminalIpc } from './terminal/terminal-ipc'
 import { registerAgentControl } from './agent-control'
 import { reportFatal } from './fatal'
@@ -222,7 +223,9 @@ function bootstrap(): void {
           : null,
       )
       registerRoomsIpc(ctx)
-      registerFilesIpc(ctx, chat)
+      // Agent cursors in the Files editor and Isaac's caret, through the Relay Host.
+      const presence = registerFilesPresenceIpc(ctx, chat.frames, () => chat.canvas.canvasOrigin())
+      registerFilesIpc(ctx, chat, presence.noteSave)
       registerTerminalIpc(ctx, chat)
       registerBrowser(ctx)
       const update = registerUpdate(ctx, {

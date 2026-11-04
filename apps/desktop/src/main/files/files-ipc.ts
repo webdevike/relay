@@ -7,8 +7,15 @@ import { emit, handle } from '../ipc/handle'
 import { findRg } from './files-search'
 import { createFilesService } from './files-service'
 
-/** The Files panel: one root folder (the open chat's worktree, else the Eva root) per call. */
-export function registerFilesIpc(ctx: MainContext, chat: Pick<ChatHandles, 'placeOf'>): void {
+/**
+ * The Files panel: one root folder (the open chat's worktree, else the Eva root) per call.
+ * `onSave` hears each save before it writes (live presence tells the host the write is Isaac's).
+ */
+export function registerFilesIpc(
+  ctx: MainContext,
+  chat: Pick<ChatHandles, 'placeOf'>,
+  onSave: (root: string, rel: string, text: string) => void,
+): void {
   let childEnv: Promise<NodeJS.ProcessEnv> | null = null
   const env = (): Promise<NodeJS.ProcessEnv> =>
     (childEnv ??= childPathFor(ctx.env.live, os.homedir()).then((PATH) => ({
@@ -26,7 +33,10 @@ export function registerFilesIpc(ctx: MainContext, chat: Pick<ChatHandles, 'plac
   handle(ctx, 'files.root', ({ file }) => service.root(file))
   handle(ctx, 'files.list', ({ root, dir }) => service.list(root, dir))
   handle(ctx, 'files.read', ({ root, path }) => service.read(root, path))
-  handle(ctx, 'files.save', (input) => service.save(input))
+  handle(ctx, 'files.save', (input) => {
+    onSave(input.root, input.path, input.text)
+    return service.save(input)
+  })
   handle(ctx, 'files.gitStatus', ({ root }) => service.gitStatus(root))
   handle(ctx, 'files.all', ({ root }) => service.all(root))
   handle(ctx, 'files.search', ({ root, ...q }) => service.search(root, q))

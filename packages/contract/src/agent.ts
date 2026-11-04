@@ -695,7 +695,7 @@ export const agentActions = {
   describe: {
     title: 'Describe the screen',
     description:
-      'What Isaac sees now, in plain words and as data: the page in front (its title, Settings section, open chat, Reviews item, board) with its deep link, what is selected, each pane on screen with its tabs, the controls on screen a tour can point at (`target`, label), and whether the window is in front. Changes nothing.',
+      'What Isaac sees now, in plain words and as data: the page in front (its title, Settings section, open chat, Reviews item, board) with its deep link, what is selected, where his caret is in a file (`editor`: absolute `file`, `line`, `column`, `selection` and `selectedText` when he selected something, `device` when it is on his other Mac, else null), each pane on screen with its tabs, the controls on screen a tour can point at (`target`, label), and whether the window is in front. Changes nothing.',
     params: Empty,
     side: 'renderer',
     focus: 'none',

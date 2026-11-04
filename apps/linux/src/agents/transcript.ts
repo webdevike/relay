@@ -38,7 +38,7 @@ export interface InboxMessage {
   role: Role;
   text: string;
   at: number;
-  tool?: { name: string; summary: string };
+  tool?: { name: string; summary: string; paths?: string[] };
   images?: ImageRef[];
   streaming?: boolean;
   canvas?: CanvasRow;
@@ -81,7 +81,7 @@ export function firstLine(text: string): string {
   return line.length > MAX_SUMMARY ? `${line.slice(0, MAX_SUMMARY - 1)}…` : line;
 }
 
-export function summarizeArguments(args: Record<string, unknown>): string {
+function summarizeArguments(args: Record<string, unknown>): string {
   const intent = args["i"];
   if (typeof intent === "string" && intent.length > 0) return firstLine(intent);
   const parts: string[] = [];
@@ -91,6 +91,39 @@ export function summarizeArguments(args: Record<string, unknown>): string {
     if (parts.join(" ").length > MAX_SUMMARY) break;
   }
   return firstLine(parts.join(" "));
+}
+
+/** Tools that write files (omp's and Claude Code's), lowercased. */
+const EDIT_TOOLS: Record<string, true> = { edit: true, write: true, ast_edit: true, apply_patch: true, multiedit: true, notebookedit: true, notebook_edit: true };
+/** A hashline edit's file header (`[path#1A2B]`) and an apply_patch file line (`*** Update File: path`). */
+const EDIT_HEADER = /^\[(.+)#[0-9A-Fa-f]{4}\]\s*$|^\*\*\* (?:Update|Add) File: (.+?)\s*$/gm;
+const MAX_EDIT_PATHS = 20;
+
+/**
+ * The files an editing tool call writes, as it named them (relative to the session's cwd unless
+ * absolute); empty for every other tool. Reads `path`/`file_path`/`notebook_path`/`paths` and the
+ * file headers of an `input` patch. Internal URIs (`local://`, `agent://`) are not files.
+ */
+function editedPaths(tool: string, args: Record<string, unknown>): string[] {
+  if (EDIT_TOOLS[tool.toLowerCase()] !== true) return [];
+  const found = new Set<string>();
+  for (const key of ["path", "file_path", "notebook_path"]) {
+    const value = args[key];
+    if (typeof value === "string") found.add(value);
+  }
+  const paths = args["paths"];
+  if (Array.isArray(paths)) for (const p of paths) if (typeof p === "string") found.add(p);
+  const input = args["input"];
+  if (typeof input === "string") for (const m of input.matchAll(EDIT_HEADER)) found.add((m[1] ?? m[2] ?? "").trim());
+  return [...found].filter((p) => p !== "" && !p.includes("://")).slice(0, MAX_EDIT_PATHS);
+}
+
+/** A tool call's row data: its name, the one-line summary of its input and, for an editing tool, the files it writes. */
+export function toolCallOf(name: string, args: unknown): NonNullable<InboxMessage["tool"]> {
+  if (typeof args !== "object" || args === null) return { name, summary: "" };
+  const record = args as Record<string, unknown>;
+  const paths = editedPaths(name, record);
+  return { name, summary: summarizeArguments(record), ...(paths.length === 0 ? {} : { paths }) };
 }
 
 /** Text of a user/assistant message: string content or the joined text parts. */
@@ -255,8 +288,8 @@ function rowsOf(message: Record<string, unknown>, images: Map<string, Image> | n
       if (!Array.isArray(content)) break;
       for (const part of content as { type?: unknown; name?: unknown; arguments?: unknown }[]) {
         if (part.type !== "toolCall" || typeof part.name !== "string") continue;
-        const summary = typeof part.arguments === "object" && part.arguments !== null ? summarizeArguments(part.arguments as Record<string, unknown>) : "";
-        rows.push({ id: nextId(), role: "tool", text: summary, at, tool: { name: part.name, summary } });
+        const tool = toolCallOf(part.name, part.arguments);
+        rows.push({ id: nextId(), role: "tool", text: tool.summary, at, tool });
       }
       break;
     }

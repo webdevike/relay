@@ -89,6 +89,7 @@ import { liveRender } from "./query/openui";
 import { QueryService } from "./query/service";
 import { queryTools } from "./query/tools";
 import { ReviewsService } from "./reviews/service";
+import { FilePresence } from "./files/presence";
 
 const USAGE = `relay-linux <command>
 
@@ -583,6 +584,15 @@ function serve(
         clock: systemClock,
         log,
       });
+  // Agent cursors in Relay desktop's Files editor: who wrote which lines of an open file, and where Isaac's caret is.
+  const files = new FilePresence({
+    sessions: () => agents.sessions,
+    registry: () => registry,
+    // Plain chats' agent, named as on a canvas (liveCanvas below).
+    defaultAgentName: () => (config === null || registry.length === 0 ? undefined : registry[0]?.title),
+    clock: systemClock,
+    log,
+  });
   log(`live view: VNC bridge to 127.0.0.1:${String(vncPort)} (macOS Screen Sharing)`);
   const server: RelayServer = new RelayServer(
     { port, hostName: name, version: bundleVersion() ?? pkg.version, vncPort },
@@ -620,6 +630,7 @@ function serve(
       studio,
       reviews,
       query,
+      files,
       canvasPage: () => CANVAS_PAGE,
       pairing: new PinFilePairingUI(new TerminalPairingUI(), pairingPinPath(), PAIRING_TIMEOUT_MS),
       log,

@@ -524,6 +524,75 @@
   min-height: 0;
   min-width: 0;
 }
+
+/* Agents in the editor (agent-cursors.ts): a caret and name tag where an agent's edit landed and
+   a tint on the lines it changed, in its color, fading out AGENT_LINGER_MS after its last edit
+   (presence-store.ts; the fade is AGENT_FADE_MS). The tint colors are per agent, written there. */
+.eva-agent-caret {
+  position: relative;
+  width: 2px;
+  /* The editor's line height (CodeEditor.tsx). */
+  height: 20px;
+  background: var(--who);
+  pointer-events: none;
+}
+.eva-agent-label {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  padding: calc(var(--mantine-spacing-xs) * 0.2) calc(var(--mantine-spacing-xs) * 0.6);
+  border-radius: var(--mantine-radius-sm) var(--mantine-radius-sm) var(--mantine-radius-sm) 0;
+  background: var(--who);
+  color: #fff;
+  font-family: var(--mantine-font-family);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.2);
+}
+.eva-agent-caret.is-below .eva-agent-label {
+  top: 100%;
+  bottom: auto;
+  border-radius: 0 var(--mantine-radius-sm) var(--mantine-radius-sm) var(--mantine-radius-sm);
+}
+.eva-agent-avatar {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  object-fit: cover;
+}
+.eva-agent-line,
+.eva-agent-gutter,
+.eva-agent-caret {
+  animation: eva-agent-in 0.25s ease-out;
+}
+.eva-agent-line.is-fading,
+.eva-agent-gutter.is-fading,
+.eva-agent-caret.is-fading {
+  animation: eva-agent-out 0.6s ease-in forwards;
+}
+@keyframes eva-agent-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes eva-agent-out {
+  to {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .eva-agent-line,
+  .eva-agent-gutter,
+  .eva-agent-caret {
+    animation: none;
+  }
+}
 .eva-files-md {
   flex: 1;
   min-height: 0;

@@ -254,7 +254,11 @@ export function EditorArea({ root }: { root: string }) {
       {tab?.conflict ? (
         <div className="eva-files-banner" role="alert" data-testid="files-conflict">
           <IconAlertTriangle size={16} stroke={1.5} />
-          <span>This file changed on disk. Your edits are kept.</span>
+          <span>
+            {tab.conflictBy
+              ? `${tab.conflictBy} changed the lines you are editing. Your edits are kept.`
+              : 'This file changed on disk. Your edits are kept.'}
+          </span>
           <Button
             size="compact-xs"
             variant="default"

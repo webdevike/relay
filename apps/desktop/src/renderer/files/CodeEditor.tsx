@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { changedRanges } from '@relay/protocol/text-diff'
 import { useColorScheme, useThemeConfig } from '../theme/theme-config'
 import { registerPageChord } from '../hotkeys/router'
 import {
@@ -13,6 +14,9 @@ import {
 import { nameOf } from './tree-model'
 import { applyEvaTheme, languageFor, monaco } from './monaco-setup'
 import { focusHeld } from '../agent/focus-safety'
+import { drawAgentMarks } from './agent-cursors'
+import { lineEdits, rebase } from './buffer-edits'
+import { setLocalFocus, useMarks } from './presence-store'
 
 type Model = monaco.editor.ITextModel
 
@@ -60,7 +64,54 @@ setEditorBridge({
     const model = models.get(key)
     if (model) cleanVersion.set(key, model.getAlternativeVersionId())
   },
+  sync: (root, path, base, next) => {
+    const key = keyOf(root, path)
+    const model = models.get(key)
+    if (!model || model.isDisposed()) return { ok: true, ranges: null, dirty: false }
+    const ours = model.getValue()
+    const clean = model.getAlternativeVersionId() === cleanVersion.get(key)
+    const r = rebase(ours, clean, base, next)
+    if (!r.ok) return r
+    if (r.text !== ours) {
+      // Line by line, so carets and selections outside the change stay put; undo takes it back.
+      model.pushEditOperations(
+        [],
+        lineEdits(ours, r.text).map((e) => ({
+          range: monaco.Range.fromPositions(
+            model.getPositionAt(e.start),
+            model.getPositionAt(e.end),
+          ),
+          text: e.text,
+        })),
+        () => null,
+      )
+    }
+    if (!r.dirty) cleanVersion.set(key, model.getAlternativeVersionId())
+    return { ok: true, ranges: changedRanges(ours, r.text), dirty: r.dirty }
+  },
 })
+
+/** Isaac's caret and selection in `editor` as the host should hear it. */
+function publishFocus(editor: monaco.editor.IStandaloneCodeEditor, key: string | null): void {
+  const model = editor.getModel()
+  const sel = editor.getSelection()
+  if (key === null || !model || !sel) return
+  const [root, path] = key.split('\0') as [string, string]
+  setLocalFocus({
+    root,
+    path,
+    caret: { line: sel.positionLineNumber, column: sel.positionColumn },
+    ...(sel.isEmpty()
+      ? {}
+      : {
+          selection: {
+            start: { line: sel.startLineNumber, column: sel.startColumn },
+            end: { line: sel.endLineNumber, column: sel.endColumn },
+          },
+          selectedText: model.getValueInRange(sel).slice(0, 2000),
+        }),
+  })
+}
 
 /** The nearest painted background above `el`, so the editor sits on the panel's surface. */
 function surfaceOf(el: HTMLElement): HTMLElement {
@@ -102,6 +153,7 @@ export function CodeEditor({ root, tab }: CodeEditorProps) {
   const reveal = useSpace((w) => w.reveal, null)
   const openPaths = useSpace((w) => w.tabs.map((t) => t.path).join('\0'), '')
   const quickOpen = useFiles((s) => s.quickOpen)
+  const marks = useMarks(root, tab.path)
 
   // Create once.
   useEffect(() => {
@@ -142,6 +194,7 @@ export function CodeEditor({ root, tab }: CodeEditorProps) {
       const [r, p] = key.split('\0') as [string, string]
       setDirty(r, p, model.getAlternativeVersionId() !== cleanVersion.get(key))
     })
+    const offCursor = editor.onDidChangeCursorSelection(() => publishFocus(editor, current.current))
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
       const key = current.current
       if (key === null) return
@@ -157,6 +210,8 @@ export function CodeEditor({ root, tab }: CodeEditorProps) {
       offFind()
       offEsc()
       offContent.dispose()
+      offCursor.dispose()
+      setLocalFocus(null)
       const key = current.current
       if (key !== null) viewStates.set(key, editor.saveViewState())
       editor.dispose()
@@ -197,6 +252,7 @@ export function CodeEditor({ root, tab }: CodeEditorProps) {
       const view = viewStates.get(key)
       if (view) editor.restoreViewState(view)
       if (!quickOpen && !focusHeld()) editor.focus()
+      publishFocus(editor, key)
     }
   }, [root, tab.path, tab.loadId, tab.content.text, quickOpen])
 
@@ -206,6 +262,13 @@ export function CodeEditor({ root, tab }: CodeEditorProps) {
     appliedReveal = reveal.nonce
     applyReveal(editor, reveal)
   }, [reveal, tab.path])
+
+  // Agents' carets and changed lines in this file, until their marks fade.
+  useEffect(() => {
+    const editor = editorRef.current
+    if (!editor || !marks || current.current !== keyOf(root, tab.path)) return
+    return drawAgentMarks(editor, marks)
+  }, [marks, root, tab.path])
 
   useEffect(() => {
     pruneModels(root, new Set(openPaths.split('\0')))

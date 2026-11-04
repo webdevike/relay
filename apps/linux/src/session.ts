@@ -8,6 +8,7 @@
 import { createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import {
   ESCALATOR_DEVICE_ID,
+  FILES_PRESENCE_FEATURE,
   PROTOCOL_VERSION,
   defaultTabs,
   parseClientMessage,
@@ -44,6 +45,7 @@ import {
   type LiveRelaying,
   type DeviceStore,
   type DropBox,
+  type FilePresenceRelaying,
   type FrameSink,
   type ImagePasting,
   type InboxRelaying,
@@ -104,6 +106,8 @@ export interface SessionDeps {
   readonly reviews: ReviewsRelaying | null;
   /** null when the host runs no query tools; `query.req` is then refused and `welcome.features` leaves "query" out. */
   readonly query: QueryRelaying | null;
+  /** null when the host runs no live file presence; `files.*` frames are then ignored and `welcome.features` leaves it out. */
+  readonly files: FilePresenceRelaying | null;
 }
 
 /** Clock and scheduling seams so tests drive time deterministically. */
@@ -306,6 +310,7 @@ export class ClientSession {
     this.endPairingIfPending();
     this.stopPairingTimeout();
     this.deps.calls?.drop(this.sink);
+    this.deps.files?.drop(this.sink);
     this.deps.live?.drop(this.sink);
     this.closed = true;
     this.onClose(this);
@@ -691,6 +696,15 @@ export class ClientSession {
         });
         break;
       }
+      case "files.open":
+        this.deps.files?.open({ sink: this.sink, device: deviceId, deviceName: this.name ?? deviceId }, message.paths);
+        break;
+      case "files.caret":
+        this.deps.files?.caret({ sink: this.sink, device: deviceId, deviceName: this.name ?? deviceId }, message.focus);
+        break;
+      case "files.saved":
+        this.deps.files?.saved(message.path, message.hash);
+        break;
       case "hello":
       case "auth":
       case "pair.request":
@@ -939,7 +953,8 @@ export class ClientSession {
 
   private authenticate(deviceId: string): void {
     this.phase = { kind: "authenticated", deviceId };
-    this.sink.send({ t: "welcome", state: this.snapshot(), ...(this.deps.query === null ? {} : { features: [QUERY_FEATURE] }) });
+    const features = [...(this.deps.query === null ? [] : [QUERY_FEATURE]), ...(this.deps.files === null ? [] : [FILES_PRESENCE_FEATURE])];
+    this.sink.send({ t: "welcome", state: this.snapshot(), ...(features.length === 0 ? {} : { features }) });
     // Items that opened while this device was away; the escalator itself is the one that sent them.
     if (deviceId !== ESCALATOR_DEVICE_ID) {
       for (const item of this.deps.inbox?.pending() ?? []) this.sink.send({ t: "inbox.item", item });

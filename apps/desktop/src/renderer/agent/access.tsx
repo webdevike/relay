@@ -23,6 +23,7 @@ import { tilingStore, toolTabOfId, visiblePanes } from '../tiling/tiling-store'
 import { agentTitle } from '../eva/names-store'
 import { reviewsStore } from '../reviews/reviews-store'
 import { currentSpace, filesStore } from '../files/files-store'
+import { editorFocus } from '../files/presence-store'
 import { browserStore } from '../browser/browser-store'
 import {
   allThemes,
@@ -371,6 +372,15 @@ export function describeScreen(): Record<string, unknown> {
       : {}),
     theme: { preset: themeLabel, mode: theme.colorScheme },
   }
+  // Where Isaac's caret is in a file (this window, or another device through the host).
+  const editor = editorFocus()
+  const where = editor
+    ? `${editor.file}:${editor.line}:${editor.column}${
+        editor.selection
+          ? ` (selected ${editor.selection.start.line}:${editor.selection.start.column}-${editor.selection.end.line}:${editor.selection.end.column})`
+          : ''
+      }${editor.device ? ` on ${editor.device}` : ''}`
+    : null
   const controls = controlsOnScreen()
   const lines = [
     `Page: ${page.title}${page.link ? ` (${page.link})` : ''}`,
@@ -379,6 +389,7 @@ export function describeScreen(): Record<string, unknown> {
     `Panes: ${panes.map((p) => `${p.pane}${p.focused ? ' (focused)' : ''}: ${p.front ?? 'empty'}${p.tabs.length > 1 ? ` [${p.tabs.join(', ')}]` : ''}`).join('; ')}`,
     ...(activeBrowser ? [`Browser: ${activeBrowser.title} ${activeBrowser.url}`] : []),
     ...(space?.selected ? [`Files: ${space.selected}`] : []),
+    ...(where ? [`Editor caret: ${where}`] : []),
     `Window: ${document.hasFocus() ? 'in front' : 'in the background'}`,
     `Controls: ${controls
       .slice(0, 25)
@@ -389,6 +400,7 @@ export function describeScreen(): Record<string, unknown> {
     text: lines.join('\n'),
     page,
     selected,
+    editor,
     panes,
     controls,
     windowFocused: document.hasFocus(),
